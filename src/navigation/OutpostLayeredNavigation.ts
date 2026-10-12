@@ -149,7 +149,10 @@ export function clampFollowSlotToDeck(
 
   const safeIndex = Math.max(0, Math.floor(slotIndex))
 
-  // Tier 0 (primary row) and Tier 1 (secondary lateral row):
+  // Tier 0 (primary row along deck at -0.55m) and Tier 1 (secondary row along deck at +0.55m).
+  // Within each tier, followers have distinct X coordinates spaced by 1.6m.
+  // Across tiers, the Z separation is strictly 1.10m >= 1.0m, ensuring body collision clearance (2 * 0.5m radius)
+  // even if X coordinates align or clamp near boundaries.
   if (singleRowCapacity > 0) {
     const tier = Math.floor(safeIndex / singleRowCapacity)
     const tierIndex = safeIndex % singleRowCapacity
@@ -186,18 +189,16 @@ export function clampFollowSlotToDeck(
         : 0
       const targetX = THREE.MathUtils.clamp(clampedLeaderX + targetOffsetX + staggerX, minX, maxX)
 
-      // Tier 0 uses +/-0.28m, Tier 1 uses +/-0.80m from deckMidZ.
-      // Every pair of slots across tiers has at least 0.52m Z separation.
-      const staggerZ = tier === 0
-        ? (tierIndex % 2 === 0 ? -0.28 : 0.28)
-        : (tierIndex % 2 === 0 ? -0.80 : 0.80)
+      // Tier 0 uses -0.55m, Tier 1 uses +0.55m from deckMidZ.
+      // Every pair of slots across tiers has at least 1.10m Z separation (>= 1.0m body diameter).
+      const staggerZ = tier === 0 ? -0.55 : 0.55
       const targetZ = THREE.MathUtils.clamp(deckMidZ + staggerZ, minZ, maxZ)
 
       return out.set(targetX, deck.topY, targetZ)
     }
   }
 
-  // Tier >= 2: Total deck capacity exhausted. Provide explicit standby waiting queue.
+  // Tier >= 2: Total deck capacity exhausted. Provide explicit standby waiting queue at stair foot.
   const overflowIndex = safeIndex - 2 * singleRowCapacity
   if (stair) {
     const ramp = stair.ramp
@@ -207,7 +208,7 @@ export function clampFollowSlotToDeck(
     return out.set(groundX, groundY, groundZ)
   }
 
-  const fallbackX = THREE.MathUtils.clamp(minX + (overflowIndex * 0.8) % (maxX - minX), minX, maxX)
+  const fallbackX = THREE.MathUtils.clamp(minX + (overflowIndex * 1.6) % (maxX - minX), minX, maxX)
   const fallbackZ = overflowIndex % 2 === 0 ? minZ : maxZ
   return out.set(fallbackX, deck.topY, fallbackZ)
 }

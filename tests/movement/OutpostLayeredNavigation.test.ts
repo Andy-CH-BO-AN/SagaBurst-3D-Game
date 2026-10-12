@@ -434,9 +434,9 @@ describe('OutpostLayeredNavigation', () => {
     })
   })
 
-  describe('30-Person Follow Slot Allocation Across Full Deck (0..29 Unique Coordinates)', () => {
+  describe('30-Person Follow Slot Allocation Across Full Deck (0..29 Non-Overlapping Bodies >= 1.0m)', () => {
     it.each(['viking', 'roman'] as const)(
-      'allocates completely distinct, non-overlapping coordinates for slots 0..29 on %s left and right decks',
+      'allocates bodies >= 1.0m apart for slots 0..29 on %s decks with leader at various positions including boundaries',
       faction => {
         const layout = faction === 'viking' ? vikingLayout : romanLayout
         for (const side of [-1, 1] as const) {
@@ -447,37 +447,43 @@ describe('OutpostLayeredNavigation', () => {
           const maxX = slab.max.x - 0.6
           const minZ = slab.min.z + 0.55
           const maxZ = slab.max.z - 0.55
-
-          // Reviewer's exact test condition: Viking left deck, leader x = -42.5, yaw = 0
-          const leaderX = side < 0 ? (slab.min.x + 7.1) : (slab.max.x - 7.1)
           const deckMidZ = (slab.min.z + slab.max.z) * 0.5
-          const leaderPos = new THREE.Vector3(leaderX, deck.topY, deckMidZ)
 
-          const slots: THREE.Vector3[] = []
-          for (let slotIndex = 0; slotIndex < 30; slotIndex++) {
-            const offset = followLocalOffset(slotIndex, false)
-            const rawPos = followSlotWorldPosition(leaderPos, 0, offset)
-            const pos = clampFollowSlotToDeck(new THREE.Vector3(), rawPos, leaderPos, slotIndex, deck, 0, stair)
-            slots.push(pos)
-          }
+          // Test 3 leader positions: reviewer's condition (x=-42.5), near far boundary, and near near boundary
+          const leaderPositions = [
+            new THREE.Vector3(side < 0 ? (slab.min.x + 7.1) : (slab.max.x - 7.1), deck.topY, deckMidZ),
+            new THREE.Vector3(minX + 0.8, deck.topY, deckMidZ),
+            new THREE.Vector3(maxX - 0.8, deck.topY, deckMidZ),
+          ]
 
-          // 1. All 30 slots are within boundaries
-          for (const [i, slot] of slots.entries()) {
-            expect(slot.x, `Slot ${i} X within bounds`).toBeGreaterThanOrEqual(minX - 0.01)
-            expect(slot.x, `Slot ${i} X within bounds`).toBeLessThanOrEqual(maxX + 0.01)
-            expect(slot.z, `Slot ${i} Z within bounds`).toBeGreaterThanOrEqual(minZ - 0.01)
-            expect(slot.z, `Slot ${i} Z within bounds`).toBeLessThanOrEqual(maxZ + 0.01)
-            expect(slot.y, `Slot ${i} Y on deck`).toBe(deck.topY)
-          }
+          for (const leaderPos of leaderPositions) {
+            const slots: THREE.Vector3[] = []
+            for (let slotIndex = 0; slotIndex < 30; slotIndex++) {
+              const offset = followLocalOffset(slotIndex, false)
+              const rawPos = followSlotWorldPosition(leaderPos, 0, offset)
+              const pos = clampFollowSlotToDeck(new THREE.Vector3(), rawPos, leaderPos, slotIndex, deck, 0, stair)
+              slots.push(pos)
+            }
 
-          // 2. Pure data 0..29 verification: EVERY pair of slots has distance >= 0.5m (NO duplicate coordinates)
-          for (let i = 0; i < 30; i++) {
-            for (let j = i + 1; j < 30; j++) {
-              const dist = slots[i].distanceTo(slots[j])
-              expect(
-                dist,
-                `Slots ${i} and ${j} on ${faction} side=${side} deck must be at least 0.5m apart, got ${dist.toFixed(3)}m (slot ${i}: ${slots[i].x.toFixed(2)},${slots[i].z.toFixed(2)} vs slot ${j}: ${slots[j].x.toFixed(2)},${slots[j].z.toFixed(2)})`,
-              ).toBeGreaterThanOrEqual(0.5)
+            // 1. All 30 slots are either within deck boundary or at ground queue at stair foot
+            for (const [i, slot] of slots.entries()) {
+              if (Math.abs(slot.y - deck.topY) < 0.01) {
+                expect(slot.x, `Slot ${i} X within deck bounds`).toBeGreaterThanOrEqual(minX - 0.01)
+                expect(slot.x, `Slot ${i} X within deck bounds`).toBeLessThanOrEqual(maxX + 0.01)
+                expect(slot.z, `Slot ${i} Z within deck bounds`).toBeGreaterThanOrEqual(minZ - 0.01)
+                expect(slot.z, `Slot ${i} Z within deck bounds`).toBeLessThanOrEqual(maxZ + 0.01)
+              }
+            }
+
+            // 2. Real body contract: EVERY pair of slots has planar distance >= 1.0m (no physical overlap)
+            for (let i = 0; i < 30; i++) {
+              for (let j = i + 1; j < 30; j++) {
+                const planarDist = Math.hypot(slots[i].x - slots[j].x, slots[i].z - slots[j].z)
+                expect(
+                  planarDist,
+                  `Slots ${i} and ${j} on ${faction} side=${side} deck (leader x=${leaderPos.x.toFixed(1)}) must be at least 1.0m apart to avoid body push collision, got ${planarDist.toFixed(3)}m (slot ${i}: ${slots[i].x.toFixed(2)},${slots[i].z.toFixed(2)} vs slot ${j}: ${slots[j].x.toFixed(2)},${slots[j].z.toFixed(2)})`,
+                ).toBeGreaterThanOrEqual(1.0)
+              }
             }
           }
         }

@@ -5,7 +5,11 @@ import { getTerrainHeight } from '../../src/world/Terrain'
 import type { Player } from '../../src/player/Player'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { createCampaignOutpost, getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
-import { applyCampaignBreachOrders, CampaignBreachController } from '../../src/campaign/CampaignGate'
+import {
+  applyCampaignBreachOrders,
+  CampaignBreachController,
+  reconcileCampaignGateSiege,
+} from '../../src/campaign/CampaignGate'
 import { createArmyCommandHarness as controllerHarness } from '../helpers/armyCommandHarness'
 
 describe('Campaign command gate wiring', () => {
@@ -188,11 +192,14 @@ describe('Campaign command gate wiring', () => {
     )
     onTestFinished(() => { npc1.dispose() })
 
-    // Normal pre-breach state: gate is closed, attacker assigned gate siege obstacle
+    // Normal pre-breach state: gate is closed, attacker assigned gate siege obstacle via production reconciler
     npc1.setTacticalOrder('attack')
-    if (gate.state === 'closed' && !breach.breached) {
-      npc1.assignSiegeObstacle(gate.siegeObstacle)
-    }
+    reconcileCampaignGateSiege({
+      gate,
+      breachController: breach,
+      npcs: [npc1],
+      attackerFaction: 'viking',
+    })
     expect(npc1.siegeObstacle).toBe(gate.siegeObstacle)
     expect(npc1.tacticalOrder).toBe('attack')
 
@@ -203,30 +210,31 @@ describe('Campaign command gate wiring', () => {
 
     // Palisade is destroyed -> breach triggered
     expect(breach.breached).toBe(true)
-    // Gate remains closed
     expect(gate.state).toBe('closed')
 
-    // On breach: orders applied and gate siege target cleared
-    if (npc1.siegeObstacle === gate.siegeObstacle) {
-      npc1.assignSiegeObstacle(null)
-    }
+    // On breach: clear gate target and apply breach orders
+    reconcileCampaignGateSiege({
+      gate,
+      breachController: breach,
+      npcs: [npc1],
+      attackerFaction: 'viking',
+    })
     applyCampaignBreachOrders([npc1], 'viking')
     expect(npc1.siegeObstacle).toBeNull()
     expect(npc1.tacticalOrder).toBe('charge')
 
-    // 2. Next frame: simulate _updateDefenseCampaign logic
+    // 2. Next frames: simulate _updateDefenseCampaign calling reconcileCampaignGateSiege
     // Even though gate.state === 'closed', because breach.breached === true, gate must NOT be re-assigned!
-    if (gate.state === 'closed' && !breach.breached) {
-      npc1.assignSiegeObstacle(gate.siegeObstacle)
-    } else {
-      if (npc1.siegeObstacle === gate.siegeObstacle) {
-        npc1.assignSiegeObstacle(null)
-      }
-    }
-    expect(npc1.siegeObstacle).toBeNull()
-    expect(npc1.tacticalOrder).toBe('charge')
+    reconcileCampaignGateSiege({
+      gate,
+      breachController: breach,
+      npcs: [npc1],
+      attackerFaction: 'viking',
+    })
+    expect(npc1.siegeObstacle, 'Attacker must not be re-bound to gate after perimeter breach').toBeNull()
+    expect(npc1.tacticalOrder, 'Charge tactical order must be preserved').toBe('charge')
 
-    // 3. New attacker spawned after breach:
+    // 3. New attacker spawned after breach (simulating _enqueueDefenseCampaignRemainder):
     const npc2 = new NPC(
       scene,
       0,
@@ -244,30 +252,67 @@ describe('Campaign command gate wiring', () => {
     )
     onTestFinished(() => { npc2.dispose() })
 
-    // Simulate _enqueueDefenseCampaignRemainder spawning npc2:
-    if (gate.state === 'closed' && !breach.breached) {
-      npc2.assignSiegeObstacle(gate.siegeObstacle)
-    }
-    const tacticalOrder = breach.breached ? (npc2.aiType === AIType.RANGED ? 'attack' : 'charge') : 'attack'
-    npc2.setTacticalOrder(tacticalOrder)
+    reconcileCampaignGateSiege({
+      gate,
+      breachController: breach,
+      npcs: [npc2],
+      attackerFaction: 'viking',
+    })
+    const postBreachOrder = breach.breached ? (npc2.aiType === AIType.RANGED ? 'attack' : 'charge') : 'attack'
+    npc2.setTacticalOrder(postBreachOrder)
 
-    expect(npc2.siegeObstacle).toBeNull()
+    expect(npc2.siegeObstacle, 'New attacker spawned post-breach must not have gate siege target').toBeNull()
     expect(npc2.tacticalOrder).toBe('charge')
 
-    // 4. Gate opening / closing coverage:
-    // If gate opens, siege obstacle is cleared; if closed without breach, obstacle is assigned
+    // 4. Gate open / close with unbreached controller:
     const unbreachedBreachController = new CampaignBreachController()
     expect(unbreachedBreachController.breached).toBe(false)
-    if (gate.state === 'closed' && !unbreachedBreachController.breached) {
-      npc2.assignSiegeObstacle(gate.siegeObstacle)
-    }
+    reconcileCampaignGateSiege({
+      gate,
+      breachController: unbreachedBreachController,
+      npcs: [npc2],
+      attackerFaction: 'viking',
+    })
     expect(npc2.siegeObstacle).toBe(gate.siegeObstacle)
 
     gate.open()
     expect(gate.state).toBe('open')
-    if (gate.state !== 'closed' || unbreachedBreachController.breached) {
-      npc2.assignSiegeObstacle(null)
-    }
+    reconcileCampaignGateSiege({
+      gate,
+      breachController: unbreachedBreachController,
+      npcs: [npc2],
+      attackerFaction: 'viking',
+    })
     expect(npc2.siegeObstacle).toBeNull()
+
+    // 5. Veteran / Career personal troop ownership check:
+    // A player-personal follower or private soldier must never be automatically commandeered by gate siege
+    gate.restoreOpen() // Restores damageable and closes, then re-closes for test
+    ;(gate as any)._state = 'closed'
+    const personalTroop = new NPC(
+      scene,
+      0,
+      50,
+      Faction.ENEMY,
+      'viking',
+      AIType.MELEE,
+      'Personal Follower',
+      1,
+      false,
+      { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null },
+      undefined,
+      undefined,
+      'personal-troop',
+    )
+    personalTroop.combatOwnership = 'player-personal'
+    onTestFinished(() => { personalTroop.dispose() })
+
+    reconcileCampaignGateSiege({
+      gate,
+      breachController: unbreachedBreachController,
+      npcs: [personalTroop],
+      attackerFaction: 'viking',
+    })
+    expect(personalTroop.siegeObstacle, 'Personal squad troops must never be commandeered for gate siege').toBeNull()
   })
 })

@@ -160,6 +160,7 @@ import { isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
 import {
   applyCampaignBreachOrders,
   isCampaignGateOccupied,
+  reconcileCampaignGateSiege,
   type CampaignBreachController,
   type CampaignGateController,
 } from './campaign/CampaignGate'
@@ -1077,10 +1078,13 @@ export class Game {
           npc.setTacticalOrder(
             npc.characterFaction === 'roman' ? 'defend' : 'attack',
           )
-          if (npc.characterFaction === 'viking' && this.previewCampaignGate?.state === 'closed' && !this.previewCampaignBreachController?.breached) {
-            npc.assignSiegeObstacle?.(this.previewCampaignGate.siegeObstacle)
-          }
         }
+        reconcileCampaignGateSiege({
+          gate: this.previewCampaignGate,
+          breachController: this.previewCampaignBreachController,
+          npcs: this.npcs,
+          attackerFaction: 'viking',
+        })
       } else {
         // Other DEV combat scenarios remain controllable test battlefields.
         for (const npc of this.npcs) npc.setTacticalOrder('defend')
@@ -2815,9 +2819,12 @@ export class Game {
         const npc = this._spawnNpc(spec)
         if (wave === 'attackers') {
           this.campaignAttackersStarted = true
-          if (this.previewCampaignGate?.state === 'closed' && !this.previewCampaignBreachController?.breached) {
-            npc.assignSiegeObstacle?.(this.previewCampaignGate.siegeObstacle)
-          }
+          reconcileCampaignGateSiege({
+            gate: this.previewCampaignGate,
+            breachController: this.previewCampaignBreachController,
+            npcs: [npc],
+            attackerFaction: npc.characterFaction,
+          })
         }
         if (this.defenseCampaignConfig?.careerVeteranOutpost) {
           this._restoreCareerVeteranNpcState(npc)
@@ -3079,20 +3086,13 @@ export class Game {
     const playerSideAlive = this._campaignFactionAlive(playerSideFaction)
     const enemySideAlive = this._campaignFactionAlive(enemySideFaction)
     if (this.previewCampaignGate) {
-      if (this.previewCampaignGate.state === 'closed' && !this.previewCampaignBreachController?.breached) {
-        const attackerFaction = opposingCampaignFaction(campaign.defenderFaction)
-        for (const npc of this.npcs) {
-          if (!npc.dead && npc.characterFaction === attackerFaction && !npc.hasSiegeObstacle) {
-            npc.assignSiegeObstacle?.(this.previewCampaignGate.siegeObstacle)
-          }
-        }
-      } else {
-        for (const npc of this.npcs) {
-          if (npc.siegeObstacle === this.previewCampaignGate.siegeObstacle) {
-            npc.assignSiegeObstacle?.(null)
-          }
-        }
-      }
+      const attackerFaction = opposingCampaignFaction(campaign.defenderFaction)
+      reconcileCampaignGateSiege({
+        gate: this.previewCampaignGate,
+        breachController: this.previewCampaignBreachController,
+        npcs: this.npcs,
+        attackerFaction,
+      })
     }
     hud.updateGate(
       this.previewCampaignGate?.state ?? 'destroyed',

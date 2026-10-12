@@ -153,6 +153,59 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       const finalGroundY = getTerrainHeight(npc.group.position.x, npc.group.position.z)
       expect(npc.group.position.y).toBeCloseTo(finalGroundY, 1)
     })
+
+    it('foot NPC follows player stationed midway on stair ramp and arrives at follow slot on stair layer', () => {
+      const { outpost, leftStair } = setupOutpost('viking')
+      const player = new Player(scene)
+      onTestFinished(() => player.dispose())
+
+      const ramp = leftStair.ramp
+      // Player is stationary halfway on the ramp
+      const midAlong = ramp.length * 0.5
+      const playerZ = ramp.startZ + ramp.dirZ * midAlong
+      const playerY = ramp.startY + 0.5 * (ramp.topY - ramp.startY) + 0.95
+      player.group.position.set(ramp.startX, playerY, playerZ)
+      player.group.rotation.y = ramp.dirZ > 0 ? 0 : Math.PI
+
+      // Foot NPC starts on the rampart deck near the stair top landing
+      const topZ = ramp.startZ + ramp.dirZ * (ramp.length + 0.5)
+      const npc = new NPC(scene, ramp.startX, topZ, Faction.PLAYER, 'viking', AIType.MELEE, 'StairFollower', 2, false)
+      npc.group.position.set(ramp.startX, ramp.topY, topZ)
+      onTestFinished(() => npc.dispose())
+
+      npc.assignFollowTarget(player, 0)
+
+      for (let f = 0; f < 250; f++) {
+        navWorld.beginFrame()
+        npc.update(
+          FRAME,
+          player,
+          [npc],
+          [],
+          outpost.obstacles,
+          { setFill: () => {} },
+          () => {},
+          () => {},
+          false,
+          0,
+          null,
+          null,
+          navWorld,
+        )
+      }
+
+      // 1. Follower reached proximity of leader on stairs (3D distance <= 3.5m)
+      const distToPlayer = npc.group.position.distanceTo(player.group.position)
+      expect(distToPlayer, 'NPC must reach follower spacing near player on stairs').toBeLessThanOrEqual(3.5)
+
+      // 2. Follower is on stair_left layer
+      const npcLayer = navWorld.outpostNav!.getNavLayer(npc.combatPosition)
+      expect(isStairLayer(npcLayer), 'NPC must be on stair layer').toBe(true)
+
+      // 3. Follower position is within ramp width envelope [startX - 1.1, startX + 1.1]
+      expect(npc.group.position.x).toBeGreaterThanOrEqual(ramp.startX - 1.1)
+      expect(npc.group.position.x).toBeLessThanOrEqual(ramp.startX + 1.1)
+    })
   })
 
   describe('Arrival Layer Isolation', () => {

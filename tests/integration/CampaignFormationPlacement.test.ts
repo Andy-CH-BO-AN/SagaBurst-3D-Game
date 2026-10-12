@@ -320,4 +320,53 @@ describe('Campaign formation placement wiring', () => {
     const result = formation.confirmPlacement()
     expect(result.accepted).toBe(false)
   })
+
+  it('excludes rampart deck hit when ray is cast from underneath the platform looking up (P3 review)', () => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain, { walkways: true })
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    navigation.setOutpostWalkways(outpost.walkways!.layout)
+    const deck = outpost.walkways!.layout.decks.find(d => d.side === -1)!
+    const deckCenter = deck.slab.getCenter(new THREE.Vector3())
+
+    const participants = [placementParticipant('foot-1', 0)]
+    const formation = new FormationController(
+      scene,
+      new THREE.PerspectiveCamera(),
+      participants as any,
+      terrain.terrainMesh,
+      outpost.obstacles,
+      navigation,
+      romanRegion(),
+    )
+    onTestFinished(() => formation.cancelPlacement())
+
+    // 1. Ray from below looking straight up at underside: must return null!
+    const rayFromBelow = new THREE.Ray(
+      new THREE.Vector3(deckCenter.x, 1.5, deckCenter.z), // origin below deck (topY ≈ 4.75m)
+      new THREE.Vector3(0, 1, 0),                         // looking up
+    )
+    const hitFromBelow = formation.findRampartDeckHit(rayFromBelow)
+    expect(hitFromBelow, 'Ray from below looking up must NOT hit rampart deck top surface').toBeNull()
+
+    // 2. Ray from below looking diagonally upward towards deck slab: must return null!
+    const rayDiagonalUp = new THREE.Ray(
+      new THREE.Vector3(deckCenter.x, 2.0, deckCenter.z - 5),
+      new THREE.Vector3(0, 0.5, 1).normalize(),
+    )
+    const hitDiagonalUp = formation.findRampartDeckHit(rayDiagonalUp)
+    expect(hitDiagonalUp, 'Upward angled ray from below must NOT hit rampart deck').toBeNull()
+
+    // 3. Ray from above looking down towards deck top surface: must return valid deck hit!
+    const rayFromAbove = new THREE.Ray(
+      new THREE.Vector3(deckCenter.x, deck.topY + 2.0, deckCenter.z),
+      new THREE.Vector3(0, -1, 0),
+    )
+    const hitFromAbove = formation.findRampartDeckHit(rayFromAbove)
+    expect(hitFromAbove, 'Ray from above looking down must hit rampart deck top surface').not.toBeNull()
+    expect(hitFromAbove?.hitPoint.y).toBeCloseTo(deck.topY, 3)
+    expect(hitFromAbove?.deck).toBe(deck)
+  })
 })

@@ -187,13 +187,15 @@ export class FormationController {
     this.preview.show(formation.center, formation.slots, placement !== null)
   }
 
-  private findRampartDeckHit(ray: THREE.Ray): { deck: OutpostWalkwayDeck; hitPoint: THREE.Vector3; distance: number } | null {
+  findRampartDeckHit(ray: THREE.Ray): { deck: OutpostWalkwayDeck; hitPoint: THREE.Vector3; distance: number } | null {
     const outpostNav = this.navigationWorld?.outpostNav
     if (!outpostNav) return null
     let best: { deck: OutpostWalkwayDeck; hitPoint: THREE.Vector3; distance: number } | null = null
 
     for (const deck of outpostNav.layout.decks) {
-      if (Math.abs(ray.direction.y) < 0.0001) continue
+      // Exclude rays originating below deck or pointing upwards; the walkable deck top surface
+      // is facing upwards (+Y normal) and is only visible from above.
+      if (ray.origin.y <= deck.topY || ray.direction.y >= -0.0001) continue
       const t = (deck.topY - ray.origin.y) / ray.direction.y
       if (t <= 0) continue
       const hitX = ray.origin.x + t * ray.direction.x
