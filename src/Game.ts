@@ -172,7 +172,8 @@ import { CareerProfileStore } from './career/CareerProfileStore'
 import { CareerReliefMarchController, createCareerReliefSpawnPlan, initializeCareerReliefBattlefield } from './career/CareerOutpostRelief'
 import { claimCareerOutpost, clearCareerOutpost, CAREER_OUTPOST_SESSION_KEY } from './career/CareerOutpostMission'
 import { PersonalSquadRuntime, personalMemberLoadout } from './career/PersonalSquadRuntime'
-import { personalRearDeployment } from './career/PersonalSquadDeployment'
+import { personalOutpostDeployment, personalRearDeployment } from './career/PersonalSquadDeployment'
+import { planPersonalOutpostGround } from './career/PersonalOutpostGroundPlan'
 import { personalMissionSourcePolicy } from './career/CareerPersonalSquadMission'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from './career/CareerProfile'
 import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
@@ -341,6 +342,22 @@ export class Game {
   private spawningStopped = false
   private readonly spawnBatches: NpcSpawnBatch[] = []
   private campaignSpawnBatch?: NpcSpawnBatch
+  /** Set by the Career launch entry after Game.create resolves. */
+  onCareerDeploymentError?: (error: unknown) => void
+
+  /** Prevent callbacks and pagehide saves from resurrecting a failed deployment. */
+  abortCareerDeployment(): void {
+    this.spawningStopped = true
+    for (const batch of this.spawnBatches) batch.cancel()
+    this.personalSquad?.cancelPendingSpawns()
+    window.removeEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
+    window.removeEventListener('pagehide', this.flushCareerSkillsOnPageHide)
+    window.removeEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
+    window.removeEventListener('pagehide', this.flushCaptainOnPageHide)
+    this.sceneListeners.abort()
+    this.input?.dispose()
+  }
+
   static async create(
     container: HTMLElement,
     battleConfig?: BattleConfig,
@@ -1993,8 +2010,12 @@ export class Game {
   private _newSpawnBatch(): NpcSpawnBatch {
     const batch = gameplayNpcSpawns.batch(() => {
       this.spawningStopped = true
-      try { this._showNotify?.('部隊建立失敗，請重新載入以恢復完整名冊', 10000) }
-      finally { this._disposeCareerOutpostBattleActors() }
+      try { this._showNotify?.('部隊建立失敗', 10000) }
+      finally {
+        this._disposeCareerOutpostBattleActors()
+        if (this.careerProfile) this.onCareerDeploymentError?.(
+          this.spawnBatches.find(batch => batch.status === 'failed')?.error ?? new Error('Career NPC spawn failed'))
+      }
     })
     this.spawnBatches.push(batch)
     return batch
@@ -2396,39 +2417,59 @@ export class Game {
     const placement = campaign ? getCampaignOutpostPlacement(careerVeteranOutpostOwner(campaign)) : null
     const outside = !campaign || campaign.careerMissionKind === 'outpost-relief' || campaign.careerMissionKind === 'veteran-outpost-assault'
     const yaw = campaign ? getCampaignDefenderFacingYaw(campaign.defenderFaction) + (outside ? Math.PI : 0) : this.player.group.rotation.y
-    const anchor = { x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw }
+    const owned = new Map(this.careerProfile.personalSquad?.members.map(member => [member.id, member]))
+    const flyingIds = new Set(saved.memberIds.filter(id => owned.get(id)?.equipment?.mount === 'xongkoro'))
+    const playerFlying = this.player.currentMount?.isFlyingMount === true
+    const officialPositions = this.npcs.filter(npc => !npc.dead && npc.faction === Faction.PLAYER).map(npc => npc.combatPosition)
+    // Do not anchor ground deployment to the Player's relocated eagle touchdown.
+    // Stage IX defenders have a bounded interior; that bounds is authoritative.
+    const anchor = campaign && !outside
+      ? { x: placement!.centerX, z: (placement!.frontZ + placement!.backZ) / 2, yaw }
+      : { x: this.player.spawnX, z: this.player.spawnZ, yaw }
     const bounds = outside ? this.navigationWorld.grid : {
       minX: placement!.centerX - placement!.halfWidth, maxX: placement!.centerX + placement!.halfWidth,
       minZ: Math.min(placement!.frontZ, placement!.backZ), maxZ: Math.max(placement!.frontZ, placement!.backZ),
     }
-    const slots = changedScene ? personalRearDeployment(anchor,
-      this.npcs.filter(npc => !npc.dead && npc.faction === Faction.PLAYER).map(npc => npc.combatPosition),
-      saved.memberIds.length + 1, bounds, this.obstacles, this.navigationWorld, true)
-      : [anchor, ...saved.memberIds.map(id => saved.members[id]?.position ?? anchor)]
-    if (changedScene) {
-      const point = this.player.currentMount?.isFlyingMount
-        ? findEagleLandingPosition({ ...slots[0], yaw }, this.obstacles, this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), 300, 150)
-        : slots[0]
-      if (!point) throw new Error('No clear xongkoro player deployment area near the Outpost')
-      if (this.player.currentMount) {
-        this.player.currentMount.group.position.set(point.x, getTerrainHeight(point.x, point.z), point.z)
-        this.player.currentMount.group.rotation.y = yaw
-      }
-      this.player.group.position.set(point.x, getTerrainHeight(point.x, point.z) + .95, point.z)
-      this.player.faceDirection(Math.sin(yaw), Math.cos(yaw))
-      this.player.spawnX = point.x; this.player.spawnZ = point.z
-      this.thirdPersonCamera.setYaw(yaw + Math.PI)
-    }
-    const regularMuster = slots.slice(1)
+    // Eagles get separate areas behind the fort, not ground roster positions.
+    const eagleSearchAnchor = campaign && !outside
+      ? { x: placement!.centerX, z: placement!.backZ + Math.sign(placement!.backZ - placement!.frontZ) * 20, yaw }
+      : { x: anchor.x - Math.sin(yaw) * 20, z: anchor.z - Math.cos(yaw) * 20, yaw }
+    const ground = changedScene
+      ? planPersonalOutpostGround(saved.memberIds, flyingIds, playerFlying, eagleSearchAnchor,
+        (count, playerLeads) => campaign && !outside
+          ? personalOutpostDeployment(anchor, officialPositions, count, bounds, this.obstacles, this.navigationWorld)
+          : personalRearDeployment(anchor, officialPositions, count, bounds, this.obstacles, this.navigationWorld, playerLeads))
+      : null
+    const regularMuster = ground?.regularMuster ?? saved.memberIds.map(id => saved.members[id]?.position ?? anchor)
+    const groundPositions = ground?.groundPositions ?? regularMuster.filter((_, index) => !flyingIds.has(saved.memberIds[index]))
+    const occupied = [...this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), ...groundPositions]
+    // Plan all three eagle landing envelopes before mutating the Player or
+    // starting any NPC spawn job. A missing pad cannot leave partial deployment.
+    const playerPoint = changedScene
+      ? playerFlying
+        ? findEagleLandingPosition(eagleSearchAnchor, this.obstacles, occupied, 300, 150)
+        : ground!.playerPosition
+      : null
+    if (changedScene && !playerPoint) throw new Error('No clear xongkoro player deployment area near the Outpost')
+    occupied.push(playerPoint ?? this.player.combatPosition)
     const eagleMuster: Array<{ x: number; z: number; yaw: number }> = []
-    const owned = new Map(this.careerProfile.personalSquad?.members.map(member => [member.id, member]))
-    const occupied = [...this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), this.player.combatPosition]
     for (const [index, id] of saved.memberIds.entries()) {
-      if (owned.get(id)?.equipment?.mount !== 'xongkoro') continue
-      const position = findEagleLandingPosition({ ...(regularMuster[index] ?? anchor), yaw }, this.obstacles, occupied, 300, 150)
+      if (!flyingIds.has(id)) continue
+      const origin = changedScene ? eagleSearchAnchor : regularMuster[index] ?? anchor
+      const position = findEagleLandingPosition(origin, this.obstacles, occupied, 300, 150)
       if (!position) throw new Error('No clear xongkoro deployment area near the Outpost')
       eagleMuster.push({ x: position.x, z: position.z, yaw })
       occupied.push(position)
+    }
+    if (changedScene && playerPoint) {
+      if (this.player.currentMount) {
+        this.player.currentMount.group.position.set(playerPoint.x, getTerrainHeight(playerPoint.x, playerPoint.z), playerPoint.z)
+        this.player.currentMount.group.rotation.y = yaw
+      }
+      this.player.group.position.set(playerPoint.x, getTerrainHeight(playerPoint.x, playerPoint.z) + .95, playerPoint.z)
+      this.player.faceDirection(Math.sin(yaw), Math.cos(yaw))
+      this.player.spawnX = playerPoint.x; this.player.spawnZ = playerPoint.z
+      this.thirdPersonCamera.setYaw(yaw + Math.PI)
     }
     this.personalSquad = new PersonalSquadRuntime(this.scene, regularMuster, () => this.careerProfile!, () => this.player, undefined, {
       sceneKey, hasHR: false, eagleMuster,
@@ -3927,6 +3968,11 @@ export class Game {
     if (this.spawningStopped) return
     requestAnimationFrame(this._loop)
     gameplayNpcSpawns.tick(frame)
+    if (this.personalSquad?.error && this.onCareerDeploymentError) {
+      this.spawningStopped = true
+      this.onCareerDeploymentError(this.personalSquad.error)
+      return
+    }
     if (this.spawningStopped) return
     const profile = import.meta.env.DEV && this.isDevCombat
     const frameStart = profile ? performance.now() : 0

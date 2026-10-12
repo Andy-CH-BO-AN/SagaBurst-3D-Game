@@ -1,6 +1,7 @@
 import { installTownStyles, starterThumbnails } from './TownUI'
 import { createCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
+import { CAREER_RECOVERY_NOTICE_KEY } from '../career/CareerMissionRecovery'
 import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from '../career/CaptainMissionCatalog'
 import { clearCareerMission } from '../career/CareerProfile'
@@ -11,7 +12,8 @@ import { TownScene } from './TownScene'
 import { grantStarter, STARTER_WEAPONS } from './TownRules'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
-export function enterCareerTown(container: HTMLElement, launchCampaign: (config: CareerCombatLaunch) => Promise<void>, home: () => void): void {
+export function enterCareerTown(container: HTMLElement, launchCampaign: (config: CareerCombatLaunch) => Promise<void>, home: () => void,
+  onMissionLaunchError?: (missionId: string, error: unknown) => void): void {
   installTownStyles()
   const store = new CareerProfileStore(), loaded = store.loadChecked()
   const form = document.createElement('div'); form.id = 'career-entry'; form.className = 'town-entry'
@@ -34,7 +36,11 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         form.remove()
         sessionStorage.setItem(CAREER_OUTPOST_SESSION_KEY, active.id)
         sessionStorage.removeItem(TOWN_ENTRY_KEY)
-        await launchCampaign(captainLaunch())
+        try { await launchCampaign(captainLaunch()) }
+        catch (error) {
+          if (onMissionLaunchError) onMissionLaunchError(active.id, error)
+          else { form.append(status); status.textContent = String(error); document.body.append(form) }
+        }
         return
       }
     }
@@ -80,7 +86,26 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       if (import.meta.env.DEV) (window as unknown as { town: TownScene }).town = town
       loading.remove()
       town.start()
+      const recoveredMessage = sessionStorage.getItem(CAREER_RECOVERY_NOTICE_KEY)
+      if (recoveredMessage) {
+        sessionStorage.removeItem(CAREER_RECOVERY_NOTICE_KEY)
+        const note = document.createElement('div')
+        note.id = 'career-recovery-notice'
+        note.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:10001;background:#212c25;color:#fff;border:1px solid #677d69;border-radius:6px;padding:12px;font:15px system-ui;max-width:90vw'
+        note.textContent = recoveredMessage
+        const close = document.createElement('button')
+        close.textContent = '×'; close.setAttribute('aria-label', '關閉通知')
+        close.style.cssText = 'margin-left:16px;color:#fff;background:transparent;border:0;font-size:20px;cursor:pointer'
+        close.onclick = () => note.remove()
+        note.append(close); document.body.append(note)
+      }
     } catch (error) {
+      const missionId = profile.activeMission?.id ?? profile.activeOutpostMission?.id
+      if (missionId && onMissionLaunchError) {
+        loading.remove()
+        onMissionLaunchError(missionId, error)
+        return
+      }
       sessionStorage.removeItem(TOWN_ENTRY_KEY)
       loading.textContent = '小鎮載入失敗：' + String(error)
       const back = document.createElement('button'); back.textContent = '返回主選單'
