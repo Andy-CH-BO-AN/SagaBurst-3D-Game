@@ -8,6 +8,7 @@ import {
 } from '../../src/campaign/CampaignOutpostWalkways'
 import {
   clampFollowSlotToDeck,
+  clampFollowSlotToStair,
   isGroundLayer,
   isRampartLayer,
   isStairLayer,
@@ -431,5 +432,113 @@ describe('OutpostLayeredNavigation', () => {
         }
       }
     })
+  })
+
+  describe('30-Person Follow Slot Allocation Across Full Deck (0..29 Unique Coordinates)', () => {
+    it.each(['viking', 'roman'] as const)(
+      'allocates completely distinct, non-overlapping coordinates for slots 0..29 on %s left and right decks',
+      faction => {
+        const layout = faction === 'viking' ? vikingLayout : romanLayout
+        for (const side of [-1, 1] as const) {
+          const deck = layout.decks.find(d => d.side === side)!
+          const stair = layout.stairs.find(s => s.side === side)!
+          const slab = deck.slab
+          const minX = slab.min.x + 0.6
+          const maxX = slab.max.x - 0.6
+          const minZ = slab.min.z + 0.55
+          const maxZ = slab.max.z - 0.55
+
+          // Reviewer's exact test condition: Viking left deck, leader x = -42.5, yaw = 0
+          const leaderX = side < 0 ? (slab.min.x + 7.1) : (slab.max.x - 7.1)
+          const deckMidZ = (slab.min.z + slab.max.z) * 0.5
+          const leaderPos = new THREE.Vector3(leaderX, deck.topY, deckMidZ)
+
+          const slots: THREE.Vector3[] = []
+          for (let slotIndex = 0; slotIndex < 30; slotIndex++) {
+            const offset = followLocalOffset(slotIndex, false)
+            const rawPos = followSlotWorldPosition(leaderPos, 0, offset)
+            const pos = clampFollowSlotToDeck(new THREE.Vector3(), rawPos, leaderPos, slotIndex, deck, 0, stair)
+            slots.push(pos)
+          }
+
+          // 1. All 30 slots are within boundaries
+          for (const [i, slot] of slots.entries()) {
+            expect(slot.x, `Slot ${i} X within bounds`).toBeGreaterThanOrEqual(minX - 0.01)
+            expect(slot.x, `Slot ${i} X within bounds`).toBeLessThanOrEqual(maxX + 0.01)
+            expect(slot.z, `Slot ${i} Z within bounds`).toBeGreaterThanOrEqual(minZ - 0.01)
+            expect(slot.z, `Slot ${i} Z within bounds`).toBeLessThanOrEqual(maxZ + 0.01)
+            expect(slot.y, `Slot ${i} Y on deck`).toBe(deck.topY)
+          }
+
+          // 2. Pure data 0..29 verification: EVERY pair of slots has distance >= 0.5m (NO duplicate coordinates)
+          for (let i = 0; i < 30; i++) {
+            for (let j = i + 1; j < 30; j++) {
+              const dist = slots[i].distanceTo(slots[j])
+              expect(
+                dist,
+                `Slots ${i} and ${j} on ${faction} side=${side} deck must be at least 0.5m apart, got ${dist.toFixed(3)}m (slot ${i}: ${slots[i].x.toFixed(2)},${slots[i].z.toFixed(2)} vs slot ${j}: ${slots[j].x.toFixed(2)},${slots[j].z.toFixed(2)})`,
+              ).toBeGreaterThanOrEqual(0.5)
+            }
+          }
+        }
+      },
+    )
+  })
+
+  describe('Mid-Stair Follow Slot Safe Corridor Projection (P2 Review)', () => {
+    it.each(['viking', 'roman'] as const)(
+      'projects follow slots strictly inside stair ramp corridor with proper slope height in %s layout',
+      faction => {
+        const layout = faction === 'viking' ? vikingLayout : romanLayout
+        for (const side of [-1, 1] as const) {
+          const stair = layout.stairs.find(s => s.side === side)!
+          const deck = layout.decks.find(d => d.side === side)!
+          const ramp = stair.ramp
+
+          // Mid-stair leader position: halfway up the ramp slope
+          const midAlong = ramp.length * 0.5
+          const leaderZ = ramp.startZ + ramp.dirZ * midAlong
+          const leaderY = ramp.startY + 0.5 * (ramp.topY - ramp.startY)
+          const leaderPos = new THREE.Vector3(ramp.startX, leaderY, leaderZ)
+
+          const nav = new OutpostLayeredNavigation(layout)
+          expect(isStairLayer(nav.getNavLayer(leaderPos))).toBe(true)
+
+          const slots: THREE.Vector3[] = []
+          for (let slotIndex = 0; slotIndex < 8; slotIndex++) {
+            const out = new THREE.Vector3()
+            clampFollowSlotToStair(out, leaderPos, slotIndex, stair, deck)
+            slots.push(out)
+
+            // 1. Clamped within ramp width [startX - 0.7, startX + 0.7]
+            expect(out.x).toBeGreaterThanOrEqual(ramp.startX - 0.7)
+            expect(out.x).toBeLessThanOrEqual(ramp.startX + 0.7)
+
+            // 2. Height matches slope interpolation or ground terrain
+            const along = (out.z - ramp.startZ) * ramp.dirZ
+            if (along >= 0 && along <= ramp.length) {
+              const expectedY = ramp.startY + (along / ramp.length) * (ramp.topY - ramp.startY)
+              expect(out.y).toBeCloseTo(expectedY, 2)
+              // Valid stair layer
+              expect(isStairLayer(nav.getNavLayer(out))).toBe(true)
+            } else if (along < 0) {
+              // Beyond stair foot -> ground entrance
+              expect(out.y).toBeCloseTo(getTerrainHeight(out.x, out.z), 2)
+              expect(isGroundLayer(nav.getNavLayer(out))).toBe(true)
+            }
+          }
+
+          // 3. Staggered behind leader along ramp with no duplicate coordinates
+          for (let i = 0; i < slots.length; i++) {
+            for (let j = i + 1; j < slots.length; j++) {
+              expect(
+                slots[i].distanceTo(slots[j]),
+                `Stair slots ${i} and ${j} must not overlap`,
+              ).toBeGreaterThanOrEqual(1.0)
+            }
+          }
+        }
+      },
+    )
   })
 })

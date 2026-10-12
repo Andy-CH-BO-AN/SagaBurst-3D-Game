@@ -105,7 +105,7 @@ export function handleProjectileHitEffects(
 import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
-import { NPC, Faction, AIState, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
+import { NPC, Faction, AIState, AIType, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
 import {
   BattleConfig,
   PRESET_DEVCOMBAT,
@@ -160,6 +160,7 @@ import { isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
 import {
   applyCampaignBreachOrders,
   isCampaignGateOccupied,
+  type CampaignBreachController,
   type CampaignGateController,
 } from './campaign/CampaignGate'
 import {
@@ -545,6 +546,7 @@ export class Game {
     this._persistCareerVeteranOutpostCheckpoint({ immediate: true, periodic: true, force: true })
   }
   private previewCampaignGate: CampaignGateController | null = null
+  private previewCampaignBreachController: CampaignBreachController | null = null
   private readonly navigationWorld = new NavigationWorld()
   private readonly chaseTargetCoordinator = new ChaseTargetCoordinator()
   private saveManager!: SaveManager
@@ -802,6 +804,7 @@ export class Game {
       )
       damageableObstacles.push(...outpost.damageableObstacles)
       this.previewCampaignGate = outpost.gateController
+      this.previewCampaignBreachController = outpost.breachController
       this.previewCampaignGate.onStateChange(state => {
         if (state === 'open' || state === 'destroyed') {
           for (const npc of this.npcs) {
@@ -1074,7 +1077,7 @@ export class Game {
           npc.setTacticalOrder(
             npc.characterFaction === 'roman' ? 'defend' : 'attack',
           )
-          if (npc.characterFaction === 'viking' && this.previewCampaignGate?.state === 'closed') {
+          if (npc.characterFaction === 'viking' && this.previewCampaignGate?.state === 'closed' && !this.previewCampaignBreachController?.breached) {
             npc.assignSiegeObstacle?.(this.previewCampaignGate.siegeObstacle)
           }
         }
@@ -2812,14 +2815,25 @@ export class Game {
         const npc = this._spawnNpc(spec)
         if (wave === 'attackers') {
           this.campaignAttackersStarted = true
-          if (this.previewCampaignGate?.state === 'closed') {
+          if (this.previewCampaignGate?.state === 'closed' && !this.previewCampaignBreachController?.breached) {
             npc.assignSiegeObstacle?.(this.previewCampaignGate.siegeObstacle)
           }
         }
         if (this.defenseCampaignConfig?.careerVeteranOutpost) {
           this._restoreCareerVeteranNpcState(npc)
-          npc.setTacticalOrder(wave === 'reinforcement' ? 'defend' : 'attack')
-        } else { npc.setTacticalOrder('attack'); this._restorePersonalOutpostNpc(npc) }
+          if (this.previewCampaignBreachController?.breached && wave === 'attackers') {
+            npc.setTacticalOrder(npc.aiType === AIType.RANGED ? 'attack' : 'charge')
+          } else {
+            npc.setTacticalOrder(wave === 'reinforcement' ? 'defend' : 'attack')
+          }
+        } else {
+          if (this.previewCampaignBreachController?.breached && wave === 'attackers') {
+            npc.setTacticalOrder(npc.aiType === AIType.RANGED ? 'attack' : 'charge')
+          } else {
+            npc.setTacticalOrder('attack')
+          }
+          this._restorePersonalOutpostNpc(npc)
+        }
         this.campaignSpawnQueueIndex++
 
         if (this.campaignSpawnQueueIndex >= this.campaignSpawnQueue.length) {
@@ -3065,7 +3079,7 @@ export class Game {
     const playerSideAlive = this._campaignFactionAlive(playerSideFaction)
     const enemySideAlive = this._campaignFactionAlive(enemySideFaction)
     if (this.previewCampaignGate) {
-      if (this.previewCampaignGate.state === 'closed') {
+      if (this.previewCampaignGate.state === 'closed' && !this.previewCampaignBreachController?.breached) {
         const attackerFaction = opposingCampaignFaction(campaign.defenderFaction)
         for (const npc of this.npcs) {
           if (!npc.dead && npc.characterFaction === attackerFaction && !npc.hasSiegeObstacle) {

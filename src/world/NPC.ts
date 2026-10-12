@@ -75,6 +75,7 @@ import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinato
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
 import {
   clampFollowSlotToDeck,
+  clampFollowSlotToStair,
   isRampartLayer,
   isStairLayer,
   layerSide,
@@ -1303,9 +1304,22 @@ export class NPC {
       const leaderLayer = layeredNav.getNavLayer(this.followSmoothedLeaderPosition)
       if (isRampartLayer(leaderLayer)) {
         if (!this.isMounted && !this.mount) {
-          const deck = layeredNav.getDeck(layerSide(leaderLayer)!)
+          const side = layerSide(leaderLayer)!
+          const deck = layeredNav.getDeck(side)
+          const stair = layeredNav.getStair(side)
           if (deck) {
-            clampFollowSlotToDeck(position, position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw)
+            clampFollowSlotToDeck(position, position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw, stair)
+          }
+        } else {
+          position.y = getTerrainHeight(position.x, position.z)
+        }
+      } else if (isStairLayer(leaderLayer)) {
+        if (!this.isMounted && !this.mount) {
+          const side = layerSide(leaderLayer)!
+          const stair = layeredNav.getStair(side)
+          const deck = layeredNav.getDeck(side)
+          if (stair) {
+            clampFollowSlotToStair(position, this.followSmoothedLeaderPosition, this.followSlotIndex, stair, deck, this.followSmoothedLeaderYaw)
           }
         } else {
           position.y = getTerrainHeight(position.x, position.z)
@@ -3236,9 +3250,22 @@ export class NPC {
         const leaderLayer = layeredNav.getNavLayer(this.followSmoothedLeaderPosition)
         if (isRampartLayer(leaderLayer)) {
           if (!this.isMounted && !this.mount) {
-            const deck = layeredNav.getDeck(layerSide(leaderLayer)!)
+            const side = layerSide(leaderLayer)!
+            const deck = layeredNav.getDeck(side)
+            const stair = layeredNav.getStair(side)
             if (deck) {
-              clampFollowSlotToDeck(target.position, target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw)
+              clampFollowSlotToDeck(target.position, target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw, stair)
+            }
+          } else {
+            target.position.y = getTerrainHeight(target.position.x, target.position.z)
+          }
+        } else if (isStairLayer(leaderLayer)) {
+          if (!this.isMounted && !this.mount) {
+            const side = layerSide(leaderLayer)!
+            const stair = layeredNav.getStair(side)
+            const deck = layeredNav.getDeck(side)
+            if (stair) {
+              clampFollowSlotToStair(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, stair, deck, this.followSmoothedLeaderYaw)
             }
           } else {
             target.position.y = getTerrainHeight(target.position.x, target.position.z)

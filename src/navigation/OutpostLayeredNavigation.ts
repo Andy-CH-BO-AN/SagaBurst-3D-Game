@@ -104,6 +104,13 @@ export function getOutpostNavLayer(
  * Ensures the slot sits firmly on the deck slab without hanging in midair or
  * penetrating the outer railings.
  */
+/**
+ * Clamps a follow slot onto the safe walkable area of a rampart deck.
+ * Ensures the slot sits firmly on the deck slab without hanging in midair or
+ * penetrating the outer railings. When the primary row along X is exhausted,
+ * seamlessly allocates into a secondary lateral sub-row or an explicit ground
+ * waiting queue, ensuring non-overlapping unique positions for all slots 0..29.
+ */
 export function clampFollowSlotToDeck(
   out: THREE.Vector3,
   _rawPosition: THREE.Vector3,
@@ -111,6 +118,7 @@ export function clampFollowSlotToDeck(
   slotIndex: number,
   deck: OutpostWalkwayDeck,
   leaderYaw?: number,
+  stair?: OutpostWalkwayStair,
 ): THREE.Vector3 {
   const slab = deck.slab
   const marginX = 0.6
@@ -131,53 +139,147 @@ export function clampFollowSlotToDeck(
   const roomPos = Math.max(0, maxX - clampedLeaderX)
   const maxNeg = Math.floor(roomNeg / SLOT_SPACING)
   const maxPos = Math.floor(roomPos / SLOT_SPACING)
+  const singleRowCapacity = maxNeg + maxPos
 
   // Determine preferred trailing side along X based on leader facing.
-  // If leader is advancing along X (Math.abs(sin(yaw)) > 0.3), followers trail behind leader.
-  // Otherwise, default to negative X progression.
   let preferredSide: -1 | 1 = -1
   if (leaderYaw !== undefined && Math.abs(Math.sin(leaderYaw)) > 0.3) {
     preferredSide = Math.sin(leaderYaw) > 0 ? -1 : 1
   }
 
-  // Sequentially allocate non-overlapping slots for slot 0 .. slotIndex
-  let negCount = 0
-  let posCount = 0
-  let targetOffsetX = 0
-
   const safeIndex = Math.max(0, Math.floor(slotIndex))
-  for (let i = 0; i <= safeIndex; i++) {
-    const pref: -1 | 1 = (i % 2 === 0) ? preferredSide : (preferredSide === -1 ? 1 : -1)
-    if (pref < 0) {
-      if (negCount < maxNeg) {
-        negCount++
-        targetOffsetX = -negCount * SLOT_SPACING
-      } else if (posCount < maxPos) {
-        posCount++
-        targetOffsetX = posCount * SLOT_SPACING
-      } else {
-        targetOffsetX = -(negCount + 1) * 0.1
+
+  // Tier 0 (primary row) and Tier 1 (secondary lateral row):
+  if (singleRowCapacity > 0) {
+    const tier = Math.floor(safeIndex / singleRowCapacity)
+    const tierIndex = safeIndex % singleRowCapacity
+
+    if (tier < 2) {
+      let negCount = 0
+      let posCount = 0
+      let targetOffsetX = 0
+
+      for (let i = 0; i <= tierIndex; i++) {
+        const pref: -1 | 1 = (i % 2 === 0) ? preferredSide : (preferredSide === -1 ? 1 : -1)
+        if (pref < 0) {
+          if (negCount < maxNeg) {
+            negCount++
+            targetOffsetX = -negCount * SLOT_SPACING
+          } else {
+            posCount++
+            targetOffsetX = posCount * SLOT_SPACING
+          }
+        } else {
+          if (posCount < maxPos) {
+            posCount++
+            targetOffsetX = posCount * SLOT_SPACING
+          } else {
+            negCount++
+            targetOffsetX = -negCount * SLOT_SPACING
+          }
+        }
       }
-    } else {
-      if (posCount < maxPos) {
-        posCount++
-        targetOffsetX = posCount * SLOT_SPACING
-      } else if (negCount < maxNeg) {
-        negCount++
-        targetOffsetX = -negCount * SLOT_SPACING
-      } else {
-        targetOffsetX = (posCount + 1) * 0.1
-      }
+
+      // In Tier 1, offset by 0.8m along X if possible for diagonal checkerboard separation
+      const staggerX = tier === 1
+        ? (clampedLeaderX + targetOffsetX + 0.8 <= maxX ? 0.8 : -0.8)
+        : 0
+      const targetX = THREE.MathUtils.clamp(clampedLeaderX + targetOffsetX + staggerX, minX, maxX)
+
+      // Tier 0 uses +/-0.28m, Tier 1 uses +/-0.80m from deckMidZ.
+      // Every pair of slots across tiers has at least 0.52m Z separation.
+      const staggerZ = tier === 0
+        ? (tierIndex % 2 === 0 ? -0.28 : 0.28)
+        : (tierIndex % 2 === 0 ? -0.80 : 0.80)
+      const targetZ = THREE.MathUtils.clamp(deckMidZ + staggerZ, minZ, maxZ)
+
+      return out.set(targetX, deck.topY, targetZ)
     }
   }
 
-  const targetX = THREE.MathUtils.clamp(clampedLeaderX + targetOffsetX, minX, maxX)
+  // Tier >= 2: Total deck capacity exhausted. Provide explicit standby waiting queue.
+  const overflowIndex = safeIndex - 2 * singleRowCapacity
+  if (stair) {
+    const ramp = stair.ramp
+    const groundZ = ramp.startZ - ramp.dirZ * (1.5 + Math.floor(overflowIndex / 2) * 1.4)
+    const groundX = ramp.startX + (overflowIndex % 2 === 0 ? -0.7 : 0.7)
+    const groundY = getTerrainHeight(groundX, groundZ)
+    return out.set(groundX, groundY, groundZ)
+  }
 
-  // Corridor lateral stagger: alternate left/right of deck centerline by +/-0.25m
-  const staggerZ = (safeIndex % 2 === 0 ? -0.25 : 0.25)
-  const targetZ = THREE.MathUtils.clamp(deckMidZ + staggerZ, minZ, maxZ)
+  const fallbackX = THREE.MathUtils.clamp(minX + (overflowIndex * 0.8) % (maxX - minX), minX, maxX)
+  const fallbackZ = overflowIndex % 2 === 0 ? minZ : maxZ
+  return out.set(fallbackX, deck.topY, fallbackZ)
+}
 
-  return out.set(targetX, deck.topY, targetZ)
+/**
+ * Clamps a follow slot onto the safe walkable area of a stair ramp.
+ * Projects slot onto the stair ramp with width clamping, longitudinal spacing along dirZ,
+ * and height interpolated on the ramp slope. If the slot extends beyond the stair foot
+ * (ground side), it sits at the ground entrance; if beyond the top landing, it sits on the deck connection.
+ */
+export function clampFollowSlotToStair(
+  out: THREE.Vector3,
+  leaderPosition: THREE.Vector3,
+  slotIndex: number,
+  stair: OutpostWalkwayStair,
+  deck?: OutpostWalkwayDeck,
+  leaderYaw?: number,
+): THREE.Vector3 {
+  const ramp = stair.ramp
+  const safeIndex = Math.max(0, Math.floor(slotIndex))
+
+  // Lateral X: clamp to stair ramp width margin
+  // stairHalfWidth is typically 1.1m; keep within [ramp.startX - 0.7, ramp.startX + 0.7]
+  const lateralMargin = 0.7
+  const staggerX = safeIndex % 2 === 0 ? -0.25 : 0.25
+  const targetX = THREE.MathUtils.clamp(
+    ramp.startX + staggerX,
+    ramp.startX - lateralMargin,
+    ramp.startX + lateralMargin,
+  )
+
+  // Trailing direction along ramp Z:
+  // By default, followers trail downhill behind the leader (in direction -ramp.dirZ).
+  // If leader is advancing downhill (facing along -ramp.dirZ), followers trail uphill behind leader (+ramp.dirZ).
+  let trailDirZ = -ramp.dirZ
+  if (leaderYaw !== undefined) {
+    const facingZ = Math.cos(leaderYaw)
+    if (facingZ * (-ramp.dirZ) > 0.5) {
+      trailDirZ = ramp.dirZ
+    }
+  }
+
+  // Stagger slot along stair length behind leader
+  const trailDistance = 1.2 + safeIndex * 1.4
+  const slotZ = leaderPosition.z + trailDirZ * trailDistance
+
+  // Calculate distance along ramp from ramp start (low end):
+  const along = (slotZ - ramp.startZ) * ramp.dirZ
+
+  // 1. Beyond stair foot (ground side):
+  if (along < 0) {
+    const groundY = getTerrainHeight(targetX, slotZ)
+    return out.set(targetX, groundY, slotZ)
+  }
+
+  // 2. Beyond top landing (deck side):
+  if (along > ramp.length + ramp.landing) {
+    if (deck) {
+      const deckMidZ = (deck.slab.min.z + deck.slab.max.z) * 0.5
+      return out.set(targetX, deck.topY, deckMidZ)
+    }
+    return out.set(targetX, ramp.topY, ramp.startZ + ramp.dirZ * (ramp.length + ramp.landing))
+  }
+
+  // 3. On stair ramp slope or top landing:
+  let slotY = ramp.topY
+  if (along < ramp.length) {
+    const t = along / ramp.length
+    slotY = ramp.startY + t * (ramp.topY - ramp.startY)
+  }
+
+  return out.set(targetX, slotY, slotZ)
 }
 
 export class OutpostLayeredNavigation {
