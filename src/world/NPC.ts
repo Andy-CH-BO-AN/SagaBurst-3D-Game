@@ -472,7 +472,14 @@ export class NPC {
     this._clearSiegeFallback()
   }
   private assignedSiegeObstacle: ObstacleData | null = null
+  get siegeObstacle(): ObstacleData | null { return this.assignedSiegeObstacle }
   get hasSiegeObstacle(): boolean { return this._isAttackableObstacle(this.assignedSiegeObstacle) }
+  clearFollowTarget(): void {
+    this.followTarget = null
+    this.followSlotIndex = -1
+    this.followCombatActive = false
+    this._resetFollowNavigation()
+  }
   assignSiegeObstacle(obstacle: ObstacleData | null): void {
     if (this.assignedSiegeObstacle === obstacle) return
     this.assignedSiegeObstacle = obstacle
@@ -2540,7 +2547,12 @@ export class NPC {
             if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
             this._applyPersistentObstacleDetour(moveDir, targetInfo.position, dt, obstacles)
             if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObs!) }
-            if (!this._detourActive && (navigationRoute === 'unreachable' || navigationRoute === 'pending')) {
+            const shouldPauseMovement =
+              navigationRoute === 'pending'
+              || this.followTarget !== null
+              || this.tacticalOrder === 'follow'
+              || Boolean(layeredNav && isCrossLayer)
+            if (!this._detourActive && shouldPauseMovement) {
               moveDir.set(0, 0, 0)
             }
           } else if (navigationRoute !== 'unreachable') {

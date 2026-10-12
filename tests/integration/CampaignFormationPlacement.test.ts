@@ -209,4 +209,115 @@ describe('Campaign formation placement wiring', () => {
     expect(assigned.map(slot => `${slot.x},${slot.z}`).sort())
       .toEqual(shown.map(slot => `${slot.x},${slot.z}`).sort())
   })
+
+  it('places foot soldiers in a 1D corridor on the elevated rampart deck', () => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain, { walkways: true })
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    navigation.setOutpostWalkways(outpost.walkways!.layout)
+    const deck = outpost.walkways!.layout.decks.find(d => d.side === -1)!
+    const participants = Array.from({ length: 6 }, (_, index) => {
+      const npc = placementParticipant(`roman-foot-${index}`, index - 3)
+      npc.combatPosition.set(0, getTerrainHeight(0, -140), -140)
+      return npc
+    })
+    const formation = new FormationController(
+      scene,
+      new THREE.PerspectiveCamera(),
+      participants as any,
+      terrain.terrainMesh,
+      outpost.obstacles,
+      navigation,
+      romanRegion(),
+    )
+    onTestFinished(() => formation.cancelPlacement())
+
+    const center = new THREE.Vector3(deck.slab.getCenter(new THREE.Vector3()).x, deck.topY, deck.slab.getCenter(new THREE.Vector3()).z)
+    vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: center }])
+    const preview = vi.spyOn((formation as any).preview, 'show')
+
+    formation.beginPlacement('all')
+    expect((formation as any).previewBlocked).toBe(false)
+    const shown = preview.mock.calls.at(-1)?.[1] as THREE.Vector3[]
+    expect(shown).toHaveLength(6)
+    expect(shown.every(slot => Math.abs(slot.y - deck.topY) < 0.001)).toBe(true)
+    expect(shown.every(slot => slot.x >= deck.slab.min.x + 0.6 && slot.x <= deck.slab.max.x - 0.6)).toBe(true)
+
+    const result = formation.confirmPlacement()
+    expect(result.accepted).toBe(true)
+    expect(result.count).toBe(6)
+    expect(participants.every(npc => npc.assignFormationTarget.mock.calls.length === 1)).toBe(true)
+    const assignedSlots = participants.map(npc => npc.assignFormationTarget.mock.calls[0][1] as THREE.Vector3)
+    expect(assignedSlots.every(slot => Math.abs(slot.y - deck.topY) < 0.001)).toBe(true)
+  })
+
+  it('rejects rampart deck placement when participants include mounted units', () => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain, { walkways: true })
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    navigation.setOutpostWalkways(outpost.walkways!.layout)
+    const deck = outpost.walkways!.layout.decks.find(d => d.side === -1)!
+    const participants = Array.from({ length: 3 }, (_, index) => {
+      const npc = placementParticipant(`cavalry-${index}`, index)
+      npc.isMounted = true
+      npc.combatPosition.set(0, getTerrainHeight(0, -140), -140)
+      return npc
+    })
+    const formation = new FormationController(
+      scene,
+      new THREE.PerspectiveCamera(),
+      participants as any,
+      terrain.terrainMesh,
+      outpost.obstacles,
+      navigation,
+      romanRegion(),
+    )
+    onTestFinished(() => formation.cancelPlacement())
+
+    const center = new THREE.Vector3(deck.slab.getCenter(new THREE.Vector3()).x, deck.topY, deck.slab.getCenter(new THREE.Vector3()).z)
+    vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: center }])
+
+    formation.beginPlacement('all')
+    expect((formation as any).previewBlocked).toBe(true)
+    const result = formation.confirmPlacement()
+    expect(result.accepted).toBe(false)
+    expect(participants.every(npc => npc.assignFormationTarget.mock.calls.length === 0)).toBe(true)
+  })
+
+  it('rejects rampart deck placement when participant count exceeds deck capacity', () => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain, { walkways: true })
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    navigation.setOutpostWalkways(outpost.walkways!.layout)
+    const deck = outpost.walkways!.layout.decks.find(d => d.side === -1)!
+    const participants = Array.from({ length: 50 }, (_, index) => {
+      const npc = placementParticipant(`foot-${index}`, index)
+      npc.combatPosition.set(0, getTerrainHeight(0, -140), -140)
+      return npc
+    })
+    const formation = new FormationController(
+      scene,
+      new THREE.PerspectiveCamera(),
+      participants as any,
+      terrain.terrainMesh,
+      outpost.obstacles,
+      navigation,
+      romanRegion(),
+    )
+    onTestFinished(() => formation.cancelPlacement())
+
+    const center = new THREE.Vector3(deck.slab.getCenter(new THREE.Vector3()).x, deck.topY, deck.slab.getCenter(new THREE.Vector3()).z)
+    vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: center }])
+
+    formation.beginPlacement('all')
+    expect((formation as any).previewBlocked).toBe(true)
+    const result = formation.confirmPlacement()
+    expect(result.accepted).toBe(false)
+  })
 })
