@@ -106,10 +106,11 @@ export function getOutpostNavLayer(
  */
 export function clampFollowSlotToDeck(
   out: THREE.Vector3,
-  rawPosition: THREE.Vector3,
+  _rawPosition: THREE.Vector3,
   leaderPosition: THREE.Vector3,
   slotIndex: number,
   deck: OutpostWalkwayDeck,
+  leaderYaw?: number,
 ): THREE.Vector3 {
   const slab = deck.slab
   const marginX = 0.6
@@ -120,18 +121,63 @@ export function clampFollowSlotToDeck(
   const minZ = slab.min.z + marginZ
   const maxZ = slab.max.z - marginZ
 
-  // Spread multiple followers longitudinally along X (the deck hallway).
-  let targetX = rawPosition.x
-  if (Math.abs(rawPosition.x - leaderPosition.x) < 0.5) {
-    const side = slotIndex % 2 === 0 ? -1 : 1
-    const spread = (Math.floor(slotIndex / 2) + 1) * 1.6
-    targetX = leaderPosition.x + side * spread
+  const clampedLeaderX = THREE.MathUtils.clamp(leaderPosition.x, minX, maxX)
+  const deckMidZ = (slab.min.z + slab.max.z) * 0.5
+
+  const SLOT_SPACING = 1.6
+
+  // Available room along X in both directions from clamped leader
+  const roomNeg = Math.max(0, clampedLeaderX - minX)
+  const roomPos = Math.max(0, maxX - clampedLeaderX)
+  const maxNeg = Math.floor(roomNeg / SLOT_SPACING)
+  const maxPos = Math.floor(roomPos / SLOT_SPACING)
+
+  // Determine preferred trailing side along X based on leader facing.
+  // If leader is advancing along X (Math.abs(sin(yaw)) > 0.3), followers trail behind leader.
+  // Otherwise, default to negative X progression.
+  let preferredSide: -1 | 1 = -1
+  if (leaderYaw !== undefined && Math.abs(Math.sin(leaderYaw)) > 0.3) {
+    preferredSide = Math.sin(leaderYaw) > 0 ? -1 : 1
   }
 
-  const clampedX = THREE.MathUtils.clamp(targetX, minX, maxX)
-  const clampedZ = THREE.MathUtils.clamp(rawPosition.z, minZ, maxZ)
+  // Sequentially allocate non-overlapping slots for slot 0 .. slotIndex
+  let negCount = 0
+  let posCount = 0
+  let targetOffsetX = 0
 
-  return out.set(clampedX, deck.topY, clampedZ)
+  const safeIndex = Math.max(0, Math.floor(slotIndex))
+  for (let i = 0; i <= safeIndex; i++) {
+    const pref: -1 | 1 = (i % 2 === 0) ? preferredSide : (preferredSide === -1 ? 1 : -1)
+    if (pref < 0) {
+      if (negCount < maxNeg) {
+        negCount++
+        targetOffsetX = -negCount * SLOT_SPACING
+      } else if (posCount < maxPos) {
+        posCount++
+        targetOffsetX = posCount * SLOT_SPACING
+      } else {
+        targetOffsetX = -(negCount + 1) * 0.1
+      }
+    } else {
+      if (posCount < maxPos) {
+        posCount++
+        targetOffsetX = posCount * SLOT_SPACING
+      } else if (negCount < maxNeg) {
+        negCount++
+        targetOffsetX = -negCount * SLOT_SPACING
+      } else {
+        targetOffsetX = (posCount + 1) * 0.1
+      }
+    }
+  }
+
+  const targetX = THREE.MathUtils.clamp(clampedLeaderX + targetOffsetX, minX, maxX)
+
+  // Corridor lateral stagger: alternate left/right of deck centerline by +/-0.25m
+  const staggerZ = (safeIndex % 2 === 0 ? -0.25 : 0.25)
+  const targetZ = THREE.MathUtils.clamp(deckMidZ + staggerZ, minZ, maxZ)
+
+  return out.set(targetX, deck.topY, targetZ)
 }
 
 export class OutpostLayeredNavigation {
@@ -299,51 +345,48 @@ export class OutpostLayeredNavigation {
       }
     }
 
-    // Case 3: On Stair -> Rampart
-    if (isStairLayer(currentLayer) && isRampartLayer(targetLayer)) {
-      const stairSide = layerSide(currentLayer)!
-      const targetSide = layerSide(targetLayer)!
+    // Case 3: Rampart Deck -> Other Layers (Stair on same side, Stair on opposite side, Ground, or Opposite Rampart)
+    if (isRampartLayer(currentLayer)) {
+      const currentSide = layerSide(currentLayer)!
+      const wp = this.getWaypoints(currentSide)
+      const distToStairX = Math.abs(currentPos.x - wp.stair.ramp.startX)
 
-      if (stairSide === targetSide) {
-        const wp = this.getWaypoints(stairSide)
+      // Step 3a: Walk along elevated deck corridor to stair connection first
+      if (distToStairX > 1.0) {
+        out.copy(wp.deckConnection)
+        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+      }
+
+      // Step 3b: At stair top landing:
+      // If target is on the SAME stair ramp, descend stair aiming directly toward target on stair
+      if (isStairLayer(targetLayer) && layerSide(targetLayer) === currentSide) {
+        out.set(wp.stair.ramp.startX - 0.3, goalPos.y, goalPos.z)
+        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'descend_stair' }
+      }
+
+      // If target is ground, opposite rampart deck, or opposite stair, descend stair to ground entrance
+      this._writeStairTarget(wp, false, out)
+      return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'descend_stair' }
+    }
+
+    // Case 4: Stair Ramp -> Other Layers (Same-side rampart, ground, opposite rampart, or opposite stair)
+    if (isStairLayer(currentLayer)) {
+      const currentSide = layerSide(currentLayer)!
+      const wp = this.getWaypoints(currentSide)
+
+      // Case 4a: Target is on the SAME side rampart deck -> ascend toward top landing / deck connection
+      if (isRampartLayer(targetLayer) && layerSide(targetLayer) === currentSide) {
         const distToLanding = Math.hypot(currentPos.x - wp.stairTopLanding.x, currentPos.z - wp.stairTopLanding.z)
         if (distToLanding > 0.8) {
           this._writeStairTarget(wp, true, out)
           return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ascend_stair' }
         } else {
-          // Arrived at top landing, step onto deck
           out.copy(wp.deckConnection)
           return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
         }
-      } else {
-        // Stair side doesn't match target wing: must descend to ground first
-        const wp = this.getWaypoints(stairSide)
-        this._writeStairTarget(wp, false, out)
-        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'descend_stair' }
       }
-    }
 
-    // Case 4: Rampart -> Ground
-    if (isRampartLayer(currentLayer) && targetLayer === 'ground') {
-      const side = layerSide(currentLayer)!
-      const wp = this.getWaypoints(side)
-      const distToStairX = Math.abs(currentPos.x - wp.stair.ramp.startX)
-
-      if (distToStairX > 1.0) {
-        // Move along deck to the stair connection
-        out.copy(wp.deckConnection)
-        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
-      } else {
-        // Aligned with stair laterally: descend stair toward ground entrance with stair lane bias
-        this._writeStairTarget(wp, false, out)
-        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'descend_stair' }
-      }
-    }
-
-    // Case 5: On Stair -> Ground
-    if (isStairLayer(currentLayer) && targetLayer === 'ground') {
-      const side = layerSide(currentLayer)!
-      const wp = this.getWaypoints(side)
+      // Case 4b: Target is ground, opposite rampart, or opposite stair -> must descend to ground entrance first
       const distToEntrance = Math.hypot(currentPos.x - wp.groundEntrance.x, currentPos.z - wp.groundEntrance.z)
       if (distToEntrance > 0.8) {
         this._writeStairTarget(wp, false, out)
@@ -354,25 +397,18 @@ export class OutpostLayeredNavigation {
       }
     }
 
-    // Case 6: Rampart Left <-> Rampart Right (Wing-to-Wing Crossing)
-    if (isRampartLayer(currentLayer) && isRampartLayer(targetLayer) && currentLayer !== targetLayer) {
-      // Must descend current wing's stair first
-      const currentSide = layerSide(currentLayer)!
-      const wp = this.getWaypoints(currentSide)
-      const distToStairX = Math.abs(currentPos.x - wp.stair.ramp.startX)
-
-      if (distToStairX > 1.0) {
-        out.copy(wp.deckConnection)
-        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
-      } else {
-        this._writeStairTarget(wp, false, out)
-        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'descend_stair' }
-      }
+    // Fallback: only genuine same-layer / direct movement is allowed
+    if (currentLayer === targetLayer) {
+      out.copy(goalPos)
+      return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'direct' }
     }
 
-    // Fallback: direct to goal
-    out.copy(goalPos)
-    return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'direct' }
+    // Unknown cross-layer combination: NEVER return direct across midair!
+    // Safely route toward the ground entrance of the target or current wing
+    const fallbackSide = layerSide(targetLayer) ?? layerSide(currentLayer) ?? -1
+    const fallbackWp = this.getWaypoints(fallbackSide)
+    out.copy(fallbackWp.groundEntrance)
+    return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ground_approach' }
   }
 
   /**

@@ -655,4 +655,74 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       expect(diagnostic.layer).toBe('ground')
     })
   })
+
+  describe('P1 Regression: NPC on rampart pursuing target midway down stair', () => {
+    it('foot NPC on rampart stays in deck corridor until stair top without cutting diagonally into midair', () => {
+      const { outpost, leftDeck, leftStair } = setupOutpost('viking')
+      const player = new Player(scene)
+      onTestFinished(() => player.dispose())
+
+      // Player is halfway down the left stair ramp
+      const midStairZ = (leftStair.ramp.startZ + leftStair.ramp.startZ + leftStair.ramp.dirZ * leftStair.ramp.length) / 2
+      const midStairY = (leftStair.ramp.startY + leftStair.ramp.topY) / 2
+      player.group.position.set(leftStair.ramp.startX, midStairY + 0.95, midStairZ)
+
+      // Foot NPC starts on the left rampart deck corridor at x = -20
+      const deckZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
+      const npc = new NPC(scene, -20, deckZ, Faction.PLAYER, 'viking', AIType.MELEE, 'DeckToStairFollower', 2, false)
+      npc.group.position.set(-20, leftDeck.topY, deckZ)
+      onTestFinished(() => npc.dispose())
+
+      npc.assignFollowTarget(player, 0)
+
+      let steppedOntoStair = false
+      let deviatedFromDeckCorridor = false
+
+      for (let f = 0; f < 300; f++) {
+        navWorld.beginFrame()
+        npc.update(
+          FRAME,
+          player,
+          [npc],
+          [],
+          outpost.obstacles,
+          { setFill: () => {} },
+          () => {},
+          () => {},
+          false,
+          0,
+          null,
+          null,
+          navWorld,
+        )
+
+        const npcPos = npc.combatPosition
+        const distToStairX = Math.abs(npcPos.x - leftStair.ramp.startX)
+
+        // While NPC is traveling along the deck before reaching the stair opening (distToStairX > 1.2m):
+        // It MUST stay within the deck slab corridor and maintain elevated deck height!
+        if (distToStairX > 1.2) {
+          const inDeckZ = npcPos.z >= leftDeck.slab.min.z - 0.3 && npcPos.z <= leftDeck.slab.max.z + 0.3
+          const onDeckY = Math.abs(npcPos.y - leftDeck.topY) < 0.25
+          if (!inDeckZ || !onDeckY) {
+            deviatedFromDeckCorridor = true
+          }
+        } else {
+          // NPC has reached the top landing of the stair and starts descending
+          if (npcPos.y < leftDeck.topY - 0.2) {
+            steppedOntoStair = true
+          }
+        }
+
+        if (steppedOntoStair && Math.hypot(npcPos.x - leftStair.ramp.startX, npcPos.z - midStairZ) < 2.5) {
+          break
+        }
+      }
+
+      // NPC must never have cut diagonally off the deck into midair
+      expect(deviatedFromDeckCorridor, 'NPC must stay inside the deck corridor while traveling along the rampart').toBe(false)
+      // NPC must have successfully reached the stair and begun descending toward target
+      expect(steppedOntoStair, 'NPC must proceed to stair top and descend along stair').toBe(true)
+    })
+  })
 })

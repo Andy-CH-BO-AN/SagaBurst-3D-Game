@@ -1298,7 +1298,7 @@ export class NPC {
         if (!this.isMounted && !this.mount) {
           const deck = layeredNav.getDeck(layerSide(leaderLayer)!)
           if (deck) {
-            clampFollowSlotToDeck(position, position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck)
+            clampFollowSlotToDeck(position, position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw)
           }
         } else {
           position.y = getTerrainHeight(position.x, position.z)
@@ -3226,7 +3226,7 @@ export class NPC {
           if (!this.isMounted && !this.mount) {
             const deck = layeredNav.getDeck(layerSide(leaderLayer)!)
             if (deck) {
-              clampFollowSlotToDeck(target.position, target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck)
+              clampFollowSlotToDeck(target.position, target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw)
             }
           } else {
             target.position.y = getTerrainHeight(target.position.x, target.position.z)

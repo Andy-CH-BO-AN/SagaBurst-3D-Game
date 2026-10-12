@@ -14,6 +14,10 @@ import {
   OutpostLayeredNavigation,
 } from '../../src/navigation/OutpostLayeredNavigation'
 import { getTerrainHeight } from '../../src/world/Terrain'
+import {
+  followLocalOffset,
+  followSlotWorldPosition,
+} from '../../src/battle/FollowOrder'
 
 describe('OutpostLayeredNavigation', () => {
   const vikingPlacement = getCampaignOutpostPlacement('viking')
@@ -241,9 +245,191 @@ describe('OutpostLayeredNavigation', () => {
 
       expect(ascendingOut.x).toBeCloseTo(stair.ramp.startX + 0.3, 2)
       expect(descendingOut.x).toBeCloseTo(stair.ramp.startX - 0.3, 2)
-
-      // Lateral distance between ascending and descending lanes
       expect(Math.abs(ascendingOut.x - descendingOut.x)).toBeCloseTo(0.6, 2)
+    })
+  })
+
+  describe('Comprehensive Layer Transitions: deck->stair and stair->stair', () => {
+    it.each(['viking', 'roman'] as const)(
+      'resolves deck_left -> stair_left via deckConnection then down slope in %s layout',
+      faction => {
+        const layout = faction === 'viking' ? vikingLayout : romanLayout
+        const nav = new OutpostLayeredNavigation(layout)
+        const leftDeck = layout.decks.find(d => d.side === -1)!
+        const leftStair = layout.stairs.find(s => s.side === -1)!
+        const leftWp = nav.getWaypoints(-1)
+
+        const startOnDeck = new THREE.Vector3(-20, leftDeck.topY, (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2)
+        const midStairZ = (leftStair.ramp.startZ + leftStair.ramp.startZ + leftStair.ramp.dirZ * leftStair.ramp.length) / 2
+        const midStairY = (leftStair.ramp.startY + leftStair.ramp.topY) / 2
+        const goalOnStair = new THREE.Vector3(leftStair.ramp.startX, midStairY, midStairZ)
+
+        const out = new THREE.Vector3()
+
+        // Phase 1: On deck far from stair -> must walk along deck corridor to deckConnection first
+        const r1 = nav.resolveMoveTarget(startOnDeck, goalOnStair, false, out)
+        expect(r1.step).toBe('deck_approach')
+        expect(r1.isCrossLayer).toBe(true)
+        expect(out.distanceTo(leftWp.deckConnection)).toBeLessThan(0.01)
+
+        // Phase 2: At deck connection -> descends stair toward goal on stair
+        const atConnection = leftWp.deckConnection.clone()
+        const r2 = nav.resolveMoveTarget(atConnection, goalOnStair, false, out)
+        expect(r2.step).toBe('descend_stair')
+        expect(r2.isCrossLayer).toBe(true)
+        expect(out.x).toBeCloseTo(leftStair.ramp.startX - 0.3, 2)
+        expect(out.z).toBeCloseTo(goalOnStair.z, 2)
+      },
+    )
+
+    it.each(['viking', 'roman'] as const)(
+      'resolves deck_left -> stair_right via deckConnection, down left stair, then to right stair entrance in %s layout',
+      faction => {
+        const layout = faction === 'viking' ? vikingLayout : romanLayout
+        const nav = new OutpostLayeredNavigation(layout)
+        const leftDeck = layout.decks.find(d => d.side === -1)!
+        const rightStair = layout.stairs.find(s => s.side === 1)!
+        const leftWp = nav.getWaypoints(-1)
+        const rightWp = nav.getWaypoints(1)
+
+        const startOnLeftDeck = new THREE.Vector3(-20, leftDeck.topY, (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2)
+        const midRightStairZ = (rightStair.ramp.startZ + rightStair.ramp.startZ + rightStair.ramp.dirZ * rightStair.ramp.length) / 2
+        const midRightStairY = (rightStair.ramp.startY + rightStair.ramp.topY) / 2
+        const goalOnRightStair = new THREE.Vector3(rightStair.ramp.startX, midRightStairY, midRightStairZ)
+
+        const out = new THREE.Vector3()
+
+        // Phase 1: On left deck -> deck_approach to left deckConnection
+        const r1 = nav.resolveMoveTarget(startOnLeftDeck, goalOnRightStair, false, out)
+        expect(r1.step).toBe('deck_approach')
+        expect(out.distanceTo(leftWp.deckConnection)).toBeLessThan(0.01)
+
+        // Phase 2: At left deck connection -> descend left stair toward ground
+        const atLeftConnection = leftWp.deckConnection.clone()
+        const r2 = nav.resolveMoveTarget(atLeftConnection, goalOnRightStair, false, out)
+        expect(r2.step).toBe('descend_stair')
+        expect(out.x).toBeCloseTo(leftWp.stair.ramp.startX - 0.3, 2)
+
+        // Phase 3: Once on ground courtyard -> ground_approach toward right stair entrance
+        const onCourtyardGround = new THREE.Vector3(0, getTerrainHeight(0, leftWp.groundEntrance.z), leftWp.groundEntrance.z)
+        const r3 = nav.resolveMoveTarget(onCourtyardGround, goalOnRightStair, false, out)
+        expect(r3.step).toBe('ground_approach')
+        expect(out.distanceTo(rightWp.groundEntrance)).toBeLessThan(0.01)
+      },
+    )
+
+    it.each(['viking', 'roman'] as const)(
+      'resolves stair_left -> stair_right by descending to ground first before crossing in %s layout',
+      faction => {
+        const layout = faction === 'viking' ? vikingLayout : romanLayout
+        const nav = new OutpostLayeredNavigation(layout)
+        const leftStair = layout.stairs.find(s => s.side === -1)!
+        const rightStair = layout.stairs.find(s => s.side === 1)!
+        const leftWp = nav.getWaypoints(-1)
+        const rightWp = nav.getWaypoints(1)
+
+        const midLeftStairZ = (leftStair.ramp.startZ + leftStair.ramp.startZ + leftStair.ramp.dirZ * leftStair.ramp.length) / 2
+        const midLeftStairY = (leftStair.ramp.startY + leftStair.ramp.topY) / 2
+        const startOnLeftStair = new THREE.Vector3(leftStair.ramp.startX, midLeftStairY, midLeftStairZ)
+
+        const midRightStairZ = (rightStair.ramp.startZ + rightStair.ramp.startZ + rightStair.ramp.dirZ * rightStair.ramp.length) / 2
+        const midRightStairY = (rightStair.ramp.startY + rightStair.ramp.topY) / 2
+        const goalOnRightStair = new THREE.Vector3(rightStair.ramp.startX, midRightStairY, midRightStairZ)
+
+        const out = new THREE.Vector3()
+
+        // Phase 1: On left stair -> descend toward left ground entrance
+        const r1 = nav.resolveMoveTarget(startOnLeftStair, goalOnRightStair, false, out)
+        expect(r1.step).toBe('descend_stair')
+        expect(r1.isCrossLayer).toBe(true)
+        // Must NOT aim directly across empty air to right stair
+        expect(out.x).toBeCloseTo(leftStair.ramp.startX - 0.3, 2)
+
+        // Phase 2: At left ground entrance -> now on ground, navigates to right entrance
+        const r2 = nav.resolveMoveTarget(leftWp.groundEntrance, goalOnRightStair, false, out)
+        expect(r2.step).toBe('ground_approach')
+        expect(out.distanceTo(rightWp.groundEntrance)).toBeLessThan(0.01)
+      },
+    )
+  })
+
+  describe('Follow Slot Clamping at Deck Boundaries (P2 Regression)', () => {
+    it('prevents slot collapse at deck boundaries (P2 review scenario)', () => {
+      const deck = vikingLayout.decks.find(d => d.side === -1)!
+      const slab = deck.slab
+      const minX = slab.min.x + 0.6
+      const maxX = slab.max.x - 0.6
+      const minZ = slab.min.z + 0.55
+      const maxZ = slab.max.z - 0.55
+
+      // Reviewer scenario: Viking left deck, leader at x = -42.5 (near minX = -43.0), yaw = 0
+      const leaderPos = new THREE.Vector3(-42.5, deck.topY, 109.6)
+      const slotIndices = [0, 1, 2, 3, 4, 6]
+      const clampedSlots: THREE.Vector3[] = []
+
+      for (const slotIndex of slotIndices) {
+        const offset = followLocalOffset(slotIndex, false)
+        const rawPos = followSlotWorldPosition(leaderPos, 0, offset)
+        const clamped = clampFollowSlotToDeck(new THREE.Vector3(), rawPos, leaderPos, slotIndex, deck, 0)
+        clampedSlots.push(clamped)
+      }
+
+      // 1. All slots stay strictly within safe deck boundaries
+      for (const slot of clampedSlots) {
+        expect(slot.x).toBeGreaterThanOrEqual(minX)
+        expect(slot.x).toBeLessThanOrEqual(maxX)
+        expect(slot.z).toBeGreaterThanOrEqual(minZ)
+        expect(slot.z).toBeLessThanOrEqual(maxZ)
+        expect(slot.y).toBe(deck.topY)
+      }
+
+      // 2. Slots 0, 2, 4, 6 must NOT collapse to the identical corner point (-43, deckY, 108.55)
+      const slot0 = clampedSlots[0]
+      const slot2 = clampedSlots[2]
+      const slot4 = clampedSlots[4]
+      const slot6 = clampedSlots[5]
+      expect(slot0.distanceTo(slot2)).toBeGreaterThan(1.2)
+      expect(slot2.distanceTo(slot4)).toBeGreaterThan(1.2)
+      expect(slot4.distanceTo(slot6)).toBeGreaterThan(1.2)
+
+      // 3. Every pair of slots has distinct X coordinates with >= 1.2m separation
+      for (let i = 0; i < clampedSlots.length; i++) {
+        for (let j = i + 1; j < clampedSlots.length; j++) {
+          expect(
+            Math.abs(clampedSlots[i].x - clampedSlots[j].x),
+            `Slots ${slotIndices[i]} and ${slotIndices[j]} must not share the same X`,
+          ).toBeGreaterThanOrEqual(1.2)
+        }
+      }
+    })
+
+    it('prevents slot collapse at positive deck boundary (maxX)', () => {
+      const deck = vikingLayout.decks.find(d => d.side === -1)!
+      const slab = deck.slab
+      const minX = slab.min.x + 0.6
+      const maxX = slab.max.x - 0.6
+
+      // Leader backed up to the right end of the deck
+      const leaderPos = new THREE.Vector3(maxX + 0.2, deck.topY, 109.6)
+      const slotIndices = [0, 1, 2, 3, 4, 6]
+      const clampedSlots: THREE.Vector3[] = []
+
+      for (const slotIndex of slotIndices) {
+        const offset = followLocalOffset(slotIndex, false)
+        const rawPos = followSlotWorldPosition(leaderPos, 0, offset)
+        const clamped = clampFollowSlotToDeck(new THREE.Vector3(), rawPos, leaderPos, slotIndex, deck, 0)
+        clampedSlots.push(clamped)
+      }
+
+      for (let i = 0; i < clampedSlots.length; i++) {
+        expect(clampedSlots[i].x).toBeGreaterThanOrEqual(minX)
+        expect(clampedSlots[i].x).toBeLessThanOrEqual(maxX)
+        for (let j = i + 1; j < clampedSlots.length; j++) {
+          expect(
+            Math.abs(clampedSlots[i].x - clampedSlots[j].x),
+          ).toBeGreaterThanOrEqual(1.2)
+        }
+      }
     })
   })
 })
