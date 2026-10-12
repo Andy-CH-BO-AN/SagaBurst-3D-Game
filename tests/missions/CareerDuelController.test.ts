@@ -17,7 +17,7 @@ import { Faction, type NPC } from '../../src/world/NPC'
 
 function mountStub() {
   const mount = {
-    group: new THREE.Group(), dead: false, currentHp: 100, maxHp: 100, riderNpc: null as unknown,
+    group: new THREE.Group(), dispose: vi.fn(), dead: false, currentHp: 100, maxHp: 100, riderNpc: null as unknown,
     catVisual: { setEquipmentVisible: vi.fn() },
     releaseRider: vi.fn(() => { mount.riderNpc = null }),
     takeDamage: vi.fn((amount: number) => { mount.currentHp = Math.max(0, mount.currentHp - amount); mount.dead = mount.currentHp === 0; if (mount.dead) mount.riderNpc = null }),
@@ -73,7 +73,8 @@ function harness(faction: 'roman' | 'viking' = 'roman', initial?: CareerProfile,
     beginFrame: vi.fn(), areConnected: vi.fn(() => true), queryPath: vi.fn(() => ({ status: 'path', path: [] })),
     grid: { findNearestWalkableCell: vi.fn(), cellToWorld: vi.fn() },
   } as unknown as NavigationWorld
-  const controller = new CareerDuelController(new THREE.Scene(), world, navigation, residents, blackCat, () => player, () => profile, commit)
+  const createMount = vi.fn(() => mountStub())
+  const controller = new CareerDuelController(new THREE.Scene(), world, navigation, residents, blackCat, () => player, () => profile, commit, createMount)
   const start = (preset: UnitPresetId = `${faction}_archer`, tier: CareerDuelTier = 1, phase: CareerMissionPhase = 'PREPARING') => {
     const mission = controller.createMission(preset, tier)
     if (!mission) throw new Error('test mission unavailable')
@@ -81,7 +82,7 @@ function harness(faction: 'roman' | 'viking' = 'roman', initial?: CareerProfile,
     expect(controller.startActiveMission()).toBe(true)
     return profile.activeMission!
   }
-  return { controller, residents, player, blackCat, world, navigation, commit, start,
+  return { controller, residents, player, blackCat, world, navigation, commit, start, createMount,
     get profile() { return profile },
     setProfile(next: CareerProfile) { profile = next },
     setSaving(next: boolean) { saving = next },
@@ -89,7 +90,7 @@ function harness(faction: 'roman' | 'viking' = 'roman', initial?: CareerProfile,
 }
 
 describe('Career Duel existing actor and loadout selection', () => {
-  it.each(['roman_archer', 'viking_horse_archer', 'viking_lancer', 'roman_sword_cavalry'] as const)('T5 %s borrows the sole Commander with Captain referee and canonical selected weapons', preset => {
+  it.each(['roman_archer', 'viking_archer', 'roman_horse_archer', 'viking_horse_archer', 'roman_lancer', 'viking_lancer', 'roman_sword_cavalry', 'viking_sword_cavalry'] as const)('T5 %s borrows the sole Commander with Captain referee and canonical selected weapons', preset => {
     const faction = UNIT_PRESETS[preset].faction
     const h = harness(faction, { ...createCareerProfile(faction), rank: 'commander',
       duelHighestDefeatedTierByPreset: { [preset]: 4 } }, true)
@@ -100,11 +101,21 @@ describe('Career Duel existing actor and loadout selection', () => {
     expect(roster.opponent.npc).toBe(commander)
     expect(roster.referee.spec.role).toBe('captain')
     expect(roster.mount).toBeNull()
-    expect(roster.loadout).toMatchObject(preset === 'roman_archer' || preset === 'viking_horse_archer'
-      ? { rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null, mountId: null }
-      : preset === 'viking_lancer' ? { meleeWeaponId: 'heavy_lance', shieldId: null, mountId: null }
-      : { meleeWeaponId: 'paladin_sword_t4', shieldId: 'paladin_shield_t4', mountId: null })
+    const mountId = preset === 'roman_archer' || preset === 'viking_archer' ? null : faction === 'roman' ? 'corgi' : 'black-cat'
+    expect(h.createMount).not.toHaveBeenCalled()
+    expect(roster.loadout).toMatchObject(preset.endsWith('_archer')
+      ? { rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null, mountId }
+      : preset.endsWith('_lancer') ? { meleeWeaponId: 'heavy_lance', shieldId: null, mountId }
+      : { meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4', shieldId: 'paladin_shield_t4', mountId })
     h.start(preset, 5)
+    const temporaryMount = commander.mount
+    expect(h.createMount).toHaveBeenCalledTimes(mountId ? 1 : 0)
+    if (mountId) {
+      expect(temporaryMount).not.toBe(h.blackCat)
+      expect(h.residents.every(r => r.homeMount !== temporaryMount)).toBe(true)
+      expect(temporaryMount!.reservedForTown).toBe(true)
+      expect(h.controller.allMounts).toContain(temporaryMount)
+    }
     expect(h.controller.actors).toHaveLength(2)
     expect(h.controller.opponent).toBe(commander)
     expect(h.controller.referee).toBe(h.controller.captain)
@@ -112,6 +123,8 @@ describe('Career Duel existing actor and loadout selection', () => {
     expect(commander.loadout).toEqual(canonical)
     commander.takeDamage(9999)
     h.controller.cleanupMission()
+    if (temporaryMount) expect(temporaryMount.dispose).toHaveBeenCalledOnce()
+    expect(commander.mount).toBeNull()
     expect(commander.dead).toBe(false)
     expect(commander.hp).toBe(73)
     expect(commander.combatAmmo).toBe(11)
@@ -261,7 +274,7 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     expect(h.controller.guideTarget).toBeNull()
   })
 
-  it('saves each changed runtime snapshot immediately, retries current values, and does not force unchanged data', () => {
+  it('saves resource changes immediately, retries current values, and forces only changed periodic data', () => {
     const h = harness()
     h.start('roman_archer', 1, 'ENGAGING')
     // Persist initial runtime fields before measuring unchanged writes.
@@ -282,8 +295,9 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     h.controller.persistRuntimeProgress()
     expect(h.profile.activeMission).toMatchObject({ duelCombatElapsed: .1, duelPlayerHp: 41, duelPlayerStamina: 17, duelOpponentAmmo: 9 })
     h.controller.update(.1)
-    expect(h.profile.activeMission!.duelCombatElapsed).toBe(.2)
+    expect(h.profile.activeMission!.duelCombatElapsed).toBe(.1)
     h.controller.persistRuntimeProgress(true)
+    expect(h.profile.activeMission!.duelCombatElapsed).toBe(.2)
     expect(h.commit).toHaveBeenCalledTimes(3)
   })
 
@@ -381,6 +395,7 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     h.controller.update(0)
     captain.combatPosition.copy(vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1])
     h.controller.update(0)
+    h.controller.persistRuntimeProgress(true)
     expect(h.profile.activeMission!.routeStage).toBe(1)
     const remainingTarget = vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1].clone()
     const queries = vi.mocked(h.navigation.queryPath).mock.calls.length
@@ -391,6 +406,7 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     expect(ranger.combatPosition).toEqual(rangerPosition)
     expect(vi.mocked(ranger.assignFormationTarget).mock.calls.at(-1)![1]).toEqual(remainingTarget)
     expect(vi.mocked(opponent.assignFollowTarget).mock.calls.at(-1)![0]).toBe(ranger)
+    h.controller.persistRuntimeProgress(true)
     expect(h.profile.activeMission!.routeStage).toBe(1)
     h.controller.setExternalCombat(ranger, true)
     ranger.takeDamage(1000)
@@ -402,6 +418,7 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     // Arrive along the remaining path, then walk into the assigned duel slot.
     opponent.combatPosition.copy(remainingTarget)
     h.controller.update(0)
+    h.controller.persistRuntimeProgress(true)
     expect(h.profile.activeMission!.routeStage).toBe(2)
     const arena = h.controller.guideTarget!.clone()
     opponent.combatPosition.copy(arena)
@@ -429,6 +446,7 @@ describe('Career Duel phases, persistence, and damage isolation', () => {
     const h = harness()
     h.start('roman_lancer', 2)
     h.controller.update(2.5)
+    h.controller.persistRuntimeProgress(true)
     const prepareReload = harness('roman', JSON.parse(JSON.stringify(h.profile)))
     expect(prepareReload.controller.startActiveMission()).toBe(true)
     expect(prepareReload.controller.countdownRemaining).toBe(2.5)
@@ -604,6 +622,7 @@ describe('Career Duel return and cleanup', () => {
     expect(h.controller.startReturning()).toBe(true)
     captain.combatPosition.copy(vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1])
     h.controller.update(0)
+    h.controller.persistRuntimeProgress(true)
     expect(h.profile.activeMission!.routeStage).toBe(1)
     const remainingTarget = vi.mocked(captain.assignFormationTarget).mock.calls.at(-1)![1].clone()
     const queries = vi.mocked(h.navigation.queryPath).mock.calls.length
@@ -613,10 +632,12 @@ describe('Career Duel return and cleanup', () => {
     h.controller.update(0)
     expect(ranger.combatPosition).toEqual(rangerPosition)
     expect(vi.mocked(ranger.assignFormationTarget).mock.calls.at(-1)![1]).toEqual(remainingTarget)
+    h.controller.persistRuntimeProgress(true)
     expect(h.profile.activeMission!.routeStage).toBe(1)
     expect(h.navigation.queryPath).toHaveBeenCalledTimes(queries)
     ranger.combatPosition.copy(remainingTarget)
     h.controller.update(0)
+    h.controller.persistRuntimeProgress(true)
     expect(h.profile.activeMission!.routeStage).toBe(2)
     ranger.combatPosition.copy(vi.mocked(ranger.assignFormationTarget).mock.calls.at(-1)![1])
     h.player.group.position.copy(h.controller.guideTarget!)

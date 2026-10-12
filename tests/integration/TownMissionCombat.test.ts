@@ -445,6 +445,7 @@ describe('Town Duel simulation through the mission interface', () => {
     h.careerMounts.update.mockImplementation(() => { log.push('career-mount') })
     h.duel.persistRuntimeProgress.mockImplementation(() => { log.push('persist') })
     h.combat.update(.02, 0, 1)
+    expect(h.duel.update).toHaveBeenCalledWith(.02, true)
     expect(log).toEqual(['countdown', 'referee', 'opponent', 'dead-mount', 'career-mount', 'persist'])
     h.combat.update(.02, 0, 2)
     expect(h.simulation.clearCombatShots).not.toHaveBeenCalled()

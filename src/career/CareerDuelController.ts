@@ -9,7 +9,7 @@ import type { Player } from '../player/Player'
 import { townSitePoint, type TownActorSpec } from '../town/TownRules'
 import type { TownWorld } from '../town/TownWorld'
 import { findTownDuelArena, DUEL_OPPONENT_OFFSET, DUEL_REFEREE_OFFSET, DUEL_PLAYER_OFFSET } from '../town/TownDuelArena'
-import type { Mount } from '../world/Mount'
+import { Mount, mountTypeFromId } from '../world/Mount'
 import type { NPC } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
 import type { CareerProfile } from './CareerProfile'
@@ -27,9 +27,9 @@ export interface CareerDuelRoster {
   mount: Mount | null
 }
 
-/** Existing Duel mounts retain their archetype. The standing Commander borrows only weapons/shield. */
+/** Existing Duel mounts retain their archetype; T5 uses the selected legal T4 equipment. */
 function duelLoadout(presetId: UnitPresetId, tier: CareerDuelTier): UnitLoadout {
-  if (tier === 5) return { ...resolveT4UnitLoadout(presetId), mountId: null,
+  if (tier === 5) return { ...resolveT4UnitLoadout(presetId),
     ...(UNIT_PRESETS[presetId].traits.includes('bow_fire') ? { rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null } : {}) }
   const base = UNIT_PRESETS[presetId].tierLoadouts[tier === 4 ? 3 : tier]
   return tier === 4 ? { ...resolveT4UnitLoadout(presetId), mountId: base.mountId } : base
@@ -60,8 +60,9 @@ export function selectCareerDuelRoster(residents: readonly CareerDuelResident[],
   }
   const referee = opponent === captain ? ranger : captain
   if (!opponent || opponent.npc.dead || !referee || referee.npc.dead) return null
-  const mount = !loadout.mountId ? null : tier === 4 && archery ? blackCat : opponent.homeMount ?? opponent.npc.mount
-  if (loadout.mountId && (!mount || mount.dead)) return null
+  // T5 creates its own mount only when the saved mission starts, never during selection.
+  const mount = !loadout.mountId || tier === 5 ? null : tier === 4 && archery ? blackCat : opponent.homeMount ?? opponent.npc.mount
+  if (tier !== 5 && loadout.mountId && (!mount || mount.dead)) return null
   return { captain, opponent, referee, loadout: tier === 4 && archery ? { ...opponent.npc.loadout } : loadout, mount }
 }
 
@@ -93,6 +94,7 @@ export class CareerDuelController {
   private missionCaptain: NPC | null = null
   private missionReferee: NPC | null = null
   private opponentMount: Mount | null = null
+  private ownedDuelMount: Mount | null = null
   private routeLeader: NPC | null = null
   private route: THREE.Vector3[] = []
   private routeIndex = 0
@@ -105,7 +107,7 @@ export class CareerDuelController {
   private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
 
   constructor(
-    _scene: THREE.Scene,
+    private readonly scene: THREE.Scene,
     private readonly world: TownWorld,
     private readonly navigation: NavigationWorld,
     private readonly residents: readonly CareerDuelResident[],
@@ -113,6 +115,8 @@ export class CareerDuelController {
     private readonly player: () => Player,
     private readonly readProfile: () => CareerProfile,
     private readonly commit: (profile: CareerProfile) => boolean,
+    private readonly createMount: (scene: THREE.Scene, mountId: NonNullable<UnitLoadout['mountId']>, x: number, z: number) => Mount
+      = (scene, mountId, x, z) => new Mount(scene, mountTypeFromId(mountId), x, z),
   ) {}
 
   get active(): ActiveCareerMission | undefined { const mission = this.readProfile().activeMission; return mission?.kind === 'duel' ? mission : undefined }
@@ -182,7 +186,13 @@ export class CareerDuelController {
     const originalMount = opponent.homeMount ?? opponent.npc.mount
     opponent.npc.dismountFromMount()
     if (selected.mountId) {
-      const mount = ranger ? this.blackCat : originalMount
+      const mount = active.duelTier === 5
+        ? this.createMount(this.scene, selected.mountId, opponent.npc.group.position.x, opponent.npc.group.position.z)
+        : ranger ? this.blackCat : originalMount
+      if (active.duelTier === 5 && mount) {
+        this.ownedDuelMount = mount
+        mount.reservedForTown = true
+      }
       if (!mount || mount.dead) { this.cleanupMission(); return false }
       opponent.npc.mountVehicle(mount)
       this.opponentMount = mount
@@ -228,11 +238,13 @@ export class CareerDuelController {
     return true
   }
 
-  update(dt: number): void {
+  /** Town combat defers the runtime snapshot until its actors and mounts have advanced. */
+  update(dt: number, deferCheckpoint = false): void {
     const active = this.active
     if (!active || !this.captain || !this.opponent || active.phase === 'RESULT') return
     for (const actor of this.externalCombat) if (actor.dead) this.externalCombat.delete(actor)
     const elapsed = Number.isFinite(dt) ? Math.max(0, dt) : 0
+    this.checkpoint.advance(elapsed)
     if (active.phase === 'ASSEMBLING' && !this.player().dead
       && this.player().combatPosition.distanceTo(this.selectRouteLeader()?.combatPosition ?? this.assemblyPoint()) <= 12) {
       if (this.setPhase('MARCHING', 0)) {
@@ -264,7 +276,7 @@ export class CareerDuelController {
       const leader = this.ensureRouteLeader()
       if (leader && !this.externalCombat.has(leader)) this.advanceRoute(leader)
     }
-    this.persistRuntimeProgress()
+    if (!deferCheckpoint) this.persistRuntimeProgress()
   }
 
   evaluate(playerDead = this.player().dead): CareerMissionOutcome | null {
@@ -317,11 +329,36 @@ export class CareerDuelController {
   }
   startReturning(): boolean { return this.beginReturn() }
 
-  persistRuntimeProgress(_force = false): void {
+  persistRuntimeProgress(force = false): void {
     const active = this.active
     if (!active || !this.opponent || active.result && active.phase !== 'RETURNING') return
-    const next = this.runtimeMission(active)
-    this.checkpoint.persist(() => next, { immediate: JSON.stringify(next) !== JSON.stringify(active) })
+    const player = this.player()
+    const validResource = (value: number | undefined): value is number => value !== undefined && Number.isFinite(value) && value >= 0
+    const stamina = validResource(player.staminaValue) ? player.staminaValue : undefined
+    const resourceChanged = validResource(player.hp) && player.hp !== active.duelPlayerHp
+      || this.opponent.hp !== active.duelOpponentHp
+      || validResource(this.opponent.combatAmmo) && this.opponent.combatAmmo !== active.duelOpponentAmmo
+      || Boolean(this.opponentMount && this.opponentMount.currentHp !== active.duelOpponentMountHp)
+    const playerStats = this.tracker?.checkpoint()
+    const statsChanged = Boolean(playerStats && (Object.keys(playerStats) as (keyof typeof playerStats)[])
+      .some(key => playerStats[key] !== (active.playerStats?.[key] ?? 0)))
+    const travel = active.duelTier === 5 ? this.travelCheckpoint(this.actors, this.staging) : undefined
+    const samePosition = (left: CareerDuelTravelCheckpoint['player'], right: CareerDuelTravelCheckpoint['player'] | undefined) =>
+      Boolean(right && left.x === right.x && left.y === right.y && left.z === right.z && left.yaw === right.yaw)
+    const travelChanged = Boolean(travel && (travel.staging !== active.duelTravel?.staging
+      || !samePosition(travel.player, active.duelTravel?.player)
+      || Object.entries(travel.actors).some(([id, position]) => !samePosition(position, active.duelTravel?.actors[id]))))
+    const immediate = resourceChanged
+      || this.opponent.dead !== Boolean(active.duelOpponentDead)
+      || player.dead && !active.playerDead
+      || this.combatElapsed >= DUEL_COMBAT_SECONDS && (active.duelCombatElapsed ?? 0) < DUEL_COMBAT_SECONDS
+    // Movement, clocks and continuous stamina drain/recovery share the periodic cadence.
+    const periodic = this.countdownElapsed !== (active.duelCountdownElapsed ?? 0)
+      || this.combatElapsed !== (active.duelCombatElapsed ?? 0)
+      || this.routeIndex !== (active.routeStage ?? 0)
+      || stamina !== undefined && stamina !== active.duelPlayerStamina
+      || travelChanged || statsChanged
+    this.checkpoint.persist(() => this.runtimeMission(active), { immediate, periodic, force })
   }
 
   cleanupMission(): void {
@@ -330,6 +367,12 @@ export class CareerDuelController {
     for (const actor of this.actors) { actor.setDuelHostility(false); actor.restoreCombatLoadout(); actor.setTacticalOrder('attack') }
     if (this.commanderHome && this.missionOpponent) restoreCareerDuelCommander(this.missionOpponent, this.commanderHome)
     this.commanderHome = null
+    // Borrowed Town mounts belong to their residents. Only this mission's mount is disposed.
+    if (this.ownedDuelMount) {
+      this.ownedDuelMount.releaseRider()
+      this.ownedDuelMount.dispose()
+      this.ownedDuelMount = null
+    }
     this.missionActors = []
     this.missionMounts = []
     this.missionCaptain = this.missionOpponent = this.missionReferee = this.routeLeader = null
@@ -338,6 +381,7 @@ export class CareerDuelController {
     this.routeIndex = 0
     this.staging = false
     this.externalCombat.clear()
+    this.checkpoint.reset()
   }
   dispose(): void { this.cleanupMission() }
 

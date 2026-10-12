@@ -117,7 +117,7 @@
 - `TownSiegeGateClosure` 按 `TOWN_GATES` yaw 推出 closure volume 中所有 Player／NPC／Mount，不依 faction、不造成傷害／combat attribution；mounted rider 與 mount 一起移動。被推出的守軍留在城外；完整進城者不移動。首次部署關門後更新 navigation topology，進場倒數完成才 ATTACKING。
 - Siege 各隊先接近自己門，近戰沿既有 NPC obstacle damage 破門，遠程在外支援；不能改走別門。只有敵方致命攻擊破門才釋放該門 AI 步兵與 cavalry reserve（含同場 reload），之後使用原生 Charge 自由追敵；其他門繼續守住自己的部署位置。部署 finalizer 只有在原生 formation 仍有效時才能沿用快取目的地，避免戰鬥準備清掉 formation 後留下 Charge。玩家正式隊定位後由玩家命令接管，不等待破門。NPC mission combat target 覆蓋一般、快取與遠程換敵選擇，任務清理後恢復原生選敵，攻方實際穿過本門才自由清城。Leader 死亡由同隊存活者接替。Roster 建立後所有死亡（含 PREPARING）永久計戰損，reload 保存 roster／位置／HP／失馬／準備時間／gate HP與breach／reserve release／crossing；同場 reload 不修門，結算返回恢復正常 open。缺少新 Siege state 的舊 Town War 取消回 Town，不做 migration。
 - Bandit 與敵方 roaming cavalry 全滅後各自等 60 秒才從 map edge 整隊回補；友方 roaming cavalry 保留既有政策，被 Siege claim 者直到結束才歸還外圍生命週期。Captain 敵巡為 T2；正式 Commander 敵巡為三隊各五名 T4 Captain、五名 T4 Ranger，使用各自獨立英雄坐騎。編制變更等既有 encounter 結束後進入 RETIRING，實際返回 map edge 才換新 generation；冷卻不因任命重設。Town 保存敵巡 tier、generation、部署／退場／交戰狀態、HP／ammo／失馬與剩餘冷卻，尚未 materialize 的已保存成員也保留。正式 Siege 場景暫存 Commander 敵巡原快照、不生成額外精銳或借其英雄填普通攻方 slots；成功結算後以原 generation／戰損／剩餘冷卻恢復，Captain 舊 T2 借兵照舊；Bandit 仍僅保存原 timer／generation。
-- `CareerMissionCheckpoint` 擁有 controller checkpoint 的 5 秒 clock、立即／週期保存資格、profile clone 與同步提交，成功才重設 clock；失敗由 controller 下次提供最新快照重試。各任務保留快照生產、phase guard 及保存頻率：Bandit 的 route／傷亡立即保存，stats／騎兵位置走週期；城防時間每 1 秒、傷亡等變化立即保存；Duel 每次 runtime 快照變化立即保存。立即保存也包含當前完整快照，force 只提前已變更的週期資料，不改存檔格式。
+- `CareerMissionCheckpoint` 擁有 controller checkpoint 的 5 秒 clock、立即／週期保存資格、profile clone 與同步提交，成功才重設 clock；失敗由 controller 下次提供最新快照重試。各任務保留快照生產、phase guard 及保存頻率：Bandit 的 route／傷亡立即保存，stats／騎兵位置走週期；城防時間每 1 秒、傷亡等變化立即保存；Duel 的 HP／ammo、死亡、phase／結果變化立即保存，位置、倒數與體力走 5 秒週期；Town combat 於 actor 更新後提交最新快照。立即保存也包含當前完整快照，force 只提前已變更的週期資料，不改存檔格式。
 - visual faction 與 `CombatFaction` 分開；城鎮平時不敵視 Player。首次有效犯罪先保存 hostile event，保存失敗則不施加第一擊；只在死亡／建物摧毀時保存終止狀態。自由遭遇與官方任務不等同城鎮犯罪。
 - `TownEvent` 結算要求完整居民登記；玩家死亡優先。結算按 event ID 冪等，先保存再轉場；不是每個角色 HP／位置的完整快照。
 - `CareerTownDialogue` 集中和平對話與 rank 選擇；`TownEquipment` 只允許已擁有且符合軍階的裝備，不把城鎮拔武器狀態寫進其他模式。
@@ -161,4 +161,4 @@ Town Center 與 Barracks 建築已移除，武器店／馬店位於原 Town Cent
 
 正常 Career Town 以 `TownCommander` 明確加入唯一 `commander` 服務居民，預載本陣營既有 T5 資產；共用 enemy／formal defense roster 不增加 Commander。守城原地結算後透過原 scheduler 回補服務居民並原子登記 TownEvent，失敗可重試。`CareerPromotionAuthority` 與 TownScene 任命入口共同驗證實際服務 NPC：Captain 僅任命至 Captain，Commander 才能任命 Commander，並在資產載入後重查權限再提交原身份交易。
 
-T5 Duel 擴充既有 Duel tier（不擴充 UnitTier），要求正式 Commander 與同 preset 的 T4 勝利；借用唯一 Commander 為步行對手、Captain 裁判，依選擇配置既有 T4 武器。原始 HP／ammo、實際 travel checkpoint 及 T5 進度經正式存檔保存，成功結算後恢復原裝備與服務狀態；一般城鎮重建沿用同陣營服務資源恢復記錄。
+T5 Duel 擴充既有 Duel tier（不擴充 UnitTier），要求正式 Commander 與同 preset 的 T4 勝利；借用唯一 Commander 為對手、Captain 裁判，依選擇配置既有 T4 武器；騎兵 preset 由 Duel 獨立建立合法 T4 臨時坐騎，不借用居民或 Player 坐騎。Duel 保存坐騎 HP／死亡，重載不復活失馬，cleanup 僅釋放自己建立的坐騎，Commander 平時仍步行。原始 HP／ammo、實際 travel checkpoint 及 T5 進度經正式存檔保存，成功結算後恢復原裝備與服務狀態；一般城鎮重建沿用同陣營服務資源恢復記錄。
