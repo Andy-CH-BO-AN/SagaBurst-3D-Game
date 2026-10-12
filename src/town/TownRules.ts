@@ -58,7 +58,7 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
   const base = UNIT_PRESETS[presetId].tierLoadouts[tier]
   // Town owns mount placement; only standard hero equipment comes from the T4 catalog.
   return { presetId, tier, level, loadout: level === 4
-    ? { ...resolveT4UnitLoadout(presetId), mountId: role === 'commander' ? null : base.mountId } : { ...base } }
+    ? { ...resolveT4UnitLoadout(presetId), mountId: base.mountId } : { ...base } }
 }
 export const TOWN_SITES = {
   /** Retained legacy landmark; no Town Center building is materialized. */
@@ -376,7 +376,7 @@ export function sellTownProducts(current: CareerProfile, productIds: readonly st
 /** Town officers use the faction's canonical T4 profile for their mounted or foot role. */
 export function townActorHeroProfile(faction: CharacterFaction, spec: TownActorSpec) {
   if (spec.role === 'deployment') return T4_UNIT_PROFILES[faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker']
-  if (spec.role === 'captain' || spec.role === 'hr-officer') return townCaptainProfile(faction)
+  if (spec.role === 'captain' || spec.role === 'commander' || spec.role === 'hr-officer') return townCaptainProfile(faction)
   if (spec.duty === 'patrol' && spec.patrolLeader) return townCaptainProfile(faction)
   return undefined
 }

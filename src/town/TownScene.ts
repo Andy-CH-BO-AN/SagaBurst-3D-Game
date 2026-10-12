@@ -1340,7 +1340,7 @@ export class TownScene {
       const title = document.createElement('strong'); title.textContent = `T${tier} ${selected.nameEn}`
       const details = document.createElement('small')
       const unlocked = isCareerDuelUnlocked(this.profile, selected.id, tier)
-      details.textContent = unlocked ? `5 秒準備 · 30 秒內擊敗對手${tier === 5 ? ' · Commander 出戰，Captain 裁判' : tier === 4 ? selected.traits.includes('bow_fire') ? ' · Maki 出戰' : ' · Captain 出戰，Maki 裁判' : ''}` : `${tier === 5 ? '正式晉升 Commander，並' : ''}先擊敗 T${tier - 1} ${selected.nameEn}`
+      details.textContent = unlocked ? `5 秒準備 · 30 秒內擊敗對手${tier === 5 ? ' · Commander 出戰，Captain 裁判' : tier === 4 ? selected.traits.includes('bow_fire') ? ' · Maki 出戰' : ' · Captain 出戰，Maki 裁判' : ''}` : `先擊敗 T${tier - 1} ${selected.nameEn}`
       const accept = document.createElement('button'); accept.className = 'town-button'; accept.textContent = unlocked ? '接受單挑' : 'Locked'; accept.disabled = !unlocked
       accept.onclick = () => this.acceptDuel(selected.id, tier)
       row.append(title, details, accept); panel.append(row)
@@ -1890,6 +1890,8 @@ export class TownScene {
     const combatActive = !this.result && (this.event?.hostile || Boolean(active && !active.result && active.phase !== 'RETURNING'))
     const combatId = active?.id ?? this.profile.townEvent?.id ?? 'field'
     if (combatActive) for (const resident of this.residents ?? []) {
+      // T5 borrows the Commander only; its parked service mount never becomes duel loot.
+      if (active?.kind === 'duel' && active.duelTier === 5 && resident.spec.id === 'commander') continue
       const mount = resident.homeMount
       if (resident.npc.dead && mount && !mount.dead && mount !== owned
         && !resident.spec?.eagle && mount !== this.cat && !(this.stableHorses ?? []).includes(mount)) this.temporaryMounts.track(mount, combatId)

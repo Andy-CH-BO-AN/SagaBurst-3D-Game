@@ -67,13 +67,17 @@ export function selectCareerDuelRoster(residents: readonly CareerDuelResident[],
 }
 
 /** The resident's normal loadout remains authoritative; only its borrowed resources were saved. */
-export function restoreCareerDuelCommander(npc: NPC, home: CareerDuelCommanderHome): void {
+export function restoreCareerDuelCommander(npc: NPC, home: CareerDuelCommanderHome, homeMount?: Mount): void {
   const yaw = npc.group.rotation.y
   npc.dismountFromMount()
   npc.restoreForTown()
   npc.group.rotation.y = yaw
   npc.restoreCombatHealth(home.hp)
   npc.restoreCombatAmmo(home.ammo)
+  if (homeMount) {
+    homeMount.restoreForTown(npc.group.position.x, npc.group.position.z, yaw)
+    npc.mountVehicle(homeMount)
+  }
 }
 
 const MARCH_SPEED = 6
@@ -175,6 +179,8 @@ export class CareerDuelController {
     this.missionReferee = referee.npc
     this.missionActors = [...new Set([captain.npc, opponent.npc, referee.npc])]
     this.missionMounts = [...new Set(this.missionActors.flatMap(actor => {
+      // The Commander's service mount stays at home; T5 owns a separate selected-class mount.
+      if (active.duelTier === 5 && actor === opponent.npc) return []
       const resident = this.residents.find(candidate => candidate.npc === actor)
       return [actor.mount, resident?.homeMount].filter((mount): mount is Mount => Boolean(mount))
     }))]
@@ -185,6 +191,7 @@ export class CareerDuelController {
     if (active.duelOpponentAmmo !== undefined) opponent.npc.restoreCombatAmmo(active.duelOpponentAmmo)
     const originalMount = opponent.homeMount ?? opponent.npc.mount
     opponent.npc.dismountFromMount()
+    if (active.duelTier === 5 && originalMount) originalMount.visualHold = true
     if (selected.mountId) {
       const mount = active.duelTier === 5
         ? this.createMount(this.scene, selected.mountId, opponent.npc.group.position.x, opponent.npc.group.position.z)
@@ -365,7 +372,11 @@ export class CareerDuelController {
     this.tracker?.dispose()
     this.tracker = null
     for (const actor of this.actors) { actor.setDuelHostility(false); actor.restoreCombatLoadout(); actor.setTacticalOrder('attack') }
-    if (this.commanderHome && this.missionOpponent) restoreCareerDuelCommander(this.missionOpponent, this.commanderHome)
+    if (this.commanderHome && this.missionOpponent) {
+      const resident = this.residents.find(candidate => candidate.npc === this.missionOpponent)
+      this.missionOpponent.group.rotation.y = resident?.spec.yaw ?? Math.PI
+      restoreCareerDuelCommander(this.missionOpponent, this.commanderHome, resident?.homeMount)
+    }
     this.commanderHome = null
     // Borrowed Town mounts belong to their residents. Only this mission's mount is disposed.
     if (this.ownedDuelMount) {

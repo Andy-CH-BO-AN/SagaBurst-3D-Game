@@ -20,6 +20,10 @@ function mountStub() {
     group: new THREE.Group(), dispose: vi.fn(), dead: false, currentHp: 100, maxHp: 100, riderNpc: null as unknown,
     catVisual: { setEquipmentVisible: vi.fn() },
     releaseRider: vi.fn(() => { mount.riderNpc = null }),
+    restoreForTown: vi.fn((x: number, z: number, yaw: number) => {
+      mount.riderNpc = null; mount.dead = false; mount.currentHp = mount.maxHp
+      mount.group.position.set(x, 0, z); mount.group.rotation.y = yaw
+    }),
     takeDamage: vi.fn((amount: number) => { mount.currentHp = Math.max(0, mount.currentHp - amount); mount.dead = mount.currentHp === 0; if (mount.dead) mount.riderNpc = null }),
   }
   return mount as unknown as Mount
@@ -53,7 +57,7 @@ function harness(faction: 'roman' | 'viking' = 'roman', initial?: CareerProfile,
     const loadout = spec.role === 'ranger' ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null, mountId: null } : equipment.loadout
     const npc = actorStub(spec.id, equipment.presetId, loadout)
     npc.group.position.set(spec.x, 0, spec.z)
-    const homeMount = spec.role.includes('cavalry') || spec.role === 'captain' ? mountStub() : undefined
+    const homeMount = spec.role.includes('cavalry') || spec.role === 'captain' || spec.role === 'commander' ? mountStub() : undefined
     if (homeMount) { homeMount.group.position.copy(npc.group.position); npc.mountVehicle(homeMount) }
     return { spec, npc, homeMount }
   })
@@ -94,7 +98,8 @@ describe('Career Duel existing actor and loadout selection', () => {
     const faction = UNIT_PRESETS[preset].faction
     const h = harness(faction, { ...createCareerProfile(faction), rank: 'commander',
       duelHighestDefeatedTierByPreset: { [preset]: 4 } }, true)
-    const commander = h.residents.find(r => r.spec.role === 'commander')!.npc
+    const commanderResident = h.residents.find(r => r.spec.role === 'commander')!
+    const commander = commanderResident.npc
     commander.restoreCombatHealth(73); commander.restoreCombatAmmo(11)
     const canonical = { ...commander.loadout }
     const roster = selectCareerDuelRoster(h.residents, h.blackCat, preset, 5)!
@@ -109,13 +114,14 @@ describe('Career Duel existing actor and loadout selection', () => {
       : { meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4', shieldId: 'paladin_shield_t4', mountId })
     h.start(preset, 5)
     const temporaryMount = commander.mount
+    expect(h.controller.allMounts).not.toContain(commanderResident.homeMount)
     expect(h.createMount).toHaveBeenCalledTimes(mountId ? 1 : 0)
     if (mountId) {
       expect(temporaryMount).not.toBe(h.blackCat)
       expect(h.residents.every(r => r.homeMount !== temporaryMount)).toBe(true)
       expect(temporaryMount!.reservedForTown).toBe(true)
       expect(h.controller.allMounts).toContain(temporaryMount)
-    }
+    } else expect(commander.mount).toBeNull()
     expect(h.controller.actors).toHaveLength(2)
     expect(h.controller.opponent).toBe(commander)
     expect(h.controller.referee).toBe(h.controller.captain)
@@ -124,7 +130,8 @@ describe('Career Duel existing actor and loadout selection', () => {
     commander.takeDamage(9999)
     h.controller.cleanupMission()
     if (temporaryMount) expect(temporaryMount.dispose).toHaveBeenCalledOnce()
-    expect(commander.mount).toBeNull()
+    expect(commander.mount).toBe(commanderResident.homeMount)
+    expect(commanderResident.homeMount!.dispose).not.toHaveBeenCalled()
     expect(commander.dead).toBe(false)
     expect(commander.hp).toBe(73)
     expect(commander.combatAmmo).toBe(11)

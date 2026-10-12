@@ -242,6 +242,11 @@ describe('Town mission return saving and recovery through the settlement interfa
       targetActorIds: ['commander'], friendlyActorIds: ['captain'], duelCommanderHome: { hp: 613, ammo: 17 } })
     const commander = f.town.residents[1]
     commander.spec.id = 'commander'; commander.spec.role = 'commander'; commander.spec.yaw = 1.2
+    const serviceMount = { restoreForTown: vi.fn(), dispose: vi.fn() }
+    commander.homeMount = serviceMount as unknown as Mount
+    let mounted: Mount | null = null
+    vi.mocked(commander.npc.dismountFromMount).mockImplementation(() => { mounted = null })
+    vi.mocked(commander.npc.mountVehicle).mockImplementation(mount => { mounted = mount })
     vi.mocked(commander.npc.restoreForTown).mockImplementation(() => { Object.assign(commander.npc, { dead: false }); commander.npc.group.rotation.y = 0 })
     let hp = 0, ammo = 2
     Object.assign(commander.npc, {
@@ -262,6 +267,8 @@ describe('Town mission return saving and recovery through the settlement interfa
       expect(commander.npc.dead).toBe(false)
       expect(hp).toBe(613); expect(ammo).toBe(17)
       expect(commander.npc.group.rotation.y).toBeCloseTo(1.2)
+      expect(mounted).toBe(serviceMount)
+      expect(serviceMount.dispose).not.toHaveBeenCalled()
       expect(f.threats.has(commander.npc)).toBe(false)
       expect(commander.cycle).toBe(-1)
     } else expect(f.town.restart).toHaveBeenCalledOnce()

@@ -63,12 +63,11 @@ export function careerDuelPresets(faction: CharacterFaction): UnitPreset[] {
 }
 
 export function isCareerDuelUnlocked(
-  profile: Pick<CareerProfile, 'faction' | 'rank' | 'duelHighestDefeatedTierByPreset'>,
+  profile: Pick<CareerProfile, 'faction' | 'duelHighestDefeatedTierByPreset'>,
   presetId: UnitPresetId,
   tier: CareerDuelTier,
 ): boolean {
   if (!isCareerDuelPresetId(presetId) || UNIT_PRESETS[presetId].faction !== profile.faction || !isCareerDuelTier(tier)) return false
-  if (tier === 5 && profile.rank !== 'commander') return false
   return tier === 1 || (profile.duelHighestDefeatedTierByPreset?.[presetId] ?? 0) >= tier - 1
 }
 

@@ -8,8 +8,9 @@ import {
   isCareerDuelUnlocked, resolveCareerDuelOutcome, type CareerDuelTier,
 } from '../../src/career/CareerDuelState'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
-import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, promoteCareer, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { canAppointCareerRank } from '../../src/career/CareerPromotionAuthority'
 
 const stats = { damageDealt: 160, damageTaken: 20, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 
@@ -31,24 +32,23 @@ describe('Career Duel progression per unit preset', () => {
     expect(careerDuelPresets(faction).map(preset => preset.id)).toEqual(faction === 'roman' ? ROMAN_PRESET_IDS : VIKING_PRESET_IDS)
     for (const preset of careerDuelPresets(faction)) {
       expect(isCareerDuelUnlocked(profile, preset.id, 1)).toBe(true)
-      for (const tier of [2, 3, 4] as const) expect(isCareerDuelUnlocked(profile, preset.id, tier)).toBe(false)
+      for (const tier of [2, 3, 4, 5] as const) expect(isCareerDuelUnlocked(profile, preset.id, tier)).toBe(false)
     }
   })
 
   it('unlocks Archer tiers in order and never unlocks other units', () => {
     let profile = createCareerProfile('roman')
-    for (const tier of [1, 2, 3] as const) {
+    for (const tier of [1, 2, 3, 4] as const) {
       profile = win(profile, 'roman_archer', tier)
       expect(profile.duelHighestDefeatedTierByPreset).toEqual({ roman_archer: tier })
-      expect(isCareerDuelUnlocked(profile, 'roman_archer', (tier + 1) as UnitTier)).toBe(true)
-      if (tier < 3) expect(isCareerDuelUnlocked(profile, 'roman_archer', (tier + 2) as UnitTier)).toBe(false)
+      expect(isCareerDuelUnlocked(profile, 'roman_archer', (tier + 1) as CareerDuelTier)).toBe(true)
+      if (tier < 4) expect(isCareerDuelUnlocked(profile, 'roman_archer', (tier + 2) as CareerDuelTier)).toBe(false)
       for (const other of ['roman_spearman', 'roman_heavy_infantry', 'roman_sword_cavalry', 'roman_lancer', 'roman_horse_archer', 'roman_javelin_infantry'] as const) {
         expect(isCareerDuelUnlocked(profile, other, 1)).toBe(true)
         expect(isCareerDuelUnlocked(profile, other, 2)).toBe(false)
       }
     }
-    profile = win(profile, 'roman_archer', 4)
-    for (const tier of [1, 2, 3, 4] as const) expect(isCareerDuelUnlocked(profile, 'roman_archer', tier)).toBe(true)
+    for (const tier of [1, 2, 3, 4, 5] as const) expect(isCareerDuelUnlocked(profile, 'roman_archer', tier)).toBe(true)
   })
 
   it('keeps concurrent Archer, Spearman and Cavalry progress independent, including through reload', () => {
@@ -89,18 +89,37 @@ describe('Career Duel progression per unit preset', () => {
 })
 
 describe('Career Duel settlement and safe storage', () => {
-  it('requires formal Commander appointment and a same-preset T4 victory for T5', () => {
-    const profile = { ...createCareerProfile('roman'), totalMerit: 20000,
-      rank: 'captain' as const, duelHighestDefeatedTierByPreset: { roman_archer: 4 as const, roman_lancer: 3 as const } }
-    expect(isCareerDuelUnlocked(profile, 'roman_archer', 5)).toBe(false)
-    expect(createCareerDuelMission(profile, 'roman_archer', 5, 'commander', 'captain')).toBeNull()
-    const appointed = { ...profile, rank: 'commander' as const }
-    expect(isCareerDuelUnlocked(appointed, 'roman_archer', 5)).toBe(true)
-    expect(isCareerDuelUnlocked(appointed, 'roman_lancer', 5)).toBe(false)
-    expect(createCareerDuelMission(appointed, 'roman_archer', 5, 'captain', 'captain', 'wrong', 'ranger')).toBeNull()
-    expect(createCareerDuelMission({ ...appointed, townEvent: { id: 'war', state: 'hostile' } }, 'roman_archer', 5, 'commander', 'captain')).toBeNull()
-    const active = duel(appointed, 'roman_archer', 5)
+  it.each(['captain', 'veteran'] as const)('unlocks and accepts T5 for %s after its own T4 victory without a merit requirement', rank => {
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank,
+      duelHighestDefeatedTierByPreset: { roman_archer: 4, roman_lancer: 3 } }
+    expect(isCareerDuelUnlocked(profile, 'roman_archer', 5)).toBe(true)
+    expect(createCareerDuelMission(profile, 'roman_archer', 5, 'commander', 'captain')).toMatchObject({ duelTier: 5 })
+    for (const other of ROMAN_PRESET_IDS.filter(id => id !== 'roman_archer')) {
+      expect(isCareerDuelUnlocked(profile, other, 5)).toBe(false)
+      expect(createCareerDuelMission(profile, other, 5, 'commander', 'captain')).toBeNull()
+    }
+    expect(createCareerDuelMission(profile, 'roman_archer', 5, 'captain', 'captain', 'wrong', 'ranger')).toBeNull()
+    expect(createCareerDuelMission({ ...profile, townEvent: { id: 'war', state: 'hostile' } }, 'roman_archer', 5, 'commander', 'captain')).toBeNull()
+    const active = duel(profile, 'roman_archer', 5)
     expect(createCareerDuelMission(active, 'roman_archer', 5, 'commander', 'captain')).toBeNull()
+  })
+
+  it.each([
+    ['veteran', 4999, 'captain', 'captain'],
+    ['captain', 19999, 'commander', 'commander'],
+  ] as const)('a %s T5 victory crossing the next merit threshold still requires formal appointment', (rank, totalMerit, authority, nextRank) => {
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank, totalMerit,
+      duelHighestDefeatedTierByPreset: { roman_archer: 4 } }
+    expect(canAppointCareerRank(profile, authority)).toBe(false)
+    expect(promoteCareer(profile)).toBeNull()
+    const settled = win(profile, 'roman_archer', 5)
+    expect(settled.duelHighestDefeatedTierByPreset).toEqual({ roman_archer: 5 })
+    expect(settled.totalMerit).toBe(totalMerit + 26)
+    expect(settled.rank).toBe(rank)
+    expect(canAppointCareerRank(settled, authority)).toBe(true)
+    expect(canAppointCareerRank(settled, authority === 'captain' ? 'commander' : 'captain')).toBe(false)
+    expect(promoteCareer(settled)?.rank).toBe(nextRank)
+    expect(settled.rank).toBe(rank)
   })
 
   it('saves T5 progress, original Commander resources and active travel through real storage and settlement', () => {
