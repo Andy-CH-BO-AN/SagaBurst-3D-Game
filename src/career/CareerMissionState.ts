@@ -1,3 +1,4 @@
+import type { CareerDuelTier, CareerDuelCommanderHome, CareerDuelTravelCheckpoint } from './CareerDuelState'
 import type { TownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
 import type { TownPatrolReturnState } from '../town/TownCavalryPatrolController'
 import type { OfficialCommandAuthority } from './CareerCommandAuthority'
@@ -6,7 +7,7 @@ import type { CaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { newTownSiegeState, type TownSiegeState } from './TownSiege'
 import type { BattleStatsSnapshot, PlayerBattleStatsCheckpoint, PlayerCommandMeritPolicy } from '../combat/BattleStatsTracker'
 import type { CombatEvent } from '../combat/CombatAttribution'
-import type { UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
+import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CareerMountId, CareerRank } from './CareerProfile'
 import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 import { personalMissionSourcePolicy, type PersonalSquadMission } from './CareerPersonalSquadMission'
@@ -75,7 +76,9 @@ export interface ActiveCareerMission {
   deadCivilianActorIds?: string[]
   playerDead?: boolean
   playerStats?: PlayerBattleStatsCheckpoint
-  duelTier?: UnitTier
+  duelCommanderHome?: CareerDuelCommanderHome
+  duelTravel?: CareerDuelTravelCheckpoint
+  duelTier?: CareerDuelTier
   duelPresetId?: UnitPresetId
   duelOpponentActorId?: string
   duelCaptainActorId?: string

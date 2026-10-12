@@ -1,5 +1,5 @@
 import type { BanditMissionController } from '../career/BanditMissionController'
-import type { CareerDuelController } from '../career/CareerDuelController'
+import { restoreCareerDuelCommander, type CareerDuelController } from '../career/CareerDuelController'
 import type { TownDefenseController } from '../career/TownDefenseController'
 import { claimCareerMission, clearCareerMission, type CareerProfile } from '../career/CareerProfile'
 import type { CareerMissionOutcome, CareerMissionResult } from '../career/CareerMissionState'
@@ -165,7 +165,12 @@ export class TownMissionSettlement {
         } else if (resident.spec.duty === 'patrol' && resident.spec.id && this.town.beginPatrolMissionReturn) {
           this.town.releaseExternalThreat(resident.npc)
           this.town.beginPatrolMissionReturn(resident.spec.id)
-        } else this.restoreResident(resident)
+        } else {
+          this.restoreResident(resident)
+          if (active.kind === 'duel' && active.duelTier === 5 && resident.spec.id === 'commander' && active.duelCommanderHome) {
+            restoreCareerDuelCommander(resident.npc, active.duelCommanderHome, resident.homeMount)
+          }
+        }
       }
     }
     if (defense || active.kind === 'duel' || this.town.cat.dead) this.restoreCat()

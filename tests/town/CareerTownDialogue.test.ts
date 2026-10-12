@@ -1,3 +1,4 @@
+import { canAppointCareerRank, careerPromotionAuthority } from '../../src/career/CareerPromotionAuthority'
 import { careerItemTotal } from '../../src/career/CareerInventory'
 import { describe, expect, it } from 'vitest'
 import { CAREER_TOWN_DIALOGUE, selectTownDialogue, formatTownDialogue, TownAmbientDialogue, type DialogueRole } from '../../src/career/CareerTownDialogue'
@@ -12,7 +13,7 @@ import { resolveEntityCollision, resolveObstacleCollision } from '../../src/worl
 import * as THREE from 'three'
 
 describe('Peaceful dialogue', () => {
-  it.each(['merchant', 'ranger', 'cat', 'captain', 'deployment'] as DialogueRole[])('%s has distinct faction voices and rank greetings', npcRole => {
+  it.each(['merchant', 'ranger', 'cat', 'captain', 'commander', 'deployment'] as DialogueRole[])('%s has distinct faction voices and rank greetings', npcRole => {
     for (const rank of CAREER_RANKS) {
       const base = { npcRole, playerRank: rank }
       expect(selectTownDialogue({ ...base, townFaction: 'roman' })).not.toBe(selectTownDialogue({ ...base, townFaction: 'viking' }))
@@ -113,5 +114,47 @@ describe('Town physical contact and allegiance', () => {
     npc.takeDamage(12); npc.beginTownHostility()
     expect(npc.hp).toBe(38); expect((npc as any)._findTarget(player, []).isPlayer).toBe(true)
     expect(Faction.BANDIT).not.toBe(Faction.TOWN)
+  })
+})
+
+describe('Career appointment authority', () => {
+  it.each([
+    ['recruit', 'captain'], ['soldier', 'captain'], ['veteran', 'captain'], ['captain', 'commander'], ['commander', null],
+  ] as const)('%s can only be appointed by %s even with enough merit', (rank, authority) => {
+    const profile = createCareerProfile('roman'); profile.rank = rank; profile.totalMerit = 30000
+    expect(careerPromotionAuthority(rank)).toBe(authority)
+    for (const role of ['captain', 'commander', 'merchant']) expect(canAppointCareerRank(profile, role)).toBe(role === authority)
+    expect(profile.rank).toBe(rank)
+  })
+  it('uses 20000 enlistment merit rather than lifetime or available merit for Commander', () => {
+    const profile = createCareerProfile('roman'); profile.rank = 'captain'
+    profile.totalMerit = 30000; profile.enlistmentMeritBase = 10001; profile.availableMerit = 30000
+    expect(canAppointCareerRank(profile, 'commander')).toBe(false)
+    profile.enlistmentMeritBase = 10000; profile.availableMerit = 0
+    expect(canAppointCareerRank(profile, 'commander')).toBe(true)
+    expect(canAppointCareerRank(profile, 'captain')).toBe(false)
+    expect(profile.rank).toBe('captain')
+  })
+  it.each([
+    ['roman', '你的戰績已經超出我的任命權限。想晉升 Commander，就去找指揮官。他會親自審核你的軍功。',
+      '你還不是隊長。先回去找騎兵隊長完成你的任命，再來見我。',
+      '想成為指揮官，你必須先證明自己能承擔整支軍隊的責任。20,000 軍功是最低要求。',
+      '你的戰績已達到指揮官任命標準。我將正式授予你 Commander 軍階。你準備好承擔這份責任了嗎？',
+      '指揮官，現在你需要證明的，不再是自己的劍術，而是你能否帶領整支軍隊取得勝利。'],
+    ['viking', '哈，你已經是隊長了！想當指揮官？這可不是我說了算。去找指揮官，讓他看看你有沒有那個本事！',
+      '你連隊長都還不是，就想來找我？先去找你的隊長！',
+      '想指揮整支軍隊？那就拿出 20,000 軍功來證明自己。光有膽子可不夠。',
+      '哈！終於來了個像樣的傢伙！你的戰績夠格了。從今天開始，你就是 Commander。準備好讓整支軍隊聽你的命令了嗎？',
+      '現在你也是指揮官了。別讓我發現你只會帶著士兵一起送死！'],
+  ] as const)('%s officers use the requested rank-specific appointment dialogue', (townFaction, referral, lower, insufficient, eligible, complete) => {
+    for (const promotionEligible of [false, true]) {
+      expect(selectTownDialogue({ townFaction, npcRole: 'captain', playerRank: 'captain', promotionEligible, nextRank: 'commander' }, 'promotion')).toBe(referral)
+    }
+    for (const playerRank of ['recruit', 'soldier', 'veteran'] as const) {
+      expect(selectTownDialogue({ townFaction, npcRole: 'commander', playerRank, promotionEligible: true }, 'promotion')).toBe(lower)
+    }
+    expect(selectTownDialogue({ townFaction, npcRole: 'commander', playerRank: 'captain' }, 'promotion')).toBe(insufficient)
+    expect(selectTownDialogue({ townFaction, npcRole: 'commander', playerRank: 'captain', promotionEligible: true }, 'promotion')).toBe(eligible)
+    expect(selectTownDialogue({ townFaction, npcRole: 'commander', playerRank: 'commander', promotionEligible: true }, 'promotion')).toBe(complete)
   })
 })

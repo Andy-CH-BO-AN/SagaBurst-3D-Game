@@ -1,3 +1,4 @@
+import type { CareerDuelTier, CareerDuelCommanderHome } from './CareerDuelState'
 import { cloneOfficialCommandAuthority, cloneTownCommandSquad, type TownCommandSquadState } from './CareerCommandAuthority'
 import type { TownEagleGarrisons } from '../town/TownEagleGarrisonState'
 import type { CareerAerialState } from './CareerAerialState'
@@ -9,7 +10,7 @@ import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { PlayerMountId } from '../battle/BattleConfig'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import type { UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
+import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import { createDefaultSkillState, normalizeSkillState, type SkillState } from '../rpg/SkillManager'
 import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
 import { careerMissionTierForTemplateId, type CareerMissionTier } from './CareerMissionTier'
@@ -97,8 +98,10 @@ export interface CareerProfile {
   /** Mission-board tiers are independent of the player's current rank. */
   careerMissionCompletionsByTier?: Partial<Record<CareerMissionTier, number>>
   completedCareerMissionTemplateIds?: string[]
+  /** Original service resources retained through Duel settlement and scene reconstruction. */
+  townCommanderRecovery?: CareerDuelCommanderHome & { faction: CharacterFaction }
   /** Each unit preset unlocks only its own next Duel tier. */
-  duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, UnitTier>>
+  duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, CareerDuelTier>>
   townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[]; authorizedTownCommandActorIds?: string[] }
 
   townEagleGarrisons?: TownEagleGarrisons
@@ -293,7 +296,7 @@ export function claimCareerMission(
       if (active.duelPresetId && active.duelTier) {
         profile.duelHighestDefeatedTierByPreset = {
           ...profile.duelHighestDefeatedTierByPreset,
-          [active.duelPresetId]: Math.max(profile.duelHighestDefeatedTierByPreset?.[active.duelPresetId] ?? 0, active.duelTier) as UnitTier,
+          [active.duelPresetId]: Math.max(profile.duelHighestDefeatedTierByPreset?.[active.duelPresetId] ?? 0, active.duelTier) as CareerDuelTier,
         }
       }
     } else recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
@@ -322,7 +325,11 @@ export function claimCareerMission(
 
 export function clearCareerMission(current: CareerProfile, missionId: string): CareerProfile {
   const profile = cloneCareerProfile(current)
-  if (profile.activeMission?.id === missionId) delete profile.activeMission
+  if (profile.activeMission?.id === missionId) {
+    const home = profile.activeMission.duelTier === 5 ? profile.activeMission.duelCommanderHome : undefined
+    if (home) profile.townCommanderRecovery = { ...home, faction: profile.faction }
+    delete profile.activeMission
+  }
   return profile
 }
 
@@ -429,6 +436,7 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.townCommanderRecovery ? { townCommanderRecovery: { ...profile.townCommanderRecovery } } : {}),
     ...(profile.townCommandSquad ? { townCommandSquad: cloneTownCommandSquad(profile.townCommandSquad) } : {}),
     ...(profile.townEagleGarrisons ? { townEagleGarrisons: structuredClone(profile.townEagleGarrisons) } : {}),
     ...(profile.playerAerialState ? { playerAerialState: structuredClone(profile.playerAerialState) } : {}),
@@ -452,6 +460,8 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.duelHighestDefeatedTierByPreset ? { duelHighestDefeatedTierByPreset: { ...profile.duelHighestDefeatedTierByPreset } } : {}),
     ...(profile.activeMission ? { activeMission: {
       ...profile.activeMission,
+      ...(profile.activeMission.duelCommanderHome ? { duelCommanderHome: { ...profile.activeMission.duelCommanderHome } } : {}),
+      ...(profile.activeMission.duelTravel ? { duelTravel: structuredClone(profile.activeMission.duelTravel) } : {}),
       ...(profile.activeMission.officialSquad ? { officialSquad: cloneOfficialCommandAuthority(profile.activeMission.officialSquad) } : {}),
       ...(profile.activeMission.patrolOutskirts ? { patrolOutskirts: structuredClone(profile.activeMission.patrolOutskirts) } : {}),
       ...(profile.activeMission.patrolAmbient ? { patrolAmbient: cloneOfficialCommandAuthority(profile.activeMission.patrolAmbient) } : {}),

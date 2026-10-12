@@ -51,6 +51,7 @@ export class RecordingNpc {
   readonly bindCombatEventSink = vi.fn((_sink: CombatEventSink) => vi.fn())
   readonly setEagleFlightOrder = vi.fn()
   readonly setTownPeaceful = vi.fn()
+  readonly beginTownHostility = vi.fn()
   readonly configureBanditEncounter = vi.fn()
   readonly clearEncounter = vi.fn()
   readonly triggerEncounterAlert = vi.fn(() => { this.encounterIsAlerted = true })
@@ -59,6 +60,7 @@ export class RecordingNpc {
   readonly beginExternalThreat = vi.fn()
   readonly endExternalThreat = vi.fn()
   readonly restoreCombatLoadout = vi.fn()
+  readonly restoreForTown = vi.fn(() => { this.dead = false; this.hp = this.maxHp; this.restoreCombatLoadout() })
   readonly applyTemporaryCombatLoadout = vi.fn((loadout: ConstructorParameters<typeof NPC>[9], tier?: number, squadId?: number, presetId?: string) => {
     this.loadout = loadout; if (tier !== undefined) this.tier = tier; if (squadId !== undefined) this.squadId = squadId; if (presetId !== undefined) this.presetId = presetId
   })

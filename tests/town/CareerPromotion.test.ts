@@ -25,7 +25,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 // Exercises the real promotion, Player, shield, mount ownership and JSON save paths.
 // No TownWorld, NPCs, WebGL renderer or GLB payload is constructed.
 type PromotionTown = Pick<TownScene, 'player' | 'profile' | 'scene' | 'camera'> & {
-  acceptCareerPromotion(): Promise<boolean>
+  acceptCareerPromotion(role: 'captain' | 'commander'): Promise<boolean>
   commit(profile: CareerProfile): boolean
   closePanel(): void
   disposed: boolean
@@ -34,6 +34,7 @@ type PromotionTown = Pick<TownScene, 'player' | 'profile' | 'scene' | 'camera'> 
   skills: SkillManager
   inventory: TownEquipment
   notice: string
+  residents: { spec: { id: string; role: string }; npc: { dead: boolean } }[]
 }
 
 function fixture(faction: CareerProfile['faction'] = 'roman', mounted = false, rank: CareerProfile['rank'] = 'captain') {
@@ -53,7 +54,8 @@ function fixture(faction: CareerProfile['faction'] = 'roman', mounted = false, r
   const town = Object.assign(Object.create(TownScene.prototype), {
     profile, player: old, scene, camera, skills, store,
     disposed: false, promotionAttempt: null, panel: { remove: vi.fn() },
-    event: { hostile: false }, world: { obstacles: [], faction },
+    residents: ['captain', 'commander'].map(id => ({ spec: { id, role: id }, npc: { dead: false } })),
+    event: { hostile: false, allActors: new Map() }, world: { obstacles: [], faction },
     hp: { setFill: vi.fn() }, stamina: { setFill: vi.fn() },
     quiver: { setShieldBlocked() {}, setAiming() {}, setChargeRatio() {} },
     input: { keys: {}, isLeftMouseDown: false, isRightMouseDown: false,
@@ -80,10 +82,18 @@ function deferred() {
 }
 
 describe('Career appointment identity transaction', () => {
+  it('Captain cannot bypass Commander authority through the runtime appointment entry', async () => {
+    const { town, store, preload, old } = fixture()
+    expect(await town.acceptCareerPromotion('captain')).toBe(false)
+    expect(store.load()!.rank).toBe('captain')
+    expect(town.player).toBe(old)
+    expect(preload).not.toHaveBeenCalled()
+  })
+
   it('accepting Captain at 20000 merit still uses T4 and grants no additional equipment', async () => {
     const { town, store, preload } = fixture('roman', false, 'veteran')
     const saved = store.load()!
-    expect(await town.acceptCareerPromotion()).toBe(true)
+    expect(await town.acceptCareerPromotion('captain')).toBe(true)
     expect(town.player.heroAssetId).toBe('roman-hero-t4')
     expect(town.player.maxHp).toBe(501)
     expect(store.load()).toMatchObject({ rank: 'captain', ownedWeapons: saved.ownedWeapons, inventory: saved.inventory })
@@ -95,7 +105,7 @@ describe('Career appointment identity transaction', () => {
     const position = old.group.position.clone(), inventory = town.inventory, skills = town.skills, orbit = town.orbit
     const persisted = store.load()!
     expect(resolveCareerHeroAsset(persisted)).toBe(`${faction}-hero-t4`)
-    expect(await town.acceptCareerPromotion()).toBe(true)
+    expect(await town.acceptCareerPromotion('commander')).toBe(true)
     expect(town.player).not.toBe(old)
     expect(old.group.parent).toBeNull()
     expect(town.player.heroAssetId).toBe(`${faction}-hero-t5`)
@@ -118,14 +128,25 @@ describe('Career appointment identity transaction', () => {
     }
   })
 
+  it('rechecks the appointing resident after asynchronous asset preload before committing', async () => {
+    const { town, old, store, preload } = fixture()
+    const loading = deferred(); preload.mockReturnValueOnce(loading.promise)
+    const pending = town.acceptCareerPromotion('commander')
+    town.residents.find(resident => resident.spec.id === 'commander')!.npc.dead = true
+    loading.resolve()
+    expect(await pending).toBe(false)
+    expect(town.player).toBe(old)
+    expect(store.load()!.rank).toBe('captain')
+  })
+
   it('asset failure leaves the saved Captain and actor intact, then allows a successful retry', async () => {
     const { town, old, store, preload } = fixture()
     preload.mockRejectedValueOnce(new Error('asset unavailable'))
-    expect(await town.acceptCareerPromotion()).toBe(false)
+    expect(await town.acceptCareerPromotion('commander')).toBe(false)
     expect(town.player).toBe(old); expect(old.group.parent).toBe(town.scene)
     expect(store.load()!.rank).toBe('captain'); expect(town.profile.rank).toBe('captain')
     expect(town.notice).toContain('原有角色與軍階已保留')
-    expect(await town.acceptCareerPromotion()).toBe(true)
+    expect(await town.acceptCareerPromotion('commander')).toBe(true)
     expect(store.load()!.rank).toBe('commander')
   })
 
@@ -133,12 +154,12 @@ describe('Career appointment identity transaction', () => {
     const { town, old, store } = fixture()
     const update = vi.spyOn(Player.prototype, 'update').mockImplementationOnce(() => { throw new Error('invalid rig') })
     const dispose = vi.spyOn(Player.prototype, 'dispose')
-    expect(await town.acceptCareerPromotion()).toBe(false)
+    expect(await town.acceptCareerPromotion('commander')).toBe(false)
     expect(dispose).toHaveBeenCalledTimes(1)
     expect(town.player).toBe(old); expect(town.scene.children).toEqual([old.group])
     expect(store.load()!.rank).toBe('captain')
     update.mockRestore()
-    expect(await town.acceptCareerPromotion()).toBe(true)
+    expect(await town.acceptCareerPromotion('commander')).toBe(true)
   })
 
   it('model construction failure never disposes the Captain or saves the new appointment', async () => {
@@ -153,20 +174,20 @@ describe('Career appointment identity transaction', () => {
       const mesh = new THREE.SkinnedMesh(geometry, material); mesh.bind(skeleton); root.add(mesh)
       throw new Error('invalid bones')
     })
-    expect(await town.acceptCareerPromotion()).toBe(false)
+    expect(await town.acceptCareerPromotion('commander')).toBe(false)
     expect(released).toHaveBeenCalledOnce(); expect(skeleton.boneTexture).toBeNull()
     expect(geometryDisposed).not.toHaveBeenCalled(); expect(materialDisposed).not.toHaveBeenCalled()
     expect(town.player).toBe(old); expect(old.group.parent).toBe(town.scene)
     expect(store.load()!.rank).toBe('captain')
     create.mockRestore(); readiness.mockRestore()
-    expect(await town.acceptCareerPromotion()).toBe(true)
+    expect(await town.acceptCareerPromotion('commander')).toBe(true)
   })
 
   it('failed save restores the mounted Captain and camera with no duplicate actor before retry', async () => {
     const { town, old, mount, storage, store } = fixture('roman', true)
     const orbit = town.orbit, position = old.group.position.clone()
     storage.failWrites = true
-    expect(await town.acceptCareerPromotion()).toBe(false)
+    expect(await town.acceptCareerPromotion('commander')).toBe(false)
     expect(town.player).toBe(old); expect(town.orbit).toBe(orbit)
     expect(old.group.position.toArray()).toEqual(position.toArray())
     expect(old.currentMount).toBe(mount); expect(mount!.riderPlayer).toBe(old)
@@ -175,14 +196,14 @@ describe('Career appointment identity transaction', () => {
     expect(old.shield.shieldImpactRemaining).toBe(7)
     expect(store.load()!.rank).toBe('captain'); expect(town.profile.rank).toBe('captain')
     storage.failWrites = false
-    expect(await town.acceptCareerPromotion()).toBe(true)
+    expect(await town.acceptCareerPromotion('commander')).toBe(true)
   })
 
   it('deduplicates confirmation while loading and commits the current profile once ready', async () => {
     const { town, old, store, preload } = fixture()
     const loading = deferred(); preload.mockReturnValueOnce(loading.promise)
-    const first = town.acceptCareerPromotion()
-    expect(await town.acceptCareerPromotion()).toBe(false)
+    const first = town.acceptCareerPromotion('commander')
+    expect(await town.acceptCareerPromotion('commander')).toBe(false)
     expect(town.player).toBe(old); expect(store.load()!.rank).toBe('captain')
     town.profile.availableMerit = 123
     loading.resolve()
@@ -193,7 +214,7 @@ describe('Career appointment identity transaction', () => {
 
   it('the replacement retains the town movement boundary instead of the staging scene default', async () => {
     const { town } = fixture()
-    expect(await town.acceptCareerPromotion()).toBe(true)
+    expect(await town.acceptCareerPromotion('commander')).toBe(true)
     town.player.group.position.set(350, 8, 25)
     town.player.update(0, { keys: {}, isLeftMouseDown: false, isRightMouseDown: false,
       consumeLeftClick: () => false, consumeLeftClickRelease: () => false }, 0, new THREE.Vector3(), [],
@@ -204,7 +225,7 @@ describe('Career appointment identity transaction', () => {
   it.each(['close', 'dispose'] as const)('ignores a late preload after %s without changing the actor or saved appointment', async cancel => {
     const { town, old, store, preload } = fixture()
     const loading = deferred(); preload.mockReturnValueOnce(loading.promise)
-    const pending = town.acceptCareerPromotion()
+    const pending = town.acceptCareerPromotion('commander')
     if (cancel === 'close') {
       vi.stubGlobal('location', { search: '?nolock' })
       town.closePanel()
@@ -219,14 +240,14 @@ describe('Career appointment identity transaction', () => {
     const { town, store, preload } = fixture()
     const older = deferred(), newer = deferred()
     preload.mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise)
-    const abandoned = town.acceptCareerPromotion()
+    const abandoned = town.acceptCareerPromotion('commander')
     vi.stubGlobal('location', { search: '?nolock' }); town.closePanel()
     town.panel = { remove() {} }
-    const current = town.acceptCareerPromotion()
+    const current = town.acceptCareerPromotion('commander')
     older.resolve()
     expect(await abandoned).toBe(false)
     expect(store.load()!.rank).toBe('captain')
-    expect(await town.acceptCareerPromotion()).toBe(false)
+    expect(await town.acceptCareerPromotion('commander')).toBe(false)
     newer.resolve()
     expect(await current).toBe(true)
     expect(store.load()!.rank).toBe('commander')

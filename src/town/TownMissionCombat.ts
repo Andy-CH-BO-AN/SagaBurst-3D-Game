@@ -169,7 +169,7 @@ export class TownMissionCombat {
     this.town.navigation.sync(this.town.obstacles)
     this.town.navigation.beginFrame()
     if (this.missions.duel.active) {
-      this.missions.duel.update(dt)
+      this.missions.duel.update(dt, true)
       this.updateTownWithDuel(dt, elapsed)
       this.missions.duel.persistRuntimeProgress()
     }

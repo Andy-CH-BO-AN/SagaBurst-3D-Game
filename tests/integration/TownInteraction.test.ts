@@ -40,7 +40,7 @@ function fixture() {
   const careerMounts = { activeMount: null as Mount | null }
   const temporaryMounts = { all: [] as Mount[] }
   const outskirts = { mounts: [] as Mount[] }
-  const residents = ['captain', 'deployment', 'merchant', 'ranger', 'hr-officer', 'eagle-trainer'].map(id => ({
+  const residents = ['captain', 'commander', 'deployment', 'merchant', 'ranger', 'hr-officer', 'eagle-trainer'].map(id => ({
     spec: { id }, npc: { combatPosition: new THREE.Vector3(20, 0, 20) },
   }))
   const world = { obstacles: [] as Array<{ box: THREE.Box3 }>, buildings: [] }
@@ -64,6 +64,21 @@ function fixture() {
 }
 
 describe('Career town E interaction selection and hint', () => {
+  it.each([MountType.HORSE, MountType.BLACK_CAT, MountType.CORGI, MountType.XONGKORO])('%s grounded rider can talk to Commander without dismounting', type => {
+    const h = fixture(), mount = mountData(type)
+    h.player.mountVehicle(mount); h.nearNpc('commander')
+    h.town.interaction(); h.pressE()
+    expect(h.dialog.openedFor).toBe('commander')
+    expect(h.player.currentMount).toBe(mount)
+  })
+
+  it('has no Commander interaction when the formal battle roster excludes him', () => {
+    const h = fixture()
+    h.residents.splice(h.residents.findIndex(r => r.spec.id === 'commander'), 1)
+    expect(() => h.town.interaction()).not.toThrow()
+    h.pressE(); expect(h.dialog.openedFor).toBeNull()
+  })
+
   it.each(['captain', 'merchant', 'hr-officer'])('mounted player talks to nearby %s without dismounting', id => {
     const h = fixture(), mount = mountData()
     h.player.mountVehicle(mount); h.nearNpc(id)

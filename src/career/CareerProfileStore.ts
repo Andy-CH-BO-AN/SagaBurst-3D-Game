@@ -1,3 +1,5 @@
+import { outskirtsSquadSpecs } from '../town/TownOutskirtsRules'
+import type { CareerDuelTier } from './CareerDuelState'
 import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
 import { parseOfficialCommandAuthority, parseTownCommandSquad } from './CareerCommandAuthority'
 import { parseCaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
@@ -8,7 +10,7 @@ import { parsePersonalSquad } from './CareerPersonalSquad'
 import { isCareerOutpostStageId, parseCareerOutpostCheckpoint, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
 import { parsePersonalMission } from './CareerPersonalSquadMission'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
-import { UNIT_PRESETS, type UnitPresetId, type UnitTier } from '../battle/UnitPresetCatalog'
+import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { normalizeSkillState, type SkillStateInput } from '../rpg/SkillManager'
@@ -24,7 +26,7 @@ import {
 } from './CareerProfile'
 import { getCareerMissionTemplate } from './CareerMissionCatalog'
 import type { ActiveCareerMission, CareerMissionPhase, VeteranOutpostBattleState } from './CareerMissionState'
-import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier } from './CareerDuelState'
+import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome, parseCareerDuelTravelCheckpoint } from './CareerDuelState'
 
 export const CAREER_STORAGE_KEY = 'sagaburst_career_v1'
 
@@ -192,6 +194,8 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
   const duelRefereeActorId = typeof raw.duelRefereeActorId === 'string' ? raw.duelRefereeActorId.trim() : duelCaptainActorId
   if (duel && (!isCareerDuelTier(raw.duelTier) || !isCareerDuelPresetId(raw.duelPresetId)
     || UNIT_PRESETS[raw.duelPresetId].faction !== faction || !duelOpponentActorId || !duelCaptainActorId || !duelRefereeActorId)) return undefined
+  if (duel && raw.duelTier === 5 && (duelOpponentActorId !== 'commander' || duelCaptainActorId !== 'captain'
+    || duelRefereeActorId !== duelCaptainActorId)) return undefined
   const outpostMission = template?.kind === 'veteran-outpost-defense' || template?.kind === 'veteran-outpost-assault' || template?.kind === 'captain-outpost-defense'
   const captainStandalone = template?.kind === 'captain-patrol-command' || template?.kind === 'captain-eagle-battle'
   if (
@@ -249,7 +253,9 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction']): 
     deadCivilianActorIds: uniqueStrings(raw.deadCivilianActorIds).filter(id => uniqueStrings(raw.civilianActorIds).includes(id)),
     playerDead: raw.playerDead === true,
     ...(duel ? {
-      duelTier: raw.duelTier as UnitTier,
+      duelTier: raw.duelTier as CareerDuelTier,
+      ...(raw.duelTier === 5 ? { duelCommanderHome: parseCareerDuelCommanderHome(raw.duelCommanderHome),
+        duelTravel: parseCareerDuelTravelCheckpoint(raw.duelTravel, [duelOpponentActorId, duelCaptainActorId]) } : {}),
       duelPresetId: raw.duelPresetId as UnitPresetId,
       duelOpponentActorId, duelCaptainActorId, duelRefereeActorId,
       duelCountdownElapsed: Math.min(DUEL_COUNTDOWN_SECONDS, nonNegativeNumber(raw.duelCountdownElapsed)),
@@ -433,7 +439,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(raw.townOutskirts && typeof raw.townOutskirts === 'object' ? { townOutskirts: Object.fromEntries(
       (['roman', 'viking'] as const).flatMap(faction => {
         const saved = parseTownOutskirtsCheckpoint((raw.townOutskirts as CareerProfile['townOutskirts'])?.[faction])
-        return saved ? [[faction, { squads: saved.squads.map(squad => ({ ...squad, members: {} })) }]] : []
+        return saved ? [[faction, { squads: saved.squads.map(squad => ({ ...squad, members: outskirtsSquadSpecs().some(spec => spec.id === squad.id && spec.kind === 'cavalry') ? squad.members : {} })) }]] : []
       })) } : {}),
     ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|eagle-trainer|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
@@ -451,9 +457,14 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
         3: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[3]),
         ...((raw.careerMissionCompletionsByTier as Record<string, unknown>)[4] !== undefined ? { 4: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[4]) } : {}),
       } } : {}),
+    ...(raw.townCommanderRecovery && typeof raw.townCommanderRecovery === 'object'
+      && ['roman', 'viking'].includes((raw.townCommanderRecovery as Record<string, unknown>).faction as string)
+      && parseCareerDuelCommanderHome(raw.townCommanderRecovery)
+      ? { townCommanderRecovery: { ...parseCareerDuelCommanderHome(raw.townCommanderRecovery)!,
+        faction: (raw.townCommanderRecovery as Record<string, unknown>).faction as CareerProfile['faction'] } } : {}),
     ...(raw.duelHighestDefeatedTierByPreset && typeof raw.duelHighestDefeatedTierByPreset === 'object'
       ? { duelHighestDefeatedTierByPreset: Object.fromEntries(Object.entries(raw.duelHighestDefeatedTierByPreset)
-        .filter(([presetId, tier]) => isCareerDuelPresetId(presetId) && isCareerDuelTier(tier))) as Partial<Record<UnitPresetId, UnitTier>> } : {}),
+        .filter(([presetId, tier]) => isCareerDuelPresetId(presetId) && isCareerDuelTier(tier))) as Partial<Record<UnitPresetId, CareerDuelTier>> } : {}),
     ...(Array.isArray(raw.completedCareerMissionTemplateIds) ? { completedCareerMissionTemplateIds: uniqueStrings(raw.completedCareerMissionTemplateIds) } : {}),
     ownedWeapons,
     ownedArmors,

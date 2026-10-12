@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { describe, expect, it, vi, afterEach, onTestFinished } from 'vitest'
 import { damageNpc } from '../../src/combat/DamageRouter'
 import { Mount, MountType } from '../../src/world/Mount'
@@ -30,6 +31,24 @@ const disposables: Array<{ dispose(): void }> = []
 afterEach(() => disposables.splice(0).reverse().forEach(object => object.dispose()))
 
 describe('Town temporary mount ownership', () => {
+  it('a dead T5 Duel Commander keeps the parked resident-owned service mount reserved', () => {
+    // One real mount owns availability; the dead resident is identity/state only, with no actor graph.
+    const mount = new Mount(new THREE.Scene(), MountType.CORGI, 20, 20)
+    onTestFinished(() => mount.dispose())
+    mount.reservedForTown = true
+    const town = createTownCombatFixture()
+    town.profile.activeMission = { id: 'commander-duel', kind: 'duel', duelTier: 5, phase: 'ENGAGING' }
+    town.mounts = [mount]
+    town.residents = [{ spec: { id: 'commander' }, npc: { dead: true }, homeMount: mount }]
+
+    town.refreshCombatMounts()
+
+    expect([...town.temporaryMounts.all]).toEqual([])
+    expect(mount.temporaryCombatId).toBeNull()
+    expect(mount.availableForPlayer).toBe(false)
+    expect(mount.disposed).toBe(false)
+  })
+
   it('Town cavalry released in combat can be ridden with E and stays reserved when peace returns', () => {
     const { rider, mount, player } = fixture()
     mount.reservedForTown = true
