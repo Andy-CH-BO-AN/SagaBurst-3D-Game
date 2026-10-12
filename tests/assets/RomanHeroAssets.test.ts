@@ -1,3 +1,4 @@
+import { assertLegacyBowFacing } from '../helpers/assertLegacyBowFacing'
 import { readFileSync } from 'node:fs'
 import { HERO_ASSETS } from '../../src/world/HeroAssetCatalog'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
@@ -49,6 +50,7 @@ describe('Roman T4 independent appearance asset', () => {
       a.rig.animation!.update(0)
       expect(b.rig.right.shoulder.quaternion.equals(before)).toBe(true)
       expect(warning.mock.calls.flat().join(' ')).not.toContain('does not match audited')
+      assertLegacyBowFacing(a.root, a.rig)
     } finally { fetchMock.mockRestore(); loader.mockRestore(); warning.mockRestore() }
   })
 

@@ -5,6 +5,8 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import type { HumanoidAnimationState } from '../../src/world/CharacterVisuals'
+import { CharacterBowVisual } from '../../src/world/CharacterBowVisual'
+import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
 import { HERO_ASSETS } from '../../src/world/HeroAssetCatalog'
 import { applyAttachmentContract } from '../../src/world/HumanoidAttachmentContract'
 import { HumanoidAssetRegistry, validateHumanoidManifest, type HumanoidAssetManifest } from '../../src/world/HumanoidAssetRegistry'
@@ -88,7 +90,7 @@ describe.each(['roman', 'viking'] as const)('%s T5 commander asset package', fac
     }
   })
 
-  it('preloads all real LODs with fixed attachments and creates independent animation state', async () => {
+  it('preloads independent LOD poses and preserves authored weapon direction through mounted actions', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => manifest } as Response)
     const authoredTopologies = new Map<string, Record<string, string>>()
     let source: { root: THREE.Object3D; clips: THREE.AnimationClip[] } | undefined
@@ -261,5 +263,96 @@ describe.each(['roman', 'viking'] as const)('%s T5 commander asset package', fac
     }
     expect(Math.max(...shieldHands.map(q => q.angleTo(shieldHands[0])))).toBeGreaterThan(.2)
     for (const q of relativeHands) expect(q.angleTo(relativeHands[0])).toBeLessThan(1e-6)
+    // Reuse the two loaded actors: the unchanged foot animation is the
+    // orientation reference during blends, not a copied pose algorithm.
+    const setupBow = (actor: typeof first) => {
+      const pivot = new THREE.Group(), grip = new THREE.Group()
+      pivot.add(grip); actor.rig.left.handSocket.add(pivot)
+      const bow = new CharacterBowVisual(pivot, grip, actor.root)
+      bow.rebuild('recurve_longbow')
+      const animator = new CharacterCombatAnimator(actor.rig, new THREE.Group(), pivot)
+      onTestFinished(() => {
+        pivot.removeFromParent()
+        pivot.traverse(node => {
+          if (!(node instanceof THREE.Mesh)) return
+          node.geometry.dispose()
+          for (const material of Array.isArray(node.material) ? node.material : [node.material]) material.dispose()
+        })
+      })
+      return { actor, grip, bow, animator }
+    }
+    // A banked/rotated scene parent prevents root-local quaternion shortcuts
+    // from passing the world-space orientation contract.
+    const parent = new THREE.Group()
+    parent.rotation.set(.1, .45, -.2)
+    parent.add(first.root, second.root)
+    const mountedBow = setupBow(first), footBow = setupBow(second)
+    for (const heading of [0, .8]) for (const mount of ['HORSE', 'BLACK_CAT', 'CORGI', 'xongkoro'] as const) for (const speed of (mount === 'xongkoro' ? [0, 2, 26.66] : [0, 2])) {
+      for (const [subject, mounted] of [[mountedBow, true], [footBow, false]] as const) {
+        subject.actor.root.rotation.y = heading
+        subject.animator.cancel()
+        subject.animator.setEquipment(false, false, mount)
+        subject.animator.setLocomotion(mounted ? speed : 0, mounted, mounted && speed > 3)
+        subject.animator.update(.2)
+      }
+      const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(first.root.getWorldQuaternion(new THREE.Quaternion()))
+      const measure = (subject: typeof mountedBow) => {
+        subject.actor.root.updateMatrixWorld(true)
+        const target = new THREE.Vector3(0, 1.4, 100).applyMatrix4(subject.actor.root.matrixWorld)
+        subject.bow.update(1, target, true)
+        subject.actor.root.updateMatrixWorld(true)
+        const origin = new THREE.Vector3(), launch = new THREE.Vector3()
+        subject.bow.writeLaunch(origin, launch, target)
+        return { body: new THREE.Vector3(0, 0, -1).transformDirection(subject.grip.matrixWorld), launch }
+      }
+      const check = (phase: string, forwardExpected = false) => {
+        const actual = measure(mountedBow), reference = measure(footBow)
+        const label = `${faction} ${mount} heading=${heading} speed=${speed} ${phase}`
+        // The old bug still emitted a forward projectile and even displayed a
+        // forward nocked arrow while the actual bow body faced ~87 degrees right.
+        expect(actual.body.angleTo(reference.body), `${label}: preserve authored bow world aim`).toBeLessThan(1e-5)
+        expect(first.root.rotation.y, `${label}: never rotate the actor to repair its bones`).toBe(heading)
+        if (forwardExpected) {
+          expect(actual.body.dot(forward), `${label}: bow body faces gameplay forward`).toBeGreaterThan(.99)
+          expect(reference.body.dot(forward), `${label}: unchanged standing aim`).toBeGreaterThan(.99)
+          expect(actual.launch.dot(forward), `${label}: projectile remains camera-directed`).toBeGreaterThan(.999)
+          expect(actual.body.dot(actual.launch), `${label}: visual bow agrees with emitted shot`).toBeGreaterThan(.99)
+        }
+      }
+      for (const subject of [mountedBow, footBow]) { subject.animator.poseBow(.5); subject.animator.update(.15) }
+      check('load')
+      for (const subject of [mountedBow, footBow]) { subject.animator.poseBow(1); subject.animator.update(.2) }
+      check('hold', true)
+      for (const subject of [mountedBow, footBow]) {
+        expect(subject.animator.start('bowRelease')).toBe(true)
+        expect(subject.animator.update(.04).projectileRelease).toBe(true)
+      }
+      check('release event', true)
+      for (const subject of [mountedBow, footBow]) {
+        expect(subject.animator.update(.02).projectileRelease).toBe(false)
+        subject.animator.update(.3)
+        expect(subject.animator.currentAction).toBe('idle')
+        subject.animator.setLocomotion(subject === mountedBow ? speed : 0, subject === mountedBow, subject === mountedBow && speed > 3)
+      }
+      // A sampled bow clip remains weighted after action becomes idle. Resetting
+      // ownership early used to make the torso snap sideways during this fade.
+      let previousBody = measure(mountedBow).body
+      for (let frame = 0; frame < 8; frame++) {
+        for (const subject of [mountedBow, footBow]) subject.animator.update(.02)
+        const body = measure(mountedBow).body
+        // The foot idle clip differs from the neutral mounted clip; require a
+        // continuous blend, not exact foot/mounted equality after release.
+        expect(body.angleTo(previousBody), `${faction} ${mount}: no sideways snap at return frame ${frame}`).toBeLessThan(THREE.MathUtils.degToRad(15))
+        previousBody = body
+      }
+      mountedBow.animator.poseBow(1)
+      mountedBow.animator.update(.2)
+      const aimedBody = measure(mountedBow).body
+      mountedBow.animator.cancel()
+      expect(measure(mountedBow).body.angleTo(aimedBody), `${faction} ${mount}: cancelling aim preserves the blend's starting pose`).toBeLessThan(1e-5)
+      mountedBow.animator.update(.2)
+      expect(mountedBow.animator.currentAction).toBe('idle')
+    }
+
   })
 })

@@ -416,6 +416,17 @@ export class MixerController implements HumanoidAnimationController {
   private finishPose(all = false): void {
     const alive = this.equipmentState.alive
     this.equipmentState.alive = alive && this.poseLayersEnabled && this.current !== 'death'
+    // Equipment action can already be idle while Three is fading out bowHold
+    // or bowRelease. Keep the selected mounted torso compensation until the
+    // sampled bow influence is gone, not merely until gameplay ends the action.
+    this.equipmentState.sampledBowPose = false
+    for (const actions of this.sampledBowActions) {
+      const action = actions[0]
+      if (action?.enabled && action.getEffectiveWeight() > 1e-6) {
+        this.equipmentState.sampledBowPose = true
+        break
+      }
+    }
     Object.assign(this.evaluatedEquipmentState, this.equipmentState)
     this.equipmentLayers.forEach((layer, index) => {
       if (all || this.needsLevel(index)) {
@@ -465,6 +476,7 @@ export class MixerController implements HumanoidAnimationController {
   private bowLegState: string | null = null
   private readonly actions = new Map<HumanoidAnimationState, THREE.AnimationAction[]>()
   private readonly rawActions = new Map<HumanoidAnimationState, THREE.AnimationAction[]>()
+  private readonly sampledBowActions: THREE.AnimationAction[][] = []
   private readonly durations = new Map<HumanoidAnimationState, number>()
   private readonly meleeTimings = new Map<HumanoidAnimationState, HumanoidMeleeTiming>()
   private current: HumanoidAnimationState | null = null
@@ -529,6 +541,7 @@ export class MixerController implements HumanoidAnimationController {
           : clip)]
       })
       this.actions.set(name, actions)
+      if (name === 'bowLoad' || name === 'bowHold' || name === 'bowRelease') this.sampledBowActions.push(actions)
       const duration = clipsPerLevel[0].find((clip) => clip.name === name)?.duration
       if (duration !== undefined) this.durations.set(name, duration)
     }

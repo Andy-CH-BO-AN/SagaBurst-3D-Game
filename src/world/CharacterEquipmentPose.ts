@@ -16,6 +16,8 @@ export interface EquipmentPoseState {
   mounted: boolean
   moving?: boolean
   flightLean?: number
+  /** Mixer-owned: a bow clip still contributes, including its return-to-idle fade. */
+  sampledBowPose?: boolean
   mountKind: MountedPoseKind
   action: string
   elapsed: number
@@ -254,6 +256,8 @@ export class CharacterEquipmentPose {
     this.hipsSamplePosition.copy(this.seatedHips.position)
     this.applied = true
     const live = state.alive && state.action !== 'death'
+    const selectedMountedBow = live && state.mounted && !!this.selectedSource
+      && (state.action === 'bowAim' || state.action === 'bowRelease' || (state.action === 'idle' && !!state.sampledBowPose))
     if (live && this.bowFullBodyStance && (state.moving || state.mounted)
       && (state.action === 'bowAim' || state.action === 'bowRelease') && this.bowSpine && this.seatedSpine) {
       // Standing keeps the authored whole-body side-on stance. Moving/seated
@@ -286,6 +290,20 @@ export class CharacterEquipmentPose {
       if (!this.selectedSource) {
         this.seatedSpine.parent!.getWorldQuaternion(this.parentInverse).invert()
         this.seatedSpine.quaternion.copy(this.parentInverse).multiply(this.seatedRotation)
+      } else if (selectedMountedBow && this.seatedTorso.length) {
+        // Preserve the sampled bow's world-facing direction when seating removes
+        // the source pelvis turn. Transfer that measured world-space delta above
+        // the saddle, split across the torso rather than twisting one lumbar joint.
+        // Arms, hand attachment, actor heading and projectile aim stay untouched.
+        this.seatedHips.getWorldQuaternion(this.parentInverse).invert()
+        this.seatedRotation.multiply(this.parentInverse).normalize()
+        if (this.seatedRotation.w < 0) this.seatedRotation.set(-this.seatedRotation.x, -this.seatedRotation.y, -this.seatedRotation.z, -this.seatedRotation.w)
+        this.attackAxis.set(this.seatedRotation.x, this.seatedRotation.y, this.seatedRotation.z)
+        if (this.attackAxis.lengthSq() > 1e-12) {
+          const angle = 2 * Math.acos(THREE.MathUtils.clamp(this.seatedRotation.w, -1, 1))
+          this.attackAxis.normalize()
+          for (const joint of this.seatedTorso) this.rotateArm(joint, angle / this.seatedTorso.length)
+        }
       } else if (state.action === 'axeAttack2H' && this.seatedTorso.length) {
         // Seating removes the foot clip's pelvis rotation. Carry that rotation
         // through the torso so the authored right-high / left-low axe arc keeps
@@ -317,8 +335,16 @@ export class CharacterEquipmentPose {
     if (live && state.mounted) applyCharacterMountedPose(this.rig, true, state.mountKind)
     if (live && state.mounted) this.mountedSkirt?.apply()
     if (live && state.mounted && state.mountKind === 'xongkoro' && this.seatedSpine && state.flightLean) {
+      // Flight still leans the lower torso, but must not tilt a selected bow's
+      // already aligned shoulder/hand frame away from the aim during sprint.
+      const bowChest = selectedMountedBow ? this.seatedTorso[this.seatedTorso.length - 1] : undefined
+      bowChest?.getWorldQuaternion(this.bowChestWorld)
       this.seatedRotation.setFromAxisAngle(this.attackAxis.set(1, 0, 0), THREE.MathUtils.clamp(state.flightLean, 0, 1) * XONGKORO_VISUAL.sprintRiderLean)
       this.seatedSpine.quaternion.multiply(this.seatedRotation)
+      if (bowChest) {
+        bowChest.parent!.getWorldQuaternion(this.parentInverse).invert()
+        bowChest.quaternion.copy(this.parentInverse).multiply(this.bowChestWorld)
+      }
     }
     if (live && state.mounted && state.mountKind === 'CORGI' && this.root.name.startsWith('maki-archer-t4-')) {
       // Shorter thighs need slightly more abduction to place the knees outside

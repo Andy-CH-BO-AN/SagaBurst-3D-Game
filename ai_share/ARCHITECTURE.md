@@ -43,6 +43,7 @@
 - Lance idle 沿用 Sword Idle 人體／手形，加固定 attachment；攻擊才加右臂 FK 前伸。不在無關工作恢復舊 Ready pose、左手支撐或 lance IK。
 - Maki 使用來源持弓 idle；近戰仍持同一把弓，以重定向 `axeAttack2H` 播放，Player 裝備固定弓近戰／無盾。站立側身姿勢、移動／騎乘腿部所有權見 [posed-source characters](skills/humanoid-rig-skinning/references/posed-source-characters.md)。
 - `CharacterBowVisual` 共用弓、弦、nock、搭箭及發射座標；Roman pilum 另有外觀。`ThirdPersonCamera` 瞄準只改 FOV；Player 從 nock 向準星 world ray 命中點發射。
+- T5 selected-source 騎乘弓姿由 `CharacterEquipmentPose` 將就座移除的來源骨盆 world rotation 等分轉移到 torso chain，保留肩手與固定弓握點的朝向；`MixerController` 依實際 bow clip 權重維持淡出到 idle 期間的補償。巨鷹衝刺仍保留下胸俯身，但瞄準時維持上胸 world orientation。站立、T4、actor／mount heading、來源 clips 與 projectile direction 不由此 adapter 改寫。
 - T4 Ranger 的正式預設 loadout 經 `resolveT4UnitLoadout` 使用 `maki-ranger-bow-ranged`，沿用原本 Maki 弓外觀、動畫與近戰 fallback。遠程傷害／箭速由 WeaponDatabase 實際裝備決定；角色 tier 不會自動升級明確指定的低階弓。
 - `EagleRangedCombat` 只覆寫 NPC + xongkoro + bow 的 3D 開火距離，依當前武器 tier 為 200／300／400／500m，不再疊加 Ranger 射程倍率。`ProjectileBallistics` 有界求解真實重力與移動目標攔截，發射前重驗彈道遮擋；發射後投射物不追蹤。NPC 驗證過的空軍射擊及 Player 自由瞄準空軍弓各自產生有界 flight budget，Game／Town 都傳入 ArrowProjectile。Town 非空軍保留五秒政策；共用箭矢使用 scene 方形世界界線與獨立 age／travel cap，不再依世界原點 400m 球體裁切。
 - 箭模型沿 local `-Z`，投射物朝向須顯式對齊速度。飛行箭／pilum 共用不可變 render resources，移除實例不能銷毀模板或每發遺留資源。
