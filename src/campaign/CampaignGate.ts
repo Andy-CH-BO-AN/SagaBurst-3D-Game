@@ -94,6 +94,67 @@ export function applyCampaignBreachOrders(
   }
 }
 
+export interface ReconcileCampaignGateSiegeOptions {
+  gate: CampaignGateController | null
+  breachController: CampaignBreachController | null
+  npcs: readonly NPC[]
+  attackerFaction: CharacterFaction
+}
+
+/**
+ * Checks whether an NPC is eligible for automated campaign gate siege targeting.
+ * Player-personal combatants (veteran/career personal squad/followers) and units
+ * with active follow orders are strictly excluded from automated gate locking.
+ */
+export function isEligibleCampaignGateAttacker(
+  npc: NPC,
+  attackerFaction: CharacterFaction,
+): boolean {
+  if (npc.dead) return false
+  if (npc.characterFaction !== attackerFaction) return false
+  if (npc.combatOwnership === 'player-personal') return false
+  if (npc.tacticalOrder === 'follow' || npc.activeFollowTarget !== null || npc.hasFormationTarget) return false
+  return true
+}
+
+/**
+ * Reconciles gate siege obstacles for campaign attackers:
+ * - When gate is closed and perimeter is NOT breached, assigns the gate's siegeObstacle
+ *   to all eligible unassigned attackers.
+ * - When perimeter IS breached OR gate is open/destroyed, clears the gate's siegeObstacle
+ *   from any NPC targeting it.
+ */
+export function reconcileCampaignGateSiege(
+  options: ReconcileCampaignGateSiegeOptions,
+): void {
+  const { gate, breachController, npcs, attackerFaction } = options
+  if (!gate) return
+
+  const shouldSiegeGate = gate.state === 'closed' && !breachController?.breached
+
+  if (shouldSiegeGate) {
+    for (const npc of npcs) {
+      if (isEligibleCampaignGateAttacker(npc, attackerFaction)) {
+        if (!npc.hasSiegeObstacle) {
+          npc.assignSiegeObstacle?.(gate.siegeObstacle)
+        }
+      } else {
+        // If an NPC was targeting THIS gate but is no longer eligible (e.g. switched to follow,
+        // has an active follow target, or became player-personal), revoke the gate siege obstacle.
+        if (npc.siegeObstacle === gate.siegeObstacle) {
+          npc.assignSiegeObstacle?.(null)
+        }
+      }
+    }
+  } else {
+    for (const npc of npcs) {
+      if (npc.siegeObstacle === gate.siegeObstacle) {
+        npc.assignSiegeObstacle?.(null)
+      }
+    }
+  }
+}
+
 /**
  * Uses X/Z occupancy only. Uneven terrain height should not allow a gate to
  * close through a player, NPC, or mount standing in the doorway.

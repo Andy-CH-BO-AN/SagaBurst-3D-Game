@@ -425,6 +425,7 @@ export function findBlockingObstacleAlongPath(
   let closestFraction = Infinity
 
   for (const obstacle of obstacles) {
+    if (obstacle.navigationPassable) continue
     if (!verticallyOverlapsObstacle(position.y, height, bottomOffset, obstacle.box)) continue
     const entry = segmentEntryFractionExpandedBox(
       position.x,
@@ -567,6 +568,7 @@ export function getObstacleAvoidanceDirection(
     const sampleX = position.x + direction.x * lookAhead
     const sampleZ = position.z + direction.z * lookAhead
     for (const obstacle of obstacles) {
+      if (obstacle.navigationPassable) continue
       const box = obstacle.box
       if (bottomY >= box.max.y - 0.001 || topY <= box.min.y + 0.001) continue
       if (

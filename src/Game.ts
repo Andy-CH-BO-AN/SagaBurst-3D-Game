@@ -105,7 +105,7 @@ export function handleProjectileHitEffects(
 import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
-import { NPC, Faction, AIState, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
+import { NPC, Faction, AIState, AIType, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
 import {
   BattleConfig,
   PRESET_DEVCOMBAT,
@@ -160,6 +160,8 @@ import { isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
 import {
   applyCampaignBreachOrders,
   isCampaignGateOccupied,
+  reconcileCampaignGateSiege,
+  type CampaignBreachController,
   type CampaignGateController,
 } from './campaign/CampaignGate'
 import {
@@ -545,6 +547,7 @@ export class Game {
     this._persistCareerVeteranOutpostCheckpoint({ immediate: true, periodic: true, force: true })
   }
   private previewCampaignGate: CampaignGateController | null = null
+  private previewCampaignBreachController: CampaignBreachController | null = null
   private readonly navigationWorld = new NavigationWorld()
   private readonly chaseTargetCoordinator = new ChaseTargetCoordinator()
   private saveManager!: SaveManager
@@ -802,11 +805,24 @@ export class Game {
       )
       damageableObstacles.push(...outpost.damageableObstacles)
       this.previewCampaignGate = outpost.gateController
+      this.previewCampaignBreachController = outpost.breachController
+      this.previewCampaignGate.onStateChange(state => {
+        if (state === 'open' || state === 'destroyed') {
+          for (const npc of this.npcs) {
+            if (npc.siegeObstacle === this.previewCampaignGate?.siegeObstacle) {
+              npc.assignSiegeObstacle?.(null)
+            }
+          }
+        }
+      })
       outpost.breachController.onBreach(() => {
         if (campaignConfig?.careerMissionKind === 'outpost-relief') return
         const attackerFaction = outpost.gateController.attackerFaction
         this._applyCampaignBreachOrders(attackerFaction)
       })
+      if (outpost.walkways) {
+        this.navigationWorld.setOutpostWalkways(outpost.walkways.layout)
+      }
     }
 
     this.obstacles = obstacles
@@ -1063,6 +1079,12 @@ export class Game {
             npc.characterFaction === 'roman' ? 'defend' : 'attack',
           )
         }
+        reconcileCampaignGateSiege({
+          gate: this.previewCampaignGate,
+          breachController: this.previewCampaignBreachController,
+          npcs: this.npcs,
+          attackerFaction: 'viking',
+        })
       } else {
         // Other DEV combat scenarios remain controllable test battlefields.
         for (const npc of this.npcs) npc.setTacticalOrder('defend')
@@ -1194,6 +1216,19 @@ export class Game {
       } : undefined,
       this.captainCheckpoint ? this._captainCommandAuthority() : undefined,
       this.careerProfile && (this.captainCheckpoint || this.personalSquad) ? () => this._careerCommandHudRoster() : undefined,
+      Boolean(campaignConfig || isRomanDefenseDevScenario || previewOutpostFaction) && !this.personalSquad && !this.captainCheckpoint,
+      (_target, recipients) => {
+        let slotIndex = 0
+        for (const npc of recipients) {
+          if (npc.dead) continue
+          npc.assignFollowTarget?.(
+            this.player,
+            slotIndex,
+            officialFollowLocalOffset(slotIndex, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)),
+          )
+          slotIndex++
+        }
+      },
     )
 
 
@@ -2488,6 +2523,13 @@ export class Game {
   }
 
   private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
+    if (this.previewCampaignGate) {
+      for (const npc of this.npcs) {
+        if (npc.siegeObstacle === this.previewCampaignGate.siegeObstacle) {
+          npc.assignSiegeObstacle?.(null)
+        }
+      }
+    }
     const officialIds = new Set(this.captainCheckpoint ? this.careerProfile?.activeMission?.officialSquad?.actorIds : [])
     const result = applyCampaignBreachOrders(this.npcs.filter(npc => !officialIds.has(npc.combatantId)), attackerFaction)
     if (this.restoringCareerOutpostGate) return
@@ -2775,11 +2817,30 @@ export class Game {
       if (index < this.campaignSpawnQueueIndex) continue
       batch.enqueue(spec.actorId ?? `${wave}:${index}`, () => {
         const npc = this._spawnNpc(spec)
-        if (wave === 'attackers') this.campaignAttackersStarted = true
+        if (wave === 'attackers') {
+          this.campaignAttackersStarted = true
+          reconcileCampaignGateSiege({
+            gate: this.previewCampaignGate,
+            breachController: this.previewCampaignBreachController,
+            npcs: [npc],
+            attackerFaction: npc.characterFaction,
+          })
+        }
         if (this.defenseCampaignConfig?.careerVeteranOutpost) {
           this._restoreCareerVeteranNpcState(npc)
-          npc.setTacticalOrder(wave === 'reinforcement' ? 'defend' : 'attack')
-        } else { npc.setTacticalOrder('attack'); this._restorePersonalOutpostNpc(npc) }
+          if (this.previewCampaignBreachController?.breached && wave === 'attackers') {
+            npc.setTacticalOrder(npc.aiType === AIType.RANGED ? 'attack' : 'charge')
+          } else {
+            npc.setTacticalOrder(wave === 'reinforcement' ? 'defend' : 'attack')
+          }
+        } else {
+          if (this.previewCampaignBreachController?.breached && wave === 'attackers') {
+            npc.setTacticalOrder(npc.aiType === AIType.RANGED ? 'attack' : 'charge')
+          } else {
+            npc.setTacticalOrder('attack')
+          }
+          this._restorePersonalOutpostNpc(npc)
+        }
         this.campaignSpawnQueueIndex++
 
         if (this.campaignSpawnQueueIndex >= this.campaignSpawnQueue.length) {
@@ -3024,6 +3085,15 @@ export class Game {
 
     const playerSideAlive = this._campaignFactionAlive(playerSideFaction)
     const enemySideAlive = this._campaignFactionAlive(enemySideFaction)
+    if (this.previewCampaignGate) {
+      const attackerFaction = opposingCampaignFaction(campaign.defenderFaction)
+      reconcileCampaignGateSiege({
+        gate: this.previewCampaignGate,
+        breachController: this.previewCampaignBreachController,
+        npcs: this.npcs,
+        attackerFaction,
+      })
+    }
     hud.updateGate(
       this.previewCampaignGate?.state ?? 'destroyed',
       this.campaignAttackersStarted,
@@ -3806,6 +3876,7 @@ export class Game {
         radius: 0.5,
         height: 2.3,
         bottomOffset: 0,
+        walkSurfaces: true,
       })
     }
 

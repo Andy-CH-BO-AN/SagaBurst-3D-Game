@@ -95,6 +95,7 @@ export class ArmyCommandUI {
     selectedWeaponName = '',
     groupingMode: CommandGroupingMode = 'preset',
     personalCommands = false,
+    campaignFollowEnabled = false,
   ): void {
     this.wheelHint.textContent = wheelMode === 'command'
       ? `滾輪：選擇命令　[Q] ${submenuOpen ? '上一頁' : '返回武器切換'}`
@@ -132,7 +133,11 @@ export class ArmyCommandUI {
       ['3', '防禦', 'defend'],
       ['4', '列陣', 'formation'],
     ]
-    if (personalCommands) actions.push(['5', 'Follow me · 跟隨', 'follow'], ['6', 'Dismiss · 收隊', 'dismiss'])
+    if (personalCommands) {
+      actions.push(['5', 'Follow me · 跟隨', 'follow'], ['6', 'Dismiss · 收隊', 'dismiss'])
+    } else if (campaignFollowEnabled) {
+      actions.push(['5', 'Follow me · 跟隨', 'follow'])
+    }
     actions.forEach(([key, label, order], index) => {
       const row = document.createElement('div')
       row.className = `army-command-entry army-command-action ${order}`
