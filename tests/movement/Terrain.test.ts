@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import {
   clampToPlayableWorld,
@@ -14,8 +14,49 @@ import {
 import { ArrowProjectile } from '../../src/world/ArrowProjectile'
 import { Faction } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
+import { createOutpostWalkways } from '../../src/campaign/CampaignOutpostWalkways'
+import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
+import { resolveCameraDistance } from '../../src/camera/ThirdPersonCamera'
 
 describe('projectile obstacle geometry', () => {
+  it('matches sloping bridge timber for live arrows, LOS and camera above, below and through the slab', () => {
+    // One representative structure, no Player/NPC constructors or GLB loading.
+    const material = new THREE.MeshBasicMaterial()
+    const walkways = createOutpostWalkways(getCampaignOutpostPlacement('roman'),
+      { obstacles: [], obstacleMeshes: [] }, material, material)
+    onTestFinished(() => {
+      walkways.root.traverse(object => {
+        if (object instanceof THREE.Mesh) object.geometry.dispose()
+      })
+      material.dispose()
+    })
+    const bridge = walkways.layout.bridge
+    const slab = walkways.obstacles.find(o => o.box === bridge.slab)!
+    const z = (bridge.slab.min.z + bridge.slab.max.z) / 2
+    const lowX = bridge.walkSurface.startX + bridge.walkSurface.dirX
+    const highX = bridge.walkSurface.startX + bridge.walkSurface.dirX * (bridge.walkSurface.length - 1)
+    const lowY = getWalkRampHeight(bridge.walkSurface, lowX, z)!
+    const highY = getWalkRampHeight(bridge.walkSurface, highX, z)!
+    const player = { targetable: false, currentMount: null, characterFaction: 'viking' } as Player
+    const shots = [
+      { name: 'air above low end', start: new THREE.Vector3(lowX, lowY + 0.5, z - 2), direction: new THREE.Vector3(0, 0, 1), blocked: false },
+      { name: 'air below high end', start: new THREE.Vector3(highX, highY - 0.65, z - 2), direction: new THREE.Vector3(0, 0, 1), blocked: false },
+      { name: 'upward into real plank', start: new THREE.Vector3(highX, highY - 1, z), direction: new THREE.Vector3(0, 1, 0), blocked: true },
+    ]
+    for (const shot of shots) {
+      const end = shot.start.clone().addScaledVector(shot.direction, 6)
+      const arrow = new ArrowProjectile(new THREE.Scene(), shot.start, shot.direction, 60, 25, Faction.PLAYER, false)
+      try {
+        expect(findBlockingProjectileObstacleAlongPath(shot.start, end, [slab]) === slab, shot.name).toBe(shot.blocked)
+        const cameraDistance = resolveCameraDistance(shot.start, shot.direction, 6, [slab])
+        expect(cameraDistance < 6, shot.name).toBe(shot.blocked)
+        arrow.update(0.1, player, [], [slab], () => {}, () => { throw new Error('unexpected player hit') })
+        expect(arrow.isStuck, shot.name).toBe(shot.blocked)
+        if (shot.blocked) expect(obstacleContainsProjectilePoint(slab, arrow.mesh.position)).toBe(true)
+        else expect(arrow.mesh.position.z).toBeGreaterThan(bridge.slab.max.z)
+      } finally { arrow.destroy() }
+    }
+  })
   const obstacle: ObstacleData = {
     box: new THREE.Box3(
       new THREE.Vector3(-1.2, 0, -0.5),

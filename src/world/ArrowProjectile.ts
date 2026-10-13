@@ -5,9 +5,9 @@
 import * as THREE from 'three'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
-import { getScenePlayableWorldBound, type ObstacleData } from './Terrain'
+import { getScenePlayableWorldBound, projectileObstacleEntryFraction, type ObstacleData } from './Terrain'
 import { PROJECTILE_GRAVITY, createProjectileFlightBudget, projectileTerrainContactTime, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
-import { traceCombatSegment, segmentBoxTime, type CombatContact } from '../combat/ShieldBlocking'
+import { traceCombatSegment, type CombatContact } from '../combat/ShieldBlocking'
 import { damageMount, damageNpc, damageObstacle, damageReceiver, type DamageResult } from '../combat/DamageRouter'
 import type { DamageReceiver } from '../combat/DamageReceiver'
 import type { Mount } from './Mount'
@@ -293,16 +293,8 @@ export class ArrowProjectile {
     // ── Hit Detection 2: Obstacles (Trees / Barricades / Campaign Structures) ──
     if (worldCollisionsEnabled) {
       for (const obs of obstacles) {
-        if (obs.projectilePassable) continue
-        if (obs.projectileBoxes?.length) {
-          for (const box of obs.projectileBoxes) {
-            const time = segmentBoxTime(this.previousPosition, this.mesh.position, box)
-            if (time < nearest) { nearest = time; hitObstacle = obs }
-          }
-        } else {
-          const time = segmentBoxTime(this.previousPosition, this.mesh.position, obs.box)
-          if (time < nearest) { nearest = time; hitObstacle = obs }
-        }
+        const time = projectileObstacleEntryFraction(obs, this.previousPosition, this.mesh.position)
+        if (time !== null && time < nearest) { nearest = time; hitObstacle = obs }
       }
     }
     const broadRadius = this.previousPosition.distanceTo(this.mesh.position) + 4
