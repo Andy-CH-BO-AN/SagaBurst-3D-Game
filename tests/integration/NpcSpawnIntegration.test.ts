@@ -10,6 +10,12 @@ import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { getTerrainHeight, setScenePlayableWorldBound, type ObstacleData } from '../../src/world/Terrain'
 import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
 import { HumanoidAssetRegistry } from '../../src/world/HumanoidAssetRegistry'
+import { HorseAssetRegistry } from '../../src/world/HorseAssetRegistry'
+import { BlackCatVisual } from '../../src/world/BlackCatVisual'
+import { CorgiVisual } from '../../src/world/CorgiVisual'
+import { XongkoroVisual } from '../../src/world/XongkoroVisual'
+import * as PaladinEquipment from '../../src/world/PaladinEquipment'
+import * as MakiRangerEquipment from '../../src/world/MakiRangerEquipment'
 import { TownScene } from '../../src/town/TownScene'
 import { TownOutskirtsWarfareController } from '../../src/town/TownOutskirtsWarfareController'
 import { outskirtsSquadSpecs } from '../../src/town/TownOutskirtsRules'
@@ -29,7 +35,8 @@ import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
 import { gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
-import { townCommanderSpec } from '../../src/town/TownCommander'
+import { shouldSpawnTownCommander, townCommanderSpec } from '../../src/town/TownCommander'
+import { resolveCareerHeroAsset } from '../../src/career/CareerPlayerProfile'
 import { TownEvent, townRoster } from '../../src/town/TownRules'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
 import { advanceNpcFrame, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
@@ -37,6 +44,11 @@ import { createGameTestFixture } from '../helpers/gameFixture'
 
 import { recording, resetSpawnRecording } from '../helpers/npcSpawnRecording'
 
+vi.mock('three', async original => ({
+  ...(await original<typeof import('three')>()),
+  // Only create() preload tests construct a renderer; they stop before creating TownWorld or actors.
+  WebGLRenderer: class { dispose = vi.fn() },
+}))
 vi.mock('../../src/world/NPC', async original => ({
   ...(await original<typeof import('../../src/world/NPC')>()),
   NPC: (await import('../helpers/npcSpawnRecording')).RecordingNpc,
@@ -143,6 +155,33 @@ function privateTownCaller(profile: CareerProfile, obstacles: ObstacleData[] = [
 }
 
 describe('production spawn callers with recorded constructor boundaries', () => {
+  it.each(['roman', 'viking'] as const)('preloads a saved %s personal Commander in a field scene without a Town Commander or player hero', async faction => {
+    const profile: CareerProfile = { ...createCareerProfile(faction), rank: 'veteran',
+      personalSquad: { members: [{ id: 'personal:field-commander', type: 'commander', originalHirePrice: 2000 }] },
+      activeMission: {
+        ...createActiveCareerMission('veteran-tragedy-of-the-scouts', 0, 0, 0, 'personal-field-preload'),
+        kind: 'veteran-field',
+      },
+    }
+    expect(shouldSpawnTownCommander(profile)).toBe(false)
+    expect(resolveCareerHeroAsset(profile)).toBeNull()
+    vi.spyOn(PaladinEquipment, 'preloadPaladinEquipment').mockResolvedValue()
+    vi.spyOn(MakiRangerEquipment, 'preloadMakiRangerBow').mockResolvedValue()
+    vi.spyOn(HumanoidAssetRegistry, 'preload').mockResolvedValue()
+    vi.spyOn(HorseAssetRegistry, 'preload').mockResolvedValue()
+    vi.spyOn(BlackCatVisual, 'preload').mockResolvedValue()
+    vi.spyOn(CorgiVisual, 'preload').mockResolvedValue()
+    vi.spyOn(XongkoroVisual, 'preload').mockResolvedValue()
+    const stoppedAtAssetBoundary = new Error('Stop before Town materialization')
+    const preload = vi.spyOn(HumanoidAssetRegistry, 'preloadAsset').mockImplementation(descriptor =>
+      descriptor.assetId === `${faction}-hero-t5` ? Promise.reject(stoppedAtAssetBoundary) : Promise.resolve())
+    // The container is never used: the expected T5 preload failure must abort before the constructor.
+    await expect(TownScene.create({} as HTMLElement, profile, () => {}, () => {}, () => {})).rejects.toBe(stoppedAtAssetBoundary)
+    expect(preload).toHaveBeenCalledWith(expect.objectContaining({ assetId: `${faction}-hero-t5`, faction }))
+    expect(recording.npcs).toHaveLength(0)
+    expect(recording.mounts).toHaveLength(0)
+  })
+
   it('registers a small initial army and its mounts before resolving loading', async () => {
     const game = gameFixture(), step = loadingFrames()
     const plan = smallArmyPlan()

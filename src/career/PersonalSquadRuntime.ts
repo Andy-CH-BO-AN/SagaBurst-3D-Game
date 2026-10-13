@@ -5,16 +5,17 @@ import * as THREE from 'three'
 import { PERSONAL_SQUAD_ID } from '../battle/CommandTarget'
 import { followLocalOffset } from '../battle/FollowOrder'
 import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
 import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CombatEventSink } from '../combat/CombatAttribution'
 import type { Player } from '../player/Player'
-import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { Mount } from '../world/Mount'
 import { NPC, AIType, Faction } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
 import type { EagleLandingQueue } from '../world/EagleLandingQueue'
 import { isEaglePadArrived } from '../world/EaglePadArrival'
-import { initialPersonalEquipment } from './CareerInventory'
+import { legacyPersonalEquipment } from './CareerInventory'
 import { careerEaglePadOwners, EaglePadReservations, type EaglePad } from './EaglePadReservations'
 import { careerMountType } from './CareerMountController'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
@@ -26,9 +27,16 @@ import { snapshotPersonalMission, clonePersonalMission, preparePersonalMissionAc
 export type PersonalSquadSpawnSlot = PersonalActorPosition
 export function personalMemberLoadout(member: CareerPersonalSquadMember, faction: CareerProfile['faction']) {
   const presetId = `${faction}_${member.type === 'soldier' ? faction === 'roman' ? 'heavy_infantry' : 'berserker' : member.type === 'ranger' ? 'horse_archer' : 'sword_cavalry'}` as UnitPresetId
-  const hero = member.type === 'soldier' ? undefined : T4_UNIT_PROFILES[member.type === 'ranger' ? `${faction}_archer` as UnitPresetId : presetId]
-  const equipment = member.equipment ?? initialPersonalEquipment(member.type, faction)
-  return { presetId, hero, tier: member.type === 'soldier' ? 2 as const : 4 as const,
+  const commanderAsset = `${faction}-hero-t5` as const
+  const hero = member.type === 'commander'
+    ? { visualAssetId: commanderAsset, combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[commanderAsset], specialCombatProfile: undefined }
+    : member.type === 'soldier' ? undefined : T4_UNIT_PROFILES[member.type === 'ranger' ? `${faction}_archer` as UnitPresetId : presetId]
+  const equipment = member.equipment ?? legacyPersonalEquipment(member.type, faction)
+  // Ranged equipment is the initial primary weapon, matching NPC AI selection below.
+  // Reserve-only equipment changes resolve again on deployment; weapon tier never grants a hero profile.
+  const primaryWeapon = WEAPONS[equipment.ranged ?? equipment.melee ?? '']
+  // Like the Town Commander, T5 uses the existing NPC hero tier with its explicit asset and full combat profile.
+  return { presetId, hero, tier: member.type === 'soldier' ? primaryWeapon?.tier ?? 1 : 4 as const,
     mounted: Boolean(equipment.mount), loadout: member.type === 'ranger'
       ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: equipment.mount }
       : { meleeWeaponId: equipment.melee, rangedWeaponId: equipment.ranged, shieldId: equipment.shield, mountId: equipment.mount } }
@@ -39,7 +47,7 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
   assertNpcSpawnJob()
   const spec = personalMemberLoadout(member, faction)
   const npc = trackNpcSpawn(new NPC(scene, slot.x, slot.z, Faction.PLAYER, faction, spec.loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE,
-    member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : 'Personal Maki',
+    member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : member.type === 'commander' ? 'Personal Commander' : 'Personal Maki',
     spec.tier, spec.mounted, spec.loadout, spec.presetId, PERSONAL_SQUAD_ID, member.id, emit,
     spec.hero?.visualAssetId, spec.hero?.combatProfileId, spec.hero?.specialCombatProfile))
   npc.combatOwnership = 'player-personal'

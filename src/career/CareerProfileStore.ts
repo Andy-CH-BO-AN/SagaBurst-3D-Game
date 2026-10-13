@@ -447,7 +447,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
         const saved = parseTownOutskirtsCheckpoint((raw.townOutskirts as CareerProfile['townOutskirts'])?.[faction])
         return saved ? [[faction, { squads: saved.squads.map(squad => ({ ...squad, members: outskirtsSquadSpecs().some(spec => spec.id === squad.id && spec.kind === 'cavalry') ? squad.members : {} })) }]] : []
       })) } : {}),
-    ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|eagle-trainer|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger)$/.test(key)) } : {}),
+    ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|eagle-trainer|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger|hr-recruit-commander)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
     ...(selectedMountId ? { selectedMountId } : {}),
     ...(activeMission ? { activeMission } : {}),

@@ -18,7 +18,7 @@ import { ArmyCommandUI } from '../ui/ArmyCommandUI'
 import { FormationController } from '../battle/FormationController'
 import { canRecruitPersonalSquad, personalSquadGreeting, recruitPersonalSquadMember, PERSONAL_SQUAD_PRODUCTS, PERSONAL_RECRUIT_DIALOGUE } from '../career/CareerPersonalSquad'
 import { townConquestRoster } from './TownHRLayout'
-import { TownPersonalSquadController } from './TownPersonalSquadController'
+import { TownPersonalSquadController, personalMemberLoadout } from './TownPersonalSquadController'
 import { followDeployedPersonalMission, snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
 import { siegeMuster } from '../career/TownSiege'
 import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
@@ -236,7 +236,11 @@ export class TownScene {
       progress('載入人物、坐騎與動畫…')
       const playerHero = resolveCareerHeroAsset(profile)
       const commanderHero = shouldSpawnTownCommander(profile) ? townCommanderHeroAsset(profile.faction) : null
-      await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(resolveCareerTownSceneContext(profile).residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : [])])
+      const personalHeroes = new Set((profile.personalSquad?.members ?? []).flatMap(member => {
+        const hero = personalMemberLoadout(member, profile.faction).hero
+        return hero ? [hero.visualAssetId] : []
+      }))
+      await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(resolveCareerTownSceneContext(profile).residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome)
@@ -1050,12 +1054,14 @@ export class TownScene {
       const title = document.createElement('strong'); title.textContent = item.name
       const price = document.createElement('small'); price.textContent = `${item.price} Merit`
       const button = document.createElement('button'); button.className = 'town-button'; button.textContent = 'Recruit · 招募'
-      button.disabled = members.length >= 30
+      const rankLocked = !canRecruitPersonalSquad(this.profile, item.type)
+      button.disabled = members.length >= 30 || rankLocked
+      if (rankLocked) button.title = '需正式任命為 Commander 才能招募。'
       button.onclick = () => {
         const first = !this.profile.townDialogueSeen?.includes(`${this.profile.faction}:hr-recruit-${item.type}`)
         const result = recruitPersonalSquadMember(this.profile, item.type, next => this.commit(next))
         const message = result.recruited ? first ? PERSONAL_RECRUIT_DIALOGUE[item.type] : '招募成功。'
-          : result.reason === 'insufficient-merit' ? '軍功不足。' : result.reason === 'squad-full'
+          : result.reason === 'rank-locked' ? '需正式任命為 Commander 才能招募。' : result.reason === 'insufficient-merit' ? '軍功不足。' : result.reason === 'squad-full'
             ? '你的隊伍已經滿了。三十人，是目前允許你的上限。' : result.reason === 'save-failed' ? this.notice : '目前無法招募。'
         this.openRecruitmentPanel(message)
       }
@@ -1086,7 +1092,7 @@ export class TownScene {
       this.openRecruitmentPanel('全隊回到人資中心、進入 RESERVE 後才能賣回隊員。'); return
     }
     const refund = members.reduce((sum, member) => sum + personalMemberRefund(this.profile, member!), 0)
-    const confirm = this.openPanel(`賣回 ${ids.length} 名隊員？`, `退款：${refund} 軍功\n目前裝備的武器、盾牌與坐騎會隨隊員離開，不會退回背包。\n想保留的裝備請先換下；普通兵與 Captain 至少要帶一把武器離開。\n這會永久解除僱用。`)
+    const confirm = this.openPanel(`賣回 ${ids.length} 名隊員？`, `退款：${refund} 軍功\n目前裝備的武器、盾牌與坐騎會隨隊員離開，不會退回背包。\n想保留的裝備請先換下；非 Ranger 隊員至少要帶一把武器離開。\n這會永久解除僱用。`)
     this.button(confirm, '確認', () => {
       const result = sellPersonalSquadMembers(() => this.profile, this.personalSquad!, ids, next => this.commit(next))
       if (result.sold) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership() }
