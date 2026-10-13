@@ -11,9 +11,24 @@ import {
   type DefenseCampaignLaunchConfig,
 } from '../../src/campaign/DefenseCampaignLaunch'
 import { calculateArmyTotal, type UnitTierCounts } from '../../src/battle/BattleConfig'
-import { BattleSpawner } from '../../src/battle/BattleSpawner'
+import { BattleSpawner, type NpcSpawnSpec } from '../../src/battle/BattleSpawner'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
+import { getOutpostRampartArcherSlots } from '../../src/campaign/OutpostRampartGarrison'
+import { getOutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
+import { AIType, Faction, RANGED_AI_LAUNCH_HEIGHT } from '../../src/world/NPC'
+import * as THREE from 'three'
+import { getWalkRampHeight } from '../../src/world/Terrain'
+
+function rampartSpec(overrides: Partial<NpcSpawnSpec> = {}): NpcSpawnSpec {
+  return {
+    x: 0, z: 0, characterFaction: 'roman', faction: Faction.PLAYER,
+    aiType: AIType.RANGED, name: 'Archer', tier: 2, cavalry: false,
+    respawnEnabled: false, presetId: 'roman_archer',
+    loadout: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'wooden_shortbow', shieldId: null, mountId: null },
+    ...overrides,
+  }
+}
 
 function launch(
   defenderFaction: 'roman' | 'viking',
@@ -157,20 +172,114 @@ describe('Defense Campaign Stage 1 launch config', () => {
     expect(heroes.find(spec => spec.presetId === rangedPreset)?.combatProfileId).toBe('ranger')
   })
 
-  it('keeps a Ranger on foot in the archer formation', () => {
+  it('recognizes an on-foot Ranger by its real bow loadout', () => {
     const config = launch('viking', true)
     config.defenderArmy.viking_archer = { 1: 0, 2: 0, 3: 0, 4: 1 }
     const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(config, 'defenders'))
     const ranger = plan.npcSpecs.find(spec => spec.tier === 4)!
-    const originalPosition = { x: ranger.x, z: ranger.z }
-    positionDefenseCampaignDefenders(plan.npcSpecs, 'viking')
+    const deployment = positionDefenseCampaignDefenders(plan.npcSpecs, 'viking')
 
     expect(ranger.presetId).toBe('viking_archer')
     expect(ranger.cavalry).toBe(false)
     expect(ranger.loadout?.mountId).toBeNull()
     expect(ranger.combatProfileId).toBe('ranger')
-    expect({ x: ranger.x, z: ranger.z }).toEqual(originalPosition)
-    expect(Math.abs(ranger.x)).toBeLessThan(14)
+    expect(deployment.assignments.map(item => item.spec)).toContain(ranger)
+    expect(ranger.outpostRampartGarrison).toBe(true)
+    expect(ranger.spawnY).toBeTypeOf('number')
+  })
+
+  it('derives 16 / 4 / 16 legal firing slots from the live walkway layout', () => {
+    const slots = getOutpostRampartArcherSlots('roman')
+    const all = [...slots.left, ...slots.gate, ...slots.right]
+    const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement('roman'))
+
+    expect([slots.left.length, slots.gate.length, slots.right.length]).toEqual([16, 4, 16])
+    expect(new Set(all.map(slot => `${slot.x},${slot.y},${slot.z}`)).size).toBe(36)
+    for (let first = 0; first < all.length; first++) {
+      for (let second = first + 1; second < all.length; second++) {
+        expect(Math.hypot(all[first].x - all[second].x, all[first].z - all[second].z)).toBeGreaterThanOrEqual(1)
+      }
+    }
+    for (const section of [slots.left, slots.gate, slots.right]) {
+      for (let index = 1; index < section.length; index++) {
+        expect(Math.abs(section[index].x - section[index - 1].x)).toBeCloseTo(2.4)
+      }
+    }
+    for (const slot of all) {
+      const surface = slot.section === 'gate'
+        ? layout.bridge.walkSurface
+        : layout.decks.find(deck => deck.side === (slot.section === 'left' ? -1 : 1))!.walkSurface
+      const railBoxes = slot.section === 'gate'
+        ? layout.bridge.frontRailProjectileBoxes
+        : layout.decks.find(deck => deck.side === (slot.section === 'left' ? -1 : 1))!.frontRailProjectileBoxes
+      expect(slot.y).toBeCloseTo(getWalkRampHeight(surface, slot.x, slot.z)!)
+      const muzzleAtRail = new THREE.Vector3(
+        slot.x,
+        slot.y + RANGED_AI_LAUNCH_HEIGHT,
+        layout.zSign === 1 ? Math.min(...railBoxes.map(box => box.min.z)) : Math.max(...railBoxes.map(box => box.max.z)),
+      )
+      expect(railBoxes.some(box => box.containsPoint(muzzleAtRail))).toBe(false)
+    }
+  })
+
+  it('balances short rosters across both wings, fills the bridge last, and leaves overflow grounded', () => {
+    const deploy = (count: number) => {
+      const specs = Array.from({ length: count }, () => rampartSpec())
+      const result = positionDefenseCampaignDefenders(specs, 'roman')
+      return { specs, result }
+    }
+    const twenty = deploy(20)
+    expect(twenty.result.assignments.filter(item => item.slot.section === 'left')).toHaveLength(10)
+    expect(twenty.result.assignments.filter(item => item.slot.section === 'right')).toHaveLength(10)
+    expect(twenty.result.assignments.filter(item => item.slot.section === 'gate')).toHaveLength(0)
+
+    const thirtyThree = deploy(33)
+    expect(thirtyThree.result.assignments.filter(item => item.slot.section === 'left')).toHaveLength(16)
+    expect(thirtyThree.result.assignments.filter(item => item.slot.section === 'right')).toHaveLength(16)
+    expect(thirtyThree.result.assignments.filter(item => item.slot.section === 'gate')).toHaveLength(1)
+
+    const fifty = deploy(50)
+    expect(fifty.specs).toHaveLength(50)
+    expect(fifty.result.assignments).toHaveLength(36)
+    expect(fifty.result.overflowCount).toBe(14)
+    expect(fifty.specs.filter(spec => spec.outpostRampartGarrison)).toHaveLength(36)
+    expect(fifty.specs.slice(36).every(spec => spec.spawnY === undefined)).toBe(true)
+
+    const repeat = deploy(20)
+    expect(repeat.result.assignments.map(item => item.slot)).toEqual(twenty.result.assignments.map(item => item.slot))
+
+    const resumed = rampartSpec({ x: 4, z: 5 })
+    const skipped = positionDefenseCampaignDefenders([resumed], 'roman', { deployRampartGarrison: false })
+    expect(skipped.assignments).toHaveLength(0)
+    expect({ x: resumed.x, z: resumed.z }).toEqual({ x: 4, z: 5 })
+    expect(resumed.spawnY).toBeUndefined()
+    expect(resumed.outpostRampartGarrison).toBeUndefined()
+  })
+
+  it('selects only owner-faction foot soldiers carrying a real bow', () => {
+    const bow = rampartSpec()
+    bow.actorId = 'existing-archer'; bow.squadId = 3
+    const javelin = rampartSpec({ presetId: 'roman_javelin_infantry', loadout: {
+      meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null, mountId: null,
+    } })
+    const horseArcher = rampartSpec({ cavalry: true, presetId: 'roman_horse_archer', loadout: {
+      meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'wooden_shortbow', shieldId: null, mountId: 'horse',
+    } })
+    const enemyBow = rampartSpec({ characterFaction: 'viking', faction: Faction.ENEMY, presetId: 'viking_archer' })
+    const meleeAiWithBow = rampartSpec({ aiType: AIType.MELEE })
+    const melee = rampartSpec({ aiType: AIType.MELEE, presetId: 'roman_heavy_infantry', loadout: {
+      meleeWeaponId: 'gladius_rusty', rangedWeaponId: null, shieldId: 'scutum_t1', mountId: null,
+    } })
+    const specs = [bow, javelin, horseArcher, enemyBow, meleeAiWithBow, melee]
+
+    const result = positionDefenseCampaignDefenders(specs, 'roman')
+
+    expect(result.eligibleCount).toBe(1)
+    expect(result.assignments.map(item => item.spec)).toEqual([bow])
+    expect(specs.filter(spec => spec.outpostRampartGarrison)).toEqual([bow])
+    expect({ actorId: bow.actorId, squadId: bow.squadId, faction: bow.faction }).toEqual({
+      actorId: 'existing-archer', squadId: 3, faction: Faction.PLAYER,
+    })
   })
 
   it('builds the Stage 1 attacker 4:2:2:1:1 composition at T2', () => {

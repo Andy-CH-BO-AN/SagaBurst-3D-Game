@@ -105,7 +105,11 @@ function parseActorPositions(value: unknown, knownActorIds: ReadonlySet<string>)
     if (typeof position.x !== 'number' || !Number.isFinite(position.x)
       || typeof position.z !== 'number' || !Number.isFinite(position.z)
       || typeof position.yaw !== 'number' || !Number.isFinite(position.yaw)) continue
-    result[actorId] = { x: position.x, z: position.z, yaw: position.yaw }
+    result[actorId] = {
+      x: position.x, z: position.z, yaw: position.yaw,
+      ...(typeof position.y === 'number' && Number.isFinite(position.y) ? { y: position.y } : {}),
+      ...(position.outpostRampartGarrison === true ? { outpostRampartGarrison: true } : {}),
+    }
   }
   return Object.keys(result).length > 0 ? result : undefined
 }

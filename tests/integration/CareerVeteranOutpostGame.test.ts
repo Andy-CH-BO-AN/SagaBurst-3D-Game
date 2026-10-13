@@ -101,6 +101,19 @@ function personalAssaultFixture(faction: 'roman' | 'viking', state: 'ACTIVE' | '
 }
 
 describe('Veteran Campaign Outpost Game integration', () => {
+  it('does not mistake Dread Outpost mounted Rangers for foot rampart archers', () => {
+    const launch = createCareerVeteranOutpostLaunch(veteranProfile('veteran-dread-outpost', 'rampart-dread'))
+    const fresh = createCareerVeteranOutpostSpawnPlan(launch, 'initial')
+    const garrison = fresh.npcSpecs.filter(spec => spec.outpostRampartGarrison)
+
+    expect(fresh.npcSpecs.some(spec => spec.loadout?.rangedWeaponId && spec.cavalry)).toBe(true)
+    expect(garrison).toHaveLength(0)
+
+    const resumed = createCareerVeteranOutpostSpawnPlan(launch, 'initial', { deployRampartGarrison: false })
+    expect(resumed.npcSpecs.some(spec => spec.outpostRampartGarrison || spec.spawnY !== undefined)).toBe(false)
+    expect(resumed.npcSpecs.map(spec => spec.actorId)).toEqual(fresh.npcSpecs.map(spec => spec.actorId))
+  })
+
   describe('shared Veteran IV player-side result runtime', () => {
     const faction = 'roman'
     it('continues with no living Player or official attackers and one private member', () => {

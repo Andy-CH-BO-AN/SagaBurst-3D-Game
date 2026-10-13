@@ -220,6 +220,7 @@ export class ArmyCommandController {
       } else if (confirmed) {
         const result = this.formation.confirmPlacement()
         if (result.accepted) {
+          for (const npc of result.participants) npc.releaseOutpostRampartGarrison?.()
           this._setFormationDesiredOrders(this.selectedTarget, result.participants, result.commandId)
           this.onCommandIssued?.('formation', this.selectedTarget ?? undefined)
           this.ui.showFeedback(`${this._targetLabel(this.selectedTarget)} → 列陣`)
@@ -414,6 +415,7 @@ export class ArmyCommandController {
 
     if (this.campaignFollowEnabled && order === 'follow') {
       const recipients = this.npcs.filter(npc => !npc.dead && this._acceptsNpc(npc) && matchesArmyCommandTarget(npc, target))
+      for (const npc of recipients) npc.releaseOutpostRampartGarrison?.()
       this._clearFormationDesiredOrders(target)
       this._setDesiredOrder(target, 'follow')
       this.onCampaignFollow?.(target, recipients)
@@ -437,6 +439,7 @@ export class ArmyCommandController {
       if (!this._acceptsNpc(npc)) continue
       if (!matchesArmyCommandTarget(npc, target)) continue
       if (npc.dead) continue
+      npc.releaseOutpostRampartGarrison?.()
       npc.clearFollowTarget?.()
       npc.setTacticalOrder(order)
     }

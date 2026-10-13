@@ -23,7 +23,7 @@ export interface CareerOutpostMission {
 }
 export interface CareerOutpostCheckpoint {
   runtime: DefenseCampaignRuntimeSnapshot
-  actors: Record<string, { hp: number; x: number; z: number; yaw: number; mountHp?: number; checkpoint?: PersonalActorCheckpoint }>
+  actors: Record<string, { hp: number; x: number; y?: number; z: number; yaw: number; mountHp?: number; outpostRampartGarrison?: boolean; checkpoint?: PersonalActorCheckpoint }>
   player: { hp: number; stamina: number; dead: boolean; x: number; z: number; yaw: number; mountHp?: number; ammo?: number; shieldImpact?: number; mounted?: boolean; mountPosition?: PersonalActorPosition }
   playerStats: PlayerBattleStatsCheckpoint
   wave: 'attackers' | 'reinforcement' | null
@@ -97,7 +97,9 @@ export function parseCareerOutpostCheckpoint(value: unknown): CareerOutpostCheck
   }
   for (const [id, actor] of Object.entries(raw.actors)) {
     if (!id || id.length > 256 || !point(actor) || !number(actor.hp) || actor.hp < 0
+      || actor.y !== undefined && !number(actor.y)
       || actor.mountHp !== undefined && (!number(actor.mountHp) || actor.mountHp < 0)
+      || actor.outpostRampartGarrison !== undefined && typeof actor.outpostRampartGarrison !== 'boolean'
       || actor.checkpoint !== undefined && !parseCommandActorCheckpoint(actor.checkpoint)) return undefined
   }
   for (const key of ['damageDealt', 'damageTaken', 'kills', 'structureDamage', 'structuresDestroyed', 'gateBreaches'] as const) {
@@ -116,7 +118,9 @@ export function parseCareerOutpostCheckpoint(value: unknown): CareerOutpostCheck
     },
     actors: Object.fromEntries(Object.entries(raw.actors).map(([id, actor]) => [id, {
       hp: actor.hp, x: actor.x, z: actor.z, yaw: actor.yaw,
+      ...(actor.y !== undefined ? { y: actor.y } : {}),
       ...(actor.mountHp !== undefined ? { mountHp: actor.mountHp } : {}),
+      ...(actor.outpostRampartGarrison === true ? { outpostRampartGarrison: true } : {}),
       ...(actor.checkpoint ? { checkpoint: parseCommandActorCheckpoint(actor.checkpoint)! } : {}),
     }])),
     player: { hp: raw.player.hp, stamina: raw.player.stamina, dead: raw.player.dead,

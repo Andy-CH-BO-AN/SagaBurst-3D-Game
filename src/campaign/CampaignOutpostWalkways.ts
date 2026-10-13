@@ -326,22 +326,22 @@ export type OutpostWalkwayLaunchFields = Pick<DefenseCampaignLaunchConfig,
   'type' | 'careerMissionId' | 'careerMissionKind' | 'careerReliefPhase'
   | 'careerVeteranOutpost' | 'careerPersonalSquad'>
 
-/**
- * Standard Defense Campaign launches (no Career linkage) get the rampart.
- * DEV previews opt in explicitly.
- */
+/** Defense Outpost launches get the rampart; relief and assault keep their original map. */
 export function isOutpostWalkwayEnabled(
   config: OutpostWalkwayLaunchFields | null | undefined,
   devPreview: boolean,
 ): boolean {
   if (devPreview) return true
-  return Boolean(config)
-    && config!.type === 'defense'
-    && !config!.careerMissionId
-    && !config!.careerMissionKind
-    && !config!.careerReliefPhase
-    && !config!.careerVeteranOutpost
-    && !config!.careerPersonalSquad
+  if (!config || config.type !== 'defense' || config.careerReliefPhase) return false
+  if (config.careerMissionKind) {
+    return config.careerMissionKind === 'outpost-defense'
+      || config.careerMissionKind === 'captain-outpost-defense'
+      || config.careerMissionKind === 'veteran-outpost-defense'
+  }
+  if (config.careerVeteranOutpost) {
+    return config.careerVeteranOutpost.missionKind === 'veteran-outpost-defense'
+  }
+  return !config.careerMissionId && !config.careerPersonalSquad
 }
 
 export interface OutpostWalkways {

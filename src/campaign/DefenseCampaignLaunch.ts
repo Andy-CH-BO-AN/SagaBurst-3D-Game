@@ -48,6 +48,7 @@ import {
 import type { VeteranOutpostBattleState } from '../career/CareerMissionState'
 import { createVeteranRoster } from '../career/VeteranMission'
 import { parsePersonalMission, type PersonalSquadMission } from '../career/CareerPersonalSquadMission'
+import { deployOutpostRampartArchers, type OutpostRampartDeployment } from './OutpostRampartGarrison'
 
 export interface DefenseCampaignCapabilities {
   reinforcementsEnabled: boolean
@@ -550,9 +551,13 @@ export function createDefenseCampaignWaveConfig(
 export function positionDefenseCampaignDefenders(
   specs: NpcSpawnSpec[],
   defenderFaction: CampaignFaction,
-): void {
+  options: { deployRampartGarrison?: boolean } = {},
+): OutpostRampartDeployment {
+  const rampart = options.deployRampartGarrison === false
+    ? { assignments: [], eligibleCount: 0, overflowCount: 0 }
+    : deployOutpostRampartArchers(specs, defenderFaction)
   const mounted = specs.filter(spec => spec.cavalry)
-  if (mounted.length === 0) return
+  if (mounted.length === 0) return rampart
 
   const placement = getCampaignOutpostPlacement(defenderFaction)
   const inwardSign = Math.sign(placement.backZ - placement.frontZ)
@@ -577,6 +582,7 @@ export function positionDefenseCampaignDefenders(
     spec.x = (wingBaseX + col * spacingX) * wingSign
     spec.z = startZ + row * spacingZ * inwardSign
   }
+  return rampart
 }
 
 /** Keep an attacker wave at least 100m beyond the owning Outpost's front gate. */
