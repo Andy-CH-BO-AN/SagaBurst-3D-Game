@@ -13,7 +13,12 @@ import {
 } from '../world/DamageableObstacle'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { CampaignBreachController, CampaignGateController } from './CampaignGate'
-import { createOutpostWalkways, getOutpostWalkwayLayout, type OutpostWalkways } from './CampaignOutpostWalkways'
+import {
+  createOutpostWalkways,
+  getOutpostWalkwayLayout,
+  OUTPOST_WALKWAY,
+  type OutpostWalkways,
+} from './CampaignOutpostWalkways'
 
 export const CAMPAIGN_OUTPOST_LAYOUT = {
   centerX: 0,
@@ -259,7 +264,17 @@ export function createCampaignOutpost(
   }
 
   const gateTerrainY = getTerrainHeight(0, frontZ)
-  const gateHeight = wallTopY != null ? (wallTopY - gateTerrainY) : palisadeHeight
+  const bridgeUndersideAtGate = walkwayLayout
+    ? Math.min(walkwayLayout.decks[0].topY, walkwayLayout.decks[1].topY) - OUTPOST_WALKWAY.deckThickness
+    : undefined
+  const lintelThickness = 0.35
+  const lintelTopY = bridgeUndersideAtGate
+  const lintelBottomY = lintelTopY != null ? lintelTopY - lintelThickness : undefined
+  const gateClearanceBelowLintel = 0.08
+  const gateHeight = (options.walkways && lintelBottomY != null)
+    ? Math.max(palisadeHeight, lintelBottomY - gateClearanceBelowLintel - gateTerrainY)
+    : (wallTopY != null ? (wallTopY - gateTerrainY) : palisadeHeight)
+
   const gateRoot = new THREE.Group()
   gateRoot.name = `campaign-outpost-gate-${defenderFaction}`
 
@@ -341,20 +356,20 @@ export function createCampaignOutpost(
   const gateObstacle = obstacles.find(obstacle => obstacle.damageable === gate)
   if (!gateObstacle) throw new Error('Campaign gate obstacle registration failed')
 
-  if (options.walkways) {
+  if (options.walkways && lintelTopY != null) {
     const gateFrame = new THREE.Group()
     gateFrame.name = 'campaign-gate-frame'
     const postWidth = 0.45
     const postDepth = 0.95
-    const postHeight = gateHeight + 0.5
+    const postHeight = lintelTopY - gateTerrainY
     const leftPost = new THREE.Mesh(new THREE.BoxGeometry(postWidth, postHeight, postDepth), darkWoodMaterial)
     leftPost.position.set(-gateWidth / 2, gateTerrainY + postHeight / 2, frontZ)
     leftPost.castShadow = true
     const rightPost = new THREE.Mesh(new THREE.BoxGeometry(postWidth, postHeight, postDepth), darkWoodMaterial)
     rightPost.position.set(gateWidth / 2, gateTerrainY + postHeight / 2, frontZ)
     rightPost.castShadow = true
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(gateWidth + postWidth * 2 + 0.2, 0.4, postDepth + 0.1), woodMaterial)
-    lintel.position.set(0, gateTerrainY + gateHeight + 0.2, frontZ)
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(gateWidth + postWidth * 2 + 0.2, lintelThickness, postDepth + 0.1), woodMaterial)
+    lintel.position.set(0, lintelTopY - lintelThickness / 2, frontZ)
     lintel.castShadow = true
     gateFrame.add(leftPost, rightPost, lintel)
     root.add(gateFrame)
