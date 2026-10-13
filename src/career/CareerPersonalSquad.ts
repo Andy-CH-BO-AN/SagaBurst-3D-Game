@@ -91,6 +91,7 @@ export function changePersonalEquipment(read: () => CareerProfile, authority: Pe
   slot: PersonalEquipmentSlot, id: string | null, save: (profile: CareerProfile) => boolean) {
   const current = read()
   const fail = (reason: PersonalManagementFailure) => ({ changed: false, profile: current, reason })
+  if (!canRecruitPersonalSquad(current)) return fail('rank-locked')
   if (authority.state !== 'RESERVE' || current.activeMission || current.activeOutpostMission) return fail('not-reserve')
   const existing = current.personalSquad?.members.find(member => member.id === memberId)
   if (!existing) return fail('missing-member')

@@ -35,6 +35,14 @@ import {
 } from './TownDefenseState'
 
 export interface TownDefenseResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
+
+/** Defense binds the mount selected by Town materialization, including an explicit unmounted allocation. */
+export function restoreTownDefenseRangerMount(resident: Pick<TownDefenseResident, 'npc' | 'homeMount'> | undefined,
+  blackCat: Mount, profile: Pick<CareerProfile, 'faction' | 'townEquipment'>): void {
+  if (!resident || resident.npc.dead) return
+  const mount = profile.townEquipment?.[profile.faction] ? resident.homeMount : blackCat
+  if (mount && !mount.dead && resident.npc.mount !== mount) resident.npc.mountVehicle(mount)
+}
 interface RuntimeGroup { id: TownGateId; members: NPC[]; cavalry: NPC[]; leader: NPC | null }
 export interface TownSiegeContext {
   gates: ReadonlyMap<TownGateId, CampaignGateController>
@@ -247,7 +255,7 @@ export class TownDefenseController {
       }
     }
     if (active.defenseCatDead && !this.blackCat.dead) this.blackCat.takeDamage(this.blackCat.currentHp + 1)
-    if (!this.ranger?.dead && !this.blackCat.dead && this.ranger?.mount !== this.blackCat) this.ranger?.mountVehicle(this.blackCat)
+    restoreTownDefenseRangerMount(this.residents.find(resident => resident.spec.role === 'ranger'), this.blackCat, this.readProfile())
     this.groups.length = 0
     const byId = new Map(this.residents.map(r => [r.spec.id, r.npc]))
     if (!this.siege.defensePlans.length) this.siege.defensePlans = siegeDefensePlans(this.residents.filter(r => !r.npc.dead && this.military.includes(r.npc)).map(r => r.spec))

@@ -1,3 +1,4 @@
+import { allocatedTownEquipment, validateTownEquipment } from './CareerTownEquipmentState'
 import type { CareerProfile, CareerMountId } from './CareerProfile'
 import type { PersonalSquadMemberType } from './CareerPersonalSquad'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
@@ -49,7 +50,7 @@ export function careerItemAllocated(profile: CareerProfile, rawId: string): numb
     if (!member.equipment) continue
     count += Object.values(member.equipment).filter(value => value === id).length
   }
-  return count
+  return count + allocatedTownEquipment(profile, id)
 }
 export function availableCareerItem(profile: CareerProfile, id: string): number {
   return Math.max(0, careerItemTotal(profile, id) - careerItemAllocated(profile, id))
@@ -94,6 +95,7 @@ export function validPersonalEquipment(type: PersonalSquadMemberType, equipment:
 }
 /** Mutates only a newly parsed/staged profile. The marker prevents repeated recruitment grants. */
 export function normalizeCareerInventory(profile: CareerProfile): void {
+  validateTownEquipment(profile)
   const legacy = !profile.inventory
   const totals = { ...careerItemTotals(profile) }
   if (profile.inventory?.version !== undefined && profile.inventory.version !== 1) throw new Error('Invalid inventory version')
@@ -136,6 +138,9 @@ export function normalizeCareerInventory(profile: CareerProfile): void {
   }
   for (const member of profile.personalSquad?.members ?? []) for (const id of Object.values(member.equipment!)) {
     if (id && !totals[id]) throw new Error('Unowned member equipment')
+  }
+  for (const state of Object.values(profile.townEquipment ?? {})) for (const refs of Object.values(state?.actors ?? {})) for (const ref of Object.values(refs)) {
+    if (ref?.source === 'inventory' && !totals[ref.itemId]) throw new Error('Unowned town equipment')
   }
   for (const id of Object.keys(totals)) if (careerItemAllocated(profile, id) > totals[id]) throw new Error('Overallocated item')
   syncCareerOwnership(profile)

@@ -1,3 +1,4 @@
+import { parseTownEquipment } from './CareerTownEquipmentState'
 import { parseTownAirCommandSquad } from './TownAirCommandAuthority'
 import { parseCivilianCommandSquad } from './CivilianCommandAuthority'
 import { parseEnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
@@ -389,6 +390,8 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (raw.inventory !== undefined && (!raw.inventory || typeof raw.inventory !== 'object'
     || (raw.inventory as CareerInventory).version !== 1 || !(raw.inventory as CareerInventory).quantities
     || typeof (raw.inventory as CareerInventory).quantities !== 'object' || Array.isArray((raw.inventory as CareerInventory).quantities))) return null
+  let townEquipment: CareerProfile['townEquipment']
+  try { townEquipment = parseTownEquipment(raw.townEquipment) } catch { return null }
   let personalSquad: CareerProfile['personalSquad']
   try { personalSquad = parsePersonalSquad(raw.personalSquad) } catch { return null }
 
@@ -429,6 +432,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     : undefined
   if (townEvent && (typeof townEvent.id !== 'string' || !townEvent.id || !['hostile', 'settled'].includes(townEvent.state))) return null
   const profile: CareerProfile = {
+    ...(townEquipment ? { townEquipment } : {}),
     ...(raw.inventory ? { inventory: raw.inventory as CareerInventory } : {}),
     version: 1,
     faction: raw.faction,
