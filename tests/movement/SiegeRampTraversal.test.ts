@@ -1,5 +1,6 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import * as THREE from 'three'
+import { ArrowProjectile } from '../../src/world/ArrowProjectile'
 import { Mount, MountType } from '../../src/world/Mount'
 import { Player } from '../../src/player/Player'
 import type { PlayerInput } from '../../src/player/PlayerInput'
@@ -36,7 +37,10 @@ describe('Siege surface movement: real actor/physics consumers', () => {
     expect(npc.group.getWorldPosition(new THREE.Vector3()).distanceTo(new THREE.Vector3(1, 8, 5))).toBeLessThan(1e-12)
     expect(npc.combatPosition.distanceTo(new THREE.Vector3(1, 8, 5))).toBeLessThan(1e-12)
     const hp = npc.hp
-    npc.takeFallDamage(10)
+    const shooter = { targetable: false, currentMount: null, characterFaction: 'roman' } as Player
+    const arrow = new ArrowProjectile(scene, new THREE.Vector3(1, 9, 3), new THREE.Vector3(0, 0, 1), 40, 10, Faction.PLAYER, true)
+    onTestFinished(() => arrow.destroy())
+    arrow.update(.1, shooter, [npc], [], () => {}, () => { throw new Error('unexpected Player hit') })
     expect(npc.hp).toBe(hp - 10)
     const before = npc.position.clone()
     support.detach(npc.combatantId)
