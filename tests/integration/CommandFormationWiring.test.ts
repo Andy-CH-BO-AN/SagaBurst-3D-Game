@@ -10,6 +10,7 @@ describe('Army command formation completion wiring', () => {
       presetId: 'viking_spearman',
       dead: false,
       setTacticalOrder: vi.fn(),
+      releaseOutpostRampartGarrison: vi.fn(),
     }
     const deadArcher = {
       faction: Faction.PLAYER,
@@ -41,6 +42,7 @@ describe('Army command formation completion wiring', () => {
     expect(hud.find(entry => entry.key === '3')?.order).toBe('attack')
     expect(hud.find(entry => entry.key === '2')?.order).toBe('formation')
     expect(hud.find(entry => entry.key === '`')?.order).toBe('mixed')
+    expect(spearman.releaseOutpostRampartGarrison).toHaveBeenCalledOnce()
   })
 
   it('does not show a defend completion message after ALL Formation is overwritten', () => {

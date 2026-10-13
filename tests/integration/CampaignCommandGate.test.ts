@@ -14,6 +14,7 @@ import {
 } from '../../src/campaign/CampaignGate'
 import type { ObstacleData } from '../../src/world/Terrain'
 import { createArmyCommandHarness as controllerHarness } from '../helpers/armyCommandHarness'
+import { getOutpostRampartArcherSlots } from '../../src/campaign/OutpostRampartGarrison'
 
 describe('Campaign command gate wiring', () => {
   it('ignores Attack and Charge while campaign command gating says no enemy exists', () => {
@@ -23,6 +24,7 @@ describe('Campaign command gate wiring', () => {
       dead: false,
       setTacticalOrder: vi.fn(),
       clearFollowTarget: vi.fn(),
+      releaseOutpostRampartGarrison: vi.fn(),
     }
     const h = controllerHarness(
       [spearman],
@@ -52,17 +54,19 @@ describe('Campaign command gate wiring', () => {
 
   it('allows Follow me (5) in deployment phase when campaignFollowEnabled is true, rejects Dismiss (6), and clears follow on defend', () => {
     const onCampaignFollow = vi.fn()
+    let enemiesPresent = false
     const spearman = {
       faction: Faction.PLAYER,
       presetId: 'roman_legionary',
       dead: false,
       setTacticalOrder: vi.fn(),
       clearFollowTarget: vi.fn(),
+      releaseOutpostRampartGarrison: vi.fn(),
     }
     const h = controllerHarness(
       [spearman],
       null,
-      order => order !== 'attack' && order !== 'charge',
+      order => enemiesPresent || order !== 'attack' && order !== 'charge',
       null,
       'roman',
       'preset',
@@ -84,6 +88,7 @@ describe('Campaign command gate wiring', () => {
     h.controller.update()
 
     expect(onCampaignFollow).toHaveBeenCalledWith('all', expect.arrayContaining([expect.objectContaining({ presetId: 'roman_legionary' })]))
+    expect(spearman.releaseOutpostRampartGarrison).toHaveBeenCalledOnce()
     expect(h.ui.showFeedback).toHaveBeenCalledWith('全軍 → Follow me · 跟隨')
     expect(h.controller.getDesiredOrderForNpc(spearman as unknown as NPC)).toBe('follow')
 
@@ -99,7 +104,62 @@ describe('Campaign command gate wiring', () => {
     h.controller.update()
     expect(spearman.clearFollowTarget).toHaveBeenCalled()
     expect(spearman.setTacticalOrder).toHaveBeenCalledWith('defend')
+    expect(spearman.releaseOutpostRampartGarrison).toHaveBeenCalledTimes(2)
     expect(h.controller.getDesiredOrderForNpc(spearman as unknown as NPC)).toBe('defend')
+
+    enemiesPresent = true
+    h.input.pressAll()
+    h.controller.update()
+    h.input.press('2')
+    h.controller.update()
+    expect(spearman.setTacticalOrder).toHaveBeenCalledWith('charge')
+    expect(spearman.releaseOutpostRampartGarrison).toHaveBeenCalledTimes(3)
+  })
+
+  it('keeps a real rampart archer firing outside after breach until a player order releases it', () => {
+    const scene = new THREE.Scene()
+    const outpost = createCampaignOutpost(scene, 'roman', undefined, { walkways: true })
+    const navigationWorld = new NavigationWorld()
+    navigationWorld.sync(outpost.obstacles)
+    navigationWorld.setOutpostWalkways(outpost.walkways!.layout)
+    const slot = getOutpostRampartArcherSlots('roman').right[7]
+    const archer = new NPC(scene, slot.x, slot.z, Faction.PLAYER, 'roman', AIType.RANGED, 'Rampart archer', 2, false, {
+      meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'recurve_longbow', shieldId: null, mountId: null,
+    }, 'roman_archer', undefined, 'rampart-archer')
+    const placement = getCampaignOutpostPlacement('roman')
+    const inward = Math.sign(placement.backZ - placement.frontZ)
+    const enemyZ = placement.frontZ - inward * 22
+    const enemy = new NPC(scene, slot.x, enemyZ, Faction.ENEMY, 'viking', AIType.MELEE, 'Outside enemy', 1, false, {
+      meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null, mountId: null,
+    }, 'viking_berserker', undefined, 'outside-enemy')
+    onTestFinished(() => { archer.dispose(); enemy.dispose() })
+    archer.group.position.set(slot.x, slot.y, slot.z)
+    archer.group.rotation.y = 0
+    archer.activateOutpostRampartGarrison()
+    enemy.group.position.y = getTerrainHeight(enemy.group.position.x, enemy.group.position.z)
+    enemy.setTacticalOrder('defend')
+    const initial = archer.group.position.clone()
+    const fire = vi.fn()
+    const player = { targetable: false, dead: false, isMounted: false } as unknown as Player
+
+    for (let frame = 0; frame < 160 && fire.mock.calls.length === 0; frame++) {
+      archer.update(0.05, player, [archer, enemy], [archer, enemy], outpost.obstacles,
+        { setFill() {} }, vi.fn(), fire, false, 0, null, null, navigationWorld)
+    }
+
+    expect(fire).toHaveBeenCalled()
+    expect(archer.group.position.distanceTo(initial)).toBeLessThan(0.05)
+    expect(archer.tacticalOrder).toBe('defend')
+    expect(archer.isOutpostRampartGarrisonActive).toBe(true)
+
+    applyCampaignBreachOrders([archer, enemy], 'viking')
+    expect(archer.tacticalOrder).toBe('defend')
+    expect(archer.isOutpostRampartGarrisonActive).toBe(true)
+
+    archer.releaseOutpostRampartGarrison()
+    applyCampaignBreachOrders([archer], 'viking')
+    expect(archer.tacticalOrder).toBe('attack')
+    expect(archer.isOutpostRampartGarrisonActive).toBe(false)
   })
 
   it('allows attackers spawned >=100m away outside closed gate to advance towards gate and damage it with NavigationWorld', () => {

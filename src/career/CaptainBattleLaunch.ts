@@ -49,9 +49,12 @@ export function createCaptainFrontlineLaunch(profile: CareerProfile): DefenseCam
   }
 }
 
-export function createCaptainFrontlineSpawnPlan(launch: DefenseCampaignLaunchConfig): BattleSpawnPlan {
+export function createCaptainFrontlineSpawnPlan(
+  launch: DefenseCampaignLaunchConfig,
+  options: { deployRampartGarrison?: boolean } = {},
+): BattleSpawnPlan {
   const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'defenders'))
-  positionDefenseCampaignDefenders(plan.npcSpecs, launch.defenderFaction)
+  positionDefenseCampaignDefenders(plan.npcSpecs, launch.defenderFaction, options)
   const placement = getCampaignOutpostPlacement(launch.defenderFaction)
   const melee = plan.npcSpecs.filter(spec => spec.presetId === resolveCampaignRolePreset(launch.defenderFaction, 'frontline'))
     .sort((a, b) => Math.abs(a.z - placement.frontZ) - Math.abs(b.z - placement.frontZ)).slice(0, 20)

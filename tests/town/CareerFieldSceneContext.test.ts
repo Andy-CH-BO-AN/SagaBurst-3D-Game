@@ -168,7 +168,7 @@ describe('Veteran VI enemy-territory Town context', () => {
     const profile = createCareerProfile('roman')
     const mission = tragedyMission('ENGAGING')
     mission.actorPositions = {
-      captain: { x: 12, z: 23, yaw: 1.2 },
+      captain: { x: 12, y: 7.25, z: 23, yaw: 1.2, outpostRampartGarrison: true },
       'enemy-0': { x: -3, z: 9, yaw: -0.8 },
       outsider: { x: 4, z: 5, yaw: 0 },
       maki: { x: Number.NaN, z: 1, yaw: 0 },
@@ -177,7 +177,10 @@ describe('Veteran VI enemy-territory Town context', () => {
     profile.activeMission = mission
 
     const loaded = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
-    expect(loaded.activeMission?.actorPositions).toEqual({ captain: { x: 12, z: 23, yaw: 1.2 }, 'enemy-0': { x: -3, z: 9, yaw: -0.8 } })
+    expect(loaded.activeMission?.actorPositions).toEqual({
+      captain: { x: 12, y: 7.25, z: 23, yaw: 1.2, outpostRampartGarrison: true },
+      'enemy-0': { x: -3, z: 9, yaw: -0.8 },
+    })
     expect(loaded.activeMission?.engagedEnemySquadIds).toEqual([2, 1])
     const clone = cloneCareerProfile(loaded)
     expect(clone.activeMission?.actorPositions).not.toBe(loaded.activeMission?.actorPositions)

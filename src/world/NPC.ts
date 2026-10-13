@@ -137,7 +137,7 @@ const NPC_DETOUR_MOUNTED_PROGRESS_DISTANCE = 0.45
 const NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES = 24
 const RANGED_TRAJECTORY_SEGMENT_LENGTH = 3.0
 const RANGED_TRAJECTORY_MAX_SEGMENTS = 16
-const RANGED_AI_LAUNCH_HEIGHT = 1.25
+export const RANGED_AI_LAUNCH_HEIGHT = 1.25
 const RANGED_AI_TARGET_HEIGHT = 1.4
 
 export const TARGET_REACQUIRE_NEAR_DISTANCE = 50
@@ -270,6 +270,13 @@ export class NPC {
   public loadout?: UnitLoadout
   private originalCombatEquipment: CombatEquipmentSnapshot | null = null
   public tacticalOrder: TacticalOrder = DEFAULT_TACTICAL_ORDER
+  private outpostRampartGarrison = false
+  get isOutpostRampartGarrisonActive(): boolean { return this.outpostRampartGarrison }
+  activateOutpostRampartGarrison(): void {
+    this.setTacticalOrder('defend')
+    this.outpostRampartGarrison = true
+  }
+  releaseOutpostRampartGarrison(): void { this.outpostRampartGarrison = false }
 
   private formationTarget: {
     commandId: number

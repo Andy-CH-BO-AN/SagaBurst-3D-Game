@@ -20,8 +20,8 @@ import { createCareerProfile, type CareerProfile } from '../../src/career/Career
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { careerTownSceneRoster, resolveCareerTownSceneContext } from '../../src/career/CareerFieldSceneContext'
 import { createEmptyArmyConfig } from '../../src/battle/BattleConfig'
-import { BattleSpawner } from '../../src/battle/BattleSpawner'
-import { createDefenseCampaignWaveConfig } from '../../src/campaign/DefenseCampaignLaunch'
+import { BattleSpawner, type NpcSpawnSpec } from '../../src/battle/BattleSpawner'
+import { createDefenseCampaignWaveConfig, positionDefenseCampaignDefenders } from '../../src/campaign/DefenseCampaignLaunch'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
 import { acceptCareerOutpost } from '../../src/career/CareerOutpostMission'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -141,6 +141,34 @@ function privateTownCaller(profile: CareerProfile, obstacles: ObstacleData[] = [
 }
 
 describe('production spawn callers with recorded constructor boundaries', () => {
+  it('materializes rampart archers at full 3D slots while retaining one spawn job per frame', async () => {
+    const game = gameFixture(), step = loadingFrames(true)
+    const specs: NpcSpawnSpec[] = Array.from({ length: 2 }, (_, index) => ({
+      actorId: `rampart:${index}`, x: 0, z: 0, faction: Faction.PLAYER,
+      characterFaction: 'roman' as const, aiType: AIType.RANGED, name: `Archer ${index}`,
+      tier: 2 as const, cavalry: false, respawnEnabled: false, presetId: 'roman_archer' as const,
+      loadout: { meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'wooden_shortbow', shieldId: null, mountId: null },
+    }))
+    const deployment = positionDefenseCampaignDefenders(specs, 'roman')
+    const plan = { npcSpecs: specs, pickupSpecs: [], horseSpecs: [], playerSpawn: { x: 0, z: 0 } }
+
+    const loading = game._executeBattleSpawnPlan(plan)
+    expect(deployment.assignments).toHaveLength(2)
+    await step()
+    expect(game.npcs).toHaveLength(1)
+    expect(game.npcs[0].group.position.y).toBe(specs[0].spawnY)
+    expect(game.npcs[0].isOutpostRampartGarrisonActive).toBe(true)
+    await step()
+    const actors = await loading
+
+    expect(actors).toHaveLength(2)
+    actors.forEach((npc, index) => {
+      expect(npc.group.position).toMatchObject({ x: specs[index].x, y: specs[index].spawnY, z: specs[index].z })
+      expect(npc.isOutpostRampartGarrisonActive).toBe(true)
+      expect((npc as unknown as import('../helpers/npcSpawnRecording').RecordingNpc).activateOutpostRampartGarrison).toHaveBeenCalledOnce()
+    })
+  })
+
   it('registers a small initial army and its mounts before resolving loading', async () => {
     const game = gameFixture(), step = loadingFrames()
     const plan = smallArmyPlan()

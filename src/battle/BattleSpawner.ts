@@ -31,6 +31,8 @@ import {
 export interface NpcSpawnSpec {
   actorId?: string
   x: number
+  /** Optional elevated materialization height; ordinary ground spawns omit it. */
+  spawnY?: number
   z: number
   characterFaction: CharacterFaction
   faction: Faction
@@ -45,6 +47,8 @@ export interface NpcSpawnSpec {
   combatProfileId?: T4CombatProfileId
   specialCombatProfile?: 'maki-ranger'
   squadId?: SquadId
+  /** Initial Outpost-only hold state; cleared permanently by a player order. */
+  outpostRampartGarrison?: boolean
 }
 
 export interface CampPickupSpec {

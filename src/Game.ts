@@ -779,6 +779,10 @@ export class Game {
         : previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
           ? previewOutpostQuery
           : null)
+    const outpostWalkwaysEnabled = isOutpostWalkwayEnabled(
+      campaignConfig,
+      import.meta.env.DEV && startupQuery.get('outpostwalkway') === '1',
+    )
 
     createSky(this.scene, resolveShadowMapSize(startupQuery), previewOutpostFaction === 'viking')
     const {
@@ -797,10 +801,7 @@ export class Game {
         previewOutpostFaction,
         { obstacles, obstacleMeshes },
         {
-          walkways: isOutpostWalkwayEnabled(
-            campaignConfig,
-            import.meta.env.DEV && startupQuery.get('outpostwalkway') === '1',
-          ),
+          walkways: outpostWalkwaysEnabled,
         },
       )
       damageableObstacles.push(...outpost.damageableObstacles)
@@ -878,14 +879,24 @@ export class Game {
     let activeBattleConfig: BattleConfig | undefined = battleConfig
     if (campaignConfig) {
       activeBattleConfig = createDefenseCampaignWaveConfig(campaignConfig, 'defenders')
+      const hasRampartCheckpoint = campaignConfig.careerVeteranOutpost
+        ? Boolean(this.careerProfile?.activeMission?.actorPositions)
+        : Boolean(this._personalOutpostMission()?.battle)
+      const deployRampartGarrison = outpostWalkwaysEnabled && !hasRampartCheckpoint
       if (campaignConfig.careerMissionKind === 'captain-outpost-defense') {
-        battlePlan = createCaptainFrontlineSpawnPlan(campaignConfig)
+        battlePlan = createCaptainFrontlineSpawnPlan(campaignConfig, {
+          deployRampartGarrison,
+        })
       } else if (campaignConfig.careerVeteranOutpost) {
-        battlePlan = createCareerVeteranOutpostSpawnPlan(campaignConfig, 'initial')
+        battlePlan = createCareerVeteranOutpostSpawnPlan(campaignConfig, 'initial', {
+          deployRampartGarrison,
+        })
       } else {
         battlePlan = BattleSpawner.createSpawnPlan(activeBattleConfig)
         if (campaignConfig.careerMissionKind === 'outpost-relief') battlePlan = createCareerReliefSpawnPlan(campaignConfig)
-        else positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction)
+        else positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction, {
+          deployRampartGarrison,
+        })
         this._identifyPersonalOutpostWave(battlePlan, 'initial')
       }
     } else if (this.captainEagleMissionId && this.careerProfile) {
@@ -1971,6 +1982,8 @@ export class Game {
       spec.combatProfileId,
       spec.specialCombatProfile,
     ))
+    if (spec.spawnY !== undefined) npc.group.position.y = spec.spawnY
+    if (spec.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
       const stableKey = `${spec.characterFaction}:${spec.name}:${spec.tier}`
@@ -2336,14 +2349,15 @@ export class Game {
       return
     }
     if (mount) {
-      mount.group.position.set(saved.x, getTerrainHeight(saved.x, saved.z), saved.z)
+      mount.group.position.set(saved.x, saved.y ?? getTerrainHeight(saved.x, saved.z), saved.z)
       mount.group.rotation.y = saved.yaw
       if (saved.mountHp === 0) { mount.takeDamage(mount.maxHp + 1); if (npc.mount) npc.dismountFromMount() }
       else if (saved.mountHp !== undefined) mount.currentHp = Math.min(mount.maxHp, saved.mountHp)
     }
-    npc.group.position.set(saved.x, getTerrainHeight(saved.x, saved.z), saved.z)
+    npc.group.position.set(saved.x, saved.y ?? getTerrainHeight(saved.x, saved.z), saved.z)
     npc.group.rotation.y = saved.yaw
     npc.restoreCombatHealth(saved.hp)
+    if (!npc.dead && saved.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
   }
 
   private outpostRestoration?: Promise<void>
@@ -2498,8 +2512,10 @@ export class Game {
     mission.battle = {
       runtime, actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(npc => npc.combatOwnership !== 'player-personal').map(npc => {
         const mount = this.careerVeteranActorMounts.get(npc.combatantId)
-        return [npc.combatantId, { hp: npc.hp, x: npc.combatPosition.x, z: npc.combatPosition.z,
-          yaw: npc.mount?.group.rotation.y ?? npc.group.rotation.y, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }]
+        return [npc.combatantId, { hp: npc.hp, x: npc.combatPosition.x, y: npc.combatPosition.y, z: npc.combatPosition.z,
+          yaw: npc.mount?.group.rotation.y ?? npc.group.rotation.y,
+          ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
+          ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }]
       })) },
       player: { hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
         x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.currentMount?.group.rotation.y ?? this.player.group.rotation.y,
@@ -2550,9 +2566,19 @@ export class Game {
     const actorId = npc.combatantId
     if (!mission || !actorId) return
     const saved = mission.actorHealth?.[actorId]
+    const savedPosition = mission.actorPositions?.[actorId]
     const dead = mission.deadTargetActorIds?.includes(actorId) || mission.deadFriendlyActorIds?.includes(actorId)
     if (!this.careerVeteranActorMounts.has(actorId)) this.careerVeteranActorMounts.set(actorId, npc.mount)
     const mount = this.careerVeteranActorMounts.get(actorId) ?? null
+    if (savedPosition) {
+      const y = savedPosition.y ?? getTerrainHeight(savedPosition.x, savedPosition.z)
+      npc.group.position.set(savedPosition.x, y, savedPosition.z)
+      npc.group.rotation.y = savedPosition.yaw
+      if (mount) {
+        mount.group.position.set(savedPosition.x, y, savedPosition.z)
+        mount.group.rotation.y = savedPosition.yaw
+      }
+    }
     if (saved?.mountHp !== undefined && mount) {
       if (saved.mountHp <= 0) {
         if (!mount.dead) mount.takeDamage(mount.maxHp * 100)
@@ -2562,6 +2588,7 @@ export class Game {
     }
     if (dead) npc.restoreCombatHealth(0)
     else if (saved) npc.restoreCombatHealth(saved.hp)
+    if (!npc.dead && savedPosition?.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
   }
 
   private _restoreCareerVeteranOutpostGate(saved: NonNullable<DefenseCampaignLaunchConfig['careerVeteranOutpost']>['runtimeState']): void {
@@ -2686,6 +2713,7 @@ export class Game {
     const deadTargets = new Set(active.deadTargetActorIds ?? [])
     const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
     const actorHealth = { ...(active.actorHealth ?? {}) }
+    const actorPositions = { ...(active.actorPositions ?? {}) }
     for (const npc of this.npcs) {
       const id = npc.combatantId
       if (targetIds.has(id)) {
@@ -2697,6 +2725,13 @@ export class Game {
         if (npc.hp > 0) actorHealth[id] = { ...actorHealth[id], hp: npc.hp }
         else actorHealth[id] = { ...actorHealth[id], hp: 0 }
       } else continue
+      actorPositions[id] = {
+        x: npc.combatPosition.x,
+        y: npc.combatPosition.y,
+        z: npc.combatPosition.z,
+        yaw: npc.mount?.group?.rotation.y ?? npc.group.rotation.y,
+        ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
+      }
       const mount = this.careerVeteranActorMounts.has(id)
         ? this.careerVeteranActorMounts.get(id) ?? null
         : npc.mount
@@ -2708,6 +2743,7 @@ export class Game {
     active.deadTargetActorIds = [...deadTargets]
     active.deadFriendlyActorIds = [...deadFriendlies]
     active.actorHealth = actorHealth
+    active.actorPositions = actorPositions
     active.playerDead = this.player.dead || active.playerDead === true
     active.playerHp = this.player.hp
     active.playerStamina = this.player.staminaValue

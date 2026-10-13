@@ -81,7 +81,7 @@ export function applyCampaignBreachOrders(
       continue
     }
 
-    if (npc.characterFaction === defenderFaction) {
+    if (npc.characterFaction === defenderFaction && !npc.isOutpostRampartGarrisonActive) {
       npc.setTacticalOrder('attack')
       defenderAttackCount++
     }
