@@ -45,6 +45,43 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
     return { outpost, layout, leftDeck, rightDeck, leftStair, rightStair }
   }
 
+  it('real bridge follower walks through a wing and stair to ground, then resumes following back onto the bridge', () => {
+    // One real NPC and Player protect the locomotion consumer, not just waypoint data.
+    const { outpost, layout, leftStair } = setupOutpost('roman')
+    const nav = navWorld.outpostNav!
+    const player = new Player(scene)
+    onTestFinished(() => player.dispose())
+    const z = layout.bridge.walkSurface.startZ
+    const npc = new NPC(scene, -0.1, z, Faction.PLAYER, 'roman', AIType.MELEE, 'BridgeFollower', 2, false)
+    onTestFinished(() => npc.dispose())
+    npc.group.position.set(-0.1, layout.bridge.topY, z)
+    const groundZ = leftStair.ramp.startZ - leftStair.ramp.dirZ * 6
+    player.group.position.set(-36, getTerrainHeight(-36, groundZ) + 0.95, groundZ)
+    npc.assignFollowTarget(player, 0)
+    const visited = new Set<string>()
+    const drive = (done: () => boolean) => {
+      for (let frame = 0; frame < 1200; frame++) {
+        const previous = npc.group.position.clone()
+        navWorld.beginFrame()
+        npc.update(FRAME, player, [npc], [], outpost.obstacles,
+          { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+        visited.add(nav.getNavLayer(npc.group.position))
+        expect(npc.group.position.distanceTo(previous), 'no teleport or bridge-to-ground drop').toBeLessThan(0.5)
+        if (done()) return
+      }
+      throw new Error(`Follower failed after 40 simulated seconds: layer=${nav.getNavLayer(npc.group.position)}, position=${npc.group.position.toArray()}`)
+    }
+    drive(() => nav.getNavLayer(npc.group.position) === 'ground'
+      && npc.group.position.distanceTo(player.combatPosition) < 6
+      && Math.abs(npc.group.position.y - getTerrainHeight(npc.group.position.x, npc.group.position.z)) < 0.02)
+    expect(visited.has('rampart_left')).toBe(true)
+    expect(visited.has('stair_left')).toBe(true)
+    expect(npc.group.position.y).toBeCloseTo(getTerrainHeight(npc.group.position.x, npc.group.position.z), 1)
+    player.group.position.set(0, layout.bridge.topY + 0.95, z)
+    drive(() => nav.getNavLayer(npc.group.position) === 'rampart_gate')
+    expect(npc.tacticalOrder).toBe('follow')
+  })
+
   describe('Scenario A: Follow player onto rampart', () => {
     it('foot NPC climbs stair, walks onto rampart deck, and reaches follow slot on deck', () => {
       const { outpost, leftDeck, leftStair } = setupOutpost('viking')

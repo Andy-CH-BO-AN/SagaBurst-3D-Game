@@ -63,6 +63,8 @@ export function layerSide(layer: OutpostNavLayer): OutpostWalkwaySide | null {
   return null
 }
 
+const BRIDGE_LAYER_MARGIN = 0.3
+
 /**
  * Determines whether a position is on the ground, on a stair ramp, on a rampart deck,
  * or on the gatehouse bridge connecting the two ramparts.
@@ -87,8 +89,8 @@ export function getOutpostNavLayer(
     const bridge = layout.bridge
     const slab = bridge.slab
     const inSlabXZ =
-      pos.x >= slab.min.x - 0.3 &&
-      pos.x <= slab.max.x + 0.3 &&
+      pos.x >= slab.min.x - BRIDGE_LAYER_MARGIN &&
+      pos.x <= slab.max.x + BRIDGE_LAYER_MARGIN &&
       pos.z >= slab.min.z - 0.3 &&
       pos.z <= slab.max.z + 0.3
 
@@ -120,6 +122,55 @@ export function getOutpostNavLayer(
   }
 
   return 'ground'
+}
+
+/**
+ * Gate followers occupy one continuous row across the bridge and both wings.
+ * The row stays near the front parapet, leaving the courtyard side for traffic.
+ * Leader-relative X offsets keep slot identities stable during movement/turning.
+ */
+export function clampFollowSlotToBridge(
+  out: THREE.Vector3,
+  leaderPosition: THREE.Vector3,
+  slotIndex: number,
+  layout: OutpostWalkwayLayout,
+): THREE.Vector3 {
+  const left = layout.decks.find(d => d.side === -1)!
+  const right = layout.decks.find(d => d.side === 1)!
+  const bridge = layout.bridge
+  const spacing = 1.6
+  const leaderX = THREE.MathUtils.clamp(leaderPosition.x, bridge.slab.min.x, bridge.slab.max.x)
+  const maxNeg = Math.floor((leaderX - (left.slab.min.x + 0.6)) / spacing)
+  const maxPos = Math.floor((right.slab.max.x - 0.6 - leaderX) / spacing)
+  const index = Math.max(0, Math.floor(slotIndex))
+  const capacity = maxNeg + maxPos
+
+  if (index >= capacity) {
+    // Exhausted both wings: unique courtyard queues reachable through each stair.
+    const overflow = index - capacity
+    const side = overflow % 2 === 0 ? -1 : 1
+    const stair = layout.stairs.find(s => s.side === side)!
+    const rank = Math.floor(overflow / 2)
+    const x = stair.ramp.startX + (rank % 2 === 0 ? -0.7 : 0.7)
+    const z = stair.ramp.startZ - stair.ramp.dirZ * (2.2 + Math.floor(rank / 2) * 1.4)
+    return out.set(x, getTerrainHeight(x, z), z)
+  }
+
+  let neg = 0
+  let pos = 0
+  let x = leaderX
+  for (let i = 0; i <= index; i++) {
+    if ((i % 2 === 0 && neg < maxNeg) || pos >= maxPos) {
+      x = leaderX - ++neg * spacing
+    } else {
+      x = leaderX + ++pos * spacing
+    }
+  }
+  const deck = x < bridge.slab.min.x ? left : x > bridge.slab.max.x ? right : bridge
+  // 0.9m from the front edge clears 0.25m timber plus the 0.5m body radius.
+  const z = layout.zSign > 0 ? deck.slab.min.z + 0.9 : deck.slab.max.z - 0.9
+  const y = getWalkRampHeight(deck.walkSurface, x, z) ?? deck.topY
+  return out.set(x, y, z)
 }
 
 /**
@@ -338,6 +389,17 @@ export class OutpostLayeredNavigation {
 
   getStair(side: OutpostWalkwaySide): OutpostWalkwayStair | undefined {
     return this.layout.stairs.find(s => s.side === side)
+  }
+
+  private _atStairEntrance(position: THREE.Vector3, wp: StairWaypoints): boolean {
+    if (Math.hypot(position.x - wp.groundEntrance.x, position.z - wp.groundEntrance.z) <= 2.2) return true
+    const ramp = wp.stair.ramp
+    const along = (position.z - ramp.startZ) * ramp.dirZ
+    // A walker already inside the safe foot corridor must enter the stair,
+    // even when lateral offset places it just outside the circular approach
+    // threshold. Ground A* cannot route it out of the stair's inflated cell.
+    return Math.abs(position.x - ramp.startX) <= ramp.halfWidth - 0.5
+      && along >= -2.2 && along <= 0.6
   }
 
   private _buildStairWaypoints(side: OutpostWalkwaySide): StairWaypoints {
@@ -573,8 +635,8 @@ export class OutpostLayeredNavigation {
       const deck = this.getDeck(targetSide)!
       const corridorMidZ = (bridge.slab.min.z + bridge.slab.max.z) * 0.5
       const portal = targetSide < 0
-        ? new THREE.Vector3(bridge.slab.min.x, deck.topY, corridorMidZ)
-        : new THREE.Vector3(bridge.slab.max.x, deck.topY, corridorMidZ)
+        ? new THREE.Vector3(bridge.slab.min.x - BRIDGE_LAYER_MARGIN - 0.6, deck.topY, corridorMidZ)
+        : new THREE.Vector3(bridge.slab.max.x + BRIDGE_LAYER_MARGIN + 0.6, deck.topY, corridorMidZ)
       out.copy(portal)
       return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
     }
@@ -583,8 +645,7 @@ export class OutpostLayeredNavigation {
     if (currentLayer === 'ground' && targetLayer === 'rampart_gate') {
       const targetSide: OutpostWalkwaySide = (goalPos.x < 0 || currentPos.x < 0) ? -1 : 1
       const wp = this.getWaypoints(targetSide)
-      const distToEntrance = Math.hypot(currentPos.x - wp.groundEntrance.x, currentPos.z - wp.groundEntrance.z)
-      if (distToEntrance > 2.2) {
+      if (!this._atStairEntrance(currentPos, wp)) {
         out.copy(wp.groundEntrance)
         return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ground_approach' }
       } else {
@@ -618,9 +679,7 @@ export class OutpostLayeredNavigation {
     if (currentLayer === 'ground' && (isRampartLayer(targetLayer) || isStairLayer(targetLayer))) {
       const targetSide = layerSide(targetLayer) ?? ((goalPos.x < 0 || currentPos.x < 0) ? -1 : 1)
       const wp = this.getWaypoints(targetSide)
-      const distToEntrance = Math.hypot(currentPos.x - wp.groundEntrance.x, currentPos.z - wp.groundEntrance.z)
-
-      if (distToEntrance > 2.2) {
+      if (!this._atStairEntrance(currentPos, wp)) {
         out.copy(wp.groundEntrance)
         return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ground_approach' }
       } else {

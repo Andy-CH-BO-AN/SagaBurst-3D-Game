@@ -75,6 +75,7 @@ import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinato
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
 import {
   clampFollowSlotToDeck,
+  clampFollowSlotToBridge,
   clampFollowSlotToStair,
   isRampartLayer,
   isStairLayer,
@@ -1313,7 +1314,11 @@ export class NPC {
           const deck = side !== null ? layeredNav.getDeck(side) : layeredNav.layout.bridge
           const stair = side !== null ? layeredNav.getStair(side) : undefined
           if (deck) {
-            clampFollowSlotToDeck(position, position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw, stair)
+            if (leaderLayer === 'rampart_gate') {
+              clampFollowSlotToBridge(position, this.followSmoothedLeaderPosition, this.followSlotIndex, layeredNav.layout)
+            } else {
+              clampFollowSlotToDeck(position, position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw, stair)
+            }
           }
         } else {
           position.y = getTerrainHeight(position.x, position.z)
@@ -3273,7 +3278,11 @@ export class NPC {
             const deck = side !== null ? layeredNav.getDeck(side) : layeredNav.layout.bridge
             const stair = side !== null ? layeredNav.getStair(side) : undefined
             if (deck) {
-              clampFollowSlotToDeck(target.position, target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw, stair)
+              if (leaderLayer === 'rampart_gate') {
+                clampFollowSlotToBridge(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, layeredNav.layout)
+              } else {
+                clampFollowSlotToDeck(target.position, target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw, stair)
+              }
             }
           } else {
             target.position.y = getTerrainHeight(target.position.x, target.position.z)

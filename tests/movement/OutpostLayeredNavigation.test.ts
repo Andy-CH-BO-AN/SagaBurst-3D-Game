@@ -8,6 +8,7 @@ import {
 } from '../../src/campaign/CampaignOutpostWalkways'
 import {
   clampFollowSlotToDeck,
+  clampFollowSlotToBridge,
   clampFollowSlotToStair,
   isGroundLayer,
   isRampartLayer,
@@ -25,6 +26,59 @@ describe('OutpostLayeredNavigation', () => {
   const vikingLayout = getOutpostWalkwayLayout(vikingPlacement)
   const romanPlacement = getCampaignOutpostPlacement('roman')
   const romanLayout = getOutpostWalkwayLayout(romanPlacement)
+
+  it('places bridge exit waypoints beyond layer tolerance on either connected wing', () => {
+    const nav = new OutpostLayeredNavigation(romanLayout)
+    const bridge = romanLayout.bridge
+    const z = bridge.walkSurface.startZ
+    for (const side of [-1, 1] as const) {
+      const current = new THREE.Vector3(side * 0.1, bridge.topY, z)
+      const ground = nav.getWaypoints(side).groundEntrance
+      const target = new THREE.Vector3()
+      nav.resolveMoveTarget(current, ground, false, target)
+      expect(nav.getNavLayer(target)).toBe(side < 0 ? 'rampart_left' : 'rampart_right')
+      const next = nav.resolveMoveTarget(target, ground, false, new THREE.Vector3())
+      expect(next.target.distanceTo(target)).toBeGreaterThan(1)
+    }
+  })
+
+  it('enters the stair from its safe foot corridor instead of routing back through the inflated ground cell', () => {
+    const nav = new OutpostLayeredNavigation(romanLayout)
+    const ramp = nav.getStair(-1)!.ramp
+    const current = new THREE.Vector3(ramp.startX + 0.59, ramp.startY, ramp.startZ - ramp.dirZ * 0.04)
+    const goal = new THREE.Vector3(0, romanLayout.bridge.topY, romanLayout.bridge.walkSurface.startZ)
+    expect(nav.getNavLayer(current)).toBe('ground')
+    expect(nav.resolveMoveTarget(current, goal, false, new THREE.Vector3()).step).toBe('ascend_stair')
+  })
+
+  it('spreads 30 bridge follow slots across connected wings with exact heights, spacing and stable movement', () => {
+    // Capacity is a data contract: zero real actors, one representative layout.
+    const layout = romanLayout
+    const nav = new OutpostLayeredNavigation(layout)
+    const leader = new THREE.Vector3(0, layout.bridge.topY, layout.bridge.walkSurface.startZ)
+    const slots = Array.from({ length: 30 }, (_, i) =>
+      clampFollowSlotToBridge(new THREE.Vector3(), leader, i, layout))
+    const layers = new Set(slots.map(p => nav.getNavLayer(p)))
+    expect(layers).toEqual(new Set(['rampart_gate', 'rampart_left', 'rampart_right']))
+    for (const [i, slot] of slots.entries()) {
+      const surface = [layout.bridge, ...layout.decks].find(d =>
+        getWalkRampHeight(d.walkSurface, slot.x, slot.z) !== null)!
+      expect(slot.y).toBeCloseTo(getWalkRampHeight(surface.walkSurface, slot.x, slot.z)!, 8)
+      expect(slot.z).toBeGreaterThan(surface.slab.min.z + 0.75)
+      expect(slot.z).toBeLessThan(surface.slab.max.z - 0.75)
+      for (const other of slots.slice(i + 1)) {
+        expect(Math.hypot(slot.x - other.x, slot.z - other.z)).toBeGreaterThanOrEqual(1)
+      }
+      const moved = clampFollowSlotToBridge(new THREE.Vector3(), leader.clone().add(new THREE.Vector3(0.1, 0, 0)), i, layout)
+      expect(moved.x - slot.x).toBeCloseTo(0.1)
+      expect(moved.z).toBe(slot.z)
+    }
+    // Once both wings fill, the next four slots form unique legal ground queues.
+    const overflow = [52, 53, 54, 55].map(i => clampFollowSlotToBridge(new THREE.Vector3(), leader, i, layout))
+    expect(overflow.every(p => nav.getNavLayer(p) === 'ground')).toBe(true)
+    for (const p of overflow) expect(p.y).toBe(getTerrainHeight(p.x, p.z))
+    expect(new Set(overflow.map(p => p.toArray().join(','))).size).toBe(4)
+  })
 
   describe('Layer Identification', () => {
     it.each(['viking', 'roman'] as const)(
