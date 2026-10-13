@@ -5,11 +5,14 @@ import { getTerrainHeight } from '../../src/world/Terrain'
 import type { Player } from '../../src/player/Player'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { createCampaignOutpost, getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
+import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import {
   applyCampaignBreachOrders,
   CampaignBreachController,
+  CampaignGateController,
   reconcileCampaignGateSiege,
 } from '../../src/campaign/CampaignGate'
+import type { ObstacleData } from '../../src/world/Terrain'
 import { createArmyCommandHarness as controllerHarness } from '../helpers/armyCommandHarness'
 
 describe('Campaign command gate wiring', () => {
@@ -287,8 +290,8 @@ describe('Campaign command gate wiring', () => {
 
     // 5. Veteran / Career personal troop ownership check:
     // A player-personal follower or private soldier must never be automatically commandeered by gate siege
-    gate.restoreOpen() // Restores damageable and closes, then re-closes for test
-    ;(gate as any)._state = 'closed'
+    gate.close()
+    expect(gate.state).toBe('closed')
     const personalTroop = new NPC(
       scene,
       0,
@@ -314,5 +317,148 @@ describe('Campaign command gate wiring', () => {
       attackerFaction: 'viking',
     })
     expect(personalTroop.siegeObstacle, 'Personal squad troops must never be commandeered for gate siege').toBeNull()
+  })
+
+  it('revokes gate siege target when an attacker receives follow or mission formation orders', () => {
+    const scene = new THREE.Scene()
+    const gateRoot = new THREE.Object3D()
+    scene.add(gateRoot)
+    const obstacle: ObstacleData = {
+      box: new THREE.Box3(new THREE.Vector3(-4, 0, -1), new THREE.Vector3(4, 5, 1)),
+      isBarricade: false,
+      damageable: new DamageableObstacle({ maxHp: 100, kind: 'gate', root: gateRoot }),
+    }
+    const obstacles: ObstacleData[] = [obstacle]
+    const leftHinge = new THREE.Object3D()
+    const rightHinge = new THREE.Object3D()
+    const gate = new CampaignGateController({
+      defenderFaction: 'roman',
+      damageable: obstacle.damageable!,
+      obstacle,
+      obstacles,
+      leftHinge,
+      rightHinge,
+      openRotationY: Math.PI / 2,
+    })
+    const breachController = new CampaignBreachController()
+
+    const attacker = new NPC(
+      scene,
+      0,
+      40,
+      Faction.ENEMY,
+      'viking',
+      AIType.MELEE,
+      'Viking Siege Attacker',
+      1,
+      false,
+      { meleeWeaponId: 'iron_axe', rangedWeaponId: null, shieldId: null },
+      undefined,
+      undefined,
+      'viking-attacker',
+    )
+    attacker.setTacticalOrder('attack')
+    onTestFinished(() => { attacker.dispose() })
+
+    // Step 1: Automatic gate siege assignment when eligible and unassigned
+    reconcileCampaignGateSiege({
+      gate,
+      breachController,
+      npcs: [attacker],
+      attackerFaction: 'viking',
+    })
+    expect(attacker.siegeObstacle).toBe(gate.siegeObstacle)
+
+    // Step 2: Receiving Follow order immediately clears assigned siege obstacle
+    attacker.setTacticalOrder('follow')
+    expect(attacker.siegeObstacle).toBeNull()
+
+    // Reconcile must not re-assign gate target to a follower
+    reconcileCampaignGateSiege({
+      gate,
+      breachController,
+      npcs: [attacker],
+      attackerFaction: 'viking',
+    })
+    expect(attacker.siegeObstacle).toBeNull()
+
+    // Step 3: Switch back to attack -> auto-assigned
+    attacker.setTacticalOrder('attack')
+    reconcileCampaignGateSiege({
+      gate,
+      breachController,
+      npcs: [attacker],
+      attackerFaction: 'viking',
+    })
+    expect(attacker.siegeObstacle).toBe(gate.siegeObstacle)
+
+    // Step 4: assignFollowTarget clears siege target and reconciler revokes
+    const leader = new NPC(
+      scene,
+      0,
+      30,
+      Faction.ENEMY,
+      'viking',
+      AIType.MELEE,
+      'Viking Squad Leader',
+      1,
+      false,
+      { meleeWeaponId: 'iron_axe', rangedWeaponId: null, shieldId: null },
+      undefined,
+      undefined,
+      'viking-leader',
+    )
+    onTestFinished(() => { leader.dispose() })
+
+    attacker.assignFollowTarget(leader, 0)
+    expect(attacker.siegeObstacle).toBeNull()
+    reconcileCampaignGateSiege({
+      gate,
+      breachController,
+      npcs: [attacker],
+      attackerFaction: 'viking',
+    })
+    expect(attacker.siegeObstacle).toBeNull()
+
+    // Step 5: Mission formation assignment also clears siege target
+    attacker.setTacticalOrder('attack')
+    reconcileCampaignGateSiege({
+      gate,
+      breachController,
+      npcs: [attacker],
+      attackerFaction: 'viking',
+    })
+    expect(attacker.siegeObstacle).toBe(gate.siegeObstacle)
+
+    attacker.assignFormationTarget(101, new THREE.Vector3(10, 0, 20), new THREE.Vector3(0, 0, 1))
+    expect(attacker.siegeObstacle).toBeNull()
+
+    // Step 6: Verify other eligible siege attackers continue targeting the gate
+    const secondAttacker = new NPC(
+      scene,
+      2,
+      40,
+      Faction.ENEMY,
+      'viking',
+      AIType.MELEE,
+      'Second Siege Attacker',
+      1,
+      false,
+      { meleeWeaponId: 'iron_axe', rangedWeaponId: null, shieldId: null },
+      undefined,
+      undefined,
+      'viking-attacker-2',
+    )
+    secondAttacker.setTacticalOrder('attack')
+    onTestFinished(() => { secondAttacker.dispose() })
+
+    reconcileCampaignGateSiege({
+      gate,
+      breachController,
+      npcs: [attacker, secondAttacker],
+      attackerFaction: 'viking',
+    })
+    expect(attacker.siegeObstacle).toBeNull()
+    expect(secondAttacker.siegeObstacle).toBe(gate.siegeObstacle)
   })
 })

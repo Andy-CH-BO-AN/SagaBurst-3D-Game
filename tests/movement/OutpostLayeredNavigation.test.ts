@@ -14,7 +14,7 @@ import {
   isStairLayer,
   OutpostLayeredNavigation,
 } from '../../src/navigation/OutpostLayeredNavigation'
-import { getTerrainHeight } from '../../src/world/Terrain'
+import { getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
 import {
   followLocalOffset,
   followSlotWorldPosition,
@@ -172,8 +172,38 @@ describe('OutpostLayeredNavigation', () => {
   })
 
   describe('Wing-to-Wing Crossing (Left to Right Rampart)', () => {
-    it('descends left wing stair first before crossing ground to right wing stair', () => {
+    it('routes continuously across elevated bridge when bridge is present', () => {
       const nav = new OutpostLayeredNavigation(vikingLayout)
+      const leftDeck = vikingLayout.decks.find(d => d.side === -1)!
+      const rightDeck = vikingLayout.decks.find(d => d.side === 1)!
+      const bridge = vikingLayout.bridge
+
+      const goalOnRight = new THREE.Vector3(25, rightDeck.topY, (rightDeck.slab.min.z + rightDeck.slab.max.z) / 2)
+      const startOnLeft = new THREE.Vector3(-20, leftDeck.topY, (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2)
+
+      const out = new THREE.Vector3()
+
+      // Phase 1: On left deck -> routes to bridge left portal without descending
+      const r1 = nav.resolveMoveTarget(startOnLeft, goalOnRight, false, out)
+      expect(r1.step).toBe('deck_approach')
+      expect(out.x).toBeCloseTo(bridge.slab.min.x, 2)
+
+      // Phase 2: Near bridge left portal -> routes across bridge
+      const atLeftPortal = new THREE.Vector3(bridge.slab.min.x - 0.2, leftDeck.topY, (bridge.slab.min.z + bridge.slab.max.z) / 2)
+      const r2 = nav.resolveMoveTarget(atLeftPortal, goalOnRight, false, out)
+      expect(r2.step).toBe('deck_approach')
+      expect(out.x).toBeGreaterThan(bridge.slab.min.x)
+
+      // Phase 3: At bridge center -> routes to right portal
+      const atCenter = new THREE.Vector3(0, bridge.topY, (bridge.slab.min.z + bridge.slab.max.z) / 2)
+      const r3 = nav.resolveMoveTarget(atCenter, goalOnRight, false, out)
+      expect(r3.step).toBe('deck_approach')
+      expect(out.x).toBeCloseTo(bridge.slab.max.x, 2)
+    })
+
+    it('descends left wing stair first before crossing ground to right wing stair when bridge is absent', () => {
+      const layoutWithoutBridge = { ...vikingLayout, bridge: undefined as any }
+      const nav = new OutpostLayeredNavigation(layoutWithoutBridge)
       const leftDeck = vikingLayout.decks.find(d => d.side === -1)!
       const rightDeck = vikingLayout.decks.find(d => d.side === 1)!
       const leftWp = nav.getWaypoints(-1)
@@ -194,6 +224,124 @@ describe('OutpostLayeredNavigation', () => {
       const r2 = nav.resolveMoveTarget(onGroundBetween, goalOnRight, false, out)
       expect(r2.step).toBe('ground_approach')
       expect(out.distanceTo(rightWp.groundEntrance)).toBeLessThan(0.01)
+    })
+
+    it('handles full circular cross-wing circuit: ground -> left stair -> left deck -> bridge -> right deck -> right stair -> ground and reverse', () => {
+      const nav = new OutpostLayeredNavigation(vikingLayout)
+      const leftDeck = vikingLayout.decks.find(d => d.side === -1)!
+      const rightDeck = vikingLayout.decks.find(d => d.side === 1)!
+      const leftWp = nav.getWaypoints(-1)
+      const rightWp = nav.getWaypoints(1)
+      const bridge = vikingLayout.bridge!
+      const out = new THREE.Vector3()
+
+      // Part 1: Forward circuit (Ground Left -> Left Stair -> Left Deck -> Bridge -> Right Deck -> Right Stair -> Ground Right)
+      // 1. From Ground Left aiming for Left Deck
+      const groundLeft = new THREE.Vector3(leftWp.groundEntrance.x, leftWp.groundEntrance.y, leftWp.groundEntrance.z + 4)
+      const r1 = nav.resolveMoveTarget(groundLeft, new THREE.Vector3(-25, leftDeck.topY, 110), false, out)
+      expect(r1.step).toBe('ground_approach')
+      expect(out.distanceTo(leftWp.groundEntrance)).toBeLessThan(0.01)
+
+      // 2. At left ground entrance aiming for Left Deck -> begins ascending
+      const r2 = nav.resolveMoveTarget(leftWp.groundEntrance, new THREE.Vector3(-25, leftDeck.topY, 110), false, out)
+      expect(r2.step).toBe('ascend_stair')
+
+      // 3. Ascending left stair
+      const midZ = leftWp.stair.ramp.startZ + leftWp.stair.ramp.dirZ * 8
+      const midY = getWalkRampHeight(leftWp.stair.ramp, leftWp.stair.ramp.startX, midZ)!
+      const midLeftStair = new THREE.Vector3(leftWp.stair.ramp.startX, midY, midZ)
+      const r3 = nav.resolveMoveTarget(midLeftStair, new THREE.Vector3(-25, leftDeck.topY, 110), false, out)
+      expect(r3.step).toBe('ascend_stair')
+
+      // 4. At top of left stair
+      const r4 = nav.resolveMoveTarget(leftWp.stairTopLanding, new THREE.Vector3(-25, leftDeck.topY, 110), false, out)
+      expect(r4.step).toBe('deck_approach')
+
+      // 5. Walking left deck toward right deck (cross-wing via bridge)
+      const r5 = nav.resolveMoveTarget(new THREE.Vector3(-25, leftDeck.topY, 110), new THREE.Vector3(25, rightDeck.topY, 110), false, out)
+      expect(r5.step).toBe('deck_approach')
+      expect(out.x).toBeCloseTo(bridge.slab.min.x, 2)
+
+      // 6. Walking across bridge
+      const r6 = nav.resolveMoveTarget(new THREE.Vector3(0, bridge.topY, 110), new THREE.Vector3(25, rightDeck.topY, 110), false, out)
+      expect(r6.step).toBe('deck_approach')
+      expect(out.x).toBeCloseTo(bridge.slab.max.x, 2)
+
+      // 7. On right deck aiming for ground right
+      const groundRight = new THREE.Vector3(rightWp.groundEntrance.x, rightWp.groundEntrance.y, rightWp.groundEntrance.z + 4)
+      const r7 = nav.resolveMoveTarget(new THREE.Vector3(20, rightDeck.topY, 110), groundRight, false, out)
+      expect(r7.step).toBe('deck_approach')
+      expect(out.distanceTo(rightWp.deckConnection)).toBeLessThan(0.01)
+
+      // 8. At right deck connection descending right stair
+      const r8 = nav.resolveMoveTarget(rightWp.deckConnection, groundRight, false, out)
+      expect(r8.step).toBe('descend_stair')
+
+      // Part 2: Reverse circuit (Ground Right -> Right Stair -> Right Deck -> Bridge -> Left Deck -> Left Stair -> Ground Left)
+      const rev1 = nav.resolveMoveTarget(groundRight, new THREE.Vector3(25, rightDeck.topY, 110), false, out)
+      expect(rev1.step).toBe('ground_approach')
+      expect(out.distanceTo(rightWp.groundEntrance)).toBeLessThan(0.01)
+
+      const rev2 = nav.resolveMoveTarget(rightWp.groundEntrance, new THREE.Vector3(25, rightDeck.topY, 110), false, out)
+      expect(rev2.step).toBe('ascend_stair')
+
+      const rev3 = nav.resolveMoveTarget(new THREE.Vector3(25, rightDeck.topY, 110), new THREE.Vector3(-25, leftDeck.topY, 110), false, out)
+      expect(rev3.step).toBe('deck_approach')
+      expect(out.x).toBeCloseTo(bridge.slab.max.x, 2)
+
+      const rev4 = nav.resolveMoveTarget(new THREE.Vector3(0, bridge.topY, 110), new THREE.Vector3(-25, leftDeck.topY, 110), false, out)
+      expect(rev4.step).toBe('deck_approach')
+      expect(out.x).toBeCloseTo(bridge.slab.min.x, 2)
+
+      const rev5 = nav.resolveMoveTarget(new THREE.Vector3(-20, leftDeck.topY, 110), groundLeft, false, out)
+      expect(rev5.step).toBe('deck_approach')
+      expect(out.distanceTo(leftWp.deckConnection)).toBeLessThan(0.01)
+
+      const rev6 = nav.resolveMoveTarget(leftWp.deckConnection, groundLeft, false, out)
+      expect(rev6.step).toBe('descend_stair')
+    })
+
+    it('handles height delta between left and right rampart wings across bridge walk surface', () => {
+      // Create a layout where left deck is at 6.0m and right deck is at 7.5m
+      const asymmetricLayout = {
+        ...vikingLayout,
+        decks: vikingLayout.decks.map(d => ({
+          ...d,
+          topY: d.side === -1 ? 6.0 : 7.5,
+          slab: d.side === -1
+            ? new THREE.Box3(new THREE.Vector3(-30, 5.0, 105), new THREE.Vector3(-10, 6.0, 115))
+            : new THREE.Box3(new THREE.Vector3(10, 6.5, 105), new THREE.Vector3(30, 7.5, 115)),
+        })),
+        bridge: {
+          ...vikingLayout.bridge!,
+          topY: 6.75,
+          slab: new THREE.Box3(new THREE.Vector3(-10, 5.0, 105), new THREE.Vector3(10, 7.5, 115)),
+          walkSurface: {
+            startX: -10,
+            startY: 6.0,
+            startZ: 110,
+            dirX: 1,
+            dirZ: 0,
+            length: 20,
+            halfWidth: 2,
+            topY: 7.5,
+            landing: 0,
+          },
+        },
+      }
+
+      const nav = new OutpostLayeredNavigation(asymmetricLayout)
+
+      // Test layer classification across asymmetric span
+      // At x = -10 (left portal), Y is 6.0
+      expect(nav.getNavLayer(new THREE.Vector3(-10, 6.0, 110))).toBe('rampart_gate')
+      // At x = 0 (bridge mid), surface height is 6.0 + 1.5 * (10/20) = 6.75
+      expect(nav.getNavLayer(new THREE.Vector3(0, 6.75, 110))).toBe('rampart_gate')
+      // At x = 10 (right portal), Y is 7.5
+      expect(nav.getNavLayer(new THREE.Vector3(10, 7.5, 110))).toBe('rampart_gate')
+
+      // Ground directly underneath bridge at x = 0, y = 0 must be classified as 'ground', not 'rampart_gate'
+      expect(nav.getNavLayer(new THREE.Vector3(0, 0, 110))).toBe('ground')
     })
   })
 

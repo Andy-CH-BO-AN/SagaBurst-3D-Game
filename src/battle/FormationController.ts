@@ -15,8 +15,9 @@ import { resolveFormationSlots } from './FormationPlacement'
 import type { FormationPlacement } from './FormationPlacement'
 import { FormationPreview } from '../ui/FormationPreview'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
-import { getOutpostNavLayer, isRampartLayer } from '../navigation/OutpostLayeredNavigation'
-import type { OutpostWalkwayDeck } from '../campaign/CampaignOutpostWalkways'
+import { getOutpostNavLayer, isRampartLayer, layerSide } from '../navigation/OutpostLayeredNavigation'
+import { OUTPOST_WALKWAY, type OutpostWalkwayBridge, type OutpostWalkwayDeck } from '../campaign/CampaignOutpostWalkways'
+import { getWalkRampHeight } from '../world/Terrain'
 import { XONGKORO } from '../movement/XongkoroConfig'
 
 export interface FormationCommandResult {
@@ -164,7 +165,9 @@ export class FormationController {
 
     const rampartLayer = outpostNav ? getOutpostNavLayer(hitCenter, outpostNav.layout) : 'ground'
     const deck = isRampartLayer(rampartLayer)
-      ? outpostNav!.getDeck(rampartLayer === 'rampart_left' ? -1 : 1) ?? null
+      ? (rampartLayer === 'rampart_gate'
+          ? outpostNav!.layout.bridge
+          : outpostNav!.getDeck(layerSide(rampartLayer)!)) ?? null
       : null
 
     const placement = this.resolvePlacement(hitCenter, forward, this.previewParticipants, this.placementTarget)
@@ -187,29 +190,87 @@ export class FormationController {
     this.preview.show(formation.center, formation.slots, placement !== null)
   }
 
-  findRampartDeckHit(ray: THREE.Ray): { deck: OutpostWalkwayDeck; hitPoint: THREE.Vector3; distance: number } | null {
+  findRampartDeckHit(ray: THREE.Ray): { deck: OutpostWalkwayDeck | OutpostWalkwayBridge; hitPoint: THREE.Vector3; distance: number } | null {
     const outpostNav = this.navigationWorld?.outpostNav
     if (!outpostNav) return null
-    let best: { deck: OutpostWalkwayDeck; hitPoint: THREE.Vector3; distance: number } | null = null
+    let best: { deck: OutpostWalkwayDeck | OutpostWalkwayBridge; hitPoint: THREE.Vector3; distance: number } | null = null
 
-    for (const deck of outpostNav.layout.decks) {
-      // Exclude rays originating below deck or pointing upwards; the walkable deck top surface
-      // is facing upwards (+Y normal) and is only visible from above.
-      if (ray.origin.y <= deck.topY || ray.direction.y >= -0.0001) continue
-      const t = (deck.topY - ray.origin.y) / ray.direction.y
-      if (t <= 0) continue
-      const hitX = ray.origin.x + t * ray.direction.x
-      const hitZ = ray.origin.z + t * ray.direction.z
-      if (
-        hitX >= deck.slab.min.x + 0.6 && hitX <= deck.slab.max.x - 0.6
-        && hitZ >= deck.slab.min.z + 0.55 && hitZ <= deck.slab.max.z - 0.55
-      ) {
-        if (!best || t < best.distance) {
-          best = {
-            deck,
-            hitPoint: new THREE.Vector3(hitX, deck.topY, hitZ),
-            distance: t,
-          }
+    const candidates: (OutpostWalkwayDeck | OutpostWalkwayBridge)[] = [...outpostNav.layout.decks]
+    if (outpostNav.layout.bridge) {
+      candidates.push(outpostNav.layout.bridge)
+    }
+
+    const tmpBox = new THREE.Box3()
+    const tmpHit = new THREE.Vector3()
+
+    for (const item of candidates) {
+      const slab = item.slab
+
+      // 1. Underside check: If the ray origin is underneath the slab footprint in X/Z and below slab top,
+      // looking upwards must NEVER hit the rampart (avoids false hits when looking straight up at ceiling).
+      const isUnderSlab =
+        ray.origin.x >= slab.min.x - 0.2 &&
+        ray.origin.x <= slab.max.x + 0.2 &&
+        ray.origin.z >= slab.min.z - 0.2 &&
+        ray.origin.z <= slab.max.z + 0.2 &&
+        ray.origin.y < slab.max.y
+
+      if (isUnderSlab && ray.direction.y > 0) continue
+
+      // 2. Upper bounding box of the walkway (slab top surface + parapet/railings).
+      // Bottom of upperBox is slab.min.y (bottom of wooden planks).
+      // Top of upperBox is slab.max.y + railHeight + margin.
+      const railH = OUTPOST_WALKWAY.railHeight
+      tmpBox.min.set(slab.min.x, slab.min.y, slab.min.z)
+      tmpBox.max.set(slab.max.x, slab.max.y + railH + 0.3, slab.max.z)
+
+      const intersection = ray.intersectBox(tmpBox, tmpHit)
+      if (!intersection) continue
+
+      // 3. Entry face check: If ray is pointing upwards and enters through the bottom face (-Y face)
+      // of the wood planks, it is striking the underside of the floor planks from below, not a visible face.
+      if (ray.direction.y > 0 && tmpHit.y <= slab.min.y + 0.08) {
+        continue
+      }
+
+      // 4. Safe margin clamping on the walkable surface
+      const minX = slab.min.x + 0.6
+      const maxX = slab.max.x - 0.6
+      const minZ = slab.min.z + 0.55
+      const maxZ = slab.max.z - 0.55
+
+      let targetX: number
+      let targetZ: number
+
+      if (ray.origin.y > slab.max.y && ray.direction.y < -0.0001) {
+        const tPlane = (item.topY - ray.origin.y) / ray.direction.y
+        if (tPlane > 0) {
+          targetX = ray.origin.x + tPlane * ray.direction.x
+          targetZ = ray.origin.z + tPlane * ray.direction.z
+        } else {
+          targetX = tmpHit.x
+          targetZ = tmpHit.z
+        }
+      } else {
+        targetX = tmpHit.x
+        targetZ = tmpHit.z
+      }
+
+      if (targetX < minX || targetX > maxX || targetZ < minZ || targetZ > maxZ) {
+        targetX = THREE.MathUtils.clamp(targetX, minX, maxX)
+        targetZ = THREE.MathUtils.clamp(targetZ, minZ, maxZ)
+      }
+
+      const surfaceY = ('walkSurface' in item && item.walkSurface)
+        ? (getWalkRampHeight(item.walkSurface, targetX, targetZ) ?? item.topY)
+        : item.topY
+
+      const dist = ray.origin.distanceTo(tmpHit)
+      if (!best || dist < best.distance) {
+        best = {
+          deck: item,
+          hitPoint: new THREE.Vector3(targetX, surfaceY, targetZ),
+          distance: dist,
         }
       }
     }
@@ -337,7 +398,9 @@ export class FormationController {
     if (outpostNav) {
       const layer = getOutpostNavLayer(requestedCenter, outpostNav.layout)
       if (isRampartLayer(layer)) {
-        const deck = outpostNav.getDeck(layer === 'rampart_left' ? -1 : 1)
+        const deck = layer === 'rampart_gate'
+          ? outpostNav.layout.bridge
+          : outpostNav.getDeck(layerSide(layer)!)
         if (deck) return this.resolveRampartPlacement(requestedCenter, forward, participants, deck)
       }
     }
@@ -378,7 +441,7 @@ export class FormationController {
     requestedCenter: THREE.Vector3,
     _forward: THREE.Vector3,
     participants: readonly NPC[],
-    deck: OutpostWalkwayDeck,
+    deck: OutpostWalkwayDeck | OutpostWalkwayBridge,
   ): FormationPlacement | null {
     const isFoot = (npc: NPC) => !npc.isMounted && !npc.mount && !(npc as any).isAnimal && !(npc as any).species
     if (!participants.every(isFoot)) return null
@@ -401,10 +464,17 @@ export class FormationController {
 
     const slots: THREE.Vector3[] = []
     for (let i = 0; i < count; i++) {
-      slots.push(new THREE.Vector3(startX + i * spacing, deck.topY, clampedZ))
+      const slotX = startX + i * spacing
+      const slotY = ('walkSurface' in deck && deck.walkSurface)
+        ? (getWalkRampHeight(deck.walkSurface, slotX, clampedZ) ?? deck.topY)
+        : deck.topY
+      slots.push(new THREE.Vector3(slotX, slotY, clampedZ))
     }
 
-    const center = new THREE.Vector3(clampedCenterX, deck.topY, clampedZ)
+    const centerY = ('walkSurface' in deck && deck.walkSurface)
+      ? (getWalkRampHeight(deck.walkSurface, clampedCenterX, clampedZ) ?? deck.topY)
+      : deck.topY
+    const center = new THREE.Vector3(clampedCenterX, centerY, clampedZ)
     return {
       center,
       slots,
@@ -416,7 +486,7 @@ export class FormationController {
     center: THREE.Vector3,
     _forward: THREE.Vector3,
     count: number,
-    deck: OutpostWalkwayDeck,
+    deck: OutpostWalkwayDeck | OutpostWalkwayBridge,
   ): { center: THREE.Vector3; slots: THREE.Vector3[] } {
     const minX = deck.slab.min.x + 0.6
     const maxX = deck.slab.max.x - 0.6
@@ -431,10 +501,17 @@ export class FormationController {
 
     const slots: THREE.Vector3[] = []
     for (let i = 0; i < count; i++) {
-      slots.push(new THREE.Vector3(startX + i * spacing, deck.topY, clampedZ))
+      const slotX = startX + i * spacing
+      const slotY = ('walkSurface' in deck && deck.walkSurface)
+        ? (getWalkRampHeight(deck.walkSurface, slotX, clampedZ) ?? deck.topY)
+        : deck.topY
+      slots.push(new THREE.Vector3(slotX, slotY, clampedZ))
     }
+    const centerY = ('walkSurface' in deck && deck.walkSurface)
+      ? (getWalkRampHeight(deck.walkSurface, clampedCenterX, clampedZ) ?? deck.topY)
+      : deck.topY
     return {
-      center: new THREE.Vector3(clampedCenterX, deck.topY, clampedZ),
+      center: new THREE.Vector3(clampedCenterX, centerY, clampedZ),
       slots,
     }
   }
@@ -462,7 +539,9 @@ export class FormationController {
     if (outpostNav && slots.length > 0) {
       const slotLayer = getOutpostNavLayer(slots[0], outpostNav.layout)
       if (isRampartLayer(slotLayer)) {
-        const deck = outpostNav.getDeck(slotLayer === 'rampart_left' ? -1 : 1)
+        const deck = slotLayer === 'rampart_gate'
+          ? outpostNav.layout.bridge
+          : outpostNav.getDeck(layerSide(slotLayer)!)
         const placement = deck ? this.resolveRampartPlacement(center, forward, participants, deck) : null
         return placement !== null
       }

@@ -512,6 +512,7 @@ export class NPC {
   get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
   get formationCommandId(): number | null { return this.formationTarget?.commandId ?? null }
+  get hasFormationTarget(): boolean { return this.formationTarget !== null }
   get activeFollowTarget(): NPC | Player | null { return this.followTarget }
   get activeFollowSlotIndex(): number { return this.followSlotIndex }
   get activeFollowLocalOffset(): THREE.Vector3 { return this.followLocalOffset.clone() }
@@ -1247,6 +1248,7 @@ export class NPC {
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this.tacticalOrder = order
+    if (order === 'follow') this.assignSiegeObstacle(null)
     this.shield.shieldRaised = this.shield.active && order === 'defend'
     if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
@@ -1264,6 +1266,7 @@ export class NPC {
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this._cancelEquipmentCombatState()
+    this.assignSiegeObstacle(null)
     this.tacticalOrder = arrivalOrder ?? 'formation'
     this.followTarget = null
     this.followSlotIndex = -1
@@ -1289,6 +1292,7 @@ export class NPC {
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this._cancelEquipmentCombatState()
+    this.assignSiegeObstacle(null)
     this.tacticalOrder = 'follow'
     this.followTarget = target
     this.followSlotIndex = Math.max(0, Math.floor(slotIndex))
@@ -1302,11 +1306,12 @@ export class NPC {
     const layeredNav = this._activeNavigationWorld?.outpostNav
     if (layeredNav) {
       const leaderLayer = layeredNav.getNavLayer(this.followSmoothedLeaderPosition)
+      const isDisallowedFromRamparts = Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species)
       if (isRampartLayer(leaderLayer)) {
-        if (!this.isMounted && !this.mount) {
-          const side = layerSide(leaderLayer)!
-          const deck = layeredNav.getDeck(side)
-          const stair = layeredNav.getStair(side)
+        if (!isDisallowedFromRamparts) {
+          const side = layerSide(leaderLayer)
+          const deck = side !== null ? layeredNav.getDeck(side) : layeredNav.layout.bridge
+          const stair = side !== null ? layeredNav.getStair(side) : undefined
           if (deck) {
             clampFollowSlotToDeck(position, position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw, stair)
           }
@@ -1314,7 +1319,7 @@ export class NPC {
           position.y = getTerrainHeight(position.x, position.z)
         }
       } else if (isStairLayer(leaderLayer)) {
-        if (!this.isMounted && !this.mount) {
+        if (!isDisallowedFromRamparts) {
           const side = layerSide(leaderLayer)!
           const stair = layeredNav.getStair(side)
           const deck = layeredNav.getDeck(side)
@@ -2394,21 +2399,34 @@ export class NPC {
         const npcLayer = layeredNav ? layeredNav.getNavLayer(this.combatPosition) : 'ground'
         const targetLayer = layeredNav ? layeredNav.getNavLayer(targetInfo.position) : 'ground'
         const isCrossLayer = layeredNav ? (npcLayer !== targetLayer) : false
-        const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer) && layerSide(npcLayer) === layerSide(targetLayer)) : false
+        const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
 
         let navigationRoute: NavigationRouteKind = 'direct'
         if (layeredNav && (isCrossLayer || isRampartCorridor || isStairLayer(npcLayer))) {
           const layeredResult = layeredNav.resolveMoveTarget(
             this.combatPosition,
             targetInfo.position,
-            Boolean(this.isMounted || this.mount),
+            Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
             this._tmpNavigationTarget,
           )
           if (layeredResult.step === 'ground_approach' || layeredResult.step === 'ground_cross') {
             navigationRoute = !skipBoidsAndObstacles
               ? this._resolveNavigationMoveTarget(layeredResult.target, obstacles, navigationWorld)
               : 'direct'
-            if (skipBoidsAndObstacles) this._tmpNavigationTarget.copy(layeredResult.target)
+            if (navigationRoute === 'unreachable') {
+              const blocked = findBlockingObstacleAlongPath(
+                this.combatPosition,
+                layeredResult.target,
+                this._movementObstacleRadius(),
+                this._movementObstacleHeight(),
+                0,
+                obstacles,
+              ) !== null
+              if (!blocked) {
+                navigationRoute = 'direct'
+              }
+            }
+            if (skipBoidsAndObstacles || navigationRoute === 'direct') this._tmpNavigationTarget.copy(layeredResult.target)
           } else {
             navigationRoute = 'direct'
           }
@@ -3248,11 +3266,12 @@ export class NPC {
 
       if (layeredNav) {
         const leaderLayer = layeredNav.getNavLayer(this.followSmoothedLeaderPosition)
+        const isDisallowedFromRamparts = Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species)
         if (isRampartLayer(leaderLayer)) {
-          if (!this.isMounted && !this.mount) {
-            const side = layerSide(leaderLayer)!
-            const deck = layeredNav.getDeck(side)
-            const stair = layeredNav.getStair(side)
+          if (!isDisallowedFromRamparts) {
+            const side = layerSide(leaderLayer)
+            const deck = side !== null ? layeredNav.getDeck(side) : layeredNav.layout.bridge
+            const stair = side !== null ? layeredNav.getStair(side) : undefined
             if (deck) {
               clampFollowSlotToDeck(target.position, target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw, stair)
             }
@@ -3260,7 +3279,7 @@ export class NPC {
             target.position.y = getTerrainHeight(target.position.x, target.position.z)
           }
         } else if (isStairLayer(leaderLayer)) {
-          if (!this.isMounted && !this.mount) {
+          if (!isDisallowedFromRamparts) {
             const side = layerSide(leaderLayer)!
             const stair = layeredNav.getStair(side)
             const deck = layeredNav.getDeck(side)
@@ -3307,20 +3326,33 @@ export class NPC {
     let navigationRoute: NavigationRouteKind = 'direct'
     let navigationGoal = target.position
 
-    const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer) && layerSide(npcLayer) === layerSide(targetLayer)) : false
+    const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
 
     let isConfirmedLayeredStep = false
-    if (layeredNav && (isDifferentLayer || isRampartCorridor)) {
+    if (layeredNav && (isDifferentLayer || isRampartCorridor || isStairLayer(npcLayer))) {
       const layeredResult = layeredNav.resolveMoveTarget(
         this.combatPosition,
         target.position,
-        Boolean(this.isMounted || this.mount),
+        Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
         this._tmpNavigationTarget,
       )
       if (layeredResult.step === 'ground_approach' || layeredResult.step === 'ground_cross') {
         navigationGoal = this._tmpNavigationTarget
         if (!skipBoidsAndObstacles) {
           navigationRoute = this._resolveNavigationMoveTarget(navigationGoal, obstacles, navigationWorld)
+          if (navigationRoute === 'unreachable') {
+            const blocked = findBlockingObstacleAlongPath(
+              this.combatPosition,
+              navigationGoal,
+              this._movementObstacleRadius(),
+              this._movementObstacleHeight(),
+              0,
+              obstacles,
+            ) !== null
+            if (!blocked) {
+              navigationRoute = 'direct'
+            }
+          }
         }
       } else {
         isConfirmedLayeredStep = true

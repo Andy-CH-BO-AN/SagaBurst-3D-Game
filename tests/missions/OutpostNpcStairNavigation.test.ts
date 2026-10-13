@@ -86,7 +86,6 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
           navWorld,
         )
 
-
         if (Math.abs(npc.group.position.y - leftDeck.topY) < 0.15) {
           climbedToDeck = true
         }
@@ -776,6 +775,205 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       expect(deviatedFromDeckCorridor, 'NPC must stay inside the deck corridor while traveling along the rampart').toBe(false)
       // NPC must have successfully reached the stair and begun descending toward target
       expect(steppedOntoStair, 'NPC must proceed to stair top and descend along stair').toBe(true)
+    })
+  })
+
+  describe('Gate Walkway & Elevated Bridge Navigation', () => {
+    it('foot NPC follows leader continuously across bridge from left wing to right wing without descending', () => {
+      const { outpost, leftDeck, rightDeck } = setupOutpost('viking')
+      const player = new Player(scene)
+      onTestFinished(() => player.dispose())
+
+      const deckZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
+      // Player starts on the left deck
+      player.group.position.set(-20, leftDeck.topY + 0.95, deckZ)
+
+      // Foot NPC starts on the left deck
+      const npc = new NPC(scene, -23, deckZ, Faction.PLAYER, 'viking', AIType.MELEE, 'BridgeFollower', 2, false)
+      npc.group.position.set(-23, leftDeck.topY, deckZ)
+      onTestFinished(() => npc.dispose())
+
+      npc.assignFollowTarget(player, 0)
+      expect(npc.tacticalOrder).toBe('follow')
+
+      // Player crosses to the right deck
+      player.group.position.set(22, rightDeck.topY + 0.95, deckZ)
+
+      let minY = Infinity
+      let crossedBridge = false
+
+      for (let f = 0; f < 350; f++) {
+        navWorld.beginFrame()
+        npc.update(
+          FRAME,
+          player,
+          [npc],
+          [],
+          outpost.obstacles,
+          { setFill: () => {} },
+          () => {},
+          () => {},
+          false,
+          0,
+          null,
+          null,
+          navWorld,
+        )
+
+        minY = Math.min(minY, npc.group.position.y)
+        if (npc.group.position.x > 10) {
+          crossedBridge = true
+          break
+        }
+      }
+
+      // NPC must have remained elevated throughout (never fell to courtyard ground)
+      expect(minY, 'NPC must stay elevated and not drop to ground').toBeGreaterThan(Math.min(leftDeck.topY, rightDeck.topY) - 0.5)
+      expect(crossedBridge, 'NPC must successfully cross bridge onto right wing').toBe(true)
+      expect(npc.group.position.x).toBeGreaterThan(10)
+    })
+
+    it('melee attacker on left rampart deck charges across bridge to engage enemy on right rampart deck', () => {
+      const { outpost, leftDeck, rightDeck } = setupOutpost('viking')
+      const deckZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
+
+      // Player-aligned melee attacker on left deck
+      const attacker = new NPC(scene, -20, deckZ, Faction.PLAYER, 'viking', AIType.MELEE, 'BridgeAttacker', 2, false)
+      attacker.group.position.set(-20, leftDeck.topY, deckZ)
+      onTestFinished(() => attacker.dispose())
+
+      // Enemy defender stationed on right deck
+      const target = new NPC(scene, 22, deckZ, Faction.BANDIT, 'viking', AIType.MELEE, 'DeckDefender', 2, false)
+      target.group.position.set(22, rightDeck.topY, deckZ)
+      onTestFinished(() => target.dispose())
+      const dummyPlayer = new Player(scene)
+      dummyPlayer.group.position.set(0, -100, 0)
+      onTestFinished(() => dummyPlayer.dispose())
+
+      let minY = Infinity
+      let reachedEnemy = false
+
+      for (let f = 0; f < 350; f++) {
+        navWorld.beginFrame()
+        attacker.update(
+          FRAME,
+          dummyPlayer,
+          [attacker, target],
+          [target],
+          outpost.obstacles,
+          { setFill: () => {} },
+          () => {},
+          () => {},
+          false,
+          0,
+          null,
+          null,
+          navWorld,
+        )
+
+        minY = Math.min(minY, attacker.group.position.y)
+        if (attacker.combatPosition.distanceTo(target.combatPosition) < 3.5) {
+          reachedEnemy = true
+          break
+        }
+      }
+
+      expect(minY, 'Attacker must not drop to ground during bridge traversal').toBeGreaterThan(Math.min(leftDeck.topY, rightDeck.topY) - 0.5)
+      expect(reachedEnemy, 'Attacker must cross bridge and reach enemy on opposite deck').toBe(true)
+    })
+
+    it('when gate is destroyed, bridge remains fully walkable overhead while ground enemies breach through gate obstacle', () => {
+      const { outpost, leftDeck, rightDeck } = setupOutpost('viking')
+      const deckZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
+
+      // Destroy the gate
+      outpost.gate.destroy()
+      expect(outpost.gateController.state).toBe('destroyed')
+      // Update navWorld with remaining obstacles (gate obstacle removed)
+      navWorld.sync(outpost.obstacles)
+
+      // 1. Verify elevated bridge remains walkable overhead
+      const player = new Player(scene)
+      onTestFinished(() => player.dispose())
+      player.group.position.set(20, rightDeck.topY + 0.95, deckZ)
+
+      const overheadFollower = new NPC(scene, -20, deckZ, Faction.PLAYER, 'viking', AIType.MELEE, 'OverheadFollower', 2, false)
+      overheadFollower.group.position.set(-20, leftDeck.topY, deckZ)
+      onTestFinished(() => overheadFollower.dispose())
+
+      overheadFollower.assignFollowTarget(player, 0)
+
+      let overheadMinY = Infinity
+      let overheadReachedRight = false
+
+      for (let f = 0; f < 350; f++) {
+        navWorld.beginFrame()
+        overheadFollower.update(
+          FRAME,
+          player,
+          [overheadFollower],
+          [],
+          outpost.obstacles,
+          { setFill: () => {} },
+          () => {},
+          () => {},
+          false,
+          0,
+          null,
+          null,
+          navWorld,
+        )
+
+        overheadMinY = Math.min(overheadMinY, overheadFollower.group.position.y)
+        if (overheadFollower.group.position.x > 10) {
+          overheadReachedRight = true
+          break
+        }
+      }
+
+      expect(overheadMinY, 'Follower on bridge must stay elevated even with gate destroyed beneath').toBeGreaterThan(Math.min(leftDeck.topY, rightDeck.topY) - 0.5)
+      expect(overheadReachedRight, 'Follower must cross bridge to right deck').toBe(true)
+
+      // 2. Verify ground enemy can breach through gate on ground level
+      player.group.position.set(0, -500, 0)
+      const groundEnemy = new NPC(scene, 0, 122, Faction.BANDIT, 'viking', AIType.MELEE, 'GroundBreacher', 2, false)
+      const groundEnemyY = getTerrainHeight(0, 122)
+      groundEnemy.group.position.set(0, groundEnemyY, 122)
+      onTestFinished(() => groundEnemy.dispose())
+
+      // Target is inside courtyard past the destroyed gate
+      const courtyardTarget = new NPC(scene, 0, 96, Faction.PLAYER, 'viking', AIType.MELEE, 'CourtyardDefender', 2, false)
+      const courtyardY = getTerrainHeight(0, 96)
+      courtyardTarget.group.position.set(0, courtyardY, 96)
+      onTestFinished(() => courtyardTarget.dispose())
+
+      let groundAdvancedThroughGate = false
+      for (let f = 0; f < 250; f++) {
+        navWorld.beginFrame()
+        groundEnemy.update(
+          FRAME,
+          player,
+          [groundEnemy, courtyardTarget],
+          [courtyardTarget],
+          outpost.obstacles,
+          { setFill: () => {} },
+          () => {},
+          () => {},
+          false,
+          0,
+          null,
+          null,
+          navWorld,
+        )
+
+        // Ground enemy moves from z = 130 towards z = 90 through the destroyed gate at z ~ 110
+        if (groundEnemy.group.position.z < 105) {
+          groundAdvancedThroughGate = true
+          break
+        }
+      }
+
+      expect(groundAdvancedThroughGate, 'Ground attacker must breach through destroyed gate obstacle').toBe(true)
     })
   })
 })

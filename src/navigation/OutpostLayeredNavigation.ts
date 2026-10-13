@@ -4,6 +4,7 @@ import {
   getWalkRampHeight,
 } from '../world/Terrain'
 import {
+  type OutpostWalkwayBridge,
   type OutpostWalkwayDeck,
   type OutpostWalkwayLayout,
   type OutpostWalkwaySide,
@@ -14,6 +15,7 @@ export type OutpostNavLayer =
   | 'ground'
   | 'rampart_left'
   | 'rampart_right'
+  | 'rampart_gate'
   | 'stair_left'
   | 'stair_right'
 
@@ -44,7 +46,7 @@ export interface OutpostLayeredMoveResult {
 }
 
 export function isRampartLayer(layer: OutpostNavLayer): boolean {
-  return layer === 'rampart_left' || layer === 'rampart_right'
+  return layer === 'rampart_left' || layer === 'rampart_right' || layer === 'rampart_gate'
 }
 
 export function isStairLayer(layer: OutpostNavLayer): boolean {
@@ -62,7 +64,8 @@ export function layerSide(layer: OutpostNavLayer): OutpostWalkwaySide | null {
 }
 
 /**
- * Determines whether a position is on the ground, on a stair ramp, or on a rampart deck.
+ * Determines whether a position is on the ground, on a stair ramp, on a rampart deck,
+ * or on the gatehouse bridge connecting the two ramparts.
  */
 export function getOutpostNavLayer(
   pos: THREE.Vector3,
@@ -79,7 +82,27 @@ export function getOutpostNavLayer(
     }
   }
 
-  // 2. Check decks (elevated flat platforms).
+  // 2. Check bridge (elevated gatehouse span connecting the left and right decks).
+  if (layout.bridge) {
+    const bridge = layout.bridge
+    const slab = bridge.slab
+    const inSlabXZ =
+      pos.x >= slab.min.x - 0.3 &&
+      pos.x <= slab.max.x + 0.3 &&
+      pos.z >= slab.min.z - 0.3 &&
+      pos.z <= slab.max.z + 0.3
+
+    if (inSlabXZ) {
+      const surfaceY = bridge.walkSurface
+        ? (getWalkRampHeight(bridge.walkSurface, pos.x, pos.z) ?? bridge.topY)
+        : bridge.topY
+      if (Math.abs(pos.y - surfaceY) <= 0.85 || (pos.y >= surfaceY - 0.3 && pos.y <= surfaceY + 1.2)) {
+        return 'rampart_gate'
+      }
+    }
+  }
+
+  // 3. Check decks (elevated flat platforms).
   for (const deck of layout.decks) {
     const slab = deck.slab
     const inSlabXZ =
@@ -116,7 +139,7 @@ export function clampFollowSlotToDeck(
   _rawPosition: THREE.Vector3,
   leaderPosition: THREE.Vector3,
   slotIndex: number,
-  deck: OutpostWalkwayDeck,
+  deck: OutpostWalkwayDeck | OutpostWalkwayBridge,
   leaderYaw?: number,
   stair?: OutpostWalkwayStair,
 ): THREE.Vector3 {
@@ -194,7 +217,11 @@ export function clampFollowSlotToDeck(
       const staggerZ = tier === 0 ? -0.55 : 0.55
       const targetZ = THREE.MathUtils.clamp(deckMidZ + staggerZ, minZ, maxZ)
 
-      return out.set(targetX, deck.topY, targetZ)
+      const surfaceY = ('walkSurface' in deck && deck.walkSurface)
+        ? (getWalkRampHeight(deck.walkSurface, targetX, targetZ) ?? deck.topY)
+        : deck.topY
+
+      return out.set(targetX, surfaceY, targetZ)
     }
   }
 
@@ -210,7 +237,10 @@ export function clampFollowSlotToDeck(
 
   const fallbackX = THREE.MathUtils.clamp(minX + (overflowIndex * 1.6) % (maxX - minX), minX, maxX)
   const fallbackZ = overflowIndex % 2 === 0 ? minZ : maxZ
-  return out.set(fallbackX, deck.topY, fallbackZ)
+  const fallbackY = ('walkSurface' in deck && deck.walkSurface)
+    ? (getWalkRampHeight(deck.walkSurface, fallbackX, fallbackZ) ?? deck.topY)
+    : deck.topY
+  return out.set(fallbackX, fallbackY, fallbackZ)
 }
 
 /**
@@ -315,8 +345,9 @@ export class OutpostLayeredNavigation {
     const deck = this.layout.decks.find(d => d.side === side)!
     const { ramp } = stair
 
-    // Ground entrance: 1.2m outward from the ramp base onto ground terrain.
-    const groundZ = ramp.startZ - ramp.dirZ * 1.2
+    // Ground entrance: 2.2m outward from the ramp base onto ground terrain.
+    // Keeps waypoint safely outside the 2.0m navigation grid discretization cell of the stair base obstacle.
+    const groundZ = ramp.startZ - ramp.dirZ * 2.2
     const groundEntrance = new THREE.Vector3(
       ramp.startX,
       getTerrainHeight(ramp.startX, groundZ),
@@ -396,88 +427,238 @@ export class OutpostLayeredNavigation {
 
     const currentLayer = this.getNavLayer(currentPos)
 
-    // Case 1: Same layer
-    if (currentLayer === targetLayer) {
-      if (currentLayer === 'ground') {
-        out.copy(goalPos)
-        return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'direct' }
-      }
-      if (isRampartLayer(currentLayer)) {
-        const side = layerSide(currentLayer)!
-        const deck = this.getDeck(side)!
-        const wp = this.getWaypoints(side)
-        // If near stair top landing and moving laterally along the deck,
-        // route via deckConnection to stay in the open center hallway and avoid catching on rails.
-        const nearStairX = Math.abs(currentPos.x - wp.stair.ramp.startX) < 1.3
-        const zSign = this.layout.zSign
-        const nearStairLandingZ = zSign > 0
-          ? currentPos.z > wp.deckConnection.z + 0.6
-          : currentPos.z < wp.deckConnection.z - 0.6
-        const lateralMove = Math.abs(goalPos.x - currentPos.x) > 1.0
+    // Case 1: Both are Rampart layers (rampart_left, rampart_right, rampart_gate)
+    if (isRampartLayer(currentLayer) && isRampartLayer(targetLayer)) {
+      if (this.layout.bridge) {
+        const bridge = this.layout.bridge
+        const leftDeck = this.getDeck(-1)!
+        const rightDeck = this.getDeck(1)!
+        const corridorMidZ = (bridge.slab.min.z + bridge.slab.max.z) * 0.5
+        const bridgeMidY = bridge.walkSurface
+          ? (getWalkRampHeight(bridge.walkSurface, 0, corridorMidZ) ?? bridge.topY)
+          : bridge.topY
+        const leftPortal = new THREE.Vector3(bridge.slab.min.x, leftDeck.topY, corridorMidZ)
+        const bridgeCenter = new THREE.Vector3(0, bridgeMidY, corridorMidZ)
+        const rightPortal = new THREE.Vector3(bridge.slab.max.x, rightDeck.topY, corridorMidZ)
 
-        if (nearStairX && nearStairLandingZ && lateralMove) {
-          out.copy(wp.deckConnection)
-          return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'deck_approach' }
+        // 1a: Same rampart section
+        if (currentLayer === targetLayer) {
+          if (currentLayer === 'rampart_gate') {
+            const clampedX = THREE.MathUtils.clamp(goalPos.x, bridge.slab.min.x + 0.5, bridge.slab.max.x - 0.5)
+            const clampedZ = THREE.MathUtils.clamp(goalPos.z, bridge.slab.min.z + 0.5, bridge.slab.max.z - 0.5)
+            const clampedY = bridge.walkSurface
+              ? (getWalkRampHeight(bridge.walkSurface, clampedX, clampedZ) ?? bridge.topY)
+              : bridge.topY
+            out.set(clampedX, clampedY, clampedZ)
+            return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'direct' }
+          }
+
+          const side = layerSide(currentLayer)!
+          const deck = this.getDeck(side)!
+          const wp = this.getWaypoints(side)
+          const nearStairX = Math.abs(currentPos.x - wp.stair.ramp.startX) < 1.3
+          const zSign = this.layout.zSign
+          const nearStairLandingZ = zSign > 0
+            ? currentPos.z > wp.deckConnection.z + 0.6
+            : currentPos.z < wp.deckConnection.z - 0.6
+          const lateralMove = Math.abs(goalPos.x - currentPos.x) > 1.0
+
+          if (nearStairX && nearStairLandingZ && lateralMove) {
+            out.copy(wp.deckConnection)
+            return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'deck_approach' }
+          }
+
+          const clampedX = THREE.MathUtils.clamp(goalPos.x, deck.slab.min.x + 0.5, deck.slab.max.x - 0.5)
+          const clampedZ = THREE.MathUtils.clamp(goalPos.z, deck.slab.min.z + 0.5, deck.slab.max.z - 0.5)
+          out.set(clampedX, deck.topY, clampedZ)
+          return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'direct' }
         }
 
-        const clampedX = THREE.MathUtils.clamp(goalPos.x, deck.slab.min.x + 0.5, deck.slab.max.x - 0.5)
-        const clampedZ = THREE.MathUtils.clamp(goalPos.z, deck.slab.min.z + 0.5, deck.slab.max.z - 0.5)
-        out.set(clampedX, deck.topY, clampedZ)
-        return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'direct' }
-      }
-      if (isStairLayer(currentLayer)) {
-        out.copy(goalPos)
-        return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'direct' }
+        // 1b: Rampart Left <-> Rampart Gate
+        if (currentLayer === 'rampart_left' && targetLayer === 'rampart_gate') {
+          if (currentPos.x < bridge.slab.min.x - 0.4) {
+            out.copy(leftPortal)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+          }
+          const clampedX = THREE.MathUtils.clamp(goalPos.x, bridge.slab.min.x + 0.5, bridge.slab.max.x - 0.5)
+          const clampedZ = THREE.MathUtils.clamp(goalPos.z, bridge.slab.min.z + 0.5, bridge.slab.max.z - 0.5)
+          const clampedY = bridge.walkSurface
+            ? (getWalkRampHeight(bridge.walkSurface, clampedX, clampedZ) ?? bridge.topY)
+            : bridge.topY
+          out.set(clampedX, clampedY, clampedZ)
+          return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'direct' }
+        }
+
+        if (currentLayer === 'rampart_gate' && targetLayer === 'rampart_left') {
+          if (currentPos.x > bridge.slab.min.x + 0.4) {
+            out.copy(leftPortal)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+          }
+          const clampedX = THREE.MathUtils.clamp(goalPos.x, leftDeck.slab.min.x + 0.5, leftDeck.slab.max.x - 0.5)
+          const clampedZ = THREE.MathUtils.clamp(goalPos.z, leftDeck.slab.min.z + 0.5, leftDeck.slab.max.z - 0.5)
+          out.set(clampedX, leftDeck.topY, clampedZ)
+          return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'direct' }
+        }
+
+        // 1c: Rampart Right <-> Rampart Gate
+        if (currentLayer === 'rampart_right' && targetLayer === 'rampart_gate') {
+          if (currentPos.x > bridge.slab.max.x + 0.4) {
+            out.copy(rightPortal)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+          }
+          const clampedX = THREE.MathUtils.clamp(goalPos.x, bridge.slab.min.x + 0.5, bridge.slab.max.x - 0.5)
+          const clampedZ = THREE.MathUtils.clamp(goalPos.z, bridge.slab.min.z + 0.5, bridge.slab.max.z - 0.5)
+          const clampedY = bridge.walkSurface
+            ? (getWalkRampHeight(bridge.walkSurface, clampedX, clampedZ) ?? bridge.topY)
+            : bridge.topY
+          out.set(clampedX, clampedY, clampedZ)
+          return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'direct' }
+        }
+
+        if (currentLayer === 'rampart_gate' && targetLayer === 'rampart_right') {
+          if (currentPos.x < bridge.slab.max.x - 0.4) {
+            out.copy(rightPortal)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+          }
+          const clampedX = THREE.MathUtils.clamp(goalPos.x, rightDeck.slab.min.x + 0.5, rightDeck.slab.max.x - 0.5)
+          const clampedZ = THREE.MathUtils.clamp(goalPos.z, rightDeck.slab.min.z + 0.5, rightDeck.slab.max.z - 0.5)
+          out.set(clampedX, rightDeck.topY, clampedZ)
+          return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'direct' }
+        }
+
+        // 1d: Rampart Left <-> Rampart Right (Direct elevated bridge traversal)
+        if (currentLayer === 'rampart_left' && targetLayer === 'rampart_right') {
+          if (currentPos.x < bridge.slab.min.x - 0.4) {
+            out.copy(leftPortal)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+          } else if (currentPos.x < 0) {
+            out.copy(bridgeCenter)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+          } else if (currentPos.x < bridge.slab.max.x + 0.4) {
+            out.copy(rightPortal)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+          } else {
+            const clampedX = THREE.MathUtils.clamp(goalPos.x, rightDeck.slab.min.x + 0.5, rightDeck.slab.max.x - 0.5)
+            const clampedZ = THREE.MathUtils.clamp(goalPos.z, rightDeck.slab.min.z + 0.5, rightDeck.slab.max.z - 0.5)
+            out.set(clampedX, rightDeck.topY, clampedZ)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'direct' }
+          }
+        }
+
+        if (currentLayer === 'rampart_right' && targetLayer === 'rampart_left') {
+          if (currentPos.x > bridge.slab.max.x + 0.4) {
+            out.copy(rightPortal)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+          } else if (currentPos.x > 0) {
+            out.copy(bridgeCenter)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+          } else if (currentPos.x > bridge.slab.min.x - 0.4) {
+            out.copy(leftPortal)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+          } else {
+            const clampedX = THREE.MathUtils.clamp(goalPos.x, leftDeck.slab.min.x + 0.5, leftDeck.slab.max.x - 0.5)
+            const clampedZ = THREE.MathUtils.clamp(goalPos.z, leftDeck.slab.min.z + 0.5, leftDeck.slab.max.z - 0.5)
+            out.set(clampedX, leftDeck.topY, clampedZ)
+            return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'direct' }
+          }
+        }
       }
     }
 
-    // Case 2: Ground -> Rampart or Stair
-    if (currentLayer === 'ground' && (isRampartLayer(targetLayer) || isStairLayer(targetLayer))) {
-      const targetSide = layerSide(targetLayer)!
+    // Case 2: Rampart Gate -> Ground or Stair (Must NOT leap off bridge; route to nearest stair)
+    if (currentLayer === 'rampart_gate') {
+      const bridge = this.layout.bridge!
+      const targetSide: OutpostWalkwaySide =
+        targetLayer === 'stair_left' || (targetLayer !== 'stair_right' && currentPos.x < 0) ? -1 : 1
+      const deck = this.getDeck(targetSide)!
+      const corridorMidZ = (bridge.slab.min.z + bridge.slab.max.z) * 0.5
+      const portal = targetSide < 0
+        ? new THREE.Vector3(bridge.slab.min.x, deck.topY, corridorMidZ)
+        : new THREE.Vector3(bridge.slab.max.x, deck.topY, corridorMidZ)
+      out.copy(portal)
+      return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+    }
+
+    // Case 3: Ground -> Rampart Gate (Ascend nearest stair to deck, then bridge)
+    if (currentLayer === 'ground' && targetLayer === 'rampart_gate') {
+      const targetSide: OutpostWalkwaySide = (goalPos.x < 0 || currentPos.x < 0) ? -1 : 1
       const wp = this.getWaypoints(targetSide)
       const distToEntrance = Math.hypot(currentPos.x - wp.groundEntrance.x, currentPos.z - wp.groundEntrance.z)
-
-      if (distToEntrance > 1.2) {
-        // Step 2a: Move to ground entrance
+      if (distToEntrance > 2.2) {
         out.copy(wp.groundEntrance)
         return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ground_approach' }
       } else {
-        // Step 2b: Near entrance, aim for top landing with stair lane bias
         this._writeStairTarget(wp, true, out)
         return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ascend_stair' }
       }
     }
 
-    // Case 3: Rampart Deck -> Other Layers (Stair on same side, Stair on opposite side, Ground, or Opposite Rampart)
+    // Case 4: Stair Ramp -> Rampart Gate (Ascend stair to deck)
+    if (isStairLayer(currentLayer) && targetLayer === 'rampart_gate') {
+      const stairSide = layerSide(currentLayer)!
+      const wp = this.getWaypoints(stairSide)
+      const distToLanding = Math.hypot(currentPos.x - wp.stairTopLanding.x, currentPos.z - wp.stairTopLanding.z)
+      if (distToLanding > 0.8) {
+        this._writeStairTarget(wp, true, out)
+        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ascend_stair' }
+      } else {
+        out.copy(wp.deckConnection)
+        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+      }
+    }
+
+
+    // Case 6: Same layer (ground or stair)
+    if (currentLayer === targetLayer) {
+      out.copy(goalPos)
+      return { target: out, isCrossLayer: false, currentLayer, targetLayer, step: 'direct' }
+    }
+
+    // Case 7: Ground -> Rampart Deck or Stair
+    if (currentLayer === 'ground' && (isRampartLayer(targetLayer) || isStairLayer(targetLayer))) {
+      const targetSide = layerSide(targetLayer) ?? ((goalPos.x < 0 || currentPos.x < 0) ? -1 : 1)
+      const wp = this.getWaypoints(targetSide)
+      const distToEntrance = Math.hypot(currentPos.x - wp.groundEntrance.x, currentPos.z - wp.groundEntrance.z)
+
+      if (distToEntrance > 2.2) {
+        out.copy(wp.groundEntrance)
+        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ground_approach' }
+      } else {
+        this._writeStairTarget(wp, true, out)
+        return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ascend_stair' }
+      }
+    }
+
+    // Case 8: Rampart Deck -> Ground or Same-Side Stair
     if (isRampartLayer(currentLayer)) {
-      const currentSide = layerSide(currentLayer)!
+      const currentSide = layerSide(currentLayer) ?? (currentPos.x < 0 ? -1 : 1)
       const wp = this.getWaypoints(currentSide)
       const distToStairX = Math.abs(currentPos.x - wp.stair.ramp.startX)
 
-      // Step 3a: Walk along elevated deck corridor to stair connection first
+      // Step 8a: Walk along elevated deck corridor to stair connection first
       if (distToStairX > 1.0) {
         out.copy(wp.deckConnection)
         return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
       }
 
-      // Step 3b: At stair top landing:
+      // Step 8b: At stair top landing:
       // If target is on the SAME stair ramp, descend stair aiming directly toward target on stair
       if (isStairLayer(targetLayer) && layerSide(targetLayer) === currentSide) {
         out.set(wp.stair.ramp.startX - 0.3, goalPos.y, goalPos.z)
         return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'descend_stair' }
       }
 
-      // If target is ground, opposite rampart deck, or opposite stair, descend stair to ground entrance
+      // If target is ground or opposite stair, descend stair to ground entrance
       this._writeStairTarget(wp, false, out)
       return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'descend_stair' }
     }
 
-    // Case 4: Stair Ramp -> Other Layers (Same-side rampart, ground, opposite rampart, or opposite stair)
+    // Case 9: Stair Ramp -> Other Layers (Same-side rampart, ground, opposite rampart, or opposite stair)
     if (isStairLayer(currentLayer)) {
       const currentSide = layerSide(currentLayer)!
       const wp = this.getWaypoints(currentSide)
 
-      // Case 4a: Target is on the SAME side rampart deck -> ascend toward top landing / deck connection
+      // Target is on the SAME side rampart deck -> ascend toward top landing / deck connection
       if (isRampartLayer(targetLayer) && layerSide(targetLayer) === currentSide) {
         const distToLanding = Math.hypot(currentPos.x - wp.stairTopLanding.x, currentPos.z - wp.stairTopLanding.z)
         if (distToLanding > 0.8) {
@@ -489,7 +670,7 @@ export class OutpostLayeredNavigation {
         }
       }
 
-      // Case 4b: Target is ground, opposite rampart, or opposite stair -> must descend to ground entrance first
+      // Target is ground, opposite rampart, or opposite stair -> must descend to ground entrance first
       const distToEntrance = Math.hypot(currentPos.x - wp.groundEntrance.x, currentPos.z - wp.groundEntrance.z)
       if (distToEntrance > 0.8) {
         this._writeStairTarget(wp, false, out)

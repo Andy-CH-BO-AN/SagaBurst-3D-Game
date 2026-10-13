@@ -368,5 +368,76 @@ describe('Campaign formation placement wiring', () => {
     expect(hitFromAbove, 'Ray from above looking down must hit rampart deck top surface').not.toBeNull()
     expect(hitFromAbove?.hitPoint.y).toBeCloseTo(deck.topY, 3)
     expect(hitFromAbove?.deck).toBe(deck)
+
+    // 4. Ray from courtyard ground aiming at the visible upper rear rampart structure: must return valid deck hit (P1 requirement)!
+    const rayFromCourtyardAtDeck = new THREE.Ray(
+      new THREE.Vector3(deckCenter.x, 1.8, deckCenter.z - 15),
+      new THREE.Vector3(0, (deck.topY + 0.5 - 1.8) / 15, 1).normalize(),
+    )
+    const hitFromCourtyard = formation.findRampartDeckHit(rayFromCourtyardAtDeck)
+    expect(hitFromCourtyard, 'Ray from courtyard aiming at rampart must hit rampart deck').not.toBeNull()
+    expect(hitFromCourtyard?.deck).toBe(deck)
+    expect(hitFromCourtyard?.hitPoint.y).toBeCloseTo(deck.topY, 3)
+
+    // 5. Ray from courtyard ground aiming at the visible gate bridge structure: must return valid bridge hit (P1 requirement)!
+    const bridge = outpost.walkways!.layout.bridge
+    const bridgeCenter = bridge.slab.getCenter(new THREE.Vector3())
+    const rayFromCourtyardAtBridge = new THREE.Ray(
+      new THREE.Vector3(0, 1.8, bridgeCenter.z - 15),
+      new THREE.Vector3(0, (bridge.topY + 0.5 - 1.8) / 15, 1).normalize(),
+    )
+    const hitBridge = formation.findRampartDeckHit(rayFromCourtyardAtBridge)
+    expect(hitBridge, 'Ray from courtyard aiming at bridge must hit bridge').not.toBeNull()
+    expect(hitBridge?.deck).toBe(bridge)
+  })
+
+  it('places foot soldiers in a 1D corridor on the elevated gate bridge (rampart_gate)', () => {
+    const scene = new THREE.Scene()
+    const terrain = createTerrain(scene)
+    const outpost = createCampaignOutpost(scene, 'roman', terrain, { walkways: true })
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    navigation.setOutpostWalkways(outpost.walkways!.layout)
+    const bridge = outpost.walkways!.layout.bridge
+
+    const participants = [
+      placementParticipant('bridge-foot-1', 0),
+      placementParticipant('bridge-foot-2', 1),
+      placementParticipant('bridge-foot-3', 2),
+    ]
+    for (const p of participants) {
+      p.combatPosition.set(0, getTerrainHeight(0, -140), -140)
+    }
+    const formation = new FormationController(
+      scene,
+      new THREE.PerspectiveCamera(),
+      participants as any,
+      terrain.terrainMesh,
+      outpost.obstacles,
+      navigation,
+      romanRegion(),
+    )
+    onTestFinished(() => formation.cancelPlacement())
+
+    const bridgeCenter = bridge.slab.getCenter(new THREE.Vector3())
+    const bridgeTarget = new THREE.Vector3(0, bridge.topY, bridgeCenter.z)
+    vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: bridgeTarget }])
+
+    formation.beginPlacement('all')
+    expect((formation as any).previewBlocked).toBe(false)
+    const result = formation.confirmPlacement()
+    expect(result.accepted).toBe(true)
+    expect(result.count).toBe(3)
+
+    expect(participants.every(npc => npc.assignFormationTarget.mock.calls.length === 1)).toBe(true)
+    const assignedSlots = participants.map(npc => npc.assignFormationTarget.mock.calls[0][1] as THREE.Vector3)
+    for (const slot of assignedSlots) {
+      expect(slot.x).toBeGreaterThanOrEqual(bridge.slab.min.x + 0.5)
+      expect(slot.x).toBeLessThanOrEqual(bridge.slab.max.x - 0.5)
+      expect(slot.z).toBeGreaterThanOrEqual(bridge.slab.min.z + 0.5)
+      expect(slot.z).toBeLessThanOrEqual(bridge.slab.max.z - 0.5)
+      expect(slot.y).toBeGreaterThanOrEqual(bridge.slab.min.y)
+      expect(slot.y).toBeLessThanOrEqual(bridge.slab.max.y + 0.5)
+    }
   })
 })

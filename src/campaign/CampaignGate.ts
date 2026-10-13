@@ -113,7 +113,7 @@ export function isEligibleCampaignGateAttacker(
   if (npc.dead) return false
   if (npc.characterFaction !== attackerFaction) return false
   if (npc.combatOwnership === 'player-personal') return false
-  if (npc.tacticalOrder === 'follow' || npc.activeFollowTarget !== null) return false
+  if (npc.tacticalOrder === 'follow' || npc.activeFollowTarget !== null || npc.hasFormationTarget) return false
   return true
 }
 
@@ -134,8 +134,16 @@ export function reconcileCampaignGateSiege(
 
   if (shouldSiegeGate) {
     for (const npc of npcs) {
-      if (isEligibleCampaignGateAttacker(npc, attackerFaction) && !npc.hasSiegeObstacle) {
-        npc.assignSiegeObstacle?.(gate.siegeObstacle)
+      if (isEligibleCampaignGateAttacker(npc, attackerFaction)) {
+        if (!npc.hasSiegeObstacle) {
+          npc.assignSiegeObstacle?.(gate.siegeObstacle)
+        }
+      } else {
+        // If an NPC was targeting THIS gate but is no longer eligible (e.g. switched to follow,
+        // has an active follow target, or became player-personal), revoke the gate siege obstacle.
+        if (npc.siegeObstacle === gate.siegeObstacle) {
+          npc.assignSiegeObstacle?.(null)
+        }
       }
     }
   } else {
