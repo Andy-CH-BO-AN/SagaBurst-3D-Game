@@ -1,6 +1,6 @@
 import type { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { getTerrainHeight } from '../../src/world/Terrain'
-import { TownEagleGarrisonController } from '../../src/town/TownEagleGarrisonController'
+import { TownEagleGarrisonController, stageTownEaglePlayerCommand } from '../../src/town/TownEagleGarrisonController'
 import { parseTownEagleGarrisonState } from '../../src/town/TownEagleGarrisonState'
 import * as THREE from 'three'
 import { selectMissionInfantryActorIds } from '../../src/career/BanditMissionController'
@@ -299,6 +299,7 @@ it('migrates legacy v1 conservatively and rejects corrupt patrol clocks or waypo
   }
   expect(parseTownEagleGarrisonState({ ...state, nextTakeoffRemaining: Infinity })).toBeUndefined()
   expect(parseTownEagleGarrisonState({ ...state, pairs: [{ ...pair, replacementRemaining: 61 }] })).toBeUndefined()
+  expect(parseTownEagleGarrisonState({ ...state, pairs: [{ ...pair, commandReturn: 'true' }] })).toBeUndefined()
 })
 
 it('never grants automatic recovery to a casualty first observed under formal or hostile ownership', () => {
@@ -370,4 +371,105 @@ it('preserves an airborne patrol waypoint and budget while a formal owner tempor
   runtime.setAmbientPatrolAllowed(true); tick()
   expect(runtime.dutyFor(row.npc)).toBe('patrolling')
   expect(runtime.snapshot('town:roman').pairs[0].patrol).toEqual(before)
+})
+
+
+it('stages a dismissal without changing the live owner, persists return intent, and reloads without teleporting or claiming authority', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true); tick(); tick()
+  row.mountState.isAirborne = true; row.mountState.flight.phase = 'cruise'; row.homeMount.group.position.y += 20
+  runtime.claimPlayerCommand(row.npc)
+  const current = runtime.snapshot('town:roman')
+  const released = stageTownEaglePlayerCommand(current, [row.spec.id, 'enemy-town:town-eagle-rider:2', 'personal:1'], false)
+  expect(released.pairs[0]).toMatchObject({ commandReturn: true, duty: 'return-queue', refitAllowed: true })
+  expect(current.pairs[0].commandReturn).toBeUndefined()
+  const profile = createCareerProfile('roman'), storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  profile.townEagleGarrisons = { roman: released }
+  storage.failWrites = true
+  expect(store.save(profile)).toBe(false); expect(runtime.isPlayerCommandOwned(row.npc)).toBe(true)
+  storage.failWrites = false; expect(store.save(profile)).toBe(true)
+  const reload = patrolPolicyFixture()
+  reload.runtime.restore(store.load()!.townEagleGarrisons!.roman, 'town:roman')
+  expect(reload.runtime.isPlayerCommandOwned(reload.rows[0].npc)).toBe(false)
+  expect(reload.rows[0].homeMount.group.position).toEqual(row.homeMount.group.position)
+  reload.tick(true) // Even combat cannot interrupt a saved, unfinished dismissal return.
+  expect(reload.runtime.dutyFor(reload.rows[0].npc)).toBe('returning')
+  expect(reload.rows[0].npcState.restoreForTown).not.toHaveBeenCalled()
+})
+
+it.each(['rider', 'mount', 'both'] as const)('does not replace a player-owned %s casualty and starts the full 60 second native recovery on dismissal', casualty => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true)
+  row.npc.group.position.set(row.spec.x, getTerrainHeight(row.spec.x, row.spec.z), row.spec.z)
+  expect(runtime.claimPlayerCommand(row.npc)).toBe(true)
+  if (casualty !== 'mount') row.npcState.takeDamage()
+  if (casualty !== 'rider') row.mountState.takeDamage()
+  runtime.beginFrame(120); tick()
+  expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+  expect(runtime.releasePlayerCommand(row.npc)).toBe(true)
+  runtime.beginFrame(59); tick()
+  expect(runtime.snapshot('town:roman').pairs[0].replacementRemaining).toBe(1)
+  expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+  runtime.beginFrame(1); tick()
+  expect(row.npcState.restoreForTown).toHaveBeenCalledTimes(1)
+  expect(row.mountState.restoreForTown).toHaveBeenCalledTimes(1)
+})
+
+it('retains formal-event casualty protection after dismissal until settlement authorizes refit', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.claimPlayerCommand(row.npc); row.npcState.takeDamage(); row.mountState.takeDamage()
+  runtime.releasePlayerCommand(row.npc); runtime.beginFrame(60); tick(true); tick(false)
+  runtime.setAmbientPatrolAllowed(true); tick(false) // An event ending alone is not settlement authority.
+  expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+  runtime.beginRefit(row.spec.id); tick(false)
+  expect(row.npcState.restoreForTown).toHaveBeenCalledTimes(1)
+})
+
+it('does not let a stored dismissal marker or a foreign actor identity grant player ownership', () => {
+  const { rows: [row], runtime } = patrolPolicyFixture()
+  const snapshot = runtime.snapshot('town:roman'); snapshot.pairs[0].commandReturn = true
+  runtime.restore(snapshot, 'town:roman')
+  expect(runtime.isPlayerCommandOwned(row.npc)).toBe(false)
+  row.spec.id = 'enemy-town:town-eagle-rider:1'
+  expect(runtime.claimPlayerCommand(row.npc)).toBe(false)
+  expect(stageTownEaglePlayerCommand(snapshot, [row.spec.id], false)).toEqual(snapshot)
+})
+
+
+it('keeps repeated saved claims idempotent and freezes native patrol clocks while player orders own the airborne pair', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true); tick(); tick()
+  row.mountState.isAirborne = true; row.mountState.flight.phase = 'cruise'; row.homeMount.group.position.y += 20
+  runtime.beginFrame(20)
+  const patrol = runtime.snapshot('town:roman').pairs[0].patrol
+  runtime.claimPlayerCommand(row.npc)
+  row.npcState.setEagleFlightOrder.mockClear(); row.npcState.setMissionCombatTarget.mockClear()
+  runtime.claimPlayerCommand(row.npc); runtime.beginFrame(300)
+  expect(tick(false)).toBe(false); expect(tick(true)).toBe(false)
+  expect(row.npcState.setEagleFlightOrder).not.toHaveBeenCalled()
+  expect(row.npcState.setMissionCombatTarget).not.toHaveBeenCalled()
+  expect(runtime.snapshot('town:roman').pairs[0].patrol).toEqual(patrol)
+})
+
+
+it.each([false, true])('persists a newly dismissed casualty with explicit ambient recovery authorization %s', ambientRecoveryAllowed => {
+  const { rows: [row], runtime } = patrolPolicyFixture()
+  runtime.claimPlayerCommand(row.npc); row.mountState.takeDamage()
+  const staged = stageTownEaglePlayerCommand(runtime.snapshot('town:roman'), [row.spec.id], false, ambientRecoveryAllowed)
+  const profile = createCareerProfile('roman'), store = new CareerProfileStore(new MemoryStorage())
+  profile.townEagleGarrisons = { roman: staged }
+  expect(store.save(profile)).toBe(true)
+  expect(store.load()!.townEagleGarrisons!.roman!.pairs[0]).toMatchObject({
+    duty: 'casualty', commandReturn: true, replacementRemaining: 60, ambientRecovery: ambientRecoveryAllowed, mount: { hp: 0 },
+  })
+})
+
+it('retains a partially elapsed native casualty replacement clock across player claim and dismissal', () => {
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  runtime.setAmbientPatrolAllowed(true); row.npcState.takeDamage(); tick(); runtime.beginFrame(23)
+  runtime.claimPlayerCommand(row.npc); runtime.beginFrame(200); tick()
+  expect(runtime.snapshot('town:roman').pairs[0].replacementRemaining).toBe(37)
+  runtime.releasePlayerCommand(row.npc)
+  expect(runtime.snapshot('town:roman').pairs[0]).toMatchObject({ replacementRemaining: 37, ambientRecovery: true, hp: 0 })
+  expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
 })

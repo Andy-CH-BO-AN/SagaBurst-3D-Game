@@ -67,6 +67,7 @@ interface TownCombatScene {
   ownsPeacefulTravel?(npc: NPC): boolean
   preparePeaceResidents?(excluded: ReadonlySet<NPC>): void
   peaceResident(resident: TownCombatResident, dt: number): void
+  playerOwnsEagleCommand?(npc: NPC): boolean
   updateEagleDuty?(npc: NPC, dt: number, combat: boolean): boolean
   updateCommandCue(): void
   clearCombatShots(): void
@@ -117,6 +118,12 @@ export class TownMissionCombat {
     this.grid.clear()
     for (const npc of new Set([...this.town.residents.map(r => r.npc), ...actors])) if (!npc.dead) this.grid.insert(npc)
     for (const npc of actors) {
+      if (!npc.dead && this.town.playerOwnsEagleCommand?.(npc)) {
+        if (this.town.updateEagleDuty?.(npc, dt, false)) continue
+        npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
+          this.grid.getNearbyInto(npc.combatPosition, 60, this.neighbors), this.actorObstacles(npc), this.town.navigation)
+        continue
+      }
       if (npc.dead || npc.missionMovement || npc.formationCommandId === null
         || npc.tacticalOrder !== 'formation' && npc.tacticalOrder !== 'follow') continue
       npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
@@ -528,6 +535,7 @@ export class TownMissionCombat {
 
   private updateEagleCombatDuty(actor: NPC, dt: number): boolean {
     if (this.town.updateEagleDuty?.(actor, dt, true)) return true
+    if (this.town.playerOwnsEagleCommand?.(actor)) return false
     const target = this.eagleThreatTargets.get(actor)
     if (target && this.externalThreatActors.has(actor)) actor.setMissionCombatTarget(target)
     return false
@@ -656,6 +664,10 @@ export class TownMissionCombat {
     const missionFriendlies = new Set([...field.friendlies, ...this.missions.duel.fieldNpcs, ...(this.missions.defense.active ? this.missions.defense.fieldNpcs : [])])
     for (const resident of this.town.residents) {
       const { npc, spec } = resident
+      if (spec.eagle && this.town.playerOwnsEagleCommand?.(npc)) {
+        this.externalThreatActors.delete(npc); this.eagleThreatTargets.delete(npc)
+        continue
+      }
       if (spec.eagle && this.missions.duel.active) {
         this.eagleThreatTargets.delete(npc)
         if (this.externalThreatActors.delete(npc) && !npc.dead && !this.missions.duel.isMissionActor(npc)) npc.endExternalThreat()

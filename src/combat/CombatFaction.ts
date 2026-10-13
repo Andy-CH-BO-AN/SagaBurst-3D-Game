@@ -6,7 +6,7 @@ export enum Faction {
   BANDIT = 'BANDIT',
 }
 
-export type CombatOwnership = 'player-personal' | 'town-command' | 'mission-official' | 'player-civilian'
+export type CombatOwnership = 'player-personal' | 'town-command' | 'mission-official' | 'player-civilian' | 'town-eagle-command'
 
 export interface CombatAllegiance {
   faction: Faction

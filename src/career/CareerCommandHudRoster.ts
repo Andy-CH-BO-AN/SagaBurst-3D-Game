@@ -34,6 +34,8 @@ export interface CareerCommandHudSource {
     missionId?: string
   }
   civilianReturningIds?: readonly string[]
+  /** Peaceful own-town Commander air selection; formal air remains official Squad 8. */
+  townAirActorIds?: readonly string[]
   actors: readonly HudActor[]
 }
 
@@ -94,9 +96,17 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
     members.push({ id, squadId: 'civilians', state, order: actor ? actor.tacticalOrder : saved?.order })
   }
 
+  if (!source.missionId) for (const id of source.townAirActorIds ?? []) {
+    if (seen.has(id)) continue
+    const actor = live.get(id)
+    if (!actor) continue
+    seen.add(id)
+    members.push({ id, squadId: 8, state: actor.dead ? 'dead' : 'deployed', order: actor.tacticalOrder })
+  }
+
   // Include identities and saved assignments: equal headcounts do not imply the same authority.
   const contextId = JSON.stringify([source.sceneKey, source.faction, source.missionId ?? null,
     official?.type ?? null, official?.missionId ?? null, squads.map(squad => [squad.squadId, squad.actorIds]),
-    personal?.memberIds ?? [], civilians?.actorIds ?? []])
+    personal?.memberIds ?? [], civilians?.actorIds ?? [], source.townAirActorIds ?? []])
   return { contextId, members }
 }

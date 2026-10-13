@@ -16,6 +16,9 @@ import { officialActorSquadId, officialCommandSquads } from '../../src/career/Ca
 import { DEFENSE_CAMPAIGN_TIMINGS } from '../../src/campaign/CampaignConfig'
 import { buildCommanderAuthorityForMission } from '../../src/career/CommanderMissionAcceptance'
 import { acceptVeteranMission } from '../../src/career/VeteranMission'
+import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
+import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
+import { townCommanderSpec } from '../../src/town/TownCommander'
 
 const captain = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000, availableMerit: 5000, ownedMounts: ['horse', 'xongkoro'] })
 const stats = { damageDealt: 200, damageTaken: 5, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
@@ -113,24 +116,45 @@ describe('Commander accepted production rosters without actor materialization', 
     expect(authority.commandRank).toBe(rank === 'commander' ? 'commander' : undefined)
   })
 
-  it.each(['roman', 'viking'] as const)('groups all 208 accepted %s military defenders by the actual four gates, excluding nonmilitary residents', faction => {
-    const residents = withTownCommandSquadRoster(faction, townRoster())
-    // Supplying civilian/service IDs must not turn shared Town allegiance into authority.
-    const mission = createCaptainGateDefenseMission({ ...commander(), faction }, residents.map(actor => actor.id),
+  it.each(['roman', 'viking'] as const)('groups the full production %s defense as 205 ground plus five independent Eagle IDs', faction => {
+    const layout = resolveTownHRLayout(faction, [], [])
+    const shared = withTownCommandSquadRoster(faction, townRoster())
+    const population = townConquestRoster(layout, shared, resolveTownEagleTrainingGround([], [], layout))
+    expect(townAssaultObjectiveRoster(shared)).toHaveLength(208)
+    expect(townAssaultObjectiveRoster(population)).toHaveLength(209)
+    expect(townAssaultObjectiveRoster(population).find(actor => actor.id === 'eagle-trainer')).toMatchObject({ assaultObjective: true })
+    const residents = [...population, townCommanderSpec({ x: 20, z: 5, yaw: 0 })]
+    const accepted = townAssaultObjectiveRoster(residents).map(actor => actor.id)
+    const mission = createCaptainGateDefenseMission({ ...commander(), faction }, accepted,
       residents.filter(actor => actor.role === 'civilian').map(actor => actor.id), residents, 'grouped-gates')
     const authority = mission.officialSquad!, squads = officialCommandSquads(authority)
-    expect(authority.actorIds).toHaveLength(208)
-    expect(new Set(authority.actorIds).size).toBe(208)
-    expect([...authority.actorIds].sort()).toEqual(townAssaultObjectiveRoster(residents).map(actor => actor.id).sort())
-    expect(squads.map(squad => squad.squadId)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
-    expect(squads.every(squad => squad.actorIds.length <= 30)).toBe(true)
-    expect(authority.actorIds.filter(id => id.startsWith('town-eagle-rider:'))).toHaveLength(5)
+    expect(mission.friendlyActorIds).toHaveLength(210)
+    expect(authority.actorIds).toHaveLength(210)
+    expect(new Set(authority.actorIds).size).toBe(210)
+    expect([...authority.actorIds].sort()).toEqual([...accepted, 'commander'].sort())
+    expect(squads.map(squad => [squad.squadId, squad.actorIds.length])).toEqual([[1, 30], [2, 30], [3, 30], [4, 30], [5, 30], [6, 30], [7, 25], [8, 5]])
+    expect(squads.find(squad => squad.squadId === 8)!.actorIds).toEqual([
+      'town-eagle-rider:1', 'town-eagle-rider:2', 'town-eagle-rider:3', 'town-eagle-rider:4', 'town-eagle-rider:5',
+    ])
+    expect(squads.filter(squad => squad.squadId !== 8).flatMap(squad => squad.actorIds)).toHaveLength(205)
+    expect(officialActorSquadId(authority, 'commander')).toBe(2)
+    expect(authority.actorIds.filter(id => id === 'commander')).toEqual(['commander'])
     expect(authority.actorIds).not.toContain('merchant')
     expect(authority.actorIds).not.toContain('cat')
     for (const [gate, squad] of [['north', 1], ['south', 3], ['east', 5], ['west', 7]] as const) {
       expect(squads.find(group => group.squadId === squad)!.actorIds.filter(id => id.startsWith('gate:')))
         .toEqual(Array.from({ length: 10 }, (_, index) => `gate:${gate}:${index}`))
     }
+    // Canonical slots come from complete production data, never today's reduced/reordered residents.
+    const omitted = new Set(['captain', 'gate:south:0', 'ranged_infantry-0', 'town-eagle-rider:2', 'commander'])
+    const reducedResidents = residents.filter(actor => !omitted.has(actor.id)).reverse()
+    const outsiders = ['enemy-eagle-patrol:1', 'enemy-town:town-eagle-rider:1', 'personal:eagle', 'captain-eagle:1']
+    const reduced = commanderGateDefenseSquads(reducedResidents, [...authority.actorIds, ...outsiders], new Set(['town-patrol:b:0']))
+    expect(reduced).toEqual(squads.map(squad => ({ squadId: squad.squadId,
+      actorIds: squad.actorIds.filter(id => !omitted.has(id) && id !== 'town-patrol:b:0') })))
+    expect(reduced.flatMap(squad => squad.actorIds)).toHaveLength(204)
+    const onlyAir = commanderGateDefenseSquads(residents, ['town-eagle-rider:5'])
+    expect(onlyAir).toEqual([{ squadId: 8, actorIds: ['town-eagle-rider:5'] }])
   })
 
   it('excludes unavailable or unaccepted military without moving the remaining defenders between squads', () => {

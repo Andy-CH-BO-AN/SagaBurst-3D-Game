@@ -3,6 +3,7 @@ import { officialActorSquadId, officialCommandIsPlayerControlled } from './Caree
 import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import { CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_DEFENSE_GATE, CAPTAIN_DEFENSE_GATE_LABEL, captainGateDefenseActorIds } from './CaptainMissionCatalog'
 import { townMissionMilitaryIds } from '../town/TownEagleGarrison'
+import { shouldSpawnTownCommander, TOWN_COMMANDER_ID } from '../town/TownCommander'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
 import { SIEGE_PREPARATION_SECONDS, siegeNearestGate, siegeReservePoint, siegeRoster, siegeRosterVersion, siegeAttackerOrder, siegeDefensePlans, siegeMuster, siegePoint, siegeOutward, insideSiegeTown, type TownSiegeState } from './TownSiege'
@@ -106,6 +107,8 @@ export class TownDefenseController {
     npc.assignSiegeObstacle(null)
     npc.missionMovement = false
     this.orders.delete(npc)
+    // The original Eagle owner resumes aerial return/refit; never overwrite it with a ground order.
+    if (this.isEagleGuard(npc)) return
     npc.setMissionCombatTarget(this.phase === 'PREPARING' ? null : undefined)
     const group = this.groupFor(npc)
     if (group) {
@@ -172,7 +175,11 @@ export class TownDefenseController {
   }
   get preparationRemaining(): number { return Math.max(0, SIEGE_PREPARATION_SECONDS - this.preparationElapsed) }
   get assault(): boolean { return this.active?.kind === 'enemy-town-assault' }
-  get military(): NPC[] { const ids = townMissionMilitaryIds(this.residents.map(r => r.spec), this.active ? this.assault ? this.active.targetActorIds : this.active.friendlyActorIds : undefined); return this.residents.filter(r => ids.has(r.spec.id)).map(r => r.npc) }
+  get military(): NPC[] {
+    const ids = townMissionMilitaryIds(this.residents.map(r => r.spec), this.active ? this.assault ? this.active.targetActorIds : this.active.friendlyActorIds : undefined)
+    if (this.active?.kind === 'town-defense' && shouldSpawnTownCommander(this.readProfile())) ids.add(TOWN_COMMANDER_ID)
+    return this.residents.filter(r => ids.has(r.spec.id)).map(r => r.npc)
+  }
   get playerEnemies(): NPC[] { return this.fieldNpcs.filter(npc => npc.faction === Faction.ENEMY) }
   get phase(): CareerMissionPhase | null { return this.active?.phase ?? null }
   get defenders(): NPC[] { return this.military }
@@ -229,6 +236,9 @@ export class TownDefenseController {
     const residentDead = new Set([...(this.assault ? active.deadTargetActorIds : active.deadFriendlyActorIds) ?? [], ...(active.deadCivilianActorIds ?? [])])
     for (const resident of this.residents) {
       if (resident.homeMount) this.actorMounts.set(resident.npc, resident.homeMount)
+      // Accepted resident resources must exist during enemy loading too, before deployment.
+      const accepted = active.officialSquad?.members?.[resident.spec.id]
+      if (accepted) restoreCommandActor(resident.npc, { ...accepted, order: undefined, formation: undefined }, resident.homeMount)
       this.restoreActor(resident.npc, active, residentDead.has(resident.spec.id))
       if (active.officialSquad?.actorIds.includes(resident.spec.id)) {
         this.originalCommandSquads.set(resident.npc, resident.npc.squadId)
@@ -241,6 +251,10 @@ export class TownDefenseController {
     this.groups.length = 0
     const byId = new Map(this.residents.map(r => [r.spec.id, r.npc]))
     if (!this.siege.defensePlans.length) this.siege.defensePlans = siegeDefensePlans(this.residents.filter(r => !r.npc.dead && this.military.includes(r.npc)).map(r => r.spec))
+    if (shouldSpawnTownCommander(this.readProfile()) && this.active?.kind === 'town-defense'
+      && !this.siege.defensePlans.some(plan => [...plan.infantry, ...plan.cavalry].includes(TOWN_COMMANDER_ID))) {
+      this.siege.defensePlans.find(plan => plan.gateId === 'north')?.cavalry.push(TOWN_COMMANDER_ID)
+    }
     for (const plan of this.siege.defensePlans) {
       this.groups.push({ id: plan.gateId, members: plan.infantry.map(id => byId.get(id)!), cavalry: plan.cavalry.map(id => byId.get(id)!), leader: plan.leaderId ? byId.get(plan.leaderId)! : null })
     }
@@ -304,7 +318,9 @@ export class TownDefenseController {
         if (!npc) continue
         // Saved authority grants eligibility; only an issued order relinquishes the original AI.
         if (!this.isPlayerCommanded(npc)) {
-          if (saved) restoreCommandActor(npc, { ...saved, order: undefined, formation: undefined }, this.actorMounts.get(npc))
+          // Fresh residents already restored before deployment; don't rewind their new gate slots.
+          if (saved && !freshSiege) restoreCommandActor(npc,
+            { ...saved, ...(residentDead.has(actorId) || active.actorHealth?.[actorId]?.hp === 0 ? { status: 'dead' as const, hp: 0 } : {}), order: undefined, formation: undefined }, this.actorMounts.get(npc))
           continue
         }
         npc.missionMovement = false

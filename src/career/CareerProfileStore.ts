@@ -1,3 +1,4 @@
+import { parseTownAirCommandSquad } from './TownAirCommandAuthority'
 import { parseCivilianCommandSquad } from './CivilianCommandAuthority'
 import { parseEnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
 import { outskirtsSquadSpecs } from '../town/TownOutskirtsRules'
@@ -422,6 +423,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const personalSquadRuntime = parsePersonalMission(raw.personalSquadRuntime)
   const townCommandSquad = parseTownCommandSquad(raw.townCommandSquad)
   const civilianCommandSquad = parseCivilianCommandSquad(raw.civilianCommandSquad)
+  const townAirCommandSquad = parseTownAirCommandSquad(raw.townAirCommandSquad)
   const selectedMountId = CAREER_MOUNT_IDS.includes(raw.selectedMountId as CareerMountId)
     ? canonicalCareerMountId(raw.selectedMountId as CareerMountId)
     : undefined
@@ -436,6 +438,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(personalSquad ? { personalSquad } : {}),
     ...(personalSquadRuntime ? { personalSquadRuntime } : {}),
     ...(townCommandSquad && townCommandSquad.townFaction === raw.faction ? { townCommandSquad } : {}),
+    ...(townAirCommandSquad && townAirCommandSquad.townFaction === raw.faction ? { townAirCommandSquad } : {}),
     ...(civilianCommandSquad && civilianCommandSquad.townFaction === raw.faction ? { civilianCommandSquad } : {}),
     skills: normalizeSkillState(raw.skills && typeof raw.skills === 'object' ? raw.skills as SkillStateInput : undefined),
     enlistmentMeritBase,
@@ -517,6 +520,7 @@ export class CareerProfileStore {
     try {
       const parsed = parseCareerProfile(profile)
       if (!parsed) return false
+      if (profile.townAirCommandSquad && !parsed.townAirCommandSquad) return false
       // A rejected expanded grant must not look like a successful ownership commit.
       if (profile.activeMission?.officialSquad?.commandRank === 'commander'
         && !parsed.activeMission?.officialSquad) return false

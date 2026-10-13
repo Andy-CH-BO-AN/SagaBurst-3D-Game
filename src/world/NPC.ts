@@ -513,11 +513,11 @@ export class NPC {
   get activeFollowTarget(): NPC | Player | null { return this.followTarget }
   get activeFollowSlotIndex(): number { return this.followSlotIndex }
   get activeFollowLocalOffset(): THREE.Vector3 { return this.followLocalOffset.clone() }
-  get combatFormationCheckpoint(): { commandId: number; position: { x: number; z: number; yaw: number }; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder } | undefined {
+  get combatFormationCheckpoint(): { commandId: number; position: { x: number; y?: number; z: number; yaw: number }; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder } | undefined {
     const target = this.formationTarget
     if (!target || this.tacticalOrder === 'follow') return undefined
     return { commandId: target.commandId,
-      position: { x: target.position.x, z: target.position.z, yaw: Math.atan2(target.facing.x, target.facing.z) },
+      position: { x: target.position.x, y: target.position.y, z: target.position.z, yaw: Math.atan2(target.facing.x, target.facing.z) },
       reached: target.reached, speedLimit: target.speedLimit, arrivalOrder: target.arrivalOrder }
   }
   get encounterIsAlerted(): boolean { return this.encounterOrigin !== null && this.encounterAggro !== 'idle' }
@@ -915,6 +915,15 @@ export class NPC {
     if (this.isMounted) this._syncToMount()
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
     return events.projectileRelease
+  }
+  /** Physical boarding is a temporary movement override, preserving the player's exact air order. */
+  updateTownEagleBoarding(dt: number, distance: number, destination: THREE.Vector3,
+    nearby: NPC[], obstacles: ObstacleData[], navigation: NavigationWorld): void {
+    const formation = this.formationTarget, order = this.tacticalOrder, follow = this.followTarget
+    this.formationTarget = { commandId: -7, position: destination.clone(), facing: new THREE.Vector3(0, 0, 1), reached: false, speedLimit: 3.5 }
+    this.tacticalOrder = 'formation'; this.followTarget = null
+    try { this.updateTownTravel(dt, distance, nearby, obstacles, navigation) }
+    finally { this.formationTarget = formation; this.tacticalOrder = order; this.followTarget = follow }
   }
   /** Reuses tactical formation/follow movement without combat acquisition or attacks. */
   updateTownTravel(dt: number, distance: number, nearby: NPC[], obstacles: ObstacleData[], navigation: NavigationWorld,

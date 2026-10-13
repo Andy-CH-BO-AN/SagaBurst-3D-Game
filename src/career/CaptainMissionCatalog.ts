@@ -3,11 +3,13 @@ import { careerItemTotal } from './CareerInventory'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { createCareerMissionId, createTownDefenseMission, type ActiveCareerMission } from './CareerMissionState'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
-import { townAssaultObjectiveRoster, type TownActorSpec } from '../town/TownRules'
-import { TOWN_GATES, type TownGateId } from '../town/TownLayout'
+import { townRoster, type TownActorSpec } from '../town/TownRules'
+import type { TownGateId } from '../town/TownLayout'
 import { siegeDefensePlans, type SiegeDefensePlan } from './TownSiege'
 import { createMissionCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
 import { MAX_COMMAND_SQUAD_SIZE, type SquadId } from '../battle/CommandTarget'
+import { TOWN_EAGLE_PAIRS } from '../town/TownEagleGarrison'
+import { TOWN_COMMANDER_ID } from '../town/TownCommander'
 
 export const CAPTAIN_PATROL_COMMAND_ID = 'captain-patrol-command'
 export const CAPTAIN_CAVALRY_COMMAND_ID = 'captain-cavalry-command'
@@ -75,46 +77,47 @@ export function captainGateDefenseBriefing(residents: readonly TownActorSpec[], 
   const count = captainGateDefenseActorIds(residents, unavailableActorIds).length
   return `指揮${CAPTAIN_DEFENSE_GATE_LABEL} ${count} 名既有步兵（整個步兵隊）；定位後聽從玩家命令，其餘守軍守住各自城門。`
 }
-/** Keep each gate's infantry and cavalry together; unplanned military retain their nearest sector. */
-export function commanderGateDefenseSquads(residents: readonly TownActorSpec[], friendlyActorIds: readonly string[], unavailableActorIds: ReadonlySet<string> = new Set(), defensePlans: readonly SiegeDefensePlan[] = siegeDefensePlans(residents)): OfficialCommandSquad[] {
-  const military = townAssaultObjectiveRoster([...residents])
-  const eligible = new Set(military.map(actor => actor.id))
-  const accepted = new Set(friendlyActorIds)
-  const assigned = new Set<string>()
-  const squads: OfficialCommandSquad[] = TOWN_GATES.flatMap((gate, index) => {
-    const plan = defensePlans.find(plan => plan.gateId === gate.id)
-    return [plan?.infantry ?? [], plan?.cavalry ?? []].map((ids, offset) => {
-      const actorIds = ids.filter(id => {
-        if (!eligible.has(id) || assigned.has(id)) return false
-        assigned.add(id)
-        return true
-      })
+/** Full authored membership is fixed before any missing/dead/loaned actor is filtered.
+ * West contributes mobile reserves to the first three gates, keeping its own ten gate guards.
+ * Shared Town producers remain unchanged: service Commander is a fresh acceptance opt-in.
+ */
+function commanderGateDefenseSlots(): OfficialCommandSquad[] {
+  const roster = townRoster(), byId = new Map(roster.map(actor => [actor.id, actor]))
+  const plans = siegeDefensePlans(roster)
+  const west = plans.find(plan => plan.gateId === 'west')!
+  const infantry = [...west.infantry.filter(id => !byId.get(id)?.gateId), ...west.infantry.filter(id => byId.get(id)?.gateId)]
+  const cavalry = [...west.cavalry.filter(id => id !== west.leaderId), ...west.cavalry.filter(id => id === west.leaderId)]
+  const squads = (['north', 'south', 'east'] as const).flatMap((gateId, index) => {
+    const plan = plans.find(plan => plan.gateId === gateId)!
+    return [plan.infantry, plan.cavalry].map((ids, offset) => {
+      const actorIds = [...ids]
+      if (gateId === 'north' && offset === 1) actorIds.splice(1, 0, TOWN_COMMANDER_ID)
+      const reserve = offset === 0 ? infantry : cavalry
+      while (actorIds.length < MAX_COMMAND_SQUAD_SIZE && reserve.length) actorIds.push(reserve.shift()!)
       if (actorIds.length > MAX_COMMAND_SQUAD_SIZE) throw new Error('Gate defense squad exceeds capacity')
       return { squadId: (index * 2 + offset + 1) as SquadId, actorIds }
     })
   })
-  // The native siege plan omits eagle guards. Use their authored home sector,
-  // without changing their peaceful Town owner or inventing additional actors.
-  for (const actor of military) {
-    if (assigned.has(actor.id)) continue
-    const gates = TOWN_GATES.map((gate, index) => ({ index, distance: (actor.x - gate.x) ** 2 + (actor.z - gate.z) ** 2 }))
-      .sort((a, b) => a.distance - b.distance || a.index - b.index)
-    const preferred = actor.mounted || actor.duty === 'eagle_garrison' || actor.role === 'ranger' ? 1 : 0
-    const squad = gates.flatMap(({ index }) => [squads[index * 2 + preferred], squads[index * 2 + 1 - preferred]])
-      .find(squad => squad.actorIds.length < MAX_COMMAND_SQUAD_SIZE)
-    if (!squad) throw new Error('Gate defense army exceeds command capacity')
-    squad.actorIds.push(actor.id)
-    assigned.add(actor.id)
-  }
-  // Filter only after assigning authored slots: a missing soldier never moves another squad.
-  return squads.map(squad => ({ ...squad, actorIds: squad.actorIds.filter(id => accepted.has(id) && !unavailableActorIds.has(id)) }))
-    .filter(squad => squad.actorIds.length > 0)
+  squads.push({ squadId: 7, actorIds: [...infantry, ...cavalry, 'eagle-trainer'] },
+    { squadId: 8, actorIds: TOWN_EAGLE_PAIRS.map(pair => pair.riderId) })
+  if (squads.some(squad => squad.actorIds.length > MAX_COMMAND_SQUAD_SIZE)) throw new Error('Gate defense squad exceeds capacity')
+  return squads
+}
+
+export function commanderGateDefenseSquads(residents: readonly TownActorSpec[], friendlyActorIds: readonly string[], unavailableActorIds: ReadonlySet<string> = new Set()): OfficialCommandSquad[] {
+  const residentIds = new Set(residents.map(actor => actor.id)), accepted = new Set(friendlyActorIds)
+  return commanderGateDefenseSlots().map(squad => ({ ...squad,
+    actorIds: squad.actorIds.filter(id => residentIds.has(id) && accepted.has(id) && !unavailableActorIds.has(id)),
+  })).filter(squad => squad.actorIds.length > 0)
 }
 export function createCaptainGateDefenseMission(profile: CareerProfile, friendlyActorIds: string[], civilianActorIds: string[], residents: readonly TownActorSpec[], id = createCareerMissionId(CAPTAIN_GATE_DEFENSE_ID), unavailableActorIds: ReadonlySet<string> = new Set()): ActiveCareerMission {
-  const mission = createTownDefenseMission(friendlyActorIds, civilianActorIds, id, CAPTAIN_GATE_DEFENSE_ID, profile.rank)
+  const commanderAvailable = profile.rank === 'commander' && !unavailableActorIds.has(TOWN_COMMANDER_ID)
+    && residents.some(actor => actor.id === TOWN_COMMANDER_ID && actor.role === 'commander')
+  const defenders = commanderAvailable ? [...new Set([...friendlyActorIds, TOWN_COMMANDER_ID])] : friendlyActorIds
+  const mission = createTownDefenseMission(defenders, civilianActorIds, id, CAPTAIN_GATE_DEFENSE_ID, profile.rank)
   const actorIds = captainGateDefenseActorIds(residents, unavailableActorIds).filter(actorId => friendlyActorIds.includes(actorId))
   mission.officialSquad = createMissionCommandAuthority(id, profile.faction, profile.rank, actorIds,
-    profile.rank === 'commander' ? commanderGateDefenseSquads(residents, friendlyActorIds, unavailableActorIds) : [])
+    profile.rank === 'commander' ? commanderGateDefenseSquads(residents, defenders, unavailableActorIds) : [])
   mission.personalSquad = snapshotPersonalMission(profile)
   return mission
 }

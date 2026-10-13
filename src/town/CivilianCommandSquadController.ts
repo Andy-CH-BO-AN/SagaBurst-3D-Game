@@ -14,6 +14,14 @@ import { CIVILIAN_PROFILE, type TownActorSpec } from './TownRules'
 
 export const CIVILIAN_COMMAND_RETURN_ID = -4500
 export interface CivilianCommandResident { spec: TownActorSpec; npc: NPC }
+/** HUD consumers need current status, HP and orders, never actor poses or formations. */
+export interface CivilianCommandHudState {
+  readonly sceneKey: string
+  readonly townFaction: CivilianCommandSquadState['townFaction']
+  readonly missionId?: string
+  readonly actorIds: readonly string[]
+  readonly members: Readonly<Record<string, Readonly<Pick<PersonalActorCheckpoint, 'status' | 'hp' | 'order'>>>>
+}
 interface CivilianCommandOptions {
   sceneKey: string
   townFaction: CareerProfile['faction']
@@ -48,11 +56,32 @@ export class CivilianCommandSquadController {
     return this.scopeAllowed && this.matchesScene && this.value?.missionId === this.read().activeMission?.id && !this.player().dead
   }
   get actors(): NPC[] { return this.matchesScene ? this.value!.actorIds.flatMap(id => this.residentsById.get(id)?.npc ?? []) : [] }
-  get hudState(): CivilianCommandSquadState | undefined {
+  get hudState(): CivilianCommandHudState | undefined {
     if (!this.commandsEnabled) return undefined
-    const value = this.checkpoint()!
-    value.actorIds = value.actorIds.filter(id => { const npc = this.residentsById.get(id)?.npc; return npc && this.validIdentity(npc) })
-    return value
+    const value = this.value!, members: Record<string, Pick<PersonalActorCheckpoint, 'status' | 'hp' | 'order'>> = {}
+    const actorIds = value.actorIds.filter(id => {
+      const npc = this.residentsById.get(id)?.npc
+      if (!npc || !this.validIdentity(npc)) return false
+      members[id] = { status: npc.dead ? 'dead' : value.members[id]?.status === 'exited' ? 'exited' : 'deployed',
+        hp: npc.hp, order: npc.tacticalOrder }
+      return true
+    })
+    return { sceneKey: value.sceneKey, townFaction: value.townFaction, missionId: value.missionId, actorIds, members }
+  }
+  get hasCheckpoint(): boolean { return this.value !== undefined }
+  /** Per-frame gate reads scalar lifecycle state; pose and nonlethal damage use the periodic save. */
+  get criticalSignature(): string | undefined {
+    const value = this.value
+    if (!value) return undefined
+    return JSON.stringify([value.sceneKey, value.townFaction, value.missionId, value.actorIds.map(id => {
+      const npc = this.residentsById.get(id)?.npc, saved = value.members[id]
+      const returningFormation = value.owners[id] === 'returning' ? saved?.formation : undefined
+      const liveFormationId = npc?.formationCommandId, formationId = liveFormationId ?? returningFormation?.commandId
+      const reached = liveFormationId != null ? npc!.isFormationTargetReached(liveFormationId) : returningFormation?.reached
+      const status = npc ? npc.dead ? 'dead' : saved?.status === 'exited' ? 'exited' : 'deployed' : saved?.status
+      return [id, value.owners[id], status,
+        (npc?.hp ?? saved?.hp) === 0, npc?.tacticalOrder ?? saved?.order, formationId, reached]
+    })])
   }
   get returningActorIds(): readonly string[] { return this.actors.filter(npc => this.ownsPeacefulTravel(npc)).map(npc => npc.combatantId) }
   get combatActors(): NPC[] { return this.actors.filter(npc => !npc.dead && this.ownsPlayerCommand(npc)) }
@@ -121,7 +150,7 @@ export class CivilianCommandSquadController {
 
   checkpoint(): CivilianCommandSquadState | undefined {
     if (!this.value) return undefined
-    const value = cloneCivilianCommandSquad(this.value)
+    const value = { ...this.value, members: { ...this.value.members } }
     for (const npc of this.actors) {
       const saved = value.members[npc.combatantId]
       value.members[npc.combatantId] = snapshotCommandActor(npc, undefined, saved?.status === 'exited' ? 'exited' : 'deployed')
@@ -129,7 +158,9 @@ export class CivilianCommandSquadController {
         value.members[npc.combatantId].formation = saved?.formation
       }
     }
-    return value
+    // Keep the same canonical representation as profile clones so staged-change
+    // detection cannot mistake snapshot property order for a new command transaction.
+    return cloneCivilianCommandSquad(value)
   }
 
   /** Called before shared ArmyCommandController mutates Attack/Charge/Defend/Formation. */

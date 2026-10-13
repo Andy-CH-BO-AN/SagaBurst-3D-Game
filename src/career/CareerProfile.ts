@@ -1,3 +1,4 @@
+import { cloneTownAirCommandSquad, type TownAirCommandSquadState } from './TownAirCommandAuthority'
 import { cloneCivilianCommandSquad, type CivilianCommandSquadState } from './CivilianCommandAuthority'
 import type { EnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
 import type { CareerDuelTier, CareerDuelCommanderHome } from './CareerDuelState'
@@ -91,6 +92,7 @@ export interface CareerProfile {
   townOutskirts?: Partial<Record<CharacterFaction, import('../town/TownOutskirtsWarfareController').TownOutskirtsCheckpoint>>
   townCommandSquad?: TownCommandSquadState
   civilianCommandSquad?: CivilianCommandSquadState
+  townAirCommandSquad?: TownAirCommandSquadState
   activeMission?: ActiveCareerMission
   activeOutpostMission?: CareerOutpostMission
   completedOutpostStages?: CareerOutpostStageId[]
@@ -442,6 +444,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...profile,
     ...(profile.townCommanderRecovery ? { townCommanderRecovery: { ...profile.townCommanderRecovery } } : {}),
     ...(profile.townCommandSquad ? { townCommandSquad: cloneTownCommandSquad(profile.townCommandSquad) } : {}),
+    ...(profile.townAirCommandSquad ? { townAirCommandSquad: cloneTownAirCommandSquad(profile.townAirCommandSquad) } : {}),
     ...(profile.civilianCommandSquad ? { civilianCommandSquad: cloneCivilianCommandSquad(profile.civilianCommandSquad) } : {}),
     ...(profile.enemyEaglePatrols ? { enemyEaglePatrols: structuredClone(profile.enemyEaglePatrols) } : {}),
     ...(profile.townEagleGarrisons ? { townEagleGarrisons: structuredClone(profile.townEagleGarrisons) } : {}),

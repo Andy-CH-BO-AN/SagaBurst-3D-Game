@@ -44,6 +44,36 @@ function eagleAlertFixture() {
 }
 
 describe('Town eagle external alert through the mission interface', () => {
+  it('runs claimed eagle boarding and then air travel without combat while mission deployment is pending', () => {
+    const h = eagleAlertFixture()
+    h.eagle.tacticalOrder = 'attack'; h.eagle.updateTownTravel = vi.fn()
+    h.simulation.playerOwnsEagleCommand = actor => actor === h.eagle
+    h.combat.updateCommandTravel(.02, [h.eagle])
+    expect(h.duty).toHaveBeenCalledExactlyOnceWith(h.eagle, .02, false)
+    expect(h.eagle.updateTownTravel).not.toHaveBeenCalled()
+    h.duty.mockReturnValue(false)
+    h.combat.updateCommandTravel(.02, [h.eagle])
+    expect(h.eagle.updateTownTravel).toHaveBeenCalledOnce()
+    expect(h.eagle.update).not.toHaveBeenCalled()
+  })
+
+  it('releases a cached native air target without changing a newly saved player command', () => {
+    const h = eagleAlertFixture(), hostile = combatActor('hostile', Faction.BANDIT)
+    h.eagle.setMissionCombatTarget = vi.fn()
+    h.duty.mockImplementation(() => false)
+    hostile.group.position.x = 80; h.field.ambientBandits = [hostile]; h.field.fieldNpcs = [hostile]
+    h.combat.update(.02, 0, 0)
+    expect(h.eagle.setMissionCombatTarget).toHaveBeenLastCalledWith(hostile)
+    vi.mocked(h.eagle.setMissionCombatTarget).mockClear()
+    h.simulation.playerOwnsEagleCommand = actor => actor === h.eagle
+    h.simulation.commandActors = () => [h.eagle]
+    h.combat.update(.02, 0, .02)
+    expect(h.eagle.setMissionCombatTarget).not.toHaveBeenCalled()
+    expect(h.eagle.endExternalThreat).not.toHaveBeenCalled()
+    expect(h.combat.externalDefenders).not.toContain(h.eagle)
+    expect(h.eagle.update).toHaveBeenCalledTimes(2)
+  })
+
   it.each(['ambient', 'mission', 'roaming'] as const)('starts a first sortie for a hostile from %s at 80m and retains the alert while boarding', source => {
     const h = eagleAlertFixture(), hostile = combatActor('hostile', Faction.BANDIT)
     hostile.group.position.x = 80

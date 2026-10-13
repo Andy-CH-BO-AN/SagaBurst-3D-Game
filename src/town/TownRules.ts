@@ -226,7 +226,7 @@ export function settleTown(current: CareerProfile, id: string, result: TownResul
   if (profile.townEvent?.id !== id || profile.townEvent.state !== 'hostile') return profile
   const penalty = result === 'player_defeated' ? Math.min(profile.availableMerit, TOWN_RULES.deathPenalty) : 0
   profile.availableMerit -= penalty
-  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission; delete profile.townCommandSquad }
+  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission; delete profile.townCommandSquad; delete profile.townAirCommandSquad }
   profile.townEvent = { id, state: 'settled', result, penalty }
   return profile
 }

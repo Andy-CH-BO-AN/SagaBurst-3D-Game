@@ -14,6 +14,9 @@ import type { Player } from '../../src/player/Player'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { townProfileCheckpoint } from '../helpers/townProfileCheckpoint'
+import * as commandCheckpoint from '../../src/career/CareerCommandActorCheckpoint'
+import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
 
 /** 0 real NPC/Mount/TownWorld. Recording boundary verifies ownership and persistence, not movement. */
 function recordingResident(id = 'civilian-0', role: 'civilian' | 'merchant' = 'civilian') {
@@ -178,6 +181,99 @@ describe('Commander civilian resident authority', () => {
   })
 })
 
+describe('civilian lightweight HUD and Town checkpoint gate', () => {
+  function checkpointFixture() {
+    // One recording resident, zero real NPC/Mount/TownWorld. The Town commit and Store are real.
+    const resident = recordingResident(), profile = createCareerProfile('roman'); profile.rank = 'commander'
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), town = townProfileCheckpoint(profile, store)
+    const controller = new CivilianCommandSquadController([resident], () => town.player as Player,
+      () => town.profile, next => town.commit(next), { sceneKey: 'town:roman', townFaction: 'roman' })
+    Object.assign(town, { civilianCommand: controller })
+    controller.restore()
+    const snapshots = vi.spyOn(commandCheckpoint, 'snapshotCommandActor'), writes = vi.spyOn(store, 'save')
+    onTestFinished(() => { snapshots.mockRestore(); writes.mockRestore() })
+    return { resident, controller, storage, store, town, snapshots, writes }
+  }
+
+  it('shows live HUD status and orders without materializing actor or formation checkpoints', () => {
+    const f = fixture(); f.controller.restore()
+    const actor = f.residents[0].actor, snapshots = vi.spyOn(commandCheckpoint, 'snapshotCommandActor')
+    const formations = vi.spyOn(actor, 'combatFormationCheckpoint', 'get')
+    onTestFinished(() => { snapshots.mockRestore(); formations.mockRestore() })
+    actor.tacticalOrder = 'defend'; actor.hp = 19
+    const hud = f.controller.hudState!
+    expect(hud.members['civilian-0']).toEqual({ status: 'deployed', hp: 19, order: 'defend' })
+    expect(hud.actorIds).toEqual(['civilian-0'])
+    actor.dead = true; actor.hp = 0
+    expect(careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman', civilians: f.controller.hudState,
+      actors: [f.residents[0].npc] }).members).toEqual([{ id: 'civilian-0', squadId: 'civilians', state: 'dead', order: 'defend' }])
+    expect(snapshots).not.toHaveBeenCalled(); expect(formations).not.toHaveBeenCalled()
+    // A HUD read cannot rewrite the controller's saved checkpoint or a previous projection.
+    expect(f.profile.civilianCommandSquad?.members['civilian-0'].hp).toBe(50)
+    expect(hud.members['civilian-0'].hp).toBe(19)
+  })
+
+  it('does zero civilian snapshots on non-save frames and saves current HP and position once at five seconds', () => {
+    const test = checkpointFixture()
+    test.town.persistPersonalSquad(0)
+    expect(test.snapshots).toHaveBeenCalledTimes(1)
+    test.snapshots.mockClear(); test.writes.mockClear()
+    const formations = vi.spyOn(test.resident.actor, 'combatFormationCheckpoint', 'get')
+    onTestFinished(() => formations.mockRestore())
+    test.resident.actor.hp = 19; test.resident.npc.group.position.set(12, 3, 7)
+    for (let frame = 0; frame < 4; frame++) {
+      expect(test.controller.hudState?.members['civilian-0'].hp).toBe(19)
+      test.town.persistPersonalSquad(1)
+    }
+    expect(test.snapshots).not.toHaveBeenCalled(); expect(test.writes).not.toHaveBeenCalled()
+    expect(formations).not.toHaveBeenCalled()
+    test.town.persistPersonalSquad(1)
+    expect(test.snapshots).toHaveBeenCalledTimes(1); expect(test.writes).toHaveBeenCalledTimes(1)
+    expect(test.store.load()?.civilianCommandSquad?.members['civilian-0'])
+      .toMatchObject({ status: 'deployed', hp: 19, position: { x: 12, y: 3, z: 7 } })
+  })
+
+  it.each(['death', 'order', 'formation target', 'formation arrival'] as const)(
+    'saves %s immediately through Town and retries the same change after a failed write', change => {
+      const test = checkpointFixture(), actor = test.resident.actor
+      if (change === 'formation target') actor.assignFormationTarget(16, new THREE.Vector3(1, 0, 2))
+      if (change === 'formation arrival') actor.assignFormationTarget(17, new THREE.Vector3(3, 0, 8))
+      test.town.persistPersonalSquad(0); test.snapshots.mockClear(); test.writes.mockClear()
+      const before = test.store.load()?.civilianCommandSquad
+      if (change === 'death') { actor.dead = true; actor.hp = 0 }
+      else if (change === 'order') actor.setTacticalOrder('defend')
+      else if (change === 'formation target') actor.assignFormationTarget(17, new THREE.Vector3(3, 0, 8))
+      else { actor.combatFormationCheckpoint!.reached = true; actor.isFormationTargetReached.mockReturnValue(true) }
+      test.storage.failWrites = true; test.town.persistPersonalSquad(0)
+      expect(test.writes).toHaveBeenCalledTimes(1)
+      expect(test.store.load()?.civilianCommandSquad).toEqual(before)
+      test.storage.failWrites = false; test.town.persistPersonalSquad(0)
+      expect(test.writes).toHaveBeenCalledTimes(2); expect(test.snapshots).toHaveBeenCalledTimes(2)
+      const saved = test.store.load()?.civilianCommandSquad?.members['civilian-0']
+      if (change === 'death') expect(saved).toMatchObject({ status: 'dead', hp: 0 })
+      else if (change === 'order') expect(saved?.order).toBe('defend')
+      else expect(saved?.formation).toMatchObject({ commandId: 17, position: { x: 3, z: 8 }, reached: change === 'formation arrival' })
+      test.town.persistPersonalSquad(0)
+      expect(test.writes).toHaveBeenCalledTimes(2); expect(test.snapshots).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it('retries a failed periodic save on the next frame without consuming the five-second interval', () => {
+    const test = checkpointFixture()
+    test.town.persistPersonalSquad(0); test.writes.mockClear()
+    test.resident.actor.hp = 23
+    test.storage.failWrites = true; test.town.persistPersonalSquad(5)
+    expect(test.store.load()?.civilianCommandSquad?.members['civilian-0'].hp).toBe(50)
+    test.storage.failWrites = false; test.town.persistPersonalSquad(0)
+    expect(test.writes).toHaveBeenCalledTimes(2)
+    expect(test.store.load()?.civilianCommandSquad?.members['civilian-0'].hp).toBe(23)
+    test.town.persistPersonalSquad(4.99)
+    expect(test.writes).toHaveBeenCalledTimes(2)
+    test.town.persistPersonalSquad(.01)
+    expect(test.writes).toHaveBeenCalledTimes(3)
+  })
+})
+
 describe('civilian physical follow and return', () => {
   it('walks the same merchant away from and back to the shop, resumes daily owner, and keeps HP 50', () => {
     // One real NPC, zero Mount/TownWorld/GLB; this owns native locomotion beyond recording tests.
@@ -267,6 +363,11 @@ describe('TownScene civilian owner and merchant service wiring', () => {
     town.interaction(); expect(town.target).toBeNull(); delete town.defense.active; town.defense.servicesLocked = false
     f.controller.issue('dismiss'); expect(town.serviceAvailable('merchant')).toBe(false)
     merchant.actor.isFormationTargetReached.mockReturnValue(true)
+    f.savesAllowed = false
+    town.updatePeace({ ...merchant, cycle: 0, walkTime: 0 }, .05)
+    expect(f.controller.owner(merchant.npc)).toBe('returning')
+    expect(town.serviceAvailable('merchant')).toBe(false)
+    f.savesAllowed = true
     town.updatePeace({ ...merchant, cycle: 0, walkTime: 0 }, .05)
     expect(town.serviceAvailable('merchant')).toBe(true)
     town.interaction(); expect(town.target).toBe('merchant')

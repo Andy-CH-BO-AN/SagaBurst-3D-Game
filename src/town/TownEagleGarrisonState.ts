@@ -9,6 +9,8 @@ export interface TownEaglePairState {
   hp: number; ammo: number; position: Position; mounted: boolean; fall?: FallingRiderSnapshot
   mount: { hp: number; position: Position; flight: EagleFlightSnapshot }
   refitAllowed: boolean
+  /** Saved dismissal must finish physical return before native duty resumes. Never grants command authority. */
+  commandReturn?: boolean
   patrol?: { active: boolean; waypoint: number; elapsed: number }
   replacementRemaining?: number
   ambientRecovery?: boolean
@@ -37,12 +39,14 @@ export function parseTownEagleGarrisonState(value: unknown): TownEagleGarrisonSt
       || !finite(pair.patrol.elapsed) || pair.patrol.elapsed < 0 || pair.patrol.elapsed > 180)) return undefined
     if (pair.replacementRemaining !== undefined && (!finite(pair.replacementRemaining) || pair.replacementRemaining < 0 || pair.replacementRemaining > 60)) return undefined
     if (pair.restRemaining !== undefined && (!finite(pair.restRemaining) || pair.restRemaining < 0 || pair.restRemaining > 12)) return undefined
+    if (pair.commandReturn !== undefined && typeof pair.commandReturn !== 'boolean') return undefined
     if (pair.ambientRecovery !== undefined && typeof pair.ambientRecovery !== 'boolean') return undefined
     const flight = parseEagleFlightSnapshot(pair.mount.flight), fall = parseFallingRiderSnapshot(pair.fall)
     if (!flight || pair.fall && !fall) return undefined
     seen.add(pair.riderId.replace(/^enemy-town:/, ''))
     pairs.push({ riderId: pair.riderId, mountId: pair.mountId, homePadId: pair.homePadId, duty: pair.duty,
       hp: pair.hp, ammo: Math.floor(pair.ammo), position: { ...pair.position }, mounted: pair.mounted,
+      ...(pair.commandReturn !== undefined ? { commandReturn: pair.commandReturn } : {}),
       ...(pair.patrol ? { patrol: { ...pair.patrol } } : {}),
       ...(pair.replacementRemaining !== undefined ? { replacementRemaining: pair.replacementRemaining } : {}),
       ...(pair.ambientRecovery !== undefined ? { ambientRecovery: pair.ambientRecovery } : {}),

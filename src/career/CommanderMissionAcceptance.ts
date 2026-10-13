@@ -18,7 +18,7 @@ export function buildCommanderAuthorityForMission(profile: Pick<CareerProfile, '
   if (mission.kind === 'town-defense') {
     if (!residentSpecs) return undefined
     squads = commanderGateDefenseSquads(residentSpecs, mission.friendlyActorIds,
-      new Set(mission.deadFriendlyActorIds), mission.siege?.defensePlans.length ? mission.siege.defensePlans : undefined)
+      new Set(mission.deadFriendlyActorIds))
   } else if (mission.kind === 'enemy-town-assault') {
     squads = siegeCommandSquads(profile.faction, mission.siege?.rosterCreated ? mission.siege.attackerIds : mission.friendlyActorIds,
       mission.siege ? siegeRosterVersion(mission.siege) : 2)
