@@ -1,14 +1,14 @@
+import { commanderGateDefenseSlots } from './CommanderTownRoster'
+export { commanderGateDefenseSlots } from './CommanderTownRoster'
 import { CAREER_RANKS, type CareerProfile } from './CareerProfile'
 import { careerItemTotal } from './CareerInventory'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { createCareerMissionId, createTownDefenseMission, type ActiveCareerMission } from './CareerMissionState'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
-import { townRoster, type TownActorSpec } from '../town/TownRules'
+import { type TownActorSpec } from '../town/TownRules'
 import type { TownGateId } from '../town/TownLayout'
 import { siegeDefensePlans, type SiegeDefensePlan } from './TownSiege'
 import { createMissionCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
-import { MAX_COMMAND_SQUAD_SIZE, type SquadId } from '../battle/CommandTarget'
-import { TOWN_EAGLE_PAIRS } from '../town/TownEagleGarrison'
 import { TOWN_COMMANDER_ID } from '../town/TownCommander'
 
 export const CAPTAIN_PATROL_COMMAND_ID = 'captain-patrol-command'
@@ -76,32 +76,6 @@ export function captainGateDefenseActorIds(residents: readonly TownActorSpec[], 
 export function captainGateDefenseBriefing(residents: readonly TownActorSpec[], unavailableActorIds: ReadonlySet<string> = new Set()): string {
   const count = captainGateDefenseActorIds(residents, unavailableActorIds).length
   return `指揮${CAPTAIN_DEFENSE_GATE_LABEL} ${count} 名既有步兵（整個步兵隊）；定位後聽從玩家命令，其餘守軍守住各自城門。`
-}
-/** Full authored membership is fixed before any missing/dead/loaned actor is filtered.
- * West contributes mobile reserves to the first three gates, keeping its own ten gate guards.
- * Shared Town producers remain unchanged: service Commander is a fresh acceptance opt-in.
- */
-function commanderGateDefenseSlots(): OfficialCommandSquad[] {
-  const roster = townRoster(), byId = new Map(roster.map(actor => [actor.id, actor]))
-  const plans = siegeDefensePlans(roster)
-  const west = plans.find(plan => plan.gateId === 'west')!
-  const infantry = [...west.infantry.filter(id => !byId.get(id)?.gateId), ...west.infantry.filter(id => byId.get(id)?.gateId)]
-  const cavalry = [...west.cavalry.filter(id => id !== west.leaderId), ...west.cavalry.filter(id => id === west.leaderId)]
-  const squads = (['north', 'south', 'east'] as const).flatMap((gateId, index) => {
-    const plan = plans.find(plan => plan.gateId === gateId)!
-    return [plan.infantry, plan.cavalry].map((ids, offset) => {
-      const actorIds = [...ids]
-      if (gateId === 'north' && offset === 1) actorIds.splice(1, 0, TOWN_COMMANDER_ID)
-      const reserve = offset === 0 ? infantry : cavalry
-      while (actorIds.length < MAX_COMMAND_SQUAD_SIZE && reserve.length) actorIds.push(reserve.shift()!)
-      if (actorIds.length > MAX_COMMAND_SQUAD_SIZE) throw new Error('Gate defense squad exceeds capacity')
-      return { squadId: (index * 2 + offset + 1) as SquadId, actorIds }
-    })
-  })
-  squads.push({ squadId: 7, actorIds: [...infantry, ...cavalry, 'eagle-trainer'] },
-    { squadId: 8, actorIds: TOWN_EAGLE_PAIRS.map(pair => pair.riderId) })
-  if (squads.some(squad => squad.actorIds.length > MAX_COMMAND_SQUAD_SIZE)) throw new Error('Gate defense squad exceeds capacity')
-  return squads
 }
 
 export function commanderGateDefenseSquads(residents: readonly TownActorSpec[], friendlyActorIds: readonly string[], unavailableActorIds: ReadonlySet<string> = new Set()): OfficialCommandSquad[] {

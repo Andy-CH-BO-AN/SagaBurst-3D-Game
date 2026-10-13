@@ -23,6 +23,8 @@ import { MountType, type Mount } from '../../src/world/Mount'
 import type { Player } from '../../src/player/Player'
 import { recording, resetSpawnRecording } from '../helpers/npcSpawnRecording'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { addCareerItem } from '../../src/career/CareerInventory'
+import { changeTownEquipment, resolveTownActorEquipment } from '../../src/career/CareerTownEquipment'
 import { NpcSpawnTestDriver, installNpcLoadingFrames, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 
 vi.mock('../../src/world/NPC', async original => ({ ...(await original<typeof import('../../src/world/NPC')>()),
@@ -92,6 +94,77 @@ function constructTown(profile: CareerProfile): ConstructorTown {
   cleanup.push(() => town.dispose())
   return town
 }
+
+describe('saved Town equipment materialization wiring', () => {
+  function configuredProfile(actorId: string, slot: 'melee' | 'ranged', itemId: string): CareerProfile {
+    let profile = createCareerProfile('roman'); profile.rank = 'commander'; profile.totalMerit = 60000; profile.availableMerit = 60000
+    addCareerItem(profile, itemId, 1)
+    const store = new CareerProfileStore(new MemoryStorage())
+    const result = changeTownEquipment(() => profile, { townFaction: 'roman', peaceful: true,
+      personalState: 'RESERVE', safeActorIds: new Set([actorId]) }, actorId, slot, itemId, next => {
+        if (!store.save(next)) return false; profile = store.load()!; return true
+      })
+    expect(result.changed).toBe(true)
+    return profile
+  }
+  async function materialize(town: ConstructorTown, actorId: string) {
+    installNpcLoadingFrames(gameplayNpcSpawnDriver)
+    await town.initializeResidents(town.residentRoster.filter(entry => entry.spec.id === actorId),
+      resolveCareerTownSceneContext(town.profile), () => {})
+    expect(recording.npcs).toHaveLength(1)
+    expect(recording.mounts).toHaveLength(0)
+    return recording.npcs[0]
+  }
+  it('restores a purchased weapon from serialized profile at the real peaceful Town spawn caller', async () => {
+    // One recorded constructor, zero real NPC/Mount/TownWorld: actual NPC combat is owned by permanent equipment tests.
+    const town = constructTown(configuredProfile('gate:north:0', 'melee', 'paladin_mace_t4'))
+    const npc = await materialize(town, 'gate:north:0')
+    expect(npc.loadout?.meleeWeaponId).toBe('paladin_mace_t4')
+    expect(npc.tier).toBe(4)
+    expect(npc.combatProfileId).toBeUndefined()
+    expect(npc.characterFaction).toBe('roman')
+  })
+  it('uses the same persisted allocation in Commander Town Defense and after settlement returns to Town', async () => {
+    const profile = configuredProfile('gate:north:0', 'melee', 'paladin_sword_t4')
+    profile.activeMission = savedDefense('roman').activeMission
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const battle = constructTown(store.load()!)
+    expect((await materialize(battle, 'gate:north:0')).loadout?.meleeWeaponId).toBe('paladin_sword_t4')
+    battle.dispose(); resetSpawnRecording()
+    delete profile.activeMission
+    expect(store.save(profile)).toBe(true)
+    const returned = constructTown(store.load()!)
+    expect((await materialize(returned, 'gate:north:0')).loadout?.meleeWeaponId).toBe('paladin_sword_t4')
+    expect(returned.profile.inventory?.quantities.paladin_sword_t4).toBe(1)
+  })
+  it('does not recreate a native mount at its origin when a sparse saved holder moves it to another member', async () => {
+    const profile = createCareerProfile('roman'); profile.rank = 'commander'; profile.totalMerit = 60000
+    const commander = resolveTownActorEquipment(profile, 'roman', 'commander')
+    const captainMount = resolveTownActorEquipment(profile, 'roman', 'captain').refs.mount
+    profile.townEquipment = { roman: { version: 1,
+      actors: { commander: { ...commander.refs, mount: captainMount } }, nativeReserve: ['roman/commander/mount'] } }
+    const store = new CareerProfileStore(new MemoryStorage()); expect(store.save(profile)).toBe(true)
+    const town = constructTown(store.load()!)
+    installNpcLoadingFrames(gameplayNpcSpawnDriver)
+    await town.initializeResidents(town.residentRoster.filter(entry => ['captain', 'commander'].includes(entry.spec.id)),
+      resolveCareerTownSceneContext(town.profile), () => {})
+    expect(recording.npcs).toHaveLength(2); expect(recording.mounts).toHaveLength(1)
+    const origin = town.residents.find(resident => resident.spec.id === 'captain')!
+    const recipient = town.residents.find(resident => resident.spec.id === 'commander')!
+    expect(origin.homeMount).toBeUndefined(); expect(origin.npc.loadout?.mountId).toBeNull()
+    expect(recipient.homeMount).toBe(recording.mounts[0]); expect(recipient.npc.mount).toBe(recipient.homeMount)
+    expect(resolveTownActorEquipment(town.profile, 'roman', 'commander').refs.mount?.nativeId).toBe('roman/captain/mount')
+  })
+  it('initializes a configured civilian as native ranged AI while retaining civilian category and fixed census identity', async () => {
+    const town = constructTown(configuredProfile('civilian-0', 'ranged', 'maki-ranger-bow-ranged'))
+    const npc = await materialize(town, 'civilian-0')
+    expect(npc.loadout).toMatchObject({ rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null })
+    expect(npc.aiType).toBe('RANGED')
+    expect(npc.combatantId).toBe('civilian-0')
+    expect(npc.combatProfileId).toBeUndefined()
+  })
+})
 
 describe('saved Commander Defense TownScene materialization and consumer wiring', () => {
   it.each(['roman', 'viking'] as const)('%s constructor creates exactly the authorized original T5 with faction equipment and service mount, then Defense checkpoints it', async faction => {

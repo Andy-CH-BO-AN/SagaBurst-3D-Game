@@ -1,5 +1,7 @@
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
+import { townMerchantLoadout } from '../town/TownMerchantEquipment'
+import { ARMORS } from '../rpg/ArmorDatabase'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
  * NPC.ts
@@ -226,7 +228,8 @@ export class NPC {
   private _faction: Faction
   get faction(): Faction { return this._faction }
   readonly characterFaction: CharacterFaction
-  readonly aiType: AIType
+  private _aiType: AIType
+  get aiType(): AIType { return this._aiType }
   readonly name: string
   private _tier: 1 | 2 | 3 | 4
   get tier(): 1 | 2 | 3 | 4 { return this._tier }
@@ -266,7 +269,8 @@ export class NPC {
   set meleeDamage(value: number) { this._meleeDamageOverride = value }
   private _rangedDamage: number
   get rangedDamage(): number { return this._rangedDamage }
-  public readonly generatedAsCavalry: boolean
+  private _generatedAsCavalry: boolean
+  get generatedAsCavalry(): boolean { return this._generatedAsCavalry }
   public mount: Mount | null = null
   public meleeAttackRadius = 1.8
   public isUsingLance = false
@@ -274,6 +278,8 @@ export class NPC {
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
   private originalCombatEquipment: CombatEquipmentSnapshot | null = null
+  private careerRangedAmmo?: number
+  private get equipmentRequiredForCombat(): boolean { return this.combatOwnership === 'player-personal' || this.townCategory === 'civilian' }
   public tacticalOrder: TacticalOrder = DEFAULT_TACTICAL_ORDER
 
   private formationTarget: {
@@ -637,13 +643,15 @@ export class NPC {
     specialCombatProfile?: 'maki-ranger',
     readonly townCategory?: 'civilian',
     civilianStyle?: CharacterFaction,
+    readonly townCombatRole?: 'merchant',
   ) {
+    if (townCombatRole === 'merchant') loadout = townMerchantLoadout()
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
     this.spawnZ = spawnZ
     this._faction = faction
     this.characterFaction = characterFaction
-    this.aiType = aiType
+    this._aiType = aiType
     this.name = name
     this._tier = tier
     this.visualAssetId = visualAssetId
@@ -656,7 +664,7 @@ export class NPC {
     this._squadId = squadId
     this.combatantId = combatantId ?? `npc-${NPC.nextCombatantSerial++}`
     this.originalCombatEventSink = combatEventSink
-    this.generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
+    this._generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
     if (loadout) {
@@ -803,17 +811,26 @@ export class NPC {
   private duelHostile = false
   armTownCivilian(weaponId: string): void {
     if (this.townCategory !== 'civilian' || this.dead) return
+    if (!this.townArmed) {
+      const equipped = this.loadout?.meleeWeaponId
+      const ranged = this.loadout?.rangedWeaponId
+      this._setActiveMeleeWeapon(equipped && WEAPONS[equipped]?.type === 'melee' ? equipped
+        : ranged && WEAPONS[ranged]?.type === 'ranged' ? null : weaponId)
+      this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
+    }
     this.townArmed = true
-    this._setActiveMeleeWeapon(weaponId)
-    this.swordPivot.visible = true
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    this.shieldCollider.refreshVisibility()
   }
-  /** Releasing a civilian command restores the resident's original unarmed peace loadout. */
+  /** Peace sheathes equipment; only the saved canonical loadout owns civilian weapons. */
   disarmTownCivilian(): void {
     if (this.townCategory !== 'civilian' || this.dead) return
     this.townArmed = false
-    this._setActiveMeleeWeapon(null)
+    this._setActiveMeleeWeapon(this.loadout?.meleeWeaponId ?? null)
     this.swordPivot.visible = false
     this.bowPivot.visible = false
+    this.shieldPivot.visible = false
   }
   private get targetsPlayer(): boolean { return this.duelHostile || this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
   get hostileToPlayer(): boolean { return this.targetsPlayer }
@@ -851,7 +868,7 @@ export class NPC {
     this.duelHostile = false
     this.respawnEnabled = false
     this.animator.cancel()
-    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
+    if (this.townCategory === 'civilian') this.disarmTownCivilian()
   }
   beginExternalThreat(): void {
     if (this.dead || this.townHostile || this.duelHostile) return
@@ -881,11 +898,7 @@ export class NPC {
     this.setTacticalOrder('charge')
     this.state = AIState.CHASE
     this._restoreCombatReadyRangedVisual()
-    if (this.townCategory === 'civilian' && !this.townArmed) {
-      this.townArmed = true
-      this._setActiveMeleeWeapon(CIVILIAN_PROFILE.retaliationWeapon)
-      this.swordPivot.visible = true
-    }
+    if (this.townCategory === 'civilian') this.armTownCivilian(CIVILIAN_PROFILE.retaliationWeapon)
   }
   /** Peace uses animation and assigned motion only: no battle target search or A*. */
   updateTownPeace(dt: number, distance: number, training: boolean, startAttack: boolean, speed = 0, trainingPhase = 0): boolean {
@@ -1135,6 +1148,67 @@ export class NPC {
     this.equipmentVisualLOD.register(kind === 'javelin' ? 'pilum' : 'bow', this.bowGripPivot)
   }
 
+  /** Read-only preflight, including temporary equipment ownership, before a caller moves any mounts. */
+  canApplyCareerEquipment(loadout: UnitLoadout): boolean {
+    if (this.dead || this.isFalling || this.originalCombatEquipment) return false
+    const next = loadout
+    if (this.townCombatRole === 'merchant') {
+      const fixed = townMerchantLoadout()
+      if (Object.keys(fixed).some(slot => next[slot as keyof UnitLoadout] !== fixed[slot as keyof UnitLoadout])) return false
+    }
+    if (this.specialCombatProfile === 'maki-ranger' && (next.meleeWeaponId !== this.loadout?.meleeWeaponId
+      || next.rangedWeaponId !== this.loadout?.rangedWeaponId
+      || (next.secondaryMeleeWeaponId ?? null) !== (this.loadout?.secondaryMeleeWeaponId ?? null) || next.shieldId)) return false
+    return !(next.meleeWeaponId && WEAPONS[next.meleeWeaponId]?.type !== 'melee'
+      || next.secondaryMeleeWeaponId && WEAPONS[next.secondaryMeleeWeaponId]?.type !== 'melee'
+      || next.rangedWeaponId && WEAPONS[next.rangedWeaponId]?.type !== 'ranged'
+      || next.shieldId && !ARMORS[next.shieldId] || next.rangedWeaponId && next.shieldId)
+  }
+
+  /** Apply a saved permanent allocation. Resource repair and mount ownership stay with the caller. */
+  applyCareerEquipment(loadout: UnitLoadout, tier?: 1 | 2 | 3 | 4): boolean {
+    if (!this.canApplyCareerEquipment(loadout)) return false
+    const next = { ...loadout }
+    const slots = ['meleeWeaponId', 'secondaryMeleeWeaponId', 'rangedWeaponId', 'shieldId', 'mountId'] as const
+    if (this.loadout && slots.every(slot => (next[slot] ?? null) === (this.loadout?.[slot] ?? null))
+      && this.aiType === (next.rangedWeaponId ? AIType.RANGED : AIType.MELEE)
+      && this.generatedAsCavalry === Boolean(next.mountId)
+      && (tier === undefined || this.combatProfileId || this.specialCombatProfile || tier === this.tier)) return true
+    const previousRanged = this.rangedWeaponId
+    const ammo = this.arrows
+    if (previousRanged) this.careerRangedAmmo = ammo
+    this.loadout = next
+    this._generatedAsCavalry = Boolean(next.mountId)
+    this._aiType = next.rangedWeaponId ? AIType.RANGED : AIType.MELEE
+    if (tier !== undefined && !this.combatProfileId && !this.specialCombatProfile) this._tier = tier
+    this._cancelEquipmentCombatState()
+    this._meleeDamageOverride = undefined
+    this._setActiveMeleeWeapon(next.meleeWeaponId ?? null)
+    this.rangedWeaponId = next.rangedWeaponId ?? undefined
+    const rangedWeapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
+    this._rangedDamage = rangedWeapon
+      ? applyHeroOutgoingDamage(rangedWeapon.damageMax * getRangedDamageMultiplier(this.rangedCombatKind), this.combatProfileId) : 0
+    this.arrows = this.rangedWeaponId ? Math.min(30, previousRanged ? ammo : this.careerRangedAmmo ?? 30) : 0
+    this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
+    if (previousRanged !== this.rangedWeaponId) this._rebuildActiveRangedVisual()
+    this.shieldId = next.shieldId ?? null
+    this.rebuildShield()
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    if (this.townCategory === 'civilian' && !this.townArmed) this.disarmTownCivilian()
+    if (this.state === AIState.ATTACK) this.state = AIState.CHASE
+    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.rig.animation?.update(0)
+    return true
+  }
+
+  /** Select between the Merchant's own weapons only between swings; never repair or remove the shield. */
+  private _selectMerchantMeleeWeapon(target: Player | NPC | null): void {
+    if (this.townCombatRole !== 'merchant' || this.originalCombatEquipment || this.animator.busy) return
+    const id = target?.shield.active ? this.loadout?.secondaryMeleeWeaponId : this.loadout?.meleeWeaponId
+    if (id && id !== this.meleeWeaponId) this._setActiveMeleeWeapon(id)
+  }
+
   /** Synchronizes combat values and visuals without replacing the Town loadout. Mounts are owned by the caller. */
   applyTemporaryCombatLoadout(loadout: UnitLoadout, tier?: 1 | 2 | 3 | 4, squadId?: SquadId, presetId?: UnitPresetId): void {
     if (!this.originalCombatEquipment) {
@@ -1216,7 +1290,7 @@ export class NPC {
   }
 
   private _isVikingFootSpecialist(): boolean {
-    return this.originalCombatEquipment === null && this.specialCombatProfile !== 'maki-ranger' && this.characterFaction === 'viking'
+    return this.originalCombatEquipment === null && this.townCombatRole !== 'merchant' && this.specialCombatProfile !== 'maki-ranger' && this.characterFaction === 'viking'
       && !this.generatedAsCavalry
       && (this.presetId === 'viking_berserker' || this.presetId === 'viking_spearman' || this.presetId === 'viking_archer')
   }
@@ -1235,7 +1309,7 @@ export class NPC {
   private _enterVikingChargeStance(): void {
     if (!this._isVikingFootSpecialist() || !this.loadout) return
     this._cancelEquipmentCombatState()
-    const chargeWeapon = this.presetId === 'viking_spearman'
+    const chargeWeapon = this.presetId === 'viking_spearman' && WEAPONS[this.loadout.meleeWeaponId ?? '']?.combatKind === 'lance'
       ? (this.loadout.secondaryMeleeWeaponId ?? this.loadout.meleeWeaponId ?? null)
       : (this.loadout.meleeWeaponId ?? null)
     this._setActiveMeleeWeapon(chargeWeapon)
@@ -2193,8 +2267,8 @@ export class NPC {
 
     if (this.tacticalOrder === 'follow') {
       const contact = nearbyNPCs.some(other => other !== this && !other.dead && combatAllegiancesHostile(this, other) && other.combatPosition.distanceToSquared(this.combatPosition) <= 64
-        && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId || this.hasActiveRangedWeapon && other.combatPosition.distanceToSquared(this.combatPosition) >= RANGED_ATTACK_MIN ** 2))
-      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId && !contact) this.followCombatActive = false
+        && (!this.equipmentRequiredForCombat || this.meleeWeaponId || this.hasActiveRangedWeapon && other.combatPosition.distanceToSquared(this.combatPosition) >= RANGED_ATTACK_MIN ** 2))
+      if (this.equipmentRequiredForCombat && !this.meleeWeaponId && !contact) this.followCombatActive = false
       if (contact) {
         this.followCombatActive = true
         this._targetAcquisitionInitialized = false
@@ -2233,13 +2307,14 @@ export class NPC {
         hostileNpcGrid,
         chaseTargetCoordinator,
       )
-      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId
+      if (this.equipmentRequiredForCombat && !this.meleeWeaponId
         && (!this.hasActiveRangedWeapon || targetInfo && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2)) targetInfo = null
-      if (this.hasSiegeObstacle && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId || this.hasActiveRangedWeapon)) {
+      if (this.hasSiegeObstacle && (!this.equipmentRequiredForCombat || this.meleeWeaponId || this.hasActiveRangedWeapon)) {
         targetInfo = { position: this.assignedSiegeObstacle!.box.getCenter(this._tmpTargetPosition), isDead: false, isPlayer: false }
         this._siegeTargetObstacle = this.assignedSiegeObstacle
       }
       const meleeTarget = targetInfo?.isPlayer ? player : targetInfo?.npc ?? null
+      this._selectMerchantMeleeWeapon(meleeTarget)
       if (
         meleeTarget !== this.meleeApproachTarget
         || this.isMounted !== this.meleeApproachMounted
@@ -2402,7 +2477,7 @@ export class NPC {
         // Ranged units only draw melee against a genuinely close human target.
         // A wall between them and that human remains a navigation/siege problem.
         if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
-          if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) { this.state = AIState.ALERT; break }
+          if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.state = AIState.ALERT; break }
           this._switchToMelee()
         }
 
@@ -2634,7 +2709,7 @@ export class NPC {
 
         // Human target got too close: ranged units draw melee as before.
         if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN && this.specialCombatProfile !== 'maki-ranger') {
-          if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) { this.animator.cancel(); this.state = AIState.ALERT; break }
+          if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.animator.cancel(); this.state = AIState.ALERT; break }
           this._switchToMelee()
           this.state = AIState.CHASE
           break
@@ -3435,13 +3510,13 @@ export class NPC {
 
   private _isTargetInDefendRange(targetPos: THREE.Vector3): boolean {
     if (this.hasActiveRangedWeapon && this.combatPosition.distanceTo(targetPos) < RANGED_ATTACK_MIN && this.specialCombatProfile !== 'maki-ranger') {
-      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
+      if (this.equipmentRequiredForCombat && !this.meleeWeaponId) return false
       this._switchToMelee()
     }
     if (this.hasActiveRangedWeapon) {
       return this.combatPosition.distanceTo(targetPos) <= this.maxRangedAttackDistance
     }
-    if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
+    if (this.equipmentRequiredForCombat && !this.meleeWeaponId) return false
     return this._isTargetInMeleeApproachRange(targetPos)
   }
 
@@ -3475,7 +3550,7 @@ export class NPC {
 
   private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0): boolean {
     if (Math.abs(targetPos.y - this.combatPosition.y) > this.meleeAttackRadius + extraReach) return false
-    if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
+    if (this.equipmentRequiredForCombat && !this.meleeWeaponId) return false
     if (this.specialCombatProfile === 'maki-ranger' && this.bowVisual) {
       if (this.combatPosition.distanceTo(targetPos) > this.meleeAttackRadius + extraReach) return false
       const top = this.bowVisual.getTopTipPosition(new THREE.Vector3())
@@ -3518,6 +3593,7 @@ export class NPC {
     this.pendingLanceChargeSpeed = 0
     this.state = AIState.IDLE
     this.currentHp = this.maxHp
+    this.careerRangedAmmo = undefined
     if (this.aiType === AIType.RANGED) {
       this.arrows = 1
       this.rangedActive = Boolean(this.rangedWeaponId)

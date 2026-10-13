@@ -325,7 +325,7 @@ describe('shared four-gate Siege runtime', () => {
   it('still defends its own breach against nearby ambient Bandits', () => {
     const f = checkpointFixture({ faction, assault: false, residentIds: ['town-patrol:a:captain'], attackerSlots: [], includeRanger: false })
     const point = siegePoint('east', 0, 5)
-    const bandit = new NPC(f.scene, point.x, point.z, Faction.BANDIT, faction, AIType.MELEE, 'Ambient bandit')
+    const bandit = new NPC(f.scene, point.x, point.z, Faction.BANDIT, faction, AIType.MELEE, 'Ambient bandit', 2)
     onTestFinished(() => bandit.dispose())
     const context = (f.controller as any).siegeContext
     context.ambientEnemies = () => [bandit]
@@ -663,7 +663,7 @@ describe('Siege retained combat and settlement contracts', () => {
     const key = (code: string) => ({ code, repeat: false, preventDefault: vi.fn(), stopImmediatePropagation: vi.fn() })
     const tab = key('Tab'); town.key(tab)
     expect(tab.preventDefault).toHaveBeenCalledOnce()
-    expect(town.equipment.open).toHaveBeenCalledWith(town.skills, town.inventory, expect.any(Function), town.careerMounts, expect.objectContaining({ render: expect.any(Function) }))
+    expect(town.equipment.open).toHaveBeenCalledWith(town.skills, town.inventory, expect.any(Function), town.careerMounts, expect.objectContaining({ render: expect.any(Function) }), expect.objectContaining({ access: expect.any(Function), render: expect.any(Function) }))
     town.equipment.visible = true; town.closePanel = vi.fn()
     town.key(key('Tab')); expect(town.closePanel).toHaveBeenCalledOnce()
     town.equipment.visible = false; town.equipment.open.mockClear()

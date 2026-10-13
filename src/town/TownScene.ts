@@ -10,8 +10,12 @@ import { AerialViewPolicy, usesAerialView } from '../camera/AerialViewPolicy'
 import { captureCareerAerialState, restoreCareerAerialState } from '../career/CareerAerialState'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { availableCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO } from '../career/CareerInventory'
-import { squadEquipmentUI } from './TownSquadEquipmentUI'
-import { changePersonalEquipment, personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
+import { createTownCareerEquipmentUI } from './TownCareerEquipmentUI'
+import { applyTownEquipmentRuntime, registerTownNativeMount, findTownNativeMount } from './TownEquipmentRuntime'
+import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentContext } from '../career/CareerTownEquipment'
+import { townMerchantLoadout } from './TownMerchantEquipment'
+import { careerMountType } from '../career/CareerMountController'
+import { personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
 import { appendTownSaleDropdown } from './TownSaleUI'
 import { ArmyCommandController } from '../battle/ArmyCommandController'
 import { CivilianCommandSquadController } from './CivilianCommandSquadController'
@@ -42,7 +46,7 @@ import { PlayerInput } from '../player/PlayerInput'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
 import { SpectatorCameraController } from '../camera/SpectatorCameraController'
 import { NPC, AIType, Faction } from '../world/NPC'
-import { Mount, MountType, mountTypeFromId } from '../world/Mount'
+import { Mount, MountType } from '../world/Mount'
 import { XongkoroVisual } from '../world/XongkoroVisual'
 import { eagleLandingFootprint } from '../world/EagleLanding'
 import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
@@ -92,7 +96,7 @@ import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type Horse
 import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
-import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile } from '../career/CareerProfile'
+import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
 import { selectTownCavalryReserve } from './TownCavalryReserve'
@@ -279,6 +283,7 @@ export class TownScene {
     const yieldFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     const catSpot = townSitePoint('stable', -3, 8)
     this.cat = new Mount(this.scene, MountType.BLACK_CAT, catSpot.x, catSpot.z); this.cat.group.rotation.y = catSpot.yaw; this.cat.reservedForTown = true; this.cat.catVisual?.setEquipmentVisible(false); this.mounts.push(this.cat)
+    registerTownNativeMount(this.cat, `${context.worldFaction}/ranger/mount`)
     this.cat.group.visible = !context.missionOnlyResidents
     if (!context.missionOnlyResidents) {
       this.event.register('cat', this.cat)
@@ -477,6 +482,7 @@ export class TownScene {
   private async initializeResidents(roster: ReturnType<typeof careerTownSceneRoster>,
     context: ReturnType<typeof resolveCareerTownSceneContext>, progress: (text: string) => void, additionalPopulation = false): Promise<void> {
     const created: Resident[] = []
+    const equipmentActorIds = new Set(townEquipmentSquads(this.profile).filter(squad => squad.id !== 'personal').flatMap(squad => squad.actorIds))
     const residentBatch = gameplayNpcSpawns.batch(() => {
       for (const resident of created) {
         resident.npc.dispose()
@@ -501,25 +507,37 @@ export class TownScene {
         const hero = townActorHeroProfile(residentArmyFaction, spec)
         const heroAsset = spec.role === 'commander' ? townCommanderHeroAsset(residentArmyFaction) : hero?.visualAssetId
         const combatProfile = heroAsset ? HERO_COMBAT_PROFILE_BY_ASSET[heroAsset] : undefined
-        const loadout = civilian ? { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: null } : ranger ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null } : military!.loadout
-        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, ranged ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger ? 4 : military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction))
+        const careerEquipment = residentArmyFaction === this.profile.faction && equipmentActorIds.has(spec.id)
+          && this.profile.townEquipment?.[residentArmyFaction]
+          ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id) : undefined
+        const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian ? { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: null } : ranger ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null } : military!.loadout)
+        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined))
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
         if (additionalPopulation && this.event.hostile) npc.beginTownHostility()
         let homeMount: Mount | undefined
-        if (spec.role === 'ranger') homeMount = this.cat
+        if (spec.role === 'ranger' && !careerEquipment) homeMount = this.cat
         if (spec.eagle) {
           const { home, mountId } = spec.eagle
           const eagle = trackNpcSpawn(new Mount(this.scene, MountType.XONGKORO, home.x, home.z))
           eagle.group.name = mountId; eagle.group.rotation.y = home.yaw; eagle.reservedForTown = true
           homeMount = eagle
         }
-        if (cavalry) { const mount = trackNpcSpawn(new Mount(this.scene, hero ? mountTypeFromId(hero.mountOverride) : MountType.HORSE, spec.x, spec.z)); mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI; npc.mountVehicle(mount); homeMount = mount }
+        const equippedMount = careerEquipment ? loadout.mountId : cavalry ? hero?.mountOverride ?? 'horse' : null
+        if (!spec.eagle && equippedMount) {
+          const nativeRef = careerEquipment?.refs.mount ?? (equipmentActorIds.has(spec.id)
+            ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id).refs.mount : null)
+          const mount = findTownNativeMount(this.mounts, nativeRef) ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z))
+          if (nativeRef?.source === 'native') registerTownNativeMount(mount, nativeRef.nativeId!)
+          mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI
+          if (spec.role !== 'ranger' || mount !== this.cat) npc.mountVehicle(mount)
+          homeMount = mount
+        }
         if (!context.missionOnlyResidents && NAMES[spec.role] && spec.role !== 'civilian') { npc.group.rotation.y = spec.yaw ?? 0; this.serviceMarkers.set(spec.id, this.world.addServiceMarker(npc.group, ranger ? 1.9 : hero ? 2 : 2.2)) }
         const training = !context.missionOnlyResidents && spec.training, target = training ? this.world.addTarget(spec.x, spec.z - (spec.mounted ? ranged ? 4 : 3 : ranged ? 3 : 1.5), ranged) : undefined
         if (additionalPopulation) this.event.registerAdditionalResident(spec.id, npc)
         else this.event.register(spec.id, npc)
-        if (homeMount && homeMount !== this.cat) this.mounts.push(homeMount)
+        if (homeMount && homeMount !== this.cat && !this.mounts.includes(homeMount)) this.mounts.push(homeMount)
         const resident = { spec, npc, homeMount, target, cycle: -1, walkTime: 0 }
         this.residents.push(resident); created.push(resident)
       })
@@ -855,10 +873,14 @@ export class TownScene {
       return
     }
     if (e.repeat) return
-    if (e.code === 'Tab') { e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.(); this.equipment.open(this.skills, this.inventory, () => this.input.clear(), this.careerMounts, squadEquipmentUI(() => this.profile, () => this.personalSquad!.state, (id, slot, item) => {
-      const result = changePersonalEquipment(() => this.profile, this.personalSquad!, id, slot, item, next => this.commit(next))
-      return result.changed ? '裝備已更新。' : result.reason === 'save-failed' ? this.notice : '無法換裝：請確認已回營、可用份數與至少一把武器。'
-    })); return }
+    if (e.code === 'Tab') {
+      e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
+      const adapters = createTownCareerEquipmentUI(() => this.profile, () => this.townEquipmentContext(),
+        () => this.residents, next => this.commit(next),
+        (previous, current, actorIds) => applyTownEquipmentRuntime(this.scene, this.residents, this.mounts, previous, current, actorIds))
+      this.equipment.open(this.skills, this.inventory, () => this.input.clear(), this.careerMounts, adapters.personal, adapters.town)
+      return
+    }
     if (e.code === 'KeyE' && this.personalCommands?.isFormationPlacementMode) return
     if (e.code === 'KeyE') {
       e.preventDefault(); e.stopImmediatePropagation()
@@ -1195,6 +1217,38 @@ export class TownScene {
       this.playMissionVoice(order === 'follow' ? 'follow' : 'dismiss')
     }
     return accepted
+  }
+  /** Eligibility is derived from actual resident identities and existing return/refit owners. */
+  private townEquipmentContext(): TownEquipmentContext {
+    const peaceful = !this.event.hostile && !this.player.dead && !this.sceneContext.missionOnlyResidents
+    const safeActorIds = new Set<string>()
+    if (peaceful && !this.profile.activeMission && !this.profile.activeOutpostMission) {
+      for (const { spec, npc, homeMount } of this.residents) {
+        const duty = this.eagleGarrison?.dutyFor(npc)
+        if (npc.combatantId !== spec.id || this.event.allActors.get(spec.id) !== npc
+          || npc.faction === Faction.ENEMY || npc.faction === Faction.BANDIT || npc.hostileToPlayer || npc.dead || npc.isFalling || npc.inCombat || npc.mount?.isAirborne
+          || homeMount?.isAirborne || homeMount?.dead || homeMount?.riderPlayer
+          || homeMount?.riderNpc && homeMount.riderNpc !== npc
+          || npc.combatOwnership === 'mission-official' || npc.combatOwnership === 'player-personal'
+          || npc.combatOwnership === 'player-civilian' && ['attack', 'charge'].includes(npc.tacticalOrder)
+          || this.profile.townCommandSquad?.members?.[spec.id]?.status === 'deployed' && ['attack', 'charge'].includes(npc.tacticalOrder)
+          || this.patrol?.isRefitting(spec.id)
+          || this.profile.townCommandSquad?.state === 'RETURNING' && this.profile.townCommandSquad.actorIds.includes(spec.id)
+          || this.civilianCommand?.returningActorIds.includes(spec.id)
+          || duty && !['standby', 'resting', 'mounted-waiting'].includes(duty)
+          || !this.canRefitSquad([npc])) continue
+        safeActorIds.add(spec.id)
+      }
+      if (this.personalSquad?.state === 'RESERVE' && this.canRefitSquad([])) {
+        for (const member of this.profile.personalSquad?.members ?? []) safeActorIds.add(member.id)
+      }
+    }
+    return { townFaction: this.sceneContext.worldFaction, peaceful, safeActorIds, personalState: this.personalSquad?.state ?? 'RESERVE' }
+  }
+  private usesNativeRangerCat(): boolean {
+    const faction = this.sceneContext.worldFaction
+    return faction !== this.profile.faction || !this.profile.townEquipment?.[faction]
+      || resolveTownActorEquipment(this.profile, faction, 'ranger').refs.mount?.nativeId === `${faction}/ranger/mount`
   }
   private canRefitSquad(actors: readonly NPC[]): boolean {
     return !this.event.hostile && this.squadRefitSafety.allows(this.player, actors, [])
@@ -2668,7 +2722,8 @@ export class TownScene {
       this.npcObstacleRevision = obstacleTopologyRevision(this.world.obstacles)
     }
     this.grid.clear(); for (const r of this.residents) if (!r.npc.dead) this.grid.insert(r.npc)
-    const ranger = this.ranger, status = updateRangerMount(ranger, this.cat, ranger.combatPosition.distanceTo(this.cat.group.position))
+    const ranger = this.ranger, status = this.usesNativeRangerCat()
+      ? updateRangerMount(ranger, this.cat, ranger.combatPosition.distanceTo(this.cat.group.position)) : 'unavailable'
     this.cat.catVisual?.setEquipmentVisible(status === 'mounted')
     for (const r of this.residents) {
       if (r.npc === ranger && status === 'approach') {

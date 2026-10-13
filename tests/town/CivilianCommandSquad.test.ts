@@ -9,6 +9,7 @@ import { TownScene } from '../../src/town/TownScene'
 import type { TownCombatResident } from '../../src/town/TownMissionCombat'
 import { TownDefenseController } from '../../src/career/TownDefenseController'
 import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
+import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
 import { Faction, NPC, AIType } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -17,6 +18,9 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 import { townProfileCheckpoint } from '../helpers/townProfileCheckpoint'
 import * as commandCheckpoint from '../../src/career/CareerCommandActorCheckpoint'
 import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
+
+// Equipment meshes are a render boundary; these caller tests do not parse Paladin GLBs.
+vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
 
 /** 0 real NPC/Mount/TownWorld. Recording boundary verifies ownership and persistence, not movement. */
 function recordingResident(id = 'civilian-0', role: 'civilian' | 'merchant' = 'civilian') {
@@ -275,6 +279,33 @@ describe('civilian lightweight HUD and Town checkpoint gate', () => {
 })
 
 describe('civilian physical follow and return', () => {
+  it.each(['civilian', 'merchant'] as const)('keeps %s canonical T4 equipment through native command claim, dismiss and peaceful return', role => {
+    // One real NPC, zero Mount/TownWorld/GLB. This protects the real arm/disarm caller seam.
+    const spec = { ...townRoster().find(spec => spec.role === role)!, x: 0, z: 0 }
+    const loadout = role === 'merchant' ? townMerchantLoadout()
+      : { meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: null }
+    const npc = new NPC(new THREE.Scene(), 0, 0, Faction.TOWN, 'roman', AIType.MELEE, role, 2, false,
+      loadout, undefined, undefined, spec.id, undefined, undefined, undefined, undefined, 'civilian', 'roman',
+      role === 'merchant' ? 'merchant' : undefined)
+    onTestFinished(() => npc.dispose())
+    let profile = createCareerProfile('roman'); profile.rank = 'commander'
+    const player = commandPlayer(), controller = new CivilianCommandSquadController([{ spec, npc }], () => player,
+      () => profile, next => { profile = next; return true }, { sceneKey: 'town:roman', townFaction: 'roman' })
+    npc.takeDamage(7); const hp = npc.hp
+    controller.restore()
+    expect(controller.issue('follow')).toBe(true)
+    expect(npc.meleeWeaponId).toBe('paladin_sword_t4')
+    expect(npc.shieldId).toBe('paladin_shield_t4')
+    expect(controller.issue('dismiss')).toBe(true)
+    expect(controller.owner(npc)).toBe('returning')
+    expect(npc.loadout).toEqual(loadout)
+    npc.armTownCivilian('gladius_rusty')
+    expect(npc.meleeWeaponId).toBe('paladin_sword_t4')
+    expect(npc.hp).toBe(hp)
+    expect(npc.maxHp).toBe(50)
+    expect(npc.combatProfileId).toBeUndefined()
+  })
+
   it('walks the same merchant away from and back to the shop, resumes daily owner, and keeps HP 50', () => {
     // One real NPC, zero Mount/TownWorld/GLB; this owns native locomotion beyond recording tests.
     const scene = new THREE.Scene(), spec = { ...townRoster().find(spec => spec.id === 'merchant')!, x: 0, z: 0 }

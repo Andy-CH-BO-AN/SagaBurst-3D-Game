@@ -405,7 +405,7 @@ describe('production spawn callers with recorded constructor boundaries', () => 
       register(id, actor)
     })
     const town = Object.assign(Object.create(TownScene.prototype), {
-      scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(),
+      profile, scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(),
       event, world: { addServiceMarker: vi.fn(), addTarget: () => new THREE.Vector3() },
     }) as any
     dispose.push(() => { town.residentSpawnBatch?.cancel(); town.residents.forEach((r: any) => r.npc.dispose()); town.mounts.forEach((mount: any) => mount.dispose()) })

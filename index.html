@@ -595,7 +595,14 @@
         grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
         gap: 8px;
       }
-      #squad-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+      #squad-list, .town-equipment-members { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+      .town-equipment-tabs, .squad-bulk-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+      .town-equipment-tabs { margin-bottom: 12px; }
+      #character-modal .town-equipment-tabs .equipment-tab { flex: 0 1 auto; font-size: 12px; padding: 7px 9px; }
+      #character-modal .equipment-tab:disabled { opacity: .45; cursor: default; }
+      .squad-bulk-controls { margin: 0 0 10px; }
+      .squad-bulk-controls .btn-equip { margin-top: 0; }
+      .squad-equipment-summary { white-space: pre-line; }
       .inventory-wide { grid-column: 1 / -1; }
       #character-modal .inventory-card {
         min-width: 0;
@@ -624,8 +631,8 @@
       #character-modal .btn-equip:disabled { opacity: 0.45; cursor: default; }
       #character-modal .btn-equip.is-active { color: #e8c96a; }
       #character-modal select { max-width: 100%; }
-      #squad-list strong { font-size: 14px; }
-      #squad-list .squad-equipment-slot select { display: block; width: 100%; padding: 5px 7px; margin: 3px 0 0; font-size: 12px; }
+      #squad-list strong, #town-equipment-list strong { font-size: 14px; }
+      #character-modal .squad-equipment-slot select { display: block; width: 100%; padding: 5px 7px; margin: 3px 0 0; font-size: 12px; }
       .equipment-panel::-webkit-scrollbar {
         width: 7px;
       }
@@ -909,7 +916,8 @@
         <div class="equipment-tabs" role="tablist" aria-label="角色與裝備分頁">
           <button id="equipment-tab-skills" class="equipment-tab" role="tab" aria-controls="equipment-panel-skills" aria-selected="false" tabindex="-1">技能 Skills</button>
           <button id="equipment-tab-items" class="equipment-tab" role="tab" aria-controls="equipment-panel-items" aria-selected="true">個人物品</button>
-          <button id="equipment-tab-squad" class="equipment-tab" role="tab" aria-controls="equipment-panel-squad" aria-selected="false" tabindex="-1">小隊</button>
+          <button id="equipment-tab-squad" class="equipment-tab" role="tab" aria-controls="equipment-panel-squad" aria-selected="false" tabindex="-1">私人小隊</button>
+          <button id="equipment-tab-town" class="equipment-tab" role="tab" aria-controls="equipment-panel-town" aria-selected="false" tabindex="-1" disabled title="升任統帥（Commander）後，才可管理友方城鎮的全城裝備。">全城</button>
         </div>
         <div id="equipment-panel-skills" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-skills" hidden>
           <div class="modal-section-title">技能成長 Skills</div>
@@ -949,6 +957,9 @@
         <div id="equipment-panel-items" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-items">
           <div class="modal-section-title">物品欄 Inventory (點擊裝備切換)</div>
           <div id="inventory-list" class="inventory-grid"></div>
+        </div>
+        <div id="equipment-panel-town" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-town" hidden>
+          <div id="town-equipment-list"></div>
         </div>
         <div id="equipment-panel-squad" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-squad" hidden>
           <div id="squad-list" class="inventory-grid"></div>

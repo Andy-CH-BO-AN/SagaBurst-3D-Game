@@ -26,6 +26,7 @@ export interface EquipmentMountAdapter {
 }
 
 export interface EquipmentSquadAdapter { render(container: HTMLElement, refresh: () => void): void }
+export interface EquipmentTownAdapter extends EquipmentSquadAdapter { access(): { allowed: boolean; reason: string } }
 
 export class EquipmentUI {
   private modal: HTMLElement
@@ -39,6 +40,7 @@ export class EquipmentUI {
   private mountFillEl: HTMLElement
   private inventoryListEl: HTMLElement
   private squadListEl: HTMLElement
+  private townListEl: HTMLElement | null
   private tabs: HTMLButtonElement[]
   private panels: HTMLElement[]
 
@@ -58,10 +60,11 @@ export class EquipmentUI {
     this.mountFillEl     = document.getElementById('skill-mount-fill')!
     this.inventoryListEl = document.getElementById('inventory-list')!
     this.squadListEl     = document.getElementById('squad-list')!
-    this.tabs = Array.from(this.modal.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+    this.townListEl      = document.getElementById('town-equipment-list')
+    this.tabs = Array.from(this.modal.querySelectorAll<HTMLButtonElement>('.equipment-tabs > [role="tab"]'))
     this.panels = this.tabs.map(tab => document.getElementById(tab.getAttribute('aria-controls')!)!)
     this.tabs.forEach((tab, index) => {
-      tab.onclick = () => this.selectTab(index)
+      tab.onclick = () => { if (!tab.disabled) this.selectTab(index) }
       tab.onkeydown = event => {
         let next: number
         switch (event.key) {
@@ -72,6 +75,8 @@ export class EquipmentUI {
           default: return
         }
         event.preventDefault()
+        const direction = event.key === 'ArrowLeft' || event.key === 'End' ? -1 : 1
+        while (this.tabs[next].disabled) next = (next + direction + this.tabs.length) % this.tabs.length
         this.selectTab(next)
         this.tabs[next].focus()
       }
@@ -88,17 +93,17 @@ export class EquipmentUI {
     })
   }
 
-  toggle(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter): void {
+  toggle(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter, town?: EquipmentTownAdapter): void {
     if (this.isOpen) {
       this.close()
     } else {
-      this.open(skillManager, inventoryManager, onEquipChanged, mounts, squad)
+      this.open(skillManager, inventoryManager, onEquipChanged, mounts, squad, town)
     }
   }
 
-  open(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter): void {
+  open(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter, town?: EquipmentTownAdapter): void {
     this.isOpen = true
-    this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad)
+    this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town)
     this.modal.inert = false
     this.modal.classList.add('visible')
     this.tabs.find(tab => tab.getAttribute('aria-selected') === 'true')?.focus({ preventScroll: true })
@@ -110,7 +115,7 @@ export class EquipmentUI {
     this.modal.classList.remove('visible')
   }
 
-  updateModal(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter): void {
+  updateModal(skillManager: SkillManager, inventoryManager: InventoryManager, onEquipChanged?: () => void, mounts?: EquipmentMountAdapter, squad?: EquipmentSquadAdapter, town?: EquipmentTownAdapter): void {
     const { oneHanded, twoHanded, ranged, mountedImpact, blocking } = skillManager.skillState
 
     const renderSkill = (levelEl: HTMLElement, fillEl: HTMLElement, data: { level: number; xp: number }): void => {
@@ -170,14 +175,14 @@ export class EquipmentUI {
         btn.addEventListener('click', () => {
           if (isEquipped && item.type === 'shield') inventoryManager.unequipShield()
           else inventoryManager.equipWeapon(item.id)
-          this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad)
+          this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town)
           if (onEquipChanged) onEquipChanged()
         })
       }
 
       if (inventoryManager.supportsWeaponRelease && inventoryManager.isAllocated(item.id)) {
         const release = document.createElement('button'); release.className = 'btn-equip'; release.textContent = '解除分配'
-        release.onclick = () => { inventoryManager.unequipWeapon(item.id); this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad); onEquipChanged?.() }
+        release.onclick = () => { inventoryManager.unequipWeapon(item.id); this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town); onEquipChanged?.() }
         card.append(release)
       }
       this.inventoryListEl.appendChild(card)
@@ -201,11 +206,11 @@ export class EquipmentUI {
         button.addEventListener('click', () => {
           if (mount.active) mounts.dismiss()
           else mounts.activate(mount.id)
-          this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad)
+          this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town)
         })
         if (mount.allocated && mounts.release) {
           const release = document.createElement('button'); release.className = 'btn-equip'; release.textContent = '解除分配'
-          release.onclick = () => { mounts.release!(mount.id); this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad) }
+          release.onclick = () => { mounts.release!(mount.id); this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town) }
           card.append(release)
         }
         this.inventoryListEl.appendChild(card)
@@ -217,9 +222,24 @@ export class EquipmentUI {
         this.inventoryListEl.appendChild(status)
       }
     }
+    const townTab = this.tabs.find(tab => tab.id === 'equipment-tab-town')
+    if (townTab) {
+      const access = town?.access() ?? { allowed: false, reason: '升任統帥（Commander）後，才可管理友方城鎮的全城裝備。' }
+      townTab.disabled = !access.allowed
+      townTab.title = access.allowed ? '' : access.reason
+      if (!access.allowed && townTab.getAttribute('aria-selected') === 'true') this.selectTab(2)
+      if (this.townListEl) {
+        this.townListEl.innerHTML = ''
+        if (town && access.allowed) town.render(this.townListEl, () => this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town))
+        else {
+          const notice = document.createElement('p'); notice.className = 'inv-item-desc inventory-wide'
+          notice.textContent = access.reason; this.townListEl.append(notice)
+        }
+      }
+    }
     this.squadListEl.innerHTML = ''
     if (squad) {
-      squad.render(this.squadListEl, () => this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad))
+      squad.render(this.squadListEl, () => this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town))
     } else {
       const notice = document.createElement('p')
       notice.className = 'inv-item-desc inventory-wide'

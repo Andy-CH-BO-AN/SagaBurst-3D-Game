@@ -1,3 +1,5 @@
+import { TOWN_COMMANDER_ID } from './TownCommanderIdentity'
+export { TOWN_COMMANDER_ID, townCommanderSpec } from './TownCommanderIdentity'
 import * as THREE from 'three'
 import type { CareerProfile } from '../career/CareerProfile'
 import { officialActorSquadId } from '../career/CareerCommandAuthority'
@@ -22,16 +24,10 @@ export function shouldSpawnTownCommander(profile: Pick<CareerProfile, 'rank' | '
   return mission?.kind !== 'enemy-town-assault' && !isCareerEnemyTerritoryFieldMission(mission)
 }
 
-export const TOWN_COMMANDER_ID = 'commander'
 export function townCommanderHeroAsset(faction: CharacterFaction): HeroAssetId {
   return faction === 'roman' ? 'roman-hero-t5' : 'viking-hero-t5'
 }
 
-/** Opt-in service resident: shared enemy and borrow producers never include it. */
-export function townCommanderSpec(point: { x: number; z: number; yaw: number }): TownActorSpec {
-  return { id: TOWN_COMMANDER_ID, role: 'commander', duty: 'service', mounted: true,
-    training: false, assaultObjective: false, tier: 4, index: 0, ...point }
-}
 
 /** Keep a separate walkable service spot beside the Captain, using the built world's
  * obstacles and navigation. No fallback into occupied slots or the entrance lane. */

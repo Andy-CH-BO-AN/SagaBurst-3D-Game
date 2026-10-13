@@ -1,3 +1,4 @@
+import { cloneTownEquipment, type CareerTownEquipment } from './CareerTownEquipmentState'
 import { cloneTownAirCommandSquad, type TownAirCommandSquadState } from './TownAirCommandAuthority'
 import { cloneCivilianCommandSquad, type CivilianCommandSquadState } from './CivilianCommandAuthority'
 import type { EnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
@@ -111,6 +112,7 @@ export interface CareerProfile {
 
   enemyEaglePatrols?: Partial<Record<CharacterFaction, EnemyEaglePatrolCheckpoint>>
   townEagleGarrisons?: TownEagleGarrisons
+  townEquipment?: CareerTownEquipment
   inventory?: CareerInventory
   ownedWeapons: string[]
   ownedArmors: string[]
@@ -450,6 +452,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.townEagleGarrisons ? { townEagleGarrisons: structuredClone(profile.townEagleGarrisons) } : {}),
     ...(profile.playerAerialState ? { playerAerialState: structuredClone(profile.playerAerialState) } : {}),
     ...(profile.townOutskirts ? { townOutskirts: structuredClone(profile.townOutskirts) } : {}),
+    ...(profile.townEquipment ? { townEquipment: cloneTownEquipment(profile.townEquipment) } : {}),
     ...(profile.inventory ? { inventory: { version: 1, quantities: { ...profile.inventory.quantities } } } : {}),
     skills: normalizeSkillState(profile.skills),
     ...(profile.personalSquad ? { personalSquad: { members: profile.personalSquad.members.map(member => ({ ...member, ...(member.equipment ? { equipment: { ...member.equipment } } : {}) })) } } : {}),
