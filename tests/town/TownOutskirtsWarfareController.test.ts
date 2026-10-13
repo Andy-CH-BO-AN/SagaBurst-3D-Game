@@ -1,3 +1,4 @@
+import * as commandCheckpoint from '../../src/career/CareerCommandActorCheckpoint'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { drainNpcSpawns, gameplayNpcSpawnDriver, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { advanceUntil } from '../helpers/simulation'
@@ -1040,5 +1041,111 @@ describe('Commander enemy outskirts composition and saved lifecycle', () => {
     restored.driver.drain()
     expect(squad.members).toHaveLength(10)
     expect(squad.members.every(npc => asTest(npc).spec.tier === 4)).toBe(true)
+  })
+})
+
+
+describe('Outskirts ordinary Town checkpoint cost and save gate', () => {
+  function fixture(playerFaction: CharacterFaction = 'roman') {
+    // Production roster with recording construction only: zero real NPC, Mount or TownWorld.
+    const driver = new NpcSpawnTestDriver(), test = setup('commander', 'roman', playerFaction, [], driver.scheduler)
+    onTestFinished(() => test.controller.dispose())
+    driver.drain()
+    const profile = createCareerProfile(playerFaction); profile.rank = 'commander'
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const town = townProfileCheckpoint(profile, store); town.outskirts = test.controller
+    const snapshots = vi.spyOn(commandCheckpoint, 'snapshotCommandActor')
+    const writes = vi.spyOn(store, 'save')
+    onTestFinished(() => { snapshots.mockRestore(); writes.mockRestore() })
+    return { ...test, driver, storage, store, town, snapshots, writes }
+  }
+
+  it('does no Outskirts actor snapshots on non-save frames and captures resources once at five seconds', () => {
+    const test = fixture(), rider = asTest(test.controller.squads[6].members[0])
+    test.town.persistPersonalSquad(0)
+    expect(test.snapshots).toHaveBeenCalledTimes(30)
+    test.snapshots.mockClear(); test.writes.mockClear()
+    rider.hp = 37; rider.combatAmmo = 7; rider.mount!.currentHp = 129
+    for (let frame = 0; frame < 4; frame++) test.town.persistPersonalSquad(1)
+    expect(test.snapshots).not.toHaveBeenCalled(); expect(test.writes).not.toHaveBeenCalled()
+    test.town.persistPersonalSquad(1)
+    expect(test.snapshots).toHaveBeenCalledTimes(30); expect(test.writes).toHaveBeenCalledTimes(1)
+    expect(test.store.load()!.townOutskirts!.roman!.squads[6].members[rider.combatantId])
+      .toMatchObject({ hp: 37, ammo: 7, mount: { hp: 129 } })
+  })
+
+  it.each(['rider death', 'dismounted home mount death', 'state', 'generation', 'tier'] as const)(
+    'persists %s immediately and retries a failed save without consuming its critical change', change => {
+      const test = fixture(), squad = test.controller.squads[6], rider = asTest(squad.members[0]), horse = rider.mount!
+      test.town.persistPersonalSquad(0); test.writes.mockClear(); test.snapshots.mockClear()
+      if (change === 'rider death') rider.die()
+      else if (change === 'dismounted home mount death') { rider.dismountFromMount(); horse.takeDamage(200) }
+      else if (change === 'state') test.controller.noteHit(squad.members[0], true)
+      else if (change === 'generation') squad.generation++
+      else squad.cavalryTier = 2
+      test.storage.failWrites = true; test.town.persistPersonalSquad(0)
+      expect(test.writes).toHaveBeenCalledTimes(1)
+      test.storage.failWrites = false; test.town.persistPersonalSquad(0)
+      expect(test.writes).toHaveBeenCalledTimes(2)
+      expect(test.snapshots).toHaveBeenCalledTimes(60)
+      const saved = test.store.load()!.townOutskirts!.roman!.squads[6]
+      if (change === 'rider death') expect(saved.members[rider.combatantId].hp).toBe(0)
+      else if (change === 'dismounted home mount death') expect(saved.members[rider.combatantId].mount?.hp).toBe(0)
+      else if (change === 'state') expect(saved.state).toBe('ENGAGING')
+      else if (change === 'generation') expect(saved.generation).toBe(1)
+      else expect(saved.cavalryTier).toBe(2)
+      test.town.persistPersonalSquad(0)
+      expect(test.writes).toHaveBeenCalledTimes(2)
+    },
+  )
+
+  it('does not consume the five-second cadence when a periodic write fails', () => {
+    const test = fixture()
+    test.town.persistPersonalSquad(0); test.writes.mockClear()
+    test.storage.failWrites = true; test.town.persistPersonalSquad(5)
+    test.storage.failWrites = false; test.town.persistPersonalSquad(0)
+    expect(test.writes).toHaveBeenCalledTimes(2)
+    test.town.persistPersonalSquad(4)
+    expect(test.writes).toHaveBeenCalledTimes(2)
+    test.town.persistPersonalSquad(1)
+    expect(test.writes).toHaveBeenCalledTimes(3)
+  })
+
+  it.each(['roman', 'viking'] as const)('skips Bandit, cooldown and allied actor snapshots for %s allegiance while full mission saves retain them', faction => {
+    const test = fixture(faction), squad = test.controller.squads[6]
+    if (faction === 'roman') {
+      squad.members.forEach(npc => asTest(npc).die())
+      test.controller.prepareFrame(0, test.controller.actors, test.player)
+      expect(squad.state).toBe('RESPAWN_COOLDOWN')
+    }
+    const saved = test.controller.cooldownCheckpoint()
+    expect(test.snapshots).toHaveBeenCalledTimes(faction === 'roman' ? 20 : 0)
+    expect(saved.squads.filter(s => s.id.startsWith('outskirts:bandit:')).every(s => Object.keys(s.members).length === 0)).toBe(true)
+    if (faction === 'roman') expect(saved.squads[6]).toMatchObject({ respawnRemaining: 60, members: {} })
+    else expect(saved.squads).toHaveLength(6)
+    test.snapshots.mockClear()
+    expect(test.controller.checkpoint().squads[0].members).not.toEqual({})
+    expect(test.snapshots).toHaveBeenCalledTimes(60)
+  })
+
+  it.each([false, true])('reads saved casualties without snapshots during queued restore (Siege suspension: %s)', suspended => {
+    const driver = new NpcSpawnTestDriver(), test = setup('commander', 'roman', 'roman', [], driver.scheduler, [], [], suspended)
+    onTestFinished(() => test.controller.dispose())
+    const checkpoint = { squads: [{ id: 'outskirts:cavalry:a', generation: 7, state: 'ENGAGING' as const,
+      cavalryTier: 4 as const, waypoint: 2, members: {
+        'outskirts:cavalry:a:0:wave:7': { status: 'dead' as const, hp: 0, ammo: 2,
+          mount: { hp: 0, mounted: false, position: { x: 1, z: 2, yaw: 0 } } },
+        'outskirts:cavalry:a:9:wave:7': { status: 'deployed' as const, hp: 28, ammo: 7 },
+      } }] }
+    test.controller.restoreCheckpoint(checkpoint)
+    const snapshots = vi.spyOn(commandCheckpoint, 'snapshotCommandActor')
+    onTestFinished(() => snapshots.mockRestore())
+    expect(test.controller.hasCheckpoint).toBe(true)
+    const signature: unknown[][] = JSON.parse(test.controller.criticalSignature)
+    expect(signature[6]).toEqual(['outskirts:cavalry:a', suspended ? 'ENGAGING' : 'SPAWNING', 7, 4,
+      [['outskirts:cavalry:a:0:wave:7', true, true], ['outskirts:cavalry:a:9:wave:7', false, false]]])
+    expect(snapshots).not.toHaveBeenCalled()
+    expect(test.controller.cooldownCheckpoint().squads[6].members).toEqual(checkpoint.squads[0].members)
+    expect(test.created).toHaveLength(0)
   })
 })

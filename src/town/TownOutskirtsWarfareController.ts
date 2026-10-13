@@ -135,30 +135,68 @@ export class TownOutskirtsWarfareController {
   }
 
   checkpoint(): TownOutskirtsCheckpoint {
-    return { squads: this.squads.map(squad => {
-      const held = this.suspendedSquads.get(squad.id)
-      if (held) return structuredClone(held)
-      const pending = squad.state === 'SPAWNING'
-        ? this.restoredCheckpoint?.squads.find(saved => saved.id === squad.id && saved.generation === squad.generation) : undefined
-      // A second save while rebuilding must not discard not-yet-materialized casualties/checkpoints.
-      const queuedMembers = Object.fromEntries(Object.entries(pending?.members ?? {})
-        .filter(([id]) => this.spawnBatches.get(squad.id)?.actors.get(id) === 'queued'))
-      return { id: squad.id, generation: squad.generation, state: squad.state,
-        waypoint: squad.waypoint, cavalryTier: squad.cavalryTier,
-        ...(squad.state === 'SPAWNING' ? { spawnArrivalState: squad.spawnArrivalState } : {}),
-        ...(squad.engagementOrigin ? { engagementOrigin: { x: squad.engagementOrigin.x, y: squad.engagementOrigin.y, z: squad.engagementOrigin.z } } : {}),
-        encounters: { ...(pending?.encounters ?? {}), ...Object.fromEntries(squad.members.map(npc => [npc.combatantId, npc.encounterAggroState])) },
-        ...(squad.respawnRemaining !== undefined ? { respawnRemaining: squad.respawnRemaining } : {}),
-        members: { ...queuedMembers, ...Object.fromEntries(squad.members.map(npc => [npc.combatantId, snapshotCommandActor(npc, this.homeMounts.get(npc))])) } }
-    }) }
+    return { squads: this.squads.map(squad => this.squadCheckpoint(squad)) }
   }
+
+  private squadCheckpoint(squad: OutskirtsSquad): TownOutskirtsCheckpoint['squads'][number] {
+    const held = this.suspendedSquads.get(squad.id)
+    if (held) return structuredClone(held)
+    const pending = squad.state === 'SPAWNING'
+      ? this.restoredCheckpoint?.squads.find(saved => saved.id === squad.id && saved.generation === squad.generation) : undefined
+    // A second save while rebuilding must not discard not-yet-materialized casualties/checkpoints.
+    const queuedMembers = Object.fromEntries(Object.entries(pending?.members ?? {})
+      .filter(([id]) => this.spawnBatches.get(squad.id)?.actors.get(id) === 'queued'))
+    return { id: squad.id, generation: squad.generation, state: squad.state,
+      waypoint: squad.waypoint, cavalryTier: squad.cavalryTier,
+      ...(squad.state === 'SPAWNING' ? { spawnArrivalState: squad.spawnArrivalState } : {}),
+      ...(squad.engagementOrigin ? { engagementOrigin: { x: squad.engagementOrigin.x, y: squad.engagementOrigin.y, z: squad.engagementOrigin.z } } : {}),
+      encounters: { ...(pending?.encounters ?? {}), ...Object.fromEntries(squad.members.map(npc => [npc.combatantId, npc.encounterAggroState])) },
+      ...(squad.respawnRemaining !== undefined ? { respawnRemaining: squad.respawnRemaining } : {}),
+      members: { ...queuedMembers, ...Object.fromEntries(squad.members.map(npc => [npc.combatantId, snapshotCommandActor(npc, this.homeMounts.get(npc))])) } }
+  }
+
+  private persistsSquad(squad: OutskirtsSquad): boolean {
+    return squad.spec.kind === 'bandit'
+      || outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).faction === Faction.ENEMY
+  }
+
+  get hasCheckpoint(): boolean { return this.squads.some(squad => this.persistsSquad(squad)) }
+
+  /** Per-frame save gate: read only identities, lifecycle and casualties, never actor snapshots. */
+  get criticalSignature(): string {
+    return JSON.stringify(this.squads.filter(squad => this.persistsSquad(squad)).map(squad => {
+      const held = this.suspendedSquads.get(squad.id)
+      const state = held ?? squad
+      const deaths = new Map<string, [boolean, boolean]>()
+      if (squad.spec.kind !== 'bandit' && (held || squad.state !== 'RESPAWN_COOLDOWN')) {
+        const pending = held ?? (squad.state === 'SPAWNING'
+          ? this.restoredCheckpoint?.squads.find(saved => saved.id === squad.id && saved.generation === squad.generation) : undefined)
+        for (const [id, member] of Object.entries(pending?.members ?? {})) {
+          if (held || this.spawnBatches.get(squad.id)?.actors.get(id) === 'queued') {
+            deaths.set(id, [member.hp === 0, member.mount?.hp === 0])
+          }
+        }
+        if (!held) for (const npc of squad.members) {
+          const mount = this.homeMounts.get(npc) ?? npc.mount
+          deaths.set(npc.combatantId, [npc.hp === 0, Boolean(mount && (mount.dead || mount.currentHp === 0))])
+        }
+      }
+      return [state.id, state.state, state.generation, state.cavalryTier, [...deaths].map(([id, flags]) => [id, ...flags])]
+    }))
+  }
+
   /** Enemy cavalry needs full battle/deployment state; unrelated Bandit saves retain their timer-only policy. */
   cooldownCheckpoint(): TownOutskirtsCheckpoint {
-    const enemy = outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).faction === Faction.ENEMY
-    return { squads: this.checkpoint().squads.filter(saved => saved.id.startsWith('outskirts:bandit:') || enemy)
-      .map(saved => saved.id.startsWith('outskirts:bandit:') || saved.state === 'RESPAWN_COOLDOWN' && !this.suspendedSquads.has(saved.id)
-        ? { id: saved.id, generation: saved.generation, state: saved.state, waypoint: saved.waypoint,
-          cavalryTier: saved.cavalryTier, respawnRemaining: saved.respawnRemaining, members: {} } : saved) }
+    return { squads: this.squads.filter(squad => this.persistsSquad(squad)).map(squad => {
+      const held = this.suspendedSquads.get(squad.id)
+      const saved = held ?? squad
+      // Branch before snapshots: these saves never persist actor resources or encounter state.
+      if (squad.spec.kind === 'bandit' || squad.state === 'RESPAWN_COOLDOWN' && !held) {
+        return { id: saved.id, generation: saved.generation, state: saved.state, waypoint: saved.waypoint,
+          cavalryTier: saved.cavalryTier, respawnRemaining: saved.respawnRemaining, members: {} }
+      }
+      return this.squadCheckpoint(squad)
+    }) }
   }
   /** Call before advancing spawn queues. Generation IDs, surviving HP and cooldown survive reload. */
   restoreCheckpoint(value: TownOutskirtsCheckpoint | undefined): void {

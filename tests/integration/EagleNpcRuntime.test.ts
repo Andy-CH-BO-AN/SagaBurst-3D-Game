@@ -279,6 +279,35 @@ import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
 
 describe('NPC aerial orders and indexed physical neighbors', () => {
+  it('takes off toward a copied patrol waypoint above stale boarding orders, then turns to the next waypoint at cruise speed', () => {
+    // One real NPC/eagle; this owns physical ordered flight, not roster/cooldown policy.
+    const { npc, mount } = fixture()
+    const navigation = new NavigationWorld()
+    npc.setEagleFlightOrder({ kind: 'hold' })
+    npc.updateTownTravel(0, 0, [], [], navigation)
+    npc.assignFormationTarget(-7, new THREE.Vector3(0, 0, -80), new THREE.Vector3(0, 0, -1))
+    const destination = new THREE.Vector3(0, 0, 120)
+    npc.setEagleFlightOrder({ kind: 'patrol', target: destination, cruiseAltitude: 25 })
+    destination.set(0, 0, -120) // A caller's reused vector must not mutate the active order.
+    const step = () => npc.updateTownTravel(1 / 60, 0, [], [], navigation)
+    step()
+    // The existing takeoff controller raises the body by its launch clearance.
+    expect(mount.flight!.phase).toBe('takeoff')
+    expect(mount.group.position.y).toBeLessThan(2)
+    advanceUntil(() => mount.group.position.z > 90 && mount.group.position.y > 24.5, step,
+      { maxSimulationSeconds: 30, failureMessage: 'First patrol waypoint approached and cruise altitude attained from the ground' })
+    expect(mount.isAirborne).toBe(true)
+    expect(mount.group.position.y).toBeCloseTo(25, 0)
+    expect(mount.flight!.speed).toBeLessThanOrEqual(48 / 3.6 + .001)
+    expect(npc.tacticalOrder).toBe('formation')
+    npc.setEagleFlightOrder({ kind: 'patrol', target: new THREE.Vector3(120, 0, 120), cruiseAltitude: 25 })
+    advanceUntil(() => mount.group.position.x > 90, step,
+      { maxSimulationSeconds: 25, failureMessage: 'Second patrol waypoint approached without teleport' })
+    expect(mount.group.position.y).toBeCloseTo(25, 0)
+    expect(mount.flight!.speed).toBeLessThanOrEqual(48 / 3.6 + .001)
+    expect(npc.eagleTactic).toBeNull()
+  })
+
   it.each(['ground', 'air'] as const)('follows a %s leader at terrain cruise or the same airborne altitude without stacking height', leaderKind => {
     const { scene, npc, mount, placeAirborne } = fixture()
     const player = new Player(scene); onTestFinished(() => player.dispose())

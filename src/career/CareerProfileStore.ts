@@ -1,3 +1,4 @@
+import { parseEnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
 import { outskirtsSquadSpecs } from '../town/TownOutskirtsRules'
 import type { CareerDuelTier } from './CareerDuelState'
 import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
@@ -434,6 +435,11 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(typeof raw.starterWeaponId === 'string' && WEAPONS[raw.starterWeaponId]?.tier === 1
       ? { starterWeaponId: raw.starterWeaponId } : {}),
     ...(townEvent ? { townEvent: { ...townEvent, ...(townEvent.authorizedTownCommandActorIds ? { authorizedTownCommandActorIds: uniqueStrings(townEvent.authorizedTownCommandActorIds) } : {}), ...(townEvent.deadActorIds ? { deadActorIds: uniqueStrings(townEvent.deadActorIds) } : {}), ...(townEvent.destroyedBuildingIds ? { destroyedBuildingIds: uniqueStrings(townEvent.destroyedBuildingIds) } : {}) } } : {}),
+    ...(raw.enemyEaglePatrols && typeof raw.enemyEaglePatrols === 'object' ? { enemyEaglePatrols: Object.fromEntries(
+      (['roman', 'viking'] as const).flatMap(faction => {
+        const saved = parseEnemyEaglePatrolCheckpoint((raw.enemyEaglePatrols as CareerProfile['enemyEaglePatrols'])?.[faction])
+        return saved ? [[faction, saved]] : []
+      })) } : {}),
     ...(parseTownEagleGarrisons(raw.townEagleGarrisons, raw.townEagleGarrison) ? { townEagleGarrisons: parseTownEagleGarrisons(raw.townEagleGarrisons, raw.townEagleGarrison) } : {}),
     ...(parseCareerAerialState(raw.playerAerialState) ? { playerAerialState: parseCareerAerialState(raw.playerAerialState) } : {}),
     ...(raw.townOutskirts && typeof raw.townOutskirts === 'object' ? { townOutskirts: Object.fromEntries(

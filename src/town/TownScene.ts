@@ -1,3 +1,4 @@
+import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
 import { SquadRefitSafety } from '../career/SquadRefit'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { playerEagleProjectileBudget, projectileTerrainContactTime, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
@@ -209,6 +210,7 @@ export class TownScene {
   private personalCriticalState = ''
   private personalCommandUI?: ArmyCommandUI
   private personalFormation?: FormationController
+  private enemyEaglePatrol?: EnemyEaglePatrolController
   private outskirts?: TownOutskirtsWarfareController
   private missionResultOpen = false
   private deploymentPage?: CareerMissionPage | 'duel'
@@ -224,7 +226,7 @@ export class TownScene {
   private commanderReturnPending = false
   private get deploymentReady(): boolean { return (this.mission?.ready ?? true) && (this.defense?.ready ?? true) }
   private get deploymentFailed(): boolean {
-    return [...(this.mission?.spawnBatches ?? []), ...(this.defense?.spawnBatches ?? []), ...(this.outskirts?.batches ?? [])]
+    return [...(this.mission?.spawnBatches ?? []), ...(this.defense?.spawnBatches ?? []), ...(this.outskirts?.batches ?? []), ...(this.enemyEaglePatrol?.batches ?? [])]
       .some(batch => batch.status === 'failed') || Boolean(this.personalSquad?.error)
   }
 
@@ -307,6 +309,7 @@ export class TownScene {
       this.profile.activeMission?.kind === 'town-defense' || this.profile.activeMission?.kind === 'enemy-town-assault')
     this.outskirts.synchronizeRank()
     this.restoreOutskirtsCheckpoint()
+    this.initializeEnemyEaglePatrol(context.worldFaction)
     this.townCommand = new TownCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p),
       { sceneKey: context.worldFaction === this.profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
         canRefit: () => this.canRefitSquad(this.townCommand?.actors ?? []) })
@@ -352,8 +355,9 @@ export class TownScene {
       {
         player: () => this.player,
         residents: this.residents, mounts: this.mounts, cameraPosition: this.camera.position, obstacles: this.world.obstacles,
-        navigation: this.navigation, hp: this.hp, careerMounts: this.careerMounts,
+        navigation: this.navigation, hp: this.hp, careerMounts: this.careerMounts, airspaceObstacles: this.world.airspaceObstacles,
         outskirts: () => this.outskirts,
+        airPatrol: () => this.enemyEaglePatrol,
         personalSquad: () => this.personalSquad,
         patrol: () => this.patrol,
         commandActors: () => [...(this.captainPatrol?.fieldNpcs ?? []), ...(this.townCommand?.combatActors ?? [])],
@@ -540,6 +544,7 @@ export class TownScene {
       return false
     }
     this.profile = next
+    this.synchronizeEaglePatrolPolicy()
     this.outskirts?.synchronizeRank()
     this.careerSkillsDirty = false
     return true
@@ -569,6 +574,8 @@ export class TownScene {
       next.activeMission.friendlyActorIds = next.activeMission.friendlyActorIds.filter(id => !returning.has(id))
       if (next.activeMission.officialSquad) next.activeMission.officialSquad.actorIds = next.activeMission.officialSquad.actorIds.filter(id => !returning.has(id))
     }
+    const airPatrol = this.enemyEaglePatrol?.checkpoint()
+    if (airPatrol) next.enemyEaglePatrols = { ...next.enemyEaglePatrols, [this.world.faction]: airPatrol }
     const outskirts = this.outskirts?.cooldownCheckpoint()
     if (outskirts?.squads.length) next.townOutskirts = { ...next.townOutskirts, [this.world.faction]: outskirts }
     if (next.activeMission?.kind === 'captain-patrol-command') {
@@ -628,6 +635,7 @@ export class TownScene {
     if (next.rank !== this.profile.rank) this.deploymentPage = undefined
     const endedFormal = Boolean(this.profile.activeMission && !next.activeMission || this.profile.activeOutpostMission && !next.activeOutpostMission)
     this.profile = next
+    this.synchronizeEaglePatrolPolicy()
     if (startsFormal || townStateChanged || endedFormal) this.townCommand?.applySavedState(next.townCommandSquad)
     if (!this.townRefitOnReturn && (endedFormal || next.rank === 'captain' || next.rank === 'commander') && !next.townEvent?.authorizedTownCommandActorIds) this.townCommand?.grant()
     this.synchronizeCommandActors()
@@ -642,10 +650,9 @@ export class TownScene {
     const garrison = this.eagleGarrison?.snapshot(`town:${this.world.faction}`)
     const garrisonActive = Boolean(garrison?.pairs.some(pair => pair.duty !== 'standby' || pair.hp === 0 || pair.mount.hp === 0))
     const townCommand = this.townCommand?.checkpoint()
-    const outskirts = this.outskirts?.cooldownCheckpoint()
-    if (!saved && !townCommand && !this.profile.personalSquadRuntime && !aerial && !this.profile.playerAerialState && !garrisonActive && !outskirts?.squads.length) return
+    if (!saved && !townCommand && !this.profile.personalSquadRuntime && !aerial && !this.profile.playerAerialState && !garrisonActive && !this.outskirts?.hasCheckpoint && !this.enemyEaglePatrol?.hasCheckpoint) return
     this.personalSaveElapsed += dt
-    const critical = JSON.stringify([outskirts?.squads.map(squad => [squad.id, squad.state, squad.generation, squad.cavalryTier, Object.entries(squad.members).map(([id, member]) => [id, member.hp === 0, member.mount?.hp === 0])]), townCommand?.authorized, townCommand?.state, townCommand?.actorIds.map(id => [townCommand.members?.[id]?.hp === 0, townCommand.members?.[id]?.mount?.hp === 0, townCommand.members?.[id]?.status]), garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
+    const critical = JSON.stringify([this.enemyEaglePatrol?.criticalSignature, this.outskirts?.criticalSignature, townCommand?.authorized, townCommand?.state, townCommand?.actorIds.map(id => [townCommand.members?.[id]?.hp === 0, townCommand.members?.[id]?.mount?.hp === 0, townCommand.members?.[id]?.status]), garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
       const member = saved.members[id]
       return [member.status, member.order, member.mount?.hp === 0, member.formation?.commandId]
     })])
@@ -1405,8 +1412,16 @@ export class TownScene {
       if (npc.mount) addMount(npc.mount)
       else bodies.push({ position: npc.combatPosition, radius: .5, moveTo: point => npc.group.position.copy(point) })
     }
-    for (const mount of [...this.mounts, ...this.defense.enemyMounts, ...(this.outskirts?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])]) addMount(mount)
+    for (const mount of [...this.mounts, ...this.defense.enemyMounts, ...(this.outskirts?.mounts ?? []), ...(this.enemyEaglePatrol?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])]) addMount(mount)
     return bodies
+  }
+
+  private initializeEnemyEaglePatrol(faction: CareerProfile['faction']): void {
+    // The external enemy base serializes its own approaches independently of Town/HR pads.
+    this.enemyEaglePatrol = new EnemyEaglePatrolController(this.scene, faction,
+      () => this.profile, this.world.airspaceObstacles, this.navigation, undefined, undefined,
+      !this.ambientEaglePatrolAllowed())
+    this.enemyEaglePatrol.restoreCheckpoint(this.profile.enemyEaglePatrols?.[faction])
   }
 
   private initializePersonalSquad(): void {
@@ -1474,7 +1489,7 @@ export class TownScene {
     let { profile } = this
     // Capture scenery batches before starting the official mission. Waiting for
     // these preserves ordinary Town entry; mission jobs continue under frame().
-    const backgroundBatches = [...this.mission.spawnBatches, ...(this.outskirts?.batches ?? [])]
+    const backgroundBatches = [...this.mission.spawnBatches, ...(this.outskirts?.batches ?? []), ...(this.enemyEaglePatrol?.batches ?? [])]
     const waitForBackground = async () => {
       for (const batch of backgroundBatches) {
         if (batch.status === 'pending' || batch.status === 'failed')
@@ -1512,7 +1527,7 @@ export class TownScene {
           const saved = active.patrolAmbient?.members?.[actor.combatantId]
           if (saved) restoreCommandActor(actor, saved)
         }
-        this.captainPatrol?.setEligibleTargets([...this.mission.ambientBandits, ...(this.outskirts?.actors ?? [])])
+        this.captainPatrol?.setEligibleTargets([...this.mission.ambientBandits, ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])])
       }
       if (!active.result || active.phase === 'RETURNING') this.inventory.prepareForCombat()
       this.preparePersonalFieldDeployment(active.personalSquad)
@@ -1785,7 +1800,7 @@ export class TownScene {
   }
   private cancelPendingSpawns(): void {
     this.residentSpawnBatch?.cancel()
-    for (const batch of [...(this.mission?.spawnBatches ?? []), ...(this.defense?.spawnBatches ?? []), ...(this.outskirts?.batches ?? [])]) batch.cancel()
+    for (const batch of [...(this.mission?.spawnBatches ?? []), ...(this.defense?.spawnBatches ?? []), ...(this.outskirts?.batches ?? []), ...(this.enemyEaglePatrol?.batches ?? [])]) batch.cancel()
     this.personalSquad?.cancelPendingSpawns()
   }
   private returnToTown(intent: 'direct' | 'arrived'): void {
@@ -1911,10 +1926,12 @@ export class TownScene {
     for (const mount of this.duel?.allMounts ?? []) add(mount, true)
     // Outskirts mounts keep their controller's lifetime, independently of mission settlement.
     for (const mount of this.outskirts?.mounts ?? []) add(mount)
+    for (const mount of this.enemyEaglePatrol?.mounts ?? []) add(mount)
     for (const mount of this.personalSquad?.mounts ?? []) add(mount)
     for (const mount of this.temporaryMounts.all) add(mount)
     add(owned)
-    for (const npc of [...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.mission?.ambientBandits ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []), ...(this.outskirts?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) {
+    this.enemyEaglePatrol?.setLandingOccupants(this.combatMounts)
+    for (const npc of [...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.mission?.ambientBandits ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) {
       npc.combatMountGrid = this.combatMountGrid
     }
   }
@@ -1936,6 +1953,7 @@ export class TownScene {
     })
     if (result.appliedDamage > 0 && rider) {
       this.outskirts?.noteHit(rider, !source)
+      this.enemyEaglePatrol?.noteHit(rider, !source)
       this.missionCombat?.noteExternalHit(rider, source)
     }
     if (source && playerMountHit && result.appliedDamage > 0) this.missionCombat?.noteExternalPlayerHit(source)
@@ -1979,6 +1997,7 @@ export class TownScene {
     if (owner && (this.townCommand?.authorizedActorIds.includes(owner.combatantId)
       || this.profile.activeMission?.officialSquad?.actorIds.includes(owner.combatantId))) return true
     if (target instanceof Mount && this.personalSquad?.mounts.includes(target)) return true
+    if (owner && this.enemyEaglePatrol?.owns(owner)) return !owner.hostileToPlayer
     if (owner && this.outskirts?.owns(owner)) return !owner.hostileToPlayer
     if (this.duel?.active && owner && this.duel.isMissionActor?.(owner)) return true
     if (this.duel?.active && owner && !owner.hostileToPlayer && (this.residents ?? []).some(resident => resident.npc === owner
@@ -2095,6 +2114,7 @@ export class TownScene {
     if (!result.hitSuccess) return
     if (result.appliedDamage > 0) {
       this.outskirts?.noteHit(target, !source)
+      this.enemyEaglePatrol?.noteHit(target, !source)
       this.missionCombat?.noteExternalHit(target, source)
     }
     if (result.blockedImpact > 0 && result.appliedDamage === 0 && source) {
@@ -2145,11 +2165,11 @@ export class TownScene {
     return [...new Set([
       ...(this.residents ?? []).map(resident => resident.npc),
       ...(this.mission?.fieldNpcs ?? []), ...(this.mission?.ambientBandits ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []),
-      ...(this.missionCombat?.enemyTownHostiles ?? []), ...(this.outskirts?.actors ?? []), ...(this.personalSquad?.actors ?? []),
+      ...(this.missionCombat?.enemyTownHostiles ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? []),
     ])]
   }
   private updateShots(dt: number): void {
-    const runtimeActors = this.duel?.active || this.defense?.active || this.outskirts?.actors.length || this.personalSquad?.actors.length ? this.runtimeCombatActors() : null
+    const runtimeActors = this.duel?.active || this.defense?.active || this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length ? this.runtimeCombatActors() : null
     const externalDefenders = runtimeActors ? [] : this.missionCombat?.externalDefenders ?? []
     for (const s of this.shots) {
       if (!s.arrow.isAlive) continue
@@ -2235,7 +2255,7 @@ export class TownScene {
         const target = contact.target
         if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, amount, 'melee', undefined, contact)
         else if (target instanceof NPC) {
-          if (this.duel?.isMissionTarget(target) || this.outskirts?.owns(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
+          if (this.duel?.isMissionTarget(target) || this.outskirts?.owns(target) || this.enemyEaglePatrol?.owns(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
           else this.hitResident(target, amount, 'melee', contact)
         }
       }
@@ -2271,7 +2291,7 @@ export class TownScene {
     }
     if (buildingHit >= 0) { this.player.markHitProcessed(); this.damageBuilding(buildingHit, damageResult.damage, buildingHitPosition); return }
     if (this.world.targets.some(p => p.distanceTo(tip) < .8)) { this.player.markHitProcessed(); return }
-    const combatTargets = this.duel?.active || this.defense?.active || this.outskirts?.actors.length || this.personalSquad?.actors.length ? this.runtimeCombatActors().filter(target => !this.isProtectedTownAlly(target))
+    const combatTargets = this.duel?.active || this.defense?.active || this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length ? this.runtimeCombatActors().filter(target => !this.isProtectedTownAlly(target))
       : [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
         ...(this.missionCombat?.enemyTownHostiles ?? []),
         ...this.residents.map(r => r.npc).filter(target => !this.isProtectedTownAlly(target))]
@@ -2285,7 +2305,7 @@ export class TownScene {
     const amount = Math.round(damageResult.damage * getAntiCavalryMultiplier(weapon.combatKind, this.player.isMounted, contact.kind === 'mount' || target.isMounted))
     if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, amount, 'melee', undefined, contact)
     else if (target instanceof NPC) {
-      if (this.duel?.isMissionTarget(target) || this.outskirts?.owns(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
+      if (this.duel?.isMissionTarget(target) || this.outskirts?.owns(target) || this.enemyEaglePatrol?.owns(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
       else this.hitResident(target, amount, 'melee', contact)
     }
     if (damageResult.isCharge && this.player.currentMount) this.player.currentMount.skipImpactThisFrame = true
@@ -2302,7 +2322,7 @@ export class TownScene {
       resolveEntityCollision(playerBody, { position, radius: r.npc.mount ? .95 : .42, height: r.npc.mount ? 2.8 : 1.8, bottomOffset: 0, anchored: true }, this.world.obstacles)
     }
     for (const mount of this.townServiceMounts) if (!mount.dead) resolveEntityCollision(playerBody, { position: mount.group.position, radius: .85, height: 2, bottomOffset: 0, anchored: true }, this.world.obstacles)
-    for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? []), ...(this.outskirts?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
+    for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
     this.player.group.position.y = Math.max(this.player.group.position.y, getTerrainHeight(this.player.group.position.x, this.player.group.position.z) + .9)
   }
   private updateAmbient(): void {
@@ -2319,8 +2339,25 @@ export class TownScene {
     if (point.z > 1 || point.z < -1) { this.ambientLabel.hidden = true; return }
     this.ambientLabel.style.left = (point.x * .5 + .5) * innerWidth + 'px'; this.ambientLabel.style.top = (-point.y * .5 + .5) * innerHeight + 'px'
   }
+  private ambientEaglePatrolAllowed(): boolean {
+    return !this.profile.activeMission && !this.profile.activeOutpostMission
+      && this.profile.townEvent?.state !== 'hostile' && !this.event?.hostile
+      && this.world.faction === this.profile.faction
+  }
+
+  private synchronizeEaglePatrolPolicy(): void {
+    if (!this.eagleGarrison && !this.enemyEaglePatrol) return
+    const allowed = this.ambientEaglePatrolAllowed()
+    if (!allowed && this.enemyEaglePatrol?.actors.length) {
+      // A suspended ambient owner cannot leave projectiles in a protected mission.
+      for (const shot of this.shots ?? []) if (shot.source && this.enemyEaglePatrol.owns(shot.source)) shot.arrow.destroy()
+    }
+    this.eagleGarrison?.setAmbientPatrolAllowed(allowed)
+    this.enemyEaglePatrol?.setAmbientPatrolAllowed(allowed)
+  }
+
   private updateEagleDuty(npc: NPC, dt: number, combat: boolean): boolean {
-    return this.eagleGarrison?.update(npc, dt, combat, this.camera.position, this.world.obstacles, this.navigation,
+    return this.eagleGarrison?.update(npc, dt, combat, this.camera.position, this.world.airspaceObstacles, this.navigation,
       this.grid.getNearbyInto(npc.combatPosition, 60, this.neighbors), this.combatMounts) ?? false
   }
   private updatePeace(r: Resident, dt: number): void {
@@ -2380,7 +2417,7 @@ export class TownScene {
       distance: playerMount.group.position.distanceTo(this.camera.position),
       isPlayer: true,
     })
-    const actors = [...(this.duel?.active ? this.duel.fieldNpcs : this.defense.active ? this.defense.fieldNpcs : this.mission.fieldNpcs), ...(this.outskirts?.actors ?? []), ...(this.personalSquad?.actors ?? [])]
+    const actors = [...(this.duel?.active ? this.duel.fieldNpcs : this.defense.active ? this.defense.fieldNpcs : this.mission.fieldNpcs), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]
     for (const actor of actors) {
       const mount = actor.mount
       if (!mount || mount.dead || mount.type !== MountType.HORSE || actor.dead || mount === playerMount) continue
@@ -2394,7 +2431,7 @@ export class TownScene {
     }
     sound?.updateHorseGallopLoops(candidates)
     updateEagleWingbeatAudio(sound, [playerMount, this.careerMounts.activeMount, ...this.mounts,
-      ...this.temporaryMounts.all, ...(this.outskirts?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])], this.camera.position, playerMount)
+      ...this.temporaryMounts.all, ...(this.outskirts?.mounts ?? []), ...(this.enemyEaglePatrol?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])], this.camera.position, playerMount)
   }
   private updateHostile(dt: number): void {
     this.navigation.sync(this.world.obstacles); this.navigation.beginFrame()
@@ -2411,9 +2448,9 @@ export class TownScene {
         const dir = this.cat.group.position.clone().sub(ranger.group.position); dir.y = 0; ranger.group.position.addScaledVector(dir.normalize(), dt * 3.5); ranger.group.position.y = getTerrainHeight(ranger.group.position.x, ranger.group.position.z); ranger.group.rotation.y = Math.atan2(dir.x, dir.z); ranger.updateTownPeace(dt, ranger.group.position.distanceTo(this.camera.position), false, false, 3.5); continue
       }
       if (this.updateEagleDuty(r.npc, dt, true)) continue
-      const warfare = Boolean(this.outskirts?.actors.length || this.personalSquad?.actors.length || this.townCommand?.authorizedActorIds.length)
+      const warfare = Boolean(this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length || this.townCommand?.authorizedActorIds.length)
       r.npc.update(dt, this.player, warfare ? this.missionCombat.runtimeParticipants : [],
-        this.grid.getNearbyInto(r.npc.combatPosition, 2, this.neighbors), this.npcObstacles, this.hp,
+        this.grid.getNearbyInto(r.npc.combatPosition, 2, this.neighbors), r.npc.mount?.isFlyingMount ? this.world.airspaceObstacles : this.npcObstacles, this.hp,
         (damage, isPlayer, targetNpc) => {
           if (isPlayer) this.damagePlayerFromNpc(r.npc, damage, 'melee')
           else if (targetNpc) this.hitFieldNpc(targetNpc, damage, 'melee', r.npc)
@@ -2529,6 +2566,7 @@ export class TownScene {
       this.elapsed += dt
       this.eagleLandingQueue?.beginFrame(dt)
       this.townCommand?.beginFrame()
+      this.synchronizeEaglePatrolPolicy()
       this.eagleGarrison?.beginFrame(dt)
       this.outskirts?.synchronizeRank()
       this.refreshCombatMounts()
@@ -2555,7 +2593,7 @@ export class TownScene {
   }
 
   private updateMissionSimulation(dt: number): void {
-    this.captainPatrol?.setEligibleTargets([...(this.mission.ambientBandits ?? []), ...(this.outskirts?.actors ?? [])])
+    this.captainPatrol?.setEligibleTargets([...(this.mission.ambientBandits ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])])
     if (!this.player.dead) this.melee()
     if (this.event.hostile) this.updateHostile(dt)
     else this.missionCombat.update(dt, this.orbit.cameraYaw, this.elapsed)
@@ -2568,10 +2606,10 @@ export class TownScene {
       m.setCameraDistance(m.group.position.distanceTo(this.camera.position))
       if (m.dead || !m.riderNpc && !m.riderPlayer && m !== this.cat && !this.stableHorses.includes(m)) m.update(dt, this.world.obstacles)
     }
-    for (const mount of [...(this.outskirts?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])]) {
+    for (const mount of [...(this.outskirts?.mounts ?? []), ...(this.enemyEaglePatrol?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])]) {
       if (mount.disposed) continue
       mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
-      if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, this.world.obstacles)
+      if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, mount.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles)
     }
     if (!this.sceneContext.missionOnlyResidents && !this.event.hostile && !this.cat.dead && !this.cat.riderNpc && this.cat !== this.careerMounts.activeMount) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
     this.resolveBodies(); this.updateShots(dt)
@@ -2618,7 +2656,11 @@ export class TownScene {
     if (this.disposed) return
     if (this.deploymentFailed && !this.spawnErrorShown) {
       this.spawnErrorShown = true
-      this.openPanel('部隊建立失敗', '本次部署已停止，存檔仍保留完整名冊。請重新載入以恢復任務。')
+      const panel = this.openPanel('部隊建立失敗', '本次部署已停止，存檔仍保留完整名冊。請重試空軍部署或重新載入以恢復任務。')
+      if (this.enemyEaglePatrol?.batches.some(batch => batch.status === 'failed')) this.button(panel, '重試空軍部署', () => {
+        this.enemyEaglePatrol?.retryFailedDeployment()
+        if (!this.deploymentFailed) { this.spawnErrorShown = false; this.closePanel() }
+      })
     }
     this.updatePointerPrompt()
     const dt = Math.min(.05, (time - this.last) / 1000); this.last = time
@@ -2680,6 +2722,7 @@ export class TownScene {
     this.personalCommands?.close()
     this.personalFormation?.cancelPlacement()
     this.personalCommandUI?.dispose()
+    this.enemyEaglePatrol?.dispose()
     this.outskirts?.dispose()
     this.weaponWheelUI?.dispose()
     this.duelHud?.dispose()

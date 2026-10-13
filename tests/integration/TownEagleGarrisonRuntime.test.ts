@@ -63,7 +63,7 @@ describe('Town eagle physical duty caller', () => {
     const otherFaction = worldFaction === 'roman' ? 'viking' : 'roman'
     const untouchedCity = structuredClone(profile.townEagleGarrisons[otherFaction])
     let ammo = 5
-    const eagleGarrison: Pick<TownEagleGarrisonController, 'snapshot'> = { snapshot: sceneKey => state(sceneKey, ammo) }
+    const eagleGarrison: Pick<TownEagleGarrisonController, 'snapshot' | 'setAmbientPatrolAllowed'> = { setAmbientPatrolAllowed: vi.fn(), snapshot: sceneKey => state(sceneKey, ammo) }
     // Only the production commit's dependencies are supplied at this prototype seam.
     const town = Object.assign(Object.create(TownScene.prototype), {
       profile, store, world: { faction: worldFaction }, garrisonRestored: true, eagleGarrison,
@@ -181,4 +181,38 @@ describe('Town eagle physical duty caller', () => {
     queue.beginFrame(3)
     expect(queue.request('personal:next')).toBe(true)
   })
+})
+
+it('autonomously walks, takes off, finishes a bounded circuit, lands and refits before resting', () => {
+  // One real rider/mount protects physical flight and grounded refit; route/clock matrices use data doubles.
+  const { runtime, npc, mount, step, report } = fixture()
+  runtime.setAmbientPatrolAllowed(true)
+  npc.restoreCombatHealth(npc.maxHp - 10); npc.restoreCombatAmmo(7); mount.currentHp -= 20
+  const initial = mount.group.position.clone()
+  step(false)
+  expect(runtime.dutyFor(npc)).toBe('walking-to-mount')
+  expect(mount.group.position).toEqual(initial)
+  advanceUntil(() => mount.isAirborne && mount.group.position.y >= 19, () => step(false), {
+    maxSimulationSeconds: 35, failureMessage: 'Autonomous physical takeoff',
+  })
+  expect(runtime.dutyFor(npc)).toBe('patrolling')
+  expect(npc.hp).toBe(npc.maxHp - 10); expect(npc.combatAmmo).toBe(7); expect(mount.currentHp).toBe(mount.maxHp - 20)
+  const waypoint = runtime.snapshot('town:roman').pairs[0].patrol!.waypoint
+  npc.beginExternalThreat(); step(true)
+  expect(runtime.dutyFor(npc)).toBe('sortie')
+  step(false)
+  expect(runtime.dutyFor(npc)).toBe('patrolling')
+  expect(runtime.snapshot('town:roman').pairs[0].patrol!.waypoint).toBe(waypoint)
+  try {
+    advanceUntil(() => runtime.dutyFor(npc) === 'resting', () => step(false), {
+      maxSimulationSeconds: 300, failureMessage: 'Autonomous circuit/return/refit',
+    })
+  } catch (error) {
+    if (error instanceof Error) error.message += `: ${report()}`
+    throw error
+  }
+  expect(mount.isAirborne).toBe(false); expect(npc.mount).toBeNull()
+  expect(npc.hp).toBe(npc.maxHp); expect(npc.combatAmmo).toBe(30); expect(mount.currentHp).toBe(mount.maxHp)
+  for (let frame = 0; frame < 60; frame++) step(false)
+  expect(runtime.dutyFor(npc)).toBe('resting')
 })

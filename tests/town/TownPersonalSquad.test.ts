@@ -5,8 +5,10 @@ import { siegeMuster } from '../../src/career/TownSiege'
 import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
 import { isEagleApproachClear } from '../../src/world/EagleApproach'
 import { eagleTrainerSpec } from '../../src/town/TownEagleTrainingGround'
-import { townEagleRoster } from '../../src/town/TownEagleGarrison'
+import { townEaglePatrolRoute, townEagleRoster } from '../../src/town/TownEagleGarrison'
 import { townPatrolRoute } from '../../src/town/TownPatrolRoute'
+import { EagleFlightAI } from '../../src/movement/EagleFlightAI'
+import { enemyEagleRoute, resolveEnemyEagleHomes } from '../../src/town/EnemyEaglePatrolRules'
 import { EagleFlightController } from '../../src/movement/EagleFlightController'
 import { EagleLandingQueue } from '../../src/world/EagleLandingQueue'
 import { completeNpcDeployment, drainNpcSpawns, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
@@ -262,6 +264,57 @@ describe('HR Center and personal runtime', () => {
     expect(world.eagleGarrison.pads.map(pad => [pad.x, pad.z, pad.yaw])).toEqual([
       [-95, -75, 0], [-65, -75, 0], [-35, -75, 0], [-95, -25, 0], [-65, -25, 0],
     ])
+    // Actual flight/geometry has this single built-world owner: zero additional TownWorlds,
+    // NPCs, Mounts or GLBs. Core queue and NPC command transitions stay in their own suites.
+    // Every authored sector is a distinct placement risk; one pilot is simulated at a time.
+    const enemyHomes = resolveEnemyEagleHomes(world.airspaceObstacles)
+    const circuits = [
+      ...townEagleRoster(world.eagleGarrison).map(spec => ({ id: spec.id, home: spec.eagle!.home,
+        altitude: spec.eagle!.cruiseAltitude, route: townEaglePatrolRoute(spec.eagle!.homePadId), radius: 32 })),
+      ...enemyHomes.map((home, index) => ({ id: `enemy-eagle:${index + 1}`, home,
+        altitude: 25 + index * 5, route: enemyEagleRoute(index + 1), radius: 34 })),
+    ]
+    for (const circuit of circuits) {
+      const label = `${faction} ${circuit.id}`
+      const others = [...world.eagleTraining.pads, ...world.eagleGarrison.pads, ...enemyHomes]
+        .filter(pad => pad.x !== circuit.home.x || pad.z !== circuit.home.z)
+      expect(isEagleLandingClear(circuit.home, world.airspaceObstacles, others, 350), `${label} ground deployment`).toBe(true)
+      expect(isEagleApproachClear(circuit.home, world.airspaceObstacles, others, 350, circuit.altitude), `${label} landing corridor`).toBe(true)
+      const position = new THREE.Vector3(circuit.home.x, getTerrainHeight(circuit.home.x, circuit.home.z), circuit.home.z)
+      const rotation = new THREE.Euler(0, circuit.home.yaw, 0), previous = position.clone()
+      const flight = new EagleFlightController(), pilot = new EagleFlightAI()
+      pilot.setCruiseAltitude(circuit.altitude)
+      let maxStep = 0, maxCoordinate = 0, elapsed = 0
+      const step = (kind: 'formation' | 'return', target: { x: number; z: number }) => {
+        previous.copy(position)
+        const wasAirborne = flight.phase !== 'grounded'
+        flight.setIntent(pilot.update(1 / 60, flight, position, {
+          kind, destination: new THREE.Vector3(target.x, getTerrainHeight(target.x, target.z), target.z),
+          landingYaw: circuit.home.yaw,
+        }, [], world.airspaceObstacles, 350))
+        flight.update(position, rotation, 1 / 60, world.airspaceObstacles, 350)
+        // Initial takeoff resolves the pitched torso against uneven terrain; waypoint
+        // transitions must retain continuous airborne motion after that ground clearance.
+        if (wasAirborne) maxStep = Math.max(maxStep, position.distanceTo(previous))
+        else expect(position.y - getTerrainHeight(position.x, position.z), `${label} takes off at ground level`).toBeLessThan(4)
+        maxCoordinate = Math.max(maxCoordinate, Math.abs(position.x), Math.abs(position.z))
+        elapsed += 1 / 60
+      }
+      for (const [index, target] of circuit.route.entries()) {
+        advanceUntil(() => flight.phase !== 'grounded' && Math.hypot(position.x - target.x, position.z - target.z) < circuit.radius,
+          () => step('formation', target), { maxSimulationSeconds: Math.max(0, 150 - elapsed),
+            failureMessage: `${label} waypoint ${index}, total circuit budget 150s` })
+        pilot.reset()
+      }
+      // The existing queue grants 60 seconds per approach. A route that only lands after
+      // that lease expires would repeatedly reset its approach in the real caller.
+      advanceUntil(() => flight.phase === 'grounded', () => step('return', circuit.home), {
+        maxSimulationSeconds: 60, failureMessage: `${label} home return within approach lease`,
+      })
+      expect(Math.hypot(position.x - circuit.home.x, position.z - circuit.home.z), `${label} own home`).toBeLessThan(2)
+      expect(maxCoordinate, `${label} remains inside playable world`).toBeLessThan(350)
+      expect(maxStep, `${label} physical travel without waypoint teleport`).toBeLessThan(1)
+    }
     const pads = [...eagle.pads, ...world.eagleGarrison.pads], patrol = townPatrolRoute()
     const footprints = pads.map(pad => eagleLandingFootprint(pad))
     const ownedSignResources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>()

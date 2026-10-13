@@ -1,6 +1,12 @@
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { cloneCareerProfile, createCareerProfile } from '../../src/career/CareerProfile'
+import type { EnemyEaglePatrolCheckpoint } from '../../src/town/EnemyEaglePatrolState'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { townProfileCheckpoint } from '../helpers/townProfileCheckpoint'
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type { ActiveCareerMission } from '../../src/career/CareerMissionState'
+import { townEagleRoster } from '../../src/town/TownEagleGarrison'
 import { Player } from '../../src/player/Player'
 import type { TownOutskirtsCombatRuntime } from '../../src/town/TownMissionCombat'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
@@ -27,6 +33,88 @@ function veteranMission(phase: 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' = 'ENGAGIN
 }
 
 describe('Outskirts participants alongside existing Town missions', () => {
+  it('persists separate air cooldowns transactionally, preserves other towns, and retries failed mission handoff saves', () => {
+    // Data-only caller/store test: zero actors, mounts, worlds, or scheduler jobs.
+    const checkpoint: EnemyEaglePatrolCheckpoint = { version: 1, pairs: [{ id: 1, generation: 2,
+      state: 'RESPAWN_COOLDOWN', waypoint: 1, elapsed: 8, restRemaining: 0, respawnRemaining: 31,
+      home: { x: 230, z: 190, yaw: 0 } }] }
+    const profile = createCareerProfile('roman'), storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    profile.enemyEaglePatrols = { viking: structuredClone(checkpoint) }
+    const town = townProfileCheckpoint(profile, store)
+    Object.assign(town.player.shield, { reset: vi.fn() })
+    const allowed = vi.fn()
+    Object.assign(town, { enemyEaglePatrol: { checkpoint: () => structuredClone(checkpoint), setAmbientPatrolAllowed: allowed, actors: [] } })
+    expect(town.commit(cloneCareerProfile(profile))).toBe(true)
+    expect(store.load()!.enemyEaglePatrols).toEqual({ roman: checkpoint, viking: checkpoint })
+    const cloned = cloneCareerProfile(town.profile)
+    cloned.enemyEaglePatrols!.roman!.pairs[0].respawnRemaining = 0
+    expect(town.profile.enemyEaglePatrols!.roman!.pairs[0].respawnRemaining).toBe(31)
+    const transition = cloneCareerProfile(town.profile)
+    transition.activeMission = veteranMission()
+    const fail = vi.spyOn(storage, 'setItem').mockImplementationOnce(() => { throw new Error('full') })
+    onTestFinished(() => fail.mockRestore())
+    allowed.mockClear()
+    expect(town.commit(transition)).toBe(false)
+    expect(allowed).not.toHaveBeenCalled()
+    expect(town.profile.activeMission).toBeUndefined()
+    expect(store.load()!.enemyEaglePatrols!.roman!.pairs[0].respawnRemaining).toBe(31)
+    expect(town.commit(transition)).toBe(true)
+    expect(allowed).toHaveBeenCalledExactlyOnceWith(false)
+    expect(store.load()!.enemyEaglePatrols!.roman).toEqual(checkpoint)
+    fail.mockRestore()
+  })
+
+  it('keeps separate ambient air ownership on the shared grid without adding mission actors or updating a mount twice', () => {
+    // Three recording actors, zero real NPC/Mount constructors or TownWorlds.
+    const guard = combatActor('guard'), retired = combatActor('air-old', Faction.ENEMY)
+    const eagle = combatActor('air-new', Faction.ENEMY), mount = combatMount()
+    const air: TownOutskirtsCombatRuntime = {
+      actors: [retired], mounts: [mount], synchronizeRank: vi.fn(), owns: actor => actor === eagle,
+      combatEnabled: () => false, updateTravel: vi.fn(),
+      prepareFrame: vi.fn(() => { Object.assign(air, { actors: [eagle] }) }),
+    }
+    const h = combatFixture({ simulation: { airPatrol: () => air, residents: [combatResident(guard)] } })
+    h.combat.update(.02, 0, 1)
+    expect(h.combat.runtimeParticipants).toEqual([guard, eagle])
+    expect(h.combat.runtimeGrid.findNearest(eagle.combatPosition, actor => actor === eagle)).toBe(eagle)
+    expect(air.updateTravel).toHaveBeenCalledExactlyOnceWith(eagle, .02, h.simulation.cameraPosition)
+    expect(eagle.update).not.toHaveBeenCalled(); expect(retired.update).not.toHaveBeenCalled()
+    expect(mount.update).not.toHaveBeenCalled()
+    expect(h.field.fieldNpcs).toEqual([]); expect(h.field.missionBandits).toEqual([])
+    const airspace = [] as typeof h.simulation.obstacles
+    h.simulation.airspaceObstacles = airspace
+    Object.assign(mount, { isFlyingMount: true, riderNpc: eagle })
+    eagle.mount = mount
+    Object.assign(air, { combatEnabled: () => true })
+    h.combat.update(.02, 0, 1.02)
+    expect(eagle.update).toHaveBeenCalledOnce()
+    expect(eagle.update.mock.calls[0][4]).toBe(airspace)
+    expect(mount.update).not.toHaveBeenCalled()
+  })
+
+  it('intercepts an airborne threat away from the home pad, prioritizes air and drops targets beyond the town leash', () => {
+    // Sensor/ownership regression uses three recording actors, no world or render resources.
+    const guard = combatActor('town-eagle-rider:1'), ground = combatActor('ground', Faction.ENEMY)
+    const enemy = combatActor('air', Faction.ENEMY), mount = combatMount()
+    Object.assign(mount, { isAirborne: true }); enemy.mount = mount
+    guard.group.position.set(150, 25, 0); ground.group.position.set(151, 25, 0); mount.group.position.set(160, 25, 0)
+    Object.assign(guard, { maxRangedAttackDistance: 300, setMissionCombatTarget: vi.fn() })
+    const resident = combatResident(guard)
+    resident.spec = townEagleRoster({ pads: [{ id: 'town-eagle-pad:1', x: -100, z: 0, yaw: 0 }] })[0]
+    const air: TownOutskirtsCombatRuntime = {
+      actors: [enemy, ground], mounts: [mount], synchronizeRank: vi.fn(), prepareFrame: vi.fn(),
+      owns: actor => actor !== guard, combatEnabled: () => false, updateTravel: vi.fn(),
+    }
+    const h = combatFixture({ simulation: { airPatrol: () => air, residents: [resident] } })
+    h.combat.update(.02, 0, 1)
+    expect(guard.beginExternalThreat).toHaveBeenCalledOnce()
+    expect(guard.setMissionCombatTarget).toHaveBeenLastCalledWith(enemy)
+    mount.group.position.set(250, 25, 0); ground.group.position.set(260, 25, 0)
+    h.combat.update(.25, 0, 1.25)
+    expect(guard.endExternalThreat).toHaveBeenCalledOnce()
+    expect(h.combat.externalDefenders).not.toContain(guard)
+  })
+
   it('prepares sensors before mission flow, shares one grid, and keeps objective/friendly rosters unchanged', () => {
     const bandit = combatActor('outskirts:bandit:a:0', Faction.BANDIT)
     const enemy = combatActor('outskirts:cavalry:a:0', Faction.ENEMY)

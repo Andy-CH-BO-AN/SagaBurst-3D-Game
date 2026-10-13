@@ -1,3 +1,4 @@
+import type { EnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
 import type { CareerDuelTier, CareerDuelCommanderHome } from './CareerDuelState'
 import { cloneOfficialCommandAuthority, cloneTownCommandSquad, type TownCommandSquadState } from './CareerCommandAuthority'
 import type { TownEagleGarrisons } from '../town/TownEagleGarrisonState'
@@ -104,6 +105,7 @@ export interface CareerProfile {
   duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, CareerDuelTier>>
   townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[]; authorizedTownCommandActorIds?: string[] }
 
+  enemyEaglePatrols?: Partial<Record<CharacterFaction, EnemyEaglePatrolCheckpoint>>
   townEagleGarrisons?: TownEagleGarrisons
   inventory?: CareerInventory
   ownedWeapons: string[]
@@ -438,6 +440,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...profile,
     ...(profile.townCommanderRecovery ? { townCommanderRecovery: { ...profile.townCommanderRecovery } } : {}),
     ...(profile.townCommandSquad ? { townCommandSquad: cloneTownCommandSquad(profile.townCommandSquad) } : {}),
+    ...(profile.enemyEaglePatrols ? { enemyEaglePatrols: structuredClone(profile.enemyEaglePatrols) } : {}),
     ...(profile.townEagleGarrisons ? { townEagleGarrisons: structuredClone(profile.townEagleGarrisons) } : {}),
     ...(profile.playerAerialState ? { playerAerialState: structuredClone(profile.playerAerialState) } : {}),
     ...(profile.townOutskirts ? { townOutskirts: structuredClone(profile.townOutskirts) } : {}),
