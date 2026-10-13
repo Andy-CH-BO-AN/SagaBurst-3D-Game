@@ -6,7 +6,7 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { createCaptainGateDefenseMission } from '../../src/career/CaptainMissionCatalog'
 import { TownDefenseController, type TownDefenseResident } from '../../src/career/TownDefenseController'
 import { resolveCareerTownSceneContext, type CareerTownSceneRosterEntry } from '../../src/career/CareerFieldSceneContext'
-import { townRoster, townAssaultObjectiveRoster, townMilitaryEquipment } from '../../src/town/TownRules'
+import { townRoster, townAssaultObjectiveRoster, townMilitaryEquipment, townSitePoint } from '../../src/town/TownRules'
 import { townCommanderSpec } from '../../src/town/TownCommander'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
 import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
@@ -19,13 +19,14 @@ import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolCon
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { NpcSpawnScheduler, gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
-import { MountType, type Mount } from '../../src/world/Mount'
+import { MountType, Mount } from '../../src/world/Mount'
 import type { Player } from '../../src/player/Player'
 import { recording, resetSpawnRecording } from '../helpers/npcSpawnRecording'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { addCareerItem } from '../../src/career/CareerInventory'
-import { changeTownEquipment, resolveTownActorEquipment } from '../../src/career/CareerTownEquipment'
+import { changeTownEquipment, bulkCareerEquipment, townEquipmentSquads, resolveTownActorEquipment } from '../../src/career/CareerTownEquipment'
 import { NpcSpawnTestDriver, installNpcLoadingFrames, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
+import { registerTownNativeMount } from '../../src/town/TownEquipmentRuntime'
 
 vi.mock('../../src/world/NPC', async original => ({ ...(await original<typeof import('../../src/world/NPC')>()),
   NPC: (await import('../helpers/npcSpawnRecording')).RecordingNpc }))
@@ -44,6 +45,7 @@ vi.mock('../../src/town/TownWorld', () => ({ TownWorld: class {
     this.eagleGarrison = resolveTownEagleGarrison(this.eagleTraining)
   }
   addServiceMarker() { return new THREE.Sprite() }
+  addTarget(x: number, z: number) { return new THREE.Vector3(x, getTerrainHeight(x, z), z) }
   dispose() {}
 } }))
 
@@ -155,6 +157,90 @@ describe('saved Town equipment materialization wiring', () => {
     expect(origin.homeMount).toBeUndefined(); expect(origin.npc.loadout?.mountId).toBeNull()
     expect(recipient.homeMount).toBe(recording.mounts[0]); expect(recipient.npc.mount).toBe(recipient.homeMount)
     expect(resolveTownActorEquipment(town.profile, 'roman', 'commander').refs.mount?.nativeId).toBe('roman/captain/mount')
+  })
+  function transferredRangerCatProfile() {
+    let profile = createCareerProfile('roman'); profile.rank = 'commander'; profile.totalMerit = 60000; profile.availableMerit = 60000
+    const store = new CareerProfileStore(new MemoryStorage())
+    const squad = townEquipmentSquads(profile).find(squad => squad.actorIds.includes('ranger'))!
+    const riderId = squad.actorIds.find(id => resolveTownActorEquipment(profile, 'roman', id).refs.mount?.itemId === 'horse')!
+    const context = { townFaction: 'roman' as const, peaceful: true, personalState: 'RESERVE' as const, safeActorIds: new Set(['ranger', riderId]) }
+    const save = (next: CareerProfile) => { if (!store.save(next)) return false; profile = store.load()!; return true }
+    addCareerItem(profile, 'horse', 1)
+    expect(changeTownEquipment(() => profile, context, 'ranger', 'mount', 'horse', save).changed).toBe(true)
+    expect(bulkCareerEquipment(() => profile, context, squad.id, 'mount', save).changedActorIds).toEqual([riderId])
+    expect(resolveTownActorEquipment(profile, 'roman', riderId).refs.mount?.nativeId).toBe('roman/ranger/mount')
+    expect(resolveTownActorEquipment(profile, 'roman', 'ranger').refs.mount).toEqual({ itemId: 'horse', source: 'inventory' })
+    return { profile, riderId, store }
+  }
+  function sharedCatBeforeResidentInitialization(town: ConstructorTown) {
+    // Supply initialize()'s pre-created native resource; actual initializeResidents owns reuse, placement and binding.
+    const spot = townSitePoint('stable', -3, 8)
+    const cat = new Mount(town.scene, MountType.BLACK_CAT, spot.x, spot.z)
+    cat.group.rotation.y = spot.yaw; cat.reservedForTown = true; cat.currentHp = 73
+    registerTownNativeMount(cat, 'roman/ranger/mount')
+    Object.assign(town, { cat }); town.mounts.push(cat)
+    return cat
+  }
+  it.each(['peaceful', 'accepted-defense'] as const)('restores the transferred native Cat at its current holder in %s while Maki keeps the bought Horse', async phase => {
+    // Two recorded NPCs and two recorded mounts; zero real actor, TownWorld or GLB construction.
+    let { profile, riderId, store } = transferredRangerCatProfile()
+    const savedPosition = { x: 12, z: 24, yaw: .4 }
+    if (phase === 'accepted-defense') {
+      const mission = profile.activeMission = savedDefense('roman').activeMission!
+      mission.targetActorIds = Array.from({ length: 120 }, (_, index) => `${mission.id}:siege:${index}`)
+      mission.deadTargetActorIds = [...mission.targetActorIds]
+      mission.siege!.rosterCreated = true; mission.siege!.attackerIds = [...mission.targetActorIds]
+      mission.officialSquad!.members = { [riderId]: { status: 'deployed', hp: 82, position: savedPosition,
+        mount: { hp: 41, mounted: true, position: savedPosition } } }
+      expect(store.save(profile)).toBe(true); profile = store.load()!
+    }
+    const town = constructTown(profile), sharedCat = sharedCatBeforeResidentInitialization(town)
+    const placement = vi.spyOn(sharedCat.group.position, 'set')
+    const entries = town.residentRoster.filter(entry => ['ranger', riderId].includes(entry.spec.id))
+    const spec = entries.find(entry => entry.spec.id === riderId)!.spec
+    expect(sharedCat.group.position.x).not.toBe(spec.x)
+    installNpcLoadingFrames(gameplayNpcSpawnDriver)
+    await town.initializeResidents(entries, resolveCareerTownSceneContext(town.profile), () => {})
+    const rider = town.residents.find(resident => resident.spec.id === riderId)!
+    const maki = town.residents.find(resident => resident.spec.id === 'ranger')!
+    expect(recording.npcs).toHaveLength(2); expect(recording.mounts).toHaveLength(2)
+    expect(recording.mounts.filter(mount => mount.type === MountType.BLACK_CAT)).toHaveLength(1)
+    expect(rider.homeMount).toBe(sharedCat); expect(rider.npc.mount).toBe(sharedCat)
+    // The recording boundary cannot simulate locomotion; verify the mount position supplied to the real binding protocol.
+    expect(sharedCat.group.position).toEqual(new THREE.Vector3(spec.x, getTerrainHeight(spec.x, spec.z), spec.z))
+    expect(placement).toHaveBeenCalledWith(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
+    expect(placement.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(rider.npc.mountVehicle).mock.invocationCallOrder[0])
+    expect(sharedCat.group.rotation.y).toBe(spec.yaw ?? Math.PI); expect(sharedCat.currentHp).toBe(73)
+    expect(maki.homeMount).not.toBe(sharedCat); expect(maki.homeMount!.type).toBe(MountType.HORSE)
+    expect(maki.npc.mount).toBe(maki.homeMount); expect(sharedCat.riderNpc).toBe(rider.npc)
+    expect(town.profile.inventory!.quantities.horse).toBe(1)
+    if (phase === 'accepted-defense') {
+      const group = new THREE.Group(), player = { group, dead: false, hp: 100, staminaValue: 100,
+        combatPosition: group.position, setHp: vi.fn(), setStamina: vi.fn(), dispose: vi.fn() } as unknown as Player
+      const scheduler = new NpcSpawnScheduler(), driver = new NpcSpawnTestDriver(scheduler)
+      const defense = new TownDefenseController(town.scene, town.residents, () => player, () => town.profile,
+        next => town.commit(next), sharedCat, new NavigationWorld(TOWN_NAVIGATION_BOUNDS), {
+          gates: new Map(), obstacles: [], closureBodies: () => [], patrol: new TownCavalryPatrolController(town.residents),
+        }, scheduler)
+      cleanup.push(() => defense.dispose()); Object.assign(town, { store })
+      expect(defense.startActiveMission()).toBe(true); driver.drain()
+      expect(sharedCat.group.position).toEqual(new THREE.Vector3(savedPosition.x, getTerrainHeight(savedPosition.x, savedPosition.z), savedPosition.z))
+      expect(sharedCat.group.rotation.y).toBe(savedPosition.yaw); expect(sharedCat.currentHp).toBe(41)
+      expect(rider.npc.mount).toBe(sharedCat); expect(maki.npc.mount).toBe(maki.homeMount)
+      expect(recording.npcs).toHaveLength(2); expect(recording.mounts).toHaveLength(2)
+    }
+  })
+  it('keeps the untransferred native Maki Cat at its authored stable placement without binding it early', async () => {
+    const profile = createCareerProfile('roman')
+    profile.townEquipment = { roman: { version: 1, actors: {}, nativeReserve: [] } }
+    const store = new CareerProfileStore(new MemoryStorage()); expect(store.save(profile)).toBe(true)
+    const town = constructTown(store.load()!), sharedCat = sharedCatBeforeResidentInitialization(town)
+    const before = sharedCat.group.position.clone()
+    installNpcLoadingFrames(gameplayNpcSpawnDriver)
+    await town.initializeResidents(town.residentRoster.filter(entry => entry.spec.id === 'ranger'), resolveCareerTownSceneContext(town.profile), () => {})
+    expect(recording.npcs).toHaveLength(1); expect(recording.mounts).toHaveLength(1)
+    expect(town.residents[0].homeMount).toBe(sharedCat); expect(town.residents[0].npc.mount).toBeNull()
+    expect(sharedCat.group.position).toEqual(before); expect(sharedCat.currentHp).toBe(73)
   })
   it('initializes a configured civilian as native ranged AI while retaining civilian category and fixed census identity', async () => {
     const town = constructTown(configuredProfile('civilian-0', 'ranged', 'maki-ranger-bow-ranged'))

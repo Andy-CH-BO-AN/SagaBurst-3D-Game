@@ -527,10 +527,16 @@ export class TownScene {
         if (!spec.eagle && equippedMount) {
           const nativeRef = careerEquipment?.refs.mount ?? (equipmentActorIds.has(spec.id)
             ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id).refs.mount : null)
-          const mount = findTownNativeMount(this.mounts, nativeRef) ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z))
+          const reused = findTownNativeMount(this.mounts, nativeRef)
+          const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z))
           if (nativeRef?.source === 'native') registerTownNativeMount(mount, nativeRef.nativeId!)
           mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI
-          if (spec.role !== 'ranger' || mount !== this.cat) npc.mountVehicle(mount)
+          if (spec.role !== 'ranger' || mount !== this.cat) {
+            // The shared native Cat starts at the stable; transferred holders need their own spawn baseline before binding.
+            // Saved command/mission positions are restored after resident initialization.
+            if (reused) mount.group.position.set(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
+            npc.mountVehicle(mount)
+          }
           homeMount = mount
         }
         if (!context.missionOnlyResidents && NAMES[spec.role] && spec.role !== 'civilian') { npc.group.rotation.y = spec.yaw ?? 0; this.serviceMarkers.set(spec.id, this.world.addServiceMarker(npc.group, ranger ? 1.9 : hero ? 2 : 2.2)) }
@@ -1230,6 +1236,7 @@ export class TownScene {
           || homeMount?.isAirborne || homeMount?.dead || homeMount?.riderPlayer
           || homeMount?.riderNpc && homeMount.riderNpc !== npc
           || npc.combatOwnership === 'mission-official' || npc.combatOwnership === 'player-personal'
+          || npc.combatOwnership === 'town-eagle-command' || this.eagleGarrison?.isPlayerCommandOwned(npc)
           || npc.combatOwnership === 'player-civilian' && ['attack', 'charge'].includes(npc.tacticalOrder)
           || this.profile.townCommandSquad?.members?.[spec.id]?.status === 'deployed' && ['attack', 'charge'].includes(npc.tacticalOrder)
           || this.patrol?.combatEnabled(npc) || this.patrol?.isRefitting(spec.id)

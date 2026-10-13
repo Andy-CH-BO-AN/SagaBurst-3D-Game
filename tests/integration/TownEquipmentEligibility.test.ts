@@ -6,6 +6,9 @@ import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { AIState, Faction, type NPC } from '../../src/world/NPC'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
 import type { TownActorSpec } from '../../src/town/TownRules'
+import type { TownEagleGarrisonController } from '../../src/town/TownEagleGarrisonController'
+import type { TownEagleDuty } from '../../src/town/TownEagleGarrisonState'
+import type { Mount } from '../../src/world/Mount'
 import type { CombatOwnership } from '../../src/combat/CombatFaction'
 import { changeTownEquipment, type TownEquipmentContext } from '../../src/career/CareerTownEquipment'
 
@@ -16,18 +19,35 @@ function fixture(id = 'cavalry-training:melee_cavalry:0') {
       actorIds: [id], contribution: emptyPersonalContribution(), authorized: true,
       state: 'TRAINING' as 'TRAINING' | 'RETURNING', sceneKey: 'town-home' },
   }
-  const npc = { combatantId: id, dead: false, isFalling: false, inCombat: false, mount: null,
-    faction: Faction.PLAYER, hostileToPlayer: false, tacticalOrder: 'defend', combatOwnership: 'town-command' as CombatOwnership }
+  const npc = { combatantId: id, currentState: AIState.IDLE, dead: false, isFalling: false, inCombat: false,
+    mount: null as Pick<Mount, 'isAirborne'> | null,
+    faction: Faction.PLAYER, hostileToPlayer: false, tacticalOrder: 'defend', combatOwnership: 'town-command' as CombatOwnership | undefined }
   const patrol: Pick<TownCavalryPatrolController, 'isRefitting' | 'combatEnabled'> = { isRefitting: () => false, combatEnabled: () => false }
+  const eagleGarrison: Pick<TownEagleGarrisonController, 'dutyFor' | 'isPlayerCommandOwned'> = {
+    dutyFor: () => undefined, isPlayerCommandOwned: () => false,
+  }
   const state = { profile, residents: [{ spec: { id }, npc }], event: { hostile: false, allActors: new Map([[id, npc]]) },
     player: { dead: false }, personalSquad: { state: 'RESERVE' },
     canRefitSquad: () => true, patrol, civilianCommand: { returningActorIds: [] as string[] },
-    eagleGarrison: { dutyFor: () => undefined as string | undefined },
+    eagleGarrison,
   }
   // Only the renderer-free eligibility method is exercised; actor and mount behavior have their own real-actor owners.
   const town = Object.assign(Object.create(TownScene.prototype), state) as typeof state & { townEquipmentContext(): TownEquipmentContext; usesNativeRangerCat(): boolean }
   return { id, npc, town, read: () => town.townEquipmentContext() }
 }
+
+/** Coordinator state is supplied at the caller seam; physical eagle return/refit is owned by TownEagleGarrisonRuntime. */
+function groundedEagleFixture(duty: TownEagleDuty) {
+  const f = fixture('town-eagle-rider:1')
+  f.npc.combatOwnership = undefined; f.npc.faction = Faction.TOWN
+  f.npc.mount = { isAirborne: false }
+  f.town.eagleGarrison.dutyFor = () => duty
+  return f
+}
+
+const commandOwnedEagles = (['mounted-waiting', 'standby', 'resting'] as const).flatMap(duty => [
+  { duty, owner: 'actor tag' as const }, { duty, owner: 'garrison coordinator' as const },
+])
 
 describe('Town equipment actual caller readiness and ownership', () => {
   it('allows the permanently authorized peaceful training residents instead of treating Town command ownership as a mission lock', () => {
@@ -53,6 +73,38 @@ describe('Town equipment actual caller readiness and ownership', () => {
     squad.state = 'PATROLLING'
     expect(f.read().safeActorIds.has(f.id)).toBe(true)
     squad.state = 'PAUSED'
+    expect(f.read().safeActorIds.has(f.id)).toBe(true)
+  })
+  it.each(commandOwnedEagles)('keeps a grounded IDLE eagle in $duty unavailable while its $owner owns commands', ({ duty, owner }) => {
+    const f = groundedEagleFixture(duty)
+    if (owner === 'actor tag') f.npc.combatOwnership = 'town-eagle-command'
+    else f.town.eagleGarrison.isPlayerCommandOwned = () => true
+
+    expect(f.npc.currentState).toBe(AIState.IDLE)
+    expect(f.npc.inCombat).toBe(false)
+    expect(f.npc.mount?.isAirborne).toBe(false)
+    expect(f.read().safeActorIds.has(f.id)).toBe(false)
+  })
+  it('allows grounded native eagle duties when all player command ownership is absent', () => {
+    const f = groundedEagleFixture('standby')
+    for (const duty of ['mounted-waiting', 'standby', 'resting'] as const) {
+      f.town.eagleGarrison.dutyFor = () => duty
+      expect(f.read().safeActorIds.has(f.id), `unowned native eagle with ${duty} duty`).toBe(true)
+    }
+  })
+  it('keeps a dismissed eagle unavailable through native return and refit readiness before allowing standby', () => {
+    const f = groundedEagleFixture('mounted-waiting')
+    f.npc.combatOwnership = 'town-eagle-command'; f.town.eagleGarrison.isPlayerCommandOwned = () => true
+    expect(f.read().safeActorIds.has(f.id)).toBe(false)
+
+    f.npc.combatOwnership = undefined; f.town.eagleGarrison.isPlayerCommandOwned = () => false
+    for (const duty of ['return-queue', 'returning', 'walking-to-standby'] as const) {
+      f.town.eagleGarrison.dutyFor = () => duty
+      expect(f.read().safeActorIds.has(f.id), `released eagle with native ${duty} duty`).toBe(false)
+    }
+    f.town.eagleGarrison.dutyFor = () => 'standby'; f.town.canRefitSquad = () => false
+    expect(f.read().safeActorIds.has(f.id)).toBe(false)
+    f.town.canRefitSquad = () => true
     expect(f.read().safeActorIds.has(f.id)).toBe(true)
   })
   it.each(['dead', 'isFalling', 'inCombat'] as const)('excludes a %s resident without spawning or altering any actor', flag => {
