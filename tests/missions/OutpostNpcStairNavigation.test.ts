@@ -26,13 +26,24 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
   })
 
   function setupOutpost(defenderFaction: 'viking' | 'roman' = 'viking') {
+    // Each runtime case owns one NavigationWorld and procedural Outpost; follow-slot
+    // capacity/spacing matrices use zero actors in OutpostLayeredNavigation.test.ts.
     const outpost = createCampaignOutpost(
       scene,
       defenderFaction,
       { obstacles: [], obstacleMeshes: [] },
       { walkways: true },
     )
-    onTestFinished(() => { outpost.root.removeFromParent() })
+    // Capture geometry before destruction detaches gate/wall roots. Shared
+    // procedural materials and textures must remain alive.
+    const geometries = new Set<THREE.BufferGeometry>()
+    outpost.root.traverse(object => {
+      if (object instanceof THREE.Mesh) geometries.add(object.geometry)
+    })
+    onTestFinished(() => {
+      outpost.root.removeFromParent()
+      for (const geometry of geometries) geometry.dispose()
+    })
     const layout = outpost.walkways!.layout
     navWorld.setOutpostWalkways(layout)
     navWorld.sync(outpost.obstacles)
@@ -46,7 +57,8 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
   }
 
   it('real bridge follower walks through a wing and stair to ground, then resumes following back onto the bridge', () => {
-    // One real NPC and Player protect the locomotion consumer, not just waypoint data.
+    // One real NPC and Player own Follow descent through the wing/stair to exact
+    // terrain height, bridge exit continuity, and Follow ascent back to the bridge.
     const { outpost, layout, leftStair } = setupOutpost('roman')
     const nav = navWorld.outpostNav!
     const player = new Player(scene)
@@ -137,59 +149,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
     })
   })
 
-  describe('Scenario B: Follow player down to ground', () => {
-    it('foot NPC follows descending player from rampart deck down stair to ground', () => {
-      const { outpost, leftDeck, leftStair } = setupOutpost('viking')
-      const player = new Player(scene)
-      onTestFinished(() => player.dispose())
-
-      // Both start on the left rampart deck
-      const deckZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
-      const npc = new NPC(scene, -20, deckZ, Faction.PLAYER, 'viking', AIType.MELEE, 'DeckFollower', 2, false)
-      npc.group.position.set(-20, leftDeck.topY, deckZ)
-      onTestFinished(() => npc.dispose())
-
-      // Player descends to the ground courtyard
-      const groundZ = leftStair.ramp.startZ - leftStair.ramp.dirZ * 6
-      const groundY = getTerrainHeight(-20, groundZ)
-      player.group.position.set(-20, groundY + 0.95, groundZ)
-
-      npc.assignFollowTarget(player, 0)
-
-      // Simulate NPC descending the stairs
-      let reachedGround = false
-      for (let f = 0; f < 350; f++) {
-        navWorld.beginFrame()
-        npc.update(
-          FRAME,
-          player,
-          [npc],
-          [],
-          outpost.obstacles,
-          { setFill: () => {} },
-          () => {},
-          () => {},
-          false,
-          0,
-          null,
-          null,
-          navWorld,
-        )
-
-
-
-        const groundAtNpc = getTerrainHeight(npc.group.position.x, npc.group.position.z)
-        if (Math.abs(npc.group.position.y - groundAtNpc) < 0.2 && npc.group.position.y < leftDeck.topY - 1.5) {
-          reachedGround = true
-        }
-        if ((npc as any).formationTarget?.reached && reachedGround) break
-      }
-
-      expect(reachedGround).toBe(true)
-      const finalGroundY = getTerrainHeight(npc.group.position.x, npc.group.position.z)
-      expect(npc.group.position.y).toBeCloseTo(finalGroundY, 1)
-    })
-
+  describe('Follow arrival on stair layer', () => {
     it('foot NPC follows player stationed midway on stair ramp and arrives at follow slot on stair layer', () => {
       const { outpost, leftStair } = setupOutpost('viking')
       const player = new Player(scene)

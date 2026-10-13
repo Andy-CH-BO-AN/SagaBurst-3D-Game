@@ -13,6 +13,41 @@ function placementHarness(...args: Parameters<typeof createFormationPlacementHar
   return fixture
 }
 
+/** 0 real NPC/Mount, 0 GLB/TownWorld/full terrain; one real Outpost and NavigationWorld.
+ * Participants are placement records. Existing terrain-hit spies supply the external pointer input.
+ */
+function campaignPlacementFixture({ walkways = false, openGate = false } = {}) {
+  const scene = new THREE.Scene()
+  const terrainMaterial = new THREE.MeshBasicMaterial()
+  const terrainMesh = new THREE.Mesh(new THREE.BufferGeometry(), terrainMaterial)
+  const ownedGeometries = new Set<THREE.BufferGeometry>([terrainMesh.geometry])
+  onTestFinished(() => {
+    // FormationPreview owns its line geometry; its marker/center geometries stay shared.
+    scene.traverse(object => {
+      if (object instanceof THREE.Line) ownedGeometries.add(object.geometry)
+    })
+    for (const geometry of ownedGeometries) geometry.dispose()
+    terrainMaterial.dispose()
+    // Outpost materials and the FormationPreview's marker geometries are shared caches.
+    scene.clear()
+  })
+
+  try {
+    const outpost = createCampaignOutpost(scene, 'roman', undefined, { walkways })
+    if (openGate) outpost.gateController.open()
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    if (outpost.walkways) navigation.setOutpostWalkways(outpost.walkways.layout)
+    return { scene, terrainMesh, outpost, navigation }
+  } finally {
+    // Capture only scenery built here, before FormationController adds shared preview resources.
+    // This also owns partial scenery if setup throws.
+    scene.traverse(object => {
+      if (object instanceof THREE.Mesh) ownedGeometries.add(object.geometry)
+    })
+  }
+}
+
 function romanRegion(): FormationRegion {
   const placement = getCampaignOutpostPlacement('roman')
   return {
@@ -40,19 +75,8 @@ describe('Campaign formation placement wiring', () => {
   })
 
   it('keeps formation slots clear of a real campaign tent', () => {
-    const scene = new THREE.Scene()
-    onTestFinished(() => {
-      const geometries = new Set<THREE.BufferGeometry>()
-      scene.traverse(object => { if (object instanceof THREE.Mesh) geometries.add(object.geometry) })
-      for (const geometry of geometries) geometry.dispose()
-      // Procedural materials are shared by the environment's cache.
-      scene.clear()
-    })
+    const { outpost, navigation } = campaignPlacementFixture()
     const kind = 'tent'
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain)
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
     const piece = outpost.damageableObstacles.find(obstacle => obstacle.kind === kind)!
     const obstacle = outpost.obstacles.find(candidate => candidate.damageable === piece)!
     const center = obstacle.box.getCenter(new THREE.Vector3())
@@ -70,34 +94,11 @@ describe('Campaign formation placement wiring', () => {
     expect(placement?.slots.every(slot => navigation.areConnected(participants[0].combatPosition, slot))).toBe(true)
   })
 
-  it('keeps all slots on the Roman defenders side of the outpost wall', () => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain)
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
-    const participants = Array.from({ length: 5 }, (_, index) => {
-      const npc = placementParticipant(`roman-${index}`, -30 + index)
-      npc.combatPosition.z = -140
-      return npc
-    })
-    const { solve } = placementHarness(outpost.obstacles, participants, navigation, romanRegion())
-    const center = new THREE.Vector3(-44, getTerrainHeight(-44, -140), -140)
-    const placement = solve(center, 'all')
-
-    expect(placement).not.toBeNull()
-    expect(placement?.slots.every(slot => navigation.areConnected(participants[0].combatPosition, slot))).toBe(true)
-  })
-
   it.each([
     ['inside', -140],
     ['outside', -80],
   ] as const)('keeps a group entirely %s the closed gate', (_side, originZ) => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain)
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
+    const { outpost, navigation } = campaignPlacementFixture()
     const participants = Array.from({ length: 5 }, (_, index) => {
       const npc = placementParticipant(`p-${index}`, index - 2)
       npc.combatPosition.z = originZ
@@ -111,19 +112,14 @@ describe('Campaign formation placement wiring', () => {
   })
 
   it('rechecks the gate side if the gate closes between preview and confirmation', () => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain)
-    const navigation = new NavigationWorld()
-    outpost.gateController.open()
-    navigation.sync(outpost.obstacles)
+    const { scene, terrainMesh, outpost, navigation } = campaignPlacementFixture({ openGate: true })
     const participants = Array.from({ length: 5 }, (_, index) => {
       const npc = placementParticipant(`p-${index}`, index - 2)
       npc.combatPosition.z = -140
       return npc
     })
     const formation = new FormationController(scene, new THREE.PerspectiveCamera(), participants as any,
-      terrain.terrainMesh, outpost.obstacles, navigation, romanRegion())
+      terrainMesh, outpost.obstacles, navigation, romanRegion())
     onTestFinished(() => formation.cancelPlacement())
     const center = new THREE.Vector3(0, getTerrainHeight(0, -104), -104)
     vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: center }])
@@ -140,12 +136,7 @@ describe('Campaign formation placement wiring', () => {
     ['inside', -16, -156, true],
     ['outside', 0, -104, false],
   ] as const)('keeps every slot %s the outpost when the gate is open', (_side, x, z, inside) => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain)
-    outpost.gateController.open()
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
+    const { outpost, navigation } = campaignPlacementFixture({ openGate: true })
     const participants = Array.from({ length: 50 }, (_, index) => {
       const npc = placementParticipant(`roman-${index}`, index - 25)
       npc.combatPosition.z = -140
@@ -160,15 +151,10 @@ describe('Campaign formation placement wiring', () => {
     ) === inside)).toBe(true)
   })
 
-  it.each([
-    ['campfire', -16, -156],
-    ['side wall', -44, -140],
-  ] as const)('keeps all 50 Roman defenders together near the %s', (_name, x, z) => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain)
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
+  it('keeps all 50 Roman defenders together near the side wall', () => {
+    // Fifty placement records exercise the whole-formation width fallback beside the wall.
+    const x = -44, z = -140
+    const { outpost, navigation } = campaignPlacementFixture()
     const participants = Array.from({ length: 50 }, (_, index) => {
       const npc = placementParticipant(`roman-${index}`, index - 25)
       npc.combatPosition.z = -140
@@ -184,18 +170,18 @@ describe('Campaign formation placement wiring', () => {
   })
 
   it('confirms the same narrowed formation shown to all 50 defenders near a campfire', () => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain)
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
+    const { scene, terrainMesh, outpost, navigation } = campaignPlacementFixture()
     const participants = Array.from({ length: 50 }, (_, index) => {
       const npc = placementParticipant(`roman-${index}`, index - 25)
       npc.combatPosition.z = -140
       return npc
     })
-    const formation = new FormationController(scene, new THREE.PerspectiveCamera(), participants as any,
-      terrain.terrainMesh, outpost.obstacles, navigation, romanRegion())
+    // Match the representative solver's +Z input while exercising the real preview caller.
+    const camera = new THREE.PerspectiveCamera()
+    camera.lookAt(0, 0, 1)
+    camera.updateMatrixWorld()
+    const formation = new FormationController(scene, camera, participants as any,
+      terrainMesh, outpost.obstacles, navigation, romanRegion())
     onTestFinished(() => formation.cancelPlacement())
     const center = new THREE.Vector3(-16, getTerrainHeight(-16, -156), -156)
     vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: center }])
@@ -203,20 +189,19 @@ describe('Campaign formation placement wiring', () => {
 
     formation.beginPlacement('all')
     const shown = preview.mock.calls.at(-1)?.[1] as THREE.Vector3[]
+    // This owns both campfire clearance/capacity and the preview-to-confirmation handoff.
+    expect(shown).toHaveLength(50)
+    expect(shown.every(slot => !(formation as any).isSlotBlocked(slot, false))).toBe(true)
+    expect(shown.every(slot => navigation.areConnected(participants[0].combatPosition, slot))).toBe(true)
     expect((formation as any).previewColumns).toBeLessThan(FORMATION_ALL_MAX_COLUMNS)
-    expect(formation.confirmPlacement().accepted).toBe(true)
+    expect(formation.confirmPlacement()).toMatchObject({ accepted: true, count: 50 })
     const assigned = participants.map(npc => npc.assignFormationTarget.mock.calls[0][1] as THREE.Vector3)
     expect(assigned.map(slot => `${slot.x},${slot.z}`).sort())
       .toEqual(shown.map(slot => `${slot.x},${slot.z}`).sort())
   })
 
   it('places foot soldiers in a 1D corridor on the elevated rampart deck', () => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain, { walkways: true })
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
-    navigation.setOutpostWalkways(outpost.walkways!.layout)
+    const { scene, terrainMesh, outpost, navigation } = campaignPlacementFixture({ walkways: true })
     const deck = outpost.walkways!.layout.decks.find(d => d.side === -1)!
     const participants = Array.from({ length: 6 }, (_, index) => {
       const npc = placementParticipant(`roman-foot-${index}`, index - 3)
@@ -227,7 +212,7 @@ describe('Campaign formation placement wiring', () => {
       scene,
       new THREE.PerspectiveCamera(),
       participants as any,
-      terrain.terrainMesh,
+      terrainMesh,
       outpost.obstacles,
       navigation,
       romanRegion(),
@@ -254,12 +239,7 @@ describe('Campaign formation placement wiring', () => {
   })
 
   it('rejects rampart deck placement when participants include mounted units', () => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain, { walkways: true })
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
-    navigation.setOutpostWalkways(outpost.walkways!.layout)
+    const { scene, terrainMesh, outpost, navigation } = campaignPlacementFixture({ walkways: true })
     const deck = outpost.walkways!.layout.decks.find(d => d.side === -1)!
     const participants = Array.from({ length: 3 }, (_, index) => {
       const npc = placementParticipant(`cavalry-${index}`, index)
@@ -271,7 +251,7 @@ describe('Campaign formation placement wiring', () => {
       scene,
       new THREE.PerspectiveCamera(),
       participants as any,
-      terrain.terrainMesh,
+      terrainMesh,
       outpost.obstacles,
       navigation,
       romanRegion(),
@@ -289,12 +269,7 @@ describe('Campaign formation placement wiring', () => {
   })
 
   it('rejects rampart deck placement when participant count exceeds deck capacity', () => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain, { walkways: true })
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
-    navigation.setOutpostWalkways(outpost.walkways!.layout)
+    const { scene, terrainMesh, outpost, navigation } = campaignPlacementFixture({ walkways: true })
     const deck = outpost.walkways!.layout.decks.find(d => d.side === -1)!
     const participants = Array.from({ length: 50 }, (_, index) => {
       const npc = placementParticipant(`foot-${index}`, index)
@@ -305,7 +280,7 @@ describe('Campaign formation placement wiring', () => {
       scene,
       new THREE.PerspectiveCamera(),
       participants as any,
-      terrain.terrainMesh,
+      terrainMesh,
       outpost.obstacles,
       navigation,
       romanRegion(),
@@ -322,12 +297,7 @@ describe('Campaign formation placement wiring', () => {
   })
 
   it('excludes rampart deck hit when ray is cast from underneath the platform looking up (P3 review)', () => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain, { walkways: true })
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
-    navigation.setOutpostWalkways(outpost.walkways!.layout)
+    const { scene, terrainMesh, outpost, navigation } = campaignPlacementFixture({ walkways: true })
     const deck = outpost.walkways!.layout.decks.find(d => d.side === -1)!
     const deckCenter = deck.slab.getCenter(new THREE.Vector3())
 
@@ -336,7 +306,7 @@ describe('Campaign formation placement wiring', () => {
       scene,
       new THREE.PerspectiveCamera(),
       participants as any,
-      terrain.terrainMesh,
+      terrainMesh,
       outpost.obstacles,
       navigation,
       romanRegion(),
@@ -392,12 +362,7 @@ describe('Campaign formation placement wiring', () => {
   })
 
   it('places foot soldiers in a 1D corridor on the elevated gate bridge (rampart_gate)', () => {
-    const scene = new THREE.Scene()
-    const terrain = createTerrain(scene)
-    const outpost = createCampaignOutpost(scene, 'roman', terrain, { walkways: true })
-    const navigation = new NavigationWorld()
-    navigation.sync(outpost.obstacles)
-    navigation.setOutpostWalkways(outpost.walkways!.layout)
+    const { scene, terrainMesh, outpost, navigation } = campaignPlacementFixture({ walkways: true })
     const bridge = outpost.walkways!.layout.bridge
 
     const participants = [
@@ -412,7 +377,7 @@ describe('Campaign formation placement wiring', () => {
       scene,
       new THREE.PerspectiveCamera(),
       participants as any,
-      terrain.terrainMesh,
+      terrainMesh,
       outpost.obstacles,
       navigation,
       romanRegion(),

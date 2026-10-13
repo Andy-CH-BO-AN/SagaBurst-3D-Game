@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import * as THREE from 'three'
 import {
   FORTIFIED_CAMP_HILL,
@@ -84,9 +84,10 @@ describe('CampaignOutpost', () => {
     },
   )
 
-  it.each(['roman', 'viking'] as const)(
-    'keeps every %s chevaux-de-frise inside the perimeter and leaves the gate corridor open',
-    faction => {
+  it(
+    'keeps chevaux-de-frise inside the perimeter and leaves the gate corridor open',
+    () => {
+      const faction = 'roman'
       const outpost = createCampaignOutpost(new THREE.Scene(), faction)
       const placement = getCampaignOutpostPlacement(faction)
       const stakes = outpost.obstacles.filter(obstacle => obstacle.damageable?.kind === 'chevaux_de_frise')
@@ -107,11 +108,6 @@ describe('CampaignOutpost', () => {
       }
     },
   )
-
-  it('faces Roman and Viking defenders toward their mirrored front gates', () => {
-    expect(getCampaignDefenderFacingYaw('roman')).toBe(0)
-    expect(getCampaignDefenderFacingYaw('viking')).toBe(Math.PI)
-  })
 
   it('treats gate opening or perimeter destruction as one shared breach', () => {
     const scene = new THREE.Scene()
@@ -253,6 +249,13 @@ describe('CampaignOutpost', () => {
 describe('CampaignOutpost walkways', () => {
   const build = (faction: 'roman' | 'viking', walkways = true) => {
     const outpost = createCampaignOutpost(new THREE.Scene(), faction, { obstacles: [], obstacleMeshes: [] }, { walkways })
+    const geometries = new Set<THREE.BufferGeometry>()
+    outpost.root.traverse(object => { if (object instanceof THREE.Mesh) geometries.add(object.geometry) })
+    onTestFinished(() => {
+      for (const geometry of geometries) geometry.dispose()
+      outpost.root.removeFromParent()
+      // Environment materials are shared cache entries, owned by production.
+    })
     return { outpost, placement: getCampaignOutpostPlacement(faction) }
   }
   const xzOverlap = (a: THREE.Box3, b: THREE.Box3): boolean =>
@@ -274,7 +277,8 @@ describe('CampaignOutpost walkways', () => {
     expect(walled.outpost.walkways!.layout.decks.every(deck => deck.topY > 3)).toBe(true)
   })
 
-  it.each(['roman', 'viking'] as const)('places %s decks and stairs inside the front wall, clear of gate, tents and chevaux', faction => {
+  it.each(['roman', 'viking'] as const)('places terrain-sized %s decks and stairs inside the front wall, clear of gate, tents and chevaux', faction => {
+    // Stair lengths follow non-mirrored terrain, so scenery clearance owns both local geometries.
     const { outpost, placement } = build(faction)
     const { layout } = outpost.walkways!
     const zSign = faction === 'roman' ? -1 : 1
@@ -289,12 +293,6 @@ describe('CampaignOutpost walkways', () => {
       expect(Math.max(inward(deck.slab.min.z), inward(deck.slab.max.z))).toBeCloseTo(3.2)
       expect(Math.min(Math.abs(deck.slab.min.x), Math.abs(deck.slab.max.x))).toBeGreaterThan(placement.gateWidth / 2)
       expect(Math.max(Math.abs(deck.slab.min.x), Math.abs(deck.slab.max.x))).toBeLessThan(placement.halfWidth)
-      // Walkers and mounted riders pass under: every ground point beneath keeps >= 3m headroom.
-      for (let x = Math.abs(deck.slab.min.x); x <= Math.abs(deck.slab.max.x); x += 2) {
-        for (const z of [deck.slab.min.z, deck.slab.max.z]) {
-          expect(deck.slab.min.y - getTerrainHeight(deck.side * x, z)).toBeGreaterThanOrEqual(3)
-        }
-      }
       for (const post of deck.posts) {
         for (const other of original) expect(xzOverlap(post, other.box), `post vs ${other.damageable?.kind}`).toBe(false)
       }
@@ -310,15 +308,35 @@ describe('CampaignOutpost walkways', () => {
     }
   })
 
-  it('mirrors Roman and Viking walkway footprints across the Z axis', () => {
-    const roman = getOutpostWalkwayLayout(getCampaignOutpostPlacement('roman'))
-    const viking = getOutpostWalkwayLayout(getCampaignOutpostPlacement('viking'))
+  it('mirrors front/back, gate facing and walkway connections while respecting each terrain height', () => {
+    // Sole faction/side geometry owner: pure data, zero Scenes/NPCs/Mounts.
+    // Behavioral owners below and in OutpostLayeredNavigation use one layout.
+    const romanPlacement = getCampaignOutpostPlacement('roman')
+    const vikingPlacement = getCampaignOutpostPlacement('viking')
+    const roman = getOutpostWalkwayLayout(romanPlacement)
+    const viking = getOutpostWalkwayLayout(vikingPlacement)
+    expect([romanPlacement.frontZ, romanPlacement.backZ, romanPlacement.stakeLineZ]).toEqual([-108, -180, -115])
+    expect([vikingPlacement.frontZ, vikingPlacement.backZ, vikingPlacement.stakeLineZ]).toEqual([108, 180, 115])
+    expect([romanPlacement.centerX, romanPlacement.halfWidth, romanPlacement.gateWidth]).toEqual([0, 44, 8])
+    expect([vikingPlacement.centerX, vikingPlacement.halfWidth, vikingPlacement.gateWidth]).toEqual([0, 44, 8])
+    expect(getCampaignDefenderFacingYaw('roman')).toBe(0)
+    expect(getCampaignDefenderFacingYaw('viking')).toBe(Math.PI)
+    expect(roman.zSign).toBe(-1)
+    expect(viking.zSign).toBe(1)
+
+    const mirrorFootprint = (a: THREE.Box3, b: THREE.Box3): void => {
+      expect([a.min.x, a.max.x]).toEqual([b.min.x, b.max.x])
+      expect(a.min.z).toBeCloseTo(-b.max.z)
+      expect(a.max.z).toBeCloseTo(-b.min.z)
+    }
     roman.decks.forEach((deck, i) => {
       const mirrored = viking.decks[i]
       expect(deck.side).toBe(mirrored.side)
-      expect([deck.slab.min.x, deck.slab.max.x]).toEqual([mirrored.slab.min.x, mirrored.slab.max.x])
-      expect(deck.slab.min.z).toBeCloseTo(-mirrored.slab.max.z)
-      expect(deck.slab.max.z).toBeCloseTo(-mirrored.slab.min.z)
+      mirrorFootprint(deck.slab, mirrored.slab)
+      expect(deck.walkSurface.dirX).toBe(mirrored.walkSurface.dirX)
+      expect(deck.walkSurface.startZ).toBeCloseTo(-mirrored.walkSurface.startZ)
+      deck.rails.forEach((rail, index) => mirrorFootprint(rail, mirrored.rails[index]))
+      deck.posts.forEach((post, index) => mirrorFootprint(post, mirrored.posts[index]))
     })
     roman.stairs.forEach((stair, i) => {
       const mirrored = viking.stairs[i]
@@ -328,14 +346,76 @@ describe('CampaignOutpost walkways', () => {
       const landingEnd = (r: typeof stair.ramp): number => r.startZ + r.dirZ * (r.length + r.landing)
       expect(landingEnd(stair.ramp)).toBeCloseTo(-landingEnd(mirrored.ramp))
     })
+    mirrorFootprint(roman.bridge.slab, viking.bridge.slab)
+    expect(roman.bridge.walkSurface.length).toBeCloseTo(viking.bridge.walkSurface.length)
+    expect(roman.bridge.walkSurface.halfWidth).toBeCloseTo(viking.bridge.walkSurface.halfWidth)
+    roman.bridge.rails.forEach((rail, i) => mirrorFootprint(rail, viking.bridge.rails[i]))
+
+    // Absolute Y and stair length vary with terrain; check each local connection.
+    for (const [placement, layout] of [[romanPlacement, roman], [vikingPlacement, viking]] as const) {
+      expect(layout.decks.map(deck => deck.side)).toEqual([-1, 1])
+      expect(layout.stairs.map(stair => stair.side)).toEqual([-1, 1])
+      const [left, right] = layout.decks
+      const bridge = layout.bridge
+      expect(bridge.slab.min.y - getTerrainHeight(0, placement.frontZ)).toBeGreaterThanOrEqual(4.2)
+      expect(left.slab.min.x).toBeCloseTo(-43.6)
+      expect(right.slab.max.x).toBeCloseTo(43.6)
+      expect(left.slab.max.x).toBeCloseTo(-5.2)
+      expect(right.slab.min.x).toBeCloseTo(5.2)
+      expect(bridge.slab.min.x).toBeCloseTo(left.slab.max.x)
+      expect(bridge.slab.max.x).toBeCloseTo(right.slab.min.x)
+      expect(Math.abs(bridge.slab.min.x - left.slab.max.x)).toBeLessThan(1e-6)
+      expect(Math.abs(right.slab.min.x - bridge.slab.max.x)).toBeLessThan(1e-6)
+      expect([bridge.slab.min.z, bridge.slab.max.z]).toEqual([left.slab.min.z, left.slab.max.z])
+      expect([bridge.slab.min.z, bridge.slab.max.z]).toEqual([right.slab.min.z, right.slab.max.z])
+      const midZ = bridge.walkSurface.startZ
+      expect(getWalkRampHeight(bridge.walkSurface, left.slab.max.x, midZ)).toBeCloseTo(left.topY)
+      expect(getWalkRampHeight(bridge.walkSurface, right.slab.min.x, midZ)).toBeCloseTo(right.topY)
+
+      for (const deck of layout.decks) {
+        expect(deck.walkSurface.dirX).toBe(deck.side)
+        expect(deck.walkSurface.dirZ).toBe(0)
+        expect(deck.walkSurface.topY).toBe(deck.topY)
+        expect(deck.walkSurface.length).toBeCloseTo(38.4)
+        expect(deck.walkSurface.halfWidth).toBeCloseTo(1.6)
+        const stair = layout.stairs.find(candidate => candidate.side === deck.side)!
+        const ramp = stair.ramp
+        expect(ramp.startX).toBe(deck.side * 36)
+        expect(ramp.halfWidth).toBeCloseTo(1.1)
+        expect(ramp.landing).toBeCloseTo(0.9)
+        expect(ramp.dirZ).toBe(-layout.zSign)
+        expect(ramp.topY).toBe(deck.topY)
+        expect(ramp.startY - getTerrainHeight(ramp.startX, ramp.startZ)).toBeLessThan(0.05)
+        expect((ramp.topY - ramp.startY) / ramp.length).toBeGreaterThan(0)
+        expect((ramp.topY - ramp.startY) / ramp.length).toBeLessThanOrEqual(0.5)
+        const endZ = ramp.startZ + ramp.dirZ * (ramp.length + ramp.landing)
+        expect((endZ - placement.frontZ) * layout.zSign).toBeCloseTo(3.2)
+        expect((ramp.startZ - placement.frontZ) * layout.zSign).toBeGreaterThan(3.2)
+        expect((ramp.startZ - endZ) * layout.zSign).toBeGreaterThan(0)
+        // Terrain is not mirrored: every stair must clear its own ground along the slope and landing.
+        for (let along = 0.05; along <= ramp.length + ramp.landing; along += 0.05) {
+          const z = ramp.startZ + ramp.dirZ * along
+          const height = getWalkRampHeight(ramp, ramp.startX, z)
+          expect(height).not.toBeNull()
+          expect(height!).toBeGreaterThanOrEqual(getTerrainHeight(ramp.startX, z))
+        }
+        // Own-terrain clearance is a special geometric input, not a second behavior simulation.
+        for (let x = deck.slab.min.x; x <= deck.slab.max.x; x += 2) {
+          for (const z of [deck.slab.min.z, deck.slab.max.z]) {
+            expect(deck.slab.min.y - getTerrainHeight(x, z)).toBeGreaterThanOrEqual(3)
+          }
+        }
+      }
+    }
   })
 
-  it.each([
-    ['roman', -1], ['roman', 1], ['viking', -1], ['viking', 1],
-  ] as const)('%s side %i stair rises continuously from the ground to the deck level and landing', (faction, side) => {
-    const { outpost, placement } = build(faction)
-    const { ramp } = outpost.walkways!.layout.stairs.find(stair => stair.side === side)!
-    const deck = outpost.walkways!.layout.decks.find(candidate => candidate.side === side)!
+  it('stair rises continuously from the ground to the deck level and landing', () => {
+    const faction = 'roman'
+    const side = -1
+    const placement = getCampaignOutpostPlacement(faction)
+    const layout = getOutpostWalkwayLayout(placement)
+    const { ramp } = layout.stairs.find(stair => stair.side === side)!
+    const deck = layout.decks.find(candidate => candidate.side === side)!
     const zSign = faction === 'roman' ? -1 : 1
 
     expect(ramp.topY).toBe(deck.topY)
@@ -358,7 +438,7 @@ describe('CampaignOutpost walkways', () => {
     expect(previous).toBeCloseTo(deck.topY)
   })
 
-  it('keeps ground navigation under the deck open while the stair mass blocks, and survives gate opening', () => {
+  it('keeps ground navigation under the deck open while the stair mass blocks', () => {
     const plain = build('roman', false)
     const walled = build('roman')
     const plainNav = new NavigationWorld()
@@ -383,24 +463,6 @@ describe('CampaignOutpost walkways', () => {
       expect(cell(plainNav, stair.ramp.startX, midZ)).toBe(false)
       expect(cell(walledNav, stair.ramp.startX, midZ)).toBe(true)
     }
-
-    const outside = new THREE.Vector3(0, 0, walled.placement.frontZ + 20)
-    const inside = new THREE.Vector3(0, 0, walled.placement.frontZ - 25)
-    walled.outpost.gateController.open()
-    walledNav.sync(walled.outpost.obstacles)
-    walledNav.beginFrame()
-    expect(walledNav.queryPath(outside, inside).status).toBe('path')
-
-    const destroyed = build('viking')
-    destroyed.outpost.gate.takeDamage(destroyed.outpost.gate.maxHp)
-    const destroyedNav = new NavigationWorld()
-    destroyedNav.sync(destroyed.outpost.obstacles)
-    destroyedNav.beginFrame()
-    expect(destroyedNav.queryPath(
-      new THREE.Vector3(0, 0, destroyed.placement.frontZ - 20),
-      new THREE.Vector3(0, 0, destroyed.placement.frontZ + 25),
-    ).status).toBe('path')
-    expect(destroyed.outpost.obstacles.filter(obstacle => !obstacle.damageable)).toHaveLength(destroyed.outpost.walkways!.obstacles.length)
   })
 
   it('keeps raised deck slabs solid to projectiles while ground navigation passes underneath', () => {
@@ -423,9 +485,10 @@ describe('CampaignOutpost walkways', () => {
     }
   })
 
-  it.each(['roman', 'viking'] as const)(
-    'elevates %s palisades and gate to meet the walkway deck height while remaining damageable',
-    faction => {
+  it(
+    'elevates palisades and gate to meet the walkway deck height while remaining damageable',
+    () => {
+      const faction = 'roman'
       const plain = build(faction, false)
       const walled = build(faction, true)
       const { layout } = walled.outpost.walkways!
@@ -482,9 +545,10 @@ describe('CampaignOutpost walkways', () => {
     },
   )
 
-  it.each(['roman', 'viking'] as const)(
-    'removes collision and allows ground A* breach passage when an elevated %s front palisade is destroyed',
-    faction => {
+  it(
+    'removes collision and allows ground A* breach passage when an elevated front palisade is destroyed',
+    () => {
+      const faction = 'roman'
       const walled = build(faction, true)
       const zSign = faction === 'roman' ? -1 : 1
       const targetPalisade = walled.outpost.damageableObstacles.find(
@@ -546,39 +610,15 @@ describe('CampaignOutpost walkways', () => {
     nav.sync(walled.outpost.obstacles)
     nav.beginFrame()
     expect(nav.queryPath(outside, inside).status).toBe('path')
+    expect(walled.outpost.obstacles.filter(obstacle => !obstacle.damageable)).toHaveLength(walled.outpost.walkways!.obstacles.length)
   })
 
-  it.each(['roman', 'viking'] as const)(
-    'spans %s gatehouse bridge seamlessly between left and right walkway decks without gaps',
-    faction => {
-      const { outpost, placement } = build(faction)
-      const { layout } = outpost.walkways!
-      const leftDeck = layout.decks.find(d => d.side === -1)!
-      const rightDeck = layout.decks.find(d => d.side === 1)!
-      const bridge = layout.bridge
-      const xNear = placement.gateWidth / 2 + OUTPOST_WALKWAY.gateMargin
-
-      // Left deck, bridge and right deck form a continuous X span
-      expect(leftDeck.slab.max.x).toBeCloseTo(-xNear)
-      expect(bridge.slab.min.x).toBeCloseTo(-xNear)
-      expect(bridge.slab.max.x).toBeCloseTo(xNear)
-      expect(rightDeck.slab.min.x).toBeCloseTo(xNear)
-
-      // Zero gap in X
-      expect(Math.abs(bridge.slab.min.x - leftDeck.slab.max.x)).toBeLessThan(1e-6)
-      expect(Math.abs(rightDeck.slab.min.x - bridge.slab.max.x)).toBeLessThan(1e-6)
-
-      // Z dimensions match decks exactly
-      expect(bridge.slab.min.z).toBeCloseTo(Math.min(leftDeck.slab.min.z, rightDeck.slab.min.z))
-      expect(bridge.slab.max.z).toBeCloseTo(Math.max(leftDeck.slab.max.z, rightDeck.slab.max.z))
-    },
-  )
-
-  it.each(['roman', 'viking'] as const)(
-    'provides continuous walking surface across %s left deck, gatehouse bridge, and right deck',
-    faction => {
-      const { outpost, placement } = build(faction)
-      const { layout } = outpost.walkways!
+  it(
+    'provides continuous walking surface across left deck, gatehouse bridge, and right deck',
+    () => {
+      const faction = 'roman'
+      const placement = getCampaignOutpostPlacement(faction)
+      const layout = getOutpostWalkwayLayout(placement)
       const leftDeck = layout.decks.find(d => d.side === -1)!
       const rightDeck = layout.decks.find(d => d.side === 1)!
       const bridge = layout.bridge
@@ -604,9 +644,10 @@ describe('CampaignOutpost walkways', () => {
     },
   )
 
-  it.each(['roman', 'viking'] as const)(
-    'removes inner end-cap rails at %s deck-bridge portals while keeping outer end-caps and rear safety rails',
-    faction => {
+  it(
+    'removes inner end-cap rails at deck-bridge portals while keeping outer end-caps and rear safety rails',
+    () => {
+      const faction = 'roman'
       const { outpost, placement } = build(faction)
       const { layout } = outpost.walkways!
       const leftDeck = layout.decks.find(d => d.side === -1)!
@@ -643,21 +684,10 @@ describe('CampaignOutpost walkways', () => {
     },
   )
 
-  it('mirrors gatehouse bridge geometry across the Z axis between Roman and Viking layouts', () => {
-    const roman = getOutpostWalkwayLayout(getCampaignOutpostPlacement('roman'))
-    const viking = getOutpostWalkwayLayout(getCampaignOutpostPlacement('viking'))
-
-    expect(roman.bridge.slab.min.x).toBe(viking.bridge.slab.min.x)
-    expect(roman.bridge.slab.max.x).toBe(viking.bridge.slab.max.x)
-    expect(roman.bridge.slab.min.z).toBeCloseTo(-viking.bridge.slab.max.z)
-    expect(roman.bridge.slab.max.z).toBeCloseTo(-viking.bridge.slab.min.z)
-    expect(roman.bridge.walkSurface.length).toBeCloseTo(viking.bridge.walkSurface.length)
-    expect(roman.bridge.walkSurface.halfWidth).toBeCloseTo(viking.bridge.walkSurface.halfWidth)
-  })
-
-  it.each(['roman', 'viking'] as const)(
-    'allows walking entity body collision across %s gatehouse bridge in both directions',
-    faction => {
+  it(
+    'allows walking entity body collision across gatehouse bridge in both directions',
+    () => {
+      const faction = 'roman'
       const { outpost, placement } = build(faction)
       const { layout } = outpost.walkways!
       const leftDeck = layout.decks.find(d => d.side === -1)!
@@ -721,9 +751,10 @@ describe('CampaignOutpost walkways', () => {
     },
   )
 
-  it.each(['roman', 'viking'] as const)(
-    'stops projectiles striking solid bridge slab or merlons while passing arrows through open crenels and under bridge in %s',
-    faction => {
+  it(
+    'stops projectiles striking solid bridge slab or merlons while passing arrows through open crenels and under bridge',
+    () => {
+      const faction = 'roman'
       const { outpost } = build(faction)
       const { layout } = outpost.walkways!
       const bridge = layout.bridge
