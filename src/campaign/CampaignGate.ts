@@ -68,7 +68,7 @@ export function applyCampaignBreachOrders(
   let defenderAttackCount = 0
 
   for (const npc of npcs) {
-    if (npc.dead || npc.combatOwnership === 'player-personal') continue
+    if (npc.dead || npc.siegeTransport || npc.combatOwnership === 'player-personal') continue
 
     if (npc.characterFaction === attackerFaction) {
       if (npc.aiType === AIType.RANGED) {
@@ -99,6 +99,7 @@ export interface ReconcileCampaignGateSiegeOptions {
   breachController: CampaignBreachController | null
   npcs: readonly NPC[]
   attackerFaction: CharacterFaction
+  availableEntrances?: { readonly hasWalkable: boolean }
 }
 
 /**
@@ -110,7 +111,7 @@ export function isEligibleCampaignGateAttacker(
   npc: NPC,
   attackerFaction: CharacterFaction,
 ): boolean {
-  if (npc.dead) return false
+  if (npc.dead || npc.siegeTransport || npc.campaignBreachCompleted) return false
   if (npc.characterFaction !== attackerFaction) return false
   if (npc.combatOwnership === 'player-personal') return false
   if (npc.tacticalOrder === 'follow' || npc.activeFollowTarget !== null || npc.hasFormationTarget) return false
@@ -130,7 +131,7 @@ export function reconcileCampaignGateSiege(
   const { gate, breachController, npcs, attackerFaction } = options
   if (!gate) return
 
-  const shouldSiegeGate = gate.state === 'closed' && !breachController?.breached
+  const shouldSiegeGate = gate.state === 'closed' && !(options.availableEntrances?.hasWalkable ?? breachController?.breached)
 
   if (shouldSiegeGate) {
     for (const npc of npcs) {

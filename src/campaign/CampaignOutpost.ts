@@ -93,6 +93,7 @@ export interface CampaignOutpostResult {
 export interface CampaignOutpostOptions {
   /** Adds the walkable rampart and stairs. Defaults to off so other modes are unchanged. */
   walkways?: boolean
+  siegePassages?: boolean
 }
 
 interface DamageablePieceOptions {
@@ -509,6 +510,7 @@ export function createCampaignOutpost(
       { obstacles, obstacleMeshes },
       woodMaterial,
       darkWoodMaterial,
+      options.siegePassages,
     )
     root.add(walkways.root)
   }

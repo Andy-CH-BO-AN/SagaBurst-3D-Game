@@ -444,14 +444,17 @@ export class FormationController {
     deck: OutpostWalkwayDeck | OutpostWalkwayBridge,
   ): FormationPlacement | null {
     const isFoot = (npc: NPC) => !npc.isMounted && !npc.mount && !(npc as any).isAnimal && !(npc as any).species
-    if (!participants.every(isFoot)) return null
+    const mounted = participants.some(npc => !isFoot(npc))
+    if (mounted && (!this.navigationWorld?.outpostNav?.entrances.hasMountedRamp
+      || participants.some(npc => npc.mount?.isFlyingMount))) return null
 
-    const minX = deck.slab.min.x + 0.6
-    const maxX = deck.slab.max.x - 0.6
-    const minZ = deck.slab.min.z + 0.55
-    const maxZ = deck.slab.max.z - 0.55
+    const minX = deck.slab.min.x + (mounted ? 1.2 : .6)
+    const maxX = deck.slab.max.x - (mounted ? 1.2 : .6)
+    const minZ = deck.slab.min.z + (mounted ? 1.3 : .55)
+    const maxZ = deck.slab.max.z - (mounted ? 1.3 : .55)
+    if (maxZ < minZ) return null
     const deckLength = maxX - minX
-    const spacing = 1.6
+    const spacing = mounted ? 3.2 : 1.6
     const maxCapacity = Math.floor(deckLength / spacing) + 1
     if (participants.length > maxCapacity) return null
 

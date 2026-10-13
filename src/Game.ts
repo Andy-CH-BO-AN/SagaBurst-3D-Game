@@ -1,3 +1,5 @@
+import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
+import { isMobileSiegeRampEnabled } from './campaign/MobileSiegeRampPolicy'
 import { refitTownCommandForSceneChange } from './career/SquadRefit'
 import { preloadPaladinEquipment } from './world/PaladinEquipment'
 import { playerEagleProjectileBudget } from './combat/ProjectileBallistics'
@@ -546,6 +548,7 @@ export class Game {
   private readonly flushVeteranOutpostOnPageHide = (): void => {
     this._persistCareerVeteranOutpostCheckpoint({ immediate: true, periodic: true, force: true })
   }
+  private campaignSiegeAssault: CampaignSiegeAssault | null = null
   private previewCampaignGate: CampaignGateController | null = null
   private previewCampaignBreachController: CampaignBreachController | null = null
   private readonly navigationWorld = new NavigationWorld()
@@ -802,6 +805,7 @@ export class Game {
         { obstacles, obstacleMeshes },
         {
           walkways: outpostWalkwaysEnabled,
+          siegePassages: isMobileSiegeRampEnabled(campaignConfig),
         },
       )
       damageableObstacles.push(...outpost.damageableObstacles)
@@ -823,6 +827,13 @@ export class Game {
       })
       if (outpost.walkways) {
         this.navigationWorld.setOutpostWalkways(outpost.walkways.layout)
+        if (isMobileSiegeRampEnabled(campaignConfig)) {
+          this.campaignSiegeAssault = new CampaignSiegeAssault(this.scene, obstacles, outpost.walkways,
+            this.navigationWorld, outpost.gateController, outpost.breachController, () => this.npcs,
+            ramp => { for (const mesh of ramp.damageable.hitMeshes) this._aimTargetRegistry.addStaticTarget(mesh) },
+            ramp => { for (const mesh of ramp.damageable.hitMeshes) this._aimTargetRegistry.removeStaticTarget(mesh) },
+            () => [this.player.combatPosition, ...this.mounts.filter(mount => !mount.dead).map(mount => mount.group.position)])
+        }
       }
     }
 
@@ -1093,6 +1104,7 @@ export class Game {
         reconcileCampaignGateSiege({
           gate: this.previewCampaignGate,
           breachController: this.previewCampaignBreachController,
+          availableEntrances: this.campaignSiegeAssault?.entrances,
           npcs: this.npcs,
           attackerFaction: 'viking',
         })
@@ -1981,8 +1993,10 @@ export class Game {
       spec.visualAssetId,
       spec.combatProfileId,
       spec.specialCombatProfile,
+      undefined,
+      undefined,
+      spec.spawnY !== undefined ? { y: spec.spawnY } : undefined,
     ))
-    if (spec.spawnY !== undefined) npc.group.position.y = spec.spawnY
     if (spec.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
@@ -1997,6 +2011,7 @@ export class Game {
       this.careerVeteranActorMounts.set(npc.combatantId, npc.mount)
     }
     if (this.careerProfile?.activeMission?.officialSquad?.actorIds.includes(npc.combatantId)) npc.combatOwnership = 'mission-official'
+    this.campaignSiegeAssault?.register(npc, spec)
     this.npcs.push(npc)
     this.battleStats.registerNpc(npc)
     this._aimTargetRegistry.registerNpc(npc)
@@ -2006,6 +2021,7 @@ export class Game {
   private _newSpawnBatch(): NpcSpawnBatch {
     const batch = gameplayNpcSpawns.batch(() => {
       this.spawningStopped = true
+      this.campaignSiegeAssault?.dispose()
       try { this._showNotify?.('部隊建立失敗，請重新載入以恢復完整名冊', 10000) }
       finally { this._disposeCareerOutpostBattleActors() }
     })
@@ -2539,6 +2555,7 @@ export class Game {
   }
 
   private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
+    this.campaignSiegeAssault?.refreshPhysicalEntrances()
     if (this.previewCampaignGate) {
       for (const npc of this.npcs) {
         if (npc.siegeObstacle === this.previewCampaignGate.siegeObstacle) {
@@ -2836,6 +2853,7 @@ export class Game {
       this._identifyPersonalOutpostWave(plan, wave)
     }
 
+    if (wave === 'attackers') this.campaignSiegeAssault?.prepare(plan.npcSpecs)
     this.campaignSpawnQueue = plan.npcSpecs
     this.campaignSpawnQueueIndex = 0
     this.campaignSpawnWave = wave
@@ -2858,6 +2876,7 @@ export class Game {
           reconcileCampaignGateSiege({
             gate: this.previewCampaignGate,
             breachController: this.previewCampaignBreachController,
+            availableEntrances: this.campaignSiegeAssault?.entrances,
             npcs: [npc],
             attackerFaction: npc.characterFaction,
           })
@@ -2984,6 +3003,7 @@ export class Game {
     this.soundManager?.updateEagleWingbeats([])
     for (const batch of this.spawnBatches) batch.cancel()
     this.personalSquad?.cleanup()
+    this.campaignSiegeAssault?.dispose()
     for (const npc of this.npcs) { this._aimTargetRegistry?.unregisterNpc?.(npc); npc.dispose() }
     for (const mount of this.mounts) { this._aimTargetRegistry?.unregisterMount?.(mount); mount.dispose() }
     this.battleStats?.dispose?.()
@@ -3126,6 +3146,7 @@ export class Game {
       reconcileCampaignGateSiege({
         gate: this.previewCampaignGate,
         breachController: this.previewCampaignBreachController,
+        availableEntrances: this.campaignSiegeAssault?.entrances,
         npcs: this.npcs,
         attackerFaction,
       })
@@ -3909,6 +3930,7 @@ export class Game {
       if (npc.isMounted) continue
       bodies.push({
         position: npc.position,
+        anchored: Boolean(npc.siegeTransport),
         radius: 0.5,
         height: 2.3,
         bottomOffset: 0,
@@ -3920,6 +3942,7 @@ export class Game {
       if (mount === controlledMount || mount.isFlyingMount) continue
       bodies.push({
         position: mount.group.position,
+        mountedSurfaces: true,
         radius: 1.0,
         height: 2.6,
         bottomOffset: 0,
@@ -3940,7 +3963,7 @@ export class Game {
         body.height,
         body.bottomOffset,
         this.obstacles,
-        { walkSurfaces: body.walkSurfaces }
+        { walkSurfaces: body.walkSurfaces, mountedSurfaces: body.mountedSurfaces }
       )
     }
   }
@@ -4094,6 +4117,7 @@ export class Game {
       this.skillManager.getRangedMultiplier()
     )
 
+    this.campaignSiegeAssault?.update(dt)
     this.personalSquad?.updateLifecycle()
     this._updateDefenseCampaign(dt)
     this._updateCaptainBattle(dt)

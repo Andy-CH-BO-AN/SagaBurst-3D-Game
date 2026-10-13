@@ -551,6 +551,7 @@ export class Mount {
       2.6,
       0,
       obstacles,
+      { mountedSurfaces: true },
     )
     this.velY = collision.velocityY
     this.onGround = collision.onGround

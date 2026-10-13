@@ -270,6 +270,12 @@ export class NPC {
   public loadout?: UnitLoadout
   private originalCombatEquipment: CombatEquipmentSnapshot | null = null
   public tacticalOrder: TacticalOrder = DEFAULT_TACTICAL_ORDER
+  /** Mission transport owns movement while combat still uses this world-space root. */
+  siegeTransport: string | null = null
+  siegeTransportSpeed = 0
+  siegeEvacuation: THREE.Vector3 | null = null
+  campaignEntranceId: string | null = null
+  campaignBreachCompleted = false
   private outpostRampartGarrison = false
   get isOutpostRampartGarrisonActive(): boolean { return this.outpostRampartGarrison }
   activateOutpostRampartGarrison(): void {
@@ -648,6 +654,7 @@ export class NPC {
     specialCombatProfile?: 'maki-ranger',
     readonly townCategory?: 'civilian',
     civilianStyle?: CharacterFaction,
+    spawnPlacement?: { y: number },
   ) {
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
@@ -706,7 +713,7 @@ export class NPC {
     this._syncActiveMeleeEquipment()
 
     // Calibrate waypoints to terrain height
-    const baseTerrainY = getTerrainHeight(spawnX, spawnZ)
+    const baseTerrainY = spawnPlacement?.y ?? getTerrainHeight(spawnX, spawnZ)
     const basePos = new THREE.Vector3(spawnX, baseTerrainY, spawnZ)
 
     const wp1 = new THREE.Vector3(spawnX - 10, getTerrainHeight(spawnX - 10, spawnZ - 8), spawnZ - 8)
@@ -1314,7 +1321,7 @@ export class NPC {
     const layeredNav = this._activeNavigationWorld?.outpostNav
     if (layeredNav) {
       const leaderLayer = layeredNav.getNavLayer(this.followSmoothedLeaderPosition)
-      const isDisallowedFromRamparts = Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species)
+      const isDisallowedFromRamparts = Boolean(this.mount?.isFlyingMount || (this.isMounted || this.mount) && !layeredNav.entrances.hasMountedRamp || (this as any).isAnimal || (this as any).species)
       if (isRampartLayer(leaderLayer)) {
         if (!isDisallowedFromRamparts) {
           const side = layerSide(leaderLayer)
@@ -1342,6 +1349,10 @@ export class NPC {
           position.y = getTerrainHeight(position.x, position.z)
         }
       }
+    }
+    if (layeredNav && this.isMounted && !this.mount?.isFlyingMount
+      && layeredNav.entrances.hasMountedRamp && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
+      layeredNav.clampMountedFollow(position, this.followSmoothedLeaderPosition, this.followSlotIndex)
     }
     this.formationTarget = {
       commandId: -1,
@@ -2150,6 +2161,8 @@ export class NPC {
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): void {
     this._activeNavigationWorld = navigationWorld
+    if (this.campaignEntranceId && navigationWorld?.outpostNav
+      && isRampartLayer(navigationWorld.outpostNav.getNavLayer(this.combatPosition))) this.campaignBreachCompleted = true
     this.fallObstacles = obstacles
     if (this.pendingFall.active) {
       this._updateRiderFall(dt, obstacles)
@@ -2167,6 +2180,25 @@ export class NPC {
         }
       }
       if (import.meta.env.DEV && _collector) { _collector.endPhase('deadUpdate', _tDead!) }
+      return
+    }
+
+    if (this.siegeTransport) {
+      this.animator.setLocomotion(this.siegeTransportSpeed, false)
+      this.velY = 0
+      this.onGround = true
+      this.animator.update(dt, cameraDistance)
+      this.group.updateWorldMatrix(true, true)
+      return
+    }
+    if (this.siegeEvacuation) {
+      const previous = this._tmpPreviousPosition.copy(this.position)
+      const target = this.siegeEvacuation
+      const direction = this._tmpMoveDir.copy(target).sub(this.position).setY(0)
+      if (direction.length() < .45) this.siegeEvacuation = null
+      else { this._faceDirection(direction.normalize()); this._moveByDirection(direction, 2, dt) }
+      this._updateFootPhysics(previous, dt, obstacles)
+      this.animator.update(dt, cameraDistance)
       return
     }
 
@@ -2414,12 +2446,13 @@ export class NPC {
         const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
 
         let navigationRoute: NavigationRouteKind = 'direct'
-        if (layeredNav && (isCrossLayer || isRampartCorridor || isStairLayer(npcLayer))) {
+        if (layeredNav && (isCrossLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, targetInfo.position))) {
           const layeredResult = layeredNav.resolveMoveTarget(
             this.combatPosition,
             targetInfo.position,
             Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
             this._tmpNavigationTarget,
+            this.campaignEntranceId,
           )
           if (layeredResult.step === 'ground_approach' || layeredResult.step === 'ground_cross') {
             navigationRoute = !skipBoidsAndObstacles
@@ -3278,7 +3311,7 @@ export class NPC {
 
       if (layeredNav) {
         const leaderLayer = layeredNav.getNavLayer(this.followSmoothedLeaderPosition)
-        const isDisallowedFromRamparts = Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species)
+        const isDisallowedFromRamparts = Boolean(this.mount?.isFlyingMount || (this.isMounted || this.mount) && !layeredNav.entrances.hasMountedRamp || (this as any).isAnimal || (this as any).species)
         if (isRampartLayer(leaderLayer)) {
           if (!isDisallowedFromRamparts) {
             const side = layerSide(leaderLayer)
@@ -3309,6 +3342,10 @@ export class NPC {
       }
     }
 
+    if (this.tacticalOrder === 'follow' && this.isMounted && layeredNav?.entrances.hasMountedRamp
+      && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
+      layeredNav.clampMountedFollow(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex)
+    }
     this.alertSprite.visible = false
     const moveDir = this._tmpMoveDir.copy(target.position).sub(this.combatPosition)
     moveDir.y = 0
@@ -3345,12 +3382,13 @@ export class NPC {
     const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
 
     let isConfirmedLayeredStep = false
-    if (layeredNav && (isDifferentLayer || isRampartCorridor || isStairLayer(npcLayer))) {
+    if (layeredNav && (isDifferentLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, target.position))) {
       const layeredResult = layeredNav.resolveMoveTarget(
         this.combatPosition,
         target.position,
         Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
         this._tmpNavigationTarget,
+        this.campaignEntranceId,
       )
       if (layeredResult.step === 'ground_approach' || layeredResult.step === 'ground_cross') {
         navigationGoal = this._tmpNavigationTarget

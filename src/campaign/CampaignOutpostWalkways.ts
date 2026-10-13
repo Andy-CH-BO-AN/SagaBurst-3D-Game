@@ -1,3 +1,5 @@
+import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
+import { removeObstacleData } from '../world/Terrain'
 import * as THREE from 'three'
 import { bakedMesh } from '../world/EnvironmentVisuals'
 import {
@@ -370,6 +372,7 @@ export interface OutpostWalkways {
   root: THREE.Group
   layout: OutpostWalkwayLayout
   obstacles: ObstacleData[]
+  setDockPassage(side: OutpostWalkwaySide, open: boolean): void
 }
 
 function boxGeometry(source: THREE.Box3): THREE.BufferGeometry {
@@ -392,12 +395,14 @@ export function createOutpostWalkways(
   collections: { obstacles: ObstacleData[]; obstacleMeshes: THREE.Object3D[] },
   woodMaterial: THREE.Material,
   darkWoodMaterial: THREE.Material,
+  siegePassages = false,
 ): OutpostWalkways {
   const W = OUTPOST_WALKWAY
   const layout = getOutpostWalkwayLayout(placement)
   const root = new THREE.Group()
   root.name = `campaign-outpost-walkways-${layout.zSign < 0 ? 'roman' : 'viking'}`
   const created: ObstacleData[] = []
+  const portals = new Map<OutpostWalkwaySide, { mesh: THREE.Mesh; obstacle: ObstacleData }>()
   const register = (data: ObstacleData): void => { created.push(data); collections.obstacles.push(data) }
   const finish = (name: string, wood: THREE.BufferGeometry[], dark: THREE.BufferGeometry[]): void => {
     for (const [suffix, parts, material] of [['wood', wood, woodMaterial], ['dark', dark, darkWoodMaterial]] as const) {
@@ -414,7 +419,7 @@ export function createOutpostWalkways(
     const frontBoxes = deck.frontRailProjectileBoxes ?? [deck.rails[0]]
     const wood: THREE.BufferGeometry[] = [
       boxGeometry(deck.slab),
-      ...frontBoxes.map(boxGeometry),
+      ...(siegePassages ? [] : frontBoxes.map(boxGeometry)),
       ...deck.rails.slice(1).map(boxGeometry),
     ]
     const dark: THREE.BufferGeometry[] = []
@@ -429,12 +434,24 @@ export function createOutpostWalkways(
     // Front parapet: 0.9m envelope prevents player from stepping/falling off;
     // projectileBoxes models the lower sill and merlon risers so archers can shoot
     // through open crenels or over the sill while solid timber blocks shots.
-    register({
-      box: deck.rails[0],
-      isBarricade: false,
-      navigationPassable: true,
-      projectileBoxes: frontBoxes,
-    })
+    if (siegePassages) {
+      deck.walkSurface.mounted = true
+      const centre = (deck.slab.min.x + deck.slab.max.x) / 2
+      const endpoints = [deck.slab.min.x, centre - 2.5, centre + 2.5, deck.slab.max.x]
+      for (let i = 0; i < 3; i++) {
+        const rail = deck.rails[0].clone()
+        rail.min.x = endpoints[i]; rail.max.x = endpoints[i + 1]
+        const boxes = frontBoxes.map(source => source.clone().intersect(rail)).filter(b => !b.isEmpty() && b.max.x > b.min.x)
+        const mesh = bakedMesh(boxes.map(boxGeometry), woodMaterial)
+        mesh.name = `campaign-dock-parapet-${sideName}-${i}`
+        root.add(mesh); collections.obstacleMeshes.push(mesh)
+        const obstacle: ObstacleData = { box: rail, isBarricade: false, navigationPassable: true, projectileBoxes: boxes }
+        register(obstacle)
+        if (i === 1) portals.set(deck.side, { mesh, obstacle })
+      }
+    } else {
+      register({ box: deck.rails[0], isBarricade: false, navigationPassable: true, projectileBoxes: frontBoxes })
+    }
 
     // End-cap rails: solid barriers at the side ends.
     for (let i = 1; i < deck.rails.length; i++) {
@@ -508,6 +525,7 @@ export function createOutpostWalkways(
 
   const bridge = layout.bridge
   if (bridge) {
+    if (siegePassages) bridge.walkSurface.mounted = true
     const leftDeck = layout.decks.find(d => d.side === -1)!
     const rightDeck = layout.decks.find(d => d.side === 1)!
     const yLeft = leftDeck.topY
@@ -579,5 +597,13 @@ export function createOutpostWalkways(
     finish('campaign-walkway-bridge', wood, dark)
   }
 
-  return { root, layout, obstacles: created }
+  return { root, layout, obstacles: created, setDockPassage(side, open) {
+    const portal = portals.get(side)
+    if (!portal || portal.mesh.visible === !open) return
+    portal.mesh.visible = !open
+    if (open) portal.mesh.layers.disableAll()
+    else portal.mesh.layers.enable(0)
+    if (open) removeObstacleData(collections.obstacles, portal.obstacle)
+    else { collections.obstacles.push(portal.obstacle); markObstacleTopologyChanged(collections.obstacles) }
+  } }
 }
