@@ -42,6 +42,12 @@ export const OUTPOST_WALKWAY = {
 
 export type OutpostWalkwaySide = -1 | 1
 
+/** World-space horizontal opening in the raised front parapet. */
+export interface OutpostWalkwayCrenelSpan {
+  minX: number
+  maxX: number
+}
+
 export interface OutpostWalkwayDeck {
   side: OutpostWalkwaySide
   /** Walking surface height; flat along the whole deck. */
@@ -51,6 +57,8 @@ export interface OutpostWalkwayDeck {
   rails: THREE.Box3[]
   posts: THREE.Box3[]
   frontRailProjectileBoxes: THREE.Box3[]
+  /** Actual gaps between raised merlons, ordered from the gate toward the side end. */
+  frontCrenelSpans: OutpostWalkwayCrenelSpan[]
 }
 
 export interface OutpostWalkwayBridge {
@@ -61,6 +69,8 @@ export interface OutpostWalkwayBridge {
   rails: THREE.Box3[]
   posts: THREE.Box3[]
   frontRailProjectileBoxes: THREE.Box3[]
+  /** Actual gaps between raised merlons, ordered from world left to right. */
+  frontCrenelSpans: OutpostWalkwayCrenelSpan[]
 }
 
 export interface OutpostWalkwayStair {
@@ -123,22 +133,32 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
     const frontRailProjectileBoxes: THREE.Box3[] = [
       box(side * xNear, topY, zAt(0), side * xFar, topY + W.parapetSillHeight, zAt(W.railThickness)),
     ]
+    const frontCrenelSpans: OutpostWalkwayCrenelSpan[] = []
+    const worldSpan = (a: number, b: number): OutpostWalkwayCrenelSpan => ({
+      minX: Math.min(side * a, side * b),
+      maxX: Math.max(side * a, side * b),
+    })
     const hC = W.crenelWidth / 2
     const totalPeriods = Math.ceil((xFar - xNear) / W.crenelPeriod)
+    let openStart = xNear
     for (let i = 0; i < totalPeriods; i++) {
       const mX0 = xNear + i * W.crenelPeriod + hC
       const mX1 = xNear + (i + 1) * W.crenelPeriod - hC
       if (mX0 < xFar) {
+        frontCrenelSpans.push(worldSpan(openStart, mX0))
+        const merlonEnd = Math.min(xFar, mX1)
         frontRailProjectileBoxes.push(box(
           side * mX0,
           topY + W.parapetSillHeight,
           zAt(0),
-          side * Math.min(xFar, mX1),
+          side * merlonEnd,
           railTop,
           zAt(W.railThickness),
         ))
+        openStart = merlonEnd
       }
     }
+    if (openStart < xFar) frontCrenelSpans.push(worldSpan(openStart, xFar))
     const midZ = (zAt(0) + zAt(W.deckDepth)) / 2
     const deckWalkSurface: WalkRampSurface = {
       startX: side * xNear,
@@ -156,7 +176,8 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
       const groundY = getTerrainHeight(x, zAt(W.deckDepth - W.postHalf)) - 0.3
       return box(x - W.postHalf, groundY, zAt(W.deckDepth - 2 * W.postHalf), x + W.postHalf, topY - W.deckThickness, zAt(W.deckDepth))
     })
-    decks.push({ side, topY, slab, walkSurface: deckWalkSurface, rails, posts, frontRailProjectileBoxes })
+    decks.push({ side, topY, slab, walkSurface: deckWalkSurface, rails, posts,
+      frontRailProjectileBoxes, frontCrenelSpans })
 
     // Stair: climbs toward the wall along the Z axis, ends in a flat landing
     // that butts against the inner edge of the deck.
@@ -317,6 +338,7 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
     rails: bridgeRails,
     posts: bridgePosts,
     frontRailProjectileBoxes: bridgeFrontRailProjectileBoxes,
+    frontCrenelSpans: crenelSpans.map(([minX, maxX]) => ({ minX, maxX })),
   }
 
   return { zSign, decks, stairs, bridge }

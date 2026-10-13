@@ -13,12 +13,13 @@ import {
 import { calculateArmyTotal, type UnitTierCounts } from '../../src/battle/BattleConfig'
 import { BattleSpawner, type NpcSpawnSpec } from '../../src/battle/BattleSpawner'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
-import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
+import { BallisticIntercept } from '../../src/combat/ProjectileBallistics'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { getOutpostRampartArcherSlots } from '../../src/campaign/OutpostRampartGarrison'
 import { getOutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
 import { AIType, Faction, RANGED_AI_LAUNCH_HEIGHT } from '../../src/world/NPC'
 import * as THREE from 'three'
-import { getWalkRampHeight } from '../../src/world/Terrain'
+import { getTerrainHeight, getWalkRampHeight, type ObstacleData } from '../../src/world/Terrain'
 
 function rampartSpec(overrides: Partial<NpcSpawnSpec> = {}): NpcSpawnSpec {
   return {
@@ -188,7 +189,7 @@ describe('Defense Campaign Stage 1 launch config', () => {
     expect(ranger.spawnY).toBeTypeOf('number')
   })
 
-  it('derives 16 / 4 / 16 legal firing slots from the live walkway layout', () => {
+  it('derives 16 / 4 / 16 separated firing slots inside the live crenel openings', () => {
     const slots = getOutpostRampartArcherSlots('roman')
     const all = [...slots.left, ...slots.gate, ...slots.right]
     const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement('roman'))
@@ -200,27 +201,75 @@ describe('Defense Campaign Stage 1 launch config', () => {
         expect(Math.hypot(all[first].x - all[second].x, all[first].z - all[second].z)).toBeGreaterThanOrEqual(1)
       }
     }
-    for (const section of [slots.left, slots.gate, slots.right]) {
-      for (let index = 1; index < section.length; index++) {
-        expect(Math.abs(section[index].x - section[index - 1].x)).toBeCloseTo(2.4)
-      }
-    }
     for (const slot of all) {
-      const surface = slot.section === 'gate'
-        ? layout.bridge.walkSurface
-        : layout.decks.find(deck => deck.side === (slot.section === 'left' ? -1 : 1))!.walkSurface
-      const railBoxes = slot.section === 'gate'
-        ? layout.bridge.frontRailProjectileBoxes
-        : layout.decks.find(deck => deck.side === (slot.section === 'left' ? -1 : 1))!.frontRailProjectileBoxes
+      const section = slot.section === 'gate'
+        ? layout.bridge
+        : layout.decks.find(deck => deck.side === (slot.section === 'left' ? -1 : 1))!
+      const opening = section.frontCrenelSpans.find(span => slot.x > span.minX && slot.x < span.maxX)
+      expect(opening, `${slot.section} slot x=${slot.x} must be inside a real crenel`).toBeDefined()
+      const surface = section.walkSurface
       expect(slot.y).toBeCloseTo(getWalkRampHeight(surface, slot.x, slot.z)!)
-      const muzzleAtRail = new THREE.Vector3(
+      const openingAtRail = new THREE.Vector3(
         slot.x,
-        slot.y + RANGED_AI_LAUNCH_HEIGHT,
-        layout.zSign === 1 ? Math.min(...railBoxes.map(box => box.min.z)) : Math.max(...railBoxes.map(box => box.max.z)),
+        slot.y + 0.65,
+        layout.zSign === 1
+          ? Math.min(...section.frontRailProjectileBoxes.map(box => box.min.z))
+          : Math.max(...section.frontRailProjectileBoxes.map(box => box.max.z)),
       )
-      expect(railBoxes.some(box => box.containsPoint(muzzleAtRail))).toBe(false)
+      expect(section.frontRailProjectileBoxes.some(box => box.containsPoint(openingAtRail))).toBe(false)
     }
   })
+
+  it.each(['roman', 'viking'] as const)(
+    'keeps real shortbow arcs clear through every %s gate slot and representative side slots',
+    defenderFaction => {
+      const placement = getCampaignOutpostPlacement(defenderFaction)
+      const layout = getOutpostWalkwayLayout(placement)
+      const slots = getOutpostRampartArcherSlots(defenderFaction)
+      const obstacles: ObstacleData[] = [
+        ...layout.decks.map(deck => ({
+          box: deck.rails[0],
+          isBarricade: false,
+          projectileBoxes: deck.frontRailProjectileBoxes,
+        })),
+        {
+          box: layout.bridge.rails[0],
+          isBarricade: false,
+          projectileBoxes: layout.bridge.frontRailProjectileBoxes,
+        },
+      ]
+      const samples = [slots.left[7], ...slots.gate, slots.right[7]]
+      const speed = WEAPONS.wooden_shortbow.arrowSpeedMax!
+
+      for (const slot of samples) {
+        // Close pressure and the 50m edge of the on-foot bow engagement sector.
+        for (const distance of [8, 50]) {
+          const origin = new THREE.Vector3(slot.x, slot.y + RANGED_AI_LAUNCH_HEIGHT, slot.z)
+          const targetZ = placement.frontZ - layout.zSign * distance
+          const target = new THREE.Vector3(slot.x, getTerrainHeight(slot.x, targetZ) + 1.4, targetZ)
+          const shot = new BallisticIntercept()
+          const context = `${defenderFaction} ${slot.section} x=${slot.x} at ${distance}m`
+          expect(shot.solve(origin, target, new THREE.Vector3(), speed), context).toBe(true)
+          expect(shot.isPathClear(origin, speed, obstacles), context).toBe(true)
+        }
+      }
+
+      // The previous bridge position was centred on a raised merlon. A nearby
+      // ground target makes the low real trajectory cross that timber.
+      const oldMerlonX = -3.6
+      const oldMerlonY = getWalkRampHeight(layout.bridge.walkSurface, oldMerlonX, slots.gate[0].z)!
+      const oldOrigin = new THREE.Vector3(
+        oldMerlonX,
+        oldMerlonY + RANGED_AI_LAUNCH_HEIGHT,
+        slots.gate[0].z,
+      )
+      const nearZ = placement.frontZ - layout.zSign * 8
+      const nearTarget = new THREE.Vector3(oldMerlonX, getTerrainHeight(oldMerlonX, nearZ) + 1.4, nearZ)
+      const blockedShot = new BallisticIntercept()
+      expect(blockedShot.solve(oldOrigin, nearTarget, new THREE.Vector3(), speed)).toBe(true)
+      expect(blockedShot.isPathClear(oldOrigin, speed, obstacles)).toBe(false)
+    },
+  )
 
   it('balances short rosters across both wings, fills the bridge last, and leaves overflow grounded', () => {
     const deploy = (count: number) => {

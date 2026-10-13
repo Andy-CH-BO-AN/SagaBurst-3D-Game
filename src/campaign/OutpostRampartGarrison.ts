@@ -4,7 +4,11 @@ import { getWalkRampHeight } from '../world/Terrain'
 import { AIType } from '../world/NPC'
 import type { CampaignFaction } from './CampaignConfig'
 import { getCampaignOutpostPlacement } from './CampaignOutpost'
-import { getOutpostWalkwayLayout, OUTPOST_WALKWAY } from './CampaignOutpostWalkways'
+import {
+  getOutpostWalkwayLayout,
+  type OutpostWalkwayCrenelSpan,
+  type OutpostWalkwayDeck,
+} from './CampaignOutpostWalkways'
 
 export type OutpostRampartSection = 'left' | 'gate' | 'right'
 
@@ -33,8 +37,10 @@ export const OUTPOST_RAMPART_GARRISON = {
   rightCapacity: 16,
   /** Keeps the body behind the front breastwork while leaving room behind it. */
   frontInset: 0.9,
-  /** Existing battlement period is also the minimum slot-to-slot separation. */
-  spacing: OUTPOST_WALKWAY.crenelPeriod,
+  /** Minimum centre-to-centre clearance between any two deployed bodies. */
+  minBodySeparation: 1,
+  /** Prevents floating-point contact exactly at the deck/bridge clearance limit. */
+  junctionClearanceBuffer: 0.05,
 } as const
 
 function surfaceSlot(
@@ -48,37 +54,74 @@ function surfaceSlot(
   return { section, x, y, z }
 }
 
+function crenelCenter(span: OutpostWalkwayCrenelSpan): number {
+  return (span.minX + span.maxX) / 2
+}
+
+function requireInsideCrenel(x: number, span: OutpostWalkwayCrenelSpan): number {
+  if (x <= span.minX || x >= span.maxX) {
+    throw new Error(`Outpost rampart slot ${x} is outside crenel ${span.minX}..${span.maxX}`)
+  }
+  return x
+}
+
 /**
  * Deterministic slots derived from the live Outpost walkway geometry.
- * Deck centres stay 1.2m away from both longitudinal ends; bridge centres stay
- * 1.6m away from the deck portals. Every neighbour is one crenel period apart.
+ * Every muzzle is placed inside a real front-parapet opening. Deck slots start at
+ * the open gate junction and omit the constrained outer end gap. The four gate
+ * slots use the two openings on each side of the central merlon group.
  */
 export function getOutpostRampartArcherSlots(defenderFaction: CampaignFaction): OutpostRampartArcherSlots {
   const placement = getCampaignOutpostPlacement(defenderFaction)
   const layout = getOutpostWalkwayLayout(placement)
   const z = placement.frontZ + layout.zSign * OUTPOST_RAMPART_GARRISON.frontInset
-  const xNear = placement.gateWidth / 2 + OUTPOST_WALKWAY.gateMargin
-  const firstDeckOffset = OUTPOST_RAMPART_GARRISON.spacing / 2
   const leftDeck = layout.decks.find(deck => deck.side === -1)
   const rightDeck = layout.decks.find(deck => deck.side === 1)
   if (!leftDeck || !rightDeck) throw new Error('Outpost rampart requires both walkway decks')
 
-  const deckSlots = (section: 'left' | 'right', side: -1 | 1, surface: typeof leftDeck.walkSurface) =>
-    Array.from({ length: OUTPOST_RAMPART_GARRISON.leftCapacity }, (_, index) => {
-      const outwardX = xNear + firstDeckOffset + index * OUTPOST_RAMPART_GARRISON.spacing
-      return surfaceSlot(section, surface, side * outwardX, z)
-    })
+  const deckSlots = (
+    section: 'left' | 'right',
+    deck: OutpostWalkwayDeck,
+    capacity: number,
+  ): OutpostRampartArcherSlot[] => {
+    const spans = deck.frontCrenelSpans.slice(0, capacity)
+    if (spans.length !== capacity) {
+      throw new Error(`Outpost rampart ${section} has ${spans.length}/${capacity} crenel openings`)
+    }
+    return spans.map(span => surfaceSlot(section, deck.walkSurface, crenelCenter(span), z))
+  }
 
-  const gateFirstX = -(OUTPOST_RAMPART_GARRISON.gateCapacity - 1)
-    * OUTPOST_RAMPART_GARRISON.spacing / 2
-  const gate = Array.from({ length: OUTPOST_RAMPART_GARRISON.gateCapacity }, (_, index) =>
-    surfaceSlot('gate', layout.bridge.walkSurface,
-      gateFirstX + index * OUTPOST_RAMPART_GARRISON.spacing, z))
+  const left = deckSlots('left', leftDeck, OUTPOST_RAMPART_GARRISON.leftCapacity)
+  const right = deckSlots('right', rightDeck, OUTPOST_RAMPART_GARRISON.rightCapacity)
+  const bridgeSpans = layout.bridge.frontCrenelSpans
+  if (bridgeSpans.length < OUTPOST_RAMPART_GARRISON.gateCapacity + 1) {
+    throw new Error(`Outpost rampart gate has ${bridgeSpans.length} crenel openings`)
+  }
+  const gateSpans = [
+    bridgeSpans[0],
+    bridgeSpans[1],
+    bridgeSpans[bridgeSpans.length - 2],
+    bridgeSpans[bridgeSpans.length - 1],
+  ]
+  const gateXs = gateSpans.map(crenelCenter)
+  const junctionSeparation = OUTPOST_RAMPART_GARRISON.minBodySeparation
+    + OUTPOST_RAMPART_GARRISON.junctionClearanceBuffer
+  gateXs[0] = Math.max(gateXs[0], left[0].x + junctionSeparation)
+  gateXs[gateXs.length - 1] = Math.min(
+    gateXs[gateXs.length - 1],
+    right[0].x - junctionSeparation,
+  )
+  const gate = gateXs.map((x, index) => surfaceSlot(
+    'gate',
+    layout.bridge.walkSurface,
+    requireInsideCrenel(x, gateSpans[index]),
+    z,
+  ))
 
   return {
-    left: deckSlots('left', -1, leftDeck.walkSurface),
+    left,
     gate,
-    right: deckSlots('right', 1, rightDeck.walkSurface),
+    right,
   }
 }
 
