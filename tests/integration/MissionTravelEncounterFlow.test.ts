@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { BanditMissionController } from '../../src/career/BanditMissionController'
 import { MissionTravelEncounter } from '../../src/career/MissionTravelEncounter'
+import { createMissionCommandAuthority } from '../../src/career/CareerCommandAuthority'
 import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { createActiveCareerMission, type CareerMissionPhase } from '../../src/career/CareerMissionState'
@@ -14,9 +15,11 @@ import { TownMissionCombat } from '../../src/town/TownMissionCombat'
 
 function actor(id: string, x = 0, faction = Faction.TOWN): NPC {
   const a = {
-    combatantId: id, faction, dead: false, combatPosition: new THREE.Vector3(x, 0, 0),
+    combatantId: id, faction, characterFaction: 'roman', dead: false, hp: 73, combatAmmo: 12,
+    shield: { shieldImpactRemaining: 8 }, combatPosition: new THREE.Vector3(x, 0, 0),
     tacticalOrder: 'follow', encounterAggroState: 'alerted', hostileToPlayer: faction === Faction.BANDIT,
     group: new THREE.Group(), mount: null, isMounted: false, clearEncounter: vi.fn(),
+    setMissionCombatTarget: vi.fn(), assignSiegeObstacle: vi.fn(), triggerEncounterAlert: vi.fn(),
     setTacticalOrder: vi.fn((order: string) => { a.tacticalOrder = order }),
     assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(),
   }
@@ -42,7 +45,8 @@ function fixture(phase: CareerMissionPhase = 'MARCHING') {
     guide: { update: vi.fn(), hide: vi.fn() }, navigation,
     camps: [{ id: 0, center: new THREE.Vector3(200, 0, 0), mission: [target], ambient: [] }],
     mountedMarch: null, fieldActorMounts: new Map(), borrowedTemporaryMounts: [], cavalryMounts: [],
-    residents: [], perceptionElapsed: 0,
+    residents: [], perceptionElapsed: 0, playerIssuedCommands: new Set(),
+    veteranMusterPositions: new Map(), veteranSupportEntryPositions: new Map(),
   }) as BanditMissionController
   const grid = new SpatialGrid<NPC>(); grid.insert(roaming)
   const runtime = { owns: (npc: NPC) => npc === roaming, squadMembersFor: (npc: NPC) => [npc] }
@@ -133,5 +137,36 @@ describe('Mission travel flow integration', () => {
     combat.noteExternalPlayerHit(f.roaming)
     expect(f.controller.travelEncounter.engagementOrigin?.x).toBe(100)
     expect(f.leader.assignFormationTarget).toHaveBeenCalled()
+  })
+})
+
+
+describe('Commander ordinary field mission ownership', () => {
+  function authorize(f: ReturnType<typeof fixture>) {
+    f.profile.rank = 'commander'; f.profile.totalMerit = 20000
+    const mission = f.profile.activeMission!
+    mission.officialSquad = createMissionCommandAuthority(mission.id, 'roman', 'commander', [], [
+      { squadId: 1, actorIds: mission.friendlyActorIds },
+    ])
+    mission.officialSquad.commandedSquadIds = [1]
+  }
+  it('preserves an issued infantry Defend during ordinary engagement and periodically saves its nonlethal damage', () => {
+    // Two lightweight friendly records plus existing target records; zero real NPCs or mounts.
+    const f = fixture('ENGAGING'); authorize(f)
+    f.leader.setTacticalOrder('defend'); f.follower.setTacticalOrder('defend')
+    Object.assign(f.follower, { hp: 41 })
+    f.controller.updateFlow(5, 0)
+    expect(f.leader.tacticalOrder).toBe('defend')
+    expect(f.follower.tacticalOrder).toBe('defend')
+    expect(f.profile.activeMission!.officialSquad!.members!['borrowed-patrol']).toMatchObject({ hp: 41, order: 'defend' })
+    expect(f.commit).toHaveBeenCalledOnce()
+  })
+  it('hands dismissed ordinary infantry back to its existing route and follower owner', () => {
+    const f = fixture('MARCHING'); authorize(f)
+    f.profile.activeMission!.officialSquad!.commandedSquadIds = []
+    f.controller.returnPlayerCommand(f.follower)
+    expect(f.leader.assignFormationTarget).toHaveBeenCalledWith(expect.any(Number), f.route[4], expect.any(THREE.Vector3), 7.5)
+    expect(f.follower.assignFollowTarget).toHaveBeenCalledWith(f.leader, 0, expect.any(THREE.Vector3), 7.5)
+    expect(f.follower.combatPosition.x).toBe(-4)
   })
 })

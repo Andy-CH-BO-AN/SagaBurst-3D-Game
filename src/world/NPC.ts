@@ -807,6 +807,14 @@ export class NPC {
     this._setActiveMeleeWeapon(weaponId)
     this.swordPivot.visible = true
   }
+  /** Releasing a civilian command restores the resident's original unarmed peace loadout. */
+  disarmTownCivilian(): void {
+    if (this.townCategory !== 'civilian' || this.dead) return
+    this.townArmed = false
+    this._setActiveMeleeWeapon(null)
+    this.swordPivot.visible = false
+    this.bowPivot.visible = false
+  }
   private get targetsPlayer(): boolean { return this.duelHostile || this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
   get hostileToPlayer(): boolean { return this.targetsPlayer }
   /** Only town resident command handoffs change allegiance; appearance and identity stay intact. */

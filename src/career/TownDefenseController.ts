@@ -1,6 +1,7 @@
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
-import { followLocalOffset } from '../battle/FollowOrder'
-import { CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_DEFENSE_GATE, CAPTAIN_DEFENSE_GATE_LABEL, captainGateDefenseActorIds } from './CaptainMissionCatalog'
+import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
+import { officialFollowLocalOffset } from '../battle/FollowOrder'
+import { CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_DEFENSE_GATE, CAPTAIN_DEFENSE_GATE_LABEL, captainGateDefenseActorIds } from './CaptainMissionCatalog'
 import { townMissionMilitaryIds } from '../town/TownEagleGarrison'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
@@ -55,23 +56,70 @@ interface PendingSiegeRoster {
  */
 export class TownDefenseController {
   personalActors: () => readonly NPC[] = () => []
+  /** Scene-owned civilian player/return claims suspend evacuation without changing casualty membership. */
+  civilianCommandOwns: (npc: NPC) => boolean = () => false
+  claimCivilianCommand(npc: NPC): void {
+    if (!this.civilianCommandOwns?.(npc)) return
+    npc.missionMovement = false; npc.setMissionCombatTarget(undefined); npc.assignSiegeObstacle(null)
+    this.orders.delete(npc); this.civilianCombat.delete(npc)
+  }
+  returnCivilianCommand(npc: NPC): void {
+    if (this.civilianCommandOwns?.(npc)) return
+    this.orders.delete(npc); this.civilianCombat.delete(npc)
+    const index = this.civilians.indexOf(npc)
+    if (!this.active || this.active.result || this.assault || npc.dead || index < 0) return
+    this.order(npc, this.walkable(this.civilianShelterPoints()[index], [], 1.8))
+  }
+
   registerPersonalActor(npc: NPC): void { this.tracker?.registerNpc(npc, true) }
   get personalContribution() { return this.tracker?.commandCheckpoint() }
   get officialContribution() { return this.tracker?.officialCommandCheckpoint() }
+  /** Transaction snapshots retain the mission's original mount after dismount or death. */
+  snapshotCommandActor(npc: NPC): ReturnType<typeof snapshotCommandActor> | undefined {
+    const active = this.active
+    if (!active || active.officialSquad?.missionId !== active.id
+      || !active.officialSquad.actorIds.includes(npc.combatantId) || !this.fieldNpcs.includes(npc)) return undefined
+    return snapshotCommandActor(npc, this.actorMounts.get(npc))
+  }
   private readonly originalCommandSquads = new Map<NPC, NPC['squadId']>()
   private readonly playerIssuedCommands = new Set<NPC>()
   private isPlayerCommanded(npc: NPC): boolean {
     const active = this.active
-    return Boolean(active && !active.result && active.officialSquad?.actorIds.includes(npc.combatantId))
+    return Boolean(active && !active.result && active.officialSquad?.missionId === active.id
+      && active.officialSquad.townFaction === this.readProfile().faction
+      && officialCommandIsPlayerControlled(active.officialSquad, npc.combatantId))
   }
   /** Player orders replace both scripted travel and the preparation combat hold. */
   releasePlayerCommand(npc: NPC): void {
-    if (!this.isPlayerCommanded(npc)) return
+    if (!this.isPlayerCommanded(npc) || !this.fieldNpcs.includes(npc) || npc.dead) return
     this.playerIssuedCommands.add(npc)
     npc.missionMovement = false
     npc.setMissionCombatTarget(undefined)
     npc.assignSiegeObstacle(null)
     this.orders.delete(npc)
+  }
+  /** The scene saves the released squad before handing its live actors back. */
+  returnPlayerCommand(npc: NPC): void {
+    if (this.isPlayerCommanded(npc) || this.active?.result || !this.active?.officialSquad?.actorIds.includes(npc.combatantId)
+      || !this.fieldNpcs.includes(npc) || npc.dead) return
+    this.playerIssuedCommands.delete(npc)
+    npc.assignSiegeObstacle(null)
+    npc.missionMovement = false
+    this.orders.delete(npc)
+    npc.setMissionCombatTarget(this.phase === 'PREPARING' ? null : undefined)
+    const group = this.groupFor(npc)
+    if (group) {
+      if (this.siege?.releasedReserveGateIds.includes(group.id) && this.phase !== 'PREPARING') npc.setTacticalOrder('charge')
+      else if (group.cavalry.includes(npc)) this.order(npc, siegeReservePoint(group.id, group.cavalry.indexOf(npc)))
+      else {
+        const index = group.members.indexOf(npc)
+        this.order(npc, siegePoint(group.id, (index % 7 - 3) * 2.6, 12 + Math.floor(index / 7) * 3))
+      }
+    } else if (this.enemies.includes(npc)) {
+      if (this.siege?.crossedActorIds.includes(npc.combatantId)) this.engageSiegeAttacker(npc)
+      else if (this.phase === 'PREPARING') npc.setTacticalOrder('defend')
+      else this.updateSiegeAttackOrders()
+    }
   }
   freezeStats(): void { this.tracker?.freeze() }
   readonly events = new CombatEventStream()
@@ -184,7 +232,8 @@ export class TownDefenseController {
       this.restoreActor(resident.npc, active, residentDead.has(resident.spec.id))
       if (active.officialSquad?.actorIds.includes(resident.spec.id)) {
         this.originalCommandSquads.set(resident.npc, resident.npc.squadId)
-        resident.npc.setCommandSquad(1)
+        resident.npc.setCommandSquad(officialActorSquadId(active.officialSquad, resident.spec.id))
+        resident.npc.combatOwnership = 'mission-official'
       }
     }
     if (active.defenseCatDead && !this.blackCat.dead) this.blackCat.takeDamage(this.blackCat.currentHp + 1)
@@ -253,17 +302,23 @@ export class TownDefenseController {
         const npc = this.fieldNpcs.find(npc => npc.combatantId === actorId)
         const saved = deployed.officialSquad?.members?.[actorId]
         if (!npc) continue
+        // Saved authority grants eligibility; only an issued order relinquishes the original AI.
+        if (!this.isPlayerCommanded(npc)) {
+          if (saved) restoreCommandActor(npc, { ...saved, order: undefined, formation: undefined }, this.actorMounts.get(npc))
+          continue
+        }
         npc.missionMovement = false
         this.orders.delete(npc)
         // Commands can arrive while the enemy roster is still being built.
         if (this.playerIssuedCommands.has(npc)) continue
         if (!saved) { npc.setTacticalOrder('defend'); continue }
         restoreCommandActor(npc, saved, this.actorMounts.get(npc))
-        if (!npc.dead && saved.order === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
+        this.playerIssuedCommands.add(npc)
+        if (!npc.dead && saved.order === 'follow') npc.assignFollowTarget(this.player(), index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.readProfile().personalSquad?.members.length)))
       }
       if (this.phase === 'PREPARING') this.closeGates()
       if (this.phase !== 'PREPARING') this.beginAttack()
-      else for (const npc of this.fieldNpcs) npc.setMissionCombatTarget(this.isPlayerCommanded(npc) ? undefined : null)
+      else for (const npc of this.fieldNpcs) npc.setMissionCombatTarget(this.isPlayerCommanded(npc) || this.civilianCommandOwns?.(npc) ? undefined : null)
       this.persistRuntimeProgress(true)
     })
     return true
@@ -325,7 +380,7 @@ export class TownDefenseController {
   }
 
   updateCivilianOrder(npc: NPC): void {
-    if (npc.townCategory !== 'civilian' || npc.dead) return
+    if (npc.townCategory !== 'civilian' || npc.dead || this.civilianCommandOwns?.(npc)) return
     const distances = this.peersFor(npc).map(target => npc.combatPosition.distanceTo(target.combatPosition))
     if (npc.hostileToPlayer && !this.player().dead) distances.push(npc.combatPosition.distanceTo(this.player().combatPosition))
     const fight = civilianShouldFight(Math.min(Infinity, ...distances), this.phase === 'PREPARING')
@@ -343,7 +398,7 @@ export class TownDefenseController {
 
   cleanupMission(): void {
     this.disposeEnemies()
-    for (const [npc, squadId] of this.originalCommandSquads) npc.setCommandSquad(squadId)
+    for (const [npc, squadId] of this.originalCommandSquads) { npc.setCommandSquad(squadId); npc.combatOwnership = undefined }
     this.originalCommandSquads.clear()
     for (const npc of [...this.military, ...this.civilians]) { npc.missionMovement = false; npc.setMissionCombatTarget(undefined); npc.assignSiegeObstacle(null); npc.restoreCombatLoadout(); npc.endExternalThreat() }
     this.siegeContext?.patrol.releaseSiegeOwnership()
@@ -383,7 +438,7 @@ export class TownDefenseController {
   private isEagleGuard(npc: NPC): boolean { return this.residents.some(r => r.npc === npc && r.spec.duty === 'eagle_garrison') }
 
   private order(npc: NPC, point: THREE.Vector3): void {
-    if (npc.dead || this.isEagleGuard(npc) || this.isPlayerCommanded(npc) && (this.tracker || this.playerIssuedCommands.has(npc))) return
+    if (npc.dead || this.civilianCommandOwns?.(npc) || this.isEagleGuard(npc) || this.isPlayerCommanded(npc) && (this.tracker || this.playerIssuedCommands.has(npc))) return
     const prior = this.orders.get(npc)
     // Combat preparation can clear the native formation even when the cached
     // destination is unchanged. Only reuse a still-active scripted formation.
@@ -546,11 +601,19 @@ export class TownDefenseController {
     if (this.assault) {
       mission.friendlyActorIds = [...siege.attackerIds]
       mission.deadFriendlyActorIds = [...dead]
-      if (mission.templateId === CAPTAIN_SIEGE_COMMAND_ID && mission.officialSquad) mission.officialSquad.actorIds = siege.attackerIds.slice(0, 29)
+      if (mission.officialSquad) {
+        // Resolve borrowed identities slot-for-slot, preserving saved squad numbers and commands.
+        const replacements = new Map(active.friendlyActorIds.map((id, index) => [id, siege.attackerIds[index]]))
+        const resolve = (id: string) => replacements.get(id) ?? id
+        const authority = mission.officialSquad
+        authority.actorIds = authority.actorIds.map(resolve)
+        if (authority.squads) authority.squads = authority.squads.map(squad => ({ ...squad, actorIds: squad.actorIds.map(resolve) }))
+        if (authority.members) authority.members = Object.fromEntries(Object.entries(authority.members).map(([id, saved]) => [resolve(id), saved]))
+      }
     } else {
       mission.targetActorIds = [...siege.attackerIds]
       mission.deadTargetActorIds = [...dead]
-      if (mission.templateId === CAPTAIN_GATE_DEFENSE_ID && mission.officialSquad) {
+      if (mission.templateId === CAPTAIN_GATE_DEFENSE_ID && mission.officialSquad && mission.officialSquad.commandRank !== 'commander') {
         // Old saves granted only selected infantry roles. Reconcile authority to
         // the complete saved North plan, retaining all health/order checkpoints.
         mission.officialSquad.actorIds = captainGateDefenseActorIds(this.residents.map(resident => resident.spec),
@@ -585,6 +648,8 @@ export class TownDefenseController {
       const materialize = () => {
         const npc = reused ?? trackNpcSpawn(new NPC(this.scene, point.x, point.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, id, this.events.emit, spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile))
         npc.respawnEnabled = false; npc.missionAerialDefense = true; npc.clearEncounter()
+        const commandSquad = active.officialSquad && officialActorSquadId(active.officialSquad, id)
+        if (commandSquad !== undefined) { npc.setCommandSquad(commandSquad); npc.combatOwnership = 'mission-official' }
         if (reused) {
           this.claimedActors.add(npc)
           this.claimedEventSinks.set(npc, npc.bindCombatEventSink(this.events.emit))
@@ -700,7 +765,9 @@ export class TownDefenseController {
     if (authority) for (const npc of this.fieldNpcs) if (authority.actorIds.includes(npc.combatantId)) {
       members[npc.combatantId] = snapshotCommandActor(npc, this.actorMounts.get(npc))
     }
-    return { ...(authority ? { officialSquad: { ...authority, members, contribution: this.officialContribution ?? authority.contribution } } : {}), ...(this.assault ? { friendlyActorIds: [...this.siege.attackerIds] } : { targetActorIds: [...this.siege.attackerIds] }), siege: { ...this.siege, attackerIds: [...this.siege.attackerIds], claimedSquadIds: [...this.siege.claimedSquadIds], destroyedGateIds: [...this.siege.destroyedGateIds], releasedReserveGateIds: [...this.siege.releasedReserveGateIds], crossedActorIds: [...this.siege.crossedActorIds], gateHealth: { ...this.siege.gateHealth }, playerPosition: { x: player.combatPosition.x, z: player.combatPosition.z, yaw: player.group.rotation.y } }, actorHealth, actorPositions, playerHp: player.hp, playerStamina: player.staminaValue }
+    const contributions = new Map(this.tracker?.officialSquadCheckpoints().map(squad => [squad.squadId, squad.contribution]))
+    return { ...(authority ? { officialSquad: { ...authority, members, contribution: this.officialContribution ?? authority.contribution,
+      ...(authority.squads ? { squads: authority.squads.map(squad => ({ ...squad, contribution: contributions.get(squad.squadId) ?? squad.contribution })) } : {}) } } : {}), ...(this.assault ? { friendlyActorIds: [...this.siege.attackerIds] } : { targetActorIds: [...this.siege.attackerIds] }), siege: { ...this.siege, attackerIds: [...this.siege.attackerIds], claimedSquadIds: [...this.siege.claimedSquadIds], destroyedGateIds: [...this.siege.destroyedGateIds], releasedReserveGateIds: [...this.siege.releasedReserveGateIds], crossedActorIds: [...this.siege.crossedActorIds], gateHealth: { ...this.siege.gateHealth }, playerPosition: { x: player.combatPosition.x, z: player.combatPosition.z, yaw: player.group.rotation.y } }, actorHealth, actorPositions, playerHp: player.hp, playerStamina: player.staminaValue }
   }
 
   private anchorVector(key: keyof typeof TOWN_DEFENSE_LAYOUT): THREE.Vector3 {

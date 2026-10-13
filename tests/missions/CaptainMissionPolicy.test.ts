@@ -3,15 +3,19 @@ import { CombatEventStream } from '../../src/combat/CombatAttribution'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from '../../src/career/CareerMissionState'
 import type { Player } from '../../src/player/Player'
 import { describe, expect, it } from 'vitest'
-import { CAPTAIN_MISSION_CATALOG, CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_PATROL_COMMAND_ID, captainGateDefenseActorIds, captainGateDefenseBriefing, createCaptainPatrolCommandMission, getCaptainMissionAvailability } from '../../src/career/CaptainMissionCatalog'
+import { CAPTAIN_MISSION_CATALOG, CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_PATROL_COMMAND_ID, captainGateDefenseActorIds, captainGateDefenseBriefing, commanderGateDefenseSquads, createCaptainGateDefenseMission, createCaptainPatrolCommandMission, getCaptainMissionAvailability } from '../../src/career/CaptainMissionCatalog'
 import { availableCareerMissionsForPage, careerMissionPage, defaultCareerMissionPage } from '../../src/career/CareerMissionCatalog'
 import { acceptCaptainCavalryCommand } from '../../src/career/CavalrySweep'
-import { acceptCaptainSiegeCommand, acceptEnemyTownAssault } from '../../src/career/EnemyTownAssault'
+import { acceptCaptainSiegeCommand, acceptEnemyTownAssault, siegeCommandSquads } from '../../src/career/EnemyTownAssault'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainEagleSpawnPlan, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
 import { claimCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
+import { townAssaultObjectiveRoster, townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { officialActorSquadId, officialCommandSquads } from '../../src/career/CareerCommandAuthority'
+import { DEFENSE_CAMPAIGN_TIMINGS } from '../../src/campaign/CampaignConfig'
+import { buildCommanderAuthorityForMission } from '../../src/career/CommanderMissionAcceptance'
+import { acceptVeteranMission } from '../../src/career/VeteranMission'
 
 const captain = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000, availableMerit: 5000, ownedMounts: ['horse', 'xongkoro'] })
 const stats = { damageDealt: 200, damageTaken: 5, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
@@ -31,7 +35,7 @@ describe('Captain mission eligibility and official roster policy without actor m
     expect(availableCareerMissionsForPage(profile, 'captain')).toHaveLength(6)
     expect(defaultCareerMissionPage(profile)).toBe('captain')
     expect(CAPTAIN_MISSION_CATALOG.map(careerMissionPage)).toEqual(Array(6).fill('captain'))
-    expect(acceptCaptainSiegeCommand(profile, 'captain-siege')!.activeMission!.officialSquad?.actorIds).toHaveLength(29)
+    expect(acceptCaptainSiegeCommand(profile, 'captain-siege')!.activeMission!.officialSquad?.actorIds).toHaveLength(rank === 'commander' ? 119 : 29)
     expect(acceptEnemyTownAssault(profile)).toBeNull()
   })
   it('requires actual Eagle ownership, independent of the selected mount', () => {
@@ -90,6 +94,132 @@ describe('Captain mission eligibility and official roster policy without actor m
       expect(mission.friendlyActorIds.some(id => id.startsWith('personal:'))).toBe(false)
     }
     expect(profile.personalSquad.members.every(member => !member.equipment?.mount)).toBe(true)
+  })
+})
+
+describe('Commander accepted production rosters without actor materialization', () => {
+  const commander = (): CareerProfile => ({ ...captain(), rank: 'commander', totalMerit: 20000 })
+
+  it.each([
+    ['captain', [29]], ['commander', [29, 30]],
+  ] as const)('%s retains the Cavalry Sweep production squads and borrowed actor identities', (rank, sizes) => {
+    const borrowed = Array.from({ length: 59 }, (_, index) => `accepted-garrison:${index}`)
+    const mission = acceptCaptainCavalryCommand({ ...commander(), rank }, 'grouped-sweep', borrowed)!.activeMission!
+    const authority = mission.officialSquad!
+    expect(officialCommandSquads(authority).map(squad => squad.actorIds.length)).toEqual(sizes)
+    expect(authority.actorIds).toEqual(borrowed.slice(0, rank === 'commander' ? 59 : 29))
+    expect(mission.friendlyActorIds).toEqual(borrowed)
+    expect(mission.targetActorIds).toHaveLength(40)
+    expect(authority.commandRank).toBe(rank === 'commander' ? 'commander' : undefined)
+  })
+
+  it.each(['roman', 'viking'] as const)('groups all 208 accepted %s military defenders by the actual four gates, excluding nonmilitary residents', faction => {
+    const residents = withTownCommandSquadRoster(faction, townRoster())
+    // Supplying civilian/service IDs must not turn shared Town allegiance into authority.
+    const mission = createCaptainGateDefenseMission({ ...commander(), faction }, residents.map(actor => actor.id),
+      residents.filter(actor => actor.role === 'civilian').map(actor => actor.id), residents, 'grouped-gates')
+    const authority = mission.officialSquad!, squads = officialCommandSquads(authority)
+    expect(authority.actorIds).toHaveLength(208)
+    expect(new Set(authority.actorIds).size).toBe(208)
+    expect([...authority.actorIds].sort()).toEqual(townAssaultObjectiveRoster(residents).map(actor => actor.id).sort())
+    expect(squads.map(squad => squad.squadId)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
+    expect(squads.every(squad => squad.actorIds.length <= 30)).toBe(true)
+    expect(authority.actorIds.filter(id => id.startsWith('town-eagle-rider:'))).toHaveLength(5)
+    expect(authority.actorIds).not.toContain('merchant')
+    expect(authority.actorIds).not.toContain('cat')
+    for (const [gate, squad] of [['north', 1], ['south', 3], ['east', 5], ['west', 7]] as const) {
+      expect(squads.find(group => group.squadId === squad)!.actorIds.filter(id => id.startsWith('gate:')))
+        .toEqual(Array.from({ length: 10 }, (_, index) => `gate:${gate}:${index}`))
+    }
+  })
+
+  it('excludes unavailable or unaccepted military without moving the remaining defenders between squads', () => {
+    const residents = townRoster(), accepted = townAssaultObjectiveRoster(residents).map(actor => actor.id)
+    const full = commanderGateDefenseSquads(residents, accepted)
+    const unavailable = new Set(['captain', 'town-patrol:a:captain', 'town-eagle-rider:2'])
+    const reduced = commanderGateDefenseSquads(residents, accepted.filter(id => id !== 'gate:south:0'), unavailable)
+    expect(reduced.flatMap(squad => squad.actorIds)).toHaveLength(204)
+    expect(reduced).toEqual(full.map(squad => ({ ...squad,
+      actorIds: squad.actorIds.filter(id => !unavailable.has(id) && id !== 'gate:south:0'),
+    })))
+    const highMeritCaptain = createCaptainGateDefenseMission({ ...commander(), rank: 'captain' }, accepted, [], residents)
+    expect(highMeritCaptain.officialSquad!.actorIds).toEqual(captainGateDefenseActorIds(residents))
+    expect(highMeritCaptain.officialSquad!.commandRank).toBeUndefined()
+  })
+
+  it('keeps 90 Frontline defenders plus 50 pending reinforcements in separate stable waves at the original arrival time', () => {
+    const profile = acceptCaptainFrontline(commander(), 'grouped-frontline')!, mission = profile.activeMission!
+    const authority = mission.officialSquad!
+    expect(officialCommandSquads(authority).map(squad => [squad.squadId, squad.actorIds.length]))
+      .toEqual([[1, 30], [2, 30], [3, 30], [4, 30], [5, 20]])
+    expect(authority.actorIds).toEqual([...mission.friendlyActorIds, ...mission.reinforcementActorIds!])
+    expect(authority.actorIds).toHaveLength(140)
+    expect(authority.squads![3].actorIds).toEqual(Array.from({ length: 30 }, (_, index) => `grouped-frontline:reinforcement:${index}`))
+    expect(authority.squads![4].actorIds).toEqual(Array.from({ length: 20 }, (_, index) => `grouped-frontline:reinforcement:${index + 30}`))
+    const launch = createCaptainFrontlineLaunch(profile)
+    expect(launch.stageId).toBe(9)
+    expect(DEFENSE_CAMPAIGN_TIMINGS.reinforcementDelaySeconds).toBe(120)
+    const plan = createCaptainFrontlineSpawnPlan(launch, authority)
+    expect(plan.npcSpecs).toHaveLength(90)
+    expect(plan.npcSpecs.map(spec => spec.actorId)).toEqual(mission.friendlyActorIds)
+    expect(plan.npcSpecs.map(spec => spec.squadId)).toEqual([...Array(30).fill(1), ...Array(30).fill(2), ...Array(30).fill(3)])
+    expect(plan.npcSpecs.some(spec => mission.reinforcementActorIds!.includes(spec.actorId!))).toBe(false)
+  })
+
+  it('replays Frontline saved membership instead of regrouping actors after reload', () => {
+    const profile = acceptCaptainFrontline(commander(), 'frontline-save')!, authority = profile.activeMission!.officialSquad!
+    const first = authority.squads![0].actorIds[0], last = authority.squads![2].actorIds[0]
+    authority.squads![0].actorIds[0] = last
+    authority.squads![2].actorIds[0] = first
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const loaded = store.load()!, saved = loaded.activeMission!.officialSquad!
+    expect(saved.squads).toEqual(authority.squads)
+    const specs = createCaptainFrontlineSpawnPlan(createCaptainFrontlineLaunch(loaded), saved).npcSpecs
+    expect(specs.find(spec => spec.actorId === first)!.squadId).toBe(3)
+    expect(specs.find(spec => spec.actorId === last)!.squadId).toBe(1)
+  })
+
+  it.each([1, 2] as const)('maps Siege roster version %i to saved actual actor identities in North/South/East/West order', rosterVersion => {
+    const actorIds = Array.from({ length: 119 }, (_, index) => `saved-borrowed-or-spawned:${index}`)
+    const squads = siegeCommandSquads('roman', actorIds, rosterVersion)
+    expect(squads).toEqual([
+      { squadId: 1, actorIds: actorIds.slice(0, 29) },
+      { squadId: 2, actorIds: actorIds.slice(29, 59) },
+      { squadId: 3, actorIds: actorIds.slice(59, 89) },
+      { squadId: 4, actorIds: actorIds.slice(89, 119) },
+    ])
+    const mission = acceptCaptainSiegeCommand(commander(), 'grouped-siege')!.activeMission!
+    expect(officialCommandSquads(mission.officialSquad!).map(squad => squad.actorIds.length)).toEqual([29, 30, 30, 30])
+    expect(new Set(mission.officialSquad!.actorIds).size).toBe(119)
+  })
+
+  it('retains only one real squad for Patrol and Eagle without adding empty groups or private soldiers', () => {
+    const profile = commander()
+    profile.personalSquad = { members: [{ id: 'personal:extra', type: 'soldier' }] }
+    const patrol = createCaptainPatrolCommandMission(profile, Array.from({ length: 20 }, (_, index) => `accepted-patrol:${index}`))
+    const eagle = acceptCaptainEagle(profile, 'grouped-eagle')!.activeMission!
+    for (const [mission, count] of [[patrol, 20], [eagle, 29]] as const) {
+      expect(officialCommandSquads(mission.officialSquad!)).toEqual([{ squadId: 1, actorIds: mission.friendlyActorIds }])
+      expect(mission.officialSquad!.actorIds).toHaveLength(count)
+      expect(mission.officialSquad!.actorIds).not.toContain('personal:extra')
+      expect(mission.personalSquad!.memberIds).toEqual(['personal:extra'])
+    }
+  })
+
+  it('uses Veteran authored squads with distinct pending reinforcement groups at fresh Commander acceptance', () => {
+    const profile = acceptVeteranMission(commander(), 'veteran-dread-outpost', { missionId: 'grouped-veteran' })!
+    const mission = profile.activeMission!, authority = buildCommanderAuthorityForMission(profile, mission)!
+    expect(officialCommandSquads(authority).map(squad => [squad.squadId, squad.actorIds.length]))
+      .toEqual([[1, 24], [2, 25], [3, 25], [4, 25], [5, 25], [6, 25]])
+    expect(new Set(authority.actorIds)).toEqual(new Set([...mission.friendlyActorIds, ...mission.reinforcementActorIds!]))
+    expect(officialActorSquadId(authority, mission.reinforcementActorIds![0])).toBe(5)
+    expect(officialActorSquadId(authority, mission.reinforcementActorIds![1])).toBe(6)
+    expect(mission.officialSquad).toBeUndefined()
+    expect(buildCommanderAuthorityForMission({ ...profile, rank: 'captain' }, mission)).toBeUndefined()
+    expect(buildCommanderAuthorityForMission(profile, { ...mission, kind: 'duel' })).toBeUndefined()
+    expect(buildCommanderAuthorityForMission(profile, { ...mission, phase: 'RETURNING' })).toBeUndefined()
+    expect(buildCommanderAuthorityForMission(profile, { ...mission, officialSquad: authority })).toBeUndefined()
   })
 })
 

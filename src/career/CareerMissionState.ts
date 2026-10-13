@@ -11,7 +11,7 @@ import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CareerMountId, CareerRank } from './CareerProfile'
 import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 import { personalMissionSourcePolicy, type PersonalSquadMission } from './CareerPersonalSquadMission'
-import { officialMissionSourcePolicy } from './CareerCommandAuthority'
+import { officialMissionSourcePolicy, officialCommandSquads } from './CareerCommandAuthority'
 
 export type CareerMissionPhase = 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
@@ -184,9 +184,12 @@ export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: Co
   if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') {
     if ((mission.kind !== 'enemy-town-assault' && mission.kind !== 'veteran-outpost-assault')
       || !isCareerMissionMeritSource(mission, event.source)) return false
-    // World structures carry their owner's faction rather than player-relative allegiance.
+    // Structures identify their owning army. A saved official's visual faction can differ
+    // (Roman Maki keeps her Viking model), so use the accepted army's faction for hostility.
+    const sourceFaction = isOfficialMissionMeritSource(mission, event.source)
+      ? mission.officialSquad!.townFaction : event.source.characterFaction
     return event.target.characterFaction !== undefined
-      ? event.target.characterFaction !== event.source.characterFaction
+      ? event.target.characterFaction !== sourceFaction
       : event.target.allegiance === 'ENEMY'
   }
   if (event.type === 'damage_applied' && event.target.targetId === 'player') return true
@@ -214,6 +217,10 @@ function isCareerMissionMeritSource(mission: ActiveCareerMission, source: Combat
     if (!policy) { policy = personalMissionSourcePolicy(mission); personalSourcePolicies.set(mission.personalSquad, policy) }
     if (policy(source)) return true
   }
+  return isOfficialMissionMeritSource(mission, source)
+}
+
+function isOfficialMissionMeritSource(mission: ActiveCareerMission, source: CombatEvent['source']): boolean {
   if (!mission.officialSquad || mission.officialSquad.type !== 'mission-official'
     || mission.officialSquad.missionId !== mission.id) return false
   let policy = officialSourcePolicies.get(mission.officialSquad)
@@ -230,6 +237,9 @@ export function careerMissionCommandMeritPolicy(mission: ActiveCareerMission,
     ...(mission.officialSquad?.type === 'mission-official' && mission.officialSquad.missionId === mission.id ? { official: {
       acceptsSource: officialMissionSourcePolicy(mission.officialSquad), initialContribution: mission.officialSquad.contribution,
       initialMemberIds: mission.officialSquad.actorIds,
+      ...(mission.officialSquad.commandRank === 'commander' ? { initialSquads: officialCommandSquads(mission.officialSquad).map(squad => ({
+        squadId: squad.squadId, memberIds: squad.actorIds, contribution: squad.contribution,
+      })) } : {}),
       departedSurvivors: () => read().officialSquad?.actorIds.filter(id => read().officialSquad!.members?.[id]?.status === 'exited') ?? [],
     } } : {}),
     acceptsEvent: event => acceptsCareerMissionStat(read(), event) }

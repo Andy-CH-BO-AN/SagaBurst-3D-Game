@@ -1,11 +1,12 @@
-import { parseCommandActorCheckpoint } from './CareerCommandAuthority'
+import { createMissionCommandAuthority, officialCommandSquads, officialMissionSourcePolicy, parseCommandActorCheckpoint, type OfficialCommandAuthority } from './CareerCommandAuthority'
+import { createCareerOutpostCommandSquads } from './CareerOutpostRoster'
 import type { PersonalActorCheckpoint, PersonalActorPosition } from './CareerPersonalSquadMission'
-import type { BattleStatsSnapshot, PlayerBattleStats } from '../combat/BattleStatsTracker'
+import type { BattleStatsSnapshot, PlayerBattleStats, PlayerCommandMeritPolicy } from '../combat/BattleStatsTracker'
 import { claimCareerBattle, cloneCareerProfile, canonicalCareerMountId, recordCareerMissionCompletion, type CareerProfile } from './CareerProfile'
 import { canUseCareerMount, ownedCareerMountIds } from './CareerMountController'
 import type { CareerMountId } from './CareerProfile'
 import type { MeritBreakdown } from './MeritCalculator'
-import { snapshotPersonalMission, type PersonalSquadMission } from './CareerPersonalSquadMission'
+import { personalMissionSourcePolicy, snapshotPersonalMission, type PersonalSquadMission } from './CareerPersonalSquadMission'
 import type { PlayerBattleStatsCheckpoint } from '../combat/BattleStatsTracker'
 import type { DefenseCampaignRuntimeSnapshot } from '../campaign/DefenseCampaignRuntime'
 
@@ -19,6 +20,7 @@ export interface CareerOutpostMission {
   acceptedAt: number
   reliefPhase?: 'march' | 'charge'
   personalSquad?: PersonalSquadMission
+  officialSquad?: OfficialCommandAuthority
   battle?: CareerOutpostCheckpoint
 }
 export interface CareerOutpostCheckpoint {
@@ -50,6 +52,8 @@ export function acceptCareerOutpost(current: CareerProfile, stageId: CareerOutpo
   const profile = cloneCareerProfile(current)
   profile.activeOutpostMission = { id, kind: 'outpost-defense', stageId, acceptedAt: Date.now() }
   profile.activeOutpostMission.personalSquad = snapshotPersonalMission(profile)
+  if (profile.rank === 'commander') profile.activeOutpostMission.officialSquad = createMissionCommandAuthority(
+    id, profile.faction, profile.rank, [], createCareerOutpostCommandSquads(profile.faction, profile.activeOutpostMission))
   return profile
 }
 export function claimCareerOutpost(current: CareerProfile, missionId: string, outcome: 'victory' | 'defeat', stats: BattleStatsSnapshot) {
@@ -160,5 +164,36 @@ export function acceptCareerOutpostRelief(current: CareerProfile, id: string = c
   profile.selectedMountId = mount
   profile.activeOutpostMission = { id, kind: 'outpost-relief', stageId: 3, acceptedAt: Date.now(), reliefPhase: 'march' }
   profile.activeOutpostMission.personalSquad = snapshotPersonalMission(profile)
+  if (profile.rank === 'commander') profile.activeOutpostMission.officialSquad = createMissionCommandAuthority(
+    id, profile.faction, profile.rank, [], createCareerOutpostCommandSquads(profile.faction, profile.activeOutpostMission))
   return profile
+}
+
+/** Official forces and HR retain separate sources while sharing existing battle merit rates. */
+export function careerOutpostCommandMeritPolicy(mission: CareerOutpostMission,
+  read: () => CareerOutpostMission = () => mission,
+  acceptsEvent?: PlayerCommandMeritPolicy['acceptsEvent']): PlayerCommandMeritPolicy | undefined {
+  if (!mission.personalSquad && !mission.officialSquad) return undefined
+  const official = mission.officialSquad?.type === 'mission-official'
+    && mission.officialSquad.missionId === mission.id ? mission.officialSquad : undefined
+  return {
+    acceptsSource: personalMissionSourcePolicy(mission), initialContribution: mission.personalSquad?.contribution,
+    initialMemberIds: mission.personalSquad?.memberIds.filter(id => mission.personalSquad!.members[id]?.status !== 'reserve'),
+    departedSurvivors: () => {
+      const current = read().personalSquad
+      return current?.memberIds.filter(id => current.members[id]?.status === 'exited') ?? []
+    },
+    ...(official ? { official: {
+      acceptsSource: officialMissionSourcePolicy(official), initialContribution: official.contribution,
+      initialMemberIds: official.actorIds,
+      ...(official.commandRank === 'commander' ? { initialSquads: officialCommandSquads(official).map(squad => ({
+        squadId: squad.squadId, memberIds: squad.actorIds, contribution: squad.contribution,
+      })) } : {}),
+      departedSurvivors: () => {
+        const current = read().officialSquad
+        return current?.actorIds.filter(id => current.members?.[id]?.status === 'exited') ?? []
+      },
+    } } : {}),
+    ...(acceptsEvent ? { acceptsEvent } : {}),
+  }
 }

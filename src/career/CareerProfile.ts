@@ -1,3 +1,4 @@
+import { cloneCivilianCommandSquad, type CivilianCommandSquadState } from './CivilianCommandAuthority'
 import type { EnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
 import type { CareerDuelTier, CareerDuelCommanderHome } from './CareerDuelState'
 import { cloneOfficialCommandAuthority, cloneTownCommandSquad, type TownCommandSquadState } from './CareerCommandAuthority'
@@ -89,6 +90,7 @@ export interface CareerProfile {
   /** Minimal roaming deployment state survives mission cleanup independently in each Town. */
   townOutskirts?: Partial<Record<CharacterFaction, import('../town/TownOutskirtsWarfareController').TownOutskirtsCheckpoint>>
   townCommandSquad?: TownCommandSquadState
+  civilianCommandSquad?: CivilianCommandSquadState
   activeMission?: ActiveCareerMission
   activeOutpostMission?: CareerOutpostMission
   completedOutpostStages?: CareerOutpostStageId[]
@@ -440,6 +442,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...profile,
     ...(profile.townCommanderRecovery ? { townCommanderRecovery: { ...profile.townCommanderRecovery } } : {}),
     ...(profile.townCommandSquad ? { townCommandSquad: cloneTownCommandSquad(profile.townCommandSquad) } : {}),
+    ...(profile.civilianCommandSquad ? { civilianCommandSquad: cloneCivilianCommandSquad(profile.civilianCommandSquad) } : {}),
     ...(profile.enemyEaglePatrols ? { enemyEaglePatrols: structuredClone(profile.enemyEaglePatrols) } : {}),
     ...(profile.townEagleGarrisons ? { townEagleGarrisons: structuredClone(profile.townEagleGarrisons) } : {}),
     ...(profile.playerAerialState ? { playerAerialState: structuredClone(profile.playerAerialState) } : {}),
@@ -451,6 +454,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.activeOutpostMission ? { activeOutpostMission: {
       ...profile.activeOutpostMission,
       ...(profile.activeOutpostMission.personalSquad ? { personalSquad: clonePersonalMission(profile.activeOutpostMission.personalSquad) } : {}),
+      ...(profile.activeOutpostMission.officialSquad ? { officialSquad: cloneOfficialCommandAuthority(profile.activeOutpostMission.officialSquad) } : {}),
       ...(profile.activeOutpostMission.battle ? { battle: structuredClone(profile.activeOutpostMission.battle) } : {}),
     } } : {}),
     ...(profile.completedOutpostStages ? { completedOutpostStages: [...profile.completedOutpostStages] } : {}),

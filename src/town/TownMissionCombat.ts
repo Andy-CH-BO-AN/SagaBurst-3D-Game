@@ -762,19 +762,20 @@ export class TownMissionCombat {
 
   private updateDefense(dt: number, cameraYaw: number, elapsed: number): void {
     const { defense } = this.missions
+    const commandActors = new Set(this.town.commandActors?.() ?? [])
     defense.updateFlow(dt, cameraYaw)
     this.town.updateCommandCue()
     const outskirts = this.prepareOutskirtsFrame(dt)
     const warfareActive = Boolean(outskirts?.actors.length || this.town.airPatrol?.()?.actors.length || defense.active)
     if (warfareActive) this.updateExternalThreatAssignments({ roamingOnly: true })
-    this.town.preparePeaceResidents?.(new Set([...defense.fieldNpcs, ...this.externalThreatActors]))
+    this.town.preparePeaceResidents?.(new Set([...defense.fieldNpcs, ...this.externalThreatActors, ...commandActors]))
     const patrol = this.town.patrol?.()
     this.preparePatrolCombatFrame(dt, outskirts)
     const patrolActors = new Set(patrol?.combatActors ?? [])
     const actors = warfareActive ? [...new Set([
-      ...defense.fieldNpcs, ...this.missions.field.ambientBandits,
+      ...defense.fieldNpcs, ...commandActors, ...this.missions.field.ambientBandits,
       ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []), ...this.externalThreatActors, ...patrolActors,
-    ])] : [...new Set([...defense.fieldNpcs, ...patrolActors])]
+    ])] : [...new Set([...defense.fieldNpcs, ...commandActors, ...patrolActors])]
     const missionActors = new Set(actors)
     for (const resident of this.town.residents) if (!missionActors.has(resident.npc)) this.town.peaceResident(resident, dt)
     this.grid.clear(); this.defenseEnemyGrid.clear(); this.defenseTownGrid.clear()
@@ -785,6 +786,11 @@ export class TownMissionCombat {
       else this.defenseTownGrid.insert(actor)
     }
     for (const actor of actors) {
+      if (this.town.ownsPeacefulTravel?.(actor) && (actor.townCategory === 'civilian' || !defense.fieldNpcs.includes(actor))) {
+        const resident = this.town.residents.find(resident => resident.npc === actor)
+        if (resident) { this.town.peaceResident(resident, dt); continue }
+      }
+      if (commandActors.has(actor)) { this.updateRuntimeActor(actor, dt); continue }
       if (this.town.personalSquad?.()?.owns(actor)) { this.updatePersonalActor(actor, dt); continue }
       if (patrolActors.has(actor)) {
         this.updateRuntimeActor(actor, dt)

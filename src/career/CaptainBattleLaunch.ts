@@ -1,6 +1,6 @@
 import { BattleSpawner, type BattleSpawnPlan } from '../battle/BattleSpawner'
 import { createEmptyRomanArmyConfig, createEmptyVikingArmyConfig, type BattleConfig, type PlayerLoadoutConfig } from '../battle/BattleConfig'
-import { getDefenseCampaignStage, resolveCampaignRolePreset } from '../campaign/CampaignConfig'
+import { resolveCampaignRolePreset } from '../campaign/CampaignConfig'
 import { createDefenseCampaignWaveConfig, positionDefenseCampaignDefenders, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
 import { canUseCareerMount } from './CareerMountController'
 import { careerItemTotal } from './CareerInventory'
@@ -8,7 +8,8 @@ import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { snapshotPersonalMission, clonePersonalMission } from './CareerPersonalSquadMission'
-import { emptyPersonalContribution } from '../combat/CommandMerit'
+import { createMissionCommandAuthority, officialActorSquadId, type OfficialCommandAuthority } from './CareerCommandAuthority'
+import { commandSquadsFromActorIds } from './MissionCommandRoster'
 import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './CaptainMissionCatalog'
 
@@ -49,14 +50,17 @@ export function createCaptainFrontlineLaunch(profile: CareerProfile): DefenseCam
   }
 }
 
-export function createCaptainFrontlineSpawnPlan(launch: DefenseCampaignLaunchConfig): BattleSpawnPlan {
+export function createCaptainFrontlineSpawnPlan(launch: DefenseCampaignLaunchConfig, authority?: OfficialCommandAuthority): BattleSpawnPlan {
   const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'defenders'))
   positionDefenseCampaignDefenders(plan.npcSpecs, launch.defenderFaction)
   const placement = getCampaignOutpostPlacement(launch.defenderFaction)
   const melee = plan.npcSpecs.filter(spec => spec.presetId === resolveCampaignRolePreset(launch.defenderFaction, 'frontline'))
     .sort((a, b) => Math.abs(a.z - placement.frontZ) - Math.abs(b.z - placement.frontZ)).slice(0, 20)
   const authorized = new Set(melee)
-  plan.npcSpecs.forEach((spec, index) => { spec.actorId = `${launch.careerMissionId}:initial:${index}`; spec.squadId = authorized.has(spec) ? 1 : 2 })
+  plan.npcSpecs.forEach((spec, index) => {
+    spec.actorId = `${launch.careerMissionId}:initial:${index}`
+    spec.squadId = (authority && officialActorSquadId(authority, spec.actorId)) ?? (authorized.has(spec) ? 1 : 2)
+  })
   return plan
 }
 
@@ -71,13 +75,15 @@ export function acceptCaptainFrontline(current: CareerProfile, id = createCareer
   next.activeMission = mission
   const launch = createCaptainFrontlineLaunch(next)
   const plan = createCaptainFrontlineSpawnPlan(launch)
-  const stage = getDefenseCampaignStage(9)
   mission.friendlyActorIds = plan.npcSpecs.map(spec => spec.actorId!)
-  mission.reinforcementActorIds = Array.from({ length: stage.reinforcement.count }, (_, index) => `${id}:reinforcement:${index}`)
+  const reinforcements = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'reinforcement'))
+  mission.reinforcementActorIds = reinforcements.npcSpecs.map((_, index) => `${id}:reinforcement:${index}`)
   const attackers = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'attackers'))
   mission.targetActorIds = attackers.npcSpecs.map((_, index) => `${id}:attackers:${index}`)
-  mission.officialSquad = { type: 'mission-official', missionId: id, townFaction: next.faction, squadId: 1,
-    actorIds: plan.npcSpecs.filter(spec => spec.squadId === 1).map(spec => spec.actorId!), contribution: emptyPersonalContribution() }
+  const initialSquads = commandSquadsFromActorIds(mission.friendlyActorIds)
+  mission.officialSquad = createMissionCommandAuthority(id, next.faction, next.rank,
+    plan.npcSpecs.filter(spec => spec.squadId === 1).map(spec => spec.actorId!),
+    [...initialSquads, ...commandSquadsFromActorIds(mission.reinforcementActorIds, initialSquads.length + 1)])
   return next
 }
 
@@ -123,8 +129,8 @@ export function acceptCaptainEagle(current: CareerProfile, id = createCareerMiss
     friendlyActorIds: Array.from({ length: 29 }, (_, index) => `${id}:eagle:friendly:${index}`),
     targetActorIds: Array.from({ length: 30 }, (_, index) => `${id}:eagle:enemy:${index}`),
     personalSquad: snapshotPersonalMission(next),
-    officialSquad: { type: 'mission-official', missionId: id, townFaction: next.faction, squadId: 1,
-      actorIds: Array.from({ length: 29 }, (_, index) => `${id}:eagle:friendly:${index}`), contribution: emptyPersonalContribution() },
   }
+  next.activeMission.officialSquad = createMissionCommandAuthority(id, next.faction, next.rank,
+    next.activeMission.friendlyActorIds, [{ squadId: 1, actorIds: next.activeMission.friendlyActorIds }])
   return next
 }

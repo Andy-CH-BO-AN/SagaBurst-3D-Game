@@ -137,3 +137,32 @@ describe('MountedMissionMarchController squad scaling', () => {
     expect(member.assignFollowTarget.mock.calls[0][0]).toBe(leader)
   })
 })
+
+
+describe('Mounted mission player ownership handover', () => {
+  it('excludes a claimed second squad from travel and charge, then resumes its original AI on dismissal', () => {
+    // Four cheap command-capable doubles; no actor or mount materialization.
+    const group = [rider('first'), rider('first-member'), rider('second'), rider('second-member')]
+    const actors = group as unknown as NPC[], claimed = new Set<NPC>()
+    const controller = new MountedMissionMarchController(actors, new THREE.Vector3(100, 0, 0), vi.fn(), () => true, vi.fn(), false, {
+      leaderDeathMode: 'replace', leaderMode: 'independent',
+      acceptsActor: npc => !claimed.has(npc),
+      squads: [{ leader: actors[0], members: actors.slice(0, 2) }, { leader: actors[2], members: actors.slice(2) }],
+    })
+    controller.start()
+    actors.slice(2).forEach(npc => claimed.add(npc))
+    group.forEach(npc => { npc.assignFormationTarget.mockClear(); npc.assignFollowTarget.mockClear(); npc.setTacticalOrder.mockClear() })
+    controller.resumeTravel()
+    controller.engage()
+    expect(group[0].setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')
+    expect(group[1].setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')
+    for (const npc of group.slice(2)) {
+      expect(npc.assignFormationTarget).not.toHaveBeenCalled()
+      expect(npc.assignFollowTarget).not.toHaveBeenCalled()
+      expect(npc.setTacticalOrder).not.toHaveBeenCalled()
+    }
+    claimed.delete(actors[2]); controller.resumeActor(actors[2])
+    expect(group[2].setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')
+    expect(group[3].setTacticalOrder).not.toHaveBeenCalled()
+  })
+})

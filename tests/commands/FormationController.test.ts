@@ -1,9 +1,11 @@
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { Faction, type NPC } from '../../src/world/NPC'
-import { FormationController } from '../../src/battle/FormationController'
+import { FormationController, type FormationCommandAssignment } from '../../src/battle/FormationController'
+import type { ArmyCommandAuthority } from '../../src/battle/ArmyCommandController'
 import { getTerrainHeight, PLAYABLE_WORLD_BOUND } from '../../src/world/Terrain'
 
+import { createArmyCommandHarness } from '../helpers/armyCommandHarness'
 import { createFormationPlacementHarness, placementParticipant, blockingBox } from '../helpers/formationPlacement'
 function placementHarness(...args: Parameters<typeof createFormationPlacementHarness>) {
   const fixture = createFormationPlacementHarness(...args)
@@ -12,6 +14,80 @@ function placementHarness(...args: Parameters<typeof createFormationPlacementHar
 }
 
 describe('Formation placement and confirmation', () => {
+  it('keeps Civilian formation unchanged after a failed ownership save and applies only its slots after retry', () => {
+    // Two placement records exercise both real command controllers; no NPC/Mount constructors.
+    const civilian = { ...placementParticipant('resident', -5), combatantId: 'resident', squadId: 'civilians' as const, faction: Faction.TOWN }
+    const soldier = { ...placementParticipant('soldier', 5), combatantId: 'soldier', squadId: 1 as const, faction: Faction.TOWN }
+    const formation = new FormationController(new THREE.Scene(), new THREE.PerspectiveCamera(),
+      [civilian, soldier] as unknown as NPC[], new THREE.Object3D(), [])
+    onTestFinished(() => formation.cancelPlacement())
+    // Ray/terrain read seam only; placement and authority decisions remain production code.
+    const raycaster = (formation as unknown as { raycaster: THREE.Raycaster }).raycaster
+    vi.spyOn(raycaster, 'intersectObject').mockReturnValue([{ point: new THREE.Vector3(0, getTerrainHeight(0, 0), 0) } as THREE.Intersection])
+    const beforeIssue = vi.fn<NonNullable<ArmyCommandAuthority['beforeIssue']>>(() => false)
+    const onIssued = vi.fn()
+    const h = createArmyCommandHarness([civilian, soldier], formation, null, null, 'roman', 'squad', true, undefined,
+      { accepts: () => true, enabled: () => true, beforeIssue }, undefined, onIssued)
+    h.input.press('0'); h.controller.update(); h.input.press('4'); h.controller.update()
+    expect(beforeIssue).not.toHaveBeenCalled()
+    h.input.pressE(); h.controller.update()
+    const failedAssignment = beforeIssue.mock.lastCall![3]![0]
+    expect(failedAssignment).toEqual({ npc: civilian, commandId: 1, reached: false,
+      position: { x: 0, y: getTerrainHeight(0, 0), z: 0, yaw: Math.PI } })
+    expect(beforeIssue).toHaveBeenLastCalledWith('formation', 'squad:civilians', [civilian], [failedAssignment])
+    expect(civilian.assignFormationTarget).not.toHaveBeenCalled()
+    expect(soldier.assignFormationTarget).not.toHaveBeenCalled()
+    expect(onIssued).not.toHaveBeenCalled()
+    expect(formation.isPlacementMode).toBe(true)
+    let saved: Array<Omit<FormationCommandAssignment, 'npc'>> = []
+    beforeIssue.mockImplementation((_order, _target, _participants, assignments) => {
+      expect(civilian.assignFormationTarget).not.toHaveBeenCalled()
+      // Exact slot data is plain JSON ready for the caller's profile transaction.
+      saved = JSON.parse(JSON.stringify(assignments?.map(({ npc: _npc, ...checkpoint }) => checkpoint)))
+      return true
+    })
+    h.input.pressE(); h.controller.update()
+    expect(civilian.assignFormationTarget).toHaveBeenCalledOnce()
+    expect(saved).toEqual([{ commandId: 1, reached: false,
+      position: { x: 0, y: getTerrainHeight(0, 0), z: 0, yaw: Math.PI } }])
+    expect(civilian.assignFormationTarget).toHaveBeenLastCalledWith(1,
+      new THREE.Vector3(0, getTerrainHeight(0, 0), 0), new THREE.Vector3(0, 0, -1))
+    expect(soldier.assignFormationTarget).not.toHaveBeenCalled()
+    expect(onIssued).toHaveBeenCalledWith('formation', 'squad:civilians')
+    expect(formation.isPlacementMode).toBe(false)
+    beforeIssue.mockReturnValue(true)
+    h.input.press('0'); h.controller.update(); h.input.press('4'); h.controller.update()
+    h.input.pressE(); h.controller.update()
+    expect(beforeIssue.mock.lastCall![3]![0].commandId).toBe(2)
+  })
+
+  it('allocates above a restored other-squad formation without consuming the new ID on a failed save', () => {
+    // Two lightweight placement records; no real actor, mount or world construction.
+    const restored = { ...placementParticipant('restored', -5), squadId: 1, formationCommandId: 7 }
+    const selected = { ...placementParticipant('selected', 5), squadId: 2 }
+    const { formation } = placementHarness([], [restored, selected])
+    const raycaster = (formation as unknown as { raycaster: THREE.Raycaster }).raycaster
+    vi.spyOn(raycaster, 'intersectObject').mockReturnValue([
+      { point: new THREE.Vector3(0, getTerrainHeight(0, 0), 0) } as THREE.Intersection,
+    ])
+    const beforeAssign = vi.fn((_participants: readonly NPC[], _assignments: readonly FormationCommandAssignment[]) => false)
+    formation.beginPlacement('squad:2')
+    expect(formation.confirmPlacement(beforeAssign).accepted).toBe(false)
+    expect(beforeAssign.mock.lastCall![0]).toEqual([selected])
+    expect(beforeAssign.mock.lastCall![1][0].commandId).toBe(8)
+    expect(selected.assignFormationTarget).not.toHaveBeenCalled()
+    expect(restored.assignFormationTarget).not.toHaveBeenCalled()
+
+    beforeAssign.mockReturnValue(true)
+    expect(formation.confirmPlacement(beforeAssign)).toMatchObject({ accepted: true, commandId: 8 })
+    expect(selected.assignFormationTarget.mock.lastCall![0]).toBe(8)
+    formation.beginPlacement('squad:2')
+    expect(formation.confirmPlacement(beforeAssign)).toMatchObject({ accepted: true, commandId: 9 })
+    expect(selected.assignFormationTarget.mock.lastCall![0]).toBe(9)
+    expect(restored.assignFormationTarget).not.toHaveBeenCalled()
+    expect(restored.formationCommandId).toBe(7)
+  })
+
   it('uses explicit authority for mixed Town and flying members, placing only the flyer at cruise height', () => {
     const foot = { ...placementParticipant('official', -10), faction: Faction.TOWN }
     const flyer = { ...placementParticipant('personal', 10, true), mount: { isFlyingMount: true } }
@@ -22,7 +98,17 @@ describe('Formation placement and confirmation', () => {
     formation.setParticipantPolicy(npc => npc.name === 'official' || npc.name === 'personal')
     vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: new THREE.Vector3(0, getTerrainHeight(0, 0), 0) }])
     formation.beginPlacement('all')
-    expect(formation.confirmPlacement().count).toBe(2)
+    const save = vi.fn((_participants: readonly NPC[], assignments: readonly FormationCommandAssignment[]) => {
+      expect(foot.assignFormationTarget).not.toHaveBeenCalled()
+      expect(flyer.assignFormationTarget).not.toHaveBeenCalled()
+      const air = assignments.find(assignment => assignment.npc.name === 'personal')!.position
+      expect(air.y).toBe(getTerrainHeight(air.x, air.z) + 30)
+      const ground = assignments.find(assignment => assignment.npc.name === 'official')!.position
+      expect(ground.y).toBe(getTerrainHeight(ground.x, ground.z))
+      return true
+    })
+    expect(formation.confirmPlacement(save).count).toBe(2)
+    expect(save).toHaveBeenCalledOnce()
     const groundSlot = foot.assignFormationTarget.mock.calls[0][1] as THREE.Vector3
     const airSlot = flyer.assignFormationTarget.mock.calls[0][1] as THREE.Vector3
     expect(groundSlot.y).toBe(getTerrainHeight(groundSlot.x, groundSlot.z))
