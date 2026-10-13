@@ -16,9 +16,11 @@ export interface PlacementParticipantFixture {
   assignFormationTarget: ReturnType<typeof vi.fn<NPC['assignFormationTarget']>>
 }
 
+/** Cost: one minimal preview Scene, zero actors/Outposts/terrain/GLB/TownWorld; navigation is supplied by the caller. */
 export function createFormationPlacementHarness(obstacles: Array<{ box: THREE.Box3; isBarricade: boolean }>, participants: PlacementParticipantFixture[], navigation: NavigationWorld | null = null, region: FormationRegion | null = null) {
+  const scene = new THREE.Scene()
   const formation = new FormationController(
-    new THREE.Scene(), new THREE.PerspectiveCamera(), participants as unknown as NPC[], new THREE.Object3D(), obstacles, navigation, region,
+    scene, new THREE.PerspectiveCamera(), participants as unknown as NPC[], new THREE.Object3D(), obstacles, navigation, region,
   )
   // Private solver seam invokes the actual controller with placement-only records.
   const solver = formation as unknown as {
@@ -28,7 +30,13 @@ export function createFormationPlacementHarness(obstacles: Array<{ box: THREE.Bo
     solver.resolvePlacement(center, new THREE.Vector3(0, 0, 1), participants, target) as
       | { center: THREE.Vector3; slots: THREE.Vector3[] }
       | null
-  return { formation, solve }
+  const dispose = () => {
+    formation.cancelPlacement()
+    scene.traverse(object => { if (object instanceof THREE.Line) object.geometry.dispose() })
+    // Marker/center geometries and materials belong to FormationPreview's shared cache.
+    scene.clear()
+  }
+  return { formation, solve, dispose }
 }
 
 export function placementParticipant(name: string, x: number, mounted = false): PlacementParticipantFixture {

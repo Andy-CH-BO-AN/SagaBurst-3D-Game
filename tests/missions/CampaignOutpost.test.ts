@@ -22,6 +22,7 @@ import {
   getCampaignDefenderFacingYaw,
   getCampaignOutpostPlacement,
 } from '../../src/campaign/CampaignOutpost'
+import { createFormationPlacementHarness, placementParticipant } from '../helpers/formationPlacement'
 
 describe('CampaignOutpost', () => {
   it.each(['roman', 'viking'] as const)(
@@ -184,7 +185,48 @@ describe('CampaignOutpost', () => {
       expect(size.x).toBeGreaterThanOrEqual(7)
       expect(size.y).toBeGreaterThanOrEqual(3.5)
       expect(Math.abs(center.x)).toBeGreaterThanOrEqual(24)
+      expect(obstacle!.box.min.z).toBeGreaterThan(108.5)
+      expect(obstacle!.box.max.z).toBeLessThan(179.5)
+      expect(tent.root.position.z).toBeCloseTo(center.z)
     }
+    // The builder has its own faction sign: a pure placement/layout mirror cannot protect this wiring.
+    expect(tents.map(tent => tent.root.position.z).sort((a, b) => a - b))
+      .toEqual([124, 124, 136, 136, 150, 150, 162, 162, 174, 174])
+    for (const [name, expectedZ] of [
+      ['campaign-chevaux-de-frise-1', 114.2],
+      ['campaign-chevaux-de-frise-2', 115.8],
+    ] as const) {
+      const stake = outpost.obstacles.find(obstacle => obstacle.damageable?.root.name === name)!
+      expect(stake).toBeDefined()
+      expect(stake.damageable!.root.position.z).toBeCloseTo(expectedZ)
+      expect(stake.box.getCenter(new THREE.Vector3()).z).toBeCloseTo(expectedZ)
+      expect(stake.box.min.z).toBeGreaterThan(108.5)
+      expect(stake.box.max.z).toBeLessThan(179.5)
+      expect(stake.box.max.x < -4 || stake.box.min.x > 4).toBe(true)
+    }
+
+    // Reuse this builder fixture for the real registered-tent -> placement consumer contract.
+    // No extra Outpost, Terrain, NPC or Mount materialization.
+    const navigation = new NavigationWorld()
+    navigation.sync(outpost.obstacles)
+    const participants = Array.from({ length: 5 }, (_, index) => {
+      const participant = placementParticipant(`tent-placement-${index}`, index - 2)
+      participant.combatPosition.z = 140
+      return participant
+    })
+    const fixture = createFormationPlacementHarness(outpost.obstacles, participants, navigation,
+      { minX: -44, maxX: 44, minZ: 108, maxZ: 180 })
+    onTestFinished(() => fixture.dispose())
+    const tentObstacle = outpost.obstacles.find(obstacle => obstacle.damageable === tents[0])!
+    const center = tentObstacle.box.getCenter(new THREE.Vector3())
+    center.y = getTerrainHeight(center.x, center.z)
+    const placement = fixture.solve(center)
+    const collisionChecks = fixture.formation as unknown as {
+      isSlotBlocked(slot: THREE.Vector3, mounted: boolean): boolean
+    }
+    expect(placement).not.toBeNull()
+    expect(placement?.slots.every(slot => !collisionChecks.isSlotBlocked(slot, false))).toBe(true)
+    expect(placement?.slots.every(slot => navigation.areConnected(participants[0].combatPosition, slot))).toBe(true)
   })
 
   it('makes campfires damageable small obstacles', () => {

@@ -4,6 +4,8 @@ import {
   createCampaignOutpost,
   getCampaignOutpostPlacement,
 } from '../../src/campaign/CampaignOutpost'
+import { CampaignGateController } from '../../src/campaign/CampaignGate'
+import { getOutpostWalkwayLayout, type OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
 import { NAV_PATH_REQUESTS_PER_FRAME, NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { isStairLayer } from '../../src/navigation/OutpostLayeredNavigation'
 import { AIType, AIState, Faction, NPC } from '../../src/world/NPC'
@@ -12,8 +14,10 @@ import {
   getTerrainHeight,
   resolveObstacleCollision,
   type EntityCollisionBody,
+  type ObstacleData,
 } from '../../src/world/Terrain'
 import { EntityCollisionBroadPhase } from '../../src/world/EntityCollisionBroadPhase'
+import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 
 describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
   let scene: THREE.Scene
@@ -25,9 +29,90 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
     navWorld = new NavigationWorld()
   })
 
+  function inertPlayerBoundary(): Player {
+    const group = new THREE.Group()
+    group.position.set(0, -100, 0)
+    const boundary: Pick<Player, 'group' | 'targetable' | 'dead' | 'isMounted' | 'currentMount'> = {
+      group, targetable: false, dead: false, isMounted: false, currentMount: null,
+    }
+    // These non-Follow cases drive friendly NPCs (targetsPlayer=false); this
+    // boundary supplies inert update context and does not verify Player behavior.
+    // NPC.update requires the full class, while these paths need only these fields.
+    return boundary as unknown as Player
+  }
+
+  function connectWalkways(layout: OutpostWalkwayLayout, obstacles: ObstacleData[]) {
+    navWorld.setOutpostWalkways(layout)
+    navWorld.sync(obstacles)
+    const leftDeck = layout.decks.find(d => d.side === -1)!
+    const rightDeck = layout.decks.find(d => d.side === 1)!
+    const leftStair = layout.stairs.find(s => s.side === -1)!
+    const rightStair = layout.stairs.find(s => s.side === 1)!
+    return { obstacles, layout, leftDeck, rightDeck, leftStair, rightStair }
+  }
+
+  function walkwayCollisionData(defenderFaction: 'viking' | 'roman') {
+    // Real NPCs consume production surface geometry and physical rail/stair
+    // collision here. Registration, destruction and visual assembly have separate
+    // owners; locomotion needs no tents, campfires, perimeter meshes or materials.
+    const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement(defenderFaction))
+    const obstacles: ObstacleData[] = []
+    for (const surface of [...layout.decks, layout.bridge]) {
+      obstacles.push({ box: surface.slab, isBarricade: false, navigationPassable: true, walkSurface: surface.walkSurface })
+      for (const rail of surface.rails) {
+        obstacles.push({ box: rail, isBarricade: false, navigationPassable: true })
+      }
+    }
+    for (const stair of layout.stairs) {
+      obstacles.push({ box: stair.bounds, isBarricade: false, walkSurface: stair.ramp })
+      for (const box of [...stair.rails, stair.cap]) obstacles.push({ box, isBarricade: false })
+    }
+    return { layout, obstacles }
+  }
+
+  function setupWalkways(defenderFaction: 'viking' | 'roman' = 'viking') {
+    const { layout, obstacles } = walkwayCollisionData(defenderFaction)
+    return connectWalkways(layout, obstacles)
+  }
+
+  function setupGateNavigation() {
+    // The real gate controller changes the same array consumed by real NPC/A*.
+    // Five authored boundary boxes make the closed doorway the only ground route;
+    // no campaign perimeter/prop/mesh generation is under test in these cases.
+    const fixture = walkwayCollisionData('viking')
+    const placement = getCampaignOutpostPlacement('viking')
+    const wallTopY = Math.min(...fixture.layout.decks.map(deck => deck.topY))
+    const boundary = (x0: number, z0: number, x1: number, z1: number): ObstacleData => ({
+      box: new THREE.Box3(new THREE.Vector3(x0, -10, z0), new THREE.Vector3(x1, wallTopY, z1)),
+      isBarricade: true,
+    })
+    fixture.obstacles.push(
+      boundary(-44.5, placement.frontZ - 0.5, -4, placement.frontZ + 0.5),
+      boundary(4, placement.frontZ - 0.5, 44.5, placement.frontZ + 0.5),
+      boundary(-44.5, placement.frontZ, -43.5, placement.backZ),
+      boundary(43.5, placement.frontZ, 44.5, placement.backZ),
+      boundary(-44.5, placement.backZ - 0.5, 44.5, placement.backZ + 0.5),
+    )
+    const gateRoot = new THREE.Group()
+    const leftHinge = new THREE.Group()
+    const rightHinge = new THREE.Group()
+    gateRoot.add(leftHinge, rightHinge)
+    scene.add(gateRoot)
+    onTestFinished(() => { gateRoot.removeFromParent() })
+    const gate = new DamageableObstacle({ kind: 'gate', maxHp: 2080, root: gateRoot, ownerFaction: 'viking' })
+    const gateObstacle: ObstacleData = {
+      box: new THREE.Box3(new THREE.Vector3(-4, -10, placement.frontZ - 0.45), new THREE.Vector3(4, wallTopY, placement.frontZ + 0.45)),
+      isBarricade: true,
+      damageable: gate,
+    }
+    fixture.obstacles.push(gateObstacle)
+    const gateController = new CampaignGateController({ defenderFaction: 'viking', damageable: gate, obstacle: gateObstacle,
+      obstacles: fixture.obstacles, leftHinge, rightHinge, openRotationY: Math.PI / 2 })
+    return { ...connectWalkways(fixture.layout, fixture.obstacles), gate, gateController }
+  }
+
   function setupOutpost(defenderFaction: 'viking' | 'roman' = 'viking') {
-    // Each runtime case owns one NavigationWorld and procedural Outpost; follow-slot
-    // capacity/spacing matrices use zero actors in OutpostLayeredNavigation.test.ts.
+    // Only the destroyed-gate producer integration materializes a full Outpost.
     const outpost = createCampaignOutpost(
       scene,
       defenderFaction,
@@ -45,21 +130,13 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       for (const geometry of geometries) geometry.dispose()
     })
     const layout = outpost.walkways!.layout
-    navWorld.setOutpostWalkways(layout)
-    navWorld.sync(outpost.obstacles)
-
-    const leftDeck = layout.decks.find(d => d.side === -1)!
-    const rightDeck = layout.decks.find(d => d.side === 1)!
-    const leftStair = layout.stairs.find(s => s.side === -1)!
-    const rightStair = layout.stairs.find(s => s.side === 1)!
-
-    return { outpost, layout, leftDeck, rightDeck, leftStair, rightStair }
+    return { outpost, ...connectWalkways(layout, outpost.obstacles) }
   }
 
   it('real bridge follower walks through a wing and stair to ground, then resumes following back onto the bridge', () => {
     // One real NPC and Player own Follow descent through the wing/stair to exact
     // terrain height, bridge exit continuity, and Follow ascent back to the bridge.
-    const { outpost, layout, leftStair } = setupOutpost('roman')
+    const { obstacles, layout, leftStair } = setupWalkways('roman')
     const nav = navWorld.outpostNav!
     const player = new Player(scene)
     onTestFinished(() => player.dispose())
@@ -75,7 +152,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       for (let frame = 0; frame < 1200; frame++) {
         const previous = npc.group.position.clone()
         navWorld.beginFrame()
-        npc.update(FRAME, player, [npc], [], outpost.obstacles,
+        npc.update(FRAME, player, [npc], [], obstacles,
           { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
         visited.add(nav.getNavLayer(npc.group.position))
         expect(npc.group.position.distanceTo(previous), 'no teleport or bridge-to-ground drop').toBeLessThan(0.5)
@@ -96,7 +173,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('Scenario A: Follow player onto rampart', () => {
     it('foot NPC climbs stair, walks onto rampart deck, and reaches follow slot on deck', () => {
-      const { outpost, leftDeck, leftStair } = setupOutpost('viking')
+      const { obstacles, leftDeck, leftStair } = setupWalkways('viking')
       const player = new Player(scene)
       onTestFinished(() => player.dispose())
 
@@ -124,7 +201,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
           player,
           [npc],
           [],
-          outpost.obstacles,
+          obstacles,
           { setFill: () => {} },
           () => {},
           () => {},
@@ -151,7 +228,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('Follow arrival on stair layer', () => {
     it('foot NPC follows player stationed midway on stair ramp and arrives at follow slot on stair layer', () => {
-      const { outpost, leftStair } = setupOutpost('viking')
+      const { obstacles, leftStair } = setupWalkways('viking')
       const player = new Player(scene)
       onTestFinished(() => player.dispose())
 
@@ -178,7 +255,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
           player,
           [npc],
           [],
-          outpost.obstacles,
+          obstacles,
           { setFill: () => {} },
           () => {},
           () => {},
@@ -206,7 +283,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('Arrival Layer Isolation', () => {
     it('does not declare arrival when NPC is on ground directly beneath player on deck', () => {
-      const { outpost, leftDeck } = setupOutpost('viking')
+      const { obstacles, leftDeck } = setupWalkways('viking')
       const player = new Player(scene)
       onTestFinished(() => player.dispose())
 
@@ -231,7 +308,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
         player,
         [npc],
         [],
-        outpost.obstacles,
+        obstacles,
         { setFill: () => {} },
         () => {},
         () => {},
@@ -251,7 +328,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('Mounted Unit Exclusion', () => {
     it('keeps mounted unit on ground when following player on rampart', () => {
-      const { outpost, leftDeck } = setupOutpost('viking')
+      const { obstacles, leftDeck } = setupWalkways('viking')
       const player = new Player(scene)
       onTestFinished(() => player.dispose())
 
@@ -272,7 +349,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
           player,
           [rider],
           [],
-          outpost.obstacles,
+          obstacles,
           { setFill: () => {} },
           () => {},
           () => {},
@@ -291,10 +368,8 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('Scenario C: Melee charge from ground to rampart', () => {
     it('melee attacker on ground climbs stair to engage enemy on rampart deck', () => {
-      const { outpost, leftDeck, leftStair } = setupOutpost('viking')
-      const dummyPlayer = new Player(scene)
-      onTestFinished(() => dummyPlayer.dispose())
-      dummyPlayer.group.position.set(0, -100, 0) // Park dummy player out of sight
+      const { obstacles, leftDeck, leftStair } = setupWalkways('viking')
+      const dummyPlayer = inertPlayerBoundary()
 
       // Enemy on left rampart deck
       const enemyX = -22
@@ -320,7 +395,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
           dummyPlayer,
           [attacker, enemy],
           [enemy],
-          outpost.obstacles,
+          obstacles,
           { setFill: () => {} },
           () => {},
           () => {},
@@ -347,10 +422,8 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('Scenario D: Melee pursuit from rampart to ground', () => {
     it('melee attacker on rampart pursues enemy down the stairs to the ground', () => {
-      const { outpost, leftDeck, leftStair } = setupOutpost('viking')
-      const dummyPlayer = new Player(scene)
-      onTestFinished(() => dummyPlayer.dispose())
-      dummyPlayer.group.position.set(0, -100, 0)
+      const { obstacles, leftDeck, leftStair } = setupWalkways('viking')
+      const dummyPlayer = inertPlayerBoundary()
 
       // Friendly attacker starts on left rampart deck
       const deckZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
@@ -373,7 +446,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
           dummyPlayer,
           [attacker, enemy],
           [enemy],
-          outpost.obstacles,
+          obstacles,
           { setFill: () => {} },
           () => {},
           () => {},
@@ -397,10 +470,8 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('Stair Multi-NPC Traffic Anti-Deadlock', () => {
     it('two NPCs in opposing directions on stairs maintain lane separation and avoid deadlock', () => {
-      const { outpost, leftDeck, leftStair } = setupOutpost('viking')
-      const dummyPlayer = new Player(scene)
-      onTestFinished(() => dummyPlayer.dispose())
-      dummyPlayer.group.position.set(0, -100, 0)
+      const { obstacles, leftDeck, leftStair } = setupWalkways('viking')
+      const dummyPlayer = inertPlayerBoundary()
 
       const cx = leftStair.ramp.startX
       const dirZ = leftStair.ramp.dirZ
@@ -450,11 +521,11 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       for (let f = 0; f < 220; f++) {
         finalFrames = f + 1
         navWorld.beginFrame()
-        ascendingNpc.update(FRAME, dummyPlayer, allNpcs, allNpcs, outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
-        descendingNpc.update(FRAME, dummyPlayer, allNpcs, allNpcs, outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+        ascendingNpc.update(FRAME, dummyPlayer, allNpcs, allNpcs, obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+        descendingNpc.update(FRAME, dummyPlayer, allNpcs, allNpcs, obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
 
         // Production entity collision resolution: broad phase pair resolve + obstacle pushout
-        broadPhase.resolve(bodies, outpost.obstacles)
+        broadPhase.resolve(bodies, obstacles)
         for (const b of bodies) {
           resolveObstacleCollision(
             b.position,
@@ -464,7 +535,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
             b.radius,
             b.height,
             b.bottomOffset,
-            outpost.obstacles,
+            obstacles,
             { walkSurfaces: b.walkSurfaces },
           )
         }
@@ -521,11 +592,9 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('P1 Regression: Mounted unit combat with closed vs opened gate', () => {
     it('mounted unit pursuing enemy on rampart cannot pass closed gate, but paths to ground below enemy once gate is opened', () => {
-      const { outpost, leftDeck } = setupOutpost('viking')
+      const { obstacles, gateController, leftDeck } = setupGateNavigation()
       const placement = getCampaignOutpostPlacement('viking')
-      const dummyPlayer = new Player(scene)
-      onTestFinished(() => dummyPlayer.dispose())
-      dummyPlayer.group.position.set(0, -100, 0)
+      const dummyPlayer = inertPlayerBoundary()
 
       // Enemy stands on left rampart deck
       const enemyX = -22
@@ -545,7 +614,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       // Phase 1: Gate is closed. Rider in CHASE must NOT penetrate the closed gate/palisade
       for (let f = 0; f < 60; f++) {
         navWorld.beginFrame()
-        rider.update(FRAME, dummyPlayer, [rider, enemy], [enemy], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+        rider.update(FRAME, dummyPlayer, [rider, enemy], [enemy], obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
       }
 
       // Rider cannot penetrate through the gate into the courtyard
@@ -553,13 +622,13 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       expect(rider.combatPosition.y, 'Mounted unit must stay on ground').toBeLessThan(leftDeck.topY - 1.5)
 
       // Phase 2: Open gate and sync navigation grid
-      outpost.gateController.open()
-      navWorld.sync(outpost.obstacles)
+      gateController.open()
+      navWorld.sync(obstacles)
 
       // Update rider now that a walkable ground route is available through the gate
       for (let f = 0; f < 120; f++) {
         navWorld.beginFrame()
-        rider.update(FRAME, dummyPlayer, [rider, enemy], [enemy], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+        rider.update(FRAME, dummyPlayer, [rider, enemy], [enemy], obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
       }
 
       // Rider successfully navigates through the gate into the outpost toward the ground under the enemy
@@ -571,7 +640,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('P2 Regression: Cross-layer follow with closed gate and A* pending frame budget', () => {
     it('ground follower safely stops outside when gate is closed and leader is on rampart', () => {
-      const { outpost, leftDeck } = setupOutpost('viking')
+      const { obstacles, gateController, leftDeck } = setupGateNavigation()
       const placement = getCampaignOutpostPlacement('viking')
       const player = new Player(scene)
       onTestFinished(() => player.dispose())
@@ -589,12 +658,12 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       onTestFinished(() => follower.dispose())
 
       follower.assignFollowTarget(player, 0)
-      expect(outpost.gateController.state).toBe('closed')
+      expect(gateController.state).toBe('closed')
 
       // Simulate 60 frames while gate is closed
       for (let f = 0; f < 60; f++) {
         navWorld.beginFrame()
-        follower.update(FRAME, player, [follower], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+        follower.update(FRAME, player, [follower], [], obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
       }
 
       // Follower must safely stop outside without passing through the closed gate/palisade
@@ -602,14 +671,14 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
     })
 
     it('NPC waiting for A* budget frame saturation (pending) safely waits and does not charge into wall', () => {
-      const { outpost, leftDeck } = setupOutpost('viking')
+      const { obstacles, gateController, leftDeck } = setupGateNavigation()
       const placement = getCampaignOutpostPlacement('viking')
       const player = new Player(scene)
       onTestFinished(() => player.dispose())
 
       // Open gate so route is theoretically walkable
-      outpost.gateController.open()
-      navWorld.sync(outpost.obstacles)
+      gateController.open()
+      navWorld.sync(obstacles)
 
       // Player stands on elevated rampart deck
       const playerZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
@@ -634,24 +703,22 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       const prevZ = follower.group.position.z
 
       // Update follower during frame budget exhaustion: must receive pending and safely wait
-      follower.update(FRAME, player, [follower], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+      follower.update(FRAME, player, [follower], [], obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
 
       // When pending, follower does not sprint into obstacle
       expect(Math.abs(follower.group.position.z - prevZ), 'Follower must not displace when A* route is pending').toBeLessThan(0.01)
 
       // Refresh frame budget on next frame: query resolves and follower moves
       navWorld.beginFrame()
-      follower.update(FRAME, player, [follower], [], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+      follower.update(FRAME, player, [follower], [], obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
       expect(follower.group.position.z, 'Follower should begin moving once budget is available').toBeGreaterThan(prevZ)
     })
   })
 
   describe('P1 Regression: Ground navigation around solid stair ramp', () => {
     it('mounted NPC routes around stair ramp in courtyard and reaches ground target on opposite side without getting stuck', () => {
-      const { outpost, leftStair } = setupOutpost('viking')
-      const dummyPlayer = new Player(scene)
-      onTestFinished(() => dummyPlayer.dispose())
-      dummyPlayer.group.position.set(0, -100, 0)
+      const { obstacles, leftStair } = setupWalkways('viking')
+      const dummyPlayer = inertPlayerBoundary()
 
       const cx = leftStair.ramp.startX
       const dirZ = leftStair.ramp.dirZ
@@ -681,7 +748,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       for (let f = 0; f < 200; f++) {
         frameCount = f + 1
         navWorld.beginFrame()
-        rider.update(FRAME, dummyPlayer, [rider], [rider], outpost.obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
+        rider.update(FRAME, dummyPlayer, [rider], [rider], obstacles, { setFill: () => {} }, () => {}, () => {}, false, 0, null, null, navWorld)
 
         const dist = Math.hypot(rider.combatPosition.x - goalX, rider.combatPosition.z - crossingZ)
         if (dist < minDistanceToGoal) minDistanceToGoal = dist
@@ -707,7 +774,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('P1 Regression: NPC on rampart pursuing target midway down stair', () => {
     it('foot NPC on rampart stays in deck corridor until stair top without cutting diagonally into midair', () => {
-      const { outpost, leftDeck, leftStair } = setupOutpost('viking')
+      const { obstacles, leftDeck, leftStair } = setupWalkways('viking')
       const player = new Player(scene)
       onTestFinished(() => player.dispose())
 
@@ -734,7 +801,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
           player,
           [npc],
           [],
-          outpost.obstacles,
+          obstacles,
           { setFill: () => {} },
           () => {},
           () => {},
@@ -777,7 +844,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
 
   describe('Gate Walkway & Elevated Bridge Navigation', () => {
     it('foot NPC follows leader continuously across bridge from left wing to right wing without descending', () => {
-      const { outpost, leftDeck, rightDeck } = setupOutpost('viking')
+      const { obstacles, leftDeck, rightDeck } = setupWalkways('viking')
       const player = new Player(scene)
       onTestFinished(() => player.dispose())
 
@@ -806,7 +873,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
           player,
           [npc],
           [],
-          outpost.obstacles,
+          obstacles,
           { setFill: () => {} },
           () => {},
           () => {},
@@ -831,7 +898,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
     })
 
     it('melee attacker on left rampart deck charges across bridge to engage enemy on right rampart deck', () => {
-      const { outpost, leftDeck, rightDeck } = setupOutpost('viking')
+      const { obstacles, leftDeck, rightDeck } = setupWalkways('viking')
       const deckZ = (leftDeck.slab.min.z + leftDeck.slab.max.z) / 2
 
       // Player-aligned melee attacker on left deck
@@ -843,9 +910,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       const target = new NPC(scene, 22, deckZ, Faction.BANDIT, 'viking', AIType.MELEE, 'DeckDefender', 2, false)
       target.group.position.set(22, rightDeck.topY, deckZ)
       onTestFinished(() => target.dispose())
-      const dummyPlayer = new Player(scene)
-      dummyPlayer.group.position.set(0, -100, 0)
-      onTestFinished(() => dummyPlayer.dispose())
+      const dummyPlayer = inertPlayerBoundary()
 
       let minY = Infinity
       let reachedEnemy = false
@@ -857,7 +922,7 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
           dummyPlayer,
           [attacker, target],
           [target],
-          outpost.obstacles,
+          obstacles,
           { setFill: () => {} },
           () => {},
           () => {},
@@ -939,10 +1004,11 @@ describe('Outpost NPC Stair Navigation & Layered Traversal', () => {
       onTestFinished(() => groundEnemy.dispose())
 
       // Target is inside courtyard past the destroyed gate
-      const courtyardTarget = new NPC(scene, 0, 96, Faction.PLAYER, 'viking', AIType.MELEE, 'CourtyardDefender', 2, false)
+      // Arrange the second phase with the existing friendly actor as the stationary
+      // target; the ground breacher is the only actor whose movement is driven here.
+      const courtyardTarget = overheadFollower
       const courtyardY = getTerrainHeight(0, 96)
       courtyardTarget.group.position.set(0, courtyardY, 96)
-      onTestFinished(() => courtyardTarget.dispose())
 
       let groundAdvancedThroughGate = false
       for (let f = 0; f < 250; f++) {
