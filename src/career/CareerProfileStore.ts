@@ -30,7 +30,7 @@ import {
   type CareerProfile,
 } from './CareerProfile'
 import { getCareerMissionTemplate } from './CareerMissionCatalog'
-import type { ActiveCareerMission, CareerMissionPhase, VeteranOutpostBattleState } from './CareerMissionState'
+import type { ActiveCareerMission, CareerMissionPhase, CommanderMissionState, VeteranOutpostBattleState } from './CareerMissionState'
 import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome, parseCareerDuelTravelCheckpoint } from './CareerDuelState'
 
 export const CAREER_STORAGE_KEY = 'sagaburst_career_v1'
@@ -162,6 +162,20 @@ function parseVeteranOutpostBattleState(value: unknown): VeteranOutpostBattleSta
   }
 }
 
+function parseCommanderMissionState(value: unknown, expectedKind: ActiveCareerMission['kind']): CommanderMissionState | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const raw = value as Record<string, unknown>
+  if (raw.version !== 1 || raw.kind !== expectedKind
+    || !['commander-sky-raid', 'commander-decapitation', 'commander-outpost-last-stand'].includes(raw.kind as string)) return undefined
+  const position = raw.playerPosition as Record<string, unknown> | undefined
+  const playerPosition = position && typeof position.x === 'number' && Number.isFinite(position.x)
+    && typeof position.z === 'number' && Number.isFinite(position.z)
+    && typeof position.yaw === 'number' && Number.isFinite(position.yaw)
+    ? { x: position.x, z: position.z, yaw: position.yaw } : undefined
+  return { version: 1, kind: raw.kind as CommanderMissionState['kind'], deploymentComplete: raw.deploymentComplete === true,
+    ...(playerPosition ? { playerPosition } : {}) }
+}
+
 function parseSiege(value: unknown): ActiveCareerMission['siege'] {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
@@ -203,10 +217,11 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     || duelRefereeActorId !== duelCaptainActorId)) return undefined
   const outpostMission = template?.kind === 'veteran-outpost-defense' || template?.kind === 'veteran-outpost-assault' || template?.kind === 'captain-outpost-defense'
   const captainStandalone = template?.kind === 'captain-patrol-command' || template?.kind === 'captain-eagle-battle'
+  const commanderMission = Boolean(template?.id.startsWith('commander-'))
   if (
     typeof raw.id !== 'string' || !raw.id
     || (!template && !duel)
-    || !Number.isInteger(raw.targetCampId) || ((duel || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault' || outpostMission || captainStandalone)
+    || !Number.isInteger(raw.targetCampId) || ((duel || template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault' || outpostMission || captainStandalone || commanderMission)
       ? raw.targetCampId !== -1
       : (raw.targetCampId as number) < 0 || (raw.targetCampId as number) > 4)
     || !MISSION_PHASES.includes(raw.phase as CareerMissionPhase)
@@ -225,7 +240,23 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const actorPositions = parseActorPositions(raw.actorPositions, knownActorIds)
   const engagedEnemySquadIds = parseEngagedEnemySquadIds(raw.engagedEnemySquadIds)
   const outpostBattleState = parseVeteranOutpostBattleState(raw.outpostBattleState)
+  const commanderState = parseCommanderMissionState(raw.commanderMission, template?.kind)
+  if (commanderMission && (!commanderState || rank !== 'commander')) return undefined
   const officialSquad = parseOfficialCommandAuthority(raw.officialSquad)
+  const acceptedOfficialSquad = officialSquad?.type === 'mission-official' && officialSquad.missionId === raw.id
+    && officialSquad.townFaction === faction
+    && (officialSquad.commandRank !== 'commander' || rank === 'commander')
+    && officialSquad.actorIds.every(id => allFriendlyActorIds.includes(id)) ? officialSquad : undefined
+  if (commanderMission) {
+    const expectedFriendly = template?.kind === 'commander-sky-raid' ? 50
+      : template?.kind === 'commander-decapitation' ? 30 : 120
+    const validTargets = template?.kind === 'commander-sky-raid' ? targetActorIds.length >= 100
+      : template?.kind === 'commander-decapitation' ? targetActorIds.length === 1 && targetActorIds[0] === 'commander'
+      : targetActorIds.length === 100
+    if (!acceptedOfficialSquad || acceptedOfficialSquad.commandRank !== 'commander'
+      || friendlyActorIds.length !== expectedFriendly || acceptedOfficialSquad.actorIds.length !== expectedFriendly
+      || !friendlyActorIds.every(id => acceptedOfficialSquad.actorIds.includes(id)) || !validTargets) return undefined
+  }
   const battle = parseCareerOutpostCheckpoint(raw.battle)
   const eagleBattle = parseCaptainEagleCheckpoint(raw.eagleBattle)
   const marchPosition = raw.mountedMarchPosition as { x?: unknown; z?: unknown } | undefined
@@ -234,10 +265,9 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
 
   const mission: ActiveCareerMission = {
     ...(siege ? { siege } : {}),
+    ...(commanderState ? { commanderMission: commanderState } : {}),
     id: raw.id,
-    ...(officialSquad?.type === 'mission-official' && officialSquad.missionId === raw.id && officialSquad.townFaction === faction
-      && (officialSquad.commandRank !== 'commander' || rank === 'commander')
-      && officialSquad.actorIds.every(id => allFriendlyActorIds.includes(id)) ? { officialSquad } : {}),
+    ...(acceptedOfficialSquad ? { officialSquad: acceptedOfficialSquad } : {}),
     ...(template?.kind === 'captain-patrol-command' ? { patrolKilledActorIds: uniqueStrings(raw.patrolKilledActorIds),
       ...(raw.patrolReturnStates && typeof raw.patrolReturnStates === 'object' ? { patrolReturnStates: Object.fromEntries(
         Object.entries(raw.patrolReturnStates).filter(([id, state]) => officialSquad?.actorIds.includes(id)
@@ -300,7 +330,8 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     ...(outpostBattleState ? { outpostBattleState } : {}),
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
     ...(mountState ? { mountState } : {}),
-    ...((template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault') ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
+    ...((template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault'
+      || template?.kind === 'commander-sky-raid') ? { civilianActorIds: uniqueStrings(raw.civilianActorIds) } : {}),
   }
   if (raw.result && typeof raw.result === 'object') {
     const result = raw.result as Record<string, unknown>
@@ -481,6 +512,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
         2: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[2]),
         3: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[3]),
         ...((raw.careerMissionCompletionsByTier as Record<string, unknown>)[4] !== undefined ? { 4: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[4]) } : {}),
+        ...((raw.careerMissionCompletionsByTier as Record<string, unknown>)[5] !== undefined ? { 5: nonNegativeInteger((raw.careerMissionCompletionsByTier as Record<string, unknown>)[5]) } : {}),
       } } : {}),
     ...(raw.townCommanderRecovery && typeof raw.townCommanderRecovery === 'object'
       && ['roman', 'viking'].includes((raw.townCommanderRecovery as Record<string, unknown>).faction as string)

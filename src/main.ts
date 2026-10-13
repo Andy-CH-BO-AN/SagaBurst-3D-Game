@@ -11,6 +11,7 @@ import { CAREER_OUTPOST_SESSION_KEY, clearCareerOutpost } from './career/CareerO
 import { createCareerOutpostLaunch } from './career/CareerOutpostLaunch'
 import { clearCareerMission } from './career/CareerProfile'
 import { createCareerVeteranOutpostLaunch, isCareerVeteranOutpostMission, shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
+import { createCareerCommanderOutpostLaunch, isCareerCommanderOutpostMission } from './career/CommanderOutpost'
 import { CareerProfileStore } from './career/CareerProfileStore'
 import { recoverFailedCareerMission, CAREER_RECOVERY_NOTICE_KEY } from './career/CareerMissionRecovery'
 import { BattleConfig, validateBattleConfig } from './battle/BattleConfig'
@@ -224,6 +225,17 @@ async function bootstrap(): Promise<void> {
       return
     }
   }
+  if (outpostProfile && activeCareerMission && isCareerCommanderOutpostMission(activeCareerMission)) {
+    if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
+      const cleared = clearCareerMission(outpostProfile, activeCareerMission.id)
+      if (!careerStore.save(cleared)) throw new Error('無法保存 Commander Last Stand 返回狀態')
+      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+    } else {
+      await resumeStoredCareerMission(activeCareerMission.id, () => createCareerCommanderOutpostLaunch(outpostProfile))
+      return
+    }
+  }
   if (outpostProfile?.activeOutpostMission) {
     const mission = outpostProfile.activeOutpostMission
     if (outpostProfile.claimedBattleIds.includes(mission.id)) {
@@ -249,6 +261,7 @@ async function bootstrap(): Promise<void> {
         && !parsed.careerMissionKind
         && !parsed.careerReliefPhase
         && !parsed.careerVeteranOutpost
+        && !parsed.careerCommanderOutpost
         && !parsed.careerPersonalSquad
         && parsed.capabilities === undefined
         && parsed.deploymentSeconds === undefined

@@ -225,9 +225,13 @@ export function createCareerVeteranOutpostReinforcementPlan(launch: DefenseCampa
 
 /** The owner is explicit so Career IV keeps the actual enemy fort and gate ownership. */
 export function careerVeteranOutpostOwner(launch: DefenseCampaignLaunchConfig): CampaignFaction {
-  return launch.careerVeteranOutpost?.outpostFaction ?? launch.defenderFaction
+  return launch.careerVeteranOutpost?.outpostFaction
+    ?? launch.careerCommanderOutpost?.outpostFaction
+    ?? launch.defenderFaction
 }
 
 export function careerVeteranOutpostOpposingFaction(launch: DefenseCampaignLaunchConfig): CampaignFaction {
-  return launch.careerVeteranOutpost?.playerFaction ?? launch.defenderFaction
+  return launch.careerVeteranOutpost?.playerFaction
+    ?? launch.careerCommanderOutpost?.playerFaction
+    ?? launch.defenderFaction
 }

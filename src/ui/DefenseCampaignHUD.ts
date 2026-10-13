@@ -16,7 +16,10 @@ export interface DefenseCampaignHUDOptions {
   missionTitle?: string
   veteranMission?: boolean
   playerIsAttacker?: boolean
+  squadBreakdown?: boolean
 }
+
+export interface DefenseCampaignSquadCount { label: string; alive: number; total: number }
 
 type DefenseCampaignPhaseView = Pick<DefenseCampaignRuntimeSnapshot, 'phase' | 'activePhase'>
 
@@ -70,6 +73,7 @@ export class DefenseCampaignHUD {
   private readonly gateEl: HTMLElement
   private readonly defenderEl: HTMLElement
   private readonly attackerEl: HTMLElement
+  private readonly squadEl: HTMLElement
   private resultShown = false
 
   constructor(
@@ -100,6 +104,11 @@ export class DefenseCampaignHUD {
     this.timerEl = timer
     this.defenderEl = root.querySelector('[data-defender]')!
     this.attackerEl = root.querySelector('[data-attacker]')!
+    const squads = document.createElement('div')
+    squads.className = 'campaign-hud-squads'
+    squads.hidden = !this.options.squadBreakdown
+    root.appendChild(squads)
+    this.squadEl = squads
     this.stageEl.textContent = getDefenseCampaignHeading(this.stageId, this.options)
   }
 
@@ -113,17 +122,31 @@ export class DefenseCampaignHUD {
           : state === 'open' ? '[G] 關門' : '[G] 開門'
   }
 
+  updateDeploymentProgress(ready: number, total: number): void {
+    this.phaseEl.textContent = '部隊部署中 · DEPLOYING'
+    this.timerEl.textContent = `已註冊 ${Math.max(0, ready)} / ${Math.max(0, total)} 名正式戰鬥員`
+  }
+
   update(
     snapshot: DefenseCampaignRuntimeSnapshot,
     defenderAlive: number,
     attackerAlive: number,
     defenderFaction: CampaignFaction,
     reinforcementSpawned: boolean,
+    squadCounts?: readonly DefenseCampaignSquadCount[],
   ): void {
     const defenderName = defenderFaction === 'roman' ? 'ROMAN' : 'VIKING'
     const attackerName = defenderFaction === 'roman' ? 'VIKING' : 'ROMAN'
-    this.defenderEl.textContent = `${defenderName}: ${defenderAlive}`
-    this.attackerEl.textContent = `${attackerName}: ${attackerAlive}`
+    this.defenderEl.textContent = this.options.squadBreakdown
+      ? `Friendly Infantry: ${defenderAlive} / 120`
+      : `${defenderName}: ${defenderAlive}`
+    this.attackerEl.textContent = this.options.squadBreakdown
+      ? `Enemy Cavalry: ${attackerAlive} / 100`
+      : `${attackerName}: ${attackerAlive}`
+    if (this.options.squadBreakdown) {
+      this.squadEl.hidden = false
+      this.squadEl.textContent = (squadCounts ?? []).map(squad => `${squad.label}: ${squad.alive} / ${squad.total}`).join(' · ')
+    }
 
     if (snapshot.phase === 'victory') {
       this.phaseEl.textContent = 'VICTORY'

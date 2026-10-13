@@ -113,6 +113,8 @@ export class TownMissionSettlement {
     const captainPatrol = active.kind === 'captain-patrol-command'
     if (captainPatrol && !active.result) return { status: 'ignored' }
     const enemyTerritoryScout = isCareerEnemyTerritoryFieldMission(active)
+    const enemyTownOperation = active.kind === 'enemy-town-assault'
+      || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
     if (veteranField && !active.result) return { status: 'ignored' }
     const inPlace = !enemyTerritoryScout && (defense || intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField || captainPatrol)
     if (inPlace && !defense && active.phase !== 'RETURNING' && !((active.kind === 'cavalry-sweep' || veteranField || captainPatrol) && active.result)) return { status: 'ignored' }
@@ -132,7 +134,7 @@ export class TownMissionSettlement {
     if (captainPatrol) this.missions.patrol?.release()
 
     if (!inPlace) {
-      if (active.kind === 'enemy-town-assault') this.missions.defense.cleanupMission()
+      if (enemyTownOperation) this.missions.defense.cleanupMission()
       else if (active.kind === 'duel') this.missions.duel.cleanupMission()
       else this.missions.field.cleanupMission(active.targetCampId)
       if (enemyTerritoryScout) {
