@@ -496,10 +496,13 @@ export function createOutpostWalkways(
     const slabLen = Math.hypot(bridgeSpan, yRight - yLeft)
     const midZ = (zAt(0) + zAt(W.deckDepth)) / 2
     const midY = (yLeft + yRight) / 2
-
-    const slabGeom = new THREE.BoxGeometry(slabLen, W.deckThickness, W.deckDepth)
-    slabGeom.rotateZ(theta)
-    slabGeom.translate(0, midY - W.deckThickness / 2, midZ)
+    // Use exactly the same rigid transform for the visible slab and its precise
+    // projectile/camera volume. The world AABB remains the navigation broadphase.
+    const slabLocalBox = box(-slabLen / 2, -W.deckThickness / 2, -W.deckDepth / 2,
+      slabLen / 2, W.deckThickness / 2, W.deckDepth / 2)
+    const slabLocalToWorld = new THREE.Matrix4().makeRotationZ(theta)
+    slabLocalToWorld.setPosition(0, midY - W.deckThickness / 2, midZ)
+    const slabGeom = boxGeometry(slabLocalBox).applyMatrix4(slabLocalToWorld)
 
     const wood: THREE.BufferGeometry[] = [
       slabGeom,
@@ -513,6 +516,8 @@ export function createOutpostWalkways(
       isBarricade: false,
       navigationPassable: true,
       walkSurface: bridge.walkSurface,
+      projectileBoxes: [slabLocalBox],
+      projectileWorldToLocal: slabLocalToWorld.clone().invert(),
     })
 
     register({

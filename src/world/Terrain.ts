@@ -136,6 +136,8 @@ export interface ObstacleData {
    * while arrows/javelins can physically pass between the visible timbers.
    */
   projectileBoxes?: readonly THREE.Box3[]
+  /** Rigid world-to-local transform when projectileBoxes describe rotated timber. */
+  projectileWorldToLocal?: THREE.Matrix4
   /**
    * Walkable ramp carried by this obstacle. Callers that opt in through
    * ObstacleCollisionOptions.walkSurfaces stand on it; every other caller
@@ -307,10 +309,37 @@ export function obstacleContainsProjectilePoint(
 ): boolean {
   const boxes = obstacle.projectileBoxes
   if (!boxes || boxes.length === 0) return obstacle.box.containsPoint(point)
+  const localPoint = obstacle.projectileWorldToLocal
+    ? projectileLocalStart.copy(point).applyMatrix4(obstacle.projectileWorldToLocal)
+    : point
   for (const box of boxes) {
-    if (box.containsPoint(point)) return true
+    if (box.containsPoint(localPoint)) return true
   }
   return false
+}
+
+const projectileLocalStart = new THREE.Vector3()
+const projectileLocalEnd = new THREE.Vector3()
+
+/** Earliest solid contact on a segment, shared by live projectiles and shooting LOS. */
+export function projectileObstacleEntryFraction(
+  obstacle: ObstacleData,
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+): number | null {
+  if (obstacle.projectilePassable) return null
+  const boxes = obstacle.projectileBoxes
+  if (!boxes?.length) return segmentEntryFractionBox3D(start, end, obstacle.box)
+  if (obstacle.projectileWorldToLocal) {
+    start = projectileLocalStart.copy(start).applyMatrix4(obstacle.projectileWorldToLocal)
+    end = projectileLocalEnd.copy(end).applyMatrix4(obstacle.projectileWorldToLocal)
+  }
+  let closest = Infinity
+  for (const box of boxes) {
+    const entry = segmentEntryFractionBox3D(start, end, box)
+    if (entry !== null) closest = Math.min(closest, entry)
+  }
+  return Number.isFinite(closest) ? closest : null
 }
 
 /**
@@ -331,22 +360,17 @@ export function findBlockingProjectileObstacleAlongPath(
     if (obstacle.projectilePassable) continue
     // Cheap broad phase first. Detailed palisade stake/rail tests only run when
     // the shot segment actually crosses that obstacle's navigation envelope.
-    const coarseEntry = segmentEntryFractionBox3D(start, end, obstacle.box)
+    // Rotating slab thickness can protrude slightly beyond its walk/nav envelope.
+    // Test that single local box directly rather than discard real edge contacts.
+    const coarseEntry = obstacle.projectileWorldToLocal
+      ? 0
+      : segmentEntryFractionBox3D(start, end, obstacle.box)
     if (coarseEntry === null || coarseEntry >= closestFraction) continue
 
-    const boxes = obstacle.projectileBoxes
-    if (!boxes || boxes.length === 0) {
-      closestFraction = coarseEntry
+    const entry = projectileObstacleEntryFraction(obstacle, start, end)
+    if (entry !== null && entry < closestFraction) {
+      closestFraction = entry
       closest = obstacle
-      continue
-    }
-
-    for (const box of boxes) {
-      const entry = segmentEntryFractionBox3D(start, end, box)
-      if (entry !== null && entry < closestFraction) {
-        closestFraction = entry
-        closest = obstacle
-      }
     }
   }
 
