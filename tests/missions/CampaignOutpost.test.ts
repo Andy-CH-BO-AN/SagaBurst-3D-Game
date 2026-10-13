@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
-import { FORTIFIED_CAMP_HILL, getFortifiedCampHeightOffset, getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
+import {
+  FORTIFIED_CAMP_HILL,
+  getFortifiedCampHeightOffset,
+  getTerrainHeight,
+  getWalkRampHeight,
+  resolveObstacleCollision,
+} from '../../src/world/Terrain'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import {
   OUTPOST_WALKWAY,
@@ -425,18 +431,21 @@ describe('CampaignOutpost walkways', () => {
       const { layout } = walled.outpost.walkways!
       const leftDeck = layout.decks.find(d => d.side === -1)!
       const rightDeck = layout.decks.find(d => d.side === 1)!
-      const wallTopY = Math.max(leftDeck.topY, rightDeck.topY)
 
       // Plain mode gate remains low
       const plainGateObstacle = plain.outpost.obstacles.find(o => o.damageable === plain.outpost.gate)!
       expect(plainGateObstacle.box.getSize(new THREE.Vector3()).y).toBeCloseTo(CAMPAIGN_PALISADE_HEIGHT[faction])
       expect(plain.outpost.root.getObjectByName('campaign-gate-frame')).toBeUndefined()
 
-      // Elevated gate reaches wallTopY and has fixed overhead frame
+      // Elevated gate leaf top clears below the lintel and bridge underside
       const walledGateObstacle = walled.outpost.obstacles.find(o => o.damageable === walled.outpost.gate)!
-      expect(walledGateObstacle.box.max.y).toBeCloseTo(wallTopY)
       const gateFrame = walled.outpost.root.getObjectByName('campaign-gate-frame')
       expect(gateFrame).toBeDefined()
+      const bridgeSlab = walled.outpost.walkways!.layout.bridge.slab
+      expect(walledGateObstacle.box.max.y).toBeLessThan(bridgeSlab.min.y)
+      // Underside of bridge over gate leaves keeps >= 4.2m headroom for cavalry
+      expect(bridgeSlab.min.y - plainGateObstacle.box.min.y).toBeGreaterThanOrEqual(4.2)
+
 
       // Front palisades match corresponding deck topY
       for (let i = 1; i <= 3; i++) {
@@ -538,6 +547,216 @@ describe('CampaignOutpost walkways', () => {
     nav.beginFrame()
     expect(nav.queryPath(outside, inside).status).toBe('path')
   })
+
+  it.each(['roman', 'viking'] as const)(
+    'spans %s gatehouse bridge seamlessly between left and right walkway decks without gaps',
+    faction => {
+      const { outpost, placement } = build(faction)
+      const { layout } = outpost.walkways!
+      const leftDeck = layout.decks.find(d => d.side === -1)!
+      const rightDeck = layout.decks.find(d => d.side === 1)!
+      const bridge = layout.bridge
+      const xNear = placement.gateWidth / 2 + OUTPOST_WALKWAY.gateMargin
+
+      // Left deck, bridge and right deck form a continuous X span
+      expect(leftDeck.slab.max.x).toBeCloseTo(-xNear)
+      expect(bridge.slab.min.x).toBeCloseTo(-xNear)
+      expect(bridge.slab.max.x).toBeCloseTo(xNear)
+      expect(rightDeck.slab.min.x).toBeCloseTo(xNear)
+
+      // Zero gap in X
+      expect(Math.abs(bridge.slab.min.x - leftDeck.slab.max.x)).toBeLessThan(1e-6)
+      expect(Math.abs(rightDeck.slab.min.x - bridge.slab.max.x)).toBeLessThan(1e-6)
+
+      // Z dimensions match decks exactly
+      expect(bridge.slab.min.z).toBeCloseTo(Math.min(leftDeck.slab.min.z, rightDeck.slab.min.z))
+      expect(bridge.slab.max.z).toBeCloseTo(Math.max(leftDeck.slab.max.z, rightDeck.slab.max.z))
+    },
+  )
+
+  it.each(['roman', 'viking'] as const)(
+    'provides continuous walking surface across %s left deck, gatehouse bridge, and right deck',
+    faction => {
+      const { outpost, placement } = build(faction)
+      const { layout } = outpost.walkways!
+      const leftDeck = layout.decks.find(d => d.side === -1)!
+      const rightDeck = layout.decks.find(d => d.side === 1)!
+      const bridge = layout.bridge
+      const xNear = placement.gateWidth / 2 + OUTPOST_WALKWAY.gateMargin
+      const midZ = (bridge.slab.min.z + bridge.slab.max.z) / 2
+
+      // Heights at boundaries match deck top surfaces perfectly
+      const heightAtLeftJamb = getWalkRampHeight(bridge.walkSurface, -xNear, midZ)!
+      const heightAtRightJamb = getWalkRampHeight(bridge.walkSurface, xNear, midZ)!
+      expect(heightAtLeftJamb).toBeCloseTo(leftDeck.topY)
+      expect(heightAtRightJamb).toBeCloseTo(rightDeck.topY)
+
+      // Walking across the bridge in fine steps has continuous smooth height without jumps
+      let prevHeight = heightAtLeftJamb
+      for (let x = -xNear + 0.1; x < xNear - 1e-4; x += 0.2) {
+        const height = getWalkRampHeight(bridge.walkSurface, x, midZ)
+        expect(height).not.toBeNull()
+        expect(Math.abs(height! - prevHeight)).toBeLessThanOrEqual(0.2 * 0.25 + 1e-4)
+        prevHeight = height!
+      }
+      expect(Math.abs(heightAtRightJamb - prevHeight)).toBeLessThanOrEqual(0.2 * 0.25 + 1e-4)
+      expect(heightAtRightJamb).toBeCloseTo(rightDeck.topY)
+    },
+  )
+
+  it.each(['roman', 'viking'] as const)(
+    'removes inner end-cap rails at %s deck-bridge portals while keeping outer end-caps and rear safety rails',
+    faction => {
+      const { outpost, placement } = build(faction)
+      const { layout } = outpost.walkways!
+      const leftDeck = layout.decks.find(d => d.side === -1)!
+      const rightDeck = layout.decks.find(d => d.side === 1)!
+      const bridge = layout.bridge
+      const xNear = placement.gateWidth / 2 + OUTPOST_WALKWAY.gateMargin
+
+      // Decks only have 2 rails: front parapet and outer end-cap
+      expect(leftDeck.rails).toHaveLength(2)
+      expect(rightDeck.rails).toHaveLength(2)
+
+      // No deck rail blocks the portal at x = +-xNear
+      for (const deck of [leftDeck, rightDeck]) {
+        for (const rail of deck.rails) {
+          const blocksInnerPortal = (rail.min.x <= -xNear && rail.max.x >= -xNear) ||
+            (rail.min.x <= xNear && rail.max.x >= xNear)
+          // The only rail touching xNear is the front parapet (Z within railThickness of front wall)
+          if (blocksInnerPortal) {
+            expect(rail.max.z - rail.min.z).toBeCloseTo(OUTPOST_WALKWAY.railThickness)
+          }
+        }
+      }
+
+      // Bridge has 2 rails: front parapet and rear safety rail, with no lateral end-caps
+      expect(bridge.rails).toHaveLength(2)
+      const bridgeRailsObstacles = outpost.walkways!.obstacles.filter(
+        o => bridge.rails.includes(o.box),
+      )
+      expect(bridgeRailsObstacles).toHaveLength(2)
+      for (const rail of bridge.rails) {
+        expect(rail.min.x).toBeCloseTo(-xNear)
+        expect(rail.max.x).toBeCloseTo(xNear)
+      }
+    },
+  )
+
+  it('mirrors gatehouse bridge geometry across the Z axis between Roman and Viking layouts', () => {
+    const roman = getOutpostWalkwayLayout(getCampaignOutpostPlacement('roman'))
+    const viking = getOutpostWalkwayLayout(getCampaignOutpostPlacement('viking'))
+
+    expect(roman.bridge.slab.min.x).toBe(viking.bridge.slab.min.x)
+    expect(roman.bridge.slab.max.x).toBe(viking.bridge.slab.max.x)
+    expect(roman.bridge.slab.min.z).toBeCloseTo(-viking.bridge.slab.max.z)
+    expect(roman.bridge.slab.max.z).toBeCloseTo(-viking.bridge.slab.min.z)
+    expect(roman.bridge.walkSurface.length).toBeCloseTo(viking.bridge.walkSurface.length)
+    expect(roman.bridge.walkSurface.halfWidth).toBeCloseTo(viking.bridge.walkSurface.halfWidth)
+  })
+
+  it.each(['roman', 'viking'] as const)(
+    'allows walking entity body collision across %s gatehouse bridge in both directions',
+    faction => {
+      const { outpost, placement } = build(faction)
+      const { layout } = outpost.walkways!
+      const leftDeck = layout.decks.find(d => d.side === -1)!
+      const rightDeck = layout.decks.find(d => d.side === 1)!
+      const bridge = layout.bridge
+      const xNear = placement.gateWidth / 2 + OUTPOST_WALKWAY.gateMargin
+      const midZ = (bridge.slab.min.z + bridge.slab.max.z) / 2
+      const radius = 0.35
+      const height = 1.8
+      const bottomOffset = 0
+
+      // Direction A: Left deck -> bridge -> right deck (-8m to +8m)
+      const pos = new THREE.Vector3(-8, leftDeck.topY, midZ)
+      const prev = pos.clone()
+      for (let x = -7.6; x <= 8.0; x += 0.4) {
+        prev.copy(pos)
+        pos.x = x
+        pos.y -= 0.08
+        const result = resolveObstacleCollision(
+          pos,
+          prev,
+          -0.1,
+          true,
+          radius,
+          height,
+          bottomOffset,
+          outpost.obstacles,
+          { walkSurfaces: true },
+        )
+        expect(result.onGround).toBe(true)
+        expect(pos.x).toBeCloseTo(x, 1)
+        if (x < -xNear) {
+          expect(pos.y).toBeCloseTo(leftDeck.topY, 1)
+        } else if (x > xNear) {
+          expect(pos.y).toBeCloseTo(rightDeck.topY, 1)
+        } else {
+          expect(pos.y).toBeCloseTo(getWalkRampHeight(bridge.walkSurface, x, midZ)!, 1)
+        }
+      }
+
+      // Direction B: Right deck -> bridge -> left deck (+8m to -8m)
+      pos.set(8, rightDeck.topY, midZ)
+      for (let x = 7.6; x >= -8.0; x -= 0.4) {
+        prev.copy(pos)
+        pos.x = x
+        pos.y -= 0.08
+        const result = resolveObstacleCollision(
+          pos,
+          prev,
+          -0.1,
+          true,
+          radius,
+          height,
+          bottomOffset,
+          outpost.obstacles,
+          { walkSurfaces: true },
+        )
+        expect(result.onGround).toBe(true)
+        expect(pos.x).toBeCloseTo(x, 1)
+      }
+    },
+  )
+
+  it.each(['roman', 'viking'] as const)(
+    'stops projectiles striking solid bridge slab or merlons while passing arrows through open crenels and under bridge in %s',
+    faction => {
+      const { outpost } = build(faction)
+      const { layout } = outpost.walkways!
+      const bridge = layout.bridge
+      const midZ = (bridge.slab.min.z + bridge.slab.max.z) / 2
+      const bridgeSlabObstacle = outpost.walkways!.obstacles.find(o => o.box === bridge.slab)!
+      const bridgeFrontRailObstacle = outpost.walkways!.obstacles.find(o => o.box === bridge.rails[0])!
+
+      // 1. Bridge slab physically blocks projectiles (not projectilePassable)
+      expect(bridgeSlabObstacle.projectilePassable).toBeFalsy()
+      expect(bridgeSlabObstacle.navigationPassable).toBe(true)
+
+      // 2. Front rail has projectile boxes for sill + merlons
+      expect(bridgeFrontRailObstacle.projectileBoxes).toBeDefined()
+      expect(bridgeFrontRailObstacle.projectileBoxes!.length).toBeGreaterThan(1)
+
+      // 3. Central open crenel above gate center (x=0) lets arrows through above sill height
+      const centerSurfaceY = getWalkRampHeight(bridge.walkSurface, 0, midZ)!
+      const frontRailMidZ = (bridge.rails[0].min.z + bridge.rails[0].max.z) / 2
+      const arrowPointInCrenel = new THREE.Vector3(0, centerSurfaceY + 0.65, frontRailMidZ)
+      const hitCrenelMerlon = bridgeFrontRailObstacle.projectileBoxes!.some(
+        box => box.containsPoint(arrowPointInCrenel),
+      )
+      expect(hitCrenelMerlon).toBe(false)
+
+      // 4. Solid merlon at x=1.2 intercepts arrows at chest/eye height
+      const merlonSurfaceY = getWalkRampHeight(bridge.walkSurface, 1.2, midZ)!
+      const arrowPointInMerlon = new THREE.Vector3(1.2, merlonSurfaceY + 0.65, frontRailMidZ)
+      const hitMerlon = bridgeFrontRailObstacle.projectileBoxes!.some(
+        box => box.containsPoint(arrowPointInMerlon),
+      )
+      expect(hitMerlon).toBe(true)
+    },
+  )
 })
 
 describe('outpost walkway mode isolation', () => {

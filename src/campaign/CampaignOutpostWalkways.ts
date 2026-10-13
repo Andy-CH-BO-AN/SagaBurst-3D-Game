@@ -18,8 +18,8 @@ import type { DefenseCampaignLaunchConfig } from './DefenseCampaignLaunch'
 export const OUTPOST_WALKWAY = {
   deckDepth: 3.2,
   deckThickness: 0.25,
-  /** Underside clearance over the highest ground below the deck. */
-  deckClearance: 3.5,
+  /** Underside clearance over the highest ground below the deck (>= 4.2m gate clearance for cavalry). */
+  deckClearance: 4.6,
   /** Gap kept between the gate leaves and the nearest walkway end. */
   gateMargin: 1.2,
   /** Distance left to the side wall so the walkway can later continue around the corner. */
@@ -47,6 +47,17 @@ export interface OutpostWalkwayDeck {
   /** Walking surface height; flat along the whole deck. */
   topY: number
   slab: THREE.Box3
+  walkSurface: WalkRampSurface
+  rails: THREE.Box3[]
+  posts: THREE.Box3[]
+  frontRailProjectileBoxes: THREE.Box3[]
+}
+
+export interface OutpostWalkwayBridge {
+  /** Average top walking surface height of the bridge. */
+  topY: number
+  slab: THREE.Box3
+  walkSurface: WalkRampSurface
   rails: THREE.Box3[]
   posts: THREE.Box3[]
   frontRailProjectileBoxes: THREE.Box3[]
@@ -67,6 +78,7 @@ export interface OutpostWalkwayLayout {
   zSign: 1 | -1
   decks: OutpostWalkwayDeck[]
   stairs: OutpostWalkwayStair[]
+  bridge: OutpostWalkwayBridge
 }
 
 const SIDES: readonly OutpostWalkwaySide[] = [-1, 1]
@@ -99,9 +111,9 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
     const topY = maxGround + W.deckClearance
     const slab = box(side * xNear, topY - W.deckThickness, zAt(0), side * xFar, topY, zAt(W.deckDepth))
     const railTop = topY + W.railHeight
+    // Front parapet and outer end-cap only; inner end-cap is removed so the walkway connects to the gate bridge.
     const rails = [
       box(side * xNear, topY, zAt(0), side * xFar, railTop, zAt(W.railThickness)),
-      box(side * xNear, topY, zAt(0), side * (xNear + W.railThickness), railTop, zAt(W.deckDepth)),
       box(side * (xFar - W.railThickness), topY, zAt(0), side * xFar, railTop, zAt(W.deckDepth)),
     ]
 
@@ -127,12 +139,24 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
         ))
       }
     }
+    const midZ = (zAt(0) + zAt(W.deckDepth)) / 2
+    const deckWalkSurface: WalkRampSurface = {
+      startX: side * xNear,
+      startZ: midZ,
+      dirX: side,
+      dirZ: 0,
+      halfWidth: W.deckDepth / 2,
+      length: xFar - xNear,
+      landing: 0,
+      startY: topY,
+      topY,
+    }
     const posts = W.postXs.map(px => {
       const x = side * px
       const groundY = getTerrainHeight(x, zAt(W.deckDepth - W.postHalf)) - 0.3
       return box(x - W.postHalf, groundY, zAt(W.deckDepth - 2 * W.postHalf), x + W.postHalf, topY - W.deckThickness, zAt(W.deckDepth))
     })
-    decks.push({ side, topY, slab, rails, posts, frontRailProjectileBoxes })
+    decks.push({ side, topY, slab, walkSurface: deckWalkSurface, rails, posts, frontRailProjectileBoxes })
 
     // Stair: climbs toward the wall along the Z axis, ends in a flat landing
     // that butts against the inner edge of the deck.
@@ -188,7 +212,114 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
     stairs.push({ side, ramp, bounds, rails: stairRails, cap })
   }
 
-  return { zSign, decks, stairs }
+  const leftDeck = decks.find(d => d.side === -1)!
+  const rightDeck = decks.find(d => d.side === 1)!
+  const yLeft = leftDeck.topY
+  const yRight = rightDeck.topY
+  const bridgeSpan = 2 * xNear
+  const midZ = (zAt(0) + zAt(W.deckDepth)) / 2
+  const topY = (yLeft + yRight) / 2
+  const slab = box(-xNear, Math.min(yLeft, yRight) - W.deckThickness, zAt(0), xNear, Math.max(yLeft, yRight), zAt(W.deckDepth))
+
+  const walkSurface: WalkRampSurface = yLeft <= yRight
+    ? {
+        startX: -xNear,
+        startZ: midZ,
+        dirX: 1,
+        dirZ: 0,
+        halfWidth: W.deckDepth / 2,
+        length: bridgeSpan,
+        landing: 0,
+        startY: yLeft,
+        topY: yRight,
+      }
+    : {
+        startX: xNear,
+        startZ: midZ,
+        dirX: -1,
+        dirZ: 0,
+        halfWidth: W.deckDepth / 2,
+        length: bridgeSpan,
+        landing: 0,
+        startY: yRight,
+        topY: yLeft,
+      }
+
+  const surfaceYAt = (x: number): number => yLeft + (yRight - yLeft) * ((x + xNear) / bridgeSpan)
+
+  const bridgeRails = [
+    // Front parapet envelope
+    box(-xNear, Math.min(yLeft, yRight), zAt(0), xNear, Math.max(yLeft, yRight) + W.railHeight, zAt(W.railThickness)),
+    // Rear courtyard safety rail
+    box(-xNear, Math.min(yLeft, yRight), zAt(W.deckDepth - W.railThickness), xNear, Math.max(yLeft, yRight) + W.railHeight, zAt(W.deckDepth)),
+  ]
+
+  // Front parapet projectile geometry: local breastwork sills in open crenels plus full merlon battlements.
+  const bridgeFrontRailProjectileBoxes: THREE.Box3[] = []
+  const crenelSpans: [number, number][] = [
+    [-xNear, -4.1],
+    [-3.1, -1.7],
+    [-0.7, 0.7], // central gate crenel
+    [1.7, 3.1],
+    [4.1, xNear],
+  ]
+  for (const [c0, c1] of crenelSpans) {
+    const y0 = surfaceYAt(c0)
+    const y1 = surfaceYAt(c1)
+    bridgeFrontRailProjectileBoxes.push(box(
+      c0,
+      Math.min(y0, y1),
+      zAt(0),
+      c1,
+      Math.max(y0, y1) + W.parapetSillHeight,
+      zAt(W.railThickness),
+    ))
+  }
+
+  // Raised timber battlements (merlons)
+  const merlonSpans: [number, number][] = [
+    [-4.1, -3.1],
+    [-1.7, -0.7],
+    [0.7, 1.7],
+    [3.1, 4.1],
+  ]
+  for (const [m0, m1] of merlonSpans) {
+    const y0 = surfaceYAt(m0)
+    const y1 = surfaceYAt(m1)
+    bridgeFrontRailProjectileBoxes.push(box(
+      m0,
+      Math.min(y0, y1),
+      zAt(0),
+      m1,
+      Math.max(y0, y1) + W.railHeight,
+      zAt(W.railThickness),
+    ))
+  }
+
+  // Posts at the walkway ends flanking the gate corridor, outside gate opening [-4, 4]
+  const bridgePosts = [-xNear + W.postHalf, xNear - W.postHalf].map(px => {
+    const groundY = getTerrainHeight(px, zAt(W.deckDepth - W.postHalf)) - 0.3
+    const postTopY = surfaceYAt(px) - W.deckThickness
+    return box(
+      px - W.postHalf,
+      groundY,
+      zAt(W.deckDepth - 2 * W.postHalf),
+      px + W.postHalf,
+      postTopY,
+      zAt(W.deckDepth),
+    )
+  })
+
+  const bridge: OutpostWalkwayBridge = {
+    topY,
+    slab,
+    walkSurface,
+    rails: bridgeRails,
+    posts: bridgePosts,
+    frontRailProjectileBoxes: bridgeFrontRailProjectileBoxes,
+  }
+
+  return { zSign, decks, stairs, bridge }
 }
 
 export type OutpostWalkwayLaunchFields = Pick<DefenseCampaignLaunchConfig,
@@ -266,7 +397,12 @@ export function createOutpostWalkways(
     ]
     const dark: THREE.BufferGeometry[] = []
     // Overhead slab: does not block ground navigation grid, but physically stops projectiles hitting it.
-    register({ box: deck.slab, isBarricade: false, navigationPassable: true })
+    register({
+      box: deck.slab,
+      isBarricade: false,
+      navigationPassable: true,
+      walkSurface: deck.walkSurface,
+    })
 
     // Front parapet: 0.9m envelope prevents player from stepping/falling off;
     // projectileBoxes models the lower sill and merlon risers so archers can shoot
@@ -346,6 +482,74 @@ export function createOutpostWalkways(
     for (const rail of stair.rails) register({ box: rail, isBarricade: false })
     register({ box: stair.cap, isBarricade: false })
     finish(`campaign-walkway-stair-${sideName}`, wood, dark)
+  }
+
+  const bridge = layout.bridge
+  if (bridge) {
+    const leftDeck = layout.decks.find(d => d.side === -1)!
+    const rightDeck = layout.decks.find(d => d.side === 1)!
+    const yLeft = leftDeck.topY
+    const yRight = rightDeck.topY
+    const xNear = placement.gateWidth / 2 + W.gateMargin
+    const bridgeSpan = 2 * xNear
+    const theta = Math.atan2(yRight - yLeft, bridgeSpan)
+    const slabLen = Math.hypot(bridgeSpan, yRight - yLeft)
+    const midZ = (zAt(0) + zAt(W.deckDepth)) / 2
+    const midY = (yLeft + yRight) / 2
+
+    const slabGeom = new THREE.BoxGeometry(slabLen, W.deckThickness, W.deckDepth)
+    slabGeom.rotateZ(theta)
+    slabGeom.translate(0, midY - W.deckThickness / 2, midZ)
+
+    const wood: THREE.BufferGeometry[] = [
+      slabGeom,
+      ...bridge.frontRailProjectileBoxes.map(boxGeometry),
+      boxGeometry(bridge.rails[1]),
+    ]
+    const dark: THREE.BufferGeometry[] = []
+
+    register({
+      box: bridge.slab,
+      isBarricade: false,
+      navigationPassable: true,
+      walkSurface: bridge.walkSurface,
+    })
+
+    register({
+      box: bridge.rails[0],
+      isBarricade: false,
+      navigationPassable: true,
+      projectileBoxes: bridge.frontRailProjectileBoxes,
+    })
+
+    register({
+      box: bridge.rails[1],
+      isBarricade: false,
+      navigationPassable: true,
+    })
+
+    for (const post of bridge.posts) {
+      register({ box: post, isBarricade: false })
+      dark.push(boxGeometry(post))
+      const x = (post.min.x + post.max.x) / 2
+      const postTopY = yLeft + (yRight - yLeft) * ((x + xNear) / bridgeSpan) - W.deckThickness
+      dark.push(new THREE.BoxGeometry(0.3, 0.3, W.deckDepth).translate(x, postTopY - 0.15, midZ))
+      dark.push(slopedBar(
+        new THREE.Vector3(x, post.min.y + 1.2, zAt(W.deckDepth - W.postHalf)),
+        new THREE.Vector3(x, postTopY - 0.3, zAt(W.deckDepth * 0.4)),
+        0.18, 0.18,
+      ))
+    }
+
+    const girder0 = new THREE.BoxGeometry(slabLen, 0.28, 0.3)
+    girder0.rotateZ(theta)
+    girder0.translate(0, midY - W.deckThickness - 0.14, zAt(0.5))
+    const girder1 = new THREE.BoxGeometry(slabLen, 0.28, 0.3)
+    girder1.rotateZ(theta)
+    girder1.translate(0, midY - W.deckThickness - 0.14, zAt(W.deckDepth - 0.5))
+    dark.push(girder0, girder1)
+
+    finish('campaign-walkway-bridge', wood, dark)
   }
 
   return { root, layout, obstacles: created }
