@@ -7,8 +7,8 @@ import { commanderGateDefenseSlots } from './CommanderTownRoster'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
-import { planBulkEquipment, naturalActorCompare, type BulkEquipmentCategory, type BulkEquipmentCandidate } from './BulkEquipmentPlanner'
-import { resolveTownActorEquipment, townNativeItems, townEquipmentRefTier, TOWN_EQUIPMENT_SLOTS,
+import { planBulkEquipment, naturalActorCompare, type BulkEquipmentCategory, type BulkEquipmentCandidate, type BulkEquipmentActor } from './BulkEquipmentPlanner'
+import { resolveTownActorEquipment, townNativeItems, townEquipmentRefTier, townEquipmentWeaponTier, TOWN_EQUIPMENT_SLOTS,
   type TownEquipmentRef, type TownEquipmentRefs } from './CareerTownEquipmentState'
 export { resolveTownActorEquipment, townEquipmentRefTier, townNativeItems } from './CareerTownEquipmentState'
 export type { TownEquipmentRef, TownEquipmentRefs, ResolvedTownActorEquipment } from './CareerTownEquipmentState'
@@ -160,27 +160,43 @@ export function bulkCareerEquipment(read: () => CareerProfile, context: TownEqui
       add(`reserve/${item.nativeId}`, { itemId: item.itemId, source: 'native', nativeId: item.nativeId })
     }
   }
-  const actors = actorIds.map(actorId => ({ actorId, tier: townEquipmentRefTier(next, before.get(actorId)![slot], context.townFaction), currentKey: `current/${actorId}`,
+  const finalRefs = (actorId: string, candidate: BulkEquipmentCandidate): TownEquipmentRefs => {
+    const refs = { ...before.get(actorId)!, [slot]: refsByKey.get(candidate.key)! }
+    if (slot === 'ranged' && refs.ranged) refs.shield = null
+    return refs
+  }
+  const effectiveTier = (refs: TownEquipmentRefs) => slot === 'mount'
+    ? townEquipmentRefTier(next, refs.mount, context.townFaction) : townEquipmentWeaponTier(next, refs, context.townFaction)
+  const actors = actorIds.map(actorId => ({ actorId, tier: effectiveTier(before.get(actorId)!), currentKey: `current/${actorId}`,
     currentRequested: Boolean(before.get(actorId)![slot] && careerEquipmentCategory(before.get(actorId)![slot]!.itemId) === category) }))
+  const actorsById = new Map(actors.map(actor => [actor.actorId, actor]))
+  const resultTier = (actor: BulkEquipmentActor, candidate: BulkEquipmentCandidate) => effectiveTier(finalRefs(actor.actorId, candidate))
   if (!candidates.some(candidate => candidate.requested)) { summary.insufficient = actorIds.length; return fail(current, 'no-available-item', summary) }
-  const plan = planBulkEquipment(actors, candidates, (actor, candidate) => {
+  const accepts = (actor: BulkEquipmentActor, candidate: BulkEquipmentCandidate) => {
     if (candidate.holderId === actor.actorId) return true
     if (!candidate.requested) return false
-    // Retention is a global matching tie-break: same-tier swaps remain possible when they unlock another actor's upgrade.
-    return candidate.tier <= getCareerPurchaseTier(current.rank)
-  })
+    // Both the changed slot and the resulting active weapon must retain their previous tiers.
+    return candidate.tier >= townEquipmentRefTier(next, before.get(actor.actorId)![slot], context.townFaction)
+      && candidate.tier <= getCareerPurchaseTier(current.rank)
+  }
+  const plan = planBulkEquipment(actors, candidates, accepts, resultTier)
   const changed: string[] = []
   for (const assignment of plan) {
     const previous = before.get(assignment.actorId)!, proposed = refsByKey.get(assignment.candidate.key)!
     if (refEqual(previous[slot], proposed)) { summary.unchanged++; continue }
-    const refs = { ...previous, [slot]: proposed }
-    if (slot === 'ranged' && proposed) refs.shield = null
+    const refs = finalRefs(assignment.actorId, assignment.candidate)
     writeRefs(next, context, target, assignment.actorId, refs)
     changed.push(assignment.actorId); summary.equipped++
-    if (assignment.candidate.tier > townEquipmentRefTier(current, previous[slot], context.townFaction)) summary.upgraded++
+    const actor = actorsById.get(assignment.actorId)!
+    if (resultTier(actor, assignment.candidate) > actor.tier) summary.upgraded++
   }
-  summary.insufficient = plan.filter(assignment => !changed.includes(assignment.actorId) && candidates.some(candidate => candidate.requested
-    && (candidate.tier > assignment.candidate.tier || candidate.tier === assignment.candidate.tier && !assignment.candidate.requested))).length
+  summary.insufficient = plan.filter(assignment => {
+    if (changed.includes(assignment.actorId)) return false
+    const actor = actorsById.get(assignment.actorId)!
+    return candidates.some(candidate => candidate.requested && accepts(actor, candidate) && resultTier(actor, candidate) >= actor.tier
+      && (resultTier(actor, candidate) > actor.tier || candidate.tier > assignment.candidate.tier
+        || candidate.tier === assignment.candidate.tier && !assignment.candidate.requested))
+  }).length
   try { validateStaged(next, context) } catch { return fail(current, 'invalid-item', summary) }
   return finish(current, next, changed, summary, save)
 }

@@ -1232,7 +1232,7 @@ export class TownScene {
           || npc.combatOwnership === 'mission-official' || npc.combatOwnership === 'player-personal'
           || npc.combatOwnership === 'player-civilian' && ['attack', 'charge'].includes(npc.tacticalOrder)
           || this.profile.townCommandSquad?.members?.[spec.id]?.status === 'deployed' && ['attack', 'charge'].includes(npc.tacticalOrder)
-          || this.patrol?.isRefitting(spec.id)
+          || this.patrol?.combatEnabled(npc) || this.patrol?.isRefitting(spec.id)
           || this.profile.townCommandSquad?.state === 'RETURNING' && this.profile.townCommandSquad.actorIds.includes(spec.id)
           || this.civilianCommand?.returningActorIds.includes(spec.id)
           || duty && !['standby', 'resting', 'mounted-waiting'].includes(duty)

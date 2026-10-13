@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import * as THREE from 'three'
 import { TownScene } from '../../src/town/TownScene'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
-import { Faction } from '../../src/world/NPC'
+import { AIState, Faction, type NPC } from '../../src/world/NPC'
+import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
+import type { TownActorSpec } from '../../src/town/TownRules'
 import type { CombatOwnership } from '../../src/combat/CombatFaction'
 import { changeTownEquipment, type TownEquipmentContext } from '../../src/career/CareerTownEquipment'
 
 /** Status-only caller seam: zero NPC/Mount/TownWorld. The existing refit suite owns combat-contact timing. */
-function fixture() {
-  const id = 'cavalry-training:melee_cavalry:0'
+function fixture(id = 'cavalry-training:melee_cavalry:0') {
   const profile = { ...createCareerProfile('roman'), rank: 'commander' as const, totalMerit: 60000,
     townCommandSquad: { type: 'town-command' as const, townFaction: 'roman' as const, squadId: 1 as const,
       actorIds: [id], contribution: emptyPersonalContribution(), authorized: true,
@@ -16,9 +18,10 @@ function fixture() {
   }
   const npc = { combatantId: id, dead: false, isFalling: false, inCombat: false, mount: null,
     faction: Faction.PLAYER, hostileToPlayer: false, tacticalOrder: 'defend', combatOwnership: 'town-command' as CombatOwnership }
+  const patrol: Pick<TownCavalryPatrolController, 'isRefitting' | 'combatEnabled'> = { isRefitting: () => false, combatEnabled: () => false }
   const state = { profile, residents: [{ spec: { id }, npc }], event: { hostile: false, allActors: new Map([[id, npc]]) },
     player: { dead: false }, personalSquad: { state: 'RESERVE' },
-    canRefitSquad: () => true, patrol: { isRefitting: () => false }, civilianCommand: { returningActorIds: [] as string[] },
+    canRefitSquad: () => true, patrol, civilianCommand: { returningActorIds: [] as string[] },
     eagleGarrison: { dutyFor: () => undefined as string | undefined },
   }
   // Only the renderer-free eligibility method is exercised; actor and mount behavior have their own real-actor owners.
@@ -31,6 +34,26 @@ describe('Town equipment actual caller readiness and ownership', () => {
     const f = fixture()
     expect(f.read().safeActorIds.has(f.id)).toBe(true)
     expect(f.read().townFaction).toBe('roman')
+  })
+  it('excludes an ENGAGING Patrol-owned resident even while its NPC is IDLE, then allows peaceful Patrol states', () => {
+    const f = fixture('town-patrol:a:captain')
+    const spec: TownActorSpec = { id: f.id, role: 'melee_cavalry', unitKind: 'sword_cavalry', duty: 'patrol',
+      patrolId: 'A', patrolLeader: true, mounted: true, training: false, tier: 4, index: 0,
+      assaultObjective: false, x: 0, z: 0 }
+    const npc = Object.assign(f.npc, { currentState: AIState.IDLE, combatPosition: new THREE.Vector3(), group: new THREE.Group() })
+    // The real Patrol owner only needs identity and an anchor here; no NPC/Mount or full 20-member squad is materialized.
+    const patrol = new TownCavalryPatrolController([{ spec, npc: npc as unknown as NPC }])
+    f.town.patrol = patrol
+    const squad = patrol.squads[0]
+    squad.state = 'ENGAGING'; squad.participants.add(f.id)
+
+    expect(npc.currentState).toBe(AIState.IDLE)
+    expect(npc.inCombat).toBe(false)
+    expect(f.read().safeActorIds.has(f.id)).toBe(false)
+    squad.state = 'PATROLLING'
+    expect(f.read().safeActorIds.has(f.id)).toBe(true)
+    squad.state = 'PAUSED'
+    expect(f.read().safeActorIds.has(f.id)).toBe(true)
   })
   it.each(['dead', 'isFalling', 'inCombat'] as const)('excludes a %s resident without spawning or altering any actor', flag => {
     const f = fixture(); f.npc[flag] = true

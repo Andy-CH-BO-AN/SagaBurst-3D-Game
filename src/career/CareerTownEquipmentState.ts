@@ -63,6 +63,10 @@ export function townEquipmentRefTier(profile: Pick<CareerProfile, 'rank'>, ref: 
   if (ref.source === 'native') return townNativeItems(faction).find(item => item.nativeId === ref.nativeId)?.tier ?? 0
   return (WEAPONS[ref.itemId] ?? ARMORS[ref.itemId])?.tier ?? (ref.itemId === 'horse' ? ['captain', 'commander'].includes(profile.rank) ? 4 : profile.rank === 'veteran' ? 3 : profile.rank === 'soldier' ? 2 : 1 : 4)
 }
+/** Active weapons use the same ranged-first tier as permanent NPC loadouts. */
+export function townEquipmentWeaponTier(profile: Pick<CareerProfile, 'rank'>, refs: TownEquipmentRefs, faction: CharacterFaction): number {
+  return townEquipmentRefTier(profile, refs.ranged ?? refs.melee, faction)
+}
 export function resolveTownActorEquipment(profile: CareerProfile, faction: CharacterFaction, actorId: string): ResolvedTownActorEquipment {
   const spec = townEquipmentActorSpecs(faction).find(actor => actor.id === actorId)
   if (!spec) throw new Error('Unknown town actor')
@@ -78,8 +82,7 @@ export function resolveTownActorEquipment(profile: CareerProfile, faction: Chara
   // Non-managed residents and fixed identities keep their authored equipment.
   const managed = townEquipmentSquadForActor(actorId) !== undefined
   const loadout = managed ? { ...base, ...Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => [slotKeys[slot], refs[slot]?.itemId ?? null])) } : base
-  const primary = refs.ranged ?? refs.melee
-  return { spec, refs, loadout, tier: (townEquipmentRefTier(profile, primary, faction) || 1) as 1 | 2 | 3 | 4, mountTier: townEquipmentRefTier(profile, refs.mount, faction),
+  return { spec, refs, loadout, tier: (townEquipmentWeaponTier(profile, refs, faction) || 1) as 1 | 2 | 3 | 4, mountTier: townEquipmentRefTier(profile, refs.mount, faction),
     fixedWeapons: spec.role === 'ranger' || spec.role === 'eagle-trainer', readOnly: spec.role === 'merchant' }
 }
 export function allocatedTownEquipment(profile: Pick<CareerProfile, 'townEquipment'>, itemId: string): number {

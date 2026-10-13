@@ -6,12 +6,14 @@ export interface BulkEquipmentCandidate { key: string; itemId: string | null; ti
 export interface BulkEquipmentActor { actorId: string; tier: number; currentKey?: string; currentRequested?: boolean }
 export interface BulkEquipmentAssignment { actorId: string; candidate: BulkEquipmentCandidate }
 
-/** Upgrade count dominates total final tier, then the earlier natural Actor IDs get the higher tiers.
+/** Effective upgrade count dominates final combat tier and assigned item tier, then natural Actor IDs.
+ * A result-tier callback accounts for retained weapons and loadout side effects per recipient.
  * Compatibility and no-downgrade are hard constraints supplied at the domain boundary.
  * Hungarian matching uses integers, so the lexicographic priorities cannot lose precision.
  */
 export function planBulkEquipment(actors: readonly BulkEquipmentActor[], candidates: readonly BulkEquipmentCandidate[],
-  accepts: (actor: BulkEquipmentActor, candidate: BulkEquipmentCandidate) => boolean): BulkEquipmentAssignment[] {
+  accepts: (actor: BulkEquipmentActor, candidate: BulkEquipmentCandidate) => boolean,
+  resultTier: (actor: BulkEquipmentActor, candidate: BulkEquipmentCandidate) => number = (_, candidate) => candidate.tier): BulkEquipmentAssignment[] {
   const rows = [...actors].sort((a, b) => naturalActorCompare(a.actorId, b.actorId))
   const cols = [...candidates].sort((a, b) => b.tier - a.tier
     || naturalActorCompare(a.itemId ?? '', b.itemId ?? '') || naturalActorCompare(a.key, b.key))
@@ -21,11 +23,13 @@ export function planBulkEquipment(actors: readonly BulkEquipmentActor[], candida
   const itemBase = BigInt(m + 1), itemSpace = itemBase ** BigInt(n)
   const retainSpace = BigInt(n + 1) * itemSpace, categorySpace = 2n ** BigInt(n) * retainSpace
   const actorTierSpace = 5n ** BigInt(n) * categorySpace
-  const upgradeWeight = actorTierSpace * BigInt(n * 4 + 1)
+  const combatTierSpace = actorTierSpace * BigInt(n * 4 + 1)
+  const upgradeWeight = combatTierSpace * BigInt(n * 4 + 1)
   const infinity = upgradeWeight * BigInt(n * 16 + 100)
   const costs = rows.map((actor, row) => cols.map((candidate, column) => {
-    if (candidate.tier < actor.tier || !accepts(actor, candidate)) return infinity
-    return -((candidate.tier > actor.tier ? upgradeWeight : 0n) + BigInt(candidate.tier) * actorTierSpace
+    const tier = resultTier(actor, candidate)
+    if (tier < actor.tier || !accepts(actor, candidate)) return infinity
+    return -((tier > actor.tier ? upgradeWeight : 0n) + BigInt(tier) * combatTierSpace + BigInt(candidate.tier) * actorTierSpace
       + BigInt(candidate.tier) * 5n ** BigInt(n - row - 1) * categorySpace
       + (candidate.requested && !actor.currentRequested ? 2n ** BigInt(n - row - 1) * retainSpace : 0n)
       + (candidate.key === actor.currentKey ? itemSpace : 0n)

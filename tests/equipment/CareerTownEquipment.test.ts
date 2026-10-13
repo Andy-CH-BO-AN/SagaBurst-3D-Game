@@ -65,6 +65,92 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(saves).toBe(0); expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(before)
     expect(availableCareerItem(h.read(), 'centurion_blade')).toBe(1)
   })
+  it.each(['civilian', 'personal'] as const)('keeps the %s member’s effective T4 melee and shield when only a T1 bow is available', target => {
+    const h = harness(), actor = target === 'personal' ? h.hire() : 'civilian-0'
+    h.context.safeActorIds = new Set([actor]); h.buy('paladin_sword_t4'); h.buy('paladin_shield_t4')
+    expect(h.change(actor, 'melee', 'paladin_sword_t4').changed).toBe(true)
+    expect(h.change(actor, 'shield', 'paladin_shield_t4').changed).toBe(true)
+    h.buy('wooden_shortbow'); expect(h.store.save(h.read())).toBe(true)
+    const before = cloneCareerProfile(h.read()); let saves = 0
+    const result = bulkCareerEquipment(h.read, h.context, target, 'bow', next => { saves++; return h.save(next) })
+    expect(result).toMatchObject({ changed: false, reason: 'no-op', summary: { equipped: 0, upgraded: 0, unchanged: 1, insufficient: 0 } })
+    expect(saves).toBe(0); expect(h.read()).toEqual(before); expect(h.reload()).toEqual(before)
+    expect(availableCareerItem(h.read(), 'wooden_shortbow')).toBe(1)
+    expect(availableCareerItem(h.read(), 'paladin_shield_t4')).toBe(0)
+  })
+  it('retains the T4 member while giving the T3 bow to the eligible T2 member in one legal plan', () => {
+    const h = harness(); h.context.safeActorIds = new Set(['civilian-0', 'civilian-1'])
+    h.buy('paladin_sword_t4'); h.buy('gladius_standard'); h.buy('paladin_shield_t4', 2)
+    h.change('civilian-0', 'melee', 'paladin_sword_t4'); h.change('civilian-1', 'melee', 'gladius_standard')
+    h.change('civilian-0', 'shield', 'paladin_shield_t4'); h.change('civilian-1', 'shield', 'paladin_shield_t4')
+    const blocked = resolveTownActorEquipment(h.read(), 'roman', 'civilian-0').refs
+    h.buy('elven_runebow')
+    const result = h.bulk('civilian', 'bow')
+    expect(result.changedActorIds).toEqual(['civilian-1'])
+    expect(result.summary).toMatchObject({ equipped: 1, upgraded: 1, unchanged: 1, insufficient: 0 })
+    expect(resolveTownActorEquipment(h.read(), 'roman', 'civilian-0').refs).toEqual(blocked)
+    expect(resolveTownActorEquipment(h.read(), 'roman', 'civilian-1')).toMatchObject({ tier: 3, refs: {
+      melee: { itemId: 'gladius_standard', source: 'inventory' }, ranged: { itemId: 'elven_runebow', source: 'inventory' }, shield: null,
+    } })
+    expect(careerItemAllocated(h.read(), 'elven_runebow')).toBe(1)
+    expect(availableCareerItem(h.read(), 'paladin_shield_t4')).toBe(1)
+  })
+  it('maximizes real weapon upgrades before Actor ID when both members have empty ranged slots', () => {
+    const h = harness(); h.context.safeActorIds = new Set(['civilian-0', 'civilian-1'])
+    h.buy('gladius_rusty'); h.buy('centurion_blade')
+    h.change('civilian-0', 'melee', 'gladius_rusty'); h.change('civilian-1', 'melee', 'centurion_blade')
+    h.buy('elven_runebow'); h.buy('maki-ranger-bow-ranged')
+    const result = h.bulk('civilian', 'bow')
+    expect(result.summary).toMatchObject({ equipped: 2, upgraded: 2 })
+    expect(resolveTownActorEquipment(h.read(), 'roman', 'civilian-0')).toMatchObject({ tier: 3, refs: { ranged: { itemId: 'elven_runebow', source: 'inventory' } } })
+    expect(resolveTownActorEquipment(h.read(), 'roman', 'civilian-1')).toMatchObject({ tier: 4, refs: { ranged: { itemId: 'maki-ranger-bow-ranged', source: 'inventory' } } })
+    expect(careerItemAllocated(h.read(), 'elven_runebow')).toBe(1); expect(careerItemAllocated(h.read(), 'maki-ranger-bow-ranged')).toBe(1)
+  })
+  it.each(['native', 'inventory'] as const)('bulk bow returns the %s shield to its original ownership pool and persists the exact result', source => {
+    const h = harness(), actor = source === 'native' ? 'gate:north:0' : 'civilian-0'
+    h.context.safeActorIds = new Set([actor])
+    const sword = source === 'native' ? 'centurion_blade' : 'paladin_sword_t4'
+    const bow = source === 'native' ? 'elven_runebow' : 'maki-ranger-bow-ranged'
+    h.buy(sword); h.change(actor, 'melee', sword)
+    if (source === 'inventory') { h.buy('paladin_shield_t4'); h.change(actor, 'shield', 'paladin_shield_t4') }
+    const shield = resolveTownActorEquipment(h.read(), 'roman', actor).refs.shield!
+    expect(shield.source).toBe(source); h.buy(bow)
+    expect(h.bulk(source === 'native' ? 1 : 'civilian', 'bow').summary).toMatchObject({ equipped: 1, upgraded: 0 })
+    expect(resolveTownActorEquipment(h.read(), 'roman', actor)).toMatchObject({ refs: {
+      melee: { itemId: sword, source: 'inventory' }, ranged: { itemId: bow, source: 'inventory' }, shield: null,
+    } })
+    if (source === 'native') {
+      expect(h.read().townEquipment!.roman!.nativeReserve).toContain(shield.nativeId)
+      expect(careerItemTotal(h.read(), shield.itemId)).toBe(0)
+    } else expect(availableCareerItem(h.read(), shield.itemId)).toBe(1)
+    const committed = cloneCareerProfile(h.read()); expect(h.reload()).toEqual(committed)
+    expect(h.bulk(source === 'native' ? 1 : 'civilian', 'bow').reason).toBe('no-op')
+    expect(h.read()).toEqual(committed); expect(careerItemTotal(h.read(), bow)).toBe(1)
+  })
+  it('rolls back the bow and displaced native shield together when JSON storage fails, then allows a clean retry', () => {
+    const h = harness(); h.context.safeActorIds = new Set(['gate:north:0']); h.buy('elven_runebow')
+    const shield = resolveTownActorEquipment(h.read(), 'roman', 'gate:north:0').refs.shield!
+    expect(shield.source).toBe('native'); expect(h.store.save(h.read())).toBe(true)
+    const before = cloneCareerProfile(h.read()); h.storage.failWrites = true
+    expect(h.bulk(1, 'bow')).toMatchObject({ changed: false, reason: 'save-failed', changedActorIds: [], summary: { equipped: 0, upgraded: 0 } })
+    expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(before)
+    expect(availableCareerItem(h.read(), 'elven_runebow')).toBe(1)
+    h.storage.failWrites = false
+    expect(h.bulk(1, 'bow').changedActorIds).toEqual(['gate:north:0'])
+    expect(h.read().townEquipment!.roman!.nativeReserve).toContain(shield.nativeId)
+    expect(availableCareerItem(h.read(), 'elven_runebow')).toBe(0)
+    const committed = cloneCareerProfile(h.read()); expect(h.reload()).toEqual(committed)
+  })
+  it('does not count a melee improvement as a weapon upgrade while a T4 bow remains the effective weapon', () => {
+    const h = harness(); h.context.safeActorIds = new Set(['civilian-0'])
+    h.buy('gladius_rusty'); h.buy('maki-ranger-bow-ranged'); h.buy('centurion_blade')
+    h.change('civilian-0', 'melee', 'gladius_rusty'); h.change('civilian-0', 'ranged', 'maki-ranger-bow-ranged')
+    const result = h.bulk('civilian', 'sword')
+    expect(result.summary).toMatchObject({ equipped: 1, upgraded: 0 })
+    expect(resolveTownActorEquipment(h.read(), 'roman', 'civilian-0')).toMatchObject({ tier: 4, refs: {
+      melee: { itemId: 'centurion_blade', source: 'inventory' }, ranged: { itemId: 'maki-ranger-bow-ranged', source: 'inventory' },
+    } })
+  })
   it('reports no stock and never announces a successful civilian bulk transaction', () => {
     const h = harness(), save = () => { throw new Error('must not save') }
     expect(bulkCareerEquipment(h.read, h.context, 'civilian', 'axe', save)).toMatchObject({ changed: false, reason: 'no-available-item', summary: { equipped: 0, insufficient: 20 } })
@@ -87,7 +173,11 @@ describe('Town equipment domain, canonical ownership and persisted native source
     const b = actors.find(actor => actor.refs.melee?.itemId === 'gladius_rusty')!
     h.context.safeActorIds = new Set([a.spec.id, b.spec.id]); h.buy('centurion_blade')
     const origin = a.refs.melee!.nativeId!
-    expect(h.bulk(1, 'sword').summary).toMatchObject({ equipped: 2, upgraded: 2 })
+    // This squad's native T1 sword belongs to an archer: improving its melee does not improve its active T2 weapon.
+    expect(a.tier).toBe(2); expect(b.tier).toBe(2); expect(b.refs.ranged?.itemId).toBe('recurve_longbow')
+    expect(h.bulk(1, 'sword').summary).toMatchObject({ equipped: 2, upgraded: 1 })
+    expect(resolveTownActorEquipment(h.read(), 'roman', a.spec.id).tier).toBe(3)
+    expect(resolveTownActorEquipment(h.read(), 'roman', b.spec.id)).toMatchObject({ tier: 2, refs: { ranged: b.refs.ranged } })
     expect(resolveTownActorEquipment(h.read(), 'roman', a.spec.id).refs.melee).toEqual({ itemId: 'centurion_blade', source: 'inventory' })
     expect(resolveTownActorEquipment(h.read(), 'roman', b.spec.id).refs.melee?.nativeId).toBe(origin)
     expect(careerItemTotal(h.read(), 'gladius_standard')).toBe(0)
