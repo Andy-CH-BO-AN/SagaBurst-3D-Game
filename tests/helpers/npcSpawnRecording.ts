@@ -42,12 +42,14 @@ export class RecordingNpc {
     public tier: number, readonly mountedInput: boolean, public loadout: ConstructorParameters<typeof NPC>[9],
     public presetId?: string, public squadId?: string | number, readonly combatantId = name,
     readonly emit?: unknown, readonly visualAssetId?: string, readonly combatProfileId?: string,
-    readonly specialCombatProfile?: string) {
+    readonly specialCombatProfile?: string, _townCategory?: string, _civilianStyle?: string,
+    readonly spawnPlacement?: { y: number }) {
     recording.npcs.push(this)
-    this.group.position.set(x, 0, z)
+    this.group.position.set(x, spawnPlacement?.y ?? 0, z)
     scene.add(this.group)
   }
 
+  get position(): THREE.Vector3 { return this.group.position }
   get combatPosition(): THREE.Vector3 { return this.mount?.group.position ?? this.group.position }
   get isMounted(): boolean { return Boolean(this.mount) }
   readonly bindCombatEventSink = vi.fn((_sink: CombatEventSink) => vi.fn())

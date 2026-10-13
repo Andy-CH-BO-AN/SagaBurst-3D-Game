@@ -1,3 +1,4 @@
+import { siegeAssaultFixture } from '../helpers/siegeAssaultFixture'
 import { MountType, type Mount } from '../../src/world/Mount'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -141,6 +142,38 @@ function privateTownCaller(profile: CareerProfile, obstacles: ObstacleData[] = [
 }
 
 describe('production spawn callers with recorded constructor boundaries', () => {
+  it.each(['complete', 'failure', 'cancel'] as const)('siege %s keeps elevated initial registration and cleans pending convoy ownership', async outcome => {
+    // 0 real actors. The real Game caller/scheduler creates only recording constructor boundaries.
+    const h = siegeAssaultFixture('roman', false, false)
+    const game = Object.assign(gameFixture(), { scene: h.scene, npcs: h.actors, campaignSiegeAssault: h.owner })
+    const step = loadingFrames()
+    if (outcome === 'failure') h.specs[5].actorId = 'not-assigned-to-this-vehicle'
+    const plan = { npcSpecs: h.specs, pickupSpecs: [], horseSpecs: [], playerSpawn: { x: 0, z: 0 } }
+    const loading = game._executeBattleSpawnPlan(plan).then(value => ({ value, error: undefined }), error => ({ value: undefined, error }))
+    for (let frame = 0; frame < 5; frame++) await step()
+    expect(h.owner.ramps[0].controller.state).toBe('DEPLOYING')
+    const passenger = game.npcs[4]
+    expect(passenger.group.position.toArray()).toEqual([h.specs[4].x, h.specs[4].spawnY, h.specs[4].z])
+    expect(recording.npcs[4].spawnPlacement).toEqual({ y: h.specs[4].spawnY })
+    expect(passenger.combatantId).toBe('attacker-4')
+    expect(passenger.siegeTransport).toBe('siege-ramp-left')
+    if (outcome === 'cancel') game._disposeCareerOutpostBattleActors()
+    for (let frame = 0; frame < 25; frame++) await step()
+    const result = await loading
+    if (outcome === 'complete') {
+      expect(result.error).toBeUndefined()
+      expect(game.npcs).toHaveLength(21)
+      expect(h.owner.ramps.map(ramp => ramp.crew.size)).toEqual([10, 10])
+      expect(h.owner.ramps.map(ramp => ramp.platform.size)).toEqual([6, 6])
+    } else {
+      expect(result.error).toBeDefined()
+      expect(game.npcs).toHaveLength(0)
+      expect(h.owner.ramps).toHaveLength(0)
+      expect(gameplayNpcSpawns.pending).toBe(0)
+      expect(h.scene.children.some(child => child.name.startsWith('siege-ramp'))).toBe(false)
+    }
+  })
+
   it('materializes rampart archers at full 3D slots while retaining one spawn job per frame', async () => {
     const game = gameFixture(), step = loadingFrames(true)
     const specs: NpcSpawnSpec[] = Array.from({ length: 2 }, (_, index) => ({
