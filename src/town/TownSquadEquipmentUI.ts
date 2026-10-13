@@ -1,6 +1,6 @@
 import type { CareerProfile } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
-import { availableCareerItem, careerItemTotal, careerItemTotals, initialPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
+import { availableCareerItem, careerItemTotal, careerItemTotals, legacyPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
 import { canRecruitPersonalSquad, PERSONAL_SQUAD_PRODUCTS } from '../career/CareerPersonalSquad'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
@@ -38,7 +38,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
     for (const [index, member] of (profile.personalSquad?.members ?? []).entries()) {
       const card = document.createElement('article'); card.className = 'inventory-card'; card.dataset.memberId = member.id
       const title = document.createElement('strong'); title.textContent = `${PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.name} #${index + 1}`; card.append(title)
-      const equipment = member.equipment ?? initialPersonalEquipment(member.type, profile.faction)
+      const equipment = member.equipment ?? legacyPersonalEquipment(member.type, profile.faction)
       if (member.type === 'ranger') {
         const fixed = document.createElement('p'); fixed.className = 'inv-item-desc'; fixed.textContent = 'Weapon: Ranger Bow · 固定\nShield: None · 固定'; fixed.style.whiteSpace = 'pre-line'; card.append(fixed)
       }

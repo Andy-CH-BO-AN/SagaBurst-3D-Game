@@ -19,10 +19,19 @@ export function isTradableCareerItem(id: string): boolean {
     && (Object.prototype.hasOwnProperty.call(WEAPONS, id) || Object.prototype.hasOwnProperty.call(ARMORS, id) || (PLAYER_MOUNT_IDS as readonly string[]).includes(id))
 }
 export function initialPersonalEquipment(type: PersonalSquadMemberType, faction: CareerProfile['faction']): PersonalEquipment {
+  return personalEquipmentAtTier(type, faction, type === 'soldier' ? 1 : 2)
+}
+/** Pre-inventory hires had T2 Soldier and T3 Captain gear; migration must preserve that grant. */
+export function legacyPersonalEquipment(type: PersonalSquadMemberType, faction: CareerProfile['faction']): PersonalEquipment {
+  return personalEquipmentAtTier(type, faction, type === 'soldier' ? 2 : type === 'captain' ? 3 : 2)
+}
+function personalEquipmentAtTier(type: PersonalSquadMemberType, faction: CareerProfile['faction'], weaponTier: 1 | 2 | 3): PersonalEquipment {
   if (type === 'ranger') return { melee: null, ranged: null, shield: null, mount: 'horse' }
   const presetId = `${faction}_${type === 'soldier' ? faction === 'roman' ? 'heavy_infantry' : 'berserker' : 'sword_cavalry'}` as UnitPresetId
-  const loadout = UNIT_PRESETS[presetId].tierLoadouts[type === 'soldier' ? 2 : 3]
-  return { melee: loadout.meleeWeaponId ?? null, ranged: null, shield: loadout.shieldId ?? null, mount: type === 'soldier' ? null : 'horse' }
+  const loadouts = UNIT_PRESETS[presetId].tierLoadouts
+  // The starter rebalance changes weapons only; shields and mounts keep their historical defaults.
+  return { melee: loadouts[weaponTier].meleeWeaponId ?? null, ranged: null,
+    shield: loadouts[type === 'soldier' ? 2 : 3].shieldId ?? null, mount: type === 'soldier' ? null : 'horse' }
 }
 /** Legacy ownership is read only until the first transaction or load normalizes it. */
 export function careerItemTotals(profile: CareerProfile): Record<string, number> {
@@ -111,7 +120,7 @@ export function normalizeCareerInventory(profile: CareerProfile): void {
   for (const member of profile.personalSquad?.members ?? []) {
     if (!member.equipment) {
       if (!legacy) throw new Error('Missing member equipment')
-      member.equipment = initialPersonalEquipment(member.type, profile.faction)
+      member.equipment = legacyPersonalEquipment(member.type, profile.faction)
       for (const id of Object.values(member.equipment)) if (id) totals[id] = (totals[id] ?? 0) + 1
     }
     if (member.type === 'ranger') member.equipment = { ...member.equipment, melee: null, ranged: null, shield: null }
