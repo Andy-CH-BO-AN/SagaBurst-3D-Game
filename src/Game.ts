@@ -146,11 +146,14 @@ import { ArmyCommandUI } from './ui/ArmyCommandUI'
 import { WeaponWheelUI } from './ui/WeaponWheelUI'
 import { ArmyCommandController, type ArmyCommandAuthority } from './battle/ArmyCommandController'
 import { matchesArmyCommandTarget } from './battle/CommandTarget'
+import type { TacticalOrder } from './battle/TacticalOrder'
+import { officialActorSquadId, officialCommandAcceptsActor, type OfficialCommandAuthority } from './career/CareerCommandAuthority'
+import { officialPlayerOwnsActor, stageOfficialCommandOrder } from './career/CareerOfficialCommandOrder'
 import { countArmyHudRoster } from './battle/ArmyCommandHudRoster'
 import { careerCommandHudRoster } from './career/CareerCommandHudRoster'
 import type { PersonalSquadMission } from './career/CareerPersonalSquadMission'
 import { officialFollowLocalOffset } from './battle/FollowOrder'
-import { FormationController } from './battle/FormationController'
+import { FormationController, type FormationCommandAssignment } from './battle/FormationController'
 import {
   createCampaignOutpost,
   getCampaignDefenderFacingYaw,
@@ -174,7 +177,8 @@ import { claimCareerOutpost, clearCareerOutpost, CAREER_OUTPOST_SESSION_KEY } fr
 import { PersonalSquadRuntime, personalMemberLoadout } from './career/PersonalSquadRuntime'
 import { personalOutpostDeployment, personalRearDeployment } from './career/PersonalSquadDeployment'
 import { planPersonalOutpostGround } from './career/PersonalOutpostGroundPlan'
-import { personalMissionSourcePolicy } from './career/CareerPersonalSquadMission'
+import { careerOutpostCommandMeritPolicy } from './career/CareerOutpostMission'
+import { careerOutpostActorId } from './career/CareerOutpostRoster'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from './career/CareerProfile'
 import { CareerMissionCheckpoint, type CareerMissionCheckpointReason } from './career/CareerMissionCheckpoint'
 import type { ActiveCareerMission } from './career/CareerMissionState'
@@ -533,6 +537,7 @@ export class Game {
     this._flushCareerSkillProgression()
   }
   private campaignOriginalDefenders: NPC[] = []
+  private careerOriginalCommandSquads = new Map<NPC, NPC['squadId']>()
   private campaignReinforcementSpawned = false
   private campaignReinforcementArrived = false
   private campaignAttackersStarted = false
@@ -739,17 +744,14 @@ export class Game {
       veteranMission ? event => acceptsCareerMissionStat(this.careerProfile?.activeMission ?? veteranMission, event) : undefined,
       veteranMission?.playerStats ?? veteranMission?.battle?.playerStats ?? veteranMission?.eagleBattle?.playerStats ?? outpostMission?.battle?.playerStats,
       veteranMission ? careerMissionCommandMeritPolicy(veteranMission, () => this.careerProfile?.activeMission ?? veteranMission)
-        : outpostMission?.personalSquad ? {
-          acceptsSource: personalMissionSourcePolicy(outpostMission),
-          initialContribution: outpostMission.personalSquad.contribution,
-          initialMemberIds: outpostMission.personalSquad.memberIds.filter(id => outpostMission.personalSquad!.members[id]?.status !== 'reserve'),
-          departedSurvivors: () => this.careerProfile?.activeOutpostMission?.personalSquad?.memberIds.filter(id => this.careerProfile!.activeOutpostMission!.personalSquad!.members[id]?.status === 'exited') ?? [],
-          acceptsEvent: event => !this.careerProfile?.claimedBattleIds.includes(outpostMission.id)
+        : outpostMission ? careerOutpostCommandMeritPolicy(outpostMission,
+          () => this.careerProfile?.activeOutpostMission ?? outpostMission,
+          event => !this.careerProfile?.claimedBattleIds.includes(outpostMission.id)
             && this.defenseCampaignRuntime?.getSnapshot().activePhase === 'assault'
             && (event.type === 'damage_applied' || event.type === 'actor_killed')
             && event.target.allegiance === Faction.ENEMY
             && (event.target.targetType === 'npc' ? event.target.targetId : event.target.ownerActorId)?.startsWith(`${outpostMission.id}:`) === true,
-        } : undefined,
+        ) : undefined,
     )
 
     this.initialization = this.initialize(battleConfig, campaignConfig, progress).catch(error => {
@@ -884,7 +886,7 @@ export class Game {
     if (campaignConfig) {
       activeBattleConfig = createDefenseCampaignWaveConfig(campaignConfig, 'defenders')
       if (campaignConfig.careerMissionKind === 'captain-outpost-defense') {
-        battlePlan = createCaptainFrontlineSpawnPlan(campaignConfig)
+        battlePlan = createCaptainFrontlineSpawnPlan(campaignConfig, this.careerProfile?.activeMission?.officialSquad)
       } else if (campaignConfig.careerVeteranOutpost) {
         battlePlan = createCareerVeteranOutpostSpawnPlan(campaignConfig, 'initial')
       } else {
@@ -1000,14 +1002,14 @@ export class Game {
       const spawned = await this._executeBattleSpawnPlan(battlePlan, progress)
       this.campaignOriginalDefenders = spawned.filter(
         npc => npc.characterFaction === careerVeteranOutpostOwner(campaignConfig)
-          && (campaignConfig.careerMissionKind !== 'outpost-relief' || !npc.squadId),
+          && (campaignConfig.careerMissionKind !== 'outpost-relief' || !this._originalCareerSquadId(npc)),
       )
       const defenderFacingYaw = getCampaignDefenderFacingYaw(campaignConfig.defenderFaction)
       for (const npc of spawned) {
         // NPC models default to +Z. Campaign forts mirror across Z, so Viking
         // defenders must be rotated toward their -Z front gate at spawn.
         const isOutpostOwner = npc.characterFaction === careerVeteranOutpostOwner(campaignConfig)
-        const heading = campaignConfig.careerMissionKind === 'outpost-relief' && npc.squadId
+        const heading = campaignConfig.careerMissionKind === 'outpost-relief' && this._originalCareerSquadId(npc)
           ? defenderFacingYaw + Math.PI
           : campaignConfig.careerVeteranOutpost && !isOutpostOwner
             ? defenderFacingYaw + Math.PI
@@ -1035,7 +1037,7 @@ export class Game {
         ...(!veteranOutpost && this._personalOutpostMission()?.battle ? { initialSnapshot: this._personalOutpostMission()!.battle!.runtime } : {}),
       })
       if (relief) {
-        initializeCareerReliefBattlefield(this.previewCampaignGate!, this.npcs)
+        initializeCareerReliefBattlefield(this.previewCampaignGate!, this.npcs.filter(npc => !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId)))
         this.navigationWorld.sync(this.obstacles)
         this.campaignAttackersStarted = true
         const placement = getCampaignOutpostPlacement(campaignConfig.defenderFaction)
@@ -1043,7 +1045,10 @@ export class Game {
           onFinished => this.soundManager.playCareerMissionVoice(campaignConfig.defenderFaction, 'follow', onFinished),
           () => this._persistCareerReliefCharge(),
           () => this.soundManager.playCommanderCommand(campaignConfig.defenderFaction, 'charge'),
-          campaignConfig.careerReliefPhase === 'charge', { chargeAfterFollow: true })
+          campaignConfig.careerReliefPhase === 'charge', { chargeAfterFollow: true,
+            squads: this._makeMountedMissionSquads(this.npcs, [1, 2]),
+            acceptsActor: npc => !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId),
+          })
         this.reliefMarch.start()
       }
       if (veteranOutpost) {
@@ -1154,7 +1159,7 @@ export class Game {
     this.player.onShieldBlock = impact => this._applyPlayerSkillAward({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
     if (!this.careerProfile) this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState))
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
-    if (this.captainCheckpoint && this.careerProfile?.activeMission?.officialSquad) {
+    if (this.hasCareerOfficialCommand) {
       this.armyCommandUI.setOfficialSquadLabel('Mission Squad · 任務部隊')
     }
     this.equipmentUI      = new EquipmentUI()
@@ -1183,31 +1188,31 @@ export class Game {
       maxZ: Math.max(outpostPlacement.frontZ, outpostPlacement.backZ),
     } : null
     const formationController = new FormationController(
-      this.scene, this.camera, this.captainCheckpoint ? this.npcs : this.personalSquad?.actors ?? this.npcs,
+      this.scene, this.camera, this.hasCareerOfficialCommand ? this.npcs : this.personalSquad?.actors ?? this.npcs,
       terrainMesh, obstacles, this.navigationWorld, this.personalSquad ? null : formationRegion,
     )
     this.armyCommandController = new ArmyCommandController(
-      this.captainCheckpoint ? this.npcs : this.personalSquad?.actors ?? this.npcs,
+      this.hasCareerOfficialCommand ? this.npcs : this.personalSquad?.actors ?? this.npcs,
       playerFaction,
       this.input,
       this.armyCommandUI,
       formationController,
       (order, target) => {
-        if (!this.captainCheckpoint || target === 'all' || target === 'squad:personal') this.personalSquad?.resumeCommand(order)
+        if (!this.hasCareerOfficialCommand || target === 'all' || target === 'squad:personal') this.personalSquad?.resumeCommand(order)
         if (order !== 'follow') this.soundManager.playCommanderCommand(playerFaction, order)
-        if (this.captainCheckpoint) this._persistCaptainMission(true)
+        if (this.hasCareerOfficialCommand) this._persistPersonalOutpost(true)
       },
       campaignConfig ? 'defend' : this.isDevCombat ? 'defend' : 'attack',
       (order) => {
-        if (this.captainCheckpoint && (this.player.dead || this.careerProfile?.activeMission?.result)) return false
+        if (this.hasCareerOfficialCommand && (this.player.dead || this._careerCommandFinished())) return false
         if (this.personalSquad) return !this.player.dead && this.controlMode !== 'spectator'
         if (!campaignConfig || (order !== 'attack' && order !== 'charge')) return true
         const attackerFaction = opposingCampaignFaction(campaignConfig.defenderFaction)
         return this._campaignFactionAlive(attackerFaction) > 0
       },
       this.inventoryManager,
-      this.captainCheckpoint || this.personalSquad ? 'squad' : activeBattleConfig?.commandGrouping ?? 'preset',
-      !this.isTrainingGround && (Boolean(this.captainCheckpoint || this.personalSquad) || defenseCampaignCapabilities(campaignConfig).playerCommandsEnabled),
+      this.hasCareerOfficialCommand || this.personalSquad ? 'squad' : activeBattleConfig?.commandGrouping ?? 'preset',
+      !this.isTrainingGround && (Boolean(this.hasCareerOfficialCommand || this.personalSquad) || defenseCampaignCapabilities(campaignConfig).playerCommandsEnabled),
       this.personalSquad ? {
         enabled: () => !this.player.dead && this.controlMode !== 'spectator',
         issue: order => {
@@ -1216,8 +1221,8 @@ export class Game {
           return accepted
         },
       } : undefined,
-      this.captainCheckpoint ? this._captainCommandAuthority() : undefined,
-      this.careerProfile && (this.captainCheckpoint || this.personalSquad) ? () => this._careerCommandHudRoster() : undefined,
+      this.hasCareerOfficialCommand ? this._captainCommandAuthority() : undefined,
+      this.careerProfile && (this.hasCareerOfficialCommand || this.personalSquad) ? () => this._careerCommandHudRoster() : undefined,
     )
 
 
@@ -1295,7 +1300,7 @@ export class Game {
     }
     if (this.veteranOutpostCheckpoint) window.addEventListener('pagehide', this.flushVeteranOutpostOnPageHide)
     if (this.careerProfile) window.addEventListener('pagehide', this.flushCareerSkillsOnPageHide)
-    if (this.personalSquad) window.addEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
+    if (this.personalSquad || this.hasCareerOfficialCommand) window.addEventListener('pagehide', this.flushPersonalOutpostOnPageHide)
     if (this.captainCheckpoint) window.addEventListener('pagehide', this.flushCaptainOnPageHide)
 
     if (!isInitialSpectator) {
@@ -2000,7 +2005,13 @@ export class Game {
     if (this.defenseCampaignConfig?.careerMissionId || this.captainEagleMissionId) {
       this.careerVeteranActorMounts.set(npc.combatantId, npc.mount)
     }
-    if (this.careerProfile?.activeMission?.officialSquad?.actorIds.includes(npc.combatantId)) npc.combatOwnership = 'mission-official'
+    ;(this.careerOriginalCommandSquads ??= new Map()).set(npc, spec.squadId)
+    const authority = this._careerCommandMission()?.officialSquad
+    const officialSquadId = authority && officialActorSquadId(authority, npc.combatantId)
+    if (officialSquadId && authority?.missionId === this._careerCommandMission()?.id) {
+      npc.setCommandSquad(officialSquadId)
+      npc.combatOwnership = 'mission-official'
+    }
     this.npcs.push(npc)
     this.battleStats.registerNpc(npc)
     this._aimTargetRegistry.registerNpc(npc)
@@ -2061,7 +2072,7 @@ export class Game {
     const profile = this.careerProfile
     if (!profile) return undefined
     const mission = profile.activeMission ?? profile.activeOutpostMission
-    const current = profile.activeMission
+    const current = profile.activeMission ?? profile.activeOutpostMission
     const official = current?.officialSquad?.type === 'mission-official'
       && current.officialSquad.missionId === current.id ? current.officialSquad : undefined
     const accepted = mission?.personalSquad
@@ -2076,8 +2087,9 @@ export class Game {
       faction: profile.faction,
       ...(mission ? { missionId: mission.id } : {}),
       official,
-      officialPending: Boolean(official && this.captainEagleSpawnBatch && !this.captainEagleSpawnBatch.ready
-        && !this.spawningStopped),
+      officialPending: Boolean(official && !this._careerCommandFinished() && !this.spawningStopped && (
+        this.captainEagleSpawnBatch && !this.captainEagleSpawnBatch.ready
+        || this.defenseCampaignConfig?.careerMissionId && !this.campaignReinforcementSpawned)),
       personal,
       personalPendingIds: this.personalSquad?.hudPendingIds,
       personalReturningIds: this.personalSquad?.hudReturningIds,
@@ -2085,28 +2097,75 @@ export class Game {
     })
   }
 
+  private _careerCommandMission() { return this.careerProfile?.activeMission ?? this.careerProfile?.activeOutpostMission }
+  private _careerCommandFinished(): boolean {
+    const mission = this._careerCommandMission()
+    return Boolean(this.careerProfile?.activeMission?.result || mission && this.careerProfile?.claimedBattleIds.includes(mission.id))
+  }
+  private get hasCareerOfficialCommand(): boolean {
+    const mission = this._careerCommandMission(), authority = mission?.officialSquad
+    return Boolean(authority?.type === 'mission-official' && authority.missionId === mission?.id
+      && authority.townFaction === this.careerProfile?.faction
+      && (authority.commandRank !== 'commander' || this.careerProfile?.rank === 'commander'))
+  }
+
+  private _snapshotOfficialCommand(authority: OfficialCommandAuthority | undefined): void {
+    if (!authority) return
+    authority.contribution = this.battleStats.officialCommandCheckpoint()
+    const squadStats = this.battleStats.officialSquadCheckpoints()
+    for (const squad of authority.squads ?? []) squad.contribution = squadStats.find(entry => entry.squadId === squad.squadId)?.contribution ?? squad.contribution
+    authority.members = { ...authority.members }
+    for (const npc of this.npcs) if (authority.actorIds.includes(npc.combatantId)) {
+      authority.members[npc.combatantId] = snapshotCommandActor(npc, this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
+    }
+  }
+
+  private _acceptsCaptainCommand(npc: NPC): boolean {
+    const mission = this._careerCommandMission(), authority = mission?.officialSquad
+    return Boolean(mission && !this._careerCommandFinished() && authority?.missionId === mission.id
+      && (authority.commandRank !== 'commander' || this.careerProfile?.rank === 'commander')
+      && officialCommandAcceptsActor(authority, npc))
+  }
+
+  private _prepareCaptainCommand(order: TacticalOrder | 'dismiss', participants: readonly NPC[], assignments?: readonly FormationCommandAssignment[]): boolean {
+    const next = this.careerProfile && stageOfficialCommandOrder(this.careerProfile, participants, order, assignments,
+      npc => snapshotCommandActor(npc, this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined))
+    if (!next) return true
+    if (!this.careerStore.save(next)) { this._showNotify('命令尚未保存，部隊維持原指揮權。'); return false }
+    this.careerProfile = next
+    return true
+  }
+
   private _captainCommandAuthority(): ArmyCommandAuthority {
     return {
-      accepts: npc => this.careerProfile?.activeMission?.officialSquad?.actorIds.includes(npc.combatantId) === true
-        || this.personalSquad?.owns(npc) === true,
-      enabled: () => !this.player.dead && this.controlMode === 'player' && !this.careerProfile?.activeMission?.result,
+      accepts: npc => this._acceptsCaptainCommand(npc) || this.personalSquad?.owns(npc) === true,
+      enabled: () => !this.player.dead && this.controlMode === 'player' && !this._careerCommandFinished(),
+      beforeIssue: (order, _target, participants, assignments) => this._prepareCaptainCommand(order, participants, assignments),
       issue: (order, target) => {
+        const actors = this.npcs.filter(npc => this._acceptsCaptainCommand(npc) && matchesArmyCommandTarget(npc, target))
+        if (!this._prepareCaptainCommand(order, actors)) return false
         let accepted = false
         if ((target === 'all' || target === 'squad:personal') && this.personalSquad) {
           accepted = order === 'follow' ? this.personalSquad.follow() : this.personalSquad.dismiss()
         }
-        if (order === 'follow' && (target === 'all' || target === 'squad:1')) {
-          const ids = new Set(this.careerProfile?.activeMission?.officialSquad?.actorIds)
-          let slot = 0
-          for (const npc of this.npcs) {
-            if (npc.dead || !ids.has(npc.combatantId) || !matchesArmyCommandTarget(npc, target)) continue
-            npc.assignFollowTarget(this.player, slot, officialFollowLocalOffset(slot, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length))); slot++
-            accepted = true
+        for (const npc of actors) {
+          const slot = this._careerCommandMission()!.officialSquad!.actorIds.indexOf(npc.combatantId)
+          npc.missionMovement = false
+          if (order === 'follow') npc.assignFollowTarget(this.player, slot,
+            officialFollowLocalOffset(slot, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
+          else {
+            const reinforcement = npc.combatantId.startsWith(`${this._careerCommandMission()?.id}:reinforcement:`)
+            npc.setTacticalOrder(this.captainEagleMissionId || reinforcement || this.previewCampaignGate?.state === 'destroyed'
+              || this.defenseCampaignConfig?.careerMissionKind === 'veteran-outpost-assault' ? 'attack' : 'defend')
+            this.reliefMarch?.resumeActor(npc)
+            this.veteranReinforcementMarch?.resumeActor(npc)
+            this.veteranOutpostMarch?.resumeActor(npc)
           }
+          accepted = true
         }
         if (accepted) {
           this.soundManager.playCareerMissionVoice(this.careerProfile!.faction, order === 'follow' ? 'follow' : 'dismiss')
-          this._persistCaptainMission(true)
+          this._persistPersonalOutpost(true)
         }
         return accepted
       },
@@ -2140,15 +2199,17 @@ export class Game {
     const batch = this._newSpawnBatch()
     this.captainEagleSpawnBatch = batch
     for (const spec of plan.npcSpecs) {
-      const actor = saved.actors[spec.actorId!]
+      const actor = mission.officialSquad?.members?.[spec.actorId!] ?? saved.actors[spec.actorId!]
       if (actor?.status === 'dead' || actor?.hp === 0) continue
       batch.enqueue(spec.actorId!, () => {
         const npc = this._spawnNpc(spec)
         npc.group.rotation.y = spec.characterFaction === 'roman' ? 0 : Math.PI
         if (npc.mount) npc.mount.group.rotation.y = npc.group.rotation.y
         npc.setTacticalOrder(npc.faction === Faction.PLAYER ? 'defend' : 'attack')
-        if (actor) restoreCommandActor(npc, actor, this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
-        if (actor?.order === 'follow' && !this.player.dead) {
+        const controlled = officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)
+        const restoreOrder = !mission.officialSquad?.actorIds.includes(npc.combatantId) || controlled
+        if (actor) restoreCommandActor(npc, restoreOrder ? actor : { ...actor, order: undefined, formation: undefined }, this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
+        if (controlled && actor?.order === 'follow' && !this.player.dead) {
           const index = mission.officialSquad?.actorIds.indexOf(npc.combatantId) ?? -1
           if (index >= 0) npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
         }
@@ -2171,6 +2232,10 @@ export class Game {
     if (personal) { personal.contribution = this.battleStats.commandCheckpoint(); mission.personalSquad = personal }
     if (mission.officialSquad) {
       mission.officialSquad.contribution = this.battleStats.officialCommandCheckpoint()
+      const squadStats = this.battleStats.officialSquadCheckpoints()
+      for (const squad of mission.officialSquad.squads ?? []) {
+        squad.contribution = squadStats.find(entry => entry.squadId === squad.squadId)?.contribution ?? squad.contribution
+      }
       mission.officialSquad.members = { ...mission.officialSquad.members }
       for (const npc of this.npcs) if (mission.officialSquad.actorIds.includes(npc.combatantId)) {
         mission.officialSquad.members[npc.combatantId] = snapshotCommandActor(npc,
@@ -2305,7 +2370,7 @@ export class Game {
     }
     if (mission.phase !== 'ENGAGING') {
       if (!this._persistCaptainMission(true)) return
-      for (const npc of this.npcs) if (!npc.dead && npc.combatOwnership !== 'player-personal' && !officialIds.has(npc.combatantId)) npc.setTacticalOrder('attack')
+      for (const npc of this.npcs) if (!npc.dead && npc.combatOwnership !== 'player-personal' && !officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) npc.setTacticalOrder('attack')
     }
     if (enemyAlive === 0) this._showCaptainEagleResult('victory')
     else if (this.player.dead && officialAlive === 0 && (this.personalSquad?.aliveCombatants ?? 0) === 0) this._showCaptainEagleResult('failure')
@@ -2331,7 +2396,7 @@ export class Game {
   private _identifyPersonalOutpostWave(plan: BattleSpawnPlan, wave: 'initial' | 'attackers' | 'reinforcement'): void {
     const mission = this._personalOutpostMission()
     if (!mission) return
-    plan.npcSpecs.forEach((spec, index) => { spec.actorId = `${mission.id}:${wave}:${index}` })
+    plan.npcSpecs.forEach((spec, index) => { spec.actorId = careerOutpostActorId(mission.id, wave, index) })
   }
 
   private _personalOutpostWavePlan(wave: 'attackers' | 'reinforcement'): BattleSpawnPlan {
@@ -2347,11 +2412,13 @@ export class Game {
     const saved = this._personalOutpostMission()?.battle?.actors[npc.combatantId]
     if (!saved) return
     const mount = this.careerVeteranActorMounts.get(npc.combatantId)
-    const command = saved.checkpoint ?? this.careerProfile?.activeMission?.officialSquad?.members?.[npc.combatantId]
+    const command = this._careerCommandMission()?.officialSquad?.members?.[npc.combatantId] ?? saved.checkpoint
     if (command) {
-      restoreCommandActor(npc, command, mount ?? undefined)
-      if (!npc.dead && command.order === 'follow') {
-        const index = this.careerProfile?.activeMission?.officialSquad?.actorIds.indexOf(npc.combatantId) ?? -1
+      const controlled = officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId)
+      const restoreOrder = !this._careerCommandMission()?.officialSquad?.actorIds.includes(npc.combatantId) || controlled
+      restoreCommandActor(npc, restoreOrder ? command : { ...command, order: undefined, formation: undefined }, mount ?? undefined)
+      if (controlled && !npc.dead && command.order === 'follow') {
+        const index = this._careerCommandMission()?.officialSquad?.actorIds.indexOf(npc.combatantId) ?? -1
         if (index >= 0) npc.assignFollowTarget(this.player, index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
       }
       return
@@ -2535,6 +2602,7 @@ export class Game {
     if (!next || !mission || mission.id !== this.defenseCampaignConfig?.careerMissionId || !runtime) return false
     if (personal) personal.contribution = this.battleStats.commandCheckpoint()
     mission.personalSquad = personal
+    this._snapshotOfficialCommand(mission.officialSquad)
     next.playerAerialState = captureCareerAerialState(this.player, `outpost:${this.defenseCampaignConfig.careerMissionId}`)
     mission.battle = {
       runtime, actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(npc => npc.combatOwnership !== 'player-personal').map(npc => {
@@ -2564,8 +2632,8 @@ export class Game {
   }
 
   private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
-    const officialIds = new Set(this.captainCheckpoint ? this.careerProfile?.activeMission?.officialSquad?.actorIds : [])
-    const result = applyCampaignBreachOrders(this.npcs.filter(npc => !officialIds.has(npc.combatantId)), attackerFaction)
+    const authority = this._careerCommandMission()?.officialSquad
+    const result = applyCampaignBreachOrders(this.npcs.filter(npc => !officialPlayerOwnsActor(authority, npc.combatantId)), attackerFaction)
     if (this.restoringCareerOutpostGate) return
     this.soundManager.playCommanderCommand(attackerFaction, 'charge')
     this._showNotify(
@@ -2596,6 +2664,15 @@ export class Game {
     }
     if (dead) npc.restoreCombatHealth(0)
     else if (saved) npc.restoreCombatHealth(saved.hp)
+    const command = mission.officialSquad?.members?.[actorId]
+    if (command) {
+      const controlled = officialPlayerOwnsActor(mission.officialSquad, actorId)
+      restoreCommandActor(npc, controlled ? command : { ...command, order: undefined, formation: undefined }, mount ?? undefined)
+      if (controlled && !npc.dead && command.order === 'follow') {
+        const slot = mission.officialSquad!.actorIds.indexOf(actorId)
+        npc.assignFollowTarget(this.player, slot, officialFollowLocalOffset(slot, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
+      }
+    }
   }
 
   private _restoreCareerVeteranOutpostGate(saved: NonNullable<DefenseCampaignLaunchConfig['careerVeteranOutpost']>['runtimeState']): void {
@@ -2622,9 +2699,13 @@ export class Game {
     this._queueDefenseCampaignWave('reinforcement')
   }
 
+  private _originalCareerSquadId(npc: NPC): NPC['squadId'] {
+    return this.careerOriginalCommandSquads?.has(npc) ? this.careerOriginalCommandSquads.get(npc) : npc.squadId
+  }
+
   private _makeMountedMissionSquads(npcs: readonly NPC[], squadIds: readonly number[]): MountedMissionSquad[] {
     return squadIds.map(squadId => {
-      const members = npcs.filter(npc => npc.squadId === squadId && !npc.dead)
+      const members = npcs.filter(npc => this._originalCareerSquadId(npc) === squadId && !npc.dead)
       const leader = members.find(npc => npc.tier === 4)
       const lane = squadId % 2 === 0 ? 1 : -1
       return { leader, members, leaderOffset: new THREE.Vector3(lane * (squadId <= 2 ? 12 : 24), 0, -Math.floor((squadId - 1) / 2) * 7) }
@@ -2658,6 +2739,7 @@ export class Game {
       resumeCharged,
       {
         squads: this._makeMountedMissionSquads(reinforcements, [1, 2]),
+        acceptsActor: npc => !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId),
         leaderMode: 'independent',
         playerSquadIndex: null,
         playFollow: false,
@@ -2698,6 +2780,7 @@ export class Game {
       resumeCharged,
       {
         squads: this._makeMountedMissionSquads(attackers, [1, 2, 3, 4]),
+        acceptsActor: npc => !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId),
         leaderMode: 'independent',
         playerSquadIndex: 0,
         playFollow: false,
@@ -2746,6 +2829,7 @@ export class Game {
     active.playerHp = this.player.hp
     active.playerStamina = this.player.staminaValue
     active.playerStats = this.battleStats.checkpoint()
+    this._snapshotOfficialCommand(active.officialSquad)
     if (active.personalSquad && this.personalSquad) {
       active.personalSquad = this.personalSquad.checkpoint()
       if (active.personalSquad) active.personalSquad.contribution = this.battleStats.commandCheckpoint()
@@ -2853,8 +2937,8 @@ export class Game {
         const npc = this._spawnNpc(spec)
         if (wave === 'attackers') this.campaignAttackersStarted = true
         if (this.defenseCampaignConfig?.careerVeteranOutpost) {
-          this._restoreCareerVeteranNpcState(npc)
           npc.setTacticalOrder(wave === 'reinforcement' ? 'defend' : 'attack')
+          this._restoreCareerVeteranNpcState(npc)
         } else { npc.setTacticalOrder('attack'); this._restorePersonalOutpostNpc(npc) }
         this.campaignSpawnQueueIndex++
 

@@ -95,7 +95,8 @@ export function createCareerVeteranOutpostLaunch(profile: CareerProfile): Defens
     ...(mission.personalSquad ? { careerPersonalSquad: clonePersonalMission(mission.personalSquad) } : {}),
     capabilities: {
       reinforcementsEnabled: mission.templateId === 'veteran-dread-outpost',
-      playerCommandsEnabled: false,
+      playerCommandsEnabled: mission.officialSquad?.commandRank === 'commander'
+        && mission.officialSquad.missionId === mission.id && mission.officialSquad.townFaction === profile.faction && profile.rank === 'commander',
       gateControlEnabled: false,
       attackerHeroesEnabled: false,
     },

@@ -1,3 +1,4 @@
+import type { TacticalOrder } from './TacticalOrder'
 import { matchesArmyCommandTarget, type ArmyCommandTarget, type SquadIdentity } from './CommandTarget'
 
 /** Read-only display membership. A pending identity has no NPC and cannot receive orders. */
@@ -7,6 +8,8 @@ export interface ArmyHudMember {
   id: string
   squadId: SquadIdentity
   state: ArmyHudMemberState
+  /** Live/checkpoint order; omitted when the runtime does not expose it. */
+  order?: TacticalOrder
 }
 
 export interface ArmyHudRoster {
@@ -54,5 +57,5 @@ export function countArmyHudRoster(roster: ArmyHudRoster, target: ArmyCommandTar
 }
 
 export function armyHudCountSummary(counts: ArmyHudCounts): string {
-  return `${counts.alive}/${counts.total}${counts.pending ? ` · 部署中 ${counts.pending}` : ''}${counts.missing ? ` · 未部署 ${counts.missing}` : ''}${counts.returning ? ` · 返回中 ${counts.returning}` : ''}`
+  return `${counts.alive}/${counts.total}${counts.dead ? ` · 陣亡 ${counts.dead}` : ''}${counts.pending ? ` · 部署中 ${counts.pending}` : ''}${counts.missing ? ` · 未部署 ${counts.missing}` : ''}${counts.returning ? ` · 返回中 ${counts.returning}` : ''}`
 }

@@ -92,6 +92,7 @@ interface CheckpointFixtureOptions {
   freshDeployment?: boolean
   beforeDeployment?: (controller: TownDefenseController, residents: TownDefenseResident[], player: Player) => void
   captain?: boolean
+  commander?: boolean
   /** Persisted borrowed IDs exercise reload identity without materializing its former roaming squad. */
   attackerIds?: Readonly<Record<number, string>>
 }
@@ -102,8 +103,8 @@ interface CheckpointFixtureOptions {
  * census belong to SiegeSpawnIntegration and TownSiegePolicy. */
 function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpointResidentIds,
   attackerSlots = [2, 3, 4, 5], includeRanger = true, includeOfficerAttackers = false,
-  freshDeployment = false, captain = false, attackerIds, beforeDeployment }: CheckpointFixtureOptions = {}) {
-  const rank = captain ? 'captain' : 'veteran', templateId = captain ? CAPTAIN_GATE_DEFENSE_ID : VETERAN_TOWN_DEFENSE_TEMPLATE_ID
+  freshDeployment = false, captain = false, commander = false, attackerIds, beforeDeployment }: CheckpointFixtureOptions = {}) {
+  const rank = commander ? 'commander' : captain ? 'captain' : 'veteran', templateId = captain ? CAPTAIN_GATE_DEFENSE_ID : VETERAN_TOWN_DEFENSE_TEMPLATE_ID
   const scene = new THREE.Scene()
   let profile = createCareerProfile(faction)
   profile.rank = rank; profile.totalMerit = CAREER_RANK_THRESHOLDS[rank]
@@ -135,7 +136,7 @@ function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpo
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
   navigation.sync(obstacles)
   const patrol = new TownCavalryPatrolController(residents)
-  if (assault && captain) profile = acceptCaptainSiegeCommand(profile, 'assault-test')!
+  if (assault && (captain || commander)) profile = acceptCaptainSiegeCommand(profile, 'assault-test')!
   else profile.activeMission = assault ? createEnemyTownAssaultMission('assault-test') : createTownDefenseMission(
     townAssaultObjectiveRoster(residents.map(r => r.spec)).map(r => r.id), residents.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), 'defense-test', templateId, rank)
   if (assault) profile.activeMission!.targetActorIds = townAssaultObjectiveRoster(roster).map(spec => spec.id)
@@ -162,7 +163,7 @@ function siegeFixture({ faction = 'roman', assault = true, residentIds = checkpo
   const controller = new TownDefenseController(scene, residents, () => player, () => profile, p => { profile = p; return true }, cat, navigation, { gates: city.gates, obstacles, patrol, closureBodies: () => [] })
   onTestFinished(() => controller.dispose())
   completeNpcDeployment(() => { const started = controller.startActiveMission(); beforeDeployment?.(controller, residents, player); return started }, gameplayNpcSpawnDriver)
-  return { controller, player, cat, residents, navigation, scene, attackerCount, gates: city.gates, obstacles, patrol, profile: () => profile, setProfile: (p: typeof profile) => { controller.dispose(); profile = p } }
+  return { controller, player, cat, residents, navigation, scene, attackerCount, gates: city.gates, obstacles, patrol, profile: () => profile, commit: (next: typeof profile) => { profile = next; return true }, setProfile: (p: typeof profile) => { controller.dispose(); profile = p } }
 }
 
 function checkpointFixture(options: CheckpointFixtureOptions = {}) { return siegeFixture(options) }
@@ -707,6 +708,7 @@ describe('Captain Siege command ownership caller', () => {
     const guard = f.residents[0].npc
     const town = Object.assign(Object.create(TownScene.prototype), {
       profile: f.profile(), player: f.player, commandActors: [guard], defense: f.controller,
+      commit(next: ReturnType<typeof f.profile>) { Object.assign(this, { profile: next }); return f.commit(next) },
     }) as { onPlayerCommandIssued: (order: 'formation', target: 'squad:1') => void;
       issuePartyOrder: (order: 'follow', target: 'squad:1') => boolean }
     guard.group.position.set(0, getTerrainHeight(0, 0), 0)
@@ -746,6 +748,7 @@ describe('Captain Siege command ownership caller', () => {
     const guard = f.residents[0].npc, enemy = f.controller.enemies[0]
     const town = Object.assign(Object.create(TownScene.prototype), {
       profile: f.profile(), player: f.player, commandActors: [guard], defense: f.controller,
+      commit(next: ReturnType<typeof f.profile>) { Object.assign(this, { profile: next }); return f.commit(next) },
     }) as { profile: ReturnType<typeof f.profile>; issuePartyOrder: (order: 'follow', target: 'squad:1') => boolean;
       onPlayerCommandIssued: (order: 'attack', target: 'squad:1') => void }
     const owner = new TownCommandSquadController(f.residents, () => f.player, () => town.profile, () => true)
@@ -884,6 +887,7 @@ describe('Captain Siege command ownership caller', () => {
     expect(south.tacticalOrder).toBe('formation')
     const town = Object.assign(Object.create(TownScene.prototype), {
       profile: f.profile(), player: f.player, commandActors: [guard, ranged], defense: f.controller,
+      commit(next: ReturnType<typeof f.profile>) { Object.assign(this, { profile: next }); return f.commit(next) },
     }) as { issuePartyOrder: (order: 'follow', target: 'squad:1') => boolean }
     f.player.group.position.copy(ranged.combatPosition).z += 25
     const start = ranged.combatPosition.clone()
@@ -985,4 +989,37 @@ it('counts a borrowed North cavalry real siege hit once, excludes South and rele
   expect(dispose).toHaveBeenCalledOnce()
   expect(releases[0].mock.invocationCallOrder[0]).toBeLessThan(dispose.mock.invocationCallOrder[0])
   releasePrevious()
+})
+
+
+describe('Commander multi-gate siege runtime ownership', () => {
+  it('keeps untouched gates with AI, preserves a claimed formation, then returns only that squad without moving or healing it', () => {
+    // Four real attackers, one per production gate, with four mounts and the existing cat.
+    // Official census remains data-only; the other 115 attacker IDs are saved casualties.
+    const h = siegeFixture({ commander: true, residentIds: [], attackerSlots: [2, 30, 60, 90], includeRanger: false })
+    const actors = h.controller.enemies
+    expect(actors.map(npc => npc.squadId)).toEqual([1, 2, 3, 4])
+    expect(actors.every(npc => npc.combatOwnership === 'mission-official')).toBe(true)
+    expect(actors.every(npc => npc.missionMovement)).toBe(true)
+    const south = actors[1], north = actors[0]
+    h.profile().activeMission!.officialSquad!.commandedSquadIds = [2]
+    h.controller.releasePlayerCommand(south)
+    south.assignFormationTarget(912, siegePoint('south', 8, -20), new THREE.Vector3(0, 0, -1))
+    h.controller.updateFlow(10, 0)
+    h.controller.updateFlow(.1, 0)
+    expect(south.formationCommandId).toBe(912)
+    expect(south.tacticalOrder).toBe('formation')
+    expect(south.missionMovement).toBe(false)
+    expect(north.missionMovement).toBe(true)
+    const position = south.combatPosition.clone(), hp = south.hp
+    h.profile().activeMission!.officialSquad!.commandedSquadIds = []
+    h.controller.returnPlayerCommand(south)
+    expect(south.combatPosition).toEqual(position)
+    expect(south.hp).toBe(hp)
+    expect(south.missionMovement).toBe(true)
+    expect(south.formationCommandId).not.toBe(912)
+    expect(actors).toHaveLength(4)
+    h.controller.persistRuntimeProgress(true)
+    expect(h.profile().activeMission!.officialSquad!.commandedSquadIds).toEqual([])
+  })
 })

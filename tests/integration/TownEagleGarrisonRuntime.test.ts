@@ -7,7 +7,7 @@ import { NPC, AIType, Faction } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
 import { Player } from '../../src/player/Player'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
-import { TownEagleGarrisonController } from '../../src/town/TownEagleGarrisonController'
+import { TownEagleGarrisonController, stageTownEaglePlayerCommand } from '../../src/town/TownEagleGarrisonController'
 import { townEagleRoster } from '../../src/town/TownEagleGarrison'
 import { townMilitaryEquipment } from '../../src/town/TownRules'
 import { cloneCareerProfile, createCareerProfile } from '../../src/career/CareerProfile'
@@ -31,16 +31,16 @@ function fixture(landingQueue?: EagleLandingQueue) {
   onTestFinished(() => { npc.dispose(); mount.dispose(); player.dispose() })
   const runtime = new TownEagleGarrisonController([{ spec, npc, homeMount: mount }], landingQueue), navigation = new NavigationWorld()
   navigation.sync([])
-  const targets: NPC[] = [], shots: THREE.Vector3[] = []
+  const targets: NPC[] = [], shots: THREE.Vector3[] = [], contacts: NPC[] = []
   const step = (combat: boolean) => {
     navigation.beginFrame(); runtime.beginFrame(1 / 60)
     landingQueue?.beginFrame(1 / 60)
     const handled = runtime.update(npc, 1 / 60, combat, new THREE.Vector3(0, 20, 0), [], navigation, [], [mount])
-    if (!handled) npc.update(1 / 60, player, [npc, ...targets], [], [], { setFill() {} }, () => {}, origin => { shots.push(origin.clone()) }, false, 30, null, null, navigation)
+    if (!handled) npc.update(1 / 60, player, [npc, ...targets], [], [], { setFill() {} }, (_damage, _isPlayer, target) => { if (target) contacts.push(target) }, origin => { shots.push(origin.clone()) }, false, 30, null, null, navigation)
     if (mount.dead || !mount.riderNpc) mount.update(1 / 60, [])
   }
   const report = () => JSON.stringify({ duty: runtime.dutyFor(npc), rider: npc.group.position, mount: mount.group.position, flight: mount.flight!.snapshot() })
-  return { runtime, npc, mount, spec, step, report, scene, targets, shots }
+  return { runtime, npc, mount, spec, step, report, scene, targets, shots, contacts, player }
 }
 
 describe('Town eagle physical duty caller', () => {
@@ -215,4 +215,95 @@ it('autonomously walks, takes off, finishes a bounded circuit, lands and refits 
   expect(npc.hp).toBe(npc.maxHp); expect(npc.combatAmmo).toBe(30); expect(mount.currentHp).toBe(mount.maxHp)
   for (let frame = 0; frame < 60; frame++) step(false)
   expect(runtime.dutyFor(npc)).toBe('resting')
+})
+
+
+it.each(['patrol', 'return', 'hold'] as const)('an airborne player formation replaces a stale %s order and keeps flying toward its own destination', nativeOrder => {
+  // One real rider/eagle protects pilot movement, not only the command setter call.
+  const { runtime, npc, mount, step, spec } = fixture()
+  runtime.setAmbientPatrolAllowed(true)
+  advanceUntil(() => mount.isAirborne && mount.group.position.y >= 19, () => step(false), {
+    maxSimulationSeconds: 35, failureMessage: 'Native takeoff before command handoff',
+  })
+  const destination = mount.group.position.clone().add(new THREE.Vector3(95, 0, 0))
+  const oldDestination = mount.group.position.clone().add(new THREE.Vector3(-150, 0, 0))
+  npc.setEagleFlightOrder(nativeOrder === 'hold' ? { kind: 'hold' }
+    : nativeOrder === 'return' ? { kind: 'return', target: oldDestination.setY(0), landingYaw: 0 }
+    : { kind: 'patrol', target: oldDestination })
+  const source = runtime.snapshot('town:roman')
+  const staged = stageTownEaglePlayerCommand(source, [spec.id], true)
+  expect(source.pairs[0].commandReturn).toBeUndefined()
+  expect(staged.pairs[0].hp).toBe(npc.hp)
+  expect(runtime.claimPlayerCommand(npc)).toBe(true)
+  npc.assignFormationTarget(91, destination, new THREE.Vector3(0, 0, 1))
+  const checkpoint = npc.combatFormationCheckpoint
+  advanceUntil(() => Math.hypot(mount.group.position.x - destination.x, mount.group.position.z - destination.z) < 30,
+    () => step(false), { maxSimulationSeconds: 45, failureMessage: `Player formation after ${nativeOrder}` })
+  expect(runtime.isPlayerCommandOwned(npc)).toBe(true)
+  expect(mount.isAirborne).toBe(true); expect(mount.group.position.y).toBeGreaterThan(10)
+  expect(npc.combatFormationCheckpoint?.commandId).toBe(checkpoint?.commandId)
+  expect(npc.combatFormationCheckpoint?.reached).toBe(true)
+  expect(npc.tacticalOrder).toBe('formation')
+})
+
+it('boards the existing grounded eagle for Follow, preserves its leader, and dismisses through return/refit back to autonomous patrol', () => {
+  const queue = new EagleLandingQueue()
+  const { runtime, npc, mount, player, spec, step, report } = fixture(queue)
+  runtime.setAmbientPatrolAllowed(true)
+  npc.restoreCombatHealth(npc.maxHp - 10); npc.restoreCombatAmmo(7); mount.currentHp -= 20
+  player.group.position.set(95, 0, 0)
+  const start = npc.group.position.clone()
+  expect(runtime.claimPlayerCommand(npc)).toBe(true)
+  npc.assignFollowTarget(player, 0)
+  step(false)
+  expect(npc.mount).toBeNull()
+  expect(npc.group.position.distanceTo(start)).toBeGreaterThan(0)
+  expect(npc.group.position.distanceTo(start)).toBeLessThan(1)
+  expect(npc.tacticalOrder).toBe('follow')
+  advanceUntil(() => mount.isAirborne && mount.group.position.x > 45, () => step(false), {
+    maxSimulationSeconds: 45, failureMessage: 'Claimed rider physically boards and follows east',
+  })
+  expect(npc.mount).toBe(mount); expect(npc.tacticalOrder).toBe('follow')
+  player.group.position.set(-95, 0, 0)
+  advanceUntil(() => mount.group.position.x < -45, () => step(false), {
+    maxSimulationSeconds: 60, failureMessage: 'Preserved follow leader moves west after boarding',
+  })
+  expect(npc.hp).toBe(npc.maxHp - 10); expect(npc.combatAmmo).toBe(7); expect(mount.currentHp).toBe(mount.maxHp - 20)
+  expect(queue.request('personal:other-eagle')).toBe(true)
+  const before = mount.group.position.clone()
+  expect(runtime.releasePlayerCommand(npc)).toBe(true)
+  step(false)
+  expect(runtime.dutyFor(npc)).toBe('return-queue')
+  expect(mount.group.position.distanceTo(before)).toBeLessThan(1)
+  queue.release('personal:other-eagle')
+  advanceUntil(() => runtime.dutyFor(npc) === 'resting', () => step(false), {
+    maxSimulationSeconds: 180, failureMessage: `Dismiss return/refit ${report()}`,
+  })
+  expect(npc.mount).toBeNull(); expect(mount.isAirborne).toBe(false)
+  expect(npc.hp).toBe(npc.maxHp); expect(npc.combatAmmo).toBe(30); expect(mount.currentHp).toBe(mount.maxHp)
+  expect(Math.hypot(npc.group.position.x - spec.x, npc.group.position.z - spec.z)).toBeLessThan(1)
+  expect(runtime.snapshot('town:roman').pairs[0].commandReturn).toBeUndefined()
+  advanceUntil(() => runtime.dutyFor(npc) === 'patrolling' && mount.isAirborne, () => step(false), {
+    maxSimulationSeconds: 40, failureMessage: 'Same pair resumes autonomous patrol after dismissal rest',
+  })
+  expect(npc.mount).toBe(mount); expect(runtime.isPlayerCommandOwned(npc)).toBe(false)
+})
+
+it.each(['attack', 'charge', 'defend'] as const)('keeps a saved player %s order through native duty updates on the real airborne pair', order => {
+  const { runtime, npc, mount, step, scene, targets, shots, contacts } = fixture()
+  const target = new NPC(scene, 0, 80, Faction.ENEMY, 'roman', AIType.MELEE, 'Command target', 1, false)
+  onTestFinished(() => target.dispose()); targets.push(target)
+  runtime.setAmbientPatrolAllowed(true)
+  advanceUntil(() => mount.isAirborne && mount.group.position.y >= 19, () => step(false), {
+    maxSimulationSeconds: 35, failureMessage: 'Native takeoff before tactical command',
+  })
+  expect(runtime.claimPlayerCommand(npc)).toBe(true)
+  npc.setTacticalOrder(order)
+  const initial = mount.group.position.clone()
+  advanceUntil(() => order === 'charge' ? contacts.length > 0 : shots.length > 0, () => step(true), {
+    maxSimulationSeconds: 90, failureMessage: `Airborne ${order} hits or fires at legal target`,
+  })
+  expect(mount.group.position.distanceTo(initial)).toBeGreaterThan(1)
+  expect(mount.isAirborne).toBe(true); expect(npc.tacticalOrder).toBe(order)
+  expect(runtime.isPlayerCommandOwned(npc)).toBe(true)
 })

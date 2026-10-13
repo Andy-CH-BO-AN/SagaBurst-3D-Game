@@ -67,6 +67,7 @@ interface TownCombatScene {
   ownsPeacefulTravel?(npc: NPC): boolean
   preparePeaceResidents?(excluded: ReadonlySet<NPC>): void
   peaceResident(resident: TownCombatResident, dt: number): void
+  playerOwnsEagleCommand?(npc: NPC): boolean
   updateEagleDuty?(npc: NPC, dt: number, combat: boolean): boolean
   updateCommandCue(): void
   clearCombatShots(): void
@@ -117,6 +118,12 @@ export class TownMissionCombat {
     this.grid.clear()
     for (const npc of new Set([...this.town.residents.map(r => r.npc), ...actors])) if (!npc.dead) this.grid.insert(npc)
     for (const npc of actors) {
+      if (!npc.dead && this.town.playerOwnsEagleCommand?.(npc)) {
+        if (this.town.updateEagleDuty?.(npc, dt, false)) continue
+        npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
+          this.grid.getNearbyInto(npc.combatPosition, 60, this.neighbors), this.actorObstacles(npc), this.town.navigation)
+        continue
+      }
       if (npc.dead || npc.missionMovement || npc.formationCommandId === null
         || npc.tacticalOrder !== 'formation' && npc.tacticalOrder !== 'follow') continue
       npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
@@ -528,6 +535,7 @@ export class TownMissionCombat {
 
   private updateEagleCombatDuty(actor: NPC, dt: number): boolean {
     if (this.town.updateEagleDuty?.(actor, dt, true)) return true
+    if (this.town.playerOwnsEagleCommand?.(actor)) return false
     const target = this.eagleThreatTargets.get(actor)
     if (target && this.externalThreatActors.has(actor)) actor.setMissionCombatTarget(target)
     return false
@@ -656,6 +664,10 @@ export class TownMissionCombat {
     const missionFriendlies = new Set([...field.friendlies, ...this.missions.duel.fieldNpcs, ...(this.missions.defense.active ? this.missions.defense.fieldNpcs : [])])
     for (const resident of this.town.residents) {
       const { npc, spec } = resident
+      if (spec.eagle && this.town.playerOwnsEagleCommand?.(npc)) {
+        this.externalThreatActors.delete(npc); this.eagleThreatTargets.delete(npc)
+        continue
+      }
       if (spec.eagle && this.missions.duel.active) {
         this.eagleThreatTargets.delete(npc)
         if (this.externalThreatActors.delete(npc) && !npc.dead && !this.missions.duel.isMissionActor(npc)) npc.endExternalThreat()
@@ -762,19 +774,20 @@ export class TownMissionCombat {
 
   private updateDefense(dt: number, cameraYaw: number, elapsed: number): void {
     const { defense } = this.missions
+    const commandActors = new Set(this.town.commandActors?.() ?? [])
     defense.updateFlow(dt, cameraYaw)
     this.town.updateCommandCue()
     const outskirts = this.prepareOutskirtsFrame(dt)
     const warfareActive = Boolean(outskirts?.actors.length || this.town.airPatrol?.()?.actors.length || defense.active)
     if (warfareActive) this.updateExternalThreatAssignments({ roamingOnly: true })
-    this.town.preparePeaceResidents?.(new Set([...defense.fieldNpcs, ...this.externalThreatActors]))
+    this.town.preparePeaceResidents?.(new Set([...defense.fieldNpcs, ...this.externalThreatActors, ...commandActors]))
     const patrol = this.town.patrol?.()
     this.preparePatrolCombatFrame(dt, outskirts)
     const patrolActors = new Set(patrol?.combatActors ?? [])
     const actors = warfareActive ? [...new Set([
-      ...defense.fieldNpcs, ...this.missions.field.ambientBandits,
+      ...defense.fieldNpcs, ...commandActors, ...this.missions.field.ambientBandits,
       ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []), ...this.externalThreatActors, ...patrolActors,
-    ])] : [...new Set([...defense.fieldNpcs, ...patrolActors])]
+    ])] : [...new Set([...defense.fieldNpcs, ...commandActors, ...patrolActors])]
     const missionActors = new Set(actors)
     for (const resident of this.town.residents) if (!missionActors.has(resident.npc)) this.town.peaceResident(resident, dt)
     this.grid.clear(); this.defenseEnemyGrid.clear(); this.defenseTownGrid.clear()
@@ -785,6 +798,11 @@ export class TownMissionCombat {
       else this.defenseTownGrid.insert(actor)
     }
     for (const actor of actors) {
+      if (this.town.ownsPeacefulTravel?.(actor) && (actor.townCategory === 'civilian' || !defense.fieldNpcs.includes(actor))) {
+        const resident = this.town.residents.find(resident => resident.npc === actor)
+        if (resident) { this.town.peaceResident(resident, dt); continue }
+      }
+      if (commandActors.has(actor)) { this.updateRuntimeActor(actor, dt); continue }
       if (this.town.personalSquad?.()?.owns(actor)) { this.updatePersonalActor(actor, dt); continue }
       if (patrolActors.has(actor)) {
         this.updateRuntimeActor(actor, dt)

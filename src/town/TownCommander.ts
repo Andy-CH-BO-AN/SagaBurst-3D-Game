@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { CareerProfile } from '../career/CareerProfile'
+import { officialActorSquadId } from '../career/CareerCommandAuthority'
 import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { CharacterFaction } from '../world/CharacterVisuals'
@@ -8,11 +9,17 @@ import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { TOWN_CITY, townRoadIntersectsBox, type TownRoad } from './TownLayout'
 import { townPatrolRefitPoint, townSitePoint, type TownActorSpec } from './TownRules'
 
-/** Shared by roster construction and asset preload; formal battle populations stay unchanged. */
-export function shouldSpawnTownCommander(profile: Pick<CareerProfile, 'faction' | 'activeMission'>): boolean {
-  return profile.activeMission?.kind !== 'town-defense'
-    && profile.activeMission?.kind !== 'enemy-town-assault'
-    && !isCareerEnemyTerritoryFieldMission(profile.activeMission)
+/** Shared by roster construction, asset preload and Defense's actual actor consumer.
+ * A current rank alone never upgrades an accepted/legacy defense population.
+ */
+export function shouldSpawnTownCommander(profile: Pick<CareerProfile, 'rank' | 'faction' | 'activeMission'>): boolean {
+  const mission = profile.activeMission, authority = mission?.officialSquad
+  if (mission?.kind === 'town-defense') return profile.rank === 'commander'
+    && authority?.type === 'mission-official' && authority.commandRank === 'commander'
+    && authority.missionId === mission.id && authority.townFaction === profile.faction
+    && mission.friendlyActorIds.includes(TOWN_COMMANDER_ID)
+    && officialActorSquadId(authority, TOWN_COMMANDER_ID) === 2
+  return mission?.kind !== 'enemy-town-assault' && !isCareerEnemyTerritoryFieldMission(mission)
 }
 
 export const TOWN_COMMANDER_ID = 'commander'
@@ -20,7 +27,7 @@ export function townCommanderHeroAsset(faction: CharacterFaction): HeroAssetId {
   return faction === 'roman' ? 'roman-hero-t5' : 'viking-hero-t5'
 }
 
-/** Opt-in service resident: never added to shared enemy/defense or borrow rosters. */
+/** Opt-in service resident: shared enemy and borrow producers never include it. */
 export function townCommanderSpec(point: { x: number; z: number; yaw: number }): TownActorSpec {
   return { id: TOWN_COMMANDER_ID, role: 'commander', duty: 'service', mounted: true,
     training: false, assaultObjective: false, tier: 4, index: 0, ...point }

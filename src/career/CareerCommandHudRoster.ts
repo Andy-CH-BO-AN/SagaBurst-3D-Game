@@ -1,10 +1,12 @@
 import type { ArmyHudMember, ArmyHudMemberState, ArmyHudRoster } from '../battle/ArmyCommandHudRoster'
-import type { OfficialCommandAuthority } from './CareerCommandAuthority'
-import type { PersonalSquadMission } from './CareerPersonalSquadMission'
+import type { TacticalOrder } from '../battle/TacticalOrder'
+import { officialCommandSquads, type OfficialCommandAuthority } from './CareerCommandAuthority'
+import type { PersonalActorCheckpoint, PersonalSquadMission } from './CareerPersonalSquadMission'
 
 interface HudActor {
   combatantId: string
   dead: boolean
+  tacticalOrder?: TacticalOrder
 }
 
 export interface CareerCommandHudSource {
@@ -23,43 +25,88 @@ export interface CareerCommandHudSource {
   personalPendingIds?: readonly string[]
   /** Living private actors currently following their runtime-owned return destinations. */
   personalReturningIds?: readonly string[]
+  /** Independently accepted residents, never part of the official or HR capacity. */
+  civilians?: {
+    actorIds: readonly string[]
+    members?: Record<string, PersonalActorCheckpoint>
+    sceneKey: string
+    townFaction: 'roman' | 'viking'
+    missionId?: string
+  }
+  civilianReturningIds?: readonly string[]
+  /** Peaceful own-town Commander air selection; formal air remains official Squad 8. */
+  townAirActorIds?: readonly string[]
   actors: readonly HudActor[]
 }
 
-/** Only the current authority and accepted HR snapshot can contribute to a Career command HUD. */
+/** Only the current authority and accepted HR/resident snapshots contribute to a Career HUD. */
 export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudRoster {
-  const { official, personal } = source
+  const official = source.official?.townFaction === source.faction
+    && (source.official.type !== 'mission-official' || Boolean(source.missionId && source.official.missionId === source.missionId))
+    ? source.official : undefined
+  const personal = source.personal
+  const civilians = source.civilians?.townFaction === source.faction
+    && source.civilians.sceneKey === source.sceneKey && source.civilians.missionId === source.missionId
+    ? source.civilians : undefined
   const live = new Map(source.actors.map(actor => [actor.combatantId, actor]))
   const pendingPersonal = new Set(source.personalPendingIds ?? [])
   const returningPersonal = new Set(source.personalReturningIds ?? [])
   const returningOfficial = new Set(source.officialReturningIds ?? [])
+  const returningCivilians = new Set(source.civilianReturningIds ?? [])
   const trainingOfficial = new Set(official?.type === 'town-command' ? source.officialTrainingIds ?? [] : [])
+  const personalIds = new Set(personal?.memberIds ?? [])
+  const civilianIds = new Set(civilians?.actorIds ?? [])
   const members: ArmyHudMember[] = []
+  const seen = new Set<string>()
+  const squads = official ? officialCommandSquads(official) : []
 
-  for (const id of new Set(official?.actorIds ?? [])) {
+  for (const squad of squads) for (const id of squad.actorIds) {
+    if (seen.has(id) || personalIds.has(id) || civilianIds.has(id)) continue
+    seen.add(id)
     const actor = live.get(id)
     const saved = official?.members?.[id]
-    const state: ArmyHudMemberState = actor ? actor.dead ? 'dead' : returningOfficial.has(id) ? 'returning' : trainingOfficial.has(id) ? 'training' : 'deployed'
-      : saved?.status === 'dead' || saved?.hp === 0 ? 'dead'
-      : saved?.status === 'exited' ? 'exited'
+    const state: ArmyHudMemberState = saved?.status === 'exited' ? 'exited'
+      : saved?.status === 'dead' || saved?.hp === 0 || actor?.dead ? 'dead'
+      : actor ? returningOfficial.has(id) ? 'returning' : trainingOfficial.has(id) ? 'training' : 'deployed'
       : source.officialPending ? 'pending' : 'missing'
-    members.push({ id, squadId: 1, state })
+    members.push({ id, squadId: squad.squadId, state, order: actor ? actor.tacticalOrder : saved?.order })
   }
 
-  for (const id of new Set(personal?.memberIds ?? [])) {
+  for (const id of personalIds) {
+    if (seen.has(id) || civilianIds.has(id)) continue
+    seen.add(id)
     const actor = live.get(id)
     const saved = personal?.members[id]
     const state: ArmyHudMemberState = saved?.status === 'exited' ? 'exited'
-      : actor ? actor.dead ? 'dead' : returningPersonal.has(id) ? 'returning' : 'deployed'
-      : saved?.status === 'dead' || saved?.hp === 0 ? 'dead'
+      : saved?.status === 'dead' || saved?.hp === 0 || actor?.dead ? 'dead'
+      : actor ? returningPersonal.has(id) ? 'returning' : 'deployed'
       : pendingPersonal.has(id) ? 'pending'
       : saved?.status === 'reserve' || !saved ? 'reserve' : 'missing'
-    members.push({ id, squadId: 'personal', state })
+    members.push({ id, squadId: 'personal', state, order: actor ? actor.tacticalOrder : saved?.order })
   }
 
-  // Include identities, not just counts: two 29-person missions are not the same command context.
+  for (const id of civilianIds) {
+    if (seen.has(id)) continue
+    seen.add(id)
+    const actor = live.get(id)
+    const saved = civilians?.members?.[id]
+    const state: ArmyHudMemberState = saved?.status === 'exited' ? 'exited'
+      : saved?.status === 'dead' || saved?.hp === 0 || actor?.dead ? 'dead'
+      : actor ? returningCivilians.has(id) ? 'returning' : 'deployed' : 'missing'
+    members.push({ id, squadId: 'civilians', state, order: actor ? actor.tacticalOrder : saved?.order })
+  }
+
+  if (!source.missionId) for (const id of source.townAirActorIds ?? []) {
+    if (seen.has(id)) continue
+    const actor = live.get(id)
+    if (!actor) continue
+    seen.add(id)
+    members.push({ id, squadId: 8, state: actor.dead ? 'dead' : 'deployed', order: actor.tacticalOrder })
+  }
+
+  // Include identities and saved assignments: equal headcounts do not imply the same authority.
   const contextId = JSON.stringify([source.sceneKey, source.faction, source.missionId ?? null,
-    official?.type ?? null, official?.missionId ?? null, official?.actorIds ?? [],
-    personal?.memberIds ?? []])
+    official?.type ?? null, official?.missionId ?? null, squads.map(squad => [squad.squadId, squad.actorIds]),
+    personal?.memberIds ?? [], civilians?.actorIds ?? [], source.townAirActorIds ?? []])
   return { contextId, members }
 }

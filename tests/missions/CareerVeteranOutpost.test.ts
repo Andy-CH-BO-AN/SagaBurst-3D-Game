@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { getCampaignOutpostPlacement, getCampaignDefenderFacingYaw } from '../../src/campaign/CampaignOutpost'
+import { buildCommanderAuthorityForMission } from '../../src/career/CommanderMissionAcceptance'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { MemoryStorage } from '../helpers/memoryStorage'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { acceptVeteranMission } from '../../src/career/VeteranMission'
 import { createCareerVeteranOutpostLaunch, createCareerVeteranOutpostSpawnPlan } from '../../src/career/CareerVeteranOutpost'
@@ -109,5 +112,36 @@ describe('Career Veteran Campaign outposts', () => {
     expect(restored.careerVeteranOutpost?.runtimeState).toMatchObject({
       assaultElapsedSeconds: 37.5, assaultChargeTriggered: true, gateHealth: 0, gateState: 'destroyed',
     })
+  })
+})
+
+
+describe('Commander Veteran Outpost accepted identities', () => {
+  it.each([
+    ['veteran-dread-outpost', 149, [24, 25, 25, 25, 25, 25]],
+    ['veteran-outpost-assault', 99, [24, 25, 25, 25]],
+  ] as const)('authorizes %s own-faction production IDs including only its actual reinforcements', (templateId, count, squadSizes) => {
+    const profile = acceptVeteranMission({ ...veteran('viking'), rank: 'commander', totalMerit: 20000,
+      ownedMounts: ['horse'], completedCareerMissionTemplateIds: ['veteran-dread-outpost', 'veteran-scout-hunters', 'veteran-village-intercept'] },
+      templateId, { missionId: 'veteran-official', acceptedAt: 1 })!
+    const mission = profile.activeMission!
+    mission.officialSquad = buildCommanderAuthorityForMission(profile, mission)!
+    const launch = createCareerVeteranOutpostLaunch(profile)
+    expect(launch.capabilities?.playerCommandsEnabled).toBe(true)
+    const specs = [...createCareerVeteranOutpostSpawnPlan(launch, 'initial').npcSpecs,
+      ...createCareerVeteranOutpostSpawnPlan(launch, 'reinforcement').npcSpecs]
+    const friendly = specs.filter(spec => spec.characterFaction === 'viking')
+    expect(friendly).toHaveLength(count)
+    expect(mission.officialSquad.actorIds).toHaveLength(count)
+    expect([...mission.officialSquad.actorIds].sort()).toEqual(friendly.map(spec => spec.actorId!).sort())
+    expect(mission.officialSquad.squads!.map(squad => squad.actorIds.length)).toEqual(squadSizes)
+    expect(mission.officialSquad.commandedSquadIds).toEqual([])
+    expect(mission.officialSquad.actorIds.some(id => mission.targetActorIds.includes(id))).toBe(false)
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const restored = store.load()!
+    expect(restored.activeMission!.officialSquad).toEqual(mission.officialSquad)
+    expect(createCareerVeteranOutpostSpawnPlan(createCareerVeteranOutpostLaunch(restored), 'initial').npcSpecs.map(spec => spec.actorId))
+      .toEqual(createCareerVeteranOutpostSpawnPlan(launch, 'initial').npcSpecs.map(spec => spec.actorId))
   })
 })

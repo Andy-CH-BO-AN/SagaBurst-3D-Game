@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { createCareerProfile, cloneCareerProfile, claimCareerMission } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { stageOfficialCommandOrder } from '../../src/career/CareerOfficialCommandOrder'
 import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
 import { CaptainPatrolCommandController, resolveCaptainPatrolCommandOutcome } from '../../src/career/CaptainPatrolCommandController'
 import { TownCommandSquadController, TOWN_COMMAND_RETURN_ID } from '../../src/town/TownCommandSquadController'
@@ -31,13 +32,14 @@ function resident(spec: TownActorSpec) {
   homeMount?.group.position.copy(group.position)
   let formation: NPC['combatFormationCheckpoint']
   const actor = { group, combatPosition: group.position, combatantId: spec.id, name: spec.id,
-    dead: false, hp: 73, maxHp: 100, combatAmmoCapacity: 30, inCombat: false, faction: Faction.TOWN, squadId: undefined as NPC['squadId'], combatOwnership: undefined as NPC['combatOwnership'],
+    characterFaction: 'roman' as const, dead: false, hp: 73, maxHp: 100, combatAmmoCapacity: 30, inCombat: false, faction: Faction.TOWN, squadId: undefined as NPC['squadId'], combatOwnership: undefined as NPC['combatOwnership'],
     mount: homeMount ?? null, isMounted: Boolean(homeMount), isFalling: false, combatAmmo: 12,
     activeFollowTarget: null as NPC | Player | null, activeFollowSlotIndex: -1, presetId: townMilitaryEquipment('roman', spec).presetId,
     tacticalOrder: 'attack' as NPC['tacticalOrder'], formationCommandId: null as number | null,
     shield: { shieldImpactRemaining: 1, shieldImpactMax: 8 }, respawnEnabled: false,
     setCommandAllegiance: vi.fn((faction: Faction) => { actor.faction = faction }),
     setCommandSquad: vi.fn((squad: NPC['squadId']) => { actor.squadId = squad }),
+    setMissionCombatTarget: vi.fn(),
     setTownPeaceful: vi.fn(), clearEncounter: vi.fn(), assignFollowTarget: vi.fn((target: NPC | Player, slot: number) => { actor.activeFollowTarget = target; actor.activeFollowSlotIndex = slot; actor.tacticalOrder = 'follow'; actor.formationCommandId = null; formation = undefined }),
     setTacticalOrder: vi.fn((order: NPC['tacticalOrder']) => { actor.tacticalOrder = order; actor.formationCommandId = null; formation = undefined }),
     assignFormationTarget: vi.fn((id: number, point: THREE.Vector3) => { actor.formationCommandId = id; actor.tacticalOrder = 'formation'; formation = { commandId: id, position: { x: point.x, z: point.z, yaw: 0 }, reached: false } }),
@@ -356,7 +358,7 @@ describe('Captain Patrol actual combat objective and handover', () => {
     const town = Object.assign(townProfileCheckpoint(profile, store), {
       player: p, residents, commandActors: residents.map(r => r.npc),
       playMissionVoice: vi.fn(), dispose: vi.fn(), onHome: vi.fn(),
-      mission: { ambientBandits: [], fieldNpcs: [], persistRuntimeProgress: vi.fn() },
+      mission: { ambientBandits: [], fieldNpcs: [], persistRuntimeProgress: vi.fn(), snapshotCommandActor: () => undefined },
     // The prototype supplies private caller methods; this seam declares only those exercised here.
     }) as unknown as ReturnType<typeof townProfileCheckpoint> & {
       captainPatrol: CaptainPatrolCommandController
@@ -652,5 +654,42 @@ describe('Captain Patrol actual combat objective and handover', () => {
     expect(reload.statsSnapshot?.squads.find(squad => squad.squadId === 1)?.damageTaken).toBe(40)
     expect(reload.statsSnapshot?.squads.find(squad => squad.squadId === 'personal')?.damageTaken).toBe(11)
     reload.dispose()
+  })
+})
+
+
+describe('Patrol dismissal storage handover', () => {
+  it('returns the accepted patrol without moving it and never reborrows exited soldiers after a real save/load', () => {
+    // Twenty identity-required recording residents, zero real NPCs/Mounts/Worlds.
+    const residents = townRoster().filter(spec => spec.patrolId === 'A').map(resident)
+    const patrol = new TownCavalryPatrolController(residents), p = player(), store = new CareerProfileStore(new MemoryStorage())
+    let profile = createCareerProfile('roman'); profile.rank = 'commander'; profile.totalMerit = 20000
+    profile.activeMission = createCaptainPatrolCommandMission(profile, patrol.selectAvailableSquad()!.actorIds, 'dismissed')
+    const commit = (next: typeof profile) => { if (!store.save(next)) return false; profile = next; return true }
+    const runtime = new CaptainPatrolCommandController(residents, patrol, () => p, () => profile, commit)
+    onTestFinished(() => runtime.dispose())
+    profile.activeMission = runtime.captureForMission(profile.activeMission)!
+    expect(commit(profile)).toBe(true)
+    expect(runtime.resume(false)).toBe(true)
+    const positions = residents.map(r => r.npc.combatPosition.clone()), health = residents.map(r => r.npc.hp)
+    const staged = stageOfficialCommandOrder(profile, runtime.actors, 'dismiss')!
+    expect(commit(staged)).toBe(true)
+    for (const npc of runtime.actors) runtime.returnPlayerCommand(npc)
+    expect(runtime.fieldNpcs).toHaveLength(0)
+    expect(residents.every(r => !runtime.accepts(r.npc))).toBe(true)
+    expect(residents.map(r => r.npc.combatPosition)).toEqual(positions)
+    expect(residents.map(r => r.npc.hp)).toEqual(health)
+    expect(runtime.persist(true)).toBe(true)
+    profile = store.load()!
+    expect(Object.values(profile.activeMission!.officialSquad!.members!).every(saved => saved.status === 'exited')).toBe(true)
+    const reloadedPatrol = new TownCavalryPatrolController(residents)
+    const reborrow = vi.spyOn(reloadedPatrol, 'resumeSquad')
+    const reload = new CaptainPatrolCommandController(residents, reloadedPatrol, () => p, () => profile, commit)
+    onTestFinished(() => { reload.dispose(); reborrow.mockRestore() })
+    expect(reload.resume()).toBe(true)
+    reload.update(1)
+    expect(reborrow).not.toHaveBeenCalled()
+    expect(reload.fieldNpcs).toHaveLength(0)
+    expect(reloadedPatrol.returnStateFor(residents[0].spec.id)).toBe('RETURN_TO_BARRACKS')
   })
 })

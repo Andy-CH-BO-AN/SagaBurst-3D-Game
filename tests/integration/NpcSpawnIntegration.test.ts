@@ -25,6 +25,7 @@ import { EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
+import { createCaptainGateDefenseMission } from '../../src/career/CaptainMissionCatalog'
 import { careerTownSceneRoster, resolveCareerTownSceneContext } from '../../src/career/CareerFieldSceneContext'
 import { createEmptyArmyConfig } from '../../src/battle/BattleConfig'
 import { BattleSpawner } from '../../src/battle/BattleSpawner'
@@ -155,6 +156,26 @@ function privateTownCaller(profile: CareerProfile, obstacles: ObstacleData[] = [
 }
 
 describe('production spawn callers with recorded constructor boundaries', () => {
+  it.each(['roman', 'viking'] as const)('preloads the authorized %s Defense Commander T5 model once, shared with the player', async faction => {
+    const profile = createCareerProfile(faction); profile.rank = 'commander'; profile.totalMerit = 20000
+    const commander = townCommanderSpec({ x: 20, z: 5, yaw: 0 })
+    profile.activeMission = createCaptainGateDefenseMission(profile, [], [], [commander], 'preload-defense')
+    expect(shouldSpawnTownCommander(profile)).toBe(true)
+    vi.spyOn(PaladinEquipment, 'preloadPaladinEquipment').mockResolvedValue()
+    vi.spyOn(MakiRangerEquipment, 'preloadMakiRangerBow').mockResolvedValue()
+    vi.spyOn(HumanoidAssetRegistry, 'preload').mockResolvedValue()
+    vi.spyOn(HorseAssetRegistry, 'preload').mockResolvedValue()
+    vi.spyOn(BlackCatVisual, 'preload').mockResolvedValue()
+    vi.spyOn(CorgiVisual, 'preload').mockResolvedValue()
+    vi.spyOn(XongkoroVisual, 'preload').mockResolvedValue()
+    const stop = new Error('Stop before geometry materialization')
+    const preload = vi.spyOn(HumanoidAssetRegistry, 'preloadAsset').mockImplementation(descriptor =>
+      descriptor.assetId === `${faction}-hero-t5` ? Promise.reject(stop) : Promise.resolve())
+    await expect(TownScene.create({} as HTMLElement, profile, () => {}, () => {}, () => {})).rejects.toBe(stop)
+    expect(preload.mock.calls.filter(([descriptor]) => descriptor.assetId === `${faction}-hero-t5`)).toHaveLength(1)
+    expect(recording.npcs).toHaveLength(0); expect(recording.mounts).toHaveLength(0)
+  })
+
   it.each(['roman', 'viking'] as const)('preloads a saved %s personal Commander in a field scene without a Town Commander or player hero', async faction => {
     const profile: CareerProfile = { ...createCareerProfile(faction), rank: 'veteran',
       personalSquad: { members: [{ id: 'personal:field-commander', type: 'commander', originalHirePrice: 2000 }] },

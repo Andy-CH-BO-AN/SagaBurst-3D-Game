@@ -61,6 +61,7 @@ export class RecordingNpc {
   readonly endExternalThreat = vi.fn()
   readonly restoreCombatLoadout = vi.fn()
   readonly restoreForTown = vi.fn(() => { this.dead = false; this.hp = this.maxHp; this.restoreCombatLoadout() })
+  readonly setCommandSquad = vi.fn((squadId: NPC['squadId']) => { this.squadId = squadId })
   readonly applyTemporaryCombatLoadout = vi.fn((loadout: ConstructorParameters<typeof NPC>[9], tier?: number, squadId?: number, presetId?: string) => {
     this.loadout = loadout; if (tier !== undefined) this.tier = tier; if (squadId !== undefined) this.squadId = squadId; if (presetId !== undefined) this.presetId = presetId
   })

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile, CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { acceptCareerOutpost, claimCareerOutpost, clearCareerOutpost, isCareerOutpostUnlocked, type CareerOutpostStageId } from '../../src/career/CareerOutpostMission'
+import { officialCommandSquads } from '../../src/career/CareerCommandAuthority'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
 import { calculateArmyTotal } from '../../src/battle/BattleConfig'
 import { createDefenseCampaignWaveConfig, defenseCampaignCapabilities, validateDefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
@@ -221,5 +222,49 @@ describe('Outpost damage merit matches Home Defense', () => {
     const duplicate = claimCareerOutpost(reloaded, 'outpost-battle', 'victory', battleStats)
     expect(duplicate.meritAwarded).toBe(0)
     expect(duplicate.profile.totalMerit).toBe(claim.profile.totalMerit)
+  })
+})
+
+
+describe('Regular Outpost Commander acceptance', () => {
+  it.each([
+    [1, 80, [30, 30, 20, 30, 20]],
+    [2, 85, [30, 30, 25, 30, 20]],
+    [3, 90, [30, 30, 30, 30, 20]],
+  ] as const)('grants stage %i production defenders and pending reinforcements without adding actors', (stageId, defenderCount, squadSizes) => {
+    const current: CareerProfile = { ...soldier(), rank: 'commander', totalMerit: 20000, completedOutpostStages: [1, 2, 3] }
+    const accepted = acceptCareerOutpost(current, stageId, 'official-outpost')!
+    const authority = accepted.activeOutpostMission!.officialSquad!
+    const launch = createCareerOutpostLaunch(accepted)
+    const initial = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'defenders')).npcSpecs
+    const reinforcement = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'reinforcement')).npcSpecs
+    expect(initial).toHaveLength(defenderCount)
+    expect(reinforcement).toHaveLength(50)
+    expect(authority).toMatchObject({ type: 'mission-official', missionId: 'official-outpost',
+      townFaction: 'roman', commandRank: 'commander', commandedSquadIds: [] })
+    expect(officialCommandSquads(authority).map(squad => squad.actorIds.length)).toEqual(squadSizes)
+    const expectedIds = [
+      ...Array.from({ length: defenderCount }, (_, index) => `official-outpost:initial:${index}`),
+      ...Array.from({ length: 50 }, (_, index) => `official-outpost:reinforcement:${index}`),
+    ]
+    expect([...authority.actorIds].sort()).toEqual(expectedIds.sort())
+    expect(new Set(authority.actorIds).size).toBe(defenderCount + 50)
+    for (const squad of officialCommandSquads(authority).slice(0, 3)) {
+      const firstSlot = (squad.squadId - 1) * 30
+      expect(squad.actorIds).toEqual(initial.slice(firstSlot, firstSlot + 30).map((_, index) => `official-outpost:initial:${firstSlot + index}`))
+    }
+    expect(launch.capabilities).toEqual({ reinforcementsEnabled: true, playerCommandsEnabled: true, gateControlEnabled: false, attackerHeroesEnabled: false })
+    expect(current.activeOutpostMission).toBeUndefined()
+  })
+
+  it.each(['soldier', 'veteran', 'captain'] as const)('leaves %s permissions unchanged even at Commander merit and after a later promotion', rank => {
+    const accepted = acceptCareerOutpost({ ...soldier(), rank, totalMerit: 20000 }, 1, 'legacy-outpost')!
+    expect(accepted.activeOutpostMission!.officialSquad).toBeUndefined()
+    expect(createCareerOutpostLaunch(accepted).capabilities?.playerCommandsEnabled).toBe(false)
+    accepted.rank = 'commander'
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(accepted)).toBe(true)
+    expect(store.load()!.activeOutpostMission!.officialSquad).toBeUndefined()
+    expect(createCareerOutpostLaunch(store.load()!).capabilities?.playerCommandsEnabled).toBe(false)
   })
 })

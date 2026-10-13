@@ -17,6 +17,14 @@ import { FormationPreview } from '../ui/FormationPreview'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import { XONGKORO } from '../movement/XongkoroConfig'
 
+/** Exact resolved checkpoint, available to save before the corresponding NPC mutation. */
+export interface FormationCommandAssignment {
+  readonly npc: NPC
+  readonly commandId: number
+  readonly position: Readonly<{ x: number; y: number; z: number; yaw: number }>
+  readonly reached: false
+}
+
 export interface FormationCommandResult {
   accepted: boolean
   count: number
@@ -169,7 +177,9 @@ export class FormationController {
     this.preview.show(formation.center, formation.slots, placement !== null)
   }
 
-  confirmPlacement(): FormationCommandResult {
+  confirmPlacement(beforeAssign?: (
+    participants: readonly NPC[], assignments: readonly FormationCommandAssignment[],
+  ) => boolean): FormationCommandResult {
     if (this.placementTarget === null) return { accepted: false, count: 0, commandId: null, participants: [] }
     this.navigationWorld?.sync(this.obstacles)
     const snapshot = this.resolvePlacementSnapshot(this.placementTarget)
@@ -178,21 +188,41 @@ export class FormationController {
       return { accepted: false, count: 0, commandId: null, participants: [] }
     }
 
-    const commandId = this.nextCommandId++
+    // Reload restores NPC targets independently of this controller. Reserve a fresh
+    // ID above every restored command, including squads outside this selection.
+    let commandId = this.nextCommandId
+    for (const npc of this.npcs) {
+      const restoredId = npc.formationCommandId
+      if (restoredId != null && Number.isSafeInteger(restoredId) && restoredId > 0) {
+        commandId = Math.max(commandId, restoredId + 1)
+      }
+    }
     const rowAxis = formationRowAxis(snapshot.forward)
-    const assignments = assignUnitsToSlots(
+    const assignments: FormationCommandAssignment[] = assignUnitsToSlots(
       snapshot.participants.map(npc => ({ id: npc.name, position: npc.combatPosition, npc })),
       snapshot.slots,
       rowAxis,
       snapshot.center,
       snapshot.forward,
       snapshot.columns,
-    )
-    for (const assignment of assignments) {
+    ).map(assignment => {
       const npc = assignment.unit.npc
-      const slot = assignment.slot.clone()
-      if (npc.mount?.isFlyingMount) slot.y = getTerrainHeight(slot.x, slot.z) + XONGKORO.aiCruiseHeight
-      npc.assignFormationTarget(commandId, slot, snapshot.forward)
+      const slot = assignment.slot
+      return { npc, commandId, reached: false, position: {
+        x: slot.x, z: slot.z,
+        y: npc.mount?.isFlyingMount ? getTerrainHeight(slot.x, slot.z) + XONGKORO.aiCruiseHeight : slot.y,
+        yaw: Math.atan2(snapshot.forward.x, snapshot.forward.z),
+      } }
+    })
+    // Save both authority and these exact slots before mutation. A denied save also
+    // leaves the command ID available for a safe retry of the same placement.
+    if (beforeAssign && !beforeAssign(snapshot.participants, assignments)) {
+      return { accepted: false, count: 0, commandId: null, participants: [] }
+    }
+    this.nextCommandId = commandId + 1
+    for (const assignment of assignments) {
+      const { x, y, z } = assignment.position
+      assignment.npc.assignFormationTarget(commandId, new THREE.Vector3(x, y, z), snapshot.forward)
     }
     this.activeCommands.push({ id: commandId, target: this.placementTarget, participants: snapshot.participants })
     this.cancelPlacement()

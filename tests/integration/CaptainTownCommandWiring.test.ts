@@ -6,7 +6,7 @@ import { createArmyCommandHarness } from '../helpers/armyCommandHarness'
 import type { NPC } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
 import { CAPTAIN_GATE_DEFENSE_ID } from '../../src/career/CaptainMissionCatalog'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { TownScene } from '../../src/town/TownScene'
 import { TownEvent } from '../../src/town/TownRules'
 import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -15,6 +15,10 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { TownCommandSquadState } from '../../src/career/CareerCommandAuthority'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { townCommanderSpec, shouldSpawnTownCommander } from '../../src/town/TownCommander'
+import { RecordingNpc, RecordingMount, resetSpawnRecording } from '../helpers/npcSpawnRecording'
+import { AIType, Faction } from '../../src/world/NPC'
+import { MountType, type Mount } from '../../src/world/Mount'
 
 /** Real TownScene transaction caller + real serialized Store. 0 actors, world, renderer or assets. */
 function fixture() {
@@ -144,6 +148,47 @@ function defenseAcceptanceFixture(fullCommandRoster = false) {
 }
 
 describe('new defense acceptance refit and reload', () => {
+  it.each(['generic', 'captain', 'dead-commander'] as const)('%s accepts only the existing live T5 after saving its actual resources, without refilling or changing failed-save state', kind => {
+    const f = defenseAcceptanceFixture()
+    f.town.profile.rank = 'commander'
+    const spec = townCommanderSpec({ x: 20, z: 5, yaw: 0 }), scene = new THREE.Scene()
+    const npc = new RecordingNpc(scene, spec.x, spec.z, Faction.TOWN, 'roman', AIType.MELEE, 'Commander', 4, true, {}, undefined, undefined, 'commander')
+    const mount = new RecordingMount(scene, MountType.CORGI, spec.x, spec.z)
+    npc.mountVehicle(mount); npc.hp = 73; npc.combatAmmo = 7; npc.shield.shieldImpactRemaining = 12; mount.currentHp = 61
+    Object.assign(npc.shield, { reset: vi.fn() })
+    if (kind === 'dead-commander') { npc.dead = true; npc.hp = 0 }
+    f.town.residents.push({ spec, npc: npc as unknown as NPC, homeMount: mount as unknown as Mount } as typeof f.town.residents[number])
+    onTestFinished(() => { npc.dispose(); mount.dispose(); resetSpawnRecording() })
+    expect(f.store.save(f.town.profile)).toBe(true)
+    const accept = () => kind === 'generic' ? f.town.acceptMission('veteran-town-defense-01') : f.town.acceptCaptainMission(CAPTAIN_GATE_DEFENSE_ID)
+    f.storage.failWrites = true; accept()
+    expect(f.store.load()!.activeMission).toBeUndefined()
+    expect(f.town.profile.activeMission).toBeUndefined()
+    expect(npc.hp).toBe(kind === 'dead-commander' ? 0 : 73)
+    expect(npc.combatAmmo).toBe(7); expect(mount.currentHp).toBe(61)
+    expect(f.town.onRestart).not.toHaveBeenCalled()
+    f.storage.failWrites = false; accept()
+    const saved = f.store.load()!, mission = saved.activeMission!
+    if (kind === 'dead-commander') {
+      expect(mission.friendlyActorIds).not.toContain('commander')
+      expect(mission.officialSquad?.actorIds).not.toContain('commander')
+      expect(shouldSpawnTownCommander(saved)).toBe(false)
+      expect(npc.dead).toBe(true)
+    } else {
+      expect(mission.friendlyActorIds.filter(id => id === 'commander')).toEqual(['commander'])
+      expect(mission.officialSquad?.squads?.find(squad => squad.squadId === 2)?.actorIds).toEqual(['commander'])
+      expect(mission.officialSquad?.members?.commander).toMatchObject({ hp: 73, ammo: 7, shieldImpact: 12, mount: { hp: 61, mounted: true } })
+      expect(mission.actorHealth?.commander).toEqual({ hp: 73, mountHp: 61 })
+      expect(shouldSpawnTownCommander(saved)).toBe(true)
+    }
+    expect(f.town.onRestart).toHaveBeenCalledOnce()
+    expect(f.guard).toMatchObject({ dead: true, hp: 0, combatAmmo: 0 })
+    expect(mission.friendlyActorIds).toContain(f.spec.id)
+    expect(mission.deadFriendlyActorIds).toContain(f.spec.id)
+    expect(mission.actorHealth?.[f.spec.id].hp).toBe(0)
+    expect(mission.officialSquad?.actorIds).not.toContain(f.spec.id)
+  })
+
   it.each(['generic', 'generic-with-HR', 'captain'] as const)('%s saves the refit once before reloading and never starts defense in the old scene', kind => {
     const f = defenseAcceptanceFixture()
     if (kind === 'generic-with-HR') {

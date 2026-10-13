@@ -7,7 +7,10 @@ import { resolveTownCommanderPosition, shouldSpawnTownCommander, townCommanderHe
 import { townRoadIntersectsBox } from '../../src/town/TownLayout'
 import { townActorHeroProfile, townAssaultObjectiveRoster, townCommandSquadRoster, townMilitaryEquipment, townRoster, townSitePoint, TownEvent, withTownCommandSquadRoster } from '../../src/town/TownRules'
 import { createCareerProfile } from '../../src/career/CareerProfile'
-import type { ActiveCareerMission } from '../../src/career/CareerMissionState'
+import { createTownDefenseMission, type ActiveCareerMission } from '../../src/career/CareerMissionState'
+import { createMissionCommandAuthority } from '../../src/career/CareerCommandAuthority'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { MemoryStorage } from '../helpers/memoryStorage'
 import { townConquestRoster } from '../../src/town/TownHRLayout'
 import { eagleLandingFootprint } from '../../src/world/EagleLanding'
 import { townCavalryReserveSource } from '../../src/town/TownCavalryReserve'
@@ -30,6 +33,30 @@ describe('Commander service resident policy', () => {
     if (kind) profile.activeMission = { id: 'mission', templateId, kind, targetCampId: 0,
       phase: 'ENGAGING', targetActorIds: [], friendlyActorIds: [], acceptedAt: 1 }
     expect(shouldSpawnTownCommander(profile)).toBe(expected)
+  })
+
+  it.each(['roman', 'viking'] as const)('only a saved matching %s Commander defense membership enables the T5 population', faction => {
+    const profile = createCareerProfile(faction); profile.rank = 'commander'; profile.totalMerit = 20000
+    const mission = profile.activeMission = createTownDefenseMission(['commander'], [], 'new-defense')
+    expect(shouldSpawnTownCommander(profile)).toBe(false)
+    mission.officialSquad = createMissionCommandAuthority(mission.id, faction, profile.rank, [], [{ squadId: 2, actorIds: ['commander'] }])
+    const store = new CareerProfileStore(new MemoryStorage()); expect(store.save(profile)).toBe(true)
+    expect(shouldSpawnTownCommander(store.load()!)).toBe(true)
+    for (const change of [
+      (p: typeof profile) => { p.rank = 'captain' },
+      (p: typeof profile) => { p.activeMission!.officialSquad!.missionId = 'other-defense' },
+      (p: typeof profile) => { p.activeMission!.officialSquad!.townFaction = faction === 'roman' ? 'viking' : 'roman' },
+      (p: typeof profile) => { p.activeMission!.officialSquad!.squads![0].squadId = 1 },
+      (p: typeof profile) => { p.activeMission!.friendlyActorIds = [] },
+      (p: typeof profile) => { p.activeMission!.officialSquad!.actorIds = [] },
+      (p: typeof profile) => { p.activeMission!.kind = 'enemy-town-assault' },
+    ]) {
+      const invalid = store.load()!; change(invalid); expect(shouldSpawnTownCommander(invalid)).toBe(false)
+    }
+    // A casualty remains the same saved resident, so restoring its death never spawns a replacement.
+    const casualty = store.load()!; casualty.activeMission!.deadFriendlyActorIds = ['commander']
+    casualty.activeMission!.actorHealth = { commander: { hp: 0, mountHp: 0 } }
+    expect(shouldSpawnTownCommander(casualty)).toBe(true)
   })
 
   it.each(['roman', 'viking'] as const)('%s uses its T5 identity with legal T4 equipment outside shared military rosters', faction => {
