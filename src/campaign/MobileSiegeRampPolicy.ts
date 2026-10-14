@@ -1,16 +1,16 @@
+import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { AIType } from '../world/NPC'
 import { getTerrainHeight, type WalkRampSurface } from '../world/Terrain'
-import type { DefenseCampaignLaunchConfig } from './DefenseCampaignLaunch'
+import { getDefenseCampaignStagingZ, type DefenseCampaignLaunchConfig } from './DefenseCampaignLaunch'
 import type { OutpostWalkwayLayout, OutpostWalkwaySide } from './CampaignOutpostWalkways'
 
 export const SIEGE_RAMP = {
   halfWidth: 2.5,
   platformLength: 6,
-  maxSlope: .25,
-  speed: 2,
-  approachDistance: 45,
+  maxSlope: .45,
+  speed: INFANTRY_MOVE_SPEED,
   bridgeLength: 4,
   dockSeconds: 1.5,
 } as const
@@ -54,21 +54,18 @@ export function allocateSiegeRampCrews(specs: readonly NpcSpawnSpec[]): SiegeRam
 }
 
 /** Flat platform stops outside the wall. A separate bridge reaches the deck centre. */
-export function getSiegeRampPlacement(layout: OutpostWalkwayLayout, side: OutpostWalkwaySide): SiegeRampPlacement {
+export function getSiegeRampPlacement(layout: OutpostWalkwayLayout, side: OutpostWalkwaySide, stagingZ?: number): SiegeRampPlacement {
   const deck = layout.decks.find(candidate => candidate.side === side)!
   const x = (deck.slab.min.x + deck.slab.max.x) / 2
   const deckZ = (deck.slab.min.z + deck.slab.max.z) / 2
   const dockZ = deckZ - layout.zSign * SIEGE_RAMP.bridgeLength
   const dockY = deck.topY
-  let length = 28
-  for (let i = 0; i < 12; i++) {
+  const frontZ = layout.zSign > 0 ? deck.slab.min.z : deck.slab.max.z
+  const startZ = stagingZ ?? getDefenseCampaignStagingZ(frontZ, layout.zSign)
+  let length = 12
+  for (let i = 0; i < 20; i++) {
     const rearZ = dockZ - layout.zSign * (SIEGE_RAMP.platformLength + length)
-    // Reserve enough length for the full approach terrain, not just the final pose.
-    let ground = Infinity
-    for (let d = 0; d <= SIEGE_RAMP.approachDistance; d += 2) {
-      ground = Math.min(ground, getTerrainHeight(x, rearZ - layout.zSign * d))
-    }
-    length = Math.max(length, (dockY - ground + .1) / SIEGE_RAMP.maxSlope)
+    length = Math.max(length, (dockY - getTerrainHeight(x, rearZ) + .1) / SIEGE_RAMP.maxSlope)
   }
   const rearZ = dockZ - layout.zSign * (SIEGE_RAMP.platformLength + length)
   const surface: WalkRampSurface = {
@@ -77,7 +74,9 @@ export function getSiegeRampPlacement(layout: OutpostWalkwayLayout, side: Outpos
     startY: getTerrainHeight(x, rearZ) + .04, topY: dockY,
   }
   const dock = new THREE.Vector3(x, dockY, dockZ)
-  const start = dock.clone().add(new THREE.Vector3(0, 0, -layout.zSign * SIEGE_RAMP.approachDistance))
+  const startRearZ = rearZ + startZ - dockZ
+  const start = new THREE.Vector3(x,
+    getTerrainHeight(x, startRearZ) + .04 + dockY - surface.startY, startZ)
   return {
     id: side < 0 ? 'siege-ramp-left' : 'siege-ramp-right', side, start, dock, surface,
     deckConnection: new THREE.Vector3(x, dockY, deckZ), dirZ: layout.zSign,
@@ -102,4 +101,17 @@ export function placeSiegeRampCrew(specs: NpcSpawnSpec[], crew: SiegeRampAssignm
     spec.spawnY = getTerrainHeight(spec.x, spec.z)
     spec.siegeRamp = { id: crew.id, role: 'pusher' }
   }
+}
+
+
+/** Reserve the complete approach footprint before vegetation is materialized. */
+export function getSiegeApproachClearances(layout: OutpostWalkwayLayout, stagingZ?: number): THREE.Box3[] {
+  return ([-1, 1] as const).map(side => {
+    const placement = getSiegeRampPlacement(layout, side, stagingZ)
+    const rearZ = placement.surface.startZ + placement.start.z - placement.dock.z
+    return new THREE.Box3(
+      new THREE.Vector3(placement.start.x - SIEGE_RAMP.halfWidth - 1, -Infinity, Math.min(rearZ, placement.dock.z) - 4),
+      new THREE.Vector3(placement.start.x + SIEGE_RAMP.halfWidth + 1, Infinity, Math.max(rearZ, placement.dock.z) + 4),
+    )
+  })
 }

@@ -81,11 +81,25 @@ export class MobileSiegeRamp {
       const support = this.part(.3, 1, .3)
       support.mesh.userData = { support: true, side, z }
     }
+    // Narrow timber panels and braces form a tower around the continuous lane.
+    // Each board owns its actual collision/projectile box; the lane stays open.
+    for (const side of [-1, 1]) {
+      for (let band = 0; band < 7; band++) {
+        const panel = this.part(.18, 1, SIEGE_RAMP.platformLength)
+        panel.mesh.userData = { towerPanel: true, side, band }
+      }
+      for (const direction of [-1, 1]) {
+        const brace = this.part(.24, .24, 1)
+        brace.mesh.userData = { towerBrace: true, side, direction }
+      }
+      const chassis = this.part(.35, .35, SIEGE_RAMP.platformLength + 1)
+      chassis.mesh.userData = { chassis: true, side }
+    }
     this.damageable = new DamageableObstacle({ kind: 'siege_ramp', maxHp: DAMAGEABLE_OBSTACLE_HP.siege_ramp,
       root: this.root, hitMeshes: [...this.parts.map(p => p.mesh), ...this.wheels], ownerFaction: faction })
     for (const part of this.parts) part.obstacle.damageable = this.damageable
     this.platform = new MovingPlatformSupport(this.position)
-    this.controller = new MobileSiegeRampController(assignment, SIEGE_RAMP.approachDistance, state => this.transition(state))
+    this.controller = new MobileSiegeRampController(assignment, Math.abs(placement.start.z - placement.dock.z), state => this.transition(state))
     this.unsubscribe = this.damageable.onDestroyed(() => this.controller.destroy())
     this.updateGeometry()
     shared.push(...this.obstacles)
@@ -125,6 +139,11 @@ export class MobileSiegeRamp {
     if (movement > 0) {
       const dz = movement * this.placement.dirZ
       this.position.z += dz
+      this.surface.startZ += dz
+      // The vehicle follows terrain vertically as a rigid carrier. Its continuous
+      // ramp keeps the dock-approved slope without needing an extra-long run.
+      this.position.y = getTerrainHeight(this.surface.startX, this.surface.startZ) + .04
+        + this.placement.surface.topY - this.placement.surface.startY
       this.platform.moveTo(this.position)
       for (const id of this.assignment.pusherIds) {
         const actor = this.crew.get(id)
@@ -132,7 +151,6 @@ export class MobileSiegeRamp {
         actor.position.z += dz
         actor.position.y = getTerrainHeight(actor.position.x, actor.position.z)
       }
-      this.surface.startZ += dz
       this.updateGeometry()
     } else if (this.controller.state === 'DOCKING') this.updateGeometry()
   }
@@ -172,6 +190,7 @@ export class MobileSiegeRamp {
     this.surface.mounted = docked
     this.deck.obstacle.walkSurface.mounted = docked
     this.bridgeSurface.startZ = this.position.z
+    this.bridgeSurface.startY = this.position.y
     const progress = docked ? 1 : this.controller?.state === 'DOCKING' ? this.controller.dockingProgress : 0
     const angle = (1 - progress) * Math.PI / 2
     this.bridge.mesh.rotation.x = -angle
@@ -199,6 +218,20 @@ export class MobileSiegeRamp {
         this.position.z + wheel.position.z * this.placement.dirZ) - this.position.y + .65
     }
     for (const part of this.parts) {
+      const data = part.mesh.userData
+      if (data.towerPanel || data.towerBrace || data.chassis) {
+        const x = data.side * (SIEGE_RAMP.halfWidth + .1)
+        const ground = getTerrainHeight(this.position.x + x, this.position.z - this.placement.dirZ * platformLength / 2)
+        const height = Math.max(1, this.position.y - ground + .8)
+        if (data.towerPanel) {
+          part.mesh.scale.y = height / 7 - .04
+          part.mesh.position.set(x, ground - this.position.y + (data.band + .5) * height / 7, -platformLength / 2)
+        } else if (data.towerBrace) {
+          part.mesh.scale.z = Math.hypot(platformLength, height)
+          part.mesh.rotation.x = data.direction * Math.atan2(height, platformLength)
+          part.mesh.position.set(x + data.side * .15, ground - this.position.y + height / 2, -platformLength / 2)
+        } else part.mesh.position.set(x, ground - this.position.y + .45, -platformLength / 2)
+      }
       if (part.mesh.userData.support) {
         const { side, z } = part.mesh.userData
         const ground = getTerrainHeight(this.position.x + side * 2, this.position.z + z * this.placement.dirZ)

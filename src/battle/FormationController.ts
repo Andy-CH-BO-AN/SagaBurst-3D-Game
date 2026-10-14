@@ -18,6 +18,8 @@ import type { NavigationWorld } from '../navigation/NavigationWorld'
 import { getOutpostNavLayer, isRampartLayer, layerSide } from '../navigation/OutpostLayeredNavigation'
 import { OUTPOST_WALKWAY, type OutpostWalkwayBridge, type OutpostWalkwayDeck } from '../campaign/CampaignOutpostWalkways'
 import { getWalkRampHeight } from '../world/Terrain'
+import { getOutpostRampartArcherSlots } from '../campaign/OutpostRampartGarrison'
+import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
 import { XONGKORO } from '../movement/XongkoroConfig'
 
 export interface FormationCommandResult {
@@ -441,48 +443,61 @@ export class FormationController {
     requestedCenter: THREE.Vector3,
     _forward: THREE.Vector3,
     participants: readonly NPC[],
-    deck: OutpostWalkwayDeck | OutpostWalkwayBridge,
+    _deck: OutpostWalkwayDeck | OutpostWalkwayBridge,
   ): FormationPlacement | null {
-    const isFoot = (npc: NPC) => !npc.isMounted && !npc.mount && !(npc as any).isAnimal && !(npc as any).species
-    const mounted = participants.some(npc => !isFoot(npc))
-    if (mounted && (!this.navigationWorld?.outpostNav?.entrances.hasMountedRamp
-      || participants.some(npc => npc.mount?.isFlyingMount))) return null
-
-    const minX = deck.slab.min.x + (mounted ? 1.2 : .6)
-    const maxX = deck.slab.max.x - (mounted ? 1.2 : .6)
-    const minZ = deck.slab.min.z + (mounted ? 1.3 : .55)
-    const maxZ = deck.slab.max.z - (mounted ? 1.3 : .55)
-    if (maxZ < minZ) return null
-    const deckLength = maxX - minX
+    const nav = this.navigationWorld!.outpostNav!
+    const mounted = participants.some(npc => npc.isMounted || npc.mount || (npc as any).isAnimal || (npc as any).species)
+    if (mounted && (!nav.hasMountedAccess || participants.some(npc => npc.mount?.isFlyingMount))) return null
+    const faction = nav.layout.zSign < 0 ? 'roman' : 'viking'
+    const available = getOutpostRampartArcherSlots(faction)
     const spacing = mounted ? 3.2 : 1.6
-    const maxCapacity = Math.floor(deckLength / spacing) + 1
-    if (participants.length > maxCapacity) return null
-
-    const count = participants.length
-    const totalSpan = (count - 1) * spacing
-    const halfSpan = totalSpan / 2
-    const clampedCenterX = THREE.MathUtils.clamp(requestedCenter.x, minX + halfSpan, maxX - halfSpan)
-    const clampedZ = THREE.MathUtils.clamp(requestedCenter.z, minZ, maxZ)
-    const startX = clampedCenterX - halfSpan
-
-    const slots: THREE.Vector3[] = []
-    for (let i = 0; i < count; i++) {
-      const slotX = startX + i * spacing
-      const slotY = ('walkSurface' in deck && deck.walkSurface)
-        ? (getWalkRampHeight(deck.walkSurface, slotX, clampedZ) ?? deck.topY)
-        : deck.topY
-      slots.push(new THREE.Vector3(slotX, slotY, clampedZ))
+    const candidates: THREE.Vector3[] = []
+    if (mounted) {
+      // Mixed groups use mounted clearance throughout, so slot assignment cannot
+      // accidentally place a rider in a narrow infantry firing position.
+      const left = nav.getDeck(-1)!, right = nav.getDeck(1)!
+      for (let x = left.slab.min.x + 1.2; x <= right.slab.max.x - 1.2; x += spacing) {
+        const surface = x < nav.layout.bridge.slab.min.x ? left : x > nav.layout.bridge.slab.max.x ? right : nav.layout.bridge
+        for (let z = surface.slab.min.z + 1.6; z <= surface.slab.max.z - 1.6 + .001; z += spacing) {
+          candidates.push(new THREE.Vector3(x, getWalkRampHeight(surface.walkSurface, x, z) ?? surface.topY, z))
+        }
+      }
+    } else {
+      const front = [...available.left, ...available.gate, ...available.right]
+      // Keep the front firing positions and add two ranks on the widened deck.
+      for (const inward of [0, 1.6, 3.2]) {
+        candidates.push(...front.map(slot => new THREE.Vector3(slot.x, slot.y, slot.z + nav.layout.zSign * inward)))
+      }
     }
-
-    const centerY = ('walkSurface' in deck && deck.walkSurface)
-      ? (getWalkRampHeight(deck.walkSurface, clampedCenterX, clampedZ) ?? deck.topY)
-      : deck.topY
-    const center = new THREE.Vector3(clampedCenterX, centerY, clampedZ)
-    return {
-      center,
-      slots,
-      columns: count,
+    const unselected = this.npcs.filter(npc => !npc.dead && !participants.includes(npc))
+    const clear = (slot: THREE.Vector3) => unselected.every(npc => {
+      const radius = (mounted ? 1 : .5) + (npc.isMounted ? 1 : .5)
+      const occupied = [npc.combatPosition, npc.formationDestination].filter(Boolean)
+      return occupied.every(point => Math.abs(slot.y - point!.y) > 2.6
+        || (slot.x - point!.x) ** 2 + (slot.z - point!.z) ** 2 >= radius ** 2)
+    })
+    const slots = candidates
+      .filter(clear)
+      .sort((a, b) => a.distanceToSquared(requestedCenter) - b.distanceToSquared(requestedCenter))
+      .slice(0, participants.length)
+    if (slots.length < participants.length) {
+      const placement = getCampaignOutpostPlacement(faction)
+      const reserve: THREE.Vector3[] = []
+      // Interior-only reserve rows. Physical obstacles and occupied orders retain
+      // ownership; no existing defender is displaced to make room.
+      const depth = Math.abs(placement.backZ - placement.frontZ)
+      for (let inward = 8; inward < depth - 3; inward += spacing) {
+        for (let x = -placement.halfWidth + 3; x < placement.halfWidth - 3; x += spacing) {
+          const z = placement.frontZ + nav.layout.zSign * inward
+          const slot = new THREE.Vector3(x, getTerrainHeight(x, z), z)
+          if (clear(slot) && !this.isSlotBlocked(slot, mounted)) reserve.push(slot)
+        }
+      }
+      reserve.sort((a, b) => a.distanceToSquared(requestedCenter) - b.distanceToSquared(requestedCenter))
+      slots.push(...reserve.slice(0, participants.length - slots.length))
     }
+    if (slots.length !== participants.length) return null
+    return { center: requestedCenter.clone(), slots, columns: participants.length }
   }
 
   private makeRampartFormation(
@@ -546,7 +561,8 @@ export class FormationController {
           ? outpostNav.layout.bridge
           : outpostNav.getDeck(layerSide(slotLayer)!)
         const placement = deck ? this.resolveRampartPlacement(center, forward, participants, deck) : null
-        return placement !== null
+        return placement !== null && placement.slots.length === slots.length
+          && placement.slots.every((slot, index) => slot.distanceToSquared(slots[index]) < 1e-8)
       }
     }
     const component = this.getFormationComponent(participants)

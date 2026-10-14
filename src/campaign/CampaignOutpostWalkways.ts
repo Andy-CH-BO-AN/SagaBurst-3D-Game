@@ -18,7 +18,7 @@ import type { DefenseCampaignLaunchConfig } from './DefenseCampaignLaunch'
  * lane so ground units, arrows and the navigation grid keep their old routes.
  */
 export const OUTPOST_WALKWAY = {
-  deckDepth: 3.2,
+  deckDepth: 6.4,
   deckThickness: 0.25,
   /** Underside clearance over the highest ground below the deck (>= 4.2m gate clearance for cavalry). */
   deckClearance: 4.6,
@@ -35,11 +35,13 @@ export const OUTPOST_WALKWAY = {
   /** Width of the open firing gap (crenel) in each period. */
   crenelWidth: 1.4,
   postHalf: 0.25,
+  /** Keep foundations ahead of the existing chevaux-de-frise lane. */
+  postDepth: 3.2,
   postXs: [8, 16, 24, 31, 41.5],
   stairCenterX: 36,
-  stairHalfWidth: 1.1,
-  stairLanding: 0.9,
-  stairSlope: 0.46,
+  stairHalfWidth: 2.0,
+  stairLanding: 1.5,
+  stairSlope: 0.42,
 } as const
 
 export type OutpostWalkwaySide = -1 | 1
@@ -163,6 +165,7 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
     if (openStart < xFar) frontCrenelSpans.push(worldSpan(openStart, xFar))
     const midZ = (zAt(0) + zAt(W.deckDepth)) / 2
     const deckWalkSurface: WalkRampSurface = {
+      mounted: true,
       startX: side * xNear,
       startZ: midZ,
       dirX: side,
@@ -175,8 +178,8 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
     }
     const posts = W.postXs.map(px => {
       const x = side * px
-      const groundY = getTerrainHeight(x, zAt(W.deckDepth - W.postHalf)) - 0.3
-      return box(x - W.postHalf, groundY, zAt(W.deckDepth - 2 * W.postHalf), x + W.postHalf, topY - W.deckThickness, zAt(W.deckDepth))
+      const groundY = getTerrainHeight(x, zAt(W.postDepth - W.postHalf)) - 0.3
+      return box(x - W.postHalf, groundY, zAt(W.postDepth - 2 * W.postHalf), x + W.postHalf, topY - W.deckThickness, zAt(W.postDepth))
     })
     decks.push({ side, topY, slab, walkSurface: deckWalkSurface, rails, posts,
       frontRailProjectileBoxes, frontCrenelSpans })
@@ -192,15 +195,16 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
     let length = 8
     let startZ = zAt(W.deckDepth + W.stairLanding + length)
     let startY = groundAtStart(startZ)
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 20; i++) {
       length = Math.max(3, (topY - startY) / W.stairSlope)
       startZ = zAt(W.deckDepth + W.stairLanding + length)
       startY = groundAtStart(startZ)
     }
     length = Math.max(3, (topY - startY) / W.stairSlope)
     startZ = zAt(W.deckDepth + W.stairLanding + length)
+    startY = groundAtStart(startZ)
     const ramp: WalkRampSurface = {
-      startX: cx, startZ, dirX: 0, dirZ, halfWidth: hw, length, landing: W.stairLanding, startY, topY,
+      mounted: true, startX: cx, startZ, dirX: 0, dirZ, halfWidth: hw, length, landing: W.stairLanding, startY, topY,
     }
 
     const zAlong = (along: number): number => startZ + dirZ * along
@@ -268,6 +272,7 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
         topY: yLeft,
       }
 
+  walkSurface.mounted = true
   const surfaceYAt = (x: number): number => yLeft + (yRight - yLeft) * ((x + xNear) / bridgeSpan)
 
   const bridgeRails = [
@@ -321,15 +326,15 @@ export function getOutpostWalkwayLayout(placement: CampaignOutpostPlacement): Ou
 
   // Posts at the walkway ends flanking the gate corridor, outside gate opening [-4, 4]
   const bridgePosts = [-xNear + W.postHalf, xNear - W.postHalf].map(px => {
-    const groundY = getTerrainHeight(px, zAt(W.deckDepth - W.postHalf)) - 0.3
+    const groundY = getTerrainHeight(px, zAt(W.postDepth - W.postHalf)) - 0.3
     const postTopY = surfaceYAt(px) - W.deckThickness
     return box(
       px - W.postHalf,
       groundY,
-      zAt(W.deckDepth - 2 * W.postHalf),
+      zAt(W.postDepth - 2 * W.postHalf),
       px + W.postHalf,
       postTopY,
-      zAt(W.deckDepth),
+      zAt(W.postDepth),
     )
   })
 
@@ -464,7 +469,7 @@ export function createOutpostWalkways(
       // Cross beam back to the wall and a brace so the deck reads as supported.
       dark.push(new THREE.BoxGeometry(0.3, 0.3, W.deckDepth).translate(x, deck.topY - W.deckThickness - 0.15, zAt(W.deckDepth / 2)))
       dark.push(slopedBar(
-        new THREE.Vector3(x, post.min.y + 1.2, zAt(W.deckDepth - W.postHalf)),
+        new THREE.Vector3(x, post.min.y + 1.2, zAt(W.postDepth - W.postHalf)),
         new THREE.Vector3(x, deck.topY - W.deckThickness - 0.3, zAt(W.deckDepth * 0.4)),
         0.18, 0.18,
       ))
@@ -525,7 +530,7 @@ export function createOutpostWalkways(
 
   const bridge = layout.bridge
   if (bridge) {
-    if (siegePassages) bridge.walkSurface.mounted = true
+    bridge.walkSurface.mounted = true
     const leftDeck = layout.decks.find(d => d.side === -1)!
     const rightDeck = layout.decks.find(d => d.side === 1)!
     const yLeft = leftDeck.topY
@@ -580,7 +585,7 @@ export function createOutpostWalkways(
       const postTopY = yLeft + (yRight - yLeft) * ((x + xNear) / bridgeSpan) - W.deckThickness
       dark.push(new THREE.BoxGeometry(0.3, 0.3, W.deckDepth).translate(x, postTopY - 0.15, midZ))
       dark.push(slopedBar(
-        new THREE.Vector3(x, post.min.y + 1.2, zAt(W.deckDepth - W.postHalf)),
+        new THREE.Vector3(x, post.min.y + 1.2, zAt(W.postDepth - W.postHalf)),
         new THREE.Vector3(x, postTopY - 0.3, zAt(W.deckDepth * 0.4)),
         0.18, 0.18,
       ))

@@ -28,7 +28,7 @@ describe('OutpostLayeredNavigation', () => {
   const romanPlacement = getCampaignOutpostPlacement('roman')
   const romanLayout = getOutpostWalkwayLayout(romanPlacement)
 
-  it('last ramp destruction retains mounted deck/bridge routes and holds instead of taking foot stairs to ground', () => {
+  it('last siege ramp destruction retains deck routes and interior mounted descent', () => {
     const nav = new OutpostLayeredNavigation(romanLayout)
     dockLeft(nav)
     nav.entrances.remove('left')
@@ -52,8 +52,8 @@ describe('OutpostLayeredNavigation', () => {
       const route = nav.resolveMoveTarget(current, courtyard, true, new THREE.Vector3())
       expect(route.currentLayer).toBe(nav.getNavLayer(current))
       expect(route.targetLayer).toBe('ground')
-      expect(route.target).toEqual(current)
-      expect(route.step).toBe('deck_approach')
+      expect(route.target).not.toEqual(current)
+      expect(['deck_approach', 'descend_stair']).toContain(route.step)
     }
   })
 
@@ -109,6 +109,12 @@ describe('OutpostLayeredNavigation', () => {
     })
     expect(overflow.every(p => nav.getNavLayer(p) === 'ground')).toBe(true)
     expect(overflow[0].distanceTo(overflow[1])).toBeGreaterThanOrEqual(3.2)
+    nav.entrances.remove('left')
+    const interior = [30, 31].map(slot => {
+      const out = new THREE.Vector3(); nav.clampMountedFollow(out, leader, slot); return out
+    })
+    expect(interior.every(p => nav.getNavLayer(p) === 'ground' && p.z < -108)).toBe(true)
+    expect(interior[0].distanceTo(interior[1])).toBeGreaterThanOrEqual(3.2)
   })
 
   it('mounted Follow preserves leader-specific slot sides while repeatedly crossing the bridge midpoint', () => {
@@ -141,7 +147,8 @@ describe('OutpostLayeredNavigation', () => {
   })
 
   it.each([true, false])('mounted courtyard routing descends first, then delegates to ground navigation (gate walkable=%s)', open => {
-    const nav = new OutpostLayeredNavigation(romanLayout)
+    const footOnly = { ...romanLayout, stairs: romanLayout.stairs.map(stair => ({ ...stair, ramp: { ...stair.ramp, mounted: false } })) }
+    const nav = new OutpostLayeredNavigation(footOnly)
     const approach = dockLeft(nav)
     const entry = nav.entrances.entries.get('left')!, ramp = entry.surface!
     const courtyard = new THREE.Vector3(0, getTerrainHeight(0, -125), -125)
@@ -288,8 +295,8 @@ describe('OutpostLayeredNavigation', () => {
   })
 
   describe('Mounted Unit Ground Restriction', () => {
-    it('restricts mounted units to ground when goal is on rampart', () => {
-      const nav = new OutpostLayeredNavigation(vikingLayout)
+    it('restricts mounted units to ground when all available stairs are explicitly foot-only', () => {
+      const nav = new OutpostLayeredNavigation({ ...vikingLayout, stairs: vikingLayout.stairs.map(stair => ({ ...stair, ramp: { ...stair.ramp, mounted: false } })) })
       const deck = vikingLayout.decks[0]
       const goalOnDeck = new THREE.Vector3(-20, deck.topY, (deck.slab.min.z + deck.slab.max.z) / 2)
       const currentGround = new THREE.Vector3(0, getTerrainHeight(0, 130), 130)
@@ -345,6 +352,14 @@ describe('OutpostLayeredNavigation', () => {
       expect(r3.step).toBe('deck_approach')
       expect(out.distanceTo(wp.deckConnection)).toBeLessThan(0.01)
 
+      // Traffic can displace an actor sideways after it passes the landing.
+      // Routing back to the landing would deadlock followers at the exit.
+      const displaced = onStairTop.clone().add(new THREE.Vector3(-.55, 0, stair.ramp.dirZ * .6))
+      for (const goal of [goalOnDeck, vikingLayout.bridge.slab.getCenter(new THREE.Vector3()).setY(vikingLayout.bridge.topY)]) {
+        expect(nav.resolveMoveTarget(displaced, goal, false, out).step).toBe('deck_approach')
+        expect((out.z - displaced.z) * stair.ramp.dirZ).toBeGreaterThan(0)
+      }
+
       // Phase 5: Unit on deck slab
       const onDeck = new THREE.Vector3(-30, deck.topY, (deck.slab.min.z + deck.slab.max.z) / 2)
       const r4 = nav.resolveMoveTarget(onDeck, goalOnDeck, false, out)
@@ -383,7 +398,8 @@ describe('OutpostLayeredNavigation', () => {
       expect(out.x).toBeCloseTo(stair.ramp.startX - 0.3, 2)
 
       // Phase 4: Unit on ground
-      const onGround = new THREE.Vector3(-36, getTerrainHeight(-36, 130), 130)
+      const onGround = wp.groundEntrance.clone().add(new THREE.Vector3(0, 0, 3))
+      onGround.y = getTerrainHeight(onGround.x, onGround.z)
       const r3 = nav.resolveMoveTarget(onGround, goalOnGround, false, out)
       expect(r3.step).toBe('direct')
       expect(r3.isCrossLayer).toBe(false)

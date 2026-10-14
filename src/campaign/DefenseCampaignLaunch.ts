@@ -585,6 +585,11 @@ export function positionDefenseCampaignDefenders(
   return rampart
 }
 
+/** Shared front line for both the roster and its mobile siege vehicles. */
+export function getDefenseCampaignStagingZ(frontZ: number, inwardSign: number): number {
+  return frontZ - inwardSign * 100
+}
+
 /** Keep an attacker wave at least 100m beyond the owning Outpost's front gate. */
 export function positionDefenseCampaignAttackers(
   specs: NpcSpawnSpec[],
@@ -594,7 +599,7 @@ export function positionDefenseCampaignAttackers(
   const placement = getCampaignOutpostPlacement(outpostFaction)
   const inwardSign = Math.sign(placement.backZ - placement.frontZ)
   const closestOutsideDistance = Math.min(...specs.map(spec => (placement.frontZ - spec.z) * inwardSign))
-  const shiftOutward = Math.max(0, 100 - closestOutsideDistance)
+  const shiftOutward = Math.max(0, (placement.frontZ - getDefenseCampaignStagingZ(placement.frontZ, inwardSign)) * inwardSign - closestOutsideDistance)
   if (shiftOutward === 0) return
   for (const spec of specs) spec.z -= inwardSign * shiftOutward
 }

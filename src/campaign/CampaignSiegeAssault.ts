@@ -17,6 +17,9 @@ export class CampaignSiegeAssault {
   readonly entrances
   private readonly unsubscribers: (() => void)[] = []
   private readonly perimeter: { obstacle: ObstacleData; entrance: BreachEntrance }[] = []
+  private readonly pendingDeployment = new Set<string>()
+  private readonly stagingActors: NPC[] = []
+  private readonly bypassing = new Map<NPC, { ramp: MobileSiegeRamp; x: number }>()
   private disposed = false
   private observedRevision = -1
   private readonly gateEntrance: BreachEntrance
@@ -57,14 +60,33 @@ export class CampaignSiegeAssault {
     if (this.ramps.length || this.disposed) throw new Error('Siege wave already prepared or disposed')
     // Establish the same stable IDs used by the wave queue before making any assignments.
     specs.forEach((spec, index) => { spec.actorId ??= `attackers:${index}` })
+    for (const spec of specs) this.pendingDeployment.add(spec.actorId!)
     try {
+      const stagingZ = specs.reduce((nearest, spec) => this.walkways.layout.zSign > 0
+        ? Math.max(nearest, spec.z) : Math.min(nearest, spec.z), this.walkways.layout.zSign > 0 ? -Infinity : Infinity)
       for (const crew of allocateSiegeRampCrews(specs)) {
-        const placement = getSiegeRampPlacement(this.walkways.layout, crew.side)
+        const placement = getSiegeRampPlacement(this.walkways.layout, crew.side, stagingZ)
         const ramp = new MobileSiegeRamp(this.scene, crew, placement, this.gate.attackerFaction,
           this.obstacles, (vehicle, state) => this.onRampState(vehicle, state))
         this.ramps.push(ramp)
         placeSiegeRampCrew(specs, crew, placement)
         this.registerHit(ramp)
+      }
+      // Reserve each convoy corridor before construction of ordinary actors.
+      // Keep row spacing while moving only overlapping roster slots behind the rear.
+      for (const ramp of this.ramps) {
+        const rear = ramp.surface.startZ - ramp.placement.dirZ * 6
+        for (const spec of specs) {
+          if (spec.siegeRamp || Math.abs(spec.x - ramp.position.x) > ramp.surface.halfWidth + 1.5) continue
+          const forward = (spec.z - rear) * ramp.placement.dirZ
+          if (forward >= 0) {
+            spec.z -= ramp.placement.dirZ * (ramp.surface.length + 12)
+            let attempts = 0
+            while (specs.some(other => other !== spec && Math.abs(other.x - spec.x) < 3
+              && Math.abs(other.z - spec.z) < 3) && attempts++ < 200) spec.z -= ramp.placement.dirZ * 3.2
+            if (attempts >= 200) throw new Error('No clear siege staging slot')
+          }
+        }
       }
     } catch (error) { this.dispose(); throw error }
   }
@@ -74,7 +96,16 @@ export class CampaignSiegeAssault {
       const ramp = this.ramps.find(vehicle => vehicle.assignment.id === spec.siegeRamp!.id)
       if (!ramp || this.disposed) throw new Error('Missing siege vehicle during crew spawn')
       ramp.register(npc)
-    } else if (npc.characterFaction === this.gate.attackerFaction) this.route(npc)
+    } else if (npc.characterFaction === this.gate.attackerFaction) {
+      this.route(npc)
+      npc.siegeTransport = 'siege-deployment'
+      this.stagingActors.push(npc)
+    }
+    this.pendingDeployment.delete(spec.actorId ?? npc.combatantId)
+    if (this.pendingDeployment.size === 0) {
+      for (const actor of this.stagingActors) actor.siegeTransport = null
+      this.stagingActors.length = 0
+    }
   }
 
   /** Safe to call inside the existing one-shot breach callback, before issuing orders. */
@@ -145,7 +176,36 @@ export class CampaignSiegeAssault {
     if (this.disposed) return
     const actors = this.actors()
     const blockers = this.blockers()
-    for (const ramp of this.ramps) ramp.update(dt, actors, blockers)
+    // Ordinary attackers must walk around a live convoy, not climb its rear
+    // ramp and deadlock the vehicle's body-safety stop. Keep the chosen side
+    // until they have passed the front; all locomotion/collision stays in NPC.
+    for (const npc of actors) {
+      if (npc.dead || npc.siegeTransport || npc.characterFaction !== this.gate.attackerFaction
+        || npc.combatOwnership === 'player-personal' || npc.mount?.isFlyingMount) continue
+      let bypass = this.bypassing.get(npc)
+      if (bypass && (bypass.ramp.controller.state !== 'PUSHING'
+        || (npc.combatPosition.z - bypass.ramp.position.z) * bypass.ramp.placement.dirZ > 5)) {
+        this.bypassing.delete(npc); npc.siegeBypassTarget = null; bypass = undefined
+      }
+      if (!bypass) {
+        const ramp = this.ramps.find(r => r.controller.state === 'PUSHING'
+          && Math.abs(npc.combatPosition.x - r.position.x) < r.surface.halfWidth + 3
+          && (npc.combatPosition.z - r.position.z) * r.placement.dirZ < 5
+          && (npc.combatPosition.z - r.surface.startZ) * r.placement.dirZ > -8)
+        if (ramp) {
+          const side = Math.sign(npc.combatPosition.x - ramp.position.x) || -Math.sign(ramp.position.x)
+          bypass = { ramp, x: ramp.position.x + side * (ramp.surface.halfWidth + 4) }
+          this.bypassing.set(npc, bypass)
+        }
+      }
+      if (bypass) {
+        npc.siegeBypassTarget ??= new THREE.Vector3()
+        npc.siegeBypassTarget.set(bypass.x, npc.combatPosition.y,
+          Math.abs(npc.combatPosition.x - bypass.x) > .8 ? npc.combatPosition.z
+            : bypass.ramp.position.z + bypass.ramp.placement.dirZ * 6)
+      }
+    }
+    if (this.pendingDeployment.size === 0) for (const ramp of this.ramps) ramp.update(dt, actors, blockers)
     if (this.observedRevision !== this.entrances.revision) {
       this.navigation.sync(this.obstacles)
       this.observedRevision = this.entrances.revision
@@ -158,6 +218,11 @@ export class CampaignSiegeAssault {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    for (const npc of this.bypassing.keys()) npc.siegeBypassTarget = null
+    this.bypassing.clear()
+    for (const actor of this.stagingActors) actor.siegeTransport = null
+    this.stagingActors.length = 0
+    this.pendingDeployment.clear()
     for (const unsubscribe of this.unsubscribers) unsubscribe()
     this.unsubscribers.length = 0
     for (const ramp of this.ramps) {

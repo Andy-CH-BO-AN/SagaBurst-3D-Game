@@ -439,7 +439,7 @@ export class ArmyCommandController {
       if (!this._acceptsNpc(npc)) continue
       if (!matchesArmyCommandTarget(npc, target)) continue
       if (npc.dead) continue
-      npc.releaseOutpostRampartGarrison?.()
+      if ((order !== 'attack' && order !== 'defend') || !npc.holdsRampartFirePosition) npc.releaseOutpostRampartGarrison?.()
       npc.clearFollowTarget?.()
       npc.setTacticalOrder(order)
     }
