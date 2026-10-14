@@ -221,6 +221,69 @@ describe('Veteran Campaign Outpost Game integration', () => {
     expect(game.careerOutpostTerminalResultPending).toBeUndefined()
   })
 
+  it('keeps a restored Last Stand assault and player damage producers locked until official and HR registration finish', () => {
+    const profile = commanderProfile('restored-assault-last-stand')
+    profile.activeMission!.commanderMission!.deploymentComplete = true
+    profile.activeMission!.outpostBattleState = {
+      phase: 'assault', activePhase: 'assault', assaultElapsedSeconds: 12,
+      deploymentRemainingSeconds: 0, reinforcementTriggered: false,
+      reinforcementSpawned: false, reinforcementArrived: false,
+      reinforcementQueueIndex: 0, assaultChargeTriggered: true, battleFinished: false,
+    }
+    const launch = createCareerCommanderOutpostLaunch(profile)
+    const game = createGameFixture(launch as any, profile as any)
+    const defender = { combatantId: profile.activeMission!.friendlyActorIds[0], characterFaction: 'roman',
+      faction: Faction.PLAYER, squadId: 1, dead: false }
+    const attacker = { combatantId: profile.activeMission!.targetActorIds[0], characterFaction: 'viking',
+      faction: Faction.ENEMY, squadId: 5, dead: false }
+    game.npcs = [defender, attacker]
+    game.campaignOriginalDefenders = [defender]
+    game.commanderOutpostDeploymentBatch = { ready: false, pending: 219 }
+    game.commanderOutpostDeploymentTotal = 220
+    game.commanderOutpostDeploymentCheckpointed = false
+    game.personalSquad = { ready: false, aliveCombatants: 1 }
+    game.player = { dead: false }
+    game.previewCampaignGate = { state: 'closed' }
+    game.defenseCampaignRuntime = new DefenseCampaignRuntime({
+      eliminationObjective: true, eliminationUsesDeployment: true,
+      reinforcementsEnabled: false, deploymentSeconds: 60,
+      initialSnapshot: launch.careerCommanderOutpost!.runtimeState,
+    })
+    const update = vi.spyOn(game.defenseCampaignRuntime, 'update')
+    game.defenseCampaignHud = { updateGate: vi.fn(), update: vi.fn(), updateDeploymentProgress: vi.fn() }
+    game.veteranOutpostCheckpoint = { advance: vi.fn() }
+    game._persistCareerVeteranOutpostCheckpoint = vi.fn(() => true)
+    game._showDefenseCampaignResult = vi.fn()
+    game.arrows = []
+    game.captainEagleMissionId = null
+    game.inventoryManager = { equippedRanged: { id: 'recurve_longbow' } }
+    game.combatEvents = { emit: vi.fn() }
+    game.quiverUI = { setArrowCount: vi.fn() }
+
+    expect(game._commanderOutpostCombatLocked()).toBe(true)
+    game._bindPlayerCombatCallbacks(launch)
+    game.player.onFireArrow({ origin: new THREE.Vector3(), direction: new THREE.Vector3(0, 0, -1),
+      speed: 30, damage: 10, visualKind: 'arrow' })
+    expect(game.arrows).toHaveLength(0)
+    expect(() => game._checkPlayerMeleeHits()).not.toThrow()
+    game._updateDefenseCampaign(10)
+    expect(update).not.toHaveBeenCalled()
+    expect(game.defenseCampaignRuntime.getSnapshot().assaultElapsedSeconds).toBe(12)
+
+    game.commanderOutpostDeploymentBatch = { ready: true, pending: 0 }
+    game._updateDefenseCampaign(10)
+    expect(update).not.toHaveBeenCalled()
+    expect(game.defenseCampaignRuntime.getSnapshot().assaultElapsedSeconds).toBe(12)
+
+    game.personalSquad.ready = true
+    game._updateDefenseCampaign(.5)
+    expect(game._persistCareerVeteranOutpostCheckpoint).toHaveBeenCalledWith({ immediate: true })
+    expect(update).toHaveBeenCalledExactlyOnceWith(.5, expect.objectContaining({ defendersAlive: 1, attackersAlive: 1 }))
+    expect(game.defenseCampaignRuntime.getSnapshot().assaultElapsedSeconds).toBe(12.5)
+    expect(game._commanderOutpostCombatLocked()).toBe(false)
+    expect(game._showDefenseCampaignResult).not.toHaveBeenCalled()
+  })
+
   describe('shared Veteran IV player-side result runtime', () => {
     const faction = 'roman'
     it('continues with no living Player or official attackers and one private member', () => {

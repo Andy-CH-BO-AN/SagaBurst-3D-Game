@@ -1338,6 +1338,7 @@ export class Game {
     // Listen for arrow fire from Player
     this.player.onFireArrow = (evt) => {
       if (this.captainEagleMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return
+      if (this._commanderOutpostCombatLocked()) return
       const arrow = new ArrowProjectile(
         this.scene,
         evt.origin,
@@ -3923,6 +3924,7 @@ export class Game {
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies / Damageable Obstacles) ──
   private _checkPlayerMeleeHits(): void {
+    if (this._commanderOutpostCombatLocked()) return
     if (this.captainEagleMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return
     const eagle = this.player.currentMount
     if (eagle?.isFlyingMount && !this.player.dead) {
@@ -4559,7 +4561,7 @@ export class Game {
         this.damageNumbers.spawn(Math.round(damage), hitPos)
         this._showEnemyHud(obstacle.displayName, hpRatio)
       },
-      false, this.mounts, this.trainingGround?.dummies,
+      this._commanderOutpostCombatLocked(), this.mounts, this.trainingGround?.dummies,
     )
 
       if (!arrow.isAlive) {

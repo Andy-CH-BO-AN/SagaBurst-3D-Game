@@ -265,12 +265,30 @@ describe('production spawn callers with recorded constructor boundaries', () => 
   })
 
   it('deploys the full Commander Last Stand roster one rider job per frame while gameplay remains live', async () => {
-    const game = gameFixture() as any
     const profile = createCareerProfile('roman')
     profile.rank = 'commander'; profile.totalMerit = 20_000; profile.availableMerit = 20_000
     const accepted = acceptCommanderMission(profile, COMMANDER_LAST_STAND_ID, 'commander-shared-deployment')!
     const launch = createCareerCommanderOutpostLaunch(accepted)
     const plan = createCareerCommanderOutpostSpawnPlan(launch)
+
+    // A reload cancels every queued identity from the old scene. The new scene
+    // reconstructs the canonical roster once, without carrying partial actors over.
+    const partial = gameFixture() as any
+    partial.defenseCampaignConfig = launch
+    partial.careerProfile = accepted
+    partial.campaignOriginalDefenders = []
+    partial._queueCommanderOutpostDeployment(plan, launch)
+    for (let frame = 0; frame < 17; frame++) advanceNpcFrame(gameplayNpcSpawnDriver)
+    const partialBatch = partial.commanderOutpostDeploymentBatch
+    expect(partial.npcs).toHaveLength(17)
+    expect(new Set(partial.npcs.map((npc: NPC) => npc.combatantId)).size).toBe(17)
+    partial._disposeCareerOutpostBattleActors()
+    expect(partialBatch.status).toBe('cancelled')
+    expect(partial.npcs).toHaveLength(0)
+    expect(partial.mounts).toHaveLength(0)
+    resetSpawnRecording()
+
+    const game = gameFixture() as any
     game.defenseCampaignConfig = launch
     game.careerProfile = accepted
     game.campaignOriginalDefenders = []
@@ -311,6 +329,7 @@ describe('production spawn callers with recorded constructor boundaries', () => 
     expect(recording.mounts).toHaveLength(100)
     expect(game.commanderOutpostDeploymentTotal).toBe(220)
     expect(game.campaignOriginalDefenders).toHaveLength(120)
+    expect(new Set(game.npcs.map((npc: NPC) => npc.combatantId)).size).toBe(220)
     expect(recording.npcs.every(npc => npc.tacticalOrder === 'defend')).toBe(true)
     expect(game.battleStats.registerNpc).toHaveBeenCalledTimes(220)
     expect(game._aimTargetRegistry.registerNpc).toHaveBeenCalledTimes(220)
