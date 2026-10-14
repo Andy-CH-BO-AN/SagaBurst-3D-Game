@@ -28,6 +28,35 @@ describe('OutpostLayeredNavigation', () => {
   const romanPlacement = getCampaignOutpostPlacement('roman')
   const romanLayout = getOutpostWalkwayLayout(romanPlacement)
 
+  it('last ramp destruction retains mounted deck/bridge routes and holds instead of taking foot stairs to ground', () => {
+    const nav = new OutpostLayeredNavigation(romanLayout)
+    dockLeft(nav)
+    nav.entrances.remove('left')
+    expect(nav.entrances.hasMountedRamp).toBe(false)
+    const left = nav.getWaypoints(-1).deckConnection.clone()
+    const right = nav.getWaypoints(1).deckConnection.clone()
+    const bridge = romanLayout.bridge!
+    const gate = bridge.slab.getCenter(new THREE.Vector3()).setY(bridge.topY)
+    expect(nav.getNavLayer(left)).toBe('rampart_left')
+    for (const goal of [gate, right]) {
+      const route = nav.resolveMoveTarget(left, goal, true, new THREE.Vector3())
+      expect(route.currentLayer).toBe('rampart_left')
+      expect(isRampartLayer(route.targetLayer)).toBe(true)
+      expect(route.step).toBe('deck_approach')
+      expect(route.target.y).toBe(left.y)
+      expect(route.target.x).toBe(bridge.slab.min.x)
+    }
+    const courtyard = new THREE.Vector3(0, 0, nav.getWaypoints(-1).groundEntrance.z)
+    courtyard.y = getTerrainHeight(courtyard.x, courtyard.z)
+    for (const current of [left, gate, right]) {
+      const route = nav.resolveMoveTarget(current, courtyard, true, new THREE.Vector3())
+      expect(route.currentLayer).toBe(nav.getNavLayer(current))
+      expect(route.targetLayer).toBe('ground')
+      expect(route.target).toEqual(current)
+      expect(route.step).toBe('deck_approach')
+    }
+  })
+
   // Pure topology: no scene, actors, geometry, or A* grid.
   function dockLeft(nav: OutpostLayeredNavigation) {
     const placement = getSiegeRampPlacement(romanLayout, -1)

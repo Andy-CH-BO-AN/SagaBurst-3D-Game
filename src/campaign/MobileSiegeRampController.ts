@@ -25,7 +25,7 @@ export class MobileSiegeRampController {
   get assigned(): boolean { return ['DEPLOYING', 'PUSHING', 'DOCKING'].includes(this.state) && !this.disposed }
   get alivePushers(): number { return this.assignment.pusherIds.filter(id => this.actors.has(id) && !this.actors.get(id)!.dead).length }
 
-  advance(dt: number, mayMove = true): number {
+  advance(dt: number, mayMove: boolean | (() => boolean) = true): number {
     if (this.disposed || !Number.isFinite(dt) || dt <= 0) return 0
     if (this.state === 'DEPLOYING') {
       if (this.actors.size !== 10) return 0
@@ -38,7 +38,9 @@ export class MobileSiegeRampController {
       if (this.dockElapsed >= SIEGE_RAMP.dockSeconds) this.transition('DOCKED')
       return 0
     }
-    this.currentSpeed = mayMove ? SIEGE_RAMP.speed * this.alivePushers / 4 : 0
+    // Query the movement envelope only after readiness, death and docking gates.
+    const unblocked = typeof mayMove === 'function' ? mayMove() : mayMove
+    this.currentSpeed = unblocked ? SIEGE_RAMP.speed * this.alivePushers / 4 : 0
     const moved = Math.min(this.travelDistance - this.distance, this.currentSpeed * dt)
     this.distance += moved
     if (this.distance >= this.travelDistance) this.transition('DOCKING')

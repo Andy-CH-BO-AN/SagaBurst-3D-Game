@@ -608,10 +608,18 @@ export class OutpostLayeredNavigation {
     const siege = this.siegeRoute(currentPos, goalPos, isMounted, out, preferredEntrance)
     if (siege) return siege
     let targetLayer = this.getNavLayer(goalPos)
+    const currentLayer = this.getNavLayer(currentPos)
+
+    // Losing a ramp removes descent, not the intact deck/bridge under the rider.
+    // siegeRoute already handled any available mounted descent above.
+    if (isMounted && isRampartLayer(currentLayer) && !isRampartLayer(targetLayer)) {
+      out.copy(currentPos)
+      return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+    }
 
     // Mounted units (cavalry, pets, eagles) CANNOT climb stairs; their destination
     // is projected to ground level beneath/beside the rampart and must be reached via ground navigation.
-    if (isMounted && !(this.entrances.hasMountedRamp && isRampartLayer(this.getNavLayer(currentPos)) && isRampartLayer(targetLayer))) {
+    if (isMounted && !isRampartLayer(currentLayer)) {
       if (targetLayer !== 'ground') {
         const groundY = getTerrainHeight(goalPos.x, goalPos.z)
         out.set(goalPos.x, groundY, goalPos.z)
@@ -632,8 +640,6 @@ export class OutpostLayeredNavigation {
         step: 'direct',
       }
     }
-
-    const currentLayer = this.getNavLayer(currentPos)
 
     // Case 1: Both are Rampart layers (rampart_left, rampart_right, rampart_gate)
     if (isRampartLayer(currentLayer) && isRampartLayer(targetLayer)) {

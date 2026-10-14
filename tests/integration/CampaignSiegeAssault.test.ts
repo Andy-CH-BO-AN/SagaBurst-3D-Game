@@ -1,12 +1,74 @@
-import { describe, expect, it, onTestFinished } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import * as THREE from 'three'
 import { getTerrainHeight, projectileObstacleEntryFraction, resolveObstacleCollision } from '../../src/world/Terrain'
 import { ArrowProjectile } from '../../src/world/ArrowProjectile'
 import { Faction } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
-import { siegeAssaultFixture } from '../helpers/siegeAssaultFixture'
+import { siegeActorRecord, siegeAssaultFixture } from '../helpers/siegeAssaultFixture'
 
 describe('Unified campaign assault producer wiring', () => {
+  it('only moving convoys scan collision candidates while docking and terminal states preserve lifecycle effects', () => {
+    // Existing typed caller fixture: zero real NPCs/Mounts, no extra scene owner.
+    const h = siegeAssaultFixture('roman', false, false)
+    const [ramp, abandoned] = h.owner.ramps
+    const staticScan = vi.spyOn(h.obstacles, 'some')
+    const actorScan = vi.spyOn(h.actors, 'some')
+    const blockers: [] = []
+    const bodyScan = vi.spyOn(blockers, 'some')
+    onTestFinished(() => { staticScan.mockRestore(); actorScan.mockRestore(); bodyScan.mockRestore() })
+    const expectNoScan = () => {
+      expect(staticScan).not.toHaveBeenCalled()
+      expect(actorScan).not.toHaveBeenCalled()
+      expect(bodyScan).not.toHaveBeenCalled()
+    }
+    const clearScans = () => { staticScan.mockClear(); actorScan.mockClear(); bodyScan.mockClear() }
+    ramp.update(.1, h.actors, blockers)
+    expect(ramp.controller.state).toBe('DEPLOYING')
+    expectNoScan()
+    for (const spec of h.specs) {
+      const actor = siegeActorRecord(spec)
+      h.actors.push(actor); h.owner.register(actor, spec)
+    }
+    ramp.update(.1, h.actors, blockers)
+    expect(ramp.controller.distance).toBeGreaterThan(0)
+    expect(staticScan).toHaveBeenCalled(); expect(actorScan).toHaveBeenCalled(); expect(bodyScan).toHaveBeenCalled()
+    for (let frame = 0; frame < 240 && ramp.controller.state === 'PUSHING'; frame++) ramp.update(.1, h.actors)
+    expect(ramp.controller.state).toBe('DOCKING')
+    clearScans()
+    const parked = ramp.position.clone()
+    for (let frame = 0; frame < 20; frame++) ramp.update(.1, h.actors, blockers)
+    expectNoScan()
+    expect(ramp.controller.state).toBe('DOCKED')
+    expect(ramp.controller.dockingProgress).toBe(1)
+    expect(h.owner.entrances.entries.has(ramp.assignment.id)).toBe(true)
+    expect(ramp.obstacles.every(obstacle => h.obstacles.includes(obstacle))).toBe(true)
+    expect(ramp.position).toEqual(parked)
+    for (const id of abandoned.assignment.pusherIds) {
+      // Typed caller records expose NPC's readonly death observation, not its damage lifecycle.
+      Object.defineProperty(abandoned.crew.get(id)!, 'dead', { value: true, configurable: true })
+    }
+    abandoned.update(.1, h.actors, blockers)
+    expect(abandoned.controller.state).toBe('ABANDONED')
+    const hp = abandoned.damageable.currentHp
+    for (let frame = 0; frame < 3; frame++) abandoned.update(.1, h.actors, blockers)
+    expectNoScan()
+    expect(abandoned.damageable.currentHp).toBe(hp)
+    expect(abandoned.obstacles.every(obstacle => h.obstacles.includes(obstacle))).toBe(true)
+    let destructions = 0
+    const off = ramp.damageable.onDestroyed(() => destructions++)
+    onTestFinished(off)
+    ramp.damageable.destroy()
+    const revision = h.owner.entrances.revision
+    for (let frame = 0; frame < 3; frame++) ramp.update(.1, h.actors, blockers)
+    expectNoScan()
+    expect(ramp.controller.state).toBe('DESTROYED')
+    expect(destructions).toBe(1)
+    expect(h.owner.entrances.revision).toBe(revision)
+    expect(h.owner.entrances.entries.has(ramp.assignment.id)).toBe(false)
+    expect(ramp.obstacles.some(obstacle => h.obstacles.includes(obstacle))).toBe(false)
+    expect(ramp.position).toEqual(parked)
+  })
+
   it.each(['gate', 'palisade'] as const)('%s breach preserves both ten-person convoy assignments and ranged loadout intent', type => {
     const h = siegeAssaultFixture('roman', true)
     const ranged = h.actors[20]

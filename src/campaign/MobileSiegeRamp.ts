@@ -117,21 +117,7 @@ export class MobileSiegeRamp {
 
   update(dt: number, actors: readonly NPC[], blockers: readonly EntityCollisionBody[] = []): void {
     if (this.disposed) return
-    const maxTravel = SIEGE_RAMP.speed * Math.min(dt, .1)
-    // Swept vehicle envelope; actors/structures ahead stop this convoy rather than being traversed.
-    const swept = this.deck.obstacle.box.clone().union(this.run.obstacle.box)
-    swept.min.y = Math.min(swept.min.y, getTerrainHeight(this.position.x, this.position.z))
-    swept.expandByVector(this.scratch.set(.12, 0, maxTravel))
-    const staticBlocked = this.shared.some(obstacle => !this.obstacles.includes(obstacle)
-      && !obstacle.walkSurface && obstacle.box.intersectsBox(swept))
-    const intersectsBody = (body: EntityCollisionBody): boolean => this.parts.some(part =>
-      intersectsSweptPart(body, part.localBox, part.obstacle.projectileWorldToLocal!, maxTravel * this.placement.dirZ))
-      || this.wheelBodies.some(wheel => intersectsSweptPart(body, wheel.box, wheel.worldToLocal,
-        maxTravel * this.placement.dirZ))
-    const actorBlocked = actors.some(npc => !npc.dead && !this.crew.has(npc.combatantId)
-      && intersectsBody({ position: npc.combatPosition, radius: npc.isMounted ? 1 : .5,
-        height: npc.isMounted ? 2.6 : 2.3, bottomOffset: 0 })) || blockers.some(intersectsBody)
-    const movement = this.controller.advance(Math.min(dt, .1), !staticBlocked && !actorBlocked)
+    const movement = this.controller.advance(Math.min(dt, .1), () => this.canMove(dt, actors, blockers))
     for (const id of this.assignment.pusherIds) {
       const pusher = this.crew.get(id)
       if (pusher) pusher.siegeTransportSpeed = this.controller.currentSpeed
@@ -149,6 +135,24 @@ export class MobileSiegeRamp {
       this.surface.startZ += dz
       this.updateGeometry()
     } else if (this.controller.state === 'DOCKING') this.updateGeometry()
+  }
+
+  private canMove(dt: number, actors: readonly NPC[], blockers: readonly EntityCollisionBody[]): boolean {
+    const maxTravel = SIEGE_RAMP.speed * Math.min(dt, .1)
+    // Swept vehicle envelope; actors/structures ahead stop this convoy rather than being traversed.
+    const swept = this.deck.obstacle.box.clone().union(this.run.obstacle.box)
+    swept.min.y = Math.min(swept.min.y, getTerrainHeight(this.position.x, this.position.z))
+    swept.expandByVector(this.scratch.set(.12, 0, maxTravel))
+    const staticBlocked = this.shared.some(obstacle => !this.obstacles.includes(obstacle)
+      && !obstacle.walkSurface && obstacle.box.intersectsBox(swept))
+    const intersectsBody = (body: EntityCollisionBody): boolean => this.parts.some(part =>
+      intersectsSweptPart(body, part.localBox, part.obstacle.projectileWorldToLocal!, maxTravel * this.placement.dirZ))
+      || this.wheelBodies.some(wheel => intersectsSweptPart(body, wheel.box, wheel.worldToLocal,
+        maxTravel * this.placement.dirZ))
+    const actorBlocked = actors.some(npc => !npc.dead && !this.crew.has(npc.combatantId)
+      && intersectsBody({ position: npc.combatPosition, radius: npc.isMounted ? 1 : .5,
+        height: npc.isMounted ? 2.6 : 2.3, bottomOffset: 0 })) || blockers.some(intersectsBody)
+    return !staticBlocked && !actorBlocked
   }
 
   private updateGeometry(): void {
