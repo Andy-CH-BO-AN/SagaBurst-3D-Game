@@ -1,6 +1,6 @@
 import { careerTownSceneRoster } from '../../src/career/CareerFieldSceneContext'
 import { describe, expect, it } from 'vitest'
-import { parseTownCommandSquad, officialMissionSourcePolicy, parseOfficialCommandAuthority, cloneOfficialCommandAuthority, createMissionCommandAuthority, officialCommandSquads, officialActorSquadId, officialCommandAcceptsActor, officialCommandIsPlayerControlled } from '../../src/career/CareerCommandAuthority'
+import { parseTownCommandSquad, officialMissionSourcePolicy, parseOfficialCommandAuthority, cloneOfficialCommandAuthority, createMissionCommandAuthority, officialCommandSquads, officialActorSquadId, officialCommandAcceptsActor, officialCommandIsPlayerControlled, townCommandIsPlayerControlled } from '../../src/career/CareerCommandAuthority'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { cloneCareerProfile, createCareerProfile } from '../../src/career/CareerProfile'
 import { acceptCareerOutpost, acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
@@ -65,6 +65,44 @@ function commanderAuthority(): OfficialCommandAuthority {
 }
 
 describe('Commander saved command grant', () => {
+  it('round-trips exact peaceful actor claims and native return owners without treating whole squads as commanded', () => {
+    const profile = createCareerProfile('roman')
+    profile.rank = 'commander'; profile.totalMerit = 20000
+    profile.townCommandSquad = { type: 'town-command', townFaction: 'roman', squadId: 1,
+      commandRank: 'commander', squads: [{ squadId: 1, actorIds: ['one', 'two'] }, { squadId: 2, actorIds: ['three'] }],
+      actorIds: ['one', 'two', 'three'], commandedActorIds: ['two'], nativeReturnStates: { three: 'REFIT' },
+      contribution: emptyPersonalContribution(), authorized: true, sceneKey: 'town-home', state: 'FOLLOWING',
+      members: { one: { status: 'reserve' }, two: { status: 'deployed', hp: 17, ammo: 3, shieldImpact: 4,
+        order: 'formation', formation: { commandId: 8, position: { x: 3, z: 4, yaw: 1 }, reached: false } },
+      three: { status: 'deployed', hp: 9, mount: { hp: 5, mounted: false, position: { x: 7, z: 8, yaw: 2 } } } } }
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save(profile)).toBe(true)
+    const loaded = store.load()!.townCommandSquad!
+    expect(loaded).toEqual(profile.townCommandSquad)
+    expect(townCommandIsPlayerControlled(loaded, 'two')).toBe(true)
+    expect(townCommandIsPlayerControlled(loaded, 'one')).toBe(false)
+    expect(townCommandIsPlayerControlled(loaded, 'three')).toBe(false)
+    const clone = cloneCareerProfile(store.load()!)
+    clone.townCommandSquad!.commandedActorIds!.push('one')
+    clone.townCommandSquad!.nativeReturnStates!.three = 'REJOIN_PATROL'
+    expect(store.load()!.townCommandSquad).toEqual(profile.townCommandSquad)
+  })
+
+  it.each([
+    ['outside claim', { commandedActorIds: ['outside'] }],
+    ['duplicate claim', { commandedActorIds: ['two', 'two'] }],
+    ['claim also returning', { commandedActorIds: ['two'], nativeReturnStates: { two: 'REFIT' } }],
+    ['invalid return owner', { nativeReturnStates: { three: 'FLYING' } }],
+    ['mission-only field', { missionId: 'not-a-town-mission' }],
+    ['squad claim field', { commandedSquadIds: [1] }],
+  ])('rejects malformed peaceful Commander ownership: %s', (_name, patch) => {
+    const base = { type: 'town-command', townFaction: 'roman', squadId: 1, commandRank: 'commander',
+      squads: [{ squadId: 1, actorIds: ['one', 'two'] }, { squadId: 2, actorIds: ['three'] }],
+      actorIds: ['one', 'two', 'three'], commandedActorIds: ['two'], nativeReturnStates: { three: 'REFIT' },
+      contribution: emptyPersonalContribution(), authorized: true, sceneKey: 'town-home', state: 'FOLLOWING' }
+    expect(parseTownCommandSquad({ ...base, ...patch })).toBeUndefined()
+  })
+
   it('round-trips explicit squads, ownership, casualties, formations and resource checkpoints through CareerProfileStore', () => {
     const profile = createCareerProfile('roman')
     profile.rank = 'commander'; profile.totalMerit = 20000
