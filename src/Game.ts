@@ -3924,7 +3924,9 @@ export class Game {
 
   // ── Melee Combat Hit Detection (Player Sword -> Enemies / Damageable Obstacles) ──
   private _checkPlayerMeleeHits(): void {
-    if (this._commanderOutpostCombatLocked()) return
+    // Some focused contact owners borrow this method without constructing Game;
+    // a real Game always supplies the shared Last Stand lock.
+    if (this._commanderOutpostCombatLocked?.()) return
     if (this.captainEagleMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return
     const eagle = this.player.currentMount
     if (eagle?.isFlyingMount && !this.player.dead) {
