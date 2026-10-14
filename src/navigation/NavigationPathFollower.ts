@@ -59,7 +59,7 @@ export class NavigationPathFollower {
     const needsReplan = !this.computed || goalChanged || topologyChanged
 
     if (needsReplan) {
-      const result = navigationWorld.queryPath(start, goal)
+      const result = navigationWorld.queryPath(start, goal, this)
 
       if (result.status === 'pending') {
         // Topology changes invalidate old routes immediately. Goal movement on

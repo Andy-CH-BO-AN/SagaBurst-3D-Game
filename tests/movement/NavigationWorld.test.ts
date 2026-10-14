@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import {
   NAV_PATH_REQUESTS_PER_FRAME,
@@ -235,4 +235,28 @@ describe('NavigationWorld', () => {
     world.beginFrame()
     expect(world.queryPath(new THREE.Vector3(-8, 0, 0), new THREE.Vector3(8, 0, 0)).status).toBe('path')
   })
+})
+
+
+it('updates one deferred owner to its latest destination and discards deferred work after topology changes', () => {
+  const world = new NavigationWorld({ minX: 0, maxX: 100, minZ: 0, maxZ: 100, cellSize: 2 })
+  world.rebuild([]); world.beginFrame()
+  const find = vi.spyOn(world.grid, 'findPathCells'); onTestFinished(() => find.mockRestore())
+  world.queryPath({ x: 5, z: 5 }, { x: 15, z: 5 })
+  world.queryPath({ x: 5, z: 15 }, { x: 15, z: 15 })
+  const owner = {}
+  expect(world.queryPath({ x: 5, z: 25 }, { x: 15, z: 25 }, owner).status).toBe('pending')
+  expect(world.queryPath({ x: 5, z: 25 }, { x: 35, z: 25 }, owner).status).toBe('pending')
+  const before = find.mock.calls.length
+  world.beginFrame()
+  expect(find.mock.calls.length - before).toBe(1)
+  const result = world.queryPath({ x: 5, z: 25 }, { x: 35, z: 25 }, owner)
+  expect(result.status).toBe('path')
+  if (result.status === 'path') expect(result.path.at(-1)).toEqual({ x: 17, z: 12 })
+  world.queryPath({ x: 5, z: 45 }, { x: 35, z: 45 })
+  expect(world.queryPath({ x: 5, z: 65 }, { x: 35, z: 65 }, owner).status).toBe('pending')
+  world.rebuild([obstacle(48, 0, 52, 100)])
+  const afterRebuild = find.mock.calls.length
+  world.beginFrame()
+  expect(find.mock.calls.length).toBe(afterRebuild)
 })

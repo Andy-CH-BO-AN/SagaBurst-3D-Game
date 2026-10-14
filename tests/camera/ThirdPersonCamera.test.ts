@@ -93,11 +93,13 @@ describe('ThirdPersonCamera collision', () => {
 })
 
 // Camera policy only: 0 actors, 0 GLBs. Player supplies hero identity and anchor.
-function aimedCamera(heroAssetId?: HeroAssetId, obstacles: ObstacleData[] = []) {
+function aimedCamera(heroAssetId?: HeroAssetId, obstacles: ObstacleData[] = [], flying = false) {
   const camera = new THREE.PerspectiveCamera()
   const player: Pick<Player, 'position' | 'facingYaw' | 'isMounted' | 'isRangedAimViewActive' | 'heroAssetId'> = {
     position: new THREE.Vector3(0, 40, 0), facingYaw: 0, isMounted: false,
     isRangedAimViewActive: true, heroAssetId,
+    ...(flying ? { currentMount: { flight: { yaw: 0, pitch: 0 } },
+      setFlightSteering() {}, setFlightRiderAim() {} } : {}),
   }
   // The camera reads only this presentation boundary on foot.
   const orbit = new ThirdPersonCamera(camera, player as Player)
@@ -113,6 +115,8 @@ describe('first-person hero clearance', () => {
     { hero: undefined, offset: .55 },
     { hero: 'roman-hero-t4' as const, offset: .55 },
     { hero: 'maki-archer-t4' as const, offset: .55 },
+    { hero: 'roman-hero-t5' as const, offset: .55 },
+    { hero: 'viking-hero-t5' as const, offset: .55 },
   ])('$hero aims at forward offset $offset without changing the reticle direction or FOV', ({ hero, offset }) => {
     const { camera, orbit, player } = aimedCamera(hero)
     expect(camera.position.z).toBeCloseTo(offset, 4)
@@ -126,5 +130,29 @@ describe('first-person hero clearance', () => {
     const { camera } = aimedCamera('viking-hero-t4', [obstacle([-2, 39, .8], [2, 43, 1.3])])
     expect(camera.position.z).toBeCloseTo(.68, 4)
     expect(camera.position.z).toBeLessThan(.8)
+  })
+})
+
+
+describe('T5 eagle bow aim', () => {
+  it.each(['roman-hero-t5', 'viking-hero-t5'] as const)('%s uses stronger zoom and helmet clearance while retaining the arrow/reticle ray', hero => {
+    const { camera, orbit, player } = aimedCamera(hero, [], true)
+    expect(camera.fov).toBeCloseTo(22, 4)
+    expect(camera.position.z).toBeCloseTo(1.5, 4)
+    expect(camera.position.y).toBeCloseTo(40.8, 4)
+    const view = camera.getWorldDirection(new THREE.Vector3())
+    expect(view.distanceTo(orbit.getAimDirection(new THREE.Vector3()))).toBeLessThan(1e-8)
+    expect(player.position.toArray()).toEqual([0, 40, 0])
+  })
+
+  it('still stops the T5 eagle aim camera before a wall', () => {
+    const { camera } = aimedCamera('roman-hero-t5', [obstacle([-2, 39, .8], [2, 43, 1.3])], true)
+    expect(camera.position.z).toBeCloseTo(.68, 4)
+  })
+
+  it('keeps the existing eagle zoom for other rider profiles', () => {
+    const { camera } = aimedCamera('maki-archer-t4', [], true)
+    expect(camera.fov).toBeCloseTo(28, 4)
+    expect(camera.position.z).toBeCloseTo(.55, 4)
   })
 })

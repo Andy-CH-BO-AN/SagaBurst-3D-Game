@@ -136,6 +136,8 @@ describe('permanent Captain Town command roster', () => {
     controller.grant(); const returning = residents[0]
     returning.npc.combatPosition.set(140, 0, 150)
     expect(controller.issue('dismiss')).toBe(true)
+    expect(returning.npc.missionMovement).toBe(true)
+    expect(profile.townCommandSquad?.members?.[returning.spec.id].formation?.speedLimit).toBeUndefined()
     const position = returning.npc.combatPosition.clone()
     expect(controller.accepts(returning.npc)).toBe(false)
     expect(controller.issue('follow')).toBe(false); expect(controller.issue('attack')).toBe(false)
@@ -147,6 +149,7 @@ describe('permanent Captain Town command roster', () => {
     returning.actor.isFormationTargetReached.mockReturnValue(true)
     controller.updateResident(returning, .016, new THREE.Vector3(), [], {} as NavigationWorld)
     expect(controller.accepts(returning.npc)).toBe(true)
+    expect(returning.npc.missionMovement).toBe(false)
     expect(controller.issue('follow')).toBe(true)
     expect(returning.actor.assignFollowTarget).toHaveBeenCalledOnce()
     expect(residents.slice(1).every(r => r.actor.assignFollowTarget.mock.calls.length === 0)).toBe(true)

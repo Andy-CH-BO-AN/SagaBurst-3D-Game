@@ -955,7 +955,7 @@ export class NPC {
       return false
     }
     this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
-    this.animator.setLocomotion(speed, this.isMounted)
+    this.animator.setLocomotion(speed, this.isMounted, this.isSprinting && speed > 0)
     if (training && startAttack && !this.animator.busy) {
       if (this.rangedCombatKind === 'javelin') this._restoreCombatReadyRangedVisual()
       this.animator.start(this.hasActiveRangedWeapon ? (this.rangedCombatKind === 'javelin' ? 'pilumThrow' : 'bowRelease') : this._meleeAction())
@@ -1010,6 +1010,7 @@ export class NPC {
     }
     if (this.mount) this.mount.finishControlledFrame(dt, obstacles)
     else this._updateFootPhysics(previousPosition, dt, obstacles)
+    this._updateMovementStamina(dt)
     this.updateTownPeace(dt, distance, false, false, this.mount?.movementSpeed ?? this.visualMovementSpeed)
   }
 
@@ -3166,11 +3167,7 @@ export class NPC {
     }
 
     if (missionOrder) this.tacticalOrder = missionOrder
-    if (this.isSprinting) {
-      this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt)
-    } else {
-      this.stamina = Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * dt)
-    }
+    this._updateMovementStamina(dt)
 
     this.rig.animation?.setSwordHandShape?.(this.swordPivot.visible && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
     if (!this.animator.busy && !animationAdvanced) {
@@ -3732,7 +3729,8 @@ export class NPC {
     const baseSpeed = this.mount
       ? Math.min(this.mount.baseSpeed, target.speedLimit ?? Infinity)
       : target.speedLimit ?? FORMATION_MOVE_SPEED
-    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt, followSprint || this.missionMovement)
+    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt,
+      followSprint || this.missionMovement, distance)
     if (layeredNav && isStairLayer(npcLayer)) {
       const stair = layeredNav.getStair(layerSide(npcLayer)!)
       if (stair) {
@@ -3742,7 +3740,7 @@ export class NPC {
     clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position, this.playableWorldBound)
   }
 
-  private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false): void {
+  private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false, maxDistance = Infinity): void {
     if (this.siegeBypassTarget) {
       direction.copy(this.siegeBypassTarget).sub(this.combatPosition).setY(0)
       if (direction.lengthSq() < .16) return
@@ -3766,7 +3764,10 @@ export class NPC {
     }
     this.isSprinting = this.chargeSprintLatched && this.stamina > 0
     const sprintMultiplier = this.isSprinting ? SPRINT_MULTIPLIER : 1
-    const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier * sprintMultiplier * (getHeroCombatModifiers(this.combatProfileId)?.moveSpeedMultiplier ?? 1)
+    const desiredSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier * sprintMultiplier * (getHeroCombatModifiers(this.combatProfileId)?.moveSpeedMultiplier ?? 1)
+    // A fast return must stop at its slot rather than stepping over it and
+    // reversing forever; normal chase retains its existing unrestricted step.
+    const effectiveSpeed = dt > 0 ? Math.min(desiredSpeed, maxDistance / dt) : desiredSpeed
 
     this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)
     if (this.mount) {
@@ -3774,6 +3775,12 @@ export class NPC {
     } else {
       this.group.position.addScaledVector(direction, effectiveSpeed * dt)
     }
+  }
+
+  private _updateMovementStamina(dt: number): void {
+    this.stamina = this.isSprinting
+      ? Math.max(0, this.stamina - STAMINA_DRAIN * dt)
+      : Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * dt)
   }
 
   private _syncToMount(collector: NpcSubphaseCollector | null = null): void {

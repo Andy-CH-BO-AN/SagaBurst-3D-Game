@@ -1,3 +1,4 @@
+import { getTerrainHeight } from '../../src/world/Terrain'
 import { createTacticalNpc, type TacticalNpcArgs } from '../helpers/tacticalNpc'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
@@ -138,4 +139,22 @@ describe('NPC defend, charge and formation movement', () => {
     expect(ally.sprinting).toBe(false)
     expect(ally.position.z).toBeGreaterThan(beforeNormalChase)
   })
+})
+
+
+it('stops urgent formation travel at a nearby slot instead of sprinting past and oscillating', () => {
+  // One real foot NPC, zero Mount/Player/world/GLB; this owns the shared movement step.
+  const scene = new THREE.Scene(), navigation = new NavigationWorld(); navigation.sync([])
+  const ally = createNpc(scene, Faction.PLAYER, 'roman', 'roman_heavy_infantry',
+    { meleeWeaponId: 'gladius_rusty', shieldId: null, mountId: null }, 0)
+  const goal = new THREE.Vector3(0, getTerrainHeight(0, 3), 3)
+  ally.assignFormationTarget(57, goal, new THREE.Vector3(0, 0, 1))
+  ally.missionMovement = true
+  const stamina = ally.staminaValue
+  ally.updateTownTravel(.5, 0, [], [], navigation)
+  expect(ally.position.z).toBeCloseTo(3)
+  expect(ally.staminaValue).toBeLessThan(stamina)
+  ally.updateTownTravel(.5, 0, [], [], navigation)
+  expect(ally.isFormationTargetReached(57)).toBe(true)
+  expect(ally.position.z).toBeCloseTo(3)
 })

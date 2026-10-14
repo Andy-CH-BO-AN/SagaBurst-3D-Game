@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -148,4 +148,25 @@ describe('NavigationPathFollower', () => {
       ),
     ).toBe('pending')
   })
+})
+
+
+it('serves later followers despite two earlier actors requesting a new path every frame, within the existing budget', () => {
+  // 0 NPCs/Mounts/worlds: five real followers and one bounded navigation grid.
+  const world = new NavigationWorld({ minX: -100, maxX: 100, minZ: -100, maxZ: 100, cellSize: 2 })
+  world.rebuild([obstacle(-60, -2, 60, 2)])
+  const find = vi.spyOn(world.grid, 'findPathCells'); onTestFinished(() => find.mockRestore())
+  const followers = Array.from({ length: 5 }, () => new NavigationPathFollower())
+  const routes = Array<string>(5), out = new THREE.Vector3()
+  for (let frame = 0; frame < 5; frame++) {
+    const before = find.mock.calls.length
+    world.beginFrame()
+    followers.forEach((follower, index) => {
+      const start = new THREE.Vector3(-60 + index * 12, 0, -60)
+      const goal = new THREE.Vector3(-60 + index * 12 + (index < 2 ? frame * 8 : 0), 0, 60)
+      routes[index] = follower.resolveMoveTarget(start, goal, world, true, out)
+    })
+    expect(find.mock.calls.length - before).toBeLessThanOrEqual(2)
+  }
+  expect(routes.slice(2)).toEqual(['path', 'path', 'path'])
 })

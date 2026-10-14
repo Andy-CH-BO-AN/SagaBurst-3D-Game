@@ -20,6 +20,7 @@ interface PatrolReturn {
   destination: THREE.Vector3
   yaw: number
   commandedMounted: boolean | null
+  urgent?: boolean
 }
 const RETURN_COMMAND_ID = -4
 const FOOT_RETURN_SPEED = 2.2
@@ -168,8 +169,8 @@ export class TownCavalryPatrolController {
   }
 
   /** Restore saved travel ownership without repeating a completed refit. */
-  restoreMissionReturn(actorId: string, state: TownPatrolReturnState): void {
-    if (state !== 'REJOIN_PATROL') { this.beginMissionReturn(actorId); return }
+  restoreMissionReturn(actorId: string, state: TownPatrolReturnState, urgent = false): void {
+    if (state !== 'REJOIN_PATROL') { this.beginMissionReturn(actorId, urgent); return }
     const resident = this.residents.get(actorId)
     if (!resident) return
     const point = townPatrolRefitPoint(resident.spec)
@@ -315,12 +316,13 @@ export class TownCavalryPatrolController {
   }
 
   /** Living casualties retain their mission position and readiness until they physically reach barracks. */
-  beginMissionReturn(actorId: string): boolean {
-    if (this.returning.has(actorId)) return true
-    return this.beginPatrolReturn(actorId)
+  beginMissionReturn(actorId: string, urgent = false): boolean {
+    const returning = this.returning.get(actorId)
+    if (returning) { if (urgent) returning.urgent = true; return true }
+    return this.beginPatrolReturn(actorId, urgent)
   }
 
-  beginPatrolReturn(actorId: string): boolean {
+  beginPatrolReturn(actorId: string, urgent = false): boolean {
     const resident = this.residents.get(actorId)
     if (!resident || this.hostile) return false
     this.relinquished.delete(actorId)
@@ -330,6 +332,7 @@ export class TownCavalryPatrolController {
     const returning: PatrolReturn = this.returning.get(actorId)
       ?? { state: 'RETURN_TO_BARRACKS', destination, yaw: refitPoint.yaw, commandedMounted: null }
     returning.state = 'RETURN_TO_BARRACKS'; returning.commandedMounted = null
+    returning.urgent = urgent
     this.returning.set(actorId, returning)
     resident.npc.clearEncounter()
     resident.npc.setTownPeaceful()
@@ -395,9 +398,11 @@ export class TownCavalryPatrolController {
       const npc = resident.npc
       if (npc.dead) this.refit(resident, returning)
       else {
+        npc.missionMovement = Boolean(returning.urgent)
         if (returning.commandedMounted !== npc.isMounted || npc.formationCommandId !== RETURN_COMMAND_ID) {
           npc.assignFormationTarget(RETURN_COMMAND_ID, returning.destination,
-            returning.destination.clone().sub(npc.combatPosition).setY(0).normalize(), npc.isMounted ? TOWN_PATROL_SPEED : FOOT_RETURN_SPEED)
+            returning.destination.clone().sub(npc.combatPosition).setY(0).normalize(),
+            returning.urgent ? undefined : npc.isMounted ? TOWN_PATROL_SPEED : FOOT_RETURN_SPEED)
           returning.commandedMounted = npc.isMounted
         }
         npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 4, this.nearby), obstacles, navigation)
@@ -444,6 +449,7 @@ export class TownCavalryPatrolController {
   }
 
   private refit(resident: PatrolResident, returning: PatrolReturn): void {
+    resident.npc.missionMovement = false
     returning.state = 'REFIT'
     const destination = { x: returning.destination.x, z: returning.destination.z, yaw: returning.yaw }
     resident.npc.dismountFromMount()

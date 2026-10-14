@@ -132,6 +132,13 @@ export class CommanderTownMissionController {
   }
 
   /** Called by the common flow only after official and personal spawn batches are complete. */
+  completeInitialDeployment(): void {
+    if (!this.active || this.active.result) return
+    if (!this.ready) throw new Error('Commander Town initial roster is not ready')
+    this.finalizeDeployment()
+    if (!this.active.commanderMission?.deploymentComplete) throw new Error('Commander Town deployment checkpoint could not be saved')
+  }
+
   private finalizeDeployment(): void {
     const active = this.active
     if (!active?.commanderMission || active.commanderMission.deploymentComplete) return

@@ -473,6 +473,7 @@ export class TownCommandSquadController {
     if (!this.isReturning(npc.combatantId)) return
     actor.status = 'deployed'; actor.order = 'attack'; delete actor.formation
     this.value!.state = 'FOLLOWING'
+    npc.missionMovement = false
     npc.setTacticalOrder('attack')
   }
 
@@ -490,6 +491,7 @@ export class TownCommandSquadController {
     if (npc.formationCommandId !== TOWN_COMMAND_RETURN_ID) this.applyReturn(npc, actor)
     npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 4, this.nearby), obstacles, navigation)
     if (npc.isFormationTargetReached(TOWN_COMMAND_RETURN_ID)) {
+      npc.missionMovement = false
       actor.status = 'reserve'; actor.order = 'attack'; delete actor.formation
       npc.setTacticalOrder('attack'); npc.setTownPeaceful()
       if (this.value.commandRank === 'commander') {
@@ -518,13 +520,14 @@ export class TownCommandSquadController {
     actor.status = 'deployed'; actor.order = 'formation'
     actor.formation = { commandId: TOWN_COMMAND_RETURN_ID,
       position: { x: spec.x, y: getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? Math.PI },
-      reached: false, speedLimit: spec.mounted ? 7.5 : 2.2, arrivalOrder: 'attack' }
+      reached: false, arrivalOrder: 'attack' }
   }
   private applyReturn(npc: NPC, actor: PersonalActorCheckpoint): void {
     const f = actor.formation!, p = f.position
     npc.clearEncounter()
+    npc.missionMovement = true
     npc.assignFormationTarget(TOWN_COMMAND_RETURN_ID, new THREE.Vector3(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z),
-      new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw)), npc.isMounted ? f.speedLimit : 2.2, 'attack')
+      new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw)), undefined, 'attack')
   }
   private snapshotMember(resident: TownCommandResident, previous?: PersonalActorCheckpoint): PersonalActorCheckpoint {
     const actor = snapshotCommandActor(resident.npc, resident.homeMount,

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { Faction, NPC, AIType, AIState } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
-import { TOWN_SITES, townMilitaryEquipment, townRoster } from '../../src/town/TownRules'
+import { TOWN_SITES, townMilitaryEquipment, townRoster, townPatrolRefitPoint } from '../../src/town/TownRules'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
 import { CaptainPatrolCommandController } from '../../src/career/CaptainPatrolCommandController'
 import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
@@ -222,4 +222,20 @@ describe('Town patrol mission ownership and return interop', () => {
     expect(resident.npc.formationCommandId).toBe(988)
     expect(h.controller.returnStateFor(resident.spec.id)).toBeNull()
   })
+})
+
+
+it('uses native sprint for a player-dismissed Patrol return and releases urgency after reaching barracks (1 NPC, 1 Mount)', () => {
+  const h = createTownPatrolFixture({ patrolMembers: { A: 1 } }), resident = h.residents[0]
+  const destination = townPatrolRefitPoint(resident.spec)
+  resident.homeMount.group.position.set(destination.x, getTerrainHeight(destination.x, destination.z - 20), destination.z - 20)
+  expect(h.controller.beginMissionReturn(resident.spec.id, true)).toBe(true)
+  h.stepFrame()
+  expect(resident.npc.missionMovement).toBe(true)
+  expect(resident.npc.sprinting).toBe(true)
+  advanceUntil(() => h.controller.returnStateFor(resident.spec.id) === 'REJOIN_PATROL', () => h.stepFrame(),
+    { maxSimulationSeconds: 10, secondsPerStep: .1, failureMessage: 'urgent player return must reach the barracks without overshooting' })
+  expect(resident.npc.missionMovement).toBe(false)
+  expect(resident.npc.combatPosition.x).toBeCloseTo(destination.x)
+  expect(resident.npc.combatPosition.z).toBeCloseTo(destination.z)
 })

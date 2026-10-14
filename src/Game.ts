@@ -162,6 +162,7 @@ import {
   getCampaignOutpostPlacement,
 } from './campaign/CampaignOutpost'
 import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
+import { resolveDefenseCampaignAttackerDeployment } from './campaign/DefenseCampaignDeployment'
 import {
   applyCampaignBreachOrders,
   isCampaignGateOccupied,
@@ -197,7 +198,7 @@ import {
   createCareerVeteranOutpostReinforcementPlan,
   createCareerVeteranOutpostSpawnPlan,
 } from './career/CareerVeteranOutpost'
-import { createCareerCommanderOutpostSpawnPlan } from './career/CommanderOutpost'
+import { createCareerCommanderOutpostSpawnPlan, remainingCommanderAttackers } from './career/CommanderOutpost'
 import { MountedMissionMarchController, type MountedMissionSquad } from './career/MountedMissionMarch'
 import { MissionGuide } from './career/MissionGuide'
 import type { CampaignFaction } from './campaign/CampaignConfig'
@@ -262,14 +263,6 @@ export function reconcileLoadedMounts(
 
 export function shouldCreateStartingHorse(battleConfig?: BattleConfig): boolean {
   return !battleConfig?.spectator && (battleConfig?.playerLoadout?.startMounted ?? true)
-}
-
-/** Live Commander deployment is intentionally not part of the blocking load screen. */
-export function shouldWaitForInitialPersonalSpawns(
-  captainEagleMissionId: string | null,
-  campaignConfig?: DefenseCampaignLaunchConfig,
-): boolean {
-  return !captainEagleMissionId && !campaignConfig?.careerCommanderOutpost
 }
 
 /**
@@ -455,7 +448,8 @@ export class Game {
         }
       }
       if (campaignConfig?.careerCommanderOutpost) {
-        for (const spec of createCareerCommanderOutpostSpawnPlan(campaignConfig).npcSpecs) {
+        for (const spec of [...createCareerCommanderOutpostSpawnPlan(campaignConfig).npcSpecs,
+          ...createCareerCommanderOutpostSpawnPlan(campaignConfig, 'attackers').npcSpecs]) {
           if (spec.visualAssetId) heroAssets.add(spec.visualAssetId)
         }
       }
@@ -968,7 +962,7 @@ export class Game {
           deployRampartGarrison,
         })
       } else if (campaignConfig.careerCommanderOutpost) {
-        battlePlan = createCareerCommanderOutpostSpawnPlan(campaignConfig)
+        battlePlan = createCareerCommanderOutpostSpawnPlan(campaignConfig, 'initial', this.careerProfile?.activeMission)
       } else {
         battlePlan = BattleSpawner.createSpawnPlan(activeBattleConfig)
         if (campaignConfig.careerMissionKind === 'outpost-relief') battlePlan = createCareerReliefSpawnPlan(campaignConfig)
@@ -1084,6 +1078,8 @@ export class Game {
       this.campaignOriginalDefenders = []
       if (campaignConfig.careerCommanderOutpost) {
         this._queueCommanderOutpostDeployment(battlePlan, campaignConfig)
+        await gameplayNpcSpawns.wait(this.commanderOutpostDeploymentBatch!,
+          (done, total) => progress(`部署開場守軍 ${done} / ${total}…`))
       } else {
         const spawned = await this._executeBattleSpawnPlan(battlePlan, progress)
         for (const npc of spawned) this._configureCampaignInitialNpc(npc, campaignConfig)
@@ -1266,12 +1262,7 @@ export class Game {
     this.combatEvents.subscribe(event => this._awardPlayerSkillXpFromEvent(event))
     await this._restorePersonalOutpostBattle(progress)
     this._deployPersonalOutpost()
-    // Commander Last Stand deliberately finishes both official and HR deployment
-    // under the live render loop. The shared scheduler still admits one rider job
-    // per RAF frame while the Player remains controllable.
-    if (shouldWaitForInitialPersonalSpawns(this.captainEagleMissionId, campaignConfig)) {
-      await this.personalSquad?.waitForSpawns()
-    }
+    await this.personalSquad?.waitForSpawns()
     const outpostPlacement = previewOutpostFaction ? getCampaignOutpostPlacement(previewOutpostFaction) : null
     const formationRegion = outpostPlacement ? {
       minX: outpostPlacement.centerX - outpostPlacement.halfWidth,
@@ -1362,10 +1353,32 @@ export class Game {
     this._persistPersonalOutpost(true)
     if (this.captainCheckpoint) {
       if (!this._persistCaptainMission(true)) throw new Error('Captain battlefield initial checkpoint could not be saved')
-      if (this.captainEagleMissionId && battlePlan) this._queueCaptainEagleRoster(battlePlan)
+      if (this.captainEagleMissionId && battlePlan) {
+        this._queueCaptainEagleRoster(battlePlan)
+        await gameplayNpcSpawns.wait(this.captainEagleSpawnBatch!,
+          (done, total) => progress(`部署巨鷹部隊 ${done} / ${total}…`))
+        if (!this._persistCaptainMission(true)) throw new Error('Captain Eagle initial deployment could not be saved')
+      }
       const terminal = this.careerProfile?.activeMission?.result
       if (terminal) {
         if (!this.captainEagleMissionId) this._showDefenseCampaignResult(terminal.outcome === 'victory' ? 'victory' : 'defeat')
+      }
+    }
+
+    if (campaignConfig?.careerCommanderOutpost) {
+      if (!this._persistCareerVeteranOutpostCheckpoint({ immediate: true })) {
+        throw new Error('Commander initial deployment could not be saved')
+      }
+      this.commanderOutpostDeploymentCheckpointed = true
+      if (this.careerOutpostTerminalResultPending) {
+        const result = this.careerOutpostTerminalResultPending
+        this.careerOutpostTerminalResultPending = undefined
+        this._showDefenseCampaignResult(result)
+      }
+      const state = this.defenseCampaignRuntime!.getSnapshot()
+      // Restore only remaining timed jobs; Loading never waits for future arrivals.
+      if (state.activePhase === 'assault' && !state.battleFinished && !this.careerProfile?.activeMission?.result) {
+        this._queueDefenseCampaignWave('attackers')
       }
     }
 
@@ -2145,9 +2158,7 @@ export class Game {
     return batch
   }
 
-  /** Last Stand materializes during gameplay so the Player can move while the shared
-   * one-job-per-render-frame scheduler creates each rider and its mount atomically.
-   */
+  /** The entry barrier waits for this initial roster using the shared RAF budget. */
   private _queueCommanderOutpostDeployment(plan: BattleSpawnPlan, campaign: DefenseCampaignLaunchConfig): void {
     if (!campaign.careerCommanderOutpost) throw new Error('Expected Commander Last Stand launch')
     const batch = this._newSpawnBatch()
@@ -2162,7 +2173,7 @@ export class Game {
     batch.seal()
   }
 
-  private _configureCampaignInitialNpc(npc: NPC, campaign: DefenseCampaignLaunchConfig): void {
+  private _configureCampaignInitialNpc(npc: NPC, campaign: DefenseCampaignLaunchConfig, restorePosition = true): void {
     const careerOutpost = campaign.careerVeteranOutpost ?? campaign.careerCommanderOutpost
     const isOutpostOwner = npc.characterFaction === careerVeteranOutpostOwner(campaign)
     if (isOutpostOwner && (campaign.careerMissionKind !== 'outpost-relief' || !this._originalCareerSquadId(npc))) {
@@ -2180,7 +2191,7 @@ export class Game {
       : campaign.careerCommanderOutpost
         ? commanderAssault ? npc.squadId === 7 ? 'attack' : 'charge' : 'defend'
         : campaign.careerVeteranOutpost ? 'attack' : DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
-    if (careerOutpost) this._restoreCareerVeteranNpcState(npc)
+    if (careerOutpost) this._restoreCareerVeteranNpcState(npc, restorePosition)
     else this._restorePersonalOutpostNpc(npc)
   }
 
@@ -2633,6 +2644,8 @@ export class Game {
     const campaign = this.defenseCampaignConfig
     const mission = campaign?.careerVeteranOutpost || campaign?.careerCommanderOutpost || this.captainCheckpoint
       ? this.careerProfile?.activeMission : this.careerProfile?.activeOutpostMission
+    if (campaign?.careerCommanderOutpost && (this.careerProfile?.activeMission?.result
+      || campaign.careerCommanderOutpost.runtimeState.battleFinished)) return
     const saved = mission?.personalSquad
     if ((!campaign?.careerMissionId && !this.captainEagleMissionId) || !this.careerProfile || !saved?.memberIds.length) return
     const sceneKey = this.captainEagleMissionId ? `eagle:${this.captainEagleMissionId}` : `outpost:${campaign!.careerMissionId}`
@@ -2834,12 +2847,12 @@ export class Game {
     }
   }
 
-  private _restoreCareerVeteranNpcState(npc: NPC): void {
+  private _restoreCareerVeteranNpcState(npc: NPC, restorePosition = true): void {
     const mission = this.careerProfile?.activeMission
     const actorId = npc.combatantId
     if (!mission || !actorId) return
     const saved = mission.actorHealth?.[actorId]
-    const savedPosition = mission.actorPositions?.[actorId]
+    const savedPosition = restorePosition ? mission.actorPositions?.[actorId] : undefined
     const dead = mission.deadTargetActorIds?.includes(actorId) || mission.deadFriendlyActorIds?.includes(actorId)
     if (!this.careerVeteranActorMounts.has(actorId)) this.careerVeteranActorMounts.set(actorId, npc.mount)
     const mount = this.careerVeteranActorMounts.get(actorId) ?? null
@@ -3117,7 +3130,7 @@ export class Game {
       ?? this.defenseCampaignConfig?.careerCommanderOutpost?.runtimeState
     if (!state?.battleFinished) return
     const result = state.phase === 'victory' ? 'victory' : 'defeat'
-    if (this.defenseCampaignConfig?.careerCommanderOutpost && (!this.commanderOutpostDeploymentBatch?.ready
+    if (this.defenseCampaignConfig?.careerCommanderOutpost && (this.initializing || !this.commanderOutpostDeploymentBatch?.ready
       || this.personalSquad && !this.personalSquad.ready)) {
       this.careerOutpostTerminalResultPending = result
       return
@@ -3140,7 +3153,15 @@ export class Game {
     if (this.campaignSpawnWave !== null) return 0
 
     let plan: BattleSpawnPlan
-    if (campaign.careerVeteranOutpost) {
+    if (campaign.careerCommanderOutpost) {
+      if (wave !== 'attackers' || this.defenseCampaignRuntime?.getSnapshot().activePhase !== 'assault'
+        || this.defenseCampaignRuntime.getSnapshot().battleFinished || this.careerProfile?.activeMission?.result) return 0
+      plan = createCareerCommanderOutpostSpawnPlan(campaign, 'attackers', this.careerProfile?.activeMission)
+      const existing = new Set(this.npcs.map(npc => npc.combatantId))
+      plan.npcSpecs = plan.npcSpecs.filter(spec => !existing.has(spec.actorId!))
+      resolveDefenseCampaignAttackerDeployment(plan.npcSpecs, campaign.defenderFaction,
+        this.obstacles, this.navigationWorld, 150)
+    } else if (campaign.careerVeteranOutpost) {
       if (wave !== 'reinforcement' || campaign.careerVeteranOutpost.templateId !== 'veteran-dread-outpost') return 0
       plan = createCareerVeteranOutpostReinforcementPlan(campaign)
     } else {
@@ -3151,6 +3172,7 @@ export class Game {
       this._identifyPersonalOutpostWave(plan, wave)
     }
 
+    if (!plan.npcSpecs.length) return 0
     if (wave === 'attackers') this.campaignSiegeAssault?.prepare(plan.npcSpecs)
     this.campaignSpawnQueue = plan.npcSpecs
     this.campaignSpawnQueueIndex = 0
@@ -3179,7 +3201,12 @@ export class Game {
             attackerFaction: npc.characterFaction,
           })
         }
-        if (this.defenseCampaignConfig?.careerVeteranOutpost) {
+        if (this.defenseCampaignConfig?.careerCommanderOutpost) {
+          // Pending IDs enter from their legal staging slots. A legacy preparation
+          // checkpoint may contain the old, premature enemy waiting positions.
+          this._configureCampaignInitialNpc(npc, this.defenseCampaignConfig, false)
+          npc.setTacticalOrder(npc.squadId === 7 ? 'attack' : 'charge')
+        } else if (this.defenseCampaignConfig?.careerVeteranOutpost) {
           npc.setTacticalOrder(wave === 'reinforcement' ? 'defend' : 'attack')
           this._restoreCareerVeteranNpcState(npc)
           if (this.previewCampaignBreachController?.breached && wave === 'attackers') {
@@ -3194,6 +3221,10 @@ export class Game {
           this._restorePersonalOutpostNpc(npc)
         }
         this.campaignSpawnQueueIndex++
+        if (this.defenseCampaignConfig?.careerCommanderOutpost
+          && !this._persistCareerVeteranOutpostCheckpoint({ immediate: true })) {
+          throw new Error('Commander attacker checkpoint could not be saved')
+        }
 
         if (this.campaignSpawnQueueIndex >= this.campaignSpawnQueue.length) {
           if (wave === 'reinforcement') {
@@ -3437,7 +3468,9 @@ export class Game {
       personalPlayerSideAlive: this.personalSquad?.aliveCombatants ?? 0,
       // The assault wave is frame-spawned. Pending attackers still count as
       // remaining enemies so a temporary zero on the field cannot end the battle.
-      attackersAlive: enemySideAliveBefore + pendingAttackers,
+      attackersAlive: commanderOutpost && this.careerProfile?.activeMission
+        ? remainingCommanderAttackers(this.careerProfile.activeMission, this.npcs)
+        : enemySideAliveBefore + pendingAttackers,
       reinforcementSpawned: veteranOutpost?.templateId === 'veteran-dread-outpost'
         ? this.campaignReinforcementArrived
         : this.campaignReinforcementSpawned,
@@ -3447,7 +3480,7 @@ export class Game {
     for (const event of events) {
       if (event === 'assault_started') {
         if (commanderOutpost) {
-          this.campaignAttackersStarted = true
+          this._queueDefenseCampaignWave('attackers')
           const targetIds = new Set(this.careerProfile?.activeMission?.targetActorIds ?? [])
           for (const npc of this.npcs) if (!npc.dead && targetIds.has(npc.combatantId)) {
             npc.setTacticalOrder(npc.squadId === 7 ? 'attack' : 'charge')

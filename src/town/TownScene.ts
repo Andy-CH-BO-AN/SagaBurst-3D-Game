@@ -341,9 +341,9 @@ export class TownScene {
         canClaimNative: resident => resident.spec.duty !== 'patrol' || this.patrol!.canClaimTownCommand(resident.spec.id),
         claimNative: resident => resident.spec.duty !== 'patrol' || this.patrol!.claimTownCommand(resident.spec.id),
         nativeReturnOnRelease: resident => resident.spec.duty === 'patrol' ? 'RETURN_TO_BARRACKS' : undefined,
-        releaseNative: resident => { if (resident.spec.duty === 'patrol') this.patrol!.beginMissionReturn(resident.spec.id) },
+        releaseNative: resident => { if (resident.spec.duty === 'patrol') this.patrol!.beginMissionReturn(resident.spec.id, true) },
         nativeReturnState: actorId => this.patrol!.returnStateFor(actorId) ?? undefined,
-        restoreNativeReturn: (actorId, state) => this.patrol!.restoreMissionReturn(actorId, state),
+        restoreNativeReturn: (actorId, state) => this.patrol!.restoreMissionReturn(actorId, state, true),
       })
     this.townCommand.restore()
     this.townAirCommand = new TownAirCommandSquadController(this.residents, () => this.player,
@@ -442,7 +442,7 @@ export class TownScene {
     )
     this.player.onPlayerDeath = () => this.enterMissionObserver()
     await this.restoreActiveCareerMission()
-    if (!this.profile.activeMission) await this.personalSquad!.waitForSpawns()
+    await this.waitForInitialMissionDeployment(progress)
     progress('預熱城外 Bandit…')
     const banditWarmupStarted = performance.now()
     for (const distance of [100, 35, 0]) {
@@ -1586,7 +1586,8 @@ export class TownScene {
       const launch = templateId === CAPTAIN_FRONTLINE_COMMAND_ID ? createCaptainFrontlineLaunch(this.profile) : createCaptainEagleLaunch(this.profile)
       this.dispose(true); this.onCampaign(launch); return
     }
-    if (templateId === CAPTAIN_SIEGE_COMMAND_ID || templateId === CAPTAIN_GATE_DEFENSE_ID) { this.dispose(); this.onRestart(this.profile); return }
+    if (templateId === CAPTAIN_SIEGE_COMMAND_ID) { this.dispose(); this.onRestart(this.profile); return }
+    if (templateId === CAPTAIN_GATE_DEFENSE_ID) { this.startHomeDefense(); return }
     const started = templateId === CAPTAIN_PATROL_COMMAND_ID ? this.captainPatrol!.resume(false)
       : this.mission.startActiveMission()
     if (!started) { this.openPanel('任務部署失敗', '任務及兵權交接已保存。重新載入可恢復同一支部隊。'); return }
@@ -1874,6 +1875,17 @@ export class TownScene {
     this.restoringAerialState = false
   }
 
+  /** Entry/reload owns Loading. In-place mission acceptance never calls this
+   * barrier, so home defense keeps the existing free-movement spawn flow.
+   * Only batches already declared at entry belong to the initial roster. */
+  private async waitForInitialMissionDeployment(progress: (text: string) => void = () => {}): Promise<void> {
+    const initial = [...this.mission.spawnBatches, ...this.defense.spawnBatches]
+    for (const batch of initial) await gameplayNpcSpawns.wait(batch,
+      (done, total) => progress(`部署開場部隊 ${done} / ${total}…`))
+    await this.personalSquad?.waitForSpawns()
+    if (this.defense instanceof CommanderTownMissionController) this.defense.completeInitialDeployment()
+  }
+
   private restorePersonalSquad(saved: CareerProfile['personalSquadRuntime']): void {
     if (!saved || !this.personalSquad) return
     if (this.personalSquad.hasHR) saved = migratePersonalTownLayout(saved, this.personalSquad.sceneKey,
@@ -1926,7 +1938,7 @@ export class TownScene {
       const mission = createTownDefenseMission(defenders, civilians, undefined, template.id, fresh.rank)
       const next = cloneCareerProfile(fresh); next.activeMission = mission
       if (!this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始。請確認瀏覽器儲存空間後重試。'); return }
-      this.dispose(); this.onRestart(this.profile)
+      this.startHomeDefense()
       return
     }
     const preferredCamp = template.kind === 'patrol' ? patrolPreferredCamp(template.routeId) : template.preferredCampIndex
@@ -1939,6 +1951,19 @@ export class TownScene {
     this.inventory.prepareForCombat()
     this.notice = `已接受 ${template.name}。前往兵營外集合。`
     this.playMissionVoice('missionAccepted')
+    this.closePanel()
+  }
+  private startHomeDefense(): void {
+    // Acceptance has already durably refitted the eligible command roster.
+    // Apply it in this scene before the defense controller borrows those actors.
+    if (this.profile.rank !== 'commander') this.townCommand?.applyRefit(this.profile.townCommandSquad)
+    this.siegeOpeningPending = !this.profile.activeMission?.siege?.rosterCreated
+    if (!this.defense.startActiveMission()) {
+      this.openPanel('任務部署失敗', '任務已保存，重新載入可恢復同一場守城。')
+      return
+    }
+    this.inventory.prepareForCombat()
+    this.synchronizeCommandActors()
     this.closePanel()
   }
   private unavailableTownCavalryActorIds(refitTownCommand = false): ReadonlySet<string> {
