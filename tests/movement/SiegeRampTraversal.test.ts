@@ -55,7 +55,7 @@ describe('Siege surface movement: real actor/physics consumers', () => {
     h.scene.addEventListener('childadded', event => {
       if (event.child.name.startsWith('npc_')) initialSceneY = event.child.position.y
     })
-    const npc = new NPC(h.scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, spec.tier, false, spec.loadout, undefined, undefined, spec.actorId, undefined, undefined, undefined, undefined, undefined, undefined, { y: spec.spawnY! })
+    const npc = new NPC(h.scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, spec.tier, false, spec.loadout, undefined, undefined, spec.actorId, undefined, undefined, undefined, undefined, undefined, undefined, undefined, { y: spec.spawnY! })
     const defender = new Player(h.scene)
     onTestFinished(() => { npc.dispose(); defender.dispose() })
     expect(initialSceneY).toBe(spec.spawnY)
