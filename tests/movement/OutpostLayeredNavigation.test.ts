@@ -15,6 +15,7 @@ import {
   isStairLayer,
   OutpostLayeredNavigation,
 } from '../../src/navigation/OutpostLayeredNavigation'
+import { getSiegeRampPlacement } from '../../src/campaign/MobileSiegeRampPolicy'
 import { getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
 import {
   followLocalOffset,
@@ -26,6 +27,60 @@ describe('OutpostLayeredNavigation', () => {
   const vikingLayout = getOutpostWalkwayLayout(vikingPlacement)
   const romanPlacement = getCampaignOutpostPlacement('roman')
   const romanLayout = getOutpostWalkwayLayout(romanPlacement)
+
+  // Pure topology: no scene, actors, geometry, or A* grid.
+  function dockLeft(nav: OutpostLayeredNavigation) {
+    const placement = getSiegeRampPlacement(romanLayout, -1)
+    const surface = placement.surface
+    const approach = new THREE.Vector3(surface.startX, surface.startY, surface.startZ - surface.dirZ * 2)
+    nav.entrances.set({ id: 'left', type: 'siege-ramp-left', position: placement.dock,
+      approach, exit: placement.deckConnection, surface, side: -1, walkable: true,
+      mounted: true, faction: null, connectionId: 'left-connection' })
+    return approach
+  }
+
+  it.each(['gate', 'palisade'] as const)('%s-first foot routes remain unchanged when a ramp docks later', type => {
+    const nav = new OutpostLayeredNavigation(romanLayout)
+    const current = new THREE.Vector3(0, 0, -70)
+    const goal = nav.getWaypoints(-1).deckConnection
+    nav.entrances.set({ id: type, type, position: current, approach: current, exit: current,
+      walkable: true, mounted: true, faction: null, connectionId: type })
+    const groundGoal = nav.getWaypoints(-1).groundEntrance
+    const before = [goal, groundGoal].map(target => nav.resolveMoveTarget(current, target, false, new THREE.Vector3(), type))
+    const approach = dockLeft(nav)
+    for (const [index, target] of [goal, groundGoal].entries()) {
+      const after = nav.resolveMoveTarget(current, target, false, new THREE.Vector3(), type)
+      expect(after).toEqual(before[index])
+      expect(after.target.equals(approach)).toBe(false)
+    }
+    // Mounted cannot use the interior foot stair; invalid preferences can reselect too.
+    expect(nav.resolveMoveTarget(current, goal, true, new THREE.Vector3(), type).target).toEqual(approach)
+    nav.entrances.remove(type)
+    expect(nav.resolveMoveTarget(current, goal, false, new THREE.Vector3(), type).target).toEqual(approach)
+  })
+
+  it.each([-1, 1])('mounted Follow queues locally at endpoint %i without wraparound or overlapping slots', side => {
+    const nav = new OutpostLayeredNavigation(romanLayout)
+    dockLeft(nav)
+    const deck = nav.getDeck(side as -1 | 1)!
+    const leader = new THREE.Vector3(side * 42, deck.topY, (deck.slab.min.z + deck.slab.max.z) / 2)
+    const slots = Array.from({ length: 5 }, (_, slot) => {
+      const out = new THREE.Vector3()
+      nav.clampMountedFollow(out, leader, slot)
+      expect(Math.abs(out.x - leader.x)).toBeCloseTo((slot + 1) * 3.2)
+      expect(isRampartLayer(nav.getNavLayer(out))).toBe(true)
+      const moved = new THREE.Vector3()
+      nav.clampMountedFollow(moved, leader.clone().add(new THREE.Vector3(-side * .1, 0, 0)), slot)
+      expect(moved.x - out.x).toBeCloseTo(-side * .1)
+      return out
+    })
+    for (let i = 1; i < slots.length; i++) expect(Math.abs(slots[i].x - slots[i - 1].x)).toBeCloseTo(3.2)
+    const overflow = [30, 31].map(slot => {
+      const out = new THREE.Vector3(); nav.clampMountedFollow(out, leader, slot); return out
+    })
+    expect(overflow.every(p => nav.getNavLayer(p) === 'ground')).toBe(true)
+    expect(overflow[0].distanceTo(overflow[1])).toBeGreaterThanOrEqual(3.2)
+  })
 
   it('places bridge exit waypoints beyond layer tolerance on either connected wing', () => {
     const nav = new OutpostLayeredNavigation(romanLayout)

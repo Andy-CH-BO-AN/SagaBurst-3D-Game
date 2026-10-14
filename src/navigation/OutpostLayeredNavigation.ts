@@ -470,9 +470,12 @@ export class OutpostLayeredNavigation {
     const left = this.getDeck(-1)!, right = this.getDeck(1)!
     const minX = left.slab.min.x + 1.2, maxX = right.slab.max.x - 1.2
     const spacing = 3.2
-    const capacity = Math.floor((maxX - minX) / spacing) + 1
+    const anchor = THREE.MathUtils.clamp(leader.x, minX, maxX)
+    // Queue inward from the leader; never wrap an endpoint to the opposite wing.
+    const direction = anchor > (minX + maxX) / 2 ? -1 : 1
+    const capacity = Math.floor((direction < 0 ? anchor - minX : maxX - anchor) / spacing)
     if (slot >= capacity) {
-      const entrance = [...this.entrances.entries.values()].find(entry => entry.mounted && entry.surface)
+      const entrance = [...this.entrances.entries.values()].find(entry => entry.walkable && entry.mounted && entry.surface)
       if (entrance) {
         out.copy(entrance.approach)
         out.z -= this.layout.zSign * (slot - capacity + 1) * spacing
@@ -480,9 +483,7 @@ export class OutpostLayeredNavigation {
       }
       return
     }
-    const anchor = THREE.MathUtils.clamp(Math.round((leader.x - minX) / spacing), 0, capacity - 1)
-    const index = (anchor + slot + 1) % capacity
-    const x = minX + index * spacing
+    const x = anchor + direction * (slot + 1) * spacing
     const deck = x < this.layout.bridge.slab.min.x ? left : x > this.layout.bridge.slab.max.x ? right : this.layout.bridge
     const z = (deck.slab.min.z + deck.slab.max.z) / 2
     out.set(x, getWalkRampHeight(deck.walkSurface, x, z) ?? deck.topY, z)
@@ -505,7 +506,12 @@ export class OutpostLayeredNavigation {
     const currentLayer = this.getNavLayer(current), targetLayer = this.getNavLayer(goal)
     const frontZ = this.layout.bridge.walkSurface.startZ - this.layout.zSign * 1.6
     const outside = (point: THREE.Vector3): boolean => (point.z - frontZ) * this.layout.zSign < -.3
-    const chosen = preferred ? this.entrances.entries.get(preferred) : undefined
+    const preferredEntry = preferred ? this.entrances.entries.get(preferred) : undefined
+    const chosen = preferredEntry?.walkable ? preferredEntry : undefined
+    // A valid foot entrance still reaches ramparts via the interior stairs. Only
+    // mounted actors need a different connection because those stairs are foot-only.
+    if (!mounted && currentLayer === 'ground' && chosen && !chosen.surface
+      && !targetLayer.startsWith('siege_')) return null
     const ramps = [...this.entrances.entries.values()].filter(e => e.walkable && e.surface && (!mounted || e.mounted))
     if (!ramps.length) return null
     let entry: BreachEntrance | undefined

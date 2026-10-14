@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { DamageableObstacle, DAMAGEABLE_OBSTACLE_HP } from '../world/DamageableObstacle'
-import { getTerrainHeight, getWalkRampHeight, removeObstacleData, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
+import { getTerrainHeight, getWalkRampHeight, removeObstacleData, type EntityCollisionBody, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
+import { intersectsSweptPart } from '../movement/SweptBodyCollision'
 import { MovingPlatformSupport } from '../movement/MovingPlatformSupport'
 import type { NPC } from '../world/NPC'
 import { MobileSiegeRampController, type MobileSiegeRampState } from './MobileSiegeRampController'
@@ -21,6 +22,7 @@ export class MobileSiegeRamp {
   readonly obstacles: ObstacleData[] = []
   private readonly parts: Part[] = []
   private readonly wheels: THREE.Mesh[] = []
+  private readonly wheelBodies: { box: THREE.Box3; worldToLocal: THREE.Matrix4 }[] = []
   private readonly wood = new THREE.MeshStandardMaterial({ color: 0x795334, roughness: .9 })
   private readonly iron = new THREE.MeshStandardMaterial({ color: 0x343238, roughness: .7 })
   private readonly run: Part
@@ -69,6 +71,8 @@ export class MobileSiegeRamp {
         const wheel = new THREE.Mesh(new THREE.CylinderGeometry(.65, .65, .3, 12), this.iron)
         wheel.rotation.z = Math.PI / 2
         wheel.position.set(side * (SIEGE_RAMP.halfWidth + .15), -2, z)
+        wheel.geometry.computeBoundingBox()
+        this.wheelBodies.push({ box: wheel.geometry.boundingBox!, worldToLocal: new THREE.Matrix4() })
         this.root.add(wheel); this.wheels.push(wheel)
       }
     }
@@ -111,7 +115,7 @@ export class MobileSiegeRamp {
     if (this.assignment.assaultIds.includes(npc.combatantId)) this.platform.attach(npc)
   }
 
-  update(dt: number, actors: readonly NPC[], blockers: readonly THREE.Vector3[] = []): void {
+  update(dt: number, actors: readonly NPC[], blockers: readonly EntityCollisionBody[] = []): void {
     if (this.disposed) return
     const maxTravel = SIEGE_RAMP.speed * Math.min(dt, .1)
     // Swept vehicle envelope; actors/structures ahead stop this convoy rather than being traversed.
@@ -120,8 +124,13 @@ export class MobileSiegeRamp {
     swept.expandByVector(this.scratch.set(.12, 0, maxTravel))
     const staticBlocked = this.shared.some(obstacle => !this.obstacles.includes(obstacle)
       && !obstacle.walkSurface && obstacle.box.intersectsBox(swept))
+    const intersectsBody = (body: EntityCollisionBody): boolean => this.parts.some(part =>
+      intersectsSweptPart(body, part.localBox, part.obstacle.projectileWorldToLocal!, maxTravel * this.placement.dirZ))
+      || this.wheelBodies.some(wheel => intersectsSweptPart(body, wheel.box, wheel.worldToLocal,
+        maxTravel * this.placement.dirZ))
     const actorBlocked = actors.some(npc => !npc.dead && !this.crew.has(npc.combatantId)
-      && swept.containsPoint(npc.combatPosition)) || blockers.some(position => swept.containsPoint(position))
+      && intersectsBody({ position: npc.combatPosition, radius: npc.isMounted ? 1 : .5,
+        height: npc.isMounted ? 2.6 : 2.3, bottomOffset: 0 })) || blockers.some(intersectsBody)
     const movement = this.controller.advance(Math.min(dt, .1), !staticBlocked && !actorBlocked)
     for (const id of this.assignment.pusherIds) {
       const pusher = this.crew.get(id)
@@ -195,6 +204,7 @@ export class MobileSiegeRamp {
       }
     }
     this.root.updateWorldMatrix(true, true)
+    for (let i = 0; i < this.wheels.length; i++) this.wheelBodies[i].worldToLocal.copy(this.wheels[i].matrixWorld).invert()
     for (const part of this.parts) {
       part.obstacle.box.copy(part.localBox).applyMatrix4(part.mesh.matrixWorld)
       part.obstacle.projectileWorldToLocal!.copy(part.mesh.matrixWorld).invert()

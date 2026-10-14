@@ -3,7 +3,7 @@ import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { BreachEntrance } from '../navigation/AvailableBreachEntrances'
 import { AIType, type NPC } from '../world/NPC'
-import { getTerrainHeight, getWalkRampHeight, type ObstacleData } from '../world/Terrain'
+import { getTerrainHeight, getWalkRampHeight, type EntityCollisionBody, type ObstacleData } from '../world/Terrain'
 import type { OutpostWalkways } from './CampaignOutpostWalkways'
 import type { CampaignGateController, CampaignBreachController } from './CampaignGate'
 import { reconcileCampaignGateSiege } from './CampaignGate'
@@ -27,7 +27,7 @@ export class CampaignSiegeAssault {
     private readonly actors: () => readonly NPC[],
     private readonly registerHit: (ramp: MobileSiegeRamp) => void,
     private readonly unregisterHit: (ramp: MobileSiegeRamp) => void,
-    private readonly blockers: () => readonly THREE.Vector3[] = () => []) {
+    private readonly blockers: () => readonly EntityCollisionBody[] = () => []) {
     if (!navigation.outpostNav) throw new Error('Siege assault requires outpost navigation')
     this.entrances = navigation.outpostNav.entrances
     this.gateEntrance = this.groundEntrance('gate', gate.siegeObstacle, 'gate')

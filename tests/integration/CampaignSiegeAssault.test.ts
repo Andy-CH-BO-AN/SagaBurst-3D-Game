@@ -64,6 +64,24 @@ describe('Unified campaign assault producer wiring', () => {
     expect(h.actors[20].siegeObstacle).toBe(h.gate.siegeObstacle)
   })
 
+  it('stops for overlapping foot/mounted bodies outside the deck edge, but permits bodies below it and assigned crew', () => {
+    const h = siegeAssaultFixture()
+    const ramp = h.owner.ramps[0], actor = h.actors[20]
+    // One typed actor, reused across body sizes; no real NPC or Mount construction.
+    actor.position.set(ramp.position.x + 2.8, ramp.position.y - 1, ramp.position.z - ramp.placement.dirZ * 3)
+    ramp.update(.1, h.actors)
+    expect(ramp.controller.distance).toBe(0)
+    actor.position.x = 0
+    const body = { position: new THREE.Vector3(ramp.position.x + 3.2, ramp.position.y - 1,
+      ramp.position.z - ramp.placement.dirZ * 3), radius: 1, height: 2.6, bottomOffset: 0 }
+    ramp.update(.1, h.actors, [body])
+    expect(ramp.controller.distance).toBe(0)
+    body.position.set(ramp.position.x, ramp.position.y - 4, ramp.position.z - ramp.placement.dirZ * 3)
+    body.height = 1.8
+    ramp.update(.1, h.actors, [body])
+    expect(ramp.controller.distance).toBeCloseTo(.2)
+  })
+
   it('moves collider hits with the carrier, loses support without teleporting and cleans owned resources', () => {
     const h = siegeAssaultFixture()
     const ramp = h.owner.ramps[0]

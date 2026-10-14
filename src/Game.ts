@@ -832,7 +832,12 @@ export class Game {
             this.navigationWorld, outpost.gateController, outpost.breachController, () => this.npcs,
             ramp => { for (const mesh of ramp.damageable.hitMeshes) this._aimTargetRegistry.addStaticTarget(mesh) },
             ramp => { for (const mesh of ramp.damageable.hitMeshes) this._aimTargetRegistry.removeStaticTarget(mesh) },
-            () => [this.player.combatPosition, ...this.mounts.filter(mount => !mount.dead).map(mount => mount.group.position)])
+            () => [
+              ...(!this.player.spectatorOnly && !this.player.isMounted ? [{ position: this.player.position,
+                radius: .38, height: 1.9, bottomOffset: .95 }] : []),
+              ...this.mounts.filter(mount => !mount.dead).map(mount => ({ position: mount.group.position,
+                radius: 1, height: 2.6, bottomOffset: 0 })),
+            ])
         }
       }
     }
