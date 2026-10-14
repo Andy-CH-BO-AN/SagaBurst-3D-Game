@@ -101,6 +101,8 @@ import { availableRecruitMissions, availableCareerMissionsForPage, careerMission
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
 import { selectTownCavalryReserve } from './TownCavalryReserve'
 import { createCareerVeteranOutpostLaunch } from '../career/CareerVeteranOutpost'
+import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
+import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_DECAPITATION_ID, COMMANDER_LAST_STAND_ID, COMMANDER_MISSION_CATALOG, COMMANDER_SKY_RAID_ID, getCommanderMissionAvailability, getCommanderMissionDefinition, isCommanderTownMission } from '../career/CommanderMissionCatalog'
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
 import { MissionGuide } from '../career/MissionGuide'
@@ -113,6 +115,7 @@ import { acceptEnemyTownAssault, acceptCaptainSiegeCommand } from '../career/Ene
 import { careerTownSceneRoster, isCareerEnemyTerritoryFieldMission, resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
 import { townWartimeHostile } from './TownWartime'
 import { TownDefenseController } from '../career/TownDefenseController'
+import { CommanderTownMissionController } from '../career/CommanderTownMissionController'
 import { CareerMountController } from '../career/CareerMountController'
 import { preserveHpRatio, resolveCareerHeroAsset, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
 import { createTownDefenseMission, type CareerMissionOutcome, type CareerMissionResult } from '../career/CareerMissionState'
@@ -204,7 +207,7 @@ export class TownScene {
   private careerSkillSaveTimer: number | null = null
   private mission!: BanditMissionController
   private duel!: CareerDuelController
-  private defense!: TownDefenseController
+  private defense!: TownDefenseController | CommanderTownMissionController
   private careerMounts!: CareerMountController
   private missionSettlement!: TownMissionSettlement
   private patrol!: TownCavalryPatrolController
@@ -236,7 +239,10 @@ export class TownScene {
   private spawnErrorShown = false
   private residentSpawnBatch?: NpcSpawnBatch
   private commanderReturnPending = false
-  private get deploymentReady(): boolean { return (this.mission?.ready ?? true) && (this.defense?.ready ?? true) }
+  private get deploymentReady(): boolean {
+    return (this.mission?.ready ?? true) && (this.defense?.ready ?? true)
+      && (!isCommanderTownMission(this.profile.activeMission) || (this.personalSquad?.ready ?? true))
+  }
   private get deploymentFailed(): boolean {
     return [...(this.mission?.spawnBatches ?? []), ...(this.defense?.spawnBatches ?? []), ...(this.outskirts?.batches ?? []), ...(this.enemyEaglePatrol?.batches ?? [])]
       .some(batch => batch.status === 'failed') || Boolean(this.personalSquad?.error)
@@ -247,12 +253,14 @@ export class TownScene {
     try {
       progress('載入人物、坐騎與動畫…')
       const playerHero = resolveCareerHeroAsset(profile)
-      const commanderHero = shouldSpawnTownCommander(profile) ? townCommanderHeroAsset(profile.faction) : null
+      const sceneContext = resolveCareerTownSceneContext(profile)
+      const commanderHero = shouldSpawnTownCommander(profile) ? townCommanderHeroAsset(sceneContext.residentFaction) : null
+      const formerCommanderHero = profile.activeMission?.kind === 'commander-decapitation' ? townCommanderHeroAsset(profile.faction) : null
       const personalHeroes = new Set((profile.personalSquad?.members ?? []).flatMap(member => {
         const hero = personalMemberLoadout(member, profile.faction).hero
         return hero ? [hero.visualAssetId] : []
       }))
-      await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(resolveCareerTownSceneContext(profile).residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
+      await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome)
@@ -364,11 +372,14 @@ export class TownScene {
     this.duel = new CareerDuelController(this.scene, this.world, this.navigation, this.residents, this.cat, () => this.player, () => this.profile, p => this.commit(p))
     this.duel.onMarchStarted = () => this.playMissionVoice('follow')
     this.duel.onReturnStarted = () => this.playMissionVoice('return')
-    this.defense = new TownDefenseController(this.scene, this.residents, () => this.player, () => this.profile, p => this.commit(p), this.cat, this.navigation, {
-      gates: this.world.gates, obstacles: this.world.obstacles, patrol: this.patrol, outskirts: this.outskirts,
-      closureBodies: () => this.siegeClosureBodies(),
-      ambientEnemies: () => this.mission.ambientBandits,
-    })
+    this.defense = isCommanderTownMission(this.profile.activeMission)
+      ? new CommanderTownMissionController(this.scene, this.residents, () => this.player, () => this.profile,
+        p => this.commit(p), this.navigation)
+      : new TownDefenseController(this.scene, this.residents, () => this.player, () => this.profile, p => this.commit(p), this.cat, this.navigation, {
+        gates: this.world.gates, obstacles: this.world.obstacles, patrol: this.patrol, outskirts: this.outskirts,
+        closureBodies: () => this.siegeClosureBodies(),
+        ambientEnemies: () => this.mission.ambientBandits,
+      })
     this.defense.personalActors = () => this.personalSquad?.actors ?? []
     this.civilianCommand = new CivilianCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p), {
       sceneKey: `town:${context.worldFaction}`, townFaction: context.worldFaction,
@@ -1373,7 +1384,7 @@ export class TownScene {
     const selectedPage = requestedPage !== 'duel' && !isCareerMissionPageUnlocked(this.profile, requestedPage) ? defaultPage : requestedPage
     this.deploymentPage = selectedPage
     const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.setAttribute('aria-label', '任務分類')
-    for (const [page, label] of [['recruit', '菜兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['captain', '隊長任務'], ['duel', '1v1 Duel · 單挑']] as const) {
+    for (const [page, label] of [['recruit', '菜兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['captain', '隊長任務'], ['commander', '指揮官任務'], ['duel', '1v1 Duel · 單挑']] as const) {
       const tab = document.createElement('button'); tab.className = 'town-button'; tab.textContent = label
       tab.setAttribute('aria-pressed', String(page === selectedPage))
       tab.disabled = page !== 'duel' && !isCareerMissionPageUnlocked(this.profile, page)
@@ -1385,6 +1396,7 @@ export class TownScene {
     if (selectedPage === 'duel') { this.openDuelPage(panel); return }
     if (selectedPage === 'veteran') { this.openVeteranMissionPage(panel); return }
     if (selectedPage === 'captain') { this.openCaptainMissionPage(panel); return }
+    if (selectedPage === 'commander') { this.openCommanderMissionPage(panel); return }
     if (selectedPage === 'soldier') {
       if (firstOutpost) {
         const outpost = document.createElement('p'); outpost.className = 'town-summary'
@@ -1498,6 +1510,38 @@ export class TownScene {
       accept.onclick = () => this.acceptCaptainMission(definition.id)
       row.append(title, details, accept); panel.append(row)
     }
+  }
+  private openCommanderMissionPage(panel: HTMLElement): void {
+    for (const definition of COMMANDER_MISSION_CATALOG) {
+      const availability = getCommanderMissionAvailability(this.profile, definition.id)
+      const row = document.createElement('article'); row.className = 'town-product'
+      const title = document.createElement('strong'); title.textContent = definition.name
+      const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
+      const force = definition.id === COMMANDER_SKY_RAID_ID
+        ? '正式兵力：玩家 1 人 + 2 支 25 人 T4 Ranger·xongkoro 空降隊；敵方：敵城原生人員（擊殺任意 100 人取勝）。私兵最多額外 30 人。'
+        : definition.id === COMMANDER_DECAPITATION_ID
+          ? '正式兵力：玩家 1 人 + 前任 T5 Commander + 10 T4 Lancer + 10 T4 Sword/Axe Cavalry + 9 T4 Horse Archer（全員騎乘）；敵方：敵城全體，斬首目標為 T5 Commander 1 人。'
+          : '正式兵力：玩家 1 人 + 4 支 30 人步兵隊；敵軍：48 T3 + 2 T4 Lancer、24 T3 + 1 T4 Sword/Axe Cavalry、24 T3 + 1 T4 Horse Archer。60 秒部署。'
+      details.textContent = `${definition.briefing}\n${force}\n玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。`
+      const accept = document.createElement('button'); accept.className = 'town-button'
+      accept.disabled = !availability.unlocked
+      accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '尚未解鎖'
+      accept.onclick = () => this.acceptCommanderMission(definition.id)
+      row.append(title, details, accept); panel.append(row)
+    }
+  }
+  private acceptCommanderMission(templateId: string): void {
+    const fresh = this.store.loadChecked().profile
+    if (!fresh || !getCommanderMissionDefinition(templateId) || this.player.dead || this.event.hostile) return
+    const availability = getCommanderMissionAvailability(fresh, templateId)
+    if (!availability.unlocked) { this.openPanel('無法接受任務', availability.reason ?? '目前無法接受。'); return }
+    const next = acceptCommanderCareerMission(fresh, templateId)
+    if (!next || !this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始，請重試。'); return }
+    if (templateId === COMMANDER_LAST_STAND_ID) {
+      const launch = createCareerCommanderOutpostLaunch(this.profile)
+      this.dispose(true); this.onCampaign(launch); return
+    }
+    this.dispose(); this.onRestart(this.profile)
   }
   private acceptCaptainMission(templateId: string): void {
     const fresh = this.store.loadChecked().profile, definition = getCaptainMissionDefinition(templateId)
@@ -1718,7 +1762,8 @@ export class TownScene {
     // pads at the lawful entry; the actual saved Player/squad flight stays authoritative.
     const airborne = aerial?.sceneKey === this.personalSquad.sceneKey
       && (aerial.mount && aerial.mount.flight.phase !== 'grounded' || aerial.fall?.active)
-    const entry = airborne && active?.kind === 'enemy-town-assault' ? siegeMuster('north', 1)
+    const entry = airborne && (active?.kind === 'enemy-town-assault' || active?.kind === 'commander-sky-raid'
+      || active?.kind === 'commander-decapitation') ? siegeMuster('north', 1)
       : airborne && active?.kind === 'veteran-field' ? veteranPlayerSpawn(active.templateId) : null
     const anchor = entry ? { x: entry.x, z: entry.z, yaw: active?.kind === 'veteran-field' ? veteranPlayerYaw(active.templateId) : 0 }
       : { x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.facingYaw }
@@ -1758,9 +1803,11 @@ export class TownScene {
         this.captainPatrol?.resume()
       } else if (profile.activeMission.kind === 'duel') {
         this.duel.startActiveMission()
-      } else if (profile.activeMission.kind === 'town-defense' || profile.activeMission.kind === 'enemy-town-assault') {
+      } else if (profile.activeMission.kind === 'town-defense' || profile.activeMission.kind === 'enemy-town-assault'
+        || profile.activeMission.kind === 'commander-sky-raid' || profile.activeMission.kind === 'commander-decapitation') {
         if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') {
-          this.siegeOpeningPending = Boolean(profile.activeMission.siege && !profile.activeMission.siege.rosterCreated)
+          this.siegeOpeningPending = Boolean(profile.activeMission.kind === 'enemy-town-assault'
+            && profile.activeMission.siege && !profile.activeMission.siege.rosterCreated)
           this.defense.startActiveMission()
         }
       } else {
@@ -1778,23 +1825,27 @@ export class TownScene {
       }
       if (!active.result || active.phase === 'RETURNING') this.inventory.prepareForCombat()
       this.preparePersonalFieldDeployment(active.personalSquad)
-      const siegeAnchor = active.kind === 'enemy-town-assault' || active.kind === 'town-defense' && active.siege?.playerPosition
+      const siegeAnchor = active.kind === 'enemy-town-assault' || active.kind === 'commander-sky-raid'
+        || active.kind === 'commander-decapitation' || active.kind === 'town-defense' && active.siege?.playerPosition
         ? this.player.combatPosition.clone() : null
       const siegeHeading = this.player.facingYaw
       this.careerMounts.restoreActiveMount()
       if ((active.kind === 'cavalry-sweep' || active.kind === 'veteran-field') && this.player.currentMount) {
         this.player.currentMount.group.rotation.y = active.kind === 'veteran-field' ? veteranPlayerYaw(active.templateId) : SWEEP_YAW
       }
-      if (active.kind === 'enemy-town-assault') {
+      if (active.kind === 'enemy-town-assault' || active.kind === 'commander-sky-raid'
+        || active.kind === 'commander-decapitation') {
         if (!active.result && !active.playerDead && !active.mountState && profile.selectedMountId) this.careerMounts.activate(profile.selectedMountId)
       }
+      if (this.defense instanceof CommanderTownMissionController) this.defense.preparePlayerDeployment()
       if (siegeAnchor && this.player.currentMount && !this.player.currentMount.isFlyingMount) {
         const mount = this.player.currentMount
         mount.group.position.set(siegeAnchor.x, getTerrainHeight(siegeAnchor.x, siegeAnchor.z), siegeAnchor.z)
         this.player.faceDirection(Math.sin(siegeHeading), Math.cos(siegeHeading))
         this.player.syncMountTransform()
       }
-      if (active.kind === 'veteran-field' && !active.playerDead) {
+      if ((active.kind === 'veteran-field' || active.kind === 'commander-sky-raid'
+        || active.kind === 'commander-decapitation') && !active.playerDead) {
         if (active.playerHp !== undefined) this.player.setHp(active.playerHp)
         if (active.playerStamina !== undefined) this.player.setStamina(active.playerStamina)
       }
@@ -2014,7 +2065,9 @@ export class TownScene {
       })
       return
     }
-    if (!result.defense && this.profile?.activeMission?.kind !== 'enemy-town-assault' && !isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
+    if (!result.defense && this.profile?.activeMission?.kind !== 'enemy-town-assault'
+      && !isCommanderTownMission(this.profile?.activeMission)
+      && !isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && complete && result.stats.survived) this.button(panel, this.mission.friendlies.some(npc => !npc.dead) ? '跟隊伍走回去' : '自行走回小鎮', () => {
       if (this.mission.phase === 'RETURNING') return
       if (!this.mission.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
       if (this.mission.friendlies.some(npc => !npc.dead)) this.playMissionVoice('return')
@@ -2980,6 +3033,10 @@ export class TownScene {
         ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.templateId === CAPTAIN_CAVALRY_COMMAND_ID ? '率領騎兵前往 Bandits 所在位置 · 接近後下令衝鋒' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain 出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
         : this.profile.activeMission.kind === 'enemy-town-assault'
         ? `\nENEMY TOWN ASSAULT · ${this.defense.phase === 'PREPARING' ? '開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : '敵方軍事守軍 ' + this.defense.military.filter(npc => !npc.dead).length + '/' + this.defense.military.length}`
+        : this.profile.activeMission.kind === 'commander-sky-raid'
+        ? `\nSKY RAID\nEnemy Town Kills: ${this.profile.activeMission.deadTargetActorIds?.length ?? 0} / 100\nFriendly Rangers: ${this.defense.defenders.filter(npc => !npc.dead).length} / 50 · Friendly Eagles: ${this.defense.enemyMounts.filter(mount => !mount.dead).length} / 50`
+        : this.profile.activeMission.kind === 'commander-decapitation'
+        ? `\nOPERATION DECAPITATION · ${this.defense.remainingEnemies ? '敵方 Commander 仍存活' : '敵方 Commander 已倒下'}\n行動隊 ${this.defense.defenders.filter(npc => !npc.dead).length}/30`
         : this.profile.activeMission.kind === 'town-defense'
         ? `\nTOWN DEFENSE ${this.defense.phase === 'PREPARING' ? '開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : this.profile.activeMission.phase} · 敵軍剩餘 ${this.defense.remainingEnemies} · 平民死亡 ${this.defense.civilianDeaths}/10`
         : fieldMissionHud(

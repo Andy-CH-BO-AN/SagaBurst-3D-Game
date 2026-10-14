@@ -15,7 +15,14 @@ import { officialMissionSourcePolicy, officialCommandSquads } from './CareerComm
 
 export type CareerMissionPhase = 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
-export type CareerMissionKind = 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-patrol-command' | 'captain-outpost-defense' | 'captain-eagle-battle'
+export type CareerMissionKind = 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-patrol-command' | 'captain-outpost-defense' | 'captain-eagle-battle' | 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand'
+export interface CommanderMissionState {
+  version: 1
+  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand'>
+  /** No objective can settle before every official and accepted personal actor is registered. */
+  deploymentComplete: boolean
+  playerPosition?: { x: number; z: number; yaw: number }
+}
 export interface VeteranOutpostBattleState {
   phase: 'deployment' | 'assault' | 'victory' | 'defeat'
   activePhase: 'deployment' | 'assault'
@@ -55,6 +62,7 @@ export interface CareerMissionMountState {
 }
 
 export interface ActiveCareerMission {
+  commanderMission?: CommanderMissionState
   officialSquad?: OfficialCommandAuthority
   patrolKilledActorIds?: string[]
   patrolOutskirts?: TownOutskirtsCheckpoint
@@ -182,7 +190,8 @@ export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: Co
       || (event.type === 'damage_applied' && event.target.ownerActorId === mission.duelOpponentActorId))
   }
   if (event.type === 'structure_damaged' || event.type === 'structure_destroyed') {
-    if ((mission.kind !== 'enemy-town-assault' && mission.kind !== 'veteran-outpost-assault')
+    if ((mission.kind !== 'enemy-town-assault' && mission.kind !== 'veteran-outpost-assault'
+      && mission.kind !== 'commander-sky-raid' && mission.kind !== 'commander-decapitation')
       || !isCareerMissionMeritSource(mission, event.source)) return false
     // Structures identify their owning army. A saved official's visual faction can differ
     // (Roman Maki keeps her Viking model), so use the accepted army's faction for hostility.
@@ -195,12 +204,20 @@ export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: Co
   if (event.type === 'damage_applied' && event.target.targetId === 'player') return true
   if (event.type === 'damage_applied' && event.target.targetType === 'npc'
     && (mission.officialSquad?.actorIds.includes(event.target.targetId) || mission.personalSquad?.memberIds.includes(event.target.targetId))
-    && (mission.targetActorIds.includes(event.source.actorId) || mission.kind === 'captain-patrol-command'
+    && (mission.targetActorIds.includes(event.source.actorId)
+      || (mission.kind === 'commander-sky-raid' || mission.kind === 'commander-decapitation' || mission.kind === 'commander-outpost-last-stand')
+        && (event.source.allegiance === 'ENEMY' || event.source.allegiance === 'BANDIT')
+      || mission.kind === 'captain-patrol-command'
       && (event.source.allegiance === 'ENEMY' || event.source.allegiance === 'BANDIT'))) return true
   if (!isCareerMissionMeritSource(mission, event.source)) return false
   if (mission.kind === 'captain-patrol-command') {
     return (event.target.targetType === 'npc' || event.type === 'damage_applied' && event.target.targetType === 'mount')
       && (event.target.allegiance === 'BANDIT' || event.target.allegiance === 'ENEMY')
+  }
+  if (mission.kind === 'commander-sky-raid' || mission.kind === 'commander-decapitation'
+    || mission.kind === 'commander-outpost-last-stand') {
+    return (event.target.targetType === 'npc' || event.type === 'damage_applied' && event.target.targetType === 'mount')
+      && event.target.allegiance === 'ENEMY'
   }
   if (mission.targetActorIds.includes(event.target.targetId)) return true
   if (mission.kind === 'enemy-town-assault' && mission.civilianActorIds?.includes(event.target.targetId)) return true

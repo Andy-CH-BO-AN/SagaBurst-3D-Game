@@ -67,6 +67,15 @@ export interface CareerVeteranOutpostLaunchData {
   assaultChargeDistanceMeters: number
 }
 
+export interface CareerCommanderOutpostLaunchData {
+  missionId: string
+  templateId: 'commander-outpost-last-stand'
+  missionKind: 'commander-outpost-last-stand'
+  playerFaction: CampaignFaction
+  outpostFaction: CampaignFaction
+  runtimeState: VeteranOutpostBattleState
+}
+
 export function defenseCampaignCapabilities(config?: DefenseCampaignLaunchConfig): DefenseCampaignCapabilities {
   return {
     reinforcementsEnabled: true,
@@ -82,9 +91,10 @@ export interface DefenseCampaignLaunchConfig {
   deploymentSeconds?: number
   capabilities?: Partial<DefenseCampaignCapabilities>
   careerMissionId?: string
-  careerMissionKind?: 'outpost-defense' | 'outpost-relief' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-outpost-defense'
+  careerMissionKind?: 'outpost-defense' | 'outpost-relief' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-outpost-defense' | 'commander-outpost-last-stand'
   careerReliefPhase?: 'march' | 'charge'
   careerVeteranOutpost?: CareerVeteranOutpostLaunchData
+  careerCommanderOutpost?: CareerCommanderOutpostLaunchData
   careerPersonalSquad?: PersonalSquadMission
   defenderFaction: CampaignFaction
   stageId: CampaignStageId
@@ -170,6 +180,8 @@ export function validateDefenseCampaignLaunchConfig(
 
   const config = value as DefenseCampaignLaunchConfig
   const veteranOutpost = config.careerVeteranOutpost
+  const commanderOutpost = config.careerCommanderOutpost
+  if (veteranOutpost && commanderOutpost) errors.push('A Career launch cannot be both Veteran and Commander Outpost')
   if (config.careerMissionKind === 'captain-outpost-defense' && (!config.careerMissionId || config.stageId !== 9)) errors.push('Captain Frontline requires Career Stage IX')
   if (config.careerPersonalSquad && (!config.careerMissionId || !parsePersonalMission(config.careerPersonalSquad))) {
     errors.push('Personal squad requires a valid Career mission roster')
@@ -236,6 +248,32 @@ export function validateDefenseCampaignLaunchConfig(
       errors.push('Invalid Veteran Outpost checkpoint')
     }
   }
+  if (commanderOutpost) {
+    if (commanderOutpost.templateId !== 'commander-outpost-last-stand'
+      || commanderOutpost.missionKind !== 'commander-outpost-last-stand'
+      || config.careerMissionKind !== 'commander-outpost-last-stand') errors.push('Commander Last Stand mission marker is invalid')
+    if (!config.careerMissionId || config.careerMissionId !== commanderOutpost.missionId) errors.push('Commander Last Stand mission id does not match its launch')
+    if (config.defenderFaction !== commanderOutpost.outpostFaction
+      || commanderOutpost.playerFaction !== commanderOutpost.outpostFaction) errors.push('Commander Last Stand must defend its home-faction Outpost')
+    if (!['roman', 'viking'].includes(commanderOutpost.playerFaction)
+      || !['roman', 'viking'].includes(commanderOutpost.outpostFaction)) errors.push('Invalid Commander Last Stand faction')
+    if (config.stageId !== 9) errors.push('Commander Last Stand requires Career Stage IX')
+    if (config.deploymentSeconds !== 60) errors.push('Commander Last Stand requires the 60-second deployment phase')
+    if (config.commandGrouping !== 'squad') errors.push('Commander Last Stand requires squad command grouping')
+    const capabilities = defenseCampaignCapabilities(config)
+    if (capabilities.reinforcementsEnabled || !capabilities.playerCommandsEnabled
+      || capabilities.gateControlEnabled || capabilities.attackerHeroesEnabled) {
+      errors.push('Commander Last Stand capabilities are invalid')
+    }
+    const saved = commanderOutpost.runtimeState
+    if (!saved || !['deployment', 'assault', 'victory', 'defeat'].includes(saved.phase)
+      || !['deployment', 'assault'].includes(saved.activePhase)
+      || !Number.isFinite(saved.assaultElapsedSeconds) || saved.assaultElapsedSeconds < 0
+      || !Number.isFinite(saved.deploymentRemainingSeconds) || saved.deploymentRemainingSeconds < 0
+      || !Number.isInteger(saved.reinforcementQueueIndex) || saved.reinforcementQueueIndex < 0) {
+      errors.push('Invalid Commander Last Stand checkpoint')
+    }
+  }
 
   if (typeof config.stageId !== 'number' || !isCampaignStageId(config.stageId)) {
     errors.push('Invalid campaign stage')
@@ -249,7 +287,7 @@ export function validateDefenseCampaignLaunchConfig(
     : VIKING_PRESET_IDS
   const army = config.defenderArmy
 
-  if (veteranOutpost) {
+  if (veteranOutpost || commanderOutpost) {
     // Career Veteran Outposts supply trusted per-side rosters outside the
     // deployable Defense Campaign army builder and its stage capacity limits.
   } else if (!army || typeof army !== 'object') {
@@ -449,6 +487,8 @@ function createWaveArmy(
   )
 
   const veteranOutpost = launch.careerVeteranOutpost
+  const commanderOutpost = launch.careerCommanderOutpost
+  if (commanderOutpost) return { viking, roman }
   if (veteranOutpost) {
     const roster = createVeteranRoster(veteranOutpost.templateId, veteranOutpost.playerFaction, veteranOutpost.missionId)
     const enemyFaction = opposingCampaignFaction(veteranOutpost.playerFaction)
@@ -533,7 +573,7 @@ export function createDefenseCampaignWaveConfig(
     mode: 'formation',
     commandGrouping: launch.commandGrouping ?? 'preset',
     spectator: false,
-    playerFaction: launch.careerVeteranOutpost?.playerFaction ?? launch.defenderFaction,
+    playerFaction: launch.careerVeteranOutpost?.playerFaction ?? launch.careerCommanderOutpost?.playerFaction ?? launch.defenderFaction,
     playerHp: COMBAT_BALANCE.hp.playerDefault,
     playerLoadout: { ...launch.playerLoadout },
     playerHeroId: launch.playerHeroId,

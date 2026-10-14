@@ -24,6 +24,8 @@ import { PersonalSquadRuntime, spawnPersonalSquadActor } from '../../src/career/
 import { EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { acceptCommanderMission, COMMANDER_DECAPITATION_ID, COMMANDER_LAST_STAND_ID } from '../../src/career/CommanderMissionCatalog'
+import { createCareerCommanderOutpostLaunch, createCareerCommanderOutpostSpawnPlan } from '../../src/career/CommanderOutpost'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { createCaptainGateDefenseMission } from '../../src/career/CaptainMissionCatalog'
 import { careerTownSceneRoster, resolveCareerTownSceneContext } from '../../src/career/CareerFieldSceneContext'
@@ -42,6 +44,7 @@ import { TownEvent, townRoster } from '../../src/town/TownRules'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
 import { advanceNpcFrame, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { createGameTestFixture } from '../helpers/gameFixture'
+import { shouldWaitForInitialPersonalSpawns } from '../../src/Game'
 
 import { recording, resetSpawnRecording } from '../helpers/npcSpawnRecording'
 
@@ -260,6 +263,113 @@ describe('production spawn callers with recorded constructor boundaries', () => 
       if (npc.isMounted && npc.mount) expect(npc.mount.riderNpc).toBe(npc)
     })
   })
+
+  it('deploys the full Commander Last Stand roster one rider job per frame while gameplay remains live', async () => {
+    const profile = createCareerProfile('roman')
+    profile.rank = 'commander'; profile.totalMerit = 20_000; profile.availableMerit = 20_000
+    const accepted = acceptCommanderMission(profile, COMMANDER_LAST_STAND_ID, 'commander-shared-deployment')!
+    const launch = createCareerCommanderOutpostLaunch(accepted)
+    const plan = createCareerCommanderOutpostSpawnPlan(launch)
+
+    // A reload cancels every queued identity from the old scene. The new scene
+    // reconstructs the canonical roster once, without carrying partial actors over.
+    const partial = gameFixture() as any
+    partial.defenseCampaignConfig = launch
+    partial.careerProfile = accepted
+    partial.campaignOriginalDefenders = []
+    partial._queueCommanderOutpostDeployment(plan, launch)
+    for (let frame = 0; frame < 17; frame++) advanceNpcFrame(gameplayNpcSpawnDriver)
+    const partialBatch = partial.commanderOutpostDeploymentBatch
+    expect(partial.npcs).toHaveLength(17)
+    expect(new Set(partial.npcs.map((npc: NPC) => npc.combatantId)).size).toBe(17)
+    partial._disposeCareerOutpostBattleActors()
+    expect(partialBatch.status).toBe('cancelled')
+    expect(partial.npcs).toHaveLength(0)
+    expect(partial.mounts).toHaveLength(0)
+    resetSpawnRecording()
+
+    const game = gameFixture() as any
+    game.defenseCampaignConfig = launch
+    game.careerProfile = accepted
+    game.campaignOriginalDefenders = []
+
+    expect(shouldWaitForInitialPersonalSpawns(null, launch)).toBe(false)
+    expect(shouldWaitForInitialPersonalSpawns(null)).toBe(true)
+
+    game._queueCommanderOutpostDeployment(plan, launch)
+    const batch = game.commanderOutpostDeploymentBatch
+    expect(batch.actors.size).toBe(220)
+    expect(batch.ready).toBe(false)
+    expect(recording.npcs).toHaveLength(0)
+
+    for (let frame = 0; frame < 120; frame++) {
+      const before = recording.npcs.length
+      advanceNpcFrame(gameplayNpcSpawnDriver)
+      expect(recording.npcs.length - before).toBe(1)
+    }
+    expect(recording.npcs).toHaveLength(120)
+    expect(recording.mounts).toHaveLength(0)
+    expect(batch.ready).toBe(false)
+
+    // The rider and mount are bound inside one scheduler job; no second frame is consumed.
+    advanceNpcFrame(gameplayNpcSpawnDriver)
+    expect(recording.npcs).toHaveLength(121)
+    expect(recording.mounts).toHaveLength(1)
+    expect(recording.npcs[120].mount).toBe(recording.mounts[0])
+    expect(batch.ready).toBe(false)
+
+    for (let frame = 121; frame < 219; frame++) advanceNpcFrame(gameplayNpcSpawnDriver)
+    expect(recording.npcs).toHaveLength(219)
+    expect(recording.mounts).toHaveLength(99)
+    expect(batch.ready).toBe(false)
+    advanceNpcFrame(gameplayNpcSpawnDriver)
+
+    expect(batch.ready).toBe(true)
+    expect(recording.npcs).toHaveLength(220)
+    expect(recording.mounts).toHaveLength(100)
+    expect(game.commanderOutpostDeploymentTotal).toBe(220)
+    expect(game.campaignOriginalDefenders).toHaveLength(120)
+    expect(new Set(game.npcs.map((npc: NPC) => npc.combatantId)).size).toBe(220)
+    expect(recording.npcs.every(npc => npc.tacticalOrder === 'defend')).toBe(true)
+    expect(game.battleStats.registerNpc).toHaveBeenCalledTimes(220)
+    expect(game._aimTargetRegistry.registerNpc).toHaveBeenCalledTimes(220)
+    expect(game._aimTargetRegistry.registerMount).toHaveBeenCalledTimes(100)
+  })
+
+  it.each([
+    ['roman', 'viking', MountType.BLACK_CAT, 'viking-hero-t5', 'viking-commander'],
+    ['viking', 'roman', MountType.CORGI, 'roman-hero-t5', 'roman-commander'],
+  ] as const)('constructs one true enemy T5 Commander for %s Decapitation without reusing the former identity',
+    async (playerFaction, enemyFaction, mountType, visualAssetId, combatProfileId) => {
+      const step = loadingFrames()
+      const base = createCareerProfile(playerFaction)
+      base.rank = 'commander'; base.totalMerit = 20_000; base.availableMerit = 20_000
+      const profile = acceptCommanderMission(base, COMMANDER_DECAPITATION_ID, `enemy-commander:${playerFaction}`)!
+      const population = [townCommanderSpec({ x: 20, z: 10, yaw: 0 })]
+      const roster = careerTownSceneRoster(profile, population)
+      const event = new TownEvent(population)
+      const town = Object.assign(Object.create(TownScene.prototype), {
+        profile, scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(), event,
+        world: { addServiceMarker: vi.fn() },
+      }) as any
+      dispose.push(() => {
+        town.residentSpawnBatch?.cancel()
+        town.residents.forEach((resident: any) => resident.npc.dispose())
+        town.mounts.forEach((mount: any) => mount.dispose())
+      })
+
+      const loading = town.initializeResidents(roster, resolveCareerTownSceneContext(profile), () => {})
+      await step(); await loading
+
+      expect(recording.npcs).toHaveLength(1)
+      expect(recording.mounts).toHaveLength(1)
+      expect(recording.npcs[0]).toMatchObject({
+        combatantId: 'commander', faction: Faction.ENEMY, characterFaction: enemyFaction,
+        visualAssetId, combatProfileId,
+      })
+      expect(recording.npcs[0].combatantId).not.toBe(profile.activeMission!.friendlyActorIds[0])
+      expect(recording.npcs[0].mount).toMatchObject({ type: mountType, riderNpc: recording.npcs[0] })
+    })
 
   it.each([false, true])('restores one Commander after defense and inherits hostility during preload: %s', async hostileDuringLoad => {
     const step = loadingFrames(), profile = createCareerProfile('roman')

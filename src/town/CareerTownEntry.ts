@@ -8,6 +8,8 @@ import { clearCareerMission } from '../career/CareerProfile'
 import { CAREER_OUTPOST_SESSION_KEY } from '../career/CareerOutpostMission'
 import { refitTownCommandForSceneChange } from '../career/SquadRefit'
 import { resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
+import { COMMANDER_LAST_STAND_ID } from '../career/CommanderMissionCatalog'
+import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
 import { TownScene } from './TownScene'
 import { grantStarter, STARTER_WEAPONS } from './TownRules'
 import { WEAPONS } from '../rpg/WeaponDatabase'
@@ -26,11 +28,12 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     const active = profile.activeMission
     const captainLaunch = active?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && active.kind === 'captain-outpost-defense'
       ? () => createCaptainFrontlineLaunch(profile)
-      : active?.templateId === CAPTAIN_EAGLE_BATTLE_ID && active.kind === 'captain-eagle-battle' ? () => createCaptainEagleLaunch(profile) : null
+      : active?.templateId === CAPTAIN_EAGLE_BATTLE_ID && active.kind === 'captain-eagle-battle' ? () => createCaptainEagleLaunch(profile)
+      : active?.templateId === COMMANDER_LAST_STAND_ID && active.kind === 'commander-outpost-last-stand' ? () => createCareerCommanderOutpostLaunch(profile) : null
     if (active && captainLaunch) {
       if (profile.claimedBattleIds.includes(active.id)) {
         const cleared = clearCareerMission(profile, active.id)
-        if (!store.save(cleared)) { status.textContent = '無法保存 Captain 任務返回狀態，請重試。'; return }
+        if (!store.save(cleared)) { status.textContent = '無法保存正式任務返回狀態，請重試。'; return }
         profile = cleared
       } else {
         form.remove()

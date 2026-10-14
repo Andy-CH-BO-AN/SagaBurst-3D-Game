@@ -51,6 +51,8 @@ export interface DefenseCampaignRuntimeSnapshot {
 export interface DefenseCampaignRuntimeOptions {
   reinforcementsEnabled?: boolean
   eliminationObjective?: boolean
+  /** Commander Last Stand keeps elimination semantics behind the ordinary deployment clock. */
+  eliminationUsesDeployment?: boolean
   deploymentSeconds?: number
   /** Override the global schedule for a single launch. */
   reinforcementDelaySeconds?: number
@@ -67,7 +69,7 @@ export class DefenseCampaignRuntime {
   private battleFinished = false
 
   constructor(private readonly options: DefenseCampaignRuntimeOptions = {}) {
-    if (options.eliminationObjective) this.phase = 'assault'
+    if (options.eliminationObjective && !options.eliminationUsesDeployment) this.phase = 'assault'
     const saved = options.initialSnapshot
     if (saved) {
       this.phase = saved.activePhase ?? (saved.phase === 'deployment' ? 'deployment' : 'assault')
@@ -85,7 +87,8 @@ export class DefenseCampaignRuntime {
       activePhase: this.phase,
       deploymentRemainingSeconds: Math.max(
         0,
-        this.options.eliminationObjective ? 0 : (this.options.deploymentSeconds ?? DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds) - this.deploymentElapsed,
+        (this.options.eliminationObjective && !this.options.eliminationUsesDeployment) ? 0
+          : (this.options.deploymentSeconds ?? DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds) - this.deploymentElapsed,
       ),
       assaultElapsedSeconds: this.assaultElapsed,
       reinforcementRemainingSeconds: Math.max(
@@ -106,6 +109,15 @@ export class DefenseCampaignRuntime {
     const personalAlive = Math.max(0, state.personalPlayerSideAlive ?? 0)
     const reinforcementActive = state.reinforcementActive ?? state.reinforcementSpawned
     if (this.options.eliminationObjective) {
+      if (this.phase === 'deployment') {
+        this.deploymentElapsed += Math.max(0, dt)
+        if (this.deploymentElapsed >= (this.options.deploymentSeconds ?? DEFENSE_CAMPAIGN_TIMINGS.deploymentSeconds)) {
+          this.phase = 'assault'
+          this.assaultElapsed = 0
+          events.push('assault_started')
+        }
+        return events
+      }
       this.assaultElapsed += Math.max(0, dt)
       // Annihilation wins even if the last friendly dies in the same frame.
       if (state.attackersAlive === 0) {

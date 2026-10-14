@@ -36,7 +36,7 @@ describe('Captain mission eligibility and official roster policy without actor m
   it.each(['captain', 'commander'] as const)('%s opens all six independent Captain missions without relief or prior mission wins', rank => {
     const profile = { ...captain(), rank, totalMerit: 20000 }
     expect(availableCareerMissionsForPage(profile, 'captain')).toHaveLength(6)
-    expect(defaultCareerMissionPage(profile)).toBe('captain')
+    expect(defaultCareerMissionPage(profile)).toBe(rank === 'commander' ? 'commander' : 'captain')
     expect(CAPTAIN_MISSION_CATALOG.map(careerMissionPage)).toEqual(Array(6).fill('captain'))
     expect(acceptCaptainSiegeCommand(profile, 'captain-siege')!.activeMission!.officialSquad?.actorIds).toHaveLength(rank === 'commander' ? 119 : 29)
     expect(acceptEnemyTownAssault(profile)).toBeNull()

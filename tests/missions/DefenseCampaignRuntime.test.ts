@@ -5,6 +5,7 @@ function state(overrides: Partial<{
   playerDead: boolean
   originalDefendersAlive: number
   defendersAlive: number
+  personalPlayerSideAlive: number
   attackersAlive: number
   reinforcementSpawned: boolean
   reinforcementActive?: boolean
@@ -307,6 +308,66 @@ describe('DefenseCampaignRuntime', () => {
       defendersAlive: 0,
       attackersAlive: 100,
       reinforcementSpawned: true,
+    }))).toEqual(['battle_defeat'])
+  })
+
+  it('keeps Commander elimination outcomes behind the full 60-second deployment phase', () => {
+    const runtime = new DefenseCampaignRuntime({
+      eliminationObjective: true,
+      eliminationUsesDeployment: true,
+      reinforcementsEnabled: false,
+      deploymentSeconds: 60,
+    })
+    const wiped = state({ playerDead: true, originalDefendersAlive: 0, defendersAlive: 0, attackersAlive: 0 })
+
+    expect(runtime.update(59.999, wiped)).toEqual([])
+    expect(runtime.getSnapshot()).toMatchObject({ activePhase: 'deployment', battleFinished: false })
+    expect(runtime.update(0.001, wiped)).toEqual(['assault_started'])
+    expect(runtime.getSnapshot()).toMatchObject({ activePhase: 'assault', battleFinished: false })
+    expect(runtime.update(0, wiped)).toEqual(['battle_victory'])
+  })
+
+  it('gives Commander elimination victory priority over a same-frame friendly wipe', () => {
+    const runtime = new DefenseCampaignRuntime({
+      eliminationObjective: true,
+      eliminationUsesDeployment: true,
+      reinforcementsEnabled: false,
+      deploymentSeconds: 60,
+      initialSnapshot: {
+        phase: 'assault', activePhase: 'assault', deploymentRemainingSeconds: 0,
+        assaultElapsedSeconds: 12, reinforcementRemainingSeconds: 0, reinforcementTriggered: false,
+      },
+    })
+
+    expect(runtime.update(0.016, state({
+      playerDead: true, originalDefendersAlive: 0, defendersAlive: 0,
+      personalPlayerSideAlive: 0, attackersAlive: 0,
+    }))).toEqual(['battle_victory'])
+    expect(runtime.getSnapshot().phase).toBe('victory')
+  })
+
+  it('fails Commander elimination only after Player, official and HR combatants are all gone', () => {
+    const options = {
+      eliminationObjective: true,
+      eliminationUsesDeployment: true,
+      reinforcementsEnabled: false,
+      deploymentSeconds: 60,
+      initialSnapshot: {
+        phase: 'assault' as const, activePhase: 'assault' as const, deploymentRemainingSeconds: 0,
+        assaultElapsedSeconds: 12, reinforcementRemainingSeconds: 0, reinforcementTriggered: false,
+      },
+    }
+    expect(new DefenseCampaignRuntime(options).update(0.016, state({
+      playerDead: true, defendersAlive: 1, personalPlayerSideAlive: 0, attackersAlive: 10,
+    }))).toEqual([])
+    expect(new DefenseCampaignRuntime(options).update(0.016, state({
+      playerDead: true, defendersAlive: 0, personalPlayerSideAlive: 1, attackersAlive: 10,
+    }))).toEqual([])
+    expect(new DefenseCampaignRuntime(options).update(0.016, state({
+      playerDead: false, defendersAlive: 0, personalPlayerSideAlive: 0, attackersAlive: 10,
+    }))).toEqual([])
+    expect(new DefenseCampaignRuntime(options).update(0.016, state({
+      playerDead: true, defendersAlive: 0, personalPlayerSideAlive: 0, attackersAlive: 10,
     }))).toEqual(['battle_defeat'])
   })
 })

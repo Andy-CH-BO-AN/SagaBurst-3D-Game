@@ -288,8 +288,9 @@ export function claimCareerMission(
 
   const contribution = { ...meritStats, damageTaken: stats.damageTaken, survived: stats.survived }
   const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault' || active.kind === 'captain-eagle-battle'
+    || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
-  const defense = active.kind === 'captain-outpost-defense'
+  const defense = active.kind === 'captain-outpost-defense' || active.kind === 'commander-outpost-last-stand'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'defense', 'mission') : null
   const battleMerit = offense ?? defense
   const merit = battleMerit ? { damage: battleMerit.characterDamage + battleMerit.structureDamage, kills: battleMerit.kills, contribution: battleMerit.victory + battleMerit.survival + battleMerit.gateBreaches, total: battleMerit.total } : calculateRecruitMissionMerit(contribution, outcome)
@@ -308,7 +309,7 @@ export function claimCareerMission(
         }
       }
     } else recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
-    if ((active.kind === 'town-defense' || active.kind?.startsWith('veteran-') || active.templateId.startsWith('captain-'))
+    if ((active.kind === 'town-defense' || active.kind?.startsWith('veteran-') || active.templateId.startsWith('captain-') || active.templateId.startsWith('commander-'))
       && !(profile.completedCareerMissionTemplateIds ?? []).includes(active.templateId)) {
       profile.completedCareerMissionTemplateIds = [...(profile.completedCareerMissionTemplateIds ?? []), active.templateId]
     }
@@ -352,6 +353,7 @@ export function careerMissionCompletionsForTier(profile: CareerProfile, tier: Ca
   const soldierWins = outpostWins + soldierStoryWins + assaultWin
   const veteranStoryWins = profile.completedCareerMissionTemplateIds?.filter(id => careerMissionTierForTemplateId(id) === 3).length ?? 0
   const captainStoryWins = profile.completedCareerMissionTemplateIds?.filter(id => careerMissionTierForTemplateId(id) === 4).length ?? 0
+  if (tier === 5) return 0
   if (tier === 4) return captainStoryWins
   if (tier === 2) return soldierWins
   if (tier === 3) return veteranStoryWins
@@ -363,7 +365,8 @@ export function recordCareerMissionCompletion(profile: CareerProfile, tier: Care
     1: careerMissionCompletionsForTier(profile, 1),
     2: careerMissionCompletionsForTier(profile, 2),
     3: careerMissionCompletionsForTier(profile, 3),
-    ...(tier === 4 || profile.careerMissionCompletionsByTier?.[4] !== undefined ? { 4: careerMissionCompletionsForTier(profile, 4) } : {}),
+    ...(tier >= 4 || profile.careerMissionCompletionsByTier?.[4] !== undefined ? { 4: careerMissionCompletionsForTier(profile, 4) } : {}),
+    ...(tier === 5 || profile.careerMissionCompletionsByTier?.[5] !== undefined ? { 5: careerMissionCompletionsForTier(profile, 5) } : {}),
   }
   counts[tier] = (counts[tier] ?? 0) + 1
   profile.careerMissionCompletionsByTier = counts
@@ -521,6 +524,12 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.actorPositions ? { actorPositions: Object.fromEntries(Object.entries(profile.activeMission.actorPositions).map(([actorId, position]) => [actorId, { ...position }])) } : {}),
       ...(profile.activeMission.engagedEnemySquadIds ? { engagedEnemySquadIds: [...profile.activeMission.engagedEnemySquadIds] } : {}),
       ...(profile.activeMission.outpostBattleState ? { outpostBattleState: { ...profile.activeMission.outpostBattleState } } : {}),
+      ...(profile.activeMission.commanderMission ? { commanderMission: {
+        ...profile.activeMission.commanderMission,
+        ...(profile.activeMission.commanderMission.playerPosition
+          ? { playerPosition: { ...profile.activeMission.commanderMission.playerPosition } }
+          : {}),
+      } } : {}),
     } } : {}),
     ...(profile.completedCareerMissionTemplateIds ? { completedCareerMissionTemplateIds: [...profile.completedCareerMissionTemplateIds] } : {}),
     ownedWeapons: [...profile.ownedWeapons],

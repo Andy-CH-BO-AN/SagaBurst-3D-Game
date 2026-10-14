@@ -16,6 +16,7 @@ import { townPatrolRefitPoint, townSitePoint, type TownActorSpec } from './TownR
  */
 export function shouldSpawnTownCommander(profile: Pick<CareerProfile, 'rank' | 'faction' | 'activeMission'>): boolean {
   const mission = profile.activeMission, authority = mission?.officialSquad
+  if (mission?.kind === 'commander-sky-raid' || mission?.kind === 'commander-decapitation') return true
   if (mission?.kind === 'town-defense') return profile.rank === 'commander'
     && authority?.type === 'mission-official' && authority.commandRank === 'commander'
     && authority.missionId === mission.id && authority.townFaction === profile.faction
