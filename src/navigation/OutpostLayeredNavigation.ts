@@ -1,3 +1,4 @@
+import { AvailableBreachEntrances, type BreachEntrance } from './AvailableBreachEntrances'
 import * as THREE from 'three'
 import {
   getTerrainHeight,
@@ -13,6 +14,8 @@ import {
 
 export type OutpostNavLayer =
   | 'ground'
+  | 'siege_left'
+  | 'siege_right'
   | 'rampart_left'
   | 'rampart_right'
   | 'rampart_gate'
@@ -365,6 +368,8 @@ export function clampFollowSlotToStair(
 }
 
 export class OutpostLayeredNavigation {
+  readonly entrances = new AvailableBreachEntrances()
+  private readonly mountedFollowDirections = new WeakMap<object, -1 | 1>()
   readonly layout: OutpostWalkwayLayout
   private readonly leftWaypoints: StairWaypoints
   private readonly rightWaypoints: StairWaypoints
@@ -380,7 +385,17 @@ export class OutpostLayeredNavigation {
   }
 
   getNavLayer(pos: THREE.Vector3): OutpostNavLayer {
-    return getOutpostNavLayer(pos, this.layout)
+    const layer = getOutpostNavLayer(pos, this.layout)
+    if (layer !== 'ground') return layer
+    for (const entry of this.entrances.entries.values()) {
+      if (!entry.walkable || !entry.surface) continue
+      const height = getWalkRampHeight(entry.surface, pos.x, pos.z)
+      if (height !== null && Math.abs(pos.y - height) <= .85) return entry.side === -1 ? 'siege_left' : 'siege_right'
+      const minZ = Math.min(entry.position.z, entry.exit.z), maxZ = Math.max(entry.position.z, entry.exit.z)
+      if (Math.abs(pos.x - entry.position.x) <= entry.surface.halfWidth && pos.z >= minZ && pos.z <= maxZ
+        && Math.abs(pos.y - entry.exit.y) <= .85) return entry.side === -1 ? 'siege_left' : 'siege_right'
+    }
+    return layer
   }
 
   getDeck(side: OutpostWalkwaySide): OutpostWalkwayDeck | undefined {
@@ -451,6 +466,134 @@ export class OutpostLayeredNavigation {
     }
   }
 
+  /** Body-sized single file shared by mounted Follow and its initial assignment. */
+  clampMountedFollow(out: THREE.Vector3, leader: THREE.Vector3, slot: number, leaderIdentity: object = leader): void {
+    const left = this.getDeck(-1)!, right = this.getDeck(1)!
+    const minX = left.slab.min.x + 1.2, maxX = right.slab.max.x - 1.2
+    const spacing = 3.2
+    const anchor = THREE.MathUtils.clamp(leader.x, minX, maxX)
+    // Keep the queue's side across the bridge midpoint. Only an outer boundary
+    // can reverse it; the opposite boundary is the hysteresis reset. Key by the
+    // actual leader, not each follower's independently smoothed position.
+    let direction = this.mountedFollowDirections.get(leaderIdentity)
+      ?? (anchor > (minX + maxX) / 2 ? -1 : 1)
+    if (anchor + spacing > maxX) direction = -1
+    else if (anchor - spacing < minX) direction = 1
+    this.mountedFollowDirections.set(leaderIdentity, direction)
+    const capacity = Math.floor((direction < 0 ? anchor - minX : maxX - anchor) / spacing)
+    if (slot >= capacity) {
+      const entrance = [...this.entrances.entries.values()].find(entry => entry.walkable && entry.mounted && entry.surface)
+      if (entrance) {
+        out.copy(entrance.approach)
+        out.z -= this.layout.zSign * (slot - capacity + 1) * spacing
+        out.y = getTerrainHeight(out.x, out.z)
+      }
+      return
+    }
+    const x = anchor + direction * (slot + 1) * spacing
+    const deck = x < this.layout.bridge.slab.min.x ? left : x > this.layout.bridge.slab.max.x ? right : this.layout.bridge
+    const z = (deck.slab.min.z + deck.slab.max.z) / 2
+    out.set(x, getWalkRampHeight(deck.walkSurface, x, z) ?? deck.topY, z)
+  }
+
+  /** Siege connections are opt-in; the original interior stairs remain foot-only. */
+  needsSiegeRoute(current: THREE.Vector3, goal: THREE.Vector3): boolean {
+    if (!this.entrances.hasMountedRamp) return false
+    const currentLayer = this.getNavLayer(current)
+    const goalLayer = this.getNavLayer(goal)
+    if (currentLayer.startsWith('siege_') || goalLayer.startsWith('siege_')) return true
+    const frontZ = this.layout.bridge.walkSurface.startZ - this.layout.zSign * 1.6
+    return this.entrances.hasMountedRamp && ((current.z - frontZ) * this.layout.zSign < 0
+      && ((goal.z - frontZ) * this.layout.zSign >= 0 || isRampartLayer(goalLayer)))
+  }
+
+  private siegeRoute(current: THREE.Vector3, goal: THREE.Vector3, mounted: boolean,
+    out: THREE.Vector3, preferred?: string | null): OutpostLayeredMoveResult | null {
+    if (!this.entrances.hasMountedRamp) return null
+    const currentLayer = this.getNavLayer(current), targetLayer = this.getNavLayer(goal)
+    const frontZ = this.layout.bridge.walkSurface.startZ - this.layout.zSign * 1.6
+    const outside = (point: THREE.Vector3): boolean => (point.z - frontZ) * this.layout.zSign < -.3
+    const preferredEntry = preferred ? this.entrances.entries.get(preferred) : undefined
+    const chosen = preferredEntry?.walkable ? preferredEntry : undefined
+    // A valid foot entrance still reaches ramparts via the interior stairs. Only
+    // mounted actors need a different connection because those stairs are foot-only.
+    if (!mounted && currentLayer === 'ground' && chosen && !chosen.surface
+      && !targetLayer.startsWith('siege_')) return null
+    const ramps = [...this.entrances.entries.values()].filter(e => e.walkable && e.surface && (!mounted || e.mounted))
+    if (!ramps.length) return null
+    let entry: BreachEntrance | undefined
+    if (currentLayer.startsWith('siege_')) entry = ramps.find(e => e.side === (currentLayer === 'siege_left' ? -1 : 1))
+    if (!entry && chosen?.walkable && chosen.surface) entry = chosen
+    if (!entry) entry = ramps.reduce((a, b) => current.distanceToSquared(a.exit) <= current.distanceToSquared(b.exit) ? a : b)
+    const result = (step: OutpostLayeredRouteStep): OutpostLayeredMoveResult => ({ target: out, currentLayer, targetLayer, isCrossLayer: true, step })
+    // Siege ramps reach the deck, not the courtyard. Once mounted actors are
+    // back on ground, hand the final ground goal to A* (and its physical gate
+    // collision), even if the actor's preferred assault entrance is a ramp.
+    // Never ascend again merely because that ground goal is inside the wall.
+    if (mounted && currentLayer === 'ground' && targetLayer === 'ground') {
+      if (outside(current) && !outside(goal)) {
+        const groundEntries = [...this.entrances.entries.values()].filter(e => e.walkable && e.mounted && !e.surface)
+        const groundEntry = chosen && groundEntries.includes(chosen) ? chosen : groundEntries.reduce<BreachEntrance | undefined>(
+          (best, candidate) => !best || current.distanceToSquared(candidate.approach) < current.distanceToSquared(best.approach) ? candidate : best, undefined)
+        const ramp = entry.surface!
+        const along = (current.z - ramp.startZ) * ramp.dirZ
+        // Clear the low end with the whole mounted body before turning. Ground
+        // A* treats this elevated structure as passable and must not lead the
+        // rider straight back across its ramp/rails while leaving the surface.
+        if (Math.abs(current.x - ramp.startX) < ramp.halfWidth + 1.2 && along > -6 && along < 1) {
+          if (along > -2.5) {
+            out.set(ramp.startX, ramp.startY, ramp.startZ - ramp.dirZ * 3)
+            return result('descend_stair')
+          }
+          if (groundEntry) {
+            const side = groundEntry.approach.x < ramp.startX ? -1 : 1
+            out.set(ramp.startX + side * (ramp.halfWidth + 1.4), current.y, ramp.startZ - ramp.dirZ * 3)
+            return result('ground_approach')
+          }
+        }
+        if (!groundEntry) out.copy(current) // No physical ground breach: wait safely outside.
+        else {
+          const dx = groundEntry.exit.x - groundEntry.approach.x, dz = groundEntry.exit.z - groundEntry.approach.z
+          const length = Math.hypot(dx, dz)
+          const x = current.x - groundEntry.approach.x, z = current.z - groundEntry.approach.z
+          const lateral = length > 0 ? Math.abs(x * dz - z * dx) / length : 0
+          const progress = length > 0 ? (x * dx + z * dz) / length : 0
+          out.copy(lateral > 1 || progress < -1 ? groundEntry.approach : groundEntry.exit)
+        }
+        return result('ground_approach')
+      }
+      out.copy(goal)
+      return result('ground_approach')
+    }
+    const ramp = entry.surface!
+    const ground = new THREE.Vector3(ramp.startX, ramp.startY, ramp.startZ)
+    const onRamp = currentLayer.startsWith('siege_')
+    const descend = targetLayer === 'ground' && (mounted || outside(goal))
+    if (onRamp) {
+      out.copy(descend ? entry.approach : entry.exit)
+      if (descend && Math.hypot(current.x - ground.x, current.z - ground.z) < 1) out.copy(entry.approach)
+      return result(descend ? 'descend_stair' : 'ascend_stair')
+    }
+    if (isRampartLayer(currentLayer) && descend) {
+      // After aligning with the portal, keep moving outward while still within
+      // the deck's layer tolerance. A radial check would send the actor back to
+      // the portal as soon as it moved .7m down the bridge.
+      if (Math.abs(current.x - entry.exit.x) > .7 || (current.z - entry.exit.z) * ramp.dirZ > .7) {
+        out.copy(entry.exit); return result('deck_approach')
+      }
+      out.copy(ground); return result('descend_stair')
+    }
+    if (currentLayer === 'ground' && (isRampartLayer(targetLayer) || targetLayer.startsWith('siege_')
+      || outside(current) && !outside(goal) && (!chosen || chosen.surface))) {
+      if (Math.hypot(current.x - entry.approach.x, current.z - entry.approach.z) > 2.4) {
+        out.copy(entry.approach); return result('ground_approach')
+      }
+      out.set(ramp.startX, ramp.startY, ramp.startZ + ramp.dirZ * 1.2)
+      return result('ascend_stair')
+    }
+    return null
+  }
+
   /**
    * Resolves the immediate next navigation waypoint for an entity moving from currentPos to goalPos.
    * Handles ground <-> rampart, rampart <-> ground, and wing <-> wing traversals.
@@ -460,12 +603,23 @@ export class OutpostLayeredNavigation {
     goalPos: THREE.Vector3,
     isMounted: boolean,
     out: THREE.Vector3,
+    preferredEntrance?: string | null,
   ): OutpostLayeredMoveResult {
+    const siege = this.siegeRoute(currentPos, goalPos, isMounted, out, preferredEntrance)
+    if (siege) return siege
     let targetLayer = this.getNavLayer(goalPos)
+    const currentLayer = this.getNavLayer(currentPos)
+
+    // Losing a ramp removes descent, not the intact deck/bridge under the rider.
+    // siegeRoute already handled any available mounted descent above.
+    if (isMounted && isRampartLayer(currentLayer) && !isRampartLayer(targetLayer)) {
+      out.copy(currentPos)
+      return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'deck_approach' }
+    }
 
     // Mounted units (cavalry, pets, eagles) CANNOT climb stairs; their destination
     // is projected to ground level beneath/beside the rampart and must be reached via ground navigation.
-    if (isMounted) {
+    if (isMounted && !isRampartLayer(currentLayer)) {
       if (targetLayer !== 'ground') {
         const groundY = getTerrainHeight(goalPos.x, goalPos.z)
         out.set(goalPos.x, groundY, goalPos.z)
@@ -486,8 +640,6 @@ export class OutpostLayeredNavigation {
         step: 'direct',
       }
     }
-
-    const currentLayer = this.getNavLayer(currentPos)
 
     // Case 1: Both are Rampart layers (rampart_left, rampart_right, rampart_gate)
     if (isRampartLayer(currentLayer) && isRampartLayer(targetLayer)) {

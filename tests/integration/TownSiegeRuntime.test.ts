@@ -324,7 +324,7 @@ describe('shared four-gate Siege runtime', () => {
   it('still defends its own breach against nearby ambient Bandits', () => {
     const f = checkpointFixture({ faction, assault: false, residentIds: ['town-patrol:a:captain'], attackerSlots: [], includeRanger: false })
     const point = siegePoint('east', 0, 5)
-    const bandit = new NPC(f.scene, point.x, point.z, Faction.BANDIT, faction, AIType.MELEE, 'Ambient bandit')
+    const bandit = new NPC(f.scene, point.x, point.z, Faction.BANDIT, faction, AIType.MELEE, 'Ambient bandit', 1)
     onTestFinished(() => bandit.dispose())
     const context = (f.controller as any).siegeContext
     context.ambientEnemies = () => [bandit]

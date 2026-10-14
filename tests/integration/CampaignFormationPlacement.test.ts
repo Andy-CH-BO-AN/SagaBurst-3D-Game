@@ -6,6 +6,7 @@ import { createTerrain, getTerrainHeight, TERRAIN_TREE_POSITIONS, type ObstacleD
 import type { NPC } from '../../src/world/NPC'
 import { getOutpostWalkwayLayout, type OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
 import { createCampaignOutpost, getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
+import { getSiegeRampPlacement } from '../../src/campaign/MobileSiegeRampPolicy'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 
 import { createFormationPlacementHarness, placementParticipant, blockingBox, type PlacementParticipantFixture } from '../helpers/formationPlacement'
@@ -83,6 +84,26 @@ function romanRegion(): FormationRegion {
 }
 
 describe('Campaign formation placement wiring', () => {
+  it('admits mounted single-file deck slots only through a dock connection and rejects excessive body capacity', () => {
+    const { layout, obstacles, navigation } = walkwayInputs()
+    const placement = getSiegeRampPlacement(layout, -1)
+    const participants = [placementParticipant('mounted-a', 0, true), placementParticipant('mounted-b', 2, true)]
+    const { solve } = placementHarness(obstacles, participants, navigation)
+    expect(solve(placement.deckConnection)).toBeNull()
+    navigation.outpostNav!.entrances.set({ id: 'siege-ramp-left', type: 'siege-ramp-left',
+      position: placement.dock, approach: placement.start, exit: placement.deckConnection,
+      mounted: true, walkable: true, faction: null, connectionId: 'siege-ramp-left', surface: placement.surface, side: -1 })
+    const result = solve(placement.deckConnection)!
+    expect(result).not.toBeNull()
+    expect(result.slots[0].distanceTo(result.slots[1])).toBeCloseTo(3.2)
+    expect(result.slots.every(slot => Math.abs(slot.z - placement.deckConnection.z) <= .3)).toBe(true)
+    participants.push(...Array.from({ length: 20 }, (_, i) => placementParticipant(`overflow-${i}`, i, true)))
+    expect(solve(placement.deckConnection)).toBeNull()
+    navigation.outpostNav!.entrances.remove('siege-ramp-left')
+    participants.splice(2)
+    expect(solve(placement.deckConnection)).toBeNull()
+  })
+
   it('routes just the center slot around a real terrain pine tree', () => {
     // This sole full terrain owner verifies builder registration -> actual formation clearance.
     const [treeX, treeZ] = TERRAIN_TREE_POSITIONS[0]

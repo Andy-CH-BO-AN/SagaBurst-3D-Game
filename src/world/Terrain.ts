@@ -107,6 +107,7 @@ export interface WalkRampSurface {
   landing: number
   startY: number
   topY: number
+  mounted?: boolean
 }
 
 /** Highest foot lift a ramp may apply in one step; also bounds how far below it counts as "on" it. */
@@ -126,6 +127,8 @@ export function getWalkRampHeight(surface: WalkRampSurface, x: number, z: number
 export interface ObstacleData {
   /** Continuous body/nav collision volume. */
   box: THREE.Box3
+  /** A bounded set of moving obstacles bypasses the static grid without rebuilding it. */
+  dynamic?: boolean
   /** Optional ground footprint for overhead arches/lintels. Body/projectile collision still uses box. */
   navigationBox?: THREE.Box3
   isBarricade: boolean
@@ -193,9 +196,12 @@ export interface ObstacleCollisionResult {
 export interface ObstacleCollisionOptions {
   /** Stand on obstacle.walkSurface ramps instead of colliding with their box. */
   walkSurfaces?: boolean
+  /** Mounts only use surfaces explicitly admitting their body size. */
+  mountedSurfaces?: boolean
 }
 
 export interface EntityCollisionBody {
+  mountedSurfaces?: boolean
   position: THREE.Vector3
   radius: number
   height: number
@@ -612,7 +618,7 @@ export function resolveEntityCollision(
   const pushDistance = minDistance - distance
   const halfPush = pushDistance * 0.5
 
-  const overlapsObstacle = (pos: THREE.Vector3, offsetX: number, offsetZ: number, radius: number, bottomOffset: number, height: number, walkSurfaces?: boolean): boolean => {
+  const overlapsObstacle = (pos: THREE.Vector3, offsetX: number, offsetZ: number, radius: number, bottomOffset: number, height: number, walkSurfaces?: boolean, mountedSurfaces?: boolean): boolean => {
     const targetX = pos.x + offsetX
     const targetZ = pos.z + offsetZ
     const b = pos.y - bottomOffset
@@ -624,7 +630,7 @@ export function resolveEntityCollision(
       radius,
     )
     for (const obs of candidates) {
-      if (walkSurfaces && obs.walkSurface) continue
+      if (obs.walkSurface && (walkSurfaces || mountedSurfaces && obs.walkSurface.mounted)) continue
       if (b >= obs.box.max.y - 0.001 || t <= obs.box.min.y + 0.001) continue
       if (targetX + radius > obs.box.min.x && targetX - radius < obs.box.max.x &&
           targetZ + radius > obs.box.min.z && targetZ - radius < obs.box.max.z) {
@@ -636,17 +642,17 @@ export function resolveEntityCollision(
 
   // Direction B: Predictive Obstacle Check
   // If pushed into a wall, treat the entity as temporarily anchored
-  const firstAnchored = first.anchored || overlapsObstacle(first.position, normalX * halfPush, normalZ * halfPush, first.radius, first.bottomOffset, first.height, first.walkSurfaces)
-  const secondAnchored = second.anchored || overlapsObstacle(second.position, -normalX * halfPush, -normalZ * halfPush, second.radius, second.bottomOffset, second.height, second.walkSurfaces)
+  const firstAnchored = first.anchored || overlapsObstacle(first.position, normalX * halfPush, normalZ * halfPush, first.radius, first.bottomOffset, first.height, first.walkSurfaces, first.mountedSurfaces)
+  const secondAnchored = second.anchored || overlapsObstacle(second.position, -normalX * halfPush, -normalZ * halfPush, second.radius, second.bottomOffset, second.height, second.walkSurfaces, second.mountedSurfaces)
 
   if (firstAnchored && secondAnchored) return
   if (firstAnchored) {
-    if (!overlapsObstacle(second.position, -normalX * pushDistance, -normalZ * pushDistance, second.radius, second.bottomOffset, second.height, second.walkSurfaces)) {
+    if (!overlapsObstacle(second.position, -normalX * pushDistance, -normalZ * pushDistance, second.radius, second.bottomOffset, second.height, second.walkSurfaces, second.mountedSurfaces)) {
       second.position.x -= normalX * pushDistance
       second.position.z -= normalZ * pushDistance
     }
   } else if (secondAnchored) {
-    if (!overlapsObstacle(first.position, normalX * pushDistance, normalZ * pushDistance, first.radius, first.bottomOffset, first.height, first.walkSurfaces)) {
+    if (!overlapsObstacle(first.position, normalX * pushDistance, normalZ * pushDistance, first.radius, first.bottomOffset, first.height, first.walkSurfaces, first.mountedSurfaces)) {
       first.position.x += normalX * pushDistance
       first.position.z += normalZ * pushDistance
     }
@@ -690,7 +696,7 @@ export function resolveObstacleCollision(
   )
 
   for (const obstacle of candidates) {
-    const ramp = options.walkSurfaces ? obstacle.walkSurface : undefined
+    const ramp = (options.walkSurfaces || options.mountedSurfaces && obstacle.walkSurface?.mounted) ? obstacle.walkSurface : undefined
     if (ramp) {
       const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
       if (surfaceY !== null) {

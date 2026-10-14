@@ -74,6 +74,15 @@
 - `CombatEventStream` 同步發送歸因事件，戰鬥不直接依賴戰績 UI 或生涯軍功。`BattleStatsTracker` 只做串流累計，不保存完整事件歷史。真實盾牌吸收另發送 `hit_blocked`，只供接觸冷卻等 consumer 使用；不偽造 HP 傷害，也不加入傷害／擊殺軍功。
 - 戰績是單場資料；`BattleStatsView` 共用呈現個人／編隊結果。Defense Campaign 不累計進攻建物指標；生涯結算獨立消費有效結果。
 
+## Standard Defense 攻城坡道與突破口
+
+- `CampaignSiegeAssault` 僅接入非 Career 的 Standard Defense；現有生涯任務、存檔、勝敗與私人隊伍 ownership 保持原路徑。`MobileSiegeRampPolicy` 在原 Attacker spawn plan 中保留 Actor ID 分配完整 4+6 編制，不建立額外 spawn jobs；不足十人不建立該車。所有成員完成既有 scheduler registration 才推進。
+- `MobileSiegeRampController` 管理 DEPLOYING → PUSHING → DOCKING → DOCKED 與不可恢復的 ABANDONED／DESTROYED。推力只計固定四名存活 Pushers；無替補。`MovingPlatformSupport` 增加 carrier delta 到乘員 world root，不 parenting、不覆蓋到固定座標；任務綁定期間 NPC 暫停自主 locomotion，仍保留戰鬥命中與死亡。先更新車、乘員及 collider，再更新 NPC，最後做 Actor 分離。
+- 車體 Primitive、斜坡 Walk Surface、局部接橋與 Collision 共用幾何參數。Dock 才開啟局部 parapet passage、註冊 navigation connection 與 mounted surface。舊樓梯維持 Foot Only；Mount 的高架支撐由 `resolveObstacleCollision` 明確授權，Follow／Formation 使用騎乘 body spacing。
+- Mounted 的 Ground 目標先沿合法坡道下降，清出坡底後透過現存 Gate／Palisade 入口及地面 A* 接近；沒有合法地面入口時留在城外，不反覆上坡或走步兵樓梯。Mounted Follow 以實際 leader identity 保存單列方向，只在城牆外端反轉並保留遲滯，不能以每名 follower 的暫存座標或橋中央 X 正負號重選方向。
+- `CampaignBreachController` 只保存首次 Assault latch；`AvailableBreachEntrances` 保存現在可通行的 Gate／Palisade／左右 Ramp。Dock 不更改 Gate HP 或 state。入口 revision 改變時才重新指派必要路線；尚綁定的車隊排除全軍重派，遠程兵保留 Attack。通路撤銷後，未入城的存活者改走其他入口或攻門。
+- `DamageableObstacle` 管理獨立車體 HP；移動 part bounds 與 projectile inverse matrices 隨車更新。Collision spatial index 只對有限的 dynamic records 查現有 bounds，不隨每次位移重建全場 grid。Destroyed 移除 collider／surface／入口，乘員沿既有 FallingRider 流程失去支撐；Abandoned 保留車體並沿坡道撤離。Scene dispose 或 spawn failure 解除所有訂閱、hit registration、乘員關聯與 pending batch。
+
 ## 生涯與城鎮
 
 - `CareerProfileStore` 使用 `sagaburst_career_v1`，與 RPG／Campaign 存檔隔離。`loadChecked` 區分無存檔與損壞／不支援資料；載入失敗不得覆寫。
