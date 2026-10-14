@@ -166,6 +166,44 @@ function elevatedSupport(position: THREE.Vector3): ObstacleData {
 }
 
 describe('Outpost elevated ranged defense' , () => {
+  it('still switches to melee for a same-level contact threat', () => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene, 'viking')
+    const archer = createRangedNpc('wooden_shortbow')
+    onTestFinished(() => { archer.dispose(); player.dispose() })
+    archer.group.position.set(0, 4.6, 0)
+    player.group.position.set(0, 4.6, .8)
+    archer.activateOutpostRampartGarrison()
+    archer.setTacticalOrder('defend')
+    archer.update(1 / 60, player, [archer], [], [elevatedSupport(archer.position)],
+      { setFill() {} }, () => {}, () => {}, true)
+    expect(archer.hasActiveRangedWeapon).toBe(false)
+  })
+
+  it.each(['defend', 'attack'] as const)('%s preserves ammunition above a close ground enemy and releases at a reachable ranged target', order => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene, 'viking')
+    const archer = createRangedNpc('wooden_shortbow')
+    const alternate = new NPC(scene, 20, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'alternate', 1, false)
+    onTestFinished(() => { archer.dispose(); player.dispose(); alternate.dispose() })
+    archer.group.position.set(0, 4.6, 0)
+    player.group.position.set(0, 0, 1)
+    alternate.group.position.set(20, 4.6, 0)
+    archer.activateOutpostRampartGarrison()
+    archer.setTacticalOrder(order)
+    const ammo = archer.combatAmmo
+    const fire = vi.fn()
+    const support = elevatedSupport(archer.position)
+    for (let frame = 0; frame < 240; frame++) {
+      archer.update(1 / 60, player, [archer, alternate], [], [support], { setFill() {} }, () => {}, fire, true)
+    }
+    expect(fire.mock.calls.length).toBeGreaterThan(0)
+    expect(fire.mock.calls[0][1].x).toBeGreaterThan(.8)
+    expect(archer.combatAmmo).toBe(ammo - fire.mock.calls.length)
+    expect(archer.hasActiveRangedWeapon).toBe(true)
+    expect(archer.position.toArray()).toEqual([0, 4.6, 0])
+  })
+
   it.each(['defend', 'attack'] as const)('%s releases arrows at a clear alternate and holds when every target is blocked', order => {
     const scene = new THREE.Scene()
     const player = new Player(scene, 'viking')

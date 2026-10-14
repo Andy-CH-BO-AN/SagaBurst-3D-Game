@@ -617,13 +617,32 @@ export class OutpostLayeredNavigation {
   ): OutpostLayeredMoveResult {
     const deck = this.layout.decks[0]
     const frontZ = this.layout.zSign > 0 ? deck.slab.min.z : deck.slab.max.z
+    const currentInside = (currentPos.z - frontZ) * this.layout.zSign >= 0
+    const goalInside = (goalPos.z - frontZ) * this.layout.zSign >= 0
+    const groundExit = isMounted && currentInside && !goalInside
+      ? [...this.entrances.entries.values()].filter(entry => entry.walkable && entry.mounted && !entry.surface)
+        .reduce<BreachEntrance | undefined>((best, entry) => !best
+          || currentPos.distanceToSquared(entry.exit) < currentPos.distanceToSquared(best.exit) ? entry : best, undefined)
+      : undefined
     const interiorMountedRoute = isMounted && this.layout.stairs.some(stair => stair.ramp.mounted)
-      && (currentPos.z - frontZ) * this.layout.zSign >= 0
-      && (goalPos.z - frontZ) * this.layout.zSign >= 0
+      && currentInside && (goalInside || Boolean(groundExit))
     const siege = interiorMountedRoute ? null : this.siegeRoute(currentPos, goalPos, isMounted, out, preferredEntrance)
     if (siege) return siege
     let targetLayer = this.getNavLayer(goalPos)
     const currentLayer = this.getNavLayer(currentPos)
+
+    // Descending via an interior stair does not itself cross the wall. Once on
+    // the ground, approach the live breach from its courtyard side before exiting.
+    if (groundExit && currentLayer === 'ground') {
+      const dx = groundExit.approach.x - groundExit.exit.x
+      const dz = groundExit.approach.z - groundExit.exit.z
+      const length = Math.hypot(dx, dz)
+      const x = currentPos.x - groundExit.exit.x, z = currentPos.z - groundExit.exit.z
+      const lateral = length > 0 ? Math.abs(x * dz - z * dx) / length : Infinity
+      const progress = length > 0 ? (x * dx + z * dz) / length : -Infinity
+      out.copy(lateral > 1 || progress < -1 ? groundExit.exit : groundExit.approach)
+      return { target: out, isCrossLayer: true, currentLayer, targetLayer, step: 'ground_approach' }
+    }
 
     // Losing a ramp removes descent, not the intact deck/bridge under the rider.
     // siegeRoute already handled any available mounted descent above.

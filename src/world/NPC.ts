@@ -2317,6 +2317,17 @@ export class NPC {
         targetInfo = { position: this.assignedSiegeObstacle!.box.getCenter(this._tmpTargetPosition), isDead: false, isPlayer: false }
         this._siegeTargetObstacle = this.assignedSiegeObstacle
       }
+      // Weapon transitions are actions, not side effects of a range query.
+      // A threat below a rampart is close in 3D but cannot make melee contact.
+      if (targetInfo && this.hasActiveRangedWeapon
+        && (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition)
+        && this.specialCombatProfile !== 'maki-ranger'
+        && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2
+        && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId)
+        && (!this.holdsRampartFirePosition || this._isTargetInMeleeApproachRange(targetInfo.position))) {
+        this._switchToMelee()
+      }
+
       // Elevated defenders retain their position. Expensive alternate acquisition is
       // bounded, while a cached moving tower's aim point is refreshed every frame.
       if (this.holdsRampartFirePosition && this.hasActiveRangedWeapon) {
@@ -3730,14 +3741,12 @@ export class NPC {
   }
 
   private _isTargetInDefendRange(targetPos: THREE.Vector3): boolean {
-    if (this.hasActiveRangedWeapon && this.combatPosition.distanceTo(targetPos) < RANGED_ATTACK_MIN && this.specialCombatProfile !== 'maki-ranger') {
-      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
-      this._switchToMelee()
-    }
     if (this.hasActiveRangedWeapon) {
-      const distance = this.holdsRampartFirePosition && this.rampartThreat && targetPos === this._tmpSiegeTarget
+      const isTower = this.holdsRampartFirePosition && this.rampartThreat && targetPos === this._tmpSiegeTarget
+      const distance = isTower
         ? this._rangedObstacleDistance(targetPos) : this.combatPosition.distanceTo(targetPos)
       return distance <= this.maxRangedAttackDistance
+        && (isTower || this.specialCombatProfile === 'maki-ranger' || distance >= RANGED_ATTACK_MIN)
     }
     if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
     return this._isTargetInMeleeApproachRange(targetPos)

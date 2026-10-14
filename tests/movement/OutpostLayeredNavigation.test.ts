@@ -28,6 +28,40 @@ describe('OutpostLayeredNavigation', () => {
   const romanPlacement = getCampaignOutpostPlacement('roman')
   const romanLayout = getOutpostWalkwayLayout(romanPlacement)
 
+  it.each(['gate', 'palisade'] as const)('mounted deck exit uses interior stairs and the live %s without a siege ramp', type => {
+    const nav = new OutpostLayeredNavigation(romanLayout)
+    const wp = nav.getWaypoints(-1)
+    const outside = new THREE.Vector3(0, getTerrainHeight(0, -80), -80)
+    const approach = new THREE.Vector3(0, getTerrainHeight(0, -104), -104)
+    const exit = new THREE.Vector3(0, getTerrainHeight(0, -112), -112)
+    nav.entrances.set({ id: type, type, position: exit, approach, exit,
+      walkable: true, mounted: true, faction: null, connectionId: type })
+    const fromDeck = nav.resolveMoveTarget(wp.deckConnection, outside, true, new THREE.Vector3())
+    expect(fromDeck.step).toBe('descend_stair')
+    expect(fromDeck.target.z).toBeLessThan(wp.deckConnection.z)
+    const bridge = romanLayout.bridge.slab.getCenter(new THREE.Vector3()).setY(romanLayout.bridge.topY)
+    const fromBridge = nav.resolveMoveTarget(bridge, outside, true, new THREE.Vector3())
+    expect(fromBridge.step).toBe('deck_approach')
+    expect(Math.abs(fromBridge.target.x)).toBeGreaterThan(Math.abs(bridge.x))
+    const ramp = wp.stair.ramp
+    const mid = new THREE.Vector3(ramp.startX, (ramp.startY + ramp.topY) / 2,
+      ramp.startZ + ramp.dirZ * ramp.length / 2)
+    const fromStair = nav.resolveMoveTarget(mid, outside, true, new THREE.Vector3())
+    expect(fromStair.step).toBe('descend_stair')
+    expect(fromStair.target.z).toBeLessThan(mid.z)
+    const fromCourtyard = nav.resolveMoveTarget(wp.groundEntrance, outside, true, new THREE.Vector3())
+    expect(fromCourtyard.target).toEqual(exit)
+    expect(nav.resolveMoveTarget(exit, outside, true, new THREE.Vector3()).target).toEqual(approach)
+    expect(nav.resolveMoveTarget(approach, outside, true, new THREE.Vector3()).target).toEqual(outside)
+    nav.entrances.set({ ...nav.entrances.entries.get(type)!, walkable: false })
+    expect(nav.resolveMoveTarget(wp.deckConnection, outside, true, new THREE.Vector3()).target).toEqual(wp.deckConnection)
+    nav.entrances.remove(type)
+    expect(nav.resolveMoveTarget(wp.deckConnection, outside, true, new THREE.Vector3()).target).toEqual(wp.deckConnection)
+    const blocked = nav.resolveMoveTarget(outside, wp.deckConnection, true, new THREE.Vector3())
+    expect(blocked.step).not.toBe('ascend_stair')
+    expect(blocked.target.y).toBe(getTerrainHeight(blocked.target.x, blocked.target.z))
+  })
+
   it('last siege ramp destruction retains deck routes and interior mounted descent', () => {
     const nav = new OutpostLayeredNavigation(romanLayout)
     dockLeft(nav)
