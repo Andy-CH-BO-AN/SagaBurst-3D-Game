@@ -9,7 +9,7 @@ import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissi
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { NpcSpawnScheduler, gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
-import { NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
+import { gameplayNpcSpawnDriver, NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
 import { Mount, MountType } from '../../src/world/Mount'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import type { NPC } from '../../src/world/NPC'
@@ -228,3 +228,36 @@ it.each([true, false])('restores equipment and synchronizes a restored rider at 
   expect(mount.group.rotation.y).toBeCloseTo(.4)
   expect(group.position.clone().sub(mount.group.position)).toEqual(offset)
 })
+
+
+it.each(['recruit', 'soldier', 'veteran', 'captain', 'commander'] as const)(
+  '%s scene entry waits for declared official and accepted HR jobs without waiting for a future wave', async rank => {
+    // Scheduling boundary only: zero actors, mounts or worlds. Home acceptance
+    // uses the live movement owner above and never calls this entry barrier.
+    const events: string[] = [], callbacks: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { callbacks.push(callback); return callbacks.length })
+    const official = gameplayNpcSpawns.batch(), personal = gameplayNpcSpawns.batch()
+    official.enqueue('initial:official', () => events.push('official')); official.seal(() => events.push('registered'))
+    personal.enqueue('accepted:HR', () => events.push('HR')); personal.seal()
+    onTestFinished(() => { official.cancel(); personal.cancel(); vi.unstubAllGlobals() })
+    // Only the private entry barrier is exposed; its scene dependencies are explicit below.
+    const town = Object.assign(Object.create(TownScene.prototype) as object, {
+      profile: { ...createCareerProfile('roman'), rank },
+      mission: { spawnBatches: [official] }, defense: { spawnBatches: [] },
+      personalSquad: { waitForSpawns: () => gameplayNpcSpawns.wait(personal) },
+    }) as unknown as { waitForInitialMissionDeployment(): Promise<void> }
+    let entered = false
+    const entry = town.waitForInitialMissionDeployment().then(() => { entered = true })
+    expect(entered).toBe(false)
+    for (let frame = 0; frame < 8 && !entered; frame++) {
+      const timestamp = gameplayNpcSpawnDriver.advanceFrame()
+      callbacks.splice(0).forEach(callback => callback(timestamp))
+      await Promise.resolve(); await Promise.resolve()
+      if (frame === 0) { expect(entered).toBe(false); expect(events).toEqual(['official', 'registered']) }
+    }
+    expect(entered).toBe(true); await entry
+    expect(events).toEqual(['official', 'registered', 'HR'])
+    // Future reinforcements are declared only by their event, after entry.
+    const future = gameplayNpcSpawns.batch(); future.enqueue('future:wave', () => events.push('future')); future.seal()
+    expect(future.ready).toBe(false); expect(entered).toBe(true); future.cancel()
+  })

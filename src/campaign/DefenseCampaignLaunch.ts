@@ -637,12 +637,13 @@ export function getDefenseCampaignStagingZ(frontZ: number, inwardSign: number): 
 export function positionDefenseCampaignAttackers(
   specs: NpcSpawnSpec[],
   outpostFaction: CampaignFaction,
+  minimumDistance = 100,
 ): void {
   if (specs.length === 0) return
   const placement = getCampaignOutpostPlacement(outpostFaction)
   const inwardSign = Math.sign(placement.backZ - placement.frontZ)
   const closestOutsideDistance = Math.min(...specs.map(spec => (placement.frontZ - spec.z) * inwardSign))
-  const shiftOutward = Math.max(0, (placement.frontZ - getDefenseCampaignStagingZ(placement.frontZ, inwardSign)) * inwardSign - closestOutsideDistance)
+  const shiftOutward = Math.max(0, minimumDistance - closestOutsideDistance)
   if (shiftOutward === 0) return
   for (const spec of specs) spec.z -= inwardSign * shiftOutward
 }

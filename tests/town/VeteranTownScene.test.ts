@@ -178,10 +178,10 @@ describe('Veteran mission board integration', () => {
     town.acceptMission('veteran-town-defense-01')
 
     expect(town.profile.activeMission).toMatchObject({ templateId: 'veteran-town-defense-01', kind: 'town-defense' })
-    expect(town.defense.startActiveMission).not.toHaveBeenCalled()
-    expect(town.inventory.prepareForCombat).not.toHaveBeenCalled()
-    expect(town.dispose).toHaveBeenCalledOnce()
-    expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile)
+    expect(town.defense.startActiveMission).toHaveBeenCalledOnce()
+    expect(town.inventory.prepareForCombat).toHaveBeenCalledOnce()
+    expect(town.dispose).not.toHaveBeenCalled()
+    expect(town.onRestart).not.toHaveBeenCalled()
   })
 })
 

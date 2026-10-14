@@ -1,3 +1,6 @@
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
 import { siegeAssaultFixture } from '../helpers/siegeAssaultFixture'
 import { MountType, type Mount } from '../../src/world/Mount'
 import * as THREE from 'three'
@@ -45,7 +48,6 @@ import { TownEvent, townRoster } from '../../src/town/TownRules'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
 import { advanceNpcFrame, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { createGameTestFixture } from '../helpers/gameFixture'
-import { shouldWaitForInitialPersonalSpawns } from '../../src/Game'
 
 import { recording, resetSpawnRecording } from '../helpers/npcSpawnRecording'
 
@@ -325,12 +327,14 @@ it.each(['complete', 'failure', 'cancel'] as const)('siege %s keeps elevated ini
     })
   })
 
-  it('deploys the full Commander Last Stand roster one rider job per frame while gameplay remains live', async () => {
+  it('loads 120 Commander defenders before entry and queues only its interleaved cavalry on assault', async () => {
     const profile = createCareerProfile('roman')
     profile.rank = 'commander'; profile.totalMerit = 20_000; profile.availableMerit = 20_000
     const accepted = acceptCommanderMission(profile, COMMANDER_LAST_STAND_ID, 'commander-shared-deployment')!
     const launch = createCareerCommanderOutpostLaunch(accepted)
     const plan = createCareerCommanderOutpostSpawnPlan(launch)
+    // Legacy preparation saves may contain the former premature waiting position.
+    accepted.activeMission!.actorPositions = { [accepted.activeMission!.targetActorIds[0]]: { x: 0, z: 0, yaw: 0 } }
 
     // A reload cancels every queued identity from the old scene. The new scene
     // reconstructs the canonical roster once, without carrying partial actors over.
@@ -354,47 +358,80 @@ it.each(['complete', 'failure', 'cancel'] as const)('siege %s keeps elevated ini
     game.careerProfile = accepted
     game.campaignOriginalDefenders = []
 
-    expect(shouldWaitForInitialPersonalSpawns(null, launch)).toBe(false)
-    expect(shouldWaitForInitialPersonalSpawns(null)).toBe(true)
-
+    game.campaignSpawnWave = null
+    game.campaignSpawnQueue = []
+    game.campaignSpawnQueueIndex = 0
+    game.obstacles = []
+    game.navigationWorld = new NavigationWorld()
+    game.navigationWorld.sync([])
+    game._persistCareerVeteranOutpostCheckpoint = vi.fn(() => true)
     game._queueCommanderOutpostDeployment(plan, launch)
     const batch = game.commanderOutpostDeploymentBatch
-    expect(batch.actors.size).toBe(220)
-    expect(batch.ready).toBe(false)
-    expect(recording.npcs).toHaveLength(0)
-
-    for (let frame = 0; frame < 120; frame++) {
-      const before = recording.npcs.length
-      advanceNpcFrame(gameplayNpcSpawnDriver)
-      expect(recording.npcs.length - before).toBe(1)
-    }
+    expect(batch.actors.size).toBe(120)
+    const step = loadingFrames()
+    let ready = false
+    const loading = gameplayNpcSpawns.wait(batch).then(() => { ready = true })
+    for (let frame = 0; frame < 119; frame++) await step()
+    expect(ready).toBe(false)
+    expect(recording.npcs).toHaveLength(119)
+    await step(); await loading
+    expect(ready).toBe(true)
     expect(recording.npcs).toHaveLength(120)
     expect(recording.mounts).toHaveLength(0)
-    expect(batch.ready).toBe(false)
-
-    // The rider and mount are bound inside one scheduler job; no second frame is consumed.
-    advanceNpcFrame(gameplayNpcSpawnDriver)
-    expect(recording.npcs).toHaveLength(121)
-    expect(recording.mounts).toHaveLength(1)
-    expect(recording.npcs[120].mount).toBe(recording.mounts[0])
-    expect(batch.ready).toBe(false)
-
-    for (let frame = 121; frame < 219; frame++) advanceNpcFrame(gameplayNpcSpawnDriver)
-    expect(recording.npcs).toHaveLength(219)
-    expect(recording.mounts).toHaveLength(99)
-    expect(batch.ready).toBe(false)
-    advanceNpcFrame(gameplayNpcSpawnDriver)
-
-    expect(batch.ready).toBe(true)
+    expect(game.campaignOriginalDefenders).toHaveLength(120)
+    expect(recording.npcs.every(npc => npc.tacticalOrder === 'defend')).toBe(true)
+    game.defenseCampaignRuntime = new DefenseCampaignRuntime({ eliminationObjective: true,
+      eliminationUsesDeployment: true, deploymentSeconds: 60 })
+    expect(game._queueDefenseCampaignWave('attackers')).toBe(0)
+    game.defenseCampaignRuntime.update(60, { playerDead: false, originalDefendersAlive: 120,
+      defendersAlive: 120, attackersAlive: 100, reinforcementSpawned: false })
+    expect(game._queueDefenseCampaignWave('attackers')).toBe(100)
+    expect(game._queueDefenseCampaignWave('attackers')).toBe(0)
+    for (let frame = 0; frame < 3; frame++) await step()
+    expect(recording.npcs.slice(120).map(npc => npc.squadId)).toEqual([5, 6, 7])
+    expect(recording.npcs.slice(120).map(npc => npc.tacticalOrder)).toEqual(['charge', 'charge', 'attack'])
+    expect(recording.mounts).toHaveLength(3)
+    expect(recording.mounts[0].group.position.z).toBe(42)
+    expect(recording.npcs.slice(120).every(npc => npc.mount?.riderNpc === npc)).toBe(true)
+    gameplayNpcSpawnDriver.drain()
     expect(recording.npcs).toHaveLength(220)
     expect(recording.mounts).toHaveLength(100)
-    expect(game.commanderOutpostDeploymentTotal).toBe(220)
-    expect(game.campaignOriginalDefenders).toHaveLength(120)
     expect(new Set(game.npcs.map((npc: NPC) => npc.combatantId)).size).toBe(220)
-    expect(recording.npcs.every(npc => npc.tacticalOrder === 'defend')).toBe(true)
-    expect(game.battleStats.registerNpc).toHaveBeenCalledTimes(220)
-    expect(game._aimTargetRegistry.registerNpc).toHaveBeenCalledTimes(220)
-    expect(game._aimTargetRegistry.registerMount).toHaveBeenCalledTimes(100)
+    expect(game.campaignSpawnWave).toBeNull()
+    expect(game._queueDefenseCampaignWave('attackers')).toBe(0)
+    expect(game._persistCareerVeteranOutpostCheckpoint).toHaveBeenCalledTimes(100)
+
+  })
+
+  it('restores surviving Commander wave actors once and fills only missing IDs after serialized partial arrival', async () => {
+    // Full roster data and recording construction boundaries; zero real NPC/Mount/World.
+    const base = createCareerProfile('viking'); base.rank = 'commander'; base.totalMerit = 20_000
+    const accepted = acceptCommanderMission(base, COMMANDER_LAST_STAND_ID, 'recorded-wave-reload')!
+    const mission = accepted.activeMission!
+    mission.outpostBattleState = { ...createCareerCommanderOutpostLaunch(accepted).careerCommanderOutpost!.runtimeState,
+      phase: 'assault', activePhase: 'assault', deploymentRemainingSeconds: 0, assaultElapsedSeconds: 12 }
+    mission.deadTargetActorIds = [mission.targetActorIds[0], mission.targetActorIds[1]]
+    mission.actorHealth = Object.fromEntries(mission.targetActorIds.slice(0, 8).map((id, i) => [id, { hp: i < 2 ? 0 : 63, mountHp: 45 }]))
+    const store = new CareerProfileStore(new MemoryStorage()); expect(store.save(accepted)).toBe(true)
+    const saved = store.load()!, launch = createCareerCommanderOutpostLaunch(saved)
+    const game = gameFixture() as any
+    Object.assign(game, { careerProfile: saved, defenseCampaignConfig: launch, campaignOriginalDefenders: [],
+      campaignSpawnWave: null, campaignSpawnQueue: [], campaignSpawnQueueIndex: 0, obstacles: [], navigationWorld: new NavigationWorld(),
+      defenseCampaignRuntime: new DefenseCampaignRuntime({ eliminationObjective: true, eliminationUsesDeployment: true,
+        initialSnapshot: launch.careerCommanderOutpost!.runtimeState }), _persistCareerVeteranOutpostCheckpoint: vi.fn(() => true) })
+    game.navigationWorld.sync([])
+    const initial = createCareerCommanderOutpostSpawnPlan(launch, 'initial', saved.activeMission)
+    game._queueCommanderOutpostDeployment(initial, launch); gameplayNpcSpawnDriver.drain()
+    const recovered = game.npcs.filter((npc: NPC) => npc.faction === Faction.ENEMY)
+    expect(recovered.map((npc: NPC) => npc.combatantId)).toEqual(mission.targetActorIds.slice(2, 8))
+    expect(recovered.every((npc: NPC) => npc.hp === 63 && npc.mount?.currentHp === 45)).toBe(true)
+    expect(game._queueDefenseCampaignWave('attackers')).toBe(92)
+    expect(game.campaignSpawnQueue.some((spec: NpcSpawnSpec) => mission.targetActorIds.slice(0, 8).includes(spec.actorId!))).toBe(false)
+    gameplayNpcSpawnDriver.drain()
+    expect(game.npcs.filter((npc: NPC) => npc.faction === Faction.ENEMY)).toHaveLength(98)
+    expect(new Set(game.npcs.map((npc: NPC) => npc.combatantId)).size).toBe(218)
+    expect(game._queueDefenseCampaignWave('attackers')).toBe(0)
+    expect(game.defenseCampaignRuntime.getSnapshot().assaultElapsedSeconds).toBe(12)
   })
 
   it.each([

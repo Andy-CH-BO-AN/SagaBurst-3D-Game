@@ -1,7 +1,7 @@
 import type { BattleSpawnPlan, NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { PlayerLoadoutConfig } from '../battle/BattleConfig'
 import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
-import { createDefaultDefensePlayerLoadout, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
+import { createDefaultDefensePlayerLoadout, positionDefenseCampaignAttackers, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { canUseCareerEquipment } from '../town/TownEquipment'
@@ -82,13 +82,16 @@ function positionEnemy(specs: NpcSpawnSpec[], faction: CareerProfile['faction'])
     const centerX = lancer ? 0 : sword ? -34 : 34
     const columns = lancer ? 10 : 5
     spec.x = centerX + (local % columns - (columns - 1) / 2) * 3.8
-    // Horse archers hold the rear/flank; all three groups are present before the assault.
+    // Preserve the three formation lanes; the shared Campaign staging policy
+    // translates the complete wave beyond the minimum attack distance.
     const distance = lancer ? 72 : sword ? 78 : 94
     spec.z = outpost.frontZ - inward * (distance + Math.floor(local / columns) * 4.4)
   })
+  positionDefenseCampaignAttackers(specs, faction, 150)
 }
 
-export function createCareerCommanderOutpostSpawnPlan(launch: DefenseCampaignLaunchConfig): BattleSpawnPlan {
+export function createCareerCommanderOutpostSpawnPlan(launch: DefenseCampaignLaunchConfig,
+  wave: 'initial' | 'attackers' = 'initial', mission?: ActiveCareerMission): BattleSpawnPlan {
   const data = launch.careerCommanderOutpost
   if (!data) throw new Error('Expected Commander Last Stand launch')
   const profileMission = {
@@ -101,10 +104,32 @@ export function createCareerCommanderOutpostSpawnPlan(launch: DefenseCampaignLau
   positionEnemy(roster.enemy, data.outpostFaction)
   const outpost = getCampaignOutpostPlacement(data.outpostFaction)
   const inward = Math.sign(outpost.backZ - outpost.frontZ)
+  const terminal = Boolean(mission?.result || data.runtimeState.battleFinished)
+  const alive = (spec: NpcSpawnSpec) => !commanderActorConfirmedDead(mission, spec.actorId!)
+  // Round-robin squads so every formation begins arriving in the first three jobs.
+  const enemies = Array.from({ length: 50 }, (_, index) => [roster.enemy[index],
+    ...(index < 25 ? [roster.enemy[50 + index], roster.enemy[75 + index]] : [])]).flat()
+  const restoredEnemies = data.runtimeState.activePhase === 'assault'
+    ? enemies.filter(spec => mission?.actorHealth?.[spec.actorId!] !== undefined
+      || mission?.actorPositions?.[spec.actorId!] !== undefined) : []
   return {
     playerSpawn: { x: outpost.centerX, z: outpost.frontZ + inward * 28 },
-    npcSpecs: [...roster.friendly, ...roster.enemy], horseSpecs: [], pickupSpecs: [],
+    npcSpecs: terminal ? [] : (wave === 'attackers' ? enemies : [...roster.friendly, ...restoredEnemies]).filter(alive),
+    horseSpecs: [], pickupSpecs: [],
   }
+}
+
+export function commanderActorConfirmedDead(mission: ActiveCareerMission | undefined, actorId: string): boolean {
+  return Boolean(mission?.deadTargetActorIds?.includes(actorId) || mission?.deadFriendlyActorIds?.includes(actorId)
+    || mission?.actorHealth?.[actorId]?.hp === 0 || mission?.officialSquad?.members?.[actorId]?.status === 'dead')
+}
+
+/** Unmaterialized stable objectives remain alive; neither queue cadence nor
+ * an empty battlefield can turn them into kills. */
+export function remainingCommanderAttackers(mission: ActiveCareerMission,
+  actors: readonly { combatantId: string; dead: boolean }[]): number {
+  const dead = new Set(actors.filter(actor => actor.dead).map(actor => actor.combatantId))
+  return mission.targetActorIds.filter(id => !dead.has(id) && !commanderActorConfirmedDead(mission, id)).length
 }
 
 export function careerCommanderOutpostOwner(launch: DefenseCampaignLaunchConfig) {

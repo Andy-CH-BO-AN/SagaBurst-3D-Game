@@ -28,7 +28,7 @@ import {
   recordCommanderObjectiveDeath,
   skyRaidNativeActorIds,
 } from '../../src/career/CommanderMissionCatalog'
-import { createCareerCommanderOutpostLaunch, createCareerCommanderOutpostSpawnPlan } from '../../src/career/CommanderOutpost'
+import { createCareerCommanderOutpostLaunch, createCareerCommanderOutpostSpawnPlan, remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
 import { careerTownSceneRoster } from '../../src/career/CareerFieldSceneContext'
 import { claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
@@ -353,7 +353,8 @@ describe('Commander Last Stand launch', () => {
     const placement = getCampaignOutpostPlacement(faction)
     const inward = Math.sign(placement.backZ - placement.frontZ)
     const friendlies = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
-    const enemies = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
+    const enemies = createCareerCommanderOutpostSpawnPlan(launch, 'attackers').npcSpecs
+    expect(plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)).toHaveLength(0)
 
     expect(validateDefenseCampaignLaunchConfig(launch)).toEqual({ valid: true, errors: [] })
     expect(launch).toMatchObject({ stageId: 9, deploymentSeconds: 60, commandGrouping: 'squad',
@@ -362,7 +363,9 @@ describe('Commander Last Stand launch', () => {
     expect(friendlies).toHaveLength(120)
     expect(enemies).toHaveLength(100)
     expect(friendlies.every(spec => (spec.z - placement.frontZ) * inward > 0)).toBe(true)
-    expect(enemies.every(spec => (spec.z - placement.frontZ) * inward < 0)).toBe(true)
+    expect(enemies.every(spec => (placement.frontZ - spec.z) * inward >= 150)).toBe(true)
+    expect(enemies.slice(0, 3).map(spec => spec.squadId)).toEqual([5, 6, 7])
+    expect(new Set(enemies.map(spec => spec.actorId)).size).toBe(100)
     expect(new Set(enemies.map(spec => spec.squadId))).toEqual(new Set([5, 6, 7]))
     expect((plan.playerSpawn.z - placement.frontZ) * inward).toBeGreaterThan(0)
   })
@@ -382,5 +385,47 @@ describe('Commander Last Stand launch', () => {
       } },
     ]
     for (const variant of variants) expect(validateDefenseCampaignLaunchConfig(variant).valid).toBe(false)
+  })
+})
+
+
+describe('Last Stand stable objective recovery', () => {
+  it.each([
+    ['partial initial defenders', false, 0, 0, 60, false, 120, 100, 100],
+    ['remaining preparation', false, 0, 0, 17, false, 120, 100, 100],
+    ['assault before first spawn', true, 0, 0, 0, false, 120, 100, 100],
+    ['half spawned with casualties', true, 50, 10, 0, false, 160, 90, 90],
+    ['entire wave spawned', true, 100, 10, 0, false, 210, 90, 90],
+    ['all targets killed', true, 100, 100, 0, false, 120, 0, 0],
+    ['terminal result', true, 100, 100, 0, true, 0, 0, 0],
+  ] as const)('%s survives a storage round-trip without reviving casualties or resetting time',
+    (_scenario, assault, spawned, deaths, remaining, terminal, initialCount, waveCount, objectives) => {
+      const profile = accepted(COMMANDER_LAST_STAND_ID)
+      const mission = profile.activeMission!
+      mission.outpostBattleState = { ...createCareerCommanderOutpostLaunch(profile).careerCommanderOutpost!.runtimeState,
+        phase: terminal ? 'victory' : assault ? 'assault' : 'deployment', activePhase: assault ? 'assault' : 'deployment',
+        deploymentRemainingSeconds: remaining, assaultElapsedSeconds: assault ? 12 : 0, battleFinished: terminal }
+      mission.actorHealth = Object.fromEntries(mission.targetActorIds.slice(0, spawned).map((id, index) => [id, { hp: index < deaths ? 0 : 63, mountHp: 72 }]))
+      mission.deadTargetActorIds = mission.targetActorIds.slice(0, deaths)
+      const store = new CareerProfileStore(new MemoryStorage())
+      expect(store.save(profile)).toBe(true)
+      const restored = store.load()!, launch = createCareerCommanderOutpostLaunch(restored)
+      const initial = createCareerCommanderOutpostSpawnPlan(launch, 'initial', restored.activeMission)
+      const wave = createCareerCommanderOutpostSpawnPlan(launch, 'attackers', restored.activeMission)
+      expect(launch.careerCommanderOutpost!.runtimeState.deploymentRemainingSeconds).toBe(remaining)
+      expect(initial.npcSpecs).toHaveLength(initialCount)
+      expect(wave.npcSpecs).toHaveLength(waveCount)
+      expect(remainingCommanderAttackers(restored.activeMission!, [])).toBe(objectives)
+      const dead = new Set(mission.deadTargetActorIds)
+      expect([...initial.npcSpecs, ...wave.npcSpecs].every(spec => !dead.has(spec.actorId!))).toBe(true)
+    })
+
+  it('counts missing and queued IDs until all 100 unique riders die, ignoring mount deaths and unrelated actors', () => {
+    const mission = accepted(COMMANDER_LAST_STAND_ID).activeMission!
+    expect(remainingCommanderAttackers(mission, [])).toBe(100)
+    const actors = mission.targetActorIds.map(id => ({ combatantId: id, dead: true }))
+    expect(remainingCommanderAttackers(mission, actors.slice(0, 99))).toBe(1)
+    expect(remainingCommanderAttackers(mission, [...actors.slice(0, 99), { combatantId: 'mount', dead: true }])).toBe(1)
+    expect(remainingCommanderAttackers(mission, actors)).toBe(0)
   })
 })

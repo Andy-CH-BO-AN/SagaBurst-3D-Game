@@ -316,6 +316,7 @@ export class PersonalSquadRuntime {
       }
     }
     if (order) {
+      for (const actor of this.actors) actor.missionMovement = false
       this.command = order; this.commandRevision++
       const formation = order === 'formation' ? this.actors.find(actor => !actor.dead && actor.combatFormationCheckpoint)?.combatFormationCheckpoint : undefined
       const ids = [...this.pending.keys()]
@@ -458,6 +459,7 @@ export class PersonalSquadRuntime {
   }
 
   private applyCommand(npc: NPC, index: number): void {
+    npc.missionMovement = false
     if (npc.mount?.isFlyingMount) npc.setEagleFlightOrder(null)
     const boarding = this.boarding.get(npc)
     if (boarding) { this.walkTo(npc, boarding.pad); return }
@@ -547,6 +549,7 @@ export class PersonalSquadRuntime {
   }
 
   private walkTo(actor: NPC, slot: PersonalSquadSpawnSlot): void {
+    actor.missionMovement = this.state === 'RETURNING'
     actor.assignFormationTarget(this.returnCommand, new THREE.Vector3(slot.x, getTerrainHeight(slot.x, slot.z), slot.z),
       new THREE.Vector3(Math.sin(slot.yaw), 0, Math.cos(slot.yaw)), undefined, actor.mount?.isFlyingMount ? 'defend' : undefined)
   }

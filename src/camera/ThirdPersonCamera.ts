@@ -16,6 +16,7 @@ const CAMERA_DISTANCE = 6
 const FIRST_PERSON_FORWARD_OFFSET = 0.55
 // The captain's larger head/helmet needs additional clearance during aim poses.
 const CAPTAIN_FIRST_PERSON_FORWARD_OFFSET = 1.1
+const COMMANDER_EAGLE_FORWARD_OFFSET = 1.5
 const CAMERA_HEIGHT_OFFSET = 0.8  // standing eye/chest line above capsule centre
 const MOUNTED_CAMERA_HEIGHT_OFFSET = -0.1 // mounted root already includes seat + capsule height
 const CAMERA_COLLISION_MARGIN = 0.28
@@ -27,6 +28,7 @@ const CAMERA_TERRAIN_SAMPLE_COUNT = 24
 
 const NORMAL_FOV = 58
 const AIM_FOV    = 28
+const COMMANDER_EAGLE_AIM_FOV = 22
 const LEVEL_AIM_PITCH = 0.3
 
 const collisionRay = new THREE.Ray()
@@ -168,6 +170,8 @@ export class ThirdPersonCamera {
     // Consume mouse delta
     const { dx, dy } = input.consumeMouseDelta()
     const flight = this.player.currentMount?.flight
+    const commanderEagle = Boolean(flight && (this.player.heroAssetId === 'roman-hero-t5'
+      || this.player.heroAssetId === 'viking-hero-t5'))
     if (flight) {
       this.flightAim.update(dx, dy, input.isRightMouseDown, flight, dt,
         Number(Boolean(input.keys['KeyA'])) - Number(Boolean(input.keys['KeyD'])))
@@ -188,7 +192,8 @@ export class ThirdPersonCamera {
     const targetBlend = this.player.isRangedAimViewActive ? 1 : 0
     const alpha = 1 - Math.exp(-18 * dt)
     this.aimViewBlend = THREE.MathUtils.lerp(this.aimViewBlend, targetBlend, alpha)
-    this.camera.fov = THREE.MathUtils.lerp(NORMAL_FOV, AIM_FOV, this.aimViewBlend)
+    this.camera.fov = THREE.MathUtils.lerp(NORMAL_FOV,
+      commanderEagle ? COMMANDER_EAGLE_AIM_FOV : AIM_FOV, this.aimViewBlend)
     this.camera.updateProjectionMatrix()
 
     // The camera and projectile share one forward ray.  Looking back at the
@@ -223,7 +228,8 @@ export class ThirdPersonCamera {
     const safeFirstPersonDistance = resolveCameraDistance(
       this.cameraTarget,
       this.aimDirection,
-      this.player.heroAssetId === 'viking-hero-t4' ? CAPTAIN_FIRST_PERSON_FORWARD_OFFSET : FIRST_PERSON_FORWARD_OFFSET,
+      commanderEagle ? COMMANDER_EAGLE_FORWARD_OFFSET
+        : this.player.heroAssetId === 'viking-hero-t4' ? CAPTAIN_FIRST_PERSON_FORWARD_OFFSET : FIRST_PERSON_FORWARD_OFFSET,
       obstacles,
       { obstacleMargin: FIRST_PERSON_COLLISION_MARGIN },
     )

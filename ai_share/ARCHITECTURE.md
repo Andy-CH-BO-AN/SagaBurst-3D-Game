@@ -42,7 +42,7 @@
 - 裝備中的盾是唯一持盾狀態來源，步戰／騎乘皆留左手。持盾阻擋拉弓；盾牌變更取消未完成蓄力。一般 T1–T3 劍走單手劍動作。
 - Lance idle 沿用 Sword Idle 人體／手形，加固定 attachment；攻擊才加右臂 FK 前伸。不在無關工作恢復舊 Ready pose、左手支撐或 lance IK。
 - Maki 使用來源持弓 idle；近戰仍持同一把弓，以重定向 `axeAttack2H` 播放，Player 裝備固定弓近戰／無盾。站立側身姿勢、移動／騎乘腿部所有權見 [posed-source characters](skills/humanoid-rig-skinning/references/posed-source-characters.md)。
-- `CharacterBowVisual` 共用弓、弦、nock、搭箭及發射座標；Roman pilum 另有外觀。`ThirdPersonCamera` 瞄準只改 FOV；Player 從 nock 向準星 world ray 命中點發射。
+- `CharacterBowVisual` 共用弓、弦、nock、搭箭及發射座標；Roman pilum 另有外觀。`ThirdPersonCamera` 以 FOV 與安全前向位移混合至瞄準視角；T5 Roman／Viking 騎巨鷹時使用 22° FOV 與 1.5m 前向淨空，沿用相機碰撞限制；Player 從 nock 向準星 world ray 命中點發射。
 - T5 selected-source 騎乘弓姿由 `CharacterEquipmentPose` 將就座移除的來源骨盆 world rotation 等分轉移到 torso chain，保留肩手與固定弓握點的朝向；`MixerController` 依實際 bow clip 權重維持淡出到 idle 期間的補償。巨鷹衝刺仍保留下胸俯身，但瞄準時維持上胸 world orientation。站立、T4、actor／mount heading、來源 clips 與 projectile direction 不由此 adapter 改寫。
 - T4 Ranger 的正式預設 loadout 經 `resolveT4UnitLoadout` 使用 `maki-ranger-bow-ranged`，沿用原本 Maki 弓外觀、動畫與近戰 fallback。遠程傷害／箭速由 WeaponDatabase 實際裝備決定；角色 tier 不會自動升級明確指定的低階弓。
 - `EagleRangedCombat` 只覆寫 NPC + xongkoro + bow 的 3D 開火距離，依當前武器 tier 為 200／300／400／500m，不再疊加 Ranger 射程倍率。`ProjectileBallistics` 有界求解真實重力與移動目標攔截，發射前重驗彈道遮擋；發射後投射物不追蹤。NPC 驗證過的空軍射擊及 Player 自由瞄準空軍弓各自產生有界 flight budget，Game／Town 都傳入 ArrowProjectile。Town 非空軍保留五秒政策；共用箭矢使用 scene 方形世界界線與獨立 age／travel cap，不再依世界原點 400m 球體裁切。
@@ -127,7 +127,7 @@
 - `TownMissionSettlement` 集中任務結果保存與返回順序：沿用 `claimCareerMission`／`clearCareerMission`，保存成功後才清理、歸還借用居民及坐騎或重建場景；保存失敗保留現場供重試。守城及清剿原地結算，其他任務依直接返回或步行返抵採取既有恢復方式，TownScene 保留結果 UI 與玩家觀戰控制。
 - Home Town 原地返回亦恢復被任務敵軍殺死的非借用居民／駐軍及其 home mount、死亡 Cat，釋放 external threat 並恢復服務；未受害旁觀者保持原狀，Patrol casualties 仍由兵營 return/refit 接回。勝敗皆在 clear 保存成功後才恢復，敵境 native residents 沿重建場景處理。
 - `NPC.updateTownPeace`／`updateTownTravel` 的死亡路徑持續既有 3 秒 presentation 後隱藏整個 root，不自行復活；任務／裝備面板暫停活人戰鬥時，`TownMissionCombat.updateDefeatedActors` 仍去重更新所有已死亡 NPC 與 mount，防止雙方屍體永久留在場上。
-- 一般 Town Defense、Captain III 與 Soldier Enemy Town Assault 均經載入畫面建立戰場，不因 HR 私兵而改用舊場景。首次初始化在敵軍部署前直接定位既有守軍、預備騎兵與平民；攻方沿既有每秒一人的 spawn 節奏建立，完成後關閉四門；玩家進入場景後共用 10 秒 PREPARING 倒數，期間軍隊待命，之後四路正式 ATTACKING。攻方接管的 roaming cavalry 保留 actor／mount／傷勢、改穿 T3 並納入固定 roster，保留實際位置並行軍到所屬 map-edge muster；停止原 roaming squad respawn。各門預備騎兵依 gate frame 排在該門內側最近門區，部署／集結沿原生速度使用衝刺與體力，到位停止。同場 reload 保留實際位置、剩餘倒數與戰損，不重新部署；部署尚未完成的離場 checkpoint 也保留已定位 residents，不保存尚未完成的臨時敵軍。只有兩個正式 Siege 關門，普通 Town 保持 open。
+- Soldier Enemy Town Assault 轉場時經載入畫面建立戰場；本城 Town Defense／Captain III 接受後在目前城鎮即時部署，套用已保存的可整補名冊，玩家保持自由移動。首次初始化在敵軍部署前直接定位既有守軍、預備騎兵與平民；攻方沿共享每 render frame 最多一個 NPC job 的 spawn 節奏建立，完成後關閉四門；玩家進入場景後共用 10 秒 PREPARING 倒數，期間軍隊待命，之後四路正式 ATTACKING。攻方接管的 roaming cavalry 保留 actor／mount／傷勢、改穿 T3 並納入固定 roster，保留實際位置並行軍到所屬 map-edge muster；停止原 roaming squad respawn。各門預備騎兵依 gate frame 排在該門內側最近門區，部署／集結沿原生速度使用衝刺與體力，到位停止。同場 reload 保留實際位置、剩餘倒數與戰損，不重新部署；部署尚未完成的離場 checkpoint 也保留已定位 residents，不保存尚未完成的臨時敵軍。只有兩個正式 Siege 關門，普通 Town 保持 open。
 - `TownSiegeGateClosure` 按 `TOWN_GATES` yaw 推出 closure volume 中所有 Player／NPC／Mount，不依 faction、不造成傷害／combat attribution；mounted rider 與 mount 一起移動。被推出的守軍留在城外；完整進城者不移動。首次部署關門後更新 navigation topology，進場倒數完成才 ATTACKING。
 - Siege 各隊先接近自己門，近戰沿既有 NPC obstacle damage 破門，遠程在外支援；不能改走別門。只有敵方致命攻擊破門才釋放該門 AI 步兵與 cavalry reserve（含同場 reload），之後使用原生 Charge 自由追敵；其他門繼續守住自己的部署位置。部署 finalizer 只有在原生 formation 仍有效時才能沿用快取目的地，避免戰鬥準備清掉 formation 後留下 Charge。Legacy Captain 正式隊沿原有定位後控制；Commander 隊伍在成功保存玩家接管後才排除原生 AI，不必等待破門。NPC mission combat target 覆蓋一般、快取與遠程換敵選擇，任務清理後恢復原生選敵，攻方實際穿過本門才自由清城。Leader 死亡由同隊存活者接替。Roster 建立後所有死亡（含 PREPARING）永久計戰損，reload 保存 roster／位置／HP／失馬／準備時間／gate HP與breach／reserve release／crossing；同場 reload 不修門，結算返回恢復正常 open。缺少新 Siege state 的舊 Town War 取消回 Town，不做 migration。
 - Bandit 與敵方 roaming cavalry 全滅後各自等 60 秒才從 map edge 整隊回補；友方 roaming cavalry 保留既有政策，被 Siege claim 者直到結束才歸還外圍生命週期。Captain 敵巡為 T2；正式 Commander 敵巡為三隊各五名 T4 Captain、五名 T4 Ranger，使用各自獨立英雄坐騎。編制變更等既有 encounter 結束後進入 RETIRING，實際返回 map edge 才換新 generation；冷卻不因任命重設。Town 保存敵巡 tier、generation、部署／退場／交戰狀態、HP／ammo／失馬與剩餘冷卻，尚未 materialize 的已保存成員也保留。正式 Siege 場景暫存 Commander 敵巡原快照、不生成額外精銳或借其英雄填普通攻方 slots；成功結算後以原 generation／戰損／剩餘冷卻恢復，Captain 舊 T2 借兵照舊；Bandit 仍僅保存原 timer／generation。
@@ -170,6 +170,13 @@ Town Center 與 Barracks 建築已移除，武器店／馬店位於原 Town Cent
 `EagleFlightAI` 在共用 FlightController 上維持 RANGED_GROUND／DIVE_GROUND／RANGED_AIR／DIVE_AIR 的持續 maneuver，固定 20–40m AGL 巡航、有限轉向／預測拉升與 3D 空軍鄰居避讓。弓箭裝備／彈藥可用性與已選定戰術分開：有箭的騎手先完成騎射承諾窗口，遇到安全且對準的近距機會才俯衝，完成 pass／拉升後重新取得騎射窗口；換目標不逐幀重選或永久延後戰術決策。Follow／Formation／Defend 不等於 Return；只有明確 return order 才指定安全降落。`AerialViewPolicy` 只在 xongkoro 騎乘或高空 observer 啟用 700m camera far／fog，返回地面時還原場景原值；既有 LOD 與 gameplay update 獨立，不扩大高精度模型距離。
 
 `CareerMountController` 維護單一 active mount，切換／遣返保留 HP 與死亡鎖。軍馬只有一份所有權，tier 跟隨任命軍階；舊 tier ID 由存檔相容處理。Captain 使用同陣營 T4，Commander 使用 `roman-hero-t5`／`viking-hero-t5`。任命先載入並暫建新角色，保存成功才替換；失敗保留舊角色與可重試的任命，取消及重複點擊不重複提交。替換保留原坐騎、位置／朝向、HP 比例、體力、彈藥、全部盾牌耐久及 inventory／skills，原相機重新綁定角色以保留視角狀態。舊 Commander 存檔載入 T5，失敗不降回 T4。正式隊指揮權由接受時保存的 authority 決定。
+
+
+Career 場景進入／重載的 Loading barrier 只等待當次已宣告的 Initial Roster：TownScene 的 mission／defense batches 與已接受 HR 私兵；Game 的初始 BattleSpawnPlan（含 Commander III 守軍）及 Captain Eagle 正式名冊與 HR。Loading 使用 `gameplayNpcSpawns.wait` 推進 RAF，不推進戰鬥或倒數，成功 registration／checkpoint 後才開始可操作場景，不額外重載 Player。本城原地接任務不使用 entry barrier；reinforcement、timed wave、dynamic encounter 等未來事件不納入等待。
+
+Commander Last Stand 的初始名冊為 120 名友軍步兵加接受時 HR 私兵；60 秒準備完成才使用 Defense Campaign wave owner 交錯排入 50 Lancer／25 Sword-Axe Cavalry／25 Horse Archer。騎手及坐騎於同一 job 建立，每人立即收到 Charge（Squad 5／6）或 Attack（Squad 7）。攻方重用 Campaign staging 距離計算，透過 `DefenseCampaignDeployment` 檢查 ±300m 內、障礙 clearance 與正門外側導航連通，最近至少 150m。勝利按完整 100 個 stable target IDs 判定，未生成 ID 仍算未消滅；重載以既有 actorHealth／actorPositions 還原已生成存活者，確認死者略過，remaining wave 只補尚未存在的 IDs，每個成功 job 保存 checkpoint，不重設 timeline 或重播結算。
+
+NavigationWorld 保留每影格最多兩筆 A* 查詢；NavigationPathFollower 以自身作為 pending owner，超出額度時保存最新起終點，下個 beginFrame 按等待順序優先處理，避免固定 actor 順序及移動目標讓私兵／後段城防永久拿不到路徑。Topology rebuild 清除 deferred 工作及 cache。Town 軍隊、原生 Patrol、平民／商人與 HR 地面 Dismiss 使用既有 urgent formation／原生移動速度與體力規則回崗，到位或重新接令後釋放 urgency；和平移動動畫沿用實際 sprint 狀態，不改原生巡邏速度、傷害或生命。
 
 ## 效能解讀
 

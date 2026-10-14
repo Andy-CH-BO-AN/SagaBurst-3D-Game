@@ -129,17 +129,17 @@ describe('Career mission voice events', () => {
     audio.playTownAlarm.mockReturnValueOnce(new Promise(resolve => { finishAlarm = resolve }))
     const town = townHarness(faction)
     town.acceptMission('veteran-town-defense-01'); town.acceptMission('veteran-town-defense-01')
-    expect(town.defense.startActiveMission).not.toHaveBeenCalled()
-    expect(town.onRestart).toHaveBeenCalledExactlyOnceWith(town.profile)
-    expect(town.dispose).toHaveBeenCalledOnce()
+    expect(town.defense.startActiveMission).toHaveBeenCalledOnce()
+    expect(town.onRestart).not.toHaveBeenCalled()
+    expect(town.dispose).not.toHaveBeenCalled()
     expect(audio.playTownAlarm).not.toHaveBeenCalled()
-    void town.playTownDefenseAlert() // The loaded battlefield announces after its first paint.
+    void town.playTownDefenseAlert() // The current battlefield announces after initial defense deployment.
     expect(audio.playTownAlarm).toHaveBeenCalledOnce()
     town.careerCommandCue = null
     town.defense.reserveHasCharged = false
     town.updateCareerCommandCue() // First resumed gameplay frame.
     expect(audio.playCommanderCommand).not.toHaveBeenCalled()
-    expect(town.onRestart.mock.invocationCallOrder[0]).toBeLessThan(audio.playTownAlarm.mock.invocationCallOrder[0])
+    expect(town.defense.startActiveMission.mock.invocationCallOrder[0]).toBeLessThan(audio.playTownAlarm.mock.invocationCallOrder[0])
     expect(audio.playTownAlarm).toHaveBeenCalledWith(true)
     await vi.advanceTimersByTimeAsync(8000)
     expect(audio.playCareerMissionVoice).not.toHaveBeenCalled()

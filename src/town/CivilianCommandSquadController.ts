@@ -233,14 +233,14 @@ export class CivilianCommandSquadController {
     value.owners[id] = 'returning'; member.order = 'formation'
     member.formation = { commandId: CIVILIAN_COMMAND_RETURN_ID,
       position: { x: spec.x, y: getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? 0 },
-      reached: false, speedLimit: 2.2 }
+      reached: false }
   }
   private applyReturn(npc: NPC, member: PersonalActorCheckpoint): void {
     if (!member.formation) return
     const f = member.formation, p = f.position
-    npc.missionMovement = false; npc.setMissionCombatTarget(null); npc.clearEncounter(); npc.disarmTownCivilian(); npc.setTownPeaceful()
+    npc.missionMovement = true; npc.setMissionCombatTarget(null); npc.clearEncounter(); npc.disarmTownCivilian(); npc.setTownPeaceful()
     npc.assignFormationTarget(CIVILIAN_COMMAND_RETURN_ID, new THREE.Vector3(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z),
-      new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw)), 2.2, undefined, f.reached)
+      new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw)), undefined, undefined, f.reached)
   }
   private save(value: CivilianCommandSquadState): boolean {
     const next = cloneCareerProfile(this.read()); next.civilianCommandSquad = value
@@ -265,7 +265,7 @@ export class CivilianCommandSquadController {
       } else {
         npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN)
         if (owner === 'returning' && member.formation) this.applyReturn(npc, member)
-        else if (owner === 'daily') { npc.setTacticalOrder('attack'); npc.disarmTownCivilian(); npc.setTownPeaceful() }
+        else if (owner === 'daily') { npc.missionMovement = false; npc.setTacticalOrder('attack'); npc.disarmTownCivilian(); npc.setTownPeaceful() }
         this.options.onRelease?.(npc, owner)
       }
     }

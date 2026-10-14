@@ -116,10 +116,10 @@ describe('Veteran Campaign Outpost Game integration', () => {
     const launch = createCareerCommanderOutpostLaunch(profile)
     const plan = createCareerCommanderOutpostSpawnPlan(launch)
     const game = createGameFixture(launch as any, profile as any)
-    // Full 220-job registration belongs to NpcSpawnIntegration; this caller test
+    // Full initial/wave registration belongs to NpcSpawnIntegration; this caller test
     // needs one representative from each of the four friendly and three enemy squads.
     const representativeSpecs = [1, 2, 3, 4, 5, 6, 7].map(squadId =>
-      plan.npcSpecs.find(spec => spec.squadId === squadId)!)
+      [...plan.npcSpecs, ...createCareerCommanderOutpostSpawnPlan(launch, 'attackers').npcSpecs].find(spec => spec.squadId === squadId)!)
     const actors = representativeSpecs.map(spec => ({
       combatantId: spec.actorId!, characterFaction: spec.characterFaction, faction: spec.faction,
       squadId: spec.squadId, combatOwnership: 'mission-official', dead: false,
@@ -127,6 +127,8 @@ describe('Veteran Campaign Outpost Game integration', () => {
     }))
     const friendlies = actors.filter(actor => actor.faction === Faction.PLAYER)
     const enemies = actors.filter(actor => actor.faction === Faction.ENEMY)
+    profile.activeMission!.deadTargetActorIds = profile.activeMission!.targetActorIds.filter(id => !enemies.some(actor => actor.combatantId === id))
+    game._queueDefenseCampaignWave = vi.fn(() => 100)
     game.npcs = actors
     game.campaignOriginalDefenders = friendlies
     game.careerOriginalCommandSquads = new Map()
@@ -167,7 +169,7 @@ describe('Veteran Campaign Outpost Game integration', () => {
     expect(game.defenseCampaignRuntime.getSnapshot().deploymentRemainingSeconds).toBe(1)
     game._updateDefenseCampaign(1)
 
-    expect(game.campaignAttackersStarted).toBe(true)
+    expect(game._queueDefenseCampaignWave).toHaveBeenCalledExactlyOnceWith('attackers')
     expect(game._commanderOutpostCombatLocked()).toBe(false)
     expect(enemies.filter(actor => actor.squadId === 5 || actor.squadId === 6)
       .every(actor => actor.setTacticalOrder.mock.calls.some((call: any[]) => call[0] === 'charge'))).toBe(true)
@@ -278,7 +280,7 @@ describe('Veteran Campaign Outpost Game integration', () => {
     game.personalSquad.ready = true
     game._updateDefenseCampaign(.5)
     expect(game._persistCareerVeteranOutpostCheckpoint).toHaveBeenCalledWith({ immediate: true })
-    expect(update).toHaveBeenCalledExactlyOnceWith(.5, expect.objectContaining({ defendersAlive: 1, attackersAlive: 1 }))
+    expect(update).toHaveBeenCalledExactlyOnceWith(.5, expect.objectContaining({ defendersAlive: 1, attackersAlive: 100 }))
     expect(game.defenseCampaignRuntime.getSnapshot().assaultElapsedSeconds).toBe(12.5)
     expect(game._commanderOutpostCombatLocked()).toBe(false)
     expect(game._showDefenseCampaignResult).not.toHaveBeenCalled()

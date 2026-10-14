@@ -1,3 +1,5 @@
+import { resolveDefenseCampaignAttackerDeployment } from '../../src/campaign/DefenseCampaignDeployment'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { describe, expect, it } from 'vitest'
 import {
   createDefaultDefenseArmy,
@@ -671,5 +673,34 @@ describe('Defense Campaign Stage 1 launch config', () => {
     expect(stage7.viking.viking_berserker).toEqual({ 1: 0, 2: 0, 3: 64, 4: 1 })
     expect(stage7.viking.viking_archer).toEqual({ 1: 0, 2: 0, 3: 32, 4: 1 })
     expect(calculateArmyTotal(stage7.viking)).toBe(162)
+  })
+})
+
+
+describe('mounted Campaign attack staging legality', () => {
+  it.each(['roman', 'viking'] as const)('resolves %s blocked slots inside map bounds with an approach route at least 150m away', faction => {
+    const placement = getCampaignOutpostPlacement(faction), inward = Math.sign(placement.backZ - placement.frontZ)
+    const blockedZ = placement.frontZ - inward * 150
+    const obstacle: ObstacleData = { box: new THREE.Box3(new THREE.Vector3(-5, -10, blockedZ - 5), new THREE.Vector3(5, 10, blockedZ + 5)), isBarricade: false }
+    const navigation = new NavigationWorld(); navigation.sync([obstacle])
+    const specs = [rampartSpec({ actorId: 'a', x: 0, z: blockedZ, cavalry: true }),
+      rampartSpec({ actorId: 'b', x: 0, z: blockedZ, cavalry: true })]
+    resolveDefenseCampaignAttackerDeployment(specs, faction, [obstacle], navigation, 150)
+    const approach = { x: 0, z: placement.frontZ - inward * 12 }
+    for (const spec of specs) {
+      expect(Math.abs(spec.x)).toBeLessThanOrEqual(297); expect(Math.abs(spec.z)).toBeLessThanOrEqual(297)
+      expect((placement.frontZ - spec.z) * inward).toBeGreaterThanOrEqual(150)
+      expect(obstacle.box.clone().expandByScalar(2).containsPoint(new THREE.Vector3(spec.x, 0, spec.z))).toBe(false)
+      expect(navigation.areConnected(spec, approach)).toBe(true)
+      expect(navigation.grid.findPath(new THREE.Vector3(spec.x, 0, spec.z), new THREE.Vector3(approach.x, 0, approach.z))).not.toBeNull()
+    }
+    expect(Math.hypot(specs[0].x - specs[1].x, specs[0].z - specs[1].z)).toBeGreaterThanOrEqual(3.6)
+  })
+
+  it('rejects unreachable staging rather than materializing a rider on the wrong navigation component', () => {
+    const wall: ObstacleData = { box: new THREE.Box3(new THREE.Vector3(-300, -10, 0), new THREE.Vector3(300, 10, 30)), isBarricade: false }
+    const navigation = new NavigationWorld(); navigation.sync([wall])
+    expect(() => resolveDefenseCampaignAttackerDeployment([rampartSpec({ x: 0, z: 80 })], 'roman', [wall], navigation, 150))
+      .toThrow('No legal mounted attacker staging slot')
   })
 })

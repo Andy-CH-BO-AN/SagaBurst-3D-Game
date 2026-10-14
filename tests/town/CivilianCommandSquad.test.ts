@@ -306,7 +306,7 @@ describe('civilian physical follow and return', () => {
     expect(npc.combatProfileId).toBeUndefined()
   })
 
-  it('walks the same merchant away from and back to the shop, resumes daily owner, and keeps HP 50', () => {
+  it('sprints the same merchant back to the shop with native stamina, resumes daily owner, and keeps HP 50', () => {
     // One real NPC, zero Mount/TownWorld/GLB; this owns native locomotion beyond recording tests.
     const scene = new THREE.Scene(), spec = { ...townRoster().find(spec => spec.id === 'merchant')!, x: 0, z: 0 }
     const npc = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'merchant', 2, false,
@@ -324,6 +324,11 @@ describe('civilian physical follow and return', () => {
     expect(npc.combatPosition.distanceTo(start)).toBeGreaterThan(3)
     const departure = npc.combatPosition.clone(); expect(controller.issue('dismiss')).toBe(true)
     expect(npc.combatPosition.distanceTo(departure)).toBe(0)
+    const stamina = npc.staminaValue
+    navigation.beginFrame(); controller.updateResident(resident, .05, player.combatPosition, [], navigation)
+    expect(npc.sprinting).toBe(true)
+    expect(npc.staminaValue).toBeLessThan(stamina)
+    expect(npc.combatPosition.distanceTo(departure)).toBeGreaterThan(.22)
     let frames = 0
     while (controller.owner(npc) === 'returning' && frames++ < 400) {
       navigation.beginFrame(); controller.updateResident(resident, .05, player.combatPosition, [], navigation)
@@ -332,6 +337,7 @@ describe('civilian physical follow and return', () => {
     expect(Math.hypot(npc.combatPosition.x, npc.combatPosition.z)).toBeLessThan(1)
     expect(npc.faction).toBe(Faction.TOWN); expect(npc.hp).toBe(50); expect(npc.meleeWeaponId).toBeNull()
     expect(controller.actors[0]).toBe(npc)
+    expect(npc.missionMovement).toBe(false)
   })
 })
 

@@ -130,7 +130,8 @@ function defenseAcceptanceFixture(fullCommandRoster = false) {
   const state = { profile, store, player: { dead: false, group: new THREE.Group(), currentMount: null },
     residents: specs.map((spec, index) => ({ spec, npc: guards[index] as unknown as NPC })), event: { hostile: false }, commandActors: [] as NPC[],
     skills: { skillState: profile.skills }, careerSaveFailures: 0, garrisonRestored: false,
-    world: { faction: 'roman' }, defense: { startActiveMission: vi.fn(), fieldNpcs: [] },
+    world: { faction: 'roman' }, defense: { startActiveMission: vi.fn(() => { changes.push('defense'); return true }), fieldNpcs: [] },
+    inventory: { prepareForCombat: vi.fn() }, closePanel: vi.fn(),
     dispose: vi.fn(() => changes.push('dispose')), onRestart: vi.fn(() => {
       expect(store.load()?.activeMission?.kind).toBe('town-defense'); changes.push('restart')
     }), openPanel: vi.fn(),
@@ -181,7 +182,8 @@ describe('new defense acceptance refit and reload', () => {
       expect(mission.actorHealth?.commander).toEqual({ hp: 73, mountHp: 61 })
       expect(shouldSpawnTownCommander(saved)).toBe(true)
     }
-    expect(f.town.onRestart).toHaveBeenCalledOnce()
+    expect(f.town.onRestart).not.toHaveBeenCalled()
+    expect(f.town.defense.startActiveMission).toHaveBeenCalledOnce()
     expect(f.guard).toMatchObject({ dead: true, hp: 0, combatAmmo: 0 })
     expect(mission.friendlyActorIds).toContain(f.spec.id)
     expect(mission.deadFriendlyActorIds).toContain(f.spec.id)
@@ -189,7 +191,7 @@ describe('new defense acceptance refit and reload', () => {
     expect(mission.officialSquad?.actorIds).not.toContain(f.spec.id)
   })
 
-  it.each(['generic', 'generic-with-HR', 'captain'] as const)('%s saves the refit once before reloading and never starts defense in the old scene', kind => {
+  it.each(['generic', 'generic-with-HR', 'captain'] as const)('%s saves and applies the refit before starting defense in the current scene', kind => {
     const f = defenseAcceptanceFixture()
     if (kind === 'generic-with-HR') {
       f.town.profile.personalSquad = { members: [{ id: 'personal:dead', type: 'soldier', originalHirePrice: 50 }] }
@@ -202,8 +204,11 @@ describe('new defense acceptance refit and reload', () => {
     expect(f.guard.dead).toBe(true); expect(f.guard.hp).toBe(0)
     expect(f.town.dispose).not.toHaveBeenCalled(); expect(f.town.onRestart).not.toHaveBeenCalled()
     f.storage.failWrites = false; f.changes.length = 0; f.save.mockClear(); accept()
-    expect(f.changes).toEqual(['save', 'dispose', 'restart'])
-    expect(f.town.defense.startActiveMission).not.toHaveBeenCalled()
+    expect(f.changes).toEqual(['save', 'defense'])
+    expect(f.town.defense.startActiveMission).toHaveBeenCalledOnce()
+    expect(f.town.dispose).not.toHaveBeenCalled()
+    expect(f.town.onRestart).not.toHaveBeenCalled()
+    expect(f.guard).toMatchObject({ dead: false, hp: 100 })
     const saved = f.store.load()!
     expect(saved.townCommandSquad?.members?.[f.spec.id]).toMatchObject({ status: 'reserve', hp: 100, ammo: 30, shieldImpact: 8, order: 'attack', position: { x: f.spec.x, z: f.spec.z } })
     expect(saved.townCommandSquad).toMatchObject({ authorized: false, state: 'TRAINING' })
@@ -220,6 +225,7 @@ describe('new defense acceptance refit and reload', () => {
     // 30 recorded residents, zero real constructors: grant requires the permanent identity contract.
     const f = defenseAcceptanceFixture(true)
     f.town.acceptMission('veteran-town-defense-01')
+    f.guard.dead = true; f.guard.hp = 0
     f.town.player.dead = reason === 'death'
     if (reason === 'defense-settlement') f.town.profile.activeMission!.result = { outcome: 'victory' } as NonNullable<CareerProfile['activeMission']>['result']
     const next = cloneCareerProfile(f.town.profile); next.activeMission = undefined
