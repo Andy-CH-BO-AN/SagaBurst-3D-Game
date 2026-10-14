@@ -1,3 +1,4 @@
+import { allocateSiegeRampCrews } from '../../src/campaign/MobileSiegeRampPolicy'
 import { describe, expect, it } from 'vitest'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
 import { validateDefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
@@ -361,6 +362,12 @@ describe('Commander Last Stand launch', () => {
       capabilities: { reinforcementsEnabled: false, playerCommandsEnabled: true,
         gateControlEnabled: false, attackerHeroesEnabled: false } })
     expect(friendlies).toHaveLength(120)
+    const archers = friendlies.filter(spec => spec.presetId === `${faction}_archer`)
+    expect(archers).toHaveLength(60)
+    expect(archers.filter(spec => spec.outpostRampartGarrison)).toHaveLength(36)
+    expect(archers.filter(spec => !spec.outpostRampartGarrison)).toHaveLength(24)
+    expect(allocateSiegeRampCrews([...friendlies, ...enemies], faction === 'roman' ? 'viking' : 'roman')).toEqual([])
+
     expect(enemies).toHaveLength(100)
     expect(friendlies.every(spec => (spec.z - placement.frontZ) * inward > 0)).toBe(true)
     expect(enemies.every(spec => (placement.frontZ - spec.z) * inward >= 150)).toBe(true)

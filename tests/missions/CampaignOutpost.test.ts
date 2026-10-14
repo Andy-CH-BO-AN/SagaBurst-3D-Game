@@ -850,7 +850,6 @@ describe('outpost walkway mode isolation', () => {
   it.each<[string, Partial<OutpostWalkwayLaunchFields>]>([
     ['career outpost relief', { careerMissionKind: 'outpost-relief', careerReliefPhase: 'march' }],
     ['career mission id only', { careerMissionId: 'm1' }],
-    ['veteran assault', { careerMissionKind: 'veteran-outpost-assault', careerVeteranOutpost: { missionKind: 'veteran-outpost-assault' } as any }],
     ['personal squad defense', { careerPersonalSquad: { missionId: 'p1' } as any }],
   ])('keeps %s on the original outpost', (_label, overrides) => {
     expect(isOutpostWalkwayEnabled({ ...standard, ...overrides }, false)).toBe(false)
@@ -859,6 +858,8 @@ describe('outpost walkway mode isolation', () => {
   it.each<[string, Partial<OutpostWalkwayLaunchFields>]>([
     ['career outpost defense', { careerMissionId: 'm1', careerMissionKind: 'outpost-defense' }],
     ['captain frontline', { careerMissionId: 'm2', careerMissionKind: 'captain-outpost-defense' }],
+    ['veteran assault', { careerMissionKind: 'veteran-outpost-assault', careerVeteranOutpost: { missionKind: 'veteran-outpost-assault' } as any }],
+    ['Commander Last Stand', { careerMissionKind: 'commander-outpost-last-stand' }],
     ['veteran defense', { careerMissionKind: 'veteran-outpost-defense', careerVeteranOutpost: { missionKind: 'veteran-outpost-defense' } as any }],
   ])('enables the shared rampart for %s', (_label, overrides) => {
     expect(isOutpostWalkwayEnabled({ ...standard, ...overrides }, false)).toBe(true)

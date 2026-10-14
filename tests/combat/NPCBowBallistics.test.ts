@@ -391,3 +391,39 @@ it('elevated defender releases a projectile into transformed tower geometry and 
   for (let frame = 0; frame < 240; frame++) update()
   expect(arrows).toHaveLength(released)
 })
+
+
+it('melee rampart guard holds above ground threats, uses melee on the deck and releases to an explicit formation', () => {
+  // One real guard and Player: AI branch/range protection, not a roster/spawn test.
+  const scene = new THREE.Scene(), player = new Player(scene, 'viking')
+  const guard = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.MELEE, 'Rampart guard', 1, false,
+    { meleeWeaponId: 'gladius_rusty', rangedWeaponId: null, shieldId: null, mountId: null })
+  onTestFinished(() => { guard.dispose(); player.dispose() })
+  const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement('roman'))
+  const nav = new NavigationWorld(); nav.setOutpostWalkways(layout)
+  guard.position.copy(layout.decks[0].slab.getCenter(new THREE.Vector3())).y = layout.decks[0].topY
+  const start = guard.position.clone(), support = elevatedSupport(start)
+  guard.activateOutpostRampartGarrison(); guard.setTacticalOrder('attack')
+  player.group.position.copy(start).add(new THREE.Vector3(0, -4.6, .8))
+  const hit = vi.fn(), arrow = vi.fn()
+  const tick = () => { scene.updateMatrixWorld(true); guard.update(1 / 60, player, [guard], [], [support], { setFill() {} }, hit, arrow, true,
+    0, null, null, nav) }
+  for (let frame = 0; frame < 180; frame++) tick()
+  expect(guard.holdsRampartFirePosition).toBe(false)
+  expect(guard.holdsRampartPosition).toBe(true)
+  expect(guard.position).toEqual(start)
+  expect(hit).not.toHaveBeenCalled(); expect(arrow).not.toHaveBeenCalled()
+  player.group.position.copy(start).add(new THREE.Vector3(0, .95, .8))
+  const actions = new Set<string | null>()
+  for (let frame = 0; frame < 180; frame++) { tick(); actions.add(guard.combatAnimationAction) }
+  expect(actions.has('swordSlash')).toBe(true)
+  expect(guard.position).toEqual(start)
+  expect(arrow).not.toHaveBeenCalled()
+  guard.assignFormationTarget(10, start.clone().add(new THREE.Vector3(4, 0, 0)), new THREE.Vector3(0, 0, 1))
+  expect(guard.isOutpostRampartGarrisonActive).toBe(false)
+  expect(guard.tacticalOrder).toBe('formation')
+  guard.activateOutpostRampartGarrison()
+  guard.assignFollowTarget(player, 0)
+  expect(guard.isOutpostRampartGarrisonActive).toBe(false)
+  expect(guard.tacticalOrder).toBe('follow')
+})

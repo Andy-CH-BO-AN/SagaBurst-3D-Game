@@ -1,3 +1,7 @@
+import { onTestFinished } from 'vitest'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { RecordingNpc } from '../helpers/npcSpawnRecording'
+import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { advanceNpcFrame, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -286,13 +290,14 @@ describe('Veteran Campaign Outpost Game integration', () => {
     expect(game._showDefenseCampaignResult).not.toHaveBeenCalled()
   })
 
-it('does not mistake Dread Outpost mounted Rangers for foot rampart archers', () => {
+it('garrisons existing Dread Outpost infantry without mistaking mounted Rangers for archers', () => {
     const launch = createCareerVeteranOutpostLaunch(veteranProfile('veteran-dread-outpost', 'rampart-dread'))
     const fresh = createCareerVeteranOutpostSpawnPlan(launch, 'initial')
     const garrison = fresh.npcSpecs.filter(spec => spec.outpostRampartGarrison)
 
     expect(fresh.npcSpecs.some(spec => spec.loadout?.rangedWeaponId && spec.cavalry)).toBe(true)
-    expect(garrison).toHaveLength(0)
+    expect(garrison).toHaveLength(12)
+    expect(garrison.every(spec => spec.aiType === AIType.MELEE && !spec.cavalry && !spec.loadout?.mountId && spec.tier !== 4)).toBe(true)
 
     const resumed = createCareerVeteranOutpostSpawnPlan(launch, 'initial', { deployRampartGarrison: false })
     expect(resumed.npcSpecs.some(spec => spec.outpostRampartGarrison || spec.spawnY !== undefined)).toBe(false)
@@ -832,5 +837,60 @@ it('does not mistake Dread Outpost mounted Rangers for foot rampart archers', ()
     expect(npcDispose).toHaveBeenCalledTimes(1)
     expect(mountDispose).toHaveBeenCalledTimes(1)
     expect(hudDestroy).toHaveBeenCalledTimes(1)
+  })
+})
+
+
+describe('Career elevated command checkpoint recovery', () => {
+  it.each([false, true])('serialized Commander guards preserve height, formation, ownership and casualties (legacy Y absent: %s)', legacy => {
+    const profile = commanderProfile(`elevated-reload-${legacy}`), launch = createCareerCommanderOutpostLaunch(profile)
+    const plan = createCareerCommanderOutpostSpawnPlan(launch)
+    const spec = plan.npcSpecs.find(spec => spec.outpostRampartGarrison)!
+    const scene = new THREE.Scene()
+    const guard = new RecordingNpc(scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType,
+      spec.name, spec.tier, false, spec.loadout, spec.presetId, spec.squadId, spec.actorId)
+    // Recording boundary exercises Game checkpoint/restore; zero real NPCs or Mounts.
+    guard.position.y = spec.spawnY!; guard.activateOutpostRampartGarrison(); guard.hp = 73
+    const deadSpec = plan.npcSpecs.find(candidate => candidate.actorId !== spec.actorId)!
+    const dead = new RecordingNpc(scene, deadSpec.x, deadSpec.z, deadSpec.faction, deadSpec.characterFaction, deadSpec.aiType,
+      deadSpec.name, deadSpec.tier, false, deadSpec.loadout, deadSpec.presetId, deadSpec.squadId, deadSpec.actorId)
+    dead.restoreCombatHealth(0)
+    onTestFinished(() => { guard.dispose(); dead.dispose() })
+    const game = createGameFixture(launch, profile)
+    game.npcs = [guard, dead]; game.player = careerCheckpointPlayer()
+    game.battleStats = { checkpoint: () => ({ damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }),
+      officialCommandCheckpoint: () => undefined, officialSquadCheckpoints: () => [] }
+    game.startingHorse = null; game.previewCampaignGate = null
+    game.defenseCampaignRuntime = new DefenseCampaignRuntime({ initialSnapshot: launch.careerCommanderOutpost!.runtimeState })
+    const authority = structuredClone(profile.activeMission!.officialSquad!)
+    profile.activeMission = game._buildCareerVeteranOutpostCheckpoint()
+    if (legacy) {
+      delete profile.activeMission!.actorPositions![spec.actorId!].y
+      delete profile.activeMission!.officialSquad!.members![spec.actorId!].position!.y
+    }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const saved = store.load()!
+    expect(saved.activeMission!.officialSquad?.actorIds).toEqual(authority.actorIds)
+    expect(saved.activeMission!.officialSquad?.commandedSquadIds).toEqual(authority.commandedSquadIds)
+    game.careerProfile = saved
+    guard.position.set(0, -10, 0); guard.releaseOutpostRampartGarrison(); guard.hp = 100
+    dead.restoreCombatHealth(100)
+    game._restoreCareerVeteranNpcState(guard); game._restoreCareerVeteranNpcState(dead)
+    expect(guard.position.toArray()).toEqual([spec.x, spec.spawnY, spec.z])
+    expect(guard.hp).toBe(73)
+    expect(guard.isOutpostRampartGarrisonActive).toBe(true)
+    expect(dead.dead).toBe(true)
+    guard.releaseOutpostRampartGarrison()
+    guard.assignFormationTarget(77, new THREE.Vector3(spec.x, spec.spawnY, spec.z + 3))
+    // The real snapshot reads NPC's public formation contract, supplied by this recording boundary.
+    Object.defineProperty(guard, 'combatFormationCheckpoint', { configurable: true, value: { commandId: 77,
+      position: { x: spec.x, y: spec.spawnY, z: spec.z + 3, yaw: 0 }, arrivalOrder: 'defend', reached: false } })
+    game.careerProfile.activeMission = game._buildCareerVeteranOutpostCheckpoint()
+    expect(store.save(game.careerProfile)).toBe(true)
+    game.careerProfile = store.load()!
+    game._restoreCareerVeteranNpcState(guard)
+    expect(guard.isOutpostRampartGarrisonActive).toBe(false)
+    expect(guard.formationCommandId).toBe(77)
   })
 })

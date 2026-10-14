@@ -1,3 +1,4 @@
+import { allocateSiegeRampCrews, isSiegeRampCrewCandidate } from '../../src/campaign/MobileSiegeRampPolicy'
 import { describe, expect, it } from 'vitest'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainEagleLaunch, createCaptainEagleSpawnPlan, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
@@ -25,6 +26,11 @@ describe('Captain cross-scene battle plans', () => {
     expect(plan.npcSpecs.filter(spec => spec.squadId === 1).every(spec => !spec.cavalry && spec.presetId === (faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker'))).toBe(true)
     expect(profile.activeMission?.officialSquad?.actorIds).toEqual(plan.npcSpecs.filter(spec => spec.squadId === 1).map(spec => spec.actorId))
     expect(new Set(plan.npcSpecs.map(spec => spec.actorId)).size).toBe(90)
+    const attacking = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'attackers')).npcSpecs
+      .map((spec, i) => ({ ...spec, actorId: `${launch.careerMissionId}:attackers:${i}` }))
+    expect(attacking).toHaveLength(202)
+    expect(attacking.filter(spec => isSiegeRampCrewCandidate(spec, faction === 'roman' ? 'viking' : 'roman'))).toHaveLength(80)
+    expect(allocateSiegeRampCrews([...plan.npcSpecs, ...attacking], faction === 'roman' ? 'viking' : 'roman')).toHaveLength(2)
     const rampart = plan.npcSpecs.filter(spec => spec.outpostRampartGarrison)
     expect(rampart).toHaveLength(30)
     expect(rampart.every(spec => spec.spawnY !== undefined && spec.presetId === `${faction}_archer`)).toBe(true)

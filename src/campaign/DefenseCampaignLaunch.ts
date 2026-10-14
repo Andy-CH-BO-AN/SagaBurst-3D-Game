@@ -48,7 +48,7 @@ import {
 import type { VeteranOutpostBattleState } from '../career/CareerMissionState'
 import { createVeteranRoster } from '../career/VeteranMission'
 import { parsePersonalMission, type PersonalSquadMission } from '../career/CareerPersonalSquadMission'
-import { deployOutpostRampartArchers, type OutpostRampartDeployment } from './OutpostRampartGarrison'
+import { deployOutpostRampartGarrison, deployOutpostRampartArchers, type OutpostRampartDeployment } from './OutpostRampartGarrison'
 
 export interface DefenseCampaignCapabilities {
   reinforcementsEnabled: boolean
@@ -594,11 +594,12 @@ export function createDefenseCampaignWaveConfig(
 export function positionDefenseCampaignDefenders(
   specs: NpcSpawnSpec[],
   defenderFaction: CampaignFaction,
-  options: { deployRampartGarrison?: boolean } = {},
+  options: { deployRampartGarrison?: boolean; careerGarrison?: boolean } = {},
 ): OutpostRampartDeployment {
   const rampart = options.deployRampartGarrison === false
     ? { assignments: [], eligibleCount: 0, overflowCount: 0 }
-    : deployOutpostRampartArchers(specs, defenderFaction)
+    : options.careerGarrison ? deployOutpostRampartGarrison(specs, defenderFaction)
+      : deployOutpostRampartArchers(specs, defenderFaction)
   const mounted = specs.filter(spec => spec.cavalry)
   if (mounted.length === 0) return rampart
 

@@ -1,3 +1,4 @@
+import { parseCampaignSiegeCheckpoint, type CampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { createMissionCommandAuthority, officialCommandSquads, officialMissionSourcePolicy, parseCommandActorCheckpoint, type OfficialCommandAuthority } from './CareerCommandAuthority'
 import { createCareerOutpostCommandSquads } from './CareerOutpostRoster'
 import type { PersonalActorCheckpoint, PersonalActorPosition } from './CareerPersonalSquadMission'
@@ -24,6 +25,7 @@ export interface CareerOutpostMission {
   battle?: CareerOutpostCheckpoint
 }
 export interface CareerOutpostCheckpoint {
+  outpostSiege?: CampaignSiegeCheckpoint
   runtime: DefenseCampaignRuntimeSnapshot
   actors: Record<string, { hp: number; x: number; y?: number; z: number; yaw: number; mountHp?: number; outpostRampartGarrison?: boolean; checkpoint?: PersonalActorCheckpoint }>
   player: { hp: number; stamina: number; dead: boolean; x: number; z: number; yaw: number; mountHp?: number; ammo?: number; shieldImpact?: number; mounted?: boolean; mountPosition?: PersonalActorPosition }
@@ -81,6 +83,8 @@ export function claimCareerOutpost(current: CareerProfile, missionId: string, ou
 export function parseCareerOutpostCheckpoint(value: unknown): CareerOutpostCheckpoint | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as CareerOutpostCheckpoint
+  const outpostSiege = parseCampaignSiegeCheckpoint(raw.outpostSiege)
+  if (raw.outpostSiege !== undefined && !outpostSiege) return undefined
   const number = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n)
   const point = (p: { x: number; z: number; yaw: number } | undefined) => p && typeof p === 'object' && number(p.x) && number(p.z) && number(p.yaw)
   if (!raw.runtime || !['deployment', 'assault', 'victory', 'defeat'].includes(raw.runtime.phase)
@@ -113,6 +117,7 @@ export function parseCareerOutpostCheckpoint(value: unknown): CareerOutpostCheck
   if (!Number.isSafeInteger(raw.waveIndex) || raw.waveIndex < 0 || raw.waveIndex > 1024) return undefined
   if (raw.gate && (!number(raw.gate.hp) || raw.gate.hp < 0 || !['closed', 'open', 'destroyed'].includes(raw.gate.state))) return undefined
   return {
+    ...(outpostSiege ? { outpostSiege } : {}),
     runtime: {
       phase: raw.runtime.phase, activePhase: raw.runtime.activePhase,
       deploymentRemainingSeconds: raw.runtime.deploymentRemainingSeconds,

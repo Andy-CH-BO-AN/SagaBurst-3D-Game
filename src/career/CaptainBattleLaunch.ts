@@ -53,7 +53,7 @@ export function createCaptainFrontlineLaunch(profile: CareerProfile): DefenseCam
 export function createCaptainFrontlineSpawnPlan(
   launch: DefenseCampaignLaunchConfig,
   authority?: OfficialCommandAuthority,
-  options: { deployRampartGarrison?: boolean } = {},
+  options: { deployRampartGarrison?: boolean; careerGarrison?: boolean } = {},
 ): BattleSpawnPlan {
   const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'defenders'))
   positionDefenseCampaignDefenders(plan.npcSpecs, launch.defenderFaction, options)

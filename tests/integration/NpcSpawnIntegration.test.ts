@@ -1,3 +1,4 @@
+import { acceptCaptainFrontline, createCaptainFrontlineLaunch } from '../../src/career/CaptainBattleLaunch'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
@@ -80,7 +81,7 @@ function gameFixture() {
     spawnBatches: [] as Array<import('../../src/world/NpcSpawnScheduler').NpcSpawnBatch>, scene: new THREE.Scene(), npcs: [] as NPC[], mounts: [] as unknown[], pickups: [] as unknown[],
     combatEvents: { emit: vi.fn() }, _showNotify: vi.fn(), battleStats: { registerNpc: vi.fn() },
     _aimTargetRegistry: { registerNpc: vi.fn(), registerMount: vi.fn(), unregisterNpc: vi.fn(), unregisterMount: vi.fn() },
-    careerVeteranActorMounts: new Map(), defenseCampaignConfig: null,
+    careerVeteranActorMounts: new Map(), defenseCampaignConfig: null as import('../../src/campaign/DefenseCampaignLaunch').DefenseCampaignLaunchConfig | null,
   })
   dispose.push(() => game._disposeCareerOutpostBattleActors())
   return game
@@ -325,6 +326,39 @@ it.each(['complete', 'failure', 'cancel'] as const)('siege %s keeps elevated ini
       expect(npc.isMounted).toBe(spec.cavalry)
       if (npc.isMounted && npc.mount) expect(npc.mount.riderNpc).toBe(npc)
     })
+  })
+
+  it.each(['soldier', 'captain'] as const)('%s Career wave prepares its official convoys before constructors and unlocks only at final registration', async rank => {
+    const base = createCareerProfile('roman'); base.rank = rank; base.totalMerit = 10000
+    const profile = rank === 'soldier' ? acceptCareerOutpost(base, 1, `siege-${rank}`)!
+      : acceptCaptainFrontline(base, `siege-${rank}`)!
+    const launch = rank === 'soldier' ? createCareerOutpostLaunch(profile) : createCaptainFrontlineLaunch(profile)
+    const h = siegeAssaultFixture('roman', false, false, { prepare: false })
+    const game = Object.assign(gameFixture(), { scene: h.scene, npcs: h.actors, campaignSiegeAssault: h.owner,
+      defenseCampaignConfig: launch, careerProfile: profile, campaignSpawnWave: null,
+      campaignSpawnQueue: [] as NpcSpawnSpec[], campaignSpawnQueueIndex: 0,
+      previewCampaignGate: h.gate, previewCampaignBreachController: h.breach })
+    const seam = game as typeof game & { _queueDefenseCampaignWave(wave: 'attackers'): number; campaignSpawnBatch: import('../../src/world/NpcSpawnScheduler').NpcSpawnBatch }
+    const count = seam._queueDefenseCampaignWave('attackers')
+    expect(count).toBe(rank === 'soldier' ? 100 : 202)
+    expect(recording.npcs).toHaveLength(0)
+    expect(h.owner.ramps).toHaveLength(2)
+    for (let frame = 0; frame < count - 1; frame++) advanceNpcFrame(gameplayNpcSpawnDriver)
+    expect(seam.campaignSpawnBatch.pending).toBe(1)
+    h.owner.update(.1)
+    expect(h.owner.ramps.every(ramp => ramp.controller.distance === 0)).toBe(true)
+    advanceNpcFrame(gameplayNpcSpawnDriver)
+    expect(seam.campaignSpawnBatch.ready).toBe(true)
+    expect(game.npcs).toHaveLength(count)
+    expect(new Set(game.npcs.map(npc => npc.combatantId)).size).toBe(count)
+    expect(game.npcs.every(npc => npc.characterFaction === 'viking')).toBe(true)
+    h.owner.update(.1)
+    expect(h.owner.ramps.every(ramp => ramp.controller.distance > 0)).toBe(true)
+    for (const ramp of h.owner.ramps) {
+      expect(ramp.assignment.pusherIds).toHaveLength(4)
+      expect(ramp.assignment.assaultIds).toHaveLength(6)
+      expect([...ramp.crew.values()].every(actor => actor.tier !== 4 && !actor.isMounted)).toBe(true)
+    }
   })
 
   it('loads 120 Commander defenders before entry and queues only its interleaved cavalry on assault', async () => {

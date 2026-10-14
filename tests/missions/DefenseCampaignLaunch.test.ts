@@ -279,6 +279,14 @@ describe('Defense Campaign Stage 1 launch config', () => {
       const result = positionDefenseCampaignDefenders(specs, 'roman')
       return { specs, result }
     }
+    for (const count of [6, 20, 36, 60]) {
+      const { specs, result } = deploy(count)
+      expect(specs).toHaveLength(count)
+      expect(result.assignments).toHaveLength(Math.min(count, 36))
+      expect(result.assignments.filter(a => a.slot.section === 'left')).toHaveLength(Math.min(count / 2, 16))
+      expect(result.assignments.filter(a => a.slot.section === 'right')).toHaveLength(Math.min(count / 2, 16))
+      expect(result.overflowCount).toBe(Math.max(0, count - 36))
+    }
     const twenty = deploy(20)
     expect(twenty.result.assignments.filter(item => item.slot.section === 'left')).toHaveLength(10)
     expect(twenty.result.assignments.filter(item => item.slot.section === 'right')).toHaveLength(10)

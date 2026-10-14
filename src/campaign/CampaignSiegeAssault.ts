@@ -1,3 +1,4 @@
+import type { CampaignSiegeCheckpoint } from './CampaignSiegeCheckpoint'
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
@@ -7,11 +8,11 @@ import { getTerrainHeight, getWalkRampHeight, type EntityCollisionBody, type Obs
 import type { OutpostWalkways } from './CampaignOutpostWalkways'
 import type { CampaignGateController, CampaignBreachController } from './CampaignGate'
 import { reconcileCampaignGateSiege } from './CampaignGate'
-import { allocateSiegeRampCrews, getSiegeRampPlacement, placeSiegeRampCrew } from './MobileSiegeRampPolicy'
+import { allocateSiegeRampCrews, getSiegeRampPlacement, placeSiegeRampCrew, isSiegeRampCrewCandidate } from './MobileSiegeRampPolicy'
 import { MobileSiegeRamp } from './MobileSiegeRamp'
 import type { MobileSiegeRampState } from './MobileSiegeRampController'
 
-/** Standard Campaign scene owner: physical entrances, convoy ownership and event-driven reassignment. */
+/** Shared Campaign Outpost scene owner: physical entrances, convoy ownership and event-driven reassignment. */
 export class CampaignSiegeAssault {
   readonly ramps: MobileSiegeRamp[] = []
   readonly entrances
@@ -20,6 +21,8 @@ export class CampaignSiegeAssault {
   private readonly pendingDeployment = new Set<string>()
   private readonly stagingActors: NPC[] = []
   private readonly bypassing = new Map<NPC, { ramp: MobileSiegeRamp; x: number }>()
+  private prepared = false
+  private restoredActors: CampaignSiegeCheckpoint['actors'] = {}
   private disposed = false
   private observedRevision = -1
   private readonly gateEntrance: BreachEntrance
@@ -30,7 +33,8 @@ export class CampaignSiegeAssault {
     private readonly actors: () => readonly NPC[],
     private readonly registerHit: (ramp: MobileSiegeRamp) => void,
     private readonly unregisterHit: (ramp: MobileSiegeRamp) => void,
-    private readonly blockers: () => readonly EntityCollisionBody[] = () => []) {
+    private readonly blockers: () => readonly EntityCollisionBody[] = () => [],
+    private readonly acceptsOrders: (npc: NPC) => boolean = () => true) {
     if (!navigation.outpostNav) throw new Error('Siege assault requires outpost navigation')
     this.entrances = navigation.outpostNav.entrances
     this.gateEntrance = this.groundEntrance('gate', gate.siegeObstacle, 'gate')
@@ -56,25 +60,52 @@ export class CampaignSiegeAssault {
     return { id, type, position, approach, exit, mounted: true, walkable: true, faction: null, connectionId: id }
   }
 
-  prepare(specs: NpcSpawnSpec[]): void {
-    if (this.ramps.length || this.disposed) throw new Error('Siege wave already prepared or disposed')
+  get isPrepared(): boolean { return this.prepared }
+
+  /** A restored zero-tower initial plan can be followed by the remaining Commander wave. */
+  trackDeployment(plan: readonly NpcSpawnSpec[]): void {
+    if (!this.prepared || this.disposed || this.ramps.length) throw new Error('Cannot extend siege convoy deployment')
+    for (const spec of plan) if (spec.characterFaction === this.gate.attackerFaction && spec.actorId) this.pendingDeployment.add(spec.actorId)
+  }
+
+  prepare(plan: NpcSpawnSpec[], saved?: CampaignSiegeCheckpoint): void {
+    if (this.prepared || this.disposed) throw new Error('Siege wave already prepared or disposed')
+    this.prepared = true
+    const specs = plan.filter(spec => spec.characterFaction === this.gate.attackerFaction)
+    if (saved?.breached) this.breach.restoreBreached()
+    this.restoredActors = saved?.actors ?? {}
+    for (const { obstacle, entrance } of this.perimeter) {
+      if (saved?.destroyedPalisadeIds.includes(entrance.id)) obstacle.damageable!.destroy()
+    }
     // Establish the same stable IDs used by the wave queue before making any assignments.
     specs.forEach((spec, index) => { spec.actorId ??= `attackers:${index}` })
     for (const spec of specs) this.pendingDeployment.add(spec.actorId!)
     try {
       const stagingZ = specs.reduce((nearest, spec) => this.walkways.layout.zSign > 0
         ? Math.max(nearest, spec.z) : Math.min(nearest, spec.z), this.walkways.layout.zSign > 0 ? -Infinity : Infinity)
-      for (const crew of allocateSiegeRampCrews(specs)) {
-        const placement = getSiegeRampPlacement(this.walkways.layout, crew.side, stagingZ)
+      const assignments = saved ? saved.ramps.map(ramp => ramp.assignment) : allocateSiegeRampCrews(specs, this.gate.attackerFaction)
+      for (const crew of assignments) {
+        const checkpoint = saved?.ramps.find(ramp => ramp.assignment.id === crew.id)
+        if ([...crew.pusherIds, ...crew.assaultIds].some(id => !specs.some(spec => spec.actorId === id
+          && isSiegeRampCrewCandidate(spec, this.gate.attackerFaction)))) throw new Error('Saved siege crew is outside the attacker roster')
+        const placement = getSiegeRampPlacement(this.walkways.layout, crew.side, checkpoint?.stagingZ ?? stagingZ)
         const ramp = new MobileSiegeRamp(this.scene, crew, placement, this.gate.attackerFaction,
           this.obstacles, (vehicle, state) => this.onRampState(vehicle, state))
         this.ramps.push(ramp)
-        placeSiegeRampCrew(specs, crew, placement)
-        this.registerHit(ramp)
+        if (checkpoint) ramp.restore(checkpoint)
+        if (ramp.controller.assigned) {
+          placeSiegeRampCrew(specs, crew, placement)
+          if (checkpoint) for (const spec of specs.filter(spec => spec.siegeRamp?.id === crew.id)) {
+            spec.z += ramp.position.z - placement.start.z
+            spec.spawnY = spec.siegeRamp!.role === 'assault' ? ramp.position.y : getTerrainHeight(spec.x, spec.z)
+          }
+        }
+        if (!ramp.damageable.destroyed) this.registerHit(ramp)
+        if (ramp.controller.state === 'DOCKED') this.onRampState(ramp, 'DOCKED')
       }
       // Reserve each convoy corridor before construction of ordinary actors.
       // Keep row spacing while moving only overlapping roster slots behind the rear.
-      for (const ramp of this.ramps) {
+      for (const ramp of this.ramps.filter(ramp => ramp.controller.assigned)) {
         const rear = ramp.surface.startZ - ramp.placement.dirZ * 6
         for (const spec of specs) {
           if (spec.siegeRamp || Math.abs(spec.x - ramp.position.x) > ramp.surface.halfWidth + 1.5) continue
@@ -92,10 +123,23 @@ export class CampaignSiegeAssault {
   }
 
   register(npc: NPC, spec: NpcSpawnSpec): void {
-    if (spec.siegeRamp) {
-      const ramp = this.ramps.find(vehicle => vehicle.assignment.id === spec.siegeRamp!.id)
+    if (this.disposed) throw new Error('Siege assault disposed during registration')
+    if (!this.pendingDeployment.has(spec.actorId ?? npc.combatantId)) {
+      if (spec.siegeRamp) throw new Error('Invalid siege crew registration outside prepared wave')
+      return
+    }
+    const restored = this.restoredActors[npc.combatantId]
+    if (restored) {
+      npc.campaignEntranceId = restored.entranceId
+      npc.campaignBreachCompleted = restored.breachCompleted
+    }
+    const assignedRamp = this.ramps.find(vehicle => [...vehicle.assignment.pusherIds, ...vehicle.assignment.assaultIds].includes(npc.combatantId))
+    if (spec.siegeRamp || assignedRamp) {
+      const ramp = assignedRamp
+      if (spec.siegeRamp && ramp?.assignment.id !== spec.siegeRamp.id) throw new Error('Mismatched siege crew vehicle')
       if (!ramp || this.disposed) throw new Error('Missing siege vehicle during crew spawn')
       ramp.register(npc)
+      if (ramp.controller.state === 'ABANDONED') this.resumeAbandonedEvacuation(npc, ramp)
     } else if (npc.characterFaction === this.gate.attackerFaction) {
       this.route(npc)
       npc.siegeTransport = 'siege-deployment'
@@ -108,6 +152,15 @@ export class CampaignSiegeAssault {
     }
   }
 
+  snapshot(): CampaignSiegeCheckpoint | undefined {
+    if (!this.prepared || this.disposed) return undefined
+    return { version: 1, breached: this.breach.breached, ramps: this.ramps.map(ramp => ramp.snapshot()),
+      actors: { ...this.restoredActors, ...Object.fromEntries(this.actors()
+        .filter(npc => npc.characterFaction === this.gate.attackerFaction && npc.combatOwnership !== 'player-personal')
+        .map(npc => [npc.combatantId, { entranceId: npc.campaignEntranceId, breachCompleted: npc.campaignBreachCompleted }])) },
+      destroyedPalisadeIds: this.perimeter.filter(entry => entry.obstacle.damageable!.destroyed).map(entry => entry.entrance.id) }
+  }
+
   /** Safe to call inside the existing one-shot breach callback, before issuing orders. */
   refreshPhysicalEntrances(): void {
     if (this.disposed) return
@@ -115,6 +168,17 @@ export class CampaignSiegeAssault {
     else this.entrances.remove('gate')
     for (const { obstacle, entrance } of this.perimeter) {
       if (obstacle.damageable!.destroyed) this.entrances.set(entrance)
+    }
+    if (this.entrances.hasWalkable) this.breach.trigger()
+  }
+
+  private resumeAbandonedEvacuation(npc: NPC, ramp: MobileSiegeRamp): void {
+    if (npc.dead || !ramp.assignment.assaultIds.includes(npc.combatantId)) return
+    const surface = ramp.surface
+    const height = getWalkRampHeight(surface, npc.position.x, npc.position.z)
+    // Only passengers still aboard need the rear exit; departed actors retain their saved position/order.
+    if (height !== null && Math.abs(npc.position.y - height) < .8) {
+      npc.siegeEvacuation = new THREE.Vector3(surface.startX, surface.startY, surface.startZ - surface.dirZ * 2)
     }
   }
 
@@ -146,10 +210,7 @@ export class CampaignSiegeAssault {
     if (state === 'DOCKED' || state === 'DESTROYED' || state === 'ABANDONED') {
       for (const npc of ramp.crew.values()) {
         if (npc.dead) continue
-        if (state === 'ABANDONED' && ramp.assignment.assaultIds.includes(npc.combatantId)) {
-          const surface = ramp.surface
-          npc.siegeEvacuation = new THREE.Vector3(surface.startX, surface.startY, surface.startZ - surface.dirZ * 2)
-        }
+        if (state === 'ABANDONED') this.resumeAbandonedEvacuation(npc, ramp)
         this.route(npc, state === 'DOCKED' ? ramp.assignment.id : undefined)
       }
     }
@@ -157,7 +218,7 @@ export class CampaignSiegeAssault {
 
   private route(npc: NPC, preferred?: string): void {
     if (npc.dead || npc.siegeTransport || npc.characterFaction !== this.gate.attackerFaction
-      || npc.combatOwnership === 'player-personal') return
+      || npc.combatOwnership === 'player-personal' || !this.acceptsOrders(npc)) return
     const previous = npc.campaignEntranceId
     const currentLayer = this.navigation.outpostNav!.getNavLayer(npc.combatPosition)
     const entry = this.entrances.select(npc.combatPosition, npc.isMounted, npc.characterFaction,
@@ -181,7 +242,7 @@ export class CampaignSiegeAssault {
     // until they have passed the front; all locomotion/collision stays in NPC.
     for (const npc of actors) {
       if (npc.dead || npc.siegeTransport || npc.characterFaction !== this.gate.attackerFaction
-        || npc.combatOwnership === 'player-personal' || npc.mount?.isFlyingMount) continue
+        || npc.combatOwnership === 'player-personal' || !this.acceptsOrders(npc) || npc.mount?.isFlyingMount) continue
       let bypass = this.bypassing.get(npc)
       if (bypass && (bypass.ramp.controller.state !== 'PUSHING'
         || (npc.combatPosition.z - bypass.ramp.position.z) * bypass.ramp.placement.dirZ > 5)) {
@@ -211,7 +272,7 @@ export class CampaignSiegeAssault {
       this.observedRevision = this.entrances.revision
       for (const npc of actors) this.route(npc)
     }
-    reconcileCampaignGateSiege({ gate: this.gate, breachController: this.breach, npcs: actors,
+    reconcileCampaignGateSiege({ gate: this.gate, breachController: this.breach, npcs: actors.filter(npc => this.acceptsOrders(npc)),
       attackerFaction: this.gate.attackerFaction, availableEntrances: this.entrances })
   }
 
