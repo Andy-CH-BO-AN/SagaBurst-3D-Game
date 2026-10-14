@@ -11,13 +11,14 @@ import type { TownEagleDuty } from '../../src/town/TownEagleGarrisonState'
 import type { Mount } from '../../src/world/Mount'
 import type { CombatOwnership } from '../../src/combat/CombatFaction'
 import { changeTownEquipment, type TownEquipmentContext } from '../../src/career/CareerTownEquipment'
+import { TOWN_COMMAND_RETURN_ID } from '../../src/town/TownCommandSquadController'
 
 /** Status-only caller seam: zero NPC/Mount/TownWorld. The existing refit suite owns combat-contact timing. */
 function fixture(id = 'cavalry-training:melee_cavalry:0') {
   const profile = { ...createCareerProfile('roman'), rank: 'commander' as const, totalMerit: 60000,
     townCommandSquad: { type: 'town-command' as const, townFaction: 'roman' as const, squadId: 1 as const,
       actorIds: [id], contribution: emptyPersonalContribution(), authorized: true,
-      state: 'TRAINING' as 'TRAINING' | 'RETURNING', sceneKey: 'town-home' },
+      state: 'TRAINING' as 'TRAINING' | 'RETURNING', sceneKey: 'town-home', members: {} },
   }
   const npc = { combatantId: id, currentState: AIState.IDLE, dead: false, isFalling: false, inCombat: false,
     mount: null as Pick<Mount, 'isAirborne'> | null,
@@ -134,8 +135,11 @@ describe('Town equipment actual caller readiness and ownership', () => {
   })
   it('keeps Town, patrol, civilian and garrison return owners unavailable until their physical return completes', () => {
     const f = fixture(); f.town.profile.townCommandSquad.state = 'RETURNING'
+    f.town.profile.townCommandSquad.members = { [f.id]: { status: 'deployed', order: 'formation',
+      formation: { commandId: TOWN_COMMAND_RETURN_ID, position: { x: 0, z: 0, yaw: 0 }, reached: false } } }
     expect(f.read().safeActorIds.has(f.id)).toBe(false)
-    f.town.profile.townCommandSquad.state = 'TRAINING'; f.town.patrol.isRefitting = () => true
+    f.town.profile.townCommandSquad.state = 'TRAINING'; f.town.profile.townCommandSquad.members = {}
+    f.town.patrol.isRefitting = () => true
     expect(f.read().safeActorIds.has(f.id)).toBe(false)
     f.town.patrol.isRefitting = () => false; f.town.civilianCommand.returningActorIds = [f.id]
     expect(f.read().safeActorIds.has(f.id)).toBe(false)

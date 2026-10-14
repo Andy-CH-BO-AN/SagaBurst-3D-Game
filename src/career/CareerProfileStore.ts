@@ -557,6 +557,8 @@ export class CareerProfileStore {
       const parsed = parseCareerProfile(profile)
       if (!parsed) return false
       if (profile.townAirCommandSquad && !parsed.townAirCommandSquad) return false
+      if (profile.townCommandSquad?.commandRank === 'commander'
+        && parsed.townCommandSquad?.commandRank !== 'commander') return false
       // A rejected expanded grant must not look like a successful ownership commit.
       if (profile.activeMission?.officialSquad?.commandRank === 'commander'
         && !parsed.activeMission?.officialSquad) return false

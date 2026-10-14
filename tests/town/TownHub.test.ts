@@ -566,6 +566,61 @@ describe('Town orchestration transitions', () => {
     expect(town.activateHostility).not.toHaveBeenCalled()
   })
 
+  it('fully protects every resident, resident mount, service mount and Town building in a Commander own-town peace', () => {
+    const scene = new THREE.Scene()
+    const soldier = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Soldier', 2, false)
+    const merchant = new NPC(scene, 2, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Merchant', 2, false)
+    const mount = (riderNpc: NPC | null = null) => Object.defineProperties(Object.create(Mount.prototype),
+      Object.fromEntries(Object.entries({ dead: false, disposed: false, currentHp: 100, maxHp: 100,
+        riderNpc, riderPlayer: null, group: new THREE.Group() }).map(([key, value]) => [key, { value, writable: true }]))) as Mount
+    const homeMount = mount(soldier), cat = mount(), stable = mount()
+    const hp = new DamageableObstacle({ kind: 'tent', maxHp: 100, root: new THREE.Group() })
+    const town = createTownCombatFixture() as any
+    town.profile = { rank: 'commander', faction: 'roman', activeMission: undefined, activeOutpostMission: undefined }
+    town.world = { faction: 'roman', buildings: [{ ownerFaction: Faction.TOWN, hp }], obstacles: [], refreshDamage: vi.fn() }
+    town.event = { hostile: false }
+    town.residents = [{ npc: soldier, homeMount }, { npc: merchant }]
+    town.cat = cat; town.stableHorses = [stable]
+    town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(() => true); town.activateHostility = vi.fn()
+    town.persistCasualties = vi.fn(); town.damageNumbers = { spawn: vi.fn() }
+    installNoProgressTownSkillFixture(town)
+
+    for (const target of [soldier, merchant, homeMount, cat, stable]) {
+      expect(town.isProtectedTownAlly(target)).toBe(true)
+      for (const method of ['melee', 'projectile', 'mount-impact'] as const) town.hitResident(target, 12, method)
+    }
+    for (const method of ['melee', 'projectile', 'mount-impact'] as const) town.damageBuilding(0, 12, undefined, undefined, undefined, method)
+    expect(soldier.hp).toBe(soldier.maxHp); expect(merchant.hp).toBe(merchant.maxHp)
+    expect(homeMount.currentHp).toBe(100); expect(cat.currentHp).toBe(100); expect(stable.currentHp).toBe(100)
+    expect(hp.hpRatio).toBe(1)
+    expect(town.prepareDamage).not.toHaveBeenCalled()
+    expect(town.activateHostility).not.toHaveBeenCalled()
+    soldier.dispose(); merchant.dispose()
+  })
+
+  it('does not extend Commander protection to an existing hostile event or enemy-town target', () => {
+    const scene = new THREE.Scene()
+    const resident = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Resident', 2, false)
+    const enemy = new NPC(scene, 2, 0, Faction.ENEMY, 'viking', AIType.MELEE, 'Enemy', 2, false)
+    const hp = new DamageableObstacle({ kind: 'tent', maxHp: 100, root: new THREE.Group() })
+    const town = createTownCombatFixture() as any
+    town.profile = { rank: 'commander', faction: 'roman', townEvent: { id: 'existing', state: 'hostile' } }
+    town.world = { faction: 'roman', buildings: [{ ownerFaction: Faction.TOWN, hp }], obstacles: [], refreshDamage: vi.fn() }
+    town.event = { hostile: true }; town.residents = [{ npc: resident }]; town.cat = null; town.stableHorses = []
+    town.navigation = { sync: vi.fn() }; town.prepareDamage = vi.fn(() => true); town.activateHostility = vi.fn()
+    town.persistCasualties = vi.fn(); town.damageNumbers = { spawn: vi.fn() }
+    installNoProgressTownSkillFixture(town)
+    expect(town.isProtectedTownAlly(resident)).toBe(false)
+    town.damageBuilding(0, 12)
+    expect(hp.hpRatio).toBeCloseTo(.88)
+
+    town.profile.townEvent = undefined; town.event.hostile = false
+    Object.defineProperty(town, 'sceneContext', { value: { worldFaction: 'viking', missionOnlyResidents: true } })
+    town.residents = [{ npc: enemy }]
+    expect(town.isProtectedTownAlly(enemy)).toBe(false)
+    resident.dispose(); enemy.dispose()
+  })
+
   it('protects a soldier on the same frame a Bandit enters range, but leaves a distant merchant and building vulnerable', () => {
     const scene = new THREE.Scene()
     const soldier = new NPC(scene, 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'Soldier', 2, false)

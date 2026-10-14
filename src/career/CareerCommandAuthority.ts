@@ -33,10 +33,16 @@ export interface OfficialCommandAuthority {
 
 export interface TownCommandSquadState extends OfficialCommandAuthority {
   type: 'town-command'
+  /** Peaceful Commander ownership is exact per actor; native Return/Refit actors are never claimed implicitly. */
+  commandedActorIds?: string[]
+  /** Native owners retain physical Patrol return/refit state; Town command only checkpoints the handoff. */
+  nativeReturnStates?: Record<string, TownCommandNativeReturnState>
   state: 'TRAINING' | 'FOLLOWING' | 'RETURNING'
   authorized: boolean
   sceneKey: string
 }
+
+export type TownCommandNativeReturnState = 'RETURN_TO_BARRACKS' | 'REFIT' | 'REJOIN_PATROL'
 
 const validId = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 200
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
@@ -109,7 +115,9 @@ export function parseOfficialCommandAuthority(value: unknown): OfficialCommandAu
     || !raw.actorIds.every(validId) || new Set(raw.actorIds).size !== raw.actorIds.length) return undefined
   let squads: OfficialCommandSquad[] | undefined
   if (commander || raw.squads !== undefined || raw.commandRank !== undefined) {
-    if (!commander || raw.type !== 'mission-official' || !validId(raw.missionId)
+    if (!commander
+      || (raw.type === 'mission-official' && !validId(raw.missionId))
+      || (raw.type === 'town-command' && raw.missionId !== undefined)
       || !Array.isArray(raw.squads) || raw.squads.length > MAX_COMMAND_SQUADS) return undefined
     squads = []
     const squadIds = new Set<number>(), actorIds = new Set<string>()
@@ -131,6 +139,7 @@ export function parseOfficialCommandAuthority(value: unknown): OfficialCommandAu
   if (raw.commandedSquadIds !== undefined && (!Array.isArray(raw.commandedSquadIds)
     || raw.commandedSquadIds.some(id => !knownSquads.has(id))
     || new Set(raw.commandedSquadIds).size !== raw.commandedSquadIds.length)) return undefined
+  if (raw.type === 'town-command' && raw.commandedSquadIds !== undefined) return undefined
   return { type: raw.type, squadId: 1, townFaction: raw.townFaction, actorIds: [...raw.actorIds], contribution: parseContribution(raw.contribution),
     ...(commander ? { commandRank: 'commander', squads } : {}),
     ...(raw.commandedSquadIds ? { commandedSquadIds: [...raw.commandedSquadIds] } : {}),
@@ -153,6 +162,13 @@ export function officialCommandIsPlayerControlled(authority: OfficialCommandAuth
   const squadId = officialActorSquadId(authority, actorId)
   if (squadId === undefined) return false
   return authority.commandedSquadIds ? authority.commandedSquadIds.includes(squadId) : authority.commandRank !== 'commander'
+}
+
+/** Peaceful Commander Town authority claims only actors whose native owner completed a saved handoff. */
+export function townCommandIsPlayerControlled(authority: TownCommandSquadState, actorId: string): boolean {
+  return authority.commandRank === 'commander'
+    ? Boolean(authority.authorized && authority.commandedActorIds?.includes(actorId))
+    : Boolean(authority.authorized && authority.actorIds.includes(actorId))
 }
 
 /** Mission acceptance supplies stable production groups, before saving or touching live actors. */
@@ -190,7 +206,17 @@ export function parseTownCommandSquad(value: unknown): TownCommandSquadState | u
   const authority = parseOfficialCommandAuthority(value)
   if (!authority || authority.type !== 'town-command') return undefined
   const raw = value as Partial<TownCommandSquadState>
+  if (raw.commandedActorIds !== undefined && (authority.commandRank !== 'commander'
+    || !Array.isArray(raw.commandedActorIds) || raw.commandedActorIds.some(id => !authority.actorIds.includes(id))
+    || new Set(raw.commandedActorIds).size !== raw.commandedActorIds.length)) return undefined
+  const nativeStates = raw.nativeReturnStates
+  if (nativeStates !== undefined && (authority.commandRank !== 'commander' || !nativeStates || typeof nativeStates !== 'object'
+    || Array.isArray(nativeStates) || Object.entries(nativeStates).some(([id, state]) => !authority.actorIds.includes(id)
+      || !['RETURN_TO_BARRACKS', 'REFIT', 'REJOIN_PATROL'].includes(state)))) return undefined
+  if (raw.commandedActorIds?.some(id => Object.prototype.hasOwnProperty.call(nativeStates ?? {}, id))) return undefined
   return { ...authority, type: 'town-command', authorized: raw.authorized === true,
+    ...(authority.commandRank === 'commander' ? { commandedActorIds: [...(raw.commandedActorIds ?? [])] } : {}),
+    ...(nativeStates && Object.keys(nativeStates).length ? { nativeReturnStates: { ...nativeStates } } : {}),
     state: raw.state === 'FOLLOWING' || raw.state === 'RETURNING' ? raw.state : 'TRAINING',
     sceneKey: typeof raw.sceneKey === 'string' && raw.sceneKey.length <= 200 ? raw.sceneKey : 'town-home' }
 }
@@ -208,7 +234,10 @@ export function cloneOfficialCommandAuthority<T extends OfficialCommandAuthority
 }
 
 export function cloneTownCommandSquad(value: TownCommandSquadState): TownCommandSquadState {
-  return cloneOfficialCommandAuthority(value)
+  const clone = cloneOfficialCommandAuthority(value)
+  if (value.commandedActorIds) clone.commandedActorIds = [...value.commandedActorIds]
+  if (value.nativeReturnStates) clone.nativeReturnStates = { ...value.nativeReturnStates }
+  return clone
 }
 
 /** Delayed attacks retain accepted membership after death; visual characterFaction never grants or denies army ownership. */
