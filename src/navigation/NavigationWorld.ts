@@ -8,6 +8,8 @@ import {
   PLAYABLE_WORLD_BOUND,
   type ObstacleData,
 } from '../world/Terrain'
+import { OutpostLayeredNavigation } from './OutpostLayeredNavigation'
+import type { OutpostWalkwayLayout } from '../campaign/CampaignOutpostWalkways'
 
 export type NavigationPathQueryResult =
   | { status: 'path'; path: NavigationCell[] }
@@ -38,6 +40,15 @@ export class NavigationWorld {
   private componentIds: Int32Array
   private pathRequestsThisFrame = 0
   private readonly sharedPathCache = new Map<string, NavigationCell[] | null>()
+  private _outpostNav: OutpostLayeredNavigation | null = null
+
+  get outpostNav(): OutpostLayeredNavigation | null {
+    return this._outpostNav
+  }
+
+  setOutpostWalkways(layout: OutpostWalkwayLayout | null): void {
+    this._outpostNav = layout ? new OutpostLayeredNavigation(layout) : null
+  }
 
   constructor(bounds: NavigationGridOptions = {
     minX: -PLAYABLE_WORLD_BOUND,
@@ -71,6 +82,7 @@ export class NavigationWorld {
   rebuild(obstacles: readonly ObstacleData[]): void {
     this.grid.clear()
     for (const obstacle of obstacles) {
+      if (obstacle.navigationPassable) continue
       this.grid.setBlockedBox(obstacle.navigationBox ?? obstacle.box, true)
     }
     this._rebuildComponents()

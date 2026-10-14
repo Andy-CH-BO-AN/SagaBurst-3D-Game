@@ -31,7 +31,10 @@ import {
 
 export interface NpcSpawnSpec {
   actorId?: string
+  siegeRamp?: { id: import('../campaign/MobileSiegeRampPolicy').SiegeRampId; role: 'pusher' | 'assault' }
   x: number
+  /** Optional elevated materialization height; ordinary ground spawns omit it. */
+  spawnY?: number
   z: number
   characterFaction: CharacterFaction
   faction: Faction
@@ -46,6 +49,8 @@ export interface NpcSpawnSpec {
   combatProfileId?: HeroCombatProfileId
   specialCombatProfile?: 'maki-ranger'
   squadId?: SquadId
+  /** Initial Outpost-only hold state; cleared permanently by a player order. */
+  outpostRampartGarrison?: boolean
 }
 
 export interface CampPickupSpec {

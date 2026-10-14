@@ -14,6 +14,7 @@ import type { CareerProfile } from './CareerProfile'
 import type { ActiveCareerMission, VeteranOutpostBattleState } from './CareerMissionState'
 import type { CampaignFaction } from '../campaign/CampaignConfig'
 import { clonePersonalMission } from './CareerPersonalSquadMission'
+import { deployOutpostRampartArchers } from '../campaign/OutpostRampartGarrison'
 
 export type CareerVeteranOutpostSpawnWave = 'initial' | 'reinforcement'
 
@@ -175,6 +176,7 @@ function toMissionSpec(
 export function createCareerVeteranOutpostSpawnPlan(
   launch: DefenseCampaignLaunchConfig,
   wave: CareerVeteranOutpostSpawnWave,
+  options: { deployRampartGarrison?: boolean } = {},
 ): BattleSpawnPlan {
   const data = launch.careerVeteranOutpost
   if (!data || launch.careerMissionId !== data.missionId) throw new Error('Expected a Veteran Outpost launch')
@@ -190,6 +192,9 @@ export function createCareerVeteranOutpostSpawnPlan(
   if (wave === 'initial') {
     positionVeteranOutpostRoster(planned, data.outpostFaction, data.playerFaction)
     if (data.templateId === 'veteran-dread-outpost') {
+      if (options.deployRampartGarrison !== false) {
+        deployOutpostRampartArchers(planned.map(({ spec }) => spec), data.outpostFaction)
+      }
       const enemySpecs = planned
         .filter(({ spec }) => spec.characterFaction !== data.playerFaction)
         .map(({ spec }) => spec)

@@ -25,6 +25,11 @@ describe('Captain cross-scene battle plans', () => {
     expect(plan.npcSpecs.filter(spec => spec.squadId === 1).every(spec => !spec.cavalry && spec.presetId === (faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker'))).toBe(true)
     expect(profile.activeMission?.officialSquad?.actorIds).toEqual(plan.npcSpecs.filter(spec => spec.squadId === 1).map(spec => spec.actorId))
     expect(new Set(plan.npcSpecs.map(spec => spec.actorId)).size).toBe(90)
+    const rampart = plan.npcSpecs.filter(spec => spec.outpostRampartGarrison)
+    expect(rampart).toHaveLength(30)
+    expect(rampart.every(spec => spec.spawnY !== undefined && spec.presetId === `${faction}_archer`)).toBe(true)
+    expect(createCaptainFrontlineSpawnPlan(launch, undefined, { deployRampartGarrison: false }).npcSpecs
+      .some(spec => spec.outpostRampartGarrison || spec.spawnY !== undefined)).toBe(false)
     const attackers = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'attackers')).npcSpecs
     const reinforcements = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'reinforcement')).npcSpecs
     expect(attackers).toHaveLength(202)

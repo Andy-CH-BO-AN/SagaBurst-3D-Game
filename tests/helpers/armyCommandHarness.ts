@@ -36,6 +36,8 @@ export function createArmyCommandHarness(
   authority?: ArmyCommandAuthority,
   hudRoster?: () => ArmyHudRoster | undefined,
   onCommandIssued: ((order: TacticalOrder, target?: ArmyCommandTarget) => void) | null = null,
+  campaignFollowEnabled = false,
+  onCampaignFollow?: ((target: ArmyCommandTarget, recipients: readonly NPC[]) => void) | null,
 ) {
   const pressed = new Set<string>()
   const consume = (code: string) => {
@@ -91,6 +93,8 @@ export function createArmyCommandHarness(
     personalCommands,
     authority,
     hudRoster,
+    campaignFollowEnabled,
+    onCampaignFollow,
   )
   return { controller, input, ui }
 }

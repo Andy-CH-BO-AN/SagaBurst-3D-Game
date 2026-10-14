@@ -74,6 +74,7 @@ export function parseCommandActorCheckpoint(value: unknown): PersonalActorCheckp
     ...(finite(raw.ammo) ? { ammo: Math.floor(nonnegative(raw.ammo)) } : {}),
     ...(finite(raw.shieldImpact) ? { shieldImpact: nonnegative(raw.shieldImpact) } : {}),
     ...(raw.order && orders.includes(raw.order) ? { order: raw.order } : {}),
+    ...(raw.outpostRampartGarrison === true ? { outpostRampartGarrison: true } : {}),
     ...(mountPoint && finite(raw.mount?.hp) ? { mount: { hp: nonnegative(raw.mount.hp), mounted: raw.mount.mounted === true,
       position: mountPoint, ...(flight ? { flight } : {}) } } : {}),
     ...(formationPoint && finite(raw.formation?.commandId) ? { formation: {

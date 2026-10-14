@@ -1,3 +1,5 @@
+import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
+import { getSiegeApproachClearances, isMobileSiegeRampEnabled } from './campaign/MobileSiegeRampPolicy'
 import { refitTownCommandForSceneChange } from './career/SquadRefit'
 import { preloadPaladinEquipment } from './world/PaladinEquipment'
 import { playerEagleProjectileBudget } from './combat/ProjectileBallistics'
@@ -105,7 +107,7 @@ export function handleProjectileHitEffects(
 import { SaveManager, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
-import { NPC, Faction, AIState, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
+import { NPC, Faction, AIState, AIType, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
 import {
   BattleConfig,
   PRESET_DEVCOMBAT,
@@ -159,9 +161,12 @@ import {
   getCampaignDefenderFacingYaw,
   getCampaignOutpostPlacement,
 } from './campaign/CampaignOutpost'
+import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
 import {
   applyCampaignBreachOrders,
   isCampaignGateOccupied,
+  reconcileCampaignGateSiege,
+  type CampaignBreachController,
   type CampaignGateController,
 } from './campaign/CampaignGate'
 import {
@@ -590,7 +595,9 @@ export class Game {
   private readonly flushVeteranOutpostOnPageHide = (): void => {
     this._persistCareerVeteranOutpostCheckpoint({ immediate: true, periodic: true, force: true })
   }
+  private campaignSiegeAssault: CampaignSiegeAssault | null = null
   private previewCampaignGate: CampaignGateController | null = null
+  private previewCampaignBreachController: CampaignBreachController | null = null
   private readonly navigationWorld = new NavigationWorld()
   private readonly chaseTargetCoordinator = new ChaseTargetCoordinator()
   private saveManager!: SaveManager
@@ -821,7 +828,19 @@ export class Game {
         : previewOutpostQuery === 'roman' || previewOutpostQuery === 'viking'
           ? previewOutpostQuery
           : null)
+    const outpostWalkwaysEnabled = isOutpostWalkwayEnabled(
+      campaignConfig,
+      import.meta.env.DEV && startupQuery.get('outpostwalkway') === '1',
+    )
 
+    let siegeTreeClearances: THREE.Box3[] | undefined
+    if (campaignConfig && previewOutpostFaction && isMobileSiegeRampEnabled(campaignConfig)) {
+      const specs = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(campaignConfig, 'attackers')).npcSpecs
+      positionDefenseCampaignAttackers(specs, previewOutpostFaction)
+      const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement(previewOutpostFaction))
+      const stagingZ = layout.zSign > 0 ? Math.max(...specs.map(spec => spec.z)) : Math.min(...specs.map(spec => spec.z))
+      siegeTreeClearances = getSiegeApproachClearances(layout, stagingZ)
+    }
     createSky(this.scene, resolveShadowMapSize(startupQuery), previewOutpostFaction === 'viking')
     const {
       terrainMesh,
@@ -830,6 +849,7 @@ export class Game {
       damageableObstacles,
     } = createTerrain(this.scene, {
       fortifiedCampFaction: previewOutpostFaction,
+      treeClearances: siegeTreeClearances,
     })
 
     // Defense Campaign owns the same faction-neutral outpost used by DEV preview.
@@ -838,14 +858,43 @@ export class Game {
         this.scene,
         previewOutpostFaction,
         { obstacles, obstacleMeshes },
+        {
+          walkways: outpostWalkwaysEnabled,
+          siegePassages: isMobileSiegeRampEnabled(campaignConfig),
+        },
       )
       damageableObstacles.push(...outpost.damageableObstacles)
       this.previewCampaignGate = outpost.gateController
+      this.previewCampaignBreachController = outpost.breachController
+      this.previewCampaignGate.onStateChange(state => {
+        if (state === 'open' || state === 'destroyed') {
+          for (const npc of this.npcs) {
+            if (npc.siegeObstacle === this.previewCampaignGate?.siegeObstacle) {
+              npc.assignSiegeObstacle?.(null)
+            }
+          }
+        }
+      })
       outpost.breachController.onBreach(() => {
         if (campaignConfig?.careerMissionKind === 'outpost-relief') return
         const attackerFaction = outpost.gateController.attackerFaction
         this._applyCampaignBreachOrders(attackerFaction)
       })
+      if (outpost.walkways) {
+        this.navigationWorld.setOutpostWalkways(outpost.walkways.layout)
+        if (isMobileSiegeRampEnabled(campaignConfig)) {
+          this.campaignSiegeAssault = new CampaignSiegeAssault(this.scene, obstacles, outpost.walkways,
+            this.navigationWorld, outpost.gateController, outpost.breachController, () => this.npcs,
+            ramp => { for (const mesh of ramp.damageable.hitMeshes) this._aimTargetRegistry.addStaticTarget(mesh) },
+            ramp => { for (const mesh of ramp.damageable.hitMeshes) this._aimTargetRegistry.removeStaticTarget(mesh) },
+            () => [
+              ...(!this.player.spectatorOnly && !this.player.isMounted ? [{ position: this.player.position,
+                radius: .38, height: 1.9, bottomOffset: .95 }] : []),
+              ...this.mounts.filter(mount => !mount.dead).map(mount => ({ position: mount.group.position,
+                radius: 1, height: 2.6, bottomOffset: 0 })),
+            ])
+        }
+      }
     }
 
     this.obstacles = obstacles
@@ -906,16 +955,26 @@ export class Game {
     let activeBattleConfig: BattleConfig | undefined = battleConfig
     if (campaignConfig) {
       activeBattleConfig = createDefenseCampaignWaveConfig(campaignConfig, 'defenders')
+      const hasRampartCheckpoint = campaignConfig.careerVeteranOutpost
+        ? Boolean(this.careerProfile?.activeMission?.actorPositions)
+        : Boolean(this._personalOutpostMission()?.battle)
+      const deployRampartGarrison = outpostWalkwaysEnabled && !hasRampartCheckpoint
       if (campaignConfig.careerMissionKind === 'captain-outpost-defense') {
-        battlePlan = createCaptainFrontlineSpawnPlan(campaignConfig, this.careerProfile?.activeMission?.officialSquad)
+        battlePlan = createCaptainFrontlineSpawnPlan(campaignConfig, this.careerProfile?.activeMission?.officialSquad, {
+          deployRampartGarrison,
+        })
       } else if (campaignConfig.careerVeteranOutpost) {
-        battlePlan = createCareerVeteranOutpostSpawnPlan(campaignConfig, 'initial')
+        battlePlan = createCareerVeteranOutpostSpawnPlan(campaignConfig, 'initial', {
+          deployRampartGarrison,
+        })
       } else if (campaignConfig.careerCommanderOutpost) {
         battlePlan = createCareerCommanderOutpostSpawnPlan(campaignConfig)
       } else {
         battlePlan = BattleSpawner.createSpawnPlan(activeBattleConfig)
         if (campaignConfig.careerMissionKind === 'outpost-relief') battlePlan = createCareerReliefSpawnPlan(campaignConfig)
-        else positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction)
+        else positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction, {
+          deployRampartGarrison,
+        })
         this._identifyPersonalOutpostWave(battlePlan, 'initial')
       }
     } else if (this.captainEagleMissionId && this.careerProfile) {
@@ -1044,6 +1103,7 @@ export class Game {
         deploymentSeconds: campaignConfig.deploymentSeconds,
         ...(veteranOutpost ? {
           reinforcementDelaySeconds: veteranOutpost.reinforcementDelaySeconds,
+
         } : {}),
         ...(careerOutpost ? { initialSnapshot: careerOutpost.runtimeState }
           : this._personalOutpostMission()?.battle ? { initialSnapshot: this._personalOutpostMission()!.battle!.runtime } : {}),
@@ -1067,6 +1127,7 @@ export class Game {
         this._restoreCareerVeteranOutpostGate(careerOutpost.runtimeState)
       }
       if (veteranOutpost) {
+
         if (veteranOutpost.templateId === 'veteran-dread-outpost') {
           this._resumeCareerVeteranReinforcementIfNeeded()
         } else {
@@ -1111,6 +1172,13 @@ export class Game {
             npc.characterFaction === 'roman' ? 'defend' : 'attack',
           )
         }
+        reconcileCampaignGateSiege({
+          gate: this.previewCampaignGate,
+          breachController: this.previewCampaignBreachController,
+          availableEntrances: this.campaignSiegeAssault?.entrances,
+          npcs: this.npcs,
+          attackerFaction: 'viking',
+        })
       } else {
         // Other DEV combat scenarios remain controllable test battlefields.
         for (const npc of this.npcs) npc.setTacticalOrder('defend')
@@ -1247,6 +1315,19 @@ export class Game {
       } : undefined,
       this.hasCareerOfficialCommand ? this._captainCommandAuthority() : undefined,
       this.careerProfile && (this.hasCareerOfficialCommand || this.personalSquad) ? () => this._careerCommandHudRoster() : undefined,
+      Boolean(campaignConfig || isRomanDefenseDevScenario || previewOutpostFaction) && !this.personalSquad && !this.hasCareerOfficialCommand,
+      (_target, recipients) => {
+        let slotIndex = 0
+        for (const npc of recipients) {
+          if (npc.dead) continue
+          npc.assignFollowTarget?.(
+            this.player,
+            slotIndex,
+            officialFollowLocalOffset(slotIndex, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)),
+          )
+          slotIndex++
+        }
+      },
     )
 
 
@@ -2017,7 +2098,12 @@ export class Game {
       spec.visualAssetId,
       spec.combatProfileId,
       spec.specialCombatProfile,
+      undefined,
+      undefined,
+      undefined,
+      spec.spawnY !== undefined ? { y: spec.spawnY } : undefined,
     ))
+    if (spec.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
       const stableKey = `${spec.characterFaction}:${spec.name}:${spec.tier}`
@@ -2037,6 +2123,7 @@ export class Game {
       npc.setCommandSquad(officialSquadId)
       npc.combatOwnership = 'mission-official'
     }
+    this.campaignSiegeAssault?.register(npc, spec)
     this.npcs.push(npc)
     this.battleStats.registerNpc(npc)
     this._aimTargetRegistry.registerNpc(npc)
@@ -2046,6 +2133,7 @@ export class Game {
   private _newSpawnBatch(): NpcSpawnBatch {
     const batch = gameplayNpcSpawns.batch(() => {
       this.spawningStopped = true
+      this.campaignSiegeAssault?.dispose()
       try { this._showNotify?.('部隊建立失敗', 10000) }
       finally {
         this._disposeCareerOutpostBattleActors()
@@ -2490,14 +2578,15 @@ export class Game {
       return
     }
     if (mount) {
-      mount.group.position.set(saved.x, getTerrainHeight(saved.x, saved.z), saved.z)
+      mount.group.position.set(saved.x, saved.y ?? getTerrainHeight(saved.x, saved.z), saved.z)
       mount.group.rotation.y = saved.yaw
       if (saved.mountHp === 0) { mount.takeDamage(mount.maxHp + 1); if (npc.mount) npc.dismountFromMount() }
       else if (saved.mountHp !== undefined) mount.currentHp = Math.min(mount.maxHp, saved.mountHp)
     }
-    npc.group.position.set(saved.x, getTerrainHeight(saved.x, saved.z), saved.z)
+    npc.group.position.set(saved.x, saved.y ?? getTerrainHeight(saved.x, saved.z), saved.z)
     npc.group.rotation.y = saved.yaw
     npc.restoreCombatHealth(saved.hp)
+    if (!npc.dead && saved.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
   }
 
   private outpostRestoration?: Promise<void>
@@ -2587,6 +2676,7 @@ export class Game {
     if (changedScene && !playerPoint) throw new Error('No clear xongkoro player deployment area near the Outpost')
     occupied.push(playerPoint ?? this.player.combatPosition)
     const eagleMuster: Array<{ x: number; z: number; yaw: number }> = []
+
     for (const [index, id] of saved.memberIds.entries()) {
       if (!flyingIds.has(id)) continue
       const origin = changedScene ? eagleSearchAnchor : regularMuster[index] ?? anchor
@@ -2674,8 +2764,10 @@ export class Game {
     mission.battle = {
       runtime, actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(npc => npc.combatOwnership !== 'player-personal').map(npc => {
         const mount = this.careerVeteranActorMounts.get(npc.combatantId)
-        return [npc.combatantId, { hp: npc.hp, x: npc.combatPosition.x, z: npc.combatPosition.z,
-          yaw: npc.mount?.group.rotation.y ?? npc.group.rotation.y, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }]
+        return [npc.combatantId, { hp: npc.hp, x: npc.combatPosition.x, y: npc.combatPosition.y, z: npc.combatPosition.z,
+          yaw: npc.mount?.group.rotation.y ?? npc.group.rotation.y,
+          ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
+          ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }]
       })) },
       player: { hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
         x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.currentMount?.group.rotation.y ?? this.player.group.rotation.y,
@@ -2719,6 +2811,14 @@ export class Game {
   }
 
   private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
+    this.campaignSiegeAssault?.refreshPhysicalEntrances()
+    if (this.previewCampaignGate) {
+      for (const npc of this.npcs) {
+        if (npc.siegeObstacle === this.previewCampaignGate.siegeObstacle) {
+          npc.assignSiegeObstacle?.(null)
+        }
+      }
+    }
     const authority = this._careerCommandMission()?.officialSquad
     const result = applyCampaignBreachOrders(this.npcs.filter(npc => !officialPlayerOwnsActor(authority, npc.combatantId)), attackerFaction)
     if (this.restoringCareerOutpostGate) return
@@ -2739,9 +2839,19 @@ export class Game {
     const actorId = npc.combatantId
     if (!mission || !actorId) return
     const saved = mission.actorHealth?.[actorId]
+    const savedPosition = mission.actorPositions?.[actorId]
     const dead = mission.deadTargetActorIds?.includes(actorId) || mission.deadFriendlyActorIds?.includes(actorId)
     if (!this.careerVeteranActorMounts.has(actorId)) this.careerVeteranActorMounts.set(actorId, npc.mount)
     const mount = this.careerVeteranActorMounts.get(actorId) ?? null
+    if (savedPosition) {
+      const y = savedPosition.y ?? getTerrainHeight(savedPosition.x, savedPosition.z)
+      npc.group.position.set(savedPosition.x, y, savedPosition.z)
+      npc.group.rotation.y = savedPosition.yaw
+      if (mount) {
+        mount.group.position.set(savedPosition.x, y, savedPosition.z)
+        mount.group.rotation.y = savedPosition.yaw
+      }
+    }
     if (saved?.mountHp !== undefined && mount) {
       if (saved.mountHp <= 0) {
         if (!mount.dead) mount.takeDamage(mount.maxHp * 100)
@@ -2760,6 +2870,7 @@ export class Game {
         npc.assignFollowTarget(this.player, slot, officialFollowLocalOffset(slot, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
       }
     }
+    if (!npc.dead && savedPosition?.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
   }
 
   private _restoreCareerVeteranOutpostGate(saved: NonNullable<DefenseCampaignLaunchConfig['careerVeteranOutpost']>['runtimeState']): void {
@@ -2891,6 +3002,7 @@ export class Game {
     const deadTargets = new Set(active.deadTargetActorIds ?? [])
     const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
     const actorHealth = { ...(active.actorHealth ?? {}) }
+    const actorPositions = { ...(active.actorPositions ?? {}) }
     for (const npc of this.npcs) {
       const id = npc.combatantId
       if (targetIds.has(id)) {
@@ -2902,6 +3014,13 @@ export class Game {
         if (npc.hp > 0) actorHealth[id] = { ...actorHealth[id], hp: npc.hp }
         else actorHealth[id] = { ...actorHealth[id], hp: 0 }
       } else continue
+      actorPositions[id] = {
+        x: npc.combatPosition.x,
+        y: npc.combatPosition.y,
+        z: npc.combatPosition.z,
+        yaw: npc.mount?.group?.rotation.y ?? npc.group.rotation.y,
+        ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
+      }
       const mount = this.careerVeteranActorMounts.has(id)
         ? this.careerVeteranActorMounts.get(id) ?? null
         : npc.mount
@@ -2913,6 +3032,7 @@ export class Game {
     active.deadTargetActorIds = [...deadTargets]
     active.deadFriendlyActorIds = [...deadFriendlies]
     active.actorHealth = actorHealth
+    active.actorPositions = actorPositions
     active.playerDead = this.player.dead || active.playerDead === true
     active.playerHp = this.player.hp
     active.playerStamina = this.player.staminaValue
@@ -3031,6 +3151,7 @@ export class Game {
       this._identifyPersonalOutpostWave(plan, wave)
     }
 
+    if (wave === 'attackers') this.campaignSiegeAssault?.prepare(plan.npcSpecs)
     this.campaignSpawnQueue = plan.npcSpecs
     this.campaignSpawnQueueIndex = 0
     this.campaignSpawnWave = wave
@@ -3048,11 +3169,30 @@ export class Game {
       if (index < this.campaignSpawnQueueIndex) continue
       batch.enqueue(spec.actorId ?? `${wave}:${index}`, () => {
         const npc = this._spawnNpc(spec)
-        if (wave === 'attackers') this.campaignAttackersStarted = true
+        if (wave === 'attackers') {
+          this.campaignAttackersStarted = true
+          reconcileCampaignGateSiege({
+            gate: this.previewCampaignGate,
+            breachController: this.previewCampaignBreachController,
+            availableEntrances: this.campaignSiegeAssault?.entrances,
+            npcs: [npc],
+            attackerFaction: npc.characterFaction,
+          })
+        }
         if (this.defenseCampaignConfig?.careerVeteranOutpost) {
           npc.setTacticalOrder(wave === 'reinforcement' ? 'defend' : 'attack')
           this._restoreCareerVeteranNpcState(npc)
-        } else { npc.setTacticalOrder('attack'); this._restorePersonalOutpostNpc(npc) }
+          if (this.previewCampaignBreachController?.breached && wave === 'attackers') {
+            npc.setTacticalOrder(npc.aiType === AIType.RANGED ? 'attack' : 'charge')
+          }
+        } else {
+          if (this.previewCampaignBreachController?.breached && wave === 'attackers') {
+            npc.setTacticalOrder(npc.aiType === AIType.RANGED ? 'attack' : 'charge')
+          } else {
+            npc.setTacticalOrder('attack')
+          }
+          this._restorePersonalOutpostNpc(npc)
+        }
         this.campaignSpawnQueueIndex++
 
         if (this.campaignSpawnQueueIndex >= this.campaignSpawnQueue.length) {
@@ -3164,6 +3304,7 @@ export class Game {
     this.soundManager?.updateEagleWingbeats([])
     for (const batch of this.spawnBatches) batch.cancel()
     this.personalSquad?.cleanup()
+    this.campaignSiegeAssault?.dispose()
     for (const npc of this.npcs) { this._aimTargetRegistry?.unregisterNpc?.(npc); npc.dispose() }
     for (const mount of this.mounts) { this._aimTargetRegistry?.unregisterMount?.(mount); mount.dispose() }
     this.battleStats?.dispose?.()
@@ -3347,6 +3488,16 @@ export class Game {
 
     const playerSideAlive = this._campaignFactionAlive(playerSideFaction)
     const enemySideAlive = this._campaignFactionAlive(enemySideFaction)
+    if (this.previewCampaignGate) {
+      const attackerFaction = opposingCampaignFaction(campaign.defenderFaction)
+      reconcileCampaignGateSiege({
+        gate: this.previewCampaignGate,
+        breachController: this.previewCampaignBreachController,
+        availableEntrances: this.campaignSiegeAssault?.entrances,
+        npcs: this.npcs,
+        attackerFaction,
+      })
+    }
     hud.updateGate(
       this.previewCampaignGate?.state ?? 'destroyed',
       this.campaignAttackersStarted,
@@ -4120,6 +4271,7 @@ export class Game {
         radius: 0.38,
         height: 1.9,
         bottomOffset: 0.95,
+        walkSurfaces: true,
       })
     }
 
@@ -4128,9 +4280,11 @@ export class Game {
       if (npc.isMounted) continue
       bodies.push({
         position: npc.position,
+        anchored: Boolean(npc.siegeTransport),
         radius: 0.5,
         height: 2.3,
         bottomOffset: 0,
+        walkSurfaces: true,
       })
     }
 
@@ -4138,6 +4292,7 @@ export class Game {
       if (mount === controlledMount || mount.isFlyingMount) continue
       bodies.push({
         position: mount.group.position,
+        mountedSurfaces: true,
         radius: 1.0,
         height: 2.6,
         bottomOffset: 0,
@@ -4157,7 +4312,8 @@ export class Game {
         body.radius,
         body.height,
         body.bottomOffset,
-        this.obstacles
+        this.obstacles,
+        { walkSurfaces: body.walkSurfaces, mountedSurfaces: body.mountedSurfaces }
       )
     }
   }
@@ -4317,6 +4473,7 @@ export class Game {
       !this._commanderOutpostCombatLocked(),
     )
 
+    this.campaignSiegeAssault?.update(dt)
     this.personalSquad?.updateLifecycle()
     this._updateDefenseCampaign(dt)
     this._updateCaptainBattle(dt)

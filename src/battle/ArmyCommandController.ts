@@ -133,6 +133,8 @@ export class ArmyCommandController {
     private readonly personalCommands?: { issue(order: TacticalOrder | 'dismiss'): boolean; enabled(): boolean },
     private readonly commandAuthority?: ArmyCommandAuthority,
     private readonly hudRoster?: () => ArmyHudRoster | undefined,
+    private readonly campaignFollowEnabled = false,
+    private readonly onCampaignFollow?: ((target: ArmyCommandTarget, recipients: readonly NPC[]) => void) | null,
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
@@ -225,6 +227,7 @@ export class ArmyCommandController {
         const result = this.formation.confirmPlacement((participants, assignments) =>
           this.commandAuthority?.beforeIssue?.('formation', target, participants, assignments) ?? true)
         if (result.accepted) {
+          for (const npc of result.participants) npc.releaseOutpostRampartGarrison?.()
           this._setFormationDesiredOrders(this.selectedTarget, result.participants, result.commandId)
           this.onCommandIssued?.('formation', this.selectedTarget ?? undefined)
           this.ui.showFeedback(`${this._targetLabel(this.selectedTarget)} → 列陣`)
@@ -268,12 +271,18 @@ export class ArmyCommandController {
       let commandKey: string | null = null
       for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']) {
         if (!this._consumeDigit(key)) continue
-        if (commandKey === null && Number(key) >= 1 && Number(key) <= (this._hasPartyCommands() ? 6 : 4)) commandKey = key
+        if (commandKey === null && Number(key) >= 1 && Number(key) <= this._maxSubmenuCommands()) commandKey = key
       }
       if (commandKey !== null) {
         this.highlightedCommandIndex = Number(commandKey) - 1
-        if (this._hasPartyCommands() && (commandKey === '5' || commandKey === '6')) {
-          this._issue(commandKey === '5' ? 'follow' : 'dismiss')
+        if (commandKey === '5') {
+          if (this._hasPartyCommands() || this.campaignFollowEnabled) {
+            this._issue('follow')
+            return
+          }
+        }
+        if (commandKey === '6' && (this.personalCommands || this.commandAuthority)) {
+          this._issue('dismiss')
           return
         }
         const command = getCommandFromSubmenuKey(commandKey)
@@ -327,8 +336,19 @@ export class ArmyCommandController {
     this._renderUi()
   }
 
+  private _maxSubmenuCommands(): number {
+    if (this.personalCommands || this.commandAuthority) return 6
+    if (this.campaignFollowEnabled) return 5
+    return 4
+  }
+
   private _selectHighlightedCommand(): void {
-    const commands: readonly (TacticalOrder | 'dismiss')[] = this._hasPartyCommands() ? [...WHEEL_COMMANDS, 'follow', 'dismiss'] : WHEEL_COMMANDS
+    const commands: readonly (TacticalOrder | 'dismiss')[] =
+      this.personalCommands || this.commandAuthority
+        ? [...WHEEL_COMMANDS, 'follow', 'dismiss']
+        : this.campaignFollowEnabled
+          ? [...WHEEL_COMMANDS, 'follow']
+          : WHEEL_COMMANDS
     const command = commands[this.highlightedCommandIndex]
     if (!command) return
     if (command === 'formation') {
@@ -353,7 +373,7 @@ export class ArmyCommandController {
   private _moveCommandHighlight(direction: -1 | 1): void {
     this.highlightedCommandIndex = Math.max(
       0,
-      Math.min((this._hasPartyCommands() ? 6 : WHEEL_COMMANDS.length) - 1, this.highlightedCommandIndex + direction),
+      Math.min(this._maxSubmenuCommands() - 1, this.highlightedCommandIndex + direction),
     )
   }
 
@@ -379,7 +399,7 @@ export class ArmyCommandController {
     if (!target) return
     if (this.commandAuthority && !this.commandAuthority.enabled()) { this.close(); return }
 
-    if (order !== 'dismiss' && this.canIssueOrder && !this.canIssueOrder(order)) {
+    if (order !== 'dismiss' && order !== 'follow' && this.canIssueOrder && !this.canIssueOrder(order)) {
       this.ui.showFeedback(this.personalCommands ? '請先下令 Follow me，讓私人隊伍跟隨你。' : '部署階段：敵軍尚未進場')
       this._closeSubmenu()
       return
@@ -399,6 +419,19 @@ export class ArmyCommandController {
       this._closeSubmenu()
       return
     }
+
+    if (this.campaignFollowEnabled && order === 'follow') {
+      const recipients = this.npcs.filter(npc => !npc.dead && this._acceptsNpc(npc) && matchesArmyCommandTarget(npc, target))
+      for (const npc of recipients) npc.releaseOutpostRampartGarrison?.()
+      this._clearFormationDesiredOrders(target)
+      this._setDesiredOrder(target, 'follow')
+      this.onCampaignFollow?.(target, recipients)
+      this.onCommandIssued?.('follow', target)
+      this.ui.showFeedback(`${this._targetLabel(target)} → Follow me · 跟隨`)
+      this._closeSubmenu()
+      return
+    }
+
     if (order === 'dismiss') return
     // Career authority can retain living but returning (non-commandable) NPCs.
     // Do not claim an order succeeded when every recipient is currently ineligible.
@@ -414,7 +447,11 @@ export class ArmyCommandController {
     this._clearFormationDesiredOrders(target)
     this._setDesiredOrder(target, order)
 
-    for (const npc of participants) npc.setTacticalOrder(order)
+    for (const npc of participants) {
+      if ((order !== 'attack' && order !== 'defend') || !npc.holdsRampartFirePosition) npc.releaseOutpostRampartGarrison?.()
+      npc.clearFollowTarget?.()
+      npc.setTacticalOrder(order)
+    }
 
     this.onCommandIssued?.(order, target)
     this.ui.showFeedback(`${this._targetLabel(target)} → ${ORDER_LABELS[order]}`)
@@ -542,6 +579,7 @@ export class ArmyCommandController {
       selectedWeapon?.name ?? '',
       this.groupingMode,
       this._hasPartyCommands(),
+      this.campaignFollowEnabled,
     )
   }
 
@@ -701,6 +739,10 @@ export class ArmyCommandController {
       if (!npc.dead) alive++
     }
     return `${alive}/${total}`
+  }
+
+  getDesiredOrderForNpc(npc: NPC): TacticalOrder {
+    return this._desiredOrderForNpc(npc)
   }
 
   private _desiredOrderForNpc(npc: NPC): TacticalOrder {

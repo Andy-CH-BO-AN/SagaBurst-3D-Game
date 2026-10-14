@@ -23,6 +23,8 @@ export interface PersonalActorCheckpoint {
   mount?: { hp: number; mounted: boolean; position: PersonalActorPosition; flight?: EagleFlightSnapshot }
   order?: TacticalOrder
   formation?: { commandId: number; position: PersonalActorPosition; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder }
+  /** True only while the system-owned initial Outpost rampart order is active. */
+  outpostRampartGarrison?: boolean
 }
 export interface PersonalSquadMission {
   squadId: typeof PERSONAL_SQUAD_ID

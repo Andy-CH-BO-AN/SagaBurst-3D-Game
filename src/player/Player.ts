@@ -1172,6 +1172,7 @@ export class Player {
         PLAYER_HALF_HEIGHT * 2,
         PLAYER_HALF_HEIGHT,
         obstacles,
+        { walkSurfaces: true },
       )
       this.velY = playerCollision.velocityY
       this.onGround = playerCollision.onGround

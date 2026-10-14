@@ -50,9 +50,13 @@ export function createCaptainFrontlineLaunch(profile: CareerProfile): DefenseCam
   }
 }
 
-export function createCaptainFrontlineSpawnPlan(launch: DefenseCampaignLaunchConfig, authority?: OfficialCommandAuthority): BattleSpawnPlan {
+export function createCaptainFrontlineSpawnPlan(
+  launch: DefenseCampaignLaunchConfig,
+  authority?: OfficialCommandAuthority,
+  options: { deployRampartGarrison?: boolean } = {},
+): BattleSpawnPlan {
   const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'defenders'))
-  positionDefenseCampaignDefenders(plan.npcSpecs, launch.defenderFaction)
+  positionDefenseCampaignDefenders(plan.npcSpecs, launch.defenderFaction, options)
   const placement = getCampaignOutpostPlacement(launch.defenderFaction)
   const melee = plan.npcSpecs.filter(spec => spec.presetId === resolveCampaignRolePreset(launch.defenderFaction, 'frontline'))
     .sort((a, b) => Math.abs(a.z - placement.frontZ) - Math.abs(b.z - placement.frontZ)).slice(0, 20)
@@ -75,6 +79,7 @@ export function acceptCaptainFrontline(current: CareerProfile, id = createCareer
   next.activeMission = mission
   const launch = createCaptainFrontlineLaunch(next)
   const plan = createCaptainFrontlineSpawnPlan(launch)
+
   mission.friendlyActorIds = plan.npcSpecs.map(spec => spec.actorId!)
   const reinforcements = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'reinforcement'))
   mission.reinforcementActorIds = reinforcements.npcSpecs.map((_, index) => `${id}:reinforcement:${index}`)
@@ -129,6 +134,7 @@ export function acceptCaptainEagle(current: CareerProfile, id = createCareerMiss
     friendlyActorIds: Array.from({ length: 29 }, (_, index) => `${id}:eagle:friendly:${index}`),
     targetActorIds: Array.from({ length: 30 }, (_, index) => `${id}:eagle:enemy:${index}`),
     personalSquad: snapshotPersonalMission(next),
+
   }
   next.activeMission.officialSquad = createMissionCommandAuthority(id, next.faction, next.rank,
     next.activeMission.friendlyActorIds, [{ squadId: 1, actorIds: next.activeMission.friendlyActorIds }])

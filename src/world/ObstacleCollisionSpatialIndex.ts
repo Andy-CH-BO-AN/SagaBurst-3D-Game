@@ -6,14 +6,15 @@ export const OBSTACLE_COLLISION_GRID_CELL_SIZE = 8
 /**
  * Static spatial index for local obstacle collision queries.
  *
- * Obstacles themselves do not move. Gate/wall destruction and gate open/close
- * mutate the shared obstacle revision or length, so sync() only rebuilds when
- * topology changes.
+ * Static records occupy the grid; the bounded dynamic vehicle subset is queried
+ * at its current bounds. Gate/wall destruction and gate open/close mutate the
+ * shared revision or length, so sync() only rebuilds when topology changes.
  *
  * queryNear() returns an ephemeral internal buffer. Callers must consume it
  * immediately and must not retain or mutate it.
  */
 export class ObstacleCollisionSpatialIndex {
+  private readonly dynamicIndices: number[] = []
   private readonly cells = new Map<string, number[]>()
   private readonly queryBuffer: ObstacleData[] = []
   private readonly queryIndices: number[] = []
@@ -32,9 +33,11 @@ export class ObstacleCollisionSpatialIndex {
     this.obstacleCount = obstacles.length
     this.obstacleRevision = obstacleTopologyRevision(obstacles)
     this.cells.clear()
+    this.dynamicIndices.length = 0
     this.seenStamp = new Uint32Array(obstacles.length)
 
     for (let index = 0; index < obstacles.length; index++) {
+      if (obstacles[index].dynamic) { this.dynamicIndices.push(index); continue }
       const box = obstacles[index].box
       const minCellX = Math.floor(box.min.x / OBSTACLE_COLLISION_GRID_CELL_SIZE)
       const maxCellX = Math.floor(box.max.x / OBSTACLE_COLLISION_GRID_CELL_SIZE)
@@ -91,6 +94,13 @@ export class ObstacleCollisionSpatialIndex {
           this.queryIndices.push(obstacleIndex)
         }
       }
+    }
+
+    // Two vehicles have bounded collider counts; inspect only those dynamic records.
+    for (const index of this.dynamicIndices) {
+      const box = this.obstacles[index].box
+      if (x + radius >= box.min.x && x - radius <= box.max.x
+        && z + radius >= box.min.z && z - radius <= box.max.z) this.queryIndices.push(index)
     }
 
     // Preserve the original shared obstacle-array order. Collision push-out can

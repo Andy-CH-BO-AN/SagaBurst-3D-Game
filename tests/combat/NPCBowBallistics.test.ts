@@ -7,12 +7,18 @@ import { MountType, Mount } from '../../src/world/Mount'
 import { eagleBowEngagementRange } from '../../src/combat/EagleRangedCombat'
 
 import { InventoryManager } from '../../src/rpg/InventoryManager'
+import { ArrowProjectile } from '../../src/world/ArrowProjectile'
+import { MobileSiegeRamp } from '../../src/campaign/MobileSiegeRamp'
+import { getSiegeRampPlacement } from '../../src/campaign/MobileSiegeRampPolicy'
+import { getOutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
+import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
+import type { ObstacleData } from '../../src/world/Terrain'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 
 vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
   CorgiVisual: (await import('../helpers/gameplayQuadrupedVisual')).GameplayQuadrupedVisualDouble,
 }))
-
 const GRAVITY = 9.8
 
 function createRangedNpc(rangedWeaponId: string): NPC {
@@ -228,4 +234,160 @@ describe('Commander mounted bow projectile callers', () => {
     // Arrow centre starts ahead of the nock; retain a small physical tolerance.
     expect(impact.distanceTo(launched.target)).toBeLessThan(.05)
   })
+})
+
+function elevatedSupport(position: THREE.Vector3): ObstacleData {
+  return { box: new THREE.Box3(position.clone().add(new THREE.Vector3(-2, -.25, -2)), position.clone().add(new THREE.Vector3(2, 0, 2))),
+    isBarricade: false, navigationPassable: true,
+    walkSurface: { startX: position.x - 2, startZ: position.z, startY: position.y, topY: position.y,
+      dirX: 1, dirZ: 0, length: 4, landing: 0, halfWidth: 2 } }
+}
+
+describe('Outpost elevated ranged defense' , () => {
+  it.each(['defend', 'attack'] as const)('%s draws melee at 4m on the connected rampart and attacks only at contact', order => {
+    // Two real actors; pure walkway topology supplies the high/ground distinction.
+    const scene = new THREE.Scene(), player = new Player(scene, 'viking')
+    const archer = createRangedNpc('wooden_shortbow')
+    onTestFinished(() => { archer.dispose(); player.dispose() })
+    const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement('roman'))
+    const navigation = new NavigationWorld()
+    navigation.setOutpostWalkways(layout)
+    const deck = layout.decks[0]
+    archer.group.position.copy(deck.slab.getCenter(new THREE.Vector3())).y = deck.topY
+    player.group.position.copy(archer.position).x += 4
+    archer.activateOutpostRampartGarrison()
+    archer.setTacticalOrder(order)
+    const origin = archer.position.clone(), hit = vi.fn(), fire = vi.fn()
+    const support = elevatedSupport(origin)
+    const update = () => {
+      scene.updateMatrixWorld(true)
+      archer.update(1 / 60, player, [archer], [], [support],
+        { setFill() {} }, hit, fire, true, 0, null, null, navigation)
+    }
+    for (let frame = 0; frame < 120; frame++) update()
+    expect(archer.hasActiveRangedWeapon).toBe(false)
+    expect(hit).not.toHaveBeenCalled()
+    expect(fire).not.toHaveBeenCalled()
+    expect(archer.position).toEqual(origin)
+    player.group.position.copy(origin).z += 1
+    player.group.position.y -= player.bodyBaseOffset ?? 0
+    const actions = new Set<string | null>()
+    const restingTip = archer.getWeaponTipPosition().clone()
+    let swingTravel = 0
+    for (let frame = 0; frame < 240; frame++) {
+      update()
+      actions.add(archer.combatAnimationAction)
+      swingTravel = Math.max(swingTravel, archer.getWeaponTipPosition().distanceTo(restingTip))
+    }
+    expect(actions.has('swordSlash')).toBe(true)
+    expect(swingTravel).toBeGreaterThan(.2)
+    expect(archer.position).toEqual(origin)
+  })
+
+  it.each([true, false])('still switches to melee for a same-level contact threat with garrison=%s', garrison => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene, 'viking')
+    const archer = createRangedNpc('wooden_shortbow')
+    onTestFinished(() => { archer.dispose(); player.dispose() })
+    archer.group.position.set(0, 4.6, 0)
+    player.group.position.set(0, 4.6, .8)
+    if (garrison) archer.activateOutpostRampartGarrison()
+    archer.setTacticalOrder('defend')
+    archer.update(1 / 60, player, [archer], [], [elevatedSupport(archer.position)],
+      { setFill() {} }, () => {}, () => {}, true)
+    expect(archer.hasActiveRangedWeapon).toBe(false)
+  })
+
+  it.each(['defend', 'attack'] as const)('%s preserves ammunition above a close ground enemy and releases at a reachable ranged target', order => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene, 'viking')
+    const archer = createRangedNpc('wooden_shortbow')
+    const alternate = new NPC(scene, 20, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'alternate', 1, false)
+    onTestFinished(() => { archer.dispose(); player.dispose(); alternate.dispose() })
+    const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement('roman'))
+    const navigation = new NavigationWorld()
+    navigation.setOutpostWalkways(layout)
+    archer.group.position.copy(layout.decks[0].slab.getCenter(new THREE.Vector3())).y = layout.decks[0].topY
+    const origin = archer.position.clone()
+    player.group.position.copy(origin).add(new THREE.Vector3(0, -4.6, 1))
+    alternate.group.position.copy(origin).x += 20
+    expect(navigation.outpostNav!.getNavLayer(player.combatPosition)).toBe('ground')
+    archer.activateOutpostRampartGarrison()
+    archer.setTacticalOrder(order)
+    const ammo = archer.combatAmmo
+    const fire = vi.fn()
+    const support = elevatedSupport(archer.position)
+    for (let frame = 0; frame < 240; frame++) {
+      archer.update(1 / 60, player, [archer, alternate], [], [support], { setFill() {} }, () => {}, fire, true,
+        0, null, null, navigation)
+    }
+    expect(fire.mock.calls.length).toBeGreaterThan(0)
+    expect(fire.mock.calls[0][1].x).toBeGreaterThan(.8)
+    expect(archer.combatAmmo).toBe(ammo - fire.mock.calls.length)
+    expect(archer.hasActiveRangedWeapon).toBe(true)
+    expect(archer.position).toEqual(origin)
+  })
+
+  it.each(['defend', 'attack'] as const)('%s releases arrows at a clear alternate and holds when every target is blocked', order => {
+    const scene = new THREE.Scene()
+    const player = new Player(scene, 'viking')
+    const archer = createRangedNpc('wooden_shortbow')
+    onTestFinished(() => { archer.dispose(); player.dispose() })
+    archer.group.position.set(0, 10, 0)
+    const support = elevatedSupport(archer.position)
+    archer.activateOutpostRampartGarrison()
+    archer.setTacticalOrder(order)
+    player.group.position.set(0, 10, 20)
+    const alternate = new NPC(scene, 20, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'alternate', 1, false)
+    onTestFinished(() => alternate.dispose())
+    alternate.group.position.set(20, 10, 0)
+    const blocker = { box: new THREE.Box3(new THREE.Vector3(-3, 0, 8), new THREE.Vector3(3, 30, 12)), isBarricade: true }
+    const fire = vi.fn()
+    for (let frame = 0; frame < 240; frame++) {
+      archer.update(1 / 60, player, [archer, alternate], [], [support, blocker], { setFill() {} }, () => {}, fire, true)
+    }
+    expect(fire.mock.calls.length, JSON.stringify({pos: archer.position, state: archer.currentState, action: archer.combatAnimationAction, ranged: archer.hasActiveRangedWeapon, holds: archer.holdsRampartFirePosition})).toBeGreaterThan(0)
+    expect(fire.mock.calls[0][1].x).toBeGreaterThan(.8)
+    expect(archer.position.x).toBeCloseTo(0)
+    expect(archer.position.z).toBeCloseTo(0)
+    fire.mockClear()
+    const sideBlocker = { box: new THREE.Box3(new THREE.Vector3(8, 0, -3), new THREE.Vector3(12, 30, 3)), isBarricade: true }
+    for (let frame = 0; frame < 240; frame++) {
+      archer.update(1 / 60, player, [archer, alternate], [], [support, blocker, sideBlocker], { setFill() {} }, () => {}, fire, true)
+    }
+    expect(fire).not.toHaveBeenCalled()
+    expect(archer.position.x).toBeCloseTo(0)
+    expect(archer.position.z).toBeCloseTo(0)
+  })
+})
+
+
+it('elevated defender releases a projectile into transformed tower geometry and reduces its HP', () => {
+  const scene = new THREE.Scene(), obstacles: ObstacleData[] = []
+  const placement = getSiegeRampPlacement(getOutpostWalkwayLayout(getCampaignOutpostPlacement('viking')), -1)
+  const tower = new MobileSiegeRamp(scene, { id: 'siege-ramp-left', side: -1,
+    pusherIds: ['p0', 'p1', 'p2', 'p3'], assaultIds: ['a0', 'a1', 'a2', 'a3', 'a4', 'a5'] }, placement, 'viking', obstacles, () => {})
+  const archer = createRangedNpc('wooden_shortbow'), player = new Player(scene, 'roman')
+  vi.spyOn(player, 'targetable', 'get').mockReturnValue(false)
+  onTestFinished(() => { vi.restoreAllMocks() })
+  archer.group.position.copy(tower.position).z += placement.dirZ * 25
+  obstacles.push(elevatedSupport(archer.position))
+  archer.activateOutpostRampartGarrison()
+  const arrows: ArrowProjectile[] = []
+  onTestFinished(() => { arrows.forEach(arrow => arrow.destroy()); tower.dispose(); archer.dispose(); player.dispose() })
+  const hit = vi.fn()
+  const update = () => {
+    archer.update(1 / 60, player, [archer], [], obstacles, { setFill() {} }, () => {}, (origin, direction, kind) => {
+      arrows.push(new ArrowProjectile(scene, origin, direction, archer.rangedProjectileSpeed, 20, Faction.ENEMY, false, kind))
+    }, true)
+    for (const arrow of arrows) arrow.update(1 / 60, player, [], obstacles, () => {}, () => { throw new Error('No player target') }, hit)
+  }
+  for (let frame = 0; frame < 600 && !hit.mock.calls.length; frame++) update()
+  expect(arrows.length).toBeGreaterThan(0)
+  expect(hit).toHaveBeenCalledWith(20, expect.any(THREE.Vector3), tower.damageable, 500 / 520)
+  expect(tower.damageable.currentHp).toBe(500)
+  tower.damageable.takeDamage(500)
+  const released = arrows.length
+  for (let frame = 0; frame < 240; frame++) update()
+  expect(arrows).toHaveLength(released)
 })

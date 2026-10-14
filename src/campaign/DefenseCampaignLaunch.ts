@@ -48,6 +48,7 @@ import {
 import type { VeteranOutpostBattleState } from '../career/CareerMissionState'
 import { createVeteranRoster } from '../career/VeteranMission'
 import { parsePersonalMission, type PersonalSquadMission } from '../career/CareerPersonalSquadMission'
+import { deployOutpostRampartArchers, type OutpostRampartDeployment } from './OutpostRampartGarrison'
 
 export interface DefenseCampaignCapabilities {
   reinforcementsEnabled: boolean
@@ -593,9 +594,13 @@ export function createDefenseCampaignWaveConfig(
 export function positionDefenseCampaignDefenders(
   specs: NpcSpawnSpec[],
   defenderFaction: CampaignFaction,
-): void {
+  options: { deployRampartGarrison?: boolean } = {},
+): OutpostRampartDeployment {
+  const rampart = options.deployRampartGarrison === false
+    ? { assignments: [], eligibleCount: 0, overflowCount: 0 }
+    : deployOutpostRampartArchers(specs, defenderFaction)
   const mounted = specs.filter(spec => spec.cavalry)
-  if (mounted.length === 0) return
+  if (mounted.length === 0) return rampart
 
   const placement = getCampaignOutpostPlacement(defenderFaction)
   const inwardSign = Math.sign(placement.backZ - placement.frontZ)
@@ -620,6 +625,12 @@ export function positionDefenseCampaignDefenders(
     spec.x = (wingBaseX + col * spacingX) * wingSign
     spec.z = startZ + row * spacingZ * inwardSign
   }
+  return rampart
+}
+
+/** Shared front line for both the roster and its mobile siege vehicles. */
+export function getDefenseCampaignStagingZ(frontZ: number, inwardSign: number): number {
+  return frontZ - inwardSign * 100
 }
 
 /** Keep an attacker wave at least 100m beyond the owning Outpost's front gate. */
@@ -631,7 +642,7 @@ export function positionDefenseCampaignAttackers(
   const placement = getCampaignOutpostPlacement(outpostFaction)
   const inwardSign = Math.sign(placement.backZ - placement.frontZ)
   const closestOutsideDistance = Math.min(...specs.map(spec => (placement.frontZ - spec.z) * inwardSign))
-  const shiftOutward = Math.max(0, 100 - closestOutsideDistance)
+  const shiftOutward = Math.max(0, (placement.frontZ - getDefenseCampaignStagingZ(placement.frontZ, inwardSign)) * inwardSign - closestOutsideDistance)
   if (shiftOutward === 0) return
   for (const spec of specs) spec.z -= inwardSign * shiftOutward
 }

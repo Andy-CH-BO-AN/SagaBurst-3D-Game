@@ -15,6 +15,7 @@ export function snapshotCommandActor(npc: NPC, homeMount?: Mount,
   return { status: npc.dead ? 'dead' : status, hp: npc.hp,
     position: position(npc.combatPosition, npc.mount?.group.rotation.y ?? npc.group.rotation.y),
     ammo: npc.combatAmmo, shieldImpact: npc.shield.shieldImpactRemaining, order: npc.tacticalOrder,
+    ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
     ...(npc.isFalling ? { fall: npc.fallSnapshot } : {}),
     ...(npc.combatFormationCheckpoint ? { formation: npc.combatFormationCheckpoint } : {}),
     ...(mount ? { mount: { hp: mount.dead ? 0 : mount.currentHp, mounted: npc.mount === mount,
@@ -52,6 +53,7 @@ export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, ho
     npc.assignFormationTarget(f.commandId, new THREE.Vector3(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z),
       new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw)), f.speedLimit, f.arrivalOrder, f.reached)
   } else if (!npc.dead && saved.order && saved.order !== 'follow') npc.setTacticalOrder(saved.order)
+  if (!npc.dead && saved.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
 }
 
 /** Stages restored resources before a service transaction mutates the live army. */

@@ -64,6 +64,38 @@ function fixture(current = profile()) {
 }
 
 describe('Regular Career Outpost checkpoints with private members', () => {
+  it('round-trips an elevated rampart position and its still-active system garrison order', () => {
+    const first = fixture()
+    const group = new THREE.Group(); group.position.set(-18, 7.25, -108.9); group.rotation.y = 0.4
+    const actor = {
+      combatantId: 'regular-checkpoint:initial:archer', combatOwnership: undefined,
+      hp: 73, dead: false, group, mount: null,
+      get combatPosition() { return group.position },
+      isOutpostRampartGarrisonActive: true,
+    }
+    first.game.npcs = [actor]
+
+    expect(first.game._persistPersonalOutpost(true)).toBe(true)
+    const saved = first.store.load()!
+    expect(saved.activeOutpostMission!.battle!.actors[actor.combatantId]).toMatchObject({
+      hp: 73, x: -18, y: 7.25, z: -108.9, yaw: 0.4, outpostRampartGarrison: true,
+    })
+
+    const resumed = fixture(saved)
+    const restoredGroup = new THREE.Group()
+    const restored = {
+      combatantId: actor.combatantId, group: restoredGroup, mount: null, dead: false, hp: 100,
+      restoreCombatHealth(hp: number) { this.hp = hp; this.dead = hp === 0 },
+      activateOutpostRampartGarrison: vi.fn(),
+    }
+    resumed.game._restorePersonalOutpostNpc(restored)
+    expect(restoredGroup.position).toMatchObject({ x: -18, y: 7.25, z: -108.9 })
+    expect(restoredGroup.rotation.y).toBe(0.4)
+    expect(restored.hp).toBe(73)
+    expect(restored.activateOutpostRampartGarrison).toHaveBeenCalledOnce()
+    first.tracker.dispose(); resumed.tracker.dispose()
+  })
+
   it('only restores bounded known fields and rejects non-finite health, malformed flags or oversized actor lists', () => {
     const h = fixture(); expect(h.game._persistPersonalOutpost(true)).toBe(true)
     const saved = h.store.load()!.activeOutpostMission!.battle!

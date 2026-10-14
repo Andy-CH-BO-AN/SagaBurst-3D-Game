@@ -30,6 +30,7 @@ const AIM_FOV    = 28
 const LEVEL_AIM_PITCH = 0.3
 
 const collisionRay = new THREE.Ray()
+const collisionLocalRay = new THREE.Ray()
 const collisionDirection = new THREE.Vector3()
 const collisionHit = new THREE.Vector3()
 const collisionSample = new THREE.Vector3()
@@ -63,16 +64,22 @@ export function resolveCameraDistance(
   let allowedDistance = desiredDistance
 
   for (const obstacle of obstacles) {
-    const box = obstacle.box
-    const width = box.max.x - box.min.x
-    const depth = box.max.z - box.min.z
-    if (Math.max(width, depth) < CAMERA_MIN_HORIZONTAL_OBSTACLE_SPAN) continue
+    const boxes = obstacle.projectileBoxes ?? [obstacle.box]
+    const ray = obstacle.projectileBoxes?.length && obstacle.projectileWorldToLocal
+      ? collisionLocalRay.copy(collisionRay).applyMatrix4(obstacle.projectileWorldToLocal)
+      : collisionRay
+    for (const box of boxes) {
+      const width = box.max.x - box.min.x
+      const depth = box.max.z - box.min.z
+      if (Math.max(width, depth) < CAMERA_MIN_HORIZONTAL_OBSTACLE_SPAN) continue
 
-    const hit = collisionRay.intersectBox(box, collisionHit)
-    if (!hit) continue
-    const distance = origin.distanceTo(hit)
-    if (distance > desiredDistance) continue
-    allowedDistance = Math.min(allowedDistance, Math.max(0, distance - obstacleMargin))
+      const hit = ray.intersectBox(box, collisionHit)
+      if (!hit) continue
+      // The transform is rigid, so ray distances are preserved in local space.
+      const distance = ray.origin.distanceTo(hit)
+      if (distance > desiredDistance) continue
+      allowedDistance = Math.min(allowedDistance, Math.max(0, distance - obstacleMargin))
+    }
   }
 
   if (options.terrainHeight) {

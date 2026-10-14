@@ -29,6 +29,8 @@ export class RecordingNpc {
   missionAerialDefense = false
   mount: RecordingMount | null = null
   tacticalOrder = 'defend'
+  private outpostRampartGarrison = false
+  get isOutpostRampartGarrisonActive(): boolean { return this.outpostRampartGarrison }
   shield = { shieldImpactRemaining: 100, shieldImpactMax: 100 }
   combatAmmo = 30
   formationTarget?: { position: THREE.Vector3; speedLimit?: number }
@@ -41,12 +43,13 @@ export class RecordingNpc {
     public presetId?: string, public squadId?: string | number, readonly combatantId = name,
     readonly emit?: unknown, readonly visualAssetId?: string, readonly combatProfileId?: string,
     readonly specialCombatProfile?: string, readonly townCategory?: 'civilian', readonly civilianStyle?: string,
-    readonly townCombatRole?: 'merchant') {
+    readonly townCombatRole?: 'merchant', readonly spawnPlacement?: { y: number }) {
     recording.npcs.push(this)
-    this.group.position.set(x, 0, z)
+    this.group.position.set(x, spawnPlacement?.y ?? 0, z)
     scene.add(this.group)
   }
 
+  get position(): THREE.Vector3 { return this.group.position }
   get combatPosition(): THREE.Vector3 { return this.mount?.group.position ?? this.group.position }
   get isMounted(): boolean { return Boolean(this.mount) }
   readonly bindCombatEventSink = vi.fn((_sink: CombatEventSink) => vi.fn())
@@ -71,6 +74,10 @@ export class RecordingNpc {
     this.loadout = loadout; if (tier !== undefined) this.tier = tier; if (squadId !== undefined) this.squadId = squadId; if (presetId !== undefined) this.presetId = presetId
   })
   readonly setTacticalOrder = vi.fn((order: string) => { this.tacticalOrder = order })
+  readonly activateOutpostRampartGarrison = vi.fn(() => {
+    this.setTacticalOrder('defend'); this.outpostRampartGarrison = true
+  })
+  readonly releaseOutpostRampartGarrison = vi.fn(() => { this.outpostRampartGarrison = false })
   readonly assignFollowTarget = vi.fn((target: unknown) => { this.activeFollowTarget = target; this.tacticalOrder = 'follow' })
   readonly assignFormationTarget = vi.fn((id: number, position: THREE.Vector3, _forward?: THREE.Vector3, speedLimit?: number) => {
     this.formationCommandId = id; this.formationTarget = { position, speedLimit }; this.tacticalOrder = 'formation'

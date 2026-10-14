@@ -75,6 +75,7 @@ let activeFortifiedCampFaction: CharacterFaction | null = null
 
 export interface TerrainOptions {
   fortifiedCampFaction?: CharacterFaction | null
+  treeClearances?: readonly THREE.Box3[]
 }
 
 /**
@@ -89,9 +90,46 @@ export function getTerrainHeight(x: number, z: number): number {
   return h1 + h2 + campOffset
 }
 
+/**
+ * A straight, constant-width ramp that ends in a flat landing. Height depends on
+ * the position along the ramp axis, so the same X/Z can coexist with the ground
+ * below without changing getTerrainHeight().
+ */
+export interface WalkRampSurface {
+  /** Centre of the low end. */
+  startX: number
+  startZ: number
+  /** Unit horizontal direction from the low end toward the high end. */
+  dirX: number
+  dirZ: number
+  halfWidth: number
+  /** Sloped run length, followed by `landing` metres of flat surface at topY. */
+  length: number
+  landing: number
+  startY: number
+  topY: number
+  mounted?: boolean
+}
+
+/** Highest foot lift a ramp may apply in one step; also bounds how far below it counts as "on" it. */
+export const WALK_SURFACE_STEP_UP = 0.75
+
+/** Height of the ramp surface at (x, z), or null when the point is off the ramp. */
+export function getWalkRampHeight(surface: WalkRampSurface, x: number, z: number): number | null {
+  const dx = x - surface.startX
+  const dz = z - surface.startZ
+  const along = dx * surface.dirX + dz * surface.dirZ
+  if (along < 0 || along > surface.length + surface.landing) return null
+  if (Math.abs(dx * -surface.dirZ + dz * surface.dirX) > surface.halfWidth) return null
+  if (along >= surface.length) return surface.topY
+  return surface.startY + (surface.topY - surface.startY) * (along / surface.length)
+}
+
 export interface ObstacleData {
   /** Continuous body/nav collision volume. */
   box: THREE.Box3
+  /** A bounded set of moving obstacles bypasses the static grid without rebuilding it. */
+  dynamic?: boolean
   /** Optional ground footprint for overhead arches/lintels. Body/projectile collision still uses box. */
   navigationBox?: THREE.Box3
   isBarricade: boolean
@@ -102,6 +140,18 @@ export interface ObstacleData {
    * while arrows/javelins can physically pass between the visible timbers.
    */
   projectileBoxes?: readonly THREE.Box3[]
+  /** Rigid world-to-local transform when projectileBoxes describe rotated timber. */
+  projectileWorldToLocal?: THREE.Matrix4
+  /**
+   * Walkable ramp carried by this obstacle. Callers that opt in through
+   * ObstacleCollisionOptions.walkSurfaces stand on it; every other caller
+   * keeps treating `box` as a solid volume.
+   */
+  walkSurface?: WalkRampSurface
+  /** Overhead structure: ground navigation grids must not treat its footprint as blocked. */
+  navigationPassable?: boolean
+  /** Arrows and javelins fly through (e.g. raised planking that must not block ground archers). */
+  projectilePassable?: boolean
 }
 
 const obstacleCollisionIndexes = new WeakMap<
@@ -144,12 +194,21 @@ export interface ObstacleCollisionResult {
   onGround: boolean
 }
 
+export interface ObstacleCollisionOptions {
+  /** Stand on obstacle.walkSurface ramps instead of colliding with their box. */
+  walkSurfaces?: boolean
+  /** Mounts only use surfaces explicitly admitting their body size. */
+  mountedSurfaces?: boolean
+}
+
 export interface EntityCollisionBody {
+  mountedSurfaces?: boolean
   position: THREE.Vector3
   radius: number
   height: number
   bottomOffset: number
   anchored?: boolean
+  walkSurfaces?: boolean
 }
 
 export type ObstacleDetourSide = -1 | 1
@@ -257,10 +316,37 @@ export function obstacleContainsProjectilePoint(
 ): boolean {
   const boxes = obstacle.projectileBoxes
   if (!boxes || boxes.length === 0) return obstacle.box.containsPoint(point)
+  const localPoint = obstacle.projectileWorldToLocal
+    ? projectileLocalStart.copy(point).applyMatrix4(obstacle.projectileWorldToLocal)
+    : point
   for (const box of boxes) {
-    if (box.containsPoint(point)) return true
+    if (box.containsPoint(localPoint)) return true
   }
   return false
+}
+
+const projectileLocalStart = new THREE.Vector3()
+const projectileLocalEnd = new THREE.Vector3()
+
+/** Earliest solid contact on a segment, shared by live projectiles and shooting LOS. */
+export function projectileObstacleEntryFraction(
+  obstacle: ObstacleData,
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+): number | null {
+  if (obstacle.projectilePassable) return null
+  const boxes = obstacle.projectileBoxes
+  if (!boxes?.length) return segmentEntryFractionBox3D(start, end, obstacle.box)
+  if (obstacle.projectileWorldToLocal) {
+    start = projectileLocalStart.copy(start).applyMatrix4(obstacle.projectileWorldToLocal)
+    end = projectileLocalEnd.copy(end).applyMatrix4(obstacle.projectileWorldToLocal)
+  }
+  let closest = Infinity
+  for (const box of boxes) {
+    const entry = segmentEntryFractionBox3D(start, end, box)
+    if (entry !== null) closest = Math.min(closest, entry)
+  }
+  return Number.isFinite(closest) ? closest : null
 }
 
 /**
@@ -278,24 +364,20 @@ export function findBlockingProjectileObstacleAlongPath(
   let closestFraction = Infinity
 
   for (const obstacle of obstacles) {
+    if (obstacle.projectilePassable) continue
     // Cheap broad phase first. Detailed palisade stake/rail tests only run when
     // the shot segment actually crosses that obstacle's navigation envelope.
-    const coarseEntry = segmentEntryFractionBox3D(start, end, obstacle.box)
+    // Rotating slab thickness can protrude slightly beyond its walk/nav envelope.
+    // Test that single local box directly rather than discard real edge contacts.
+    const coarseEntry = obstacle.projectileWorldToLocal
+      ? 0
+      : segmentEntryFractionBox3D(start, end, obstacle.box)
     if (coarseEntry === null || coarseEntry >= closestFraction) continue
 
-    const boxes = obstacle.projectileBoxes
-    if (!boxes || boxes.length === 0) {
-      closestFraction = coarseEntry
+    const entry = projectileObstacleEntryFraction(obstacle, start, end)
+    if (entry !== null && entry < closestFraction) {
+      closestFraction = entry
       closest = obstacle
-      continue
-    }
-
-    for (const box of boxes) {
-      const entry = segmentEntryFractionBox3D(start, end, box)
-      if (entry !== null && entry < closestFraction) {
-        closestFraction = entry
-        closest = obstacle
-      }
     }
   }
 
@@ -350,6 +432,7 @@ export function findBlockingObstacleAlongPath(
   let closestFraction = Infinity
 
   for (const obstacle of obstacles) {
+    if (obstacle.navigationPassable) continue
     if (!verticallyOverlapsObstacle(position.y, height, bottomOffset, obstacle.box)) continue
     const entry = segmentEntryFractionExpandedBox(
       position.x,
@@ -492,6 +575,7 @@ export function getObstacleAvoidanceDirection(
     const sampleX = position.x + direction.x * lookAhead
     const sampleZ = position.z + direction.z * lookAhead
     for (const obstacle of obstacles) {
+      if (obstacle.navigationPassable) continue
       const box = obstacle.box
       if (bottomY >= box.max.y - 0.001 || topY <= box.min.y + 0.001) continue
       if (
@@ -535,7 +619,7 @@ export function resolveEntityCollision(
   const pushDistance = minDistance - distance
   const halfPush = pushDistance * 0.5
 
-  const overlapsObstacle = (pos: THREE.Vector3, offsetX: number, offsetZ: number, radius: number, bottomOffset: number, height: number): boolean => {
+  const overlapsObstacle = (pos: THREE.Vector3, offsetX: number, offsetZ: number, radius: number, bottomOffset: number, height: number, walkSurfaces?: boolean, mountedSurfaces?: boolean): boolean => {
     const targetX = pos.x + offsetX
     const targetZ = pos.z + offsetZ
     const b = pos.y - bottomOffset
@@ -547,6 +631,7 @@ export function resolveEntityCollision(
       radius,
     )
     for (const obs of candidates) {
+      if (obs.walkSurface && (walkSurfaces || mountedSurfaces && obs.walkSurface.mounted)) continue
       if (b >= obs.box.max.y - 0.001 || t <= obs.box.min.y + 0.001) continue
       if (targetX + radius > obs.box.min.x && targetX - radius < obs.box.max.x &&
           targetZ + radius > obs.box.min.z && targetZ - radius < obs.box.max.z) {
@@ -558,17 +643,17 @@ export function resolveEntityCollision(
 
   // Direction B: Predictive Obstacle Check
   // If pushed into a wall, treat the entity as temporarily anchored
-  const firstAnchored = first.anchored || overlapsObstacle(first.position, normalX * halfPush, normalZ * halfPush, first.radius, first.bottomOffset, first.height)
-  const secondAnchored = second.anchored || overlapsObstacle(second.position, -normalX * halfPush, -normalZ * halfPush, second.radius, second.bottomOffset, second.height)
+  const firstAnchored = first.anchored || overlapsObstacle(first.position, normalX * halfPush, normalZ * halfPush, first.radius, first.bottomOffset, first.height, first.walkSurfaces, first.mountedSurfaces)
+  const secondAnchored = second.anchored || overlapsObstacle(second.position, -normalX * halfPush, -normalZ * halfPush, second.radius, second.bottomOffset, second.height, second.walkSurfaces, second.mountedSurfaces)
 
   if (firstAnchored && secondAnchored) return
   if (firstAnchored) {
-    if (!overlapsObstacle(second.position, -normalX * pushDistance, -normalZ * pushDistance, second.radius, second.bottomOffset, second.height)) {
+    if (!overlapsObstacle(second.position, -normalX * pushDistance, -normalZ * pushDistance, second.radius, second.bottomOffset, second.height, second.walkSurfaces, second.mountedSurfaces)) {
       second.position.x -= normalX * pushDistance
       second.position.z -= normalZ * pushDistance
     }
   } else if (secondAnchored) {
-    if (!overlapsObstacle(first.position, normalX * pushDistance, normalZ * pushDistance, first.radius, first.bottomOffset, first.height)) {
+    if (!overlapsObstacle(first.position, normalX * pushDistance, normalZ * pushDistance, first.radius, first.bottomOffset, first.height, first.walkSurfaces, first.mountedSurfaces)) {
       first.position.x += normalX * pushDistance
       first.position.z += normalZ * pushDistance
     }
@@ -594,6 +679,7 @@ export function resolveObstacleCollision(
   height: number,
   bottomOffset: number,
   obstacles: ObstacleData[],
+  options: ObstacleCollisionOptions = {},
 ): ObstacleCollisionResult {
   const epsilon = 0.001
   const bottomY = position.y - bottomOffset
@@ -611,6 +697,45 @@ export function resolveObstacleCollision(
   )
 
   for (const obstacle of candidates) {
+    const ramp = (options.walkSurfaces || options.mountedSurfaces && obstacle.walkSurface?.mounted) ? obstacle.walkSurface : undefined
+    if (ramp) {
+      const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
+      if (surfaceY !== null) {
+        const feetY = position.y - bottomOffset
+        const slope = Math.abs(ramp.topY - ramp.startY) / ramp.length
+        const travel = Math.hypot(position.x - previousPosition.x, position.z - previousPosition.z)
+
+        // 1. Standing or moving on top of the ramp surface:
+        // Lifts feet that gravity or walking left slightly below the surface,
+        // or keeps a descending walker from skipping off the slope.
+        if (velocityY <= 0 && feetY <= surfaceY + travel * slope + 0.03 && feetY >= surfaceY - WALK_SURFACE_STEP_UP) {
+          position.y = surfaceY + bottomOffset
+          velocityY = 0
+          onGround = true
+          continue
+        }
+
+        const RAMP_THICKNESS = 0.35
+        const undersideY = surfaceY - RAMP_THICKNESS
+
+        // 2. Rising/jumping into the underside of the ramp from beneath:
+        // Actor hits their head on the underside and cannot pass upward through the stairs.
+        if (topY > undersideY && previousPosition.y - bottomOffset + height <= undersideY + epsilon) {
+          position.y = undersideY - height + bottomOffset
+          if (velocityY > 0) velocityY = 0
+          continue
+        }
+
+        // 3. Body horizontal penetration into the descending solid wedge from underneath:
+        if (feetY < undersideY && topY > undersideY) {
+          position.x = previousPosition.x
+          position.z = previousPosition.z
+          continue
+        }
+      }
+      continue
+    }
+
     const box = obstacle.box
 
     // A descending entity lands on the obstacle's top surface.
@@ -623,6 +748,17 @@ export function resolveObstacleCollision(
       position.y = box.max.y + bottomOffset
       velocityY = 0
       onGround = true
+      continue
+    }
+
+    // An ascending entity bonks into the obstacle's underside ceiling.
+    if (
+      previousPosition.y - bottomOffset + height <= box.min.y + epsilon &&
+      topY > box.min.y &&
+      overlapsHorizontally(position.x, position.z, box)
+    ) {
+      position.y = box.min.y - height + bottomOffset
+      if (velocityY > 0) velocityY = 0
       continue
     }
 
@@ -683,6 +819,8 @@ export function createTerrain(
 
   // ── Pine trees (damageable, but AI destruction policy is implemented separately) ──
   TERRAIN_TREE_POSITIONS.forEach(([tx, tz], index) => {
+    if (options.treeClearances?.some(zone => tx + .4 >= zone.min.x && tx - .4 <= zone.max.x
+      && tz + .4 >= zone.min.z && tz - .4 <= zone.max.z)) return
     const terrainY = getTerrainHeight(tx, tz)
     const root = createPineVisual(index + 42, options.fortifiedCampFaction === 'viking')
     root.name = `damageable-tree-${index + 1}`

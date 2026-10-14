@@ -57,6 +57,17 @@ function expectSamePositions(
 }
 
 describe('EntityCollisionBroadPhase', () => {
+  it('separates mounted bodies on an admitted slope instead of anchoring them inside its broadphase box', () => {
+    const first = { ...body(-.2, 4, 1), mountedSurfaces: true }
+    const second = { ...body(.2, 4, 1), mountedSurfaces: true }
+    first.position.y = second.position.y = 1
+    const obstacle: ObstacleData = { isBarricade: true, box: new THREE.Box3(new THREE.Vector3(-3, 0, 0), new THREE.Vector3(3, 3, 12)),
+      walkSurface: { startX: 0, startZ: 0, startY: 0, dirX: 0, dirZ: 1, length: 12, landing: 0, topY: 3, halfWidth: 3, mounted: true } }
+    resolveEntityCollision(first, second, [obstacle])
+    expect(first.position.distanceTo(second.position)).toBeCloseTo(2)
+    expect(first.position.y).toBe(1)
+  })
+
   it('matches the original all-pairs result for a dense collision chain', () => {
     const source = [
       body(0, 0),
