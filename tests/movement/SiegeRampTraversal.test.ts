@@ -73,7 +73,7 @@ describe('Siege surface movement: real actor/physics consumers', () => {
     for (let i = 0; i < 100; i++) { ramp.update(.1, h.actors); step() }
     expect(npc.position.clone().sub(ramp.position).distanceTo(relative)).toBeLessThan(1e-8)
     expect(npc.siegeTransport).toBe('siege-ramp-left')
-    for (let i = 0; i < 160; i++) ramp.update(.1, h.actors)
+    for (let i = 0; i < 500; i++) ramp.update(.1, h.actors)
     expect(npc.siegeTransport).toBeNull()
     expect(npc.tacticalOrder).toBe('charge')
     for (let frame = 0; frame < 300 && h.navigation.outpostNav!.getNavLayer(npc.position) !== 'rampart_left'; frame++) step()
@@ -81,13 +81,16 @@ describe('Siege surface movement: real actor/physics consumers', () => {
     expect(npc.position.y).toBeCloseTo(ramp.placement.deckConnection.y, 1)
   })
 
-  it.each([MountType.HORSE, MountType.BLACK_CAT, MountType.CORGI])('%s: real Player input climbs the docked ramp to deck and descends continuously', type => {
+  it.each([MountType.HORSE, MountType.BLACK_CAT, MountType.CORGI].flatMap(type => ['siege', 'interior'].map(access => [type, access] as const)))('%s %s: real Player input climbs to deck, crosses bridge and descends continuously', (type, access) => {
     // Only one Player + one Mount; the convoy fixture uses zero real actors.
     const h = siegeAssaultFixture()
     const ramp = h.owner.ramps[0]
-    for (let i = 0; i < 260; i++) ramp.update(.1, h.actors)
-    expect(ramp.controller.state).toBe('DOCKED')
-    const surface = ramp.surface
+    if (access === 'siege') {
+      for (let i = 0; i < 600; i++) ramp.update(.1, h.actors)
+      expect(ramp.controller.state).toBe('DOCKED')
+    }
+    const surface = access === 'siege' ? ramp.surface : h.walkways.layout.stairs[0].ramp
+    const destination = access === 'siege' ? ramp.placement.deckConnection : h.navigation.outpostNav!.getWaypoints(-1).deckConnection
     const startZ = surface.startZ - surface.dirZ * 2
     const mount = new Mount(h.scene, type, surface.startX, startZ)
     const player = new Player(h.scene)
@@ -101,34 +104,34 @@ describe('Siege surface movement: real actor/physics consumers', () => {
     const step = (direction: number) => {
       const before = mount.group.position.clone()
       const yaw = direction > 0 ? Math.PI : 0 // Player forward is camera -Z.
-      player.update(1 / 60, input, yaw, ramp.placement.deckConnection, h.obstacles, stamina, quiver, sound)
+      player.update(1 / 60, input, yaw, destination, h.obstacles, stamina, quiver, sound)
       expect(mount.group.position.distanceTo(before)).toBeLessThan(.7)
     }
     let frames = 0
-    while ((ramp.placement.deckConnection.z - mount.group.position.z) * surface.dirZ > .25 && frames++ < 900) step(surface.dirZ)
+    while ((destination.z - mount.group.position.z) * surface.dirZ > .25 && frames++ < 900) step(surface.dirZ)
     expect(frames, `stalled at ${mount.group.position.toArray()}`).toBeLessThan(900)
-    expect(mount.group.position.y).toBeCloseTo(ramp.placement.deckConnection.y, 1)
+    expect(mount.group.position.y).toBeCloseTo(destination.y, 1)
     expect(h.navigation.outpostNav!.getNavLayer(mount.group.position)).toBe('rampart_left')
     const deckZ = mount.group.position.z
     let crossFrames = 0
     while (mount.group.position.x < 6 && crossFrames++ < 600) {
-      player.update(1 / 60, input, -Math.PI / 2, ramp.placement.deckConnection, h.obstacles, stamina, quiver, sound)
+      player.update(1 / 60, input, -Math.PI / 2, destination, h.obstacles, stamina, quiver, sound)
     }
     expect(crossFrames, `bridge stalled at ${mount.group.position.toArray()}`).toBeLessThan(600)
     expect(h.navigation.outpostNav!.getNavLayer(mount.group.position)).toBe('rampart_right')
     crossFrames = 0
     while (mount.group.position.x > surface.startX + .1 && crossFrames++ < 600) {
-      player.update(1 / 60, input, Math.PI / 2, ramp.placement.deckConnection, h.obstacles, stamina, quiver, sound)
+      player.update(1 / 60, input, Math.PI / 2, destination, h.obstacles, stamina, quiver, sound)
     }
     expect(crossFrames).toBeLessThan(600)
     expect(mount.group.position.z).toBeCloseTo(deckZ, 1)
     frames = 0
-    while ((mount.group.position.z - startZ) * surface.dirZ > .25 && frames++ < 900) step(-surface.dirZ)
+    while ((mount.group.position.z - startZ) * surface.dirZ > -.5 && frames++ < 900) step(-surface.dirZ)
     expect(frames, `descent stalled at ${mount.group.position.toArray()}`).toBeLessThan(900)
     expect(mount.group.position.y).toBeCloseTo(getTerrainHeight(mount.group.position.x, mount.group.position.z), 1)
   })
 
-  it.each(['formation', 'follow', 'charge'] as const)('real mounted NPC %s reaches the deck; removal revokes routing and stairs stay foot-only', command => {
+  it.each(['formation', 'follow', 'charge'] as const)('real mounted NPC %s reaches the deck; removal revokes exterior routing while interior access remains', command => {
     const h = siegeAssaultFixture('viking')
     const ramp = h.owner.ramps[0]
     const nav = h.navigation.outpostNav!
@@ -136,7 +139,7 @@ describe('Siege surface movement: real actor/physics consumers', () => {
     const before = nav.resolveMoveTarget(ramp.placement.start, goal, true, new THREE.Vector3())
     expect(before.step).toBe('ground_approach')
     expect(before.target.y).toBe(getTerrainHeight(goal.x, goal.z))
-    for (let i = 0; i < 260; i++) ramp.update(.1, h.actors)
+    for (let i = 0; i < 600; i++) ramp.update(.1, h.actors)
     const surface = ramp.surface
     const z = surface.startZ - surface.dirZ * 3
     const rider = new NPC(h.scene, surface.startX, z, command === 'charge' ? Faction.ENEMY : Faction.PLAYER, 'roman', AIType.MELEE, 'Rider', 1, false)
@@ -191,7 +194,7 @@ describe('Siege surface movement: real actor/physics consumers', () => {
     expect(nav.entrances.hasMountedRamp).toBe(false)
     const stair = nav.getStair(1)!
     const blocked = nav.resolveMoveTarget(new THREE.Vector3(stair.ramp.startX, stair.ramp.startY, stair.ramp.startZ), goal, true, new THREE.Vector3())
-    expect(blocked.step).toBe('ground_approach')
-    expect(blocked.target.y).toBe(getTerrainHeight(goal.x, goal.z))
+    expect(nav.hasMountedAccess).toBe(true)
+    expect(blocked.target.x).toBeCloseTo(stair.ramp.startX - .3)
   })
 })

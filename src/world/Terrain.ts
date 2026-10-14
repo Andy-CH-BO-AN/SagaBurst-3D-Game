@@ -75,6 +75,7 @@ let activeFortifiedCampFaction: CharacterFaction | null = null
 
 export interface TerrainOptions {
   fortifiedCampFaction?: CharacterFaction | null
+  treeClearances?: readonly THREE.Box3[]
 }
 
 /**
@@ -818,6 +819,8 @@ export function createTerrain(
 
   // ── Pine trees (damageable, but AI destruction policy is implemented separately) ──
   TERRAIN_TREE_POSITIONS.forEach(([tx, tz], index) => {
+    if (options.treeClearances?.some(zone => tx + .4 >= zone.min.x && tx - .4 <= zone.max.x
+      && tz + .4 >= zone.min.z && tz - .4 <= zone.max.z)) return
     const terrainY = getTerrainHeight(tx, tz)
     const root = createPineVisual(index + 42, options.fortifiedCampFaction === 'viking')
     root.name = `damageable-tree-${index + 1}`

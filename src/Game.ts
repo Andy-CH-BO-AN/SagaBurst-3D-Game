@@ -1,5 +1,5 @@
 import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
-import { isMobileSiegeRampEnabled } from './campaign/MobileSiegeRampPolicy'
+import { getSiegeApproachClearances, isMobileSiegeRampEnabled } from './campaign/MobileSiegeRampPolicy'
 import { refitTownCommandForSceneChange } from './career/SquadRefit'
 import { preloadPaladinEquipment } from './world/PaladinEquipment'
 import { playerEagleProjectileBudget } from './combat/ProjectileBallistics'
@@ -158,7 +158,7 @@ import {
   getCampaignDefenderFacingYaw,
   getCampaignOutpostPlacement,
 } from './campaign/CampaignOutpost'
-import { isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
+import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled } from './campaign/CampaignOutpostWalkways'
 import {
   applyCampaignBreachOrders,
   isCampaignGateOccupied,
@@ -787,6 +787,14 @@ export class Game {
       import.meta.env.DEV && startupQuery.get('outpostwalkway') === '1',
     )
 
+    let siegeTreeClearances: THREE.Box3[] | undefined
+    if (campaignConfig && previewOutpostFaction && isMobileSiegeRampEnabled(campaignConfig)) {
+      const specs = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(campaignConfig, 'attackers')).npcSpecs
+      positionDefenseCampaignAttackers(specs, previewOutpostFaction)
+      const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement(previewOutpostFaction))
+      const stagingZ = layout.zSign > 0 ? Math.max(...specs.map(spec => spec.z)) : Math.min(...specs.map(spec => spec.z))
+      siegeTreeClearances = getSiegeApproachClearances(layout, stagingZ)
+    }
     createSky(this.scene, resolveShadowMapSize(startupQuery), previewOutpostFaction === 'viking')
     const {
       terrainMesh,
@@ -795,6 +803,7 @@ export class Game {
       damageableObstacles,
     } = createTerrain(this.scene, {
       fortifiedCampFaction: previewOutpostFaction,
+      treeClearances: siegeTreeClearances,
     })
 
     // Defense Campaign owns the same faction-neutral outpost used by DEV preview.

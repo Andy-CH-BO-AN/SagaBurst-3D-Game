@@ -1,3 +1,4 @@
+import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
@@ -117,7 +118,7 @@ const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
 const PROJECTILE_GRAVITY = 9.8
 const NPC_FALLBACK_PROJECTILE_SPEED = 20.0
 
-const CHASE_SPEED      = 4.8
+const CHASE_SPEED      = INFANTRY_MOVE_SPEED
 const FORMATION_MOVE_SPEED = CHASE_SPEED
 const PATROL_SPEED     = 2.2
 const AI_ATTACK_GAP    = 0.35
@@ -274,6 +275,7 @@ export class NPC {
   siegeTransport: string | null = null
   siegeTransportSpeed = 0
   siegeEvacuation: THREE.Vector3 | null = null
+  siegeBypassTarget: THREE.Vector3 | null = null
   campaignEntranceId: string | null = null
   campaignBreachCompleted = false
   private outpostRampartGarrison = false
@@ -283,6 +285,15 @@ export class NPC {
     this.outpostRampartGarrison = true
   }
   releaseOutpostRampartGarrison(): void { this.outpostRampartGarrison = false }
+  private rampartThreat: ObstacleData | null = null
+  private rampartScanFrames = 0
+  private readonly obstacleLocalToWorld = new THREE.Matrix4()
+  get holdsRampartFirePosition(): boolean {
+    return !this.isMounted && this.aiType === AIType.RANGED
+      && (this.tacticalOrder === 'defend' || this.tacticalOrder === 'attack')
+      && (this.outpostRampartGarrison || Boolean(this._activeNavigationWorld?.outpostNav
+        && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition))))
+  }
 
   private formationTarget: {
     commandId: number
@@ -525,6 +536,7 @@ export class NPC {
   get combatPosition(): THREE.Vector3 { return this.mount && !this.mount.isFlyingMount ? this.mount.group.position : this.group.position }
   get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
+  get formationDestination(): Readonly<THREE.Vector3> | undefined { return this.formationTarget?.position }
   get formationCommandId(): number | null { return this.formationTarget?.commandId ?? null }
   get hasFormationTarget(): boolean { return this.formationTarget !== null }
   get activeFollowTarget(): NPC | Player | null { return this.followTarget }
@@ -1321,7 +1333,7 @@ export class NPC {
     const layeredNav = this._activeNavigationWorld?.outpostNav
     if (layeredNav) {
       const leaderLayer = layeredNav.getNavLayer(this.followSmoothedLeaderPosition)
-      const isDisallowedFromRamparts = Boolean(this.mount?.isFlyingMount || (this.isMounted || this.mount) && !layeredNav.entrances.hasMountedRamp || (this as any).isAnimal || (this as any).species)
+      const isDisallowedFromRamparts = Boolean(this.mount?.isFlyingMount || (this.isMounted || this.mount) && !layeredNav.hasMountedAccess || (this as any).isAnimal || (this as any).species)
       if (isRampartLayer(leaderLayer)) {
         if (!isDisallowedFromRamparts) {
           const side = layerSide(leaderLayer)
@@ -1351,7 +1363,7 @@ export class NPC {
       }
     }
     if (layeredNav && this.isMounted && !this.mount?.isFlyingMount
-      && layeredNav.entrances.hasMountedRamp && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
+      && layeredNav.hasMountedAccess && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
       layeredNav.clampMountedFollow(position, this.followSmoothedLeaderPosition, this.followSlotIndex, target)
     }
     this.formationTarget = {
@@ -1691,18 +1703,27 @@ export class NPC {
     return Math.hypot(position.x - closestX, position.z - closestZ)
   }
 
+  private _rangedObstacleDistance(point: THREE.Vector3): number {
+    return Math.hypot(point.x - this.combatPosition.x,
+      point.y + RANGED_AI_TARGET_HEIGHT - this.combatPosition.y, point.z - this.combatPosition.z)
+  }
+
   private _getObstacleAttackPoint(obstacle: ObstacleData, out: THREE.Vector3): THREE.Vector3 {
     const projectileBoxes = obstacle.projectileBoxes
     if (this.hasActiveRangedWeapon && projectileBoxes && projectileBoxes.length > 0) {
       let closestDistSq = Infinity
       for (const box of projectileBoxes) {
         box.getCenter(this._tmpSiegeCandidateCenter)
+        if (obstacle.projectileWorldToLocal) {
+          this._tmpSiegeCandidateCenter.applyMatrix4(this.obstacleLocalToWorld.copy(obstacle.projectileWorldToLocal).invert())
+        }
         const distSq = this.combatPosition.distanceToSquared(this._tmpSiegeCandidateCenter)
         if (distSq < closestDistSq) {
           closestDistSq = distSq
           out.copy(this._tmpSiegeCandidateCenter)
         }
       }
+      out.y -= RANGED_AI_TARGET_HEIGHT
       return out
     }
 
@@ -2296,6 +2317,64 @@ export class NPC {
         targetInfo = { position: this.assignedSiegeObstacle!.box.getCenter(this._tmpTargetPosition), isDead: false, isPlayer: false }
         this._siegeTargetObstacle = this.assignedSiegeObstacle
       }
+      // Weapon transitions are actions, not side effects of a range query.
+      // A threat below a rampart is close in 3D but cannot make melee contact.
+      if (targetInfo && this.hasActiveRangedWeapon
+        && (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition)
+        && this.specialCombatProfile !== 'maki-ranger'
+        && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2
+        && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId)
+        && (!this.holdsRampartFirePosition || this._isRampartMeleeThreat(targetInfo.position))) {
+        this._switchToMelee()
+      }
+
+      // Elevated defenders retain their position. Expensive alternate acquisition is
+      // bounded, while a cached moving tower's aim point is refreshed every frame.
+      if (this.holdsRampartFirePosition && this.hasActiveRangedWeapon) {
+        const shootable = targetInfo && !targetInfo.isDead
+          && this._isTargetInDefendRange(targetInfo.position)
+          && this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) === null
+        if (shootable) {
+          this.rampartThreat = null
+          this._rangedVisibleTargetHoldFrames = NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES
+        }
+        else {
+          if (--this.rampartScanFrames <= 0) {
+            this.rampartScanFrames = NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES
+            this.rampartThreat = null
+            if (this._trySwitchToVisibleRangedTarget(player, allNPCs, hostileNpcGrid, obstacles)) {
+              targetInfo = this._getTarget(dt, player, allNPCs, hostileNpcGrid, chaseTargetCoordinator)
+            } else {
+              let nearest = Infinity
+              for (const obstacle of obstacles) {
+                const damageable = obstacle.damageable
+                if (!damageable || damageable.kind !== 'siege_ramp' || damageable.destroyed
+                  || damageable.ownerFaction === this.characterFaction) continue
+                const point = this._getObstacleAttackPoint(obstacle, this._tmpSiegeTarget)
+                const distance = this._rangedObstacleDistance(point) ** 2
+                if (distance > DETECTION_RADIUS ** 2 || distance >= nearest) continue
+                const blocker = this._findRangedTrajectoryBlocker(point, obstacles)
+                if (blocker && blocker.damageable !== damageable) continue
+                nearest = distance
+                this.rampartThreat = obstacle
+              }
+              targetInfo = null
+            }
+          } else targetInfo = null
+          if (this.rampartThreat?.damageable?.destroyed) this.rampartThreat = null
+          if (this.rampartThreat) {
+            const point = this._getObstacleAttackPoint(this.rampartThreat, this._tmpSiegeTarget)
+            const blocker = this._findRangedTrajectoryBlocker(point, obstacles)
+            if (!blocker || blocker.damageable === this.rampartThreat.damageable) {
+              targetInfo = { position: point, isDead: false, isPlayer: false }
+            }
+          }
+        }
+        if (!targetInfo && !recoveringBow) {
+          this.animator.cancel()
+          this.state = AIState.ALERT
+        }
+      }
       const meleeTarget = targetInfo?.isPlayer ? player : targetInfo?.npc ?? null
       if (
         meleeTarget !== this.meleeApproachTarget
@@ -2350,7 +2429,7 @@ export class NPC {
         // Personal Attack holds its actual position when no hostile is available;
         // constructor patrol waypoints belong to Town/field NPCs, not the Player's party.
         const personalAttack = this.combatOwnership === 'player-personal' && this.tacticalOrder === 'attack'
-        if (!personalAttack && this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
+        if (!personalAttack && !this.holdsRampartFirePosition && this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
           this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld)
         }
 
@@ -2378,7 +2457,7 @@ export class NPC {
 
         if (this.alertTimer <= 0) {
           this.alertSprite.visible = false
-          if (this.tacticalOrder === 'defend') {
+          if (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition) {
             this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position) ? AIState.ATTACK : AIState.ALERT
             if (this.hasActiveRangedWeapon) this.attackTimer = 0
           } else {
@@ -2399,7 +2478,7 @@ export class NPC {
           break
         }
 
-        if (this.tacticalOrder === 'defend') {
+        if (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition) {
           this._clearObstacleDetour()
           this._clearNavigationPath()
           this._clearSiegeFallback()
@@ -2704,8 +2783,8 @@ export class NPC {
           break
         }
 
-        let siegeObstacle: ObstacleData | null = null
-        if (this._siegeTargetObstacle) {
+        let siegeObstacle: ObstacleData | null = this.holdsRampartFirePosition ? this.rampartThreat : null
+        if (!siegeObstacle && this._siegeTargetObstacle) {
           const navigationRoute = this.hasSiegeObstacle ? 'unreachable' : !skipBoidsAndObstacles
             ? this._resolveNavigationMoveTarget(
               targetInfo.position,
@@ -2729,7 +2808,7 @@ export class NPC {
           ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
           : targetInfo.position
         const dist = siegeObstacle
-          ? this._distanceToObstacleXZ(siegeObstacle)
+          ? this.hasActiveRangedWeapon ? this._rangedObstacleDistance(attackTargetPosition) : this._distanceToObstacleXZ(siegeObstacle)
           : this.combatPosition.distanceTo(targetInfo.position)
 
         if (
@@ -3311,7 +3390,7 @@ export class NPC {
 
       if (layeredNav) {
         const leaderLayer = layeredNav.getNavLayer(this.followSmoothedLeaderPosition)
-        const isDisallowedFromRamparts = Boolean(this.mount?.isFlyingMount || (this.isMounted || this.mount) && !layeredNav.entrances.hasMountedRamp || (this as any).isAnimal || (this as any).species)
+        const isDisallowedFromRamparts = Boolean(this.mount?.isFlyingMount || (this.isMounted || this.mount) && !layeredNav.hasMountedAccess || (this as any).isAnimal || (this as any).species)
         if (isRampartLayer(leaderLayer)) {
           if (!isDisallowedFromRamparts) {
             const side = layerSide(leaderLayer)
@@ -3342,7 +3421,7 @@ export class NPC {
       }
     }
 
-    if (this.tacticalOrder === 'follow' && this.isMounted && layeredNav?.entrances.hasMountedRamp
+    if (this.tacticalOrder === 'follow' && this.isMounted && layeredNav?.hasMountedAccess
       && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
       layeredNav.clampMountedFollow(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, this.followTarget ?? this.followSmoothedLeaderPosition)
     }
@@ -3501,6 +3580,23 @@ export class NPC {
         }
       }
       if (sepCount > 0) moveDir.add(this._tmpSep.divideScalar(sepCount)).normalize()
+      // A soldier already in its firing slot must not become a permanent
+      // one-dimensional roadblock for another formation member on the deck.
+      if (!this.mount && layeredNav && isRampartLayer(npcLayer) && Math.abs(target.position.x - this.combatPosition.x) > 1.6) {
+        const travelSign = Math.sign(target.position.x - this.combatPosition.x)
+        const blocker = nearbyNPCs.find(other => other !== this && !other.dead && !other.mount
+          && Math.abs(other.combatPosition.y - this.combatPosition.y) < .6
+          && (other.combatPosition.x - this.combatPosition.x) * travelSign > 0
+          && (other.combatPosition.x - this.combatPosition.x) * travelSign < 2
+          && Math.abs(other.combatPosition.z - this.combatPosition.z) < 1.2)
+        const side = layerSide(npcLayer)
+        const deck = side === null ? layeredNav.layout.bridge : layeredNav.getDeck(side)
+        if (blocker && deck) {
+          const midZ = (deck.slab.min.z + deck.slab.max.z) / 2
+          const passingZ = blocker.combatPosition.z >= midZ ? deck.slab.min.z + .55 : deck.slab.max.z - .55
+          moveDir.set(travelSign * .35, 0, passingZ - this.combatPosition.z).normalize()
+        }
+      }
       if (navigationRoute !== 'path' && !isConfirmedLayeredStep && !(layeredNav && (isStairLayer(npcLayer) || isRampartLayer(npcLayer)))) {
         moveDir.copy(getObstacleAvoidanceDirection(
           this.group.position,
@@ -3532,6 +3628,11 @@ export class NPC {
   }
 
   private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false): void {
+    if (this.siegeBypassTarget) {
+      direction.copy(this.siegeBypassTarget).sub(this.combatPosition).setY(0)
+      if (direction.lengthSq() < .16) return
+      this._faceDirection(direction.normalize())
+    }
     if (direction.lengthSq() <= 0.0001) return
     direction.normalize()
 
@@ -3639,13 +3740,25 @@ export class NPC {
     return applyHeroOutgoingDamage(Math.round(dmg), this.combatProfileId)
   }
 
-  private _isTargetInDefendRange(targetPos: THREE.Vector3): boolean {
-    if (this.hasActiveRangedWeapon && this.combatPosition.distanceTo(targetPos) < RANGED_ATTACK_MIN && this.specialCombatProfile !== 'maki-ranger') {
-      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
-      this._switchToMelee()
+  private _isRampartMeleeThreat(targetPos: THREE.Vector3): boolean {
+    const nav = this._activeNavigationWorld?.outpostNav
+    if (nav) {
+      // The connected decks/bridge permit a close enemy to approach. Drawing a
+      // weapon here does not grant attack reach or permission to leave the wall.
+      return isRampartLayer(nav.getNavLayer(this.combatPosition))
+        && isRampartLayer(nav.getNavLayer(targetPos))
     }
+    // Without topology, retain the conservative physical-contact fallback.
+    return this._isTargetInMeleeApproachRange(targetPos)
+  }
+
+  private _isTargetInDefendRange(targetPos: THREE.Vector3): boolean {
     if (this.hasActiveRangedWeapon) {
-      return this.combatPosition.distanceTo(targetPos) <= this.maxRangedAttackDistance
+      const isTower = this.holdsRampartFirePosition && this.rampartThreat && targetPos === this._tmpSiegeTarget
+      const distance = isTower
+        ? this._rangedObstacleDistance(targetPos) : this.combatPosition.distanceTo(targetPos)
+      return distance <= this.maxRangedAttackDistance
+        && (isTower || this.specialCombatProfile === 'maki-ranger' || distance >= RANGED_ATTACK_MIN)
     }
     if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
     return this._isTargetInMeleeApproachRange(targetPos)

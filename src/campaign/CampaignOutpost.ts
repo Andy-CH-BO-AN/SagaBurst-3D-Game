@@ -458,8 +458,9 @@ export function createCampaignOutpost(
   const tentLayout: readonly [number, number, number][] = [
     [-28, 124, Math.PI / 4],
     [ 28, 124, -Math.PI / 4],
-    [-36, 136, Math.PI / 4],
-    [ 36, 136, -Math.PI / 4],
+    // Keep the straight approach and turning apron behind both interior ramps clear.
+    [-26, 136, Math.PI / 4],
+    [ 26, 136, -Math.PI / 4],
     [-28, 150, Math.PI / 4],
     [ 28, 150, -Math.PI / 4],
     [-36, 162, Math.PI / 4],

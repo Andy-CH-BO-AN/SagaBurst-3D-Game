@@ -47,8 +47,8 @@ describe('Mobile siege roster and lifecycle (zero actors)', () => {
         const placement = getSiegeRampPlacement(layout, crew.side)
         placeSiegeRampCrew(specs, crew, placement)
         expect(placement.surface.halfWidth * 2).toBeGreaterThanOrEqual(4)
-        expect(Math.abs(placement.surface.topY - placement.surface.startY) / placement.surface.length).toBeLessThanOrEqual(.25)
-        expect((placement.dock.z - placement.start.z) * layout.zSign).toBe(45)
+        expect(Math.abs(placement.surface.topY - placement.surface.startY) / placement.surface.length).toBeLessThanOrEqual(.45)
+        expect((placement.dock.z - placement.start.z) * layout.zSign).toBeCloseTo(99.2)
         expect(placement.deckConnection.y).toBe(layout.decks.find(d => d.side === crew.side)!.topY)
         const assault = specs.filter(s => s.siegeRamp?.id === crew.id && s.siegeRamp.role === 'assault')
         expect(assault).toHaveLength(6)
@@ -78,8 +78,8 @@ describe('Mobile siege roster and lifecycle (zero actors)', () => {
     expect(controller.advance(1)).toBe(0)
     controller.register(records[9])
     for (let alive = 4; alive >= 1; alive--) {
-      expect(controller.advance(1)).toBe(alive * .5)
-      expect(controller.currentSpeed).toBe(alive * .5)
+      expect(controller.advance(1)).toBe(alive * 1.2)
+      expect(controller.currentSpeed).toBe(alive * 1.2)
       records[4 - alive].dead = true
     }
     expect(controller.advance(1)).toBe(0)
@@ -97,7 +97,7 @@ describe('Mobile siege roster and lifecycle (zero actors)', () => {
     const assignment = allocateSiegeRampCrews(roster(10))[0]
     const records = [...assignment.pusherIds, ...assignment.assaultIds].map(combatantId => ({ combatantId, dead: false }))
     const states: string[] = []
-    const controller = new MobileSiegeRampController(assignment, 2, state => states.push(state))
+    const controller = new MobileSiegeRampController(assignment, 4.8, state => states.push(state))
     records.forEach(record => controller.register(record))
     controller.advance(1); expect(controller.state).toBe('DOCKING')
     controller.advance(1.49); expect(controller.state).toBe('DOCKING')

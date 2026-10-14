@@ -7,6 +7,44 @@ import type { Player } from '../../src/player/Player'
 import { siegeActorRecord, siegeAssaultFixture } from '../helpers/siegeAssaultFixture'
 
 describe('Unified campaign assault producer wiring', () => {
+  it('holds both complete crews until the last ordinary attacker is registered, then advances at infantry walking speed', () => {
+    const h = siegeAssaultFixture('roman', false, false)
+    for (const spec of h.specs.slice(0, -1)) {
+      const actor = siegeActorRecord(spec)
+      h.actors.push(actor); h.owner.register(actor, spec)
+    }
+    h.owner.update(.1)
+    for (const ramp of h.owner.ramps) expect(ramp.controller.distance).toBe(0)
+    const last = h.specs.at(-1)!
+    const actor = siegeActorRecord(last)
+    h.actors.push(actor); h.owner.register(actor, last)
+    h.owner.update(.1)
+    for (const ramp of h.owner.ramps) {
+      expect(ramp.controller.currentSpeed).toBe(4.8)
+      expect(ramp.controller.distance).toBeCloseTo(.48)
+    }
+    expect(actor.siegeTransport).toBeNull()
+  })
+
+  it('gives an ordinary rear attacker a persistent side route until the moving convoy has been passed', () => {
+    const h = siegeAssaultFixture()
+    const ramp = h.owner.ramps[0], actor = h.actors[20]
+    h.owner.update(.1)
+    actor.position.set(ramp.position.x + 1, ramp.surface.startY, ramp.surface.startZ - ramp.placement.dirZ * 6)
+    const original = actor.position.clone()
+    h.owner.update(.1)
+    expect(actor.position).toEqual(original)
+    expect(actor.siegeBypassTarget!.x).toBeGreaterThan(ramp.position.x + 6)
+    const sideX = actor.siegeBypassTarget!.x
+    actor.position.x = sideX
+    h.owner.update(.1)
+    expect(actor.siegeBypassTarget!.x).toBe(sideX)
+    expect((actor.siegeBypassTarget!.z - ramp.position.z) * ramp.placement.dirZ).toBeGreaterThan(5)
+    actor.position.z = ramp.position.z + ramp.placement.dirZ * 7
+    h.owner.update(.1)
+    expect(actor.siegeBypassTarget).toBeNull()
+  })
+
   it('only moving convoys scan collision candidates while docking and terminal states preserve lifecycle effects', () => {
     // Existing typed caller fixture: zero real NPCs/Mounts, no extra scene owner.
     const h = siegeAssaultFixture('roman', false, false)
@@ -32,8 +70,8 @@ describe('Unified campaign assault producer wiring', () => {
     ramp.update(.1, h.actors, blockers)
     expect(ramp.controller.distance).toBeGreaterThan(0)
     expect(staticScan).toHaveBeenCalled(); expect(actorScan).toHaveBeenCalled(); expect(bodyScan).toHaveBeenCalled()
-    for (let frame = 0; frame < 240 && ramp.controller.state === 'PUSHING'; frame++) ramp.update(.1, h.actors)
-    expect(ramp.controller.state).toBe('DOCKING')
+    for (let frame = 0; frame < 600 && ramp.controller.state === 'PUSHING'; frame++) ramp.update(.1, h.actors)
+    expect(ramp.controller.state, JSON.stringify({distance:ramp.controller.distance, travel:ramp.controller.travelDistance, pos:ramp.position, speed:ramp.controller.currentSpeed})).toBe('DOCKING')
     clearScans()
     const parked = ramp.position.clone()
     for (let frame = 0; frame < 20; frame++) ramp.update(.1, h.actors, blockers)
@@ -90,7 +128,7 @@ describe('Unified campaign assault producer wiring', () => {
     const first = h.owner.ramps.find(r => r.assignment.side === side)!
     const other = h.owner.ramps.find(r => r !== first)!
     // Drive the real vehicle only; typed actors here record caller state and carrier transforms.
-    for (let i = 0; i < 260; i++) first.update(.1, h.actors)
+    for (let i = 0; i < 600; i++) first.update(.1, h.actors)
     expect(first.controller.state).toBe('DOCKED')
     h.owner.update(.1)
     expect(h.gate.state).toBe('closed'); expect(h.gate.damageable.currentHp).toBe(2080)
@@ -113,7 +151,7 @@ describe('Unified campaign assault producer wiring', () => {
       expect(npc.siegeTransport).toBeNull(); expect(npc.tacticalOrder).toBe('charge')
     }
     const chosen = h.actors[20].campaignEntranceId
-    for (let i = 0; i < 260; i++) other.update(.1, h.actors)
+    for (let i = 0; i < 600; i++) other.update(.1, h.actors)
     h.owner.update(.1)
     expect(h.owner.entrances.entries.size).toBe(2)
     expect(h.actors[20].campaignEntranceId).toBe(chosen)
@@ -141,7 +179,7 @@ describe('Unified campaign assault producer wiring', () => {
     body.position.set(ramp.position.x, ramp.position.y - 4, ramp.position.z - ramp.placement.dirZ * 3)
     body.height = 1.8
     ramp.update(.1, h.actors, [body])
-    expect(ramp.controller.distance).toBeCloseTo(.2)
+    expect(ramp.controller.distance).toBeCloseTo(.48)
   })
 
   it('moves collider hits with the carrier, loses support without teleporting and cleans owned resources', () => {

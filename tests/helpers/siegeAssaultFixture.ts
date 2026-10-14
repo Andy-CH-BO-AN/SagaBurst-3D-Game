@@ -9,6 +9,7 @@ import { createOutpostWalkways } from '../../src/campaign/CampaignOutpostWalkway
 import { CampaignGateController, CampaignBreachController, applyCampaignBreachOrders } from '../../src/campaign/CampaignGate'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { positionDefenseCampaignAttackers } from '../../src/campaign/DefenseCampaignLaunch'
 import { CampaignSiegeAssault } from '../../src/campaign/CampaignSiegeAssault'
 
 /** Typed caller boundary, no real NPC/materialization/locomotion. Runtime movement has a separate owner. */
@@ -62,6 +63,7 @@ export function siegeAssaultFixture(faction: 'roman' | 'viking' = 'roman', range
   const specs: NpcSpawnSpec[] = Array.from({ length: 21 }, (_, i) => ({ actorId: `attacker-${i}`, x: i, z: 0,
     faction: Faction.ENEMY, characterFaction: gate.attackerFaction, aiType: rangedMain && i === 20 ? AIType.RANGED : AIType.MELEE, name: `Actor ${i}`,
     tier: 2, cavalry: false, respawnEnabled: false }))
+  positionDefenseCampaignAttackers(specs, faction)
   owner.prepare(specs)
   if (deploy) for (const spec of specs) { const npc = siegeActorRecord(spec); actors.push(npc); owner.register(npc, spec) }
   navigation.sync(obstacles)

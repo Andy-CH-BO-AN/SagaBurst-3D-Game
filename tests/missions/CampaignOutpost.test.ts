@@ -332,7 +332,7 @@ describe('CampaignOutpost walkways', () => {
     for (const deck of layout.decks) {
       const inward = (z: number): number => (z - placement.frontZ) * zSign
       expect(Math.min(inward(deck.slab.min.z), inward(deck.slab.max.z))).toBeCloseTo(0)
-      expect(Math.max(inward(deck.slab.min.z), inward(deck.slab.max.z))).toBeCloseTo(3.2)
+      expect(Math.max(inward(deck.slab.min.z), inward(deck.slab.max.z))).toBeCloseTo(6.4)
       expect(Math.min(Math.abs(deck.slab.min.x), Math.abs(deck.slab.max.x))).toBeGreaterThan(placement.gateWidth / 2)
       expect(Math.max(Math.abs(deck.slab.min.x), Math.abs(deck.slab.max.x))).toBeLessThan(placement.halfWidth)
       for (const post of deck.posts) {
@@ -340,6 +340,12 @@ describe('CampaignOutpost walkways', () => {
       }
     }
     for (const stair of layout.stairs) {
+      const approachZ = stair.ramp.startZ - stair.ramp.dirZ * 10
+      const approach = new THREE.Box3(
+        new THREE.Vector3(stair.ramp.startX - 4, -100, Math.min(stair.ramp.startZ, approachZ)),
+        new THREE.Vector3(stair.ramp.startX + 4, 100, Math.max(stair.ramp.startZ, approachZ)),
+      )
+      for (const other of original) expect(xzOverlap(approach, other.box), `mounted approach ${stair.side} vs ${other.damageable?.kind}`).toBe(false)
       for (const volume of [stair.bounds, stair.cap, ...stair.rails]) {
         for (const other of original) expect(xzOverlap(volume, other.box), `stair ${stair.side} vs ${other.damageable?.kind}`).toBe(false)
         expect(Math.abs(volume.min.x) > placement.gateWidth / 2 + 20 || Math.abs(volume.max.x) > placement.gateWidth / 2 + 20).toBe(true)
@@ -419,20 +425,20 @@ describe('CampaignOutpost walkways', () => {
         expect(deck.walkSurface.dirZ).toBe(0)
         expect(deck.walkSurface.topY).toBe(deck.topY)
         expect(deck.walkSurface.length).toBeCloseTo(38.4)
-        expect(deck.walkSurface.halfWidth).toBeCloseTo(1.6)
+        expect(deck.walkSurface.halfWidth).toBeCloseTo(3.2)
         const stair = layout.stairs.find(candidate => candidate.side === deck.side)!
         const ramp = stair.ramp
         expect(ramp.startX).toBe(deck.side * 36)
-        expect(ramp.halfWidth).toBeCloseTo(1.1)
-        expect(ramp.landing).toBeCloseTo(0.9)
+        expect(ramp.halfWidth).toBeCloseTo(2)
+        expect(ramp.landing).toBeCloseTo(1.5)
         expect(ramp.dirZ).toBe(-layout.zSign)
         expect(ramp.topY).toBe(deck.topY)
         expect(ramp.startY - getTerrainHeight(ramp.startX, ramp.startZ)).toBeLessThan(0.05)
         expect((ramp.topY - ramp.startY) / ramp.length).toBeGreaterThan(0)
         expect((ramp.topY - ramp.startY) / ramp.length).toBeLessThanOrEqual(0.5)
         const endZ = ramp.startZ + ramp.dirZ * (ramp.length + ramp.landing)
-        expect((endZ - placement.frontZ) * layout.zSign).toBeCloseTo(3.2)
-        expect((ramp.startZ - placement.frontZ) * layout.zSign).toBeGreaterThan(3.2)
+        expect((endZ - placement.frontZ) * layout.zSign).toBeCloseTo(6.4)
+        expect((ramp.startZ - placement.frontZ) * layout.zSign).toBeGreaterThan(6.4)
         expect((ramp.startZ - endZ) * layout.zSign).toBeGreaterThan(0)
         // Terrain is not mirrored: every stair must clear its own ground along the slope and landing.
         for (let along = 0.05; along <= ramp.length + ramp.landing; along += 0.05) {
@@ -464,7 +470,7 @@ describe('CampaignOutpost walkways', () => {
     expect(ramp.startX).toBe(side * OUTPOST_WALKWAY.stairCenterX)
     expect((ramp.topY - ramp.startY) / ramp.length).toBeLessThanOrEqual(0.5)
     const landingEndInward = (ramp.startZ + ramp.dirZ * (ramp.length + ramp.landing) - placement.frontZ) * zSign
-    expect(landingEndInward).toBeCloseTo(3.2)
+    expect(landingEndInward).toBeCloseTo(6.4)
     expect(ramp.startY - getTerrainHeight(ramp.startX, ramp.startZ)).toBeLessThan(0.05)
 
     let previous = getWalkRampHeight(ramp, ramp.startX, ramp.startZ)!

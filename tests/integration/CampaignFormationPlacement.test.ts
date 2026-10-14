@@ -7,6 +7,7 @@ import type { NPC } from '../../src/world/NPC'
 import { getOutpostWalkwayLayout, type OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
 import { createCampaignOutpost, getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
 import { getSiegeRampPlacement } from '../../src/campaign/MobileSiegeRampPolicy'
+import { getOutpostRampartArcherSlots } from '../../src/campaign/OutpostRampartGarrison'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 
 import { createFormationPlacementHarness, placementParticipant, blockingBox, type PlacementParticipantFixture } from '../helpers/formationPlacement'
@@ -84,8 +85,9 @@ function romanRegion(): FormationRegion {
 }
 
 describe('Campaign formation placement wiring', () => {
-  it('admits mounted single-file deck slots only through a dock connection and rejects excessive body capacity', () => {
+  it('requires mounted access and spreads cavalry across the entire connected wall', () => {
     const { layout, obstacles, navigation } = walkwayInputs()
+    for (const stair of layout.stairs) stair.ramp.mounted = false
     const placement = getSiegeRampPlacement(layout, -1)
     const participants = [placementParticipant('mounted-a', 0, true), placementParticipant('mounted-b', 2, true)]
     const { solve } = placementHarness(obstacles, participants, navigation)
@@ -96,9 +98,14 @@ describe('Campaign formation placement wiring', () => {
     const result = solve(placement.deckConnection)!
     expect(result).not.toBeNull()
     expect(result.slots[0].distanceTo(result.slots[1])).toBeCloseTo(3.2)
-    expect(result.slots.every(slot => Math.abs(slot.z - placement.deckConnection.z) <= .3)).toBe(true)
-    participants.push(...Array.from({ length: 20 }, (_, i) => placementParticipant(`overflow-${i}`, i, true)))
-    expect(solve(placement.deckConnection)).toBeNull()
+    expect(result.slots.every(slot => navigation.outpostNav!.getNavLayer(slot) !== 'ground')).toBe(true)
+    participants.push(...Array.from({ length: 40 }, (_, i) => placementParticipant(`overflow-${i}`, i, true)))
+    const expanded = solve(placement.deckConnection)!
+    expect(expanded.slots).toHaveLength(42)
+    expect(expanded.slots.some(slot => slot.x > 0)).toBe(true)
+    for (let i = 0; i < expanded.slots.length; i++) for (let j = 0; j < i; j++) {
+      expect(expanded.slots[i].distanceTo(expanded.slots[j])).toBeGreaterThanOrEqual(3.19)
+    }
     navigation.outpostNav!.entrances.remove('siege-ramp-left')
     participants.splice(2)
     expect(solve(placement.deckConnection)).toBeNull()
@@ -279,7 +286,7 @@ describe('Campaign formation placement wiring', () => {
     expect(assignedSlots.every(slot => Math.abs(slot.y - deck.topY) < 0.001)).toBe(true)
   })
 
-  it('rejects rampart deck placement when participants include mounted units', () => {
+  it('admits mounted single-file formation through the interior ramps', () => {
     const { layout, obstacles, navigation } = walkwayInputs()
     const deck = layout.decks.find(d => d.side === -1)!
     const participants = Array.from({ length: 3 }, (_, index) => {
@@ -294,17 +301,17 @@ describe('Campaign formation placement wiring', () => {
     vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: center }])
 
     formation.beginPlacement('all')
-    expect((formation as any).previewBlocked).toBe(true)
+    expect((formation as any).previewBlocked).toBe(false)
     const result = formation.confirmPlacement()
-    expect(result.accepted).toBe(false)
-    expect(participants.every(npc => npc.assignFormationTarget.mock.calls.length === 0)).toBe(true)
+    expect(result.accepted).toBe(true)
+    expect(participants.every(npc => npc.assignFormationTarget.mock.calls.length === 1)).toBe(true)
   })
 
-  it('rejects rampart deck placement when participant count exceeds deck capacity', () => {
+  it.each(['infantry', 'cavalry', 'mixed'] as const)('deploys 91 %s across the wall with safe courtyard overflow', kind => {
     const { layout, obstacles, navigation } = walkwayInputs()
     const deck = layout.decks.find(d => d.side === -1)!
-    const participants = Array.from({ length: 50 }, (_, index) => {
-      const npc = placementParticipant(`foot-${index}`, index)
+    const participants = Array.from({ length: 91 }, (_, index) => {
+      const npc = placementParticipant(`unit-${index}`, index, kind === 'cavalry' || (kind === 'mixed' && index % 2 === 0))
       npc.combatPosition.set(0, getTerrainHeight(0, -140), -140)
       return npc
     })
@@ -314,9 +321,22 @@ describe('Campaign formation placement wiring', () => {
     vi.spyOn((formation as any).raycaster, 'intersectObject').mockReturnValue([{ point: center }])
 
     formation.beginPlacement('all')
-    expect((formation as any).previewBlocked).toBe(true)
+    expect((formation as any).previewBlocked).toBe(false)
     const result = formation.confirmPlacement()
-    expect(result.accepted).toBe(false)
+    expect(result.accepted).toBe(true)
+    expect(result.count).toBe(91)
+    const slots = participants.map(npc => npc.assignFormationTarget.mock.calls[0][1] as THREE.Vector3)
+    const elevated = slots.filter(slot => navigation.outpostNav!.getNavLayer(slot) !== 'ground')
+    expect(elevated.length).toBeGreaterThanOrEqual(26)
+    expect(elevated.some(slot => slot.x < -10)).toBe(true)
+    expect(elevated.some(slot => slot.x > 10)).toBe(true)
+    for (let i = 0; i < slots.length; i++) for (let j = 0; j < i; j++) {
+      expect(slots[i].distanceTo(slots[j])).toBeGreaterThanOrEqual(kind === 'infantry' ? 1 : 3.19)
+    }
+    for (const slot of slots.filter(slot => !elevated.includes(slot))) {
+      expect(slot.y).toBe(getTerrainHeight(slot.x, slot.z))
+      expect(slot.z).toBeLessThan(-108)
+    }
   })
 
   it('excludes rampart deck hit when ray is cast from underneath the platform looking up (P3 review)', () => {
@@ -356,7 +376,7 @@ describe('Campaign formation placement wiring', () => {
     // 4. Ray from courtyard ground aiming at the visible upper rear rampart structure: must return valid deck hit (P1 requirement)!
     const rayFromCourtyardAtDeck = new THREE.Ray(
       new THREE.Vector3(deckCenter.x, 1.8, deckCenter.z - 15),
-      new THREE.Vector3(0, (deck.topY + 0.5 - 1.8) / 15, 1).normalize(),
+      new THREE.Vector3(0, (deck.topY + 0.5 - 1.8) / (15 - (deck.slab.max.z - deck.slab.min.z) / 2), 1).normalize(),
     )
     const hitFromCourtyard = formation.findRampartDeckHit(rayFromCourtyardAtDeck)
     expect(hitFromCourtyard, 'Ray from courtyard aiming at rampart must hit rampart deck').not.toBeNull()
@@ -368,7 +388,7 @@ describe('Campaign formation placement wiring', () => {
     const bridgeCenter = bridge.slab.getCenter(new THREE.Vector3())
     const rayFromCourtyardAtBridge = new THREE.Ray(
       new THREE.Vector3(0, 1.8, bridgeCenter.z - 15),
-      new THREE.Vector3(0, (bridge.topY + 0.5 - 1.8) / 15, 1).normalize(),
+      new THREE.Vector3(0, (bridge.topY + 0.5 - 1.8) / (15 - (bridge.slab.max.z - bridge.slab.min.z) / 2), 1).normalize(),
     )
     const hitBridge = formation.findRampartDeckHit(rayFromCourtyardAtBridge)
     expect(hitBridge, 'Ray from courtyard aiming at bridge must hit bridge').not.toBeNull()
@@ -409,5 +429,60 @@ describe('Campaign formation placement wiring', () => {
       expect(slot.y).toBeGreaterThanOrEqual(bridge.slab.min.y)
       expect(slot.y).toBeLessThanOrEqual(bridge.slab.max.y + 0.5)
     }
+  })
+})
+
+
+describe('Archer rampart command capacity', () => {
+  it.each([6, 16, 36, 37, 40, 109])('%i archers use the real preview/confirm path with safe overflow', count => {
+    const { layout, obstacles, navigation } = walkwayInputs()
+    const participants = Array.from({ length: count }, (_, index) => Object.assign(
+      placementParticipant(`archer-${index}`, index), { rangedCombatKind: 'bow' as const }))
+    const formation = placementController(participants, obstacles, navigation)
+    const deck = layout.decks[0]
+    const center = deck.slab.getCenter(new THREE.Vector3()).setY(deck.topY)
+    const seam = formation as unknown as { raycaster: THREE.Raycaster; preview: { show(center: THREE.Vector3, slots: THREE.Vector3[], valid: boolean): void } }
+    vi.spyOn(seam.raycaster, 'intersectObject').mockReturnValue([{ point: center, distance: 10, object: new THREE.Object3D() }])
+    const preview = vi.spyOn(seam.preview, 'show')
+    formation.beginPlacement('all')
+    const shown = preview.mock.calls.at(-1)![1]
+    expect(shown).toHaveLength(count)
+    expect(shown.filter(slot => slot.y > getTerrainHeight(slot.x, slot.z) + 3)).toHaveLength(Math.min(count, 108))
+    for (let i = 0; i < shown.length; i++) for (let j = 0; j < i; j++) expect(shown[i].distanceTo(shown[j])).toBeGreaterThanOrEqual(1)
+    const result = formation.confirmPlacement()
+    expect(result.accepted).toBe(true)
+    const assigned = participants.map(npc => npc.assignFormationTarget.mock.calls[0][1].toArray().join(','))
+    expect(assigned.sort()).toEqual(shown.map(slot => slot.toArray().join(',')).sort())
+    for (const slot of shown.slice(108)) {
+      expect(slot.y).toBe(getTerrainHeight(slot.x, slot.z))
+      expect(slot.z).toBeLessThan(-108)
+      expect(Math.abs(slot.x)).toBeLessThan(43)
+    }
+  })
+
+  it('six selected archers leave an unselected defender and its reserved destination untouched', () => {
+    const { obstacles, navigation } = walkwayInputs()
+    const participants = Array.from({ length: 6 }, (_, i) => Object.assign(
+      placementParticipant(`selected-${i}`, i), { rangedCombatKind: 'bow' as const }))
+    const slots = getOutpostRampartArcherSlots('roman').left
+    const occupied = new THREE.Vector3(slots[0].x, slots[0].y, slots[0].z)
+    const reserved = new THREE.Vector3(slots[1].x, slots[1].y, slots[1].z)
+    const unselected = Object.assign(placementParticipant('unselected', 0), {
+      presetId: 'roman_heavy_infantry', combatPosition: occupied.clone(), formationDestination: reserved,
+    })
+    const formation = placementController([...participants, unselected], obstacles, navigation)
+    const seam = formation as unknown as { raycaster: THREE.Raycaster }
+    vi.spyOn(seam.raycaster, 'intersectObject').mockReturnValue([{ point: occupied, distance: 10, object: new THREE.Object3D() }])
+    formation.beginPlacement('viking_spearman')
+    expect(formation.confirmPlacement().accepted).toBe(true)
+    for (const npc of participants) {
+      const assigned = npc.assignFormationTarget.mock.calls[0][1]
+      expect(assigned.distanceTo(occupied)).toBeGreaterThanOrEqual(1)
+      expect(assigned.distanceTo(reserved)).toBeGreaterThanOrEqual(1)
+      expect(navigation.outpostNav!.getNavLayer(assigned)).not.toBe('ground')
+    }
+    expect(unselected.assignFormationTarget).not.toHaveBeenCalled()
+    expect(unselected.combatPosition).toEqual(occupied)
+    expect(unselected.formationDestination).toEqual(reserved)
   })
 })
