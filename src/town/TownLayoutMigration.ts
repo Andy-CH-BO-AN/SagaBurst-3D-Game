@@ -1,3 +1,5 @@
+import { townStationSpec } from './TownGarrison'
+import type { TownActorSpec } from './TownRules'
 import type { PersonalActorCheckpoint, PersonalActorPosition, PersonalSquadMission } from '../career/CareerPersonalSquadMission'
 import type { EaglePad } from '../career/EaglePadReservations'
 import type { EagleFlightSnapshot } from '../movement/EagleFlightController'
@@ -21,6 +23,8 @@ const LEGACY_PRIVATE_EAGLE_PADS: readonly EaglePad[] = [
   { id: 'private-eagle-pad:1', x: -30.686291501015234, z: -31.68629150101524, yaw: 0 },
   { id: 'private-eagle-pad:2', x: -27.217927479819405, z: -49.122934917841434, yaw: 0 },
   { id: 'private-eagle-pad:3', x: -24.221752543372723, z: -69.60702759368145, yaw: 0 },
+  // Version 2 pads before the interior wall walkways were built.
+  ...[-95, -65, -35].map((x, index) => ({ id: `private-eagle-pad:${index + 1}`, x, z: 65, yaw: Math.PI })),
 ]
 
 function groundPosition(pad: EaglePad, terrainHeight: GroundHeight): GroundPosition {
@@ -90,4 +94,15 @@ export function migratePersonalTownLayout(saved: PersonalSquadMission | undefine
     members[id] = next
   }
   return { ...saved, layoutVersion: TOWN_LAYOUT_VERSION, members }
+}
+
+/** The first XYZ checkpoint completes this migration. Active commands retain exact X/Z,
+ * and every modern checkpoint (including a deliberately grounded guard) keeps its Y.
+ */
+export function migrateTownRampartPosition(position: PersonalActorPosition, spec: TownActorSpec | undefined,
+  playerCommanded: boolean, mounted: boolean, ranged: boolean): PersonalActorPosition {
+  if (position.y !== undefined || playerCommanded || !spec) return position
+  const station = townStationSpec(spec, mounted, ranged)
+  return station.garrison?.kind === 'rampart'
+    ? { ...position, x: station.x, y: station.y, z: station.z } : position
 }

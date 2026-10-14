@@ -515,7 +515,7 @@ it.each([false, true])('returns home while pending and reloads Player state with
   expect(official).toEqual(oldOfficial)
   expect({ ...siege, playerPosition: undefined }).toEqual({ ...oldSiege, playerPosition: undefined })
   expect({ playerHp, playerStamina, playerDead }).toEqual({ playerHp: 61, playerStamina: 29, playerDead: false })
-  expect(siege!.playerPosition).toEqual({ x: 31, z: 34, yaw: .3 })
+  expect(siege!.playerPosition).toEqual({ x: 31, y: mounted ? 8 : 10.5, z: 34, yaw: .3 })
   if (mounted) expect(mountState).toEqual({ activeMountId: 'horse', hp: { horse: 67 }, unavailable: [] })
   // Restart the same mission from a genuine store round-trip, still only two queued survivors.
   h.controller.cleanupMission(); h.setProfile(loaded)
@@ -525,7 +525,7 @@ it.each([false, true])('returns home while pending and reloads Player state with
   expect(h.controller.startActiveMission()).toBe(true)
   expect(h.controller.ready).toBe(false)
   expect(h.player.group.position.x).toBe(31); expect(h.player.group.position.z).toBe(34)
-  if (mounted) expect(root.position.toArray()).toEqual([31, getTerrainHeight(31, 34), 34])
+  if (mounted) expect(root.position.toArray()).toEqual([31, 8, 34])
   expect(h.player.hp).toBe(61); expect(h.player.staminaValue).toBe(29)
   h.driver.drain()
   expect(h.player.group.position.x).toBe(31); expect(h.player.group.position.z).toBe(34)

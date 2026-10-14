@@ -307,6 +307,9 @@ export class TownCommandSquadController {
       }
       const claimed = this.townHostile && this.value.authorized || this.isPlayerClaimed(id)
       const travel = this.isReturning(id)
+      if (restore && travel && actor?.formation) actor.formation.position = {
+        x: resident.spec.x, y: resident.spec.y ?? getTerrainHeight(resident.spec.x, resident.spec.z), z: resident.spec.z, yaw: resident.spec.yaw ?? Math.PI,
+      }
       if (claimed || travel) {
         const nativeClaimed = npc.combatOwnership === 'town-command'
           || this.value.commandRank !== 'commander'
@@ -364,7 +367,7 @@ export class TownCommandSquadController {
       const member = refitCommandCheckpoint(npc, resident.homeMount, status)
       if (defenseStart) {
         member.order = 'attack'; delete member.formation
-        member.position = { x: resident.spec.x, z: resident.spec.z, yaw: resident.spec.yaw ?? Math.PI }
+        member.position = { x: resident.spec.x, y: resident.spec.y, z: resident.spec.z, yaw: resident.spec.yaw ?? Math.PI }
         if (member.mount) member.mount.position = { ...member.position }
       }
       value.members[npc.combatantId] = member
@@ -494,6 +497,7 @@ export class TownCommandSquadController {
       npc.missionMovement = false
       actor.status = 'reserve'; actor.order = 'attack'; delete actor.formation
       npc.setTacticalOrder('attack'); npc.setTownPeaceful()
+      if (resident.spec.garrison?.kind === 'rampart' && !npc.isMounted && npc.hasActiveRangedWeapon) npc.activateTownRampartGarrison()
       if (this.value.commandRank === 'commander') {
         this.value.commandedActorIds = this.value.commandedActorIds?.filter(id => id !== npc.combatantId)
         if (npc.combatOwnership === 'town-command') npc.combatOwnership = undefined
@@ -519,7 +523,7 @@ export class TownCommandSquadController {
   private stageReturn(actor: PersonalActorCheckpoint, spec: TownActorSpec): void {
     actor.status = 'deployed'; actor.order = 'formation'
     actor.formation = { commandId: TOWN_COMMAND_RETURN_ID,
-      position: { x: spec.x, y: getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? Math.PI },
+      position: { x: spec.x, y: spec.y ?? getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? Math.PI },
       reached: false, arrivalOrder: 'attack' }
   }
   private applyReturn(npc: NPC, actor: PersonalActorCheckpoint): void {

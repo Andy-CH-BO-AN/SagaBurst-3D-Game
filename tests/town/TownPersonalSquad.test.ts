@@ -336,7 +336,7 @@ describe('HR Center and personal runtime', () => {
       expect(navigation.areConnected(service, world.hr.officer), `${service.id} reachable`).toBe(true)
     }
     const entry = townPlayerEntryPoint(), sergeant = services.find(actor => actor.id === 'deployment')!
-    expect(entry).toEqual({ x: 21, z: 20, yaw: Math.PI / 2 })
+    expect(entry).toEqual({ x: 60, z: 2, yaw: Math.PI })
     expect(Math.hypot(entry.x - sergeant.x, entry.z - sergeant.z)).toBe(4)
     expect(navigation.grid.isBlocked(navigation.grid.worldToCell(entry)!)).toBe(false)
     expect(navigation.areConnected(entry, sergeant)).toBe(true)
@@ -346,7 +346,7 @@ describe('HR Center and personal runtime', () => {
     }
     const eagle = world.eagleTraining
     expect(eagle.pads.map(pad => pad.id)).toEqual(['private-eagle-pad:1', 'private-eagle-pad:2', 'private-eagle-pad:3'])
-    expect(eagle.pads.map(pad => [pad.x, pad.z, pad.yaw])).toEqual([[-95, 65, Math.PI], [-65, 65, Math.PI], [-35, 65, Math.PI]])
+    expect(eagle.pads.map(pad => [pad.x, pad.z, pad.yaw])).toEqual([[-90, 56, Math.PI], [-60, 56, Math.PI], [-30, 56, Math.PI]])
     const trainer = eagleTrainerSpec(eagle)
     expect(trainer).toMatchObject({ id: 'eagle-trainer', role: 'eagle-trainer', tier: 4, mounted: false })
     expect(townConquestRoster(world.hr, undefined, eagle).filter(spec => spec.id === 'eagle-trainer')).toHaveLength(1)
@@ -355,7 +355,7 @@ describe('HR Center and personal runtime', () => {
     // Reuse this geometry owner: one TownWorld and NavigationWorld per faction, no NPCs/Mounts/GLBs.
     expect(world.eagleGarrison.pads).toHaveLength(5)
     expect(world.eagleGarrison.pads.map(pad => [pad.x, pad.z, pad.yaw])).toEqual([
-      [-95, -75, 0], [-65, -75, 0], [-35, -75, 0], [-95, -25, 0], [-65, -25, 0],
+      [-85, -63, 0], [-57, -75, 0], [-29, -75, 0], [-85, -18, 0], [-57, -22, 0],
     ])
     // Actual flight/geometry has this single built-world owner: zero additional TownWorlds,
     // NPCs, Mounts or GLBs. Core queue and NPC command transitions stay in their own suites.
@@ -414,9 +414,8 @@ describe('HR Center and personal runtime', () => {
     const borrowedSignMaterials = new Set<THREE.Material>()
     // Reuse the built-world owner to check the actual supports and collider registration,
     // including different terrain heights at the two feet, rather than cosmetic mesh names.
-    for (const center of [{ name: 'eagle training', x: trainer.x - 4.5, z: trainer.z + 3.5, bilingual: true, walkThrough: true },
-      { name: 'eagle garrison', x: -65, z: -8, bilingual: true, walkThrough: false },
-      ...[47, 82, 117].map(x => ({ name: `cavalry ${x}`, x, z: -101, bilingual: false, walkThrough: false }))]) {
+    for (const center of [{ name: 'eagle training', x: trainer.x - 5, z: trainer.z + 7, bilingual: true, walkThrough: true },
+      { name: 'eagle garrison', x: -35, z: -8, bilingual: true, walkThrough: false }]) {
       const board = world.root.children.find(child => child instanceof THREE.Group
         && Math.abs(child.position.x - center.x) < 1e-6 && Math.abs(child.position.z - center.z) < 1e-6)
       expect(board, `grounded board at ${center.x}, ${center.z}`).toBeDefined()

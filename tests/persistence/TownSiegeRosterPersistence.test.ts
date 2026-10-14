@@ -1,3 +1,6 @@
+import { migrateTownRampartPosition } from '../../src/town/TownLayoutMigration'
+import { townRoster } from '../../src/town/TownRules'
+import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { describe, expect, it } from 'vitest'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -52,5 +55,58 @@ describe.each(['roman', 'viking'] as const)('%s Siege saved composition', factio
     const restored = store.load()!
     expect(restored.activeMission!.siege!.rosterVersion).toBe(2)
     expect(siegeRoster(faction, assault, siegeRosterVersion(restored.activeMission!.siege!)).filter(({ spec }) => !spec.cavalry)).toHaveLength(40)
+  })
+})
+
+
+describe('Town rampart siege checkpoint serialization', () => {
+  it.each([undefined, 9.25])('retains casualties, garrison ownership and optional Y=%s through storage', y => {
+    const profile = createCareerProfile('roman')
+    profile.activeMission = createTownDefenseMission(['gate:north:7'], [], 'rampart-save')
+    const active = profile.activeMission
+    active.actorPositions = { 'gate:north:7': { x: 15, y, z: -112.6, yaw: Math.PI, townRampartGarrison: true } }
+    active.actorHealth = { 'gate:north:7': { hp: 0, mountHp: 0 } }
+    active.deadFriendlyActorIds = ['gate:north:7']
+    active.siege!.playerPosition = { x: 30, y, z: -110.6, yaw: 1 }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const restored = store.load()!.activeMission!
+    expect(restored.actorPositions?.['gate:north:7']).toEqual({ x: 15, ...(y !== undefined ? { y } : {}), z: -112.6, yaw: Math.PI, townRampartGarrison: true })
+    expect(restored.actorHealth).toEqual(active.actorHealth)
+    expect(restored.deadFriendlyActorIds).toEqual(['gate:north:7'])
+    expect(restored.siege!.playerPosition).toEqual({ x: 30, ...(y !== undefined ? { y } : {}), z: -110.6, yaw: 1 })
+  })
+})
+
+
+describe('Town rampart legacy placement and command priority', () => {
+  it.each(['default', 'commanded', 'mounted', 'melee', 'modern'] as const)('migrates only an uncommanded legacy ranged station: %s', state => {
+    const spec = townRoster().find(actor => actor.id === 'gate:north:7')!
+    const profile = createCareerProfile('roman')
+    profile.activeMission = createTownDefenseMission([spec.id], [], 'migration')
+    profile.activeMission.actorPositions = { [spec.id]: { x: 25, z: 30, yaw: .4, ...(state === 'modern' ? { y: 7.75 } : {}) } }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const saved = store.load()!, old = saved.activeMission!.actorPositions![spec.id]
+    const next = migrateTownRampartPosition(old, spec, state === 'commanded', state === 'mounted', state !== 'melee')
+    if (state === 'default') expect(next).toMatchObject({ x: spec.garrison!.x, y: spec.garrison!.y, z: spec.garrison!.z })
+    else expect(next).toEqual(old)
+    saved.activeMission!.actorPositions![spec.id] = next
+    expect(store.save(saved)).toBe(true)
+    const reloaded = store.load()!.activeMission!.actorPositions![spec.id]
+    expect(migrateTownRampartPosition(reloaded, spec, state === 'commanded', state === 'mounted', state !== 'melee')).toEqual(next)
+  })
+
+  it.each(['defend', 'attack', 'formation', 'follow'] as const)('retains official %s ownership and elevated coordinates through storage', order => {
+    const profile = createCareerProfile('roman'), id = 'gate:north:7'
+    profile.activeMission = createTownDefenseMission([id], [], 'official-rampart')
+    const member = { status: 'deployed' as const, hp: 37, ammo: 12, order, position: { x: 30, y: 9.25, z: -110.6, yaw: .7 },
+      ...(order === 'defend' || order === 'attack' ? { townRampartGarrison: true } : {}),
+      ...(order === 'formation' ? { formation: { commandId: 91, position: { x: 40, y: 8.5, z: -110.6, yaw: 0 }, reached: false } } : {}) }
+    profile.activeMission.officialSquad = { type: 'mission-official', missionId: 'official-rampart', townFaction: 'roman', squadId: 1,
+      actorIds: [id], contribution: emptyPersonalContribution(), members: { [id]: member } }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    expect(store.load()!.activeMission!.officialSquad!.members![id]).toEqual(member)
   })
 })

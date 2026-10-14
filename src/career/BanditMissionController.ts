@@ -1,3 +1,4 @@
+import type { TownGarrisonStation } from '../town/TownGarrison'
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
 import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
 import { CAPTAIN_CAVALRY_COMMAND_ID } from './CaptainMissionCatalog'
@@ -134,9 +135,10 @@ export function selectLivingMissionLeader<T extends { dead: boolean }>(current: 
   return current && !current.dead ? current : friendlies.find(npc => !npc.dead) ?? null
 }
 
-export function selectMissionInfantryActorIds<T extends { spec: { role: string }; npc: { dead: boolean; combatantId: string } }>(residents: readonly T[], count: number): string[] {
+export function selectMissionInfantryActorIds<T extends { spec: { role: string; garrison?: TownGarrisonStation }; npc: { dead: boolean; combatantId: string } }>(residents: readonly T[], count: number, unavailableActorIds: ReadonlySet<string> = new Set()): string[] {
   return residents
-    .filter(resident => (resident.spec.role === 'melee_infantry' || resident.spec.role === 'spearman_infantry') && !resident.npc.dead)
+    .filter(resident => (resident.spec.role === 'melee_infantry' || resident.spec.role === 'spearman_infantry') && !resident.npc.dead && !unavailableActorIds.has(resident.npc.combatantId))
+    .sort((a, b) => Number(a.spec.garrison?.kind === 'rampart') - Number(b.spec.garrison?.kind === 'rampart'))
     .slice(0, Math.max(0, count))
     .map(resident => resident.npc.combatantId)
 }
@@ -396,10 +398,10 @@ export class BanditMissionController {
     return null
   }
 
-  createMission(template: RecruitBanditMissionTemplate | RecruitPatrolMissionTemplate, campId: number): ActiveCareerMission {
+  createMission(template: RecruitBanditMissionTemplate | RecruitPatrolMissionTemplate, campId: number, unavailableActorIds?: ReadonlySet<string>): ActiveCareerMission {
     const enemyCount = template.kind === 'patrol' ? template.encounterBanditCount : template.banditCount
     const friendlySoldiers = Math.max(0, template.friendlyCombatants - 2)
-    const available = selectMissionInfantryActorIds(this.residents, friendlySoldiers)
+    const available = selectMissionInfantryActorIds(this.residents, friendlySoldiers, unavailableActorIds)
     const mission = createActiveCareerMission(template.id, campId, enemyCount, 0, undefined, template.kind, this.missionCaptain.combatantId)
     mission.friendlyActorIds = [this.missionCaptain.combatantId, ...available]
     mission.personalSquad = snapshotPersonalMission(this.readProfile())

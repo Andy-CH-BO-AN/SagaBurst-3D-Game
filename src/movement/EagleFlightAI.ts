@@ -178,7 +178,16 @@ export class EagleFlightAI {
     }
     this.avoidanceRemaining = Math.max(0, this.avoidanceRemaining - dt)
     this.ahead.copy(this.direction).normalize().multiplyScalar(lookahead).add(position)
+    // Reject distant geometry before the exact swept segment test. Town crenels
+    // add many static boxes; this preserves their ordering and avoidance envelope.
+    const minX = Math.min(position.x, this.ahead.x) - XONGKORO.wingClearance
+    const maxX = Math.max(position.x, this.ahead.x) + XONGKORO.wingClearance
+    const minZ = Math.min(position.z, this.ahead.z) - XONGKORO.wingClearance
+    const maxZ = Math.max(position.z, this.ahead.z) + XONGKORO.wingClearance
+    const minY = Math.min(position.y, this.ahead.y), maxY = Math.max(position.y, this.ahead.y) + XONGKORO.bodyHeight + 1
     for (const obstacle of obstacles) {
+      const box = obstacle.box
+      if (box.min.x > maxX || box.max.x < minX || box.min.z > maxZ || box.max.z < minZ || box.min.y > maxY || box.max.y < minY) continue
       this.expanded.copy(obstacle.box)
       this.expanded.min.x -= XONGKORO.wingClearance; this.expanded.max.x += XONGKORO.wingClearance
       this.expanded.min.z -= XONGKORO.wingClearance; this.expanded.max.z += XONGKORO.wingClearance

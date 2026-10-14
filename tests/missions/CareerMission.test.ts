@@ -131,6 +131,17 @@ describe('Mission identity, attribution and claim', () => {
     expect(mission.friendlyActorIds.slice(1)).toHaveLength(4)
   })
 
+  it('filters unavailable infantry before preferring ground stations, without substituting archers', () => {
+    const station = { kind: 'rampart' as const, gateId: 'north' as const, x: 0, y: 8, z: 0, yaw: 0 }
+    const residents = [
+      { spec: { role: 'melee_infantry', garrison: station }, npc: { dead: false, combatantId: 'elevated' } },
+      { spec: { role: 'melee_infantry' }, npc: { dead: false, combatantId: 'returning' } },
+      { spec: { role: 'archer_infantry' }, npc: { dead: false, combatantId: 'archer' } },
+      { spec: { role: 'spearman_infantry' }, npc: { dead: false, combatantId: 'ground' } },
+    ]
+    expect(selectMissionInfantryActorIds(residents, 3, new Set(['returning']))).toEqual(['ground', 'elevated'])
+  })
+
   it('draws mission soldiers from living existing sword and spear infantry', () => {
     const residents = [
       { spec: { role: 'melee_cavalry' }, npc: { dead: false, combatantId: 'cavalry' } },

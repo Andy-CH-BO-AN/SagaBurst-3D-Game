@@ -120,7 +120,7 @@ export interface ActiveCareerMission {
   borrowedActorIds?: string[]
   veteranRosterVersion?: 1 | 2 | 3
   actorHealth?: Record<string, { hp: number; mountHp?: number }>
-  actorPositions?: Record<string, { x: number; y?: number; z: number; yaw: number; outpostRampartGarrison?: boolean }>
+  actorPositions?: Record<string, { x: number; y?: number; z: number; yaw: number; outpostRampartGarrison?: boolean; townRampartGarrison?: boolean }>
   engagedEnemySquadIds?: number[]
   playerHp?: number
   playerStamina?: number

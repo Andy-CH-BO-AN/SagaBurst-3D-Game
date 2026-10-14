@@ -40,12 +40,12 @@ export function resolveTownCommanderPosition(obstacles: readonly ObstacleData[],
   const captainAnchor = new THREE.Box3(new THREE.Vector3(captain.x, -1000, captain.z),
     new THREE.Vector3(captain.x, 1000, captain.z))
   // This service road already hosts the Captain. Its painted rectangle is not
-  // a wall; excluding it would force the Commander across the actual fence.
+  // a wall; excluding it would force the Commander onto a transit lane.
   const transitRoads = roads.filter(road => !townRoadIntersectsBox(road, captainAnchor))
-  const approach = townSitePoint('barracks', 0, 15)
+  const approach = townSitePoint('hall', 0, 30)
   const refitSlots = roster.filter(spec => spec.duty === 'patrol').map(townPatrolRefitPoint)
   // Captain faces the service forecourt. Search beside that actual resident,
-  // never behind it toward the training fence, even when roads reject a slot.
+  // never behind it toward the hall, even when roads reject a slot.
   // The 5m envelope reserves the mounted T5 rider and the mount, not just its
   // 1m collision radius. Lateral separation also leaves room to approach on foot.
   for (const side of [-6, -5, -7, 6, 5, 7]) for (const forward of [0, .5, 1]) {
@@ -63,5 +63,5 @@ export function resolveTownCommanderPosition(obstacles: readonly ObstacleData[],
     if (!navigation.areConnected(approach, point)) continue
     return point
   }
-  throw new Error('No clear Commander service position beside the training entrance')
+  throw new Error('No clear Commander service position beside the Town Center')
 }

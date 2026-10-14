@@ -1,3 +1,4 @@
+import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { FORMATION_ALL_MAX_COLUMNS } from '../../src/battle/FormationMath'
@@ -85,6 +86,20 @@ function romanRegion(): FormationRegion {
 }
 
 describe('Campaign formation placement wiring', () => {
+  it('places a mixed 30-person Town formation on the connected perimeter without ground snapping', () => {
+    const layout = getTownRampartLayout()
+    const obstacles = layout.decks.map(deck => ({ box: deck.box, walkSurface: deck.surface, isBarricade: false, navigationPassable: true }))
+    const navigation = navigationFor(obstacles)
+    navigation.setTownRamparts(layout)
+    const participants = Array.from({ length: 30 }, (_, i) => placementParticipant(`town-${i}`, i, i % 3 === 0))
+    const { solve } = placementHarness(obstacles, participants, navigation)
+    const result = solve(layout.ramps[0].connection)!
+    expect(result).not.toBeNull()
+    expect(result.slots).toHaveLength(30)
+    expect(result.slots.every(p => navigation.townNav!.isElevated(p))).toBe(true)
+    for (let i = 0; i < result.slots.length; i++) for (let j = i + 1; j < result.slots.length; j++) expect(result.slots[i].distanceTo(result.slots[j])).toBeGreaterThan(2)
+  })
+
   it('requires mounted access and spreads cavalry across the entire connected wall', () => {
     const { layout, obstacles, navigation } = walkwayInputs()
     for (const stair of layout.stairs) stair.ramp.mounted = false

@@ -297,20 +297,27 @@ export class NPC {
   siegeBypassTarget: THREE.Vector3 | null = null
   campaignEntranceId: string | null = null
   campaignBreachCompleted = false
+  private townRampartGarrison = false
+  get isTownRampartGarrisonActive(): boolean { return this.townRampartGarrison && !this.isMounted }
+  activateTownRampartGarrison(order: 'defend' | 'attack' = 'defend'): void {
+    this.setTacticalOrder(order)
+    this.townRampartGarrison = true
+  }
+  get alertRange(): number { return this.isTownRampartGarrisonActive ? this.maxRangedAttackDistance : DETECTION_RADIUS }
   private outpostRampartGarrison = false
   get isOutpostRampartGarrisonActive(): boolean { return this.outpostRampartGarrison }
   activateOutpostRampartGarrison(order: 'defend' | 'attack' = 'defend'): void {
     this.setTacticalOrder(order)
     this.outpostRampartGarrison = true
   }
-  releaseOutpostRampartGarrison(): void { this.outpostRampartGarrison = false }
+  releaseOutpostRampartGarrison(): void { this.outpostRampartGarrison = false; this.townRampartGarrison = false }
   private rampartThreat: ObstacleData | null = null
   private rampartScanFrames = 0
   private readonly obstacleLocalToWorld = new THREE.Matrix4()
   get holdsRampartPosition(): boolean {
     return !this.isMounted
       && (this.tacticalOrder === 'defend' || this.tacticalOrder === 'attack')
-      && (this.outpostRampartGarrison || Boolean(this.aiType === AIType.RANGED && this._activeNavigationWorld?.outpostNav
+      && (this.townRampartGarrison || this.outpostRampartGarrison || Boolean(this.aiType === AIType.RANGED && this._activeNavigationWorld?.outpostNav
         && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition))))
   }
 
@@ -918,7 +925,7 @@ export class NPC {
   beginExternalThreat(): void {
     if (this.dead || this.townHostile || this.duelHostile) return
     this.animator.cancel()
-    this.setTacticalOrder('charge')
+    this.setTacticalOrder(this.isTownRampartGarrisonActive ? 'defend' : 'charge')
     this.state = AIState.CHASE
     this._targetAcquisitionInitialized = false
     this._restoreCombatReadyRangedVisual()
@@ -940,7 +947,7 @@ export class NPC {
     this.setMissionCombatTarget(undefined)
     this.missionMovement = false
     this.animator.cancel()
-    this.setTacticalOrder('charge')
+    this.setTacticalOrder(this.isTownRampartGarrisonActive ? 'defend' : 'charge')
     this.state = AIState.CHASE
     this._restoreCombatReadyRangedVisual()
     if (this.townCategory === 'civilian') this.armTownCivilian(CIVILIAN_PROFILE.retaliationWeapon)
@@ -1473,6 +1480,7 @@ export class NPC {
         }
       }
     }
+    if (!this.mount?.isFlyingMount) this._activeNavigationWorld?.townNav?.clampFollow(position, this.followSmoothedLeaderPosition, this.followSlotIndex, this.isMounted)
     if (layeredNav && this.isMounted && !this.mount?.isFlyingMount
       && layeredNav.hasMountedAccess && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
       layeredNav.clampMountedFollow(position, this.followSmoothedLeaderPosition, this.followSlotIndex, target)
@@ -2240,6 +2248,22 @@ export class NPC {
       return null
     }
     if (this.mount?.isFlyingMount) return this._findEagleTarget(player, allNPCs, hostileNpcGrid)
+    if (this.isTownRampartGarrisonActive) {
+      const range = this.alertRange
+      let nearest: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
+      let distance = range * range
+      if (this.targetsPlayer && player.targetable && !player.dead) {
+        const position = this._getPlayerPosition(player, this._tmpTargetPosition), d = this.combatPosition.distanceToSquared(position)
+        if (d <= distance) { distance = d; nearest = { position, isDead: false, isPlayer: true } }
+      }
+      const candidates = hostileNpcGrid?.getNearbyInto(this.combatPosition, range, this.eagleRangedCandidates) ?? allNPCs
+      for (const npc of candidates) {
+        if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc)) continue
+        const d = this.combatPosition.distanceToSquared(npc.combatPosition)
+        if (d <= distance) { distance = d; nearest = { position: npc.combatPosition, isDead: false, isPlayer: false, npc } }
+      }
+      return nearest
+    }
     const preferGroundTargets = !this.hasActiveRangedWeapon
     const findNearest = (groundOnly: boolean) => {
       let closestTarget: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
@@ -2427,6 +2451,7 @@ export class NPC {
         hostileNpcGrid,
         chaseTargetCoordinator,
       )
+      if (this.isTownRampartGarrisonActive && targetInfo && this.combatPosition.distanceToSquared(targetInfo.position) > this.alertRange ** 2) targetInfo = null
       if (this.equipmentRequiredForCombat && !this.meleeWeaponId
         && (!this.hasActiveRangedWeapon || targetInfo && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2)) targetInfo = null
       if (this.hasSiegeObstacle && (!this.equipmentRequiredForCombat || this.meleeWeaponId || this.hasActiveRangedWeapon)) {
@@ -2488,7 +2513,7 @@ export class NPC {
         }
         if (!targetInfo && !recoveringBow) {
           this.animator.cancel()
-          this.state = AIState.ALERT
+          this.state = this.isTownRampartGarrisonActive ? AIState.IDLE : AIState.ALERT
         }
       }
       if (targetInfo && this.holdsRampartPosition && !this.hasActiveRangedWeapon
@@ -2554,7 +2579,7 @@ export class NPC {
 
         if ((!this.encounterOrigin || this.encounterAggro === 'alerted' || this.encounterAggro === 'provoked') && targetInfo && !targetInfo.isDead) {
           const dist = this.combatPosition.distanceTo(targetInfo.position)
-          const detectionRadius = this.tacticalOrder === 'charge' ? Infinity : this.tacticalOrder === 'follow' ? 24 : DETECTION_RADIUS
+          const detectionRadius = this.tacticalOrder === 'charge' ? Infinity : this.tacticalOrder === 'follow' ? 24 : this.alertRange
           if (dist <= detectionRadius) {
             if (this.encounterOrigin) {
               // Awareness was already announced by idle -> alerted/provoked.
@@ -2644,7 +2669,10 @@ export class NPC {
         const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
 
         let navigationRoute: NavigationRouteKind = 'direct'
-        if (layeredNav && (isCrossLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, targetInfo.position))) {
+        const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, targetInfo.position, this._tmpNavigationTarget) : null
+        if (townStep) {
+          if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(this._tmpNavigationTarget, obstacles, navigationWorld)
+        } else if (layeredNav && (isCrossLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, targetInfo.position))) {
           const layeredResult = layeredNav.resolveMoveTarget(
             this.combatPosition,
             targetInfo.position,
@@ -3544,6 +3572,7 @@ export class NPC {
       && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
       layeredNav.clampMountedFollow(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, this.followTarget ?? this.followSmoothedLeaderPosition)
     }
+    if (this.tacticalOrder === 'follow' && !this.mount?.isFlyingMount) navigationWorld?.townNav?.clampFollow(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, this.isMounted)
     this.alertSprite.visible = false
     const moveDir = this._tmpMoveDir.copy(target.position).sub(this.combatPosition)
     moveDir.y = 0
@@ -3556,7 +3585,8 @@ export class NPC {
 
     const npcLayer = layeredNav ? layeredNav.getNavLayer(this.combatPosition) : 'ground'
     const targetLayer = layeredNav ? layeredNav.getNavLayer(target.position) : 'ground'
-    const isDifferentLayer = layeredNav ? (npcLayer !== targetLayer) : false
+    const isDifferentLayer = (layeredNav ? (npcLayer !== targetLayer) : false)
+      || Boolean(navigationWorld?.townNav && navigationWorld.townNav.isElevated(this.combatPosition) !== navigationWorld.townNav.isElevated(target.position))
 
     if (distance <= arrivalDistance && !isDifferentLayer) {
       target.reached = true
@@ -3580,7 +3610,12 @@ export class NPC {
     const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
 
     let isConfirmedLayeredStep = false
-    if (layeredNav && (isDifferentLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, target.position))) {
+    const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, target.position, this._tmpNavigationTarget) : null
+    if (townStep) {
+      navigationGoal = this._tmpNavigationTarget
+      if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(navigationGoal, obstacles, navigationWorld)
+      else isConfirmedLayeredStep = true
+    } else if (layeredNav && (isDifferentLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, target.position))) {
       const layeredResult = layeredNav.resolveMoveTarget(
         this.combatPosition,
         target.position,
@@ -3871,6 +3906,8 @@ export class NPC {
   }
 
   private _isRampartMeleeThreat(targetPos: THREE.Vector3): boolean {
+    const town = this._activeNavigationWorld?.townNav
+    if (town) return town.isElevated(this.combatPosition) && town.isElevated(targetPos)
     const nav = this._activeNavigationWorld?.outpostNav
     if (nav) {
       // The connected decks/bridge permit a close enemy to approach. Drawing a
