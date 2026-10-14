@@ -37,8 +37,10 @@ export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, ho
     else {
       mount.currentHp = Math.min(mount.maxHp, saved.mount.hp)
       if (!saved.mount.mounted && npc.mount === mount) npc.dismountFromMount()
-      if (saved.mount.flight && mount.flight) mount.flight.restore(saved.mount.flight)
+      // A partially recovered scene may not have a garrison snapshot to bind this pair first.
+      // Bind the same grounded asset before its saved airborne phase makes boarding illegal.
       if (saved.mount.mounted && !npc.dead && npc.mount !== mount) npc.mountVehicle(mount)
+      if (saved.mount.flight && mount.flight) mount.flight.restore(saved.mount.flight)
     }
   }
   if (saved.position) {

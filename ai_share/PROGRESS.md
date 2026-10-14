@@ -1,8 +1,14 @@
 # SagaBurst — 目前交接
 
-更新：2026-10-05。城外遭遇戰與任務交火的目前契約見 [ARCHITECTURE.md](ARCHITECTURE.md)。
+更新：2026-10-12。城外遭遇戰與任務交火的目前契約見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 目前狀態
+
+- **T5 選定資產已接入並通過百人效能驗收**：唯一來源為 `Roman_Steppe_Selected_Complete.zip`，入口 `tools/import-selected-t5.mjs`、`tools/t5-commanders.md`。LOD0 保留來源網格、貼圖與權重；使用者另授權修正 Roman 兩段斧擊的手指旋轉，保留原始空握手型。Roman 66 骨與完整四組影響、Steppe 37 骨與 11 段來源動畫保留；兩段斧擊完整映射至既有 0.48 秒基準週期，再套用武器／角色攻速。
+- T5 騎乘固定骨盆；揮劍最多保留 45° 來源骨盆轉身，分配至三節腰背並於收招回正。雙手斧將來源骨盆旋轉分散到腰背，保留步戰右上往左下的方向。新 T5 不套舊 Corgi 抬臂／側向揮擊修正，持盾跟隨胸口。黑貓以 `SkinnedSeatContact` 的變形後大腿承重點貼合座面，Player、NPC 與預覽共用；既有 T4 坐姿不變。
+- LOD1/2 已換成獨立資產，來源 UV 邊界與手／頭／刀鞘保護限制減面幅度：Roman 10,317／9,739／9,375、Viking 10,389／9,517／9,181 面；貼圖 2K／1K／512。較激進候選破壞裝甲而被捨棄，目前面數高於參考預算；不能宣稱面數目標已達成。三個 LOD 的動作、多視角與騎乘已比較；來源自帶 swordSlash／bowRelease 角度警告仍保留。
+- `SelectedLodPose` 驗證相同 bind／動畫資料後，讓同一角色三個 LOD 共用骨架與一次姿勢求值，並略過所有來源 clip 中均等於 bind 的不變屬性。角色間骨架仍獨立，raw source clips 不變。優化後 Roman／Viking 的百人近／中／遠景配對皆通過，畫質與陰影未降低；Roman 近景平均 FPS 比為 90.31%，接近門檻，已追加至五組。完整畫面、手部前後比較、正式流程及原始量測留在本機 ignored `output/t5-acceptance/index.html` 與 `output/playwright/`；各資產 audit 保存驗收摘要。Viking T4 仍有獨立的多 mesh／材質提交成本，未在本次大幅重構。
+
 
 - Soldier Enemy Town Assault 與 Veteran Home Defense 共用四門、120 人 Siege；Recruit／Soldier 舊守城下架。新攻城地圖預先部署後直接開打，主城防守只等存活巡邏騎兵進城便關門開戰，其他單位邊作戰邊完成部署；破門即解除該門步兵與騎兵的部署命令投入戰鬥，同場 reload 保留戰損，詳細契約見 ARCHITECTURE。
 

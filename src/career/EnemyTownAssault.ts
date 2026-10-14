@@ -1,6 +1,7 @@
 import { CAPTAIN_SIEGE_COMMAND_ID, getCaptainMissionAvailability } from './CaptainMissionCatalog'
-import { emptyPersonalContribution } from '../combat/CommandMerit'
-import { newTownSiegeState, siegeRoster } from './TownSiege'
+import { createMissionCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
+import { commandSquadsFromSlots } from './MissionCommandRoster'
+import { newTownSiegeState, siegeRoster, type SiegeRosterVersion } from './TownSiege'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { townRoster, townAssaultObjectiveRoster } from '../town/TownRules'
@@ -57,6 +58,10 @@ export function createEnemyTownAssaultMission(id = createCareerMissionId(ENEMY_T
 export function createAssaultRoster(faction: CharacterFaction): NpcSpawnSpec[] {
   return siegeRoster(faction, true).map(slot => slot.spec)
 }
+/** Resolved saved identities, including borrowed riders, follow the actual siege slot order. */
+export function siegeCommandSquads(faction: CharacterFaction, attackerIds: readonly string[], rosterVersion: SiegeRosterVersion = 2): OfficialCommandSquad[] {
+  return commandSquadsFromSlots(attackerIds, siegeRoster(faction, true, rosterVersion).map(slot => slot.spec))
+}
 export function resolveAssaultOutcome(playerDead: boolean, militaryAlive: number, assaultNpcAlive: number): 'victory' | 'failure' | null {
   if (militaryAlive === 0) return 'victory'
   return playerDead && assaultNpcAlive === 0 ? 'failure' : null
@@ -68,8 +73,9 @@ export function acceptCaptainSiegeCommand(current: CareerProfile, id = createCar
   const profile = prepareEnemyTownAssaultEquipment(current)
   const active = createEnemyTownAssaultMission(id)
   active.templateId = CAPTAIN_SIEGE_COMMAND_ID
-  active.officialSquad = { type: 'mission-official', missionId: id, townFaction: current.faction, squadId: 1,
-    actorIds: active.friendlyActorIds.slice(0, 29), contribution: emptyPersonalContribution() }
+  const squads = siegeCommandSquads(current.faction, active.friendlyActorIds)
+  active.officialSquad = createMissionCommandAuthority(id, current.faction, current.rank,
+    squads.find(squad => squad.squadId === 1)?.actorIds ?? [], squads)
   active.personalSquad = snapshotPersonalMission(profile)
   profile.activeMission = active
   return profile

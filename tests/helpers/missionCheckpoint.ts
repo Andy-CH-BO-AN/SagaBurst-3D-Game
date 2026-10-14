@@ -11,6 +11,7 @@ export function withMissionCheckpoint<T>(controller: T): T {
     commit(profile: CareerProfile): boolean
   }
   if ('prepareTravelEncounter' in (controller as object)) Object.assign(controller, { travelEncounter: new MissionTravelEncounter() })
+  if ('prepareTravelEncounter' in (controller as object)) Object.assign(controller as object, { originalCommandSquads: new Map(), playerIssuedCommands: new Set() })
   Object.assign(controller, { scheduler: gameplayNpcSpawns, ambientBatches: new Map() })
   host.checkpoint = new CareerMissionCheckpoint(() => host.readProfile(), profile => host.commit(profile))
   return controller

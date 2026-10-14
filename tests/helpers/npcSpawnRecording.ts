@@ -42,8 +42,8 @@ export class RecordingNpc {
     public tier: number, readonly mountedInput: boolean, public loadout: ConstructorParameters<typeof NPC>[9],
     public presetId?: string, public squadId?: string | number, readonly combatantId = name,
     readonly emit?: unknown, readonly visualAssetId?: string, readonly combatProfileId?: string,
-    readonly specialCombatProfile?: string, _townCategory?: string, _civilianStyle?: string,
-    readonly spawnPlacement?: { y: number }) {
+    readonly specialCombatProfile?: string, readonly townCategory?: 'civilian', readonly civilianStyle?: string,
+    readonly townCombatRole?: 'merchant', readonly spawnPlacement?: { y: number }) {
     recording.npcs.push(this)
     this.group.position.set(x, spawnPlacement?.y ?? 0, z)
     scene.add(this.group)
@@ -55,6 +55,7 @@ export class RecordingNpc {
   readonly bindCombatEventSink = vi.fn((_sink: CombatEventSink) => vi.fn())
   readonly setEagleFlightOrder = vi.fn()
   readonly setTownPeaceful = vi.fn()
+  readonly beginTownHostility = vi.fn()
   readonly configureBanditEncounter = vi.fn()
   readonly clearEncounter = vi.fn()
   readonly triggerEncounterAlert = vi.fn(() => { this.encounterIsAlerted = true })
@@ -63,6 +64,12 @@ export class RecordingNpc {
   readonly beginExternalThreat = vi.fn()
   readonly endExternalThreat = vi.fn()
   readonly restoreCombatLoadout = vi.fn()
+  readonly restoreForTown = vi.fn(() => { this.dead = false; this.hp = this.maxHp; this.restoreCombatLoadout() })
+  readonly setCommandSquad = vi.fn((squadId: NPC['squadId']) => { this.squadId = squadId })
+  readonly canApplyCareerEquipment = vi.fn((_loadout: ConstructorParameters<typeof NPC>[9]) => true)
+  readonly applyCareerEquipment = vi.fn((loadout: ConstructorParameters<typeof NPC>[9], tier?: number) => {
+    this.loadout = loadout; if (tier !== undefined) this.tier = tier; return true
+  })
   readonly applyTemporaryCombatLoadout = vi.fn((loadout: ConstructorParameters<typeof NPC>[9], tier?: number, squadId?: number, presetId?: string) => {
     this.loadout = loadout; if (tier !== undefined) this.tier = tier; if (squadId !== undefined) this.squadId = squadId; if (presetId !== undefined) this.presetId = presetId
   })
@@ -96,7 +103,7 @@ export class RecordingMount {
   get flight() { return this.isFlyingMount ? this.recordedFlight : undefined }
   private readonly recordedFlight = { snapshot: () => structuredClone(this.flightState),
     restore: vi.fn((state: EagleFlightSnapshot) => { this.flightState = structuredClone(state) }) }
-  constructor(scene: THREE.Scene, readonly type: MountType, x: number, z: number, y = getTerrainHeight(x, z)) {
+  constructor(scene: THREE.Scene, readonly type: MountType, x: number, z: number, y = getTerrainHeight(x, z), readonly appearanceVariant = 0) {
     recording.mounts.push(this)
     this.group.position.set(x, y, z)
     scene.add(this.group)

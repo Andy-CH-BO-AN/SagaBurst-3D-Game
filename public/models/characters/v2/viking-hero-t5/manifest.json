@@ -1,0 +1,326 @@
+{
+  "schemaVersion": 1,
+  "id": "viking-hero-t5",
+  "status": "ready",
+  "skeleton": "project-humanoid-v1",
+  "source": {
+    "title": "Steppe Iron Guard",
+    "sourceArchive": "Roman_Steppe_Selected_Complete.zip",
+    "sourceEntry": "Steppe/Steppe_Selected_11Clips_Candidate.glb",
+    "sourceSha256": "59cfd8bebeb1b87a4e97c99b6e476dd920a32fff3b6941669fc749fc37b3a931",
+    "license": "Meshy account/service/input terms; project animation sources retain their original terms",
+    "licenseEvidence": "source-readme.txt"
+  },
+  "attribution": "Steppe Iron Guard: user-supplied Meshy model, textures and selected axe animations. Core clips: project-licensed Kevin Iglesias and Quaternius; see source-readme.txt.",
+  "selectedSource": {
+    "rig": "steppe37",
+    "uniformScale": 1.1186500854923693
+  },
+  "handShapeMode": "authored",
+  "preserveLodHandTopology": true,
+  "files": {
+    "lod0": "lod0.glb",
+    "lod1": "lod1.glb",
+    "lod2": "lod2.glb"
+  },
+  "metrics": {
+    "heightM": 2.1193006331863145,
+    "shoulderWidthM": 0.6645790819402477,
+    "neckLengthM": 0.10067855666644003,
+    "triangles": {
+      "lod0": 10389,
+      "lod1": 9517,
+      "lod2": 9181
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    },
+    "uniformScale": 1.1186500854923693,
+    "bodyLandmarks": [
+      {
+        "name": "hips",
+        "source": 1.0299999713897705,
+        "reference": 1.0630946159362793
+      },
+      {
+        "name": "upper_arm_l",
+        "source": 1.4399998853056628,
+        "reference": 1.6427268470861613
+      },
+      {
+        "name": "upper_arm_r",
+        "source": 1.439999849241724,
+        "reference": 1.6427270426208738
+      }
+    ]
+  },
+  "animations": {
+    "embedded": [
+      {
+        "clip": "axeMountedIdle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "axeMountedIdle",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "bowHold",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowHold",
+        "loop": true,
+        "duration": 1.3333333333333333
+      },
+      {
+        "clip": "bowLoad",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowLoad",
+        "loop": false,
+        "duration": 0.8333333333333334
+      },
+      {
+        "clip": "bowRelease",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowRelease",
+        "loop": false,
+        "duration": 0.22,
+        "events": {
+          "projectileRelease": 0.04,
+          "actionComplete": 0.22
+        }
+      },
+      {
+        "clip": "idle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "idle",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "pilumThrow",
+        "source": "Quaternius",
+        "sourceClip": "pilumThrow",
+        "loop": false,
+        "duration": 1.5,
+        "events": {
+          "projectileRelease": 0.5666666666666667,
+          "actionComplete": 1.5
+        }
+      },
+      {
+        "clip": "run",
+        "source": "Kevin Iglesias",
+        "sourceClip": "run",
+        "loop": true,
+        "duration": 0.6,
+        "nominalSpeed": 4
+      },
+      {
+        "clip": "swordSlash",
+        "source": "Quaternius",
+        "sourceClip": "swordSlash",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.252,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "walk",
+        "source": "Kevin Iglesias",
+        "sourceClip": "walk",
+        "loop": true,
+        "duration": 0.8,
+        "nominalSpeed": 2
+      },
+      {
+        "clip": "axeAttack1H",
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.7,
+          "actionComplete": 3
+        },
+        "source": "Meshy",
+        "sourceClip": "axeAttack1H",
+        "loop": false,
+        "duration": 3
+      },
+      {
+        "clip": "axeAttack2H",
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 0.9666666666666667,
+          "hit": 1.0666666666666667,
+          "activeEnd": 1.2,
+          "actionComplete": 2.8333333333333335
+        },
+        "source": "Meshy",
+        "sourceClip": "axeAttack2H",
+        "loop": false,
+        "duration": 2.8333333333333335
+      }
+    ],
+    "runtimeGenerated": [
+      "mounted",
+      "death",
+      "daggerSlash",
+      "greatswordSlash",
+      "lanceThrust",
+      "mountedLance"
+    ]
+  },
+  "handGripFrames": {
+    "left": {
+      "palmContactCenter": [
+        0.02410578793187804,
+        0.1,
+        -0.021021054171076175
+      ],
+      "palmNormal": [
+        0.047063793059050577,
+        0,
+        -0.9988918857328329
+      ],
+      "thumbDir": -1,
+      "thumbDirection": [
+        0.9988918857328329,
+        0,
+        0.047063793059050577
+      ],
+      "fingerDirection": [
+        0,
+        1,
+        0
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "fingerBase": 0.085,
+      "thumbBaseCenter": [
+        0,
+        0.025,
+        0
+      ]
+    }
+  },
+  "swordGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        -0.025,
+        0.1,
+        -0.04
+      ],
+      "gripAxisLocal": [
+        -0.9988918791849442,
+        0,
+        0.047063932032614504
+      ],
+      "palmNormalLocal": [
+        -0.04706393203261452,
+        0,
+        -0.9988918791849444
+      ],
+      "fingerDirection": [
+        0,
+        1,
+        0
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0,
+        0.025,
+        0
+      ],
+      "fingerBase": 0.085,
+      "gripRadius": 0.019
+    },
+    "lod1": {
+      "gripCenterLocal": [
+        -0.025,
+        0.1,
+        -0.04
+      ],
+      "gripAxisLocal": [
+        -0.9988918791849442,
+        0,
+        0.047063932032614504
+      ],
+      "palmNormalLocal": [
+        -0.04706393203261452,
+        0,
+        -0.9988918791849444
+      ],
+      "fingerDirection": [
+        0,
+        1,
+        0
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0,
+        0.025,
+        0
+      ],
+      "fingerBase": 0.085,
+      "gripRadius": 0.019
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        -0.025,
+        0.1,
+        -0.04
+      ],
+      "gripAxisLocal": [
+        -0.9988918791849442,
+        0,
+        0.047063932032614504
+      ],
+      "palmNormalLocal": [
+        -0.04706393203261452,
+        0,
+        -0.9988918791849444
+      ],
+      "fingerDirection": [
+        0,
+        1,
+        0
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0,
+        0.025,
+        0
+      ],
+      "fingerBase": 0.085,
+      "gripRadius": 0.019
+    }
+  },
+  "fileSha256": {
+    "lod0": "59cfd8bebeb1b87a4e97c99b6e476dd920a32fff3b6941669fc749fc37b3a931",
+    "lod1": "9a3a70051d88ef36601201f16b3acc4f626d22308f3f7e725ab64daa3f8418da",
+    "lod2": "ce6e5d8257f08ef52c3988e3b29bc0fce76729ca3080c88c714c3553c2ee84ae"
+  },
+  "visualAcceptance": "Representative source/runtime, equipped action, front/side/back LOD comparison reviewed; performance acceptance recorded separately.",
+  "knownLimitations": [
+    "Conservative UV-boundary LODs exceed the suggested triangle targets; aggressive collapse candidates failed appearance review.",
+    "No runtime cloth collision; extreme garment contact follows the source/helper rig."
+  ]
+}

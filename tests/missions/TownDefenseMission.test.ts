@@ -1,5 +1,5 @@
 import { withMissionCheckpoint } from '../helpers/missionCheckpoint'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { createCareerProfile, claimCareerMission, clearCareerMission } from '../../src/career/CareerProfile'
 import { acceptsCareerMissionStat, createTownDefenseMission } from '../../src/career/CareerMissionState'
@@ -11,11 +11,16 @@ import {
 } from '../../src/career/TownDefenseState'
 import { Faction } from '../../src/combat/CombatFaction'
 import { townRoster } from '../../src/town/TownRules'
-import { TownDefenseController } from '../../src/career/TownDefenseController'
+import { TownDefenseController, restoreTownDefenseRangerMount } from '../../src/career/TownDefenseController'
+import { MountType, type Mount } from '../../src/world/Mount'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import { CombatEventStream } from '../../src/combat/CombatAttribution'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { NPC, AIType } from '../../src/world/NPC'
+
+// This caller seam needs one real civilian, not Paladin asset parsing.
+vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
 
 const stats = (damageDealt = 0, kills = 0, survived = true) => ({ damageDealt, kills, survived, damageTaken: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 })
 
@@ -48,6 +53,74 @@ describe('Town Siege civilians', () => {
     enemy.combatPosition.x = 10.01
     controller.updateCivilianOrder(civilian)
     expect(civilian.assignFormationTarget).toHaveBeenCalledOnce()
+  })
+
+  it('uses an existing assigned T4 weapon for real civilian retaliation and preserves its civilian casualty identity', () => {
+    // One real NPC, zero Mount/TownWorld/GLB; the other peer is only the distance input.
+    const spec = townRoster().find(actor => actor.id === 'civilian-0')!
+    const npc = new NPC(new THREE.Scene(), 0, 0, Faction.TOWN, 'roman', AIType.MELEE, 'civilian', 2, false,
+      { meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: null },
+      undefined, undefined, spec.id, undefined, undefined, undefined, undefined, 'civilian')
+    onTestFinished(() => npc.dispose())
+    const profile = createCareerProfile('roman')
+    profile.activeMission = createTownDefenseMission([], [spec.id], 'assigned-civilian')
+    profile.activeMission.phase = 'ATTACKING'
+    const enemy = { combatPosition: npc.combatPosition.clone().add(new THREE.Vector3(5, 0, 0)) }
+    // Narrow production caller fixture: this method only owns threat distance and shelter order.
+    const controller = Object.assign(Object.create(TownDefenseController.prototype) as Pick<TownDefenseController, 'updateCivilianOrder' | 'civilians' | 'civilianDeaths'>, {
+      readProfile: () => profile, player: () => ({ dead: true }), peersFor: () => [enemy],
+      residents: [{ spec, npc }], civilianCombat: new Set<NPC>(), commandId: 1,
+      walkable: () => new THREE.Vector3(),
+    })
+    controller.updateCivilianOrder(npc)
+    expect(npc.meleeWeaponId).toBe('paladin_sword_t4')
+    expect(npc.meleeDamage).toBe(60)
+    expect(npc.maxHp).toBe(50)
+    expect(npc.combatProfileId).toBeUndefined()
+    enemy.combatPosition.x += 20
+    controller.updateCivilianOrder(npc)
+    expect(npc.loadout?.meleeWeaponId).toBe('paladin_sword_t4')
+    expect(profile.activeMission.civilianActorIds).toEqual(['civilian-0'])
+    expect(controller.civilians).toEqual([npc])
+    npc.takeDamage(100)
+    expect(controller.civilianDeaths).toBe(1)
+  })
+
+  it('binds the configured Ranger home mount despite a dead native cat, preserves an explicit unmounted allocation, and retains the legacy cat', () => {
+    // One real NPC; two grounded mount protocol doubles, zero real Mount/TownWorld/GLB.
+    // This owns caller selection plus native NPC binding; animal locomotion/assets have other owners.
+    const npc = new NPC(new THREE.Scene(), 0, 0, Faction.TOWN, 'viking', AIType.MELEE, 'Ranger mount caller', 2, false,
+      { meleeWeaponId: 'steel_sword', shieldId: null, mountId: null }, undefined, undefined, 'ranger')
+    onTestFinished(() => npc.dispose())
+    const mountDouble = (type: MountType) => {
+      let rider: NPC | null = null, dead = false
+      const group = new THREE.Group()
+      const ground = { group, type, disposed: false, isAirborne: false, isFlyingMount: false,
+        riderPlayer: null, ridePitch: 0, get riderNpc() { return rider }, get dead() { return dead },
+        setNpcRider: (actor: NPC) => { rider = actor }, releaseRider: () => { rider = null },
+        getRiderPelvisSeatWorld: (out: THREE.Vector3): THREE.Vector3 => out.copy(group.position).add(new THREE.Vector3(0, 1.5, 0)),
+      } satisfies Pick<Mount, 'group' | 'type' | 'disposed' | 'isAirborne' | 'isFlyingMount' | 'riderPlayer' | 'ridePitch' | 'riderNpc' | 'dead'
+        | 'setNpcRider' | 'releaseRider' | 'getRiderPelvisSeatWorld'>
+      // Only the protocol used by native NPC boarding/dismounting is materialized; no Mount simulation.
+      return { mount: ground as unknown as Mount, setDead: () => { dead = true } }
+    }
+    const cat = mountDouble(MountType.BLACK_CAT), horse = mountDouble(MountType.HORSE)
+    const profile = createCareerProfile('roman')
+    npc.takeDamage(9); const hp = npc.hp
+    restoreTownDefenseRangerMount({ npc }, cat.mount, profile)
+    expect(npc.mount).toBe(cat.mount)
+    npc.dismountFromMount()
+    profile.townEquipment = { roman: { version: 1, actors: {}, nativeReserve: [] } }
+    cat.setDead()
+    restoreTownDefenseRangerMount({ npc, homeMount: horse.mount }, cat.mount, profile)
+    expect(npc.mount).toBe(horse.mount)
+    expect(horse.mount.riderNpc).toBe(npc)
+    expect(npc.hp).toBe(hp)
+    npc.dismountFromMount()
+    restoreTownDefenseRangerMount({ npc, homeMount: undefined }, cat.mount, profile)
+    expect(npc.mount).toBeNull()
+    expect(horse.mount.riderNpc).toBeNull()
+    expect(npc.hp).toBe(hp)
   })
 
   it('evacuates exactly 20 ordinary civilians to unique grouped shelter slots', () => {

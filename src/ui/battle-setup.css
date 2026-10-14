@@ -1517,6 +1517,7 @@
   grid-template-areas:
     "stage phase"
     "counts counts"
+    "squads squads"
     "gate gate"
     "timer timer";
   gap: 8px 22px;
@@ -1555,6 +1556,12 @@
 .campaign-hud-counts .roman { color: #e96b5c; }
 .campaign-hud-counts .viking { color: #64a9d8; }
 .campaign-hud-vs { color: #8a7b69; font-size: .85em; }
+.campaign-hud-squads {
+  grid-area: squads;
+  color: #b9ad9d;
+  text-align: center;
+  font: 600 12px/1.5 'Segoe UI', sans-serif;
+}
 
 .campaign-hud-gate {
   grid-area: gate;

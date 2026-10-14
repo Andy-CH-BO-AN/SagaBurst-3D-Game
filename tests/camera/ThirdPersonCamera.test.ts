@@ -13,6 +13,34 @@ function obstacle(min: [number, number, number], max: [number, number, number]):
 }
 
 describe('ThirdPersonCamera collision', () => {
+  it('rebinds a replacement actor without losing a partial aim transition or obstacle recovery', () => {
+    // Camera-only contract: two presentation records, no actors or GLBs.
+    const make = () => {
+      const camera = new THREE.PerspectiveCamera()
+      const player = { position: new THREE.Vector3(0, 40, 0), facingYaw: 0,
+        isMounted: false, isRangedAimViewActive: true }
+      const orbit = new ThirdPersonCamera(camera, player as Player)
+      orbit.setYaw(-Math.PI)
+      return { camera, player, orbit }
+    }
+    const reference = make(), rebound = make()
+    const input = { keys: {}, isRightMouseDown: false, consumeMouseDelta: () => ({ dx: 0, dy: 0 }) }
+    const wall = obstacle([-4, 39, -4], [4, 44, -3])
+    for (let frame = 0; frame < 3; frame++) {
+      reference.orbit.update(input, 1 / 60, [wall]); rebound.orbit.update(input, 1 / 60, [wall])
+    }
+    expect(rebound.camera.fov).toBeGreaterThan(28); expect(rebound.camera.fov).toBeLessThan(58)
+    const replacement = { ...rebound.player, position: new THREE.Vector3(3, 40, 0), isRangedAimViewActive: false }
+    rebound.orbit.followPlayer(replacement as Player)
+    reference.player.position.copy(replacement.position); reference.player.isRangedAimViewActive = false
+    for (let frame = 0; frame < 10; frame++) {
+      reference.orbit.update(input, 1 / 60); rebound.orbit.update(input, 1 / 60)
+      expect(rebound.camera.fov).toBeCloseTo(reference.camera.fov, 10)
+      expect(rebound.camera.position.distanceTo(reference.camera.position)).toBeLessThan(1e-10)
+      expect(rebound.camera.quaternion.angleTo(reference.camera.quaternion)).toBeLessThan(1e-7)
+    }
+  })
+
   it('pulls the camera in front of a large wall with clipping margin', () => {
     const origin = new THREE.Vector3(0, 2, 0)
     const direction = new THREE.Vector3(0, 0, 1)

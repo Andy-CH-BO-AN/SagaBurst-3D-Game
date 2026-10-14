@@ -1,5 +1,6 @@
+import { assertLegacyBowFacing } from '../helpers/assertLegacyBowFacing'
 import { readFileSync } from 'node:fs'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { HumanoidAssetRegistry, validateHumanoidManifest, type HumanoidAssetDescriptor } from '../../src/world/HumanoidAssetRegistry'
@@ -28,6 +29,7 @@ describe('independent hero asset', () => {
       const config = { faction: 'viking' as const, tier: 2 as const, isPlayer: false }
       const a = HumanoidAssetRegistry.createCharacterInstance(config, descriptor.assetId)
       const b = HumanoidAssetRegistry.createCharacterInstance(config, descriptor.assetId)
+      onTestFinished(() => { a.dispose(); b.dispose() })
       expect(a.root.scale.toArray()).toEqual([1, 1, 1])
       expect(a.skeleton).not.toBe(b.skeleton)
       expect(a.mixers).toHaveLength(3)
@@ -51,7 +53,7 @@ describe('independent hero asset', () => {
         level.object.traverse(node => { if (node instanceof THREE.Bone) heroNodes.add(node.uuid) })
       })
       b.root.traverse(node => { if (node instanceof THREE.Bone) expect(heroNodes.has(node.uuid)).toBe(false) })
-      a.dispose(); b.dispose()
+      assertLegacyBowFacing(a.root, a.rig)
     } finally { fetchMock.mockRestore(); loader.mockRestore() }
   })
 

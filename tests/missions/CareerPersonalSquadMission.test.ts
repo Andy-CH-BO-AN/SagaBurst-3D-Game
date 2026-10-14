@@ -30,7 +30,7 @@ import type { Mount } from '../../src/world/Mount'
 function owned(count = 3): CareerProfile {
   return { ...createCareerProfile('roman'), rank: 'captain', totalMerit: 6000, availableMerit: 6000,
     personalSquad: { members: Array.from({ length: count }, (_, i) => ({ id: `personal:test-${i}`,
-      type: (['soldier', 'captain', 'ranger'] as const)[i % 3] })) } }
+      type: (['soldier', 'captain', 'ranger', 'commander'] as const)[i % 4] })) } }
 }
 
 function runtimeHarness(sceneKey = 'town-home', hasHR = true, scheduler?: NpcSpawnScheduler, count = 3) {
@@ -87,7 +87,7 @@ describe('Fresh Career acceptance versus same-mission reload', () => {
   function acceptanceHarness() {
     // Three recording actors at most; no real NPC, Mount, TownWorld or official armies.
     const driver = new NpcSpawnTestDriver(), scheduler = driver.scheduler, h = runtimeHarness('town-home', true, scheduler)
-    h.profile.personalSquad!.members[0].type = 'captain'
+    h.profile.personalSquad!.members[0].type = 'commander'
     h.profile.completedOutpostStages = [1, 2, 3]
     h.profile.ownedMounts = ['horse']; h.profile.selectedMountId = 'horse'
     const values = new Map<string, string>()
@@ -118,7 +118,7 @@ describe('Fresh Career acceptance versus same-mission reload', () => {
     ['Captain patrol', profile => ({ ...profile, activeMission: createCaptainPatrolCommandMission(profile, ['patrol-1'], 'captain') })],
   ]
 
-  it.each(acceptances)('%s deploys returned, returning and reserve members with only returned members refitted', (_name, accept) => {
+  it.each(acceptances)('%s deploys a returned Commander, returning Captain and reserve Maki with only returned members refitted', (_name, accept) => {
     const h = acceptanceHarness(), saved = snapshotPersonalMission(h.profile)!
     saved.state = 'RETURNING'
     saved.members['personal:test-0'] = { status: 'exited', hp: 9, ammo: 1, shieldImpact: 2,
@@ -132,6 +132,7 @@ describe('Fresh Career acceptance versus same-mission reload', () => {
     const next = accept(h.profile)!
     expect(next).not.toBeNull(); expect(h.town.commit(next)).toBe(true)
     const accepted = h.store.load()!
+    expect(accepted.personalSquad!.members.map(member => member.type)).toEqual(['commander', 'captain', 'ranger'])
     const roster = (accepted.activeMission ?? accepted.activeOutpostMission)!.personalSquad!
     expect(roster.memberIds).toEqual(['personal:test-0', 'personal:test-1', 'personal:test-2'])
     expect(roster.members['personal:test-0']).toEqual({ status: 'reserve' })

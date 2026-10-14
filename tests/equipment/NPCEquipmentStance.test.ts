@@ -50,6 +50,19 @@ describe('NPC tactical equipment stance', () => {
     expect(npc.meleeAttackRadius).toBe(3.9)
   })
 
+  it.each(['paladin_sword_t4', 'paladin_mace_t4'])('keeps configured Spearman primary %s through Charge and Defend instead of replacing it with the native T2 backup', weaponId => {
+    const npc = createNpc(new THREE.Scene(), Faction.PLAYER, 'viking', 'viking_spearman', {
+      meleeWeaponId: 'steel_lance', secondaryMeleeWeaponId: 'steel_sword', shieldId: null, mountId: null,
+    }, 0)
+    expect(npc.applyCareerEquipment({ meleeWeaponId: weaponId, secondaryMeleeWeaponId: 'steel_sword', shieldId: null, mountId: null })).toBe(true)
+    npc.setTacticalOrder('charge')
+    expect(npc.meleeWeaponId).toBe(weaponId)
+    expect(npc.meleeDamage).toBe(weaponId === 'paladin_sword_t4' ? 60 : 55)
+    npc.setTacticalOrder('defend')
+    expect(npc.meleeWeaponId).toBe(weaponId)
+    expect(npc.loadout?.secondaryMeleeWeaponId).toBe('steel_sword')
+  })
+
   it('T4 Viking Spearman charges with the canonical T4 sidearm and defends with the original T3 Lance', () => {
     const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'Spearman', 4,
       false, resolveT4UnitLoadout('viking_spearman'), 'viking_spearman', undefined, undefined, undefined,

@@ -197,6 +197,27 @@ export class TownCavalryPatrolController {
     return true
   }
 
+  /** Commander may interrupt a live native encounter, but never steals physical return/refit. */
+  canClaimTownCommand(actorId: string): boolean {
+    const resident = this.residents.get(actorId), state = this.returning.get(actorId)?.state
+    return Boolean(resident && !this.hostile && !this.siegeOwned && !this.relinquished.has(actorId)
+      && !this.excluded.has(resident.npc) && !resident.npc.combatOwnership
+      && state !== 'RETURN_TO_BARRACKS' && state !== 'REFIT')
+  }
+
+  /** Durable Town-command ownership has already been saved when this runs. */
+  claimTownCommand(actorId: string): boolean {
+    if (!this.canClaimTownCommand(actorId)) return false
+    const resident = this.residents.get(actorId)!
+    this.returning.delete(actorId); this.relinquished.add(actorId); this.available.delete(actorId)
+    for (const squad of this.squads) {
+      squad.participants.delete(actorId)
+      if (squad.activeLeaderActorId === actorId) squad.activeLeaderActorId = null
+    }
+    resident.npc.clearEncounter()
+    return true
+  }
+
   /** Release never changes position, equipment or permanent membership. Dead/unmounted actors stay unavailable. */
   reclaim(actorId: string): boolean {
     if (!this.residents.has(actorId)) return false

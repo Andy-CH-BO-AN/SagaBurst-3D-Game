@@ -71,3 +71,33 @@ export function personalTownEagleDeployment(anchor: PersonalActorPosition, offic
   if (result.length !== count) throw new Error('No clear eagle deployment beside the Town field muster')
   return result
 }
+
+/**
+ * Outpost defenders must remain within their own palisade. The ordinary rear
+ * projection can start beyond the rear wall when a mounted player has been
+ * moved to an eagle landing pad, or when official guards occupy the back row.
+ * Search the friendly interior from back to front using the same collision
+ * and navigation legality checks, without pushing anyone through a wall.
+ */
+export function personalOutpostDeployment(anchor: PersonalActorPosition, official: readonly { x: number; z: number }[],
+  count: number, bounds: DeploymentBounds, obstacles: readonly ObstacleData[], navigation: NavigationWorld): PersonalActorPosition[] {
+  const facingZ = Math.cos(anchor.yaw)
+  if (Math.abs(facingZ) < 0.9) return personalRearDeployment(anchor, official, count, bounds, obstacles, navigation)
+  const occupied = [...official], result: PersonalActorPosition[] = []
+  const midX = (bounds.minX + bounds.maxX) / 2
+  const rearZ = facingZ > 0 ? bounds.minZ : bounds.maxZ
+  const rowDirection = Math.sign(facingZ)
+  const rows = Math.floor((bounds.maxZ - bounds.minZ - 12) / 5)
+  const columns = Math.floor((bounds.maxX - bounds.minX - 12) / 10)
+  for (let row = 0; row <= rows && result.length < count; row++) {
+    const z = rearZ + rowDirection * (6 + row * 5)
+    for (let col = 0; col <= columns * 2 && result.length < count; col++) {
+      const x = midX + (col % 2 ? 1 : -1) * Math.ceil(col / 2) * 5
+      const point = { x, z, yaw: anchor.yaw }
+      if (!legalSlot(point, occupied, bounds, obstacles, navigation, anchor)) continue
+      result.push(point); occupied.push(point)
+    }
+  }
+  if (result.length !== count) throw new Error('No legal Outpost interior deployment for the personal squad')
+  return result
+}

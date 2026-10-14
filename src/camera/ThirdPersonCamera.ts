@@ -124,6 +124,11 @@ export class ThirdPersonCamera {
     this._updateAimDirection()
   }
 
+  /** Replace the actor without resetting aim blend, collision recovery or flight view. */
+  followPlayer(player: Player): void {
+    this.player = player
+  }
+
   setYaw(value: number): void {
     this.yaw = value
     this._updateAimDirection()

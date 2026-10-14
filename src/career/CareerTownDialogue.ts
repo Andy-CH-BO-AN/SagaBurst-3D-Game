@@ -1,7 +1,7 @@
 import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, enlistmentMerit, type CareerProfile, type CareerRank } from './CareerProfile'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 
-export type DialogueRole = 'merchant' | 'ranger' | 'cat' | 'captain' | 'deployment' | 'civilian'
+export type DialogueRole = 'merchant' | 'ranger' | 'cat' | 'captain' | 'commander' | 'deployment' | 'civilian'
 type Ranked = Record<CareerRank, string>
 const ranked = (...lines: [string, string, string, string, string]): Ranked => Object.fromEntries(CAREER_RANKS.map((rank, i) => [rank, lines[i]])) as Ranked
 interface Speaker {
@@ -24,10 +24,32 @@ interface TownDialogue {
 }
 const speaker = (firstMeet: string, greetingByRank: Ranked, interactionOpen = '', tierLocked = '', insufficientMerit = '', alreadyOwned = ''): Speaker => ({ firstMeet, greetingByRank, interactionOpen, tierLocked, insufficientMerit, alreadyOwned })
 
+const commanderDialogue = {
+  roman: {
+    captainReferral: '你的戰績已經超出我的任命權限。想晉升 Commander，就去找指揮官。他會親自審核你的軍功。',
+    lowerRank: '你還不是隊長。先回去找騎兵隊長完成你的任命，再來見我。',
+    insufficient: '想成為指揮官，你必須先證明自己能承擔整支軍隊的責任。20,000 軍功是最低要求。',
+    eligible: '你的戰績已達到指揮官任命標準。我將正式授予你 Commander 軍階。你準備好承擔這份責任了嗎？',
+    complete: '指揮官，現在你需要證明的，不再是自己的劍術，而是你能否帶領整支軍隊取得勝利。',
+  },
+  viking: {
+    captainReferral: '哈，你已經是隊長了！想當指揮官？這可不是我說了算。去找指揮官，讓他看看你有沒有那個本事！',
+    lowerRank: '你連隊長都還不是，就想來找我？先去找你的隊長！',
+    insufficient: '想指揮整支軍隊？那就拿出 20,000 軍功來證明自己。光有膽子可不夠。',
+    eligible: '哈！終於來了個像樣的傢伙！你的戰績夠格了。從今天開始，你就是 Commander。準備好讓整支軍隊聽你的命令了嗎？',
+    complete: '現在你也是指揮官了。別讓我發現你只會帶著士兵一起送死！',
+  },
+} as const
+function commanderSpeaker(faction: CharacterFaction): Speaker {
+  const lines = commanderDialogue[faction]
+  return speaker('', ranked(lines.lowerRank, lines.lowerRank, lines.lowerRank, lines.insufficient, lines.complete))
+}
+
 /** Peaceful dialogue only. Future missions are discussed as duties, never offered as playable content. */
 export const CAREER_TOWN_DIALOGUE: Record<CharacterFaction, TownDialogue> = {
   roman: {
     speakers: {
+      commander: commanderSpeaker('roman'),
       merchant: speaker('新兵？看得出來。你握劍的手還太乾淨。\n軍團會給你能活命的東西。想拿更好的，先把軍階和軍功備齊。',
         ranked('新兵。先學會別把劍拿反。', '又回來了？看來你第一次沒死。', '我替你留了些好東西。', '隊長。今天需要什麼？', '指揮官。能給你的最好裝備都在這裡。'),
         '說吧。短劍、長槍、盾，還是遠程武器？\n先看價目。', '這不是給你現在這個軍階用的。\n先去找隊長。等你的軍階夠了，再回來。', '你有資格拿它，但你的軍功還不夠。\n資格和買得起，是兩回事。', '這件你已經買過了。\n你需要的是保養它，不是再買一件。'),
@@ -53,6 +75,7 @@ export const CAREER_TOWN_DIALOGUE: Record<CharacterFaction, TownDialogue> = {
   },
   viking: {
     speakers: {
+      commander: commanderSpeaker('viking'),
       merchant: speaker('別一直看我。我是羅馬人，沒錯。\n但他們喜歡我的劍，所以我還活著。',
         ranked('又一個新來的。\n至少先挑把不會害死自己的東西。', '喔，你還活著。\n那看來可以給你看點像樣的東西了。', '最近有人一直提到你的名字。\n希望不是因為你欠錢。', '隊長。今天想拿什麼去砍人？', '哈，我們的大人物來了。\n看吧。反正現在也沒人敢說你不夠格。'),
         '你有軍功，我有兵器。\n先看價目。別急。', '你拿得起，不代表他們准你拿。\n去找隊長。', '軍階夠了，袋子卻不夠重。', '你不是已經買過了？\n你需要的是磨刀，不是再買一把。'),
@@ -94,6 +117,15 @@ export function selectTownDialogue(c: DialogueContext, event: DialogueEvent = 'o
   const catalog = CAREER_TOWN_DIALOGUE[c.townFaction], voice = catalog.speakers[c.npcRole]
   if (event === 'horsePurchaseSuccess') return catalog.horsePurchaseSuccess[c.npcRole === 'cat' ? 'cat' : 'ranger']
   if (event === 'product') return c.isOwned ? voice.alreadyOwned : !c.tierUnlocked ? voice.tierLocked : !c.hasEnoughMerit ? voice.insufficientMerit : voice.interactionOpen
+  if (event === 'open' || event === 'promotion') {
+    const lines = commanderDialogue[c.townFaction]
+    if (c.npcRole === 'captain' && c.playerRank === 'captain') return lines.captainReferral
+    if (c.npcRole === 'commander') {
+      if (c.playerRank === 'commander') return lines.complete
+      if (c.playerRank !== 'captain') return lines.lowerRank
+      return c.promotionEligible ? lines.eligible : lines.insufficient
+    }
+  }
   if (event === 'promotion') return c.promotionEligible && c.nextRank ? catalog.promotionEligible[c.playerRank] : catalog.promotionLocked[c.playerRank]
   if (event === 'promotionSuccess') return catalog.promotionSuccess[c.playerRank]
   if (event === 'soldierFirstOutpost') return catalog.soldierFirstOutpost

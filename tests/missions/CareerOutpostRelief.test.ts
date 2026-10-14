@@ -6,6 +6,7 @@ import { createCareerReliefSpawnPlan } from '../../src/career/CareerOutpostRelie
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
 import { AIType, Faction } from '../../src/world/NPC'
+import { officialCommandSquads } from '../../src/career/CareerCommandAuthority'
 import { MAX_COMMAND_SQUAD_SIZE } from '../../src/battle/CommandTarget'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
@@ -97,5 +98,27 @@ describe('Relief result policy', () => {
     expect(failure.update(1, { ...combat, defendersAlive: 0, playerDead: false })).toEqual([])
     expect(failure.update(1, { ...combat, defendersAlive: 0 })).toEqual(['battle_defeat'])
     expect(failure.update(1, combat)).toEqual([])
+  })
+})
+
+
+describe('Commander Relief production ownership', () => {
+  it.each(['roman', 'viking'] as const)('keeps both %s rescue squads and assigns only the friendly Outpost garrison', faction => {
+    const accepted = acceptCareerOutpostRelief({ ...ready(faction), rank: 'commander', totalMerit: 20000 }, 'commander-relief')!
+    const authority = accepted.activeOutpostMission!.officialSquad!
+    const config = createCareerOutpostLaunch(accepted), plan = createCareerReliefSpawnPlan(config)
+    expect(plan.npcSpecs).toHaveLength(129)
+    expect(authority.actorIds).toHaveLength(69)
+    expect(authority.commandedSquadIds).toEqual([])
+    expect(officialCommandSquads(authority).map(squad => [squad.squadId, squad.actorIds.length])).toEqual([[1, 24], [2, 25], [3, 20]])
+    expect(authority.squads![0].actorIds).toEqual(['commander-relief:initial:80', ...Array.from({ length: 23 }, (_, index) => `commander-relief:initial:${82 + index}`)])
+    expect(authority.squads![1].actorIds).toEqual(['commander-relief:initial:81', ...Array.from({ length: 24 }, (_, index) => `commander-relief:initial:${105 + index}`)])
+    expect(authority.squads![2].actorIds).toEqual(Array.from({ length: 20 }, (_, index) => `commander-relief:initial:${index}`))
+    expect(authority.actorIds.every(id => {
+      const spec = plan.npcSpecs[Number(id.split(':').at(-1))]
+      return spec.characterFaction === faction && spec.faction === Faction.PLAYER
+    })).toBe(true)
+    expect(new Set(authority.actorIds).size).toBe(69)
+    expect(config.capabilities).toEqual({ reinforcementsEnabled: false, playerCommandsEnabled: true, gateControlEnabled: false, attackerHeroesEnabled: false })
   })
 })

@@ -1,3 +1,4 @@
+import { careerTownSceneRoster } from '../../src/career/CareerFieldSceneContext'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import {
@@ -8,6 +9,12 @@ import {
 import { Faction } from '../../src/world/NPC'
 import type { NPC } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
+import { createMissionCommandAuthority } from '../../src/career/CareerCommandAuthority'
+import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, createActiveCareerMission } from '../../src/career/CareerMissionState'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { acceptCareerOutpost, careerOutpostCommandMeritPolicy, claimCareerOutpost } from '../../src/career/CareerOutpostMission'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 
 function playerSource(): CombatActorRef {
@@ -99,6 +106,125 @@ describe('BattleStatsTracker', () => {
     tracker.freeze()
     events.emit({ type: 'actor_killed', source: official, target: npcTarget('late-enemy'), method: 'projectile' })
     expect(tracker.officialCommandCheckpoint()).toEqual({ ...emptyPersonalContribution(), damageDealt: 7, kills: 1, damageTaken: 4 })
+  })
+
+  it('resumes two official squads through the Career store without duplicating merit or moving departed survivors to Squad 1', () => {
+    const profile = createCareerProfile('viking')
+    profile.rank = 'commander'; profile.totalMerit = 20000
+    const mission = createActiveCareerMission('captain-cavalry-command', 0, 2, 0, 'multi-merit')
+    profile.activeMission = mission
+    mission.phase = 'ENGAGING'; mission.friendlyActorIds = ['north', 'south', 'departed']
+    mission.officialSquad = createMissionCommandAuthority(mission.id, 'viking', 'commander', ['north'], [
+      { squadId: 1, actorIds: ['north'] }, { squadId: 2, actorIds: ['south', 'departed'] },
+    ])
+    mission.officialSquad.members = { departed: { status: 'exited', hp: 15 } }
+    const events = new CombatEventStream()
+    const tracker = new BattleStatsTracker(events, true, undefined, {}, careerMissionCommandMeritPolicy(mission))
+    onTestFinished(() => tracker.dispose())
+    const north: CombatActorRef = { ...squadSource(1), actorId: 'north', ownership: 'mission-official' }
+    const south: CombatActorRef = { ...squadSource(2), actorId: 'south', ownership: 'mission-official' }
+    for (const [source, damage] of [[north, 7], [south, 11]] as const) {
+      events.emit({ type: 'damage_applied', source, target: npcTarget(mission.targetActorIds[source === north ? 0 : 1]), method: 'projectile', requestedDamage: damage, appliedDamage: damage })
+      events.emit({ type: 'actor_killed', source, target: npcTarget(mission.targetActorIds[source === north ? 0 : 1]), method: 'projectile' })
+    }
+    for (const [source, damage] of [[north, 3], [south, 5]] as const) events.emit({ type: 'damage_applied',
+      source: { ...enemySource(), actorId: mission.targetActorIds[0] },
+      target: npcTarget(source.actorId, source.squadId as 1 | 2), method: 'melee', requestedDamage: damage, appliedDamage: damage })
+    const actors = [{ combatantId: 'north', squadId: 1, dead: true }, { combatantId: 'south', squadId: 2, dead: false }] as unknown as NPC[]
+    const snapshot = tracker.snapshot(actors, { dead: false } as Player)
+    expect(snapshot.meritPlayer).toMatchObject({ damageDealt: 18, kills: 2 })
+    expect(snapshot.squads).toEqual([
+      expect.objectContaining({ squadId: 1, damageDealt: 7, damageTaken: 3, startingMembers: 1, survivors: 0, casualties: 1 }),
+      expect.objectContaining({ squadId: 2, damageDealt: 11, damageTaken: 5, startingMembers: 2, survivors: 2, casualties: 0 }),
+      expect.objectContaining({ squadId: 'personal', startingMembers: 0 }),
+    ])
+    mission.officialSquad.contribution = tracker.officialCommandCheckpoint()
+    expect(mission.officialSquad.contribution.damageTaken).toBe(8)
+    for (const saved of tracker.officialSquadCheckpoints()) {
+      mission.officialSquad.squads!.find(squad => squad.squadId === saved.squadId)!.contribution = saved.contribution
+    }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const loaded = store.load()!.activeMission!
+    const resumed = new BattleStatsTracker(new CombatEventStream(), true, undefined, {}, careerMissionCommandMeritPolicy(loaded))
+    onTestFinished(() => resumed.dispose())
+    expect(resumed.snapshot(actors, { dead: false } as Player)).toEqual(snapshot)
+    // A departed soldier still visible in the scene must be counted just once.
+    expect(resumed.snapshot([...actors, { combatantId: 'departed', squadId: 2, dead: false } as NPC], { dead: false } as Player).squads[1].survivors).toBe(2)
+  })
+
+  it('credits Roman Maki against the enemy army gate and rejects her own army gate regardless of visual faction', () => {
+    const ranger = careerTownSceneRoster({ faction: 'roman' }).find(entry => entry.spec.id === 'ranger')!
+    const mission = createActiveCareerMission('captain-siege-command', -1, 1, 0, 'maki-gates')
+    mission.kind = 'enemy-town-assault'; mission.phase = 'ENGAGING'
+    mission.officialSquad = createMissionCommandAuthority(mission.id, 'roman', 'commander', [], [
+      { squadId: 2, actorIds: [ranger.spec.id] },
+    ])
+    const source: CombatActorRef = { actorId: ranger.spec.id, actorType: 'npc', squadId: 2,
+      allegiance: ranger.allegiance, characterFaction: ranger.characterFaction, ownership: 'mission-official' }
+    const events = new CombatEventStream()
+    const tracker = new BattleStatsTracker(events, true, event => acceptsCareerMissionStat(mission, event), {}, careerMissionCommandMeritPolicy(mission))
+    onTestFinished(() => tracker.dispose())
+    for (const characterFaction of ['viking', 'roman'] as const) {
+      const target: CombatTargetRef = { targetId: `${characterFaction}:gate`, targetType: 'structure',
+        name: 'Gate', structureKind: 'gate', characterFaction }
+      const damage = { type: 'structure_damaged' as const, source, target, method: 'siege' as const,
+        requestedDamage: 13, appliedDamage: 13, hpRatio: .5 }
+      const destroyed = { type: 'structure_destroyed' as const, source, target, method: 'siege' as const }
+      expect(acceptsCareerMissionStat(mission, damage)).toBe(characterFaction === 'viking')
+      expect(acceptsCareerMissionStat(mission, destroyed)).toBe(characterFaction === 'viking')
+      events.emit(damage); events.emit(destroyed)
+    }
+    expect(tracker.officialCommandCheckpoint()).toEqual({ ...emptyPersonalContribution(),
+      structureDamage: 13, structuresDestroyed: 1, gateBreaches: 1 })
+    expect(tracker.snapshot([], { dead: false } as Player).meritPlayer).toMatchObject({
+      structureDamage: 13, structuresDestroyed: 1, gateBreaches: 1,
+    })
+  })
+
+  it('keeps commanded civilian damage and kills outside both official and personal merit', () => {
+    const mission = createActiveCareerMission('captain-cavalry-command', 0, 2, 0, 'civilian-merit')
+    mission.phase = 'ENGAGING'
+    mission.officialSquad = createMissionCommandAuthority(mission.id, 'viking', 'commander', [], [
+      { squadId: 1, actorIds: ['official'] },
+    ])
+    const events = new CombatEventStream()
+    const tracker = new BattleStatsTracker(events, true, undefined, {}, careerMissionCommandMeritPolicy(mission))
+    onTestFinished(() => tracker.dispose())
+    const official: CombatActorRef = { ...squadSource(1), actorId: 'official', ownership: 'mission-official' }
+    const civilian: CombatActorRef = { ...squadSource(1), actorId: 'civilian:0', squadId: 'civilians', ownership: 'player-civilian' }
+    for (const [source, damage, targetId] of [[official, 7, mission.targetActorIds[0]], [civilian, 99, mission.targetActorIds[1]]] as const) {
+      events.emit({ type: 'damage_applied', source, target: npcTarget(targetId), method: 'melee', requestedDamage: damage, appliedDamage: damage })
+      events.emit({ type: 'actor_killed', source, target: npcTarget(targetId), method: 'melee' })
+    }
+    expect(tracker.officialCommandCheckpoint()).toEqual({ ...emptyPersonalContribution(), damageDealt: 7, kills: 1 })
+    expect(tracker.commandCheckpoint()).toEqual(emptyPersonalContribution())
+    expect(tracker.snapshot([], { dead: false } as Player).meritPlayer).toMatchObject({ damageDealt: 7, kills: 1 })
+  })
+
+  it.each(['personal', 'official'] as const)('gates all %s squad counters on accepted source and event while preserving valid events', kind => {
+    const events = new CombatEventStream()
+    const source: CombatActorRef = { ...squadSource(1), actorId: kind,
+      squadId: kind === 'personal' ? 'personal' : 1,
+      ownership: kind === 'personal' ? 'player-personal' : 'mission-official' }
+    const tracker = new BattleStatsTracker(events, true, undefined, {}, {
+      acceptsSource: candidate => kind === 'personal' && candidate.actorId === source.actorId,
+      acceptsEvent: event => event.target.targetId === 'accepted',
+      initialMemberIds: kind === 'personal' ? [source.actorId] : [],
+      official: { acceptsSource: candidate => kind === 'official' && candidate.actorId === source.actorId,
+        initialMemberIds: kind === 'official' ? [source.actorId] : [] },
+    })
+    onTestFinished(() => tracker.dispose())
+    for (const [actorId, targetId] of [[source.actorId, 'accepted'], ['unaccepted-source', 'accepted'], [source.actorId, 'other-mission']]) {
+      const captured = { ...source, actorId }, target = { ...npcTarget(targetId), structureKind: 'gate' as const }
+      events.emit({ type: 'damage_applied', source: captured, target, method: 'melee', requestedDamage: 7, appliedDamage: 7 })
+      events.emit({ type: 'actor_killed', source: captured, target, method: 'melee' })
+      events.emit({ type: 'structure_damaged', source: captured, target: { ...target, targetType: 'structure' }, method: 'siege', requestedDamage: 11, appliedDamage: 11, hpRatio: .5 })
+      events.emit({ type: 'structure_destroyed', source: captured, target: { ...target, targetType: 'structure' }, method: 'siege' })
+    }
+    expect(tracker.snapshot([], { dead: false } as Player).squads.find(squad => squad.squadId === source.squadId)).toMatchObject({
+      damageDealt: 7, kills: 1, structureDamage: 11, structuresDestroyed: 1, gateBreaches: 1,
+    })
   })
 
   it('never adds player events or an overlapping NPC to command merit more than once', () => {
@@ -412,5 +538,66 @@ describe('BattleStatsTracker', () => {
     })
 
     expect(tracker.snapshot([], { dead: false } as any).player.damageDealt).toBe(0)
+  })
+})
+
+
+describe('Regular Outpost official merit settlement', () => {
+  it('merges two accepted official squads and HR once, preserves source boundaries, and resumes their saved contributions', () => {
+    const profile = acceptCareerOutpost({ ...createCareerProfile('viking'), rank: 'commander', totalMerit: 20000,
+      personalSquad: { members: [{ id: 'personal:outpost', type: 'soldier' }] } }, 1, 'outpost-merit')!
+    const mission = profile.activeOutpostMission!, official = mission.officialSquad!
+    const first: CombatActorRef = { ...squadSource(1), actorId: official.squads![0].actorIds[0], ownership: 'mission-official' }
+    const second: CombatActorRef = { ...squadSource(2), actorId: official.squads![1].actorIds[0], ownership: 'mission-official' }
+    const personal: CombatActorRef = { ...squadSource(1), actorId: 'personal:outpost', squadId: 'personal', ownership: 'player-personal' }
+    mission.personalSquad!.members[personal.actorId].status = 'deployed'
+    let active = false
+    const events = new CombatEventStream()
+    const tracker = new BattleStatsTracker(events, false, undefined, {}, careerOutpostCommandMeritPolicy(mission, () => mission,
+      event => active && event.target.allegiance === Faction.ENEMY && event.target.targetId.startsWith('outpost-merit:attackers:')))
+    onTestFinished(() => tracker.dispose())
+    const hit = (source: CombatActorRef, damage: number, target = npcTarget('outpost-merit:attackers:0')) =>
+      events.emit({ type: 'damage_applied', source, target, method: 'melee', requestedDamage: damage, appliedDamage: damage })
+    hit(first, 999)
+    active = true
+    for (const [source, damage] of [[first, 20], [second, 40], [personal, 10]] as const) {
+      hit(source, damage)
+      events.emit({ type: 'actor_killed', source, target: npcTarget('outpost-merit:attackers:0'), method: 'melee' })
+    }
+    const rejected: CombatActorRef[] = [
+      { ...first, actorId: 'outpost-merit:attackers:0' }, { ...first, squadId: 2 },
+      { ...first, ownership: 'player-personal' }, { ...first, ownership: 'town-command' },
+      { ...first, allegiance: Faction.ENEMY },
+    ]
+    for (const source of rejected) hit(source, 999)
+    hit(first, 999, npcTarget('next-mission:attackers:0'))
+    const snapshot = tracker.snapshot([], { dead: false } as Player)
+    expect(snapshot.meritPlayer).toMatchObject({ damageDealt: 70, kills: 3 })
+    expect(snapshot.player).toMatchObject({ damageDealt: 0, kills: 0 })
+    expect(tracker.officialCommandCheckpoint()).toMatchObject({ damageDealt: 60, kills: 2 })
+    expect(tracker.commandCheckpoint()).toMatchObject({ damageDealt: 10, kills: 1 })
+    expect(snapshot.squads.find(squad => squad.squadId === 1)).toMatchObject({ damageDealt: 20, kills: 1 })
+    expect(snapshot.squads.find(squad => squad.squadId === 2)).toMatchObject({ damageDealt: 40, kills: 1 })
+    expect(snapshot.squads.find(squad => squad.squadId === 'personal')).toMatchObject({ damageDealt: 10, kills: 1 })
+    for (const saved of tracker.officialSquadCheckpoints()) {
+      expect(saved.contribution).toMatchObject({ damageDealt: saved.squadId === 1 ? 20 : saved.squadId === 2 ? 40 : 0,
+        kills: saved.squadId === 1 || saved.squadId === 2 ? 1 : 0 })
+    }
+    official.contribution = tracker.officialCommandCheckpoint()
+    for (const saved of tracker.officialSquadCheckpoints()) official.squads!.find(squad => squad.squadId === saved.squadId)!.contribution = saved.contribution
+    mission.personalSquad!.contribution = tracker.commandCheckpoint()
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const restored = store.load()!
+    const resumed = new BattleStatsTracker(new CombatEventStream(), false, undefined, {}, careerOutpostCommandMeritPolicy(restored.activeOutpostMission!))
+    onTestFinished(() => resumed.dispose())
+    expect(resumed.snapshot([], { dead: false } as Player)).toEqual(snapshot)
+    const claim = claimCareerOutpost(restored, mission.id, 'victory', resumed.snapshot([], { dead: false } as Player))
+    expect(claim.meritAwarded).toBe(127)
+    expect(claim.meritBreakdown).toMatchObject({ characterDamage: 3, kills: 24, victory: 80, survival: 20 })
+    expect(store.save(claim.profile)).toBe(true)
+    const duplicate = claimCareerOutpost(store.load()!, mission.id, 'victory', snapshot)
+    expect(duplicate.alreadyClaimed).toBe(true)
+    expect(duplicate.meritAwarded).toBe(0)
   })
 })

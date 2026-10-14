@@ -14,7 +14,7 @@ import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 export const townName = (faction: CharacterFaction): string => faction === 'roman' ? 'vinum 村' : 'økse 村'
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, stableHorses: 5 } as const
 export const CIVILIAN_PROFILE = { category: 'civilian', name: '平民 Civilian', hp: 50, retaliationWeapon: 'gladius_rusty' } as const
-export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'archer_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian' | 'hr-officer' | 'eagle-trainer'
+export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'archer_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'commander' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian' | 'hr-officer' | 'eagle-trainer'
 export type TownDuty = 'eagle_garrison' | 'training' | 'gate_guard' | 'patrol' | 'service' | 'civilian'
 export type TownPatrolId = 'A' | 'B'
 export type TownDefenseGroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
@@ -46,15 +46,15 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
   const kinds: Partial<Record<TownRole, TownUnitKind>> = {
     melee_cavalry: 'sword_cavalry', lancer_cavalry: 'lancer', ranged_cavalry: 'horse_archer',
     melee_infantry: 'melee', spearman_infantry: 'spearman', ranged_infantry: 'ranged', archer_infantry: 'archer',
-    captain: 'sword_cavalry', deployment: 'melee',
+    captain: 'sword_cavalry', commander: 'sword_cavalry', deployment: 'melee',
   }
-  const unitKind = role === 'hr-officer' ? 'sword_cavalry' : typeof actor === 'string' ? kinds[role] : actor.unitKind
+  const unitKind = role === 'hr-officer' || role === 'commander' ? 'sword_cavalry' : typeof actor === 'string' ? kinds[role] : actor.unitKind
   const kind = unitKind === 'melee' || !unitKind ? faction === 'roman' ? 'heavy_infantry' : 'berserker'
     : unitKind === 'ranged' ? faction === 'roman' ? 'javelin_infantry' : 'archer' : unitKind
   const presetId = `${faction}_${kind}` as UnitPresetId
   const patrolCaptain = typeof actor !== 'string' && actor.duty === 'patrol' && actor.patrolLeader
-  const tier = typeof actor !== 'string' && actor.duty === 'eagle_garrison' ? 3 : role === 'captain' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
-  const level: 1 | 2 | 3 | 4 = role === 'captain' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 4 : tier
+  const tier = typeof actor !== 'string' && actor.duty === 'eagle_garrison' ? 3 : role === 'captain' || role === 'commander' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
+  const level: 1 | 2 | 3 | 4 = role === 'captain' || role === 'commander' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 4 : tier
   const base = UNIT_PRESETS[presetId].tierLoadouts[tier]
   // Town owns mount placement; only standard hero equipment comes from the T4 catalog.
   return { presetId, tier, level, loadout: level === 4
@@ -177,6 +177,7 @@ export class TownEvent {
   readonly allActors = new Map<string, { dead: boolean }>()
   readonly actors = new Map<string, { dead: boolean }>()
   private readonly expectedIds: Set<string>
+  private readonly additionalResidentIds = new Set<string>()
   private excludedActorIds: ReadonlySet<string> = new Set()
   hostile = false
   registrationComplete = false
@@ -188,6 +189,22 @@ export class TownEvent {
     if (this.allActors.has(id)) throw new Error('Duplicate town actor: ' + id)
     this.allActors.set(id, actor)
     if (this.expectedIds.has(id)) this.actors.set(id, actor)
+  }
+  /** Admit a materialized normal-Town resident after an in-place formal mission return.
+   * Pending/failed spawns never alter the completed population contract. */
+  registerAdditionalResident(id: string, actor: { dead: boolean }): void {
+    if (this.expectedIds.has(id)) throw new Error('Duplicate town objective resident: ' + id)
+    this.register(id, actor)
+    this.expectedIds.add(id)
+    this.additionalResidentIds.add(id)
+    this.actors.set(id, actor)
+  }
+  /** Roll back only dynamically admitted residents, never the original formal roster. */
+  unregisterAdditionalResident(id: string): void {
+    if (!this.additionalResidentIds.delete(id)) return
+    this.expectedIds.delete(id)
+    this.allActors.delete(id)
+    this.actors.delete(id)
   }
   complete(): void {
     const missing = [...this.expectedIds].filter(id => !this.actors.has(id))
@@ -209,7 +226,7 @@ export function settleTown(current: CareerProfile, id: string, result: TownResul
   if (profile.townEvent?.id !== id || profile.townEvent.state !== 'hostile') return profile
   const penalty = result === 'player_defeated' ? Math.min(profile.availableMerit, TOWN_RULES.deathPenalty) : 0
   profile.availableMerit -= penalty
-  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission; delete profile.townCommandSquad }
+  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission; delete profile.townCommandSquad; delete profile.townAirCommandSquad }
   profile.townEvent = { id, state: 'settled', result, penalty }
   return profile
 }
@@ -359,7 +376,7 @@ export function sellTownProducts(current: CareerProfile, productIds: readonly st
 /** Town officers use the faction's canonical T4 profile for their mounted or foot role. */
 export function townActorHeroProfile(faction: CharacterFaction, spec: TownActorSpec) {
   if (spec.role === 'deployment') return T4_UNIT_PROFILES[faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker']
-  if (spec.role === 'captain' || spec.role === 'hr-officer') return townCaptainProfile(faction)
+  if (spec.role === 'captain' || spec.role === 'commander' || spec.role === 'hr-officer') return townCaptainProfile(faction)
   if (spec.duty === 'patrol' && spec.patrolLeader) return townCaptainProfile(faction)
   return undefined
 }

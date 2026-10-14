@@ -9,6 +9,8 @@ import { advanceUntil } from '../helpers/simulation'
 import { resolveMountImpacts } from '../../src/combat/MountImpact'
 import { ArrowProjectile } from '../../src/world/ArrowProjectile'
 import type { ProjectileFlightBudget } from '../../src/combat/ProjectileBallistics'
+import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
+import { restoreCommandActor, snapshotCommandActor } from '../../src/career/CareerCommandActorCheckpoint'
 import { siegeRoster } from '../../src/career/TownSiege'
 
 vi.mock('../../src/world/HorseAssetRegistry', async original => ({
@@ -31,7 +33,7 @@ vi.mock('../../src/world/MakiRangerEquipment', async importOriginal => ({
 vi.mock('../../src/world/Terrain', async original => ({ ...(await original<typeof import('../../src/world/Terrain')>()), getTerrainHeight: () => 0 }))
 
 /** Per case: one real rider and Mount, plus Player only where targeting/attribution is under test; zero GLBs. */
-function fixture(rangedWeaponId: string | null = null, hero = false) {
+function fixture(rangedWeaponId: string | null = null, hero = false, mounted = true) {
   const scene = new THREE.Scene()
   const npc = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', rangedWeaponId ? AIType.RANGED : AIType.MELEE, 'Eagle rider', hero ? 4 : 1, false,
     { meleeWeaponId: null, rangedWeaponId, shieldId: null, mountId: 'xongkoro' }, undefined, undefined, undefined, undefined, undefined, hero ? 'praetorian' : undefined)
@@ -39,7 +41,7 @@ function fixture(rangedWeaponId: string | null = null, hero = false) {
   const mount = new Mount(scene, MountType.XONGKORO, 0, 0, 0)
   onTestFinished(() => mount.dispose())
   npc.respawnEnabled = false
-  npc.mountVehicle(mount)
+  if (mounted) npc.mountVehicle(mount)
   const placeAirborne = (feetHeight: number, velocity = new THREE.Vector3()) => {
     mount.group.position.y = feetHeight - mount.getRiderStandingSeatWorld(new THREE.Vector3()).y + mount.group.position.y
     mount.flight!.restore({ phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: velocity.length(), velocity })
@@ -49,6 +51,32 @@ function fixture(rangedWeaponId: string | null = null, hero = false) {
 }
 
 describe('NPC eagle lifecycle and combat caller wiring', () => {
+  it('restores an airborne command checkpoint on the same initially unmounted pair without a native garrison snapshot', () => {
+    // One real pair protects the mountVehicle airborne guard during partial scene recovery.
+    const { npc, mount } = fixture('elven_runebow', false, false)
+    restoreCommandActor(npc, { status: 'deployed', hp: 25, ammo: 7,
+      position: { x: 20, y: 32.8, z: 40, yaw: 0 }, order: 'formation',
+      formation: { commandId: 17, position: { x: 20, y: 30, z: 130, yaw: 0 }, reached: false },
+      mount: { hp: 70, mounted: true, position: { x: 20, y: 30, z: 40, yaw: 0 },
+        flight: { phase: 'cruise', yaw: 0, pitch: 0, bank: 0, speed: 12, velocity: { x: 0, y: 0, z: 12 } } },
+    }, mount)
+    expect(npc.mount).toBe(mount); expect(mount.riderNpc).toBe(npc)
+    expect(mount.isAirborne).toBe(true); expect(npc.isFalling).toBe(false)
+    expect(npc.hp).toBe(25); expect(npc.combatAmmo).toBe(7); expect(mount.currentHp).toBe(70)
+    expect(mount.group.position).toEqual(new THREE.Vector3(20, 30, 40))
+    const persisted = parseCommandActorCheckpoint(JSON.parse(JSON.stringify(snapshotCommandActor(npc, mount))))!
+    expect(persisted.formation?.position.y).toBe(30)
+    npc.setTacticalOrder('attack')
+    restoreCommandActor(npc, persisted, mount)
+    expect(npc.combatFormationCheckpoint?.position.y).toBe(30)
+    const navigation = new NavigationWorld()
+    advanceUntil(() => mount.group.position.z > 95, () => npc.updateTownTravel(1 / 60, 0, [], [], navigation), {
+      maxSimulationSeconds: 15, failureMessage: 'Partially restored air command resumes physical flight',
+    })
+    expect(mount.group.position.y).toBeGreaterThan(25)
+    expect(npc.tacticalOrder).toBe('formation')
+  })
+
   it.each([
     { faction: 'viking', mounted: false, altitude: 40, range: 50 },
     { faction: 'roman', mounted: true, altitude: 20, range: 30 },
@@ -279,6 +307,37 @@ import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
 
 describe('NPC aerial orders and indexed physical neighbors', () => {
+  it('takes off toward a copied patrol waypoint above stale boarding orders, then turns to the next waypoint at cruise speed', () => {
+    // One real NPC/eagle; this owns physical ordered flight, not roster/cooldown policy.
+    const { npc, mount } = fixture()
+    const navigation = new NavigationWorld()
+    npc.setEagleFlightOrder({ kind: 'hold' })
+    npc.updateTownTravel(0, 0, [], [], navigation)
+    npc.assignFormationTarget(-7, new THREE.Vector3(0, 0, -80), new THREE.Vector3(0, 0, -1))
+    const destination = new THREE.Vector3(0, 0, 120)
+    npc.setEagleFlightOrder({ kind: 'patrol', target: destination, cruiseAltitude: 25 })
+    // Native boarding may be restored after the flight order; only a validated player handoff clears it.
+    npc.assignFormationTarget(-7, new THREE.Vector3(0, 0, -80), new THREE.Vector3(0, 0, -1))
+    destination.set(0, 0, -120) // A caller's reused vector must not mutate the active order.
+    const step = () => npc.updateTownTravel(1 / 60, 0, [], [], navigation)
+    step()
+    // The existing takeoff controller raises the body by its launch clearance.
+    expect(mount.flight!.phase).toBe('takeoff')
+    expect(mount.group.position.y).toBeLessThan(2)
+    advanceUntil(() => mount.group.position.z > 90 && mount.group.position.y > 24.5, step,
+      { maxSimulationSeconds: 30, failureMessage: 'First patrol waypoint approached and cruise altitude attained from the ground' })
+    expect(mount.isAirborne).toBe(true)
+    expect(mount.group.position.y).toBeCloseTo(25, 0)
+    expect(mount.flight!.speed).toBeLessThanOrEqual(48 / 3.6 + .001)
+    expect(npc.tacticalOrder).toBe('formation')
+    npc.setEagleFlightOrder({ kind: 'patrol', target: new THREE.Vector3(120, 0, 120), cruiseAltitude: 25 })
+    advanceUntil(() => mount.group.position.x > 90, step,
+      { maxSimulationSeconds: 25, failureMessage: 'Second patrol waypoint approached without teleport' })
+    expect(mount.group.position.y).toBeCloseTo(25, 0)
+    expect(mount.flight!.speed).toBeLessThanOrEqual(48 / 3.6 + .001)
+    expect(npc.eagleTactic).toBeNull()
+  })
+
   it.each(['ground', 'air'] as const)('follows a %s leader at terrain cruise or the same airborne altitude without stacking height', leaderKind => {
     const { scene, npc, mount, placeAirborne } = fixture()
     const player = new Player(scene); onTestFinished(() => player.dispose())

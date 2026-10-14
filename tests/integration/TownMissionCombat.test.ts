@@ -44,6 +44,36 @@ function eagleAlertFixture() {
 }
 
 describe('Town eagle external alert through the mission interface', () => {
+  it('runs claimed eagle boarding and then air travel without combat while mission deployment is pending', () => {
+    const h = eagleAlertFixture()
+    h.eagle.tacticalOrder = 'attack'; h.eagle.updateTownTravel = vi.fn()
+    h.simulation.playerOwnsEagleCommand = actor => actor === h.eagle
+    h.combat.updateCommandTravel(.02, [h.eagle])
+    expect(h.duty).toHaveBeenCalledExactlyOnceWith(h.eagle, .02, false)
+    expect(h.eagle.updateTownTravel).not.toHaveBeenCalled()
+    h.duty.mockReturnValue(false)
+    h.combat.updateCommandTravel(.02, [h.eagle])
+    expect(h.eagle.updateTownTravel).toHaveBeenCalledOnce()
+    expect(h.eagle.update).not.toHaveBeenCalled()
+  })
+
+  it('releases a cached native air target without changing a newly saved player command', () => {
+    const h = eagleAlertFixture(), hostile = combatActor('hostile', Faction.BANDIT)
+    h.eagle.setMissionCombatTarget = vi.fn()
+    h.duty.mockImplementation(() => false)
+    hostile.group.position.x = 80; h.field.ambientBandits = [hostile]; h.field.fieldNpcs = [hostile]
+    h.combat.update(.02, 0, 0)
+    expect(h.eagle.setMissionCombatTarget).toHaveBeenLastCalledWith(hostile)
+    vi.mocked(h.eagle.setMissionCombatTarget).mockClear()
+    h.simulation.playerOwnsEagleCommand = actor => actor === h.eagle
+    h.simulation.commandActors = () => [h.eagle]
+    h.combat.update(.02, 0, .02)
+    expect(h.eagle.setMissionCombatTarget).not.toHaveBeenCalled()
+    expect(h.eagle.endExternalThreat).not.toHaveBeenCalled()
+    expect(h.combat.externalDefenders).not.toContain(h.eagle)
+    expect(h.eagle.update).toHaveBeenCalledTimes(2)
+  })
+
   it.each(['ambient', 'mission', 'roaming'] as const)('starts a first sortie for a hostile from %s at 80m and retains the alert while boarding', source => {
     const h = eagleAlertFixture(), hostile = combatActor('hostile', Faction.BANDIT)
     hostile.group.position.x = 80
@@ -91,7 +121,7 @@ describe('Town eagle external alert through the mission interface', () => {
   })
 
   it.each([
-    { scenario: 'outside the home alert area', homeX: 0, actorX: 100, targetX: 180 },
+    { scenario: 'outside the town-centered patrol leash', homeX: 0, actorX: 200, targetX: 280 },
     { scenario: 'outside the Town world bounds', homeX: 300, actorX: 300, targetX: 351 },
   ])('does not alert to a nearby hostile $scenario', ({ homeX, actorX, targetX }) => {
     const h = eagleAlertFixture(), hostile = combatActor('hostile', Faction.BANDIT)
@@ -107,7 +137,7 @@ describe('Town eagle external alert through the mission interface', () => {
     expect(h.simulation.peaceResident).toHaveBeenCalledExactlyOnceWith(h.resident, .02)
   })
 
-  it('retains the mounted bow engagement range but releases a nearby hostile beyond the home boundary', () => {
+  it('retains the mounted bow engagement range but releases a nearby hostile beyond the town patrol leash', () => {
     const h = eagleAlertFixture(), hostile = combatActor('hostile', Faction.BANDIT)
     h.resident.spec.eagle!.home.x = -100; h.eagle.group.position.x = -100
     hostile.group.position.x = -20
@@ -121,7 +151,7 @@ describe('Town eagle external alert through the mission interface', () => {
     expect(h.combat.externalDefenders).toEqual([h.eagle])
     expect(h.eagle.endExternalThreat).not.toHaveBeenCalled()
 
-    // The target remains in-world and close to the moving eagle, but is 401m from home.
+    // The target remains in-world and close to the moving eagle, but is outside the town-centered patrol leash.
     h.eagle.group.position.x = 250; hostile.group.position.x = 301
     h.combat.update(.02, 0, .04)
     expect(h.combat.externalDefenders).toEqual([])
@@ -145,6 +175,24 @@ describe('Town eagle external alert through the mission interface', () => {
     expect(h.combat.enemyTownHostiles).toEqual([h.eagle])
     expect(h.combat.isExternalThreatDefender(h.eagle)).toBe(false)
     expect(h.combat.externalDefenders).toEqual([])
+  })
+
+  it.each(['removed', 'friendly', 'duel'] as const)('invalidates a cached air target immediately when it becomes %s', change => {
+    // Two recording actors; the sensor interval must not retain an unauthorized target.
+    const h = eagleAlertFixture(), hostile = combatActor('roaming-hostile', Faction.BANDIT)
+    hostile.group.position.x = 80
+    const outskirts = { actors: [hostile], mounts: [], synchronizeRank: vi.fn(), prepareFrame: vi.fn(),
+      owns: (npc: NPC) => npc === hostile, combatEnabled: () => false, updateTravel: vi.fn() }
+    h.simulation.outskirts = () => outskirts
+    h.combat.update(.02, 0, 0)
+    expect(h.combat.externalDefenders).toEqual([h.eagle])
+    if (change === 'removed') outskirts.actors = []
+    else if (change === 'friendly') hostile.faction = Faction.TOWN
+    else { h.duel.active = { ...createCavalrySweepMission(), kind: 'duel', phase: 'PREPARING' }; h.duel.phase = 'PREPARING' }
+    h.combat.update(.01, 0, .01)
+    expect(h.eagle.endExternalThreat).toHaveBeenCalledOnce()
+    expect(h.combat.externalDefenders).toEqual([])
+    expect(h.simulation.peaceResident).toHaveBeenLastCalledWith(h.resident, .01)
   })
 
   it.each([20, 20.01, 80])('keeps ground garrison detection at 20m with a hostile at %sm', distance => {
@@ -445,6 +493,7 @@ describe('Town Duel simulation through the mission interface', () => {
     h.careerMounts.update.mockImplementation(() => { log.push('career-mount') })
     h.duel.persistRuntimeProgress.mockImplementation(() => { log.push('persist') })
     h.combat.update(.02, 0, 1)
+    expect(h.duel.update).toHaveBeenCalledWith(.02, true)
     expect(log).toEqual(['countdown', 'referee', 'opponent', 'dead-mount', 'career-mount', 'persist'])
     h.combat.update(.02, 0, 2)
     expect(h.simulation.clearCombatShots).not.toHaveBeenCalled()

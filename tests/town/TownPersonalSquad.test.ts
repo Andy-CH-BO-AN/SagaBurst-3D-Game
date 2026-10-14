@@ -5,15 +5,18 @@ import { siegeMuster } from '../../src/career/TownSiege'
 import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
 import { isEagleApproachClear } from '../../src/world/EagleApproach'
 import { eagleTrainerSpec } from '../../src/town/TownEagleTrainingGround'
-import { townEagleRoster } from '../../src/town/TownEagleGarrison'
+import { townEaglePatrolRoute, townEagleRoster } from '../../src/town/TownEagleGarrison'
 import { townPatrolRoute } from '../../src/town/TownPatrolRoute'
+import { EagleFlightAI } from '../../src/movement/EagleFlightAI'
+import { enemyEagleRoute, resolveEnemyEagleHomes } from '../../src/town/EnemyEaglePatrolRules'
 import { EagleFlightController } from '../../src/movement/EagleFlightController'
 import { EagleLandingQueue } from '../../src/world/EagleLandingQueue'
 import { completeNpcDeployment, drainNpcSpawns, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { CareerMountController } from '../../src/career/CareerMountController'
 import { careerEaglePadOwners, EaglePadReservations } from '../../src/career/EaglePadReservations'
-import { initialPersonalEquipment } from '../../src/career/CareerInventory'
+import { addCareerItem, initialPersonalEquipment } from '../../src/career/CareerInventory'
+import { changePersonalEquipment, recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import * as THREE from 'three'
 import { OBB } from 'three/examples/jsm/math/OBB.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -38,6 +41,7 @@ import { PersonalSquadRuntime } from '../../src/career/PersonalSquadRuntime'
 import { parsePersonalMission, snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import { CombatEventStream } from '../../src/combat/CombatAttribution'
+import { createArmyCommandHarness } from '../helpers/armyCommandHarness'
 
 vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
 
@@ -103,6 +107,97 @@ function crossesPadCorridor(footprint: THREE.Box3, start: THREE.Vector3, end: TH
   return contact !== null && start.distanceTo(contact) <= length
 }
 describe('HR Center and personal runtime', () => {
+  it.each([
+    ['roman', 'roman-hero-t5', 'roman-commander', 850, 800, 'gladius_standard'],
+    ['viking', 'viking-hero-t5', 'viking-commander', 950, 885, 'viking_axe_t2'],
+  ] as const)('%s recruited Commander retains its full hero profile through commands, refit and saved field deployment',
+  (faction, visualAssetId, combatProfileId, maxHp, woundedHp, weaponId) => {
+    // One private rider at a time; no official army or TownWorld is materialized.
+    const { scene, hr, player } = harness(faction, 0)
+    let profile = recruitPersonalSquadMember({ ...createCareerProfile(faction), rank: 'commander',
+      totalMerit: 100000, availableMerit: 10000 }, 'commander', () => true, () => 'personal:commander').profile
+    const runtime = new TownPersonalSquadController(scene, hr, () => profile, () => player)
+    cleanups.push(() => runtime.cleanup())
+    expect(completeNpcDeployment(() => runtime.follow(), gameplayNpcSpawnDriver)).toBe(true)
+    const commander = runtime.actors[0], mount = commander.mount!
+    expect(commander).toMatchObject({ name: 'Personal Commander', tier: 4, visualAssetId, combatProfileId,
+      maxHp, hp: maxHp, meleeWeaponId: weaponId, combatantId: 'personal:commander',
+      squadId: 'personal', combatOwnership: 'player-personal', respawnEnabled: false })
+    expect(commander.activeFollowTarget).toBe(player); expect(mount.type).toBe(MountType.HORSE)
+    const commands = createArmyCommandHarness(runtime.actors, null, null, null, faction, 'squad', true,
+      { issue: order => order === 'follow' ? runtime.follow() : order === 'dismiss' ? runtime.dismiss() : false,
+        enabled: () => true }, undefined, undefined, order => runtime.resumeCommand(order))
+    for (const [key, order] of [['1', 'attack'], ['2', 'charge'], ['3', 'defend']] as const) {
+      commands.input.pressAll(); commands.controller.update(); commands.input.press(key); commands.controller.update()
+      expect(commander.tacticalOrder).toBe(order)
+    }
+    commander.takeDamage(100); mount.takeDamage(20); commander.shield.shieldImpactRemaining = 0
+    expect(commander.hp).toBe(woundedHp)
+    commands.input.pressAll(); commands.controller.update(); commands.input.press('5'); commands.controller.update()
+    expect(runtime.refit(next => { profile = next; return true })).toBe(true)
+    expect(commander.hp).toBe(maxHp); expect(mount.currentHp).toBe(mount.maxHp)
+    expect(commander.shield.shieldImpactRemaining).toBe(commander.shield.shieldImpactMax)
+    expect(commander.combatProfileId).toBe(combatProfileId)
+    commands.input.pressAll(); commands.controller.update(); commands.input.press('6'); commands.controller.update()
+    expect(runtime.state).toBe('RETURNING'); expect(commander.tacticalOrder).toBe('formation')
+    commands.input.pressAll(); commands.controller.update(); commands.input.press('5'); commands.controller.update()
+    expect(commander.tacticalOrder).toBe('follow'); expect(commander.activeFollowTarget).toBe(player)
+
+    commander.takeDamage(100); mount.takeDamage(20)
+    const mountHp = mount.currentHp
+    const mission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
+    mission.personalSquad = runtime.captureForNewMission(snapshotPersonalMission(profile)!)
+    profile.activeMission = mission
+    const loaded = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
+    expect(loaded.personalSquad!.members[0].type).toBe('commander')
+    runtime.cleanup()
+    const field = new PersonalSquadRuntime(scene, [{ x: 10, z: 20, yaw: 0 }], () => loaded, () => player,
+      undefined, { sceneKey: 'field:commander', hasHR: false })
+    cleanups.push(() => field.cleanup())
+    completeNpcDeployment(() => field.restoreMission(loaded.activeMission!.personalSquad), gameplayNpcSpawnDriver)
+    expect(field.actors).toHaveLength(1)
+    expect(field.actors[0]).toMatchObject({ combatantId: 'personal:commander', visualAssetId, combatProfileId,
+      maxHp, hp: woundedHp, meleeWeaponId: weaponId, tacticalOrder: 'defend', combatOwnership: 'player-personal' })
+    expect(field.actors[0].mount!.currentHp).toBe(mountHp)
+    expect(field.canRefit).toBe(false)
+  })
+
+  it('recomputes an ordinary Soldier tier after reserve weapon swaps without granting hero stats', () => {
+    const { scene, hr, player } = harness('roman', 0)
+    let profile = recruitPersonalSquadMember({ ...createCareerProfile('roman'), rank: 'commander',
+      totalMerit: 100000, availableMerit: 10000 }, 'soldier', () => true, () => 'personal:soldier').profile
+    addCareerItem(profile, 'paladin_sword_t4', 1)
+    addCareerItem(profile, 'maki-ranger-bow-ranged', 1)
+    addCareerItem(profile, 'recurve_longbow', 1)
+    const runtime = new TownPersonalSquadController(scene, hr, () => profile, () => player)
+    cleanups.push(() => runtime.cleanup())
+    completeNpcDeployment(() => runtime.follow(), gameplayNpcSpawnDriver)
+    expect(runtime.actors[0]).toMatchObject({ tier: 1, maxHp: 200, meleeWeaponId: 'gladius_rusty' })
+    expect(changePersonalEquipment(() => profile, runtime, 'personal:soldier', 'melee', 'paladin_sword_t4', () => true).changed).toBe(false)
+    runtime.cleanup()
+    const replace = (slot: 'melee' | 'ranged', id: string | null) => {
+      expect(changePersonalEquipment(() => profile, runtime, 'personal:soldier', slot, id,
+        next => { profile = next; return true }).changed).toBe(true)
+    }
+    replace('melee', 'paladin_sword_t4'); replace('ranged', 'maki-ranger-bow-ranged')
+    completeNpcDeployment(() => runtime.follow(), gameplayNpcSpawnDriver)
+    const upgraded = runtime.actors[0]
+    expect(upgraded).toMatchObject({ tier: 4, maxHp: 200, hp: 200, rangedDamage: 70,
+      meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: 'maki-ranger-bow-ranged' })
+    expect(upgraded.visualAssetId).toBeUndefined(); expect(upgraded.combatProfileId).toBeUndefined()
+    expect(upgraded.specialCombatProfile).toBeUndefined()
+    upgraded.takeDamage(20); expect(upgraded.hp).toBe(180)
+    runtime.cleanup(); replace('ranged', 'recurve_longbow')
+    profile = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
+    completeNpcDeployment(() => runtime.follow(), gameplayNpcSpawnDriver)
+    expect(runtime.actors[0]).toMatchObject({ tier: 2, maxHp: 200, meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: 'recurve_longbow' })
+    expect(runtime.actors[0].combatProfileId).toBeUndefined()
+    runtime.cleanup(); replace('ranged', null)
+    completeNpcDeployment(() => runtime.follow(), gameplayNpcSpawnDriver)
+    expect(runtime.actors[0]).toMatchObject({ tier: 4, maxHp: 200, meleeWeaponId: 'paladin_sword_t4' })
+    expect(runtime.actors[0].combatProfileId).toBeUndefined()
+  })
+
   it('HR refit persists first, revives soldiers and mounts, replenishes equipment and keeps Follow', () => {
     // Two real members and one owned mount exercise the shared revival lifecycle without a TownWorld.
     const { controller, profile } = harness('roman', 2)
@@ -262,6 +357,57 @@ describe('HR Center and personal runtime', () => {
     expect(world.eagleGarrison.pads.map(pad => [pad.x, pad.z, pad.yaw])).toEqual([
       [-95, -75, 0], [-65, -75, 0], [-35, -75, 0], [-95, -25, 0], [-65, -25, 0],
     ])
+    // Actual flight/geometry has this single built-world owner: zero additional TownWorlds,
+    // NPCs, Mounts or GLBs. Core queue and NPC command transitions stay in their own suites.
+    // Every authored sector is a distinct placement risk; one pilot is simulated at a time.
+    const enemyHomes = resolveEnemyEagleHomes(world.airspaceObstacles)
+    const circuits = [
+      ...townEagleRoster(world.eagleGarrison).map(spec => ({ id: spec.id, home: spec.eagle!.home,
+        altitude: spec.eagle!.cruiseAltitude, route: townEaglePatrolRoute(spec.eagle!.homePadId), radius: 32 })),
+      ...enemyHomes.map((home, index) => ({ id: `enemy-eagle:${index + 1}`, home,
+        altitude: 25 + index * 5, route: enemyEagleRoute(index + 1), radius: 34 })),
+    ]
+    for (const circuit of circuits) {
+      const label = `${faction} ${circuit.id}`
+      const others = [...world.eagleTraining.pads, ...world.eagleGarrison.pads, ...enemyHomes]
+        .filter(pad => pad.x !== circuit.home.x || pad.z !== circuit.home.z)
+      expect(isEagleLandingClear(circuit.home, world.airspaceObstacles, others, 350), `${label} ground deployment`).toBe(true)
+      expect(isEagleApproachClear(circuit.home, world.airspaceObstacles, others, 350, circuit.altitude), `${label} landing corridor`).toBe(true)
+      const position = new THREE.Vector3(circuit.home.x, getTerrainHeight(circuit.home.x, circuit.home.z), circuit.home.z)
+      const rotation = new THREE.Euler(0, circuit.home.yaw, 0), previous = position.clone()
+      const flight = new EagleFlightController(), pilot = new EagleFlightAI()
+      pilot.setCruiseAltitude(circuit.altitude)
+      let maxStep = 0, maxCoordinate = 0, elapsed = 0
+      const step = (kind: 'formation' | 'return', target: { x: number; z: number }) => {
+        previous.copy(position)
+        const wasAirborne = flight.phase !== 'grounded'
+        flight.setIntent(pilot.update(1 / 60, flight, position, {
+          kind, destination: new THREE.Vector3(target.x, getTerrainHeight(target.x, target.z), target.z),
+          landingYaw: circuit.home.yaw,
+        }, [], world.airspaceObstacles, 350))
+        flight.update(position, rotation, 1 / 60, world.airspaceObstacles, 350)
+        // Initial takeoff resolves the pitched torso against uneven terrain; waypoint
+        // transitions must retain continuous airborne motion after that ground clearance.
+        if (wasAirborne) maxStep = Math.max(maxStep, position.distanceTo(previous))
+        else expect(position.y - getTerrainHeight(position.x, position.z), `${label} takes off at ground level`).toBeLessThan(4)
+        maxCoordinate = Math.max(maxCoordinate, Math.abs(position.x), Math.abs(position.z))
+        elapsed += 1 / 60
+      }
+      for (const [index, target] of circuit.route.entries()) {
+        advanceUntil(() => flight.phase !== 'grounded' && Math.hypot(position.x - target.x, position.z - target.z) < circuit.radius,
+          () => step('formation', target), { maxSimulationSeconds: Math.max(0, 150 - elapsed),
+            failureMessage: `${label} waypoint ${index}, total circuit budget 150s` })
+        pilot.reset()
+      }
+      // The existing queue grants 60 seconds per approach. A route that only lands after
+      // that lease expires would repeatedly reset its approach in the real caller.
+      advanceUntil(() => flight.phase === 'grounded', () => step('return', circuit.home), {
+        maxSimulationSeconds: 60, failureMessage: `${label} home return within approach lease`,
+      })
+      expect(Math.hypot(position.x - circuit.home.x, position.z - circuit.home.z), `${label} own home`).toBeLessThan(2)
+      expect(maxCoordinate, `${label} remains inside playable world`).toBeLessThan(350)
+      expect(maxStep, `${label} physical travel without waypoint teleport`).toBeLessThan(1)
+    }
     const pads = [...eagle.pads, ...world.eagleGarrison.pads], patrol = townPatrolRoute()
     const footprints = pads.map(pad => eagleLandingFootprint(pad))
     const ownedSignResources = new Set<THREE.BufferGeometry | THREE.Material | THREE.Texture>()
@@ -664,7 +810,7 @@ describe('HR Center and personal runtime', () => {
     const snapshot = JSON.stringify(parsed.inventory)
     const runtime = new TownPersonalSquadController(scene, hr, () => parsed, () => player)
     cleanups.push(() => runtime.cleanup()); completeNpcDeployment(() => runtime.follow(), gameplayNpcSpawnDriver)
-    expect(runtime.actors[0]).toMatchObject({ tier: 2, meleeWeaponId: 'heavy_lance', isUsingLance: true })
+    expect(runtime.actors[0]).toMatchObject({ tier: 3, meleeWeaponId: 'heavy_lance', isUsingLance: true })
     expect(runtime.actors[1]).toMatchObject({ tier: 4, combatProfileId: 'praetorian', isMounted: false })
     runtime.actors.forEach(actor => actor.takeDamage(99999)); runtime.updateLifecycle(); expect(runtime.state).toBe('RESERVE')
     expect(JSON.stringify(parsed.inventory)).toBe(snapshot)
@@ -672,7 +818,7 @@ describe('HR Center and personal runtime', () => {
     const loaded = parseCareerProfile(parsed)!; loaded.faction = 'viking'
     const reloaded = new TownPersonalSquadController(scene, hr, () => loaded, () => player)
     cleanups.push(() => reloaded.cleanup()); completeNpcDeployment(() => reloaded.follow(), gameplayNpcSpawnDriver)
-    expect(reloaded.actors[0].meleeWeaponId).toBe('heavy_lance'); expect(reloaded.actors[0].tier).toBe(2)
+    expect(reloaded.actors[0].meleeWeaponId).toBe('heavy_lance'); expect(reloaded.actors[0].tier).toBe(3)
     expect(JSON.stringify(loaded.inventory)).toBe(snapshot)
     reloaded.cleanup(); loaded.personalSquad!.members = []; expect(completeNpcDeployment(() => reloaded.follow(), gameplayNpcSpawnDriver)).toBe(false)
   })

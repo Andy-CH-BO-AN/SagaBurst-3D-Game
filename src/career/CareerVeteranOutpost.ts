@@ -96,7 +96,8 @@ export function createCareerVeteranOutpostLaunch(profile: CareerProfile): Defens
     ...(mission.personalSquad ? { careerPersonalSquad: clonePersonalMission(mission.personalSquad) } : {}),
     capabilities: {
       reinforcementsEnabled: mission.templateId === 'veteran-dread-outpost',
-      playerCommandsEnabled: false,
+      playerCommandsEnabled: mission.officialSquad?.commandRank === 'commander'
+        && mission.officialSquad.missionId === mission.id && mission.officialSquad.townFaction === profile.faction && profile.rank === 'commander',
       gateControlEnabled: false,
       attackerHeroesEnabled: false,
     },
@@ -229,9 +230,13 @@ export function createCareerVeteranOutpostReinforcementPlan(launch: DefenseCampa
 
 /** The owner is explicit so Career IV keeps the actual enemy fort and gate ownership. */
 export function careerVeteranOutpostOwner(launch: DefenseCampaignLaunchConfig): CampaignFaction {
-  return launch.careerVeteranOutpost?.outpostFaction ?? launch.defenderFaction
+  return launch.careerVeteranOutpost?.outpostFaction
+    ?? launch.careerCommanderOutpost?.outpostFaction
+    ?? launch.defenderFaction
 }
 
 export function careerVeteranOutpostOpposingFaction(launch: DefenseCampaignLaunchConfig): CampaignFaction {
-  return launch.careerVeteranOutpost?.playerFaction ?? launch.defenderFaction
+  return launch.careerVeteranOutpost?.playerFaction
+    ?? launch.careerCommanderOutpost?.playerFaction
+    ?? launch.defenderFaction
 }

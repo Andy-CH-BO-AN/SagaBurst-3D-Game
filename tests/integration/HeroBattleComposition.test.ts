@@ -13,6 +13,11 @@ import {
 } from '../../src/battle/BattleConfig'
 import { BattleSpawner } from '../../src/battle/BattleSpawner'
 import { T4_COMBAT_PROFILES, T4_UNIT_PROFILES, applyHeroIncomingDamage, applyHeroOutgoingDamage } from '../../src/battle/T4HeroCatalog'
+import { HERO_COMBAT_PROFILE_BY_ASSET, getHeroCombatModifiers } from '../../src/battle/HeroCombatProfile'
+import { isHeroAssetId, SETUP_PLAYER_HERO_IDS } from '../../src/world/HeroAssetCatalog'
+import { calculatePlayerMeleeDamage } from '../../src/combat/PlayerMeleeDamage'
+import { skillDamageMultiplier } from '../../src/rpg/SkillManager'
+import { Player } from '../../src/player/Player'
 import { CUSTOM_BATTLE_UNIT_TIERS, BASE_UNIT_TIERS, ROMAN_PRESET_IDS, VIKING_PRESET_IDS, UNIT_PRESETS } from '../../src/battle/UnitPresetCatalog'
 import { createDefaultDefensePlayerLoadout, createDefenseCampaignWaveConfig, validateDefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
 import { resolveMakiEquipmentMode } from '../../src/world/MakiRangerEquipment'
@@ -210,6 +215,72 @@ describe('T4 Hero Custom Battle domain', () => {
     expect(BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'reinforcement')).npcSpecs.filter(spec => spec.tier === 4)).toHaveLength(0)
     expect(validateDefenseCampaignLaunchConfig({ ...launch, defenderArmy: { roman_heavy_infantry: { 1: 1, 2: 0, 3: 0, 4: 1 } } }).valid).toBe(true)
     expect(validateDefenseCampaignLaunchConfig({ ...launch, playerHeroId: 'invalid' }).valid).toBe(false)
+  })
+})
+
+describe('Commander profiles and mode eligibility', () => {
+  it.each([
+    ['roman-hero-t5', 'roman-commander', 850, .5, 1.15, 1.05],
+    ['viking-hero-t5', 'viking-commander', 950, .65, 1.55, 1.2],
+  ] as const)('%s resolves its shared combat values without changing T4 profiles', (asset, id, hp, reduction, attackSpeed, moveSpeed) => {
+    expect(HERO_COMBAT_PROFILE_BY_ASSET[asset]).toBe(id)
+    expect(getHeroCombatModifiers(id)).toEqual({
+      maxHp: hp, damageMultiplier: 2.2, damageTakenMultiplier: reduction,
+      attackSpeedMultiplier: attackSpeed, moveSpeedMultiplier: moveSpeed, rangedAttackRangeMultiplier: 1,
+    })
+  })
+
+  it.each(['roman-hero-t5', 'viking-hero-t5'] as const)('%s is available to runtime but rejected by Custom Battle and Campaign setup', asset => {
+    expect(isHeroAssetId(asset)).toBe(true)
+    expect(SETUP_PLAYER_HERO_IDS).toEqual(['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4'])
+    expect(validateBattleConfig({ ...battle(), playerHeroId: asset }).valid).toBe(false)
+    expect(validateBattleConfig({ ...battle(), careerEagleMissionId: 'career:eagle:1', playerHeroId: asset }).valid).toBe(true)
+    expect(validateDefenseCampaignLaunchConfig({
+      type: 'defense', defenderFaction: 'roman', stageId: 1,
+      defenderArmy: { roman_heavy_infantry: { 1: 1, 2: 0, 3: 0 } },
+      playerLoadout: createDefaultDefensePlayerLoadout('roman'), playerHeroId: asset,
+    }).valid).toBe(false)
+    const career = {
+      type: 'defense' as const, defenderFaction: 'roman' as const, stageId: 1 as const,
+      defenderArmy: { roman_heavy_infantry: { 1: 1, 2: 0, 3: 0 } },
+      playerLoadout: createDefaultDefensePlayerLoadout('roman'), playerHeroId: asset,
+      careerMissionId: 'career:outpost:1', careerMissionKind: 'outpost-defense' as const,
+    }
+    expect(validateDefenseCampaignLaunchConfig(career).valid).toBe(true)
+    expect(createDefenseCampaignWaveConfig(career, 'defenders').playerHeroId).toBe(asset)
+  })
+
+  it.each([
+    ['roman', 'roman-hero-t5', 'roman-commander', 850, 800],
+    ['viking', 'viking-hero-t5', 'viking-commander', 950, 885],
+  ] as const)('%s Commander Player and NPC apply the same HP and reduction once', (faction, asset, profile, maxHp, damagedHp) => {
+    // Only two actors: this checks distinct Player/NPC constructors and damage receivers.
+    const scene = new THREE.Scene()
+    const player = new Player(scene, faction, asset)
+    onTestFinished(() => player.dispose())
+    const npc = new NPC(scene, 0, 0, Faction.ENEMY, faction, AIType.RANGED, 'Commander', 4, false,
+      { meleeWeaponId: 'centurion_blade', rangedWeaponId: 'elven_runebow', shieldId: null, mountId: null },
+      undefined, undefined, undefined, undefined, asset, profile)
+    onTestFinished(() => npc.dispose())
+    expect(player.maxHp).toBe(maxHp)
+    expect(npc.maxHp).toBe(maxHp)
+    player.takeDamage(100, { setFill: () => {} })
+    npc.takeDamage(100)
+    expect(player.hp).toBe(damagedHp)
+    expect(npc.hp).toBe(damagedHp)
+    expect(npc.rangedDamage).toBeCloseTo(WEAPONS.elven_runebow.damageMax * getRangedDamageMultiplier('bow') * 2.2)
+    expect(npc.maxRangedAttackDistance).toBe(50)
+    npc.respawn()
+    expect(npc.hp).toBe(maxHp)
+  })
+
+  it.each(['roman', 'viking'] as const)('%s Commander melee applies player skill and hero damage only once', faction => {
+    const input = {
+      baseDamage: 100, combatKind: 'sword' as const, isLance: false, isMounted: false, mountSpeed: 0,
+      faction, hasShield: true, heroAssetId: `${faction}-hero-t5` as const,
+    }
+    expect(calculatePlayerMeleeDamage({ ...input, oneHandedMultiplier: skillDamageMultiplier(1) }).damage).toBeCloseTo(220)
+    expect(calculatePlayerMeleeDamage({ ...input, oneHandedMultiplier: skillDamageMultiplier(50) }).damage).toBeCloseTo(660)
   })
 })
 

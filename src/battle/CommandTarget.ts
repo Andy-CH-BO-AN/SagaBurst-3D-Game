@@ -6,7 +6,8 @@ export const MAX_COMMAND_SQUAD_SIZE = 30
 
 export type SquadId = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 export const PERSONAL_SQUAD_ID = 'personal' as const
-export type SquadIdentity = SquadId | typeof PERSONAL_SQUAD_ID
+export const CIVILIAN_SQUAD_ID = 'civilians' as const
+export type SquadIdentity = SquadId | typeof PERSONAL_SQUAD_ID | typeof CIVILIAN_SQUAD_ID
 export type SquadCommandTarget = `squad:${SquadIdentity}`
 export type CommandGroupingMode = 'preset' | 'squad'
 export type ArmyCommandTarget = UnitPresetId | SquadCommandTarget | 'all'
@@ -33,12 +34,21 @@ export function isSquadCommandTarget(target: ArmyCommandTarget): target is Squad
 
 export function squadIdFromCommandTarget(target: SquadCommandTarget): SquadIdentity {
   if (target === 'squad:personal') return PERSONAL_SQUAD_ID
+  if (target === 'squad:civilians') return CIVILIAN_SQUAD_ID
   return Number(target.slice('squad:'.length)) as SquadId
 }
 
-export function squadDisplayOrder(id: SquadIdentity): number { return id === PERSONAL_SQUAD_ID ? 9 : id }
+export function squadDisplayOrder(id: SquadIdentity): number {
+  return id === CIVILIAN_SQUAD_ID ? 10 : id === PERSONAL_SQUAD_ID ? 9 : id
+}
+
+/** Keep numbered official squads and the existing Personal shortcut unchanged. */
+export function squadShortcutKey(id: SquadIdentity): string {
+  return id === CIVILIAN_SQUAD_ID ? '0' : String(squadDisplayOrder(id))
+}
 export function squadLabel(id: SquadIdentity): string {
-  return id === PERSONAL_SQUAD_ID ? 'Personal Squad · 私人小隊' : `第 ${id} 隊`
+  return id === CIVILIAN_SQUAD_ID ? 'Civilian Squad · 平民／商人'
+    : id === PERSONAL_SQUAD_ID ? 'Personal Squad · 私人小隊' : `第 ${id} 隊`
 }
 
 export function matchesArmyCommandTarget(

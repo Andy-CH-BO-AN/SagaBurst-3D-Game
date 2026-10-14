@@ -156,6 +156,31 @@ function characterRig(): CharacterRig {
   return { right: arm(1), left: arm(-1), rightLeg: leg(1), leftLeg: leg(-1) }
 }
 
+/** Real animator, recording animation boundary, no materialized actor or GLB. */
+function studioSamplingFixture() {
+  const rig = characterRig()
+  const pose: Record<string, unknown> = {}
+  const sampled: { clip?: string; phase?: number } = {}
+  rig.animation = {
+    play: state => { sampled.clip = state; return true },
+    seek: (state, phase) => { sampled.clip = state; sampled.phase = phase; return true },
+    has: () => true, getDuration: () => 1.5, update: () => {}, stop: () => {},
+    setEquipmentState: state => Object.assign(pose, state),
+  }
+  const root = new THREE.Group(), sword = new THREE.Group(), bow = new THREE.Group(), pilum = new THREE.Group()
+  // The prototype fixture supplies only resources consumed by fixed-time sampling;
+  // equipment material construction is covered by asset/attachment suites.
+  const playback = Object.create(HumanoidStudioPlayback.prototype) as HumanoidStudioPlayback
+  Object.assign(playback, {
+    instance: { rig, root }, state: 'idle', faction: 'roman', mountKind: 'HORSE',
+    equipped: true, equipmentLoadout: 'none', hasShield: false, shieldRaised: false,
+    animator: new CharacterCombatAnimator(rig, sword, bow), sword, bow, pilum,
+    lance: new THREE.Group(), shield: new THREE.Group(), arrowPreview: null, pilumPreview: null,
+    elapsed: 0, started: false,
+  })
+  return { playback, pose, sampled }
+}
+
 function animator(): CharacterCombatAnimator {
   const rig = characterRig()
   return new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
@@ -180,6 +205,41 @@ const meleeActions: CombatAction[] = [
 ]
 
 describe('CharacterCombatAnimator timeline events', () => {
+  it.each([
+    { action: 'axeAttack1H' as const, sourceDuration: 3, sourceHit: 1.5, runtimeHit: .24, speed: 1 },
+    { action: 'axeAttack2H' as const, sourceDuration: 2.833333333, sourceHit: 1.1333333332, runtimeHit: .192, speed: 1.55 },
+  ])('$action plays the whole selected clip within the existing cycle at speed $speed', ({ action, sourceDuration, sourceHit, runtimeHit, speed }) => {
+    const root = new THREE.Group(), marker = new THREE.Group(), rig = characterRig()
+    marker.name = 'sourceClock'; root.add(marker)
+    const track = new THREE.NumberKeyframeTrack('sourceClock.position[x]', [0, sourceDuration], [0, sourceDuration])
+    const source = new THREE.AnimationClip(action, sourceDuration, [track])
+    const idle = new THREE.AnimationClip('idle', 1, [new THREE.NumberKeyframeTrack('sourceClock.position[x]', [0, 1], [0, 0])])
+    const controller = new MixerController([new THREE.AnimationMixer(root)], [[idle, source]], undefined, [{
+      clip: action, source: 'Meshy', sourceClip: action, loop: false, duration: sourceDuration, meleeCycleSeconds: .48,
+      events: { activeStart: sourceHit - .1, hit: sourceHit, activeEnd: sourceHit + .1 },
+    }])
+    rig.animation = controller
+    const subject = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
+    try {
+      expect(subject.start(action, speed)).toBe(true)
+      expect(subject.update((runtimeHit - .001) / speed).hitActiveStarted).toBe(false)
+      expect(subject.meleeHitActive).toBe(true)
+      const contact = { ...subject.update(.0011 / speed) }
+      expect(contact.hitActiveStarted).toBe(true)
+      expect(contact.actionCompleted).toBe(false)
+      expect(marker.position.x).toBeCloseTo(sourceHit, 2)
+      expect(subject.start(action, speed)).toBe(false)
+      const recovery = { ...subject.update((.48 - runtimeHit - .0011) / speed) }
+      expect(recovery.hitActiveStarted).toBe(false)
+      expect(recovery.actionCompleted).toBe(false)
+      expect(marker.position.x).toBeGreaterThan(sourceDuration * .99)
+      expect(subject.update(.001 / speed).actionCompleted).toBe(true)
+      expect(subject.update(.1).hitActiveStarted).toBe(false)
+      expect(source.duration).toBe(sourceDuration)
+      expect(Array.from(track.values)).toEqual([0, Math.fround(sourceDuration)])
+    } finally { controller.stop() }
+  })
+
   for (const action of meleeActions) {
     it(`${action} emits one hit event and completes`, () => {
       const subject = animator()
@@ -677,6 +737,42 @@ describe('Phase 22 humanoid asset contract', () => {
     expect(scene.children.filter(child => child.name === 'pilum-projectile')).toHaveLength(0)
     playback.update(PILUM_THROW_RELEASE_TIME - 0.01)
     expect(scene.children.filter(child => child.name === 'pilum-projectile')).toHaveLength(1)
+  })
+
+  it('studio pilum clears old lance and shield while mounted state follows the current sample', () => {
+    const { playback, pose } = studioSamplingFixture()
+    playback.lance.visible = playback.shield.visible = true
+    playback.samplePilum(.1, true)
+    expect(playback.lance.visible).toBe(false)
+    expect(playback.shield.visible).toBe(false)
+    expect(playback.pilum.visible).toBe(true)
+    expect(pose).toMatchObject({ lance: false, shield: false, mounted: true })
+    playback.samplePilum(.1, false)
+    expect(pose).toMatchObject({ lance: false, shield: false, mounted: false })
+  })
+
+  it.each([
+    ['xongkoro', true, 'idle'],
+    ['HORSE', true, 'axeMountedIdle'],
+    ['HORSE', false, 'mounted'],
+  ] as const)('studio %s axe=%s keeps the production carry clip %s when scrubbing', (mountKind, axe, expected) => {
+    const { playback, sampled } = studioSamplingFixture()
+    playback.mountKind = mountKind
+    playback.sword.userData.axeVisual = axe ? new THREE.Group() : undefined
+    playback.sampleEquipment(.5, true, 'idle', false, 2.7)
+    expect(sampled.clip).toBe(expected)
+    expect(sampled.phase).toBe(.5)
+  })
+
+  it('studio source-hit sampling clears a previous mounted pose when returning to foot', () => {
+    const { playback, pose, sampled } = studioSamplingFixture()
+    playback.state = 'hit'
+    playback.sampleSourceClip(.5, true)
+    expect(pose.mounted).toBe(true)
+    expect(sampled.clip).toBe('hit')
+    playback.sampleSourceClip(.5, false)
+    expect(pose.mounted).toBe(false)
+    expect(sampled.clip).toBe('hit')
   })
 
   it('applies imported-bone pose deltas on top of the recorded bind rotation', () => {

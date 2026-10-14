@@ -20,6 +20,33 @@ const battleConfig = (): BattleConfig => ({
 })
 
 describe('Player loadout configuration', () => {
+  it.each(['dispose', 'equipment tier rebuild'] as const)('%s releases the retired player skeleton while retaining shared model resources', action => {
+    // One real Player with a tiny caller-owned skin; no GLB or renderer.
+    const player = new Player(new THREE.Scene())
+    const skeleton = new THREE.Skeleton([new THREE.Bone()]); skeleton.computeBoneTexture()
+    const texture = new THREE.Texture(), geometry = new THREE.BufferGeometry(), material = new THREE.MeshBasicMaterial({ map: texture })
+    const mesh = new THREE.SkinnedMesh(geometry, material); mesh.bind(skeleton)
+    // Observe the visual boundary the actor owns, without replacing the lifecycle under test.
+    const visual = player as unknown as { characterVisualGroup: THREE.Group }
+    visual.characterVisualGroup.add(mesh)
+    const released = vi.fn(); skeleton.boneTexture!.addEventListener('dispose', released)
+    const sharedDisposed = vi.fn()
+    geometry.addEventListener('dispose', sharedDisposed)
+    material.addEventListener('dispose', sharedDisposed)
+    texture.addEventListener('dispose', sharedDisposed)
+    onTestFinished(() => { player.dispose(); skeleton.dispose(); geometry.dispose(); material.dispose(); texture.dispose() })
+    if (action === 'dispose') player.dispose()
+    else {
+      player.update(0, { keys: {}, isLeftMouseDown: false, isRightMouseDown: false,
+        consumeLeftClick: () => false, consumeLeftClickRelease: () => false }, 0, new THREE.Vector3(), [],
+      { setFill() {} }, { setShieldBlocked() {}, setAiming() {}, setChargeRatio() {} }, { playBowRelease() {} },
+      new InventoryManager({ meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'wooden_shortbow', shieldId: null }))
+      expect(mesh.parent).toBeNull()
+    }
+    expect(released).toHaveBeenCalledOnce(); expect(skeleton.boneTexture).toBeNull()
+    expect(sharedDisposed).not.toHaveBeenCalled()
+  })
+
   it('accepts legacy, Viking, Roman, and mixed loadouts while rejecting invalid IDs and mounted values', () => {
     const legacy = battleConfig()
     expect(validateBattleConfig(legacy).valid).toBe(true)

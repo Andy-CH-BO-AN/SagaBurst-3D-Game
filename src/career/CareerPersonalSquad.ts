@@ -5,15 +5,16 @@ import { ARMORS } from '../rpg/ArmorDatabase'
 import { cloneCareerProfile, getCareerPurchaseTier, type CareerProfile } from './CareerProfile'
 
 export const PERSONAL_SQUAD_LIMIT = 30
-export type PersonalSquadMemberType = 'soldier' | 'captain' | 'ranger'
+export type PersonalSquadMemberType = 'soldier' | 'captain' | 'ranger' | 'commander'
 export interface CareerPersonalSquadMember { id: string; type: PersonalSquadMemberType; originalHirePrice?: number; equipment?: PersonalEquipment }
 export const PERSONAL_SQUAD_PRODUCTS = [
-  { type: 'soldier', name: 'T2 Sword / Axe Soldier', price: 50 },
+  { type: 'soldier', name: 'Sword / Axe Soldier', price: 50 },
   { type: 'captain', name: 'T4 Captain', price: 500 },
   { type: 'ranger', name: 'T4 Maki / Mounted Ranger', price: 500 },
+  { type: 'commander', name: 'T5 Commander', price: 2000 },
 ] as const
-export function canRecruitPersonalSquad(profile: Pick<CareerProfile, 'rank'>): boolean {
-  return profile.rank === 'captain' || profile.rank === 'commander'
+export function canRecruitPersonalSquad(profile: Pick<CareerProfile, 'rank'>, type?: PersonalSquadMemberType): boolean {
+  return profile.rank === 'commander' || profile.rank === 'captain' && type !== 'commander'
 }
 export type RecruitmentFailure = 'rank-locked' | 'invalid-product' | 'insufficient-merit' | 'squad-full' | 'invalid-id' | 'save-failed'
 export interface RecruitmentResult { profile: CareerProfile; recruited: boolean; reason?: RecruitmentFailure }
@@ -21,7 +22,7 @@ export interface RecruitmentResult { profile: CareerProfile; recruited: boolean;
 export function recruitPersonalSquadMember(current: CareerProfile, type: PersonalSquadMemberType,
   save: (profile: CareerProfile) => boolean, createId: () => string = () => `personal:${crypto.randomUUID()}`): RecruitmentResult {
   const fail = (reason: RecruitmentFailure): RecruitmentResult => ({ profile: current, recruited: false, reason })
-  if (!canRecruitPersonalSquad(current)) return fail('rank-locked')
+  if (!canRecruitPersonalSquad(current, type)) return fail('rank-locked')
   const product = PERSONAL_SQUAD_PRODUCTS.find(item => item.type === type)
   if (!product) return fail('invalid-product')
   const members = current.personalSquad?.members ?? []
@@ -77,6 +78,7 @@ export const PERSONAL_RECRUIT_DIALOGUE: Record<PersonalSquadMemberType, string> 
   soldier: '人已經登記到你的隊伍。\n需要他們時，下令 Follow me。',
   captain: '這不是普通士兵。\n他能獨立帶人，但現在，他聽你的命令。',
   ranger: 'Mounted Ranger 已經登記。\n她擅長遠距離作戰。別把她浪費在最前排。',
+  commander: 'Commander 已經登記到你的隊伍。\n他有統率全軍的能力，現在由你下令。',
 }
 
 export interface PersonalSquadAuthority { readonly state: 'RESERVE' | 'DEPLOYING' | 'ACTIVE' | 'RETURNING' }
@@ -89,6 +91,7 @@ export function changePersonalEquipment(read: () => CareerProfile, authority: Pe
   slot: PersonalEquipmentSlot, id: string | null, save: (profile: CareerProfile) => boolean) {
   const current = read()
   const fail = (reason: PersonalManagementFailure) => ({ changed: false, profile: current, reason })
+  if (!canRecruitPersonalSquad(current)) return fail('rank-locked')
   if (authority.state !== 'RESERVE' || current.activeMission || current.activeOutpostMission) return fail('not-reserve')
   const existing = current.personalSquad?.members.find(member => member.id === memberId)
   if (!existing) return fail('missing-member')

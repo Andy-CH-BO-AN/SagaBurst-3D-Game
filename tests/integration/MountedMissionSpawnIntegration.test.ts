@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { stageOfficialCommandOrder } from '../../src/career/CareerOfficialCommandOrder'
 import { BanditMissionController } from '../../src/career/BanditMissionController'
 import { acceptCaptainCavalryCommand, acceptCavalrySweep, createSweepRoster, sweepPlayerSpawn } from '../../src/career/CavalrySweep'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -44,7 +45,7 @@ function sequence(prefix: string, count: number): string[] {
  * The controller owns its instance scheduler; its unrelated two ambient doubles load explicitly.
  * Position inputs below exercise phase gates, not locomotion or NPC.mountVehicle internals.
  */
-function sweep(options: { livingSlots?: number[]; enemyCount?: number; captain?: boolean } = {}) {
+function sweep(options: { livingSlots?: number[]; enemyCount?: number; captain?: boolean; commander?: boolean } = {}) {
   const driver = new NpcSpawnTestDriver(), scene = new THREE.Scene()
   const roster = createSweepRoster('roman'), town = townRoster()
   const borrowedSlots = [0, 1, 29]
@@ -60,8 +61,8 @@ function sweep(options: { livingSlots?: number[]; enemyCount?: number; captain?:
     return { spec, npc, homeMount }
   })
   const selected = Array.from({ length: 59 }, (_, slot) => borrowedSlots.includes(slot) ? `garrison:${slot}` : undefined)
-  const fresh: CareerProfile = { ...createCareerProfile('roman'), ownedHorseTiers: [1], ...(options.captain ? { rank: 'captain' as const, totalMerit: 5000 } : {}) }
-  let profile = (options.captain ? acceptCaptainCavalryCommand : acceptCavalrySweep)(fresh, 'sweep', selected)!
+  const fresh: CareerProfile = { ...createCareerProfile('roman'), ownedHorseTiers: [1], ...(options.commander ? { rank: 'commander' as const, totalMerit: 20000 } : options.captain ? { rank: 'captain' as const, totalMerit: 5000 } : {}) }
+  let profile = (options.captain || options.commander ? acceptCaptainCavalryCommand : acceptCavalrySweep)(fresh, 'sweep', selected)!
   if (options.livingSlots) profile.activeMission!.deadFriendlyActorIds = profile.activeMission!.friendlyActorIds.filter((_, slot) => !options.livingSlots!.includes(slot))
   if (options.enemyCount !== undefined) profile.activeMission!.deadTargetActorIds = profile.activeMission!.targetActorIds.slice(options.enemyCount)
   const player = { dead: false, combatPosition: sweepPlayerSpawn() }
@@ -74,7 +75,7 @@ function sweep(options: { livingSlots?: number[]; enemyCount?: number; captain?:
   driver.drain()
   const onMarchStarted = vi.fn()
   controller.onMarchStarted = onMarchStarted
-  return { controller, driver, residents, scene, onMarchStarted, profile: () => profile }
+  return { controller, driver, residents, scene, player, onMarchStarted, profile: () => profile, commit: (next: CareerProfile) => { profile = next; return true } }
 }
 
 function field(options: Parameters<typeof createVeteranFieldFixture>[0]): VeteranFieldFixture {
@@ -313,4 +314,30 @@ describe('Captain Cavalry command caller', () => {
     expect(otherCaptain.setTacticalOrder).toHaveBeenCalledWith('charge')
   })
 
+})
+
+
+describe('Commander Cavalry partial-deployment ownership', () => {
+  it('keeps a new second-squad Follow instead of restoring the older captured checkpoint after deployment finishes', () => {
+    // Three borrowed recording actors plus one queued replacement, zero real NPCs or mounts.
+    const h = sweep({ commander: true, livingSlots: [0, 29, 30], enemyCount: 0 })
+    h.profile().activeMission!.officialSquad!.members = {
+      'garrison:29': { status: 'deployed', hp: 61, order: 'defend' },
+    }
+    expect(h.controller.startActiveMission()).toBe(true)
+    const rider = h.residents[2].npc
+    expect(h.controller.ready).toBe(false)
+    expect(rider.squadId).toBe(2)
+    rider.hp = 47
+    const staged = stageOfficialCommandOrder(h.profile(), [rider as unknown as NPC], 'follow')!
+    expect(staged.activeMission!.officialSquad!.commandedSquadIds).toEqual([2])
+    expect(h.commit(staged)).toBe(true)
+    h.controller.releasePlayerCommand(rider as unknown as NPC)
+    rider.assignFollowTarget(h.player)
+    h.driver.drain()
+    expect(h.controller.ready).toBe(true)
+    expect(rider.tacticalOrder).toBe('follow')
+    expect(rider.activeFollowTarget).toBe(h.player)
+    expect(rider.hp).toBe(47)
+  })
 })

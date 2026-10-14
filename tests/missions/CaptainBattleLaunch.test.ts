@@ -28,7 +28,7 @@ describe('Captain cross-scene battle plans', () => {
     const rampart = plan.npcSpecs.filter(spec => spec.outpostRampartGarrison)
     expect(rampart).toHaveLength(30)
     expect(rampart.every(spec => spec.spawnY !== undefined && spec.presetId === `${faction}_archer`)).toBe(true)
-    expect(createCaptainFrontlineSpawnPlan(launch, { deployRampartGarrison: false }).npcSpecs
+    expect(createCaptainFrontlineSpawnPlan(launch, undefined, { deployRampartGarrison: false }).npcSpecs
       .some(spec => spec.outpostRampartGarrison || spec.spawnY !== undefined)).toBe(false)
     const attackers = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'attackers')).npcSpecs
     const reinforcements = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'reinforcement')).npcSpecs

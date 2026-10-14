@@ -22,7 +22,7 @@ import {
   VIKING_PRESET_IDS,
   ROMAN_PRESET_IDS,
 } from './UnitPresetCatalog'
-import { isHeroAssetId, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { isHeroAssetId, isSetupPlayerHeroId, type PlayerHeroId } from '../world/HeroAssetCatalog'
 
 /** Production Custom Battle limit. This remains the only limit accepted from player UI/session data. */
 export const MAX_CUSTOM_ARMY_SIZE = 200
@@ -379,7 +379,10 @@ function validateBattleConfigWithArmyLimit(
   if (c.playerFaction !== undefined && c.playerFaction !== 'viking' && c.playerFaction !== 'roman') {
     errors.push(`Invalid player faction: ${String(c.playerFaction)}`)
   }
-  if (c.playerHeroId !== undefined && c.playerHeroId !== null && !isHeroAssetId(c.playerHeroId)) {
+  // Career launches are rebuilt from the saved mission; main rejects this marker in free setup storage.
+  const isAllowedPlayerHero = typeof c.careerEagleMissionId === 'string' && c.careerEagleMissionId.length > 0
+    ? isHeroAssetId : isSetupPlayerHeroId
+  if (c.playerHeroId !== undefined && c.playerHeroId !== null && !isAllowedPlayerHero(c.playerHeroId)) {
     errors.push(`Invalid player Hero: ${String(c.playerHeroId)}`)
   }
 

@@ -10,6 +10,13 @@ import { TownPersonalSquadController } from '../../src/town/TownPersonalSquadCon
 import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { getTerrainHeight, setScenePlayableWorldBound, type ObstacleData } from '../../src/world/Terrain'
 import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
+import { HumanoidAssetRegistry } from '../../src/world/HumanoidAssetRegistry'
+import { HorseAssetRegistry } from '../../src/world/HorseAssetRegistry'
+import { BlackCatVisual } from '../../src/world/BlackCatVisual'
+import { CorgiVisual } from '../../src/world/CorgiVisual'
+import { XongkoroVisual } from '../../src/world/XongkoroVisual'
+import * as PaladinEquipment from '../../src/world/PaladinEquipment'
+import * as MakiRangerEquipment from '../../src/world/MakiRangerEquipment'
 import { TownScene } from '../../src/town/TownScene'
 import { TownOutskirtsWarfareController } from '../../src/town/TownOutskirtsWarfareController'
 import { outskirtsSquadSpecs } from '../../src/town/TownOutskirtsRules'
@@ -18,7 +25,10 @@ import { PersonalSquadRuntime, spawnPersonalSquadActor } from '../../src/career/
 import { EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { acceptCommanderMission, COMMANDER_DECAPITATION_ID, COMMANDER_LAST_STAND_ID } from '../../src/career/CommanderMissionCatalog'
+import { createCareerCommanderOutpostLaunch, createCareerCommanderOutpostSpawnPlan } from '../../src/career/CommanderOutpost'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
+import { createCaptainGateDefenseMission } from '../../src/career/CaptainMissionCatalog'
 import { careerTownSceneRoster, resolveCareerTownSceneContext } from '../../src/career/CareerFieldSceneContext'
 import { createEmptyArmyConfig } from '../../src/battle/BattleConfig'
 import { BattleSpawner, type NpcSpawnSpec } from '../../src/battle/BattleSpawner'
@@ -29,13 +39,21 @@ import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
 import { gameplayNpcSpawns } from '../../src/world/NpcSpawnScheduler'
-import { TownEvent } from '../../src/town/TownRules'
+import { shouldSpawnTownCommander, townCommanderSpec } from '../../src/town/TownCommander'
+import { resolveCareerHeroAsset } from '../../src/career/CareerPlayerProfile'
+import { TownEvent, townRoster } from '../../src/town/TownRules'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
 import { advanceNpcFrame, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { createGameTestFixture } from '../helpers/gameFixture'
+import { shouldWaitForInitialPersonalSpawns } from '../../src/Game'
 
 import { recording, resetSpawnRecording } from '../helpers/npcSpawnRecording'
 
+vi.mock('three', async original => ({
+  ...(await original<typeof import('three')>()),
+  // Only create() preload tests construct a renderer; they stop before creating TownWorld or actors.
+  WebGLRenderer: class { dispose = vi.fn() },
+}))
 vi.mock('../../src/world/NPC', async original => ({
   ...(await original<typeof import('../../src/world/NPC')>()),
   NPC: (await import('../helpers/npcSpawnRecording')).RecordingNpc,
@@ -142,7 +160,54 @@ function privateTownCaller(profile: CareerProfile, obstacles: ObstacleData[] = [
 }
 
 describe('production spawn callers with recorded constructor boundaries', () => {
-  it.each(['complete', 'failure', 'cancel'] as const)('siege %s keeps elevated initial registration and cleans pending convoy ownership', async outcome => {
+  it.each(['roman', 'viking'] as const)('preloads the authorized %s Defense Commander T5 model once, shared with the player', async faction => {
+    const profile = createCareerProfile(faction); profile.rank = 'commander'; profile.totalMerit = 20000
+    const commander = townCommanderSpec({ x: 20, z: 5, yaw: 0 })
+    profile.activeMission = createCaptainGateDefenseMission(profile, [], [], [commander], 'preload-defense')
+    expect(shouldSpawnTownCommander(profile)).toBe(true)
+    vi.spyOn(PaladinEquipment, 'preloadPaladinEquipment').mockResolvedValue()
+    vi.spyOn(MakiRangerEquipment, 'preloadMakiRangerBow').mockResolvedValue()
+    vi.spyOn(HumanoidAssetRegistry, 'preload').mockResolvedValue()
+    vi.spyOn(HorseAssetRegistry, 'preload').mockResolvedValue()
+    vi.spyOn(BlackCatVisual, 'preload').mockResolvedValue()
+    vi.spyOn(CorgiVisual, 'preload').mockResolvedValue()
+    vi.spyOn(XongkoroVisual, 'preload').mockResolvedValue()
+    const stop = new Error('Stop before geometry materialization')
+    const preload = vi.spyOn(HumanoidAssetRegistry, 'preloadAsset').mockImplementation(descriptor =>
+      descriptor.assetId === `${faction}-hero-t5` ? Promise.reject(stop) : Promise.resolve())
+    await expect(TownScene.create({} as HTMLElement, profile, () => {}, () => {}, () => {})).rejects.toBe(stop)
+    expect(preload.mock.calls.filter(([descriptor]) => descriptor.assetId === `${faction}-hero-t5`)).toHaveLength(1)
+    expect(recording.npcs).toHaveLength(0); expect(recording.mounts).toHaveLength(0)
+  })
+
+  it.each(['roman', 'viking'] as const)('preloads a saved %s personal Commander in a field scene without a Town Commander or player hero', async faction => {
+    const profile: CareerProfile = { ...createCareerProfile(faction), rank: 'veteran',
+      personalSquad: { members: [{ id: 'personal:field-commander', type: 'commander', originalHirePrice: 2000 }] },
+      activeMission: {
+        ...createActiveCareerMission('veteran-tragedy-of-the-scouts', 0, 0, 0, 'personal-field-preload'),
+        kind: 'veteran-field',
+      },
+    }
+    expect(shouldSpawnTownCommander(profile)).toBe(false)
+    expect(resolveCareerHeroAsset(profile)).toBeNull()
+    vi.spyOn(PaladinEquipment, 'preloadPaladinEquipment').mockResolvedValue()
+    vi.spyOn(MakiRangerEquipment, 'preloadMakiRangerBow').mockResolvedValue()
+    vi.spyOn(HumanoidAssetRegistry, 'preload').mockResolvedValue()
+    vi.spyOn(HorseAssetRegistry, 'preload').mockResolvedValue()
+    vi.spyOn(BlackCatVisual, 'preload').mockResolvedValue()
+    vi.spyOn(CorgiVisual, 'preload').mockResolvedValue()
+    vi.spyOn(XongkoroVisual, 'preload').mockResolvedValue()
+    const stoppedAtAssetBoundary = new Error('Stop before Town materialization')
+    const preload = vi.spyOn(HumanoidAssetRegistry, 'preloadAsset').mockImplementation(descriptor =>
+      descriptor.assetId === `${faction}-hero-t5` ? Promise.reject(stoppedAtAssetBoundary) : Promise.resolve())
+    // The container is never used: the expected T5 preload failure must abort before the constructor.
+    await expect(TownScene.create({} as HTMLElement, profile, () => {}, () => {}, () => {})).rejects.toBe(stoppedAtAssetBoundary)
+    expect(preload).toHaveBeenCalledWith(expect.objectContaining({ assetId: `${faction}-hero-t5`, faction }))
+    expect(recording.npcs).toHaveLength(0)
+    expect(recording.mounts).toHaveLength(0)
+  })
+
+it.each(['complete', 'failure', 'cancel'] as const)('siege %s keeps elevated initial registration and cleans pending convoy ownership', async outcome => {
     // 0 real actors. The real Game caller/scheduler creates only recording constructor boundaries.
     const h = siegeAssaultFixture('roman', false, false)
     const game = Object.assign(gameFixture(), { scene: h.scene, npcs: h.actors, campaignSiegeAssault: h.owner })
@@ -260,14 +325,197 @@ describe('production spawn callers with recorded constructor boundaries', () => 
     })
   })
 
+  it('deploys the full Commander Last Stand roster one rider job per frame while gameplay remains live', async () => {
+    const profile = createCareerProfile('roman')
+    profile.rank = 'commander'; profile.totalMerit = 20_000; profile.availableMerit = 20_000
+    const accepted = acceptCommanderMission(profile, COMMANDER_LAST_STAND_ID, 'commander-shared-deployment')!
+    const launch = createCareerCommanderOutpostLaunch(accepted)
+    const plan = createCareerCommanderOutpostSpawnPlan(launch)
+
+    // A reload cancels every queued identity from the old scene. The new scene
+    // reconstructs the canonical roster once, without carrying partial actors over.
+    const partial = gameFixture() as any
+    partial.defenseCampaignConfig = launch
+    partial.careerProfile = accepted
+    partial.campaignOriginalDefenders = []
+    partial._queueCommanderOutpostDeployment(plan, launch)
+    for (let frame = 0; frame < 17; frame++) advanceNpcFrame(gameplayNpcSpawnDriver)
+    const partialBatch = partial.commanderOutpostDeploymentBatch
+    expect(partial.npcs).toHaveLength(17)
+    expect(new Set(partial.npcs.map((npc: NPC) => npc.combatantId)).size).toBe(17)
+    partial._disposeCareerOutpostBattleActors()
+    expect(partialBatch.status).toBe('cancelled')
+    expect(partial.npcs).toHaveLength(0)
+    expect(partial.mounts).toHaveLength(0)
+    resetSpawnRecording()
+
+    const game = gameFixture() as any
+    game.defenseCampaignConfig = launch
+    game.careerProfile = accepted
+    game.campaignOriginalDefenders = []
+
+    expect(shouldWaitForInitialPersonalSpawns(null, launch)).toBe(false)
+    expect(shouldWaitForInitialPersonalSpawns(null)).toBe(true)
+
+    game._queueCommanderOutpostDeployment(plan, launch)
+    const batch = game.commanderOutpostDeploymentBatch
+    expect(batch.actors.size).toBe(220)
+    expect(batch.ready).toBe(false)
+    expect(recording.npcs).toHaveLength(0)
+
+    for (let frame = 0; frame < 120; frame++) {
+      const before = recording.npcs.length
+      advanceNpcFrame(gameplayNpcSpawnDriver)
+      expect(recording.npcs.length - before).toBe(1)
+    }
+    expect(recording.npcs).toHaveLength(120)
+    expect(recording.mounts).toHaveLength(0)
+    expect(batch.ready).toBe(false)
+
+    // The rider and mount are bound inside one scheduler job; no second frame is consumed.
+    advanceNpcFrame(gameplayNpcSpawnDriver)
+    expect(recording.npcs).toHaveLength(121)
+    expect(recording.mounts).toHaveLength(1)
+    expect(recording.npcs[120].mount).toBe(recording.mounts[0])
+    expect(batch.ready).toBe(false)
+
+    for (let frame = 121; frame < 219; frame++) advanceNpcFrame(gameplayNpcSpawnDriver)
+    expect(recording.npcs).toHaveLength(219)
+    expect(recording.mounts).toHaveLength(99)
+    expect(batch.ready).toBe(false)
+    advanceNpcFrame(gameplayNpcSpawnDriver)
+
+    expect(batch.ready).toBe(true)
+    expect(recording.npcs).toHaveLength(220)
+    expect(recording.mounts).toHaveLength(100)
+    expect(game.commanderOutpostDeploymentTotal).toBe(220)
+    expect(game.campaignOriginalDefenders).toHaveLength(120)
+    expect(new Set(game.npcs.map((npc: NPC) => npc.combatantId)).size).toBe(220)
+    expect(recording.npcs.every(npc => npc.tacticalOrder === 'defend')).toBe(true)
+    expect(game.battleStats.registerNpc).toHaveBeenCalledTimes(220)
+    expect(game._aimTargetRegistry.registerNpc).toHaveBeenCalledTimes(220)
+    expect(game._aimTargetRegistry.registerMount).toHaveBeenCalledTimes(100)
+  })
+
+  it.each([
+    ['roman', 'viking', MountType.BLACK_CAT, 'viking-hero-t5', 'viking-commander'],
+    ['viking', 'roman', MountType.CORGI, 'roman-hero-t5', 'roman-commander'],
+  ] as const)('constructs one true enemy T5 Commander for %s Decapitation without reusing the former identity',
+    async (playerFaction, enemyFaction, mountType, visualAssetId, combatProfileId) => {
+      const step = loadingFrames()
+      const base = createCareerProfile(playerFaction)
+      base.rank = 'commander'; base.totalMerit = 20_000; base.availableMerit = 20_000
+      const profile = acceptCommanderMission(base, COMMANDER_DECAPITATION_ID, `enemy-commander:${playerFaction}`)!
+      const population = [townCommanderSpec({ x: 20, z: 10, yaw: 0 })]
+      const roster = careerTownSceneRoster(profile, population)
+      const event = new TownEvent(population)
+      const town = Object.assign(Object.create(TownScene.prototype), {
+        profile, scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(), event,
+        world: { addServiceMarker: vi.fn() },
+      }) as any
+      dispose.push(() => {
+        town.residentSpawnBatch?.cancel()
+        town.residents.forEach((resident: any) => resident.npc.dispose())
+        town.mounts.forEach((mount: any) => mount.dispose())
+      })
+
+      const loading = town.initializeResidents(roster, resolveCareerTownSceneContext(profile), () => {})
+      await step(); await loading
+
+      expect(recording.npcs).toHaveLength(1)
+      expect(recording.mounts).toHaveLength(1)
+      expect(recording.npcs[0]).toMatchObject({
+        combatantId: 'commander', faction: Faction.ENEMY, characterFaction: enemyFaction,
+        visualAssetId, combatProfileId,
+      })
+      expect(recording.npcs[0].combatantId).not.toBe(profile.activeMission!.friendlyActorIds[0])
+      expect(recording.npcs[0].mount).toMatchObject({ type: mountType, riderNpc: recording.npcs[0] })
+    })
+
+  it.each([false, true])('restores one Commander after defense and inherits hostility during preload: %s', async hostileDuringLoad => {
+    const step = loadingFrames(), profile = createCareerProfile('roman')
+    const captainSpec = townRoster().find(spec => spec.id === 'captain')!
+    const event = new TownEvent([{ id: 'captain' }]); event.register('captain', { dead: false }); event.complete()
+    let releasePreload!: () => void
+    const preload = vi.spyOn(HumanoidAssetRegistry, 'preloadAsset').mockReturnValue(new Promise<void>(resolve => { releasePreload = resolve }))
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      // Placement consumes the Captain's spec only; no unrelated actor is constructed.
+      profile, scene: new THREE.Scene(), residents: [{ spec: captainSpec, npc: { dispose: vi.fn() } }], residentRoster: [], mounts: [], serviceMarkers: new Map(),
+      event, disposed: false, commanderReturnPending: false,
+      navigation: new NavigationWorld(TOWN_NAVIGATION_BOUNDS),
+      world: { obstacles: [], roads: [], addServiceMarker: vi.fn(), addTarget: () => new THREE.Vector3() },
+    }) as unknown as {
+      ensureTownCommanderAfterReturn(): Promise<void>
+      residentSpawnBatch?: { cancel(): void }
+      residents: { spec: { id: string }; npc: NPC; homeMount?: Mount }[]
+      mounts: Mount[]
+      serviceAvailable(id: string): boolean
+    }
+    dispose.push(() => { town.residentSpawnBatch?.cancel(); town.residents.forEach(resident => resident.npc.dispose()); town.mounts.forEach(mount => mount.dispose()) })
+    let ready = false
+    const loading = town.ensureTownCommanderAfterReturn().then(() => { ready = true })
+    await town.ensureTownCommanderAfterReturn()
+    expect(town.serviceAvailable('commander')).toBe(false)
+    event.hostile = hostileDuringLoad
+    releasePreload()
+    for (let frame = 0; frame < 4 && !ready; frame++) await step()
+    await loading
+    await town.ensureTownCommanderAfterReturn()
+    expect(preload).toHaveBeenCalledTimes(1)
+    expect(recording.npcs.map(npc => npc.combatantId)).toEqual(['commander'])
+    expect(town.serviceAvailable('commander')).toBe(true) // Hostility is gated by interaction/appointment, independently of spawn readiness.
+    const commander = town.residents.find(resident => resident.spec.id === 'commander')!
+    expect(commander.npc.beginTownHostility).toHaveBeenCalledTimes(hostileDuringLoad ? 1 : 0)
+    expect(commander.homeMount).toMatchObject({ type: MountType.CORGI, reservedForTown: true })
+    expect(commander.npc.mount).toBe(commander.homeMount)
+    expect(town.mounts).toEqual([commander.homeMount])
+    expect(event.allActors.get('commander')).toBe(commander.npc)
+    expect(event.actors.has('commander')).toBe(true)
+    expect(event.registrationComplete).toBe(true)
+  })
+
+  it.each(['roman', 'viking'] as const)('%s reload restores mounted Commander service with its own Captain-type mount', async faction => {
+    // Constructor wiring only: two recording NPCs, two recording mounts, no world or real actors.
+    const step = loadingFrames(), profile = createCareerProfile(faction)
+    profile.townCommanderRecovery = { faction, hp: 712, ammo: 0 }
+    const population = [townRoster().find(spec => spec.role === 'captain')!, townCommanderSpec({ x: 25, z: 5, yaw: -Math.PI / 2 })]
+    const roster = careerTownSceneRoster(profile, population), event = new TownEvent(population)
+    const town = Object.assign(Object.create(TownScene.prototype), {
+      profile, scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(), event,
+      world: { addServiceMarker: vi.fn() },
+    }) as unknown as {
+      initializeResidents: (roster: ReturnType<typeof careerTownSceneRoster>, context: ReturnType<typeof resolveCareerTownSceneContext>, progress: () => void) => Promise<void>
+      residentSpawnBatch?: { cancel(): void }
+      residents: { spec: { id: string }; npc: NPC; homeMount?: Mount }[]
+      mounts: Mount[]
+    }
+    dispose.push(() => { town.residentSpawnBatch?.cancel(); town.residents.forEach(resident => resident.npc.dispose()); town.mounts.forEach(mount => mount.dispose()) })
+    let ready = false
+    const loading = town.initializeResidents(roster, resolveCareerTownSceneContext(profile), () => {}).then(() => { ready = true })
+    for (let frame = 0; frame < 4 && !ready; frame++) await step()
+    await loading
+    const commander = town.residents.find(resident => resident.spec.id === 'commander')!
+    const captain = town.residents.find(resident => resident.spec.id === 'captain')!
+    expect(recording.npcs).toHaveLength(2)
+    expect(recording.mounts).toHaveLength(2)
+    expect(commander.npc).toMatchObject({ visualAssetId: `${faction}-hero-t5`, combatProfileId: `${faction}-commander`, hp: 712 })
+    expect(commander.homeMount).toMatchObject({ type: faction === 'roman' ? MountType.CORGI : MountType.BLACK_CAT, reservedForTown: true })
+    expect(commander.homeMount).not.toBe(captain.homeMount)
+    expect(commander.homeMount?.type).toBe(captain.homeMount?.type)
+    expect(commander.npc.mount).toBe(commander.homeMount)
+    expect(commander.homeMount?.riderNpc).toBe(commander.npc)
+    expect(town.mounts).toContain(commander.homeMount)
+  })
+
   it('queues Town resident identities and completes registration before its loading promise resolves', async () => {
     const step = loadingFrames(), profile = createCareerProfile('roman')
     const population = townConquestRoster(resolveTownHRLayout(profile.faction, [], []))
+    population.push(townCommanderSpec({ x: 30, z: 10, yaw: 0 }))
     const roster = careerTownSceneRoster(profile, population), event = new TownEvent(population)
     event.hostile = true
     event.register('cat', { dead: true })
     const town = Object.assign(Object.create(TownScene.prototype), {
-      scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(),
+      profile, scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(),
       event, world: { addServiceMarker: vi.fn(), addTarget: () => new THREE.Vector3() },
     }) as any
     dispose.push(() => { town.residentSpawnBatch?.cancel(); town.residents.forEach((r: any) => r.npc.dispose()); town.mounts.forEach((mount: any) => mount.dispose()) })
@@ -292,6 +540,14 @@ describe('production spawn callers with recorded constructor boundaries', () => 
     expect(progress).toHaveBeenLastCalledWith(`建立駐軍與居民 ${roster.length} / ${roster.length}…`)
     expect(event.actors.size).toBe(population.length)
     expect(event.actors.get('hr-officer')).toBe(town.residents.find((resident: any) => resident.spec.id === 'hr-officer').npc)
+    const commander = recording.npcs.find(npc => npc.combatantId === 'commander')!
+    expect(commander).toMatchObject({ tier: 4, name: '羅馬指揮官', visualAssetId: 'roman-hero-t5', combatProfileId: 'roman-commander', mountedInput: true })
+    const captain = recording.npcs.find(npc => npc.combatantId === 'captain')!
+    expect(commander.mount).toMatchObject({ type: MountType.CORGI, reservedForTown: true, riderNpc: commander })
+    expect(commander.mount).not.toBe(captain.mount)
+    expect(commander.mount?.type).toBe(captain.mount?.type)
+    expect(town.residents.find((resident: { spec: { id: string } }) => resident.spec.id === 'commander').homeMount).toBe(commander.mount)
+    expect(town.serviceMarkers.has('commander')).toBe(true)
     const sergeant = recording.npcs.find(npc => npc.combatantId === 'deployment')!
     expect(sergeant).toMatchObject({
       tier: 4, presetId: 'roman_heavy_infantry', visualAssetId: 'roman-hero-t4', combatProfileId: 'praetorian',
@@ -320,7 +576,7 @@ describe('production spawn callers with recorded constructor boundaries', () => 
       register(id, actor)
     })
     const town = Object.assign(Object.create(TownScene.prototype), {
-      scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(),
+      profile, scene: new THREE.Scene(), residents: [], mounts: [], cat: {}, serviceMarkers: new Map(),
       event, world: { addServiceMarker: vi.fn(), addTarget: () => new THREE.Vector3() },
     }) as any
     dispose.push(() => { town.residentSpawnBatch?.cancel(); town.residents.forEach((r: any) => r.npc.dispose()); town.mounts.forEach((mount: any) => mount.dispose()) })

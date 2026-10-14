@@ -1,6 +1,8 @@
 import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
+import { townMerchantLoadout } from '../town/TownMerchantEquipment'
+import { ARMORS } from '../rpg/ArmorDatabase'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
  * NPC.ts
@@ -29,10 +31,11 @@ import {
 } from './Terrain'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
 import type { CharacterRig, MountedPoseKind, CharacterFaction } from './CharacterVisuals'
-import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
+import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from './HumanoidAssetRegistry'
 import type { HeroAssetId } from './HeroAssetCatalog'
 import { resolveMakiEquipmentMode } from './MakiRangerEquipment'
-import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getT4HeroCombatModifiers, resolveT4UnitLoadout, type T4CombatProfileId } from '../battle/T4HeroCatalog'
+import { resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
 const NPC_AIM_GEOMETRY = new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8)
@@ -40,7 +43,7 @@ const AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
 import { CharacterCombatAnimator, meleeActionTimeScale, type CombatAction } from './CharacterCombatAnimator'
 import { CharacterBowVisual } from './CharacterBowVisual'
 import { applyAttachmentContract } from './HumanoidAttachmentContract'
-import { applySwordAttachment, weaponGripWorld } from './SwordAttachmentContract'
+import { applySwordAttachment, weaponGripWorld, weaponTipWorld } from './SwordAttachmentContract'
 import { applyBowAttachment } from './BowAttachmentContract'
 import { Mount } from './Mount'
 import { EquipmentVisualLODController } from './EquipmentVisualLODController'
@@ -108,7 +111,9 @@ export enum AIType {
   RANGED = 'RANGED',
 }
 
-export type NpcEagleFlightOrder = { kind: 'return'; target: THREE.Vector3; cruiseAltitude?: number; landingYaw: number } | { kind: 'hold'; cruiseAltitude?: number }
+export type NpcEagleFlightOrder = { kind: 'return'; target: THREE.Vector3; cruiseAltitude?: number; landingYaw: number }
+  | { kind: 'patrol'; target: THREE.Vector3; cruiseAltitude?: number }
+  | { kind: 'hold'; cruiseAltitude?: number }
 
 export type BanditAggroState = 'idle' | 'alerted' | 'provoked' | 'returning'
 
@@ -204,8 +209,18 @@ export class NPC {
 
   get eagleTactic(): EagleTactic | null { return this.eaglePilot.tactic }
   setEagleCruiseAltitude(altitude: number): void { this.eaglePilot.setCruiseAltitude(altitude) }
+  /** A retiring actor releases only its own references, never another owner's target. */
+  releaseCombatTarget(target: NPC): void {
+    if (this.missionCombatTarget === target) this.setMissionCombatTarget(undefined)
+    if (this._cachedTargetNpc === target) {
+      this._cachedTargetNpc = null
+      this._targetAcquisitionInitialized = false
+      this._rangedVisibleTargetHoldFrames = 0
+    }
+    if (this.eagleLastTarget === target) this.eagleLastTarget = undefined
+  }
   setEagleFlightOrder(order: NpcEagleFlightOrder | null): void {
-    this.eagleFlightOrder = order?.kind === 'return' ? { ...order, target: order.target.clone() } : order
+    this.eagleFlightOrder = order && 'target' in order ? { ...order, target: order.target.clone() } : order
     if (order?.cruiseAltitude !== undefined) this.eaglePilot.setCruiseAltitude(order.cruiseAltitude)
     this.eaglePilot.reset()
     this.eagleAnchorSet = false
@@ -222,12 +237,13 @@ export class NPC {
   private _faction: Faction
   get faction(): Faction { return this._faction }
   readonly characterFaction: CharacterFaction
-  readonly aiType: AIType
+  private _aiType: AIType
+  get aiType(): AIType { return this._aiType }
   readonly name: string
   private _tier: 1 | 2 | 3 | 4
   get tier(): 1 | 2 | 3 | 4 { return this._tier }
   readonly visualAssetId?: HeroAssetId
-  readonly combatProfileId?: T4CombatProfileId
+  readonly combatProfileId?: HeroCombatProfileId
   readonly specialCombatProfile?: 'maki-ranger'
   presetId?: UnitPresetId
   private _squadId?: SquadId
@@ -262,7 +278,8 @@ export class NPC {
   set meleeDamage(value: number) { this._meleeDamageOverride = value }
   private _rangedDamage: number
   get rangedDamage(): number { return this._rangedDamage }
-  public readonly generatedAsCavalry: boolean
+  private _generatedAsCavalry: boolean
+  get generatedAsCavalry(): boolean { return this._generatedAsCavalry }
   public mount: Mount | null = null
   public meleeAttackRadius = 1.8
   public isUsingLance = false
@@ -270,6 +287,8 @@ export class NPC {
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
   private originalCombatEquipment: CombatEquipmentSnapshot | null = null
+  private careerRangedAmmo?: number
+  private get equipmentRequiredForCombat(): boolean { return this.combatOwnership === 'player-personal' || this.townCategory === 'civilian' }
   public tacticalOrder: TacticalOrder = DEFAULT_TACTICAL_ORDER
   /** Mission transport owns movement while combat still uses this world-space root. */
   siegeTransport: string | null = null
@@ -356,7 +375,7 @@ export class NPC {
     const kind = this.rangedCombatKind
     if (!kind) return 22.0
     const eagleRange = eagleBowEngagementRange(this.isMounted ? this.mount?.type : undefined, this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined)
-    return eagleRange ?? getNpcRangedAttackRange(kind, this.isMounted) * (getT4HeroCombatModifiers(this.combatProfileId)?.rangedAttackRangeMultiplier ?? 1)
+    return eagleRange ?? getNpcRangedAttackRange(kind, this.isMounted) * (getHeroCombatModifiers(this.combatProfileId)?.rangedAttackRangeMultiplier ?? 1)
   }
 
   get rangedProjectileSpeed(): number {
@@ -542,11 +561,11 @@ export class NPC {
   get activeFollowTarget(): NPC | Player | null { return this.followTarget }
   get activeFollowSlotIndex(): number { return this.followSlotIndex }
   get activeFollowLocalOffset(): THREE.Vector3 { return this.followLocalOffset.clone() }
-  get combatFormationCheckpoint(): { commandId: number; position: { x: number; z: number; yaw: number }; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder } | undefined {
+  get combatFormationCheckpoint(): { commandId: number; position: { x: number; y?: number; z: number; yaw: number }; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder } | undefined {
     const target = this.formationTarget
     if (!target || this.tacticalOrder === 'follow') return undefined
     return { commandId: target.commandId,
-      position: { x: target.position.x, z: target.position.z, yaw: Math.atan2(target.facing.x, target.facing.z) },
+      position: { x: target.position.x, y: target.position.y, z: target.position.z, yaw: Math.atan2(target.facing.x, target.facing.z) },
       reached: target.reached, speedLimit: target.speedLimit, arrivalOrder: target.arrivalOrder }
   }
   get encounterIsAlerted(): boolean { return this.encounterOrigin !== null && this.encounterAggro !== 'idle' }
@@ -635,7 +654,7 @@ export class NPC {
   getWeaponTipPosition(): THREE.Vector3 {
     if (this.banditHammerTip) return this.banditHammerTip.getWorldPosition(this._tmpWeaponTip)
     if (this.specialCombatProfile === 'maki-ranger' && this.bowVisual) return this.bowVisual.getTopTipPosition(this._tmpWeaponTip)
-    return this.swordGripPivot.localToWorld(this._tmpWeaponTip.copy(this.swordTipLocal))
+    return weaponTipWorld(this.swordGripPivot, this.swordTipLocal, this._tmpWeaponTip, this.rig.meleeTipFollowsVisual)
   }
 
   getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
@@ -662,31 +681,33 @@ export class NPC {
     combatantId?: string,
     combatEventSink?: CombatEventSink,
     visualAssetId?: HeroAssetId,
-    combatProfileId?: T4CombatProfileId,
+    combatProfileId?: HeroCombatProfileId,
     specialCombatProfile?: 'maki-ranger',
     readonly townCategory?: 'civilian',
     civilianStyle?: CharacterFaction,
+    readonly townCombatRole?: 'merchant',
     spawnPlacement?: { y: number },
   ) {
+    if (townCombatRole === 'merchant') loadout = townMerchantLoadout()
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
     this.spawnZ = spawnZ
     this._faction = faction
     this.characterFaction = characterFaction
-    this.aiType = aiType
+    this._aiType = aiType
     this.name = name
     this._tier = tier
     this.visualAssetId = visualAssetId
     this.combatProfileId = combatProfileId
     this.specialCombatProfile = specialCombatProfile
-    this.maxHp = townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getT4HeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
+    this.maxHp = townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getHeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
     this.currentHp = this.maxHp
     this.loadout = loadout
     this.presetId = presetId
     this._squadId = squadId
     this.combatantId = combatantId ?? `npc-${NPC.nextCombatantSerial++}`
     this.originalCombatEventSink = combatEventSink
-    this.generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
+    this._generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
     if (loadout) {
@@ -833,9 +854,26 @@ export class NPC {
   private duelHostile = false
   armTownCivilian(weaponId: string): void {
     if (this.townCategory !== 'civilian' || this.dead) return
+    if (!this.townArmed) {
+      const equipped = this.loadout?.meleeWeaponId
+      const ranged = this.loadout?.rangedWeaponId
+      this._setActiveMeleeWeapon(equipped && WEAPONS[equipped]?.type === 'melee' ? equipped
+        : ranged && WEAPONS[ranged]?.type === 'ranged' ? null : weaponId)
+      this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
+    }
     this.townArmed = true
-    this._setActiveMeleeWeapon(weaponId)
-    this.swordPivot.visible = true
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    this.shieldCollider.refreshVisibility()
+  }
+  /** Peace sheathes equipment; only the saved canonical loadout owns civilian weapons. */
+  disarmTownCivilian(): void {
+    if (this.townCategory !== 'civilian' || this.dead) return
+    this.townArmed = false
+    this._setActiveMeleeWeapon(this.loadout?.meleeWeaponId ?? null)
+    this.swordPivot.visible = false
+    this.bowPivot.visible = false
+    this.shieldPivot.visible = false
   }
   private get targetsPlayer(): boolean { return this.duelHostile || this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
   get hostileToPlayer(): boolean { return this.targetsPlayer }
@@ -873,7 +911,7 @@ export class NPC {
     this.duelHostile = false
     this.respawnEnabled = false
     this.animator.cancel()
-    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
+    if (this.townCategory === 'civilian') this.disarmTownCivilian()
   }
   beginExternalThreat(): void {
     if (this.dead || this.townHostile || this.duelHostile) return
@@ -903,11 +941,7 @@ export class NPC {
     this.setTacticalOrder('charge')
     this.state = AIState.CHASE
     this._restoreCombatReadyRangedVisual()
-    if (this.townCategory === 'civilian' && !this.townArmed) {
-      this.townArmed = true
-      this._setActiveMeleeWeapon(CIVILIAN_PROFILE.retaliationWeapon)
-      this.swordPivot.visible = true
-    }
+    if (this.townCategory === 'civilian') this.armTownCivilian(CIVILIAN_PROFILE.retaliationWeapon)
   }
   /** Peace uses animation and assigned motion only: no battle target search or A*. */
   updateTownPeace(dt: number, distance: number, training: boolean, startAttack: boolean, speed = 0, trainingPhase = 0): boolean {
@@ -937,6 +971,15 @@ export class NPC {
     if (this.isMounted) this._syncToMount()
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
     return events.projectileRelease
+  }
+  /** Physical boarding is a temporary movement override, preserving the player's exact air order. */
+  updateTownEagleBoarding(dt: number, distance: number, destination: THREE.Vector3,
+    nearby: NPC[], obstacles: ObstacleData[], navigation: NavigationWorld): void {
+    const formation = this.formationTarget, order = this.tacticalOrder, follow = this.followTarget
+    this.formationTarget = { commandId: -7, position: destination.clone(), facing: new THREE.Vector3(0, 0, 1), reached: false, speedLimit: 3.5 }
+    this.tacticalOrder = 'formation'; this.followTarget = null
+    try { this.updateTownTravel(dt, distance, nearby, obstacles, navigation) }
+    finally { this.formationTarget = formation; this.tacticalOrder = order; this.followTarget = follow }
   }
   /** Reuses tactical formation/follow movement without combat acquisition or attacks. */
   updateTownTravel(dt: number, distance: number, nearby: NPC[], obstacles: ObstacleData[], navigation: NavigationWorld,
@@ -979,6 +1022,7 @@ export class NPC {
     this.mount = null
     this.animator.cancel()
     this.rig.animation?.stop()
+    disposeHumanoidInstanceSkeletons(this.characterVisualGroup)
     this.alertSprite.material.map?.dispose()
     this.alertSprite.material.dispose()
     this.group.removeFromParent()
@@ -1132,7 +1176,7 @@ export class NPC {
     const kind = this.rangedCombatKind
     if (kind === 'javelin') {
       this.rig.right.handSocket.add(this.bowPivot)
-      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
+      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', this.rig.rangedGripFrame ? .55 : 0, this.rig.rangedGripFrame)
       // The chosen weapon's tier controls its visual, independently of actor tier.
       WeaponMeshFactory.buildNpcRanged('roman', WEAPONS[this.rangedWeaponId!].tier, this.bowGripPivot)
     } else {
@@ -1146,6 +1190,67 @@ export class NPC {
     }
     polishWeaponMaterials(this.bowPivot)
     this.equipmentVisualLOD.register(kind === 'javelin' ? 'pilum' : 'bow', this.bowGripPivot)
+  }
+
+  /** Read-only preflight, including temporary equipment ownership, before a caller moves any mounts. */
+  canApplyCareerEquipment(loadout: UnitLoadout): boolean {
+    if (this.dead || this.isFalling || this.originalCombatEquipment) return false
+    const next = loadout
+    if (this.townCombatRole === 'merchant') {
+      const fixed = townMerchantLoadout()
+      if (Object.keys(fixed).some(slot => next[slot as keyof UnitLoadout] !== fixed[slot as keyof UnitLoadout])) return false
+    }
+    if (this.specialCombatProfile === 'maki-ranger' && (next.meleeWeaponId !== this.loadout?.meleeWeaponId
+      || next.rangedWeaponId !== this.loadout?.rangedWeaponId
+      || (next.secondaryMeleeWeaponId ?? null) !== (this.loadout?.secondaryMeleeWeaponId ?? null) || next.shieldId)) return false
+    return !(next.meleeWeaponId && WEAPONS[next.meleeWeaponId]?.type !== 'melee'
+      || next.secondaryMeleeWeaponId && WEAPONS[next.secondaryMeleeWeaponId]?.type !== 'melee'
+      || next.rangedWeaponId && WEAPONS[next.rangedWeaponId]?.type !== 'ranged'
+      || next.shieldId && !ARMORS[next.shieldId] || next.rangedWeaponId && next.shieldId)
+  }
+
+  /** Apply a saved permanent allocation. Resource repair and mount ownership stay with the caller. */
+  applyCareerEquipment(loadout: UnitLoadout, tier?: 1 | 2 | 3 | 4): boolean {
+    if (!this.canApplyCareerEquipment(loadout)) return false
+    const next = { ...loadout }
+    const slots = ['meleeWeaponId', 'secondaryMeleeWeaponId', 'rangedWeaponId', 'shieldId', 'mountId'] as const
+    if (this.loadout && slots.every(slot => (next[slot] ?? null) === (this.loadout?.[slot] ?? null))
+      && this.aiType === (next.rangedWeaponId ? AIType.RANGED : AIType.MELEE)
+      && this.generatedAsCavalry === Boolean(next.mountId)
+      && (tier === undefined || this.combatProfileId || this.specialCombatProfile || tier === this.tier)) return true
+    const previousRanged = this.rangedWeaponId
+    const ammo = this.arrows
+    if (previousRanged) this.careerRangedAmmo = ammo
+    this.loadout = next
+    this._generatedAsCavalry = Boolean(next.mountId)
+    this._aiType = next.rangedWeaponId ? AIType.RANGED : AIType.MELEE
+    if (tier !== undefined && !this.combatProfileId && !this.specialCombatProfile) this._tier = tier
+    this._cancelEquipmentCombatState()
+    this._meleeDamageOverride = undefined
+    this._setActiveMeleeWeapon(next.meleeWeaponId ?? null)
+    this.rangedWeaponId = next.rangedWeaponId ?? undefined
+    const rangedWeapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
+    this._rangedDamage = rangedWeapon
+      ? applyHeroOutgoingDamage(rangedWeapon.damageMax * getRangedDamageMultiplier(this.rangedCombatKind), this.combatProfileId) : 0
+    this.arrows = this.rangedWeaponId ? Math.min(30, previousRanged ? ammo : this.careerRangedAmmo ?? 30) : 0
+    this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
+    if (previousRanged !== this.rangedWeaponId) this._rebuildActiveRangedVisual()
+    this.shieldId = next.shieldId ?? null
+    this.rebuildShield()
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    if (this.townCategory === 'civilian' && !this.townArmed) this.disarmTownCivilian()
+    if (this.state === AIState.ATTACK) this.state = AIState.CHASE
+    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.rig.animation?.update(0)
+    return true
+  }
+
+  /** Select between the Merchant's own weapons only between swings; never repair or remove the shield. */
+  private _selectMerchantMeleeWeapon(target: Player | NPC | null): void {
+    if (this.townCombatRole !== 'merchant' || this.originalCombatEquipment || this.animator.busy) return
+    const id = target?.shield.active ? this.loadout?.secondaryMeleeWeaponId : this.loadout?.meleeWeaponId
+    if (id && id !== this.meleeWeaponId) this._setActiveMeleeWeapon(id)
   }
 
   /** Synchronizes combat values and visuals without replacing the Town loadout. Mounts are owned by the caller. */
@@ -1229,7 +1334,7 @@ export class NPC {
   }
 
   private _isVikingFootSpecialist(): boolean {
-    return this.originalCombatEquipment === null && this.specialCombatProfile !== 'maki-ranger' && this.characterFaction === 'viking'
+    return this.originalCombatEquipment === null && this.townCombatRole !== 'merchant' && this.specialCombatProfile !== 'maki-ranger' && this.characterFaction === 'viking'
       && !this.generatedAsCavalry
       && (this.presetId === 'viking_berserker' || this.presetId === 'viking_spearman' || this.presetId === 'viking_archer')
   }
@@ -1248,7 +1353,7 @@ export class NPC {
   private _enterVikingChargeStance(): void {
     if (!this._isVikingFootSpecialist() || !this.loadout) return
     this._cancelEquipmentCombatState()
-    const chargeWeapon = this.presetId === 'viking_spearman'
+    const chargeWeapon = this.presetId === 'viking_spearman' && WEAPONS[this.loadout.meleeWeaponId ?? '']?.combatKind === 'lance'
       ? (this.loadout.secondaryMeleeWeaponId ?? this.loadout.meleeWeaponId ?? null)
       : (this.loadout.meleeWeaponId ?? null)
     this._setActiveMeleeWeapon(chargeWeapon)
@@ -2091,9 +2196,11 @@ export class NPC {
     let nearest: NPC | null = null
     let distanceSq = range * range + 1e-6
     let playerTarget = false
+    let airborneTarget = false
     const playerPosition = this._getPlayerPosition(player, this._tmpTargetPosition)
     if (this.targetsPlayer && player.targetable && !player.dead && this._isEagleTargetInBounds(playerPosition)) {
       playerTarget = true
+      airborneTarget = player.currentMount?.isAirborne === true
       distanceSq = this.combatPosition.distanceToSquared(playerPosition)
       if (this.playerHitFocus > 0) return { position: playerPosition, isDead: false, isPlayer: true }
     }
@@ -2102,7 +2209,10 @@ export class NPC {
       if (candidate === this || candidate.dead || !combatAllegiancesHostile(this, candidate)
         || !this._isEagleTargetInBounds(candidate.combatPosition)) continue
       const candidateDistanceSq = this.combatPosition.distanceToSquared(candidate.combatPosition)
-      if (candidateDistanceSq < distanceSq) { nearest = candidate; distanceSq = candidateDistanceSq; playerTarget = false }
+      const airborne = candidate.mount?.isAirborne === true
+      if (airborne && !airborneTarget || airborne === airborneTarget && candidateDistanceSq < distanceSq) {
+        nearest = candidate; distanceSq = candidateDistanceSq; playerTarget = false; airborneTarget = airborne
+      }
     }
     return playerTarget ? { position: playerPosition, isDead: false, isPlayer: true }
       : nearest ? { position: nearest.combatPosition, isDead: false, isPlayer: false, npc: nearest } : null
@@ -2271,8 +2381,8 @@ export class NPC {
 
     if (this.tacticalOrder === 'follow') {
       const contact = nearbyNPCs.some(other => other !== this && !other.dead && combatAllegiancesHostile(this, other) && other.combatPosition.distanceToSquared(this.combatPosition) <= 64
-        && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId || this.hasActiveRangedWeapon && other.combatPosition.distanceToSquared(this.combatPosition) >= RANGED_ATTACK_MIN ** 2))
-      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId && !contact) this.followCombatActive = false
+        && (!this.equipmentRequiredForCombat || this.meleeWeaponId || this.hasActiveRangedWeapon && other.combatPosition.distanceToSquared(this.combatPosition) >= RANGED_ATTACK_MIN ** 2))
+      if (this.equipmentRequiredForCombat && !this.meleeWeaponId && !contact) this.followCombatActive = false
       if (contact) {
         this.followCombatActive = true
         this._targetAcquisitionInitialized = false
@@ -2311,9 +2421,9 @@ export class NPC {
         hostileNpcGrid,
         chaseTargetCoordinator,
       )
-      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId
+      if (this.equipmentRequiredForCombat && !this.meleeWeaponId
         && (!this.hasActiveRangedWeapon || targetInfo && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2)) targetInfo = null
-      if (this.hasSiegeObstacle && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId || this.hasActiveRangedWeapon)) {
+      if (this.hasSiegeObstacle && (!this.equipmentRequiredForCombat || this.meleeWeaponId || this.hasActiveRangedWeapon)) {
         targetInfo = { position: this.assignedSiegeObstacle!.box.getCenter(this._tmpTargetPosition), isDead: false, isPlayer: false }
         this._siegeTargetObstacle = this.assignedSiegeObstacle
       }
@@ -2323,7 +2433,7 @@ export class NPC {
         && (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition)
         && this.specialCombatProfile !== 'maki-ranger'
         && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2
-        && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId)
+        && (!this.equipmentRequiredForCombat || this.meleeWeaponId)
         && (!this.holdsRampartFirePosition || this._isRampartMeleeThreat(targetInfo.position))) {
         this._switchToMelee()
       }
@@ -2376,6 +2486,7 @@ export class NPC {
         }
       }
       const meleeTarget = targetInfo?.isPlayer ? player : targetInfo?.npc ?? null
+      this._selectMerchantMeleeWeapon(meleeTarget)
       if (
         meleeTarget !== this.meleeApproachTarget
         || this.isMounted !== this.meleeApproachMounted
@@ -2577,7 +2688,7 @@ export class NPC {
         // Ranged units only draw melee against a genuinely close human target.
         // A wall between them and that human remains a navigation/siege problem.
         if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
-          if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) { this.state = AIState.ALERT; break }
+          if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.state = AIState.ALERT; break }
           this._switchToMelee()
         }
 
@@ -2824,7 +2935,7 @@ export class NPC {
 
         // Human target got too close: ranged units draw melee as before.
         if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN && this.specialCombatProfile !== 'maki-ranger') {
-          if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) { this.animator.cancel(); this.state = AIState.ALERT; break }
+          if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.animator.cancel(); this.state = AIState.ALERT; break }
           this._switchToMelee()
           this.state = AIState.CHASE
           break
@@ -2898,7 +3009,7 @@ export class NPC {
         if (import.meta.env.DEV && _collector) { var _tCombat = performance.now() }
         if (this.hasActiveRangedWeapon) {
           const rangedKind = this.rangedCombatKind ?? 'bow'
-          const cooldown = getRangedCooldown(rangedKind) / (getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+          const cooldown = getRangedCooldown(rangedKind) / (getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
           const isBow = rangedKind === 'bow'
           const windup = isBow ? 0.04 : (this.rig.animation?.getDuration('pilumThrow') ?? 0.45)
 
@@ -2911,12 +3022,12 @@ export class NPC {
               this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
             }
             if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim') {
-              this.animator.start('bowRelease', getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+              this.animator.start('bowRelease', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
             }
           } else {
             if (!this.animator.busy && this.attackTimer >= cooldown - windup) {
               this.pendingPilumTarget.copy(this._getElevatedRangedAimPoint(targetInfo.position))
-              if (this.animator.start('pilumThrow', getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)) this.bowPivot.visible = true
+              if (this.animator.start('pilumThrow', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)) this.bowPivot.visible = true
             }
           }
 
@@ -2966,14 +3077,14 @@ export class NPC {
             Boolean(this.shieldId),
           )
           if (!this.animator.busy && this.attackTimer <= 0) {
-            this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1))
+            this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1))
             this.attackHitProcessed = false
           }
 
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
           if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
-          const attackSpeed = getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1
+          const attackSpeed = getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1
           this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getWeaponTipPosition())
           const meleeEvents = this.animator.update(
             dt * berserker.meleeAttackRateMultiplier,
@@ -3159,6 +3270,10 @@ export class NPC {
     command.target = undefined; command.altitude = undefined; command.landingYaw = undefined
     if (order?.kind === 'return') {
       command.kind = 'return'; this.eagleGoal.copy(order.target); command.landingYaw = order.landingYaw
+    } else if (order?.kind === 'patrol') {
+      // Reuse the pilot's ordinary waypoint approach without follow sprint or a
+      // formation assignment left over from boarding. The owner advances waypoints.
+      command.kind = 'formation'; this.eagleGoal.copy(order.target)
     } else if (follow) {
       command.kind = 'follow'
       const leader = this.followTarget!
@@ -3180,7 +3295,7 @@ export class NPC {
     mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound))
     mount.finishControlledFrame(dt, obstacles)
     this._syncToMount()
-    if (formation && order?.kind !== 'return' && Math.hypot(mount.group.position.x - formation.position.x, mount.group.position.z - formation.position.z) < XONGKORO.aiOrbitRadius + 5) {
+    if (formation && !order && Math.hypot(mount.group.position.x - formation.position.x, mount.group.position.z - formation.position.z) < XONGKORO.aiOrbitRadius + 5) {
       formation.reached = true
       if (formation.arrivalOrder) this.tacticalOrder = formation.arrivalOrder
     }
@@ -3252,7 +3367,7 @@ export class NPC {
       this.eagleShotCheckRemaining = .15
     }
     const canShoot = eligible && this.eagleShotClear
-    const cooldown = getRangedCooldown(kind) / (getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+    const cooldown = getRangedCooldown(kind) / (getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
     if (ranged && kind === 'javelin') this.attackTimer = Math.min(cooldown, this.attackTimer + dt)
     if (canShoot && target) {
       if (kind === 'bow') this.attackTimer += dt
@@ -3651,7 +3766,7 @@ export class NPC {
     }
     this.isSprinting = this.chargeSprintLatched && this.stamina > 0
     const sprintMultiplier = this.isSprinting ? SPRINT_MULTIPLIER : 1
-    const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier * sprintMultiplier * (getT4HeroCombatModifiers(this.combatProfileId)?.moveSpeedMultiplier ?? 1)
+    const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier * sprintMultiplier * (getHeroCombatModifiers(this.combatProfileId)?.moveSpeedMultiplier ?? 1)
 
     this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)
     if (this.mount) {
@@ -3688,9 +3803,10 @@ export class NPC {
   }
 
   /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
-  fitCorgiSeat(): void {
-    if (!this.mount?.corgiVisual || this.dead) return
-    this.mount.corgiVisual.fitRider(this.characterVisualGroup)
+  fitMountedSeat(): void {
+    if (!this.mount || this.dead) return
+    this.mount.corgiVisual?.fitRider(this.characterVisualGroup)
+    this.mount.catVisual?.fitRider(this.characterVisualGroup)
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {
@@ -3760,7 +3876,7 @@ export class NPC {
       return distance <= this.maxRangedAttackDistance
         && (isTower || this.specialCombatProfile === 'maki-ranger' || distance >= RANGED_ATTACK_MIN)
     }
-    if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
+    if (this.equipmentRequiredForCombat && !this.meleeWeaponId) return false
     return this._isTargetInMeleeApproachRange(targetPos)
   }
 
@@ -3800,7 +3916,7 @@ export class NPC {
 
   private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0): boolean {
     if (Math.abs(targetPos.y - this.combatPosition.y) > this.meleeAttackRadius + extraReach) return false
-    if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
+    if (this.equipmentRequiredForCombat && !this.meleeWeaponId) return false
     if (this.specialCombatProfile === 'maki-ranger' && this.bowVisual) {
       if (this.combatPosition.distanceTo(targetPos) > this.meleeAttackRadius + extraReach) return false
       const top = this.bowVisual.getTopTipPosition(new THREE.Vector3())
@@ -3843,6 +3959,7 @@ export class NPC {
     this.pendingLanceChargeSpeed = 0
     this.state = AIState.IDLE
     this.currentHp = this.maxHp
+    this.careerRangedAmmo = undefined
     if (this.aiType === AIType.RANGED) {
       this.arrows = 1
       this.rangedActive = Boolean(this.rangedWeaponId)

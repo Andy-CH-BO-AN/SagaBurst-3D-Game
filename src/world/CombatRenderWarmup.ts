@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
+import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from './HumanoidAssetRegistry'
 import { prewarmProjectileVisuals, createProjectileWarmupGroup } from './ArrowProjectile'
 import { CharacterBowVisual } from './CharacterBowVisual'
 import { createVikingHornAccessory } from './HumanoidAssetRegistry'
@@ -126,6 +126,7 @@ export class CombatRenderWarmup {
       if (renderTarget) {
         renderTarget.dispose()
       }
+      disposeHumanoidInstanceSkeletons(warmupScene)
       warmupScene.clear()
     }
   }

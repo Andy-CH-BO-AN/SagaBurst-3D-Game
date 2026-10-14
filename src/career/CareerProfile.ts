@@ -1,3 +1,8 @@
+import { cloneTownEquipment, type CareerTownEquipment } from './CareerTownEquipmentState'
+import { cloneTownAirCommandSquad, type TownAirCommandSquadState } from './TownAirCommandAuthority'
+import { cloneCivilianCommandSquad, type CivilianCommandSquadState } from './CivilianCommandAuthority'
+import type { EnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
+import type { CareerDuelTier, CareerDuelCommanderHome } from './CareerDuelState'
 import { cloneOfficialCommandAuthority, cloneTownCommandSquad, type TownCommandSquadState } from './CareerCommandAuthority'
 import type { TownEagleGarrisons } from '../town/TownEagleGarrisonState'
 import type { CareerAerialState } from './CareerAerialState'
@@ -9,7 +14,7 @@ import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import type { PlayerMountId } from '../battle/BattleConfig'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import type { UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
+import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import { createDefaultSkillState, normalizeSkillState, type SkillState } from '../rpg/SkillManager'
 import { calculateRecruitMissionMerit } from './CareerMissionMeritPolicy'
 import { careerMissionTierForTemplateId, type CareerMissionTier } from './CareerMissionTier'
@@ -87,6 +92,8 @@ export interface CareerProfile {
   /** Minimal roaming deployment state survives mission cleanup independently in each Town. */
   townOutskirts?: Partial<Record<CharacterFaction, import('../town/TownOutskirtsWarfareController').TownOutskirtsCheckpoint>>
   townCommandSquad?: TownCommandSquadState
+  civilianCommandSquad?: CivilianCommandSquadState
+  townAirCommandSquad?: TownAirCommandSquadState
   activeMission?: ActiveCareerMission
   activeOutpostMission?: CareerOutpostMission
   completedOutpostStages?: CareerOutpostStageId[]
@@ -97,11 +104,15 @@ export interface CareerProfile {
   /** Mission-board tiers are independent of the player's current rank. */
   careerMissionCompletionsByTier?: Partial<Record<CareerMissionTier, number>>
   completedCareerMissionTemplateIds?: string[]
+  /** Original service resources retained through Duel settlement and scene reconstruction. */
+  townCommanderRecovery?: CareerDuelCommanderHome & { faction: CharacterFaction }
   /** Each unit preset unlocks only its own next Duel tier. */
-  duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, UnitTier>>
+  duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, CareerDuelTier>>
   townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[]; authorizedTownCommandActorIds?: string[] }
 
+  enemyEaglePatrols?: Partial<Record<CharacterFaction, EnemyEaglePatrolCheckpoint>>
   townEagleGarrisons?: TownEagleGarrisons
+  townEquipment?: CareerTownEquipment
   inventory?: CareerInventory
   ownedWeapons: string[]
   ownedArmors: string[]
@@ -277,8 +288,9 @@ export function claimCareerMission(
 
   const contribution = { ...meritStats, damageTaken: stats.damageTaken, survived: stats.survived }
   const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault' || active.kind === 'captain-eagle-battle'
+    || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
-  const defense = active.kind === 'captain-outpost-defense'
+  const defense = active.kind === 'captain-outpost-defense' || active.kind === 'commander-outpost-last-stand'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'defense', 'mission') : null
   const battleMerit = offense ?? defense
   const merit = battleMerit ? { damage: battleMerit.characterDamage + battleMerit.structureDamage, kills: battleMerit.kills, contribution: battleMerit.victory + battleMerit.survival + battleMerit.gateBreaches, total: battleMerit.total } : calculateRecruitMissionMerit(contribution, outcome)
@@ -293,11 +305,11 @@ export function claimCareerMission(
       if (active.duelPresetId && active.duelTier) {
         profile.duelHighestDefeatedTierByPreset = {
           ...profile.duelHighestDefeatedTierByPreset,
-          [active.duelPresetId]: Math.max(profile.duelHighestDefeatedTierByPreset?.[active.duelPresetId] ?? 0, active.duelTier) as UnitTier,
+          [active.duelPresetId]: Math.max(profile.duelHighestDefeatedTierByPreset?.[active.duelPresetId] ?? 0, active.duelTier) as CareerDuelTier,
         }
       }
     } else recordCareerMissionCompletion(profile, careerMissionTierForTemplateId(active.templateId))
-    if ((active.kind === 'town-defense' || active.kind?.startsWith('veteran-') || active.templateId.startsWith('captain-'))
+    if ((active.kind === 'town-defense' || active.kind?.startsWith('veteran-') || active.templateId.startsWith('captain-') || active.templateId.startsWith('commander-'))
       && !(profile.completedCareerMissionTemplateIds ?? []).includes(active.templateId)) {
       profile.completedCareerMissionTemplateIds = [...(profile.completedCareerMissionTemplateIds ?? []), active.templateId]
     }
@@ -322,7 +334,11 @@ export function claimCareerMission(
 
 export function clearCareerMission(current: CareerProfile, missionId: string): CareerProfile {
   const profile = cloneCareerProfile(current)
-  if (profile.activeMission?.id === missionId) delete profile.activeMission
+  if (profile.activeMission?.id === missionId) {
+    const home = profile.activeMission.duelTier === 5 ? profile.activeMission.duelCommanderHome : undefined
+    if (home) profile.townCommanderRecovery = { ...home, faction: profile.faction }
+    delete profile.activeMission
+  }
   return profile
 }
 
@@ -337,6 +353,7 @@ export function careerMissionCompletionsForTier(profile: CareerProfile, tier: Ca
   const soldierWins = outpostWins + soldierStoryWins + assaultWin
   const veteranStoryWins = profile.completedCareerMissionTemplateIds?.filter(id => careerMissionTierForTemplateId(id) === 3).length ?? 0
   const captainStoryWins = profile.completedCareerMissionTemplateIds?.filter(id => careerMissionTierForTemplateId(id) === 4).length ?? 0
+  if (tier === 5) return 0
   if (tier === 4) return captainStoryWins
   if (tier === 2) return soldierWins
   if (tier === 3) return veteranStoryWins
@@ -348,7 +365,8 @@ export function recordCareerMissionCompletion(profile: CareerProfile, tier: Care
     1: careerMissionCompletionsForTier(profile, 1),
     2: careerMissionCompletionsForTier(profile, 2),
     3: careerMissionCompletionsForTier(profile, 3),
-    ...(tier === 4 || profile.careerMissionCompletionsByTier?.[4] !== undefined ? { 4: careerMissionCompletionsForTier(profile, 4) } : {}),
+    ...(tier >= 4 || profile.careerMissionCompletionsByTier?.[4] !== undefined ? { 4: careerMissionCompletionsForTier(profile, 4) } : {}),
+    ...(tier === 5 || profile.careerMissionCompletionsByTier?.[5] !== undefined ? { 5: careerMissionCompletionsForTier(profile, 5) } : {}),
   }
   counts[tier] = (counts[tier] ?? 0) + 1
   profile.careerMissionCompletionsByTier = counts
@@ -429,10 +447,15 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.townCommanderRecovery ? { townCommanderRecovery: { ...profile.townCommanderRecovery } } : {}),
     ...(profile.townCommandSquad ? { townCommandSquad: cloneTownCommandSquad(profile.townCommandSquad) } : {}),
+    ...(profile.townAirCommandSquad ? { townAirCommandSquad: cloneTownAirCommandSquad(profile.townAirCommandSquad) } : {}),
+    ...(profile.civilianCommandSquad ? { civilianCommandSquad: cloneCivilianCommandSquad(profile.civilianCommandSquad) } : {}),
+    ...(profile.enemyEaglePatrols ? { enemyEaglePatrols: structuredClone(profile.enemyEaglePatrols) } : {}),
     ...(profile.townEagleGarrisons ? { townEagleGarrisons: structuredClone(profile.townEagleGarrisons) } : {}),
     ...(profile.playerAerialState ? { playerAerialState: structuredClone(profile.playerAerialState) } : {}),
     ...(profile.townOutskirts ? { townOutskirts: structuredClone(profile.townOutskirts) } : {}),
+    ...(profile.townEquipment ? { townEquipment: cloneTownEquipment(profile.townEquipment) } : {}),
     ...(profile.inventory ? { inventory: { version: 1, quantities: { ...profile.inventory.quantities } } } : {}),
     skills: normalizeSkillState(profile.skills),
     ...(profile.personalSquad ? { personalSquad: { members: profile.personalSquad.members.map(member => ({ ...member, ...(member.equipment ? { equipment: { ...member.equipment } } : {}) })) } } : {}),
@@ -440,6 +463,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.activeOutpostMission ? { activeOutpostMission: {
       ...profile.activeOutpostMission,
       ...(profile.activeOutpostMission.personalSquad ? { personalSquad: clonePersonalMission(profile.activeOutpostMission.personalSquad) } : {}),
+      ...(profile.activeOutpostMission.officialSquad ? { officialSquad: cloneOfficialCommandAuthority(profile.activeOutpostMission.officialSquad) } : {}),
       ...(profile.activeOutpostMission.battle ? { battle: structuredClone(profile.activeOutpostMission.battle) } : {}),
     } } : {}),
     ...(profile.completedOutpostStages ? { completedOutpostStages: [...profile.completedOutpostStages] } : {}),
@@ -452,6 +476,8 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.duelHighestDefeatedTierByPreset ? { duelHighestDefeatedTierByPreset: { ...profile.duelHighestDefeatedTierByPreset } } : {}),
     ...(profile.activeMission ? { activeMission: {
       ...profile.activeMission,
+      ...(profile.activeMission.duelCommanderHome ? { duelCommanderHome: { ...profile.activeMission.duelCommanderHome } } : {}),
+      ...(profile.activeMission.duelTravel ? { duelTravel: structuredClone(profile.activeMission.duelTravel) } : {}),
       ...(profile.activeMission.officialSquad ? { officialSquad: cloneOfficialCommandAuthority(profile.activeMission.officialSquad) } : {}),
       ...(profile.activeMission.patrolOutskirts ? { patrolOutskirts: structuredClone(profile.activeMission.patrolOutskirts) } : {}),
       ...(profile.activeMission.patrolAmbient ? { patrolAmbient: cloneOfficialCommandAuthority(profile.activeMission.patrolAmbient) } : {}),
@@ -498,6 +524,12 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.actorPositions ? { actorPositions: Object.fromEntries(Object.entries(profile.activeMission.actorPositions).map(([actorId, position]) => [actorId, { ...position }])) } : {}),
       ...(profile.activeMission.engagedEnemySquadIds ? { engagedEnemySquadIds: [...profile.activeMission.engagedEnemySquadIds] } : {}),
       ...(profile.activeMission.outpostBattleState ? { outpostBattleState: { ...profile.activeMission.outpostBattleState } } : {}),
+      ...(profile.activeMission.commanderMission ? { commanderMission: {
+        ...profile.activeMission.commanderMission,
+        ...(profile.activeMission.commanderMission.playerPosition
+          ? { playerPosition: { ...profile.activeMission.commanderMission.playerPosition } }
+          : {}),
+      } } : {}),
     } } : {}),
     ...(profile.completedCareerMissionTemplateIds ? { completedCareerMissionTemplateIds: [...profile.completedCareerMissionTemplateIds] } : {}),
     ownedWeapons: [...profile.ownedWeapons],

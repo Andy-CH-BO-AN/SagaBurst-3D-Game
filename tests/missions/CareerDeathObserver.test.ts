@@ -238,6 +238,28 @@ describe('Town mission death observer orchestration', () => {
     player.dispose()
   })
 
+  it('starts Commander return only after a successful saved defense settlement', () => {
+    const { town, player } = townFixture()
+    town.missionSettlement = { returnToTown: vi.fn()
+      .mockReturnValueOnce({ status: 'save-failed', destination: 'defense' })
+      .mockReturnValueOnce({ status: 'returned', kind: 'defense' })
+      .mockReturnValue({ status: 'ignored' }) }
+    // The scheduler/registration owner is exercised by NpcSpawnIntegration.
+    town.ensureTownCommanderAfterReturn = vi.fn(async () => {})
+    town.outskirts = { resumeAfterSiege: vi.fn() }
+    town.openPanel = vi.fn(() => ({})); town.button = vi.fn(); town.closePanel = vi.fn()
+    town.returnToTown('direct')
+    expect(town.ensureTownCommanderAfterReturn).not.toHaveBeenCalled()
+    expect(town.outskirts.resumeAfterSiege).not.toHaveBeenCalled()
+    town.button.mock.calls[0][2]()
+    expect(town.ensureTownCommanderAfterReturn).toHaveBeenCalledTimes(1)
+    expect(town.outskirts.resumeAfterSiege).toHaveBeenCalledTimes(1)
+    town.returnToTown('direct')
+    expect(town.ensureTownCommanderAfterReturn).toHaveBeenCalledTimes(1)
+    expect(town.outskirts.resumeAfterSiege).toHaveBeenCalledTimes(1)
+    player.dispose()
+  })
+
   it('retries a failed direct return with the same intent so it still moves the player to town', () => {
     const { town, player } = townFixture()
     town.missionSettlement = { returnToTown: vi.fn()

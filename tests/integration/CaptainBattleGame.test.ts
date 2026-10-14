@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Game } from '../../src/Game'
 import type { NPC } from '../../src/world/NPC'
 import type { Mount } from '../../src/world/Mount'
-import type { BattleSpawnPlan } from '../../src/battle/BattleSpawner'
+import { BattleSpawner, type BattleSpawnPlan } from '../../src/battle/BattleSpawner'
+import { acceptCareerOutpost, careerOutpostCommandMeritPolicy } from '../../src/career/CareerOutpostMission'
+import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
+import { createDefenseCampaignWaveConfig } from '../../src/campaign/DefenseCampaignLaunch'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainEagleSpawnPlan, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -16,8 +19,13 @@ import type { NpcSpawnBatch } from '../../src/world/NpcSpawnScheduler'
 import type { ArmyCommandAuthority } from '../../src/battle/ArmyCommandController'
 import type { ActiveCareerMission } from '../../src/career/CareerMissionState'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { createArmyCommandHarness } from '../helpers/armyCommandHarness'
 import { advanceNpcFrame, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { RecordingNpc, RecordingMount, recording, resetSpawnRecording } from '../helpers/npcSpawnRecording'
+import { countArmyHudRoster } from '../../src/battle/ArmyCommandHudRoster'
+import { acceptCommanderMission, COMMANDER_LAST_STAND_ID } from '../../src/career/CommanderMissionCatalog'
+import { createCareerCommanderOutpostLaunch, createCareerCommanderOutpostSpawnPlan } from '../../src/career/CommanderOutpost'
+import { squadCommandTarget } from '../../src/battle/CommandTarget'
 
 // Constructor-boundary doubles: Game owns all queue, registration, save and readiness decisions.
 vi.mock('../../src/world/NPC', async importOriginal => {
@@ -35,14 +43,22 @@ vi.mock('../../src/world/Mount', async importOriginal => {
 
 interface CaptainGameHarness {
   careerProfile: CareerProfile
+  defenseCampaignConfig: ReturnType<typeof createCareerCommanderOutpostLaunch> | null
   npcs: NPC[]
   mounts: Mount[]
   scene: THREE.Scene
   spawnBatches: NpcSpawnBatch[]
   captainEagleSpawnBatch?: NpcSpawnBatch
+  commanderOutpostDeploymentBatch?: NpcSpawnBatch
   spawningStopped: boolean
   player: { hp: number; dead: boolean; position: THREE.Vector3; combatPosition: THREE.Vector3; group: THREE.Group }
   personalSquad?: { aliveCombatants: number; ready: boolean }
+  _identifyPersonalOutpostWave(plan: BattleSpawnPlan, wave: 'initial'): void
+  _persistPersonalOutpost(force: boolean): boolean
+  _newSpawnBatch(): NpcSpawnBatch
+  _spawnNpc(spec: BattleSpawnPlan['npcSpecs'][number]): NPC
+  _careerCommandHudRoster(): import('../../src/battle/ArmyCommandHudRoster').ArmyHudRoster
+  _commanderOutpostSquadCounts(): { label: string; alive: number; total: number }[]
   _declareCaptainEagleRoster(plan: BattleSpawnPlan): void
   _queueCaptainEagleRoster(plan: BattleSpawnPlan): void
   _persistCaptainMission(force?: boolean): boolean
@@ -50,6 +66,7 @@ interface CaptainGameHarness {
   _restorePersonalOutpostPlayer(): void
   _buildCaptainMissionCheckpoint(): ActiveCareerMission
   _restorePersonalOutpostNpc(npc: NPC): void
+  _restoreCareerVeteranNpcState(npc: NPC): void
   _updateCaptainBattle(dt: number): void
   _captainCommandAuthority(): ArmyCommandAuthority
   _applyCampaignBreachOrders(faction: 'roman' | 'viking'): void
@@ -74,25 +91,239 @@ function fixture(current = profile()) {
   const hud = { update: vi.fn(), showResult: vi.fn(), showSaveRetry: vi.fn(), destroy: vi.fn() }
   const game = Object.assign(Object.create(Game.prototype), {
     scene: new THREE.Scene(), npcs: [], mounts: [], spawnBatches: [], initializing: false, spawningStopped: false,
-    defenseCampaignConfig: current.activeMission!.kind === 'captain-outpost-defense' ? createCaptainFrontlineLaunch(current) : null,
-    captainEagleMissionId: current.activeMission!.kind === 'captain-eagle-battle' ? current.activeMission!.id : null,
+    defenseCampaignConfig: current.activeOutpostMission ? createCareerOutpostLaunch(current) : current.activeMission!.kind === 'captain-outpost-defense' ? createCaptainFrontlineLaunch(current) : null,
+    captainEagleMissionId: current.activeMission?.kind === 'captain-eagle-battle' ? current.activeMission!.id : null,
     careerProfile: current, careerStore: store, combatEvents: events, player, startingHorse: null,
     controlMode: 'player', careerVeteranActorMounts: new Map(), campaignSpawnQueue: [], campaignSpawnQueueIndex: 0,
+    personalCheckpointElapsed: 0, personalCriticalState: '',
     campaignSpawnWave: null, campaignAttackersStarted: false, campaignReinforcementSpawned: false,
     defenseCampaignRuntime: new DefenseCampaignRuntime(), previewCampaignGate: null,
-    soundManager: { updateEagleWingbeats: vi.fn(), playCommanderCommand: vi.fn() }, captainEagleHud: hud,
+    soundManager: { updateEagleWingbeats: vi.fn(), playCommanderCommand: vi.fn(), playCareerMissionVoice: vi.fn() }, captainEagleHud: hud,
     _aimTargetRegistry: { registerNpc: vi.fn(), registerMount: vi.fn(), unregisterNpc: vi.fn(), unregisterMount: vi.fn() },
     _showNotify: vi.fn(), _flushCareerSkillProgression: () => true,
   }) as CaptainGameHarness
-  const tracker = new BattleStatsTracker(events, false, undefined, current.activeMission!.playerStats,
-    careerMissionCommandMeritPolicy(current.activeMission!, () => game.careerProfile.activeMission!))
+  const tracker = new BattleStatsTracker(events, false, undefined, current.activeMission?.playerStats,
+    current.activeMission ? careerMissionCommandMeritPolicy(current.activeMission, () => game.careerProfile.activeMission!)
+      : careerOutpostCommandMeritPolicy(current.activeOutpostMission!, () => game.careerProfile.activeOutpostMission!))
   Object.assign(game, { battleStats: tracker,
-    captainCheckpoint: new CareerMissionCheckpoint(() => store.load()!, next => game._commitCaptainMissionCheckpoint(next)) })
+    captainCheckpoint: current.activeMission ? new CareerMissionCheckpoint(() => store.load()!, next => game._commitCaptainMissionCheckpoint(next)) : undefined })
   cleanups.push(() => { game.spawnBatches.forEach(batch => batch.cancel()); tracker.dispose() })
   return { game, store, storage, events, hud, tracker }
 }
 
+function spawnCommandRecord(game: CaptainGameHarness, spec: BattleSpawnPlan['npcSpecs'][number]): NPC {
+  let actor: NPC | undefined
+  const batch = game._newSpawnBatch()
+  batch.enqueue(spec.actorId!, () => { actor = game._spawnNpc(spec) }); batch.seal()
+  advanceNpcFrame(gameplayNpcSpawnDriver)
+  expect(batch.ready).toBe(true)
+  return actor!
+}
+
 describe('Captain battlefield Game callers', () => {
+  it('commands all four Last Stand squads and keeps formal, HR, casualty, spectator, and reload HUD counts aligned', () => {
+    // Five constructor-boundary records per scene prove Game routing without materializing the 220-actor battle.
+    const base = { ...createCareerProfile('roman'), rank: 'commander' as const, totalMerit: 20_000, availableMerit: 20_000,
+      personalSquad: { members: [{ id: 'personal:last-stand-a', type: 'soldier' as const },
+        { id: 'personal:last-stand-b', type: 'captain' as const }] } }
+    const current = acceptCommanderMission(base, COMMANDER_LAST_STAND_ID, 'commander-four-squads')!
+    const h = fixture(current)
+    const launch = createCareerCommanderOutpostLaunch(current)
+    const plan = createCareerCommanderOutpostSpawnPlan(launch)
+    h.game.defenseCampaignConfig = launch
+    const official = [0, 30, 60, 90].map(index => spawnCommandRecord(h.game, plan.npcSpecs[index]))
+    const personal = spawnCommandRecord(h.game, {
+      ...plan.npcSpecs[0], actorId: 'personal:last-stand-a', name: 'HR reinforcement', squadId: undefined,
+    })
+    personal.setCommandSquad('personal')
+
+    expect(official.map(actor => actor.squadId)).toEqual([1, 2, 3, 4])
+    expect(official.every(actor => h.game._captainCommandAuthority().accepts(actor))).toBe(true)
+    expect(h.game._captainCommandAuthority().accepts(personal)).toBe(false)
+    const deploying = h.game._careerCommandHudRoster()
+    expect(([1, 2, 3, 4] as const).map(squadId => countArmyHudRoster(deploying, squadCommandTarget(squadId))))
+      .toEqual([1, 2, 3, 4].map(() => expect.objectContaining({ total: 30, alive: 1, pending: 29 })))
+    expect(countArmyHudRoster(deploying, 'squad:personal')).toMatchObject({ total: 1, alive: 1, reserve: 1 })
+    expect(countArmyHudRoster(deploying, 'all')).toMatchObject({ total: 121, alive: 5, pending: 116, reserve: 1 })
+    expect(h.game._commanderOutpostSquadCounts().map(count => count.alive)).toEqual([1, 1, 1, 1])
+
+    const command = createArmyCommandHarness(h.game.npcs, null, null, null, 'roman', 'squad', true,
+      undefined, h.game._captainCommandAuthority(), () => h.game._careerCommandHudRoster(), () => h.game._persistCaptainMission(true))
+    for (const [squadKey, orderKey] of [['1', '1'], ['2', '2'], ['3', '1'], ['4', '2']] as const) {
+      command.input.press(squadKey); command.controller.update(); command.input.press(orderKey); command.controller.update()
+    }
+    expect(official.map(actor => actor.tacticalOrder)).toEqual(['attack', 'charge', 'attack', 'charge'])
+    command.input.pressAll(); command.controller.update(); command.input.press('5'); command.controller.update()
+    expect(official.every(actor => actor.activeFollowTarget === h.game.player)).toBe(true)
+    expect(personal.activeFollowTarget).toBeNull()
+    expect(h.store.load()!.activeMission!.officialSquad!.commandedSquadIds).toEqual([1, 2, 3, 4])
+    command.input.pressAll(); command.controller.update(); command.input.press('6'); command.controller.update()
+    expect(official.map(actor => actor.tacticalOrder)).toEqual(['defend', 'defend', 'defend', 'defend'])
+    expect(h.store.load()!.activeMission!.officialSquad!.commandedSquadIds).toEqual([])
+    command.input.pressAll(); command.controller.update(); command.input.press('5'); command.controller.update()
+    expect(h.store.load()!.activeMission!.officialSquad!.commandedSquadIds).toEqual([1, 2, 3, 4])
+
+    h.game.commanderOutpostDeploymentBatch = h.game.spawnBatches.at(-1)
+    official[1].restoreCombatHealth(0)
+    const active = h.game._careerCommandHudRoster()
+    expect(countArmyHudRoster(active, 'squad:2')).toMatchObject({ total: 30, alive: 0, dead: 1, missing: 29 })
+    expect(h.game._commanderOutpostSquadCounts().map(count => count.alive)).toEqual([1, 0, 1, 1])
+    expect(countArmyHudRoster(active, 'all')).toMatchObject({ total: 121, alive: 4, dead: 1, missing: 116, reserve: 1 })
+    h.game.player.dead = true
+    expect(h.game._captainCommandAuthority().enabled()).toBe(false)
+    expect(countArmyHudRoster(h.game._careerCommandHudRoster(), 'all')).toEqual(countArmyHudRoster(active, 'all'))
+
+    const saved = h.store.load()!
+    saved.activeMission!.deadFriendlyActorIds = [official[1].combatantId]
+    saved.activeMission!.actorHealth = { [official[1].combatantId]: { hp: 0 } }
+    saved.activeMission!.officialSquad!.members![official[1].combatantId] = {
+      ...saved.activeMission!.officialSquad!.members![official[1].combatantId], status: 'dead', hp: 0,
+    }
+    const resumed = fixture(saved)
+    resumed.game.defenseCampaignConfig = createCareerCommanderOutpostLaunch(saved)
+    const restored = [0, 30, 60, 90].map(index => spawnCommandRecord(resumed.game, plan.npcSpecs[index]))
+    restored.forEach(actor => resumed.game._restoreCareerVeteranNpcState(actor))
+    const restoredPersonal = spawnCommandRecord(resumed.game, {
+      ...plan.npcSpecs[0], actorId: 'personal:last-stand-a', name: 'HR reinforcement', squadId: undefined,
+    })
+    restoredPersonal.setCommandSquad('personal')
+    resumed.game.commanderOutpostDeploymentBatch = resumed.game.spawnBatches.at(-1)
+    expect(restored.map(actor => actor.dead)).toEqual([false, true, false, false])
+    expect(restored.filter(actor => !actor.dead).every(actor => actor.activeFollowTarget === resumed.game.player)).toBe(true)
+    expect(countArmyHudRoster(resumed.game._careerCommandHudRoster(), 'all'))
+      .toMatchObject({ total: 121, alive: 4, dead: 1, missing: 116, reserve: 1 })
+  })
+
+  it('routes a second Commander squad through Game, saves claims before mutation, and returns it to original campaign orders', () => {
+    // Two constructor-boundary records; native movement has its own small real-actor owner.
+    const current = profile(false); current.activeMission = undefined; current.rank = 'commander'; current.totalMerit = 20000
+    const h = fixture(acceptCaptainFrontline(current, 'commander-front')!)
+    const plan = createCaptainFrontlineSpawnPlan(createCaptainFrontlineLaunch(h.game.careerProfile), h.game.careerProfile.activeMission!.officialSquad)
+    const first = spawnCommandRecord(h.game, plan.npcSpecs[0]), second = spawnCommandRecord(h.game, plan.npcSpecs[30])
+    expect([first.squadId, second.squadId]).toEqual([1, 2])
+    const command = createArmyCommandHarness(h.game.npcs, null, null, null, 'roman', 'squad', true,
+      undefined, h.game._captainCommandAuthority(), () => h.game._careerCommandHudRoster(), () => h.game._persistCaptainMission(true))
+    h.storage.failWrites = true
+    command.input.press('2'); command.controller.update(); command.input.press('2'); command.controller.update()
+    expect(second.tacticalOrder).toBe('defend')
+    expect(h.game.careerProfile.activeMission!.officialSquad!.commandedSquadIds).toEqual([])
+    h.storage.failWrites = false
+    command.input.press('2'); command.controller.update(); command.input.press('2'); command.controller.update()
+    expect(first.tacticalOrder).toBe('defend'); expect(second.tacticalOrder).toBe('charge')
+    expect(h.store.load()!.activeMission!.officialSquad).toMatchObject({ commandedSquadIds: [2],
+      members: { [second.combatantId]: { order: 'charge', status: 'deployed' } } })
+    command.input.pressAll(); command.controller.update(); command.input.press('5'); command.controller.update()
+    expect(first.activeFollowTarget).toBe(h.game.player); expect(second.activeFollowTarget).toBe(h.game.player)
+    expect(h.store.load()!.activeMission!.officialSquad!.commandedSquadIds).toEqual([1, 2])
+    command.input.press('2'); command.controller.update(); command.input.press('6'); command.controller.update()
+    expect(first.tacticalOrder).toBe('follow'); expect(second.tacticalOrder).toBe('defend')
+    expect(h.store.load()!.activeMission!.officialSquad!.commandedSquadIds).toEqual([1])
+    expect(h.game.npcs).toEqual([first, second])
+  })
+
+  it('keeps undeployed Frontline reinforcements pending and never commands an actor outside its saved membership', () => {
+    // Full production 140-member census is data-only; just two constructor records are observed.
+    const current = profile(false); current.activeMission = undefined; current.rank = 'commander'; current.totalMerit = 20000
+    const h = fixture(acceptCaptainFrontline(current, 'commander-pending')!)
+    const plan = createCaptainFrontlineSpawnPlan(createCaptainFrontlineLaunch(h.game.careerProfile), h.game.careerProfile.activeMission!.officialSquad)
+    const first = spawnCommandRecord(h.game, plan.npcSpecs[0])
+    const foreign = spawnCommandRecord(h.game, { ...plan.npcSpecs[1], actorId: 'other-mission:initial:1' })
+    const authority = h.game._captainCommandAuthority()
+    expect(authority.accepts(first)).toBe(true); expect(authority.accepts(foreign)).toBe(false)
+    const hud = h.game._careerCommandHudRoster()
+    expect(hud.members).toHaveLength(140)
+    expect(hud.members.filter(member => member.state === 'pending')).toHaveLength(139)
+    expect(hud.members.some(member => member.id === foreign.combatantId)).toBe(false)
+    expect(authority.issue?.('follow', 'squad:4')).toBe(false)
+    expect(h.store.load()!.activeMission!.officialSquad!.commandedSquadIds).toEqual([])
+  })
+
+  it('persists and reloads ordinary Outpost Commander commands without requiring an HR squad or Captain checkpoint', () => {
+    // One constructor record per scene; full regular Outpost census stays production data.
+    const base = { ...createCareerProfile('roman'), rank: 'commander' as const, totalMerit: 20000 }
+    const h = fixture(acceptCareerOutpost(base, 1, 'commander-regular')!)
+    const launch = createCareerOutpostLaunch(h.game.careerProfile)
+    const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'defenders'))
+    h.game._identifyPersonalOutpostWave(plan, 'initial')
+    const actor = spawnCommandRecord(h.game, plan.npcSpecs[30])
+    expect(actor.squadId).toBe(2)
+    const authority = h.game._captainCommandAuthority()
+    expect(authority.enabled()).toBe(true); expect(authority.accepts(actor)).toBe(true)
+    expect(authority.issue?.('follow', 'squad:2')).toBe(true)
+    actor.restoreCombatHealth(23); actor.restoreCombatAmmo(2)
+    expect(h.game._persistPersonalOutpost(true)).toBe(true)
+    const saved = h.store.load()!
+    expect(saved.activeOutpostMission!.officialSquad!.members?.[actor.combatantId]).toMatchObject({ hp: 23, ammo: 2, order: 'follow' })
+    const reloaded = fixture(saved), restored = spawnCommandRecord(reloaded.game, plan.npcSpecs[30])
+    reloaded.game._restorePersonalOutpostNpc(restored)
+    expect(restored.hp).toBe(23); expect(restored.combatAmmo).toBe(2)
+    expect(restored.activeFollowTarget).toBe(reloaded.game.player)
+    expect(reloaded.game.npcs).toHaveLength(1)
+    expect(reloaded.game._captainCommandAuthority().issue?.('dismiss', 'squad:2')).toBe(true)
+    expect(restored.tacticalOrder).toBe('defend')
+    expect(reloaded.store.load()!.activeOutpostMission!.officialSquad!.commandedSquadIds).toEqual([])
+  })
+
+  it('preserves an enemy battlefield checkpoint order outside the official command roster', () => {
+    const h = fixture(profile(false)), launch = createCaptainFrontlineLaunch(h.game.careerProfile)
+    const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'attackers'))
+    const spec = { ...plan.npcSpecs[0], actorId: `${h.game.careerProfile.activeMission!.id}:attackers:0` }
+    const actor = spawnCommandRecord(h.game, spec)
+    expect(h.game._captainCommandAuthority().accepts(actor)).toBe(false)
+    actor.setTacticalOrder('charge'); actor.restoreCombatHealth(37)
+    expect(h.game._persistCaptainMission(true)).toBe(true)
+    const resumed = fixture(h.store.load()!), restored = spawnCommandRecord(resumed.game, spec)
+    resumed.game._restorePersonalOutpostNpc(restored)
+    expect(restored.tacticalOrder).toBe('charge'); expect(restored.hp).toBe(37)
+    expect(resumed.game._captainCommandAuthority().accepts(restored)).toBe(false)
+  })
+
+  it.each([false, true])('restores the accepted command after the later battlefield save fails (eagle=%s)', eagle => {
+    // One recording actor per scene; deployment counts remain pure production data.
+    const base = { ...createCareerProfile('roman'), rank: 'commander' as const, totalMerit: 20000,
+      ownedMounts: ['xongkoro' as const] }
+    const h = fixture((eagle ? acceptCaptainEagle(base, 'durable-eagle') : acceptCaptainFrontline(base, 'durable-front'))!)
+    const plan = eagle ? createCaptainEagleSpawnPlan(h.game.careerProfile)
+      : createCaptainFrontlineSpawnPlan(createCaptainFrontlineLaunch(h.game.careerProfile), h.game.careerProfile.activeMission!.officialSquad)
+    const spec = plan.npcSpecs.find(candidate => candidate.cavalry && h.game.careerProfile.activeMission!.officialSquad!.actorIds.includes(candidate.actorId!))!
+    if (eagle) h.game._declareCaptainEagleRoster(plan)
+    const actor = spawnCommandRecord(h.game, spec), mount = actor.mount!
+    mount.takeDamage(mount.maxHp + 1); actor.dismountFromMount(); actor.restoreCombatHealth(23)
+    expect(h.game._persistCaptainMission(true)).toBe(true)
+    const authority = h.game._captainCommandAuthority(), target = `squad:${actor.squadId!}` as const
+    const destination = { x: 19, y: 2, z: -180, yaw: 0.75 }
+    if (eagle) {
+      // The first save grants ownership; the post-issue snapshot must not be required for durability.
+      const save = h.store.save.bind(h.store)
+      vi.spyOn(h.store, 'save').mockImplementationOnce(next => { const result = save(next); h.storage.failWrites = true; return result })
+      expect(authority.issue?.('follow', target)).toBe(true)
+    } else {
+      expect(authority.beforeIssue?.('formation', target, [actor], [{ npc: actor, commandId: 17, position: destination, reached: false }])).toBe(true)
+      h.storage.failWrites = true
+      actor.assignFormationTarget(17, new THREE.Vector3(destination.x, destination.y, destination.z), new THREE.Vector3(0, 0, 1))
+      expect(h.game._persistCaptainMission(true)).toBe(false)
+    }
+    const saved = h.store.load()!, member = saved.activeMission!.officialSquad!.members![actor.combatantId]
+    expect(member).toMatchObject({ hp: 23, order: eagle ? 'follow' : 'formation', mount: { hp: 0, mounted: false } })
+    if (!eagle) expect(member.formation).toMatchObject({ commandId: 17, position: destination })
+    const resumed = fixture(saved)
+    let restored: NPC
+    if (eagle) {
+      resumed.game._queueCaptainEagleRoster({ ...plan, npcSpecs: [spec] })
+      advanceNpcFrame(gameplayNpcSpawnDriver); restored = resumed.game.npcs[0]
+    } else {
+      restored = spawnCommandRecord(resumed.game, spec); resumed.game._restorePersonalOutpostNpc(restored)
+    }
+    expect(restored.hp).toBe(23); expect(restored.mount).toBeNull()
+    expect(resumed.game.mounts[0].dead).toBe(true)
+    if (eagle) expect(restored.activeFollowTarget).toBe(resumed.game.player)
+    else {
+      expect(restored.formationCommandId).toBe(17)
+      expect(restored.assignFormationTarget).toHaveBeenCalledWith(17, new THREE.Vector3(19, 2, -180), expect.any(THREE.Vector3), undefined, undefined, false)
+    }
+    expect(resumed.game.npcs).toHaveLength(1)
+  })
+
   it('saves all 59 accepted IDs before enqueueing and lets Player move during progressive deployment', () => {
     const h = fixture(), plan = createCaptainEagleSpawnPlan(h.game.careerProfile)
     h.game._declareCaptainEagleRoster(plan)
