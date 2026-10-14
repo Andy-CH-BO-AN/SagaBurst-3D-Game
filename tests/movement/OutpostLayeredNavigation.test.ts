@@ -82,6 +82,79 @@ describe('OutpostLayeredNavigation', () => {
     expect(overflow[0].distanceTo(overflow[1])).toBeGreaterThanOrEqual(3.2)
   })
 
+  it('mounted Follow preserves leader-specific slot sides while repeatedly crossing the bridge midpoint', () => {
+    const nav = new OutpostLayeredNavigation(romanLayout)
+    dockLeft(nav)
+    // Stable identity is separate from the per-follower smoothed position.
+    const leader = {}, otherLeader = {}
+    const positions = [-.02, .02, -.02].map(x => {
+      const slots = Array.from({ length: 5 }, (_, slot) => {
+        const out = new THREE.Vector3()
+        nav.clampMountedFollow(out, new THREE.Vector3(x, romanLayout.bridge.topY,
+          romanLayout.bridge.walkSurface.startZ), slot, leader)
+        expect(isRampartLayer(nav.getNavLayer(out))).toBe(true)
+        return out
+      })
+      for (let slot = 1; slot < slots.length; slot++) expect(slots[slot].x - slots[slot - 1].x).toBeCloseTo(3.2)
+      // Another leader at the opposite boundary must not flip this queue.
+      nav.clampMountedFollow(new THREE.Vector3(), new THREE.Vector3(42, 0, 0), 0, otherLeader)
+      return slots
+    })
+    for (let slot = 0; slot < 5; slot++) {
+      expect(positions[1][slot].x - positions[0][slot].x).toBeCloseTo(.04)
+      expect(positions[2][slot]).toEqual(positions[0][slot])
+    }
+    // Boundary reversal is retained when the leader moves back a little.
+    const nearEdge = [40, 39, 40].map(x => {
+      const out = new THREE.Vector3(); nav.clampMountedFollow(out, new THREE.Vector3(x, 0, 0), 0, leader); return out.x
+    })
+    expect(nearEdge).toEqual([36.8, 35.8, 36.8])
+  })
+
+  it.each([true, false])('mounted courtyard routing descends first, then delegates to ground navigation (gate walkable=%s)', open => {
+    const nav = new OutpostLayeredNavigation(romanLayout)
+    const approach = dockLeft(nav)
+    const entry = nav.entrances.entries.get('left')!, ramp = entry.surface!
+    const courtyard = new THREE.Vector3(0, getTerrainHeight(0, -125), -125)
+    const gateApproach = new THREE.Vector3(0, getTerrainHeight(0, -105), -105)
+    const gateExit = new THREE.Vector3(0, getTerrainHeight(0, -111), -111)
+    nav.entrances.set({ id: 'gate', type: 'gate', position: new THREE.Vector3(0, 0, -108), approach: gateApproach, exit: gateExit,
+      mounted: true, walkable: open, faction: null, connectionId: 'gate' })
+    const deck = entry.exit.clone().add(new THREE.Vector3(5, 0, 0))
+    const deckStep = nav.resolveMoveTarget(deck, courtyard, true, new THREE.Vector3(), 'gate')
+    expect(deckStep.target).toEqual(entry.exit)
+    expect(deckStep.step).toBe('deck_approach')
+    const topStep = nav.resolveMoveTarget(entry.exit, courtyard, true, new THREE.Vector3(), 'gate')
+    expect(topStep.step).toBe('descend_stair')
+    expect(topStep.target).toEqual(new THREE.Vector3(ramp.startX, ramp.startY, ramp.startZ))
+    const crossing = entry.exit.clone().add(new THREE.Vector3(0, 0, -ramp.dirZ * .8))
+    expect(nav.resolveMoveTarget(crossing, courtyard, true, new THREE.Vector3()).step).toBe('descend_stair')
+    const middle = new THREE.Vector3(ramp.startX, 0, ramp.startZ + ramp.dirZ * ramp.length / 2)
+    middle.y = getWalkRampHeight(ramp, middle.x, middle.z)!
+    expect(nav.resolveMoveTarget(middle, courtyard, true, new THREE.Vector3(), 'left').target).toEqual(approach)
+    // Clear the low edge with the whole body before turning out of the ramp lane.
+    const lowStep = nav.resolveMoveTarget(approach, courtyard, true, new THREE.Vector3(), 'left')
+    expect(lowStep.step).toBe('descend_stair')
+    expect((lowStep.target.z - ramp.startZ) * ramp.dirZ).toBeCloseTo(-3)
+    const clearStep = nav.resolveMoveTarget(lowStep.target, courtyard, true, new THREE.Vector3(), 'left')
+    if (open) expect(Math.abs(clearStep.target.x - ramp.startX)).toBeGreaterThan(3.7)
+    else expect(clearStep.target).toEqual(lowStep.target)
+    // Stale-but-walkable ramp preference cannot cause another ascent. Ground
+    // waypoints still invoke A*, never a direct movement through a closed gate.
+    const groundStep = nav.resolveMoveTarget(clearStep.target, courtyard, true, new THREE.Vector3(), 'left')
+    expect(groundStep.step).toBe('ground_approach')
+    expect(groundStep.target).toEqual(open ? gateApproach : clearStep.target)
+    if (open) {
+      for (const z of [-105, -106, -107]) {
+        expect(nav.resolveMoveTarget(new THREE.Vector3(0, getTerrainHeight(0, z), z), courtyard, true,
+          new THREE.Vector3(), 'left').target).toEqual(gateExit)
+      }
+      expect(nav.resolveMoveTarget(gateExit, courtyard, true, new THREE.Vector3(), 'left').target).toEqual(courtyard)
+    }
+    expect(nav.entrances.entries.get('gate')!.walkable).toBe(open)
+    expect(nav.resolveMoveTarget(middle, approach, true, new THREE.Vector3()).step).toBe('descend_stair')
+  })
+
   it('places bridge exit waypoints beyond layer tolerance on either connected wing', () => {
     const nav = new OutpostLayeredNavigation(romanLayout)
     const bridge = romanLayout.bridge

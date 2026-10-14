@@ -1352,7 +1352,7 @@ export class NPC {
     }
     if (layeredNav && this.isMounted && !this.mount?.isFlyingMount
       && layeredNav.entrances.hasMountedRamp && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
-      layeredNav.clampMountedFollow(position, this.followSmoothedLeaderPosition, this.followSlotIndex)
+      layeredNav.clampMountedFollow(position, this.followSmoothedLeaderPosition, this.followSlotIndex, target)
     }
     this.formationTarget = {
       commandId: -1,
@@ -3344,7 +3344,7 @@ export class NPC {
 
     if (this.tacticalOrder === 'follow' && this.isMounted && layeredNav?.entrances.hasMountedRamp
       && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
-      layeredNav.clampMountedFollow(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex)
+      layeredNav.clampMountedFollow(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, this.followTarget ?? this.followSmoothedLeaderPosition)
     }
     this.alertSprite.visible = false
     const moveDir = this._tmpMoveDir.copy(target.position).sub(this.combatPosition)

@@ -158,6 +158,35 @@ describe('Siege surface movement: real actor/physics consumers', () => {
     expect(nav.getNavLayer(mount.group.position), `mounted NPC ${command} stalled at ${mount.group.position.toArray()}`).toBe('rampart_left')
     expect(highest).toBeGreaterThan(surface.startY + 2)
     expect(getWalkRampHeight(surface, surface.startX, surface.startZ + surface.dirZ * 2)).not.toBeNull()
+    if (command === 'formation') {
+      // Reuse this single real rider/mount owner for deck -> ramp -> courtyard.
+      // The stale ramp preference must not cause a ground -> ramp ascent loop.
+      const courtyard = new THREE.Vector3(0, 0, goal.z + surface.dirZ * 12)
+      courtyard.y = getTerrainHeight(courtyard.x, courtyard.z)
+      rider.campaignEntranceId = ramp.assignment.id
+      rider.assignFormationTarget(2, courtyard, new THREE.Vector3(0, 0, 1), 4)
+      let descended = false
+      const stepCourtyard = () => {
+        const before = mount.group.position.clone()
+        h.navigation.beginFrame()
+        rider.update(1 / 30, leader, [rider], [], h.obstacles, { setFill() {} }, () => {}, () => {}, false, 0, null, null, h.navigation)
+        expect(mount.group.position.distanceTo(before)).toBeLessThan(.7)
+        if (nav.getNavLayer(mount.group.position) === 'ground') descended = true
+      }
+      for (let frame = 0; frame < 600; frame++) stepCourtyard()
+      expect(descended, `descent stalled at ${mount.group.position.toArray()}`).toBe(true)
+      expect(h.gate.state).toBe('closed')
+      const waiting = mount.group.position.clone()
+      expect((waiting.z - surface.startZ) * surface.dirZ).toBeLessThan(-2.5)
+      for (let frame = 0; frame < 20; frame++) stepCourtyard()
+      expect(mount.group.position.distanceTo(waiting)).toBeLessThan(.01)
+      h.gate.open(); h.owner.update(.1)
+      for (let frame = 0; frame < 900; frame++) {
+        stepCourtyard()
+        if (mount.group.position.distanceTo(courtyard) < 1.3) break
+      }
+      expect(mount.group.position.distanceTo(courtyard), `courtyard route stalled at ${mount.group.position.toArray()}`).toBeLessThan(1.3)
+    }
     ramp.damageable.destroy()
     expect(nav.entrances.hasMountedRamp).toBe(false)
     const stair = nav.getStair(1)!

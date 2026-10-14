@@ -369,6 +369,7 @@ export function clampFollowSlotToStair(
 
 export class OutpostLayeredNavigation {
   readonly entrances = new AvailableBreachEntrances()
+  private readonly mountedFollowDirections = new WeakMap<object, -1 | 1>()
   readonly layout: OutpostWalkwayLayout
   private readonly leftWaypoints: StairWaypoints
   private readonly rightWaypoints: StairWaypoints
@@ -466,13 +467,19 @@ export class OutpostLayeredNavigation {
   }
 
   /** Body-sized single file shared by mounted Follow and its initial assignment. */
-  clampMountedFollow(out: THREE.Vector3, leader: THREE.Vector3, slot: number): void {
+  clampMountedFollow(out: THREE.Vector3, leader: THREE.Vector3, slot: number, leaderIdentity: object = leader): void {
     const left = this.getDeck(-1)!, right = this.getDeck(1)!
     const minX = left.slab.min.x + 1.2, maxX = right.slab.max.x - 1.2
     const spacing = 3.2
     const anchor = THREE.MathUtils.clamp(leader.x, minX, maxX)
-    // Queue inward from the leader; never wrap an endpoint to the opposite wing.
-    const direction = anchor > (minX + maxX) / 2 ? -1 : 1
+    // Keep the queue's side across the bridge midpoint. Only an outer boundary
+    // can reverse it; the opposite boundary is the hysteresis reset. Key by the
+    // actual leader, not each follower's independently smoothed position.
+    let direction = this.mountedFollowDirections.get(leaderIdentity)
+      ?? (anchor > (minX + maxX) / 2 ? -1 : 1)
+    if (anchor + spacing > maxX) direction = -1
+    else if (anchor - spacing < minX) direction = 1
+    this.mountedFollowDirections.set(leaderIdentity, direction)
     const capacity = Math.floor((direction < 0 ? anchor - minX : maxX - anchor) / spacing)
     if (slot >= capacity) {
       const entrance = [...this.entrances.entries.values()].find(entry => entry.walkable && entry.mounted && entry.surface)
@@ -519,17 +526,59 @@ export class OutpostLayeredNavigation {
     if (!entry && chosen?.walkable && chosen.surface) entry = chosen
     if (!entry) entry = ramps.reduce((a, b) => current.distanceToSquared(a.exit) <= current.distanceToSquared(b.exit) ? a : b)
     const result = (step: OutpostLayeredRouteStep): OutpostLayeredMoveResult => ({ target: out, currentLayer, targetLayer, isCrossLayer: true, step })
+    // Siege ramps reach the deck, not the courtyard. Once mounted actors are
+    // back on ground, hand the final ground goal to A* (and its physical gate
+    // collision), even if the actor's preferred assault entrance is a ramp.
+    // Never ascend again merely because that ground goal is inside the wall.
+    if (mounted && currentLayer === 'ground' && targetLayer === 'ground') {
+      if (outside(current) && !outside(goal)) {
+        const groundEntries = [...this.entrances.entries.values()].filter(e => e.walkable && e.mounted && !e.surface)
+        const groundEntry = chosen && groundEntries.includes(chosen) ? chosen : groundEntries.reduce<BreachEntrance | undefined>(
+          (best, candidate) => !best || current.distanceToSquared(candidate.approach) < current.distanceToSquared(best.approach) ? candidate : best, undefined)
+        const ramp = entry.surface!
+        const along = (current.z - ramp.startZ) * ramp.dirZ
+        // Clear the low end with the whole mounted body before turning. Ground
+        // A* treats this elevated structure as passable and must not lead the
+        // rider straight back across its ramp/rails while leaving the surface.
+        if (Math.abs(current.x - ramp.startX) < ramp.halfWidth + 1.2 && along > -6 && along < 1) {
+          if (along > -2.5) {
+            out.set(ramp.startX, ramp.startY, ramp.startZ - ramp.dirZ * 3)
+            return result('descend_stair')
+          }
+          if (groundEntry) {
+            const side = groundEntry.approach.x < ramp.startX ? -1 : 1
+            out.set(ramp.startX + side * (ramp.halfWidth + 1.4), current.y, ramp.startZ - ramp.dirZ * 3)
+            return result('ground_approach')
+          }
+        }
+        if (!groundEntry) out.copy(current) // No physical ground breach: wait safely outside.
+        else {
+          const dx = groundEntry.exit.x - groundEntry.approach.x, dz = groundEntry.exit.z - groundEntry.approach.z
+          const length = Math.hypot(dx, dz)
+          const x = current.x - groundEntry.approach.x, z = current.z - groundEntry.approach.z
+          const lateral = length > 0 ? Math.abs(x * dz - z * dx) / length : 0
+          const progress = length > 0 ? (x * dx + z * dz) / length : 0
+          out.copy(lateral > 1 || progress < -1 ? groundEntry.approach : groundEntry.exit)
+        }
+        return result('ground_approach')
+      }
+      out.copy(goal)
+      return result('ground_approach')
+    }
     const ramp = entry.surface!
     const ground = new THREE.Vector3(ramp.startX, ramp.startY, ramp.startZ)
     const onRamp = currentLayer.startsWith('siege_')
-    const descend = targetLayer === 'ground' && outside(goal)
+    const descend = targetLayer === 'ground' && (mounted || outside(goal))
     if (onRamp) {
       out.copy(descend ? entry.approach : entry.exit)
       if (descend && Math.hypot(current.x - ground.x, current.z - ground.z) < 1) out.copy(entry.approach)
       return result(descend ? 'descend_stair' : 'ascend_stair')
     }
     if (isRampartLayer(currentLayer) && descend) {
-      if (Math.hypot(current.x - entry.exit.x, current.z - entry.exit.z) > .7) {
+      // After aligning with the portal, keep moving outward while still within
+      // the deck's layer tolerance. A radial check would send the actor back to
+      // the portal as soon as it moved .7m down the bridge.
+      if (Math.abs(current.x - entry.exit.x) > .7 || (current.z - entry.exit.z) * ramp.dirZ > .7) {
         out.copy(entry.exit); return result('deck_approach')
       }
       out.copy(ground); return result('descend_stair')
@@ -541,13 +590,6 @@ export class OutpostLayeredNavigation {
       }
       out.set(ramp.startX, ramp.startY, ramp.startZ + ramp.dirZ * 1.2)
       return result('ascend_stair')
-    }
-    // A mounted actor may traverse the deck, but must never descend the foot stairs.
-    if (mounted && isRampartLayer(currentLayer) && targetLayer === 'ground') {
-      const deck = this.getDeck(layerSide(currentLayer) ?? entry.side ?? -1)!
-      out.set(THREE.MathUtils.clamp(goal.x, deck.slab.min.x + 1.2, deck.slab.max.x - 1.2),
-        deck.topY, (deck.slab.min.z + deck.slab.max.z) / 2)
-      return result('deck_approach')
     }
     return null
   }
