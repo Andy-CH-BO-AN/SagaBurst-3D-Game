@@ -2324,7 +2324,7 @@ export class NPC {
         && this.specialCombatProfile !== 'maki-ranger'
         && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2
         && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId)
-        && (!this.holdsRampartFirePosition || this._isTargetInMeleeApproachRange(targetInfo.position))) {
+        && (!this.holdsRampartFirePosition || this._isRampartMeleeThreat(targetInfo.position))) {
         this._switchToMelee()
       }
 
@@ -3738,6 +3738,18 @@ export class NPC {
     dmg *= antiCav
 
     return applyHeroOutgoingDamage(Math.round(dmg), this.combatProfileId)
+  }
+
+  private _isRampartMeleeThreat(targetPos: THREE.Vector3): boolean {
+    const nav = this._activeNavigationWorld?.outpostNav
+    if (nav) {
+      // The connected decks/bridge permit a close enemy to approach. Drawing a
+      // weapon here does not grant attack reach or permission to leave the wall.
+      return isRampartLayer(nav.getNavLayer(this.combatPosition))
+        && isRampartLayer(nav.getNavLayer(targetPos))
+    }
+    // Without topology, retain the conservative physical-contact fallback.
+    return this._isTargetInMeleeApproachRange(targetPos)
   }
 
   private _isTargetInDefendRange(targetPos: THREE.Vector3): boolean {
