@@ -1,3 +1,4 @@
+import { outpostCheckpointHeight } from '../campaign/OutpostRampartGarrison'
 import * as THREE from 'three'
 import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
@@ -26,6 +27,7 @@ export function snapshotCommandActor(npc: NPC, homeMount?: Mount,
 
 /** Used only while restoring a scene. Runtime handovers never move or heal the actor. */
 export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, homeMount?: Mount): void {
+  npc.releaseOutpostRampartGarrison?.()
   npc.restoreCombatHealth(saved.status === 'dead' ? 0 : saved.hp ?? npc.hp)
   if (saved.ammo !== undefined) npc.restoreCombatAmmo(saved.ammo)
   if (saved.shieldImpact !== undefined) npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, saved.shieldImpact)
@@ -45,7 +47,7 @@ export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, ho
   }
   if (saved.position) {
     const p = saved.position
-    npc.group.position.set(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z); npc.group.rotation.y = p.yaw
+    npc.group.position.set(p.x, outpostCheckpointHeight(p.x, p.z, p.y, saved.outpostRampartGarrison, npc.characterFaction), p.z); npc.group.rotation.y = p.yaw
   }
   if (saved.fall) { npc.dismountFromMount(); npc.restorePendingFall(saved.fall) }
   if (!npc.dead && saved.formation) {
@@ -53,7 +55,8 @@ export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, ho
     npc.assignFormationTarget(f.commandId, new THREE.Vector3(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z),
       new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw)), f.speedLimit, f.arrivalOrder, f.reached)
   } else if (!npc.dead && saved.order && saved.order !== 'follow') npc.setTacticalOrder(saved.order)
-  if (!npc.dead && saved.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
+  if (!npc.dead && !saved.formation && saved.outpostRampartGarrison && (!saved.order || saved.order === 'defend' || saved.order === 'attack'))
+    npc.activateOutpostRampartGarrison(saved.order === 'attack' ? 'attack' : 'defend')
 }
 
 /** Stages restored resources before a service transaction mutates the live army. */

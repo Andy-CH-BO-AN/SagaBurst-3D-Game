@@ -38,6 +38,17 @@ describe('Mobile siege roster and lifecycle (zero actors)', () => {
     expect(() => allocateSiegeRampCrews(specs)).toThrow('unique actor IDs')
   })
 
+  it('mixed initial plans never allocate defenders, mounted Rangers or T4 heroes to attacker crews', () => {
+    const specs = roster(20)
+    const defenders = roster(20).map(spec => ({ ...spec, actorId: `defender-${spec.actorId}`, characterFaction: 'roman' as const }))
+    specs[0].loadout = { mountId: 'black-cat', meleeWeaponId: 'steel_sword', rangedWeaponId: null, shieldId: null }
+    specs[1].tier = 4
+    const crews = allocateSiegeRampCrews([...defenders, ...specs], 'viking')
+    expect(crews).toHaveLength(1)
+    expect(crews[0].pusherIds).toEqual(['infantry-2', 'infantry-3', 'infantry-4', 'infantry-5'])
+    expect(new Set(crews.flatMap(crew => [...crew.pusherIds, ...crew.assaultIds])).size).toBe(10)
+  })
+
   it('uses mirrored layout geometry and materializes six elevated assault slots per vehicle', () => {
     for (const faction of ['roman', 'viking'] as const) {
       const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement(faction))
@@ -60,13 +71,17 @@ describe('Mobile siege roster and lifecycle (zero actors)', () => {
     }
   })
 
-  it('isolates standard Campaign from Career and unrelated scenes', () => {
+  it('admits shared Career Outposts while excluding relief and unrelated scenes', () => {
     const config = { type: 'defense' as const, defenderFaction: 'roman' as const, stageId: 1 as const,
       defenderArmy: {}, playerLoadout: createDefaultDefensePlayerLoadout('roman') }
     expect(isMobileSiegeRampEnabled(config)).toBe(true)
     expect(isMobileSiegeRampEnabled(undefined)).toBe(false)
     expect(isMobileSiegeRampEnabled({ ...config, careerMissionId: 'outpost' })).toBe(false)
-    expect(isMobileSiegeRampEnabled({ ...config, careerMissionKind: 'captain-outpost-defense' })).toBe(false)
+    for (const careerMissionKind of ['outpost-defense', 'captain-outpost-defense', 'veteran-outpost-defense',
+      'veteran-outpost-assault', 'commander-outpost-last-stand'] as const) {
+      expect(isMobileSiegeRampEnabled({ ...config, careerMissionKind })).toBe(true)
+    }
+    expect(isMobileSiegeRampEnabled({ ...config, careerMissionKind: 'outpost-relief' })).toBe(false)
   })
 
   it('waits for all ten registrations and scales speed through all four fixed pushers without replacements', () => {

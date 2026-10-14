@@ -299,20 +299,22 @@ export class NPC {
   campaignBreachCompleted = false
   private outpostRampartGarrison = false
   get isOutpostRampartGarrisonActive(): boolean { return this.outpostRampartGarrison }
-  activateOutpostRampartGarrison(): void {
-    this.setTacticalOrder('defend')
+  activateOutpostRampartGarrison(order: 'defend' | 'attack' = 'defend'): void {
+    this.setTacticalOrder(order)
     this.outpostRampartGarrison = true
   }
   releaseOutpostRampartGarrison(): void { this.outpostRampartGarrison = false }
   private rampartThreat: ObstacleData | null = null
   private rampartScanFrames = 0
   private readonly obstacleLocalToWorld = new THREE.Matrix4()
-  get holdsRampartFirePosition(): boolean {
-    return !this.isMounted && this.aiType === AIType.RANGED
+  get holdsRampartPosition(): boolean {
+    return !this.isMounted
       && (this.tacticalOrder === 'defend' || this.tacticalOrder === 'attack')
-      && (this.outpostRampartGarrison || Boolean(this._activeNavigationWorld?.outpostNav
+      && (this.outpostRampartGarrison || Boolean(this.aiType === AIType.RANGED && this._activeNavigationWorld?.outpostNav
         && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition))))
   }
+
+  get holdsRampartFirePosition(): boolean { return this.aiType === AIType.RANGED && this.holdsRampartPosition }
 
   private formationTarget: {
     commandId: number
@@ -1371,6 +1373,7 @@ export class NPC {
   }
 
   setTacticalOrder(order: TacticalOrder): void {
+    if (order !== 'attack' && order !== 'defend') this.releaseOutpostRampartGarrison()
     if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
     this.formationTarget = null
     this.followTarget = null
@@ -1395,6 +1398,7 @@ export class NPC {
 
   assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder, reached = false): void {
     if (this.dead) return
+    this.releaseOutpostRampartGarrison()
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
@@ -1420,6 +1424,7 @@ export class NPC {
   assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number,
     anchor?: { position: THREE.Vector3; yaw: number }): void {
     if (this.dead || target === this) return
+    this.releaseOutpostRampartGarrison()
     if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
     this._clearNavigationPath()
     this._clearObstacleDetour()
@@ -2486,6 +2491,8 @@ export class NPC {
           this.state = AIState.ALERT
         }
       }
+      if (targetInfo && this.holdsRampartPosition && !this.hasActiveRangedWeapon
+        && !this._isRampartMeleeThreat(targetInfo.position)) targetInfo = null
       const meleeTarget = targetInfo?.isPlayer ? player : targetInfo?.npc ?? null
       this._selectMerchantMeleeWeapon(meleeTarget)
       if (
@@ -2541,7 +2548,7 @@ export class NPC {
         // Personal Attack holds its actual position when no hostile is available;
         // constructor patrol waypoints belong to Town/field NPCs, not the Player's party.
         const personalAttack = this.combatOwnership === 'player-personal' && this.tacticalOrder === 'attack'
-        if (!personalAttack && !this.holdsRampartFirePosition && this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
+        if (!personalAttack && !this.holdsRampartPosition && this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
           this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld)
         }
 
@@ -2569,7 +2576,7 @@ export class NPC {
 
         if (this.alertTimer <= 0) {
           this.alertSprite.visible = false
-          if (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition) {
+          if (this.tacticalOrder === 'defend' || this.holdsRampartPosition) {
             this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position) ? AIState.ATTACK : AIState.ALERT
             if (this.hasActiveRangedWeapon) this.attackTimer = 0
           } else {
@@ -2590,7 +2597,7 @@ export class NPC {
           break
         }
 
-        if (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition) {
+        if (this.tacticalOrder === 'defend' || this.holdsRampartPosition) {
           this._clearObstacleDetour()
           this._clearNavigationPath()
           this._clearSiegeFallback()

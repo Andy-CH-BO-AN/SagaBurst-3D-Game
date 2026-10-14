@@ -1,6 +1,6 @@
 import { advanceNpcFrame, installNpcLoadingFrames, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import * as THREE from 'three'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Game } from '../../src/Game'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
@@ -54,12 +54,16 @@ function fixture(current = profile()) {
     const mount = spec.cavalry ? { group: group.clone(), currentHp: 100, maxHp: 100, dead: false,
       takeDamage() { this.currentHp = 0; this.dead = true } } : null
     const npc = { combatantId: spec.actorId, faction: spec.faction, characterFaction: spec.characterFaction,
-      hp: 100, dead: false, group, mount, get combatPosition() { return this.mount?.group.position ?? this.group.position },
-      restoreCombatHealth(hp: number) { this.hp = hp; this.dead = hp === 0 }, setTacticalOrder: vi.fn(),
+      hp: 100, dead: false, group, mount, combatAmmo: 30,
+      shield: { shieldImpactRemaining: 100, shieldImpactMax: 100 }, tacticalOrder: 'attack',
+      get combatPosition() { return this.mount?.group.position ?? this.group.position },
+      restoreCombatHealth(hp: number) { this.hp = hp; this.dead = hp === 0 }, setTacticalOrder: vi.fn(function (this: { tacticalOrder: string }, order: string) { this.tacticalOrder = order }),
+      restoreCombatAmmo(ammo: number) { this.combatAmmo = ammo },
       dismountFromMount() { this.mount = null } }
     game.npcs.push(npc); game.careerVeteranActorMounts.set(npc.combatantId, mount)
     return npc
   })
+  onTestFinished(() => { game.spawnBatches.forEach((batch: { cancel(): void }) => batch.cancel()); tracker.dispose() })
   return { game, store, events, tracker }
 }
 
@@ -69,7 +73,8 @@ describe('Regular Career Outpost checkpoints with private members', () => {
     const group = new THREE.Group(); group.position.set(-18, 7.25, -108.9); group.rotation.y = 0.4
     const actor = {
       combatantId: 'regular-checkpoint:initial:archer', combatOwnership: undefined,
-      hp: 73, dead: false, group, mount: null,
+      hp: 73, dead: false, group, mount: null, combatAmmo: 30, tacticalOrder: 'defend',
+      shield: { shieldImpactRemaining: 100, shieldImpactMax: 100 },
       get combatPosition() { return group.position },
       isOutpostRampartGarrisonActive: true,
     }
@@ -86,7 +91,8 @@ describe('Regular Career Outpost checkpoints with private members', () => {
     const restored = {
       combatantId: actor.combatantId, group: restoredGroup, mount: null, dead: false, hp: 100,
       restoreCombatHealth(hp: number) { this.hp = hp; this.dead = hp === 0 },
-      activateOutpostRampartGarrison: vi.fn(),
+      activateOutpostRampartGarrison: vi.fn(), characterFaction: 'roman',
+      shield: { shieldImpactRemaining: 100, shieldImpactMax: 100 }, restoreCombatAmmo: vi.fn(), setTacticalOrder: vi.fn(),
     }
     resumed.game._restorePersonalOutpostNpc(restored)
     expect(restoredGroup.position).toMatchObject({ x: -18, y: 7.25, z: -108.9 })

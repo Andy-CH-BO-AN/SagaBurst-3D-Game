@@ -4,7 +4,7 @@ import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { AIType } from '../world/NPC'
 import { getTerrainHeight, type WalkRampSurface } from '../world/Terrain'
 import { getDefenseCampaignStagingZ, type DefenseCampaignLaunchConfig } from './DefenseCampaignLaunch'
-import type { OutpostWalkwayLayout, OutpostWalkwaySide } from './CampaignOutpostWalkways'
+import { isOutpostWalkwayEnabled, type OutpostWalkwayLayout, type OutpostWalkwaySide } from './CampaignOutpostWalkways'
 
 export const SIEGE_RAMP = {
   halfWidth: 2.5,
@@ -33,19 +33,22 @@ export interface SiegeRampPlacement {
 }
 
 export function isMobileSiegeRampEnabled(config: DefenseCampaignLaunchConfig | undefined): boolean {
-  return !!config && !config.careerMissionId && !config.careerMissionKind
-    && !config.careerVeteranOutpost && !config.careerPersonalSquad && !config.careerReliefPhase
+  return isOutpostWalkwayEnabled(config, false)
+}
+
+export function isSiegeRampCrewCandidate(spec: NpcSpawnSpec, attackerFaction?: NpcSpawnSpec['characterFaction']): boolean {
+  return (!attackerFaction || spec.characterFaction === attackerFaction)
+    && !spec.cavalry && !spec.loadout?.mountId && spec.aiType === AIType.MELEE && spec.tier !== 4
 }
 
 /** Allocates existing identities only. Missing/duplicate identities are invalid input. */
-export function allocateSiegeRampCrews(specs: readonly NpcSpawnSpec[]): SiegeRampAssignment[] {
+export function allocateSiegeRampCrews(specs: readonly NpcSpawnSpec[], attackerFaction?: NpcSpawnSpec['characterFaction']): SiegeRampAssignment[] {
   const ids = new Set<string>()
   for (const spec of specs) {
     if (!spec.actorId || ids.has(spec.actorId)) throw new Error('Siege roster requires unique actor IDs')
     ids.add(spec.actorId)
   }
-  const infantry = specs.filter(spec => !spec.cavalry && !spec.loadout?.mountId
-    && spec.aiType === AIType.MELEE && spec.tier !== 4)
+  const infantry = specs.filter(spec => isSiegeRampCrewCandidate(spec, attackerFaction))
   return ([-1, 1] as const).slice(0, Math.min(2, Math.floor(infantry.length / 10))).map((side, i) => ({
     id: side < 0 ? 'siege-ramp-left' : 'siege-ramp-right', side,
     pusherIds: infantry.slice(i * 10, i * 10 + 4).map(spec => spec.actorId!),

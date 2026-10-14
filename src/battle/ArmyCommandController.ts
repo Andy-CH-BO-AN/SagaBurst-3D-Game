@@ -448,7 +448,7 @@ export class ArmyCommandController {
     this._setDesiredOrder(target, order)
 
     for (const npc of participants) {
-      if ((order !== 'attack' && order !== 'defend') || !npc.holdsRampartFirePosition) npc.releaseOutpostRampartGarrison?.()
+      if ((order !== 'attack' && order !== 'defend') || !npc.holdsRampartPosition) npc.releaseOutpostRampartGarrison?.()
       npc.clearFollowTarget?.()
       npc.setTacticalOrder(order)
     }

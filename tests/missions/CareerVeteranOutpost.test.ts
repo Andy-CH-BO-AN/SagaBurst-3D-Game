@@ -1,3 +1,4 @@
+import { allocateSiegeRampCrews } from '../../src/campaign/MobileSiegeRampPolicy'
 import { describe, expect, it } from 'vitest'
 import { getCampaignOutpostPlacement, getCampaignDefenderFacingYaw } from '../../src/campaign/CampaignOutpost'
 import { buildCommanderAuthorityForMission } from '../../src/career/CommanderMissionAcceptance'
@@ -143,5 +144,32 @@ describe('Commander Veteran Outpost accepted identities', () => {
     expect(restored.activeMission!.officialSquad).toEqual(mission.officialSquad)
     expect(createCareerVeteranOutpostSpawnPlan(createCareerVeteranOutpostLaunch(restored), 'initial').npcSpecs.map(spec => spec.actorId))
       .toEqual(createCareerVeteranOutpostSpawnPlan(launch, 'initial').npcSpecs.map(spec => spec.actorId))
+  })
+})
+
+
+describe('Career Outpost official garrison and attacking roster policy', () => {
+  it.each([
+    ['veteran-dread-outpost', 'roman', 12, 99, 50],
+    ['veteran-dread-outpost', 'viking', 12, 99, 50],
+    ['veteran-outpost-assault', 'roman', 36, 100, 99],
+    ['veteran-outpost-assault', 'viking', 36, 100, 99],
+  ] as const)('%s / %s deploys %i existing owner-side guards and no cavalry siege crews', (id, faction, count, defenders, attackers) => {
+    const launch = launchFor(id, faction), owner = launch.careerVeteranOutpost!.outpostFaction
+    const plain = createCareerVeteranOutpostSpawnPlan(launch, 'initial', { deployRampartGarrison: false }).npcSpecs
+    const deployed = createCareerVeteranOutpostSpawnPlan(launch, 'initial').npcSpecs
+    const identity = (spec: typeof deployed[number]) => ({ actorId: spec.actorId, tier: spec.tier,
+      faction: spec.faction, characterFaction: spec.characterFaction, loadout: spec.loadout, squadId: spec.squadId })
+    expect(deployed.map(identity)).toEqual(plain.map(identity))
+    expect(deployed.filter(spec => spec.characterFaction === owner)).toHaveLength(defenders)
+    expect(deployed.filter(spec => spec.characterFaction !== owner)).toHaveLength(attackers)
+    const guards = deployed.filter(spec => spec.outpostRampartGarrison)
+    expect(guards).toHaveLength(count)
+    expect(guards.every(spec => spec.characterFaction === owner && !spec.cavalry && !spec.loadout?.mountId && spec.spawnY! > 3)).toBe(true)
+    expect(new Set(guards.map(spec => `${spec.x}/${spec.z}`)).size).toBe(count)
+    const attacker = owner === 'roman' ? 'viking' : 'roman'
+    expect(allocateSiegeRampCrews(deployed, attacker)).toEqual([])
+    const originalById = new Map(plain.map(spec => [spec.actorId, spec]))
+    for (const spec of deployed.filter(spec => !spec.outpostRampartGarrison)) expect(spec).toEqual(originalById.get(spec.actorId))
   })
 })

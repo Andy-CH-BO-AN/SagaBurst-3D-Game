@@ -1,3 +1,4 @@
+import { deployOutpostRampartArchers } from '../campaign/OutpostRampartGarrison'
 import type { BattleSpawnPlan, NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { PlayerLoadoutConfig } from '../battle/BattleConfig'
 import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
@@ -101,6 +102,9 @@ export function createCareerCommanderOutpostSpawnPlan(launch: DefenseCampaignLau
   } as ActiveCareerMission
   const roster = createLastStandRoster(profileMission, data.playerFaction)
   positionFriendly(roster.friendly, data.outpostFaction)
+  if (!mission?.actorPositions && !mission?.officialSquad?.members) {
+    deployOutpostRampartArchers(roster.friendly, data.outpostFaction)
+  }
   positionEnemy(roster.enemy, data.outpostFaction)
   const outpost = getCampaignOutpostPlacement(data.outpostFaction)
   const inward = Math.sign(outpost.backZ - outpost.frontZ)

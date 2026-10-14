@@ -1,6 +1,6 @@
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { WEAPONS } from '../rpg/WeaponDatabase'
-import { getWalkRampHeight } from '../world/Terrain'
+import { getTerrainHeight, getWalkRampHeight } from '../world/Terrain'
 import { AIType } from '../world/NPC'
 import type { CampaignFaction } from './CampaignConfig'
 import { getCampaignOutpostPlacement } from './CampaignOutpost'
@@ -183,4 +183,54 @@ export function deployOutpostRampartArchers(
     eligibleCount: eligible.length,
     overflowCount: Math.max(0, eligible.length - assignments.length),
   }
+}
+
+/** Career fallback uses the rear of the same decks, leaving firing gaps and the gate guard intact. */
+export function deployOutpostRampartGarrison(specs: NpcSpawnSpec[], defenderFaction: CampaignFaction): OutpostRampartDeployment {
+  const archers = deployOutpostRampartArchers(specs, defenderFaction)
+  if (archers.eligibleCount > 0) return archers
+  const onFoot = specs.filter(spec => spec.characterFaction === defenderFaction && spec.tier !== 4
+    && !spec.cavalry && !spec.loadout?.mountId)
+  const ranged = onFoot.filter(spec => spec.aiType === AIType.RANGED && spec.loadout?.rangedWeaponId)
+  // Other legal ranged defenders still use the authored firing slots.
+  if (ranged.length) {
+    const slots = getOutpostRampartArcherSlots(defenderFaction)
+    const ordered = slots.left.flatMap((slot, i) => [slot, slots.right[i]]).concat(slots.gate)
+    const assignments = ranged.slice(0, 36).map((spec, i) => {
+      const slot = ordered[i]
+      spec.x = slot.x; spec.z = slot.z; spec.spawnY = slot.y; spec.outpostRampartGarrison = true
+      return { spec, slot }
+    })
+    return { assignments, eligibleCount: ranged.length, overflowCount: ranged.length - assignments.length }
+  }
+  const melee = onFoot.filter(spec => spec.aiType === AIType.MELEE).sort((a, b) => {
+    const spear = (spec: NpcSpawnSpec) => spec.presetId?.endsWith('_spearman') ? 0 : 1
+    return spear(a) - spear(b)
+  })
+  // At most half of a small infantry force leaves the ground; twelve is the hard cap.
+  const count = Math.min(12, Math.floor(melee.length / 2))
+  const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement(defenderFaction))
+  const assignments = melee.slice(0, count).map((spec, i) => {
+    const deck = layout.decks.find(d => d.side === (i % 2 === 0 ? -1 : 1))!
+    const x = deck.side * (10 + Math.floor(i / 2) * 4.8)
+    const z = (deck.slab.min.z + deck.slab.max.z) / 2 + layout.zSign * 1.2
+    const slot = surfaceSlot(deck.side < 0 ? 'left' : 'right', deck.walkSurface, x, z)
+    spec.x = slot.x; spec.z = slot.z; spec.spawnY = slot.y; spec.outpostRampartGarrison = true
+    return { spec, slot }
+  })
+  return { assignments, eligibleCount: melee.length, overflowCount: melee.length - count }
+}
+
+/** Old garrison saves without Y resolve the same deck surface, never the terrain below it. */
+export function outpostCheckpointHeight(x: number, z: number, y: number | undefined,
+  garrison: boolean | undefined, faction: CampaignFaction): number {
+  if (y !== undefined) return y
+  if (garrison) {
+    const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement(faction))
+    for (const surface of [...layout.decks.map(deck => deck.walkSurface), layout.bridge.walkSurface]) {
+      const height = getWalkRampHeight(surface, x, z)
+      if (height !== null) return height
+    }
+  }
+  return getTerrainHeight(x, z)
 }

@@ -1,3 +1,4 @@
+import { allocateSiegeRampCrews } from '../../src/campaign/MobileSiegeRampPolicy'
 import { describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile, CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
@@ -5,7 +6,7 @@ import { acceptCareerOutpost, claimCareerOutpost, clearCareerOutpost, isCareerOu
 import { officialCommandSquads } from '../../src/career/CareerCommandAuthority'
 import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
 import { calculateArmyTotal } from '../../src/battle/BattleConfig'
-import { createDefenseCampaignWaveConfig, defenseCampaignCapabilities, validateDefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
+import { positionDefenseCampaignDefenders, createDefenseCampaignWaveConfig, defenseCampaignCapabilities, validateDefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
 import { BattleSpawner } from '../../src/battle/BattleSpawner'
 import { completeDefenseCampaignStage, DEFENSE_CAMPAIGN_PROGRESS_STORAGE_KEY, getDefenseCampaignUnlockedStage } from '../../src/campaign/CampaignProgress'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
@@ -122,6 +123,13 @@ describe('Career Outpost reuses Campaign spawning and capabilities', () => {
       const expectedDefenders = [80, 85, 90][stageId - 1]
       expect(calculateArmyTotal(defenders[faction])).toBe(expectedDefenders)
       const roster = BattleSpawner.createSpawnPlan(defenders).npcSpecs
+      const original = structuredClone(roster)
+      const rampart = positionDefenseCampaignDefenders(roster, faction, { careerGarrison: true })
+      expect(rampart.assignments).toHaveLength([30, 35, 35][stageId - 1])
+      expect(roster.map(spec => ({ ...spec, x: 0, z: 0, spawnY: undefined, outpostRampartGarrison: undefined })))
+        .toEqual(original.map(spec => ({ ...spec, x: 0, z: 0, spawnY: undefined, outpostRampartGarrison: undefined })))
+      const attacking = BattleSpawner.createSpawnPlan(attackers).npcSpecs.map((spec, i) => ({ ...spec, actorId: `attackers:${i}` }))
+      expect(allocateSiegeRampCrews(attacking, faction === 'roman' ? 'viking' : 'roman')).toHaveLength(2)
       expect(roster).toHaveLength(expectedDefenders)
       const captains = roster.filter(spec => spec.tier === 4)
       expect(captains).toHaveLength(1)

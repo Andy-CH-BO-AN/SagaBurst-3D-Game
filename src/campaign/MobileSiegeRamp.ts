@@ -1,3 +1,4 @@
+import type { CampaignSiegeCheckpoint } from './CampaignSiegeCheckpoint'
 import * as THREE from 'three'
 import { DamageableObstacle, DAMAGEABLE_OBSTACLE_HP } from '../world/DamageableObstacle'
 import { getTerrainHeight, getWalkRampHeight, removeObstacleData, type EntityCollisionBody, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
@@ -123,10 +124,30 @@ export class MobileSiegeRamp {
   register(npc: NPC): void {
     this.controller.register(npc)
     this.crew.set(npc.combatantId, npc)
+    if (!this.controller.assigned || npc.dead) return
     npc.siegeTransport = this.assignment.id
     npc.assignSiegeObstacle(null)
     npc.group.rotation.y = this.placement.dirZ > 0 ? 0 : Math.PI
     if (this.assignment.assaultIds.includes(npc.combatantId)) this.platform.attach(npc)
+  }
+
+  snapshot(): CampaignSiegeCheckpoint['ramps'][number] {
+    return { assignment: structuredClone(this.assignment), stagingZ: this.placement.start.z,
+      position: { x: this.position.x, y: this.position.y, z: this.position.z }, hp: this.damageable.currentHp,
+      state: this.controller.state, distance: this.controller.distance, dockingProgress: this.controller.dockingProgress }
+  }
+
+  /** Restore carrier geometry before actor construction, without moving surviving/departed actors. */
+  restore(saved: CampaignSiegeCheckpoint['ramps'][number]): void {
+    this.controller.restore(saved)
+    this.position.set(saved.position.x, saved.position.y, saved.position.z)
+    this.surface.startZ = this.placement.surface.startZ + this.position.z - this.placement.dock.z
+    this.platform.moveTo(this.position)
+    this.updateGeometry()
+    if (saved.hp === 0) {
+      this.damageable.destroy()
+      for (const obstacle of this.obstacles) removeObstacleData(this.shared, obstacle)
+    } else if (saved.hp < this.damageable.currentHp) this.damageable.takeDamage(this.damageable.currentHp - saved.hp)
   }
 
   update(dt: number, actors: readonly NPC[], blockers: readonly EntityCollisionBody[] = []): void {

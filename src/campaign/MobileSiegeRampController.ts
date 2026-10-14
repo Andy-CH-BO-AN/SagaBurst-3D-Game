@@ -31,7 +31,7 @@ export class MobileSiegeRampController {
       if (this.actors.size !== 10) return 0
       this.transition('PUSHING')
     }
-    if (!this.assigned) return 0
+    if (!this.assigned || this.actors.size !== 10) return 0
     if (this.alivePushers === 0) { this.transition('ABANDONED'); return 0 }
     if (this.state === 'DOCKING') {
       this.dockElapsed += dt
@@ -45,6 +45,12 @@ export class MobileSiegeRampController {
     this.distance += moved
     if (this.distance >= this.travelDistance) this.transition('DOCKING')
     return moved
+  }
+  restore(saved: { state: MobileSiegeRampState; distance: number; dockingProgress: number }): void {
+    this.state = saved.state
+    this.distance = Math.min(this.travelDistance, saved.distance)
+    this.dockElapsed = saved.dockingProgress * SIEGE_RAMP.dockSeconds
+    this.currentSpeed = 0
   }
   destroy(): void {
     if (!this.disposed && this.state !== 'DESTROYED') this.transition('DESTROYED')

@@ -20,7 +20,7 @@ export function siegeActorRecord(spec: NpcSpawnSpec): NPC {
     combatantId: spec.actorId!, dead: false, group, position: group.position, combatPosition: group.position,
     characterFaction: spec.characterFaction, aiType: spec.aiType, isMounted: false,
     siegeTransport: null as string | null, siegeEvacuation: null as THREE.Vector3 | null,
-    campaignEntranceId: null as string | null, combatOwnership: 'battle',
+    campaignEntranceId: null as string | null, campaignBreachCompleted: false, combatOwnership: 'battle',
     siegeObstacle: null as ObstacleData | null, tacticalOrder: 'attack',
     activeFollowTarget: null, hasFormationTarget: false, pendingFall: new FallingRider(),
     get hasSiegeObstacle() { return this.siegeObstacle !== null },
@@ -32,7 +32,8 @@ export function siegeActorRecord(spec: NpcSpawnSpec): NPC {
 }
 
 /** 0 NPCs, 0 Mounts, 0 full Outposts; real walkway producer + gate + navigation + siege owner. */
-export function siegeAssaultFixture(faction: 'roman' | 'viking' = 'roman', rangedMain = false, deploy = true) {
+export function siegeAssaultFixture(faction: 'roman' | 'viking' = 'roman', rangedMain = false, deploy = true,
+  options: { specs?: NpcSpawnSpec[]; prepare?: boolean; saved?: import('../../src/campaign/CampaignSiegeCheckpoint').CampaignSiegeCheckpoint; acceptsOrders?: (npc: NPC) => boolean } = {}) {
   const scene = new THREE.Scene(), material = new THREE.MeshBasicMaterial()
   const obstacles: ObstacleData[] = [], obstacleMeshes: THREE.Object3D[] = []
   const placement = getCampaignOutpostPlacement(faction)
@@ -53,18 +54,18 @@ export function siegeAssaultFixture(faction: 'roman' | 'viking' = 'roman', range
   obstacles.push(palisadeObstacle)
   const actors: NPC[] = []
   const breach = new CampaignBreachController()
-  const owner = new CampaignSiegeAssault(scene, obstacles, walkways, navigation, gate, breach, () => actors, () => {}, () => {})
-  const off = breach.onBreach(() => { owner.refreshPhysicalEntrances(); applyCampaignBreachOrders(actors, gate.attackerFaction) })
+  const owner = new CampaignSiegeAssault(scene, obstacles, walkways, navigation, gate, breach, () => actors, () => {}, () => {}, undefined, options.acceptsOrders)
+  const off = breach.onBreach(() => { owner.refreshPhysicalEntrances(); applyCampaignBreachOrders(actors.filter(npc => options.acceptsOrders?.(npc) ?? true), gate.attackerFaction) })
   onTestFinished(() => {
     off(); owner.dispose()
     walkways.root.traverse(child => { if (child instanceof THREE.Mesh) child.geometry.dispose() })
     material.dispose(); scene.clear()
   })
-  const specs: NpcSpawnSpec[] = Array.from({ length: 21 }, (_, i) => ({ actorId: `attacker-${i}`, x: i, z: 0,
+  const specs: NpcSpawnSpec[] = options.specs ?? Array.from({ length: 21 }, (_, i) => ({ actorId: `attacker-${i}`, x: i, z: 0,
     faction: Faction.ENEMY, characterFaction: gate.attackerFaction, aiType: rangedMain && i === 20 ? AIType.RANGED : AIType.MELEE, name: `Actor ${i}`,
     tier: 2, cavalry: false, respawnEnabled: false }))
-  positionDefenseCampaignAttackers(specs, faction)
-  owner.prepare(specs)
+  if (!options.specs) positionDefenseCampaignAttackers(specs, faction)
+  if (options.prepare !== false) owner.prepare(specs, options.saved)
   if (deploy) for (const spec of specs) { const npc = siegeActorRecord(spec); actors.push(npc); owner.register(npc, spec) }
   navigation.sync(obstacles)
   return { scene, owner, specs, actors, gate, breach, navigation, obstacles, walkways, palisade }

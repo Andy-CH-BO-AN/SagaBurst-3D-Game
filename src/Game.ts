@@ -1,5 +1,6 @@
+import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
-import { getSiegeApproachClearances, isMobileSiegeRampEnabled } from './campaign/MobileSiegeRampPolicy'
+import { getSiegeApproachClearances, isMobileSiegeRampEnabled, isSiegeRampCrewCandidate } from './campaign/MobileSiegeRampPolicy'
 import { refitTownCommandForSceneChange } from './career/SquadRefit'
 import { preloadPaladinEquipment } from './world/PaladinEquipment'
 import { playerEagleProjectileBudget } from './combat/ProjectileBallistics'
@@ -829,11 +830,13 @@ export class Game {
 
     let siegeTreeClearances: THREE.Box3[] | undefined
     if (campaignConfig && previewOutpostFaction && isMobileSiegeRampEnabled(campaignConfig)) {
-      const specs = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(campaignConfig, 'attackers')).npcSpecs
-      positionDefenseCampaignAttackers(specs, previewOutpostFaction)
+      const specs = this._campaignSiegeEnvironmentPlan(campaignConfig).npcSpecs
+        .filter(spec => spec.characterFaction !== previewOutpostFaction)
       const layout = getOutpostWalkwayLayout(getCampaignOutpostPlacement(previewOutpostFaction))
       const stagingZ = layout.zSign > 0 ? Math.max(...specs.map(spec => spec.z)) : Math.min(...specs.map(spec => spec.z))
-      siegeTreeClearances = getSiegeApproachClearances(layout, stagingZ)
+      if (specs.filter(spec => isSiegeRampCrewCandidate(spec)).length >= 10) {
+        siegeTreeClearances = getSiegeApproachClearances(layout, stagingZ)
+      }
     }
     createSky(this.scene, resolveShadowMapSize(startupQuery), previewOutpostFaction === 'viking')
     const {
@@ -886,7 +889,7 @@ export class Game {
                 radius: .38, height: 1.9, bottomOffset: .95 }] : []),
               ...this.mounts.filter(mount => !mount.dead).map(mount => ({ position: mount.group.position,
                 radius: 1, height: 2.6, bottomOffset: 0 })),
-            ])
+            ], npc => !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId))
         }
       }
     }
@@ -949,13 +952,13 @@ export class Game {
     let activeBattleConfig: BattleConfig | undefined = battleConfig
     if (campaignConfig) {
       activeBattleConfig = createDefenseCampaignWaveConfig(campaignConfig, 'defenders')
-      const hasRampartCheckpoint = campaignConfig.careerVeteranOutpost
+      const hasRampartCheckpoint = campaignConfig.careerVeteranOutpost || campaignConfig.careerCommanderOutpost
         ? Boolean(this.careerProfile?.activeMission?.actorPositions)
         : Boolean(this._personalOutpostMission()?.battle)
       const deployRampartGarrison = outpostWalkwaysEnabled && !hasRampartCheckpoint
       if (campaignConfig.careerMissionKind === 'captain-outpost-defense') {
         battlePlan = createCaptainFrontlineSpawnPlan(campaignConfig, this.careerProfile?.activeMission?.officialSquad, {
-          deployRampartGarrison,
+          deployRampartGarrison, careerGarrison: Boolean(campaignConfig.careerMissionId),
         })
       } else if (campaignConfig.careerVeteranOutpost) {
         battlePlan = createCareerVeteranOutpostSpawnPlan(campaignConfig, 'initial', {
@@ -967,7 +970,7 @@ export class Game {
         battlePlan = BattleSpawner.createSpawnPlan(activeBattleConfig)
         if (campaignConfig.careerMissionKind === 'outpost-relief') battlePlan = createCareerReliefSpawnPlan(campaignConfig)
         else positionDefenseCampaignDefenders(battlePlan.npcSpecs, campaignConfig.defenderFaction, {
-          deployRampartGarrison,
+          deployRampartGarrison, careerGarrison: Boolean(campaignConfig.careerMissionId),
         })
         this._identifyPersonalOutpostWave(battlePlan, 'initial')
       }
@@ -1074,6 +1077,10 @@ export class Game {
     this.mountHpFill = document.getElementById('mount-hp-fill')!
 
     // ── Combat & Enemies ──
+    if (campaignConfig && battlePlan && (campaignConfig.careerVeteranOutpost
+      || campaignConfig.careerCommanderOutpost && battlePlan.npcSpecs.some(spec => spec.characterFaction !== campaignConfig.defenderFaction))) {
+      this._prepareCampaignSiegePlan(battlePlan)
+    }
     if (campaignConfig && battlePlan) {
       this.campaignOriginalDefenders = []
       if (campaignConfig.careerCommanderOutpost) {
@@ -2091,6 +2098,41 @@ export class Game {
     })
   }
 
+  /** Pure official producers reserve the same convoy corridors as the eventual spawn queue. */
+  private _campaignSiegeEnvironmentPlan(campaign: DefenseCampaignLaunchConfig): BattleSpawnPlan {
+    if (campaign.careerVeteranOutpost) return createCareerVeteranOutpostSpawnPlan(campaign, 'initial')
+    if (campaign.careerCommanderOutpost) return createCareerCommanderOutpostSpawnPlan(campaign, 'attackers')
+    const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(campaign, 'attackers'))
+    positionDefenseCampaignAttackers(plan.npcSpecs, campaign.defenderFaction)
+    return plan
+  }
+
+  /** All Career initial/wave callers prepare before construction; restore uses the original crew IDs. */
+  private _prepareCampaignSiegePlan(plan: BattleSpawnPlan, restorePositions = true): void {
+    const campaign = this.defenseCampaignConfig
+    if (!campaign || !this.campaignSiegeAssault) return
+    const saved = campaign.careerVeteranOutpost || campaign.careerCommanderOutpost
+      ? this.careerProfile?.activeMission?.outpostSiege : this._personalOutpostMission()?.battle?.outpostSiege
+    const legacyBattle = this._personalOutpostMission()?.battle
+    const legacySiege = !saved && (legacyBattle?.attackersStarted || legacyBattle?.wave === 'attackers')
+      ? { version: 1 as const, breached: legacyBattle.gate?.state === 'open' || legacyBattle.gate?.state === 'destroyed',
+          ramps: [], actors: {}, destroyedPalisadeIds: [] } : undefined
+    if (this.campaignSiegeAssault.isPrepared) this.campaignSiegeAssault.trackDeployment(plan.npcSpecs)
+    else this.campaignSiegeAssault.prepare(plan.npcSpecs, saved ?? legacySiege)
+    if (!restorePositions) return
+    for (const spec of plan.npcSpecs) {
+      const actor = this._personalOutpostMission()?.battle?.actors[spec.actorId!]
+      const position = this.careerProfile?.activeMission?.actorPositions?.[spec.actorId!]
+        ?? actor?.checkpoint?.position ?? actor
+      if (!position) continue
+      const garrison = actor?.checkpoint?.outpostRampartGarrison ?? actor?.outpostRampartGarrison
+        ?? ('outpostRampartGarrison' in position ? position.outpostRampartGarrison : undefined)
+      spec.x = position.x; spec.z = position.z
+      spec.spawnY = outpostCheckpointHeight(position.x, position.z, position.y, garrison === true, campaign.defenderFaction)
+      spec.outpostRampartGarrison = garrison === true
+    }
+  }
+
   private _spawnNpc(spec: NpcSpawnSpec): NPC {
     assertNpcSpawnJob()
     const npc = trackNpcSpawn(new NPC(
@@ -2438,12 +2480,13 @@ export class Game {
       const actors = { ...mission.battle?.actors }
       for (const npc of this.npcs) if (npc.combatOwnership !== 'player-personal') {
         const ownedMount = this.careerVeteranActorMounts.get(npc.combatantId)
-        actors[npc.combatantId] = { hp: npc.hp, x: npc.combatPosition.x, z: npc.combatPosition.z,
+        actors[npc.combatantId] = { hp: npc.hp, x: npc.combatPosition.x, y: npc.combatPosition.y, z: npc.combatPosition.z,
+          ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
           yaw: npc.mount?.group.rotation.y ?? npc.group.rotation.y,
           checkpoint: snapshotCommandActor(npc, ownedMount ?? undefined),
           ...(ownedMount ? { mountHp: ownedMount.dead ? 0 : ownedMount.currentHp } : {}) }
       }
-      mission.battle = { runtime, actors, player: {
+      mission.battle = { runtime, actors, outpostSiege: this.campaignSiegeAssault?.snapshot(), player: {
         hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
         x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.currentMount?.group.rotation.y ?? this.player.group.rotation.y,
         ammo: this.player.arrowCount, shieldImpact: this.player.shield.shieldImpactRemaining,
@@ -2576,6 +2619,7 @@ export class Game {
   private _restorePersonalOutpostNpc(npc: NPC): void {
     const saved = this._personalOutpostMission()?.battle?.actors[npc.combatantId]
     if (!saved) return
+    npc.releaseOutpostRampartGarrison?.()
     const mount = this.careerVeteranActorMounts.get(npc.combatantId)
     const command = this._careerCommandMission()?.officialSquad?.members?.[npc.combatantId] ?? saved.checkpoint
     if (command) {
@@ -2589,12 +2633,12 @@ export class Game {
       return
     }
     if (mount) {
-      mount.group.position.set(saved.x, saved.y ?? getTerrainHeight(saved.x, saved.z), saved.z)
+      mount.group.position.set(saved.x, outpostCheckpointHeight(saved.x, saved.z, saved.y, saved.outpostRampartGarrison, this.defenseCampaignConfig!.defenderFaction), saved.z)
       mount.group.rotation.y = saved.yaw
       if (saved.mountHp === 0) { mount.takeDamage(mount.maxHp + 1); if (npc.mount) npc.dismountFromMount() }
       else if (saved.mountHp !== undefined) mount.currentHp = Math.min(mount.maxHp, saved.mountHp)
     }
-    npc.group.position.set(saved.x, saved.y ?? getTerrainHeight(saved.x, saved.z), saved.z)
+    npc.group.position.set(saved.x, outpostCheckpointHeight(saved.x, saved.z, saved.y, saved.outpostRampartGarrison, this.defenseCampaignConfig!.defenderFaction), saved.z)
     npc.group.rotation.y = saved.yaw
     npc.restoreCombatHealth(saved.hp)
     if (!npc.dead && saved.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
@@ -2626,6 +2670,7 @@ export class Game {
     if (saved.reinforcementsSpawned || saved.wave === 'reinforcement') waves.push('reinforcement')
     for (const wave of waves) {
       const plan = this._personalOutpostWavePlan(wave)
+      if (wave === 'attackers') this._prepareCampaignSiegePlan(plan)
       const spawned = saved.wave === wave ? Math.min(saved.waveIndex, plan.npcSpecs.length) : plan.npcSpecs.length
       const batch = this._newSpawnBatch()
       for (const spec of plan.npcSpecs.slice(0, spawned)) batch.enqueue(spec.actorId!, () => {
@@ -2775,11 +2820,12 @@ export class Game {
     this._snapshotOfficialCommand(mission.officialSquad)
     next.playerAerialState = captureCareerAerialState(this.player, `outpost:${this.defenseCampaignConfig.careerMissionId}`)
     mission.battle = {
-      runtime, actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(npc => npc.combatOwnership !== 'player-personal').map(npc => {
+      runtime, outpostSiege: this.campaignSiegeAssault?.snapshot(), actors: { ...mission.battle?.actors, ...Object.fromEntries(this.npcs.filter(npc => npc.combatOwnership !== 'player-personal').map(npc => {
         const mount = this.careerVeteranActorMounts.get(npc.combatantId)
         return [npc.combatantId, { hp: npc.hp, x: npc.combatPosition.x, y: npc.combatPosition.y, z: npc.combatPosition.z,
           yaw: npc.mount?.group.rotation.y ?? npc.group.rotation.y,
           ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
+          checkpoint: snapshotCommandActor(npc, mount ?? undefined),
           ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }]
       })) },
       player: { hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
@@ -2857,7 +2903,8 @@ export class Game {
     if (!this.careerVeteranActorMounts.has(actorId)) this.careerVeteranActorMounts.set(actorId, npc.mount)
     const mount = this.careerVeteranActorMounts.get(actorId) ?? null
     if (savedPosition) {
-      const y = savedPosition.y ?? getTerrainHeight(savedPosition.x, savedPosition.z)
+      npc.releaseOutpostRampartGarrison?.()
+      const y = outpostCheckpointHeight(savedPosition.x, savedPosition.z, savedPosition.y, savedPosition.outpostRampartGarrison, this.defenseCampaignConfig!.defenderFaction)
       npc.group.position.set(savedPosition.x, y, savedPosition.z)
       npc.group.rotation.y = savedPosition.yaw
       if (mount) {
@@ -2877,13 +2924,14 @@ export class Game {
     const command = mission.officialSquad?.members?.[actorId]
     if (command) {
       const controlled = officialPlayerOwnsActor(mission.officialSquad, actorId)
-      restoreCommandActor(npc, controlled ? command : { ...command, order: undefined, formation: undefined }, mount ?? undefined)
+      restoreCommandActor(npc, { ...(controlled ? command : { ...command, order: undefined, formation: undefined }),
+        ...(dead || saved?.hp === 0 ? { status: 'dead', hp: 0 } : {}) }, mount ?? undefined)
       if (controlled && !npc.dead && command.order === 'follow') {
         const slot = mission.officialSquad!.actorIds.indexOf(actorId)
         npc.assignFollowTarget(this.player, slot, officialFollowLocalOffset(slot, npc.isMounted, Boolean(this.careerProfile?.personalSquad?.members.length)))
       }
     }
-    if (!npc.dead && savedPosition?.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
+    if (!command && !npc.dead && savedPosition?.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
   }
 
   private _restoreCareerVeteranOutpostGate(saved: NonNullable<DefenseCampaignLaunchConfig['careerVeteranOutpost']>['runtimeState']): void {
@@ -3044,6 +3092,7 @@ export class Game {
     const gateState = this.previewCampaignGate?.state ?? previousState.gateState
     active.deadTargetActorIds = [...deadTargets]
     active.deadFriendlyActorIds = [...deadFriendlies]
+    active.outpostSiege = this.campaignSiegeAssault?.snapshot()
     active.actorHealth = actorHealth
     active.actorPositions = actorPositions
     active.playerDead = this.player.dead || active.playerDead === true
@@ -3173,7 +3222,7 @@ export class Game {
     }
 
     if (!plan.npcSpecs.length) return 0
-    if (wave === 'attackers') this.campaignSiegeAssault?.prepare(plan.npcSpecs)
+    if (wave === 'attackers') this._prepareCampaignSiegePlan(plan, !campaign.careerCommanderOutpost)
     this.campaignSpawnQueue = plan.npcSpecs
     this.campaignSpawnQueueIndex = 0
     this.campaignSpawnWave = wave

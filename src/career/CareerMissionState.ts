@@ -1,3 +1,4 @@
+import type { CampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import type { CareerDuelTier, CareerDuelCommanderHome, CareerDuelTravelCheckpoint } from './CareerDuelState'
 import type { TownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
 import type { TownPatrolReturnState } from '../town/TownCavalryPatrolController'
@@ -62,6 +63,7 @@ export interface CareerMissionMountState {
 }
 
 export interface ActiveCareerMission {
+  outpostSiege?: CampaignSiegeCheckpoint
   commanderMission?: CommanderMissionState
   officialSquad?: OfficialCommandAuthority
   patrolKilledActorIds?: string[]

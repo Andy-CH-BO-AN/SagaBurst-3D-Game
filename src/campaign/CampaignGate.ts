@@ -39,6 +39,9 @@ export class CampaignBreachController {
     return this._breached
   }
 
+  /** Reload preserves the one-shot latch without replaying merit, sound or orders. */
+  restoreBreached(): void { this._breached = true }
+
   trigger(): boolean {
     if (this._breached) return false
     this._breached = true

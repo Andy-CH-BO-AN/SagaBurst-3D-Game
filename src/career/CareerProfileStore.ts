@@ -1,3 +1,4 @@
+import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { parseTownEquipment } from './CareerTownEquipmentState'
 import { parseTownAirCommandSquad } from './TownAirCommandAuthority'
 import { parseCivilianCommandSquad } from './CivilianCommandAuthority'
@@ -244,6 +245,8 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const actorPositions = parseActorPositions(raw.actorPositions, knownActorIds)
   const engagedEnemySquadIds = parseEngagedEnemySquadIds(raw.engagedEnemySquadIds)
   const outpostBattleState = parseVeteranOutpostBattleState(raw.outpostBattleState)
+  const outpostSiege = parseCampaignSiegeCheckpoint(raw.outpostSiege)
+  if (raw.outpostSiege !== undefined && !outpostSiege) return undefined
   const commanderState = parseCommanderMissionState(raw.commanderMission, template?.kind)
   if (commanderMission && (!commanderState || rank !== 'commander')) return undefined
   const officialSquad = parseOfficialCommandAuthority(raw.officialSquad)
@@ -332,6 +335,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     ...(typeof raw.playerHp === 'number' && Number.isFinite(raw.playerHp) && raw.playerHp >= 0 ? { playerHp: raw.playerHp } : {}),
     ...(typeof raw.playerStamina === 'number' && Number.isFinite(raw.playerStamina) && raw.playerStamina >= 0 ? { playerStamina: raw.playerStamina } : {}),
     ...(outpostBattleState ? { outpostBattleState } : {}),
+    ...(outpostSiege ? { outpostSiege } : {}),
     acceptedAt: nonNegativeInteger(raw.acceptedAt),
     ...(mountState ? { mountState } : {}),
     ...((template?.kind === 'town-defense' || template?.kind === 'enemy-town-assault'
@@ -560,6 +564,9 @@ export class CareerProfileStore {
     try {
       const parsed = parseCareerProfile(profile)
       if (!parsed) return false
+      if (profile.activeMission?.outpostSiege && !parsed.activeMission?.outpostSiege
+        || profile.activeMission?.battle?.outpostSiege && !parsed.activeMission?.battle?.outpostSiege
+        || profile.activeOutpostMission?.battle?.outpostSiege && !parsed.activeOutpostMission?.battle?.outpostSiege) return false
       if (profile.townAirCommandSquad && !parsed.townAirCommandSquad) return false
       if (profile.townCommandSquad?.commandRank === 'commander'
         && parsed.townCommandSquad?.commandRank !== 'commander') return false
