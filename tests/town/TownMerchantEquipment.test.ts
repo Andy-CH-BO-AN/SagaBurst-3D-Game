@@ -46,9 +46,8 @@ beforeAll(async () => {
     templates.set(faction, { manifest, levels, animationClips: resolveHumanoidAnimationClips(levels.map(level => level.animations)) })
   }
   HumanoidAssetRegistry._restoreTemplatesForTesting(templates)
-  const base = 'public/models/characters/v2/roman-civilian'
-  const manifest = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8'))
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => manifest } as Response)
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => ({ ok: true,
+    json: async () => JSON.parse(readFileSync(`public${String(url)}`, 'utf8')) } as Response))
   const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async url => loadRig(readGlb(`public${url}`)))
   try { await HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSET) }
   finally { fetchMock.mockRestore(); loader.mockRestore() }

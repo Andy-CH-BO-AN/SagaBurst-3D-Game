@@ -22,7 +22,8 @@ describe('Roman T4 independent appearance asset', () => {
   })
 
   it('loads every LOD with independent skeletons/mixers and skips the ordinary Roman hash optimization', async () => {
-    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => manifest } as Response)
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => ({ ok: true,
+      json: async () => JSON.parse(readFileSync(`public${String(url)}`, 'utf8')) } as Response))
     const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async url => loadRig(readGlb(`public${url}`)))
     const warning = vi.spyOn(console, 'warn')
     try {
@@ -34,6 +35,13 @@ describe('Roman T4 independent appearance asset', () => {
       expect(a.root.scale.toArray()).toEqual([1, 1, 1])
       expect(a.skeleton).not.toBe(b.skeleton)
       expect(a.mixers).toHaveLength(3)
+      expect(a.rig.animation!.has('axeAttack1HFoot')).toBe(true)
+      for (const mixer of a.mixers) {
+        expect(a.rig.animation!.play('axeAttack1HFoot', { fadeSeconds: 0, loop: false })).toBe(true)
+        a.rig.animation!.seek('axeAttack1HFoot', .5)
+        a.rig.animation!.update(0)
+        expect((mixer.getRoot() as THREE.Object3D).getObjectByName('hand_r')!.quaternion.toArray().every(Number.isFinite)).toBe(true)
+      }
       for (let i = 0; i < 3; i++) expect(a.mixers[i]).not.toBe(b.mixers[i])
       const bones = new Set<string>()
       a.root.traverse(node => { if (node instanceof THREE.Bone) bones.add(node.uuid) })

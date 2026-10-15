@@ -166,6 +166,8 @@ export class WeaponMeshFactory {
   static buildMelee(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
     const tipLocal = new THREE.Vector3(0, 1.2, 0)
     pivot.userData.gripCenterLocal = [0, 0.15, 0]
+    if (WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
+    else delete pivot.userData.meleeAnimationKind
 
     if (weaponId === 'paladin_sword_t4' || weaponId === 'paladin_mace_t4') {
       pivot.add(createPaladinEquipment(weaponId))
@@ -529,6 +531,8 @@ export class WeaponMeshFactory {
   }
 
   static buildNpcMelee(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group, weaponId?: string): THREE.Vector3 {
+    if (weaponId && WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
+    else delete pivot.userData.meleeAnimationKind
     if (weaponId) {
       if (weaponId.startsWith('gladius_') || weaponId === 'centurion_blade') {
         const gladiusTier = weaponId === 'gladius_rusty' ? 1 : weaponId === 'gladius_standard' ? 2 : 3

@@ -14,14 +14,23 @@ describe('Weapon combat profiles', () => {
       damageMin: damage, damageMax: damage, speedOrCharge: cycle, meleeCycleSeconds: cycle, shieldImpact })
   })
 
-  it.each(['axeAttack1H', 'axeAttack2H'] as const)('%s retimes Mace playback, one contact and completion together', action => {
+  it.each([
+    ['axeAttack1H', false, 'axeAttack1HFoot'],
+    ['axeAttack1H', true, 'axeAttack1H'],
+    ['axeAttack2H', false, 'axeAttack2H'],
+    ['axeAttack2H', true, 'axeAttack2H'],
+  ] as const)('%s mounted=%s retimes Mace playback, one contact and completion together', (action, mounted, clip) => {
     const animation = { has: () => true, play: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn() }
     // Only the animator-to-renderer boundary is replaced; actual event clock runs.
     const rig = { animation } as unknown as CharacterRig
-    const animator = new CharacterCombatAnimator(rig, new THREE.Group(), new THREE.Group())
+    const pivot = new THREE.Group()
+    // Equipment boundary supplies the actual database classification; no axe mesh.
+    Object.assign(pivot.userData, { swordAttachmentOwned: true, meleeAnimationKind: WEAPONS.paladin_mace_t4.animationKind })
+    const animator = new CharacterCombatAnimator(rig, pivot, new THREE.Group())
+    animator.setLocomotion(0, mounted)
     const scale = meleeActionTimeScale(action, WEAPONS.paladin_mace_t4, 1.5)
     expect(animator.start(action, scale)).toBe(true)
-    expect(animation.play).toHaveBeenLastCalledWith(action, expect.objectContaining({ timeScale: expect.closeTo(4 / 3, 12) }))
+    expect(animation.play).toHaveBeenLastCalledWith(clip, expect.objectContaining({ timeScale: expect.closeTo(4 / 3, 12) }))
     const contact = AXE_HIT_TIMES[action] / scale
     expect(animator.update(contact - .001).hitActiveStarted).toBe(false)
     expect(animator.update(.002).hitActiveStarted).toBe(true)
@@ -30,6 +39,27 @@ describe('Weapon combat profiles', () => {
     expect(events.actionCompleted).toBe(true)
     expect(events.hitActiveStarted).toBe(false)
     expect(meleeActionTimeScale(action, WEAPONS.viking_axe_t3, 1.5)).toBe(1.5)
+  })
+  it('switches the next equipped one-handed clip without changing an in-flight attack or leaking it to swords/lances', () => {
+    const animation = { has: () => true, play: vi.fn(), update: vi.fn(), setEquipmentState: vi.fn() }
+    const pivot = new THREE.Group()
+    const animator = new CharacterCombatAnimator({ animation } as unknown as CharacterRig, pivot, new THREE.Group())
+    Object.assign(pivot.userData, { swordAttachmentOwned: true, meleeAnimationKind: 'axe' })
+    expect(animator.start('axeAttack1H')).toBe(true)
+    expect(animation.play).toHaveBeenLastCalledWith('axeAttack1HFoot', expect.anything())
+    pivot.userData.meleeAnimationKind = 'sword'
+    expect(animator.start('swordSlash')).toBe(false)
+    expect(animation.play).toHaveBeenLastCalledWith('axeAttack1HFoot', expect.anything())
+    animator.cancel()
+    expect(animator.update(1).hitActiveStarted).toBe(false)
+    expect(animator.start('swordSlash')).toBe(true)
+    expect(animation.play).toHaveBeenLastCalledWith('swordSlash', expect.anything())
+    animator.cancel()
+    // A lance rebuild relinquishes sword attachment ownership even if an old
+    // visual/classification remains on the reusable pivot.
+    Object.assign(pivot.userData, { swordAttachmentOwned: false, meleeAnimationKind: 'axe' })
+    expect(animator.start('axeAttack1H')).toBe(true)
+    expect(animation.play).toHaveBeenLastCalledWith('axeAttack1H', expect.anything())
   })
   it('Lance mesh length in WeaponMeshFactory remains 2.6m (mesh length unchanged)', () => {
     const parent = new THREE.Group()
