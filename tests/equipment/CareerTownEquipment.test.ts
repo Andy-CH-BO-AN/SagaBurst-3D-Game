@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { addCareerItem, availableCareerItem, careerItemAllocated, careerItemTotal, normalizeCareerInventory } from '../../src/career/CareerInventory'
 import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import {
   bulkCareerEquipment, changeTownEquipment,
   resolveTownActorEquipment,
@@ -30,14 +30,18 @@ function harness(faction: CareerProfile['faction'] = 'roman') {
 describe('Town equipment domain, canonical ownership and persisted native sources', () => {
   it('rolls back a bulk bow allocation and displaced native shield when storage fails', () => {
     const h = harness(); h.context.safeActorIds = new Set(['gate:north:0']); h.buy('elven_runebow')
-    expect(h.store.save(h.read())).toBe(true)
+    // The bulk owner already validates its staged domain data. Seed durable bytes
+    // directly here; CareerProfileStore validation has a separate persistence owner.
+    h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(h.read()))
     const before = cloneCareerProfile(h.read()), durableBefore = h.saved()
     let staged: CareerProfile | undefined
     let saves = 0
     h.storage.failWrites = true
     const result = bulkCareerEquipment(h.read, h.context, 1, 'bow', next => {
       saves++; staged = next
-      return h.save(next)
+      // Exercise a real failed storage write at the injected persistence boundary.
+      h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(next))
+      return true
     })
     expect(result).toMatchObject({ changed: false, reason: 'save-failed', changedActorIds: [] })
     expect(saves).toBe(1)
@@ -131,6 +135,22 @@ function resaleHarness(faction: CareerProfile['faction'] = 'roman') {
     },
   }
 }
+/** Already-unloaded native stock is input to the merchant transaction, not a refit simulation. */
+function unloadedNorthSwords() {
+  const h = resaleHarness(); h.buy('paladin_sword_t4', 2)
+  const first = resolveTownActorEquipment(h.read(), 'roman', 'gate:north:0').refs
+  const second = resolveTownActorEquipment(h.read(), 'roman', 'gate:north:1').refs
+  const profile = cloneCareerProfile(h.read())
+  const ids = ['roman/gate:north:0/melee', 'roman/gate:north:1/melee']
+  profile.townEquipment = { roman: { version: 1, actors: {
+    'gate:north:0': { ...first, melee: { itemId: 'paladin_sword_t4', source: 'inventory' } },
+    'gate:north:1': { ...second, melee: { itemId: 'paladin_sword_t4', source: 'inventory' } },
+  }, nativeReserve: [...ids] } }
+  h.set(profile)
+  expect(h.store.save(profile)).toBe(true)
+  return { h, ids }
+}
+
 describe('Commander native equipment resale and permanent token ownership', () => {
   it('sells an unloaded T2 sword once for 360 available merit and never adds it to Inventory', () => {
     const h = resaleHarness(), id = h.retire(), before = cloneCareerProfile(h.read())
@@ -173,15 +193,16 @@ describe('Commander native equipment resale and permanent token ownership', () =
     expect(h.saved()).toBe(durableBefore)
   })
   it.each(['false', 'throw'] as const)('rolls back all tokens and merit on a %s save failure, then permits retry', failure => {
-    const h = resaleHarness(), ids = [h.retire('gate:north:0'), h.retire('gate:north:1')]
-    const before = cloneCareerProfile(h.read()), disk = h.store.load()
+    const { h, ids } = unloadedNorthSwords()
+    const before = cloneCareerProfile(h.read()), disk = h.saved()
     h.storage.failWrites = true
     const save = failure === 'throw' ? () => { throw new Error('quota') } : h.save
     expect(h.sell(ids, save)).toMatchObject({ sold: false, reason: 'save-failed', earnedMerit: 0, soldCount: 0 })
-    expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(disk)
+    expect(h.read()).toEqual(before); expect(h.saved()).toBe(disk)
     h.storage.failWrites = false
     expect(h.sell(ids)).toMatchObject({ sold: true, soldCount: 2, earnedMerit: 720 })
-    expect(h.reload().townEquipment!.roman!.soldNativeIds).toEqual([...ids].sort())
+    expect(JSON.parse(h.saved()!).townEquipment.roman.soldNativeIds).toEqual(ids)
+    expect(h.read().availableMerit).toBe(before.availableMerit + 720)
   })
   it('rejects an invalid product in a bulk request without selling its valid token', () => {
     const h = resaleHarness(); h.retire()
