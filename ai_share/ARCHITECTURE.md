@@ -30,6 +30,7 @@
 - `HUMANOID_LOD_DISTANCES` 是人物 LOD 門檻的唯一來源。LOD0 是裝備 socket authority；穩態求值 LOD0 加可見 LOD，切換、fade、seek 必須補齊姿勢／時間，不能重播 gameplay 事件。
 - 距離節流只減少視覺求值；AI、移動、攻擊事件與 gameplay timer 每幀推進。跳過的 visual dt 只能補算一次。
 - `CharacterCombatAnimator` 擁有一次性攻擊／釋放事件；Player/NPC 在事件到達時造成傷害或產生投射物。完成或取消後回到最新 locomotion，換裝取消未完成動作、不補發事件。
+- 徒步單手斧／戰槌由實際裝備的 `animationKind` 選擇共用 `axeAttack1HFoot`，不以斧頭 mesh 判斷；騎乘及雙手仍走原 action。已選定模型使用原有 Bandit 適配 clip，Paladin／居民在 registry 預載時由 `BanditFootAttack` 從同一 Bandit 來源產生各 LOD 共用模板；保留原單手事件時鐘與 idle 骨盆／腿，不增加 GLB 或每角色 retarget。
 - `CharacterEquipmentPose` 在 mixer 後套姿勢，下一次求值前還原。`bakedEquipmentActions` 表明已烘焙握點的動作，避免疊加通用 IK；資產與 runtime 不能同時擁有同一關節修正。
 
 ## 裝備與投射物

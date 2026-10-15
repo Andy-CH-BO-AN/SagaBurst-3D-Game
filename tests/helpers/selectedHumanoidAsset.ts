@@ -2,7 +2,7 @@ import { HERO_ASSETS } from '../../src/world/HeroAssetCatalog'
 import { readFileSync } from 'node:fs'
 import { vi } from 'vitest'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
-import { HumanoidAssetRegistry, type HumanoidAssetDescriptor, type HumanoidAssetManifest, ORDINARY_HUMANOID_ASSETS } from '../../src/world/HumanoidAssetRegistry'
+import { HumanoidAssetRegistry, type HumanoidAssetDescriptor, type HumanoidAssetManifest, ORDINARY_HUMANOID_ASSETS, CIVILIAN_HUMANOID_ASSET } from '../../src/world/HumanoidAssetRegistry'
 import { loadTestGlbAsset } from './testGlbAsset'
 
 export const REPLACEMENT_DESCRIPTORS = {
@@ -12,7 +12,7 @@ export const REPLACEMENT_DESCRIPTORS = {
 } as const satisfies Record<string, HumanoidAssetDescriptor>
 export type ReplacementAssetId = keyof typeof REPLACEMENT_DESCRIPTORS
 
-export type SelectedAssetId = ReplacementAssetId | 'viking-hero-t5' | 'roman-hero-t5'
+export type SelectedAssetId = ReplacementAssetId | 'viking-hero-t5' | 'roman-hero-t5' | 'roman-hero-t4' | 'roman-civilian'
 
 export function replacementManifest(assetId: SelectedAssetId): HumanoidAssetManifest {
   return JSON.parse(readFileSync(`public/models/characters/v2/${assetId}/manifest.json`, 'utf8'))
@@ -20,11 +20,13 @@ export function replacementManifest(assetId: SelectedAssetId): HumanoidAssetMani
 
 /** Cost: on first preload per asset, three real GLBs (images omitted; this fixture
  * makes no texture/material claim). Each call creates one real character rig,
- * zero NPCs, mounts or worlds. Caller owns instance.dispose(). */
+ * zero NPCs, mounts or worlds. Legacy Paladin/civilian also preload the shared
+ * Bandit source (three GLBs once). Caller owns instance.dispose(). */
 export async function selectedHumanoidInstance(assetId: SelectedAssetId, isPlayer = false) {
-  const descriptor = assetId === 'viking-hero-t5' || assetId === 'roman-hero-t5' ? HERO_ASSETS[assetId].descriptor : REPLACEMENT_DESCRIPTORS[assetId]
-  const manifest = replacementManifest(assetId)
-  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => manifest } as Response)
+  const descriptor = assetId === 'roman-civilian' ? CIVILIAN_HUMANOID_ASSET
+    : assetId === 'viking-hero-t5' || assetId === 'roman-hero-t5' || assetId === 'roman-hero-t4' ? HERO_ASSETS[assetId].descriptor : REPLACEMENT_DESCRIPTORS[assetId]
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => ({ ok: true,
+    json: async () => JSON.parse(readFileSync(`public${String(url)}`, 'utf8')) } as Response))
   const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async url => loadTestGlbAsset(`public${url}`))
   try {
     await HumanoidAssetRegistry.preloadAsset(descriptor)

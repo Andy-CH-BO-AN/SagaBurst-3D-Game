@@ -38,6 +38,10 @@ export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object
   const matrix = socket.matrix.clone().invert().multiply(swordHandMatrix(frame))
     .multiply(weaponFrame.invert()).multiply(model.matrix.clone().invert())
   pivot.userData.swordFootAttachment = matrix.clone()
+  pivot.userData.meleeAnimationKind = model.userData.meleeAnimationKind
+  pivot.userData.weaponPivotGrip = new THREE.Vector3().fromArray(center).applyMatrix4(model.matrix)
+  pivot.userData.weaponSocketGrip = new THREE.Vector3(...frame.gripCenterLocal).applyMatrix4(socket.matrix.clone().invert())
+  pivot.userData.banditFootAxeAttachment = undefined
   if (socket.userData.banditFootAxe) {
     pivot.userData.banditFootAxeAttachment = socket.matrix.clone().invert().multiply(naturalAxeHandMatrix(frame))
       .multiply(new THREE.Matrix4().makeTranslation(-center[0], -center[1], -center[2])).multiply(model.matrix.clone().invert())
@@ -102,6 +106,7 @@ const carryRoll = new THREE.Quaternion(), carryWorld = new THREE.Quaternion()
 const carryLocalY = new THREE.Vector3(0, 1, 0)
 const footAttackVisual = new THREE.Quaternion(), footCarryVisual = new THREE.Quaternion()
 const footNaturalWorld = new THREE.Quaternion()
+const footMacePosition = new THREE.Vector3(), footMaceRotation = new THREE.Quaternion(), footMaceScale = new THREE.Vector3()
 // Delivered ordinary-roman socket uses +Z along the haft. The formal weapon
 // uses +Y. Grip at 0.35m leaves actual wood below the lower supporting hand.
 const authoredAxe1ModelFrame = new THREE.Matrix4().makeRotationX(Math.PI / 2)
@@ -120,6 +125,19 @@ export function axeCarryWeight(action: string, elapsed: number): number {
 
 export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false, action = 'idle', footCarryWeight = action === 'idle' ? 1 : 0): void {
   const axeVisual = pivot.userData.axeVisual as THREE.Object3D | undefined
+  if (pivot.userData.swordAttachmentOwned && !axeVisual && pivot.userData.meleeAnimationKind === 'axe'
+    && !mounted && action === 'axeAttack1H' && pivot.userData.banditFootAxeAttachment) {
+    // Mace has no independently rotated axe mesh. Blend its attachment about
+    // the palm so the same Bandit wrist pose carries the actual equipped head.
+    pivot.userData.banditFootAxeAttachment.decompose(pivot.position, pivot.quaternion, pivot.scale)
+    pivot.userData.swordFootAttachment.decompose(footMacePosition, footMaceRotation, footMaceScale)
+    pivot.quaternion.slerp(footMaceRotation, footCarryWeight)
+    axeGripOffset.copy(pivot.userData.weaponPivotGrip).multiply(pivot.scale).applyQuaternion(pivot.quaternion)
+    pivot.position.copy(pivot.userData.weaponSocketGrip).sub(axeGripOffset)
+    pivot.userData.swordMounted = undefined
+    pivot.updateMatrix()
+    return
+  }
   if (pivot.userData.swordAttachmentOwned && axeVisual && !mounted && action === 'idle' && pivot.userData.vikingFootAxeCarry) {
     // Weapon-only roll about its existing palm station. Do not alter the
     // authored Viking arm/wrist, the hand socket, attacks or mounted poses.

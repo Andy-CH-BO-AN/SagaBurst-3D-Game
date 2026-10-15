@@ -1,6 +1,10 @@
 import * as T from 'three'
-import { describe, expect, it, onTestFinished } from 'vitest'
-import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { preloadPaladinEquipment } from '../../src/world/PaladinEquipment'
+import { MixerController } from '../../src/world/HumanoidAssetRegistry'
+import { loadTestGlbAsset } from '../helpers/testGlbAsset'
+import { CharacterCombatAnimator, AXE_HIT_TIMES, meleeActionTimeScale } from '../../src/world/CharacterCombatAnimator'
 import { WeaponSweep } from '../../src/combat/ShieldBlocking'
 import { applySwordAttachment, weaponGripWorld, weaponTipWorld } from '../../src/world/SwordAttachmentContract'
 import { WeaponMeshFactory } from '../../src/world/WeaponMeshFactory'
@@ -112,8 +116,8 @@ describe('Viking axe attacks', () => {
             else
                 inventory.unequipShield();
             update();
-            for (const tier of [1, 2, 3])
-                expect((player as any)._meleeAction(WEAPONS[`viking_axe_t${tier}`])).toBe(shield ? 'axeAttack1H' : 'axeAttack2H');
+            for (const id of ['viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3', 'paladin_mace_t4'])
+                expect((player as any)._meleeAction(WEAPONS[id])).toBe(shield ? 'axeAttack1H' : 'axeAttack2H');
             for (const id of ['steel_sword', 'gladius_standard'])
                 expect((player as any)._meleeAction(WEAPONS[id])).toBe('swordSlash');
         }
@@ -138,6 +142,10 @@ describe('Viking axe attacks', () => {
                 npc.rebuildShield();
             }
             expect((npc as any)._meleeAction()).toBe('axeAttack1H');
+            npc.meleeWeaponId = 'paladin_mace_t4';
+            expect((npc as any)._meleeAction()).toBe('axeAttack1H');
+            npc.shieldId = null;
+            expect((npc as any)._meleeAction()).toBe('axeAttack2H');
             npc.meleeWeaponId = 'steel_sword';
             expect((npc as any)._meleeAction()).toBe('swordSlash');
             npc.meleeWeaponId = 'gladius_standard';
@@ -149,39 +157,51 @@ describe('Viking axe attacks', () => {
 
 // One real rig per source family; no NPC/world. The physical sweep must reach
 // a forward infantry body at each speed, rather than only looking forward.
-it.each(['roman', 'viking', 'viking-hero-t4', 'viking-hero-t5', 'roman-hero-t5'] as const)('%s foot 1H axe reaches the forward body with one unchanged action clock', async assetId => {
-  const { actor, model, animator } = await fixture(assetId)
+it.each(['roman', 'viking', 'viking-hero-t4', 'viking-hero-t5', 'roman-hero-t5', 'roman-hero-t4', 'roman-civilian'] as const)('%s foot 1H axe and mace reach the forward body with one unchanged action clock', async assetId => {
+  const { actor, pivot, model, animator } = await fixture(assetId)
+  const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(url => loadTestGlbAsset(`public${url}`))
+  try { await preloadPaladinEquipment() } finally { loader.mockRestore() }
   actor.root.rotation.y = .7
   const targetRoot = new T.Group()
   actor.root.localToWorld(targetRoot.position.set(0, 0, 1.3))
   const target = { group: targetRoot, combatPosition: targetRoot.position, isMounted: false }
   const sweep = new WeaponSweep(), grip = new T.Vector3(), tip = new T.Vector3()
-  const timing = actor.rig.animation!.getMeleeTiming!('axeAttack1H')!
-  for (const speed of [1, 1.55]) {
-    animator.cancel(); animator.setEquipment(false, true); animator.setLocomotion(2, false); animator.update(.2)
-    const hips = actor.root.getObjectByName('hips')!
-    const heading = actor.root.quaternion.clone()
-    const pelvisFacing = hips.getWorldQuaternion(new T.Quaternion())
-    expect(animator.start('axeAttack1H', speed)).toBe(true)
-    sweep.reset()
-    let touched = false, hits = 0, complete = 0, hitAt = 0, completeAt = 0
-    for (let frame = 1; frame <= 100; frame++) {
-      const event = animator.update(1 / 120)
-      if (event.hitActiveStarted) { hits++; hitAt = frame / 120 }
-      if (event.actionCompleted) { complete++; completeAt = frame / 120 }
-      actor.root.updateMatrixWorld(true)
-      expect(actor.root.quaternion.angleTo(heading), 'gameplay heading stays fixed').toBeLessThan(1e-6)
-      expect(hips.getWorldQuaternion(new T.Quaternion()).angleTo(pelvisFacing), 'no whole-body yaw compensation').toBeLessThan(.35)
-      sweep.capture(weaponGripWorld(model, grip), weaponTipWorld(model, new T.Vector3(0, 1.51, 0), tip, true))
-      if (animator.meleeHitActive && sweep.trace(target)?.kind === 'body') touched = true
+  const timing = actor.rig.animation!.getMeleeTiming!('axeAttack1H') ?? { duration: .48, hit: AXE_HIT_TIMES.axeAttack1H }
+  for (const weaponId of ['viking_axe_t2', 'paladin_mace_t4']) {
+    model.clear()
+    const { tipLocal } = WeaponMeshFactory.buildMelee(weaponId, model)
+    applySwordAttachment(actor.rig.right.handSocket, pivot, model, actor.rig.swordGripFrame!)
+    for (const multiplier of [1, 1.55]) {
+      const speed = meleeActionTimeScale('axeAttack1H', WEAPONS[weaponId], multiplier)
+      animator.cancel(); animator.setEquipment(false, true); animator.setLocomotion(2, false); animator.update(.2)
+      const hips = actor.root.getObjectByName('hips')!
+      const heading = actor.root.quaternion.clone()
+      const pelvisFacing = hips.getWorldQuaternion(new T.Quaternion())
+      expect(animator.start('axeAttack1H', speed)).toBe(true)
+      sweep.reset()
+      let touched = false, hits = 0, complete = 0, hitAt = 0, completeAt = 0
+      for (let frame = 1; frame <= 100; frame++) {
+        // Registry instances use the real LOD-aware controller, not a test double.
+        (actor.rig.animation as MixerController).setVisibleLOD(frame % 3)
+        const event = animator.update(1 / 120)
+        if (event.hitActiveStarted) { hits++; hitAt = frame / 120 }
+        if (event.actionCompleted) { complete++; completeAt = frame / 120 }
+        actor.root.updateMatrixWorld(true)
+        expect(actor.root.quaternion.angleTo(heading), 'gameplay heading stays fixed').toBeLessThan(1e-6)
+        expect(hips.getWorldQuaternion(new T.Quaternion()).angleTo(pelvisFacing), 'no whole-body yaw compensation').toBeLessThan(.35)
+        const palm = actor.rig.right.wrist.localToWorld(new T.Vector3(...actor.rig.swordGripFrame!.gripCenterLocal))
+        expect(weaponGripWorld(model, grip).distanceTo(palm), `${weaponId} grip stays on palm`).toBeLessThan(1e-5)
+        sweep.capture(grip, weaponTipWorld(model, tipLocal, tip, true))
+        if (animator.meleeHitActive && sweep.trace(target)?.kind === 'body') touched = true
+      }
+      expect(touched, `${assetId} ${weaponId} speed ${speed}: actual weapon sweep hits forward infantry`).toBe(true)
+      expect(hits).toBe(1); expect(complete).toBe(1)
+      expect(hitAt).toBeGreaterThanOrEqual(timing.hit / speed - 1e-8)
+      expect(hitAt).toBeLessThan(timing.hit / speed + 1 / 120 + 1e-8)
+      expect(completeAt).toBeGreaterThanOrEqual(timing.duration / speed - 1e-8)
+      expect(completeAt).toBeLessThan(timing.duration / speed + 1 / 120 + 1e-8)
+      expect(animator.currentAction).toBe('idle')
     }
-    expect(touched, `${assetId} speed ${speed}: actual blade sweep hits forward infantry`).toBe(true)
-    expect(hits).toBe(1); expect(complete).toBe(1)
-    expect(hitAt).toBeGreaterThanOrEqual(timing.hit / speed - 1e-8)
-    expect(hitAt).toBeLessThan(timing.hit / speed + 1 / 120 + 1e-8)
-    expect(completeAt).toBeGreaterThanOrEqual(timing.duration / speed - 1e-8)
-    expect(completeAt).toBeLessThan(timing.duration / speed + 1 / 120 + 1e-8)
-    expect(animator.currentAction).toBe('idle')
   }
 })
 

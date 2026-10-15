@@ -171,7 +171,7 @@ export class CharacterCombatAnimator {
     this.ownership = importedState && this.rig.animation?.has(importedState) ? 'clip' : 'procedural'
     this.elapsed = 0
     const clipTimeScale = timeScale * (this.meleeTiming?.clipTimeScale ?? 1)
-    const clipState = action === 'axeAttack1H' && this.meleePivot.userData.swordAttachmentOwned && this.meleePivot.userData.axeVisual && this.locomotion !== 'mounted' && this.rig.animation?.has('axeAttack1HFoot') ? 'axeAttack1HFoot' : action
+    const clipState = action === 'axeAttack1H' && this.meleePivot.userData.swordAttachmentOwned && this.meleePivot.userData.meleeAnimationKind === 'axe' && this.locomotion !== 'mounted' && this.rig.animation?.has('axeAttack1HFoot') ? 'axeAttack1HFoot' : action
     if (this.ownership === 'clip') this.rig.animation?.play(clipState, { fadeSeconds: 0.1, loop: false, ...(clipTimeScale === 1 ? {} : { timeScale: clipTimeScale }) })
     return true
   }

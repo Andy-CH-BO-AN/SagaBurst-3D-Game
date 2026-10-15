@@ -5,6 +5,7 @@ import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodA
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import { applyCivilianAppearance } from './CivilianAppearance'
 import { BANDIT_ASSET } from './BanditAsset'
+import { createBanditFootAttack } from './BanditFootAttack'
 import { CharacterEquipmentPose, createEquipmentPoseState, type EquipmentPoseState } from './CharacterEquipmentPose'
 import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { prepareEquipmentHandShape } from './EquipmentHandShape'
@@ -925,6 +926,20 @@ export class HumanoidAssetRegistry {
     const animationClips = manifest.selectedSource
       ? levels.map(level => optimizeSelectedAnimationClips(level.scene, level.animations))
       : resolveHumanoidAnimationClips(levels.map(level => level.animations))
+    // These canonical rigs can equip the same one-handed mace as the selected
+    // troops/heroes, but their retained GLBs predate the Bandit foot clip.
+    if (assetId === 'roman-hero-t4' || assetId === 'roman-civilian') {
+      await this.preloadAsset(BANDIT_ASSET)
+      const source = this.assets.get(BANDIT_ASSET.assetId)!.levels[0]
+      const strike = source.animations.find(clip => clip.name === 'swordSlash')!
+      const binding = manifest.animations!.embedded.find(clip => clip.clip === 'axeAttack1H')!
+      levels.forEach((level, index) => {
+        if (animationClips[index].some(clip => clip.name === 'axeAttack1HFoot')) return
+        animationClips[index] = [...animationClips[index], createBanditFootAttack(source.scene, strike, level.scene,
+          level.animations.find(clip => clip.name === 'idle')!, manifest.swordGripFrames![`lod${index}` as 'lod0'],
+          binding.duration, binding.events!.hit)]
+      })
+    }
     const bowClips = levels.map((level, index) => frame && !manifest.selectedSource ? normalizeBowHandClips(level.scene, animationClips[index]) : animationClips[index])
     let romanLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
     if (faction === 'roman' && !descriptor && !manifest.selectedSource) {
@@ -1055,6 +1070,8 @@ export class HumanoidAssetRegistry {
       if (!assetId || !animations.some(clip => clip.name === 'mounted')) clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
       const rawClips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
       for (const clip of gltf.animations) rawClips.set(clip.name, clip)
+      const generatedFootAttack = animations.find(clip => clip.name === 'axeAttack1HFoot')
+      if (generatedFootAttack && !rawClips.has('axeAttack1HFoot')) rawClips.set('axeAttack1HFoot', generatedFootAttack)
       if (['ordinary22', 'roman54', 'varangian63'].includes(template.manifest.selectedSource?.rig ?? '')) {
         if (!clips.has('hit')) clips.set('hit', REPLACEMENT_HIT_CLIP)
         if (!rawClips.has('hit')) rawClips.set('hit', REPLACEMENT_HIT_CLIP)
@@ -1073,10 +1090,10 @@ export class HumanoidAssetRegistry {
     const animation = new MixerController(mixers, clipsPerLevel, rawClipsPerLevel, template.manifest.animations?.embedded)
     const rig = createHumanoidRigAdapter(primaryScene, animation)
     rig.swordGripFrame = template.manifest.swordGripFrames?.lod0
+    rig.right.handSocket.userData.banditFootAxe = animation.has('axeAttack1HFoot')
     if (template.manifest.selectedSource) {
       rig.rangedGripFrame = template.manifest.rangedGripFrames?.lod0 ?? rig.swordGripFrame
       rig.meleeTipFollowsVisual = true
-      rig.right.handSocket.userData.banditFootAxe = animation.has('axeAttack1HFoot')
       rig.right.handSocket.userData.naturalFootAxeCarry = template.manifest.selectedSource.rig === 'roman54'
       rig.right.handSocket.userData.vikingFootAxeCarry = ['ordinary22', 'varangian63'].includes(template.manifest.selectedSource.rig)
       const authoredAxeSocket = (primaryScene as THREE.Group).getObjectByName('socket_axe_2h_r')

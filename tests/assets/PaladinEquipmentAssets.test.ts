@@ -21,6 +21,8 @@ it('preloads shared Paladin models once and builds independent Player/NPC equipm
       } else {
         const player = WeaponMeshFactory.buildMelee(id, a)
         expect(WeaponMeshFactory.buildNpcMelee('viking', 4, false, b, id)).toEqual(player.tipLocal)
+        expect(a.userData.meleeAnimationKind).toBe(id === 'paladin_mace_t4' ? 'axe' : 'sword')
+        expect(b.userData.meleeAnimationKind).toBe(a.userData.meleeAnimationKind)
         expect(a.userData.gripCenterLocal).toEqual([0, .15, 0])
         const bounds = new THREE.Box3().setFromObject(a)
         expect(bounds.max.y).toBeCloseTo(player.tipLocal.y, 2)
@@ -41,5 +43,10 @@ it('preloads shared Paladin models once and builds independent Player/NPC equipm
       a.position.x = 5; a.visible = false
       expect(b.position.x).toBe(0); expect(b.visible).toBe(true)
     }
+    const reused = new THREE.Group()
+    WeaponMeshFactory.buildNpcMelee('roman', 4, false, reused, 'paladin_mace_t4')
+    reused.clear()
+    WeaponMeshFactory.buildNpcMelee('roman', 2, false, reused, 'gladius_standard')
+    expect(reused.userData.meleeAnimationKind).toBe('sword')
   } finally { loader.mockRestore() }
 })
