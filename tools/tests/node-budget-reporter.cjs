@@ -1,5 +1,6 @@
 const { writeFileSync } = require('node:fs')
 const { hrtime } = require('node:process')
+const { resolve } = require('node:path')
 const { validateReports } = require('./budget.cjs')
 
 // Node's test result duration uses process.hrtime and ends in postRun after
@@ -19,8 +20,15 @@ module.exports = async function* (source) {
       ancestors.length = data.nesting + 1
     }
     if (type === 'test:pass' || type === 'test:fail') {
+      // Name-filtered development runs report unselected tests as skipped.
+      // They are explicitly partial; a full run still rejects every skip/todo.
+      if ((data.skip || data.todo) && process.env.LOGIC_TEST_TARGETED === '1') continue
       if (data.skip || data.todo) errors.push(`${data.file} > ${data.name}: skipped/todo tests or suites are prohibited`)
-      if (data.details.type === 'test' && !ancestors[data.nesting]?.hasChildren) {
+      // Node emits a file wrapper when no leaf matches a name filter (and for
+      // import crashes). It is startup/collection, never a logical leaf case.
+      const fileWrapper = data.file && data.line === 1 && data.column === 1 && resolve(data.name) === resolve(data.file)
+      if (fileWrapper && type === 'test:pass' && process.env.LOGIC_TEST_TARGETED !== '1') errors.push(`${data.file}: no leaf tests collected`)
+      if (data.details.type === 'test' && !fileWrapper && !ancestors[data.nesting]?.hasChildren) {
         cases.push({
           file: data.file, name: ancestors.slice(0, data.nesting).map(item => item.name).concat(data.name).join(' > '),
           nesting: data.nesting, ms: data.details.duration_ms,

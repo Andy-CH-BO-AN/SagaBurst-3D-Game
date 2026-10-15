@@ -27,8 +27,9 @@ if (releaseOnly || !targeted) {
   // Keep the existing Node release discovery; do not depend on shell globbing
   // (Windows npm uses cmd.exe) and never reuse another invocation's report.
   const files = readdirSync(join(root, 'tests/release')).filter(file => file.endsWith('.test.cjs')).sort().map(file => `tests/release/${file}`)
+  const explicitFiles = args.some(arg => arg.endsWith('.test.cjs'))
   if (files.length === 0) { console.error('Node logic collection is empty'); failed = true }
-  else run(['--test', '--test-reporter=./tools/tests/node-budget-reporter.cjs', ...args, ...files])
+  else run(['--test', '--test-reporter=./tools/tests/node-budget-reporter.cjs', ...args, ...(explicitFiles ? [] : files)])
 }
 try {
   const runners = releaseOnly ? ['node'] : targeted ? ['vitest'] : ['vitest', 'node']

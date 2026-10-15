@@ -114,7 +114,9 @@ describe('Lazy Career audio runtime', () => {
     manager.playCareerMissionVoice('viking', 'return')
     await flush()
     expect(sources).toHaveLength(1)
-    loaded(new Response(new ArrayBuffer(8)))
+    // Fetch is the external boundary; completion needs decoded bytes, not Node's HTTP implementation.
+    const response: Pick<Response, 'ok' | 'arrayBuffer'> = { ok: true, arrayBuffer: async () => new ArrayBuffer(8) }
+    loaded(response as Response)
     await flush()
     expect(sources).toHaveLength(1)
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/follow.wav'))).toBe(false)

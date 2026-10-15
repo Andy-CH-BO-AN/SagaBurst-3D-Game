@@ -9,7 +9,9 @@ const report = (runner, count, ms = 100) => ({ runner, runId: 'current', complet
 async function captureReporter(events) {
   const oldPath = process.env.LOGIC_TEST_NODE_REPORT
   const oldExitCode = process.exitCode
+  const oldTargeted = process.env.LOGIC_TEST_TARGETED
   delete process.env.LOGIC_TEST_NODE_REPORT
+  process.env.LOGIC_TEST_TARGETED = '0'
   try {
     let output = ''
     for await (const item of nodeReporter(events)) output += item
@@ -17,6 +19,8 @@ async function captureReporter(events) {
   } finally {
     if (oldPath === undefined) delete process.env.LOGIC_TEST_NODE_REPORT
     else process.env.LOGIC_TEST_NODE_REPORT = oldPath
+    if (oldTargeted === undefined) delete process.env.LOGIC_TEST_TARGETED
+    else process.env.LOGIC_TEST_TARGETED = oldTargeted
     process.exitCode = oldExitCode
   }
 }

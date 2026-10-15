@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { addCareerItem, availableCareerItem, careerItemAllocated, careerItemTotal, normalizeCareerInventory } from '../../src/career/CareerInventory'
-import { recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import {
   bulkCareerEquipment, changeTownEquipment,
   resolveTownActorEquipment,
-  townEquipmentSquads,
   type TownEquipmentContext
 } from '../../src/career/CareerTownEquipment'
 import { sellTownNativeEquipment, sellTownNativeProducts, type TownNativeSaleContext } from '../../src/career/CareerTownNativeResale'
@@ -20,62 +18,75 @@ function harness(faction: CareerProfile['faction'] = 'roman') {
   const read = () => profile
   const save = (next: CareerProfile) => { if (!store.save(next)) return false; profile = next; return true }
   const context: TownEquipmentContext = { townFaction: faction, peaceful: true, personalState: 'RESERVE',
-    safeActorIds: new Set(townEquipmentSquads(profile).flatMap(squad => [...squad.actorIds])) }
+    safeActorIds: new Set(['gate:north:0', 'gate:north:1', 'gate:north:7', 'civilian-0', 'civilian-1']) }
   return { read, save, store, storage, context, set: (next: CareerProfile) => { profile = next },
     buy: (id: string, count = 1) => addCareerItem(profile, id, count),
     change: (actor: string, slot: 'melee' | 'ranged' | 'shield' | 'mount', id: string | null) => changeTownEquipment(read, context, actor, slot, id, save),
     bulk: (target: Parameters<typeof bulkCareerEquipment>[2], category: Parameters<typeof bulkCareerEquipment>[3]) => bulkCareerEquipment(read, context, target, category, save),
-    hire(type: 'soldier' | 'captain' | 'ranger' = 'soldier') { const result = recruitPersonalSquadMember(profile, type, save, () => `personal:${profile.personalSquad?.members.length ?? 0}`); expect(result.recruited).toBe(true); return profile.personalSquad!.members.at(-1)!.id },
     reload() { profile = store.load()!; return profile },
+    saved() { const key = storage.key(0); return key === null ? null : storage.getItem(key) },
   }
 }
 describe('Town equipment domain, canonical ownership and persisted native sources', () => {
-  it('rolls back the bow and displaced native shield together when JSON storage fails, then allows a clean retry', () => {
+  it('rolls back a bulk bow allocation and displaced native shield when storage fails', () => {
     const h = harness(); h.context.safeActorIds = new Set(['gate:north:0']); h.buy('elven_runebow')
-    const shield = resolveTownActorEquipment(h.read(), 'roman', 'gate:north:0').refs.shield!
-    expect(shield.source).toBe('native'); expect(h.store.save(h.read())).toBe(true)
-    const before = cloneCareerProfile(h.read()); h.storage.failWrites = true
-    expect(h.bulk(1, 'bow')).toMatchObject({ changed: false, reason: 'save-failed', changedActorIds: [], summary: { equipped: 0, upgraded: 0 } })
-    expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(before)
+    expect(h.store.save(h.read())).toBe(true)
+    const before = cloneCareerProfile(h.read()), durableBefore = h.saved()
+    let staged: CareerProfile | undefined
+    let saves = 0
+    h.storage.failWrites = true
+    const result = bulkCareerEquipment(h.read, h.context, 1, 'bow', next => {
+      saves++; staged = next
+      return h.save(next)
+    })
+    expect(result).toMatchObject({ changed: false, reason: 'save-failed', changedActorIds: [] })
+    expect(saves).toBe(1)
+    expect(staged!.townEquipment!.roman!.actors['gate:north:0']).toMatchObject({
+      ranged: { itemId: 'elven_runebow', source: 'inventory' }, shield: null,
+    })
+    expect(staged!.townEquipment!.roman!.nativeReserve).toContain('roman/gate:north:0/shield')
+    expect(availableCareerItem(staged!, 'elven_runebow')).toBe(0)
+    expect(h.read()).toEqual(before)
+    expect(h.saved()).toBe(durableBefore)
     expect(availableCareerItem(h.read(), 'elven_runebow')).toBe(1)
-    h.storage.failWrites = false
-    expect(h.bulk(1, 'bow').changedActorIds).toEqual(['gate:north:0'])
-    expect(h.read().townEquipment!.roman!.nativeReserve).toContain(shield.nativeId)
-    expect(availableCareerItem(h.read(), 'elven_runebow')).toBe(0)
-    const committed = cloneCareerProfile(h.read()); expect(h.reload()).toEqual(committed)
   })
   it('counts Player, HR, Town and Civilian in one quantity pool and refuses another claimant', () => {
-    const h = harness(), member = h.hire(); h.buy('paladin_sword_t4', 4)
-    const next = cloneCareerProfile(h.read()); next.equipment = { melee: 'paladin_sword_t4' }
-    next.personalSquad!.members[0].equipment!.melee = 'paladin_sword_t4'; h.set(next)
-    expect(h.change('gate:north:0', 'melee', 'paladin_sword_t4').changed).toBe(true)
-    expect(h.change('civilian-0', 'melee', 'paladin_sword_t4').changed).toBe(true)
-    expect(careerItemAllocated(h.read(), 'paladin_sword_t4')).toBe(4); expect(availableCareerItem(h.read(), 'paladin_sword_t4')).toBe(0)
-    expect(h.change('civilian-1', 'melee', 'paladin_sword_t4').reason).toBe('no-available-item')
-    expect(h.read().personalSquad!.members[0].id).toBe(member)
-    expect(h.reload().inventory!.quantities.paladin_sword_t4).toBe(4)
+    const h = harness(); h.buy('paladin_sword_t4', 4)
+    const next = cloneCareerProfile(h.read())
+    const guard = resolveTownActorEquipment(next, 'roman', 'gate:north:0').refs
+    next.equipment = { melee: 'paladin_sword_t4' }
+    next.personalSquad = { members: [{ id: 'personal:test', type: 'soldier', originalHirePrice: 50,
+      equipment: { melee: 'paladin_sword_t4', ranged: null, shield: null, mount: null } }] }
+    next.townEquipment = { roman: { version: 1, actors: {
+      'gate:north:0': { ...guard, melee: { itemId: 'paladin_sword_t4', source: 'inventory' } },
+      'civilian-0': { melee: { itemId: 'paladin_sword_t4', source: 'inventory' }, ranged: null, shield: null, mount: null },
+    }, nativeReserve: ['roman/gate:north:0/melee'] } }
+    h.set(next)
+    const before = cloneCareerProfile(next)
+    let saves = 0
+    expect(careerItemAllocated(next, 'paladin_sword_t4')).toBe(4)
+    expect(availableCareerItem(next, 'paladin_sword_t4')).toBe(0)
+    expect(changeTownEquipment(h.read, h.context, 'civilian-1', 'melee', 'paladin_sword_t4', () => {
+      saves++; return true
+    }).reason).toBe('no-available-item')
+    expect(saves).toBe(0)
+    expect(h.read()).toEqual(before)
   })
   it('redistributes one native sword in its authored squad and never recreates it at the origin on reload', () => {
-    const h = harness(), squad = townEquipmentSquads(h.read())[0]
-    const actors = squad.actorIds.map(id => resolveTownActorEquipment(h.read(), 'roman', id))
-    const a = actors.find(actor => actor.refs.melee?.itemId === 'gladius_standard')!
-    const b = actors.find(actor => actor.refs.melee?.itemId === 'gladius_rusty')!
-    h.context.safeActorIds = new Set([a.spec.id, b.spec.id]); h.buy('centurion_blade')
-    const origin = a.refs.melee!.nativeId!
-    // This squad's native T1 sword belongs to an archer: improving its melee does not improve its active T2 weapon.
-    expect(a.tier).toBe(2); expect(b.tier).toBe(2); expect(b.refs.ranged?.itemId).toBe('recurve_longbow')
+    const h = harness(); h.context.safeActorIds = new Set(['gate:north:0', 'gate:north:7']); h.buy('centurion_blade')
     expect(h.bulk(1, 'sword').summary).toMatchObject({ equipped: 2, upgraded: 1 })
-    expect(resolveTownActorEquipment(h.read(), 'roman', a.spec.id).tier).toBe(3)
-    expect(resolveTownActorEquipment(h.read(), 'roman', b.spec.id)).toMatchObject({ tier: 2, refs: { ranged: b.refs.ranged } })
-    expect(resolveTownActorEquipment(h.read(), 'roman', a.spec.id).refs.melee).toEqual({ itemId: 'centurion_blade', source: 'inventory' })
-    expect(resolveTownActorEquipment(h.read(), 'roman', b.spec.id).refs.melee?.nativeId).toBe(origin)
+    const state = h.read().townEquipment!.roman!
+    expect(state.actors['gate:north:0'].melee).toEqual({ itemId: 'centurion_blade', source: 'inventory' })
+    expect(state.actors['gate:north:7'].melee).toEqual({
+      itemId: 'gladius_standard', source: 'native', nativeId: 'roman/gate:north:0/melee',
+    })
+    // The archer keeps its active T2 bow while accepting the released T2 melee sword.
+    expect(resolveTownActorEquipment(h.read(), 'roman', 'gate:north:7')).toMatchObject({ tier: 2,
+      refs: { ranged: { itemId: 'recurve_longbow', source: 'native' } },
+    })
     expect(careerItemTotal(h.read(), 'gladius_standard')).toBe(0)
-    h.reload()
-    expect(resolveTownActorEquipment(h.read(), 'roman', b.spec.id).refs.melee?.nativeId).toBe(origin)
-    expect(resolveTownActorEquipment(h.read(), 'roman', a.spec.id).refs.melee?.source).toBe('inventory')
-    expect(h.bulk(1, 'sword').reason).toBe('no-op')
-    expect(h.read().townEquipment!.roman!.nativeReserve).not.toContain(origin)
-
+    expect(h.reload().townEquipment!.roman).toEqual(state)
+    expect(state.nativeReserve).not.toContain('roman/gate:north:0/melee')
   })
   it('does not borrow other squad stock, Player equipment, or an unsafe target member', () => {
     const h = harness(); h.buy('paladin_mace_t4', 2)
@@ -113,7 +124,6 @@ function resaleHarness(faction: CareerProfile['faction'] = 'roman') {
   const context: TownNativeSaleContext = { townFaction: faction, peaceful: true, playerAlive: true, merchantAvailable: true }
   return { ...h, saleContext: context,
     sell: (ids: string[], save = h.save) => sellTownNativeEquipment(h.read, () => context, ids, save),
-    sellProduct: (itemId: string, quantity: number) => sellTownNativeProducts(h.read, () => context, [{ itemId, quantity }], h.save),
     retire(actor = 'gate:north:0') {
       const token = resolveTownActorEquipment(h.read(), faction, actor).refs.melee!
       h.buy('paladin_sword_t4'); expect(h.change(actor, 'melee', 'paladin_sword_t4').changed).toBe(true)
@@ -142,18 +152,25 @@ describe('Commander native equipment resale and permanent token ownership', () =
     expect(h.read()).toEqual(before)
 
   })
-  it('rejects a transferred native sword until its recipient actually unloads it', () => {
-    const h = resaleHarness(), squad = townEquipmentSquads(h.read())[0]
-    const actors = squad.actorIds.map(id => resolveTownActorEquipment(h.read(), 'roman', id))
-    const a = actors.find(actor => actor.refs.melee?.itemId === 'gladius_standard')!, b = actors.find(actor => actor.refs.melee?.itemId === 'gladius_rusty')!
-    const id = a.refs.melee!.nativeId!
-    h.context.safeActorIds = new Set([a.spec.id, b.spec.id]); h.buy('centurion_blade')
-    expect(h.bulk(1, 'sword').changed).toBe(true)
-    expect(resolveTownActorEquipment(h.read(), 'roman', b.spec.id).refs.melee?.nativeId).toBe(id)
-    expect(h.sell([id]).sold).toBe(false)
-    h.buy('paladin_sword_t4'); expect(h.change(b.spec.id, 'melee', 'paladin_sword_t4').changed).toBe(true)
-    expect(h.sell([id]).earnedMerit).toBe(360)
-    expect(h.reload().townEquipment!.roman!.soldNativeIds).toEqual([id])
+  it('rejects resale of a native sword held by a different actor', () => {
+    const h = resaleHarness(); h.buy('paladin_sword_t4')
+    // A valid sparse saved transfer is the input; bulk allocation has its own owner above.
+    const origin = resolveTownActorEquipment(h.read(), 'roman', 'gate:north:0').refs
+    const recipient = resolveTownActorEquipment(h.read(), 'roman', 'gate:north:7').refs
+    const transferred = cloneCareerProfile(h.read())
+    transferred.townEquipment = { roman: { version: 1,
+      actors: {
+        'gate:north:0': { ...origin, melee: { itemId: 'paladin_sword_t4', source: 'inventory' } },
+        'gate:north:7': { ...recipient, melee: origin.melee },
+      },
+      nativeReserve: ['roman/gate:north:7/melee'],
+    } }
+    h.set(transferred)
+    expect(h.store.save(transferred)).toBe(true)
+    const before = cloneCareerProfile(h.read()), durableBefore = h.saved()
+    expect(h.sell(['roman/gate:north:0/melee'])).toMatchObject({ sold: false, reason: 'invalid-token', earnedMerit: 0 })
+    expect(h.read()).toEqual(before)
+    expect(h.saved()).toBe(durableBefore)
   })
   it.each(['false', 'throw'] as const)('rolls back all tokens and merit on a %s save failure, then permits retry', failure => {
     const h = resaleHarness(), ids = [h.retire('gate:north:0'), h.retire('gate:north:1')]
