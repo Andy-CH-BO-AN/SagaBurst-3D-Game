@@ -30,6 +30,12 @@ export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object
   pivot.userData.swordFootAttachment = matrix.clone()
   pivot.userData.axeVisual = model.getObjectByName('dane-axe-visual')
   pivot.userData.axeCarryWeight = undefined
+  // The source socket is actor-owned and survives LOD selection via the hand
+  // proxy. Its animation curve is evaluated by the same character mixer.
+  pivot.userData.authoredAxeSocket = socket.userData.authoredAxeSocket
+  pivot.userData.authoredAxe1Socket = socket.userData.authoredAxe1Socket
+  pivot.userData.authoredAxeActive = false
+  pivot.userData.authoredAxeModelInverse = model.matrix.clone().invert()
   pivot.userData.swordMountedAttachment = mountedRotation
     ? socket.matrix.clone().invert().multiply(new THREE.Matrix4().compose(
       new THREE.Vector3(...frame.gripCenterLocal), new THREE.Quaternion(...mountedRotation), new THREE.Vector3(1, 1, 1),
@@ -56,6 +62,8 @@ export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object
 }
 
 export function weaponGripWorld(model: THREE.Object3D, target: THREE.Vector3): THREE.Vector3 {
+  const attachment = model.parent?.userData
+  if (attachment?.authoredAxeActive) return model.localToWorld(target.set(0, attachment.authoredAxeGripY, 0))
   return model.localToWorld(target.fromArray(model.userData.gripCenterLocal ?? [0, 0, 0]))
 }
 
@@ -72,6 +80,14 @@ const axeAttackRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vect
 const axeCarryRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), .55)
   .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2))
 const axeGripOffset = new THREE.Vector3()
+const authoredAxeMatrix = new THREE.Matrix4()
+// Delivered ordinary-roman socket uses +Z along the haft. The formal weapon
+// uses +Y. Grip at 0.35m leaves actual wood below the lower supporting hand.
+const authoredAxe1ModelFrame = new THREE.Matrix4().makeRotationX(Math.PI / 2)
+  .multiply(new THREE.Matrix4().makeTranslation(0, -.15, 0))
+const authoredAxeModelFrame = new THREE.Matrix4().makeRotationX(Math.PI / 2)
+  .multiply(new THREE.Matrix4().makeTranslation(0, -.35, 0))
+
 
 /** Keep carry adjustments outside the source contact/support-hand interval. */
 export function axeCarryWeight(action: string, elapsed: number): number {
@@ -81,9 +97,24 @@ export function axeCarryWeight(action: string, elapsed: number): number {
   return 1 - smooth(elapsed / .08) + smooth((elapsed - .42) / .06)
 }
 
-export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false): void {
+export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false, action = 'idle'): void {
   const axeVisual = pivot.userData.axeVisual as THREE.Object3D | undefined
-  if (!pivot.userData.swordAttachmentOwned || (pivot.userData.swordMounted === mounted
+  const authored = pivot.userData[action === 'axeAttack1H' ? 'authoredAxe1Socket' : 'authoredAxeSocket'] as THREE.Object3D | undefined
+  if (pivot.userData.swordAttachmentOwned && axeVisual && authored && (action === 'axeAttack1H' || action === 'axeAttack2H')) {
+    authored.updateWorldMatrix(true, false)
+    pivot.parent!.updateWorldMatrix(true, false)
+    authoredAxeMatrix.copy(pivot.parent!.matrixWorld).invert().multiply(authored.matrixWorld)
+      .multiply(action === 'axeAttack1H' ? authoredAxe1ModelFrame : authoredAxeModelFrame).multiply(pivot.userData.authoredAxeModelInverse)
+    authoredAxeMatrix.decompose(pivot.position, pivot.quaternion, pivot.scale)
+    axeVisual.quaternion.identity()
+    pivot.userData.authoredAxeGripY = action === 'axeAttack1H' ? .15 : .35
+    pivot.userData.authoredAxeActive = true
+    pivot.updateMatrix()
+    return
+  }
+  const restoreAuthored = pivot.userData.authoredAxeActive === true
+  pivot.userData.authoredAxeActive = false
+  if (!pivot.userData.swordAttachmentOwned || (!restoreAuthored && pivot.userData.swordMounted === mounted
     && (!axeVisual || pivot.userData.axeCarryWeight === carryWeight && pivot.userData.axeTwoHandedCarry === twoHandedCarry))) return
   // Keep the lance's carry wrist untouched. Blend the axe attachment about its
   // fixed palm contact, then roll only the visual cutting edge toward the floor.

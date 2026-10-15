@@ -191,6 +191,7 @@ export class CharacterEquipmentPose {
 
   constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource) {
     if (selectedSource?.rig === 'steppe37') this.mountedSkirt = new SelectedMountedSkirt(root)
+    if (selectedSource?.rig === 'varangian63') this.mountedSkirt = new SelectedMountedSkirt(root, 'skirt_front_center')
     this.left = new ArmSolver(root, rig.left, 1)
     this.axeRight = new ArmSolver(root, rig.right, -1)
     this.axeLeftBones = [rig.left.shoulder, rig.left.elbow, rig.left.wrist]
@@ -362,6 +363,21 @@ export class CharacterEquipmentPose {
         setRigRotation(leg.knee, 1.05 * leg.forwardBendSign, 0, -leg.side * .2)
         setRigRotation(leg.ankle, -.38 * leg.forwardBendSign, 0, -leg.side * .6)
       }
+    }
+    // Source 2H cutting edges strike right of +Z: ordinary Viking 0.609802
+    // radians at source 1.058333s; Varangian 0.748852 at 1.066667s. These
+    // are measured hips-to-mock-edge bearings, not collision tolerances.
+    // Turn the whole authored pose toward gameplay-forward, never the weapon
+    // alone. Both palms and their socket retain the delivered relative motion.
+    if (live && (this.selectedSource?.rig === 'ordinary22' || this.selectedSource?.rig === 'varangian63') && state.action === 'axeAttack2H') {
+      const facing = this.selectedSource.rig === 'ordinary22' ? -.6098016643687594 : -.7488516894154653
+      const weight = smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .38) / .1))
+      this.root.updateWorldMatrix(true, true)
+      this.root.getWorldQuaternion(this.rootWorld)
+      this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
+      if (state.mounted && this.seatedTorso.length) {
+        for (const joint of this.seatedTorso) this.rotateArm(joint, facing * weight / this.seatedTorso.length)
+      } else this.rotateArm(this.seatedHips, facing * weight)
     }
     // Corgi thighs sit wider and higher than the horse's. Carry the right hand
     // forward and outside that thigh, retaining the sampled wrist orientation

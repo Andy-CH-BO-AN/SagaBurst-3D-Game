@@ -1,6 +1,6 @@
 import { configureMultiInfluenceSkinning, multiInfluenceSkinningPlugin } from './MultiInfluenceSkinning'
 import { prepareSelectedHumanoidSource, type SelectedHumanoidSource } from './SelectedHumanoidSource'
-import { shareSelectedLodPose, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
+import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import { applyCivilianAppearance } from './CivilianAppearance'
 import { BANDIT_ASSET } from './BanditAsset'
@@ -88,6 +88,10 @@ export interface HumanoidAssetManifest {
     }
   }
   swordGripFrames?: Record<'lod0' | 'lod1' | 'lod2', SwordGripFrame>
+  /** Source pilum grip can face opposite to its sword grip. */
+  rangedGripFrames?: Record<'lod0' | 'lod1' | 'lod2', SwordGripFrame>
+  /** Optional authored shield handle, independent from the bow hand frame. */
+  shieldGripFrames?: Record<'lod0' | 'lod1' | 'lod2', SwordGripFrame>
   /** Posed source hands already authored in the asset; do not apply faction morphs. */
   handShapeMode?: 'authored'
   /** Generate grip morphs on each authored LOD without substituting LOD0 hand geometry. */
@@ -151,6 +155,24 @@ export interface HumanoidAssetDescriptor {
   heightM: number
   maxShoulderWidthM: number
   neckLengthM: number
+}
+
+/** Residents retain the undressed legacy body; military replacement assets have
+ * fused armour which cannot safely be hidden by the civilian clothing policy. */
+export const CIVILIAN_HUMANOID_ASSET: HumanoidAssetDescriptor = {
+  assetId: 'roman-civilian', faction: 'roman', heightM: 1.78,
+  maxShoulderWidthM: .46, neckLengthM: .09,
+}
+
+/** Source-specific anatomy, uniformly fitted to the existing gameplay heights.
+ * These descriptors do not relax the canonical/legacy manifest contract. */
+export const ORDINARY_HUMANOID_ASSETS: Record<CharacterFaction, HumanoidAssetDescriptor> = {
+  roman: { assetId: 'roman', faction: 'roman', heightM: 1.78, maxShoulderWidthM: .46, neckLengthM: .06123885836724559 },
+  viking: { assetId: 'viking', faction: 'viking', heightM: 1.86, maxShoulderWidthM: .54, neckLengthM: .11037482018019391 },
+}
+
+export function resolveHumanoidAssetId(config: CharacterVisualConfig, assetId?: string): string | undefined {
+  return config.civilian ? CIVILIAN_HUMANOID_ASSET.assetId : assetId
 }
 
 interface HumanoidTemplate {
@@ -319,6 +341,14 @@ export function createProjectAnimationClips(): THREE.AnimationClip[] {
 }
 
 const PROJECT_ANIMATION_CLIPS = createProjectAnimationClips()
+
+// The replacement packages deliberately contain only the eleven delivered clips.
+// Supply their missing recoil through the existing additive hit-overlay path;
+// it must not interrupt a weapon action or alter its gameplay clock.
+const REPLACEMENT_HIT_CLIP = additiveClip('hit', .24, [
+  { bone: 'spine', times: [0, .08, .24], eulers: [zero(), pose(-.13), zero()] },
+  { bone: 'chest', times: [0, .08, .24], eulers: [zero(), pose(-.09, .025), zero()] },
+])
 
 /** Reuse authored Idle above the pelvis; mounted legs remain procedural.
  * An empty mounted clip otherwise blends the arms back to the bind T-pose. */
@@ -861,9 +891,15 @@ export class HumanoidAssetRegistry {
       levels.forEach((level, index) => {
         level.scene.updateMatrixWorld(true)
         const frames = calibrateEquipmentFrames(manifest.swordGripFrames![`lod${index}` as 'lod0'], left, sourceHand, level.scene.getObjectByName('hand_l')!)
+        const shieldFrame = manifest.shieldGripFrames?.[`lod${index}` as 'lod0']
+        if (shieldFrame) frames.shieldLeft = { ...shieldFrame }
         level.scene.userData.equipmentGripFrames = frames
         level.scene.userData.equipmentFaction = faction
-        calibrateLanceIdleAttachment(level.scene, level.animations.find(clip => clip.name === 'idle')!, frames.lanceRight)
+        const idle = level.animations.find(clip => clip.name === 'idle')!
+        // These sources turn the pelvis in foot Idle; mounted locomotion omits
+        // that track. Calibrate the mounted lance in the same upper-body basis.
+        const replacement = ['ordinary22', 'roman54', 'varangian63'].includes(manifest.selectedSource?.rig ?? '')
+        calibrateLanceIdleAttachment(level.scene, replacement ? createMountedIdleClip(idle) : idle, frames.lanceRight)
         const axeIdle = level.animations.find(clip => clip.name === 'axeMountedIdle')
         if (axeIdle) {
           const axeFrame = { ...frames.lanceRight }
@@ -884,7 +920,7 @@ export class HumanoidAssetRegistry {
       : resolveHumanoidAnimationClips(levels.map(level => level.animations))
     const bowClips = levels.map((level, index) => frame && !manifest.selectedSource ? normalizeBowHandClips(level.scene, animationClips[index]) : animationClips[index])
     let romanLod2Consolidation: RomanLod2ConsolidationTemplate | undefined
-    if (faction === 'roman' && !descriptor) {
+    if (faction === 'roman' && !descriptor && !manifest.selectedSource) {
       if (isRomanLod2ConsolidationAssetAudited(lod2Loaded.sha256)) {
         romanLod2Consolidation = tryCreateRomanLod2ConsolidationTemplate(levels[2].scene)
       } else {
@@ -897,8 +933,8 @@ export class HumanoidAssetRegistry {
   }
 
   private static async loadAll(): Promise<void> {
-    await Promise.all([this.preloadAsset(BANDIT_ASSET), ...(['viking', 'roman'] as const).map(async faction => {
-      this.templates.set(faction, await this.loadTemplate(faction, faction))
+    await Promise.all([this.preloadAsset(BANDIT_ASSET), this.preloadAsset(CIVILIAN_HUMANOID_ASSET), ...(['viking', 'roman'] as const).map(async faction => {
+      this.templates.set(faction, await this.loadTemplate(faction, faction, ORDINARY_HUMANOID_ASSETS[faction]))
     })])
   }
 
@@ -965,6 +1001,7 @@ export class HumanoidAssetRegistry {
   }
 
   static createCharacterInstance(config: CharacterVisualConfig, assetId?: string): HumanoidCharacterInstance {
+    assetId = resolveHumanoidAssetId(config, assetId)
     const template = assetId ? this.assets.get(assetId) : this.templates.get(config.faction)
     if (!template) throw new Error(`HumanoidAssetRegistry is not preloaded for ${assetId ?? config.faction}`)
     const root = new THREE.Group()
@@ -981,7 +1018,7 @@ export class HumanoidAssetRegistry {
       level.name = `${assetId ?? config.faction}-lod${index}`
       level.traverse((object) => {
         if (object instanceof THREE.Mesh) {
-          object.castShadow = config.faction === 'roman'
+          object.castShadow = config.faction === 'roman' && template.manifest.selectedSource?.rig !== 'roman54'
             ? shouldRomanHumanoidCastShadow(object.name, index)
             : index < 2
           object.receiveShadow = true
@@ -995,11 +1032,12 @@ export class HumanoidAssetRegistry {
         if (representationControl) level.userData.humanoidLod2RepresentationControl = representationControl
         cullRomanLod2TinyDetails(level)
       }
-      if (config.faction === 'viking' && !assetId) {
+      if (config.faction === 'viking' && !assetId && !template.manifest.selectedSource) {
         const head = findBone(level, REQUIRED_BONES.head)
         findSocket(level, ['socket_head'], head, 'socket_head').add(createVikingHornAccessory(index < 2))
       }
       if (config.civilian) applyCivilianAppearance(level, config.civilianStyle ?? 'roman')
+      if (index === 0 && ['ordinary22', 'roman54', 'varangian63'].includes(template.manifest.selectedSource?.rig ?? '')) shareIdenticalSkinSkeletons(level)
       if (template.manifest.selectedSource && primaryScene) shareSelectedLodPose(primaryScene, level)
       lod.addLevel(level, HUMANOID_LOD_DISTANCES[index])
       if (template.manifest.selectedSource && index > 0) return
@@ -1010,6 +1048,10 @@ export class HumanoidAssetRegistry {
       if (!assetId || !animations.some(clip => clip.name === 'mounted')) clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
       const rawClips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
       for (const clip of gltf.animations) rawClips.set(clip.name, clip)
+      if (['ordinary22', 'roman54', 'varangian63'].includes(template.manifest.selectedSource?.rig ?? '')) {
+        if (!clips.has('hit')) clips.set('hit', REPLACEMENT_HIT_CLIP)
+        if (!rawClips.has('hit')) rawClips.set('hit', REPLACEMENT_HIT_CLIP)
+      }
       if (!assetId || !gltf.animations.some(clip => clip.name === 'mounted')) rawClips.set('mounted', createMountedIdleClip(rawClips.get('idle')!))
       rawClipsPerLevel.push([...rawClips.values()])
       for (const clip of template.bowClips?.[index] ?? []) clips.set(clip.name, clip)
@@ -1025,8 +1067,12 @@ export class HumanoidAssetRegistry {
     const rig = createHumanoidRigAdapter(primaryScene, animation)
     rig.swordGripFrame = template.manifest.swordGripFrames?.lod0
     if (template.manifest.selectedSource) {
-      rig.rangedGripFrame = rig.swordGripFrame
+      rig.rangedGripFrame = template.manifest.rangedGripFrames?.lod0 ?? rig.swordGripFrame
       rig.meleeTipFollowsVisual = true
+      const authoredAxeSocket = (primaryScene as THREE.Group).getObjectByName('socket_axe_2h_r')
+      if (authoredAxeSocket) rig.right.handSocket.userData.authoredAxeSocket = authoredAxeSocket
+      const authoredAxe1Socket = (primaryScene as THREE.Group).getObjectByName('socket_axe_1h_r')
+      if (authoredAxe1Socket) rig.right.handSocket.userData.authoredAxe1Socket = authoredAxe1Socket
     }
     if (template.manifest.handGripFrames?.left) {
       const leftGrip = readHandFrame(template.manifest)!

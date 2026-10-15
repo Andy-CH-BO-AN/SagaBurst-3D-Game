@@ -3,8 +3,12 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { prepareSeatSupport } from './SkinnedSeatContact'
 
 export interface SelectedHumanoidSource {
-  rig: 'mixamo66' | 'steppe37'
+  rig: 'mixamo66' | 'steppe37' | 'ordinary22' | 'roman54' | 'varangian63'
   uniformScale: number
+  /** Authored upper-thigh bearing landmarks in the original mesh-local space. */
+  seatBearing?: readonly (readonly number[])[]
+  /** Restrict support to body geometry rather than cape, hands or neck meshes. */
+  seatBearingMesh?: string
 }
 
 /** The selected Steppe's authored helper rule, evaluated only after mounted FK.
@@ -19,7 +23,7 @@ export class SelectedMountedSkirt {
   private readonly swing = new THREE.Quaternion()
   private readonly weighted = new THREE.Quaternion()
 
-  constructor(root: THREE.Object3D) {
+  constructor(root: THREE.Object3D, apronName = 'skirt_apron') {
     const get = (name: string) => {
       const node = root.getObjectByName(name)
       if (!node) throw new Error(`Selected Steppe missing ${name}`)
@@ -30,7 +34,7 @@ export class SelectedMountedSkirt {
       this.sides.push({ thigh, front, back, restDirection: new THREE.Vector3(0, 1, 0).applyQuaternion(thigh.quaternion), frontRest: front.quaternion.clone(), backRest: back.quaternion.clone() })
       this.nodes.push(front, back)
     }
-    this.apron = get('skirt_apron')
+    this.apron = get(apronName)
     this.apronRest = this.apron.quaternion.clone()
     this.nodes.push(this.apron)
   }
@@ -102,12 +106,26 @@ export function prepareSelectedHumanoidSource(gltf: GLTF, source: SelectedHumano
       parent.add(socket)
     }
   }
+  if (source.rig === 'ordinary22' || source.rig === 'roman54' || source.rig === 'varangian63') {
+    // These assets are normalized offline. This is an explicit source contract,
+    // not a claim that their original bind axes match Mixamo or the Steppe rig.
+    const expected = { ordinary22: 22, roman54: 54, varangian63: 63 }[source.rig]
+    const joints = new Set<THREE.Bone>()
+    scene.traverse(node => { if (node instanceof THREE.SkinnedMesh) for (const joint of node.skeleton.bones) joints.add(joint) })
+    if (joints.size !== expected) throw new Error(`Selected ${source.rig} expected ${expected} skin joints, got ${joints.size}`)
+    for (const name of ['hips', 'spine', 'chest', 'head', 'hand_l', 'hand_r', 'upper_leg_l', 'upper_leg_r', 'socket_hand_l', 'socket_hand_r', 'socket_back', 'socket_head', 'socket_pelvis', 'socket_foot_l', 'socket_foot_r', 'sole_l', 'sole_r']) {
+      if (!scene.getObjectByName(name)) throw new Error(`Selected ${source.rig} missing ${name}`)
+    }
+    if (source.rig === 'roman54' && !scene.getObjectByName('socket_axe_2h_r')) throw new Error('Selected roman54 missing authored dynamic axe grip')
+  }
   scene.scale.setScalar(source.uniformScale)
   // Inspected underside of the upper thighs in source mesh coordinates,
   // excluding the hanging skirt. These project independently onto each LOD.
-  const bearing = source.rig === 'mixamo66'
+  const bearing = source.seatBearing ?? (source.rig === 'mixamo66'
     ? [[-.06755692, .82565891, -.09472248], [.07574582, .82509485, -.09562403]]
-    : [[-.02979784, .92268130, -.11817514], [.01326805, .94021204, -.11296710]]
-  scene.traverse(node => { if (node instanceof THREE.SkinnedMesh) prepareSeatSupport(node, bearing) })
+    : source.rig === 'steppe37' ? [[-.02979784, .92268130, -.11817514], [.01326805, .94021204, -.11296710]] : undefined)
+  if (bearing) scene.traverse(node => {
+    if (node instanceof THREE.SkinnedMesh && (!source.seatBearingMesh || node.name === source.seatBearingMesh)) prepareSeatSupport(node, bearing)
+  })
   scene.updateMatrixWorld(true)
 }
