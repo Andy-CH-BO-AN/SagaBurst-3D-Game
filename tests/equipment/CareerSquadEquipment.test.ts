@@ -487,7 +487,7 @@ it.each(['roman', 'viking'] as const)('%s buys, equips, releases, allocates and 
   expect(h.read().personalSquad!.members[0].equipment).toMatchObject({
     melee: faction === 'roman' ? 'gladius_standard' : 'viking_axe_t2', ranged: null,
   })
-  for (const [id, slot, price] of [['spear_t4', 'melee', 1600], ['lance_t4', 'melee', 1600], ['bow_t5', 'ranged', 2500]] as const) {
+  for (const [id, slot, price] of [['spear_t4', 'melee', 1600], ['bow_t5', 'ranged', 2500]] as const) {
     expect(TOWN_PRODUCTS.find(product => product.id === id)?.price).toBe(price)
     const bulk = purchaseTownEquipment(h.read(), id, 2)
     expect(bulk).toMatchObject({ purchased: true, spentMerit: price * 2 })

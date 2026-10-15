@@ -407,8 +407,22 @@ describe('Battle setup and standalone reference UI', () => {
     expect(html).toContain('data-loadout-id="hunting_spear"')
     expect(html).toContain('data-loadout-id="steel_lance"')
     expect(html).toContain('data-loadout-id="heavy_lance"')
+    expect(html.match(/data-loadout-id="spear_t4"/g)).toHaveLength(1)
+    expect(html).not.toContain('data-loadout-id="lance_t4"')
 
     ui.destroy()
+  })
+
+  it('offers only the shared T4 polearm in Defense Campaign equipment', () => {
+    vi.stubGlobal('window', { location: { search: '?nolock' } })
+    const ui = new CampaignSetupUI()
+    try {
+      ui.mount(container, () => {}, () => {}, { defenderFaction: 'roman', stageId: 1 })
+      const html = String(Reflect.get(domRegistry.get('campaign-setup-container')!, 'innerHTML'))
+      expect(html.match(/value="spear_t4"/g)).toHaveLength(1)
+      expect(html).toContain('T4 長槍')
+      expect(html).not.toContain('value="lance_t4"')
+    } finally { ui.destroy(); vi.unstubAllGlobals() }
   })
 
   it('renders SSOT unit and combat data on the standalone home reference screen', () => {

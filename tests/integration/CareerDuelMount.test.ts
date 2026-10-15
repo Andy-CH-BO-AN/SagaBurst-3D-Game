@@ -145,7 +145,7 @@ describe('Career T5 Duel real mount lifecycle', () => {
     expect(h.commanderMount.riderNpc).toBeNull()
     expect(h.commanderMount.visualHold).toBe(true)
     expect(h.commanderMount.availableForPlayer).toBe(false)
-    expect(h.commander.meleeWeaponId).toBe('lance_t4')
+    expect(h.commander.meleeWeaponId).toBe('spear_t4')
     h.commander.dismountFromMount()
     expect(mount.riderNpc).toBeNull()
     expect(mount.availableForPlayer).toBe(false)

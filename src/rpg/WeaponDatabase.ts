@@ -34,6 +34,11 @@ export interface WeaponData {
 
 export const T4_RANGER_BOW_RANGED_ID = 'maki-ranger-bow-ranged' as const
 
+/** Retired cavalry ID remains readable; every new allocation uses the shared polearm. */
+export function canonicalWeaponId(id: string): string {
+  return id === 'lance_t4' ? 'spear_t4' : id
+}
+
 const T4_POLEARM: Omit<WeaponData, 'id' | 'name'> = {
   type: 'melee', tier: 4, combatKind: 'lance', animationKind: 'lance',
   damageMin: 75, damageMax: 75, speedOrCharge: .42, meleeCycleSeconds: .42,
@@ -42,8 +47,7 @@ const T4_POLEARM: Omit<WeaponData, 'id' | 'name'> = {
 }
 
 export const WEAPONS: Record<string, WeaponData> = {
-  spear_t4: { ...T4_POLEARM, id: 'spear_t4', name: 'T4 長矛 Spear' },
-  lance_t4: { ...T4_POLEARM, id: 'lance_t4', name: 'T4 騎槍 Lance' },
+  spear_t4: { ...T4_POLEARM, id: 'spear_t4', name: 'T4 長槍' },
   bow_t5: {
     id: 'bow_t5', name: 'T5 指揮官弓 Commander Bow', type: 'ranged', tier: 5,
     combatKind: 'bow', animationKind: 'bow', damageMin: 50, damageMax: 120,
@@ -316,6 +320,9 @@ export const WEAPONS: Record<string, WeaponData> = {
     description: '深色木桿、拋光長鐵頸與金色箍環的精銳軍團標槍。',
   },
 }
+
+// Compatibility lookup only: catalog/shop/training enumeration contains one item.
+Object.defineProperty(WEAPONS, 'lance_t4', { value: WEAPONS.spear_t4, enumerable: false })
 
 export function getTierColor(tier: WeaponTier): string {
   switch (tier) {

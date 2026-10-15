@@ -6,7 +6,7 @@ import { commanderGateDefenseSlots } from './CommanderTownRoster'
 import { townRoster, withTownCommandSquadRoster, townMilitaryEquipment, townActorHeroProfile, type TownActorSpec } from '../town/TownRules'
 import { townCommanderSpec } from '../town/TownCommanderIdentity'
 import { eagleTrainerSpec } from '../town/TownEagleTrainingGround'
-import { WEAPONS, T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
+import { canonicalWeaponId, WEAPONS, T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
 
@@ -119,7 +119,7 @@ export function parseTownEquipment(value: unknown): CareerTownEquipment | undefi
         const rawRef = entry[slot]
         if (rawRef === null) { refs[slot] = null; continue }
         if (!object(rawRef) || typeof rawRef.itemId !== 'string' || !['inventory', 'native'].includes(rawRef.source as string)) throw new Error('Invalid equipment reference')
-        const itemId = rawRef.itemId, item = WEAPONS[itemId] ?? ARMORS[itemId]
+        const itemId = canonicalWeaponId(rawRef.itemId), item = WEAPONS[itemId] ?? ARMORS[itemId]
         if (slot === 'mount' ? !(PLAYER_MOUNT_IDS as readonly string[]).includes(itemId) : !item || item.type !== slot) throw new Error('Invalid equipment slot')
         if (rawRef.source === 'native') {
           const source = native.get(rawRef.nativeId as string)

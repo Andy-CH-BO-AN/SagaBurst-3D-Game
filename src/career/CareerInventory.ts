@@ -2,7 +2,7 @@ import { allocatedTownEquipment, validateTownEquipment } from './CareerTownEquip
 import type { CareerProfile, CareerMountId } from './CareerProfile'
 import type { PersonalSquadMemberType } from './CareerPersonalSquad'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { canonicalWeaponId, WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 
@@ -13,7 +13,7 @@ export interface CareerInventory { version: 1; quantities: Record<string, number
 export interface PersonalEquipment { melee: string | null; ranged: string | null; shield: string | null; mount: PlayerMountId | null }
 export type PersonalEquipmentSlot = keyof PersonalEquipment
 export function canonicalInventoryId(id: string): string {
-  return ['horse-t1', 'horse-t2', 'horse-t3'].includes(id) ? 'horse' : id
+  return ['horse-t1', 'horse-t2', 'horse-t3'].includes(id) ? 'horse' : canonicalWeaponId(id)
 }
 export function isTradableCareerItem(id: string): boolean {
   return id !== 'maki-ranger-bow'
@@ -37,9 +37,15 @@ function personalEquipmentAtTier(type: PersonalSquadMemberType, faction: CareerP
 /** Legacy ownership is read only until the first transaction or load normalizes it. */
 export function careerItemTotals(profile: CareerProfile): Record<string, number> {
   if (profile.inventory) return profile.inventory.quantities
-  const ids = [...profile.ownedWeapons, ...profile.ownedArmors, ...profile.ownedMounts,
+  const ids = [...profile.ownedArmors, ...profile.ownedMounts,
     ...(profile.ownedHorseTiers?.length ? ['horse'] : [])].map(canonicalInventoryId).filter(isTradableCareerItem)
-  return Object.fromEntries([...new Set(ids)].map(id => [id, 1]))
+  const totals: Record<string, number> = Object.fromEntries([...new Set(ids)].map(id => [id, 1]))
+  for (const id of new Set(profile.ownedWeapons)) {
+    if (!isTradableCareerItem(id)) continue
+    const canonical = canonicalInventoryId(id)
+    totals[canonical] = (totals[canonical] ?? 0) + 1
+  }
+  return totals
 }
 export function careerItemTotal(profile: CareerProfile, id: string): number { return careerItemTotals(profile)[canonicalInventoryId(id)] ?? 0 }
 export function careerItemAllocated(profile: CareerProfile, rawId: string): number {
@@ -97,12 +103,16 @@ export function validPersonalEquipment(type: PersonalSquadMemberType, equipment:
 export function normalizeCareerInventory(profile: CareerProfile): void {
   validateTownEquipment(profile)
   const legacy = !profile.inventory
-  const totals = { ...careerItemTotals(profile) }
+  const totals: Record<string, number> = {}
   if (profile.inventory?.version !== undefined && profile.inventory.version !== 1) throw new Error('Invalid inventory version')
-  for (const [id, count] of Object.entries(totals)) {
+  for (const [id, count] of Object.entries(careerItemTotals(profile))) {
     if (!isTradableCareerItem(id) || !Number.isSafeInteger(count) || count < 0) throw new Error('Invalid inventory')
-    if (!count) delete totals[id]
+    const canonical = canonicalInventoryId(id)
+    const merged = (totals[canonical] ?? 0) + count
+    if (!Number.isSafeInteger(merged)) throw new Error('Invalid inventory quantity')
+    if (merged) totals[canonical] = merged
   }
+  if (profile.equipment?.melee) profile.equipment = { ...profile.equipment, melee: canonicalWeaponId(profile.equipment.melee) }
   if (profile.selectedMountId) profile.selectedMountId = canonicalInventoryId(profile.selectedMountId) as CareerMountId
   if (legacy) {
     const inferPlayerWeapon = profile.equipment === undefined
@@ -113,7 +123,8 @@ export function normalizeCareerInventory(profile: CareerProfile): void {
     }
     if (equipment.ranged) equipment.shield = null
     if (inferPlayerWeapon && !equipment.melee && !equipment.ranged) {
-      const fallback = [profile.starterWeaponId, ...profile.ownedWeapons].find(id => id && totals[id] && isTradableCareerItem(id))
+      const fallback = [profile.starterWeaponId, ...profile.ownedWeapons].map(id => id && canonicalInventoryId(id))
+        .find(id => id && totals[id] && isTradableCareerItem(id))
       if (fallback) equipment[WEAPONS[fallback].type === 'ranged' ? 'ranged' : 'melee'] = fallback
     }
     profile.equipment = equipment
@@ -126,6 +137,7 @@ export function normalizeCareerInventory(profile: CareerProfile): void {
       for (const id of Object.values(member.equipment)) if (id) totals[id] = (totals[id] ?? 0) + 1
     }
     if (member.type === 'ranger') member.equipment = { ...member.equipment, melee: null, ranged: null, shield: null }
+    if (typeof member.equipment.melee === 'string') member.equipment = { ...member.equipment, melee: canonicalWeaponId(member.equipment.melee) }
     if (!validPersonalEquipment(member.type, member.equipment)) throw new Error('Invalid member equipment')
   }
   profile.inventory = { version: 1, quantities: totals }

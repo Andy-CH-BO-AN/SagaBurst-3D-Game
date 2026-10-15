@@ -6,7 +6,6 @@ import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 
 export const HIGH_TIER_WEAPON_ASSETS = {
   spear_t4: 'models/weapons/high-tier/spear.glb',
-  lance_t4: 'models/weapons/high-tier/spear.glb',
   bow_t5: 'models/weapons/high-tier/bow.glb',
 } as const
 const templates = new Map<string, GLTF>()

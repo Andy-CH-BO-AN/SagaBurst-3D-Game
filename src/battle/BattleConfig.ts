@@ -109,7 +109,7 @@ export const PLAYER_MELEE_WEAPON_IDS: readonly PlayerMeleeWeaponId[] = [
 export const PLAYER_MELEE_SELECTION_IDS: readonly PlayerMeleeWeaponId[] = [
   'viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3',
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
-  'hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4', 'lance_t4',
+  'hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4',
   'paladin_sword_t4', 'paladin_mace_t4',
 ]
 export const PLAYER_RANGED_WEAPON_IDS: readonly PlayerRangedWeaponId[] = [
