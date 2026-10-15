@@ -12,6 +12,76 @@ import { NPC, AIType, Faction } from '../../src/world/NPC'
 
 // Town-specific perimeter geometry/routing; shared ramp physics remains owned by OutpostLayeredNavigation.
 describe('Town perimeter and mounted access layout', () => {
+  it.each(['roman', 'viking'] as const)('%s visible slabs match walk and projectile surfaces through every flight and landing', faction => {
+    // Real fortification meshes/obstacles, zero actors or TownWorld instances.
+    const material = new THREE.MeshBasicMaterial(), obstacles: ObstacleData[] = []
+    const city = createTownFortifications(faction, obstacles, { stone: material, wood: material, dark: material, snow: material })
+    onTestFinished(() => { city.root.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose() }); material.dispose() })
+    city.root.updateMatrixWorld(true)
+    const root = city.root.getObjectByName('town-ramparts')!
+    expect(root.children).toHaveLength(2) // Decks/rails and supports retain two static batches.
+    const ray = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0))
+    const check = (x: number, z: number, expected: number, label: string) => {
+      ray.ray.origin.set(x, expected + 2, z)
+      const hit = ray.intersectObject(root, true)[0]
+      expect(hit, label).toBeDefined()
+      expect(hit.point.y, label).toBeCloseTo(expected, 4)
+      const surfaces = obstacles.filter(o => o.walkSurface && getWalkRampHeight(o.walkSurface, x, z) !== null)
+      expect(surfaces.length, label).toBeGreaterThan(0)
+      for (const obstacle of surfaces) {
+        expect(getWalkRampHeight(obstacle.walkSurface!, x, z), label).toBeCloseTo(expected, 4)
+        expect(obstacle.projectileBoxes!.some(b => x >= b.min.x - 1e-6 && x <= b.max.x + 1e-6
+          && z >= b.min.z - 1e-6 && z <= b.max.z + 1e-6 && expected >= b.min.y && expected <= b.max.y + 1e-6), label).toBe(true)
+      }
+    }
+    for (const ramp of city.rampartLayout.ramps) {
+      const s = ramp.surface
+      // The slope/flat knee was absent from the old BoxGeometry, although physics had it.
+      for (const along of [s.length / 2, s.length - .1, s.length, s.length + s.landing / 4, s.length + s.landing * .9]) {
+        for (const lateral of [-s.halfWidth + .5, 0, s.halfWidth - .5]) {
+          const x = s.startX + s.dirX * along - s.dirZ * lateral, z = s.startZ + s.dirZ * along + s.dirX * lateral
+          check(x, z, getWalkRampHeight(s, x, z)!, `${faction} ${ramp.gateId} flight ${along}/${lateral}`)
+        }
+      }
+      for (const fraction of [.15, .45, .75]) for (const side of [-1, 1]) {
+        const along = s.length * fraction
+        const x = s.startX + s.dirX * along - s.dirZ * side * 2.15, z = s.startZ + s.dirZ * along + s.dirX * side * 2.15
+        const y = s.startY + (s.topY - s.startY) * fraction + .9
+        ray.ray.origin.set(x, y + 2, z)
+        expect(ray.intersectObject(root, true)[0]?.point.y, `${ramp.gateId} sloped rail ${fraction}/${side}`).toBeCloseTo(y, 4)
+      }
+      // Sweep the full turning corridor across both T junctions, including overlap edges.
+      for (let i = 0; i <= 40; i++) for (const lateral of [-1.5, 0, 1.5]) {
+        const p = ramp.landing.clone().lerp(ramp.connection, i / 40).addScaledVector(new THREE.Vector3(s.dirX, 0, s.dirZ), lateral)
+        check(p.x, p.z, ramp.landing.y, `${faction} ${ramp.gateId} turn ${i}/${lateral}`)
+      }
+    }
+    for (const corner of city.rampartLayout.corners) for (const dx of [-2.7, 0, 2.7]) for (const dz of [-2.7, 0, 2.7]) {
+      check(corner.x + dx, corner.z + dz, corner.y, `${faction} corner ${corner.toArray()} ${dx}/${dz}`)
+    }
+    for (const gate of TOWN_GATES) {
+      const deck = city.rampartLayout.decks.find(d => d.gateId === gate.id && !d.id.includes('corner') && !d.id.includes('landing'))!
+      const x = Math.abs(deck.surface.dirX) > .5 ? gate.x : deck.surface.startX
+      const z = Math.abs(deck.surface.dirZ) > .5 ? gate.z : deck.surface.startZ
+      check(x, z, townRampartHeight(city.rampartLayout, x, z)!, `${faction} ${gate.id} gatehouse`)
+    }
+  })
+
+  it('shares heights across wall segment seams and the entire four corner turning areas', () => {
+    const layout = getTownRampartLayout()
+    for (const deck of layout.decks.filter(d => !d.id.startsWith('landing:'))) {
+      const s = deck.surface
+      for (const along of [.001, s.length / 2, s.length - .001]) {
+        const x = s.startX + s.dirX * along, z = s.startZ + s.dirZ * along
+        const y = getWalkRampHeight(s, x, z)!
+        for (const other of layout.decks) {
+          const shared = getWalkRampHeight(other.surface, x, z)
+          if (shared !== null) expect(shared, `${deck.id} overlaps ${other.id}`).toBeCloseTo(y, 6)
+        }
+      }
+    }
+  })
+
   it('connects four gatehouses and four corners without losing the 6.4 metre surface', () => {
     const layout = getTownRampartLayout()
     for (const gate of TOWN_GATES) {
@@ -58,6 +128,11 @@ describe('Town perimeter and mounted access layout', () => {
     expect(roster.filter(a => a.role === 'civilian')).toHaveLength(20)
     expect(roster.filter(a => a.duty === 'service' || a.duty === 'patrol' || a.duty === 'eagle_garrison').every(a => !a.garrison)).toBe(true)
     const stations = roster.flatMap(a => a.garrison?.kind === 'rampart' ? [a.garrison] : [])
+    // Subdividing the West landing used to shift these existing deployment slots.
+    for (const [id, z] of [['ranged_infantry-11', -34.59761904761905], ['ranged_infantry-19', -39.50714285714285]] as const) {
+      expect(roster.find(a => a.id === id)!.garrison!.x).toBeCloseTo(-107.6, 8)
+      expect(roster.find(a => a.id === id)!.garrison!.z).toBeCloseTo(z, 8)
+    }
     for (const p of stations) expect(townRampartHeight(layout, p.x, p.z)).toBeCloseTo(p.y)
     for (let i = 0; i < stations.length; i++) for (let j = i + 1; j < stations.length; j++) expect(Math.hypot(stations[i].x - stations[j].x, stations[i].z - stations[j].z)).toBeGreaterThan(1)
   })

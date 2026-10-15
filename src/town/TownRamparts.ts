@@ -6,8 +6,13 @@ import { TOWN_CITY, TOWN_GATES, townGatePoint, type TownGateId } from './TownLay
 export const TOWN_RAMPART = { width: 6.4, inward: 4.4, rampWidth: 4, slope: .4, landing: 4 } as const
 export interface TownWalkway { id: string; gateId: TownGateId; surface: WalkRampSurface; box: THREE.Box3 }
 export interface TownRamp { gateId: TownGateId; surface: WalkRampSurface; box: THREE.Box3; entrance: THREE.Vector3; landing: THREE.Vector3; connection: THREE.Vector3 }
-export interface TownRampartLayout { decks: TownWalkway[]; ramps: TownRamp[]; corners: THREE.Vector3[]; lengths: number[]; perimeter: number }
+export interface TownRampartLayout {
+  decks: TownWalkway[]; ramps: TownRamp[]; corners: THREE.Vector3[]; lengths: number[]; perimeter: number
+  /** Original wall spans keep garrison station sampling independent of mesh subdivision. */
+  wallSpans: Pick<TownWalkway, 'gateId' | 'surface'>[]
+}
 const C = TOWN_CITY, W = TOWN_RAMPART
+const RAMP_ANCHORS: Record<TownGateId, number> = { north: -80, south: 60, east: 70, west: -35 }
 export function surfaceBox(s: WalkRampSurface, thickness = .35): THREE.Box3 {
   const endX = s.startX + s.dirX * (s.length + s.landing), endZ = s.startZ + s.dirZ * (s.length + s.landing)
   return new THREE.Box3(new THREE.Vector3(Math.min(s.startX, endX) - Math.abs(s.dirZ) * s.halfWidth, Math.min(s.startY, s.topY) - thickness, Math.min(s.startZ, endZ) - Math.abs(s.dirX) * s.halfWidth),
@@ -23,18 +28,41 @@ export function getTownRampartLayout(): TownRampartLayout {
   const corners = [[C.minX, C.minZ], [C.maxX, C.minZ], [C.maxX, C.maxZ], [C.minX, C.maxZ]].map(([x, z]) =>
     new THREE.Vector3(x + (x === C.minX ? W.inward : -W.inward), crown(x, z), z + (z === C.minZ ? W.inward : -W.inward)))
   const decks: TownWalkway[] = [], lengths: number[] = []
+  const wallSpans: TownRampartLayout['wallSpans'] = []
   const ids: TownGateId[] = ['north', 'east', 'south', 'west']
   for (let side = 0; side < 4; side++) {
     const a = corners[side], b = corners[(side + 1) % 4], gateId = ids[side]
     const length = Math.hypot(b.x - a.x, b.z - a.z); lengths.push(length)
     const count = Math.ceil(length / 5)
-    const points = Array.from({ length: count + 1 }, (_, i) => {
+    const samples = Array.from({ length: count + 1 }, (_, i) => {
       const p = a.clone().lerp(b, i / count)
       const wallX = side === 1 ? C.maxX : side === 3 ? C.minX : C.minX + (C.maxX - C.minX) * (side === 0 ? i / count : 1 - i / count)
       const wallZ = side === 0 ? C.minZ : side === 2 ? C.maxZ : C.minZ + (C.maxZ - C.minZ) * (side === 1 ? i / count : 1 - i / count)
       p.y = crown(wallX, wallZ); return p
     })
-    for (let i = 0; i < count; i++) {
+    for (let i = 0; i < count; i++) wallSpans.push({ gateId, surface: surface(samples[i], samples[i + 1], W.width) })
+    const sampledHeight = (distance: number) => {
+      const index = Math.min(count - 1, Math.floor(distance / length * count))
+      return THREE.MathUtils.lerp(samples[index].y, samples[index + 1].y, distance / length * count - index)
+    }
+    const gate = TOWN_GATES.find(g => g.id === gateId)!
+    const connection = townGatePoint(gate, RAMP_ANCHORS[gateId], W.inward)
+    const connectionDistance = Math.hypot(connection.x - a.x, connection.z - a.z)
+    const connectionY = sampledHeight(connectionDistance)
+    // A transverse flat landing needs a level opening across its full width.
+    // The square corner pads likewise share their complete overlap with both walls.
+    const plateaus = [
+      { from: 0, to: W.width / 2, y: a.y },
+      { from: connectionDistance - W.rampWidth / 2, to: connectionDistance + W.rampWidth / 2, y: connectionY },
+      { from: length - W.width / 2, to: length, y: b.y },
+    ]
+    const distances = [...new Set([...samples.map((_, i) => length * i / count), ...plateaus.flatMap(p => [p.from, p.to])])].sort((a, b) => a - b)
+    const points = distances.map(distance => {
+      const p = a.clone().lerp(b, distance / length)
+      p.y = plateaus.find(p => distance >= p.from && distance <= p.to)?.y ?? sampledHeight(distance)
+      return p
+    })
+    for (let i = 0; i < points.length - 1; i++) {
       const s = surface(points[i], points[i + 1], W.width)
       decks.push({ id: `${gateId}:${i}`, gateId, surface: s, box: surfaceBox(s) })
     }
@@ -43,13 +71,12 @@ export function getTownRampartLayout(): TownRampartLayout {
     const s = surface(p, p.clone().add(new THREE.Vector3(0, 0, W.width)), W.width)
     decks.push({ id: `corner:${gateId}`, gateId, surface: s, box: surfaceBox(s) })
   }
-  const layout: TownRampartLayout = { decks, ramps: [], corners, lengths, perimeter: lengths.reduce((a, b) => a + b, 0) }
+  const layout: TownRampartLayout = { decks, wallSpans, ramps: [], corners, lengths, perimeter: lengths.reduce((a, b) => a + b, 0) }
   // Each foot/flight lies parallel to its wall, outside gates, housing and eagle approaches.
-  const anchors: Record<TownGateId, number> = { north: -80, south: 60, east: 70, west: -35 }
   for (const gate of TOWN_GATES) {
-    const connection = townGatePoint(gate, anchors[gate.id], W.inward)
+    const connection = townGatePoint(gate, RAMP_ANCHORS[gate.id], W.inward)
     const deckY = townRampartHeight(layout, connection.x, connection.z)!
-    const top = townGatePoint(gate, anchors[gate.id], 10)
+    const top = townGatePoint(gate, RAMP_ANCHORS[gate.id], 10)
     const dirX = Math.cos(gate.yaw), dirZ = -Math.sin(gate.yaw)
     let length = 28, startX = 0, startZ = 0, startY = 0
     for (let i = 0; i < 40; i++) {
@@ -59,7 +86,7 @@ export function getTownRampartLayout(): TownRampartLayout {
     }
     startX = top.x - dirX * (length + W.landing / 2); startZ = top.z - dirZ * (length + W.landing / 2)
     startY = getTerrainHeight(startX, startZ) + .03
-    const s: WalkRampSurface = { startX, startZ, startY, topY: deckY, dirX, dirZ, halfWidth: 2, length, landing: W.landing, mounted: true }
+    const s: WalkRampSurface = { startX, startZ, startY, topY: deckY, dirX, dirZ, halfWidth: W.rampWidth / 2, length, landing: W.landing, mounted: true }
     const landing = new THREE.Vector3(top.x, deckY, top.z), end = new THREE.Vector3(connection.x, deckY, connection.z)
     const link = surface(landing, end, W.rampWidth)
     decks.push({ id: `landing:${gate.id}`, gateId: gate.id, surface: link, box: surfaceBox(link) })
@@ -74,12 +101,23 @@ export function townRampartHeight(layout: TownRampartLayout, x: number, z: numbe
 }
 /** Exact sloped slab shared by visuals and projectile volumes, with no solid wall below it. */
 function slabGeometry(s: WalkRampSurface, thickness = .35): THREE.BufferGeometry {
+  // BoxGeometry has vertices only at its ends. Split at the slope/landing knee
+  // so its triangles follow the same piecewise surface as getWalkRampHeight.
+  if (s.landing > 0) {
+    const flight = slabGeometry({ ...s, landing: 0 }, thickness)
+    const landing = slabGeometry({ ...s, startX: s.startX + s.dirX * s.length, startZ: s.startZ + s.dirZ * s.length,
+      startY: s.topY, length: s.landing, landing: 0 }, thickness)
+    const geometry = mergeGeometries([flight, landing])!
+    flight.dispose(); landing.dispose(); return geometry
+  }
   const g = new THREE.BoxGeometry(s.halfWidth * 2, thickness, s.length + s.landing)
   const p = g.attributes.position
   for (let i = 0; i < p.count; i++) {
     const along = p.getZ(i) + (s.length + s.landing) / 2, lateral = p.getX(i)
     const y = s.startY + (s.topY - s.startY) * Math.min(1, along / s.length)
-    p.setXYZ(i, s.startX + s.dirX * along - s.dirZ * lateral, y + p.getY(i) - thickness / 2, s.startZ + s.dirZ * along + s.dirX * lateral)
+    // Preserve BoxGeometry's handedness: reflecting its lateral axis turns the
+    // top faces inward, so back-face culling exposes the slab's underside.
+    p.setXYZ(i, s.startX + s.dirX * along + s.dirZ * lateral, y + p.getY(i) - thickness / 2, s.startZ + s.dirZ * along - s.dirX * lateral)
   }
   g.computeVertexNormals(); return g
 }
@@ -94,15 +132,25 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
   const rail = (s: WalkRampSurface, lateral: number, from: number, to: number, low: number, high: number, halfThickness = .16) => {
     const a = new THREE.Vector3(s.startX + s.dirX * from - s.dirZ * lateral, s.startY + (s.topY - s.startY) * Math.min(1, from / s.length), s.startZ + s.dirZ * from + s.dirX * lateral)
     const b = new THREE.Vector3(s.startX + s.dirX * to - s.dirZ * lateral, s.startY + (s.topY - s.startY) * Math.min(1, to / s.length), s.startZ + s.dirZ * to + s.dirX * lateral)
-    const box = new THREE.Box3().setFromPoints([a, b]); box.min.y += low; box.max.y += high
-    box.expandByVector(new THREE.Vector3(Math.abs(s.dirZ) * halfThickness, 0, Math.abs(s.dirX) * halfThickness)); addBox(box)
+    // Keep the rail sloped, rather than a staircase of horizontal AABBs.
+    a.y += high; b.y += high
+    parts.push(slabGeometry(surface(a, b, halfThickness * 2), high - low))
+    // A continuous visual rail still needs short collision slices: its full AABB
+    // would create an invisible wall below the upper end of a sloped handrail.
+    const count = Math.max(1, Math.ceil(Math.abs(b.y - a.y) / .16))
+    for (let i = 0; i < count; i++) {
+      const box = surfaceBox(surface(a.clone().lerp(b, i / count), a.clone().lerp(b, (i + 1) / count), halfThickness * 2), high - low)
+      obstacles.push({ box, isBarricade: false, navigationPassable: true })
+    }
   }
   for (const item of [...layout.decks, ...layout.ramps.map(r => ({ ...r, id: `ramp:${r.gateId}` }))]) {
     const s = item.surface; parts.push(slabGeometry(s))
     // Short physical slices precisely approximate the sloped timber/stone, never its empty undercroft.
-    const boxes: THREE.Box3[] = [], count = Math.ceil((s.length + s.landing) / .4)
-    for (let i = 0; i < count; i++) {
-      const from = (s.length + s.landing) * i / count, to = (s.length + s.landing) * (i + 1) / count
+    const boxes: THREE.Box3[] = [], count = Math.ceil(s.length / .4)
+    const cuts = Array.from({ length: count + 1 }, (_, i) => s.length * i / count)
+    if (s.landing > 0) cuts.push(s.length + s.landing)
+    for (let i = 0; i < cuts.length - 1; i++) {
+      const from = cuts[i], to = cuts[i + 1]
       const a = new THREE.Vector3(s.startX + s.dirX * from, s.startY + (s.topY - s.startY) * Math.min(1, from / s.length), s.startZ + s.dirZ * from)
       const b = new THREE.Vector3(s.startX + s.dirX * to, s.startY + (s.topY - s.startY) * Math.min(1, to / s.length), s.startZ + s.dirZ * to)
       boxes.push(surfaceBox(surface(a, b, s.halfWidth * 2)))
@@ -124,7 +172,7 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       continue
     }
     if (item.id.startsWith('ramp:')) {
-      for (let along = 0; along < s.length; along += 1) for (const side of [-1, 1]) rail(s, side * 2.15, along, Math.min(s.length, along + 1), 0, .9)
+      for (const side of [-1, 1]) rail(s, side * 2.15, 0, s.length, 0, .9)
       rail(s, -2.15, s.length, s.length + s.landing, 0, .9)
       const endX = s.startX + s.dirX * (s.length + s.landing), endZ = s.startZ + s.dirZ * (s.length + s.landing)
       addBox(new THREE.Box3(new THREE.Vector3(endX - Math.abs(s.dirZ) * 2.3 - Math.abs(s.dirX) * .16, s.topY, endZ - Math.abs(s.dirX) * 2.3 - Math.abs(s.dirZ) * .16),
@@ -132,14 +180,21 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       for (let along = 4; along < s.length; along += 6) for (const side of [-1, 1]) {
         const x = s.startX + s.dirX * along - s.dirZ * side * 1.85, z = s.startZ + s.dirZ * along + s.dirX * side * 1.85
         const top = getWalkRampHeight(s, x, z)! - .35
-        if (top > getTerrainHeight(x, z)) addBox(new THREE.Box3(new THREE.Vector3(x - .15, getTerrainHeight(x, z) - .1, z - .15), new THREE.Vector3(x + .15, top, z + .15)), true, false)
+        if (top > getTerrainHeight(x, z)) {
+          const box = new THREE.Box3(new THREE.Vector3(x - .15, getTerrainHeight(x, z) - .1, z - .15), new THREE.Vector3(x + .15, top, z + .15))
+          addBox(box, true, false)
+          const geometry = supports[supports.length - 1], positions = geometry.attributes.position
+          for (let i = 0; i < positions.count; i++) if (positions.getY(i) > box.min.y + .01) {
+            positions.setY(i, getWalkRampHeight(s, positions.getX(i), positions.getZ(i))! - .35)
+          }
+          geometry.computeVertexNormals(); geometry.computeBoundingBox(); box.copy(geometry.boundingBox!)
+        }
       }
     } else {
       // Join the inset deck edge to the existing wall crown without a visible slit.
       rail(s, -3.5, 0, s.length, -1.1, 0, .4)
       // Clockwise ring: exterior on the right; crenels alternate every 2.4m.
       rail(s, -3.04, 0, s.length, 0, .45)
-      for (let along = .85; along < s.length; along += 2.4) rail(s, -3.04, along, Math.min(along + 1, s.length), .45, 1.3)
       // Leave the four ramp connections open in the inner safety rail.
       const ramp = layout.ramps.find(r => r.gateId === item.gateId)!
       const mid = new THREE.Vector3(s.startX + s.dirX * s.length / 2, 0, s.startZ + s.dirZ * s.length / 2)
@@ -147,7 +202,10 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       const startCorner = layout.corners[sideIndex], endCorner = layout.corners[(sideIndex + 1) % 4]
       const railFrom = Math.max(0, 4.5 - Math.hypot(s.startX - startCorner.x, s.startZ - startCorner.z))
       const railTo = Math.min(s.length, Math.hypot(s.startX - endCorner.x, s.startZ - endCorner.z) - 4.5)
-      if (railTo > railFrom && Math.hypot(mid.x - ramp.connection.x, mid.z - ramp.connection.z) > s.length / 2 + 2.3) rail(s, 3.04, railFrom, railTo, 0, .9)
+      const connectionAlong = (ramp.connection.x - s.startX) * s.dirX + (ramp.connection.z - s.startZ) * s.dirZ
+      const openingFrom = connectionAlong - W.rampWidth / 2 - .16, openingTo = connectionAlong + W.rampWidth / 2 + .16
+      if (Math.min(railTo, openingFrom) > railFrom) rail(s, 3.04, railFrom, Math.min(railTo, openingFrom), 0, .9)
+      if (railTo > Math.max(railFrom, openingTo)) rail(s, 3.04, Math.max(railFrom, openingTo), railTo, 0, .9)
       // Sparse supports stop outside the four 14m gate passages.
       const gate = TOWN_GATES.find(g => g.id === item.gateId)!
       if (Number(item.id.split(':')[1]) % 3 === 0 && Math.hypot(mid.x - gate.x, mid.z - gate.z) > 12) {
@@ -155,6 +213,15 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
         addBox(new THREE.Box3(new THREE.Vector3(x - .2, getTerrainHeight(x, z) - .2, z - .2), new THREE.Vector3(x + .2, (s.startY + s.topY) / 2 - .35, z + .2)), true, false)
       }
     }
+  }
+  // Subdivision at landings must not move the original crenels into firing slots.
+  for (const { surface: s } of layout.wallSpans) for (let along = .85; along < s.length; along += 2.4) {
+    const to = Math.min(along + 1, s.length)
+    const a = new THREE.Vector3(s.startX + s.dirX * along, 0, s.startZ + s.dirZ * along)
+    const b = new THREE.Vector3(s.startX + s.dirX * to, 0, s.startZ + s.dirZ * to)
+    a.y = townRampartHeight(layout, a.x, a.z)!; b.y = townRampartHeight(layout, b.x, b.z)!
+    const span = surface(a, b, W.width)
+    rail(span, -3.04, 0, span.length, .45, 1.3)
   }
   for (const [geometries, mat] of [[parts, material], [supports, supportMaterial]] as const) {
     const geometry = mergeGeometries(geometries); geometries.forEach(g => g.dispose())
