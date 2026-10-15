@@ -18,19 +18,23 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 import { townProfileCheckpoint } from '../helpers/townProfileCheckpoint'
 import * as commandCheckpoint from '../../src/career/CareerCommandActorCheckpoint'
 import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
+import { SquadRefitSafety } from '../../src/career/SquadRefit'
+import { civilianPointLegal } from '../../src/town/TownCivilianLife'
+import type { TacticalOrder } from '../../src/battle/TacticalOrder'
 
 // Equipment meshes are a render boundary; these caller tests do not parse Paladin GLBs.
 vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
 
 /** 0 real NPC/Mount/TownWorld. Recording boundary verifies ownership and persistence, not movement. */
-function recordingResident(id = 'civilian-0', role: 'civilian' | 'merchant' = 'civilian') {
-  const spec: TownActorSpec = { ...townRoster().find(spec => spec.role === role)!, id, x: 0, z: 0 }
-  const group = new THREE.Group(); group.position.y = getTerrainHeight(0, 0)
+function recordingResident(id = 'civilian-0', role: 'civilian' | 'merchant' = 'civilian', home?: TownActorSpec) {
+  const spec: TownActorSpec = home ?? { ...townRoster().find(spec => spec.role === role)!, id, x: 0, z: 0 }
+  const group = new THREE.Group(); group.position.set(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
   let formation: NPC['combatFormationCheckpoint']
   const actor = { group, combatPosition: group.position, combatantId: id, townCategory: 'civilian',
     dead: false, hp: 50, maxHp: 50, hostileToPlayer: false, faction: Faction.TOWN,
     combatOwnership: undefined as NPC['combatOwnership'], squadId: undefined as NPC['squadId'],
-    isMounted: false, isFalling: false, mount: null, combatAmmo: 0,
+    isMounted: false, isFalling: false, mount: null, combatAmmo: 0, combatAmmoCapacity: 0,
+    inCombat: false, hasLiveCombatTarget: false,
     shield: { shieldImpactRemaining: 0, shieldImpactMax: 0 }, tacticalOrder: 'attack' as NPC['tacticalOrder'],
     missionMovement: false, formationCommandId: null as number | null,
     get combatFormationCheckpoint() { return formation },
@@ -45,6 +49,7 @@ function recordingResident(id = 'civilian-0', role: 'civilian' | 'merchant' = 'c
     }),
     setTacticalOrder: vi.fn((order: NPC['tacticalOrder']) => { actor.tacticalOrder = order; formation = undefined; actor.formationCommandId = null }),
     restoreCombatAmmo: vi.fn(), restoreCombatHealth: vi.fn((hp: number) => { if (!actor.dead) { actor.hp = hp; actor.dead = hp <= 0 } }),
+    refitCombat: vi.fn(() => { actor.dead = false; actor.hp = actor.maxHp; actor.isFalling = false }),
   }
   return { spec, npc: actor as unknown as NPC, actor }
 }
@@ -436,4 +441,247 @@ it('migrates legacy daily homes only after saving, preserves deaths and player c
   reloaded.members['civilian-0'].position!.x = 1.5
   f.profile.civilianCommandSquad = reloaded
   f.controller.restore(); expect(rows[0].npc.combatPosition.x).toBe(1.5)
+})
+
+
+interface CivilianRefitTown {
+  canRefitCivilians(actors: readonly NPC[], orders: readonly TacticalOrder[]): boolean
+  openSquadRefitPanel(message?: string): void
+}
+/** Full roster data, zero real NPC/Mount/TownWorld unless a single lifecycle actor is supplied. */
+function refitFixture(lifecycle?: { spec: TownActorSpec; npc: NPC }, refitSceneKey = 'town-home') {
+  const homes = townRoster().filter(spec => spec.role === 'civilian' || spec.role === 'merchant')
+  const rows = homes.map(spec => recordingResident(spec.id, spec.role === 'merchant' ? 'merchant' : 'civilian', spec))
+  const residents = rows.map(row => lifecycle?.spec.id === row.spec.id ? lifecycle : row)
+  const profile = createCareerProfile('roman'); profile.rank = 'commander'; profile.totalMerit = 20000
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  // The helper creates a TownScene prototype; expose only the two additional caller methods.
+  const base = townProfileCheckpoint(profile, store) as ReturnType<typeof townProfileCheckpoint> & CivilianRefitTown
+  const town = Object.assign(base, {
+    residents, restoringAerialState: false, commanderReturnPending: false,
+    defense: { active: undefined as CareerProfile['activeMission'], servicesLocked: false },
+    event: { hostile: false }, shots: [], squadRefitSafety: new SquadRefitSafety(),
+  })
+  Object.assign(town.player, { swinging: false, isAiming: false, combatAnimationAction: 'idle' })
+  const controller = new CivilianCommandSquadController(residents, () => town.player as Player,
+    () => town.profile, next => town.commit(next, { civilianCommandStaged: true }), { sceneKey: 'town:roman', townFaction: 'roman', refitSceneKey,
+      canRefit: (actors, orders) => town.canRefitCivilians(actors, orders) })
+  Object.assign(town, { civilianCommand: controller })
+  expect(controller.restore()).toBe(true)
+  return { rows, residents, controller, town, storage, store }
+}
+
+describe('peaceful home civilian squad refit', () => {
+  it.each([8, 21])('restores %i casualties in the same 21 residents only after saving and reloads the same roster', casualties => {
+    const f = refitFixture(), ids = f.residents.map(r => r.npc.combatantId)
+    for (const r of f.rows.slice(0, casualties)) { r.actor.dead = true; r.actor.hp = 0; r.actor.group.position.set(-900, -50, -900) }
+    expect(f.controller.refitSquad).toEqual({ alive: 21 - casualties, total: 21 })
+    const writes = vi.spyOn(f.store, 'save')
+    onTestFinished(() => writes.mockRestore())
+    expect(f.controller.refit()).toBe(true)
+    expect(writes).toHaveBeenCalledTimes(1)
+    expect(f.controller.refitSquad).toEqual({ alive: 21, total: 21 })
+    expect(new Set(f.controller.actors)).toEqual(new Set(f.residents.map(r => r.npc)))
+    expect(f.residents.map(r => r.npc.combatantId)).toEqual(ids)
+    for (const row of f.rows) {
+      expect(row.npc.hp, row.spec.id).toBe(50)
+      expect(writes.mock.invocationCallOrder[0]).toBeLessThan(row.actor.refitCombat.mock.invocationCallOrder[0])
+      if (f.rows.indexOf(row) < casualties) {
+        expect(row.npc.combatPosition).toMatchObject({ x: row.spec.x, z: row.spec.z })
+        if (row.spec.role === 'civilian') expect(civilianPointLegal(row.npc.combatPosition), row.spec.id).toBe(true)
+      }
+    }
+    const reloaded = refitFixture(); reloaded.town.profile = f.store.load()!
+    reloaded.controller.restore()
+    expect(reloaded.controller.refitSquad).toEqual({ alive: 21, total: 21 })
+    expect(reloaded.controller.actors.map(npc => npc.combatantId)).toEqual(f.controller.actors.map(npc => npc.combatantId))
+    expect(reloaded.controller.checkpoint()).toEqual(f.controller.checkpoint())
+  })
+
+  it.each(['attack', 'charge'] as const)('recovers an entirely dead commanded %s squad into safe Defend without trapping it behind an obsolete order', order => {
+    const f = refitFixture(); f.controller.issue(order)
+    for (const row of f.rows) { row.actor.dead = true; row.actor.hp = 0 }
+    expect(f.controller.refit()).toBe(true)
+    expect(f.controller.refitSquad).toEqual({ alive: 21, total: 21 })
+    for (const row of f.rows) {
+      expect(f.controller.owner(row.npc)).toBe('player')
+      expect(row.npc.tacticalOrder).toBe('defend')
+    }
+  })
+
+  it('retains ten living Follow positions, a dead Follow owner and a live Formation through refit and storage', () => {
+    const f = refitFixture()
+    expect(f.controller.issue('follow')).toBe(true)
+    f.rows.slice(0, 10).forEach((r, i) => r.actor.group.position.set(40 + i, 1, 18))
+    const dead = f.rows[10]; dead.actor.dead = true; dead.actor.hp = 0
+    const formation = f.rows[11]
+    formation.npc.assignFormationTarget(77, new THREE.Vector3(80, 0, 22), new THREE.Vector3(0, 0, 1))
+    const positions = f.rows.slice(0, 10).map(r => r.npc.combatPosition.clone())
+    expect(f.controller.refit()).toBe(true)
+    f.rows.slice(0, 10).forEach((r, i) => {
+      expect(r.npc.combatPosition).toEqual(positions[i]); expect(r.npc.tacticalOrder).toBe('follow')
+    })
+    expect(dead.npc.dead).toBe(false); expect(dead.npc.tacticalOrder).toBe('follow')
+    expect(f.controller.owner(dead.npc)).toBe('player'); expect(dead.npc.combatOwnership).toBe('player-civilian')
+    expect(formation.npc.formationCommandId).toBe(77)
+    const reloaded = refitFixture(); reloaded.town.profile = f.store.load()!; reloaded.controller.restore()
+    expect(reloaded.controller.owner(reloaded.rows[10].npc)).toBe('player')
+    expect(reloaded.rows[10].npc.tacticalOrder).toBe('follow')
+    expect(reloaded.rows[11].npc.formationCommandId).toBe(77)
+  })
+
+  it('rebuilds a dead returning resident home destination and keeps living returns navigable', () => {
+    const f = refitFixture(); f.controller.issue('follow'); f.controller.issue('dismiss')
+    const dead = f.rows[0]; dead.actor.dead = true; dead.actor.hp = 0; dead.npc.setTacticalOrder('formation')
+    expect(f.controller.refit()).toBe(true)
+    expect(f.controller.owner(dead.npc)).toBe('returning')
+    expect(dead.npc.combatFormationCheckpoint).toMatchObject({ commandId: CIVILIAN_COMMAND_RETURN_ID,
+      position: { x: dead.spec.x, z: dead.spec.z }, reached: false })
+    expect(parseCivilianCommandSquad(JSON.parse(JSON.stringify(f.store.load()!.civilianCommandSquad)))).toBeDefined()
+    expect(f.controller.owner(f.rows[1].npc)).toBe('returning')
+  })
+
+  it('leaves all runtime, commands, ownership, merchant service and storage untouched on a failed Town commit, then retries', () => {
+    const f = refitFixture(); f.controller.issue('follow')
+    f.rows[0].actor.dead = true; f.rows[0].actor.hp = 0; f.rows[1].actor.hp = 17
+    const before = f.controller.checkpoint(), saved = f.store.load(), factions = f.rows.map(r => r.npc.faction)
+    f.storage.failWrites = true
+    expect(f.controller.refit()).toBe(false)
+    expect(f.controller.checkpoint()).toEqual(before)
+    expect(f.store.load()).toEqual(saved)
+    expect(f.rows.map(r => r.npc.faction)).toEqual(factions)
+    for (const row of f.rows) expect(row.actor.refitCombat).not.toHaveBeenCalled()
+    expect(f.controller.owner(f.rows[20].npc)).toBe('player')
+    f.storage.failWrites = false
+    expect(f.controller.refit()).toBe(true); expect(f.rows[0].npc.dead).toBe(false)
+  })
+
+  it.each(['recruit', 'soldier', 'veteran', 'captain'] as const)('rejects %s despite Commander-level merit', rank => {
+    const f = refitFixture(); f.town.profile.rank = rank; f.town.profile.totalMerit = 20000
+    expect(f.controller.canRefit()).toBe(false); expect(f.controller.refit()).toBe(false)
+  })
+  it.each(['enemy scene', 'faction mismatch', 'foreign actor', 'foreign claim', 'hostile', 'outpost mission', 'formal mission', 'defense active', 'assault active', 'player dead', 'not ready'] as const)('rejects %s before changing casualties', reason => {
+    const f = refitFixture(undefined, reason === 'enemy scene' ? 'town-enemy:roman' : 'town-home')
+    f.rows[0].actor.dead = true; f.rows[0].actor.hp = 0
+    if (reason === 'faction mismatch') f.town.profile.faction = 'viking'
+    if (reason === 'foreign actor') f.rows[1].actor.faction = Faction.ENEMY
+    if (reason === 'foreign claim') f.rows[1].actor.combatOwnership = 'mission-official'
+    if (reason === 'hostile') f.town.event.hostile = true
+    if (reason === 'outpost mission') f.town.profile.activeOutpostMission = { id: 'outpost' } as CareerProfile['activeOutpostMission']
+    if (reason === 'formal mission') f.town.profile.activeMission = { id: 'formal', kind: 'duel' } as CareerProfile['activeMission']
+    if (reason === 'defense active' || reason === 'assault active') {
+      const mission = createTownDefenseMission([], ['civilian-0'], 'refit-defense')
+      if (reason === 'assault active') mission.kind = 'enemy-town-assault'
+      f.town.defense.active = mission
+    }
+    if (reason === 'player dead') Object.assign(f.town.player, { dead: true })
+    if (reason === 'not ready') Object.assign(f.town, { residentSpawnBatch: { ready: false } })
+    expect(f.controller.refit()).toBe(false)
+    expect(f.rows[0].npc.dead).toBe(true)
+  })
+  it('does not reset the Town Defense civilian death census even after combat contact ends', () => {
+    const f = refitFixture()
+    f.town.profile.activeMission = createTownDefenseMission([], f.rows.filter(r => r.spec.role === 'civilian').map(r => r.spec.id), 'census')
+    for (const row of f.rows.slice(0, 10)) { row.actor.dead = true; row.actor.hp = 0 }
+    const defense: TownDefenseController = Object.assign(Object.create(TownDefenseController.prototype), { residents: f.residents })
+    expect(defense.civilianDeaths).toBe(10)
+    expect(f.controller.refit()).toBe(false)
+    expect(defense.civilianDeaths).toBe(10)
+  })
+  it('allows daily attack defaults but rejects player Attack/Charge and live engagement, attack or aim; enforces five seconds of contact cooldown', () => {
+    const f = refitFixture()
+    expect(f.controller.canRefit()).toBe(true)
+    for (const order of ['attack', 'charge'] as const) {
+      f.controller.issue(order); expect(f.controller.canRefit(), order).toBe(false)
+    }
+    f.controller.issue('defend')
+    f.rows[0].actor.hasLiveCombatTarget = true; expect(f.controller.canRefit()).toBe(false)
+    f.rows[0].actor.hasLiveCombatTarget = false
+    Object.assign(f.town.player, { swinging: true }); expect(f.controller.canRefit()).toBe(false)
+    Object.assign(f.town.player, { swinging: false, isAiming: true }); expect(f.controller.canRefit()).toBe(false)
+    Object.assign(f.town.player, { isAiming: false })
+    const now = vi.spyOn(performance, 'now').mockReturnValue(10000); onTestFinished(() => now.mockRestore())
+    f.town.squadRefitSafety.note({ type: 'damage_applied',
+      source: { actorId: 'enemy', actorType: 'npc', allegiance: Faction.ENEMY, characterFaction: 'viking' },
+      target: { targetId: 'civilian-0', targetType: 'npc', name: 'Civilian' }, method: 'melee', requestedDamage: 4, appliedDamage: 4 })
+    now.mockReturnValue(14999); expect(f.controller.canRefit()).toBe(false)
+    now.mockReturnValue(15000); expect(f.controller.canRefit()).toBe(true)
+  })
+
+  it.each(['civilian', 'merchant'] as const)('revives a real dead %s with canonical equipment, HP and peaceful service identity', role => {
+    // One real NPC, 20 recording residents, zero Mount/TownWorld/GLB. Owns actual death/refit lifecycle.
+    const spec = townRoster().find(spec => spec.role === role)!, loadout = role === 'merchant' ? townMerchantLoadout() : undefined
+    const npc = new NPC(new THREE.Scene(), spec.x, spec.z, Faction.TOWN, 'roman', AIType.MELEE, role, 2, false,
+      loadout, undefined, undefined, spec.id, undefined, undefined, undefined, undefined, 'civilian', 'roman', role === 'merchant' ? 'merchant' : undefined)
+    onTestFinished(() => npc.dispose())
+    const f = refitFixture({ spec, npc }), gear = npc.loadout ? { ...npc.loadout } : undefined
+    npc.takeDamage(npc.maxHp * 100); expect(npc.dead).toBe(true)
+    npc.group.position.set(-900, -50, -900)
+    expect(f.controller.refit()).toBe(true)
+    expect(npc.dead).toBe(false); expect(npc.hp).toBe(50); expect(npc.maxHp).toBe(50)
+    expect(npc.isFalling).toBe(false); expect(npc.combatPosition).toMatchObject({ x: spec.x, z: spec.z })
+    expect(npc.loadout).toEqual(gear); expect(npc.combatantId).toBe(spec.id)
+    expect(npc.faction).toBe(Faction.TOWN); expect(f.controller.owner(npc)).toBe('daily')
+    if (role === 'merchant') {
+      const service = Object.assign(Object.create(TownScene.prototype) as CivilianTownProbe, {
+        profile: f.town.profile, residents: f.residents, civilianCommand: f.controller, world: { buildings: [] },
+        defense: { servicesLocked: false }, event: { hostile: false, allActors: new Map([[spec.id, npc]]) },
+      })
+      expect(service.serviceAvailable('merchant')).toBe(true)
+      expect(npc.meleeWeaponId).toBe('paladin_sword_t4'); expect(npc.shieldId).toBe('paladin_shield_t4')
+      f.controller.issue('follow'); npc.takeDamage(npc.maxHp * 100)
+      expect(f.controller.refit()).toBe(true); expect(npc.tacticalOrder).toBe('follow')
+      f.controller.issue('dismiss'); expect(service.serviceAvailable('merchant')).toBe(false)
+      // At home, the native returning path settles and releases the shop service.
+      for (let frame = 0; frame < 10 && f.controller.owner(npc) === 'returning'; frame++)
+        f.controller.updateResident({ spec, npc }, .05, f.town.player.combatPosition, [], new NavigationWorld())
+      expect(f.controller.owner(npc)).toBe('daily'); expect(service.serviceAvailable('merchant')).toBe(true)
+    }
+  })
+})
+
+
+/** DOM boundary only; the civilian controller, service gate and profile transaction stay real. */
+class RefitElement {
+  textContent = ''
+  className = ''
+  disabled = false
+  children: RefitElement[] = []
+  onclick?: () => void
+  append(...children: RefitElement[]) { this.children.push(...children) }
+  all(): RefitElement[] { return [this, ...this.children.flatMap(child => child.all())] }
+}
+it('shows a zero-survivor civilian service beside military squads, reports save failure/success and rechecks stale menu eligibility', () => {
+  const f = refitFixture()
+  vi.stubGlobal('document', { createElement: () => new RefitElement() })
+  onTestFinished(() => { vi.unstubAllGlobals() })
+  let panel = new RefitElement(), message = ''
+  Object.assign(f.town, {
+    openPanel: (_title: string, text: string) => { message = text; panel = new RefitElement(); return panel },
+    button: (parent: RefitElement, text: string, onclick: () => void) => {
+      const button = new RefitElement(); button.textContent = text; button.onclick = onclick; parent.append(button)
+    },
+    townCommand: { refitSquads: [{ squadId: 1, alive: 30, total: 30 }, { squadId: 8, alive: 10, total: 10 }], canRefitSquad: () => false },
+  })
+  for (const row of f.rows) { row.actor.dead = true; row.actor.hp = 0 }
+  const labels = () => panel.all().map(element => element.textContent)
+  const button = () => panel.all().find(element => element.textContent === '整補平民小隊')!
+  f.town.openSquadRefitPanel()
+  expect(labels()).toEqual(expect.arrayContaining(['Squad 1：30/30', 'Squad 8：10/10', 'Civilian Squad：0/21', '可整補']))
+  expect(button().disabled).toBe(false)
+  // Military service is only a menu boundary here; it has no transaction/runtime authority.
+  Object.assign(f.town, { townCommand: undefined })
+  f.storage.failWrites = true; button().onclick!()
+  expect(message).toBe('平民小隊整補失敗，原有狀態未變更。')
+  expect(f.controller.refitSquad.alive).toBe(0)
+  f.storage.failWrites = false; button().onclick!()
+  expect(message).toBe('平民小隊已恢復完整編制：21/21。')
+  expect(labels()).toContain('Civilian Squad：21/21')
+  f.rows[0].actor.dead = true; f.rows[0].actor.hp = 0
+  f.town.defense.active = createTownDefenseMission([], ['civilian-0'], 'stale-menu')
+  button().onclick!()
+  expect(message).toBe('目前無法整補'); expect(f.rows[0].npc.dead).toBe(true)
+  expect(button().disabled).toBe(true)
+  f.town.profile.rank = 'captain'; f.town.openSquadRefitPanel()
+  expect(labels()).not.toContain('整補平民小隊')
 })

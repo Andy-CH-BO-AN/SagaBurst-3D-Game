@@ -122,7 +122,10 @@ export class TownEagleGarrisonController {
   }
   canServiceRefit(npc: NPC): boolean {
     const pair = this.pairs.get(npc), mount = pair?.resident.homeMount
-    return Boolean(pair && mount && !pair.refitAllowed && !pair.commandReturn
+    // A dismissed casualty cannot finish a physical return. Service may authorize
+    // its existing native recovery, while living returns and pending service wait.
+    return Boolean(pair && mount && !pair.serviceRefit
+      && (!pair.refitAllowed && !pair.commandReturn || npc.dead || mount.dead)
       && (!npc.combatOwnership || npc.combatOwnership === 'town-eagle-command')
       && !mount.riderPlayer && (!mount.riderNpc || mount.riderNpc === npc))
   }
