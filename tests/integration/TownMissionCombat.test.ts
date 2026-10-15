@@ -1,5 +1,9 @@
+import { townExternalThreatAlertRange, townStationSpec } from '../../src/town/TownGarrison'
+import { townRoster } from '../../src/town/TownRules'
+import { createTownRamparts, getTownRampartLayout } from '../../src/town/TownRamparts'
+import { Player } from '../../src/player/Player'
 import * as THREE from 'three'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { createTownDefenseMission, type CareerMissionPhase } from '../../src/career/CareerMissionState'
 import { createCavalrySweepMission } from '../../src/career/CavalrySweep'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
@@ -42,6 +46,164 @@ function eagleAlertFixture() {
   h.simulation.updateEagleDuty = duty
   return { ...h, eagle, resident, bowRange, duty }
 }
+
+/** One real guard and Player, one typed hostile; no TownWorld or deployment scheduler. */
+function rampartCombatFixture(characterFaction: 'roman' | 'viking' = 'roman', weapon = 'wooden_shortbow') {
+  const h = combatFixture(), scene = new THREE.Scene(), player = new Player(scene, characterFaction)
+  const spec = townStationSpec(townRoster().find(a => a.garrison?.kind === 'rampart')!, false, true)
+  const guard = new NPC(scene, spec.x, spec.z, Faction.TOWN, characterFaction, AIType.RANGED, 'wall guard', 1, false,
+    { meleeWeaponId: 'gladius_rusty', rangedWeaponId: weapon, shieldId: null, mountId: null })
+  guard.group.position.set(spec.x, spec.y!, spec.z); guard.group.rotation.y = spec.yaw!
+  guard.setTownPeaceful(); guard.activateTownRampartGarrison()
+  const material = new THREE.MeshBasicMaterial()
+  const layout = getTownRampartLayout(), root = createTownRamparts(layout, h.simulation.obstacles, material, material)
+  h.simulation.navigation.setTownRamparts(layout)
+  const resident = { ...combatResident(guard, 'archer_infantry'), spec }
+  const hostile = combatActor('wall-hostile', Faction.BANDIT)
+  player.group.position.set(0, 0, 0)
+  h.simulation.player = () => player
+  h.simulation.residents = [resident]
+  h.simulation.peaceResident = (r, dt) => r.npc.updateTownPeace(dt, 0, false, false)
+  h.field.ambientBandits = [hostile]; h.field.fieldNpcs = [hostile]
+  const placeHostile = (distance: number) => hostile.group.position.copy(guard.position)
+    .add(new THREE.Vector3(Math.sin(spec.yaw!), 0, Math.cos(spec.yaw!)).multiplyScalar(distance))
+  const step = () => h.combat.update(1 / 30, 0, 0)
+  onTestFinished(() => {
+    guard.dispose(); player.dispose(); root.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose() }); material.dispose()
+  })
+  return { ...h, guard, hostile, resident, layout, placeHostile, step }
+}
+
+describe('Town rampart external threat sensing and recovery', () => {
+  it.each([
+    { active: true, mounted: false, usable: true, range: 50, expected: 50 },
+    { active: true, mounted: false, usable: true, range: 30, expected: 30 },
+    { active: false, mounted: false, usable: true, range: 50, expected: 20 },
+    { active: true, mounted: true, usable: true, range: 50, expected: 20 },
+    { active: true, mounted: false, usable: false, range: 50, expected: 20 },
+  ])('resolves live policy $active/$mounted/$usable/$range to $expected metres', ({ active, mounted, usable, range, expected }) => {
+    expect(townExternalThreatAlertRange(false, { isTownRampartGarrisonActive: active, isMounted: mounted,
+      hasActiveRangedWeapon: usable, maxRangedAttackDistance: range })).toBe(expected)
+  })
+
+  it.each((['roman', 'viking'] as const).flatMap(faction => [
+    { faction, weapon: 'wooden_shortbow', distance: 35, expected: true },
+    { faction, weapon: 'wooden_shortbow', distance: 51, expected: false },
+    { faction, weapon: 'pilum_basic', distance: 25, expected: true },
+    { faction, weapon: 'pilum_basic', distance: 31, expected: false },
+  ]))('$faction $weapon at $distance m: both external sensor paths defend=$expected', ({ faction, weapon, distance, expected }) => {
+    const h = rampartCombatFixture(faction, weapon)
+    h.placeHostile(distance)
+    expect(h.combat.isExternalThreatDefender(h.guard)).toBe(expected)
+    h.step()
+    expect(h.combat.externalDefenders.includes(h.guard)).toBe(expected)
+  })
+
+  it.each(['ammo', 'weapon', 'release'] as const)('does not retain a stale bow radius after %s', change => {
+    const h = rampartCombatFixture()
+    h.placeHostile(35); h.step()
+    expect(h.combat.externalDefenders).toContain(h.guard)
+    if (change === 'ammo') h.guard.restoreCombatAmmo(0)
+    else if (change === 'weapon') h.guard.rangedWeaponId = 'pilum_basic'
+    else h.guard.releaseOutpostRampartGarrison()
+    h.step()
+    expect(h.combat.externalDefenders).not.toContain(h.guard)
+    expect(h.combat.isExternalThreatDefender(h.guard)).toBe(false)
+  })
+
+  it.each(['dead', 'out-of-range'] as const)('holds its elevated station after threat is %s and fires again at a new threat', change => {
+    const h = rampartCombatFixture(), origin = h.guard.position.clone()
+    expect(origin.y - getTerrainHeight(origin.x, origin.z)).toBeGreaterThan(5)
+    h.placeHostile(35)
+    for (let frame = 0; frame < 120; frame++) h.step()
+    expect(h.simulation.fireNpc).toHaveBeenCalled()
+    if (change === 'dead') h.hostile.dead = true
+    else h.placeHostile(65)
+    h.step()
+    expect(h.combat.externalDefenders).not.toContain(h.guard)
+    expect(h.guard.position).toEqual(origin)
+    expect(h.guard.isTownRampartGarrisonActive).toBe(true)
+    expect(h.guard.tacticalOrder).toBe('defend')
+    const shots = vi.mocked(h.simulation.fireNpc).mock.calls.length
+    h.hostile.dead = false; h.placeHostile(35)
+    for (let frame = 0; frame < 120; frame++) h.step()
+    expect(vi.mocked(h.simulation.fireNpc).mock.calls.length).toBeGreaterThan(shots)
+    expect(h.guard.position).toEqual(origin)
+  })
+
+  it.each(['follow', 'formation', 'charge', 'command', 'mission', 'return', 'dead'] as const)('does not reclaim a defender taken over by %s', owner => {
+    const h = rampartCombatFixture()
+    h.placeHostile(35); h.step()
+    if (owner === 'follow') h.guard.assignFollowTarget(h.simulation.player(), 0)
+    else if (owner === 'formation') h.guard.assignFormationTarget(42, h.guard.position.clone().add(new THREE.Vector3(5, 0, 0)), new THREE.Vector3(1, 0, 0))
+    else if (owner === 'charge') h.guard.setTacticalOrder('charge')
+    else if (owner === 'command') h.simulation.commandActors = () => [h.guard]
+    else if (owner === 'mission') h.field.friendlies = [h.guard]
+    else if (owner === 'return') {
+      h.guard.assignFormationTarget(-4400, h.guard.position.clone().add(new THREE.Vector3(5, 0, 0)), new THREE.Vector3(1, 0, 0))
+      h.guard.missionMovement = true; h.simulation.ownsPeacefulTravel = npc => npc === h.guard
+    } else h.guard.takeDamage(10000)
+    const position = h.guard.position.clone(), order = h.guard.tacticalOrder, formation = h.guard.formationCommandId
+    h.hostile.dead = true; h.step()
+    expect(h.combat.externalDefenders).not.toContain(h.guard)
+    expect(h.guard.position).toEqual(position)
+    expect(h.guard.tacticalOrder).toBe(order)
+    expect(h.guard.formationCommandId).toBe(formation)
+    expect(h.guard.dead).toBe(owner === 'dead')
+    if (owner === 'follow' || owner === 'formation' || owner === 'return' || owner === 'charge') expect(h.guard.isTownRampartGarrisonActive).toBe(false)
+  })
+
+  it('uses the original elevated station even when the legacy spec has no Y', () => {
+    const h = rampartCombatFixture(), origin = h.guard.position.clone()
+    h.resident.spec = { ...h.resident.spec, x: 0, z: 0, y: undefined }
+    h.placeHostile(35); h.step(); h.hostile.dead = true; h.step()
+    expect(h.guard.position).toEqual(origin)
+    expect(h.guard.isTownRampartGarrisonActive).toBe(true)
+  })
+
+  it.each(['follow', 'formation', 'mission', 'return'] as const)('abandons automatic rampart return when %s takes ownership', owner => {
+    const h = rampartCombatFixture()
+    h.placeHostile(35); h.step()
+    h.guard.position.copy(h.layout.ramps[0].entrance)
+    h.hostile.dead = true; h.step()
+    expect(h.guard.formationCommandId).not.toBeNull()
+    if (owner === 'follow') h.guard.assignFollowTarget(h.simulation.player(), 0)
+    else if (owner === 'formation') h.guard.assignFormationTarget(43, h.guard.position.clone().add(new THREE.Vector3(3, 0, 0)), new THREE.Vector3(1, 0, 0))
+    else if (owner === 'mission') h.field.friendlies = [h.guard]
+    else {
+      h.guard.assignFormationTarget(-4400, h.guard.position.clone().add(new THREE.Vector3(3, 0, 0)), new THREE.Vector3(1, 0, 0))
+      h.guard.missionMovement = true; h.simulation.ownsPeacefulTravel = npc => npc === h.guard
+    }
+    const before = h.guard.position.clone(), order = h.guard.tacticalOrder, formation = h.guard.formationCommandId
+    h.step()
+    expect(h.guard.position).toEqual(before)
+    expect(h.guard.tacticalOrder).toBe(order)
+    expect(h.guard.formationCommandId).toBe(formation)
+    expect(h.guard.isTownRampartGarrisonActive).toBe(false)
+  })
+
+  it('walks a displaced guard back up the legal ramp before restoring stationary garrison', () => {
+    const h = rampartCombatFixture()
+    h.placeHostile(35); h.step()
+    const ramp = h.layout.ramps[0], origin = h.guard.position.clone()
+    // Setup represents a displacement by another legal combat movement; recovery itself must never teleport.
+    h.guard.position.copy(ramp.entrance)
+    const before = h.guard.position.clone()
+    h.hostile.dead = true; h.step()
+    expect(h.guard.position.distanceTo(before)).toBeLessThan(.5)
+    expect(h.guard.isTownRampartGarrisonActive).toBe(false)
+    let onRamp = false
+    for (let frame = 0; frame < 3600 && !h.guard.isTownRampartGarrisonActive; frame++) {
+      const previous = h.guard.position.clone(); h.step()
+      expect(h.guard.position.distanceTo(previous)).toBeLessThan(.6)
+      onRamp ||= Boolean(h.simulation.navigation.townNav!.rampAt(h.guard.position))
+    }
+    expect(onRamp).toBe(true)
+    expect(h.guard.isTownRampartGarrisonActive, h.guard.position.toArray().join(',')).toBe(true)
+    expect(h.guard.position.distanceTo(origin)).toBeLessThan(.8)
+    expect(h.guard.missionMovement).toBe(false)
+  })
+})
 
 describe('Town eagle external alert through the mission interface', () => {
   it('runs claimed eagle boarding and then air travel without combat while mission deployment is pending', () => {

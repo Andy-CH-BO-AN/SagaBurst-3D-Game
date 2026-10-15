@@ -1,3 +1,5 @@
+import type { NPC } from '../world/NPC'
+import { TOWN_EAGLE_ALERT_RADIUS } from './TownEagleGarrison'
 import { siegeDefensePlans } from '../career/TownDefenseRoster'
 import { getTerrainHeight } from '../world/Terrain'
 import { TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
@@ -59,4 +61,12 @@ export function townStationSpec(spec: TownActorSpec, mounted: boolean, ranged: b
     return { ...spec, ...p, y: getTerrainHeight(p.x, p.z), garrison: { ...station, ...p, y: getTerrainHeight(p.x, p.z), kind: 'reserve' } }
   }
   return { ...spec, x: station.x, y: station.y, z: station.z, yaw: station.yaw }
+}
+
+/** Read live equipment/state on every sensor pass; ordinary residents retain their old radius. */
+export function townExternalThreatAlertRange(eagle: boolean, npc: Pick<NPC,
+  'isTownRampartGarrisonActive' | 'isMounted' | 'hasActiveRangedWeapon' | 'maxRangedAttackDistance'>): number {
+  if (eagle) return TOWN_EAGLE_ALERT_RADIUS
+  return npc.isTownRampartGarrisonActive && !npc.isMounted && npc.hasActiveRangedWeapon
+    ? npc.maxRangedAttackDistance : 20
 }
