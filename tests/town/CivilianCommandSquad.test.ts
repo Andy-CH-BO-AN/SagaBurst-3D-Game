@@ -411,3 +411,29 @@ describe('TownScene civilian owner and merchant service wiring', () => {
     expect(town.residents[0].npc).toBe(merchant.npc)
   })
 })
+
+it('migrates legacy daily homes only after saving, preserves deaths and player commands, and does not move them on the next reload', () => {
+  const rows = [recordingResident('civilian-0'), recordingResident('civilian-1'), recordingResident('civilian-2')]
+  const f = fixture(rows); f.controller.restore()
+  const legacy = cloneCareerProfile(f.profile), saved = legacy.civilianCommandSquad!
+  delete saved.homeLayoutVersion
+  saved.members['civilian-0'].position = { x: -19, z: 12, yaw: 0 }
+  saved.members['civilian-0'].hp = 19
+  saved.members['civilian-1'] = { status: 'dead', hp: 0, position: { x: -12, z: 10, yaw: 0 } }
+  saved.owners['civilian-2'] = 'player'; saved.members['civilian-2'].order = 'defend'
+  saved.members['civilian-2'].position = { x: 60, z: 40, yaw: 1 }
+  f.profile = legacy; f.savesAllowed = false
+  f.controller.restore()
+  expect(rows[0].npc.combatPosition.x).toBe(-19)
+  expect(rows[1].npc.dead).toBe(true)
+  expect(f.profile.civilianCommandSquad?.homeLayoutVersion).toBeUndefined()
+  f.savesAllowed = true; f.controller.restore()
+  expect(rows[0].npc.hp).toBe(19); expect(rows[0].npc.combatPosition.x).toBe(rows[0].spec.x)
+  expect(rows[1].npc.dead).toBe(true)
+  expect(rows[2].npc.combatPosition.x).toBe(60); expect(f.controller.owner(rows[2].npc)).toBe('player')
+  const reloaded = parseCivilianCommandSquad(JSON.parse(JSON.stringify(f.profile.civilianCommandSquad)))!
+  expect(reloaded.homeLayoutVersion).toBe(1)
+  reloaded.members['civilian-0'].position!.x = 1.5
+  f.profile.civilianCommandSquad = reloaded
+  f.controller.restore(); expect(rows[0].npc.combatPosition.x).toBe(1.5)
+})

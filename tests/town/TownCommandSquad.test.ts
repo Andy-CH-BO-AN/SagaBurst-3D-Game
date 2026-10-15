@@ -1,3 +1,4 @@
+import { townStationSpec } from '../../src/town/TownGarrison'
 import * as THREE from 'three'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { createCareerProfile, cloneCareerProfile, claimCareerMission } from '../../src/career/CareerProfile'
@@ -18,7 +19,7 @@ import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolCon
 import { TownEvent, isCivilian, townCommandSquadRoster, townRoster, townSitePoint, townMilitaryEquipment, type TownActorSpec } from '../../src/town/TownRules'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { eagleTrainerSpec } from '../../src/town/TownEagleTrainingGround'
-import { Faction, type NPC } from '../../src/world/NPC'
+import { Faction, type NPC, NPC as RealNPC, AIType } from '../../src/world/NPC'
 import type { Mount } from '../../src/world/Mount'
 import type { Player } from '../../src/player/Player'
 import type { CombatEvent } from '../../src/combat/CombatAttribution'
@@ -45,13 +46,13 @@ function resident(spec: TownActorSpec) {
     shield: { shieldImpactRemaining: 1, shieldImpactMax: 8 }, respawnEnabled: false,
     setCommandAllegiance: vi.fn((faction: Faction) => { actor.faction = faction }),
     setCommandSquad: vi.fn((squad: NPC['squadId']) => { actor.squadId = squad }),
-    setMissionCombatTarget: vi.fn(),
+    setMissionCombatTarget: vi.fn(), activateTownRampartGarrison: vi.fn(),
     setTownPeaceful: vi.fn(), clearEncounter: vi.fn(), assignFollowTarget: vi.fn((target: NPC | Player, slot: number) => { actor.activeFollowTarget = target; actor.activeFollowSlotIndex = slot; actor.tacticalOrder = 'follow'; actor.formationCommandId = null; formation = undefined }),
     setTacticalOrder: vi.fn((order: NPC['tacticalOrder']) => { actor.tacticalOrder = order; actor.formationCommandId = null; formation = undefined }),
     assignFormationTarget: vi.fn((id: number, point: THREE.Vector3) => { actor.formationCommandId = id; actor.tacticalOrder = 'formation'; formation = { commandId: id, position: { x: point.x, z: point.z, yaw: 0 }, reached: false } }),
     isFormationTargetReached: vi.fn(() => false), updateTownTravel: vi.fn(),
     refitCombat: vi.fn(() => { actor.hp = 100; actor.dead = false; actor.combatAmmo = 30; actor.shield.shieldImpactRemaining = 8 }),
-    restoreCombatHealth: vi.fn((hp: number) => { actor.hp = hp; actor.dead = hp === 0 }), restoreCombatAmmo: vi.fn(),
+    restoreCombatHealth: vi.fn((hp: number) => { actor.hp = hp; actor.dead = hp === 0 }), restoreCombatAmmo: vi.fn((ammo: number) => { actor.combatAmmo = ammo }),
     get combatFormationCheckpoint() { return formation },
   }
   // The constructor boundary intentionally supplies only actor methods used by this controller.
@@ -899,4 +900,135 @@ describe('Patrol dismissal storage handover', () => {
     expect(reload.fieldNpcs).toHaveLength(0)
     expect(reloadedPatrol.returnStateFor(residents[0].spec.id)).toBe('RETURN_TO_BARRACKS')
   })
+})
+
+/** Service policy/transaction graph: canonical 210 recording residents, 0 real NPC/Mount/World. */
+function serviceFixture(rank: 'captain' | 'commander' = 'commander') {
+  const specs = rank === 'commander' ? commanderTownSpecs() : townCommandSquadRoster('roman')
+  const residents = specs.map(spec => resident(townStationSpec(spec, spec.mounted, ['ranged', 'archer'].includes(spec.unitKind ?? ''))))
+  let profile = createCareerProfile('roman'); profile.rank = rank; profile.totalMerit = rank === 'commander' ? 20000 : 5000
+  const p = player(), nativePending = new Set<string>(), nativeRequests: string[] = []
+  let saveAllowed = true, nativeAllowed = true
+  const commit = vi.fn((next: typeof profile) => {
+    if (!saveAllowed) return false
+    const parsed = parseCareerProfile(JSON.parse(JSON.stringify(next)))
+    if (!parsed) throw new Error('Refit checkpoint did not survive storage serialization')
+    profile = parsed; return true
+  })
+  const options = {
+    canRefitNative: () => nativeAllowed,
+    nativeRefitPending: (r: { spec: TownActorSpec }) => nativePending.has(r.spec.id),
+    beginNativeRefit: (r: { spec: TownActorSpec }) => { if (!nativePending.has(r.spec.id)) nativeRequests.push(r.spec.id); nativePending.add(r.spec.id) },
+  }
+  const controller = new TownCommandSquadController(residents, () => p, () => profile, commit, options)
+  controller.grant()
+  const canonicalSquads = commanderGateDefenseSlots()
+  const ids = (squadId: number) => rank === 'commander' ? canonicalSquads.find(s => s.squadId === squadId)!.actorIds : controller.authorizedActorIds
+  return { residents, p, controller, commit, nativeRequests, nativePending, options, ids,
+    get profile() { return profile }, set saveAllowed(value: boolean) { saveAllowed = value }, set nativeAllowed(value: boolean) { nativeAllowed = value },
+  }
+}
+
+describe('Sergeant selected permanent squad replenishment', () => {
+  it.each([{ rank: 'captain', squad: 1, total: 30, casualties: 0 }, { rank: 'captain', squad: 1, total: 30, casualties: 30 },
+    { rank: 'commander', squad: 1, total: 30, casualties: 15 }, { rank: 'commander', squad: 3, total: 30, casualties: 30 }] as const)('$rank Squad $squad restores $casualties casualties within $total original identities without replaying other orders', ({ rank, squad, total, casualties }) => {
+    const f = serviceFixture(rank), selected = new Set(f.ids(squad))
+    let remaining = casualties
+    for (const row of f.residents) if (selected.has(row.spec.id) && remaining-- > 0) { row.actor.dead = true; row.actor.hp = 0 }
+    const originalPositions = new Map(f.residents.map(row => [row.spec.id, { point: row.npc.combatPosition.clone(), dead: row.npc.dead }]))
+    const otherMembers = Object.fromEntries(Object.entries(f.profile.townCommandSquad!.members!).filter(([id]) => !selected.has(id)))
+    const ids = [...f.controller.authorizedActorIds]
+    const living = f.controller.refitSquads.find(s => s.squadId === squad)!
+    expect(living).toMatchObject({ alive: total - casualties, total, pending: false })
+    expect(f.controller.refit(squad)).toBe(true)
+    expect(f.controller.authorizedActorIds).toEqual(ids)
+    expect(f.controller.refitSquads.find(s => s.squadId === squad)).toMatchObject({ alive: total, total })
+    expect(Object.fromEntries(Object.entries(f.profile.townCommandSquad!.members!).filter(([id]) => !selected.has(id)))).toEqual(otherMembers)
+    for (const row of f.residents) {
+      if (!selected.has(row.spec.id)) { expect(row.actor.refitCombat).not.toHaveBeenCalled(); continue }
+      expect(row.npc.hp).toBe(100); expect(row.npc.combatAmmo).toBe(30); expect(row.npc.shield.shieldImpactRemaining).toBe(8)
+      expect(row.npc.combatPosition.toArray()).toEqual(originalPositions.get(row.spec.id)!.dead
+        ? [row.spec.x, row.spec.y ?? getTerrainHeight(row.spec.x, row.spec.z), row.spec.z] : originalPositions.get(row.spec.id)!.point.toArray())
+      if (row.spec.garrison?.kind === 'rampart' && f.profile.townCommandSquad?.members?.[row.spec.id].townRampartGarrison) expect(row.actor.activateTownRampartGarrison).toHaveBeenCalled()
+      expect(row.actor.refitCombat.mock.invocationCallOrder[0]).toBeGreaterThan(f.commit.mock.invocationCallOrder.at(-1)!)
+    }
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(f.profile)))!.townCommandSquad!.actorIds).toEqual(ids)
+    expect(f.profile.rank).toBe(rank)
+  })
+  it.each([7, 8])('Squad %i keeps dead native resources pending through save/reload and rejects duplicate requests until their owner completes', squad => {
+    const f = serviceFixture(), ids = new Set(f.ids(squad))
+    const selected = f.residents.filter(r => ids.has(r.spec.id)), natives = selected.filter(r => r.spec.duty === 'patrol' || r.spec.eagle)
+    for (const r of selected) { r.actor.dead = true; r.actor.hp = 0 }
+    expect(f.controller.refit(squad)).toBe(true)
+    expect(f.controller.refitSquads.find(s => s.squadId === squad)).toMatchObject({ total: squad === 7 ? 25 : 5, pending: true })
+    expect(f.nativeRequests.sort()).toEqual(natives.map(r => r.spec.id).sort())
+    for (const r of natives) { expect(r.actor.refitCombat).not.toHaveBeenCalled(); expect(r.npc.dead).toBe(true) }
+    expect(f.controller.refit(squad)).toBe(false)
+    const saved = parseCareerProfile(JSON.parse(JSON.stringify(f.profile)))!
+    expect(saved.townCommandSquad!.refittingActorIds!.sort()).toEqual(natives.map(r => r.spec.id).sort())
+    const restored = new TownCommandSquadController(f.residents, () => f.p, () => saved, () => true, f.options)
+    restored.applySavedState(saved.townCommandSquad); restored.resumeRefits()
+    expect(f.nativeRequests).toHaveLength(natives.length)
+    // Only the native owner reports physical completion; the service never synthesizes living counts.
+    for (const r of natives) { r.actor.dead = false; r.actor.hp = 100; f.nativePending.delete(r.spec.id) }
+    expect(restored.refitSquads.find(s => s.squadId === squad)).toMatchObject({ alive: squad === 7 ? 25 : 5, pending: false })
+    expect(restored.checkpoint()?.refittingActorIds).toBeUndefined()
+    for (const r of natives) expect(restored.checkpoint()?.members?.[r.spec.id].status).toBe('reserve')
+  })
+  it('rejects invalid squads, hostility, formal missions, dead player, native conflicts and failed storage without runtime changes', () => {
+    const f = serviceFixture(), victim = f.residents.find(r => f.ids(3).includes(r.spec.id))!
+    victim.actor.dead = true; victim.actor.hp = 0
+    const before = JSON.stringify(f.profile)
+    f.saveAllowed = false
+    expect(f.controller.refit(3)).toBe(false); expect(JSON.stringify(f.profile)).toBe(before)
+    expect(victim.npc.dead).toBe(true); expect(victim.actor.refitCombat).not.toHaveBeenCalled()
+    f.saveAllowed = true
+    expect(f.controller.refit(9)).toBe(false); expect(f.controller.refit(1.5)).toBe(false)
+    f.profile.townEvent = { id: 'hostile', state: 'hostile' }
+    expect(f.controller.refit(3)).toBe(false); delete f.profile.townEvent
+    Object.assign(f.p, { dead: true }); expect(f.controller.refit(3)).toBe(false); Object.assign(f.p, { dead: false })
+    f.profile.activeMission = createActiveCareerMission('recruit-patrol', 1, 3, 5)
+    expect(f.controller.refit(3)).toBe(false); delete f.profile.activeMission
+    f.nativeAllowed = false; expect(f.controller.refit(7)).toBe(false)
+    expect(f.nativeRequests).toEqual([])
+  })
+  it('keeps a living commanded soldier in place and reloads a repaired unclaimed rampart soldier at the saved elevation', () => {
+    const f = serviceFixture(), selected = f.residents.filter(r => f.ids(3).includes(r.spec.id))
+    const wall = selected.find(r => r.spec.garrison?.kind === 'rampart')!, living = selected.find(r => r !== wall)!
+    f.controller.issue('follow', 'squad:3')
+    living.npc.combatPosition.add(new THREE.Vector3(3, 0, 2)); const before = living.npc.combatPosition.clone()
+    wall.actor.dead = true; wall.actor.hp = 0
+    expect(f.controller.refit(3)).toBe(true)
+    expect(living.npc.combatPosition).toEqual(before)
+    expect(living.npc.tacticalOrder).toBe('follow')
+    const saved = parseCareerProfile(JSON.parse(JSON.stringify(f.profile)))!
+    wall.actor.hp = 0; wall.actor.dead = true; wall.npc.combatPosition.y = 0
+    const restored = new TownCommandSquadController(f.residents, () => f.p, () => saved, () => true, f.options)
+    restored.restore()
+    expect(wall.npc.dead).toBe(false); expect(wall.npc.combatPosition.y).toBe(wall.spec.y)
+    expect(saved.townCommandSquad!.squads!.map(s => s.actorIds.length)).toEqual([30, 30, 30, 30, 30, 30, 25, 5])
+  })
+})
+
+it('physically revives one real dead wall archer at its elevated station and retains its permanent identity', () => {
+  // One real NPC, no Mount/World/GLB; the remaining canonical roster uses recording boundaries.
+  const f = serviceFixture(), row = f.residents.find(r => f.ids(3).includes(r.spec.id) && r.spec.garrison?.kind === 'rampart')!
+  const spec = row.spec, equipment = townMilitaryEquipment('roman', spec)
+  const npc = new RealNPC(new THREE.Scene(), spec.x, spec.z, Faction.TOWN, 'roman', AIType.RANGED, spec.id,
+    2, false, equipment.loadout, equipment.presetId, undefined, spec.id)
+  onTestFinished(() => npc.dispose())
+  row.npc = npc
+  f.controller.applySavedState(f.profile.townCommandSquad, true)
+  npc.respawnEnabled = false; npc.takeDamage(99999)
+  npc.group.position.set(0, 0, 0) // Death/fall cannot become the service respawn destination.
+  expect(npc.dead).toBe(true)
+  expect(f.controller.refit(3)).toBe(true)
+  expect(npc.dead).toBe(false); expect(npc.hp).toBe(npc.maxHp)
+  expect(npc.combatPosition.toArray()).toEqual([spec.x, spec.y, spec.z])
+  expect(npc.isTownRampartGarrisonActive).toBe(true)
+  expect(npc.combatAmmo).toBe(npc.combatAmmoCapacity)
+  expect(npc.combatantId).toBe(spec.id)
+  expect(npc.group.visible).toBe(true)
+  npc.updateTownPeace(.05, 5, false, false)
+  expect(npc.combatPosition.y).toBe(spec.y)
 })

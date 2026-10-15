@@ -40,7 +40,7 @@ export class TownAirCommandSquadController {
   ownsPlayerCommand(npc: NPC): boolean {
     return this.allowed() && this.valid(npc) && Boolean(this.value?.commandedActorIds.includes(npc.combatantId))
   }
-  accepts(npc: NPC): boolean { return this.commandsEnabled && !npc.dead && this.valid(npc) }
+  accepts(npc: NPC): boolean { return this.commandsEnabled && !npc.dead && this.valid(npc) && !this.garrison.serviceRefitPending(npc) }
   get combatActors(): NPC[] { return this.actors.filter(npc => !npc.dead && this.ownsPlayerCommand(npc)) }
   get hudActorIds(): readonly string[] { return this.commandsEnabled ? this.actors.filter(npc => this.valid(npc)).map(npc => npc.combatantId) : [] }
 

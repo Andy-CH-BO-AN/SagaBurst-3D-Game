@@ -1,3 +1,4 @@
+import { civilianHomeAnchor, TownCivilianLife } from './TownCivilianLife'
 import { townStationSpec } from './TownGarrison'
 import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
 import { SquadRefitSafety } from '../career/SquadRefit'
@@ -64,7 +65,7 @@ import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
 import { warmTownRenderResources } from './TownRenderWarmup'
-import { getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBound, resolveEntityCollision, resolveObstacleCollision, type ObstacleData } from '../world/Terrain'
+import { getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBound, resolveEntityCollision, type ObstacleData } from '../world/Terrain'
 import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod, type CombatActorRef, type CombatEvent } from '../combat/CombatAttribution'
 import { SpatialGrid } from '../world/SpatialGrid'
@@ -197,6 +198,7 @@ export class TownScene {
   chargeSpeakerId: string | null = null
   private readonly damageNumbers = new DamageNumbers()
   private readonly ambient = new TownAmbientDialogue()
+  private civilianLife = new TownCivilianLife()
   private readonly ambientLabel = document.createElement('div')
   private ambientUntil = 0
   private ambientActor: NPC | null = null
@@ -281,6 +283,12 @@ export class TownScene {
       this.navigation.sync(this.world.obstacles)
       population.push(townCommanderSpec(resolveTownCommanderPosition(this.world.obstacles, this.world.roads, this.navigation, population)))
     }
+    this.navigation.sync(this.world.obstacles)
+    const civilianOccupied = population.filter(a => a.role !== 'civilian').map(a => a.garrison ?? a)
+    for (const civilian of population.filter(a => a.role === 'civilian')) {
+      const home = civilianHomeAnchor(civilian.index, civilianOccupied, this.world.obstacles, this.navigation)
+      Object.assign(civilian, { x: home.x, y: home.y, z: home.z }); civilianOccupied.push(civilian)
+    }
     this.residentRoster = careerTownSceneRoster(profile, population)
     this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec) : population)
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
@@ -339,7 +347,19 @@ export class TownScene {
     this.initializeEnemyEaglePatrol(context.worldFaction)
     this.townCommand = new TownCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p),
       { sceneKey: context.worldFaction === this.profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
-        canRefit: () => this.canRefitSquad(this.townCommand?.actors ?? []),
+        canRefit: actors => !this.restoringAerialState && !this.commanderReturnPending
+          && (this.residentSpawnBatch?.ready ?? true) && this.deploymentReady && !this.defense?.active
+          && !this.profile.activeMission && !this.profile.activeOutpostMission && this.world.faction === this.profile.faction
+          && this.canRefitSquad(actors, true),
+        refitEngaged: resident => this.townRefitEngaged(resident.npc),
+        canRefitNative: resident => resident.spec.eagle ? this.eagleGarrison?.canServiceRefit(resident.npc) ?? false
+          : this.patrol!.canServiceRefit(resident.spec.id),
+        beginNativeRefit: resident => {
+          if (resident.spec.eagle) this.eagleGarrison!.requestServiceRefit(resident.npc)
+          else this.patrol!.requestServiceRefit(resident.spec.id)
+        },
+        nativeRefitPending: resident => resident.spec.eagle ? this.eagleGarrison!.serviceRefitPending(resident.npc)
+          : ['RETURN_TO_BARRACKS', 'REFIT'].includes(this.patrol!.returnStateFor(resident.spec.id) ?? ''),
         canClaimNative: resident => resident.spec.duty !== 'patrol' || this.patrol!.canClaimTownCommand(resident.spec.id),
         claimNative: resident => resident.spec.duty !== 'patrol' || this.patrol!.claimTownCommand(resident.spec.id),
         nativeReturnOnRelease: resident => resident.spec.duty === 'patrol' ? 'RETURN_TO_BARRACKS' : undefined,
@@ -471,6 +491,7 @@ export class TownScene {
     this.restoreEagleCommandState()
     this.restoreTownCasualties()
     this.civilianCommand.restore()
+    this.townCommand.resumeRefits()
     this.hud.id = 'town-hud'; this.hud.style.cssText = 'position:fixed;top:20px;left:20px;z-index:90;background:#201d19de;color:#efe1c3;padding:16px 22px;border:1px solid #aa9270;line-height:1.7;font:15px system-ui;max-width:520px;pointer-events:none'
     this.hint.id = 'town-hint'; this.hint.style.cssText = 'position:fixed;bottom:110px;left:50%;transform:translateX(-50%);z-index:90;color:#fff;background:#211e19dd;padding:10px 20px;font:18px system-ui;pointer-events:none'
     this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
@@ -635,7 +656,7 @@ export class TownScene {
     let next = cloneCareerProfile(profile)
     const startsFormal = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id
       || next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)
-    const townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(this.profile.townCommandSquad)
+    let townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(this.profile.townCommandSquad)
     const airStateChanged = JSON.stringify(next.townAirCommandSquad) !== JSON.stringify(this.profile.townAirCommandSquad)
     if (!airStateChanged && this.townAirCommand) next.townAirCommandSquad = this.townAirCommand.checkpoint() ?? next.townAirCommandSquad
     if (this.townAirCommand) next = this.townAirCommand.stageContext(next)
@@ -744,7 +765,11 @@ export class TownScene {
       if (released.length) snapshot = stageTownEaglePlayerCommand(snapshot, released, false, !this.profile.activeMission && !this.profile.activeOutpostMission
         && !next.activeMission && !next.activeOutpostMission
         && next.townEvent?.state !== 'hostile' && next.faction === faction)
-      for (const pair of snapshot.pairs) if (settledTownEvent || refit?.has(pair.riderId)) pair.refitAllowed = true
+      const serviceIds = (next.townCommandSquad?.refittingActorIds ?? []).filter(id =>
+        !this.profile.townCommandSquad?.refittingActorIds?.includes(id) && /^town-eagle-rider:[1-5]$/.test(id))
+      if (serviceIds.length) snapshot = stageTownEaglePlayerCommand(snapshot, serviceIds, false, true)
+      for (const pair of snapshot.pairs) if (serviceIds.includes(pair.riderId)) pair.serviceRefit = true
+      for (const pair of snapshot.pairs) if (settledTownEvent || refit?.has(pair.riderId) || serviceIds.includes(pair.riderId)) pair.refitAllowed = true
       next.townEagleGarrisons = { ...next.townEagleGarrisons, [faction]: snapshot }
     }
     if (this.player && !this.restoringAerialState && !options.groundedTownReturn) next.playerAerialState = captureCareerAerialState(this.player, this.personalSquad?.sceneKey ?? 'town-home')
@@ -773,6 +798,7 @@ export class TownScene {
       this.profile.townCommandSquad?.commandedActorIds,
       this.profile.townCommandSquad?.nativeReturnStates,
     ])
+    townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(this.profile.townCommandSquad)
     if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
     if (respawning || returningFromDefense) this.townRefitOnReturn = true
     // Authorize the live controller only after the transition and permission are durably saved.
@@ -810,10 +836,10 @@ export class TownScene {
     const aerial = captureCareerAerialState(this.player, this.personalSquad?.sceneKey ?? 'town-home')
     const garrison = this.eagleGarrison?.snapshot(`town:${this.world.faction}`)
     const garrisonActive = Boolean(garrison?.pairs.some(pair => pair.duty !== 'standby' || pair.hp === 0 || pair.mount.hp === 0))
-    const townCommand = this.townCommand?.checkpoint()
+    const townCommand = this.townCommand?.hasCheckpoint ? this.townCommand : undefined
     if (!this.civilianCommand?.hasCheckpoint && !saved && !townCommand && !this.profile.personalSquadRuntime && !aerial && !this.profile.playerAerialState && !garrisonActive && !this.outskirts?.hasCheckpoint && !this.enemyEaglePatrol?.hasCheckpoint) return
     this.personalSaveElapsed += dt
-    const critical = JSON.stringify([this.civilianCommand?.criticalSignature, this.enemyEaglePatrol?.criticalSignature, this.outskirts?.criticalSignature, townCommand?.authorized, townCommand?.state, townCommand?.commandedActorIds, townCommand?.nativeReturnStates, townCommand?.actorIds.map(id => [townCommand.members?.[id]?.hp === 0, townCommand.members?.[id]?.mount?.hp === 0, townCommand.members?.[id]?.status]), garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
+    const critical = JSON.stringify([this.civilianCommand?.criticalSignature, this.enemyEaglePatrol?.criticalSignature, this.outskirts?.criticalSignature, townCommand?.criticalSignature, garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
       const member = saved.members[id]
       return [member.status, member.order, member.mount?.hp === 0, member.formation?.commandId]
     })])
@@ -1281,8 +1307,14 @@ export class TownScene {
     return faction !== this.profile.faction || !this.profile.townEquipment?.[faction]
       || resolveTownActorEquipment(this.profile, faction, 'ranger').refs.mount?.nativeId === `${faction}/ranger/mount`
   }
-  private canRefitSquad(actors: readonly NPC[]): boolean {
-    return !this.event.hostile && this.squadRefitSafety.allows(this.player, actors, [])
+  private townRefitEngaged(npc: NPC): boolean {
+    const resident = this.residents.find(r => r.npc === npc)
+    if (resident?.spec.eagle) return this.eagleGarrison?.serviceCombatActive(npc) ?? npc.inCombat
+    if (resident?.spec.duty === 'patrol') return Boolean(npc.hasLiveCombatTarget || this.patrol?.combatEnabled(npc))
+    return npc.inCombat
+  }
+  private canRefitSquad(actors: readonly NPC[], nativeTravel = false): boolean {
+    return !this.event.hostile && this.squadRefitSafety.allows(this.player, actors, [], undefined, nativeTravel ? npc => this.townRefitEngaged(npc) : undefined)
       && !this.shots.some(shot => !shot.training && (shot.player || actors.some(actor => actor.combatantId === shot.sourceRef?.actorId)))
   }
   private emitCombatEvent(event: CombatEvent): void {
@@ -1364,17 +1396,34 @@ export class TownScene {
     })
     this.button(confirm, '取消', () => this.openRecruitmentPanel())
   }
+  private openSquadRefitPanel(message = '選擇要整補的正式小隊。全滅部隊也保留原本編制。'): void {
+    const panel = this.openPanel('城防部隊整補', message)
+    for (const squad of this.townCommand?.refitSquads ?? []) {
+      const row = document.createElement('article'); row.className = 'town-product'
+      const title = document.createElement('strong')
+      title.textContent = `Squad ${squad.squadId}：${squad.alive}/${squad.total}`
+      const state = document.createElement('small')
+      const allowed = this.townCommand!.canRefitSquad(squad.squadId)
+      state.textContent = squad.pending ? '整補進行中 · 等待原生部隊安全返回／復原' : `${squad.alive === 0 ? '全滅 · ' : ''}${allowed ? '可整補' : '目前無法整補'}`
+      const button = document.createElement('button'); button.className = 'town-button'; button.textContent = '整補此隊'
+      button.disabled = !allowed
+      button.onclick = () => {
+        button.disabled = true
+        const repaired = this.townCommand!.refit(squad.squadId)
+        const pending = this.townCommand!.refitSquads.find(s => s.squadId === squad.squadId)?.pending
+        this.openSquadRefitPanel(repaired ? pending ? `Squad ${squad.squadId} 整補進行中；巡邏與巨鷹正由原生管理者安全復原。`
+          : `Squad ${squad.squadId} 已恢復完整戰力。` : this.notice || '目前無法整補；請停止交戰，等待冷卻與返回完成。')
+      }
+      row.append(title, state, button); panel.append(row)
+    }
+    this.button(panel, '重新整理', () => this.openSquadRefitPanel())
+  }
   private openDeploymentPanel(greeting: string, context: DialogueContext, firstOutpost: boolean): void {
     const active = this.profile.activeMission
     if (active?.result) { this.openMissionResult(active.result, true); return }
     const panel = this.openPanel('士官長', greeting)
     if (this.townCommand?.commandsEnabled) {
-      const refit = this.button(panel, '整補城防部隊', () => {
-        const repaired = this.townCommand!.refit()
-        this.openDeploymentPanel(repaired ? '城防全隊已恢復完整戰力：士兵、坐騎、箭矢與盾牌皆已整補。' : this.notice || '目前無法整補城防部隊。', context, firstOutpost)
-      })
-      refit.disabled = !this.townCommand.canRefit
-      refit.title = refit.disabled ? '僅限和平狀態；請先停止交戰並改用 Follow、Defend 或 Formation。' : ''
+      this.button(panel, '城防部隊整補', () => this.openSquadRefitPanel())
     }
     const arrows = document.createElement('p'); arrows.className = 'town-summary'; arrows.textContent = `箭袋 ${this.player.arrowCount}/${PLAYER_ARROW_CAPACITY}`; panel.append(arrows)
     if (this.player.arrowCount < PLAYER_ARROW_CAPACITY) this.button(panel, '申請補滿箭矢', () => {
@@ -2753,7 +2802,9 @@ export class TownScene {
       this.grid.getNearbyInto(npc.combatPosition, 60, this.neighbors), this.combatMounts) ?? false
   }
   private updatePeace(r: Resident, dt: number): void {
-    if (this.civilianCommand?.updateResident(r, dt, this.camera.position, this.world.obstacles, this.navigation)) return
+    if (this.civilianCommand?.updateResident(r, dt, this.camera.position, this.world.obstacles, this.navigation)) {
+      this.civilianLife?.suspend(r.spec.id); return
+    }
     if (this.townCommand?.updateResident(r, dt, this.camera.position, this.world.obstacles, this.navigation)) return
     if (this.captainPatrol?.active && this.captainPatrol.owns(r.npc)) return
     if (this.updateEagleDuty(r.npc, dt, false)) return
@@ -2768,14 +2819,13 @@ export class TownScene {
       }
       npc.mount.finishControlledFrame(dt, this.world.obstacles)
     } else if (spec.role === 'civilian') {
-      const walking = Math.sin(phase * .3) > .5
-      if (walking) r.walkTime += dt
-      const angle = r.walkTime * .35 + spec.index, x = spec.x + Math.sin(angle) * .65, z = spec.z + Math.cos(angle) * .65
-      speed = walking ? .23 : 0;
-      const previous = npc.group.position.clone()
-      npc.group.rotation.y = Math.atan2(Math.cos(angle), -Math.sin(angle)); npc.group.position.set(x, getTerrainHeight(x, z), z)
-      resolveObstacleCollision(npc.group.position, previous, 0, true, .42, 1.8, 0, this.world.obstacles)
-      npc.group.position.y = getTerrainHeight(npc.group.position.x, npc.group.position.z)
+      if (!npc.dead && !npc.isFalling && !this.profile.activeMission && !this.profile.activeOutpostMission && !this.event.hostile) {
+        const occupied = this.residents.filter(other => other.npc !== npc && !other.npc.dead).map(other => other.npc.combatPosition)
+        occupied.push(this.player.combatPosition)
+        const movement = (this.civilianLife ??= new TownCivilianLife()).update(spec.id, spec, npc.group.position, dt, this.navigation, this.world.obstacles, occupied)
+        speed = movement.speed
+        if (movement.yaw !== undefined) npc.group.rotation.y = movement.yaw
+      } else this.civilianLife?.suspend(spec.id)
     }
     if (target) { const pos = npc.mount?.group.position ?? npc.group.position; const yaw = Math.atan2(target.x - pos.x, target.z - pos.z); npc.group.rotation.y = yaw; if (npc.mount) npc.mount.group.rotation.y = yaw }
     const cycle = Math.floor(phase / 3), start = cycle !== r.cycle; r.cycle = cycle

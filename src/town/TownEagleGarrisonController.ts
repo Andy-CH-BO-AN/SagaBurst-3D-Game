@@ -15,7 +15,7 @@ import { migrateTownEagleGarrisonLayout } from './TownLayoutMigration'
 
 interface Resident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
 interface Pair {
-  resident: Resident; duty: TownEagleDuty; refitAllowed: boolean
+  resident: Resident; duty: TownEagleDuty; refitAllowed: boolean; serviceRefit: boolean
   route: readonly { x: number; z: number }[]; waypoint: number; patrolElapsed: number; patrolActive: boolean
   replacementRemaining: number; ambientRecovery: boolean; restRemaining: number
   playerOwned: boolean; commandReturn: boolean
@@ -57,7 +57,7 @@ export class TownEagleGarrisonController {
   constructor(residents: readonly Resident[], private readonly sharedLandingQueue?: EagleLandingQueue) {
     this.landingQueue = sharedLandingQueue ?? new EagleLandingQueue()
     for (const resident of residents) if (resident.spec.eagle && resident.homeMount) {
-      this.pairs.set(resident.npc, { resident, duty: 'standby', refitAllowed: false, route: townEaglePatrolRoute(resident.spec.eagle.homePadId), waypoint: 0, patrolElapsed: 0, patrolActive: false, replacementRemaining: 0, ambientRecovery: false, restRemaining: 0, playerOwned: false, commandReturn: false })
+      this.pairs.set(resident.npc, { resident, duty: 'standby', refitAllowed: false, serviceRefit: false, route: townEaglePatrolRoute(resident.spec.eagle.homePadId), waypoint: 0, patrolElapsed: 0, patrolActive: false, replacementRemaining: 0, ambientRecovery: false, restRemaining: 0, playerOwned: false, commandReturn: false })
       resident.npc.setEagleCruiseAltitude(resident.spec.eagle.cruiseAltitude)
       resident.homeMount.reservedForTown = true
     }
@@ -116,6 +116,29 @@ export class TownEagleGarrisonController {
     if (!pair) return
     pair.refitAllowed = true
   }
+  serviceCombatActive(npc: NPC): boolean {
+    const pair = this.pairs.get(npc)
+    return Boolean(npc.hasLiveCombatTarget || pair?.duty === 'sortie' && !pair.playerOwned)
+  }
+  canServiceRefit(npc: NPC): boolean {
+    const pair = this.pairs.get(npc), mount = pair?.resident.homeMount
+    return Boolean(pair && mount && !pair.refitAllowed && !pair.commandReturn
+      && (!npc.combatOwnership || npc.combatOwnership === 'town-eagle-command')
+      && !mount.riderPlayer && (!mount.riderNpc || mount.riderNpc === npc))
+  }
+  serviceRefitPending(npc: NPC): boolean { const pair = this.pairs.get(npc); return Boolean(pair?.serviceRefit && pair.refitAllowed) }
+  /** The saved service transaction authorizes recovery, never a second rider or mount. */
+  requestServiceRefit(npc: NPC): void {
+    const pair = this.pairs.get(npc)
+    if (!pair) return
+    // Commit may already have released a living Commander claim into native return.
+    // Upgrade that existing authorization without restarting its queue/order (also on reload).
+    if (pair.refitAllowed) { pair.serviceRefit = true; return }
+    // Reuse the same native release policy for autonomous patrol and player-owned flight.
+    pair.playerOwned = true
+    this.releasePlayerCommand(npc, true)
+    pair.refitAllowed = true; pair.serviceRefit = true
+  }
   /** Returns true when duty travel/peace consumed this NPC's frame; combat consumes false. */
   update(npc: NPC, dt: number, combat: boolean, camera: THREE.Vector3,
     obstacles: ObstacleData[], navigation: NavigationWorld, nearby: NPC[] = [], occupied: readonly Mount[] = []): boolean {
@@ -154,9 +177,9 @@ export class TownEagleGarrisonController {
       // A living riderless survivor may be stranded by ground obstacles. After the
       // dead rider's full presentation and replacement delay, recover the fixed asset
       // at its original ground base; never heal it at the stranded airborne position.
-      const retiredSurvivor = ambientReplacement && npc.dead && npc.deathPresentationComplete
+      const retiredSurvivor = (ambientReplacement || pair.serviceRefit && pair.replacementRemaining === 0) && npc.dead && npc.deathPresentationComplete
         && !mount!.dead && !mount!.riderNpc && !mount!.riderPlayer
-      if (!combat && (pair.refitAllowed || ambientReplacement) && !npc.isFalling && (!mount!.isAirborne || retiredSurvivor)) {
+      if (!combat && (pair.refitAllowed || ambientReplacement) && (!pair.serviceRefit || !npc.dead || npc.deathPresentationComplete) && !npc.isFalling && (!mount!.isAirborne || retiredSurvivor)) {
         if (!npc.dead && Math.hypot(npc.combatPosition.x - spec.x, npc.combatPosition.z - spec.z) >= 1) {
           const destination = npc.combatFormationCheckpoint?.position
           if (!destination || destination.x !== spec.x || destination.z !== spec.z) this.walk(npc, new THREE.Vector3(spec.x, getTerrainHeight(spec.x, spec.z), spec.z), spec.yaw ?? 0)
@@ -164,7 +187,7 @@ export class TownEagleGarrisonController {
           return true
         }
         npc.dismountFromMount(); mount!.restoreForTown(eagle.home.x, eagle.home.z, eagle.home.yaw)
-        npc.restoreForTown({ x: spec.x, z: spec.z, yaw: spec.yaw }); pair.duty = 'standby'; pair.refitAllowed = false
+        npc.restoreForTown({ x: spec.x, z: spec.z, yaw: spec.yaw }); pair.duty = 'standby'; pair.refitAllowed = false; pair.serviceRefit = false
         pair.patrolActive = false; pair.ambientRecovery = false; pair.replacementRemaining = 0; pair.commandReturn = false
       } else if (combat && !npc.dead) return false
       npc.updateTownPeace(dt, distance, false, false)
@@ -299,7 +322,7 @@ export class TownEagleGarrisonController {
       groundHeight: getTerrainHeight(homeMount!.group.position.x, homeMount!.group.position.z), clear: true,
     })) return
     npc.restoreForTown({ x: spec.x, z: spec.z, yaw: spec.yaw })
-    homeMount!.currentHp = homeMount!.maxHp; pair.refitAllowed = false
+    homeMount!.currentHp = homeMount!.maxHp; pair.refitAllowed = false; pair.serviceRefit = false
   }
   private padClear(pair: Pair, obstacles: ObstacleData[], occupied: readonly Mount[],
     point = pair.resident.spec.eagle!.home): boolean {
@@ -313,10 +336,10 @@ export class TownEagleGarrisonController {
     const position = (group: THREE.Group) => ({ x: group.position.x, y: group.position.y, z: group.position.z, yaw: group.rotation.y })
     return { version: 1, sceneKey, layoutVersion: TOWN_LAYOUT_VERSION,
       nextTakeoffRemaining: Math.min(TAKEOFF_SPACING_SECONDS, Math.max(0, this.nextTakeoff - this.time)),
-      pairs: [...this.pairs.values()].map(({ resident: { npc, spec, homeMount }, duty, refitAllowed, waypoint, patrolElapsed, patrolActive, replacementRemaining, ambientRecovery, restRemaining, commandReturn }) => ({
+      pairs: [...this.pairs.values()].map(({ resident: { npc, spec, homeMount }, duty, refitAllowed, serviceRefit, waypoint, patrolElapsed, patrolActive, replacementRemaining, ambientRecovery, restRemaining, commandReturn }) => ({
       patrol: { active: patrolActive, waypoint, elapsed: patrolElapsed }, replacementRemaining, ambientRecovery, restRemaining,
       ...(commandReturn ? { commandReturn: true } : {}),
-      riderId: canonicalTownId(spec.id), mountId: canonicalTownId(spec.eagle!.mountId), homePadId: spec.eagle!.homePadId, duty, refitAllowed,
+      riderId: canonicalTownId(spec.id), mountId: canonicalTownId(spec.eagle!.mountId), homePadId: spec.eagle!.homePadId, duty, refitAllowed, ...(serviceRefit ? { serviceRefit: true } : {}),
       hp: npc.hp, ammo: npc.combatAmmo, position: position(npc.group), mounted: npc.mount === homeMount,
       ...(npc.fallSnapshot ? { fall: npc.fallSnapshot } : {}),
       mount: { hp: homeMount!.currentHp, position: position(homeMount!.group), flight: homeMount!.flight!.snapshot() },
@@ -334,7 +357,7 @@ export class TownEagleGarrisonController {
       if (!state) continue
       this.landingQueue.release(spec.id)
       pair.playerOwned = false; pair.commandReturn = state.commandReturn === true
-      pair.duty = state.duty === 'returning' ? 'return-queue' : state.duty; pair.refitAllowed = state.refitAllowed
+      pair.duty = state.duty === 'returning' ? 'return-queue' : state.duty; pair.refitAllowed = state.refitAllowed; pair.serviceRefit = state.serviceRefit === true
       pair.waypoint = state.patrol?.waypoint ?? 0; pair.patrolElapsed = state.patrol?.elapsed ?? 0
       pair.patrolActive = state.patrol?.active ?? false
       pair.replacementRemaining = state.replacementRemaining ?? (state.duty === 'casualty' ? TOWN_EAGLE_REPLACEMENT_SECONDS : 0)

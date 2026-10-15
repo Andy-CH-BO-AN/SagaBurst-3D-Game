@@ -1,0 +1,117 @@
+import { cloneCivilianCommandSquad, type CivilianCommandSquadState } from '../career/CivilianCommandAuthority'
+import { TOWN_CENTER, TOWN_WELL, TOWN_CITY, TOWN_CITY_ROADS, TOWN_PLAZA, townHousing, TOWN_PRIVATE_EAGLE_SITES, TOWN_GARRISON_EAGLE_SITES } from './TownLayout'
+import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import type { NavigationWorld } from '../navigation/NavigationWorld'
+
+export type CivilianDistrict = 'plaza' | 'housing' | 'street'
+export interface CivilianAnchor { x: number; y: number; z: number; district: CivilianDistrict }
+interface Point { x: number; z: number }
+const civilianHousing = townHousing('viking')
+/** Stable identity-based variation, independent of creation order and reload time. */
+function random(id: string, step: number): number {
+  let h = 2166136261
+  for (const c of `${id}:${step}`) h = Math.imul(h ^ c.charCodeAt(0), 16777619)
+  h = Math.imul(h ^ h >>> 16, 2246822507)
+  return (h >>> 0) / 4294967296
+}
+export function civilianDistrict(index: number): CivilianDistrict { return index < 8 ? 'plaza' : index < 16 ? 'housing' : 'street' }
+
+/** Conservative ground clearance shared by placement and short walking segments. */
+export function civilianPointLegal(point: Point, occupied: readonly Point[] = [], obstacles: readonly ObstacleData[] = []): boolean {
+  const { x, z } = point, r = .8
+  if (x < TOWN_CITY.minX + 10 || x > TOWN_CITY.maxX - 10 || z < TOWN_CITY.minZ + 10 || z > TOWN_CITY.maxZ - 3) return false
+  // Viking houses have the larger footprint; the same home anchors work for both towns.
+  if (civilianHousing.some(h => Math.abs(x - h.x) < h.width / 2 + r && Math.abs(z - h.z) < h.depth / 2 + r)) return false
+  if (Math.abs(x - TOWN_CENTER.x) < TOWN_CENTER.width / 2 + 1 + r && Math.abs(z - TOWN_CENTER.z) < TOWN_CENTER.depth / 2 + 1 + r) return false
+  // Keep both service-side Commander candidates and the Captain's mounted approach open.
+  if (Math.abs(x - (TOWN_CENTER.x - 8)) < 13 && z > TOWN_CENTER.z + 13 && z < TOWN_CENTER.z + 28) return false
+  if (Math.hypot(x - TOWN_WELL.x, z - TOWN_WELL.z) < TOWN_WELL.radius + 1.35) return false
+  // Main riding roads and gate corridors stay clear, including the road shoulders.
+  if (TOWN_CITY_ROADS.some(road => {
+    const dx = road.bx - road.ax, dz = road.bz - road.az
+    const t = Math.max(0, Math.min(1, ((x - road.ax) * dx + (z - road.az) * dz) / (dx * dx + dz * dz)))
+    return Math.hypot(x - road.ax - t * dx, z - road.az - t * dz) < road.width / 2 + 2
+  })) return false
+  if ([...TOWN_PRIVATE_EAGLE_SITES, ...TOWN_GARRISON_EAGLE_SITES].some(p => Math.abs(x - p.x) < 16 && Math.abs(z - p.z) < 28)) return false
+  if (occupied.some(p => Math.hypot(x - p.x, z - p.z) < 3)) return false
+  const y = getTerrainHeight(x, z)
+  return !obstacles.some(o => {
+    const box = o.navigationBox ?? o.box
+    return box.max.y > y + .15 && box.min.y < y + 1.8
+      && x > box.min.x - r && x < box.max.x + r && z > box.min.z - r && z < box.max.z + r
+  })
+}
+
+/** Bounded candidates come from production plaza/housing geometry, never a second house list. */
+export function civilianHomeAnchor(index: number, occupied: readonly Point[] = [], obstacles: readonly ObstacleData[] = [], navigation?: Pick<NavigationWorld, 'areConnected'>): CivilianAnchor {
+  const id = `civilian-${index}`, district = civilianDistrict(index), homes = civilianHousing
+  for (let attempt = 0; attempt < 160; attempt++) {
+    const u = random(id, attempt * 2), v = random(id, attempt * 2 + 1)
+    let x: number, z: number
+    if (district === 'plaza') {
+      x = TOWN_PLAZA.minX + 3 + u * (TOWN_PLAZA.maxX - TOWN_PLAZA.minX - 6)
+      z = TOWN_PLAZA.minZ + 4 + v * (TOWN_PLAZA.maxZ - TOWN_PLAZA.minZ - 8)
+    } else if (district === 'housing') {
+      const h = homes[(index - 8 + Math.floor(attempt / 20)) % homes.length]
+      const angle = u * Math.PI * 2
+      x = h.x + Math.cos(angle) * (h.width / 2 + 3.5)
+      z = h.z + Math.sin(angle) * (h.depth / 2 + 3.5)
+    } else { x = 85 + u * 4; z = -4 + v * 33 }
+    if (civilianPointLegal({ x, z }, occupied, obstacles) && (!navigation || navigation.areConnected({ x: 60, z: 12 }, { x, z }))) return { x, y: getTerrainHeight(x, z), z, district }
+  }
+  throw new Error(`No legal civilian home for ${id}`)
+}
+
+interface WalkState { remaining: number; step: number; destination?: Point }
+/** Small local walks need no A*. Geometry is sampled only when choosing a new goal. */
+export class TownCivilianLife {
+  private readonly states = new Map<string, WalkState>()
+  update(id: string, home: Point, position: { x: number; y: number; z: number }, dt: number,
+    navigation: Pick<NavigationWorld, 'areConnected'>, obstacles: readonly ObstacleData[], occupied: readonly Point[]): { speed: number; yaw?: number } {
+    let state = this.states.get(id)
+    if (!state) { state = { remaining: 1 + random(id, 0) * 8, step: 0 }; this.states.set(id, state) }
+    state.remaining -= dt
+    if (!state.destination && state.remaining <= 0) {
+      const angle = random(id, ++state.step) * Math.PI * 2
+      const destination = { x: home.x + Math.cos(angle) * 2.2, z: home.z + Math.sin(angle) * 2.2 }
+      const length = Math.hypot(destination.x - position.x, destination.z - position.z)
+      let legal = length < 6 && navigation.areConnected(position, destination)
+      for (let t = 0; legal && t <= 1; t += .1) legal = civilianPointLegal({
+        x: position.x + (destination.x - position.x) * t, z: position.z + (destination.z - position.z) * t,
+      }, occupied, obstacles)
+      if (legal) state.destination = destination
+      else state.remaining = 5
+    }
+    if (!state.destination) return { speed: 0 }
+    const dx = state.destination.x - position.x, dz = state.destination.z - position.z, distance = Math.hypot(dx, dz)
+    if (distance < .08) {
+      state.destination = undefined; state.remaining = 5 + random(id, state.step + 100) * 10
+      return { speed: 0 }
+    }
+    const stride = Math.min(distance, .65 * dt), next = { x: position.x + dx / distance * stride, z: position.z + dz / distance * stride }
+    if (!civilianPointLegal(next, occupied, obstacles)) { state.destination = undefined; state.remaining = 3; return { speed: 0 } }
+    position.x = next.x; position.z = next.z; position.y = getTerrainHeight(next.x, next.z)
+    return { speed: .65, yaw: Math.atan2(dx, dz) }
+  }
+  suspend(id: string): void { this.states.delete(id) }
+}
+
+export const CIVILIAN_HOME_LAYOUT_VERSION = 1
+/** Upgrade only native home intent. Never move commanded actors, revive deaths or reset wartime shelter. */
+export function migrateCivilianHomes(saved: CivilianCommandSquadState,
+  homes: readonly { id: string; x: number; y?: number; z: number; yaw?: number }[]): CivilianCommandSquadState {
+  if ((saved.homeLayoutVersion ?? 0) >= CIVILIAN_HOME_LAYOUT_VERSION) return saved
+  const next = cloneCivilianCommandSquad(saved)
+  next.homeLayoutVersion = CIVILIAN_HOME_LAYOUT_VERSION
+  for (const home of homes) {
+    const member = next.members[home.id], owner = next.owners[home.id]
+    if (!member || member.status === 'dead' || member.hp === 0 || !/^civilian-\d+$/.test(home.id)) continue
+    const position = { x: home.x, y: home.y ?? getTerrainHeight(home.x, home.z), z: home.z, yaw: home.yaw ?? 0 }
+    if (owner === 'daily') {
+      member.position = position; member.order = 'attack'; delete member.formation
+    } else if (owner === 'returning' && member.formation) {
+      member.formation.position = position; member.formation.reached = false
+    }
+  }
+  return next
+}

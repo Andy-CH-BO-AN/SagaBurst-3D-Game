@@ -1,3 +1,4 @@
+import { civilianHomeAnchor } from './TownCivilianLife'
 import { assignTownGarrison, type TownGarrisonStation } from './TownGarrison'
 import { townEagleRoster } from './TownEagleGarrison'
 import { addCareerItem, availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
@@ -10,7 +11,7 @@ import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
 import { resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { followLocalOffset } from '../battle/FollowOrder'
-import { TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
+import { TOWN_CENTER, TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 export const townName = (faction: CharacterFaction): string => faction === 'roman' ? 'vinum 村' : 'økse 村'
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, stableHorses: 5 } as const
@@ -65,7 +66,7 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
 }
 export const TOWN_SITES = {
   /** Civic hall faces the open plaza, clear of the four main roads. */
-  hall: { x: 52, z: -22, yaw: 0 },
+  hall: TOWN_CENTER,
   weapons: { x: -6, z: -17, yaw: Math.PI / 2 },
   stable: { x: -5, z: -39, yaw: Math.PI / 2 },
   /** Training entrance/refit anchor; the former Barracks building is removed. */
@@ -115,8 +116,8 @@ export function townRoster(): TownActorSpec[] {
     })
   }
   for (let i = 0; i < 20; i++) {
-    const angle = i * Math.PI * 2 / 20
-    result.push({ id: 'civilian-' + i, role: 'civilian', index: i, x: Math.sin(angle) * (15 + i % 3 * 3) - 5, z: Math.cos(angle) * 16 + 7,
+    const anchor = civilianHomeAnchor(i, result.filter(a => a.role === 'civilian'))
+    result.push({ id: 'civilian-' + i, role: 'civilian', index: i, x: anchor.x, y: anchor.y, z: anchor.z,
       duty: 'civilian', mounted: false, training: false, tier: 2, assaultObjective: false })
   }
   for (const [role, site, side, forward] of [['captain', 'hall', -8, 20], ['deployment', 'hall', 8, 20], ['merchant', 'weapons', 0, 7.5], ['ranger', 'stable', 3, 8], ['cat', 'stable', -3, 8]] as const) result.push({
@@ -141,7 +142,14 @@ export function townRoster(): TownActorSpec[] {
     }
   }
   result.push(...townEagleRoster())
-  return assignTownGarrison(result)
+  assignTownGarrison(result)
+  const occupied = result.filter(a => a.role !== 'civilian').map(a => a.garrison ?? a)
+  for (const civilian of result.filter(a => a.role === 'civilian')) {
+    const home = civilianHomeAnchor(civilian.index, occupied)
+    Object.assign(civilian, { x: home.x, y: home.y, z: home.z })
+    occupied.push(civilian)
+  }
+  return result
 }
 export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger' || actor.role === 'eagle-trainer') }
 /** Captain's fixed T2 training residents. Selection never draws from officers, gates or Patrols. */
