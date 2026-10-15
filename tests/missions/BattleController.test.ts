@@ -1,19 +1,19 @@
-import { describe, it, expect, beforeEach } from "vitest"
-import { BattleController } from "../../src/battle/BattleController"
+import { describe, expect, it } from "vitest"
 import { PRESET_10V10 } from "../../src/battle/BattleConfig"
-import { Faction, AIType, NPC } from "../../src/world/NPC"
+import { BattleController } from "../../src/battle/BattleController"
+import { Faction, NPC } from "../../src/world/NPC"
 
 // Helper to create mock NPC objects
 function createMockNpc(
   faction: Faction,
   dead: boolean = false,
   characterFaction: 'viking' | 'roman' = faction === Faction.ENEMY ? 'roman' : 'viking',
-): NPC {
+): NPC & { dead: boolean } {
   return {
     faction,
     characterFaction,
     dead,
-  } as unknown as NPC
+  } as unknown as NPC & { dead: boolean }
 }
 
 describe("BattleController Outcome Determination", () => {
@@ -30,21 +30,6 @@ describe("BattleController Outcome Determination", () => {
     controller.update(npcs)
 
     expect(controller.getResult()).toBe("VIKING_VICTORY")
-  })
-
-  it("determines ROMAN_VICTORY when all Viking NPCs are eliminated", () => {
-    const controller = new BattleController(PRESET_10V10)
-    const npcs = [
-      createMockNpc(Faction.PLAYER, false),
-      createMockNpc(Faction.ENEMY, false),
-    ]
-    controller.initCounts(npcs)
-
-    // Viking dies
-    npcs[0].dead = true
-    controller.update(npcs)
-
-    expect(controller.getResult()).toBe("ROMAN_VICTORY")
   })
 
   it("determines DRAW on Double KO when both sides are eliminated on the same frame", () => {

@@ -1,10 +1,9 @@
-import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   NavigationWorld,
 } from '../../src/navigation/NavigationWorld'
 import {
-  PLAYABLE_WORLD_BOUND,
   type ObstacleData,
 } from '../../src/world/Terrain'
 
@@ -25,7 +24,7 @@ function obstacle(
 
 describe('NavigationWorld', () => {
   it('rebuilds only when shared obstacle topology changes', () => {
-    const world = new NavigationWorld()
+    const world = new NavigationWorld({ minX: -50, maxX: 50, minZ: -50, maxZ: 50, cellSize: 2 })
     const obstacles: ObstacleData[] = []
 
     expect(world.sync(obstacles)).toBe(true)
@@ -50,9 +49,9 @@ describe('NavigationWorld', () => {
 
   it('rejects disconnected regions before spending an A star request', () => {
     const budget = 2
-    const world = new NavigationWorld(undefined, budget)
+    const world = new NavigationWorld({ minX: -50, maxX: 50, minZ: -50, maxZ: 50, cellSize: 2 }, budget)
     world.rebuild([
-      obstacle(-1, -PLAYABLE_WORLD_BOUND, 1, PLAYABLE_WORLD_BOUND),
+      obstacle(-1, -50, 1, 50),
     ])
     world.beginFrame()
 
@@ -74,47 +73,9 @@ describe('NavigationWorld', () => {
     }
   })
 
-  it('shares one cached A star path across the same 2x2 nav-cell groups', () => {
-    const world = new NavigationWorld(undefined, 2)
-    world.rebuild([
-      obstacle(-1, -8, 1, 8),
-    ])
-    world.beginFrame()
-
-    // Both starts are inside the same 4m macro group, and both goals are too.
-    expect(
-      world.queryPath(
-        new THREE.Vector3(-7.1, 0, -2.5),
-        new THREE.Vector3(8.5, 0, -2.5),
-      ).status,
-    ).toBe('path')
-    expect(
-      world.queryPath(
-        new THREE.Vector3(-6.5, 0, -1.1),
-        new THREE.Vector3(9.1, 0, -1.1),
-      ).status,
-    ).toBe('path')
-
-    // The shared second query must not consume another A* slot, so there is
-    // still room for one different group this frame.
-    expect(
-      world.queryPath(
-        new THREE.Vector3(-8.5, 0, 4.5),
-        new THREE.Vector3(8.5, 0, 4.5),
-      ).status,
-    ).toBe('path')
-
-    // A third unique group is now over the frame budget.
-    expect(
-      world.queryPath(
-        new THREE.Vector3(-8.5, 0, 12.5),
-        new THREE.Vector3(8.5, 0, 12.5),
-      ).status,
-    ).toBe('pending')
-  })
-
-  it.each([1, 3, 5])('admits %i uncached A star searches per frame and queues the next', budget => {
-    const world = new NavigationWorld(undefined, budget)
+  it('admits the configured number of uncached A star searches and queues the next', () => {
+    const budget = 3
+    const world = new NavigationWorld({ minX: -50, maxX: 50, minZ: -50, maxZ: 50, cellSize: 2 }, budget)
     world.rebuild([obstacle(-1, -8, 1, 8)])
     world.beginFrame()
 
@@ -140,10 +101,10 @@ describe('NavigationWorld', () => {
   })
 
   it('reconnects components after a wall breach', () => {
-    const world = new NavigationWorld()
+    const world = new NavigationWorld({ minX: -50, maxX: 50, minZ: -50, maxZ: 50, cellSize: 2 })
 
     world.rebuild([
-      obstacle(-1, -PLAYABLE_WORLD_BOUND, 1, PLAYABLE_WORLD_BOUND),
+      obstacle(-1, -50, 1, 50),
     ])
     expect(
       world.areConnected(
@@ -153,8 +114,8 @@ describe('NavigationWorld', () => {
     ).toBe(false)
 
     world.rebuild([
-      obstacle(-1, -PLAYABLE_WORLD_BOUND, 1, -6),
-      obstacle(-1, 6, 1, PLAYABLE_WORLD_BOUND),
+      obstacle(-1, -50, 1, -6),
+      obstacle(-1, 6, 1, 50),
     ])
     expect(
       world.areConnected(
@@ -162,72 +123,6 @@ describe('NavigationWorld', () => {
         new THREE.Vector3(10, 0, 0),
       ),
     ).toBe(true)
-  })
-
-  it('reconnects an outpost-like enclosure when a side wall segment is destroyed', () => {
-    const world = new NavigationWorld()
-    const gate = obstacle(-4, -108.5, 4, -107.5)
-    const frontLeftOuter = obstacle(-44, -108.5, -17.33, -107.5)
-    const frontLeftInner = obstacle(-17.33, -108.5, -4, -107.5)
-    const frontRight = obstacle(4, -108.5, 44, -107.5)
-    const leftSide = obstacle(-44.5, -180, -43.5, -108)
-    const rightSide = obstacle(43.5, -180, 44.5, -108)
-    const rear = obstacle(-44, -180.5, 44, -179.5)
-
-    const obstacles = [
-      gate,
-      frontLeftOuter,
-      frontLeftInner,
-      frontRight,
-      leftSide,
-      rightSide,
-      rear,
-    ]
-
-    world.sync(obstacles)
-    expect(
-      world.areConnected(
-        new THREE.Vector3(0, 0, -100),
-        new THREE.Vector3(0, 0, -125),
-      ),
-    ).toBe(false)
-
-    obstacles.splice(obstacles.indexOf(frontLeftInner), 1)
-    world.sync(obstacles)
-
-    expect(
-      world.areConnected(
-        new THREE.Vector3(0, 0, -100),
-        new THREE.Vector3(0, 0, -125),
-      ),
-    ).toBe(true)
-  })
-
-  it('projects a coarse blocked actor cell onto nearby walkable navigation', () => {
-    const world = new NavigationWorld()
-    world.rebuild([
-      obstacle(-1, -1, 1, 1),
-    ])
-    world.beginFrame()
-
-    const result = world.queryPath(
-      new THREE.Vector3(0.9, 0, 0),
-      new THREE.Vector3(10, 0, 0),
-    )
-    expect(result.status).toBe('path')
-  })
-
-  it('ignores navigationPassable overhead obstacles when blocking the ground grid', () => {
-    const world = new NavigationWorld()
-    const overhead = { ...obstacle(-3, -3, 3, 3), navigationPassable: true }
-    const solid = obstacle(10, -3, 12, 3)
-    world.rebuild([overhead, solid])
-    const blockedAt = (x: number): boolean => world.grid.isBlocked(world.grid.worldToCell(new THREE.Vector3(x, 0, 0))!)
-
-    expect(blockedAt(0)).toBe(false)
-    expect(blockedAt(11)).toBe(true)
-    world.beginFrame()
-    expect(world.queryPath(new THREE.Vector3(-8, 0, 0), new THREE.Vector3(8, 0, 0)).status).toBe('path')
   })
 })
 

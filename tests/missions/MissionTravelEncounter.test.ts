@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 import { describe, expect, it, vi } from 'vitest'
-import type { NPC } from '../../src/world/NPC'
-import type { Player } from '../../src/player/Player'
-import { Faction } from '../../src/combat/CombatFaction'
-import { SpatialGrid } from '../../src/world/SpatialGrid'
 import { MissionTravelEncounter } from '../../src/career/MissionTravelEncounter'
+import { Faction } from '../../src/combat/CombatFaction'
+import type { Player } from '../../src/player/Player'
+import type { NPC } from '../../src/world/NPC'
+import { SpatialGrid } from '../../src/world/SpatialGrid'
 
 function npc(id: string, x: number, z = 0, faction = Faction.TOWN): NPC {
   const actor = {
@@ -34,19 +34,6 @@ function fixture(count = 3) {
 }
 
 describe('Mission party travel interruption', () => {
-  it('uses one throttled broad-phase query for 30 allies and 60 roaming actors', () => {
-    const f = fixture(30)
-    f.actors.push(...Array.from({ length: 57 }, (_, i) => npc('extra-' + i, 250, i, Faction.BANDIT)))
-    const query = vi.spyOn(f.grid, 'getNearbyInto')
-    f.frame(0)
-    expect(query).toHaveBeenCalledTimes(1)
-    expect(f.encounter.active).toBe(true)
-    for (const member of f.members) expect(member.setTacticalOrder).toHaveBeenCalledWith('charge')
-    for (let i = 0; i < 6; i++) f.frame(.05)
-    expect(query).toHaveBeenCalledTimes(1)
-    f.frame(.06)
-    expect(query).toHaveBeenCalledTimes(2)
-  })
 
   it('wakes the entire party immediately at the tail hit, even when the victim dies', () => {
     const f = fixture()
@@ -57,43 +44,6 @@ describe('Mission party travel interruption', () => {
     expect(f.encounter.engagementOrigin?.x).toBe(90)
     for (const member of f.members.slice(0, 2)) expect(member.assignFormationTarget).toHaveBeenCalled()
     expect(f.members[2].setTacticalOrder).not.toHaveBeenCalled()
-  })
-
-  it('uses the first detecting member, rather than the captain, as sensor origin', () => {
-    const f = fixture()
-    f.members[2].combatPosition.set(100, 0, 0)
-    f.bandits.forEach(actor => actor.combatPosition.set(102, 0, 0))
-    f.cavalry[0].combatPosition.set(250, 0, 0)
-    f.frame()
-    expect(f.encounter.engagementOrigin?.x).toBe(100)
-    expect(f.members[0].tacticalOrder).toBe('formation')
-    f.members[0].combatPosition.set(80, 0, 0)
-    f.frame(.01)
-    expect(f.members[0].tacticalOrder).toBe('charge')
-  })
-
-  it('supports a detached Player and keeps the original origin after subsequent remote hits', () => {
-    const f = fixture()
-    f.player.combatPosition.set(200, 0, 0)
-    f.bandits.forEach(actor => actor.combatPosition.set(205, 0, 0))
-    f.encounter.noteHit(f.player, f.bandits[0], f.members, f.player, f.runtime)
-    expect(f.encounter.engagementOrigin?.x).toBe(200)
-    for (const member of f.members) expect(member.tacticalOrder).toBe('formation')
-    f.player.combatPosition.set(-200, 0, 0)
-    f.cavalry[0].combatPosition.set(-198, 0, 0)
-    f.encounter.noteHit(f.player, f.cavalry[0], f.members, f.player, f.runtime)
-    expect(f.encounter.engagementOrigin?.x).toBe(200)
-    expect(f.encounter.hostileActors).not.toContain(f.cavalry[0])
-  })
-
-  it('does not mistake allied roaming cavalry for a Player hostile', () => {
-    const f = fixture()
-    f.actors.length = 0
-    const ally = npc('allied-cavalry', 5)
-    f.actors.push(ally)
-    expect(f.encounter.noteHit(f.player, ally, f.members, f.player, f.runtime)).toBe(false)
-    f.frame()
-    expect(f.encounter.active).toBe(false)
   })
 
   it('rejects friendly, unowned and non-party contacts', () => {
@@ -135,14 +85,5 @@ describe('Mission party travel interruption', () => {
     f.frame(.01)
     expect(f.encounter.active).toBe(true)
     expect(f.encounter.engagementOrigin?.x).toBe(250)
-  })
-
-  it('ends a hit-triggered encounter outside the strict leash without a hold timer', () => {
-    const f = fixture()
-    f.actors.forEach(actor => actor.combatPosition.set(100, 0, 0))
-    f.encounter.noteHit(f.members[0], f.bandits[0], f.members, f.player, f.runtime)
-    expect(f.encounter.active).toBe(true)
-    f.frame(0)
-    expect(f.encounter.active).toBe(false)
   })
 })

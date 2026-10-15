@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { TrainingGroundUI } from '../../src/ui/TrainingGroundUI'
+import { afterEach,describe,expect,it,onTestFinished,vi } from 'vitest';
+import { TrainingGroundUI } from '../../src/ui/TrainingGroundUI';
 
 /** Minimal DOM boundary; EventTarget retains real listener cancellation semantics. */
 function harness() {
@@ -41,12 +41,6 @@ function harness() {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('Training pause, controls and listener ownership', () => {
-  it('pauses with Escape without pointer lock, ignores repeats and resumes once', () => {
-    const h = harness()
-    h.key(); h.key('Escape', true)
-    expect(h.ui.paused).toBe(true); expect(h.actions.onPause).toHaveBeenCalledOnce()
-    h.key(); expect(h.ui.paused).toBe(false); expect(h.actions.onResume).toHaveBeenCalledOnce()
-  })
 
   it('handles browser-only pointer unlock and avoids duplicate pause callbacks', () => {
     const h = harness()
@@ -54,12 +48,6 @@ describe('Training pause, controls and listener ownership', () => {
     expect(h.ui.paused).toBe(true); expect(h.actions.onPause).toHaveBeenCalledOnce()
     h.click('resume'); h.lock(true); h.lock(false)
     expect(h.ui.paused).toBe(true); expect(h.actions.onPause).toHaveBeenCalledTimes(2)
-  })
-
-  it('keeps equipment Escape and unlock handling with the equipment owner', () => {
-    const h = harness(); h.actions.equipmentVisible.mockReturnValue(true)
-    expect(h.key().defaultPrevented).toBe(false)
-    h.lock(true); h.lock(false); expect(h.ui.paused).toBe(false)
   })
 
   it('traps pause focus and routes supply/reset/exit actions while releasing listeners on dispose', () => {

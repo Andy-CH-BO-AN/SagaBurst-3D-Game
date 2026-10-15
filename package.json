@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "test": "vitest run",
+    "test": "node tools/tests/run.cjs",
     "preview": "vite preview",
     "build:web": "npm run build",
     "build:desktop": "tsc && vite build --mode desktop",
@@ -13,7 +13,7 @@
     "package:desktop": "npm run build:desktop && electron-builder --publish never",
     "smoke:web": "node tests/release/smoke.mjs",
     "smoke:desktop": "node tests/release/smoke.mjs --desktop",
-    "test:release": "node --test tests/release/*.test.cjs",
+    "test:release": "node tools/tests/run.cjs --release",
     "validate:release": "node tools/release/validate-tag.cjs",
     "typecheck:test": "node tools/typecheck-tests.cjs"
   },

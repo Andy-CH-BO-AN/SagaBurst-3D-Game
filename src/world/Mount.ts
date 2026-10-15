@@ -26,8 +26,8 @@ import { EagleAttack } from '../combat/EagleAttack'
 import type { CombatContact, PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
 
-const MOUNT_AIM_GEOMETRY = new THREE.BoxGeometry(1.1, 1.65, 2.4)
-const MOUNT_AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
+let mountAimGeometry: THREE.BoxGeometry | undefined
+let mountAimMaterial: THREE.MeshBasicMaterial | undefined
 
 export enum MountType {
   BLACK_CAT = 'BLACK_CAT',
@@ -186,7 +186,8 @@ export class Mount {
     this.group.position.set(x, startY, z)
     this.previousPosition.copy(this.group.position)
 
-    this.aimCollider = new THREE.Mesh(MOUNT_AIM_GEOMETRY, MOUNT_AIM_PROXY_MATERIAL)
+    this.aimCollider = new THREE.Mesh(mountAimGeometry ??= new THREE.BoxGeometry(1.1, 1.65, 2.4),
+      mountAimMaterial ??= new THREE.MeshBasicMaterial())
     this.aimCollider.name = `aim_proxy_mount_${type}`
     this.aimCollider.position.set(0, 0.825, 0)
     if (this.isFlyingMount) {
@@ -195,9 +196,9 @@ export class Mount {
     }
     this.aimCollider.layers.set(AIM_RAYCAST_LAYER)
     this.group.add(this.aimCollider)
-    if (!MOUNT_AIM_GEOMETRY.boundingBox) MOUNT_AIM_GEOMETRY.computeBoundingBox()
+    if (!mountAimGeometry.boundingBox) mountAimGeometry.computeBoundingBox()
     if (this.eagleVisual) {
-      const head = new THREE.Mesh(MOUNT_AIM_GEOMETRY, MOUNT_AIM_PROXY_MATERIAL)
+      const head = new THREE.Mesh(mountAimGeometry, mountAimMaterial)
       head.name = 'aim_proxy_mount_xongkoro_head'
       head.layers.set(AIM_RAYCAST_LAYER)
       this.group.updateWorldMatrix(true, true)
@@ -210,12 +211,12 @@ export class Mount {
       this.eagleVisual.headAttackSocket.attach(head)
       this.eagleVisual.torsoSocket.attach(this.aimCollider)
       this.aimColliders = [this.aimCollider, head]
-      this.mountCollider = new CompoundLocalBoxCollider(this.aimCollider, MOUNT_AIM_GEOMETRY.boundingBox!, [new LocalBoxCollider(head, MOUNT_AIM_GEOMETRY.boundingBox!)])
+      this.mountCollider = new CompoundLocalBoxCollider(this.aimCollider, mountAimGeometry.boundingBox!, [new LocalBoxCollider(head, mountAimGeometry.boundingBox!)])
       // Calibrate anatomy in the authored reference before taking the grounded pose.
       this.eagleVisual.update(0, { flying: false, sprinting: false, attackWeight: 0, dead: false, groundClearance: 0 })
     } else {
       this.aimColliders = [this.aimCollider]
-      this.mountCollider = new LocalBoxCollider(this.aimCollider, MOUNT_AIM_GEOMETRY.boundingBox!)
+      this.mountCollider = new LocalBoxCollider(this.aimCollider, mountAimGeometry.boundingBox!)
     }
 
     scene.add(this.group)

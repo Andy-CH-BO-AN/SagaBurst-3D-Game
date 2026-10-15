@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
+import { acceptCaptainFrontline } from '../../src/career/CaptainBattleLaunch'
+import { addCareerItem } from '../../src/career/CareerInventory'
+import { prepareFailedCareerMissionReturn, recoverFailedCareerMission } from '../../src/career/CareerMissionRecovery'
+import { recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { recoverFailedCareerMission, prepareFailedCareerMissionReturn } from '../../src/career/CareerMissionRecovery'
-import { recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
-import { addCareerItem } from '../../src/career/CareerInventory'
-import { acceptCaptainFrontline } from '../../src/career/CaptainBattleLaunch'
 
 function withMission(): CareerProfile {
   const base = createCareerProfile('viking')

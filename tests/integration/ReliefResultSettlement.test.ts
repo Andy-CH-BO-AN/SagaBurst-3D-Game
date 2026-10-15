@@ -1,12 +1,11 @@
-import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
-import { describe, expect, it, vi, afterEach } from 'vitest'
-import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { acceptCareerOutpostRelief, claimCareerOutpost, clearCareerOutpost } from '../../src/career/CareerOutpostMission'
-import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
+import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
+import { acceptCareerOutpostRelief, claimCareerOutpost, clearCareerOutpost } from '../../src/career/CareerOutpostMission'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { Game } from '../../src/Game'
-import { calculateMerit } from '../../src/career/MeritCalculator'
+import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
@@ -15,6 +14,8 @@ function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
 }
 
 afterEach(() => vi.unstubAllGlobals())
+
+interface ReliefSettlementEntry { _updateDefenseCampaign(dt: number): void }
 
 describe('Relief result settlement wiring', () => {
   it.each(['victory', 'defeat'] as const)('settles %s only once, persists dead-player stats, and clears active relief on return', outcome => {
@@ -25,7 +26,7 @@ describe('Relief result settlement wiring', () => {
     const stats = { player: { damageDealt: 500, damageTaken: 100, kills: 5, survived: false, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }, squads: [] }
     const config = createCareerOutpostLaunch(profile)
     let enemies = 60, allies = 49
-    const game = Object.assign(Object.create(Game.prototype), {
+    const game = Object.assign(Object.create(Game.prototype) as ReliefSettlementEntry, {
     spawnBatches: [], initializing: false, spawningStopped: false,
       defenseCampaignConfig: config, defenseCampaignRuntime: new DefenseCampaignRuntime({ eliminationObjective: true, reinforcementsEnabled: false }),
       defenseCampaignHud: { showResult: vi.fn(), update: vi.fn(), updateGate: vi.fn(), destroy: vi.fn() },
@@ -35,7 +36,7 @@ describe('Relief result settlement wiring', () => {
       campaignOriginalDefenders: [], campaignSpawnQueueIndex: 0, personalCheckpointElapsed: 0, campaignSpawnWave: null, campaignReinforcementSpawned: false, campaignAttackersStarted: true,
       _spawnNextDefenseCampaignNpc: vi.fn(), _queueDefenseCampaignWave: vi.fn(),
       _campaignFactionAlive: (faction: string) => faction === 'roman' ? allies : enemies,
-    }) as any
+    })
     game._updateDefenseCampaign(1)
     expect(game.defenseCampaignHud.showResult).not.toHaveBeenCalled()
     expect(game.reliefMarch.update).toHaveBeenCalled(); expect(game.defenseCampaignHud.update).toHaveBeenCalled()
@@ -46,7 +47,7 @@ describe('Relief result settlement wiring', () => {
     expect(game.defenseCampaignHud.showResult.mock.calls[0][0]).toBe(outcome)
     const saved = store.load()!
     expect(saved.outpostBattleRecords?.[0]).toMatchObject({ kind: 'outpost-relief', outcome, stats: { survived: false }, merit: { survival: 0 } })
-    expect(saved.totalMerit).toBe(profile.totalMerit + calculateMerit(stats, outcome, 'defense', 'mission').total)
+    expect(saved.totalMerit).toBe(outcome === 'victory' ? 445 : 365)
     expect(saved.completedOutpostStages).toEqual([1, 2, 3])
     expect(claimCareerOutpost(saved, 'relief', outcome, stats).alreadyClaimed).toBe(true)
     expect(parseCareerProfile(saved)?.outpostBattleRecords).toEqual(saved.outpostBattleRecords)

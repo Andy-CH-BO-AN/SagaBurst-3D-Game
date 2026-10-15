@@ -1,8 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe,expect,it } from 'vitest'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { DEFAULT_SAVE, SaveManager, type PlayerSaveData } from '../../src/save/SaveManager'
 import type { SkillState } from '../../src/rpg/SkillManager'
+import { DEFAULT_SAVE,SaveManager,type PlayerSaveData } from '../../src/save/SaveManager'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 interface SkillStorageAdapter {

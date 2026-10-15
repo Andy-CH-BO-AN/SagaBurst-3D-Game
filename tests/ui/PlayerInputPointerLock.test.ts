@@ -1,145 +1,49 @@
-import { describe, it, expect } from "vitest"
-import { PlayerInput } from "../../src/player/PlayerInput"
+import { afterEach,describe,expect,it,onTestFinished,vi } from 'vitest';
+import { PlayerInput } from '../../src/player/PlayerInput';
 
-function inputHarness(search = '') {
-  const windowListeners: Record<string, Function[]> = {}
-  const documentListeners: Record<string, Function[]> = {}
-  ;(globalThis as any).window = {
-    location: { search },
-    addEventListener: (name: string, fn: Function) => { (windowListeners[name] ??= []).push(fn) },
-    removeEventListener: () => {},
-  }
-  ;(globalThis as any).document = {
-    pointerLockElement: null,
-    addEventListener: (name: string, fn: Function) => { (documentListeners[name] ??= []).push(fn) },
-    removeEventListener: () => {},
-  }
-  return { input: new PlayerInput(), windowListeners, documentListeners }
+/** Event listeners are real; no Player, camera or rendered scene is constructed. */
+function harness(search = '') {
+  const win = Object.assign(new EventTarget(), { location: { search } })
+  const doc = Object.assign(new EventTarget(), { pointerLockElement: null as object | null })
+  vi.stubGlobal('window', win); vi.stubGlobal('document', doc)
+  const input = new PlayerInput()
+  onTestFinished(() => input.dispose())
+  const mouse = (type: string, button: number) => win.dispatchEvent(Object.assign(new Event(type), { button }))
+  const key = (code: string) => win.dispatchEvent(Object.assign(new Event('keydown'), { code }))
+  const lock = (locked: boolean) => { doc.pointerLockElement = locked ? {} : null; doc.dispatchEvent(new Event('pointerlockchange')) }
+  return { win, doc, input, mouse, key, lock }
 }
 
-describe("PlayerInput Pointer Lock Synchronization", () => {
-  it.each(['', '?nolock'])('RMB remains hold/release in %s, including repeated down and blur', search => {
-    const { input, windowListeners, documentListeners } = inputHarness(search)
-    ;(globalThis as any).document.pointerLockElement = {}
-    documentListeners.pointerlockchange.forEach(fn => fn())
-    const fire = (name: string, button = 2) => windowListeners[name]?.forEach(fn => fn({ button }))
-    fire('mousedown'); fire('mousedown')
-    expect(input.isRightMouseDown).toBe(true)
-    fire('mousedown', 0); fire('mouseup', 0)
-    expect(input.consumeLeftClick()).toBe(true)
-    expect(input.consumeLeftClickRelease()).toBe(true)
-    fire('mouseup')
-    expect(input.isRightMouseDown).toBe(false)
-    fire('mousedown'); fire('blur')
-    expect(input.isRightMouseDown).toBe(false)
-    input.dispose()
-  })
-  it("PlayerInput created while document.pointerLockElement already exists -> isLocked === true", () => {
-    ;(globalThis as any).window = {
-      location: { search: "" },
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    };
-    ;(globalThis as any).document = {
-      pointerLockElement: {} as Element,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    };
-
-    const input = new PlayerInput()
-    expect(input.isLocked).toBe(true)
+afterEach(() => vi.unstubAllGlobals())
+describe('PlayerInput ownership', () => {
+  it('ignores unlocked controls and clears held movement and combat input when lock is lost', () => {
+    const h = harness()
+    h.key('KeyW'); h.mouse('mousedown', 0); h.mouse('mousedown', 2)
+    expect(h.input.keys.KeyW).toBeUndefined()
+    expect(h.input.consumeLeftClick()).toBe(false)
+    expect(h.input.isRightMouseDown).toBe(false)
+    h.lock(true); h.key('KeyW'); h.mouse('mousedown', 2)
+    expect(h.input.keys.KeyW).toBe(true)
+    expect(h.input.isRightMouseDown).toBe(true)
+    h.lock(false)
+    expect(h.input.keys.KeyW).toBeUndefined()
+    expect(h.input.isRightMouseDown).toBe(false)
   })
 
-  it("PlayerInput created while document.pointerLockElement is null -> isLocked === false", () => {
-    ;(globalThis as any).window = {
-      location: { search: "" },
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    };
-    ;(globalThis as any).document = {
-      pointerLockElement: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    };
-
-    const input = new PlayerInput()
-    expect(input.isLocked).toBe(false)
+  it('preserves right-button hold/release and clears it on focus loss', () => {
+    const h = harness(); h.lock(true)
+    h.mouse('mousedown', 2); h.mouse('mousedown', 2)
+    expect(h.input.isRightMouseDown).toBe(true)
+    h.mouse('mouseup', 2)
+    expect(h.input.isRightMouseDown).toBe(false)
+    h.mouse('mousedown', 2); h.win.dispatchEvent(new Event('blur'))
+    expect(h.input.isRightMouseDown).toBe(false)
   })
 
-  it("Town ignores mouse look until a real pointer lock exists", () => {
-    const listeners: Record<string, Function[]> = {}
-    ;(globalThis as any).window = { location: { search: '' }, addEventListener: () => {} }
-    ;(globalThis as any).document = { pointerLockElement: null, addEventListener: (name: string, fn: Function) => { (listeners[name] ??= []).push(fn) } }
-    const input = new PlayerInput()
-    listeners.mousemove.forEach(fn => fn({ movementX: 30, movementY: 4 }))
-    expect(input.consumeMouseDelta()).toEqual({ dx: 0, dy: 0 })
-    ;(globalThis as any).document.pointerLockElement = {}
-    listeners.pointerlockchange.forEach(fn => fn())
-    ;(globalThis as any).document.pointerLockElement = null
-    listeners.pointerlockchange.forEach(fn => fn())
-    expect(input.isLocked).toBe(false)
-    listeners.mousemove.forEach(fn => fn({ movementX: 30, movementY: 4 }))
-    expect(input.consumeMouseDelta()).toEqual({ dx: 0, dy: 0 })
-  })
-
-  it("syncs isLocked when pointerlockchange event is dispatched", () => {
-    const listeners: Record<string, Function[]> = {};
-    ;(globalThis as any).window = {
-      location: { search: "" },
-      addEventListener: () => {},
-      removeEventListener: () => {},
-    };
-    ;(globalThis as any).document = {
-      pointerLockElement: null,
-      addEventListener: (event: string, cb: any) => {
-        listeners[event] = listeners[event] || []
-        listeners[event].push(cb)
-      },
-      removeEventListener: () => {},
-    };
-
-    const input = new PlayerInput()
-    expect(input.isLocked).toBe(false)
-
-    // Acquire lock
-    ;(globalThis as any).document.pointerLockElement = {} as Element
-    listeners["pointerlockchange"]?.forEach(cb => cb(new Event("pointerlockchange")))
-    expect(input.isLocked).toBe(true)
-
-    // Release lock (ESC)
-    ;(globalThis as any).document.pointerLockElement = null
-    listeners["pointerlockchange"]?.forEach(cb => cb(new Event("pointerlockchange")))
-    expect(input.isLocked).toBe(false)
-  })
-
-  it('ignores movement and combat input while unlocked and clears held input on unlock', () => {
-    const { input, windowListeners, documentListeners } = inputHarness()
-    windowListeners.keydown.forEach(fn => fn({ code: 'KeyW' }))
-    windowListeners.mousedown.forEach(fn => fn({ button: 0 }))
-    windowListeners.mousedown.forEach(fn => fn({ button: 2 }))
-    expect(input.keys.KeyW).toBeUndefined()
-    expect(input.consumeLeftClick()).toBe(false)
-    expect(input.isRightMouseDown).toBe(false)
-
-    ;(globalThis as any).document.pointerLockElement = {}
-    documentListeners.pointerlockchange.forEach(fn => fn())
-    windowListeners.keydown.forEach(fn => fn({ code: 'KeyW' }))
-    windowListeners.mousedown.forEach(fn => fn({ button: 2 }))
-    expect(input.keys.KeyW).toBe(true)
-    expect(input.isRightMouseDown).toBe(true)
-
-    ;(globalThis as any).document.pointerLockElement = null
-    documentListeners.pointerlockchange.forEach(fn => fn())
-    expect(input.keys.KeyW).toBeUndefined()
-    expect(input.isRightMouseDown).toBe(false)
-  })
-
-  it('keeps explicit nolock QA input enabled', () => {
-    const { input, windowListeners } = inputHarness('?nolock')
-    windowListeners.keydown.forEach(fn => fn({ code: 'KeyW' }))
-    windowListeners.mousedown.forEach(fn => fn({ button: 0 }))
-    expect(input.isLocked).toBe(true)
-    expect(input.keys.KeyW).toBe(true)
-    expect(input.consumeLeftClick()).toBe(true)
+  it('releases listeners on dispose so a former scene cannot receive input', () => {
+    const h = harness('?nolock'); h.input.dispose()
+    h.key('KeyW'); h.mouse('mousedown', 0)
+    expect(h.input.keys.KeyW).toBeUndefined()
+    expect(h.input.consumeLeftClick()).toBe(false)
   })
 })

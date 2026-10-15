@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
-import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
 import { ArmyCommandController } from '../../src/battle/ArmyCommandController'
-import { ArmyCommandUI } from '../../src/ui/ArmyCommandUI'
+import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
+import { acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { PlayerInput } from '../../src/player/PlayerInput'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
+import { ArmyCommandUI } from '../../src/ui/ArmyCommandUI'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
   return { ...createCareerProfile(faction), rank: 'soldier', totalMerit: 300, availableMerit: 300,

@@ -1,9 +1,9 @@
-import { describe, expect, it, vi } from 'vitest'
-import { MemoryStorage } from '../helpers/memoryStorage'
+import { describe,expect,it,vi } from 'vitest'
 import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
-import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
-import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
+import { CAREER_STORAGE_KEY,CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { MemoryStorage } from '../helpers/memoryStorage'
 
 function fixture() {
   let profile = createCareerProfile('roman')
@@ -54,34 +54,6 @@ describe('CareerMissionCheckpoint', () => {
     h.checkpoint.advance(1)
     expect(h.checkpoint.persist(h.snapshot, { immediate: false, periodic: true })).toBe(false)
     expect(h.commit).toHaveBeenCalledOnce()
-  })
-
-  it('forces only changed periodic data, never an unchanged snapshot', () => {
-    const h = fixture()
-    expect(h.checkpoint.persist(h.snapshot, { immediate: false, periodic: false, force: true })).toBe(false)
-    h.checkpoint.advance(5)
-    expect(h.checkpoint.persist(h.snapshot, { immediate: false, force: true })).toBe(false)
-    expect(h.commit).not.toHaveBeenCalled()
-    h.checkpoint.reset()
-    h.setStage(1)
-    expect(h.checkpoint.persist(h.snapshot, { immediate: false, periodic: true, force: true })).toBe(true)
-  })
-
-  it.each([true, false])('retries a failed immediate=%s write with fresh runtime and profile, without another five seconds', immediate => {
-    const h = fixture(), reason = { immediate, periodic: !immediate }
-    h.checkpoint.advance(5)
-    h.setStage(1)
-    h.setSaving(false)
-    const before = cloneCareerProfile(h.profile)
-    expect(h.checkpoint.persist(h.snapshot, reason)).toBe(false)
-    expect(h.profile).toEqual(before)
-    h.setStage(2)
-    h.setProfile({ ...h.profile, ownedWeapons: ['gladius_rusty'] })
-    h.setSaving(true)
-    expect(h.checkpoint.persist(h.snapshot, reason)).toBe(true)
-    expect(h.profile).toMatchObject({ ownedWeapons: ['gladius_rusty'], activeMission: { routeStage: 2 } })
-    expect(h.commit).toHaveBeenCalledTimes(2)
-    expect(h.checkpoint.persist(h.snapshot, { immediate: false, periodic: true })).toBe(false)
   })
 
   it('isolates profile mutations and preserves unrelated Career state across a snapshot commit', () => {

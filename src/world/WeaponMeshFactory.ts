@@ -157,8 +157,8 @@ export interface NpcRangedMeshParts {
 }
 
 // Shared immutable grip resources; cloned shield instances own only transforms.
-const PALADIN_GRIP_GEOMETRY = new THREE.CapsuleGeometry(.024, .2, 4, 8)
-const PALADIN_GRIP_MOUNT_GEOMETRY = new THREE.BoxGeometry(.055, .035, .17)
+let paladinGripGeometry: THREE.CapsuleGeometry | undefined
+let paladinGripMountGeometry: THREE.BoxGeometry | undefined
 
 export class WeaponMeshFactory {
   /**
@@ -658,12 +658,12 @@ export class WeaponMeshFactory {
     if (shieldId === 'paladin_shield_t4') {
       pivot.add(createPaladinEquipment(shieldId))
       // Same central vertical grip geometry and frame as the existing shields.
-      const rearGrip = equipmentShadowUntil(new THREE.Mesh(PALADIN_GRIP_GEOMETRY, leather), -1)
+      const rearGrip = equipmentShadowUntil(new THREE.Mesh(paladinGripGeometry ??= new THREE.CapsuleGeometry(.024, .2, 4, 8), leather), -1)
       rearGrip.position.set(0, 0, 0.085)
       rearGrip.name = 'shield-rear-grip'
       pivot.add(equipmentDetail(rearGrip, 0))
       for (const y of [-.10, .10]) {
-        const mount = new THREE.Mesh(PALADIN_GRIP_MOUNT_GEOMETRY, leather)
+        const mount = new THREE.Mesh(paladinGripMountGeometry ??= new THREE.BoxGeometry(.055, .035, .17), leather)
         mount.name = 'shield-grip-mount'
         mount.position.set(0, y, .16)
         pivot.add(equipmentDetail(equipmentShadowUntil(mount, -1), 0))

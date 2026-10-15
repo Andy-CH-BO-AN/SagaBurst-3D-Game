@@ -342,15 +342,21 @@ export function createProjectAnimationClips(): THREE.AnimationClip[] {
   ]
 }
 
-const PROJECT_ANIMATION_CLIPS = createProjectAnimationClips()
+let projectAnimationClips: THREE.AnimationClip[] | undefined
+function sharedProjectAnimationClips(): THREE.AnimationClip[] {
+  return projectAnimationClips ??= createProjectAnimationClips()
+}
 
 // The replacement packages deliberately contain only the eleven delivered clips.
 // Supply their missing recoil through the existing additive hit-overlay path;
 // it must not interrupt a weapon action or alter its gameplay clock.
-const REPLACEMENT_HIT_CLIP = additiveClip('hit', .24, [
-  { bone: 'spine', times: [0, .08, .24], eulers: [zero(), pose(-.13), zero()] },
-  { bone: 'chest', times: [0, .08, .24], eulers: [zero(), pose(-.09, .025), zero()] },
-])
+let replacementHitClip: THREE.AnimationClip | undefined
+function sharedReplacementHitClip(): THREE.AnimationClip {
+  return replacementHitClip ??= additiveClip('hit', .24, [
+    { bone: 'spine', times: [0, .08, .24], eulers: [zero(), pose(-.13), zero()] },
+    { bone: 'chest', times: [0, .08, .24], eulers: [zero(), pose(-.09, .025), zero()] },
+  ])
+}
 
 /** Reuse authored Idle above the pelvis; mounted legs remain procedural.
  * An empty mounted clip otherwise blends the arms back to the bind T-pose. */
@@ -359,11 +365,8 @@ export function createMountedIdleClip(idle: THREE.AnimationClip): THREE.Animatio
     /^(spine|chest|upper_chest|clavicle_|upper_arm_|lower_arm_|hand_|neck|head)/.test(track.name)))
 }
 
-const VIKING_HORN_MATERIAL = new THREE.MeshStandardMaterial({
-  color: 0x8d7656,
-  roughness: 0.72,
-  metalness: 0.02,
-})
+let vikingHornMaterial: THREE.MeshStandardMaterial | undefined
+let vikingHornGeometry: THREE.BufferGeometry | undefined
 
 function createHornGeometry(side: -1 | 1): THREE.TubeGeometry {
   // Head-space measurements keep the complete fantasy accent inside the
@@ -378,15 +381,24 @@ function createHornGeometry(side: -1 | 1): THREE.TubeGeometry {
   return new THREE.TubeGeometry(curve, 18, 0.022, 8, false)
 }
 
-const VIKING_HORN_GEOMETRIES = [createHornGeometry(-1), createHornGeometry(1)] as const
-const VIKING_HORN_GEOMETRY = mergeGeometries([...VIKING_HORN_GEOMETRIES], false)
-
-if (!VIKING_HORN_GEOMETRY) throw new Error('Failed to merge Viking horn geometry')
+function sharedVikingHornGeometry(): THREE.BufferGeometry {
+  if (!vikingHornGeometry) {
+    const geometries = [createHornGeometry(-1), createHornGeometry(1)]
+    const merged = mergeGeometries(geometries, false)
+    if (!merged) throw new Error('Failed to merge Viking horn geometry')
+    vikingHornGeometry = merged
+  }
+  return vikingHornGeometry
+}
 
 export function createVikingHornAccessory(castShadow = true): THREE.Group {
   const accessory = new THREE.Group()
   accessory.name = 'viking-short-horns'
-  const horns = new THREE.Mesh(VIKING_HORN_GEOMETRY, VIKING_HORN_MATERIAL)
+  const horns = new THREE.Mesh(sharedVikingHornGeometry(), vikingHornMaterial ??= new THREE.MeshStandardMaterial({
+    color: 0x8d7656,
+    roughness: 0.72,
+    metalness: 0.02,
+  }))
   horns.name = 'viking-horns'
   horns.castShadow = castShadow
   accessory.add(horns)
@@ -1065,16 +1077,16 @@ export class HumanoidAssetRegistry {
       if (template.manifest.selectedSource && index > 0) return
       mixers.push(new THREE.AnimationMixer(level))
       const animations = template.animationClips?.[index] ?? gltf.animations
-      const clips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
+      const clips = new Map(sharedProjectAnimationClips().map((clip) => [clip.name, clip]))
       for (const clip of animations) clips.set(clip.name, clip)
       if (!assetId || !animations.some(clip => clip.name === 'mounted')) clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
-      const rawClips = new Map(PROJECT_ANIMATION_CLIPS.map((clip) => [clip.name, clip]))
+      const rawClips = new Map(sharedProjectAnimationClips().map((clip) => [clip.name, clip]))
       for (const clip of gltf.animations) rawClips.set(clip.name, clip)
       const generatedFootAttack = animations.find(clip => clip.name === 'axeAttack1HFoot')
       if (generatedFootAttack && !rawClips.has('axeAttack1HFoot')) rawClips.set('axeAttack1HFoot', generatedFootAttack)
       if (['ordinary22', 'roman54', 'varangian63'].includes(template.manifest.selectedSource?.rig ?? '')) {
-        if (!clips.has('hit')) clips.set('hit', REPLACEMENT_HIT_CLIP)
-        if (!rawClips.has('hit')) rawClips.set('hit', REPLACEMENT_HIT_CLIP)
+        if (!clips.has('hit')) clips.set('hit', sharedReplacementHitClip())
+        if (!rawClips.has('hit')) rawClips.set('hit', sharedReplacementHitClip())
       }
       if (!assetId || !gltf.animations.some(clip => clip.name === 'mounted')) rawClips.set('mounted', createMountedIdleClip(rawClips.get('idle')!))
       rawClipsPerLevel.push([...rawClips.values()])

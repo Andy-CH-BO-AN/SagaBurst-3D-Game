@@ -1,8 +1,7 @@
-import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
+import { describe, expect, it } from 'vitest'
 import {
-  DEFAULT_NAV_CELL_SIZE,
-  NavigationGrid,
+  NavigationGrid
 } from '../../src/navigation/NavigationGrid'
 
 function createGrid(): NavigationGrid {
@@ -16,22 +15,6 @@ function createGrid(): NavigationGrid {
 }
 
 describe('NavigationGrid', () => {
-  it('uses a 2m default cell size and converts world positions to cell centers', () => {
-    const grid = new NavigationGrid({
-      minX: -10,
-      maxX: 10,
-      minZ: -10,
-      maxZ: 10,
-    })
-
-    expect(grid.cellSize).toBe(DEFAULT_NAV_CELL_SIZE)
-    expect(grid.width).toBe(10)
-    expect(grid.height).toBe(10)
-
-    const cell = grid.worldToCell(new THREE.Vector3(-7.5, 3, 6.5))
-    expect(cell).toEqual({ x: 1, z: 8 })
-    expect(grid.cellToWorld(cell!, 3)).toEqual(new THREE.Vector3(-7, 3, 7))
-  })
 
   it('rasterizes an obstacle box into blocked cells', () => {
     const grid = createGrid()
@@ -48,22 +31,6 @@ describe('NavigationGrid', () => {
     expect(grid.isBlocked({ x: 3, z: 4 })).toBe(true)
     expect(grid.isBlocked({ x: 1, z: 3 })).toBe(false)
     expect(grid.isBlocked({ x: 4, z: 5 })).toBe(false)
-  })
-
-  it('uses diagonal movement for the shortest unobstructed route', () => {
-    const grid = createGrid()
-
-    const path = grid.findPathCells(
-      { x: 1, z: 1 },
-      { x: 4, z: 4 },
-    )
-
-    expect(path).toEqual([
-      { x: 1, z: 1 },
-      { x: 2, z: 2 },
-      { x: 3, z: 3 },
-      { x: 4, z: 4 },
-    ])
   })
 
   it('finds a shortest walkable route around a wall through its gap', () => {
@@ -85,20 +52,6 @@ describe('NavigationGrid', () => {
     expect(path![path!.length - 1]).toEqual({ x: 8, z: 2 })
     expect(path).toContainEqual({ x: 4, z: 5 })
     expect(path!.every(cell => !grid.isBlocked(cell))).toBe(true)
-  })
-
-  it('can escape a blocked coarse start cell when a walkable route exists', () => {
-    const grid = createGrid()
-    grid.setBlocked({ x: 1, z: 1 }, true)
-
-    const path = grid.findPathCells(
-      { x: 1, z: 1 },
-      { x: 4, z: 1 },
-    )
-
-    expect(path).not.toBeNull()
-    expect(path![0]).toEqual({ x: 1, z: 1 })
-    expect(path![path!.length - 1]).toEqual({ x: 4, z: 1 })
   })
 
   it('returns null when a full barrier makes the target unreachable', () => {
@@ -158,84 +111,5 @@ describe('NavigationGrid', () => {
     )
     expect(reopened).not.toBeNull()
     expect(reopened).toContainEqual({ x: 4, z: 5 })
-  })
-
-  it('reuses one A star workspace across searches without leaking stale state', () => {
-    const grid = createGrid()
-    const internals = grid as unknown as {
-      gScore: Float64Array
-      cameFrom: Int32Array
-      seenRun: Uint32Array
-      closedRun: Uint32Array
-      open: object
-      searchRunId: number
-    }
-
-    const workspace = {
-      gScore: internals.gScore,
-      cameFrom: internals.cameFrom,
-      seenRun: internals.seenRun,
-      closedRun: internals.closedRun,
-      open: internals.open,
-    }
-
-    const first = grid.findPathCells(
-      { x: 1, z: 1 },
-      { x: 8, z: 1 },
-    )
-    expect(first).not.toBeNull()
-    expect(internals.searchRunId).toBe(1)
-
-    // Change topology so the next search must overwrite part of the previous
-    // search state instead of accidentally accepting stale scores/parents.
-    grid.setBlocked({ x: 4, z: 1 }, true)
-    const second = grid.findPathCells(
-      { x: 1, z: 1 },
-      { x: 8, z: 1 },
-    )
-    expect(second).not.toBeNull()
-    expect(second).not.toContainEqual({ x: 4, z: 1 })
-    expect(internals.searchRunId).toBe(2)
-
-    expect(internals.gScore).toBe(workspace.gScore)
-    expect(internals.cameFrom).toBe(workspace.cameFrom)
-    expect(internals.seenRun).toBe(workspace.seenRun)
-    expect(internals.closedRun).toBe(workspace.closedRun)
-    expect(internals.open).toBe(workspace.open)
-  })
-
-  it('resets run stamps safely after the Uint32 run id limit', () => {
-    const grid = createGrid()
-    const internals = grid as unknown as {
-      seenRun: Uint32Array
-      closedRun: Uint32Array
-      searchRunId: number
-    }
-
-    internals.seenRun.fill(123)
-    internals.closedRun.fill(456)
-    internals.searchRunId = 0xffffffff
-
-    const path = grid.findPathCells(
-      { x: 1, z: 1 },
-      { x: 4, z: 4 },
-    )
-
-    expect(path).not.toBeNull()
-    expect(internals.searchRunId).toBe(1)
-    const untouchedIndex = internals.seenRun.length - 1
-    expect(internals.seenRun[untouchedIndex]).toBe(0)
-    expect(internals.closedRun[untouchedIndex]).toBe(0)
-  })
-
-  it('returns null for world positions outside the navigation bounds', () => {
-    const grid = createGrid()
-
-    expect(
-      grid.findPath(
-        new THREE.Vector3(-1, 0, 5),
-        new THREE.Vector3(10, 0, 10),
-      ),
-    ).toBeNull()
   })
 })

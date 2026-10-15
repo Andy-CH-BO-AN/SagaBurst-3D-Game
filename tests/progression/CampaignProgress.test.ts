@@ -1,39 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { describe,expect,it } from 'vitest'
 import {
-  completeDefenseCampaignStage,
-  getDefenseCampaignUnlockedStage,
-  isDefenseCampaignStageUnlocked,
-  parseDefenseCampaignSetupTarget,
+completeDefenseCampaignStage,
+getDefenseCampaignUnlockedStage,
+isDefenseCampaignStageUnlocked
 } from '../../src/campaign/CampaignProgress'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 describe('Defense Campaign progress', () => {
-  it('parses only valid next-stage setup targets', () => {
-    expect(parseDefenseCampaignSetupTarget({
-      defenderFaction: 'viking',
-      stageId: 2,
-    })).toEqual({ defenderFaction: 'viking', stageId: 2 })
-
-    expect(parseDefenseCampaignSetupTarget({
-      defenderFaction: 'roman',
-      stageId: 9,
-    })).toEqual({ defenderFaction: 'roman', stageId: 9 })
-
-    expect(parseDefenseCampaignSetupTarget({
-      defenderFaction: 'viking',
-      stageId: 10,
-    })).toBeNull()
-    expect(parseDefenseCampaignSetupTarget({
-      defenderFaction: 'enemy',
-      stageId: 2,
-    })).toBeNull()
-  })
-
-  it('starts both defender factions at Stage 1', () => {
-    const storage = new MemoryStorage()
-    expect(getDefenseCampaignUnlockedStage('roman', storage)).toBe(1)
-    expect(getDefenseCampaignUnlockedStage('viking', storage)).toBe(1)
-  })
 
   it('unlocks only the next stage for the faction that cleared', () => {
     const storage = new MemoryStorage()

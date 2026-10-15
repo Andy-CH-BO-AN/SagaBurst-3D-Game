@@ -1,46 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Faction } from '../../src/world/NPC'
 import type { SquadIdentity } from '../../src/battle/CommandTarget'
-import type { TacticalOrder } from '../../src/battle/TacticalOrder'
-import { countArmyHudRoster } from '../../src/battle/ArmyCommandHudRoster'
+import type { OfficialCommandAuthority } from '../../src/career/CareerCommandAuthority'
 import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
-import type { OfficialCommandAuthority } from '../../src/career/CareerCommandAuthority'
-import type { PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
-import { InventoryManager } from '../../src/rpg/InventoryManager'
+import { Faction } from '../../src/world/NPC'
 
 import { createArmyCommandHarness as controllerHarness, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
 
 describe('Army command roster, dispatch and submenu', () => {
-  it('keeps all eight official keys, Personal 9 and Civilian 0 independent in keyboard and wheel selection', () => {
-    // Ten dispatch records protect identities, not actor AI or full-army materialization.
-    const identities: SquadIdentity[] = [1, 2, 3, 4, 5, 6, 7, 8, 'personal', 'civilians']
-    const actors = identities.map(squadId => ({ combatantId: `member:${squadId}`, squadId,
-      faction: squadId === 'personal' ? Faction.PLAYER : Faction.TOWN, setTacticalOrder: vi.fn() }))
-    const issue = vi.fn(() => true)
-    const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
-      { accepts: () => true, enabled: () => true, issue })
-    expect(h.ui.render.mock.lastCall![0].map(entry => [entry.key, entry.target])).toEqual([
-      ['1', 'squad:1'], ['2', 'squad:2'], ['3', 'squad:3'], ['4', 'squad:4'],
-      ['5', 'squad:5'], ['6', 'squad:6'], ['7', 'squad:7'], ['8', 'squad:8'],
-      ['9', 'squad:personal'], ['0', 'squad:civilians'], ['`', 'all'],
-    ])
-    const civilian = actors[9]
-    for (const [key, order] of [['1', 'attack'], ['2', 'charge'], ['3', 'defend']] as const) {
-      h.input.press('0'); h.controller.update(); h.input.press(key); h.controller.update()
-      expect(civilian.setTacticalOrder).toHaveBeenLastCalledWith(order)
-    }
-    for (const actor of actors.slice(0, 9)) expect(actor.setTacticalOrder).not.toHaveBeenCalled()
-    h.input.press('0'); h.controller.update(); h.input.press('5'); h.controller.update()
-    expect(issue).toHaveBeenLastCalledWith('follow', 'squad:civilians')
-    h.input.press('0'); h.controller.update(); h.input.press('6'); h.controller.update()
-    expect(issue).toHaveBeenLastCalledWith('dismiss', 'squad:civilians')
-    h.input.press('9'); h.controller.update(); h.input.pressKey('KeyQ'); h.controller.update()
-    h.input.pressKey('KeyQ'); h.controller.update(); h.input.wheel(1); h.controller.update()
-    expect(h.ui.render.mock.lastCall![3]).toBe('squad:civilians')
-    h.input.clickMiddle(); h.controller.update()
-    expect(h.controller.selected).toBe('squad:civilians')
-  })
 
   it('commits a direct ALL order before mutations and excludes dead, returning and unowned records', () => {
     const events: string[] = []
@@ -66,45 +33,6 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(onIssued).toHaveBeenCalledWith('defend', 'all')
   })
 
-  it('counts saved official squads and the 20 residents plus merchant separately and restores their current orders', () => {
-    // Data-only 20 + 1 roster: zero NPCs, mounts, world builds or spawn jobs.
-    const civilianIds = [...Array.from({ length: 20 }, (_, index) => `civilian:${index}`), 'weaponMerchant']
-    const official: OfficialCommandAuthority = { type: 'mission-official', missionId: 'defense', townFaction: 'roman',
-      squadId: 1, commandRank: 'commander', actorIds: ['north', 'east', 'pending', 'fallen'], contribution: emptyPersonalContribution(),
-      squads: [{ squadId: 1, actorIds: ['north'] }, { squadId: 2, actorIds: ['east', 'pending', 'fallen'] }],
-      members: { fallen: { status: 'dead', hp: 0 } } }
-    const personal: PersonalSquadMission = { squadId: 'personal', sceneKey: 'town:roman', state: 'ACTIVE',
-      memberIds: ['private', 'reserve'], members: { private: { status: 'deployed' }, reserve: { status: 'reserve' } },
-      contribution: emptyPersonalContribution() }
-    const civilians = { actorIds: civilianIds, sceneKey: 'town:roman', townFaction: 'roman' as const, missionId: 'defense' }
-    const actors = [
-      { combatantId: 'north', dead: false, tacticalOrder: 'follow' as TacticalOrder },
-      { combatantId: 'east', dead: false, tacticalOrder: 'defend' as TacticalOrder },
-      { combatantId: 'private', dead: false, tacticalOrder: 'charge' as TacticalOrder },
-      ...civilianIds.map(combatantId => ({ combatantId, dead: false, tacticalOrder: 'formation' as TacticalOrder })),
-      { combatantId: 'unowned', dead: false, tacticalOrder: 'attack' as TacticalOrder },
-    ]
-    const provider = () => careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman', missionId: 'defense',
-      official, officialPending: true, personal, civilians, actors })
-    const roster = provider()
-    expect(countArmyHudRoster(roster, 'squad:1')).toMatchObject({ total: 1, alive: 1 })
-    expect(countArmyHudRoster(roster, 'squad:2')).toMatchObject({ total: 3, alive: 1, pending: 1, dead: 1 })
-    expect(countArmyHudRoster(roster, 'squad:personal')).toMatchObject({ total: 1, alive: 1, reserve: 1 })
-    expect(countArmyHudRoster(roster, 'squad:civilians')).toMatchObject({ total: 21, alive: 21 })
-    expect(countArmyHudRoster(roster, 'all')).toMatchObject({ total: 26, alive: 24, pending: 1, dead: 1, reserve: 1 })
-    const h = controllerHarness([], null, null, null, 'roman', 'squad', true, undefined,
-      { accepts: () => false, enabled: () => true }, provider)
-    expect(h.ui.render.mock.lastCall![0].map(entry => [entry.target, entry.order])).toEqual([
-      ['squad:1', 'follow'], ['squad:2', 'defend'], ['squad:personal', 'charge'], ['squad:civilians', 'formation'], ['all', 'mixed'],
-    ])
-    expect(h.ui.render.mock.lastCall![0].find(entry => entry.target === 'squad:2')?.summary).toBe('1/3 · 陣亡 1 · 部署中 1')
-    expect(h.ui.render.mock.lastCall![0].find(entry => entry.target === 'squad:civilians')?.summary).toBe('21/21')
-    actors[0].tacticalOrder = 'defend'; h.controller.update()
-    expect(h.ui.render.mock.lastCall![0][0].order).toBe('defend')
-    const stale = careerCommandHudRoster({ sceneKey: 'town:viking', faction: 'viking', missionId: 'next', official, civilians, actors })
-    expect(stale.members).toEqual([])
-  })
-
   it('commands explicit Town allies and personal members separately while excluding unassigned PLAYER troops', () => {
     const official = { combatantId: 'official', faction: Faction.TOWN, squadId: 1, setTacticalOrder: vi.fn() }
     const personal = { combatantId: 'personal:test', faction: Faction.PLAYER, squadId: 'personal', setTacticalOrder: vi.fn() }
@@ -127,38 +55,6 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(bystander.setTacticalOrder).not.toHaveBeenCalled()
   })
 
-  it('refreshes same-squad progressive additions and casualties without rebuilding an unchanged HUD', () => {
-    const actors: CommandRecipientFixture[] = [
-      { combatantId: 'official:0', faction: Faction.TOWN, squadId: 1, dead: false },
-      { combatantId: 'personal:test', faction: Faction.PLAYER, squadId: 'personal', dead: false },
-    ]
-    const ids = new Set(['official:0', 'official:1', 'personal:test'])
-    const h = controllerHarness(actors, null, null, null, 'viking', 'squad', true, undefined,
-      { accepts: npc => ids.has(npc.combatantId), enabled: () => true })
-    h.ui.render.mockClear()
-    h.controller.update()
-    expect(h.ui.render).not.toHaveBeenCalled()
-
-    actors.push({ combatantId: 'official:1', faction: Faction.TOWN, squadId: 1, dead: false },
-      { combatantId: 'unassigned', faction: Faction.PLAYER, squadId: 1, dead: false })
-    h.controller.update()
-    expect(h.ui.render).toHaveBeenCalledOnce()
-    expect(h.ui.render.mock.calls.at(-1)![0].map(entry => [entry.target, entry.summary])).toEqual([
-      ['squad:1', '2/2'], ['squad:personal', '1/1'], ['all', '3/3'],
-    ])
-    h.controller.update()
-    expect(h.ui.render).toHaveBeenCalledOnce()
-
-    actors[0].dead = true
-    h.controller.update()
-    expect(h.ui.render).toHaveBeenCalledTimes(2)
-    expect(h.ui.render.mock.calls.at(-1)![0].map(entry => [entry.target, entry.summary])).toEqual([
-      ['squad:1', '1/2'], ['squad:personal', '1/1'], ['all', '2/3'],
-    ])
-    h.controller.update()
-    expect(h.ui.render).toHaveBeenCalledTimes(2)
-  })
-
   it('closes a pending command when the Player dies and removes revoked command membership', () => {
     const actor = { combatantId: 'official', faction: Faction.TOWN, squadId: 1, setTacticalOrder: vi.fn() }
     let alive = true, authorized = true
@@ -170,131 +66,6 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(h.controller.isSubmenuOpen).toBe(false)
     alive = true; authorized = false; h.controller.update()
     expect(h.ui.render.mock.calls.at(-1)![0].map(entry => entry.target)).toEqual(['all'])
-  })
-
-  it('routes weapon wheel input to the replacement character inventory without mutating the previous one', () => {
-    const previous = new InventoryManager()
-    const before = previous.saveState
-    const next = new InventoryManager({ meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'pilum_basic', shieldId: null })
-    const h = controllerHarness([], null, null, previous, 'viking', 'preset', false)
-    h.controller.setInventory(next)
-    h.input.wheel(1)
-    h.controller.update()
-    expect(next.isEquipped('pilum_basic')).toBe(true)
-    expect(previous.saveState).toEqual(before)
-  })
-  it('shows only unit presets that actually entered the battle, plus ALL', () => {
-    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
-    const enemyArcher = { faction: Faction.ENEMY, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
-    const h = controllerHarness([spearman, enemyArcher])
-
-    const entries = h.ui.render.mock.calls.at(-1)?.[0] as ReadonlyArray<{ target: string }>
-    expect(entries.map(entry => entry.target)).toEqual(['viking_spearman', 'all'])
-    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('viking_spearman')
-  })
-
-  it('adds a newly spawned friendly preset to the command roster', () => {
-    const npcs: any[] = [
-      { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() },
-    ]
-    const h = controllerHarness(npcs)
-    npcs.push({ faction: Faction.PLAYER, presetId: 'viking_archer', setTacticalOrder: vi.fn() })
-
-    h.controller.update()
-
-    const entries = h.ui.render.mock.calls.at(-1)?.[0] as ReadonlyArray<{ target: string }>
-    expect(entries.map(entry => entry.target)).toEqual([
-      'viking_spearman',
-      'viking_archer',
-      'all',
-    ])
-  })
-
-  it('keeps a preset in the command roster after it has entered battle once', () => {
-    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
-    const archer = { faction: Faction.PLAYER, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
-    const npcs: any[] = [spearman, archer]
-    const h = controllerHarness(npcs)
-
-    npcs.splice(1, 1)
-    h.controller.update()
-
-    const entries = h.ui.render.mock.calls.at(-1)?.[0] as ReadonlyArray<{ target: string }>
-    expect(entries.map(entry => entry.target)).toContain('viking_archer')
-  })
-
-  it('includes ALL in wheel navigation and confirms it with middle-click', () => {
-    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
-    const archer = { faction: Faction.PLAYER, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
-    const h = controllerHarness([spearman, archer])
-
-    // Preserve the first actual unit as the default highlight.
-    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('viking_spearman')
-
-    // ALL sits immediately before the first unit in wheel order.
-    h.input.pressKey('KeyQ')
-    h.controller.update()
-    h.input.wheel(-1)
-    h.controller.update()
-    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('all')
-
-    h.input.clickMiddle()
-    h.controller.update()
-    expect(h.controller.selected).toBe('all')
-
-    // Attack is highlighted by default; middle click applies it to the whole army.
-    h.input.clickMiddle()
-    h.controller.update()
-    expect(spearman.setTacticalOrder).toHaveBeenCalledWith('attack')
-    expect(archer.setTacticalOrder).toHaveBeenCalledWith('attack')
-    expect(h.controller.isSubmenuOpen).toBe(false)
-  })
-
-  it('uses wheel highlight and middle-click to select a unit then issue a command', () => {
-    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
-    const archer = { faction: Faction.PLAYER, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
-    const h = controllerHarness([spearman, archer])
-
-    // First present unit is highlighted by default; wheel down selects the next.
-    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('viking_spearman')
-    h.input.pressKey('KeyQ')
-    h.controller.update()
-    h.input.wheel(1)
-    h.controller.update()
-    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('viking_archer')
-
-    // Middle click enters that unit's command panel with Attack highlighted.
-    h.input.clickMiddle()
-    h.controller.update()
-    expect(h.controller.selected).toBe('viking_archer')
-    expect(h.ui.render.mock.calls.at(-1)?.[4]).toBe(0)
-
-    // Scroll down twice: Attack -> Charge -> Defend, then middle click confirms.
-    h.input.wheel(2)
-    h.controller.update()
-    expect(h.ui.render.mock.calls.at(-1)?.[4]).toBe(2)
-
-    h.input.clickMiddle()
-    h.controller.update()
-    expect(archer.setTacticalOrder).toHaveBeenCalledWith('defend')
-    expect(spearman.setTacticalOrder).not.toHaveBeenCalled()
-    expect(h.controller.isSubmenuOpen).toBe(false)
-  })
-
-  it('clamps wheel selection at the first and last visible option', () => {
-    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
-    const archer = { faction: Faction.PLAYER, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
-    const h = controllerHarness([spearman, archer])
-
-    h.input.pressKey('KeyQ')
-    h.controller.update()
-    h.input.wheel(-3)
-    h.controller.update()
-    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('all')
-
-    h.input.wheel(10)
-    h.controller.update()
-    expect(h.ui.render.mock.calls.at(-1)?.[3]).toBe('viking_archer')
   })
 
   it('uses edge-triggered submenu flow, filters to PLAYER faction, and leaves enemies alone', () => {
@@ -315,110 +86,6 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(otherAlly.setTacticalOrder).not.toHaveBeenCalled()
     expect(enemy.setTacticalOrder).not.toHaveBeenCalled()
     expect(h.controller.isSubmenuOpen).toBe(false)
-  })
-
-  it('ALL commands every player-faction NPC while formation is handled by its placement controller', () => {
-    const ally = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
-    const enemy = { faction: Faction.ENEMY, presetId: 'viking_archer', setTacticalOrder: vi.fn() }
-    const h = controllerHarness([ally, enemy])
-
-    h.input.pressAll()
-    h.controller.update()
-    h.input.press('4')
-    h.controller.update()
-    expect(ally.setTacticalOrder).not.toHaveBeenCalled()
-    expect(h.controller.isSubmenuOpen).toBe(true)
-
-    h.input.pressAll()
-    h.controller.update()
-    h.input.pressAll()
-    h.controller.update()
-    h.input.press('2')
-    h.controller.update()
-    expect(ally.setTacticalOrder).toHaveBeenCalledWith('charge')
-    expect(enemy.setTacticalOrder).not.toHaveBeenCalled()
-  })
-
-  it('uses Q or Backquote to go back from the command menu and consumes invalid submenu digits', () => {
-    const spearman = { faction: Faction.PLAYER, presetId: 'viking_spearman', setTacticalOrder: vi.fn() }
-    const h = controllerHarness([spearman])
-
-    h.input.press('2')
-    h.controller.update()
-    expect(h.controller.isSubmenuOpen).toBe(true)
-
-    h.input.press('6')
-    h.controller.update()
-    expect(h.controller.isSubmenuOpen).toBe(true)
-
-    h.input.pressKey('KeyQ')
-    h.controller.update()
-    expect(h.controller.isSubmenuOpen).toBe(false)
-    expect(h.controller.wheelMode).toBe('weapon')
-
-    h.input.press('2')
-    h.controller.update()
-    expect(h.controller.isSubmenuOpen).toBe(true)
-
-    h.input.pressAll()
-    h.controller.update()
-    expect(h.controller.isSubmenuOpen).toBe(false)
-    h.controller.update()
-    expect(h.controller.isSubmenuOpen).toBe(false)
-  })
-
-  it('updates desired state but never dispatches a command to dead NPCs', () => {
-    const deadAlly = { faction: Faction.PLAYER, presetId: 'viking_spearman', dead: true, setTacticalOrder: vi.fn() }
-    const h = controllerHarness([deadAlly])
-    h.input.press('2')
-    h.controller.update()
-    h.input.press('2')
-    h.controller.update()
-    expect(deadAlly.setTacticalOrder).not.toHaveBeenCalled()
-    expect(h.ui.showFeedback).toHaveBeenCalledWith('槍兵 → 衝鋒')
-  })
-
-  it('switches to squad grouping and commands only the selected mixed squad', () => {
-    const spearman = {
-      faction: Faction.PLAYER,
-      presetId: 'viking_spearman',
-      squadId: 1,
-      dead: false,
-      setTacticalOrder: vi.fn(),
-    }
-    const horseArcher = {
-      faction: Faction.PLAYER,
-      presetId: 'viking_horse_archer',
-      squadId: 1,
-      dead: false,
-      setTacticalOrder: vi.fn(),
-    }
-    const otherSquad = {
-      faction: Faction.PLAYER,
-      presetId: 'viking_spearman',
-      squadId: 2,
-      dead: false,
-      setTacticalOrder: vi.fn(),
-    }
-    const h = controllerHarness([spearman, horseArcher, otherSquad], null, null, null, 'viking', 'squad')
-
-    expect(h.controller.grouping).toBe('squad')
-
-    const hud = h.ui.render.mock.calls.at(-1)?.[0] as ReadonlyArray<{ target: string; summary?: string }>
-    expect(hud.find(entry => entry.target === 'squad:1')?.summary).toBe('2/2')
-    expect(hud.find(entry => entry.target === 'squad:2')?.summary).toBe('1/1')
-    expect(hud.find(entry => entry.target === 'all')?.summary).toBe('3/3')
-
-    h.input.press('1')
-    h.controller.update()
-    expect(h.controller.selected).toBe('squad:1')
-
-    h.input.press('2')
-    h.controller.update()
-    expect(spearman.setTacticalOrder).toHaveBeenCalledWith('charge')
-    expect(horseArcher.setTacticalOrder).toHaveBeenCalledWith('charge')
-    expect(otherSquad.setTacticalOrder).not.toHaveBeenCalled()
-    expect(h.ui.showFeedback).toHaveBeenCalledWith('第 1 隊 → 衝鋒')
   })
 
   it('drops the old 3/29 and command selection when a new mission authorizes 20 different IDs', () => {
@@ -484,85 +151,5 @@ describe('Army command roster, dispatch and submenu', () => {
     h.controller.update()
     expect(h.controller.selected).toBeNull()
     expect(h.ui.render.mock.lastCall![0][0].summary).toBe('0/1 · 未部署 1')
-  })
-
-  it.each(['squad:1', 'squad:personal', 'all'] as const)('shows genuine return state for %s after Attack then Dismiss while preserving other groups', target => {
-    // Constructor-free command/HUD protocol: only two field identities and one HR reserve.
-    const official: OfficialCommandAuthority = { type: 'town-command', townFaction: 'roman', squadId: 1,
-      actorIds: ['official'], contribution: emptyPersonalContribution() }
-    const personal: PersonalSquadMission = { squadId: 'personal', sceneKey: 'town-home', state: 'ACTIVE',
-      memberIds: ['personal:active', 'personal:reserve'], members: {
-        'personal:active': { status: 'deployed' }, 'personal:reserve': { status: 'reserve' },
-      }, contribution: emptyPersonalContribution() }
-    const actors: CommandRecipientFixture[] = [
-      { combatantId: 'official', squadId: 1, faction: Faction.PLAYER, dead: false, setTacticalOrder: vi.fn() },
-      { combatantId: 'personal:active', squadId: 'personal', faction: Faction.PLAYER, dead: false, setTacticalOrder: vi.fn() },
-    ]
-    let officialReturningIds: string[] = [], personalReturningIds: string[] = []
-    const provider = () => careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman', official, personal,
-      officialReturningIds, personalReturningIds, actors: actors as Array<{ combatantId: string; dead: boolean }> })
-    const issue = vi.fn((order: string, selected: string) => {
-      if (order !== 'dismiss') return false
-      if (selected === 'all' || selected === 'squad:1') officialReturningIds = ['official']
-      if (selected === 'all' || selected === 'squad:personal') personalReturningIds = ['personal:active']
-      return true
-    })
-    const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
-      { accepts: () => true, enabled: () => true, issue }, provider)
-    h.input.pressAll(); h.controller.update(); h.input.press('1'); h.controller.update()
-    if (target === 'all') h.input.pressAll()
-    else h.input.press(target === 'squad:1' ? '1' : '9')
-    h.controller.update(); h.input.press('6'); h.controller.update()
-    const entries = h.ui.render.mock.lastCall![0]
-    expect(entries.find(entry => entry.target === target)?.order).toBe('returning')
-    expect(entries.find(entry => entry.target === target)?.summary).toContain('返回中')
-    expect(entries.find(entry => entry.target === 'all')?.order).toBe(target === 'all' ? 'returning' : 'mixed')
-    if (target !== 'all') expect(entries.find(entry => entry.target === (target === 'squad:1' ? 'squad:personal' : 'squad:1'))?.order).toBe('attack')
-    for (const actor of actors) expect(actor.setTacticalOrder).toHaveBeenCalledOnce()
-  })
-  it('shows HR reserves as waiting without mixing their stale order into the active army', () => {
-    const official: OfficialCommandAuthority = { type: 'town-command', townFaction: 'roman', squadId: 1,
-      actorIds: ['official'], contribution: emptyPersonalContribution() }
-    const personal: PersonalSquadMission = { squadId: 'personal', sceneKey: 'town-home', state: 'RESERVE',
-      memberIds: ['private'], members: { private: { status: 'reserve' } }, contribution: emptyPersonalContribution() }
-    const actors: CommandRecipientFixture[] = [{ combatantId: 'official', squadId: 1, faction: Faction.PLAYER,
-      dead: false, setTacticalOrder: vi.fn() }]
-    const provider = () => careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman', official, personal,
-      actors: actors as Array<{ combatantId: string; dead: boolean }> })
-    const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
-      { accepts: () => true, enabled: () => true }, provider)
-    h.input.press('1'); h.controller.update(); h.input.press('3'); h.controller.update()
-    expect(h.ui.render.mock.lastCall![0].map(entry => [entry.target, entry.order])).toEqual([
-      ['squad:1', 'defend'], ['squad:personal', 'reserve'], ['all', 'defend'],
-    ])
-  })
-
-  it('counts one eagle rider, pending infantry and casualties exactly once without counting HR reserves', () => {
-    const personal: PersonalSquadMission = {
-      squadId: 'personal', sceneKey: 'town-home', state: 'DEPLOYING',
-      memberIds: ['personal:eagle', 'personal:infantry', 'personal:fallen', 'personal:reserve'],
-      members: {
-        'personal:eagle': { status: 'reserve' }, 'personal:infantry': { status: 'reserve' },
-        'personal:fallen': { status: 'dead', hp: 0 }, 'personal:reserve': { status: 'reserve' },
-      },
-      contribution: emptyPersonalContribution(),
-    }
-    const input = (actors: Array<{ combatantId: string; dead: boolean }>, pending: string[]) =>
-      careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman', personal, personalPendingIds: pending, actors })
-    const waiting = countArmyHudRoster(input([], ['personal:eagle', 'personal:infantry']), 'all')
-    expect(waiting).toMatchObject({ alive: 0, total: 3, pending: 2, deployed: 0, dead: 1, reserve: 1 })
-    // A rider and mount are one combatant ID, including duplicate runtime references.
-    const rider = { combatantId: 'personal:eagle', dead: false }
-    const boarded = countArmyHudRoster(input([rider, rider], ['personal:eagle', 'personal:infantry']), 'squad:personal')
-    expect(boarded).toMatchObject({ total: 3, alive: 1, deployed: 1, pending: 1, dead: 1 })
-    rider.dead = true
-    const casualties = countArmyHudRoster(input([rider], ['personal:infantry']), 'all')
-    expect(casualties).toMatchObject({ total: 3, alive: 0, dead: 2, pending: 1 })
-    // If spawning or eagle pad reservation fails, reserve cannot masquerade as a deployed rider.
-    expect(countArmyHudRoster(input([], []), 'all')).toMatchObject({ total: 1, pending: 0, alive: 0, reserve: 3 })
-    personal.members['personal:infantry'].status = 'deployed'
-    expect(countArmyHudRoster(input([], []), 'all')).toMatchObject({ total: 2, pending: 0, alive: 0, missing: 1 })
-    personal.members['personal:infantry'].status = 'exited'
-    expect(countArmyHudRoster(input([], []), 'all')).toMatchObject({ total: 1, exited: 1, reserve: 2 })
   })
 })

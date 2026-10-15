@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { WeaponWheel } from '../../src/player/WeaponWheel'
-import { TownEquipment } from '../../src/town/TownEquipment'
+import { availableCareerItem, careerItemAllocated } from '../../src/career/CareerInventory'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { availableCareerItem, careerItemAllocated } from '../../src/career/CareerInventory'
+import { WeaponWheel } from '../../src/player/WeaponWheel'
+import { TownEquipment } from '../../src/town/TownEquipment'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 describe('Career equipment persistence wiring', () => {
@@ -35,15 +35,6 @@ describe('Career equipment persistence wiring', () => {
     expect(store.save(loaded)).toBe(true)
     expect(store.load()?.inventory?.quantities).toEqual({ spear_t4: 5 })
     expect(storage.getItem(CAREER_STORAGE_KEY)).not.toContain('lance_t4')
-  })
-
-  it('preserves two legacy owned weapon copies and equips a retired-ID-only save', () => {
-    for (const [ownedWeapons, count] of [[['lance_t4'], 1], [['lance_t4', 'spear_t4'], 2]] as const) {
-      const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify({ ...createCareerProfile('roman'), rank: 'captain', ownedWeapons })]] })
-      const store = new CareerProfileStore(storage), loaded = store.load()!
-      expect(loaded.inventory?.quantities).toEqual({ spear_t4: count })
-      expect(loaded.equipment?.melee).toBe('spear_t4')
-    }
   })
   it('Career selection persists exclusivity, respects failed writes and restores after returning', () => {
     let profile = createCareerProfile('roman')

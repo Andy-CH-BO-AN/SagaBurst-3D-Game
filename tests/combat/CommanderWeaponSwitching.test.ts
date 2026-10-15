@@ -1,90 +1,120 @@
-import { preloadGameplayHumanoids } from '../helpers/preloadGameplayHumanoids'
-import * as THREE from 'three'
-import { expect, it, vi, onTestFinished, beforeAll, afterAll } from 'vitest'
-import { AIType, Faction, NPC } from '../../src/world/NPC'
-import { Player } from '../../src/player/Player'
-import { careerCommanderLoadout } from '../../src/career/CareerCommanderEquipment'
-import { weaponShieldImpact } from '../../src/combat/ShieldBlocking'
+import { Vector3 } from 'three'
+import { describe, expect, it, vi } from 'vitest'
+import { Faction } from '../../src/combat/CombatFaction'
+import type { Player } from '../../src/player/Player'
+import { AIState, NPC } from '../../src/world/NPC'
+import type { ObstacleData } from '../../src/world/Terrain'
 
-// Only rendering assets are replaced. Real NPC targeting, animation clock,
-// locomotion, attack selection, ammunition and hit callbacks run below.
-vi.mock('../../src/world/PaladinEquipment', () => ({ createPaladinEquipment: () => new THREE.Group() }))
-vi.mock('../../src/world/HighTierEquipment', async () => ({
-  createT5Bow: (await import('../helpers/gameplayWeaponVisual')).createGameplayBowAsset,
-}))
-let restore: () => void
-beforeAll(async () => { restore = await preloadGameplayHumanoids() })
-afterAll(() => restore?.())
-
-
-function fixture(faction: 'roman' | 'viking') {
-  const scene = new THREE.Scene(), player = new Player(scene)
-  const npc = new NPC(scene, 0, 0, Faction.ENEMY, faction, AIType.RANGED, 'Commander', 4, false,
-    careerCommanderLoadout(faction), `${faction}_sword_cavalry`, undefined, 'commander')
-  onTestFinished(() => { npc.dispose(); player.dispose() })
-  const fire = vi.fn(), hit = vi.fn()
-  const place = (distance: number) => player.group.position.set(npc.combatPosition.x, npc.combatPosition.y, npc.combatPosition.z + distance)
-  const step = () => {
-    player.group.position.y = npc.combatPosition.y - player.bodyBaseOffset
-    scene.updateMatrixWorld(true)
-    npc.update(1 / 60, player, [npc], [npc], [], { setFill() {} }, hit, fire, true)
+interface SelectionActor {
+  faction: Faction
+  combatPosition: Vector3
+  rangedWeaponId: string
+  meleeWeaponId: string
+  arrows: number
+  rangedActive: boolean
+  maxRangedAttackDistance: number
+  bowArrowReleased: boolean
+  animator: { busy: boolean; cancel(): void }
+  bowVisual: { hideArrow(): void }
+  swordPivot: { visible: boolean }
+  bowPivot: { visible: boolean }
+  attackTimer: number
+  attackHitProcessed: boolean
+  meleeApproachLimit: number
+  meleeApproachTarget: object | null
+  pendingLanceChargeSpeed: number
+  state: AIState
+  _cancelEquipmentCombatState(): void
+  _restoreCombatReadyRangedVisual(): void
+  _switchToMelee(consumeRemainingAmmo?: boolean, cancelAnimation?: boolean): void
+  _findRangedTrajectoryBlocker(): ObstacleData | null
+}
+interface SelectionMethods extends Pick<SelectionActor, '_cancelEquipmentCombatState' | '_switchToMelee'> {
+  _selectRangedMeleeMode(this: SelectionActor, target: { position: Vector3; isDead: boolean } | null,
+    player: Player, nearby: readonly NPC[], obstacles: ObstacleData[]): void
+}
+// The existing decision entry needs state and narrow animation/visibility boundaries only.
+// Its production cancellation and mode-switch methods run without constructing an actor.
+const methods = NPC.prototype as unknown as SelectionMethods
+function selection(overrides: Partial<SelectionActor> = {}) {
+  const actor: SelectionActor = {
+    faction: Faction.ENEMY, combatPosition: new Vector3(), rangedWeaponId: 'recurve_longbow',
+    meleeWeaponId: 'steel_sword', arrows: 12, rangedActive: true, maxRangedAttackDistance: 30,
+    bowArrowReleased: false, animator: { busy: false, cancel: vi.fn() }, bowVisual: { hideArrow: vi.fn() },
+    swordPivot: { visible: false }, bowPivot: { visible: true }, attackTimer: 2,
+    attackHitProcessed: true, meleeApproachLimit: 3, meleeApproachTarget: {}, pendingLanceChargeSpeed: 15,
+    state: AIState.ATTACK, _cancelEquipmentCombatState: methods._cancelEquipmentCombatState,
+    _switchToMelee: methods._switchToMelee, _restoreCombatReadyRangedVisual: vi.fn(),
+    _findRangedTrajectoryBlocker: vi.fn(() => null), ...overrides,
   }
-  const until = (condition: () => boolean, frames = 600) => {
-    for (let frame = 0; frame < frames && !condition(); frame++) step()
-    expect(condition(), `phase=${npc.currentState}, action=${npc.combatAnimationAction}, ammo=${npc.combatAmmo}, target=${player.position.toArray()}, position=${npc.position.toArray()}`).toBe(true)
-  }
-  return { npc, player, place, step, until, fire, hit }
+  const target = { position: new Vector3(0, 0, 20), isDead: false }
+  const player = { faction: Faction.PLAYER, dead: true, combatPosition: new Vector3(0, 0, 100) } as Player
+  const select = (nearby: readonly NPC[] = []) => methods._selectRangedMeleeMode.call(actor, target, player, nearby, [])
+  return { actor, target, player, select }
 }
 
-it.each(['roman', 'viking'] as const)('%s Commander fires, cancels a draw for melee, pursues and hits, then returns to bow', faction => {
-  const h = fixture(faction)
-  h.place(18)
-  h.until(() => h.fire.mock.calls.length > 0)
-  expect(h.fire.mock.calls[0][2]).toBe('arrow')
-  h.until(() => h.npc.combatAnimationAction === 'bowAim')
-  const ammo = h.npc.combatAmmo, fired = h.fire.mock.calls.length
-  h.place(5)
-  const start = h.npc.position.clone()
-  h.step()
-  expect(h.npc.hasActiveRangedWeapon).toBe(false)
-  expect(h.npc.combatAmmo).toBe(ammo)
-  expect(h.npc.meleeWeaponId).toBe(faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4')
-  h.until(() => h.hit.mock.calls.length > 0)
-  expect(h.npc.position.distanceTo(start)).toBeGreaterThan(.1)
-  expect(h.fire).toHaveBeenCalledTimes(fired)
-  h.place(8)
-  for (let frame = 0; frame < 120; frame++) { h.place(8); h.step(); expect(h.npc.hasActiveRangedWeapon).toBe(false) }
-  h.place(18)
-  h.until(() => h.npc.hasActiveRangedWeapon)
-  h.until(() => h.fire.mock.calls.length > fired)
-  expect(h.npc.loadout).toEqual(careerCommanderLoadout(faction))
-  expect(weaponShieldImpact(h.npc.meleeWeaponId!)).toBe(faction === 'roman' ? 1 : 12)
-})
+describe('Commander weapon choice', () => {
+  it('cancels an unreleased attack for a nearby hostile without spending ammunition', () => {
+    const h = selection()
+    const hostile = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 0, 5) } as NPC
+    h.select([hostile])
+    expect(h.actor.rangedActive).toBe(false)
+    expect(h.actor.arrows).toBe(12)
+    expect(h.actor.animator.cancel).toHaveBeenCalled()
+    expect(h.actor.bowVisual.hideArrow).toHaveBeenCalledOnce()
+    expect(h.actor).toMatchObject({ state: AIState.CHASE, attackTimer: 0, attackHitProcessed: false,
+      bowArrowReleased: false, pendingLanceChargeSpeed: 0, meleeApproachLimit: Infinity, meleeApproachTarget: null })
+  })
 
-it.each(['roman', 'viking'] as const)('%s Commander with no ammunition chases and attacks instead of retrying empty shots', faction => {
-  const h = fixture(faction)
-  h.npc.restoreCombatAmmo(0)
-  h.npc.setTacticalOrder('charge')
-  h.place(12)
-  const start = h.npc.position.clone()
-  h.until(() => h.hit.mock.calls.length > 0)
-  expect(h.npc.hasActiveRangedWeapon).toBe(false)
-  expect(h.npc.combatAmmo).toBe(0)
-  expect(h.npc.position.distanceTo(start)).toBeGreaterThan(1)
-  expect(h.fire).not.toHaveBeenCalled()
-})
+  it('ignores peaceful and dead neighbors when the selected hostile is in bow range', () => {
+    const h = selection()
+    h.select([
+      { faction: Faction.ENEMY, dead: false, combatPosition: new Vector3(0, 0, 1) },
+      { faction: Faction.PLAYER, dead: true, combatPosition: new Vector3(0, 0, 1) },
+    ] as NPC[])
+    expect(h.actor.rangedActive).toBe(true)
+    expect(h.actor.animator.cancel).not.toHaveBeenCalled()
+  })
 
-it('uses a nearby second hostile to prevent return to bow and keeps Commander state independent', () => {
-  const h = fixture('roman'), scene = new THREE.Scene()
-  const second = new NPC(scene, 0, 0, Faction.ENEMY, 'viking', AIType.RANGED, 'Other Commander', 4, false, careerCommanderLoadout('viking'))
-  const hostile = new NPC(scene, 0, 5, Faction.PLAYER, 'viking', AIType.MELEE, 'Threat', 1, false)
-  onTestFinished(() => { second.dispose(); hostile.dispose() })
-  h.place(5); h.npc.setTacticalOrder('charge'); h.step()
-  h.npc.setMissionCombatTarget(h.player)
-  h.place(18)
-  hostile.group.position.copy(h.npc.combatPosition).add(new THREE.Vector3(0, 0, 5))
-  h.npc.update(1 / 60, h.player, [hostile], [hostile], [], { setFill() {} }, h.hit, h.fire, true)
-  expect(h.npc.hasActiveRangedWeapon).toBe(false)
-  expect(second.hasActiveRangedWeapon).toBe(true)
-  expect(second.combatAmmo).toBe(30)
+  it('requires the re-equip distance before returning from melee to bow', () => {
+    const h = selection({ rangedActive: false })
+    h.target.position.z = 9
+    h.select()
+    expect(h.actor.rangedActive).toBe(false)
+    h.target.position.z = 9.01
+    h.select()
+    expect(h.actor.rangedActive).toBe(true)
+    expect(h.actor.arrows).toBe(12)
+    expect(h.actor.state).toBe(AIState.CHASE)
+  })
+
+  it('keeps melee when the target trajectory is blocked', () => {
+    const h = selection({ rangedActive: false, _findRangedTrajectoryBlocker: () => ({}) as ObstacleData })
+    h.select()
+    expect(h.actor.rangedActive).toBe(false)
+    expect(h.actor.animator.cancel).not.toHaveBeenCalled()
+  })
+
+  it('falls back to melee when ammunition is exhausted', () => {
+    const h = selection({ arrows: 0 })
+    h.select()
+    expect(h.actor.rangedActive).toBe(false)
+    expect(h.actor.arrows).toBe(0)
+  })
+
+  it('preserves a released arrow recovery until the animation finishes', () => {
+    const h = selection({ bowArrowReleased: true, animator: { busy: true, cancel: vi.fn() } })
+    h.target.position.z = 2
+    h.select()
+    expect(h.actor.rangedActive).toBe(true)
+    expect(h.actor.bowArrowReleased).toBe(true)
+    expect(h.actor.animator.cancel).not.toHaveBeenCalled()
+  })
+
+  it('finishes an active melee swing before re-equipping a bow', () => {
+    const h = selection({ rangedActive: false, animator: { busy: true, cancel: vi.fn() } })
+    h.select()
+    expect(h.actor.rangedActive).toBe(false)
+    expect(h.actor.animator.cancel).not.toHaveBeenCalled()
+  })
 })

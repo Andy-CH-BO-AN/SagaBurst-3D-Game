@@ -38,8 +38,8 @@ import { resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
 import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
-const NPC_AIM_GEOMETRY = new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8)
-const AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
+let npcAimGeometry: THREE.CylinderGeometry | undefined
+let npcAimMaterial: THREE.MeshBasicMaterial | undefined
 import { CharacterCombatAnimator, meleeActionTimeScale, type CombatAction } from './CharacterCombatAnimator'
 import { CharacterBowVisual } from './CharacterBowVisual'
 import { applyAttachmentContract } from './HumanoidAttachmentContract'
@@ -777,7 +777,8 @@ export class NPC {
     this.characterVisualGroup.rotation.y = 0 // Shared +Z gameplay heading; no per-faction flip.
     this.group.add(this.characterVisualGroup)
 
-    this.aimCollider = new THREE.Mesh(NPC_AIM_GEOMETRY, AIM_PROXY_MATERIAL)
+    this.aimCollider = new THREE.Mesh(npcAimGeometry ??= new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8),
+      npcAimMaterial ??= new THREE.MeshBasicMaterial())
     this.aimCollider.name = `aim_proxy_${faction}_${name}`
     this.aimCollider.position.set(0, 0.925, 0)
     this.aimCollider.layers.set(AIM_RAYCAST_LAYER)

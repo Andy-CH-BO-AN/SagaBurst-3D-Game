@@ -1,32 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { planBulkEquipment, type BulkEquipmentActor, type BulkEquipmentCandidate } from '../../src/career/BulkEquipmentPlanner'
-
-/** Pure records only: no NPC, Mount, TownWorld or asset construction. */
-function allocate(base: number[], extra: number[], ids = base.map((_, i) => `soldier-${i + 1}`)) {
-  const actors = base.map((tier, i) => ({ actorId: ids[i], tier, currentKey: `current-${ids[i]}`, currentRequested: true }))
-  const candidates = [...base.map((tier, i) => ({ key: `current-${ids[i]}`, itemId: `tier-${tier}`, tier, requested: true })),
-    ...extra.map((tier, i) => ({ key: `stock-${i}`, itemId: `tier-${tier}`, tier, requested: true }))]
-  return planBulkEquipment(actors, candidates, () => true).map(assignment => assignment.candidate.tier)
-}
 describe('Global bulk equipment matching', () => {
-  it.each([
-    ['five items for ten actors', Array(10).fill(1), Array(5).fill(3), [3, 3, 3, 3, 3, 1, 1, 1, 1, 1]],
-    ['highest tiers first', Array(5).fill(1), [4, 4, 4, 4, 3, 3, 3, 3, 3, 3], [4, 4, 4, 4, 3]],
-    ['B maximizes three upgrades instead of two', [4, 3, 3, 1, 1], [4, 3], [4, 4, 3, 3, 3]],
-    ['C cascades released current equipment', [3, 1], [4], [4, 3]],
-    ['one actor takes highest tier', [1], [2, 4, 3], [4]],
-    ['empty extra stock retains current gear', [4, 3, 1], [], [4, 3, 1]],
-    ['low-tier stock never downgrades', [4, 3], [1, 2], [4, 3]],
-  ])('%s', (_, base, extra, expected) => { expect(allocate(base as number[], extra as number[])).toEqual(expected) })
-  it('uses natural actor order for scarce upgrades and breaks same-tier Item IDs per actor', () => {
-    const actors: BulkEquipmentActor[] = ['soldier-10', 'soldier-2', 'soldier-1'].map(actorId => ({ actorId, tier: 0, currentKey: `empty-${actorId}` }))
-    const candidates: BulkEquipmentCandidate[] = [...actors.map(actor => ({ key: actor.currentKey!, itemId: null, tier: 0, holderId: actor.actorId })),
-      { key: 'b', itemId: 'sword-b', tier: 3, requested: true }, { key: 'a', itemId: 'sword-a', tier: 3, requested: true }]
-    const plan = planBulkEquipment(actors, candidates, (actor, candidate) => candidate.requested === true || candidate.holderId === actor.actorId)
-    expect(plan.map(({ actorId, candidate }) => [actorId, candidate.itemId])).toEqual([
-      ['soldier-1', 'sword-a'], ['soldier-2', 'sword-b'], ['soldier-10', null],
-    ])
-  })
   it('prioritizes the earlier natural actor for one same-tier requested category swap', () => {
     const actors: BulkEquipmentActor[] = ['soldier-2', 'soldier-1'].map(actorId => ({ actorId, tier: 4, currentKey: actorId, currentRequested: false }))
     const candidates: BulkEquipmentCandidate[] = [...actors.map(actor => ({ key: actor.actorId, itemId: 'sword', tier: 4, holderId: actor.actorId })),

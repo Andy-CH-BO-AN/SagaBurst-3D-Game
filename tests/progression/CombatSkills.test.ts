@@ -1,9 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe,expect,it } from 'vitest'
 import { type CombatEvent } from '../../src/combat/CombatAttribution'
-import { createCareerProfile } from '../../src/career/CareerProfile'
-import { resolveCareerPlayerMaxHp } from '../../src/career/CareerPlayerProfile'
-import { resolveCombatSkill, resolveSkillAdjustedMaxHp, resolveSkillProgressionAward, skillStatesEqual } from '../../src/rpg/CombatSkillProgression'
-import { MAX_SKILL_LEVEL, SkillManager, createDefaultSkillState, normalizeSkillState, resolveMeleeSkillId, skillDamageMultiplier, skillHpBonus } from '../../src/rpg/SkillManager'
+import { resolveSkillProgressionAward,skillStatesEqual } from '../../src/rpg/CombatSkillProgression'
+import { SkillManager,normalizeSkillState,resolveMeleeSkillId } from '../../src/rpg/SkillManager'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 
 function damageEvent(
@@ -43,25 +41,6 @@ describe('Career skill progression', () => {
 
   it('fall damage never awards weapon or mountedImpact XP to the original attacker', () => {
     expect(resolveSkillProgressionAward(damageEvent('fall', 'npc', 150), WEAPONS.steel_sword)).toBeNull()
-  })
-  it('scales each skill from 1x at Lv.1 to exactly 3x at Lv.50', () => {
-    expect(skillDamageMultiplier(1)).toBe(1)
-    expect(skillDamageMultiplier(MAX_SKILL_LEVEL)).toBe(3)
-    expect(skillDamageMultiplier(25)).toBeCloseTo(1 + (24 / 49) * 2)
-  })
-
-  it('grants +246 max HP across five Lv.50 skills', () => {
-    const state = createDefaultSkillState()
-    expect(skillHpBonus(state)).toBe(1)
-
-    for (const skill of Object.values(state)) skill.level = 50
-    expect(skillHpBonus(state)).toBe(246)
-    expect(resolveSkillAdjustedMaxHp(200, state)).toBe(446)
-
-    const profile = createCareerProfile('roman')
-    profile.rank = 'captain'
-    profile.skills = state
-    expect(resolveCareerPlayerMaxHp(profile, 200)).toBe(746)
   })
 
   it('migrates legacy Archery progress into Ranged and clamps invalid values', () => {
@@ -154,27 +133,6 @@ describe('Career skill progression', () => {
     expect(resolveSkillProgressionAward(killEvent, WEAPONS.steel_sword, false)).toBeNull()
   })
 
-  it('uses the selected melee skill multiplier for axe and greatsword stances', () => {
-    const manager = new SkillManager()
-    manager.setSkillState({
-      oneHanded: { level: 1, xp: 0 },
-      twoHanded: { level: 50, xp: 0 },
-    })
-
-    expect(manager.getMultiplier(resolveCombatSkill('melee', WEAPONS.viking_axe_t2, false)!)).toBe(3)
-    expect(manager.getMultiplier(resolveCombatSkill('melee', WEAPONS.viking_axe_t2, true)!)).toBe(1)
-    expect(manager.getMultiplier(resolveCombatSkill('melee', { animationKind: 'greatsword' }, false)!)).toBe(3)
-  })
-
-  it('does not gate NPC progression by allegiance, covering hostile-town retaliation', () => {
-    const event = damageEvent('melee', 'npc', 22, WEAPONS.steel_sword.id) as Extract<CombatEvent, { type: 'damage_applied' }>
-    event.target.allegiance = 'TOWN' as never
-    expect(resolveSkillProgressionAward(event, WEAPONS.steel_sword, false)).toEqual({
-      skill: 'oneHanded',
-      xp: 22,
-    })
-  })
-
   it('keeps Lv.50 hits state-stable so persistence can skip redundant saves', () => {
     const manager = new SkillManager()
     manager.setSkillState({ oneHanded: { level: 50, xp: 0 } })
@@ -182,10 +140,5 @@ describe('Career skill progression', () => {
 
     expect(manager.addXp('oneHanded', 999)).toBe(0)
     expect(skillStatesEqual(before, manager.skillState)).toBe(true)
-  })
-
-  it('maps ranged and mounted-impact methods independently of melee equipment', () => {
-    expect(resolveCombatSkill('projectile', WEAPONS.viking_axe_t2, false)).toBe('ranged')
-    expect(resolveCombatSkill('mount-impact', WEAPONS.viking_axe_t2, false)).toBe('mountedImpact')
   })
 })

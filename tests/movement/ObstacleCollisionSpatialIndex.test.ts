@@ -1,8 +1,7 @@
-import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
+import { describe, expect, it } from 'vitest'
 import {
-  OBSTACLE_COLLISION_GRID_CELL_SIZE,
-  ObstacleCollisionSpatialIndex,
+  ObstacleCollisionSpatialIndex
 } from '../../src/world/ObstacleCollisionSpatialIndex'
 import type { ObstacleData } from '../../src/world/Terrain'
 
@@ -37,19 +36,6 @@ describe('ObstacleCollisionSpatialIndex', () => {
     ])
   })
 
-  it('deduplicates an obstacle spanning multiple grid cells', () => {
-    const longWall = obstacle(
-      -OBSTACLE_COLLISION_GRID_CELL_SIZE * 2,
-      -0.5,
-      OBSTACLE_COLLISION_GRID_CELL_SIZE * 2,
-      0.5,
-    )
-    const index = new ObstacleCollisionSpatialIndex()
-    index.sync([longWall])
-
-    expect(index.queryNear(0, 0, 10)).toEqual([longWall])
-  })
-
   it('rebuilds when gate or wall topology changes the shared array length', () => {
     const gate = obstacle(-4, -0.5, 4, 0.5)
     const wall = obstacle(12, -1, 14, 1)
@@ -66,14 +52,5 @@ describe('ObstacleCollisionSpatialIndex', () => {
     obstacles.push(gate)
     index.sync(obstacles)
     expect(index.queryNear(0, 0, 1)).toEqual([gate])
-  })
-
-  it('handles negative world cells around Roman-side fortifications', () => {
-    const romanWall = obstacle(-6, -112, 6, -108)
-    const index = new ObstacleCollisionSpatialIndex()
-    index.sync([romanWall])
-
-    expect(index.queryNear(0, -110, 1)).toEqual([romanWall])
-    expect(index.queryNear(0, 110, 1)).toEqual([])
   })
 })

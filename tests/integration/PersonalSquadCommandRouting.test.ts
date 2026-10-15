@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Faction } from '../../src/world/NPC'
 import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
-import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import type { PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
+import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
+import { Faction } from '../../src/world/NPC'
 
-import { createArmyCommandHarness as controllerHarness } from '../helpers/armyCommandHarness'
+import { createArmyCommandHarness as controllerHarness, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
 
 describe('Personal Squad command lifecycle routing', () => {
   it('keeps private ALL and its identity separate from all eight official squads; ineffective Dismiss keeps the command', () => {
@@ -14,7 +14,7 @@ describe('Personal Squad command lifecycle routing', () => {
     const issue = vi.fn(() => false)
     const { controller, input, ui } = controllerHarness([personal], null, null, null, 'roman', 'squad', true, { issue, enabled: () => true })
     const entries = ui.render.mock.lastCall![0]
-    expect(entries.map((entry: any) => entry.target)).toEqual(['squad:personal', 'all'])
+    expect(entries.map(entry => entry.target)).toEqual(['squad:personal', 'all'])
     input.pressAll(); controller.update(); input.press('2'); controller.update()
     expect(personal.setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')
     input.press('9'); controller.update(); input.press('6'); controller.update()
@@ -26,7 +26,7 @@ describe('Personal Squad command lifecycle routing', () => {
   })
 
   it('allows existing ALL → Follow me with an empty reserve runtime and routes Dismiss only to its owner', () => {
-    const issue = vi.fn(() => true), npcs: any[] = []
+    const issue = vi.fn(() => true), npcs: CommandRecipientFixture[] = []
     const { controller, input } = controllerHarness(npcs, null, null, null, 'roman', 'squad', true, { issue, enabled: () => true })
     input.pressAll(); controller.update()
     input.press('5'); controller.update()
