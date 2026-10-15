@@ -4,6 +4,12 @@ import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { ARMORS } from '../../src/rpg/ArmorDatabase'
 
 describe('Training equipment policy (no actors or assets)', () => {
+  it('shows one T4 polearm in the equipment inventory', () => {
+    const inventory = createTrainingInventory()
+    const polearms = inventory.inventoryStacks.filter(({ item }) => item.tier === 4 && WEAPONS[item.id]?.combatKind === 'lance')
+    expect(polearms.map(({ item }) => item.id)).toEqual(['spear_t4'])
+    expect(polearms[0].item.name).toBe('T4 長槍')
+  })
   it('offers one copy of every official equipment entry without creating extra tiers', () => {
     const inventory = createTrainingInventory()
     expect(inventory.inventoryStacks.map(({ item }) => item.id).sort()).toEqual([...Object.keys(WEAPONS), ...Object.keys(ARMORS)].sort())

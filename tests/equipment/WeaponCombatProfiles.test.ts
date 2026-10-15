@@ -117,7 +117,7 @@ it.each([
   expect(WEAPONS[id]).toMatchObject({ tier, combatKind: 'javelin', damageMin, damageMax, arrowSpeedMin, arrowSpeedMax, speedOrCharge })
 })
 
- it.each(['spear_t4', 'lance_t4'])('%s preserves the shared T4 polearm combat contract', id => {
+ it.each(['spear_t4'])('%s preserves the shared T4 polearm combat contract', id => {
   expect(WEAPONS[id]).toMatchObject({ tier: 4, damageMin: 75, damageMax: 75,
     speedOrCharge: .42, meleeCycleSeconds: .42, range: 3.9, combatKind: 'lance', animationKind: 'lance', isLance: true })
 })

@@ -12,6 +12,6 @@ License: https://creativecommons.org/licenses/by/4.0/
 Rebuild with `node tools/build-high-tier-weapons.mjs /path/to/source-directory`.
 Original mesh, material, embedded PNG, skin and animation payloads are preserved. Only a scene wrapper normalizes the attachment space.
 
-Spear: 1 mesh/material/texture, 452 triangles, no skin or clips. Raw Y bounds 3.96069–718.03442 source units. Normalize to Y -0.5–2.6 m, grip Y 0.15, tip +Y, matching existing lance attachments and hit endpoint. `spear_t4` and `lance_t4` reference this single file.
+Spear: 1 mesh/material/texture, 452 triangles, no skin or clips. Raw Y bounds 3.96069–718.03442 source units. Normalize to Y -0.5–2.6 m, grip Y 0.15, tip +Y, matching existing lance attachments and hit endpoint. `spear_t4` is the shared T4 長槍 for foot and mounted troops. Retired `lance_t4` remains a save-compatibility alias only.
 
 Bow: 1 skinned mesh/material/texture, 1,874 triangles, 10 joints, one 0.333333 s `Take 001`. Raw scene X span 1.92577 source units; normalize to 1.7 m along +Y, shot -Z. The source take draws and returns; its first half is sampled over normalized gameplay charge 0–1, preserving the 1.8 s weapon charge. Per-instance SkeletonUtils clone and mixer prevent shared animation state. Existing humanoid poses, string, nock, arrow rest and projectile path remain authoritative. Static drops use shared bind-pose geometry.

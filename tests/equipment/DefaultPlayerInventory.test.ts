@@ -8,6 +8,19 @@ describe('Default Mounted Loadout & Inventory', () => {
     inventory = new InventoryManager()
   })
 
+  it('merges old T4 lance stacks and equipped IDs into one polearm through serialized inventory loading', () => {
+    const state = JSON.parse(JSON.stringify({ items: [{ id: 'lance_t4', quantity: 2 }, { id: 'spear_t4', quantity: 3 }], equippedMeleeId: 'lance_t4' }))
+    inventory.loadSaveState(state)
+    expect(inventory.inventoryStacks.map(({ item, quantity }) => [item.id, quantity])).toEqual([['spear_t4', 5]])
+    expect(inventory.equippedMelee).toMatchObject({ id: 'spear_t4', name: 'T4 長槍' })
+    expect(inventory.addWeapon('lance_t4')).toBe(6)
+    expect(inventory.equipWeapon('lance_t4')).toBe(true)
+    expect(inventory.saveState.equippedMeleeId).toBe('spear_t4')
+    const restored = new InventoryManager()
+    restored.loadSaveState(JSON.parse(JSON.stringify(inventory.saveState)))
+    expect(restored.saveState.items).toEqual([{ id: 'spear_t4', quantity: 6 }])
+  })
+
   it('initializes default inventory with elite heavy cavalry items (lance, greatsword, runebow, t3 shield)', () => {
     const stacks = inventory.inventoryStacks
     const itemIds = stacks.map(s => s.item.id)

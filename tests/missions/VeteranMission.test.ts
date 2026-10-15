@@ -152,7 +152,7 @@ describe('Veteran Career mission catalog and progression', () => {
     expect(one.reinforcements.filter(unit => unit.tier === 4 && unit.heroRole === 'ranger').length).toBe(1)
     for (const unit of [...one.enemy, ...two.enemy].filter(unit => unit.heroRole === 'captain')) {
       expect(createVeteranSpawnSpec(unit, 'roman', 'enemy').loadout).toEqual({
-        meleeWeaponId: 'lance_t4', rangedWeaponId: null, shieldId: null, mountId: 'black-cat',
+        meleeWeaponId: 'spear_t4', rangedWeaponId: null, shieldId: null, mountId: 'black-cat',
       })
     }
     const reinforcementCaptain = one.reinforcements.find(unit => unit.heroRole === 'captain')!

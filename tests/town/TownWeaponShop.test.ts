@@ -22,6 +22,10 @@ function profile(rank: CareerRank = 'soldier'): CareerProfile {
 }
 
 describe('Career weapon shop canonical purchases', () => {
+  it('lists one shared T4 polearm product at the existing Captain price', () => {
+    const products = TOWN_PRODUCTS.filter(item => item.id === 'spear_t4' || item.id === 'lance_t4')
+    expect(products).toEqual([{ id: 'spear_t4', category: 'weapon', name: 'T4 長槍', tier: 4, price: 1600 }])
+  })
   it.each([
     ['recruit', 'rusty_dagger', true], ['recruit', 'steel_sword', false],
     ['soldier', 'steel_sword', true], ['soldier', 'runic_greatsword', false],
@@ -32,7 +36,7 @@ describe('Career weapon shop canonical purchases', () => {
     ['captain', 'paladin_sword_t4', true], ['captain', 'paladin_mace_t4', true], ['captain', 'paladin_shield_t4', true],
     ['commander', 'paladin_sword_t4', true], ['commander', 'paladin_mace_t4', true], ['commander', 'paladin_shield_t4', true],
     ['recruit', T4_RANGER_BOW_RANGED_ID, false], ['soldier', T4_RANGER_BOW_RANGED_ID, false], ['veteran', T4_RANGER_BOW_RANGED_ID, false],
-    ['captain', 'spear_t4', true], ['captain', 'lance_t4', true], ['captain', 'bow_t5', false], ['commander', 'bow_t5', true],
+    ['captain', 'spear_t4', true], ['captain', 'bow_t5', false], ['commander', 'bow_t5', true],
     ['captain', T4_RANGER_BOW_RANGED_ID, true], ['commander', T4_RANGER_BOW_RANGED_ID, true],
   ] as const)('%s purchases %s: %s', (rank, id, allowed) => {
     const current = { ...profile(rank), availableMerit: 3000 }

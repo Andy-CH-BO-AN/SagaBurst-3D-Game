@@ -2,10 +2,49 @@ import { describe, expect, it } from 'vitest'
 import { WeaponWheel } from '../../src/player/WeaponWheel'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { createCareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { availableCareerItem, careerItemAllocated } from '../../src/career/CareerInventory'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 describe('Career equipment persistence wiring', () => {
+  it.each([
+    ['negative alias quantity', { spear_t4: 2, lance_t4: -1 }],
+    ['overflow after merging aliases', { spear_t4: Number.MAX_SAFE_INTEGER, lance_t4: 1 }],
+  ])('rejects %s instead of hiding invalid quantities during migration', (_scenario, quantities) => {
+    expect(parseCareerProfile({ ...createCareerProfile('roman'), inventory: { version: 1, quantities } })).toBeNull()
+  })
+  it('merges both T4 polearm quantities and migrates player, HR and Town allocations without losing or duplicating copies', () => {
+    const raw = { ...createCareerProfile('roman'), rank: 'commander', totalMerit: 60000,
+      ownedWeapons: ['lance_t4', 'spear_t4'], inventory: { version: 1, quantities: { lance_t4: 3, spear_t4: 2 } },
+      equipment: { melee: 'lance_t4' },
+      personalSquad: { members: [{ id: 'personal:alias', type: 'soldier', equipment: { melee: 'lance_t4', ranged: null, shield: null, mount: null } }] },
+      townEquipment: { roman: { version: 1, actors: { 'civilian-0': { melee: { itemId: 'lance_t4', source: 'inventory' }, ranged: null, shield: null, mount: null } }, nativeReserve: [] } },
+    }
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(raw)]] })
+    const store = new CareerProfileStore(storage), loaded = store.load()!
+    expect(loaded).not.toBeNull()
+    expect(loaded.inventory?.quantities).toEqual({ spear_t4: 5 })
+    expect(loaded.ownedWeapons).toEqual(['spear_t4'])
+    expect(loaded.equipment?.melee).toBe('spear_t4')
+    expect(loaded.personalSquad?.members[0].equipment?.melee).toBe('spear_t4')
+    expect(loaded.townEquipment?.roman?.actors['civilian-0'].melee?.itemId).toBe('spear_t4')
+    expect(careerItemAllocated(loaded, 'spear_t4')).toBe(3)
+    expect(availableCareerItem(loaded, 'spear_t4')).toBe(2)
+    expect(new TownEquipment(() => loaded, () => true).inventoryStacks.map(({ item }) => item.id)).toEqual(['spear_t4'])
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(JSON.stringify(raw))
+    expect(store.save(loaded)).toBe(true)
+    expect(store.load()?.inventory?.quantities).toEqual({ spear_t4: 5 })
+    expect(storage.getItem(CAREER_STORAGE_KEY)).not.toContain('lance_t4')
+  })
+
+  it('preserves two legacy owned weapon copies and equips a retired-ID-only save', () => {
+    for (const [ownedWeapons, count] of [[['lance_t4'], 1], [['lance_t4', 'spear_t4'], 2]] as const) {
+      const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify({ ...createCareerProfile('roman'), rank: 'captain', ownedWeapons })]] })
+      const store = new CareerProfileStore(storage), loaded = store.load()!
+      expect(loaded.inventory?.quantities).toEqual({ spear_t4: count })
+      expect(loaded.equipment?.melee).toBe('spear_t4')
+    }
+  })
   it('Career selection persists exclusivity, respects failed writes and restores after returning', () => {
     let profile = createCareerProfile('roman')
     profile.ownedWeapons = ['gladius_rusty', 'pilum_basic']

@@ -2,7 +2,7 @@
  * InventoryManager.ts
  * Manages player inventory, owned weapon stacks (quantity tracking), equipped weapons, and save state.
  */
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS, WeaponData } from './WeaponDatabase'
+import { canonicalWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS, WeaponData } from './WeaponDatabase'
 import { ARMORS, ArmorData } from './ArmorDatabase'
 import { getHeroFixedEquipment, type PlayerHeroId } from '../world/HeroAssetCatalog'
 
@@ -36,6 +36,7 @@ export class InventoryManager {
   constructor(initialLoadout?: InitialPlayerLoadout, private readonly heroId?: PlayerHeroId | null) {
     const fixed = getHeroFixedEquipment(heroId)
     const loadout = { ...(initialLoadout ?? LEGACY_LOADOUT), ...fixed }
+    loadout.meleeWeaponId = canonicalWeaponId(loadout.meleeWeaponId)
     if (heroId === 'maki-archer-t4' && WEAPONS[loadout.rangedWeaponId]?.combatKind !== 'bow') {
       loadout.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
     }
@@ -94,13 +95,19 @@ export class InventoryManager {
     } else if (state.ownedWeaponIds && state.ownedWeaponIds.length > 0) {
       this.items = state.ownedWeaponIds.map(id => ({ id, quantity: 1 }))
     }
+    const merged = new Map<string, number>()
+    for (const stack of this.items) {
+      const id = canonicalWeaponId(stack.id)
+      merged.set(id, (merged.get(id) ?? 0) + stack.quantity)
+    }
+    this.items = [...merged].map(([id, quantity]) => ({ id, quantity }))
 
     const fixed = getHeroFixedEquipment(this.heroId)
     // A save from Ranger must not equip its asset-only bow on another character.
     if (!fixed) this.items = this.items.filter(item => item.id !== 'maki-ranger-bow')
     if (state.equippedMeleeId && WEAPONS[state.equippedMeleeId]
       && (fixed || state.equippedMeleeId !== 'maki-ranger-bow')) {
-      this.equippedMeleeId = state.equippedMeleeId
+      this.equippedMeleeId = canonicalWeaponId(state.equippedMeleeId)
     }
     if (state.equippedRangedId && WEAPONS[state.equippedRangedId]) {
       this.equippedRangedId = state.equippedRangedId
@@ -123,6 +130,7 @@ export class InventoryManager {
   }
 
   addWeapon(id: string): number {
+    id = canonicalWeaponId(id)
     if (!WEAPONS[id] && !ARMORS[id]) return 0
 
     const existing = this.items.find(item => item.id === id)
@@ -136,6 +144,7 @@ export class InventoryManager {
   }
 
   canEquipWeapon(id: string): boolean {
+    id = canonicalWeaponId(id)
     const weapon = WEAPONS[id]
     const armor = ARMORS[id]
     if (!weapon && !armor) return false
@@ -147,6 +156,7 @@ export class InventoryManager {
   }
 
   protected removeOwnedItem(id: string): void {
+    id = canonicalWeaponId(id)
     this.items = this.items.filter(item => item.id !== id)
     if (this.equippedMeleeId === id) { this.equippedMeleeId = ''; this.meleeEnabled = false }
     if (this.equippedRangedId === id) { this.equippedRangedId = ''; this.rangedEnabled = false }
@@ -154,6 +164,7 @@ export class InventoryManager {
   }
 
   equipWeapon(id: string): boolean {
+    id = canonicalWeaponId(id)
     if (!this.canEquipWeapon(id)) return false
     const weapon = WEAPONS[id], armor = ARMORS[id]
 
@@ -186,6 +197,7 @@ export class InventoryManager {
   unequipShield(): void { this.equippedShieldId = null }
 
   isEquipped(id: string): boolean {
+    id = canonicalWeaponId(id)
     return (this.meleeEnabled && this.equippedMeleeId === id)
       || (this.rangedEnabled && this.equippedRangedId === id)
       || (this.shieldEnabled && this.equippedShieldId === id)

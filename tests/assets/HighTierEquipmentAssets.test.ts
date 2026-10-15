@@ -13,7 +13,7 @@ it('preloads two shared assets, isolates bow skeleton/draw state and rebuilds th
   try {
     await Promise.all([preloadHighTierEquipment(), preloadHighTierEquipment()])
     expect(loader).toHaveBeenCalledTimes(2)
-    expect(HIGH_TIER_WEAPON_ASSETS.spear_t4).toBe(HIGH_TIER_WEAPON_ASSETS.lance_t4)
+    expect(HIGH_TIER_WEAPON_ASSETS.spear_t4).toBe('models/weapons/high-tier/spear.glb')
     const a = new THREE.Group(), b = new THREE.Group()
     expect(WeaponMeshFactory.buildMelee('spear_t4', a).tipLocal.toArray()).toEqual([0, 2.6, 0])
     expect(WeaponMeshFactory.buildNpcMelee('roman', 4, true, b, 'lance_t4').toArray()).toEqual([0, 2.6, 0])

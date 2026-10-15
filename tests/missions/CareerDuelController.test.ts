@@ -110,7 +110,7 @@ describe('Career Duel existing actor and loadout selection', () => {
     expect(h.createMount).not.toHaveBeenCalled()
     expect(roster.loadout).toMatchObject(preset.endsWith('_archer')
       ? { rangedWeaponId: 'maki-ranger-bow-ranged', shieldId: null, mountId }
-      : preset.endsWith('_lancer') ? { meleeWeaponId: 'lance_t4', shieldId: null, mountId }
+      : preset.endsWith('_lancer') ? { meleeWeaponId: 'spear_t4', shieldId: null, mountId }
       : { meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4', shieldId: 'paladin_shield_t4', mountId })
     h.start(preset, 5)
     const temporaryMount = commander.mount
@@ -214,9 +214,9 @@ describe('Career Duel existing actor and loadout selection', () => {
 
   it.each([
     ['roman_sword_cavalry', 'paladin_sword_t4', 'paladin_shield_t4'],
-    ['roman_lancer', 'lance_t4', null],
+    ['roman_lancer', 'spear_t4', null],
     ['viking_sword_cavalry', 'paladin_mace_t4', 'paladin_shield_t4'],
-    ['viking_lancer', 'lance_t4', null],
+    ['viking_lancer', 'spear_t4', null],
   ] as const)('T4 %s retains Captain own mount with role-specific equipment', (preset, meleeWeaponId, shieldId) => {
     const h = harness(UNIT_PRESETS[preset].faction)
     const captain = h.residents.find(resident => resident.spec.role === 'captain')!

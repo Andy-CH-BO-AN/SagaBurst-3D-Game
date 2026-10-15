@@ -66,7 +66,7 @@ for (const faction of ['roman', 'viking'] as const) describe(`${faction} shared 
         expect(Boolean(spec.loadout?.mountId)).toBe(spec.cavalry)
         const bow = spec.specialCombatProfile === 'maki-ranger' ? 'maki-ranger-bow-ranged' : 'elven_runebow'
         expect(spec.loadout).toMatchObject(slot < 10
-          ? { meleeWeaponId: spec.tier === 4 ? 'lance_t4' : 'heavy_lance', rangedWeaponId: null, shieldId: null }
+          ? { meleeWeaponId: spec.tier === 4 ? 'spear_t4' : 'heavy_lance', rangedWeaponId: null, shieldId: null }
           : { meleeWeaponId: faction === 'roman' ? 'gladius_rusty' : 'rusty_dagger',
             rangedWeaponId: slot >= 25 && faction === 'roman' ? 'legionary_pilum' : bow, shieldId: null })
       }
@@ -93,7 +93,7 @@ describe('Siege officer profile policy without actor materialization', () => {
     for (const { spec } of captains) expect(spec).toMatchObject({
       characterFaction: faction, faction: assault ? 'TOWN' : 'ENEMY', tier: 4,
       combatProfileId, visualAssetId, presetId: `${faction}_${version === 1 ? 'sword_cavalry' : 'lancer'}`,
-      loadout: { meleeWeaponId: version === 1 ? faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4' : 'lance_t4',
+      loadout: { meleeWeaponId: version === 1 ? faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4' : 'spear_t4',
         rangedWeaponId: null, shieldId: version === 1 ? 'paladin_shield_t4' : null, mountId },
     })
     expect(roster.filter(({ spec }) => spec.combatProfileId === 'ranger')).toMatchObject([{

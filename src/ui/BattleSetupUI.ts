@@ -30,7 +30,7 @@ import {
 } from '../battle/BattleConfig'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { canonicalWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import {
   getUnitPresetsForFaction,
   BASE_UNIT_TIERS,
@@ -78,6 +78,7 @@ export class BattleSetupUI {
     if (!this.config.playerLoadout) {
       this.config.playerLoadout = createDefaultPlayerLoadout()
     }
+    this.config.playerLoadout.meleeWeaponId = canonicalWeaponId(this.config.playerLoadout.meleeWeaponId) as PlayerMeleeWeaponId
   }
 
   mount(
@@ -198,8 +199,7 @@ export class BattleSetupUI {
               { id: 'hunting_spear', tier: 'T1', zh: '狩獵長槍', en: 'HUNTING SPEAR' },
               { id: 'steel_lance', tier: 'T2', zh: '鋼製長槍', en: 'STEEL LANCE' },
               { id: 'heavy_lance', tier: 'T3', zh: '重裝長槍', en: 'HEAVY LANCE' },
-              { id: 'spear_t4', tier: 'T4', zh: '長矛', en: 'SPEAR' },
-              { id: 'lance_t4', tier: 'T4', zh: '騎槍', en: 'LANCE' },
+              { id: 'spear_t4', tier: 'T4', zh: '長槍', en: 'SPEAR' },
             ], 'melee')}
           </section>
           <section class="loadout-category"><div class="loadout-category-heading"><h3>遠程武器</h3><span>RANGED</span></div>
