@@ -36,7 +36,7 @@ export function assignTownGarrison(roster: TownActorSpec[]): TownActorSpec[] {
       }
       let p = townGatePoint(gate, side, inward)
       if (kind === 'rampart') {
-        const candidates = layout.decks.filter(d => d.gateId === gate.id && !d.id.startsWith('corner:') && !d.id.startsWith('landing:')).flatMap(d => {
+        const candidates = layout.wallSpans.filter(d => d.gateId === gate.id).flatMap(d => {
           const s = d.surface
           return [.4, 2.55, 4.65].filter(along => along < s.length - .25).map(along => ({
             x: s.startX + s.dirX * along + s.dirZ * 2, z: s.startZ + s.dirZ * along - s.dirX * 2, yaw: gate.yaw,
