@@ -36,7 +36,7 @@ export function personalMemberLoadout(member: CareerPersonalSquadMember, faction
   // Reserve-only equipment changes resolve again on deployment; weapon tier never grants a hero profile.
   const primaryWeapon = WEAPONS[equipment.ranged ?? equipment.melee ?? '']
   // Like the Town Commander, T5 uses the existing NPC hero tier with its explicit asset and full combat profile.
-  return { presetId, hero, tier: member.type === 'soldier' ? primaryWeapon?.tier ?? 1 : 4 as const,
+  return { presetId, hero, tier: member.type === 'soldier' ? Math.min(4, primaryWeapon?.tier ?? 1) as 1 | 2 | 3 | 4 : 4 as const,
     mounted: Boolean(equipment.mount), loadout: member.type === 'ranger'
       ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: equipment.mount }
       : { meleeWeaponId: equipment.melee, rangedWeaponId: equipment.ranged, shieldId: equipment.shield, mountId: equipment.mount } }

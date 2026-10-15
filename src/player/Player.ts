@@ -455,6 +455,7 @@ export class Player {
     this.currentRangedId = weaponId
     const weapon = WEAPONS[weaponId]
     this.bowPivot.removeFromParent()
+    this.bowVisual?.dispose()
     this.bowGripPivot.clear()
     if (weapon?.animationKind === 'pilum') {
       this.bowVisual = null
@@ -727,6 +728,7 @@ export class Player {
   }
 
   dispose(): void {
+    this.bowVisual?.dispose()
     this.fallingRider.clear()
     this.fallContext = undefined
     this.onPlayerDeath = null

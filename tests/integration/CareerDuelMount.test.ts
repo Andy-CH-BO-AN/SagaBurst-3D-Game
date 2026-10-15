@@ -145,7 +145,7 @@ describe('Career T5 Duel real mount lifecycle', () => {
     expect(h.commanderMount.riderNpc).toBeNull()
     expect(h.commanderMount.visualHold).toBe(true)
     expect(h.commanderMount.availableForPlayer).toBe(false)
-    expect(h.commander.meleeWeaponId).toBe('heavy_lance')
+    expect(h.commander.meleeWeaponId).toBe('lance_t4')
     h.commander.dismountFromMount()
     expect(mount.riderNpc).toBeNull()
     expect(mount.availableForPlayer).toBe(false)
@@ -169,7 +169,7 @@ describe('Career T5 Duel real mount lifecycle', () => {
     expect(h.commanderMount.group.position.x).toBe(20)
     expect(h.commanderMount.group.position.z).toBe(20)
     expect(h.commander.hp).toBe(712)
-    expect(h.commander.combatAmmo).toBe(0)
+    expect(h.commander.combatAmmo).toBe(30)
     expect(equipment(h.commander)).toEqual(homeEquipment)
     expect(h.captain.mount).toBe(h.captainMount)
     expect(h.captainMount.riderNpc).toBe(h.captain)
@@ -241,7 +241,7 @@ describe('Career T5 Duel real mount lifecycle', () => {
     const saved = h.store.load()!
     expect(saved.activeMission).toMatchObject({
       duelOpponentMountHp: 0, duelOpponentAmmo: 7,
-      duelOpponentDead: casualty === 'mount and Commander', duelCommanderHome: { hp: 712, ammo: 0 },
+      duelOpponentDead: casualty === 'mount and Commander', duelCommanderHome: { hp: 712, ammo: 30 },
     })
     h.controller.cleanupMission()
 
@@ -262,7 +262,7 @@ describe('Career T5 Duel real mount lifecycle', () => {
     expect(disposeTemporary).toHaveBeenCalledOnce()
     expect(reloaded.commander.dead).toBe(false)
     expect(reloaded.commander.hp).toBe(712)
-    expect(reloaded.commander.combatAmmo).toBe(0)
+    expect(reloaded.commander.combatAmmo).toBe(30)
     expect(equipment(reloaded.commander)).toEqual(homeEquipment)
     expect(reloaded.captainMount.disposed).toBe(false)
     expect(reloaded.serviceCat.disposed).toBe(false)
@@ -272,3 +272,8 @@ describe('Career T5 Duel real mount lifecycle', () => {
     expect(reloaded.profile.ownedMounts).toEqual([])
   })
 })
+
+vi.mock('../../src/world/HighTierEquipment', async () => ({
+  createT4Polearm: () => new THREE.Group(),
+  createT5Bow: (await import('../helpers/gameplayWeaponVisual')).createGameplayBowAsset,
+}))

@@ -145,7 +145,10 @@ describe('Commander mission roster contracts', () => {
       const escorts = roster.slice(1)
 
       expect(roster).toHaveLength(30)
-      expect(roster[0]).toMatchObject({ combatProfileId: commanderProfile, tier: 4, squadId: 1 })
+      expect(roster[0]).toMatchObject({ combatProfileId: commanderProfile, tier: 4, squadId: 1,
+        aiType: 'RANGED', loadout: { rangedWeaponId: 'bow_t5',
+          meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4',
+          shieldId: null, reversibleRangedSwitch: true } })
       expect(roster.every(spec => spec.tier === 4 && spec.cavalry && spec.loadout?.mountId === mountId)).toBe(true)
       expect(escorts.filter(spec => spec.presetId === `${faction}_lancer`)).toHaveLength(10)
       expect(escorts.filter(spec => spec.presetId === `${faction}_sword_cavalry`)).toHaveLength(10)

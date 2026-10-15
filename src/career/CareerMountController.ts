@@ -33,7 +33,7 @@ export function careerMountType(id: CareerMountId): MountType {
 
 export function careerMountTier(id: CareerMountId, profile: Pick<CareerProfile, 'rank'>): number {
   const canonical = canonicalCareerMountId(id)
-  return canonical === 'horse' ? getCareerPurchaseTier(profile.rank) : MOUNTS[canonical].tier
+  return canonical === 'horse' ? Math.min(4, getCareerPurchaseTier(profile.rank)) : MOUNTS[canonical].tier
 }
 
 export function careerMountAppearanceVariant(id?: CareerMountId): HorseAppearanceVariant {

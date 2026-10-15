@@ -82,7 +82,7 @@ export function resolveTownActorEquipment(profile: CareerProfile, faction: Chara
   // Non-managed residents and fixed identities keep their authored equipment.
   const managed = townEquipmentSquadForActor(actorId) !== undefined
   const loadout = managed ? { ...base, ...Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => [slotKeys[slot], refs[slot]?.itemId ?? null])) } : base
-  return { spec, refs, loadout, tier: (townEquipmentWeaponTier(profile, refs, faction) || 1) as 1 | 2 | 3 | 4, mountTier: townEquipmentRefTier(profile, refs.mount, faction),
+  return { spec, refs, loadout, tier: Math.min(4, townEquipmentWeaponTier(profile, refs, faction) || 1) as 1 | 2 | 3 | 4, mountTier: townEquipmentRefTier(profile, refs.mount, faction),
     fixedWeapons: spec.role === 'ranger' || spec.role === 'eagle-trainer', readOnly: spec.role === 'merchant' }
 }
 export function allocatedTownEquipment(profile: Pick<CareerProfile, 'townEquipment'>, itemId: string): number {

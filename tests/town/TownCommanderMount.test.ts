@@ -1,3 +1,4 @@
+import { preloadHighTierEquipment } from '../../src/world/HighTierEquipment'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import * as THREE from 'three'
@@ -29,7 +30,7 @@ describe.each(['roman', 'viking'] as const)('%s mounted Commander service cleara
       return loadRig(readGlb(url.startsWith(`/models/characters/v2/${assetId}/`) ? `${directory}/${url.split('/').at(-1)}` : `public${url}`), this)
     })
     onTestFinished(() => { fetchMock.mockRestore(); loader.mockRestore() })
-    await Promise.all([HumanoidAssetRegistry.preloadAsset(descriptor), preloadPaladinEquipment(),
+    await Promise.all([HumanoidAssetRegistry.preloadAsset(descriptor), preloadPaladinEquipment(), preloadHighTierEquipment(),
       faction === 'roman' ? installCorgiTestAsset() : installBlackCatTestAsset()])
     const scene = new THREE.Scene(), spec = townCommanderSpec({ x: 25, z: 5, yaw: -Math.PI / 2 })
     const gear = townMilitaryEquipment(faction, spec)

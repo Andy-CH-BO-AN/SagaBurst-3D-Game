@@ -93,7 +93,7 @@ describe('Career progression and spending', () => {
       soldier: 2,
       veteran: 3,
       captain: 4,
-      commander: 4,
+      commander: 5,
     })
 
     expect(resolveCareerRank(299)).toBe('recruit')

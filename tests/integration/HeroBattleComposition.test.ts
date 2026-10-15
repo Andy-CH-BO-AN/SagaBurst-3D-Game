@@ -42,10 +42,10 @@ describe('T4 Hero Custom Battle domain', () => {
       ['roman_sword_cavalry', 'paladin_sword_t4', null, 'paladin_shield_t4'],
       ['viking_berserker', 'paladin_mace_t4', null, 'paladin_shield_t4'],
       ['viking_sword_cavalry', 'paladin_mace_t4', null, 'paladin_shield_t4'],
-      ['roman_lancer', 'heavy_lance', null, null],
-      ['viking_lancer', 'heavy_lance', null, null],
-      ['roman_spearman', 'heavy_lance', null, null],
-      ['viking_spearman', 'heavy_lance', null, null],
+      ['roman_lancer', 'lance_t4', null, null],
+      ['viking_lancer', 'lance_t4', null, null],
+      ['roman_spearman', 'spear_t4', null, null],
+      ['viking_spearman', 'spear_t4', null, null],
       ['roman_javelin_infantry', 'paladin_sword_t4', 'legionary_pilum', null],
     ] as const) expect(resolveT4UnitLoadout(id)).toMatchObject({ meleeWeaponId: melee, rangedWeaponId: ranged, shieldId: shield })
     expect(resolveT4UnitLoadout('viking_spearman').secondaryMeleeWeaponId).toBe('paladin_sword_t4')

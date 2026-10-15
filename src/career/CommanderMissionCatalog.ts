@@ -1,3 +1,4 @@
+import { careerCommanderLoadout } from './CareerCommanderEquipment'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
@@ -211,6 +212,7 @@ export function createDecapitationRoster(mission: ActiveCareerMission, faction: 
       const asset = townCommanderHeroAsset(faction)
       return { ...specForTier(actorId, faction, Faction.TOWN, presetId, 4, 1, 0, 0, canonicalMount),
         name: `Former ${faction === 'roman' ? 'Roman' : 'Viking'} Commander`, visualAssetId: asset,
+        aiType: AIType.RANGED, loadout: { ...careerCommanderLoadout(faction), mountId: canonicalMount },
         combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[asset] }
     }
     const escortIndex = index - 1

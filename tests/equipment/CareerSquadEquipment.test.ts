@@ -64,7 +64,7 @@ describe('Personal squad native faction loadouts', () => {
     expect(spec).toMatchObject({ tier, hero: undefined, mounted: true })
     expect(spec.loadout).toEqual({ meleeWeaponId: melee, rangedWeaponId: null, shieldId: 'paladin_shield_t4', mountId: 'black-cat' })
   })
-  it.each([['wooden_shortbow', 1], ['recurve_longbow', 2], ['elven_runebow', 3], [T4_RANGER_BOW_RANGED_ID, 4]] as const)(
+  it.each([['wooden_shortbow', 1], ['recurve_longbow', 2], ['elven_runebow', 3], [T4_RANGER_BOW_RANGED_ID, 4], ['bow_t5', 4]] as const)(
     'uses equipped ranged weapon %s as ordinary Soldier primary tier %i', (ranged, tier) => {
       expect(personalMemberLoadout({ id: 'personal:ranged', type: 'soldier',
         equipment: { melee: 'paladin_sword_t4', ranged, shield: null, mount: null } }, 'roman')).toMatchObject({ tier, hero: undefined })
@@ -480,4 +480,31 @@ describe('Inventory migration and normalization', () => {
     const h = harness(); h.hire(); const copy = cloneCareerProfile(h.read()); copy.inventory!.quantities.gladius_rusty = 9; copy.personalSquad!.members[0].equipment!.melee = 'steel_sword'
     expect(careerItemTotal(h.read(), 'gladius_rusty')).toBe(1)
   })
+})
+
+it.each(['roman', 'viking'] as const)('%s buys, equips, releases, allocates and reloads all new weapons without upgrading issued HR equipment', faction => {
+  const h = harness('commander', faction), memberId = h.hire('commander')
+  expect(h.read().personalSquad!.members[0].equipment).toMatchObject({
+    melee: faction === 'roman' ? 'gladius_standard' : 'viking_axe_t2', ranged: null,
+  })
+  for (const [id, slot, price] of [['spear_t4', 'melee', 1600], ['lance_t4', 'melee', 1600], ['bow_t5', 'ranged', 2500]] as const) {
+    expect(TOWN_PRODUCTS.find(product => product.id === id)?.price).toBe(price)
+    const bulk = purchaseTownEquipment(h.read(), id, 2)
+    expect(bulk).toMatchObject({ purchased: true, spentMerit: price * 2 })
+    expect(h.save(bulk.profile)).toBe(true)
+    const equipment = new TownEquipment(h.read, h.save)
+    expect(equipment.equipWeapon(id)).toBe(true)
+    expect(h.store.load()!.equipment?.[slot]).toBe(id)
+    expect(equipment.unequipWeapon(id)).toBe(true)
+    expect(h.change(memberId, slot, id).changed).toBe(true)
+    const loaded = h.store.load()!
+    expect(loaded.personalSquad!.members[0].equipment?.[slot]).toBe(id)
+    expect(personalMemberLoadout(loaded.personalSquad!.members[0], faction).loadout[slot === 'ranged' ? 'rangedWeaponId' : 'meleeWeaponId']).toBe(id)
+    expect(h.save(loaded)).toBe(true)
+    const sale = sellTownProduct(h.read(), id)
+    expect(sale.sold).toBe(true)
+    expect(h.save(sale.profile)).toBe(true)
+    expect(careerItemTotal(h.store.load()!, id)).toBe(1)
+    balanced(h.read())
+  }
 })

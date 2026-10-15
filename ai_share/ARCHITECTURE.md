@@ -50,6 +50,7 @@
 - T4 Ranger 的正式預設 loadout 經 `resolveT4UnitLoadout` 使用 `maki-ranger-bow-ranged`，沿用原本 Maki 弓外觀、動畫與近戰 fallback。遠程傷害／箭速由 WeaponDatabase 實際裝備決定；角色 tier 不會自動升級明確指定的低階弓。
 - `EagleRangedCombat` 只覆寫 NPC + xongkoro + bow 的 3D 開火距離，依當前武器 tier 為 200／300／400／500m，不再疊加 Ranger 射程倍率。`ProjectileBallistics` 有界求解真實重力與移動目標攔截，發射前重驗彈道遮擋；發射後投射物不追蹤。NPC 驗證過的空軍射擊及 Player 自由瞄準空軍弓各自產生有界 flight budget，Game／Town 都傳入 ArrowProjectile。Town 非空軍保留五秒政策；共用箭矢使用 scene 方形世界界線與獨立 age／travel cap，不再依世界原點 400m 球體裁切。
 - 箭模型沿 local `-Z`，投射物朝向須顯式對齊速度。飛行箭／pilum 共用不可變 render resources，移除實例不能銷毀模板或每發遺留資源。
+- `HighTierEquipment` 預載唯一共用 T4 槍與 T5 弓 GLB；槍共享 render resources，弓以 SkeletonUtils 複製每位持有者的骨架／mixer。來源拉弓 take 的前半段映射至既有 normalized charge，`CharacterBowVisual` 保留弦、搭箭與發射座標 ownership，換裝／銷毀只釋放實例骨架。Career 正式 Commander 的 `careerCommanderLoadout` 明確選擇可恢復的遠近切換；`NPC` 使用現有 target／nearby 結果、6m／9m 遲滯及原 CHASE／ATTACK 狀態，不擴充搜尋頻率。HR 與 Duel 不自動取得該策略。
 - `EquipmentVisualLODController` 跟隨人物 Three.LOD 的當幀 level，不另算距離。只切已標记的靜態細節，保留 socket、弓弦與搭箭的動態 ownership。
 - NPC 持有裝備在 LOD2 關閉 castShadow，LOD0/1 還原第一次登記的原值；重建盾牌立即沿用目前 level。Player、飛行物、掉落物、人物與坐騎不屬於此 policy。
 

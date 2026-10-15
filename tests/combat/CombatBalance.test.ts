@@ -221,3 +221,10 @@ describe('Lance Charge Bonus Production Behavior', () => {
     expect(result.skipImpact).toBe(false)
   })
 })
+
+it.each(['spear_t4', 'lance_t4'])('%s uses unchanged anti-cavalry and strict charge threshold rules', id => {
+  const weapon = WEAPONS[id]
+  expect(weapon.damageMax * getAntiCavalryMultiplier(weapon.combatKind, false, true)).toBe(150)
+  expect(calculateLanceChargeDamage(weapon.damageMax, weapon.combatKind, true, 10)).toMatchObject({ damage: 75, isCharge: false })
+  expect(calculateLanceChargeDamage(weapon.damageMax, weapon.combatKind, true, 10.01)).toMatchObject({ damage: 225, isCharge: true })
+})

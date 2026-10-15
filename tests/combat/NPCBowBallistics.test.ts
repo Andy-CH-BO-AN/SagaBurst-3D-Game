@@ -143,7 +143,7 @@ function rangePolicyNpc(weapon: string, mountType?: MountType, ranger = false): 
 }
 
 describe('eagle bow engagement override consumes actual equipment', () => {
-  it.each([['wooden_shortbow', 200], ['recurve_longbow', 300], ['elven_runebow', 400], ['maki-ranger-bow-ranged', 500]] as const)(
+  it.each([['wooden_shortbow', 200], ['recurve_longbow', 300], ['elven_runebow', 400], ['maki-ranger-bow-ranged', 500], ['bow_t5', 500]] as const)(
     '%s on xongkoro uses %dm without the Ranger range multiplier', (weapon, range) => {
       expect(rangePolicyNpc(weapon, MountType.XONGKORO, true).maxRangedAttackDistance).toBe(range)
     })

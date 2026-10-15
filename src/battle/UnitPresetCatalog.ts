@@ -60,6 +60,8 @@ export type UnitPresetTrait =
   | 'javelin_throw'
 
 export interface UnitLoadout {
+  /** Authored NPC policy; temporary duel equipment disables reversible switching. */
+  reversibleRangedSwitch?: boolean
   meleeWeaponId?: string | null
   secondaryMeleeWeaponId?: string | null
   rangedWeaponId?: string | null

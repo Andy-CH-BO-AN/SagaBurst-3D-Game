@@ -31,9 +31,10 @@ describe('Career weapon shop canonical purchases', () => {
     ['captain', 'paladin_sword_t4', true], ['captain', 'paladin_mace_t4', true], ['captain', 'paladin_shield_t4', true],
     ['commander', 'paladin_sword_t4', true], ['commander', 'paladin_mace_t4', true], ['commander', 'paladin_shield_t4', true],
     ['recruit', T4_RANGER_BOW_RANGED_ID, false], ['soldier', T4_RANGER_BOW_RANGED_ID, false], ['veteran', T4_RANGER_BOW_RANGED_ID, false],
+    ['captain', 'spear_t4', true], ['captain', 'lance_t4', true], ['captain', 'bow_t5', false], ['commander', 'bow_t5', true],
     ['captain', T4_RANGER_BOW_RANGED_ID, true], ['commander', T4_RANGER_BOW_RANGED_ID, true],
   ] as const)('%s purchases %s: %s', (rank, id, allowed) => {
-    const current = { ...profile(rank), availableMerit: 2000 }
+    const current = { ...profile(rank), availableMerit: 3000 }
     const result = purchaseTownEquipment(current, id)
     expect(result.purchased).toBe(allowed)
     expect(result.purchased).toBe(TOWN_PRODUCTS.find(p => p.id === id)!.tier <= getCareerPurchaseTier(rank))
