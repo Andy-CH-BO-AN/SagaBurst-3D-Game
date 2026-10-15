@@ -292,13 +292,13 @@ export function isTownProductOwned(profile: CareerProfile, item: TownProduct): b
     : (item.category === 'weapon' ? profile.ownedWeapons : item.category === 'armor' ? profile.ownedArmors : profile.ownedMounts as string[]).includes(item.id)
 }
 /** Resolve mount purchases from the catalog and preserve legacy horse ownership. */
-export function purchaseTownMount(profile: CareerProfile, productId: string): CareerPurchaseResult {
+export function purchaseTownMount(profile: CareerProfile, productId: string, quantity = 1): CareerPurchaseResult {
   const item = TOWN_PRODUCTS.find(product => product.id === productId && product.category === 'mount')
   if (!item || !(PLAYER_MOUNT_IDS as readonly string[]).includes(item.id)) {
     return { profile: cloneCareerProfile(profile), purchased: false, spentMerit: 0, reason: 'invalid-id' }
   }
   const result = purchaseCareerContent(profile, {
-    id: item.id, kind: 'mount', requiredTier: item.tier, cost: item.price,
+    id: item.id, kind: 'mount', requiredTier: item.tier, cost: item.price, quantity,
   })
   if (result.purchased) result.profile.selectedMountId = item.id as PlayerMountId
   return result
@@ -311,12 +311,12 @@ export function purchaseTownHorse(profile: CareerProfile, id: string): CareerPro
   return result.purchased ? result.profile : null
 }
 
-/** Resolve every purchase field from the catalog; callers supply only a product ID. */
-export function purchaseTownEquipment(profile: CareerProfile, productId: string): CareerPurchaseResult {
+/** Resolve every purchase field from the catalog; callers supply only a product ID and quantity. */
+export function purchaseTownEquipment(profile: CareerProfile, productId: string, quantity = 1): CareerPurchaseResult {
   const item = TOWN_PRODUCTS.find(product => product.id === productId && product.category !== 'mount')
   if (!item || item.category === 'mount') return { profile: cloneCareerProfile(profile), purchased: false, spentMerit: 0, reason: 'invalid-id' }
   return purchaseCareerContent(profile, {
-    id: item.id, kind: item.category, requiredTier: item.tier, cost: item.price,
+    id: item.id, kind: item.category, requiredTier: item.tier, cost: item.price, quantity,
   })
 }
 

@@ -98,7 +98,7 @@ import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type Horse
 import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
-import { CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId } from '../career/CareerProfile'
+import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
 import { selectTownCavalryReserve } from './TownCavalryReserve'
@@ -1045,7 +1045,7 @@ export class TownScene {
         summary.textContent = '可用軍功 ' + this.profile.availableMerit + ' · ' + this.profile.rank + (page === 'sell' ? ` · 回收價為原價的 ${TOWN_RESALE_PERCENT[this.profile.rank]}%` : id === 'eagle-trainer' ? ' · Captain / Commander 解鎖；最多持有 3 隻；按 Tab 騎乘／收起' : mount ? ' · 軍用戰馬隨軍階解鎖至 T4；按 Tab 騎乘／收起' : ' · 購買後按 Tab 選擇裝備')
         panel.querySelector('.town-products')?.remove()
         panel.querySelector('.town-sale')?.remove()
-        const list = document.createElement('div'); list.className = 'town-products'
+        const list = document.createElement('div'); list.className = page === 'buy' ? 'town-products town-purchase-products' : 'town-products'
         let section = ''
         const products = townShopProducts(id).filter(i => page === 'buy' || isTownProductOwned(this.profile, i))
         if (page === 'sell') {
@@ -1095,20 +1095,41 @@ export class TownScene {
             row.append(button); list.append(row); continue
           }
           const status = productStatus(this.profile, item)
-          const button = document.createElement('button'); button.className = 'town-button'
-          const eagleLimit = item.id === 'xongkoro' && careerItemTotal(this.profile, 'xongkoro') >= 3
-          button.textContent = eagleLimit ? '已達 3 隻持有上限' : status === '已擁有' || status === '軍階未解鎖' ? status : this.profile.availableMerit < item.price ? '餘額不足' : '購買'
-          button.disabled = eagleLimit || status !== '已解鎖・餘額足夠'
+          const button = document.createElement('button'); button.className = 'town-button town-buy-button'
+          const eagleRemaining = item.id === 'xongkoro'
+            ? Math.max(0, MAX_PLAYER_OWNED_XONGKORO - careerItemTotal(this.profile, item.id)) : Infinity
+          const maxQuantity = Math.min(MAX_BULK_PURCHASE_QUANTITY, Math.floor(this.profile.availableMerit / item.price), eagleRemaining)
+          const label = document.createElement('label'); label.className = 'town-purchase-quantity'; label.textContent = '購買數量：'
+          const quantity = document.createElement('select'); quantity.className = 'town-purchase-select'
+          quantity.setAttribute('aria-label', '購買數量')
+          for (let count = 1; count <= maxQuantity; count++) {
+            const option = document.createElement('option'); option.value = String(count); option.textContent = String(count); quantity.append(option)
+          }
+          quantity.value = maxQuantity > 0 ? '1' : ''
+          quantity.disabled = maxQuantity < 1 || status === '軍階未解鎖'
+          label.append(quantity)
+          const total = document.createElement('small'); total.className = 'town-purchase-total'
+          const updatePurchase = () => {
+            const count = Number(quantity.value)
+            total.textContent = `總價：${(item.price * count).toLocaleString()} 軍功`
+            button.textContent = eagleRemaining === 0 ? '已達 3 隻持有上限' : status === '軍階未解鎖' ? status
+              : maxQuantity < 1 ? '餘額不足' : `購買 ${count} 件`
+            button.disabled = quantity.disabled
+          }
+          quantity.onchange = updatePurchase
+          updatePurchase()
+          row.append(label, total)
           button.onclick = () => {
             if (mount && (this.player.isFalling || this.player.currentMount?.isAirborne)) { this.talk(id, '請先安全降落，再購買或切換坐騎。'); return }
-            const result = mount ? purchaseTownMount(this.profile, item.id) : purchaseTownEquipment(this.profile, item.id)
+            const result = mount ? purchaseTownMount(this.profile, item.id, Number(quantity.value)) : purchaseTownEquipment(this.profile, item.id, Number(quantity.value))
             if (!result.purchased) {
               const message = result.reason === 'ownership-limit' ? '最多同時持有 3 隻 xongkoro' : result.reason === 'tier-locked' ? '軍階未解鎖' : result.reason === 'insufficient-merit' ? '可用軍功不足' : result.reason === 'already-owned' ? '已擁有' : '商品不存在或無法購買'
               this.talk(id, message); return
             }
             if (!this.commit(result.profile)) { this.talk(id, this.notice); return }
+            this.inventory.syncOwnership()
             this.careerMounts.syncOwnership()
-            const message = item.id === 'horse' ? selectTownDialogue(context, 'horsePurchaseSuccess') : '購買成功：' + item.name
+            const message = `購買成功！\n${item.name} × ${Number(quantity.value)}\n花費：${result.spentMerit.toLocaleString()} 軍功\n剩餘軍功：${this.profile.availableMerit.toLocaleString()}`
             this.talk(id, message + (mount ? '\n按 Tab → 坐騎 → 騎乘。' : '\n按 Tab 選擇裝備。'))
           }
           row.append(button); list.append(row)
