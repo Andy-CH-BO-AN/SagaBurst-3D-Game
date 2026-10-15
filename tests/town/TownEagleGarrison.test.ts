@@ -498,3 +498,34 @@ it('Sergeant service resumes native return after storage, waits for death presen
   expect(reloaded.rows[0].mountState.restoreForTown).toHaveBeenCalledTimes(1)
   expect(reloaded.runtime.serviceRefitPending(reloaded.rows[0].npc)).toBe(false)
 })
+
+
+it.each(['rider', 'mount', 'both'] as const)('lets Sergeant service authorize a dismissed %s casualty without waiting for an impossible physical return', casualty => {
+  // One recording pair, zero real actors/world; native service policy owns this state transition.
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  row.npcState.group.position.set(row.spec.x, getTerrainHeight(row.spec.x, row.spec.z), row.spec.z)
+  runtime.claimPlayerCommand(row.npc)
+  if (casualty !== 'mount') row.npcState.takeDamage()
+  if (casualty !== 'rider') row.mountState.takeDamage()
+  runtime.releasePlayerCommand(row.npc, false)
+  expect(runtime.snapshot('town:roman').pairs[0]).toMatchObject({ duty: 'casualty', commandReturn: true, refitAllowed: false })
+  expect(runtime.canServiceRefit(row.npc)).toBe(true)
+  runtime.requestServiceRefit(row.npc)
+  expect(runtime.canServiceRefit(row.npc)).toBe(false)
+  expect(runtime.serviceRefitPending(row.npc)).toBe(true)
+  row.npcState.deathPresentationComplete = true
+  row.mountState.isAirborne = false
+  tick()
+  expect(row.npcState.restoreForTown).toHaveBeenCalledOnce()
+  expect(row.mountState.restoreForTown).toHaveBeenCalledOnce()
+  expect(runtime.snapshot('town:roman').pairs[0].commandReturn).toBeUndefined()
+  expect(runtime.serviceRefitPending(row.npc)).toBe(false)
+})
+
+it('keeps living dismissed eagle returns unavailable, but allows service if that return later becomes a casualty', () => {
+  const { rows: [row], runtime } = patrolPolicyFixture()
+  runtime.claimPlayerCommand(row.npc); runtime.releasePlayerCommand(row.npc, false)
+  expect(runtime.canServiceRefit(row.npc)).toBe(false)
+  row.npcState.takeDamage()
+  expect(runtime.canServiceRefit(row.npc)).toBe(true)
+})

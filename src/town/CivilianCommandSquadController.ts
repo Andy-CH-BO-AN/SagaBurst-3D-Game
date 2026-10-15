@@ -5,13 +5,13 @@ import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import { civilianCommandRoster, cloneCivilianCommandSquad, type CivilianCommandOwner, type CivilianCommandSquadState } from '../career/CivilianCommandAuthority'
 import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
-import { restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
+import { refitCommandActor, refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import { Faction, type NPC } from '../world/NPC'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
-import { CIVILIAN_PROFILE, type TownActorSpec } from './TownRules'
+import { CIVILIAN_PROFILE, townRoster, type TownActorSpec } from './TownRules'
 
 export const CIVILIAN_COMMAND_RETURN_ID = -4500
 export interface CivilianCommandResident { spec: TownActorSpec; npc: NPC }
@@ -26,6 +26,8 @@ export interface CivilianCommandHudState {
 interface CivilianCommandOptions {
   sceneKey: string
   townFaction: CareerProfile['faction']
+  refitSceneKey?: string
+  canRefit?(actors: readonly NPC[], orders: readonly TacticalOrder[]): boolean
   onClaim?(npc: NPC): void
   onRelease?(npc: NPC, owner: CivilianCommandOwner): void
 }
@@ -34,6 +36,7 @@ interface CivilianCommandOptions {
 export class CivilianCommandSquadController {
   private value?: CivilianCommandSquadState
   private readonly residentsById: Map<string, CivilianCommandResident>
+  private serviceRoster?: string[]
 
   constructor(residents: readonly CivilianCommandResident[], private readonly player: () => Player,
     private readonly read: () => CareerProfile, private readonly commit: (profile: CareerProfile) => boolean,
@@ -70,6 +73,57 @@ export class CivilianCommandSquadController {
     return { sceneKey: value.sceneKey, townFaction: value.townFaction, missionId: value.missionId, actorIds, members }
   }
   get hasCheckpoint(): boolean { return this.value !== undefined }
+  private get refitIds(): readonly string[] { return this.serviceRoster ??= civilianCommandRoster(townRoster()) }
+  /** Permanent production membership keeps even an entirely dead squad visible. */
+  get refitSquad(): { alive: number; total: number } {
+    return { alive: this.refitIds.filter(id => this.residentsById.get(id)?.npc.dead === false).length, total: this.refitIds.length }
+  }
+  canRefit(): boolean {
+    const profile = this.read()
+    if (!this.commandsEnabled || this.options.refitSceneKey !== 'town-home'
+      || profile.activeMission || profile.activeOutpostMission || profile.townEvent?.state === 'hostile') return false
+    if (this.refitIds.some(id => !this.value!.actorIds.includes(id)
+      || !this.residentsById.has(id) || !this.validIdentity(this.residentsById.get(id)!.npc))) return false
+    const actors = this.refitIds.map(id => this.residentsById.get(id)!.npc)
+    // Daily AI's attack default is not a player command. Retain all actors for contact cooldowns.
+    const orders = actors.filter(npc => !npc.dead && this.owner(npc) === 'player').map(npc => npc.tacticalOrder)
+    return this.options.canRefit?.(actors, orders) ?? false
+  }
+  /** Stage existing identities, save once, then revive the same borrowed objects. */
+  refit(): boolean {
+    if (!this.canRefit()) return false
+    const value = this.checkpoint()!
+    for (const id of this.refitIds) {
+      const { npc, spec } = this.residentsById.get(id)!, previous = this.value!.members[id]
+      const member = value.members[id] = refitCommandCheckpoint(npc)
+      if (npc.dead || npc.isFalling) member.position = {
+        x: spec.x, y: spec.y ?? getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? 0,
+      }
+      if (value.owners[id] === 'returning') this.stageReturn(value, id, spec)
+      else if (value.owners[id] === 'player') {
+        // A dead squad cannot accept a new order; don't revive an obsolete Attack/Charge.
+        if (npc.dead && (member.order === 'attack' || member.order === 'charge')) {
+          member.order = 'defend'; delete member.formation
+        }
+        if (member.order === 'formation' && !member.formation) {
+          if (previous?.formation) member.formation = previous.formation
+          else member.order = 'defend'
+        }
+      } else {
+        value.owners[id] = 'daily'; member.order = 'attack'; delete member.formation
+      }
+    }
+    const next = cloneCareerProfile(this.read()); next.civilianCommandSquad = value
+    if (!this.commit(next)) return false
+    this.value = cloneCivilianCommandSquad(value)
+    for (const id of this.refitIds) {
+      const npc = this.residentsById.get(id)!.npc
+      refitCommandActor(npc)
+      restoreCommandActor(npc, value.members[id])
+    }
+    this.applyOwners(true)
+    return true
+  }
   /** Per-frame gate reads scalar lifecycle state; pose and nonlethal damage use the periodic save. */
   get criticalSignature(): string | undefined {
     const value = this.value

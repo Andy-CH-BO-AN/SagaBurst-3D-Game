@@ -410,8 +410,10 @@ export class TownScene {
         ambientEnemies: () => this.mission.ambientBandits,
       })
     this.defense.personalActors = () => this.personalSquad?.actors ?? []
-    this.civilianCommand = new CivilianCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p), {
+    this.civilianCommand = new CivilianCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p, { civilianCommandStaged: true }), {
       sceneKey: `town:${context.worldFaction}`, townFaction: context.worldFaction,
+      refitSceneKey: context.worldFaction === this.profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
+      canRefit: (actors, orders) => this.canRefitCivilians(actors, orders),
       onClaim: npc => this.defense.claimCivilianCommand(npc),
       onRelease: npc => this.defense.returnCivilianCommand(npc),
     })
@@ -665,7 +667,7 @@ export class TownScene {
     const airScenePermissionChanged = (this.profile.townEvent?.state === 'hostile') !== (next.townEvent?.state === 'hostile')
       || this.profile.faction !== next.faction
     const civilianStateChanged = JSON.stringify(next.civilianCommandSquad) !== JSON.stringify(this.profile.civilianCommandSquad)
-    if (!civilianStateChanged && this.civilianCommand) next.civilianCommandSquad = this.civilianCommand.checkpoint() ?? next.civilianCommandSquad
+    if (!options.civilianCommandStaged && !civilianStateChanged && this.civilianCommand) next.civilianCommandSquad = this.civilianCommand.checkpoint() ?? next.civilianCommandSquad
     const startsDefense = startsFormal && next.activeMission?.kind === 'town-defense'
     const respawning = Boolean(this.player?.dead && this.profile.activeMission && !next.activeMission)
     const returningFromDefense = Boolean(this.profile.activeMission?.kind === 'town-defense' && this.profile.activeMission.result && !next.activeMission)
@@ -1317,6 +1319,16 @@ export class TownScene {
     return !this.event.hostile && this.squadRefitSafety.allows(this.player, actors, [], undefined, nativeTravel ? npc => this.townRefitEngaged(npc) : undefined)
       && !this.shots.some(shot => !shot.training && (shot.player || actors.some(actor => actor.combatantId === shot.sourceRef?.actorId)))
   }
+  private canRefitCivilians(actors: readonly NPC[], orders: readonly TacticalOrder[]): boolean {
+    return !this.restoringAerialState && !this.commanderReturnPending
+      && (this.residentSpawnBatch?.ready ?? true) && this.deploymentReady
+      && !this.defense.active && !this.defense.servicesLocked && !this.event.hostile
+      && !this.profile.activeMission && !this.profile.activeOutpostMission
+      && this.world.faction === this.profile.faction
+      && this.squadRefitSafety.allows(this.player, actors, orders, undefined,
+        npc => npc.hasLiveCombatTarget || npc.inCombat && !['follow', 'formation'].includes(npc.tacticalOrder))
+      && !this.shots.some(shot => !shot.training && (shot.player || actors.some(actor => actor.combatantId === shot.sourceRef?.actorId)))
+  }
   private emitCombatEvent(event: CombatEvent): void {
     (this.squadRefitSafety ??= new SquadRefitSafety()).note(event)
     if (this.captainPatrol?.active) this.captainPatrol.recordEvent(event)
@@ -1413,6 +1425,21 @@ export class TownScene {
         const pending = this.townCommand!.refitSquads.find(s => s.squadId === squad.squadId)?.pending
         this.openSquadRefitPanel(repaired ? pending ? `Squad ${squad.squadId} 整補進行中；巡邏與巨鷹正由原生管理者安全復原。`
           : `Squad ${squad.squadId} 已恢復完整戰力。` : this.notice || '目前無法整補；請停止交戰，等待冷卻與返回完成。')
+      }
+      row.append(title, state, button); panel.append(row)
+    }
+    if (this.profile.rank === 'commander' && this.civilianCommand) {
+      const squad = this.civilianCommand.refitSquad
+      const row = document.createElement('article'); row.className = 'town-product'
+      const title = document.createElement('strong'); title.textContent = `Civilian Squad：${squad.alive}/${squad.total}`
+      const state = document.createElement('small'); state.textContent = this.civilianCommand.canRefit() ? '可整補' : '目前無法整補'
+      const button = document.createElement('button'); button.className = 'town-button'; button.textContent = '整補平民小隊'
+      button.disabled = !this.civilianCommand.canRefit()
+      button.onclick = () => {
+        button.disabled = true
+        if (!this.civilianCommand!.canRefit()) { this.openSquadRefitPanel('目前無法整補'); return }
+        const repaired = this.civilianCommand!.refit()
+        this.openSquadRefitPanel(repaired ? '平民小隊已恢復完整編制：21/21。' : '平民小隊整補失敗，原有狀態未變更。')
       }
       row.append(title, state, button); panel.append(row)
     }

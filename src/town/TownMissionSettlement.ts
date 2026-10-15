@@ -21,7 +21,11 @@ interface MissionProfiles {
   commit(profile: CareerProfile, options?: MissionCommitOptions): boolean
 }
 
-export interface MissionCommitOptions { groundedTownReturn?: boolean }
+export interface MissionCommitOptions {
+  groundedTownReturn?: boolean
+  /** A civilian transaction owns its staged checkpoint even when it equals the previous save. */
+  civilianCommandStaged?: boolean
+}
 
 interface MissionControllers {
   field: Pick<BanditMissionController, 'snapshot' | 'cleanupMission' | 'friendlies'>
