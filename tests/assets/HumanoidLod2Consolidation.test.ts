@@ -1,3 +1,5 @@
+// Legacy Roman geometry is retained for civilian appearances; selected military
+// assets use their own shadow/LOD contracts in VikingHeroAssets.
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
@@ -76,7 +78,7 @@ function makeLod2(): { root: THREE.Group, skeleton: THREE.Skeleton, sources: THR
 }
 
 function readRomanLod2() {
-  const bytes = readFileSync(new URL('../../public/models/characters/v2/roman/lod2.glb', import.meta.url))
+  const bytes = readFileSync(new URL('../../public/models/characters/v2/roman-civilian/lod2.glb', import.meta.url))
   const jsonLength = bytes.readUInt32LE(12)
   const document = JSON.parse(bytes.toString('utf8', 20, 20 + jsonLength)) as any
   const binaryStart = 20 + jsonLength + 8
@@ -101,7 +103,7 @@ function readRomanLod2() {
 
 describe('Roman LOD2 duplicate-material consolidation', () => {
   it('enables consolidation only for the exact audited Roman LOD2 asset bytes', () => {
-    const bytes = readFileSync(new URL('../../public/models/characters/v2/roman/lod2.glb', import.meta.url))
+    const bytes = readFileSync(new URL('../../public/models/characters/v2/roman-civilian/lod2.glb', import.meta.url))
     const actualSha256 = createHash('sha256').update(bytes).digest('hex')
 
     expect(actualSha256).toBe(AUDITED_ROMAN_LOD2_SHA256)

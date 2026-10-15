@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-20T03:21:22Z",
+  "modelUid": "61cd5cae148042c38048bff2bd206af3",
+  "publicPage": {
+    "url": "https://sketchfab.com/3d-models/roman-soldier-t-pose-free-download-61cd5cae148042c38048bff2bd206af3",
+    "title": "Roman Soldier - T pose - free download",
+    "author": "Andy Woodhead",
+    "licenseLabel": "CC Attribution",
+    "licenseLink": "https://creativecommons.org/licenses/by/4.0/",
+    "authorUsageStatement": "As with all of my models that are free to download - you may use it in any way including commercially.",
+    "reportedTriangles": 280624,
+    "reportedVertices": 140782
+  },
+  "publicApi": {
+    "metadataEndpoint": "https://api.sketchfab.com/v3/models/61cd5cae148042c38048bff2bd206af3",
+    "metadataHttpStatus": 200,
+    "isDownloadable": true,
+    "license": {
+      "label": "CC Attribution",
+      "fullName": "Creative Commons Attribution",
+      "requirements": "Author must be credited. Commercial use is allowed.",
+      "url": "http://creativecommons.org/licenses/by/4.0/",
+      "slug": "by"
+    },
+    "downloadEndpoint": "https://api.sketchfab.com/v3/models/61cd5cae148042c38048bff2bd206af3/download",
+    "downloadHttpStatus": 401,
+    "downloadResponse": {
+      "detail": "Authentication credentials were not provided."
+    }
+  },
+  "authorizedSource": {
+    "suppliedByUser": true,
+    "receivedAt": "2026-07-20T03:49:30Z",
+    "file": "Old man head 12 FBX test.fbx",
+    "sourceSha256": "7eb86bf2fca6c5b013b33acafc215ae7bd6eb9bb129c9ae636af654afd8bc400"
+  },
+  "auditConclusion": "The authorized T-pose FBX and textures were later supplied by the user. The public model page and API license the model under CC BY 4.0 and explicitly allow commercial use with attribution. No separate third-party texture claim was found in the supplied package. Residual legal risk: CC BY grants only rights the licensor has authority to grant."
+}

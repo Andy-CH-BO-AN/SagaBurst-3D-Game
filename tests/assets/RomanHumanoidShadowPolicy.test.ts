@@ -1,3 +1,5 @@
+// Legacy Roman geometry is retained for civilian appearances; selected military
+// assets use their own shadow/LOD contracts in VikingHeroAssets.
 import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import { readFileSync } from 'node:fs'
@@ -119,7 +121,7 @@ describe('Roman Humanoid Shadow Policy Contracts (5-Caster Candidate)', () => {
 
   it('applies exact 5 / 5 / 0 shadow casters to real parsed Roman GLB assets', async () => {
     for (let lodIndex = 0; lodIndex < 3; lodIndex++) {
-      const glbPath = `public/models/characters/v2/roman/lod${lodIndex}.glb`
+      const glbPath = `public/models/characters/v2/roman-civilian/lod${lodIndex}.glb`
       const rig = await loadRig(readGlb(glbPath))
       const casters: string[] = []
       const nonCasters: string[] = []

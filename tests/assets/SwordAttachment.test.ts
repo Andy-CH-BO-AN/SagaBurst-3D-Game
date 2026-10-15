@@ -12,6 +12,8 @@ import { preserveBowHandTopology } from '../../src/world/BowGripLOD'
 import { Player } from '../../src/player/Player'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
 
+// Canonical morph/retarget contracts remain owned by the retained civilian rig.
+// Selected military equipment is exercised through VikingHeroAssets.
 const base = 'public/models/characters/v2'
 const vector = () => new THREE.Vector3()
 
@@ -35,7 +37,7 @@ describe('正式 GLB 的固定握劍契約', () => {
   it('Roman 雙臂與手腕保留原有動作，不能套用 Viking 手臂重定向', async () => {
     const baseline = JSON.parse(fs.readFileSync('artifacts/animation_sources/sword_baselines/roman-locomotion.json', 'utf8'))
     for (const lod of [0, 1, 2]) {
-      const asset = await loadRig(readGlb(`${base}/roman/lod${lod}.glb`))
+      const asset = await loadRig(readGlb(`${base}/roman-civilian/lod${lod}.glb`))
       for (const original of baseline.clips) {
         const clip = THREE.AnimationClip.parse(original)
         const current = asset.animations.find(c => c.name === clip.name)!
@@ -52,10 +54,10 @@ describe('正式 GLB 的固定握劍契約', () => {
       }
     }
   })
-  for (const faction of ['roman', 'viking'] as const) {
+  for (const faction of ['roman'] as const) {
     it(`${faction}：rotation-only 攻擊保留腳底高度，不保留需要骨盆平移的懸空蹲姿`, async () => {
       for (const lod of [0, 1, 2]) {
-        const g = await loadRig(readGlb(`${base}/${faction}/lod${lod}.glb`))
+        const g = await loadRig(readGlb(`${base}/roman-civilian/lod${lod}.glb`))
         g.scene.updateMatrixWorld(true)
         const soles = ['sole_l', 'sole_r'].map(name => g.scene.getObjectByName(name)!)
         const heights = soles.map(sole => sole.getWorldPosition(vector()).y)
@@ -69,8 +71,8 @@ describe('正式 GLB 的固定握劍契約', () => {
       }
     })
     it(`${faction}：建立、換模型、idle、移動與取消動作不改寫 attachment 或手腕`, async () => {
-      const manifest = JSON.parse(fs.readFileSync(`${base}/${faction}/manifest.json`, 'utf8'))
-      const gltf = await loadRig(readGlb(`${base}/${faction}/lod0.glb`))
+      const manifest = JSON.parse(fs.readFileSync(`${base}/roman-civilian/manifest.json`, 'utf8'))
+      const gltf = await loadRig(readGlb(`${base}/roman-civilian/lod0.glb`))
       const mixer = new THREE.AnimationMixer(gltf.scene)
       const controller = new MixerController([mixer], [gltf.animations])
       const rig = createHumanoidRigAdapter(gltf.scene, controller)
@@ -112,8 +114,8 @@ describe('正式 GLB 的固定握劍契約', () => {
     })
 
     it(`${faction}：六段移動跨 LOD 的實際掌心保持同步，且 clip 不是固定姿勢`, async () => {
-      const manifest = JSON.parse(fs.readFileSync(`${base}/${faction}/manifest.json`, 'utf8'))
-      const assets = await Promise.all([0, 1, 2].map(lod => loadRig(readGlb(`${base}/${faction}/lod${lod}.glb`))))
+      const manifest = JSON.parse(fs.readFileSync(`${base}/roman-civilian/manifest.json`, 'utf8'))
+      const assets = await Promise.all([0, 1, 2].map(lod => loadRig(readGlb(`${base}/roman-civilian/lod${lod}.glb`))))
       for (const name of ['idle', 'walk', 'run', 'swordSlash']) {
         const mixers = assets.map(g => new THREE.AnimationMixer(g.scene))
         const actions = assets.map((g, i) => {
@@ -149,11 +151,11 @@ describe('正式 GLB 的固定握劍契約', () => {
     })
 
     it(`${faction}：靜態手形只新增 morph，不更動骨骼或既有 Bow morph`, async () => {
-      const g = await loadRig(readGlb(`${base}/${faction}/lod0.glb`))
-      const manifest = JSON.parse(fs.readFileSync(`${base}/${faction}/manifest.json`, 'utf8'))
+      const g = await loadRig(readGlb(`${base}/roman-civilian/lod0.glb`))
+      const manifest = JSON.parse(fs.readFileSync(`${base}/roman-civilian/manifest.json`, 'utf8'))
       const bones: [THREE.Object3D, THREE.Matrix4][] = []
       g.scene.traverse(o => { if (o instanceof THREE.Bone) bones.push([o, o.matrix.clone()]) })
-      const mesh = g.scene.getObjectByName(faction === 'roman' ? 'New_arms' : 'Legs_Hands') as THREE.SkinnedMesh
+      const mesh = g.scene.getObjectByName('New_arms') as THREE.SkinnedMesh
       const placeholder = new THREE.Float32BufferAttribute(new Float32Array(mesh.geometry.attributes.position.count * 3), 3)
       placeholder.name = 'bowGrip'
       mesh.geometry.morphAttributes.position = [placeholder]; mesh.updateMorphTargets()
@@ -175,11 +177,16 @@ describe('正式 GLB 的固定握劍契約', () => {
     })
   }
 
-  it('Viking 右手 LOD 拓樸複製保持 mesh bind 位置，不套入左手轉換', async () => {
-    const source = await loadRig(readGlb(`${base}/viking/lod0.glb`))
-    const target = await loadRig(readGlb(`${base}/viking/lod1.glb`))
-    const s = source.scene.getObjectByName('Legs_Hands') as THREE.SkinnedMesh
-    const t = target.scene.getObjectByName('Legs_Hands') as THREE.SkinnedMesh
+  it('左右手 bind space 不同時，右手 LOD 拓樸複製不套入左手轉換', async () => {
+    const source = await loadRig(readGlb(`${base}/roman-civilian/lod0.glb`))
+    const target = await loadRig(readGlb(`${base}/roman-civilian/lod1.glb`))
+    const s = source.scene.getObjectByName('New_arms') as THREE.SkinnedMesh
+    const t = target.scene.getObjectByName('New_arms') as THREE.SkinnedMesh
+    // Reproduce the former Viking asymmetric left-hand bind without retaining a
+    // retired military asset just for this algorithm. Right-hand binding is intact.
+    const left = s.skeleton.bones.findIndex(bone => bone.name === 'hand_l')
+    s.skeleton.boneInverses[left] = s.skeleton.boneInverses[left].clone()
+      .premultiply(new THREE.Matrix4().makeTranslation(.8, -.3, .6))
     s.geometry.morphAttributes.position = []
     const bounds = (m: THREE.SkinnedMesh) => {
       const a = m.geometry.attributes, box = new THREE.Box3()

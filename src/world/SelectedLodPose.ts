@@ -1,5 +1,23 @@
 import * as THREE from 'three'
 
+/** SkeletonUtils clones a Skeleton per mesh, even when one GLTF skin is shared.
+ * Coalesce only identical actor-owned joints and inverse binds so multi-material
+ * source meshes do not upload the same bone texture repeatedly. */
+export function shareIdenticalSkinSkeletons(root: THREE.Object3D): void {
+  const canonical: THREE.Skeleton[] = []
+  const unused = new Set<THREE.Skeleton>()
+  root.traverse(node => {
+    if (!(node instanceof THREE.SkinnedMesh)) return
+    const current = node.skeleton
+    const shared = canonical.find(candidate => candidate.bones.length === current.bones.length
+      && candidate.bones.every((bone, i) => bone === current.bones[i]
+        && candidate.boneInverses[i].equals(current.boneInverses[i])))
+    if (!shared) canonical.push(current)
+    else if (shared !== current) { node.skeleton = shared; unused.add(current) }
+  })
+  for (const skeleton of unused) skeleton.dispose()
+}
+
 /** Selected LODs retain the same rig, bind space and animation samples. Their
  * different meshes can therefore consume one actor-owned pose and bone texture.
  * Validate the contract before discarding the redundant cloned bone hierarchy.

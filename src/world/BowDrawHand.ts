@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { type HandGripFrame } from './BowAttachmentContract'
+import { DEFAULT_BOW_GRIP_PROFILE, getBowHandGripFrame, getBowWeaponGripFrame, type HandGripFrame } from './BowAttachmentContract'
 
 export const BOW_STRING_CONTACT = 'bow_string_contact'
 export const BOW_ARROW_REST = 'bow_arrow_rest'
@@ -34,4 +34,26 @@ export function drawHookFrame(frame: HandGripFrame): HandGripFrame {
 export function drawStringContact(frame: HandGripFrame): THREE.Vector3 {
   return drawHookFrame(frame).palmContactCenter.clone().addScaledVector(frame.palmNormal, DRAW_HOOK_RADIUS)
     .addScaledVector(frame.fingerDirection!, -DRAW_HOOK_RADIUS)
+}
+
+/** Contact metadata for source-authored fingers: no morphs or animation edits.
+ * Roman's index joint follows its delivered finger curl; the rigid Viking hand
+ * uses the calibrated hook in the wrist frame. Both are actor-owned on clone.
+ */
+export function prepareAuthoredBowContacts(scene: THREE.Object3D, frame: HandGripFrame): void {
+  const left = scene.getObjectByName('hand_l')!, right = scene.getObjectByName('hand_r')!
+  const draw = deriveDrawHandFrame(scene, frame)
+  const contact = new THREE.Object3D()
+  contact.name = BOW_STRING_CONTACT
+  contact.position.copy(drawStringContact(draw))
+  right.add(contact)
+  // Keep the calibrated point, but let the source index chain carry it when
+  // present. attach preserves its bind-space location rather than copying axes.
+  const index = scene.getObjectByName('Index02R')
+  if (index) { scene.updateMatrixWorld(true); index.attach(contact) }
+  const rest = new THREE.Object3D()
+  rest.name = BOW_ARROW_REST
+  rest.position.set(DEFAULT_BOW_GRIP_PROFILE.gripRadius + .007, DEFAULT_BOW_GRIP_PROFILE.gripLength / 2 + .015, 0)
+    .applyMatrix4(getBowHandGripFrame(frame).multiply(getBowWeaponGripFrame().invert()))
+  left.add(rest)
 }

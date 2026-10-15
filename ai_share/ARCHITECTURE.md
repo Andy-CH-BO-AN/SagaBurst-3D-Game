@@ -23,6 +23,8 @@
 
 ## 角色資產與動畫
 
+- 軍用 `viking-hero-t4`／`viking`／`roman` 使用交付來源的 63／22／54 骨與 11 段動畫；以離線名稱／原點正規化及明確 `selectedSource` 契約接入，不冒用 T5 來源骨架。三 LOD 沿用 `SelectedLodPose`，同角色相同 joints／inverse bind 的多 mesh 共用 Skeleton，不同角色不共用可變骨骼。居民與商人由 `CharacterVisualConfig.civilian` 選擇保留的 `roman-civilian`，避免新模型融合盔甲破壞平民外觀。
+- 三套新模型的完整長斧頭來源動作透過既有 manifest `meleeCycleSeconds`／events 轉換到 gameplay clock，再套原裝備與英雄攻速；不截短來源片段。Roman 動態雙手斧 socket 與來源校準的斧頭握點在 mixer 後同步到正式武器 pivot，物理握點／刀尖使用相同 transform。生成的受擊 overlay 不取消攻擊事件或修改傷害。
 - `HumanoidAssetRegistry` 在產生角色前載入可用 manifest／GLB；正式模式不以舊程序人物靜默替代失敗資產。`HeroAssetCatalog` 集中 T4／T5 描述，`SETUP_PLAYER_HERO_IDS` 另限制自由模式的選角。`HeroCombatProfile` 共用 Player／NPC 的英雄數值，Player 技能由原管線套用一次，NPC 不套玩家技能。實例銷毀及 render warmup 結束釋放各自的 skeleton bone texture，保留共享 geometry／material／texture。 選定 T5 的三個 LOD 經 `SelectedLodPose` 驗證相同骨架 bind 與動畫樣本後，共用單一角色的骨架／mixer；不同角色仍擁有獨立可變狀態。來源 raw clips 保留，runtime 只略過每段來源動畫中均等於 bind 的不變屬性。
 - geometry、material、texture、clip 共用模板；每個角色持有獨立 skeleton、mixer、socket 與動作狀態。`CharacterVisuals` 提供共用 `CharacterRig` 契約及舊測試模型。
 - `HUMANOID_LOD_DISTANCES` 是人物 LOD 門檻的唯一來源。LOD0 是裝備 socket authority；穩態求值 LOD0 加可見 LOD，切換、fade、seek 必須補齊姿勢／時間，不能重播 gameplay 事件。

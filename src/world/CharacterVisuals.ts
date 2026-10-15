@@ -39,6 +39,7 @@ export type HumanoidAnimationState =
   | 'bowRelease'
   | 'swordSlash'
   | 'axeAttack1H'
+  | 'axeAttack1HFoot'
   | 'axeAttack2H'
   | 'pilumThrow'
   | 'daggerSlash'

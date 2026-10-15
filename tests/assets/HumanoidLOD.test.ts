@@ -4,11 +4,22 @@ import {
   HUMANOID_LOD_DISTANCES,
   HUMANOID_ANIMATION_THROTTLE_DISTANCE,
   HumanoidAssetRegistry,
+  resolveHumanoidAssetId,
 } from '../../src/world/HumanoidAssetRegistry'
 import { CombatRenderWarmup } from '../../src/world/CombatRenderWarmup'
 import { tryCreateRomanLod2ConsolidationTemplate } from '../../src/world/HumanoidLod2Consolidation'
 
 let registrySnapshot: any = null
+
+it.each(['roman', 'viking'] as const)('%s residents use the retained civilian body while military heroes keep their asset', faction => {
+  const military = { faction, tier: 2 as const, isPlayer: false }
+  expect(resolveHumanoidAssetId(military)).toBeUndefined()
+  for (const hero of ['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4', 'roman-hero-t5', 'viking-hero-t5']) {
+    expect(resolveHumanoidAssetId(military, hero)).toBe(hero)
+  }
+  expect(resolveHumanoidAssetId({ ...military, civilian: true, civilianStyle: faction })).toBe('roman-civilian')
+  expect(resolveHumanoidAssetId({ ...military, civilian: true }, 'viking-hero-t4')).toBe('roman-civilian')
+})
 
 beforeEach(() => {
   registrySnapshot = HumanoidAssetRegistry._snapshotTemplatesForTesting()
