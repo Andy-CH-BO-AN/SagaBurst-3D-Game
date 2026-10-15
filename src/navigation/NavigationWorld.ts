@@ -18,7 +18,7 @@ export type NavigationPathQueryResult =
   | { status: 'pending' }
   | { status: 'unreachable' }
 
-export const NAV_PATH_REQUESTS_PER_FRAME = 2
+export const NAV_PATH_REQUESTS_PER_FRAME = 10
 export const NAV_PATH_GROUP_CELLS = 2
 
 const COMPONENT_NEIGHBORS: readonly [number, number][] = [
@@ -41,6 +41,8 @@ export class NavigationWorld {
   private obstacleSource: readonly ObstacleData[] | undefined
   private componentIds: Int32Array
   private pathRequestsThisFrame = 0
+  /** A production default with a per-world override for tests and platform profiles. */
+  private readonly pathRequestsPerFrame: number
   private readonly sharedPathCache = new Map<string, NavigationCell[] | null>()
   private readonly pendingPathOwners = new Map<object, { start: { x: number; z: number }; goal: { x: number; z: number } }>()
   townNav: TownLayeredNavigation | null = null
@@ -61,7 +63,9 @@ export class NavigationWorld {
     maxX: PLAYABLE_WORLD_BOUND,
     minZ: -PLAYABLE_WORLD_BOUND,
     maxZ: PLAYABLE_WORLD_BOUND,
-  }) {
+  }, pathRequestsPerFrame = NAV_PATH_REQUESTS_PER_FRAME) {
+    if (!Number.isInteger(pathRequestsPerFrame) || pathRequestsPerFrame < 1) throw new RangeError('pathRequestsPerFrame must be a positive integer')
+    this.pathRequestsPerFrame = pathRequestsPerFrame
     this.grid = new NavigationGrid(bounds)
     this.componentIds = new Int32Array(this.grid.cellCount)
     this.componentIds.fill(-1)
@@ -77,7 +81,7 @@ export class NavigationWorld {
     // budget again. Map insertion order gives each waiting owner a turn;
     // repeated requests update its destination without moving it to the rear.
     const waiting = this.pendingPathOwners.size
-    for (let index = 0; index < waiting && this.pathRequestsThisFrame < NAV_PATH_REQUESTS_PER_FRAME; index++) {
+    for (let index = 0; index < waiting && this.pathRequestsThisFrame < this.pathRequestsPerFrame; index++) {
       const next = this.pendingPathOwners.entries().next().value
       if (!next) break
       const [owner, request] = next
@@ -155,7 +159,7 @@ export class NavigationWorld {
         : { status: 'unreachable' }
     }
 
-    if (this.pathRequestsThisFrame >= NAV_PATH_REQUESTS_PER_FRAME) {
+    if (this.pathRequestsThisFrame >= this.pathRequestsPerFrame) {
       return { status: 'pending' }
     }
     this.pathRequestsThisFrame++
