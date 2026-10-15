@@ -1,10 +1,14 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { BattleSetupUI } from '../../src/ui/BattleSetupUI'
 import { CampaignSetupUI } from '../../src/ui/CampaignSetupUI'
 import { BattleReferenceUI } from '../../src/ui/BattleReferenceUI'
 import { MainMenuUI } from '../../src/ui/MainMenuUI'
 import { COMBAT_BALANCE } from '../../src/combat/CombatBalance'
 import { getUnitPresetsForFaction } from '../../src/battle/UnitPresetCatalog'
+import { WEAPONS } from '../../src/rpg/WeaponDatabase'
+import { ARMORS } from '../../src/rpg/ArmorDatabase'
+import type { BattleConfig } from '../../src/battle/BattleConfig'
+import { createDefenseCampaignWaveConfig, type DefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
 
 describe('Battle setup and standalone reference UI', () => {
   class MockElement {
@@ -87,7 +91,8 @@ describe('Battle setup and standalone reference UI', () => {
       const className = isClass ? selector.slice(1) : ''
       const traverse = (el: MockElement) => {
         for (const child of el.children) {
-          if (isClass && child.classList.contains(className)) {
+          const dataKey = selector.match(/^\[data-([a-z-]+)\]$/)?.[1].replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
+          if ((isClass && child.classList.contains(className)) || (dataKey && dataKey in child.dataset)) {
             results.push(child)
           }
           traverse(child)
@@ -108,6 +113,7 @@ describe('Battle setup and standalone reference UI', () => {
   let domRegistry = new Map<string, MockElement>()
 
   function parseHtmlIntoMock(container: MockElement, html: string) {
+    container.children = []
     const tagRegex = /<([a-zA-Z0-9]+)([^>]*)>/g
     let match: RegExpExecArray | null
     while ((match = tagRegex.exec(html)) !== null) {
@@ -207,7 +213,7 @@ describe('Battle setup and standalone reference UI', () => {
     ui.destroy()
   })
 
-  it.each(['custom', 'campaign'] as const)('%s hero choices remain T4 after Commander assets are registered', mode => {
+  it.each(['custom', 'campaign'] as const)('%s offers T1–T5 player choices with correctly labeled Commander options', mode => {
     const ui = mode === 'custom' ? new BattleSetupUI() : new CampaignSetupUI()
     if (ui instanceof BattleSetupUI) ui.mount(container, () => {})
     else ui.mount(container, () => {}, () => {}, { defenderFaction: 'roman', stageId: 1 })
@@ -217,9 +223,62 @@ describe('Battle setup and standalone reference UI', () => {
       expect(html).toContain('value="roman-hero-t4"')
       expect(html).toContain('value="viking-hero-t4"')
       expect(html).toContain('value="maki-archer-t4"')
-      expect(html).not.toContain('value="roman-hero-t5"')
-      expect(html).not.toContain('value="viking-hero-t5"')
+      expect(html).toMatch(/value="roman-hero-t5"[^>]*>[^<]* T5/)
+      expect(html).toMatch(/value="viking-hero-t5"[^>]*>[^<]* T5/)
+      for (const tier of [1, 2, 3]) expect(html).toContain(`一般士兵 T${tier}`)
     } finally { ui.destroy() }
+  })
+
+  // Zero actors: each real UI caller emits the chosen model tier and all catalog T4 slots.
+  it.each((['custom', 'campaign'] as const).flatMap(mode =>
+    (['roman', 'viking'] as const).flatMap(faction => [1, 2, 3, 4, 5].map(tier => ({ mode, faction, tier }))),
+  ))('$mode $faction T$tier retains catalog T4 equipment through character changes and launches it', ({ mode, faction, tier }) => {
+    vi.stubGlobal('window', { location: { search: '?nolock' } })
+    const ui = mode === 'custom' ? new BattleSetupUI() : new CampaignSetupUI()
+    let launched: BattleConfig | undefined
+    const change = (id: string, value: string) => {
+      const select = domRegistry.get(id)!
+      select.value = value; select.dispatchEvent('change')
+    }
+    const t4Weapons = Object.values(WEAPONS).filter(item => item.tier === 4)
+    const t4Shields = Object.values(ARMORS).filter(item => item.tier === 4 && item.type === 'shield')
+    try {
+      for (const weapon of t4Weapons.filter(item => item.type === 'melee')) for (const shield of t4Shields) {
+        if (ui instanceof BattleSetupUI) ui.mount(container, config => { launched = config })
+        else ui.mount(container, (config: DefenseCampaignLaunchConfig) => {
+          launched = createDefenseCampaignWaveConfig(config, 'defenders')
+        }, () => {}, { defenderFaction: faction, stageId: 1 })
+        if (mode === 'custom') domRegistry.get(`faction-btn-${faction}`)!.click()
+        else {
+          const panel = domRegistry.get('campaign-setup-container')!
+          panel.querySelectorAll('[data-inc]').find(node => node.dataset.tier === '1')!.click()
+        }
+        const selections = [
+          ['melee', weapon.id],
+          ['ranged', t4Weapons.find(item => item.type === 'ranged')!.id],
+          ['shield', shield.id],
+        ]
+        for (const [slot, id] of selections) {
+          if (mode === 'campaign') change(`campaign-player-${slot}`, id)
+          else {
+            const card = container.querySelectorAll('.loadout-card').find((node: MockElement) => node.dataset.loadoutKind === slot && node.dataset.loadoutId === id)!
+            expect(card.disabled, `${faction} T${tier} ${id}`).toBe(false)
+            card.click()
+          }
+        }
+        const prefix = mode === 'custom' ? 'battle' : 'campaign'
+        // A higher-to-lower switch used to discard T4 melee and shields in Custom Battle.
+        change(`${prefix}-player-hero`, `${faction}-hero-t5`)
+        change(`${prefix}-player-hero`, tier < 4 ? String(tier) : `${faction}-hero-t${tier}`)
+        if (mode === 'custom') domRegistry.get('preset-10')!.click()
+        domRegistry.get(mode === 'custom' ? 'btn-start-battle' : 'campaign-start-stage')!.click()
+        expect(launched, weapon.id).toBeDefined()
+        expect(launched!.playerFaction).toBe(faction)
+        expect(launched!.playerHeroId).toBe(tier < 4 ? null : `${faction}-hero-t${tier}`)
+        expect(launched!.playerVisualTier).toBe(tier < 4 ? tier : undefined)
+        expect(launched!.playerLoadout).toMatchObject(Object.fromEntries(selections.map(([slot, id]) => [slot === 'shield' ? 'shieldId' : `${slot}WeaponId`, id])))
+      }
+    } finally { ui.destroy(); vi.unstubAllGlobals() }
   })
 
   it('launches Training Ground directly and keeps Custom Battle/Career while removing hero trial choices', () => {

@@ -15,6 +15,7 @@ import { COMBAT_BALANCE, getRangedCombatKind, getRangedDamageMultiplier } from '
 import {
   UnitTier,
   BaseUnitTier,
+  BASE_UNIT_TIERS,
   CUSTOM_BATTLE_UNIT_TIERS,
   UnitPresetId,
   VikingPresetId,
@@ -130,6 +131,8 @@ export interface BattleConfig {
   spectator?: boolean
   playerFaction?: CharacterFaction
   playerHeroId?: PlayerHeroId | null
+  /** Explicit free-battle soldier appearance; absent legacy/Career launches follow equipment tier. */
+  playerVisualTier?: BaseUnitTier
   playerHp?: number
   playerLoadout?: PlayerLoadoutConfig
   viking: VikingArmyConfig
@@ -385,6 +388,9 @@ function validateBattleConfigWithArmyLimit(
   if (c.playerHeroId !== undefined && c.playerHeroId !== null && !isAllowedPlayerHero(c.playerHeroId)) {
     errors.push(`Invalid player Hero: ${String(c.playerHeroId)}`)
   }
+  if (c.playerVisualTier !== undefined && !(BASE_UNIT_TIERS as readonly unknown[]).includes(c.playerVisualTier)) {
+    errors.push('Invalid player visual tier')
+  }
 
   if (c.playerHp !== undefined) {
     if (typeof c.playerHp !== 'number' || !Number.isInteger(c.playerHp) || c.playerHp < 1 || c.playerHp > 9999) {
@@ -397,7 +403,7 @@ function validateBattleConfigWithArmyLimit(
     if (!loadout || typeof loadout !== 'object') {
       errors.push('playerLoadout must be an object')
     } else {
-      if (!c.playerHeroId && [loadout.meleeWeaponId, loadout.shieldId].some(id => typeof id === 'string' && id.startsWith('paladin_'))) errors.push('T4 equipment requires a T4 player')
+      if (c.careerEagleMissionId && !c.playerHeroId && [loadout.meleeWeaponId, loadout.shieldId].some(id => typeof id === 'string' && id.startsWith('paladin_'))) errors.push('T4 equipment requires a T4 player')
       if (!(PLAYER_MELEE_WEAPON_IDS as readonly string[]).includes(loadout.meleeWeaponId)) errors.push(`Invalid player melee weapon: ${String(loadout.meleeWeaponId)}`)
       if (!(PLAYER_RANGED_WEAPON_IDS as readonly string[]).includes(loadout.rangedWeaponId)) errors.push(`Invalid player ranged weapon: ${String(loadout.rangedWeaponId)}`)
       if (c.playerHeroId === 'maki-archer-t4' && WEAPONS[loadout.rangedWeaponId]?.combatKind !== 'bow') {

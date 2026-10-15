@@ -925,7 +925,7 @@ export class Game {
     const isRoman = playerFaction === 'roman'
     this.input = new PlayerInput()
     const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId ?? validationHero
-    this.player = new Player(this.scene, playerFaction, playerHeroId)
+    this.player = new Player(this.scene, playerFaction, playerHeroId, campaignConfig?.playerVisualTier ?? battleConfig?.playerVisualTier)
     // Release and diagnostic armies are ahead at -Z for Viking, +Z for Roman. Establish the actor's
     // heading first; the camera derives its rear orbit from that heading.
     this.player.faceDirection(0, isRoman ? 1 : -1)
