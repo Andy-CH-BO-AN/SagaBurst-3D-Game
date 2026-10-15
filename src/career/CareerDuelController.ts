@@ -55,7 +55,7 @@ export function selectCareerDuelRoster(residents: readonly CareerDuelResident[],
         const score = (resident: CareerDuelResident) => Number(resident.npc.presetId === presetId) * 4
           + Number(Boolean(resident.homeMount ?? resident.npc.mount) === mounted) * 2
           + Number(archery ? resident.spec.unitKind === 'ranged' || resident.spec.unitKind === 'horse_archer' : resident.spec.unitKind === 'melee' || resident.spec.unitKind === 'sword_cavalry')
-        return score(b) - score(a)
+        return score(b) - score(a) || Number(a.spec.garrison?.kind === 'rampart') - Number(b.spec.garrison?.kind === 'rampart')
       })[0]
   }
   const referee = opponent === captain ? ranger : captain

@@ -215,14 +215,14 @@ describe('shared four-gate Siege runtime', () => {
     const f = checkpointFixture({ assault: false, residentIds: ['gate:north:0'], attackerSlots: [2], includeRanger: false, freshDeployment: true, captain: true,
       beforeDeployment: (controller, residents) => {
         expect(controller.ready).toBe(false)
-        const npc = residents[0].npc, slot = siegePoint('north', -3 * 2.6, 12)
+        const npc = residents[0].npc, slot = siegePoint('north', -11, 10)
         expect(npc.combatPosition.distanceTo(new THREE.Vector3(slot.x, npc.combatPosition.y, slot.z))).toBeLessThan(3)
         controller.persistRuntimeProgress(true)
         expect(controller.active?.actorPositions?.[npc.combatantId]).toMatchObject({ x: npc.combatPosition.x, z: npc.combatPosition.z })
         expect(controller.active?.actorPositions?.['defense-test:siege:2']).toBeUndefined()
       } })
     const guard = f.residents[0].npc
-    const slot = siegePoint('north', -3 * 2.6, 12)
+    const slot = siegePoint('north', -11, 10)
     expect(guard.combatPosition.distanceTo(new THREE.Vector3(slot.x, guard.combatPosition.y, slot.z))).toBeLessThan(3)
     expect(guard.missionMovement).toBe(false); expect(guard.tacticalOrder).toBe('defend')
     guard.group.position.set(90, guard.group.position.y, 80); guard.restoreCombatHealth(37); guard.setTacticalOrder('follow')

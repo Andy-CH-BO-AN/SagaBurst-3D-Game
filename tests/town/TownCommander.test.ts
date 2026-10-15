@@ -116,7 +116,7 @@ describe('Commander TownEvent registration', () => {
   })
 })
 
-describe('Commander training entrance placement', () => {
+describe('Commander Town Center placement', () => {
   // Actual built geometry is necessary here: faction buildings and colliders are
   // the failure mode. No NPC, Mount or GLB actors are constructed.
   it.each(['roman', 'viking'] as const)('%s places the mounted Commander 5–7m beside Captain on the service side with a collider-clear E approach', faction => {
@@ -130,23 +130,21 @@ describe('Commander training entrance placement', () => {
       const point = resolveTownCommanderPosition(world.obstacles, world.roads, navigation, roster)
       const bounds = new THREE.Box3(new THREE.Vector3(point.x - 2.5, -1000, point.z - 2.5), new THREE.Vector3(point.x + 2.5, 1000, point.z + 2.5))
       expect(world.obstacles.some(obstacle => obstacle.box.intersectsBox(bounds))).toBe(false)
-      // The Captain already stands on the x=25 service road. All other
-      // roads, especially the diagonal entrance lane, remain excluded.
-      expect(world.roads.filter(road => !(road.ax === 25 && road.bx === 25))
+      // The civic plaza hosts the services; transit roads remain unobstructed.
+      expect(world.roads.filter(road => !(road.ax === 32 && road.az === 12 && road.bx === 74 && road.width === 32))
         .some(road => townRoadIntersectsBox(road, bounds, 1))).toBe(false)
       for (const pad of [...world.eagleTraining.pads, ...world.eagleGarrison.pads]) expect(eagleLandingFootprint(pad).intersectsBox(bounds), pad.id).toBe(false)
       for (const slot of world.hr.muster) expect(Math.hypot(slot.x - point.x, slot.z - point.z)).toBeGreaterThan(5)
-      expect(navigation.areConnected(townSitePoint('barracks', 0, 15), point)).toBe(true)
+      expect(navigation.areConnected(townSitePoint('hall', 0, 30), point)).toBe(true)
       const captain = roster.find(actor => actor.id === 'captain')!
       const separation = Math.hypot(point.x - captain.x, point.z - captain.z)
       expect(separation).toBeGreaterThanOrEqual(5)
       expect(separation).toBeLessThanOrEqual(7)
       expect(point.x).toBeLessThanOrEqual(captain.x)
-      expect(point.z).toBeLessThan(captain.z)
-      // The entire mount+rider envelope is west of the real x=29 fence,
-      // not merely in the same connected navigation component around its end.
-      expect(bounds.max.x).toBeLessThan(28.875)
-      expect(point).toMatchObject({ x: 25, z: 5 })
+      expect(point.z).toBeGreaterThanOrEqual(captain.z)
+      // The complete mounted envelope is in the forecourt, ahead of the hall.
+      expect(bounds.min.z).toBeGreaterThan(-12)
+      expect(point).toMatchObject({ x: 38, z: -2 })
 
       // Follow the actual entrance and west-side walking passage using the
       // runtime Player capsule collision resolver (0 NPC/Mount constructors).
@@ -200,7 +198,7 @@ describe('Commander training entrance placement', () => {
     const obstacle = { box: new THREE.Box3(new THREE.Vector3(-100, -1000, -100), new THREE.Vector3(100, 1000, 100)), isBarricade: false }
     expect(() => resolveTownCommanderPosition([obstacle], [], navigation, roster)).toThrow('No clear Commander')
     const blockedForecourt = { ...obstacle, box: obstacle.box.clone() }
-    blockedForecourt.box.max.x = 28.875 // Only the training side remains open.
+    blockedForecourt.box.min.z = -3.5 // Only the hall side remains open.
     expect(() => resolveTownCommanderPosition([blockedForecourt], [], navigation, roster)).toThrow('No clear Commander')
     expect(() => resolveTownCommanderPosition([], [], { areConnected: () => false }, roster)).toThrow('No clear Commander')
   })

@@ -1,3 +1,4 @@
+import { townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
 import type { ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import type { TownPersonalSquadController } from './TownPersonalSquadController'
 import * as THREE from 'three'
@@ -76,6 +77,8 @@ interface TownCombatScene {
   fireNpc(origin: THREE.Vector3, direction: THREE.Vector3, kind: 'arrow' | 'pilum', source: NPC, lifecycle?: ProjectileFlightBudget): void
 }
 
+const EXTERNAL_GARRISON_RETURN_ID = -4401
+
 /** Owns mission actor selection and simulation order; each mission retains its own phase rules.
  * NPC callbacks run synchronously and carry the actual actor to TownScene's damage/projectile routing.
  * Grids and neighbor storage live here. Controller roster/peer semantics and checkpoints are unchanged.
@@ -86,6 +89,9 @@ export class TownMissionCombat {
   private readonly defenseTownGrid = new SpatialGrid<NPC>(8)
   private readonly banditThreatGrid = new SpatialGrid<NPC>(20)
   private readonly externalThreatActors = new Set<NPC>()
+  private readonly externalRampartActors = new Set<NPC>()
+  private readonly garrisonReturnGrid = new SpatialGrid<NPC>(4)
+  private readonly garrisonReturns = new Map<NPC, TownActorSpec>()
   private readonly neighbors: NPC[] = []
   private readonly engagedVeteranEnemies = new Set<NPC>()
   private readonly veteranEngagedEnemyGrid = new SpatialGrid<NPC>(8)
@@ -225,14 +231,14 @@ export class TownMissionCombat {
 
   /** Also checks current positions because Player attacks precede threat assignment in a frame. */
   isExternalThreatDefender(ally: NPC): boolean {
-    if (ally.hostileToPlayer) return false
+    const resident = this.town.residents.find(candidate => candidate.npc === ally)
+    if (ally.hostileToPlayer || ally.dead || this.externalThreatHasOtherOwner(ally, resident?.spec.garrison?.kind === 'rampart') || this.garrisonReturns.has(ally)) return false
     if (this.town.patrol?.().combatEnabled(ally)) return true
     if (this.missions.field.active?.kind === 'veteran-field' && this.missions.field.friendlies.includes(ally)) return false
     if (this.externalThreatActors.has(ally)) return true
-    const resident = this.town.residents.find(candidate => candidate.npc === ally)
     if (!resident || ally.dead || !this.isMilitary(resident.spec)) return false
     const outskirts = this.town.outskirts?.()
-    const alertRange = resident.spec.eagle ? TOWN_EAGLE_ALERT_RADIUS : 20
+    const alertRange = townExternalThreatAlertRange(Boolean(resident.spec.eagle), ally)
     return [...this.missions.field.ambientBandits, ...this.missions.field.missionBandits,
       ...this.outskirtsGrid.getNearbyInto(ally.combatPosition, alertRange, this.protectionCandidates)]
       .some(threat => !threat.dead && townWartimeHostile(ally, threat)
@@ -241,7 +247,12 @@ export class TownMissionCombat {
   }
 
   /** Resident restoration owns the physical reset; combat only releases its threat registration. */
-  releaseExternalThreat(npc: NPC): void { this.externalThreatActors.delete(npc); this.eagleThreatTargets.delete(npc) }
+  releaseExternalThreat(npc: NPC): void {
+    this.externalThreatActors.delete(npc)
+    this.externalRampartActors.delete(npc)
+    this.eagleThreatTargets.delete(npc)
+    this.garrisonReturns.delete(npc)
+  }
 
   private updateField(dt: number, cameraYaw: number, elapsed: number): void {
     const { field } = this.missions
@@ -278,7 +289,7 @@ export class TownMissionCombat {
     this.preparePatrolCombatFrame(dt, outskirts)
     const patrolActors = new Set(patrol?.combatActors ?? [])
     for (const resident of this.town.residents) {
-      if (!missionActors.has(resident.npc) && !this.externalThreatActors.has(resident.npc) && !patrolActors.has(resident.npc)) this.town.peaceResident(resident, dt)
+      if (!missionActors.has(resident.npc) && !this.externalThreatActors.has(resident.npc) && !patrolActors.has(resident.npc)) this.updatePeaceResident(resident, dt)
     }
     const missionCombatActors = veteranField
       ? [...new Set([...field.missionBandits, ...field.friendlies, ...this.enemyTownHostileActors])]
@@ -612,7 +623,7 @@ export class TownMissionCombat {
     const actors = [...new Set([...duelActors, ...field.fieldNpcs, ...field.ambientBandits,
       ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...this.externalThreatActors, ...patrolActors])]
     const activeActors = new Set(actors)
-    for (const resident of this.town.residents) if (!activeActors.has(resident.npc)) this.town.peaceResident(resident, dt)
+    for (const resident of this.town.residents) if (!activeActors.has(resident.npc)) this.updatePeaceResident(resident, dt)
     for (const actor of actors) {
       // Mission behavior wins even if the actor also occurs in a world roster.
       if (duelActors.has(actor)) {
@@ -673,21 +684,17 @@ export class TownMissionCombat {
         if (this.externalThreatActors.delete(npc) && !npc.dead && !this.missions.duel.isMissionActor(npc)) npc.endExternalThreat()
         continue
       }
-      if (this.town.commandActors?.().includes(npc)) { this.externalThreatActors.delete(npc); continue }
-      if (this.missions.duel.active && this.missions.duel.isMissionActor(npc)) {
-        this.externalThreatActors.delete(npc)
+      if (this.externalThreatHasOtherOwner(npc, spec.garrison?.kind === 'rampart')) {
+        this.releaseExternalThreat(npc)
         continue
       }
+      if (this.garrisonReturns.has(npc)) continue
       if (spec.duty === 'patrol' && this.town.patrol?.()) {
         this.externalThreatActors.delete(npc)
         continue
       }
       if (this.town.patrol?.().combatEnabled(npc)) {
         this.externalThreatActors.delete(npc)
-        continue
-      }
-      if (this.town.ownsPeacefulTravel?.(npc)) {
-        if (this.externalThreatActors.delete(npc) && !npc.dead) npc.endExternalThreat()
         continue
       }
       const military = enemyTownScouts === undefined
@@ -697,7 +704,7 @@ export class TownMissionCombat {
         && (enemyTownScouts === undefined
           ? true
           : spec.id.startsWith('enemy-town:') && npc.faction === Faction.ENEMY)
-      const alertRange = spec.eagle ? TOWN_EAGLE_ALERT_RADIUS : 20
+      const alertRange = townExternalThreatAlertRange(Boolean(spec.eagle), npc)
       const threatRange = spec.eagle && this.externalThreatActors.has(npc)
         ? Math.max(alertRange, npc.maxRangedAttackDistance) : alertRange
       let eagleTarget = this.eagleThreatTargets.get(npc)
@@ -732,15 +739,31 @@ export class TownMissionCombat {
       const threatened = Boolean(nearbyMissionActor || nearbyPlayer)
       if (threatened) {
         if (!this.externalThreatActors.has(npc)) {
+          if (npc.isTownRampartGarrisonActive) this.externalRampartActors.add(npc)
           npc.beginExternalThreat()
           if (enemyTownScouts !== undefined) npc.respawnEnabled = false
         }
         this.externalThreatActors.add(npc)
       } else if (this.externalThreatActors.delete(npc)) {
+        this.externalRampartActors.delete(npc)
         // A mission borrower already owns this actor's orders and physical position.
         if (npc.dead || missionFriendlies.has(npc)) continue
         this.eagleThreatTargets.delete(npc)
+        const heldRampart = npc.isTownRampartGarrisonActive
         npc.endExternalThreat()
+        if (heldRampart && spec.garrison?.kind === 'rampart') {
+          const station = townStationSpec(spec, npc.isMounted, Boolean(npc.rangedWeaponId))
+          const point = new THREE.Vector3(station.x, station.y, station.z)
+          if (npc.combatPosition.distanceToSquared(point) <= .25) {
+            // Already at its legal elevated station: never reset its physical position.
+            if (station.garrison?.kind === 'rampart') npc.activateTownRampartGarrison()
+          } else {
+            this.garrisonReturns.set(npc, station)
+            npc.assignFormationTarget(EXTERNAL_GARRISON_RETURN_ID, point,
+              new THREE.Vector3(Math.sin(station.yaw ?? Math.PI), 0, Math.cos(station.yaw ?? Math.PI)), undefined, 'attack')
+          }
+          continue
+        }
         // Patrol resumes its own navigation from the actual position, including a
         // recently released mission actor travelling to barracks. It owns arrival.
         if (spec.duty === 'patrol' || spec.duty === 'eagle_garrison') continue
@@ -754,10 +777,46 @@ export class TownMissionCombat {
         }
       }
     }
+    this.garrisonReturnGrid.clear()
+    if (this.garrisonReturns.size) for (const { npc } of this.town.residents) if (!npc.dead) this.garrisonReturnGrid.insert(npc)
     this.enemyTownHostileActors.length = 0
     if (enemyTownScouts !== undefined) for (const npc of this.externalThreatActors) {
       if (npc.combatantId.startsWith('enemy-town:') && !npc.dead) this.enemyTownHostileActors.push(npc)
     }
+  }
+
+  /** A new owner wins even between assignment and the next peaceful update. */
+  private externalThreatHasOtherOwner(npc: NPC, respectOrders = false): boolean {
+    const returning = this.garrisonReturns.has(npc)
+      && npc.formationCommandId === EXTERNAL_GARRISON_RETURN_ID
+    return Boolean(this.externalRampartActors.has(npc) && !npc.isTownRampartGarrisonActive
+      || this.town.commandActors?.().includes(npc) || this.town.ownsPeacefulTravel?.(npc)
+      || this.missions.field.friendlies.includes(npc) || this.missions.duel.isMissionActor(npc)
+      || this.missions.defense.active && this.missions.defense.fieldNpcs.includes(npc)
+      || respectOrders && !returning && (npc.missionMovement || npc.formationCommandId != null
+        || npc.tacticalOrder === 'follow' || npc.tacticalOrder === 'formation'
+        || npc.tacticalOrder === 'charge' && !this.externalThreatActors.has(npc)))
+  }
+
+  private updatePeaceResident(resident: TownCombatResident, dt: number): void {
+    const { npc } = resident, station = this.garrisonReturns.get(npc)
+    if (station) {
+      if (npc.dead || this.externalThreatHasOtherOwner(npc, true) || npc.formationCommandId !== EXTERNAL_GARRISON_RETURN_ID) {
+        // Do not clear the new owner's movement, formation or equipment state.
+        this.garrisonReturns.delete(npc)
+      } else {
+        npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
+          this.garrisonReturnGrid.getNearbyInto(npc.combatPosition, 4, this.neighbors), this.town.obstacles, this.town.navigation)
+        if (npc.isFormationTargetReached(EXTERNAL_GARRISON_RETURN_ID)) {
+          this.garrisonReturns.delete(npc)
+          npc.setTacticalOrder('attack')
+          npc.setTownPeaceful()
+          if (station.garrison?.kind === 'rampart' && !npc.isMounted && npc.rangedWeaponId) npc.activateTownRampartGarrison()
+        }
+        return
+      }
+    }
+    this.town.peaceResident(resident, dt)
   }
 
   private isExternalThreatInRange({ spec, npc }: TownCombatResident, position: THREE.Vector3, range: number): boolean {
@@ -789,7 +848,7 @@ export class TownMissionCombat {
       ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []), ...this.externalThreatActors, ...patrolActors,
     ])] : [...new Set([...defense.fieldNpcs, ...commandActors, ...patrolActors])]
     const missionActors = new Set(actors)
-    for (const resident of this.town.residents) if (!missionActors.has(resident.npc)) this.town.peaceResident(resident, dt)
+    for (const resident of this.town.residents) if (!missionActors.has(resident.npc)) this.updatePeaceResident(resident, dt)
     this.grid.clear(); this.defenseEnemyGrid.clear(); this.defenseTownGrid.clear()
     for (const actor of actors) {
       if (actor.dead) continue
@@ -800,7 +859,7 @@ export class TownMissionCombat {
     for (const actor of actors) {
       if (this.town.ownsPeacefulTravel?.(actor) && (actor.townCategory === 'civilian' || !defense.fieldNpcs.includes(actor))) {
         const resident = this.town.residents.find(resident => resident.npc === actor)
-        if (resident) { this.town.peaceResident(resident, dt); continue }
+        if (resident) { this.updatePeaceResident(resident, dt); continue }
       }
       if (commandActors.has(actor)) { this.updateRuntimeActor(actor, dt); continue }
       if (this.town.personalSquad?.()?.owns(actor)) { this.updatePersonalActor(actor, dt); continue }

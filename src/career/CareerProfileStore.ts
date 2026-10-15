@@ -117,6 +117,7 @@ function parseActorPositions(value: unknown, knownActorIds: ReadonlySet<string>)
       x: position.x, z: position.z, yaw: position.yaw,
       ...(typeof position.y === 'number' && Number.isFinite(position.y) ? { y: position.y } : {}),
       ...(position.outpostRampartGarrison === true ? { outpostRampartGarrison: true } : {}),
+      ...(position.townRampartGarrison === true ? { townRampartGarrison: true } : {}),
     }
   }
   return Object.keys(result).length > 0 ? result : undefined
@@ -186,7 +187,7 @@ function parseSiege(value: unknown): ActiveCareerMission['siege'] {
   const raw = value as Record<string, unknown>
   if (raw.version !== 1) return undefined
   const gates = (value: unknown) => uniqueStrings(value).filter((id): id is 'north' | 'south' | 'east' | 'west' => ['north', 'south', 'east', 'west'].includes(id))
-  const position = raw.playerPosition as { x?: unknown; z?: unknown; yaw?: unknown } | undefined
+  const position = raw.playerPosition as { x?: unknown; y?: unknown; z?: unknown; yaw?: unknown } | undefined
   const health = raw.gateHealth && typeof raw.gateHealth === 'object' ? raw.gateHealth as Record<string, unknown> : {}
   return {
     version: 1, rosterCreated: raw.rosterCreated === true,
@@ -202,7 +203,7 @@ function parseSiege(value: unknown): ActiveCareerMission['siege'] {
     }) : [],
     gateHealth: Object.fromEntries(Object.entries(health).filter(([id, hp]) => gates([id]).length && typeof hp === 'number' && Number.isFinite(hp) && hp >= 0)),
     ...(position && typeof position.x === 'number' && Number.isFinite(position.x) && typeof position.z === 'number' && Number.isFinite(position.z)
-      && typeof position.yaw === 'number' && Number.isFinite(position.yaw) ? { playerPosition: { x: position.x, z: position.z, yaw: position.yaw } } : {}),
+      && typeof position.yaw === 'number' && Number.isFinite(position.yaw) ? { playerPosition: { x: position.x, z: position.z, yaw: position.yaw, ...(typeof position.y === 'number' && Number.isFinite(position.y) ? { y: position.y } : {}) } } : {}),
   }
 }
 

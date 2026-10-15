@@ -29,6 +29,9 @@ export class RecordingNpc {
   missionAerialDefense = false
   mount: RecordingMount | null = null
   tacticalOrder = 'defend'
+  private townRampartGarrison = false
+  get isTownRampartGarrisonActive(): boolean { return this.townRampartGarrison }
+  readonly activateTownRampartGarrison = vi.fn(() => { this.townRampartGarrison = true; this.setTacticalOrder('defend') })
   private outpostRampartGarrison = false
   get isOutpostRampartGarrisonActive(): boolean { return this.outpostRampartGarrison }
   shield = { shieldImpactRemaining: 100, shieldImpactMax: 100 }
@@ -51,6 +54,7 @@ export class RecordingNpc {
 
   get position(): THREE.Vector3 { return this.group.position }
   get combatPosition(): THREE.Vector3 { return this.mount?.group.position ?? this.group.position }
+  get hasActiveRangedWeapon(): boolean { return Boolean(this.loadout?.rangedWeaponId) && !this.loadout?.shieldId && this.combatAmmo > 0 }
   get isMounted(): boolean { return Boolean(this.mount) }
   readonly bindCombatEventSink = vi.fn((_sink: CombatEventSink) => vi.fn())
   readonly setEagleFlightOrder = vi.fn()
@@ -77,7 +81,7 @@ export class RecordingNpc {
   readonly activateOutpostRampartGarrison = vi.fn(() => {
     this.setTacticalOrder('defend'); this.outpostRampartGarrison = true
   })
-  readonly releaseOutpostRampartGarrison = vi.fn(() => { this.outpostRampartGarrison = false })
+  readonly releaseOutpostRampartGarrison = vi.fn(() => { this.outpostRampartGarrison = false; this.townRampartGarrison = false })
   readonly assignFollowTarget = vi.fn((target: unknown) => { this.activeFollowTarget = target; this.tacticalOrder = 'follow' })
   readonly assignFormationTarget = vi.fn((id: number, position: THREE.Vector3, _forward?: THREE.Vector3, speedLimit?: number) => {
     this.formationCommandId = id; this.formationTarget = { position, speedLimit }; this.tacticalOrder = 'formation'

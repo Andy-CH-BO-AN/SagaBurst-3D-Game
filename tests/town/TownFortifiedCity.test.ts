@@ -1,3 +1,4 @@
+import { townStationSpec } from '../../src/town/TownGarrison'
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createTownFortifications } from '../../src/town/TownFortifications'
@@ -131,6 +132,23 @@ describe('Fortified city explicit rosters', () => {
 })
 
 describe.each(['roman', 'viking'] as const)('%s fortified city physical perimeter', faction => {
+  it('keeps every rampart firing slot clear through a real crenel, with solid parapets stopping shots', () => {
+    const city = fortifications(faction)
+    for (const actor of townRoster().filter(a => a.garrison?.kind === 'rampart')) {
+      const p = actor.garrison!, outward = new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw))
+      const start = new THREE.Vector3(p.x, p.y + 1.5, p.z), end = start.clone().addScaledVector(outward, 25)
+      end.y = getTerrainHeight(end.x, end.z) + 1
+      expect(findBlockingProjectileObstacleAlongPath(start, end, city.obstacles), actor.id).toBeNull()
+      const sillStart = new THREE.Vector3(p.x, p.y + .2, p.z)
+      expect(findBlockingProjectileObstacleAlongPath(sillStart, sillStart.clone().addScaledVector(outward, 4), city.obstacles), actor.id).not.toBeNull()
+    }
+    const surfaces = city.obstacles.filter(o => o.walkSurface)
+    for (const gate of city.gates.values()) { gate.close(); gate.destroy() }
+    expect(city.obstacles.filter(o => o.walkSurface)).toEqual(surfaces)
+    const navigation = new NavigationWorld(); navigation.sync(city.obstacles)
+    for (const ramp of city.rampartLayout.ramps) expect(navigation.areConnected({ x: 0, z: 0 }, ramp.entrance)).toBe(true)
+  })
+
   it('starts all four gates open with rotated leaves, no doorway collision and no breach event', () => {
     const city = fortifications(faction), breach = new CampaignBreachController(), callback = vi.fn(); breach.onBreach(callback)
     expect(city.gates.size).toBe(4)
@@ -220,24 +238,28 @@ describe.each(['roman', 'viking'] as const)('%s fortified city physical perimete
     city.dispose()
   })
 
-  it('builds the complete world with unobstructed training spawns, four navigable roads and placement-time scenery exclusions', () => {
+  it('builds civic housing with unobstructed garrison stations, four roads and unchanged airfield clearance', () => {
     const context = new Proxy({ measureText: () => ({ width: 100 }) }, { get: (target, key) => (target as any)[key] ?? (() => {}) })
     vi.stubGlobal('ImageData', class { constructor(public data: unknown, public width: number, public height: number) {} })
     vi.stubGlobal('document', { createElement: () => ({ getContext: () => context }) })
     const world = new TownWorld(faction, new THREE.Scene())
     onTestFinished(() => world.dispose())
     const navigation = new NavigationWorld(); navigation.sync(world.obstacles)
-    for (const actor of townRoster().filter(actor => actor.duty === 'training' || actor.duty === 'gate_guard')) {
-      const groundY = getTerrainHeight(actor.x, actor.z)
+    for (const source of townRoster().filter(actor => actor.duty === 'training' || actor.duty === 'gate_guard')) {
+      const actor = townStationSpec(source, source.mounted, source.unitKind === 'ranged' || source.unitKind === 'archer')
+      const groundY = actor.y ?? getTerrainHeight(actor.x, actor.z)
       const body = new THREE.Box3(new THREE.Vector3(actor.x - (actor.mounted ? 1.1 : .45), groundY + .1, actor.z - (actor.mounted ? 1.8 : .45)),
         new THREE.Vector3(actor.x + (actor.mounted ? 1.1 : .45), groundY + (actor.mounted ? 3.5 : 1.8), actor.z + (actor.mounted ? 1.8 : .45)))
-      expect(world.obstacles.some(obstacle => obstacle.box.intersectsBox(body)), actor.id).toBe(false)
-      expect(navigation.areConnected({ x: 0, z: 0 }, actor), actor.id).toBe(true)
+      expect(world.obstacles.some(obstacle => !obstacle.walkSurface && obstacle.box.intersectsBox(body)), actor.id).toBe(false)
+      if (actor.garrison?.kind !== 'rampart') expect(navigation.areConnected({ x: 0, z: 0 }, actor), actor.id).toBe(true)
     }
     for (const gate of TOWN_GATES) expect(navigation.areConnected({ x: 0, z: 0 }, townGatePoint(gate, 0, -12))).toBe(true)
     expect(townSceneryExcluded(100, -80, 7)).toBe(true)
     for (const road of TOWN_CITY_ROADS) expect(townSceneryExcluded((road.ax + road.bx) / 2, (road.az + road.bz) / 2, 7)).toBe(true)
     expect(world.camps).toHaveLength(5)
+    expect(world.buildings.filter(b => b.id.startsWith('home-'))).toHaveLength(12)
+    expect(world.buildings.some(b => b.id === 'town-center')).toBe(true)
+    expect(world.targets).toHaveLength(0)
     const staticWalls = world.fortifications.wallRoot.children.filter(child => child instanceof THREE.Mesh)
     expect(staticWalls.length).toBeLessThanOrEqual(faction === 'roman' ? 1 : 3)
   })

@@ -61,7 +61,7 @@ describe('Town population and civilian combat', () => {
     const stalls = stableHorsePositions(); expect(stalls).toHaveLength(5); expect(new Set(stalls.map(s => s.variant)).size).toBe(3)
     expect(stalls.every(s => s.x > -10.5 && s.x < .5 && s.z > -46 && s.z < -32)).toBe(true)
     for (const site of Object.values(TOWN_SITES)) expect(Math.sin(site.yaw) * -site.x + Math.cos(site.yaw) * -site.z).toBeGreaterThan(0)
-    const roster = townRoster(); expect(roster.find(r => r.role === 'captain')).toMatchObject({ x: 25, z: 11, yaw: -Math.PI / 2 }); expect(roster.find(r => r.role === 'merchant')).toMatchObject({ x: 1.5, z: -17, yaw: Math.PI / 2 })
+    const roster = townRoster(); expect(roster.find(r => r.role === 'captain')).toMatchObject({ x: 44, z: -2, yaw: 0 }); expect(roster.find(r => r.role === 'merchant')).toMatchObject({ x: 1.5, z: -17, yaw: Math.PI / 2 })
   })
   it('keeps Viking civilian wool/trousers and armor hiding consistent across LODs without changing shared Roman materials', () => {
     const cloth = new THREE.MeshStandardMaterial({ color: 0xff2222 }), skin = new THREE.MeshStandardMaterial({ color: 0xffccaa })
@@ -313,6 +313,7 @@ describe('Town orchestration transitions', () => {
     const profile = createCareerProfile('roman'), store = new CareerProfileStore(memory())
     store.save(profile)
     const town = createTownCombatFixture() as any
+    town.residents = []
     town.profile = profile; town.store = store; town.event = { hostile: false }; town.player = { dead: false }
     town.mission = {
       fieldNpcs: bandits, chooseCamp: vi.fn(() => 2),

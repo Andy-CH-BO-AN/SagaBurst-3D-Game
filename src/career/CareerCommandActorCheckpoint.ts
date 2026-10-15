@@ -17,6 +17,7 @@ export function snapshotCommandActor(npc: NPC, homeMount?: Mount,
     position: position(npc.combatPosition, npc.mount?.group.rotation.y ?? npc.group.rotation.y),
     ammo: npc.combatAmmo, shieldImpact: npc.shield.shieldImpactRemaining, order: npc.tacticalOrder,
     ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
+    ...(npc.isTownRampartGarrisonActive ? { townRampartGarrison: true } : {}),
     ...(npc.isFalling ? { fall: npc.fallSnapshot } : {}),
     ...(npc.combatFormationCheckpoint ? { formation: npc.combatFormationCheckpoint } : {}),
     ...(mount ? { mount: { hp: mount.dead ? 0 : mount.currentHp, mounted: npc.mount === mount,
@@ -57,6 +58,8 @@ export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, ho
   } else if (!npc.dead && saved.order && saved.order !== 'follow') npc.setTacticalOrder(saved.order)
   if (!npc.dead && !saved.formation && saved.outpostRampartGarrison && (!saved.order || saved.order === 'defend' || saved.order === 'attack'))
     npc.activateOutpostRampartGarrison(saved.order === 'attack' ? 'attack' : 'defend')
+  if (!npc.dead && !npc.isMounted && !saved.formation && saved.townRampartGarrison && (!saved.order || saved.order === 'defend' || saved.order === 'attack'))
+    npc.activateTownRampartGarrison(saved.order === 'attack' ? 'attack' : 'defend')
 }
 
 /** Stages restored resources before a service transaction mutates the live army. */

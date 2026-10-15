@@ -1,3 +1,6 @@
+import { createTownFortifications } from '../../src/town/TownFortifications'
+import { getTownRampartLayout } from '../../src/town/TownRamparts'
+import type { ObstacleData } from '../../src/world/Terrain'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import * as THREE from 'three'
 import { ArrowProjectile } from '../../src/world/ArrowProjectile'
@@ -11,6 +14,7 @@ import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
 import { siegeActorRecord, siegeAssaultFixture } from '../helpers/siegeAssaultFixture'
 import { MovingPlatformSupport } from '../../src/movement/MovingPlatformSupport'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 
 vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/HorseAssetRegistry')>()),
@@ -196,5 +200,61 @@ describe('Siege surface movement: real actor/physics consumers', () => {
     const blocked = nav.resolveMoveTarget(new THREE.Vector3(stair.ramp.startX, stair.ramp.startY, stair.ramp.startZ), goal, true, new THREE.Vector3())
     expect(nav.hasMountedAccess).toBe(true)
     expect(blocked.target.x).toBeCloseTo(stair.ramp.startX - .3)
+  })
+})
+
+
+describe('Town mounted perimeter tour', () => {
+  it.each(['formation', 'follow'] as const)('one mounted NPC obeys %s from courtyard to rampart and back', command => {
+    const layout = getTownRampartLayout(), obstacles: ObstacleData[] = [], scene = new THREE.Scene(), material = new THREE.MeshBasicMaterial()
+    const root = createTownFortifications('roman', obstacles, { stone: material, wood: material, dark: material, snow: material }).root
+    const navigation = new NavigationWorld(); navigation.setTownRamparts(layout); navigation.sync(obstacles)
+    const north = layout.ramps.find(r => r.gateId === 'north')!
+    const rider = new NPC(scene, north.entrance.x, north.entrance.z, Faction.PLAYER, 'roman', AIType.MELEE, 'Town rider', 1, false)
+    const mount = new Mount(scene, MountType.HORSE, north.entrance.x, north.entrance.z), leader = new Player(scene)
+    onTestFinished(() => { rider.dispose(); mount.dispose(); leader.dispose(); root.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose() }); material.dispose() })
+    rider.mountVehicle(mount)
+    const destinations = [north.connection.clone().add(new THREE.Vector3(-12, 0, 0)), north.entrance.clone().add(new THREE.Vector3(8, 0, 8))]
+    destinations[0].y = layout.decks.find(d => d.id === 'north')?.surface.topY ?? north.connection.y
+    destinations[1].y = getTerrainHeight(destinations[1].x, destinations[1].z)
+    for (const [index, goal] of destinations.entries()) {
+      leader.position.copy(goal).add(new THREE.Vector3(0, .95, 0))
+      if (command === 'formation') rider.assignFormationTarget(index + 1, goal, new THREE.Vector3(0, 0, 1), 4)
+      else rider.assignFollowTarget(leader, 0)
+      let frames = 0
+      while (frames++ < 4800) {
+        const before = mount.group.position.clone()
+        navigation.beginFrame()
+        rider.update(1 / 60, leader, [rider], [], obstacles, { setFill() {} }, () => {}, () => {}, false, 0, null, null, navigation)
+        expect(mount.group.position.distanceTo(before), `${command} leg ${index} frame ${frames}: ${before.toArray()} -> ${mount.group.position.toArray()}`).toBeLessThan(.7)
+        if (Math.hypot(mount.group.position.x - goal.x, mount.group.position.z - goal.z) < (command === 'follow' ? 7 : 1.5)
+          && navigation.townNav!.isElevated(mount.group.position) === (index === 0)) break
+      }
+      expect(frames, `${command} leg ${index} stalled at ${mount.group.position.toArray()}`).toBeLessThan(4800)
+    }
+  })
+
+  it.each([MountType.HORSE, MountType.BLACK_CAT, MountType.CORGI])('%s follows real Player input up North, across its gatehouse and down West', type => {
+    const layout = getTownRampartLayout(), obstacles: ObstacleData[] = [], scene = new THREE.Scene(), material = new THREE.MeshBasicMaterial()
+    const root = createTownFortifications('roman', obstacles, { stone: material, wood: material, dark: material, snow: material }).root
+    const north = layout.ramps.find(r => r.gateId === 'north')!, west = layout.ramps.find(r => r.gateId === 'west')!
+    const mount = new Mount(scene, type, north.entrance.x, north.entrance.z), player = new Player(scene)
+    onTestFinished(() => { player.dispose(); mount.dispose(); root.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose() }); material.dispose() })
+    player.mountVehicle(mount, -Math.PI / 2)
+    const input = { keys: { KeyW: true }, isLeftMouseDown: false, isRightMouseDown: false,
+      consumeLeftClick: () => false, consumeLeftClickRelease: () => false, consumeRightClick: () => false } as unknown as PlayerInput
+    const stamina = { setFill() {} } as unknown as StaminaBar
+    const quiver = { setAiming() {}, setChargeRatio() {} } as unknown as QuiverUI
+    const sound = { playSwing() {}, playBowRelease() {} } as unknown as SoundManager
+    for (const goal of [north.landing, north.connection, layout.corners[0], west.connection, west.landing, west.entrance]) {
+      let frames = 0
+      while (Math.hypot(mount.group.position.x - goal.x, mount.group.position.z - goal.z) > .4 && frames++ < 4000) {
+        const before = mount.group.position.clone(), direction = goal.clone().sub(before)
+        player.update(1 / 60, input, Math.atan2(-direction.x, -direction.z), goal, obstacles, stamina, quiver, sound)
+        expect(mount.group.position.distanceTo(before)).toBeLessThan(.7)
+      }
+      expect(frames, `${type} to ${goal.toArray()} stalled at ${mount.group.position.toArray()}`).toBeLessThan(4000)
+      expect(Math.abs(mount.group.position.y - goal.y)).toBeLessThan(.6)
+    }
   })
 })

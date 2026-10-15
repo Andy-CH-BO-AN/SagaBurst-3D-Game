@@ -14,6 +14,7 @@ import { getOutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkw
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
 import type { ObstacleData } from '../../src/world/Terrain'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { getTownRampartLayout } from '../../src/town/TownRamparts'
 
 vi.mock('../../src/world/CorgiVisual', async importOriginal => ({
   ...(await importOriginal<typeof import('../../src/world/CorgiVisual')>()),
@@ -243,8 +244,8 @@ function elevatedSupport(position: THREE.Vector3): ObstacleData {
       dirX: 1, dirZ: 0, length: 4, landing: 0, halfWidth: 2 } }
 }
 
-describe('Outpost elevated ranged defense' , () => {
-  it.each(['defend', 'attack'] as const)('%s draws melee at 4m on the connected rampart and attacks only at contact', order => {
+describe('Elevated ranged defense' , () => {
+  it.each(['outpost', 'town'].flatMap(scope => (['defend', 'attack'] as const).map(order => ({ scope, order }))))('$scope $order draws melee at 4m on the connected rampart and attacks only at contact', ({ scope, order }) => {
     // Two real actors; pure walkway topology supplies the high/ground distinction.
     const scene = new THREE.Scene(), player = new Player(scene, 'viking')
     const archer = createRangedNpc('wooden_shortbow')
@@ -254,8 +255,9 @@ describe('Outpost elevated ranged defense' , () => {
     navigation.setOutpostWalkways(layout)
     const deck = layout.decks[0]
     archer.group.position.copy(deck.slab.getCenter(new THREE.Vector3())).y = deck.topY
+    if (scope === 'town') { const town = getTownRampartLayout(); navigation.setTownRamparts(town); archer.group.position.copy(town.ramps[0].connection) }
     player.group.position.copy(archer.position).x += 4
-    archer.activateOutpostRampartGarrison()
+    if (scope === 'town') archer.activateTownRampartGarrison(); else archer.activateOutpostRampartGarrison()
     archer.setTacticalOrder(order)
     const origin = archer.position.clone(), hit = vi.fn(), fire = vi.fn()
     const support = elevatedSupport(origin)
@@ -298,7 +300,7 @@ describe('Outpost elevated ranged defense' , () => {
     expect(archer.hasActiveRangedWeapon).toBe(false)
   })
 
-  it.each(['defend', 'attack'] as const)('%s preserves ammunition above a close ground enemy and releases at a reachable ranged target', order => {
+  it.each(['outpost', 'town'].flatMap(scope => (['defend', 'attack'] as const).map(order => ({ scope, order }))))('$scope $order preserves ammunition above a close ground enemy and releases at a reachable ranged target', ({ scope, order }) => {
     const scene = new THREE.Scene()
     const player = new Player(scene, 'viking')
     const archer = createRangedNpc('wooden_shortbow')
@@ -308,11 +310,12 @@ describe('Outpost elevated ranged defense' , () => {
     const navigation = new NavigationWorld()
     navigation.setOutpostWalkways(layout)
     archer.group.position.copy(layout.decks[0].slab.getCenter(new THREE.Vector3())).y = layout.decks[0].topY
+    if (scope === 'town') { const town = getTownRampartLayout(); navigation.setTownRamparts(town); archer.group.position.copy(town.ramps[0].connection) }
     const origin = archer.position.clone()
     player.group.position.copy(origin).add(new THREE.Vector3(0, -4.6, 1))
     alternate.group.position.copy(origin).x += 20
     expect(navigation.outpostNav!.getNavLayer(player.combatPosition)).toBe('ground')
-    archer.activateOutpostRampartGarrison()
+    if (scope === 'town') archer.activateTownRampartGarrison(); else archer.activateOutpostRampartGarrison()
     archer.setTacticalOrder(order)
     const ammo = archer.combatAmmo
     const fire = vi.fn()

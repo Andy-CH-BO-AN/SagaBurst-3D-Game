@@ -197,7 +197,7 @@ describe('Lazy Career audio runtime', () => {
     expect(sources.every(source => source.stop.mock.calls.length === 1)).toBe(true)
   })
 
-  it('serializes acceptance and immediate next-frame Follow at the real Sergeant/Captain positions', async () => {
+  it('serializes acceptance and Follow when the player approaches Captain from the Sergeant', async () => {
     const manager = new SoundManager()
     await manager.preload()
     const roster = townRoster()
@@ -205,7 +205,7 @@ describe('Lazy Career audio runtime', () => {
     const sergeant = roster.find(actor => actor.role === 'deployment')!
     const leader = { dead: false, combatPosition: new THREE.Vector3(captain.x, 0, captain.z) }
     const position = new THREE.Vector3(sergeant.x, 0, sergeant.z)
-    expect(position.distanceTo(leader.combatPosition)).toBeCloseTo(9)
+    expect(position.distanceTo(leader.combatPosition)).toBeCloseTo(16)
     let profile = createCareerProfile('roman')
     profile.activeMission = createActiveCareerMission('recruit-bandits-01', 0, 3, 0)
     const mission = withMissionCheckpoint(Object.create(BanditMissionController.prototype)) as any
@@ -222,6 +222,7 @@ describe('Lazy Career audio runtime', () => {
     let acceptLoaded!: (response: any) => void
     vi.mocked(fetch).mockReturnValueOnce(new Promise(resolve => { acceptLoaded = resolve }))
     manager.playCareerMissionVoice('roman', 'missionAccepted')
+    position.x -= 4 // Step from the Sergeant toward the Captain into the existing 12m assembly radius.
     mission.updateFlow(.016, 0)
     expect(profile.activeMission.phase).toBe('MARCHING') // Gameplay never waits for audio.
     await flush()

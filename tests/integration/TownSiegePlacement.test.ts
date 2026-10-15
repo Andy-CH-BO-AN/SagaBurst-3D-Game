@@ -9,7 +9,8 @@ import { TOWN_NAVIGATION_BOUNDS } from '../../src/town/TownBounds'
 import { TownCavalryPatrolController } from '../../src/town/TownCavalryPatrolController'
 import { createTownFortifications } from '../../src/town/TownFortifications'
 import type { TownGateId } from '../../src/town/TownLayout'
-import { townRoster } from '../../src/town/TownRules'
+import { townStationSpec } from '../../src/town/TownGarrison'
+import { townRoster, townMilitaryEquipment } from '../../src/town/TownRules'
 import { MountType, type Mount } from '../../src/world/Mount'
 import { AIType, Faction, type NPC } from '../../src/world/NPC'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
@@ -61,10 +62,13 @@ function placementFixture() {
   })
 
   const specs = townRoster().filter(spec => spec.role !== 'cat' && spec.role !== 'merchant')
-  const residents: TownDefenseResident[] = specs.map(spec => {
+  const residents: TownDefenseResident[] = specs.map(source => {
+    const equipment = townMilitaryEquipment('viking', source)
+    const spec = townStationSpec(source, source.mounted, Boolean(equipment.loadout.rangedWeaponId))
     // AI/equipment initialization is outside this geometry owner; only actor state/command recording is needed.
     const npc = new RecordingNpc(scene, spec.x, spec.z, Faction.ENEMY, 'viking', AIType.MELEE,
-      spec.id, spec.tier, spec.mounted, undefined, undefined, undefined, spec.id)
+      spec.id, spec.tier, spec.mounted, equipment.loadout, undefined, undefined, spec.id)
+    if (spec.y !== undefined) npc.group.position.y = spec.y
     ownedNpcs.push(npc)
     return { spec, npc: npc as unknown as NPC }
   })
@@ -80,7 +84,7 @@ function placementFixture() {
   // Resident deployment remains fresh and uses the real full-capacity plan.
   profile.activeMission.deadFriendlyActorIds = Array.from({ length: 119 }, (_, i) => i).filter(i => i != 19).map(i => `capacity-placement:siege:${i}`)
   const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
-  navigation.sync(obstacles)
+  navigation.sync(obstacles); navigation.setTownRamparts(city.rampartLayout)
   const scheduler = new NpcSpawnScheduler()
   controller = new TownDefenseController(scene, residents, () => player, () => profile,
     next => { profile = next; return true }, cat as unknown as Mount, navigation, {
@@ -104,6 +108,12 @@ describe('full-capacity Siege resident placement', () => {
     expect(h.controller.groups.map(group => group.id).sort()).toEqual(['east', 'north', 'south', 'west'])
     for (const { spec } of deployed) {
       const npc = recording.npcs.find(actor => actor.combatantId === spec.id)!
+      if (spec.garrison?.kind === 'rampart') {
+        expect(npc.isTownRampartGarrisonActive).toBe(true)
+        expect(npc.formationTarget).toBeUndefined()
+        expect(npc.group.position.toArray()).toEqual([spec.x, spec.y, spec.z])
+        continue
+      }
       expect(npc.formationTarget, `${spec.id} has an immediate deployment target`).toBeDefined()
       expect(npc.group.position.toArray(), `${spec.id} is positioned before enemy readiness`)
         .toEqual(npc.formationTarget!.position.toArray())
@@ -122,8 +132,10 @@ describe('full-capacity Siege resident placement', () => {
 
     const placements = h.residents.filter(resident => !resident.spec.eagle).map(({ spec }) => {
       const npc = recording.npcs.find(actor => actor.combatantId === spec.id)!
-      expect(npc.assignFormationTarget, `${spec.id} receives its deployment command`).toHaveBeenCalledOnce()
-      const point = npc.formationTarget!.position
+      const rampart = spec.garrison?.kind === 'rampart'
+      if (rampart) expect(npc.assignFormationTarget).not.toHaveBeenCalled()
+      else expect(npc.assignFormationTarget, `${spec.id} receives its deployment command`).toHaveBeenCalledOnce()
+      const point = rampart ? npc.group.position : npc.formationTarget!.position
       const mountedWidth = spec.mounted || spec.role === 'ranger' || spec.role === 'civilian'
       const spacing = mountedWidth ? 4.8 : 2.5, radius = mountedWidth ? 1.5 : .55
       expect([point.x, point.y, point.z].every(Number.isFinite), spec.id).toBe(true)
@@ -131,8 +143,10 @@ describe('full-capacity Siege resident placement', () => {
       expect(point.z, spec.id).toBeGreaterThan(-115); expect(point.z, spec.id).toBeLessThan(100)
       const cell = h.navigation.grid.worldToCell(point)
       expect(cell, `${spec.id} has a navigation cell`).not.toBeNull()
-      expect(h.navigation.grid.isBlocked(cell!), `${spec.id} is walkable with gates closed`).toBe(false)
+      if (rampart) expect(h.navigation.townNav!.isElevated(point)).toBe(true)
+      else expect(h.navigation.grid.isBlocked(cell!), `${spec.id} is walkable with gates closed`).toBe(false)
       for (const obstacle of h.obstacles) {
+        if (rampart && (obstacle.walkSurface || obstacle.box.max.y < point.y + .1 || obstacle.box.min.y > point.y + 1.8)) continue
         const box = obstacle.navigationBox ?? obstacle.box
         const separated = point.x + radius < box.min.x || point.x - radius > box.max.x
           || point.z + radius < box.min.z || point.z - radius > box.max.z
@@ -151,16 +165,15 @@ describe('full-capacity Siege resident placement', () => {
           if (gateId === group.id) continue
           expect(distance, `${npc.combatantId} stays in ${group.id}, rather than ${gateId}`).toBeLessThan((point.x - x) ** 2 + (point.z - z) ** 2)
         }
-        expect(Math.sqrt(distance), `${npc.combatantId} stays near its assigned gate`).toBeLessThan(75)
+        // West reserves occupy the open inner court beyond HR; other gates retain the nearer reserve envelope.
+        expect(Math.sqrt(distance), `${npc.combatantId} stays in its assigned gate district`).toBeLessThan(group.id === 'west' ? 100 : 75)
       }
     }
     expect(new Set(placements.map(({ point }) => `${point.x}:${point.z}`)).size).toBe(223)
     for (let i = 0; i < placements.length; i++) for (const prior of placements.slice(0, i)) {
       const current = placements[i]
-      // Production's occupied search compares zero-height candidates to terrain-height points.
-      // Civilian-only targets can therefore snap to 4.47m rather than the nominal 4.8m;
-      // protect their actual 1.5m body clearance, without expanding this test-only change into a placement fix.
-      const minimum = current.civilian && prior.civilian ? 3 : (current.spacing + prior.spacing) / 2
+            if (Math.abs(current.point.y - prior.point.y) > 3.5) continue // Ground and elevated occupants may share X/Z.
+      const minimum = (current.spacing + prior.spacing) / 2
       expect(Math.hypot(current.point.x - prior.point.x, current.point.z - prior.point.z),
         `${current.id} avoids earlier ${prior.id} with ${minimum}m spacing`).toBeGreaterThanOrEqual(minimum)
     }

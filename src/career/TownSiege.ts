@@ -27,7 +27,7 @@ export interface TownSiegeState {
   approachedActorIds: string[]
   defensePlans: SiegeDefensePlan[]
   gateHealth: Partial<Record<TownGateId, number>>
-  playerPosition?: { x: number; z: number; yaw: number }
+  playerPosition?: { x: number; y?: number; z: number; yaw: number }
 }
 export function newTownSiegeState(): TownSiegeState {
   return { version: 1, rosterCreated: false, rosterVersion: 2, attackerIds: [], claimedSquadIds: [], destroyedGateIds: [], releasedReserveGateIds: [], crossedActorIds: [], approachedActorIds: [], defensePlans: [], gateHealth: {} }

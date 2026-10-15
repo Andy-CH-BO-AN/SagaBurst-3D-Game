@@ -1,5 +1,7 @@
 import * as THREE from 'three'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { townStationSpec } from '../../src/town/TownGarrison'
+import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { TownScene } from '../../src/town/TownScene'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -38,6 +40,7 @@ vi.mock('../../src/audio/SoundManager', () => ({ SoundManager: class {
 // Geometry/rendering boundary only. Production TownScene constructs and filters the actual roster.
 vi.mock('../../src/town/TownWorld', () => ({ TownWorld: class {
   obstacles = []; roads = []
+  fortifications = { rampartLayout: getTownRampartLayout() }
   hr; eagleTraining; eagleGarrison
   constructor(public faction: 'roman' | 'viking') {
     this.hr = resolveTownHRLayout(faction, [], [])
@@ -197,7 +200,7 @@ describe('saved Town equipment materialization wiring', () => {
     const town = constructTown(profile), sharedCat = sharedCatBeforeResidentInitialization(town)
     const placement = vi.spyOn(sharedCat.group.position, 'set')
     const entries = town.residentRoster.filter(entry => ['ranger', riderId].includes(entry.spec.id))
-    const spec = entries.find(entry => entry.spec.id === riderId)!.spec
+    const spec = townStationSpec(entries.find(entry => entry.spec.id === riderId)!.spec, true, false)
     expect(sharedCat.group.position.x).not.toBe(spec.x)
     installNpcLoadingFrames(gameplayNpcSpawnDriver)
     await town.initializeResidents(entries, resolveCareerTownSceneContext(town.profile), () => {})

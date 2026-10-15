@@ -175,7 +175,7 @@ describe('Career Town layout checkpoint migration', () => {
       const saved = garrison(duty), before = structuredClone(saved)
       const migrated = migrateTownEagleGarrisonLayout(saved, 'town:roman', [garrisonPad], terrain)!
       expect(saved).toEqual(before)
-      expect(migrated).toMatchObject({ layoutVersion: 2, pairs: [{ duty, hp: 17, ammo: 7, refitAllowed: true,
+      expect(migrated).toMatchObject({ layoutVersion: 3, pairs: [{ duty, hp: 17, ammo: 7, refitAllowed: true,
         mount: { hp: 63, position: { x: -70, y: 12, z: -90, yaw: 0 }, flight: grounded } }] })
       if (duty === 'standby') expect(migrated.pairs[0].position).toEqual({ x: -66, y: 12, z: -90, yaw: 0 })
       else if (duty === 'mounted-waiting') expect(migrated.pairs[0].position).toEqual({ x: -66, y: 13, z: -90, yaw: 0 })
@@ -193,7 +193,7 @@ describe('Career Town layout checkpoint migration', () => {
       if (condition === 'grounded-sortie') pair.duty = 'sortie'
       const before = structuredClone(saved)
       const migrated = migrateTownEagleGarrisonLayout(saved, 'town:roman', [garrisonPad], terrain)!
-      expect(migrated.layoutVersion).toBe(2)
+      expect(migrated.layoutVersion).toBe(3)
       expect(migrated.pairs[0]).toBe(pair)
       expect(saved).toEqual(before)
     },
@@ -312,6 +312,22 @@ describe('Career Town layout checkpoint migration', () => {
       expect(migrateTownEagleGarrisonLayout(parked, 'town:roman', [{ ...garrisonPad, x: -90 }], terrain)).toBe(parked)
     },
   )
+
+  it('migrates a version 2 private eagle at its parked home exactly once through storage', () => {
+    const profile = createCareerProfile('roman'), saved = personal()
+    saved.layoutVersion = 2
+    saved.members['personal:eagle'].mount!.position = { x: -95, y: 2, z: 65, yaw: Math.PI }
+    profile.personalSquadRuntime = saved
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const loaded = store.load()!
+    loaded.personalSquadRuntime = migratePersonalTownLayout(loaded.personalSquadRuntime, 'town-home', layout, terrain)
+    expect(store.save(loaded)).toBe(true)
+    const restored = store.load()!.personalSquadRuntime!
+    expect(restored.layoutVersion).toBe(3)
+    expect(restored.members['personal:eagle'].mount).toMatchObject({ hp: 73, position: { x: -70, y: 12, z: 25 } })
+    expect(migratePersonalTownLayout(restored, 'town-home', layout, terrain)).toBe(restored)
+  })
 
   it('leaves other scenes and already known future layout versions untouched', () => {
     const squad = personal(), resident = garrison()

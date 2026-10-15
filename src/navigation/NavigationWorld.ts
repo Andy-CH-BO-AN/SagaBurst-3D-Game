@@ -1,3 +1,5 @@
+import { TownLayeredNavigation } from './TownLayeredNavigation'
+import type { TownRampartLayout } from '../town/TownRamparts'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import {
   NavigationGrid,
@@ -41,6 +43,9 @@ export class NavigationWorld {
   private pathRequestsThisFrame = 0
   private readonly sharedPathCache = new Map<string, NavigationCell[] | null>()
   private readonly pendingPathOwners = new Map<object, { start: { x: number; z: number }; goal: { x: number; z: number } }>()
+  townNav: TownLayeredNavigation | null = null
+  setTownRamparts(layout: TownRampartLayout): void { this.townNav = new TownLayeredNavigation(layout) }
+
   private _outpostNav: OutpostLayeredNavigation | null = null
 
   get outpostNav(): OutpostLayeredNavigation | null {

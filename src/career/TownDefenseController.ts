@@ -1,3 +1,4 @@
+import { migrateTownRampartPosition } from '../town/TownLayoutMigration'
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
 import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
 import { officialFollowLocalOffset } from '../battle/FollowOrder'
@@ -224,8 +225,8 @@ export class TownDefenseController {
     const savedPlayer = this.siege.playerPosition
     if (savedPlayer) {
       const player = this.player(), mount = player.currentMount
-      if (mount) mount.group.position.set(savedPlayer.x, getTerrainHeight(savedPlayer.x, savedPlayer.z), savedPlayer.z)
-      else player.group.position.set(savedPlayer.x, getTerrainHeight(savedPlayer.x, savedPlayer.z) + .9, savedPlayer.z)
+      if (mount) mount.group.position.set(savedPlayer.x, savedPlayer.y ?? getTerrainHeight(savedPlayer.x, savedPlayer.z), savedPlayer.z)
+      else player.group.position.set(savedPlayer.x, savedPlayer.y ?? getTerrainHeight(savedPlayer.x, savedPlayer.z) + .9, savedPlayer.z)
       player.group.rotation.y = savedPlayer.yaw
       if (mount) { mount.group.rotation.y = player.facingYaw; player.syncMountTransform() }
     } else if (this.assault) {
@@ -440,14 +441,23 @@ export class TownDefenseController {
   private prepareDeployment(): void {
     const occupied: { point: THREE.Vector3; spacing: number }[] = []
     for (const npc of this.military) {
-      if (!this.playerIssuedCommands.has(npc)) npc.beginExternalThreat()
+      if (!this.playerIssuedCommands.has(npc)) {
+        npc.beginExternalThreat()
+        const resident = this.residents.find(r => r.npc === npc)
+        if (resident?.spec.garrison?.kind === 'rampart' && !npc.isMounted && npc.hasActiveRangedWeapon && !this.isPlayerCommanded(npc)) npc.activateTownRampartGarrison()
+      }
       npc.respawnEnabled = false
       if (npc.mount) this.actorMounts.set(npc, npc.mount)
     }
     for (const group of this.groups) {
-      group.members.forEach((npc, index) => this.order(npc, this.walkable(siegePoint(group.id, (index % 7 - 3) * 2.6, 12 + Math.floor(index / 7) * 3), occupied, 2.5)))
+      group.members.forEach((npc, index) => {
+        const station = this.residents.find(r => r.npc === npc)?.spec.garrison
+        const point = station ? new THREE.Vector3(station.x, station.y, station.z) : siegePoint(group.id, (index % 7 - 3) * 2.6, 12 + Math.floor(index / 7) * 3)
+        if (!npc.isTownRampartGarrisonActive) this.order(npc, this.walkable(point, occupied, 2.5))
+      })
       group.cavalry.forEach((npc, index) => {
-        const point = siegeReservePoint(group.id, index)
+        const station = this.residents.find(r => r.npc === npc)?.spec.garrison
+        const point = station ? new THREE.Vector3(station.x, station.y, station.z) : siegeReservePoint(group.id, index)
         this.order(npc, this.walkable(point, occupied, 4.8, group.id))
       })
     }
@@ -462,7 +472,7 @@ export class TownDefenseController {
   private isEagleGuard(npc: NPC): boolean { return this.residents.some(r => r.npc === npc && r.spec.duty === 'eagle_garrison') }
 
   private order(npc: NPC, point: THREE.Vector3): void {
-    if (npc.dead || this.civilianCommandOwns?.(npc) || this.isEagleGuard(npc) || this.isPlayerCommanded(npc) && (this.tracker || this.playerIssuedCommands.has(npc))) return
+    if (npc.dead || npc.isTownRampartGarrisonActive || this.civilianCommandOwns?.(npc) || this.isEagleGuard(npc) || this.isPlayerCommanded(npc) && (this.tracker || this.playerIssuedCommands.has(npc))) return
     const prior = this.orders.get(npc)
     // Combat preparation can clear the native formation even when the cached
     // destination is unchanged. Only reuse a still-active scripted formation.
@@ -560,7 +570,7 @@ export class TownDefenseController {
     for (const group of this.groups) {
       if (!this.siege.releasedReserveGateIds.includes(group.id)) continue
       for (const npc of [...group.members, ...group.cavalry]) {
-        if (npc.dead || this.isPlayerCommanded(npc)) continue
+        if (npc.dead || npc.isTownRampartGarrisonActive || this.isPlayerCommanded(npc)) continue
         npc.setMissionCombatTarget(undefined)
         npc.missionMovement = false
         npc.assignSiegeObstacle(null)
@@ -698,7 +708,13 @@ export class TownDefenseController {
 
   private restoreActor(npc: NPC, active: ActiveCareerMission, dead: boolean): void {
     const position = active.actorPositions?.[npc.combatantId], health = active.actorHealth?.[npc.combatantId]
-    if (position) this.positionNpc(npc, this.withTerrain(new THREE.Vector3(position.x, 0, position.z)), new THREE.Vector3(Math.sin(position.yaw), 0, Math.cos(position.yaw)))
+    if (position) {
+      const resident = this.residents.find(r => r.npc === npc)
+      const restored = migrateTownRampartPosition(position, resident?.spec, this.isPlayerCommanded(npc), npc.isMounted, npc.hasActiveRangedWeapon)
+      const point = new THREE.Vector3(restored.x, restored.y ?? getTerrainHeight(restored.x, restored.z), restored.z)
+      this.positionNpc(npc, point, new THREE.Vector3(Math.sin(position.yaw), 0, Math.cos(position.yaw)))
+      if (position.townRampartGarrison && !this.isPlayerCommanded(npc)) npc.activateTownRampartGarrison()
+    }
     if (health && !npc.dead) npc.restoreCombatHealth(Math.min(npc.maxHp, health.hp))
     const savedMount = npc.mount ?? this.actorMounts.get(npc)
     if (savedMount && health?.mountHp !== undefined) {
@@ -729,11 +745,11 @@ export class TownDefenseController {
         const actorPositions = { ...active.actorPositions }, actorHealth = { ...active.actorHealth }
         for (const { npc, homeMount } of this.residents) {
           const mount = npc.mount ?? homeMount, position = npc.combatPosition
-          actorPositions[npc.combatantId] = { x: position.x, z: position.z, yaw: npc.group.rotation.y }
+          actorPositions[npc.combatantId] = { x: position.x, y: position.y, z: position.z, yaw: npc.group.rotation.y, townRampartGarrison: npc.isTownRampartGarrisonActive }
           actorHealth[npc.combatantId] = { hp: npc.hp, ...(mount ? { mountHp: mount.currentHp } : {}) }
         }
         this.checkpoint.persist(() => ({ ...active, actorPositions, actorHealth,
-          siege: { ...active.siege!, playerPosition: { x: position.x, z: position.z, yaw: player.group.rotation.y } },
+          siege: { ...active.siege!, playerPosition: { x: position.x, y: position.y, z: position.z, yaw: player.group.rotation.y } },
           playerHp: player.hp, playerStamina: player.staminaValue, playerDead: player.dead || Boolean(active.playerDead),
           ...(mountState ? { mountState } : {}),
         }), { immediate: true })
@@ -781,7 +797,7 @@ export class TownDefenseController {
       const mount = npc.mount ?? this.actorMounts.get(npc)
       const mountHp = mount?.currentHp ?? this.active?.actorHealth?.[npc.combatantId]?.mountHp ?? (this.enemies.includes(npc) ? 0 : undefined)
       actorHealth[npc.combatantId] = { hp: npc.hp, ...(mountHp !== undefined ? { mountHp } : {}) }
-      actorPositions[npc.combatantId] = { x: npc.combatPosition.x, z: npc.combatPosition.z, yaw: npc.group.rotation.y }
+      actorPositions[npc.combatantId] = { x: npc.combatPosition.x, y: npc.combatPosition.y, z: npc.combatPosition.z, yaw: npc.group.rotation.y, townRampartGarrison: npc.isTownRampartGarrisonActive }
     }
     const player = this.player()
     const authority = this.active?.officialSquad
@@ -791,7 +807,7 @@ export class TownDefenseController {
     }
     const contributions = new Map(this.tracker?.officialSquadCheckpoints().map(squad => [squad.squadId, squad.contribution]))
     return { ...(authority ? { officialSquad: { ...authority, members, contribution: this.officialContribution ?? authority.contribution,
-      ...(authority.squads ? { squads: authority.squads.map(squad => ({ ...squad, contribution: contributions.get(squad.squadId) ?? squad.contribution })) } : {}) } } : {}), ...(this.assault ? { friendlyActorIds: [...this.siege.attackerIds] } : { targetActorIds: [...this.siege.attackerIds] }), siege: { ...this.siege, attackerIds: [...this.siege.attackerIds], claimedSquadIds: [...this.siege.claimedSquadIds], destroyedGateIds: [...this.siege.destroyedGateIds], releasedReserveGateIds: [...this.siege.releasedReserveGateIds], crossedActorIds: [...this.siege.crossedActorIds], gateHealth: { ...this.siege.gateHealth }, playerPosition: { x: player.combatPosition.x, z: player.combatPosition.z, yaw: player.group.rotation.y } }, actorHealth, actorPositions, playerHp: player.hp, playerStamina: player.staminaValue }
+      ...(authority.squads ? { squads: authority.squads.map(squad => ({ ...squad, contribution: contributions.get(squad.squadId) ?? squad.contribution })) } : {}) } } : {}), ...(this.assault ? { friendlyActorIds: [...this.siege.attackerIds] } : { targetActorIds: [...this.siege.attackerIds] }), siege: { ...this.siege, attackerIds: [...this.siege.attackerIds], claimedSquadIds: [...this.siege.claimedSquadIds], destroyedGateIds: [...this.siege.destroyedGateIds], releasedReserveGateIds: [...this.siege.releasedReserveGateIds], crossedActorIds: [...this.siege.crossedActorIds], gateHealth: { ...this.siege.gateHealth }, playerPosition: { x: player.combatPosition.x, y: player.combatPosition.y, z: player.combatPosition.z, yaw: player.group.rotation.y } }, actorHealth, actorPositions, playerHp: player.hp, playerStamina: player.staminaValue }
   }
 
   private anchorVector(key: keyof typeof TOWN_DEFENSE_LAYOUT): THREE.Vector3 {
@@ -817,7 +833,7 @@ export class TownDefenseController {
         if (gateId && siegeNearestGate(snapped) !== gateId) continue
         if (insideSiegeTown(snapped) !== inside || Math.abs(snapped.x) > 345 || Math.abs(snapped.z) > 345) continue
         if (this.siegeContext?.obstacles.some(obstacle => overlapsGateClosure(obstacle.navigationBox ?? obstacle.box, snapped, spacing >= 4 ? 1.5 : .55))) continue
-        if (occupied.some(other => snapped.distanceToSquared(other.point) < ((spacing + other.spacing) / 2) ** 2)) continue
+        if (occupied.some(other => (snapped.x - other.point.x) ** 2 + (snapped.z - other.point.z) ** 2 < ((spacing + other.spacing) / 2) ** 2)) continue
         const result = this.withTerrain(snapped)
         occupied.push({ point: result, spacing })
         return result

@@ -42,6 +42,33 @@ describe('NPC Ranged Melee Switch & Distance Boundaries', () => {
     )
   }
 
+  it.each(['recurve_longbow', 'pilum_standard'])('Town stationary %s uses its actual range, fires in range and releases on Follow', rangedWeaponId => {
+    const npc = new NPC(scene, 0, 0, Faction.ENEMY, 'roman', AIType.RANGED, 'Town archer', 2, false, {
+      meleeWeaponId: 'gladius_standard', rangedWeaponId, shieldId: null, mountId: null,
+    })
+    onTestFinished(() => { npc.dispose(); player.dispose() })
+    npc.group.position.y = 8
+    npc.activateTownRampartGarrison()
+    const surface = { mounted: true, startX: -30, startZ: 0, dirX: 1, dirZ: 0, halfWidth: 3, length: 60, landing: 0, startY: 8, topY: 8 }
+    const obstacles = [{ box: new THREE.Box3(new THREE.Vector3(-30, 7.65, -3), new THREE.Vector3(30, 8, 3)), walkSurface: surface, isBarricade: false, navigationPassable: true }]
+    const fire = vi.fn()
+    const step = () => npc.update(1 / 30, player, [], [], obstacles, { setFill() {} }, () => {}, fire)
+    const range = npc.maxRangedAttackDistance
+    expect(npc.alertRange).toBe(range)
+    player.group.position.set(range + 5, 8.9, 0)
+    for (let frame = 0; frame < 120; frame++) step()
+    expect(npc.currentState).toBe(AIState.IDLE)
+    expect(fire).not.toHaveBeenCalled()
+    expect(npc.combatPosition.x).toBe(0)
+    player.group.position.set(Math.min(12, range - 1), 8.9, 0)
+    for (let frame = 0; frame < 300 && !fire.mock.calls.length; frame++) step()
+    expect(fire).toHaveBeenCalled()
+    expect(npc.combatPosition.x).toBe(0)
+    npc.assignFollowTarget(player, 0)
+    expect(npc.isTownRampartGarrisonActive).toBe(false)
+    expect(npc.alertRange).toBe(300)
+  })
+
   it('NPC pilum releases once and completes recovery before switching an empty loadout to melee', () => {
     const npc = new NPC(scene, 0, 10, Faction.ENEMY, 'roman', AIType.RANGED, 'PilumThrower', 2, false, {
       meleeWeaponId: 'gladius_rusty',

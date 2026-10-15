@@ -1,3 +1,4 @@
+import { assignTownGarrison, type TownGarrisonStation } from './TownGarrison'
 import { townEagleRoster } from './TownEagleGarrison'
 import { addCareerItem, availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
 import { canonicalCareerMountId, cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
@@ -36,6 +37,8 @@ export interface TownActorSpec {
   /** Permanent Town pair identity; never inferred from resident array order. */
   eagle?: { riderId: string; mountId: string; homePadId: string; cruiseAltitude: number; home: { x: number; z: number; yaw: number } }
   tier: 2 | 3 | 4
+  garrison?: TownGarrisonStation
+  y?: number
   x: number
   z: number
   index: number
@@ -61,8 +64,8 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
     ? { ...resolveT4UnitLoadout(presetId), mountId: base.mountId } : { ...base } }
 }
 export const TOWN_SITES = {
-  /** Retained legacy landmark; no Town Center building is materialized. */
-  hall: { x: 0, z: -34, yaw: 0 },
+  /** Civic hall faces the open plaza, clear of the four main roads. */
+  hall: { x: 52, z: -22, yaw: 0 },
   weapons: { x: -6, z: -17, yaw: Math.PI / 2 },
   stable: { x: -5, z: -39, yaw: Math.PI / 2 },
   /** Training entrance/refit anchor; the former Barracks building is removed. */
@@ -73,8 +76,8 @@ export function townSitePoint(site: keyof typeof TOWN_SITES, side: number, forwa
   return { x: x + Math.cos(yaw) * side + Math.sin(yaw) * forward, z: z - Math.sin(yaw) * side + Math.cos(yaw) * forward, yaw }
 }
 export function townPlayerEntryPoint() {
-  const point = townSitePoint('barracks', 4, 12)
-  return { ...point, yaw: Math.PI / 2 }
+  const point = townSitePoint('hall', 8, 24)
+  return { ...point, yaw: Math.PI }
 }
 /** Fixed mounted refit slots beside the training entrance, separate from Patrol startup formations. */
 export function townPatrolRefitPoint(actor: Pick<TownActorSpec, 'patrolId' | 'index'>) {
@@ -116,7 +119,7 @@ export function townRoster(): TownActorSpec[] {
     result.push({ id: 'civilian-' + i, role: 'civilian', index: i, x: Math.sin(angle) * (15 + i % 3 * 3) - 5, z: Math.cos(angle) * 16 + 7,
       duty: 'civilian', mounted: false, training: false, tier: 2, assaultObjective: false })
   }
-  for (const [role, site, side, forward] of [['captain', 'barracks', -5, 8], ['deployment', 'barracks', 4, 8], ['merchant', 'weapons', 0, 7.5], ['ranger', 'stable', 3, 8], ['cat', 'stable', -3, 8]] as const) result.push({
+  for (const [role, site, side, forward] of [['captain', 'hall', -8, 20], ['deployment', 'hall', 8, 20], ['merchant', 'weapons', 0, 7.5], ['ranger', 'stable', 3, 8], ['cat', 'stable', -3, 8]] as const) result.push({
     id: role, role, index: 0, ...townSitePoint(site, side, forward), duty: 'service', mounted: role === 'captain', training: false,
     ...(role === 'captain' ? { unitKind: 'sword_cavalry' as const } : role === 'deployment' ? { unitKind: 'melee' as const } : {}),
     tier: role === 'captain' || role === 'ranger' || role === 'deployment' ? 4 : 2,
@@ -138,7 +141,7 @@ export function townRoster(): TownActorSpec[] {
     }
   }
   result.push(...townEagleRoster())
-  return result
+  return assignTownGarrison(result)
 }
 export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger' || actor.role === 'eagle-trainer') }
 /** Captain's fixed T2 training residents. Selection never draws from officers, gates or Patrols. */

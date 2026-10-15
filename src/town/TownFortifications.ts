@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { getTownRampartLayout, createTownRamparts } from './TownRamparts'
 import { CampaignGateController } from '../campaign/CampaignGate'
 import { DamageableObstacle } from '../world/DamageableObstacle'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
@@ -27,7 +28,7 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
     const end = horizontal ? TOWN_CITY.maxX : TOWN_CITY.maxZ
     const center = horizontal ? gate.x : gate.z
     for (const [low, high] of [[start, center - TOWN_CITY.gateWidth / 2], [center + TOWN_CITY.gateWidth / 2, end]]) {
-      const count = Math.ceil((high - low) / 20), span = (high - low) / count
+      const count = Math.ceil((high - low) / 5), span = (high - low) / count
       for (let i = 0; i < count; i++) {
         const along = low + span * (i + .5), x = horizontal ? along : gate.x, z = horizontal ? gate.z : along
         const w = horizontal ? span : TOWN_CITY.wallThickness, d = horizontal ? TOWN_CITY.wallThickness : span
@@ -44,10 +45,7 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
           const heights = [low + span * i, along, low + span * (i + 1)].map(value => getTerrainHeight(horizontal ? value : x, horizontal ? z : value))
           const base = Math.min(...heights) - 1, top = Math.max(...heights) + TOWN_CITY.wallHeight
           cube(wallRoot, x, (base + top) / 2, z, w, top - base, d, materials.stone)
-          cube(wallRoot, x, top + .1, z, w + .05, .35, d + .3, materials.stone)
-          for (let merlon = 1; merlon < span; merlon += 3) cube(wallRoot, horizontal ? low + i * span + merlon : x,
-            top + .65, horizontal ? z : low + i * span + merlon, horizontal ? 1.4 : w, 1, horizontal ? d : 1.4, materials.stone)
-          collision = new THREE.Box3(new THREE.Vector3(x - w / 2, base, z - d / 2), new THREE.Vector3(x + w / 2, top + 1.2, z + d / 2))
+          collision = new THREE.Box3(new THREE.Vector3(x - w / 2, base, z - d / 2), new THREE.Vector3(x + w / 2, top, z + d / 2))
         }
         const obstacle = { box: collision, isBarricade: false }; obstacles.push(obstacle); walls.push(obstacle)
       }
@@ -135,5 +133,7 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
     stakes.instanceMatrix.needsUpdate = true; stakes.computeBoundingSphere(); wallRoot.add(stakes)
     snowCaps.instanceMatrix.needsUpdate = true; snowCaps.computeBoundingSphere(); wallRoot.add(snowCaps)
   }
-  return { root, wallRoot, gates, walls }
+  const rampartLayout = getTownRampartLayout()
+  root.add(createTownRamparts(rampartLayout, obstacles, faction === 'roman' ? materials.stone : materials.wood, materials.dark))
+  return { root, wallRoot, gates, walls, rampartLayout }
 }
