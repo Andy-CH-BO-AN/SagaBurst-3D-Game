@@ -140,7 +140,7 @@ for(const def of definitions){
   fs.writeFileSync(path.join(out,'bone-map.json'),JSON.stringify({rig:def.rig,sourceToProject:mapping,skinJointCount:source.document.skins[0].joints.length,normalization:{scale,offsetY:offset,sourceBounds:{min:bounds.min.toArray(),max:bounds.max.toArray()}},preservedDynamicGrip:document.nodes.some(n=>n.name==='socket_axe_2h_r')},null,2)+'\n')
   fs.writeFileSync(path.join(out,'lod-audit.json'),JSON.stringify({sourceSha256:sourceSha,sourceAnimationBufferSha256:animationHash,skinJoints:source.document.skins[0].joints.length,lods:audits},null,2)+'\n')
   fs.copyFileSync(path.join(root,def.readme),path.join(out,'source-readme.txt'))
-  if(def.rig==='varangian63')fs.copyFileSync(path.join(root,varangian,'來源授權追溯.txt'),path.join(out,'source-license.txt'))
+  if(def.rig==='varangian63')fs.writeFileSync(path.join(out,'source-license.txt'),fs.readFileSync(path.join(root,varangian,'來源授權追溯.txt'),'utf8').trimEnd()+'\n')
   fs.writeFileSync(path.join(out,'attribution-evidence.json'),JSON.stringify({source:manifest.source,attribution:manifest.attribution,scope:"User-provided derivative asset for requested SagaBurst integration. This metadata records supplied provenance; it does not grant new third-party rights.",animationTerms:{Meshy:"User account/service/input rights; not asserted CC0","Kevin Iglesias":"Existing project licensed animation, Unity Asset Store EULA",Quaternius:"CC0 1.0"},modelTerms:def.rig==='varangian63'?"See source-license.txt and source-readme.txt for supplied model provenance.":"Ordinary Meshy model CC BY 4.0 per user-provided source UI record; source README retains full qualification."},null,2)+'\n')
   console.log(def.id,JSON.stringify({sourceSha,metrics,normalization:{scale,offset},lods:audits}))
 }

@@ -96,4 +96,3 @@ Meshy輸出權利依帳戶方案、服務條款及原始輸入權利，不宣稱
 Locomotion／bow：Kevin Iglesias，Unity Asset Store EULA；swordSlash／pilumThrow：Quaternius，CC0 1.0。axeMountedIdle源自專案Viking carry，沿用專案對應來源條款。
 Donor追溯模型：Andy Woodhead，Roman Soldier - T pose - free download，CC-BY-4.0；https://sketchfab.com/3d-models/roman-soldier-t-pose-free-download-61cd5cae148042c38048bff2bd206af3 。本成品未使用其人物網格或貼圖。
 這是使用者现有專案內重用，非全CC0資產或可任意公開拆售之animation bank。未附原donor GLB/FBX/archive。
-
