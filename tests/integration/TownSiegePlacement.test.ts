@@ -1,5 +1,5 @@
 import { Box3, Vector3 } from 'three'
-import { describe, expect, it, onTestFinished } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { TownDefenseController } from '../../src/career/TownDefenseController'
 import { NavigationGrid } from '../../src/navigation/NavigationGrid'
 import type { TownGateId } from '../../src/town/TownLayout'
@@ -45,5 +45,28 @@ describe('Town Siege placement and readiness', () => {
   })
   it('holds readiness while accepted roster persistence is still pending', () => {
     expect(entry(smallGrid(), [], undefined, true).ready).toBe(false)
+  })
+
+  it('cancels queued deployment and releases caller-owned resources and borrowed leases once on disposal', () => {
+    const scheduler = new NpcSpawnScheduler(), batch = scheduler.batch(), create = vi.fn()
+    onTestFinished(() => batch.cancel())
+    batch.enqueue('queued:attacker', create); batch.seal()
+    const attackerResource = { dispose: vi.fn() }, mountResource = { dispose: vi.fn() }
+    const releaseLease = vi.fn(), removeGateListener = vi.fn()
+    // Disposal reads resource handles and ownership records; no render or actor instances are constructed.
+    const owner = Object.assign(Object.create(TownDefenseController.prototype) as { dispose(): void }, {
+      spawnBatch: batch, playerIssuedCommands: new Set(), claimedEventSinks: new Map([['borrowed', releaseLease]]),
+      claimedActors: new Set(), plannedArmyPositions: [new Vector3()], gateListeners: [removeGateListener],
+      actorMounts: new Map(), tracker: null, enemies: [attackerResource], enemyMounts: [mountResource],
+      attackGroups: [], checkpoint: { reset: vi.fn() }, guide: { dispose: vi.fn() },
+    })
+    onTestFinished(() => owner.dispose())
+    owner.dispose(); owner.dispose(); scheduler.tick(1)
+    expect(batch.status).toBe('cancelled')
+    expect(scheduler.pending).toBe(0); expect(create).not.toHaveBeenCalled()
+    expect(attackerResource.dispose).toHaveBeenCalledOnce(); expect(mountResource.dispose).toHaveBeenCalledOnce()
+    expect(releaseLease).toHaveBeenCalledOnce(); expect(removeGateListener).toHaveBeenCalledOnce()
+    expect(owner.enemies).toEqual([]); expect(owner.enemyMounts).toEqual([])
+    expect(owner.claimedEventSinks.size).toBe(0); expect(owner.plannedArmyPositions).toEqual([])
   })
 })
