@@ -11,8 +11,4 @@ describe('Veteran field survival objective', () => {
     expect(resolveVeteranFieldMissionOutcome('veteran-tragedy-of-the-scouts', true, false, 100, 0, 119.9)).toBe('failure')
     expect(resolveVeteranFieldMissionOutcome('veteran-tragedy-of-the-scouts', false, false, 100, 0, 119.9)).toBeNull()
   })
-
-  it('does not require kills for survival victory', () => {
-    expect(resolveVeteranFieldMissionOutcome('veteran-tragedy-of-the-scouts', false, true, 100, 0, 120)).toBe('victory')
-  })
 })

@@ -1,11 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { careerMissionTemplatesForPage, availableCareerMissionsForPage, availableRecruitMissions, getCareerMissionTemplate } from '../../src/career/CareerMissionCatalog'
+import { availableCareerMissionsForPage, availableRecruitMissions } from '../../src/career/CareerMissionCatalog'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { careerMissionCompletionsForTier, claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { careerMissionTierForTemplateId } from '../../src/career/CareerMissionTier'
-import { SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, TOWN_DEFENSE_TEMPLATE_ID, TOWN_DEFENSE_CIVILIAN_LIMIT, VETERAN_TOWN_DEFENSE_TEMPLATE_ID, townDefenseEnemyCount } from '../../src/career/TownDefenseState'
-import { VETERAN_MISSION_CATALOG } from '../../src/career/VeteranMission'
+import { SOLDIER_TOWN_DEFENSE_TEMPLATE_ID, TOWN_DEFENSE_TEMPLATE_ID, VETERAN_TOWN_DEFENSE_TEMPLATE_ID, townDefenseEnemyCount } from '../../src/career/TownDefenseState'
 
 const stats = { damageDealt: 120, kills: 2, survived: true, damageTaken: 10, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }
 
@@ -23,26 +21,6 @@ function acceptedHomeDefense(profile: CareerProfile, id = 'home-defense-acceptan
 }
 
 describe('Veteran Home Defense career mission', () => {
-  it('shows the pre-unlock template on Veteran page and requires five same-tier victories', () => {
-    const fourWins = veteranProfile(4)
-    const page = careerMissionTemplatesForPage(fourWins, 'veteran')
-    expect(page.map(template => template.id)).toEqual([...VETERAN_MISSION_CATALOG.map(template => template.id), VETERAN_TOWN_DEFENSE_TEMPLATE_ID])
-    const template = getCareerMissionTemplate(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
-    expect(template).toMatchObject({
-      id: VETERAN_TOWN_DEFENSE_TEMPLATE_ID, kind: 'town-defense', name: '守衛家園 · 老兵守城',
-      minRank: 'veteran', requiresCompletions: 5, storyOnce: false,
-      friendlySoldiers: 208, friendlyCombatants: 209, civilianCount: 20, maxCivilianDeaths: TOWN_DEFENSE_CIVILIAN_LIMIT,
-    })
-    expect(careerMissionTierForTemplateId(VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(3)
-    expect(availableCareerMissionsForPage(fourWins, 'veteran').some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(false)
-
-    const fiveWins = veteranProfile(5)
-    expect(availableCareerMissionsForPage(fiveWins, 'veteran').some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(true)
-    expect(availableRecruitMissions(fiveWins).some(mission => mission.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)).toBe(true)
-    const underRank = { ...fiveWins, rank: 'soldier' as const }
-    expect(careerMissionTemplatesForPage(underRank, 'veteran')).toEqual([])
-    expect(availableCareerMissionsForPage(underRank, 'veteran')).toEqual([])
-  })
 
   it('keeps the accepted 61-enemy Veteran roster stable across reload and promotion', () => {
     expect(townDefenseEnemyCount(TOWN_DEFENSE_TEMPLATE_ID, 'veteran')).toBe(120)

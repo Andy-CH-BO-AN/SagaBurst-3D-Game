@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
-import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
-import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
-import { CareerReliefMarchController, createCareerReliefSpawnPlan } from '../../src/career/CareerOutpostRelief'
+import { describe, expect, it, vi } from 'vitest'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
+import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
+import { acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
+import { CareerReliefMarchController, createCareerReliefSpawnPlan } from '../../src/career/CareerOutpostRelief'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { NPC } from '../../src/world/NPC'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {

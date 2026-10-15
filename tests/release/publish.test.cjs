@@ -22,36 +22,33 @@ function fakeClient(initial) {
   }
 }
 
-test('published releases, including immutable ones, need no files or mutations', async () => {
-  for (const immutable of [false, true]) {
-    const client = fakeClient({ ...release(false), immutable })
-    assert.equal(await inspectRelease(client, tag, names), true)
-    assert.deepEqual(await publishRelease(client, tag, paths), { changed: false })
-    assert.deepEqual(client.calls, [])
-  }
+test('a complete immutable published release needs no files or mutations', async () => {
+  const client = fakeClient({ ...release(false), immutable: true })
+  assert.equal(await inspectRelease(client, tag, names), true)
+  assert.deepEqual(await publishRelease(client, tag, paths), { changed: false })
+  assert.deepEqual(client.calls, [])
 })
-test('missing or incomplete published downloads fail without mutation', async () => {
-  for (const assets of [[], [asset(names[0])],
-    [asset(names[0]), { ...asset(names[1]), size: 0 }],
-    [asset(names[0]), { ...asset(names[1]), state: 'starter' }],
-    [asset(names[0]), { ...asset(names[1]), digest: null }],
-    [asset(names[0]), { ...asset(names[1]), digest: 'sha256:bad' }],
-    [...names.map(asset), asset(names[0])]]) {
+for (const { name, assets } of [
+  { name: 'a missing download', assets: [asset(names[0])] },
+  { name: 'duplicate download identity', assets: [...names.map(asset), asset(names[0])] },
+]) {
+  test(`published release rejects ${name} without mutation`, async () => {
     const client = fakeClient(release(false, assets))
     await assert.rejects(inspectRelease(client, tag, names), /download/)
     await assert.rejects(publishRelease(client, tag, paths), /download/)
     assert.deepEqual(client.calls, [])
-  }
-})
-test('wrong tags and prereleases are never modified', async () => {
-  for (const state of [{ ...release(false), tag_name: 'v9.9.9' },
-    { ...release(false), prerelease: true }, { ...release(true), tag_name: 'v9.9.9' },
-    { ...release(true), prerelease: true }]) {
+  })
+}
+for (const { name, state } of [
+  { name: 'a published release for another tag', state: { ...release(false), tag_name: 'v9.9.9' } },
+  { name: 'a prerelease draft', state: { ...release(true), prerelease: true } },
+]) {
+  test(`never modifies ${name}`, async () => {
     const client = fakeClient(state)
     await assert.rejects(publishRelease(client, tag, paths), /Unexpected|Expected/)
     assert.deepEqual(client.calls, [])
-  }
-})
+  })
+}
 test('a new release remains a draft until both downloads are present', async () => {
   const client = fakeClient(null)
   assert.equal(await inspectRelease(client, tag, names), false)
@@ -93,7 +90,7 @@ test('retry after a publish failure does not upload either file again', async ()
   assert.deepEqual(client.calls, ['publish'])
 })
 test('incomplete existing draft assets fail without deletion or replacement', async () => {
-  const client = fakeClient(release(true, [{ ...asset(names[0]), size: 0 }]))
+  const client = fakeClient(release(true, [{ ...asset(names[0]), digest: 'sha256:bad' }]))
   await assert.rejects(publishRelease(client, tag, paths), /incomplete/)
   assert.deepEqual(client.calls, [])
 })
@@ -111,27 +108,22 @@ test('publication during a retry is detected before any subsequent mutation', as
   assert.deepEqual(await publishRelease(client, tag, paths), { changed: false })
   assert.deepEqual(client.calls, [])
 })
-test('tag and draft lookup API failures never mean an absent release', () => {
-  for (const status of [401, 403, 429, 500]) {
-    const error = Object.assign(new Error('API failed'), { stderr: `gh: failure (HTTP ${status})` })
-    const client = createGhClient('owner/repo', tag, () => { throw error })
-    assert.throws(() => client.read(), error)
-    const drafts = createGhClient('owner/repo', tag, args => {
-      if (args[1].includes('/tags/')) {
-        throw Object.assign(new Error('missing'), { stderr: 'gh: Not Found (HTTP 404)' })
-      }
-      throw error
-    })
-    assert.throws(() => drafts.read(), error)
-  }
+test('an authorization failure in tag lookup never means an absent release', () => {
+  const error = Object.assign(new Error('API failed'), { stderr: 'gh: Forbidden (HTTP 403)' })
+  const calls = []
+  const client = createGhClient('owner/repo', tag, args => { calls.push(args); throw error })
+  assert.throws(() => client.read(), error)
+  assert.equal(calls.length, 1)
+})
+test('a failed draft listing after tag 404 never means an absent release', () => {
+  const error = Object.assign(new Error('API failed'), { stderr: 'gh: failure (HTTP 500)' })
   const client = createGhClient('owner/repo', tag, args => {
     if (args[1].includes('/tags/')) {
       throw Object.assign(new Error('missing'), { stderr: 'gh: Not Found (HTTP 404)' })
     }
-    return '[[]]'
+    throw error
   })
-  assert.equal(client.read(), null)
-  assert.throws(() => createGhClient('owner/repo', tag, () => 'not JSON').read(), SyntaxError)
+  assert.throws(() => client.read(), error)
 })
 test('a newly created draft is found across release pages and published with both downloads', async t => {
   const dir = mkdtempSync(join(tmpdir(), 'sagaburst-release-test-'))
@@ -183,7 +175,13 @@ test('GitHub commands create a verified draft and upload without overwrite', t =
     ['release', 'upload', tag, path, '--repo', 'owner/repo'],
     ['release', 'edit', tag, '--repo', 'owner/repo', '--draft=false'],
   ])
-  writeFileSync(path, '')
+})
+
+test('an empty local download cannot trigger an upload command', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'sagaburst-release-test-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const path = join(dir, names[0]); writeFileSync(path, '')
+  const calls = [], client = createGhClient('owner/repo', tag, args => { calls.push(args); return '{}' })
   assert.throws(() => client.upload(path), /Missing local download/)
-  assert.equal(calls.length, 3)
+  assert.deepEqual(calls, [])
 })

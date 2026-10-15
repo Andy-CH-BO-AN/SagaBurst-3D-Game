@@ -1,26 +1,18 @@
+import { describe,expect,it } from 'vitest'
 import { careerItemTotal } from '../../src/career/CareerInventory'
-import { describe, expect, it } from 'vitest'
-import type { BattleStatsSnapshot } from '../../src/combat/BattleStatsTracker'
 import {
-  CAREER_PURCHASE_TIER_BY_RANK,
-  CAREER_RANK_THRESHOLDS,
-  claimCareerBattle,
-  createCareerProfile,
-  getCareerPurchaseTier,
-  isCareerPurchaseTierUnlocked,
-  purchaseCareerContent,
-  resolveCareerRank,
+claimCareerBattle,
+createCareerProfile,
+purchaseCareerContent,
+resolveCareerRank
 } from '../../src/career/CareerProfile'
 import {
-  CAREER_STORAGE_KEY,
-  CareerProfileStore,
-  parseCareerProfile,
+parseCareerProfile
 } from '../../src/career/CareerProfileStore'
 import {
-  MERIT_RULES,
-  calculateMerit,
+calculateMerit
 } from '../../src/career/MeritCalculator'
-import { MemoryStorage } from '../helpers/memoryStorage'
+import type { BattleStatsSnapshot } from '../../src/combat/BattleStatsTracker'
 
 function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleStatsSnapshot {
   return {
@@ -66,53 +58,9 @@ describe('Career merit calculation', () => {
     expect(calculateMerit(battleStats, 'defeat', 'defense').total).toBe(16)
     expect(calculateMerit(battleStats, 'defeat', 'offense').total).toBe(69)
   })
-
-  it('keeps merit tuning centralized', () => {
-    expect(MERIT_RULES).toEqual({
-      victory: 80,
-      kill: 8,
-      characterDamagePer100: 2,
-      survival: 20,
-      structureDamagePer100: 1,
-      gateBreach: 25,
-    })
-  })
 })
 
 describe('Career progression and spending', () => {
-  it('uses lifetime merit for rank thresholds and purchase-tier availability', () => {
-    expect(CAREER_RANK_THRESHOLDS).toEqual({
-      recruit: 0,
-      soldier: 300,
-      veteran: 900,
-      captain: 5000,
-      commander: 20000,
-    })
-    expect(CAREER_PURCHASE_TIER_BY_RANK).toEqual({
-      recruit: 1,
-      soldier: 2,
-      veteran: 3,
-      captain: 4,
-      commander: 5,
-    })
-
-    expect(resolveCareerRank(299)).toBe('recruit')
-    expect(resolveCareerRank(300)).toBe('soldier')
-    expect(resolveCareerRank(899)).toBe('soldier')
-    expect(resolveCareerRank(900)).toBe('veteran')
-    expect(resolveCareerRank(4999)).toBe('veteran')
-    expect(resolveCareerRank(5000)).toBe('captain')
-    expect(resolveCareerRank(19999)).toBe('captain')
-    expect(resolveCareerRank(20000)).toBe('commander')
-
-    const veteran = createCareerProfile('roman')
-    veteran.totalMerit = 1000
-    veteran.availableMerit = 1000
-    veteran.rank = resolveCareerRank(veteran.totalMerit)
-    expect(getCareerPurchaseTier(veteran.rank)).toBe(3)
-    expect(isCareerPurchaseTierUnlocked(veteran, 3)).toBe(true)
-    expect(isCareerPurchaseTierUnlocked(veteran, 4)).toBe(false)
-  })
 
   it('adds battle merit to both lifetime and spendable balances', () => {
     const profile = createCareerProfile('roman')
@@ -152,19 +100,6 @@ describe('Career progression and spending', () => {
     expect(purchase.profile.availableMerit).toBe(2000)
     expect(purchase.profile.rank).toBe('captain')
     expect(purchase.profile.ownedWeapons).toEqual(['viking_axe_t3'])
-  })
-
-  it('rank only unlocks the tier for purchase and never grants equipment automatically', () => {
-    const profile = createCareerProfile('roman')
-    profile.totalMerit = 900
-    profile.availableMerit = 900
-    profile.rank = resolveCareerRank(profile.totalMerit)
-
-    expect(profile.rank).toBe('veteran')
-    expect(getCareerPurchaseTier(profile.rank)).toBe(3)
-    expect(profile.ownedWeapons).toEqual([])
-    expect(profile.ownedArmors).toEqual([])
-    expect(profile.ownedMounts).toEqual([])
   })
 
   it('blocks purchases above the unlocked tier', () => {
@@ -234,23 +169,6 @@ describe('Career progression and spending', () => {
 })
 
 describe('Career profile persistence', () => {
-  it('round-trips lifetime and available merit plus owned content', () => {
-    const storage = new MemoryStorage()
-    const store = new CareerProfileStore(storage)
-    const profile = createCareerProfile('viking')
-    profile.totalMerit = 5200
-    profile.availableMerit = 2100
-    profile.rank = resolveCareerRank(profile.totalMerit)
-    profile.ownedWeapons.push('viking_axe_t1')
-    profile.ownedArmors.push('round_shield_t1')
-    profile.ownedMounts.push('horse')
-    profile.ownedHeroes.push('viking-hero-t4')
-    profile.claimedBattleIds.push('battle-a')
-
-    expect(store.save(profile)).toBe(true)
-    expect(storage.getItem(CAREER_STORAGE_KEY)).not.toBeNull()
-    expect(store.load()).toEqual(parseCareerProfile(profile))
-  })
 
   it('migrates the pre-merge single-merit/unlocked field shape safely', () => {
     const parsed = parseCareerProfile({

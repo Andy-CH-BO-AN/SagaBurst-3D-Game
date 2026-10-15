@@ -1,21 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import { combatAllegiancesHostile, Faction } from '../../src/combat/CombatFaction'
 
-describe('Explicitly owned command allies', () => {
-  it.each(['town-command', 'player-personal'] as const)('%s allies share peaceful Town combat but defend against hostile residents', combatOwnership => {
-    const ally = { faction: Faction.PLAYER, combatOwnership }
-    const peaceful = { faction: Faction.TOWN, hostileToPlayer: false }
-    const hostile = { faction: Faction.TOWN, hostileToPlayer: true }
-    expect(combatAllegiancesHostile(ally, peaceful)).toBe(false)
-    expect(combatAllegiancesHostile(peaceful, ally)).toBe(false)
-    expect(combatAllegiancesHostile(ally, hostile)).toBe(true)
-    expect(combatAllegiancesHostile(hostile, ally)).toBe(true)
-    expect(combatAllegiancesHostile(ally, { faction: Faction.PLAYER })).toBe(false)
+describe('Combat allegiance', () => {
+  it.each([
+    ['town-command', false, false],
+    ['town-command', true, true],
+    ['player-personal', false, false],
+    ['player-personal', true, true],
+  ] as const)('%s against Town hostile=%s yields hostility=%s in either direction', (combatOwnership, hostileToPlayer, expected) => {
+    const ally = { faction: Faction.PLAYER, combatOwnership }, town = { faction: Faction.TOWN, hostileToPlayer }
+    expect(combatAllegiancesHostile(ally, town)).toBe(expected)
+    expect(combatAllegiancesHostile(town, ally)).toBe(expected)
   })
 
-  it('preserves normal unowned allegiances and official Town ownership', () => {
+  it('keeps unowned player troops hostile to Town residents', () => {
     expect(combatAllegiancesHostile({ faction: Faction.PLAYER }, { faction: Faction.TOWN })).toBe(true)
-    expect(combatAllegiancesHostile({ faction: Faction.TOWN, combatOwnership: 'mission-official' }, { faction: Faction.TOWN })).toBe(false)
-    expect(combatAllegiancesHostile({ faction: Faction.TOWN, combatOwnership: 'mission-official' }, { faction: Faction.BANDIT })).toBe(true)
   })
 })

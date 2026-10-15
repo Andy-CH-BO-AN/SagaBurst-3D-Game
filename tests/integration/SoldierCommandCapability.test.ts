@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { Faction } from '../../src/world/NPC'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
+import { Faction } from '../../src/world/NPC'
 
 import { createArmyCommandHarness as controllerHarness } from '../helpers/armyCommandHarness'
 

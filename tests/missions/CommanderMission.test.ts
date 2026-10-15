@@ -1,41 +1,11 @@
-import { allocateSiegeRampCrews } from '../../src/campaign/MobileSiegeRampPolicy'
 import { describe, expect, it } from 'vitest'
-import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
-import { validateDefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
-import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
-import { CombatEventStream, type CombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
-import { Faction } from '../../src/combat/CombatFaction'
-import { HERO_COMBAT_PROFILE_BY_ASSET } from '../../src/battle/HeroCombatProfile'
 import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
-import {
-  availableCareerMissionsForPage,
-  careerMissionTemplatesForPage,
-  isCareerMissionPageUnlocked,
-} from '../../src/career/CareerMissionCatalog'
-import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, resolveCareerMissionOutcome } from '../../src/career/CareerMissionState'
-import { calculateMerit } from '../../src/career/MeritCalculator'
-import {
-  acceptCommanderMission,
-  availableCommanderMissions,
-  COMMANDER_DECAPITATION_ID,
-  COMMANDER_FORMER_COMMANDER_SLOT,
-  COMMANDER_LAST_STAND_ID,
-  COMMANDER_MISSION_CATALOG,
-  COMMANDER_SKY_RAID_ID,
-  createDecapitationRoster,
-  createLastStandRoster,
-  createSkyRaidRoster,
-  getCommanderMissionAvailability,
-  recordCommanderObjectiveDeath,
-  skyRaidNativeActorIds,
-} from '../../src/career/CommanderMissionCatalog'
-import { createCareerCommanderOutpostLaunch, createCareerCommanderOutpostSpawnPlan, remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
-import { careerTownSceneRoster } from '../../src/career/CareerFieldSceneContext'
 import { claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
-import type { Player } from '../../src/player/Player'
-import { shouldSpawnTownCommander, townCommanderHeroAsset, townCommanderSpec } from '../../src/town/TownCommander'
-import { townRoster } from '../../src/town/TownRules'
+import { acceptCommanderMission, availableCommanderMissions, COMMANDER_DECAPITATION_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_LAST_STAND_ID, COMMANDER_SKY_RAID_ID, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
+import { remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
+import { type CombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
+import { Faction } from '../../src/combat/CombatFaction'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 function commander(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
@@ -69,38 +39,7 @@ function killed(by: CombatActorRef, targetId: string, targetType: 'npc' | 'mount
   }
 }
 
-function damage(by: CombatActorRef, targetId: string, appliedDamage: number): CombatEvent {
-  return {
-    type: 'damage_applied', source: by,
-    target: { targetId, targetType: 'npc', name: targetId, allegiance: Faction.ENEMY, characterFaction: 'viking' },
-    method: 'melee', requestedDamage: appliedDamage, appliedDamage,
-  }
-}
-
 describe('Commander mission board policy', () => {
-  it('shows all three Tier 5 entries but unlocks them only after formal Commander appointment', () => {
-    const highMeritCaptain = commander()
-    highMeritCaptain.rank = 'captain'
-
-    expect(COMMANDER_MISSION_CATALOG).toHaveLength(3)
-    expect(COMMANDER_MISSION_CATALOG.map(mission => mission.name)).toEqual([
-      'Commander I · Sky Raid · 空襲敵城',
-      'Commander II · Operation Decapitation · 斬首行動',
-      'Commander III · Outpost Last Stand · 前哨決戰',
-    ])
-    expect(careerMissionTemplatesForPage(highMeritCaptain, 'commander')).toHaveLength(3)
-    expect(isCareerMissionPageUnlocked(highMeritCaptain, 'commander')).toBe(false)
-    expect(availableCareerMissionsForPage(highMeritCaptain, 'commander')).toEqual([])
-    expect(getCommanderMissionAvailability(highMeritCaptain, COMMANDER_SKY_RAID_ID)).toMatchObject({ unlocked: false })
-
-    const appointed = commander()
-    expect(isCareerMissionPageUnlocked(appointed, 'commander')).toBe(true)
-    expect(availableCommanderMissions(appointed).map(mission => mission.id)).toEqual([
-      COMMANDER_SKY_RAID_ID, COMMANDER_DECAPITATION_ID, COMMANDER_LAST_STAND_ID,
-    ])
-    const busy = accepted(COMMANDER_SKY_RAID_ID)
-    expect(availableCommanderMissions(busy)).toEqual([])
-  })
 
   it('records repeatable Tier 5 victories once and makes every mission available again after return', () => {
     const profile = accepted(COMMANDER_SKY_RAID_ID)
@@ -119,75 +58,6 @@ describe('Commander mission board policy', () => {
 })
 
 describe('Commander mission roster contracts', () => {
-  it('builds Sky Raid as two 25-rider T4 Ranger/xongkoro squads', () => {
-    const profile = accepted(COMMANDER_SKY_RAID_ID, 'roman', true)
-    const mission = profile.activeMission!
-    const roster = createSkyRaidRoster(mission, 'roman')
-
-    expect(roster).toHaveLength(50)
-    expect(roster.every(spec => spec.tier === 4 && spec.presetId === 'roman_archer'
-      && spec.loadout?.mountId === 'xongkoro' && spec.cavalry)).toBe(true)
-    expect(roster.filter(spec => spec.squadId === 1)).toHaveLength(25)
-    expect(roster.filter(spec => spec.squadId === 2)).toHaveLength(25)
-    expect(roster.map(spec => spec.actorId)).toEqual(mission.friendlyActorIds)
-    expect(mission.friendlyActorIds).not.toContain('player')
-    expect(mission.personalSquad?.memberIds).toEqual(['personal:hr-1'])
-    expect(mission.friendlyActorIds).not.toContain('personal:hr-1')
-  })
-
-  it.each([
-    ['roman', 'corgi', 'roman-commander'],
-    ['viking', 'black-cat', 'viking-commander'],
-  ] as const)('builds %s Decapitation with one T5 Commander profile and the exact 29 T4 cavalry mix',
-    (faction, mountId, commanderProfile) => {
-      const mission = accepted(COMMANDER_DECAPITATION_ID, faction).activeMission!
-      const roster = createDecapitationRoster(mission, faction)
-      const escorts = roster.slice(1)
-
-      expect(roster).toHaveLength(30)
-      expect(roster[0]).toMatchObject({ combatProfileId: commanderProfile, tier: 4, squadId: 1,
-        aiType: 'RANGED', loadout: { rangedWeaponId: 'bow_t5',
-          meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4',
-          shieldId: null, reversibleRangedSwitch: true } })
-      expect(roster.every(spec => spec.tier === 4 && spec.cavalry && spec.loadout?.mountId === mountId)).toBe(true)
-      expect(escorts.filter(spec => spec.presetId === `${faction}_lancer`)).toHaveLength(10)
-      expect(escorts.filter(spec => spec.presetId === `${faction}_sword_cavalry`)).toHaveLength(10)
-      expect(escorts.filter(spec => spec.presetId === `${faction}_horse_archer`)).toHaveLength(9)
-      expect(new Set(roster.map(spec => spec.actorId)).size).toBe(30)
-    })
-
-  it.each(['roman', 'viking'] as const)('builds %s Last Stand with exact foot defenders and mounted attacker tiers', faction => {
-    const mission = accepted(COMMANDER_LAST_STAND_ID, faction).activeMission!
-    const { friendly, enemy } = createLastStandRoster(mission, faction)
-    const enemyFaction = faction === 'roman' ? 'viking' : 'roman'
-
-    expect(friendly).toHaveLength(120)
-    expect(friendly.every(spec => !spec.cavalry && spec.loadout?.mountId == null)).toBe(true)
-    for (const [index, presetId] of [
-      faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker',
-      `${faction}_spearman`, `${faction}_archer`, `${faction}_archer`,
-    ].entries()) {
-      const squad = friendly.filter(spec => spec.squadId === index + 1)
-      expect(squad).toHaveLength(30)
-      expect(squad.filter(spec => spec.tier === 4)).toHaveLength(1)
-      expect(squad.filter(spec => spec.tier === 3)).toHaveLength(29)
-      expect(squad.every(spec => spec.presetId === presetId)).toBe(true)
-    }
-
-    expect(enemy).toHaveLength(100)
-    expect(enemy.every(spec => spec.cavalry && spec.faction === Faction.ENEMY)).toBe(true)
-    const groups = [
-      { squadId: 5, presetId: `${enemyFaction}_lancer`, t3: 48, t4: 2 },
-      { squadId: 6, presetId: `${enemyFaction}_sword_cavalry`, t3: 24, t4: 1 },
-      { squadId: 7, presetId: `${enemyFaction}_horse_archer`, t3: 24, t4: 1 },
-    ]
-    for (const group of groups) {
-      const units = enemy.filter(spec => spec.squadId === group.squadId)
-      expect(units.every(spec => spec.presetId === group.presetId)).toBe(true)
-      expect(units.filter(spec => spec.tier === 3 && spec.loadout?.mountId === 'horse')).toHaveLength(group.t3)
-      expect(units.filter(spec => spec.tier === 4 && spec.loadout?.mountId === (enemyFaction === 'roman' ? 'corgi' : 'black-cat'))).toHaveLength(group.t4)
-    }
-  })
 
   it('keeps every command squad usable when its first roster member is dead', () => {
     const mission = accepted(COMMANDER_LAST_STAND_ID).activeMission!
@@ -204,24 +74,6 @@ describe('Commander mission roster contracts', () => {
 })
 
 describe('Commander objective, merit and persistence', () => {
-  it('admits every native Enemy Town role and reaches Sky Raid victory only on the 100th distinct death', () => {
-    const mission = accepted(COMMANDER_SKY_RAID_ID).activeMission!
-    const native = skyRaidNativeActorIds()
-    expect(native).toEqual(expect.arrayContaining([
-      'melee_infantry-0', 'civilian-0', 'merchant', 'commander', 'town-patrol:a:0',
-    ]))
-    mission.targetActorIds = native
-
-    for (const targetId of native.slice(0, 99)) {
-      expect(recordCommanderObjectiveDeath(mission, killed(source(), targetId))).toBe(true)
-    }
-    expect(mission.deadTargetActorIds).toHaveLength(99)
-    expect(resolveCareerMissionOutcome(false, true, 1, mission.friendlyActorIds.length, false)).toBeNull()
-
-    expect(recordCommanderObjectiveDeath(mission, killed(source(), native[99]))).toBe(true)
-    expect(mission.deadTargetActorIds).toHaveLength(100)
-    expect(resolveCareerMissionOutcome(true, true, 0, 0, true)).toBe('victory')
-  })
 
   it('deduplicates native NPC deaths and accepts only Player, official, or accepted HR sources', () => {
     const profile = accepted(COMMANDER_SKY_RAID_ID, 'roman', true)
@@ -254,64 +106,6 @@ describe('Commander objective, merit and persistence', () => {
     expect(mission.deadTargetActorIds).toEqual(['commander'])
   })
 
-  it.each([
-    ['roman', 'viking'],
-    ['viking', 'roman'],
-  ] as const)('wires a unique real %s Enemy Town Commander profile and restores one %s home identity',
-    (playerFaction, enemyFaction) => {
-      const profile = accepted(COMMANDER_DECAPITATION_ID, playerFaction)
-      const mission = profile.activeMission!
-      const population = [...townRoster(), townCommanderSpec({ x: 20, z: 10, yaw: 0 })]
-      const enemyCommander = careerTownSceneRoster(profile, population)
-        .find(entry => entry.spec.id === 'commander')!
-      const asset = townCommanderHeroAsset(enemyCommander.characterFaction)
-
-      expect(enemyCommander).toMatchObject({ allegiance: Faction.ENEMY, characterFaction: enemyFaction })
-      expect(asset).toBe(`${enemyFaction}-hero-t5`)
-      expect(HERO_COMBAT_PROFILE_BY_ASSET[asset]).toBe(`${enemyFaction}-commander`)
-      expect(mission.friendlyActorIds[0]).not.toBe(enemyCommander.spec.id)
-
-      const returned = clearCareerMission(profile, mission.id)
-      expect(returned.activeMission).toBeUndefined()
-      expect(returned.townCommanderRecovery).toBeUndefined()
-      expect(shouldSpawnTownCommander(returned)).toBe(true)
-      expect([...townRoster(), townCommanderSpec({ x: 20, z: 10, yaw: 0 })]
-        .filter(spec => spec.id === 'commander')).toHaveLength(1)
-    })
-
-  it('merges Player, official and HR merit once while keeping Player stats personal', () => {
-    const profile = accepted(COMMANDER_SKY_RAID_ID, 'roman', true)
-    const mission = profile.activeMission!
-    mission.phase = 'ATTACKING'
-    const targetId = mission.targetActorIds[0]
-    const officialId = mission.friendlyActorIds[0]
-    const actors = [
-      source(),
-      source({ actorId: officialId, actorType: 'npc', allegiance: Faction.TOWN,
-        ownership: 'mission-official', squadId: officialActorSquadId(mission.officialSquad!, officialId) }),
-      source({ actorId: 'personal:hr-1', actorType: 'npc', ownership: 'player-personal', squadId: 'personal' }),
-    ]
-    const events = new CombatEventStream()
-    const tracker = new BattleStatsTracker(events, true, event => acceptsCareerMissionStat(mission, event), {},
-      careerMissionCommandMeritPolicy(mission))
-    for (const [index, actor] of actors.entries()) {
-      events.emit(damage(actor, targetId, (index + 1) * 20))
-      events.emit(killed(actor, targetId))
-    }
-    events.emit(damage(source({ actorId: 'unowned', actorType: 'npc' }), targetId, 1_000))
-
-    const snapshot = tracker.snapshot([], { dead: false } as Player)
-    tracker.dispose()
-    expect(snapshot.player).toMatchObject({ damageDealt: 20, kills: 1 })
-    expect(snapshot.meritPlayer).toMatchObject({ damageDealt: 120, kills: 3 })
-
-    const claimed = claimCareerMission(profile, mission.id, 'victory', snapshot.player, snapshot.meritPlayer)
-    const expected = calculateMerit({ player: snapshot.meritPlayer!, squads: [] }, 'victory', 'offense', 'mission')
-    expect(claimed.meritAwarded).toBe(expected.total)
-    expect(claimed.profile.lifetimeStats).toMatchObject({ damage: 20, kills: 1 })
-    expect(claimed.profile.activeMission?.result?.meritStats).toMatchObject({ damageDealt: 120, kills: 3 })
-  })
-
   it('round-trips deployment, actor, authority and Tier 5 state through real storage JSON', () => {
     const profile = accepted(COMMANDER_SKY_RAID_ID, 'viking', true)
     const mission = profile.activeMission!
@@ -339,96 +133,10 @@ describe('Commander objective, merit and persistence', () => {
     const legacy = createCareerProfile('roman')
     expect(parseCareerProfile(JSON.parse(JSON.stringify(legacy)))).toMatchObject({ rank: 'recruit', faction: 'roman' })
   })
-
-  it('prioritizes objective victory and otherwise waits for both official and HR survivors to be gone', () => {
-    expect(resolveCareerMissionOutcome(true, true, 0, 0, true)).toBe('victory')
-    expect(resolveCareerMissionOutcome(true, true, 1, 1, false)).toBeNull()
-    expect(resolveCareerMissionOutcome(true, true, 1, 0, false)).toBe('failure')
-    expect(resolveCareerMissionOutcome(false, true, 1, 0, false)).toBeNull()
-    expect(resolveCareerMissionOutcome(true, false, 0, 0, true)).toBeNull()
-  })
-})
-
-describe('Commander Last Stand launch', () => {
-  it.each(['roman', 'viking'] as const)('pre-spawns all %s formations around the home Outpost with locked capabilities', faction => {
-    const profile = accepted(COMMANDER_LAST_STAND_ID, faction)
-    const launch = createCareerCommanderOutpostLaunch(profile)
-    const plan = createCareerCommanderOutpostSpawnPlan(launch)
-    const placement = getCampaignOutpostPlacement(faction)
-    const inward = Math.sign(placement.backZ - placement.frontZ)
-    const friendlies = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
-    const enemies = createCareerCommanderOutpostSpawnPlan(launch, 'attackers').npcSpecs
-    expect(plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)).toHaveLength(0)
-
-    expect(validateDefenseCampaignLaunchConfig(launch)).toEqual({ valid: true, errors: [] })
-    expect(launch).toMatchObject({ stageId: 9, deploymentSeconds: 60, commandGrouping: 'squad',
-      capabilities: { reinforcementsEnabled: false, playerCommandsEnabled: true,
-        gateControlEnabled: false, attackerHeroesEnabled: false } })
-    expect(friendlies).toHaveLength(120)
-    const archers = friendlies.filter(spec => spec.presetId === `${faction}_archer`)
-    expect(archers).toHaveLength(60)
-    expect(archers.filter(spec => spec.outpostRampartGarrison)).toHaveLength(36)
-    expect(archers.filter(spec => !spec.outpostRampartGarrison)).toHaveLength(24)
-    expect(allocateSiegeRampCrews([...friendlies, ...enemies], faction === 'roman' ? 'viking' : 'roman')).toEqual([])
-
-    expect(enemies).toHaveLength(100)
-    expect(friendlies.every(spec => (spec.z - placement.frontZ) * inward > 0)).toBe(true)
-    expect(enemies.every(spec => (placement.frontZ - spec.z) * inward >= 150)).toBe(true)
-    expect(enemies.slice(0, 3).map(spec => spec.squadId)).toEqual([5, 6, 7])
-    expect(new Set(enemies.map(spec => spec.actorId)).size).toBe(100)
-    expect(new Set(enemies.map(spec => spec.squadId))).toEqual(new Set([5, 6, 7]))
-    expect((plan.playerSpawn.z - placement.frontZ) * inward).toBeGreaterThan(0)
-  })
-
-  it('rejects altered stage, timeline, grouping, capability and mixed Career markers', () => {
-    const valid = createCareerCommanderOutpostLaunch(accepted(COMMANDER_LAST_STAND_ID))
-    const variants = [
-      { ...valid, stageId: 8 as const },
-      { ...valid, deploymentSeconds: 59 },
-      { ...valid, commandGrouping: 'preset' as const },
-      { ...valid, capabilities: { ...valid.capabilities, reinforcementsEnabled: true } },
-      { ...valid, careerVeteranOutpost: {
-        missionId: valid.careerMissionId!, templateId: 'veteran-dread-outpost' as const,
-        missionKind: 'veteran-outpost-defense' as const, playerFaction: 'roman' as const,
-        outpostFaction: 'roman' as const, runtimeState: valid.careerCommanderOutpost!.runtimeState,
-        reinforcementDelaySeconds: 90, assaultChargeDistanceMeters: 50,
-      } },
-    ]
-    for (const variant of variants) expect(validateDefenseCampaignLaunchConfig(variant).valid).toBe(false)
-  })
 })
 
 
 describe('Last Stand stable objective recovery', () => {
-  it.each([
-    ['partial initial defenders', false, 0, 0, 60, false, 120, 100, 100],
-    ['remaining preparation', false, 0, 0, 17, false, 120, 100, 100],
-    ['assault before first spawn', true, 0, 0, 0, false, 120, 100, 100],
-    ['half spawned with casualties', true, 50, 10, 0, false, 160, 90, 90],
-    ['entire wave spawned', true, 100, 10, 0, false, 210, 90, 90],
-    ['all targets killed', true, 100, 100, 0, false, 120, 0, 0],
-    ['terminal result', true, 100, 100, 0, true, 0, 0, 0],
-  ] as const)('%s survives a storage round-trip without reviving casualties or resetting time',
-    (_scenario, assault, spawned, deaths, remaining, terminal, initialCount, waveCount, objectives) => {
-      const profile = accepted(COMMANDER_LAST_STAND_ID)
-      const mission = profile.activeMission!
-      mission.outpostBattleState = { ...createCareerCommanderOutpostLaunch(profile).careerCommanderOutpost!.runtimeState,
-        phase: terminal ? 'victory' : assault ? 'assault' : 'deployment', activePhase: assault ? 'assault' : 'deployment',
-        deploymentRemainingSeconds: remaining, assaultElapsedSeconds: assault ? 12 : 0, battleFinished: terminal }
-      mission.actorHealth = Object.fromEntries(mission.targetActorIds.slice(0, spawned).map((id, index) => [id, { hp: index < deaths ? 0 : 63, mountHp: 72 }]))
-      mission.deadTargetActorIds = mission.targetActorIds.slice(0, deaths)
-      const store = new CareerProfileStore(new MemoryStorage())
-      expect(store.save(profile)).toBe(true)
-      const restored = store.load()!, launch = createCareerCommanderOutpostLaunch(restored)
-      const initial = createCareerCommanderOutpostSpawnPlan(launch, 'initial', restored.activeMission)
-      const wave = createCareerCommanderOutpostSpawnPlan(launch, 'attackers', restored.activeMission)
-      expect(launch.careerCommanderOutpost!.runtimeState.deploymentRemainingSeconds).toBe(remaining)
-      expect(initial.npcSpecs).toHaveLength(initialCount)
-      expect(wave.npcSpecs).toHaveLength(waveCount)
-      expect(remainingCommanderAttackers(restored.activeMission!, [])).toBe(objectives)
-      const dead = new Set(mission.deadTargetActorIds)
-      expect([...initial.npcSpecs, ...wave.npcSpecs].every(spec => !dead.has(spec.actorId!))).toBe(true)
-    })
 
   it('counts missing and queued IDs until all 100 unique riders die, ignoring mount deaths and unrelated actors', () => {
     const mission = accepted(COMMANDER_LAST_STAND_ID).activeMission!

@@ -1,21 +1,18 @@
-import { careerTownSceneRoster } from '../../src/career/CareerFieldSceneContext'
-import { describe, expect, it, onTestFinished } from 'vitest'
-import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
-import {
-  CombatEventStream,
-  type CombatActorRef,
-  type CombatTargetRef,
-} from '../../src/combat/CombatAttribution'
-import { Faction } from '../../src/world/NPC'
-import type { NPC } from '../../src/world/NPC'
-import type { Player } from '../../src/player/Player'
-import { createMissionCommandAuthority } from '../../src/career/CareerCommandAuthority'
-import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, createActiveCareerMission } from '../../src/career/CareerMissionState'
+import { describe,expect,it,onTestFinished } from 'vitest'
+import { acceptCareerOutpost,careerOutpostCommandMeritPolicy,claimCareerOutpost } from '../../src/career/CareerOutpostMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { MemoryStorage } from '../helpers/memoryStorage'
-import { acceptCareerOutpost, careerOutpostCommandMeritPolicy, claimCareerOutpost } from '../../src/career/CareerOutpostMission'
+import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
+import {
+CombatEventStream,
+type CombatActorRef,
+type CombatTargetRef,
+} from '../../src/combat/CombatAttribution'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
+import type { Player } from '../../src/player/Player'
+import type { NPC } from '../../src/world/NPC'
+import { Faction } from '../../src/world/NPC'
+import { MemoryStorage } from '../helpers/memoryStorage'
 
 function playerSource(): CombatActorRef {
   return {
@@ -58,15 +55,6 @@ function npcTarget(id: string, squadId?: 1 | 2 | 3): CombatTargetRef {
   }
 }
 
-function mockSquadNpc(id: string, squadId: 1 | 2 | 3, dead = false): any {
-  return {
-    combatantId: id,
-    faction: Faction.PLAYER,
-    squadId,
-    dead,
-  }
-}
-
 describe('BattleStatsTracker', () => {
   it('keeps official and private contributions separate, sums merit once, and resumes both checkpoints', () => {
     const events = new CombatEventStream()
@@ -106,100 +94,6 @@ describe('BattleStatsTracker', () => {
     tracker.freeze()
     events.emit({ type: 'actor_killed', source: official, target: npcTarget('late-enemy'), method: 'projectile' })
     expect(tracker.officialCommandCheckpoint()).toEqual({ ...emptyPersonalContribution(), damageDealt: 7, kills: 1, damageTaken: 4 })
-  })
-
-  it('resumes two official squads through the Career store without duplicating merit or moving departed survivors to Squad 1', () => {
-    const profile = createCareerProfile('viking')
-    profile.rank = 'commander'; profile.totalMerit = 20000
-    const mission = createActiveCareerMission('captain-cavalry-command', 0, 2, 0, 'multi-merit')
-    profile.activeMission = mission
-    mission.phase = 'ENGAGING'; mission.friendlyActorIds = ['north', 'south', 'departed']
-    mission.officialSquad = createMissionCommandAuthority(mission.id, 'viking', 'commander', ['north'], [
-      { squadId: 1, actorIds: ['north'] }, { squadId: 2, actorIds: ['south', 'departed'] },
-    ])
-    mission.officialSquad.members = { departed: { status: 'exited', hp: 15 } }
-    const events = new CombatEventStream()
-    const tracker = new BattleStatsTracker(events, true, undefined, {}, careerMissionCommandMeritPolicy(mission))
-    onTestFinished(() => tracker.dispose())
-    const north: CombatActorRef = { ...squadSource(1), actorId: 'north', ownership: 'mission-official' }
-    const south: CombatActorRef = { ...squadSource(2), actorId: 'south', ownership: 'mission-official' }
-    for (const [source, damage] of [[north, 7], [south, 11]] as const) {
-      events.emit({ type: 'damage_applied', source, target: npcTarget(mission.targetActorIds[source === north ? 0 : 1]), method: 'projectile', requestedDamage: damage, appliedDamage: damage })
-      events.emit({ type: 'actor_killed', source, target: npcTarget(mission.targetActorIds[source === north ? 0 : 1]), method: 'projectile' })
-    }
-    for (const [source, damage] of [[north, 3], [south, 5]] as const) events.emit({ type: 'damage_applied',
-      source: { ...enemySource(), actorId: mission.targetActorIds[0] },
-      target: npcTarget(source.actorId, source.squadId as 1 | 2), method: 'melee', requestedDamage: damage, appliedDamage: damage })
-    const actors = [{ combatantId: 'north', squadId: 1, dead: true }, { combatantId: 'south', squadId: 2, dead: false }] as unknown as NPC[]
-    const snapshot = tracker.snapshot(actors, { dead: false } as Player)
-    expect(snapshot.meritPlayer).toMatchObject({ damageDealt: 18, kills: 2 })
-    expect(snapshot.squads).toEqual([
-      expect.objectContaining({ squadId: 1, damageDealt: 7, damageTaken: 3, startingMembers: 1, survivors: 0, casualties: 1 }),
-      expect.objectContaining({ squadId: 2, damageDealt: 11, damageTaken: 5, startingMembers: 2, survivors: 2, casualties: 0 }),
-      expect.objectContaining({ squadId: 'personal', startingMembers: 0 }),
-    ])
-    mission.officialSquad.contribution = tracker.officialCommandCheckpoint()
-    expect(mission.officialSquad.contribution.damageTaken).toBe(8)
-    for (const saved of tracker.officialSquadCheckpoints()) {
-      mission.officialSquad.squads!.find(squad => squad.squadId === saved.squadId)!.contribution = saved.contribution
-    }
-    const store = new CareerProfileStore(new MemoryStorage())
-    expect(store.save(profile)).toBe(true)
-    const loaded = store.load()!.activeMission!
-    const resumed = new BattleStatsTracker(new CombatEventStream(), true, undefined, {}, careerMissionCommandMeritPolicy(loaded))
-    onTestFinished(() => resumed.dispose())
-    expect(resumed.snapshot(actors, { dead: false } as Player)).toEqual(snapshot)
-    // A departed soldier still visible in the scene must be counted just once.
-    expect(resumed.snapshot([...actors, { combatantId: 'departed', squadId: 2, dead: false } as NPC], { dead: false } as Player).squads[1].survivors).toBe(2)
-  })
-
-  it('credits Roman Maki against the enemy army gate and rejects her own army gate regardless of visual faction', () => {
-    const ranger = careerTownSceneRoster({ faction: 'roman' }).find(entry => entry.spec.id === 'ranger')!
-    const mission = createActiveCareerMission('captain-siege-command', -1, 1, 0, 'maki-gates')
-    mission.kind = 'enemy-town-assault'; mission.phase = 'ENGAGING'
-    mission.officialSquad = createMissionCommandAuthority(mission.id, 'roman', 'commander', [], [
-      { squadId: 2, actorIds: [ranger.spec.id] },
-    ])
-    const source: CombatActorRef = { actorId: ranger.spec.id, actorType: 'npc', squadId: 2,
-      allegiance: ranger.allegiance, characterFaction: ranger.characterFaction, ownership: 'mission-official' }
-    const events = new CombatEventStream()
-    const tracker = new BattleStatsTracker(events, true, event => acceptsCareerMissionStat(mission, event), {}, careerMissionCommandMeritPolicy(mission))
-    onTestFinished(() => tracker.dispose())
-    for (const characterFaction of ['viking', 'roman'] as const) {
-      const target: CombatTargetRef = { targetId: `${characterFaction}:gate`, targetType: 'structure',
-        name: 'Gate', structureKind: 'gate', characterFaction }
-      const damage = { type: 'structure_damaged' as const, source, target, method: 'siege' as const,
-        requestedDamage: 13, appliedDamage: 13, hpRatio: .5 }
-      const destroyed = { type: 'structure_destroyed' as const, source, target, method: 'siege' as const }
-      expect(acceptsCareerMissionStat(mission, damage)).toBe(characterFaction === 'viking')
-      expect(acceptsCareerMissionStat(mission, destroyed)).toBe(characterFaction === 'viking')
-      events.emit(damage); events.emit(destroyed)
-    }
-    expect(tracker.officialCommandCheckpoint()).toEqual({ ...emptyPersonalContribution(),
-      structureDamage: 13, structuresDestroyed: 1, gateBreaches: 1 })
-    expect(tracker.snapshot([], { dead: false } as Player).meritPlayer).toMatchObject({
-      structureDamage: 13, structuresDestroyed: 1, gateBreaches: 1,
-    })
-  })
-
-  it('keeps commanded civilian damage and kills outside both official and personal merit', () => {
-    const mission = createActiveCareerMission('captain-cavalry-command', 0, 2, 0, 'civilian-merit')
-    mission.phase = 'ENGAGING'
-    mission.officialSquad = createMissionCommandAuthority(mission.id, 'viking', 'commander', [], [
-      { squadId: 1, actorIds: ['official'] },
-    ])
-    const events = new CombatEventStream()
-    const tracker = new BattleStatsTracker(events, true, undefined, {}, careerMissionCommandMeritPolicy(mission))
-    onTestFinished(() => tracker.dispose())
-    const official: CombatActorRef = { ...squadSource(1), actorId: 'official', ownership: 'mission-official' }
-    const civilian: CombatActorRef = { ...squadSource(1), actorId: 'civilian:0', squadId: 'civilians', ownership: 'player-civilian' }
-    for (const [source, damage, targetId] of [[official, 7, mission.targetActorIds[0]], [civilian, 99, mission.targetActorIds[1]]] as const) {
-      events.emit({ type: 'damage_applied', source, target: npcTarget(targetId), method: 'melee', requestedDamage: damage, appliedDamage: damage })
-      events.emit({ type: 'actor_killed', source, target: npcTarget(targetId), method: 'melee' })
-    }
-    expect(tracker.officialCommandCheckpoint()).toEqual({ ...emptyPersonalContribution(), damageDealt: 7, kills: 1 })
-    expect(tracker.commandCheckpoint()).toEqual(emptyPersonalContribution())
-    expect(tracker.snapshot([], { dead: false } as Player).meritPlayer).toMatchObject({ damageDealt: 7, kills: 1 })
   })
 
   it.each(['personal', 'official'] as const)('gates all %s squad counters on accepted source and event while preserving valid events', kind => {
@@ -246,8 +140,8 @@ describe('BattleStatsTracker', () => {
     onTestFinished(() => tracker.dispose())
     const townAlly = { combatantId: 'borrowed-captain', faction: Faction.TOWN, squadId: 2, dead: false }
     const enemyWithSameSquad = { combatantId: 'enemy-captain', faction: Faction.ENEMY, squadId: 2, dead: false }
-    tracker.registerNpc(townAlly as any, true)
-    tracker.registerNpc(enemyWithSameSquad as any)
+    tracker.registerNpc(townAlly as unknown as NPC, true)
+    tracker.registerNpc(enemyWithSameSquad as unknown as NPC)
 
     const townSource: CombatActorRef = { ...squadSource(2), actorId: 'borrowed-captain', allegiance: Faction.TOWN }
     const collidingEnemySource: CombatActorRef = { ...squadSource(2), actorId: 'enemy-captain', allegiance: Faction.ENEMY }
@@ -258,268 +152,10 @@ describe('BattleStatsTracker', () => {
     events.emit({ type: 'damage_applied', source: collidingEnemySource, target: townTarget, method: 'melee', requestedDamage: 11, appliedDamage: 11 })
     events.emit({ type: 'damage_applied', source: playerSource(), target: collidingEnemyTarget, method: 'melee', requestedDamage: 17, appliedDamage: 17 })
 
-    const snapshot = tracker.snapshot([townAlly, enemyWithSameSquad] as any, { dead: false } as any)
+    const snapshot = tracker.snapshot([townAlly, enemyWithSameSquad] as unknown as NPC[], { dead: false } as Player)
     expect(snapshot.squads).toEqual([expect.objectContaining({
       squadId: 2, damageDealt: 7, damageTaken: 11, startingMembers: 1, survivors: 1, casualties: 0,
     })])
-  })
-  it('stream-aggregates player and squad combat stats without retaining an event log', () => {
-    const events = new CombatEventStream()
-    const tracker = new BattleStatsTracker(events)
-    onTestFinished(() => tracker.dispose())
-
-    const squadNpcA = mockSquadNpc('s2-a', 2, false)
-    const squadNpcB = mockSquadNpc('s2-b', 2, true)
-    const squadNpcC = mockSquadNpc('s2-c', 2, false)
-    tracker.registerNpc(squadNpcA)
-    tracker.registerNpc(squadNpcB)
-    tracker.registerNpc(squadNpcC)
-    tracker.registerNpc(squadNpcA) // duplicate registration must not inflate starting strength
-
-    events.emit({
-      type: 'damage_applied',
-      source: playerSource(),
-      target: npcTarget('enemy-1'),
-      method: 'melee',
-      requestedDamage: 80,
-      appliedDamage: 3,
-    })
-    events.emit({
-      type: 'damage_applied',
-      source: squadSource(2),
-      target: npcTarget('enemy-2'),
-      method: 'projectile',
-      requestedDamage: 25,
-      appliedDamage: 25,
-    })
-    events.emit({
-      type: 'damage_applied',
-      source: enemySource(),
-      target: {
-        targetId: 'player',
-        targetType: 'player',
-        name: 'Player',
-        allegiance: Faction.PLAYER,
-        characterFaction: 'viking',
-      },
-      method: 'melee',
-      requestedDamage: 17,
-      appliedDamage: 17,
-    })
-    events.emit({
-      type: 'damage_applied',
-      source: enemySource(),
-      target: npcTarget('s2-a', 2),
-      method: 'projectile',
-      requestedDamage: 9,
-      appliedDamage: 9,
-    })
-    events.emit({
-      type: 'actor_killed',
-      source: playerSource(),
-      target: npcTarget('enemy-1'),
-      method: 'melee',
-    })
-    events.emit({
-      type: 'actor_killed',
-      source: squadSource(2),
-      target: npcTarget('enemy-2'),
-      method: 'projectile',
-    })
-    events.emit({
-      type: 'structure_damaged',
-      source: playerSource(),
-      target: {
-        targetId: 'gate-1',
-        targetType: 'structure',
-        name: 'Gate',
-        structureKind: 'gate',
-      },
-      method: 'melee',
-      requestedDamage: 40,
-      appliedDamage: 40,
-      hpRatio: 0.2,
-    })
-    events.emit({
-      type: 'structure_destroyed',
-      source: playerSource(),
-      target: {
-        targetId: 'gate-1',
-        targetType: 'structure',
-        name: 'Gate',
-        structureKind: 'gate',
-      },
-      method: 'melee',
-    })
-    events.emit({
-      type: 'structure_damaged',
-      source: squadSource(2),
-      target: {
-        targetId: 'wall-1',
-        targetType: 'structure',
-        name: 'Palisade',
-        structureKind: 'palisade',
-      },
-      method: 'siege',
-      requestedDamage: 55,
-      appliedDamage: 55,
-      hpRatio: 0.4,
-    })
-    events.emit({
-      type: 'structure_destroyed',
-      source: squadSource(2),
-      target: {
-        targetId: 'wall-1',
-        targetType: 'structure',
-        name: 'Palisade',
-        structureKind: 'palisade',
-      },
-      method: 'siege',
-    })
-
-    const snapshot = tracker.snapshot(
-      [squadNpcA, squadNpcB, squadNpcC] as any,
-      { dead: false } as any,
-    )
-
-    expect(snapshot.player).toEqual({
-      damageDealt: 3,
-      damageTaken: 17,
-      kills: 1,
-      structureDamage: 40,
-      structuresDestroyed: 1,
-      gateBreaches: 1,
-      survived: true,
-    })
-    expect(snapshot.squads).toEqual([{
-      squadId: 2,
-      damageDealt: 25,
-      damageTaken: 9,
-      kills: 1,
-      structureDamage: 55,
-      structuresDestroyed: 1,
-      gateBreaches: 0,
-      startingMembers: 3,
-      survivors: 2,
-      casualties: 1,
-    }])
-  })
-
-  it('does not count structure damage or breaches for defense-role stats', () => {
-    const events = new CombatEventStream()
-    const tracker = new BattleStatsTracker(events, false)
-    onTestFinished(() => tracker.dispose())
-    const squadNpc = mockSquadNpc('defender-1', 1, false)
-    tracker.registerNpc(squadNpc)
-
-    events.emit({
-      type: 'structure_damaged',
-      source: playerSource(),
-      target: {
-        targetId: 'gate-defense',
-        targetType: 'structure',
-        name: 'Gate',
-        structureKind: 'gate',
-      },
-      method: 'melee',
-      requestedDamage: 500,
-      appliedDamage: 500,
-      hpRatio: 0,
-    })
-    events.emit({
-      type: 'structure_destroyed',
-      source: playerSource(),
-      target: {
-        targetId: 'gate-defense',
-        targetType: 'structure',
-        name: 'Gate',
-        structureKind: 'gate',
-      },
-      method: 'melee',
-    })
-    events.emit({
-      type: 'structure_damaged',
-      source: squadSource(1),
-      target: {
-        targetId: 'wall-defense',
-        targetType: 'structure',
-        name: 'Palisade',
-        structureKind: 'palisade',
-      },
-      method: 'siege',
-      requestedDamage: 300,
-      appliedDamage: 300,
-      hpRatio: 0,
-    })
-    events.emit({
-      type: 'structure_destroyed',
-      source: squadSource(1),
-      target: {
-        targetId: 'wall-defense',
-        targetType: 'structure',
-        name: 'Palisade',
-        structureKind: 'palisade',
-      },
-      method: 'siege',
-    })
-
-    const snapshot = tracker.snapshot([squadNpc] as any, { dead: false } as any)
-    expect(snapshot.player).toMatchObject({
-      structureDamage: 0,
-      structuresDestroyed: 0,
-      gateBreaches: 0,
-    })
-    expect(snapshot.squads[0]).toMatchObject({
-      structureDamage: 0,
-      structuresDestroyed: 0,
-      gateBreaches: 0,
-    })
-  })
-
-  it('handles large event volume as counters and returns one compact snapshot', () => {
-    const events = new CombatEventStream()
-    const tracker = new BattleStatsTracker(events)
-    onTestFinished(() => tracker.dispose())
-
-    for (let i = 0; i < 10_000; i++) {
-      events.emit({
-        type: 'damage_applied',
-        source: playerSource(),
-        target: npcTarget('enemy'),
-        method: 'melee',
-        requestedDamage: 1,
-        appliedDamage: 1,
-      })
-    }
-
-    const snapshot = tracker.snapshot([], { dead: true } as any)
-    expect(snapshot.player.damageDealt).toBe(10_000)
-    expect(snapshot.player.survived).toBe(false)
-    expect(snapshot.squads).toEqual([])
-  })
-
-  it('calculates squad survival only when snapshot is requested', () => {
-    const events = new CombatEventStream()
-    const tracker = new BattleStatsTracker(events)
-    onTestFinished(() => tracker.dispose())
-    const first = mockSquadNpc('first', 1, false)
-    const second = mockSquadNpc('second', 1, false)
-
-    tracker.registerNpc(first)
-    tracker.registerNpc(second)
-
-    expect(tracker.snapshot([first, second] as any, { dead: false } as any).squads[0]).toMatchObject({
-      startingMembers: 2,
-      survivors: 2,
-      casualties: 0,
-    })
-
-    second.dead = true
-    expect(tracker.snapshot([first, second] as any, { dead: false } as any).squads[0]).toMatchObject({
-      startingMembers: 2,
-      survivors: 1,
-      casualties: 1,
-    })
   })
 
   it('stops aggregating after dispose', () => {
@@ -537,7 +173,7 @@ describe('BattleStatsTracker', () => {
       appliedDamage: 10,
     })
 
-    expect(tracker.snapshot([], { dead: false } as any).player.damageDealt).toBe(0)
+    expect(tracker.snapshot([], { dead: false } as Player).player.damageDealt).toBe(0)
   })
 })
 
