@@ -27,6 +27,11 @@ export function installTownStyles(): void {
     .town-products { display:grid; grid-template-columns:repeat(auto-fit,minmax(235px,1fr)); gap:10px; margin-top:16px }
     .town-product { border:1px solid #77654866; border-radius:5px; padding:12px; background:#0002; display:flex; flex-direction:column; align-items:flex-start }
     .town-product strong { font-size:14px; color:#ead7b2 } .town-product small { color:#b7a78c; margin-top:4px }
+    .town-purchase-products { grid-template-columns:repeat(auto-fit,minmax(min(235px,100%),1fr)) }
+    .town-purchase-quantity { margin-top:8px; max-width:100%; font-size:13px; color:#c4b69e }
+    .town-purchase-select { box-sizing:border-box; max-width:100%; padding:5px 10px; color:#ead8b8; background:#332d24; border:1px solid #92754e; border-radius:4px; font:inherit }
+    .town-purchase-select:focus-visible { outline:2px solid #be9a58; outline-offset:2px }
+    .town-purchase-select:disabled { opacity:.5; cursor:default }
     .town-ambient { position:fixed; transform:translate(-50%,-100%); max-width:280px; z-index:95; background:#201d18e8; color:#ffe6b5; padding:8px 12px; border:1px solid #967950; border-radius:5px; font:14px/1.4 system-ui; pointer-events:none }
     #career-duel-hud { position:fixed; left:50%; top:12%; transform:translateX(-50%); z-index:94; pointer-events:none; text-align:center; color:#ffe5af; text-shadow:0 3px 8px #000,0 0 20px #000; font-family:system-ui }
     .duel-countdown-label { font-size:18px; font-weight:600; letter-spacing:.08em }

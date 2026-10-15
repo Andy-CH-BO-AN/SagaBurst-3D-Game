@@ -145,16 +145,20 @@ export interface CareerMissionClaim {
   alreadyClaimed: boolean
 }
 
+export const MAX_BULK_PURCHASE_QUANTITY = 20
+
 export interface CareerPurchaseRequest {
   kind: CareerPurchaseKind
   id: string
   cost: number
   requiredTier: CareerPurchaseTier
+  quantity?: number
 }
 
 export type CareerPurchaseFailureReason =
   | 'invalid-id'
   | 'invalid-cost'
+  | 'invalid-quantity'
   | 'already-owned'
   | 'tier-locked'
   | 'insufficient-merit'
@@ -386,13 +390,23 @@ export function purchaseCareerContent(
       reason: 'invalid-id',
     }
   }
-  if (!Number.isInteger(request.cost) || request.cost < 0) {
+  if (!Number.isSafeInteger(request.cost) || request.cost < 0) {
     return {
       profile: cloneCareerProfile(current),
       purchased: false,
       spentMerit: 0,
       reason: 'invalid-cost',
     }
+  }
+
+  const quantity = request.quantity ?? 1
+  if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > MAX_BULK_PURCHASE_QUANTITY
+    || request.kind === 'hero' && quantity !== 1) {
+    return { profile: cloneCareerProfile(current), purchased: false, spentMerit: 0, reason: 'invalid-quantity' }
+  }
+  const totalCost = request.cost * quantity
+  if (!Number.isSafeInteger(totalCost)) {
+    return { profile: cloneCareerProfile(current), purchased: false, spentMerit: 0, reason: 'invalid-cost' }
   }
 
   const profile = cloneCareerProfile(current)
@@ -405,7 +419,7 @@ export function purchaseCareerContent(
     }
   }
   // Cap the canonical quantity, not active actors or lifetime purchases. Legacy excess stays owned.
-  if (id === 'xongkoro' && careerItemTotal(profile, id) >= MAX_PLAYER_OWNED_XONGKORO) {
+  if (id === 'xongkoro' && careerItemTotal(profile, id) + quantity > MAX_PLAYER_OWNED_XONGKORO) {
     return { profile, purchased: false, spentMerit: 0, reason: 'ownership-limit' }
   }
   const target = request.kind === 'weapon'
@@ -424,7 +438,7 @@ export function purchaseCareerContent(
       reason: 'already-owned',
     }
   }
-  if (profile.availableMerit < request.cost) {
+  if (profile.availableMerit < totalCost) {
     return {
       profile,
       purchased: false,
@@ -433,14 +447,17 @@ export function purchaseCareerContent(
     }
   }
 
-  profile.availableMerit -= request.cost
+  if (request.kind !== 'hero' && !Number.isSafeInteger(careerItemTotal(profile, id) + quantity)) {
+    return { profile, purchased: false, spentMerit: 0, reason: 'invalid-quantity' }
+  }
+  profile.availableMerit -= totalCost
   if (request.kind === 'hero') target.push(id)
-  else { normalizeCareerInventory(profile); addCareerItem(profile, id, 1) }
+  else { normalizeCareerInventory(profile); addCareerItem(profile, id, quantity) }
 
   return {
     profile,
     purchased: true,
-    spentMerit: request.cost,
+    spentMerit: totalCost,
   }
 }
 
