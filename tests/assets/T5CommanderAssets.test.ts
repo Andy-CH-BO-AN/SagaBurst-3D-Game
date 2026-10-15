@@ -155,7 +155,7 @@ describe.each(['roman', 'viking'] as const)('%s T5 commander asset package', fac
     // must not silently retarget clips, lose finger/helper tracks or alter binds.
     expect(source!.clips.map(clip => clip.name).sort()).toEqual([
       'idle', 'walk', 'run', 'swordSlash', 'bowLoad', 'bowHold', 'bowRelease',
-      'pilumThrow', 'axeMountedIdle', 'axeAttack1H', 'axeAttack2H',
+      'pilumThrow', 'axeMountedIdle', 'axeAttack1H', 'axeAttack2H', 'axeAttack1HFoot',
     ].sort())
     source!.root.scale.setScalar(manifest.selectedSource!.uniformScale)
     const sourceMixer = new THREE.AnimationMixer(source!.root)

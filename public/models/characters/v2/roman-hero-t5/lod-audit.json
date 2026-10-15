@@ -8,10 +8,11 @@
       "vertices": 15794,
       "sets": 4,
       "discardedWeightMax": 0,
-      "bytes": 8466356,
+      "bytes": 8831920,
       "strategy": "index-only, locked UV boundaries, exact retained attributes",
       "simplifierError": 0.002924102358520031,
-      "protectedTriangles": 1872
+      "protectedTriangles": 1872,
+      "banditFootAxeSha256": "4283c211856b6c86b9d4066d4e330199eb0c90e9084a373145fbdda74d17e3c8"
     },
     {
       "level": 2,
@@ -19,10 +20,11 @@
       "vertices": 15492,
       "sets": 4,
       "discardedWeightMax": 0,
-      "bytes": 4917340,
+      "bytes": 5282904,
       "strategy": "index-only, locked UV boundaries, exact retained attributes",
       "simplifierError": 0.014431272633373737,
-      "protectedTriangles": 1872
+      "protectedTriangles": 1872,
+      "banditFootAxeSha256": "f3b9a160308aae8c954adffe011f46b9bef0db62aa52502f8065b8626866048a"
     }
   ]
 }

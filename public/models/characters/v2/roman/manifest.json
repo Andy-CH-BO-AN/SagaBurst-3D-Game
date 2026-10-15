@@ -161,6 +161,24 @@
           "activeEnd": 1.125,
           "actionComplete": 2.8333333333333335
         }
+      },
+      {
+        "clip": "axeAttack1HFoot",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@attack.fbx",
+        "sourceSha256": "365678d394be49551873eb7e15ece206f863e66a934b7571e8e00b805b2cc5a5",
+        "firstFrame": 2,
+        "lastFrame": 47,
+        "sourceFps": 30,
+        "loop": false,
+        "duration": 3,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.6333333333333333,
+          "actionComplete": 3
+        },
+        "meleeCycleSeconds": 0.48
       }
     ],
     "runtimeGenerated": [
@@ -174,9 +192,9 @@
     ]
   },
   "fileSha256": {
-    "lod0": "6c28ef8cf78d82e997ceed11d828bc70f0e87087b3a0c465eb3c28281d597cef",
-    "lod1": "de1d9c423b45e540225d6647cbb4a0b3a86834c07e84ecfb57c79259339e91f3",
-    "lod2": "bd1b9d15deb1c1c7f5f17ee53e990c38d1febcf7100dce2f2502faca6353a91b"
+    "lod0": "2d08e05d15a1690fa80a26066d1e579ed543a0c05b7a6d11d04b52d56a40bda9",
+    "lod1": "c6ee94040c51bb8a7000c0c9102672d439efca92d42023bee865157b94be26ea",
+    "lod2": "656a2e5376b09379477219c3b38304875637fc6591c7a3742354fa89f72c6741"
   },
   "visualAcceptance": "Runtime visual integration pending; structural LOD generation is not gameplay acceptance.",
   "knownLimitations": [
@@ -434,9 +452,9 @@
         -0.0020607458193645503
       ],
       "gripAxisLocal": [
-        0.1393293179178642,
-        -0.05320453400710903,
-        0.9888157658176921
+        -0.1393293179178642,
+        0.05320453400710903,
+        -0.9888157658176921
       ],
       "palmNormalLocal": [
         -0.9874495263530161,
@@ -468,9 +486,9 @@
         -0.0020607458193645503
       ],
       "gripAxisLocal": [
-        0.1393293179178642,
-        -0.05320453400710903,
-        0.9888157658176921
+        -0.1393293179178642,
+        0.05320453400710903,
+        -0.9888157658176921
       ],
       "palmNormalLocal": [
         -0.9874495263530161,
@@ -502,9 +520,9 @@
         -0.0020607458193645503
       ],
       "gripAxisLocal": [
-        0.1393293179178642,
-        -0.05320453400710903,
-        0.9888157658176921
+        -0.1393293179178642,
+        0.05320453400710903,
+        -0.9888157658176921
       ],
       "palmNormalLocal": [
         -0.9874495263530161,
@@ -529,5 +547,24 @@
       "fingerBase": 0.08,
       "gripRadius": 0.024
     }
+  },
+  "banditFootAxe": {
+    "sourceAsset": "bandit/lod0.glb",
+    "sourceSha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+    "sourceClip": "swordSlash",
+    "source": {
+      "title": "Fantasy Bandit",
+      "author": "tokeshi",
+      "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
+      "license": "CGTrader Royalty Free (no AI)",
+      "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
+      "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
+      "archives": {
+        "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
+        "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
+      }
+    },
+    "retarget": "Anatomical limb axes and thumb/finger grasp; target idle pelvis and legs; original 1H event clock retained",
+    "rebuild": "node tools/retarget-bandit-foot-axe.mjs"
   }
 }

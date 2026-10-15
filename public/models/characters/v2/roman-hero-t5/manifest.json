@@ -162,6 +162,24 @@
         "sourceClip": "axeAttack2H",
         "loop": false,
         "duration": 2.8333332538604736
+      },
+      {
+        "clip": "axeAttack1HFoot",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@attack.fbx",
+        "sourceSha256": "365678d394be49551873eb7e15ece206f863e66a934b7571e8e00b805b2cc5a5",
+        "firstFrame": 2,
+        "lastFrame": 47,
+        "sourceFps": 30,
+        "loop": false,
+        "duration": 3,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.7,
+          "actionComplete": 3
+        },
+        "meleeCycleSeconds": 0.48
       }
     ],
     "runtimeGenerated": [
@@ -314,9 +332,9 @@
     }
   },
   "fileSha256": {
-    "lod0": "2de7b2a5ea9262d83956570302e19d316aa80e6c0173c07001610e40d6da29cf",
-    "lod1": "9cb11039ef8da123c73395472c2a189fa55483f07fff681dc5dcb478ef5b493f",
-    "lod2": "52048d25a373e133ecc47f7f269abca3a4c573635da611592370066b5998d010"
+    "lod0": "7490c74e27318a7ee32f702407a06b094d178552720f6776ee82c0fbb5395327",
+    "lod1": "4283c211856b6c86b9d4066d4e330199eb0c90e9084a373145fbdda74d17e3c8",
+    "lod2": "f3b9a160308aae8c954adffe011f46b9bef0db62aa52502f8065b8626866048a"
   },
   "sourceRepairs": {
     "kind": "retain-authored-cupped-fingers",
@@ -409,5 +427,24 @@
     "Source swordSlash 0.1231° and bowRelease 1.8778° exceed source strict 0.1° threshold.",
     "Conservative UV-boundary LODs exceed the suggested triangle targets; aggressive collapse candidates failed appearance review.",
     "No runtime cloth collision; extreme garment contact follows the source/helper rig."
-  ]
+  ],
+  "banditFootAxe": {
+    "sourceAsset": "bandit/lod0.glb",
+    "sourceSha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+    "sourceClip": "swordSlash",
+    "source": {
+      "title": "Fantasy Bandit",
+      "author": "tokeshi",
+      "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
+      "license": "CGTrader Royalty Free (no AI)",
+      "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
+      "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
+      "archives": {
+        "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
+        "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
+      }
+    },
+    "retarget": "Anatomical limb axes and thumb/finger grasp; target idle pelvis and legs; original 1H event clock retained",
+    "rebuild": "node tools/retarget-bandit-foot-axe.mjs"
+  }
 }

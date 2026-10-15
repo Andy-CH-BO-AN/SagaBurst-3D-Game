@@ -1,19 +1,20 @@
 import * as T from 'three'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
-import { applySwordAttachment } from '../../src/world/SwordAttachmentContract'
+import { WeaponSweep } from '../../src/combat/ShieldBlocking'
+import { applySwordAttachment, weaponGripWorld, weaponTipWorld } from '../../src/world/SwordAttachmentContract'
 import { WeaponMeshFactory } from '../../src/world/WeaponMeshFactory'
 import { NPC, Faction, AIType } from '../../src/world/NPC'
 import { Player } from '../../src/player/Player'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { resolveUnitLoadout } from '../../src/battle/UnitPresetCatalog'
-import { selectedHumanoidInstance, replacementManifest } from '../helpers/selectedHumanoidAsset'
+import { selectedHumanoidInstance, replacementManifest, type SelectedAssetId } from '../helpers/selectedHumanoidAsset'
 
 // The previous fixture bypassed the registry and re-applied legacy retarget/FK
 // onto imported Viking clips. Exercise the selected runtime path instead.
-async function fixture() {
-  const actor = await selectedHumanoidInstance('viking')
+async function fixture(assetId: SelectedAssetId = 'viking') {
+  const actor = await selectedHumanoidInstance(assetId)
   onTestFinished(() => actor.dispose())
   const pivot = new T.Group(), model = new T.Group()
   pivot.add(model); WeaponMeshFactory.buildMelee('viking_axe_t2', model)
@@ -144,4 +145,63 @@ describe('Viking axe attacks', () => {
         }
     });
 
+})
+
+// One real rig per source family; no NPC/world. The physical sweep must reach
+// a forward infantry body at each speed, rather than only looking forward.
+it.each(['roman', 'viking', 'viking-hero-t4', 'viking-hero-t5', 'roman-hero-t5'] as const)('%s foot 1H axe reaches the forward body with one unchanged action clock', async assetId => {
+  const { actor, model, animator } = await fixture(assetId)
+  actor.root.rotation.y = .7
+  const targetRoot = new T.Group()
+  actor.root.localToWorld(targetRoot.position.set(0, 0, 1.3))
+  const target = { group: targetRoot, combatPosition: targetRoot.position, isMounted: false }
+  const sweep = new WeaponSweep(), grip = new T.Vector3(), tip = new T.Vector3()
+  const timing = actor.rig.animation!.getMeleeTiming!('axeAttack1H')!
+  for (const speed of [1, 1.55]) {
+    animator.cancel(); animator.setEquipment(false, true); animator.setLocomotion(2, false); animator.update(.2)
+    const hips = actor.root.getObjectByName('hips')!
+    const heading = actor.root.quaternion.clone()
+    const pelvisFacing = hips.getWorldQuaternion(new T.Quaternion())
+    expect(animator.start('axeAttack1H', speed)).toBe(true)
+    sweep.reset()
+    let touched = false, hits = 0, complete = 0, hitAt = 0, completeAt = 0
+    for (let frame = 1; frame <= 100; frame++) {
+      const event = animator.update(1 / 120)
+      if (event.hitActiveStarted) { hits++; hitAt = frame / 120 }
+      if (event.actionCompleted) { complete++; completeAt = frame / 120 }
+      actor.root.updateMatrixWorld(true)
+      expect(actor.root.quaternion.angleTo(heading), 'gameplay heading stays fixed').toBeLessThan(1e-6)
+      expect(hips.getWorldQuaternion(new T.Quaternion()).angleTo(pelvisFacing), 'no whole-body yaw compensation').toBeLessThan(.35)
+      sweep.capture(weaponGripWorld(model, grip), weaponTipWorld(model, new T.Vector3(0, 1.51, 0), tip, true))
+      if (animator.meleeHitActive && sweep.trace(target)?.kind === 'body') touched = true
+    }
+    expect(touched, `${assetId} speed ${speed}: actual blade sweep hits forward infantry`).toBe(true)
+    expect(hits).toBe(1); expect(complete).toBe(1)
+    expect(hitAt).toBeGreaterThanOrEqual(timing.hit / speed - 1e-8)
+    expect(hitAt).toBeLessThan(timing.hit / speed + 1 / 120 + 1e-8)
+    expect(completeAt).toBeGreaterThanOrEqual(timing.duration / speed - 1e-8)
+    expect(completeAt).toBeLessThan(timing.duration / speed + 1 / 120 + 1e-8)
+    expect(animator.currentAction).toBe('idle')
+  }
+})
+
+// Regression for the reported right-wrist fold: locomotion changes only the axe.
+it.each(['viking', 'viking-hero-t4'] as const)('%s axe carry retains authored arm joints and rolls the blade down about the palm', async assetId => {
+  const { actor, model, animator } = await fixture(assetId)
+  animator.setEquipment(false, false); animator.setLocomotion(2, false); animator.update(.2)
+  const animation = actor.rig.animation!, bones = [actor.rig.right.shoulder, actor.rig.right.elbow, actor.rig.right.wrist]
+  for (const motion of ['idle', 'walk', 'run'] as const) for (const phase of [.1, .4, .8]) {
+    animation.setPoseLayersEnabled!(false); animation.seek(motion, phase); animation.update(.2)
+    const original = bones.map(b => b.quaternion.clone())
+    animation.setPoseLayersEnabled!(true); animation.seek(motion, phase); animation.update(.2)
+    bones.forEach((bone, i) => expect(bone.quaternion.clone().normalize().angleTo(original[i].normalize()), `${motion} ${phase}: original right arm`).toBeLessThan(1e-5))
+    animator.update(0); actor.root.updateMatrixWorld(true)
+    const palm = actor.rig.right.wrist.localToWorld(new T.Vector3(...actor.rig.swordGripFrame!.gripCenterLocal))
+    expect(weaponGripWorld(model, new T.Vector3()).distanceTo(palm)).toBeLessThan(1e-5)
+    const visual = model.getObjectByName('dane-axe-visual')!
+    const q = visual.getWorldQuaternion(new T.Quaternion()), shaft = new T.Vector3(0, 1, 0).applyQuaternion(q)
+    const edge = new T.Vector3(1, 0, 0).applyQuaternion(q)
+    const down = new T.Vector3(0, -1, 0).addScaledVector(shaft, shaft.y).normalize()
+    expect(edge.dot(down), `${motion} ${phase}: cutting edge faces down`).toBeGreaterThan(.999)
+  }
 })

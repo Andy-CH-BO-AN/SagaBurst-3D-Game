@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import type { ArmRig, CharacterRig, MountedPoseKind } from './CharacterVisuals'
 import { applyCharacterMountedPose, setRigRotation } from './CharacterVisuals'
 import { AXE_HIT_TIMES, COMBAT_ANIMATION_PROFILES } from './CharacterCombatAnimator'
-import { swordHandMatrix } from './SwordAttachmentContract'
+import { naturalAxeHandMatrix, swordHandMatrix } from './SwordAttachmentContract'
 import { equipmentWeaponFrame, type EquipmentGripFrame, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { XONGKORO_VISUAL } from '../movement/XongkoroConfig'
 import { SelectedMountedSkirt, type SelectedHumanoidSource } from './SelectedHumanoidSource'
@@ -11,6 +11,7 @@ const SHIELD_POSE = { side: 0.36, height: 0.12, forward: 0.26 }
 
 export interface EquipmentPoseState {
   shield: boolean
+  carryWeapon?: 'sword' | 'axe'
   shieldRaised?: boolean
   lance: boolean
   mounted: boolean
@@ -146,6 +147,11 @@ export class CharacterEquipmentPose {
   private applied = false
   private readonly left: ArmSolver
   private readonly axeRight: ArmSolver
+  private readonly swordCarry: THREE.Quaternion
+  private readonly axeCarry: THREE.Quaternion
+  private readonly axe1Carry: THREE.Quaternion
+  private readonly carrySaved = [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()]
+  private readonly carryBones: THREE.Object3D[]
   private readonly shieldL: THREE.Quaternion
   private readonly shieldBody: THREE.Object3D
   private readonly shieldBindInverse = new THREE.Matrix4()
@@ -196,6 +202,11 @@ export class CharacterEquipmentPose {
     this.axeRight = new ArmSolver(root, rig.right, -1)
     this.axeLeftBones = [rig.left.shoulder, rig.left.elbow, rig.left.wrist]
     const hand = (frame: EquipmentGripFrame) => new THREE.Quaternion().setFromRotationMatrix(swordHandMatrix(frame)).invert()
+    const forwardCarry = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0)))
+    this.swordCarry = forwardCarry.clone().multiply(hand(frames.lanceRight))
+    this.axeCarry = forwardCarry.clone().multiply(new THREE.Quaternion().setFromRotationMatrix(naturalAxeHandMatrix(frames.lanceRight)).invert())
+    this.carryBones = [rig.right.shoulder, rig.right.elbow, rig.right.wrist]
+    this.axe1Carry = this.axeCarry
     this.shieldL = new THREE.Quaternion().setFromRotationMatrix(equipmentWeaponFrame('shield')).multiply(hand(frames.shieldLeft))
     // The existing axe visual tilts 0.45 radians about its grip. Attacks use
     // the foot attachment on both foot and horse; never edit the axe model.
@@ -364,6 +375,35 @@ export class CharacterEquipmentPose {
         setRigRotation(leg.ankle, -.38 * leg.forwardBendSign, 0, -leg.side * .6)
       }
     }
+    // Free Roman wrist: mirror the sampled opposite hand in character space,
+    // distribute pronation through the forearm and retain the sampled elbow.
+    // Fingers, attacks, shields and bow poses remain source-owned.
+    if (live && this.selectedSource?.rig === 'roman54' && !state.shield && !state.sampledBowPose && state.action === 'idle') {
+      this.root.updateWorldMatrix(true, true)
+      this.root.getWorldQuaternion(this.rootWorld).invert()
+      this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+      this.handWorld.set(this.handWorld.x, -this.handWorld.y, -this.handWorld.z, this.handWorld.w)
+      this.target.fromArray(this.frames.lanceLeft.gripCenterLocal).applyQuaternion(this.handWorld)
+      this.rig.left.wrist.getWorldPosition(this.axeReach)
+      this.root.worldToLocal(this.axeReach)
+      this.target.add(this.axeReach)
+      this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, true)
+    }
+    // Roman foot carry: +Y shaft points toward gameplay +Z and the axe's
+    // +X cutting edge points down. Solve the arm around its existing palm,
+    // preserving the fixed weapon attachment and source finger animation.
+    const carryBlend = state.action === 'idle' ? 1 : state.action === 'axeAttack1H' || state.action === 'swordSlash'
+      ? 1 - smooth(state.elapsed / .08) + smooth((state.elapsed - .42) / .06) : 0
+    if (live && !state.mounted && !state.lance && !state.sampledBowPose && carryBlend > 0
+      && state.carryWeapon && this.selectedSource?.rig === 'roman54') {
+      this.root.updateWorldMatrix(true, true)
+      this.target.fromArray(this.frames.lanceRight.gripCenterLocal)
+      this.rig.right.wrist.localToWorld(this.target); this.root.worldToLocal(this.target)
+      this.handWorld.copy(state.carryWeapon === 'axe' ? state.action === 'axeAttack1H' ? this.axe1Carry : this.axeCarry : this.swordCarry)
+      this.carryBones.forEach((bone, index) => this.carrySaved[index].copy(bone.quaternion))
+      this.axeRight.solve(this.target, this.handWorld, this.frames.lanceRight, undefined, true, true)
+      this.carryBones.forEach((bone, index) => bone.quaternion.copy(this.carrySaved[index].slerp(bone.quaternion, carryBlend)))
+    }
     // Source 2H cutting edges strike right of +Z: ordinary Viking 0.609802
     // radians at source 1.058333s; Varangian 0.748852 at 1.066667s. These
     // are measured hips-to-mock-edge bearings, not collision tolerances.
@@ -467,7 +507,7 @@ export class CharacterEquipmentPose {
       this.shieldBodyDelta.copy(this.root.matrixWorld).invert().multiply(this.shieldBody.matrixWorld).multiply(this.shieldBindInverse)
       this.shieldBodyRotation.setFromRotationMatrix(this.shieldBodyDelta)
       if (state.shieldRaised && state.action === 'idle') {
-        this.target.set(.12, this.hipsY + .38, .46).applyMatrix4(this.shieldBodyDelta)
+        this.target.set(.12, this.hipsY + .38, this.selectedSource?.rig === 'varangian63' ? .52 : .46).applyMatrix4(this.shieldBodyDelta)
         this.shieldHandRotation.copy(this.shieldBodyRotation).multiply(this.shieldL)
         this.left.solve(this.target, this.shieldHandRotation, this.frames.shieldLeft, this.shieldBodyRotation)
       } else if (state.mounted && state.mountKind === 'CORGI') {
@@ -480,7 +520,10 @@ export class CharacterEquipmentPose {
           this.left.solve(this.target, this.shieldHandRotation, this.frames.shieldLeft, this.shieldBodyRotation)
         } else this.left.solve(this.target, this.shieldL, this.frames.shieldLeft)
       } else {
-        this.target.set(SHIELD_POSE.side, this.hipsY + SHIELD_POSE.height, SHIELD_POSE.forward).applyMatrix4(this.shieldBodyDelta)
+        const varangian = this.selectedSource?.rig === 'varangian63'
+        this.target.set(SHIELD_POSE.side + (varangian ? .04 : 0),
+          this.hipsY + SHIELD_POSE.height,
+          SHIELD_POSE.forward + (varangian ? .10 : 0)).applyMatrix4(this.shieldBodyDelta)
         this.shieldHandRotation.copy(this.shieldBodyRotation).multiply(this.shieldL)
         this.left.solve(this.target, this.shieldHandRotation, this.frames.shieldLeft, this.shieldBodyRotation)
       }

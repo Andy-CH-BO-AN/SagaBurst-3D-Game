@@ -161,6 +161,24 @@
           "activeEnd": 1.125,
           "actionComplete": 2.8333333333333335
         }
+      },
+      {
+        "clip": "axeAttack1HFoot",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@attack.fbx",
+        "sourceSha256": "365678d394be49551873eb7e15ece206f863e66a934b7571e8e00b805b2cc5a5",
+        "firstFrame": 2,
+        "lastFrame": 47,
+        "sourceFps": 30,
+        "loop": false,
+        "duration": 3,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.6333333333333333,
+          "actionComplete": 3
+        },
+        "meleeCycleSeconds": 0.48
       }
     ],
     "runtimeGenerated": [
@@ -174,9 +192,9 @@
     ]
   },
   "fileSha256": {
-    "lod0": "d52c9d568b5c38c9d5f295b05f5548ef210f9b7c3103718985161699d3bd1584",
-    "lod1": "09c56234c8923087c2d2db6ed24a3019c008a471edc81c8e224cb19b2b7fc6c2",
-    "lod2": "7ef88386963bed0ab48d8261300ec182b0a1c27380d22ddf74a459836a264aef"
+    "lod0": "564339b0624da0dd3eea6ce02fc666870848e978a71b77d756f05e9d640f7f43",
+    "lod1": "a86d1d2466b9a1a394a1a94efd06af1db8629a346eb9214fb6f13a319c993ea2",
+    "lod2": "91ee4e1eb1fc53b8ef01e0bc4052e059a67198a2a97c91a9970a540436b1e0b8"
   },
   "visualAcceptance": "Runtime visual integration pending; structural LOD generation is not gameplay acceptance.",
   "knownLimitations": [
@@ -425,5 +443,24 @@
       "fingerBase": 0.08,
       "gripRadius": 0.024
     }
+  },
+  "banditFootAxe": {
+    "sourceAsset": "bandit/lod0.glb",
+    "sourceSha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+    "sourceClip": "swordSlash",
+    "source": {
+      "title": "Fantasy Bandit",
+      "author": "tokeshi",
+      "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
+      "license": "CGTrader Royalty Free (no AI)",
+      "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
+      "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
+      "archives": {
+        "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
+        "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
+      }
+    },
+    "retarget": "Anatomical limb axes and thumb/finger grasp; target idle pelvis and legs; original 1H event clock retained",
+    "rebuild": "node tools/retarget-bandit-foot-axe.mjs"
   }
 }

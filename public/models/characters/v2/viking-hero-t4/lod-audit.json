@@ -5,21 +5,54 @@
   "lods": [
     {
       "level": 0,
-      "triangles": 21942,
-      "bytes": 18914260,
-      "strategy": "Source geometry unchanged; wrapper normalization and texture resize only."
+      "triangles": 21972,
+      "bytes": 20600660,
+      "strategy": "Existing source package with documented local posterior cape backing, rear clearance and LOD2 fold UV repair; original animation and bind payload retained.",
+      "derivedFromSha256": "77f7786195094e73e15b8645e0058a679754e44e1ceda10dab9c8b32dbe19a2c",
+      "capeRepair": {
+        "version": 1,
+        "backedRegions": 7,
+        "addedTriangles": 30,
+        "movedVertices": 5834,
+        "reprojectedTriangles": 0,
+        "maxRearOffsetM": 0.1,
+        "preserved": "All original joints, inverse binds, weights and eleven source animation buffers; original UVs except the three LOD2 central-fold triangles; backing copies boundary skin weights and samples the original blue-cloth atlas"
+      },
+      "banditFootAxeSha256": "58d26d132392d51741adeac74f630738c20e11e5b50760791034da9d2eca0da3"
     },
     {
       "level": 1,
-      "triangles": 8770,
-      "bytes": 8653000,
-      "strategy": "Coincident vertices welded at 10 micrometers; Blender surface collapse retains loop UVs, interpolated weights remapped to unchanged source skin. Animation/bind bytes preserved."
+      "triangles": 8797,
+      "bytes": 9579704,
+      "strategy": "Existing source package with documented local posterior cape backing, rear clearance and LOD2 fold UV repair; original animation and bind payload retained.",
+      "derivedFromSha256": "9a60f172c36abd1745d330e777689eba01a7da189d5da0ee5a7c6c4284752bba",
+      "capeRepair": {
+        "version": 1,
+        "backedRegions": 7,
+        "addedTriangles": 27,
+        "movedVertices": 3341,
+        "reprojectedTriangles": 0,
+        "maxRearOffsetM": 0.1,
+        "preserved": "All original joints, inverse binds, weights and eleven source animation buffers; original UVs except the three LOD2 central-fold triangles; backing copies boundary skin weights and samples the original blue-cloth atlas"
+      },
+      "banditFootAxeSha256": "907f8ee59f87389e12cf9f921b30c972159d1768b9355ee0c39ec22988163ede"
     },
     {
       "level": 2,
-      "triangles": 2623,
-      "bytes": 4869796,
-      "strategy": "Coincident vertices welded at 10 micrometers; Blender surface collapse retains loop UVs, interpolated weights remapped to unchanged source skin. Animation/bind bytes preserved."
+      "triangles": 2642,
+      "bytes": 5377284,
+      "strategy": "Existing source package with documented local posterior cape backing, rear clearance and LOD2 fold UV repair; original animation and bind payload retained.",
+      "derivedFromSha256": "32a62841f88d740066b37aed4ff4b858cef8c31ebe226c57bf60baeff09dd2c5",
+      "capeRepair": {
+        "version": 1,
+        "backedRegions": 5,
+        "addedTriangles": 19,
+        "movedVertices": 1316,
+        "reprojectedTriangles": 3,
+        "maxRearOffsetM": 0.1,
+        "preserved": "All original joints, inverse binds, weights and eleven source animation buffers; original UVs except the three LOD2 central-fold triangles; backing copies boundary skin weights and samples the original blue-cloth atlas"
+      },
+      "banditFootAxeSha256": "ad8eeef6de4c4165442cff0ade60336ea99d8c3250a1e2f35cbcbd28c20b0edc"
     }
   ]
 }

@@ -6,20 +6,23 @@
     {
       "level": 0,
       "triangles": 11117,
-      "bytes": 17017748,
-      "strategy": "Source geometry unchanged; wrapper normalization and texture resize only."
+      "bytes": 17322704,
+      "strategy": "Source geometry unchanged; wrapper normalization and texture resize only.",
+      "banditFootAxeSha256": "2d08e05d15a1690fa80a26066d1e579ed543a0c05b7a6d11d04b52d56a40bda9"
     },
     {
       "level": 1,
       "triangles": 4446,
-      "bytes": 6979056,
-      "strategy": "Coincident vertices welded at 10 micrometers; Blender surface collapse retains loop UVs, interpolated weights remapped to unchanged source skin. Animation/bind bytes preserved."
+      "bytes": 7283844,
+      "strategy": "Coincident vertices welded at 10 micrometers; Blender surface collapse retains loop UVs, interpolated weights remapped to unchanged source skin. Animation/bind bytes preserved.",
+      "banditFootAxeSha256": "c6ee94040c51bb8a7000c0c9102672d439efca92d42023bee865157b94be26ea"
     },
     {
       "level": 2,
       "triangles": 1555,
-      "bytes": 3380356,
-      "strategy": "Coincident vertices welded at 10 micrometers; Blender surface collapse retains loop UVs, interpolated weights remapped to unchanged source skin. Animation/bind bytes preserved."
+      "bytes": 3685144,
+      "strategy": "Coincident vertices welded at 10 micrometers; Blender surface collapse retains loop UVs, interpolated weights remapped to unchanged source skin. Animation/bind bytes preserved.",
+      "banditFootAxeSha256": "656a2e5376b09379477219c3b38304875637fc6591c7a3742354fa89f72c6741"
     }
   ]
 }

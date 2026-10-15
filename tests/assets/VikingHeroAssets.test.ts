@@ -67,7 +67,7 @@ describe.each(PACKAGES)('$assetId selected military asset', ({ assetId, joints, 
     const manifest = replacementManifest(assetId)
     expect(() => validateHumanoidManifest(descriptor.faction, manifest, descriptor)).not.toThrow()
     expect(manifest.selectedSource?.rig).toBe(sourceRig)
-    expect(manifest.animations!.embedded.map(binding => binding.clip).sort()).toEqual([...SOURCE_CLIPS].sort())
+    expect(manifest.animations!.embedded.map(binding => binding.clip).sort()).toEqual([...SOURCE_CLIPS, 'axeAttack1HFoot'].sort())
     const provenance = JSON.parse(readFileSync(`${directory}/manifest.json`, 'utf8')) as { source: { sourceSha256: string }; fileSha256: Record<string, string> }
     expect(provenance.source.sourceSha256).toMatch(/^[a-f0-9]{64}$/)
     for (const lod of [0, 1, 2]) expect(createHash('sha256').update(readFileSync(`${directory}/lod${lod}.glb`)).digest('hex')).toBe(provenance.fileSha256[`lod${lod}`])
@@ -100,7 +100,7 @@ describe.each(PACKAGES)('$assetId selected military asset', ({ assetId, joints, 
     })
     const manifest = replacementManifest(assetId)
     for (const [lod, source] of sourceLevels.entries()) {
-      expect(source.animations.map(clip => clip.name).sort()).toEqual([...SOURCE_CLIPS].sort())
+      expect(source.animations.map(clip => clip.name).sort()).toEqual([...SOURCE_CLIPS, 'axeAttack1HFoot'].sort())
       const skins: THREE.SkinnedMesh[] = []
       source.scene.traverse(node => { if (node instanceof THREE.SkinnedMesh) skins.push(node) })
       expect(skins.length).toBeGreaterThan(0)
@@ -243,14 +243,14 @@ describe.each(PACKAGES)('$assetId selected military asset', ({ assetId, joints, 
     animator.setShieldRaised(true); animator.update(0)
     legs.forEach((bone, index) => expect(bone.quaternion.angleTo(lower[index])).toBeLessThan(1e-6))
     if (assetId === 'roman') {
-      // Dedicated delivered shield calibration; the bow's thumb axis is opposite.
+      // Cylinder grip is unoriented; select the thumb-up sign so the wrist does not fold backward.
       // Formal 24mm handle radius is included in this source-derived center.
       const parent = new THREE.Group(); parent.rotation.set(.1, .7, -.15); parent.position.set(3, 2, -4); parent.add(actor.root)
       parent.updateMatrixWorld(true)
       const sourceCenter = actor.rig.left.wrist.localToWorld(new THREE.Vector3(-.030329620764362464, .0923977536855108, -.0020607458193645503))
       const sourceAxis = new THREE.Vector3(.1393293179178642, -.05320453400710903, .9888157658176921).transformDirection(actor.rig.left.wrist.matrixWorld)
       expect(shield.localToWorld(new THREE.Vector3(0, 0, .085)).distanceTo(sourceCenter)).toBeLessThan(1e-5)
-      expect(new THREE.Vector3(0, 1, 0).transformDirection(shield.matrixWorld).angleTo(sourceAxis)).toBeLessThan(1e-5)
+      expect(new THREE.Vector3(0, 1, 0).transformDirection(shield.matrixWorld).angleTo(sourceAxis.negate())).toBeLessThan(1e-5)
       actor.root.removeFromParent(); actor.root.updateMatrixWorld(true)
     }
     const center = shield.getWorldPosition(new THREE.Vector3())
@@ -318,7 +318,6 @@ it('Roman two-handed axe follows the animated source grip after LOD selection, t
   const pivot = new THREE.Group(), model = new THREE.Group()
   pivot.add(model); actor.rig.right.handSocket.add(pivot); WeaponMeshFactory.buildMelee('viking_axe_t2', model)
   applySwordAttachment(actor.rig.right.handSocket, pivot, model, actor.rig.swordGripFrame!)
-  const fixed = pivot.matrix.clone()
   const socket = actor.root.getObjectByName('socket_axe_2h_r')!
   expect(socket).toBeDefined()
   expect(pivot.userData.authoredAxeSocket).toBe(socket)
@@ -344,7 +343,7 @@ it('Roman two-handed axe follows the animated source grip after LOD selection, t
   animator.cancel(); parent.updateMatrixWorld(true)
   expect(pivot.userData.authoredAxeActive).toBe(false)
   expect(weaponGripWorld(model, new THREE.Vector3()).distanceTo(model.localToWorld(new THREE.Vector3(0, .15, 0)))).toBeLessThan(1e-5)
-  pivot.matrix.elements.forEach((value, index) => expect(value).toBeCloseTo(fixed.elements[index], 8))
+  pivot.matrix.elements.forEach((value, index) => expect(value).toBeCloseTo(pivot.userData.banditFootAxeAttachment.elements[index], 8))
   // Merely having the same socket on a Roman actor must not redirect swords.
   const sword = new THREE.Group(), swordModel = new THREE.Group(); sword.add(swordModel)
   actor.rig.right.handSocket.add(sword); WeaponMeshFactory.buildMelee('steel_sword', swordModel)
@@ -352,4 +351,49 @@ it('Roman two-handed axe follows the animated source grip after LOD selection, t
   const swordFixed = sword.matrix.clone()
   setSwordMountedAttachment(sword, false, 0, false, 'axeAttack2H')
   expect(sword.matrix.equals(swordFixed)).toBe(true)
+})
+
+// The nock is also the projectile launch anchor. Source-authored hands used to
+// skip contact registration and leave it at a generic draw-distance fallback.
+it.each(['roman', 'viking'] as const)('%s authored bow keeps the launch anchor on the animated draw hand', async assetId => {
+  const actor = await selectedHumanoidInstance(assetId)
+  onTestFinished(() => actor.dispose())
+  const { CharacterBowVisual } = await import('../../src/world/CharacterBowVisual')
+  const { applyBowAttachment } = await import('../../src/world/BowAttachmentContract')
+  const bow = new THREE.Group(), grip = new THREE.Group()
+  bow.add(grip); actor.rig.left.handSocket.add(bow)
+  applyBowAttachment(actor.rig.left.handSocket, bow)
+  const visual = new CharacterBowVisual(bow, grip, actor.root)
+  visual.rebuild('recurve_longbow')
+  onTestFinished(() => bow.traverse(node => {
+    if (node instanceof THREE.Mesh) { node.geometry.dispose(); for (const material of Array.isArray(node.material) ? node.material : [node.material]) material.dispose() }
+  }))
+  const animator = new CharacterCombatAnimator(actor.rig, new THREE.Group(), bow)
+  animator.setEquipment(false, false); animator.setLocomotion(0, false)
+  const nock = new THREE.Vector3(), hand = new THREE.Vector3(), origin = new THREE.Vector3(), direction = new THREE.Vector3()
+  const target = new THREE.Vector3(0, 1.4, 10)
+  for (const ratio of [.2, .5, .8, 1]) {
+    animator.poseBow(ratio); animator.update(1 / 60)
+    actor.root.updateMatrixWorld(true); visual.update(ratio, target, true)
+    visual.getNockPosition(nock); actor.rig.right.wrist.getWorldPosition(hand)
+    expect(nock.distanceTo(hand), `${assetId} charge ${ratio}: anchor remains within the authored hand`).toBeLessThan(.15)
+    const contact = actor.root.getObjectByName('bow_string_contact')!
+    expect(contact).toBeDefined()
+    expect(nock.distanceTo(contact.getWorldPosition(new THREE.Vector3()))).toBeLessThan(1e-5)
+    visual.writeLaunch(origin, direction, target)
+    expect(direction.dot(target.clone().sub(nock).normalize())).toBeGreaterThan(.99999)
+  }
+  expect(animator.start('bowRelease')).toBe(true)
+  let releases = 0
+  for (let frame = 0; frame < 60; frame++) {
+    const events = animator.update(1 / 120)
+    releases += Number(events.projectileRelease)
+    actor.root.updateMatrixWorld(true)
+    visual.update(1, target, releases === 0)
+    if (!releases) {
+      visual.getNockPosition(nock)
+      expect(nock.distanceTo(actor.rig.right.wrist.getWorldPosition(hand))).toBeLessThan(.15)
+    }
+  }
+  expect(releases).toBe(1)
 })

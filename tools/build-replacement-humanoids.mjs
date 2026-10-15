@@ -1,7 +1,7 @@
 /** Build the user-selected infantry/Varangian assets without re-exporting animation.
  * Usage: node tools/build-replacement-humanoids.mjs <extracted-library-root> [destination]
  * Requires Blender 4.3+ and Python/Pillow for image resize.
- * LOD0 retains the source position/normal/UV/joint/weight tuple. All
+ * LOD0 retains the source tuple except the documented posterior T4 cape repair. All
  * original skin inverse binds and animation accessor bytes remain unchanged.
  */
 import fs from 'node:fs'
@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process'
 import * as T from 'three'
 import { MeshoptSimplifier } from 'meshoptimizer'
 await MeshoptSimplifier.ready
+import { repairVarangianCape } from './lib/varangian-cape-clearance.mjs'
 import { readGlb, encodeGlb, loadRig } from './lib/humanoid-glb.mjs'
 const root = process.argv[2]
 if (!root) throw Error('Provide extracted Library source directory')
@@ -122,12 +123,21 @@ for(const def of definitions){
       const resized=execFileSync('python3',['-c','from PIL import Image\nimport io,sys\nim=Image.open(io.BytesIO(sys.stdin.buffer.read()))\ns=int(sys.argv[1]); im.thumbnail((s,s),Image.Resampling.LANCZOS)\no=io.BytesIO();im.save(o,format="PNG");sys.stdout.buffer.write(o.getvalue())',String(size)],{input:data,maxBuffer:50*1024*1024})
       image.bufferView=append(resized);image.mimeType='image/png'
     })
-    const bytes=compact(d,Buffer.concat(chunks));fs.writeFileSync(path.join(out,`lod${level}.glb`),bytes);fileSha256[`lod${level}`]=hash(bytes);metrics.triangles[`lod${level}`]=count;metrics.textures[`lod${level}`]=size
-    audits.push({level,triangles:count,bytes:bytes.length,strategy:level&&def.id==='viking'?'Index-only collapse preserves original vertex attributes; welded candidate rejected for new posterior dents.':level?'Coincident vertices welded at 10 micrometers; Blender surface collapse retains loop UVs, interpolated weights remapped to unchanged source skin. Animation/bind bytes preserved.':'Source geometry unchanged; wrapper normalization and texture resize only.'})
+    let bytes=compact(d,Buffer.concat(chunks)),repaired=null
+    const derivedFromSha256=hash(bytes)
+    if(def.rig==='varangian63'){
+      const jsonLength=bytes.readUInt32LE(12)
+      repaired=repairVarangianCape({document:JSON.parse(bytes.toString('utf8',20,20+jsonLength)),binary:bytes.subarray(28+jsonLength)})
+      count+=repaired.audit.addedTriangles
+      bytes=encodeGlb(repaired.document,repaired.binary)
+    }
+    fs.writeFileSync(path.join(out,`lod${level}.glb`),bytes);fileSha256[`lod${level}`]=hash(bytes);metrics.triangles[`lod${level}`]=count;metrics.textures[`lod${level}`]=size
+    audits.push({level,triangles:count,bytes:bytes.length,...(repaired?{derivedFromSha256,capeRepair:repaired.audit}:{}),strategy:level&&def.id==='viking'?'Index-only collapse preserves original vertex attributes; welded candidate rejected for new posterior dents.':level?'Coincident vertices welded at 10 micrometers; Blender surface collapse retains loop UVs, interpolated weights remapped to unchanged source skin. Animation/bind bytes preserved.':def.rig==='varangian63'?'Posterior cape backing and tapered rear clearance; all source animation and skin-bind bytes preserved.':'Source geometry unchanged; wrapper normalization and texture resize only.'})
   }
   const timing=JSON.parse(fs.readFileSync('tools/lib/replacement-humanoid-events.json'))[def.id]
   const bindings=source.document.animations.map(a=>{const clip=a.name,duration=Math.max(...a.samplers.map(s=>source.document.accessors[s.input].max[0]));return {clip,source:clip.startsWith('axeAttack')?'Meshy':['swordSlash','pilumThrow'].includes(clip)?'Quaternius':'Kevin Iglesias',sourceClip:clip,loop:['idle','walk','run','axeMountedIdle','bowHold'].includes(clip),duration,...(clip==='walk'?{nominalSpeed:2}:clip==='run'?{nominalSpeed:4}:{}),...(clip.startsWith('axeAttack')?{meleeCycleSeconds:.48}:{}),...(timing[clip]?{events:{...timing[clip],actionComplete:duration}}:{})}})
   const manifest={schemaVersion:1,id:def.id,status:'ready',skeleton:'project-humanoid-v1',source:{title:def.title,sourceArchive:def.archive,sourceEntry:def.file.split('/').slice(def.rig==='varangian63'?2:1).join('/'),sourceSha256:sourceSha,license:'User-supplied Meshy model and derived animation; mixed animation-source licenses retained in source-readme.txt',licenseEvidence:'source-readme.txt'},attribution:`${def.title}: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt.`,selectedSource:{rig:def.rig,uniformScale:1,seatBearing:JSON.parse(fs.readFileSync('tools/lib/replacement-humanoid-seats.json'))[def.id],...(def.rig==='varangian63'?{seatBearingMesh:'Varangian_Captain'}:{})},handShapeMode:'authored',preserveLodHandTopology:false,bakedEquipmentActions:['axeAttack1H','axeAttack2H'],files:{lod0:'lod0.glb',lod1:'lod1.glb',lod2:'lod2.glb'},metrics,animations:{embedded:bindings,runtimeGenerated:['mounted','death','hit','daggerSlash','greatswordSlash','lanceThrust','mountedLance']},fileSha256,visualAcceptance:'Runtime visual integration pending; structural LOD generation is not gameplay acceptance.',knownLimitations:[def.id==='viking'?'LOD2 exceeds target to preserve source UV/skin surface; lower-count welded candidate showed new posterior dents.':'Lower LODs use surface collapse with interpolated weights; game visual acceptance remains pending.',...(def.rig==='varangian63'?['Source review candidate retains angular inner-skirt folds/gaps under extreme knee flexion.']:[])]}
+  if(def.rig==='varangian63')manifest.modifications=['Posterior cape backing and tapered 10 cm rear clearance; three LOD2 central-fold UV triangles reprojected; source joints, weights and eleven clips preserved.']
   // Equipment calibration is provided by the integration stage. Preserve it on
   // rebuild; it is measured in the original local hand frame, unchanged here.
   const oldPath=path.join(out,'manifest.json'),old=fs.existsSync(oldPath)?JSON.parse(fs.readFileSync(oldPath)):{}

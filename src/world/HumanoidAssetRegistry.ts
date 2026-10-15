@@ -1,3 +1,4 @@
+import { prepareAuthoredBowContacts } from './BowDrawHand'
 import { configureMultiInfluenceSkinning, multiInfluenceSkinningPlugin } from './MultiInfluenceSkinning'
 import { prepareSelectedHumanoidSource, type SelectedHumanoidSource } from './SelectedHumanoidSource'
 import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodAnimations, optimizeSelectedAnimationClips } from './SelectedLodPose'
@@ -452,7 +453,7 @@ export class MixerController implements HumanoidAnimationController {
     this.equipmentState.sampledBowPose = false
     for (const actions of this.sampledBowActions) {
       const action = actions[0]
-      if (action?.enabled && action.getEffectiveWeight() > 1e-6) {
+      if (action?.isScheduled() && action.enabled && action.getEffectiveWeight() > 1e-6) {
         this.equipmentState.sampledBowPose = true
         break
       }
@@ -874,7 +875,13 @@ export class HumanoidAssetRegistry {
           if (!hammer || hammer.parent?.name !== 'hand_r' || !level.scene.getObjectByName('hammer_tip')) throw new Error(`${assetId}: missing authored hammer attachment`)
         } else if (!manifest.swordGripFrames || !manifest.handGripFrames) throw new Error(`${assetId}: missing asset grip calibration`)
       }
-      if (manifest.handShapeMode === 'authored') continue
+      if (manifest.handShapeMode === 'authored') {
+        if (manifest.selectedSource?.rig === 'ordinary22' || manifest.selectedSource?.rig === 'roman54') {
+          const frame = readHandFrame(manifest)
+          if (frame) prepareAuthoredBowContacts(level.scene, frame)
+        }
+        continue
+      }
       prepareBladeGrip(level.scene, faction)
       const handFrame = readHandFrame(manifest)
       if (handFrame) prepareBowGripShape(level.scene, handFrame, level === levels[0] ? undefined : levels[0].scene,
@@ -1069,6 +1076,9 @@ export class HumanoidAssetRegistry {
     if (template.manifest.selectedSource) {
       rig.rangedGripFrame = template.manifest.rangedGripFrames?.lod0 ?? rig.swordGripFrame
       rig.meleeTipFollowsVisual = true
+      rig.right.handSocket.userData.banditFootAxe = animation.has('axeAttack1HFoot')
+      rig.right.handSocket.userData.naturalFootAxeCarry = template.manifest.selectedSource.rig === 'roman54'
+      rig.right.handSocket.userData.vikingFootAxeCarry = ['ordinary22', 'varangian63'].includes(template.manifest.selectedSource.rig)
       const authoredAxeSocket = (primaryScene as THREE.Group).getObjectByName('socket_axe_2h_r')
       if (authoredAxeSocket) rig.right.handSocket.userData.authoredAxeSocket = authoredAxeSocket
       const authoredAxe1Socket = (primaryScene as THREE.Group).getObjectByName('socket_axe_1h_r')
