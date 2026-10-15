@@ -19,7 +19,7 @@ T1–T3 共有 **18 件武器、6 面盾牌**；另有以下共用 T4 裝備及 
 
 ## 共用 T4 裝備
 
-Roman／Viking 英雄可共用，保留各自英雄倍率。Career 沿用 Captain 解鎖與軍功購買，Custom Battle 限 T4 Player，Training Ground 沿用全部目錄物品。Maki 固定裝備不變。
+Campaign／Custom Battle 的 Roman／Viking 玩家 T1–T5 均可共用，保留各自英雄倍率；玩家角色選單可明確選擇 T1–T3 士兵外觀或既有 T4／T5 英雄，裝備不會改寫明確選定的士兵外觀。T5 僅開放玩家，NPC 仍使用原有 T1–T4 配置。Career 沿用 Captain 解鎖與軍功購買，Training Ground 沿用全部目錄物品。Maki 固定裝備不變。
 
 Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440；Captain／Commander 的 Roman／Viking 玩家皆可購買、裝備及分配給 RESERVE 私兵。`maki-ranger-bow-ranged` 是可交易的遠程弓；`maki-ranger-bow` 仍是不可交易的 Maki 近戰動作武器，招募或出售 Maki 不會產生可交易弓。HR T4 Captain 初始維持 T3 劍／斧與盾，升級須使用購入庫存。
 

@@ -293,7 +293,8 @@ export class Player {
 
   private readonly playableWorldBound: number
 
-  constructor(scene: THREE.Scene, private readonly visualFaction: 'viking' | 'roman' = 'viking', readonly heroAssetId?: HeroAssetId | null) {
+  constructor(scene: THREE.Scene, private readonly visualFaction: 'viking' | 'roman' = 'viking', readonly heroAssetId?: HeroAssetId | null,
+    private readonly visualTier?: 1 | 2 | 3) {
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.group = new THREE.Group()
     this.group.name = 'player'
@@ -317,7 +318,7 @@ export class Player {
     this.shieldCollider = new ShieldCollider(this.shieldPivot, this.shield)
 
     try {
-      this._buildMesh(2)
+      this._buildMesh(this.visualTier ?? 2)
 
       const heroCombat = this.heroAssetId ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId]) : null
       if (heroCombat) this.setMaxHp(heroCombat.maxHp)
@@ -853,7 +854,7 @@ export class Player {
     const leftMouseDown = combatEnabled && input.isLeftMouseDown
     const rightMouseDown = combatEnabled && input.isRightMouseDown
 
-    const visualTier = Math.min(3, Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2)) as 1 | 2 | 3
+    const visualTier = this.visualTier ?? Math.min(3, Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2)) as 1 | 2 | 3
     if (visualTier !== this.currentArmorTier) this._buildMesh(visualTier)
 
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)

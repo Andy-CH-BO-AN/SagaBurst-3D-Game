@@ -102,6 +102,7 @@ export interface DefenseCampaignLaunchConfig {
   defenderArmy: Record<string, UnitTierCounts>
   playerLoadout: PlayerLoadoutConfig
   playerHeroId?: PlayerHeroId | null
+  playerVisualTier?: UnitTier
   playerMountAppearanceVariant?: HorseAppearanceVariant
   commandGrouping?: CommandGroupingMode
   squadAssignments?: SquadAssignment[]
@@ -210,6 +211,9 @@ export function validateDefenseCampaignLaunchConfig(
     ? isHeroAssetId : isSetupPlayerHeroId
   if (config.playerHeroId !== undefined && config.playerHeroId !== null && !isAllowedPlayerHero(config.playerHeroId)) {
     errors.push('Invalid player Hero')
+  }
+  if (config.playerVisualTier !== undefined && !(BASE_UNIT_TIERS as readonly unknown[]).includes(config.playerVisualTier)) {
+    errors.push('Invalid player visual tier')
   }
   if (veteranOutpost) {
     const expectedKind = veteranOutpost.templateId === 'veteran-dread-outpost'
@@ -578,6 +582,7 @@ export function createDefenseCampaignWaveConfig(
     playerHp: COMBAT_BALANCE.hp.playerDefault,
     playerLoadout: { ...launch.playerLoadout },
     playerHeroId: launch.playerHeroId,
+    playerVisualTier: launch.playerVisualTier,
     squadAssignments: wave === 'defenders'
       ? launch.squadAssignments?.map(assignment => ({ ...assignment }))
       : [],

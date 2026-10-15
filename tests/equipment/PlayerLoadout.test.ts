@@ -12,6 +12,8 @@ import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { preloadTinyRangerBow } from '../helpers/rangerBowVisual'
 import type { CharacterRig } from '../../src/world/CharacterVisuals'
 import { WeaponMeshFactory } from '../../src/world/WeaponMeshFactory'
+import * as CharacterVisuals from '../../src/world/CharacterVisuals'
+import * as PaladinEquipment from '../../src/world/PaladinEquipment'
 
 const battleConfig = (): BattleConfig => ({
   viking: { ...createEmptyArmyConfig(), infantry: { 1: 1, 2: 0, 3: 0 } },
@@ -20,6 +22,39 @@ const battleConfig = (): BattleConfig => ({
 })
 
 describe('Player loadout configuration', () => {
+  it.each((['roman', 'viking'] as const).flatMap(faction => ([1, 2, 3] as const).map(tier => ({ faction, tier }))))(
+    '$faction T$tier retains its selected soldier rig while equipping T4 melee and shield through the real update loop', ({ faction, tier }) => {
+      // One real Player; asset construction alone uses an empty visual, no GLBs/NPCs/world.
+      const equipment = vi.spyOn(PaladinEquipment, 'createPaladinEquipment').mockImplementation(() => new THREE.Group())
+      const build = vi.spyOn(CharacterVisuals, 'buildCharacterVisual')
+      onTestFinished(() => { equipment.mockRestore(); build.mockRestore() })
+      const player = new Player(new THREE.Scene(), faction, null, tier)
+      onTestFinished(() => player.dispose())
+      const inventory = new InventoryManager({ meleeWeaponId: 'paladin_mace_t4', rangedWeaponId: 'elven_runebow', shieldId: 'paladin_shield_t4' })
+      player.update(0, { keys: {}, isLeftMouseDown: false, isRightMouseDown: true,
+        consumeLeftClick: () => false, consumeLeftClickRelease: () => false }, 0, new THREE.Vector3(), [],
+      { setFill() {} }, { setShieldBlocked() {}, setAiming() {}, setChargeRatio() {} }, { playBowRelease() {} }, inventory)
+      expect(build).toHaveBeenCalledExactlyOnceWith(expect.any(THREE.Group), { faction, tier, isPlayer: true })
+      expect(equipment).toHaveBeenCalledWith('paladin_mace_t4')
+      expect(equipment).toHaveBeenCalledWith('paladin_shield_t4')
+      expect(player.shield.shieldRaised).toBe(true)
+      expect(player.heroAssetId).toBeNull()
+    },
+  )
+
+  it.each([
+    ['meleeWeaponId', 'paladin_shield_t4'],
+    ['rangedWeaponId', 'paladin_sword_t4'],
+    ['shieldId', T4_RANGER_BOW_RANGED_ID],
+  ])('rejects a T4 item in the wrong %s slot', (slot, id) => {
+    const config = { ...battleConfig(), playerLoadout: { meleeWeaponId: 'paladin_sword_t4', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: 'paladin_shield_t4', startMounted: false, [slot]: id } }
+    expect(validateBattleConfig(config).valid).toBe(false)
+  })
+
+  it.each([0, 4, 5, '1', null])('rejects invalid explicit soldier visual tier %s', playerVisualTier => {
+    expect(validateBattleConfig({ ...battleConfig(), playerVisualTier }).valid).toBe(false)
+  })
+
   it.each(['dispose', 'equipment tier rebuild'] as const)('%s releases the retired player skeleton while retaining shared model resources', action => {
     // One real Player with a tiny caller-owned skin; no GLB or renderer.
     const player = new Player(new THREE.Scene())

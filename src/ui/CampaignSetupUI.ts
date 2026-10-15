@@ -56,6 +56,7 @@ export class CampaignSetupUI {
   private defenderArmy: Record<string, UnitTierCounts> = {}
   private playerLoadout: PlayerLoadoutConfig | null = null
   private playerHeroId: SetupPlayerHeroId | null = null
+  private playerVisualTier?: BaseUnitTier
   private commandGrouping: CommandGroupingMode = 'preset'
   private squadAssignments: SquadAssignment[] = []
   private selectedSquadId: SquadId = 1
@@ -334,8 +335,9 @@ export class CampaignSetupUI {
           <label class="campaign-loadout-field">
             <span>玩家角色 / PLAYER CHARACTER</span>
             <select id="campaign-player-hero">
-              <option value="" ${!this.playerHeroId ? 'selected' : ''}>一般士兵 Standard</option>
-              ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}" ${this.playerHeroId === id ? 'selected' : ''}>${HERO_ASSETS[id].nameZh} T4 · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
+              <option value="" ${!this.playerHeroId && !this.playerVisualTier ? 'selected' : ''}>一般士兵 Standard</option>
+              ${BASE_UNIT_TIERS.map(tier => `<option value="${tier}" ${!this.playerHeroId && this.playerVisualTier === tier ? 'selected' : ''}>一般士兵 T${tier} · Standard</option>`).join('')}
+              ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}" ${this.playerHeroId === id ? 'selected' : ''}>${HERO_ASSETS[id].nameZh} ${id.endsWith('t5') ? 'T5' : 'T4'} · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
             </select>
           </label>
           <label class="campaign-loadout-field">
@@ -434,8 +436,11 @@ export class CampaignSetupUI {
     })
     this.container.querySelector('#campaign-player-hero')?.addEventListener('change', event => {
       const heroId = (event.target as HTMLSelectElement).value
-      if (heroId !== '' && !isSetupPlayerHeroId(heroId)) return
-      this.playerHeroId = heroId || null
+      const tier = Number(heroId) as BaseUnitTier
+      const soldier = BASE_UNIT_TIERS.includes(tier)
+      if (heroId !== '' && !soldier && !isSetupPlayerHeroId(heroId)) return
+      this.playerHeroId = isSetupPlayerHeroId(heroId) ? heroId : null
+      this.playerVisualTier = soldier ? tier : undefined
       if (this.playerHeroId === 'maki-archer-t4' && this.playerLoadout
         && WEAPONS[this.playerLoadout.rangedWeaponId]?.combatKind !== 'bow') {
         this.playerLoadout.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
@@ -731,6 +736,7 @@ export class CampaignSetupUI {
       defenderArmy: this._cloneArmy(),
       playerLoadout: { ...playerLoadout },
       playerHeroId: this.playerHeroId,
+      playerVisualTier: this.playerVisualTier,
       commandGrouping: this.commandGrouping,
       squadAssignments: this.commandGrouping === 'squad'
         ? this.squadAssignments.map(assignment => ({ ...assignment }))

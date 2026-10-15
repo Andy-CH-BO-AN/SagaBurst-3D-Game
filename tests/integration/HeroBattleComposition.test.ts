@@ -59,10 +59,11 @@ describe('T4 Hero Custom Battle domain', () => {
     }
     if (hero === 'maki-archer-t4') expect(inventory.equippedMelee.id).toBe('maki-ranger-bow')
   })
-  it('Custom Battle accepts shared T4 items for either hero and rejects an ordinary player', () => {
+  it('Custom Battle accepts shared T4 items for ordinary players and heroes while preserving Career validation', () => {
     const config = battle()
     config.playerLoadout = { meleeWeaponId: 'paladin_mace_t4', rangedWeaponId: 'elven_runebow', shieldId: 'paladin_shield_t4', startMounted: false }
-    expect(validateBattleConfig(config).valid).toBe(false)
+    expect(validateBattleConfig(config).valid).toBe(true)
+    expect(validateBattleConfig({ ...config, careerEagleMissionId: 'career:eagle:1' }).valid).toBe(false)
     for (const hero of ['roman-hero-t4', 'viking-hero-t4'] as const) {
       config.playerHeroId = hero
       expect(validateBattleConfig(config).valid).toBe(true)
@@ -230,16 +231,27 @@ describe('Commander profiles and mode eligibility', () => {
     })
   })
 
-  it.each(['roman-hero-t5', 'viking-hero-t5'] as const)('%s is available to runtime but rejected by Custom Battle and Campaign setup', asset => {
+  it.each(['roman-hero-t5', 'viking-hero-t5'] as const)('%s is selectable by free-battle players without altering NPC rosters or Career launch identity', asset => {
     expect(isHeroAssetId(asset)).toBe(true)
-    expect(SETUP_PLAYER_HERO_IDS).toEqual(['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4'])
-    expect(validateBattleConfig({ ...battle(), playerHeroId: asset }).valid).toBe(false)
+    expect(SETUP_PLAYER_HERO_IDS).toContain(asset)
+    const custom = { ...battle(), playerHeroId: asset }
+    expect(validateBattleConfig(custom).valid).toBe(true)
+    expect(BattleSpawner.createSpawnPlan(custom).npcSpecs).toEqual(BattleSpawner.createSpawnPlan(battle()).npcSpecs)
+    expect(validateBattleConfig({ ...custom, viking: { viking_berserker: { 1: 1, 2: 0, 3: 0, 5: 1 } } }).valid).toBe(false)
     expect(validateBattleConfig({ ...battle(), careerEagleMissionId: 'career:eagle:1', playerHeroId: asset }).valid).toBe(true)
-    expect(validateDefenseCampaignLaunchConfig({
+    const campaign = {
       type: 'defense', defenderFaction: 'roman', stageId: 1,
       defenderArmy: { roman_heavy_infantry: { 1: 1, 2: 0, 3: 0 } },
       playerLoadout: createDefaultDefensePlayerLoadout('roman'), playerHeroId: asset,
-    }).valid).toBe(false)
+    } as const
+    expect(validateDefenseCampaignLaunchConfig(campaign).valid).toBe(true)
+    expect(validateDefenseCampaignLaunchConfig({ ...campaign, defenderArmy: { roman_heavy_infantry: { 1: 1, 2: 0, 3: 0, 5: 1 } } }).valid).toBe(false)
+    for (const wave of ['defenders', 'attackers', 'reinforcement'] as const) {
+      const config = createDefenseCampaignWaveConfig(campaign, wave)
+      expect(config.playerHeroId).toBe(asset)
+      expect(BattleSpawner.createSpawnPlan(config).npcSpecs).toEqual(BattleSpawner.createSpawnPlan(
+        createDefenseCampaignWaveConfig({ ...campaign, playerHeroId: null }, wave)).npcSpecs)
+    }
     const career = {
       type: 'defense' as const, defenderFaction: 'roman' as const, stageId: 1 as const,
       defenderArmy: { roman_heavy_infantry: { 1: 1, 2: 0, 3: 0 } },
@@ -268,6 +280,12 @@ describe('Commander profiles and mode eligibility', () => {
     npc.takeDamage(100)
     expect(player.hp).toBe(damagedHp)
     expect(npc.hp).toBe(damagedHp)
+    player.takeDamage(maxHp * 3, { setFill: () => {} })
+    expect(player.dead).toBe(true)
+    player.restoreForTown()
+    expect(player.dead).toBe(false)
+    expect(player.hp).toBe(maxHp)
+    expect(player.heroAssetId).toBe(asset)
     expect(npc.rangedDamage).toBeCloseTo(WEAPONS.elven_runebow.damageMax * getRangedDamageMultiplier('bow') * 2.2)
     expect(npc.maxRangedAttackDistance).toBe(50)
     npc.respawn()

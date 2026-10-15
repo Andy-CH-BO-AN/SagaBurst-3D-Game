@@ -54,6 +54,20 @@ function launch(
 }
 
 describe('Defense Campaign Stage 1 launch config', () => {
+  it.each([
+    ['meleeWeaponId', 'paladin_shield_t4', 'Invalid player melee weapon'],
+    ['rangedWeaponId', 'paladin_sword_t4', 'Invalid player ranged weapon'],
+    ['shieldId', T4_RANGER_BOW_RANGED_ID, 'Invalid player shield'],
+  ])('rejects a T4 item in the wrong %s slot', (slot, id, error) => {
+    const config = launch('roman', true)
+    expect(validateDefenseCampaignLaunchConfig(config).valid).toBe(true)
+    expect(validateDefenseCampaignLaunchConfig({ ...config, playerLoadout: { ...config.playerLoadout, [slot]: id } }).errors).toContain(error)
+  })
+
+  it.each([0, 4, 5, '1', null])('rejects invalid explicit soldier visual tier %s', playerVisualTier => {
+    expect(validateDefenseCampaignLaunchConfig({ ...launch('roman', true), playerVisualTier }).errors).toContain('Invalid player visual tier')
+  })
+
   it('starts with no default defenders so the player builds the army', () => {
     expect(calculateArmyTotal(createDefaultDefenseArmy('roman', 1))).toBe(0)
     expect(calculateArmyTotal(createDefaultDefenseArmy('viking', 1))).toBe(0)

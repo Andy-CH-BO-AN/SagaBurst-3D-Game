@@ -33,6 +33,8 @@ import { ARMORS } from '../rpg/ArmorDatabase'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import {
   getUnitPresetsForFaction,
+  BASE_UNIT_TIERS,
+  type BaseUnitTier,
   type UnitPresetId,
 } from '../battle/UnitPresetCatalog'
 import { SETUP_PLAYER_HERO_IDS, HERO_ASSETS, getHeroFixedEquipment, isSetupPlayerHeroId } from '../world/HeroAssetCatalog'
@@ -168,7 +170,8 @@ export class BattleSetupUI {
         <label class="campaign-loadout-field">玩家角色 / PLAYER CHARACTER
           <select id="battle-player-hero">
             <option value="">一般士兵 Standard</option>
-            ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} T4 · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
+            ${BASE_UNIT_TIERS.map(tier => `<option value="${tier}">一般士兵 T${tier} · Standard</option>`).join('')}
+            ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} ${id.endsWith('t5') ? 'T5' : 'T4'} · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
           </select>
         </label>
         <p id="battle-fixed-equipment" hidden>遊俠固定使用 T4 弓作近戰，不攜帶盾牌。</p>
@@ -387,15 +390,14 @@ export class BattleSetupUI {
     // Number Inputs
     this.container.querySelector<HTMLSelectElement>('#battle-player-hero')?.addEventListener('change', event => {
       const heroId = (event.target as HTMLSelectElement).value
-      if (heroId !== '' && !isSetupPlayerHeroId(heroId)) return
-      this.config.playerHeroId = heroId || null
+      const tier = Number(heroId) as BaseUnitTier
+      const soldier = BASE_UNIT_TIERS.includes(tier)
+      if (heroId !== '' && !soldier && !isSetupPlayerHeroId(heroId)) return
+      this.config.playerHeroId = isSetupPlayerHeroId(heroId) ? heroId : null
+      this.config.playerVisualTier = soldier ? tier : undefined
       if (this.config.playerHeroId === 'maki-archer-t4'
         && WEAPONS[this.config.playerLoadout?.rangedWeaponId ?? '']?.combatKind !== 'bow') {
         this.config.playerLoadout!.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
-      }
-      if (!this.config.playerHeroId && this.config.playerLoadout) {
-        if (this.config.playerLoadout.meleeWeaponId.startsWith('paladin_')) this.config.playerLoadout.meleeWeaponId = 'steel_lance'
-        if (this.config.playerLoadout.shieldId === 'paladin_shield_t4') this.config.playerLoadout.shieldId = 'round_shield_t3'
       }
       this._refreshView()
     })
@@ -479,7 +481,6 @@ export class BattleSetupUI {
         const target = card as HTMLElement
         if (getHeroFixedEquipment(this.config.playerHeroId) && ['melee', 'shield'].includes(target.dataset.loadoutKind ?? '')) return
         const id = target.dataset.loadoutId || null
-        if (!this.config.playerHeroId && id?.startsWith('paladin_')) return
         if (this.config.playerHeroId === 'maki-archer-t4' && target.dataset.loadoutKind === 'ranged'
           && WEAPONS[id ?? '']?.combatKind !== 'bow') return
         switch (target.dataset.loadoutKind) {
@@ -507,6 +508,7 @@ export class BattleSetupUI {
       const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
       const currentLoadout = this.config.playerLoadout
       const currentHero = this.config.playerHeroId
+      const currentVisualTier = this.config.playerVisualTier
       this.config = JSON.parse(JSON.stringify(preset))
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
@@ -517,6 +519,7 @@ export class BattleSetupUI {
       this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
       this.config.playerHeroId = currentHero
+      this.config.playerVisualTier = currentVisualTier
       this.config.squadAssignments = undefined
       this._refreshView()
     }
@@ -534,6 +537,7 @@ export class BattleSetupUI {
       const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
       const currentLoadout = this.config.playerLoadout
       const currentHero = this.config.playerHeroId
+      const currentVisualTier = this.config.playerVisualTier
       this.config = createEmptyBattleConfig()
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
@@ -544,6 +548,7 @@ export class BattleSetupUI {
       this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
       this.config.playerHeroId = currentHero
+      this.config.playerVisualTier = currentVisualTier
       this.config.squadAssignments = undefined
       this._refreshView()
     })
@@ -949,7 +954,7 @@ export class BattleSetupUI {
     const fixedNotice = this.container.querySelector<HTMLElement>('#battle-fixed-equipment')
     if (fixedNotice) fixedNotice.hidden = !fixedEquipment
     const heroSelect = this.container.querySelector<HTMLSelectElement>('#battle-player-hero')
-    if (heroSelect) heroSelect.value = this.config.playerHeroId ?? ''
+    if (heroSelect) heroSelect.value = this.config.playerHeroId ?? String(this.config.playerVisualTier ?? '')
     const armyPanel = document.getElementById('setup-army-panel')
     const loadoutPanel = document.getElementById('setup-loadout-panel')
     const armyTab = document.getElementById('setup-tab-army')
@@ -964,8 +969,7 @@ export class BattleSetupUI {
     if (loadout) {
       this.container.querySelectorAll('.loadout-card').forEach(card => {
         const el = card as HTMLButtonElement
-        const locked = (!this.config.playerHeroId && Boolean(el.dataset.loadoutId?.startsWith('paladin_')))
-          || (Boolean(fixedEquipment) && ['melee', 'shield'].includes(el.dataset.loadoutKind ?? ''))
+        const locked = (Boolean(fixedEquipment) && ['melee', 'shield'].includes(el.dataset.loadoutKind ?? ''))
           || (this.config.playerHeroId === 'maki-archer-t4' && el.dataset.loadoutKind === 'ranged'
             && WEAPONS[el.dataset.loadoutId ?? '']?.combatKind !== 'bow')
         el.disabled = locked

@@ -5,8 +5,8 @@ export const HERO_ASSET_IDS = ['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t
 export type HeroAssetId = typeof HERO_ASSET_IDS[number]
 export type PlayerHeroId = HeroAssetId
 
-/** Custom Battle and Campaign share this explicit list. Commanders unlock in Career. */
-export const SETUP_PLAYER_HERO_IDS = ['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4'] as const satisfies readonly HeroAssetId[]
+/** Player-only choices for Custom Battle and Campaign; NPC tiers and Career unlocks are independent. */
+export const SETUP_PLAYER_HERO_IDS = ['viking-hero-t4', 'roman-hero-t4', 'maki-archer-t4', 'viking-hero-t5', 'roman-hero-t5'] as const satisfies readonly HeroAssetId[]
 export type SetupPlayerHeroId = typeof SETUP_PLAYER_HERO_IDS[number]
 
 export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; descriptor: HumanoidAssetDescriptor }> = {
