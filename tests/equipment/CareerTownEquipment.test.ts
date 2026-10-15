@@ -5,7 +5,10 @@ import { addCareerItem, availableCareerItem, careerItemAllocated, careerItemTota
 import { recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import { bulkCareerEquipment, changeTownEquipment, townEquipmentSquads, resolveTownActorEquipment, careerEquipmentCategory, townNativeItems,
   type TownEquipmentContext } from '../../src/career/CareerTownEquipment'
+import { sellTownProduct } from '../../src/town/TownRules'
+import { sellTownNativeEquipment, sellTownNativeProducts, townNativeSaleStock, type TownNativeSaleContext } from '../../src/career/CareerTownNativeResale'
 import { townEquipmentActorSpecs } from '../../src/career/CareerTownEquipmentState'
+import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 /** Real domain and JSON storage; zero NPC/Mount/TownWorld/asset construction. */
@@ -291,5 +294,207 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(loaded.townEquipment).toBeUndefined(); expect(loaded.inventory!.quantities).toEqual({})
     expect(resolveTownActorEquipment(loaded, faction, 'merchant').loadout.meleeWeaponId).toBe('paladin_sword_t4')
     expect(townEquipmentActorSpecs(faction).length).toBeGreaterThan(210)
+  })
+})
+
+/** Native sale policies use pure domain fixtures and real JSON persistence, with zero actors/assets. */
+function resaleHarness(faction: CareerProfile['faction'] = 'roman') {
+  const h = harness(faction)
+  const context: TownNativeSaleContext = { townFaction: faction, peaceful: true, playerAlive: true, merchantAvailable: true }
+  return { ...h, saleContext: context,
+    sell: (ids: string[], save = h.save) => sellTownNativeEquipment(h.read, () => context, ids, save),
+    sellProduct: (itemId: string, quantity: number) => sellTownNativeProducts(h.read, () => context, [{ itemId, quantity }], h.save),
+    retire(actor = 'gate:north:0') {
+      const token = resolveTownActorEquipment(h.read(), faction, actor).refs.melee!
+      h.buy('paladin_sword_t4'); expect(h.change(actor, 'melee', 'paladin_sword_t4').changed).toBe(true)
+      return token.nativeId!
+    },
+  }
+}
+describe('Commander native equipment resale and permanent token ownership', () => {
+  it('sells an unloaded T2 sword once for 360 available merit and never adds it to Inventory', () => {
+    const h = resaleHarness(), id = h.retire(), before = cloneCareerProfile(h.read())
+    const result = h.sell([id])
+    expect(result).toMatchObject({ sold: true, soldCount: 1, earnedMerit: 360 })
+    expect(h.read().availableMerit).toBe(before.availableMerit + 360)
+    expect(h.read().totalMerit).toBe(before.totalMerit)
+    expect(h.read().townEquipment!.roman!.nativeReserve).not.toContain(id)
+    expect(h.read().townEquipment!.roman!.soldNativeIds).toEqual([id])
+    expect(careerItemTotal(h.read(), 'gladius_standard')).toBe(0)
+    expect(h.sell([id])).toMatchObject({ sold: false, earnedMerit: 0 })
+    expect(h.reload().availableMerit).toBe(before.availableMerit + 360)
+  })
+  it.each([
+    ['gate:north:0', 'shield', null, 'scutum_t2', 324],
+    ['gate:north:7', 'ranged', 'maki-ranger-bow-ranged', 'recurve_longbow', 360],
+    ['commander', 'melee', 'paladin_mace_t4', 'paladin_sword_t4', 1440],
+  ] as const)('prices unloaded %s %s from the shop catalog', (actor, slot, replacement, productId, refund) => {
+    const h = resaleHarness(), token = resolveTownActorEquipment(h.read(), 'roman', actor).refs[slot]!
+    expect(token.itemId).toBe(productId)
+    if (replacement) h.buy(replacement)
+    expect(h.change(actor, slot, replacement).changed).toBe(true)
+    expect(h.sell([token.nativeId!])).toMatchObject({ sold: true, earnedMerit: refund })
+  })
+  it.each([0, -1, 1.5, 2, Number.MAX_SAFE_INTEGER])('rejects invalid or unavailable product quantity %s without saving', quantity => {
+    const h = resaleHarness(); h.retire(); const before = cloneCareerProfile(h.read())
+    expect(h.sellProduct('gladius_standard', quantity).sold).toBe(false)
+    expect(h.read()).toEqual(before)
+  })
+  it('rejects merit overflow and an incomplete native ownership partition before saving', () => {
+    const h = resaleHarness(), id = h.retire()
+    h.read().availableMerit = Number.MAX_SAFE_INTEGER
+    const before = cloneCareerProfile(h.read())
+    expect(h.sell([id])).toMatchObject({ sold: false, reason: 'invalid-quantity' })
+    expect(h.read()).toEqual(before)
+    h.read().availableMerit = 0
+    // A sparse custom entry drops a real shield without reserving or selling it.
+    h.read().townEquipment!.roman!.actors['gate:north:1'] = { ...resolveTownActorEquipment(h.read(), 'roman', 'gate:north:1').refs, shield: null }
+    let saves = 0
+    expect(h.sell([id], () => { saves++; return true }).sold).toBe(false)
+    expect(saves).toBe(0)
+  })
+  it('sells three of five same-item tokens in stable nativeId order and rejects overselling', () => {
+    const h = resaleHarness(), actors = townNativeItems('roman').filter(item => item.slot === 'melee' && item.itemId === 'gladius_standard').slice(0, 5)
+    const ids = actors.map(item => h.retire(item.actorId)).sort(), before = h.read().availableMerit
+    expect(h.sellProduct('gladius_standard', 3)).toMatchObject({ sold: true, soldCount: 3, earnedMerit: 1080 })
+    expect(h.read().townEquipment!.roman!.soldNativeIds).toEqual(ids.slice(0, 3))
+    expect(townNativeSaleStock(h.read(), 'roman').find(entry => entry.product.id === 'gladius_standard')!.nativeIds).toEqual(ids.slice(3))
+    expect(h.sellProduct('gladius_standard', 3).sold).toBe(false)
+    expect(h.read().availableMerit).toBe(before + 1080)
+  })
+  it('keeps native, Player, HR and town inventory allocations distinct for the same item', () => {
+    const h = resaleHarness(), member = h.hire(), id = h.retire()
+    h.context.safeActorIds = new Set([...h.context.safeActorIds, member])
+    h.buy('gladius_standard', 4)
+    h.read().equipment = { melee: 'gladius_standard' }
+    expect(h.change(member, 'melee', 'gladius_standard').changed).toBe(true)
+    expect(h.change('civilian-0', 'melee', 'gladius_standard').changed).toBe(true)
+    expect(availableCareerItem(h.read(), 'gladius_standard')).toBe(1)
+    expect(h.sell([id]).earnedMerit).toBe(360)
+    expect(careerItemTotal(h.read(), 'gladius_standard')).toBe(4)
+    const inventory = sellTownProduct(h.read(), 'gladius_standard')
+    expect(inventory).toMatchObject({ sold: true, earnedMerit: 360 })
+    expect(h.save(inventory.profile)).toBe(true)
+    expect(careerItemTotal(h.read(), 'gladius_standard')).toBe(3)
+    expect(sellTownProduct(h.read(), 'gladius_standard').reason).toBe('allocated')
+    expect(resolveTownActorEquipment(h.read(), 'roman', 'gate:north:1').refs.melee?.source).toBe('native')
+    expect(h.read().personalSquad!.members[0].equipment!.melee).toBe('gladius_standard')
+  })
+  it('rejects a transferred native sword until its recipient actually unloads it', () => {
+    const h = resaleHarness(), squad = townEquipmentSquads(h.read())[0]
+    const actors = squad.actorIds.map(id => resolveTownActorEquipment(h.read(), 'roman', id))
+    const a = actors.find(actor => actor.refs.melee?.itemId === 'gladius_standard')!, b = actors.find(actor => actor.refs.melee?.itemId === 'gladius_rusty')!
+    const id = a.refs.melee!.nativeId!
+    h.context.safeActorIds = new Set([a.spec.id, b.spec.id]); h.buy('centurion_blade')
+    expect(h.bulk(1, 'sword').changed).toBe(true)
+    expect(resolveTownActorEquipment(h.read(), 'roman', b.spec.id).refs.melee?.nativeId).toBe(id)
+    expect(h.sell([id]).sold).toBe(false)
+    h.buy('paladin_sword_t4'); expect(h.change(b.spec.id, 'melee', 'paladin_sword_t4').changed).toBe(true)
+    expect(h.sell([id]).earnedMerit).toBe(360)
+    expect(h.reload().townEquipment!.roman!.soldNativeIds).toEqual([id])
+  })
+  it('suppresses sold tokens at sparse default origins across repeated reloads and reserve rebuilds', () => {
+    const h = resaleHarness(), id = 'roman/gate:north:0/shield'
+    h.read().townEquipment = { roman: { version: 1, actors: {}, nativeReserve: [id] } }
+    expect(h.save(h.read())).toBe(true)
+    expect(h.sell([id]).earnedMerit).toBe(324)
+    for (let round = 0; round < 3; round++) {
+      h.reload()
+      expect(h.read().townEquipment!.roman!.actors['gate:north:0']).toBeUndefined()
+      expect(resolveTownActorEquipment(h.read(), 'roman', 'gate:north:0').refs.shield).toBeNull()
+    }
+    h.retire('gate:north:1')
+    expect(h.read().townEquipment!.roman!.nativeReserve).not.toContain(id)
+    expect(h.read().townEquipment!.roman!.soldNativeIds).toEqual([id])
+    h.bulk(1, 'sword')
+    expect(h.read().townEquipment!.roman!.nativeReserve).not.toContain(id)
+    expect(h.read().townEquipment!.roman!.soldNativeIds).toEqual([id])
+  })
+  it('preserves the other faction through sale, clone, normalization and JSON reload', () => {
+    const h = resaleHarness(), viking = harness('viking'); viking.buy('paladin_sword_t4'); viking.change('gate:north:0', 'melee', 'paladin_sword_t4')
+    h.buy('paladin_sword_t4')
+    h.read().townEquipment = cloneCareerProfile(viking.read()).townEquipment
+    const before = cloneCareerProfile(h.read()).townEquipment!.viking
+    const id = h.retire(); expect(h.sell([id]).sold).toBe(true)
+    expect(h.reload().townEquipment!.viking).toEqual(before)
+    expect(h.read().townEquipment!.roman!.soldNativeIds).toEqual([id])
+  })
+  it.each(['captain', 'veteran'] as const)('rejects a %s with Commander merit until formal appointment', rank => {
+    const h = resaleHarness(), id = h.retire(); h.set({ ...h.read(), rank })
+    expect(h.sell([id])).toMatchObject({ sold: false, reason: 'rank-locked', earnedMerit: 0 })
+    expect(h.read().townEquipment!.roman!.nativeReserve).toContain(id)
+  })
+  it.each(['enemy-town', 'hostile', 'dead', 'merchant-unavailable', 'saved-hostility', 'mission', 'outpost'] as const)('rechecks live %s state before saving', state => {
+    const h = resaleHarness(), id = h.retire(); let saves = 0
+    if (state === 'enemy-town') h.saleContext.townFaction = 'viking'
+    if (state === 'hostile') h.saleContext.peaceful = false
+    if (state === 'dead') h.saleContext.playerAlive = false
+    if (state === 'merchant-unavailable') h.saleContext.merchantAvailable = false
+    if (state === 'saved-hostility') h.read().townEvent = { id: 'hostile', state: 'hostile' }
+    if (state === 'mission') h.read().activeMission = createActiveCareerMission('bandit-camp', 0, 0, 0, 'active')
+    if (state === 'outpost') h.read().activeOutpostMission = { id: 'outpost', kind: 'outpost-defense', stageId: 1, acceptedAt: 0 }
+    const before = cloneCareerProfile(h.read())
+    expect(h.sell([id], () => { saves++; return true }).sold).toBe(false)
+    expect(saves).toBe(0); expect(h.read()).toEqual(before)
+  })
+  it.each(['false', 'throw'] as const)('rolls back all tokens and merit on a %s save failure, then permits retry', failure => {
+    const h = resaleHarness(), ids = [h.retire('gate:north:0'), h.retire('gate:north:1')]
+    const before = cloneCareerProfile(h.read()), disk = h.store.load()
+    h.storage.failWrites = true
+    const save = failure === 'throw' ? () => { throw new Error('quota') } : h.save
+    expect(h.sell(ids, save)).toMatchObject({ sold: false, reason: 'save-failed', earnedMerit: 0, soldCount: 0 })
+    expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(disk)
+    h.storage.failWrites = false
+    expect(h.sell(ids)).toMatchObject({ sold: true, soldCount: 2, earnedMerit: 720 })
+    expect(h.reload().townEquipment!.roman!.soldNativeIds).toEqual([...ids].sort())
+  })
+  it.each(['forged', 'foreign', 'duplicate', 'held', 'sold', 'merchant', 'maki', 'horse', 'eagle', 'cat'] as const)('rejects %s tokens and the entire mixed batch without a partial save', invalid => {
+    const h = resaleHarness(), id = h.retire(); let token = id
+    if (invalid === 'forged') token = 'roman/forged/melee'
+    if (invalid === 'foreign') token = 'viking/gate:north:0/melee'
+    if (invalid === 'held') token = 'roman/gate:north:1/melee'
+    if (invalid === 'sold') { expect(h.sell([id]).sold).toBe(true); token = id }
+    if (invalid === 'merchant') token = 'roman/merchant/melee'
+    if (invalid === 'maki') token = 'roman/ranger/ranged'
+    if (invalid === 'eagle') token = 'roman/town-eagle-rider:1/mount'
+    if (invalid === 'cat') { h.buy('horse'); expect(h.change('ranger', 'mount', 'horse').changed).toBe(true); token = 'roman/ranger/mount' }
+    if (invalid === 'horse') {
+      const horse = townNativeItems('roman').find(item => item.itemId === 'horse')!
+      h.buy('corgi'); expect(h.change(horse.actorId, 'mount', 'corgi').changed).toBe(true); token = horse.nativeId
+    }
+    const before = cloneCareerProfile(h.read()); let saves = 0
+    expect(h.sell([id, token], () => { saves++; return true })).toMatchObject({ sold: false, earnedMerit: 0, soldCount: 0 })
+    expect(saves).toBe(0); expect(h.read()).toEqual(before)
+  })
+  it('rejects stale product quantities and any invalid product in a bulk request', () => {
+    const h = resaleHarness(), id = h.retire()
+    const request = [{ itemId: 'gladius_standard', quantity: 1 }]
+    expect(h.sell([id]).sold).toBe(true)
+    expect(sellTownNativeProducts(h.read, () => h.saleContext, request, h.save).sold).toBe(false)
+    h.retire('gate:north:1'); const before = cloneCareerProfile(h.read())
+    expect(sellTownNativeProducts(h.read, () => h.saleContext, [...request, { itemId: 'missing', quantity: 1 }], h.save).sold).toBe(false)
+    expect(h.read()).toEqual(before)
+  })
+  it.each(['duplicate', 'reserve-overlap', 'assigned-overlap', 'foreign', 'forged', 'mount', 'fixed', 'not-array'] as const)('rejects %s sold records at the storage boundary', invalid => {
+    const h = resaleHarness(), id = h.retire(); expect(h.sell([id]).sold).toBe(true)
+    const corrupted = cloneCareerProfile(h.read()), state = corrupted.townEquipment!.roman!
+    if (invalid === 'duplicate') state.soldNativeIds!.push(id)
+    if (invalid === 'reserve-overlap') state.nativeReserve.push(id)
+    if (invalid === 'assigned-overlap') state.actors['gate:north:0'].melee = { itemId: 'gladius_standard', source: 'native', nativeId: id }
+    if (invalid === 'foreign') state.soldNativeIds = ['viking/gate:north:0/melee']
+    if (invalid === 'forged') state.soldNativeIds = ['roman/unknown/melee']
+    if (invalid === 'mount') state.soldNativeIds = ['roman/ranger/mount']
+    if (invalid === 'fixed') state.soldNativeIds = ['roman/merchant/melee']
+    if (invalid === 'not-array') Object.assign(state, { soldNativeIds: 'invalid' })
+    expect(parseCareerProfile(corrupted)).toBeNull(); expect(h.store.save(corrupted)).toBe(false)
+    expect(h.reload().townEquipment!.roman!.soldNativeIds).toEqual([id])
+  })
+  it.each(['roman', 'viking'] as const)('extends version 1 %s saves without clearing existing reserve or assignments', faction => {
+    const h = resaleHarness(faction), id = h.retire(), before = cloneCareerProfile(h.read())
+    expect(before.townEquipment![faction]!.soldNativeIds).toBeUndefined()
+    expect(h.reload()).toEqual(before)
+    expect(h.sell([id]).sold).toBe(true)
+    expect(h.reload().townEquipment![faction]!.version).toBe(1)
+    expect(resolveTownActorEquipment(h.read(), faction, 'gate:north:0').refs.melee?.itemId).toBe('paladin_sword_t4')
   })
 })

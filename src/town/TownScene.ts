@@ -20,6 +20,7 @@ import { townMerchantLoadout } from './TownMerchantEquipment'
 import { careerMountType } from '../career/CareerMountController'
 import { personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
 import { appendTownSaleDropdown } from './TownSaleUI'
+import { sellTownNativeProducts, townNativeSaleGate, townNativeSaleStock, type TownNativeSaleContext, type TownNativeSaleRequest } from '../career/CareerTownNativeResale'
 import { ArmyCommandController } from '../battle/ArmyCommandController'
 import { CivilianCommandSquadController } from './CivilianCommandSquadController'
 import { officialCommandAcceptsActor, officialCommandIsPlayerControlled } from '../career/CareerCommandAuthority'
@@ -1046,11 +1047,12 @@ export class TownScene {
         summary.textContent = '可用軍功 ' + this.profile.availableMerit + ' · ' + this.profile.rank + (page === 'sell' ? ` · 回收價為原價的 ${TOWN_RESALE_PERCENT[this.profile.rank]}%` : id === 'eagle-trainer' ? ' · Captain / Commander 解鎖；最多持有 3 隻；按 Tab 騎乘／收起' : mount ? ' · 軍用戰馬隨軍階解鎖至 T4；按 Tab 騎乘／收起' : ' · 購買後按 Tab 選擇裝備')
         panel.querySelector('.town-products')?.remove()
         panel.querySelector('.town-sale')?.remove()
+        panel.querySelector('.town-native-sale')?.remove()
         const list = document.createElement('div'); list.className = page === 'buy' ? 'town-products town-purchase-products' : 'town-products'
         let section = ''
         const products = townShopProducts(id).filter(i => page === 'buy' || isTownProductOwned(this.profile, i))
         if (page === 'sell') {
-          summary.textContent += ' · 只賣背包可用份數，已分配裝備會保留'
+          summary.textContent += ' · 背包僅出售可用份數，已分配裝備會保留'
           appendTownSaleDropdown(panel, products.filter(item => availableCareerItem(this.profile, item.id) > 0).map(item => {
             const quantity = availableCareerItem(this.profile, item.id)
             return { id: item.id, name: item.name, quantity, refund: townResalePrice(this.profile, item.id) * quantity }
@@ -1135,9 +1137,45 @@ export class TownScene {
           }
           row.append(button); list.append(row)
         }
+        if (page === 'sell' && id === 'merchant') this.appendNativeSale(panel)
       }
       if (id === 'cat' && !response) this.button(panel, '查看坐騎', () => showProducts())
       else showProducts()
+    }
+  }
+  private nativeSaleContext(): TownNativeSaleContext {
+    return { townFaction: this.sceneContext.worldFaction, peaceful: !this.event.hostile,
+      playerAlive: !this.player.dead, merchantAvailable: this.serviceAvailable('merchant') }
+  }
+  private appendNativeSale(panel: HTMLElement): void {
+    const context = this.nativeSaleContext()
+    if (this.profile.rank !== 'commander' || context.townFaction !== this.profile.faction) return
+    const section = document.createElement('section'); section.className = 'town-native-sale'
+    const heading = document.createElement('h3'); heading.textContent = '城鎮舊裝備'; section.append(heading)
+    const summary = document.createElement('p'); summary.className = 'town-summary'
+    summary.textContent = `已出售 ${this.profile.townEquipment?.[context.townFaction]?.soldNativeIds?.length ?? 0} 件 · 僅回收已卸下的原生武器與盾牌`
+    section.append(summary); panel.append(section)
+    const stock = townNativeSaleStock(this.profile, context.townFaction), enabled = !townNativeSaleGate(this.profile, context)
+    const sell = (requests: TownNativeSaleRequest[]) => {
+      const result = sellTownNativeProducts(() => this.profile, () => this.nativeSaleContext(), requests, next => this.commit(next))
+      if (!result.sold) {
+        this.talk('merchant', result.reason === 'save-failed' ? this.notice : '城鎮舊裝備或交易狀態已改變，請重新選擇。', 'sell'); return
+      }
+      this.player.clearTownAction()
+      this.talk('merchant', `已賣回 ${result.soldCount} 件城鎮舊裝備，收回 ${result.earnedMerit} 可用軍功。`, 'sell')
+    }
+    appendTownSaleDropdown(section, stock.map(entry => ({ id: entry.product.id, name: entry.product.name,
+      quantity: entry.nativeIds.length, refund: entry.price * entry.nativeIds.length })), ids => {
+      sell(ids.map(itemId => ({ itemId, quantity: stock.find(entry => entry.product.id === itemId)!.nativeIds.length })))
+    }, '件', enabled)
+    if (!stock.length) { const empty = document.createElement('p'); empty.textContent = '沒有可賣出的城鎮舊裝備。'; section.append(empty) }
+    for (const entry of stock) {
+      const row = document.createElement('article'); row.className = 'town-product'
+      const title = document.createElement('strong'); title.textContent = entry.product.name
+      const meta = document.createElement('small'); meta.textContent = `T${entry.product.tier} · 數量 ${entry.nativeIds.length} · 單價 ${entry.price} 軍功`
+      row.append(title, meta)
+      const button = this.button(row, `賣出 1 件 · 收回 ${entry.price} 軍功`, () => sell([{ itemId: entry.product.id, quantity: 1 }]))
+      button.disabled = !enabled; section.append(row)
     }
   }
   private personalCommandsEnabled(): boolean {
