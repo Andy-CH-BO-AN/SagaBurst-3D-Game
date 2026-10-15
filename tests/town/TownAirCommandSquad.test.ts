@@ -3,6 +3,7 @@ import { snapshotCommandActor } from '../../src/career/CareerCommandActorCheckpo
 import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { TownAirCommandSquadController } from '../../src/town/TownAirCommandSquadController'
+import { TownCommandSquadController } from '../../src/town/TownCommandSquadController'
 import { CivilianCommandSquadController } from '../../src/town/CivilianCommandSquadController'
 import { TownEagleGarrisonController } from '../../src/town/TownEagleGarrisonController'
 import { townEagleRoster } from '../../src/town/TownEagleGarrison'
@@ -72,6 +73,7 @@ function recordingCrew(slot = 1, suppliedSpec?: TownActorSpec) {
     dismountFromMount: vi.fn(() => { if (actor.mount) actor.mount.riderNpc = null; actor.mount = null }),
     restoreCombatHealth: vi.fn((hp: number) => { actor.hp = hp; actor.dead = hp <= 0 }),
     restoreCombatAmmo: vi.fn((ammo: number) => { actor.combatAmmo = ammo }),
+    restoreForTown: vi.fn(() => { actor.hp = actor.maxHp; actor.dead = false; actor.combatAmmo = 30 }),
     takeDamage: vi.fn((amount: number) => { actor.hp = Math.max(0, actor.hp - amount); actor.dead = actor.hp === 0 }),
   }
   // Single actor boundary: only methods consumed by command/checkpoint/garrison policy are supplied.
@@ -286,6 +288,90 @@ describe('peaceful Town air command routing and durable ownership', () => {
     expect(saved.townEagleGarrisons?.roman?.pairs[0]).toMatchObject({ hp: 0, duty: 'casualty', commandReturn: true, replacementRemaining: 60, ambientRecovery: true })
     expect(f.garrison.isPlayerCommandOwned(f.residents[0].npc)).toBe(false)
   })
+})
+
+it('keeps a living commanded eagle service pending across the real refit transaction and storage reload until native arrival', () => {
+  // Five recording pairs satisfy canonical Squad 8 eligibility; no real actors/world/GLBs.
+  const f = fixture({ residents: [1, 2, 3, 4, 5].map(slot => recordingCrew(slot)) })
+  const [row, ...others] = f.residents
+  row.actor.mountVehicle(row.homeMount); row.mountState.flight.phase = 'cruise'
+  row.homeMount.group.position.y += 30; row.actor.group.position.copy(row.homeMount.group.position)
+  f.issue('follow')
+  row.actor.hp = 31; row.actor.combatAmmo = 9; row.mountState.currentHp = 61
+  const next = cloneCareerProfile(f.town.profile)
+  next.townCommandSquad = { type: 'town-command', squadId: 1, townFaction: 'roman',
+    ...commanderTownCommandMembership(), state: 'TRAINING', authorized: true, sceneKey: 'town-home',
+    contribution: emptyPersonalContribution(), members: { 'melee_infantry-0': { hp: 17, status: 'deployed', order: 'defend' } } }
+  expect(f.town.commit(next)).toBe(true)
+  const attach = (target: ReturnType<typeof fixture>) => {
+    const command = new TownCommandSquadController(target.residents, () => target.town.player as Player,
+      () => target.town.profile, profile => target.town.commit(profile), {
+        canRefitNative: r => target.garrison.canServiceRefit(r.npc),
+        beginNativeRefit: r => target.garrison.requestServiceRefit(r.npc),
+        nativeRefitPending: r => target.garrison.serviceRefitPending(r.npc),
+      })
+    Object.assign(target.town, { townCommand: command })
+    command.applySavedState(target.town.profile.townCommandSquad)
+    return command
+  }
+  const command = attach(f), before = f.garrison.snapshot('town:roman'), stored = f.store.load()
+  f.storage.failWrites = true
+  expect(command.refit(8)).toBe(false)
+  expect(f.garrison.snapshot('town:roman')).toEqual(before); expect(f.store.load()).toEqual(stored)
+  expect(f.garrison.isPlayerCommandOwned(row.npc)).toBe(true)
+  f.storage.failWrites = false
+  expect(command.refit(8)).toBe(true)
+  expect(f.garrison.serviceRefitPending(row.npc)).toBe(true)
+  expect(row.actor.hp).toBe(31); expect(row.actor.combatAmmo).toBe(9); expect(row.mountState.currentHp).toBe(61)
+  expect(f.garrison.dutyFor(row.npc)).toBe('return-queue')
+  const returning = f.garrison.snapshot('town:roman')
+  f.garrison.requestServiceRefit(row.npc)
+  expect(f.garrison.snapshot('town:roman')).toEqual(returning) // No second return/queue restart.
+  f.issue('follow'); f.issue('formation')
+  expect(f.garrison.isPlayerCommandOwned(row.npc)).toBe(false)
+  expect(row.npc.mount).toBe(row.homeMount); expect(row.homeMount.riderNpc).toBe(row.npc)
+  expect(f.town.commit(f.town.profile)).toBe(true)
+  const saved = f.store.load()! // Real JSON serialization and Career parser, not an in-memory handoff.
+  expect(saved.townCommandSquad?.refittingActorIds).toContain(row.spec.id)
+  expect(saved.townEagleGarrisons?.roman?.pairs[0]).toMatchObject({ serviceRefit: true, commandReturn: true, hp: 31, ammo: 9 })
+  expect(saved.townCommandSquad?.members?.['melee_infantry-0']).toEqual(next.townCommandSquad.members!['melee_infantry-0'])
+  for (const other of others) {
+    expect(other.actor.hp).toBe(80); expect(other.actor.combatAmmo).toBe(30)
+    expect(other.mountState.currentHp).toBe(200); expect(other.homeMount.riderNpc).toBeNull()
+  }
+  const reload = fixture({ profile: saved, residents: [1, 2, 3, 4, 5].map(slot => recordingCrew(slot)) })
+  const resumed = attach(reload), rider = reload.residents[0], mount = rider.homeMount
+  const restored = reload.garrison.snapshot('town:roman')
+  resumed.resumeRefits(); resumed.resumeRefits()
+  expect(reload.garrison.snapshot('town:roman')).toEqual(restored)
+  expect(reload.garrison.serviceRefitPending(rider.npc)).toBe(true)
+  expect(resumed.refitSquads.find(s => s.squadId === 8)?.pending).toBe(true)
+  reload.issue('follow'); reload.issue('formation')
+  expect(reload.garrison.isPlayerCommandOwned(rider.npc)).toBe(false)
+  const navigation = new NavigationWorld()
+  const tick = () => { reload.garrison.beginFrame(0); reload.garrison.update(rider.npc, 0, false, new THREE.Vector3(), [], navigation) }
+  tick()
+  expect(reload.garrison.dutyFor(rider.npc)).toBe('returning')
+  expect(rider.actor.restoreForTown).not.toHaveBeenCalled()
+  const inFlight = reload.garrison.snapshot('town:roman')
+  reload.garrison.requestServiceRefit(rider.npc)
+  expect(reload.garrison.snapshot('town:roman')).toEqual(inFlight)
+  // Recording locomotion boundary: supply touchdown; native owner alone decides arrival/refit.
+  const home = rider.spec.eagle!.home
+  mount.group.position.set(home.x, getTerrainHeight(home.x, home.z), home.z)
+  rider.mountState.flight.phase = 'grounded'; rider.mountState.flight.yaw = home.yaw
+  tick()
+  expect(reload.garrison.serviceRefitPending(rider.npc)).toBe(true)
+  rider.actor.group.position.set(rider.spec.x, getTerrainHeight(rider.spec.x, rider.spec.z), rider.spec.z)
+  tick()
+  expect(reload.garrison.serviceRefitPending(rider.npc)).toBe(false)
+  expect(rider.actor.hp).toBe(80); expect(rider.actor.combatAmmo).toBe(30); expect(mount.currentHp).toBe(200)
+  expect(rider.homeMount).toBe(mount); expect(rider.actor.restoreForTown).toHaveBeenCalledTimes(1)
+  expect(reload.town.commit(reload.town.profile)).toBe(true)
+  expect(reload.store.load()?.townCommandSquad?.refittingActorIds).not.toContain(rider.spec.id)
+  expect(reload.air.accepts(rider.npc)).toBe(true)
+  reload.issue('follow')
+  expect(reload.garrison.isPlayerCommandOwned(rider.npc)).toBe(true)
 })
 
 describe('Town air isolation from formal command grants', () => {

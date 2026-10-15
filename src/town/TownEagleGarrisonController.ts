@@ -130,7 +130,10 @@ export class TownEagleGarrisonController {
   /** The saved service transaction authorizes recovery, never a second rider or mount. */
   requestServiceRefit(npc: NPC): void {
     const pair = this.pairs.get(npc)
-    if (!pair || pair.refitAllowed) return
+    if (!pair) return
+    // Commit may already have released a living Commander claim into native return.
+    // Upgrade that existing authorization without restarting its queue/order (also on reload).
+    if (pair.refitAllowed) { pair.serviceRefit = true; return }
     // Reuse the same native release policy for autonomous patrol and player-owned flight.
     pair.playerOwned = true
     this.releasePlayerCommand(npc, true)
