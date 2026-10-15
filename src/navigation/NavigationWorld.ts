@@ -18,7 +18,7 @@ export type NavigationPathQueryResult =
   | { status: 'pending' }
   | { status: 'unreachable' }
 
-export const NAV_PATH_REQUESTS_PER_FRAME = 2
+export const NAV_PATH_REQUESTS_PER_FRAME = 10
 export const NAV_PATH_GROUP_CELLS = 2
 
 const COMPONENT_NEIGHBORS: readonly [number, number][] = [
