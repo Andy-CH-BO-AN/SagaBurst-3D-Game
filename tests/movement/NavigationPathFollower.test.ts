@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
-import { NAV_PATH_REQUESTS_PER_FRAME, NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { PLAYABLE_WORLD_BOUND, type ObstacleData } from '../../src/world/Terrain'
 
 function obstacle(
@@ -108,16 +108,18 @@ describe('NavigationPathFollower', () => {
     ).toBe('path')
   })
 
-  it('returns pending when the global per-frame A star budget is exhausted', () => {
-    const world = new NavigationWorld()
+  it('returns pending when the supplied A star budget is exhausted', () => {
+    const budget = 3
+    const world = new NavigationWorld(undefined, budget)
     world.rebuild([
       obstacle(-1, -8, 1, 8),
     ])
     world.beginFrame()
 
-    const followers = Array.from({ length: NAV_PATH_REQUESTS_PER_FRAME + 1 }, () => new NavigationPathFollower())
+    const followers = Array.from({ length: budget + 1 }, () => new NavigationPathFollower())
     const out = new THREE.Vector3()
-    for (let i = 0; i < NAV_PATH_REQUESTS_PER_FRAME; i++) {
+
+    for (let i = 0; i < budget; i++) {
       const z = -4 + i * 4
       expect(followers[i].resolveMoveTarget(
         new THREE.Vector3(-8, 0, z),
@@ -127,10 +129,11 @@ describe('NavigationPathFollower', () => {
         out,
       )).toBe('path')
     }
-    const pendingZ = -4 + NAV_PATH_REQUESTS_PER_FRAME * 4
-    expect(followers[NAV_PATH_REQUESTS_PER_FRAME].resolveMoveTarget(
-      new THREE.Vector3(-8, 0, pendingZ),
-      new THREE.Vector3(8, 0, pendingZ),
+
+    const deferredZ = -4 + budget * 4
+    expect(followers[budget].resolveMoveTarget(
+      new THREE.Vector3(-8, 0, deferredZ),
+      new THREE.Vector3(8, 0, deferredZ),
       world,
       true,
       out,
@@ -139,22 +142,23 @@ describe('NavigationPathFollower', () => {
 })
 
 
-it('serves later followers despite ten earlier actors changing goals every frame', () => {
-  // 0 NPCs/Mounts/worlds: thirteen real followers and one bounded navigation grid.
-  const world = new NavigationWorld({ minX: -100, maxX: 100, minZ: -100, maxZ: 100, cellSize: 2 })
+it('serves later followers despite earlier actors changing goals each frame', () => {
+  // 0 NPCs/Mounts/worlds: five real followers and one bounded navigation grid.
+  const budget = 2
+  const world = new NavigationWorld({ minX: -100, maxX: 100, minZ: -100, maxZ: 100, cellSize: 2 }, budget)
   world.rebuild([obstacle(-60, -2, 60, 2)])
   const find = vi.spyOn(world.grid, 'findPathCells'); onTestFinished(() => find.mockRestore())
-  const followers = Array.from({ length: NAV_PATH_REQUESTS_PER_FRAME + 3 }, () => new NavigationPathFollower())
-  const routes = Array<string>(followers.length), out = new THREE.Vector3()
+  const followers = Array.from({ length: 5 }, () => new NavigationPathFollower())
+  const routes = Array<string>(5), out = new THREE.Vector3()
   for (let frame = 0; frame < 5; frame++) {
     const before = find.mock.calls.length
     world.beginFrame()
     followers.forEach((follower, index) => {
       const start = new THREE.Vector3(-60 + index * 12, 0, -60)
-      const goal = new THREE.Vector3(-60 + index * 12 + (index < NAV_PATH_REQUESTS_PER_FRAME ? frame * 8 : 0), 0, 60)
+      const goal = new THREE.Vector3(-60 + index * 12 + (index < budget ? frame * 8 : 0), 0, 60)
       routes[index] = follower.resolveMoveTarget(start, goal, world, true, out)
     })
-    expect(find.mock.calls.length - before).toBeLessThanOrEqual(NAV_PATH_REQUESTS_PER_FRAME)
+    expect(find.mock.calls.length - before).toBeLessThanOrEqual(budget)
   }
-  expect(routes.slice(NAV_PATH_REQUESTS_PER_FRAME)).toEqual(['path', 'path', 'path'])
+  expect(routes.slice(budget)).toEqual(['path', 'path', 'path'])
 })

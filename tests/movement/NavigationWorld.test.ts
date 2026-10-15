@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import {
-  NAV_PATH_REQUESTS_PER_FRAME,
   NavigationWorld,
 } from '../../src/navigation/NavigationWorld'
 import {
@@ -50,7 +49,8 @@ describe('NavigationWorld', () => {
   })
 
   it('rejects disconnected regions before spending an A star request', () => {
-    const world = new NavigationWorld()
+    const budget = 2
+    const world = new NavigationWorld(undefined, budget)
     world.rebuild([
       obstacle(-1, -PLAYABLE_WORLD_BOUND, 1, PLAYABLE_WORLD_BOUND),
     ])
@@ -64,7 +64,7 @@ describe('NavigationWorld', () => {
     ).toBe('unreachable')
 
     // The disconnected query above must not consume the frame A* budget.
-    for (let i = 0; i < NAV_PATH_REQUESTS_PER_FRAME; i++) {
+    for (let i = 0; i < budget; i++) {
       expect(
         world.queryPath(
           new THREE.Vector3(-10, 0, -40 + i * 4),
@@ -75,7 +75,7 @@ describe('NavigationWorld', () => {
   })
 
   it('shares one cached A star path across the same 2x2 nav-cell groups', () => {
-    const world = new NavigationWorld()
+    const world = new NavigationWorld(undefined, 2)
     world.rebuild([
       obstacle(-1, -8, 1, 8),
     ])
@@ -95,53 +95,48 @@ describe('NavigationWorld', () => {
       ).status,
     ).toBe('path')
 
-    // The shared macro-group hit consumed no extra A* slot. Fill the
-    // remaining distinct-group slots before asserting that the next waits.
-    for (let i = 0; i < NAV_PATH_REQUESTS_PER_FRAME - 1; i++) {
-      const z = 4.5 + i * 8
-      expect(world.queryPath(
-        new THREE.Vector3(-8.5, 0, z),
-        new THREE.Vector3(8.5, 0, z),
-      ).status).toBe('path')
-    }
-    const waitingZ = 4.5 + (NAV_PATH_REQUESTS_PER_FRAME - 1) * 8
-    expect(world.queryPath(
-      new THREE.Vector3(-8.5, 0, waitingZ),
-      new THREE.Vector3(8.5, 0, waitingZ),
-    ).status).toBe('pending')
-  })
-
-  it('caps expensive connected A star searches per frame', () => {
-    const world = new NavigationWorld()
-    world.rebuild([
-      obstacle(-1, -8, 1, 8),
-    ])
-    world.beginFrame()
-    expect(NAV_PATH_REQUESTS_PER_FRAME).toBe(10)
-
-    for (let i = 0; i < NAV_PATH_REQUESTS_PER_FRAME; i++) {
-      expect(
-        world.queryPath(
-          new THREE.Vector3(-8, 0, -4 + i * 4),
-          new THREE.Vector3(8, 0, -4 + i * 4),
-        ).status,
-      ).toBe('path')
-    }
-
+    // The shared second query must not consume another A* slot, so there is
+    // still room for one different group this frame.
     expect(
       world.queryPath(
-        new THREE.Vector3(-8, 0, -4 + NAV_PATH_REQUESTS_PER_FRAME * 4),
-        new THREE.Vector3(8, 0, -4 + NAV_PATH_REQUESTS_PER_FRAME * 4),
-      ).status,
-    ).toBe('pending')
-
-    world.beginFrame()
-    expect(
-      world.queryPath(
-        new THREE.Vector3(-8, 0, -4 + NAV_PATH_REQUESTS_PER_FRAME * 4),
-        new THREE.Vector3(8, 0, -4 + NAV_PATH_REQUESTS_PER_FRAME * 4),
+        new THREE.Vector3(-8.5, 0, 4.5),
+        new THREE.Vector3(8.5, 0, 4.5),
       ).status,
     ).toBe('path')
+
+    // A third unique group is now over the frame budget.
+    expect(
+      world.queryPath(
+        new THREE.Vector3(-8.5, 0, 12.5),
+        new THREE.Vector3(8.5, 0, 12.5),
+      ).status,
+    ).toBe('pending')
+  })
+
+  it.each([1, 3, 5])('admits %i uncached A star searches per frame and queues the next', budget => {
+    const world = new NavigationWorld(undefined, budget)
+    world.rebuild([obstacle(-1, -8, 1, 8)])
+    world.beginFrame()
+
+    for (let i = 0; i < budget; i++) {
+      const z = -4 + i * 4
+      expect(world.queryPath(
+        new THREE.Vector3(-8, 0, z),
+        new THREE.Vector3(8, 0, z),
+      ).status).toBe('path')
+    }
+
+    const deferredZ = -4 + budget * 4
+    expect(world.queryPath(
+      new THREE.Vector3(-8, 0, deferredZ),
+      new THREE.Vector3(8, 0, deferredZ),
+    ).status).toBe('pending')
+
+    world.beginFrame()
+    expect(world.queryPath(
+      new THREE.Vector3(-8, 0, deferredZ),
+      new THREE.Vector3(8, 0, deferredZ),
+    ).status).toBe('path')
   })
 
   it('reconnects components after a wall breach', () => {
@@ -238,14 +233,11 @@ describe('NavigationWorld', () => {
 
 
 it('updates one deferred owner to its latest destination and discards deferred work after topology changes', () => {
-  const world = new NavigationWorld({ minX: 0, maxX: 100, minZ: 0, maxZ: 140, cellSize: 2 })
+  const world = new NavigationWorld({ minX: 0, maxX: 100, minZ: 0, maxZ: 100, cellSize: 2 }, 2)
   world.rebuild([]); world.beginFrame()
   const find = vi.spyOn(world.grid, 'findPathCells'); onTestFinished(() => find.mockRestore())
-  for (let i = 0; i < NAV_PATH_REQUESTS_PER_FRAME; i++) {
-    // Keep z=25 free for the deferred owner.
-    const z = 5 + (i >= 2 ? i + 1 : i) * 10
-    expect(world.queryPath({ x: 5, z }, { x: 15, z }).status).toBe('path')
-  }
+  world.queryPath({ x: 5, z: 5 }, { x: 15, z: 5 })
+  world.queryPath({ x: 5, z: 15 }, { x: 15, z: 15 })
   const owner = {}
   expect(world.queryPath({ x: 5, z: 25 }, { x: 15, z: 25 }, owner).status).toBe('pending')
   expect(world.queryPath({ x: 5, z: 25 }, { x: 35, z: 25 }, owner).status).toBe('pending')
@@ -255,11 +247,7 @@ it('updates one deferred owner to its latest destination and discards deferred w
   const result = world.queryPath({ x: 5, z: 25 }, { x: 35, z: 25 }, owner)
   expect(result.status).toBe('path')
   if (result.status === 'path') expect(result.path.at(-1)).toEqual({ x: 17, z: 12 })
-  // beginFrame serviced one waiting owner; fill the other nine slots.
-  for (let i = 0; i < NAV_PATH_REQUESTS_PER_FRAME - 1; i++) {
-    const z = 5 + i * 10
-    expect(world.queryPath({ x: 5, z }, { x: 45, z }).status).toBe('path')
-  }
+  world.queryPath({ x: 5, z: 45 }, { x: 35, z: 45 })
   expect(world.queryPath({ x: 5, z: 65 }, { x: 35, z: 65 }, owner).status).toBe('pending')
   world.rebuild([obstacle(48, 0, 52, 100)])
   const afterRebuild = find.mock.calls.length
