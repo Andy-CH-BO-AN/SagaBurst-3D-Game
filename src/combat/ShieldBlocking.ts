@@ -5,15 +5,15 @@ import type { Mount } from '../world/Mount'
 
 export const SHIELD_CONFIG = {
   axeImpactByTier: { 1: 2, 2: 4, 3: 8 },
-  mountedLanceImpactByTier: { 1: 10, 2: 20, 3: 40 },
+  mountedLanceImpactByTier: { 1: 10, 2: 20, 3: 40, 4: 60 },
   xpPerBlockedImpact: 20,
 } as const
 export function weaponShieldImpact(id?: string, isMounted = false): number {
   const weapon = WEAPONS[id ?? '']
   if (weapon?.shieldImpact !== undefined) return weapon.shieldImpact
-  if (!weapon || weapon.tier === 4) return 1
-  if (weapon.animationKind === 'axe') return SHIELD_CONFIG.axeImpactByTier[weapon.tier]
-  if (isMounted && weapon.combatKind === 'lance') return SHIELD_CONFIG.mountedLanceImpactByTier[weapon.tier]
+  if (!weapon) return 1
+  if (weapon.animationKind === 'axe') return (SHIELD_CONFIG.axeImpactByTier as Readonly<Partial<Record<number, number>>>)[weapon.tier] ?? 1
+  if (isMounted && weapon.combatKind === 'lance') return (SHIELD_CONFIG.mountedLanceImpactByTier as Readonly<Partial<Record<number, number>>>)[weapon.tier] ?? 1
   return 1
 }
 export function blockingReduction(level: number): number {

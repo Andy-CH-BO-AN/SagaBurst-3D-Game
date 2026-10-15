@@ -431,3 +431,15 @@ describe('BattleConfig Domain & Validation', () => {
     expect(PRESET_200V200.mode).toBe('formation')
   })
 })
+
+it.each(['spear_t4', 'lance_t4'] as const)('accepts %s with T5 Bow for ordinary custom players without opening NPC T5', meleeWeaponId => {
+  const config = createEmptyBattleConfig()
+  config.viking = { viking_berserker: { 1: 1, 2: 0, 3: 0 } }
+  config.roman = { roman_heavy_infantry: { 1: 1, 2: 0, 3: 0 } }
+  config.playerLoadout = { meleeWeaponId, rangedWeaponId: 'bow_t5', shieldId: null, startMounted: false }
+  const restored = JSON.parse(JSON.stringify(config))
+  expect(validateBattleConfig(restored).valid).toBe(true)
+  expect(restored.playerLoadout).toEqual(config.playerLoadout)
+  restored.viking.viking_berserker[5] = 1
+  expect(validateBattleConfig(restored).valid).toBe(false)
+})

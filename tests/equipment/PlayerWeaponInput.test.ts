@@ -744,3 +744,25 @@ it.each([
     expect(h.player.swinging).toBe(true)
   } else expect(h.player.isAiming).toBe(true)
 })
+
+vi.mock('../../src/world/HighTierEquipment', async () => ({
+  createT5Bow: (await import('../helpers/gameplayWeaponVisual')).createGameplayBowAsset,
+}))
+
+it('T5 Bow maps the existing 1.8-second player charge to damage, speed and a single arrow release', () => {
+  const h = createPlayerHarness({ meleeWeaponId: 'steel_sword', rangedWeaponId: 'bow_t5', shieldId: null })
+  const fire = vi.fn(); h.player.onFireArrow = fire
+  h.update(input({ isRightMouseDown: true }), 0)
+  const draw = input({ isRightMouseDown: true, isLeftMouseDown: true })
+  h.update(draw, .9)
+  expect(h.player.bowDrawRatio).toBeCloseTo(.5)
+  expect(fire).not.toHaveBeenCalled()
+  h.update(draw, .9)
+  expect(h.player.bowDrawRatio).toBe(1)
+  const ammo = h.player.arrowCount
+  h.update(input({ isRightMouseDown: true, consumeLeftClickRelease: () => true }), 0)
+  h.update(input({ isRightMouseDown: true }), .1)
+  expect(fire).toHaveBeenCalledOnce()
+  expect(fire.mock.calls[0][0]).toMatchObject({ damage: 84, speed: 120, visualKind: 'arrow' })
+  expect(h.player.arrowCount).toBe(ammo - 1)
+})

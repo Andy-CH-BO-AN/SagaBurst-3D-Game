@@ -63,12 +63,12 @@ describe('NPC tactical equipment stance', () => {
     expect(npc.loadout?.secondaryMeleeWeaponId).toBe('steel_sword')
   })
 
-  it('T4 Viking Spearman charges with the canonical T4 sidearm and defends with the original T3 Lance', () => {
+  it('T4 Viking Spearman charges with the canonical T4 sidearm and defends with the T4 Spear', () => {
     const npc = new NPC(new THREE.Scene(), 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'Spearman', 4,
       false, resolveT4UnitLoadout('viking_spearman'), 'viking_spearman', undefined, undefined, undefined,
       'viking-hero-t4', 'varangian')
     onTestFinished(() => npc.dispose())
-    expect(npc.meleeWeaponId).toBe('heavy_lance')
+    expect(npc.meleeWeaponId).toBe('spear_t4')
     expect(npc.isUsingLance).toBe(true)
 
     npc.setTacticalOrder('charge')
@@ -77,10 +77,10 @@ describe('NPC tactical equipment stance', () => {
     expect(npc.meleeAttackRadius).toBe(1.8)
     expect(npc.activeCombatKind).toBe('sword')
     expect(npc.isUsingLance).toBe(false)
-    expect(npc.loadout?.meleeWeaponId).toBe('heavy_lance')
+    expect(npc.loadout?.meleeWeaponId).toBe('spear_t4')
 
     npc.setTacticalOrder('defend')
-    expect(npc.meleeWeaponId).toBe('heavy_lance')
+    expect(npc.meleeWeaponId).toBe('spear_t4')
     expect(npc.isUsingLance).toBe(true)
     expect(npc.meleeAttackRadius).toBe(3.9)
   })
@@ -115,3 +115,8 @@ describe('NPC tactical equipment stance', () => {
     expect(cavalry.meleeWeaponId).toBe('steel_lance')
   })
 })
+
+vi.mock('../../src/world/HighTierEquipment', async () => ({
+  createT4Polearm: () => new THREE.Group(),
+  createT5Bow: (await import('../helpers/gameplayWeaponVisual')).createGameplayBowAsset,
+}))

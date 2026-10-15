@@ -1,17 +1,18 @@
 /**
  * WeaponDatabase.ts
  * Centralized definition for weapons and inventory items.
- * Tier 1 (Common/Grey), Tier 2 (Rare/Blue), Tier 3 (Epic/Gold), Tier 4 (Hero/Purple).
+ * Equipment tiers 1–5 are independent of ordinary NPC tiers.
  */
 export type ItemType = 'melee' | 'ranged' | 'consumable'
 export type WeaponAnimationKind = 'dagger' | 'sword' | 'axe' | 'greatsword' | 'lance' | 'bow' | 'pilum'
 export type WeaponCombatKind = 'sword' | 'lance' | 'bow' | 'javelin'
+export type WeaponTier = 1 | 2 | 3 | 4 | 5
 
 export interface WeaponData {
   id: string
   name: string
   type: ItemType
-  tier: 1 | 2 | 3 | 4
+  tier: WeaponTier
   combatKind: WeaponCombatKind
   damageMin: number
   damageMax: number
@@ -33,7 +34,22 @@ export interface WeaponData {
 
 export const T4_RANGER_BOW_RANGED_ID = 'maki-ranger-bow-ranged' as const
 
+const T4_POLEARM: Omit<WeaponData, 'id' | 'name'> = {
+  type: 'melee', tier: 4, combatKind: 'lance', animationKind: 'lance',
+  damageMin: 75, damageMax: 75, speedOrCharge: .42, meleeCycleSeconds: .42,
+  range: 3.9, isLance: true,
+  description: '徒步反騎兵傷害 ×2，高速騎乘衝鋒 ×3；騎乘命中盾面造成 60 點衝擊。',
+}
+
 export const WEAPONS: Record<string, WeaponData> = {
+  spear_t4: { ...T4_POLEARM, id: 'spear_t4', name: 'T4 長矛 Spear' },
+  lance_t4: { ...T4_POLEARM, id: 'lance_t4', name: 'T4 騎槍 Lance' },
+  bow_t5: {
+    id: 'bow_t5', name: 'T5 指揮官弓 Commander Bow', type: 'ranged', tier: 5,
+    combatKind: 'bow', animationKind: 'bow', damageMin: 50, damageMax: 120,
+    speedOrCharge: 1.8, arrowSpeedMin: 45, arrowSpeedMax: 120,
+    description: '指揮官長弓；1.8 秒滿蓄力，沿用既有箭矢與騎射。',
+  },
   paladin_sword_t4: {
     id: 'paladin_sword_t4', name: '聖騎士長劍 Paladin Sword', type: 'melee', tier: 4,
     combatKind: 'sword', animationKind: 'sword', damageMin: 60, damageMax: 60,
@@ -301,20 +317,22 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
 }
 
-export function getTierColor(tier: 1 | 2 | 3 | 4): string {
+export function getTierColor(tier: WeaponTier): string {
   switch (tier) {
     case 1: return '#a0a0a0' // Grey
     case 2: return '#3498db' // Blue
     case 3: return '#f1c40f' // Gold
     case 4: return '#b27aff' // Purple
+    case 5: return '#ff823d'
   }
 }
 
-export function getTierBadge(tier: 1 | 2 | 3 | 4): string {
+export function getTierBadge(tier: WeaponTier): string {
   switch (tier) {
     case 1: return '★ Tier 1 (普通)'
     case 2: return '★★ Tier 2 (稀有)'
     case 3: return '★★★ Tier 3 (史詩)'
     case 4: return '★★★★ Tier 4 (英雄)'
+    case 5: return '★★★★★ Tier 5 (傳奇)'
   }
 }

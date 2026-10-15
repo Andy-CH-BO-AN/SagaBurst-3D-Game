@@ -198,6 +198,8 @@ export class BattleSetupUI {
               { id: 'hunting_spear', tier: 'T1', zh: '狩獵長槍', en: 'HUNTING SPEAR' },
               { id: 'steel_lance', tier: 'T2', zh: '鋼製長槍', en: 'STEEL LANCE' },
               { id: 'heavy_lance', tier: 'T3', zh: '重裝長槍', en: 'HEAVY LANCE' },
+              { id: 'spear_t4', tier: 'T4', zh: '長矛', en: 'SPEAR' },
+              { id: 'lance_t4', tier: 'T4', zh: '騎槍', en: 'LANCE' },
             ], 'melee')}
           </section>
           <section class="loadout-category"><div class="loadout-category-heading"><h3>遠程武器</h3><span>RANGED</span></div>
@@ -206,6 +208,7 @@ export class BattleSetupUI {
               { id: 'recurve_longbow', tier: 'T2', zh: '反曲長弓', en: 'RECURVE LONGBOW' },
               { id: 'elven_runebow', tier: 'T3', zh: '精靈符文弓', en: 'ELVEN RUNE BOW' },
               { id: 'maki-ranger-bow-ranged', tier: 'T4', zh: '遊俠弓', en: 'RANGER BOW' },
+              { id: 'bow_t5', tier: 'T5', zh: '指揮官弓', en: 'COMMANDER BOW' },
             ], 'ranged')}
             ${renderEquipmentGroup('羅馬', 'ROMAN', [
               { id: 'pilum_basic', tier: 'T1', zh: '簡易標槍', en: 'BASIC PILUM' },

@@ -29,7 +29,7 @@ import {
 export type { CareerMissionTier } from './CareerMissionTier'
 export type CareerRank = 'recruit' | 'soldier' | 'veteran' | 'captain' | 'commander'
 export type CareerPurchaseKind = 'weapon' | 'armor' | 'mount' | 'hero'
-export type CareerPurchaseTier = 1 | 2 | 3 | 4
+export type CareerPurchaseTier = 1 | 2 | 3 | 4 | 5
 // Tier-specific horse IDs are retained only for legacy saves.
 export type CareerMountId = PlayerMountId | 'horse-t1' | 'horse-t2' | 'horse-t3'
 
@@ -54,7 +54,7 @@ export const CAREER_PURCHASE_TIER_BY_RANK: Readonly<Record<CareerRank, CareerPur
   soldier: 2,
   veteran: 3,
   captain: 4,
-  commander: 4,
+  commander: 5,
 }
 
 export interface CareerLifetimeStats {

@@ -119,6 +119,7 @@ export type BanditAggroState = 'idle' | 'alerted' | 'provoked' | 'returning'
 
 const DETECTION_RADIUS = 300.0
 const RANGED_ATTACK_MIN = 6.0
+const RANGED_REEQUIP_MIN = RANGED_ATTACK_MIN + 3
 const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
 const PROJECTILE_GRAVITY = 9.8
 const NPC_FALLBACK_PROJECTILE_SPEED = 20.0
@@ -1033,6 +1034,7 @@ export class NPC {
   }
 
   dispose(): void {
+    this.bowVisual?.dispose()
     this.combatEventBindingsClosed = true
     this.combatEventBindings.length = 0
     this.pendingFall.clear()
@@ -1187,6 +1189,7 @@ export class NPC {
 
   private _rebuildActiveRangedVisual(): void {
     this.bowVisual?.hideArrow()
+    this.bowVisual?.dispose()
     this.bowVisual = undefined
     this.bowGripPivot.clear()
     this.bowGripPivot.position.set(0, 0, 0)
@@ -2408,7 +2411,7 @@ export class NPC {
     let animationAdvanced = false
     const previousMountSpeed = this.mount ? this.mount.movementSpeed : 0
     if (this.mount) this.mount.beginControlledFrame()
-    const recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
+    let recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
     const recoveringPilum = this.animator.currentAction === 'pilumThrow'
     this.rebuildShield()
     this.shield.shieldRaised = this.shield.active && this.tacticalOrder === 'defend'
@@ -2468,6 +2471,10 @@ export class NPC {
         this._siegeTargetObstacle = this.assignedSiegeObstacle
       }
       // Weapon transitions are actions, not side effects of a range query.
+      if (this._usesReversibleRangedSwitch()) {
+        this._selectRangedMeleeMode(targetInfo, player, nearbyNPCs, obstacles)
+        recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
+      }
       // A threat below a rampart is close in 3D but cannot make melee contact.
       if (targetInfo && this.hasActiveRangedWeapon
         && (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition)
@@ -3999,12 +4006,44 @@ export class NPC {
 
   private _switchToMelee(consumeRemainingAmmo = true, cancelAnimation = true): void {
     if (this.specialCombatProfile === 'maki-ranger' && resolveMakiEquipmentMode(this.arrows) === 'ranged') return
-    if (consumeRemainingAmmo) this.arrows = 0
+    if (consumeRemainingAmmo && !this._usesReversibleRangedSwitch()) this.arrows = 0
     this.rangedActive = false
     this.pendingLanceChargeSpeed = 0
     this.swordPivot.visible = this.specialCombatProfile !== 'maki-ranger'
     this.bowPivot.visible = this.specialCombatProfile === 'maki-ranger'
     if (cancelAnimation) this.animator.cancel()
+  }
+
+  private _usesReversibleRangedSwitch(): boolean {
+    return this.loadout?.reversibleRangedSwitch === true && this.originalCombatEquipment === null
+  }
+
+  /** Reuses the selected target, neighborhood and combat state machine; no extra acquisition pass. */
+  private _selectRangedMeleeMode(
+    target: { position: THREE.Vector3; isDead: boolean } | null,
+    player: Player, nearby: readonly NPC[], obstacles: ObstacleData[],
+  ): void {
+    if (!this.rangedWeaponId || !this.meleeWeaponId) return
+    let threatSq = target && !target.isDead ? this.combatPosition.distanceToSquared(target.position) : Infinity
+    if (!player.dead && combatAllegiancesHostile(this, player)) threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(player.combatPosition))
+    for (const other of nearby) {
+      if (other !== this && !other.dead && combatAllegiancesHostile(this, other)) {
+        threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(other.combatPosition))
+      }
+    }
+    const ranged = this.arrows > 0 && (this.rangedActive ? threatSq >= RANGED_ATTACK_MIN ** 2
+      : threatSq > RANGED_REEQUIP_MIN ** 2 && target && !target.isDead
+        && this.combatPosition.distanceToSquared(target.position) <= this.maxRangedAttackDistance ** 2
+        && this._findRangedTrajectoryBlocker(target.position, obstacles) === null)
+    if (Boolean(ranged) === this.rangedActive) return
+    // A released arrow keeps its recovery. Melee swings finish before returning to bow.
+    if (this.animator.busy && (!this.rangedActive || this.bowArrowReleased)) return
+    this._cancelEquipmentCombatState()
+    if (ranged) {
+      this.rangedActive = true
+      this._restoreCombatReadyRangedVisual()
+    } else this._switchToMelee(false)
+    this.state = AIState.CHASE
   }
 
   respawn(destination?: { x: number; z: number; yaw?: number }): void {

@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { polishWeaponMaterials } from './CharacterVisuals'
 import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import { createMakiRangerBowInstance } from './MakiRangerEquipment'
+import { createT5Bow } from './HighTierEquipment'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { equipmentShadowUntil } from './EquipmentVisualLODController'
 import { BOW_STRING_CONTACT, BOW_ARROW_REST } from './BowDrawHand'
@@ -53,6 +54,7 @@ export class CharacterBowVisual {
   private drawContact?: THREE.Object3D
   private arrowRest?: THREE.Object3D
   private profile: BowGripProfile = DEFAULT_BOW_GRIP_PROFILE
+  private animatedAsset?: ReturnType<typeof createT5Bow>
 
   constructor(
     private readonly actionPivot: THREE.Group,
@@ -61,6 +63,13 @@ export class CharacterBowVisual {
   ) {}
 
   rebuild(weaponId: string, consolidateMaterialGroups = false): void {
+    this.dispose()
+    if (weaponId === 'bow_t5') {
+      const bow = createT5Bow()
+      this.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
+      this.animatedAsset = bow
+      return
+    }
     if (weaponId === T4_RANGER_BOW_RANGED_ID || weaponId === 'maki-ranger-bow') {
       const bow = createMakiRangerBowInstance()
       this.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
@@ -141,6 +150,11 @@ export class CharacterBowVisual {
     // The bow body curves toward local -Z (the target), while the string nock
     // stays on the archer side at +Z and moves farther back as it is drawn.
     const ratio = THREE.MathUtils.clamp(drawRatio, 0, 1)
+    if (this.animatedAsset) {
+      this.animatedAsset.sampleDraw(arrowVisible ? ratio : 0)
+      this.topTip.copy(this.animatedAsset.topTip)
+      this.bottomTip.copy(this.animatedAsset.bottomTip)
+    }
     this.nockPosition.set(this.profile.gripRadius + 0.007, this.profile.gripLength / 2 + 0.015, 0.12 + ratio * 0.45)
     if (this.actionPivot.parent?.userData.handGripFrame) {
       // A stable actor root owns both hands, across equipment and rig rebuilds.
@@ -181,6 +195,11 @@ export class CharacterBowVisual {
 
   hideArrow(): void {
     if (this.nockedArrow) this.nockedArrow.visible = false
+  }
+
+  dispose(): void {
+    this.animatedAsset?.dispose()
+    this.animatedAsset = undefined
   }
 
   getGripPosition(target: THREE.Vector3): THREE.Vector3 {

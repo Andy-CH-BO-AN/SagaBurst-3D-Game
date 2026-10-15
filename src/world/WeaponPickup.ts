@@ -4,7 +4,7 @@
  * Uses emissive glow materials instead of heavy PointLights to keep 60+ FPS even with 30+ items.
  */
 import * as THREE from 'three'
-import { WEAPONS, getTierColor } from '../rpg/WeaponDatabase'
+import { WEAPONS, getTierColor, type WeaponTier } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { getTerrainHeight } from './Terrain'
@@ -15,7 +15,7 @@ export class WeaponPickup {
   readonly isArrowPack: boolean
   readonly arrowQuantity: number
   readonly name: string
-  readonly tier: 1 | 2 | 3 | 4
+  readonly tier: WeaponTier
 
   private meshGroup: THREE.Group
   private alive = true

@@ -59,7 +59,7 @@ describe('Commander service resident policy', () => {
     expect(shouldSpawnTownCommander(casualty)).toBe(true)
   })
 
-  it.each(['roman', 'viking'] as const)('%s uses its T5 identity with legal T4 equipment outside shared military rosters', faction => {
+  it.each(['roman', 'viking'] as const)('%s uses its T5 identity with bow and faction melee equipment outside shared military rosters', faction => {
     const commander = townCommanderSpec(townSitePoint('barracks', -10, 2))
     expect(townCavalryReserveSource(commander)).toBeUndefined()
     expect(commander).toMatchObject({ id: 'commander', role: 'commander', duty: 'service', tier: 4, mounted: true, training: false, assaultObjective: false })
@@ -68,7 +68,10 @@ describe('Commander service resident policy', () => {
     expect(HERO_COMBAT_PROFILES[HERO_COMBAT_PROFILE_BY_ASSET[asset]].maxHp).toBe(faction === 'roman' ? 850 : 950)
     const equipment = townMilitaryEquipment(faction, commander)
     expect(equipment.level).toBe(4)
-    expect(equipment.loadout).toEqual(townMilitaryEquipment(faction, 'captain').loadout)
+    expect(equipment.loadout).toMatchObject({ rangedWeaponId: 'bow_t5',
+      meleeWeaponId: faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4', shieldId: null, reversibleRangedSwitch: true })
+    expect(townMilitaryEquipment(faction, 'captain').loadout.rangedWeaponId).toBeNull()
+    expect(townMilitaryEquipment(faction, 'captain').loadout.shieldId).toBe('paladin_shield_t4')
     expect(townActorHeroProfile(faction, commander)?.mountOverride).toBe(faction === 'roman' ? 'corgi' : 'black-cat')
     const shared = townRoster(), normalTown = [...shared, commander]
     expect(shared.some(actor => actor.id === 'commander')).toBe(false)

@@ -52,6 +52,7 @@ export function resolveT4UnitLoadout(presetId: UnitPresetId): UnitLoadout {
   if (profile.specialCombatProfile !== 'maki-ranger') {
     for (const slot of ['meleeWeaponId', 'secondaryMeleeWeaponId'] as const) {
       const weapon = WEAPONS[base[slot] ?? '']
+      if (weapon?.combatKind === 'lance') base[slot] = presetId.endsWith('_lancer') ? 'lance_t4' : 'spear_t4'
       if (weapon?.animationKind === 'sword' || weapon?.animationKind === 'axe') {
         base[slot] = weapon.animationKind === 'axe' ? 'paladin_mace_t4' : 'paladin_sword_t4'
       }

@@ -1,6 +1,6 @@
 # 裝備盤點與外觀規格
 
-T1–T3 共有 **18 件武器、6 面盾牌**；另有以下共用 T4 裝備及 Maki 專屬弓。人物胸甲、頭盔與衣物屬於 humanoid GLB，不是獨立防具物品。
+T1–T3 共有 **18 件武器、6 面盾牌**；另有以下共用 T4／T5 裝備及 Maki 專屬弓。人物胸甲、頭盔與衣物屬於 humanoid GLB，不是獨立防具物品。
 
 ## 物品與數值
 
@@ -23,7 +23,7 @@ Campaign／Custom Battle 的 Roman／Viking 玩家 T1–T5 均可共用，保留
 
 Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440；Captain／Commander 的 Roman／Viking 玩家皆可購買、裝備及分配給 RESERVE 私兵。`maki-ranger-bow-ranged` 是可交易的遠程弓；`maki-ranger-bow` 仍是不可交易的 Maki 近戰動作武器，招募或出售 Maki 不會產生可交易弓。HR T4 Captain 初始維持 T3 劍／斧與盾，升級須使用購入庫存。
 
-一般 Career T4 NPC 在 Town、Duel 與 Siege 由業務層使用 `resolveT4UnitLoadout`：主武器與備用武器的劍／斧升級為 T4 Sword／Mace，原本配盾者使用 T4 Shield；長槍維持 T3，維京 T4 槍兵在 Charge 時使用 T4 Sword 備用劍。HR 私兵使用玩家分配的裝備，NPC 建構子不依 tier 強制覆寫。
+一般 Career T4 NPC 在 Town、Duel 與 Siege 由業務層使用 `resolveT4UnitLoadout`：主武器與備用武器的劍／斧升級為 T4 Sword／Mace，原本配盾者使用 T4 Shield；T4 Spearman 使用 `spear_t4`、T4 Lancer 使用 `lance_t4`，維京 T4 槍兵在 Charge 時仍使用 T4 Sword 備用劍。HR 私兵使用玩家分配的裝備，NPC 建構子不依 tier 強制覆寫。
 
 | ID | 來源外觀 | 基礎傷害 | 基礎完整攻擊週期 | 盾牌衝擊／耐久 |
 | --- | --- | --- | --- | --- |
@@ -34,6 +34,18 @@ Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440�
 不含護甲穿透或被動減傷。`meleeCycleSeconds` 同步縮放動畫、接觸事件與收招；T1–T3 未設定此欄位，時序維持原狀。物理命中盾面才消耗固定衝擊，不乘英雄傷害倍率；不足耐久沿用 `ShieldState.absorb` 比例溢出。
 
 `PaladinEquipment` 預載並共用幾何、材質與貼圖；每個持有者只複製物件變換。來源、授權及可重建流程見 `public/models/weapons/paladin/ATTRIBUTION.md`。Paladin 身體不含常駐武器。
+
+## T4 槍與 T5 弓
+
+| ID | 基礎傷害 | 攻擊／蓄力 | 射程／箭速 | Career 購買 |
+| --- | --- | --- | --- | --- |
+| `spear_t4` | 75 | 0.42 秒 | 3.9m | Captain · 1600 |
+| `lance_t4` | 75 | 0.42 秒 | 3.9m | Captain · 1600 |
+| `bow_t5` | 50–120 | 滿蓄力 1.8 秒 | 45–120m/s | Commander · 2500 |
+
+兩把槍共用 `models/weapons/high-tier/spear.glb`；戰鬥參數完全相同，沿用徒步反騎兵 ×2、速度嚴格大於 10m/s 的騎乘衝鋒 ×3。盾牌衝擊僅騎乘時為 60，徒步維持 1。T5 弓的獨立骨架與來源動畫接在 `CharacterBowVisual`，沿用現有弦、搭箭、投射物與傷害修正；來源、校準與重建見該資產目錄 `ATTRIBUTION.md`。
+
+Career 正式 Roman T5 Commander 預設 T5 弓＋T4 Sword；Viking 預設 T5 弓＋T4 Mace，兩者均無盾。城鎮與斬首任務的前任指揮官共用 `careerCommanderLoadout`。近敵小於 6m 切近戰、附近敵人均超過 9m 且目前遠程目標可射擊時切回弓；不消耗尚存箭矢，空箭袋持續近戰。Duel 的臨時裝備暫停此策略；HR T5 私兵仍領原 T2 武器，需玩家購買分配新裝備。武器 T5 不擴充一般 NPC tier，巨鷹弓射程仍最高 500m。
 
 ## 三階視覺
 

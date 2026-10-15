@@ -7,6 +7,7 @@ import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODContr
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { createPaladinEquipment } from './PaladinEquipment'
+import { createT4Polearm, createT5BowBody } from './HighTierEquipment'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -168,6 +169,14 @@ export class WeaponMeshFactory {
     pivot.userData.gripCenterLocal = [0, 0.15, 0]
     if (WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
     else delete pivot.userData.meleeAnimationKind
+
+    if (weaponId === 'spear_t4' || weaponId === 'lance_t4') {
+      pivot.userData.supportPointLocal = [0, .33, 0]
+      pivot.userData.forwardAxisLocal = [0, 1, 0]
+      pivot.userData.tipLocal = [0, 2.6, 0]
+      pivot.add(createT4Polearm())
+      return { tipLocal: new THREE.Vector3(0, 2.6, 0) }
+    }
 
     if (weaponId === 'paladin_sword_t4' || weaponId === 'paladin_mace_t4') {
       pivot.add(createPaladinEquipment(weaponId))
@@ -357,6 +366,10 @@ export class WeaponMeshFactory {
    * 建構遠程武器的 3D mesh group
    */
   static buildRanged(weaponId: string, pivot: THREE.Group, consolidateMaterialGroups = false): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
+    if (weaponId === 'bow_t5') {
+      pivot.add(createT5BowBody())
+      return { topTip: new THREE.Vector3(0, .85, .21), botTip: new THREE.Vector3(0, -.85, .21), stringLength: .85 }
+    }
     const profile = DEFAULT_BOW_GRIP_PROFILE
     const tier = WEAPONS[weaponId]?.tier ?? 2
     const halfSpan = weaponId === 'wooden_shortbow' ? 0.62 : weaponId === 'elven_runebow' ? 1.02 : 0.85

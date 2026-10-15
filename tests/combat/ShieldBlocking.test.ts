@@ -175,3 +175,10 @@ describe('Routing, progression and controls', () => {
     expect(arrow.isAlive).toBe(false); expect(p.hp).toBe(before); expect(p.shield.shieldImpactRemaining).toBe(29)
   })
 })
+
+it.each(['spear_t4', 'lance_t4'])('%s applies 60 impact only mounted and preserves proportional shield overflow', id => {
+  expect(weaponShieldImpact(id, false)).toBe(1)
+  expect(weaponShieldImpact(id, true)).toBe(60)
+  const shield = new ShieldState(); shield.equip('scutum_t3')
+  expect(shield.absorb(225, weaponShieldImpact(id, true))).toEqual({ damage: 112.5, blockedImpact: 30 })
+})

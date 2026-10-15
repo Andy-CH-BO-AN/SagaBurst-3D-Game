@@ -1023,3 +1023,8 @@ describe('Commander multi-gate siege runtime ownership', () => {
     expect(h.profile().activeMission!.officialSquad!.commandedSquadIds).toEqual([])
   })
 })
+
+vi.mock('../../src/world/HighTierEquipment', async () => ({
+  createT4Polearm: () => new THREE.Group(),
+  createT5Bow: (await import('../helpers/gameplayWeaponVisual')).createGameplayBowAsset,
+}))

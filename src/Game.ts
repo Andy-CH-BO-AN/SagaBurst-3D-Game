@@ -1,3 +1,4 @@
+import { preloadHighTierEquipment } from './world/HighTierEquipment'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
 import { getSiegeApproachClearances, isMobileSiegeRampEnabled, isSiegeRampCrewCandidate } from './campaign/MobileSiegeRampPolicy'
@@ -400,7 +401,7 @@ export class Game {
     const personalMembers = personalProfile?.personalSquad?.members.filter(member => personalIds.has(member.id)) ?? []
     try {
       if (!trainingGround && import.meta.env.DEV && new URLSearchParams(window.location.search).has('devbowqa')) {
-        await Promise.all([HumanoidAssetRegistry.preload(), preloadPaladinEquipment()])
+        await Promise.all([HumanoidAssetRegistry.preload(), preloadPaladinEquipment(), preloadHighTierEquipment()])
         const { GameplayBowQAPanel } = await import('./debug/GameplayBowQAPanel')
         return new GameplayBowQAPanel(renderer)
       }
@@ -425,7 +426,7 @@ export class Game {
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
+      await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       if (trainingGround) heroAssets.add('maki-archer-t4')
       const validationHero = import.meta.env.DEV && trainingGround ? commanderValidationHero(query) : undefined

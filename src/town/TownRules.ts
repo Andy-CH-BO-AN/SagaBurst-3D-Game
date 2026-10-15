@@ -1,3 +1,4 @@
+import { careerCommanderLoadout } from '../career/CareerCommanderEquipment'
 import { civilianHomeAnchor } from './TownCivilianLife'
 import { assignTownGarrison, type TownGarrisonStation } from './TownGarrison'
 import { townEagleRoster } from './TownEagleGarrison'
@@ -62,7 +63,7 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
   const base = UNIT_PRESETS[presetId].tierLoadouts[tier]
   // Town owns mount placement; only standard hero equipment comes from the T4 catalog.
   return { presetId, tier, level, loadout: level === 4
-    ? { ...resolveT4UnitLoadout(presetId), mountId: base.mountId } : { ...base } }
+    ? { ...(role === 'commander' ? careerCommanderLoadout(faction) : resolveT4UnitLoadout(presetId)), mountId: base.mountId } : { ...base } }
 }
 export const TOWN_SITES = {
   /** Civic hall faces the open plaza, clear of the four main roads. */
@@ -254,7 +255,7 @@ export function careerTownWeapon(profile: CareerProfile): string {
   const tier = getCareerPurchaseTier(profile.rank)
   return [profile.equipment?.melee, ...profile.ownedWeapons].find(id => id && WEAPONS[id]?.type === 'melee' && WEAPONS[id].tier <= tier && isTownShopWeapon(id) && canAllocateCareerItemToPlayer(profile, id)) ?? ''
 }
-export interface TownProduct { id: string; category: 'weapon' | 'armor' | 'mount'; name: string; tier: 1 | 2 | 3 | 4; price: number }
+export interface TownProduct { id: string; category: 'weapon' | 'armor' | 'mount'; name: string; tier: 1 | 2 | 3 | 4 | 5; price: number }
 // Maki's melee action weapon stays fixed; the ranged Ranger Bow is a shop item.
 export function isTownShopWeapon(id: string): boolean {
   return Boolean(WEAPONS[id]) && id !== 'maki-ranger-bow'

@@ -1,3 +1,4 @@
+import { preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
@@ -36,7 +37,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
   panel.textContent = `正在載入${label}資產…`
   document.body.append(panel)
   try {
-    await Promise.all([preloadPaladinEquipment(), HumanoidAssetRegistry.preload(), HumanoidAssetRegistry.preloadAsset(descriptor), ...(reference ? [HumanoidAssetRegistry.preloadAsset(reference)] : []), CorgiVisual.preload(), BlackCatVisual.preload(), XongkoroVisual.preload()])
+    await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HumanoidAssetRegistry.preloadAsset(descriptor), ...(reference ? [HumanoidAssetRegistry.preloadAsset(reference)] : []), CorgiVisual.preload(), BlackCatVisual.preload(), XongkoroVisual.preload()])
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#b4bac1')
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
