@@ -1,0 +1,65 @@
+{
+  "viking-hero-t4": {
+    "axeAttack1H": {
+      "activeStart": 1.4333333333333333,
+      "hit": 1.5083333333333333,
+      "activeEnd": 1.6333333333333333
+    },
+    "axeAttack2H": {
+      "activeStart": 1.025,
+      "hit": 1.0666666666666667,
+      "activeEnd": 1.125
+    },
+    "swordSlash": {
+      "hit": 0.23333333333333334
+    },
+    "bowRelease": {
+      "projectileRelease": 0.06
+    },
+    "pilumThrow": {
+      "projectileRelease": 0.6166666666666667
+    }
+  },
+  "roman": {
+    "axeAttack1H": {
+      "activeStart": 1.4333333333333333,
+      "hit": 1.5666666666666667,
+      "activeEnd": 1.6333333333333333
+    },
+    "axeAttack2H": {
+      "activeStart": 1.025,
+      "hit": 1.075,
+      "activeEnd": 1.125
+    },
+    "swordSlash": {
+      "hit": 0.25
+    },
+    "bowRelease": {
+      "projectileRelease": 0.035
+    },
+    "pilumThrow": {
+      "projectileRelease": 0.6333333333333333
+    }
+  },
+  "viking": {
+    "axeAttack1H": {
+      "activeStart": 1.4333333333333333,
+      "hit": 1.5666666666666667,
+      "activeEnd": 1.6333333333333333
+    },
+    "axeAttack2H": {
+      "activeStart": 1.025,
+      "hit": 1.0583333333333333,
+      "activeEnd": 1.125
+    },
+    "swordSlash": {
+      "hit": 0.25
+    },
+    "bowRelease": {
+      "projectileRelease": 0.06
+    },
+    "pilumThrow": {
+      "projectileRelease": 0.6333333333333333
+    }
+  }
+}

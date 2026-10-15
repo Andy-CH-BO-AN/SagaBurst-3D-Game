@@ -1,0 +1,25 @@
+{
+  "sourceSha256": "de47db53ff2f3dadeb4b6ff3e89f1b8ff85830c25eb321f508ef3850ff9ae80d",
+  "sourceAnimationBufferSha256": "9983985085f15c74eb01a3ffb9189008d22c70ff8ad5703a81a24a7fdc308da0",
+  "skinJoints": 54,
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 11117,
+      "bytes": 17017748,
+      "strategy": "Source geometry unchanged; wrapper normalization and texture resize only."
+    },
+    {
+      "level": 1,
+      "triangles": 4446,
+      "bytes": 6979056,
+      "strategy": "Coincident vertices welded at 10 micrometers; Blender surface collapse retains loop UVs, interpolated weights remapped to unchanged source skin. Animation/bind bytes preserved."
+    },
+    {
+      "level": 2,
+      "triangles": 1555,
+      "bytes": 3380356,
+      "strategy": "Coincident vertices welded at 10 micrometers; Blender surface collapse retains loop UVs, interpolated weights remapped to unchanged source skin. Animation/bind bytes preserved."
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "sourceSha256": "a66917fffe0b2ab9b682e14675993ddf0f184420a585e9951e629d35a40b8c0c",
+  "sourceAnimationBufferSha256": "ae2cbe3b85bed472f1dbba5109e6b8624f5d876397a64ac4a62b79ecf13dbed1",
+  "skinJoints": 22,
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 10290,
+      "bytes": 14714904,
+      "strategy": "Source geometry unchanged; wrapper normalization and texture resize only."
+    },
+    {
+      "level": 1,
+      "triangles": 4668,
+      "bytes": 5385104,
+      "strategy": "Index-only collapse preserves original vertex attributes; welded candidate rejected for new posterior dents."
+    },
+    {
+      "level": 2,
+      "triangles": 3600,
+      "bytes": 2178268,
+      "strategy": "Index-only collapse preserves original vertex attributes; welded candidate rejected for new posterior dents."
+    }
+  ]
+}
