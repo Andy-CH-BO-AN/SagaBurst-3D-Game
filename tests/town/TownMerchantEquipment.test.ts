@@ -1,7 +1,8 @@
 import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi, beforeAll, afterAll } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { HumanoidAssetRegistry, resolveHumanoidAnimationClips } from '../../src/world/HumanoidAssetRegistry'
+import { CIVILIAN_HUMANOID_ASSET, HumanoidAssetRegistry, resolveHumanoidAnimationClips } from '../../src/world/HumanoidAssetRegistry'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { calibrateEquipmentFrames, calibrateLanceIdleAttachment } from '../../src/world/EquipmentAttachmentContract'
 // @ts-expect-error The repository diagnostic loader has no TypeScript declaration.
 import { loadRig, readGlb } from '../../tools/lib/humanoid-glb.mjs'
@@ -19,7 +20,9 @@ const savedTemplates = HumanoidAssetRegistry._snapshotTemplatesForTesting()
 beforeAll(async () => {
   const templates = HumanoidAssetRegistry._snapshotTemplatesForTesting()
   for (const faction of ['roman', 'viking'] as const) {
-    const base = `public/models/characters/v2/${faction}`
+    // Combat dispatch uses the retained resident rig. Military selected-source
+    // skin/pose contracts have their own asset integration owner.
+    const base = 'public/models/characters/v2/roman-civilian'
     const manifest = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8')) as HumanoidTemplate['manifest']
     const levels: HumanoidTemplate['levels'] = await Promise.all([0, 1, 2].map(lod => loadRig(readGlb(`${base}/lod${lod}.glb`))))
     const authoredLeft = manifest.handGripFrames?.left, swords = manifest.swordGripFrames
@@ -43,6 +46,12 @@ beforeAll(async () => {
     templates.set(faction, { manifest, levels, animationClips: resolveHumanoidAnimationClips(levels.map(level => level.animations)) })
   }
   HumanoidAssetRegistry._restoreTemplatesForTesting(templates)
+  const base = 'public/models/characters/v2/roman-civilian'
+  const manifest = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8'))
+  const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: true, json: async () => manifest } as Response)
+  const loader = vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async url => loadRig(readGlb(`public${url}`)))
+  try { await HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSET) }
+  finally { fetchMock.mockRestore(); loader.mockRestore() }
 })
 afterAll(() => HumanoidAssetRegistry._restoreTemplatesForTesting(savedTemplates))
 

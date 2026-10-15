@@ -1,9 +1,34 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import * as THREE from 'three'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
-import { optimizeSelectedAnimationClips, shareSelectedLodPose, validateSelectedLodAnimations } from '../../src/world/SelectedLodPose'
+import { shareIdenticalSkinSkeletons, optimizeSelectedAnimationClips, shareSelectedLodPose, validateSelectedLodAnimations } from '../../src/world/SelectedLodPose'
 
 describe('selected LOD pose sharing', () => {
+  it('coalesces only identical actor joints and inverse binds, preserving foreign actor skeletons', () => {
+    const root = new THREE.Group(), bone = new THREE.Bone(), peerBone = new THREE.Bone()
+    bone.name = peerBone.name = 'hips'; root.add(bone, peerBone)
+    const geometry = new THREE.BufferGeometry(), material = new THREE.MeshBasicMaterial()
+    const make = (joint: THREE.Bone, inverse: THREE.Matrix4) => {
+      const mesh = new THREE.SkinnedMesh(geometry, material)
+      mesh.bind(new THREE.Skeleton([joint], [inverse]), new THREE.Matrix4()); root.add(mesh)
+      return mesh
+    }
+    const first = make(bone, new THREE.Matrix4()), same = make(bone, new THREE.Matrix4())
+    const differentBind = make(bone, new THREE.Matrix4().makeTranslation(0, -.25, 0))
+    const peer = make(peerBone, new THREE.Matrix4())
+    const originals = [first, same, differentBind, peer].map(mesh => mesh.skeleton)
+    onTestFinished(() => { for (const skeleton of new Set([first, same, differentBind, peer].map(mesh => mesh.skeleton))) skeleton.dispose(); geometry.dispose(); material.dispose() })
+    shareIdenticalSkinSkeletons(root)
+    expect(same.skeleton).toBe(first.skeleton)
+    expect(differentBind.skeleton).toBe(originals[2])
+    expect(peer.skeleton).toBe(originals[3])
+    expect(differentBind.skeleton).not.toBe(first.skeleton)
+    expect(peer.skeleton).not.toBe(first.skeleton)
+    expect(differentBind.skeleton.boneInverses[0].elements[13]).toBe(-.25)
+    bone.position.x = 2
+    expect(peer.skeleton.bones[0].position.x).toBe(0)
+  })
+
   it('keeps a visible lower mesh deforming when the primary mesh is hidden', () => {
     const root = new THREE.Group(), bone = new THREE.Bone()
     bone.name = 'hips'; root.name = 'armature'; root.add(bone)

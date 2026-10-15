@@ -1,10 +1,6 @@
 import * as THREE from 'three'
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { HumanoidAssetRegistry, resolveHumanoidAnimationClips } from '../../src/world/HumanoidAssetRegistry'
-import { calibrateEquipmentFrames, calibrateLanceIdleAttachment } from '../../src/world/EquipmentAttachmentContract'
-// @ts-expect-error diagnostic loader parses the shipped GLB without browser image decoding.
-import { loadRig, readGlb } from '../../tools/lib/humanoid-glb.mjs'
+import { preloadGameplayHumanoids } from '../helpers/preloadGameplayHumanoids'
 import { AIState, AIType, Faction, NPC } from '../../src/world/NPC'
 import { Player } from '../../src/player/Player'
 import { Mount, MountType } from '../../src/world/Mount'
@@ -29,32 +25,12 @@ vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({
   },
 }))
 
-// Install the shipped rigs through the registry's test seam, so NPC construction,
-// attachment calibration and animation layering follow the production path.
-const savedTemplates = HumanoidAssetRegistry._snapshotTemplatesForTesting()
-beforeAll(async () => {
-  const templates = HumanoidAssetRegistry._snapshotTemplatesForTesting()
-  for (const faction of ['viking', 'roman'] as const) {
-    const base = `public/models/characters/v2/${faction}`
-    const manifest = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8'))
-    const levels = await Promise.all([0, 1, 2].map(lod => loadRig(readGlb(`${base}/lod${lod}.glb`))))
-    const left = Object.fromEntries(Object.entries(manifest.handGripFrames.left).map(([key, value]) => [
-      key, Array.isArray(value) ? new THREE.Vector3(...value as [number, number, number]) : value,
-    ])) as any
-    levels[0].scene.updateMatrixWorld(true)
-    const referenceHand = levels[0].scene.getObjectByName('hand_l')!
-    levels.forEach((level, lod) => {
-      level.scene.updateMatrixWorld(true)
-      const frames = calibrateEquipmentFrames(manifest.swordGripFrames[`lod${lod}`], left, referenceHand, level.scene.getObjectByName('hand_l')!)
-      level.scene.userData.equipmentGripFrames = frames
-      level.scene.userData.equipmentFaction = faction
-      calibrateLanceIdleAttachment(level.scene, level.animations.find((clip: THREE.AnimationClip) => clip.name === 'idle')!, frames.lanceRight)
-    })
-    templates.set(faction, { manifest, levels, animationClips: resolveHumanoidAnimationClips(levels.map(level => level.animations)) })
-  }
-  HumanoidAssetRegistry._restoreTemplatesForTesting(templates)
-})
-afterAll(() => HumanoidAssetRegistry._restoreTemplatesForTesting(savedTemplates))
+// Preload through the production registry: selected-source preparation, animation
+// optimization and mounted/equipment contracts must not be recreated in this test.
+// Network and image decoding are the only substituted boundaries.
+let restoreTemplates: () => void
+beforeAll(async () => { restoreTemplates = await preloadGameplayHumanoids(true) })
+afterAll(() => restoreTemplates?.())
 
 const cleanup: (() => void)[] = []
 afterEach(() => {
@@ -65,18 +41,18 @@ afterEach(() => {
 const weapons = ['gladius_standard', 'steel_sword', 'viking_axe_t2', 'steel_lance'] as const
 const bodyContact: CombatContact = { kind: 'body', time: 0 }
 
-function harness(weaponId: string, targetKind: 'player' | 'npc' = 'player', physicalCollision = false) {
+function harness(weaponId: string, targetKind: 'player' | 'npc' = 'player', physicalCollision = false, selectedAttacker?: 'roman' | 'viking' | 'viking-hero-t4', heading = 0) {
   const scene = new THREE.Scene()
-  const attacker = new NPC(scene, 0, 0, Faction.ENEMY, weaponId === 'steel_lance' || weaponId.startsWith('gladius') ? 'roman' : 'viking', AIType.MELEE, 'attacker', 2, false, {
+  const attacker = new NPC(scene, 0, 0, Faction.ENEMY, selectedAttacker === 'roman' || weaponId === 'steel_lance' || weaponId.startsWith('gladius') ? 'roman' : 'viking', AIType.MELEE, 'attacker', selectedAttacker === 'viking-hero-t4' ? 4 : 2, false, {
     meleeWeaponId: weaponId, rangedWeaponId: null, shieldId: null, mountId: null,
-  })
+  }, undefined, undefined, undefined, undefined, selectedAttacker === 'viking-hero-t4' ? selectedAttacker : undefined, selectedAttacker === 'viking-hero-t4' ? 'varangian' : undefined)
   const player = new Player(scene)
   const target = targetKind === 'player'
     ? player
     : new NPC(scene, 0, 0, Faction.PLAYER, 'viking', AIType.MELEE, 'stationary target', 2, false, {
       meleeWeaponId: 'steel_sword', rangedWeaponId: null, shieldId: null, mountId: null,
     })
-  cleanup.push(() => attacker.dispose())
+  cleanup.push(() => attacker.dispose(), () => player.dispose())
   if (target instanceof NPC) cleanup.push(() => target.dispose())
   const npcs = target instanceof NPC ? [attacker, target] : [attacker]
   if (target !== player) player.setPosition(100, attacker.combatPosition.y, 100)
@@ -85,7 +61,7 @@ function harness(weaponId: string, targetKind: 'player' | 'npc' = 'player', phys
   const hit = vi.fn()
   const targetBodyPosition = () => target instanceof NPC && target.mount ? target.mount.group.position : target.group.position
   const moveTarget = (distance: number) => {
-    targetBodyPosition().set(0, attacker.combatPosition.y - (target.isMounted ? 0 : target.bodyBaseOffset ?? 0), distance)
+    targetBodyPosition().set(Math.sin(heading) * distance, attacker.combatPosition.y - (target.isMounted ? 0 : target instanceof Player ? target.bodyBaseOffset : 0), Math.cos(heading) * distance)
     if (target instanceof NPC && target.mount) (target as any)._syncToMount()
     scene.updateMatrixWorld(true)
   }
@@ -124,6 +100,19 @@ function harness(weaponId: string, targetKind: 'player' | 'npc' = 'player', phys
 }
 
 describe('NPC melee physical-contact approach', () => {
+  // Two real actors per case; real selected assets and sweep, no world/mount.
+  // Both world headings must work; source-facing correction cannot be world-axis fixed.
+  it.each((['roman', 'viking', 'viking-hero-t4'] as const).flatMap(asset => [0, Math.PI / 2].map(heading => ({ asset, heading }))))('$asset two-handed axe reaches frontal body contact at heading $heading with collision enabled', ({ asset, heading }) => {
+    const h = harness('viking_axe_t2', 'player', true, asset, heading)
+    h.moveTarget(h.attacker.meleeAttackRadius + .5)
+    const trace = vi.spyOn(h.attacker.weaponSweep, 'trace')
+    h.until(() => h.hit.mock.calls.length > 0)
+    expect(h.starts.mock.calls.some(call => call[0] === 'axeAttack2H')).toBe(true)
+    expect(trace.mock.results.some(result => result.value?.kind === 'body')).toBe(true)
+    expect(h.hit).toHaveBeenLastCalledWith(expect.any(Number), true, undefined)
+    expect(h.hit.mock.lastCall![0]).toBeGreaterThan(0)
+  })
+
   for (const targetKind of ['player', 'npc'] as const) {
     it.each(weapons)('%s reaches physical contact with a stationary ' + targetKind + ' from the old attack boundary', weaponId => {
       const h = harness(weaponId, targetKind)

@@ -140,7 +140,12 @@ describe.each(['roman', 'viking'] as const)('%s T5 commander asset package', fac
       expect(meshTopology(level.object), `LOD${index} authored indices and base positions`).toEqual(
         authoredTopologies.get(manifest.files![`lod${index}` as 'lod0' | 'lod1' | 'lod2']))
       level.object.traverse(node => {
-        if (node instanceof THREE.SkinnedMesh) expect(node.skeleton, `LOD${index} follows the actor pose`).toBe(first.skeleton)
+        if (node instanceof THREE.SkinnedMesh) {
+          expect(node.skeleton, `LOD${index} follows the actor pose`).toBe(first.skeleton)
+          // Replacing ordinary selected-source assets must not silently opt the
+          // existing Roman commander out of its established shadow policy.
+          if (faction === 'roman') expect(node.castShadow, `Roman T5 LOD${index} retains its shadow policy`).toBe(false)
+        }
       })
     }
     for (const socket of ['socket_hand_l', 'socket_hand_r', 'socket_back', 'socket_head', 'socket_pelvis', 'socket_foot_l', 'socket_foot_r', 'sole_l', 'sole_r']) {

@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Game } from '../../src/Game'
 import { Player } from '../../src/player/Player'
 import type { PlayerInput } from '../../src/player/PlayerInput'
@@ -10,6 +10,7 @@ import { InventoryManager } from '../../src/rpg/InventoryManager'
 import { CombatEventStream, type CombatEvent } from '../../src/combat/CombatAttribution'
 import { AIType, Faction, NPC } from '../../src/world/NPC'
 import { Mount, MountType } from '../../src/world/Mount'
+import { preloadGameplayHumanoids } from '../helpers/preloadGameplayHumanoids'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
 
 vi.mock('../../src/world/HorseAssetRegistry', async importOriginal => ({
@@ -28,17 +29,18 @@ type UpdateBoundaryArgs = [
   Pick<SoundManager, 'playBowRelease'>, InventoryManager,
 ]
 
-function fixture(mounted: boolean, x: number, z: number) {
+function fixture(mounted: boolean, x: number, z: number, options: { heading?: number; axe?: boolean; hero?: 'viking-hero-t4' } = {}) {
+  const heading = options.heading ?? 0
   const scene = new THREE.Scene()
-  const player = new Player(scene)
+  const player = new Player(scene, 'viking', options.hero)
   onTestFinished(() => player.dispose())
   player.setPosition(0, 50.95, 0)
-  player.faceDirection(0, 1)
+  player.faceDirection(Math.sin(heading), Math.cos(heading))
   const target = new NPC(scene, x, z, Faction.ENEMY, 'roman', AIType.MELEE, 'Target', 1, false,
     { meleeWeaponId: 'steel_sword', rangedWeaponId: null, shieldId: null, mountId: null })
   onTestFinished(() => target.dispose())
   target.group.position.set(x, 50, z)
-  const inventory = new InventoryManager({ meleeWeaponId: 'heavy_lance', rangedWeaponId: 'wooden_shortbow', shieldId: null })
+  const inventory = new InventoryManager({ meleeWeaponId: options.axe ? 'viking_axe_t2' : 'heavy_lance', rangedWeaponId: 'wooden_shortbow', shieldId: null })
   inventory.rangedEnabled = false
   const mount = mounted ? new Mount(scene, MountType.HORSE, 0, 0, 50) : null
   if (mount) {
@@ -72,7 +74,7 @@ function fixture(mounted: boolean, x: number, z: number) {
     const args: UpdateBoundaryArgs = [
       .01, { keys: {}, isLeftMouseDown: false, isRightMouseDown: false,
         consumeLeftClick: () => click, consumeLeftClickRelease: () => false },
-      0, new THREE.Vector3(0, 51, 10), [], { setFill() {} },
+      (options.heading === undefined ? 0 : heading - Math.PI), new THREE.Vector3(Math.sin(heading) * 10, 51, Math.cos(heading) * 10), [], { setFill() {} },
       { setAiming() {}, setChargeRatio() {}, setShieldBlocked() {} },
       { playBowRelease() {} }, inventory,
     ]
@@ -84,7 +86,7 @@ function fixture(mounted: boolean, x: number, z: number) {
     for (let frame = 1; frame <= 60 && !player.isHitFrame(inventory.equippedMelee); frame++) update(false)
     expect(player.isHitFrame(inventory.equippedMelee), `mounted=${mounted}; attack must enter its hit window within 60 frames`).toBe(true)
   }
-  return { player, target, mount, inventory, events, caller, armAttack, checkHits: () => checkHits.call(caller) }
+  return { scene, update, player, target, mount, inventory, events, caller, armAttack, checkHits: () => checkHits.call(caller) }
 }
 
 describe.each([false, true])('Player melee contact wiring mounted=%s', mounted => {
@@ -156,5 +158,31 @@ describe.each([false, true])('Player melee contact wiring mounted=%s', mounted =
     expect(f.events.filter(event => event.type === 'damage_applied')).toHaveLength(1)
     f.checkHits()
     expect(f.target.hp).toBe(140)
+  })
+})
+
+
+describe('Selected source Player two-handed axe physical contact', () => {
+  let restoreTemplates: () => void
+  beforeAll(async () => { restoreTemplates = await preloadGameplayHumanoids(true) })
+  afterAll(() => restoreTemplates?.())
+  // Two real actors, no Game/world construction. Fixed frontal target; the
+  // production Player samples the weapon and Game routes real sweep damage.
+  it.each([
+    { heading: 0, hero: undefined },
+    { heading: Math.PI / 2, hero: undefined },
+    { heading: Math.PI / 2, hero: 'viking-hero-t4' as const },
+  ])('hits a standing enemy at heading $heading with hero $hero', ({ heading, hero }) => {
+    const f = fixture(false, Math.sin(heading) * 1.2, Math.cos(heading) * 1.2, { heading, hero, axe: true })
+    const initialHp = f.target.hp
+    for (let frame = 0; frame < 60; frame++) {
+      f.update(frame === 0)
+      // Isolate the contact contract from terrain/gravity, as in NPC approach.
+      f.player.setPosition(0, 50.95, 0)
+      f.scene.updateMatrixWorld(true)
+      f.checkHits()
+    }
+    expect(f.target.hp).toBeLessThan(initialHp)
+    expect(f.events.filter(event => event.type === 'damage_applied')).toHaveLength(1)
   })
 })

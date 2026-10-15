@@ -19,7 +19,10 @@ const fixtures: Record<string, Awaited<ReturnType<typeof createFixture>>> = {}
 const persistentCleanups: Array<() => void> = []
 afterAll(() => persistentCleanups.splice(0).reverse().forEach(dispose => dispose()))
 async function createFixture(faction: string, emptyMounted = false, persistent = false) {
-  const base = `public/models/characters/v2/${faction}`
+  // This fixture owns the canonical-rig procedural equipment branch still used by
+  // civilians. Selected military rigs are covered through the actual registry in
+  // VikingHeroAssets; faction here independently selects the real weapon/shield.
+  const base = 'public/models/characters/v2/roman-civilian'
   const manifest = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8'))
   const levels = await Promise.all([0, 1, 2].map(i => loadRig(readGlb(`${base}/lod${i}.glb`))))
   const a = manifest.handGripFrames.left
@@ -67,7 +70,7 @@ async function createFixture(faction: string, emptyMounted = false, persistent =
   return { root, rigs, levels, controller, animator, lance, shield, reset, measure }
 }
 
-// Viking owns the complete shared state matrix, including its independent axe clips.
+// The retained canonical rig owns the complete procedural state matrix with Viking equipment.
 beforeAll(async () => { fixtures.viking = await createFixture('viking', false, true) })
 
 for (const faction of ['viking']) describe(`${faction} Sword Idle + Lance attachment`, () => {

@@ -5,10 +5,11 @@ import { describe, it, expect } from 'vitest'
 import { normalizeBowHandClips, prepareBowGripShape } from '../../src/world/CanonicalBowGripPose'
 import { resolveHumanoidAnimationClips } from '../../src/world/HumanoidAssetRegistry'
 import { loadTestGlbAsset } from '../helpers/testGlbAsset'
+import { prepareSelectedHumanoidSource } from '../../src/world/SelectedHumanoidSource'
 import { DEFAULT_BOW_GRIP_PROFILE } from '../../src/world/BowAttachmentContract'
 
-describe('actual asset bow hand normalization', () => {
-  for (const faction of ['viking', 'roman']) for (const lod of [0, 1, 2]) it(`${faction} LOD${lod}: leaves imported bow arm trajectories unchanged`, async () => {
+describe('retained civilian canonical bow hand normalization', () => {
+  for (const faction of ['roman-civilian']) for (const lod of [0, 1, 2]) it(`${faction} LOD${lod}: leaves imported bow arm trajectories unchanged`, async () => {
     const gltf = await loadTestGlbAsset(`public/models/characters/v2/${faction}/lod${lod}.glb`)
     const sourceRoot = clone(gltf.scene)
     const sourceMixer = new THREE.AnimationMixer(sourceRoot)
@@ -103,7 +104,9 @@ it('ordinary Viking visible bow LODs keep both hands at the authority attachment
   // Three independent GLBs are necessary: the previous lower-LOD bow poses
   // left the hand 40 cm from the LOD0-owned equipment socket, even on T3 bows.
   const levels = await Promise.all([0, 1, 2].map(lod => loadTestGlbAsset(`public/models/characters/v2/viking/lod${lod}.glb`)))
-  const clips = resolveHumanoidAnimationClips(levels.map(l => l.animations))
+  const manifest = JSON.parse(readFileSync('public/models/characters/v2/viking/manifest.json', 'utf8'))
+  if (manifest.selectedSource) levels.forEach(level => prepareSelectedHumanoidSource(level, manifest.selectedSource))
+  const clips = manifest.selectedSource ? levels.map(l => l.animations) : resolveHumanoidAnimationClips(levels.map(l => l.animations))
   const mixers = levels.map(l => new THREE.AnimationMixer(l.scene))
   try {
     for (const state of ['bowLoad', 'bowHold', 'bowRelease']) {

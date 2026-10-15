@@ -20,11 +20,11 @@ interface AnimationManifest {
   }> }
 }
 
-function readAnimationManifest(faction: 'viking' | 'roman'): AnimationManifest {
-  return JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8'))
+function readAnimationManifest(_faction: 'roman'): AnimationManifest {
+  return JSON.parse(readFileSync(new URL(`roman-civilian/manifest.json`, ROOT), 'utf8'))
 }
 
-it.each(['viking', 'roman'] as const)('%s pilum manifest matches the gameplay release frame and its declared clip completion', faction => {
+it.each(['roman'] as const)('%s pilum manifest matches the gameplay release frame and its declared clip completion', faction => {
   const manifest = readAnimationManifest(faction)
   const pilum = manifest.animations.embedded.find(clip => clip.clip === 'pilumThrow')!
   expect(pilum).toBeDefined()
@@ -64,8 +64,8 @@ interface GlbAsset {
   binary: Buffer
 }
 
-function readGlbAsset(faction: 'viking' | 'roman', lod: number): GlbAsset {
-  const bytes = readFileSync(new URL(`${faction}/lod${lod}.glb`, ROOT))
+function readGlbAsset(_faction: 'roman', lod: number): GlbAsset {
+  const bytes = readFileSync(new URL(`roman-civilian/lod${lod}.glb`, ROOT))
   expect(bytes.toString('utf8', 0, 4)).toBe('glTF')
   const jsonLength = bytes.readUInt32LE(12)
   const document = JSON.parse(bytes.toString('utf8', 20, 20 + jsonLength)) as GlbDocument
@@ -77,7 +77,7 @@ function readGlbAsset(faction: 'viking' | 'roman', lod: number): GlbAsset {
   }
 }
 
-function readGlb(faction: 'viking' | 'roman', lod: number): GlbDocument {
+function readGlb(faction: 'roman', lod: number): GlbDocument {
   return readGlbAsset(faction, lod).document
 }
 
@@ -110,10 +110,10 @@ function clipDuration(document: GlbDocument, name: string): number {
   return Math.max(...clip.samplers.map((sampler) => document.accessors[sampler.input].max?.[0] ?? 0))
 }
 
-async function runtimeFixture(faction: 'viking' | 'roman', lod: number, bow = false) {
-  const levels = await Promise.all([0, 1, 2].map(index => loadTestGlbAsset(`public/models/characters/v2/${faction}/lod${index}.glb`)))
+async function runtimeFixture(_faction: 'roman', lod: number, bow = false) {
+  const levels = await Promise.all([0, 1, 2].map(index => loadTestGlbAsset(`public/models/characters/v2/roman-civilian/lod${index}.glb`)))
   const gltf = levels[lod]
-  const manifest = JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8'))
+  const manifest = JSON.parse(readFileSync(new URL(`roman-civilian/manifest.json`, ROOT), 'utf8'))
   const animationClips = resolveHumanoidAnimationClips(levels.map(level => level.animations))
   const data = manifest.handGripFrames.left
   const frame = Object.fromEntries(Object.entries(data).map(([key, value]) => [
@@ -136,8 +136,10 @@ async function runtimeFixture(faction: 'viking' | 'roman', lod: number, bow = fa
   return { root: gltf.scene, rig, controller, animator }
 }
 
-describe('humanoid embedded animation asset contract', () => {
-  it.each(['viking', 'roman'] as const)('%s LOD0 source bowLoad has no effective draw-arm motion', faction => {
+// Legacy repair algorithms remain used by the preserved civilian package.
+// Military selected-source assets bypass these repairs and are owned by VikingHeroAssets.
+describe('legacy civilian embedded animation repair contract', () => {
+  it.each(['roman'] as const)('%s LOD0 source bowLoad has no effective draw-arm motion', faction => {
     const asset = readGlbAsset(faction, 0)
     const clip = asset.document.animations.find(animation => animation.name === 'bowLoad')!
     for (const name of ['upper_arm_r', 'lower_arm_r', 'hand_r']) {
@@ -146,13 +148,13 @@ describe('humanoid embedded animation asset contract', () => {
       const times = readAccessor(asset, sampler.input)
       const values = readAccessor(asset, sampler.output)
       expect(times).toHaveLength(2)
-      const start = new THREE.Quaternion().fromArray(values[0])
-      const end = new THREE.Quaternion().fromArray(values[1])
+      const start = new THREE.Quaternion().fromArray(values[0] as [number, number, number, number])
+      const end = new THREE.Quaternion().fromArray(values[1] as [number, number, number, number])
       expect(start.angleTo(end)).toBeLessThan(0.01)
     }
   })
   it('keeps LOD0 bowHold/release source poses and only completes the static bowLoad trajectory', async () => {
-    const levels = await Promise.all([0, 1, 2].map(index => loadTestGlbAsset(`public/models/characters/v2/roman/lod${index}.glb`)))
+    const levels = await Promise.all([0, 1, 2].map(index => loadTestGlbAsset(`public/models/characters/v2/roman-civilian/lod${index}.glb`)))
     const resolved = resolveHumanoidAnimationClips(levels.map(level => level.animations))
     const rawLod0 = new Map(levels[0].animations.map(clip => [clip.name, clip]))
     const lod1 = new Map(levels[1].animations.map(clip => [clip.name, clip]))
@@ -166,7 +168,7 @@ describe('humanoid embedded animation asset contract', () => {
   })
 
   it.each(
-    (['viking', 'roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
+    (['roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
   )('%s LOD%s equipped bowLoad moves at 0%, 50%, and 100% while preserving authored endpoints', async (faction, lod) => {
     const { root, rig, controller, animator } = await runtimeFixture(faction, lod, true)
     const sample = (ratio: number, equipped: boolean) => {
@@ -201,7 +203,7 @@ describe('humanoid embedded animation asset contract', () => {
     expect(rawBowLoadMotion).toBeGreaterThan(0.1)
     for (let i = 0; i < samples.length; i++) {
       // Viking LOD1/2 now share the authority trajectory in their own bind basis.
-      if ((lod === 0 || faction === 'viking') && i === 1) {
+      if ((lod === 0) && i === 1) {
         expect(samples[i].arm.angleTo(rawSamples[i].arm)
           + samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeGreaterThan(0.1)
         continue
@@ -210,7 +212,7 @@ describe('humanoid embedded animation asset contract', () => {
       expect(samples[i].drawHand.distanceTo(rawSamples[i].drawHand)).toBeLessThan(0.001)
       expect(samples[i].bowHand.distanceTo(rawSamples[i].bowHand)).toBeLessThan(0.001)
     }
-    if (lod === 0 || faction === 'viking') {
+    if (lod === 0) {
       const almostFull = sample(0.99, true)
       const full = sample(1, true)
       expect(almostFull.arm.angleTo(full.arm)).toBeLessThan(0.1)
@@ -221,7 +223,7 @@ describe('humanoid embedded animation asset contract', () => {
   })
 
   it.each(
-    (['viking', 'roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
+    (['roman'] as const).flatMap(faction => [0, 1, 2].map(lod => [faction, lod] as const)),
   )('%s LOD%s exposes the manifest pilum duration through the runtime mixer', async (faction, lod) => {
     const manifest = readAnimationManifest(faction)
     const pilum = manifest.animations.embedded.find(clip => clip.clip === 'pilumThrow')!
@@ -235,7 +237,7 @@ describe('humanoid embedded animation asset contract', () => {
     } finally { controller.stop() }
   })
 
-  it.each(['viking', 'roman'] as const)('%s production pilumThrow raises the grip above the shoulder at release frame 17', async faction => {
+  it.each(['roman'] as const)('%s production pilumThrow raises the grip above the shoulder at release frame 17', async faction => {
     const { root, rig, controller } = await runtimeFixture(faction, 0)
     controller.setPoseLayersEnabled(true)
     controller.setEquipmentState({ shield: false, lance: false, action: 'pilumThrow', elapsed: 0 })
@@ -321,7 +323,7 @@ describe('humanoid embedded animation asset contract', () => {
 
 
   it('ships the runtime-required clips with names and durations matching each faction manifest', () => {
-    for (const faction of ['viking', 'roman'] as const) {
+    for (const faction of ['roman'] as const) {
       const manifest = readAnimationManifest(faction)
       const required = [...CLIPS, 'axeAttack1H', 'axeAttack2H']
       expect(manifest.animations.embedded.map(binding => binding.clip)).toEqual(expect.arrayContaining(required))
@@ -342,14 +344,14 @@ describe('humanoid embedded animation asset contract', () => {
 
 
   it('matches every runtime GLB to the SHA-256 recorded in its manifest', () => {
-    for (const faction of ['viking', 'roman'] as const) {
-      const manifest = JSON.parse(readFileSync(new URL(`${faction}/manifest.json`, ROOT), 'utf8')) as {
+    for (const _faction of ['roman'] as const) {
+      const manifest = JSON.parse(readFileSync(new URL(`roman-civilian/manifest.json`, ROOT), 'utf8')) as {
         fileSha256: Record<'lod0' | 'lod1' | 'lod2', string>
       }
       for (let lod = 0; lod < 3; lod++) {
         const key = `lod${lod}` as 'lod0' | 'lod1' | 'lod2'
         const digest = createHash('sha256')
-          .update(readFileSync(new URL(`${faction}/lod${lod}.glb`, ROOT)))
+          .update(readFileSync(new URL(`roman-civilian/lod${lod}.glb`, ROOT)))
           .digest('hex')
         expect(digest).toBe(manifest.fileSha256[key])
       }
@@ -361,10 +363,10 @@ describe('humanoid embedded animation asset contract', () => {
 // Asset owner: the existing Viking AxeAttack suite owns the complete gameplay
 // matrix. These independent Roman payloads need real GLB decoding per LOD to
 // catch absent/static clips or tracks that cannot bind to their target skeleton.
-it.each(['roman', 'roman-hero-t4'] as const)('%s ships playable axe attacks and mounted carry on every runtime LOD', async assetId => {
+it.each(['roman-hero-t4'] as const)('%s ships playable axe attacks and mounted carry on every runtime LOD', async assetId => {
   const base = `public/models/characters/v2/${assetId}`
   const manifest = JSON.parse(readFileSync(`${base}/manifest.json`, 'utf8')) as HumanoidAssetManifest
-  const descriptor = assetId === 'roman' ? undefined : HERO_ASSETS[assetId].descriptor
+  const descriptor = HERO_ASSETS[assetId].descriptor
   for (const action of ['axeAttack1H', 'axeAttack2H'] as const) {
     const broken = { ...manifest, animations: { ...manifest.animations!, embedded: manifest.animations!.embedded.filter(c => c.clip !== action) } }
     expect(() => validateHumanoidManifest('roman', broken, descriptor)).toThrow('binding')
