@@ -150,3 +150,4 @@ For **Formation**, aim the crosshair at the ground, check the preview, then pres
 Career automatically saves your faction, rank, merit, equipment, mounts, combat skills, troops, and mission checkpoints. Enter Career again to resume your existing character. Campaign saves each faction's stage progression. Training and Custom Battle do not advance Career.
 
 Saves stay on the device. **Browser and desktop saves are separate and do not sync.** Desktop saves persist when you replace the app with a newer version. Clearing browser site data or the app's user data removes the corresponding saves.
+test
