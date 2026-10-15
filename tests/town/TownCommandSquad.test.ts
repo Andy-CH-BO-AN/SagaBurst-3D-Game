@@ -1,7 +1,10 @@
+import { addCareerItem } from '../../src/career/CareerInventory'
+import { changeTownEquipment, resolveTownActorEquipment } from '../../src/career/CareerTownEquipment'
+import { sellTownNativeEquipment } from '../../src/career/CareerTownNativeResale'
 import { townStationSpec } from '../../src/town/TownGarrison'
 import * as THREE from 'three'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
-import { createCareerProfile, cloneCareerProfile, claimCareerMission } from '../../src/career/CareerProfile'
+import { createCareerProfile, cloneCareerProfile, claimCareerMission, type CareerProfile } from '../../src/career/CareerProfile'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { stageOfficialCommandOrder } from '../../src/career/CareerOfficialCommandOrder'
@@ -1031,4 +1034,31 @@ it('physically revives one real dead wall archer at its elevated station and ret
   expect(npc.group.visible).toBe(true)
   npc.updateTownPeace(.05, 5, false, false)
   expect(npc.combatPosition.y).toBe(spec.y)
+})
+
+describe('Town refit preserves native sale ownership', () => {
+  it('retains a purchased weapon and sold token ledger through automatic defense refit and resource restoration', () => {
+    // One recording training resident, zero real NPC/Mount/world; no full roster materialization.
+    const r = resident(townRoster().find(spec => spec.id === 'melee_infantry-0')!)
+    let profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander', totalMerit: 60000, availableMerit: 60000 }
+    const store = new CareerProfileStore(new MemoryStorage())
+    const save = (next: typeof profile) => { if (!store.save(next)) return false; profile = store.load()!; return true }
+    const token = resolveTownActorEquipment(profile, 'roman', r.spec.id).refs.melee!.nativeId!
+    addCareerItem(profile, 'paladin_sword_t4', 1)
+    expect(changeTownEquipment(() => profile, { townFaction: 'roman', peaceful: true, personalState: 'RESERVE', safeActorIds: new Set([r.spec.id]) },
+      r.spec.id, 'melee', 'paladin_sword_t4', save).changed).toBe(true)
+    expect(sellTownNativeEquipment(() => profile, () => ({ townFaction: 'roman', peaceful: true, playerAlive: true, merchantAvailable: true }), [token], save).sold).toBe(true)
+    profile.townCommandSquad = commanderTownState()
+    const controller = new TownCommandSquadController([r], player, () => profile, save)
+    controller.applyRefit(profile.townCommandSquad)
+    r.actor.dead = true; r.actor.hp = 0
+    const staged = controller.stageRefit(profile, true)
+    expect(save(staged)).toBe(true)
+    controller.applyRefit(profile.townCommandSquad)
+    expect(r.actor.dead).toBe(false); expect(r.actor.hp).toBe(100)
+    expect(profile.townEquipment!.roman!.soldNativeIds).toEqual([token])
+    expect(profile.townEquipment!.roman!.nativeReserve).not.toContain(token)
+    expect(resolveTownActorEquipment(profile, 'roman', r.spec.id).refs.melee).toEqual({ itemId: 'paladin_sword_t4', source: 'inventory' })
+    expect(profile.inventory!.quantities.paladin_sword_t4).toBe(1)
+  })
 })

@@ -13,7 +13,11 @@ import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
 export const TOWN_EQUIPMENT_SLOTS = ['melee', 'ranged', 'shield', 'mount'] as const
 export interface TownEquipmentRef { itemId: string; source: 'inventory' | 'native'; nativeId?: string }
 export type TownEquipmentRefs = Record<PersonalEquipmentSlot, TownEquipmentRef | null>
-export interface CareerTownEquipmentState { version: 1; actors: Record<string, TownEquipmentRefs>; nativeReserve: string[] }
+export interface CareerTownEquipmentState {
+  version: 1; actors: Record<string, TownEquipmentRefs>; nativeReserve: string[]
+  /** Version 1 extension: absent in old saves, permanently excludes sold tokens from every owner. */
+  soldNativeIds?: string[]
+}
 export type CareerTownEquipment = Partial<Record<CharacterFaction, CareerTownEquipmentState>>
 export interface TownNativeItem { nativeId: string; itemId: string; actorId: string; slot: PersonalEquipmentSlot; squadId: number | 'civilian'; tier: number }
 export interface ResolvedTownActorEquipment {
@@ -58,6 +62,12 @@ export function townNativeItems(faction: CharacterFaction): TownNativeItem[] {
   nativeCache.set(faction, items)
   return items
 }
+/** Fixed identities and native mounts never participate in merchant resale. */
+export function isResalableTownNativeItem(faction: CharacterFaction, item: TownNativeItem): boolean {
+  const spec = townEquipmentActorSpecs(faction).find(actor => actor.id === item.actorId)
+  return item.slot !== 'mount' && Boolean(spec && !['merchant', 'ranger', 'eagle-trainer'].includes(spec.role))
+    && item.itemId !== 'maki-ranger-bow'
+}
 export function townEquipmentRefTier(profile: Pick<CareerProfile, 'rank'>, ref: TownEquipmentRef | null, faction: CharacterFaction): number {
   if (!ref) return 0
   if (ref.source === 'native') return townNativeItems(faction).find(item => item.nativeId === ref.nativeId)?.tier ?? 0
@@ -72,7 +82,7 @@ export function resolveTownActorEquipment(profile: CareerProfile, faction: Chara
   if (!spec) throw new Error('Unknown town actor')
   const base = townDefaultActorLoadout(faction, spec), state = profile.townEquipment?.[faction]
   const assigned = new Set(Object.values(state?.actors ?? {}).flatMap(refs => Object.values(refs).flatMap(ref => ref?.source === 'native' ? [ref.nativeId!] : [])))
-  const reserve = new Set(state?.nativeReserve ?? [])
+  const reserve = new Set([...(state?.nativeReserve ?? []), ...(state?.soldNativeIds ?? [])])
   const saved = state?.actors[actorId]
   const refs = Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => {
     if (saved) return [slot, saved[slot] ? { ...saved[slot] } : null]
@@ -127,6 +137,17 @@ export function parseTownEquipment(value: unknown): CareerTownEquipment | undefi
       if (typeof id !== 'string' || !native.has(id) || claimed.has(id) || reserve.has(id)) throw new Error('Invalid native reserve')
       reserve.add(id); state.nativeReserve.push(id)
     }
+    if (raw.soldNativeIds !== undefined) {
+      if (!Array.isArray(raw.soldNativeIds)) throw new Error('Invalid sold native equipment')
+      state.soldNativeIds = []
+      const sold = new Set<string>()
+      for (const id of raw.soldNativeIds) {
+        const item = typeof id === 'string' ? native.get(id) : undefined
+        if (!item || !isResalableTownNativeItem(faction, item) || claimed.has(item.nativeId)
+          || reserve.has(item.nativeId) || sold.has(item.nativeId)) throw new Error('Invalid sold native equipment')
+        sold.add(item.nativeId); state.soldNativeIds.push(item.nativeId)
+      }
+    }
     parsed[faction] = state
   }
   return parsed
@@ -166,5 +187,6 @@ export function cloneTownEquipment(value: CareerTownEquipment): CareerTownEquipm
     actors: Object.fromEntries(Object.entries(state!.actors).map(([id, refs]) => [id,
       Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => [slot, refs[slot] ? { ...refs[slot] } : null]))])),
     nativeReserve: [...state!.nativeReserve],
+    ...(state!.soldNativeIds ? { soldNativeIds: [...state!.soldNativeIds] } : {}),
   }])) as CareerTownEquipment
 }

@@ -26,6 +26,7 @@ import type { Player } from '../../src/player/Player'
 import { recording, resetSpawnRecording } from '../helpers/npcSpawnRecording'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { addCareerItem } from '../../src/career/CareerInventory'
+import { sellTownNativeEquipment } from '../../src/career/CareerTownNativeResale'
 import { changeTownEquipment, bulkCareerEquipment, townEquipmentSquads, resolveTownActorEquipment } from '../../src/career/CareerTownEquipment'
 import { NpcSpawnTestDriver, installNpcLoadingFrames, gameplayNpcSpawnDriver } from '../helpers/npcSpawnFrames'
 import { registerTownNativeMount } from '../../src/town/TownEquipmentRuntime'
@@ -129,10 +130,14 @@ describe('saved Town equipment materialization wiring', () => {
     expect(npc.combatProfileId).toBeUndefined()
     expect(npc.characterFaction).toBe('roman')
   })
-  it('uses the same persisted allocation in Commander Town Defense and after settlement returns to Town', async () => {
+  it('keeps a purchased weapon and sold native token absent through Commander Defense and return to Town', async () => {
     const profile = configuredProfile('gate:north:0', 'melee', 'paladin_sword_t4')
-    profile.activeMission = savedDefense('roman').activeMission
     const store = new CareerProfileStore(new MemoryStorage())
+    const sold = sellTownNativeEquipment(() => profile, () => ({ townFaction: 'roman', peaceful: true, playerAlive: true, merchantAvailable: true }),
+      ['roman/gate:north:0/melee'], next => store.save(next))
+    expect(sold.sold).toBe(true)
+    Object.assign(profile, sold.profile)
+    profile.activeMission = savedDefense('roman').activeMission
     expect(store.save(profile)).toBe(true)
     const battle = constructTown(store.load()!)
     expect((await materialize(battle, 'gate:north:0')).loadout?.meleeWeaponId).toBe('paladin_sword_t4')
@@ -142,6 +147,8 @@ describe('saved Town equipment materialization wiring', () => {
     const returned = constructTown(store.load()!)
     expect((await materialize(returned, 'gate:north:0')).loadout?.meleeWeaponId).toBe('paladin_sword_t4')
     expect(returned.profile.inventory?.quantities.paladin_sword_t4).toBe(1)
+    expect(returned.profile.townEquipment!.roman!.soldNativeIds).toEqual(['roman/gate:north:0/melee'])
+    expect(returned.profile.townEquipment!.roman!.nativeReserve).not.toContain('roman/gate:north:0/melee')
   })
   it('does not recreate a native mount at its origin when a sparse saved holder moves it to another member', async () => {
     const profile = createCareerProfile('roman'); profile.rank = 'commander'; profile.totalMerit = 60000

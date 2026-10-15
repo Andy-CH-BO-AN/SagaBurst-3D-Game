@@ -1,4 +1,5 @@
 import { careerItemTotal, addCareerItem } from '../../src/career/CareerInventory'
+import { changeTownEquipment } from '../../src/career/CareerTownEquipment'
 import { createTownCombatFixture } from '../helpers/townCombatFixture'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, getCareerPurchaseTier, purchaseCareerContent, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
@@ -191,7 +192,7 @@ class PanelElement {
 function merchantHarness(failSave = false, initial = profile(), shop = 'merchant') {
   vi.stubGlobal('document', { createElement: (tag: string) => new PanelElement(tag) })
   const current = initial; current.townDialogueSeen = ['roman:merchant', 'roman:ranger', 'roman:cat', 'roman:eagle-trainer']
-  const store = new CareerProfileStore(new MemoryStorage()); store.save(current)
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage); store.save(current)
   if (failSave) vi.spyOn(store, 'save').mockReturnValue(false)
   const town = Object.assign(createTownCombatFixture(), {
     skills: { skillState: current.skills }, careerSkillSaveTimer: null,
@@ -199,11 +200,12 @@ function merchantHarness(failSave = false, initial = profile(), shop = 'merchant
     careerMounts: { syncOwnership: vi.fn() },
     openPanel: function (_title: string, message: string) { this.message = message; this.panel = new PanelElement('panel'); return this.panel },
   }) as any
+  Object.defineProperty(town, 'sceneContext', { value: { worldFaction: initial.faction, missionOnlyResidents: false }, configurable: true })
   town.inventory = new TownEquipment(() => town.profile, next => town.commit(next))
   town.talk(shop)
   const rows = () => town.panel.children.find((child: PanelElement) => child.className.split(' ').includes('town-products')).children as PanelElement[]
   const row = (name: string) => rows().find(child => child.children[0]?.textContent.includes(name))!
-  return { town, store, row, rows }
+  return { town, store, storage, row, rows }
 }
 
 describe('Career shop resale', () => {
@@ -617,5 +619,80 @@ describe('Career bulk purchase panel integration', () => {
     select(h.row('軍用戰馬')).value = '20'; buy(h.row('軍用戰馬')).onclick!()
     expect(h.town.profile).toEqual(before); expect(save).not.toHaveBeenCalled()
     expect(h.town.message).toContain('請先安全降落')
+  })
+})
+
+/** Merchant caller + real domain/store with DOM metadata doubles; no NPC/Mount/TownWorld. */
+function nativeMerchantProfile() {
+  let current: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander', totalMerit: 60000, availableMerit: 60000 }
+  addCareerItem(current, 'paladin_sword_t4', 3); addCareerItem(current, 'gladius_standard', 1)
+  for (const actorId of ['gate:north:0', 'gate:north:1', 'gate:north:2']) {
+    const result = changeTownEquipment(() => current, { townFaction: 'roman', peaceful: true, personalState: 'RESERVE', safeActorIds: new Set([actorId]) },
+      actorId, 'melee', 'paladin_sword_t4', next => { current = next; return true })
+    expect(result.changed).toBe(true)
+  }
+  return current
+}
+describe('Merchant town native resale wiring', () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+  function open() {
+    const h = merchantHarness(false, nativeMerchantProfile())
+    h.town.panel.querySelector('.town-shop-tabs').children[1].onclick()
+    const section = () => h.town.panel.querySelector('.town-native-sale') as PanelElement
+    const nativeRow = () => section().children.find(child => child.tag === 'article' && child.children[0]?.textContent.includes('Gladius Standard'))!
+    return { ...h, section, nativeRow }
+  }
+  it('separates identical Inventory and native products, sells one then bulk, and immediately refreshes persisted totals', () => {
+    const h = open(), before = h.town.profile.availableMerit
+    expect(h.section().children[0].textContent).toBe('城鎮舊裝備')
+    expect(h.nativeRow().children[1].textContent).toContain('數量 3 · 單價 360 軍功')
+    h.row('Gladius Standard').querySelector('.town-button')!.onclick!()
+    expect(careerItemTotal(h.town.profile, 'gladius_standard')).toBe(0)
+    expect(h.nativeRow().children[1].textContent).toContain('數量 3')
+    h.nativeRow().querySelector('.town-button')!.onclick!()
+    expect(h.nativeRow().children[1].textContent).toContain('數量 2')
+    expect(h.section().children[1].textContent).toContain('已出售 1 件')
+    const bulk = h.section().querySelector('.town-sale')!
+    expect(bulk.children[1].textContent).toContain('賣回 2件')
+    bulk.children[1].onclick!()
+    expect(h.store.load()).toMatchObject({ availableMerit: before + 1440, totalMerit: 60000,
+      townEquipment: { roman: { nativeReserve: [], soldNativeIds: ['roman/gate:north:0/melee', 'roman/gate:north:1/melee', 'roman/gate:north:2/melee'] } } })
+    expect(h.section().children[1].textContent).toContain('已出售 3 件')
+    expect(h.section().children.at(-1)!.textContent).toBe('沒有可賣出的城鎮舊裝備。')
+    expect(h.town.panel.children[0].textContent).toContain(`可用軍功 ${before + 1440}`)
+  })
+  it('preserves saved and runtime state on failure and allows the same sale to be retried', () => {
+    const h = open(), before = structuredClone(h.town.profile), disk = h.store.load()
+    h.storage.failWrites = true
+    h.nativeRow().querySelector('.town-button')!.onclick!()
+    expect(h.town.profile).toEqual(before); expect(h.store.load()).toEqual(disk)
+    expect(h.town.message).toContain('保存失敗')
+    expect(h.town.careerMounts.syncOwnership).not.toHaveBeenCalled()
+    expect(h.town.player.clearTownAction).not.toHaveBeenCalled()
+    h.storage.failWrites = false
+    h.nativeRow().querySelector('.town-button')!.onclick!()
+    expect(h.store.load()!.townEquipment!.roman!.soldNativeIds).toHaveLength(1)
+    expect(h.town.player.clearTownAction).toHaveBeenCalledOnce()
+  })
+  it.each(['dead', 'hostile', 'mission', 'merchant-unavailable', 'foreign-town'] as const)('rejects a stale button after %s changes', state => {
+    const h = open(), button = h.nativeRow().querySelector('.town-button')!
+    if (state === 'dead') h.town.player.dead = true
+    if (state === 'hostile') h.town.event.hostile = true
+    if (state === 'mission') h.town.profile.activeOutpostMission = { id: 'outpost', kind: 'outpost-defense', stageId: 1, acceptedAt: 0 }
+    if (state === 'merchant-unavailable') h.town.serviceAvailable = () => false
+    if (state === 'foreign-town') h.town.sceneContext.worldFaction = 'viking'
+    const before = structuredClone(h.town.profile)
+    button.onclick!()
+    expect(h.town.profile).toEqual(before)
+    expect(h.town.careerMounts.syncOwnership).not.toHaveBeenCalled()
+    expect(h.town.player.clearTownAction).not.toHaveBeenCalled()
+  })
+  it.each(['captain', 'foreign-town', 'stable'] as const)('hides native resale for %s', state => {
+    const initial = nativeMerchantProfile()
+    if (state === 'captain') initial.rank = 'captain'
+    const h = merchantHarness(false, initial, state === 'stable' ? 'ranger' : 'merchant')
+    if (state === 'foreign-town') h.town.sceneContext.worldFaction = 'viking'
+    h.town.panel.querySelector('.town-shop-tabs').children[1].onclick()
+    expect(h.town.panel.querySelector('.town-native-sale')).toBeNull()
   })
 })

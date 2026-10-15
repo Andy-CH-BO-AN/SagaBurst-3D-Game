@@ -87,7 +87,7 @@ function rebuildNativeReserve(profile: CareerProfile, faction: CareerProfile['fa
   for (const squad of townEquipmentSquads(profile)) if (squad.id !== 'personal') for (const actorId of squad.actorIds) {
     for (const ref of Object.values(resolveTownActorEquipment(profile, faction, actorId).refs)) if (ref?.source === 'native') held.add(ref.nativeId!)
   }
-  state.nativeReserve = townNativeItems(faction).filter(item => !held.has(item.nativeId)).map(item => item.nativeId).sort(naturalActorCompare)
+  state.nativeReserve = townNativeItems(faction).filter(item => !held.has(item.nativeId) && !state.soldNativeIds?.includes(item.nativeId)).map(item => item.nativeId).sort(naturalActorCompare)
 }
 function validateStaged(next: CareerProfile, context: TownEquipmentContext): void {
   rebuildNativeReserve(next, context.townFaction)
