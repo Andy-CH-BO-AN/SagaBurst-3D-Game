@@ -13,9 +13,9 @@ export class SquadRefitSafety {
     this.contacts.set(event.target.targetId, now)
     if ('ownerActorId' in event.target && event.target.ownerActorId) this.contacts.set(event.target.ownerActorId, now)
   }
-  allows(player: Player, actors: readonly NPC[], orders: readonly TacticalOrder[], now = performance.now()): boolean {
+  allows(player: Player, actors: readonly NPC[], orders: readonly TacticalOrder[], now = performance.now(), engaged: (actor: NPC) => boolean = actor => actor.inCombat): boolean {
     if (player.dead || player.swinging || player.isAiming || player.combatAnimationAction !== 'idle'
-      || orders.some(order => order === 'attack' || order === 'charge') || actors.some(actor => !actor.dead && actor.inCombat)) return false
+      || orders.some(order => order === 'attack' || order === 'charge') || actors.some(actor => !actor.dead && engaged(actor))) return false
     return ['player', ...actors.map(actor => actor.combatantId)]
       .every(id => now - (this.contacts.get(id) ?? -Infinity) >= 5000)
   }

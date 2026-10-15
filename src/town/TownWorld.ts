@@ -5,7 +5,7 @@ import { eagleLandingFootprint, isEagleLandingClear } from '../world/EagleLandin
 import { isEagleApproachClear } from '../world/EagleApproach'
 import { resolveTownHRLayout, type TownHRLayout } from './TownHRLayout'
 import { createTownFortifications } from './TownFortifications'
-import { TOWN_CITY_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
+import { TOWN_CENTER, TOWN_WELL, townHousing, TOWN_CITY_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisuals'
@@ -66,11 +66,8 @@ export class TownWorld {
     const ground = this.mat(0xffffff); ground.vertexColors = true; const land = new THREE.Mesh(g, ground); land.receiveShadow = true; this.root.add(land); this.terrainMesh = land
     this.building('weapons', '武器店 · ARMOURY', TOWN_SITES.weapons.x, TOWN_SITES.weapons.z, 11, 10, 3.6, 'shop', TOWN_SITES.weapons.yaw)
     this.building('stable', '馬廄 · STABLE', TOWN_SITES.stable.x, TOWN_SITES.stable.z, 14, 11, 3.7, 'stable', TOWN_SITES.stable.yaw)
-    for (const [i, [x, z]] of [[96, 70], [116, 70], [136, 70], [106, 88], [128, 88]].entries())
-      this.building('home-' + i, '住宅', x, z, 9, faction === 'roman' ? 8 : 12, 3.4, 'home')
-    this.building('town-center', 'TOWN CENTER', TOWN_SITES.hall.x, TOWN_SITES.hall.z, 24, 20, 7, 'hall')
-    for (const [i, [x, z]] of [[42, -70], [64, -70], [86, -70], [108, -70], [94, -19], [117, -19], [78, 72]].entries())
-      this.building('home-' + (i + 5), '住宅', x, z, 9, faction === 'roman' ? 8 : 12, 3.4, 'home', z < -50 ? 0 : Math.PI)
+    for (const home of townHousing(faction)) this.building(home.id, '住宅', home.x, home.z, home.width, home.depth, 3.4, 'home', home.yaw)
+    this.building('town-center', 'TOWN CENTER', TOWN_CENTER.x, TOWN_CENTER.z, TOWN_CENTER.width, TOWN_CENTER.depth, 7, 'hall')
     for (const road of TOWN_CITY_ROADS) this.road(road.ax, road.az, road.bx, road.bz, road.width)
     this.road(32, 12, 74, 12, 32)
     this.road(30, -58, 125, -58, 6)
@@ -78,7 +75,7 @@ export class TownWorld {
     this.road(80, 56, 136, 56, 5)
     this.road(80, 80, 138, 80, 4)
     // A small well sits at the plaza edge, leaving its centre free for a full squad.
-    const wellX = 72, wellZ = 30, wellY = getTerrainHeight(wellX, wellZ)
+    const wellX = TOWN_WELL.x, wellZ = TOWN_WELL.z, wellY = getTerrainHeight(wellX, wellZ)
     this.solid(wellX, wellZ, 2.6, 1, 2.6)
     for (const side of [-1, 1]) {
       this.cube(this.root, wellX + side * 1.2, wellY + .5, wellZ, .3, 1, 2.7, this.stone)

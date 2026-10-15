@@ -68,3 +68,14 @@ describe('peace-only squad refit policy', () => {
     expect(profile.townCommandSquad.members?.guard.hp).toBe(0)
   })
 })
+
+it('native peaceful travel may report CHASE without bypassing contact cooldown or real engagement', () => {
+  const safety = new SquadRefitSafety(), travelling = { ...guard, inCombat: true } as NPC
+  expect(safety.allows(player, [travelling], [], 10000)).toBe(false)
+  expect(safety.allows(player, [travelling], [], 10000, () => false)).toBe(true)
+  safety.note({ type: 'damage_applied', source: { actorId: 'enemy', actorType: 'npc', allegiance: Faction.ENEMY, characterFaction: 'viking' },
+    target: { targetId: 'guard', targetType: 'npc', name: 'Guard' }, method: 'melee', requestedDamage: 4, appliedDamage: 4 }, 10000)
+  expect(safety.allows(player, [travelling], [], 14999, () => false)).toBe(false)
+  expect(safety.allows(player, [travelling], [], 15000, () => false)).toBe(true)
+  expect(safety.allows(player, [travelling], [], 15000, () => true)).toBe(false)
+})

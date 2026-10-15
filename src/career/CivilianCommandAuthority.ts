@@ -12,6 +12,7 @@ export interface CivilianCommandSquadState {
   townFaction: CharacterFaction
   sceneKey: string
   missionId?: string
+  homeLayoutVersion?: number
   actorIds: string[]
   owners: Record<string, CivilianCommandOwner>
   members: Record<string, PersonalActorCheckpoint>
@@ -31,6 +32,7 @@ export function parseCivilianCommandSquad(value: unknown): CivilianCommandSquadS
   if (raw.type !== 'civilian-command' || raw.squadId !== 'civilians'
     || (raw.townFaction !== 'roman' && raw.townFaction !== 'viking') || !validId(raw.sceneKey)
     || (raw.missionId !== undefined && !validId(raw.missionId))
+    || (raw.homeLayoutVersion !== undefined && (!Number.isSafeInteger(raw.homeLayoutVersion) || raw.homeLayoutVersion < 1))
     || !Array.isArray(raw.actorIds) || raw.actorIds.length > 100 || !raw.actorIds.every(validId)
     || new Set(raw.actorIds).size !== raw.actorIds.length || !raw.owners || !raw.members) return undefined
   const members: CivilianCommandSquadState['members'] = {}, parsedOwners: CivilianCommandSquadState['owners'] = {}
@@ -43,6 +45,7 @@ export function parseCivilianCommandSquad(value: unknown): CivilianCommandSquadS
     members[id] = member
   }
   return { type: 'civilian-command', squadId: 'civilians', townFaction: raw.townFaction, sceneKey: raw.sceneKey,
+    ...(raw.homeLayoutVersion !== undefined ? { homeLayoutVersion: raw.homeLayoutVersion } : {}),
     ...(raw.missionId ? { missionId: raw.missionId } : {}), actorIds: [...raw.actorIds], owners: parsedOwners, members }
 }
 

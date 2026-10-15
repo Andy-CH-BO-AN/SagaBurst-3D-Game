@@ -167,7 +167,7 @@ function patrolPolicyFixture(count = 1) {
       takeDamage: () => { mountState.dead = true; mountState.currentHp = 0 },
     }
     const mount = mountState as unknown as Mount
-    const npcState = { group, dead: false, hp: 100, maxHp: 100, isFalling: false, mount: null as Mount | null, combatAmmo: 30, missionMovement: false,
+    const npcState = { group, dead: false, hp: 100, maxHp: 100, isFalling: false, deathPresentationComplete: undefined as boolean | undefined, mount: null as Mount | null, combatAmmo: 30, missionMovement: false,
       get combatPosition() { return group.position },
       setEagleCruiseAltitude: vi.fn(), setEagleFlightOrder: vi.fn(), setMissionCombatTarget: vi.fn(), setTownPeaceful: vi.fn(),
       setTacticalOrder: vi.fn(), restoreCombatAmmo: (ammo: number) => { npcState.combatAmmo = ammo },
@@ -472,4 +472,29 @@ it('retains a partially elapsed native casualty replacement clock across player 
   runtime.releasePlayerCommand(row.npc)
   expect(runtime.snapshot('town:roman').pairs[0]).toMatchObject({ replacementRemaining: 37, ambientRecovery: true, hp: 0 })
   expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+})
+
+it('Sergeant service resumes native return after storage, waits for death presentation and never repairs in live flight', () => {
+  // One recording pair, zero real actors/world; native flight physics have their own integration owner.
+  const { rows: [row], runtime, tick } = patrolPolicyFixture()
+  row.npcState.dead = true; row.npcState.hp = 0; row.npcState.deathPresentationComplete = false
+  row.mountState.dead = true; row.mountState.currentHp = 0
+  expect(runtime.canServiceRefit(row.npc)).toBe(true)
+  runtime.requestServiceRefit(row.npc); runtime.requestServiceRefit(row.npc)
+  tick()
+  expect(runtime.serviceRefitPending(row.npc)).toBe(true)
+  expect(row.npcState.restoreForTown).not.toHaveBeenCalled()
+  const saved = parseTownEagleGarrisonState(JSON.parse(JSON.stringify(runtime.snapshot('town:roman'))))!
+  const reloaded = patrolPolicyFixture()
+  reloaded.runtime.restore(saved, 'town:roman')
+  reloaded.rows[0].npcState.deathPresentationComplete = false
+  reloaded.tick(); expect(reloaded.rows[0].npcState.restoreForTown).not.toHaveBeenCalled()
+  reloaded.rows[0].npcState.deathPresentationComplete = true
+  reloaded.rows[0].mountState.isAirborne = true
+  reloaded.tick(); expect(reloaded.rows[0].npcState.restoreForTown).not.toHaveBeenCalled()
+  reloaded.rows[0].mountState.isAirborne = false
+  reloaded.tick()
+  expect(reloaded.rows[0].npcState.restoreForTown).toHaveBeenCalledTimes(1)
+  expect(reloaded.rows[0].mountState.restoreForTown).toHaveBeenCalledTimes(1)
+  expect(reloaded.runtime.serviceRefitPending(reloaded.rows[0].npc)).toBe(false)
 })

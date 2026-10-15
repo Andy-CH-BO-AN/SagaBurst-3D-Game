@@ -1,3 +1,5 @@
+import { commanderTownCommandMembership } from '../../src/career/CommanderTownRoster'
+import { snapshotCommandActor } from '../../src/career/CareerCommandActorCheckpoint'
 import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { TownAirCommandSquadController } from '../../src/town/TownAirCommandSquadController'
@@ -463,4 +465,27 @@ describe('Town air isolation from formal command grants', () => {
     const restored = fixture({ profile: saved })
     restored.issue('follow', 'all'); expect(restored.garrison.isPlayerCommandOwned(restored.residents[0].npc)).toBe(false)
   })
+})
+
+it('Town save stages selected air service recovery durably before any native mutation and leaves the other pair untouched', () => {
+  const f = fixture({ residents: [recordingCrew(1), recordingCrew(2)] }), [row, other] = f.residents
+  const next = cloneCareerProfile(f.town.profile), membership = commanderTownCommandMembership()
+  next.townCommandSquad = { type: 'town-command', squadId: 1, townFaction: 'roman', ...membership,
+    state: 'TRAINING', authorized: true, sceneKey: 'town-home', contribution: emptyPersonalContribution(),
+    members: { [row.spec.id]: snapshotCommandActor(row.npc, row.homeMount) }, refittingActorIds: [row.spec.id] }
+  const before = f.garrison.snapshot('town:roman')
+  f.storage.setItem = () => { throw new Error('storage denied') }
+  expect(f.town.commit(next)).toBe(false)
+  expect(f.garrison.snapshot('town:roman')).toEqual(before)
+  expect(f.garrison.serviceRefitPending(row.npc)).toBe(false)
+  f.storage.setItem = MemoryStorage.prototype.setItem
+  expect(f.town.commit(next)).toBe(true)
+  const saved = f.store.load()!.townEagleGarrisons!.roman!
+  expect(saved.pairs.find(p => p.riderId === row.spec.id)).toMatchObject({ refitAllowed: true, serviceRefit: true })
+  expect(saved.pairs.find(p => p.riderId === other.spec.id)).toEqual(before.pairs.find(p => p.riderId === other.spec.id))
+  expect(f.garrison.serviceRefitPending(row.npc)).toBe(false) // Saving does not perform physical recovery.
+  f.garrison.requestServiceRefit(row.npc)
+  expect(f.garrison.serviceRefitPending(row.npc)).toBe(true)
+  expect(f.air.accepts(row.npc)).toBe(false)
+  expect(f.garrison.serviceRefitPending(other.npc)).toBe(false)
 })

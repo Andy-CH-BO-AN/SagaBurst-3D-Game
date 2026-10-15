@@ -37,6 +37,8 @@ export interface TownCommandSquadState extends OfficialCommandAuthority {
   commandedActorIds?: string[]
   /** Native owners retain physical Patrol return/refit state; Town command only checkpoints the handoff. */
   nativeReturnStates?: Record<string, TownCommandNativeReturnState>
+  /** Saved service requests remain pending until the native owner finishes physical repair. */
+  refittingActorIds?: string[]
   state: 'TRAINING' | 'FOLLOWING' | 'RETURNING'
   authorized: boolean
   sceneKey: string
@@ -211,6 +213,9 @@ export function parseTownCommandSquad(value: unknown): TownCommandSquadState | u
   if (raw.commandedActorIds !== undefined && (authority.commandRank !== 'commander'
     || !Array.isArray(raw.commandedActorIds) || raw.commandedActorIds.some(id => !authority.actorIds.includes(id))
     || new Set(raw.commandedActorIds).size !== raw.commandedActorIds.length)) return undefined
+  if (raw.refittingActorIds !== undefined && (!Array.isArray(raw.refittingActorIds)
+    || raw.refittingActorIds.some(id => !authority.actorIds.includes(id))
+    || new Set(raw.refittingActorIds).size !== raw.refittingActorIds.length)) return undefined
   const nativeStates = raw.nativeReturnStates
   if (nativeStates !== undefined && (authority.commandRank !== 'commander' || !nativeStates || typeof nativeStates !== 'object'
     || Array.isArray(nativeStates) || Object.entries(nativeStates).some(([id, state]) => !authority.actorIds.includes(id)
@@ -218,6 +223,7 @@ export function parseTownCommandSquad(value: unknown): TownCommandSquadState | u
   if (raw.commandedActorIds?.some(id => Object.prototype.hasOwnProperty.call(nativeStates ?? {}, id))) return undefined
   return { ...authority, type: 'town-command', authorized: raw.authorized === true,
     ...(authority.commandRank === 'commander' ? { commandedActorIds: [...(raw.commandedActorIds ?? [])] } : {}),
+    ...(raw.refittingActorIds?.length ? { refittingActorIds: [...raw.refittingActorIds] } : {}),
     ...(nativeStates && Object.keys(nativeStates).length ? { nativeReturnStates: { ...nativeStates } } : {}),
     state: raw.state === 'FOLLOWING' || raw.state === 'RETURNING' ? raw.state : 'TRAINING',
     sceneKey: typeof raw.sceneKey === 'string' && raw.sceneKey.length <= 200 ? raw.sceneKey : 'town-home' }
@@ -238,6 +244,7 @@ export function cloneOfficialCommandAuthority<T extends OfficialCommandAuthority
 export function cloneTownCommandSquad(value: TownCommandSquadState): TownCommandSquadState {
   const clone = cloneOfficialCommandAuthority(value)
   if (value.commandedActorIds) clone.commandedActorIds = [...value.commandedActorIds]
+  if (value.refittingActorIds) clone.refittingActorIds = [...value.refittingActorIds]
   if (value.nativeReturnStates) clone.nativeReturnStates = { ...value.nativeReturnStates }
   return clone
 }

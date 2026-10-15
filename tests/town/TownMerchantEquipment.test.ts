@@ -77,6 +77,37 @@ function enemy(shieldId: string | null): NPC {
 }
 
 describe('Town Merchant native T4 equipment', () => {
+  it.each(['roman', 'viking'] as const)('%s merchant uses the real cloth wardrobe at every LOD while soldier armor stays intact', faction => {
+    const npc = merchant(faction)
+    const lod = npc.characterVisualGroup.getObjectByProperty('type', 'LOD') as THREE.LOD
+    expect(lod.levels).toHaveLength(3)
+    for (const [index, entry] of lod.levels.entries()) {
+      const visible: string[] = []
+      entry.object.traverseVisible(o => { if (o instanceof THREE.Mesh) visible.push(o.name) })
+      expect(visible, `LOD${index}`).toContain('Tunic_1')
+      expect(visible, `LOD${index}`).toContain('New_head')
+      expect(visible.some(name => /^(Armour_top|Helmet3|Full_figure|Wrist_guard|Dangles|Ties)/.test(name))).toBe(false)
+      expect(visible).not.toContain('Kit')
+      if (faction === 'viking') {
+        const tunic = entry.object.getObjectByName('Tunic_1') as THREE.Mesh
+        expect((tunic.material as THREE.Material).name).toContain('VikingCivilianWool')
+      }
+    }
+    const soldier = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: 2, isPlayer: false })
+    soldier.root.traverse(o => { if (/^(Armour_top|Helmet3|Kit)/.test(o.name)) expect(o.visible).toBe(true) })
+    // Read-only visibility seam; real equipment builders and the peace animation update run.
+    const equipment = npc as unknown as { swordPivot: THREE.Group; shieldPivot: THREE.Group; bowPivot: THREE.Group }
+    npc.setTownPeaceful()
+    npc.shieldCollider.refreshVisibility() // A combat/travel tick must not leak the shield back into peace.
+    npc.updateTownPeace(.05, 2, false, false)
+    expect(equipment.swordPivot.visible).toBe(false); expect(equipment.shieldPivot.visible).toBe(false)
+    expect(npc.loadout).toEqual(townMerchantLoadout())
+    npc.beginTownHostility()
+    expect(equipment.swordPivot.visible).toBe(true); expect(equipment.shieldPivot.visible).toBe(true)
+    npc.setTownPeaceful(); npc.updateTownPeace(.05, 2, false, false)
+    expect(equipment.shieldPivot.visible).toBe(false)
+  })
+
   it.each(['roman', 'viking'] as const)('%s keeps both native weapons and T4 shield through peace, retaliation, explicit refit and temporary combat', faction => {
     const npc = merchant(faction)
     npc.takeDamage(13)

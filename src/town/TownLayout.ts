@@ -78,3 +78,14 @@ export function townSceneryExcluded(x: number, z: number, radius = 0): boolean {
     return Math.hypot(x - road.ax - t * dx, z - road.az - t * dz) < road.width / 2 + radius + 4
   })
 }
+
+/** The same footprints materialize housing and place residents; faction changes depth only. */
+export function townHousing(faction: 'roman' | 'viking') {
+  return [[96, 70], [116, 70], [136, 70], [106, 88], [128, 88],
+    [42, -70], [64, -70], [86, -70], [108, -70], [94, -19], [117, -19], [78, 72]]
+    .map(([x, z], i) => ({ id: `home-${i}`, x, z, width: 9, depth: faction === 'roman' ? 8 : 12,
+      yaw: i < 5 || z < -50 ? 0 : Math.PI }))
+}
+
+export const TOWN_CENTER = { x: 52, z: -22, width: 24, depth: 20, yaw: 0 } as const
+export const TOWN_WELL = { x: 72, z: 30, radius: 1.35 } as const

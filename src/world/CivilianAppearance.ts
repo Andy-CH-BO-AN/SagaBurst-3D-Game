@@ -22,14 +22,14 @@ function civilianClothShell(source: THREE.BufferGeometry): THREE.BufferGeometry 
   }
   return shell
 }
-function wool(source: THREE.Material, color: string): THREE.Material {
+function wool(source: THREE.Material, color: string, kind: 'wool' | 'leather' = 'wool'): THREE.Material {
   if (!(source instanceof THREE.MeshStandardMaterial)) return source
   let variants = woolMaterials.get(source)
   if (!variants) { variants = new Map(); woolMaterials.set(source, variants) }
   let material = variants.get(color)
   if (!material) {
     material = source.clone()
-    material.name = 'VikingCivilianWool-' + color
+    material.name = (kind === 'leather' ? 'CivilianLeather-' : 'VikingCivilianWool-') + color
     material.color.setHex(0xffffff)
     material.metalness = 0
     material.roughness = .96
@@ -55,6 +55,11 @@ export function applyCivilianAppearance(level: THREE.Object3D, style: CharacterF
   level.traverse(object => {
     if (/^(Armour_top|Full_figure_42_T_pose|Helmet3|Dangles|Ties|Wrist_guard1)(_|$)/.test(object.name)) object.visible = false
     if (object instanceof THREE.Mesh && /^Tunic_1(_|$)/.test(object.name)) object.geometry = civilianClothShell(object.geometry)
+    if (object instanceof THREE.Mesh && /^Boots(_|$)/.test(object.name)) {
+      // Keep the intact laced footwear, but remove the soldier's gold/metal finish.
+      object.material = Array.isArray(object.material) ? object.material.map(m => wool(m, '#654a36', 'leather')) : wool(object.material, '#654a36', 'leather')
+      object.userData.originalMat = object.material
+    }
     if (style !== 'viking' || !(object instanceof THREE.Mesh)) return
     const color = /^(Tunic_1|RomanUndertunic)(_|$)/.test(object.name) ? '#81806a'
       : /^New_legs(_|$)/.test(object.name) ? '#51483c' : null

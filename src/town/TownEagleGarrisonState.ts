@@ -9,6 +9,7 @@ export interface TownEaglePairState {
   hp: number; ammo: number; position: Position; mounted: boolean; fall?: FallingRiderSnapshot
   mount: { hp: number; position: Position; flight: EagleFlightSnapshot }
   refitAllowed: boolean
+  serviceRefit?: boolean
   /** Saved dismissal must finish physical return before native duty resumes. Never grants command authority. */
   commandReturn?: boolean
   patrol?: { active: boolean; waypoint: number; elapsed: number }
@@ -40,6 +41,7 @@ export function parseTownEagleGarrisonState(value: unknown): TownEagleGarrisonSt
     if (pair.replacementRemaining !== undefined && (!finite(pair.replacementRemaining) || pair.replacementRemaining < 0 || pair.replacementRemaining > 60)) return undefined
     if (pair.restRemaining !== undefined && (!finite(pair.restRemaining) || pair.restRemaining < 0 || pair.restRemaining > 12)) return undefined
     if (pair.commandReturn !== undefined && typeof pair.commandReturn !== 'boolean') return undefined
+    if (pair.serviceRefit !== undefined && typeof pair.serviceRefit !== 'boolean') return undefined
     if (pair.ambientRecovery !== undefined && typeof pair.ambientRecovery !== 'boolean') return undefined
     const flight = parseEagleFlightSnapshot(pair.mount.flight), fall = parseFallingRiderSnapshot(pair.fall)
     if (!flight || pair.fall && !fall) return undefined
@@ -51,6 +53,7 @@ export function parseTownEagleGarrisonState(value: unknown): TownEagleGarrisonSt
       ...(pair.replacementRemaining !== undefined ? { replacementRemaining: pair.replacementRemaining } : {}),
       ...(pair.ambientRecovery !== undefined ? { ambientRecovery: pair.ambientRecovery } : {}),
       ...(pair.restRemaining !== undefined ? { restRemaining: pair.restRemaining } : {}),
+      ...(pair.serviceRefit ? { serviceRefit: true } : {}),
       refitAllowed: pair.refitAllowed === true, ...(fall ? { fall } : {}),
       mount: { hp: pair.mount.hp, position: { ...pair.mount.position }, flight } })
   }

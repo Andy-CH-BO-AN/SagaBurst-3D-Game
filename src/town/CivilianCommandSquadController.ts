@@ -1,3 +1,4 @@
+import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes } from './TownCivilianLife'
 import * as THREE from 'three'
 import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
 import { officialFollowLocalOffset } from '../battle/FollowOrder'
@@ -103,7 +104,17 @@ export class CivilianCommandSquadController {
   restore(): boolean {
     const saved = this.read().civilianCommandSquad
     if (saved?.sceneKey === this.options.sceneKey && saved.townFaction === this.options.townFaction) {
-      this.value = cloneCivilianCommandSquad(saved)
+      let restored = saved
+      const profile = this.read()
+      if (!profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile') {
+        const migrated = migrateCivilianHomes(saved, [...this.residentsById.values()].map(r => r.spec))
+        if (migrated !== saved) {
+          const next = cloneCareerProfile(profile); next.civilianCommandSquad = migrated
+          // A denied save falls back to the original checkpoint, including its deaths.
+          if (this.commit(next)) restored = migrated
+        }
+      }
+      this.value = cloneCivilianCommandSquad(restored)
       this.value.actorIds = saved.actorIds.filter(id => this.residentsById.has(id))
       for (const npc of this.actors) {
         const member = this.value.members[npc.combatantId]
@@ -123,7 +134,7 @@ export class CivilianCommandSquadController {
       const actorIds = [...this.residentsById.keys()].filter(id => this.validIdentity(this.residentsById.get(id)!.npc)).sort()
       if (!actorIds.length) return true
       const value: CivilianCommandSquadState = { type: 'civilian-command', squadId: 'civilians',
-        townFaction: profile.faction, sceneKey: this.options.sceneKey, ...(profile.activeMission ? { missionId: profile.activeMission.id } : {}),
+        townFaction: profile.faction, sceneKey: this.options.sceneKey, homeLayoutVersion: CIVILIAN_HOME_LAYOUT_VERSION, ...(profile.activeMission ? { missionId: profile.activeMission.id } : {}),
         actorIds, owners: {}, members: {} }
       for (const id of actorIds) {
         value.owners[id] = this.defaultOwner(this.residentsById.get(id)!.spec)

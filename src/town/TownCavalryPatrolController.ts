@@ -198,6 +198,18 @@ export class TownCavalryPatrolController {
     return true
   }
 
+  canServiceRefit(actorId: string): boolean {
+    const resident = this.residents.get(actorId)
+    return Boolean(resident && !this.hostile && !this.siegeOwned && (!this.excluded.has(resident.npc) || resident.npc.combatOwnership === 'town-command')
+      && !this.returning.has(actorId)
+      && (!resident.npc.combatOwnership || resident.npc.combatOwnership === 'town-command')
+      && (!resident.homeMount?.riderPlayer && (!resident.homeMount?.riderNpc || resident.homeMount.riderNpc === resident.npc)))
+  }
+  /** Idempotent continuation after the service checkpoint is saved, including reload. */
+  requestServiceRefit(actorId: string): void {
+    if (!this.returning.has(actorId)) this.beginMissionReturn(actorId, true)
+  }
+
   /** Commander may interrupt a live native encounter, but never steals physical return/refit. */
   canClaimTownCommand(actorId: string): boolean {
     const resident = this.residents.get(actorId), state = this.returning.get(actorId)?.state

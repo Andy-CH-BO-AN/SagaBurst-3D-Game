@@ -203,7 +203,7 @@ export class NPC {
   private readonly eagleCommand: EagleFlightCommand = { kind: 'cruise', destination: this.eagleGoal }
   private readonly eagleTargetVelocity = new THREE.Vector3()
   private readonly eagleLastTargetPosition = new THREE.Vector3()
-  private eagleLastTarget: object | undefined
+  private eagleLastTarget: NPC | Player | undefined
   private readonly eagleMountNeighbors: Mount[] = []
   private readonly eagleNeighborPoints: THREE.Vector3[] = []
 
@@ -557,6 +557,13 @@ export class NPC {
   /** Completion comes from the death update, never normal visibility or visual LOD. */
   get deathPresentationComplete(): boolean { return this.dead && this.deathFade.completed }
   
+  /** Native travel can use CHASE animation/state without an enemy. Service callers need actual targets. */
+  get hasLiveCombatTarget(): boolean {
+    if (this.missionCombatTarget !== undefined) return Boolean(this.missionCombatTarget && !this.missionCombatTarget.dead)
+    if (this.eagleFlightOrder) return false
+    return this._cachedTargetIsPlayer || Boolean(this._cachedTargetNpc && !this._cachedTargetNpc.dead
+      || this.eagleLastTarget && !this.eagleLastTarget.dead)
+  }
   get inCombat(): boolean {
     return this.state === AIState.CHASE || this.state === AIState.ATTACK
   }
@@ -776,7 +783,9 @@ export class NPC {
     this.group.add(this.aimCollider)
 
     const visualConfig = {
-      faction: this.characterFaction,
+      // The shared civilian wardrobe is authored on the Roman rig; Viking style
+      // recolors its cloth rather than trying to strip the inseparable Viking Kit.
+      faction: townCategory === 'civilian' ? 'roman' : this.characterFaction,
       tier: this.tier === 4 ? 3 : this.tier,
       isPlayer: false,
       civilian: townCategory === 'civilian',
@@ -963,7 +972,7 @@ export class NPC {
       if (!this.deathFade.update(this.group, dt)) this.animator.update(dt, distance)
       return false
     }
-    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId) && this.townCategory !== 'civilian', this.mount?.type as MountedPoseKind)
     this.animator.setLocomotion(speed, this.isMounted, this.isSprinting && speed > 0)
     if (training && startAttack && !this.animator.busy) {
       if (this.rangedCombatKind === 'javelin') this._restoreCombatReadyRangedVisual()
@@ -978,7 +987,7 @@ export class NPC {
     const events = this.animator.update(dt, distance)
     if (training && this.rangedCombatKind === 'javelin' && events.projectileRelease) this.bowPivot.visible = false
     if (this.isMounted) this._syncToMount()
-    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
+    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false; this.shieldPivot.visible = false }
     return events.projectileRelease
   }
   /** Physical boarding is a temporary movement override, preserving the player's exact air order. */
