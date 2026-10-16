@@ -12,6 +12,11 @@ function align4(value) {
 }
 
 async function main() {
+  // Historical v10 topology only. The lightweight horse has its own staged builder.
+  const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'))
+  if (manifest.revision === 'lightweight-source-horse') {
+    throw new Error('Use tools/horse/build-lightweight-horse.mjs for the lightweight horse; this tool is v10-only')
+  }
   await MeshoptDecoder.ready
   await MeshoptEncoder.ready
 

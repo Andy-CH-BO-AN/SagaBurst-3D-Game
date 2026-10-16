@@ -9,6 +9,7 @@ import {
   type HorseInstance,
 } from './HorseAssetRegistry'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
+import { HorseLandingAnimation } from './HorseLandingAnimation'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 import { BlackCatVisual } from './BlackCatVisual'
 import { CorgiVisual } from './CorgiVisual'
@@ -126,8 +127,8 @@ export class Mount {
   private wanderTimer = 0
   private wanderTarget = new THREE.Vector3()
   private cameraDistance = 0
-  private hasGroundedOnce = false
   private pendingJumpLanding = false
+  private readonly horseLanding = new HorseLandingAnimation()
 
   private readonly playableWorldBound: number
 
@@ -328,9 +329,9 @@ export class Mount {
     if (this.dead || !this.onGround) return
     this.velY = velocity
     this.onGround = false
+    this.pendingJumpLanding = true
     this.horseVisual?.playOnce('jump')
     if (this.proceduralVisual) {
-      this.pendingJumpLanding = true
       this.proceduralVisual.playOnce('jump')
     }
   }
@@ -449,8 +450,8 @@ export class Mount {
     this.onGround = true
     this.ridePitch = 0
     this.visualHold = false
-    this.hasGroundedOnce = true
     this.pendingJumpLanding = false
+    this.horseLanding.reset()
     this.impactTimes.clear()
     this.wanderTimer = 0
     this._pickWanderTarget()
@@ -528,7 +529,6 @@ export class Mount {
       this.eagleAttack!.sample(this.eagleAttackSockets)
       return
     }
-    const wasOnGround = this.onGround
     if (import.meta.env.DEV && collector) { var _tPhysics = performance.now() }
     const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
     this.velY += -22 * dt
@@ -570,8 +570,10 @@ export class Mount {
       this.proceduralVisual.update(dt)
     }
     if (this.horseVisual) {
-      if (!wasOnGround && this.onGround && this.hasGroundedOnce) this.horseVisual.playOnce('land')
-      this.hasGroundedOnce ||= this.onGround
+      if (this.horseLanding.update(dt, this.onGround, this.group.position.y, this.pendingJumpLanding)) {
+        this.horseVisual.playOnce('land')
+      }
+      if (this.onGround) this.pendingJumpLanding = false
       if (import.meta.env.DEV && collector) { var _tHorseAnimation = performance.now() }
       this.horseVisual.setLocomotion(this.movementSpeed)
       this.horseVisual.update(dt, this.cameraDistance)
