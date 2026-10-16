@@ -112,6 +112,29 @@ describe('Town equipment domain, canonical ownership and persisted native source
     const before = cloneCareerProfile(h.read()), disk = h.store.load(); h.storage.failWrites = true
     expect(h.bulk('civilian', 'sword')).toMatchObject({ changed: false, reason: 'save-failed', changedActorIds: [], summary: { equipped: 0 } })
     expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(disk)
+    h.storage.failWrites = false
+    expect(h.bulk('civilian', 'sword')).toMatchObject({ changed: true, changedActorIds: ['civilian-0', 'civilian-1'] })
+    expect(careerItemAllocated(h.read(), 'paladin_sword_t4')).toBe(2)
+    const committed = cloneCareerProfile(h.read())
+    expect(h.reload()).toEqual(committed)
+  })
+  it('suppresses an implicit native owner after its shield is transferred in a sparse save', () => {
+    const h = harness(), profile = h.read()
+    const origin = resolveTownActorEquipment(profile, 'roman', 'gate:north:0').refs
+    const recipient = resolveTownActorEquipment(profile, 'roman', 'gate:north:1').refs
+    // The same profile was resolved above; the next scan must see its new ownership.
+    profile.townEquipment = { roman: { version: 1, actors: {}, nativeReserve: ['roman/gate:north:0/shield'] } }
+    expect(resolveTownActorEquipment(profile, 'roman', 'gate:north:0').refs.shield).toBeNull()
+    profile.townEquipment = { roman: { version: 1, actors: {
+      'gate:north:1': { ...recipient, shield: origin.shield },
+    }, nativeReserve: ['roman/gate:north:1/shield'] } }
+    expect(h.store.save(profile)).toBe(true)
+    expect(resolveTownActorEquipment(profile, 'roman', 'gate:north:0').refs.shield).toBeNull()
+    const restored = h.reload()
+    expect(resolveTownActorEquipment(restored, 'roman', 'gate:north:0').refs.shield).toBeNull()
+    expect(resolveTownActorEquipment(restored, 'roman', 'gate:north:1').refs.shield).toEqual({
+      itemId: 'scutum_t2', source: 'native', nativeId: 'roman/gate:north:0/shield',
+    })
   })
   it('rejects a save assigning the same native equipment token to two owners', () => {
     const h = harness(); h.buy('paladin_sword_t4'); h.change('gate:north:0', 'melee', 'paladin_sword_t4')

@@ -1,6 +1,6 @@
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { normalizeCareerInventory } from './CareerInventory'
-import { isResalableTownNativeItem, resolveTownActorEquipment, townEquipmentActorSpecs, townEquipmentSquadForActor, townNativeItems } from './CareerTownEquipmentState'
+import { createTownEquipmentRefsResolver, isResalableTownNativeItem, townEquipmentActorSpecs, townEquipmentSquadForActor, townNativeItems } from './CareerTownEquipmentState'
 import { TOWN_PRODUCTS, townResalePrice, type TownProduct } from '../town/TownRules'
 
 export interface TownNativeSaleContext {
@@ -23,9 +23,10 @@ export function townNativeSaleGate(profile: CareerProfile, context: TownNativeSa
 
 function nativeHolders(profile: CareerProfile, faction: CareerProfile['faction']): Set<string> {
   const held = new Set<string>()
+  const resolveRefs = createTownEquipmentRefsResolver(profile, faction)
   for (const spec of townEquipmentActorSpecs(faction)) {
     if (townEquipmentSquadForActor(spec.id) === undefined) continue
-    for (const ref of Object.values(resolveTownActorEquipment(profile, faction, spec.id).refs)) {
+    for (const ref of Object.values(resolveRefs(spec))) {
       if (ref?.source === 'native') held.add(ref.nativeId!)
     }
   }

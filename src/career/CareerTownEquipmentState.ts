@@ -80,20 +80,28 @@ export function townEquipmentWeaponTier(profile: Pick<CareerProfile, 'rank'>, re
 export function resolveTownActorEquipment(profile: CareerProfile, faction: CharacterFaction, actorId: string): ResolvedTownActorEquipment {
   const spec = townEquipmentActorSpecs(faction).find(actor => actor.id === actorId)
   if (!spec) throw new Error('Unknown town actor')
-  const base = townDefaultActorLoadout(faction, spec), state = profile.townEquipment?.[faction]
-  const assigned = new Set(Object.values(state?.actors ?? {}).flatMap(refs => Object.values(refs).flatMap(ref => ref?.source === 'native' ? [ref.nativeId!] : [])))
-  const reserve = new Set([...(state?.nativeReserve ?? []), ...(state?.soldNativeIds ?? [])])
-  const saved = state?.actors[actorId]
-  const refs = Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => {
-    if (saved) return [slot, saved[slot] ? { ...saved[slot] } : null]
-    const itemId = base[slotKeys[slot]], nativeId = `${faction}/${actorId}/${slot}`
-    return [slot, itemId && !assigned.has(nativeId) && !reserve.has(nativeId) ? { itemId, source: 'native', nativeId } : null]
-  })) as TownEquipmentRefs
+  const base = townDefaultActorLoadout(faction, spec)
+  const refs = createTownEquipmentRefsResolver(profile, faction)(spec, base)
   // Non-managed residents and fixed identities keep their authored equipment.
   const managed = townEquipmentSquadForActor(actorId) !== undefined
   const loadout = managed ? { ...base, ...Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => [slotKeys[slot], refs[slot]?.itemId ?? null])) } : base
   return { spec, refs, loadout, tier: Math.min(4, townEquipmentWeaponTier(profile, refs, faction) || 1) as 1 | 2 | 3 | 4, mountTier: townEquipmentRefTier(profile, refs.mount, faction),
     fixedWeapons: spec.role === 'ranger' || spec.role === 'eagle-trainer', readOnly: spec.role === 'merchant' }
+}
+/** One read-only scan of current ownership. Recreate after any state write/parse;
+ * returned refs remain independent mutable copies for equipment transactions. */
+export function createTownEquipmentRefsResolver(profile: CareerProfile, faction: CharacterFaction) {
+  const state = profile.townEquipment?.[faction]
+  const assigned = new Set(Object.values(state?.actors ?? {}).flatMap(refs => Object.values(refs).flatMap(ref => ref?.source === 'native' ? [ref.nativeId!] : [])))
+  const reserve = new Set([...(state?.nativeReserve ?? []), ...(state?.soldNativeIds ?? [])])
+  return (spec: TownActorSpec, base = townDefaultActorLoadout(faction, spec)): TownEquipmentRefs => {
+    const saved = state?.actors[spec.id]
+    return Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => {
+      if (saved) return [slot, saved[slot] ? { ...saved[slot] } : null]
+      const itemId = base[slotKeys[slot]], nativeId = `${faction}/${spec.id}/${slot}`
+      return [slot, itemId && !assigned.has(nativeId) && !reserve.has(nativeId) ? { itemId, source: 'native', nativeId } : null]
+    })) as TownEquipmentRefs
+  }
 }
 export function allocatedTownEquipment(profile: Pick<CareerProfile, 'townEquipment'>, itemId: string): number {
   return Object.values(profile.townEquipment ?? {}).reduce((count, state) => count + Object.values(state?.actors ?? {}).reduce((sum, refs) =>
@@ -161,13 +169,14 @@ export function validateTownEquipment(profile: CareerProfile): void {
     const state = parsed[faction]
     if (!state) continue
     const holders = new Set<string>()
+    const resolveRefs = createTownEquipmentRefsResolver(profile, faction)
     for (const spec of townEquipmentActorSpecs(faction)) {
       if (townEquipmentSquadForActor(spec.id) === undefined) continue
-      const resolved = resolveTownActorEquipment(profile, faction, spec.id), { refs } = resolved
+      const refs = resolveRefs(spec), readOnly = spec.role === 'merchant'
       if (refs.ranged && refs.shield) throw new Error('Incompatible town equipment')
-      if (resolved.readOnly || resolved.fixedWeapons) {
+      if (readOnly || spec.role === 'ranger' || spec.role === 'eagle-trainer') {
         const base = townDefaultActorLoadout(faction, spec)
-        for (const slot of resolved.readOnly ? TOWN_EQUIPMENT_SLOTS : ['melee', 'ranged', 'shield'] as const) {
+        for (const slot of readOnly ? TOWN_EQUIPMENT_SLOTS : ['melee', 'ranged', 'shield'] as const) {
           const ref = refs[slot], itemId = base[slotKeys[slot]] ?? null
           if ((ref?.itemId ?? null) !== itemId || ref && (ref.source !== 'native' || ref.nativeId !== `${faction}/${spec.id}/${slot}`)) throw new Error('Changed fixed town equipment')
         }

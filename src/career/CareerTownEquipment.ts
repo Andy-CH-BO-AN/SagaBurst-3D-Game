@@ -9,6 +9,7 @@ import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { planBulkEquipment, naturalActorCompare, type BulkEquipmentCategory, type BulkEquipmentCandidate, type BulkEquipmentActor } from './BulkEquipmentPlanner'
 import { resolveTownActorEquipment, townNativeItems, townEquipmentRefTier, townEquipmentWeaponTier, TOWN_EQUIPMENT_SLOTS,
+  createTownEquipmentRefsResolver, townEquipmentActorSpecs, townEquipmentSquadForActor,
   type TownEquipmentRef, type TownEquipmentRefs } from './CareerTownEquipmentState'
 export { resolveTownActorEquipment, townEquipmentRefTier, townNativeItems } from './CareerTownEquipmentState'
 export type { TownEquipmentRef, TownEquipmentRefs, ResolvedTownActorEquipment } from './CareerTownEquipmentState'
@@ -42,12 +43,16 @@ export function careerEquipmentCategory(itemId: string): BulkEquipmentCategory |
   return item.combatKind === 'sword' ? 'sword' : undefined
 }
 export function canManageCareerEquipment(profile: CareerProfile, context: TownEquipmentContext, target: TownEquipmentSquadId): TownEquipmentFailure | undefined {
+  return managementGate(profile, context, target)
+    ?? (townEquipmentSquads(profile).some(squad => squad.id === target) ? undefined : 'missing-member')
+}
+/** Membership is checked by callers that already resolved the target squad. */
+function managementGate(profile: CareerProfile, context: TownEquipmentContext, target: TownEquipmentSquadId): TownEquipmentFailure | undefined {
   if (target === 'personal' ? !canRecruitPersonalSquad(profile) : profile.rank !== 'commander') return 'rank-locked'
   if (context.townFaction !== profile.faction) return 'enemy-town'
   if (!context.peaceful || profile.townEvent?.state === 'hostile') return 'not-safe'
   if (profile.activeMission || profile.activeOutpostMission) return 'mission-active'
   if (target === 'personal' && context.personalState !== 'RESERVE') return 'not-reserve'
-  if (!townEquipmentSquads(profile).some(squad => squad.id === target)) return 'missing-member'
   return undefined
 }
 function emptySummary(): TownEquipmentSummary { return { equipped: 0, upgraded: 0, unchanged: 0, insufficient: 0, ineligible: 0 } }
@@ -84,8 +89,9 @@ function rebuildNativeReserve(profile: CareerProfile, faction: CareerProfile['fa
   const state = profile.townEquipment?.[faction]
   if (!state) return
   const held = new Set<string>()
-  for (const squad of townEquipmentSquads(profile)) if (squad.id !== 'personal') for (const actorId of squad.actorIds) {
-    for (const ref of Object.values(resolveTownActorEquipment(profile, faction, actorId).refs)) if (ref?.source === 'native') held.add(ref.nativeId!)
+  const resolveRefs = createTownEquipmentRefsResolver(profile, faction)
+  for (const spec of townEquipmentActorSpecs(faction)) if (townEquipmentSquadForActor(spec.id) !== undefined) {
+    for (const ref of Object.values(resolveRefs(spec))) if (ref?.source === 'native') held.add(ref.nativeId!)
   }
   state.nativeReserve = townNativeItems(faction).filter(item => !held.has(item.nativeId) && !state.soldNativeIds?.includes(item.nativeId)).map(item => item.nativeId).sort(naturalActorCompare)
 }
@@ -104,7 +110,7 @@ export function changeTownEquipment(read: () => CareerProfile, context: TownEqui
   slot: PersonalEquipmentSlot, itemId: string | null, save: (profile: CareerProfile) => boolean): TownEquipmentResult {
   const current = read(), target = townEquipmentSquads(current).find(squad => squad.actorIds.includes(actorId))?.id
   if (target === undefined) return fail(current, 'missing-member')
-  const gate = canManageCareerEquipment(current, context, target)
+  const gate = managementGate(current, context, target)
   if (gate) return fail(current, gate)
   if (!context.safeActorIds.has(actorId)) return fail(current, 'not-safe')
   if (!TOWN_EQUIPMENT_SLOTS.includes(slot)) return fail(current, 'invalid-item')
@@ -132,13 +138,14 @@ export function changeTownEquipment(read: () => CareerProfile, context: TownEqui
 }
 export function bulkCareerEquipment(read: () => CareerProfile, context: TownEquipmentContext, target: TownEquipmentSquadId,
   category: BulkEquipmentCategory, save: (profile: CareerProfile) => boolean): TownEquipmentResult {
-  const current = read(), gate = canManageCareerEquipment(current, context, target)
+  const current = read(), gate = managementGate(current, context, target)
   if (gate) return fail(current, gate)
+  const squad = townEquipmentSquads(current).find(squad => squad.id === target)
+  if (!squad) return fail(current, 'missing-member')
   if (!['bow', 'sword', 'axe', 'spear', 'mount'].includes(category)) return fail(current, 'invalid-item')
   const next = cloneCareerProfile(current)
   try { normalizeCareerInventory(next) } catch { return fail(current, 'invalid-item') }
   const slot: PersonalEquipmentSlot = category === 'bow' ? 'ranged' : category === 'mount' ? 'mount' : 'melee'
-  const squad = townEquipmentSquads(next).find(squad => squad.id === target)!
   const actorIds = squad.actorIds.filter(id => context.safeActorIds.has(id) && !memberFixed(next, context, target, id, slot)).sort(naturalActorCompare)
   const summary = { ...emptySummary(), ineligible: squad.actorIds.length - actorIds.length }
   if (!actorIds.length) return fail(current, 'not-safe', summary)
