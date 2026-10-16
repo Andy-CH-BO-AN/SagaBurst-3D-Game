@@ -46,7 +46,7 @@ export class EquipmentUI {
   private panels: HTMLElement[]
 
   private isOpen = false
-  private inventoryCategory: EquipmentCategory = 'melee'
+  private inventoryCategory: EquipmentCategory | 'mount' = 'melee'
 
   get visible(): boolean { return this.isOpen }
 
@@ -136,7 +136,7 @@ export class EquipmentUI {
     this.inventoryListEl.innerHTML = ''
     const categories = document.createElement('div'); categories.className = 'inventory-categories inventory-wide'
     categories.setAttribute('role', 'group'); categories.setAttribute('aria-label', '倉庫商品分類')
-    for (const [category, label] of EQUIPMENT_CATEGORIES) {
+    for (const [category, label] of [...EQUIPMENT_CATEGORIES, ['mount', '坐騎 Mounts']] as const) {
       const tab = document.createElement('button'); tab.className = 'equipment-tab'; tab.textContent = label
       tab.dataset.category = category; tab.setAttribute('aria-pressed', String(category === this.inventoryCategory))
       tab.onclick = () => {
@@ -148,10 +148,12 @@ export class EquipmentUI {
     }
     this.inventoryListEl.append(categories)
     const stacks = inventoryManager.inventoryStacks.map(({ item, quantity }) => ({ ...item, quantity }))
-    const sections = equipmentSections(stacks, this.inventoryCategory)
-    if (!sections.length) {
+    const sections = this.inventoryCategory === 'mount' ? [] : equipmentSections(stacks, this.inventoryCategory)
+    const mountItems = this.inventoryCategory === 'mount' ? mounts?.list() ?? [] : []
+    if (this.inventoryCategory === 'mount' ? !mountItems.length : !sections.length) {
       const empty = document.createElement('p'); empty.className = 'inv-item-desc inventory-wide'
-      empty.textContent = '此分類目前沒有持有裝備。'; this.inventoryListEl.append(empty)
+      empty.textContent = this.inventoryCategory === 'mount' ? '目前沒有持有坐騎。' : '此分類目前沒有持有裝備。'
+      this.inventoryListEl.append(empty)
     }
     for (const section of sections) {
       const heading = document.createElement('h3'); heading.className = 'inventory-tier inventory-wide'
@@ -212,12 +214,14 @@ export class EquipmentUI {
       }
     }
 
-    if (mounts) {
-      const title = document.createElement('div')
-      title.className = 'modal-section-title inventory-wide'
-      title.textContent = '坐騎 Mounts'
-      this.inventoryListEl.appendChild(title)
-      for (const mount of mounts.list()) {
+    if (this.inventoryCategory === 'mount' && mounts) {
+      let tier: number | undefined
+      for (const mount of [...mountItems].sort((a, b) => a.tier - b.tier || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+        if (tier !== mount.tier) {
+          tier = mount.tier
+          const heading = document.createElement('h3'); heading.className = 'inventory-tier inventory-wide'
+          heading.textContent = `TIER ${tier}`; this.inventoryListEl.append(heading)
+        }
         const card = document.createElement('div')
         card.className = `inventory-card ${mount.active ? 'equipped' : ''}`
         card.innerHTML = `

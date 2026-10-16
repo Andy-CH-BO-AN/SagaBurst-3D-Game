@@ -2,7 +2,7 @@
 
 正式裝備共 **33 件（近戰 18、遠程 8、盾牌 7）**，其中 T1–T3 有 18 件武器與 6 面盾牌；另有以下共用 T4／T5 裝備及 Maki 專屬弓。人物胸甲、頭盔與衣物屬於 humanoid GLB，不是獨立防具物品。
 
-商店購買與玩家倉庫依近戰 Melee／遠程 Ranged／防具 Armor 切換，共用 EquipmentCatalog 分類，分類內按 Tier 1→5、固定種類與 Item ID 排序；空 Tier 不顯示。商店、倉庫與裝備選單共用 WeaponDatabase／ArmorDatabase 的中英名稱，名稱本身不含 Tier 前綴。
+商店購買與玩家倉庫共用 EquipmentCatalog，依近戰 Melee／遠程 Ranged／防具 Armor 切換，分類內按 Tier 1→5、固定種類與 Item ID 排序；空 Tier 不顯示。玩家倉庫另設坐騎 Mounts 分頁，按 Tier／ID 排序並保留騎乘、收起與解除分配功能。商店、倉庫與裝備選單共用 WeaponDatabase／ArmorDatabase 的中英名稱，名稱本身不含 Tier 前綴。
 
 ## 物品與數值
 
