@@ -92,7 +92,11 @@ export function createT5Bow() {
       previousRatio = ratio
       // Source take draws then releases. Its first half is the complete draw.
       if (mixer && clip) mixer.setTime(THREE.MathUtils.clamp(ratio, 0, 1) * clip.duration / 2)
-      model.updateWorldMatrix(true, true)
+      // Refresh ancestors first, then use updateMatrixWorld so attached
+      // SkinnedMeshes also refresh bindMatrixInverse before CPU skin sampling.
+      // updateWorldMatrix alone leaves the previous render's inverse in place.
+      model.updateWorldMatrix(true, false)
+      model.updateMatrixWorld(true)
       for (const endpoint of endpoints) {
         endpoint.mesh.getVertexPosition(endpoint.index, point)
         endpoint.mesh.localToWorld(point)
