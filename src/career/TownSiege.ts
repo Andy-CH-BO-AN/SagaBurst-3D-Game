@@ -79,13 +79,13 @@ export function siegeRoster(faction: CharacterFaction, assault: boolean, version
     const presetId = `${faction}_${kind}` as UnitPresetId
     const cavalry = version === 1 || slot < 20
     const ranged = kind === 'horse_archer' || kind === 'archer' || kind === 'javelin_infantry'
-    const hero = captain ? townCaptainProfile(faction) : ranger ? T4_UNIT_PROFILES.viking_archer : undefined
+    const hero = captain ? townCaptainProfile(faction) : ranger ? T4_UNIT_PROFILES[`${faction}_archer`] : undefined
     const point = siegeMuster(gate.id, slot)
     return { gateId: gate.id, slot, spec: {
       x: point.x, z: point.z, faction: assault ? Faction.TOWN : Faction.ENEMY, characterFaction: faction,
-      aiType: ranged ? AIType.RANGED : AIType.MELEE, name: captain ? 'Captain' : ranger ? 'Maki' : `${gate.id} ${slot + 1}`,
+      aiType: ranged ? AIType.RANGED : AIType.MELEE, name: captain ? 'Captain' : ranger ? 'Shadow Warden' : `${gate.id} ${slot + 1}`,
       tier: hero ? 4 : 3, cavalry, respawnEnabled: false, presetId, squadId: (gateIndex + 1) as 1 | 2 | 3 | 4,
-      loadout: { ...(ranger ? resolveT4UnitLoadout(version === 1 ? 'viking_archer' : `${faction}_archer`)
+      loadout: { ...(ranger ? resolveT4UnitLoadout(`${faction}_archer`)
         : captain ? resolveT4UnitLoadout(presetId) : UNIT_PRESETS[presetId].tierLoadouts[3]),
         ...(ranger ? { mountId: 'black-cat' as const } : hero?.mountOverride ? { mountId: hero.mountOverride } : {}) },
       ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile } : {}),

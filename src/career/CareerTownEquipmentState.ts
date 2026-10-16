@@ -6,7 +6,7 @@ import { commanderGateDefenseSlots } from './CommanderTownRoster'
 import { townRoster, withTownCommandSquadRoster, townMilitaryEquipment, townActorHeroProfile, CIVILIAN_PROFILE, type TownActorSpec } from '../town/TownRules'
 import { townCommanderSpec } from '../town/TownCommanderIdentity'
 import { eagleTrainerSpec } from '../town/TownEagleTrainingGround'
-import { canonicalWeaponId, WEAPONS, T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
+import { canonicalWeaponId, defaultRangerMeleeWeaponId, WEAPONS, T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { townMerchantLoadout } from '../town/TownMerchantEquipment'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
@@ -45,7 +45,7 @@ export function townDefaultActorLoadout(faction: CharacterFaction, spec: TownAct
   if (spec.role === 'merchant') return townMerchantLoadout()
   if (spec.role === 'civilian') return { meleeWeaponId: CIVILIAN_PROFILE.retaliationWeapon, rangedWeaponId: null, shieldId: null, mountId: null }
   if (spec.role === 'cat') return { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: null }
-  if (spec.role === 'ranger' || spec.role === 'eagle-trainer') return { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: spec.role === 'ranger' ? 'black-cat' : null }
+  if (spec.role === 'ranger' || spec.role === 'eagle-trainer') return { meleeWeaponId: defaultRangerMeleeWeaponId(faction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: spec.role === 'ranger' ? 'black-cat' : null, reversibleRangedSwitch: true }
   const military = townMilitaryEquipment(faction, spec), hero = townActorHeroProfile(faction, spec)
   return { ...military.loadout, mountId: spec.eagle ? 'xongkoro' : spec.mounted ? hero?.mountOverride ?? military.loadout.mountId ?? 'horse' : null }
 }
@@ -66,7 +66,7 @@ export function townNativeItems(faction: CharacterFaction): TownNativeItem[] {
   nativeCache.set(faction, items)
   return items
 }
-/** Fixed identities and native mounts never participate in merchant resale. */
+/** Protected native service gear and mounts never participate in merchant resale. */
 export function isResalableTownNativeItem(faction: CharacterFaction, item: TownNativeItem): boolean {
   const spec = townEquipmentActorSpecs(faction).find(actor => actor.id === item.actorId)
   return item.slot !== 'mount' && Boolean(spec && !['merchant', 'ranger', 'eagle-trainer'].includes(spec.role))
@@ -90,7 +90,7 @@ export function resolveTownActorEquipment(profile: CareerProfile, faction: Chara
   const managed = townEquipmentSquadForActor(actorId) !== undefined
   const loadout = managed ? { ...base, ...Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => [slotKeys[slot], refs[slot]?.itemId ?? null])) } : base
   return { spec, refs, loadout, tier: Math.min(4, townEquipmentWeaponTier(profile, refs, faction) || 1) as 1 | 2 | 3 | 4, mountTier: townEquipmentRefTier(profile, refs.mount, faction),
-    fixedWeapons: ['merchant', 'ranger', 'eagle-trainer'].includes(spec.role), readOnly: false }
+    fixedWeapons: spec.role === 'merchant', readOnly: false }
 }
 /** One read-only scan of current ownership. Recreate after any state write/parse;
  * returned refs remain independent mutable copies for equipment transactions. */
@@ -136,7 +136,13 @@ export function parseTownEquipment(value: unknown): CareerTownEquipment | undefi
         // Authenticate the original fixed token before upgrading its item identity.
         const legacyMerchantSword = legacyResidents && actorId === 'merchant' && slot === 'melee'
           && rawRef.source === 'native' && rawRef.nativeId === `${faction}/merchant/melee` && rawRef.itemId === 'paladin_sword_t4'
-        const itemId = legacyMerchantSword ? townMerchantLoadout().meleeWeaponId! : canonicalWeaponId(rawRef.itemId)
+        // Ranger conversion is independent of the resident receipt. Both retain
+        // the native identity and owner without minting an Inventory copy.
+        const source = rawRef.source === 'native' ? native.get(rawRef.nativeId as string) : undefined
+        const legacyRangerMelee = slot === 'melee' && rawRef.itemId === 'maki-ranger-bow'
+          && source && ['ranger', 'eagle-trainer'].includes(source.actorId)
+        const itemId = legacyMerchantSword ? townMerchantLoadout().meleeWeaponId!
+          : legacyRangerMelee ? source.itemId : canonicalWeaponId(rawRef.itemId)
         const item = WEAPONS[itemId] ?? ARMORS[itemId]
         if (slot === 'mount' ? !(PLAYER_MOUNT_IDS as readonly string[]).includes(itemId) : !item || item.type !== slot) throw new Error('Invalid equipment slot')
         if (rawRef.source === 'native') {
@@ -197,7 +203,7 @@ export function validateTownEquipment(profile: CareerProfile): void {
       if (townEquipmentSquadForActor(spec.id) === undefined) continue
       const refs = resolveRefs(spec)
       if (refs.ranged && refs.shield) throw new Error('Incompatible town equipment')
-      if (['merchant', 'ranger', 'eagle-trainer'].includes(spec.role)) {
+      if (spec.role === 'merchant') {
         const base = townDefaultActorLoadout(faction, spec)
         for (const slot of ['melee', 'ranged', 'shield'] as const) {
           const ref = refs[slot], itemId = base[slotKeys[slot]] ?? null

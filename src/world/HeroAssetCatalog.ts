@@ -21,7 +21,7 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
   'maki-archer-t4': {
     nameZh: '遊俠', nameEn: 'Ranger',
     // The asset's Viking rig contract does not determine gameplay allegiance.
-    descriptor: { assetId: 'maki-archer-t4', faction: 'viking', heightM: 1.457503, maxShoulderWidthM: .274, neckLengthM: .078 },
+    descriptor: { assetId: 'maki-archer-t4', faction: 'viking', heightM: 1.90, maxShoulderWidthM: .418, neckLengthM: .090554 },
   },
   'roman-hero-t5': {
     nameZh: '羅馬指揮官', nameEn: 'Roman Commander',
@@ -39,11 +39,4 @@ export function isHeroAssetId(value: unknown): value is HeroAssetId {
 
 export function isSetupPlayerHeroId(value: unknown): value is SetupPlayerHeroId {
   return typeof value === 'string' && (SETUP_PLAYER_HERO_IDS as readonly string[]).includes(value)
-}
-
-/** Ranger's bow doubles as its melee weapon; setup choices remain saved for other heroes. */
-export function getHeroFixedEquipment(heroId?: PlayerHeroId | null) {
-  return heroId === 'maki-archer-t4'
-    ? { meleeWeaponId: 'maki-ranger-bow', shieldId: null } as const
-    : null
 }

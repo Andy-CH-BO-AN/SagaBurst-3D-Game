@@ -125,15 +125,19 @@ export class CharacterCombatAnimator {
     this.rig.animation?.setEquipmentState?.({ shieldRaised: raised })
   }
 
+  private get hasEquippedSword(): boolean {
+    return this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned === true && this.meleePivot.userData.meleeAnimationKind === 'sword'
+  }
+
   setEquipment(lance: boolean, shield: boolean, mountKind: MountedPoseKind = 'HORSE', alive = true): void {
     this.mountKind = mountKind
     this.lanceEquipped = lance
     this.setShieldGuard(shield)
-    this.rig.animation?.setEquipmentState?.({ lance, shield, mountKind, alive })
+    this.rig.animation?.setEquipmentState?.({ lance, shield, mountKind, alive, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined })
   }
 
   private get usesTwoHandedAxeCarry(): boolean {
-    return !!this.meleePivot.userData.axeVisual && !this.shieldGuardEnabled && !!this.rig.animation?.has('axeMountedIdle')
+    return !!this.meleePivot.userData.swordAttachmentOwned && !!this.meleePivot.userData.axeVisual && !this.shieldGuardEnabled && !!this.rig.animation?.has('axeMountedIdle')
   }
 
   private get locomotionClip(): HumanoidAnimationState {
@@ -196,13 +200,13 @@ export class CharacterCombatAnimator {
     const actionDt = dt * this.actionTimeScale
     const mounted = this.locomotion === 'mounted'
     setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)) : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)))
-    this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed: this.poseTime(this.elapsed + actionDt), lance: this.lanceEquipped, carryWeapon: this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual ? 'axe' : 'sword' : undefined })
+    this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed: this.poseTime(this.elapsed + actionDt), lance: this.lanceEquipped, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined, carryWeapon: this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual ? 'axe' : 'sword' : undefined })
     // Melee sockets drive physical collision, so their pose must follow the
     // action clock every frame, including fast T4 attacks. Idle/ranged may throttle.
     this.rig.animation?.update(dt, this.isMeleeAction ? 0 : cameraDistance)
-    // Authored equipment sockets are animated: sample them after the pose and
-    // LOD proxy have advanced, before this tick's hit/contact evaluation.
-    if (this.meleePivot.userData.authoredAxeSocket || this.meleePivot.userData.authoredAxe1Socket) setSwordMountedAttachment(this.meleePivot, mounted,
+    // Animated sockets and forward axe carry follow the evaluated pose and
+    // LOD proxy, before this tick's hit/contact evaluation.
+    if (this.meleePivot.userData.authoredAxeSocket || this.meleePivot.userData.authoredAxe1Socket || this.meleePivot.userData.forwardAxeCarryRoot) setSwordMountedAttachment(this.meleePivot, mounted,
       mounted ? axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)) : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)))
 
     if (this.action === 'idle' || this.action === 'bowAim') {

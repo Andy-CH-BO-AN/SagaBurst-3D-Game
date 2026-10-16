@@ -12,7 +12,7 @@ import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
 import { XongkoroVisual } from '../world/XongkoroVisual'
 import { HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET } from '../world/Mount'
 import { fitStandingRider } from '../world/StandingRider'
-import { MAKI_HERO, MAKI_FALLBACK, loadMakiRangerBow, resolveMakiEquipmentMode } from '../world/MakiRangerEquipment'
+import { MAKI_HERO, loadMakiRangerBow } from '../world/MakiRangerEquipment'
 import type { HumanoidAnimationState, MountedPoseKind } from '../world/CharacterVisuals'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
 
@@ -23,13 +23,15 @@ export const ROMAN_HERO: HumanoidAssetDescriptor = HERO_ASSETS['roman-hero-t4'].
 
 export async function launchVikingHeroPreview(container: HTMLElement, descriptor = VIKING_HERO): Promise<void> {
   const maki = descriptor.assetId === MAKI_HERO.assetId
+  const civilian = descriptor.assetId.endsWith('-civilian')
   const commander = descriptor.assetId.endsWith('-t5')
   const roman = descriptor.faction === 'roman'
   const faction = descriptor.faction
-  const label = commander ? (roman ? '禁衛軍指揮官 · Roman T5' : '鐵衛指揮官 · Viking T5') : maki ? 'Maki · T4 遊俠英雄' : roman ? '聖騎士 Paladin T4' : '維京英雄 · T4'
+  const label = civilian ? (roman ? 'Roman Civilian · Roman Statesman' : 'Viking Civilian · Nordic Warrior') : commander ? (roman ? '禁衛軍指揮官 · Roman T5' : '鐵衛指揮官 · Viking T5') : maki ? 'Shadow Warden · T4 遊俠英雄' : roman ? '聖騎士 Paladin T4' : '維京英雄 · T4'
   const reference = commander ? (roman ? ROMAN_HERO : VIKING_HERO) : undefined
   const factionLabel = roman ? '羅馬人' : '維京'
-  const actions = maki ? ['idle', 'walk', 'run', 'bowLoad', 'bowHold', 'bowRelease', 'axeAttack2H', 'death'] : ['idle', 'walk', 'run', 'swordSlash', 'axeAttack1H', 'axeAttack2H', 'lanceThrust', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'hit', 'mounted', 'axeMountedIdle', 'death']
+  const actions: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'swordSlash', 'axeAttack1H', 'axeAttack1HFoot', 'axeAttack2H', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'hit', 'mounted', 'axeMountedIdle', 'death']
+  const sourceOnlyStates = new Set<HumanoidAnimationState>(['daggerSlash', 'greatswordSlash', 'axeAttack1HFoot'])
   for (const id of ['hud', 'crosshair']) { const element = document.getElementById(id); if (element) element.style.display = 'none' }
   const panel = document.createElement('aside')
   panel.id = 'hero-preview-controls'
@@ -67,24 +69,22 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
     ground.position.y = -.006
     scene.add(ground, new THREE.GridHelper(10, 20, 0x888f99, 0x9ca3ac))
     const hero = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: 2, isPlayer: false }, descriptor.assetId)
-    const availableActions = actions.filter(action => action !== 'hit' || hero.rig.animation!.has('hit'))
-    const normal = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: 2, isPlayer: false }, reference?.assetId ?? (maki ? descriptor.assetId : undefined))
+    const availableActions = actions.filter(action => hero.rig.animation!.has(action))
+    const normal = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: 2, isPlayer: false }, reference?.assetId)
     scene.add(hero.root, normal.root)
-    if (!maki) {
-      normal.rig.animation!.play('idle', { fadeSeconds: 0, loop: true })
-      normal.rig.animation!.update(.2)
-    }
+    normal.rig.animation!.play('idle', { fadeSeconds: 0, loop: true })
+    normal.rig.animation!.update(.2)
     const manifest = await fetch(publicAssetUrl(`models/characters/v2/${descriptor.assetId}/manifest.json`)).then(response => response.json())
-    const playback = new HumanoidStudioPlayback(hero, 'idle', faction, roman ? 'CORGI' : 'BLACK_CAT', maki ? { bow: await loadMakiRangerBow(), meleeAnimation: MAKI_FALLBACK.animation } : undefined, maki ? undefined : { swordId: 'paladin_sword_t4', axeId: 'paladin_mace_t4', shieldId: 'paladin_shield_t4' })
-    playback.setEquipmentLoadout(maki ? 'bow' : 'none', false)
+    const playback = new HumanoidStudioPlayback(hero, 'idle', faction, roman ? 'CORGI' : 'BLACK_CAT', maki ? { bow: await loadMakiRangerBow() } : undefined, { swordId: 'paladin_sword_t4', axeId: 'paladin_mace_t4', shieldId: 'paladin_shield_t4' })
+    playback.setEquipmentLoadout('none', false)
     const mounts = { CORGI: new CorgiVisual(), BLACK_CAT: new BlackCatVisual(), HORSE: HorseAssetRegistry.createInstance(), xongkoro: new XongkoroVisual() }
     for (const mount of Object.values(mounts)) { mount.root.visible = false; scene.add(mount.root) }
     let mountKind: MountedPoseKind = roman ? 'CORGI' : 'BLACK_CAT'
     // DEV-only inspection of the actual rendered instance, selected mixers and equipment.
     Object.assign(window, { __heroPreview: { hero, normal, playback, scene, camera, controls, renderer, manifest, mounts } })
-    let paused = false, time = 0, selectedLOD = 0, compare = !maki, riding = false, sourcePlayback = ''
+    let paused = false, time = 0, selectedLOD = 0, compare = true, riding = false, sourcePlayback = ''
     let state: HumanoidAnimationState = 'idle'
-    const duration = () => !sourcePlayback && ['axeAttack1H', 'axeAttack2H', 'swordSlash', 'lanceThrust'].includes(state)
+    const duration = () => !sourcePlayback && ['axeAttack1H', 'axeAttack2H', 'swordSlash', 'lanceThrust', 'mountedLance'].includes(state)
       ? playback.getAttackDuration(riding) : hero.rig.animation!.getDuration(state) ?? 1
     const setLOD = (instance: HumanoidCharacterInstance, index: number) => {
       const lod = instance.root.children.find(object => object instanceof THREE.LOD) as THREE.LOD
@@ -120,6 +120,8 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       if (sourcePlayback) {
         playback.setEquipped(sourcePlayback === 'source-equipped')
         playback.sampleSourceClip(time, riding, false)
+      } else if (sourceOnlyStates.has(state)) {
+        playback.sampleSourceClip(time, riding, false)
       } else if (state === 'death' || state === 'hit' || state === 'axeMountedIdle') {
         playback.sampleSourceClip(time, riding)
       } else if (state.startsWith('bow')) {
@@ -127,26 +129,25 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       } else if (state === 'pilumThrow') {
         playback.samplePilum(time, riding)
       } else {
-        const attack = state === 'axeAttack1H' || state === 'axeAttack2H' || state === 'swordSlash' || state === 'lanceThrust'
+        const attack = state === 'axeAttack1H' || state === 'axeAttack2H' || state === 'swordSlash' || state === 'lanceThrust' || state === 'mountedLance'
         playback.sampleEquipment(time, riding, state === 'walk' || state === 'run' ? state : 'idle', attack, duration())
       }
-      if (!maki) { normal.rig.animation!.seek('idle', time); normal.rig.animation!.update(0) }
+      normal.rig.animation!.seek('idle', time); normal.rig.animation!.update(0)
       place()
     }
     panel.innerHTML = `<strong style="font-size:18px">${label}</strong><div>DEV 資產預覽 · 世界單位：公尺</div>
       <label>視角 <select id="hero-camera"><option value="front">正面 · 正交</option><option value="side">嚴格側面 · 正交</option><option value="back">背面 · 正交</option><option value="free">自由旋轉</option></select></label><br>
       <label>構圖 <select id="hero-framing"><option value="body">全身</option><option value="upper">上半身</option><option value="head">頭部近看</option><option value="legs">腿部與靴筒</option><option value="hands">手／武器近看</option></select></label><br>
-      <label><input id="hero-compare" type="checkbox" ${compare ? 'checked' : ''}> ${commander ? '同陣營 T4 並排比較' : maki ? '原始持弓姿勢／比例比較（空手）' : `一般${factionLabel}並排比較`}</label><br>
+      <label><input id="hero-compare" type="checkbox" ${compare ? 'checked' : ''}> ${commander ? '同陣營 T4 並排比較' : `一般${factionLabel}並排比較`}</label><br>
       <label>播放方式 <select id="hero-playback"><option value="equipment">遊戲裝備</option><option value="source">原始片段 · 無裝備</option><option value="source-equipped">原始片段 · 武器接點</option></select></label><br>
-      <label>動畫 <select id="hero-animation">${availableActions.map(name => `<option value="${name}">${name === 'hit' ? 'hit · 來源動作（不代表戰鬥受擊）' : maki && name === 'axeAttack2H' ? '弓近戰（雙手斧動作）' : name}</option>`).join('')}</select></label><br>
-      <label>裝備 <select id="hero-equipment">${maki ? '<option value="bow">T4 Ranger Bow</option>' : `<option value="none">空手</option><option value="sword">Paladin Sword</option><option value="axe">Paladin Mace</option><option value="shield">Sword + Shield</option><option value="axe-shield">Mace + Shield</option><option value="selected-axe">Viking Axe</option><option value="selected-axe-shield">Axe + Shield</option><option value="lance">Lance</option><option value="bow">Bow</option>`}</select></label><br>
+      <label>動畫 <select id="hero-animation">${availableActions.map(name => `<option value="${name}">${name === 'hit' ? 'hit · 來源動作（不代表戰鬥受擊）' : sourceOnlyStates.has(name) ? `${name} · 來源片段` : name}</option>`).join('')}</select></label><br>
+      <label>裝備 <select id="hero-equipment"><option value="none">空手</option><option value="sword">Paladin Sword</option><option value="axe">Paladin Mace</option><option value="shield">Sword + Shield</option><option value="axe-shield">Mace + Shield</option><option value="selected-axe">Viking Axe</option><option value="selected-axe-shield">Axe + Shield</option><option value="lance">Lance</option><option value="bow">${maki ? 'T4 Ranger Bow' : 'Bow'}</option></select></label><br>
       <label><input id="hero-shield-raised" type="checkbox"> 舉盾</label><br>
       <label>LOD <select id="hero-lod"><option value="0">LOD0</option><option value="1">LOD1</option><option value="2">LOD2</option></select></label><br>
-      <label ${maki ? 'hidden' : ''}><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="BLACK_CAT" ${!roman ? 'selected' : ''}>Black Cat</option><option value="CORGI" ${roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>
-      ${maki ? '<button id="hero-ammo-fallback">Ammo fallback preview</button> <button id="hero-ammo-refill">補箭 → Bow</button><div id="hero-ammo-status">有箭：遠程優先</div>' : ''}
+      <label><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="BLACK_CAT" ${!roman ? 'selected' : ''}>Black Cat</option><option value="CORGI" ${roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>
       <button id="hero-pause">暫停</button> <button id="hero-replay">重新播放</button><br>
       <label>固定時間 <input id="hero-time" type="range" min="0" max="1" step="0.001" value="0" style="width:160px"></label>
-      <div id="hero-status"></div><hr><div>${commander ? '來源 T5 模型 · 同陣營 T4 身體尺度校準' : maki ? '來源 GLB 原始比例' : roman ? 'Paladin 原始模型適配' : '一般角色 1.86 m'}<br>${commander ? '含盔鞋全高' : maki ? '鞋底至兜帽' : roman ? '含頭盔角飾全高' : '英雄本體'} ${manifest.metrics.heightM.toFixed(3)} m${commander || maki || roman ? '' : `<br>含盔鞋 ${manifest.metrics.overallHeightM.toFixed(3)} m`}</div>
+      <div id="hero-status"></div><hr><div>${commander ? '來源 T5 模型 · 同陣營 T4 身體尺度校準' : maki || civilian ? '新模型 · 一般 Humanoid 裝備' : roman ? 'Paladin 原始模型適配' : '一般角色 1.86 m'}<br>${civilian ? '含鞋全高' : commander ? '含盔鞋全高' : maki ? '鞋底至兜帽' : roman ? '含頭盔角飾全高' : '英雄本體'} ${manifest.metrics.heightM.toFixed(3)} m${commander || maki || civilian || roman ? '' : `<br>含盔鞋 ${manifest.metrics.overallHeightM.toFixed(3)} m`}</div>
       <small>滑鼠拖曳旋轉，滾輪縮放。動畫只驗證姿勢，不產生戰鬥事件。</small>`
     const input = <T extends HTMLElement>(id: string) => panel.querySelector<T>(`#${id}`)!
     const status = input('hero-status')
@@ -154,7 +155,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
     const setCamera = () => {
       const view = input<HTMLSelectElement>('hero-camera').value
       const framing = input<HTMLSelectElement>('hero-framing').value
-      const height = framing === 'hands' ? .9 : framing === 'head' ? .65 : framing === 'upper' ? (maki ? 1.1 : 1.45) : framing === 'legs' ? 1.3 : riding ? 4.4 : maki ? 1.95 : 2.8, aspect = innerWidth / innerHeight
+      const height = framing === 'hands' ? .9 : framing === 'head' ? .65 : framing === 'upper' ? 1.45 : framing === 'legs' ? 1.3 : riding ? 4.4 : 2.8, aspect = innerWidth / innerHeight
       camera.left = -height * aspect / 2; camera.right = height * aspect / 2
       camera.top = height / 2; camera.bottom = -height / 2
       camera.updateProjectionMatrix()
@@ -165,9 +166,6 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       }
       if (view === 'side') target.x = 0
       if (framing !== 'body') { target.x = hero.root.position.x; target.y = hero.root.position.y + (framing === 'head' ? (roman ? 1.81 : 1.87) : framing === 'legs' ? .54 : 1.45) }
-      if (maki && framing === 'head') target.y = 1.34
-      if (maki && framing === 'upper') target.y = 1.08
-      if (maki && framing === 'body') target.y = .86
       if (framing === 'hands') {
         hero.rig.left.wrist.getWorldPosition(target)
         target.lerp(hero.rig.right.wrist.getWorldPosition(new THREE.Vector3()), .5)
@@ -188,13 +186,13 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
     }
     const change = () => {
       state = input<HTMLSelectElement>('hero-animation').value as HumanoidAnimationState
-      riding = state !== 'death' && (input<HTMLInputElement>('hero-mounted').checked || state === 'mounted')
+      riding = state !== 'death' && (input<HTMLInputElement>('hero-mounted').checked || state === 'mounted' || state === 'mountedLance')
       input<HTMLInputElement>('hero-mounted').checked = riding
       if (state.startsWith('bow')) input<HTMLSelectElement>('hero-equipment').value = 'bow'
-      if (state === 'lanceThrust') input<HTMLSelectElement>('hero-equipment').value = 'lance'
+      if (state === 'lanceThrust' || state === 'mountedLance') input<HTMLSelectElement>('hero-equipment').value = 'lance'
       if (state === 'swordSlash') input<HTMLSelectElement>('hero-equipment').value = 'shield'
       if (state === 'axeAttack1H') input<HTMLSelectElement>('hero-equipment').value = 'selected-axe-shield'
-      if (state === 'axeAttack2H' || state === 'axeMountedIdle') input<HTMLSelectElement>('hero-equipment').value = maki ? 'bow' : 'selected-axe'
+      if (state === 'axeAttack2H' || state === 'axeMountedIdle') input<HTMLSelectElement>('hero-equipment').value = 'selected-axe'
       playback.state = riding && (state === 'idle' || state === 'walk' || state === 'run') ? 'mounted' : state
       equip(); time = 0; sample(); setCamera()
     }
@@ -211,22 +209,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       if (!input<HTMLInputElement>('hero-mounted').checked && state === 'mounted') input<HTMLSelectElement>('hero-animation').value = 'idle'
       change()
     }
-    input('hero-equipment').onchange = () => {
-      if (maki) { input<HTMLSelectElement>('hero-animation').value = 'idle'; change() }
-      else { equip(); sample() }
-    }
-    if (maki) {
-      let sequence = 0
-      const ammo = (arrows: number) => {
-        const ranged = resolveMakiEquipmentMode(arrows) === 'ranged'
-        input<HTMLSelectElement>('hero-equipment').value = 'bow'
-        input<HTMLSelectElement>('hero-animation').value = ranged ? 'bowHold' : 'axeAttack2H'
-        input('hero-ammo-status').textContent = ranged ? '有箭：遠程優先 · T4 Bow' : '箭矢耗盡 → T4 弓近戰 · 雙手斧揮擊'
-        paused = false; input('hero-pause').textContent = '暫停'; change()
-      }
-      input('hero-ammo-fallback').onclick = () => { const current = ++sequence; ammo(1); setTimeout(() => { if (sequence === current) ammo(0) }, 1100) }
-      input('hero-ammo-refill').onclick = () => { ++sequence; ammo(1) }
-    }
+    input('hero-equipment').onchange = () => { equip(); sample() }
     input('hero-playback').onchange = () => {
       sourcePlayback = input<HTMLSelectElement>('hero-playback').value === 'equipment' ? '' : input<HTMLSelectElement>('hero-playback').value
       playback.setEquipped(!sourcePlayback)

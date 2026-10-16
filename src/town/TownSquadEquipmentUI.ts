@@ -44,10 +44,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
       const title = document.createElement('strong'); title.textContent = `${PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.name} #${index + 1}`; card.append(title)
       const identity = document.createElement('p'); identity.className = 'inv-item-desc'; identity.textContent = `Actor ID: ${member.id}`; card.append(identity)
       const equipment = member.equipment ?? legacyPersonalEquipment(member.type, profile.faction)
-      if (member.type === 'ranger') {
-        const fixed = document.createElement('p'); fixed.className = 'inv-item-desc'; fixed.textContent = 'Weapon: Ranger Bow · 固定\nShield: None · 固定'; fixed.style.whiteSpace = 'pre-line'; card.append(fixed)
-      }
-      for (const slot of (member.type === 'ranger' ? ['mount'] : ['melee', 'ranged', 'shield', 'mount']) as PersonalEquipmentSlot[]) {
+      for (const slot of ['melee', 'ranged', 'shield', 'mount'] as PersonalEquipmentSlot[]) {
         const label = document.createElement('label'); label.className = 'inv-item-desc squad-equipment-slot'; label.style.display = 'block'
         const current = equipment[slot], item = current ? WEAPONS[current] ?? ARMORS[current] : undefined
         label.textContent = SLOT_LABELS[slot] + (item ? ` · T${item.tier}` : current ? current === 'horse' ? ' · T1' : ' · T4' : '') + ': '

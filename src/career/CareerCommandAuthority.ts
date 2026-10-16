@@ -196,7 +196,7 @@ export interface OfficialCommandActor {
   dead: boolean
 }
 
-/** Callers validate mission/scene, army townFaction and runtime readiness. Appearance is not army allegiance (e.g. Roman Maki). */
+/** Callers validate mission/scene, army townFaction and runtime readiness. Appearance is not army allegiance (e.g. a Roman Ranger). */
 export function officialCommandAcceptsActor(authority: OfficialCommandAuthority, actor: OfficialCommandActor): boolean {
   const saved = authority.members?.[actor.combatantId]
   return !actor.dead && saved?.status !== 'exited' && saved?.status !== 'dead' && saved?.hp !== 0

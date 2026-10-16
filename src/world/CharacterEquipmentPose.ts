@@ -1,8 +1,9 @@
+import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import * as THREE from 'three'
 import type { ArmRig, CharacterRig, MountedPoseKind } from './CharacterVisuals'
 import { applyCharacterMountedPose, setRigRotation } from './CharacterVisuals'
 import { AXE_HIT_TIMES, COMBAT_ANIMATION_PROFILES } from './CharacterCombatAnimator'
-import { naturalAxeHandMatrix, swordHandMatrix } from './SwordAttachmentContract'
+import { naturalAxeHandMatrix, swordHandMatrix, type WeaponGripSections } from './SwordAttachmentContract'
 import { equipmentWeaponFrame, type EquipmentGripFrame, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { XONGKORO_VISUAL } from '../movement/XongkoroConfig'
 import { SelectedMountedSkirt, type SelectedHumanoidSource } from './SelectedHumanoidSource'
@@ -12,6 +13,10 @@ const SHIELD_POSE = { side: 0.36, height: 0.12, forward: 0.26 }
 export interface EquipmentPoseState {
   shield: boolean
   carryWeapon?: 'sword' | 'axe'
+  /** Actual sword kind; a mace also uses the legacy sword attachment owner. */
+  actualSword?: boolean
+  /** Measured selected handle cross-section, sampled once on attachment. */
+  swordGripSections?: WeaponGripSections
   shieldRaised?: boolean
   lance: boolean
   mounted: boolean
@@ -19,10 +24,21 @@ export interface EquipmentPoseState {
   flightLean?: number
   /** Mixer-owned: a bow clip still contributes, including its return-to-idle fade. */
   sampledBowPose?: boolean
+  /** Actual upper-body locomotion contribution, excluding bow leg-only layers. */
+  relaxedHandWeight?: number
   mountKind: MountedPoseKind
   action: string
   elapsed: number
   alive: boolean
+}
+export interface SwordCarryGripProfile {
+  palmRadius: number
+  fingerRadius: number
+  /** Measured palm skin thickness beyond the legacy mathematical contact plane. */
+  palmSurfaceOffset: number
+  /** Along-finger placement of the natural curled contact area. */
+  palmFingerOffset: number
+  digits: Record<string, [number, number, number, number]>
 }
 export const createEquipmentPoseState = (): EquipmentPoseState => ({ shield: false, lance: false, mounted: false, mountKind: 'HORSE', action: 'idle', elapsed: 0, alive: true })
 
@@ -142,6 +158,7 @@ class ArmSolver {
 
 /** 每個 LOD 一份骨架求值器；不持有或修正武器物件。 */
 export class CharacterEquipmentPose {
+  private readonly fittedCloth?: FittedHumanoidCloth
   private readonly mountedSkirt?: SelectedMountedSkirt
   private readonly saved: Array<{ node: THREE.Object3D, q: THREE.Quaternion }> = []
   private applied = false
@@ -193,9 +210,35 @@ export class CharacterEquipmentPose {
   private readonly bowChestWorld = new THREE.Quaternion()
   private readonly bowHalfTurnInverse = new THREE.Quaternion()
 
+  private readonly mountedSwordShaftLocal?: THREE.Vector3
+  private readonly swordCarryDigits: Array<{ node: THREE.Object3D, targets: THREE.Quaternion[] }> = []
+  private readonly swordCarryFrame?: EquipmentGripFrame
+  private readonly swordCarryCenter = new THREE.Vector3()
+  private readonly swordCarryNormal = new THREE.Vector3()
+  private readonly swordCarryTarget = new THREE.Quaternion()
+  private readonly swordEquipmentCorrection = new THREE.Matrix4()
+  private hasSwordEquipmentCorrection = false
+
+  /** Hand-local compensation follows later actor movement and saddle fitting. */
+  get rightEquipmentHandCorrection(): THREE.Matrix4 | undefined {
+    return this.hasSwordEquipmentCorrection ? this.swordEquipmentCorrection : undefined
+  }
+
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
 
-  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource) {
+  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource, clothRig?: FittedHumanoidClothRig, private readonly relaxedLeftThumbForward = false, private readonly swordCarryGrips?: readonly SwordCarryGripProfile[]) {
+    if (swordCarryGrips?.length && frames.lanceRight.modelRotationLocal) this.mountedSwordShaftLocal = new THREE.Vector3(0, 1, 0)
+      .applyQuaternion(new THREE.Quaternion().fromArray(frames.lanceRight.modelRotationLocal))
+    if (swordCarryGrips?.length && rig.swordGripFrame) {
+      this.swordCarryFrame = { ...frames.lanceRight, ...rig.swordGripFrame, gripCenterLocal: [...rig.swordGripFrame.gripCenterLocal] }
+      for (const name of Object.keys(swordCarryGrips[0].digits)) {
+        const node = root.getObjectByName(name)
+        if (node && /^(thumb|index|middle|ring|pinky)_0[123]_r$/.test(name)) this.swordCarryDigits.push({ node,
+          targets: swordCarryGrips.map(profile => new THREE.Quaternion().fromArray(profile.digits[name])),
+        })
+      }
+    }
+    if (clothRig) this.fittedCloth = new FittedHumanoidCloth(root, clothRig)
     if (selectedSource?.rig === 'steppe37') this.mountedSkirt = new SelectedMountedSkirt(root)
     if (selectedSource?.rig === 'varangian63') this.mountedSkirt = new SelectedMountedSkirt(root, 'skirt_front_center')
     this.left = new ArmSolver(root, rig.left, 1)
@@ -229,7 +272,9 @@ export class CharacterEquipmentPose {
     const nodes = [rig.right.shoulder, rig.right.elbow, rig.right.wrist, rig.left.shoulder, rig.left.elbow, rig.left.wrist,
       rig.leftLeg.hip, rig.leftLeg.knee, rig.leftLeg.ankle, rig.rightLeg.hip, rig.rightLeg.knee, rig.rightLeg.ankle]
     nodes.push(this.seatedHips)
+    nodes.push(...this.swordCarryDigits.map(digit => digit.node))
     if (this.mountedSkirt) nodes.push(...this.mountedSkirt.nodes)
+    if (this.fittedCloth) nodes.push(...this.fittedCloth.nodes)
     if (this.seatedSpine) nodes.push(this.seatedSpine)
     nodes.push(...this.seatedTorso.filter(node => node !== this.seatedSpine))
     if (this.bowFullBodyStance && this.bowSpine && this.bowSpine !== this.seatedSpine) nodes.push(this.bowSpine)
@@ -238,6 +283,7 @@ export class CharacterEquipmentPose {
   }
 
   restore(): void {
+    this.hasSwordEquipmentCorrection = false
     if (!this.applied) return
     for (const s of this.saved) s.node.quaternion.copy(s.q)
     this.seatedHips.position.copy(this.hipsSamplePosition)
@@ -264,6 +310,7 @@ export class CharacterEquipmentPose {
 
   apply(state: EquipmentPoseState, authorityPalm?: THREE.Quaternion): void {
     this.hasSupportPalm = false
+    this.hasSwordEquipmentCorrection = false
     for (const s of this.saved) s.q.copy(s.node.quaternion)
     this.hipsSamplePosition.copy(this.seatedHips.position)
     this.applied = true
@@ -358,21 +405,29 @@ export class CharacterEquipmentPose {
         bowChest.quaternion.copy(this.parentInverse).multiply(this.bowChestWorld)
       }
     }
-    if (live && state.mounted && state.mountKind === 'CORGI' && this.root.name.startsWith('maki-archer-t4-')) {
-      // Shorter thighs need slightly more abduction to place the knees outside
-      // the source barrel, while the boots follow its flanks instead of splaying.
-      for (const leg of [this.rig.leftLeg, this.rig.rightLeg]) {
-        setRigRotation(leg.hip, -.68 * leg.forwardBendSign, 0, leg.side * .90)
-        setRigRotation(leg.ankle, -.38 * leg.forwardBendSign, 0, -leg.side * .90)
-      }
-    }
-    if (live && state.mounted && state.mountKind === 'BLACK_CAT' && this.root.name.startsWith('maki-archer-t4-')) {
-      // Maki's shorter legs need more thigh spread and less inward shin roll
-      // to clear the source cat's barrel. Retain the fixed pelvis/seat contact.
-      for (const leg of [this.rig.leftLeg, this.rig.rightLeg]) {
-        setRigRotation(leg.hip, -.68 * leg.forwardBendSign, 0, leg.side * 1.1)
-        setRigRotation(leg.knee, 1.05 * leg.forwardBendSign, 0, -leg.side * .2)
-        setRigRotation(leg.ankle, -.38 * leg.forwardBendSign, 0, -leg.side * .6)
+    // Fitted free hands keep their sampled wrist and elbow plane. Rotate the
+    // anatomical thumb web toward +Z, distributing pronation into the forearm.
+    // The mixer weight releases this correction before bow/2H contacts take over.
+    const relaxedHandWeight = state.relaxedHandWeight ?? 0
+    if (live && this.relaxedLeftThumbForward && !state.shield && !state.lance && !state.sampledBowPose
+      && !this.bakedActions.includes(state.action) && state.action !== 'greatswordSlash' && relaxedHandWeight > 0) {
+      this.root.updateWorldMatrix(true, true)
+      this.root.getWorldQuaternion(this.rootWorld).invert()
+      this.rig.left.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+      this.attackAxis.fromArray(this.frames.lanceLeft.fingerDirection).applyQuaternion(this.handWorld).normalize()
+      this.target.set(0, 0, 1).addScaledVector(this.attackAxis, -this.attackAxis.z)
+      if (this.target.lengthSq() > 1e-6) {
+        this.target.normalize()
+        this.axeReach.fromArray(this.frames.lanceLeft.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
+        this.attackRotation.setFromUnitVectors(this.axeReach, this.target)
+        this.handWorld.premultiply(this.attackRotation)
+        this.target.fromArray(this.frames.lanceLeft.gripCenterLocal).applyQuaternion(this.handWorld)
+        this.rig.left.wrist.getWorldPosition(this.axeReach)
+        this.root.worldToLocal(this.axeReach)
+        this.target.add(this.axeReach)
+        this.axeLeftBones.forEach((bone, index) => this.axeSavedLeft[index].copy(bone.quaternion))
+        this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, true)
+        this.axeLeftBones.forEach((bone, index) => bone.quaternion.copy(this.axeSavedLeft[index].slerp(bone.quaternion, relaxedHandWeight)))
       }
     }
     // Free Roman wrist: mirror the sampled opposite hand in character space,
@@ -574,12 +629,67 @@ export class CharacterEquipmentPose {
       this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, !!this.selectedSource)
       for (let i = 0; i < 3; i++) this.axeLeftBones[i].quaternion.copy(this.axeSavedLeft[i].slerp(this.axeLeftBones[i].quaternion, blend))
     }
+    // Fitted sword grasp owns only the right arm/digits. Keep the sampled
+    // source blade orientation, including attacks; shift only its grasp station.
+    if (live && this.mountedSwordShaftLocal && this.swordCarryFrame && this.swordCarryGrips && this.rig.swordGripFrame && state.actualSword
+      && !state.lance && !state.sampledBowPose && state.action !== 'pilumThrow') {
+      const swordFrame = this.rig.swordGripFrame
+      const section = state.swordGripSections?.[state.mounted ? 'mounted' : 'foot']
+      const first = this.swordCarryGrips[0]
+      let lower = 0, upper = 0, nearest = Infinity, second = Infinity
+      const measuredPalm = Number.isFinite(section?.palmRadius) ? section!.palmRadius : first.palmRadius
+      const measuredFinger = Number.isFinite(section?.fingerRadius) ? section!.fingerRadius : first.fingerRadius
+      const radius = THREE.MathUtils.clamp(measuredPalm, .005, .06), fingerRadius = THREE.MathUtils.clamp(measuredFinger, .005, .06)
+      for (let i = 0; i < this.swordCarryGrips.length; i++) {
+        const profile = this.swordCarryGrips[i]
+        const distance = (profile.palmRadius - radius) ** 2 + (profile.fingerRadius - fingerRadius) ** 2
+        if (distance < nearest) { upper = lower; second = nearest; lower = i; nearest = distance }
+        else if (distance < second) { upper = i; second = distance }
+      }
+      const blend = nearest < 1e-10 || !Number.isFinite(second) ? 0 : nearest / (nearest + second)
+      const surfaceOffset = THREE.MathUtils.lerp(this.swordCarryGrips[lower].palmSurfaceOffset, this.swordCarryGrips[upper].palmSurfaceOffset, blend)
+      this.root.updateWorldMatrix(true, true)
+      this.swordEquipmentCorrection.copy(this.rig.right.wrist.matrixWorld)
+      this.root.getWorldQuaternion(this.rootWorld).invert()
+      this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+      if (state.mounted) {
+        this.attackAxis.fromArray(swordFrame.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
+        this.axeReach.copy(this.mountedSwordShaftLocal).applyQuaternion(this.handWorld).normalize()
+        this.handWorld.premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.axeReach))
+      }
+      // Keep the sampled wrist station. Only the mounted shaft orientation
+      // needs an arm solve; the equipment moves into the natural curled palm.
+      if (state.mounted) {
+        this.rig.right.wrist.getWorldPosition(this.target); this.root.worldToLocal(this.target)
+        this.target.add(this.swordCarryCenter.fromArray(swordFrame.gripCenterLocal).applyQuaternion(this.handWorld))
+        this.axeRight.solve(this.target, this.handWorld, this.swordCarryFrame, undefined, true, true)
+      }
+      const fingerOffset = THREE.MathUtils.lerp(this.swordCarryGrips[lower].palmFingerOffset, this.swordCarryGrips[upper].palmFingerOffset, blend)
+      this.swordCarryCenter.fromArray(swordFrame.gripCenterLocal)
+        .addScaledVector(this.swordCarryNormal.fromArray(swordFrame.palmNormalLocal), radius - swordFrame.gripRadius + surfaceOffset - (section?.palmOffset ?? 0))
+        .addScaledVector(this.axeReach.fromArray(swordFrame.fingerDirection), fingerOffset - (section?.fingerOffset ?? 0))
+      this.root.updateWorldMatrix(true, true)
+      this.swordCarryCenter.applyMatrix4(this.rig.right.wrist.matrixWorld)
+      this.target.fromArray(swordFrame.gripCenterLocal).applyMatrix4(this.swordEquipmentCorrection)
+      this.swordCarryCenter.sub(this.target)
+      this.swordEquipmentCorrection.elements[12] += this.swordCarryCenter.x
+      this.swordEquipmentCorrection.elements[13] += this.swordCarryCenter.y
+      this.swordEquipmentCorrection.elements[14] += this.swordCarryCenter.z
+      this.axeMatrix.copy(this.rig.right.wrist.matrixWorld).invert()
+      this.swordEquipmentCorrection.premultiply(this.axeMatrix)
+      this.hasSwordEquipmentCorrection = true
+      for (const { node, targets } of this.swordCarryDigits) {
+        this.swordCarryTarget.copy(targets[lower]).slerp(targets[upper], blend)
+        node.quaternion.copy(this.swordCarryTarget)
+      }
+    }
     for (const morph of this.morphs) {
       const values = morph.mesh.morphTargetInfluences!
       if (morph.right !== undefined) values[morph.right] = 0
       if (morph.left !== undefined) values[morph.left] = twoHandedAxe ? smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .42) / .06)) : 0
       if (morph.shield !== undefined) values[morph.shield] = Number(live && state.shield)
     }
+    if (live && state.mounted) this.fittedCloth?.applyMounted()
     this.root.updateWorldMatrix(true, true)
   }
 }

@@ -11,7 +11,7 @@ describe('Personal Squad recruitment and durable identity', () => {
     expect(recruitPersonalSquadMember(current, 'commander', save)).toMatchObject({ recruited: false, reason: 'rank-locked' })
     expect(current).toEqual(before); expect(save).not.toHaveBeenCalled()
   })
-  it('shares the thirty-member cap across Soldier, Captain, Maki and Commander without spending on member 31', () => {
+  it('shares the thirty-member cap across Soldier, Captain, Ranger and Commander without spending on member 31', () => {
     let current = profile('commander')
     const types = ['soldier', 'captain', 'ranger', 'commander'] as const
     current.personalSquad = { members: Array.from({ length: 30 }, (_, index) => ({

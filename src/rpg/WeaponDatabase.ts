@@ -34,6 +34,11 @@ export interface WeaponData {
 
 export const T4_RANGER_BOW_RANGED_ID = 'maki-ranger-bow-ranged' as const
 
+/** Starter replacement for the retired bow-melee equipment, never a forced upgrade. */
+export function defaultRangerMeleeWeaponId(faction: 'viking' | 'roman'): string {
+  return faction === 'roman' ? 'centurion_blade' : 'viking_axe_t3'
+}
+
 /** Retired cavalry ID remains readable; every new allocation uses the shared polearm. */
 export function canonicalWeaponId(id: string): string {
   return id === 'lance_t4' ? 'spear_t4' : id
@@ -83,12 +88,6 @@ export const WEAPONS: Record<string, WeaponData> = {
     combatKind: 'sword', animationKind: 'axe', damageMin: 55, damageMax: 55,
     speedOrCharge: .54, meleeCycleSeconds: .54, shieldImpact: 12, range: 1.8,
     description: '羅馬與維京 T4 共用戰槌；沿用長斧動作，命中盾面造成 12 點固定衝擊，無護甲穿透。',
-  },
-  'maki-ranger-bow': {
-    id: 'maki-ranger-bow', name: 'T4 遊俠弓（近戰）', type: 'melee', tier: 3,
-    combatKind: 'sword', damageMin: 45, damageMax: 45, speedOrCharge: .35,
-    animationKind: 'axe', range: 1.8,
-    description: '遊俠以持弓姿勢揮擊，使用雙手近戰動作，不攜帶盾牌。',
   },
   // ── Melee Weapons (Swords) ──
   rusty_dagger: {

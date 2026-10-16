@@ -2,9 +2,9 @@
  * InventoryManager.ts
  * Manages player inventory, owned weapon stacks (quantity tracking), equipped weapons, and save state.
  */
-import { canonicalWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS, WeaponData } from './WeaponDatabase'
+import { canonicalWeaponId, defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS, WeaponData } from './WeaponDatabase'
 import { ARMORS, ArmorData } from './ArmorDatabase'
-import { getHeroFixedEquipment, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { type PlayerHeroId } from '../world/HeroAssetCatalog'
 
 export interface InventoryStack {
   id: string
@@ -33,18 +33,18 @@ export class InventoryManager {
   private equippedRangedId: string
   private equippedShieldId: string | null
 
-  constructor(initialLoadout?: InitialPlayerLoadout, private readonly heroId?: PlayerHeroId | null) {
-    const fixed = getHeroFixedEquipment(heroId)
-    const loadout = { ...(initialLoadout ?? LEGACY_LOADOUT), ...fixed }
-    loadout.meleeWeaponId = canonicalWeaponId(loadout.meleeWeaponId)
-    if (heroId === 'maki-archer-t4' && WEAPONS[loadout.rangedWeaponId]?.combatKind !== 'bow') {
-      loadout.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
-    }
+  constructor(initialLoadout?: InitialPlayerLoadout, heroId?: PlayerHeroId | null,
+    private readonly faction: 'viking' | 'roman' = 'viking') {
+    const loadout = { ...(initialLoadout ?? (heroId === 'maki-archer-t4'
+      ? { meleeWeaponId: defaultRangerMeleeWeaponId(faction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null }
+      : LEGACY_LOADOUT)) }
+    loadout.meleeWeaponId = loadout.meleeWeaponId === 'maki-ranger-bow'
+      ? defaultRangerMeleeWeaponId(faction) : canonicalWeaponId(loadout.meleeWeaponId)
     this.equippedMeleeId = loadout.meleeWeaponId
     this.equippedRangedId = loadout.rangedWeaponId
     this.equippedShieldId = loadout.shieldId
     this.rangedEnabled = Boolean(loadout.rangedWeaponId) && !loadout.shieldId
-    this.items = initialLoadout || fixed
+    this.items = initialLoadout || heroId === 'maki-archer-t4'
       ? [
           { id: loadout.meleeWeaponId, quantity: 1 },
           ...(loadout.rangedWeaponId ? [{ id: loadout.rangedWeaponId, quantity: 1 }] : []),
@@ -102,29 +102,25 @@ export class InventoryManager {
     }
     this.items = [...merged].map(([id, quantity]) => ({ id, quantity }))
 
-    const fixed = getHeroFixedEquipment(this.heroId)
-    // A save from Ranger must not equip its asset-only bow on another character.
-    if (!fixed) this.items = this.items.filter(item => item.id !== 'maki-ranger-bow')
-    if (state.equippedMeleeId && WEAPONS[state.equippedMeleeId]
-      && (fixed || state.equippedMeleeId !== 'maki-ranger-bow')) {
+    const retiredMelee = this.items.some(item => item.id === 'maki-ranger-bow')
+    this.items = this.items.filter(item => item.id !== 'maki-ranger-bow')
+    if (state.equippedMeleeId && WEAPONS[state.equippedMeleeId]?.type === 'melee') {
       this.equippedMeleeId = canonicalWeaponId(state.equippedMeleeId)
+    } else if (state.equippedMeleeId === 'maki-ranger-bow'
+      || retiredMelee && !this.items.some(item => item.id === this.equippedMeleeId)) {
+      // Preserve a legitimate owned selection before granting one replacement.
+      const ownedMelee = this.items.find(item => item.id === this.equippedMeleeId && WEAPONS[item.id]?.type === 'melee')
+        ?? this.items.find(item => WEAPONS[item.id]?.type === 'melee')
+      this.equippedMeleeId = ownedMelee?.id ?? defaultRangerMeleeWeaponId(this.faction)
+      if (!ownedMelee) this.addWeapon(this.equippedMeleeId)
     }
-    if (state.equippedRangedId && WEAPONS[state.equippedRangedId]) {
+    if (state.equippedRangedId && WEAPONS[state.equippedRangedId]?.type === 'ranged') {
       this.equippedRangedId = state.equippedRangedId
     }
     if (state.equippedShieldId && ARMORS[state.equippedShieldId]) {
       this.equippedShieldId = state.equippedShieldId
     } else if (state.equippedShieldId === null) {
       this.equippedShieldId = null
-    }
-    if (fixed) {
-      this.equippedMeleeId = fixed.meleeWeaponId
-      this.equippedShieldId = fixed.shieldId
-      if (!this.items.some(item => item.id === fixed.meleeWeaponId)) this.addWeapon(fixed.meleeWeaponId)
-    }
-    if (this.heroId === 'maki-archer-t4' && WEAPONS[this.equippedRangedId]?.combatKind !== 'bow') {
-      this.equippedRangedId = T4_RANGER_BOW_RANGED_ID
-      if (!this.items.some(item => item.id === T4_RANGER_BOW_RANGED_ID)) this.addWeapon(T4_RANGER_BOW_RANGED_ID)
     }
     this.rangedEnabled = !this.equippedShieldId && (state.rangedEnabled ?? Boolean(this.equippedRangedId))
   }
@@ -148,8 +144,6 @@ export class InventoryManager {
     const weapon = WEAPONS[id]
     const armor = ARMORS[id]
     if (!weapon && !armor) return false
-    if (getHeroFixedEquipment(this.heroId) && (weapon?.type === 'melee' || armor?.type === 'shield')) return false
-    if (this.heroId === 'maki-archer-t4' && weapon?.type === 'ranged' && weapon.combatKind !== 'bow') return false
     const hasItem = this.items.some(item => item.id === id)
     if (!hasItem) return false
     return true

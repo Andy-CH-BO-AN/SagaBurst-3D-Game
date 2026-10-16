@@ -409,9 +409,6 @@ function validateBattleConfigWithArmyLimit(
       if (c.careerEagleMissionId && !c.playerHeroId && [loadout.meleeWeaponId, loadout.shieldId].some(id => typeof id === 'string' && id.startsWith('paladin_'))) errors.push('T4 equipment requires a T4 player')
       if (!(PLAYER_MELEE_WEAPON_IDS as readonly string[]).includes(loadout.meleeWeaponId)) errors.push(`Invalid player melee weapon: ${String(loadout.meleeWeaponId)}`)
       if (!(PLAYER_RANGED_WEAPON_IDS as readonly string[]).includes(loadout.rangedWeaponId)) errors.push(`Invalid player ranged weapon: ${String(loadout.rangedWeaponId)}`)
-      if (c.playerHeroId === 'maki-archer-t4' && WEAPONS[loadout.rangedWeaponId]?.combatKind !== 'bow') {
-        errors.push('Ranger player must equip a bow')
-      }
       if (loadout.shieldId !== null && !(PLAYER_SHIELD_IDS as readonly string[]).includes(loadout.shieldId)) errors.push(`Invalid player shield: ${String(loadout.shieldId)}`)
       if (typeof loadout.startMounted !== 'boolean') errors.push('playerLoadout.startMounted must be a boolean')
       if (loadout.mountId !== undefined && !(PLAYER_MOUNT_IDS as readonly string[]).includes(loadout.mountId)) errors.push(`Invalid player mount: ${String(loadout.mountId)}`)

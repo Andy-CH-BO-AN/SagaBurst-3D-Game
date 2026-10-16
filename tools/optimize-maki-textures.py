@@ -6,6 +6,9 @@ from pathlib import Path
 from PIL import Image
 import json,struct,io
 root=Path('public/models')
+manifest_path=root/'characters/v2/maki-archer-t4/manifest.json'
+if not manifest_path.exists() or json.loads(manifest_path.read_text()).get('source',{}).get('sourceSha256') != 'de18d6e174d8b0e282dfa30a16382af44e1b815512187b8dc5ffea312dd08601':
+ raise RuntimeError('Legacy Maki texture tool retired for Shadow Warden. Use pack-faction-humanoid-textures.py; bow resources must remain unchanged.')
 encoded_images={};outputs={}
 for path in [*(root/'characters/v2/maki-archer-t4').glob('lod?.glb'),root/'weapons/maki-ranger-bow/bow.glb']:
  raw=path.read_bytes();length=struct.unpack_from('<I',raw,12)[0];d=json.loads(raw[20:20+length]);binary=raw[28+length:]

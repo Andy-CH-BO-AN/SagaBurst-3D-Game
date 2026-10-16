@@ -106,7 +106,8 @@ export class ShieldCollider {
   private readonly b = new THREE.Vector3()
   private readonly box = new THREE.Box3()
   private paladin = false
-  constructor(private readonly pivot: THREE.Object3D, private readonly state: ShieldState) {}
+  constructor(private readonly pivot: THREE.Object3D, private readonly state: ShieldState,
+    private readonly visibilityAllowed: () => boolean = () => true) {}
   setModel(id: string | null): void {
     this.paladin = id === 'paladin_shield_t4'
     if (this.paladin) this.box.set(this.a.set(-.334, -.55, .123), this.b.set(.334, .55, .301))
@@ -114,17 +115,17 @@ export class ShieldCollider {
     else this.box.set(this.a.set(-.43, -.43, .12), this.b.set(.43, .43, .28))
   }
   time(from: THREE.Vector3, to: THREE.Vector3): number {
-    if (!this.state.active) return Infinity
+    if (!this.state.active || !this.visibilityAllowed()) return Infinity
     this.prepare()
     return this.preparedTime(from, to)
   }
   prepare(): void {
-    if (!this.state.active) return
+    if (!this.state.active || !this.visibilityAllowed()) return
     this.pivot.updateWorldMatrix(true, false)
     this.inverse.copy(this.pivot.matrixWorld).invert()
   }
   preparedTime(from: THREE.Vector3, to: THREE.Vector3): number {
-    if (!this.state.active) return Infinity
+    if (!this.state.active || !this.visibilityAllowed()) return Infinity
     this.a.copy(from).applyMatrix4(this.inverse); this.b.copy(to).applyMatrix4(this.inverse)
     const broad = segmentBoxTime(this.a, this.b, this.box)
     if (!this.paladin || !Number.isFinite(broad)) return broad
@@ -132,7 +133,7 @@ export class ShieldCollider {
     for (const band of PALADIN_BANDS) contact = Math.min(contact, segmentBoxTime(this.a, this.b, band))
     return contact
   }
-  refreshVisibility(): void { this.pivot.visible = !this.state.shieldBroken }
+  refreshVisibility(): void { this.pivot.visible = this.visibilityAllowed() && !this.state.shieldBroken }
 }
 
 export interface PhysicalCombatTarget {

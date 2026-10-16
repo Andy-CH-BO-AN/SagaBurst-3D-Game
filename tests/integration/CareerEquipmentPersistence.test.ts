@@ -14,12 +14,12 @@ describe('Career equipment persistence wiring', () => {
     expect(parseCareerProfile({ ...createCareerProfile('roman'), inventory: { version: 1, quantities } })).toBeNull()
   })
   it('merges both T4 polearm quantities and migrates player, HR and Town allocations without losing or duplicating copies', () => {
-    // Rank reward already received; isolate the independent polearm alias migration.
+    // Rank reward and resident receipt are current; isolate the independent polearm alias migration.
     const raw = { ...createCareerProfile('roman'), rank: 'commander', commanderMeleeGranted: true, totalMerit: 60000,
       ownedWeapons: ['lance_t4', 'spear_t4'], inventory: { version: 1, quantities: { lance_t4: 3, spear_t4: 2 } },
       equipment: { melee: 'lance_t4' },
       personalSquad: { members: [{ id: 'personal:alias', type: 'soldier', equipment: { melee: 'lance_t4', ranged: null, shield: null, mount: null } }] },
-      townEquipment: { roman: { version: 1, actors: { 'civilian-0': { melee: { itemId: 'lance_t4', source: 'inventory' }, ranged: null, shield: null, mount: null } }, nativeReserve: [] } },
+      townEquipment: { roman: { version: 1, residentEquipmentVersion: 1, actors: { 'civilian-0': { melee: { itemId: 'lance_t4', source: 'inventory' }, ranged: null, shield: null, mount: null } }, nativeReserve: [] } },
     }
     const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(raw)]] })
     const store = new CareerProfileStore(storage), loaded = store.load()!

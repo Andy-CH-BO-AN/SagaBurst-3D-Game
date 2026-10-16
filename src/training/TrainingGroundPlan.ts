@@ -31,20 +31,14 @@ export function createTrainingGroundPlan() {
   }
 }
 
-/** Free scene-local inventory; still uses the official hero equipment restrictions. */
+/** Free scene-local inventory using the ordinary equipment rules. */
 class TrainingInventory extends InventoryManager {
-  constructor(private readonly trainingHero?: PlayerHeroId) {
+  constructor(trainingHero?: PlayerHeroId) {
     super({
     meleeWeaponId: 'steel_sword', rangedWeaponId: trainingHero === 'maki-archer-t4' ? T4_RANGER_BOW_RANGED_ID : 'elven_runebow', shieldId: null,
     }, trainingHero)
   }
-  override canEquipWeapon(id: string): boolean {
-    if (id === 'maki-ranger-bow' && this.trainingHero !== 'maki-archer-t4') return false
-    return super.canEquipWeapon(id)
-  }
-  override itemAvailability(id: string): string {
-    return id === 'maki-ranger-bow' ? '遊俠固定近戰弓 · Esc 可切換練習角色' : '訓練場免費使用'
-  }
+  override itemAvailability(_id: string): string { return '訓練場免費使用' }
 }
 
 export function createTrainingInventory(heroId?: PlayerHeroId) {

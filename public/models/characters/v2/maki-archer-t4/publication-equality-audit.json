@@ -1,0 +1,48 @@
+{
+  "id": "maki-archer-t4",
+  "baseline": "Reviewed V27 animated uncompressed checkpoint",
+  "verification": "Independently compare every decoded non-image bufferView byte and every non-storage document field; decode every image with Pillow and compare RGBA bytes.",
+  "lods": [
+    {
+      "level": 0,
+      "baselineSha256": "9000cf4143cb38a427430cae188cfcee6e0ce7c3da2a0792f0b1467a8ac2ad23",
+      "sha256": "835614cd616c3dda523dcad18a63798192a46ca3611263d10f5e96cf35f03a48",
+      "allNonStorageDocumentSemanticsIdentical": true,
+      "accessorDefinitionsIdentical": 813,
+      "nonImageBufferViewsByteIdentical": 813,
+      "imageCount": 3,
+      "decodedRgbaByteIdentical": true,
+      "jpegPayloadUnchanged": true,
+      "encodedImagesSha256": "365424e6eaa02660d12c8cc221b3bf02ca2cdf564a12e13507e76897f0d86f62",
+      "decodedRgbaImagesSha256": "24d4db3ddf41bd4a62f38c7727d69626897e0524505da9cccf7901fdea794f63"
+    },
+    {
+      "level": 1,
+      "baselineSha256": "b156ae5dc7869e448361046aeb3cd4460afb76d403e9fa12fc7096cf748af642",
+      "sha256": "e9330648f5fe2ee5468211fc84f274f27380267b130e135652231f0d07d1d831",
+      "allNonStorageDocumentSemanticsIdentical": true,
+      "accessorDefinitionsIdentical": 813,
+      "nonImageBufferViewsByteIdentical": 813,
+      "imageCount": 3,
+      "decodedRgbaByteIdentical": true,
+      "jpegPayloadUnchanged": true,
+      "encodedImagesSha256": "e47eb05d828f7aecb81f0de6d9c9dbd1fd740dc4d635d81b201feda124ad942c",
+      "decodedRgbaImagesSha256": "addc355e6ca9c2d8898832b95e14e2b7326f7d4cbaf484c23a54195eed36542c"
+    },
+    {
+      "level": 2,
+      "baselineSha256": "071fca74767f822bcdc0c30c650ae1a1c4f450247af2db7072fb53ae454aa536",
+      "sha256": "856d32f3f023d328f774c8b157565fa6df6c0b9775a5d4b6a9a1c42c3c37ddc6",
+      "allNonStorageDocumentSemanticsIdentical": true,
+      "accessorDefinitionsIdentical": 813,
+      "nonImageBufferViewsByteIdentical": 813,
+      "imageCount": 3,
+      "decodedRgbaByteIdentical": true,
+      "jpegPayloadUnchanged": true,
+      "encodedImagesSha256": "219f323b7e89b16cbeecf088f278b3317247291f1ae752bd1c5fae1b986daf9b",
+      "decodedRgbaImagesSha256": "93fea29d7b7d5313cf8814571812dbeaae72a706c66cf39e6fb06264b659d23d"
+    }
+  ],
+  "schemaVersion": 2,
+  "digestDefinition": "SHA-256 of ordered SHA-256 hex strings concatenated without separators"
+}

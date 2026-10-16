@@ -1,6 +1,7 @@
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { CorgiSeatContact } from './CorgiSeatContact'
+import { RiderSeatContactCache } from './RiderSeatContactCache'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createQuadrupedAssetPreload } from './QuadrupedAssetPreload'
@@ -27,12 +28,10 @@ export class CorgiVisual {
 
   static preload(): Promise<void> { return this.preloadAsset() }
 
-  private readonly contacts = new WeakMap<THREE.Object3D, CorgiSeatContact>()
+  private readonly contacts = new RiderSeatContactCache((rider: THREE.Object3D) => new CorgiSeatContact(rider, this.root))
 
   fitRider(rider: THREE.Object3D): void {
-    let contact = this.contacts.get(rider)
-    if (!contact) { contact = new CorgiSeatContact(rider, this.root); this.contacts.set(rider, contact) }
-    contact.align()
+    this.contacts.get(rider).align()
   }
 
   readonly root: THREE.Group

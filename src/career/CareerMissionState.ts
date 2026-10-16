@@ -196,7 +196,7 @@ export function acceptsCareerMissionStat(mission: ActiveCareerMission, event: Co
       && mission.kind !== 'commander-sky-raid' && mission.kind !== 'commander-decapitation')
       || !isCareerMissionMeritSource(mission, event.source)) return false
     // Structures identify their owning army. A saved official's visual faction can differ
-    // (Roman Maki keeps her Viking model), so use the accepted army's faction for hostility.
+    // (legacy Rangers can retain their shared visual faction), so use the accepted army's faction for hostility.
     const sourceFaction = isOfficialMissionMeritSource(mission, event.source)
       ? mission.officialSquad!.townFaction : event.source.characterFaction
     return event.target.characterFaction !== undefined

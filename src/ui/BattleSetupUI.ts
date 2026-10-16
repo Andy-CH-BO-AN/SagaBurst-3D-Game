@@ -30,14 +30,14 @@ import {
 } from '../battle/BattleConfig'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { canonicalWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { canonicalWeaponId } from '../rpg/WeaponDatabase'
 import {
   getUnitPresetsForFaction,
   BASE_UNIT_TIERS,
   type BaseUnitTier,
   type UnitPresetId,
 } from '../battle/UnitPresetCatalog'
-import { SETUP_PLAYER_HERO_IDS, HERO_ASSETS, getHeroFixedEquipment, isSetupPlayerHeroId } from '../world/HeroAssetCatalog'
+import { SETUP_PLAYER_HERO_IDS, HERO_ASSETS, isSetupPlayerHeroId } from '../world/HeroAssetCatalog'
 import { HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifiers } from '../battle/T4HeroCatalog'
 import {
   MAX_COMMAND_SQUAD_SIZE,
@@ -175,7 +175,6 @@ export class BattleSetupUI {
             ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} ${id.endsWith('t5') ? 'T5' : 'T4'} · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
           </select>
         </label>
-        <p id="battle-fixed-equipment" hidden>遊俠固定使用 T4 弓作近戰，不攜帶盾牌。</p>
         <div class="loadout-panel-heading">
           <h2>玩家裝備</h2><span>PLAYER LOADOUT</span>
         </div>
@@ -403,10 +402,6 @@ export class BattleSetupUI {
       if (heroId !== '' && !soldier && !isSetupPlayerHeroId(heroId)) return
       this.config.playerHeroId = isSetupPlayerHeroId(heroId) ? heroId : null
       this.config.playerVisualTier = soldier ? tier : undefined
-      if (this.config.playerHeroId === 'maki-archer-t4'
-        && WEAPONS[this.config.playerLoadout?.rangedWeaponId ?? '']?.combatKind !== 'bow') {
-        this.config.playerLoadout!.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
-      }
       this._refreshView()
     })
     this.container.querySelectorAll('.step-input').forEach(el => {
@@ -487,10 +482,7 @@ export class BattleSetupUI {
     this.container.querySelectorAll('.loadout-card').forEach(card => {
       card.addEventListener('click', () => {
         const target = card as HTMLElement
-        if (getHeroFixedEquipment(this.config.playerHeroId) && ['melee', 'shield'].includes(target.dataset.loadoutKind ?? '')) return
         const id = target.dataset.loadoutId || null
-        if (this.config.playerHeroId === 'maki-archer-t4' && target.dataset.loadoutKind === 'ranged'
-          && WEAPONS[id ?? '']?.combatKind !== 'bow') return
         switch (target.dataset.loadoutKind) {
           case 'melee': this.config.playerLoadout!.meleeWeaponId = id as PlayerMeleeWeaponId; break
           case 'ranged': this.config.playerLoadout!.rangedWeaponId = id as PlayerRangedWeaponId; break
@@ -958,9 +950,6 @@ export class BattleSetupUI {
     }
 
     const loadout = this.config.playerLoadout
-    const fixedEquipment = getHeroFixedEquipment(this.config.playerHeroId)
-    const fixedNotice = this.container.querySelector<HTMLElement>('#battle-fixed-equipment')
-    if (fixedNotice) fixedNotice.hidden = !fixedEquipment
     const heroSelect = this.container.querySelector<HTMLSelectElement>('#battle-player-hero')
     if (heroSelect) heroSelect.value = this.config.playerHeroId ?? String(this.config.playerVisualTier ?? '')
     const armyPanel = document.getElementById('setup-army-panel')
@@ -977,12 +966,7 @@ export class BattleSetupUI {
     if (loadout) {
       this.container.querySelectorAll('.loadout-card').forEach(card => {
         const el = card as HTMLButtonElement
-        const locked = (Boolean(fixedEquipment) && ['melee', 'shield'].includes(el.dataset.loadoutKind ?? ''))
-          || (this.config.playerHeroId === 'maki-archer-t4' && el.dataset.loadoutKind === 'ranged'
-            && WEAPONS[el.dataset.loadoutId ?? '']?.combatKind !== 'bow')
-        el.disabled = locked
-        el.setAttribute?.('aria-disabled', String(locked))
-        const selected = !locked && ((el.dataset.loadoutKind === 'melee' && el.dataset.loadoutId === loadout.meleeWeaponId)
+        const selected = ((el.dataset.loadoutKind === 'melee' && el.dataset.loadoutId === loadout.meleeWeaponId)
           || (el.dataset.loadoutKind === 'ranged' && el.dataset.loadoutId === loadout.rangedWeaponId)
           || (el.dataset.loadoutKind === 'shield' && el.dataset.loadoutId === (loadout.shieldId ?? ''))
           || (el.dataset.loadoutKind === 'mount' && el.dataset.loadoutId === (loadout.mountId ?? 'horse')))

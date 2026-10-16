@@ -31,7 +31,7 @@ export function createCareerReliefSpawnPlan(launch: DefenseCampaignLaunchConfig)
   const captain = rescue.find(spec => spec.tier === 4 && spec.specialCombatProfile !== 'maki-ranger')!
   const maki = rescue.find(spec => spec.specialCombatProfile === 'maki-ranger')!
   captain.name = 'Captain'; captain.squadId = 1
-  maki.name = 'Maki'; maki.squadId = 2
+  maki.name = 'Shadow Warden'; maki.squadId = 2
   maki.cavalry = true
   maki.loadout = { ...maki.loadout!, mountId: 'black-cat' }
   const soldiers = rescue.filter(spec => spec.tier === 2)

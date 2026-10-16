@@ -150,3 +150,7 @@ For **Formation**, aim the crosshair at the ground, check the preview, then pres
 Career automatically saves your faction, rank, merit, equipment, mounts, combat skills, troops, and mission checkpoints. Enter Career again to resume your existing character. Campaign saves each faction's stage progression. Training and Custom Battle do not advance Career.
 
 Saves stay on the device. **Browser and desktop saves are separate and do not sync.** Desktop saves persist when you replace the app with a newer version. Clearing browser site data or the app's user data removes the corresponding saves.
+
+## Model credits
+
+The Nordic Warrior, Roman Statesman and Shadow Warden models were generated with [Meshy](https://www.meshy.ai/) under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). SagaBurst adapts their rigs, skinning, cloth seams, animations, LODs and textures. Source hashes and modification details: [Nordic Warrior](public/models/characters/v2/viking-civilian/ATTRIBUTION.md), [Roman Statesman](public/models/characters/v2/roman-civilian/ATTRIBUTION.md), [Shadow Warden](public/models/characters/v2/maki-archer-t4/ATTRIBUTION.md). These credits apply to those model assets; animation-source licenses are recorded separately.

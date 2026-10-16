@@ -5,7 +5,7 @@ import type { TownActorSpec } from './TownRules'
 export interface TownCavalryMissionSlot {
   unitType: 'sword_cavalry' | 'lancer' | 'horse_archer'
   officer?: 'captain' | 'ranger'
-  /** The mission's existing named officer identity (Town Captain or Maki). */
+  /** The mission's existing named officer identity (Town Captain or Ranger). */
   preferredActorId?: string
 }
 

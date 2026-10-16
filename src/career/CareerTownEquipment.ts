@@ -68,7 +68,7 @@ function memberRefs(profile: CareerProfile, context: TownEquipmentContext, targe
   return Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => [slot, equipment[slot] ? { itemId: equipment[slot], source: 'inventory' } : null])) as TownEquipmentRefs
 }
 function memberFixed(profile: CareerProfile, context: TownEquipmentContext, target: TownEquipmentSquadId, actorId: string, slot: PersonalEquipmentSlot): boolean {
-  if (target === 'personal') return profile.personalSquad?.members.find(member => member.id === actorId)?.type === 'ranger' && slot !== 'mount'
+  if (target === 'personal') return false
   const member = resolveTownActorEquipment(profile, context.townFaction, actorId)
   return member.readOnly || member.fixedWeapons && slot !== 'mount' || Boolean(member.spec.eagle && slot === 'mount')
 }
@@ -108,7 +108,11 @@ function finish(current: CareerProfile, next: CareerProfile, ids: string[], summ
 }
 export function changeTownEquipment(read: () => CareerProfile, context: TownEquipmentContext, actorId: string,
   slot: PersonalEquipmentSlot, itemId: string | null, save: (profile: CareerProfile) => boolean): TownEquipmentResult {
-  const current = read(), target = townEquipmentSquads(current).find(squad => squad.actorIds.includes(actorId))?.id
+  const current = read(), authored = townEquipmentSquadForActor(actorId)
+  // Reuse fixed membership without rebuilding the full positioned town roster.
+  // Keep the same military, personal, civilian precedence as townEquipmentSquads.
+  const target = typeof authored === 'number' ? authored as SquadId
+    : current.personalSquad?.members.some(member => member.id === actorId) ? 'personal' : authored
   if (target === undefined) return fail(current, 'missing-member')
   const gate = managementGate(current, context, target)
   if (gate) return fail(current, gate)
@@ -130,8 +134,7 @@ export function changeTownEquipment(read: () => CareerProfile, context: TownEqui
   refs[slot] = ref
   if (itemId && slot === 'ranged') refs.shield = null
   if (itemId && slot === 'shield') refs.ranged = null
-  const civilian = target === 'civilian', ranger = target === 'personal' && next.personalSquad!.members.find(member => member.id === actorId)!.type === 'ranger'
-  if (!civilian && !ranger && !refs.melee && !refs.ranged) return fail(current, 'last-weapon')
+  if (target !== 'civilian' && !refs.melee && !refs.ranged) return fail(current, 'last-weapon')
   writeRefs(next, context, target, actorId, refs)
   try { validateStaged(next, context) } catch { return fail(current, 'invalid-item') }
   return finish(current, next, [actorId], { ...emptySummary(), equipped: 1,

@@ -1,0 +1,24 @@
+{
+  "sourceSha256": "d793d2a8aa196d928bd2188ff66502a02eca2328d6024528a856c6787362172d",
+  "sourceFile": "Meshy_AI_Nordic_Warrior_1016085035_texture.glb",
+  "generator": "Meshy",
+  "userEvidence": "User confirmed all three models were generated with the free Meshy plan.",
+  "license": "Creative Commons Attribution 4.0 International",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+  "policyUrl": "https://help.meshy.ai/en/articles/16102098-can-i-use-meshy-assets-commercially",
+  "credit": "Meshy",
+  "changes": [
+    "uniform source-envelope normalization",
+    "fitted project-humanoid-v1 skeleton and finger chains",
+    "anatomical/topological skin weights",
+    "measured garment helper bones without cloth physics",
+    "localized fused-garment seam separation and source-UV sampled inner lining (exact counts in blender-measurements.json)",
+    "local original inner-cape tessellation preserving existing position, UV and skin-weight corners",
+    "reduced-LOD posterior inner lining derived from matching outer topology and skin weights, sampled from the original inner UVs",
+    "three genuine offline LODs",
+    "resized embedded texture maps",
+    "retargeted existing project animation tracks, fitted contact and grip calibration, and baked cape response",
+    "lossless PNG recompression and byte-exact meshopt buffer packing for publication, preserving all decoded pixels and geometry/skin/animation values"
+  ],
+  "scope": "Model provenance only. Existing project animation source terms are retained separately."
+}

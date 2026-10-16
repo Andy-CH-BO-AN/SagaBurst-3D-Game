@@ -70,7 +70,7 @@ export class CharacterBowVisual {
       this.animatedAsset = bow
       return
     }
-    if (weaponId === T4_RANGER_BOW_RANGED_ID || weaponId === 'maki-ranger-bow') {
+    if (weaponId === T4_RANGER_BOW_RANGED_ID) {
       const bow = createMakiRangerBowInstance()
       this.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
       return
