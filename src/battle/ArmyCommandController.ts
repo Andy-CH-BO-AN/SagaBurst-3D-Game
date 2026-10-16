@@ -722,6 +722,8 @@ export class ArmyCommandController {
   private _targetLabel(target: ArmyCommandTarget | null): string {
     if (target === null) return '命令'
     if (target === 'all') return '全軍'
+    const custom = this.ui?.resolveSquadLabel?.(target)
+    if (custom) return custom
     if (isSquadCommandTarget(target)) return squadLabel(squadIdFromCommandTarget(target))
     return getUnitPreset(target).nameZh
   }

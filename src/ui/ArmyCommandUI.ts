@@ -33,10 +33,21 @@ const ORDER_LABELS: Record<ArmyCommandHudOrder, string> = {
   reserve: '待命',
 }
 
-export function armyCommandTargetLabel(target: ArmyCommandTarget | null, officialSquadLabel?: string): string {
-  if (target === 'squad:1' && officialSquadLabel) return officialSquadLabel
+export type SquadLabelResolver = (target: ArmyCommandTarget) => string | undefined
+export type OfficialSquadLabelOption = string | SquadLabelResolver
+
+export function armyCommandTargetLabel(
+  target: ArmyCommandTarget | null,
+  officialSquadLabel?: OfficialSquadLabelOption,
+): string {
   if (target === 'all') return '全軍命令'
   if (target === null) return '命令'
+  if (typeof officialSquadLabel === 'function') {
+    const resolved = officialSquadLabel(target)
+    if (resolved) return resolved
+  } else if (target === 'squad:1' && officialSquadLabel) {
+    return officialSquadLabel
+  }
   if (isSquadCommandTarget(target)) return squadLabel(squadIdFromCommandTarget(target))
   return getUnitPreset(target).nameZh
 }
@@ -48,8 +59,19 @@ export class ArmyCommandUI {
   private readonly commands: HTMLElement
   private readonly feedback: HTMLElement
   private readonly wheelHint: HTMLElement
-  private officialSquadLabel: string | undefined
-  setOfficialSquadLabel(label?: string): void { this.officialSquadLabel = label }
+  private officialSquadLabel: OfficialSquadLabelOption | undefined
+  setOfficialSquadLabel(label?: OfficialSquadLabelOption): void { this.officialSquadLabel = label }
+  getOfficialSquadLabel(): OfficialSquadLabelOption | undefined { return this.officialSquadLabel }
+
+  resolveSquadLabel(target: ArmyCommandTarget): string | undefined {
+    if (typeof this.officialSquadLabel === 'function') {
+      return this.officialSquadLabel(target)
+    }
+    if (target === 'squad:1' && typeof this.officialSquadLabel === 'string') {
+      return this.officialSquadLabel
+    }
+    return undefined
+  }
 
   private feedbackTimer: number | null = null
   private townHudObserver: ResizeObserver | null = null
@@ -208,7 +230,7 @@ export class ArmyCommandUI {
       row.classList.toggle('highlighted', entry.target === highlightedTarget)
       const label = document.createElement('span')
       label.className = 'army-command-label'
-      const name = entry.target === 'squad:1' && this.officialSquadLabel ? this.officialSquadLabel : entry.label
+      const name = this.resolveSquadLabel(entry.target) ?? entry.label
       label.textContent = `[${entry.key}] ${name}${entry.summary ? ` ${entry.summary}` : ''}`
       const order = document.createElement('span')
       order.className = `army-command-order ${entry.order}`

@@ -17,6 +17,7 @@ import { availableCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO } from 
 import { createTownCareerEquipmentUI } from './TownCareerEquipmentUI'
 import { applyTownEquipmentRuntime, registerTownNativeMount, findTownNativeMount } from './TownEquipmentRuntime'
 import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentContext } from '../career/CareerTownEquipment'
+import { resolveCommanderTownTargetLabel } from '../career/CommanderTownSquadLabels'
 import { townDefaultActorLoadout } from '../career/CareerTownEquipmentState'
 import { townMerchantLoadout } from './TownMerchantEquipment'
 import { careerMountType } from '../career/CareerMountController'
@@ -1266,7 +1267,7 @@ export class TownScene {
       && mission.officialSquad.missionId === mission.id ? 'Mission Squad · 任務部隊'
       : !mission && !this.profile?.activeOutpostMission && this.townCommand?.commandsEnabled
         ? this.profile.townCommandSquad?.commandRank === 'commander'
-          ? 'Town Army · 全城正式部隊' : 'Town Command Squad · 城防指揮隊'
+          ? resolveCommanderTownTargetLabel : 'Town Command Squad · 城防指揮隊'
         : undefined)
     if (!this.commandActors) return
     this.commandActors.length = 0
