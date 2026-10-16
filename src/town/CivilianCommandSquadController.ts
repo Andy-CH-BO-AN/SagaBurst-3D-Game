@@ -8,13 +8,14 @@ import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMissi
 import { refitCommandActor, refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
+import type { Mount } from '../world/Mount'
 import type { Player } from '../player/Player'
 import { Faction, type NPC } from '../world/NPC'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import { CIVILIAN_PROFILE, townRoster, type TownActorSpec } from './TownRules'
 
 export const CIVILIAN_COMMAND_RETURN_ID = -4500
-export interface CivilianCommandResident { spec: TownActorSpec; npc: NPC }
+export interface CivilianCommandResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
 /** HUD consumers need current status, HP and orders, never actor poses or formations. */
 export interface CivilianCommandHudState {
   readonly sceneKey: string
@@ -84,6 +85,14 @@ export class CivilianCommandSquadController {
       || profile.activeMission || profile.activeOutpostMission || profile.townEvent?.state === 'hostile') return false
     if (this.refitIds.some(id => !this.value!.actorIds.includes(id)
       || !this.residentsById.has(id) || !this.validIdentity(this.residentsById.get(id)!.npc))) return false
+    const mounts = new Set<Mount>()
+    for (const id of this.refitIds) {
+      const { npc, homeMount } = this.residentsById.get(id)!
+      if (!homeMount) continue
+      if (mounts.has(homeMount) || homeMount.disposed || homeMount.riderPlayer
+        || homeMount.riderNpc && homeMount.riderNpc !== npc || npc.mount && npc.mount !== homeMount) return false
+      mounts.add(homeMount)
+    }
     const actors = this.refitIds.map(id => this.residentsById.get(id)!.npc)
     // Daily AI's attack default is not a player command. Retain all actors for contact cooldowns.
     const orders = actors.filter(npc => !npc.dead && this.owner(npc) === 'player').map(npc => npc.tacticalOrder)
@@ -94,8 +103,8 @@ export class CivilianCommandSquadController {
     if (!this.canRefit()) return false
     const value = this.checkpoint()!
     for (const id of this.refitIds) {
-      const { npc, spec } = this.residentsById.get(id)!, previous = this.value!.members[id]
-      const member = value.members[id] = refitCommandCheckpoint(npc)
+      const { npc, spec, homeMount } = this.residentsById.get(id)!, previous = this.value!.members[id]
+      const member = value.members[id] = refitCommandCheckpoint(npc, homeMount)
       if (npc.dead || npc.isFalling) member.position = {
         x: spec.x, y: spec.y ?? getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? 0,
       }
@@ -117,9 +126,9 @@ export class CivilianCommandSquadController {
     if (!this.commit(next)) return false
     this.value = cloneCivilianCommandSquad(value)
     for (const id of this.refitIds) {
-      const npc = this.residentsById.get(id)!.npc
-      refitCommandActor(npc)
-      restoreCommandActor(npc, value.members[id])
+      const { npc, homeMount } = this.residentsById.get(id)!
+      refitCommandActor(npc, homeMount)
+      restoreCommandActor(npc, value.members[id], homeMount)
     }
     this.applyOwners(true)
     return true
@@ -172,7 +181,7 @@ export class CivilianCommandSquadController {
       this.value.actorIds = saved.actorIds.filter(id => this.residentsById.has(id))
       for (const npc of this.actors) {
         const member = this.value.members[npc.combatantId]
-        if (member && this.validIdentity(npc)) restoreCommandActor(npc, member)
+        if (member && this.validIdentity(npc)) restoreCommandActor(npc, member, this.residentsById.get(npc.combatantId)?.homeMount)
       }
       if (saved.missionId === this.read().activeMission?.id && this.scopeAllowed) this.applyOwners(true)
     }
@@ -192,7 +201,7 @@ export class CivilianCommandSquadController {
         actorIds, owners: {}, members: {} }
       for (const id of actorIds) {
         value.owners[id] = this.defaultOwner(this.residentsById.get(id)!.spec)
-        value.members[id] = snapshotCommandActor(this.residentsById.get(id)!.npc)
+        value.members[id] = snapshotCommandActor(this.residentsById.get(id)!.npc, this.residentsById.get(id)!.homeMount)
       }
       return this.save(value)
     }
@@ -218,7 +227,7 @@ export class CivilianCommandSquadController {
     const value = { ...this.value, members: { ...this.value.members } }
     for (const npc of this.actors) {
       const saved = value.members[npc.combatantId]
-      value.members[npc.combatantId] = snapshotCommandActor(npc, undefined, saved?.status === 'exited' ? 'exited' : 'deployed')
+      value.members[npc.combatantId] = snapshotCommandActor(npc, this.residentsById.get(npc.combatantId)?.homeMount, saved?.status === 'exited' ? 'exited' : 'deployed')
       if (value.owners[npc.combatantId] === 'returning' && !npc.dead && !value.members[npc.combatantId].formation) {
         value.members[npc.combatantId].formation = saved?.formation
       }
@@ -326,7 +335,7 @@ export class CivilianCommandSquadController {
         npc.armTownCivilian(CIVILIAN_PROFILE.retaliationWeapon)
         if (member.order === 'follow') npc.assignFollowTarget(this.player(), index, officialFollowLocalOffset(index, false, true))
         else if (member.order && member.order !== 'formation') npc.setTacticalOrder(member.order)
-        else if (restore && member.formation) restoreCommandActor(npc, member)
+        else if (restore && member.formation) restoreCommandActor(npc, member, this.residentsById.get(npc.combatantId)?.homeMount)
       } else {
         npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN)
         if (owner === 'returning' && member.formation) this.applyReturn(npc, member)

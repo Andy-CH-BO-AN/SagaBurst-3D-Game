@@ -1,3 +1,8 @@
+import { Vector3 } from 'three'
+import type { Player } from '../../src/player/Player'
+import { CivilianCommandSquadController, type CivilianCommandResident } from '../../src/town/CivilianCommandSquadController'
+import { civilianCommandRoster } from '../../src/career/CivilianCommandAuthority'
+import { townRoster } from '../../src/town/TownRules'
 import { describe,expect,it } from 'vitest'
 import type { OfficialCommandAuthority } from '../../src/career/CareerCommandAuthority'
 import { cloneOfficialCommandAuthority,createMissionCommandAuthority,officialActorSquadId,officialCommandAcceptsActor,officialCommandIsPlayerControlled,officialCommandSquads,officialMissionSourcePolicy,parseOfficialCommandAuthority,parseTownCommandSquad,townCommandIsPlayerControlled } from '../../src/career/CareerCommandAuthority'
@@ -200,5 +205,137 @@ describe('Outpost Commander storage boundary', () => {
     expect(store.save(next)).toBe(false)
     expect(profile.activeOutpostMission!.officialSquad!.commandedSquadIds).toEqual([])
     expect(store.load()!.activeOutpostMission!.officialSquad!.commandedSquadIds).toEqual([])
+  })
+})
+
+/** Checkpoint/controller owners use plain resource records and narrow lifecycle boundaries. */
+interface ResidentResource {
+  combatantId: string; faction: Faction; townCategory: 'civilian'; hostileToPlayer: boolean
+  dead: boolean; hp: number; maxHp: number; combatAmmo: number; combatAmmoCapacity: number
+  tacticalOrder: 'attack' | 'defend'; mount: MountResource | null
+  group: { position: Vector3; rotation: { y: number } }; combatPosition: Vector3
+  shield: { shieldImpactRemaining: number; shieldImpactMax: number }
+  restoreCombatHealth(hp: number): void; restoreCombatAmmo(ammo: number): void
+  refitCombat(): void; mountVehicle(mount: MountResource): void; dismountFromMount(): void
+  setTacticalOrder(order: 'attack' | 'defend'): void
+  releaseOutpostRampartGarrison(): void; setCommandSquad(): void; setCommandAllegiance(): void
+  disarmTownCivilian(): void; setTownPeaceful(): void
+}
+interface MountResource {
+  dead: boolean; currentHp: number; maxHp: number; disposed: boolean; isAirborne: boolean
+  riderNpc: ResidentResource | null; riderPlayer: null
+  group: { position: Vector3; rotation: { y: number } }
+  restoreForTown(x: number, z: number, yaw: number): void; takeDamage(): void
+}
+function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean) {
+  const events: string[] = []
+  const mount: MountResource = { dead: mountDead, currentHp: mountDead ? 0 : 17, maxHp: 200, disposed: false,
+    isAirborne: false, riderNpc: null, riderPlayer: null, group: { position: new Vector3(3, 0, 4), rotation: { y: 1 } },
+    restoreForTown() { events.push('restore-mount'); this.dead = false; this.currentHp = this.maxHp; this.riderNpc = null },
+    takeDamage() { this.dead = true; this.currentHp = 0 },
+  }
+  const roster = townRoster()
+  const records = civilianCommandRoster(roster).map(id => {
+    const position = new Vector3(3, 0, 4)
+    const npc: ResidentResource = { combatantId: id, faction: Faction.TOWN, townCategory: 'civilian', hostileToPlayer: false,
+      dead: id === actorId && npcDead, hp: id === actorId && npcDead ? 0 : 13, maxHp: 40,
+      combatAmmo: 0, combatAmmoCapacity: 0, tacticalOrder: 'attack', mount: null,
+      group: { position, rotation: { y: 1 } }, combatPosition: position,
+      shield: { shieldImpactRemaining: 0, shieldImpactMax: 0 },
+      restoreCombatHealth(hp) { if (hp <= 0) { this.dead = true; this.hp = 0; this.dismountFromMount() } else if (!this.dead) this.hp = hp },
+      restoreCombatAmmo(ammo) { this.combatAmmo = ammo },
+      refitCombat() { events.push('refit-npc'); this.dead = false; this.hp = this.maxHp },
+      mountVehicle(value) { events.push('mount'); this.mount = value; value.riderNpc = this },
+      dismountFromMount() { if (this.mount) this.mount.riderNpc = null; this.mount = null },
+      setTacticalOrder(order) { this.tacticalOrder = order },
+      releaseOutpostRampartGarrison() {}, setCommandSquad() {}, setCommandAllegiance() {}, disarmTownCivilian() {}, setTownPeaceful() {},
+    }
+    return { spec: roster.find(spec => spec.id === id)!, npc, ...(id === actorId ? { homeMount: mount } : {}) }
+  })
+  const actor = records.find(record => record.spec.id === actorId)!.npc
+  // One adapter into the production borrowing boundary; no NPC/Mount/3D construction.
+  const residents = records as unknown as CivilianCommandResident[]
+  let profile: import('../../src/career/CareerProfile').CareerProfile = { ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000 }
+  let permitSave = true
+  const controller = () => new CivilianCommandSquadController(residents, () => ({ dead: false }) as Player,
+    () => profile, next => { events.push('save'); if (!permitSave) return false; profile = next; return true },
+    { sceneKey: 'town:roman', townFaction: 'roman', refitSceneKey: 'town-home', canRefit: () => true })
+  const owner = controller(); expect(owner.synchronize()).toBe(true); events.length = 0
+  return { actor, mount, residents, owner, controller, events, read: () => profile,
+    allowSave: (allow: boolean) => { permitSave = allow } }
+}
+
+describe('Civilian and merchant borrowed mount checkpoints', () => {
+  it('refits a dead civilian onto its surviving original horse after saving the complete checkpoint', () => {
+    const h = residentRecovery('civilian-0', true, false)
+    expect(h.owner.checkpoint()!.members['civilian-0'].mount).toMatchObject({ hp: 17, mounted: false })
+    expect(h.owner.refit()).toBe(true)
+    expect(h.events[0]).toBe('save')
+    expect(h.events).not.toContain('restore-mount')
+    expect(h.actor).toMatchObject({ dead: false, hp: 40 })
+    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
+    expect(h.mount.currentHp).toBe(200)
+    expect(h.read().civilianCommandSquad!.members['civilian-0'].mount).toMatchObject({ hp: 200, mounted: true })
+  })
+
+  it('restores the same dead merchant and horse through the existing mount recovery boundary', () => {
+    const h = residentRecovery('merchant', true, true)
+    expect(h.owner.refit()).toBe(true)
+    expect(h.events.filter(event => event === 'restore-mount')).toHaveLength(1)
+    expect(h.events.indexOf('restore-mount')).toBeGreaterThan(h.events.indexOf('save'))
+    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
+    expect(h.mount).toMatchObject({ dead: false, currentHp: 200 })
+    expect(h.residents.find(resident => resident.spec.id === 'merchant')!.homeMount).toBe(h.mount)
+  })
+
+  it('keeps dead resources, ownership and riding unchanged when the refit checkpoint cannot be saved', () => {
+    const h = residentRecovery('civilian-0', true, true), before = cloneCareerProfile(h.read())
+    h.allowSave(false)
+    expect(h.owner.refit()).toBe(false)
+    expect(h.events).toEqual(['save'])
+    expect(h.actor).toMatchObject({ dead: true, hp: 0, mount: null })
+    expect(h.mount).toMatchObject({ dead: true, currentHp: 0, riderNpc: null })
+    expect(h.read()).toEqual(before)
+  })
+
+  it('preserves deliberate dismount on ordinary restore without healing the saved NPC or horse', () => {
+    const h = residentRecovery('civilian-0', false, false)
+    expect(h.owner.checkpoint()!.members['civilian-0'].mount?.mounted).toBe(false)
+    const restored = h.controller()
+    expect(restored.restore()).toBe(true)
+    expect(h.actor).toMatchObject({ dead: false, hp: 13, mount: null })
+    expect(h.mount).toMatchObject({ dead: false, currentHp: 17, riderNpc: null })
+    expect(h.events).not.toContain('refit-npc'); expect(h.events).not.toContain('mount')
+  })
+
+  it('rebinds a saved mounted merchant to its existing allocated horse during scene restore', () => {
+    const h = residentRecovery('merchant', false, false)
+    h.read().civilianCommandSquad!.members.merchant.mount!.mounted = true
+    expect(h.controller().restore()).toBe(true)
+    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
+    expect(h.mount.currentHp).toBe(17)
+    expect(h.events).not.toContain('restore-mount'); expect(h.events).not.toContain('refit-npc')
+  })
+
+  it('restores saved civilian and mount deaths onto freshly materialized resource records without refitting them', () => {
+    const h = residentRecovery('civilian-0', true, true)
+    // New scene resources start alive; only the saved checkpoint decides their status.
+    h.actor.dead = false; h.actor.hp = 40
+    h.mount.dead = false; h.mount.currentHp = 200
+    h.actor.mount = h.mount; h.mount.riderNpc = h.actor
+    expect(h.controller().restore()).toBe(true)
+    expect(h.actor).toMatchObject({ dead: true, hp: 0, mount: null })
+    expect(h.mount).toMatchObject({ dead: true, currentHp: 0, riderNpc: null })
+    expect(h.events).not.toContain('refit-npc'); expect(h.events).not.toContain('restore-mount')
+  })
+
+  it('rejects a refit before saving when another resident already rides the allocated horse', () => {
+    const h = residentRecovery('civilian-0', true, false)
+    const foreign = { ...h.actor, combatantId: 'foreign' }
+    h.mount.riderNpc = foreign
+    expect(h.owner.refit()).toBe(false)
+    expect(h.events).toEqual([])
+    expect(h.mount.riderNpc).toBe(foreign)
+    expect(h.actor.dead).toBe(true)
   })
 })

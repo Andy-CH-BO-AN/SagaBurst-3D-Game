@@ -1,7 +1,7 @@
 import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
-import { townMerchantLoadout } from '../town/TownMerchantEquipment'
+import { townMerchantLoadout, isTownMerchantLoadout } from '../town/TownMerchantEquipment'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
@@ -705,7 +705,7 @@ export class NPC {
     readonly townCombatRole?: 'merchant',
     spawnPlacement?: { y: number },
   ) {
-    if (townCombatRole === 'merchant') loadout = townMerchantLoadout()
+    if (townCombatRole === 'merchant') loadout = townMerchantLoadout(loadout?.mountId === 'horse' ? 'horse' : null)
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
     this.spawnZ = spawnZ
@@ -1219,10 +1219,7 @@ export class NPC {
   canApplyCareerEquipment(loadout: UnitLoadout): boolean {
     if (this.dead || this.isFalling || this.originalCombatEquipment) return false
     const next = loadout
-    if (this.townCombatRole === 'merchant') {
-      const fixed = townMerchantLoadout()
-      if (Object.keys(fixed).some(slot => next[slot as keyof UnitLoadout] !== fixed[slot as keyof UnitLoadout])) return false
-    }
+    if (this.townCombatRole === 'merchant' && !isTownMerchantLoadout(next)) return false
     if (this.specialCombatProfile === 'maki-ranger' && (next.meleeWeaponId !== this.loadout?.meleeWeaponId
       || next.rangedWeaponId !== this.loadout?.rangedWeaponId
       || (next.secondaryMeleeWeaponId ?? null) !== (this.loadout?.secondaryMeleeWeaponId ?? null) || next.shieldId)) return false

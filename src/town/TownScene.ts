@@ -16,6 +16,7 @@ import { availableCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO } from 
 import { createTownCareerEquipmentUI } from './TownCareerEquipmentUI'
 import { applyTownEquipmentRuntime, registerTownNativeMount, findTownNativeMount } from './TownEquipmentRuntime'
 import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentContext } from '../career/CareerTownEquipment'
+import { townDefaultActorLoadout } from '../career/CareerTownEquipmentState'
 import { townMerchantLoadout } from './TownMerchantEquipment'
 import { careerMountType } from '../career/CareerMountController'
 import { personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
@@ -556,7 +557,7 @@ export class TownScene {
         const careerEquipment = residentArmyFaction === this.profile.faction && equipmentActorIds.has(spec.id)
           && this.profile.townEquipment?.[residentArmyFaction]
           ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id) : undefined
-        const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian ? { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: null } : ranger ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null } : military!.loadout)
+        const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null } : military!.loadout)
         spec = townStationSpec(spec, Boolean(loadout.mountId), Boolean(loadout.rangedWeaponId))
         const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined))
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)

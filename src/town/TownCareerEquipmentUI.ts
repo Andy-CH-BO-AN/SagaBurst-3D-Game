@@ -55,16 +55,16 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
             const item = ids[slot], tier = item ? slot === 'mount' ? resolved.mountTier : (WEAPONS[item] ?? ARMORS[item])?.tier : undefined
             return [slot, { id: item, label: itemName(item), tier }]
           })) as TownEquipmentMemberView['equipment']
-          const merchant = resolved.readOnly
-          return { id, name: resident?.npc.name ?? id, tier: resolved.tier, equipment, readOnly: merchant,
+          const merchant = resolved.spec.role === 'merchant'
+          return { id, name: resident?.npc.name ?? id, tier: resolved.tier, equipment, readOnly: resolved.readOnly,
             lockedSlots: resolved.fixedWeapons ? ['melee', 'ranged', 'shield'] : resolved.spec.eagle ? ['mount'] : undefined,
-            reason: merchant ? undefined : !resident ? '不在目前場景，保存配置唯讀。' : resident.npc.dead ? '已陣亡，整補後才能換裝。'
+            reason: !resident ? '不在目前場景，保存配置唯讀。' : resident.npc.dead ? '已陣亡，整補後才能換裝。'
               : !state.safeActorIds.has(id) ? '正在交戰、返回或飛行，整補完成後才能換裝。' : undefined,
-            fixedEquipment: merchant ? ['T4 Sword', 'T4 Mace', 'T4 Shield'] : undefined }
+            fixedEquipment: merchant ? [itemName(resolved.loadout.meleeWeaponId) + ' · T5', itemName(resolved.loadout.secondaryMeleeWeaponId) + ' · T5', itemName(resolved.loadout.shieldId) + ' · T4'] : undefined }
         })
         return { ...squad, total: squad.actorIds.length,
           alive: squad.id === 'personal' ? profile.personalSquad?.members.length ?? 0 : squad.actorIds.filter(id => live.has(id) && !live.get(id)!.npc.dead).length,
-          refittable: unavailable ? 0 : squad.actorIds.filter(id => state.safeActorIds.has(id) && id !== 'merchant'
+          refittable: unavailable ? 0 : squad.actorIds.filter(id => state.safeActorIds.has(id)
             && (squad.id === 'personal' || live.has(id) && !live.get(id)!.npc.dead)).length,
           members, reason: unavailable || undefined }
       })
@@ -83,7 +83,7 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
       for (const id of Object.keys(careerItemTotals(profile)).sort()) {
         const item = WEAPONS[id] ?? ARMORS[id]
         const fits = slot === 'mount' ? (PLAYER_MOUNT_IDS as readonly string[]).includes(id) && (target === 'personal' || careerEquipmentCategory(id) === 'mount') : item?.type === slot
-        if (fits && (availableCareerItem(profile, id) > 0 || current === id)) options.push({ id, label: `${itemName(id)}${item ? ` · T${item.tier}` : ''} · 可用 ${availableCareerItem(profile, id)}` })
+        if (fits && (actorId !== 'merchant' || slot !== 'mount' || id === 'horse') && (availableCareerItem(profile, id) > 0 || current === id)) options.push({ id, label: `${itemName(id)}${item ? ` · T${item.tier}` : ''} · 可用 ${availableCareerItem(profile, id)}` })
       }
       return options
     },
