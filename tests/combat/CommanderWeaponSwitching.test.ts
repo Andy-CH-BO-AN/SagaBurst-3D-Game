@@ -4,6 +4,7 @@ import { Faction } from '../../src/combat/CombatFaction'
 import type { Player } from '../../src/player/Player'
 import { AIState, NPC } from '../../src/world/NPC'
 import type { ObstacleData } from '../../src/world/Terrain'
+import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
 import { townMilitaryEquipment } from '../../src/town/TownRules'
 
 interface SelectionActor {
@@ -126,4 +127,31 @@ describe('Commander weapon choice', () => {
     expect(h.actor.rangedActive).toBe(false)
     expect(h.actor.animator.cancel).not.toHaveBeenCalled()
   })
+})
+
+
+it('preserves merchant fixed gear with a purchased horse and switches only its existing melee weapon between attacks', () => {
+  const actor = { townCombatRole: 'merchant', originalCombatEquipment: null,
+    animator: { busy: false }, loadout: townMerchantLoadout('horse'), meleeWeaponId: 'sword_t5',
+    dead: false, isFalling: false,
+    _setActiveMeleeWeapon(id: string) { this.meleeWeaponId = id },
+  }
+  interface MerchantSelection {
+    _selectMerchantMeleeWeapon(this: typeof actor, target: { shield: { active: boolean } } | null): void
+  }
+  const choose = (NPC.prototype as unknown as MerchantSelection)._selectMerchantMeleeWeapon
+  expect(NPC.prototype.canApplyCareerEquipment.call(actor as unknown as NPC, townMerchantLoadout('horse'))).toBe(true)
+  expect(NPC.prototype.canApplyCareerEquipment.call(actor as unknown as NPC, { ...actor.loadout, secondaryMeleeWeaponId: 'paladin_mace_t4' })).toBe(false)
+  expect(NPC.prototype.canApplyCareerEquipment.call(actor as unknown as NPC, { ...actor.loadout, mountId: 'black-cat' })).toBe(false)
+  const target = { shield: { active: true } }
+  choose.call(actor, target)
+  expect(actor.meleeWeaponId).toBe('axe_t5')
+  actor.animator.busy = true; target.shield.active = false
+  choose.call(actor, target)
+  expect(actor.meleeWeaponId).toBe('axe_t5')
+  actor.animator.busy = false
+  choose.call(actor, target)
+  expect(actor.meleeWeaponId).toBe('sword_t5')
+  expect(actor.loadout).toEqual({ meleeWeaponId: 'sword_t5', secondaryMeleeWeaponId: 'axe_t5',
+    shieldId: 'paladin_shield_t4', rangedWeaponId: null, mountId: 'horse' })
 })

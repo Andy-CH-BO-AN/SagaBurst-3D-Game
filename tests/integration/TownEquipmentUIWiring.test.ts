@@ -54,3 +54,24 @@ describe('Town equipment caller transaction ordering', () => {
     expect(h.read()).toBe(previous); expect(h.store.load()).toEqual(stored)
   })
 })
+
+it('shows civilian native T1 weapons and exposes only the merchant military horse selector after save', () => {
+  let profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander', commanderMeleeGranted: true,
+    totalMerit: 20000, inventory: { version: 1, quantities: { horse: 1, 'black-cat': 1 } } }
+  const events: string[] = []
+  createTownCareerEquipmentUI(() => profile, () => ({ townFaction: 'roman', peaceful: true, personalState: 'RESERVE', safeActorIds: new Set(['merchant']) }),
+    () => [{ spec: { id: 'merchant' }, npc: { name: 'Merchant', dead: false } }], next => {
+      profile = next; events.push('save'); return true
+    }, () => { events.push('deferred'); return 1 })
+  const squad = bindings.read().squads.find(squad => squad.id === 'civilian')!
+  const merchant = squad.members.find(member => member.id === 'merchant')!
+  expect(merchant).toMatchObject({ readOnly: false, lockedSlots: ['melee', 'ranged', 'shield'], equipment: {
+    melee: { id: 'sword_t5', tier: 5 }, shield: { id: 'paladin_shield_t4', tier: 4 }, mount: { id: null },
+  } })
+  expect(merchant.fixedEquipment?.join(' ')).not.toMatch(/Mace|戰槌/)
+  expect(squad.members.filter(member => member.id.startsWith('civilian-')).every(member => member.equipment.melee.id === 'gladius_rusty' && member.equipment.melee.tier === 1)).toBe(true)
+  expect(bindings.options('civilian', 'merchant', 'mount').map(option => option.id)).toEqual([null, 'horse'])
+  expect(bindings.change('civilian', 'merchant', 'mount', 'horse')).toContain('待下次回城')
+  expect(events).toEqual(['save', 'deferred'])
+  expect(profile.townEquipment!.roman!.actors.merchant.mount).toEqual({ itemId: 'horse', source: 'inventory' })
+})
