@@ -269,6 +269,53 @@
         transition: width 0.2s ease;
       }
 
+      /* Restored Norse compass. Reserve both side HUD columns and the target /
+         mount bars above it; marker spacing stays fixed at every viewport. */
+      #compass-container {
+        position: absolute;
+        top: 104px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: clamp(160px, calc(100vw - 1120px), 460px);
+        height: 28px;
+        background: rgba(12, 12, 14, 0.7);
+        border: 1px solid rgba(232, 201, 106, 0.35);
+        border-radius: 4px;
+        backdrop-filter: blur(6px);
+        overflow: hidden;
+        pointer-events: none;
+        user-select: none;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+      }
+      #compass-strip {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        white-space: nowrap;
+        font: 700 13px 'Segoe UI', serif;
+        letter-spacing: 0.12em;
+        color: #d4af37;
+      }
+      .compass-mark {
+        flex: 0 0 80px;
+        text-align: center;
+        text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+      }
+      .compass-north { color: #e74c3c; }
+      #compass-indicator {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 2px;
+        height: 100%;
+        background: #f39c12;
+        box-shadow: 0 0 6px #f39c12;
+      }
+
       /* ── Army Command HUD ── */
       #army-command-hud {
         position: fixed;
