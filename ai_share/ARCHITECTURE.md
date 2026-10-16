@@ -43,15 +43,15 @@
 
 - `WeaponMeshFactory` 共用於 Player、NPC、掉落物與工作室；[EQUIPMENT_TIERS.md](EQUIPMENT_TIERS.md) 維護外觀範圍。合併剛性零件須保留材質／render flags、幾何、grip/tip metadata 與動態零件。
 - `SwordAttachmentContract`／`EquipmentAttachmentContract` 管理握點；固定裝備 attachment 不由 animator idle／cancel 覆寫。調整武器方向繞掌心握點進行，不以扭腕掩蓋資產軸向錯誤。
-- 裝備中的盾是唯一持盾狀態來源，步戰／騎乘皆留左手。持盾阻擋拉弓；盾牌變更取消未完成蓄力。一般 T1–T3 劍走單手劍動作。
+- Player 沿原有手動裝備規則；NPC 的永久 `shieldId` 與 `hasActiveShield` 分開。遠程及釋放收招期間隱藏盾牌、停用盾牌碰撞／減傷與防禦姿勢；近戰在左手恢復同一面盾，不重建耐久。一般 T1–T3 劍走單手劍動作。
 - Lance idle 沿用 Sword Idle 人體／手形，加固定 attachment；攻擊才加右臂 FK 前伸。不在無關工作恢復舊 Ready pose、左手支撐或 lance IK。
 - Shadow Warden 以 `maki-archer-t4` 持久化資產 ID 取代舊 Maki；Ranger 保留原 Hero Combat Profile，近戰沿用實際 Sword／Axe／Lance／Mace 的 attachment、動作及 WeaponSweep，不用弓的 grip／tip 或專屬近戰 hitbox。
 - `CharacterBowVisual` 共用弓、弦、nock、搭箭及發射座標；Roman pilum 另有外觀。`ThirdPersonCamera` 以 FOV 與安全前向位移混合至瞄準視角；T5 Roman／Viking 騎巨鷹時使用 22° FOV 與 1.5m 前向淨空，沿用相機碰撞限制；Player 從 nock 向準星 world ray 命中點發射。
 - T5 selected-source 騎乘弓姿由 `CharacterEquipmentPose` 將就座移除的來源骨盆 world rotation 等分轉移到 torso chain，保留肩手與固定弓握點的朝向；`MixerController` 依實際 bow clip 權重維持淡出到 idle 期間的補償。巨鷹衝刺仍保留下胸俯身，但瞄準時維持上胸 world orientation。站立、T4、actor／mount heading、來源 clips 與 projectile direction 不由此 adapter 改寫。
-- T4 Ranger 的正式預設 loadout 經 `resolveT4UnitLoadout` 使用 `maki-ranger-bow-ranged`；缺少正常近戰的預設配置由陣營提供 `viking_axe_t3`／`centurion_blade`，不覆寫合法既有裝備。Ranger 與 Commander 共用 `reversibleRangedSwitch` 和原 NPC 狀態機；暫時任務裝備採自己的明確切換旗標，結束時恢復永久 loadout。遠程傷害／箭速由 WeaponDatabase 實際裝備決定；角色 tier 不會自動升級明確指定的低階弓。
+- T4 Ranger 的正式預設 loadout 經 `resolveT4UnitLoadout` 使用 `maki-ranger-bow-ranged`；缺少正常近戰的預設配置由陣營提供 `viking_axe_t3`／`centurion_blade`，不覆寫合法既有裝備。所有 NPC 只要實際持有遠程與近戰武器便使用原 NPC 狀態機雙向切換，舊 `reversibleRangedSwitch` metadata 仍可讀取但不再是資格限制；暫時任務裝備結束時恢復永久 loadout。遠程傷害／箭速由 WeaponDatabase 實際裝備決定；角色 tier 不會自動升級明確指定的低階弓。
 - `EagleRangedCombat` 只覆寫 NPC + xongkoro + bow 的 3D 開火距離，依當前武器 tier 為 200／300／400／500m，不再疊加 Ranger 射程倍率。`ProjectileBallistics` 有界求解真實重力與移動目標攔截，發射前重驗彈道遮擋；發射後投射物不追蹤。NPC 驗證過的空軍射擊及 Player 自由瞄準空軍弓各自產生有界 flight budget，Game／Town 都傳入 ArrowProjectile。Town 非空軍保留五秒政策；共用箭矢使用 scene 方形世界界線與獨立 age／travel cap，不再依世界原點 400m 球體裁切。
 - 箭模型沿 local `-Z`，投射物朝向須顯式對齊速度。飛行箭／pilum 共用不可變 render resources，移除實例不能銷毀模板或每發遺留資源。
-- `HighTierEquipment` 預載唯一共用 T4 槍與 T5 弓 GLB；槍共享 render resources，弓以 SkeletonUtils 複製每位持有者的骨架／mixer。來源拉弓 take 的前半段映射至既有 normalized charge，`CharacterBowVisual` 保留弦、搭箭與發射座標 ownership，換裝／銷毀只釋放實例骨架。Career 正式 Commander 的 `careerCommanderLoadout` 明確選擇可恢復的遠近切換；`NPC` 使用現有 target／nearby 結果、6m／9m 遲滯及原 CHASE／ATTACK 狀態，不擴充搜尋頻率。HR 與 Duel 由其實際 loadout 明確選擇該策略，不依模型或 tier 推斷。
+- `HighTierEquipment` 預載唯一共用 T4 槍與 T5 弓 GLB；槍共享 render resources，弓以 SkeletonUtils 複製每位持有者的骨架／mixer。來源拉弓 take 的前半段映射至既有 normalized charge，`CharacterBowVisual` 保留弦、搭箭與發射座標 ownership，換裝／銷毀只釋放實例骨架。`NPC` 依實際雙武器 loadout 使用現有 target／nearby 結果、6m／9m 遲滯及原 CHASE／ATTACK 狀態，不擴充搜尋頻率；模式切換保留箭矢與永久裝備。城牆沿原 threat boundary，巨鷹另尊重飛行 pilot 的近戰窗口及可接觸高度，開火仍由原彈道驗證授權。
 - `EquipmentVisualLODController` 跟隨人物 Three.LOD 的當幀 level，不另算距離。只切已標记的靜態細節，保留 socket、弓弦與搭箭的動態 ownership。
 - NPC 持有裝備在 LOD2 關閉 castShadow，LOD0/1 還原第一次登記的原值；重建盾牌立即沿用目前 level。Player、飛行物、掉落物、人物與坐騎不屬於此 policy。
 

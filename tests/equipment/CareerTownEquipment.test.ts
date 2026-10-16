@@ -29,7 +29,7 @@ function harness(faction: CareerProfile['faction'] = 'roman') {
   }
 }
 describe('Town equipment domain, canonical ownership and persisted native sources', () => {
-  it('rolls back a bulk bow allocation and displaced native shield when storage fails', () => {
+  it('rolls back a bulk bow allocation while retaining native shield ownership when storage fails', () => {
     const h = harness(); h.context.safeActorIds = new Set(['gate:north:0']); h.buy('elven_runebow')
     // The bulk owner already validates its staged domain data. Seed durable bytes
     // directly here; CareerProfileStore validation has a separate persistence owner.
@@ -47,13 +47,21 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(result).toMatchObject({ changed: false, reason: 'save-failed', changedActorIds: [] })
     expect(saves).toBe(1)
     expect(staged!.townEquipment!.roman!.actors['gate:north:0']).toMatchObject({
-      ranged: { itemId: 'elven_runebow', source: 'inventory' }, shield: null,
+      ranged: { itemId: 'elven_runebow', source: 'inventory' }, shield: { itemId: 'scutum_t2', source: 'native', nativeId: 'roman/gate:north:0/shield' },
     })
-    expect(staged!.townEquipment!.roman!.nativeReserve).toContain('roman/gate:north:0/shield')
+    expect(staged!.townEquipment!.roman!.nativeReserve).not.toContain('roman/gate:north:0/shield')
     expect(availableCareerItem(staged!, 'elven_runebow')).toBe(0)
     expect(h.read()).toEqual(before)
     expect(h.saved()).toBe(durableBefore)
     expect(availableCareerItem(h.read(), 'elven_runebow')).toBe(1)
+    h.storage.failWrites = false
+    expect(h.bulk(1, 'bow').changed).toBe(true)
+    h.buy('scutum_t3')
+    expect(h.change('gate:north:0', 'shield', 'scutum_t3').changed).toBe(true)
+    expect(resolveTownActorEquipment(h.reload(), 'roman', 'gate:north:0').loadout).toMatchObject({
+      meleeWeaponId: 'gladius_standard', rangedWeaponId: 'elven_runebow', shieldId: 'scutum_t3',
+    })
+    expect(h.read().townEquipment!.roman!.nativeReserve).toContain('roman/gate:north:0/shield')
   })
   it('counts Player, HR, Town and Civilian in one quantity pool and refuses another claimant', () => {
     const h = harness(); h.buy('paladin_sword_t4', 4)

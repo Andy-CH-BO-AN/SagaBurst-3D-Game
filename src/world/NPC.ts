@@ -287,9 +287,8 @@ export class NPC {
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
   private originalCombatEquipment: CombatEquipmentSnapshot | null = null
-  private temporaryReversibleRangedSwitch = false
   private careerRangedAmmo?: number
-  private get equipmentRequiredForCombat(): boolean { return this.combatOwnership === 'player-personal' || this.townCategory === 'civilian' }
+  private get equipmentRequiredForCombat(): boolean { return Boolean(this.loadout) || this.combatOwnership === 'player-personal' || this.townCategory === 'civilian' }
   public tacticalOrder: TacticalOrder = DEFAULT_TACTICAL_ORDER
   /** Mission transport owns movement while combat still uses this world-space root. */
   siegeTransport: string | null = null
@@ -354,7 +353,12 @@ export class NPC {
   }
 
   get hasActiveRangedWeapon(): boolean {
-    return this.rangedActive && Boolean(this.rangedWeaponId) && this.arrows > 0 && !this.shieldId
+    return this.rangedActive && Boolean(this.rangedWeaponId) && this.arrows > 0
+  }
+
+  /** Ownership stays in shieldId; ranged recovery keeps both hands free until it finishes. */
+  get hasActiveShield(): boolean {
+    return Boolean(this.shieldId) && !this.rangedActive && (this.townCategory !== 'civilian' || this.townArmed)
   }
 
   get combatAmmo(): number { return this.arrows }
@@ -367,6 +371,7 @@ export class NPC {
     this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
     this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     this.bowPivot.visible = this.hasActiveRangedWeapon
+    this._refreshActiveShield()
     if (this.townCategory === 'civilian' && !this.townArmed) {
       this.swordPivot.visible = this.bowPivot.visible = this.shieldPivot.visible = false
     }
@@ -419,7 +424,7 @@ export class NPC {
   private bowGripPivot: THREE.Group
   private bowVisual?: CharacterBowVisual
   private shieldPivot: THREE.Group
-  readonly shield = new ShieldState()
+  readonly shield = new ShieldState(() => this.hasActiveShield)
   shieldCollider!: ShieldCollider
   readonly weaponSweep = new WeaponSweep()
   combatMountGrid: SpatialGrid<Mount> | null = null
@@ -825,7 +830,7 @@ export class NPC {
 
     this.shieldPivot = new THREE.Group()
     this.shieldCollider = new ShieldCollider(this.shieldPivot, this.shield,
-      () => this.townCategory !== 'civilian' || this.townArmed)
+      () => this.hasActiveShield)
     this.rig.left.handSocket.add(this.shieldPivot)
     this.shieldPivot.position.set(0, 0.124, 0.019)
     this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
@@ -880,12 +885,14 @@ export class NPC {
     this.townArmed = true
     this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     this.bowPivot.visible = this.hasActiveRangedWeapon
+    this._refreshActiveShield()
     this.shieldCollider.refreshVisibility()
   }
   /** Peace sheathes equipment; only the saved canonical loadout owns civilian weapons. */
   disarmTownCivilian(): void {
     if (this.townCategory !== 'civilian' || this.dead) return
     this.townArmed = false
+    this._refreshActiveShield()
     this._setActiveMeleeWeapon(this.loadout?.meleeWeaponId ?? null)
     this.swordPivot.visible = false
     this.bowPivot.visible = false
@@ -970,7 +977,7 @@ export class NPC {
       if (!this.deathFade.update(this.group, dt)) this.animator.update(dt, distance)
       return false
     }
-    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId) && this.townCategory !== 'civilian', this.mount?.type as MountedPoseKind)
+    this.animator.setEquipment(this.isUsingLance, this.hasActiveShield && this.townCategory !== 'civilian', this.mount?.type as MountedPoseKind)
     this.animator.setLocomotion(speed, this.isMounted, this.isSprinting && speed > 0)
     if (training && startAttack && !this.animator.busy) {
       if (this.rangedCombatKind === 'javelin') this._restoreCombatReadyRangedVisual()
@@ -1110,10 +1117,10 @@ export class NPC {
   }
 
   rebuildShield(): void {
-    if (this.faction === Faction.BANDIT) return
-    // Ranged loadouts (bows and javelins) cannot also carry an active shield.
-    if (this.rangedWeaponId) this.shieldId = null
-    if (this.builtShieldId === this.shieldId) return
+    if (this.builtShieldId === this.shieldId) {
+      this.shieldCollider.refreshVisibility()
+      return
+    }
     this.builtShieldId = this.shieldId
     this.shield.equip(this.shieldId)
     this.shieldCollider.setModel(this.shieldId)
@@ -1123,7 +1130,7 @@ export class NPC {
       this.attackTimer = 0
       this.bowVisual.hideArrow()
       this.bowPivot.visible = this.hasActiveRangedWeapon
-      this.swordPivot.visible = !this.hasActiveRangedWeapon
+      this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     }
 
     while (this.shieldPivot.children.length > 0) {
@@ -1135,6 +1142,7 @@ export class NPC {
       if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
     }
     this.equipmentVisualLOD.register('shield', this.shieldPivot)
+    this.shieldCollider.refreshVisibility()
     if (this.townCategory === 'civilian' && !this.townArmed) {
       this.swordPivot.visible = this.bowPivot.visible = this.shieldPivot.visible = false
     }
@@ -1222,7 +1230,7 @@ export class NPC {
     return !(next.meleeWeaponId && WEAPONS[next.meleeWeaponId]?.type !== 'melee'
       || next.secondaryMeleeWeaponId && WEAPONS[next.secondaryMeleeWeaponId]?.type !== 'melee'
       || next.rangedWeaponId && WEAPONS[next.rangedWeaponId]?.type !== 'ranged'
-      || next.shieldId && !ARMORS[next.shieldId] || next.rangedWeaponId && next.shieldId)
+      || next.shieldId && !ARMORS[next.shieldId])
   }
 
   /** Apply a saved permanent allocation. Resource repair and mount ownership stay with the caller. */
@@ -1259,7 +1267,7 @@ export class NPC {
       this.swordPivot.visible = this.bowPivot.visible = this.shieldPivot.visible = false
     }
     if (this.state === AIState.ATTACK) this.state = AIState.CHASE
-    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, this.mount?.type as MountedPoseKind)
     this.rig.animation?.update(0)
     return true
   }
@@ -1287,7 +1295,6 @@ export class NPC {
         rangedActive: this.rangedActive,
       }
     }
-    this.temporaryReversibleRangedSwitch = loadout.reversibleRangedSwitch === true
     this._cancelEquipmentCombatState()
     if (tier !== undefined) this._tier = tier
     if (squadId !== undefined) this._squadId = squadId
@@ -1310,7 +1317,7 @@ export class NPC {
       this.swordPivot.visible = this.bowPivot.visible = this.shieldPivot.visible = false
     }
     if (this.state === AIState.ATTACK) this.state = AIState.CHASE
-    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, this.mount?.type as MountedPoseKind)
     this.rig.animation?.update(0)
   }
 
@@ -1334,11 +1341,10 @@ export class NPC {
     this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     this.bowPivot.visible = this.hasActiveRangedWeapon
     this.originalCombatEquipment = null
-    this.temporaryReversibleRangedSwitch = false
     if (this.townCategory === 'civilian' && !this.townArmed) {
       this.swordPivot.visible = this.bowPivot.visible = this.shieldPivot.visible = false
     }
-    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, this.mount?.type as MountedPoseKind)
     this.rig.animation?.update(0)
   }
 
@@ -1353,10 +1359,18 @@ export class NPC {
     this.bowVisual?.hideArrow()
   }
 
+  private _refreshActiveShield(): void {
+    this.shield.shieldRaised = this.shield.active && this.tacticalOrder === 'defend'
+    this.shieldCollider.refreshVisibility()
+    this.animator.setEquipment(this.isUsingLance, this.shield.active, this.mount?.type as MountedPoseKind)
+    this.animator.setShieldRaised(this.shield.shieldRaised)
+  }
+
   private _restoreCombatReadyRangedVisual(): void {
     if (!this.hasActiveRangedWeapon || this.townCategory === 'civilian' && !this.townArmed) return
     this.swordPivot.visible = false
     this.bowPivot.visible = true
+    this._refreshActiveShield()
   }
 
   private _isVikingFootSpecialist(): boolean {
@@ -1372,12 +1386,12 @@ export class NPC {
     this.shieldId = this.loadout.shieldId ?? null
     this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
     this.rebuildShield()
-    this.swordPivot.visible = !this.hasActiveRangedWeapon
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     this.bowPivot.visible = this.hasActiveRangedWeapon
   }
 
   private _enterVikingChargeStance(): void {
-    if (!this._isVikingFootSpecialist() || !this.loadout) return
+    if (!this._isVikingFootSpecialist() || !this.loadout || this._usesReversibleRangedSwitch()) return
     this._cancelEquipmentCombatState()
     const chargeWeapon = this.presetId === 'viking_spearman' && WEAPONS[this.loadout.meleeWeaponId ?? '']?.combatKind === 'lance'
       ? (this.loadout.secondaryMeleeWeaponId ?? this.loadout.meleeWeaponId ?? null)
@@ -1515,7 +1529,7 @@ export class NPC {
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
     if (this.faction === Faction.BANDIT) return 'swordSlash'
     if (this.isUsingLance) return this.isMounted ? 'mountedLance' : 'lanceThrust'
-    if (WEAPONS[this.meleeWeaponId ?? '']?.animationKind === 'axe') return this.shieldId ? 'axeAttack1H' : 'axeAttack2H'
+    if (WEAPONS[this.meleeWeaponId ?? '']?.animationKind === 'axe') return this.hasActiveShield ? 'axeAttack1H' : 'axeAttack2H'
     return 'swordSlash'
   }
 
@@ -1615,7 +1629,7 @@ export class NPC {
       this.state = AIState.DEAD
       this.deathFade.start(this.group)
       this.animator.cancel()
-      this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), undefined, false)
+      this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, undefined, false)
       this.rig.animation?.setEquipmentState?.({ mounted: false })
       this.rig.animation?.play('death', { fadeSeconds: 0.12, loop: false })
       this.respawnTimer = RESPAWN_TIME
@@ -2479,7 +2493,7 @@ export class NPC {
         recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
       }
       // A threat below a rampart is close in 3D but cannot make melee contact.
-      if (targetInfo && this.hasActiveRangedWeapon
+      if (targetInfo && this.hasActiveRangedWeapon && !this._usesReversibleRangedSwitch()
         && (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition)
         && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2
         && (!this.equipmentRequiredForCombat || this.meleeWeaponId)
@@ -2582,7 +2596,7 @@ export class NPC {
         this.attackTimer = 0
       }
       if (events.actionCompleted) {
-        if (this.arrows === 0) this._switchToMelee(true, false)
+        if (this.arrows === 0) this._switchToMelee(false)
         this.state = AIState.CHASE
       }
     } else switch (this.state) {
@@ -2741,7 +2755,7 @@ export class NPC {
 
         // Ranged units only draw melee against a genuinely close human target.
         // A wall between them and that human remains a navigation/siege problem.
-        if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
+        if (!siegeObstacle && this.hasActiveRangedWeapon && !this._usesReversibleRangedSwitch() && dist < RANGED_ATTACK_MIN) {
           if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.state = AIState.ALERT; break }
           this._switchToMelee()
         }
@@ -2988,7 +3002,7 @@ export class NPC {
         }
 
         // Human target got too close: ranged units draw melee as before.
-        if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
+        if (!siegeObstacle && this.hasActiveRangedWeapon && !this._usesReversibleRangedSwitch() && dist < RANGED_ATTACK_MIN) {
           if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.animator.cancel(); this.state = AIState.ALERT; break }
           this._switchToMelee()
           this.state = AIState.CHASE
@@ -3113,7 +3127,7 @@ export class NPC {
             }
           }
           if (!isBow && rangedEvents.actionCompleted) {
-            if (this.arrows === 0) this._switchToMelee(true, true)
+            if (this.arrows === 0) this._switchToMelee()
             this.state = AIState.CHASE
           }
         } else {
@@ -3128,7 +3142,7 @@ export class NPC {
             this.characterFaction,
             this.isMounted,
             this.activeCombatKind,
-            Boolean(this.shieldId),
+            this.hasActiveShield,
           )
           if (!this.animator.busy && this.attackTimer <= 0) {
             this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1))
@@ -3375,6 +3389,7 @@ export class NPC {
       this.eagleLastTargetPosition.copy(target.position)
     }
     this.eagleLastTarget = targetIdentity
+    if (this._usesReversibleRangedSwitch()) this._selectRangedMeleeMode(target, player, nearby, obstacles)
     this._collectEagleNeighbors(nearby, player, this.eaglePilot.canUseMelee || this.eaglePilot.maneuver === 'pass' ? targetMount : null)
     this.eagleTargets.length = 0
     const combatCandidates = grid?.getNearbyInto(mount.group.position,
@@ -3813,7 +3828,7 @@ export class NPC {
     const facing = this._tmpFacing.set(Math.sin(facingYaw), 0, Math.cos(facingYaw))
     const policy = getDirectionalMovementFromVector(facing, direction)
     const multiplier = getEffectiveSpeedMultiplier(policy, Boolean(this.mount))
-    const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.activeCombatKind, Boolean(this.shieldId))
+    const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.activeCombatKind, this.hasActiveShield)
     if (allowSprint && policy.canSprint) {
       if (!this.chargeSprintLatched && this.stamina >= STAMINA_SPRINT_MIN) {
         this.chargeSprintLatched = true
@@ -3899,7 +3914,7 @@ export class NPC {
   /** Returns damage after applying lance charge, anti-cavalry, and berserker multipliers. */
   private _calcLanceDamage(baseDamage: number, targetIsMounted: boolean): number {
     const combatKind = this.meleeCombatKind
-    const hasShield = Boolean(this.shieldId)
+    const hasShield = this.hasActiveShield
     const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, combatKind, hasShield)
 
     let dmg = baseDamage * berserker.meleeDamageMultiplier
@@ -3998,48 +4013,66 @@ export class NPC {
     return this.combatPosition.distanceTo(targetPos) <= this.meleeAttackRadius + extraReach
   }
 
-  private _switchToMelee(consumeRemainingAmmo = true, cancelAnimation = true): void {
-    if (consumeRemainingAmmo && !this._usesReversibleRangedSwitch()) this.arrows = 0
+  private _switchToMelee(cancelAnimation = true): void {
+    // Finish every committed release/swing. Switching never spends or replenishes ammo.
+    if (this.animator.busy || !this.meleeWeaponId && this.arrows > 0) return
     this.rangedActive = false
     this.pendingLanceChargeSpeed = 0
     this.swordPivot.visible = this.meleeWeaponId !== null && (this.townCategory !== 'civilian' || this.townArmed)
     this.bowPivot.visible = false
     if (cancelAnimation) this.animator.cancel()
+    this._refreshActiveShield()
+  }
+
+  private _isRangedMeleeThreat(position: THREE.Vector3): boolean {
+    if (this.combatPosition.distanceToSquared(position) > RANGED_REEQUIP_MIN ** 2
+      || Math.abs(position.y - this.combatPosition.y) > this.meleeAttackRadius) return false
+    if (this.mount?.flight && !this.eaglePilot.canUseMelee) return false
+    if (this.holdsRampartFirePosition) return this._isRampartMeleeThreat(position)
+    const town = this._activeNavigationWorld?.townNav
+    if (town && town.isElevated(this.combatPosition) !== town.isElevated(position)) return false
+    const nav = this._activeNavigationWorld?.outpostNav
+    return !nav || nav.getNavLayer(this.combatPosition) === nav.getNavLayer(position)
   }
 
   private _usesReversibleRangedSwitch(): boolean {
-    return this.originalCombatEquipment !== null
-      ? this.temporaryReversibleRangedSwitch : this.loadout?.reversibleRangedSwitch === true
+    return Boolean(this.rangedWeaponId && this.meleeWeaponId)
   }
 
   /** Reuses the selected target, neighborhood and combat state machine; no extra acquisition pass. */
   private _selectRangedMeleeMode(
-    target: { position: THREE.Vector3; isDead: boolean } | null,
+    target: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null,
     player: Player, nearby: readonly NPC[], obstacles: ObstacleData[],
   ): void {
-    if (!this.rangedWeaponId || !this.meleeWeaponId) return
-    // The newly reversible Ranger keeps its existing rampart threat boundary;
-    // other actors retain their established weapon-switching behavior.
-    const rampart = this.specialCombatProfile === 'maki-ranger' && this.holdsRampartFirePosition
-    let threatSq = target && !target.isDead && (!rampart || this._isRampartMeleeThreat(target.position))
+    // Committed releases and swings finish before any equipment decision.
+    if (!this.rangedWeaponId || !this.meleeWeaponId || this.animator.busy) return
+    if (this.arrows <= 0 && !this.rangedActive) return
+    // Siege targets remain valid for ranged/obstacle attacks; only hostile actors threaten melee contact.
+    // Player proximity is checked independently below, including when an obstacle is the selected target.
+    let threatSq = target && !target.isDead && target.npc && !target.npc.dead
+      && combatAllegiancesHostile(this, target.npc) && this._isRangedMeleeThreat(target.position)
       ? this.combatPosition.distanceToSquared(target.position) : Infinity
     if (!player.dead && combatAllegiancesHostile(this, player)
-      && (!rampart || this._isRampartMeleeThreat(player.combatPosition))) {
+      && this._isRangedMeleeThreat(player.combatPosition)) {
       threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(player.combatPosition))
     }
     for (const other of nearby) {
       if (other !== this && !other.dead && combatAllegiancesHostile(this, other)
-        && (!rampart || this._isRampartMeleeThreat(other.combatPosition))) {
+        && this._isRangedMeleeThreat(other.combatPosition)) {
         threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(other.combatPosition))
       }
     }
-    const ranged = this.arrows > 0 && (this.rangedActive ? threatSq >= RANGED_ATTACK_MIN ** 2
-      : threatSq > RANGED_REEQUIP_MIN ** 2 && target && !target.isDead
-        && this.combatPosition.distanceToSquared(target.position) <= this.maxRangedAttackDistance ** 2
-        && this._findRangedTrajectoryBlocker(target.position, obstacles) === null)
+    let ranged = this.arrows > 0 && (this.rangedActive ? threatSq > RANGED_ATTACK_MIN ** 2
+      : threatSq >= RANGED_REEQUIP_MIN ** 2 && target !== null && !target.isDead
+        && this.combatPosition.distanceToSquared(target.position) <= this.maxRangedAttackDistance ** 2)
+    if (ranged && !this.rangedActive && target) {
+      const blocker = this._findRangedTrajectoryBlocker(target.position, obstacles)
+      // Hitting the assigned siege target is a valid shot, matching obstacle attack fallback.
+      // Do not grant this exception to human targets or any other obstruction.
+      ranged = blocker === null || (!target.isPlayer && !target.npc
+        && blocker === this.assignedSiegeObstacle && this._isAttackableObstacle(blocker))
+    }
     if (Boolean(ranged) === this.rangedActive) return
-    // A released arrow keeps its recovery. Melee swings finish before returning to bow.
-    if (this.animator.busy && (!this.rangedActive || this.bowArrowReleased)) return
     this._cancelEquipmentCombatState()
     if (ranged) {
       this.rangedActive = true
@@ -4061,15 +4094,15 @@ export class NPC {
     this.state = AIState.IDLE
     this.currentHp = this.maxHp
     this.careerRangedAmmo = undefined
-    if (this.aiType === AIType.RANGED) {
+    if (this.rangedWeaponId) {
       this.arrows = 1
       this.rangedActive = Boolean(this.rangedWeaponId)
-      this.swordPivot.visible = !this.hasActiveRangedWeapon
+      this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
       this.bowPivot.visible = this.hasActiveRangedWeapon
     } else {
       this.arrows = 0
       this.rangedActive = false
-      this.swordPivot.visible = true
+      this.swordPivot.visible = this.meleeWeaponId !== null
       this.bowPivot.visible = false
     }
 
@@ -4081,6 +4114,7 @@ export class NPC {
     this.group.rotation.set(0, destination?.yaw ?? 0, 0)
     this._alignExternalVisualToMount(false)
     this.animator.cancel()
+    this._refreshActiveShield()
     this.alertSprite.visible = false
     this._cachedTargetIsPlayer = false
     this._cachedTargetNpc = null
@@ -4116,7 +4150,7 @@ export class NPC {
     }
     this.arrows = this.rangedWeaponId ? 30 : 0
     this.rangedActive = Boolean(this.rangedWeaponId)
-    this.swordPivot.visible = !this.hasActiveRangedWeapon
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     this.bowPivot.visible = this.hasActiveRangedWeapon
     this.stamina = MAX_STAMINA
     this.isSprinting = false

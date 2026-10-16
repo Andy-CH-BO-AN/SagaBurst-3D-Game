@@ -243,18 +243,21 @@ describe('Combat attribution foundation', () => {
     expect(events).toHaveLength(2)
   })
   it('excludes a peaceful hidden shield from both direct and prepared collision queries without consuming it', () => {
-    const shield = new ShieldState(); shield.equip('round_shield_t1')
     let armed = false, updates = 0
+    const shield = new ShieldState(() => armed); shield.equip('round_shield_t1')
     const pivot: Pick<THREE.Object3D, 'visible' | 'matrixWorld' | 'updateWorldMatrix'> = { visible: false, matrixWorld: new THREE.Matrix4(), updateWorldMatrix() { updates++ } }
     const collider = new ShieldCollider(pivot as THREE.Object3D, shield, () => armed)
     collider.setModel('round_shield_t1')
     const from = new THREE.Vector3(0, 0, 1), to = new THREE.Vector3(0, 0, -1)
     const remaining = shield.shieldImpactRemaining
+    expect(shield.active).toBe(false)
+    expect(shield.absorb(50, 2)).toEqual({ damage: 50, blockedImpact: 0 })
     expect(collider.time(from, to)).toBe(Infinity)
     collider.prepare(); expect(collider.preparedTime(from, to)).toBe(Infinity)
     expect(updates).toBe(0)
     armed = true; collider.refreshVisibility()
     expect(pivot.visible).toBe(true)
+    expect(shield.active).toBe(true)
     expect(collider.time(from, to)).toBeCloseTo(.36)
     armed = false; collider.refreshVisibility()
     expect(collider.preparedTime(from, to)).toBe(Infinity)

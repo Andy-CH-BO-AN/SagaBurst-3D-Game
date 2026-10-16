@@ -68,17 +68,20 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     const loaded = h.store.load()!; expect(personalMemberLoadout(loaded.personalSquad!.members[0], 'roman')).toMatchObject({ tier: 3, loadout: { meleeWeaponId: 'heavy_lance' } })
     balanced(loaded)
   })
-  it('supports melee plus ranged; incompatible shields return to available stock atomically', () => {
-    const h = harness(), id = h.hire(); h.buy('recurve_longbow')
+  it('preserves all three NPC slots through bow and shield swaps, persistence and quantity allocation', () => {
+    const h = harness(), id = h.hire(); h.buy('recurve_longbow'); h.buy('elven_runebow'); h.buy('scutum_t3')
     expect(h.change(id, 'ranged', 'recurve_longbow').changed).toBe(true)
-    expect(h.read().personalSquad!.members[0].equipment).toMatchObject({ melee: 'gladius_rusty', ranged: 'recurve_longbow', shield: null })
-    expect(availableCareerItem(h.read(), 'scutum_t2')).toBe(1)
-    expect(h.change(id, 'shield', 'scutum_t2').changed).toBe(true)
-    expect(availableCareerItem(h.read(), 'recurve_longbow')).toBe(1)
-    h.change(id, 'ranged', 'recurve_longbow'); expect(h.change(id, 'melee', null).changed).toBe(true)
-    const before = cloneCareerProfile(h.read())
-    expect(h.change(id, 'shield', 'scutum_t2').reason).toBe('last-weapon'); expect(h.read()).toEqual(before)
-    balanced(h.read())
+    expect(h.read().personalSquad!.members[0].equipment).toMatchObject({ melee: 'gladius_rusty', ranged: 'recurve_longbow', shield: 'scutum_t2' })
+    expect(availableCareerItem(h.read(), 'scutum_t2')).toBe(0)
+    expect(h.change(id, 'shield', 'scutum_t3').changed).toBe(true)
+    expect(h.change(id, 'ranged', 'elven_runebow').changed).toBe(true)
+    const loaded = h.store.load()!
+    expect(loaded.personalSquad!.members[0].equipment).toMatchObject({ melee: 'gladius_rusty', ranged: 'elven_runebow', shield: 'scutum_t3' })
+    expect(personalMemberLoadout(loaded.personalSquad!.members[0], 'roman').loadout).toMatchObject({ meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'elven_runebow', shieldId: 'scutum_t3' })
+    expect(availableCareerItem(loaded, 'recurve_longbow')).toBe(1)
+    expect(availableCareerItem(loaded, 'scutum_t2')).toBe(1)
+    expect(sellTownProduct(loaded, 'scutum_t3').sold).toBe(false)
+    balanced(loaded)
   })
   it('purchases three identical weapons, assigns two, and prevents a third claimant after Player takes one', () => {
     const h = harness(), a = h.hire(), b = h.hire(), c = h.hire()
@@ -99,6 +102,7 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     h.buy('heavy_lance'); h.buy('scutum_t2')
     expect(h.change(id, 'melee', 'heavy_lance').changed).toBe(true)
     expect(h.change(id, 'shield', 'scutum_t2').changed).toBe(true)
+    expect(h.change(id, 'ranged', null).changed).toBe(true)
     expect(availableCareerItem(h.read(), T4_RANGER_BOW_RANGED_ID)).toBe(1)
     expect(h.change(id, 'melee', null).reason).toBe('last-weapon')
     expect(h.change(id, 'shield', null).changed).toBe(true)
@@ -110,7 +114,7 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     expect(parseCareerProfile(JSON.parse(JSON.stringify(loaded)))).toEqual(loaded)
     balanced(loaded)
   })
-  it('preserves old/new weapons and incompatible shield allocations on failed saves', () => {
+  it('preserves old/new weapons and existing shield allocations on failed saves', () => {
     const h = harness(), id = h.hire(); h.buy('heavy_lance'); h.buy('recurve_longbow'); const before = cloneCareerProfile(h.read()), disk = h.store.load()
     h.fail(); expect(h.change(id, 'melee', 'heavy_lance').reason).toBe('save-failed'); expect(h.change(id, 'ranged', 'recurve_longbow').reason).toBe('save-failed')
     expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(disk)

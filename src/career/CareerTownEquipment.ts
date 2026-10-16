@@ -132,8 +132,6 @@ export function changeTownEquipment(read: () => CareerProfile, context: TownEqui
   const ref: TownEquipmentRef | null = itemId ? { itemId, source: 'inventory' } : null
   if (ref && townEquipmentRefTier(current, ref, context.townFaction) > getCareerPurchaseTier(current.rank)) return fail(current, 'rank-locked')
   refs[slot] = ref
-  if (itemId && slot === 'ranged') refs.shield = null
-  if (itemId && slot === 'shield') refs.ranged = null
   if (target !== 'civilian' && !refs.melee && !refs.ranged) return fail(current, 'last-weapon')
   writeRefs(next, context, target, actorId, refs)
   try { validateStaged(next, context) } catch { return fail(current, 'invalid-item') }
@@ -173,7 +171,6 @@ export function bulkCareerEquipment(read: () => CareerProfile, context: TownEqui
   }
   const finalRefs = (actorId: string, candidate: BulkEquipmentCandidate): TownEquipmentRefs => {
     const refs = { ...before.get(actorId)!, [slot]: refsByKey.get(candidate.key)! }
-    if (slot === 'ranged' && refs.ranged) refs.shield = null
     return refs
   }
   const effectiveTier = (refs: TownEquipmentRefs) => slot === 'mount'

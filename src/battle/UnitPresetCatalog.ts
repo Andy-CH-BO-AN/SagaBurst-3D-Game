@@ -60,7 +60,7 @@ export type UnitPresetTrait =
   | 'javelin_throw'
 
 export interface UnitLoadout {
-  /** Explicit NPC policy; temporary loadouts use their own value and restore the original policy afterward. */
+  /** Legacy loadout metadata; all NPCs with both weapons now switch reversibly. */
   reversibleRangedSwitch?: boolean
   meleeWeaponId?: string | null
   secondaryMeleeWeaponId?: string | null
