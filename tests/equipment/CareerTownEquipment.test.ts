@@ -12,7 +12,8 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 
 /** Real domain and JSON storage; zero NPC/Mount/TownWorld/asset construction. */
 function harness(faction: CareerProfile['faction'] = 'roman') {
-  let profile: CareerProfile = { ...createCareerProfile(faction), rank: 'commander', totalMerit: 60000, availableMerit: 60000 }
+  // Already received (and may have sold) the rank reward; this suite isolates native ownership.
+  let profile: CareerProfile = { ...createCareerProfile(faction), rank: 'commander', commanderMeleeGranted: true, totalMerit: 60000, availableMerit: 60000 }
   normalizeCareerInventory(profile)
   const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
   const read = () => profile

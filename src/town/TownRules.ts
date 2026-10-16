@@ -249,6 +249,7 @@ export function grantStarter(current: CareerProfile, weapon: string): CareerProf
   addCareerItem(profile, weapon, 1)
   profile.equipment = { ...profile.equipment, [WEAPONS[weapon].type === 'ranged' ? 'ranged' : 'melee']: weapon }
   if (WEAPONS[weapon].type === 'ranged') profile.equipment.shield = null
+  else profile.meleeSelectionOrigin = 'starter'
   return profile
 }
 export function careerTownWeapon(profile: CareerProfile): string {

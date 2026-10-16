@@ -14,7 +14,8 @@ describe('Career equipment persistence wiring', () => {
     expect(parseCareerProfile({ ...createCareerProfile('roman'), inventory: { version: 1, quantities } })).toBeNull()
   })
   it('merges both T4 polearm quantities and migrates player, HR and Town allocations without losing or duplicating copies', () => {
-    const raw = { ...createCareerProfile('roman'), rank: 'commander', totalMerit: 60000,
+    // Rank reward already received; isolate the independent polearm alias migration.
+    const raw = { ...createCareerProfile('roman'), rank: 'commander', commanderMeleeGranted: true, totalMerit: 60000,
       ownedWeapons: ['lance_t4', 'spear_t4'], inventory: { version: 1, quantities: { lance_t4: 3, spear_t4: 2 } },
       equipment: { melee: 'lance_t4' },
       personalSquad: { members: [{ id: 'personal:alias', type: 'soldier', equipment: { melee: 'lance_t4', ranged: null, shield: null, mount: null } }] },

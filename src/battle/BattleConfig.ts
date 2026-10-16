@@ -71,6 +71,7 @@ export type PlayerMeleeWeaponId =
   | 'gladius_rusty' | 'gladius_standard' | 'centurion_blade'
   | 'hunting_spear' | 'steel_lance' | 'heavy_lance' | 'spear_t4' | 'lance_t4'
   | 'paladin_sword_t4' | 'paladin_mace_t4'
+  | 'sword_t5' | 'axe_t5' | 'spear_t5'
 export type PlayerRangedWeaponId =
   | 'wooden_shortbow' | 'recurve_longbow' | 'elven_runebow'
   | typeof T4_RANGER_BOW_RANGED_ID | 'bow_t5'
@@ -104,6 +105,7 @@ export const PLAYER_MELEE_WEAPON_IDS: readonly PlayerMeleeWeaponId[] = [
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
   'hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4', 'lance_t4',
   'paladin_sword_t4', 'paladin_mace_t4',
+  'sword_t5', 'axe_t5', 'spear_t5',
 ]
 /** Current setup UI choices; legacy Viking sword IDs remain accepted for saved loadouts. */
 export const PLAYER_MELEE_SELECTION_IDS: readonly PlayerMeleeWeaponId[] = [
@@ -111,6 +113,7 @@ export const PLAYER_MELEE_SELECTION_IDS: readonly PlayerMeleeWeaponId[] = [
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
   'hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4',
   'paladin_sword_t4', 'paladin_mace_t4',
+  'sword_t5', 'axe_t5', 'spear_t5',
 ]
 export const PLAYER_RANGED_WEAPON_IDS: readonly PlayerRangedWeaponId[] = [
   'wooden_shortbow', 'recurve_longbow', 'elven_runebow', T4_RANGER_BOW_RANGED_ID, 'bow_t5',

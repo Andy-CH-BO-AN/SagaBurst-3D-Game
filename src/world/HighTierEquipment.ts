@@ -7,6 +7,9 @@ import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 export const HIGH_TIER_WEAPON_ASSETS = {
   spear_t4: 'models/weapons/high-tier/spear.glb',
   bow_t5: 'models/weapons/high-tier/bow.glb',
+  sword_t5: 'models/weapons/t5/sword.glb',
+  axe_t5: 'models/weapons/t5/axe.glb',
+  spear_t5: 'models/weapons/t5/lance.glb',
 } as const
 const templates = new Map<string, GLTF>()
 let bowBody: THREE.Group | undefined
@@ -46,6 +49,10 @@ function template(id: keyof typeof HIGH_TIER_WEAPON_ASSETS): GLTF {
 }
 export function createT4Polearm(): THREE.Group {
   return template('spear_t4').scene.clone(true)
+}
+/** Instances own transforms only; immutable geometry/materials stay in the preload cache. */
+export function createT5Melee(id: 'sword_t5' | 'axe_t5' | 'spear_t5'): THREE.Group {
+  return template(id).scene.clone(true)
 }
 /** Static drop/preview body uses cached bind geometry without allocating a skeleton. */
 export function createT5BowBody(): THREE.Group {

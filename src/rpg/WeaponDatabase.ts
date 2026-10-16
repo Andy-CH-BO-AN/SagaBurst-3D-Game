@@ -47,6 +47,24 @@ const T4_POLEARM: Omit<WeaponData, 'id' | 'name'> = {
 }
 
 export const WEAPONS: Record<string, WeaponData> = {
+  sword_t5: {
+    id: 'sword_t5', name: 'T5 指揮官長劍 Commander Sword', type: 'melee', tier: 5,
+    combatKind: 'sword', animationKind: 'sword', damageMin: 80, damageMax: 80,
+    speedOrCharge: .48, meleeCycleSeconds: .48, shieldImpact: 1, range: 1.8,
+    description: '指揮官長劍；命中盾面造成 1 點固定衝擊。',
+  },
+  axe_t5: {
+    id: 'axe_t5', name: 'T5 指揮官雙刃斧 Commander Axe', type: 'melee', tier: 5,
+    combatKind: 'sword', animationKind: 'axe', damageMin: 80, damageMax: 80,
+    speedOrCharge: .54, meleeCycleSeconds: .54, shieldImpact: 15, range: 1.8,
+    description: '指揮官雙刃戰斧；命中盾面造成 15 點固定衝擊，無護甲穿透。',
+  },
+  spear_t5: {
+    id: 'spear_t5', name: 'T5 指揮官長槍 Lance / Spear', type: 'melee', tier: 5,
+    combatKind: 'lance', animationKind: 'lance', damageMin: 95, damageMax: 95,
+    speedOrCharge: .42, meleeCycleSeconds: .42, range: 3.9, isLance: true,
+    description: '徒步反騎兵傷害 ×2，高速騎乘衝鋒 ×3；騎乘命中盾面造成 80 點衝擊。',
+  },
   spear_t4: { ...T4_POLEARM, id: 'spear_t4', name: 'T4 長槍' },
   bow_t5: {
     id: 'bow_t5', name: 'T5 指揮官弓 Commander Bow', type: 'ranged', tier: 5,

@@ -1,13 +1,17 @@
+import { grantStarter } from '../../src/town/TownRules'
+import { TownEquipment } from '../../src/town/TownEquipment'
+import { MemoryStorage } from '../helpers/memoryStorage'
 import { describe,expect,it } from 'vitest'
-import { careerItemTotal } from '../../src/career/CareerInventory'
+import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import {
 claimCareerBattle,
 createCareerProfile,
 purchaseCareerContent,
-resolveCareerRank
+resolveCareerRank,
+promoteCareer
 } from '../../src/career/CareerProfile'
 import {
-parseCareerProfile
+parseCareerProfile, CareerProfileStore, CAREER_STORAGE_KEY
 } from '../../src/career/CareerProfileStore'
 import {
 calculateMerit
@@ -229,5 +233,88 @@ describe('Career profile persistence', () => {
       id: 'reload-mission', phase: 'RETURNING', deadTargetActorIds: ['target-a'],
       deadFriendlyActorIds: ['melee_infantry-0'], playerStats: { damageDealt: 310, kills: 2 }, routeStage: 7, patrolStage: 2, defenseElapsed: 19.5,
     })
+  })
+})
+
+
+describe('Commander melee appointment and save migration', () => {
+  it('grants only on formal Commander appointment while preserving selected melee and bow', () => {
+    let profile = createCareerProfile('roman')
+    profile.totalMerit = 20000
+    addCareerItem(profile, 'paladin_sword_t4', 1)
+    addCareerItem(profile, 'bow_t5', 1)
+    profile.equipment = { ...profile.equipment, ranged: 'bow_t5' }
+    // Merit alone, and each lower appointment, must not award Commander equipment.
+    expect(careerItemTotal(parseCareerProfile(profile)!, 'sword_t5')).toBe(0)
+    for (const rank of ['soldier', 'veteran', 'captain']) {
+      profile = promoteCareer(profile)!
+      expect(profile.rank).toBe(rank)
+      expect(careerItemTotal(profile, 'sword_t5')).toBe(0)
+    }
+    const equipment = new TownEquipment(() => profile, next => { profile = next; return true })
+    expect(equipment.equipWeapon('paladin_sword_t4')).toBe(true)
+    expect(profile.meleeSelectionOrigin).toBe('custom')
+    const promoted = promoteCareer(profile)!
+    expect(profile.rank).toBe('captain')
+    expect(profile.commanderMeleeGranted).toBeUndefined()
+    expect(promoted.commanderMeleeGranted).toBe(true)
+    expect(promoted.equipment).toEqual({ melee: 'paladin_sword_t4', ranged: 'bow_t5' })
+    expect(careerItemTotal(promoted, 'sword_t5')).toBe(1)
+    expect(careerItemAllocated(promoted, 'sword_t5')).toBe(0)
+    expect(careerItemTotal(promoted, 'bow_t5')).toBe(1)
+    expect(promoteCareer(promoted)).toBeNull()
+  })
+
+  it('auto-equips the Commander reward when the starter was never explicitly replaced', () => {
+    let profile = grantStarter(createCareerProfile('roman'), 'gladius_rusty')
+    // Automatic combat fallback must not become an explicit player selection.
+    profile.equipment = {}
+    new TownEquipment(() => profile, next => { profile = next; return true }).prepareForCombat()
+    expect(profile.equipment?.melee).toBe('gladius_rusty')
+    expect(profile.meleeSelectionOrigin).toBe('starter')
+    profile.rank = 'captain'; profile.totalMerit = 20000
+    const restored = parseCareerProfile(profile)!
+    expect(restored.meleeSelectionOrigin).toBe('starter')
+    const promoted = promoteCareer(restored)!
+    expect(promoted.equipment?.melee).toBe('sword_t5')
+    expect(careerItemTotal(promoted, 'sword_t5')).toBe(1)
+    expect(careerItemAllocated(promoted, 'sword_t5')).toBe(1)
+    expect(careerItemTotal(promoted, 'gladius_rusty')).toBe(1)
+  })
+
+  it('persists a legacy Viking grant once alongside purchased stock and never replaces sold rewards', () => {
+    const profile = createCareerProfile('viking')
+    profile.rank = 'commander'; profile.totalMerit = 20000
+    addCareerItem(profile, 'paladin_mace_t4', 1)
+    addCareerItem(profile, 'axe_t5', 2)
+    profile.equipment = { melee: 'paladin_mace_t4' }
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify({ ...profile, commanderMeleeGranted: 'invalid' })]] })
+    const store = new CareerProfileStore(storage)
+    const loaded = store.loadChecked().profile!
+    expect(loaded.equipment?.melee).toBe('paladin_mace_t4')
+    expect(careerItemTotal(loaded, 'axe_t5')).toBe(3)
+    expect(careerItemTotal(loaded, 'bow_t5')).toBe(0)
+    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!).commanderMeleeGranted).toBe(true)
+    expect(store.loadChecked().profile).toEqual(loaded)
+    addCareerItem(loaded, 'axe_t5', -3)
+    expect(store.save(loaded)).toBe(true)
+    expect(careerItemTotal(store.loadChecked().profile!, 'axe_t5')).toBe(0)
+  })
+
+  it('withholds a migrated grant on save failure then atomically saves and equips an unselected melee', () => {
+    const profile = createCareerProfile('roman')
+    profile.rank = 'commander'; profile.totalMerit = 20000
+    const original = JSON.stringify(profile)
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, original]], failWrites: true })
+    const store = new CareerProfileStore(storage)
+    const failed = store.loadChecked()
+    expect(failed.profile).toBeNull(); expect(failed.error).toBeTruthy()
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(original)
+    storage.failWrites = false
+    const loaded = store.loadChecked().profile!
+    expect(loaded.equipment?.melee).toBe('sword_t5')
+    expect(careerItemTotal(loaded, 'sword_t5')).toBe(1)
+    expect(careerItemAllocated(loaded, 'sword_t5')).toBe(1)
+    expect(store.loadChecked().profile).toEqual(loaded)
   })
 })

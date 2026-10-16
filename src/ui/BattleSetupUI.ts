@@ -195,11 +195,16 @@ export class BattleSetupUI {
               { id: 'paladin_sword_t4', tier: 'T4', zh: '聖騎士長劍', en: 'PALADIN SWORD' },
               { id: 'paladin_mace_t4', tier: 'T4', zh: '聖騎士戰槌', en: 'PALADIN MACE' },
             ], 'melee')}
+            ${renderEquipmentGroup('T5 共用', 'SHARED T5', [
+              { id: 'sword_t5', tier: 'T5', zh: '指揮官長劍', en: 'COMMANDER SWORD' },
+              { id: 'axe_t5', tier: 'T5', zh: '指揮官雙刃斧', en: 'COMMANDER AXE' },
+            ], 'melee')}
             ${renderEquipmentGroup('長槍', 'LANCE', [
               { id: 'hunting_spear', tier: 'T1', zh: '狩獵長槍', en: 'HUNTING SPEAR' },
               { id: 'steel_lance', tier: 'T2', zh: '鋼製長槍', en: 'STEEL LANCE' },
               { id: 'heavy_lance', tier: 'T3', zh: '重裝長槍', en: 'HEAVY LANCE' },
               { id: 'spear_t4', tier: 'T4', zh: '長槍', en: 'SPEAR' },
+              { id: 'spear_t5', tier: 'T5', zh: '指揮官長槍', en: 'COMMANDER LANCE / SPEAR' },
             ], 'melee')}
           </section>
           <section class="loadout-category"><div class="loadout-category-heading"><h3>遠程武器</h3><span>RANGED</span></div>
