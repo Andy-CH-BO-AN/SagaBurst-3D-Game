@@ -112,8 +112,6 @@ export function changePersonalEquipment(read: () => CareerProfile, authority: Pe
   if (id !== equipment[slot] && id && availableCareerItem(next, id) < 1) return fail('no-available-item')
   if (id && (item?.tier ?? (id === 'horse' ? 1 : 4)) > getCareerPurchaseTier(current.rank)) return fail('rank-locked')
   Object.assign(equipment, { [slot]: id })
-  if (id && slot === 'ranged') equipment.shield = null
-  if (id && slot === 'shield') equipment.ranged = null
   if (!equipment.melee && !equipment.ranged) return fail('last-weapon')
   if (!validPersonalEquipment(member.type, equipment)) return fail('invalid-item')
   try { if (!save(next)) return fail('save-failed') } catch { return fail('save-failed') }

@@ -195,7 +195,6 @@ export function validateTownEquipment(profile: CareerProfile): void {
     for (const spec of townEquipmentActorSpecs(faction)) {
       if (townEquipmentSquadForActor(spec.id) === undefined) continue
       const refs = resolveRefs(spec)
-      if (refs.ranged && refs.shield) throw new Error('Incompatible town equipment')
       if (spec.role === 'merchant') {
         const base = townDefaultActorLoadout(faction, spec)
         for (const slot of ['melee', 'ranged', 'shield'] as const) {

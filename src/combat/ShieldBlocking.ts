@@ -27,7 +27,8 @@ export class ShieldState {
   private id: string | null = null
   private readonly used = new Map<string, number>()
   get shieldBroken(): boolean { return this.shieldImpactMax > 0 && this.shieldImpactRemaining <= 0 }
-  get active(): boolean { return this.shieldImpactRemaining > 0 }
+  constructor(private readonly canUse: () => boolean = () => true) {}
+  get active(): boolean { return this.canUse() && this.shieldImpactRemaining > 0 }
   equip(id: string | null): void {
     if (id === this.id) return
     if (this.id) this.used.set(this.id, this.shieldImpactRemaining)

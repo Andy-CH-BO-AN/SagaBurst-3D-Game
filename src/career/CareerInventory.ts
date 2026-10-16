@@ -93,7 +93,6 @@ export function validPersonalEquipment(_type: PersonalSquadMemberType, equipment
     && (!equipment.melee || isTradableCareerItem(equipment.melee) && WEAPONS[equipment.melee]?.type === 'melee')
     && (!equipment.ranged || isTradableCareerItem(equipment.ranged) && WEAPONS[equipment.ranged]?.type === 'ranged')
     && (!equipment.shield || ARMORS[equipment.shield]?.type === 'shield')
-    && !(equipment.ranged && equipment.shield)
     && (!equipment.mount || (PLAYER_MOUNT_IDS as readonly string[]).includes(equipment.mount)))
 }
 /** Mutates only a newly parsed/staged profile. The marker prevents repeated recruitment grants. */
