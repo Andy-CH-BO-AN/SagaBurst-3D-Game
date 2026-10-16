@@ -203,8 +203,16 @@ function requireKtx2(path: string, label: string): void {
   if (!path.toLowerCase().endsWith('.ktx2')) throw new Error(`${label} must be a KTX2 texture`)
 }
 
-export function horseLocomotionClipForSpeed(speed: number): HorseAnimationState {
+const HORSE_GAIT_SPEED_BANDS: Partial<Record<HorseAnimationState, readonly [number, number]>> = {
+  walk: [0.25, 3.5], trot: [3.5, 7], canter: [7, 10.5], gallop: [10.5, Infinity],
+}
+
+export function horseLocomotionClipForSpeed(speed: number, previous?: HorseAnimationState): HorseAnimationState {
   if (!Number.isFinite(speed) || speed < 0.25) return 'idle'
+  // Small terrain-induced speed changes must not restart both clips repeatedly
+  // while traversing a gait boundary. This changes visual selection only.
+  const band = previous && HORSE_GAIT_SPEED_BANDS[previous]
+  if (previous && band && speed >= band[0] - 0.15 && speed < band[1] + 0.15) return previous
   if (speed < 3.5) return 'walk'
   if (speed < 7) return 'trot'
   if (speed < 10.5) return 'canter'
@@ -212,8 +220,7 @@ export function horseLocomotionClipForSpeed(speed: number): HorseAnimationState 
 }
 
 /** Visual cadence follows measured source strides; gameplay speed is unchanged. */
-export function horsePlaybackRateForSpeed(speed: number, manifest?: Pick<HorseAssetManifest, 'gaitReferenceSpeeds'>): number {
-  const state = horseLocomotionClipForSpeed(speed)
+export function horsePlaybackRateForSpeed(speed: number, manifest?: Pick<HorseAssetManifest, 'gaitReferenceSpeeds'>, state = horseLocomotionClipForSpeed(speed)): number {
   const references: Partial<Record<HorseAnimationState, number>> = manifest?.gaitReferenceSpeeds ?? HORSE_GAIT_REFERENCE_SPEEDS
   const reference = references[state]
   return reference
@@ -322,15 +329,19 @@ class HorseAnimationController {
     if (restart || state !== this.current) next.reset()
     next.play()
     if (previous && previous !== next) {
-      if (fadeSeconds > 0) previous.crossFadeTo(next, fadeSeconds, true)
+      // Duration-based warping starts the outgoing action at 1x, overriding its
+      // measured stride cadence (e.g. a 3.2x trot during deceleration).
+      const calibratedGaits = this.manifest.gaitReferenceSpeeds
+        && [this.current, state].every(name => name === 'idle' || name in HORSE_GAIT_REFERENCE_SPEEDS)
+      if (fadeSeconds > 0) previous.crossFadeTo(next, fadeSeconds, !calibratedGaits)
       else previous.stop()
     }
     this.current = state
   }
 
   setLocomotion(speed: number): void {
-    this.requestedLocomotion = horseLocomotionClipForSpeed(speed)
-    this.requestedPlaybackRate = horsePlaybackRateForSpeed(speed, this.manifest)
+    this.requestedLocomotion = horseLocomotionClipForSpeed(speed, this.manifest.gaitReferenceSpeeds ? this.requestedLocomotion : undefined)
+    this.requestedPlaybackRate = horsePlaybackRateForSpeed(speed, this.manifest, this.requestedLocomotion)
     if (this.oneShot || this.current === 'death') return
     this.play(this.requestedLocomotion)
     this.playbackRate = this.requestedPlaybackRate

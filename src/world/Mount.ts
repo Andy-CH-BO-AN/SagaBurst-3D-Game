@@ -9,6 +9,7 @@ import {
   type HorseInstance,
 } from './HorseAssetRegistry'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
+import { HorseLandingAnimation } from './HorseLandingAnimation'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 import { BlackCatVisual } from './BlackCatVisual'
 import { CorgiVisual } from './CorgiVisual'
@@ -127,6 +128,7 @@ export class Mount {
   private wanderTarget = new THREE.Vector3()
   private cameraDistance = 0
   private pendingJumpLanding = false
+  private readonly horseLanding = new HorseLandingAnimation()
 
   private readonly playableWorldBound: number
 
@@ -449,6 +451,7 @@ export class Mount {
     this.ridePitch = 0
     this.visualHold = false
     this.pendingJumpLanding = false
+    this.horseLanding.reset()
     this.impactTimes.clear()
     this.wanderTimer = 0
     this._pickWanderTarget()
@@ -567,12 +570,10 @@ export class Mount {
       this.proceduralVisual.update(dt)
     }
     if (this.horseVisual) {
-      // Brief terrain-following contact loss is not a jump. Replaying land on
-      // every slope contact continually resets the gait while the horse moves.
-      if (this.pendingJumpLanding && this.onGround) {
-        this.pendingJumpLanding = false
+      if (this.horseLanding.update(dt, this.onGround, this.group.position.y, this.pendingJumpLanding)) {
         this.horseVisual.playOnce('land')
       }
+      if (this.onGround) this.pendingJumpLanding = false
       if (import.meta.env.DEV && collector) { var _tHorseAnimation = performance.now() }
       this.horseVisual.setLocomotion(this.movementSpeed)
       this.horseVisual.update(dt, this.cameraDistance)
