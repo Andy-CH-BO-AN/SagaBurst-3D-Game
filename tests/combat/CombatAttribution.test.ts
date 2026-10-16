@@ -242,6 +242,26 @@ describe('Combat attribution foundation', () => {
     damageObstacle(gate, 50, context)
     expect(events).toHaveLength(2)
   })
+  it('excludes a peaceful hidden shield from both direct and prepared collision queries without consuming it', () => {
+    const shield = new ShieldState(); shield.equip('round_shield_t1')
+    let armed = false, updates = 0
+    const pivot: Pick<THREE.Object3D, 'visible' | 'matrixWorld' | 'updateWorldMatrix'> = { visible: false, matrixWorld: new THREE.Matrix4(), updateWorldMatrix() { updates++ } }
+    const collider = new ShieldCollider(pivot as THREE.Object3D, shield, () => armed)
+    collider.setModel('round_shield_t1')
+    const from = new THREE.Vector3(0, 0, 1), to = new THREE.Vector3(0, 0, -1)
+    const remaining = shield.shieldImpactRemaining
+    expect(collider.time(from, to)).toBe(Infinity)
+    collider.prepare(); expect(collider.preparedTime(from, to)).toBe(Infinity)
+    expect(updates).toBe(0)
+    armed = true; collider.refreshVisibility()
+    expect(pivot.visible).toBe(true)
+    expect(collider.time(from, to)).toBeCloseTo(.36)
+    armed = false; collider.refreshVisibility()
+    expect(collider.preparedTime(from, to)).toBe(Infinity)
+    expect(pivot.visible).toBe(false)
+    expect(shield.shieldImpactRemaining).toBe(remaining)
+  })
+
   it('consumes shield durability only for an authoritative shield contact', () => {
     const { events, stream } = eventHarness(), shield = new ShieldState()
     shield.equip('round_shield_t1')

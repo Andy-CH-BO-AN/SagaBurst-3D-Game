@@ -9,6 +9,8 @@ import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
 import { townMilitaryEquipment } from '../../src/town/TownRules'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
+import type { EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
 
 interface SelectionActor {
   faction: Faction
@@ -95,6 +97,32 @@ function temporaryLoadoutActor(): TemporaryLoadoutActor {
 }
 
 describe('Reversible NPC weapon choice', () => {
+  it('refreshes sword pose ownership before same-frame equipment pose evaluation', () => {
+    const state: Partial<EquipmentPoseState> = {}
+    interface EquipmentAnimatorFixture {
+      rig: { animation: { setEquipmentState(update: Partial<EquipmentPoseState>): void } }
+      meleePivot: { visible: boolean; userData: { swordAttachmentOwned: boolean; meleeAnimationKind: string; weaponGripSections: { foot: { palmRadius: number; fingerRadius: number; palmOffset: number; fingerOffset: number }; mounted: { palmRadius: number; fingerRadius: number; palmOffset: number; fingerOffset: number } } } }
+      setEquipment: CharacterCombatAnimator['setEquipment']
+    }
+    // Exercise the real state owner without constructing a rig, model or mixer.
+    const animator = Object.assign(Object.create(CharacterCombatAnimator.prototype) as EquipmentAnimatorFixture, {
+      rig: { animation: { setEquipmentState: (update: Partial<EquipmentPoseState>) => Object.assign(state, update) } },
+      meleePivot: { visible: true, userData: { swordAttachmentOwned: true, meleeAnimationKind: 'sword', weaponGripSections: { foot: { palmRadius: .04, fingerRadius: .03, palmOffset: 0, fingerOffset: 0 }, mounted: { palmRadius: .03, fingerRadius: .04, palmOffset: 0, fingerOffset: 0 } } } },
+    })
+    animator.setEquipment(false, false, 'HORSE')
+    expect(state.actualSword).toBe(true)
+    expect(state.swordGripSections?.foot.palmRadius).toBe(.04)
+    animator.meleePivot.userData.meleeAnimationKind = 'axe'
+    animator.setEquipment(false, false, 'HORSE')
+    expect(state.actualSword).toBe(false)
+    expect(state.swordGripSections).toBeUndefined()
+    animator.meleePivot.userData.meleeAnimationKind = 'sword'
+    animator.meleePivot.userData.weaponGripSections = { foot: { palmRadius: .02, fingerRadius: .01, palmOffset: 0, fingerOffset: 0 }, mounted: { palmRadius: .01, fingerRadius: .02, palmOffset: 0, fingerOffset: 0 } }
+    animator.setEquipment(false, false, 'HORSE')
+    expect(state.actualSword).toBe(true)
+    expect(state.swordGripSections?.mounted.palmRadius).toBe(.01)
+  })
+
   it('wires authored Commander and Ranger loadouts to their normal melee and reversible bows', () => {
     expect(townMilitaryEquipment('roman', 'commander').loadout).toMatchObject({
       meleeWeaponId: 'sword_t5', rangedWeaponId: 'bow_t5', reversibleRangedSwitch: true,

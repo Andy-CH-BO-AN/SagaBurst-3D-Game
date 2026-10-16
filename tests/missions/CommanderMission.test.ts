@@ -7,6 +7,10 @@ import { remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
 import { type CombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
 import { Faction } from '../../src/combat/CombatFaction'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { Box3, Vector3 } from 'three'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { needsDecapitationDeployment, planDecapitationDeployment } from '../../src/career/CommanderDecapitationDeployment'
+import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
 
 function commander(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
   const profile = createCareerProfile(faction)
@@ -107,7 +111,7 @@ describe('Commander objective, merit and persistence', () => {
   })
 
   it('round-trips deployment, actor, authority and Tier 5 state through real storage JSON', () => {
-    const profile = accepted(COMMANDER_SKY_RAID_ID, 'viking', true)
+    const profile = accepted(COMMANDER_DECAPITATION_ID, 'viking', true)
     const mission = profile.activeMission!
     const targetId = mission.targetActorIds[0]
     const friendlyId = mission.friendlyActorIds[0]
@@ -117,6 +121,9 @@ describe('Commander objective, merit and persistence', () => {
     mission.actorHealth = { [targetId]: { hp: 0 }, [friendlyId]: { hp: 73, mountHp: 42 } }
     mission.actorPositions = { [friendlyId]: { x: 4, z: 5, yaw: .75 } }
     mission.officialSquad!.members = { [friendlyId]: { status: 'deployed', hp: 73 } }
+    const deadFriendlyId = mission.friendlyActorIds[1]
+    mission.deadFriendlyActorIds = [deadFriendlyId]
+    mission.officialSquad!.members[deadFriendlyId] = { status: 'dead', hp: 0 }
     profile.careerMissionCompletionsByTier = { 1: 2, 5: 3 }
 
     const storage = new MemoryStorage()
@@ -128,10 +135,80 @@ describe('Commander objective, merit and persistence', () => {
     expect(restored.activeMission?.actorHealth?.[friendlyId]).toEqual({ hp: 73, mountHp: 42 })
     expect(restored.activeMission?.actorPositions?.[friendlyId]).toEqual({ x: 4, z: 5, yaw: .75 })
     expect(restored.activeMission?.officialSquad?.members?.[friendlyId]).toMatchObject({ status: 'deployed', hp: 73 })
+    expect(restored.activeMission?.officialSquad?.members?.[deadFriendlyId]).toEqual({ status: 'dead', hp: 0 })
+    expect(restored.activeMission?.deadFriendlyActorIds).toEqual([deadFriendlyId])
     expect(restored.careerMissionCompletionsByTier?.[5]).toBe(3)
+    expect(needsDecapitationDeployment(restored.activeMission!)).toBe(false)
+    restored.activeMission!.commanderMission!.deploymentComplete = false
+    expect(needsDecapitationDeployment(restored.activeMission!)).toBe(false)
 
     const legacy = createCareerProfile('roman')
     expect(parseCareerProfile(JSON.parse(JSON.stringify(legacy)))).toMatchObject({ rank: 'recruit', faction: 'roman' })
+  })
+})
+
+describe('Decapitation safe edge deployment', () => {
+  const bounds = { minX: -350, maxX: 350, minZ: -350, maxZ: 350, cellSize: 5 }
+  const threats = [{ x: -29, z: -75, range: 400 }, { x: -85, z: -18, range: 400 }]
+
+  it('fits all 30 mounted officials and 30 nearby HR around obstacles outside the actual opening fire ranges', () => {
+    const navigation = new NavigationWorld(bounds)
+    const box = new Box3(new Vector3(290, -10, -340), new Vector3(305, 100, -325))
+    const obstacles = [{ box, isBarricade: false }]
+    navigation.rebuild(obstacles)
+    const plan = planDecapitationDeployment({ navigation, obstacles, threats,
+      officialCount: 30, personalCount: 30, eagleCount: 0, playerEagle: false })
+    expect(needsDecapitationDeployment(accepted(COMMANDER_DECAPITATION_ID).activeMission!)).toBe(true)
+    expect(needsDecapitationDeployment(accepted(COMMANDER_SKY_RAID_ID).activeMission!)).toBe(false)
+    expect(plan.player.z).toBeLessThanOrEqual(-320)
+    expect(plan.official).toHaveLength(30); expect(plan.personal).toHaveLength(30)
+    const points = [plan.player, ...plan.official, ...plan.personal]
+    for (const [i, point] of points.entries()) {
+      expect(Math.abs(point.x)).toBeLessThanOrEqual(347)
+      expect(point.z).toBeGreaterThanOrEqual(-347)
+      expect(navigation.grid.isBlocked(navigation.grid.worldToCell(point)!)).toBe(false)
+      expect(navigation.areConnected(point, { x: 0, z: -127 })).toBe(true)
+      expect(point.x < 288 || point.x > 307 || point.z < -342 || point.z > -323).toBe(true)
+      for (const other of points.slice(i + 1)) expect(Math.hypot(point.x - other.x, point.z - other.z)).toBeGreaterThanOrEqual(4.8)
+      for (const threat of threats) expect(Math.hypot(point.x - threat.x, point.z - threat.z)).toBeGreaterThan(threat.range + 8)
+    }
+    expect(Math.min(...plan.official.map(p => p.z))).toBeGreaterThan(plan.player.z + 7)
+    expect(Math.max(...plan.personal.map(p => Math.hypot(p.x - plan.player.x, p.z - plan.player.z)))).toBeLessThanOrEqual(90)
+    expect(plan.player.yaw).toBeCloseTo(Math.atan2(-plan.player.x, -127 - plan.player.z))
+  })
+
+  it('reserves three complete eagle envelopes alongside 30 officials and 28 ground HR/Player slots', () => {
+    const navigation = new NavigationWorld(bounds)
+    navigation.rebuild([])
+    const plan = planDecapitationDeployment({ navigation, obstacles: [], threats,
+      officialCount: 30, personalCount: 27, eagleCount: 3, playerEagle: false })
+    expect(plan.eaglePads).toHaveLength(3)
+    expect(plan.personal).toHaveLength(27)
+    for (const pad of plan.eaglePads) {
+      expect(isEagleLandingClear(pad, [], plan.eaglePads.filter(other => other !== pad), 350)).toBe(true)
+      const footprint = eagleLandingFootprint(pad).expandByScalar(2)
+      for (const ground of [plan.player, ...plan.official, ...plan.personal])
+        expect(footprint.containsPoint(new Vector3(ground.x, 0, ground.z))).toBe(false)
+      expect(Math.hypot(pad.x + 29, pad.z + 75)).toBeGreaterThan(408)
+    }
+  })
+
+  it('refuses an edge disconnected from the north gate instead of falling back into enemy fire', () => {
+    const navigation = new NavigationWorld(bounds)
+    navigation.rebuild([{ box: new Box3(new Vector3(-350, -10, -200), new Vector3(350, 100, -190)), isBarricade: false }])
+    expect(() => planDecapitationDeployment({ navigation, obstacles: [], threats: [],
+      officialCount: 30, personalCount: 0, eagleCount: 0, playerEagle: false })).toThrow('deployment failed')
+  })
+
+  it('keeps a player eagle and two HR eagles clear while retaining all 30 official and 28 ground HR slots', () => {
+    const navigation = new NavigationWorld(bounds)
+    navigation.rebuild([])
+    const plan = planDecapitationDeployment({ navigation, obstacles: [], threats,
+      officialCount: 30, personalCount: 28, eagleCount: 3, playerEagle: true })
+    expect(plan.eaglePads[0]).toMatchObject(plan.player)
+    expect(plan.official).toHaveLength(30)
+    expect(plan.personal).toHaveLength(28)
+    expect(isEagleLandingClear(plan.player, [], plan.eaglePads.slice(1), 350)).toBe(true)
   })
 })
 

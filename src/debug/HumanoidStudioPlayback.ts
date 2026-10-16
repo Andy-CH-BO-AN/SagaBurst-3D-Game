@@ -208,7 +208,8 @@ export class HumanoidStudioPlayback {
         : this.sword.userData.axeVisual && !this.hasShield && animation.has('axeMountedIdle') ? 'axeMountedIdle' : 'mounted'
       animation.play(state, { fadeSeconds: 0, loop: false })
       animation.seek(state, time)
-      animation.update(0)
+      // Exact-time sampling must refresh weapon attachments after the new pose.
+      this.animator.update(0)
       this.instance.root.updateWorldMatrix(true, true)
       if (this.equipmentLoadout === 'bow') this.bowVisual.update(0, undefined, false)
       return

@@ -13,3 +13,5 @@ Animation sources retain their separate terms. See `animation-source-attribution
 Known visual limitations and review scope are listed in `manifest.json`.
 
 Publication packaging: lossless PNG recompression and byte-exact meshopt buffer packing for publication, preserving all decoded pixels and geometry/skin/animation values. Equality evidence is recorded in `texture-recompression-audit.json` and `buffer-compression-audit.json`.
+
+Right-hand follow-up: source-surface-calibrated right finger joint translations/inverse binds and localized skin reassignment; original rest geometry, UVs and animation streams preserved. See `right-hand-repair-audit.json`; low-poly grip limitations remain documented in the manifest.

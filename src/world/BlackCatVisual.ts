@@ -4,6 +4,7 @@ import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createQuadrupedAssetPreload } from './QuadrupedAssetPreload'
 import { SkinnedSeatContact } from './SkinnedSeatContact'
+import { RiderSeatContactCache } from './RiderSeatContactCache'
 import {
   isQuadrupedAnimationState,
   quadrupedLocomotionClipForSpeed,
@@ -26,15 +27,12 @@ export class BlackCatVisual {
 
   readonly root: THREE.Group
   readonly saddleSeat: THREE.Object3D
-  private readonly riderContacts = new WeakMap<THREE.Object3D, SkinnedSeatContact>()
+  private readonly riderContacts = new RiderSeatContactCache((rider: THREE.Object3D) => new SkinnedSeatContact(
+    rider, this.root, this.root.getObjectByName('cat_saddle_leather') as THREE.SkinnedMesh, this.saddleSeat,
+  ))
 
   fitRider(rider: THREE.Object3D): void {
-    let contact = this.riderContacts.get(rider)
-    if (!contact) {
-      contact = new SkinnedSeatContact(rider, this.root, this.root.getObjectByName('cat_saddle_leather') as THREE.SkinnedMesh, this.saddleSeat)
-      this.riderContacts.set(rider, contact)
-    }
-    contact.align()
+    this.riderContacts.get(rider).align()
   }
   readonly skeleton: THREE.Skeleton
   readonly mixer: THREE.AnimationMixer

@@ -1,63 +1,67 @@
-# Fitted faction characters: offline evidence
+# Faction characters: offline runtime evidence
 
-Image-pose capture: 2026-10-16T12:02:32.715Z. Latest combined-source runtime recheck: 2026-10-16T13:47:33.378Z.
-These three sheets render CPU-evaluated production HumanoidAssetRegistry, HumanoidStudioPlayback, CharacterCombatAnimator, CharacterEquipmentPose and BlackCatVisual poses in Blender. Local fetch/image adapters preserve asset bytes; no replacement controller or synthetic skeleton is used. Lighting/shaders may differ from Three/WebGL. Browser gameplay, actual traversal and GPU performance remain unverified.
+This follow-up fixes the three fitted characters’ relaxed left-hand direction and forward axe carry, Nordic sword grasp, and stale mounted-seat contact after an equipment rebuild. The production runtime was frozen on 2026-10-16; these are **offline production-runtime pose renders**, not browser or GPU acceptance. Lighting/shaders can differ from Three/WebGL.
 
-## Lossless publication repack
-The three JPEGs below are retained unchanged from the reviewed V27 capture; they were **not rerendered** after publication packing. V28 uses PNG level-9 recompression and required `EXT_meshopt_compression`, without quantization or filtering. Independent decoded comparison found all 7,185 non-image buffer views, non-storage document definitions and 27 asset RGBA images identical.
+## Selected evidence
+- [hand-grips.jpg](hand-grips.jpg): actual fitted actors, same-pose comparisons and Nordic sword contact/real LODs. Low-poly fingers and coarse-handle gaps remain visible.
+- [axe-carry.jpg](axe-carry.jpg): all three fitted actors, full axe visible, forward carry in locomotion/mounted contexts. Actor heading is unchanged.
+- [slope-seat-contact.jpg](slope-seat-contact.jpg): actual Player update before/after equipment rebuild on a slope. This intentionally retains the original hand/weapon policy to isolate seat-cache ownership.
+- [capture-index.json](capture-index.json): capture inputs, hashes and scope. Expected asset ID and one visible real LOD are asserted for final fitted-actor captures.
 
-A fresh production-loader run of all nine V28 GLBs matched the original loaded geometry, skin/bind data, rest transforms and all animation track bytes. All 381 production-pose samples were repeated. Their evaluated positions, indices/UVs, geometry groups, material values and decoded texture pixels matched the approved render inputs exactly, including the additional ordinary Roman reference (382 comparisons, zero differences). All 47 decoded texture payloads used by the capture also matched. This establishes why the existing offline images remain applicable; it does not add browser or GPU validation.
+The earlier cape, locomotion, ground-fade and death review remains available at the [original b211 evidence index](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/blob/b2110e763cfdf55bd7c690125e5a1e2621cdaa57/docs/assets/faction-civilians-shadow-ranger/README.md). Those historical images are not presented as new hand-rig captures. Intermediate repeated-LOD0 diagnostic packages are not shipped or used as true-LOD acceptance.
 
-The complete offline pose/resource/event, disposal and decoder-failure audit was repeated after PR #330 was merged into source base `84480566610f4322bcb2455c66eca0eb9657b5dd` and integration conflicts were resolved. The same 382 render-input comparisons still have zero differences. Assets and the three JPEGs remain unchanged. This pose audit does not instantiate TownScene or a complete NPC/Player world simulation.
+## Scope and measured changes
+- Left-hand thumb-web correction is opted into only by the three fitted manifests and follows the existing mixer contribution. Bow, shield, lance and authored contact ownership retain their existing gates.
+- Axe carry changes only weapon attachment heading around its grip. Contact intervals retain the original sweep, timing and damage. The mounted axe-to-lance switch also clears stale axe carry ownership.
+- Nordic right-hand repair corrects source-mismatched finger columns and local skin ownership. Nine of twelve original four-finger joint centers were outside the source surface. Four-finger longitudinal joint stations and every rest rotation remain unchanged; exact source joint creases cannot be inferred from the fused low-poly fan.
+- Only 15 right-digit node translations/inverse binds and 230/108/29 skin rows change across genuine LOD0/1/2. Mixed thumb/index web weights are retained. Original geometry/normals/UV/index and all animation streams remain byte-exact. Full-rest maximum positional error after Float32 reload is 0.000278/0.000255/0.000187 mm. Left-hand skin and all other body regions are unchanged.
+- Nordic sword uses the existing arm/socket composition, a measured grip cross-section and local grasp profile. The cancelled sword-direction flip is not included. Mounted steel/T5 grip translations are 66.095/52.334 mm; normalized world orientation delta in lifecycle checks is at most 5.96e-8 rad. Normal sampled wrist position is retained rather than dragging the arm to an incorrect grip point.
+- Seat fitting now invalidates its existing contact cache when a stable rider container receives replacement visual children. Same-mesh animation/LOD visibility reuses contacts. Actual Player runs cover 1,800 frames, four tier swaps, slopes and dismount/remount: before separation reached 3.97 m for Shadow / 4.13 m for ordinary Viking; after anatomical pelvis clearance remains 0.1153–0.1192 m / 0.0947–0.0986 m, with repeated-fit drift <=7.1e-10 m. These anatomical clearances are not surface-air-gap measurements. Corgi current ordinary assets bypass its legacy named surface patches, so that path verifies unchanged/empty-contact handling, not active fitted-surface correction.
 
-## Selected sheets
-- [main-actions.jpg](main-actions.jpg): all three locomotion/melee states; adjacent Nordic rear-run LOD0/1/2 comparison.
-- [shadow-bow-mount-cape.jpg](shadow-bow-mount-cape.jpg): real bow strings/nocked and released arrows, moving black-cat seat, rear-low cape, and matched Roman early-fade foot comparison.
-- [grips-lods-death.jpg](grips-lods-death.jpg): weapon grips, identical-phase mounted-bow LOD0/1/2, fixed-ground death midpoint/final, standing bow release, pilum and lance.
+## Runtime and asset verification
+All nine final GLBs load with the production loader. Structural asset audit passes real LOD budgets, normalized skinning, common bind/clip streams, textures, sockets and attribution hashes. Corrected Nordic checkpoints have separate explicit hand-repair delta evidence; subsequent PNG/meshopt publication packing is byte-exact against those corrected checkpoints, not against the old skin/bind data.
 
-## Draft limitations
-- Early run↔idle fades have extra fitted toe/sole penetration. At idle→run .03 s, fitted Roman reaches −4.64 cm versus −0.96 cm on unchanged ordinary Roman, with the same normalized .25 start phase and update sequence. Other sampled target fades reach about −2.5 to −3.9 cm. This target-specific extra depth is unresolved; there is no runtime/root offset workaround.
-- Shadow has a hard upper-arm/elbow fold and a small coarse-LOD shoulder-edge seam; Nordic retains angular under-mantle folds and a small dark upper hood fold at coarse LODs. The two-handed support fingers preserve the ordinary source’s relaxed curl.
-- Death retains the inherited propped-prone pose, not natural limp/full-body contact. Reduced LODs can have millimetre-scale final toe/hem floor residuals. The existing axe low point can enter the floor; early 2H foot-transition dipping also occurs on ordinary references.
-- Grounded NPC/Player adds no second death floor correction. Existing ground-mount Player death retains its seat-height parent root; this offline audit does not claim that full world path is fixed.
+The existing 381-pose audit was repeated against final GLBs: zero unsupported samples and zero non-finite vertices. Resource isolation/sharing, animation events, disposal and decoder-failure checks pass. **The strict numeric reach gate has two failures**, not 381 passes: Shadow mounted axe1H/2H at phase .05 measures 1.360001419/1.360001536 m against 1.360000 m with a 1 µm tolerance. Visible and gameplay tips coincide exactly. The old and new parent matrices/scales are identical; rotating carry projects the inherited tiny nonuniform TRS error onto another axis. The linear world-axis length reproduces both residuals within 2.2e-16 m. There is no accumulating scale. The original failed gate is retained; reach, animation and threshold were not changed to hide it. The other 379 samples meet that gate.
 
-## Standalone runtime checks
-381 snapshots, 0 unsupported samples, 0 non-finite vertices. Numeric gates: pass. Each actor has one mixer; its real LODs share a pose/skeleton, while two actors have isolated skeletons and pose state and share geometry/material/texture resources. These identities do not establish draw calls, GPU memory or frame time.
-Each asset’s six foot/mounted melee cycles produced one hit and one completion; large-dt, cancellation, additive hit and dead-state suppression checks passed. Existing mounted cape override restores without residue on dismount. The configured axe endpoint matches the visible tilted axe at the unchanged 1.36 m reach. Formal grip/nock distances supplement skin-surface inspection.
+Independent actual-runtime checks cover 84 paired NPC samples and 167 Player frames: equipment/tier refits, sword/axe/lance/mace/none swaps, bow charge/release, attack/cancel, dismount/remount, skipped pose updates, repeated seat fits and stop. No stale correction, non-finite state, ownership failure or accumulated attachment drift was found. A separate phase-aligned Player context probe preserves ordinary actors and actor-local resource state. These checks supplement rather than replace visual review.
 
-Disposal checks on all three assets passed: disposing one actor twice released its owned CPU bone texture once, left the second actor animating with finite vertices, and did not dispose shared geometry/material/textures. After both actors were disposed, a fresh actor from the retained template still animated correctly. These are CPU object/lifetime checks, not GPU-memory measurements.
+## Known visual limits and outstanding acceptance
+- Nordic retains a coarse fused-finger/C-shaped grasp on wide steel handles, including gaps between metal rings. Normal-distance mounted grip improved, but it is not a high-detail tight fist.
+- Foot T5 has three sampled hand vertices inside the handle, maximum 2.091 mm. Final mounted steel/T5 samples across all three real LODs have no contained hand vertices; this does not establish every animation frame as collision-free.
+- Non-sword skin changes are visible in close-ups. At sampled 1H foot axe contact, maximum hand penetration increases from 25.918 to 32.505 mm; mounted 1H increases from 28.005 to 31.255 mm. The source already penetrated the coarse grip. Sampled 2H decreases from 27.214 to 25.315 mm. Bow/2H retain angular finger edges. Same-pose normal-distance review found no obvious new detached hand or large tear; **not all weapon grips are penetration-free**.
+- Shadow sleeve/elbow and Nordic shoulder/underarm retain hard folds. Two-handed support retains relaxed source fingers. Death remains propped-prone, with millimetre-scale reduced-LOD floor residuals.
+- Earlier run↔idle fades retain additional fitted toe/sole penetration about 2.5–4.6 cm versus ordinary references about 0.2–1.0 cm. No broad runtime/root workaround was introduced.
+- Browser gameplay and <=10% same-condition GPU/frame-time acceptance remain outstanding. Cloud Playwright lacks its bundled browser, system Chromium fails OS socket creation, and Electron is unavailable. Offline Horse KTX2 presentation can have white/high-contrast artifacts; no game horse material was modified to compensate.
 
-Normal marked loading requested only three local manifests and nine local GLBs; the bundled decoder added no URL request. Isolated Shadow diagnostics removed the manifest decoder marker, disabled the real decoder, or corrupted one compressed-stream header in a local fetch response. The first two failed with `setMeshoptDecoder must be called before loading compressed files`; corruption failed with `Malformed buffer data: -1`. Each failure published no template, blocked instance creation, cleared its pending-load cache, and succeeded on retry with the same asset after restoring the original input. Public files were unchanged by these diagnostics.
+## Logic, build and review follow-up
+Three complete runs each pass 368 Vitest + 36 Node = 404/500 cases, including hooks/cleanup; maximum leaf 41.010/53.065/45.689 ms, wall 18.960/17.501/16.629 s. Test typecheck, separate 36-case release component, web build and desktop build pass. All 102 copied target files match public bytes exactly. Local browser/desktop launch smokes remain blocked as above; exact-head CI is reported in the PR.
 
-| Asset | Triangles LOD0 / 1 / 2 | Vertices LOD0 / 1 / 2 |
-|---|---|---|
-| maki-archer-t4 | 10933 / 4495 / 1792 | 15489 / 7816 / 3694 |
-| roman-civilian | 10300 / 4498 / 1797 | 16166 / 8507 / 4047 |
-| viking-civilian | 11704 / 4321 / 1645 | 16634 / 7756 / 3514 |
+Review fixes make peaceful shield collision follow the same eligibility as visibility, and load only the Town roster’s needed civilian faction package(s) before construction. The service Ranger already belongs uniquely to Commander squad4; actual UI bindings now explicitly cover refit/save-before-apply without adding actors or changing eight military squads. A single-actor equipment lookup reuses the existing membership map instead of rebuilding the positioned roster nine times; the unchanged merchant horse case improves from 80.180/94.883/79.168 to 37.857/36.330/42.671 ms. Missing/duplicate/cross-category lookup precedence remains equivalent. No assertions, budgets or CI workflows were weakened.
 
-Actual LOD2 final death minima: maki-archer-t4 -7.45 mm; roman-civilian -3.71 mm; viking-civilian -6.76 mm.
+## Reproduce the asset repair
+Use the original pre-repair V28 Nordic package from commit b2110e763cfdf55bd7c690125e5a1e2621cdaa57 (or the matching baked checkpoint). The repair refuses an unreviewed geometry/bind or a second application.
 
-## Exact inputs
-Latest source-base commit: `84480566610f4322bcb2455c66eca0eb9657b5dd`. Compressed-public working-tree production bundle SHA-256: `2b8760812cd359e576e2b7080653607075ef2361311ee7f10d3cfb272eba7c48`. Registry source SHA-256: `96c12068d0d5abd17da31b7fa634f345c8170239ec0e8d4a19c1fbdc42d378f6`. The original image-capture bundle was `475463fd5d73842ce0462a85e89f1e3d7be551045eb653c76795892ff9abb52f` on source base `e3d45cd81ec5b4a45b4de3ace35a976769afc5b9`. All final V28 target files below were copied from frozen public assets into an immutable QA snapshot before evaluation.
+1. `node tools/repair-nordic-right-hand.mjs INPUT_ROOT CORRECTED_ROOT`
+2. Copy the corrected Nordic directory to a separate PACKED_ROOT.
+3. `python3 tools/pack-faction-humanoid-textures.py PACKED_ROOT viking-civilian 0,1,2 --lossless-recompress`
+4. `node tools/pack-faction-humanoid-buffers.mjs PACKED_ROOT viking-civilian`
+5. `node tools/verify-faction-publication.mjs CORRECTED_ROOT PACKED_ROOT viking-civilian`
+6. `node tools/audit-faction-humanoids.mjs PACKED_ROOT viking-civilian`
 
-| Asset/file | SHA-256 |
+## Exact final inputs
+Integrated upstream dev: `d3da796537a2f50d5e85f7c03d231c83f9f5295a` (merged PR332). Frozen production runtime bundle: `d9703b2fb278b2fd1ef8c8f55b1b7993f976c6b9a2139549e04ae7fe42ba37ff`. Logic source/test diff SHA-256 against b211: `94f217b2f88560c96ce524790840e9fdd8c89ffc843e8d268631ec23787916c6`. Total nine GLBs: 57,208,200 bytes.
+
+| File | SHA-256 |
 |---|---|
-| maki-archer-t4/manifest.json | `4b12fdd1aa964d996a5e8414c90c0a8cfb3c98745c5f5608e7abde97c8d72395` |
-| maki-archer-t4/lod0.glb | `835614cd616c3dda523dcad18a63798192a46ca3611263d10f5e96cf35f03a48` |
-| maki-archer-t4/lod1.glb | `e9330648f5fe2ee5468211fc84f274f27380267b130e135652231f0d07d1d831` |
-| maki-archer-t4/lod2.glb | `856d32f3f023d328f774c8b157565fa6df6c0b9775a5d4b6a9a1c42c3c37ddc6` |
-| roman-civilian/manifest.json | `97544af8e7c665c19fb0efbd9890a99a11a87a6894f8fe42d1418de01e802857` |
+| viking-civilian/manifest.json | `0b2975e5e4c869c31fb3cc6bea038358cd706bebf260318ee2b3bb7ff64c3f24` |
+| viking-civilian/lod0.glb | `fe95e98a50581906bb306cfcb13a5fe219c904eccfbe2ca2c17427a385de3652` |
+| viking-civilian/lod1.glb | `9536629eda6300193197c5388246eccfda01b14d13a1c860e83fa90f43bb0a74` |
+| viking-civilian/lod2.glb | `b3f8eead0b088e05b2bfa1550d8ba6d52570808c26dfe1597a3abc50421dcb45` |
+| roman-civilian/manifest.json | `882373e4b43dda2fe19a671f6a5068c2f52aabbe279db218b65cba22530dcd9e` |
 | roman-civilian/lod0.glb | `f20011d5b915359c497ed1ed4d45508d32f6c5cd551dd18d379269d04e670381` |
 | roman-civilian/lod1.glb | `d4f558bd5e4971ac73341593676d97122446740a6c3d2a77280a7a6087e360de` |
 | roman-civilian/lod2.glb | `645042dbfc47de915a3c08359f126447b9b783cb6117bcbd97b3b525a5b38196` |
-| viking-civilian/manifest.json | `1ef2c58515d0d7bc51b72c4b1791177bec91acce176af4e06e5431ced6f4dac3` |
-| viking-civilian/lod0.glb | `a282eb7c31b79532b7fd1696e656f53a00374e79cf46c4a734965814181c4e85` |
-| viking-civilian/lod1.glb | `a5bd6d00d1589b168212312c1e86ccbbd0fa22d0748f8ad772221d439d884590` |
-| viking-civilian/lod2.glb | `9f948092b43db11d9a46cbc5d3b5255f363215a1971a560581922479880fc9ab` |
-| Ordinary reference roman/manifest.json | `3d3a9eacf1697f1375afa603cb27c0edc9fbadadc8468a5156f96bea4c53592d` |
-| Ordinary reference roman/lod0.glb | `2d08e05d15a1690fa80a26066d1e579ed543a0c05b7a6d11d04b52d56a40bda9` |
-
-Full pose data, exact phases, resource/event reports and diagnostic comparison images remain in ignored one-off QA output. The five-phase death sequence and all sampled hit/lance/pilum actions are retained there.
-- main-actions.jpg SHA-256: `6f16af336ee4f1178d3bac221eefd903a2c456a5c03c64f5ea63599cb254d129`
-- shadow-bow-mount-cape.jpg SHA-256: `b1f3b361238531aa41bc74de55f9525e1e9bb9a457e94d46ba2249ebb57b7dce`
-- grips-lods-death.jpg SHA-256: `9b60da8af2416cc730a5953a934daad15627c486741a5b803ec1b4245ae24e59`
+| maki-archer-t4/manifest.json | `3a5ca9544196a9ab15f5ef04da6a72235b2e2b481fa74f2e3f5b358ab2a584fa` |
+| maki-archer-t4/lod0.glb | `835614cd616c3dda523dcad18a63798192a46ca3611263d10f5e96cf35f03a48` |
+| maki-archer-t4/lod1.glb | `e9330648f5fe2ee5468211fc84f274f27380267b130e135652231f0d07d1d831` |
+| maki-archer-t4/lod2.glb | `856d32f3f023d328f774c8b157565fa6df6c0b9775a5d4b6a9a1c42c3c37ddc6` |

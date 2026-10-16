@@ -59,7 +59,7 @@ import { EagleLandingQueue } from '../world/EagleLandingQueue'
 import { TOWN_LAYOUT_VERSION } from './TownLayout'
 import { migratePersonalTownLayout } from './TownLayoutMigration'
 import { XONGKORO } from '../movement/XongkoroConfig'
-import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
+import { CIVILIAN_HUMANOID_ASSETS, HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
 import { BlackCatVisual } from '../world/BlackCatVisual'
 import { CorgiVisual } from '../world/CorgiVisual'
@@ -260,13 +260,17 @@ export class TownScene {
       progress('載入人物、坐騎與動畫…')
       const playerHero = resolveCareerHeroAsset(profile)
       const sceneContext = resolveCareerTownSceneContext(profile)
+      // Veteran VI includes the opposing native population and may borrow home
+      // residents. Resolve their actual civilian styles before queued spawning.
+      const civilianFactions = new Set(careerTownSceneRoster(profile).filter(entry => isCivilian(entry.spec.role)).map(entry =>
+        sceneContext.missionOnlyResidents && !entry.borrowed ? sceneContext.worldFaction : sceneContext.residentFaction))
       const commanderHero = shouldSpawnTownCommander(profile) ? townCommanderHeroAsset(sceneContext.residentFaction) : null
       const formerCommanderHero = profile.activeMission?.kind === 'commander-decapitation' ? townCommanderHeroAsset(profile.faction) : null
       const personalHeroes = new Set((profile.personalSquad?.members ?? []).flatMap(member => {
         const hero = personalMemberLoadout(member, profile.faction).hero
         return hero ? [hero.visualAssetId] : []
       }))
-      await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
+      await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome)
@@ -406,7 +410,10 @@ export class TownScene {
     this.duel.onReturnStarted = () => this.playMissionVoice('return')
     this.defense = isCommanderTownMission(this.profile.activeMission)
       ? new CommanderTownMissionController(this.scene, this.residents, () => this.player, () => this.profile,
-        p => this.commit(p), this.navigation)
+        p => this.commit(p), this.navigation, undefined, { obstacles: this.world.obstacles,
+          otherThreats: () => [...this.mission.ambientBandits, ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])]
+            .filter(npc => !npc.dead && (npc.faction === Faction.ENEMY || npc.faction === Faction.BANDIT))
+            .map(npc => ({ x: npc.combatPosition.x, z: npc.combatPosition.z, range: npc.maxRangedAttackDistance })) })
       : new TownDefenseController(this.scene, this.residents, () => this.player, () => this.profile, p => this.commit(p), this.cat, this.navigation, {
         gates: this.world.gates, obstacles: this.world.obstacles, patrol: this.patrol, outskirts: this.outskirts,
         closureBodies: () => this.siegeClosureBodies(),
@@ -1908,6 +1915,15 @@ export class TownScene {
 
   private preparePersonalFieldDeployment(saved: CareerProfile['personalSquadRuntime']): void {
     if (!this.personalSquad || this.personalSquad.hasHR) return
+    const initial = this.defense instanceof CommanderTownMissionController ? this.defense.initialDeployment : undefined
+    if (initial) {
+      const owned = new Map(this.profile.personalSquad?.members.map(member => [member.id, member]))
+      let ground = 0
+      const muster = (saved?.memberIds ?? []).map(id => owned.get(id)?.equipment?.mount === 'xongkoro'
+        ? initial.player : initial.personal[ground++])
+      this.personalSquad.setMuster(muster, initial.eaglePads)
+      return
+    }
     const active = this.profile.activeMission, aerial = this.profile.playerAerialState
     // An airborne checkpoint may be above an unwalkable roof. Plan only its reserve
     // pads at the lawful entry; the actual saved Player/squad flight stays authoritative.
@@ -1980,7 +1996,7 @@ export class TownScene {
         || active.kind === 'commander-decapitation' || active.kind === 'town-defense' && active.siege?.playerPosition
         ? this.player.combatPosition.clone() : null
       const siegeHeading = this.player.facingYaw
-      this.careerMounts.restoreActiveMount()
+      this.careerMounts.restoreActiveMount(!(this.defense instanceof CommanderTownMissionController && this.defense.initialDeployment))
       if ((active.kind === 'cavalry-sweep' || active.kind === 'veteran-field') && this.player.currentMount) {
         this.player.currentMount.group.rotation.y = active.kind === 'veteran-field' ? veteranPlayerYaw(active.templateId) : SWEEP_YAW
       }
@@ -2011,10 +2027,12 @@ export class TownScene {
       if (profile.playerAerialState?.sceneKey === this.personalSquad?.sceneKey) this.careerMounts.restoreActiveMount()
     }
     const aerialSceneKey = this.personalSquad?.sceneKey ?? 'town-home'
-    if (profile.playerAerialState?.sceneKey === aerialSceneKey && profile.playerAerialState.dead && !this.player.dead) {
+    const initialDecapitation = this.defense instanceof CommanderTownMissionController && this.defense.initialDeployment
+    if (!initialDecapitation && profile.playerAerialState?.sceneKey === aerialSceneKey && profile.playerAerialState.dead && !this.player.dead) {
       this.player.takeDamage(this.player.maxHp * 100, this.hp)
     }
-    restoreCareerAerialState(this.player, this.careerMounts.activeMount, profile.playerAerialState, aerialSceneKey)
+    if (!initialDecapitation)
+      restoreCareerAerialState(this.player, this.careerMounts.activeMount, profile.playerAerialState, aerialSceneKey)
     this.restoringAerialState = false
   }
 

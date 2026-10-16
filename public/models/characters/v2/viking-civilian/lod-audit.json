@@ -4,8 +4,8 @@
     {
       "level": 0,
       "triangles": 11704,
-      "bytes": 11769968,
-      "sha256": "a282eb7c31b79532b7fd1696e656f53a00374e79cf46c4a734965814181c4e85",
+      "bytes": 11769868,
+      "sha256": "fe95e98a50581906bb306cfcb13a5fe219c904eccfbe2ca2c17427a385de3652",
       "meshes": 1,
       "materials": 1,
       "images": [
@@ -35,8 +35,8 @@
     {
       "level": 1,
       "triangles": 4321,
-      "bytes": 5165292,
-      "sha256": "a5bd6d00d1589b168212312c1e86ccbbd0fa22d0748f8ad772221d439d884590",
+      "bytes": 5165108,
+      "sha256": "9536629eda6300193197c5388246eccfda01b14d13a1c860e83fa90f43bb0a74",
       "meshes": 1,
       "materials": 1,
       "images": [
@@ -66,8 +66,8 @@
     {
       "level": 2,
       "triangles": 1645,
-      "bytes": 2853536,
-      "sha256": "9f948092b43db11d9a46cbc5d3b5255f363215a1971a560581922479880fc9ab",
+      "bytes": 2853532,
+      "sha256": "b3f8eead0b088e05b2bfa1550d8ba6d52570808c26dfe1597a3abc50421dcb45",
       "meshes": 1,
       "materials": 1,
       "images": [

@@ -4,6 +4,7 @@
   "status": "ready",
   "skeleton": "project-humanoid-v1",
   "sharedLodPose": true,
+  "forwardAxeCarry": true,
   "source": {
     "title": "Nordic Warrior",
     "author": "Meshy",
@@ -385,6 +386,7 @@
     }
   },
   "handShapeMode": "authored",
+  "relaxedLeftThumbForward": true,
   "preserveLodHandTopology": false,
   "clothRig": {
     "anchor": "chest",
@@ -2159,15 +2161,17 @@
     "The existing two-handed axe support hand retains its partly open/sliding source pose, emphasized by the low-poly fingers.",
     "The target-only grounded death retains a slightly propped prone shape from the authored motion; contacting extremities do not imply a fully flat torso.",
     "Raw source-mode bow poses may hover: gameplay retains the bow pelvis while replacing leg tracks with locomotion legs, and the fitted contact bake preserves that composed stance.",
-    "Per-frame locomotion planting removes authored airborne run clearance. Actual idle/run fades on the reviewed fitted targets can briefly dip soles about 2.5\u20134.7 cm; source-clearance-preserving locomotion remains unfinished.",
-    "The inherited short early two-handed-axe runtime transition can briefly dip feet about 2\u20134 cm; the shared blend and body/root behavior are unchanged.",
-    "Coarse LOD2 final death contact can retain about 3.7\u20137.5 mm of surface-floor penetration under the shared identical animation.",
-    "LOD2 retains a small dark angular hood fold and coarse hard edges; the large posterior inner-shell crossings were repaired with paired lining."
+    "Per-frame locomotion planting removes authored airborne run clearance. Actual idle/run fades on the reviewed fitted targets can briefly dip soles about 2.5–4.7 cm; source-clearance-preserving locomotion remains unfinished.",
+    "The inherited short early two-handed-axe runtime transition can briefly dip feet about 2–4 cm; the shared blend and body/root behavior are unchanged.",
+    "Coarse LOD2 final death contact can retain about 3.7–7.5 mm of surface-floor penetration under the shared identical animation.",
+    "LOD2 retains a small dark angular hood fold and coarse hard edges; the large posterior inner-shell crossings were repaired with paired lining.",
+    "The widest steel sword grip retains a broad low-poly C silhouette around its raised rings in extreme closeups; the corrected grasp preserves blade orientation with a bounded local attachment translation.",
+    "Corrected right-hand skin changes authored non-sword fingertips. Coarse one-handed axe haft overlap remains and can be deeper than the original; this repair does not claim zero weapon/hand penetration."
   ],
   "fileSha256": {
-    "lod0": "a282eb7c31b79532b7fd1696e656f53a00374e79cf46c4a734965814181c4e85",
-    "lod1": "a5bd6d00d1589b168212312c1e86ccbbd0fa22d0748f8ad772221d439d884590",
-    "lod2": "9f948092b43db11d9a46cbc5d3b5255f363215a1971a560581922479880fc9ab"
+    "lod0": "fe95e98a50581906bb306cfcb13a5fe219c904eccfbe2ca2c17427a385de3652",
+    "lod1": "9536629eda6300193197c5388246eccfda01b14d13a1c860e83fa90f43bb0a74",
+    "lod2": "b3f8eead0b088e05b2bfa1550d8ba6d52570808c26dfe1597a3abc50421dcb45"
   },
   "animations": {
     "embedded": [
@@ -2313,6 +2317,209 @@
     "attributionFile": "animation-source-attribution.txt"
   },
   "reviewStatus": "Draft integration: known locomotion contact limitation and browser/GPU/manual acceptance remain open.",
+  "swordCarryGrips": [
+    {
+      "palmRadius": 0.02025,
+      "fingerRadius": 0.01175,
+      "palmSurfaceOffset": -0.006,
+      "palmFingerOffset": 0.015,
+      "digits": {
+        "index_01_r": [
+          0.2643412468421491,
+          0.6855762452292166,
+          -0.2972251085489889,
+          0.6097262580737097
+        ],
+        "index_02_r": [
+          0.18223582310358238,
+          -2.416767955518528e-07,
+          -3.715871281912522e-07,
+          0.9832548524049355
+        ],
+        "index_03_r": [
+          0.056692812668640895,
+          5.789398065243223e-08,
+          1.5782629114386666e-07,
+          0.9983916691317686
+        ],
+        "middle_01_r": [
+          0.2630147159899005,
+          0.6862208177904634,
+          -0.2957337186672913,
+          0.6102997068404592
+        ],
+        "middle_02_r": [
+          0.17794282559499303,
+          -3.380439091880108e-08,
+          -1.3202194085478868e-07,
+          0.9840408278215925
+        ],
+        "middle_03_r": [
+          0.1391739028643849,
+          9.856323189212279e-08,
+          2.3525127705089722e-07,
+          0.9902679560412679
+        ],
+        "ring_01_r": [
+          0.20332294205078763,
+          0.7114014341011051,
+          -0.22861631542089159,
+          0.6326945209164732
+        ],
+        "ring_02_r": [
+          0.2756371311105751,
+          -4.1925365045693054e-08,
+          -2.498510166756459e-07,
+          0.9612617603718492
+        ],
+        "ring_03_r": [
+          0.030538819472039548,
+          1.1587158052310292e-07,
+          8.639599497499932e-07,
+          0.9995335814795558
+        ],
+        "pinky_01_r": [
+          0.21155642121378973,
+          0.7083599542633834,
+          -0.23787343362927527,
+          0.6299891550178182
+        ],
+        "pinky_02_r": [
+          0.2249504350073035,
+          -2.531825018689917e-07,
+          -6.308900592025149e-07,
+          0.9743702077703469
+        ],
+        "pinky_03_r": [
+          7.404014468193054e-07,
+          -8.797858441766948e-08,
+          -4.500165005083545e-07,
+          1
+        ],
+        "thumb_01_r": [
+          0.3558155521072914,
+          0.6030054207199674,
+          0.4988931394530358,
+          0.5107694308204369
+        ],
+        "thumb_02_r": [
+          0.5889049711735833,
+          0.34130025090097577,
+          -0.07861137420804294,
+          0.728371710229118
+        ],
+        "thumb_03_r": [
+          0.2668942554281428,
+          0.13500115994825881,
+          -0.031093133384118444,
+          0.9537166061323852
+        ]
+      }
+    },
+    {
+      "palmRadius": 0.04144,
+      "fingerRadius": 0.04144,
+      "palmSurfaceOffset": 0.006,
+      "palmFingerOffset": 0.009,
+      "digits": {
+        "index_01_r": [
+          0.20468460014190024,
+          0.7109077523887899,
+          -0.23014717197495177,
+          0.6322551850569361
+        ],
+        "index_02_r": [
+          0.06975677568664919,
+          -1.9805840512438877e-07,
+          -3.9655710245211556e-07,
+          0.9975640291459461
+        ],
+        "index_03_r": [
+          0.052335981354188474,
+          5.7204784621937454e-08,
+          1.5807739809463752e-07,
+          0.9986295334385493
+        ],
+        "middle_01_r": [
+          0.20054661761589165,
+          0.7123970982965131,
+          -0.2254946062869465,
+          0.6335799295744964
+        ],
+        "middle_02_r": [
+          0.008725803972290063,
+          -1.0958272111848532e-08,
+          -1.3583978056806161e-07,
+          0.9999619294481027
+        ],
+        "middle_03_r": [
+          0.20791248290710448,
+          1.1473343634387713e-07,
+          2.2780279326607008e-07,
+          0.978147432370018
+        ],
+        "ring_01_r": [
+          0.20332294205078763,
+          0.7114014341011051,
+          -0.22861631542089159,
+          0.6326945209164732
+        ],
+        "ring_02_r": [
+          0.06975624055159148,
+          1.0937752100236098e-08,
+          -2.531079460369869e-07,
+          0.9975640665662346
+        ],
+        "ring_03_r": [
+          0.03926012192796841,
+          1.2340654565903365e-07,
+          8.629158953417405e-07,
+          0.9992290242113141
+        ],
+        "pinky_01_r": [
+          0.18387532538917611,
+          0.7180616459920371,
+          -0.20674880358979134,
+          0.638617506422957
+        ],
+        "pinky_02_r": [
+          0.19080837142715798,
+          -2.3101052438883659e-07,
+          -6.393416799136354e-07,
+          0.9816273047311387
+        ],
+        "pinky_03_r": [
+          7.404014468193054e-07,
+          -8.797858441766948e-08,
+          -4.500165005083545e-07,
+          1
+        ],
+        "thumb_01_r": [
+          0.525351722431154,
+          0.4927279055455882,
+          0.5347372203796916,
+          0.44190599064608704
+        ],
+        "thumb_02_r": [
+          0.3080114454813335,
+          0.17850844550617284,
+          -0.04111635710413221,
+          0.9335808137171692
+        ],
+        "thumb_03_r": [
+          0.2668942554281428,
+          0.13500115994825881,
+          -0.031093133384118444,
+          0.9537166061323852
+        ]
+      }
+    }
+  ],
+  "rightHandRepair": {
+    "sourceSha256": "d793d2a8aa196d928bd2188ff66502a02eca2328d6024528a856c6787362172d",
+    "calibration": "tools/data/faction-nordic-right-hand.json",
+    "audit": "right-hand-repair-audit.json"
+  },
   "losslessTexturePacking": {
     "method": "PNG optimize level 9; retain smaller existing payload; JPEG copied unchanged",
     "equalityAudit": "texture-recompression-audit.json"
@@ -2320,14 +2527,14 @@
   "bufferCompression": "EXT_meshopt_compression",
   "bufferCompressionAudit": "buffer-compression-audit.json",
   "losslessPublicationPacking": {
-    "baseline": "Reviewed V27 animated uncompressed checkpoint",
-    "method": "PNG optimize 9 with identical decoded RGBA; JPEG bytes unchanged; meshopt NONE filter with exact decoded bufferView equality under npm and bundled Three decoders",
+    "baseline": "Corrected animated uncompressed checkpoint",
+    "method": "Identical decoded RGBA and JPEG payload; exact decoded bufferView equality after the separately audited hand repair",
     "noGeometrySkinAnimationValueChanges": true,
+    "equalityAudit": "publication-equality-audit.json",
     "auditFiles": [
       "texture-recompression-audit.json",
       "buffer-compression-audit.json",
       "publication-equality-audit.json"
-    ],
-    "equalityAudit": "publication-equality-audit.json"
+    ]
   }
 }

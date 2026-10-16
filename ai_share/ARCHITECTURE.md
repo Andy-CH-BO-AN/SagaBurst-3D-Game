@@ -26,7 +26,7 @@
 - 軍用 `viking-hero-t4`／`viking`／`roman` 使用交付來源的 63／22／54 骨與 11 段動畫；以離線名稱／原點正規化及明確 `selectedSource` 契約接入，不冒用 T5 來源骨架。三 LOD 沿用 `SelectedLodPose`，同角色相同 joints／inverse bind 的多 mesh 共用 Skeleton，不同角色不共用可變骨骼。居民與商人由 `CharacterVisualConfig.civilian` 及 `civilianStyle ?? faction` 選擇 `roman-civilian`／`viking-civilian` 的獨立來源模型。
 - 三套新模型的完整長斧頭來源動作透過既有 manifest `meleeCycleSeconds`／events 轉換到 gameplay clock，再套原裝備與英雄攻速；不截短來源片段。Roman 動態雙手斧 socket 與來源校準的斧頭握點在 mixer 後同步到正式武器 pivot，物理握點／刀尖使用相同 transform。生成的受擊 overlay 不取消攻擊事件或修改傷害。
 - `HumanoidAssetRegistry` 在產生角色前載入可用 manifest／GLB；正式模式不以舊程序人物靜默替代失敗資產。`HeroAssetCatalog` 集中 T4／T5 描述，`SETUP_PLAYER_HERO_IDS` 另限制自由模式的選角。`HeroCombatProfile` 共用 Player／NPC 的英雄數值，Player 技能由原管線套用一次，NPC 不套玩家技能。實例銷毀及 render warmup 結束釋放各自的 skeleton bone texture，保留共享 geometry／material／texture。 選定 T5 的三個 LOD 經 `SelectedLodPose` 驗證相同骨架 bind 與動畫樣本後，共用單一角色的骨架／mixer；不同角色仍擁有獨立可變狀態。來源 raw clips 保留，runtime 只略過每段來源動畫中均等於 bind 的不變屬性。
-- Fitted civilian／Shadow 的三個 LOD 以 `sharedLodPose` 驗證同一 bind／動畫並共用單角色 pose；各 LOD 內嵌完整動作。明確 `bufferCompression: EXT_meshopt_compression` 的資產由既有 Three 隨附 MeshoptDecoder 載入，離線包裝不量化 geometry／skin／animation；PNG 重壓保留解碼像素。沒有額外 decoder URL 或新網路依賴。
+- Fitted civilian／Shadow 的三個 LOD 以 `sharedLodPose` 驗證同一 bind／動畫並共用單角色 pose；各 LOD 內嵌完整動作。明確 `bufferCompression: EXT_meshopt_compression` 的資產由既有 Three 隨附 MeshoptDecoder 載入，離線包裝不量化 geometry／skin／animation；PNG 重壓保留解碼像素。沒有額外 decoder URL 或新網路依賴。一般 preload 不載平民；Town 由實際 roster 推出所需 civilian factions 並在建立居民前 await，包含敵境原生人口與借用居民。
 - geometry、material、texture、clip 共用模板；每個角色持有獨立 skeleton、mixer、socket 與動作狀態。`CharacterVisuals` 提供共用 `CharacterRig` 契約及舊測試模型。
 - `HUMANOID_LOD_DISTANCES` 是人物 LOD 門檻的唯一來源。LOD0 是裝備 socket authority；穩態求值 LOD0 加可見 LOD，切換、fade、seek 必須補齊姿勢／時間，不能重播 gameplay 事件。
 - 距離節流只減少視覺求值；AI、移動、攻擊事件與 gameplay timer 每幀推進。跳過的 visual dt 只能補算一次。
@@ -61,7 +61,7 @@
 - `QuadrupedAssetPreload` 集中 Black Cat／Corgi 的 manifest／GLB 驗證、並行預載共用與失敗重試；各 Visual 提供路徑、body 前綴與模板發布。全部必要 clips／LOD／seat 通過後才發布模板，失敗後下次預載重新讀取，實例建構與動畫仍由各 Visual 負責。
 - 坐騎實例共享 render resources、各自持有 skeleton／mixer。Horse LOD 與遠距動畫節流由 registry 維護；不改變 gameplay timer。
 - Black Cat／Corgi 使用 `idle`、`walk`、`run`、`death`，保留遊戲會呼叫的 `jump`／`land`／`hit`；`QuadrupedMountAnimation` 定義種類與速度遲滯，Horse 保留原步態。各實例的全部 LOD 共用一套 skeleton／mixer，死亡單次播放後停在末幀；一次性受擊／落地結束後恢復最新請求的步態與播放速度。
-- 騎士骨盆對準解剖 seat socket，腿姿遵循各 rig 的 `forwardBendSign`。Corgi 的 `CorgiSeatContact` 修正座面貼合；DEV 校準是否適用正式 Player/NPC 必須依實際呼叫端確認。
+- 騎士骨盆對準解剖 seat socket，腿姿遵循各 rig 的 `forwardBendSign`。Black Cat／Corgi 的座面接觸由 `RiderSeatContactCache` 依騎手 visual child 身分快取；換裝重建模型時失效，不能沿用已脫離 mesh 的世界高度。Corgi 的 `CorgiSeatContact` 修正座面貼合；DEV 校準是否適用正式 Player/NPC 必須依實際呼叫端確認。
 - Custom Battle／Defense Campaign 的 Player 可選坐騎；一般戰場騎兵與營地預設 Horse。Career 的駐軍、英雄與商人坐騎由城鎮規則決定。
 - 近戰與投射物沿用 `WeaponSweep`／`traceCombatSegment`，比較 shield、人物 body 與 mount 的 first contact。Mount collider 使用 aim proxy 的 local box，隨完整 world transform 旋轉／縮放；所有存活坐騎都是獨立 physical target，無 rider 或同陣營仍阻擋並承受武器命中，NPC 不主動選無騎士坐騎為目標。攻擊者自己的坐騎排除於自己的武器查詢。
 - `CombatContact.mount` 指向真正命中的坐騎。body／盾牌 overflow 只傷人物，mount 只傷坐騎；兩者死亡獨立、正常 release rider。`mount-impact` 是明確例外：目標騎乘存活坐騎時傷坐騎，否则傷人物，不判 first contact、不吃盾。未帶 contact 的 scripted damage 傷指定人物，不因 mounted 轉移。長槍 charge 與 mount impact 避免同次重複傷害；死亡坐騎仍需完成動畫更新。
@@ -95,6 +95,7 @@
 ## 生涯與城鎮
 
 - `CareerProfileStore` 使用 `sagaburst_career_v1`，與 RPG／Campaign 存檔隔離。`loadChecked` 區分無存檔與損壞／不支援資料；載入失敗不得覆寫。
+- `CommanderDecapitationDeployment` 只規劃斬首行動尚無 Player 位置的首次北側邊界部署；共用 Navigation connectivity、`PersonalSquadDeployment` 淨空／間距與 `EagleLanding` 完整翼展檢查，一併保留 Player、30 名正式騎兵及 HR／巨鷹位置。威脅範圍讀取實際 NPC 射程，原生空軍另計登鷹後射程；無完整合法配置時明確失敗，不放寬檢查。`CommanderTownMissionController`／`TownScene` 沿既有 scheduler 與 Loading barrier 套用同一配置，已有 `playerPosition` 或完成部署的 checkpoint 保留原位置、死亡與空中狀態。
 - `CareerProfile` 分開 lifetime `totalMerit`、可花費 `availableMerit` 與任命 `rank`。晉升按 enlistment baseline 計算資格，必須明確任命；領獎不自動升階。獎勵以已領 battle／mission ID 保持冪等。
 - `CareerMissionMeritPolicy`／`MeritCalculator` 管理軍功；Recruit／Soldier／Veteran／Captain board 勝場按任務 Tier 1–4 分開保存，不由當前軍階反推。Duel 擊敗 tier 按 preset 推進，不改 board 勝場。
 - `CaptainMissionCatalog` 擁有六個獨立 `captain-…` template IDs 與 Captain／Commander 分頁；不以其他 Captain 勝場鎖定順序。Captain Siege 不需要 Outpost Relief，原 Soldier Assault 的 canonical prerequisite 保持原規則。Eagle 解鎖讀取 `CareerInventory` 真實 xongkoro ownership；部署再驗證玩家可用 allocation 與戰損，不以當前騎乘代替 ownership。

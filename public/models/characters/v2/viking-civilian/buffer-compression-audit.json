@@ -4,10 +4,10 @@
   "lods": [
     {
       "level": 0,
-      "beforeBytes": 14947984,
-      "bytes": 11769968,
-      "beforeSha256": "7cef938ce7ee35ded332b06b2dd4e6b016a0ace66c47c6841ddaa57be454b435",
-      "sha256": "a282eb7c31b79532b7fd1696e656f53a00374e79cf46c4a734965814181c4e85",
+      "beforeBytes": 14947964,
+      "bytes": 11769868,
+      "beforeSha256": "34e354eae99d89e28a66e82e2d2241d60f94385155ef7b7738f290fcc3a82aa2",
+      "sha256": "fe95e98a50581906bb306cfcb13a5fe219c904eccfbe2ca2c17427a385de3652",
       "extension": "EXT_meshopt_compression",
       "method": "No quantization, filters, mesh reordering, key removal or image changes. INDICES preserves exact index bytes.",
       "npmDecoderVersion": "meshoptimizer 0.18.1",
@@ -15,16 +15,16 @@
       "allBufferViewsByteExact": true,
       "compressedBufferViews": 718,
       "viewCount": 816,
-      "originalViewsSha256": "053e382e97451006cf0bda99c0cb564bda774fa003d4149ef9a4496d27d3f6da",
-      "npmDecodedViewsSha256": "053e382e97451006cf0bda99c0cb564bda774fa003d4149ef9a4496d27d3f6da",
-      "threeDecodedViewsSha256": "053e382e97451006cf0bda99c0cb564bda774fa003d4149ef9a4496d27d3f6da"
+      "originalViewsSha256": "0c4fb894a5551220d107db6a0e5d7b6b7219df7aa796a128aaac675dc81b2628",
+      "npmDecodedViewsSha256": "0c4fb894a5551220d107db6a0e5d7b6b7219df7aa796a128aaac675dc81b2628",
+      "threeDecodedViewsSha256": "0c4fb894a5551220d107db6a0e5d7b6b7219df7aa796a128aaac675dc81b2628"
     },
     {
       "level": 1,
-      "beforeBytes": 8193656,
-      "bytes": 5165292,
-      "beforeSha256": "5651cb83610a8a102650b406821cafe3cc3c364145f6c4f8bd1471600d8f7c07",
-      "sha256": "a5bd6d00d1589b168212312c1e86ccbbd0fa22d0748f8ad772221d439d884590",
+      "beforeBytes": 8193636,
+      "bytes": 5165108,
+      "beforeSha256": "b4b34d4a73f6b57a83e8583be6718db7096bf5478f93d0eabc381c38ec18cb3f",
+      "sha256": "9536629eda6300193197c5388246eccfda01b14d13a1c860e83fa90f43bb0a74",
       "extension": "EXT_meshopt_compression",
       "method": "No quantization, filters, mesh reordering, key removal or image changes. INDICES preserves exact index bytes.",
       "npmDecoderVersion": "meshoptimizer 0.18.1",
@@ -32,16 +32,16 @@
       "allBufferViewsByteExact": true,
       "compressedBufferViews": 718,
       "viewCount": 816,
-      "originalViewsSha256": "c115312ee0c26783ab81e653bd0db5cf8651aac2d2b84dd4c536a0bee572b3e9",
-      "npmDecodedViewsSha256": "c115312ee0c26783ab81e653bd0db5cf8651aac2d2b84dd4c536a0bee572b3e9",
-      "threeDecodedViewsSha256": "c115312ee0c26783ab81e653bd0db5cf8651aac2d2b84dd4c536a0bee572b3e9"
+      "originalViewsSha256": "6d6ef8efa7e451928c68723e7c6b903e59f5df813dbbe28d7afc018314649e7a",
+      "npmDecodedViewsSha256": "6d6ef8efa7e451928c68723e7c6b903e59f5df813dbbe28d7afc018314649e7a",
+      "threeDecodedViewsSha256": "6d6ef8efa7e451928c68723e7c6b903e59f5df813dbbe28d7afc018314649e7a"
     },
     {
       "level": 2,
-      "beforeBytes": 5781560,
-      "bytes": 2853536,
-      "beforeSha256": "001be96c0246fc934998cf153e22a12e3adc023bebcd001ae91c875da43d2a66",
-      "sha256": "9f948092b43db11d9a46cbc5d3b5255f363215a1971a560581922479880fc9ab",
+      "beforeBytes": 5781540,
+      "bytes": 2853532,
+      "beforeSha256": "8a20ed4427d00d213abb36225cf01f352f9fa9c7d9b041798cde14bc952fe363",
+      "sha256": "b3f8eead0b088e05b2bfa1550d8ba6d52570808c26dfe1597a3abc50421dcb45",
       "extension": "EXT_meshopt_compression",
       "method": "No quantization, filters, mesh reordering, key removal or image changes. INDICES preserves exact index bytes.",
       "npmDecoderVersion": "meshoptimizer 0.18.1",
@@ -49,9 +49,9 @@
       "allBufferViewsByteExact": true,
       "compressedBufferViews": 718,
       "viewCount": 816,
-      "originalViewsSha256": "370369337f456aa240d8b1ed1cda9185427ebbf08d21c947d290c2e58b4c1a97",
-      "npmDecodedViewsSha256": "370369337f456aa240d8b1ed1cda9185427ebbf08d21c947d290c2e58b4c1a97",
-      "threeDecodedViewsSha256": "370369337f456aa240d8b1ed1cda9185427ebbf08d21c947d290c2e58b4c1a97"
+      "originalViewsSha256": "127d3a2ab82a811d4853e681eff281ff8e1ae724bfadf8db4fe5c083303ebcde",
+      "npmDecodedViewsSha256": "127d3a2ab82a811d4853e681eff281ff8e1ae724bfadf8db4fe5c083303ebcde",
+      "threeDecodedViewsSha256": "127d3a2ab82a811d4853e681eff281ff8e1ae724bfadf8db4fe5c083303ebcde"
     }
   ],
   "digestDefinition": "SHA-256 of ordered SHA-256 hex strings concatenated without separators"

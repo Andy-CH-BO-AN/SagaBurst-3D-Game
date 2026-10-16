@@ -108,7 +108,11 @@ function finish(current: CareerProfile, next: CareerProfile, ids: string[], summ
 }
 export function changeTownEquipment(read: () => CareerProfile, context: TownEquipmentContext, actorId: string,
   slot: PersonalEquipmentSlot, itemId: string | null, save: (profile: CareerProfile) => boolean): TownEquipmentResult {
-  const current = read(), target = townEquipmentSquads(current).find(squad => squad.actorIds.includes(actorId))?.id
+  const current = read(), authored = townEquipmentSquadForActor(actorId)
+  // Reuse fixed membership without rebuilding the full positioned town roster.
+  // Keep the same military, personal, civilian precedence as townEquipmentSquads.
+  const target = typeof authored === 'number' ? authored as SquadId
+    : current.personalSquad?.members.some(member => member.id === actorId) ? 'personal' : authored
   if (target === undefined) return fail(current, 'missing-member')
   const gate = managementGate(current, context, target)
   if (gate) return fail(current, gate)

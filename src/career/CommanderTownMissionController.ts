@@ -10,7 +10,9 @@ import { civilianShouldFight, civilianWartimeWeapon, townWartimePeers } from '..
 import type { TownActorSpec } from '../town/TownRules'
 import { TOWN_CITY } from '../town/TownLayout'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
-import { getTerrainHeight } from '../world/Terrain'
+import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import { eagleBowEngagementRange } from '../combat/EagleRangedCombat'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import { Faction, NPC } from '../world/NPC'
 import { Mount, mountTypeFromId } from '../world/Mount'
@@ -19,6 +21,8 @@ import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy, resolveCareerMissionOutcome, type ActiveCareerMission, type CareerMissionOutcome, type CareerMissionPhase } from './CareerMissionState'
 import { createDecapitationRoster, createSkyRaidRoster, isCommanderTownMission, recordCommanderObjectiveDeath, COMMANDER_SKY_RAID_REQUIRED_KILLS } from './CommanderMissionCatalog'
+import { needsDecapitationDeployment, planDecapitationDeployment, type DecapitationDeployment, type DeploymentThreat } from './CommanderDecapitationDeployment'
+import { careerEaglePadOwners } from './EaglePadReservations'
 
 export interface CommanderTownResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
 
@@ -44,6 +48,7 @@ export class CommanderTownMissionController {
   private rosterCommitPending = false
   private readonly checkpoint = new CareerMissionCheckpoint(() => this.readProfile(), profile => this.commit(profile))
   private objectiveUnsubscribe?: () => void
+  initialDeployment?: DecapitationDeployment
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -53,6 +58,7 @@ export class CommanderTownMissionController {
     private readonly commit: (profile: CareerProfile) => boolean,
     private readonly navigation: NavigationWorld,
     private readonly scheduler: NpcSpawnScheduler = gameplayNpcSpawns,
+    private readonly deploymentEnvironment?: { obstacles: readonly ObstacleData[]; otherThreats: () => DeploymentThreat[] },
   ) {}
 
   get active(): ActiveCareerMission | undefined {
@@ -104,6 +110,23 @@ export class CommanderTownMissionController {
     this.rosterCommitPending = false
     this.startedMissionId = prepared.id
     this.restoreNativeActors(prepared)
+    if (needsDecapitationDeployment(prepared)) {
+      if (!this.deploymentEnvironment) throw new Error('Commander Decapitation deployment requires Town obstacles and threats')
+      const profile = this.readProfile()
+      const members = new Map(profile.personalSquad?.members.map(member => [member.id, member]))
+      const groundCount = prepared.personalSquad?.memberIds.filter(id => members.get(id)?.equipment?.mount !== 'xongkoro').length ?? 0
+      const threats = this.residents.filter(({ npc }) => !npc.dead && npc.faction === Faction.ENEMY).map(({ npc, spec }) => {
+        const weapon = npc.rangedWeaponId ? WEAPONS[npc.rangedWeaponId] : undefined
+        // Native garrison boards on battle release: account for its mounted bow before takeoff.
+        const mountedRange = spec.eagle ? eagleBowEngagementRange('xongkoro', weapon) : undefined
+        return { x: spec.eagle?.home.x ?? npc.combatPosition.x, z: spec.eagle?.home.z ?? npc.combatPosition.z,
+          range: Math.max(npc.maxRangedAttackDistance, mountedRange ?? 0) }
+      })
+      this.initialDeployment = planDecapitationDeployment({ navigation: this.navigation,
+        obstacles: this.deploymentEnvironment.obstacles, threats: [...threats, ...this.deploymentEnvironment.otherThreats()],
+        officialCount: prepared.friendlyActorIds.length, personalCount: groundCount,
+        eagleCount: careerEaglePadOwners(profile).length, playerEagle: profile.selectedMountId === 'xongkoro' })
+    }
     this.positionPlayerAtPerimeter(prepared)
     const specs = this.positionOfficialRoster(prepared,
       prepared.kind === 'commander-sky-raid' ? createSkyRaidRoster(prepared, this.readProfile().faction)
@@ -213,6 +236,9 @@ export class CommanderTownMissionController {
       })
     }
     return specs.map((spec, index) => {
+      const saved = active.officialSquad?.members?.[spec.actorId!]?.position ?? active.actorPositions?.[spec.actorId!]
+      const planned = this.initialDeployment?.official[index]
+      if (saved || planned) return { ...spec, x: (saved ?? planned!).x, z: (saved ?? planned!).z }
       const row = Math.floor(index / 6), column = index % 6
       return { ...spec, x: (column - 2.5) * 5, z: TOWN_CITY.minZ - 48 - row * 6 }
     })
@@ -254,6 +280,10 @@ export class CommanderTownMissionController {
       if (mount) { mount.group.position.copy(point); mount.group.rotation.y = position.yaw }
       npc.group.position.copy(point); npc.group.rotation.y = position.yaw
     }
+    if (!saved && !position && this.initialDeployment) {
+      npc.group.rotation.y = this.initialDeployment.player.yaw
+      if (mount) mount.group.rotation.y = this.initialDeployment.player.yaw
+    }
     if (health && !npc.dead) npc.restoreCombatHealth(health.hp)
     if (mount && health?.mountHp !== undefined) {
       if (health.mountHp <= 0) { mount.takeDamage(mount.maxHp + 1); npc.dismountFromMount() }
@@ -274,10 +304,11 @@ export class CommanderTownMissionController {
       return
     }
     if (active.commanderMission?.deploymentComplete) return
-    const point = this.walkable(0, TOWN_CITY.minZ - (active.kind === 'commander-sky-raid' ? 125 : 62))
+    const point = this.initialDeployment?.player ?? this.walkable(0, TOWN_CITY.minZ - (active.kind === 'commander-sky-raid' ? 125 : 62))
     const player = this.player()
     player.group.position.set(point.x, getTerrainHeight(point.x, point.z) + .9, point.z)
-    player.faceDirection(0, 1)
+    const yaw = this.initialDeployment?.player.yaw ?? 0
+    player.faceDirection(Math.sin(yaw), Math.cos(yaw))
   }
 
   private deployAirborne(mount: Mount, x: number, z: number, altitude: number, npc?: NPC): void {
@@ -448,6 +479,7 @@ export class CommanderTownMissionController {
     for (const mount of this.enemyMounts) mount.dispose()
     this.officialActors.length = 0; this.enemyMounts.length = 0; this.plannedPositions.length = 0
     this.actorMounts.clear(); this.playerIssuedCommands.clear(); this.civilianCombat.clear(); this.checkpoint.reset()
+    this.initialDeployment = undefined
   }
   dispose(): void { this.disposeTemporaryActors() }
 }

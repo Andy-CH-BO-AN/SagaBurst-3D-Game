@@ -115,17 +115,17 @@ export class ShieldCollider {
     else this.box.set(this.a.set(-.43, -.43, .12), this.b.set(.43, .43, .28))
   }
   time(from: THREE.Vector3, to: THREE.Vector3): number {
-    if (!this.state.active) return Infinity
+    if (!this.state.active || !this.visibilityAllowed()) return Infinity
     this.prepare()
     return this.preparedTime(from, to)
   }
   prepare(): void {
-    if (!this.state.active) return
+    if (!this.state.active || !this.visibilityAllowed()) return
     this.pivot.updateWorldMatrix(true, false)
     this.inverse.copy(this.pivot.matrixWorld).invert()
   }
   preparedTime(from: THREE.Vector3, to: THREE.Vector3): number {
-    if (!this.state.active) return Infinity
+    if (!this.state.active || !this.visibilityAllowed()) return Infinity
     this.a.copy(from).applyMatrix4(this.inverse); this.b.copy(to).applyMatrix4(this.inverse)
     const broad = segmentBoxTime(this.a, this.b, this.box)
     if (!this.paladin || !Number.isFinite(broad)) return broad

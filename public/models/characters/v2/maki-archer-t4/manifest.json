@@ -4,6 +4,7 @@
   "status": "ready",
   "skeleton": "project-humanoid-v1",
   "sharedLodPose": true,
+  "forwardAxeCarry": true,
   "source": {
     "title": "Shadow Warden",
     "author": "Meshy",
@@ -385,6 +386,7 @@
     }
   },
   "handShapeMode": "authored",
+  "relaxedLeftThumbForward": true,
   "preserveLodHandTopology": false,
   "clothRig": {
     "anchor": "chest",

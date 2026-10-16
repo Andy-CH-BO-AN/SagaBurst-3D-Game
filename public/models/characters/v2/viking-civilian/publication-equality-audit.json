@@ -1,12 +1,12 @@
 {
   "id": "viking-civilian",
-  "baseline": "Reviewed V27 animated uncompressed checkpoint",
+  "baseline": "Corrected animated uncompressed checkpoint",
   "verification": "Independently compare every decoded non-image bufferView byte and every non-storage document field; decode every image with Pillow and compare RGBA bytes.",
   "lods": [
     {
       "level": 0,
-      "baselineSha256": "52b703939b6adf29193c5f9ea0662305985710ff93da55f5a4250d8d5977d0bb",
-      "sha256": "a282eb7c31b79532b7fd1696e656f53a00374e79cf46c4a734965814181c4e85",
+      "baselineSha256": "10059eb47a2cb5eef215880b88117e091693726974920297045d772f754c9615",
+      "sha256": "fe95e98a50581906bb306cfcb13a5fe219c904eccfbe2ca2c17427a385de3652",
       "allNonStorageDocumentSemanticsIdentical": true,
       "accessorDefinitionsIdentical": 813,
       "nonImageBufferViewsByteIdentical": 813,
@@ -18,8 +18,8 @@
     },
     {
       "level": 1,
-      "baselineSha256": "c863bd573e8abe831f227b2e3e3f0a9e85d5c44433245c7f50985e91bb411a8b",
-      "sha256": "a5bd6d00d1589b168212312c1e86ccbbd0fa22d0748f8ad772221d439d884590",
+      "baselineSha256": "9e469ce38dab235ff62bcb484330b291463c2e06540dc11567a9e754e7714445",
+      "sha256": "9536629eda6300193197c5388246eccfda01b14d13a1c860e83fa90f43bb0a74",
       "allNonStorageDocumentSemanticsIdentical": true,
       "accessorDefinitionsIdentical": 813,
       "nonImageBufferViewsByteIdentical": 813,
@@ -31,8 +31,8 @@
     },
     {
       "level": 2,
-      "baselineSha256": "e331241d3154acf32d9a8de4a586158ab4715f08724ecb7e2d1d03dde0e90ed5",
-      "sha256": "9f948092b43db11d9a46cbc5d3b5255f363215a1971a560581922479880fc9ab",
+      "baselineSha256": "b3876b92db6ad68836214ba32fc37f07d7fb8f177309dfe01a1a239d9096145b",
+      "sha256": "b3f8eead0b088e05b2bfa1550d8ba6d52570808c26dfe1597a3abc50421dcb45",
       "allNonStorageDocumentSemanticsIdentical": true,
       "accessorDefinitionsIdentical": 813,
       "nonImageBufferViewsByteIdentical": 813,
