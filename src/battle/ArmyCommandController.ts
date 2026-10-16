@@ -156,6 +156,10 @@ export class ArmyCommandController {
       this._onFormationCompleted(commandId, target, participants, status)
     })
     if (this.commandAuthority) this.formation?.setParticipantPolicy?.(npc => this._acceptsNpc(npc))
+    this.ui?.setOnOfficialSquadLabelChanged?.(() => {
+      this._syncRosterSelection()
+      if (this.commandsEnabled) this._renderUi()
+    })
     this._syncRosterSelection()
     this._renderUi()
   }
@@ -665,7 +669,7 @@ export class ArmyCommandController {
     }
 
     const available = this._availableShortcuts()
-    const signature = `${context}:${snapshot?.members.map(member => `${member.id}:${member.state}`).join('|') ?? ''}:${this.groupingMode}:${available
+    const signature = `${context}:${this.ui?.getLabelOptionVersion?.() ?? 0}:${snapshot?.members.map(member => `${member.id}:${member.state}`).join('|') ?? ''}:${this.groupingMode}:${available
       .map(shortcut => this.groupingMode === 'squad'
         ? `${shortcut.target}:${this._targetCountSummary(shortcut.target)}` : shortcut.target)
       .join('|')}`

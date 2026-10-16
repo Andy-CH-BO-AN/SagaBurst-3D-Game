@@ -60,7 +60,20 @@ export class ArmyCommandUI {
   private readonly feedback: HTMLElement
   private readonly wheelHint: HTMLElement
   private officialSquadLabel: OfficialSquadLabelOption | undefined
-  setOfficialSquadLabel(label?: OfficialSquadLabelOption): void { this.officialSquadLabel = label }
+  private labelOptionVersion = 0
+  private onOfficialSquadLabelChanged: (() => void) | null = null
+
+  getLabelOptionVersion(): number { return this.labelOptionVersion ?? 0 }
+  setOnOfficialSquadLabelChanged(cb: (() => void) | null): void { this.onOfficialSquadLabelChanged = cb }
+
+  setOfficialSquadLabel(label?: OfficialSquadLabelOption): boolean {
+    if (this.officialSquadLabel === label) return false
+    this.officialSquadLabel = label
+    this.labelOptionVersion = (this.labelOptionVersion ?? 0) + 1
+    this.onOfficialSquadLabelChanged?.()
+    return true
+  }
+
   getOfficialSquadLabel(): OfficialSquadLabelOption | undefined { return this.officialSquadLabel }
 
   resolveSquadLabel(target: ArmyCommandTarget): string | undefined {
@@ -102,6 +115,7 @@ export class ArmyCommandUI {
   dispose(): void {
     if (this.feedbackTimer !== null) window.clearTimeout(this.feedbackTimer)
     this.townHudObserver?.disconnect()
+    this.onOfficialSquadLabelChanged = null
     this.root.remove()
   }
 
