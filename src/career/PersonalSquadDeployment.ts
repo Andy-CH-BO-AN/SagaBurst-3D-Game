@@ -5,9 +5,9 @@ import { isEagleLandingClear } from '../world/EagleLanding'
 import type { EaglePad } from './EaglePadReservations'
 import type { PersonalActorPosition } from './CareerPersonalSquadMission'
 
-interface DeploymentBounds { minX: number; maxX: number; minZ: number; maxZ: number }
+export interface DeploymentBounds { minX: number; maxX: number; minZ: number; maxZ: number }
 
-function legalSlot(point: PersonalActorPosition, occupied: readonly { x: number; z: number }[], bounds: DeploymentBounds,
+export function legalDeploymentSlot(point: PersonalActorPosition, occupied: readonly { x: number; z: number }[], bounds: DeploymentBounds,
   obstacles: readonly ObstacleData[], navigation: NavigationWorld, anchor: PersonalActorPosition): boolean {
   if (point.x < bounds.minX + 3 || point.x > bounds.maxX - 3 || point.z < bounds.minZ + 3 || point.z > bounds.maxZ - 3) return false
   if (occupied.some(p => Math.hypot(p.x - point.x, p.z - point.z) < 4.8)) return false
@@ -30,7 +30,7 @@ export function personalRearDeployment(anchor: PersonalActorPosition, official: 
       const depth = rear - row * 5
       const point = { x: anchor.x + forward.x * depth + right.x * lateral,
         z: anchor.z + forward.z * depth + right.z * lateral, yaw: anchor.yaw }
-      if (!legalSlot(point, occupied, bounds, obstacles, navigation, anchor)) continue
+      if (!legalDeploymentSlot(point, occupied, bounds, obstacles, navigation, anchor)) continue
       result.push(point); occupied.push(point)
       if (playerLeads && result.length === 1) break
     }
@@ -41,13 +41,14 @@ export function personalRearDeployment(anchor: PersonalActorPosition, official: 
 
 /** Town edge entries have limited rear depth; keep the private slots near Player on the same side. */
 export function personalTownDeployment(anchor: PersonalActorPosition, official: readonly { x: number; z: number }[],
-  count: number, bounds: DeploymentBounds, obstacles: readonly ObstacleData[], navigation: NavigationWorld): PersonalActorPosition[] {
+  count: number, bounds: DeploymentBounds, obstacles: readonly ObstacleData[], navigation: NavigationWorld,
+  accepts: (point: PersonalActorPosition) => boolean = () => true): PersonalActorPosition[] {
   const occupied = [...official, anchor], result: PersonalActorPosition[] = []
   for (let ring = 1; ring <= 16 && result.length < count; ring++) {
     for (let step = 0; step < ring * 8 && result.length < count; step++) {
       const angle = anchor.yaw + Math.PI + step * Math.PI * 2 / (ring * 8)
       const point = { x: anchor.x + Math.sin(angle) * ring * 6, z: anchor.z + Math.cos(angle) * ring * 6, yaw: anchor.yaw }
-      if (!legalSlot(point, occupied, bounds, obstacles, navigation, anchor)) continue
+      if (!accepts(point) || !legalDeploymentSlot(point, occupied, bounds, obstacles, navigation, anchor)) continue
       result.push(point); occupied.push(point)
     }
   }
@@ -94,7 +95,7 @@ export function personalOutpostDeployment(anchor: PersonalActorPosition, officia
     for (let col = 0; col <= columns * 2 && result.length < count; col++) {
       const x = midX + (col % 2 ? 1 : -1) * Math.ceil(col / 2) * 5
       const point = { x, z, yaw: anchor.yaw }
-      if (!legalSlot(point, occupied, bounds, obstacles, navigation, anchor)) continue
+      if (!legalDeploymentSlot(point, occupied, bounds, obstacles, navigation, anchor)) continue
       result.push(point); occupied.push(point)
     }
   }
