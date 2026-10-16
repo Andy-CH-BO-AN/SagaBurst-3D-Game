@@ -94,6 +94,7 @@
 ## 生涯與城鎮
 
 - `CareerProfileStore` 使用 `sagaburst_career_v1`，與 RPG／Campaign 存檔隔離。`loadChecked` 區分無存檔與損壞／不支援資料；載入失敗不得覆寫。
+- `CommanderDecapitationDeployment` 只規劃斬首行動尚無 Player 位置的首次北側邊界部署；共用 Navigation connectivity、`PersonalSquadDeployment` 淨空／間距與 `EagleLanding` 完整翼展檢查，一併保留 Player、30 名正式騎兵及 HR／巨鷹位置。威脅範圍讀取實際 NPC 射程，原生空軍另計登鷹後射程；無完整合法配置時明確失敗，不放寬檢查。`CommanderTownMissionController`／`TownScene` 沿既有 scheduler 與 Loading barrier 套用同一配置，已有 `playerPosition` 或完成部署的 checkpoint 保留原位置、死亡與空中狀態。
 - `CareerProfile` 分開 lifetime `totalMerit`、可花費 `availableMerit` 與任命 `rank`。晉升按 enlistment baseline 計算資格，必須明確任命；領獎不自動升階。獎勵以已領 battle／mission ID 保持冪等。
 - `CareerMissionMeritPolicy`／`MeritCalculator` 管理軍功；Recruit／Soldier／Veteran／Captain board 勝場按任務 Tier 1–4 分開保存，不由當前軍階反推。Duel 擊敗 tier 按 preset 推進，不改 board 勝場。
 - `CaptainMissionCatalog` 擁有六個獨立 `captain-…` template IDs 與 Captain／Commander 分頁；不以其他 Captain 勝場鎖定順序。Captain Siege 不需要 Outpost Relief，原 Soldier Assault 的 canonical prerequisite 保持原規則。Eagle 解鎖讀取 `CareerInventory` 真實 xongkoro ownership；部署再驗證玩家可用 allocation 與戰損，不以當前騎乘代替 ownership。

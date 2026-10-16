@@ -174,9 +174,9 @@ export class CareerMountController implements EquipmentMountAdapter {
     return true
   }
 
-  restoreActiveMount(): boolean {
+  restoreActiveMount(restoreAerial = true): boolean {
     const profile = this.readProfile()
-    const aerial = profile.playerAerialState?.sceneKey === this.sceneKey() ? profile.playerAerialState : undefined
+    const aerial = restoreAerial && profile.playerAerialState?.sceneKey === this.sceneKey() ? profile.playerAerialState : undefined
     if (aerial?.fall) return false
     const savedId = profile.activeMission?.mountState?.activeMountId ?? (aerial?.mount ? 'xongkoro' : undefined)
     const id = savedId ? canonicalCareerMountId(savedId) : undefined
