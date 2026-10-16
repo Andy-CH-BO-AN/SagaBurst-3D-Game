@@ -1,3 +1,5 @@
+import { createTownCommandWatchtower } from './TownCommandWatchtower'
+import { getTownCommandWatchtowerLayout, validateWatchtowerPlacement } from './TownCommandWatchtowerLayout'
 import { resolveTownEagleGarrison, TOWN_EAGLE_GARRISON_NAME, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import { XONGKORO_LANDING } from '../world/EagleLanding'
@@ -23,6 +25,8 @@ export class TownWorld {
   readonly hr: TownHRLayout
   readonly eagleGarrison: TownEagleGarrisonLayout
   readonly eagleTraining: TownEagleTrainingGround
+  readonly commandWatchtower = getTownCommandWatchtowerLayout()
+  readonly townCenterHeight: number
   readonly terrainMesh: THREE.Mesh
   readonly obstacles: ObstacleData[] = []
   /** Rendered roofs/crowns/boards supplement body colliders for flight clearance. */
@@ -68,6 +72,8 @@ export class TownWorld {
     this.building('stable', '馬廄 · STABLE', TOWN_SITES.stable.x, TOWN_SITES.stable.z, 14, 11, 3.7, 'stable', TOWN_SITES.stable.yaw)
     for (const home of townHousing(faction)) this.building(home.id, '住宅', home.x, home.z, home.width, home.depth, 3.4, 'home', home.yaw)
     this.building('town-center', 'TOWN CENTER', TOWN_CENTER.x, TOWN_CENTER.z, TOWN_CENTER.width, TOWN_CENTER.depth, 7, 'hall')
+    const hall = this.buildings.find(building => building.id === 'town-center')!.hp.root
+    this.townCenterHeight = new THREE.Box3().setFromObject(hall).max.y - getTerrainHeight(TOWN_CENTER.x, TOWN_CENTER.z)
     for (const road of TOWN_CITY_ROADS) this.road(road.ax, road.az, road.bx, road.bz, road.width)
     this.road(32, 12, 74, 12, 32)
     this.road(30, -58, 125, -58, 6)
@@ -124,6 +130,12 @@ export class TownWorld {
     this.eagleTraining = resolveTownEagleTrainingGround(this.obstacles, this.roads, this.hr)
     this.eagleGarrison = resolveTownEagleGarrison(this.eagleTraining)
     this.eagleTrainingGround()
+    validateWatchtowerPlacement(this.commandWatchtower, [...this.obstacles, ...this.airspaceObstacles], this.roads)
+    const watchtower = createTownCommandWatchtower(this.commandWatchtower, faction, this.obstacles, {
+      stone: this.stone, wood: this.wood, dark: this.dark, plaster: this.plaster, snow: this.snow, accent: this.roofMat,
+    })
+    this.root.add(watchtower); this.trackOwned(watchtower)
+    this.airspaceObstacles.push({ box: this.commandWatchtower.footprint.clone(), isBarricade: false })
     this.airspaceObstacles.push(...this.obstacles)
     this.validateAirfield()
     this.batch(this.root)

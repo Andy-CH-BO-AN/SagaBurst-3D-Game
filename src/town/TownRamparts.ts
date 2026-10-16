@@ -100,7 +100,7 @@ export function townRampartHeight(layout: TownRampartLayout, x: number, z: numbe
   return null
 }
 /** Exact sloped slab shared by visuals and projectile volumes, with no solid wall below it. */
-function slabGeometry(s: WalkRampSurface, thickness = .35): THREE.BufferGeometry {
+export function slabGeometry(s: WalkRampSurface, thickness = .35): THREE.BufferGeometry {
   // BoxGeometry has vertices only at its ends. Split at the slope/landing knee
   // so its triangles follow the same piecewise surface as getWalkRampHeight.
   if (s.landing > 0) {

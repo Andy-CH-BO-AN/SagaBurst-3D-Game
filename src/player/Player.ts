@@ -579,7 +579,7 @@ export class Player {
       preserveWorldPosition = true
     }
     const mountPosition = groundedEagleDismount ? this.fallFeet.clone().addScaledVector(THREE.Object3D.DEFAULT_UP, PLAYER_HALF_HEIGHT)
-      : preserveWorldPosition ? null : this.currentMount.group.position.clone()
+      : preserveWorldPosition ? null : this.currentMount.group.position.clone().addScaledVector(THREE.Object3D.DEFAULT_UP, PLAYER_HALF_HEIGHT)
     this.currentMount.releaseRider()
     this.currentMount = null
     this.isMounted = false
