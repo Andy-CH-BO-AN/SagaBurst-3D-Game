@@ -35,15 +35,15 @@ class Element {
   descendants(): Element[] { return this.children.flatMap(child => [child, ...child.descendants()]) }
 }
 
-function harness() {
+function harness(type: 'captain' | 'ranger' = 'captain') {
   vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
   vi.stubGlobal('Option', class { constructor(readonly text: string, readonly value: string) {} })
   let profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', totalMerit: 60000, availableMerit: 60000,
     duelHighestDefeatedTierByPreset: { roman_heavy_infantry: 3 } }
   const store = new CareerProfileStore(new MemoryStorage())
   const save = (next: CareerProfile) => { if (!store.save(next)) return false; profile = next; return true }
-  expect(recruitPersonalSquadMember(profile, 'captain', save).recruited).toBe(true)
-  const purchase = purchaseTownEquipment(profile, 'maki-ranger-bow-ranged')
+  expect(recruitPersonalSquadMember(profile, type, save).recruited).toBe(true)
+  const purchase = purchaseTownEquipment(profile, type === 'ranger' ? 'paladin_mace_t4' : 'maki-ranger-bow-ranged')
   expect(purchase.purchased).toBe(true)
   expect(save(purchase.profile)).toBe(true)
   const state: { state: PersonalSquadState } = { state: 'RESERVE' }
@@ -101,18 +101,20 @@ describe('Town HR recruitment controls', () => {
 
 describe('Town squad equipment availability and mission guidance', () => {
 
-  it('unlocks when the mission is cleared and persists a selected Ranger Bow through the real equipment transaction', () => {
-    const h = harness()
+  it('unlocks all Ranger slots after a mission and persists a purchased melee weapon through the real transaction', () => {
+    const h = harness('ranger')
     h.set({ ...h.read(), activeMission: createCareerDuelMission(h.read(), 'roman_heavy_infantry', 4, 'opponent', 'referee', 'duel')! })
     h.render()
     const settled = { ...h.read() }; delete settled.activeMission; h.set(settled)
     const view = h.render()
+    expect(view.selects.map(select => select.attributes['aria-label'].split(' ').at(-1))).toEqual(['melee', 'ranged', 'shield', 'mount'])
     expect(view.selects.every(select => !select.disabled)).toBe(true)
-    const ranged = view.selects.find(select => select.attributes['aria-label'] === 'T4 Captain #1 ranged')!
+    const ranged = view.selects.find(select => select.attributes['aria-label'].endsWith(' ranged'))!
+    const melee = view.selects.find(select => select.attributes['aria-label'].endsWith(' melee'))!
     expect(ranged.options.some(option => option.value === 'maki-ranger-bow-ranged')).toBe(true)
-    ranged.value = 'maki-ranger-bow-ranged'; ranged.onchange!()
+    melee.value = 'paladin_mace_t4'; melee.onchange!()
     expect(h.render().notice).toBe('裝備已更新。')
-    expect(h.store.load()!.personalSquad!.members[0].equipment).toMatchObject({ ranged: 'maki-ranger-bow-ranged', shield: null })
+    expect(h.store.load()!.personalSquad!.members[0].equipment).toMatchObject({ melee: 'paladin_mace_t4', ranged: 'maki-ranger-bow-ranged', shield: null })
     h.set(acceptCareerOutpost(h.read(), 1, 'next-outpost')!)
     expect(h.render().notice).toContain('任務尚未結算')
   })
@@ -130,10 +132,10 @@ function townUIHarness(personal: EquipmentSquadAdapter = { render: vi.fn() }) {
   const squads: TownEquipmentSquadView[] = names.map((name, index) => ({ id: (index + 1) as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8,
     name, total: index === 7 ? 5 : 30, alive: 1, refittable: 1, members: [{ ...civilian, id: `soldier-${index + 1}`, name: 'Soldier' }] }))
   squads.push({ id: 'personal', name: 'HR 私兵', total: 1, alive: 1, refittable: 1, members: [] },
-    { id: 'civilian', name: '平民／商人', total: 21, alive: 21, refittable: 20, members: [civilian,
-      { ...civilian, id: 'merchant', name: 'Merchant', tier: 4, readOnly: true,
-        fixedEquipment: ['T4 Sword', 'T4 Mace', 'T4 Shield'],
-        equipment: { ...civilian.equipment, melee: { id: 'paladin_sword_t4', label: 'T4 Sword', tier: 4 },
+    { id: 'civilian', name: '平民／商人', total: 21, alive: 21, refittable: 21, members: [civilian,
+      { ...civilian, id: 'merchant', name: 'Merchant', tier: 4, lockedSlots: ['melee', 'ranged', 'shield'],
+        fixedEquipment: ['T5 Sword', 'T5 Axe', 'T4 Shield'],
+        equipment: { ...civilian.equipment, melee: { id: 'sword_t5', label: 'T5 Sword', tier: 5 },
           shield: { id: 'paladin_shield_t4', label: 'T4 Shield', tier: 4 } } }] })
   const view = { allowed: true, reason: '', squads }
   const change = vi.fn(() => '裝備已保存。'), bulk = vi.fn(() => '已達最佳分配，保持原裝備。')

@@ -13,7 +13,7 @@ description: 匯入或重定向 SagaBurst 戰鬥動畫，串接裝備選擇與�
 - 匯入／改骨架時讀 [humanoid-rig-skinning](../humanoid-rig-skinning/SKILL.md)。保留授權、來源 hash、完整 take 的 frame/FPS 與可重建步驟；來源原檔不放 runtime bundle。
 - 正式前方是 local `+Z`。依解剖／掌心座標重定向，不能只匹配骨名。位移由 gameplay 管理，移除來源 root translation/scale 與非預期位移。
 - 只替換指定 clips，覆蓋所有必要 LOD；比對基準，保留 mesh、skin、bind、material、texture、socket 及其他 clips，同步 manifest 名稱。
-- 斧頭流程可參考 [tools/axe-attacks.md](../../../tools/axe-attacks.md)，但接觸幀與握點須依本次資產量測。Maki 的側身弓姿與已烘焙握點見 [posed-source characters](../humanoid-rig-skinning/references/posed-source-characters.md)。
+- 斧頭流程可參考 [tools/axe-attacks.md](../../../tools/axe-attacks.md)，但接觸幀與握點須依本次資產量測。靜態來源的姿勢與 Ranger 替換契約見 [posed-source characters](../humanoid-rig-skinning/references/posed-source-characters.md)。
 
 ## Runtime 契約
 

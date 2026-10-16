@@ -164,11 +164,14 @@ async function bootstrap(): Promise<void> {
     return
   }
   const menuOnly = query.get('menu') === '1'
-  if (import.meta.env.DEV && ['viking-t4', 'roman-t4', 'maki-t4', 'roman-t5', 'viking-t5'].includes(query.get('devhero') ?? '')) {
+  if (import.meta.env.DEV && ['viking-t4', 'roman-t4', 'maki-t4', 'roman-t5', 'viking-t5', 'roman-civilian', 'viking-civilian'].includes(query.get('devhero') ?? '')) {
     const { launchVikingHeroPreview, ROMAN_HERO } = await import('./debug/VikingHeroPreview')
     const { HERO_ASSETS } = await import('./world/HeroAssetCatalog')
+    const { CIVILIAN_HUMANOID_ASSETS } = await import('./world/HumanoidAssetRegistry')
     const requested = query.get('devhero')
-    const descriptor = requested === 'roman-t5' ? HERO_ASSETS['roman-hero-t5'].descriptor
+    const descriptor = requested === 'roman-civilian' ? CIVILIAN_HUMANOID_ASSETS.roman
+      : requested === 'viking-civilian' ? CIVILIAN_HUMANOID_ASSETS.viking
+      : requested === 'roman-t5' ? HERO_ASSETS['roman-hero-t5'].descriptor
       : requested === 'viking-t5' ? HERO_ASSETS['viking-hero-t5'].descriptor
       : requested === 'maki-t4' ? (await import('./world/MakiRangerEquipment')).MAKI_HERO : requested === 'roman-t4' ? ROMAN_HERO : undefined
     await launchVikingHeroPreview(container!, descriptor)

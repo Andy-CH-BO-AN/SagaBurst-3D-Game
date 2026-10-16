@@ -33,7 +33,6 @@ import {
   CUSTOM_BATTLE_UNIT_TIERS,
 } from '../battle/UnitPresetCatalog'
 import { isHeroAssetId, isSetupPlayerHeroId, type PlayerHeroId } from '../world/HeroAssetCatalog'
-import { WEAPONS } from '../rpg/WeaponDatabase'
 import {
   DEFENSE_CAMPAIGN_REINFORCEMENT_STAGING,
   getDefenseCampaignStage,
@@ -374,9 +373,6 @@ export function validateDefenseCampaignLaunchConfig(
     }
     if (!(PLAYER_RANGED_WEAPON_IDS as readonly string[]).includes(loadout.rangedWeaponId)) {
       errors.push('Invalid player ranged weapon')
-    }
-    if (config.playerHeroId === 'maki-archer-t4' && WEAPONS[loadout.rangedWeaponId]?.combatKind !== 'bow') {
-      errors.push('Ranger player must equip a bow')
     }
     if (
       loadout.shieldId !== null

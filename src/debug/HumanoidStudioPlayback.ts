@@ -37,15 +37,11 @@ export class HumanoidStudioPlayback {
   private pilumPreview: ArrowProjectile | null = null
   private arrowPreview: ArrowProjectile | null = null
   private readonly arrowPreviewVelocity = new THREE.Vector3()
-  private readonly customBowPreview: boolean
-  private readonly bowMeleeAction?: 'axeAttack2H'
   private elapsed = 0
   private equipped = true
   private started = false
 
-  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', public mountKind: MountedPoseKind = 'HORSE', assets?: { bow: MakiBowAsset, meleeAnimation: 'axeAttack2H' }, private readonly equipment?: { swordId: string; axeId: string; shieldId: string }) {
-    this.customBowPreview = !!assets
-    this.bowMeleeAction = assets?.meleeAnimation
+  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', public mountKind: MountedPoseKind = 'HORSE', assets?: { bow: MakiBowAsset }, private readonly equipment?: { swordId: string; axeId: string; shieldId: string }) {
     this.lance.add(this.lanceModel)
     WeaponMeshFactory.buildMelee('steel_lance', this.lanceModel)
     WeaponMeshFactory.buildShield(equipment?.shieldId ?? (faction === 'roman' ? 'scutum_t2' : 'round_shield_t2'), this.shield)
@@ -104,9 +100,9 @@ export class HumanoidStudioPlayback {
           const dt = Math.min(1 / 60, duration - elapsed)
           this.animator.setLocomotion(speed, mounted, sprinting)
           const events = this.animator.update(dt)
-          if (this.customBowPreview && events.projectileRelease) {
+          if (events.projectileRelease) {
             this.instance.root.updateMatrixWorld(true)
-            this.target.set(0, 1.25, 10).applyMatrix4(this.instance.root.matrixWorld)
+            this.target.set(0, 1.4, 10).applyMatrix4(this.instance.root.matrixWorld)
             this.bowVisual.update(1, this.target, true)
             const scene = this.instance.root.parent
             if (scene instanceof THREE.Scene) {
@@ -150,7 +146,7 @@ export class HumanoidStudioPlayback {
     this.bow.visible = mode !== 'raw'
     this.sword.visible = this.pilum.visible = false
     this.instance.root.updateMatrixWorld(true)
-    this.target.set(0, this.customBowPreview ? 1.25 : 1.4, 10).applyMatrix4(this.instance.root.matrixWorld)
+    this.target.set(0, 1.4, 10).applyMatrix4(this.instance.root.matrixWorld)
     if (this.bow.visible) this.bowVisual.update(this.state === 'bowHold' ? 1 : this.state === 'bowRelease' ? 1 - time : time, this.target, !(this.state === 'bowRelease' && time >= 0.04 / 0.22))
     this.instance.root.updateMatrixWorld(true)
   }
@@ -186,6 +182,7 @@ export class HumanoidStudioPlayback {
   }
 
   private startEquipmentAttack(mounted: boolean): void {
+    if (this.equipmentLoadout === 'bow' || this.equipmentLoadout === 'none') return
     const action = this.equipmentAction(mounted)
     const id = this.equipmentLoadout === 'axe' ? (this.useSelectedAxe ? 'viking_axe_t3' : this.equipment?.axeId)
       : this.equipmentLoadout === 'sword' ? this.equipment?.swordId : undefined
@@ -193,7 +190,7 @@ export class HumanoidStudioPlayback {
   }
 
   private equipmentAction(mounted: boolean): 'mountedLance' | 'lanceThrust' | 'axeAttack1H' | 'axeAttack2H' | 'swordSlash' {
-    return this.bowMeleeAction && this.equipmentLoadout === 'bow' ? this.bowMeleeAction : this.equipmentLoadout === 'lance' ? mounted ? 'mountedLance' : 'lanceThrust'
+    return this.equipmentLoadout === 'lance' ? mounted ? 'mountedLance' : 'lanceThrust'
       : this.equipmentLoadout === 'axe' ? this.hasShield ? 'axeAttack1H' : 'axeAttack2H' : 'swordSlash'
   }
 
@@ -342,7 +339,7 @@ export class HumanoidStudioPlayback {
       }
     }
     if (this.bow.visible) {
-      this.target.set(0, this.customBowPreview ? 1.25 : 1.4, 10).applyMatrix4(this.instance.root.matrixWorld)
+      this.target.set(0, 1.4, 10).applyMatrix4(this.instance.root.matrixWorld)
       const archery = this.state.startsWith('bow')
       this.bowVisual.update(archery ? this.state === 'bowHold' ? 1 : (this.elapsed % 2) / 2 : 0, this.target, archery)
     }

@@ -1,0 +1,78 @@
+{
+  "sourceFile": "Meshy_AI_Nordic_Warrior_1016085035_texture.glb",
+  "sha256": "d793d2a8aa196d928bd2188ff66502a02eca2328d6024528a856c6787362172d",
+  "bytes": 19864360,
+  "originalTriangles": 10295,
+  "sourceBoundsBlender": [
+    [
+      -0.4873189926147461,
+      -0.2630480229854584,
+      -0.9501479864120483
+    ],
+    [
+      0.48336201906204224,
+      0.26927897334098816,
+      0.945842981338501
+    ]
+  ],
+  "sourceImages": [
+    {
+      "name": "normal",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "name": "texture_0",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "name": "texture_0_metallic_roughness",
+      "width": 4096,
+      "height": 4096
+    }
+  ],
+  "sourceHasSkins": false,
+  "sourceHasAnimations": false,
+  "sourceTopology": {
+    "weldedVertices": 5089,
+    "components": [
+      {
+        "vertices": 5051,
+        "bounds": [
+          [
+            -0.45750629901885986,
+            -0.24695554375648499,
+            0.0
+          ],
+          [
+            0.45379140973091125,
+            0.25280529260635376,
+            1.7799999713897705
+          ]
+        ]
+      },
+      {
+        "vertices": 38,
+        "bounds": [
+          [
+            -0.18118533492088318,
+            0.12223009765148163,
+            1.076505184173584
+          ],
+          [
+            -0.13776947557926178,
+            0.15238507091999054,
+            1.308748483657837
+          ]
+        ]
+      }
+    ],
+    "boundaryEdges": 27
+  },
+  "normalization": {
+    "scale": 0.9388230378079471,
+    "sourceGroundZ": -0.9501479864120483
+  },
+  "pixelsInspected": "front, strict side and rear source renders before edits"
+}

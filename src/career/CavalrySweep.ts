@@ -24,7 +24,7 @@ export const SWEEP_DETECTION_RANGE = 80
 export const SWEEP_CENTER = new THREE.Vector3(110, 0, -TOWN_PLAYABLE_WORLD_BOUND + 35)
 export const SWEEP_CAPTAIN_START = new THREE.Vector3(TOWN_MOUNTED_MISSION_MUSTER.x, 0, TOWN_MOUNTED_MISSION_MUSTER.z)
 export const SWEEP_YAW = Math.PI
-/** Indexed by mission slot: Captain at 0, Maki at 29; gaps receive temporary riders. */
+/** Indexed by mission slot: Captain at 0, Ranger at 29; gaps receive temporary riders. */
 export type SweepGarrisonActorIds = readonly (string | undefined)[]
 export function sweepPlayerSpawn(captain = SWEEP_CAPTAIN_START, yaw = SWEEP_YAW): THREE.Vector3 {
   return followSlotWorldPosition(captain, yaw, returnFollowLocalOffset(0, 29, true, 5))
@@ -65,7 +65,7 @@ export function createSweepRoster(faction: CharacterFaction, captain = SWEEP_CAP
       const position = leader ? anchor : followSlotWorldPosition(anchor, yaw, returnFollowLocalOffset(slot, 29, true, 5))
       specs.push({
         x: position.x, z: position.z, faction: Faction.TOWN, characterFaction: faction, aiType: leader && squadId === 2 ? AIType.RANGED : AIType.MELEE,
-        name: leader ? squadId === 1 ? 'Captain' : 'Maki' : `Cavalry ${squadId}-${index}`,
+        name: leader ? squadId === 1 ? 'Captain' : 'Shadow Warden' : `Cavalry ${squadId}-${index}`,
         tier: leader ? 4 : 1, cavalry: true, respawnEnabled: false, presetId, squadId,
         loadout: { ...(hero ? resolveT4UnitLoadout(presetId) : UNIT_PRESETS[presetId].tierLoadouts[1]), mountId: hero ? squadId === 2 ? 'black-cat' : hero.mountOverride ?? 'horse' : 'horse' },
         ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile } : {}),

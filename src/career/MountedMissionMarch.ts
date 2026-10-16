@@ -186,6 +186,6 @@ function legacySquads(npcs: readonly NPC[]): Array<{ leader: NPC | undefined; me
   const second = rescue.filter(npc => npc.squadId === 2)
   return [
     { leader: first.find(npc => npc.name === 'Captain'), members: first, leaderOffset: new THREE.Vector3() },
-    { leader: second.find(npc => npc.name === 'Maki'), members: second, leaderOffset: SECOND_SQUAD_OFFSET.clone() },
+    { leader: second.find(npc => npc.specialCombatProfile === 'maki-ranger'), members: second, leaderOffset: SECOND_SQUAD_OFFSET.clone() },
   ]
 }

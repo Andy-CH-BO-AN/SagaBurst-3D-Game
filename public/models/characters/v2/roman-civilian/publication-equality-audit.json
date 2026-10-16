@@ -1,0 +1,48 @@
+{
+  "id": "roman-civilian",
+  "baseline": "Reviewed V27 animated uncompressed checkpoint",
+  "verification": "Independently compare every decoded non-image bufferView byte and every non-storage document field; decode every image with Pillow and compare RGBA bytes.",
+  "lods": [
+    {
+      "level": 0,
+      "baselineSha256": "d2c24704263a444d69daf0cb8ecfe51137b698e6b4cb38848e7c7f280c3087d6",
+      "sha256": "f20011d5b915359c497ed1ed4d45508d32f6c5cd551dd18d379269d04e670381",
+      "allNonStorageDocumentSemanticsIdentical": true,
+      "accessorDefinitionsIdentical": 769,
+      "nonImageBufferViewsByteIdentical": 769,
+      "imageCount": 3,
+      "decodedRgbaByteIdentical": true,
+      "jpegPayloadUnchanged": true,
+      "encodedImagesSha256": "f60a18e989758f0f372899c934c37e5f04da12128739dde7017cc1a5994422ff",
+      "decodedRgbaImagesSha256": "96a3b2f53dd2d68f553a8fd9e07b69ad7ef376e2f588dedf339b6cca757f700b"
+    },
+    {
+      "level": 1,
+      "baselineSha256": "fe9aba311b9fa0547bea53db59fb5dfc90a57dd523c706ba67d7ea6ed3b33172",
+      "sha256": "d4f558bd5e4971ac73341593676d97122446740a6c3d2a77280a7a6087e360de",
+      "allNonStorageDocumentSemanticsIdentical": true,
+      "accessorDefinitionsIdentical": 769,
+      "nonImageBufferViewsByteIdentical": 769,
+      "imageCount": 3,
+      "decodedRgbaByteIdentical": true,
+      "jpegPayloadUnchanged": true,
+      "encodedImagesSha256": "e29091325d4131588118b06aa251128fa540a1b18969b8a55eb328d1c0907a4c",
+      "decodedRgbaImagesSha256": "3ce7db92e8396e89062a8d0b0477d04ba6f22016c4a75cc3063cafd9d2d27a41"
+    },
+    {
+      "level": 2,
+      "baselineSha256": "d7e7afe29c350e4baa2ec4ad637c230f1580731620afc08f102c1853b429f8f7",
+      "sha256": "645042dbfc47de915a3c08359f126447b9b783cb6117bcbd97b3b525a5b38196",
+      "allNonStorageDocumentSemanticsIdentical": true,
+      "accessorDefinitionsIdentical": 769,
+      "nonImageBufferViewsByteIdentical": 769,
+      "imageCount": 3,
+      "decodedRgbaByteIdentical": true,
+      "jpegPayloadUnchanged": true,
+      "encodedImagesSha256": "8c58baa29290e6ddcd1ef074b29329309cd3627857ca9316383a30f6db7bbbce",
+      "decodedRgbaImagesSha256": "bc2822ab7accc27e35548c482e3d4fc0356d7bbbffc9d8c252badd88b30bd1f5"
+    }
+  ],
+  "schemaVersion": 2,
+  "digestDefinition": "SHA-256 of ordered SHA-256 hex strings concatenated without separators"
+}

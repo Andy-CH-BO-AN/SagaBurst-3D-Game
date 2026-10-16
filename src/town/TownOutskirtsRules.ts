@@ -56,7 +56,7 @@ export function outskirtsCavalryMember(townFaction: CharacterFaction, playerFact
   return { ...common, tier, aiType: ranger ? AIType.RANGED : AIType.MELEE,
     name: ranger ? 'Ranger' : 'Captain', presetId, visualAssetId: hero.visualAssetId,
     combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile,
-    loadout: ranger ? { ...loadout, meleeWeaponId: 'maki-ranger-bow', mountId: 'black-cat' } : loadout }
+    loadout: ranger ? { ...loadout, mountId: 'black-cat' } : loadout }
 }
 
 const points = (coordinates: readonly (readonly [number, number])[]) => coordinates.map(([x, z]) => new THREE.Vector3(x, 0, z))

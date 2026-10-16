@@ -1,14 +1,20 @@
-import { Vector3 } from 'three'
+import { Box3, Vector3 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import { Faction } from '../../src/combat/CombatFaction'
 import type { Player } from '../../src/player/Player'
-import { AIState, NPC } from '../../src/world/NPC'
+import { AIState, AIType, NPC } from '../../src/world/NPC'
 import type { ObstacleData } from '../../src/world/Terrain'
 import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
+import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
+import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
 import { townMilitaryEquipment } from '../../src/town/TownRules'
+import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 
 interface SelectionActor {
   faction: Faction
+  specialCombatProfile?: 'maki-ranger'
+  holdsRampartFirePosition: boolean
+  _activeNavigationWorld?: { townNav: TownLayeredNavigation }
   combatPosition: Vector3
   rangedWeaponId: string
   meleeWeaponId: string
@@ -30,8 +36,9 @@ interface SelectionActor {
   _restoreCombatReadyRangedVisual(): void
   _switchToMelee(consumeRemainingAmmo?: boolean, cancelAnimation?: boolean): void
   _findRangedTrajectoryBlocker(): ObstacleData | null
+  _isRampartMeleeThreat(position: Vector3): boolean
 }
-interface SelectionMethods extends Pick<SelectionActor, '_cancelEquipmentCombatState' | '_switchToMelee'> {
+interface SelectionMethods extends Pick<SelectionActor, '_cancelEquipmentCombatState' | '_switchToMelee' | '_isRampartMeleeThreat'> {
   _selectRangedMeleeMode(this: SelectionActor, target: { position: Vector3; isDead: boolean } | null,
     player: Player, nearby: readonly NPC[], obstacles: ObstacleData[]): void
 }
@@ -40,50 +47,125 @@ interface SelectionMethods extends Pick<SelectionActor, '_cancelEquipmentCombatS
 const methods = NPC.prototype as unknown as SelectionMethods
 function selection(overrides: Partial<SelectionActor> = {}) {
   const actor: SelectionActor = {
-    faction: Faction.ENEMY, combatPosition: new Vector3(), rangedWeaponId: 'recurve_longbow',
+    faction: Faction.ENEMY, holdsRampartFirePosition: false, combatPosition: new Vector3(), rangedWeaponId: 'recurve_longbow',
     meleeWeaponId: 'steel_sword', arrows: 12, rangedActive: true, maxRangedAttackDistance: 30,
     bowArrowReleased: false, animator: { busy: false, cancel: vi.fn() }, bowVisual: { hideArrow: vi.fn() },
     swordPivot: { visible: false }, bowPivot: { visible: true }, attackTimer: 2,
     attackHitProcessed: true, meleeApproachLimit: 3, meleeApproachTarget: {}, pendingLanceChargeSpeed: 15,
     state: AIState.ATTACK, _cancelEquipmentCombatState: methods._cancelEquipmentCombatState,
     _switchToMelee: methods._switchToMelee, _restoreCombatReadyRangedVisual: vi.fn(),
+    _isRampartMeleeThreat: methods._isRampartMeleeThreat,
     _findRangedTrajectoryBlocker: vi.fn(() => null), ...overrides,
   }
   const target = { position: new Vector3(0, 0, 20), isDead: false }
-  const player = { faction: Faction.PLAYER, dead: true, combatPosition: new Vector3(0, 0, 100) } as Player
-  const select = (nearby: readonly NPC[] = []) => methods._selectRangedMeleeMode.call(actor, target, player, nearby, [])
+  const player = { faction: Faction.PLAYER, dead: true, combatPosition: new Vector3(0, 0, 100) }
+  const select = (nearby: readonly NPC[] = []) => methods._selectRangedMeleeMode.call(actor, target, player as Player, nearby, [])
   return { actor, target, player, select }
 }
 
-describe('Commander weapon choice', () => {
-  it('wires faction T5 melee and reversible T5 bow into the actual Town Commander loadout', () => {
+
+interface TemporaryLoadoutActor {
+  arrows: number
+  rangedActive: boolean
+  meleeWeaponId: string | null
+  rangedWeaponId?: string
+  loadout: UnitLoadout
+  townCategory?: 'civilian'
+  townArmed: boolean
+  swordPivot: { visible: boolean }
+  bowPivot: { visible: boolean }
+  shieldPivot: { visible: boolean }
+  _usesReversibleRangedSwitch(): boolean
+  _switchToMelee(): void
+  applyTemporaryCombatLoadout(loadout: UnitLoadout): void
+  restoreCombatLoadout(): void
+}
+/** Actual temporary-loadout transaction; only mesh rebuilding is an external boundary. */
+function temporaryLoadoutActor(): TemporaryLoadoutActor {
+  return Object.assign(Object.create(NPC.prototype) as TemporaryLoadoutActor, {
+    _tier: 4, _faction: Faction.ENEMY, _aiType: AIType.RANGED, state: AIState.IDLE,
+    arrows: 7, rangedActive: true, _rangedDamage: 20, meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow',
+    shieldId: null, originalCombatEquipment: null, temporaryReversibleRangedSwitch: false, townArmed: false,
+    loadout: { meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow', reversibleRangedSwitch: true },
+    animator: { cancel: vi.fn(), setEquipment: vi.fn() }, bowVisual: { hideArrow: vi.fn() }, rig: {},
+    swordPivot: { visible: false }, bowPivot: { visible: true }, shieldPivot: { visible: false },
+    _setActiveMeleeWeapon(this: TemporaryLoadoutActor, id: string | null) { this.meleeWeaponId = id },
+    _rebuildActiveRangedVisual: vi.fn(), rebuildShield: vi.fn(),
+  })
+}
+
+describe('Reversible NPC weapon choice', () => {
+  it('wires authored Commander and Ranger loadouts to their normal melee and reversible bows', () => {
     expect(townMilitaryEquipment('roman', 'commander').loadout).toMatchObject({
       meleeWeaponId: 'sword_t5', rangedWeaponId: 'bow_t5', reversibleRangedSwitch: true,
     })
     expect(townMilitaryEquipment('viking', 'commander').loadout).toMatchObject({
       meleeWeaponId: 'axe_t5', rangedWeaponId: 'bow_t5', reversibleRangedSwitch: true,
     })
+    expect(resolveT4UnitLoadout('viking_archer')).toMatchObject({
+      meleeWeaponId: 'viking_axe_t3', rangedWeaponId: 'maki-ranger-bow-ranged', reversibleRangedSwitch: true,
+    })
+    expect(resolveT4UnitLoadout('roman_archer')).toMatchObject({
+      meleeWeaponId: 'centurion_blade', rangedWeaponId: 'maki-ranger-bow-ranged', reversibleRangedSwitch: true,
+    })
   })
-  it('cancels an unreleased attack for a nearby hostile without spending ammunition', () => {
-    const h = selection()
+  it('switches a Ranger to real melee for a nearby hostile without spending ammunition', () => {
+    const h = selection({ specialCombatProfile: 'maki-ranger', rangedWeaponId: 'maki-ranger-bow-ranged', meleeWeaponId: 'viking_axe_t3' })
     const hostile = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 0, 5) } as NPC
     h.select([hostile])
     expect(h.actor.rangedActive).toBe(false)
     expect(h.actor.arrows).toBe(12)
+    expect(h.actor.swordPivot.visible).toBe(true)
+    expect(h.actor.bowPivot.visible).toBe(false)
     expect(h.actor.animator.cancel).toHaveBeenCalled()
     expect(h.actor.bowVisual.hideArrow).toHaveBeenCalledOnce()
     expect(h.actor).toMatchObject({ state: AIState.CHASE, attackTimer: 0, attackHitProcessed: false,
       bowArrowReleased: false, pendingLanceChargeSpeed: 0, meleeApproachLimit: Infinity, meleeApproachTarget: null })
   })
 
-  it('ignores peaceful and dead neighbors when the selected hostile is in bow range', () => {
-    const h = selection()
+  it('uses each temporary loadout policy and restores the original equipment and ammunition', () => {
+    const actor = temporaryLoadoutActor(), original = { ...actor.loadout }
+    actor.townCategory = 'civilian'
+    actor.applyTemporaryCombatLoadout({ meleeWeaponId: 'heavy_lance', rangedWeaponId: 'recurve_longbow' })
+    expect([actor.swordPivot.visible, actor.bowPivot.visible, actor.shieldPivot.visible]).toEqual([false, false, false])
+    actor._switchToMelee()
+    expect(actor.arrows).toBe(0)
+    actor.applyTemporaryCombatLoadout(resolveT4UnitLoadout('roman_archer'))
+    expect(actor.bowPivot.visible).toBe(false)
+    actor._switchToMelee()
+    expect(actor.arrows).toBe(30)
+    expect(actor.rangedActive).toBe(false)
+    expect(actor.swordPivot.visible).toBe(false)
+    expect(actor._usesReversibleRangedSwitch()).toBe(true)
+    actor.restoreCombatLoadout()
+    expect(actor).toMatchObject({ meleeWeaponId: 'steel_sword', rangedWeaponId: 'recurve_longbow', arrows: 7, rangedActive: true })
+    expect(actor.loadout).toEqual(original)
+    expect([actor.swordPivot.visible, actor.bowPivot.visible, actor.shieldPivot.visible]).toEqual([false, false, false])
+    expect(actor._usesReversibleRangedSwitch()).toBe(true)
+  })
+
+  it('ignores peaceful, dead and below-rampart threats until a live hostile reaches the deck', () => {
+    const townNav = new TownLayeredNavigation({
+      decks: [{ id: 'test-deck', gateId: 'north', box: new Box3(),
+        surface: { startX: 0, startZ: 0, startY: 6, topY: 6, dirX: 0, dirZ: 1, length: 30, landing: 0, halfWidth: 2, mounted: true } }],
+      ramps: [], corners: [], lengths: [], perimeter: 0, wallSpans: [],
+    })
+    const h = selection({ specialCombatProfile: 'maki-ranger', holdsRampartFirePosition: true,
+      combatPosition: new Vector3(0, 6, 0), _activeNavigationWorld: { townNav } })
+    h.target.position.set(0, 0, 5)
+    h.player.dead = false
+    h.player.combatPosition.set(0, 0, 2)
     h.select([
-      { faction: Faction.ENEMY, dead: false, combatPosition: new Vector3(0, 0, 1) },
-      { faction: Faction.PLAYER, dead: true, combatPosition: new Vector3(0, 0, 1) },
+      { faction: Faction.ENEMY, dead: false, combatPosition: new Vector3(0, 6, 1) },
+      { faction: Faction.PLAYER, dead: true, combatPosition: new Vector3(0, 6, 1) },
+      { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 0, 1) },
     ] as NPC[])
     expect(h.actor.rangedActive).toBe(true)
     expect(h.actor.animator.cancel).not.toHaveBeenCalled()
+    h.target.position.y = 6
+    h.select()
+    expect(h.actor.rangedActive).toBe(false)
+    expect(h.actor.arrows).toBe(12)
   })
 
   it('requires the re-equip distance before returning from melee to bow', () => {

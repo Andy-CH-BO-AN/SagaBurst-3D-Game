@@ -9,7 +9,7 @@ import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
 import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CombatEventSink } from '../combat/CombatAttribution'
 import type { Player } from '../player/Player'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import { Mount } from '../world/Mount'
 import { NPC, AIType, Faction } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
@@ -31,15 +31,15 @@ export function personalMemberLoadout(member: CareerPersonalSquadMember, faction
   const hero = member.type === 'commander'
     ? { visualAssetId: commanderAsset, combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[commanderAsset], specialCombatProfile: undefined }
     : member.type === 'soldier' ? undefined : T4_UNIT_PROFILES[member.type === 'ranger' ? `${faction}_archer` as UnitPresetId : presetId]
+  if (member.type === 'ranger' && !member.equipment) throw new Error('Ranger equipment must be migrated and saved before deployment')
   const equipment = member.equipment ?? legacyPersonalEquipment(member.type, faction)
   // Ranged equipment is the initial primary weapon, matching NPC AI selection below.
   // Reserve-only equipment changes resolve again on deployment; weapon tier never grants a hero profile.
   const primaryWeapon = WEAPONS[equipment.ranged ?? equipment.melee ?? '']
   // Like the Town Commander, T5 uses the existing NPC hero tier with its explicit asset and full combat profile.
   return { presetId, hero, tier: member.type === 'soldier' ? Math.min(4, primaryWeapon?.tier ?? 1) as 1 | 2 | 3 | 4 : 4 as const,
-    mounted: Boolean(equipment.mount), loadout: member.type === 'ranger'
-      ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: equipment.mount }
-      : { meleeWeaponId: equipment.melee, rangedWeaponId: equipment.ranged, shieldId: equipment.shield, mountId: equipment.mount } }
+    mounted: Boolean(equipment.mount), loadout: { meleeWeaponId: equipment.melee, rangedWeaponId: equipment.ranged, shieldId: equipment.shield, mountId: equipment.mount,
+      ...(member.type === 'ranger' ? { reversibleRangedSwitch: true } : {}) } }
 }
 
 export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPersonalSquadMember,
@@ -47,7 +47,7 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
   assertNpcSpawnJob()
   const spec = personalMemberLoadout(member, faction)
   const npc = trackNpcSpawn(new NPC(scene, slot.x, slot.z, Faction.PLAYER, faction, spec.loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE,
-    member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : member.type === 'commander' ? 'Personal Commander' : 'Personal Maki',
+    member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : member.type === 'commander' ? 'Personal Commander' : 'Personal Shadow Warden',
     spec.tier, spec.mounted, spec.loadout, spec.presetId, PERSONAL_SQUAD_ID, member.id, emit,
     spec.hero?.visualAssetId, spec.hero?.combatProfileId, spec.hero?.specialCombatProfile))
   npc.combatOwnership = 'player-personal'

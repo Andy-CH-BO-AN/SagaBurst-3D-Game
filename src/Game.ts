@@ -1254,7 +1254,7 @@ export class Game {
       this.armyCommandUI.setOfficialSquadLabel('Mission Squad · 任務部隊')
     }
     this.equipmentUI      = new EquipmentUI()
-    this.inventoryManager = this.isTrainingGround ? createTrainingInventory(playerHeroId) : new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId)
+    this.inventoryManager = this.isTrainingGround ? createTrainingInventory(playerHeroId) : new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId, playerFaction)
     if (this.careerProfile) {
       const inventory = new TownEquipment(() => this.careerProfile!, profile => {
         if (!this.careerStore.save(profile)) return false
@@ -1819,12 +1819,11 @@ export class Game {
     const cycleRiderWeapon = () => {
       if (!this.mountStudioRider) return
       const playback = this.humanoidStudioPlayback.get(this.mountStudioRider)!
-      if (playback.weapon === 'bow') return
-      const choices = isCorgi ? ['lance', 'axe', 'sword'] as const : ['lance', 'sword'] as const
+      const choices = ['lance', 'axe', 'sword', 'bow'] as const
       const next = choices[(choices.findIndex(weapon => weapon === playback.weapon) + 1) % choices.length]
-      playback.setEquipmentLoadout(next, playback.shield.visible)
+      playback.setEquipmentLoadout(next, next !== 'bow' && playback.shield.visible)
       this.mountStudioRider.root.visible = true
-      if (riderWeaponButton) riderWeaponButton.textContent = `武器：${{ lance: '長槍', axe: '斧頭', sword: '劍' }[next]}`
+      if (riderWeaponButton) riderWeaponButton.textContent = `武器：${{ lance: '長槍', axe: '斧頭', sword: '劍', bow: '弓' }[next]}`
     }
 
     const help = document.createElement('div')
@@ -1882,7 +1881,7 @@ export class Game {
         const select = document.createElement('select')
         select.setAttribute('aria-label', isCorgi ? '柯基騎士' : '黑貓騎士')
         select.style.cssText = 'background:#282522;color:#e6d7bb;border:0;font:inherit;padding:4px'
-        for (const [value, label] of (isCorgi ? [['roman-t2', '一般羅馬人'], ['roman-t4', 'T4 羅馬禁衛軍'], ['maki-t4', 'T4 遊俠 Maki']] : [['viking-t2', '一般維京人'], ['viking-t4', 'T4 維京英雄'], ['maki-t4', 'T4 遊俠 Maki']])) {
+        for (const [value, label] of (isCorgi ? [['roman-t2', '一般羅馬人'], ['roman-t4', 'T4 羅馬禁衛軍'], ['maki-t4', 'T4 遊俠 Shadow Warden']] : [['viking-t2', '一般維京人'], ['viking-t4', 'T4 維京英雄'], ['maki-t4', 'T4 遊俠 Shadow Warden']])) {
           select.add(new Option(label, value))
         }
         const feedback = document.createElement('span')
@@ -1895,11 +1894,11 @@ export class Game {
           feedback.textContent = ' 載入中…'
           try {
             if (!riders.has(key)) {
-              const { MAKI_FALLBACK, loadMakiRangerBow } = await import('./world/MakiRangerEquipment')
+              const { loadMakiRangerBow } = await import('./world/MakiRangerEquipment')
               const maki = key === 'maki-t4'
               const descriptor = HERO_ASSETS[maki ? 'maki-archer-t4' : isCorgi ? 'roman-hero-t4' : 'viking-hero-t4'].descriptor
               await HumanoidAssetRegistry.preloadAsset(descriptor)
-              const bowAssets = maki ? { bow: await loadMakiRangerBow(), meleeAnimation: MAKI_FALLBACK.animation } : undefined
+              const bowAssets = maki ? { bow: await loadMakiRangerBow() } : undefined
               const rider = HumanoidAssetRegistry.createCharacterInstance({ faction: descriptor.faction, tier: 2, isPlayer: false }, descriptor.assetId)
               const playback = new HumanoidStudioPlayback(rider, 'mounted', descriptor.faction, mount.type, bowAssets)
               playback.setEquipmentLoadout(maki ? 'bow' : isCorgi ? 'sword' : 'axe', !maki)
@@ -1924,7 +1923,7 @@ export class Game {
             }
             this.humanoidShowcase.push(selected.rider)
             this._updateMountStudioStatus()
-            if (isCat && !this.mountStudioSeatContacts.has(selected.rider)) {
+            if (isCat && MountStudioSeatContact.supports(selected.rider.root) && !this.mountStudioSeatContacts.has(selected.rider)) {
               this.mountStudioSeatContacts.set(selected.rider, new MountStudioSeatContact(
                 selected.rider.root, mount.group, mount.catVisual!.root.getObjectByName('cat_saddle_leather') as THREE.SkinnedMesh,
               ))

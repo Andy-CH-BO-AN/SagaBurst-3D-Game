@@ -558,8 +558,18 @@ export class CareerProfileStore {
       const profile = parseCareerProfile(source)
       // A migrated grant is usable only after its inventory and receipt are durably saved.
       // Failed storage leaves the original save intact and exposes no partially granted profile.
-      if (profile?.commanderMeleeGranted && (source as Partial<CareerProfile>).commanderMeleeGranted !== true
-        && !this.save(profile)) return { profile: null, error: '指揮官裝備升級無法儲存；原資料已保留，請重試。' }
+      const previous = source as Partial<CareerProfile>
+      const rangerMigration = profile && (profile.personalSquad?.members.some(member => member.type === 'ranger'
+        && previous.personalSquad?.members.find(saved => saved.id === member.id)?.rangerEquipmentVersion !== 1)
+        || Object.values(previous.townEquipment ?? {}).some(state => Object.values(state?.actors ?? {})
+          .some(refs => refs.melee?.itemId === 'maki-ranger-bow')))
+      // Resident and Ranger receipts are independent: either may already be current
+      // when the other migration runs. Publish both together only after one save.
+      const residentMigration = profile && (['roman', 'viking'] as const).some(faction =>
+        profile.townEquipment?.[faction]?.residentEquipmentVersion === 1
+        && previous.townEquipment?.[faction]?.residentEquipmentVersion !== 1)
+      if (profile && (residentMigration || rangerMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true)
+        && !this.save(profile)) return { profile: null, error: '生涯裝備升級無法儲存；原資料已保留，請重試。' }
       return profile ? { profile } : { profile: null, error: '生涯存檔損壞或版本不支援；原資料已保留。' }
     } catch { return { profile: null, error: '無法讀取生涯存檔；原資料已保留。' } }
   }

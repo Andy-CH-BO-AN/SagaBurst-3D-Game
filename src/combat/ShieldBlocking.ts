@@ -106,7 +106,8 @@ export class ShieldCollider {
   private readonly b = new THREE.Vector3()
   private readonly box = new THREE.Box3()
   private paladin = false
-  constructor(private readonly pivot: THREE.Object3D, private readonly state: ShieldState) {}
+  constructor(private readonly pivot: THREE.Object3D, private readonly state: ShieldState,
+    private readonly visibilityAllowed: () => boolean = () => true) {}
   setModel(id: string | null): void {
     this.paladin = id === 'paladin_shield_t4'
     if (this.paladin) this.box.set(this.a.set(-.334, -.55, .123), this.b.set(.334, .55, .301))
@@ -132,7 +133,7 @@ export class ShieldCollider {
     for (const band of PALADIN_BANDS) contact = Math.min(contact, segmentBoxTime(this.a, this.b, band))
     return contact
   }
-  refreshVisibility(): void { this.pivot.visible = !this.state.shieldBroken }
+  refreshVisibility(): void { this.pivot.visible = this.visibilityAllowed() && !this.state.shieldBroken }
 }
 
 export interface PhysicalCombatTarget {

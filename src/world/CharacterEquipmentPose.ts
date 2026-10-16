@@ -1,3 +1,4 @@
+import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import * as THREE from 'three'
 import type { ArmRig, CharacterRig, MountedPoseKind } from './CharacterVisuals'
 import { applyCharacterMountedPose, setRigRotation } from './CharacterVisuals'
@@ -142,6 +143,7 @@ class ArmSolver {
 
 /** 每個 LOD 一份骨架求值器；不持有或修正武器物件。 */
 export class CharacterEquipmentPose {
+  private readonly fittedCloth?: FittedHumanoidCloth
   private readonly mountedSkirt?: SelectedMountedSkirt
   private readonly saved: Array<{ node: THREE.Object3D, q: THREE.Quaternion }> = []
   private applied = false
@@ -195,7 +197,8 @@ export class CharacterEquipmentPose {
 
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
 
-  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource) {
+  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource, clothRig?: FittedHumanoidClothRig) {
+    if (clothRig) this.fittedCloth = new FittedHumanoidCloth(root, clothRig)
     if (selectedSource?.rig === 'steppe37') this.mountedSkirt = new SelectedMountedSkirt(root)
     if (selectedSource?.rig === 'varangian63') this.mountedSkirt = new SelectedMountedSkirt(root, 'skirt_front_center')
     this.left = new ArmSolver(root, rig.left, 1)
@@ -230,6 +233,7 @@ export class CharacterEquipmentPose {
       rig.leftLeg.hip, rig.leftLeg.knee, rig.leftLeg.ankle, rig.rightLeg.hip, rig.rightLeg.knee, rig.rightLeg.ankle]
     nodes.push(this.seatedHips)
     if (this.mountedSkirt) nodes.push(...this.mountedSkirt.nodes)
+    if (this.fittedCloth) nodes.push(...this.fittedCloth.nodes)
     if (this.seatedSpine) nodes.push(this.seatedSpine)
     nodes.push(...this.seatedTorso.filter(node => node !== this.seatedSpine))
     if (this.bowFullBodyStance && this.bowSpine && this.bowSpine !== this.seatedSpine) nodes.push(this.bowSpine)
@@ -356,23 +360,6 @@ export class CharacterEquipmentPose {
       if (bowChest) {
         bowChest.parent!.getWorldQuaternion(this.parentInverse).invert()
         bowChest.quaternion.copy(this.parentInverse).multiply(this.bowChestWorld)
-      }
-    }
-    if (live && state.mounted && state.mountKind === 'CORGI' && this.root.name.startsWith('maki-archer-t4-')) {
-      // Shorter thighs need slightly more abduction to place the knees outside
-      // the source barrel, while the boots follow its flanks instead of splaying.
-      for (const leg of [this.rig.leftLeg, this.rig.rightLeg]) {
-        setRigRotation(leg.hip, -.68 * leg.forwardBendSign, 0, leg.side * .90)
-        setRigRotation(leg.ankle, -.38 * leg.forwardBendSign, 0, -leg.side * .90)
-      }
-    }
-    if (live && state.mounted && state.mountKind === 'BLACK_CAT' && this.root.name.startsWith('maki-archer-t4-')) {
-      // Maki's shorter legs need more thigh spread and less inward shin roll
-      // to clear the source cat's barrel. Retain the fixed pelvis/seat contact.
-      for (const leg of [this.rig.leftLeg, this.rig.rightLeg]) {
-        setRigRotation(leg.hip, -.68 * leg.forwardBendSign, 0, leg.side * 1.1)
-        setRigRotation(leg.knee, 1.05 * leg.forwardBendSign, 0, -leg.side * .2)
-        setRigRotation(leg.ankle, -.38 * leg.forwardBendSign, 0, -leg.side * .6)
       }
     }
     // Free Roman wrist: mirror the sampled opposite hand in character space,
@@ -580,6 +567,7 @@ export class CharacterEquipmentPose {
       if (morph.left !== undefined) values[morph.left] = twoHandedAxe ? smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .42) / .06)) : 0
       if (morph.shield !== undefined) values[morph.shield] = Number(live && state.shield)
     }
+    if (live && state.mounted) this.fittedCloth?.applyMounted()
     this.root.updateWorldMatrix(true, true)
   }
 }

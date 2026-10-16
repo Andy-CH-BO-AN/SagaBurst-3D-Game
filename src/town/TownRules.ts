@@ -257,9 +257,9 @@ export function careerTownWeapon(profile: CareerProfile): string {
   return [profile.equipment?.melee, ...profile.ownedWeapons].find(id => id && WEAPONS[id]?.type === 'melee' && WEAPONS[id].tier <= tier && isTownShopWeapon(id) && canAllocateCareerItemToPlayer(profile, id)) ?? ''
 }
 export interface TownProduct { id: string; category: 'weapon' | 'armor' | 'mount'; name: string; tier: 1 | 2 | 3 | 4 | 5; price: number }
-// Maki's melee action weapon stays fixed; the ranged Ranger Bow is a shop item.
+// Ranger Bow remains the same ranged shop item; melee uses normal equipment.
 export function isTownShopWeapon(id: string): boolean {
-  return Boolean(WEAPONS[id]) && id !== 'maki-ranger-bow'
+  return Boolean(WEAPONS[id])
 }
 export const XONGKORO_PRODUCT: Readonly<TownProduct> = { id: 'xongkoro', category: 'mount', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4, price: 10000 }
 export const TOWN_PRODUCTS: TownProduct[] = [

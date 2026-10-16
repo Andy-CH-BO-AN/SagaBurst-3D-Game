@@ -30,21 +30,26 @@ class SkinSurfacePoint {
   }
 }
 
-/** DEV fitting for the three inspected black-cat riders, in the mount's frame. */
+/** DEV fitting for the inspected Viking black-cat riders, in the mount's frame. */
 export class MountStudioSeatContact {
+  /** New assets use the ordinary pelvis/seat contract until their surface is measured. */
+  static supports(rider: THREE.Object3D): boolean {
+    const meshName = rider.name.startsWith('viking-hero-t4') ? 'Tunic002' : 'Tunic'
+    return rider.getObjectByName(meshName) instanceof THREE.SkinnedMesh
+  }
+
   private readonly butt: SkinSurfacePoint
   private readonly seat: SkinSurfacePoint
   private readonly a = new THREE.Vector3()
   private readonly b = new THREE.Vector3()
 
   constructor(private readonly rider: THREE.Object3D, private readonly mount: THREE.Object3D, saddle: THREE.SkinnedMesh) {
-    const maki = rider.name.startsWith('maki-archer-t4')
     const hero = rider.name.startsWith('viking-hero-t4')
     // Inspected bearing patches: trousers, seated mail, and rear tunic over
     // the buttocks. The regular Viking's hanging front hem is not a seat.
-    const mesh = rider.getObjectByName(maki ? 'Pants_Pants_0' : hero ? 'Tunic002' : 'Tunic') as THREE.SkinnedMesh
-    const x = maki ? .05 : .07
-    const z = maki ? -.10 : hero ? -.15 : -.25
+    const mesh = rider.getObjectByName(hero ? 'Tunic002' : 'Tunic') as THREE.SkinnedMesh
+    const x = .07
+    const z = hero ? -.15 : -.25
     mount.updateWorldMatrix(true, false)
     mount.updateMatrixWorld(true)
     mesh.computeBoundingBox(); mesh.computeBoundingSphere()

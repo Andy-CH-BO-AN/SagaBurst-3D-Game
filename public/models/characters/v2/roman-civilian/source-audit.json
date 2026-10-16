@@ -1,0 +1,93 @@
+{
+  "sourceFile": "Meshy_AI_Roman_Statesman_Pose_1016083929_texture.glb",
+  "sha256": "95ac717b6dde8aa07906b080aefe1a5d6bdffcc7b50b7d5152d2909c195e4274",
+  "bytes": 19289936,
+  "originalTriangles": 10300,
+  "sourceBoundsBlender": [
+    [
+      -0.46988898515701294,
+      -0.23574301600456238,
+      -0.9512730836868286
+    ],
+    [
+      0.46686598658561707,
+      0.24201700091362,
+      0.9453870058059692
+    ]
+  ],
+  "sourceImages": [
+    {
+      "name": "normal",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "name": "texture_0",
+      "width": 2048,
+      "height": 2048
+    },
+    {
+      "name": "texture_0_metallic_roughness",
+      "width": 4096,
+      "height": 4096
+    }
+  ],
+  "sourceHasSkins": false,
+  "sourceHasAnimations": false,
+  "sourceTopology": {
+    "weldedVertices": 5120,
+    "components": [
+      {
+        "vertices": 5045,
+        "bounds": [
+          [
+            -0.4409869611263275,
+            -0.22124288976192474,
+            0.0
+          ],
+          [
+            0.43814989924430847,
+            0.2271309792995453,
+            1.7799999713897705
+          ]
+        ]
+      },
+      {
+        "vertices": 48,
+        "bounds": [
+          [
+            0.049969058483839035,
+            -0.12192977219820023,
+            1.154916524887085
+          ],
+          [
+            0.13869500160217285,
+            -0.07387241721153259,
+            1.317954182624817
+          ]
+        ]
+      },
+      {
+        "vertices": 27,
+        "bounds": [
+          [
+            -0.18462292850017548,
+            0.027548493817448616,
+            0.9052280187606812
+          ],
+          [
+            -0.15145662426948547,
+            0.08266424387693405,
+            0.984348475933075
+          ]
+        ]
+      }
+    ],
+    "boundaryEdges": 5
+  },
+  "normalization": {
+    "scale": 0.9384918309089348,
+    "sourceGroundZ": -0.9512730836868286
+  },
+  "pixelsInspected": "front, strict side and rear source renders before edits"
+}

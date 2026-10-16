@@ -19,11 +19,11 @@ T1–T3 共有 **18 件武器、6 面盾牌**；另有以下共用 T4／T5 裝�
 
 ## 共用 T4 裝備
 
-Campaign／Custom Battle 的 Roman／Viking 玩家 T1–T5 均可共用，保留各自英雄倍率；玩家角色選單可明確選擇 T1–T3 士兵外觀或既有 T4／T5 英雄，裝備不會改寫明確選定的士兵外觀。T5 僅開放玩家，NPC 仍使用原有 T1–T4 配置。Career 沿用 Captain 解鎖與軍功購買，Training Ground 沿用全部目錄物品。Maki 固定裝備不變。
+Campaign／Custom Battle 的 Roman／Viking 玩家 T1–T5 均可共用，保留各自英雄倍率；玩家角色選單可明確選擇 T1–T3 士兵外觀或既有 T4／T5 英雄，裝備不會改寫明確選定的士兵外觀。T5 僅開放玩家，NPC 仍使用原有 T1–T4 配置。Career 沿用 Captain 解鎖與軍功購買，Training Ground 沿用全部目錄物品。Ranger 沿用一般武器與盾牌互斥規則。
 
-Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440；Captain／Commander 的 Roman／Viking 玩家皆可購買、裝備及分配給 RESERVE 私兵。`maki-ranger-bow-ranged` 是可交易的遠程弓；`maki-ranger-bow` 仍是不可交易的 Maki 近戰動作武器，招募或出售 Maki 不會產生可交易弓。HR T4 Captain 初始維持 T3 劍／斧與盾，升級須使用購入庫存。
+Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440；Captain／Commander 的 Roman／Viking 玩家皆可購買、裝備及分配給 RESERVE 私兵。`maki-ranger-bow-ranged` 是可交易的遠程弓；舊 `maki-ranger-bow` 近戰 ID 已退休。HR Ranger 的近戰、遠程與坐騎皆由正式庫存分配；缺失的舊配置透過一次性 migration 補齊並保存 ownership，不在 runtime 臨時生成武器。HR T4 Captain 初始維持 T3 劍／斧與盾，升級須使用購入庫存。
 
-一般 Career T4 NPC 在 Town、Duel 與 Siege 由業務層使用 `resolveT4UnitLoadout`：主武器與備用武器的劍／斧升級為 T4 Sword／Mace，原本配盾者使用 T4 Shield；T4 Spearman／Lancer 共用 `spear_t4`（T4 長槍），維京 T4 槍兵在 Charge 時仍使用 T4 Sword 備用劍。HR 私兵使用玩家分配的裝備，NPC 建構子不依 tier 強制覆寫。
+一般 Career T4 NPC 在 Town、Duel 與 Siege 由業務層使用 `resolveT4UnitLoadout`：主武器與備用武器的劍／斧升級為 T4 Sword／Mace，原本配盾者使用 T4 Shield；T4 Spearman／Lancer 共用 `spear_t4`（T4 長槍），維京 T4 槍兵在 Charge 時仍使用 T4 Sword 備用劍。Ranger 的預設近戰為 `viking_axe_t3`／`centurion_blade`（原始傷害皆為 45），遠程保留 Ranger Bow。HR 私兵使用玩家分配的裝備，NPC 建構子不依 tier 強制覆寫。
 
 | ID | 來源外觀 | 基礎傷害 | 基礎完整攻擊週期 | 盾牌衝擊／耐久 |
 | --- | --- | --- | --- | --- |

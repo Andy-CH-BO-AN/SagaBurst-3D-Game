@@ -1,0 +1,2703 @@
+{
+  "id": "maki-archer-t4",
+  "sourceAsset": "roman/lod0.glb",
+  "sourceSha256": "2d08e05d15a1690fa80a26066d1e579ed543a0c05b7a6d11d04b52d56a40bda9",
+  "banditSha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+  "canonicalPoseSha256": "7fe3b41479f73527efeb9cc5fdd9511541094937c8bd78b72e3adffae481b04f",
+  "clips": [
+    "axeAttack1H",
+    "axeAttack1HFoot",
+    "axeAttack2H",
+    "axeMountedIdle",
+    "bowHold",
+    "bowLoad",
+    "bowRelease",
+    "death",
+    "idle",
+    "pilumThrow",
+    "run",
+    "swordSlash",
+    "walk"
+  ],
+  "measuredLegScale": 1.0309031569827924,
+  "exactOptimization": {
+    "collapsedTracks": 141,
+    "removedExactConstantSamples": 34338,
+    "beforeAnimationStreamBytes": 6287136,
+    "afterConstantTrackStreamBytes": 5630940
+  },
+  "diagnostics": [
+    {
+      "clip": "idle",
+      "duration": 2.700000047683716,
+      "samples": 568,
+      "groundCorrectionM": [
+        -0.024419116243869526,
+        -0.007719033293916738
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 0,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 0,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "walk",
+      "duration": 0.800000011920929,
+      "samples": 169,
+      "groundCorrectionM": [
+        -0.058311400991838534,
+        -0.016296869480040624
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 0,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 0,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "run",
+      "duration": 0.6000000238418579,
+      "samples": 127,
+      "groundCorrectionM": [
+        -0.1400611253392007,
+        -0.05235491968057014
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 0.50701904296875,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 18,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      },
+      "runCape": {
+        "method": "Target-measured smooth periodic posterior swing; equal extra mid/lower pitch, upper fixed",
+        "interpolation": "Linear between densely sampled smooth periodic measurements",
+        "sourceEvidence": {
+          "measuredGlbSha256": "9ea7f2e6f77a9b943b4c7d89189bb940c49a01393e245f8339f2cd045c9ea983",
+          "profileSha256": "d76d4272dc1147bd538c7b74a1afcaf2a69e5c56fa0e5485da020ff6eaae24b2",
+          "construction": {
+            "method": "Periodic Gaussian smoothing, sigma=1 sample, then uniform majorant offset; C2 periodic cubic spline; positive periodic Gaussian bumps at measured between-frame failures",
+            "sigmaSamples": 1,
+            "uniformAddedRad": 0.09527778799660469,
+            "minimumRawSafetyMarginRad": 0.01,
+            "localCorrectionBumps": [
+              {
+                "phase": 0.06944444444444445,
+                "sigmaPhase": 0.035,
+                "amplitudeRad": 0.05209377734963372
+              },
+              {
+                "phase": 0.5694444444444444,
+                "sigmaPhase": 0.035,
+                "amplitudeRad": 0.04722796117314665
+              }
+            ],
+            "correctedDenseSafetyMarginRad": 0.015
+          },
+          "validation": {
+            "sampleCount": 292,
+            "failedSampleCount": 0,
+            "maximumSelectedTriangleCrossingPairs": 0,
+            "minimumCapeFloorM": 0.08573816117754463,
+            "frequencyHz": 480,
+            "additionalPhases": [
+              0.1,
+              0.25,
+              0.6,
+              0.65
+            ],
+            "temporalLimitation": "Finite sampling, not continuous collision detection; final exported GLB interpolation must be rechecked",
+            "selectedGeometry": "2180 cape triangles with all vertex cape weight > .8 and 1004 lower-leg/foot/toe triangles with all vertex limb weight > .5 and cape weight < .01"
+          },
+          "exportedValidation": "output/faction-humanoids/run-cape-exported-periodic-validation.json",
+          "exportedValidationSummary": {
+            "sampleCount": 292,
+            "failedSampleCount": 0,
+            "minimumCapeFloorM": 0.08573802655791368
+          }
+        },
+        "maximumAllowedPitchRad": 1,
+        "maximumAppliedPitchRad": 0.8668411499815083,
+        "minimumAppliedPitchRad": 0.2865254009286376,
+        "samples": 292,
+        "bakedHelperSamples": 401
+      }
+    },
+    {
+      "clip": "swordSlash",
+      "duration": 0.47999998927116394,
+      "samples": 102,
+      "groundCorrectionM": [
+        0.0069536035719847955,
+        0.0069536412086253704
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 0,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 0,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "bowLoad",
+      "duration": 0.8333333134651184,
+      "samples": 167,
+      "groundCorrectionM": [
+        -0.009337322171616202,
+        -0.0072064515614040925
+      ],
+      "bowGroundContact": {
+        "method": "Whole fitted idle-leg cycle composed under authored bow pelvis; raw bow may hover",
+        "idleSamples": 1135,
+        "soleVerticesPerSample": 262,
+        "maximumClearanceRestoredM": 0.03470969652976896
+      },
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 0,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 0,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "bowHold",
+      "duration": 1.3333333730697632,
+      "samples": 281,
+      "groundCorrectionM": [
+        -0.007206451135788883,
+        -0.007206451135788883
+      ],
+      "bowGroundContact": {
+        "method": "Whole fitted idle-leg cycle composed under authored bow pelvis; raw bow may hover",
+        "idleSamples": 1135,
+        "soleVerticesPerSample": 262,
+        "maximumClearanceRestoredM": 0.03247434292465118
+      },
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 0,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 0,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "bowRelease",
+      "duration": 0.2199999988079071,
+      "samples": 60,
+      "groundCorrectionM": [
+        -0.008864568497014114,
+        -0.00576681883958674
+      ],
+      "bowGroundContact": {
+        "method": "Whole fitted idle-leg cycle composed under authored bow pelvis; raw bow may hover",
+        "idleSamples": 1135,
+        "soleVerticesPerSample": 262,
+        "maximumClearanceRestoredM": 0.06193204388620531
+      },
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 0,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 0,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "pilumThrow",
+      "duration": 1.5,
+      "samples": 272,
+      "groundCorrectionM": [
+        -0.2931128715357811,
+        -0.022627411304666036
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 1.007073974609375,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 228,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "axeMountedIdle",
+      "duration": 2.700000047683716,
+      "samples": 568,
+      "groundCorrectionM": [
+        0,
+        0
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 0,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 0,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "axeAttack1H",
+      "duration": 3,
+      "samples": 541,
+      "groundCorrectionM": [
+        -0.011349246167366638,
+        0.025828630215446735
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 0.8562499999999998,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 164,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "axeAttack2H",
+      "duration": 2.8333332538604736,
+      "samples": 1768,
+      "groundCorrectionM": [
+        -0.08130046861746347,
+        0.012887142392144488
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 1.2,
+        "maximumUpperPitchRad": 0.3,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 1768,
+        "upperAssistanceSamples": 464,
+        "translationSamples": 395,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0.08334898034196925
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "axeAttack1HFoot",
+      "duration": 3,
+      "samples": 181,
+      "capeFloor": {
+        "enabled": true,
+        "clearanceM": 0.01,
+        "pitchAxis": "Chest-yaw-transformed actor lateral; posterior lift in the same frame as cape follow",
+        "maximumAllowedPitchRad": 1.2,
+        "maximumAppliedPitchRad": 0,
+        "maximumUpperPitchRad": 0,
+        "maximumRemainingPenetrationM": 0,
+        "failedFloorSamples": 0,
+        "constrainedSamples": 0,
+        "upperAssistanceSamples": 0,
+        "translationSamples": 0,
+        "maximumAllowedTranslationM": {
+          "cape_mid": 0.06825000814355263,
+          "cape_lower": 0.15
+        },
+        "maximumAppliedTranslationM": {
+          "cape_mid": 0,
+          "cape_lower": 0
+        },
+        "translationBound": "At most one quarter of each measured bind parent/helper segment, capped by capeFloorMaxTranslationM (default .15 m)",
+        "sampledCapeVertices": 4429,
+        "preferredPitchWeights": {
+          "cape_upper": 0,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        },
+        "assistedPitchWeights": {
+          "cape_upper": 0.25,
+          "cape_mid": 0.5,
+          "cape_lower": 1
+        }
+      }
+    },
+    {
+      "clip": "death",
+      "source": "createProjectAnimationClips()",
+      "duration": 1,
+      "clearanceM": 0,
+      "deathClothFollow": 1,
+      "ankleSettle": {
+        "startPhase": 0.55,
+        "endPhase": 1,
+        "maximumAllowedPitchRad": 1.2,
+        "finalPitchRad": {
+          "left": 0.7768981933593749,
+          "right": 0.7755554199218748
+        },
+        "finalUnmetContactM": {
+          "left": 0,
+          "right": 0
+        },
+        "interpolation": "smoothstep; original early joint motion retained"
+      },
+      "samples": [
+        {
+          "time": 0,
+          "phase": 0,
+          "authoredFloorM": 1.2462574557558548e-07,
+          "relaxedFloorM": 1.2821866557202233e-07,
+          "groundCorrectionM": -1.2821866557202233e-07,
+          "adaptedFloorM": -1.7537023079512238e-18,
+          "torsoClearanceM": 0.900921326992747
+        },
+        {
+          "time": 0.01666666753590107,
+          "phase": 0.01666666753590107,
+          "authoredFloorM": -0.01731706746584724,
+          "relaxedFloorM": -0.017317063246576243,
+          "groundCorrectionM": 0.017317063246576243,
+          "adaptedFloorM": 9.280770596475918e-17,
+          "torsoClearanceM": 0.9026090772112826
+        },
+        {
+          "time": 0.03333333507180214,
+          "phase": 0.03333333507180214,
+          "authoredFloorM": -0.03453412870027624,
+          "relaxedFloorM": -0.03453412386355114,
+          "groundCorrectionM": 0.03453412386355114,
+          "adaptedFloorM": -2.1380466841414147e-16,
+          "torsoClearanceM": 0.9042065673082536
+        },
+        {
+          "time": 0.05000000074505806,
+          "phase": 0.05000000074505806,
+          "authoredFloorM": -0.05174294124357026,
+          "relaxedFloorM": -0.05174293743604372,
+          "groundCorrectionM": 0.05174293743604372,
+          "adaptedFloorM": -2.6020852139652106e-17,
+          "torsoClearanceM": 0.9058056448185849
+        },
+        {
+          "time": 0.06666667014360428,
+          "phase": 0.06666667014360428,
+          "authoredFloorM": -0.06908455248036746,
+          "relaxedFloorM": -0.06908454864405118,
+          "groundCorrectionM": 0.06908454864405118,
+          "adaptedFloorM": 2.1163626406917047e-16,
+          "torsoClearanceM": 0.9075473099589275
+        },
+        {
+          "time": 0.0833333358168602,
+          "phase": 0.0833333358168602,
+          "authoredFloorM": -0.08632564861423682,
+          "relaxedFloorM": -0.08632564474917256,
+          "groundCorrectionM": 0.08632564474917256,
+          "adaptedFloorM": -1.8735013540549517e-16,
+          "torsoClearanceM": 0.9091982210853263
+        },
+        {
+          "time": 0.10000000149011612,
+          "phase": 0.10000000149011612,
+          "authoredFloorM": -0.10346612025093689,
+          "relaxedFloorM": -0.10346611635718411,
+          "groundCorrectionM": 0.10346611635718411,
+          "adaptedFloorM": 9.8879238130678e-17,
+          "torsoClearanceM": 0.9107582128471581
+        },
+        {
+          "time": 0.11666666716337204,
+          "phase": 0.11666666716337204,
+          "authoredFloorM": -0.12050583878217622,
+          "relaxedFloorM": -0.12050583485981228,
+          "groundCorrectionM": 0.12050583485981228,
+          "adaptedFloorM": -1.457167719820518e-16,
+          "torsoClearanceM": 0.9122271297035556
+        },
+        {
+          "time": 0.13333334028720856,
+          "phase": 0.13333334028720856,
+          "authoredFloorM": -0.13744472297065033,
+          "relaxedFloorM": -0.13744471901977,
+          "groundCorrectionM": 0.13744471901977,
+          "adaptedFloorM": 1.8041124150158794e-16,
+          "torsoClearanceM": 0.913604825354793
+        },
+        {
+          "time": 0.15000000596046448,
+          "phase": 0.15000000596046448,
+          "authoredFloorM": -0.1542826549699003,
+          "relaxedFloorM": -0.1542826509906161,
+          "groundCorrectionM": 0.1542826509906161,
+          "adaptedFloorM": 3.469446951953614e-18,
+          "torsoClearanceM": 0.9148911596125131
+        },
+        {
+          "time": 0.1666666716337204,
+          "phase": 0.1666666716337204,
+          "authoredFloorM": -0.17101954523577717,
+          "relaxedFloorM": -0.17101954122821894,
+          "groundCorrectionM": 0.17101954122821894,
+          "adaptedFloorM": 7.632783294297951e-17,
+          "torsoClearanceM": 0.9160860063929737
+        },
+        {
+          "time": 0.18333333730697632,
+          "phase": 0.18333333730697632,
+          "authoredFloorM": -0.18765534951141088,
+          "relaxedFloorM": -0.18765534547572577,
+          "groundCorrectionM": 0.18765534547572577,
+          "adaptedFloorM": 6.245004513516506e-17,
+          "torsoClearanceM": 0.9171892457217945
+        },
+        {
+          "time": 0.20000000298023224,
+          "phase": 0.20000000298023224,
+          "authoredFloorM": -0.2041899890781784,
+          "relaxedFloorM": -0.20418998501453076,
+          "groundCorrectionM": 0.20418998501453076,
+          "adaptedFloorM": -1.5959455978986625e-16,
+          "torsoClearanceM": 0.9182007669178447
+        },
+        {
+          "time": 0.21666666865348816,
+          "phase": 0.21666666865348816,
+          "authoredFloorM": -0.22062341007050743,
+          "relaxedFloorM": -0.2206234059790789,
+          "groundCorrectionM": 0.2206234059790789,
+          "adaptedFloorM": -8.673617379884035e-17,
+          "torsoClearanceM": 0.9191204679456341
+        },
+        {
+          "time": 0.23333333432674408,
+          "phase": 0.23333333432674408,
+          "authoredFloorM": -0.2369555550631817,
+          "relaxedFloorM": -0.23695555094417098,
+          "groundCorrectionM": 0.23695555094417098,
+          "adaptedFloorM": 1.942890293094024e-16,
+          "torsoClearanceM": 0.9199482585922512
+        },
+        {
+          "time": 0.25,
+          "phase": 0.25,
+          "authoredFloorM": -0.25318641999954394,
+          "relaxedFloorM": -0.2531864158531664,
+          "groundCorrectionM": 0.2531864158531664,
+          "adaptedFloorM": 2.42861286636753e-17,
+          "torsoClearanceM": 0.9202254202093191
+        },
+        {
+          "time": 0.2666666805744171,
+          "phase": 0.2666666805744171,
+          "authoredFloorM": -0.2617666755386588,
+          "relaxedFloorM": -0.2617666702439459,
+          "groundCorrectionM": 0.2617666702439459,
+          "adaptedFloorM": 2.42861286636753e-17,
+          "torsoClearanceM": 0.915303972429476
+        },
+        {
+          "time": 0.2800000011920929,
+          "phase": 0.2800000011920929,
+          "authoredFloorM": -0.2688529776990859,
+          "relaxedFloorM": -0.2688529721753634,
+          "groundCorrectionM": 0.2688529721753634,
+          "adaptedFloorM": 9.020562075079397e-17,
+          "torsoClearanceM": 0.9116389549022195
+        },
+        {
+          "time": 0.28333333134651184,
+          "phase": 0.28333333134651184,
+          "authoredFloorM": -0.270552486631467,
+          "relaxedFloorM": -0.27055248105155594,
+          "groundCorrectionM": 0.27055248105155594,
+          "adaptedFloorM": 1.3877787807814457e-17,
+          "torsoClearanceM": 0.9106578049470164
+        },
+        {
+          "time": 0.30000001192092896,
+          "phase": 0.30000001192092896,
+          "authoredFloorM": -0.27888871072818405,
+          "relaxedFloorM": -0.2788887014886576,
+          "groundCorrectionM": 0.2788887014886576,
+          "adaptedFloorM": 1.1796119636642288e-16,
+          "torsoClearanceM": 0.9056352965875015
+        },
+        {
+          "time": 0.3166666626930237,
+          "phase": 0.3166666626930237,
+          "authoredFloorM": -0.28674884398054695,
+          "relaxedFloorM": -0.2867488341835819,
+          "groundCorrectionM": 0.2867488341835819,
+          "adaptedFloorM": 1.457167719820518e-16,
+          "torsoClearanceM": 0.9002134200354841
+        },
+        {
+          "time": 0.3333333432674408,
+          "phase": 0.3333333432674408,
+          "authoredFloorM": -0.2938886519389084,
+          "relaxedFloorM": -0.293888641608279,
+          "groundCorrectionM": 0.293888641608279,
+          "adaptedFloorM": -2.498001805406602e-16,
+          "torsoClearanceM": 0.894151411120741
+        },
+        {
+          "time": 0.3499999940395355,
+          "phase": 0.3499999940395355,
+          "authoredFloorM": -0.30030912916073327,
+          "relaxedFloorM": -0.3003091183201942,
+          "groundCorrectionM": 0.3003091183201942,
+          "adaptedFloorM": 6.938893903907228e-18,
+          "torsoClearanceM": 0.8874536160034933
+        },
+        {
+          "time": 0.36666667461395264,
+          "phase": 0.36666667461395264,
+          "authoredFloorM": -0.3060116474401207,
+          "relaxedFloorM": -0.30601163611339594,
+          "groundCorrectionM": 0.30601163611339594,
+          "adaptedFloorM": -1.3877787807814457e-17,
+          "torsoClearanceM": 0.8801247686752867
+        },
+        {
+          "time": 0.38333332538604736,
+          "phase": 0.38333332538604736,
+          "authoredFloorM": -0.31099822503152763,
+          "relaxedFloorM": -0.31099821324230825,
+          "groundCorrectionM": 0.31099821324230825,
+          "adaptedFloorM": 8.326672684688674e-17,
+          "torsoClearanceM": 0.8721701045152755
+        },
+        {
+          "time": 0.4000000059604645,
+          "phase": 0.4000000059604645,
+          "authoredFloorM": -0.3154394586875235,
+          "relaxedFloorM": -0.31543944384422506,
+          "groundCorrectionM": 0.31543944384422506,
+          "adaptedFloorM": -5.551115123125783e-17,
+          "torsoClearanceM": 0.8637634324898465
+        },
+        {
+          "time": 0.4166666567325592,
+          "phase": 0.4166666567325592,
+          "authoredFloorM": -0.3192056617308585,
+          "relaxedFloorM": -0.3192056463472858,
+          "groundCorrectionM": 0.3192056463472858,
+          "adaptedFloorM": 1.249000902703301e-16,
+          "torsoClearanceM": 0.85477823981019
+        },
+        {
+          "time": 0.4333333373069763,
+          "phase": 0.4333333373069763,
+          "authoredFloorM": -0.32226454189187653,
+          "relaxedFloorM": -0.32226452599845234,
+          "groundCorrectionM": 0.32226452599845234,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.8451852250712389
+        },
+        {
+          "time": 0.44999998807907104,
+          "phase": 0.44999998807907104,
+          "authoredFloorM": -0.324619894392742,
+          "relaxedFloorM": -0.3246198780196848,
+          "groundCorrectionM": 0.3246198780196848,
+          "adaptedFloorM": -9.71445146547012e-17,
+          "torsoClearanceM": 0.8349912535045441
+        },
+        {
+          "time": 0.46666666865348816,
+          "phase": 0.46666666865348816,
+          "authoredFloorM": -0.3262760767798527,
+          "relaxedFloorM": -0.32627605995716225,
+          "groundCorrectionM": 0.32627605995716225,
+          "adaptedFloorM": 1.3877787807814457e-17,
+          "torsoClearanceM": 0.8242035201632409
+        },
+        {
+          "time": 0.4833333194255829,
+          "phase": 0.4833333194255829,
+          "authoredFloorM": -0.327237876790865,
+          "relaxedFloorM": -0.32723785954831724,
+          "groundCorrectionM": 0.32723785954831724,
+          "adaptedFloorM": -1.3877787807814457e-17,
+          "torsoClearanceM": 0.8128297295985522
+        },
+        {
+          "time": 0.5,
+          "phase": 0.5,
+          "authoredFloorM": -0.32751066760375486,
+          "relaxedFloorM": -0.32751064997088886,
+          "groundCorrectionM": 0.32751064997088886,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.8008779581794375
+        },
+        {
+          "time": 0.5166666507720947,
+          "phase": 0.5166666507720947,
+          "authoredFloorM": -0.3271002113426519,
+          "relaxedFloorM": -0.32710019334876095,
+          "groundCorrectionM": 0.32710019334876095,
+          "adaptedFloorM": -4.163336342344337e-17,
+          "torsoClearanceM": 0.788356720171695
+        },
+        {
+          "time": 0.5333333611488342,
+          "phase": 0.5333333611488342,
+          "authoredFloorM": -0.3260128236359152,
+          "relaxedFloorM": -0.32601280531003346,
+          "groundCorrectionM": 0.32601280531003346,
+          "adaptedFloorM": 4.163336342344337e-17,
+          "torsoClearanceM": 0.7752748632335198
+        },
+        {
+          "time": 0.550000011920929,
+          "phase": 0.550000011920929,
+          "authoredFloorM": -0.32425531658993145,
+          "relaxedFloorM": -0.3242552979608271,
+          "groundCorrectionM": 0.3242552979608271,
+          "adaptedFloorM": -5.551115123125783e-17,
+          "torsoClearanceM": 0.7616417773656176
+        },
+        {
+          "time": 0.5666666626930237,
+          "phase": 0.5666666626930237,
+          "authoredFloorM": -0.32183489361007,
+          "relaxedFloorM": -0.3222363370760454,
+          "groundCorrectionM": 0.3222363370760454,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.7478685885574087
+        },
+        {
+          "time": 0.5833333134651184,
+          "phase": 0.5833333134651184,
+          "authoredFloorM": -0.3187592993393006,
+          "relaxedFloorM": -0.32023527001548524,
+          "groundCorrectionM": 0.32023527001548524,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.7342369641752038
+        },
+        {
+          "time": 0.6000000238418579,
+          "phase": 0.6000000238418579,
+          "authoredFloorM": -0.3150366701416565,
+          "relaxedFloorM": -0.31805522005390496,
+          "groundCorrectionM": 0.31805522005390496,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.7205522429686188
+        },
+        {
+          "time": 0.6166666746139526,
+          "phase": 0.6166666746139526,
+          "authoredFloorM": -0.31067580856847365,
+          "relaxedFloorM": -0.3154908041931474,
+          "groundCorrectionM": 0.3154908041931474,
+          "adaptedFloorM": 5.551115123125783e-17,
+          "torsoClearanceM": 0.7066112928025072
+        },
+        {
+          "time": 0.6333333253860474,
+          "phase": 0.6333333253860474,
+          "authoredFloorM": -0.30568566368215255,
+          "relaxedFloorM": -0.3123334521657444,
+          "groundCorrectionM": 0.3123334521657444,
+          "adaptedFloorM": 5.551115123125783e-17,
+          "torsoClearanceM": 0.6922076268924734
+        },
+        {
+          "time": 0.6499999761581421,
+          "phase": 0.6499999761581421,
+          "authoredFloorM": -0.30007588265560364,
+          "relaxedFloorM": -0.30837801006864574,
+          "groundCorrectionM": 0.30837801006864574,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.6771380673289487
+        },
+        {
+          "time": 0.6666666865348816,
+          "phase": 0.6666666865348816,
+          "authoredFloorM": -0.2938563534204147,
+          "relaxedFloorM": -0.30342854605057173,
+          "groundCorrectionM": 0.30342854605057173,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.6612085267897023
+        },
+        {
+          "time": 0.6833333373069763,
+          "phase": 0.6833333373069763,
+          "authoredFloorM": -0.2870376495731654,
+          "relaxedFloorM": -0.29730510169438795,
+          "groundCorrectionM": 0.29730510169438795,
+          "adaptedFloorM": 8.326672684688674e-17,
+          "torsoClearanceM": 0.6442409107813672
+        },
+        {
+          "time": 0.699999988079071,
+          "phase": 0.699999988079071,
+          "authoredFloorM": -0.27963054939221504,
+          "relaxedFloorM": -0.28984937610544026,
+          "groundCorrectionM": 0.28984937610544026,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.626078645071632
+        },
+        {
+          "time": 0.7166666388511658,
+          "phase": 0.7166666388511658,
+          "authoredFloorM": -0.27164626324305785,
+          "relaxedFloorM": -0.2809306484032967,
+          "groundCorrectionM": 0.2809306484032967,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.606592575177327
+        },
+        {
+          "time": 0.7333333492279053,
+          "phase": 0.7333333492279053,
+          "authoredFloorM": -0.2630965955701018,
+          "relaxedFloorM": -0.2704509925303418,
+          "groundCorrectionM": 0.2704509925303418,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.5856862342580466
+        },
+        {
+          "time": 0.75,
+          "phase": 0.75,
+          "authoredFloorM": -0.25399351571055057,
+          "relaxedFloorM": -0.2583489023773549,
+          "groundCorrectionM": 0.2583489023773549,
+          "adaptedFloorM": -5.551115123125783e-17,
+          "torsoClearanceM": 0.5632996452217472
+        },
+        {
+          "time": 0.7666666507720947,
+          "phase": 0.7666666507720947,
+          "authoredFloorM": -0.24434960033234518,
+          "relaxedFloorM": -0.2446026201929285,
+          "groundCorrectionM": 0.2446026201929285,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.53941230238089
+        },
+        {
+          "time": 0.7833333611488342,
+          "phase": 0.7833333611488342,
+          "authoredFloorM": -0.23417762946331988,
+          "relaxedFloorM": -0.22923124817385696,
+          "groundCorrectionM": 0.22923124817385696,
+          "adaptedFloorM": 5.551115123125783e-17,
+          "torsoClearanceM": 0.5140444422247701
+        },
+        {
+          "time": 0.800000011920929,
+          "phase": 0.800000011920929,
+          "authoredFloorM": -0.2234909091588816,
+          "relaxedFloorM": -0.21229509788653936,
+          "groundCorrectionM": 0.21229509788653936,
+          "adaptedFloorM": -1.1102230246251565e-16,
+          "torsoClearanceM": 0.4872576148200601
+        },
+        {
+          "time": 0.8166666626930237,
+          "phase": 0.8166666626930237,
+          "authoredFloorM": -0.212302997111893,
+          "relaxedFloorM": -0.19389411543322327,
+          "groundCorrectionM": 0.19389411543322327,
+          "adaptedFloorM": 0,
+          "torsoClearanceM": 0.45915269769981665
+        },
+        {
+          "time": 0.8333333134651184,
+          "phase": 0.8333333134651184,
+          "authoredFloorM": -0.20062790847036427,
+          "relaxedFloorM": -0.17416526646086228,
+          "groundCorrectionM": 0.17416526646086228,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.42986755530831705
+        },
+        {
+          "time": 0.8500000238418579,
+          "phase": 0.8500000238418579,
+          "authoredFloorM": -0.18847976790866955,
+          "relaxedFloorM": -0.1532781514457352,
+          "groundCorrectionM": 0.1532781514457352,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.39957250780821507
+        },
+        {
+          "time": 0.8666666746139526,
+          "phase": 0.8666666746139526,
+          "authoredFloorM": -0.17587344634694846,
+          "relaxedFloorM": -0.13143093884689888,
+          "groundCorrectionM": 0.13143093884689888,
+          "adaptedFloorM": -5.551115123125783e-17,
+          "torsoClearanceM": 0.36846654482274305
+        },
+        {
+          "time": 0.8833333253860474,
+          "phase": 0.8833333253860474,
+          "authoredFloorM": -0.16282386555899472,
+          "relaxedFloorM": -0.10884375745736016,
+          "groundCorrectionM": 0.10884375745736016,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.3367703081754357
+        },
+        {
+          "time": 0.8999999761581421,
+          "phase": 0.8999999761581421,
+          "authoredFloorM": -0.14934621742641294,
+          "relaxedFloorM": -0.08575309691875299,
+          "groundCorrectionM": 0.08575309691875299,
+          "adaptedFloorM": 5.551115123125783e-17,
+          "torsoClearanceM": 0.3047207573763024
+        },
+        {
+          "time": 0.9166666865348816,
+          "phase": 0.9166666865348816,
+          "authoredFloorM": -0.13545613774038204,
+          "relaxedFloorM": -0.06240595433003476,
+          "groundCorrectionM": 0.06240595433003476,
+          "adaptedFloorM": 0,
+          "torsoClearanceM": 0.27256519668690077
+        },
+        {
+          "time": 0.9333333373069763,
+          "phase": 0.9333333373069763,
+          "authoredFloorM": -0.12116960119506906,
+          "relaxedFloorM": -0.03905407983795742,
+          "groundCorrectionM": 0.03905407983795742,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.24055575678536922
+        },
+        {
+          "time": 0.949999988079071,
+          "phase": 0.949999988079071,
+          "authoredFloorM": -0.10650257013593865,
+          "relaxedFloorM": -0.01594812957476824,
+          "groundCorrectionM": 0.01594812957476824,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.20894318289444297
+        },
+        {
+          "time": 0.9666666388511658,
+          "phase": 0.9666666388511658,
+          "authoredFloorM": -0.09147166800232645,
+          "relaxedFloorM": 0.00666597639478822,
+          "groundCorrectionM": -0.00666597639478822,
+          "adaptedFloorM": 0,
+          "torsoClearanceM": 0.17797344014865688
+        },
+        {
+          "time": 0.9833333492279053,
+          "phase": 0.9833333492279053,
+          "authoredFloorM": -0.07609343901199184,
+          "relaxedFloorM": 0.0285518019105028,
+          "groundCorrectionM": -0.0285518019105028,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.1478828432107021
+        },
+        {
+          "time": 1,
+          "phase": 1,
+          "authoredFloorM": -0.060384875588189724,
+          "relaxedFloorM": 0.049483694666026,
+          "groundCorrectionM": -0.049483694666026,
+          "adaptedFloorM": -1.4747289971833272e-09,
+          "torsoClearanceM": 0.11889699219624868
+        }
+      ],
+      "maximumRemainingPenetrationM": 1.4747289971833272e-09,
+      "finalTorsoClearanceM": 0.11889699219624868,
+      "contact": "Whole target skin including cloth; bounded late ankle relaxation only, with residual torso clearance explicitly reported"
+    }
+  ],
+  "poseBounds": [
+    {
+      "clip": "idle",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.47357803133001225,
+            3.613753973841227e-08,
+            -0.27519278718932927
+          ],
+          "max": [
+            0.46739513174400454,
+            1.8781678548746628,
+            0.3727874736733343
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.47446792922594966,
+            -9.843248594681997e-08,
+            -0.274451257429273
+          ],
+          "max": [
+            0.4665052800072324,
+            1.8605719020634888,
+            0.3935978850424924
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.47730287460034176,
+            -1.422467420034157e-07,
+            -0.28211629418524586
+          ],
+          "max": [
+            0.46367024440323434,
+            1.8655955592067772,
+            0.37926677556305444
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.4763808534940441,
+            -8.590205393538275e-08,
+            -0.282493224228539
+          ],
+          "max": [
+            0.46459221609409973,
+            1.8827891363076994,
+            0.35543339433921617
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.47361006733518035,
+            9.267423453640511e-09,
+            -0.2753843782341945
+          ],
+          "max": [
+            0.46736308401144966,
+            1.8786653107797036,
+            0.3719762272885309
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "walk",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.47897257563841583,
+            -9.552255422415334e-08,
+            -0.49899163712235545
+          ],
+          "max": [
+            0.4621634202186579,
+            1.839251856798195,
+            0.6363187467876412
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.4771264762832091,
+            1.2484553921915387e-07,
+            -0.27227458576609787
+          ],
+          "max": [
+            0.4651763876128899,
+            1.8742949159279687,
+            0.35780106323593064
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.4707525912538144,
+            -1.602593693167398e-08,
+            -0.4407097850622443
+          ],
+          "max": [
+            0.4679824880404312,
+            1.8418640413877392,
+            0.6067571048203189
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.4739860996750162,
+            4.1243193200923844e-08,
+            -0.2724391395447786
+          ],
+          "max": [
+            0.46566079668342253,
+            1.8746695760369707,
+            0.3563437936848422
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.47897257603276133,
+            -1.1862731177925134e-07,
+            -0.49899072353558754
+          ],
+          "max": [
+            0.4621634198503231,
+            1.8392524454943393,
+            0.6363187468914127
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "run",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.5325721078864604,
+            -4.5532693386529655e-08,
+            -0.9623067748114562
+          ],
+          "max": [
+            0.4082399515666263,
+            1.7218816617003314,
+            0.7275160889085344
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.4962996055415449,
+            -0.0002583893665352166,
+            -0.609238174666404
+          ],
+          "max": [
+            0.5533082162907371,
+            1.806358109595501,
+            0.42159875320682894
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.43183363778358747,
+            6.829045673395484e-08,
+            -0.7859809894638933
+          ],
+          "max": [
+            0.5086205453249674,
+            1.7480820802553318,
+            0.7098422358000952
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.5117847165676569,
+            -0.0003198362139986699,
+            -0.5429489757517691
+          ],
+          "max": [
+            0.4886267756268179,
+            1.7999792191723494,
+            0.5077131580926659
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.5325721743944398,
+            1.0076533828867751e-07,
+            -0.9623067978554141
+          ],
+          "max": [
+            0.4082398865740968,
+            1.7218817569112752,
+            0.7275158750155745
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "swordSlash",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.4534078932990311,
+            5.6788373975491524e-08,
+            -0.3547966582966478
+          ],
+          "max": [
+            0.47304551475399137,
+            1.8757264739149457,
+            0.3232903330321973
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.4062464494577969,
+            5.676867112502926e-08,
+            -0.4024134398193299
+          ],
+          "max": [
+            0.3595143422070465,
+            1.6513786054809259,
+            0.5884385000017773
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.38990121552780554,
+            5.994709163098522e-08,
+            -0.40375509937799375
+          ],
+          "max": [
+            0.5750885837736666,
+            1.8483751235879664,
+            0.7843286854348748
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.43239025473037945,
+            6.55346414288327e-08,
+            -0.3870771204390399
+          ],
+          "max": [
+            0.39158620352310936,
+            1.8631132577793754,
+            0.3600232999312134
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.47041475060499516,
+            5.474521476422911e-08,
+            -0.4519284124158639
+          ],
+          "max": [
+            0.4259249350181331,
+            1.8693382103026452,
+            0.3611889143225039
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "bowLoad",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.4395129364982957,
+            0.03470964489615798,
+            -0.44940522732388627
+          ],
+          "max": [
+            0.32805581325133226,
+            1.8826601981293918,
+            0.7965529005974147
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.35997991400900703,
+            0.031415942532931666,
+            -0.46091613207640875
+          ],
+          "max": [
+            0.3080230469230477,
+            1.8825849725086607,
+            0.7887453332431575
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.35692619707107687,
+            0.028907930898214966,
+            -0.4626088721058971
+          ],
+          "max": [
+            0.30743910202463065,
+            1.8843657093010948,
+            0.8265247751508052
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.3582045560344824,
+            0.026834889280249803,
+            -0.4637762202516628
+          ],
+          "max": [
+            0.3072166081144428,
+            1.885105366183779,
+            0.8213770228734341
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.3588016358205096,
+            0.02602290137165006,
+            -0.4642335426479394
+          ],
+          "max": [
+            0.3071092480758113,
+            1.8853431221331847,
+            0.8190626245349272
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "bowHold",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.35938940154195437,
+            0.026257485907443673,
+            -0.4642335450570851
+          ],
+          "max": [
+            0.30710924978737014,
+            1.8853431212177694,
+            0.8188373988899431
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.3574145501136224,
+            0.02954043136805106,
+            -0.4642335450570851
+          ],
+          "max": [
+            0.30710924978737014,
+            1.8853431212177694,
+            0.8178509422977815
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.3558036436632454,
+            0.032435412272006636,
+            -0.4642335450570851
+          ],
+          "max": [
+            0.30710924978737014,
+            1.8853431212177694,
+            0.816324244244105
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.35753635821852,
+            0.029080867053686975,
+            -0.46661998223636103
+          ],
+          "max": [
+            0.30710924978737014,
+            1.8853431212177694,
+            0.8173809999273691
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.3593839283894071,
+            0.02624468702875244,
+            -0.4642335450570851
+          ],
+          "max": [
+            0.30710924978737014,
+            1.8853431212177694,
+            0.8188327992747801
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "bowRelease",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.3588016431041191,
+            0.0260229299636865,
+            -0.4642335450570851
+          ],
+          "max": [
+            0.30710924978737014,
+            1.8853431212177694,
+            0.8190625208809272
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.503229397501349,
+            0.023817816557482566,
+            -0.4653489911763029
+          ],
+          "max": [
+            0.306866034015843,
+            1.8862092090682556,
+            0.823732070210121
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.5827666461496251,
+            0.03429179755491311,
+            -0.4438329497156848
+          ],
+          "max": [
+            0.3351333644153929,
+            1.8870253602297231,
+            0.7906766089887338
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.5403662331762129,
+            0.060156996938573876,
+            -0.4226342793692637
+          ],
+          "max": [
+            0.43484075423575297,
+            1.8834716132325844,
+            0.7241408765882162
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.47327329667378815,
+            0.040316317599327606,
+            -0.29885879477276905
+          ],
+          "max": [
+            0.4659888479065213,
+            1.880925119919901,
+            0.4768676238196532
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "pilumThrow",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.45028421483820064,
+            6.341266167025905e-08,
+            -0.3679260507617198
+          ],
+          "max": [
+            0.47613986552836535,
+            1.849333161854219,
+            0.49367520390322406
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.4475236127654568,
+            -3.110601310681027e-05,
+            -0.6791832863854758
+          ],
+          "max": [
+            0.8294241099205591,
+            1.7676318455728357,
+            0.7009427320936539
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.8100698718510244,
+            1.8473037995125896e-08,
+            -0.5694454537127922
+          ],
+          "max": [
+            0.4618946477293944,
+            1.2723913601888843,
+            0.805012941099583
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.8691192040317303,
+            -3.017432799873321e-07,
+            -0.5777179659803685
+          ],
+          "max": [
+            0.5266980649229779,
+            1.2528014319955467,
+            0.6686201909327967
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.8475216182180417,
+            1.0137218441064189e-07,
+            -0.523300540723071
+          ],
+          "max": [
+            0.4368334618245733,
+            1.2489093630727301,
+            0.719681848114199
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "axeMountedIdle",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.4760822072868723,
+            -0.006953539686252876,
+            -0.26194141201175125
+          ],
+          "max": [
+            0.4649166752110151,
+            1.8969827963122985,
+            0.25948791044762454
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.4761811568386511,
+            -0.006953539686252876,
+            -0.2622481309265934
+          ],
+          "max": [
+            0.46479913225380787,
+            1.889027515791624,
+            0.2642488069233935
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.4766194074110727,
+            -0.006953539686252876,
+            -0.26298844760140944
+          ],
+          "max": [
+            0.46430975855233214,
+            1.8788889604609644,
+            0.29005579562845274
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.47650813368639355,
+            -0.006953539686252876,
+            -0.26273527129746255
+          ],
+          "max": [
+            0.4644264099163496,
+            1.8880606127123414,
+            0.2709408481944157
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.4760884733536633,
+            -0.006953539686252876,
+            -0.2619521806583189
+          ],
+          "max": [
+            0.4649098615346797,
+            1.8969506990551712,
+            0.2594879056530128
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "axeAttack1H",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.5183753776389587,
+            -4.47448834477171e-08,
+            -0.34425887165655683
+          ],
+          "max": [
+            0.648773836935237,
+            1.7395105828527675,
+            0.3987102535202568
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.661566126380162,
+            -1.3665476358143414e-08,
+            -0.38147802913363116
+          ],
+          "max": [
+            0.5992378562329175,
+            1.6529833274631875,
+            0.7115583774026795
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.6261771833663661,
+            -3.21986970280852e-08,
+            -0.5101459992279785
+          ],
+          "max": [
+            0.8401825831011482,
+            1.6078631826842238,
+            0.6735093615478938
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.5420535190938004,
+            6.889400339799012e-08,
+            -0.3115984920212271
+          ],
+          "max": [
+            0.6514745585695736,
+            1.7288068536021053,
+            0.48082011175937067
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.5206236505961417,
+            -2.1449442329929402e-08,
+            -0.32036346623075107
+          ],
+          "max": [
+            0.6477422883634198,
+            1.7349543611840852,
+            0.4173186133429716
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "axeAttack2H",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.695818481270637,
+            2.0797596859967182e-08,
+            -0.8601837114901203
+          ],
+          "max": [
+            0.6079841936433585,
+            1.5440996023736073,
+            0.6975894217673094
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.41539269348227037,
+            -2.2865340783967403e-08,
+            -0.7582744773230052
+          ],
+          "max": [
+            0.5817147953060386,
+            1.8992324356076047,
+            0.4700062615721652
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.9961171452245895,
+            -5.771409088844732e-08,
+            -0.705484296398299
+          ],
+          "max": [
+            0.7040983057156887,
+            1.2232278725155223,
+            0.6865465067224134
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.6422911127764707,
+            8.031286585427622e-09,
+            -1.004285473457785
+          ],
+          "max": [
+            0.6292804112337638,
+            1.467961181331015,
+            0.9363589342169565
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.6968183623353845,
+            -8.795030059446929e-08,
+            -0.861192864472778
+          ],
+          "max": [
+            0.608467967776914,
+            1.5441192631746115,
+            0.6980990829827822
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "axeAttack1HFoot",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.4735780311519832,
+            3.613753973841227e-08,
+            -0.27519278716702406
+          ],
+          "max": [
+            0.4673951319178525,
+            1.8781678548746628,
+            0.3727874736733343
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.5866313011985324,
+            -2.4374685519967798e-08,
+            -0.348652898155787
+          ],
+          "max": [
+            0.46616090346558825,
+            1.8642930038680827,
+            0.3808643028472991
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.4651547324364346,
+            -8.916239806894266e-08,
+            -0.34306025662561157
+          ],
+          "max": [
+            0.45372072933637864,
+            1.7949096342348638,
+            0.5153217906735947
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.4737332730732805,
+            9.196284126572474e-08,
+            -0.2891625204491183
+          ],
+          "max": [
+            0.46231055430433504,
+            1.8244509544185998,
+            0.39257720489203507
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.47501474368875496,
+            -1.2179895100827842e-07,
+            -0.27557752985489015
+          ],
+          "max": [
+            0.46595845687185944,
+            1.8593691709769098,
+            0.3940481270111694
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "death",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.4764166176319268,
+            9.446316196484948e-09,
+            -0.2719808571182052
+          ],
+          "max": [
+            0.4649803380085831,
+            1.899999846545129,
+            0.27542438439386796
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.47641661763193893,
+            3.4073591677341586e-08,
+            -0.47396518420508904
+          ],
+          "max": [
+            0.46498033800857197,
+            1.8710454116746096,
+            0.4204862423698529
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.47641661763196225,
+            4.3118769943450985e-09,
+            -0.7364408983198437
+          ],
+          "max": [
+            0.4649803380085506,
+            1.645597483040448,
+            0.6888331232186309
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.4764166176317868,
+            -1.9577242160728758e-08,
+            -0.8530343826613566
+          ],
+          "max": [
+            0.46498033800871214,
+            1.1861612930257923,
+            0.8625134853291957
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.47641661763183707,
+            2.464829844318474e-09,
+            -1.0711371877859872
+          ],
+          "max": [
+            0.4649803380086656,
+            0.670297169023948,
+            0.9037604510064112
+          ]
+        }
+      ]
+    }
+  ],
+  "fileSha256": {
+    "lod0": "835614cd616c3dda523dcad18a63798192a46ca3611263d10f5e96cf35f03a48",
+    "lod1": "e9330648f5fe2ee5468211fc84f274f27380267b130e135652231f0d07d1d831",
+    "lod2": "856d32f3f023d328f774c8b157565fa6df6c0b9775a5d4b6a9a1c42c3c37ddc6"
+  },
+  "sourceInputsUnchanged": true,
+  "prePublicationFileSha256": {
+    "lod0": "9000cf4143cb38a427430cae188cfcee6e0ce7c3da2a0792f0b1467a8ac2ad23",
+    "lod1": "b156ae5dc7869e448361046aeb3cd4460afb76d403e9fa12fc7096cf748af642",
+    "lod2": "071fca74767f822bcdc0c30c650ae1a1c4f450247af2db7072fb53ae454aa536"
+  },
+  "losslessPublicationPacking": {
+    "baseline": "Reviewed V27 animated uncompressed checkpoint",
+    "method": "PNG optimize 9 with identical decoded RGBA; JPEG bytes unchanged; meshopt NONE filter with exact decoded bufferView equality under npm and bundled Three decoders",
+    "noGeometrySkinAnimationValueChanges": true,
+    "auditFiles": [
+      "texture-recompression-audit.json",
+      "buffer-compression-audit.json",
+      "publication-equality-audit.json"
+    ],
+    "equalityAudit": "publication-equality-audit.json"
+  }
+}

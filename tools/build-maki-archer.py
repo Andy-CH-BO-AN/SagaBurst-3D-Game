@@ -11,6 +11,8 @@ from mathutils.bvhtree import BVHTree
 from mathutils.geometry import barycentric_transform
 import numpy as np
 ROOT=Path.cwd();OUT=ROOT/'public/models/characters/v2/maki-archer-t4';OUT.mkdir(parents=True,exist_ok=True)
+if not (OUT/'manifest.json').exists() or json.loads((OUT/'manifest.json').read_text()).get('source',{}).get('sourceSha256') != 'de18d6e174d8b0e282dfa30a16382af44e1b815512187b8dc5ffea312dd08601':
+ raise RuntimeError('Legacy Maki builder retired for this asset. Use tools/build-faction-humanoids.py for Shadow Warden; do not overwrite its body or existing bow.')
 BOW=ROOT/'public/models/weapons/maki-ranger-bow';BOW.mkdir(parents=True,exist_ok=True)
 SOURCE=Path(sys.argv[sys.argv.index('--')+1]) if '--' in sys.argv else Path.home()/'Downloads/maki_archer.glb'
 raw=SOURCE.read_bytes();doc=json.loads(raw[20:20+struct.unpack_from('<I',raw,12)[0]])

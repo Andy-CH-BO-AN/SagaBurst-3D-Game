@@ -34,9 +34,9 @@ import {
   type PlayerMountId,
   type UnitTierCounts,
 } from '../battle/BattleConfig'
-import { SETUP_PLAYER_HERO_IDS, HERO_ASSETS, getHeroFixedEquipment, isSetupPlayerHeroId, type SetupPlayerHeroId } from '../world/HeroAssetCatalog'
+import { SETUP_PLAYER_HERO_IDS, HERO_ASSETS, isSetupPlayerHeroId, type SetupPlayerHeroId } from '../world/HeroAssetCatalog'
 import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import {
   MAX_COMMAND_SQUAD_SIZE,
@@ -226,7 +226,6 @@ export class CampaignSetupUI {
     const ordinaryTotal = total - this._tierTotal(4)
     const mounted = this._mountedTotal()
     const factionZh = this.defenderFaction === 'roman' ? '羅馬' : '維京'
-    const fixedEquipment = getHeroFixedEquipment(this.playerHeroId)
     const loadout = this.playerLoadout
       ?? createDefaultDefensePlayerLoadout(this.defenderFaction)
     this.playerLoadout = loadout
@@ -342,10 +341,9 @@ export class CampaignSetupUI {
           </label>
           <label class="campaign-loadout-field">
             <span>近戰</span>
-            <select id="campaign-player-melee" ${fixedEquipment ? 'disabled' : ''}>
-              ${fixedEquipment ? '<option selected>T4 弓（近戰）</option>' : ''}
+            <select id="campaign-player-melee">
               ${PLAYER_MELEE_SELECTION_IDS.map(id => `
-                <option value="${id}" ${!fixedEquipment && loadout.meleeWeaponId === id ? 'selected' : ''}>${WEAPONS[id]?.name ?? id}</option>
+                <option value="${id}" ${loadout.meleeWeaponId === id ? 'selected' : ''}>${WEAPONS[id]?.name ?? id}</option>
               `).join('')}
             </select>
           </label>
@@ -353,17 +351,16 @@ export class CampaignSetupUI {
             <span>遠程</span>
             <select id="campaign-player-ranged">
               ${PLAYER_RANGED_WEAPON_IDS.map(id => `
-                <option value="${id}" ${loadout.rangedWeaponId === id ? 'selected' : ''}
-                  ${this.playerHeroId === 'maki-archer-t4' && WEAPONS[id]?.combatKind !== 'bow' ? 'disabled' : ''}>${WEAPONS[id]?.name ?? id}</option>
+                <option value="${id}" ${loadout.rangedWeaponId === id ? 'selected' : ''}>${WEAPONS[id]?.name ?? id}</option>
               `).join('')}
             </select>
           </label>
           <label class="campaign-loadout-field">
             <span>盾牌</span>
-            <select id="campaign-player-shield" ${fixedEquipment ? 'disabled' : ''}>
-              <option value="" ${fixedEquipment || loadout.shieldId === null ? 'selected' : ''}>無盾</option>
+            <select id="campaign-player-shield">
+              <option value="" ${loadout.shieldId === null ? 'selected' : ''}>無盾</option>
               ${PLAYER_SHIELD_IDS.map(id => `
-                <option value="${id}" ${!fixedEquipment && loadout.shieldId === id ? 'selected' : ''}>${ARMORS[id]?.name ?? id}</option>
+                <option value="${id}" ${loadout.shieldId === id ? 'selected' : ''}>${ARMORS[id]?.name ?? id}</option>
               `).join('')}
             </select>
           </label>
@@ -431,7 +428,7 @@ export class CampaignSetupUI {
       this._render()
     })
     this.container.querySelector('#campaign-player-melee')?.addEventListener('change', event => {
-      if (!this.playerLoadout || getHeroFixedEquipment(this.playerHeroId)) return
+      if (!this.playerLoadout) return
       this.playerLoadout.meleeWeaponId = (event.target as HTMLSelectElement).value as PlayerLoadoutConfig['meleeWeaponId']
     })
     this.container.querySelector('#campaign-player-hero')?.addEventListener('change', event => {
@@ -441,20 +438,15 @@ export class CampaignSetupUI {
       if (heroId !== '' && !soldier && !isSetupPlayerHeroId(heroId)) return
       this.playerHeroId = isSetupPlayerHeroId(heroId) ? heroId : null
       this.playerVisualTier = soldier ? tier : undefined
-      if (this.playerHeroId === 'maki-archer-t4' && this.playerLoadout
-        && WEAPONS[this.playerLoadout.rangedWeaponId]?.combatKind !== 'bow') {
-        this.playerLoadout.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
-      }
       this._render()
     })
     this.container.querySelector('#campaign-player-ranged')?.addEventListener('change', event => {
       if (!this.playerLoadout) return
       const rangedWeaponId = (event.target as HTMLSelectElement).value as PlayerLoadoutConfig['rangedWeaponId']
-      if (this.playerHeroId === 'maki-archer-t4' && WEAPONS[rangedWeaponId]?.combatKind !== 'bow') return
       this.playerLoadout.rangedWeaponId = rangedWeaponId
     })
     this.container.querySelector('#campaign-player-shield')?.addEventListener('change', event => {
-      if (!this.playerLoadout || getHeroFixedEquipment(this.playerHeroId)) return
+      if (!this.playerLoadout) return
       const value = (event.target as HTMLSelectElement).value
       this.playerLoadout.shieldId = value
         ? value as PlayerLoadoutConfig['shieldId']

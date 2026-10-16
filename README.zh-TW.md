@@ -150,3 +150,7 @@ Captain 或 Commander 可以找城鎮的**巨鷹訓練場主 Eagle Trainer**，�
 Career 自動保存陣營、軍階、軍功、裝備、坐騎、戰鬥技能、部隊與任務檢查點；再次進入 Career 就會延續既有角色。Campaign 保存各陣營的關卡進度。訓練場與自訂戰鬥不會推進 Career。
 
 存檔留在目前裝置，**瀏覽器與桌面版各自保存，不會同步**。以新版替換桌面程式會保留存檔；清除瀏覽器網站資料或程式的使用者資料，則會移除對應存檔。
+
+## 模型來源與署名
+
+Nordic Warrior、Roman Statesman、Shadow Warden 模型由 [Meshy](https://www.meshy.ai/) 生成，採 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 授權。SagaBurst 調整其骨架、蒙皮、衣物接縫、動畫、LOD 與貼圖。來源 Hash 及修改資訊：[Nordic Warrior](public/models/characters/v2/viking-civilian/ATTRIBUTION.md)、[Roman Statesman](public/models/characters/v2/roman-civilian/ATTRIBUTION.md)、[Shadow Warden](public/models/characters/v2/maki-archer-t4/ATTRIBUTION.md)。上述署名適用於這三個模型資產；動畫來源授權另行記錄。

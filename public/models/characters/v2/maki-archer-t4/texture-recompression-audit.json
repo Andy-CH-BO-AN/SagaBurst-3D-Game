@@ -1,0 +1,47 @@
+{
+  "sourceSha256": "2a7a27018d759fe5130a132a791b1752a9009fba0ee4e3adfbb825210b291789",
+  "method": "PNG optimize level 9; retain smaller existing payload; JPEG copied unchanged",
+  "lods": [
+    {
+      "level": 0,
+      "inputSha256": "9000cf4143cb38a427430cae188cfcee6e0ce7c3da2a0792f0b1467a8ac2ad23",
+      "outputSha256": "0de15a0a505e8b33a6b305d3b04f14eec4bd3cd0fa9df309d4250f9a2547bc29",
+      "nonImageBufferViewsByteIdentical": 813,
+      "accessorDefinitionsUnchanged": 813,
+      "imageCount": 3,
+      "decodedRgbaIdentical": true,
+      "jpegBytesUnchanged": true,
+      "inputEncodedSha256": "a49dc1fe1981d62a8935a84df056d82c968a05cfbda139b6585eb64dc0069b75",
+      "outputEncodedSha256": "365424e6eaa02660d12c8cc221b3bf02ca2cdf564a12e13507e76897f0d86f62",
+      "decodedRgbaSha256": "24d4db3ddf41bd4a62f38c7727d69626897e0524505da9cccf7901fdea794f63"
+    },
+    {
+      "level": 1,
+      "inputSha256": "b156ae5dc7869e448361046aeb3cd4460afb76d403e9fa12fc7096cf748af642",
+      "outputSha256": "3faacc319d7709179e1753bbd5a31b6f9f0466a89e022dbf6f541025a8fa88b0",
+      "nonImageBufferViewsByteIdentical": 813,
+      "accessorDefinitionsUnchanged": 813,
+      "imageCount": 3,
+      "decodedRgbaIdentical": true,
+      "jpegBytesUnchanged": true,
+      "inputEncodedSha256": "74b74f5a6988b66d96abd3ca56c2e26640feed43f2ab8cf340eb94c293fe4adb",
+      "outputEncodedSha256": "e47eb05d828f7aecb81f0de6d9c9dbd1fd740dc4d635d81b201feda124ad942c",
+      "decodedRgbaSha256": "addc355e6ca9c2d8898832b95e14e2b7326f7d4cbaf484c23a54195eed36542c"
+    },
+    {
+      "level": 2,
+      "inputSha256": "071fca74767f822bcdc0c30c650ae1a1c4f450247af2db7072fb53ae454aa536",
+      "outputSha256": "6f230f21ba5dd39e170300c2514233e28fad62bd3ecc7323697fa2b32ac67be6",
+      "nonImageBufferViewsByteIdentical": 813,
+      "accessorDefinitionsUnchanged": 813,
+      "imageCount": 3,
+      "decodedRgbaIdentical": true,
+      "jpegBytesUnchanged": true,
+      "inputEncodedSha256": "197fc56a527ca028d5eb74e3b8970269fea3375b8df5c7fdfb7b7ba5b7e1c7bd",
+      "outputEncodedSha256": "219f323b7e89b16cbeecf088f278b3317247291f1ae752bd1c5fae1b986daf9b",
+      "decodedRgbaSha256": "93fea29d7b7d5313cf8814571812dbeaae72a706c66cf39e6fb06264b659d23d"
+    }
+  ],
+  "schemaVersion": 2,
+  "digestDefinition": "SHA-256 of ordered SHA-256 hex strings concatenated without separators"
+}

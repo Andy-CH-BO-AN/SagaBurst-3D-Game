@@ -1,5 +1,5 @@
-import { resolveUnitLoadout, type UnitPresetId, type UnitLoadout } from './UnitPresetCatalog'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { getUnitPreset, resolveUnitLoadout, type UnitPresetId, type UnitLoadout } from './UnitPresetCatalog'
+import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { HERO_COMBAT_PROFILES, type HeroCombatProfile, type T4CombatProfileId } from './HeroCombatProfile'
 
@@ -61,6 +61,7 @@ export function resolveT4UnitLoadout(presetId: UnitPresetId): UnitLoadout {
   }
   return { ...base, mountId: profile.mountOverride,
     ...(profile.specialCombatProfile === 'maki-ranger'
-      ? { rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null } : {}),
+      ? { meleeWeaponId: defaultRangerMeleeWeaponId(getUnitPreset(presetId).faction),
+          rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, reversibleRangedSwitch: true } : {}),
   }
 }

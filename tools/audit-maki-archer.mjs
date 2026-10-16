@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import * as T from 'three'
 import { readGlb, loadRig } from './lib/humanoid-glb.mjs'
 const dir='public/models/characters/v2/maki-archer-t4',manifest=JSON.parse(fs.readFileSync(`${dir}/manifest.json`))
+if (JSON.parse(fs.readFileSync(`${dir}/manifest.json`)).source?.sourceSha256 !== 'de18d6e174d8b0e282dfa30a16382af44e1b815512187b8dc5ffea312dd08601') throw Error('Legacy Maki tool retired for Shadow Warden. Use retarget-faction-humanoids.mjs / audit-faction-humanoids.mjs.')
 const required=['hips','spine','chest','neck','head',...['l','r'].flatMap(s=>['upper_arm_','lower_arm_','hand_','upper_leg_','lower_leg_','foot_','toe_'].map(n=>n+s))]
 const sockets=['socket_hand_l','socket_hand_r','socket_back','socket_head','socket_pelvis','socket_foot_l','socket_foot_r','sole_l','sole_r','bow_string_contact','bow_arrow_rest']
 const result={sourceSha256:manifest.source.sourceSha256,method:'Final GLB parsing; normalized skin weights; common bone hierarchy/rest transforms; identical sampled animation/socket transforms; texture dimensions read from encoded images. Bounds are not proof against visual intersections.',levels:[]}

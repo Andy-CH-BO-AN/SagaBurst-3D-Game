@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto'
 import * as T from 'three'
 import {readGlb,loadRig,encodeGlb} from './lib/humanoid-glb.mjs'
 const dir='public/models/characters/v2/maki-archer-t4',srcDir='public/models/characters/v2/viking'
+if (JSON.parse(fs.readFileSync(`${dir}/manifest.json`)).source?.sourceSha256 !== 'de18d6e174d8b0e282dfa30a16382af44e1b815512187b8dc5ffea312dd08601') throw Error('Legacy Maki tool retired for Shadow Warden. Use retarget-faction-humanoids.mjs / audit-faction-humanoids.mjs.')
 const measured=JSON.parse(fs.readFileSync(`${dir}/blender-measurements.json`)),original=JSON.parse(fs.readFileSync(`${srcDir}/manifest.json`))
 const source=await loadRig(readGlb(`${srcDir}/lod0.glb`))
 const hash=p=>createHash('sha256').update(fs.readFileSync(p)).digest('hex')

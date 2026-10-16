@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
 import { damageNpc, damageObstacle, damagePlayer } from '../../src/combat/DamageRouter'
-import { ShieldState } from '../../src/combat/ShieldBlocking'
+import { ShieldCollider, ShieldState } from '../../src/combat/ShieldBlocking'
 import type { Player } from '../../src/player/Player'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { Faction, NPC } from '../../src/world/NPC'
@@ -246,10 +246,15 @@ describe('Combat attribution foundation', () => {
     const { events, stream } = eventHarness(), shield = new ShieldState()
     shield.equip('round_shield_t1')
     const npc = mockNpc({ hp: 200, shield }), initial = shield.shieldImpactRemaining
+    // Only the visibility scalar is needed; no scene or collision geometry is created.
+    const pivot: Pick<THREE.Object3D, 'visible'> = { visible: false }
+    npc.shieldCollider = new ShieldCollider(pivot as THREE.Object3D, shield, () => false)
     const result = damageNpc(npc, 50, sourceContext(stream, { method: 'projectile', contact: { kind: 'shield', time: 0 } }))
     expect(result.appliedDamage).toBe(0)
     expect(result.blockedImpact).toBe(1)
     expect(shield.shieldImpactRemaining).toBe(initial - 1)
+    expect(shield.active).toBe(true)
+    expect(pivot.visible).toBe(false)
     expect(events.map(event => event.type)).toEqual(['hit_blocked'])
   })
 

@@ -1,0 +1,2314 @@
+{
+  "id": "roman-civilian",
+  "sourceAsset": "roman/lod0.glb",
+  "sourceSha256": "2d08e05d15a1690fa80a26066d1e579ed543a0c05b7a6d11d04b52d56a40bda9",
+  "banditSha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+  "canonicalPoseSha256": "f14b7060be88c40c8aeeb2bc41cb434b48b0f55793cb1f44f08d5aea6c57bf0b",
+  "clips": [
+    "axeAttack1H",
+    "axeAttack1HFoot",
+    "axeAttack2H",
+    "axeMountedIdle",
+    "bowHold",
+    "bowLoad",
+    "bowRelease",
+    "death",
+    "idle",
+    "pilumThrow",
+    "run",
+    "swordSlash",
+    "walk"
+  ],
+  "measuredLegScale": 0.9888542094405139,
+  "exactOptimization": {
+    "collapsedTracks": 112,
+    "removedExactConstantSamples": 26685,
+    "beforeAnimationStreamBytes": 5819736,
+    "afterConstantTrackStreamBytes": 5289816
+  },
+  "diagnostics": [
+    {
+      "clip": "idle",
+      "duration": 2.700000047683716,
+      "samples": 568,
+      "groundCorrectionM": [
+        -0.022261863725639965,
+        -0.0065897760337041145
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "walk",
+      "duration": 0.800000011920929,
+      "samples": 169,
+      "groundCorrectionM": [
+        -0.04793939973317245,
+        -0.013560250696555587
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "run",
+      "duration": 0.6000000238418579,
+      "samples": 127,
+      "groundCorrectionM": [
+        -0.1243892821099328,
+        -0.045085658280927726
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "swordSlash",
+      "duration": 0.47999998927116394,
+      "samples": 102,
+      "groundCorrectionM": [
+        0.008440353245390185,
+        0.008440376214855088
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "bowLoad",
+      "duration": 0.8333333134651184,
+      "samples": 167,
+      "groundCorrectionM": [
+        -0.0034507816729848484,
+        2.2800675922529656e-05
+      ],
+      "bowGroundContact": {
+        "method": "Whole fitted idle-leg cycle composed under authored bow pelvis; raw bow may hover",
+        "idleSamples": 1135,
+        "soleVerticesPerSample": 1186,
+        "maximumClearanceRestoredM": 0.03997252378977299
+      },
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "bowHold",
+      "duration": 1.3333333730697632,
+      "samples": 281,
+      "groundCorrectionM": [
+        -0.001586637235772348,
+        -0.001586637235772348
+      ],
+      "bowGroundContact": {
+        "method": "Whole fitted idle-leg cycle composed under authored bow pelvis; raw bow may hover",
+        "idleSamples": 1135,
+        "soleVerticesPerSample": 1186,
+        "maximumClearanceRestoredM": 0.034575833699183114
+      },
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "bowRelease",
+      "duration": 0.2199999988079071,
+      "samples": 60,
+      "groundCorrectionM": [
+        -0.0054433829767307484,
+        6.846192871956536e-05
+      ],
+      "bowGroundContact": {
+        "method": "Whole fitted idle-leg cycle composed under authored bow pelvis; raw bow may hover",
+        "idleSamples": 1135,
+        "soleVerticesPerSample": 1186,
+        "maximumClearanceRestoredM": 0.050721448924207525
+      },
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "pilumThrow",
+      "duration": 1.5,
+      "samples": 272,
+      "groundCorrectionM": [
+        -0.2667828989015831,
+        -0.021108320942157276
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "axeMountedIdle",
+      "duration": 2.700000047683716,
+      "samples": 568,
+      "groundCorrectionM": [
+        0,
+        0
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "axeAttack1H",
+      "duration": 3,
+      "samples": 541,
+      "groundCorrectionM": [
+        -0.005734066939895834,
+        0.04086216055841048
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "axeAttack2H",
+      "duration": 2.8333332538604736,
+      "samples": 1768,
+      "groundCorrectionM": [
+        -0.07027320663259795,
+        0.017792972864483707
+      ],
+      "mappedBones": [
+        "hips",
+        "spine",
+        "chest",
+        "neck",
+        "head",
+        "clavicle_l",
+        "upper_arm_l",
+        "lower_arm_l",
+        "hand_l",
+        "index_01_l",
+        "index_02_l",
+        "index_03_l",
+        "middle_01_l",
+        "middle_02_l",
+        "middle_03_l",
+        "ring_01_l",
+        "ring_02_l",
+        "ring_03_l",
+        "pinky_01_l",
+        "pinky_02_l",
+        "pinky_03_l",
+        "thumb_01_l",
+        "thumb_02_l",
+        "thumb_03_l",
+        "clavicle_r",
+        "upper_arm_r",
+        "lower_arm_r",
+        "hand_r",
+        "index_01_r",
+        "index_02_r",
+        "index_03_r",
+        "middle_01_r",
+        "middle_02_r",
+        "middle_03_r",
+        "ring_01_r",
+        "ring_02_r",
+        "ring_03_r",
+        "pinky_01_r",
+        "pinky_02_r",
+        "pinky_03_r",
+        "thumb_01_r",
+        "thumb_02_r",
+        "thumb_03_r",
+        "upper_leg_l",
+        "lower_leg_l",
+        "foot_l",
+        "toe_l",
+        "upper_leg_r",
+        "lower_leg_r",
+        "foot_r",
+        "toe_r"
+      ],
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "axeAttack1HFoot",
+      "duration": 3,
+      "samples": 181,
+      "capeFloor": {
+        "clearanceM": 0.01,
+        "enabled": false,
+        "reason": "No cape helpers"
+      }
+    },
+    {
+      "clip": "death",
+      "source": "createProjectAnimationClips()",
+      "duration": 1,
+      "clearanceM": 0,
+      "deathClothFollow": 1,
+      "ankleSettle": {
+        "startPhase": 0.55,
+        "endPhase": 1,
+        "maximumAllowedPitchRad": 1.2,
+        "finalPitchRad": {
+          "left": 0.741265869140625,
+          "right": 0.7421508789062501
+        },
+        "finalUnmetContactM": {
+          "left": 0,
+          "right": 0
+        },
+        "interpolation": "smoothstep; original early joint motion retained"
+      },
+      "samples": [
+        {
+          "time": 0,
+          "phase": 0,
+          "authoredFloorM": -5.851261988439549e-08,
+          "relaxedFloorM": -6.093827942096248e-08,
+          "groundCorrectionM": 6.093827942096248e-08,
+          "adaptedFloorM": 1.3636652496598317e-15,
+          "torsoClearanceM": 0.8857027459698814
+        },
+        {
+          "time": 0.01666666753590107,
+          "phase": 0.01666666753590107,
+          "authoredFloorM": -0.01689018234782042,
+          "relaxedFloorM": -0.01689018536620889,
+          "groundCorrectionM": 0.01689018536620889,
+          "adaptedFloorM": 6.938893903907228e-18,
+          "torsoClearanceM": 0.8845421225620013
+        },
+        {
+          "time": 0.03333333507180214,
+          "phase": 0.03333333507180214,
+          "authoredFloorM": -0.03455711785563514,
+          "relaxedFloorM": -0.03455712176718057,
+          "groundCorrectionM": 0.03455712176718057,
+          "adaptedFloorM": 5.0090140368830305e-17,
+          "torsoClearanceM": 0.8841649458291234
+        },
+        {
+          "time": 0.05000000074505806,
+          "phase": 0.05000000074505806,
+          "authoredFloorM": -0.05226066032540111,
+          "relaxedFloorM": -0.0522606638283365,
+          "groundCorrectionM": 0.0522606638283365,
+          "adaptedFloorM": -8.673617379884035e-18,
+          "torsoClearanceM": 0.8838312161775776
+        },
+        {
+          "time": 0.06666667014360428,
+          "phase": 0.06666667014360428,
+          "authoredFloorM": -0.07005276625404395,
+          "relaxedFloorM": -0.07005277020152907,
+          "groundCorrectionM": 0.07005277020152907,
+          "adaptedFloorM": 3.729655473350135e-17,
+          "torsoClearanceM": 0.883593089589437
+        },
+        {
+          "time": 0.0833333358168602,
+          "phase": 0.0833333358168602,
+          "authoredFloorM": -0.08774926021330251,
+          "relaxedFloorM": -0.08774926461337758,
+          "groundCorrectionM": 0.08774926461337758,
+          "adaptedFloorM": 4.7704895589362195e-17,
+          "torsoClearanceM": 0.8832666044259108
+        },
+        {
+          "time": 0.10000000149011612,
+          "phase": 0.10000000149011612,
+          "authoredFloorM": -0.10534998718847698,
+          "relaxedFloorM": -0.10534998883658231,
+          "groundCorrectionM": 0.10534998883658231,
+          "adaptedFloorM": -5.204170427930421e-18,
+          "torsoClearanceM": 0.8828517902065474
+        },
+        {
+          "time": 0.11666666716337204,
+          "phase": 0.11666666716337204,
+          "authoredFloorM": -0.12285477267657602,
+          "relaxedFloorM": -0.12285477421277377,
+          "groundCorrectionM": 0.12285477421277377,
+          "adaptedFloorM": 3.122502256758253e-17,
+          "torsoClearanceM": 0.8823486941508065
+        },
+        {
+          "time": 0.13333334028720856,
+          "phase": 0.13333334028720856,
+          "authoredFloorM": -0.14026348915411793,
+          "relaxedFloorM": -0.14026349058017695,
+          "groundCorrectionM": 0.14026349058017695,
+          "adaptedFloorM": 6.071532165918825e-17,
+          "torsoClearanceM": 0.8817573636096943
+        },
+        {
+          "time": 0.15000000596046448,
+          "phase": 0.15000000596046448,
+          "authoredFloorM": -0.1575759709284507,
+          "relaxedFloorM": -0.15757597224612507,
+          "groundCorrectionM": 0.15757597224612507,
+          "adaptedFloorM": -7.979727989493313e-17,
+          "torsoClearanceM": 0.8810778588896679
+        },
+        {
+          "time": 0.1666666716337204,
+          "phase": 0.1666666716337204,
+          "authoredFloorM": -0.17479208190536566,
+          "relaxedFloorM": -0.174792083116395,
+          "groundCorrectionM": 0.174792083116395,
+          "adaptedFloorM": -6.938893903907228e-18,
+          "torsoClearanceM": 0.8803102467210724
+        },
+        {
+          "time": 0.18333333730697632,
+          "phase": 0.18333333730697632,
+          "authoredFloorM": -0.19191172977156287,
+          "relaxedFloorM": -0.19191173087767238,
+          "groundCorrectionM": 0.19191173087767238,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.8794546039593617
+        },
+        {
+          "time": 0.20000000298023224,
+          "phase": 0.20000000298023224,
+          "authoredFloorM": -0.20893478729654968,
+          "relaxedFloorM": -0.20893478829945042,
+          "groundCorrectionM": 0.20893478829945042,
+          "adaptedFloorM": 4.5102810375396984e-17,
+          "torsoClearanceM": 0.8785110163423189
+        },
+        {
+          "time": 0.21666666865348816,
+          "phase": 0.21666666865348816,
+          "authoredFloorM": -0.22586115128610157,
+          "relaxedFloorM": -0.2258611521874904,
+          "groundCorrectionM": 0.2258611521874904,
+          "adaptedFloorM": -3.8163916471489756e-17,
+          "torsoClearanceM": 0.8774795792668951
+        },
+        {
+          "time": 0.23333333432674408,
+          "phase": 0.23333333432674408,
+          "authoredFloorM": -0.2426907159720737,
+          "relaxedFloorM": -0.24269071677363374,
+          "groundCorrectionM": 0.24269071677363374,
+          "adaptedFloorM": 1.0408340855860843e-17,
+          "torsoClearanceM": 0.8763603938721811
+        },
+        {
+          "time": 0.25,
+          "phase": 0.25,
+          "authoredFloorM": -0.25942342663943047,
+          "relaxedFloorM": -0.25942342734283075,
+          "groundCorrectionM": 0.25942342734283075,
+          "adaptedFloorM": 1.734723475976807e-17,
+          "torsoClearanceM": 0.8751535741152657
+        },
+        {
+          "time": 0.2666666805744171,
+          "phase": 0.2666666805744171,
+          "authoredFloorM": -0.2693476702252497,
+          "relaxedFloorM": -0.2693476706749468,
+          "groundCorrectionM": 0.2693476706749468,
+          "adaptedFloorM": -1.734723475976807e-17,
+          "torsoClearanceM": 0.8715078891397794
+        },
+        {
+          "time": 0.2800000011920929,
+          "phase": 0.2800000011920929,
+          "authoredFloorM": -0.2767900030714679,
+          "relaxedFloorM": -0.2767900033265065,
+          "groundCorrectionM": 0.2767900033265065,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.8681450242715911
+        },
+        {
+          "time": 0.28333333134651184,
+          "phase": 0.28333333134651184,
+          "authoredFloorM": -0.2785815173368861,
+          "relaxedFloorM": -0.2785815175443965,
+          "groundCorrectionM": 0.2785815175443965,
+          "adaptedFloorM": 1.734723475976807e-17,
+          "torsoClearanceM": 0.8672425109268853
+        },
+        {
+          "time": 0.30000001192092896,
+          "phase": 0.30000001192092896,
+          "authoredFloorM": -0.28712441026778535,
+          "relaxedFloorM": -0.2871244102443731,
+          "groundCorrectionM": 0.2871244102443731,
+          "adaptedFloorM": 4.163336342344337e-17,
+          "torsoClearanceM": 0.8621903827715481
+        },
+        {
+          "time": 0.3166666626930237,
+          "phase": 0.3166666626930237,
+          "authoredFloorM": -0.29497632358429277,
+          "relaxedFloorM": -0.2949763233409761,
+          "groundCorrectionM": 0.2949763233409761,
+          "adaptedFloorM": -4.163336342344337e-17,
+          "torsoClearanceM": 0.8562163648879352
+        },
+        {
+          "time": 0.3333333432674408,
+          "phase": 0.3333333432674408,
+          "authoredFloorM": -0.3021376147868823,
+          "relaxedFloorM": -0.3021376143344354,
+          "groundCorrectionM": 0.3021376143344354,
+          "adaptedFloorM": 2.0816681711721685e-17,
+          "torsoClearanceM": 0.8496334978652608
+        },
+        {
+          "time": 0.3499999940395355,
+          "phase": 0.3499999940395355,
+          "authoredFloorM": -0.30860926304922387,
+          "relaxedFloorM": -0.3086092623981832,
+          "groundCorrectionM": 0.3086092623981832,
+          "adaptedFloorM": 6.938893903907228e-17,
+          "torsoClearanceM": 0.8424465013518563
+        },
+        {
+          "time": 0.36666667461395264,
+          "phase": 0.36666667461395264,
+          "authoredFloorM": -0.3143926039576796,
+          "relaxedFloorM": -0.3143926031183443,
+          "groundCorrectionM": 0.3143926031183443,
+          "adaptedFloorM": 1.1102230246251565e-16,
+          "torsoClearanceM": 0.8346604549799433
+        },
+        {
+          "time": 0.38333332538604736,
+          "phase": 0.38333332538604736,
+          "authoredFloorM": -0.31948959803276406,
+          "relaxedFloorM": -0.31948959701520085,
+          "groundCorrectionM": 0.31948959701520085,
+          "adaptedFloorM": -6.245004513516506e-17,
+          "torsoClearanceM": 0.8260167537077101
+        },
+        {
+          "time": 0.4000000059604645,
+          "phase": 0.4000000059604645,
+          "authoredFloorM": -0.32390258698037255,
+          "relaxedFloorM": -0.3239025857944171,
+          "groundCorrectionM": 0.3239025857944171,
+          "adaptedFloorM": -6.245004513516506e-17,
+          "torsoClearanceM": 0.816760927306674
+        },
+        {
+          "time": 0.4166666567325592,
+          "phase": 0.4166666567325592,
+          "authoredFloorM": -0.32763441420336087,
+          "relaxedFloorM": -0.3276344128586201,
+          "groundCorrectionM": 0.3276344128586201,
+          "adaptedFloorM": 8.326672684688674e-17,
+          "torsoClearanceM": 0.8069243335810873
+        },
+        {
+          "time": 0.4333333373069763,
+          "phase": 0.4333333373069763,
+          "authoredFloorM": -0.3306884785672174,
+          "relaxedFloorM": -0.3306884770730713,
+          "groundCorrectionM": 0.3306884770730713,
+          "adaptedFloorM": 1.3877787807814457e-16,
+          "torsoClearanceM": 0.7965139438626629
+        },
+        {
+          "time": 0.44999998807907104,
+          "phase": 0.44999998807907104,
+          "authoredFloorM": -0.3330685786880897,
+          "relaxedFloorM": -0.3330685770536939,
+          "groundCorrectionM": 0.3330685770536939,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.7855372081861601
+        },
+        {
+          "time": 0.46666666865348816,
+          "phase": 0.46666666865348816,
+          "authoredFloorM": -0.3347790546301992,
+          "relaxedFloorM": -0.3347790528644843,
+          "groundCorrectionM": 0.3347790528644843,
+          "adaptedFloorM": -8.326672684688674e-17,
+          "torsoClearanceM": 0.7740018740483199
+        },
+        {
+          "time": 0.4833333194255829,
+          "phase": 0.4833333194255829,
+          "authoredFloorM": -0.3358246554214248,
+          "relaxedFloorM": -0.33582465353309965,
+          "groundCorrectionM": 0.33582465353309965,
+          "adaptedFloorM": 0,
+          "torsoClearanceM": 0.7619161801247126
+        },
+        {
+          "time": 0.5,
+          "phase": 0.5,
+          "authoredFloorM": -0.3362106947124783,
+          "relaxedFloorM": -0.3362106927100296,
+          "groundCorrectionM": 0.3362106927100296,
+          "adaptedFloorM": 1.1102230246251565e-16,
+          "torsoClearanceM": 0.7492887082353484
+        },
+        {
+          "time": 0.5166666507720947,
+          "phase": 0.5166666507720947,
+          "authoredFloorM": -0.3359428539221438,
+          "relaxedFloorM": -0.33594285181383743,
+          "groundCorrectionM": 0.33594285181383743,
+          "adaptedFloorM": -4.163336342344337e-17,
+          "torsoClearanceM": 0.7361284539225947
+        },
+        {
+          "time": 0.5333333611488342,
+          "phase": 0.5333333611488342,
+          "authoredFloorM": -0.3350273479820663,
+          "relaxedFloorM": -0.3350273457759475,
+          "groundCorrectionM": 0.3350273457759475,
+          "adaptedFloorM": 8.326672684688674e-17,
+          "torsoClearanceM": 0.7224447166031053
+        },
+        {
+          "time": 0.550000011920929,
+          "phase": 0.550000011920929,
+          "authoredFloorM": -0.33347086561879624,
+          "relaxedFloorM": -0.33347086332269127,
+          "groundCorrectionM": 0.33347086332269127,
+          "adaptedFloorM": -1.3877787807814457e-17,
+          "torsoClearanceM": 0.7082473182855773
+        },
+        {
+          "time": 0.5666666626930237,
+          "phase": 0.5666666626930237,
+          "authoredFloorM": -0.33128046760643265,
+          "relaxedFloorM": -0.33160445153860907,
+          "groundCorrectionM": 0.33160445153860907,
+          "adaptedFloorM": 8.326672684688674e-17,
+          "torsoClearanceM": 0.6938703085161615
+        },
+        {
+          "time": 0.5833333134651184,
+          "phase": 0.5833333134651184,
+          "authoredFloorM": -0.3284637352352462,
+          "relaxedFloorM": -0.32964908969106954,
+          "groundCorrectionM": 0.32964908969106954,
+          "adaptedFloorM": -4.163336342344337e-17,
+          "torsoClearanceM": 0.6795375235845653
+        },
+        {
+          "time": 0.6000000238418579,
+          "phase": 0.6000000238418579,
+          "authoredFloorM": -0.3250286228589846,
+          "relaxedFloorM": -0.3274388025471457,
+          "groundCorrectionM": 0.3274388025471457,
+          "adaptedFloorM": 9.71445146547012e-17,
+          "torsoClearanceM": 0.6650857298425238
+        },
+        {
+          "time": 0.6166666746139526,
+          "phase": 0.6166666746139526,
+          "authoredFloorM": -0.32098372429507105,
+          "relaxedFloorM": -0.3248013659184345,
+          "groundCorrectionM": 0.3248013659184345,
+          "adaptedFloorM": 5.551115123125783e-17,
+          "torsoClearanceM": 0.650345488775102
+        },
+        {
+          "time": 0.6333333253860474,
+          "phase": 0.6333333253860474,
+          "authoredFloorM": -0.31633776695453397,
+          "relaxedFloorM": -0.3215627863912828,
+          "groundCorrectionM": 0.3215627863912828,
+          "adaptedFloorM": 1.3877787807814457e-17,
+          "torsoClearanceM": 0.6351453993140183
+        },
+        {
+          "time": 0.6499999761581421,
+          "phase": 0.6499999761581421,
+          "authoredFloorM": -0.3111001516185312,
+          "relaxedFloorM": -0.31755295576605375,
+          "groundCorrectionM": 0.31755295576605375,
+          "adaptedFloorM": -4.163336342344337e-17,
+          "torsoClearanceM": 0.6193178412379131
+        },
+        {
+          "time": 0.6666666865348816,
+          "phase": 0.6666666865348816,
+          "authoredFloorM": -0.3052805052476273,
+          "relaxedFloorM": -0.31261043410336625,
+          "groundCorrectionM": 0.31261043410336625,
+          "adaptedFloorM": -9.71445146547012e-17,
+          "torsoClearanceM": 0.6027037129628245
+        },
+        {
+          "time": 0.6833333373069763,
+          "phase": 0.6833333373069763,
+          "authoredFloorM": -0.2988891123162175,
+          "relaxedFloorM": -0.3065880936228731,
+          "groundCorrectionM": 0.3065880936228731,
+          "adaptedFloorM": 0,
+          "torsoClearanceM": 0.5851582507770671
+        },
+        {
+          "time": 0.699999988079071,
+          "phase": 0.699999988079071,
+          "authoredFloorM": -0.2919364484054399,
+          "relaxedFloorM": -0.29935768737214097,
+          "groundCorrectionM": 0.29935768737214097,
+          "adaptedFloorM": -5.551115123125783e-17,
+          "torsoClearanceM": 0.5665554147511302
+        },
+        {
+          "time": 0.7166666388511658,
+          "phase": 0.7166666388511658,
+          "authoredFloorM": -0.28443340338385337,
+          "relaxedFloorM": -0.2908146812755941,
+          "groundCorrectionM": 0.2908146812755941,
+          "adaptedFloorM": -5.551115123125783e-17,
+          "torsoClearanceM": 0.5467927069896317
+        },
+        {
+          "time": 0.7333333492279053,
+          "phase": 0.7333333492279053,
+          "authoredFloorM": -0.2763914377115681,
+          "relaxedFloorM": -0.28088245509952803,
+          "groundCorrectionM": 0.28088245509952803,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.5257954330414024
+        },
+        {
+          "time": 0.75,
+          "phase": 0.75,
+          "authoredFloorM": -0.26782215957009947,
+          "relaxedFloorM": -0.2695150864455621,
+          "groundCorrectionM": 0.2695150864455621,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.5035196535801415
+        },
+        {
+          "time": 0.7666666507720947,
+          "phase": 0.7666666507720947,
+          "authoredFloorM": -0.25873776481208405,
+          "relaxedFloorM": -0.2567000247948038,
+          "groundCorrectionM": 0.2567000247948038,
+          "adaptedFloorM": -8.326672684688674e-17,
+          "torsoClearanceM": 0.4799545150486158
+        },
+        {
+          "time": 0.7833333611488342,
+          "phase": 0.7833333611488342,
+          "authoredFloorM": -0.24915064002398285,
+          "relaxedFloorM": -0.24245880916940557,
+          "groundCorrectionM": 0.24245880916940557,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.45512311917491777
+        },
+        {
+          "time": 0.800000011920929,
+          "phase": 0.800000011920929,
+          "authoredFloorM": -0.23907366950232317,
+          "relaxedFloorM": -0.22684732216356346,
+          "groundCorrectionM": 0.22684732216356346,
+          "adaptedFloorM": -1.3877787807814457e-16,
+          "torsoClearanceM": 0.429083015206762
+        },
+        {
+          "time": 0.8166666626930237,
+          "phase": 0.8166666626930237,
+          "authoredFloorM": -0.22851998067433038,
+          "relaxedFloorM": -0.20995433688197493,
+          "groundCorrectionM": 0.20995433688197493,
+          "adaptedFloorM": 5.551115123125783e-17,
+          "torsoClearanceM": 0.4015834775247959
+        },
+        {
+          "time": 0.8333333134651184,
+          "phase": 0.8333333134651184,
+          "authoredFloorM": -0.21750313591259834,
+          "relaxedFloorM": -0.19243228737365828,
+          "groundCorrectionM": 0.19243228737365828,
+          "adaptedFloorM": 0,
+          "torsoClearanceM": 0.3731565425973158
+        },
+        {
+          "time": 0.8500000238418579,
+          "phase": 0.8500000238418579,
+          "authoredFloorM": -0.2060367998222585,
+          "relaxedFloorM": -0.17413300654406477,
+          "groundCorrectionM": 0.17413300654406477,
+          "adaptedFloorM": -8.326672684688674e-17,
+          "torsoClearanceM": 0.3441184854372888
+        },
+        {
+          "time": 0.8666666746139526,
+          "phase": 0.8666666746139526,
+          "authoredFloorM": -0.19413534704206675,
+          "relaxedFloorM": -0.15495919511374492,
+          "groundCorrectionM": 0.15495919511374492,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.31437379687576905
+        },
+        {
+          "time": 0.8833333253860474,
+          "phase": 0.8833333253860474,
+          "authoredFloorM": -0.18181320159109793,
+          "relaxedFloorM": -0.1350919988079335,
+          "groundCorrectionM": 0.1350919988079335,
+          "adaptedFloorM": 0,
+          "torsoClearanceM": 0.28410506140495634
+        },
+        {
+          "time": 0.8999999761581421,
+          "phase": 0.8999999761581421,
+          "authoredFloorM": -0.1690850412077271,
+          "relaxedFloorM": -0.11472716687478904,
+          "groundCorrectionM": 0.11472716687478904,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.25350941169851543
+        },
+        {
+          "time": 0.9166666865348816,
+          "phase": 0.9166666865348816,
+          "authoredFloorM": -0.1559659692101535,
+          "relaxedFloorM": -0.09407036491346248,
+          "groundCorrectionM": 0.09407036491346248,
+          "adaptedFloorM": 2.7755575615628914e-17,
+          "torsoClearanceM": 0.22279372460570054
+        },
+        {
+          "time": 0.9333333373069763,
+          "phase": 0.9333333373069763,
+          "authoredFloorM": -0.14247140467515534,
+          "relaxedFloorM": -0.07333244076915635,
+          "groundCorrectionM": 0.07333244076915635,
+          "adaptedFloorM": 0,
+          "torsoClearanceM": 0.1921701293103049
+        },
+        {
+          "time": 0.949999988079071,
+          "phase": 0.949999988079071,
+          "authoredFloorM": -0.12861675585977939,
+          "relaxedFloorM": -0.05272452796504962,
+          "groundCorrectionM": 0.05272452796504962,
+          "adaptedFloorM": 0,
+          "torsoClearanceM": 0.16185070750199332
+        },
+        {
+          "time": 0.9666666388511658,
+          "phase": 0.9666666388511658,
+          "authoredFloorM": -0.11441806189456707,
+          "relaxedFloorM": -0.032454993946947855,
+          "groundCorrectionM": 0.032454993946947855,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.13204473843495534
+        },
+        {
+          "time": 0.9833333492279053,
+          "phase": 0.9833333492279053,
+          "authoredFloorM": -0.09989128263351865,
+          "relaxedFloorM": -0.012725228905624136,
+          "groundCorrectionM": 0.012725228905624136,
+          "adaptedFloorM": -2.7755575615628914e-17,
+          "torsoClearanceM": 0.10295432010319565
+        },
+        {
+          "time": 1,
+          "phase": 1,
+          "authoredFloorM": -0.08505279894799406,
+          "relaxedFloorM": 0.0062713938907618125,
+          "groundCorrectionM": -0.0062713938907618125,
+          "adaptedFloorM": -1.8690210226827533e-10,
+          "torsoClearanceM": 0.0747736040685619
+        }
+      ],
+      "maximumRemainingPenetrationM": 1.8690210226827533e-10,
+      "finalTorsoClearanceM": 0.0747736040685619,
+      "contact": "Whole target skin including cloth; bounded late ankle relaxation only, with residual torso clearance explicitly reported"
+    }
+  ],
+  "poseBounds": [
+    {
+      "clip": "idle",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.3438971395280557,
+            4.019699808080479e-08,
+            -0.27951837520759526
+          ],
+          "max": [
+            0.3784817791943387,
+            1.7601452800144903,
+            0.26661370801751405
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.3576664014900477,
+            -1.005239939587399e-07,
+            -0.2784959416189501
+          ],
+          "max": [
+            0.39218336858454717,
+            1.7461243047823016,
+            0.2776472062552173
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.3611694449623712,
+            -6.578286148445356e-09,
+            -0.26977477006525535
+          ],
+          "max": [
+            0.3817810796201308,
+            1.751791376379234,
+            0.2707152931017352
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.34672446244831245,
+            -1.561559767118692e-07,
+            -0.2663979117885467
+          ],
+          "max": [
+            0.3670828511120576,
+            1.766642916461284,
+            0.261782066882647
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.3437427354807467,
+            2.2711653883955574e-08,
+            -0.279217673305701
+          ],
+          "max": [
+            0.3778479349630494,
+            1.7605893560101253,
+            0.26638034994672566
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "walk",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.319284848463906,
+            5.983693822722569e-08,
+            -0.5695061944448628
+          ],
+          "max": [
+            0.3394738693633491,
+            1.7371692361935844,
+            0.5333076967815178
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.336451824492234,
+            4.897845088877584e-08,
+            -0.2313936607839844
+          ],
+          "max": [
+            0.3735976936045564,
+            1.7576569488024825,
+            0.32221575424937304
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.3056697807204869,
+            7.223970975578364e-08,
+            -0.5186686293303675
+          ],
+          "max": [
+            0.35610100956261864,
+            1.7373608715392366,
+            0.4981192232920529
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.332918684691654,
+            -2.2924700006365928e-08,
+            -0.31438231566744357
+          ],
+          "max": [
+            0.3662645700661008,
+            1.757159498370424,
+            0.27265041469136536
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.3192847723709462,
+            8.203487595476178e-08,
+            -0.5695053992642104
+          ],
+          "max": [
+            0.3394740259145315,
+            1.7371698300274887,
+            0.5333076975590996
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "run",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.33975916282813023,
+            5.7113899373795185e-08,
+            -0.7838514946621269
+          ],
+          "max": [
+            0.30926080215957336,
+            1.6216584356982582,
+            0.6187475631997897
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.39849070992374197,
+            -0.00025378498531986385,
+            -0.3167245196679837
+          ],
+          "max": [
+            0.4923950469218762,
+            1.6941079665624534,
+            0.29008558476076685
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.3024052935469982,
+            -3.982529230006637e-08,
+            -0.6606975543390324
+          ],
+          "max": [
+            0.38091945176532416,
+            1.636465469574904,
+            0.5997364891444564
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.4824989444957144,
+            -0.0003053688345675423,
+            -0.3612682764698004
+          ],
+          "max": [
+            0.43263174585887104,
+            1.6915626497670893,
+            0.3885677703834809
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.33975923050497575,
+            2.7809237898579475e-10,
+            -0.7838514333839953
+          ],
+          "max": [
+            0.3092605901470643,
+            1.6216585384819693,
+            0.6187473777795038
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "swordSlash",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.3247772117652348,
+            8.722186870674387e-08,
+            -0.27375654024643914
+          ],
+          "max": [
+            0.3826951321553117,
+            1.7652226079835338,
+            0.21862420089434767
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.3457794954013809,
+            8.913815880903786e-08,
+            -0.43077817876071517
+          ],
+          "max": [
+            0.23621520191706968,
+            1.5542989895891228,
+            0.45044199250355677
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.2062727434099677,
+            9.064591595386862e-08,
+            -0.33428092859109076
+          ],
+          "max": [
+            0.5208269712626301,
+            1.7406630564474632,
+            0.6431502887483543
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.3181841827696935,
+            9.453627871844339e-08,
+            -0.41612323106415416
+          ],
+          "max": [
+            0.289220481915048,
+            1.7534041338248763,
+            0.20224347079971774
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.3516087109045368,
+            8.475818691691672e-08,
+            -0.49505250317356936
+          ],
+          "max": [
+            0.26887292377027266,
+            1.7573412052003017,
+            0.1740682664755882
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "bowLoad",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.426622269781887,
+            0.03997252988896599,
+            -0.5045563075083747
+          ],
+          "max": [
+            0.1843583153731287,
+            1.7734644561982233,
+            0.6876916839235561
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.33861534991244724,
+            0.03555769587835256,
+            -0.5001132810678334
+          ],
+          "max": [
+            0.16914490750452071,
+            1.772067007677881,
+            0.6734723090783059
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.33328321769208474,
+            0.03030869747877662,
+            -0.5019098701361732
+          ],
+          "max": [
+            0.16895017188936762,
+            1.7706284789873257,
+            0.7056986186403607
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.33412595313626564,
+            0.02887641066198733,
+            -0.5079944502066437
+          ],
+          "max": [
+            0.168727708886552,
+            1.7719180946972908,
+            0.6996908923565801
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.3345140341191626,
+            0.028371069947690303,
+            -0.5109767916683762
+          ],
+          "max": [
+            0.1686203306226661,
+            1.772445040562876,
+            0.6969721408952144
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "bowHold",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.33474495484892514,
+            0.028624090472011848,
+            -0.5078041576192193
+          ],
+          "max": [
+            0.16862033353488876,
+            1.7724450401087588,
+            0.6967592158746552
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.3331442962254157,
+            0.03181472285528883,
+            -0.49925319748060376
+          ],
+          "max": [
+            0.16862033353488876,
+            1.7724450401087588,
+            0.6957247788764906
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.3311593379009514,
+            0.03452961780774961,
+            -0.5177002119512195
+          ],
+          "max": [
+            0.16862033353488876,
+            1.7724450401087588,
+            0.6941637291692652
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.3326161071104847,
+            0.03128872129528461,
+            -0.5210044486446017
+          ],
+          "max": [
+            0.16862033353488876,
+            1.7724450401087588,
+            0.6952700279561703
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.33471451620892717,
+            0.028608754158572176,
+            -0.5085937446509761
+          ],
+          "max": [
+            0.16862033353488876,
+            1.7724450401087588,
+            0.6967543219145677
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "bowRelease",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.3345141183580109,
+            0.028371098929039846,
+            -0.5109767934494207
+          ],
+          "max": [
+            0.16862033353488876,
+            1.7724450401087588,
+            0.696972009434967
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.4595147776005257,
+            0.026519363382167378,
+            -0.49906654467894196
+          ],
+          "max": [
+            0.1693414322855567,
+            1.7736678549599034,
+            0.6947700652915745
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.5344478325046733,
+            0.03686098644205916,
+            -0.49848179930038977
+          ],
+          "max": [
+            0.19777885495123662,
+            1.7727721026651284,
+            0.6733703661630748
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.5166789582934651,
+            0.04984697653224976,
+            -0.4831119005312173
+          ],
+          "max": [
+            0.23890883843910618,
+            1.766849307512115,
+            0.6292587339259875
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.35640738070605477,
+            0.044895753227934876,
+            -0.3883462689714924
+          ],
+          "max": [
+            0.30575564645904607,
+            1.7693585256144924,
+            0.3447355406887129
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "pilumThrow",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.38900129097509456,
+            5.770584810688151e-08,
+            -0.33761077134933615
+          ],
+          "max": [
+            0.38354577291024183,
+            1.7380999774686492,
+            0.37850234337734645
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.41397866389256965,
+            -2.958276854251194e-05,
+            -0.6991831801983386
+          ],
+          "max": [
+            0.30302001671679046,
+            1.661267180208745,
+            0.5714534730040248
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.3827767015641384,
+            2.974943161260235e-08,
+            -0.6437129626907325
+          ],
+          "max": [
+            0.44727610692387076,
+            1.2126025807858678,
+            0.6880140955190974
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.3857692631224958,
+            -3.4765859845131697e-07,
+            -0.654664285629058
+          ],
+          "max": [
+            0.5102615682058025,
+            1.193179289544787,
+            0.5271980062815489
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.4383742835487985,
+            7.127971221598806e-08,
+            -0.6033775212213884
+          ],
+          "max": [
+            0.38610665532451827,
+            1.20807054115176,
+            0.596588077820427
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "axeMountedIdle",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.3481621265346039,
+            -0.008440286193318054,
+            -0.2414388404796014
+          ],
+          "max": [
+            0.34855479472159157,
+            1.776190858172968,
+            0.21681749798612432
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.3603127284484481,
+            -0.008440286193318054,
+            -0.24314208787695699
+          ],
+          "max": [
+            0.3630613653510179,
+            1.7717544585901264,
+            0.21681749798612432
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.3631024887865983,
+            -0.008440286193318054,
+            -0.2281026203261766
+          ],
+          "max": [
+            0.3497656853640545,
+            1.7638320196118242,
+            0.21681749798612432
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.35079755075865304,
+            -0.008440286193318054,
+            -0.22658650652993173
+          ],
+          "max": [
+            0.33572916654634016,
+            1.7711642063211757,
+            0.21681749798612432
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.34827742819335694,
+            -0.008440286193318054,
+            -0.24165054986003043
+          ],
+          "max": [
+            0.3484925805931306,
+            1.7761632955115008,
+            0.21681749798612432
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "axeAttack1H",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.5007944459101175,
+            -7.621637174853868e-08,
+            -0.23545114354721536
+          ],
+          "max": [
+            0.590573856636951,
+            1.633479186448385,
+            0.27842331878466775
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.6317155280845833,
+            9.353087260938198e-08,
+            -0.3833519116688925
+          ],
+          "max": [
+            0.5853747071677519,
+            1.561616920401871,
+            0.580850582417497
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.5455851505578944,
+            1.2616301135748298e-07,
+            -0.5169686984156296
+          ],
+          "max": [
+            0.7734398944983938,
+            1.5192432478525753,
+            0.23540315316202132
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.4802358846802878,
+            7.580654247038576e-08,
+            -0.22372481731970773
+          ],
+          "max": [
+            0.5943052194230801,
+            1.6232491837784462,
+            0.36914164559071516
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.5064460514149212,
+            -6.240762186887627e-08,
+            -0.22929671526968953
+          ],
+          "max": [
+            0.5903907838501756,
+            1.634643048920212,
+            0.28511769235493967
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "axeAttack2H",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.5939959250703062,
+            -3.9102747109720504e-08,
+            -0.4357650357375751
+          ],
+          "max": [
+            0.5505142849023005,
+            1.4508537450411114,
+            0.5862141412431638
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.4099935182699097,
+            -1.3422863577930433e-07,
+            -0.520228504622394
+          ],
+          "max": [
+            0.4448266444140352,
+            1.8072227134341783,
+            0.4099908323740047
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.22965865287370535,
+            5.4538743132770406e-08,
+            -0.7523689627625227
+          ],
+          "max": [
+            0.6874734071406741,
+            1.157181543977045,
+            0.5886029621665325
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.41359803411698476,
+            -1.191056868757312e-08,
+            -0.48518686961589164
+          ],
+          "max": [
+            0.570325345734388,
+            1.3794443633592153,
+            0.8226729484031501
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.5925749833950187,
+            8.03225540593755e-08,
+            -0.4354055887653836
+          ],
+          "max": [
+            0.5519144853307152,
+            1.450871154112357,
+            0.5867335943645644
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "axeAttack1HFoot",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.3438971395280557,
+            4.019699808080479e-08,
+            -0.27951837520759526
+          ],
+          "max": [
+            0.3784817791943387,
+            1.7601452800144903,
+            0.26661371475162754
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.5339081916867969,
+            -4.105151773722837e-08,
+            -0.38287180981227475
+          ],
+          "max": [
+            0.3350782037166744,
+            1.7493570405645793,
+            0.26989976657012704
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.3261497996695518,
+            9.346612929450604e-08,
+            -0.36700376809469454
+          ],
+          "max": [
+            0.3299556927531557,
+            1.688004062069274,
+            0.4142356112719773
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.3324027309857213,
+            1.1235976143247894e-07,
+            -0.3186541801719548
+          ],
+          "max": [
+            0.36153467797999606,
+            1.7166388553114056,
+            0.2769303846706936
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.3604091899904228,
+            1.2558599575898666e-07,
+            -0.2771460632448949
+          ],
+          "max": [
+            0.39183619683981086,
+            1.7452756336644648,
+            0.27813484161392965
+          ]
+        }
+      ]
+    },
+    {
+      "clip": "death",
+      "frames": [
+        {
+          "phase": 0,
+          "min": [
+            -0.44098686083399036,
+            -1.4563425388348376e-10,
+            -0.22713097591502995
+          ],
+          "max": [
+            0.43814977404255295,
+            1.7799998474274046,
+            0.22124268667273986
+          ]
+        },
+        {
+          "phase": 0.25,
+          "min": [
+            -0.44098686083399036,
+            -2.980578544392598e-09,
+            -0.26917242577738376
+          ],
+          "max": [
+            0.43814977404255295,
+            1.7669089000740545,
+            0.28038141964440605
+          ]
+        },
+        {
+          "phase": 0.5,
+          "min": [
+            -0.44098686083399036,
+            -2.1529159704991585e-08,
+            -0.6135084110047513
+          ],
+          "max": [
+            0.43814977404255295,
+            1.5486987681269206,
+            0.5557577418525435
+          ]
+        },
+        {
+          "phase": 0.75,
+          "min": [
+            -0.44098686083399036,
+            6.057195245379177e-09,
+            -0.8681526596307062
+          ],
+          "max": [
+            0.43814977404255295,
+            1.0974736038107138,
+            0.7236003836030663
+          ]
+        },
+        {
+          "phase": 1,
+          "min": [
+            -0.44098686083399036,
+            -5.3508059706552405e-09,
+            -1.0834291246464545
+          ],
+          "max": [
+            0.43814977404255295,
+            0.5204826663933109,
+            0.7649763696576128
+          ]
+        }
+      ]
+    }
+  ],
+  "fileSha256": {
+    "lod0": "f20011d5b915359c497ed1ed4d45508d32f6c5cd551dd18d379269d04e670381",
+    "lod1": "d4f558bd5e4971ac73341593676d97122446740a6c3d2a77280a7a6087e360de",
+    "lod2": "645042dbfc47de915a3c08359f126447b9b783cb6117bcbd97b3b525a5b38196"
+  },
+  "sourceInputsUnchanged": true,
+  "prePublicationFileSha256": {
+    "lod0": "d2c24704263a444d69daf0cb8ecfe51137b698e6b4cb38848e7c7f280c3087d6",
+    "lod1": "fe9aba311b9fa0547bea53db59fb5dfc90a57dd523c706ba67d7ea6ed3b33172",
+    "lod2": "d7e7afe29c350e4baa2ec4ad637c230f1580731620afc08f102c1853b429f8f7"
+  },
+  "losslessPublicationPacking": {
+    "baseline": "Reviewed V27 animated uncompressed checkpoint",
+    "method": "PNG optimize 9 with identical decoded RGBA; JPEG bytes unchanged; meshopt NONE filter with exact decoded bufferView equality under npm and bundled Three decoders",
+    "noGeometrySkinAnimationValueChanges": true,
+    "auditFiles": [
+      "texture-recompression-audit.json",
+      "buffer-compression-audit.json",
+      "publication-equality-audit.json"
+    ],
+    "equalityAudit": "publication-equality-audit.json"
+  }
+}

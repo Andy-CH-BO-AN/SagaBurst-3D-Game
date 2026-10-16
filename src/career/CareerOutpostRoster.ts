@@ -53,7 +53,7 @@ export function createCareerOutpostCommandSquads(faction: CampaignFaction,
     .filter(({ spec }) => spec.characterFaction === faction && spec.faction === Faction.PLAYER)
   const initial = accepted(relief ? createCareerReliefSpawnPlan(launch).npcSpecs
     : BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'defenders')).npcSpecs, 'initial')
-  // Relief's Captain/Maki groups are authored; regular defense only has generic
+  // Relief's Captain/Ranger groups are authored; regular defense only has generic
   // ten-person auto buckets, so use stable production-slot chunks like Frontline.
   const authored = relief ? initial.filter(({ spec }) => spec.squadId !== undefined) : []
   const squads = commandSquadsFromSlots(authored.map(slot => slot.actorId), authored.map(slot => slot.spec))
