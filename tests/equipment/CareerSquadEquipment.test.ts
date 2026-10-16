@@ -31,6 +31,28 @@ function balanced(profile: CareerProfile) {
   }
 }
 describe('Shared Career quantity inventory and personal equipment', () => {
+  it('blocks T5 shop purchases before formal Commander appointment despite sufficient merit', () => {
+    const h = harness('captain'), before = cloneCareerProfile(h.read())
+    const result = purchaseTownEquipment(h.read(), 'axe_t5', 2)
+    expect(result).toMatchObject({ purchased: false, spentMerit: 0, reason: 'tier-locked' })
+    expect(result.profile).toEqual(before)
+    expect(h.read()).toEqual(before)
+  })
+  it('purchases and allocates a cross-faction T5 weapon through the existing bulk inventory transaction', () => {
+    const h = harness('commander', 'viking')
+    const result = purchaseTownEquipment(h.read(), 'sword_t5', 2)
+    expect(result).toMatchObject({ purchased: true, spentMerit: 5000 })
+    expect(h.save(result.profile)).toBe(true)
+    const equipment = new TownEquipment(h.read, h.save)
+    expect(equipment.equipWeapon('sword_t5')).toBe(true)
+    const loaded = h.store.load()!
+    expect(loaded.availableMerit).toBe(55000)
+    expect(loaded.equipment?.melee).toBe('sword_t5')
+    expect(careerItemTotal(loaded, 'sword_t5')).toBe(2)
+    expect(availableCareerItem(loaded, 'sword_t5')).toBe(1)
+    balanced(loaded)
+  })
+
   it('rejects removing the only weapon, swaps Sword for Lance, and sells the released Sword', () => {
     const h = harness(), id = h.hire(), before = cloneCareerProfile(h.read())
     expect(h.change(id, 'melee', null).reason).toBe('last-weapon'); expect(h.read()).toEqual(before)

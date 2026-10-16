@@ -5,7 +5,7 @@ import type { Mount } from '../world/Mount'
 
 export const SHIELD_CONFIG = {
   axeImpactByTier: { 1: 2, 2: 4, 3: 8 },
-  mountedLanceImpactByTier: { 1: 10, 2: 20, 3: 40, 4: 60 },
+  mountedLanceImpactByTier: { 1: 10, 2: 20, 3: 40, 4: 60, 5: 80 },
   xpPerBlockedImpact: 20,
 } as const
 export function weaponShieldImpact(id?: string, isMounted = false): number {

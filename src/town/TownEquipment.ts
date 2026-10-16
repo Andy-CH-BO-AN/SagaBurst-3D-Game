@@ -48,7 +48,7 @@ export class TownEquipment extends InventoryManager {
     if (this.meleeEnabled || this.rangedEnabled) return
     const fallback = [this.read().starterWeaponId, careerTownWeapon(this.read()), ...this.read().ownedWeapons]
       .find((id): id is string => Boolean(id && canUseCareerEquipment(this.read(), id)))
-    if (fallback) this.equipWeapon(fallback)
+    if (fallback) this.selectWeapon(fallback, false)
   }
   sheathAll(): void {
     this.meleeEnabled = false
@@ -60,13 +60,15 @@ export class TownEquipment extends InventoryManager {
   override isEquipped(id: string): boolean { return this.drawn.has(id) && super.isEquipped(id) }
   override isAllocated(id: string): boolean { return Object.values(this.read().equipment ?? {}).includes(id) }
   override itemAvailability(id: string): string { return `總持有 ${careerItemTotal(this.read(), id)} · 可用 ${availableCareerItem(this.read(), id)}` }
-  override equipWeapon(id: string): boolean {
+  override equipWeapon(id: string): boolean { return this.selectWeapon(id, true) }
+  private selectWeapon(id: string, explicit: boolean): boolean {
     if (!canUseCareerEquipment(this.read(), id)) return false
     this.syncOwnership()
     const item = WEAPONS[id] ?? ARMORS[id], profile = cloneCareerProfile(this.read())
     normalizeCareerInventory(profile)
     const slot = Boolean(ARMORS[id]) ? 'shield' : item.type === 'ranged' ? 'ranged' : 'melee'
     profile.equipment = { ...profile.equipment, [slot]: id }
+    if (slot === 'melee' && explicit) profile.meleeSelectionOrigin = 'custom'
     if (slot === 'shield') delete profile.equipment.ranged
     if (slot === 'ranged') profile.equipment.shield = null
     if (!this.commit(profile)) return false

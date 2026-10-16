@@ -1,3 +1,4 @@
+import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { cloneTownEquipment, type CareerTownEquipment } from './CareerTownEquipmentState'
 import { cloneTownAirCommandSquad, type TownAirCommandSquadState } from './TownAirCommandAuthority'
 import { cloneCivilianCommandSquad, type CivilianCommandSquadState } from './CivilianCommandAuthority'
@@ -80,6 +81,10 @@ export interface CareerProfile {
   skills?: SkillState
   enlistmentMeritBase: number
   equipment?: { melee?: string; ranged?: string; shield?: string | null }
+  /** Persistent receipt, independent of current inventory: selling the reward never re-grants it. */
+  commanderMeleeGranted?: boolean
+  /** Undefined legacy selections are preserved; only a known untouched starter is replaceable. */
+  meleeSelectionOrigin?: 'starter' | 'custom'
   starterWeaponId?: string
   townDialogueSeen?: string[]
   personalSquad?: { members: CareerPersonalSquadMember[] }
@@ -569,5 +574,7 @@ export function eligibleRank(profile: CareerProfile): CareerRank {
 export function promoteCareer(profile: CareerProfile): CareerProfile | null {
   const next = CAREER_RANKS[CAREER_RANKS.indexOf(profile.rank) + 1]
   if (!next || enlistmentMerit(profile) < CAREER_RANK_THRESHOLDS[next]) return null
-  return { ...cloneCareerProfile(profile), rank: next }
+  const promoted = { ...cloneCareerProfile(profile), rank: next }
+  grantCommanderMelee(promoted)
+  return promoted
 }

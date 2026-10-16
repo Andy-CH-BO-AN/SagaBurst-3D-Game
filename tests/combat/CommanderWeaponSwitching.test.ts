@@ -4,6 +4,7 @@ import { Faction } from '../../src/combat/CombatFaction'
 import type { Player } from '../../src/player/Player'
 import { AIState, NPC } from '../../src/world/NPC'
 import type { ObstacleData } from '../../src/world/Terrain'
+import { townMilitaryEquipment } from '../../src/town/TownRules'
 
 interface SelectionActor {
   faction: Faction
@@ -54,6 +55,14 @@ function selection(overrides: Partial<SelectionActor> = {}) {
 }
 
 describe('Commander weapon choice', () => {
+  it('wires faction T5 melee and reversible T5 bow into the actual Town Commander loadout', () => {
+    expect(townMilitaryEquipment('roman', 'commander').loadout).toMatchObject({
+      meleeWeaponId: 'sword_t5', rangedWeaponId: 'bow_t5', reversibleRangedSwitch: true,
+    })
+    expect(townMilitaryEquipment('viking', 'commander').loadout).toMatchObject({
+      meleeWeaponId: 'axe_t5', rangedWeaponId: 'bow_t5', reversibleRangedSwitch: true,
+    })
+  })
   it('cancels an unreleased attack for a nearby hostile without spending ammunition', () => {
     const h = selection()
     const hostile = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 0, 5) } as NPC

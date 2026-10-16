@@ -7,7 +7,7 @@ import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODContr
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { createPaladinEquipment } from './PaladinEquipment'
-import { createT4Polearm, createT5BowBody } from './HighTierEquipment'
+import { createT4Polearm, createT5BowBody, createT5Melee } from './HighTierEquipment'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -170,12 +170,30 @@ export class WeaponMeshFactory {
     if (WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
     else delete pivot.userData.meleeAnimationKind
 
-    if (weaponId === 'spear_t4' || weaponId === 'lance_t4') {
+    if (weaponId === 'spear_t4' || weaponId === 'lance_t4' || weaponId === 'spear_t5') {
       pivot.userData.supportPointLocal = [0, .33, 0]
       pivot.userData.forwardAxisLocal = [0, 1, 0]
       pivot.userData.tipLocal = [0, 2.6, 0]
-      pivot.add(createT4Polearm())
+      pivot.add(weaponId === 'spear_t5' ? createT5Melee(weaponId) : createT4Polearm())
       return { tipLocal: new THREE.Vector3(0, 2.6, 0) }
+    }
+
+    if (weaponId === 'sword_t5') {
+      pivot.add(createT5Melee(weaponId))
+      return { tipLocal: new THREE.Vector3(0, 1.3275, 0) }
+    }
+    if (weaponId === 'axe_t5') {
+      // Reuse the existing weapon-only carry/attack transform and Bandit foot-axe pose.
+      // The normalized asset has its shaft along +Y and its grip at y=.15.
+      const visual = new THREE.Group()
+      visual.name = 'dane-axe-visual'
+      visual.position.y = .15
+      visual.rotation.x = .45
+      const model = createT5Melee(weaponId)
+      model.position.y = -.15
+      visual.add(model)
+      pivot.add(visual)
+      return { tipLocal: new THREE.Vector3(0, 1.51, 0) }
     }
 
     if (weaponId === 'paladin_sword_t4' || weaponId === 'paladin_mace_t4') {

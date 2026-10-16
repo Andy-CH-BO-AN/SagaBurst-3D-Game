@@ -1,3 +1,4 @@
+import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { parseTownEquipment } from './CareerTownEquipmentState'
 import { parseTownAirCommandSquad } from './TownAirCommandAuthority'
@@ -479,6 +480,9 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     totalMerit,
     availableMerit,
     rank,
+    ...(raw.meleeSelectionOrigin === 'starter' || raw.meleeSelectionOrigin === 'custom'
+      ? { meleeSelectionOrigin: raw.meleeSelectionOrigin } : {}),
+    ...(raw.commanderMeleeGranted === true ? { commanderMeleeGranted: true } : {}),
     ...(personalSquad ? { personalSquad } : {}),
     ...(personalSquadRuntime ? { personalSquadRuntime } : {}),
     ...(townCommandSquad && townCommandSquad.townFaction === raw.faction ? { townCommandSquad } : {}),
@@ -539,7 +543,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     lifetimeStats: parseLifetimeStats(raw.lifetimeStats),
     claimedBattleIds: uniqueStrings(raw.claimedBattleIds),
   }
-  try { normalizeCareerInventory(profile) } catch { return null }
+  try { grantCommanderMelee(profile); normalizeCareerInventory(profile) } catch { return null }
   return profile
 }
 
@@ -550,7 +554,12 @@ export class CareerProfileStore {
     try {
       const raw = this.storage.getItem(CAREER_STORAGE_KEY)
       if (raw === null) return { profile: null }
-      const profile = parseCareerProfile(JSON.parse(raw))
+      const source: unknown = JSON.parse(raw)
+      const profile = parseCareerProfile(source)
+      // A migrated grant is usable only after its inventory and receipt are durably saved.
+      // Failed storage leaves the original save intact and exposes no partially granted profile.
+      if (profile?.commanderMeleeGranted && (source as Partial<CareerProfile>).commanderMeleeGranted !== true
+        && !this.save(profile)) return { profile: null, error: '指揮官裝備升級無法儲存；原資料已保留，請重試。' }
       return profile ? { profile } : { profile: null, error: '生涯存檔損壞或版本不支援；原資料已保留。' }
     } catch { return { profile: null, error: '無法讀取生涯存檔；原資料已保留。' } }
   }
