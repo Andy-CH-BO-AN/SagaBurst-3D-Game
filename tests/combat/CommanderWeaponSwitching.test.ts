@@ -1,4 +1,5 @@
-import { Box3, Vector3 } from 'three'
+import { Box3, Vector3, type Object3D } from 'three'
+import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { ShieldState } from '../../src/combat/ShieldBlocking'
 import { describe, expect, it, vi } from 'vitest'
 import { Faction } from '../../src/combat/CombatFaction'
@@ -12,6 +13,8 @@ import { townMilitaryEquipment } from '../../src/town/TownRules'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
 import type { EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
+
+interface SelectionTarget { position: Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC }
 
 interface SelectionActor {
   faction: Faction
@@ -55,7 +58,7 @@ interface SelectionActor {
   _isRampartMeleeThreat(position: Vector3): boolean
 }
 interface SelectionMethods extends Pick<SelectionActor, '_cancelEquipmentCombatState' | '_switchToMelee' | '_isRampartMeleeThreat' | '_isRangedMeleeThreat' | '_refreshActiveShield' | '_usesReversibleRangedSwitch' | '_restoreCombatReadyRangedVisual'> {
-  _selectRangedMeleeMode(this: SelectionActor, target: { position: Vector3; isDead: boolean } | null,
+  _selectRangedMeleeMode(this: SelectionActor, target: SelectionTarget | null,
     player: Player, nearby: readonly NPC[], obstacles: ObstacleData[]): void
 }
 // The existing decision entry needs state and narrow animation/visibility boundaries only.
@@ -83,9 +86,12 @@ function selection(overrides: Partial<SelectionActor> = {}) {
   })
   actor.shield = new ShieldState(() => actor.hasActiveShield)
   actor.shield.equip(actor.shieldId)
-  const target = { position: new Vector3(0, 0, 20), isDead: false }
+  const targetPosition = new Vector3(0, 0, 20)
+  const target: SelectionTarget = { position: targetPosition, isDead: false, isPlayer: false,
+    npc: { faction: Faction.PLAYER, dead: false, combatPosition: targetPosition } as NPC }
   const player = { faction: Faction.PLAYER, dead: true, combatPosition: new Vector3(0, 0, 100) }
-  const select = (nearby: readonly NPC[] = []) => methods._selectRangedMeleeMode.call(actor, target, player as Player, nearby, [])
+  const select = (nearby: readonly NPC[] = [], selected: SelectionTarget | null = target, obstacles: ObstacleData[] = []) =>
+    methods._selectRangedMeleeMode.call(actor, selected, player as Player, nearby, obstacles)
   return { actor, target, player, select }
 }
 
@@ -295,6 +301,29 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.arrows).toBe(12)
   })
 
+  it('keeps nearby siege targeting separate from hostile actor proximity switches', () => {
+    const h = selection({ shieldId: 'scutum_t2' })
+    // Plain lifecycle boundary only: no scene, render objects or obstacle builder.
+    const root: Pick<Object3D, 'parent'> = { parent: null }
+    const gate: ObstacleData = { box: new Box3(new Vector3(-1, -1, 3), new Vector3(1, 1, 5)), isBarricade: true,
+      damageable: new DamageableObstacle({ kind: 'gate', maxHp: 100, root: root as Object3D }) }
+    const target = { position: gate.box.getCenter(new Vector3()), isDead: gate.damageable!.destroyed, isPlayer: false }
+    h.select([], target, [gate])
+    expect(h.actor.hasActiveRangedWeapon).toBe(true)
+    expect(h.actor.shield.active).toBe(false)
+    expect([h.actor.swordPivot.visible, h.actor.bowPivot.visible]).toEqual([false, true])
+    expect(h.actor.arrows).toBe(12)
+    expect(h.actor.animator.cancel).not.toHaveBeenCalled()
+    // A real close enemy must still interrupt that same obstacle target.
+    const hostile = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 0, 3) } as NPC
+    h.select([hostile], target, [gate])
+    expect(h.actor.hasActiveRangedWeapon).toBe(false)
+    expect(h.actor.shield.active).toBe(true)
+    h.select([], target, [gate])
+    expect(h.actor.hasActiveRangedWeapon).toBe(true)
+    expect(h.actor.arrows).toBe(12)
+  })
+
   it('requires the re-equip distance before returning from melee to bow', () => {
     const h = selection({ rangedActive: false })
     h.target.position.z = 8.99
@@ -316,9 +345,17 @@ describe('Reversible NPC weapon choice', () => {
 
   it('falls back to melee when ammunition is exhausted', () => {
     const h = selection({ arrows: 0 })
-    h.select()
+    const nearby: NPC[] = []
+    const scan = vi.spyOn(h.actor, '_isRangedMeleeThreat')
+    const iterate = vi.spyOn(nearby, Symbol.iterator)
+    h.select(nearby)
     expect(h.actor.rangedActive).toBe(false)
     expect(h.actor.arrows).toBe(0)
+    scan.mockClear(); iterate.mockClear()
+    h.select(nearby)
+    expect(h.actor.rangedActive).toBe(false)
+    expect(scan).not.toHaveBeenCalled()
+    expect(iterate).not.toHaveBeenCalled()
   })
 
   it('preserves a released arrow recovery until the animation finishes', () => {

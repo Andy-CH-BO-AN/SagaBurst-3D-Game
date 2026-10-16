@@ -4041,12 +4041,16 @@ export class NPC {
 
   /** Reuses the selected target, neighborhood and combat state machine; no extra acquisition pass. */
   private _selectRangedMeleeMode(
-    target: { position: THREE.Vector3; isDead: boolean } | null,
+    target: { position: THREE.Vector3; isDead: boolean; npc?: NPC } | null,
     player: Player, nearby: readonly NPC[], obstacles: ObstacleData[],
   ): void {
     // Committed releases and swings finish before any equipment decision.
     if (!this.rangedWeaponId || !this.meleeWeaponId || this.animator.busy) return
-    let threatSq = target && !target.isDead && this._isRangedMeleeThreat(target.position)
+    if (this.arrows <= 0 && !this.rangedActive) return
+    // Siege targets remain valid for ranged/obstacle attacks; only hostile actors threaten melee contact.
+    // Player proximity is checked independently below, including when an obstacle is the selected target.
+    let threatSq = target && !target.isDead && target.npc && !target.npc.dead
+      && combatAllegiancesHostile(this, target.npc) && this._isRangedMeleeThreat(target.position)
       ? this.combatPosition.distanceToSquared(target.position) : Infinity
     if (!player.dead && combatAllegiancesHostile(this, player)
       && this._isRangedMeleeThreat(player.combatPosition)) {
