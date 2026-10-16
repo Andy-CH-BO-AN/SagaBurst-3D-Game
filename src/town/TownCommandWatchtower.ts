@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { getTerrainHeight, getWalkRampHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
+import { getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { slabGeometry, surfaceBox } from './TownRamparts'
-import { TOWN_COMMAND_WATCHTOWER as C, watchtowerSurface, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
+import { TOWN_COMMAND_WATCHTOWER as C, getTownCommandWatchtowerRails, watchtowerSurface, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
 
 type Materials = { stone: THREE.Material; wood: THREE.Material; dark: THREE.Material; plaster: THREE.Material; snow: THREE.Material; accent: THREE.Material }
 /** Permanent static construction, never registered as a damageable residence. */
@@ -21,17 +21,10 @@ export function createTownCommandWatchtower(layout: CommandWatchtowerLayout, fac
   }
   const block = (x: number, bottom: number, z: number, width: number, height: number, depth: number, material: THREE.Material, passable = false) =>
     box(new THREE.Box3(new THREE.Vector3(x - width / 2, bottom, z - depth / 2), new THREE.Vector3(x + width / 2, bottom + height, z + depth / 2)), material, passable)
-  const surfaceSlice = (s: WalkRampSurface, from: number, to: number, offset = 0, width = s.halfWidth * 2) => {
-    const point = (at: number) => ({ x: s.startX + s.dirX * at, z: s.startZ + s.dirZ * at, y: s.startY + (s.topY - s.startY) * at / s.length + offset })
+  const surfaceSlice = (s: WalkRampSurface, from: number, to: number) => {
+    const point = (at: number) => ({ x: s.startX + s.dirX * at, z: s.startZ + s.dirZ * at, y: s.startY + (s.topY - s.startY) * at / s.length })
     const a = point(from), b = point(to)
-    return watchtowerSurface(a.x, a.z, a.y, b.x, b.z, b.y, width)
-  }
-  const rail = (s: WalkRampSurface) => {
-    add(slabGeometry({ ...s, startY: s.startY + C.railHeight, topY: s.topY + C.railHeight }, C.railHeight), trim)
-    // Short height-aware boxes, not the enclosing inclined AABB. Ground actors,
-    // camera and projectiles remain free below every raised guardrail.
-    const count = Math.max(1, Math.ceil(Math.abs(s.topY - s.startY) / .16))
-    for (let i = 0; i < count; i++) obstacles.push({ box: surfaceBox(surfaceSlice(s, i / count * s.length, (i + 1) / count * s.length, C.railHeight), C.railHeight), isBarricade: false, navigationPassable: true })
+    return watchtowerSurface(a.x, a.z, a.y, b.x, b.z, b.y, s.halfWidth * 2)
   }
   const all = [layout.entrance, ...layout.ramps, ...layout.landings, ...layout.platform]
   for (const s of all) {
@@ -43,38 +36,10 @@ export function createTownCommandWatchtower(layout: CommandWatchtowerLayout, fac
     obstacles.push({ box: surfaceBox(s), walkSurface: s, projectileBoxes, isBarricade: false,
       navigationPassable: s !== layout.entrance && s !== layout.ramps[0] && s !== layout.landings[0] })
   }
-  for (const s of [layout.entrance, ...layout.ramps]) for (const side of [-1, 1]) {
-    const lateral = side * (s.halfWidth + .15)
-    rail({ ...s, startX: s.startX - s.dirZ * lateral, startZ: s.startZ + s.dirX * lateral, halfWidth: .15 })
-  }
-  // Flat patches share a boundary only at the same height. Split their perimeter
-  // at real connections, leaving all ramp mouths and platform links unobstructed.
-  const flats = [...layout.landings, ...layout.platform]
-  for (const s of flats) {
-    const b = surfaceBox(s), y = s.topY
-    for (const axis of ['x', 'z'] as const) for (const side of [-1, 1]) {
-      const other = axis === 'x' ? 'z' : 'x', fixed = side < 0 ? b.min[axis] : b.max[axis]
-      const min = b.min[other], max = b.max[other]
-      const openings: [number, number][] = []
-      for (const adjacent of all) {
-        if (adjacent === s) continue
-        // Probe the boundary against endpoint height, so an overhead crossing
-        // never erases the lower floor's safety rail.
-        const a = surfaceBox(adjacent)
-        if (fixed < a.min[axis] - .001 || fixed > a.max[axis] + .001) continue
-        const lo = Math.max(min, a.min[other]), hi = Math.min(max, a.max[other])
-        if (hi <= lo) continue
-        const x = axis === 'x' ? fixed : (lo + hi) / 2, z = axis === 'z' ? fixed : (lo + hi) / 2
-        const h = getWalkRampHeight(adjacent, x, z)
-        if (h !== null && Math.abs(h - y) < .001) openings.push([lo, hi])
-      }
-      const cuts = [...new Set([min, max, ...openings.flat()])].sort((a, b) => a - b)
-      for (let i = 1; i < cuts.length; i++) {
-        const lo = cuts[i - 1], hi = cuts[i], mid = (lo + hi) / 2
-        if (hi - lo < .001 || openings.some(([a, b]) => mid > a - .001 && mid < b + .001)) continue
-        rail(axis === 'x' ? watchtowerSurface(fixed, lo, y, fixed, hi, y, .3) : watchtowerSurface(lo, fixed, y, hi, fixed, y, .3))
-      }
-    }
+  for (const rail of getTownCommandWatchtowerRails(layout)) {
+    const s = rail.surface
+    add(slabGeometry({ ...s, startY: s.startY + C.railHeight, topY: s.topY + C.railHeight }, C.railHeight), trim)
+    obstacles.push(...rail.obstacles)
   }
   box(layout.core.clone(), structure)
   // Stone footing and strong external columns carry both circuits. All supports

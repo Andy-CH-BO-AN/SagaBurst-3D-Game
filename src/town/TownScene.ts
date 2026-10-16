@@ -70,7 +70,7 @@ import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
 import { warmTownRenderResources } from './TownRenderWarmup'
-import { getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBound, resolveEntityCollision, type ObstacleData } from '../world/Terrain'
+import { findBlockingProjectileObstacleAlongPath, getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBound, resolveEntityCollision, type ObstacleData } from '../world/Terrain'
 import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod, type CombatActorRef, type CombatEvent } from '../combat/CombatAttribution'
 import { SpatialGrid } from '../world/SpatialGrid'
@@ -193,6 +193,7 @@ export class TownScene {
   private panel: HTMLDivElement | null = null
   private target: string | null = null
   private shots: Shot[] = []
+  private readonly shotObstacleContact = { fraction: Infinity, point: new THREE.Vector3() }
   private raf = 0
   private last = performance.now()
   private elapsed = 0
@@ -2709,15 +2710,11 @@ export class TownScene {
       if (s.training) { if (s.age > .3) s.arrow.destroy(); continue }
       const terrainTime = projectileTerrainContactTime(from, to)
       let nearest = Math.min(length + .01, terrainTime * length), hit: (() => void) | null = Number.isFinite(terrainTime) ? () => {} : null
-      for (const obstacle of this.world.obstacles) {
-        for (const box of obstacle.projectileBoxes?.length ? obstacle.projectileBoxes : [obstacle.box]) {
-          const p = ray.intersectBox(box, new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
-          if (distance < nearest) {
-            nearest = distance
-            const buildingIndex = this.world.buildings.findIndex(building => building.obstacles.includes(obstacle))
-            hit = () => { if (buildingIndex >= 0 && (s.player || s.source?.combatOwnership === 'player-personal' && this.defense?.assault)) this.damageBuilding(buildingIndex, s.arrow.damage, p!, s.source, s.sourceRef, 'projectile') }
-          }
-        }
+      const obstacle = findBlockingProjectileObstacleAlongPath(from, to, this.world.obstacles, this.shotObstacleContact)
+      if (obstacle && this.shotObstacleContact.fraction * length < nearest) {
+        nearest = this.shotObstacleContact.fraction * length
+        const buildingIndex = this.world.buildings.findIndex(building => building.obstacles.includes(obstacle))
+        hit = () => { if (buildingIndex >= 0 && (s.player || s.source?.combatOwnership === 'player-personal' && this.defense?.assault)) this.damageBuilding(buildingIndex, s.arrow.damage, this.shotObstacleContact.point, s.source, s.sourceRef, 'projectile') }
       }
       for (const target of this.world.targets) {
         const p = ray.intersectSphere(new THREE.Sphere(target, .6), new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity

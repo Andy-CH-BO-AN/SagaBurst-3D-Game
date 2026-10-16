@@ -285,27 +285,20 @@ function segmentEntryFractionBox3D(
   let tMin = 0
   let tMax = 1
 
-  const axisEntry = (
-    startValue: number,
-    delta: number,
-    minValue: number,
-    maxValue: number,
-  ): boolean => {
+  // Scalar slab test: no per-box callback, tuple or temporary vector allocation.
+  for (let axis = 0; axis < 3; axis++) {
+    const startValue = start.getComponent(axis), delta = end.getComponent(axis) - startValue
+    const minValue = box.min.getComponent(axis), maxValue = box.max.getComponent(axis)
     if (Math.abs(delta) < SEGMENT_EPSILON) {
-      return startValue >= minValue && startValue <= maxValue
+      if (startValue < minValue || startValue > maxValue) return null
+      continue
     }
-
-    let t1 = (minValue - startValue) / delta
-    let t2 = (maxValue - startValue) / delta
-    if (t1 > t2) [t1, t2] = [t2, t1]
+    let t1 = (minValue - startValue) / delta, t2 = (maxValue - startValue) / delta
+    if (t1 > t2) { const swap = t1; t1 = t2; t2 = swap }
     tMin = Math.max(tMin, t1)
     tMax = Math.min(tMax, t2)
-    return tMin <= tMax
+    if (tMin > tMax) return null
   }
-
-  if (!axisEntry(start.x, end.x - start.x, box.min.x, box.max.x)) return null
-  if (!axisEntry(start.y, end.y - start.y, box.min.y, box.max.y)) return null
-  if (!axisEntry(start.z, end.z - start.z, box.min.z, box.max.z)) return null
 
   return tMax >= 0 && tMin <= 1 ? Math.max(0, tMin) : null
 }
@@ -349,6 +342,11 @@ export function projectileObstacleEntryFraction(
   return Number.isFinite(closest) ? closest : null
 }
 
+export interface ProjectileObstacleContact {
+  fraction: number
+  point: THREE.Vector3
+}
+
 /**
  * Finds the first physical projectile blocker along a 3D segment.
  *
@@ -359,6 +357,7 @@ export function findBlockingProjectileObstacleAlongPath(
   start: THREE.Vector3,
   end: THREE.Vector3,
   obstacles: readonly ObstacleData[],
+  contact?: ProjectileObstacleContact,
 ): ObstacleData | null {
   let closest: ObstacleData | null = null
   let closestFraction = Infinity
@@ -381,6 +380,12 @@ export function findBlockingProjectileObstacleAlongPath(
     }
   }
 
+  if (contact) {
+    contact.fraction = closestFraction
+    // Copy only the final winner. Subsequent narrow-phase tests cannot mutate
+    // a building-hit position retained by the caller until damage is applied.
+    if (closest) contact.point.copy(start).lerp(end, closestFraction)
+  }
   return closest
 }
 

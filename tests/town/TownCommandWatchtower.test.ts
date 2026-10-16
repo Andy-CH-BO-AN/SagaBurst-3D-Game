@@ -1,12 +1,13 @@
 import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { getTownCommandWatchtowerLayout, validateWatchtowerPlacement, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
+import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, validateWatchtowerPlacement, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
 import { surfaceBox } from '../../src/town/TownRamparts'
 import { TOWN_CITY_ROADS, TOWN_CENTER, townHousing, type TownRoad } from '../../src/town/TownLayout'
 import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint } from '../../src/town/TownRules'
 import { resolveTownHRLayout } from '../../src/town/TownHRLayout'
 import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
-import type { WalkRampSurface } from '../../src/world/Terrain'
+import { findBlockingObstacleAlongPath, getTerrainHeight, type WalkRampSurface } from '../../src/world/Terrain'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 
 function rectangle(x: number, z: number, width: number, depth: number, yaw = 0): Box3 {
   return new Box3(new Vector3(-width / 2, -100, -depth / 2), new Vector3(width / 2, 100, depth / 2))
@@ -65,6 +66,46 @@ describe('Town command watchtower', () => {
       }
     }
     expect(remaining).toHaveLength(0)
+  })
+
+  it('routes ground actors around the solid core and low entrance rails', () => {
+    const layout = getTownCommandWatchtowerLayout()
+    const obstacles = [{ box: layout.core, isBarricade: false }, ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
+    const world = new NavigationWorld({ minX: -43, maxX: -8, minZ: -62, maxZ: -20, cellSize: .5 })
+    world.rebuild(obstacles)
+    // This strip lies outside the entrance slab, but inside its safety rail.
+    expect(world.grid.isBlocked(world.grid.worldToCell({ x: -15, z: -25.25 })!)).toBe(true)
+    expect(world.grid.isBlocked(world.grid.worldToCell({ x: -29, z: -41 })!)).toBe(true)
+    expect(world.grid.isBlocked(world.grid.worldToCell({ x: -18.35, z: -33 })!)).toBe(true)
+    expect(world.grid.isBlocked(world.grid.worldToCell({ x: -18.35, z: -48 })!)).toBe(false)
+    const start = new Vector3(-40, getTerrainHeight(-40, -41), -41), goal = new Vector3(-10, getTerrainHeight(-10, -25.25), -25.25)
+    expect(findBlockingObstacleAlongPath(start, goal, .5, 2.3, 0, obstacles)).not.toBeNull()
+    const route = world.queryPath(start, goal)
+    expect(route.status).toBe('path')
+    if (route.status !== 'path') return
+    expect(route.path[0]).toEqual(world.grid.worldToCell(start))
+    expect(route.path.at(-1)).toEqual(world.grid.worldToCell(goal))
+    for (const cell of route.path) expect(world.grid.isBlocked(cell)).toBe(false)
+    // Local NPC steering also sees the rail instead of retrying a direct move.
+    const across = new Vector3(-15, getTerrainHeight(-15, -24), -24)
+    expect(findBlockingObstacleAlongPath(across, new Vector3(-15, across.y, -27), .5, 2.3, 0, obstacles)).not.toBeNull()
+  })
+
+  it('keeps ground routes beneath raised guardrails open', () => {
+    const layout = getTownCommandWatchtowerLayout()
+    const obstacles = getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)
+    const world = new NavigationWorld({ minX: -34, maxX: -24, minZ: -60, maxZ: -50, cellSize: .5 })
+    world.rebuild(obstacles)
+    const start = new Vector3(-29, getTerrainHeight(-29, -59), -59), goal = new Vector3(-29, start.y, -51)
+    // The first circuit's north flight is overhead here; mounted bodies fit.
+    expect(obstacles.some(obstacle => obstacle.box.min.x <= -29 && obstacle.box.max.x >= -29
+      && obstacle.box.min.z < -56.65 && obstacle.box.max.z > -56.65)).toBe(true)
+    expect(findBlockingObstacleAlongPath(start, goal, 1, 2.6, 0, obstacles)).toBeNull()
+    const route = world.queryPath(start, goal)
+    expect(route.status).toBe('path')
+    if (route.status !== 'path') return
+    expect(route.path.every(cell => cell.x === 10)).toBe(true)
+    expect(route.path.at(-1)).toEqual({ x: 10, z: 18 })
   })
 
   it('reserves both-faction buildings, residents, roads, HR and eagle approaches, rejecting a blocked site', () => {

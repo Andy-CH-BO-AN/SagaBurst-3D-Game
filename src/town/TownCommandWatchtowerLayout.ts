@@ -3,7 +3,7 @@ import { isEagleLandingClear } from '../world/EagleLanding'
 import { isEagleApproachClear } from '../world/EagleApproach'
 import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import { Box3, Vector3 } from 'three'
-import { getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
+import { getTerrainHeight, getWalkRampHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { surfaceBox } from './TownRamparts'
 
 /** Measured hall crowns include the 7m walls, 5m roof and projecting bar ends:
@@ -51,6 +51,64 @@ export function getTownCommandWatchtowerLayout(): CommandWatchtowerLayout {
   return { groundY, platformY, totalHeight: c.totalHeight, entrance, ramps, landings, platform,
     footprint: new Box3(new Vector3(x - 11.2, Math.min(groundY, getTerrainHeight(x, z)) - 1, z - 16.2), new Vector3(x + 11.2, groundY + c.totalHeight, z + 16.2)),
     core: new Box3(new Vector3(x - 5, Math.min(groundY, getTerrainHeight(x, z)) - 1, z - 10), new Vector3(x + 5, platformY - c.slabThickness, z + 10)) }
+}
+export interface CommandWatchtowerRail { surface: WalkRampSurface; obstacles: ObstacleData[] }
+/** Shared rail data keeps ground navigation aligned with the physical slices,
+ * while leaving the upper flights open underneath for foot and mounted actors. */
+export function getTownCommandWatchtowerRails(layout: CommandWatchtowerLayout): CommandWatchtowerRail[] {
+  const rails: CommandWatchtowerRail[] = [], c = TOWN_COMMAND_WATCHTOWER
+  const rail = (surface: WalkRampSurface) => {
+    const count = Math.max(1, Math.ceil(Math.abs(surface.topY - surface.startY) / .16))
+    const point = (at: number) => new Vector3(surface.startX + surface.dirX * at,
+      surface.startY + (surface.topY - surface.startY) * at / surface.length + c.railHeight, surface.startZ + surface.dirZ * at)
+    const obstacles: ObstacleData[] = []
+    for (let i = 0; i < count; i++) {
+      const a = point(i / count * surface.length), b = point((i + 1) / count * surface.length)
+      const box = surfaceBox(watchtowerSurface(a.x, a.z, a.y, b.x, b.z, b.y, surface.halfWidth * 2), c.railHeight)
+      // The shared ground grid must accommodate the tallest ground collision
+      // body (mounted: 2.6m high, 1m radius), including terrain beside each rail.
+      let groundTop = -Infinity
+      for (const x of [box.min.x - 1, (box.min.x + box.max.x) / 2, box.max.x + 1]) {
+        for (const z of [box.min.z - 1, (box.min.z + box.max.z) / 2, box.max.z + 1]) groundTop = Math.max(groundTop, getTerrainHeight(x, z) + 2.6)
+      }
+      obstacles.push({ box, isBarricade: false, navigationPassable: box.min.y >= groundTop })
+    }
+    rails.push({ surface, obstacles })
+  }
+  const all = [layout.entrance, ...layout.ramps, ...layout.landings, ...layout.platform]
+  for (const s of [layout.entrance, ...layout.ramps]) for (const side of [-1, 1]) {
+    const lateral = side * (s.halfWidth + .15)
+    rail({ ...s, startX: s.startX - s.dirZ * lateral, startZ: s.startZ + s.dirX * lateral, halfWidth: .15 })
+  }
+  // Flat patches share a boundary only at the same height. Split their perimeter
+  // at real connections, leaving all ramp mouths and platform links unobstructed.
+  for (const s of [...layout.landings, ...layout.platform]) {
+    const b = surfaceBox(s), y = s.topY
+    for (const axis of ['x', 'z'] as const) for (const side of [-1, 1]) {
+      const other = axis === 'x' ? 'z' : 'x', fixed = side < 0 ? b.min[axis] : b.max[axis]
+      const min = b.min[other], max = b.max[other]
+      const openings: [number, number][] = []
+      for (const adjacent of all) {
+        if (adjacent === s) continue
+        // Probe the boundary against endpoint height, so an overhead crossing
+        // never erases the lower floor's safety rail.
+        const a = surfaceBox(adjacent)
+        if (fixed < a.min[axis] - .001 || fixed > a.max[axis] + .001) continue
+        const lo = Math.max(min, a.min[other]), hi = Math.min(max, a.max[other])
+        if (hi <= lo) continue
+        const x = axis === 'x' ? fixed : (lo + hi) / 2, z = axis === 'z' ? fixed : (lo + hi) / 2
+        const h = getWalkRampHeight(adjacent, x, z)
+        if (h !== null && Math.abs(h - y) < .001) openings.push([lo, hi])
+      }
+      const cuts = [...new Set([min, max, ...openings.flat()])].sort((a, b) => a - b)
+      for (let i = 1; i < cuts.length; i++) {
+        const lo = cuts[i - 1], hi = cuts[i], mid = (lo + hi) / 2
+        if (hi - lo < .001 || openings.some(([a, b]) => mid > a - .001 && mid < b + .001)) continue
+        rail(axis === 'x' ? watchtowerSurface(fixed, lo, y, fixed, hi, y, .3) : watchtowerSurface(lo, fixed, y, hi, fixed, y, .3))
+      }
+    }
+  }
+  return rails
 }
 export function watchtowerFootprints(layout: CommandWatchtowerLayout): Box3[] {
   const entrance = surfaceBox(layout.entrance)
