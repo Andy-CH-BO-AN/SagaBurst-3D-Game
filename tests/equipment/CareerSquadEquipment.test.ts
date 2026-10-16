@@ -1,12 +1,13 @@
+import { equipmentSections } from '../../src/rpg/EquipmentCatalog'
 import { describe, expect, it } from 'vitest'
 import { availableCareerItem, careerItemAllocated, careerItemTotal, careerItemTotals, type PersonalEquipmentSlot } from '../../src/career/CareerInventory'
 import { changePersonalEquipment, recruitPersonalSquadMember, sellPersonalSquadMember, sellPersonalSquadMembers, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../../src/career/CareerPersonalSquad'
 import { cloneCareerProfile, createCareerProfile, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { personalMemberLoadout } from '../../src/town/TownPersonalSquadController'
-import { purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts } from '../../src/town/TownRules'
+import { purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts, townShopProducts } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 function harness(rank: CareerRank = 'captain', faction: CareerProfile['faction'] = 'roman') {
@@ -179,7 +180,7 @@ describe('Inventory migration and normalization', () => {
     const legacy: CareerProfile = { ...createCareerProfile('viking'), rank: 'captain', totalMerit: 6000, availableMerit: 1234,
       inventory: { version: 1, quantities: { heavy_lance: 1, scutum_t2: 1, [T4_RANGER_BOW_RANGED_ID]: 1, horse: 1, 'black-cat': 1, xongkoro: 1 } },
       equipment: { ranged: T4_RANGER_BOW_RANGED_ID }, personalSquad: { members: [
-        { id: 'personal:ghost', type: 'ranger', equipment: { melee: 'maki-ranger-bow', ranged: null, shield: null, mount: 'xongkoro' } },
+        { id: 'personal:ghost', type: 'ranger', equipment: { melee: null, ranged: null, shield: null, mount: 'xongkoro' } },
         { id: 'personal:custom', type: 'ranger', equipment: { melee: 'heavy_lance', ranged: null, shield: 'scutum_t2', mount: 'horse' } },
         { id: 'personal:empty', type: 'ranger', equipment: { melee: null, ranged: null, shield: null, mount: 'black-cat' } },
       ] }, townEquipment: { viking: { version: 1, nativeReserve: [], actors: {
@@ -213,5 +214,41 @@ describe('Inventory migration and normalization', () => {
     expect(store.loadChecked().profile).toEqual(loaded)
     expect(writes).toBe(2)
     balanced(loaded)
+  })
+})
+
+
+describe('Equipment catalog category and tier presentation', () => {
+  it('partitions the existing catalog into exclusive melee, ranged and armor sections without mounts or empty tiers', () => {
+    const catalog = [...townShopProducts('merchant'), ...townShopProducts('cat')].reverse()
+    const melee = equipmentSections(catalog, 'melee')
+    const ranged = equipmentSections(catalog, 'ranged')
+    const armor = equipmentSections(catalog, 'armor')
+    expect(melee.map(section => section.items.length)).toEqual([4, 4, 4, 3, 3])
+    expect(ranged.map(section => section.items.length)).toEqual([2, 2, 2, 1, 1])
+    expect(armor.map(section => section.tier)).toEqual([1, 2, 3, 4])
+    expect(armor.map(section => section.items.length)).toEqual([2, 2, 2, 1])
+    expect(melee.flatMap(section => section.items).every(item => WEAPONS[item.id].type === 'melee')).toBe(true)
+    expect(ranged.flatMap(section => section.items).every(item => WEAPONS[item.id].type === 'ranged')).toBe(true)
+    expect(armor.flatMap(section => section.items).every(item => item.category === 'armor')).toBe(true)
+    const ids = [...melee, ...ranged, ...armor].flatMap(section => section.items.map(item => item.id))
+    expect(new Set(ids).size).toBe(33)
+    expect(ids).toContain('spear_t4'); expect(ids).toContain('maki-ranger-bow-ranged')
+    expect(ids).not.toContain('lance_t4'); expect(ids).not.toContain('maki-ranger-bow')
+  })
+
+  it('orders sparse tiers by weapon kind then ID regardless of source order, translated label or price', () => {
+    const catalog = townShopProducts('merchant')
+    const ids = ['spear_t4', 'paladin_mace_t4', 'viking_axe_t2', 'gladius_standard', 'steel_sword', 'rusty_dagger']
+    const products = ids.map((id, i) => ({ ...catalog.find(item => item.id === id)!,
+      tier: (id === 'rusty_dagger' ? 2 : catalog.find(item => item.id === id)!.tier) as 2 | 4,
+      name: String(i), price: i + 1 }))
+    const sections = equipmentSections(products, 'melee')
+    expect(sections.map(section => [section.tier, section.items.map(item => item.id)])).toEqual([
+      [2, ['rusty_dagger', 'steel_sword', 'gladius_standard', 'viking_axe_t2']],
+      [4, ['paladin_mace_t4', 'spear_t4']],
+    ])
+    expect(products.map(item => item.id)).toEqual(ids)
+    expect(sections[0].items[0]).toBe(products[5])
   })
 })

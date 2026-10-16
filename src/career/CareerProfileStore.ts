@@ -559,10 +559,8 @@ export class CareerProfileStore {
       // A migrated grant is usable only after its inventory and receipt are durably saved.
       // Failed storage leaves the original save intact and exposes no partially granted profile.
       const previous = source as Partial<CareerProfile>
-      const rangerMigration = profile && (profile.personalSquad?.members.some(member => member.type === 'ranger'
+      const rangerMigration = profile && profile.personalSquad?.members.some(member => member.type === 'ranger'
         && previous.personalSquad?.members.find(saved => saved.id === member.id)?.rangerEquipmentVersion !== 1)
-        || Object.values(previous.townEquipment ?? {}).some(state => Object.values(state?.actors ?? {})
-          .some(refs => refs.melee?.itemId === 'maki-ranger-bow')))
       // Resident and Ranger receipts are independent: either may already be current
       // when the other migration runs. Publish both together only after one save.
       const residentMigration = profile && (['roman', 'viking'] as const).some(faction =>

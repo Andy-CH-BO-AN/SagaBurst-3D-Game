@@ -13,6 +13,11 @@ export function installTownStyles(): void {
     .town-shop-tabs { display:flex; gap:10px; margin-top:14px }
     .town-shop-tabs .town-button { flex:1; margin:0 }
     .town-shop-tabs .town-button:disabled { opacity:1; background:#765c35; border-color:#f0cc86; color:#fff0c9 }
+    .town-shop-categories[hidden] { display:none }
+    .town-shop-categories .town-button { padding:10px 6px; font-size:13px }
+    .town-shop-categories [aria-pressed="true"] { background:#765c35; border-color:#f0cc86; color:#fff0c9 }
+    .town-purchase-products > h3 { display:flex; align-items:center; gap:12px; letter-spacing:.14em; font-size:14px }
+    .town-purchase-products > h3::before,.town-purchase-products > h3::after { content:''; flex:1; height:1px; background:#95784f88 }
     .town-sale { grid-column:1 / -1; margin-top:14px; padding:12px; background:#0b101344; border:1px solid #95784f; border-radius:5px }
     .town-sale label { display:block; font-size:13px; color:#c4b69e }
     .town-sale-select { display:block; width:100%; max-width:100%; margin-right:0 }

@@ -29,8 +29,8 @@ import {
   attachArmyAliases,
 } from '../battle/BattleConfig'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { canonicalWeaponId } from '../rpg/WeaponDatabase'
 import {
   getUnitPresetsForFaction,
   BASE_UNIT_TIERS,
@@ -78,7 +78,6 @@ export class BattleSetupUI {
     if (!this.config.playerLoadout) {
       this.config.playerLoadout = createDefaultPlayerLoadout()
     }
-    this.config.playerLoadout.meleeWeaponId = canonicalWeaponId(this.config.playerLoadout.meleeWeaponId) as PlayerMeleeWeaponId
   }
 
   mount(
@@ -147,21 +146,25 @@ export class BattleSetupUI {
     const renderEquipmentGroup = (
       title: string,
       subtitle: string,
-      cards: Array<{ id: string | null; tier?: string; zh: string; en: string }>,
+      cards: Array<{ id: string | null; tier?: string; zh?: string; en?: string }>,
       kind: 'melee' | 'ranged' | 'shield' | 'mount',
     ) => `
       <section class="equipment-group">
         <div class="equipment-group-heading"><span>${title}</span><small>${subtitle}</small></div>
         <div class="equipment-card-grid">
-          ${cards.map(card => `
+          ${cards.map(card => {
+            const item = card.id ? kind === 'shield' ? ARMORS[card.id] : WEAPONS[card.id] : undefined
+            const [zh, ...en] = item?.name.split(' ') ?? []
+            const tier = item ? `T${item.tier}` : card.tier
+            return `
             <button type="button" class="loadout-card" role="radio" aria-checked="false"
               data-loadout-kind="${kind}" data-loadout-id="${card.id ?? ''}">
-              <span class="loadout-card-top">${card.tier ? `<b>${card.tier}</b>` : '<b>—</b>'}</span>
-              <span class="loadout-card-name">${card.zh}</span>
-              <span class="loadout-card-en">${card.en}</span>
+              <span class="loadout-card-top">${tier ? `<b>${tier}</b>` : '<b>—</b>'}</span>
+              <span class="loadout-card-name">${zh ?? card.zh}</span>
+              <span class="loadout-card-en">${item ? en.join(' ') : card.en}</span>${item?.type === 'shield' ? `<small>${item.shieldImpactMax} IMPACT</small>` : ''}
               <span class="loadout-card-check">✓</span>
             </button>
-          `).join('')}
+          `}).join('')}
         </div>
       </section>
     `
@@ -181,58 +184,58 @@ export class BattleSetupUI {
         <div class="loadout-columns">
           <section class="loadout-category"><div class="loadout-category-heading"><h3>近戰武器</h3><span>MELEE</span></div>
             ${renderEquipmentGroup('維京', 'VIKING', [
-              { id: 'viking_axe_t1', tier: 'T1', zh: '維京長斧', en: 'VIKING AXE' },
-              { id: 'viking_axe_t2', tier: 'T2', zh: '精鋼維京長斧', en: 'STEEL VIKING AXE' },
-              { id: 'viking_axe_t3', tier: 'T3', zh: '符文維京長斧', en: 'RUNIC VIKING AXE' },
+              { id: 'viking_axe_t1' },
+              { id: 'viking_axe_t2' },
+              { id: 'viking_axe_t3' },
             ], 'melee')}
             ${renderEquipmentGroup('羅馬', 'ROMAN', [
-              { id: 'gladius_rusty', tier: 'T1', zh: '生鏽羅馬短劍', en: 'RUSTY GLADIUS' },
-              { id: 'gladius_standard', tier: 'T2', zh: '制式羅馬短劍', en: 'STANDARD GLADIUS' },
-              { id: 'centurion_blade', tier: 'T3', zh: '百夫長短劍', en: 'CENTURION BLADE' },
+              { id: 'gladius_rusty' },
+              { id: 'gladius_standard' },
+              { id: 'centurion_blade' },
             ], 'melee')}
             ${renderEquipmentGroup('T4 共用', 'SHARED T4', [
-              { id: 'paladin_sword_t4', tier: 'T4', zh: '聖騎士長劍', en: 'PALADIN SWORD' },
-              { id: 'paladin_mace_t4', tier: 'T4', zh: '聖騎士戰槌', en: 'PALADIN MACE' },
+              { id: 'paladin_sword_t4' },
+              { id: 'paladin_mace_t4' },
             ], 'melee')}
             ${renderEquipmentGroup('T5 共用', 'SHARED T5', [
-              { id: 'sword_t5', tier: 'T5', zh: '指揮官長劍', en: 'COMMANDER SWORD' },
-              { id: 'axe_t5', tier: 'T5', zh: '指揮官雙刃斧', en: 'COMMANDER AXE' },
+              { id: 'sword_t5' },
+              { id: 'axe_t5' },
             ], 'melee')}
             ${renderEquipmentGroup('長槍', 'LANCE', [
-              { id: 'hunting_spear', tier: 'T1', zh: '狩獵長槍', en: 'HUNTING SPEAR' },
-              { id: 'steel_lance', tier: 'T2', zh: '鋼製長槍', en: 'STEEL LANCE' },
-              { id: 'heavy_lance', tier: 'T3', zh: '重裝長槍', en: 'HEAVY LANCE' },
-              { id: 'spear_t4', tier: 'T4', zh: '長槍', en: 'SPEAR' },
-              { id: 'spear_t5', tier: 'T5', zh: '指揮官長槍', en: 'COMMANDER LANCE / SPEAR' },
+              { id: 'hunting_spear' },
+              { id: 'steel_lance' },
+              { id: 'heavy_lance' },
+              { id: 'spear_t4' },
+              { id: 'spear_t5' },
             ], 'melee')}
           </section>
           <section class="loadout-category"><div class="loadout-category-heading"><h3>遠程武器</h3><span>RANGED</span></div>
             ${renderEquipmentGroup('維京', 'VIKING', [
-              { id: 'wooden_shortbow', tier: 'T1', zh: '木製短弓', en: 'WOODEN SHORTBOW' },
-              { id: 'recurve_longbow', tier: 'T2', zh: '反曲長弓', en: 'RECURVE LONGBOW' },
-              { id: 'elven_runebow', tier: 'T3', zh: '精靈符文弓', en: 'ELVEN RUNE BOW' },
-              { id: 'maki-ranger-bow-ranged', tier: 'T4', zh: '遊俠弓', en: 'RANGER BOW' },
-              { id: 'bow_t5', tier: 'T5', zh: '指揮官弓', en: 'COMMANDER BOW' },
+              { id: 'wooden_shortbow' },
+              { id: 'recurve_longbow' },
+              { id: 'elven_runebow' },
+              { id: 'maki-ranger-bow-ranged' },
+              { id: 'bow_t5' },
             ], 'ranged')}
             ${renderEquipmentGroup('羅馬', 'ROMAN', [
-              { id: 'pilum_basic', tier: 'T1', zh: '簡易標槍', en: 'BASIC PILUM' },
-              { id: 'pilum_standard', tier: 'T2', zh: '制式標槍', en: 'STANDARD PILUM' },
-              { id: 'legionary_pilum', tier: 'T3', zh: '軍團標槍', en: 'LEGIONARY PILUM' },
+              { id: 'pilum_basic' },
+              { id: 'pilum_standard' },
+              { id: 'legionary_pilum' },
             ], 'ranged')}
           </section>
         </div>
         <section class="loadout-category shield-category"><div class="loadout-category-heading"><h3>盾牌</h3><span>SHIELD</span></div>
-          ${renderEquipmentGroup('T4 共用', 'SHARED T4', [{ id: 'paladin_shield_t4', tier: 'T4', zh: '聖騎士盾牌', en: 'PALADIN SHIELD (48 IMPACT)' }], 'shield')}
+          ${renderEquipmentGroup('T4 共用', 'SHARED T4', [{ id: 'paladin_shield_t4' }], 'shield')}
           ${renderEquipmentGroup('無盾', 'NONE', [{ id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' }], 'shield')}
           ${renderEquipmentGroup('維京', 'VIKING', [
-            { id: 'round_shield_t1', tier: 'T1', zh: '基礎圓盾', en: `BASIC ROUND SHIELD (${ARMORS.round_shield_t1.shieldImpactMax} IMPACT)` },
-            { id: 'round_shield_t2', tier: 'T2', zh: '鐵環圓盾', en: `IRON SHIELD (${ARMORS.round_shield_t2.shieldImpactMax} IMPACT)` },
-            { id: 'round_shield_t3', tier: 'T3', zh: '狂戰士圓盾', en: `BERSERKER SHIELD (${ARMORS.round_shield_t3.shieldImpactMax} IMPACT)` },
+            { id: 'round_shield_t1' },
+            { id: 'round_shield_t2' },
+            { id: 'round_shield_t3' },
           ], 'shield')}
           ${renderEquipmentGroup('羅馬', 'ROMAN', [
-            { id: 'scutum_t1', tier: 'T1', zh: '基礎方盾', en: `BASIC SCUTUM (${ARMORS.scutum_t1.shieldImpactMax} IMPACT)` },
-            { id: 'scutum_t2', tier: 'T2', zh: '軍團方盾', en: `LEGION SCUTUM (${ARMORS.scutum_t2.shieldImpactMax} IMPACT)` },
-            { id: 'scutum_t3', tier: 'T3', zh: '百夫長方盾', en: `CENTURION SCUTUM (${ARMORS.scutum_t3.shieldImpactMax} IMPACT)` },
+            { id: 'scutum_t1' },
+            { id: 'scutum_t2' },
+            { id: 'scutum_t3' },
           ], 'shield')}
         </section>
         <section class="starting-state"><div class="loadout-category-heading"><h3>出戰方式</h3><span>STARTING STATE</span></div>

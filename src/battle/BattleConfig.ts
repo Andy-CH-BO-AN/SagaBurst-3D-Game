@@ -69,7 +69,7 @@ export type PlayerMeleeWeaponId =
   | 'rusty_dagger' | 'steel_sword' | 'runic_greatsword'
   | 'viking_axe_t1' | 'viking_axe_t2' | 'viking_axe_t3'
   | 'gladius_rusty' | 'gladius_standard' | 'centurion_blade'
-  | 'hunting_spear' | 'steel_lance' | 'heavy_lance' | 'spear_t4' | 'lance_t4'
+  | 'hunting_spear' | 'steel_lance' | 'heavy_lance' | 'spear_t4'
   | 'paladin_sword_t4' | 'paladin_mace_t4'
   | 'sword_t5' | 'axe_t5' | 'spear_t5'
 export type PlayerRangedWeaponId =
@@ -103,7 +103,7 @@ export const PLAYER_MELEE_WEAPON_IDS: readonly PlayerMeleeWeaponId[] = [
   'rusty_dagger', 'steel_sword', 'runic_greatsword',
   'viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3',
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
-  'hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4', 'lance_t4',
+  'hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4',
   'paladin_sword_t4', 'paladin_mace_t4',
   'sword_t5', 'axe_t5', 'spear_t5',
 ]

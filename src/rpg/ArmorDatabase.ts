@@ -17,14 +17,14 @@ export interface ArmorData {
 
 export const ARMORS: Record<string, ArmorData> = {
   paladin_shield_t4: {
-    id: 'paladin_shield_t4', name: '聖騎士盾牌 Paladin Shield', type: 'shield', tier: 4,
+    id: 'paladin_shield_t4', name: "隊長戰盾 Captain's War Shield", type: 'shield', tier: 4,
     shieldImpactMax: 48,
     description: '羅馬與維京 T4 共用實體盾牌。48 衝擊耐久；僅實際命中盾面才格擋。',
   },
   // ── Roman Scutums ──
   scutum_t1: {
     id: 'scutum_t1',
-    name: '簡陋方盾 Basic Scutum',
+    name: '木製方盾 Wooden Scutum',
     type: 'shield',
     tier: 1,
     shieldImpactMax: 7.5,
@@ -32,7 +32,7 @@ export const ARMORS: Record<string, ArmorData> = {
   },
   scutum_t2: {
     id: 'scutum_t2',
-    name: '軍團方盾 Legion Scutum',
+    name: '軍團方盾 Legionary Scutum',
     type: 'shield',
     tier: 2,
     shieldImpactMax: 15,
@@ -40,7 +40,7 @@ export const ARMORS: Record<string, ArmorData> = {
   },
   scutum_t3: {
     id: 'scutum_t3',
-    name: '百夫長方盾 Centurion Scutum',
+    name: "百夫長方盾 Centurion's Scutum",
     type: 'shield',
     tier: 3,
     shieldImpactMax: 30,
@@ -50,7 +50,7 @@ export const ARMORS: Record<string, ArmorData> = {
   // ── Viking Round Shields ──
   round_shield_t1: {
     id: 'round_shield_t1',
-    name: '簡陋圓盾 Basic Round Shield',
+    name: '木製圓盾 Wooden Round Shield',
     type: 'shield',
     tier: 1,
     shieldImpactMax: 5,
@@ -58,7 +58,7 @@ export const ARMORS: Record<string, ArmorData> = {
   },
   round_shield_t2: {
     id: 'round_shield_t2',
-    name: '鐵環圓盾 Iron-Rimmed Shield',
+    name: '鐵邊圓盾 Iron-Rimmed Round Shield',
     type: 'shield',
     tier: 2,
     shieldImpactMax: 10,
@@ -66,7 +66,7 @@ export const ARMORS: Record<string, ArmorData> = {
   },
   round_shield_t3: {
     id: 'round_shield_t3',
-    name: '狂戰士圓盾 Berserker Shield',
+    name: '近衛圓盾 Huscarl Round Shield',
     type: 'shield',
     tier: 3,
     shieldImpactMax: 20,

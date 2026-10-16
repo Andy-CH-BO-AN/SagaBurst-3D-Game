@@ -35,7 +35,7 @@ export function townEquipmentSquads(profile: CareerProfile): TownEquipmentSquad[
 export function careerEquipmentCategory(itemId: string): BulkEquipmentCategory | undefined {
   if (['horse', 'corgi', 'black-cat'].includes(itemId)) return 'mount'
   const item = WEAPONS[itemId]
-  if (!item || itemId === 'maki-ranger-bow') return undefined
+  if (!item) return undefined
   if (item.type === 'ranged') return item.combatKind === 'bow' ? 'bow' : undefined
   if (item.type !== 'melee') return undefined
   if (item.combatKind === 'lance') return 'spear'
@@ -123,7 +123,7 @@ export function changeTownEquipment(read: () => CareerProfile, context: TownEqui
   if (itemId !== null && (typeof itemId !== 'string' || !itemId)) return fail(current, 'invalid-item')
   const item = itemId ? WEAPONS[itemId] ?? ARMORS[itemId] : undefined
   if (itemId && (slot === 'mount' ? !(PLAYER_MOUNT_IDS as readonly string[]).includes(itemId) || target !== 'personal' && itemId === 'xongkoro'
-    : !item || item.type !== slot || itemId === 'maki-ranger-bow')) return fail(current, 'invalid-item')
+    : !item || item.type !== slot)) return fail(current, 'invalid-item')
   const next = cloneCareerProfile(current)
   try { normalizeCareerInventory(next) } catch { return fail(current, 'invalid-item') }
   const refs = memberRefs(next, context, target, actorId), previous = refs[slot]
