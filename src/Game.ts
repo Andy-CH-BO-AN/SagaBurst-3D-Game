@@ -1443,7 +1443,8 @@ export class Game {
       this.staminaBar.setFill(1)
       this.quiverUI.setArrowCount(this.player.arrowCount)
     }
-    if (!this.isModelStudio) this.compass = new CompassUI(this.camera)
+    if (!this.isModelStudio) this.compass = new CompassUI(this.camera,
+      document.getElementById('defense-campaign-hud') ?? document.getElementById('captain-eagle-hud'))
   }
 
   private _bindPlayerCombatCallbacks(campaignConfig?: DefenseCampaignLaunchConfig): void {

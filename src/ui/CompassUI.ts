@@ -10,9 +10,10 @@ export class CompassUI {
   private readonly container = document.createElement('div')
   private readonly strip = document.createElement('div')
   private readonly heading = new CompassHeading()
+  private readonly topHudObserver?: ResizeObserver
   private lastOffset = NaN
 
-  constructor(camera: Pick<Camera, 'getWorldDirection'>) {
+  constructor(camera: Pick<Camera, 'getWorldDirection'>, topHud?: HTMLElement | null) {
     this.container.id = 'compass-container'
     this.container.setAttribute('aria-hidden', 'true')
     this.strip.id = 'compass-strip'
@@ -29,6 +30,16 @@ export class CompassUI {
     this.container.append(this.strip, indicator)
     this.update(camera)
     document.getElementById('hud')!.appendChild(this.container)
+    if (topHud) {
+      const placeBelowHud = () => {
+        this.container.style.top = `${Math.max(104, topHud.getBoundingClientRect().bottom + 12)}px`
+      }
+      placeBelowHud()
+      // Campaign titles, phase text and squad counts can wrap or change height.
+      // Observe layout changes instead of measuring the HUD every frame.
+      this.topHudObserver = new ResizeObserver(placeBelowHud)
+      this.topHudObserver.observe(topHud)
+    }
   }
 
   update(camera: Pick<Camera, 'getWorldDirection'>): void {
@@ -42,6 +53,7 @@ export class CompassUI {
   }
 
   dispose(): void {
+    this.topHudObserver?.disconnect()
     this.container.remove()
   }
 }
