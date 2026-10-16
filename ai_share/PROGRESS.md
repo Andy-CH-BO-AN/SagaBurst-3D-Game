@@ -1,8 +1,11 @@
 # SagaBurst — 目前交接
 
-更新：2026-10-12。城外遭遇戰與任務交火的目前契約見 [ARCHITECTURE.md](ARCHITECTURE.md)。
+更新：2026-10-16。城外遭遇戰與任務交火的目前契約見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 目前狀態
+
+- 普通戰馬已改用使用者提供的 MAXDESIGN-3D 模型，沿用原 horse／asset／paint IDs。三個 LOD 共用每匹獨立的 70 骨架與一次動畫求值；原生 idle／walk／gallop／death，加上由舊馬重定向的 trot／canter／jump／land／hit。來源與授權見 `public/models/mounts/v1/horse/CREDITS.md`，可重建入口為 `tools/horse/build-lightweight-horse.mjs`；舊 LOD2 工具禁止處理此版資產。
+- 馬鞍以新馬背部蒙皮，座位 socket 適配既有騎手偏移；步態依 manifest 的來源步幅速度調整播放頻率，移動數值與跳躍物理不變。land 只在接受跳躍後觸地時播放，避免下坡短暫離地反覆打斷步態。貼圖在 loader 內共用，實例銷毀只釋放自己的動畫與骨架資源。
 
 - **T5 選定資產已接入並通過百人效能驗收**：唯一來源為 `Roman_Steppe_Selected_Complete.zip`，入口 `tools/import-selected-t5.mjs`、`tools/t5-commanders.md`。LOD0 保留來源網格、貼圖與權重；使用者另授權修正 Roman 兩段斧擊的手指旋轉，保留原始空握手型。Roman 66 骨與完整四組影響、Steppe 37 骨與 11 段來源動畫保留；兩段斧擊完整映射至既有 0.48 秒基準週期，再套用武器／角色攻速。
 - T5 騎乘固定骨盆；揮劍最多保留 45° 來源骨盆轉身，分配至三節腰背並於收招回正。雙手斧將來源骨盆旋轉分散到腰背，保留步戰右上往左下的方向。新 T5 不套舊 Corgi 抬臂／側向揮擊修正，持盾跟隨胸口。黑貓以 `SkinnedSeatContact` 的變形後大腿承重點貼合座面，Player、NPC 與預覽共用；既有 T4 坐姿不變。
@@ -22,6 +25,8 @@
 - 柯基已接入目前程式的外部 GLB 路徑；刪除先前「未合併／僅程序模型」的交接標記。來源與重建以 `public/models/mounts/v2/corgi/` 的 manifest／CREDITS 為準。
 
 ## 已知限制
+
+普通馬替換的 50 匹場景 P95 尚未通過效能門檻；該 PR 保持草稿，詳見配對量測與波動分析，不能視為全項驗收完成。
 
 下列視覺／效能問題沿用既有交接，**本次未重現確認是否仍存在**：
 

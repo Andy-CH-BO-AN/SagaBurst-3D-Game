@@ -73,6 +73,7 @@ export interface HorseAssetManifest {
   } | null
   forward: '+Z'
   clips: HorseAnimationState[]
+  gaitReferenceSpeeds?: { walk: number; trot: number; canter: number; gallop: number }
   sockets: string[]
 }
 
@@ -210,6 +211,16 @@ export function horseLocomotionClipForSpeed(speed: number): HorseAnimationState 
   return 'gallop'
 }
 
+/** Visual cadence follows measured source strides; gameplay speed is unchanged. */
+export function horsePlaybackRateForSpeed(speed: number, manifest?: Pick<HorseAssetManifest, 'gaitReferenceSpeeds'>): number {
+  const state = horseLocomotionClipForSpeed(speed)
+  const references: Partial<Record<HorseAnimationState, number>> = manifest?.gaitReferenceSpeeds ?? HORSE_GAIT_REFERENCE_SPEEDS
+  const reference = references[state]
+  return reference
+    ? THREE.MathUtils.clamp(Math.abs(speed) / reference, manifest?.gaitReferenceSpeeds ? 0.1 : 0.5, manifest?.gaitReferenceSpeeds ? 4 : 1.5)
+    : 1
+}
+
 export function horseVariantFromSave(value: unknown): HorseAppearanceVariant {
   return value === 1 || value === 2 ? value : 0
 }
@@ -245,7 +256,9 @@ export function validateHorseManifest(manifest: HorseAssetManifest): void {
   if (manifest.metrics.triangles.lod0 > 65000) throw new Error('Horse LOD0 exceeds triangle budget')
   if (manifest.metrics.triangles.lod1 > 22000) throw new Error('Horse LOD1 exceeds triangle budget')
   if (manifest.metrics.triangles.lod2 > 7000) throw new Error('Horse LOD2 exceeds triangle budget')
-  if (manifest.metrics.textureMaxSize !== 2048) throw new Error('Horse texture maximum must be 2048')
+  if (!Number.isInteger(manifest.metrics.textureMaxSize) || manifest.metrics.textureMaxSize < 1 || manifest.metrics.textureMaxSize > 2048) {
+    throw new Error('Horse texture maximum must be within 1–2048')
+  }
   if (manifest.metrics.packageBytes > MAX_PACKAGE_BYTES) throw new Error('Horse runtime package exceeds 30 MB')
   const lodNames = Object.values(manifest.lodNodes)
   if (lodNames.some((name) => !name) || new Set(lodNames).size !== 3) throw new Error('Horse LOD node names are incomplete')
@@ -263,6 +276,12 @@ export function validateHorseManifest(manifest: HorseAssetManifest): void {
   }
   for (const clip of REQUIRED_CLIPS) {
     if (!manifest.clips.includes(clip)) throw new Error(`Horse manifest is missing ${clip} clip`)
+  }
+  if (manifest.gaitReferenceSpeeds) {
+    for (const name of ['walk', 'trot', 'canter', 'gallop'] as const) {
+      const speed = manifest.gaitReferenceSpeeds[name]
+      if (!Number.isFinite(speed) || speed <= 0) throw new Error(`Horse ${name} reference speed must be positive`)
+    }
   }
   for (const socket of REQUIRED_SOCKETS) {
     if (!manifest.sockets.includes(socket)) throw new Error(`Horse manifest is missing ${socket}`)
@@ -285,6 +304,7 @@ class HorseAnimationController {
     clips: Map<HorseAnimationState, THREE.AnimationClip>,
     private readonly lod: THREE.LOD,
     private readonly getVariant: () => HorseAppearanceVariant,
+    private readonly manifest: HorseAssetManifest,
   ) {
     for (const name of REQUIRED_CLIPS) this.actions.set(name, mixer.clipAction(clips.get(name)!))
     this.play('idle', 0, true)
@@ -310,10 +330,7 @@ class HorseAnimationController {
 
   setLocomotion(speed: number): void {
     this.requestedLocomotion = horseLocomotionClipForSpeed(speed)
-    const referenceSpeed = HORSE_GAIT_REFERENCE_SPEEDS[this.requestedLocomotion]
-    this.requestedPlaybackRate = referenceSpeed
-      ? THREE.MathUtils.clamp(Math.abs(speed) / referenceSpeed, 0.5, 1.5)
-      : 1
+    this.requestedPlaybackRate = horsePlaybackRateForSpeed(speed, this.manifest)
     if (this.oneShot || this.current === 'death') return
     this.play(this.requestedLocomotion)
     this.playbackRate = this.requestedPlaybackRate
@@ -431,6 +448,7 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     normalizedClips(template.gltf),
     lod,
     () => appearanceVariant,
+    template.manifest,
   )
   const bounds = new THREE.Box3().setFromObject(root)
 
@@ -456,6 +474,10 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     debugState: () => animation.debugState(),
     dispose: () => {
       animation.stop()
+      mixer.uncacheRoot(root)
+      // Geometry, materials and maps belong to the shared template. Only this
+      // instance's skeleton owns its bone texture.
+      skeleton.dispose()
       root.removeFromParent()
     },
   }
@@ -501,23 +523,33 @@ export class HorseAssetRegistry {
       const gltf = await loader.loadAsync(textureUrl(base, manifest.file!))
       // The authored transparent cornea remains a physical, clear-coated surface,
       // but it must not make the whole main scene render into a transmission target.
-      const corneaCount = setHorseCorneaTransmission(gltf.scene, false)
-      if (corneaCount === 0) {
-        console.warn('Horse GLB contains no identifiable cornea material; transmission optimization skipped')
-      }
+      setHorseCorneaTransmission(gltf.scene, false)
       firstSkinnedMesh(gltf.scene)
       normalizedClips(gltf)
       for (const socket of REQUIRED_SOCKETS) requireObject(gltf.scene, socket)
       for (const name of Object.values(manifest.lodNodes)) requireObject(gltf.scene, name)
       for (const name of manifest.bodyMeshNames) requireMesh(gltf.scene, name)
 
+      // Reuse external maps already loaded by GLTFLoader, including its sampler
+      // settings. Source horses may use repeating UVs outside the unit square.
+      const textures = new Map<string, Promise<THREE.Texture>>()
+      for (const [index, texture] of (gltf.parser.json.textures ?? []).entries()) {
+        const imageIndex = texture.extensions?.KHR_texture_basisu?.source ?? texture.source
+        const uri = gltf.parser.json.images?.[imageIndex]?.uri
+        if (uri) textures.set(textureUrl(base, uri), gltf.parser.getDependency('texture', index))
+      }
+      const loadTexture = (path: string): Promise<THREE.Texture> => {
+        const url = textureUrl(base, path)
+        if (!textures.has(url)) textures.set(url, ktx2Loader.loadAsync(url))
+        return textures.get(url)!
+      }
       const [normal, roughness, ao, ...baseColors] = await Promise.all([
-        ktx2Loader.loadAsync(textureUrl(base, manifest.sharedBodyMaps.normal)),
-        ktx2Loader.loadAsync(textureUrl(base, manifest.sharedBodyMaps.roughness)),
+        loadTexture(manifest.sharedBodyMaps.normal),
+        loadTexture(manifest.sharedBodyMaps.roughness),
         manifest.sharedBodyMaps.ao
-          ? ktx2Loader.loadAsync(textureUrl(base, manifest.sharedBodyMaps.ao))
+          ? loadTexture(manifest.sharedBodyMaps.ao)
           : Promise.resolve(null),
-        ...manifest.variants.map((variant) => ktx2Loader.loadAsync(textureUrl(base, variant.baseColor))),
+        ...manifest.variants.map((variant) => loadTexture(variant.baseColor)),
       ])
       const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
       for (const texture of [normal, roughness, ao, ...baseColors]) {
@@ -534,6 +566,16 @@ export class HorseAssetRegistry {
         throw new Error('Horse body material must be MeshStandardMaterial')
       }
       const bodyMaterials = baseColors.map((baseColor, index) => {
+        if (sourceMaterial.map) {
+          baseColor.wrapS = sourceMaterial.map.wrapS
+          baseColor.wrapT = sourceMaterial.map.wrapT
+          baseColor.repeat.copy(sourceMaterial.map.repeat)
+          baseColor.offset.copy(sourceMaterial.map.offset)
+          baseColor.rotation = sourceMaterial.map.rotation
+          baseColor.center.copy(sourceMaterial.map.center)
+          baseColor.channel = sourceMaterial.map.channel
+          baseColor.needsUpdate = true
+        }
         const material = sourceMaterial.clone()
         material.name = `horse-body-${manifest.variants[index].id}`
         material.map = baseColor
