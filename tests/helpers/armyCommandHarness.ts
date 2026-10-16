@@ -5,7 +5,7 @@ import type { TacticalOrder } from '../../src/battle/TacticalOrder'
 import type { ArmyCommandTarget } from '../../src/battle/CommandTarget'
 import type { NPC, Faction } from '../../src/world/NPC'
 import type { PlayerInput } from '../../src/player/PlayerInput'
-import type { ArmyCommandUI } from '../../src/ui/ArmyCommandUI'
+import type { ArmyCommandUI, OfficialSquadLabelOption } from '../../src/ui/ArmyCommandUI'
 import type { FormationController } from '../../src/battle/FormationController'
 import type { InventoryManager } from '../../src/rpg/InventoryManager'
 
@@ -71,11 +71,29 @@ export function createArmyCommandHarness(
     clickMiddle: () => pressed.add('MouseMiddle'),
     wheel: (steps: number) => { wheelSteps += steps },
   }
+  let officialSquadLabel: OfficialSquadLabelOption | undefined
+  let labelOptionVersion = 0
+  let onOfficialSquadLabelChanged: (() => void) | null = null
   const ui = {
     setEnabled: vi.fn<ArmyCommandUI['setEnabled']>(),
     render: vi.fn<ArmyCommandUI['render']>(),
     renderPlacement: vi.fn<ArmyCommandUI['renderPlacement']>(),
     showFeedback: vi.fn<ArmyCommandUI['showFeedback']>(),
+    getLabelOptionVersion: vi.fn(() => labelOptionVersion),
+    setOnOfficialSquadLabelChanged: vi.fn((cb: (() => void) | null) => { onOfficialSquadLabelChanged = cb }),
+    setOfficialSquadLabel: vi.fn((label?: OfficialSquadLabelOption) => {
+      if (officialSquadLabel === label) return false
+      officialSquadLabel = label
+      labelOptionVersion++
+      onOfficialSquadLabelChanged?.()
+      return true
+    }),
+    getOfficialSquadLabel: vi.fn(() => officialSquadLabel),
+    resolveSquadLabel: vi.fn((target: ArmyCommandTarget) => {
+      if (typeof officialSquadLabel === 'function') return officialSquadLabel(target)
+      if (target === 'squad:1' && typeof officialSquadLabel === 'string') return officialSquadLabel
+      return undefined
+    }),
   }
   // Only controller-facing fields are supplied: no DOM/input listeners, AI or full formation runtime.
   const controller = new ArmyCommandController(

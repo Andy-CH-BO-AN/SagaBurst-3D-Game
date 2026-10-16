@@ -4,6 +4,7 @@ import { availableCareerItem, careerItemTotals, normalizeCareerInventory, type P
 import { canRecruitPersonalSquad, type PersonalSquadAuthority } from './CareerPersonalSquad'
 import type { SquadId } from '../battle/CommandTarget'
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
+import { commanderTownSquadLabel } from './CommanderTownSquadLabels'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
@@ -26,11 +27,10 @@ export interface TownEquipmentSummary { equipped: number; upgraded: number; unch
 export interface TownEquipmentResult {
   changed: boolean; profile: CareerProfile; reason?: TownEquipmentFailure; changedActorIds: string[]; summary: TownEquipmentSummary
 }
-const NAMES = ['北門步兵隊', '北門騎兵／指揮隊', '南門步兵隊', '南門騎兵隊', '東門步兵隊', '東門騎兵隊', '西門與機動部隊', '城鎮巨鷹巡邏隊']
 export function townEquipmentSquads(profile: CareerProfile): TownEquipmentSquad[] {
-  return [...commanderGateDefenseSlots().map(squad => ({ id: squad.squadId, name: NAMES[squad.squadId - 1], actorIds: [...squad.actorIds] })),
-    { id: 'personal' as const, name: 'HR 私兵', actorIds: (profile.personalSquad?.members ?? []).map(member => member.id) },
-    { id: 'civilian' as const, name: '平民／商人', actorIds: [...Array.from({ length: 20 }, (_, i) => `civilian-${i}`), 'merchant'] }]
+  return [...commanderGateDefenseSlots().map(squad => ({ id: squad.squadId, name: commanderTownSquadLabel(squad.squadId)!, actorIds: [...squad.actorIds] })),
+    { id: 'personal' as const, name: commanderTownSquadLabel('personal')!, actorIds: (profile.personalSquad?.members ?? []).map(member => member.id) },
+    { id: 'civilian' as const, name: commanderTownSquadLabel('civilian')!, actorIds: [...Array.from({ length: 20 }, (_, i) => `civilian-${i}`), 'merchant'] }]
 }
 export function careerEquipmentCategory(itemId: string): BulkEquipmentCategory | undefined {
   if (['horse', 'corgi', 'black-cat'].includes(itemId)) return 'mount'
