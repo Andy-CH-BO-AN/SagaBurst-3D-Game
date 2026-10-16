@@ -38,7 +38,7 @@ export class CompassUI {
       // Campaign titles, phase text and squad counts can wrap or change height.
       // Observe layout changes instead of measuring the HUD every frame.
       this.topHudObserver = new ResizeObserver(placeBelowHud)
-      this.topHudObserver.observe(topHud)
+      this.topHudObserver.observe(topHud, { box: 'border-box' })
     }
   }
 
