@@ -4041,7 +4041,7 @@ export class NPC {
 
   /** Reuses the selected target, neighborhood and combat state machine; no extra acquisition pass. */
   private _selectRangedMeleeMode(
-    target: { position: THREE.Vector3; isDead: boolean; npc?: NPC } | null,
+    target: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null,
     player: Player, nearby: readonly NPC[], obstacles: ObstacleData[],
   ): void {
     // Committed releases and swings finish before any equipment decision.
@@ -4062,10 +4062,16 @@ export class NPC {
         threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(other.combatPosition))
       }
     }
-    const ranged = this.arrows > 0 && (this.rangedActive ? threatSq > RANGED_ATTACK_MIN ** 2
-      : threatSq >= RANGED_REEQUIP_MIN ** 2 && target && !target.isDead
-        && this.combatPosition.distanceToSquared(target.position) <= this.maxRangedAttackDistance ** 2
-        && this._findRangedTrajectoryBlocker(target.position, obstacles) === null)
+    let ranged = this.arrows > 0 && (this.rangedActive ? threatSq > RANGED_ATTACK_MIN ** 2
+      : threatSq >= RANGED_REEQUIP_MIN ** 2 && target !== null && !target.isDead
+        && this.combatPosition.distanceToSquared(target.position) <= this.maxRangedAttackDistance ** 2)
+    if (ranged && !this.rangedActive && target) {
+      const blocker = this._findRangedTrajectoryBlocker(target.position, obstacles)
+      // Hitting the assigned siege target is a valid shot, matching obstacle attack fallback.
+      // Do not grant this exception to human targets or any other obstruction.
+      ranged = blocker === null || (!target.isPlayer && !target.npc
+        && blocker === this.assignedSiegeObstacle && this._isAttackableObstacle(blocker))
+    }
     if (Boolean(ranged) === this.rangedActive) return
     this._cancelEquipmentCombatState()
     if (ranged) {

@@ -28,6 +28,12 @@ interface SelectionActor {
   shieldId: string | null
   readonly hasActiveShield: boolean
   readonly hasActiveRangedWeapon: boolean
+  readonly rangedProjectileSpeed: number
+  assignedSiegeObstacle: ObstacleData | null
+  _tmpRangedOrigin: Vector3
+  _tmpRangedLosTarget: Vector3
+  _tmpRangedArcPrevious: Vector3
+  _tmpRangedArcPoint: Vector3
   shield: ShieldState
   shieldPivot: { visible: boolean }
   shieldCollider: { refreshVisibility(): void }
@@ -54,10 +60,11 @@ interface SelectionActor {
   _refreshActiveShield(): void
   _isRangedMeleeThreat(position: Vector3): boolean
   _usesReversibleRangedSwitch(): boolean
-  _findRangedTrajectoryBlocker(): ObstacleData | null
+  _findRangedTrajectoryBlocker(target: Vector3, obstacles: ObstacleData[]): ObstacleData | null
+  _isAttackableObstacle(obstacle: ObstacleData | null): boolean
   _isRampartMeleeThreat(position: Vector3): boolean
 }
-interface SelectionMethods extends Pick<SelectionActor, '_cancelEquipmentCombatState' | '_switchToMelee' | '_isRampartMeleeThreat' | '_isRangedMeleeThreat' | '_refreshActiveShield' | '_usesReversibleRangedSwitch' | '_restoreCombatReadyRangedVisual'> {
+interface SelectionMethods extends Pick<SelectionActor, '_cancelEquipmentCombatState' | '_switchToMelee' | '_isRampartMeleeThreat' | '_isRangedMeleeThreat' | '_refreshActiveShield' | '_usesReversibleRangedSwitch' | '_restoreCombatReadyRangedVisual' | '_findRangedTrajectoryBlocker' | '_isAttackableObstacle'> {
   _selectRangedMeleeMode(this: SelectionActor, target: SelectionTarget | null,
     player: Player, nearby: readonly NPC[], obstacles: ObstacleData[]): void
 }
@@ -69,6 +76,9 @@ function selection(overrides: Partial<SelectionActor> = {}) {
     faction: Faction.ENEMY, holdsRampartFirePosition: false, combatPosition: new Vector3(), rangedWeaponId: 'recurve_longbow',
     meleeWeaponId: 'steel_sword', meleeAttackRadius: 1.8, shieldId: null, shieldPivot: { visible: false }, tacticalOrder: 'attack',
     shieldCollider: { refreshVisibility() { actor.shieldPivot.visible = actor.hasActiveShield && !actor.shield.shieldBroken } },
+    assignedSiegeObstacle: null, _isAttackableObstacle: methods._isAttackableObstacle,
+    _tmpRangedOrigin: new Vector3(), _tmpRangedLosTarget: new Vector3(),
+    _tmpRangedArcPrevious: new Vector3(), _tmpRangedArcPoint: new Vector3(),
     arrows: 12, rangedActive: true, maxRangedAttackDistance: 30,
     bowArrowReleased: false, animator: { busy: false, cancel: vi.fn(), setEquipment: vi.fn(), setShieldRaised: vi.fn() }, bowVisual: { hideArrow: vi.fn() },
     swordPivot: { visible: false }, bowPivot: { visible: true }, attackTimer: 2,
@@ -83,6 +93,7 @@ function selection(overrides: Partial<SelectionActor> = {}) {
   Object.defineProperties(actor, {
     hasActiveShield: Object.getOwnPropertyDescriptor(NPC.prototype, 'hasActiveShield')!,
     hasActiveRangedWeapon: Object.getOwnPropertyDescriptor(NPC.prototype, 'hasActiveRangedWeapon')!,
+    rangedProjectileSpeed: Object.getOwnPropertyDescriptor(NPC.prototype, 'rangedProjectileSpeed')!,
   })
   actor.shield = new ShieldState(() => actor.hasActiveShield)
   actor.shield.equip(actor.shieldId)
@@ -301,26 +312,39 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.arrows).toBe(12)
   })
 
-  it('keeps nearby siege targeting separate from hostile actor proximity switches', () => {
-    const h = selection({ shieldId: 'scutum_t2' })
+  it('resumes shooting its assigned siege target after a hostile retreats without allowing unrelated blockers', () => {
+    const h = selection({ shieldId: 'scutum_t2', _findRangedTrajectoryBlocker: methods._findRangedTrajectoryBlocker })
     // Plain lifecycle boundary only: no scene, render objects or obstacle builder.
     const root: Pick<Object3D, 'parent'> = { parent: null }
-    const gate: ObstacleData = { box: new Box3(new Vector3(-1, -1, 3), new Vector3(1, 1, 5)), isBarricade: true,
+    const gate: ObstacleData = { box: new Box3(new Vector3(-1, -1, 3), new Vector3(1, 3, 5)), isBarricade: true,
       damageable: new DamageableObstacle({ kind: 'gate', maxHp: 100, root: root as Object3D }) }
     const target = { position: gate.box.getCenter(new Vector3()), isDead: gate.damageable!.destroyed, isPlayer: false }
+    h.actor.assignedSiegeObstacle = gate
+    expect(h.actor._findRangedTrajectoryBlocker(target.position, [gate])).toBe(gate)
     h.select([], target, [gate])
     expect(h.actor.hasActiveRangedWeapon).toBe(true)
     expect(h.actor.shield.active).toBe(false)
     expect([h.actor.swordPivot.visible, h.actor.bowPivot.visible]).toEqual([false, true])
     expect(h.actor.arrows).toBe(12)
     expect(h.actor.animator.cancel).not.toHaveBeenCalled()
-    // A real close enemy must still interrupt that same obstacle target.
-    const hostile = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 0, 3) } as NPC
+    // A real close enemy behind the closed gate intentionally still triggers melee readiness.
+    const hostile = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 0, 5.5) } as NPC
     h.select([hostile], target, [gate])
     expect(h.actor.hasActiveRangedWeapon).toBe(false)
     expect(h.actor.shield.active).toBe(true)
-    h.select([], target, [gate])
+    hostile.combatPosition.z = 12
+    const wall: ObstacleData = { box: new Box3(new Vector3(-1, -1, 1), new Vector3(1, 3, 2)), isBarricade: true,
+      damageable: new DamageableObstacle({ kind: 'palisade', maxHp: 100, root: root as Object3D }) }
+    expect(h.actor._findRangedTrajectoryBlocker(target.position, [wall, gate])).toBe(wall)
+    h.select([hostile], target, [wall, gate])
+    expect(h.actor.hasActiveRangedWeapon).toBe(false)
+    h.actor.assignedSiegeObstacle = null
+    h.select([hostile], target, [gate])
+    expect(h.actor.hasActiveRangedWeapon).toBe(false)
+    h.actor.assignedSiegeObstacle = gate
+    h.select([hostile], target, [gate])
     expect(h.actor.hasActiveRangedWeapon).toBe(true)
+    expect(h.actor.shield.active).toBe(false)
     expect(h.actor.arrows).toBe(12)
   })
 
