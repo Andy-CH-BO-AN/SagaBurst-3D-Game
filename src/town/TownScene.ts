@@ -1,3 +1,4 @@
+import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { civilianHomeAnchor, TownCivilianLife } from './TownCivilianLife'
 import { townStationSpec } from './TownGarrison'
@@ -1010,7 +1011,7 @@ export class TownScene {
     document.body.append(panel); this.panel = panel; return panel
   }
   private button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement { const b = document.createElement('button'); b.textContent = label; b.className = 'town-button'; b.onclick = action; parent.append(b); return b }
-  private talk(id: string, response?: string, shopPage: 'buy' | 'sell' = 'buy'): void {
+  private talk(id: string, response?: string, shopPage: 'buy' | 'sell' = 'buy', shopCategory: EquipmentCategory = 'melee'): void {
     if (this.player.dead || this.event.hostile || !this.serviceAvailable(id)) return
     if (id === 'hr-officer') { this.openRecruitmentPanel(response); return }
     const role = (id === 'eagle-trainer' ? 'ranger' : id) as DialogueRole, key = this.profile.faction + ':' + id
@@ -1050,7 +1051,22 @@ export class TownScene {
       const tabs = document.createElement('div'); tabs.className = 'town-shop-tabs'; panel.append(tabs)
       this.button(tabs, '購買', () => showProducts('buy'))
       this.button(tabs, '賣出', () => showProducts('sell'))
+      let category = shopCategory
+      const quantities = new Map<string, string>()
+      const categories = document.createElement('div'); categories.className = 'town-shop-tabs town-shop-categories'
+      categories.setAttribute('role', 'group'); categories.setAttribute('aria-label', '商品分類')
+      if (!mount) {
+        for (const [value, label] of EQUIPMENT_CATEGORIES) {
+          const tab = this.button(categories, label, () => { category = value; showProducts('buy') })
+          tab.dataset.category = value
+        }
+        panel.append(categories)
+      }
       const showProducts = (page: 'buy' | 'sell' = shopPage) => {
+        categories.hidden = page !== 'buy'
+        for (const tab of Array.from(categories.children) as HTMLButtonElement[]) {
+          tab.setAttribute('aria-pressed', String(tab.dataset.category === category))
+        }
         for (const tab of Array.from(tabs.children) as HTMLButtonElement[]) tab.disabled = tab.textContent === (page === 'buy' ? '購買' : '賣出')
         summary.textContent = '可用軍功 ' + this.profile.availableMerit + ' · ' + this.profile.rank + (page === 'sell' ? ` · 回收價為原價的 ${TOWN_RESALE_PERCENT[this.profile.rank]}%` : id === 'eagle-trainer' ? ' · Captain / Commander 解鎖；最多持有 3 隻；按 Tab 騎乘／收起' : mount ? ' · 軍用戰馬隨軍階解鎖至 T4；按 Tab 騎乘／收起' : ' · 購買後按 Tab 選擇裝備')
         panel.querySelector('.town-products')?.remove()
@@ -1058,7 +1074,10 @@ export class TownScene {
         panel.querySelector('.town-native-sale')?.remove()
         const list = document.createElement('div'); list.className = page === 'buy' ? 'town-products town-purchase-products' : 'town-products'
         let section = ''
-        const products = townShopProducts(id).filter(i => page === 'buy' || isTownProductOwned(this.profile, i))
+        const catalog = townShopProducts(id)
+        const sections = !mount && page === 'buy' ? equipmentSections(catalog, category) : []
+        const products = !mount && page === 'buy' ? sections.flatMap(section => section.items)
+          : catalog.filter(i => page === 'buy' || isTownProductOwned(this.profile, i))
         if (page === 'sell') {
           summary.textContent += ' · 背包僅出售可用份數，已分配裝備會保留'
           appendTownSaleDropdown(panel, products.filter(item => availableCareerItem(this.profile, item.id) > 0).map(item => {
@@ -1075,13 +1094,13 @@ export class TownScene {
           })
         }
         panel.append(list)
-        if (!products.length) { const empty = document.createElement('p'); empty.textContent = '沒有可賣出的物品。'; list.append(empty) }
+        if (!products.length) { const empty = document.createElement('p'); empty.textContent = page === 'buy' ? '此分類目前沒有商品。' : '沒有可賣出的物品。'; list.append(empty) }
         for (const item of products.sort((a, b) => {
           const group = (item: typeof a) => item.category === 'armor' ? 2 : WEAPONS[item.id]?.type === 'ranged' ? 1 : 0
-          return mount ? 0 : group(a) - group(b)
+          return mount || page === 'buy' ? 0 : group(a) - group(b)
         })) {
           if (!mount) {
-            const heading = item.category === 'armor' ? '盾牌' : WEAPONS[item.id]?.type === 'ranged' ? '遠程武器' : '近戰武器'
+            const heading = page === 'buy' ? `TIER ${item.tier}` : item.category === 'armor' ? '盾牌' : WEAPONS[item.id]?.type === 'ranged' ? '遠程武器' : '近戰武器'
             if (heading !== section) { const h = document.createElement('h3'); h.textContent = heading; list.append(h); section = heading }
           }
           const row = document.createElement('article'); row.className = 'town-product'
@@ -1116,7 +1135,7 @@ export class TownScene {
           for (let count = 1; count <= maxQuantity; count++) {
             const option = document.createElement('option'); option.value = String(count); option.textContent = String(count); quantity.append(option)
           }
-          quantity.value = maxQuantity > 0 ? '1' : ''
+          quantity.value = maxQuantity > 0 ? String(Math.min(maxQuantity, Number(quantities.get(item.id) ?? 1))) : ''
           quantity.disabled = maxQuantity < 1 || status === '軍階未解鎖'
           label.append(quantity)
           const total = document.createElement('small'); total.className = 'town-purchase-total'
@@ -1127,21 +1146,21 @@ export class TownScene {
               : maxQuantity < 1 ? '餘額不足' : `購買 ${count} 件`
             button.disabled = quantity.disabled
           }
-          quantity.onchange = updatePurchase
+          quantity.onchange = () => { quantities.set(item.id, quantity.value); updatePurchase() }
           updatePurchase()
           row.append(label, total)
           button.onclick = () => {
-            if (mount && (this.player.isFalling || this.player.currentMount?.isAirborne)) { this.talk(id, '請先安全降落，再購買或切換坐騎。'); return }
+            if (mount && (this.player.isFalling || this.player.currentMount?.isAirborne)) { this.talk(id, '請先安全降落，再購買或切換坐騎。', 'buy', category); return }
             const result = mount ? purchaseTownMount(this.profile, item.id, Number(quantity.value)) : purchaseTownEquipment(this.profile, item.id, Number(quantity.value))
             if (!result.purchased) {
               const message = result.reason === 'ownership-limit' ? '最多同時持有 3 隻 xongkoro' : result.reason === 'tier-locked' ? '軍階未解鎖' : result.reason === 'insufficient-merit' ? '可用軍功不足' : result.reason === 'already-owned' ? '已擁有' : '商品不存在或無法購買'
-              this.talk(id, message); return
+              this.talk(id, message, 'buy', category); return
             }
-            if (!this.commit(result.profile)) { this.talk(id, this.notice); return }
+            if (!this.commit(result.profile)) { this.talk(id, this.notice, 'buy', category); return }
             this.inventory.syncOwnership()
             this.careerMounts.syncOwnership()
             const message = `購買成功！\n${item.name} × ${Number(quantity.value)}\n花費：${result.spentMerit.toLocaleString()} 軍功\n剩餘軍功：${this.profile.availableMerit.toLocaleString()}`
-            this.talk(id, message + (mount ? '\n按 Tab → 坐騎 → 騎乘。' : '\n按 Tab 選擇裝備。'))
+            this.talk(id, message + (mount ? '\n按 Tab → 坐騎 → 騎乘。' : '\n按 Tab 選擇裝備。'), 'buy', category)
           }
           row.append(button); list.append(row)
         }

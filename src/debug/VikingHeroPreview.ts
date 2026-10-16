@@ -1,3 +1,5 @@
+import { WEAPONS } from '../rpg/WeaponDatabase'
+import { ARMORS } from '../rpg/ArmorDatabase'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
@@ -141,7 +143,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       <label><input id="hero-compare" type="checkbox" ${compare ? 'checked' : ''}> ${commander ? '同陣營 T4 並排比較' : `一般${factionLabel}並排比較`}</label><br>
       <label>播放方式 <select id="hero-playback"><option value="equipment">遊戲裝備</option><option value="source">原始片段 · 無裝備</option><option value="source-equipped">原始片段 · 武器接點</option></select></label><br>
       <label>動畫 <select id="hero-animation">${availableActions.map(name => `<option value="${name}">${name === 'hit' ? 'hit · 來源動作（不代表戰鬥受擊）' : sourceOnlyStates.has(name) ? `${name} · 來源片段` : name}</option>`).join('')}</select></label><br>
-      <label>裝備 <select id="hero-equipment"><option value="none">空手</option><option value="sword">Paladin Sword</option><option value="axe">Paladin Mace</option><option value="shield">Sword + Shield</option><option value="axe-shield">Mace + Shield</option><option value="selected-axe">Viking Axe</option><option value="selected-axe-shield">Axe + Shield</option><option value="lance">Lance</option><option value="bow">${maki ? 'T4 Ranger Bow' : 'Bow'}</option></select></label><br>
+      <label>裝備 <select id="hero-equipment"><option value="none">空手</option><option value="sword">${WEAPONS.paladin_sword_t4.name}</option><option value="axe">${WEAPONS.paladin_mace_t4.name}</option><option value="shield">${WEAPONS.paladin_sword_t4.name} + ${ARMORS.paladin_shield_t4.name}</option><option value="axe-shield">${WEAPONS.paladin_mace_t4.name} + ${ARMORS.paladin_shield_t4.name}</option><option value="selected-axe">${WEAPONS.viking_axe_t3.name}</option><option value="selected-axe-shield">${WEAPONS.viking_axe_t3.name} + ${ARMORS.paladin_shield_t4.name}</option><option value="lance">${WEAPONS.steel_lance.name}</option><option value="bow">${WEAPONS[maki ? 'maki-ranger-bow-ranged' : 'recurve_longbow'].name}</option></select></label><br>
       <label><input id="hero-shield-raised" type="checkbox"> 舉盾</label><br>
       <label>LOD <select id="hero-lod"><option value="0">LOD0</option><option value="1">LOD1</option><option value="2">LOD2</option></select></label><br>
       <label><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="BLACK_CAT" ${!roman ? 'selected' : ''}>Black Cat</option><option value="CORGI" ${roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>

@@ -34,14 +34,9 @@ export interface WeaponData {
 
 export const T4_RANGER_BOW_RANGED_ID = 'maki-ranger-bow-ranged' as const
 
-/** Starter replacement for the retired bow-melee equipment, never a forced upgrade. */
+/** Faction starter melee used by Rangers with ordinary humanoid attacks. */
 export function defaultRangerMeleeWeaponId(faction: 'viking' | 'roman'): string {
   return faction === 'roman' ? 'centurion_blade' : 'viking_axe_t3'
-}
-
-/** Retired cavalry ID remains readable; every new allocation uses the shared polearm. */
-export function canonicalWeaponId(id: string): string {
-  return id === 'lance_t4' ? 'spear_t4' : id
 }
 
 const T4_POLEARM: Omit<WeaponData, 'id' | 'name'> = {
@@ -53,38 +48,38 @@ const T4_POLEARM: Omit<WeaponData, 'id' | 'name'> = {
 
 export const WEAPONS: Record<string, WeaponData> = {
   sword_t5: {
-    id: 'sword_t5', name: 'T5 指揮官長劍 Commander Sword', type: 'melee', tier: 5,
+    id: 'sword_t5', name: "指揮官長劍 Commander's Longsword", type: 'melee', tier: 5,
     combatKind: 'sword', animationKind: 'sword', damageMin: 80, damageMax: 80,
     speedOrCharge: .48, meleeCycleSeconds: .48, shieldImpact: 1, range: 1.8,
     description: '指揮官長劍；命中盾面造成 1 點固定衝擊。',
   },
   axe_t5: {
-    id: 'axe_t5', name: 'T5 指揮官雙刃斧 Commander Axe', type: 'melee', tier: 5,
+    id: 'axe_t5', name: "指揮官雙刃戰斧 Commander's Double-Bitted Axe", type: 'melee', tier: 5,
     combatKind: 'sword', animationKind: 'axe', damageMin: 80, damageMax: 80,
     speedOrCharge: .54, meleeCycleSeconds: .54, shieldImpact: 15, range: 1.8,
     description: '指揮官雙刃戰斧；命中盾面造成 15 點固定衝擊，無護甲穿透。',
   },
   spear_t5: {
-    id: 'spear_t5', name: 'T5 指揮官長槍 Lance / Spear', type: 'melee', tier: 5,
+    id: 'spear_t5', name: "指揮官戰矛 Commander's War Spear", type: 'melee', tier: 5,
     combatKind: 'lance', animationKind: 'lance', damageMin: 95, damageMax: 95,
     speedOrCharge: .42, meleeCycleSeconds: .42, range: 3.9, isLance: true,
     description: '徒步反騎兵傷害 ×2，高速騎乘衝鋒 ×3；騎乘命中盾面造成 80 點衝擊。',
   },
-  spear_t4: { ...T4_POLEARM, id: 'spear_t4', name: 'T4 長槍' },
+  spear_t4: { ...T4_POLEARM, id: 'spear_t4', name: "隊長戰矛 Captain's War Spear" },
   bow_t5: {
-    id: 'bow_t5', name: 'T5 指揮官弓 Commander Bow', type: 'ranged', tier: 5,
+    id: 'bow_t5', name: "指揮官戰弓 Commander's War Bow", type: 'ranged', tier: 5,
     combatKind: 'bow', animationKind: 'bow', damageMin: 50, damageMax: 120,
     speedOrCharge: 1.8, arrowSpeedMin: 45, arrowSpeedMax: 120,
     description: '指揮官長弓；1.8 秒滿蓄力，沿用既有箭矢與騎射。',
   },
   paladin_sword_t4: {
-    id: 'paladin_sword_t4', name: '聖騎士長劍 Paladin Sword', type: 'melee', tier: 4,
+    id: 'paladin_sword_t4', name: "隊長長劍 Captain's Longsword", type: 'melee', tier: 4,
     combatKind: 'sword', animationKind: 'sword', damageMin: 60, damageMax: 60,
     speedOrCharge: .48, meleeCycleSeconds: .48, shieldImpact: 1, range: 1.8,
     description: '羅馬與維京 T4 共用長劍；命中盾面造成 1 點固定衝擊。',
   },
   paladin_mace_t4: {
-    id: 'paladin_mace_t4', name: '聖騎士戰槌 Paladin Mace', type: 'melee', tier: 4,
+    id: 'paladin_mace_t4', name: '破盾戰槌 Shieldbreaker Mace', type: 'melee', tier: 4,
     combatKind: 'sword', animationKind: 'axe', damageMin: 55, damageMax: 55,
     speedOrCharge: .54, meleeCycleSeconds: .54, shieldImpact: 12, range: 1.8,
     description: '羅馬與維京 T4 共用戰槌；沿用長斧動作，命中盾面造成 12 點固定衝擊，無護甲穿透。',
@@ -92,7 +87,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   // ── Melee Weapons (Swords) ──
   rusty_dagger: {
     id: 'rusty_dagger',
-    name: '風化長劍 Weathered Sword',
+    name: '鏽蝕長劍 Rusted Longsword',
     type: 'melee',
     tier: 1,
     combatKind: 'sword',
@@ -105,7 +100,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   steel_sword: {
     id: 'steel_sword',
-    name: '鋼鐵長劍 Steel Sword',
+    name: '精鋼長劍 Steel Longsword',
     type: 'melee',
     tier: 2,
     combatKind: 'sword',
@@ -118,7 +113,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   runic_greatsword: {
     id: 'runic_greatsword',
-    name: '符文長劍 Runic Sword',
+    name: '符文長劍 Runic Longsword',
     type: 'melee',
     tier: 3,
     combatKind: 'sword',
@@ -132,19 +127,19 @@ export const WEAPONS: Record<string, WeaponData> = {
 
   // Phase 1 axes retain the corresponding sword's combat values and animation.
   viking_axe_t1: {
-    id: 'viking_axe_t1', name: '維京長斧 Viking Axe', type: 'melee', tier: 1,
+    id: 'viking_axe_t1', name: '舊式丹麥長斧 Worn Dane Axe', type: 'melee', tier: 1,
     combatKind: 'sword', damageMin: 12, damageMax: 12, speedOrCharge: 0.35,
     animationKind: 'axe', range: 1.8,
     description: '長柄單刃丹麥斧，沿用同階長劍的近戰性能。',
   },
   viking_axe_t2: {
-    id: 'viking_axe_t2', name: '精鋼維京長斧 Steel Viking Axe', type: 'melee', tier: 2,
+    id: 'viking_axe_t2', name: '精鋼丹麥長斧 Steel Dane Axe', type: 'melee', tier: 2,
     combatKind: 'sword', damageMin: 25, damageMax: 25, speedOrCharge: 0.35,
     animationKind: 'axe', range: 1.8,
     description: '精鋼長柄單刃丹麥斧，沿用同階長劍的近戰性能。',
   },
   viking_axe_t3: {
-    id: 'viking_axe_t3', name: '符文維京長斧 Runic Viking Axe', type: 'melee', tier: 3,
+    id: 'viking_axe_t3', name: '符文丹麥長斧 Runic Dane Axe', type: 'melee', tier: 3,
     combatKind: 'sword', damageMin: 45, damageMax: 45, speedOrCharge: 0.35,
     animationKind: 'axe', range: 1.8,
     description: '符文長柄單刃丹麥斧，沿用同階長劍的近戰性能。',
@@ -167,7 +162,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   steel_lance: {
     id: 'steel_lance',
-    name: '騎兵長槍 Steel Lance',
+    name: '精鋼戰矛 Steel-Tipped Spear',
     type: 'melee',
     tier: 2,
     combatKind: 'lance',
@@ -181,7 +176,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   heavy_lance: {
     id: 'heavy_lance',
-    name: '重裝騎士長槍 Heavy Lance',
+    name: '重型戰矛 Heavy War Spear',
     type: 'melee',
     tier: 3,
     combatKind: 'lance',
@@ -197,7 +192,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   // ── Ranged Bows ──
   wooden_shortbow: {
     id: 'wooden_shortbow',
-    name: '木製短弓 Wooden Shortbow',
+    name: '獵用短弓 Hunting Shortbow',
     type: 'ranged',
     tier: 1,
     combatKind: 'bow',
@@ -225,7 +220,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   elven_runebow: {
     id: 'elven_runebow',
-    name: '符文精靈弓 Elven Runebow',
+    name: '符文戰弓 Runic War Bow',
     type: 'ranged',
     tier: 3,
     combatKind: 'bow',
@@ -239,7 +234,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   [T4_RANGER_BOW_RANGED_ID]: {
     id: T4_RANGER_BOW_RANGED_ID,
-    name: 'T4 遊俠弓 Ranger Bow',
+    name: '遊俠戰弓 Ranger War Bow',
     type: 'ranged',
     tier: 4,
     combatKind: 'bow',
@@ -255,7 +250,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   // ── Roman Enemy Melee (Gladius) ──
   gladius_rusty: {
     id: 'gladius_rusty',
-    name: '破舊短劍 Gladius Rusty',
+    name: '破舊羅馬短劍 Worn Gladius',
     type: 'melee',
     tier: 1,
     combatKind: 'sword',
@@ -268,7 +263,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   gladius_standard: {
     id: 'gladius_standard',
-    name: '標準短劍 Gladius Standard',
+    name: '軍團短劍 Legionary Gladius',
     type: 'melee',
     tier: 2,
     combatKind: 'sword',
@@ -281,7 +276,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   centurion_blade: {
     id: 'centurion_blade',
-    name: '精鋼百夫長劍 Centurion Blade',
+    name: "百夫長短劍 Centurion's Gladius",
     type: 'melee',
     tier: 3,
     combatKind: 'sword',
@@ -296,7 +291,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   // ── Roman Ranged (Pilum / Javelin) ──
   pilum_basic: {
     id: 'pilum_basic',
-    name: '簡易標槍 Pilum Basic',
+    name: '輕型標槍 Light Pilum',
     type: 'ranged',
     tier: 1,
     combatKind: 'javelin',
@@ -310,7 +305,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   pilum_standard: {
     id: 'pilum_standard',
-    name: '標準標槍 Pilum Standard',
+    name: '軍團標槍 Legionary Pilum',
     type: 'ranged',
     tier: 2,
     combatKind: 'javelin',
@@ -324,7 +319,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   legionary_pilum: {
     id: 'legionary_pilum',
-    name: '強化軍團標槍 Legionary Pilum',
+    name: "精銳軍團標槍 Veteran's Pilum",
     type: 'ranged',
     tier: 3,
     combatKind: 'javelin',
@@ -337,9 +332,6 @@ export const WEAPONS: Record<string, WeaponData> = {
     description: '深色木桿、拋光長鐵頸與金色箍環的精銳軍團標槍。',
   },
 }
-
-// Compatibility lookup only: catalog/shop/training enumeration contains one item.
-Object.defineProperty(WEAPONS, 'lance_t4', { value: WEAPONS.spear_t4, enumerable: false })
 
 export function getTierColor(tier: WeaponTier): string {
   switch (tier) {

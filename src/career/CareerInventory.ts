@@ -2,7 +2,7 @@ import { allocatedTownEquipment, validateTownEquipment } from './CareerTownEquip
 import type { CareerProfile, CareerMountId } from './CareerProfile'
 import type { PersonalSquadMemberType } from './CareerPersonalSquad'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
-import { canonicalWeaponId, defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
+import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 
@@ -13,11 +13,10 @@ export interface CareerInventory { version: 1; quantities: Record<string, number
 export interface PersonalEquipment { melee: string | null; ranged: string | null; shield: string | null; mount: PlayerMountId | null }
 export type PersonalEquipmentSlot = keyof PersonalEquipment
 export function canonicalInventoryId(id: string): string {
-  return ['horse-t1', 'horse-t2', 'horse-t3'].includes(id) ? 'horse' : canonicalWeaponId(id)
+  return ['horse-t1', 'horse-t2', 'horse-t3'].includes(id) ? 'horse' : id
 }
 export function isTradableCareerItem(id: string): boolean {
-  return id !== 'maki-ranger-bow'
-    && (Object.prototype.hasOwnProperty.call(WEAPONS, id) || Object.prototype.hasOwnProperty.call(ARMORS, id) || (PLAYER_MOUNT_IDS as readonly string[]).includes(id))
+  return Object.prototype.hasOwnProperty.call(WEAPONS, id) || Object.prototype.hasOwnProperty.call(ARMORS, id) || (PLAYER_MOUNT_IDS as readonly string[]).includes(id)
 }
 export function initialPersonalEquipment(type: PersonalSquadMemberType, faction: CareerProfile['faction']): PersonalEquipment {
   return personalEquipmentAtTier(type, faction, type === 'soldier' ? 1 : 2)
@@ -115,7 +114,6 @@ export function normalizeCareerInventory(profile: CareerProfile): void {
     if (!Number.isSafeInteger(merged)) throw new Error('Invalid inventory quantity')
     if (merged) totals[canonical] = merged
   }
-  if (profile.equipment?.melee) profile.equipment = { ...profile.equipment, melee: canonicalWeaponId(profile.equipment.melee) }
   if (profile.selectedMountId) profile.selectedMountId = canonicalInventoryId(profile.selectedMountId) as CareerMountId
   if (legacy) {
     const inferPlayerWeapon = profile.equipment === undefined
@@ -143,7 +141,7 @@ export function normalizeCareerInventory(profile: CareerProfile): void {
       // Old HR Rangers owned their mount but materialized both weapons only at runtime.
       // Grant missing default slots as real copies; preserve all legitimate saved choices.
       const equipment = { ...member.equipment }
-      if (!equipment.melee || equipment.melee === 'maki-ranger-bow') {
+      if (!equipment.melee) {
         equipment.melee = defaultRangerMeleeWeaponId(profile.faction)
         grant(equipment.melee)
       }
@@ -155,7 +153,6 @@ export function normalizeCareerInventory(profile: CareerProfile): void {
       // Persisted receipt also distinguishes later intentional unequips from legacy gaps.
       member.rangerEquipmentVersion = 1
     }
-    if (typeof member.equipment.melee === 'string') member.equipment = { ...member.equipment, melee: canonicalWeaponId(member.equipment.melee) }
     if (!validPersonalEquipment(member.type, member.equipment)) throw new Error('Invalid member equipment')
   }
   profile.inventory = { version: 1, quantities: totals }

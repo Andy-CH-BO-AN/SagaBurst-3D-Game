@@ -170,7 +170,7 @@ export class WeaponMeshFactory {
     if (WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
     else delete pivot.userData.meleeAnimationKind
 
-    if (weaponId === 'spear_t4' || weaponId === 'lance_t4' || weaponId === 'spear_t5') {
+    if (weaponId === 'spear_t4' || weaponId === 'spear_t5') {
       pivot.userData.supportPointLocal = [0, .33, 0]
       pivot.userData.forwardAxisLocal = [0, 1, 0]
       pivot.userData.tipLocal = [0, 2.6, 0]

@@ -20,23 +20,18 @@ describe('Shared immediate weapon wheel', () => {
     expect(guarded.isEquipped(ranged)).toBe(false)
   })
 
-  it('replaces an exhausted legacy bow-melee allocation once across save and restore', () => {
-    const inv = new InventoryManager(undefined, 'maki-archer-t4', 'roman')
-    inv.loadSaveState({ items: [{ id: 'maki-ranger-bow', quantity: 1 }, { id: 'maki-ranger-bow-ranged', quantity: 1 }],
-      equippedMeleeId: 'maki-ranger-bow', equippedRangedId: 'maki-ranger-bow-ranged' })
-    expect(inv.equippedMelee.id).toBe('centurion_blade')
-    expect(inv.saveState.items).toEqual([{ id: 'maki-ranger-bow-ranged', quantity: 1 }, { id: 'centurion_blade', quantity: 1 }])
+  it('discards invalid saved items without converting IDs or granting replacement stock', () => {
+    const inv = new InventoryManager(undefined, 'maki-archer-t4')
+    inv.loadSaveState({ items: [{ id: 'lance_t4', quantity: 1 }, { id: 'maki-ranger-bow', quantity: 1 },
+      { id: 'missing-weapon', quantity: 1 }, { id: 'paladin_mace_t4', quantity: 2 }, { id: 'maki-ranger-bow-ranged', quantity: 1 }],
+      equippedMeleeId: 'lance_t4', equippedRangedId: 'maki-ranger-bow-ranged' })
+    expect(inv.equippedMelee.id).toBe('paladin_mace_t4')
+    expect(inv.saveState.items).toEqual([{ id: 'paladin_mace_t4', quantity: 2 }, { id: 'maki-ranger-bow-ranged', quantity: 1 }])
+    expect(inv.canEquipWeapon('lance_t4')).toBe(false)
+    expect(inv.canEquipWeapon('maki-ranger-bow')).toBe(false)
+    expect(inv.isEquipped('maki-ranger-bow-ranged')).toBe(true)
     const saved = inv.saveState
     inv.loadSaveState(saved)
     expect(inv.saveState).toEqual(saved)
-    expect(inv.canEquipWeapon('maki-ranger-bow')).toBe(false)
-  })
-
-  it('preserves purchased melee stock when removing the legacy forced bow-melee choice', () => {
-    const inv = new InventoryManager(undefined, 'maki-archer-t4')
-    inv.loadSaveState({ items: [{ id: 'maki-ranger-bow', quantity: 1 }, { id: 'paladin_mace_t4', quantity: 2 }],
-      equippedMeleeId: 'maki-ranger-bow' })
-    expect(inv.equippedMelee.id).toBe('paladin_mace_t4')
-    expect(inv.saveState.items).toEqual([{ id: 'paladin_mace_t4', quantity: 2 }])
   })
 })

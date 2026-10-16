@@ -1,19 +1,21 @@
 # 裝備盤點與外觀規格
 
-T1–T3 共有 **18 件武器、6 面盾牌**；另有以下共用 T4／T5 裝備及 Maki 專屬弓。人物胸甲、頭盔與衣物屬於 humanoid GLB，不是獨立防具物品。
+正式裝備共 **33 件（近戰 18、遠程 8、盾牌 7）**，其中 T1–T3 有 18 件武器與 6 面盾牌；另有以下共用 T4／T5 裝備及 Maki 專屬弓。人物胸甲、頭盔與衣物屬於 humanoid GLB，不是獨立防具物品。
+
+商店購買與玩家倉庫依近戰 Melee／遠程 Ranged／防具 Armor 切換，共用 EquipmentCatalog 分類，分類內按 Tier 1→5、固定種類與 Item ID 排序；空 Tier 不顯示。商店、倉庫與裝備選單共用 WeaponDatabase／ArmorDatabase 的中英名稱，名稱本身不含 Tier 前綴。
 
 ## 物品與數值
 
 | 類別 | T1 | T2 | T3 | 既有數值（T1 / T2 / T3） |
 | --- | --- | --- | --- | --- |
-| 長劍 | 風化長劍 `rusty_dagger` | 鋼鐵長劍 `steel_sword` | 符文長劍 `runic_greatsword` | 傷害 12 / 25 / 45；range 1.8；速度參數 0.35 |
-| 長斧 | 維京長斧 `viking_axe_t1` | 精鋼維京長斧 `viking_axe_t2` | 符文維京長斧 `viking_axe_t3` | 傷害 12 / 25 / 45；range 1.8；速度參數 0.35 |
-| 長槍 | 獵用長矛 `hunting_spear` | 騎兵長槍 `steel_lance` | 重裝騎士長槍 `heavy_lance` | 傷害 30 / 45 / 60；range 3.9；速度參數 0.42 |
-| 羅馬短劍 | 破舊短劍 `gladius_rusty` | 標準短劍 `gladius_standard` | 精鋼百夫長劍 `centurion_blade` | 傷害 12 / 25 / 45；range 1.8；速度參數 0.35 |
-| 弓 | 木製短弓 `wooden_shortbow` | 反曲長弓 `recurve_longbow` | 符文精靈弓 `elven_runebow` | 傷害 8–22 / 15–42 / 28–75；蓄力 0.8 / 1.2 / 1.8；箭速 12–45 / 18–55 / 25–65 |
-| 標槍 | 簡易標槍 `pilum_basic` | 標準標槍 `pilum_standard` | 強化軍團標槍 `legionary_pilum` | 傷害 8–22 / 15–42 / 28–75；速度參數 0.8 / 1.2 / 1.8；彈速 12–18 / 14–24 / 16–30 |
-| 圓盾 | 簡陋圓盾 `round_shield_t1` | 鐵環圓盾 `round_shield_t2` | 狂戰士圓盾 `round_shield_t3` | 減傷 10% / 15% / 20% |
-| 方盾 | 簡陋方盾 `scutum_t1` | 軍團方盾 `scutum_t2` | 百夫長方盾 `scutum_t3` | 減傷 10% / 15% / 20% |
+| 長劍 | 鏽蝕長劍 `rusty_dagger` | 精鋼長劍 `steel_sword` | 符文長劍 `runic_greatsword` | 傷害 12 / 25 / 45；range 1.8；速度參數 0.35 |
+| 長斧 | 舊式丹麥長斧 `viking_axe_t1` | 精鋼丹麥長斧 `viking_axe_t2` | 符文丹麥長斧 `viking_axe_t3` | 傷害 12 / 25 / 45；range 1.8；速度參數 0.35 |
+| 長槍 | 獵用長矛 `hunting_spear` | 精鋼戰矛 `steel_lance` | 重型戰矛 `heavy_lance` | 傷害 30 / 45 / 60；range 3.9；速度參數 0.42 |
+| 羅馬短劍 | 破舊羅馬短劍 `gladius_rusty` | 軍團短劍 `gladius_standard` | 百夫長短劍 `centurion_blade` | 傷害 12 / 25 / 45；range 1.8；速度參數 0.35 |
+| 弓 | 獵用短弓 `wooden_shortbow` | 反曲長弓 `recurve_longbow` | 符文戰弓 `elven_runebow` | 傷害 8–22 / 15–42 / 28–75；蓄力 0.8 / 1.2 / 1.8；箭速 12–45 / 18–55 / 25–65 |
+| 標槍 | 輕型標槍 `pilum_basic` | 軍團標槍 `pilum_standard` | 精銳軍團標槍 `legionary_pilum` | 傷害 8–22 / 15–42 / 28–75；速度參數 0.8 / 1.2 / 1.8；彈速 12–18 / 14–24 / 16–30 |
+| 圓盾 | 木製圓盾 `round_shield_t1` | 鐵邊圓盾 `round_shield_t2` | 近衛圓盾 `round_shield_t3` | 減傷 10% / 15% / 20% |
+| 方盾 | 木製方盾 `scutum_t1` | 軍團方盾 `scutum_t2` | 百夫長方盾 `scutum_t3` | 減傷 10% / 15% / 20% |
 
 數值列記錄 WeaponDatabase / ArmorDatabase 的原始設定，並非所有動畫或兵種系統最終時長。舊物品 ID 保留相容性：`rusty_dagger` 現在是單手長劍，`runic_greatsword` 現在也是單手長劍。
 
@@ -21,7 +23,7 @@ T1–T3 共有 **18 件武器、6 面盾牌**；另有以下共用 T4／T5 裝�
 
 Campaign／Custom Battle 的 Roman／Viking 玩家 T1–T5 均可共用，保留各自英雄倍率；玩家角色選單可明確選擇 T1–T3 士兵外觀或既有 T4／T5 英雄，裝備不會改寫明確選定的士兵外觀。T5 僅開放玩家，NPC 仍使用原有 T1–T4 配置。Career 沿用 Captain 解鎖與軍功購買，Training Ground 沿用全部目錄物品。Ranger 沿用一般武器與盾牌互斥規則。
 
-Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440；Captain／Commander 的 Roman／Viking 玩家皆可購買、裝備及分配給 RESERVE 私兵。`maki-ranger-bow-ranged` 是可交易的遠程弓；舊 `maki-ranger-bow` 近戰 ID 已退休。HR Ranger 的近戰、遠程與坐騎皆由正式庫存分配；缺失的舊配置透過一次性 migration 補齊並保存 ownership，不在 runtime 臨時生成武器。HR T4 Captain 初始維持 T3 劍／斧與盾，升級須使用購入庫存。
+Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440；Captain／Commander 的 Roman／Viking 玩家皆可購買、裝備及分配給 RESERVE 私兵。`maki-ranger-bow-ranged` 是可交易的遠程弓；舊 `maki-ranger-bow` 近戰 ID 及其專用轉換已移除。HR Ranger 的近戰、遠程與坐騎皆由正式庫存分配；缺失的舊配置透過一次性 migration 補齊並保存 ownership，不在 runtime 臨時生成武器。HR T4 Captain 初始維持 T3 劍／斧與盾，升級須使用購入庫存。
 
 一般 Career T4 NPC 在 Town、Duel 與 Siege 由業務層使用 `resolveT4UnitLoadout`：主武器與備用武器的劍／斧升級為 T4 Sword／Mace，原本配盾者使用 T4 Shield；T4 Spearman／Lancer 共用 `spear_t4`（T4 長槍），維京 T4 槍兵在 Charge 時仍使用 T4 Sword 備用劍。Ranger 的預設近戰為 `viking_axe_t3`／`centurion_blade`（原始傷害皆為 45），遠程保留 Ranger Bow。HR 私兵使用玩家分配的裝備，NPC 建構子不依 tier 強制覆寫。
 
@@ -42,7 +44,7 @@ Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440�
 | T4 長槍 `spear_t4` | 75 | 0.42 秒 | 3.9m | Captain · 1600 |
 | `bow_t5` | 50–120 | 滿蓄力 1.8 秒 | 45–120m/s | Commander · 2500 |
 
-步兵與騎兵共用唯一 T4 長槍及 `models/weapons/high-tier/spear.glb`；商店與裝備選單只列一項。舊 `lance_t4` 僅為不可列舉的讀取別名，存檔載入時併入 `spear_t4`，保留數量及分配。沿用徒步反騎兵 ×2、速度嚴格大於 10m/s 的騎乘衝鋒 ×3。盾牌衝擊僅騎乘時為 60，徒步維持 1。T5 弓的獨立骨架與來源動畫接在 `CharacterBowVisual`，沿用現有弦、搭箭、投射物與傷害修正；來源、校準與重建見該資產目錄 `ATTRIBUTION.md`。
+步兵與騎兵共用唯一 T4 長槍及 `models/weapons/high-tier/spear.glb`；商店與裝備選單只列一項。已移除 `lance_t4` 別名與自動轉換；無效裝備存檔沿用既有讀取失敗提示並保留原資料。沿用徒步反騎兵 ×2、速度嚴格大於 10m/s 的騎乘衝鋒 ×3。盾牌衝擊僅騎乘時為 60，徒步維持 1。T5 弓的獨立骨架與來源動畫接在 `CharacterBowVisual`，沿用現有弦、搭箭、投射物與傷害修正；來源、校準與重建見該資產目錄 `ATTRIBUTION.md`。
 
 Career 正式 Roman T5 Commander 預設 T5 弓＋T4 Sword；Viking 預設 T5 弓＋T4 Mace，兩者均無盾。城鎮與斬首任務的前任指揮官共用 `careerCommanderLoadout`。近敵小於 6m 切近戰、附近敵人均超過 9m 且目前遠程目標可射擊時切回弓；不消耗尚存箭矢，空箭袋持續近戰。Duel 的臨時裝備暫停此策略；HR T5 私兵仍領原 T2 武器，需玩家購買分配新裝備。武器 T5 不擴充一般 NPC tier，巨鷹弓射程仍最高 500m。
 

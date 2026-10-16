@@ -136,24 +136,8 @@ describe('Town equipment domain, canonical ownership and persisted native source
       itemId: 'scutum_t2', source: 'native', nativeId: 'roman/gate:north:0/shield',
     })
   })
-  it('durably migrates old Ranger native gear after resident migration and permits refits without minting inventory', () => {
-    const h = harness('viking'), native = resolveTownActorEquipment(h.read(), 'viking', 'ranger').refs
-    const legacy = cloneCareerProfile(h.read())
-    legacy.townEquipment = { viking: { version: 1, residentEquipmentVersion: 1, actors: { ranger: {
-      ...native, melee: { ...native.melee!, itemId: 'maki-ranger-bow' },
-    } }, nativeReserve: [] } }
-    const bytes = JSON.stringify(legacy)
-    h.storage.setItem(CAREER_STORAGE_KEY, bytes); h.storage.failWrites = true
-    expect(h.store.loadChecked()).toMatchObject({ profile: null, error: expect.any(String) })
-    expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
-    h.storage.failWrites = false
-    const loaded = h.reload()
-    expect(loaded.townEquipment!.viking!.actors.ranger.melee).toEqual({ itemId: 'viking_axe_t3', source: 'native', nativeId: 'viking/ranger/melee' })
-    expect(careerItemTotal(loaded, 'viking_axe_t3')).toBe(0)
-    expect(JSON.parse(h.storage.getItem(CAREER_STORAGE_KEY)!)).toEqual(loaded)
-    h.storage.failWrites = true
-    expect(h.store.load()).toEqual(loaded)
-    h.storage.failWrites = false
+  it('refits Ranger native gear with ordinary melee weapons without minting inventory', () => {
+    const h = harness('viking')
     h.context.safeActorIds = new Set(['ranger', 'eagle-trainer']); h.buy('heavy_lance', 2)
     expect(h.change('ranger', 'melee', 'heavy_lance').changed).toBe(true)
     expect(h.change('eagle-trainer', 'melee', 'heavy_lance').changed).toBe(true)
