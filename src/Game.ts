@@ -31,6 +31,7 @@ import { createTerrain, getTerrainHeight, TERRAIN_TREE_POSITIONS, EntityCollisio
 import { Player, DEFAULT_PLAYER_MAX_HP } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
+import { CompassUI } from './ui/CompassUI'
 import { SpectatorCameraController } from './camera/SpectatorCameraController'
 import { NavigationWorld } from './navigation/NavigationWorld'
 import { ChaseTargetCoordinator } from './navigation/ChaseTargetCoordinator'
@@ -360,6 +361,8 @@ export class Game {
 
   /** Prevent callbacks and pagehide saves from resurrecting a failed deployment. */
   abortCareerDeployment(): void {
+    this.compass?.dispose()
+    this.compass = undefined
     this.spawningStopped = true
     for (const batch of this.spawnBatches) batch.cancel()
     this.personalSquad?.cancelPendingSpawns()
@@ -399,6 +402,7 @@ export class Game {
     const personalProfile = campaignConfig?.careerMissionId || battleConfig?.careerEagleMissionId ? new CareerProfileStore().loadChecked().profile : undefined
     const personalIds = new Set((personalProfile?.activeMission ?? personalProfile?.activeOutpostMission)?.personalSquad?.memberIds ?? [])
     const personalMembers = personalProfile?.personalSquad?.members.filter(member => personalIds.has(member.id)) ?? []
+    let game: Game | undefined
     try {
       if (!trainingGround && import.meta.env.DEV && new URLSearchParams(window.location.search).has('devbowqa')) {
         await Promise.all([HumanoidAssetRegistry.preload(), preloadPaladinEquipment(), preloadHighTierEquipment()])
@@ -420,7 +424,7 @@ export class Game {
           CorgiVisual.preload(),
           ...(usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
         ])
-        const game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround)
+        game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround)
         await game.initialization
         CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
         game.clock.start(); requestAnimationFrame(game._loop)
@@ -471,12 +475,14 @@ export class Game {
         ...[...heroAssets].map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor)),
         ...(heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
       ])
-      const game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround)
+      game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround)
       await game.initialization
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
       game.clock.start(); requestAnimationFrame(game._loop)
       return game
     } catch (error) {
+      game?.compass?.dispose()
+      if (game) game.compass = undefined
       renderer.dispose()
       renderer.domElement.remove()
       throw error
@@ -487,6 +493,7 @@ export class Game {
   private renderer: THREE.WebGLRenderer
   private readonly aerialView = new AerialViewPolicy()
   private camera!: THREE.PerspectiveCamera
+  private compass?: CompassUI
   private clock!: THREE.Clock
 
   private input!: PlayerInput
@@ -778,6 +785,8 @@ export class Game {
     )
 
     this.initialization = this.initialize(battleConfig, campaignConfig, progress).catch(error => {
+      this.compass?.dispose()
+      this.compass = undefined
       this.trainingUI?.dispose()
       this.trainingGround?.dispose()
       this.trainingDamageUnsubscribe?.()
@@ -1434,6 +1443,7 @@ export class Game {
       this.staminaBar.setFill(1)
       this.quiverUI.setArrowCount(this.player.arrowCount)
     }
+    if (!this.isModelStudio) this.compass = new CompassUI(this.camera)
   }
 
   private _bindPlayerCombatCallbacks(campaignConfig?: DefenseCampaignLaunchConfig): void {
@@ -3380,6 +3390,8 @@ export class Game {
   }
 
   private _disposeCareerOutpostBattleActors(): void {
+    this.compass?.dispose()
+    this.compass = undefined
     this.spawningStopped = true
     this.soundManager?.updateEagleWingbeats([])
     for (const batch of this.spawnBatches) batch.cancel()
@@ -4522,6 +4534,7 @@ export class Game {
     } else {
       this.thirdPersonCamera.update(this.input, dt, this.obstacles)
     }
+    this.compass?.update(this.camera)
 
     this.aerialView.update(this.camera, this.scene, usesAerialView(
       Boolean(this.player.isMounted && this.player.currentMount?.isFlyingMount),

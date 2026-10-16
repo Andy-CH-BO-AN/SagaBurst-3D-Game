@@ -51,6 +51,7 @@ import { acceptCavalrySweep, acceptCaptainCavalryCommand, sweepPlayerSpawn, SWEE
 import { Player, PLAYER_ARROW_CAPACITY, DEFAULT_PLAYER_MAX_HP } from '../player/Player'
 import { PlayerInput } from '../player/PlayerInput'
 import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
+import { CompassUI } from '../ui/CompassUI'
 import { SpectatorCameraController } from '../camera/SpectatorCameraController'
 import { NPC, AIType, Faction } from '../world/NPC'
 import { Mount, MountType } from '../world/Mount'
@@ -165,6 +166,7 @@ export class TownScene {
   readonly inventory: TownEquipment
   private readonly input = new PlayerInput()
   private orbit!: ThirdPersonCamera
+  private compass?: CompassUI
   private spectator: SpectatorCameraController | null = null
   private readonly combatMountGrid = new SpatialGrid<Mount>(8)
   private readonly combatMounts: Mount[] = []
@@ -511,6 +513,7 @@ export class TownScene {
     this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
     this.ambientLabel.className = 'town-ambient'; this.ambientLabel.hidden = true
     document.body.append(this.hud, this.hint, this.pointerPrompt, this.ambientLabel)
+    this.compass = new CompassUI(this.camera)
     if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q 關閉面板 · Esc 暫停／上一頁'
     const opts = { capture: true, signal: this.listeners.signal }
     window.addEventListener('keydown', e => this.key(e), opts)
@@ -3280,6 +3283,7 @@ export class TownScene {
     this.quiver.setArrowCount(this.player.arrowCount)
     document.getElementById('quiver-hud')!.style.display = this.inventory.rangedEnabled ? '' : 'none'
     this.aerialView.update(this.camera, this.scene, usesAerialView(Boolean(this.player.isMounted && this.player.currentMount?.isFlyingMount), Boolean(this.spectator), this.camera.position.y - getTerrainHeight(this.camera.position.x, this.camera.position.z)))
+    this.compass?.update(this.camera)
     this.hud.style.whiteSpace = 'pre-line'; this.renderer.render(this.scene, this.camera)
     this.scheduleSiegeOpening()
     this.raf = requestAnimationFrame(t => this.frame(t))
@@ -3291,6 +3295,8 @@ export class TownScene {
     sound?.updateHorseGallopLoops([])
     sound?.updateEagleWingbeats([])
     if (this.disposed) return
+    this.compass?.dispose()
+    this.compass = undefined
     this.personalSquad?.cleanup()
     this.captainPatrol?.dispose()
     this.captainPatrolGuide.dispose()
