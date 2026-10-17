@@ -7,6 +7,7 @@ import type { Player } from '../../src/player/Player'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { Faction, NPC } from '../../src/world/NPC'
 import { createCombatEventRecorder } from '../helpers/combatEventRecorder'
+import { registerTownCombatDisplayName } from '../../src/ui/CombatTargetDisplayName'
 
 function eventHarness() { return createCombatEventRecorder(onTestFinished) }
 
@@ -126,17 +127,20 @@ describe('Combat attribution foundation', () => {
     expect(result.appliedDamage).toBe(3)
     expect(result.killed).toBe(true)
     expect(result.targetId).toBe('npc-target')
+    expect(result.targetName).toBe('敵方重裝步兵')
+    expect(result.hpRatio).toBe(0)
+    expect(npc.name).toBe('NPC Target')
     expect(events).toHaveLength(2)
     expect(events[0]).toMatchObject({
       type: 'damage_applied',
       requestedDamage: 80,
       appliedDamage: 3,
-      target: { targetId: 'npc-target' },
+      target: { targetId: 'npc-target', name: 'NPC Target' },
     })
     expect(events[1]).toMatchObject({
       type: 'actor_killed',
       source: { actorId: 'attacker', squadId: 3 },
-      target: { targetId: 'npc-target' },
+      target: { targetId: 'npc-target', name: 'NPC Target' },
     })
 
     const eventCount = events.length
@@ -149,17 +153,25 @@ describe('Combat attribution foundation', () => {
 
   it('does not reduce body damage just because a shield is equipped', () => {
     const { events, stream } = eventHarness()
-    const npc = mockNpc({ hp: 200, maxHp: 200, shieldId: 'round_shield_t1' })
+    const npc = mockNpc({ id: 'guard-roman-melee-2', hp: 200, maxHp: 200, shieldId: 'round_shield_t1' })
+    registerTownCombatDisplayName(npc, { id: 'guard-roman-melee-2', role: 'melee_infantry', unitKind: 'melee',
+      duty: 'gate_guard', gateId: 'north', mounted: false, training: false, assaultObjective: true,
+      tier: 2, index: 1, x: 0, z: 0 }, 'roman')
 
     const result = damageNpc(npc, 100, sourceContext(stream))
 
     expect(result.requestedDamage).toBe(100)
     expect(result.appliedDamage).toBe(100)
     expect(result.killed).toBe(false)
+    expect(result.targetName).toBe('敵方北門劍兵 · T2')
+    expect(result.targetId).toBe('guard-roman-melee-2')
+    expect(result.hpRatio).toBe(0.5)
+    expect(npc.name).toBe('guard-roman-melee-2')
     expect(events[0]).toMatchObject({
       type: 'damage_applied',
       requestedDamage: 100,
       appliedDamage: 100,
+      target: { targetId: 'guard-roman-melee-2', name: 'guard-roman-melee-2' },
     })
   })
 
@@ -200,6 +212,8 @@ describe('Combat attribution foundation', () => {
     const result = damageNpc(npc, 50, sourceContext(stream, { contact: { kind: 'mount', time: .1 } }))
 
     expect(result.isMountHit).toBe(true)
+    expect(result.targetName).toBe('戰馬')
+    expect(result.hpRatio).toBe(0)
     expect(result.appliedDamage).toBe(5)
     expect(result.killed).toBe(true)
     expect(result.mountDied).toBe(true)

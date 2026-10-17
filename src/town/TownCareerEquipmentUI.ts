@@ -7,10 +7,11 @@ import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { squadEquipmentUI, townEquipmentUI, bulkEquipmentMessage, type TownEquipmentMemberView, type TownEquipmentUIBindings } from './TownSquadEquipmentUI'
 import type { TownCombatResident } from './TownMissionCombat'
+import { townUnitDisplayName, townUnitDisplayTier } from '../ui/UnitDisplayName'
 
 export interface TownEquipmentUIResident {
   spec: Pick<TownCombatResident['spec'], 'id'>
-  npc: Pick<TownCombatResident['npc'], 'name' | 'dead'>
+  npc: Pick<TownCombatResident['npc'], 'dead'>
 }
 
 const MOUNT_NAMES: Record<string, string> = { horse: '軍用戰馬', corgi: '柯基英雄坐騎', 'black-cat': '黑貓英雄坐騎', xongkoro: '巨鷹 xongkoro' }
@@ -47,7 +48,7 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
       const reason = profile.rank !== 'commander' ? '正式升任 Commander 後可管理全城裝備。' : state.townFaction !== profile.faction ? '只能管理家鄉城鎮的裝備。' : ''
       const unavailable = profile.activeMission || profile.activeOutpostMission ? '任務尚未結算，返回本城後才能整補換裝。' : !state.peaceful || profile.townEvent?.state === 'hostile' ? '目前正在交戰，和平整補時才能換裝。' : ''
       const squads = townEquipmentSquads(profile).map(squad => {
-        const members: TownEquipmentMemberView[] = squad.id === 'personal' ? [] : squad.actorIds.map(id => {
+        const members: TownEquipmentMemberView[] = squad.id === 'personal' ? [] : squad.actorIds.map((id, index) => {
           const resolved = resolveTownActorEquipment(profile, profile.faction, id), resident = live.get(id)
           const ids = { melee: resolved.loadout.meleeWeaponId ?? null, ranged: resolved.loadout.rangedWeaponId ?? null,
             shield: resolved.loadout.shieldId ?? null, mount: resolved.loadout.mountId ?? null }
@@ -56,7 +57,8 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
             return [slot, { id: item, label: itemName(item), tier }]
           })) as TownEquipmentMemberView['equipment']
           const merchant = resolved.spec.role === 'merchant'
-          return { id, name: resident?.npc.name ?? id, tier: resolved.tier, equipment, readOnly: resolved.readOnly,
+          return { id, name: townUnitDisplayName(resolved.spec, profile.faction, { ordinal: index + 1, includeTier: false, mounted: Boolean(resolved.loadout.mountId) }),
+            tier: townUnitDisplayTier(resolved.spec, profile.faction, resolved.tier), equipment, readOnly: resolved.readOnly,
             lockedSlots: resolved.fixedWeapons ? ['melee', 'ranged', 'shield'] : resolved.spec.eagle ? ['mount'] : undefined,
             reason: !resident ? '不在目前場景，保存配置唯讀。' : resident.npc.dead ? '已陣亡，整補後才能換裝。'
               : !state.safeActorIds.has(id) ? '正在交戰、返回或飛行，整補完成後才能換裝。' : undefined,

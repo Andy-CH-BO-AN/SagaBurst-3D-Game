@@ -1,14 +1,16 @@
 import { afterEach,describe,expect,it,vi } from 'vitest'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { acceptCareerOutpost } from '../../src/career/CareerOutpostMission'
-import { changePersonalEquipment,recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
+import { changePersonalEquipment,recruitPersonalSquadMember,type CareerPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import { createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { PersonalSquadState } from '../../src/town/TownPersonalSquadController'
-import { purchaseTownEquipment } from '../../src/town/TownRules'
+import { purchaseTownEquipment,townRoster } from '../../src/town/TownRules'
 import { TownScene } from '../../src/town/TownScene'
+import { createTownCareerEquipmentUI } from '../../src/town/TownCareerEquipmentUI'
 import { squadEquipmentUI,townEquipmentUI,type TownEquipmentMemberView,type TownEquipmentSquadView,type TownEquipmentUIBindings } from '../../src/town/TownSquadEquipmentUI'
 import { type EquipmentSquadAdapter } from '../../src/ui/EquipmentUI'
+import { combatUnitDisplayName,personalUnitDisplayName,townUnitDisplayName } from '../../src/ui/UnitDisplayName'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 // DOM boundary only; profile, inventory and equipment changes use production code, with no actors.
@@ -152,6 +154,31 @@ function townUIHarness(personal: EquipmentSquadAdapter = { render: vi.fn() }) {
 
 describe('Town-wide equipment panels', () => {
 
+  it('renders absent residents from their authored specs and keeps Commander display rank separate from equipment tier', () => {
+    vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
+    vi.stubGlobal('Option', class { constructor(readonly text: string, readonly value: string) {} })
+    const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander' }
+    const commanderResident = { spec: { id: 'commander' }, npc: { dead: true, name: 'internal-commander-id' } }
+    const savedProfile = structuredClone(profile)
+    const adapter = createTownCareerEquipmentUI(() => profile,
+      () => ({ townFaction: 'roman', peaceful: true, safeActorIds: new Set<string>(), personalState: 'RESERVE' }),
+      () => [commanderResident], () => true, () => 0).town
+    let root: Element
+    const render = () => { root = new Element('div'); adapter.render(root as unknown as HTMLElement, render); return root }
+    const first = render().descendants().find(node => node.dataset.memberId === 'gate:north:0')!
+    expect(first.children[0].textContent).toBe('北門劍兵 01 · T2')
+    expect(first.descendants().some(node => node.textContent.includes('不在目前場景'))).toBe(true)
+    expect(first.descendants().every(node => !node.textContent.includes('gate:north:0')
+      && !node.attributes['aria-label']?.includes('gate:north:0'))).toBe(true)
+    root!.descendants().find(node => node.dataset.squadId === '2')!.onclick!()
+    const commander = root!.descendants().find(node => node.dataset.memberId === 'commander')!
+    expect(commander.children[0].textContent).toBe('羅馬指揮官 · T5')
+    expect(commander.descendants().some(node => node.textContent.includes('已陣亡'))).toBe(true)
+    expect(commanderResident.npc.name).toBe('internal-commander-id')
+    expect(profile).toEqual(savedProfile)
+  })
+
+
   it('blocks locked access and stale controls, and explains absent or unsafe members without changing domain data', () => {
     const h = townUIHarness(), root = h.render(), stale = root.descendants().find(node => node.dataset.bulkCategory === 'sword')!
     h.view.allowed = false; h.view.reason = '需正式升任 Commander。'
@@ -170,9 +197,40 @@ describe('Town-wide equipment panels', () => {
     const root = h.render(), buttons = root.descendants().filter(node => node.dataset.bulkCategory)
     expect(buttons.every(node => node.disabled && node.title === '無適用庫存。')).toBe(true)
     const select = root.descendants().find(node => node.tag === 'select')!
+    select.value = 'paladin_sword_t4'; select.onchange!()
+    expect(h.change).toHaveBeenCalledWith(1, 'soldier-1', 'melee', 'paladin_sword_t4')
+    h.change.mockClear()
     h.view.squads[0].members[0].reason = '死亡動畫中，無法整補。'
     select.value = 'paladin_sword_t4'; select.onchange!()
     expect(h.change).not.toHaveBeenCalled()
     expect(h.root().descendants().some(node => node.textContent === '死亡動畫中，無法整補。')).toBe(true)
+  })
+})
+
+
+describe('Unit display identity', () => {
+  it('uses authored on-foot ranged identity rather than historical cavalry IDs for each faction', () => {
+    const spec = townRoster().find(spec => spec.id === 'ranged_cavalry-0')!
+    const before = structuredClone(spec)
+    expect(townUnitDisplayName(spec, 'roman')).toBe('訓練隊標槍兵 01 · T2')
+    expect(townUnitDisplayName(spec, 'viking')).toBe('訓練隊弓兵 01 · T2')
+    expect(townUnitDisplayName({ ...spec, unitKind: undefined }, 'roman')).toBe('訓練隊標槍兵 01 · T2')
+    expect(townUnitDisplayName(spec, 'roman', { mounted: true })).toBe('訓練隊標槍騎兵 01 · T2')
+    expect(townUnitDisplayName({ ...spec, mounted: true }, 'viking', { mounted: false })).toBe('訓練隊弓兵 01 · T2')
+    expect(combatUnitDisplayName({ faction: 'roman', combatProfileId: 'roman-commander', tier: 4, enemy: true })).toBe('敵方羅馬指揮官 · T5')
+    expect(combatUnitDisplayName({ faction: 'viking', combatProfileId: 'ranger', tier: 4 })).toBe('維京遊俠 · T4')
+    expect(combatUnitDisplayName({ enemy: true })).toBe('敵方士兵')
+    expect(spec).toEqual(before)
+  })
+
+  it('keeps a personal Soldier label and ordinal while reflecting its equipped primary weapon tier', () => {
+    const member: CareerPersonalSquadMember = { id: 'personal:stable-member', type: 'soldier',
+      equipment: { melee: 'gladius_rusty', ranged: null, shield: null, mount: null } }
+    expect(personalUnitDisplayName(member, 'roman', 1)).toBe('私兵・Sword / Axe Soldier 02 · T1')
+    member.equipment!.ranged = 'pilum_standard'
+    const before = structuredClone(member)
+    expect(personalUnitDisplayName(member, 'roman', 1)).toBe('私兵・Sword / Axe Soldier 02 · T2')
+    expect(personalUnitDisplayName(member, 'roman', 1, 3)).toBe('私兵・Sword / Axe Soldier 02 · T3')
+    expect(member).toEqual(before)
   })
 })

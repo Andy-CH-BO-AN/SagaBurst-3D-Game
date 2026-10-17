@@ -3,6 +3,7 @@
  * Centralised damage routing for mounted/unmounted entities and destructible structures.
  */
 import type { NPC } from '../world/NPC'
+import { npcCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import type { Mount } from '../world/Mount'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
@@ -134,7 +135,7 @@ export function damageNpc(
     appliedDamage,
     blockedImpact: shield.blockedImpact,
     targetId: target.targetId,
-    targetName: npc.name,
+    targetName: npcCombatDisplayName(npc),
     killed,
     hpRatio: npc.hpRatio,
     isMountHit: false,
