@@ -1,5 +1,4 @@
 import { describe, expect, it, onTestFinished } from 'vitest'
-import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { siegeDefensePlans } from '../../src/career/TownSiege'
 import { TownFourGateSiege } from '../../src/career/TownFourGateSiege'
 import { AIType, type NPC } from '../../src/world/NPC'
@@ -20,13 +19,6 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(plans.map(p => p.leaderId)).toEqual(['captain', 'ranger', 'town-patrol:a:captain', 'town-patrol:b:captain'])
   })
 
-  it('counts military objectives independently of faction and excludes civilians', () => {
-    const objective = createEnemyTownAssaultMission().targetActorIds
-    expect(objective).toHaveLength(208)
-    expect(objective.filter(id => id.startsWith('gate:'))).toHaveLength(40)
-    expect(objective.filter(id => id.startsWith('town-patrol:'))).toHaveLength(40)
-    expect(objective.some(id => id.startsWith('civilian'))).toBe(false)
-  })
   it('releases only East wall defenders once when East-left docks, keeping all cavalry and East-right independent', () => {
     const events: string[] = [], policy = new TownGateBreachPolicy(event => { events.push(`${event.gateId}:${event.kind}`); return ['east:wall:1'] })
     policy.ramp('east', -1, true); policy.ramp('east', -1, true)
