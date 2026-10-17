@@ -6,11 +6,12 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import * as T from 'three'
 import { readGlb, loadRig, encodeGlb } from './lib/humanoid-glb.mjs'
+import { frozenBanditDirectory, FROZEN_BANDIT_ASSET, FROZEN_BANDIT_COMMIT, FROZEN_BANDIT_SHA256 } from './lib/frozen-bandit-donor.mjs'
 const hash = b => createHash('sha256').update(b).digest('hex')
-const sourcePath = 'public/models/characters/v2/bandit/lod0.glb'
+const sourcePath = path.join(frozenBanditDirectory(), 'lod0.glb')
 const sourceHash = hash(fs.readFileSync(sourcePath))
 const sourceManifest = JSON.parse(fs.readFileSync(path.join(path.dirname(sourcePath),'manifest.json')))
-if (sourceManifest.fileSha256.lod0 !== sourceHash) throw Error('Bandit source hash mismatch')
+if (sourceHash !== FROZEN_BANDIT_SHA256 || sourceManifest.fileSha256.lod0 !== sourceHash) throw Error('Bandit source hash mismatch')
 const source = await loadRig(readGlb(sourcePath)), sourceClip = source.animations.find(a=>a.name==='swordSlash')
 const names = ['spine','chest','upper_chest','neck','head','upper_arm_r','lower_arm_r','hand_r']
 const pos = n=>n.getWorldPosition(new T.Vector3()), quat=n=>n.getWorldQuaternion(new T.Quaternion())
@@ -82,14 +83,14 @@ for(const id of (process.argv[2]??'viking,roman,viking-hero-t4,roman-hero-t5,vik
    channels.push({sampler:samplers.length,target:{node:nodeIndex,path}});samplers.push({input,output:append(r.values,r.property==='quaternion'?'VEC4':'VEC3'),interpolation:'LINEAR'})
   }
   doc.animations.push({name:'axeAttack1HFoot',samplers,channels});doc.buffers[0].byteLength=offset
-  doc.asset.extras??={};doc.asset.extras.banditFootAxe={version:1,preservedPayload:base,inputSha256:previous?.inputSha256??hash(fs.readFileSync(file)),sourceSha256:sourceHash,sourceClip:'swordSlash',rootMotion:'Target idle hips and legs; no whole-body yaw correction',timing:{duration,hit,sourceHit:.252}}
+  doc.asset.extras??={};doc.asset.extras.banditFootAxe={version:1,preservedPayload:base,inputSha256:previous?.inputSha256??hash(fs.readFileSync(file)),sourceSha256:sourceHash,sourceCommit:FROZEN_BANDIT_COMMIT,sourceClip:'swordSlash',rootMotion:'Target idle hips and legs; no whole-body yaw correction',timing:{duration,hit,sourceHit:.252}}
   const output=encodeGlb(doc,Buffer.concat(chunks));fs.writeFileSync(file,output);manifest.fileSha256[`lod${lod}`]=hash(output)
   if(manifest.lodMeasurements?.[lod])Object.assign(manifest.lodMeasurements[lod],{sha256:hash(output),bytes:output.length})
  }
  const sourceBinding=sourceManifest.animations.embedded.find(a=>a.clip==='swordSlash')
  manifest.animations.embedded=manifest.animations.embedded.filter(a=>a.clip!=='axeAttack1HFoot')
  manifest.animations.embedded.push({...sourceBinding,clip:'axeAttack1HFoot',duration,meleeCycleSeconds:binding.meleeCycleSeconds,events:{...binding.events}})
- manifest.banditFootAxe={sourceAsset:'bandit/lod0.glb',sourceSha256:sourceHash,sourceClip:'swordSlash',source:sourceManifest.source,retarget:'Anatomical limb axes and thumb/finger grasp; target idle pelvis and legs; original 1H event clock retained',rebuild:'node tools/retarget-bandit-foot-axe.mjs'}
+ manifest.banditFootAxe={sourceAsset:FROZEN_BANDIT_ASSET,sourceSha256:sourceHash,sourceCommit:FROZEN_BANDIT_COMMIT,sourceClip:'swordSlash',source:sourceManifest.source,retarget:'Anatomical limb axes and thumb/finger grasp; target idle pelvis and legs; original 1H event clock retained',rebuild:'node tools/retarget-bandit-foot-axe.mjs'}
  const auditPath=`${dir}/lod-audit.json`
  if(fs.existsSync(auditPath)){const audit=JSON.parse(fs.readFileSync(auditPath));for(const entry of audit.lods??[]){entry.bytes=fs.statSync(`${dir}/lod${entry.level}.glb`).size;entry.banditFootAxeSha256=manifest.fileSha256[`lod${entry.level}`]}fs.writeFileSync(auditPath,JSON.stringify(audit,null,2)+'\n')}
  fs.writeFileSync(`${dir}/manifest.json`,JSON.stringify(manifest,null,2)+'\n');console.log(id,'Bandit foot 1H appended in all LODs')

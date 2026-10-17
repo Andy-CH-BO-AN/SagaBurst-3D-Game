@@ -4,6 +4,12 @@ import { createHash } from 'node:crypto'
 import * as T from 'three'
 import { readGlb, loadRig } from './lib/humanoid-glb.mjs'
 const base='public/models/characters/v2/bandit'
+// Keep the existing public audit entry point while selecting the source-specific contract.
+const manifest=JSON.parse(fs.readFileSync(`${base}/manifest.json`,'utf8'))
+if(manifest.source?.sourceSha256==='fcc975506d11b7ecd2e3eaadee55f0b28ae280e05bb814bafa5e75e8588cef64'){
+ await import('./audit-meshy-bandit.mjs')
+ process.exit(0)
+}
 const report=JSON.parse(fs.readFileSync(`${base}/audit.json`,'utf8'))
 report.lods=[]
 for(let lod=0;lod<3;lod++){

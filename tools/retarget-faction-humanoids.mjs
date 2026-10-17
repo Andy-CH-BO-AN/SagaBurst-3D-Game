@@ -19,6 +19,7 @@ import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { pathToFileURL } from 'node:url'
 import { readGlb, loadRig, encodeGlb } from './lib/humanoid-glb.mjs'
+import { frozenBanditDirectory, FROZEN_BANDIT_ASSET, FROZEN_BANDIT_COMMIT } from './lib/frozen-bandit-donor.mjs'
 import { appendClips, bakeBanditFootClip, bakeFactionClips, bakeProjectDeathClip, collapseConstantTracks, factionHumanoidBindDigests, measureClipBounds, rigSignature } from './lib/faction-humanoid-animation.mjs'
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
@@ -86,7 +87,10 @@ export async function retargetDirectory(directory, options = {}) {
   const configuredSource = metadata.animationRetarget.sourceAsset
   const sourceDirectory = configuredSource ? path.join(publicRoot, configuredSource.endsWith('.glb') ? path.dirname(configuredSource) : configuredSource) : path.join(publicRoot, 'roman')
   const source = verifiedSource(options.sourceDir ?? sourceDirectory)
-  const bandit = verifiedSource(options.banditDir ?? path.join(publicRoot, 'bandit'))
+  // The Meshy Bandit visual is not the original finger/hammer animation donor.
+  const bandit = verifiedSource(options.banditDir ?? frozenBanditDirectory())
+  const banditAsset = options.banditDir ? path.relative(publicRoot, bandit.file).split(path.sep).join('/') : FROZEN_BANDIT_ASSET
+  const banditCommit = options.banditDir ? undefined : FROZEN_BANDIT_COMMIT
   if ([source.directory, bandit.directory, ...['viking', 'roman', 'bandit'].map(id => path.resolve(publicRoot, id))].includes(targetDir)) throw Error('Refusing to modify an original animation-source asset')
   if (manifest.skeleton && manifest.skeleton !== 'project-humanoid-v1') throw Error('Target must be project-humanoid-v1')
   for (const key of ['swordGripFrames', 'rangedGripFrames', 'shieldGripFrames']) {
@@ -143,7 +147,7 @@ export async function retargetDirectory(directory, options = {}) {
     `Retargeted animation input: ${sourceAsset}\nSHA-256: ${source.digest}\nOriginal attribution: ${source.metadata.attribution ?? ''}`,
     'Mixed animation rights remain unchanged: Kevin Iglesias / Unity Asset Store EULA, Quaternius / CC0, user-supplied Meshy derivatives, and the separately identified Bandit strike. The combined animation data is not CC0 and must not be redistributed as a standalone animation bank.',
     readmeText ? `Original animation-source readme, reproduced unchanged below (${path.relative(publicRoot, sourceReadme).split(path.sep).join('/')}):\n\n${readmeText}` : `Original animation-source metadata:\n${JSON.stringify(source.metadata.source, null, 2)}`,
-    `Bandit foot-strike attribution: ${bandit.metadata.attribution}\n${JSON.stringify(bandit.metadata.source, null, 2)}\nEmbedded input: ${path.relative(publicRoot, bandit.file).split(path.sep).join('/')}\nSHA-256: ${bandit.digest}`,
+    `Bandit foot-strike attribution: ${bandit.metadata.attribution}\n${JSON.stringify(bandit.metadata.source, null, 2)}\nEmbedded input: ${banditAsset}\nSHA-256: ${bandit.digest}`,
     ...(projectDeath ? [`Target-only death: SagaBurst project animation, ${projectDeath.sourceFile}#${projectDeath.sourceExport}. Existing timing and early joint motion retained; bounded late ankle relaxation, dead-cloth follow, and whole-skin contact adapted to this fitted target. Source code SHA-256: ${projectDeath.sourceSha256}`] : []),
   ].join('\n\n') + '\n'
   const provenance = {
@@ -162,7 +166,7 @@ export async function retargetDirectory(directory, options = {}) {
       maximumRemainingPenetrationM: Math.max(0, ...diagnostics.map(row => row.capeFloor?.maximumRemainingPenetrationM ?? 0)),
       clips: diagnostics.filter(row => row.capeFloor?.enabled).map(row => ({ clip: row.clip, failedFloorSamples: row.capeFloor.failedFloorSamples, maximumRemainingPenetrationM: row.capeFloor.maximumRemainingPenetrationM, maximumAppliedTranslationM: row.capeFloor.maximumAppliedTranslationM })),
     },
-    banditFootAxe: { sourceAsset: path.relative(publicRoot, bandit.file).split(path.sep).join('/'), sourceSha256: bandit.digest, sourceManifestSha256: bandit.manifestDigest, source: structuredClone(bandit.metadata.source), sourceBinding: structuredClone(bandit.metadata.animations.embedded.find(entry => entry.clip === 'swordSlash')), sourceClip: 'swordSlash', sourceHit: bandit.metadata.animations.embedded.find(entry => entry.clip === 'swordSlash').events.hit, duration: binding.duration, events: structuredClone(binding.events), meleeCycleSeconds: binding.meleeCycleSeconds },
+    banditFootAxe: { sourceAsset: banditAsset, sourceCommit: banditCommit, sourceSha256: bandit.digest, sourceManifestSha256: bandit.manifestDigest, source: structuredClone(bandit.metadata.source), sourceBinding: structuredClone(bandit.metadata.animations.embedded.find(entry => entry.clip === 'swordSlash')), sourceClip: 'swordSlash', sourceHit: bandit.metadata.animations.embedded.find(entry => entry.clip === 'swordSlash').events.hit, duration: binding.duration, events: structuredClone(binding.events), meleeCycleSeconds: binding.meleeCycleSeconds },
     rebuild: 'node tools/retarget-faction-humanoids.mjs --target-dir <clean-target-directory>',
   }
   const poseBounds = measureClipBounds(target.rig, clips)
