@@ -66,6 +66,10 @@ export function resolveCameraDistance(
   let allowedDistance = desiredDistance
 
   for (const obstacle of obstacles) {
+    // Walk-surface slabs contain many narrow projectile slices. Their world
+    // envelope is conservative; reject a missed slab before visiting its slices.
+    if (obstacle.walkSurface && !obstacle.projectileWorldToLocal
+      && !collisionRay.intersectsBox(obstacle.box)) continue
     const boxes = obstacle.projectileBoxes ?? [obstacle.box]
     const ray = obstacle.projectileBoxes?.length && obstacle.projectileWorldToLocal
       ? collisionLocalRay.copy(collisionRay).applyMatrix4(obstacle.projectileWorldToLocal)

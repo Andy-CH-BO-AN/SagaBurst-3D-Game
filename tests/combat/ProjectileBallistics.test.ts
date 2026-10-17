@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { BallisticIntercept, projectileTerrainContactTime } from '../../src/combat/ProjectileBallistics'
-import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
+import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 
 /** Pure kinematics and swept-path policy: no actors, mounts, assets or scene fixture. */
 describe('bounded projectile interception and arc clearance', () => {
@@ -56,5 +56,36 @@ describe('shared terrain first contact', () => {
     expect(time).toBeLessThan(1)
     const contact = from.clone().lerp(to, time)
     expect(contact.y).toBeCloseTo(getTerrainHeight(contact.x, contact.z) + .05, 2)
+  })
+})
+
+
+describe('finite projectile obstacle trace', () => {
+  it('preserves open slab gaps, nearest strict ordering and the winning point while rejecting remote segments', () => {
+    const solid = (x: number): ObstacleData => ({ isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(x, -1, -1), new THREE.Vector3(x + .2, 1, 1)) })
+    const gap = solid(1)
+    gap.projectileBoxes = [new THREE.Box3(new THREE.Vector3(1, .5, -1), new THREE.Vector3(1.2, 1, 1))]
+    const first = solid(2), tie = solid(2), farther = solid(3), beyond = solid(8)
+    const from = new THREE.Vector3(), to = new THREE.Vector3(4, 0, 0)
+    const contact = { fraction: Infinity, point: new THREE.Vector3() }
+    expect(findBlockingProjectileObstacleAlongPath(from, to, [gap, farther, first, tie, beyond], contact)).toBe(first)
+    expect(contact.fraction).toBe(.5)
+    expect(contact.point.toArray()).toEqual([2, 0, 0])
+    expect(findBlockingProjectileObstacleAlongPath(from, to, [gap, beyond], contact)).toBeNull()
+    expect(contact.fraction).toBe(Infinity)
+  })
+
+  it('keeps rotated slab protrusions hittable outside their narrower walk envelope', () => {
+    const obstacle: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(9.9, -1, -.1), new THREE.Vector3(10.1, 1, .1)),
+      projectileBoxes: [new THREE.Box3(new THREE.Vector3(-2, -.2, -.2), new THREE.Vector3(2, .2, .2))],
+      projectileWorldToLocal: new THREE.Matrix4().makeRotationY(Math.PI / 2).setPosition(10, 0, 0).invert(),
+    }
+    const from = new THREE.Vector3(8, 0, 1), to = new THREE.Vector3(12, 0, 1)
+    const contact = { fraction: Infinity, point: new THREE.Vector3() }
+    expect(findBlockingProjectileObstacleAlongPath(from, to, [obstacle], contact)).toBe(obstacle)
+    expect(contact.point.x).toBeCloseTo(9.8)
+    expect(contact.point.z).toBe(1)
   })
 })

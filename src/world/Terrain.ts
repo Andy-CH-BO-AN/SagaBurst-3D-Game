@@ -111,7 +111,7 @@ export interface WalkRampSurface {
   mounted?: boolean
 }
 
-/** Highest foot lift a ramp may apply in one step; also bounds how far below it counts as "on" it. */
+/** Highest foot lift for stepping onto a ramp; swept falling contacts are handled separately. */
 export const WALK_SURFACE_STEP_UP = 0.75
 
 /** Height of the ramp surface at (x, z), or null when the point is off the ramp. */
@@ -285,27 +285,20 @@ function segmentEntryFractionBox3D(
   let tMin = 0
   let tMax = 1
 
-  const axisEntry = (
-    startValue: number,
-    delta: number,
-    minValue: number,
-    maxValue: number,
-  ): boolean => {
+  // Scalar slab test: no per-box callback, tuple or temporary vector allocation.
+  for (let axis = 0; axis < 3; axis++) {
+    const startValue = start.getComponent(axis), delta = end.getComponent(axis) - startValue
+    const minValue = box.min.getComponent(axis), maxValue = box.max.getComponent(axis)
     if (Math.abs(delta) < SEGMENT_EPSILON) {
-      return startValue >= minValue && startValue <= maxValue
+      if (startValue < minValue || startValue > maxValue) return null
+      continue
     }
-
-    let t1 = (minValue - startValue) / delta
-    let t2 = (maxValue - startValue) / delta
-    if (t1 > t2) [t1, t2] = [t2, t1]
+    let t1 = (minValue - startValue) / delta, t2 = (maxValue - startValue) / delta
+    if (t1 > t2) { const swap = t1; t1 = t2; t2 = swap }
     tMin = Math.max(tMin, t1)
     tMax = Math.min(tMax, t2)
-    return tMin <= tMax
+    if (tMin > tMax) return null
   }
-
-  if (!axisEntry(start.x, end.x - start.x, box.min.x, box.max.x)) return null
-  if (!axisEntry(start.y, end.y - start.y, box.min.y, box.max.y)) return null
-  if (!axisEntry(start.z, end.z - start.z, box.min.z, box.max.z)) return null
 
   return tMax >= 0 && tMin <= 1 ? Math.max(0, tMin) : null
 }
@@ -349,6 +342,11 @@ export function projectileObstacleEntryFraction(
   return Number.isFinite(closest) ? closest : null
 }
 
+export interface ProjectileObstacleContact {
+  fraction: number
+  point: THREE.Vector3
+}
+
 /**
  * Finds the first physical projectile blocker along a 3D segment.
  *
@@ -359,6 +357,7 @@ export function findBlockingProjectileObstacleAlongPath(
   start: THREE.Vector3,
   end: THREE.Vector3,
   obstacles: readonly ObstacleData[],
+  contact?: ProjectileObstacleContact,
 ): ObstacleData | null {
   let closest: ObstacleData | null = null
   let closestFraction = Infinity
@@ -381,6 +380,12 @@ export function findBlockingProjectileObstacleAlongPath(
     }
   }
 
+  if (contact) {
+    contact.fraction = closestFraction
+    // Copy only the final winner. Subsequent narrow-phase tests cannot mutate
+    // a building-hit position retained by the caller until damage is applied.
+    if (closest) contact.point.copy(start).lerp(end, closestFraction)
+  }
   return closest
 }
 
@@ -682,8 +687,14 @@ export function resolveObstacleCollision(
   options: ObstacleCollisionOptions = {},
 ): ObstacleCollisionResult {
   const epsilon = 0.001
-  const bottomY = position.y - bottomOffset
-  const topY = bottomY + height
+  const initialBottomY = position.y - bottomOffset
+  const initialVelocityY = velocityY
+  const initialOnGround = onGround
+  const previousBottomY = previousPosition.y - bottomOffset
+  const travel = Math.hypot(position.x - previousPosition.x, position.z - previousPosition.z)
+  const admittedRamp = (obstacle: ObstacleData): WalkRampSurface | undefined =>
+    (options.walkSurfaces || options.mountedSurfaces && obstacle.walkSurface?.mounted)
+      ? obstacle.walkSurface : undefined
 
   const overlapsHorizontally = (x: number, z: number, box: THREE.Box3): boolean =>
     x + radius > box.min.x && x - radius < box.max.x &&
@@ -696,24 +707,56 @@ export function resolveObstacleCollision(
     radius,
   )
 
+  // Select support from the unmodified frame position. Sequential snaps can
+  // otherwise climb several overlapping surfaces beyond the single-step limit.
+  let supportY: number | null = null
+  if (velocityY <= 0) {
+    for (const obstacle of candidates) {
+      const ramp = admittedRamp(obstacle)
+      if (!ramp) continue
+      const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
+      if (surfaceY === null) continue
+      const slope = (ramp.topY - ramp.startY) / ramp.length
+      const canStep = initialBottomY <= surfaceY + travel * Math.abs(slope) + 0.03 &&
+        initialBottomY >= surfaceY - WALK_SURFACE_STEP_UP
+
+      // Sweep against the ramp plane and its flat landing separately. Validate
+      // the contact footprint, so entering from below/outside cannot land on an
+      // overhead deck merely because the previous feet were above its height.
+      let crossedTop = false
+      for (let section = 0; section < (ramp.landing > 0 ? 2 : 1); section++) {
+        const planeHeight = (x: number, z: number): number => section === 1 ? ramp.topY :
+          ramp.startY + ((x - ramp.startX) * ramp.dirX + (z - ramp.startZ) * ramp.dirZ) * slope
+        const previousGap = previousBottomY - planeHeight(previousPosition.x, previousPosition.z)
+        const currentGap = initialBottomY - planeHeight(position.x, position.z)
+        if (previousGap < -epsilon || currentGap > epsilon || previousGap <= currentGap) continue
+        const t = Math.max(0, Math.min(1, previousGap / (previousGap - currentGap)))
+        const contactY = getWalkRampHeight(ramp,
+          previousPosition.x + (position.x - previousPosition.x) * t,
+          previousPosition.z + (position.z - previousPosition.z) * t)
+        if (contactY !== null && Math.abs(contactY - (previousBottomY + (initialBottomY - previousBottomY) * t)) <= epsilon) {
+          crossedTop = true
+          break
+        }
+      }
+      if ((canStep || crossedTop) && (supportY === null || surfaceY > supportY)) supportY = surfaceY
+    }
+  }
+  if (supportY !== null) {
+    position.y = supportY + bottomOffset
+    velocityY = 0
+    onGround = true
+  }
+
   for (const obstacle of candidates) {
-    const ramp = (options.walkSurfaces || options.mountedSurfaces && obstacle.walkSurface?.mounted) ? obstacle.walkSurface : undefined
+    const bottomY = position.y - bottomOffset
+    const topY = bottomY + height
+    const ramp = admittedRamp(obstacle)
     if (ramp) {
       const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
       if (surfaceY !== null) {
-        const feetY = position.y - bottomOffset
-        const slope = Math.abs(ramp.topY - ramp.startY) / ramp.length
-        const travel = Math.hypot(position.x - previousPosition.x, position.z - previousPosition.z)
-
-        // 1. Standing or moving on top of the ramp surface:
-        // Lifts feet that gravity or walking left slightly below the surface,
-        // or keeps a descending walker from skipping off the slope.
-        if (velocityY <= 0 && feetY <= surfaceY + travel * slope + 0.03 && feetY >= surfaceY - WALK_SURFACE_STEP_UP) {
-          position.y = surfaceY + bottomOffset
-          velocityY = 0
-          onGround = true
-          continue
-        }
+        const feetY = bottomY
+        if (feetY >= surfaceY - epsilon) continue
 
         const RAMP_THICKNESS = 0.35
         const undersideY = surfaceY - RAMP_THICKNESS
@@ -779,6 +822,25 @@ export function resolveObstacleCollision(
       else if (minDist === dxMin) position.x = box.min.x - radius
       else if (minDist === dzMax) position.z = box.max.z + radius
       else if (minDist === dzMin) position.z = box.min.z - radius
+    }
+  }
+
+  // A later wall push may move the body off the support selected above.
+  // Do not retain that ramp's height/ground flag at an unsupported final X/Z.
+  if (supportY !== null && Math.abs(position.y - bottomOffset - supportY) <= epsilon) {
+    const supported = candidates.some(obstacle => {
+      const ramp = admittedRamp(obstacle)
+      if (ramp) {
+        const y = getWalkRampHeight(ramp, position.x, position.z)
+        return y !== null && Math.abs(y - supportY) <= epsilon
+      }
+      return Math.abs(obstacle.box.max.y - supportY) <= epsilon &&
+        overlapsHorizontally(position.x, position.z, obstacle.box)
+    })
+    if (!supported) {
+      position.y = initialBottomY + bottomOffset
+      velocityY = initialVelocityY
+      onGround = initialOnGround
     }
   }
 

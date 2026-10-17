@@ -70,7 +70,7 @@ export class FallingRider {
       const ground = terrainHeight(feet.x, feet.z)
       let supported = this.velocity.y <= 0 && feet.y <= ground
       if (supported) feet.y = ground
-      const collision = resolveObstacleCollision(feet, this.previous, this.velocity.y, supported, this.body.radius, this.body.height, 0, obstacles)
+      const collision = resolveObstacleCollision(feet, this.previous, this.velocity.y, supported, this.body.radius, this.body.height, 0, obstacles, { walkSurfaces: true })
       this.velocity.y = collision.velocityY
       supported = collision.onGround
       clampToPlayableWorld(feet, bound)
