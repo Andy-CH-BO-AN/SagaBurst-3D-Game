@@ -71,6 +71,17 @@ export interface CareerRaceRecord {
   /** Absent on records settled before racing rewards existed; never retroactively granted. */
   merit?: number
 }
+/** Spawn finalization must fail unless its initial race checkpoint is durable. */
+export function finalizeRaceDeployment(session: CareerRaceSession, save: () => boolean): void {
+  const deployed = session.deployed
+  session.deployed = true
+  try {
+    if (!save()) throw new Error('賽手部署狀態保存失敗；重新載入可重試同場賽事。')
+  } catch (error) {
+    session.deployed = deployed
+    throw error
+  }
+}
 export interface RaceMountEligibility {
   id: CareerMountId | null
   ownedActive: boolean

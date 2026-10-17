@@ -1,12 +1,15 @@
 import { raceReturnAction, raceReturnProfile } from '../../src/career/CareerRaceReturn'
+import { CareerRaceController } from '../../src/career/CareerRaceController'
+import { TownScene } from '../../src/town/TownScene'
+import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { deferTownResult, TownEvent } from '../../src/town/TownRules'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
-import { canEnterRace, MOUNTED_RACES, RACE_PLAYER_CAN_SPRINT, advanceRaceClock, advanceRaceRider, resolveRace, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance,
+import { canEnterRace, finalizeRaceDeployment, MOUNTED_RACES, RACE_PLAYER_CAN_SPRINT, advanceRaceClock, advanceRaceRider, resolveRace, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
 import { RACE_START_SLOTS, RACE_LINES, lineCrossing, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -222,6 +225,32 @@ describe('Mounted race outcome ownership', () => {
 })
 
 describe('Race persistence independent of hostility and Duel', () => {
+  it('fails deployment readiness on checkpoint save failure and reloads the same race for a successful retry', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), p = profile(), s = session()
+    s.deployed = false; s.phase = 'guiding'; p.activeRace = s
+    expect(store.save(p)).toBe(true)
+    const scheduler = new NpcSpawnScheduler(), batch = scheduler.batch(), create = vi.fn()
+    batch.enqueue(s.opponent.actorId, create)
+    batch.seal(() => finalizeRaceDeployment(s, () => store.save(raceRecordProfile(p, s))))
+    storage.failWrites = true; scheduler.tick(16)
+    expect(batch.ready).toBe(false); expect(batch.status).toBe('failed'); expect(s.deployed).toBe(false)
+    // Call the actual simulation entry with only its pre-readiness inputs; no models or scene.
+    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
+    Object.assign(controller, { session: s, batch, racer: {} })
+    controller.beginFrame(10, .05); controller.advance(10)
+    expect(controller.ready).toBe(false); expect(s.phase).toBe('guiding')
+    expect(s.countdownSeconds).toBe(10); expect(s.gameSeconds).toBe(0)
+    const loaded = store.load()!, resumed = loaded.activeRace!
+    expect(resumed.deployed).toBe(false); expect(resumed.id).toBe(s.id)
+    storage.failWrites = false
+    const retry = scheduler.batch(); retry.enqueue(resumed.opponent.actorId, create)
+    retry.seal(() => finalizeRaceDeployment(resumed, () => store.save(raceRecordProfile(loaded, resumed))))
+    scheduler.tick(32); scheduler.tick(32)
+    Object.assign(controller, { session: resumed, batch: retry })
+    expect(controller.ready).toBe(true); expect(store.load()!.activeRace!.deployed).toBe(true)
+    expect(create).toHaveBeenCalledTimes(2); expect(store.load()!.raceRecords).toBeUndefined()
+    expect(store.load()!.availableMerit).toBe(p.availableMerit)
+  })
   it('keeps a hostile countdown running when Captain becomes unavailable', () => {
     const s = session()
     advanceRaceClock(s, 4, true)
@@ -268,6 +297,46 @@ describe('Race persistence independent of hostility and Duel', () => {
 
 
 describe('Race return and deferred native Town outcomes', () => {
+  it('offers direct return in the pause menu for a living stuck Captain and retries storage before moving or clearing', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), s = session()
+    s.phase = 'racing'; s.player.checkpoint = 5; s.player.finishSeconds = 80; s.opponent.dnf = 'mount lost'; resolveRace(s)
+    const recorded = raceRecordProfile(profile(), s); recorded.activeRace!.phase = 'returning'
+    recorded.townEvent = { id: 'still-hostile', state: 'hostile', deadActorIds: ['merchant'] }
+    expect(store.save(recorded)).toBe(true)
+    let current = store.load()!
+    const outside = new Vector3(-200, 0, 50), position = outside.clone()
+    const player = { dead: false, hp: 27, maxHp: 100, staminaValue: 70, facingYaw: 0, currentMount: null,
+      combatPosition: position, setPosition: vi.fn((x: number, y: number, z: number) => position.set(x, y, z)), faceDirection: vi.fn() }
+    const race = Object.create(CareerRaceController.prototype) as CareerRaceController
+    Object.assign(race, { session: current.activeRace, mounts: {}, residents: [], obstacles: [], commanded: new Map(),
+      captain: { npc: { dead: false, hostileToPlayer: false, combatPosition: outside.clone() }, spec: { x: 0, z: 0 } },
+      player: () => player, read: () => current,
+      commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = store.load()!; return true } })
+    expect(race.canWalkBack).toBe(true); expect(race.returnComplete).toBe(false)
+    expect(raceReturnAction('returning', true, false)).toBeNull()
+    const actions = new Map<string, () => void>()
+    const event = new TownEvent([{ id: 'survivor' }]); event.register('survivor', { dead: false }); event.complete(); event.hostile = true
+    // Only menu/return inputs; constructors and all 3D entities are excluded.
+    const town = Object.create(TownScene.prototype) as { openPauseMenu(): void }
+    Object.defineProperty(town, 'profile', { get: () => current })
+    const closePanel = vi.fn()
+    Object.assign(town, { race, player, event, equipment: { visible: false }, closePanel,
+      openPanel: () => ({ querySelector: () => ({ textContent: '' }) }),
+      button: (_panel: unknown, label: string, callback: () => void) => actions.set(label, callback) })
+    town.openPauseMenu()
+    const direct = actions.get('改為直接返回小鎮')!
+    expect(direct).toBeTypeOf('function')
+    storage.failWrites = true; direct()
+    expect(race.session).toBeDefined(); expect(store.load()!.activeRace).toBeDefined()
+    expect(position).toEqual(outside); expect(player.setPosition).not.toHaveBeenCalled(); expect(closePanel).not.toHaveBeenCalled()
+    storage.failWrites = false; direct()
+    expect(race.session).toBeUndefined(); expect(store.load()!.activeRace).toBeUndefined()
+    expect(player.setPosition).toHaveBeenCalledOnce(); expect(position).not.toEqual(outside)
+    expect(position.x).toBeGreaterThan(-100); expect(position.x).toBeLessThan(100)
+    expect(store.load()!.racePlayerState!.hp).toBe(27); expect(player.hp).toBe(27)
+    expect(store.load()!.raceRecords).toEqual(recorded.raceRecords); expect(store.load()!.townEvent).toEqual(recorded.townEvent)
+    expect(closePanel).toHaveBeenCalledOnce()
+  })
   it('keeps hostile player defeat through spectating/reload and applies the penalty once on saved return', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage), s = session(), p = profile()
     p.availableMerit = 180; p.townEvent = { id: 'hostile-death', state: 'hostile' }; p.activeRace = s

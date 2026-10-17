@@ -89,7 +89,7 @@ export class CareerRaceHUD {
     setText(this.timer, countdown ? String(Math.ceil(session.countdownSeconds))
       : session.phase === 'guiding' ? '—' : session.phase === 'racing' && session.elapsedSeconds < 1 ? 'GO' : raceTime(session.elapsedSeconds))
     const target = !options.ready ? options.error || '等待對手就緒'
-      : session.phase === 'returning' ? '跟隨 Captain 返回鎮內'
+      : session.phase === 'returning' ? '跟隨 Captain 返回鎮內 · Esc 可改為直接返回'
       : finishing ? session.player.finishSeconds !== undefined ? '玩家已完賽，等待對手返回終點' : `對手已完賽；下一站：${RACE_LINES[session.player.checkpoint]?.label ?? '完成'}`
       : session.result ? announced ? session.reason || '比賽結束' : '結果已鎖定，等待保存'
       : observing ? '等待對手合法完賽'
@@ -99,7 +99,8 @@ export class CareerRaceHUD {
     setText(this.objective, target + distance)
     setText(this.mode, `${session.opponent.actorId === 'commander' ? '指揮官' : '對手'}：${MOUNT_NAMES[definition.mount]} · ${definition.sprint ? '衝刺賽' : '一般速度'} · 玩家可 Shift 衝刺`)
     this.updateRider(session.player, 0); this.updateRider(session.opponent, 1)
-    const warning = options.saveFailed ? '保存失敗，將重試；結果保存成功後才公布。'
+    const warning = options.saveFailed && !options.ready ? '部署保存失敗；請重新載入以重試同場賽事。'
+      : options.saveFailed ? '保存失敗，將重試；結果保存成功後才公布。'
       : countdown && !observing && !legalRaceStart(session.player.position) ? '搶跑！倒數結束前返回北門內側，否則判負。'
       : session.guideFallback && session.phase === 'guiding' && !observing ? 'Captain 無法引導，請依箭頭前往北門。'
       : ''

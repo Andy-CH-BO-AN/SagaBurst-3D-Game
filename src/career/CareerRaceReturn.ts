@@ -3,9 +3,9 @@ import type { CareerRaceSession, RaceRider } from './CareerRaceState'
 import type { RacePosition } from './CareerRaceRoute'
 import { settleTown } from '../town/TownRules'
 
-export function raceReturnAction(phase: CareerRaceSession['phase'] | undefined, canWalkBack: boolean, arrived: boolean): 'direct' | 'walked' | null {
+export function raceReturnAction(phase: CareerRaceSession['phase'] | undefined, canWalkBack: boolean, arrived: boolean, requestedDirect = false): 'direct' | 'walked' | null {
   if (phase !== 'returning') return null
-  return !canWalkBack ? 'direct' : arrived ? 'walked' : null
+  return requestedDirect || !canWalkBack ? 'direct' : arrived ? 'walked' : null
 }
 
 /** Stage one save: completed race, real resources and any deferred native Town settlement. */

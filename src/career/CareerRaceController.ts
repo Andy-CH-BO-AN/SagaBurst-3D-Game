@@ -13,7 +13,7 @@ import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
 import { canUseCareerMount, type CareerMountController } from './CareerMountController'
-import { advanceRaceClock, advanceRaceRider, canEnterRace, lockRace, MOUNTED_RACES, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
+import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
 import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
 
@@ -179,7 +179,10 @@ export class CareerRaceController {
         if (s.opponentAmmo !== undefined) npc.restoreCombatAmmo(s.opponentAmmo)
       }
     })
-    this.batch.seal(() => { s.deployed = true; if (!restoring) this.snapshot(); this.persist() })
+    this.batch.seal(() => {
+      if (!restoring) this.snapshot()
+      finalizeRaceDeployment(s, () => this.persist())
+    })
   }
 
   /** Restore uses the existing owned-mount adapter, never a selection-only free mount. */

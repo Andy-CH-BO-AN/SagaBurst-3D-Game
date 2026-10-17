@@ -1025,6 +1025,10 @@ export class TownScene {
     const panel = this.openPanel('生涯模式 · 暫停', message)
     const resume = panel.querySelector('button')
     if (resume) resume.textContent = '繼續遊戲'
+    const race = this.race
+    if (race && raceReturnAction(race.session?.phase, race.canWalkBack, race.returnComplete, true)) {
+      this.button(panel, '改為直接返回小鎮', () => this.leaveRace(true))
+    }
     this.button(panel, '上一頁', () => this.returnHome())
   }
 
