@@ -32,7 +32,7 @@ import {
   type CareerProfile,
 } from './CareerProfile'
 import { getCareerMissionTemplate } from './CareerMissionCatalog'
-import type { ActiveCareerMission, CareerMissionPhase, CommanderMissionState, VeteranOutpostBattleState } from './CareerMissionState'
+import { BRIDGEHEAD_PREPARATION_SECONDS, type ActiveCareerMission, type CareerMissionPhase, type CommanderMissionState, type VeteranOutpostBattleState } from './CareerMissionState'
 import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome, parseCareerDuelTravelCheckpoint } from './CareerDuelState'
 
 export const CAREER_STORAGE_KEY = 'sagaburst_career_v1'
@@ -272,7 +272,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const rawBridgeDeployment = raw.bridgeDeployment as Record<string, unknown> | undefined
   const bridgeDeployment = rawBridgeDeployment && ['preparing', 'spawning', 'assault'].includes(rawBridgeDeployment.phase as string)
     && typeof rawBridgeDeployment.preparationRemainingSeconds === 'number' && Number.isFinite(rawBridgeDeployment.preparationRemainingSeconds)
-    && rawBridgeDeployment.preparationRemainingSeconds >= 0 && rawBridgeDeployment.preparationRemainingSeconds <= 60
+    && rawBridgeDeployment.preparationRemainingSeconds >= 0 && rawBridgeDeployment.preparationRemainingSeconds <= BRIDGEHEAD_PREPARATION_SECONDS
     && (rawBridgeDeployment.phase === 'preparing' || rawBridgeDeployment.preparationRemainingSeconds === 0)
     ? { phase: rawBridgeDeployment.phase as 'preparing' | 'spawning' | 'assault', preparationRemainingSeconds: rawBridgeDeployment.preparationRemainingSeconds }
     : undefined

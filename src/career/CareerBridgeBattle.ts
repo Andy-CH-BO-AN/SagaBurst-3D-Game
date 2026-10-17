@@ -6,7 +6,7 @@ import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import { claimCareerMission, clearCareerMission, type CareerProfile } from './CareerProfile'
 import type { CareerProfileStore } from './CareerProfileStore'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
-import { resolveCareerMissionOutcome, type ActiveCareerMission, type BridgeBattleDeployment } from './CareerMissionState'
+import { BRIDGEHEAD_PREPARATION_SECONDS, resolveCareerMissionOutcome, type ActiveCareerMission, type BridgeBattleDeployment } from './CareerMissionState'
 import { commanderActorConfirmedDead } from './CommanderOutpost'
 
 /** A trusted Career launch, separate from Campaign stages and untrusted free battle config. */
@@ -42,7 +42,7 @@ export function createCareerBridgeBattleLaunch(profile: CareerProfile): CareerBr
   } }
 }
 
-/** Older in-progress battles resume their existing assault rather than gaining another preparation minute. */
+/** Older in-progress battles resume their existing assault rather than gaining another preparation period. */
 export function resolveCareerBridgeDeployment(mission: ActiveCareerMission): BridgeBattleDeployment {
   if (mission.bridgeDeployment) return { ...mission.bridgeDeployment }
   const phase = mission.commanderMission?.deploymentComplete || mission.bridgeBattle?.ready ? 'assault'
@@ -50,7 +50,7 @@ export function resolveCareerBridgeDeployment(mission: ActiveCareerMission): Bri
       const actor = mission.bridgeBattle?.actors[id]
       return actor && actor.status !== 'reserve'
     }) ? 'spawning' : 'preparing'
-  return { phase, preparationRemainingSeconds: phase === 'preparing' ? 60 : 0 }
+  return { phase, preparationRemainingSeconds: phase === 'preparing' ? BRIDGEHEAD_PREPARATION_SECONDS : 0 }
 }
 
 export function createCareerBridgeSpawnPlan(profile: CareerProfile, wave: 'initial' | 'attackers' = 'initial'): BattleSpawnPlan {

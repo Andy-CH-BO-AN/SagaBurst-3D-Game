@@ -331,10 +331,10 @@ describe('Bridgehead official field battle', () => {
     expect(reloadedClaim.personalSquadRuntime).toEqual(privateBefore)
   })
 
-  it('spawns only friendlies during the preparation minute and resumes the saved remaining time', () => {
+  it('spawns only friendlies during three-minute preparation and resumes the saved remaining time', () => {
     const profile = accepted(COMMANDER_BRIDGEHEAD_ID), mission = profile.activeMission!
     const runtime = new CareerBridgeBattleRuntime(mission)
-    expect(runtime.deployment).toEqual({ phase: 'preparing', preparationRemainingSeconds: 60 })
+    expect(runtime.deployment).toEqual({ phase: 'preparing', preparationRemainingSeconds: 180 })
     expect(createCareerBridgeSpawnPlan(profile).npcSpecs.map(spec => spec.actorId)).toEqual(mission.friendlyActorIds)
     expect(createCareerBridgeSpawnPlan(profile, 'attackers').npcSpecs).toHaveLength(0)
     let commits = 0
@@ -345,9 +345,9 @@ describe('Bridgehead official field battle', () => {
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(profile)).toBe(true)
     const loaded = store.load()!, resumed = new CareerBridgeBattleRuntime(loaded.activeMission!)
-    expect(resumed.deployment.preparationRemainingSeconds).toBe(23.25)
+    expect(resumed.deployment.preparationRemainingSeconds).toBe(143.25)
     expect(resumed.outcome(true, true)).toBeNull()
-    resumed.advancePreparation(23)
+    resumed.advancePreparation(143)
     expect(resumed.beginEnemyDeployment(() => true)).toBe(false)
     resumed.advancePreparation(.25)
     expect(resumed.beginEnemyDeployment(() => false)).toBe(false)
