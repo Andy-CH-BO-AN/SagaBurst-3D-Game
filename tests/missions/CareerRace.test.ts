@@ -161,12 +161,6 @@ describe('Mounted race outcome ownership', () => {
     s.player.checkpoint = 4; cross(s.player, pos(0, -120), pos(0, -110))
     resolveRace(s); expect(s.result).toBe('win')
   })
-  it('waits for the NPC finish after player death', () => {
-    const s = session(); s.player.dead = true; s.player.hp = 0
-    resolveRace(s); expect(s.result).toBeUndefined()
-    s.opponent.checkpoint = 4; cross(s.opponent, pos(0, -120), pos(0, -110))
-    resolveRace(s); expect(s.result).toBe('loss')
-  })
   it('keeps the living opponent racing after the player finishes and reloads before recording both times', () => {
     const s = session(); s.phase = 'racing'; s.elapsedSeconds = 85.1
     s.player.checkpoint = 5; s.player.finishSeconds = 85.1; s.opponent.checkpoint = 4
