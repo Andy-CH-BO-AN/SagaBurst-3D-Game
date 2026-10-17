@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import type { TownDockPassages } from './TownDockPassages'
 import { getTownRampartLayout, createTownRamparts } from './TownRamparts'
 import { CampaignGateController } from '../campaign/CampaignGate'
 import { DamageableObstacle } from '../world/DamageableObstacle'
@@ -10,7 +11,7 @@ import { TOWN_CITY, TOWN_GATES, type TownGateId } from './TownLayout'
 /** All obstacles share TownWorld's live array, also used by mounts, navigation and shots. */
 export function createTownFortifications(faction: CharacterFaction, obstacles: ObstacleData[], materials: {
   stone: THREE.Material; wood: THREE.Material; dark: THREE.Material; snow: THREE.Material
-}) {
+}, dockPassages?: TownDockPassages) {
   const root = new THREE.Group(); root.name = `town-fortifications-${faction}`
   const gates = new Map<TownGateId, CampaignGateController>()
   const walls: ObstacleData[] = []
@@ -134,6 +135,6 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
     snowCaps.instanceMatrix.needsUpdate = true; snowCaps.computeBoundingSphere(); wallRoot.add(snowCaps)
   }
   const rampartLayout = getTownRampartLayout()
-  root.add(createTownRamparts(rampartLayout, obstacles, faction === 'roman' ? materials.stone : materials.wood, materials.dark))
+  root.add(createTownRamparts(rampartLayout, obstacles, faction === 'roman' ? materials.stone : materials.wood, materials.dark, dockPassages))
   return { root, wallRoot, gates, walls, rampartLayout }
 }

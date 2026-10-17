@@ -1,3 +1,4 @@
+import { TownDockPassages } from '../../src/town/TownDockPassages'
 import { Box3, Vector3 } from 'three'
 import { describe, expect, it, vi } from 'vitest'
 import type { CampaignGateController } from '../../src/campaign/CampaignGate'
@@ -29,5 +30,25 @@ describe('Town gate closure displacement transaction', () => {
     expect(current.close).not.toHaveBeenCalled()
     for (const item of bodies) expect(item.moveTo).not.toHaveBeenCalled()
     expect(bodies.map(item => item.position)).toEqual(before)
+  })
+})
+
+describe('Town dock passage collision ownership', () => {
+  it('opens and restores only the selected exterior rail slices while another dock remains open', () => {
+    const a: ObstacleData = { box: new Box3(new Vector3(), new Vector3(1, 1, 1)), isBarricade: false }
+    const b: ObstacleData = { box: a.box.clone(), isBarricade: false }, native: ObstacleData = { box: a.box.clone(), isBarricade: false }
+    const obstacles = [a, b, native], leftVisual = { visible: true }, rightVisual = { visible: true }
+    // Plain visibility handles represent the external renderer boundary; no Mesh, Group or world builder.
+    const owner = Object.assign(Object.create(TownDockPassages.prototype) as Pick<TownDockPassages, 'setOpen' | 'isOpen'>, {
+      configured: true, open: new Set(), obstacles, pieces: [
+        { rampId: 'town-siege-ramp:east:left', mesh: leftVisual, obstacles: [a] },
+        { rampId: 'town-siege-ramp:east:right', mesh: rightVisual, obstacles: [b] },
+      ],
+    })
+    owner.setOpen('town-siege-ramp:east:left', true); owner.setOpen('town-siege-ramp:east:right', true)
+    expect(obstacles).toEqual([native]); expect(leftVisual.visible).toBe(false); expect(rightVisual.visible).toBe(false)
+    owner.setOpen('town-siege-ramp:east:left', false); owner.setOpen('town-siege-ramp:east:left', false)
+    expect(obstacles).toEqual([native, a]); expect(leftVisual.visible).toBe(true)
+    expect(rightVisual.visible).toBe(false); expect(owner.isOpen('town-siege-ramp:east:right')).toBe(true)
   })
 })

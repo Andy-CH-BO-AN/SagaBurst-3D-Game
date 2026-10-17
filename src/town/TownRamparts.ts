@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import type { TownDockPassages } from './TownDockPassages'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { getTerrainHeight, getWalkRampHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { TOWN_CITY, TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
@@ -121,19 +122,20 @@ export function slabGeometry(s: WalkRampSurface, thickness = .35): THREE.BufferG
   }
   g.computeVertexNormals(); return g
 }
-export function createTownRamparts(layout: TownRampartLayout, obstacles: ObstacleData[], material: THREE.Material, supportMaterial: THREE.Material): THREE.Group {
-  const root = new THREE.Group(); root.name = 'town-ramparts'
+export function createTownRamparts(layout: TownRampartLayout, obstacles: ObstacleData[], material: THREE.Material, supportMaterial: THREE.Material, dockPassages?: TownDockPassages): THREE.Group {
+  const root = new THREE.Group(); if (dockPassages) root.add(dockPassages.root); root.name = 'town-ramparts'
   const parts: THREE.BufferGeometry[] = [], supports: THREE.BufferGeometry[] = []
   const addBox = (b: THREE.Box3, support = false, navigationPassable = true) => {
     const size = b.getSize(new THREE.Vector3()), center = b.getCenter(new THREE.Vector3())
     ;(support ? supports : parts).push(new THREE.BoxGeometry(size.x, size.y, size.z).translate(center.x, center.y, center.z))
     obstacles.push({ box: b, isBarricade: false, navigationPassable })
   }
-  const rail = (s: WalkRampSurface, lateral: number, from: number, to: number, low: number, high: number, halfThickness = .16) => {
+  const rail = (s: WalkRampSurface, lateral: number, from: number, to: number, low: number, high: number, halfThickness = .16, dockGateId?: TownGateId) => {
     const a = new THREE.Vector3(s.startX + s.dirX * from - s.dirZ * lateral, s.startY + (s.topY - s.startY) * Math.min(1, from / s.length), s.startZ + s.dirZ * from + s.dirX * lateral)
     const b = new THREE.Vector3(s.startX + s.dirX * to - s.dirZ * lateral, s.startY + (s.topY - s.startY) * Math.min(1, to / s.length), s.startZ + s.dirZ * to + s.dirX * lateral)
     // Keep the rail sloped, rather than a staircase of horizontal AABBs.
     a.y += high; b.y += high
+    if (dockPassages && dockGateId) { dockPassages.addRail(dockGateId, a, b, halfThickness * 2, high - low, material); return }
     parts.push(slabGeometry(surface(a, b, halfThickness * 2), high - low))
     // A continuous visual rail still needs short collision slices: its full AABB
     // would create an invisible wall below the upper end of a sloped handrail.
@@ -194,7 +196,7 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       // Join the inset deck edge to the existing wall crown without a visible slit.
       rail(s, -3.5, 0, s.length, -1.1, 0, .4)
       // Clockwise ring: exterior on the right; crenels alternate every 2.4m.
-      rail(s, -3.04, 0, s.length, 0, .45)
+      rail(s, -3.04, 0, s.length, 0, .45, .16, item.gateId)
       // Leave the four ramp connections open in the inner safety rail.
       const ramp = layout.ramps.find(r => r.gateId === item.gateId)!
       const mid = new THREE.Vector3(s.startX + s.dirX * s.length / 2, 0, s.startZ + s.dirZ * s.length / 2)
@@ -215,13 +217,13 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
     }
   }
   // Subdivision at landings must not move the original crenels into firing slots.
-  for (const { surface: s } of layout.wallSpans) for (let along = .85; along < s.length; along += 2.4) {
+  for (const { surface: s, gateId } of layout.wallSpans) for (let along = .85; along < s.length; along += 2.4) {
     const to = Math.min(along + 1, s.length)
     const a = new THREE.Vector3(s.startX + s.dirX * along, 0, s.startZ + s.dirZ * along)
     const b = new THREE.Vector3(s.startX + s.dirX * to, 0, s.startZ + s.dirZ * to)
     a.y = townRampartHeight(layout, a.x, a.z)!; b.y = townRampartHeight(layout, b.x, b.z)!
     const span = surface(a, b, W.width)
-    rail(span, -3.04, 0, span.length, .45, 1.3)
+    rail(span, -3.04, 0, span.length, .45, 1.3, .16, gateId)
   }
   for (const [geometries, mat] of [[parts, material], [supports, supportMaterial]] as const) {
     const geometry = mergeGeometries(geometries); geometries.forEach(g => g.dispose())

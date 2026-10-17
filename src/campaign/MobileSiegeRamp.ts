@@ -6,18 +6,20 @@ import { intersectsSweptPart } from '../movement/SweptBodyCollision'
 import { MovingPlatformSupport } from '../movement/MovingPlatformSupport'
 import type { NPC } from '../world/NPC'
 import { MobileSiegeRampController, type MobileSiegeRampState } from './MobileSiegeRampController'
-import { SIEGE_RAMP, type SiegeRampAssignment, type SiegeRampPlacement } from './MobileSiegeRampPolicy'
+import { SIEGE_RAMP, type MobileSiegeRampId, type SiegeRampId, type SiegeRampAssignment, type SiegeRampPlacement } from './MobileSiegeRampPolicy'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+
+export type MobileSiegeRampSnapshot<Id extends MobileSiegeRampId = SiegeRampId> = Omit<CampaignSiegeCheckpoint['ramps'][number], 'assignment'> & { assignment: SiegeRampAssignment<Id> }
 
 interface Part { mesh: THREE.Mesh; obstacle: ObstacleData; localBox: THREE.Box3 }
 
-export class MobileSiegeRamp {
+export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
   readonly root = new THREE.Group()
   readonly position: THREE.Vector3
   readonly surface: WalkRampSurface
   readonly bridgeSurface: WalkRampSurface
   readonly damageable: DamageableObstacle
-  readonly controller: MobileSiegeRampController
+  readonly controller: MobileSiegeRampController<Id>
   readonly platform: MovingPlatformSupport<NPC>
   readonly crew = new Map<string, NPC>()
   readonly obstacles: ObstacleData[] = []
@@ -35,22 +37,22 @@ export class MobileSiegeRamp {
   private readonly unsubscribe: () => void
   private readonly scratch = new THREE.Vector3()
 
-  constructor(scene: THREE.Scene, readonly assignment: SiegeRampAssignment,
-    readonly placement: SiegeRampPlacement, readonly faction: CharacterFaction,
+  constructor(scene: THREE.Scene, readonly assignment: SiegeRampAssignment<Id>,
+    readonly placement: SiegeRampPlacement<Id>, readonly faction: CharacterFaction,
     private readonly shared: ObstacleData[],
-    private readonly changed: (ramp: MobileSiegeRamp, state: MobileSiegeRampState) => void) {
+    private readonly changed: (ramp: MobileSiegeRamp<Id>, state: MobileSiegeRampState) => void) {
     this.position = placement.start.clone()
-    this.surface = { ...placement.surface, startZ: placement.surface.startZ + placement.start.z - placement.dock.z }
+    this.surface = { ...placement.surface, startX: placement.surface.startX + placement.start.x - placement.dock.x, startZ: placement.surface.startZ + placement.start.z - placement.dock.z }
     this.surface.startY = getTerrainHeight(this.surface.startX, this.surface.startZ) + .04
     this.bridgeSurface = {
       startX: this.position.x, startZ: this.position.z, startY: this.position.y,
-      dirX: 0, dirZ: placement.dirZ, halfWidth: SIEGE_RAMP.halfWidth,
+      dirX: placement.dirX ?? 0, dirZ: placement.dirZ, halfWidth: SIEGE_RAMP.halfWidth,
       length: SIEGE_RAMP.bridgeLength, landing: 0, topY: placement.deckConnection.y,
     }
     this.root.name = assignment.id
     scene.add(this.root)
     this.root.position.copy(this.position)
-    this.root.rotation.y = placement.dirZ > 0 ? 0 : Math.PI
+    this.root.rotation.y = Math.atan2(placement.dirX ?? 0, placement.dirZ)
     this.run = this.part(SIEGE_RAMP.halfWidth * 2, .25, this.surface.length)
     this.deck = this.part(SIEGE_RAMP.halfWidth * 2, .25, SIEGE_RAMP.platformLength)
     this.bridge = this.part(SIEGE_RAMP.halfWidth * 2, .25, SIEGE_RAMP.bridgeLength)
@@ -100,7 +102,7 @@ export class MobileSiegeRamp {
       root: this.root, hitMeshes: [...this.parts.map(p => p.mesh), ...this.wheels], ownerFaction: faction })
     for (const part of this.parts) part.obstacle.damageable = this.damageable
     this.platform = new MovingPlatformSupport(this.position)
-    this.controller = new MobileSiegeRampController(assignment, Math.abs(placement.start.z - placement.dock.z), state => this.transition(state))
+    this.controller = new MobileSiegeRampController(assignment, Math.hypot(placement.start.x - placement.dock.x, placement.start.z - placement.dock.z), state => this.transition(state))
     this.unsubscribe = this.damageable.onDestroyed(() => this.controller.destroy())
     this.updateGeometry()
     shared.push(...this.obstacles)
@@ -127,20 +129,26 @@ export class MobileSiegeRamp {
     if (!this.controller.assigned || npc.dead) return
     npc.siegeTransport = this.assignment.id
     npc.assignSiegeObstacle(null)
-    npc.group.rotation.y = this.placement.dirZ > 0 ? 0 : Math.PI
+    npc.group.rotation.y = Math.atan2(this.placement.dirX ?? 0, this.placement.dirZ)
     if (this.assignment.assaultIds.includes(npc.combatantId)) this.platform.attach(npc)
   }
 
-  snapshot(): CampaignSiegeCheckpoint['ramps'][number] {
+  releaseCrew(npc: NPC): void {
+    this.controller.withdraw(npc.combatantId); this.platform.detach(npc.combatantId)
+    npc.siegeTransport = null; npc.siegeTransportSpeed = 0
+  }
+
+  snapshot(): MobileSiegeRampSnapshot<Id> {
     return { assignment: structuredClone(this.assignment), stagingZ: this.placement.start.z,
       position: { x: this.position.x, y: this.position.y, z: this.position.z }, hp: this.damageable.currentHp,
       state: this.controller.state, distance: this.controller.distance, dockingProgress: this.controller.dockingProgress }
   }
 
   /** Restore carrier geometry before actor construction, without moving surviving/departed actors. */
-  restore(saved: CampaignSiegeCheckpoint['ramps'][number]): void {
+  restore(saved: MobileSiegeRampSnapshot<Id>): void {
     this.controller.restore(saved)
     this.position.set(saved.position.x, saved.position.y, saved.position.z)
+    this.surface.startX = this.placement.surface.startX + this.position.x - this.placement.dock.x
     this.surface.startZ = this.placement.surface.startZ + this.position.z - this.placement.dock.z
     this.platform.moveTo(this.position)
     this.updateGeometry()
@@ -159,6 +167,9 @@ export class MobileSiegeRamp {
     }
     if (movement > 0) {
       const dz = movement * this.placement.dirZ
+      const dx = movement * (this.placement.dirX ?? 0)
+      this.position.x += dx
+      this.surface.startX += dx
       this.position.z += dz
       this.surface.startZ += dz
       // The vehicle follows terrain vertically as a rigid carrier. Its continuous
@@ -169,6 +180,7 @@ export class MobileSiegeRamp {
       for (const id of this.assignment.pusherIds) {
         const actor = this.crew.get(id)
         if (!actor || actor.dead) continue
+        actor.position.x += dx
         actor.position.z += dz
         actor.position.y = getTerrainHeight(actor.position.x, actor.position.z)
       }
@@ -181,13 +193,13 @@ export class MobileSiegeRamp {
     // Swept vehicle envelope; actors/structures ahead stop this convoy rather than being traversed.
     const swept = this.deck.obstacle.box.clone().union(this.run.obstacle.box)
     swept.min.y = Math.min(swept.min.y, getTerrainHeight(this.position.x, this.position.z))
-    swept.expandByVector(this.scratch.set(.12, 0, maxTravel))
+    swept.expandByVector(this.scratch.set(.12 + maxTravel * Math.abs(this.placement.dirX ?? 0), 0, (this.placement.dirX === undefined ? 0 : .12) + maxTravel * Math.abs(this.placement.dirZ)))
     const staticBlocked = this.shared.some(obstacle => !this.obstacles.includes(obstacle)
       && !obstacle.walkSurface && obstacle.box.intersectsBox(swept))
     const intersectsBody = (body: EntityCollisionBody): boolean => this.parts.some(part =>
-      intersectsSweptPart(body, part.localBox, part.obstacle.projectileWorldToLocal!, maxTravel * this.placement.dirZ))
+      intersectsSweptPart(body, part.localBox, part.obstacle.projectileWorldToLocal!, maxTravel * this.placement.dirZ, maxTravel * (this.placement.dirX ?? 0)))
       || this.wheelBodies.some(wheel => intersectsSweptPart(body, wheel.box, wheel.worldToLocal,
-        maxTravel * this.placement.dirZ))
+        maxTravel * this.placement.dirZ, maxTravel * (this.placement.dirX ?? 0)))
     const actorBlocked = actors.some(npc => !npc.dead && !this.crew.has(npc.combatantId)
       && intersectsBody({ position: npc.combatPosition, radius: npc.isMounted ? 1 : .5,
         height: npc.isMounted ? 2.6 : 2.3, bottomOffset: 0 })) || blockers.some(intersectsBody)
@@ -210,6 +222,7 @@ export class MobileSiegeRamp {
     const docked = this.controller?.state === 'DOCKED'
     this.surface.mounted = docked
     this.deck.obstacle.walkSurface.mounted = docked
+    this.bridgeSurface.startX = this.position.x
     this.bridgeSurface.startZ = this.position.z
     this.bridgeSurface.startY = this.position.y
     const progress = docked ? 1 : this.controller?.state === 'DOCKING' ? this.controller.dockingProgress : 0
@@ -229,20 +242,21 @@ export class MobileSiegeRamp {
     for (const part of this.railParts) {
       const { side, along } = part.mesh.userData
       const localZ = -length - platformLength + along + 1
-      const worldZ = this.position.z + this.placement.dirZ * localZ
-      const y = getWalkRampHeight(this.surface, this.position.x, worldZ) ?? this.position.y
+      const point = this.localPoint(0, localZ)
+      const y = getWalkRampHeight(this.surface, point.x, point.z) ?? this.position.y
       part.mesh.position.set(side * (SIEGE_RAMP.halfWidth + .1), y - this.position.y + .45, localZ)
       part.mesh.rotation.x = along < length - 1 ? -Math.atan2(rise, length) : 0
     }
     for (const wheel of this.wheels) {
-      wheel.position.y = getTerrainHeight(this.position.x + wheel.position.x,
-        this.position.z + wheel.position.z * this.placement.dirZ) - this.position.y + .65
+      const point = this.localPoint(wheel.position.x, wheel.position.z)
+      wheel.position.y = getTerrainHeight(point.x, point.z) - this.position.y + .65
     }
     for (const part of this.parts) {
       const data = part.mesh.userData
       if (data.towerPanel || data.towerBrace || data.chassis) {
         const x = data.side * (SIEGE_RAMP.halfWidth + .1)
-        const ground = getTerrainHeight(this.position.x + x, this.position.z - this.placement.dirZ * platformLength / 2)
+        const point = this.localPoint(x, -platformLength / 2)
+        const ground = getTerrainHeight(point.x, point.z)
         const height = Math.max(1, this.position.y - ground + .8)
         if (data.towerPanel) {
           part.mesh.scale.y = height / 7 - .04
@@ -255,7 +269,8 @@ export class MobileSiegeRamp {
       }
       if (part.mesh.userData.support) {
         const { side, z } = part.mesh.userData
-        const ground = getTerrainHeight(this.position.x + side * 2, this.position.z + z * this.placement.dirZ)
+        const point = this.localPoint(side * 2, z)
+        const ground = getTerrainHeight(point.x, point.z)
         const height = Math.max(.25, this.position.y - ground - .5)
         part.mesh.scale.y = height
         part.mesh.position.set(side * 2, -height / 2, z)
@@ -269,9 +284,17 @@ export class MobileSiegeRamp {
     }
   }
 
+  private localPoint(x: number, z: number): THREE.Vector3 {
+    const dx = this.placement.dirX ?? 0, dz = this.placement.dirZ
+    return this.scratch.set(this.position.x + dz * x + dx * z, this.position.y, this.position.z - dx * x + dz * z)
+  }
+
   private transition(state: MobileSiegeRampState): void {
     if (state === 'DOCKED') this.updateGeometry()
-    if (state === 'DESTROYED') for (const obstacle of this.obstacles) removeObstacleData(this.shared, obstacle)
+    if (state === 'DESTROYED') {
+      this.root.visible = false
+      for (const obstacle of this.obstacles) removeObstacleData(this.shared, obstacle)
+    }
     if (state === 'DOCKED' || state === 'ABANDONED' || state === 'DESTROYED') {
       for (const npc of this.crew.values()) npc.siegeTransport = null
       this.platform.release(npc => {

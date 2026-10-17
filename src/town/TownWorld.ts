@@ -6,6 +6,7 @@ import { XONGKORO_LANDING } from '../world/EagleLanding'
 import { eagleLandingFootprint, isEagleLandingClear } from '../world/EagleLanding'
 import { isEagleApproachClear } from '../world/EagleApproach'
 import { resolveTownHRLayout, type TownHRLayout } from './TownHRLayout'
+import { TownDockPassages } from './TownDockPassages'
 import { createTownFortifications } from './TownFortifications'
 import { TOWN_CENTER, TOWN_WELL, townHousing, TOWN_CITY_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
 import * as THREE from 'three'
@@ -41,6 +42,7 @@ export class TownWorld {
   readonly airspaceObstacles: ObstacleData[] = []
   readonly camps: { faction: Faction; capacity: number; spawnPoints: THREE.Vector3[] }[] = []
   readonly targets: THREE.Vector3[] = []
+  readonly siegeDockPassages?: TownDockPassages
   readonly fortifications: ReturnType<typeof createTownFortifications>
   get gates() { return this.fortifications.gates }
   readonly buildings: { id: string; ownerFaction: Faction; campId?: number; obstacles: ObstacleData[]; hp: DamageableObstacle; roof: THREE.Group; ruin: THREE.Group; damaged: boolean }[] = []
@@ -55,7 +57,7 @@ export class TownWorld {
   private readonly roofMat = this.mat(this.faction === 'roman' ? 0x9f4f35 : 0x55574a)
   private readonly snow = this.mat(0xd8e3ea)
   private readonly canvas = this.mat(0xa89471)
-  constructor(readonly faction: CharacterFaction, scene: THREE.Scene, private readonly ownerAllegiance: Faction = Faction.TOWN) {
+  constructor(readonly faction: CharacterFaction, scene: THREE.Scene, private readonly ownerAllegiance: Faction = Faction.TOWN, options: { fourGateSiege?: boolean } = {}) {
     this.commandWatchtower = initializeTownWorldTerrain(scene)
     scene.add(this.root)
     this.roofMat.color.setHex(0xffffff); this.roofMat.map = this.surfaceTexture(faction === 'roman' ? 'tile' : 'thatch'); this.roofMat.bumpMap = this.roofMat.map; this.roofMat.bumpScale = .07
@@ -95,7 +97,8 @@ export class TownWorld {
       this.cube(this.root, wellX + side * 1.2, wellY + .5, wellZ, .3, 1, 2.7, this.stone)
       this.cube(this.root, wellX, wellY + .5, wellZ + side * 1.2, 2.7, 1, .3, this.stone)
     }
-    this.fortifications = createTownFortifications(faction, this.obstacles, { stone: this.stone, wood: this.wood, dark: this.dark, snow: this.snow })
+    if (options.fourGateSiege) this.siegeDockPassages = new TownDockPassages(this.obstacles)
+    this.fortifications = createTownFortifications(faction, this.obstacles, { stone: this.stone, wood: this.wood, dark: this.dark, snow: this.snow }, this.siegeDockPassages)
     this.root.add(this.fortifications.root); this.trackOwned(this.fortifications.root)
     this.batch(this.fortifications.wallRoot)
     for (const child of this.fortifications.wallRoot.children) if (child instanceof THREE.Group) this.batch(child)
@@ -470,5 +473,6 @@ export class TownWorld {
       item(side < 0 ? 'recurve_longbow' : 'wooden_shortbow', 'ranged', side * 4.5, 2, front + .4, side * .3)
     }
   }
-  dispose(): void { this.root.traverse(child => { if (child instanceof THREE.InstancedMesh) child.dispose() }); this.root.removeFromParent(); this.geometries.forEach(g => g.dispose()); this.materials.forEach(m => m.dispose()); this.textures.forEach(t => t.dispose()) }
+  dispose(): void {
+    this.siegeDockPassages?.dispose(); this.root.traverse(child => { if (child instanceof THREE.InstancedMesh) child.dispose() }); this.root.removeFromParent(); this.geometries.forEach(g => g.dispose()); this.materials.forEach(m => m.dispose()); this.textures.forEach(t => t.dispose()) }
 }
