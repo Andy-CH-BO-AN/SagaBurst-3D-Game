@@ -1,5 +1,4 @@
 import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult, recoverClaimedCareerBridgeBattle } from '../../src/career/CareerBridgeBattle'
-import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { COMMANDER_BRIDGEHEAD_ID, createBridgeheadRoster } from '../../src/career/CommanderMissionCatalog'
 import { describe, expect, it } from 'vitest'
 import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
@@ -243,7 +242,8 @@ describe('Bridgehead official field battle', () => {
       expect(roster.friendly).toHaveLength(200); expect(roster.enemy).toHaveLength(200)
       expect(new Set([...roster.friendly, ...roster.enemy].map(spec => spec.actorId)).size).toBe(400)
       expect(authority.commandRank).toBe('commander'); expect(authority.squads).toHaveLength(8)
-      expect(mission.personalSquad).toBeUndefined()
+      expect(mission.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+      expect(authority.actorIds).not.toContain('personal:hr-1')
       for (const squad of authority.squads!) {
         const friendly = roster.friendly.filter(spec => spec.squadId === squad.squadId)
         const enemy = roster.enemy.filter(spec => spec.squadId === squad.squadId)
@@ -275,6 +275,7 @@ describe('Bridgehead official field battle', () => {
     expect(runtime.enemyAlive).toBe(1)
     expect(runtime.outcome(true, false)).toBeNull(); expect(runtime.outcome(true, true)).toBeNull()
     runtime.observe(mission, mission.friendlyActorIds.map(combatantId => ({ combatantId, dead: true })))
+    expect(runtime.outcome(true, true, 1)).toBeNull() // The last deployed HR member can still win.
     expect(runtime.outcome(true, true)).toBe('failure')
     runtime.recordDeath(mission.targetActorIds[199]) // drowning and allied kills use the same confirmed NPC death
     runtime.observe(mission, [])
@@ -286,8 +287,12 @@ describe('Bridgehead official field battle', () => {
   it('restores casualties and commands and commits defense merit plus Tier 5 victory once after a failed save', () => {
     const profile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true), mission = profile.activeMission!
     delete mission.bridgeDeployment // Legacy in-progress saves resume the assault without another countdown.
-    profile.personalSquadRuntime = snapshotPersonalMission(profile)
-    const privateBefore = structuredClone(profile.personalSquadRuntime)
+    mission.personalSquad!.sceneKey = `bridge:${mission.id}`
+    mission.personalSquad!.state = 'ACTIVE'
+    mission.personalSquad!.members['personal:hr-1'] = { status: 'deployed', hp: 17, order: 'formation',
+      position: { x: -5, z: -100, yaw: 0 },
+      formation: { commandId: 8, position: { x: 4, z: -45, yaw: 0 }, reached: false, arrivalOrder: 'defend' },
+      mount: { hp: 0, mounted: false, position: { x: -6, z: -99, yaw: 0 } } }
     const stats = { player: { damageDealt: 0, damageTaken: 10, kills: 0, structureDamage: 0,
       structuresDestroyed: 0, gateBreaches: 0, survived: false }, squads: [],
       meritPlayer: { damageDealt: 80, damageTaken: 10, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false } }
@@ -312,6 +317,7 @@ describe('Bridgehead official field battle', () => {
     expect(createCareerBridgeOrphanMountPlan(restored)).toMatchObject([{ actorId: mission.targetActorIds[0], saved: { hp: 42 } }])
     expect(restored.activeMission!.officialSquad!.members![actor].formation).toEqual(mission.officialSquad!.members![actor].formation)
     expect(restored.activeMission!.bridgeBattle!.actors[dismounted].mount!.hp).toBe(0)
+    expect(restored.activeMission!.personalSquad).toEqual(mission.personalSquad)
     expect(restored.activeMission!.bridgeBattle!.player).toMatchObject({ dead: true, mountActorId: mission.targetActorIds[0],
       homeMount: { hp: 12, position: { x: 15, z: -40, yaw: 1 } } })
     restored.activeMission!.deadTargetActorIds = [...mission.targetActorIds]
@@ -328,7 +334,45 @@ describe('Bridgehead official field battle', () => {
     expect(commitCareerBridgeBattleResult(store, mission.id, stats)!.alreadyClaimed).toBe(true)
     const reloadedClaim = store.load()!
     expect(reloadedClaim.totalMerit).toBe(claimed.profile.totalMerit)
-    expect(reloadedClaim.personalSquadRuntime).toEqual(privateBefore)
+    expect(reloadedClaim.activeMission!.personalSquad).toEqual(mission.personalSquad)
+  })
+
+  it('keeps the last HR survivor fighting after reload and restores its surviving mount without reviving a dead rider', () => {
+    const profile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true), mission = profile.activeMission!
+    const id = mission.personalSquad!.memberIds[0]
+    profile.personalSquad!.members[0].type = 'captain'
+    mission.playerDead = true
+    mission.bridgeDeployment = { phase: 'assault', preparationRemainingSeconds: 0 }
+    mission.commanderMission!.deploymentComplete = true
+    mission.deadFriendlyActorIds = [...mission.friendlyActorIds]
+    mission.deadTargetActorIds = mission.targetActorIds.slice(0, 199)
+    mission.personalSquad!.sceneKey = `bridge:${mission.id}`
+    mission.personalSquad!.state = 'ACTIVE'
+    mission.personalSquad!.members[id] = { status: 'deployed', hp: 11, order: 'defend',
+      position: { x: 0, z: -90, yaw: 0 },
+      mount: { hp: 21, mounted: false, position: { x: 5, z: -95, yaw: 1 } } }
+    const playerStats = { damageDealt: 0, damageTaken: 20, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }
+    mission.bridgeBattle = { ready: true, player: { hp: 0, stamina: 0, dead: true,
+      position: { x: 5, z: -95, yaw: 1 }, ammo: 0, shieldImpact: 0, mountActorId: id }, playerStats,
+      actors: Object.fromEntries([...mission.friendlyActorIds, ...mission.targetActorIds].map(actorId =>
+        [actorId, { status: actorId === mission.targetActorIds[199] ? 'deployed' : 'dead' }])) }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const stats = { player: { ...playerStats, survived: false }, squads: [] }
+    expect(store.load()!.activeMission!.bridgeBattle!.player.mountActorId).toBe(id)
+    expect(commitCareerBridgeBattleResult(store, mission.id, stats)).toBeNull()
+    expect(store.load()!.activeMission!.result).toBeUndefined()
+    const casualty = store.load()!
+    casualty.activeMission!.personalSquad!.members[id].status = 'dead'
+    casualty.activeMission!.personalSquad!.members[id].hp = 0
+    expect(store.save(casualty)).toBe(true)
+    const resumed = store.load()!
+    expect(createCareerBridgeSpawnPlan(resumed).npcSpecs).toHaveLength(1)
+    expect(createCareerBridgeOrphanMountPlan(resumed)).toMatchObject([{ actorId: id, mountId: 'horse', saved: { hp: 21 } }])
+    expect(commitCareerBridgeBattleResult(store, mission.id, stats)?.profile.activeMission!.result?.outcome).toBe('failure')
+    const corrupted = structuredClone(resumed)
+    corrupted.activeMission!.bridgeBattle!.player.mountActorId = 'personal:unaccepted'
+    expect(parseCareerProfile(corrupted)?.activeMission).toBeUndefined()
   })
 
   it('spawns only friendlies during three-minute preparation and resumes the saved remaining time', () => {
@@ -400,11 +444,14 @@ describe('Bridgehead reload routing', () => {
     structuresDestroyed: 0, gateBreaches: 0, survived: true }
 
   it('saves a claimed mission return without changing rewards or mutating the loaded profile', () => {
-    const acceptedProfile = accepted(COMMANDER_BRIDGEHEAD_ID)
+    const acceptedProfile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true)
+    acceptedProfile.activeMission!.personalSquad!.members['personal:hr-1'] = { status: 'dead', hp: 0,
+      mount: { hp: 0, mounted: false, position: { x: 1, z: -25, yaw: 0 } } }
     const id = acceptedProfile.activeMission!.id
     const claimed = claimCareerMission(acceptedProfile, id, 'victory', stats).profile
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(claimed)).toBe(true)
+    const owned = store.load()!.personalSquad
 
     expect(recoverClaimedCareerBridgeBattle(claimed, store)).toBe('return-to-town')
     expect(claimed.activeMission?.id).toBe(id)
@@ -413,6 +460,8 @@ describe('Bridgehead reload routing', () => {
     expect(returned.claimedBattleIds).toEqual(claimed.claimedBattleIds)
     expect(returned.totalMerit).toBe(claimed.totalMerit)
     expect(returned.lifetimeStats).toEqual(claimed.lifetimeStats)
+    expect(returned.personalSquadRuntime).toEqual(claimed.activeMission!.personalSquad)
+    expect(returned.personalSquad).toEqual(owned)
   })
 
   it('keeps the unclaimed mission resumable after settlement saving fails', () => {

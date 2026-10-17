@@ -8,6 +8,8 @@ import type { CareerProfileStore } from './CareerProfileStore'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import { BRIDGEHEAD_PREPARATION_SECONDS, resolveCareerMissionOutcome, type ActiveCareerMission, type BridgeBattleDeployment } from './CareerMissionState'
 import { commanderActorConfirmedDead } from './CommanderOutpost'
+import { clonePersonalMission } from './CareerPersonalSquadMission'
+import { legacyPersonalEquipment } from './CareerInventory'
 
 /** A trusted Career launch, separate from Campaign stages and untrusted free battle config. */
 export interface CareerBridgeBattleLaunch {
@@ -25,7 +27,16 @@ export function recoverClaimedCareerBridgeBattle(profile: CareerProfile,
   store: Pick<CareerProfileStore, 'save'>): 'resume' | 'return-to-town' | 'save-failed' {
   const mission = profile.activeMission
   if (!isCareerBridgeBattle(mission) || !mission || !profile.claimedBattleIds.includes(mission.id)) return 'resume'
-  return store.save(clearCareerMission(profile, mission.id)) ? 'return-to-town' : 'save-failed'
+  return store.save(clearCareerBridgeBattle(profile, mission.id)) ? 'return-to-town' : 'save-failed'
+}
+
+/** Carry battle-worn HR checkpoints through the same atomic save that clears the mission. */
+export function clearCareerBridgeBattle(profile: CareerProfile, missionId: string): CareerProfile {
+  const personal = profile.activeMission?.id === missionId && isCareerBridgeBattle(profile.activeMission)
+    ? profile.activeMission.personalSquad : undefined
+  const next = clearCareerMission(profile, missionId)
+  if (personal) next.personalSquadRuntime = clonePersonalMission(personal)
+  return next
 }
 
 export function createCareerBridgeBattleLaunch(profile: CareerProfile): CareerBridgeBattleLaunch {
@@ -67,11 +78,19 @@ export function createCareerBridgeSpawnPlan(profile: CareerProfile, wave: 'initi
 /** Rider death does not remove a surviving, dismounted mount from the saved battlefield. */
 export function createCareerBridgeOrphanMountPlan(profile: CareerProfile) {
   const mission = profile.activeMission!
-  return createBridgeheadRoster(mission, profile.faction).enemy.flatMap(spec => {
+  const enemy = createBridgeheadRoster(mission, profile.faction).enemy.flatMap(spec => {
     const actor = mission.bridgeBattle?.actors[spec.actorId!]
     return actor?.mount && actor.mount.hp > 0 && (commanderActorConfirmedDead(mission, spec.actorId!) || actor.status === 'dead' || actor.hp === 0)
       ? [{ actorId: spec.actorId!, mountId: spec.loadout!.mountId!, stableKey: `${spec.characterFaction}:${spec.name}:${spec.tier}`, saved: actor.mount }] : []
   })
+  const personal = (profile.personalSquad?.members ?? []).flatMap(member => {
+    if (!mission.personalSquad?.memberIds.includes(member.id)) return []
+    const actor = mission.personalSquad.members[member.id]
+    const mountId = (member.equipment ?? legacyPersonalEquipment(member.type, profile.faction)).mount
+    return mountId && actor?.status === 'dead' && actor.mount && actor.mount.hp > 0
+      ? [{ actorId: member.id, mountId, stableKey: null, saved: actor.mount }] : []
+  })
+  return [...enemy, ...personal]
 }
 
 /** Stable objective accounting. Missing/queued actors remain alive; mount IDs never enter these sets. */
@@ -82,7 +101,6 @@ export class CareerBridgeBattleRuntime {
   readonly targetIds: Set<string>
   readonly deadFriendly: Set<string>
   readonly deadTargets: Set<string>
-  readonly squadAlive = Array<number>(8).fill(25)
   friendlyAlive = 200
   enemyAlive = 200
 
@@ -136,14 +154,11 @@ export class CareerBridgeBattleRuntime {
   private updateCounts(mission: ActiveCareerMission): void {
     this.friendlyAlive = mission.friendlyActorIds.reduce((n, id) => n + Number(!this.deadFriendly.has(id)), 0)
     this.enemyAlive = mission.targetActorIds.reduce((n, id) => n + Number(!this.deadTargets.has(id)), 0)
-    for (const squad of mission.officialSquad?.squads ?? []) {
-      this.squadAlive[squad.squadId - 1] = squad.actorIds.reduce((n, id) => n + Number(!this.deadFriendly.has(id)), 0)
-    }
   }
 
-  outcome(playerDead: boolean, deploymentReady: boolean) {
+  outcome(playerDead: boolean, deploymentReady: boolean, personalAlive = 0) {
     if (!deploymentReady || this.deploymentState.phase !== 'assault') return null
-    return resolveCareerMissionOutcome(playerDead, true, this.enemyAlive, this.friendlyAlive)
+    return resolveCareerMissionOutcome(playerDead, true, this.enemyAlive, this.friendlyAlive + personalAlive)
   }
 }
 
@@ -154,8 +169,13 @@ export function commitCareerBridgeBattleResult(store: Pick<CareerProfileStore, '
   const mission = profile?.activeMission
   if (!profile || !mission || mission.id !== missionId || !isCareerBridgeBattle(mission)) return null
   const runtime = new CareerBridgeBattleRuntime(mission)
+  const personalAlive = mission.personalSquad?.memberIds.filter(id => {
+    const actor = mission.personalSquad!.members[id]
+    return actor && actor.hp !== 0 && (actor.status === 'deployed'
+      || actor.status === 'reserve' && mission.personalSquad!.pendingMemberIds?.includes(id))
+  }).length ?? 0
   const outcome = mission.result?.outcome ?? runtime.outcome(mission.playerDead === true,
-    mission.commanderMission?.deploymentComplete === true && mission.bridgeBattle?.ready === true)
+    mission.commanderMission?.deploymentComplete === true && mission.bridgeBattle?.ready === true, personalAlive)
   if (!outcome) return null
   const claim = claimCareerMission(profile, missionId, outcome, stats.player, stats.meritPlayer)
   return store.save(claim.profile) ? claim : null

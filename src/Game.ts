@@ -1,4 +1,4 @@
-import { CareerBridgeBattleRuntime, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, isCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
+import { CareerBridgeBattleRuntime, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, isCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { preloadHighTierEquipment } from './world/HighTierEquipment'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
@@ -1339,7 +1339,7 @@ export class Game {
     if (!this.careerProfile) this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState))
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
     if (this.hasCareerOfficialCommand) {
-      this.armyCommandUI.setOfficialSquadLabel('Mission Squad · 任務部隊')
+      this.armyCommandUI.setOfficialSquadLabel(this.bridgeLaunch ? '第 1 隊' : 'Mission Squad · 任務部隊')
     }
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = this.isTrainingGround ? createTrainingInventory(playerHeroId) : new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId, playerFaction)
@@ -2395,7 +2395,8 @@ export class Game {
     const personal: PersonalSquadMission | undefined = accepted
       ? sameRoster ? { ...accepted, members: live!.members } : accepted : undefined
     return careerCommandHudRoster({
-      sceneKey: this.captainEagleMissionId ? `eagle:${this.captainEagleMissionId}` : `outpost:${mission?.id ?? 'free'}`,
+      sceneKey: this.bridgeLaunch ? `bridge:${this.fieldMissionId}`
+        : this.captainEagleMissionId ? `eagle:${this.captainEagleMissionId}` : `outpost:${mission?.id ?? 'free'}`,
       faction: profile.faction,
       ...(mission ? { missionId: mission.id } : {}),
       official,
@@ -2535,10 +2536,15 @@ export class Game {
     if (this.bridgeLaunch && restoreOrphans) for (const orphan of createCareerBridgeOrphanMountPlan(this.careerProfile!)) {
       batch.enqueue(`${orphan.actorId}:orphan-mount`, () => {
         const p = orphan.saved.position
-        const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(orphan.mountId), p.x, p.z, undefined, horseVariantForStableKey(orphan.stableKey)))
+        const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(orphan.mountId), p.x, p.z, undefined,
+          orphan.stableKey ? horseVariantForStableKey(orphan.stableKey) : 0))
         mount.currentHp = Math.min(mount.maxHp, orphan.saved.hp)
         mount.group.position.set(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z)
         mount.group.rotation.y = p.yaw
+        if (orphan.saved.flight && mount.flight) {
+          mount.flight.restore(orphan.saved.flight)
+          mount.group.rotation.set(-orphan.saved.flight.pitch, orphan.saved.flight.yaw, orphan.saved.flight.bank, 'YXZ')
+        }
         this.careerVeteranActorMounts.set(orphan.actorId, mount)
         this.mounts.push(mount); this._aimTargetRegistry.registerMount(mount)
       })
@@ -2583,11 +2589,12 @@ export class Game {
       for (const npc of this.npcs) if (npc.combatOwnership !== 'player-personal') actors[npc.combatantId] = snapshotCommandActor(npc,
         this.careerVeteranActorMounts.get(npc.combatantId) ?? undefined)
       if (this.bridgeLaunch) for (const [id, homeMount] of this.careerVeteranActorMounts) {
-        const saved = actors[id]
-        if (homeMount && saved?.status === 'dead') actors[id] = { ...saved, mount: {
+        const saved = actors[id] ?? mission.personalSquad?.members[id]
+        if (homeMount && saved?.status === 'dead') saved.mount = {
           hp: homeMount.dead ? 0 : homeMount.currentHp, mounted: false,
           position: { x: homeMount.group.position.x, y: homeMount.group.position.y, z: homeMount.group.position.z, yaw: homeMount.group.rotation.y },
-        } }
+          ...(homeMount.flight ? { flight: homeMount.flight.snapshot() } : {}),
+        }
       }
       const playerMount = this.bridgeLaunch ? this.player.currentMount ?? mount : mount
       const mountActorId = this.bridgeLaunch && playerMount && playerMount !== mount
@@ -2731,7 +2738,7 @@ export class Game {
     if (this.bridgeRuntime) {
       const runtime = this.bridgeRuntime
       runtime.observe(mission, this.npcs)
-      this.captainEagleHud?.updateBridgehead(runtime.friendlyAlive, runtime.enemyAlive, runtime.squadAlive,
+      this.captainEagleHud?.updateBridgehead(runtime.enemyAlive,
         runtime.deployment, this.captainEagleSpawnBatch?.completed ?? 0)
       if (this.captainResultPending) return
       if (mission.result) {
@@ -2755,7 +2762,9 @@ export class Game {
           }
         }
       }
-      const result = runtime.outcome(this.player.dead, this.captainEagleSpawnBatch?.ready === true && mission.commanderMission?.deploymentComplete === true)
+      const result = runtime.outcome(this.player.dead,
+        this.captainEagleSpawnBatch?.ready === true && mission.commanderMission?.deploymentComplete === true,
+        this.personalSquad?.aliveCombatants ?? 0)
       if (result) this._showCaptainEagleResult(result)
       return
     }
@@ -2896,8 +2905,9 @@ export class Game {
     if (campaign?.careerCommanderOutpost && (this.careerProfile?.activeMission?.result
       || campaign.careerCommanderOutpost.runtimeState.battleFinished)) return
     const saved = mission?.personalSquad
-    if ((!campaign?.careerMissionId && !this.captainEagleMissionId) || !this.careerProfile || !saved?.memberIds.length) return
-    const sceneKey = this.captainEagleMissionId ? `eagle:${this.captainEagleMissionId}` : `outpost:${campaign!.careerMissionId}`
+    if ((!campaign?.careerMissionId && !this.fieldMissionId) || !this.careerProfile || !saved?.memberIds.length) return
+    const sceneKey = this.bridgeLaunch ? `bridge:${this.fieldMissionId}`
+      : this.captainEagleMissionId ? `eagle:${this.captainEagleMissionId}` : `outpost:${campaign!.careerMissionId}`
     const changedScene = saved.sceneKey !== sceneKey
     const placement = campaign ? getCampaignOutpostPlacement(careerVeteranOutpostOwner(campaign)) : null
     const outside = !campaign || campaign.careerMissionKind === 'outpost-relief' || campaign.careerMissionKind === 'veteran-outpost-assault'
@@ -2905,7 +2915,9 @@ export class Game {
     const owned = new Map(this.careerProfile.personalSquad?.members.map(member => [member.id, member]))
     const flyingIds = new Set(saved.memberIds.filter(id => owned.get(id)?.equipment?.mount === 'xongkoro'))
     const playerFlying = this.player.currentMount?.isFlyingMount === true
-    const officialPositions = this.npcs.filter(npc => !npc.dead && npc.faction === Faction.PLAYER).map(npc => npc.combatPosition)
+    const officialPositions = this.bridgeLaunch
+      ? createBridgeheadRoster(this.careerProfile.activeMission!, this.careerProfile.faction).friendly
+      : this.npcs.filter(npc => !npc.dead && npc.faction === Faction.PLAYER).map(npc => npc.combatPosition)
     // Do not anchor ground deployment to the Player's relocated eagle touchdown.
     // Stage IX defenders have a bounded interior; that bounds is authoritative.
     const anchor = campaign && !outside
@@ -2927,7 +2939,8 @@ export class Game {
       : null
     const regularMuster = ground?.regularMuster ?? saved.memberIds.map(id => saved.members[id]?.position ?? anchor)
     const groundPositions = ground?.groundPositions ?? regularMuster.filter((_, index) => !flyingIds.has(saved.memberIds[index]))
-    const occupied = [...this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), ...groundPositions]
+    const occupied = [...(this.bridgeLaunch ? officialPositions : []),
+      ...this.npcs.filter(npc => !npc.dead).map(npc => npc.combatPosition), ...groundPositions]
     // Plan all three eagle landing envelopes before mutating the Player or
     // starting any NPC spawn job. A missing pad cannot leave partial deployment.
     const playerPoint = changedScene
@@ -2964,9 +2977,11 @@ export class Game {
       emit: this.combatEvents.emit,
       onSpawn: (npc, mount) => {
         this.npcs.push(npc); this.battleStats.registerNpc(npc); this._aimTargetRegistry.registerNpc(npc)
+        if (this.bridgeLaunch) this.careerVeteranActorMounts.set(npc.combatantId, mount ?? null)
         if (mount) { this.mounts.push(mount); this._aimTargetRegistry.registerMount(mount) }
       },
       onDispose: (npc, mount) => {
+        if (this.bridgeLaunch) this.careerVeteranActorMounts.delete(npc.combatantId)
         this._aimTargetRegistry.unregisterNpc(npc)
         const index = this.npcs.indexOf(npc); if (index >= 0) this.npcs.splice(index, 1)
         if (mount) { this._aimTargetRegistry.unregisterMount(mount); const index = this.mounts.indexOf(mount); if (index >= 0) this.mounts.splice(index, 1) }
@@ -3567,7 +3582,8 @@ export class Game {
       : this.defenseCampaignConfig?.careerVeteranOutpost?.missionId
         ?? this.defenseCampaignConfig?.careerCommanderOutpost?.missionId)
     const next = activeMissionId
-      ? profile?.activeMission ? clearCareerMission(profile, activeMissionId) : profile
+      ? profile?.activeMission ? this.bridgeLaunch ? clearCareerBridgeBattle(profile, activeMissionId)
+        : clearCareerMission(profile, activeMissionId) : profile
       : profile ? clearCareerOutpost(profile) : null
     if (!next || !this.careerStore.save(refitTownCommandForSceneChange(next))) { this._showNotify('無法保存返回狀態，請重試'); return }
     this.personalSquad?.endMission(true)

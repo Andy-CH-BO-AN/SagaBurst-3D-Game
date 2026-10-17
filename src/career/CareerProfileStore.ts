@@ -269,6 +269,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const battle = parseCareerOutpostCheckpoint(raw.battle)
   const eagleBattle = parseCaptainEagleCheckpoint(raw.eagleBattle)
   const bridgeBattle = parseCaptainEagleCheckpoint(raw.bridgeBattle, 400)
+  const personalSquad = parsePersonalMission(raw.personalSquad)
   const rawBridgeDeployment = raw.bridgeDeployment as Record<string, unknown> | undefined
   const bridgeDeployment = rawBridgeDeployment && ['preparing', 'spawning', 'assault'].includes(rawBridgeDeployment.phase as string)
     && typeof rawBridgeDeployment.preparationRemainingSeconds === 'number' && Number.isFinite(rawBridgeDeployment.preparationRemainingSeconds)
@@ -285,8 +286,10 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       || squad.actorIds.length !== 25 || squad.actorIds.some((id, slot) => id !== friendlyActorIds[index * 25 + slot]))
     || bridgeBattle && (Object.keys(bridgeBattle.actors).length !== 400
       || Object.keys(bridgeBattle.actors).some(id => !knownActorIds.has(id))
-      || bridgeBattle.player.mountActorId && (!targetActorIds.includes(bridgeBattle.player.mountActorId)
-        || !bridgeBattle.actors[bridgeBattle.player.mountActorId]?.mount)))) return undefined
+      || bridgeBattle.player.mountActorId && !(targetActorIds.includes(bridgeBattle.player.mountActorId)
+        && bridgeBattle.actors[bridgeBattle.player.mountActorId]?.mount
+        || personalSquad?.memberIds.includes(bridgeBattle.player.mountActorId)
+          && personalSquad.members[bridgeBattle.player.mountActorId]?.mount)))) return undefined
   const marchPosition = raw.mountedMarchPosition as { x?: unknown; z?: unknown } | undefined
   const mountedMarchPosition = marchPosition && typeof marchPosition.x === 'number' && Number.isFinite(marchPosition.x)
     && typeof marchPosition.z === 'number' && Number.isFinite(marchPosition.z) ? { x: marchPosition.x, z: marchPosition.z } : undefined
@@ -394,7 +397,6 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       }
     }
   }
-  const personalSquad = parsePersonalMission(raw.personalSquad)
   if (personalSquad && mission.kind !== 'duel') mission.personalSquad = personalSquad
   if (mission.result && raw.result && typeof raw.result === 'object') {
     const meritStats = parseMissionPlayerStats((raw.result as Record<string, unknown>).meritStats)

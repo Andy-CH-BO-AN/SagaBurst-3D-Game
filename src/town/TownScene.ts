@@ -799,7 +799,7 @@ export class TownScene {
     const missionFinished = Boolean(next.activeMission?.result
       && next.activeMission.id === this.profile.activeMission?.id && !this.profile.activeMission.result)
     const active = next.activeMission ?? next.activeOutpostMission
-    if ((newMission || newOutpost) && next.activeMission?.kind !== 'duel' && next.activeMission?.kind !== 'commander-bridgehead-battle') {
+    if ((newMission || newOutpost) && next.activeMission?.kind !== 'duel') {
       const roster = snapshotPersonalMission(next)
       if (roster) active!.personalSquad = this.personalSquad?.captureForNewMission(roster) ?? roster
     } else if (active?.personalSquad) {
@@ -810,9 +810,7 @@ export class TownScene {
       }
     }
     if (missionFinished && active?.personalSquad) active.personalSquad = followDeployedPersonalMission(active.personalSquad)
-    if (newMission && next.activeMission?.kind === 'commander-bridgehead-battle') {
-      next.personalSquadRuntime = this.personalSquad?.checkpoint() ?? next.personalSquadRuntime
-    } else if (newMission || newOutpost) next.personalSquadRuntime = undefined
+    if (newMission || newOutpost) next.personalSquadRuntime = undefined
     const townClaimStateChanged = JSON.stringify([
       next.townCommandSquad?.commandedActorIds,
       next.townCommandSquad?.nativeReturnStates,
@@ -830,7 +828,7 @@ export class TownScene {
     if (newMission || newOutpost) {
       this.personalCommands?.close()
       if (next.activeMission?.kind === 'duel') this.personalSquad?.cleanup()
-      else if (next.activeMission?.kind !== 'commander-bridgehead-battle') this.personalSquad?.beginMission(active?.personalSquad)
+      else this.personalSquad?.beginMission(active?.personalSquad)
     }
     if (next.activeMission && next.activeMission.id !== this.profile.activeMission?.id) {
       this.player?.shield?.reset()
@@ -1706,11 +1704,9 @@ export class TownScene {
         ? '正式兵力：玩家 1 人 + 2 支 25 人 T4 Ranger·xongkoro 空降隊；敵方：敵城原生人員（擊殺任意 100 人取勝）。私兵最多額外 30 人。'
         : definition.id === COMMANDER_DECAPITATION_ID
           ? '正式兵力：玩家 1 人 + 前任 T5 Commander + 10 T4 Lancer + 10 T4 Sword/Axe Cavalry + 9 T4 Horse Archer（全員騎乘）；敵方：敵城全體，斬首目標為 T5 Commander 1 人。'
-          : definition.id === COMMANDER_BRIDGEHEAD_ID ? '正式兵力：玩家1人 + 八隊各25名步兵；敵方八隊各25名騎兵。雙方各192 T3 + 8 T4。私兵留守。'
+          : definition.id === COMMANDER_BRIDGEHEAD_ID ? '正式兵力：玩家1人 + 八隊各25名步兵；敵方八隊各25名騎兵。雙方各192 T3 + 8 T4。現有 HR 私兵最多額外30人，沿用原裝備與坐騎。'
           : '正式兵力：玩家 1 人 + 4 支 30 人步兵隊；敵軍：48 T3 + 2 T4 Lancer、24 T3 + 1 T4 Sword/Axe Cavalry、24 T3 + 1 T4 Horse Archer。60 秒部署。'
-      const survival = definition.id === COMMANDER_BRIDGEHEAD_ID
-        ? '玩家戰死後可觀戰；只要我方正式部隊仍有存活士兵，戰鬥就會繼續。'
-        : '玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。'
+      const survival = '玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。'
       details.textContent = `${definition.briefing}\n${force}\n${survival}`
       const accept = document.createElement('button'); accept.className = 'town-button'
       accept.disabled = !availability.unlocked

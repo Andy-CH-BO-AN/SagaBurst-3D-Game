@@ -163,7 +163,7 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
       bridgeDeployment: { phase: 'preparing' as const, preparationRemainingSeconds: BRIDGEHEAD_PREPARATION_SECONDS },
     } : {}),
     officialSquad: createMissionCommandAuthority(id, profile.faction, profile.rank, friendlyActorIds, squads),
-    ...(templateId !== COMMANDER_BRIDGEHEAD_ID ? { personalSquad: snapshotPersonalMission(profile) } : {}),
+    personalSquad: snapshotPersonalMission(profile),
   }
 }
 

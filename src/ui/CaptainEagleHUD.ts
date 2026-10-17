@@ -9,7 +9,7 @@ export class CaptainEagleHUD {
 
   constructor(private readonly variant: 'eagle' | 'bridgehead' = 'eagle') {
     this.root.id = variant === 'bridgehead' ? 'bridgehead-battle-hud' : 'captain-eagle-hud'
-    this.root.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);padding:10px 20px;background:rgba(14,12,10,.85);border:1px solid #8e7b65;color:#e5d8c3;z-index:100;pointer-events:none;text-align:center'
+    if (variant === 'eagle') this.root.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);padding:10px 20px;background:rgba(14,12,10,.85);border:1px solid #8e7b65;color:#e5d8c3;z-index:100;pointer-events:none;text-align:center'
     document.body.append(this.root)
   }
 
@@ -24,13 +24,14 @@ export class CaptainEagleHUD {
     this.root.textContent = `Eagle Battle · 巨鷹空戰｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式隊 ${official} · 私兵 ${personal}｜敵軍 ${enemyAlive}`
   }
 
-  updateBridgehead(friendlyAlive: number, enemyAlive: number, squads: readonly number[],
+  updateBridgehead(enemyAlive: number,
     deployment: Readonly<BridgeBattleDeployment>, spawned: number): void {
+    const seconds = Math.ceil(deployment.preparationRemainingSeconds)
+    const countdown = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
     const status = deployment.phase === 'preparing'
-      ? `準備倒數：${Math.ceil(deployment.preparationRemainingSeconds)} 秒｜可移動與指揮部隊，倒數結束後敵軍從南岸遠方出現`
-      : deployment.phase === 'spawning' ? `敵軍正在南岸遠方集結：${spawned} / 200` : '敵軍進攻中'
-    this.root.style.whiteSpace = 'pre-line'
-    this.root.textContent = `COMMANDER IV · BRIDGEHEAD BATTLE\n${status}\n我方：${friendlyAlive} / 200　敵方：${enemyAlive} / 200\n目標：全滅敵方騎兵\n${squads.map((alive, index) => `Squad ${index + 1}  ${alive}/25`).join('　')}`
+      ? `準備 ${countdown} · 敵騎尚未進場`
+      : deployment.phase === 'spawning' ? `南岸敵騎集結：${spawned} / 200` : '敵軍進攻中'
+    this.root.textContent = `COMMANDER IV · BRIDGEHEAD BATTLE\n${status}\n目標：殲滅敵騎 · 剩餘 ${enemyAlive} / 200`
   }
 
   showResult(outcome: CareerMissionOutcome, merit: number, stats: BattleStatsSnapshot, onReturn: () => void): void {
