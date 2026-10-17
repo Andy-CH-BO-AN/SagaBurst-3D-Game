@@ -141,6 +141,23 @@ describe('Career Town layout checkpoint migration', () => {
     expect(saved).toEqual(before)
   })
 
+  it.each([{ boarding: false, mounted: true }, { boarding: true, mounted: false }])(
+    'keeps a v3 eagle at a v1 historical location in place when boarding=$boarding', ({ boarding, mounted }) => {
+      const formation = { commandId: 7, position: { x: -90, y: 2, z: 56, yaw: 0 }, reached: true }
+      const saved = personal({ boarding, order: 'follow', formation,
+        position: { x: privateHome.x + 1, y: mounted ? 5 : 2, z: privateHome.z + 2, yaw: .7 },
+        mount: { hp: 73, mounted, position: { ...privateHome }, flight: { ...grounded } } })
+      saved.layoutVersion = 3
+      const before = structuredClone(saved), actor = saved.members['personal:eagle']
+      const next = migratePersonalTownLayout(saved, 'town-home', layout, terrain)!
+      expect(next.members['personal:eagle']).toEqual({ ...before.members['personal:eagle'],
+        ...(boarding ? { formation: { ...formation, position: { ...privateHome }, reached: false } } : {}) })
+      expect(next.members['personal:eagle'].mount).toBe(actor.mount)
+      expect(next.members['personal:eagle'].position).toBe(actor.position)
+      expect(saved).toEqual(before)
+      expect(migratePersonalTownLayout(next, 'town-home', layout, terrain)).toBe(next)
+    })
+
   it.each([
     { version: 2, x: -95, z: 65 },
     { version: 3, x: -90, z: 56 },
