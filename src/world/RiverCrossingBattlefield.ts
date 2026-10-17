@@ -449,10 +449,10 @@ export function getRiverCrossingMeadowWear(x: number, z: number): number {
  * Tree clearance zones ensuring default terrain pine trees never spawn inside
  * the river channel, bridge approaches, defensive walls, or 200-unit staging areas.
  */
-export function getRiverCrossingTreeClearances(): THREE.Box3[] {
+export function getRiverCrossingTreeClearances(distantCavalry = false): THREE.Box3[] {
   return [
     new THREE.Box3(new THREE.Vector3(-325, -10, -40), new THREE.Vector3(325, 20, 40)),
-    new THREE.Box3(new THREE.Vector3(-110, -10, -160), new THREE.Vector3(110, 20, 180)),
+    new THREE.Box3(new THREE.Vector3(-110, -10, -160), new THREE.Vector3(110, 20, distantCavalry ? RIVER_CROSSING_LAYOUT.worldBound : 180)),
   ]
 }
 
@@ -584,7 +584,7 @@ export function getBridgeFiveCavalryLanePositions(
  * Pure deployment planner for 8 friendly infantry squads (25 soldiers each = 200 total)
  * on the North Bank (-Z) around the bridgehead and defensive walls.
  */
-export function planNorthBankInfantryDeployment(): InfantrySquadDeploymentPlan[] {
+export function planNorthBankInfantryDeployment(faction?: CharacterFaction): InfantrySquadDeploymentPlan[] {
   const configs: ReadonlyArray<{
     squadId: number
     role: InfantrySquadDeploymentPlan['role']
@@ -622,7 +622,8 @@ export function planNorthBankInfantryDeployment(): InfantrySquadDeploymentPlan[]
     }
     return {
       squadId: cfg.squadId,
-      role: cfg.role,
+      role: faction ? cfg.squadId <= 2 ? 'spearman' : cfg.squadId <= 4 ? 'melee_infantry'
+        : faction === 'roman' && cfg.squadId <= 6 ? 'javelin' : 'archer' : cfg.role,
       slots,
     }
   })
@@ -632,7 +633,7 @@ export function planNorthBankInfantryDeployment(): InfantrySquadDeploymentPlan[]
  * Pure staging planner for 8 enemy cavalry squads (25 riders each = 200 total:
  * 100 sword/axe melee cavalry + 100 lance cavalry) on the South Bank (+Z).
  */
-export function planSouthBankCavalryStaging(): CavalrySquadStagingPlan[] {
+export function planSouthBankCavalryStaging(frontZ = 74): CavalrySquadStagingPlan[] {
   const configs: ReadonlyArray<{
     squadId: number
     role: CavalrySquadStagingPlan['role']
@@ -661,7 +662,7 @@ export function planSouthBankCavalryStaging(): CavalrySquadStagingPlan[] {
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < columns; col++) {
         const x = cfg.centerX + (col - (columns - 1) * 0.5) * spacingX
-        const z = cfg.frontZ + row * spacingZ
+        const z = cfg.frontZ + (frontZ - 74) + row * spacingZ
         const y = sampleRiverCrossingTerrainHeight(x, z)
         slots.push({ x, y, z, yaw: Math.PI })
       }

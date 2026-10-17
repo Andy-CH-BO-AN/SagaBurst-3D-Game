@@ -1,3 +1,4 @@
+import { planNorthBankInfantryDeployment, planSouthBankCavalryStaging } from '../world/RiverCrossingBattlefield'
 import { careerCommanderLoadout } from './CareerCommanderEquipment'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { CombatEvent } from '../combat/CombatAttribution'
@@ -11,10 +12,11 @@ import { townRoster } from '../town/TownRules'
 import { createMissionCommandAuthority, officialMissionSourcePolicy, type OfficialCommandSquad } from './CareerCommandAuthority'
 import { personalMissionSourcePolicy, snapshotPersonalMission } from './CareerPersonalSquadMission'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
-import { createCareerMissionId, type ActiveCareerMission, type CareerMissionKind } from './CareerMissionState'
+import { BRIDGEHEAD_PREPARATION_SECONDS, createCareerMissionId, type ActiveCareerMission, type CareerMissionKind } from './CareerMissionState'
 
 export const COMMANDER_SKY_RAID_ID = 'commander-sky-raid'
 export const COMMANDER_DECAPITATION_ID = 'commander-operation-decapitation'
+export const COMMANDER_BRIDGEHEAD_ID = 'commander-bridgehead-battle'
 export const COMMANDER_LAST_STAND_ID = 'commander-outpost-last-stand'
 
 export const COMMANDER_SKY_RAID_REQUIRED_KILLS = 100
@@ -25,8 +27,8 @@ export const COMMANDER_LAST_STAND_ENEMIES = 100
 export const COMMANDER_FORMER_COMMANDER_SLOT = 'former-commander'
 
 export interface CommanderMissionDefinition {
-  id: typeof COMMANDER_SKY_RAID_ID | typeof COMMANDER_DECAPITATION_ID | typeof COMMANDER_LAST_STAND_ID
-  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand'>
+  id: typeof COMMANDER_SKY_RAID_ID | typeof COMMANDER_DECAPITATION_ID | typeof COMMANDER_LAST_STAND_ID | typeof COMMANDER_BRIDGEHEAD_ID
+  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle'>
   name: string
   briefing: string
   friendlyCombatants: number
@@ -57,6 +59,8 @@ export const COMMANDER_MISSION_CATALOG: readonly CommanderMissionDefinition[] = 
     '與前任 T5 Commander 及 29 名 T4 騎兵從合法邊界攻入敵城，擊敗唯一的敵方 T5 Commander。', 31, 1),
   entry(COMMANDER_LAST_STAND_ID, 'commander-outpost-last-stand', 'Commander III · Outpost Last Stand · 前哨決戰',
     '指揮 4 支步兵隊守衛 Outpost；60 秒部署後，歼滅同時進攻的 100 名敵方騎兵。', 121, COMMANDER_LAST_STAND_ENEMIES),
+  entry(COMMANDER_BRIDGEHEAD_ID, 'commander-bridgehead-battle', 'Commander IV · Bridgehead Battle · 橋頭決戰',
+    `率領200名步兵守衛北岸石橋。進場後有${BRIDGEHEAD_PREPARATION_SECONDS}秒部署時間，倒數結束後200名敵方騎兵從南岸遠方出現並渡河進攻。八支正式小隊各25人，包含1名T4隊長與24名T3士兵。利用橋梁限制騎兵機動，發揮槍兵與遠程部隊的優勢。`, 200, 200),
 ]
 
 export function getCommanderMissionDefinition(id: string): CommanderMissionDefinition | null {
@@ -142,6 +146,10 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
     friendlyActorIds = [`${id}:${COMMANDER_FORMER_COMMANDER_SLOT}`, ...officialIds(id, COMMANDER_DECAPITATION_ESCORTS, 'escort')]
     targetActorIds = [TOWN_COMMANDER_ID]
     squads = commandSquads(friendlyActorIds, [30])
+  } else if (templateId === COMMANDER_BRIDGEHEAD_ID) {
+    friendlyActorIds = officialIds(id, 200, 'infantry')
+    targetActorIds = officialIds(id, 200, 'cavalry')
+    squads = commandSquads(friendlyActorIds, Array(8).fill(25))
   } else {
     friendlyActorIds = officialIds(id, COMMANDER_LAST_STAND_FRIENDLIES, 'defender')
     targetActorIds = officialIds(id, COMMANDER_LAST_STAND_ENEMIES, 'attacker')
@@ -151,6 +159,9 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
     id, templateId, kind: definition.kind, targetCampId: -1, phase: 'PREPARING',
     targetActorIds, friendlyActorIds, acceptedAt: Date.now(),
     commanderMission: { version: 1, kind: definition.kind, deploymentComplete: false },
+    ...(templateId === COMMANDER_BRIDGEHEAD_ID ? {
+      bridgeDeployment: { phase: 'preparing' as const, preparationRemainingSeconds: BRIDGEHEAD_PREPARATION_SECONDS },
+    } : {}),
     officialSquad: createMissionCommandAuthority(id, profile.faction, profile.rank, friendlyActorIds, squads),
     personalSquad: snapshotPersonalMission(profile),
   }
@@ -160,6 +171,7 @@ export function acceptCommanderMission(profile: CareerProfile, templateId: strin
   const mission = createCommanderMission(profile, templateId, id)
   if (!mission) return null
   const next = cloneCareerProfile(profile)
+  if (mission.kind === 'commander-bridgehead-battle') mission.officialSquad!.commandedSquadIds = mission.officialSquad!.squads!.map(squad => squad.squadId)
   next.activeMission = mission
   return next
 }
@@ -245,5 +257,27 @@ export function createLastStandRoster(mission: ActiveCareerMission, faction: Car
     return specForTier(actorId, enemyFaction, Faction.ENEMY, preset(enemyFaction, role), t4 ? 4 : 3,
       squadId, 0, 0, mount)
   })
+  return { friendly, enemy }
+}
+
+/** Exact saved identities, shared tier loadouts and deterministic production deployment points. */
+export function createBridgeheadRoster(mission: ActiveCareerMission, faction: CareerProfile['faction']): {
+  friendly: NpcSpawnSpec[]; enemy: NpcSpawnSpec[]
+} {
+  if (mission.kind !== 'commander-bridgehead-battle' || mission.friendlyActorIds.length !== 200
+    || mission.targetActorIds.length !== 200) throw new Error('Invalid Bridgehead roster')
+  const enemyFaction = faction === 'roman' ? 'viking' : 'roman'
+  const friendly = planNorthBankInfantryDeployment(faction).flatMap(squad => squad.slots.map((slot, index) => {
+    const role = squad.role
+    const presetId: UnitPresetId = role === 'javelin' ? 'roman_javelin_infantry'
+      : preset(faction, role === 'spearman' ? 'spear' : role === 'melee_infantry' ? 'melee' : 'archer')
+    return specForTier(mission.friendlyActorIds[(squad.squadId - 1) * 25 + index], faction, Faction.PLAYER,
+      presetId, index === 0 ? 4 : 3, squad.squadId as NpcSpawnSpec['squadId'], slot.x, slot.z, null)
+  }))
+  const enemy = planSouthBankCavalryStaging(230).flatMap(squad => squad.slots.map((slot, index) =>
+    specForTier(mission.targetActorIds[(squad.squadId - 1) * 25 + index], enemyFaction, Faction.ENEMY,
+      preset(enemyFaction, squad.role === 'melee_cavalry' ? 'sword' : 'lancer'), index === 0 ? 4 : 3,
+      squad.squadId as NpcSpawnSpec['squadId'], slot.x, slot.z,
+      index === 0 ? enemyFaction === 'roman' ? 'corgi' : 'black-cat' : 'horse')))
   return { friendly, enemy }
 }

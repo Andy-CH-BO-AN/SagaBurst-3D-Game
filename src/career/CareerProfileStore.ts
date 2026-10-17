@@ -32,7 +32,7 @@ import {
   type CareerProfile,
 } from './CareerProfile'
 import { getCareerMissionTemplate } from './CareerMissionCatalog'
-import type { ActiveCareerMission, CareerMissionPhase, CommanderMissionState, VeteranOutpostBattleState } from './CareerMissionState'
+import { BRIDGEHEAD_PREPARATION_SECONDS, type ActiveCareerMission, type CareerMissionPhase, type CommanderMissionState, type VeteranOutpostBattleState } from './CareerMissionState'
 import { CAREER_DUEL_TEMPLATE_ID, DUEL_COUNTDOWN_SECONDS, DUEL_COMBAT_SECONDS, isCareerDuelPresetId, isCareerDuelTier, parseCareerDuelCommanderHome, parseCareerDuelTravelCheckpoint } from './CareerDuelState'
 
 export const CAREER_STORAGE_KEY = 'sagaburst_career_v1'
@@ -173,7 +173,7 @@ function parseCommanderMissionState(value: unknown, expectedKind: ActiveCareerMi
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Record<string, unknown>
   if (raw.version !== 1 || raw.kind !== expectedKind
-    || !['commander-sky-raid', 'commander-decapitation', 'commander-outpost-last-stand'].includes(raw.kind as string)) return undefined
+    || !['commander-sky-raid', 'commander-decapitation', 'commander-outpost-last-stand', 'commander-bridgehead-battle'].includes(raw.kind as string)) return undefined
   const position = raw.playerPosition as Record<string, unknown> | undefined
   const playerPosition = position && typeof position.x === 'number' && Number.isFinite(position.x)
     && typeof position.z === 'number' && Number.isFinite(position.z)
@@ -258,16 +258,38 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     && officialSquad.actorIds.every(id => allFriendlyActorIds.includes(id)) ? officialSquad : undefined
   if (commanderMission) {
     const expectedFriendly = template?.kind === 'commander-sky-raid' ? 50
-      : template?.kind === 'commander-decapitation' ? 30 : 120
+      : template?.kind === 'commander-decapitation' ? 30 : template?.kind === 'commander-bridgehead-battle' ? 200 : 120
     const validTargets = template?.kind === 'commander-sky-raid' ? targetActorIds.length >= 100
       : template?.kind === 'commander-decapitation' ? targetActorIds.length === 1 && targetActorIds[0] === 'commander'
-      : targetActorIds.length === 100
+      : targetActorIds.length === (template?.kind === 'commander-bridgehead-battle' ? 200 : 100)
     if (!acceptedOfficialSquad || acceptedOfficialSquad.commandRank !== 'commander'
       || friendlyActorIds.length !== expectedFriendly || acceptedOfficialSquad.actorIds.length !== expectedFriendly
       || !friendlyActorIds.every(id => acceptedOfficialSquad.actorIds.includes(id)) || !validTargets) return undefined
   }
   const battle = parseCareerOutpostCheckpoint(raw.battle)
   const eagleBattle = parseCaptainEagleCheckpoint(raw.eagleBattle)
+  const bridgeBattle = parseCaptainEagleCheckpoint(raw.bridgeBattle, 400)
+  const personalSquad = parsePersonalMission(raw.personalSquad)
+  const rawBridgeDeployment = raw.bridgeDeployment as Record<string, unknown> | undefined
+  const bridgeDeployment = rawBridgeDeployment && ['preparing', 'spawning', 'assault'].includes(rawBridgeDeployment.phase as string)
+    && typeof rawBridgeDeployment.preparationRemainingSeconds === 'number' && Number.isFinite(rawBridgeDeployment.preparationRemainingSeconds)
+    && rawBridgeDeployment.preparationRemainingSeconds >= 0 && rawBridgeDeployment.preparationRemainingSeconds <= BRIDGEHEAD_PREPARATION_SECONDS
+    && (rawBridgeDeployment.phase === 'preparing' || rawBridgeDeployment.preparationRemainingSeconds === 0)
+    ? { phase: rawBridgeDeployment.phase as 'preparing' | 'spawning' | 'assault', preparationRemainingSeconds: rawBridgeDeployment.preparationRemainingSeconds }
+    : undefined
+  if (template?.kind === 'commander-bridgehead-battle' && (
+    raw.bridgeBattle !== undefined && !bridgeBattle
+    || raw.bridgeDeployment !== undefined && !bridgeDeployment
+    || new Set([...friendlyActorIds, ...targetActorIds]).size !== 400
+    || acceptedOfficialSquad?.squads?.length !== 8
+    || acceptedOfficialSquad.squads.some((squad, index) => squad.squadId !== index + 1
+      || squad.actorIds.length !== 25 || squad.actorIds.some((id, slot) => id !== friendlyActorIds[index * 25 + slot]))
+    || bridgeBattle && (Object.keys(bridgeBattle.actors).length !== 400
+      || Object.keys(bridgeBattle.actors).some(id => !knownActorIds.has(id))
+      || bridgeBattle.player.mountActorId && !(targetActorIds.includes(bridgeBattle.player.mountActorId)
+        && bridgeBattle.actors[bridgeBattle.player.mountActorId]?.mount
+        || personalSquad?.memberIds.includes(bridgeBattle.player.mountActorId)
+          && personalSquad.members[bridgeBattle.player.mountActorId]?.mount)))) return undefined
   const marchPosition = raw.mountedMarchPosition as { x?: unknown; z?: unknown } | undefined
   const mountedMarchPosition = marchPosition && typeof marchPosition.x === 'number' && Number.isFinite(marchPosition.x)
     && typeof marchPosition.z === 'number' && Number.isFinite(marchPosition.z) ? { x: marchPosition.x, z: marchPosition.z } : undefined
@@ -286,6 +308,8 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       ...(parseOfficialCommandAuthority(raw.patrolAmbient) ? { patrolAmbient: parseOfficialCommandAuthority(raw.patrolAmbient) } : {}),
     } : {}),
     ...(battle && template?.kind === 'captain-outpost-defense' ? { battle } : {}),
+    ...(bridgeBattle && template?.kind === 'commander-bridgehead-battle' ? { bridgeBattle } : {}),
+    ...(bridgeDeployment && template?.kind === 'commander-bridgehead-battle' ? { bridgeDeployment } : {}),
     ...(eagleBattle && template?.kind === 'captain-eagle-battle' ? { eagleBattle } : {}),
     templateId: duel ? CAREER_DUEL_TEMPLATE_ID : template!.id,
     kind: duel ? 'duel' : template!.kind,
@@ -373,7 +397,6 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       }
     }
   }
-  const personalSquad = parsePersonalMission(raw.personalSquad)
   if (personalSquad && mission.kind !== 'duel') mission.personalSquad = personalSquad
   if (mission.result && raw.result && typeof raw.result === 'object') {
     const meritStats = parseMissionPlayerStats((raw.result as Record<string, unknown>).meritStats)

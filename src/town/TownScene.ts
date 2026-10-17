@@ -1,3 +1,5 @@
+import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
+import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { civilianHomeAnchor, TownCivilianLife } from './TownCivilianLife'
@@ -1702,8 +1704,10 @@ export class TownScene {
         ? '正式兵力：玩家 1 人 + 2 支 25 人 T4 Ranger·xongkoro 空降隊；敵方：敵城原生人員（擊殺任意 100 人取勝）。私兵最多額外 30 人。'
         : definition.id === COMMANDER_DECAPITATION_ID
           ? '正式兵力：玩家 1 人 + 前任 T5 Commander + 10 T4 Lancer + 10 T4 Sword/Axe Cavalry + 9 T4 Horse Archer（全員騎乘）；敵方：敵城全體，斬首目標為 T5 Commander 1 人。'
+          : definition.id === COMMANDER_BRIDGEHEAD_ID ? '正式兵力：玩家1人 + 八隊各25名步兵；敵方八隊各25名騎兵。雙方各192 T3 + 8 T4。現有 HR 私兵最多額外30人，沿用原裝備與坐騎。'
           : '正式兵力：玩家 1 人 + 4 支 30 人步兵隊；敵軍：48 T3 + 2 T4 Lancer、24 T3 + 1 T4 Sword/Axe Cavalry、24 T3 + 1 T4 Horse Archer。60 秒部署。'
-      details.textContent = `${definition.briefing}\n${force}\n玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。`
+      const survival = '玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。'
+      details.textContent = `${definition.briefing}\n${force}\n${survival}`
       const accept = document.createElement('button'); accept.className = 'town-button'
       accept.disabled = !availability.unlocked
       accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '尚未解鎖'
@@ -1718,6 +1722,10 @@ export class TownScene {
     if (!availability.unlocked) { this.openPanel('無法接受任務', availability.reason ?? '目前無法接受。'); return }
     const next = acceptCommanderCareerMission(fresh, templateId)
     if (!next || !this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始，請重試。'); return }
+    if (templateId === COMMANDER_BRIDGEHEAD_ID) {
+      const launch = createCareerBridgeBattleLaunch(this.profile)
+      this.dispose(true); this.onCampaign(launch); return
+    }
     if (templateId === COMMANDER_LAST_STAND_ID) {
       const launch = createCareerCommanderOutpostLaunch(this.profile)
       this.dispose(true); this.onCampaign(launch); return

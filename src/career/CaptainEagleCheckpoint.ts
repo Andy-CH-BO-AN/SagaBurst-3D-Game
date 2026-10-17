@@ -12,8 +12,10 @@ export interface CaptainEagleCheckpoint {
     position: PersonalActorPosition
     ammo: number
     shieldImpact: number
+    mountActorId?: string
     mountHp?: number
     mount?: PersonalActorCheckpoint['mount']
+    homeMount?: PersonalActorCheckpoint['mount']
     fall?: PersonalActorCheckpoint['fall']
   }
   ready: boolean
@@ -24,18 +26,21 @@ const finite = (value: unknown): value is number => typeof value === 'number' &&
 const nonnegative = (value: unknown): value is number => finite(value) && value >= 0
 const totals = ['damageDealt', 'damageTaken', 'kills', 'structureDamage', 'structuresDestroyed', 'gateBreaches'] as const
 
-export function parseCaptainEagleCheckpoint(value: unknown): CaptainEagleCheckpoint | undefined {
+export function parseCaptainEagleCheckpoint(value: unknown, maxActors = 128): CaptainEagleCheckpoint | undefined {
   if (!value || typeof value !== 'object') return undefined
   const raw = value as Partial<CaptainEagleCheckpoint>
   const player = raw.player
   if (!player || !nonnegative(player.hp) || !nonnegative(player.stamina) || typeof player.dead !== 'boolean'
     || !nonnegative(player.ammo) || !nonnegative(player.shieldImpact) || typeof raw.ready !== 'boolean'
-    || !raw.actors || typeof raw.actors !== 'object' || Array.isArray(raw.actors) || Object.keys(raw.actors).length > 128
+    || !raw.actors || typeof raw.actors !== 'object' || Array.isArray(raw.actors) || Object.keys(raw.actors).length > maxActors
     || !raw.playerStats || totals.some(key => !nonnegative(raw.playerStats?.[key]))) return undefined
   const actorPlayer = parseCommandActorCheckpoint({ status: player.dead ? 'dead' : 'deployed',
     position: player.position, mount: player.mount, fall: player.fall })
   if (!actorPlayer?.position || player.mount && !actorPlayer.mount || player.fall && !actorPlayer.fall
     || player.mountHp !== undefined && !nonnegative(player.mountHp)) return undefined
+  if (player.mountActorId !== undefined && (typeof player.mountActorId !== 'string' || !player.mountActorId || player.mountActorId.length > 200)) return undefined
+  const homeMount = parseCommandActorCheckpoint({ status: 'deployed', mount: player.homeMount })?.mount
+  if (player.homeMount && !homeMount) return undefined
   const actors: Record<string, PersonalActorCheckpoint> = {}
   for (const [id, saved] of Object.entries(raw.actors)) {
     if (!id || id.length > 200) return undefined
@@ -46,7 +51,9 @@ export function parseCaptainEagleCheckpoint(value: unknown): CaptainEagleCheckpo
   return { actors, ready: raw.ready, player: {
     hp: player.hp, stamina: player.stamina, dead: player.dead, position: actorPlayer.position,
     ammo: Math.floor(player.ammo), shieldImpact: player.shieldImpact,
+    ...(player.mountActorId ? { mountActorId: player.mountActorId } : {}),
     ...(player.mountHp !== undefined ? { mountHp: player.mountHp } : {}),
+    ...(homeMount ? { homeMount } : {}),
     ...(actorPlayer.mount ? { mount: actorPlayer.mount } : {}), ...(actorPlayer.fall ? { fall: actorPlayer.fall } : {}),
   }, playerStats: {
     damageDealt: raw.playerStats.damageDealt, damageTaken: raw.playerStats.damageTaken,

@@ -1502,6 +1502,57 @@
   .campaign-squad-tabs { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
 }
 
+/* Bridgehead objectives fit between the existing command panels. Squad counts
+   remain in ArmyCommandUI instead of duplicating a second roster here. */
+#bridgehead-battle-hud {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 32px));
+  padding: 8px 12px;
+  border: 1px solid #8e7b65;
+  border-radius: 5px;
+  background: rgba(14, 12, 10, .82);
+  color: #e5d8c3;
+  font: 600 12px/1.5 system-ui, sans-serif;
+  white-space: pre-line;
+  text-align: center;
+  pointer-events: none;
+}
+body:has(#bridgehead-battle-hud) #enemy-hud { top: 148px; }
+@media (max-width: 1200px) {
+  body:has(#bridgehead-battle-hud) .army-command-targets,
+  body:has(#bridgehead-battle-hud) .army-command-commands {
+    width: 225px;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  body:has(#bridgehead-battle-hud) .army-command-targets { left: 16px; right: auto; }
+  body:has(#bridgehead-battle-hud) .army-command-commands { right: 16px; left: auto; }
+  body:has(#bridgehead-battle-hud) .army-command-entry {
+    min-height: 32px;
+    padding: 4px 6px;
+    gap: 6px;
+    font-size: 12px;
+  }
+  body:has(#bridgehead-battle-hud) .army-command-panel-title {
+    padding: 3px 2px;
+    font-size: 13px;
+  }
+}
+@media (max-width: 900px) {
+  body:has(#bridgehead-battle-hud) .army-command-targets,
+  body:has(#bridgehead-battle-hud) .army-command-commands {
+    top: 196px;
+    width: min(340px, calc(100vw - 32px));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+}
+
 /* ── Defense Campaign Runtime HUD ── */
 #defense-campaign-hud {
   position: fixed;
@@ -1579,7 +1630,8 @@
 }
 
 /* Campaign status owns the top center. Actor bars and notices use separate zones. */
-body:has(#defense-campaign-hud) #mount-hud {
+body:has(#defense-campaign-hud) #mount-hud,
+body:has(#bridgehead-battle-hud) #mount-hud {
   top: auto;
   bottom: 138px;
   left: 24px;
@@ -1587,16 +1639,31 @@ body:has(#defense-campaign-hud) #mount-hud {
   box-sizing: border-box;
   width: 240px;
 }
+@media (max-width: 900px) {
+  body:has(#bridgehead-battle-hud) #mount-hud {
+    top: 196px;
+    bottom: auto;
+    left: auto;
+    right: 16px;
+    width: 200px;
+  }
+  body:has(#bridgehead-battle-hud):has(.army-command-commands.visible) #mount-hud {
+    left: 16px;
+    right: auto;
+  }
+}
 body:has(#defense-campaign-hud) #enemy-hud {
   top: 208px;
 }
-body:has(#defense-campaign-hud) #save-notify {
+body:has(#defense-campaign-hud) #save-notify,
+body:has(#bridgehead-battle-hud) #save-notify {
   top: auto;
   bottom: 220px;
   box-sizing: border-box;
   width: min(420px, calc(100vw - 32px));
 }
-body:has(#defense-campaign-hud) .army-command-feedback {
+body:has(#defense-campaign-hud) .army-command-feedback,
+body:has(#bridgehead-battle-hud) .army-command-feedback {
   top: auto;
   bottom: 280px;
   max-width: calc(100vw - 48px);

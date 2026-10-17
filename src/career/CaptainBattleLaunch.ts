@@ -14,13 +14,13 @@ import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './CaptainMissionCatalog'
 
 export interface CaptainEagleLaunchConfig { type: 'captain-eagle'; careerMissionId: string; battle: BattleConfig }
-export type CareerCombatLaunch = DefenseCampaignLaunchConfig | CaptainEagleLaunchConfig
+export type CareerCombatLaunch = DefenseCampaignLaunchConfig | CaptainEagleLaunchConfig | import('./CareerBridgeBattle').CareerBridgeBattleLaunch
 
 function captainAvailable(profile: CareerProfile): boolean {
   return (profile.rank === 'captain' || profile.rank === 'commander') && !profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile'
 }
 
-function playerLoadout(profile: CareerProfile, eagle = false): PlayerLoadoutConfig {
+export function careerCombatPlayerLoadout(profile: CareerProfile, eagle = false): PlayerLoadoutConfig {
   const mount = eagle ? 'xongkoro' : profile.selectedMountId
   return {
     meleeWeaponId: profile.equipment?.melee ?? profile.starterWeaponId ?? 'gladius_rusty',
@@ -39,7 +39,7 @@ export function createCaptainFrontlineLaunch(profile: CareerProfile): DefenseCam
   return {
     type: 'defense', careerMissionId: mission.id, careerMissionKind: 'captain-outpost-defense',
     defenderFaction: faction, stageId: 9, playerHeroId: resolveCareerHeroAsset(profile),
-    commandGrouping: 'squad', playerLoadout: playerLoadout(profile),
+    commandGrouping: 'squad', playerLoadout: careerCombatPlayerLoadout(profile),
     defenderArmy: {
       [resolveCampaignRolePreset(faction, 'frontline')]: { 1: 0, 2: 0, 3: 40 },
       [`${faction}_archer`]: { 1: 0, 2: 0, 3: 30 },
@@ -100,7 +100,7 @@ export function createCaptainEagleLaunch(profile: CareerProfile): CaptainEagleLa
   viking.viking_archer = { 1: 0, 2: 0, 3: profile.faction === 'viking' ? 29 : 30 }
   return { type: 'captain-eagle', careerMissionId: mission.id, battle: {
     careerEagleMissionId: mission.id, mode: 'formation', commandGrouping: 'squad', playerFaction: profile.faction,
-    playerHeroId: resolveCareerHeroAsset(profile), playerLoadout: playerLoadout(profile, true), roman, viking,
+    playerHeroId: resolveCareerHeroAsset(profile), playerLoadout: careerCombatPlayerLoadout(profile, true), roman, viking,
     rules: { respawnEnabled: false, includeCamps: false },
   } }
 }
