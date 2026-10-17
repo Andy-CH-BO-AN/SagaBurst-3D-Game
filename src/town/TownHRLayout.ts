@@ -28,13 +28,15 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
   const width = faction === 'roman' ? 16 : 13, depth = faction === 'roman' ? 13 : 22
   const cavalry = new THREE.Box3(new THREE.Vector3(TOWN_CAVALRY_FIELD.minX, -100, TOWN_CAVALRY_FIELD.minZ),
     new THREE.Vector3(TOWN_CAVALRY_FIELD.maxX, 100, TOWN_CAVALRY_FIELD.maxZ))
-  const residents = townRoster()
+  // The roster is immutable during this search. Build its envelopes once per
+  // invocation, not once for every site/officer/courtyard candidate.
+  const residentBoxes = townRoster().map(actor => new THREE.Box3(
+    new THREE.Vector3(actor.x - .6, -100, actor.z - .6), new THREE.Vector3(actor.x + .6, 100, actor.z + .6)))
   const clear = (box: THREE.Box3) => {
     if (box.min.x < TOWN_CITY.minX + 5 || box.max.x > TOWN_CITY.maxX - 5
       || box.min.z < TOWN_CITY.minZ + 5 || box.max.z > TOWN_CITY.maxZ - 5 || cavalry.intersectsBox(box)) return false
     if (obstacles.some(obstacle => obstacle.box.intersectsBox(box))) return false
-    if (residents.some(actor => box.intersectsBox(new THREE.Box3(
-      new THREE.Vector3(actor.x - .6, -100, actor.z - .6), new THREE.Vector3(actor.x + .6, 100, actor.z + .6))))) return false
+    if (residentBoxes.some(resident => box.intersectsBox(resident))) return false
     return !roads.some(road => townRoadIntersectsBox(road, box, 1))
   }
   const sites = [{ x: -85, z: 25, yaw: TOWN_HR_REGION.yaw }]
