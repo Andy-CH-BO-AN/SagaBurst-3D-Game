@@ -1,4 +1,5 @@
 import { generateFormationSlots } from '../battle/FormationMath'
+import { registerPersonalCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import * as THREE from 'three'
@@ -50,6 +51,7 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
     member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : member.type === 'commander' ? 'Personal Commander' : 'Personal Shadow Warden',
     spec.tier, spec.mounted, spec.loadout, spec.presetId, PERSONAL_SQUAD_ID, member.id, emit,
     spec.hero?.visualAssetId, spec.hero?.combatProfileId, spec.hero?.specialCombatProfile))
+  registerPersonalCombatDisplayName(npc, member, faction)
   npc.combatOwnership = 'player-personal'
   npc.respawnEnabled = false
   npc.group.rotation.y = slot.yaw

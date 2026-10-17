@@ -1,12 +1,13 @@
 import type { CareerProfile } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
 import { availableCareerItem, careerItemTotal, careerItemTotals, legacyPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
-import { canRecruitPersonalSquad, PERSONAL_SQUAD_PRODUCTS } from '../career/CareerPersonalSquad'
+import { canRecruitPersonalSquad } from '../career/CareerPersonalSquad'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import type { EquipmentSquadAdapter, EquipmentTownAdapter } from '../ui/EquipmentUI'
 import type { BulkEquipmentCategory, TownEquipmentSquadId } from '../career/CareerTownEquipment'
 import type { PersonalSquadState } from './TownPersonalSquadController'
+import { personalUnitDisplayName } from '../ui/UnitDisplayName'
 
 export function squadEquipmentUI(read: () => CareerProfile, state: () => PersonalSquadState,
   change: (memberId: string, slot: PersonalEquipmentSlot, id: string | null) => string, bulk?: EquipmentBulkAdapter, management?: () => { allowed: boolean; reason: string }): EquipmentSquadAdapter {
@@ -41,8 +42,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
     }
     for (const [index, member] of (profile.personalSquad?.members ?? []).entries()) {
       const card = document.createElement('article'); card.className = 'inventory-card'; card.dataset.memberId = member.id
-      const title = document.createElement('strong'); title.textContent = `${PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.name} #${index + 1}`; card.append(title)
-      const identity = document.createElement('p'); identity.className = 'inv-item-desc'; identity.textContent = `Actor ID: ${member.id}`; card.append(identity)
+      const title = document.createElement('strong'); title.textContent = personalUnitDisplayName(member, profile.faction, index); card.append(title)
       const equipment = member.equipment ?? legacyPersonalEquipment(member.type, profile.faction)
       for (const slot of ['melee', 'ranged', 'shield', 'mount'] as PersonalEquipmentSlot[]) {
         const label = document.createElement('label'); label.className = 'inv-item-desc squad-equipment-slot'; label.style.display = 'block'
@@ -198,7 +198,6 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
         const card = document.createElement('article'); card.className = 'inventory-card'; card.dataset.memberId = member.id
         const title = document.createElement('strong'); title.textContent = member.id === 'merchant' ? '武器商人 · 固定 T5 武器／T4 盾牌' : `${member.name} · ${member.tier ? `T${member.tier}` : '未配武器'}`
         card.append(title)
-        const identity = document.createElement('p'); identity.className = 'inv-item-desc'; identity.textContent = `Actor ID: ${member.id}`; card.append(identity)
         if (member.fixedEquipment?.length) {
           const fixed = document.createElement('p'); fixed.className = 'inv-item-desc squad-equipment-summary'
           fixed.textContent = member.fixedEquipment.join('\n'); card.append(fixed)
@@ -212,7 +211,7 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
             const fixed = document.createElement('span'); fixed.textContent = `${equipped.label} · 固定`; label.append(fixed)
           } else {
             const select = document.createElement('select'); select.className = 'town-button'
-            select.setAttribute('aria-label', `${member.name} ${member.id} ${slot}`)
+            select.setAttribute('aria-label', `${member.name} ${slot}`)
             const options = bindings.options(squad.id, member.id, slot)
             for (const option of options) select.add(new Option(option.label, option.id ?? ''))
             if (!options.some(option => option.id === equipped.id)) select.add(new Option(equipped.label, equipped.id ?? ''))
