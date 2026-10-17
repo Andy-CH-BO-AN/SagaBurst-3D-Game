@@ -1,10 +1,12 @@
+import { SiegeConvoy, evacuateAbandonedRamp, fallFromDestroyedRamp } from './SiegeConvoy'
+import type { SiegeRampId } from './MobileSiegeRampPolicy'
 import type { CampaignSiegeCheckpoint } from './CampaignSiegeCheckpoint'
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { BreachEntrance } from '../navigation/AvailableBreachEntrances'
 import { AIType, type NPC } from '../world/NPC'
-import { getTerrainHeight, getWalkRampHeight, type EntityCollisionBody, type ObstacleData } from '../world/Terrain'
+import { getTerrainHeight, type EntityCollisionBody, type ObstacleData } from '../world/Terrain'
 import type { OutpostWalkways } from './CampaignOutpostWalkways'
 import type { CampaignGateController, CampaignBreachController } from './CampaignGate'
 import { reconcileCampaignGateSiege } from './CampaignGate'
@@ -20,7 +22,7 @@ export class CampaignSiegeAssault {
   private readonly perimeter: { obstacle: ObstacleData; entrance: BreachEntrance }[] = []
   private readonly pendingDeployment = new Set<string>()
   private readonly stagingActors: NPC[] = []
-  private readonly bypassing = new Map<NPC, { ramp: MobileSiegeRamp; x: number }>()
+  private readonly convoy = new SiegeConvoy<SiegeRampId>()
   private prepared = false
   private restoredActors: CampaignSiegeCheckpoint['actors'] = {}
   private disposed = false
@@ -173,13 +175,7 @@ export class CampaignSiegeAssault {
   }
 
   private resumeAbandonedEvacuation(npc: NPC, ramp: MobileSiegeRamp): void {
-    if (npc.dead || !ramp.assignment.assaultIds.includes(npc.combatantId)) return
-    const surface = ramp.surface
-    const height = getWalkRampHeight(surface, npc.position.x, npc.position.z)
-    // Only passengers still aboard need the rear exit; departed actors retain their saved position/order.
-    if (height !== null && Math.abs(npc.position.y - height) < .8) {
-      npc.siegeEvacuation = new THREE.Vector3(surface.startX, surface.startY, surface.startZ - surface.dirZ * 2)
-    }
+    evacuateAbandonedRamp(npc, ramp)
   }
 
   private onRampState(ramp: MobileSiegeRamp, state: MobileSiegeRampState): void {
@@ -197,15 +193,7 @@ export class CampaignSiegeAssault {
       this.walkways.setDockPassage(ramp.assignment.side, false)
       this.unregisterHit(ramp)
       // Includes actors who joined after Dock. Deck actors are not relocated or deleted.
-      for (const npc of this.actors()) {
-        if (npc.dead || npc.isMounted) continue
-        const height = getWalkRampHeight(ramp.surface, npc.position.x, npc.position.z)
-          ?? getWalkRampHeight(ramp.bridgeSurface, npc.position.x, npc.position.z)
-        if (height !== null && Math.abs(npc.position.y - height) < .8) {
-          npc.siegeEvacuation = null
-          npc.pendingFall.begin(npc.position, new THREE.Vector3())
-        }
-      }
+      for (const npc of this.actors()) fallFromDestroyedRamp(npc, ramp)
     }
     if (state === 'DOCKED' || state === 'DESTROYED' || state === 'ABANDONED') {
       for (const npc of ramp.crew.values()) {
@@ -243,28 +231,7 @@ export class CampaignSiegeAssault {
     for (const npc of actors) {
       if (npc.dead || npc.siegeTransport || npc.characterFaction !== this.gate.attackerFaction
         || npc.combatOwnership === 'player-personal' || !this.acceptsOrders(npc) || npc.mount?.isFlyingMount) continue
-      let bypass = this.bypassing.get(npc)
-      if (bypass && (bypass.ramp.controller.state !== 'PUSHING'
-        || (npc.combatPosition.z - bypass.ramp.position.z) * bypass.ramp.placement.dirZ > 5)) {
-        this.bypassing.delete(npc); npc.siegeBypassTarget = null; bypass = undefined
-      }
-      if (!bypass) {
-        const ramp = this.ramps.find(r => r.controller.state === 'PUSHING'
-          && Math.abs(npc.combatPosition.x - r.position.x) < r.surface.halfWidth + 3
-          && (npc.combatPosition.z - r.position.z) * r.placement.dirZ < 5
-          && (npc.combatPosition.z - r.surface.startZ) * r.placement.dirZ > -8)
-        if (ramp) {
-          const side = Math.sign(npc.combatPosition.x - ramp.position.x) || -Math.sign(ramp.position.x)
-          bypass = { ramp, x: ramp.position.x + side * (ramp.surface.halfWidth + 4) }
-          this.bypassing.set(npc, bypass)
-        }
-      }
-      if (bypass) {
-        npc.siegeBypassTarget ??= new THREE.Vector3()
-        npc.siegeBypassTarget.set(bypass.x, npc.combatPosition.y,
-          Math.abs(npc.combatPosition.x - bypass.x) > .8 ? npc.combatPosition.z
-            : bypass.ramp.position.z + bypass.ramp.placement.dirZ * 6)
-      }
+      this.convoy.update(npc, this.ramps)
     }
     if (this.pendingDeployment.size === 0) for (const ramp of this.ramps) ramp.update(dt, actors, blockers)
     if (this.observedRevision !== this.entrances.revision) {
@@ -279,8 +246,7 @@ export class CampaignSiegeAssault {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
-    for (const npc of this.bypassing.keys()) npc.siegeBypassTarget = null
-    this.bypassing.clear()
+    this.convoy.dispose()
     for (const actor of this.stagingActors) actor.siegeTransport = null
     this.stagingActors.length = 0
     this.pendingDeployment.clear()

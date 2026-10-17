@@ -83,6 +83,9 @@ import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProj
 import { warmTownRenderResources } from './TownRenderWarmup'
 import { findBlockingProjectileObstacleAlongPath, getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBound, resolveEntityCollision, type ObstacleData } from '../world/Terrain'
 import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
+import { registerTownCombatDisplayName } from '../ui/CombatTargetDisplayName'
+import { personalUnitDisplayName } from '../ui/UnitDisplayName'
+import { CombatTargetHud } from '../ui/CombatTargetHud'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod, type CombatActorRef, type CombatEvent } from '../combat/CombatAttribution'
 import { SpatialGrid } from '../world/SpatialGrid'
 import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
@@ -190,6 +193,7 @@ export class TownScene {
   private npcObstacleRevision = -1
   private npcObstacles: ObstacleData[] = []
   private readonly navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
+  private readonly combatTargetHud = new CombatTargetHud()
   private readonly hp = new HpBar()
   private readonly stamina = new StaminaBar()
   private readonly quiver = new QuiverUI()
@@ -664,6 +668,7 @@ export class TownScene {
         if (additionalPopulation) this.event.registerAdditionalResident(spec.id, npc)
         else this.event.register(spec.id, npc)
         if (homeMount && homeMount !== this.cat && !this.mounts.includes(homeMount)) this.mounts.push(homeMount)
+        registerTownCombatDisplayName(npc, spec, residentArmyFaction)
         const resident = { spec, npc, homeMount, target, cycle: -1, walkTime: 0 }
         this.residents.push(resident); created.push(resident)
       })
@@ -1565,13 +1570,13 @@ export class TownScene {
     }
     const heading = document.createElement('h3'); heading.textContent = 'Sell / Release Member · 賣回／解除僱用'; list.append(heading)
     appendTownSaleDropdown(list, members.map((member, index) => ({
-      id: member.id, name: PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.name + ` #${index + 1}`,
+      id: member.id, name: personalUnitDisplayName(member, this.profile.faction, index),
       quantity: 1, refund: personalMemberRefund(this.profile, member),
     })), ids => this.confirmPersonalSales(ids), '人', this.personalSquad?.state === 'RESERVE'
       && !this.profile.activeMission && !this.profile.activeOutpostMission)
     for (const [index, member] of members.entries()) {
       const row = document.createElement('article'); row.className = 'town-product'
-      const name = PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)!.name + ` #${index + 1}`
+      const name = personalUnitDisplayName(member, this.profile.faction, index)
       const title = document.createElement('strong'); title.textContent = name
       const detail = document.createElement('small'); detail.textContent = `退款 ${personalMemberRefund(this.profile, member)} 軍功 · ${this.personalSquad?.state ?? 'RESERVE'}`
       const sell = document.createElement('button'); sell.className = 'town-button'; sell.textContent = '賣回／解除僱用'
@@ -2707,11 +2712,7 @@ export class TownScene {
     if (mount === this.cat && mount.dead && this.event.hostile) this.persistCasualties()
   }
   private showCombatTarget(name: string, ratio: number): void {
-    if (typeof document === 'undefined') return
-    const hud = document.getElementById('enemy-hud'), label = document.getElementById('enemy-name'), fill = document.getElementById('enemy-hp-fill')
-    if (label) label.textContent = name
-    if (fill) fill.style.width = `${Math.max(0, ratio * 100)}%`
-    hud?.classList?.add('visible')
+    this.combatTargetHud.show(name, ratio)
   }
   private updateMountHud(): void {
     if (typeof document === 'undefined') return
@@ -2783,6 +2784,7 @@ export class TownScene {
         : amount
       const result = damageNpc(npc, playerAmount, { source: createPlayerCombatActorRef(this.player), method, weaponId: method === 'melee' ? this.inventory.equippedMelee?.id : this.inventory.equippedRanged?.id, contact: contact ?? (method === 'melee' ? this.player.weaponSweep?.contact : undefined) })
       applied = result.appliedDamage
+      if (result.hitSuccess) this.showCombatTarget(result.targetName, result.hpRatio)
       if (applied > 0) this.awardCareerSkillXp(method, applied, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
     } else {
       const result = damageMount(npc, amount, { source: createPlayerCombatActorRef(this.player), method, contact })
@@ -3551,6 +3553,7 @@ export class TownScene {
     sound?.updateHorseGallopLoops([])
     sound?.updateEagleWingbeats([])
     if (this.disposed) return
+    this.combatTargetHud.dispose()
     this.compass?.dispose()
     this.compass = undefined
     this.personalSquad?.cleanup()

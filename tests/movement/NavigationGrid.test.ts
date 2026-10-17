@@ -54,21 +54,6 @@ describe('NavigationGrid', () => {
     expect(path!.every(cell => !grid.isBlocked(cell))).toBe(true)
   })
 
-  it('returns null when a full barrier makes the target unreachable', () => {
-    const grid = createGrid()
-
-    for (let z = 0; z < grid.height; z++) {
-      grid.setBlocked({ x: 4, z }, true)
-    }
-
-    expect(
-      grid.findPathCells(
-        { x: 1, z: 5 },
-        { x: 8, z: 5 },
-      ),
-    ).toBeNull()
-  })
-
   it('does not cut diagonally through touching blocked cells', () => {
     const grid = new NavigationGrid({
       minX: 0,

@@ -1,17 +1,17 @@
-import { SIEGE_RAMP, type SiegeRampAssignment } from './MobileSiegeRampPolicy'
+import { SIEGE_RAMP, type MobileSiegeRampId, type SiegeRampId, type SiegeRampAssignment } from './MobileSiegeRampPolicy'
 
 export type MobileSiegeRampState = 'DEPLOYING' | 'PUSHING' | 'DOCKING' | 'DOCKED' | 'ABANDONED' | 'DESTROYED'
 export interface SiegeCrewRecord { readonly combatantId: string; readonly dead: boolean }
 
 /** Lifecycle owns IDs/readiness, never creates actors or chooses replacements. */
-export class MobileSiegeRampController {
+export class MobileSiegeRampController<Id extends MobileSiegeRampId = SiegeRampId> {
   state: MobileSiegeRampState = 'DEPLOYING'
   distance = 0
   currentSpeed = 0
   private dockElapsed = 0
   private disposed = false
   private readonly actors = new Map<string, SiegeCrewRecord>()
-  constructor(readonly assignment: SiegeRampAssignment, readonly travelDistance: number,
+  constructor(readonly assignment: SiegeRampAssignment<Id>, readonly travelDistance: number,
     private readonly changed: (state: MobileSiegeRampState) => void = () => {}) {}
 
   register(actor: SiegeCrewRecord): void {
@@ -20,6 +20,9 @@ export class MobileSiegeRampController {
       throw new Error(`Invalid siege crew registration: ${actor.combatantId}`)
     }
     this.actors.set(actor.combatantId, actor)
+  }
+  withdraw(id: string): void {
+    if (this.actors.has(id)) this.actors.set(id, { combatantId: id, dead: true })
   }
   get dockingProgress(): number { return Math.min(1, this.dockElapsed / SIEGE_RAMP.dockSeconds) }
   get assigned(): boolean { return ['DEPLOYING', 'PUSHING', 'DOCKING'].includes(this.state) && !this.disposed }

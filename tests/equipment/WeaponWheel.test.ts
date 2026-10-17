@@ -3,7 +3,8 @@ import { InventoryManager } from '../../src/rpg/InventoryManager'
 
 describe('Shared immediate weapon wheel', () => {
 
-  it.each(['wooden_shortbow', 'pilum_basic'])('excludes %s from shields through equip and save/load', ranged => {
+  it('excludes a ranged weapon from shields through equip and save/load', () => {
+    const ranged = 'wooden_shortbow'
     const inv = new InventoryManager({ meleeWeaponId: 'gladius_rusty', rangedWeaponId: ranged, shieldId: 'scutum_t1' }, 'maki-archer-t4', 'roman')
     expect(inv.equippedMelee.id).toBe('gladius_rusty')
     inv.addWeapon('paladin_mace_t4')

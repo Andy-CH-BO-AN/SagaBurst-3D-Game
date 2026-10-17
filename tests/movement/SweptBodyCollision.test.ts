@@ -21,4 +21,15 @@ describe('vehicle part swept body collision (pure geometry)', () => {
     body.position.y = 5
     expect(intersectsSweptPart(body, board, slopeInverse, .2)).toBe(true)
   })
+  it('sweeps an East/West oriented part along X without treating that travel as Z', () => {
+    const part = new THREE.Box3(new THREE.Vector3(-1, 0, -1), new THREE.Vector3(1, 2, 1))
+    const inverse = new THREE.Matrix4().makeRotationY(-Math.PI / 2)
+    const body = { position: new THREE.Vector3(2, 0, 0), radius: .2, height: 1.8, bottomOffset: 0 }
+    expect(intersectsSweptPart(body, part, inverse, 0, 1)).toBe(true)
+    expect(intersectsSweptPart(body, part, inverse, 1)).toBe(false)
+    body.position.x = -2
+    expect(intersectsSweptPart(body, part, inverse, 0, -1)).toBe(true)
+    expect(intersectsSweptPart(body, part, inverse, 0, 1)).toBe(false)
+  })
+
 })

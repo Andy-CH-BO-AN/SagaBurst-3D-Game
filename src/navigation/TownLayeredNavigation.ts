@@ -1,4 +1,6 @@
 import * as THREE from 'three'
+import { AvailableBreachEntrances, type BreachEntrance } from './AvailableBreachEntrances'
+import { TOWN_CITY, type TownGateId } from '../town/TownLayout'
 import { getWalkRampHeight } from '../world/Terrain'
 import { townRampartHeight, type TownRamp, type TownRampartLayout } from '../town/TownRamparts'
 
@@ -6,7 +8,10 @@ import { townRampartHeight, type TownRamp, type TownRampartLayout } from '../tow
  * Elevated travel follows a small perimeter graph, never a second navigation grid.
  */
 export class TownLayeredNavigation {
-  constructor(readonly layout: TownRampartLayout) {}
+  /** Empty and inactive in every existing Town mode. */
+  readonly siegeEntrances = new AvailableBreachEntrances()
+  siegeActive = false
+  constructor(readonly layout: TownRampartLayout, private readonly connected: (a: THREE.Vector3, b: THREE.Vector3) => boolean = () => false) {}
   rampAt(p: THREE.Vector3): TownRamp | undefined {
     return this.layout.ramps.find(r => { const y = getWalkRampHeight(r.surface, p.x, p.z); return y !== null && Math.abs(p.y - y) < 1.1 })
   }
@@ -54,7 +59,9 @@ export class TownLayeredNavigation {
     out.set(s.startX + s.dirX * along, s.startY + (s.topY - s.startY) * Math.min(1, along / s.length), s.startZ + s.dirZ * along)
   }
   /** null means ordinary ground travel; ground=true preserves wall/gate topology. */
-  resolveMoveTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3): { ground: boolean } | null {
+  resolveMoveTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3, entranceId?: string | null, mounted = false, sectorId?: TownGateId | null): { ground: boolean; blocked?: boolean } | null {
+    const siege = this.resolveSiegeTarget(current, goal, out, entranceId, mounted, sectorId)
+    if (siege) return siege
     const onDeck = this.isElevated(current), toDeck = this.isElevated(goal), onRamp = this.rampAt(current), toRamp = this.rampAt(goal)
     if (!onDeck && !toDeck && !onRamp && !toRamp) {
       const foot = this.layout.ramps.find(r => {
@@ -97,4 +104,62 @@ export class TownLayeredNavigation {
     out.set(s.startX + s.dirX, s.startY + (s.topY - s.startY) / s.length, s.startZ + s.dirZ)
     return { ground: false }
   }
+  private resolveSiegeTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3,
+    entranceId: string | null | undefined, mounted: boolean, sectorId?: TownGateId | null): { ground: boolean; blocked?: boolean } | null {
+    if (!this.siegeActive || this.rampAt(current)) return null
+    const outside = current.x <= TOWN_CITY.minX || current.x >= TOWN_CITY.maxX || current.z <= TOWN_CITY.minZ || current.z >= TOWN_CITY.maxZ
+    const goalInside = goal.x > TOWN_CITY.minX && goal.x < TOWN_CITY.maxX && goal.z > TOWN_CITY.minZ && goal.z < TOWN_CITY.maxZ
+    const onSurface = (entry: BreachEntrance, p: THREE.Vector3): boolean => [entry.surface, entry.bridgeSurface].some(s => {
+      const height = s && getWalkRampHeight(s, p.x, p.z)
+      return height !== undefined && height !== null && Math.abs(p.y - height) < 1.1
+    })
+    const eligible = (entry: BreachEntrance) => entry.walkable && (!mounted || entry.mounted) && (!sectorId || entry.gateId === sectorId)
+    let goalCarrier: BreachEntrance | undefined
+    for (const candidate of this.siegeEntrances.entries.values()) if (eligible(candidate) && onSurface(candidate, goal)) { goalCarrier = candidate; break }
+    if (this.isElevated(current)) {
+      if (!goalCarrier) return null
+      if (current.distanceTo(goalCarrier.exit) > .8) this.alongRing(current, goalCarrier.exit, out)
+      else out.copy(goalCarrier.position)
+      return { ground: false }
+    }
+    // A live surface may extend beyond the perimeter, including its full rear slope.
+    let aboard: BreachEntrance | undefined
+    for (const entry of this.siegeEntrances.entries.values()) {
+      if (!eligible(entry)) continue
+      for (const surface of [entry.surface, entry.bridgeSurface]) {
+        const height = surface && getWalkRampHeight(surface, current.x, current.z)
+        if (height !== undefined && height !== null && Math.abs(current.y - height) < 1.1) { aboard = entry; break }
+      }
+      if (aboard) break
+    }
+    const preferred = entranceId ? this.siegeEntrances.entries.get(entranceId) : undefined
+    let entry = aboard ?? (preferred && eligible(preferred) ? preferred : undefined)
+    if (!entry && goalCarrier && this.connected(current, goalCarrier.approach)) entry = goalCarrier
+    if (!entry && (goalInside || this.isElevated(goal))) {
+      entry = this.siegeEntrances.select(current, mounted, null, approach => this.connected(current, approach), undefined, eligible) ?? undefined
+    }
+    if (!aboard && !outside) return null
+    if (!entry || !entry.walkable || mounted && !entry.mounted) {
+      if (goalInside || this.isElevated(goal) || entranceId) { out.copy(current); return { ground: true, blocked: true } }
+      return null
+    }
+    if (!entry.surface) {
+      out.copy(current.distanceTo(entry.approach) > 1 ? entry.approach : entry.exit)
+      return { ground: true }
+    }
+    const s = entry.surface
+    const along = (current.x - s.startX) * s.dirX + (current.z - s.startZ) * s.dirZ
+    const lateral = Math.abs((current.x - s.startX) * -s.dirZ + (current.z - s.startZ) * s.dirX)
+    if (!aboard && !(along >= -3 && along <= .6 && lateral < s.halfWidth - .6)) {
+      out.copy(entry.approach); return { ground: true }
+    }
+    if (aboard && goalCarrier === entry) { out.copy(goal); return { ground: false } }
+    if (aboard && along >= s.length + s.landing - .6) out.copy(entry.exit)
+    else {
+      const targetAlong = aboard ? s.length + s.landing - .3 : 1
+      out.set(s.startX + s.dirX * targetAlong, s.startY + (s.topY - s.startY) * Math.min(1, targetAlong / s.length), s.startZ + s.dirZ * targetAlong)
+    }
+    return { ground: false }
+  }
+
 }

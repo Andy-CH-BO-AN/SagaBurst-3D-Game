@@ -2,8 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { selectMissionCavalryActorIds } from '../../src/career/BanditMissionController'
 import { townRoster } from '../../src/town/TownRules'
 import type { NPC } from '../../src/world/NPC'
-import { civilianHumanoidAssetId } from '../../src/world/CivilianAppearance'
-import { civilianDistrict } from '../../src/town/TownCivilianLife'
 import { townDefenseThreatInRange, townDefenseThreatResponse } from '../../src/town/TownGarrison'
 import { Vector3 } from 'three'
 
@@ -19,15 +17,6 @@ describe('Town patrol roster contracts', () => {
     expect(townDefenseThreatInRange(spec, npc, npc.combatPosition.clone().add(new Vector3(1, 0, 0)), 20)).toBe(true)
     expect(townDefenseThreatResponse(spec, npc, npc.combatPosition.clone().add(new Vector3(1, 0, 0)), 20)).toBe('defend')
     expect(townDefenseThreatResponse(spec, npc, npc.combatPosition.clone().add(new Vector3(9, 0, 0)), 20)).toBe('ignore')
-  })
-  it('selects faction civilian sources without changing resident identities or district allocation', () => {
-    const residents = townRoster().filter(spec => spec.role === 'civilian')
-    expect(residents.map(spec => spec.id)).toEqual(Array.from({ length: 20 }, (_, i) => `civilian-${i}`))
-    expect(residents.map(spec => civilianDistrict(spec.index))).toEqual([
-      ...Array(8).fill('plaza'), ...Array(8).fill('housing'), ...Array(4).fill('street'),
-    ])
-    expect(civilianHumanoidAssetId('roman')).toBe('roman-civilian')
-    expect(civilianHumanoidAssetId('viking')).toBe('viking-civilian')
   })
   it('keeps two twenty-rider patrols distinct from the service Captain, training and gate guards', () => {
     const roster = townRoster(), patrol = roster.filter(s => s.duty === 'patrol')

@@ -31,7 +31,7 @@ import {
 
 export interface NpcSpawnSpec {
   actorId?: string
-  siegeRamp?: { id: import('../campaign/MobileSiegeRampPolicy').SiegeRampId; role: 'pusher' | 'assault' }
+  siegeRamp?: { id: import('../campaign/MobileSiegeRampPolicy').MobileSiegeRampId; role: 'pusher' | 'assault' }
   x: number
   /** Optional elevated materialization height; ordinary ground spawns omit it. */
   spawnY?: number

@@ -166,6 +166,11 @@ async function resumeStoredCareerMission(missionId: string, build: () => CareerC
 
 async function bootstrap(): Promise<void> {
   const query = new URLSearchParams(window.location.search)
+  if (import.meta.env.DEV && query.get('fourgatepreview') === '1') {
+    const { launchTownFourGateSiegePreview } = await import('./debug/TownFourGateSiegePreview')
+    await launchTownFourGateSiegePreview(container!)
+    return
+  }
   // Legacy public trial links now enter the unified sandbox. This takes priority
   // over Career/session resumes and does not inspect or change those saves.
   if (query.get('training') === '1' || query.get('freeride') === '1') {

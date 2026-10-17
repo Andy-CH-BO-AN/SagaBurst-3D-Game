@@ -16,19 +16,23 @@ export const SIEGE_RAMP = {
 } as const
 
 export type SiegeRampId = 'siege-ramp-left' | 'siege-ramp-right'
-export interface SiegeRampAssignment {
-  id: SiegeRampId
+export type TownSiegeRampId = `town-siege-ramp:${import('../town/TownLayout').TownGateId}:${'left' | 'right'}`
+export type MobileSiegeRampId = SiegeRampId | TownSiegeRampId
+export interface SiegeRampAssignment<Id extends MobileSiegeRampId = SiegeRampId> {
+  id: Id
   side: OutpostWalkwaySide
   pusherIds: string[]
   assaultIds: string[]
 }
-export interface SiegeRampPlacement {
-  id: SiegeRampId
+export interface SiegeRampPlacement<Id extends MobileSiegeRampId = SiegeRampId> {
+  id: Id
   side: OutpostWalkwaySide
   start: THREE.Vector3
   dock: THREE.Vector3
   surface: WalkRampSurface
   deckConnection: THREE.Vector3
+  /** Omitted by the legacy Outpost placement; defaults to zero. */
+  dirX?: number
   dirZ: number
 }
 
@@ -87,20 +91,24 @@ export function getSiegeRampPlacement(layout: OutpostWalkwayLayout, side: Outpos
 }
 
 /** Placement is applied to spawn data before actor construction/registration. */
-export function placeSiegeRampCrew(specs: NpcSpawnSpec[], crew: SiegeRampAssignment, placement: SiegeRampPlacement): void {
+export function placeSiegeRampCrew<Id extends MobileSiegeRampId>(specs: NpcSpawnSpec[], crew: SiegeRampAssignment<Id>, placement: SiegeRampPlacement<Id>): void {
   const dz = placement.start.z - placement.dock.z
+  const dx = placement.start.x - placement.dock.x
+  const dirX = placement.dirX ?? 0
+  const lateralX = placement.dirX === undefined ? 1 : placement.dirZ
+  const lateralZ = -dirX
   const byId = new Map(specs.map(spec => [spec.actorId, spec]))
   for (const [index, id] of crew.assaultIds.entries()) {
     const spec = byId.get(id)!
-    spec.x = placement.start.x + (index % 2 === 0 ? -1 : 1)
-    spec.z = placement.start.z - placement.dirZ * (1 + Math.floor(index / 2) * 1.5)
+    spec.x = placement.start.x + lateralX * (index % 2 === 0 ? -1 : 1) - dirX * (1 + Math.floor(index / 2) * 1.5)
+    spec.z = placement.start.z + lateralZ * (index % 2 === 0 ? -1 : 1) - placement.dirZ * (1 + Math.floor(index / 2) * 1.5)
     spec.spawnY = placement.start.y
     spec.siegeRamp = { id: crew.id, role: 'assault' }
   }
   for (const [index, id] of crew.pusherIds.entries()) {
     const spec = byId.get(id)!
-    spec.x = placement.start.x + (index % 2 === 0 ? -1 : 1)
-    spec.z = placement.surface.startZ + dz - placement.dirZ * (1.6 + Math.floor(index / 2) * 1.6)
+    spec.x = placement.surface.startX + dx + lateralX * (index % 2 === 0 ? -1 : 1) - dirX * (1.6 + Math.floor(index / 2) * 1.6)
+    spec.z = placement.surface.startZ + dz + lateralZ * (index % 2 === 0 ? -1 : 1) - placement.dirZ * (1.6 + Math.floor(index / 2) * 1.6)
     spec.spawnY = getTerrainHeight(spec.x, spec.z)
     spec.siegeRamp = { id: crew.id, role: 'pusher' }
   }

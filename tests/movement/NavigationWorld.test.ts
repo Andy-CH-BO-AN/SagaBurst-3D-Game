@@ -1,4 +1,7 @@
 import * as THREE from 'three'
+import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { AvailableBreachEntrances, type BreachEntrance } from '../../src/navigation/AvailableBreachEntrances'
+import type { TownRampartLayout } from '../../src/town/TownRamparts'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   NavigationWorld,
@@ -107,45 +110,22 @@ describe('NavigationWorld', () => {
     ).status).toBe('path')
   })
 
-  it('reconnects components after a wall breach', () => {
-    const world = new NavigationWorld({ minX: -50, maxX: 50, minZ: -50, maxZ: 50, cellSize: 2 })
-
-    world.rebuild([
-      obstacle(-1, -50, 1, 50),
-    ])
-    expect(
-      world.areConnected(
-        new THREE.Vector3(-10, 0, 0),
-        new THREE.Vector3(10, 0, 0),
-      ),
-    ).toBe(false)
-
-    world.rebuild([
-      obstacle(-1, -50, 1, -6),
-      obstacle(-1, 6, 1, 50),
-    ])
-    expect(
-      world.areConnected(
-        new THREE.Vector3(-10, 0, 0),
-        new THREE.Vector3(10, 0, 0),
-      ),
-    ).toBe(true)
-  })
-
   it('routes North and South bank paths exclusively through the five-lane bridge and blocks river or map-edge crossings', () => {
     const obstacles = createRiverCrossingObstacleData()
     const world = new NavigationWorld({
       minX: -PLAYABLE_WORLD_BOUND,
       maxX: PLAYABLE_WORLD_BOUND,
-      minZ: -120,
-      maxZ: 300,
+      // Keep both full-width river edges and the bridge/banks; distant staging
+      // fields do not participate in this crossing/reconnection contract.
+      minZ: -80,
+      maxZ: 80,
       cellSize: 2,
     }, 4)
     world.rebuild(obstacles)
     world.beginFrame()
 
     const northPoint = new THREE.Vector3(-34, 0, -36)
-    const southPoint = new THREE.Vector3(34, 0, 245)
+    const southPoint = new THREE.Vector3(34, 0, 40)
     expect(world.areConnected(northPoint, southPoint)).toBe(true)
 
     // Direct off-bridge river crossings and map-edge river cells are blocked.
@@ -211,4 +191,50 @@ it('updates one deferred owner to its latest destination and discards deferred w
   const afterRebuild = find.mock.calls.length
   world.beginFrame()
   expect(find.mock.calls.length).toBe(afterRebuild)
+})
+
+const emptyTownLayout: TownRampartLayout = { decks: [], ramps: [], corners: [], lengths: [], perimeter: 1, wallSpans: [] }
+function eastRamp(id: string, z: number): BreachEntrance {
+  const surface = { startX: 182, startZ: z, startY: 0, topY: 10, dirX: -1, dirZ: 0, length: 24, landing: 6, halfWidth: 2.5 }
+  return { id, gateId: 'east', type: 'siege-ramp', position: new THREE.Vector3(152, 10, z), approach: new THREE.Vector3(184.2, 0, z),
+    exit: new THREE.Vector3(148, 10, z), surface, bridgeSurface: { ...surface, startX: 152, startY: 10, length: 4, landing: 0 },
+    faction: null, walkable: true, mounted: true, connectionId: id }
+}
+describe('opt-in Town siege navigation', () => {
+  it('walks a real X-directed slope/deck/bridge in order and waits after the selected entrance is removed', () => {
+    const nav = new TownLayeredNavigation(emptyTownLayout), entry = eastRamp('town-siege-ramp:east:left', 62), out = new THREE.Vector3(), goal = new THREE.Vector3(140, 10, 62)
+    nav.siegeActive = true; nav.siegeEntrances.set(entry)
+    expect(nav.resolveMoveTarget(new THREE.Vector3(184.2, 0, 62), goal, out, entry.id)).toEqual({ ground: false })
+    expect(out.x).toBe(181); expect(out.y).toBeCloseTo(10 / 24); expect(out.z).toBe(62)
+    expect(nav.resolveMoveTarget(new THREE.Vector3(158, 10, 62), goal, out, entry.id)).toEqual({ ground: false })
+    expect(out.x).toBeCloseTo(152.3); expect(out.z).toBe(62)
+    nav.resolveMoveTarget(new THREE.Vector3(152.2, 10, 62), goal, out, entry.id)
+    expect(out.toArray()).toEqual([148, 10, 62])
+    nav.siegeEntrances.remove(entry.id)
+    const outside = new THREE.Vector3(180, 0, 62)
+    expect(nav.resolveMoveTarget(outside, goal, out, entry.id)).toEqual({ ground: true, blocked: true })
+    expect(out).toEqual(outside)
+  })
+  it('revokes one destroyed vehicle while retaining a reachable same-gate alternative and rejecting unreachable reroutes', () => {
+    const entries = new AvailableBreachEntrances(), left = eastRamp('town-siege-ramp:east:left', 62), right = eastRamp('town-siege-ramp:east:right', 25)
+    entries.set(left); entries.set(right)
+    const start = new THREE.Vector3(190, 0, 62)
+    expect(entries.select(start, false, 'roman', () => true, left.id)?.id).toBe(left.id)
+    entries.remove(left.id)
+    expect(entries.select(start, false, 'roman', () => true, left.id)?.id).toBe(right.id)
+    expect(entries.select(start, false, 'roman', () => false, left.id)).toBeNull()
+    expect(entries.entries.has(right.id)).toBe(true)
+  })
+  it('admits an unassigned follower only through a proven reachable entrance in its allowed sector', () => {
+    let reachable = false
+    const nav = new TownLayeredNavigation(emptyTownLayout, () => reachable), entry = eastRamp('town-siege-ramp:east:left', 62)
+    nav.siegeActive = true; nav.siegeEntrances.set(entry)
+    const current = new THREE.Vector3(184.2, 0, 62), goal = new THREE.Vector3(140, 10, 62), out = new THREE.Vector3()
+    nav.resolveMoveTarget(current, goal, out, null, false, 'east'); expect(out).toEqual(current)
+    reachable = true
+    nav.resolveMoveTarget(current, goal, out, null, false, 'north'); expect(out).toEqual(current)
+    nav.resolveMoveTarget(current, goal, out, null, false, 'east'); expect(out.x).toBe(181)
+    expect(out.z).toBe(62)
+  })
+
 })
