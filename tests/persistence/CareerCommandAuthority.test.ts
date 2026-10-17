@@ -212,14 +212,15 @@ describe('Outpost Commander storage boundary', () => {
 interface ResidentResource {
   combatantId: string; faction: Faction; townCategory: 'civilian'; hostileToPlayer: boolean
   dead: boolean; hp: number; maxHp: number; combatAmmo: number; combatAmmoCapacity: number
-  tacticalOrder: 'attack' | 'defend'; mount: MountResource | null
+  tacticalOrder: 'attack' | 'defend' | 'follow'; mount: MountResource | null
   group: { position: Vector3; rotation: { y: number } }; combatPosition: Vector3
   shield: { shieldImpactRemaining: number; shieldImpactMax: number }
   restoreCombatHealth(hp: number): void; restoreCombatAmmo(ammo: number): void
   refitCombat(): void; mountVehicle(mount: MountResource): void; dismountFromMount(): void
-  setTacticalOrder(order: 'attack' | 'defend'): void
-  releaseOutpostRampartGarrison(): void; setCommandSquad(): void; setCommandAllegiance(): void
+  setTacticalOrder(order: 'attack' | 'defend' | 'follow'): void
+  releaseOutpostRampartGarrison(): void; setCommandSquad(): void; setCommandAllegiance(faction: Faction): void
   disarmTownCivilian(): void; setTownPeaceful(): void
+  armTownCivilian(): void; setMissionCombatTarget(): void; assignSiegeObstacle(): void; assignFollowTarget(): void
 }
 interface MountResource {
   dead: boolean; currentHp: number; maxHp: number; disposed: boolean; isAirborne: boolean
@@ -227,7 +228,8 @@ interface MountResource {
   group: { position: Vector3; rotation: { y: number } }
   restoreForTown(x: number, z: number, yaw: number): void; takeDamage(): void
 }
-function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean) {
+function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean,
+  placement: Pick<ConstructorParameters<typeof CivilianCommandSquadController>[4], 'canPlaceMountedCivilian'> = {}) {
   const events: string[] = []
   const mount: MountResource = { dead: mountDead, currentHp: mountDead ? 0 : 17, maxHp: 200, disposed: false,
     isAirborne: false, riderNpc: null, riderPlayer: null, group: { position: new Vector3(3, 0, 4), rotation: { y: 1 } },
@@ -248,7 +250,8 @@ function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean)
       mountVehicle(value) { events.push('mount'); this.mount = value; value.riderNpc = this },
       dismountFromMount() { if (this.mount) this.mount.riderNpc = null; this.mount = null },
       setTacticalOrder(order) { this.tacticalOrder = order },
-      releaseOutpostRampartGarrison() {}, setCommandSquad() {}, setCommandAllegiance() {}, disarmTownCivilian() {}, setTownPeaceful() {},
+      releaseOutpostRampartGarrison() {}, setCommandSquad() {}, setCommandAllegiance(faction) { this.faction = faction }, disarmTownCivilian() {}, setTownPeaceful() {},
+      armTownCivilian() {}, setMissionCombatTarget() {}, assignSiegeObstacle() {}, assignFollowTarget() { this.tacticalOrder = 'follow' },
     }
     return { spec: roster.find(spec => spec.id === id)!, npc, ...(id === actorId ? { homeMount: mount } : {}) }
   })
@@ -259,7 +262,7 @@ function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean)
   let permitSave = true
   const controller = () => new CivilianCommandSquadController(residents, () => ({ dead: false }) as Player,
     () => profile, next => { events.push('save'); if (!permitSave) return false; profile = next; return true },
-    { sceneKey: 'town:roman', townFaction: 'roman', refitSceneKey: 'town-home', canRefit: () => true })
+    { sceneKey: 'town:roman', townFaction: 'roman', refitSceneKey: 'town-home', canRefit: () => true, ...placement })
   const owner = controller(); expect(owner.synchronize()).toBe(true); events.length = 0
   return { actor, mount, residents, owner, controller, events, read: () => profile,
     allowSave: (allow: boolean) => { permitSave = allow } }
@@ -274,8 +277,36 @@ describe('Civilian and merchant borrowed mount checkpoints', () => {
     expect(h.events).not.toContain('restore-mount')
     expect(h.actor).toMatchObject({ dead: false, hp: 40 })
     expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
+    const home = h.residents.find(r => r.spec.id === 'civilian-0')!.spec
+    expect(h.mount.group.position.x).toBe(home.x); expect(h.mount.group.position.z).toBe(home.z)
     expect(h.mount.currentHp).toBe(200)
     expect(h.read().civilianCommandSquad!.members['civilian-0'].mount).toMatchObject({ hp: 200, mounted: true })
+  })
+
+  it('refits an existing mounted Follow civilian on a road without checking home placement or moving it', () => {
+    let placementChecks = 0
+    const h = residentRecovery('civilian-0', false, false, { canPlaceMountedCivilian: () => { placementChecks++; return false } })
+    h.actor.combatPosition.set(18, 0, -30); h.mount.group.position.copy(h.actor.combatPosition)
+    h.actor.mountVehicle(h.mount)
+    expect(h.owner.issue('follow')).toBe(true)
+    const position = h.actor.combatPosition.clone()
+    expect(h.owner.refit()).toBe(true)
+    expect(h.actor.combatPosition).toEqual(position); expect(h.mount.group.position).toEqual(position)
+    expect(h.actor).toMatchObject({ hp: 40, tacticalOrder: 'follow' })
+    expect(h.actor.mount).toBe(h.mount); expect(h.mount.currentHp).toBe(200)
+    expect(h.read().civilianCommandSquad!.owners['civilian-0']).toBe('player')
+    expect(placementChecks).toBe(0)
+  })
+
+  it('revives an allocated dead horse at the validated living civilian position rather than its old corpse position', () => {
+    const h = residentRecovery('civilian-0', false, true, { canPlaceMountedCivilian: point => point.x === 18 && point.z === -30 })
+    h.actor.combatPosition.set(18, 0, -30)
+    expect(h.owner.refit()).toBe(true)
+    expect(h.events[0]).toBe('save')
+    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
+    expect(h.actor.combatPosition).toMatchObject({ x: 18, z: -30 })
+    expect(h.mount.group.position).toMatchObject({ x: 18, z: -30 })
+    expect(h.read().civilianCommandSquad!.members['civilian-0'].mount).toMatchObject({ hp: 200, mounted: true, position: { x: 18, z: -30 } })
   })
 
   it('restores the same dead merchant and horse through the existing mount recovery boundary', () => {
