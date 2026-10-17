@@ -1,4 +1,4 @@
-import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult } from '../../src/career/CareerBridgeBattle'
+import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult, recoverClaimedCareerBridgeBattle } from '../../src/career/CareerBridgeBattle'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { COMMANDER_BRIDGEHEAD_ID, createBridgeheadRoster } from '../../src/career/CommanderMissionCatalog'
 import { describe, expect, it } from 'vitest'
@@ -315,14 +315,73 @@ describe('Bridgehead official field battle', () => {
     expect(store.save(restored)).toBe(true)
     storage.writable = false
     expect(commitCareerBridgeBattleResult(store, mission.id, stats)).toBeNull()
-    expect(store.load()!.activeMission!.result).toBeUndefined()
-    expect(store.load()!.claimedBattleIds).not.toContain(mission.id)
+    const failedSave = store.load()!
+    expect(failedSave.activeMission!.result).toBeUndefined()
+    expect(failedSave.claimedBattleIds).not.toContain(mission.id)
     storage.writable = true
     const claimed = commitCareerBridgeBattleResult(store, mission.id, stats)!
     expect(claimed.profile.activeMission!.result!.merit.total).toBe(100)
     expect(claimed.profile.careerMissionCompletionsByTier?.[5]).toBe(1)
     expect(commitCareerBridgeBattleResult(store, mission.id, stats)!.alreadyClaimed).toBe(true)
-    expect(store.load()!.totalMerit).toBe(claimed.profile.totalMerit)
-    expect(store.load()!.personalSquadRuntime).toEqual(privateBefore)
+    const reloadedClaim = store.load()!
+    expect(reloadedClaim.totalMerit).toBe(claimed.profile.totalMerit)
+    expect(reloadedClaim.personalSquadRuntime).toEqual(privateBefore)
+  })
+})
+
+describe('Bridgehead reload routing', () => {
+  const stats = { damageDealt: 20, damageTaken: 0, kills: 1, structureDamage: 0,
+    structuresDestroyed: 0, gateBreaches: 0, survived: true }
+
+  it('saves a claimed mission return without changing rewards or mutating the loaded profile', () => {
+    const acceptedProfile = accepted(COMMANDER_BRIDGEHEAD_ID)
+    const id = acceptedProfile.activeMission!.id
+    const claimed = claimCareerMission(acceptedProfile, id, 'victory', stats).profile
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(claimed)).toBe(true)
+
+    expect(recoverClaimedCareerBridgeBattle(claimed, store)).toBe('return-to-town')
+    expect(claimed.activeMission?.id).toBe(id)
+    const returned = store.load()!
+    expect(returned.activeMission).toBeUndefined()
+    expect(returned.claimedBattleIds).toEqual(claimed.claimedBattleIds)
+    expect(returned.totalMerit).toBe(claimed.totalMerit)
+    expect(returned.lifetimeStats).toEqual(claimed.lifetimeStats)
+  })
+
+  it('keeps the unclaimed mission resumable after settlement saving fails', () => {
+    const profile = accepted(COMMANDER_BRIDGEHEAD_ID), id = profile.activeMission!.id
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save(profile)).toBe(true)
+    storage.writable = false
+    expect(store.save(claimCareerMission(profile, id, 'victory', stats).profile)).toBe(false)
+    let cleanupAttempts = 0
+    const loaded = store.load()!
+    expect(recoverClaimedCareerBridgeBattle(loaded, {
+      save: next => { cleanupAttempts++; return store.save(next) },
+    })).toBe('resume')
+    expect(cleanupAttempts).toBe(0)
+    expect(store.load()!.activeMission).toEqual(loaded.activeMission)
+    expect(loaded.claimedBattleIds).not.toContain(id)
+    expect(loaded.totalMerit).toBe(profile.totalMerit)
+  })
+
+  it('retains a claimed mission on return-save failure and clears it once a retry saves', () => {
+    const acceptedProfile = accepted(COMMANDER_BRIDGEHEAD_ID), id = acceptedProfile.activeMission!.id
+    const claimed = claimCareerMission(acceptedProfile, id, 'victory', stats).profile
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save(claimed)).toBe(true)
+    const loaded = store.load()!
+    storage.writable = false
+    expect(recoverClaimedCareerBridgeBattle(loaded, store)).toBe('save-failed')
+    expect(store.load()!.activeMission).toEqual(loaded.activeMission)
+    expect(store.load()!.claimedBattleIds).toEqual(claimed.claimedBattleIds)
+    storage.writable = true
+    expect(recoverClaimedCareerBridgeBattle(store.load()!, store)).toBe('return-to-town')
+    const returned = store.load()!
+    expect(returned.activeMission).toBeUndefined()
+    expect(returned.totalMerit).toBe(claimed.totalMerit)
+    expect(returned.careerMissionCompletionsByTier?.[5]).toBe(1)
+    expect(returned.claimedBattleIds.filter(battleId => battleId === id)).toHaveLength(1)
   })
 })

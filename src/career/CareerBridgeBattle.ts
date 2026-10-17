@@ -3,7 +3,7 @@ import type { BattleSpawnPlan } from '../battle/BattleSpawner'
 import { COMMANDER_BRIDGEHEAD_ID, createBridgeheadRoster } from './CommanderMissionCatalog'
 import { careerCombatPlayerLoadout } from './CaptainBattleLaunch'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
-import { claimCareerMission, type CareerProfile } from './CareerProfile'
+import { claimCareerMission, clearCareerMission, type CareerProfile } from './CareerProfile'
 import type { CareerProfileStore } from './CareerProfileStore'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import { resolveCareerMissionOutcome, type ActiveCareerMission } from './CareerMissionState'
@@ -18,6 +18,14 @@ export interface CareerBridgeBattleLaunch {
 
 export function isCareerBridgeBattle(mission: ActiveCareerMission | undefined): boolean {
   return mission?.templateId === COMMANDER_BRIDGEHEAD_ID && mission.kind === 'commander-bridgehead-battle'
+}
+
+/** Only a durably claimed mission can leave the battlefield on reload. */
+export function recoverClaimedCareerBridgeBattle(profile: CareerProfile,
+  store: Pick<CareerProfileStore, 'save'>): 'resume' | 'return-to-town' | 'save-failed' {
+  const mission = profile.activeMission
+  if (!isCareerBridgeBattle(mission) || !mission || !profile.claimedBattleIds.includes(mission.id)) return 'resume'
+  return store.save(clearCareerMission(profile, mission.id)) ? 'return-to-town' : 'save-failed'
 }
 
 export function createCareerBridgeBattleLaunch(profile: CareerProfile): CareerBridgeBattleLaunch {

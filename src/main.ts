@@ -1,4 +1,4 @@
-import { createCareerBridgeBattleLaunch, isCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
+import { createCareerBridgeBattleLaunch, isCareerBridgeBattle, recoverClaimedCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from './career/CaptainBattleLaunch'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
 /**
@@ -249,8 +249,18 @@ async function bootstrap(): Promise<void> {
     }
   }
   if (outpostProfile && activeCareerMission && isCareerBridgeBattle(activeCareerMission)) {
-    await resumeStoredCareerMission(activeCareerMission.id, () => createCareerBridgeBattleLaunch(outpostProfile))
-    return
+    const recovery = recoverClaimedCareerBridgeBattle(outpostProfile, careerStore)
+    if (recovery === 'save-failed') {
+      showCareerRecoveryError('無法保存橋頭任務返回狀態，已領獎紀錄與軍功均已保留。', () => window.location.reload())
+      return
+    }
+    if (recovery === 'return-to-town') {
+      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+    } else {
+      await resumeStoredCareerMission(activeCareerMission.id, () => createCareerBridgeBattleLaunch(outpostProfile))
+      return
+    }
   }
   if (outpostProfile?.activeOutpostMission) {
     const mission = outpostProfile.activeOutpostMission

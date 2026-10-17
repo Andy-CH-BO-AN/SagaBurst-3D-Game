@@ -1708,7 +1708,10 @@ export class TownScene {
           ? '正式兵力：玩家 1 人 + 前任 T5 Commander + 10 T4 Lancer + 10 T4 Sword/Axe Cavalry + 9 T4 Horse Archer（全員騎乘）；敵方：敵城全體，斬首目標為 T5 Commander 1 人。'
           : definition.id === COMMANDER_BRIDGEHEAD_ID ? '正式兵力：玩家1人 + 八隊各25名步兵；敵方八隊各25名騎兵。雙方各192 T3 + 8 T4。私兵留守。'
           : '正式兵力：玩家 1 人 + 4 支 30 人步兵隊；敵軍：48 T3 + 2 T4 Lancer、24 T3 + 1 T4 Sword/Axe Cavalry、24 T3 + 1 T4 Horse Archer。60 秒部署。'
-      details.textContent = `${definition.briefing}\n${force}\n玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。`
+      const survival = definition.id === COMMANDER_BRIDGEHEAD_ID
+        ? '玩家戰死後可觀戰；只要我方正式部隊仍有存活士兵，戰鬥就會繼續。'
+        : '玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。'
+      details.textContent = `${definition.briefing}\n${force}\n${survival}`
       const accept = document.createElement('button'); accept.className = 'town-button'
       accept.disabled = !availability.unlocked
       accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '尚未解鎖'
