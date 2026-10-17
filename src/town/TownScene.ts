@@ -10,7 +10,7 @@ import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
-import { civilianHomeAnchor, civilianPointLegal, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
+import { civilianHomeAnchor, civilianBodyClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
 import { townStationSpec } from './TownGarrison'
 import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
 import { SquadRefitSafety } from '../career/SquadRefit'
@@ -445,6 +445,7 @@ export class TownScene {
       sceneKey: `town:${context.worldFaction}`, townFaction: context.worldFaction,
       refitSceneKey: context.worldFaction === this.profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
       canRefit: (actors, orders) => this.canRefitCivilians(actors, orders),
+      hasMountedCivilianClearance: point => civilianBodyClear(point, this.world.airspaceObstacles),
       canPlaceMountedCivilian: (point, actorId) => this.canPlaceMountedCivilian(point, actorId),
       onClaim: npc => this.defense.claimCivilianCommand(npc),
       onRelease: npc => this.defense.returnCivilianCommand(npc),
@@ -3107,9 +3108,12 @@ export class TownScene {
   }
   /** Service-time validation only; mounted residents keep their native movement and command owner. */
   private canPlaceMountedCivilian(point: { x: number; z: number }, actorId: string): boolean {
-    const occupied = this.residents.filter(r => r.spec.id !== actorId && !r.npc.dead).map(r => r.npc.combatPosition)
-    occupied.push(this.player.combatPosition)
-    return civilianPointLegal(point, occupied, this.world.airspaceObstacles, CIVILIAN_MOUNT_CLEARANCE)
+    if (!civilianBodyClear(point, this.world.airspaceObstacles)) return false
+    // Housing's 4.5m home spacing is not a physical collision radius at service time.
+    const blocked = (position: { x: number; z: number }, mounted: boolean) =>
+      Math.hypot(point.x - position.x, point.z - position.z) < CIVILIAN_MOUNT_CLEARANCE.radius + (mounted ? 2 : .5)
+    return !this.residents.some(r => r.spec.id !== actorId && !r.npc.dead && blocked(r.npc.combatPosition, Boolean(r.npc.mount)))
+      && !blocked(this.player.combatPosition, Boolean(this.player.currentMount))
   }
   private updatePeace(r: Resident, dt: number): void {
     if (this.race?.owns(r.npc)) return

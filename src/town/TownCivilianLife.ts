@@ -37,7 +37,12 @@ export function civilianPointLegal(point: Point, occupied: readonly Point[] = []
   if ([...TOWN_PRIVATE_EAGLE_SITES, ...TOWN_GARRISON_EAGLE_SITES].some(p => Math.abs(x - p.x) < 16 && Math.abs(z - p.z) < 28)) return false
   if (Math.abs(x - TOWN_DUEL_CENTER.x) < TOWN_DUEL_HALF_SIZE + 6 && Math.abs(z - TOWN_DUEL_CENTER.z) < TOWN_DUEL_HALF_SIZE + 6) return false
   if (occupied.some(p => Math.hypot(x - p.x, z - p.z) < Math.max(3, r * 2 + .5))) return false
-  const y = getTerrainHeight(x, z)
+  return civilianBodyClear(point, obstacles, clearance)
+}
+
+/** Physical clearance has no residential/road exclusions or transient resident spacing. */
+export function civilianBodyClear(point: Point, obstacles: readonly ObstacleData[], clearance: { radius: number; height: number } = CIVILIAN_MOUNT_CLEARANCE): boolean {
+  const { x, z } = point, r = clearance.radius, y = getTerrainHeight(x, z)
   return !obstacles.some(o => {
     const box = clearance.height > 1.8 ? o.box : o.navigationBox ?? o.box
     return box.max.y > y + .15 && box.min.y < y + clearance.height
@@ -96,11 +101,12 @@ export class TownCivilianLife {
   suspend(id: string): void { this.states.delete(id) }
 }
 
-export const CIVILIAN_HOME_LAYOUT_VERSION = 3
+export const CIVILIAN_HOME_LAYOUT_VERSION = 4
 /** Upgrade only native home intent. Never move commanded actors, revive deaths or reset wartime shelter. */
 export function migrateCivilianHomes(saved: CivilianCommandSquadState,
   homes: readonly { id: string; x: number; y?: number; z: number; yaw?: number }[],
-  canPlaceMountedCivilian?: (point: Point, actorId: string) => boolean): CivilianCommandSquadState {
+  canPlaceMountedCivilian?: (point: Point, actorId: string) => boolean,
+  hasMountedCivilianClearance?: (point: Point, actorId: string) => boolean): CivilianCommandSquadState {
   const upgrade = (saved.homeLayoutVersion ?? 0) < CIVILIAN_HOME_LAYOUT_VERSION
   let next = upgrade ? cloneCivilianCommandSquad(saved) : undefined
   if (next) next.homeLayoutVersion = CIVILIAN_HOME_LAYOUT_VERSION
@@ -109,10 +115,13 @@ export function migrateCivilianHomes(saved: CivilianCommandSquadState,
     if (!member || owner !== 'daily' || member.status === 'dead' || member.status === 'exited'
       || member.hp === 0 || member.fall || member.mount?.flight || !/^civilian-\d+$/.test(home.id)) continue
     // Equipment may have changed since the last pose checkpoint. Recheck even the current layout.
-    const repairMount = member.mount && member.mount.hp > 0 && canPlaceMountedCivilian
-      && (!canPlaceMountedCivilian(member.mount.position, home.id)
-        || member.mount.mounted && member.position && !canPlaceMountedCivilian(member.position, home.id))
-    if ((!upgrade && !repairMount) || (canPlaceMountedCivilian && !canPlaceMountedCivilian(home, home.id))) continue
+    const repairMount = member.mount && member.mount.hp > 0 && hasMountedCivilianClearance
+      && (!hasMountedCivilianClearance(member.mount.position, home.id)
+        || member.mount.mounted && member.position && !hasMountedCivilianClearance(member.position, home.id))
+    if (!upgrade && !repairMount) continue
+    // A temporary occupant must not permanently complete a partial upgrade. Retry on reload.
+    // Stage all changes before saving/applying any pose, including foot-only daily residents.
+    if (canPlaceMountedCivilian && !canPlaceMountedCivilian(home, home.id)) return saved
     next ??= cloneCivilianCommandSquad(saved)
     const updated = next.members[home.id]
     const position = { x: home.x, y: home.y ?? getTerrainHeight(home.x, home.z), z: home.z, yaw: home.yaw ?? 0 }
