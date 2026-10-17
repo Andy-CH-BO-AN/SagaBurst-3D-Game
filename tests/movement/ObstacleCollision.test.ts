@@ -32,6 +32,7 @@ import {
   setSceneRiverCrossing,
   type ObstacleData,
 } from '../../src/world/Terrain'
+import { initializeTownWorldTerrain } from '../../src/town/TownWorld'
 
 function deck(y: number): ObstacleData {
   return {
@@ -210,6 +211,7 @@ describe('obstacle walk-surface collision', () => {
       [-120, 85],
     ]
     const baselineHeights = samplePoints.map(([x, z]) => getTerrainHeight(x, z))
+    const directTownWatchtower = initializeTownWorldTerrain()
     const romanCampOffset = getFortifiedCampHeightOffset(0, -144, 'roman')
     const vikingCampOffset = getFortifiedCampHeightOffset(0, 144, 'viking')
 
@@ -384,8 +386,16 @@ describe('obstacle walk-surface collision', () => {
     )).toBe(0)
     expect([playerDeaths, mountedNpcDeaths, footNpcDeaths, playerMountDeaths, npcMountDeaths, soloMountDeaths]).toEqual([1, 1, 1, 1, 1, 1])
 
-    resetTerrainScenePolicy()
+    // Entering Town via the production TownWorld initialization path resets River Crossing BEFORE computing commandWatchtower layout.
+    const townWatchtowerFromRiver = initializeTownWorldTerrain({ userData: {} })
     expect(isRiverCrossingTerrainActive()).toBe(false)
+    expect(townWatchtowerFromRiver.groundY).toBe(directTownWatchtower.groundY)
+    expect(townWatchtowerFromRiver.entrance.startY).toBe(directTownWatchtower.entrance.startY)
+    expect(townWatchtowerFromRiver.entrance.topY).toBe(directTownWatchtower.entrance.topY)
+    expect(townWatchtowerFromRiver.platformY).toBe(directTownWatchtower.platformY)
+    expect(townWatchtowerFromRiver.entrance.startY).toBeCloseTo(
+      getTerrainHeight(townWatchtowerFromRiver.entrance.startX, townWatchtowerFromRiver.entrance.startZ) + 0.03,
+    )
     expect(findRiverBridgeDeckHit(bridgeAimRay)).toBeNull()
     expect(shouldDrownInRiverCrossing(30, RIVER_CROSSING_LAYOUT.river.waterSurfaceY, 0)).toBe(false)
     samplePoints.forEach(([x, z], index) => {
