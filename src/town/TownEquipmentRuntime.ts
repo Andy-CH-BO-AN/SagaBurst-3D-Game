@@ -1,4 +1,3 @@
-import { findTownMerchantParking, type MerchantParking } from './TownMerchantMount'
 import type * as THREE from 'three'
 import type { CareerProfile, CareerMountId } from '../career/CareerProfile'
 import { careerMountType } from '../career/CareerMountController'
@@ -15,7 +14,7 @@ export function findTownNativeMount(mounts: readonly Mount[], ref: TownEquipment
 
 /** Applies a committed configuration. Existing physical mounts follow their ownership reference. */
 export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonly TownCombatResident[], mounts: Mount[],
-  previous: CareerProfile, current: CareerProfile, actorIds: readonly string[], merchantParking: MerchantParking | undefined = findTownMerchantParking()): number {
+  previous: CareerProfile, current: CareerProfile, actorIds: readonly string[], canPlaceMountedCivilian?: (point: { x: number; z: number }, actorId: string) => boolean): number {
   const selected = new Set(actorIds)
   const plans = residents.filter(resident => selected.has(resident.spec.id)).map(resident => ({ resident,
     before: resolveTownActorEquipment(previous, previous.faction, resident.spec.id),
@@ -32,6 +31,18 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
       || physical.riderNpc && !selectedActors.has(physical.riderNpc))
   })) return plans.length
   const mountChanges = plans.filter(plan => JSON.stringify(plan.before.refs.mount) !== JSON.stringify(plan.after.refs.mount))
+  const civilianMountPoints = new Map<TownCombatResident, { x: number; z: number }>()
+  for (const { resident, after } of mountChanges) {
+    if (resident.spec.role !== 'civilian' || !after.loadout.mountId || !canPlaceMountedCivilian) continue
+    let point: { x: number; z: number } = resident.npc.combatPosition
+    if (!canPlaceMountedCivilian(point, resident.spec.id)) {
+      const owner = current.civilianCommandSquad?.owners[resident.spec.id]
+      if ((owner && owner !== 'daily') || current.activeMission || current.activeOutpostMission
+        || current.townEvent?.state === 'hostile' || !canPlaceMountedCivilian(resident.spec, resident.spec.id)) return plans.length
+      point = resident.spec
+    }
+    civilianMountPoints.set(resident, { x: point.x, z: point.z })
+  }
   const released = new Map<string, Mount[]>()
   for (const { resident, before } of mountChanges) {
     const mount = resident.homeMount
@@ -49,19 +60,16 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
     if (mountChanges.some(plan => plan.resident === resident) && after.loadout.mountId) {
       const key = JSON.stringify(after.refs.mount)
       const reused = released.get(key)?.shift() ?? findTownNativeMount(mounts, after.refs.mount)
-      const mount = reused ?? new Mount(scene, careerMountType(after.loadout.mountId as CareerMountId), resident.npc.group.position.x, resident.npc.group.position.z)
+      const point = civilianMountPoints.get(resident) ?? resident.npc.combatPosition
+      const mount = reused ?? new Mount(scene, careerMountType(after.loadout.mountId as CareerMountId), point.x, point.z)
       if (after.refs.mount?.source === 'native') registerTownNativeMount(mount, after.refs.mount.nativeId!)
       mount.reservedForTown = true
-      const home = resident.spec.role === 'merchant' ? merchantParking ?? resident.spec : resident.npc.group.position
-      mount.group.position.set(home.x, getTerrainHeight(home.x, home.z), home.z)
+      mount.group.position.set(point.x, getTerrainHeight(point.x, point.z), point.z)
       mount.group.rotation.y = resident.npc.group.rotation.y
       if (!reused) mounts.push(mount)
       resident.homeMount = mount
-      if (resident.spec.role === 'merchant') mount.visualHold = true
-      else {
-        mount.visualHold = false; resident.npc.mountVehicle(mount)
-        if (resident.npc.mount !== mount) pending++
-      }
+      resident.npc.mountVehicle(mount)
+      if (resident.npc.mount !== mount) pending++
     }
     resident.npc.setTownPeaceful()
   }

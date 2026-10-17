@@ -996,8 +996,8 @@ export class NPC {
     if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false; this.shieldPivot.visible = false }
     return events.projectileRelease
   }
-  /** Physical boarding/return is a temporary movement override, preserving the exact tactical order. */
-  updateTownMountApproach(dt: number, distance: number, destination: THREE.Vector3,
+  /** Physical boarding is a temporary movement override, preserving the player's exact air order. */
+  updateTownEagleBoarding(dt: number, distance: number, destination: THREE.Vector3,
     nearby: NPC[], obstacles: ObstacleData[], navigation: NavigationWorld): void {
     const formation = this.formationTarget, order = this.tacticalOrder, follow = this.followTarget
     this.formationTarget = { commandId: -7, position: destination.clone(), facing: new THREE.Vector3(0, 0, 1), reached: false, speedLimit: 3.5 }

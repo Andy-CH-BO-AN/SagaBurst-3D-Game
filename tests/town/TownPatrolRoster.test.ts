@@ -5,7 +5,7 @@ import { selectMissionCavalryActorIds } from '../../src/career/BanditMissionCont
 import { townRoster } from '../../src/town/TownRules'
 import type { NPC } from '../../src/world/NPC'
 import { civilianHumanoidAssetId } from '../../src/world/CivilianAppearance'
-import { civilianDistrict, civilianHomeAnchor, civilianPointLegal } from '../../src/town/TownCivilianLife'
+import { civilianDistrict, civilianHomeAnchor, civilianPointLegal, CIVILIAN_MOUNT_CLEARANCE } from '../../src/town/TownCivilianLife'
 
 describe('Town patrol roster contracts', () => {
   it('selects faction civilian sources without changing resident identities or district allocation', () => {
@@ -21,7 +21,7 @@ describe('Town patrol roster contracts', () => {
     for (const resident of residents) {
       const anchor = civilianHomeAnchor(resident.index, placed, obstacles)
       expect(anchor).toEqual(civilianHomeAnchor(resident.index, placed, obstacles))
-      expect(civilianPointLegal(anchor, placed, obstacles)).toBe(true)
+      expect(civilianPointLegal(anchor, placed, obstacles, CIVILIAN_MOUNT_CLEARANCE)).toBe(true)
       expect(townHousing('viking').some(home => Math.hypot(anchor.x - home.x, anchor.z - home.z) < 11)).toBe(true)
       placed.push(anchor)
     }

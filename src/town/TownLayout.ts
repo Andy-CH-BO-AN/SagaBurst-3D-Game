@@ -63,9 +63,10 @@ export const TOWN_LOCAL_ROADS: readonly TownRoad[] = [
   { ax: 80, az: 56, bx: 136, bz: 56, width: 5 },
   { ax: 80, az: 80, bx: 138, bz: 80, width: 4 },
 ]
-/** Clear training forecourt between the infantry and cavalry districts. */
-export const TOWN_DUEL_CENTER = { x: 111, z: -44 } as const
-export const TOWN_DUEL_HALF_SIZE = 17
+/** Open ground between the cavalry road and housing; no movement boundary is added. */
+export const TOWN_DUEL_CENTER = { x: 100, z: -39 } as const
+export const TOWN_MOUNTED_MISSION_MUSTER_HALF_SIZE = 12
+export const TOWN_DUEL_HALF_SIZE = 11
 /** Placement-time exclusion, including enough clearance for tree crowns and mounts. */
 export function townSceneryExcluded(x: number, z: number, radius = 0): boolean {
   // The complete wing corridor extends beyond the wall. Keep visual trees and rocks

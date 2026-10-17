@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
-import type { NavigationWorld } from '../../src/navigation/NavigationWorld'
-import type { TownCombatResident } from '../../src/town/TownMissionCombat'
-import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes } from '../../src/town/TownCivilianLife'
-import { findTownMerchantParking, TownMerchantMountController } from '../../src/town/TownMerchantMount'
-import { findTownDuelArena } from '../../src/town/TownDuelArena'
-import { TOWN_DUEL_CENTER } from '../../src/town/TownLayout'
+import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, CIVILIAN_MOUNT_CLEARANCE } from '../../src/town/TownCivilianLife'
+import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
+import { TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
 import { townRoster } from '../../src/town/TownRules'
 
 describe('Town resident layout ownership', () => {
@@ -31,42 +28,45 @@ describe('Town resident layout ownership', () => {
     expect(migrateCivilianHomes(next, homes)).toBe(next)
   })
 
+  it('repairs an unsafe mounted pose on current-layout reload without changing health or mount ownership', () => {
+    const saved: CivilianCommandSquadState = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman',
+      sceneKey: 'town:roman', homeLayoutVersion: CIVILIAN_HOME_LAYOUT_VERSION, actorIds: ['civilian-0'],
+      owners: { 'civilian-0': 'daily' }, members: { 'civilian-0': { status: 'deployed', hp: 13,
+        position: { x: 1, z: 1, yaw: 0 }, mount: { hp: 17, mounted: true, position: { x: 1, z: 1, yaw: 0 } } } } }
+    const home = civilianHomeAnchor(0)
+    const next = migrateCivilianHomes(saved, [{ id: 'civilian-0', ...home }], point => point.x > 50)
+    expect(next.members['civilian-0']).toMatchObject({ status: 'deployed', hp: 13,
+      position: { x: home.x, z: home.z }, mount: { hp: 17, mounted: true, position: { x: home.x, z: home.z } } })
+    expect(next.actorIds).toEqual(saved.actorIds); expect(next.owners).toEqual(saved.owners)
+    expect(saved.members['civilian-0'].mount!.position.x).toBe(1)
+  })
+
   it('rejects duel deployment when an unrelated resident occupies the reserved inner arena', () => {
     const roster = townRoster(), navigation = { areConnected: () => true }
     const open = findTownDuelArena([], navigation, roster)
     expect(open).not.toBeNull()
-    const visitor = { ...roster.find(s => s.role === 'civilian')!, x: TOWN_DUEL_CENTER.x, z: TOWN_DUEL_CENTER.z }
+    const visitor = { ...roster.find(s => s.role === 'civilian')!, id: 'civilian-visitor', x: TOWN_DUEL_CENTER.x, z: TOWN_DUEL_CENTER.z }
     expect(findTownDuelArena([], navigation, [...roster, visitor])).toBeNull()
     expect(findTownDuelArena([{ isBarricade: false, box: new Box3(new Vector3(-100, -100, -100), new Vector3(200, 100, 100)) }], navigation, roster)).toBeNull()
   })
 
-  it('returns the mounted merchant through outdoor parking before walking back to service', () => {
-    const spec = townRoster().find(spec => spec.role === 'merchant')!, parking = findTownMerchantParking()!
-    const position = new Vector3(30, 0, -27), approached: Vector3[] = []
-    const mount = { dead: false, disposed: false, isAirborne: false, riderPlayer: null, riderNpc: null as unknown,
-      visualHold: false, group: { position: position.clone() } }
-    const npc = { dead: false, isFalling: false, inCombat: false, hasLiveCombatTarget: false, mount,
-      group: { position }, get combatPosition() { return this.mount?.group.position ?? position },
-      get isMounted() { return this.mount !== null },
-      dismountFromMount() { this.mount = null!; mount.riderNpc = null; position.copy(mount.group.position) },
-      updateTownMountApproach(_dt: number, _distance: number, target: Vector3) {
-        approached.push(target.clone())
-        const stop = target.clone()
-        if (this.mount) stop.z -= 1.1 // Native mounted formation stops before the exact center.
-        ;(this.mount?.group.position ?? position).copy(stop)
-      } }
-    mount.riderNpc = npc
-    // Only the borrowed movement boundary is adapted; no scene, actor or model is constructed.
-    const resident = { spec, npc, homeMount: mount } as unknown as TownCombatResident
-    const nav = { areConnected: () => true } as unknown as NavigationWorld
-    const owner = new TownMerchantMountController(parking), camera = new Vector3()
-    expect(owner.update(resident, false, .1, camera, [], [], nav, [])).toBe(true)
-    expect(npc.isMounted).toBe(true)
-    expect(approached[0]).toEqual(new Vector3(parking.x, parking.y, parking.z))
-    expect(owner.update(resident, false, .1, camera, [], [], nav, [])).toBe(true)
-    expect(npc.isMounted).toBe(false); expect(mount.visualHold).toBe(true)
-    expect(approached[1].x).toBe(spec.x); expect(approached[1].z).toBe(spec.z)
-    expect(owner.update(resident, false, .1, camera, [], [], nav, [])).toBe(false)
-    expect(resident.homeMount).toBe(mount)
+  it('keeps duel deployment and its fallback candidates outside riding roads and mounted muster', () => {
+    const area = findTownDuelArena([], { areConnected: () => true }, townRoster())!
+    expect(area).not.toBeNull()
+    const box = (x: number, z: number, half: number) => new Box3(new Vector3(x - half, -100, z - half), new Vector3(x + half, 100, z + half))
+    expect(townDuelAreaClear(box(area.x, area.z, DUEL_ARENA_HALF_SIZE))).toBe(true)
+    // Independent occupied intervals from the authored roads catch the former z=-58 placement.
+    for (const road of [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS]) {
+      expect(townDuelAreaClear(box((road.ax + road.bx) / 2, (road.az + road.bz) / 2, 1))).toBe(false)
+    }
+    expect(townDuelAreaClear(box(TOWN_MOUNTED_MISSION_MUSTER.x, TOWN_MOUNTED_MISSION_MUSTER.z, 1))).toBe(false)
+  })
+
+  it('rejects an overhead obstacle that clears a walker but intersects a mounted civilian', () => {
+    const point = civilianHomeAnchor(0)
+    const canopy = { isBarricade: false, navigationPassable: true, box: new Box3(
+      new Vector3(point.x - .5, point.y + 3, point.z - .5), new Vector3(point.x + .5, point.y + 3.3, point.z + .5)) }
+    expect(civilianPointLegal(point, [], [canopy])).toBe(true)
+    expect(civilianPointLegal(point, [], [canopy], CIVILIAN_MOUNT_CLEARANCE)).toBe(false)
   })
 })

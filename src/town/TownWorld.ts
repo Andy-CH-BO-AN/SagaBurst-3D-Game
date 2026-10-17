@@ -13,7 +13,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisuals'
 import { Faction } from '../combat/CombatFaction'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
-import { TOWN_SITES } from './TownRules'
+import { TOWN_SITES, townSitePoint } from './TownRules'
 import { DamageableObstacle } from '../world/DamageableObstacle'
 import { getTerrainHeight, resetTerrainScenePolicy, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_GROUND_SIZE, TOWN_BANDIT_CAMP_CENTERS, townSceneryPoint, nearTownBanditCamp } from './TownBounds'
@@ -294,7 +294,7 @@ export class TownWorld {
   }
   private building(id: string, _name: string, x: number, z: number, w: number, d: number, h: number, kind: string, yaw = 0, campId?: number): void {
     const y = getTerrainHeight(x, z), root = new THREE.Group(); root.position.set(x, y, z); root.rotation.y = yaw; this.root.add(root)
-    const attachments: THREE.Box3[] = []
+    const attachments: THREE.Box3[] = [], overheadAttachments: THREE.Box3[] = []
     const tent = kind === 'tent', stable = kind === 'stable', roman = this.faction === 'roman'
     const lowGround = Math.min(...[-1, 1].flatMap(sx => [-1, 1].map(sz => getTerrainHeight(x + Math.cos(yaw) * sx * w / 2 + Math.sin(yaw) * sz * d / 2, z - Math.sin(yaw) * sx * w / 2 + Math.cos(yaw) * sz * d / 2))))
     const foundationDepth = Math.max(.5, y - lowGround + .6)
@@ -350,12 +350,21 @@ export class TownWorld {
     if (['shop', 'stable', 'barracks'].includes(kind)) {
       const porchWidth = kind === 'barracks' ? 18 : w + 1
       const porchDepth = kind === 'barracks' ? 5 : 4.2
-      this.cube(root, 0, h - .15, d / 2 + porchDepth / 2, porchWidth, .22, porchDepth, this.roofMat)
-      if (!roman) this.cube(root, 0, h + .02, d / 2 + porchDepth / 2, porchWidth, .15, porchDepth, this.snow)
+      let porchHeight = h - .15
+      if (id === 'weapons') {
+        const service = townSitePoint('weapons', 0, 7.5)
+        // The merchant's terrain is higher than the shop foundation. Include rider and roof thickness.
+        porchHeight = Math.max(porchHeight, getTerrainHeight(service.x, service.z) - y + 5.5)
+      }
+      this.cube(root, 0, porchHeight, d / 2 + porchDepth / 2, porchWidth, .22, porchDepth, this.roofMat)
+      if (id === 'weapons') overheadAttachments.push(new THREE.Box3(
+        new THREE.Vector3(-porchWidth / 2, porchHeight - .11, d / 2),
+        new THREE.Vector3(porchWidth / 2, porchHeight + (roman ? .11 : .245), d / 2 + porchDepth)))
+      if (!roman) this.cube(root, 0, porchHeight + .17, d / 2 + porchDepth / 2, porchWidth, .15, porchDepth, this.snow)
       for (const side of [-1, 1]) {
         const xx = side * (porchWidth / 2 - .25), zz = d / 2 + porchDepth - .2
-        this.cube(root, xx, h / 2, zz, .22, h, .22, this.wood)
-        attachments.push(new THREE.Box3(new THREE.Vector3(xx - .14, -100, zz - .14), new THREE.Vector3(xx + .14, h, zz + .14)))
+        this.cube(root, xx, (porchHeight + .15) / 2, zz, .22, porchHeight + .15, .22, this.wood)
+        attachments.push(new THREE.Box3(new THREE.Vector3(xx - .14, -100, zz - .14), new THREE.Vector3(xx + .14, porchHeight + .15, zz + .14)))
       }
       this.sign(root, kind === 'shop' ? 'WEAPON SHOP' : stable ? 'HORSE SHOP' : 'BARRACKS', 0, kind === 'barracks' ? h - .3 : h + 1.05, kind === 'barracks' ? d / 2 + porchDepth + .15 : d / 2 + .25, stable || kind === 'barracks' ? 7 : 6)
       if (kind === 'shop') {
@@ -382,7 +391,8 @@ export class TownWorld {
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: kind === 'hall' ? 900 : tent ? 120 : 300, root })
     this.batch(root); this.batch(roof); this.batch(ruin)
     const obstacle = { box: new THREE.Box3(new THREE.Vector3(-w / 2 - .2, -100, -d / 2 - .2), new THREE.Vector3(w / 2 + .2, h + 3, d / 2 + .2)).applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp }
-    const buildingObstacles = [obstacle, ...attachments.map(box => ({ box: box.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp }))]
+    const buildingObstacles = [obstacle, ...attachments.map(box => ({ box: box.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp })),
+      ...overheadAttachments.map(box => ({ box: box.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, navigationPassable: true, damageable: hp }))]
     this.buildings.push({ id, ownerFaction: id.startsWith('camp-') ? Faction.BANDIT : this.ownerAllegiance, ...(campId === undefined ? {} : { campId }), obstacles: buildingObstacles, hp, roof, ruin, damaged: false }); this.obstacles.push(...buildingObstacles)
     this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(root), isBarricade: false })
     hp.onDestroyed(() => { ruin.visible = true; for (const part of buildingObstacles) { const index = this.obstacles.indexOf(part); if (index >= 0) this.obstacles.splice(index, 1) } })

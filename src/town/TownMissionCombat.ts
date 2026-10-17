@@ -65,7 +65,6 @@ interface TownCombatScene {
   commandActors?(): readonly NPC[]
   raceActors?(): readonly NPC[]
   raceMounts?(): readonly Mount[]
-  beforeActorUpdate?(npc: NPC, dt: number): boolean
   onActorMoved?(npc: NPC): void
   patrol?(): Pick<TownCavalryPatrolController, 'prepareCombatFrame' | 'combatActors' | 'combatEnabled' | 'noteHostileHit'>
   /** An individual return/refit owner keeps its actor's assigned peaceful travel until released. */
@@ -561,7 +560,6 @@ export class TownMissionCombat {
   }
 
   private updateRuntimeActor(actor: NPC, dt: number): void {
-    if (this.town.beforeActorUpdate?.(actor, dt)) return
     if (this.updateEagleCombatDuty(actor, dt)) return
     actor.update(dt, this.town.player(), this.runtimeActors,
       this.warfareGrid.getNearbyInto(actor.combatPosition, 8, this.neighbors), this.actorObstacles(actor), this.town.hp,

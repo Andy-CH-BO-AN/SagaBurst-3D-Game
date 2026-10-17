@@ -1,4 +1,3 @@
-import { findTownMerchantParking, merchantServiceCheckpoint, type MerchantParking } from './TownMerchantMount'
 import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes } from './TownCivilianLife'
 import * as THREE from 'three'
 import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
@@ -26,10 +25,10 @@ export interface CivilianCommandHudState {
   readonly members: Readonly<Record<string, Readonly<Pick<PersonalActorCheckpoint, 'status' | 'hp' | 'order'>>>>
 }
 interface CivilianCommandOptions {
-  merchantParking?: MerchantParking
   sceneKey: string
   townFaction: CareerProfile['faction']
   refitSceneKey?: string
+  canPlaceMountedCivilian?(point: { x: number; z: number }, actorId: string): boolean
   canRefit?(actors: readonly NPC[], orders: readonly TacticalOrder[]): boolean
   onClaim?(npc: NPC): void
   onRelease?(npc: NPC, owner: CivilianCommandOwner): void
@@ -93,6 +92,12 @@ export class CivilianCommandSquadController {
       if (!homeMount) continue
       if (mounts.has(homeMount) || homeMount.disposed || homeMount.riderPlayer
         || homeMount.riderNpc && homeMount.riderNpc !== npc || npc.mount && npc.mount !== homeMount) return false
+      if (this.options.canPlaceMountedCivilian && this.residentsById.get(id)!.spec.role === 'civilian'
+        && (npc.mount === homeMount || homeMount.dead || npc.dead)) {
+        const point = npc.dead || npc.isFalling ? this.residentsById.get(id)!.spec : npc.combatPosition
+        if (!this.options.canPlaceMountedCivilian(point, id)
+          && (this.owner(npc) !== 'daily' || !this.options.canPlaceMountedCivilian(this.residentsById.get(id)!.spec, id))) return false
+      }
       mounts.add(homeMount)
     }
     const actors = this.refitIds.map(id => this.residentsById.get(id)!.npc)
@@ -107,8 +112,13 @@ export class CivilianCommandSquadController {
     for (const id of this.refitIds) {
       const { npc, spec, homeMount } = this.residentsById.get(id)!, previous = this.value!.members[id]
       const member = value.members[id] = refitCommandCheckpoint(npc, homeMount)
-      if (npc.dead || npc.isFalling) member.position = {
-        x: spec.x, y: spec.y ?? getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? 0,
+      const dailyMountedHome = spec.role === 'civilian' && value.owners[id] === 'daily' && member.mount?.mounted
+        && member.position && this.options.canPlaceMountedCivilian && !this.options.canPlaceMountedCivilian(member.position, id)
+      if (npc.dead || npc.isFalling || dailyMountedHome) {
+        member.position = {
+          x: spec.x, y: spec.y ?? getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? 0,
+        }
+        if (spec.role === 'civilian' && member.mount?.mounted) member.mount.position = { ...member.position }
       }
       if (value.owners[id] === 'returning') this.stageReturn(value, id, spec)
       else if (value.owners[id] === 'player') {
@@ -122,7 +132,6 @@ export class CivilianCommandSquadController {
         }
       } else {
         value.owners[id] = 'daily'; member.order = 'attack'; delete member.formation
-        value.members[id] = merchantServiceCheckpoint(member, spec, this.options.merchantParking ?? findTownMerchantParking())
       }
     }
     const next = cloneCareerProfile(this.read()); next.civilianCommandSquad = value
@@ -173,12 +182,7 @@ export class CivilianCommandSquadController {
       let restored = saved
       const profile = this.read()
       if (!profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile') {
-        let migrated = migrateCivilianHomes(saved, [...this.residentsById.values()].map(r => r.spec))
-        const merchant = this.residentsById.get('merchant'), member = migrated.members.merchant
-        if (merchant && member && migrated.owners.merchant === 'daily') {
-          const normalized = merchantServiceCheckpoint(member, merchant.spec, this.options.merchantParking ?? findTownMerchantParking())
-          if (normalized !== member) { migrated = cloneCivilianCommandSquad(migrated); migrated.members.merchant = normalized }
-        }
+        const migrated = migrateCivilianHomes(saved, [...this.residentsById.values()].map(r => r.spec), this.options.canPlaceMountedCivilian)
         if (migrated !== saved) {
           const next = cloneCareerProfile(profile); next.civilianCommandSquad = migrated
           // A denied save falls back to the original checkpoint, including its deaths.
@@ -298,9 +302,7 @@ export class CivilianCommandSquadController {
     if (npc.formationCommandId !== CIVILIAN_COMMAND_RETURN_ID) this.applyReturn(npc, this.value!.members[npc.combatantId])
     npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.actors.filter(other => other !== npc && !other.dead), obstacles, navigation)
     if (npc.isFormationTargetReached(CIVILIAN_COMMAND_RETURN_ID)) {
-      if (resident.spec.role === 'merchant' && npc.isMounted) return true
-      // A return restored from an older layout reaches the new home before resuming daily life.
-      if (Math.hypot(npc.combatPosition.x - resident.spec.x, npc.combatPosition.z - resident.spec.z) > 2) {
+      if (resident.spec.role === 'civilian' && Math.hypot(npc.combatPosition.x - resident.spec.x, npc.combatPosition.z - resident.spec.z) > 2) {
         const value = this.checkpoint()!; this.stageReturn(value, npc.combatantId, resident.spec); this.save(value); return true
       }
       const value = this.checkpoint()!, id = npc.combatantId
@@ -352,12 +354,7 @@ export class CivilianCommandSquadController {
       } else {
         npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN)
         if (owner === 'returning' && member.formation) this.applyReturn(npc, member)
-        else if (owner === 'daily') {
-          npc.missionMovement = false; npc.setTacticalOrder('attack'); npc.disarmTownCivilian(); npc.setTownPeaceful()
-          const resident = this.residentsById.get(id)!
-          if (resident.spec.role === 'merchant' && !npc.isMounted && resident.homeMount
-            && !resident.homeMount.riderNpc && !resident.homeMount.riderPlayer) resident.homeMount.visualHold = true
-        }
+        else if (owner === 'daily') { npc.missionMovement = false; npc.setTacticalOrder('attack'); npc.disarmTownCivilian(); npc.setTownPeaceful() }
         this.options.onRelease?.(npc, owner)
       }
     }
