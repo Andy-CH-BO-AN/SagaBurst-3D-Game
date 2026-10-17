@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished } from 'vitest'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { siegeDefensePlans } from '../../src/career/TownSiege'
 import { TownFourGateSiege } from '../../src/career/TownFourGateSiege'
@@ -87,21 +87,31 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(npc.campaignEntranceId).toBeNull(); expect(siegeTarget).toBe(eastGate.siegeObstacle)
   })
 
-  it('removes a ground detour after mounting a flying animal and never assigns one in flight', () => {
+  it('admits only rostered ground attackers to convoy detours and clears excluded actors', () => {
     const entrances = new AvailableBreachEntrances(), convoy = new SiegeConvoy()
+    onTestFinished(() => convoy.dispose())
     const npc = { combatantId: 'east:flyer', dead: false, tacticalOrder: 'attack', hasFormationTarget: false,
       siegeTransport: null, siegeBypassTarget: null as Vector3 | null, combatPosition: new Vector3(0, 20, -5),
       mount: null as { isFlyingMount: boolean } | null }
     const ramp = { position: new Vector3(), placement: { dirX: 0, dirZ: 1 }, controller: { state: 'PUSHING' },
       surface: { startX: 0, startZ: -30, halfWidth: 2.5 } }
+    const defender = { ...npc, combatantId: 'east:defender' }, ambient = { ...npc, combatantId: 'ambient' }
+    const personal = { ...npc, combatantId: 'personal', combatOwnership: 'player-personal' }
+    // Narrow data adapter to seed an existing real detour; no actor or vehicle constructors.
+    const detours = convoy as unknown as { update(actor: typeof npc, ramps: readonly typeof ramp[]): void }
+    detours.update(defender, [ramp])
+    expect(defender.siegeBypassTarget).not.toBeNull()
     // Real Town caller and convoy policy; readiness, render/spawn and route rosters are data boundaries.
     const owner = Object.assign(Object.create(TownFourGateSiege.prototype) as Pick<TownFourGateSiege, 'update'>, {
       prepared: true, disposed: false, pending: new Set(), ramps: new Map(), rampList: [ramp], convoy,
       observedRevision: entrances.revision, actorsById: new Map(), playerCommands: new Set(), departedActors: new Map(),
-      options: { world: {}, grid: {}, navigation: { townNav: { siegeEntrances: entrances } }, actors: () => [npc], acceptsOrders: () => true },
+      attackerIds: new Set([npc.combatantId]),
+      options: { world: {}, grid: {}, navigation: { townNav: { siegeEntrances: entrances } },
+        actors: () => [npc, defender, ambient, personal], acceptsOrders: () => true },
     })
     owner.update(.1)
     expect(npc.siegeBypassTarget).toEqual(new Vector3(6.5, 20, -5))
+    expect([defender.siegeBypassTarget, ambient.siegeBypassTarget, personal.siegeBypassTarget]).toEqual([null, null, null])
     npc.mount = { isFlyingMount: true }
     owner.update(.1); expect(npc.siegeBypassTarget).toBeNull()
     owner.update(.1); expect(npc.siegeBypassTarget).toBeNull()
