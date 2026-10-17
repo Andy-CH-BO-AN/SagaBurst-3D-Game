@@ -14,7 +14,6 @@ import {
   type QuadrupedOneShotState,
 } from './QuadrupedMountAnimation'
 
-export const CORGI_DIMENSIONS = { shoulder: 1.30, bodyLength: 3.245, saddleHeight: 1.313627550125122 } as const
 export const CORGI_RIDER_PELVIS_CLEARANCE = .17
 
 const BASE = publicAssetUrl('models/mounts/v2/corgi')
