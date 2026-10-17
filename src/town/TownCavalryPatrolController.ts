@@ -305,12 +305,14 @@ export class TownCavalryPatrolController {
         && (squad.state === 'ENGAGING' ? squad.participants.has(r.spec.id) : this.returning.get(r.spec.id)?.state !== 'RETURN_TO_BARRACKS'))
       if (!observers.length) continue
       const player = threats.player
+      const playerObserver = player && !player.dead && squad.state !== 'ENGAGING'
+        ? observers.find(r => r.npc.hostileToPlayer
+          && this.distance(r.npc.combatPosition, player.combatPosition) <= OUTSKIRTS_ALERT_RANGE) : undefined
       const nearbyPlayer = player && !player.dead && (squad.state === 'ENGAGING' && squad.engagementOrigin
         ? observers.some(r => r.npc.hostileToPlayer)
           && this.distance(player.combatPosition, squad.engagementOrigin) <= OUTSKIRTS_ENCOUNTER_LEASH
-        : observers.some(r => r.npc.hostileToPlayer
-          && this.distance(r.npc.combatPosition, player.combatPosition) <= OUTSKIRTS_ALERT_RANGE))
-      if (nearbyPlayer && squad.state !== 'ENGAGING') this.alertSquad(squad, observers[0].npc.combatPosition, false)
+        : Boolean(playerObserver))
+      if (playerObserver) this.alertSquad(squad, playerObserver.npc.combatPosition, false)
       const origin = squad.engagementOrigin
       let range = OUTSKIRTS_ENCOUNTER_LEASH
       if (origin) this.sensorCenter.copy(origin)

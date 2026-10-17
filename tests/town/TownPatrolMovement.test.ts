@@ -201,6 +201,28 @@ describe('Town patrol travel and ownership decisions', () => {
     expect(reload.actors[0].assignFormationTarget).toHaveBeenCalledWith(-3, destination, expect.any(Vector3), expect.any(Number))
   })
 
+  it('anchors Player sightings to the spotting rear rider until the fixed leash is exceeded', () => {
+    const { actors, controller } = patrol(), squad = controller.squads[0]
+    for (const actor of actors) Object.assign(actor, { hostileToPlayer: true, faction: Faction.ENEMY })
+    actors[0].combatPosition.set(0, 0, 0)
+    actors[1].combatPosition.set(-44, 0, 0)
+    const position = new Vector3(-69, 0, 0), player = { dead: false, combatPosition: position } as Player
+    const f = patrolCombat(controller, player)
+    controller.beginFrame(new Set())
+    f.prepare()
+    expect(squad.state).toBe('ENGAGING')
+    expect(squad.engagementOrigin).toEqual(new Vector3(-44, 0, 0))
+    f.prepare()
+    expect(squad.state).toBe('ENGAGING')
+    actors[1].combatPosition.x = -84; position.x = -94
+    f.prepare()
+    expect(squad.state).toBe('ENGAGING')
+    expect(squad.engagementOrigin).toEqual(new Vector3(-44, 0, 0))
+    position.x = -102.01 // Still beside the rear rider, but beyond the original 58m sector.
+    f.prepare()
+    expect(squad.state).toBe('RETURN_TO_BARRACKS')
+  })
+
   it('wakes only the hit patrol on real Player contact outside 35m and returns beyond the fixed 58m leash', () => {
     const a = patrol(), b = patrol(1, 'B')
     const controller = new TownCavalryPatrolController([...a.residents, ...b.residents]), squad = controller.squads[0]
