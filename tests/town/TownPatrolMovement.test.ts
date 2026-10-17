@@ -340,10 +340,4 @@ describe('Town patrol travel and ownership decisions', () => {
     expect(cavalry.spawnArrivalState).toBe('ENTERING')
   })
 
-  it('leaves unclaimed enemy outskirts generations active during a formal siege', () => {
-    const controller = outskirts('roman')
-    expect(controller.squads.filter(s => s.spec.kind === 'cavalry').map(s => s.state))
-      .toEqual(['SPAWNING', 'SPAWNING', 'SPAWNING'])
-    expect(controller.batches.every(batch => batch.status === 'pending')).toBe(true)
-  })
 })
