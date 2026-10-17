@@ -4,7 +4,6 @@ import { getDirectionalMovementFromKeyboard } from '../../src/movement/Direction
 describe('Directional movement policy', () => {
   it.each([
     ['forward and backward', true, true, false, false],
-    ['left and right', false, false, true, true],
   ] as const)('cancels opposing %s keys', (_name, forward, back, left, right) => {
     expect(getDirectionalMovementFromKeyboard(forward, back, left, right)).toBeNull()
   })

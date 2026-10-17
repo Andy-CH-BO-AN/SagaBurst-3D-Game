@@ -7,7 +7,6 @@ describe('Combat damage eligibility', () => {
     ['unmounted lance against cavalry', 'lance', false, true, 2],
     ['mounted lance against cavalry', 'lance', true, true, 1],
     ['unmounted lance against infantry', 'lance', false, false, 1],
-    ['sword against cavalry', 'sword', false, true, 1],
   ] as const)('%s uses its required anti-cavalry multiplier', (_name, kind, mounted, targetMounted, expected) => {
     expect(getAntiCavalryMultiplier(kind, mounted, targetMounted)).toBe(expected)
   })

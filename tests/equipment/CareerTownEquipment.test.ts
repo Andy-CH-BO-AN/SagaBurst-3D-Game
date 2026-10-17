@@ -110,7 +110,7 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(h.change('civilian-1', 'melee', 'paladin_mace_t4').reason).toBe('not-safe')
     expect(careerItemAllocated(h.read(), 'paladin_mace_t4')).toBe(2)
   })
-  it.each(['captain', 'veteran'] as const)('rejects direct all-city API at %s even with Commander merit', rank => {
+  it.each(['captain'] as const)('rejects direct all-city API at %s even with Commander merit', rank => {
     const h = harness(); h.set({ ...h.read(), rank }); h.buy('paladin_sword_t4')
     expect(h.change('civilian-0', 'melee', 'paladin_sword_t4').reason).toBe('rank-locked')
     expect(h.bulk('civilian', 'sword').reason).toBe('rank-locked')

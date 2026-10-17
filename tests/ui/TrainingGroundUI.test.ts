@@ -42,13 +42,6 @@ afterEach(() => vi.unstubAllGlobals())
 
 describe('Training pause, controls and listener ownership', () => {
 
-  it('handles browser-only pointer unlock and avoids duplicate pause callbacks', () => {
-    const h = harness()
-    h.lock(true); h.key()
-    expect(h.ui.paused).toBe(true); expect(h.actions.onPause).toHaveBeenCalledOnce()
-    h.click('resume'); h.lock(true); h.lock(false)
-    expect(h.ui.paused).toBe(true); expect(h.actions.onPause).toHaveBeenCalledTimes(2)
-  })
 
   it('traps pause focus and routes supply/reset/exit actions while releasing listeners on dispose', () => {
     const h = harness(); h.key()

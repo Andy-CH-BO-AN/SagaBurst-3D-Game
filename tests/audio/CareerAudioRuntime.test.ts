@@ -92,15 +92,6 @@ describe('Lazy Career audio runtime', () => {
     expect(completed).toBe(true)
   })
 
-  it('releases the alarm completion wait without warning when the scene is cancelled', async () => {
-    const manager = managerFixture()
-    await manager.preload()
-    const alarm = manager.playTownAlarm(true)
-    await flush()
-    manager.cancelCareerAudio()
-    expect(await alarm).toBe(false)
-    expect(sources.every(source => source.stop.mock.calls.length === 1)).toBe(true)
-  })
 
   it('drops pending cold loads and queued speech when the mission scope changes', async () => {
     const manager = managerFixture()

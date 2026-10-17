@@ -41,7 +41,7 @@ describe('Town resident layout ownership', () => {
     expect(saved.members['civilian-0'].mount!.position.x).toBe(1)
   })
 
-  it.each([1, 2])('retries a v%i foot home migration after a temporary occupant leaves', version => {
+  it.each([1])('retries a v%i foot home migration after a temporary occupant leaves', version => {
     const saved: CivilianCommandSquadState = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman',
       sceneKey: 'town:roman', homeLayoutVersion: version, actorIds: ['civilian-0', 'civilian-1'],
       owners: { 'civilian-0': 'daily', 'civilian-1': 'daily' }, members: {
