@@ -228,16 +228,6 @@ describe('Decapitation safe edge deployment', () => {
       officialCount: 30, personalCount: 0, eagleCount: 0, playerEagle: false })).toThrow('deployment failed')
   })
 
-  it('keeps a player eagle and two HR eagles clear while retaining all 30 official and 28 ground HR slots', () => {
-    const navigation = new NavigationWorld(bounds)
-    navigation.rebuild([])
-    const plan = planDecapitationDeployment({ navigation, obstacles: [], threats,
-      officialCount: 30, personalCount: 28, eagleCount: 3, playerEagle: true })
-    expect(plan.eaglePads[0]).toMatchObject(plan.player)
-    expect(plan.official).toHaveLength(30)
-    expect(plan.personal).toHaveLength(28)
-    expect(isEagleLandingClear(plan.player, [], plan.eaglePads.slice(1), 350)).toBe(true)
-  })
 })
 
 

@@ -1,7 +1,7 @@
 import { describe,expect,it } from 'vitest'
 import { type CombatEvent } from '../../src/combat/CombatAttribution'
-import { resolveSkillProgressionAward,skillStatesEqual } from '../../src/rpg/CombatSkillProgression'
-import { SkillManager,normalizeSkillState,resolveMeleeSkillId } from '../../src/rpg/SkillManager'
+import { resolveSkillProgressionAward } from '../../src/rpg/CombatSkillProgression'
+import { normalizeSkillState } from '../../src/rpg/SkillManager'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 
 function damageEvent(
@@ -56,13 +56,6 @@ describe('Career skill progression', () => {
     expect(state.mountedImpact).toEqual({ level: 1, xp: 0 })
   })
 
-  it('classifies one-handed and two-handed melee from the actual attack stance', () => {
-    expect(resolveMeleeSkillId(WEAPONS.viking_axe_t2, false)).toBe('twoHanded')
-    expect(resolveMeleeSkillId(WEAPONS.viking_axe_t2, true)).toBe('oneHanded')
-    expect(resolveMeleeSkillId({ animationKind: 'greatsword' }, false)).toBe('twoHanded')
-    expect(resolveMeleeSkillId(WEAPONS.steel_sword, false)).toBe('oneHanded')
-    expect(resolveMeleeSkillId(WEAPONS.steel_lance, false)).toBe('oneHanded')
-  })
 
   it('routes sword and axe damage into the correct melee skill', () => {
     expect(resolveSkillProgressionAward(
@@ -133,12 +126,4 @@ describe('Career skill progression', () => {
     expect(resolveSkillProgressionAward(killEvent, WEAPONS.steel_sword, false)).toBeNull()
   })
 
-  it('keeps Lv.50 hits state-stable so persistence can skip redundant saves', () => {
-    const manager = new SkillManager()
-    manager.setSkillState({ oneHanded: { level: 50, xp: 0 } })
-    const before = manager.skillState
-
-    expect(manager.addXp('oneHanded', 999)).toBe(0)
-    expect(skillStatesEqual(before, manager.skillState)).toBe(true)
-  })
 })

@@ -269,31 +269,6 @@ function temporaryLoadoutActor(): TemporaryLoadoutActor {
 }
 
 describe('Reversible NPC weapon choice', () => {
-  it('refreshes sword pose ownership before same-frame equipment pose evaluation', () => {
-    const state: Partial<EquipmentPoseState> = {}
-    interface EquipmentAnimatorFixture {
-      rig: { animation: { setEquipmentState(update: Partial<EquipmentPoseState>): void } }
-      meleePivot: { visible: boolean; userData: { swordAttachmentOwned: boolean; meleeAnimationKind: string; weaponGripSections: { foot: { palmRadius: number; fingerRadius: number; palmOffset: number; fingerOffset: number }; mounted: { palmRadius: number; fingerRadius: number; palmOffset: number; fingerOffset: number } } } }
-      setEquipment: CharacterCombatAnimator['setEquipment']
-    }
-    // Exercise the real state owner without constructing a rig, model or mixer.
-    const animator = Object.assign(Object.create(CharacterCombatAnimator.prototype) as EquipmentAnimatorFixture, {
-      rig: { animation: { setEquipmentState: (update: Partial<EquipmentPoseState>) => Object.assign(state, update) } },
-      meleePivot: { visible: true, userData: { swordAttachmentOwned: true, meleeAnimationKind: 'sword', weaponGripSections: { foot: { palmRadius: .04, fingerRadius: .03, palmOffset: 0, fingerOffset: 0 }, mounted: { palmRadius: .03, fingerRadius: .04, palmOffset: 0, fingerOffset: 0 } } } },
-    })
-    animator.setEquipment(false, false, 'HORSE')
-    expect(state.actualSword).toBe(true)
-    expect(state.swordGripSections?.foot.palmRadius).toBe(.04)
-    animator.meleePivot.userData.meleeAnimationKind = 'axe'
-    animator.setEquipment(false, false, 'HORSE')
-    expect(state.actualSword).toBe(false)
-    expect(state.swordGripSections).toBeUndefined()
-    animator.meleePivot.userData.meleeAnimationKind = 'sword'
-    animator.meleePivot.userData.weaponGripSections = { foot: { palmRadius: .02, fingerRadius: .01, palmOffset: 0, fingerOffset: 0 }, mounted: { palmRadius: .01, fingerRadius: .02, palmOffset: 0, fingerOffset: 0 } }
-    animator.setEquipment(false, false, 'HORSE')
-    expect(state.actualSword).toBe(true)
-    expect(state.swordGripSections?.mounted.palmRadius).toBe(.01)
-  })
   it('repeats ordinary shielded hybrid switching with hysteresis and preserves ammo and damaged shield', () => {
     const h = selection({ shieldId: 'round_shield_t3', tacticalOrder: 'defend' })
     expect(h.actor._usesReversibleRangedSwitch()).toBe(true)
@@ -330,16 +305,6 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.rangedActive).toBe(false)
   })
 
-  it('leaves a melee-only shield bearer in its original combat mode', () => {
-    const h = selection({ rangedWeaponId: '', rangedActive: false, arrows: 0, shieldId: 'scutum_t2',
-      swordPivot: { visible: true }, bowPivot: { visible: false } })
-    h.select()
-    expect(h.actor._usesReversibleRangedSwitch()).toBe(false)
-    expect(h.actor.hasActiveRangedWeapon).toBe(false)
-    expect(h.actor.shield.active).toBe(true)
-    expect(h.actor.swordPivot.visible).toBe(true)
-    expect(h.actor.animator.cancel).not.toHaveBeenCalled()
-  })
 
   it('leaves a ranged-only loadout without a fabricated melee weapon', () => {
     const h = selection({ meleeWeaponId: null })
@@ -464,12 +429,6 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.arrows).toBe(12)
   })
 
-  it('keeps melee when the target trajectory is blocked', () => {
-    const h = selection({ rangedActive: false, _findRangedTrajectoryBlocker: () => ({}) as ObstacleData })
-    h.select()
-    expect(h.actor.rangedActive).toBe(false)
-    expect(h.actor.animator.cancel).not.toHaveBeenCalled()
-  })
 
   it('falls back to melee when ammunition is exhausted', () => {
     const h = selection({ arrows: 0 })

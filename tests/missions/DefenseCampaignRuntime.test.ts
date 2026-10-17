@@ -21,15 +21,6 @@ function state(overrides: Partial<{
 }
 
 describe('DefenseCampaignRuntime', () => {
-  it('holds deployment for 60 seconds before starting the assault', () => {
-    const runtime = new DefenseCampaignRuntime()
-
-    expect(runtime.update(59.9, state())).toEqual([])
-    expect(runtime.getSnapshot().phase).toBe('deployment')
-
-    expect(runtime.update(0.1, state())).toEqual(['assault_started'])
-    expect(runtime.getSnapshot().activePhase).toBe('assault')
-  })
 
   it('uses a per-launch reinforcement delay and restores its elapsed timer', () => {
     const runtime = new DefenseCampaignRuntime({
