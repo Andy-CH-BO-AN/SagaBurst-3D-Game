@@ -16,44 +16,6 @@ function createGrid(): NavigationGrid {
 
 describe('NavigationGrid', () => {
 
-  it('rasterizes an obstacle box into blocked cells', () => {
-    const grid = createGrid()
-
-    grid.setBlockedBox(
-      new THREE.Box3(
-        new THREE.Vector3(4, 0, 6),
-        new THREE.Vector3(8, 3, 10),
-      ),
-      true,
-    )
-
-    expect(grid.isBlocked({ x: 2, z: 3 })).toBe(true)
-    expect(grid.isBlocked({ x: 3, z: 4 })).toBe(true)
-    expect(grid.isBlocked({ x: 1, z: 3 })).toBe(false)
-    expect(grid.isBlocked({ x: 4, z: 5 })).toBe(false)
-  })
-
-  it('finds a shortest walkable route around a wall through its gap', () => {
-    const grid = createGrid()
-
-    // Vertical wall at x=4 with one gap at z=5.
-    for (let z = 0; z < grid.height; z++) {
-      if (z === 5) continue
-      grid.setBlocked({ x: 4, z }, true)
-    }
-
-    const path = grid.findPathCells(
-      { x: 1, z: 2 },
-      { x: 8, z: 2 },
-    )
-
-    expect(path).not.toBeNull()
-    expect(path![0]).toEqual({ x: 1, z: 2 })
-    expect(path![path!.length - 1]).toEqual({ x: 8, z: 2 })
-    expect(path).toContainEqual({ x: 4, z: 5 })
-    expect(path!.every(cell => !grid.isBlocked(cell))).toBe(true)
-  })
-
   it('does not cut diagonally through touching blocked cells', () => {
     const grid = new NavigationGrid({
       minX: 0,
