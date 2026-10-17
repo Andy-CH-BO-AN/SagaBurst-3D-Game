@@ -1,18 +1,20 @@
 import * as THREE from 'three'
 import { environmentRandom } from './EnvironmentVisuals'
 import type { CharacterFaction } from './CharacterVisuals'
+import { getRiverCrossingMeadowWear } from './RiverCrossingBattlefield'
 
 type HeightSampler = (x: number, z: number) => number
 
 /** Worn paths are shared by terrain color and tuft placement. */
 function wearAt(x: number, z: number, faction?: CharacterFaction | null): number {
-  if (!faction) return 0
+  const riverWear = getRiverCrossingMeadowWear(x, z)
+  if (!faction) return riverWear
   const depth = z * (faction === 'roman' ? -1 : 1)
   const inside = THREE.MathUtils.smoothstep(depth, 98, 111) * (1 - THREE.MathUtils.smoothstep(depth, 178, 185))
   const lane = 1 - THREE.MathUtils.smoothstep(Math.abs(x + Math.sin(depth * 0.1) * 0.6), 3, 6)
   const crossLane = (1 - THREE.MathUtils.smoothstep(Math.abs(depth - 156), 1.3, 3.4)) * (1 - THREE.MathUtils.smoothstep(Math.abs(x), 32, 40))
   const tentLane = (1 - THREE.MathUtils.smoothstep(Math.abs(Math.abs(x) - 29), 4, 8)) * (1 - THREE.MathUtils.smoothstep(Math.abs(depth - 148), 27, 33))
-  return inside * Math.max(lane * 0.95, crossLane * 0.8, tentLane * 0.6)
+  return Math.max(riverWear, inside * Math.max(lane * 0.95, crossLane * 0.8, tentLane * 0.6))
 }
 
 export function meadowMaterial(geometry: THREE.BufferGeometry, faction?: CharacterFaction | null): THREE.Material {
@@ -86,7 +88,8 @@ export function createMeadow(scene: THREE.Scene, height: HeightSampler, faction?
     for (let i = 0; i < 2400; i++) {
       const x = cx * 80 + random() * 80, z = cz * 80 + random() * 80
       if (snowy && random() < 0.86) continue
-      if (random() < wearAt(x,z,faction) * 0.99) continue
+      const wear = wearAt(x,z,faction)
+      if (random() < wear * 0.99 || wear >= 1) continue
       const patch = Math.sin(x * 0.18) * Math.sin(z * 0.14) + Math.cos(x * 0.067 + z * 0.05)
       if (patch < -0.7 && random() < 0.85) continue
       positions.push([x,z])

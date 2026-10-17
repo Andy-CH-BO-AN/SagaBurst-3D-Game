@@ -10,6 +10,7 @@ import { createMeadow, meadowMaterial } from './Meadow'
 import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle'
 import type { CharacterFaction } from './CharacterVisuals'
 import { ObstacleCollisionSpatialIndex } from './ObstacleCollisionSpatialIndex'
+import { getRiverCrossingTerrainHeight, RIVER_CROSSING_LAYOUT } from './RiverCrossingBattlefield'
 
 /** Sine amplitudes bound every terrain valley; fortified camp offsets are nonnegative. */
 export const TERRAIN_MIN_HEIGHT = -3.7
@@ -72,9 +73,19 @@ export function clampToPlayableWorld(position: THREE.Vector3, bound = PLAYABLE_W
 }
 
 let activeFortifiedCampFaction: CharacterFaction | null = null
+let activeRiverCrossing = false
+
+export function setRiverCrossingTerrainActive(active: boolean): void {
+  activeRiverCrossing = Boolean(active)
+}
+
+export function isRiverCrossingTerrainActive(): boolean {
+  return activeRiverCrossing
+}
 
 export interface TerrainOptions {
   fortifiedCampFaction?: CharacterFaction | null
+  riverCrossing?: boolean
   treeClearances?: readonly THREE.Box3[]
 }
 
@@ -87,7 +98,11 @@ export function getTerrainHeight(x: number, z: number): number {
   const campOffset = activeFortifiedCampFaction
     ? getFortifiedCampHeightOffset(x, z, activeFortifiedCampFaction)
     : 0
-  return h1 + h2 + campOffset
+  const baseHeight = h1 + h2 + campOffset
+  if (activeRiverCrossing) {
+    return getRiverCrossingTerrainHeight(x, z, baseHeight)
+  }
+  return baseHeight
 }
 
 /**
@@ -852,6 +867,7 @@ export function createTerrain(
   options: TerrainOptions = {},
 ): TerrainResult {
   activeFortifiedCampFaction = options.fortifiedCampFaction ?? null
+  activeRiverCrossing = Boolean(options.riverCrossing)
   const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 256, 256)
   geometry.rotateX(-Math.PI / 2)
 
@@ -861,7 +877,10 @@ export function createTerrain(
     const vx = posAttr.getX(i)
     const vz = posAttr.getZ(i)
     const vy = getTerrainHeight(vx, vz)
-    posAttr.setY(i, vy)
+    const underBridgeDeck = activeRiverCrossing
+      && Math.abs(vx) <= RIVER_CROSSING_LAYOUT.bridge.halfTotalWidth
+      && Math.abs(vz) <= RIVER_CROSSING_LAYOUT.bridge.halfLength - 0.5
+    posAttr.setY(i, underBridgeDeck ? vy - 0.25 : vy)
   }
   geometry.computeVertexNormals()
   geometry.computeBoundingSphere()
