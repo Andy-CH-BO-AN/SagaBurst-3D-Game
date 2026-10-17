@@ -46,7 +46,7 @@ export class NavigationWorld {
   private readonly sharedPathCache = new Map<string, NavigationCell[] | null>()
   private readonly pendingPathOwners = new Map<object, { start: { x: number; z: number }; goal: { x: number; z: number } }>()
   townNav: TownLayeredNavigation | null = null
-  setTownRamparts(layout: TownRampartLayout): void { this.townNav = new TownLayeredNavigation(layout) }
+  setTownRamparts(layout: TownRampartLayout): void { this.townNav = new TownLayeredNavigation(layout, (a, b) => this.areConnected(a, b)) }
 
   private _outpostNav: OutpostLayeredNavigation | null = null
 

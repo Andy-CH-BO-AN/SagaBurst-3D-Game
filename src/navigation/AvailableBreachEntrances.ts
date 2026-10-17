@@ -5,7 +5,7 @@ import type { OutpostWalkwaySide } from '../campaign/CampaignOutpostWalkways'
 
 export interface BreachEntrance {
   id: string
-  type: 'gate' | 'palisade' | 'siege-ramp-left' | 'siege-ramp-right'
+  type: 'gate' | 'palisade' | 'siege-ramp-left' | 'siege-ramp-right' | 'siege-ramp'
   position: THREE.Vector3
   approach: THREE.Vector3
   exit: THREE.Vector3
@@ -14,6 +14,8 @@ export interface BreachEntrance {
   /** null permits both factions (a physical route is not an allegiance shortcut). */
   faction: CharacterFaction | null
   connectionId: string
+  gateId?: import('../town/TownLayout').TownGateId
+  bridgeSurface?: WalkRampSurface
   surface?: WalkRampSurface
   side?: OutpostWalkwaySide
 }
@@ -43,8 +45,8 @@ export class AvailableBreachEntrances {
     return false
   }
   select(position: THREE.Vector3, mounted: boolean, faction: CharacterFaction | null,
-    reachable: (point: THREE.Vector3) => boolean, preferred?: string | null): BreachEntrance | null {
-    const valid = (e: BreachEntrance): boolean => e.walkable && (!mounted || e.mounted)
+    reachable: (point: THREE.Vector3) => boolean, preferred?: string | null, accepts: (entry: BreachEntrance) => boolean = () => true): BreachEntrance | null {
+    const valid = (e: BreachEntrance): boolean => accepts(e) && e.walkable && (!mounted || e.mounted)
       && (e.faction === null || e.faction === faction) && reachable(e.approach)
     const current = preferred ? this.entries.get(preferred) : undefined
     if (current && valid(current)) return current

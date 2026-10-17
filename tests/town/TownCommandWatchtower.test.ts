@@ -6,7 +6,7 @@ import { TOWN_CITY_ROADS, TOWN_CENTER, townHousing, type TownRoad } from '../../
 import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint } from '../../src/town/TownRules'
 import { resolveTownHRLayout } from '../../src/town/TownHRLayout'
 import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
-import { findBlockingObstacleAlongPath, getTerrainHeight, type WalkRampSurface } from '../../src/world/Terrain'
+import { findBlockingObstacleAlongPath, getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../../src/world/Terrain'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 
 function rectangle(x: number, z: number, width: number, depth: number, yaw = 0): Box3 {
@@ -118,6 +118,7 @@ describe('Town command watchtower', () => {
     expect(positions.filter(point => footprints.some(box => box.intersectsBox(rectangle(point.x, point.z, 6, 6))))).toEqual([])
     const patrol = [...townPatrolRoute(), ...townPatrolDeparture('A').waypoints, ...townPatrolDeparture('B').waypoints]
     expect(patrol.filter(point => footprints.some(box => box.intersectsBox(rectangle(point.x, point.z, 10, 10))))).toEqual([])
+    const bothFactionObstacles: ObstacleData[] = []
     for (const faction of ['roman', 'viking'] as const) {
       // Expanded hulls include foundations, eaves and the front-facing shop porches.
       const obstacles = [
@@ -131,8 +132,11 @@ describe('Town command watchtower', () => {
         rectangle(hr.officer.x, hr.officer.z, 6, 6),
         ...hr.muster.map(point => rectangle(point.x, point.z, 6, 6)),
       ].map(box => ({ box, isBarricade: false })))
-      expect(() => validateWatchtowerPlacement(layout, obstacles, roads)).not.toThrow()
+      bothFactionObstacles.push(...obstacles)
     }
+    // The tower is shared by both factions. Testing the union preserves every
+    // building/HR exclusion without repeating the identical eagle corridor scan.
+    expect(() => validateWatchtowerPlacement(layout, bothFactionObstacles, roads)).not.toThrow()
     expect(() => validateWatchtowerPlacement(layout, [{ box: rectangle(-29, -41, 1, 1), isBarricade: false }], roads)).toThrow('Blocked command watchtower')
     expect(() => validateWatchtowerPlacement(layout, [], [...roads, { ax: -29, az: -60, bx: -29, bz: -20, width: 5 }])).toThrow('Blocked command watchtower')
     const blocksApproach = { ...layout, footprint: layout.footprint.clone().translate(new Vector3(-17, 0, 0)) }

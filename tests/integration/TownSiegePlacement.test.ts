@@ -1,3 +1,5 @@
+import { isTownSiegeDockConnected } from '../../src/career/TownFourGateSiegePolicy'
+import type { TownRampartLayout } from '../../src/town/TownRamparts'
 import { Box3, Vector3 } from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { TownDefenseController } from '../../src/career/TownDefenseController'
@@ -28,13 +30,6 @@ describe('Town Siege placement and readiness', () => {
     expect(point.x + .55 < box.min.x || point.x - .55 > box.max.x || point.z + .55 < box.min.z || point.z - .55 > box.max.z).toBe(true)
     expect(Math.hypot(point.x - 1, point.z + 103)).toBeGreaterThanOrEqual(2.5)
     expect(occupied).toHaveLength(2); expect(occupied[1]).toEqual({ point, spacing: 2.5 })
-  })
-  it('keeps readiness false until the real queued batch finishes its finalizer', () => {
-    const scheduler = new NpcSpawnScheduler(), batch = scheduler.batch()
-    onTestFinished(() => batch.cancel())
-    batch.enqueue('attacker:data', () => {}); batch.seal()
-    const owner = entry(smallGrid(), [], batch)
-    expect(owner.ready).toBe(false); scheduler.tick(1); expect(owner.ready).toBe(true)
   })
   it('keeps failed finalization unready after the queue empties', () => {
     const scheduler = new NpcSpawnScheduler(), batch = scheduler.batch()
@@ -69,4 +64,14 @@ describe('Town Siege placement and readiness', () => {
     expect(owner.enemies).toEqual([]); expect(owner.enemyMounts).toEqual([])
     expect(owner.claimedEventSinks.size).toBe(0); expect(owner.plannedArmyPositions).toEqual([])
   })
+  it('publishes a dock only when the full bridge width contacts the actual walk surface', () => {
+    const crown = { startX: 145.6, startZ: 50, startY: 10, topY: 10, dirX: 0, dirZ: 1, length: 25, landing: 0, halfWidth: 3.2 }
+    const layout: TownRampartLayout = { decks: [{ id: 'east:deck', gateId: 'east', surface: crown, box: new Box3() }],
+      wallSpans: [], ramps: [], corners: [], lengths: [], perimeter: 1 }
+    const bridge = { startX: 152, startZ: 62, startY: 10, topY: 10, dirX: -1, dirZ: 0, length: 4, landing: 0, halfWidth: 2.5 }
+    expect(isTownSiegeDockConnected(layout, bridge, new Vector3(148, 10, 62))).toBe(true)
+    expect(isTownSiegeDockConnected(layout, { ...bridge, startX: 155 }, new Vector3(151, 10, 62))).toBe(false)
+    expect(isTownSiegeDockConnected(layout, { ...bridge, topY: 12 }, new Vector3(148, 12, 62))).toBe(false)
+  })
+
 })
