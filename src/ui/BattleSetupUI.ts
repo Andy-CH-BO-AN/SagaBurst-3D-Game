@@ -225,8 +225,10 @@ export class BattleSetupUI {
           </section>
         </div>
         <section class="loadout-category shield-category"><div class="loadout-category-heading"><h3>盾牌</h3><span>SHIELD</span></div>
-          ${renderEquipmentGroup('T4 共用', 'SHARED T4', [{ id: 'paladin_shield_t4' }], 'shield')}
-          ${renderEquipmentGroup('無盾', 'NONE', [{ id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' }], 'shield')}
+          ${renderEquipmentGroup('通用', 'GENERAL', [
+            { id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' },
+            { id: 'paladin_shield_t4' },
+          ], 'shield')}
           ${renderEquipmentGroup('維京', 'VIKING', [
             { id: 'round_shield_t1' },
             { id: 'round_shield_t2' },
