@@ -8,6 +8,7 @@ import { parseEnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
 import { outskirtsSquadSpecs } from '../town/TownOutskirtsRules'
 import type { CareerDuelTier } from './CareerDuelState'
 import { parseTownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
+import { parseTownPatrolCheckpoint } from '../town/TownPatrolCheckpoint'
 import { parseOfficialCommandAuthority, parseTownCommandSquad } from './CareerCommandAuthority'
 import { parseCaptainEagleCheckpoint } from './CaptainEagleCheckpoint'
 import { parseTownEagleGarrisons } from '../town/TownEagleGarrisonState'
@@ -539,6 +540,11 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
       (['roman', 'viking'] as const).flatMap(faction => {
         const saved = parseTownOutskirtsCheckpoint((raw.townOutskirts as CareerProfile['townOutskirts'])?.[faction])
         return saved ? [[faction, { squads: saved.squads.map(squad => ({ ...squad, members: outskirtsSquadSpecs().some(spec => spec.id === squad.id && spec.kind === 'cavalry') ? squad.members : {} })) }]] : []
+      })) } : {}),
+    ...(raw.townPatrols && typeof raw.townPatrols === 'object' ? { townPatrols: Object.fromEntries(
+      (['roman', 'viking'] as const).flatMap(faction => {
+        const saved = parseTownPatrolCheckpoint((raw.townPatrols as CareerProfile['townPatrols'])?.[faction])
+        return saved ? [[faction, saved]] : []
       })) } : {}),
     ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|eagle-trainer|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger|hr-recruit-commander)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),

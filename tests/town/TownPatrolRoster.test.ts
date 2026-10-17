@@ -2,8 +2,22 @@ import { describe, expect, it } from 'vitest'
 import { selectMissionCavalryActorIds } from '../../src/career/BanditMissionController'
 import { townRoster } from '../../src/town/TownRules'
 import type { NPC } from '../../src/world/NPC'
+import { townDefenseThreatInRange, townDefenseThreatResponse } from '../../src/town/TownGarrison'
+import { Vector3 } from 'three'
 
 describe('Town patrol roster contracts', () => {
+  it('permits stationary close defense outside home while bounding pursuit to the home sector', () => {
+    const spec = townRoster().find(spec => spec.role === 'commander') ?? townRoster().find(spec => spec.duty === 'gate_guard')!
+    const npc = { isMounted: false, rangedWeaponId: undefined, combatPosition: new Vector3(spec.x, spec.y ?? 0, spec.z) }
+    const near = npc.combatPosition.clone().add(new Vector3(10, 0, 0))
+    expect(townDefenseThreatInRange(spec, npc, near, 20)).toBe(true)
+    expect(townDefenseThreatResponse(spec, npc, near, 20)).toBe('pursue')
+    expect(townDefenseThreatInRange(spec, npc, near.clone().add(new Vector3(20, 0, 0)), 20)).toBe(false)
+    npc.combatPosition.add(new Vector3(22, 0, 0))
+    expect(townDefenseThreatInRange(spec, npc, npc.combatPosition.clone().add(new Vector3(1, 0, 0)), 20)).toBe(true)
+    expect(townDefenseThreatResponse(spec, npc, npc.combatPosition.clone().add(new Vector3(1, 0, 0)), 20)).toBe('defend')
+    expect(townDefenseThreatResponse(spec, npc, npc.combatPosition.clone().add(new Vector3(9, 0, 0)), 20)).toBe('ignore')
+  })
   it('keeps two twenty-rider patrols distinct from the service Captain, training and gate guards', () => {
     const roster = townRoster(), patrol = roster.filter(s => s.duty === 'patrol')
     expect(roster).toHaveLength(230); expect(patrol).toHaveLength(40)

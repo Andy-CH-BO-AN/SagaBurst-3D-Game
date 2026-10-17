@@ -11,7 +11,7 @@ import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { civilianHomeAnchor, TownCivilianLife } from './TownCivilianLife'
-import { townStationSpec } from './TownGarrison'
+import { townDefenseThreatResponse, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
 import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
 import { SquadRefitSafety } from '../career/SquadRefit'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
@@ -252,6 +252,7 @@ export class TownScene {
   private personalCommands?: ArmyCommandController
   private personalSaveElapsed = 0
   private personalCriticalState = ''
+  private readonly defenseTargetRosters = new WeakMap<NonNullable<CareerProfile['activeMission']>, ReadonlySet<string>>()
   private personalCommandUI?: ArmyCommandUI
   private personalFormation?: FormationController
   private enemyEaglePatrol?: EnemyEaglePatrolController
@@ -346,6 +347,13 @@ export class TownScene {
     }
     await this.initializeResidents(roster, context, progress)
     this.patrol = new TownCavalryPatrolController(this.residents)
+    const patrolBorrower = this.profile.activeMission
+    const patrolOwned = new Set(patrolBorrower?.kind === 'town-defense' || patrolBorrower?.kind === 'enemy-town-assault'
+      ? this.residents.filter(r => r.spec.duty === 'patrol').map(r => r.spec.id)
+      : [...(patrolBorrower?.officialSquad?.actorIds ?? []), ...(patrolBorrower?.borrowedActorIds ?? []),
+        ...(this.profile.townCommandSquad?.commandedActorIds ?? []), ...(this.profile.townCommandSquad?.refittingActorIds ?? []),
+        ...Object.keys(this.profile.townCommandSquad?.nativeReturnStates ?? {})])
+    this.patrol.restoreCheckpoint(this.profile.townPatrols?.[context.worldFaction], patrolOwned)
     this.eagleGarrison = new TownEagleGarrisonController(this.residents, this.eagleLandingQueue)
     this.world.finalizeTrainingTargets()
     progress('預熱動畫、材質與陰影…')
@@ -474,7 +482,7 @@ export class TownScene {
             const authority = this.profile.activeMission?.officialSquad
             return authority && !this.profile.activeMission?.result && officialCommandIsPlayerControlled(authority, npc.combatantId) && this.isAuthorizedCommandActor(npc)
           })],
-        preparePeaceResidents: excluded => { this.patrol.beginFrame(excluded); this.townCommand?.beginFrame() },
+        preparePeaceResidents: (excluded, dt) => { this.patrol.beginFrame(excluded, dt); this.townCommand?.beginFrame() },
         ownsPeacefulTravel: npc => this.civilianCommand?.ownsPeacefulTravel(npc) || this.townCommand?.ownsPeacefulTravel(npc) || this.patrol.returnStateFor(npc.combatantId) !== null && !this.patrol.combatEnabled(npc) && !this.captainPatrol?.owns(npc),
         peaceResident: (resident, dt) => this.updatePeace(resident, dt),
         updateEagleDuty: (npc, dt, combat) => this.updateEagleDuty(npc, dt, combat),
@@ -608,6 +616,24 @@ export class TownScene {
         const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: defaultRangerMeleeWeaponId(residentArmyFaction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null, reversibleRangedSwitch: true } : military!.loadout)
         spec = townStationSpec(spec, Boolean(loadout.mountId), Boolean(loadout.rangedWeaponId))
         const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined))
+        if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => {
+          const active = this.defense?.active
+          const siege = active?.kind === 'town-defense' || active?.kind === 'enemy-town-assault'
+          if (this.event.hostile || this.duel?.isMissionActor(npc) || this.race?.owns(npc)
+            || npc.combatOwnership && (!siege || npc.combatOwnership !== 'mission-official')
+            || active?.officialSquad && officialCommandIsPlayerControlled(active.officialSquad, npc.combatantId)) return true
+          if (siege) {
+            if (target === this.player) return true
+            let roster = this.defenseTargetRosters.get(active!)
+            if (!roster) {
+              roster = new Set([...active!.targetActorIds, ...active!.friendlyActorIds, ...(active!.civilianActorIds ?? [])])
+              this.defenseTargetRosters.set(active!, roster)
+            }
+            if (target instanceof NPC && roster.has(target.combatantId)) return true
+          }
+          const response = townDefenseThreatResponse(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc))
+          return response === 'pursue' ? true : response === 'defend' ? 'defend' : false
+        }
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
         if (spec.y !== undefined) npc.group.position.y = spec.y
@@ -790,6 +816,21 @@ export class TownScene {
     if (airPatrol) next.enemyEaglePatrols = { ...next.enemyEaglePatrols, [this.world.faction]: airPatrol }
     const outskirts = this.outskirts?.cooldownCheckpoint()
     if (outskirts?.squads.length) next.townOutskirts = { ...next.townOutskirts, [this.world.faction]: outskirts }
+    const patrol = this.patrol?.checkpoint()
+    if (patrol?.squads.length) {
+      const previous = next.townPatrols?.[this.world.faction]?.squads ?? []
+      next.townPatrols = { ...next.townPatrols, [this.world.faction]: {
+        squads: [...previous.filter(s => !patrol.squads.some(current => current.id === s.id)), ...patrol.squads],
+      } }
+    }
+    // A completed borrow/refit belongs to the mission return, not the old autonomous ledger.
+    const outgoing = this.profile.activeMission
+    if (outgoing && !next.activeMission && this.world.faction === next.faction && next.townPatrols?.[next.faction]) {
+      const borrowed = new Set([...(outgoing.officialSquad?.actorIds ?? []), ...(outgoing.borrowedActorIds ?? [])])
+      const returned = new Set(this.residents.filter(r => r.spec.duty === 'patrol'
+        && (outgoing.kind === 'town-defense' || borrowed.has(r.spec.id))).map(r => r.spec.patrolId))
+      next.townPatrols[next.faction] = { squads: next.townPatrols[next.faction]!.squads.filter(s => !returned.has(s.id)) }
+    }
     if (next.activeMission?.kind === 'captain-patrol-command') {
       next.activeMission.patrolOutskirts = this.outskirts?.checkpoint() ?? next.activeMission.patrolOutskirts
       if (this.mission?.ambientBandits.length) next.activeMission.patrolAmbient = {
@@ -907,9 +948,9 @@ export class TownScene {
     const garrison = this.eagleGarrison?.snapshot(`town:${this.world.faction}`)
     const garrisonActive = Boolean(garrison?.pairs.some(pair => pair.duty !== 'standby' || pair.hp === 0 || pair.mount.hp === 0))
     const townCommand = this.townCommand?.hasCheckpoint ? this.townCommand : undefined
-    if (!this.civilianCommand?.hasCheckpoint && !saved && !townCommand && !this.profile.personalSquadRuntime && !aerial && !this.profile.playerAerialState && !garrisonActive && !this.outskirts?.hasCheckpoint && !this.enemyEaglePatrol?.hasCheckpoint) return
+    if (!this.civilianCommand?.hasCheckpoint && !saved && !townCommand && !this.profile.personalSquadRuntime && !aerial && !this.profile.playerAerialState && !garrisonActive && !this.outskirts?.hasCheckpoint && !this.enemyEaglePatrol?.hasCheckpoint && !this.patrol?.hasCheckpoint) return
     this.personalSaveElapsed += dt
-    const critical = JSON.stringify([this.civilianCommand?.criticalSignature, this.enemyEaglePatrol?.criticalSignature, this.outskirts?.criticalSignature, townCommand?.criticalSignature, garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
+    const critical = JSON.stringify([this.patrol?.criticalSignature, this.civilianCommand?.criticalSignature, this.enemyEaglePatrol?.criticalSignature, this.outskirts?.criticalSignature, townCommand?.criticalSignature, garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
       const member = saved.members[id]
       return [member.status, member.order, member.mount?.hp === 0, member.formation?.commandId]
     })])
@@ -2648,7 +2689,10 @@ export class TownScene {
       contact, source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)), method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
         : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
-      emit: event => this.emitCombatEvent(event),
+      emit: event => {
+        if (rider) this.missionCombat?.notePlayerContact(rider, event)
+        this.emitCombatEvent(event)
+      },
     })
     if (result.appliedDamage > 0 && rider) {
       this.outskirts?.noteHit(rider, !source)
@@ -2819,7 +2863,10 @@ export class TownScene {
       source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)),
       method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
-      emit: event => this.emitCombatEvent(event),
+      emit: event => {
+        this.missionCombat?.notePlayerContact(target, event)
+        this.emitCombatEvent(event)
+      },
     })
     if (!result.hitSuccess) return
     if (!source && result.appliedDamage > 0 && this.race?.actors.includes(target)) this.activateHostility()
@@ -3047,9 +3094,9 @@ export class TownScene {
     this.ambientLabel.style.left = (point.x * .5 + .5) * innerWidth + 'px'; this.ambientLabel.style.top = (-point.y * .5 + .5) * innerHeight + 'px'
   }
   private ambientEaglePatrolAllowed(): boolean {
-    return !this.profile.activeMission && !this.profile.activeOutpostMission
+    const mission = this.profile.activeMission
+    return mission?.kind !== 'duel' && !this.profile.activeOutpostMission
       && this.profile.townEvent?.state !== 'hostile' && !this.event?.hostile
-      && this.world.faction === this.profile.faction
   }
 
   private synchronizeEaglePatrolPolicy(): void {
@@ -3059,7 +3106,9 @@ export class TownScene {
       // A suspended ambient owner cannot leave projectiles in a protected mission.
       for (const shot of this.shots ?? []) if (shot.source && this.enemyEaglePatrol.owns(shot.source)) shot.arrow.destroy()
     }
-    this.eagleGarrison?.setAmbientPatrolAllowed(allowed)
+    // Siege owns its native air roster; the independent opposing air patrol still flies.
+    this.eagleGarrison?.setAmbientPatrolAllowed(allowed
+      && this.profile.activeMission?.kind !== 'town-defense' && this.profile.activeMission?.kind !== 'enemy-town-assault')
     this.enemyEaglePatrol?.setAmbientPatrolAllowed(allowed)
   }
 
@@ -3125,7 +3174,7 @@ export class TownScene {
       }
       npc.mount.finishControlledFrame(dt, this.world.obstacles)
     } else if (spec.role === 'civilian') {
-      if (!npc.dead && !npc.isFalling && !this.profile.activeMission && !this.profile.activeOutpostMission && !this.event.hostile) {
+      if (!npc.dead && !npc.isFalling && !this.event.hostile) {
         const occupied = this.residents.filter(other => other.npc !== npc && !other.npc.dead).map(other => other.npc.combatPosition)
         occupied.push(this.player.combatPosition)
         const movement = (this.civilianLife ??= new TownCivilianLife()).update(spec.id, spec, npc.group.position, dt, this.navigation, this.world.obstacles, occupied)

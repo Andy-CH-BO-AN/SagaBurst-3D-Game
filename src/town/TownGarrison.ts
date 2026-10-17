@@ -91,3 +91,27 @@ export function townExternalThreatAlertRange(eagle: boolean, npc: Pick<NPC,
   return npc.isTownRampartGarrisonActive && !npc.isMounted && npc.hasActiveRangedWeapon
     ? npc.maxRangedAttackDistance : 20
 }
+
+export type TownDefenseThreatResponse = 'ignore' | 'defend' | 'pursue'
+
+/** Home-sector pursuit and stationary close defense have distinct movement permissions. */
+export function townDefenseThreatResponse(spec: TownActorSpec, npc: Pick<NPC,
+  'isMounted' | 'rangedWeaponId' | 'combatPosition'>, target: { x: number; y: number; z: number }, range: number): TownDefenseThreatResponse {
+  if (![target.x, target.y, target.z, range].every(Number.isFinite) || range < 0) return 'ignore'
+  const station = townStationSpec(spec, npc.isMounted, Boolean(npc.rangedWeaponId))
+  const radius = isCivilianRole(spec.role) ? Math.min(10, range) : range
+  const distanceSquared = npc.combatPosition.distanceToSquared(target)
+  if (distanceSquared > radius * radius) return 'ignore'
+  if (Math.hypot(target.x - station.x, target.z - station.z) <= radius
+    && Math.hypot(npc.combatPosition.x - station.x, npc.combatPosition.z - station.z) <= radius) return 'pursue'
+  // Nearby contact may be answered beyond the leash, but cannot authorize another chase step.
+  return distanceSquared <= Math.min(8, radius) ** 2 ? 'defend' : 'ignore'
+}
+
+/** Target eligibility includes close self-defense; callers retain the movement response above. */
+export function townDefenseThreatInRange(spec: TownActorSpec, npc: Pick<NPC,
+  'isMounted' | 'rangedWeaponId' | 'combatPosition'>, target: { x: number; y: number; z: number }, range: number): boolean {
+  return townDefenseThreatResponse(spec, npc, target, range) !== 'ignore'
+}
+
+function isCivilianRole(role: TownActorSpec['role']): boolean { return role === 'civilian' || role === 'merchant' }

@@ -1,4 +1,4 @@
-import { townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
+import { townDefenseThreatInRange, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
 import type { ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import type { TownPersonalSquadController } from './TownPersonalSquadController'
 import * as THREE from 'three'
@@ -6,7 +6,7 @@ import type { BanditMissionController, VeteranMissionEnemySquad } from '../caree
 import type { CareerDuelController } from '../career/CareerDuelController'
 import type { TownDefenseController } from '../career/TownDefenseController'
 import type { CareerMountController } from '../career/CareerMountController'
-import type { CombatDamageMethod } from '../combat/CombatAttribution'
+import type { CombatDamageMethod, CombatEvent } from '../combat/CombatAttribution'
 import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
@@ -15,8 +15,8 @@ import type { Mount } from '../world/Mount'
 import { Faction, type NPC } from '../world/NPC'
 import { SpatialGrid } from '../world/SpatialGrid'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
-import { isTownMilitary, isCivilian, type TownActorSpec } from './TownRules'
-import { townWartimeHostile } from './TownWartime'
+import { isTownMilitary, type TownActorSpec } from './TownRules'
+import { civilianWartimeWeapon, townWartimeHostile } from './TownWartime'
 import { TOWN_EAGLE_ALERT_RADIUS } from './TownEagleGarrison'
 import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import type { TownCavalryPatrolController } from './TownCavalryPatrolController'
@@ -61,7 +61,7 @@ interface TownCombatScene {
   careerMounts: Pick<CareerMountController, 'activeMount' | 'update'>
   outskirts?(): TownOutskirtsCombatRuntime | undefined
   airPatrol?(): TownOutskirtsCombatRuntime | undefined
-  personalSquad?(): TownPersonalSquadController | undefined
+  personalSquad?(): Pick<TownPersonalSquadController, 'actors' | 'mounts' | 'state' | 'owns'> | undefined
   commandActors?(): readonly NPC[]
   raceActors?(): readonly NPC[]
   raceMounts?(): readonly Mount[]
@@ -69,7 +69,7 @@ interface TownCombatScene {
   patrol?(): Pick<TownCavalryPatrolController, 'prepareCombatFrame' | 'combatActors' | 'combatEnabled' | 'noteHostileHit'>
   /** An individual return/refit owner keeps its actor's assigned peaceful travel until released. */
   ownsPeacefulTravel?(npc: NPC): boolean
-  preparePeaceResidents?(excluded: ReadonlySet<NPC>): void
+  preparePeaceResidents?(excluded: ReadonlySet<NPC>, dt: number): void
   peaceResident(resident: TownCombatResident, dt: number): void
   playerOwnsEagleCommand?(npc: NPC): boolean
   updateEagleDuty?(npc: NPC, dt: number, combat: boolean): boolean
@@ -146,13 +146,23 @@ export class TownMissionCombat {
     const field = this.missions.field
     if (source && outskirts && field.noteTravelHit(target, source, outskirts)) { this.prepareTravelCombat(); return }
     if (source && field.friendlies.includes(target) && field.isMissionTarget(source)) field.engageFormalMission()
-    if (source && (outskirts?.owns(source) || this.missions.field.fieldNpcs.includes(source)
-      || this.missions.field.ambientBandits.includes(source) || this.missions.defense.fieldNpcs.includes(source))) {
+    if (source && (outskirts?.owns(source) || this.town.airPatrol?.()?.owns(source)
+      || field.fieldNpcs.includes(source) || field.ambientBandits.includes(source)
+      || this.missions.defense.active && this.missions.defense.phase !== 'PREPARING' && this.missions.defense.fieldNpcs.includes(source)
+      || this.personalPatrolCombatActors().includes(source))) {
       const patrolHit = this.town.patrol?.().noteHostileHit(target, source)
       if (!patrolHit && outskirts?.owns(source) && !outskirts.owns(target)) this.individualThreats.set(target, 10)
     }
     const squad = this.missions.field.veteranEnemySquads.find(candidate => candidate.members.includes(target))
     if (squad) this.missions.field.markVeteranEnemySquadEngaged(squad.squadId)
+  }
+
+  /** DamageRouter events prove Player attribution and effective contact, including shields and ridden mounts. */
+  notePlayerContact(target: NPC, event: CombatEvent): boolean {
+    if (event.source.actorType !== 'player' || !['melee', 'projectile', 'mount-impact'].includes(event.method)) return false
+    const effective = event.type === 'damage_applied' && event.appliedDamage > 0
+      || event.type === 'hit_blocked' && event.blockedImpact > 0
+    return effective && (this.town.patrol?.().noteHostileHit(target, 'player') ?? false)
   }
 
   /** Called only after actual Player HP, shield or mounted contact has been resolved. */
@@ -291,7 +301,7 @@ export class TownMissionCombat {
     const missionActors = new Set(veteranActors ?? field.fieldNpcs)
     for (const actor of commandActors) missionActors.add(actor)
     if (veteranField) for (const npc of this.enemyTownHostileActors) missionActors.add(npc)
-    this.town.preparePeaceResidents?.(new Set([...missionActors, ...this.externalThreatActors]))
+    this.town.preparePeaceResidents?.(new Set([...missionActors, ...this.externalThreatActors]), dt)
     const patrol = this.town.patrol?.()
     this.preparePatrolCombatFrame(dt, outskirts)
     const patrolActors = new Set(patrol?.combatActors ?? [])
@@ -516,15 +526,24 @@ export class TownMissionCombat {
       .some(threat => !threat.dead && townWartimeHostile(actor, threat)))
   }
 
+  /** HR sensing and hit wake retain the personal owner's return/preparation restrictions. */
+  private personalPatrolCombatActors(): readonly NPC[] {
+    const personal = this.town.personalSquad?.()
+    return personal && personal.state !== 'RETURNING' && this.missions.defense.phase !== 'PREPARING'
+      ? personal.actors.filter(actor => personal.owns(actor)) : []
+  }
+
   private preparePatrolCombatFrame(dt: number, outskirts: TownOutskirtsCombatRuntime | undefined): void {
     const patrol = this.town.patrol?.()
     if (!patrol) return
     const { field, defense } = this.missions
     const threats = new Set([...field.fieldNpcs, ...field.ambientBandits,
-      ...(defense.active && defense.phase !== 'PREPARING' ? defense.fieldNpcs : []), ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? [])])
+      ...(defense.active && defense.phase !== 'PREPARING' ? defense.fieldNpcs : []),
+      ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...this.personalPatrolCombatActors()])
     this.patrolThreatGrid.clear()
     for (const actor of threats) if (!actor.dead) this.patrolThreatGrid.insert(actor)
     patrol.prepareCombatFrame(dt, this.patrolThreatGrid, {
+      player: this.town.player(),
       owns: actor => threats.has(actor),
       squadMembersFor: actor => outskirts?.owns(actor) ? outskirts.squadMembersFor?.(actor) ?? [actor]
         : field.veteranEnemySquads.find(squad => squad.members.includes(actor))?.members ?? [actor],
@@ -625,7 +644,7 @@ export class TownMissionCombat {
     const outskirts = this.prepareOutskirtsFrame(dt)
     this.updateExternalThreatAssignments()
     const duelActors = new Set(duel.fieldNpcs)
-    this.town.preparePeaceResidents?.(new Set([...duelActors, ...this.externalThreatActors]))
+    this.town.preparePeaceResidents?.(new Set([...duelActors, ...this.externalThreatActors]), dt)
     this.preparePatrolCombatFrame(dt, outskirts)
     const patrolActors = new Set(this.town.patrol?.().combatActors ?? [])
     const actors = [...new Set([...duelActors, ...field.fieldNpcs, ...field.ambientBandits,
@@ -669,7 +688,7 @@ export class TownMissionCombat {
     this.town.careerMounts.update(dt)
   }
 
-  private updateExternalThreatAssignments(options: { enemyTownScouts?: readonly NPC[]; player?: Player; roamingOnly?: boolean } = {}): void {
+  private updateExternalThreatAssignments(options: { enemyTownScouts?: readonly NPC[]; player?: Player; roamingOnly?: boolean; nativeEnemyTown?: boolean } = {}): void {
     const { field } = this.missions
     const enemyTownScouts = options.enemyTownScouts
     const outskirts = this.town.outskirts?.()
@@ -696,7 +715,18 @@ export class TownMissionCombat {
         this.releaseExternalThreat(npc)
         continue
       }
-      if (this.garrisonReturns.has(npc)) continue
+      if (this.garrisonReturns.has(npc)) {
+        // Only immediate, valid contact interrupts return; a distant old target cannot oscillate it.
+        const range = townExternalThreatAlertRange(Boolean(spec.eagle), npc)
+        const contact = threatActors.some(threat => townWartimeHostile(npc, threat)
+          && npc.combatPosition.distanceToSquared(threat.combatPosition) <= 8 * 8
+          && this.isExternalThreatInRange(resident, threat.combatPosition, range))
+          || options.player && !options.player.dead && npc.hostileToPlayer
+            && npc.combatPosition.distanceToSquared(options.player.combatPosition) <= 8 * 8
+            && this.isExternalThreatInRange(resident, options.player.combatPosition, range)
+        if (!contact) continue
+        this.garrisonReturns.delete(npc)
+      }
       if (spec.duty === 'patrol' && this.town.patrol?.()) {
         this.externalThreatActors.delete(npc)
         continue
@@ -707,11 +737,11 @@ export class TownMissionCombat {
       }
       const military = enemyTownScouts === undefined
         ? this.isMilitary(spec)
-        : !isCivilian(spec.role) && spec.role !== 'cat'
+        : spec.role !== 'cat'
       const eligible = military && !npc.dead && !missionFriendlies.has(npc)
         && (enemyTownScouts === undefined
           ? true
-          : spec.id.startsWith('enemy-town:') && npc.faction === Faction.ENEMY)
+          : (options.nativeEnemyTown || spec.id.startsWith('enemy-town:')) && npc.faction === Faction.ENEMY)
       const alertRange = townExternalThreatAlertRange(Boolean(spec.eagle), npc)
       const threatRange = spec.eagle && this.externalThreatActors.has(npc)
         ? Math.max(alertRange, npc.maxRangedAttackDistance) : alertRange
@@ -737,15 +767,22 @@ export class TownMissionCombat {
           else this.eagleThreatTargets.delete(npc)
         }
       }
-      const nearbyMissionActor = eligible && (spec.eagle ? Boolean(eagleTarget)
-        : this.banditThreatGrid.getNearbyInto(npc.combatPosition, threatRange, this.neighbors)
-          .some(threat => !threat.dead && townWartimeHostile(npc, threat)
-            && (spec.duty !== 'patrol' || !outskirts?.owns(threat))))
+      const groundTarget = eligible && !spec.eagle
+        ? this.banditThreatGrid.getNearbyInto(npc.combatPosition, threatRange, this.neighbors)
+          .filter(threat => !threat.dead && townWartimeHostile(npc, threat)
+            && this.isExternalThreatInRange(resident, threat.combatPosition, threatRange))
+          .sort((a, b) => npc.combatPosition.distanceToSquared(a.combatPosition) - npc.combatPosition.distanceToSquared(b.combatPosition))[0]
+        : undefined
+      const nearbyMissionActor = eligible && (spec.eagle ? Boolean(eagleTarget) : Boolean(groundTarget))
       const nearbyPlayer = eligible && enemyTownScouts !== undefined && options.player !== undefined
         && !options.player.dead && this.isExternalThreatInRange(resident, options.player.combatPosition, threatRange)
       if (spec.eagle && nearbyPlayer && !eagleTarget) this.eagleThreatTargets.set(npc, options.player!)
       const threatened = Boolean(nearbyMissionActor || nearbyPlayer)
       if (threatened) {
+        if (!spec.eagle) {
+          npc.setMissionCombatTarget(groundTarget ?? options.player!)
+          if (npc.townCategory === 'civilian') npc.armTownCivilian(civilianWartimeWeapon(npc.characterFaction))
+        }
         if (!this.externalThreatActors.has(npc)) {
           if (npc.isTownRampartGarrisonActive) this.externalRampartActors.add(npc)
           npc.beginExternalThreat()
@@ -758,6 +795,7 @@ export class TownMissionCombat {
         if (npc.dead || missionFriendlies.has(npc)) continue
         this.eagleThreatTargets.delete(npc)
         const heldRampart = npc.isTownRampartGarrisonActive
+        npc.setMissionCombatTarget(undefined)
         npc.endExternalThreat()
         if (heldRampart && spec.garrison?.kind === 'rampart') {
           const station = townStationSpec(spec, npc.isMounted, Boolean(npc.rangedWeaponId))
@@ -775,14 +813,11 @@ export class TownMissionCombat {
         // Patrol resumes its own navigation from the actual position, including a
         // recently released mission actor travelling to barracks. It owns arrival.
         if (spec.duty === 'patrol' || spec.duty === 'eagle_garrison') continue
-        const point = new THREE.Vector3(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
-        if (npc.mount && !npc.mount.dead) {
-          npc.mount.group.position.copy(point)
-          npc.mount.group.rotation.y = spec.yaw ?? Math.PI
-        } else {
-          npc.group.position.copy(point)
-          npc.group.rotation.y = spec.yaw ?? Math.PI
-        }
+        const station = townStationSpec(spec, npc.isMounted, Boolean(npc.rangedWeaponId))
+        const point = new THREE.Vector3(station.x, station.y ?? getTerrainHeight(station.x, station.z), station.z)
+        this.garrisonReturns.set(npc, station)
+        npc.assignFormationTarget(EXTERNAL_GARRISON_RETURN_ID, point,
+          new THREE.Vector3(Math.sin(station.yaw ?? Math.PI), 0, Math.cos(station.yaw ?? Math.PI)), undefined, 'attack')
       }
     }
     this.garrisonReturnGrid.clear()
@@ -829,7 +864,7 @@ export class TownMissionCombat {
 
   private isExternalThreatInRange({ spec, npc }: TownCombatResident, position: THREE.Vector3, range: number): boolean {
     if (!(npc.combatPosition.distanceToSquared(position) <= range * range)) return false
-    if (!spec.eagle) return true
+    if (!spec.eagle) return townDefenseThreatInRange(spec, npc, position, range)
     // Patrol sorties defend the town and their local sector; the leash is centered
     // on the town, never on a distant home pad or an unbounded enemy position.
     return Number.isFinite(position.x + position.y + position.z)
@@ -845,9 +880,12 @@ export class TownMissionCombat {
     defense.updateFlow(dt, cameraYaw)
     this.town.updateCommandCue()
     const outskirts = this.prepareOutskirtsFrame(dt)
+    const livingTown = defense.active?.kind === 'commander-sky-raid' || defense.active?.kind === 'commander-decapitation'
     const warfareActive = Boolean(outskirts?.actors.length || this.town.airPatrol?.()?.actors.length || defense.active)
-    if (warfareActive) this.updateExternalThreatAssignments({ roamingOnly: true })
-    this.town.preparePeaceResidents?.(new Set([...defense.fieldNpcs, ...this.externalThreatActors, ...commandActors]))
+    if (livingTown) this.updateExternalThreatAssignments({ nativeEnemyTown: true,
+      enemyTownScouts: [...defense.fieldNpcs, ...(this.town.personalSquad?.()?.actors ?? [])], player: this.town.player() })
+    else if (warfareActive) this.updateExternalThreatAssignments({ roamingOnly: true })
+    this.town.preparePeaceResidents?.(new Set([...defense.fieldNpcs, ...this.externalThreatActors, ...commandActors]), dt)
     const patrol = this.town.patrol?.()
     this.preparePatrolCombatFrame(dt, outskirts)
     const patrolActors = new Set(patrol?.combatActors ?? [])
@@ -870,6 +908,7 @@ export class TownMissionCombat {
         if (resident) { this.updatePeaceResident(resident, dt); continue }
       }
       if (commandActors.has(actor)) { this.updateRuntimeActor(actor, dt); continue }
+      if (this.externalThreatActors.has(actor) && !defense.fieldNpcs.includes(actor)) { this.updateRuntimeActor(actor, dt); continue }
       if (this.town.personalSquad?.()?.owns(actor)) { this.updatePersonalActor(actor, dt); continue }
       if (patrolActors.has(actor)) {
         this.updateRuntimeActor(actor, dt)
