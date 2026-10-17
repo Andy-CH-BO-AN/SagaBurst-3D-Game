@@ -298,6 +298,17 @@ describe('Civilian and merchant borrowed mount checkpoints', () => {
     expect(placementChecks).toBe(0)
   })
 
+  it('revives an allocated dead horse at the validated living civilian position rather than its old corpse position', () => {
+    const h = residentRecovery('civilian-0', false, true, { canPlaceMountedCivilian: point => point.x === 18 && point.z === -30 })
+    h.actor.combatPosition.set(18, 0, -30)
+    expect(h.owner.refit()).toBe(true)
+    expect(h.events[0]).toBe('save')
+    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
+    expect(h.actor.combatPosition).toMatchObject({ x: 18, z: -30 })
+    expect(h.mount.group.position).toMatchObject({ x: 18, z: -30 })
+    expect(h.read().civilianCommandSquad!.members['civilian-0'].mount).toMatchObject({ hp: 200, mounted: true, position: { x: 18, z: -30 } })
+  })
+
   it('restores the same dead merchant and horse through the existing mount recovery boundary', () => {
     const h = residentRecovery('merchant', true, true)
     expect(h.owner.refit()).toBe(true)

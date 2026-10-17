@@ -33,13 +33,18 @@ let squadCache: Map<string, number | 'civilian'> | undefined
 const slotKeys = { melee: 'meleeWeaponId', ranged: 'rangedWeaponId', shield: 'shieldId', mount: 'mountId' } as const
 export function townEquipmentActorSpecs(faction: CharacterFaction): TownActorSpec[] {
   let specs = specCache.get(faction)
-  if (!specs) { specs = [...withTownCommandSquadRoster(faction, townRoster()), townCommanderSpec({ x: 0, z: 0, yaw: 0 }), eagleTrainerSpec({ site: { x: 0, z: 0, yaw: 0 }, trainer: { x: 0, z: 0, yaw: 0 }, pads: [] })]; specCache.set(faction, specs) }
+  if (!specs) {
+    const roster = townRoster()
+    // Equipment identities and squad membership share the same authored roster.
+    // Avoid constructing a second garrison/housing layout just to obtain its IDs.
+    squadCache ??= new Map<string, number | 'civilian'>([...commanderGateDefenseSlots(roster).flatMap(squad => squad.actorIds.map(id => [id, squad.squadId] as const)),
+      ...Array.from({ length: 20 }, (_, i) => [`civilian-${i}`, 'civilian'] as const), ['merchant', 'civilian']])
+    specs = [...withTownCommandSquadRoster(faction, roster), townCommanderSpec({ x: 0, z: 0, yaw: 0 }), eagleTrainerSpec({ site: { x: 0, z: 0, yaw: 0 }, trainer: { x: 0, z: 0, yaw: 0 }, pads: [] })]; specCache.set(faction, specs) }
   return specs
 }
 export function townEquipmentSquadForActor(actorId: string): number | 'civilian' | undefined {
-  squadCache ??= new Map<string, number | 'civilian'>([...commanderGateDefenseSlots().flatMap(squad => squad.actorIds.map(id => [id, squad.squadId] as const)),
-    ...Array.from({ length: 20 }, (_, i) => [`civilian-${i}`, 'civilian'] as const), ['merchant', 'civilian']])
-  return squadCache.get(actorId)
+  if (!squadCache) townEquipmentActorSpecs('roman')
+  return squadCache!.get(actorId)
 }
 export function townDefaultActorLoadout(faction: CharacterFaction, spec: TownActorSpec): UnitLoadout {
   if (spec.role === 'merchant') return townMerchantLoadout()

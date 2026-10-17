@@ -119,7 +119,9 @@ export class CivilianCommandSquadController {
         member.position = {
           x: spec.x, y: spec.y ?? getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? 0,
         }
-        if (spec.role === 'civilian' && member.mount?.mounted) member.mount.position = { ...member.position }
+      }
+      if (spec.role === 'civilian' && member.mount?.mounted && member.position && (npc.dead || npc.isFalling || homeMount?.dead)) {
+        member.mount.position = { ...member.position }
       }
       if (value.owners[id] === 'returning') this.stageReturn(value, id, spec)
       else if (value.owners[id] === 'player') {
