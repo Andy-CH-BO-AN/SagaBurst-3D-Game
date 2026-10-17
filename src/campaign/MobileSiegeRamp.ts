@@ -135,6 +135,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
 
   releaseCrew(npc: NPC): void {
     this.controller.withdraw(npc.combatantId); this.platform.detach(npc.combatantId)
+    this.crew.delete(npc.combatantId)
     npc.siegeTransport = null; npc.siegeTransportSpeed = 0
   }
 

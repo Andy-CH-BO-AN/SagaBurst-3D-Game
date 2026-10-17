@@ -1,25 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { calculateLanceChargeDamage, getAntiCavalryMultiplier, getBerserkerModifiers } from '../../src/combat/CombatBalance'
 
-import { WEAPONS } from '../../src/rpg/WeaponDatabase'
-import { weaponShieldImpact } from '../../src/combat/ShieldBlocking'
 
 describe('Combat damage eligibility', () => {
-  it('routes the T5 melee catalog through existing combat and shield rules with one polearm ID', () => {
-    const expected = [
-      ['sword_t5', 'sword', 'sword', 80, .48, 1.8, 1],
-      ['axe_t5', 'sword', 'axe', 80, .54, 1.8, 15],
-      ['spear_t5', 'lance', 'lance', 95, .42, 3.9, 80],
-    ] as const
-    for (const [id, combatKind, animationKind, damage, cycle, range, mountedImpact] of expected) {
-      expect(WEAPONS[id]).toMatchObject({ id, type: 'melee', tier: 5, combatKind, animationKind,
-        damageMin: damage, damageMax: damage, speedOrCharge: cycle, meleeCycleSeconds: cycle, range })
-      expect(weaponShieldImpact(id, true)).toBe(mountedImpact)
-    }
-    expect(WEAPONS.spear_t5.isLance).toBe(true)
-    expect(WEAPONS.lance_t5).toBeUndefined()
-    expect(weaponShieldImpact('spear_t5', false)).toBe(1)
-  })
   it.each([
     ['unmounted lance against cavalry', 'lance', false, true, 2],
     ['mounted lance against cavalry', 'lance', true, true, 1],

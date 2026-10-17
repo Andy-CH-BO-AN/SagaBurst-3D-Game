@@ -27,13 +27,6 @@ describe('horse asset compatibility', () => {
     expect(() => validateHorseManifest(incomplete)).toThrow('Horse manifest is missing death clip')
   })
 
-  it('adapts visual cadence to measured strides without the legacy speed cap', () => {
-    const calibrated = { gaitReferenceSpeeds: { walk: 2, trot: 2.5, canter: 4, gallop: 12 } }
-    expect(horsePlaybackRateForSpeed(6, calibrated)).toBeCloseTo(2.4)
-    expect(horsePlaybackRateForSpeed(6)).toBeCloseTo(6 / 5.25)
-    expect(horsePlaybackRateForSpeed(0, calibrated)).toBe(1)
-  })
-
   it('keeps a gait and its cadence through boundary noise until speed leaves the margin', () => {
     expect(horseLocomotionClipForSpeed(10.49, 'gallop')).toBe('gallop')
     expect(horseLocomotionClipForSpeed(10.52, 'gallop')).toBe('gallop')

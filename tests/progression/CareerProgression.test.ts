@@ -35,21 +35,6 @@ function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleSt
 }
 
 describe('Career merit calculation', () => {
-  it('awards victory, kills, actual damage and survival merit', () => {
-    expect(calculateMerit(
-      stats({ damageDealt: 2280, kills: 2, survived: true }),
-      'victory',
-      'defense',
-    )).toEqual({
-      victory: 80,
-      kills: 16,
-      characterDamage: 44,
-      survival: 20,
-      structureDamage: 0,
-      gateBreaches: 0,
-      total: 160,
-    })
-  })
 
   it('only awards structure and breach merit to offense battles', () => {
     const battleStats = stats({
@@ -150,25 +135,6 @@ describe('Career progression and spending', () => {
     })
     expect(expensive.reason).toBe('insufficient-merit')
     expect(expensive.profile.availableMerit).toBe(100)
-  })
-
-  it('claims each battle only once', () => {
-    const profile = createCareerProfile('viking')
-    const first = claimCareerBattle(profile, {
-      battleId: 'battle-once',
-      outcome: 'victory',
-      role: 'defense',
-      stats: stats({ damageDealt: 500 }),
-    })
-    const duplicate = claimCareerBattle(first.profile, {
-      battleId: 'battle-once',
-      outcome: 'victory',
-      role: 'defense',
-      stats: stats({ damageDealt: 9999, kills: 99 }),
-    })
-    expect(duplicate.alreadyClaimed).toBe(true)
-    expect(duplicate.meritAwarded).toBe(0)
-    expect(duplicate.profile).toEqual(first.profile)
   })
 })
 

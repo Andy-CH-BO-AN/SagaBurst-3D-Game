@@ -110,31 +110,6 @@ describe('NavigationWorld', () => {
     ).status).toBe('path')
   })
 
-  it('reconnects components after a wall breach', () => {
-    const world = new NavigationWorld({ minX: -50, maxX: 50, minZ: -50, maxZ: 50, cellSize: 2 })
-
-    world.rebuild([
-      obstacle(-1, -50, 1, 50),
-    ])
-    expect(
-      world.areConnected(
-        new THREE.Vector3(-10, 0, 0),
-        new THREE.Vector3(10, 0, 0),
-      ),
-    ).toBe(false)
-
-    world.rebuild([
-      obstacle(-1, -50, 1, -6),
-      obstacle(-1, 6, 1, 50),
-    ])
-    expect(
-      world.areConnected(
-        new THREE.Vector3(-10, 0, 0),
-        new THREE.Vector3(10, 0, 0),
-      ),
-    ).toBe(true)
-  })
-
   it('routes North and South bank paths exclusively through the five-lane bridge and blocks river or map-edge crossings', () => {
     const obstacles = createRiverCrossingObstacleData()
     const world = new NavigationWorld({

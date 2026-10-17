@@ -291,7 +291,7 @@ export class TownFourGateSiege {
       this.routeEligibility.set(npc.combatantId, eligible)
     }
     for (const npc of this.options.actors()) {
-      if (npc.siegeTransport || !this.accepts(npc)) { this.convoy.release(npc); continue }
+      if (npc.mount?.isFlyingMount || npc.siegeTransport || !this.accepts(npc)) { this.convoy.release(npc); continue }
       this.convoy.update(npc, this.rampList)
     }
   }

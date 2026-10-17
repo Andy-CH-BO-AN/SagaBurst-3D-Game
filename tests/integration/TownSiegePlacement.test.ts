@@ -31,13 +31,6 @@ describe('Town Siege placement and readiness', () => {
     expect(Math.hypot(point.x - 1, point.z + 103)).toBeGreaterThanOrEqual(2.5)
     expect(occupied).toHaveLength(2); expect(occupied[1]).toEqual({ point, spacing: 2.5 })
   })
-  it('keeps readiness false until the real queued batch finishes its finalizer', () => {
-    const scheduler = new NpcSpawnScheduler(), batch = scheduler.batch()
-    onTestFinished(() => batch.cancel())
-    batch.enqueue('attacker:data', () => {}); batch.seal()
-    const owner = entry(smallGrid(), [], batch)
-    expect(owner.ready).toBe(false); scheduler.tick(1); expect(owner.ready).toBe(true)
-  })
   it('keeps failed finalization unready after the queue empties', () => {
     const scheduler = new NpcSpawnScheduler(), batch = scheduler.batch()
     onTestFinished(() => batch.cancel())

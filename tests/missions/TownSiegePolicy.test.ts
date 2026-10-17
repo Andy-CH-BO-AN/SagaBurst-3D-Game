@@ -7,6 +7,7 @@ import { Vector3 } from 'three'
 import { AvailableBreachEntrances } from '../../src/navigation/AvailableBreachEntrances'
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
 import { townRoster } from '../../src/town/TownRules'
+import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 
 // Data owns deployment membership without constructing actors.
 
@@ -84,6 +85,29 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(orders).toEqual(['attack'])
     entries.clear(); owner.route(npc)
     expect(npc.campaignEntranceId).toBeNull(); expect(siegeTarget).toBe(eastGate.siegeObstacle)
+  })
+
+  it('removes a ground detour after mounting a flying animal and never assigns one in flight', () => {
+    const entrances = new AvailableBreachEntrances(), convoy = new SiegeConvoy()
+    const npc = { combatantId: 'east:flyer', dead: false, tacticalOrder: 'attack', hasFormationTarget: false,
+      siegeTransport: null, siegeBypassTarget: null as Vector3 | null, combatPosition: new Vector3(0, 20, -5),
+      mount: null as { isFlyingMount: boolean } | null }
+    const ramp = { position: new Vector3(), placement: { dirX: 0, dirZ: 1 }, controller: { state: 'PUSHING' },
+      surface: { startX: 0, startZ: -30, halfWidth: 2.5 } }
+    // Real Town caller and convoy policy; readiness, render/spawn and route rosters are data boundaries.
+    const owner = Object.assign(Object.create(TownFourGateSiege.prototype) as Pick<TownFourGateSiege, 'update'>, {
+      prepared: true, disposed: false, pending: new Set(), ramps: new Map(), rampList: [ramp], convoy,
+      observedRevision: entrances.revision, actorsById: new Map(), playerCommands: new Set(), departedActors: new Map(),
+      options: { world: {}, grid: {}, navigation: { townNav: { siegeEntrances: entrances } }, actors: () => [npc], acceptsOrders: () => true },
+    })
+    owner.update(.1)
+    expect(npc.siegeBypassTarget).toEqual(new Vector3(6.5, 20, -5))
+    npc.mount = { isFlyingMount: true }
+    owner.update(.1); expect(npc.siegeBypassTarget).toBeNull()
+    owner.update(.1); expect(npc.siegeBypassTarget).toBeNull()
+    npc.mount = null
+    owner.update(.1); expect(npc.siegeBypassTarget).toEqual(new Vector3(6.5, 20, -5))
+    convoy.dispose(); expect(npc.siegeBypassTarget).toBeNull()
   })
 
 })

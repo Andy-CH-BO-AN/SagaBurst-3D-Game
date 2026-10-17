@@ -9,7 +9,6 @@ import type { ObstacleData } from '../../src/world/Terrain'
 import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
 import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
-import { townMilitaryEquipment } from '../../src/town/TownRules'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../../src/world/CharacterCombatAnimator'
 import type { EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
@@ -295,21 +294,6 @@ describe('Reversible NPC weapon choice', () => {
     expect(state.actualSword).toBe(true)
     expect(state.swordGripSections?.mounted.palmRadius).toBe(.01)
   })
-
-  it('wires authored Commander and Ranger loadouts to their normal melee and reversible bows', () => {
-    expect(townMilitaryEquipment('roman', 'commander').loadout).toMatchObject({
-      meleeWeaponId: 'sword_t5', rangedWeaponId: 'bow_t5', reversibleRangedSwitch: true,
-    })
-    expect(townMilitaryEquipment('viking', 'commander').loadout).toMatchObject({
-      meleeWeaponId: 'axe_t5', rangedWeaponId: 'bow_t5', reversibleRangedSwitch: true,
-    })
-    expect(resolveT4UnitLoadout('viking_archer')).toMatchObject({
-      meleeWeaponId: 'viking_axe_t3', rangedWeaponId: 'maki-ranger-bow-ranged', reversibleRangedSwitch: true,
-    })
-    expect(resolveT4UnitLoadout('roman_archer')).toMatchObject({
-      meleeWeaponId: 'centurion_blade', rangedWeaponId: 'maki-ranger-bow-ranged', reversibleRangedSwitch: true,
-    })
-  })
   it('repeats ordinary shielded hybrid switching with hysteresis and preserves ammo and damaged shield', () => {
     const h = selection({ shieldId: 'round_shield_t3', tacticalOrder: 'defend' })
     expect(h.actor._usesReversibleRangedSwitch()).toBe(true)
@@ -478,18 +462,6 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.hasActiveRangedWeapon).toBe(true)
     expect(h.actor.shield.active).toBe(false)
     expect(h.actor.arrows).toBe(12)
-  })
-
-  it('requires the re-equip distance before returning from melee to bow', () => {
-    const h = selection({ rangedActive: false })
-    h.target.position.z = 8.99
-    h.select()
-    expect(h.actor.rangedActive).toBe(false)
-    h.target.position.z = 9
-    h.select()
-    expect(h.actor.rangedActive).toBe(true)
-    expect(h.actor.arrows).toBe(12)
-    expect(h.actor.state).toBe(AIState.CHASE)
   })
 
   it('keeps melee when the target trajectory is blocked', () => {

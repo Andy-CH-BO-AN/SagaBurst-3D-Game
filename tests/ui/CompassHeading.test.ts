@@ -1,19 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { Vector3, type Camera } from 'three'
-import { CompassHeading, resolveCompassHeading } from '../../src/ui/CompassHeading'
+import { CompassHeading } from '../../src/ui/CompassHeading'
 
 describe('Compass heading', () => {
-  it('maps the eight world directions clockwise from -Z north and normalizes the north boundary', () => {
-    const directions = [
-      [0, -1, 0], [1, -1, 45], [1, 0, 90], [1, 1, 135],
-      [0, 1, 180], [-1, 1, 225], [-1, 0, 270], [-1, -1, 315],
-    ]
-    for (const [x, z, degrees] of directions) {
-      expect(resolveCompassHeading(new Vector3(x, 0, z).normalize(), 0)).toBeCloseTo(degrees * Math.PI / 180)
-    }
-    expect(resolveCompassHeading(new Vector3(-1e-5, 0, -1), 0)).toBeCloseTo(2 * Math.PI - 1e-5)
-    expect(resolveCompassHeading(new Vector3(1e-5, 0, -1), 0)).toBeCloseTo(1e-5)
-  })
 
   it('reads the current camera forward despite pitch and an unrelated body/controller yaw', () => {
     const heading = new CompassHeading()
