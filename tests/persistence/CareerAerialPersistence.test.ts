@@ -140,10 +140,13 @@ describe('Career Town layout checkpoint migration', () => {
     expect(saved).toEqual(before)
   })
 
-  it('migrates a version 2 private eagle at its parked home exactly once through storage', () => {
+  it.each([
+    { version: 2, x: -95, z: 65 },
+    { version: 3, x: -90, z: 56 },
+  ])('migrates a version $version private eagle at its parked home exactly once through storage', ({ version, x, z }) => {
     const profile = createCareerProfile('roman'), saved = personal()
-    saved.layoutVersion = 2
-    saved.members['personal:eagle'].mount!.position = { x: -95, y: 2, z: 65, yaw: Math.PI }
+    saved.layoutVersion = version
+    saved.members['personal:eagle'].mount!.position = { x, y: 2, z, yaw: Math.PI }
     profile.personalSquadRuntime = saved
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(profile)).toBe(true)
@@ -151,7 +154,7 @@ describe('Career Town layout checkpoint migration', () => {
     loaded.personalSquadRuntime = migratePersonalTownLayout(loaded.personalSquadRuntime, 'town-home', layout, terrain)
     expect(store.save(loaded)).toBe(true)
     const restored = store.load()!.personalSquadRuntime!
-    expect(restored.layoutVersion).toBe(3)
+    expect(restored.layoutVersion).toBe(4)
     expect(restored.members['personal:eagle'].mount).toMatchObject({ hp: 73, position: { x: -70, y: 12, z: 25 } })
     expect(migratePersonalTownLayout(restored, 'town-home', layout, terrain)).toBe(restored)
   })

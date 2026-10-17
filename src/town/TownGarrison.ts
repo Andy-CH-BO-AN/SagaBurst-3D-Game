@@ -3,7 +3,7 @@ import { TOWN_EAGLE_ALERT_RADIUS } from './TownEagleGarrison'
 import { siegeDefensePlans } from '../career/TownDefenseRoster'
 import { getTerrainHeight } from '../world/Terrain'
 import { TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
-import { getTownRampartLayout, townRampartHeight } from './TownRamparts'
+import { getTownRampartLayout, townRampartHeight, TOWN_RAMPART } from './TownRamparts'
 import type { TownActorSpec } from './TownRules'
 
 export interface TownGarrisonStation { kind: 'rampart' | 'gate' | 'reserve'; gateId: TownGateId; x: number; y: number; z: number; yaw: number }
@@ -45,7 +45,7 @@ export function assignTownGarrison(roster: TownActorSpec[]): TownActorSpec[] {
             points: layout.wallSpans.filter(d => d.gateId === gate.id).flatMap(d => {
               const s = d.surface
               return [.4, 2.55, 4.65].filter(along => along < s.length - .25).map(along => ({
-                x: s.startX + s.dirX * along + s.dirZ * 2, z: s.startZ + s.dirZ * along - s.dirX * 2, yaw: gate.yaw,
+                x: s.startX + s.dirX * along + s.dirZ * (TOWN_RAMPART.width / 2 - 1.2), z: s.startZ + s.dirZ * along - s.dirX * (TOWN_RAMPART.width / 2 - 1.2), yaw: gate.yaw,
               }))
             }).filter(q => Math.hypot(q.x - gate.x, q.z - gate.z) > 12),
             checkedOccupancy: 0,

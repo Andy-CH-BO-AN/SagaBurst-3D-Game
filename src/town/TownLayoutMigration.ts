@@ -41,6 +41,8 @@ const LEGACY_PRIVATE_EAGLE_PADS: readonly EaglePad[] = [
   { id: 'private-eagle-pad:1', x: -30.686291501015234, z: -31.68629150101524, yaw: 0 },
   { id: 'private-eagle-pad:2', x: -27.217927479819405, z: -49.122934917841434, yaw: 0 },
   { id: 'private-eagle-pad:3', x: -24.221752543372723, z: -69.60702759368145, yaw: 0 },
+  // Version 3 pads before the mounted walkway widening.
+  ...[-90, -60, -30].map((x, index) => ({ id: `private-eagle-pad:${index + 1}`, x, z: 56, yaw: Math.PI })),
   // Version 2 pads before the interior wall walkways were built.
   ...[-95, -65, -35].map((x, index) => ({ id: `private-eagle-pad:${index + 1}`, x, z: 65, yaw: Math.PI })),
 ]

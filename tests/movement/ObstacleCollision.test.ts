@@ -32,6 +32,8 @@ import {
   setSceneRiverCrossing,
   type ObstacleData,
 } from '../../src/world/Terrain'
+import { getTownRampartLayout, townRampSupportBox, townRampartHeight } from '../../src/town/TownRamparts'
+import { getWalkRampHeight } from '../../src/world/Terrain'
 import { initializeTownWorldTerrain } from '../../src/town/TownWorld'
 
 function deck(y: number): ObstacleData {
@@ -46,6 +48,41 @@ function deck(y: number): ObstacleData {
 }
 
 describe('obstacle walk-surface collision', () => {
+  it('keeps an uphill mount clear of ramp pillars while the safety rail still blocks the edge', () => {
+    const surface = { startX: 0, startZ: 0, startY: 10, topY: 18,
+      dirX: 0, dirZ: 1, length: 20, landing: 8, halfWidth: 3, mounted: true }
+    const pillar = townRampSupportBox(surface, 6, -1)!
+    const obstacles: ObstacleData[] = [
+      { ...deck(10), walkSurface: surface,
+        box: new THREE.Box3(new THREE.Vector3(-3, 9.65, 0), new THREE.Vector3(3, 18, 28)) },
+      { isBarricade: false, box: pillar },
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.99, 10, 0), new THREE.Vector3(3.31, 19, 28)) },
+    ]
+    const previous = new THREE.Vector3(1.8, 11.92, 4.8)
+    const position = new THREE.Vector3(1.8, 11.9, 5.2)
+    resolveObstacleCollision(position, previous, -1, false, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+    expect(position.toArray()).toEqual([1.8, 12.08, 5.2])
+    position.x = 2.2
+    resolveObstacleCollision(position, previous, 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+    expect(position.x).toBeCloseTo(1.99)
+  })
+
+  it('joins the town ramp knee, turn and deck at one height without placing the flight under the widened deck', () => {
+    // Numeric layout only: no town builder, geometry, model or scene.
+    const layout = getTownRampartLayout()
+    const ramp = layout.ramps.find(r => r.gateId === 'north')!
+    const s = ramp.surface
+    expect(getWalkRampHeight(s, ramp.landing.x, ramp.landing.z)).toBeCloseTo(s.topY)
+    const link = layout.decks.find(d => d.id === 'landing:north')!.surface
+    expect(getWalkRampHeight(link, ramp.landing.x, ramp.landing.z)).toBeCloseTo(s.topY)
+    expect(townRampartHeight(layout, ramp.connection.x, ramp.connection.z)).toBeCloseTo(s.topY)
+    const flightX = s.startX + s.dirX * (s.length - 2)
+    const flightZ = s.startZ + s.dirZ * (s.length - 2)
+    expect(layout.decks.filter(d => !d.id.startsWith('landing:'))
+      .some(d => getWalkRampHeight(d.surface, flightX, flightZ) !== null)).toBe(false)
+    expect(s.landing / 2).toBeGreaterThan(1 + .16)
+  })
+
   it('camera rays use slab slices rather than the empty space inside a sloped envelope', () => {
     const obstacle = deck(6)
     obstacle.box.min.y = 0
