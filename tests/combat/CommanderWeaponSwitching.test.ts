@@ -11,8 +11,85 @@ import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
 import { townMilitaryEquipment } from '../../src/town/TownRules'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
-import { CharacterCombatAnimator } from '../../src/world/CharacterCombatAnimator'
+import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../../src/world/CharacterCombatAnimator'
 import type { EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
+import type { HumanoidAnimationController } from '../../src/world/CharacterVisuals'
+
+/** Real animation state owner; only the external clip/pose boundary is doubled. */
+function lanceAnimator() {
+  const state: Partial<EquipmentPoseState> = {}
+  const animation = {
+    setEquipmentState: (update: Partial<EquipmentPoseState>) => Object.assign(state, update),
+    play: vi.fn(() => true), seek: vi.fn(() => true), has: () => true,
+    setBowLocomotion: vi.fn(), update: vi.fn(), getDuration: () => undefined, stop: vi.fn(),
+  } satisfies HumanoidAnimationController
+  // No constructor, rig, bones or mixer: the production methods need only this
+  // equipment ownership marker and scalar action/locomotion state.
+  const animator = Object.assign(Object.create(CharacterCombatAnimator.prototype), {
+    rig: { animation, equipmentGripFrames: {} },
+    meleePivot: { visible: true, userData: { equipmentAttachmentOwned: 'lance' } },
+    bowPivot: { visible: false, userData: {} },
+    action: 'idle', ownership: 'procedural', elapsed: 0, actionTimeScale: 1,
+    shieldGuardEnabled: false, shieldRaised: false, lanceEquipped: false,
+    locomotion: 'idle', mountKind: 'HORSE', locomotionTimeScale: 1,
+    events: { hitActiveStarted: false, projectileRelease: false, actionCompleted: false },
+  }) as CharacterCombatAnimator
+  animator.setEquipment(true, false, 'HORSE')
+  animator.setLocomotion(0, true)
+  return { animator, animation, state }
+}
+
+describe('Combat animator bow-to-lance recovery', () => {
+  it('ends the fresh bow aim after a shot and permits another mounted shot', () => {
+    const { animator, animation, state } = lanceAnimator()
+    animator.poseBow(1)
+    expect(animator.start('bowRelease')).toBe(true)
+    animator.poseLanceReady(true)
+    expect(animator.currentAction).toBe('bowRelease')
+    const profile = COMBAT_ANIMATION_PROFILES.bowRelease
+    expect(animator.update(profile.windup).projectileRelease).toBe(true)
+    expect(animator.update(profile.recovery).actionCompleted).toBe(true)
+    expect(animator.currentAction).toBe('idle')
+
+    // RMB is still held on the next Player frame, so aiming resumes. Releasing
+    // RMB must end that state even when imported equipment owns the lance pose.
+    animator.poseBow(0)
+    animator.setLocomotion(0, true)
+    animator.poseLanceReady(true)
+    animator.setLocomotion(0, true)
+    animator.update(0)
+    expect(animator.currentAction).toBe('idle')
+    expect(state).toMatchObject({ action: 'idle', mounted: true, lance: true, elapsed: 0 })
+    expect(animation.play).toHaveBeenLastCalledWith('mounted', expect.objectContaining({ loop: true }))
+    expect(animator.update(.1).projectileRelease).toBe(false)
+
+    animator.poseBow(1)
+    expect(animator.start('bowRelease')).toBe(true)
+    expect(animator.update(profile.windup).projectileRelease).toBe(true)
+    expect(animator.update(profile.recovery).actionCompleted).toBe(true)
+  })
+
+  it('cancels a partial draw into the latest moving or dismounted locomotion', () => {
+    const { animator, animation, state } = lanceAnimator()
+    animator.setLocomotion(4, true)
+    animator.poseBow(.5)
+    animator.poseLanceReady(true)
+    animator.setLocomotion(4, true)
+    expect(animator.currentAction).toBe('idle')
+    expect(state.action).toBe('idle')
+    expect(animation.play).toHaveBeenLastCalledWith('mounted', expect.objectContaining({ loop: true }))
+
+    // The next draw ends while dismounting; the current walking state wins.
+    animator.poseBow(.5)
+    animator.setLocomotion(2, false)
+    animator.poseLanceReady(false)
+    animator.setLocomotion(2, false)
+    expect(animator.currentAction).toBe('idle')
+    expect(state).toMatchObject({ action: 'idle', mounted: false, lance: true, elapsed: 0 })
+    expect(animation.play).toHaveBeenLastCalledWith('walk', expect.objectContaining({ loop: true, timeScale: 1 }))
+    expect(animator.update(.5)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false })
+  })
+})
 
 interface SelectionTarget { position: Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC }
 

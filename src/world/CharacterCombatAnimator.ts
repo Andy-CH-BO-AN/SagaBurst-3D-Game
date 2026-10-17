@@ -331,6 +331,10 @@ export class CharacterCombatAnimator {
   poseLanceReady(mounted: boolean): void {
     this.lanceEquipped = true
     this.rig.animation?.setEquipmentState?.({ lance: true, mounted })
+    // Releasing RMB can return here from bowAim, including a fresh aim frame
+    // after a shot. End that state before the imported-rig early return so
+    // locomotion fades out the bow clip and its equipment pose compensation.
+    if (this.action === 'bowAim') this.cancel()
     if (this.rig.equipmentGripFrames || this.busy) return
     const { right, left } = this.rig
     setRigRotation(right.shoulder, mounted ? 1.25 : 1.08, 0.08, -0.32)
