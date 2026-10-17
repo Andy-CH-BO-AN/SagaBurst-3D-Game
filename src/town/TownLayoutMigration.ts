@@ -4,7 +4,7 @@ import type { PersonalActorCheckpoint, PersonalActorPosition, PersonalSquadMissi
 import type { EaglePad } from '../career/EaglePadReservations'
 import type { EagleFlightSnapshot } from '../movement/EagleFlightController'
 import { getTerrainHeight } from '../world/Terrain'
-import { townEagleRoster, type TownEaglePad } from './TownEagleGarrison'
+import { townEagleRoster, TOWN_EAGLE_PAIRS, type TownEaglePad } from './TownEagleGarrison'
 import type { TownEagleGarrisonState } from './TownEagleGarrisonState'
 import { TOWN_LAYOUT_VERSION } from './TownLayout'
 import { returnPersonalMissionToHR } from '../career/CareerPersonalSquadMission'
@@ -64,6 +64,18 @@ function wasAtLegacyPrivateHome(position: PersonalActorPosition, padId: string |
     && Math.abs(position.x - home.x) <= 12 && Math.abs(position.z - home.z) <= 7)
 }
 
+// Authored home centres from layout v2 (a02745e) and v3 (245446e).
+// Version 1 used runtime placement search and did not persist the old home:
+// its current grounded position alone is not evidence of parking at that home.
+const LEGACY_GARRISON_HOMES: Readonly<Record<number, readonly (readonly [number, number])[]>> = {
+  2: [[-95, -75], [-65, -75], [-35, -75], [-95, -25], [-65, -25]],
+  3: [[-85, -63], [-57, -75], [-29, -75], [-85, -18], [-57, -22]],
+}
+function nearGroundHome(position: GroundPosition, x: number, z: number, terrainHeight: GroundHeight): boolean {
+  return Math.hypot(position.x - x, position.z - z) <= 1
+    && Math.abs(position.y - terrainHeight(x, z)) <= 1
+}
+
 /** Relocate only resident eagles parked at their old base, once per layout version.
  * Flight, rider fall and casualty snapshots retain their exact positions and state.
  */
@@ -71,15 +83,18 @@ export function migrateTownEagleGarrisonLayout(saved: TownEagleGarrisonState | u
   pads: readonly TownEaglePad[], terrainHeight: GroundHeight = getTerrainHeight): TownEagleGarrisonState | undefined {
   if (!saved || saved.sceneKey !== sceneKey || (saved.layoutVersion ?? 1) >= TOWN_LAYOUT_VERSION) return saved
   const byPad = new Map(pads.map(pad => [pad.id, pad]))
+  const oldHomes = LEGACY_GARRISON_HOMES[saved.layoutVersion ?? 1]
   const standby = new Map(townEagleRoster({ pads: [...pads] }).map(spec => [spec.id, spec]))
   return { ...saved, layoutVersion: TOWN_LAYOUT_VERSION, pairs: saved.pairs.map(pair => {
     const pad = byPad.get(pair.homePadId)
     if (!pad || pair.hp <= 0 || pair.mount.hp <= 0 || pair.fall?.active
       || pair.mount.flight.phase !== 'grounded' || pair.duty === 'sortie' || pair.duty === 'casualty') return pair
+    const oldHome = oldHomes?.[TOWN_EAGLE_PAIRS.findIndex(home => home.homePadId === pair.homePadId)]
+    if (!oldHome || !nearGroundHome(pair.mount.position, oldHome[0], oldHome[1], terrainHeight)) return pair
     const point = groundPosition(pad, terrainHeight)
     const spec = standby.get(pair.riderId.replace('enemy-town:', ''))
     const position = pair.mounted ? translatedRider(pair.position, pair.mount.position, point, terrainHeight)
-      : pair.duty === 'standby' && spec ? { x: spec.x, y: terrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? pad.yaw }
+      : pair.duty === 'standby' && spec && nearGroundHome(pair.position, oldHome[0] + 4, oldHome[1], terrainHeight) ? { x: spec.x, y: terrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? pad.yaw }
         : pair.position
     return { ...pair, position,
       mount: { ...pair.mount, position: point, flight: groundedFlight(pair.mount.flight, pad.yaw) } }
