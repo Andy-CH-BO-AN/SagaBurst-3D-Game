@@ -63,6 +63,9 @@ interface TownCombatScene {
   airPatrol?(): TownOutskirtsCombatRuntime | undefined
   personalSquad?(): TownPersonalSquadController | undefined
   commandActors?(): readonly NPC[]
+  raceActors?(): readonly NPC[]
+  raceMounts?(): readonly Mount[]
+  onActorMoved?(npc: NPC): void
   patrol?(): Pick<TownCavalryPatrolController, 'prepareCombatFrame' | 'combatActors' | 'combatEnabled' | 'noteHostileHit'>
   /** An individual return/refit owner keeps its actor's assigned peaceful travel until released. */
   ownsPeacefulTravel?(npc: NPC): boolean
@@ -122,7 +125,7 @@ export class TownMissionCombat {
     this.town.navigation.sync(this.town.obstacles)
     this.town.navigation.beginFrame()
     this.grid.clear()
-    for (const npc of new Set([...this.town.residents.map(r => r.npc), ...actors])) if (!npc.dead) this.grid.insert(npc)
+    for (const npc of new Set([...this.town.residents.map(r => r.npc), ...(this.town.raceActors?.() ?? []), ...actors])) if (!npc.dead) this.grid.insert(npc)
     for (const npc of actors) {
       if (!npc.dead && this.town.playerOwnsEagleCommand?.(npc)) {
         if (this.town.updateEagleDuty?.(npc, dt, false)) continue
@@ -179,6 +182,10 @@ export class TownMissionCombat {
     }
   }
 
+  updateRaceActorsHostile(dt: number): void {
+    for (const actor of this.town.raceActors?.() ?? []) this.updateRuntimeActor(actor, dt)
+  }
+
   get enemyTownHostiles(): readonly NPC[] {
     const active = this.missions.field.active
     return active?.kind === 'veteran-field' && active.templateId === 'veteran-tragedy-of-the-scouts'
@@ -216,10 +223,10 @@ export class TownMissionCombat {
   updateDefeatedActors(dt: number): void {
     const { field, duel, defense } = this.missions
     const outskirts = this.town.outskirts?.()
-    const actors = new Set([...this.town.residents.map(r => r.npc), ...field.fieldNpcs,
+    const actors = new Set([...this.town.residents.map(r => r.npc), ...(this.town.raceActors?.() ?? []), ...field.fieldNpcs,
       ...field.departingNpcs, ...duel.fieldNpcs, ...defense.fieldNpcs, ...defense.waitingEnemies, ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? [])])
     for (const actor of actors) if (actor.dead) this.updateCorpse(actor, dt)
-    const mounts = new Set([...(this.town.mounts ?? []), ...this.town.residents.flatMap(r => r.homeMount ? [r.homeMount] : []),
+    const mounts = new Set([...(this.town.mounts ?? []), ...(this.town.raceMounts?.() ?? []), ...this.town.residents.flatMap(r => r.homeMount ? [r.homeMount] : []),
       ...field.cavalryMounts, ...duel.allMounts, ...defense.enemyMounts, ...(outskirts?.mounts ?? []), ...(this.town.airPatrol?.()?.mounts ?? []), ...(this.town.personalSquad?.()?.mounts ?? [])])
     for (const mount of mounts) if (mount.dead && !mount.disposed) mount.update(dt, this.town.obstacles)
   }
@@ -256,7 +263,7 @@ export class TownMissionCombat {
 
   private updateField(dt: number, cameraYaw: number, elapsed: number): void {
     const { field } = this.missions
-    const commandActors = new Set(this.town.commandActors?.() ?? [])
+    const commandActors = new Set([...(this.town.commandActors?.() ?? []), ...(this.town.raceActors?.() ?? [])])
     const veteranField = field.active?.kind === 'veteran-field'
     // Veteran battles have explicit, persistent rosters. Build the two membership
     // sets and shared peer lists once per frame instead of asking the controller
@@ -481,7 +488,7 @@ export class TownMissionCombat {
     air?.synchronizeRank()
     const previousOutskirts = new Set([...(outskirts?.actors ?? []), ...(air?.actors ?? [])])
     const participants = [...new Set([
-      ...this.town.residents.map(resident => resident.npc),
+      ...this.town.residents.map(resident => resident.npc), ...(this.town.raceActors?.() ?? []),
       ...this.missions.field.fieldNpcs, ...(outskirts?.actors.length || this.town.airPatrol?.()?.actors.length || this.town.personalSquad?.()?.actors.length || this.missions.defense.active ? this.missions.field.ambientBandits : []),
       ...this.missions.defense.fieldNpcs, ...this.missions.duel.fieldNpcs,
       ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...(this.town.personalSquad?.()?.actors ?? []),
@@ -561,6 +568,7 @@ export class TownMissionCombat {
         else if (target) this.town.hitNpc(target, damage, 'melee', actor)
       }, (origin, direction, kind, lifecycle) => this.town.fireNpc(origin, direction, kind, actor, ...(lifecycle ? [lifecycle] as const : [])),
       false, actor.group.position.distanceTo(this.town.cameraPosition), null, this.warfareGrid, this.town.navigation)
+    this.town.onActorMoved?.(actor)
   }
 
   private updateRuntimeMountImpacts(actors: readonly NPC[], elapsed: number): void {
@@ -833,7 +841,7 @@ export class TownMissionCombat {
 
   private updateDefense(dt: number, cameraYaw: number, elapsed: number): void {
     const { defense } = this.missions
-    const commandActors = new Set(this.town.commandActors?.() ?? [])
+    const commandActors = new Set([...(this.town.commandActors?.() ?? []), ...(this.town.raceActors?.() ?? [])])
     defense.updateFlow(dt, cameraYaw)
     this.town.updateCommandCue()
     const outskirts = this.prepareOutskirtsFrame(dt)

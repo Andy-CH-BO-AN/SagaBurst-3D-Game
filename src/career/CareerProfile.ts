@@ -99,6 +99,11 @@ export interface CareerProfile {
   townCommandSquad?: TownCommandSquadState
   civilianCommandSquad?: CivilianCommandSquadState
   townAirCommandSquad?: TownAirCommandSquadState
+  racePlayerState?: import('./CareerRaceState').RaceRider
+  activeRace?: import('./CareerRaceState').CareerRaceSession
+  raceRecords?: import('./CareerRaceState').CareerRaceRecord[]
+  completedRaceIds?: import('./CareerRaceState').RaceId[]
+  raceBestSeconds?: Partial<Record<import('./CareerRaceState').RaceId, number>>
   activeMission?: ActiveCareerMission
   activeOutpostMission?: CareerOutpostMission
   completedOutpostStages?: CareerOutpostStageId[]
@@ -469,6 +474,11 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.racePlayerState ? { racePlayerState: structuredClone(profile.racePlayerState) } : {}),
+    ...(profile.activeRace ? { activeRace: structuredClone(profile.activeRace) } : {}),
+    ...(profile.raceRecords ? { raceRecords: structuredClone(profile.raceRecords) } : {}),
+    ...(profile.completedRaceIds ? { completedRaceIds: [...profile.completedRaceIds] } : {}),
+    ...(profile.raceBestSeconds ? { raceBestSeconds: { ...profile.raceBestSeconds } } : {}),
     ...(profile.townCommanderRecovery ? { townCommanderRecovery: { ...profile.townCommanderRecovery } } : {}),
     ...(profile.townCommandSquad ? { townCommandSquad: cloneTownCommandSquad(profile.townCommandSquad) } : {}),
     ...(profile.townAirCommandSquad ? { townAirCommandSquad: cloneTownAirCommandSquad(profile.townAirCommandSquad) } : {}),

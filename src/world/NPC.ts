@@ -378,6 +378,7 @@ export class NPC {
   }
 
   get staminaValue(): number { return this.stamina }
+  restoreCombatStamina(value: number): void { this.stamina = Math.max(0, Math.min(MAX_STAMINA, value)) }
   get staminaRatio(): number { return this.stamina / MAX_STAMINA }
   get sprinting(): boolean { return this.isSprinting }
   get currentLod(): number { return this.equipmentVisualLOD.currentLevel }
