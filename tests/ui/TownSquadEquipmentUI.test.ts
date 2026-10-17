@@ -154,26 +154,43 @@ function townUIHarness(personal: EquipmentSquadAdapter = { render: vi.fn() }) {
 
 describe('Town-wide equipment panels', () => {
 
-  it('renders absent residents from their authored specs and keeps Commander display rank separate from equipment tier', () => {
+  it('keeps town-wide display identities stable across squads and resident availability, with Commander rank separate from equipment tier', () => {
     vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
     vi.stubGlobal('Option', class { constructor(readonly text: string, readonly value: string) {} })
     const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander' }
     const commanderResident = { spec: { id: 'commander' }, npc: { dead: true, name: 'internal-commander-id' } }
+    const trainingResident = { spec: { id: 'melee_cavalry-0' }, npc: { dead: false, name: 'internal-training-id' } }
+    let residents = [commanderResident, trainingResident]
     const savedProfile = structuredClone(profile)
-    const adapter = createTownCareerEquipmentUI(() => profile,
+    const open = () => createTownCareerEquipmentUI(() => profile,
       () => ({ townFaction: 'roman', peaceful: true, safeActorIds: new Set<string>(), personalState: 'RESERVE' }),
-      () => [commanderResident], () => true, () => 0).town
+      () => residents, () => true, () => 0).town
+    let adapter = open()
     let root: Element
     const render = () => { root = new Element('div'); adapter.render(root as unknown as HTMLElement, render); return root }
+    const member = (id: string) => root!.descendants().find(node => node.dataset.memberId === id)!
+    const select = (id: string) => root!.descendants().find(node => node.dataset.squadId === id)!.onclick!()
     const first = render().descendants().find(node => node.dataset.memberId === 'gate:north:0')!
     expect(first.children[0].textContent).toBe('北門劍兵 01 · T2')
     expect(first.descendants().some(node => node.textContent.includes('不在目前場景'))).toBe(true)
     expect(first.descendants().every(node => !node.textContent.includes('gate:north:0')
       && !node.attributes['aria-label']?.includes('gate:north:0'))).toBe(true)
-    root!.descendants().find(node => node.dataset.squadId === '2')!.onclick!()
-    const commander = root!.descendants().find(node => node.dataset.memberId === 'commander')!
+    expect(member('melee_cavalry-0').children[0].textContent).toBe('訓練隊劍兵 11 · T2')
+    select('3')
+    expect(member('melee_cavalry-1').children[0].textContent).toBe('訓練隊劍兵 71 · T2')
+    trainingResident.npc.dead = true
+    select('1')
+    expect(member('melee_cavalry-0').children[0].textContent).toBe('訓練隊劍兵 11 · T2')
+    expect(member('melee_cavalry-0').descendants().some(node => node.textContent.includes('已陣亡'))).toBe(true)
+    select('2')
+    const commander = member('commander')
     expect(commander.children[0].textContent).toBe('羅馬指揮官 · T5')
     expect(commander.descendants().some(node => node.textContent.includes('已陣亡'))).toBe(true)
+    residents = []; adapter = open(); render()
+    expect(member('melee_cavalry-0').children[0].textContent).toBe('訓練隊劍兵 11 · T2')
+    expect(member('melee_cavalry-0').descendants().some(node => node.textContent.includes('不在目前場景'))).toBe(true)
+    expect(trainingResident.spec.id).toBe('melee_cavalry-0')
+    expect(trainingResident.npc.name).toBe('internal-training-id')
     expect(commanderResident.npc.name).toBe('internal-commander-id')
     expect(profile).toEqual(savedProfile)
   })

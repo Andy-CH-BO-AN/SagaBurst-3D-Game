@@ -120,6 +120,8 @@ export function damageNpc(
   }
 
   const target = createNpcCombatTargetRef(npc)
+  // Lethal damage dismounts the rider, so retain the hit-time presentation.
+  const targetName = npcCombatDisplayName(npc)
   const beforeHp = npc.hp
   const wasDead = npc.dead
   const hitSuccess = finalDamage === 0 ? !npc.dead : context?.method === 'fall' ? npc.takeFallDamage(finalDamage) : npc.takeDamage(finalDamage)
@@ -135,7 +137,7 @@ export function damageNpc(
     appliedDamage,
     blockedImpact: shield.blockedImpact,
     targetId: target.targetId,
-    targetName: npcCombatDisplayName(npc),
+    targetName,
     killed,
     hpRatio: npc.hpRatio,
     isMountHit: false,

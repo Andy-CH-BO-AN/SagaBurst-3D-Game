@@ -18,7 +18,7 @@ export function registerPersonalCombatDisplayName(npc: object, member: CareerPer
 }
 
 type CombatDisplayActor = Pick<NPC, 'characterFaction' | 'tier' | 'presetId' | 'combatProfileId'
-  | 'specialCombatProfile' | 'townCategory' | 'faction' | 'generatedAsCavalry' | 'hostileToPlayer' | 'combatOwnership'>
+  | 'specialCombatProfile' | 'townCategory' | 'faction' | 'generatedAsCavalry' | 'hostileToPlayer' | 'combatOwnership' | 'isMounted' | 'mount'>
 
 /** Never fall back to NPC.name: it may be a stable internal runtime identifier. */
 export function npcCombatDisplayName(npc: CombatDisplayActor): string {
@@ -34,6 +34,7 @@ export function npcCombatDisplayName(npc: CombatDisplayActor): string {
     civilian: npc.townCategory === 'civilian',
     bandit: npc.faction === Faction.BANDIT,
     mounted: npc.generatedAsCavalry,
+    mountType: npc.isMounted ? npc.mount?.type : undefined,
     enemy: npc.hostileToPlayer || npc.faction === Faction.ENEMY || npc.faction === Faction.BANDIT,
     townSpec: town?.spec,
   })

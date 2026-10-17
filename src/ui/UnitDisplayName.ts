@@ -1,5 +1,6 @@
 import type { TownActorSpec } from '../town/TownRules'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import type { MountType } from '../world/Mount'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { PERSONAL_SQUAD_PRODUCTS, type CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
@@ -69,6 +70,7 @@ export interface CombatUnitDisplayInfo {
   civilian?: boolean
   bandit?: boolean
   mounted?: boolean
+  mountType?: MountType
   enemy?: boolean
   townSpec?: TownActorSpec
 }
@@ -81,7 +83,8 @@ export function combatUnitDisplayName(info: CombatUnitDisplayInfo): string {
   const profile = info.combatProfileId
   const hero = profile === 'roman-commander' || profile === 'viking-commander' ? '指揮官'
     : profile === 'ranger' ? '遊俠' : profile ? '隊長' : undefined
+  const preset = info.presetId ? UNIT_PRESETS[info.presetId] : undefined
   const name = hero ? `${info.faction ? FACTIONS[info.faction] : ''}${hero}`
-    : info.presetId ? UNIT_PRESETS[info.presetId]?.nameZh : undefined
+    : info.mountType === 'xongkoro' && preset?.traits.includes('bow_fire') ? '巨鷹弓兵' : preset?.nameZh
   return `${prefix}${name ?? (info.mounted ? '騎兵' : '士兵')}${tierSuffix(hero === '指揮官' ? 5 : hero ? 4 : info.tier)}`
 }

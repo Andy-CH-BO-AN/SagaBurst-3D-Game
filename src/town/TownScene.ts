@@ -85,6 +85,7 @@ import { findBlockingProjectileObstacleAlongPath, getScenePlayableWorldBound, ge
 import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
 import { registerTownCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import { personalUnitDisplayName } from '../ui/UnitDisplayName'
+import { CombatTargetHud } from '../ui/CombatTargetHud'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod, type CombatActorRef, type CombatEvent } from '../combat/CombatAttribution'
 import { SpatialGrid } from '../world/SpatialGrid'
 import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
@@ -192,6 +193,7 @@ export class TownScene {
   private npcObstacleRevision = -1
   private npcObstacles: ObstacleData[] = []
   private readonly navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS)
+  private readonly combatTargetHud = new CombatTargetHud()
   private readonly hp = new HpBar()
   private readonly stamina = new StaminaBar()
   private readonly quiver = new QuiverUI()
@@ -2666,11 +2668,7 @@ export class TownScene {
     if (mount === this.cat && mount.dead && this.event.hostile) this.persistCasualties()
   }
   private showCombatTarget(name: string, ratio: number): void {
-    if (typeof document === 'undefined') return
-    const hud = document.getElementById('enemy-hud'), label = document.getElementById('enemy-name'), fill = document.getElementById('enemy-hp-fill')
-    if (label) label.textContent = name
-    if (fill) fill.style.width = `${Math.max(0, ratio * 100)}%`
-    hud?.classList?.add('visible')
+    this.combatTargetHud.show(name, ratio)
   }
   private updateMountHud(): void {
     if (typeof document === 'undefined') return
@@ -3506,6 +3504,7 @@ export class TownScene {
     sound?.updateHorseGallopLoops([])
     sound?.updateEagleWingbeats([])
     if (this.disposed) return
+    this.combatTargetHud.dispose()
     this.compass?.dispose()
     this.compass = undefined
     this.personalSquad?.cleanup()
