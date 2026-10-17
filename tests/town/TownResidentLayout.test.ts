@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
-import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, CIVILIAN_MOUNT_CLEARANCE } from '../../src/town/TownCivilianLife'
+import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianParkedMountsClear, CIVILIAN_MOUNT_CLEARANCE } from '../../src/town/TownCivilianLife'
 import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
 import { TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
 import { townRoster } from '../../src/town/TownRules'
@@ -79,6 +79,21 @@ describe('Town resident layout ownership', () => {
       expect(townDuelAreaClear(box((road.ax + road.bx) / 2, (road.az + road.bz) / 2, 1))).toBe(false)
     }
     expect(townDuelAreaClear(box(TOWN_MOUNTED_MISSION_MUSTER.x, TOWN_MOUNTED_MISSION_MUSTER.z, 1))).toBe(false)
+  })
+
+  it('blocks a second horse at a parked riderless mount while allowing reuse of the same physical horse', () => {
+    const point = { x: 100, z: 70 }
+    // The player has walked away; the parked physical horse remains at the spawn point.
+    const parked = { dead: false, disposed: false, riderNpc: null, riderPlayer: null,
+      combatRadius: 2, group: { position: { ...point } } }
+    expect(civilianParkedMountsClear(point, [parked, parked])).toBe(false)
+    expect(civilianParkedMountsClear(point, [parked, parked], [parked])).toBe(true)
+    expect(civilianParkedMountsClear(point, [parked, { ...parked }], [parked])).toBe(false)
+    expect(civilianParkedMountsClear({ x: 105, z: 70 }, [parked])).toBe(true)
+    expect(civilianParkedMountsClear(point, [
+      { ...parked, dead: true }, { ...parked, disposed: true },
+      { ...parked, riderNpc: {} }, { ...parked, riderPlayer: {} },
+    ])).toBe(true)
   })
 
   it('rejects an overhead obstacle that clears a walker but intersects a mounted civilian', () => {

@@ -50,6 +50,24 @@ export function civilianBodyClear(point: Point, obstacles: readonly ObstacleData
   })
 }
 
+/** The spawn check consumes physical identities; riders are checked by their actor positions. */
+export interface CivilianMountOccupant {
+  dead: boolean; disposed: boolean; riderNpc: unknown; riderPlayer: unknown
+  combatRadius: number; group: { position: Point }
+}
+export function civilianParkedMountsClear(point: Point, mounts: Iterable<CivilianMountOccupant | null | undefined>,
+  reused: readonly (CivilianMountOccupant | undefined)[] = []): boolean {
+  const seen = new Set<CivilianMountOccupant>()
+  for (const mount of mounts) {
+    if (!mount || seen.has(mount)) continue
+    seen.add(mount)
+    if (mount.dead || mount.disposed || mount.riderNpc || mount.riderPlayer || reused.includes(mount)) continue
+    if (Math.hypot(point.x - mount.group.position.x, point.z - mount.group.position.z)
+      < CIVILIAN_MOUNT_CLEARANCE.radius + mount.combatRadius) return false
+  }
+  return true
+}
+
 /** Bounded candidates come from production housing geometry, never a second house list. */
 export function civilianHomeAnchor(index: number, occupied: readonly Point[] = [], obstacles: readonly ObstacleData[] = [], navigation?: Pick<NavigationWorld, 'areConnected'>): CivilianAnchor {
   const id = `civilian-${index}`, district = civilianDistrict(index), homes = civilianHousing

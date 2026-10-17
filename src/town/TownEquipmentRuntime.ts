@@ -14,7 +14,7 @@ export function findTownNativeMount(mounts: readonly Mount[], ref: TownEquipment
 
 /** Applies a committed configuration. Existing physical mounts follow their ownership reference. */
 export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonly TownCombatResident[], mounts: Mount[],
-  previous: CareerProfile, current: CareerProfile, actorIds: readonly string[], canPlaceMountedCivilian?: (point: { x: number; z: number }, actorId: string) => boolean): number {
+  previous: CareerProfile, current: CareerProfile, actorIds: readonly string[], canPlaceMountedCivilian?: (point: { x: number; z: number }, actorId: string, reusedMount?: Mount | null) => boolean): number {
   const selected = new Set(actorIds)
   const plans = residents.filter(resident => selected.has(resident.spec.id)).map(resident => ({ resident,
     before: resolveTownActorEquipment(previous, previous.faction, resident.spec.id),
@@ -34,11 +34,13 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
   const civilianMountPoints = new Map<TownCombatResident, { x: number; z: number }>()
   for (const { resident, after } of mountChanges) {
     if (resident.spec.role !== 'civilian' || !after.loadout.mountId || !canPlaceMountedCivilian) continue
+    const reusedMount = findTownNativeMount(mounts, after.refs.mount)
+      ?? mountChanges.find(plan => JSON.stringify(plan.before.refs.mount) === JSON.stringify(after.refs.mount))?.resident.homeMount
     let point: { x: number; z: number } = resident.npc.combatPosition
-    if (!canPlaceMountedCivilian(point, resident.spec.id)) {
+    if (!canPlaceMountedCivilian(point, resident.spec.id, reusedMount ?? null)) {
       const owner = current.civilianCommandSquad?.owners[resident.spec.id]
       if ((owner && owner !== 'daily') || current.activeMission || current.activeOutpostMission
-        || current.townEvent?.state === 'hostile' || !canPlaceMountedCivilian(resident.spec, resident.spec.id)) return plans.length
+        || current.townEvent?.state === 'hostile' || !canPlaceMountedCivilian(resident.spec, resident.spec.id, reusedMount ?? null)) return plans.length
       point = resident.spec
     }
     civilianMountPoints.set(resident, { x: point.x, z: point.z })
