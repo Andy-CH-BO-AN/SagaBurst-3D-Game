@@ -215,6 +215,7 @@ export class PersonalSquadRuntime {
       this.queueMember(member, slot, index, npc => { this.restoreActor(npc, saved, changedScene, index); if (!changedScene && saved.status === 'reserve' && !saved.order && !this.boarding.has(npc)) npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted)) })
     }
     this.mission.sceneKey = this.sceneKey
+    delete this.mission.returnToHR
     this.returnCommand = Math.min(-1000, ...Object.values(this.mission.members).map(member => member.formation?.commandId ?? -1000))
     this.checkpoint()
   }
@@ -413,6 +414,7 @@ export class PersonalSquadRuntime {
     const eaglePad = member.equipment?.mount === 'xongkoro' ? this.eaglePads.reserve(member.id, this.mission?.members[member.id]?.eaglePadId) : undefined
     // New excess legacy deployments wait in reserve. Existing same-scene actors retain their saved flight/position.
     const saved = this.mission?.members[member.id]
+    const returningHome = this.hasHR && this.mission?.returnToHR === true
     const restoreExistingEagle = Boolean(restore && this.mission?.sceneKey === this.sceneKey && saved?.status === 'deployed' && saved.position && saved.mount)
     if (member.equipment?.mount === 'xongkoro' && !eaglePad && !restoreExistingEagle) return
     if (eaglePad) this.reservedEagleOwners.add(member.id)
@@ -437,9 +439,9 @@ export class PersonalSquadRuntime {
       status: 'reserve', position: { ...slot }, order: 'follow' }
     batch.enqueue(member.id, () => {
       const saved = this.mission?.members[member.id]
-      const boardAtHome = this.hasHR && (!restore || saved?.boarding || saved?.status === 'reserve' && !saved.mount)
+      const boardAtHome = !returningHome && this.hasHR && (!restore || saved?.boarding || saved?.status === 'reserve' && !saved.mount)
       const deployment = !this.hasHR && eaglePad && !restoreExistingEagle ? eaglePad : slot
-      const npc = this.spawnMember(member, deployment, boardAtHome ? eaglePad : undefined, index)
+      const npc = this.spawnMember(member, deployment, boardAtHome ? eaglePad : undefined, index, returningHome ? eaglePad : undefined)
       restore?.(npc)
       if (!restore || revision !== this.commandRevision) this.applyCommand(npc, index)
       this.holdDeadPlayerFollow(npc, index)
@@ -471,9 +473,10 @@ export class PersonalSquadRuntime {
     } else if (this.command) npc.setTacticalOrder(this.command)
   }
 
-  private spawnMember(member: CareerPersonalSquadMember, slot: PersonalSquadSpawnSlot, boardingPad?: PersonalSquadSpawnSlot, memberIndex = 0): NPC {
+  private spawnMember(member: CareerPersonalSquadMember, slot: PersonalSquadSpawnSlot, boardingPad?: PersonalSquadSpawnSlot,
+    memberIndex = 0, parkedPad?: PersonalSquadSpawnSlot): NPC {
     assertNpcSpawnJob()
-    const { npc, mount } = this.spawn(this.scene, member, this.read().faction, slot, this.options.emit, boardingPad)
+    const { npc, mount } = this.spawn(this.scene, member, this.read().faction, slot, this.options.emit, boardingPad ?? parkedPad)
     trackNpcSpawn(npc); if (mount) trackNpcSpawn(mount)
     this.actors.push(npc); this.actorSet.add(npc)
     const index = this.mission?.memberIds.indexOf(member.id) ?? this.read().personalSquad?.members.findIndex(value => value.id === member.id) ?? 0

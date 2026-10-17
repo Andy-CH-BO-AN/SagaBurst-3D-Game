@@ -63,6 +63,9 @@ describe('Town mission settlement transactions', () => {
   it('atomically rebuilds Commander defense at home without replaying battle checkpoints or rewards', () => {
     const h = fixture('town-defense', true), profile = h.read()
     profile.rank = 'commander'; profile.totalMerit = 20000
+    profile.personalSquad = { members: [{ id: 'personal:dead', type: 'soldier' }] }
+    profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
+    profile.activeMission!.personalSquad!.members['personal:dead'] = { status: 'dead', hp: 0 }
     const civilians = townRoster().filter(spec => spec.role === 'civilian' || spec.role === 'merchant').map(spec => spec.id)
     profile.civilianCommandSquad = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman', sceneKey: 'town:roman',
       missionId: profile.activeMission!.id, actorIds: civilians,
@@ -107,6 +110,7 @@ describe('Town mission settlement transactions', () => {
     expect(saved.townAirCommandSquad).toBeUndefined()
     expect(saved.townEagleGarrisons?.roman).toBeUndefined()
     expect(saved.townEquipment).toEqual(equipment)
+    expect(saved.personalSquadRuntime?.members['personal:dead']).toEqual({ status: 'deployed', order: 'defend' })
     expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
     const merit = saved.totalMerit
     h.reload(); expect(h.settlement.returnToTown('direct').status).toBe('ignored')
@@ -158,17 +162,22 @@ describe('Town mission settlement transactions', () => {
     expect(h.town.restPlayer).not.toHaveBeenCalled()
   })
 
-  it('carries battle-worn private state into an arrived return without awarding merit again', () => {
+  it('keeps private wounds and casualties on same-scene arrival without awarding merit again', () => {
     const h = fixture('bandit', true), profile = h.read()
-    profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }] }
+    profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' }] }
     profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
     profile.activeMission!.personalSquad!.state = 'ACTIVE'
     profile.activeMission!.personalSquad!.members['personal:wounded'] = { status: 'deployed', hp: 9, ammo: 0, shieldImpact: 1 }
+    profile.activeMission!.personalSquad!.members['personal:dead'] = { status: 'dead', hp: 0 }
     const merit = profile.totalMerit, position = h.player.group.position.clone()
     expect(h.settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
     expect(h.read().activeMission).toBeUndefined()
     expect(h.read().personalSquadRuntime?.members['personal:wounded']).toMatchObject({ hp: 9, ammo: 0, shieldImpact: 1 })
-    expect(h.read().personalSquad?.members.map(({ id, type }) => ({ id, type }))).toEqual([{ id: 'personal:wounded', type: 'soldier' }])
+    expect(h.read().personalSquadRuntime?.members['personal:dead']).toEqual({ status: 'dead', hp: 0 })
+    expect(h.read().personalSquadRuntime?.returnToHR).toBeUndefined()
+    expect(h.read().personalSquad?.members.map(({ id, type }) => ({ id, type }))).toEqual([
+      { id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' },
+    ])
     expect(h.read().totalMerit).toBe(merit)
     expect(h.player.group.position).toEqual(position)
     expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)

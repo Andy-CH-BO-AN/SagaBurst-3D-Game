@@ -4,7 +4,7 @@ import { civilianCommandRoster } from './CivilianCommandAuthority'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import type { TownActorSpec } from '../town/TownRules'
 import { refitTownCommandForSceneChange } from './SquadRefit'
-import { returnPersonalMissionToHR } from './CareerPersonalSquadMission'
+import { returnPersonalMissionToHR, snapshotPersonalMission } from './CareerPersonalSquadMission'
 
 export interface MissionReturnHome {
   spec: Pick<TownActorSpec, 'id' | 'role' | 'x' | 'z' | 'yaw'> & Partial<Pick<TownActorSpec, 'duty' | 'y'>>
@@ -71,6 +71,12 @@ export function stageMissionReturnRebuild(current: CareerProfile,
   // Reconstruct native riders at their pads; their existing patrol owner starts the next cycle.
   if (next.townEagleGarrisons) delete next.townEagleGarrisons[next.faction]
   delete next.playerAerialState
-  next.personalSquadRuntime = returnPersonalMissionToHR(personal)
+  // Return the whole owned roster, including reserves or members absent from this mission.
+  const roster = snapshotPersonalMission(next)
+  if (roster) for (const id of roster.memberIds) {
+    const padId = personal?.members[id]?.eaglePadId
+    if (padId) roster.members[id].eaglePadId = padId
+  }
+  next.personalSquadRuntime = returnPersonalMissionToHR(roster)
   return next
 }

@@ -7,7 +7,7 @@ import { getTerrainHeight } from '../world/Terrain'
 import { townEagleRoster, type TownEaglePad } from './TownEagleGarrison'
 import type { TownEagleGarrisonState } from './TownEagleGarrisonState'
 import { TOWN_LAYOUT_VERSION } from './TownLayout'
-import { clonePersonalMission } from '../career/CareerPersonalSquadMission'
+import { returnPersonalMissionToHR } from '../career/CareerPersonalSquadMission'
 
 type GroundHeight = (x: number, z: number) => number
 interface GroundPosition { x: number; y: number; z: number; yaw: number }
@@ -22,18 +22,15 @@ export interface PersonalTownMigrationLayout {
 export function placePersonalMissionAtHR(saved: PersonalSquadMission, layout: PersonalTownMigrationLayout,
   terrainHeight: GroundHeight = getTerrainHeight): PersonalSquadMission {
   if (!saved.returnToHR || saved.sceneKey !== 'town-home') return saved
-  const next = clonePersonalMission(saved)
+  const next = returnPersonalMissionToHR(saved)!
   for (const [index, id] of next.memberIds.entries()) {
     const member = next.members[id], slot = layout.muster[index]
     if (!member || !slot) continue
     member.position = { ...slot, y: terrainHeight(slot.x, slot.z) }
-    if (member.mount) {
-      const pad = layout.padForMember?.(id)
-      member.mount.position = pad ? groundPosition(pad, terrainHeight) : { ...member.position }
-      if (pad) member.eaglePadId = pad.id
-    }
+    const pad = layout.padForMember?.(id)
+    if (pad) member.eaglePadId = pad.id
   }
-  delete next.returnToHR
+  // The spawn owner consumes this flag after capturing the parked-mount intent for its jobs.
   next.layoutVersion = TOWN_LAYOUT_VERSION
   return next
 }

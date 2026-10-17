@@ -59,22 +59,18 @@ export function clonePersonalMission(value: PersonalSquadMission): PersonalSquad
     }])) }
 }
 
-/** Keep HR casualties/resources, but never carry battlefield commands or flight into town. */
+/** A completed scene-rebuild return refits every owned member using the fresh actor's loadout resources. */
 export function returnPersonalMissionToHR(value: PersonalSquadMission | undefined): PersonalSquadMission | undefined {
   if (!value) return undefined
   const next = clonePersonalMission(value)
   next.sceneKey = 'town-home'; next.state = 'RESERVE'; next.returnToHR = true
   delete next.pendingMemberIds; delete next.playerLastPosition
-  for (const member of Object.values(next.members)) {
-    delete member.position; delete member.formation; delete member.fall; delete member.boarding
-    delete member.outpostRampartGarrison; delete member.townRampartGarrison
-    member.order = 'defend'
-    if (member.mount) { member.mount.mounted = false; delete member.mount.flight }
-  }
+  next.members = Object.fromEntries(next.memberIds.map(id => [id, { status: 'deployed', order: 'defend',
+    ...(value.members[id]?.eaglePadId ? { eaglePadId: value.members[id].eaglePadId } : {}) }]))
   return next
 }
 
-/** Only fresh acceptance may readmit HR arrivals; reload keeps exited/dead checkpoints. */
+/** Fresh acceptance readmits HR arrivals; in-progress reloads keep exited/dead checkpoints. */
 export function preparePersonalMissionAcceptance(value: PersonalSquadMission): PersonalSquadMission {
   const next = clonePersonalMission(value)
   next.pendingMemberIds = next.pendingMemberIds?.filter(id => next.memberIds.includes(id))

@@ -66,7 +66,7 @@ describe('Career Town layout checkpoint migration', () => {
       } } }
   }
 
-  it('persists formal return to HR and grounds private eagles at allocated pads while keeping casualties and wounds', () => {
+  it('persists a full private roster refit at HR with allocated eagle pads instead of battlefield casualties or flight', () => {
     const battle = personal({ order: 'charge', boarding: true,
       formation: { commandId: 9, position: { x: 500, z: 500, yaw: 0 }, reached: false },
       mount: { hp: 73, mounted: true, position: { x: 500, y: 80, z: 500, yaw: 1 },
@@ -83,13 +83,18 @@ describe('Career Town layout checkpoint migration', () => {
     expect(saved).toMatchObject({ sceneKey: 'town-home', state: 'RESERVE', returnToHR: true })
     expect(saved.pendingMemberIds).toBeUndefined()
     const home = placePersonalMissionAtHR(saved, { ...layout, padForMember: id => id === 'personal:eagle' ? secondPad : undefined }, terrain)
-    expect(home.returnToHR).toBeUndefined()
-    expect(home.members['personal:eagle']).toEqual({ status: 'deployed', hp: 49, ammo: 3, shieldImpact: 2,
-      eaglePadId: 'private-eagle-pad:2', order: 'defend', position: { x: -90, y: 12, z: 70, yaw: 0 },
-      mount: { hp: 73, mounted: false, position: { x: -40, y: 12, z: 25, yaw: Math.PI / 2 } } })
-    expect(home.members['personal:foot']).toMatchObject({ hp: 9, ammo: 0, order: 'defend',
+    expect(home.returnToHR).toBe(true) // The spawn owner parks mounts, then consumes the intent.
+    expect(home.members['personal:eagle']).toEqual({ status: 'deployed',
+      eaglePadId: 'private-eagle-pad:2', order: 'defend', position: { x: -90, y: 12, z: 70, yaw: 0 } })
+    expect(home.members['personal:foot']).toEqual({ status: 'deployed', order: 'defend',
       position: { x: -85, y: 12, z: 70, yaw: 0 } })
-    expect(home.members['personal:dead']).toMatchObject({ status: 'dead', hp: 0 })
+    expect(home.members['personal:dead']).toEqual({ status: 'deployed', order: 'defend',
+      position: { x: -80, y: 12, z: 70, yaw: 0 } })
+    // Missing HP/ammo/shield/mount overrides mean a newly constructed actor's full equipped resources.
+    expect(Object.values(saved.members)).toEqual([
+      { status: 'deployed', order: 'defend', eaglePadId: 'private-eagle-pad:1' },
+      { status: 'deployed', order: 'defend' }, { status: 'deployed', order: 'defend' },
+    ])
     expect(battle).toEqual(before)
     profile.personalSquadRuntime = home
     expect(store.save(profile)).toBe(true)

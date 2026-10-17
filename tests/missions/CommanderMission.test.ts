@@ -447,6 +447,7 @@ describe('Bridgehead reload routing', () => {
     const acceptedProfile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true)
     acceptedProfile.activeMission!.personalSquad!.members['personal:hr-1'] = { status: 'dead', hp: 0,
       mount: { hp: 0, mounted: false, position: { x: 1, z: -25, yaw: 0 } } }
+    acceptedProfile.personalSquad!.members.push({ id: 'personal:reserve', type: 'soldier' })
     const id = acceptedProfile.activeMission!.id
     const claimed = claimCareerMission(acceptedProfile, id, 'victory', stats).profile
     const store = new CareerProfileStore(new MemoryStorage())
@@ -461,7 +462,11 @@ describe('Bridgehead reload routing', () => {
     expect(returned.totalMerit).toBe(claimed.totalMerit)
     expect(returned.lifetimeStats).toEqual(claimed.lifetimeStats)
     expect(returned.personalSquadRuntime).toMatchObject({ sceneKey: 'town-home', state: 'RESERVE', returnToHR: true,
-      members: { 'personal:hr-1': { status: 'dead', hp: 0, mount: { hp: 0, mounted: false } } } })
+      memberIds: ['personal:hr-1', 'personal:reserve'] })
+    expect(returned.personalSquadRuntime!.members).toEqual({
+      'personal:hr-1': { status: 'deployed', order: 'defend' },
+      'personal:reserve': { status: 'deployed', order: 'defend' },
+    })
     expect(returned.personalSquad).toEqual(owned)
   })
 
@@ -483,7 +488,8 @@ describe('Bridgehead reload routing', () => {
   })
 
   it('retains a claimed mission on return-save failure and clears it once a retry saves', () => {
-    const acceptedProfile = accepted(COMMANDER_BRIDGEHEAD_ID), id = acceptedProfile.activeMission!.id
+    const acceptedProfile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true), id = acceptedProfile.activeMission!.id
+    acceptedProfile.activeMission!.personalSquad!.members['personal:hr-1'] = { status: 'dead', hp: 0 }
     const claimed = claimCareerMission(acceptedProfile, id, 'victory', stats).profile
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     expect(store.save(claimed)).toBe(true)
@@ -491,11 +497,13 @@ describe('Bridgehead reload routing', () => {
     storage.writable = false
     expect(recoverClaimedCareerBridgeBattle(loaded, store)).toBe('save-failed')
     expect(store.load()!.activeMission).toEqual(loaded.activeMission)
+    expect(store.load()!.personalSquadRuntime).toBeUndefined()
     expect(store.load()!.claimedBattleIds).toEqual(claimed.claimedBattleIds)
     storage.writable = true
     expect(recoverClaimedCareerBridgeBattle(store.load()!, store)).toBe('return-to-town')
     const returned = store.load()!
     expect(returned.activeMission).toBeUndefined()
+    expect(returned.personalSquadRuntime?.members['personal:hr-1']).toEqual({ status: 'deployed', order: 'defend' })
     expect(returned.totalMerit).toBe(claimed.totalMerit)
     expect(returned.careerMissionCompletionsByTier?.[5]).toBe(1)
     expect(returned.claimedBattleIds.filter(battleId => battleId === id)).toHaveLength(1)
