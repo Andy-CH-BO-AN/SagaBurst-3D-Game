@@ -19,6 +19,7 @@ export interface ArmyCommandHudEntry {
   order: ArmyCommandHudOrder
   side: 'left' | 'right'
   summary?: string
+  units?: { icons: string; description: string }
 }
 
 const ORDER_LABELS: Record<ArmyCommandHudOrder, string> = {
@@ -243,14 +244,37 @@ export class ArmyCommandUI {
       row.className = 'army-command-entry'
       row.classList.toggle('highlighted', entry.target === highlightedTarget)
       const label = document.createElement('span')
+      if (entry.units && entry.units.icons.split(' ').length > 4) row.classList.add('army-command-entry-wide')
       label.className = 'army-command-label'
       const name = this.resolveSquadLabel(entry.target) ?? entry.label
-      label.textContent = `[${entry.key}] ${name}${entry.summary ? ` ${entry.summary}` : ''}`
+      const heading = document.createElement('span')
+      heading.className = 'army-command-name-row'
+      const text = document.createElement('span')
+      text.className = 'army-command-name'
+      text.textContent = `[${entry.key}] ${name}`
+      heading.append(text)
+      if (entry.units?.icons) {
+        const icons = document.createElement('span')
+        icons.className = 'army-command-unit-icons'
+        icons.textContent = entry.units.icons
+        icons.title = entry.units.description
+        icons.setAttribute('role', 'img'); icons.setAttribute('aria-label', entry.units.description)
+        heading.append(icons)
+      }
+      label.append(heading)
+      if (entry.summary) {
+        const summary = document.createElement('span')
+        summary.className = 'army-command-summary'; summary.textContent = entry.summary
+        label.append(summary)
+      }
+      row.title = `${name}${entry.units?.description ? ` · ${entry.units.description}` : ''}${entry.summary ? ` · ${entry.summary}` : ''}`
+      row.setAttribute('aria-label', `${row.title} · ${ORDER_LABELS[entry.order]}`)
       const order = document.createElement('span')
       order.className = `army-command-order ${entry.order}`
       order.textContent = ORDER_LABELS[entry.order]
       row.append(label, order)
       container.appendChild(row)
     }
+    container.querySelector('.highlighted')?.scrollIntoView({ block: 'nearest' })
   }
 }

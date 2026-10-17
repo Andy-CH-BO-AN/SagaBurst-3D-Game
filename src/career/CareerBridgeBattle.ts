@@ -8,7 +8,8 @@ import type { CareerProfileStore } from './CareerProfileStore'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
 import { BRIDGEHEAD_PREPARATION_SECONDS, resolveCareerMissionOutcome, type ActiveCareerMission, type BridgeBattleDeployment } from './CareerMissionState'
 import { commanderActorConfirmedDead } from './CommanderOutpost'
-import { clonePersonalMission } from './CareerPersonalSquadMission'
+import { stageMissionReturnRebuild } from './CareerMissionReturnRecovery'
+import { townRoster } from '../town/TownRules'
 import { legacyPersonalEquipment } from './CareerInventory'
 
 /** A trusted Career launch, separate from Campaign stages and untrusted free battle config. */
@@ -32,11 +33,11 @@ export function recoverClaimedCareerBridgeBattle(profile: CareerProfile,
 
 /** Carry battle-worn HR checkpoints through the same atomic save that clears the mission. */
 export function clearCareerBridgeBattle(profile: CareerProfile, missionId: string): CareerProfile {
-  const personal = profile.activeMission?.id === missionId && isCareerBridgeBattle(profile.activeMission)
-    ? profile.activeMission.personalSquad : undefined
+  const mission = profile.activeMission
   const next = clearCareerMission(profile, missionId)
-  if (personal) next.personalSquadRuntime = clonePersonalMission(personal)
-  return next
+  if (mission?.id !== missionId || !isCareerBridgeBattle(mission)
+    || !mission.result && !profile.claimedBattleIds.includes(missionId)) return next
+  return stageMissionReturnRebuild(next, townRoster().map(spec => ({ spec })), mission.personalSquad)
 }
 
 export function createCareerBridgeBattleLaunch(profile: CareerProfile): CareerBridgeBattleLaunch {

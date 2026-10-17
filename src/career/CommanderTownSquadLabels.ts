@@ -7,6 +7,14 @@ import {
   type SquadId,
   type SquadIdentity,
 } from '../battle/CommandTarget'
+import type { OfficialCommandAuthority } from './CareerCommandAuthority'
+
+/** Accepted authority, including legacy Captain grants, owns display semantics. */
+export function officialCommandHudLabel(authority?: OfficialCommandAuthority): string | typeof resolveCommanderTownTargetLabel | undefined {
+  if (!authority) return undefined
+  if (authority.type === 'mission-official') return authority.commandRank === 'commander' ? undefined : 'Mission Squad · 任務部隊'
+  return authority.commandRank === 'commander' ? resolveCommanderTownTargetLabel : 'Town Command Squad · 城防指揮隊'
+}
 
 export const COMMANDER_TOWN_SQUAD_LABELS: Readonly<Record<SquadIdentity, string>> = Object.freeze({
   1: '北門步兵隊',
