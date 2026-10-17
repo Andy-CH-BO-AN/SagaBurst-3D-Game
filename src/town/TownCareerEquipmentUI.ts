@@ -7,7 +7,7 @@ import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { squadEquipmentUI, townEquipmentUI, bulkEquipmentMessage, type TownEquipmentMemberView, type TownEquipmentUIBindings } from './TownSquadEquipmentUI'
 import type { TownCombatResident } from './TownMissionCombat'
-import { townUnitDisplayName, townUnitDisplayTier } from '../ui/UnitDisplayName'
+import { townUnitDisplayNames, townUnitDisplayTier } from '../ui/UnitDisplayName'
 
 export interface TownEquipmentUIResident {
   spec: Pick<TownCombatResident['spec'], 'id'>
@@ -47,11 +47,15 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
       const allowed = profile.rank === 'commander' && state.townFaction === profile.faction
       const reason = profile.rank !== 'commander' ? '正式升任 Commander 後可管理全城裝備。' : state.townFaction !== profile.faction ? '只能管理家鄉城鎮的裝備。' : ''
       const unavailable = profile.activeMission || profile.activeOutpostMission ? '任務尚未結算，返回本城後才能整補換裝。' : !state.peaceful || profile.townEvent?.state === 'hostile' ? '目前正在交戰，和平整補時才能換裝。' : ''
-      // Fixed town membership owns one sequence across squads, independent of live residents or personal recruits.
-      let townOrdinal = 0
-      const squads = townEquipmentSquads(profile).map(squad => {
+      const roster = townEquipmentSquads(profile)
+      const resolvedActors = new Map(roster.filter(squad => squad.id !== 'personal').flatMap(squad =>
+        squad.actorIds.map(id => [id, resolveTownActorEquipment(profile, profile.faction, id)] as const)))
+      const names = townUnitDisplayNames([...resolvedActors.values()].map(actor => ({
+        spec: actor.spec, mounted: Boolean(actor.loadout.mountId),
+      })), profile.faction)
+      const squads = roster.map(squad => {
         const members: TownEquipmentMemberView[] = squad.id === 'personal' ? [] : squad.actorIds.map(id => {
-          const resolved = resolveTownActorEquipment(profile, profile.faction, id), resident = live.get(id)
+          const resolved = resolvedActors.get(id)!, resident = live.get(id)
           const ids = { melee: resolved.loadout.meleeWeaponId ?? null, ranged: resolved.loadout.rangedWeaponId ?? null,
             shield: resolved.loadout.shieldId ?? null, mount: resolved.loadout.mountId ?? null }
           const equipment = Object.fromEntries((['melee', 'ranged', 'shield', 'mount'] as const).map(slot => {
@@ -59,7 +63,7 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
             return [slot, { id: item, label: itemName(item), tier }]
           })) as TownEquipmentMemberView['equipment']
           const merchant = resolved.spec.role === 'merchant'
-          return { id, name: townUnitDisplayName(resolved.spec, profile.faction, { ordinal: ++townOrdinal, includeTier: false, mounted: Boolean(resolved.loadout.mountId) }),
+          return { id, name: names.get(id)!,
             tier: townUnitDisplayTier(resolved.spec, profile.faction, resolved.tier), equipment, readOnly: resolved.readOnly,
             lockedSlots: resolved.fixedWeapons ? ['melee', 'ranged', 'shield'] : resolved.spec.eagle ? ['mount'] : undefined,
             reason: !resident ? '不在目前場景，保存配置唯讀。' : resident.npc.dead ? '已陣亡，整補後才能換裝。'

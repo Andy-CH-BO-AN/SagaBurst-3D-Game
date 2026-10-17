@@ -25,7 +25,7 @@ export function townUnitDisplayTier(spec: TownActorSpec, _faction: CharacterFact
 
 export interface TownDisplayOptions {
   tier?: number
-  /** One-based durable roster position; null omits numbering for compact combat labels. */
+  /** One-based position within the fixed display category; null omits compact combat numbering. */
   ordinal?: number | null
   enemy?: boolean
   includeTier?: boolean
@@ -51,6 +51,18 @@ export function townUnitDisplayName(spec: TownActorSpec, faction: CharacterFacti
   const numbered = !service || spec.role === 'civilian'
   const ordinal = options.ordinal === undefined ? spec.index + 1 : options.ordinal
   return `${options.enemy ? '敵方' : ''}${identity}${numbered && ordinal != null ? ` ${number(ordinal)}` : ''}${options.includeTier === false || spec.role === 'civilian' || spec.role === 'merchant' || spec.role === 'cat' ? '' : tierSuffix(townUnitDisplayTier(spec, faction, options.tier))}`
+}
+
+/** Number within the displayed category over the complete fixed roster, never live/filtered members. */
+export function townUnitDisplayNames(roster: readonly { spec: TownActorSpec; mounted?: boolean }[], faction: CharacterFaction): Map<string, string> {
+  const counts = new Map<string, number>()
+  return new Map(roster.map(({ spec, mounted }) => {
+    const options = { mounted, includeTier: false }
+    const category = townUnitDisplayName(spec, faction, { ...options, ordinal: null })
+    const ordinal = (counts.get(category) ?? 0) + 1
+    counts.set(category, ordinal)
+    return [spec.id, townUnitDisplayName(spec, faction, { ...options, ordinal })]
+  }))
 }
 
 /** Permanent member order is supplied by the roster, never inferred from its UUID. */

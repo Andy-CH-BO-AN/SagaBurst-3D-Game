@@ -5,12 +5,12 @@ import { changePersonalEquipment,recruitPersonalSquadMember,type CareerPersonalS
 import { createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { PersonalSquadState } from '../../src/town/TownPersonalSquadController'
-import { purchaseTownEquipment,townRoster } from '../../src/town/TownRules'
+import { purchaseTownEquipment,townRoster,type TownActorSpec } from '../../src/town/TownRules'
 import { TownScene } from '../../src/town/TownScene'
 import { createTownCareerEquipmentUI } from '../../src/town/TownCareerEquipmentUI'
 import { squadEquipmentUI,townEquipmentUI,type TownEquipmentMemberView,type TownEquipmentSquadView,type TownEquipmentUIBindings } from '../../src/town/TownSquadEquipmentUI'
 import { type EquipmentSquadAdapter } from '../../src/ui/EquipmentUI'
-import { combatUnitDisplayName,personalUnitDisplayName,townUnitDisplayName } from '../../src/ui/UnitDisplayName'
+import { combatUnitDisplayName,personalUnitDisplayName,townUnitDisplayName,townUnitDisplayNames,townUnitDisplayTier } from '../../src/ui/UnitDisplayName'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 // DOM boundary only; profile, inventory and equipment changes use production code, with no actors.
@@ -154,44 +154,28 @@ function townUIHarness(personal: EquipmentSquadAdapter = { render: vi.fn() }) {
 
 describe('Town-wide equipment panels', () => {
 
-  it('keeps town-wide display identities stable across squads and resident availability, with Commander rank separate from equipment tier', () => {
+  it('renders authored names for absent and dead residents while preserving stable UI member IDs', () => {
     vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
     vi.stubGlobal('Option', class { constructor(readonly text: string, readonly value: string) {} })
     const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander' }
-    const commanderResident = { spec: { id: 'commander' }, npc: { dead: true, name: 'internal-commander-id' } }
-    const trainingResident = { spec: { id: 'melee_cavalry-0' }, npc: { dead: false, name: 'internal-training-id' } }
-    let residents = [commanderResident, trainingResident]
     const savedProfile = structuredClone(profile)
-    const open = () => createTownCareerEquipmentUI(() => profile,
+    const trainingResident = { spec: { id: 'melee_cavalry-0' }, npc: { dead: true, name: 'internal-training-id' } }
+    const adapter = createTownCareerEquipmentUI(() => profile,
       () => ({ townFaction: 'roman', peaceful: true, safeActorIds: new Set<string>(), personalState: 'RESERVE' }),
-      () => residents, () => true, () => 0).town
-    let adapter = open()
-    let root: Element
-    const render = () => { root = new Element('div'); adapter.render(root as unknown as HTMLElement, render); return root }
-    const member = (id: string) => root!.descendants().find(node => node.dataset.memberId === id)!
-    const select = (id: string) => root!.descendants().find(node => node.dataset.squadId === id)!.onclick!()
-    const first = render().descendants().find(node => node.dataset.memberId === 'gate:north:0')!
+      () => [trainingResident], () => true, () => 0).town
+    const root = new Element('div')
+    adapter.render(root as unknown as HTMLElement, () => {})
+    const first = root.descendants().find(node => node.dataset.memberId === 'gate:north:0')!
     expect(first.children[0].textContent).toBe('北門劍兵 01 · T2')
     expect(first.descendants().some(node => node.textContent.includes('不在目前場景'))).toBe(true)
     expect(first.descendants().every(node => !node.textContent.includes('gate:north:0')
       && !node.attributes['aria-label']?.includes('gate:north:0'))).toBe(true)
-    expect(member('melee_cavalry-0').children[0].textContent).toBe('訓練隊劍兵 11 · T2')
-    select('3')
-    expect(member('melee_cavalry-1').children[0].textContent).toBe('訓練隊劍兵 71 · T2')
-    trainingResident.npc.dead = true
-    select('1')
-    expect(member('melee_cavalry-0').children[0].textContent).toBe('訓練隊劍兵 11 · T2')
-    expect(member('melee_cavalry-0').descendants().some(node => node.textContent.includes('已陣亡'))).toBe(true)
-    select('2')
-    const commander = member('commander')
-    expect(commander.children[0].textContent).toBe('羅馬指揮官 · T5')
-    expect(commander.descendants().some(node => node.textContent.includes('已陣亡'))).toBe(true)
-    residents = []; adapter = open(); render()
-    expect(member('melee_cavalry-0').children[0].textContent).toBe('訓練隊劍兵 11 · T2')
-    expect(member('melee_cavalry-0').descendants().some(node => node.textContent.includes('不在目前場景'))).toBe(true)
-    expect(trainingResident.spec.id).toBe('melee_cavalry-0')
-    expect(trainingResident.npc.name).toBe('internal-training-id')
-    expect(commanderResident.npc.name).toBe('internal-commander-id')
+    const training = root.descendants().find(node => node.dataset.memberId === 'melee_cavalry-0')!
+    expect(training.children[0].textContent).toBe('訓練隊劍兵 01 · T2')
+    expect(training.descendants().some(node => node.textContent.includes('已陣亡'))).toBe(true)
+    expect(trainingResident).toEqual({ spec: { id: 'melee_cavalry-0' }, npc: { dead: true, name: 'internal-training-id' } })
+    const spear = root.descendants().find(node => node.dataset.memberId === 'gate:north:4')!
+    expect(spear.children[0].textContent).toBe('北門槍兵 01 · T2')
     expect(profile).toEqual(savedProfile)
   })
 
@@ -226,6 +210,32 @@ describe('Town-wide equipment panels', () => {
 
 
 describe('Unit display identity', () => {
+  it('numbers each display category across the full fixed roster independently of resident availability', () => {
+    const base: TownActorSpec = { id: 'old-cavalry-id', role: 'melee_infantry', unitKind: 'melee', duty: 'training',
+      mounted: false, training: true, assaultObjective: false, tier: 2, x: 0, z: 0, index: 0 }
+    // Same category on opposite sides of another squad/category; IDs have no naming semantics.
+    const roster = [
+      { spec: base },
+      { spec: { ...base, id: 'gate-unit', duty: 'gate_guard' as const, gateId: 'north' as const } },
+      { spec: { ...base, id: 'other-squad-unit', index: 1 } },
+      { spec: { ...base, id: 'mounted-unit' }, mounted: true },
+      ...Array.from({ length: 20 }, (_, index) => ({ spec: { ...base, id: `resident-${index}`,
+        role: 'civilian' as const, duty: 'civilian' as const, training: false, index } })),
+    ]
+    const before = structuredClone(roster)
+    const names = townUnitDisplayNames(roster, 'roman')
+    expect(names.get(base.id)).toBe('訓練隊劍兵 01')
+    expect(names.get('other-squad-unit')).toBe('訓練隊劍兵 02')
+    expect(names.get('gate-unit')).toBe('北門劍兵 01')
+    expect(names.get('mounted-unit')).toBe('訓練隊劍騎兵 01')
+    expect(roster.slice(4).map(actor => names.get(actor.spec.id))).toEqual(
+      Array.from({ length: 20 }, (_, index) => `平民 ${String(index + 1).padStart(2, '0')}`))
+    // Reopening rebuilds names from fixed membership, without taking live/dead state as input.
+    expect(townUnitDisplayNames(structuredClone(roster), 'roman')).toEqual(names)
+    expect(roster).toEqual(before)
+    expect(townUnitDisplayTier({ ...base, role: 'commander' }, 'roman', 4)).toBe(5)
+  })
+
   it('uses authored on-foot ranged identity rather than historical cavalry IDs for each faction', () => {
     const spec = townRoster().find(spec => spec.id === 'ranged_cavalry-0')!
     const before = structuredClone(spec)
