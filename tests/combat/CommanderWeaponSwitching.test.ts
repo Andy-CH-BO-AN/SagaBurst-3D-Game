@@ -91,6 +91,61 @@ describe('Combat animator bow-to-lance recovery', () => {
   })
 })
 
+interface IdleLocomotionActor {
+  animator: CharacterCombatAnimator
+  bowPivot: { visible: boolean }
+  bowVisual: { update(draw: number, target: Vector3 | undefined, arrow: boolean): void }
+  characterFaction: 'viking'
+  isUsingLance: boolean
+  visualMovementSpeed: number
+  isMounted: boolean
+  isSprinting: boolean
+  _updateIdleLocomotion(animationAdvanced: boolean): void
+}
+function mountedTravelPose() {
+  const { animator, animation } = lanceAnimator()
+  animator.setEquipment(false, false, 'HORSE')
+  const bowVisual = { update: vi.fn() }
+  const actor = Object.assign(Object.create(NPC.prototype) as IdleLocomotionActor, {
+    animator, bowVisual, bowPivot: { visible: true }, characterFaction: 'viking' as const,
+    visualMovementSpeed: 5, isSprinting: false,
+  })
+  Object.defineProperties(actor, { isUsingLance: { value: false }, isMounted: { value: true } })
+  return { actor, animator, animation, bowVisual }
+}
+describe('NPC non-combat locomotion ownership', () => {
+  it('uses mounted locomotion without starting a passive bow draw, including after a stale aim', () => {
+    const { actor, animator, animation, bowVisual } = mountedTravelPose()
+    actor._updateIdleLocomotion(false)
+    expect(animator.currentAction).toBe('idle')
+    expect(animation.seek).not.toHaveBeenCalled()
+    animator.poseBow(0)
+    actor._updateIdleLocomotion(false)
+    expect(animator.currentAction).toBe('idle')
+    expect(bowVisual.update).toHaveBeenCalledWith(0, undefined, false)
+    expect(animation.play).toHaveBeenLastCalledWith('mounted', expect.objectContaining({ loop: true }))
+    expect(animator.update(.1).projectileRelease).toBe(false)
+    actor._updateIdleLocomotion(false)
+    expect(animator.currentAction).toBe('idle')
+  })
+  it('preserves real combat aiming, bow release and recovery during locomotion updates', () => {
+    const { actor, animator, bowVisual } = mountedTravelPose()
+    animator.poseBow(1)
+    actor._updateIdleLocomotion(true)
+    expect(animator.currentAction).toBe('bowAim')
+    expect(bowVisual.update).not.toHaveBeenCalled()
+    expect(animator.start('bowRelease')).toBe(true)
+    actor._updateIdleLocomotion(true)
+    expect(animator.currentAction).toBe('bowRelease')
+    const profile = COMBAT_ANIMATION_PROFILES.bowRelease
+    expect(animator.update(profile.windup).projectileRelease).toBe(true)
+    actor._updateIdleLocomotion(true)
+    expect(animator.update(profile.recovery).actionCompleted).toBe(true)
+    actor._updateIdleLocomotion(false)
+    expect(animator.currentAction).toBe('idle')
+  })
+})
+
 interface SelectionTarget { position: Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC }
 
 interface SelectionActor {

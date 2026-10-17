@@ -233,9 +233,16 @@ export class TownEvent {
     return this.registrationComplete && [...this.expectedIds].every(id => this.excludedActorIds.has(id) || this.actors.get(id)?.dead === true) ? 'town_defeated' : null
   }
 }
+/** Defer only presentation/transition; preserve the native first outcome across race reloads. */
+export function deferTownResult(current: CareerProfile, result: TownResult): CareerProfile {
+  const profile = cloneCareerProfile(current)
+  if (profile.activeRace && profile.townEvent?.state === 'hostile' && !profile.townEvent.pendingResult) profile.townEvent.pendingResult = result
+  return profile
+}
 export function settleTown(current: CareerProfile, id: string, result: TownResult): CareerProfile {
   const profile = cloneCareerProfile(current)
   if (profile.townEvent?.id !== id || profile.townEvent.state !== 'hostile') return profile
+  result = profile.townEvent.pendingResult ?? result
   const penalty = result === 'player_defeated' ? Math.min(profile.availableMerit, TOWN_RULES.deathPenalty) : 0
   profile.availableMerit -= penalty
   if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission; delete profile.townCommandSquad; delete profile.townAirCommandSquad }

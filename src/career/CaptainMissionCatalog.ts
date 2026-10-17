@@ -58,7 +58,7 @@ export function hasCaptainCommandRank(profile: Pick<CareerProfile, 'rank'>): boo
 export function getCaptainMissionAvailability(profile: CareerProfile, templateId: string): { unlocked: boolean; reason?: string } {
   const template = getCaptainMissionDefinition(templateId)
   if (!template || !hasCaptainCommandRank(profile)) return { unlocked: false, reason: '需要 Captain 軍階。' }
-  if (profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的正式任務。' }
+  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的正式任務。' }
   if (profile.townEvent?.state === 'hostile') return { unlocked: false, reason: '城鎮敵對事件中無法接受任務。' }
   if (templateId === CAPTAIN_CAVALRY_COMMAND_ID && !resolveCareerReliefMount(profile)) return { unlocked: false, reason: '需要可使用的已購買坐騎。' }
   if (templateId === CAPTAIN_EAGLE_BATTLE_ID && careerItemTotal(profile, 'xongkoro') === 0) return { unlocked: false, reason: '需要先購買 xongkoro。' }

@@ -1,3 +1,4 @@
+import { MOUNTED_RACES, isRaceRider, parseRaceSession, parseRaceRecords, type RaceId } from './CareerRaceState'
 import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { parseTownEquipment } from './CareerTownEquipmentState'
@@ -485,6 +486,11 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const rank = CAREER_RANKS[Math.max(0, Math.min(requested, CAREER_RANKS.indexOf(eligible)))]
   const equipment = raw.equipment && typeof raw.equipment === 'object' ? raw.equipment as Record<string, unknown> : null
   const townEvent = raw.townEvent as CareerProfile['townEvent']
+  const activeRace = raw.activeRace === undefined ? undefined : parseRaceSession(raw.activeRace)
+  const raceRecords = raw.raceRecords === undefined ? undefined : parseRaceRecords(raw.raceRecords)
+  // Invalid in-flight races must never be silently discarded into a fresh Town.
+  if (raw.racePlayerState !== undefined && !isRaceRider(raw.racePlayerState)) return null
+  if (activeRace === null || raceRecords === null || activeRace && (raw.activeMission || raw.activeOutpostMission)) return null
   const activeMission = parseActiveMission(raw.activeMission, raw.faction, rank)
   const activeOutpostMission = parseOutpostMission(raw.activeOutpostMission, raw.faction, rank)
   const personalSquadRuntime = parsePersonalMission(raw.personalSquadRuntime)
@@ -495,6 +501,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ? canonicalCareerMountId(raw.selectedMountId as CareerMountId)
     : undefined
   if (townEvent && (typeof townEvent.id !== 'string' || !townEvent.id || !['hostile', 'settled'].includes(townEvent.state))) return null
+  if (townEvent?.pendingResult !== undefined && (townEvent.state !== 'hostile' || !['player_defeated', 'town_defeated'].includes(townEvent.pendingResult))) return null
   const profile: CareerProfile = {
     ...(townEquipment ? { townEquipment } : {}),
     ...(raw.inventory ? { inventory: raw.inventory as CareerInventory } : {}),
@@ -536,6 +543,14 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|eagle-trainer|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger|hr-recruit-commander)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
     ...(selectedMountId ? { selectedMountId } : {}),
+    ...(isRaceRider(raw.racePlayerState) ? { racePlayerState: structuredClone(raw.racePlayerState) } : {}),
+    ...(activeRace ? { activeRace } : {}),
+    ...(raceRecords ? { raceRecords } : {}),
+    ...(Array.isArray(raw.completedRaceIds) ? { completedRaceIds: MOUNTED_RACES.filter(r => (raw.completedRaceIds as unknown[]).includes(r.id)).map(r => r.id) } : {}),
+    ...(raw.raceBestSeconds && typeof raw.raceBestSeconds === 'object' ? { raceBestSeconds: Object.fromEntries(MOUNTED_RACES.flatMap(r => {
+      const seconds = (raw.raceBestSeconds as Record<RaceId, unknown>)[r.id]
+      return typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0 ? [[r.id, seconds]] : []
+    })) } : {}),
     ...(activeMission ? { activeMission } : {}),
     ...(activeOutpostMission ? { activeOutpostMission } : {}),
     ...(Array.isArray(raw.completedOutpostStages) ? { completedOutpostStages: [...new Set(raw.completedOutpostStages.filter(isCareerOutpostStageId))] } : {}),
