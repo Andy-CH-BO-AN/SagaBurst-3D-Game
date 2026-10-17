@@ -1,3 +1,5 @@
+import { raceReturnAction, raceReturnProfile } from '../../src/career/CareerRaceReturn'
+import { deferTownResult, TownEvent } from '../../src/town/TownRules'
 import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -261,5 +263,67 @@ describe('Race persistence independent of hostility and Duel', () => {
     expect(retry.completedRaceIds).toEqual(['race-6']); expect(retry.raceBestSeconds).toEqual({ 'race-6': 77 })
     expect(retry.townEvent).toEqual(p.townEvent)
     expect(retry.duelHighestDefeatedTierByPreset).toBeUndefined(); expect(retry.totalMerit).toBe(p.totalMerit + 3600)
+  })
+})
+
+
+describe('Race return and deferred native Town outcomes', () => {
+  it('keeps hostile player defeat through spectating/reload and applies the penalty once on saved return', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), s = session(), p = profile()
+    p.availableMerit = 180; p.townEvent = { id: 'hostile-death', state: 'hostile' }; p.activeRace = s
+    s.phase = 'racing'; s.player.dead = true; s.player.hp = 0
+    const event = new TownEvent([{ id: 'resident' }]); event.register('resident', { dead: false }); event.complete(); event.hostile = true
+    const pending = deferTownResult(p, event.evaluate(true)!)
+    expect(store.save(pending)).toBe(true)
+    const resumed = store.load()!; resolveRace(resumed.activeRace!)
+    expect(resumed.activeRace!.result).toBeUndefined(); expect(resumed.availableMerit).toBe(180)
+    resumed.activeRace!.opponent.finishSeconds = 95; resumed.activeRace!.opponent.checkpoint = 5; resolveRace(resumed.activeRace!)
+    const recorded = raceRecordProfile(resumed, resumed.activeRace!)
+    expect(store.save(recorded)).toBe(true)
+    const returned = raceReturnProfile(store.load()!, recorded.activeRace!.player, undefined, 100)!
+    storage.failWrites = true; expect(store.save(returned)).toBe(false)
+    expect(store.load()!.activeRace).toBeDefined(); expect(store.load()!.availableMerit).toBe(180)
+    storage.failWrites = false; expect(store.save(returned)).toBe(true)
+    const loaded = store.load()!
+    expect(loaded.townEvent).toEqual({ id: 'hostile-death', state: 'settled', result: 'player_defeated', penalty: 100 })
+    expect(loaded.availableMerit).toBe(80); expect(loaded.activeRace).toBeUndefined(); expect(loaded.racePlayerState).toBeUndefined()
+    expect(loaded.raceRecords).toHaveLength(1); expect(loaded.raceRecords![0].opponentSeconds).toBe(95)
+    expect(raceReturnProfile(loaded, s.player, undefined, 100)).toBeNull()
+  })
+  it('defers conquest until race return and preserves the first native outcome when the player later dies', () => {
+    const p = profile(), s = session(); p.activeRace = s; p.totalMerit = 22000; p.rank = 'commander'
+    p.townEvent = { id: 'conquest-race', state: 'hostile' }
+    const event = new TownEvent([{ id: 'last-resident' }]); event.register('last-resident', { dead: true }); event.complete(); event.hostile = true
+    const pending = deferTownResult(p, event.evaluate(false)!)
+    expect(pending.faction).toBe('roman'); expect(pending.townEvent!.state).toBe('hostile')
+    s.player.finishSeconds = 88; s.player.checkpoint = 5; s.opponent.dead = true; s.opponent.hp = 0; resolveRace(s)
+    const recorded = raceRecordProfile(pending, s)
+    const reloaded = parseCareerProfile(deferTownResult(recorded, 'player_defeated'))!
+    const returned = raceReturnProfile(reloaded, s.player, undefined, 100)!
+    expect(returned.townEvent).toEqual({ id: 'conquest-race', state: 'settled', result: 'town_defeated', penalty: 0 })
+    expect(returned.faction).toBe('viking'); expect(returned.rank).toBe('recruit')
+    expect(returned.enlistmentMeritBase).toBe(returned.totalMerit)
+    expect(returned.raceRecords![0].result).toBe('win'); expect(returned.activeRace).toBeUndefined()
+  })
+  it('uses saved direct relocation when Captain fails outside, with no session removal on failed storage', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), s = session(), p = profile()
+    s.phase = 'racing'; s.player.finishSeconds = 80; s.player.checkpoint = 5; s.opponent.dnf = 'mount lost'; resolveRace(s)
+    const recorded = raceRecordProfile(p, s); recorded.activeRace!.phase = 'returning'
+    recorded.activeRace!.player.position = pos(-200, 50); recorded.activeRace!.player.hp = 27; recorded.activeRace!.player.mountHp = 13
+    recorded.townEvent = { id: 'town', state: 'hostile', deadActorIds: ['captain'] }
+    expect(store.save(recorded)).toBe(true)
+    expect(raceReturnAction('returning', true, false)).toBeNull()
+    expect(raceReturnAction('returning', true, true)).toBe('walked')
+    expect(raceReturnAction('returning', false, false)).toBe('direct')
+    const destination = pos(8, -5), loaded = store.load()!
+    const next = raceReturnProfile(loaded, loaded.activeRace!.player, destination, 100)!
+    storage.failWrites = true; expect(store.save(next)).toBe(false)
+    expect(store.load()!.activeRace!.player.position).toEqual(pos(-200, 50))
+    storage.failWrites = false; expect(store.save(next)).toBe(true)
+    const returned = store.load()!
+    expect(returned.activeRace).toBeUndefined(); expect(returned.racePlayerState!.position).toEqual(destination)
+    expect(returned.racePlayerState!.mountPosition).toEqual(destination)
+    expect(returned.racePlayerState!.hp).toBe(27); expect(returned.racePlayerState!.mountHp).toBe(13)
+    expect(returned.townEvent).toEqual(recorded.townEvent); expect(returned.raceRecords).toEqual(recorded.raceRecords)
   })
 })

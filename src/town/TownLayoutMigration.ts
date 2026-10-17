@@ -7,6 +7,7 @@ import { getTerrainHeight } from '../world/Terrain'
 import { townEagleRoster, type TownEaglePad } from './TownEagleGarrison'
 import type { TownEagleGarrisonState } from './TownEagleGarrisonState'
 import { TOWN_LAYOUT_VERSION } from './TownLayout'
+import { returnPersonalMissionToHR } from '../career/CareerPersonalSquadMission'
 
 type GroundHeight = (x: number, z: number) => number
 interface GroundPosition { x: number; y: number; z: number; yaw: number }
@@ -15,6 +16,23 @@ export interface PersonalTownMigrationLayout {
   eaglePads: readonly EaglePad[]
   /** The shared allocator may supply an existing allocation to older checkpoints without an identity. */
   padForMember?: (memberId: string) => EaglePad | undefined
+}
+
+/** Resolve the durable return intent against the actual home's legal muster and allocated pads. */
+export function placePersonalMissionAtHR(saved: PersonalSquadMission, layout: PersonalTownMigrationLayout,
+  terrainHeight: GroundHeight = getTerrainHeight): PersonalSquadMission {
+  if (!saved.returnToHR || saved.sceneKey !== 'town-home') return saved
+  const next = returnPersonalMissionToHR(saved)!
+  for (const [index, id] of next.memberIds.entries()) {
+    const member = next.members[id], slot = layout.muster[index]
+    if (!member || !slot) continue
+    member.position = { ...slot, y: terrainHeight(slot.x, slot.z) }
+    const pad = layout.padForMember?.(id)
+    if (pad) member.eaglePadId = pad.id
+  }
+  // The spawn owner consumes this flag after capturing the parked-mount intent for its jobs.
+  next.layoutVersion = TOWN_LAYOUT_VERSION
+  return next
 }
 
 // Version 1's three private homes were shared by both town factions. They are

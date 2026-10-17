@@ -1,3 +1,4 @@
+import { raceReturnProfile } from './CareerRaceReturn'
 import * as THREE from 'three'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
@@ -356,27 +357,23 @@ export class CareerRaceController {
   clear(direct = true): boolean {
     if (!this.session || !this.resultSaved) return false
     this.snapshot()
-    const next = cloneCareerProfile(this.read()); delete next.activeRace
-    if (this.borrowedCommander && !this.borrowedCommander.npc.dead) next.townCommanderRecovery = {
-      faction: next.faction, hp: this.borrowedCommander.npc.hp, ammo: this.borrowedCommander.npc.combatAmmo,
+    const current = cloneCareerProfile(this.read())
+    if (this.borrowedCommander && !this.borrowedCommander.npc.dead) current.townCommanderRecovery = {
+      faction: current.faction, hp: this.borrowedCommander.npc.hp, ammo: this.borrowedCommander.npc.combatAmmo,
     }
-    next.racePlayerState = this.capturePlayerState()
-    const returning = next.racePlayerState
-    if (direct || this.player().dead) {
+    const player = this.capturePlayerState()
+    if (!player) return false
+    let target: RacePosition | undefined
+    if (!current.townEvent?.pendingResult && (direct || player.dead)) {
       const home = townPlayerEntryPoint()
       const destination = [0, 4, -4, 8, -8].flatMap(dx => [0, 4, -4].map(dz => ({ x: home.x + dx, z: home.z + dz })))
         .find(point => this.legalSegment(point, point) && this.residents.every(r => r.npc.dead || Math.hypot(r.npc.combatPosition.x - point.x, r.npc.combatPosition.z - point.z) > 3))
-      if (!destination || !returning) { this.error = '鎮內沒有合法返回位置，請稍後重試。'; return false }
+      if (!destination) { this.error = '鎮內沒有合法返回位置，請稍後重試。'; return false }
       const ground = getTerrainHeight(destination.x, destination.z)
-      returning.position = { ...destination, y: ground + (returning.mounted ? 0 : .9), yaw: home.yaw }
-      if (returning.mounted) returning.mountPosition = { ...destination, y: ground, yaw: home.yaw }
+      target = { ...destination, y: ground + (player.mounted && !player.dead ? 0 : .9), yaw: home.yaw }
     }
-    if (this.player().dead && next.racePlayerState) {
-      // Explicit player-only death return. Town casualties, gates and hostility are untouched.
-      next.racePlayerState.dead = false; next.racePlayerState.hp = this.player().maxHp
-      next.racePlayerState.mounted = false
-      next.racePlayerState.position.y = getTerrainHeight(next.racePlayerState.position.x, next.racePlayerState.position.z) + .9
-    }
+    const next = raceReturnProfile(current, player, target, this.player().maxHp)
+    if (!next) return false
     if (!this.commit(next)) return false
     this.captainReturning = Boolean(this.captain && !this.captain.npc.dead && !this.captain.npc.hostileToPlayer)
     this.disposeRacer()

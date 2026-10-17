@@ -8,6 +8,10 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { TownMissionSettlement } from '../../src/town/TownMissionSettlement'
 import type { NPC } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { townRoster } from '../../src/town/TownRules'
+import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
+import { resolveTownActorEquipment } from '../../src/career/CareerTownEquipmentState'
+import { addCareerItem } from '../../src/career/CareerInventory'
 
 /** Save/controller boundaries only. Position and yaw are data, never an Object3D or scene tree. */
 function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'veteran-field' = 'bandit', completed = false) {
@@ -39,7 +43,7 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'v
   }) }
   const town = { residents: [resident], player, cat: { restoreForTown: vi.fn(), catVisual: null },
     world: { obstacles: [], restoreTownDamage: vi.fn(() => events.push('repair')) }, navigation: { sync: vi.fn(() => { events.push('navigation'); return true }) },
-    inventory: { sheathAll: vi.fn() }, releaseExternalThreat: vi.fn(), beginPatrolMissionReturn: vi.fn(() => events.push('native-return')),
+    preservesResident: vi.fn(() => false), inventory: { sheathAll: vi.fn() }, releaseExternalThreat: vi.fn(), beginPatrolMissionReturn: vi.fn(() => events.push('native-return')),
     clearCombatShots: vi.fn(), restPlayer: vi.fn(), restart: vi.fn(), returnPersonalSquad: vi.fn() }
   const commit = vi.fn((next: CareerProfile, options?: { groundedTownReturn?: boolean }) => {
     if (options?.groundedTownReturn) expect(next.playerAerialState).toBeUndefined()
@@ -56,6 +60,64 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'v
 }
 
 describe('Town mission settlement transactions', () => {
+  it('atomically rebuilds Commander defense at home without replaying battle checkpoints or rewards', () => {
+    const h = fixture('town-defense', true), profile = h.read()
+    profile.rank = 'commander'; profile.totalMerit = 20000
+    profile.personalSquad = { members: [{ id: 'personal:dead', type: 'soldier' }] }
+    profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
+    profile.activeMission!.personalSquad!.members['personal:dead'] = { status: 'dead', hp: 0 }
+    const civilians = townRoster().filter(spec => spec.role === 'civilian' || spec.role === 'merchant').map(spec => spec.id)
+    profile.civilianCommandSquad = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman', sceneKey: 'town:roman',
+      missionId: profile.activeMission!.id, actorIds: civilians,
+      owners: Object.fromEntries(civilians.map(id => [id, 'player' as const])),
+      members: Object.fromEntries(civilians.map(id => [id, { status: 'dead' as const, hp: 0 }])) }
+    const services = ['commander', 'hr-officer', 'eagle-trainer', 'captain', 'horse-vendor']
+    profile.townCommandSquad = { type: 'town-command', townFaction: 'roman', sceneKey: 'town-home', squadId: 1,
+      commandRank: 'commander', actorIds: ['resident', ...services], squads: [{ squadId: 1, actorIds: ['resident', ...services] }],
+      commandedActorIds: [...services], nativeReturnStates: { resident: 'REFIT' }, state: 'FOLLOWING', authorized: true,
+      contribution: emptyPersonalContribution(), members: Object.fromEntries(['resident', ...services].map(id => [id,
+        { status: 'dead' as const, hp: 0, position: { x: 500, z: 500, yaw: 1 } }])) }
+    profile.townAirCommandSquad = { type: 'town-air-command', squadId: 8, townFaction: 'roman', sceneKey: 'town:roman',
+      actorIds: ['town-eagle-rider:1'], commandedActorIds: ['town-eagle-rider:1'],
+      members: { 'town-eagle-rider:1': { status: 'deployed', order: 'charge', position: { x: 500, z: 500, yaw: 1 } } } }
+    profile.townEagleGarrisons = { roman: { version: 1, sceneKey: 'town:roman', pairs: [] } }
+    addCareerItem(profile, 'horse', 1)
+    const refs = resolveTownActorEquipment(profile, 'roman', 'merchant').refs
+    profile.townEquipment = { roman: { version: 1, residentEquipmentVersion: 1, nativeReserve: [],
+      actors: { merchant: { ...refs, mount: { itemId: 'horse', source: 'inventory' } } } } }
+    const equipment = structuredClone(profile.townEquipment)
+    h.town.preservesResident.mockReturnValue(true)
+    expect(h.store.save(profile)).toBe(true)
+    h.storage.writable = false
+    expect(h.settlement.returnToTown('direct').status).toBe('save-failed')
+    expect(h.events).toEqual(['save'])
+    expect(h.town.restart).not.toHaveBeenCalled()
+    expect(h.store.load()!.townCommandSquad!.members!.resident).toMatchObject({ status: 'dead', hp: 0 })
+    h.storage.writable = true; h.events.length = 0
+    expect(h.settlement.returnToTown('direct').status).toBe('restarted')
+    expect(h.events).toEqual(['save', 'defense-cleanup'])
+    const saved = h.store.load()!
+    expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(saved)
+    expect(saved.civilianCommandSquad?.actorIds).toHaveLength(21)
+    expect(new Set(Object.values(saved.civilianCommandSquad!.owners))).toEqual(new Set(['daily']))
+    expect(saved.civilianCommandSquad?.members.merchant).toEqual({ status: 'deployed', order: 'attack' })
+    expect(saved.townCommandSquad?.members?.resident).toEqual({ status: 'reserve' })
+    for (const id of ['commander', 'hr-officer', 'eagle-trainer', 'captain'])
+      expect(saved.townCommandSquad?.members?.[id]).toEqual({ status: 'reserve', order: 'attack' })
+    expect(saved.townCommandSquad?.nativeReturnStates).toBeUndefined()
+    expect(saved.townCommandSquad?.commandedActorIds).toEqual([])
+    expect(saved.townCommandSquad?.state).toBe('TRAINING')
+    expect(saved.townAirCommandSquad).toBeUndefined()
+    expect(saved.townEagleGarrisons?.roman).toBeUndefined()
+    expect(saved.townEquipment).toEqual(equipment)
+    expect(saved.personalSquadRuntime?.members['personal:dead']).toEqual({ status: 'deployed', order: 'defend' })
+    expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
+    const merit = saved.totalMerit
+    h.reload(); expect(h.settlement.returnToTown('direct').status).toBe('ignored')
+    expect(h.store.load()?.totalMerit).toBe(merit)
+    expect(h.town.beginPatrolMissionReturn).not.toHaveBeenCalled()
+  })
+
   it('freezes the first personal result across a failed-save retry instead of appending later contribution', () => {
     const h = fixture()
     h.read().personalSquad = { members: [{ id: 'personal:credited', type: 'soldier' }] }
@@ -100,17 +162,22 @@ describe('Town mission settlement transactions', () => {
     expect(h.town.restPlayer).not.toHaveBeenCalled()
   })
 
-  it('carries battle-worn private state into an arrived return without awarding merit again', () => {
+  it('keeps private wounds and casualties on same-scene arrival without awarding merit again', () => {
     const h = fixture('bandit', true), profile = h.read()
-    profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }] }
+    profile.personalSquad = { members: [{ id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' }] }
     profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
     profile.activeMission!.personalSquad!.state = 'ACTIVE'
     profile.activeMission!.personalSquad!.members['personal:wounded'] = { status: 'deployed', hp: 9, ammo: 0, shieldImpact: 1 }
+    profile.activeMission!.personalSquad!.members['personal:dead'] = { status: 'dead', hp: 0 }
     const merit = profile.totalMerit, position = h.player.group.position.clone()
     expect(h.settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
     expect(h.read().activeMission).toBeUndefined()
     expect(h.read().personalSquadRuntime?.members['personal:wounded']).toMatchObject({ hp: 9, ammo: 0, shieldImpact: 1 })
-    expect(h.read().personalSquad?.members.map(({ id, type }) => ({ id, type }))).toEqual([{ id: 'personal:wounded', type: 'soldier' }])
+    expect(h.read().personalSquadRuntime?.members['personal:dead']).toEqual({ status: 'dead', hp: 0 })
+    expect(h.read().personalSquadRuntime?.returnToHR).toBeUndefined()
+    expect(h.read().personalSquad?.members.map(({ id, type }) => ({ id, type }))).toEqual([
+      { id: 'personal:wounded', type: 'soldier' }, { id: 'personal:dead', type: 'soldier' },
+    ])
     expect(h.read().totalMerit).toBe(merit)
     expect(h.player.group.position).toEqual(position)
     expect(h.town.returnPersonalSquad).toHaveBeenCalledExactlyOnceWith(false)
@@ -129,12 +196,13 @@ describe('Town mission settlement transactions', () => {
     expect(h.patrol.release).toHaveBeenCalledOnce()
   })
 
-  it('commits defense recovery before cleanup, repairs and navigation synchronization', () => {
+  it('rebuilds Captain defense only after saving instead of partially repairing the outgoing scene', () => {
     const h = fixture('town-defense', true)
-    expect(h.settlement.returnToTown('direct')).toEqual({ status: 'returned', kind: 'defense' })
-    expect(h.events).toEqual(['save', 'defense-cleanup', 'restore', 'repair', 'navigation'])
+    expect(h.settlement.returnToTown('direct')).toEqual({ status: 'restarted' })
+    expect(h.events).toEqual(['save', 'defense-cleanup'])
     expect(h.read().activeMission).toBeUndefined()
-    expect(h.town.navigation.sync).toHaveBeenCalledExactlyOnceWith(h.town.world.obstacles)
+    expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(h.store.load())
+    expect(h.town.navigation.sync).not.toHaveBeenCalled()
   })
 
   it('cannot abandon an unfinished Veteran battle through direct return', () => {

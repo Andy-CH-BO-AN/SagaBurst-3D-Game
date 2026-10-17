@@ -7,7 +7,7 @@ import {
   type UnitPresetId,
 } from './UnitPresetCatalog'
 import type { TacticalOrder } from './TacticalOrder'
-import { armyHudCountSummary, countArmyHudRoster, type ArmyHudRoster } from './ArmyCommandHudRoster'
+import { armyHudCountSummary, armyHudUnitSummary, armyHudUnitType, countArmyHudRoster, type ArmyHudRoster } from './ArmyCommandHudRoster'
 import { ArmyCommandUI, type ArmyCommandHudEntry, type ArmyCommandHudOrder } from '../ui/ArmyCommandUI'
 import type { FormationCommandAssignment, FormationController } from './FormationController'
 import type { InventoryManager } from '../rpg/InventoryManager'
@@ -669,9 +669,9 @@ export class ArmyCommandController {
     }
 
     const available = this._availableShortcuts()
-    const signature = `${context}:${this.ui?.getLabelOptionVersion?.() ?? 0}:${snapshot?.members.map(member => `${member.id}:${member.state}`).join('|') ?? ''}:${this.groupingMode}:${available
+    const signature = `${context}:${this.ui?.getLabelOptionVersion?.() ?? 0}:${snapshot?.members.map(member => `${member.id}:${member.state}:${member.unitType ?? ''}`).join('|') ?? ''}:${this.groupingMode}:${available
       .map(shortcut => this.groupingMode === 'squad'
-        ? `${shortcut.target}:${this._targetCountSummary(shortcut.target)}` : shortcut.target)
+        ? `${shortcut.target}:${this._targetCountSummary(shortcut.target)}:${this._unitSummary(shortcut.target).description}` : shortcut.target)
       .join('|')}`
     const targets = this._wheelTargets()
     let changed = signature !== this.rosterSignature
@@ -699,9 +699,16 @@ export class ArmyCommandController {
         label: this._targetLabel(shortcut.target),
         order: this._hudOrder(shortcut.target),
         side: isAll || Number(shortcut.key) <= (this.groupingMode === 'squad' ? 4 : (this.faction === 'viking' ? 3 : 4)) ? 'left' : 'right',
+        units: this.groupingMode === 'squad' && !isAll ? this._unitSummary(shortcut.target) : undefined,
         summary: this.groupingMode === 'squad' ? this._targetCountSummary(shortcut.target) : undefined,
       }
     })
+  }
+
+  private _unitSummary(target: ArmyCommandTarget) {
+    return armyHudUnitSummary(this.hudRosterSnapshot?.members ?? this.npcs.filter(npc => this._acceptsNpc(npc) && npc.squadId).map(npc => ({
+      id: npc.combatantId, squadId: npc.squadId!, state: npc.dead ? 'dead' as const : 'deployed' as const, unitType: armyHudUnitType(npc),
+    })), target)
   }
 
   /** Scene-owned return/training lifecycles override stale combat command caches. */

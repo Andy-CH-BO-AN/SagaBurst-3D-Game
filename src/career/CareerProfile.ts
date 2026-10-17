@@ -118,7 +118,7 @@ export interface CareerProfile {
   townCommanderRecovery?: CareerDuelCommanderHome & { faction: CharacterFaction }
   /** Each unit preset unlocks only its own next Duel tier. */
   duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, CareerDuelTier>>
-  townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[]; authorizedTownCommandActorIds?: string[] }
+  townEvent?: { id: string; state: 'hostile' | 'settled'; pendingResult?: 'player_defeated' | 'town_defeated'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[]; authorizedTownCommandActorIds?: string[] }
 
   enemyEaglePatrols?: Partial<Record<CharacterFaction, EnemyEaglePatrolCheckpoint>>
   townEagleGarrisons?: TownEagleGarrisons

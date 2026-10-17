@@ -2,14 +2,19 @@ import type { ArmyHudMember, ArmyHudMemberState, ArmyHudRoster } from '../battle
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import { officialCommandSquads, type OfficialCommandAuthority } from './CareerCommandAuthority'
 import type { PersonalActorCheckpoint, PersonalSquadMission } from './CareerPersonalSquadMission'
+import { armyHudUnitType, type ArmyHudUnitSource, type ArmyHudUnitType } from '../battle/ArmyCommandHudRoster'
+import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
+import { personalMemberLoadout } from './PersonalSquadRuntime'
 
-interface HudActor {
+interface HudActor extends ArmyHudUnitSource {
   combatantId: string
   dead: boolean
   tacticalOrder?: TacticalOrder
 }
 
 export interface CareerCommandHudSource {
+  unitTypes?: Readonly<Record<string, ArmyHudUnitType>>
+  personalMembers?: readonly CareerPersonalSquadMember[]
   sceneKey: string
   faction: 'roman' | 'viking'
   missionId?: string
@@ -49,6 +54,8 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
     && source.civilians.sceneKey === source.sceneKey && source.civilians.missionId === source.missionId
     ? source.civilians : undefined
   const live = new Map(source.actors.map(actor => [actor.combatantId, actor]))
+  const personalTypes = new Map(source.personalMembers?.map(member => [member.id,
+    member.type === 'ranger' && !member.equipment ? undefined : armyHudUnitType(personalMemberLoadout(member, source.faction))]))
   const pendingPersonal = new Set(source.personalPendingIds ?? [])
   const returningPersonal = new Set(source.personalReturningIds ?? [])
   const returningOfficial = new Set(source.officialReturningIds ?? [])
@@ -69,7 +76,8 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
       : saved?.status === 'dead' || saved?.hp === 0 || actor?.dead ? 'dead'
       : actor ? returningOfficial.has(id) ? 'returning' : trainingOfficial.has(id) ? 'training' : 'deployed'
       : source.officialPending ? 'pending' : 'missing'
-    members.push({ id, squadId: squad.squadId, state, order: actor ? actor.tacticalOrder : saved?.order })
+    members.push({ id, squadId: squad.squadId, state, order: actor ? actor.tacticalOrder : saved?.order,
+      unitType: source.unitTypes?.[id] ?? (actor && armyHudUnitType(actor)) })
   }
 
   for (const id of personalIds) {
@@ -82,7 +90,8 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
       : actor ? returningPersonal.has(id) ? 'returning' : 'deployed'
       : pendingPersonal.has(id) ? 'pending'
       : saved?.status === 'reserve' || !saved ? 'reserve' : 'missing'
-    members.push({ id, squadId: 'personal', state, order: actor ? actor.tacticalOrder : saved?.order })
+    members.push({ id, squadId: 'personal', state, order: actor ? actor.tacticalOrder : saved?.order,
+      unitType: personalTypes.get(id) ?? (actor && armyHudUnitType(actor)) })
   }
 
   for (const id of civilianIds) {
@@ -93,7 +102,7 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
     const state: ArmyHudMemberState = saved?.status === 'exited' ? 'exited'
       : saved?.status === 'dead' || saved?.hp === 0 || actor?.dead ? 'dead'
       : actor ? returningCivilians.has(id) ? 'returning' : 'deployed' : 'missing'
-    members.push({ id, squadId: 'civilians', state, order: actor ? actor.tacticalOrder : saved?.order })
+    members.push({ id, squadId: 'civilians', state, order: actor ? actor.tacticalOrder : saved?.order, unitType: 'civilian' })
   }
 
   if (!source.missionId) for (const id of source.townAirActorIds ?? []) {
@@ -101,7 +110,7 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
     const actor = live.get(id)
     if (!actor) continue
     seen.add(id)
-    members.push({ id, squadId: 8, state: actor.dead ? 'dead' : 'deployed', order: actor.tacticalOrder })
+    members.push({ id, squadId: 8, state: actor.dead ? 'dead' : 'deployed', order: actor.tacticalOrder, unitType: 'eagle' })
   }
 
   // Include identities and saved assignments: equal headcounts do not imply the same authority.

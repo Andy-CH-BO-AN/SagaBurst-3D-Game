@@ -33,6 +33,7 @@
 | 坐騎模型與騎姿 | [mount-from-reference](skills/mount-from-reference/SKILL.md) |
 | 瀏覽器可見的戰鬥／移動修正 | [combat-browser-validation](skills/combat-browser-validation/SKILL.md) |
 | 效能 A/B 或渲染成本歸因 | [sagaburst-performance-benchmark](skills/sagaburst-performance-benchmark/SKILL.md) |
+| 分支、PR 標題與 Commit 訊息規範 | [git-change-conventions](skills/git-change-conventions/SKILL.md) |
 
 程式變更執行相關測試及 `rtk npm run build`（含 TypeScript 檢查）；跨系統變更執行 `rtk npm test`。純文件修改檢查連結、內容與差異即可。
 

@@ -19,7 +19,7 @@ export interface CivilianCommandSquadState {
 }
 
 /** Uses existing scene residents; no generated military IDs or actor materialization. */
-export function civilianCommandRoster(specs: readonly TownActorSpec[]): string[] {
+export function civilianCommandRoster(specs: readonly Pick<TownActorSpec, 'id' | 'role'>[]): string[] {
   return [...new Set(specs.filter(spec => spec.role === 'civilian' || spec.role === 'merchant').map(spec => spec.id))].sort()
 }
 

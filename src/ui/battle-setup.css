@@ -576,11 +576,27 @@
 .loadout-card.selected { border-color: #d4af37; background: linear-gradient(145deg, #3a2b1b, #24180e); box-shadow: inset 0 0 18px rgba(212,175,55,.13), 0 0 10px rgba(212,175,55,.12); }
 .loadout-card.selected .loadout-card-name { color: #ffe1a0; }
 .loadout-card.selected .loadout-card-check { display: block; }
-.shield-category { display: grid; grid-template-columns: .75fr 1.6fr 1.6fr; gap: 12px; margin-top: 26px; padding-top: 20px; border-top: 1px solid #3d3025; }
-.shield-category > .loadout-category-heading { grid-column: 1 / -1; margin-bottom: 0; }
+.shield-category { display: grid; grid-template-columns: minmax(0, 1fr); gap: 15px; margin-top: 26px; padding-top: 20px; border-top: 1px solid #3d3025; }
+.shield-category > .loadout-category-heading { margin-bottom: 0; }
 .shield-category .equipment-group { min-width: 0; margin: 0; }
-.shield-category .equipment-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.shield-category .loadout-card { min-height: 76px; }
+/* Match the weapon columns' card scale; auto-fill keeps GENERAL's empty slot. */
+.shield-category .equipment-card-grid {
+  max-width: 548px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
+}
+.shield-category .loadout-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  min-height: 112px;
+  box-sizing: border-box;
+  line-height: 1.4;
+}
+.shield-category .loadout-card-top { flex-shrink: 0; }
+.shield-category .loadout-card-en { margin-top: 0; }
+.shield-category .loadout-card > small { margin-top: auto; padding-top: 4px; white-space: nowrap; }
 .starting-state { margin-top: 8px; padding-top: 20px; border-top: 1px solid #3d3025; }
 .starting-state-options { display: grid; grid-template-columns: repeat(2, minmax(170px, 240px)); gap: 10px; }
 .starting-state-card {
@@ -1094,8 +1110,6 @@
   .loadout-columns, .setup-main { grid-template-columns: 1fr; display: grid; }
   .setup-main { gap: 16px; }
   .equipment-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .shield-category { grid-template-columns: 1fr; }
-  .shield-category > .loadout-category-heading { grid-column: auto; }
 }
 @media (max-width: 560px) {
   .setup-title { font-size: 30px; }

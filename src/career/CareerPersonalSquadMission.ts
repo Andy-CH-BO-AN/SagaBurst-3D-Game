@@ -34,6 +34,8 @@ export interface PersonalSquadMission {
   /** The town geometry last used by these checkpoints; absent in legacy saves. */
   layoutVersion?: number
   state: PersonalSquadState
+  /** A saved formal return; the home scene resolves HR muster/pads before spawning. */
+  returnToHR?: boolean
   members: Record<string, PersonalActorCheckpoint>
   contribution: PersonalCombatContribution
   pendingMemberIds?: string[]
@@ -57,7 +59,18 @@ export function clonePersonalMission(value: PersonalSquadMission): PersonalSquad
     }])) }
 }
 
-/** Only fresh acceptance may readmit HR arrivals; reload keeps exited/dead checkpoints. */
+/** A completed scene-rebuild return refits every owned member using the fresh actor's loadout resources. */
+export function returnPersonalMissionToHR(value: PersonalSquadMission | undefined): PersonalSquadMission | undefined {
+  if (!value) return undefined
+  const next = clonePersonalMission(value)
+  next.sceneKey = 'town-home'; next.state = 'RESERVE'; next.returnToHR = true
+  delete next.pendingMemberIds; delete next.playerLastPosition
+  next.members = Object.fromEntries(next.memberIds.map(id => [id, { status: 'deployed', order: 'defend',
+    ...(value.members[id]?.eaglePadId ? { eaglePadId: value.members[id].eaglePadId } : {}) }]))
+  return next
+}
+
+/** Fresh acceptance readmits HR arrivals; in-progress reloads keep exited/dead checkpoints. */
 export function preparePersonalMissionAcceptance(value: PersonalSquadMission): PersonalSquadMission {
   const next = clonePersonalMission(value)
   next.pendingMemberIds = next.pendingMemberIds?.filter(id => next.memberIds.includes(id))
@@ -147,6 +160,7 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
   contribution.structuresDestroyed = Math.floor(contribution.structuresDestroyed)
   contribution.gateBreaches = Math.floor(contribution.gateBreaches)
   return { squadId: PERSONAL_SQUAD_ID, memberIds: [...raw.memberIds], members, contribution,
+    ...(raw.returnToHR === true ? { returnToHR: true } : {}),
     ...(Number.isSafeInteger(raw.layoutVersion) && raw.layoutVersion! >= 1 ? { layoutVersion: raw.layoutVersion } : {}),
     ...(Array.isArray(raw.pendingMemberIds) ? { pendingMemberIds: raw.pendingMemberIds.filter(id => raw.memberIds!.includes(id) && members[id].status === 'reserve') } : {}),
     ...(position(raw.playerLastPosition) ? { playerLastPosition: position(raw.playerLastPosition) } : {}),

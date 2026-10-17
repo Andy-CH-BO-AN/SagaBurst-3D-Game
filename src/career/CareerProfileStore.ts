@@ -501,6 +501,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ? canonicalCareerMountId(raw.selectedMountId as CareerMountId)
     : undefined
   if (townEvent && (typeof townEvent.id !== 'string' || !townEvent.id || !['hostile', 'settled'].includes(townEvent.state))) return null
+  if (townEvent?.pendingResult !== undefined && (townEvent.state !== 'hostile' || !['player_defeated', 'town_defeated'].includes(townEvent.pendingResult))) return null
   const profile: CareerProfile = {
     ...(townEquipment ? { townEquipment } : {}),
     ...(raw.inventory ? { inventory: raw.inventory as CareerInventory } : {}),

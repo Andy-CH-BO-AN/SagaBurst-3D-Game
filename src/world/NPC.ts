@@ -4140,6 +4140,7 @@ export class NPC {
   }
 
   restoreForTown(destination?: { x: number; z: number; yaw?: number }): void {
+    this.pendingFall.clear()
     this.restoreCombatLoadout()
     this.respawn(destination)
     this._cancelEquipmentCombatState()
