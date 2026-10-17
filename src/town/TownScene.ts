@@ -1,6 +1,7 @@
+import { CareerRaceHUD } from '../ui/CareerRaceHUD'
 import { CareerRaceController } from '../career/CareerRaceController'
 import { MOUNTED_RACES, type RaceId } from '../career/CareerRaceState'
-import { RACE_LINES, legalRaceStart } from '../career/CareerRaceRoute'
+import { RACE_LINES } from '../career/CareerRaceRoute'
 import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
@@ -233,7 +234,7 @@ export class TownScene {
   private townAirCommand?: TownAirCommandSquadController
   private race?: CareerRaceController
   private readonly raceGuide = new MissionGuide('career-race-guide')
-  private readonly raceHud = document.createElement('div')
+  private readonly raceHud = new CareerRaceHUD()
   private raceClockDt = 0
   private captainPatrol?: CaptainPatrolCommandController
   private readonly commandActors: NPC[] = []
@@ -249,6 +250,7 @@ export class TownScene {
   private outskirts?: TownOutskirtsWarfareController
   private missionResultOpen = false
   private deploymentPage?: CareerMissionPage | 'duel'
+  private duelActivity: 'duel' | 'race' = 'duel'
   private duelPresetId?: UnitPresetId
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
@@ -527,15 +529,12 @@ export class TownScene {
     this.restoreTownCasualties()
     this.civilianCommand.restore()
     this.townCommand.resumeRefits()
-    this.raceHud.id = 'career-race-hud'
-    this.raceHud.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:91;max-width:min(360px,44vw);padding:8px 12px;background:#201d19de;color:#efe1c3;border:1px solid #aa9270;font:13px/1.5 system-ui;white-space:pre-line;pointer-events:none'
-    this.raceHud.hidden = true; document.body.append(this.raceHud)
     this.hud.id = 'town-hud'; this.hud.style.cssText = 'position:fixed;top:20px;left:20px;z-index:90;background:#201d19de;color:#efe1c3;padding:16px 22px;border:1px solid #aa9270;line-height:1.7;font:15px system-ui;max-width:520px;pointer-events:none'
     this.hint.id = 'town-hint'; this.hint.style.cssText = 'position:fixed;bottom:110px;left:50%;transform:translateX(-50%);z-index:90;color:#fff;background:#211e19dd;padding:10px 20px;font:18px system-ui;pointer-events:none'
     this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
     this.ambientLabel.className = 'town-ambient'; this.ambientLabel.hidden = true
     document.body.append(this.hud, this.hint, this.pointerPrompt, this.ambientLabel)
-    this.compass = new CompassUI(this.camera)
+    this.compass = new CompassUI(this.camera, this.raceHud.element)
     if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q 關閉面板 · Esc 暫停／上一頁'
     const opts = { capture: true, signal: this.listeners.signal }
     window.addEventListener('keydown', e => this.key(e), opts)
@@ -1593,7 +1592,7 @@ export class TownScene {
     const selectedPage = requestedPage !== 'duel' && !isCareerMissionPageUnlocked(this.profile, requestedPage) ? defaultPage : requestedPage
     this.deploymentPage = selectedPage
     const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.setAttribute('aria-label', '任務分類')
-    for (const [page, label] of [['recruit', '菜兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['captain', '隊長任務'], ['commander', '指揮官任務'], ['duel', '1v1 Duel · 單挑']] as const) {
+    for (const [page, label] of [['recruit', '菜兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['captain', '隊長任務'], ['commander', '指揮官任務'], ['duel', '1 v 1 · 對決']] as const) {
       const tab = document.createElement('button'); tab.className = 'town-button'; tab.textContent = label
       tab.setAttribute('aria-pressed', String(page === selectedPage))
       tab.disabled = page !== 'duel' && !isCareerMissionPageUnlocked(this.profile, page)
@@ -1833,6 +1832,39 @@ export class TownScene {
     this.closePanel()
   }
   private openDuelPage(panel: HTMLElement): void {
+    const activities = [['duel', '單挑 Duel'], ['race', '繞城賽馬 Racing']] as const
+    const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.style.position = 'static'
+    tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '1 v 1 對決種類')
+    const content = document.createElement('section'); content.id = 'town-one-v-one-content'
+    content.setAttribute('role', 'tabpanel')
+    const buttons = activities.map(([activity, label]) => {
+      const tab = document.createElement('button'); tab.className = 'town-button'; tab.textContent = label
+      tab.id = `town-one-v-one-${activity}`; tab.setAttribute('role', 'tab')
+      tab.setAttribute('aria-controls', content.id)
+      tab.onclick = () => { this.duelActivity = activity; render() }
+      tab.onkeydown = event => {
+        const index = activities.findIndex(([id]) => id === activity)
+        const next = event.key === 'ArrowRight' ? (index + 1) % activities.length
+          : event.key === 'ArrowLeft' ? (index + activities.length - 1) % activities.length
+          : event.key === 'Home' ? 0 : event.key === 'End' ? activities.length - 1 : null
+        if (next === null) return
+        event.preventDefault(); this.duelActivity = activities[next][0]; render(); buttons[next].focus()
+      }
+      tabs.append(tab); return tab
+    })
+    const render = () => {
+      buttons.forEach((tab, index) => {
+        const selected = activities[index][0] === this.duelActivity
+        tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1
+        if (selected) content.setAttribute('aria-labelledby', tab.id)
+      })
+      content.replaceChildren()
+      if (this.duelActivity === 'race') this.openRacePage(content)
+      else this.openDuelSelection(content)
+    }
+    panel.append(tabs, content); render()
+  }
+  private openDuelSelection(panel: HTMLElement): void {
     const presets = getUnitPresetsForFaction(this.profile.faction)
     const selected = presets.find(preset => preset.id === this.duelPresetId) ?? presets[0]
     this.duelPresetId = selected.id
@@ -1859,6 +1891,8 @@ export class TownScene {
       accept.onclick = () => this.acceptDuel(selected.id, tier)
       row.append(title, details, accept); panel.append(row)
     }
+  }
+  private openRacePage(panel: HTMLElement): void {
     const racing = document.createElement('h3'); racing.textContent = 'Mounted Circuit Racing · 繞城賽馬'; panel.append(racing)
     for (const race of MOUNTED_RACES) {
       const row = document.createElement('article'); row.className = 'town-product'
@@ -1880,7 +1914,7 @@ export class TownScene {
   }
   private showRaceResult(): void {
     const race = this.race, session = race?.session
-    if (!race || !session?.result) return
+    if (!race || !session?.result || session.phase === 'finishing') return
     if (!race.resultSaved && !race.persist()) {
       const panel = this.openPanel('賽事結算尚未保存', '結果已鎖定。保存失敗，請重試；尚未發表賽果。')
       this.button(panel, '重試保存結果', () => { if (race.persist()) { this.closePanel(); this.showRaceResult() } })
@@ -1888,7 +1922,7 @@ export class TownScene {
     }
     const name = MOUNTED_RACES.find(r => r.id === session.raceId)!.name
     const panel = this.openPanel(`${name} · ${session.result === 'win' ? 'Victory' : session.result === 'loss' ? 'Defeat' : 'Draw'}`,
-      `${session.reason ?? ''}\n玩家：${session.player.finishSeconds?.toFixed(2) ?? 'DNF'} 秒 · NPC：${session.opponent.finishSeconds?.toFixed(2) ?? 'DNF'} 秒\n結果已保存。城鎮敵對與戰損維持實際狀態。`)
+      `${session.reason ?? ''}\n玩家：${session.player.finishSeconds !== undefined ? `${session.player.finishSeconds.toFixed(2)} 秒` : 'DNF'} · NPC：${session.opponent.finishSeconds !== undefined ? `${session.opponent.finishSeconds.toFixed(2)} 秒` : 'DNF'}\n結果已保存。城鎮敵對與戰損維持實際狀態。`)
     this.button(panel, '直接返回小鎮', () => this.leaveRace())
     if (race.canWalkBack) this.button(panel, '跟隊長走回去', () => {
       if (!race.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
@@ -1916,22 +1950,16 @@ export class TownScene {
     this.closePanel(); this.notice = '賽事已結束，已返回小鎮。'
   }
   private updateRaceHud(): void {
-    const race = this.race, s = race?.session
-    this.raceHud.hidden = !s || Boolean(this.panel || this.equipment.visible)
-    if (!s || this.raceHud.hidden) { this.raceGuide.hide(); return }
-    const definition = MOUNTED_RACES.find(r => r.id === s.raceId)!
-    const next = RACE_LINES[s.player.checkpoint]?.label ?? '完成'
-    const warning = s.phase === 'countdown' && !legalRaceStart(s.player.position)
-      ? '\n尚未起跑！請在倒數結束前返回北門內側，否則判定失敗。' : ''
-    const phase = !race!.ready ? race!.error || '正在部署競賽騎手…'
-      : s.phase === 'guiding' ? s.guideFallback ?? '跟隨 Captain 前往北門'
-      : s.phase === 'countdown' ? `起跑倒數 ${Math.ceil(s.countdownSeconds)}`
-      : s.phase === 'returning' ? '跟隊長走回去'
-      : s.result ? race!.resultSaved ? s.result.toUpperCase() : '結果等待保存'
-      : `${s.elapsedSeconds < 1 ? 'GO · ' : ''}${s.elapsedSeconds.toFixed(1)}s · 下一站：${next}\n玩家 ${s.player.dead ? '已死亡 · 觀戰' : s.player.dnf ? 'DNF' : s.player.checkpoint + '/5'} · NPC ${s.opponent.dead ? '已死亡' : s.opponent.dnf ? 'DNF' : s.opponent.checkpoint + '/5'}`
-    this.raceHud.textContent = `${definition.name} · NPC ${definition.mount} · ${definition.sprint ? 'Sprint' : 'Normal'}\n${phase}${warning}${race!.saveFailed ? '\n保存失敗，將重試保存' : ''}`
-    this.raceGuide.updateRace(this.player.combatPosition, this.orbit.cameraYaw, race!.guideTarget,
-      s.phase === 'racing' ? next : s.phase === 'returning' ? '返回小鎮' : '北門起跑區')
+    const race = this.race
+    const session = !this.panel && !this.equipment.visible ? race?.session ?? null : null
+    const target = race?.guideTarget ?? null
+    const distance = target ? Math.hypot(target.x - this.player.combatPosition.x, target.z - this.player.combatPosition.z) : null
+    this.raceHud.update(session, { ready: race?.ready ?? false, resultSaved: race?.resultSaved ?? false,
+      saveFailed: race?.saveFailed ?? false, error: race?.error ?? '', distance })
+    if (!session) { this.raceGuide.hide(); return }
+    this.raceGuide.updateRace(this.player.combatPosition, this.orbit.cameraYaw, target,
+      session.phase === 'racing' || session.phase === 'finishing' ? `下一站：${RACE_LINES[session.player.checkpoint]?.label ?? '完成'}`
+        : session.phase === 'returning' ? '返回小鎮' : '北門起跑區')
   }
   private acceptDuel(presetId: UnitPresetId, tier: CareerDuelTier): void {
     const fresh = this.store.load()
@@ -3304,7 +3332,7 @@ export class TownScene {
     }
     this.resolveBodies(); this.updateShots(dt)
     this.race?.advance(this.raceClockDt)
-    if (this.race?.session?.result && !this.panel && this.race.session.phase !== 'returning') this.showRaceResult()
+    if (this.race?.session?.phase === 'result' && !this.panel) this.showRaceResult()
     if (this.race?.session?.phase === 'returning' && (!this.race.canWalkBack || this.race.returnComplete)) this.leaveRace(false)
     this.persistPersonalSquad(dt)
     this.captainPatrol?.update(dt)
@@ -3420,7 +3448,7 @@ export class TownScene {
     this.compass?.dispose()
     this.compass = undefined
     this.personalSquad?.cleanup()
-    this.race?.snapshot(); this.race?.persist(); this.race?.dispose(); this.raceGuide.dispose(); this.raceHud.remove()
+    this.race?.snapshot(); this.race?.persist(); this.race?.dispose(); this.raceGuide.dispose(); this.raceHud.dispose()
     this.captainPatrol?.dispose()
     this.captainPatrolGuide.dispose()
     this.personalCommands?.close()

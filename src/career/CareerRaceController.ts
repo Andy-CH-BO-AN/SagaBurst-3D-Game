@@ -11,7 +11,7 @@ import type { CareerProfile } from './CareerProfile'
 import { townPlayerEntryPoint } from '../town/TownRules'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
 import { canUseCareerMount, type CareerMountController } from './CareerMountController'
-import { advanceRaceClock, advanceRaceRider, canEnterRace, lockRace, MOUNTED_RACES, raceRecordProfile, resolveRace, updateRaceGuidance,
+import { advanceRaceClock, advanceRaceRider, canEnterRace, lockRace, MOUNTED_RACES, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
 import { legalRaceStart, RACE_LINES, RACE_START, RACE_START_SLOTS, raceWaypoints, type RacePoint, type RacePosition } from './CareerRaceRoute'
 
@@ -54,7 +54,7 @@ export class CareerRaceController {
   }
   owns(npc: NPC): boolean { return npc === this.racer || this.ownsCaptain && npc === this.captain?.npc }
   get ready(): boolean { return Boolean(this.racer && this.batch?.ready) }
-  get resultSaved(): boolean { return Boolean(this.session?.result && this.read().raceRecords?.some(r => r.sessionId === this.session!.id)) }
+  get resultSaved(): boolean { return Boolean(this.session?.result && this.session.phase !== 'finishing' && this.read().raceRecords?.some(r => r.sessionId === this.session!.id)) }
   get canWalkBack(): boolean { return !this.player().dead && Boolean(this.captain && !this.captain.npc.dead && !this.captain.npc.hostileToPlayer) }
   get returnComplete(): boolean {
     return this.session?.phase === 'returning' && Boolean(this.captain)
@@ -63,10 +63,10 @@ export class CareerRaceController {
   }
   get guideTarget(): THREE.Vector3 | null {
     const s = this.session
-    if (!s || s.result && s.phase !== 'returning') return null
+    if (!s || s.result && s.phase !== 'returning' && s.phase !== 'finishing') return null
     if (s.phase === 'returning') return this.captain ? vector(this.captain.spec) : null
-    if (s.phase !== 'racing') return vector(RACE_START_SLOTS[0])
-    return s.player.dnf || s.player.dead ? null : vector(RACE_LINES[s.player.checkpoint]?.center ?? RACE_START)
+    if (!raceIsRunning(s)) return vector(RACE_START_SLOTS[0])
+    return raceRiderDone(s.player) ? null : vector(RACE_LINES[s.player.checkpoint]?.center ?? RACE_START)
   }
 
   accept(id: RaceId, fresh: CareerProfile): boolean {
@@ -188,8 +188,8 @@ export class CareerRaceController {
       }
     }
     const npc = this.racer!
-    if (s.result || s.opponent.dnf || s.opponent.dead) { if (!npc.dead) this.order(npc, npc.combatPosition, false); return }
-    if (s.phase !== 'racing') {
+    if (s.result && s.phase !== 'finishing' || raceRiderDone(s.opponent)) { if (!npc.dead) this.order(npc, npc.combatPosition, false); return }
+    if (!raceIsRunning(s)) {
       const captain = this.captain?.npc
       if (s.phase === 'guiding' && !s.guideFallback && captain && captain.combatPosition.distanceTo(vector(RACE_START)) > 12) {
         if (!this.guideAnchor || Math.hypot(this.guideAnchor.x - captain.combatPosition.x, this.guideAnchor.z - captain.combatPosition.z) > 5)
@@ -212,7 +212,7 @@ export class CareerRaceController {
 
   beginFrame(dt: number, movementDt: number): void {
     const s = this.session
-    if (!s || !this.ready || s.result) return
+    if (!s || !this.ready || s.result && s.phase !== 'finishing') return
     this.framePhase = s.phase; this.frameDt = dt; this.frameMovementDt = movementDt
     const previous = { ...s.player.position }
     this.snapshot()
@@ -221,17 +221,18 @@ export class CareerRaceController {
       && (s.opponent.dead || s.opponent.dnf || legalRaceStart(s.opponent.position))
       && (s.player.dead || s.opponent.dead || Math.hypot(s.player.position.x - s.opponent.position.x, s.player.position.z - s.opponent.position.z) > 2.1))
     advanceRaceClock(s, dt, ready)
-    if (this.framePhase === 'racing') this.progress('player', previous)
+    if (raceIsRunning(s) && (this.framePhase === 'racing' || this.framePhase === 'finishing')) this.progress('player', previous)
   }
   observeActorMovement(actor: NPC): void {
-    if (actor !== this.racer || !this.session || this.session.result) return
+    if (actor !== this.racer || !this.session || !raceIsRunning(this.session)) return
     const previous = { ...this.session.opponent.position }
     this.snapshot()
-    if (this.framePhase === 'racing') this.progress('opponent', previous)
+    if (this.framePhase === 'racing' || this.framePhase === 'finishing') this.progress('opponent', previous)
   }
   private progress(side: 'player' | 'opponent', previous: RacePosition): void {
     const s = this.session!
     const rider = s[side], mount = side === 'player' ? this.mounts.activeMount : this.mount
+    if (raceRiderDone(rider)) return
     const expected = side === 'player' ? this.mounts.activeMountId === rider.mountId && this.player().currentMount === mount : this.racer!.mount === mount
     if (!expected && !rider.dead) rider.dnf = '參賽坐騎已變更或不可用'
     advanceRaceRider(rider, previous, s.elapsedSeconds, this.frameDt,
@@ -247,27 +248,27 @@ export class CareerRaceController {
     if (!s || !this.ready) return
     const phase = s.phase
     this.snapshot()
-    if (!s.result) {
-      for (const rider of [s.player, s.opponent]) if (!rider.dead && !rider.dnf) {
+    if (!s.result || s.phase === 'finishing') {
+      for (const rider of [s.player, s.opponent]) if (!raceRiderDone(rider)) {
         if (rider.mountHp <= 0) rider.dnf = '坐騎已死亡'
         else if (!rider.mounted) rider.dnf = '已離開參賽坐騎'
       }
       updateRaceGuidance(s, Boolean(this.captain && !this.captain.npc.dead && !this.captain.npc.hostileToPlayer),
         Boolean(this.captain && this.captain.npc.hp < (this.captainHp ?? this.captain.npc.hp)))
-      if ((phase === 'racing' || phase === 'guiding') && !s.opponent.dead && !s.opponent.dnf) {
+      if ((raceIsRunning(s) || phase === 'guiding') && !raceRiderDone(s.opponent)) {
         if (!(phase === 'guiding' && legalRaceStart(s.opponent.position)) && this.lastOpponentPosition && Math.hypot(s.opponent.position.x - this.lastOpponentPosition.x, s.opponent.position.z - this.lastOpponentPosition.z) < .01) this.stallSeconds += dt
         else this.stallSeconds = 0
         this.lastOpponentPosition = { ...s.opponent.position }
         if (this.stallSeconds > 45) s.opponent.dnf = '路線阻塞，賽手無法繼續'
       }
-      if (s.elapsedSeconds > 900) { s.player.dnf ??= '超過賽事時間'; s.opponent.dnf ??= '超過賽事時間' }
+      if (s.elapsedSeconds > 900) for (const rider of [s.player, s.opponent]) if (!raceRiderDone(rider)) rider.dnf = '超過賽事時間'
       // Entering another gate or an illegal route is an explicit player disqualification.
       if (!s.result && s.player.dnf && !s.player.dead && s.player.dnf !== '坐騎已死亡' && s.player.dnf !== '已離開參賽坐騎'
         && s.player.dnf !== '參賽坐騎已變更或不可用' && s.player.dnf !== '超過賽事時間') lockRace(s, 'loss', s.player.dnf)
       resolveRace(s)
     }
     this.saveElapsed += dt
-    if (this.saveElapsed >= 1 || s.result && !this.resultSaved || s.phase !== this.framePhase) this.persist()
+    if (this.saveElapsed >= 1 || s.phase === 'result' && !this.resultSaved || s.phase !== this.framePhase) this.persist()
   }
 
   private captureReferee(resident: RaceResident): RaceReferee {

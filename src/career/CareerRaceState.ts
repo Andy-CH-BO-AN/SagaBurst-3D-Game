@@ -41,7 +41,7 @@ export interface CareerRaceSession {
   deployed: boolean
   id: string
   raceId: RaceId
-  phase: 'guiding' | 'countdown' | 'racing' | 'result' | 'returning'
+  phase: 'guiding' | 'countdown' | 'racing' | 'finishing' | 'result' | 'returning'
   countdownSeconds: number
   elapsedSeconds: number
   gameSeconds: number
@@ -82,7 +82,7 @@ export function canEnterRace(profile: CareerProfile, mount: RaceMountEligibility
 export function raceRecordProfile(profile: CareerProfile, session: CareerRaceSession): CareerProfile {
   const next = cloneCareerProfile(profile)
   next.activeRace = structuredClone(session)
-  if (!session.result || next.raceRecords?.some(record => record.sessionId === session.id)) return next
+  if (!session.result || session.phase === 'finishing' || next.raceRecords?.some(record => record.sessionId === session.id)) return next
   const record: CareerRaceRecord = { sessionId: session.id, raceId: session.raceId, result: session.result,
     legalFinish: session.player.finishSeconds !== undefined,
     ...(session.player.finishSeconds !== undefined ? { playerSeconds: session.player.finishSeconds } : {}),
@@ -97,13 +97,23 @@ export function lockRace(session: CareerRaceSession, result: RaceOutcome, reason
   if (session.result) return
   session.result = result; session.reason = reason; session.phase = 'result'; session.phaseSeconds = 0
 }
+export function raceRiderDone(rider: RaceRider): boolean {
+  return rider.finishSeconds !== undefined || rider.dead || Boolean(rider.dnf)
+}
+export function raceIsRunning(session: CareerRaceSession): boolean {
+  return session.phase === 'racing' || session.phase === 'finishing'
+}
 /** Both riders are advanced before resolution: simultaneous casualties cannot become a false victory. */
 export function resolveRace(session: CareerRaceSession): void {
-  if (session.result) return
   const a = session.player, b = session.opponent
+  if (session.result) {
+    if (session.phase === 'finishing' && raceRiderDone(a) && raceRiderDone(b)) { session.phase = 'result'; session.phaseSeconds = 0 }
+    return
+  }
   if (a.finishSeconds !== undefined || b.finishSeconds !== undefined) {
     lockRace(session, a.finishSeconds === b.finishSeconds ? 'draw'
       : a.finishSeconds !== undefined && (b.finishSeconds === undefined || a.finishSeconds < b.finishSeconds) ? 'win' : 'loss', '合法完賽')
+    if (!raceRiderDone(a) || !raceRiderDone(b)) session.phase = 'finishing'
   } else if ((a.dead || a.dnf) && (b.dead || b.dnf)) lockRace(session, 'draw', '雙方皆無法合法完賽')
 }
 export function advanceRaceRider(rider: RaceRider, previous: RacePosition, elapsed: number, dt: number,
@@ -125,7 +135,7 @@ export function updateRaceGuidance(session: CareerRaceSession, available: boolea
     session.guideFallback = 'Captain 無法繼續引導，請依箭頭自行前往北門；賽事繼續。'
 }
 export function advanceRaceClock(session: CareerRaceSession, dt: number, ready: boolean): void {
-  if (session.result || !Number.isFinite(dt) || dt < 0) return
+  if (session.result && session.phase !== 'finishing' || !Number.isFinite(dt) || dt < 0) return
   session.gameSeconds += dt
   session.phaseSeconds += dt
   if (session.phase === 'guiding') {
@@ -138,7 +148,7 @@ export function advanceRaceClock(session: CareerRaceSession, dt: number, ready: 
         lockRace(session, 'loss', session.player.dnf)
       } else { session.phase = 'racing'; session.startedAtSeconds = session.gameSeconds; session.phaseSeconds = 0 }
     }
-  } else if (session.phase === 'racing') session.elapsedSeconds += dt
+  } else if (raceIsRunning(session)) session.elapsedSeconds += dt
 }
 
 function object(value: unknown): Record<string, unknown> | null { return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null }
@@ -168,7 +178,7 @@ export function isRaceReferee(value: unknown): value is RaceReferee {
 export function parseRaceSession(value: unknown): CareerRaceSession | null {
   const s = object(value)
   if (!s || s.version !== 1 || typeof s.deployed !== 'boolean' || typeof s.id !== 'string' || !s.id || !raceId(s.raceId)
-    || !['guiding', 'countdown', 'racing', 'result', 'returning'].includes(s.phase as string)
+    || !['guiding', 'countdown', 'racing', 'finishing', 'result', 'returning'].includes(s.phase as string)
     || !nonnegative(s.countdownSeconds) || s.countdownSeconds > 10 || !nonnegative(s.elapsedSeconds) || !nonnegative(s.gameSeconds) || !nonnegative(s.phaseSeconds)
     || !isRaceRider(s.player) || !isRaceRider(s.opponent) || s.player.actorId !== 'player' || s.opponent.actorId !== `race:${s.id}`
     || s.opponent.mountId !== MOUNTED_RACES.find(r => r.id === s.raceId)!.mount
@@ -178,7 +188,8 @@ export function parseRaceSession(value: unknown): CareerRaceSession | null {
     || (s.referee !== undefined && !isRaceReferee(s.referee))
     || (s.reason !== undefined && typeof s.reason !== 'string')
     || (s.guideFallback !== undefined && typeof s.guideFallback !== 'string')
-    || (s.phase === 'result' || s.phase === 'returning') !== (s.result !== undefined)) return null
+    || (s.phase === 'finishing' || s.phase === 'result' || s.phase === 'returning') !== (s.result !== undefined)
+    || s.phase === 'finishing' && s.player.finishSeconds === undefined && s.opponent.finishSeconds === undefined) return null
   return structuredClone(s) as unknown as CareerRaceSession
 }
 export function parseRaceRecords(value: unknown): CareerRaceRecord[] | null {

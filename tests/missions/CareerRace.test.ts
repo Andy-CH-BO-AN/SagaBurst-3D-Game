@@ -3,7 +3,7 @@ import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
-import { canEnterRace, MOUNTED_RACES, RACE_PLAYER_CAN_SPRINT, advanceRaceClock, advanceRaceRider, resolveRace, raceRecordProfile, updateRaceGuidance,
+import { canEnterRace, MOUNTED_RACES, RACE_PLAYER_CAN_SPRINT, advanceRaceClock, advanceRaceRider, resolveRace, raceRecordProfile, raceIsRunning, updateRaceGuidance,
   type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
 import { RACE_START_SLOTS, RACE_LINES, lineCrossing, raceWaypoints, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -125,6 +125,35 @@ describe('Mounted race outcome ownership', () => {
     s.player.dead = true; s.opponent.dead = true; resolveRace(s)
     expect(s.result).toBe('win')
   })
+  it('keeps the living opponent racing after the player finishes and reloads before recording both times', () => {
+    const s = session(); s.phase = 'racing'; s.elapsedSeconds = 85.1
+    s.player.checkpoint = 5; s.player.finishSeconds = 85.1; s.opponent.checkpoint = 4
+    resolveRace(s)
+    expect(s.result).toBe('win'); expect(s.phase).toBe('finishing'); expect(raceIsRunning(s)).toBe(true)
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(raceRecordProfile(profile(), s))).toBe(true)
+    const loaded = store.load()!
+    expect(loaded.raceRecords).toBeUndefined(); expect(loaded.completedRaceIds).toBeUndefined()
+    const resumed = loaded.activeRace!
+    expect(resumed.opponent.dnf).toBeUndefined(); expect(resumed.result).toBe('win')
+    resumed.player.dead = true; resumed.player.hp = 0 // Winner can die while waiting without changing the result.
+    advanceRaceClock(resumed, 15, true)
+    expect(resumed.elapsedSeconds).toBe(100.1)
+    cross(resumed.opponent, pos(0, -120), pos(0, -110), resumed.elapsedSeconds); resolveRace(resumed)
+    expect(resumed.phase).toBe('result'); expect(resumed.result).toBe('win')
+    expect(resumed.opponent.finishSeconds).toBeGreaterThan(99)
+    const settled = raceRecordProfile(loaded, resumed)
+    expect(settled.raceRecords).toEqual([expect.objectContaining({ result: 'win', playerSeconds: 85.1, opponentSeconds: resumed.opponent.finishSeconds })])
+    expect(raceRecordProfile(settled, resumed).raceRecords).toHaveLength(1)
+  })
+  it('ends the wait when the trailing rider can no longer finish without changing the winner', () => {
+    const s = session(); s.phase = 'racing'; s.opponent.checkpoint = 5; s.opponent.finishSeconds = 70
+    resolveRace(s); expect(s.phase).toBe('finishing'); expect(s.result).toBe('loss')
+    s.player.dead = true; s.player.hp = 0; resolveRace(s)
+    expect(s.phase).toBe('result'); expect(s.result).toBe('loss')
+    expect(s.player.finishSeconds).toBeUndefined()
+    expect(raceRecordProfile(profile(), s).raceRecords).toEqual([expect.objectContaining({ result: 'loss', opponentSeconds: 70 })])
+  })
   it('cannot win on foot and draws once neither mount can finish', () => {
     const s = session(); s.player.checkpoint = 4; s.player.mountHp = 0; s.player.mounted = false
     cross(s.player, pos(0, -120), pos(0, -110)); resolveRace(s)
@@ -160,7 +189,7 @@ describe('Race persistence independent of hostility and Duel', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage), p = profile(), s = session()
     p.activeRace = s; p.townEvent = { id: 'town', state: 'hostile', deadActorIds: ['captain'] }
     expect(store.save(p)).toBe(true)
-    s.player.checkpoint = 5; s.player.finishSeconds = 77; resolveRace(s)
+    s.player.checkpoint = 5; s.player.finishSeconds = 77; s.opponent.dnf = '坐騎已死亡'; resolveRace(s)
     const result = raceRecordProfile(p, s)
     storage.failWrites = true; expect(store.save(result)).toBe(false)
     expect(store.load()!.raceRecords).toBeUndefined()
