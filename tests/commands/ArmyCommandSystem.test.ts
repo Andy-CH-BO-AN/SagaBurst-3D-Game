@@ -32,17 +32,22 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(h.ui.render.mock.lastCall![0].filter(row => row.target !== 'all')).toHaveLength(8)
   })
 
-  it('deduplicates real member types, limits visible icons and describes the complete mixed squad', () => {
+  it('shows every real member type once, including dead and pending members', () => {
     const members: ArmyHudMember[] = [
       { id: 'melee', squadId: 2, state: 'dead', unitType: 'melee' },
       { id: 'spear', squadId: 2, state: 'pending', unitType: 'spear' },
       { id: 'archer', squadId: 2, state: 'missing', unitType: 'archer' },
       { id: 'second-archer', squadId: 2, state: 'deployed', unitType: 'archer' },
       { id: 'javelin', squadId: 2, state: 'deployed', unitType: 'javelin' },
+      { id: 'cavalry', squadId: 2, state: 'deployed', unitType: 'cavalry' },
+      { id: 'lancer', squadId: 2, state: 'dead', unitType: 'lancer' },
+      { id: 'horse-archer', squadId: 2, state: 'pending', unitType: 'horseArcher' },
+      { id: 'eagle', squadId: 2, state: 'reserve', unitType: 'eagle' },
+      { id: 'civilian', squadId: 2, state: 'deployed', unitType: 'civilian' },
       { id: 'other-eagle', squadId: 8, state: 'deployed', unitType: 'eagle' },
     ]
-    expect(armyHudUnitSummary(members, 'squad:2')).toEqual({ icons: '⚔️ 🔱 🏹 +1',
-      description: '⚔️ 近戰步兵、🔱 槍兵、🏹 弓兵、➶ 標槍兵' })
+    expect(armyHudUnitSummary(members, 'squad:2')).toEqual({ icons: '⚔️ 🔱 🏹 ➶ 🐎 ♞ 🏇 🦅 👤',
+      description: '⚔️ 近戰步兵、🔱 槍兵、🏹 弓兵、➶ 標槍兵、🐎 近戰騎兵、♞ 槍騎兵、🏇 弓騎兵、🦅 巨鷹、👤 平民／商人' })
   })
 
   it('commits a direct ALL order before mutations and excludes dead, returning and unowned records', () => {

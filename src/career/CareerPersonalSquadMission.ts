@@ -34,6 +34,8 @@ export interface PersonalSquadMission {
   /** The town geometry last used by these checkpoints; absent in legacy saves. */
   layoutVersion?: number
   state: PersonalSquadState
+  /** A saved formal return; the home scene resolves HR muster/pads before spawning. */
+  returnToHR?: boolean
   members: Record<string, PersonalActorCheckpoint>
   contribution: PersonalCombatContribution
   pendingMemberIds?: string[]
@@ -55,6 +57,21 @@ export function clonePersonalMission(value: PersonalSquadMission): PersonalSquad
       ...(actor.mount ? { mount: { ...actor.mount, position: { ...actor.mount.position }, ...(actor.mount.flight ? { flight: { ...actor.mount.flight, velocity: { ...actor.mount.flight.velocity } } } : {}) } } : {}),
       ...(actor.formation ? { formation: { ...actor.formation, position: { ...actor.formation.position } } } : {}),
     }])) }
+}
+
+/** Keep HR casualties/resources, but never carry battlefield commands or flight into town. */
+export function returnPersonalMissionToHR(value: PersonalSquadMission | undefined): PersonalSquadMission | undefined {
+  if (!value) return undefined
+  const next = clonePersonalMission(value)
+  next.sceneKey = 'town-home'; next.state = 'RESERVE'; next.returnToHR = true
+  delete next.pendingMemberIds; delete next.playerLastPosition
+  for (const member of Object.values(next.members)) {
+    delete member.position; delete member.formation; delete member.fall; delete member.boarding
+    delete member.outpostRampartGarrison; delete member.townRampartGarrison
+    member.order = 'defend'
+    if (member.mount) { member.mount.mounted = false; delete member.mount.flight }
+  }
+  return next
 }
 
 /** Only fresh acceptance may readmit HR arrivals; reload keeps exited/dead checkpoints. */
@@ -147,6 +164,7 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
   contribution.structuresDestroyed = Math.floor(contribution.structuresDestroyed)
   contribution.gateBreaches = Math.floor(contribution.gateBreaches)
   return { squadId: PERSONAL_SQUAD_ID, memberIds: [...raw.memberIds], members, contribution,
+    ...(raw.returnToHR === true ? { returnToHR: true } : {}),
     ...(Number.isSafeInteger(raw.layoutVersion) && raw.layoutVersion! >= 1 ? { layoutVersion: raw.layoutVersion } : {}),
     ...(Array.isArray(raw.pendingMemberIds) ? { pendingMemberIds: raw.pendingMemberIds.filter(id => raw.memberIds!.includes(id) && members[id].status === 'reserve') } : {}),
     ...(position(raw.playerLastPosition) ? { playerLastPosition: position(raw.playerLastPosition) } : {}),

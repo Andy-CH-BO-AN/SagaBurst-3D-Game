@@ -1,6 +1,6 @@
 import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
-import { stageMissionReturnResidents } from './career/CareerMissionReturnRecovery'
+import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
 import { townRoster } from './town/TownRules'
 import { CareerBridgeBattleRuntime, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, isCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { preloadHighTierEquipment } from './world/HighTierEquipment'
@@ -3594,7 +3594,8 @@ export class Game {
     const completed = profile && (profile.activeMission?.result || profile.claimedBattleIds.includes(
       profile.activeMission?.id ?? profile.activeOutpostMission?.id ?? ''))
     const returned = next && refitTownCommandForSceneChange(next)
-    const recovered = returned && completed ? stageMissionReturnResidents(returned, townRoster().map(spec => ({ spec }))) : returned
+    const recovered = returned && completed ? stageMissionReturnRebuild(returned, townRoster().map(spec => ({ spec })),
+      profile.activeMission?.personalSquad ?? profile.activeOutpostMission?.personalSquad ?? returned.personalSquadRuntime) : returned
     if (!recovered || !this.careerStore.save(recovered)) { this._showNotify('無法保存返回狀態，請重試'); return }
     this.careerProfile = recovered
     this.personalSquad?.endMission(true)

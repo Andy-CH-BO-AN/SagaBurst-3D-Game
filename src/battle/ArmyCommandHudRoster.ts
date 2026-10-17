@@ -28,7 +28,7 @@ export function armyHudUnitType(source: ArmyHudUnitSource): ArmyHudUnitType | un
 export function armyHudUnitSummary(members: readonly ArmyHudMember[], target: ArmyCommandTarget): { icons: string; description: string } {
   const types = new Set(members.filter(member => matchesArmyCommandTarget(member, target)).map(member => member.unitType))
   const units = (Object.keys(ARMY_HUD_UNIT_TYPES) as ArmyHudUnitType[]).filter(type => types.has(type)).map(type => ARMY_HUD_UNIT_TYPES[type])
-  return { icons: units.slice(0, 3).map(unit => unit.icon).join(' ') + (units.length > 3 ? ` +${units.length - 3}` : ''),
+  return { icons: units.map(unit => unit.icon).join(' '),
     description: units.map(unit => `${unit.icon} ${unit.label}`).join('、') }
 }
 

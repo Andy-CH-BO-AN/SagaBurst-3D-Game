@@ -8,7 +8,7 @@ import type { Player } from '../player/Player'
 import type { Mount } from '../world/Mount'
 import { Faction, type NPC } from '../world/NPC'
 import { refitCommandCheckpoint } from '../career/CareerCommandActorCheckpoint'
-import { isMissionReturnResident, stageMissionReturnResidents, type MissionReturnHome } from '../career/CareerMissionReturnRecovery'
+import { isMissionReturnResident, stageMissionReturnRebuild, stageMissionReturnResidents, type MissionReturnHome } from '../career/CareerMissionReturnRecovery'
 import { getTerrainHeight } from '../world/Terrain'
 import { townPlayerEntryPoint, townSitePoint, townRoster, type TownActorSpec } from './TownRules'
 import type { TownEquipment } from './TownEquipment'
@@ -29,6 +29,8 @@ export interface MissionCommitOptions {
   civilianCommandStaged?: boolean
   /** Completed formal return owns resident recovery, including unchanged/default checkpoints. */
   residentReturnStaged?: boolean
+  /** Save canonical home state and dispose the old scene before restoring actors. */
+  rebuildTown?: boolean
 }
 
 interface MissionControllers {
@@ -125,7 +127,7 @@ export class TownMissionSettlement {
     const enemyTownOperation = active.kind === 'enemy-town-assault'
       || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
     if (veteranField && !active.result) return { status: 'ignored' }
-    const inPlace = !enemyTerritoryScout && (defense || intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField || captainPatrol)
+    const inPlace = !defense && !enemyTerritoryScout && (intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField || captainPatrol)
     if (inPlace && !defense && active.phase !== 'RETURNING' && !((active.kind === 'cavalry-sweep' || veteranField || captainPatrol) && active.result)) return { status: 'ignored' }
 
     // Cleanup empties controller rosters. Capture borrowed identities before clearing the saved mission.
@@ -144,14 +146,16 @@ export class TownMissionSettlement {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
     }
     next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
+    const rebuildTown = completed && !inPlace
+    if (rebuildTown) next = stageMissionReturnRebuild(next, townRoster().map(spec => ({ spec })), active.personalSquad)
     const groundedTownReturn = captainPatrol && intent === 'direct'
     if (groundedTownReturn) delete next.playerAerialState
-    if (!this.profiles.commit(next, { ...(groundedTownReturn ? { groundedTownReturn: true } : {}), ...(completed ? { residentReturnStaged: true, civilianCommandStaged: true } : {}) })) return { status: 'save-failed', destination: defense ? 'defense' : inPlace ? 'party' : 'restart' }
+    if (!this.profiles.commit(next, { ...(rebuildTown ? { rebuildTown: true } : {}), ...(groundedTownReturn ? { groundedTownReturn: true } : {}), ...(completed ? { residentReturnStaged: true, civilianCommandStaged: true } : {}) })) return { status: 'save-failed', destination: inPlace ? 'party' : 'restart' }
     this.town.returnPersonalSquad?.(intent === 'direct')
     if (captainPatrol) this.missions.patrol?.release()
 
     if (!inPlace) {
-      if (enemyTownOperation) this.missions.defense.cleanupMission()
+      if (defense || enemyTownOperation) this.missions.defense.cleanupMission()
       else if (active.kind === 'duel') this.missions.duel.cleanupMission()
       else this.missions.field.cleanupMission(active.targetCampId)
       if (enemyTerritoryScout) {

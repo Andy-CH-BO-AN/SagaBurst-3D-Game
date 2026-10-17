@@ -1,6 +1,6 @@
 import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
 import { refitCommandCheckpoint } from '../career/CareerCommandActorCheckpoint'
-import { stageMissionReturnResidents, isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
+import { stageMissionReturnRebuild, stageMissionReturnResidents, isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
 import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
@@ -65,7 +65,7 @@ import { eagleLandingFootprint } from '../world/EagleLanding'
 import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
 import { EagleLandingQueue } from '../world/EagleLandingQueue'
 import { TOWN_LAYOUT_VERSION } from './TownLayout'
-import { migratePersonalTownLayout } from './TownLayoutMigration'
+import { migratePersonalTownLayout, placePersonalMissionAtHR } from './TownLayoutMigration'
 import { XONGKORO } from '../movement/XongkoroConfig'
 import { CIVILIAN_HUMANOID_ASSETS, HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
@@ -830,12 +830,15 @@ export class TownScene {
     ])
     townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(this.profile.townCommandSquad)
     // HR/native handoff callbacks may save again before the recovered live actors are applied.
-    if (restoringResidents) next = stageMissionReturnResidents(next,
+    if (options.rebuildTown) next = stageMissionReturnRebuild(next, townRoster().map(spec => ({ spec })))
+    else if (restoringResidents) next = stageMissionReturnResidents(next,
       this.world.faction === next.faction && !this.sceneContext.missionOnlyResidents ? this.residents.map(resident => ({
         spec: resident.spec, ...(isMissionReturnResident(resident.spec)
           ? { checkpoint: refitCommandCheckpoint(resident.npc, resident.homeMount) } : {}),
       })) : townRoster().map(spec => ({ spec })))
     if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
+    // No handoff callbacks may capture the outgoing battle poses over the saved rebuild.
+    if (options.rebuildTown) { this.profile = next; this.careerSkillsDirty = false; return true }
     if (restoringResidents) this.residentReturnPending = true
     if (respawning || returningFromDefense) this.townRefitOnReturn = true
     // Authorize the live controller only after the transition and permission are durably saved.
@@ -2101,6 +2104,9 @@ export class TownScene {
 
   private restorePersonalSquad(saved: CareerProfile['personalSquadRuntime']): void {
     if (!saved || !this.personalSquad) return
+    if (this.personalSquad.hasHR && saved.returnToHR) saved = placePersonalMissionAtHR(saved,
+      { muster: this.world.hr.muster, eaglePads: this.world.eagleTraining.pads,
+        padForMember: id => this.privateEaglePads?.get(id) })
     if (this.personalSquad.hasHR) saved = migratePersonalTownLayout(saved, this.personalSquad.sceneKey,
       { muster: this.world.hr.muster, eaglePads: this.world.eagleTraining.pads,
         padForMember: id => this.privateEaglePads?.get(id) })!

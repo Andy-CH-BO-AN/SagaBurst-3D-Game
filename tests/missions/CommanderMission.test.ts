@@ -460,7 +460,8 @@ describe('Bridgehead reload routing', () => {
     expect(returned.claimedBattleIds).toEqual(claimed.claimedBattleIds)
     expect(returned.totalMerit).toBe(claimed.totalMerit)
     expect(returned.lifetimeStats).toEqual(claimed.lifetimeStats)
-    expect(returned.personalSquadRuntime).toEqual(claimed.activeMission!.personalSquad)
+    expect(returned.personalSquadRuntime).toMatchObject({ sceneKey: 'town-home', state: 'RESERVE', returnToHR: true,
+      members: { 'personal:hr-1': { status: 'dead', hp: 0, mount: { hp: 0, mounted: false } } } })
     expect(returned.personalSquad).toEqual(owned)
   })
 

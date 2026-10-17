@@ -1,9 +1,9 @@
 import { describe,expect,it } from 'vitest'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
-import { emptyPersonalContribution,type PersonalActorCheckpoint,type PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
+import { emptyPersonalContribution, returnPersonalMissionToHR, type PersonalActorCheckpoint,type PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { migratePersonalTownLayout } from '../../src/town/TownLayoutMigration'
+import { migratePersonalTownLayout, placePersonalMissionAtHR } from '../../src/town/TownLayoutMigration'
 import { purchaseTownMount } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
@@ -65,6 +65,36 @@ describe('Career Town layout checkpoint migration', () => {
         ...actor,
       } } }
   }
+
+  it('persists formal return to HR and grounds private eagles at allocated pads while keeping casualties and wounds', () => {
+    const battle = personal({ order: 'charge', boarding: true,
+      formation: { commandId: 9, position: { x: 500, z: 500, yaw: 0 }, reached: false },
+      mount: { hp: 73, mounted: true, position: { x: 500, y: 80, z: 500, yaw: 1 },
+        flight: { phase: 'cruise', yaw: 1, pitch: .2, bank: .1, speed: 12, velocity: { x: 5, y: 2, z: 8 } } } })
+    battle.sceneKey = 'bridge:completed'; battle.pendingMemberIds = ['personal:foot']
+    battle.memberIds.push('personal:foot', 'personal:dead')
+    battle.members['personal:foot'] = { status: 'deployed', hp: 9, ammo: 0, position: { x: 510, z: 520, yaw: 1 }, order: 'follow' }
+    battle.members['personal:dead'] = { status: 'dead', hp: 0 }
+    const before = structuredClone(battle), profile = createCareerProfile('roman')
+    profile.personalSquadRuntime = returnPersonalMissionToHR(battle)
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const saved = store.load()!.personalSquadRuntime!
+    expect(saved).toMatchObject({ sceneKey: 'town-home', state: 'RESERVE', returnToHR: true })
+    expect(saved.pendingMemberIds).toBeUndefined()
+    const home = placePersonalMissionAtHR(saved, { ...layout, padForMember: id => id === 'personal:eagle' ? secondPad : undefined }, terrain)
+    expect(home.returnToHR).toBeUndefined()
+    expect(home.members['personal:eagle']).toEqual({ status: 'deployed', hp: 49, ammo: 3, shieldImpact: 2,
+      eaglePadId: 'private-eagle-pad:2', order: 'defend', position: { x: -90, y: 12, z: 70, yaw: 0 },
+      mount: { hp: 73, mounted: false, position: { x: -40, y: 12, z: 25, yaw: Math.PI / 2 } } })
+    expect(home.members['personal:foot']).toMatchObject({ hp: 9, ammo: 0, order: 'defend',
+      position: { x: -85, y: 12, z: 70, yaw: 0 } })
+    expect(home.members['personal:dead']).toMatchObject({ status: 'dead', hp: 0 })
+    expect(battle).toEqual(before)
+    profile.personalSquadRuntime = home
+    expect(store.save(profile)).toBe(true)
+    expect(placePersonalMissionAtHR(store.load()!.personalSquadRuntime!, layout, terrain)).toEqual(home)
+  })
 
   it('relocates a boarding eagle and changes its walking destination while retaining the rider position and wounds', () => {
     const saved = personal({ boarding: true, formation: { commandId: -1001,

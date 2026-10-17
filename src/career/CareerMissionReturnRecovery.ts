@@ -3,6 +3,8 @@ import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
 import { civilianCommandRoster } from './CivilianCommandAuthority'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import type { TownActorSpec } from '../town/TownRules'
+import { refitTownCommandForSceneChange } from './SquadRefit'
+import { returnPersonalMissionToHR } from './CareerPersonalSquadMission'
 
 export interface MissionReturnHome {
   spec: Pick<TownActorSpec, 'id' | 'role' | 'x' | 'z' | 'yaw'> & Partial<Pick<TownActorSpec, 'duty' | 'y'>>
@@ -53,5 +55,22 @@ export function stageMissionReturnResidents(current: CareerProfile, homes: reado
     town.commandedActorIds = town.commandedActorIds?.filter(id => !released.has(id))
     town.refittingActorIds = town.refittingActorIds?.filter(id => !released.has(id))
   }
+  return next
+}
+
+/** Explicit completed mission return only. Ordinary town reloads retain all checkpoints. */
+export function stageMissionReturnRebuild(current: CareerProfile,
+  homes: readonly MissionReturnHome[], personal = current.personalSquadRuntime): CareerProfile {
+  const next = stageMissionReturnResidents(refitTownCommandForSceneChange(current), homes.map(({ spec }) => ({ spec })))
+  if (next.townCommandSquad?.townFaction === next.faction) {
+    next.townCommandSquad.commandedActorIds = []
+    next.townCommandSquad.refittingActorIds = []
+    delete next.townCommandSquad.nativeReturnStates
+  }
+  if (next.townAirCommandSquad?.townFaction === next.faction) delete next.townAirCommandSquad
+  // Reconstruct native riders at their pads; their existing patrol owner starts the next cycle.
+  if (next.townEagleGarrisons) delete next.townEagleGarrisons[next.faction]
+  delete next.playerAerialState
+  next.personalSquadRuntime = returnPersonalMissionToHR(personal)
   return next
 }

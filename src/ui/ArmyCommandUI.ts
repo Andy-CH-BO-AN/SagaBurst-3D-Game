@@ -244,6 +244,7 @@ export class ArmyCommandUI {
       row.className = 'army-command-entry'
       row.classList.toggle('highlighted', entry.target === highlightedTarget)
       const label = document.createElement('span')
+      if (entry.units && entry.units.icons.split(' ').length > 4) row.classList.add('army-command-entry-wide')
       label.className = 'army-command-label'
       const name = this.resolveSquadLabel(entry.target) ?? entry.label
       const heading = document.createElement('span')

@@ -392,6 +392,7 @@
       .army-command-targets .army-command-label { flex: 1; overflow: hidden; }
       .army-command-name-row { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
       .army-command-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      .army-command-entry-wide { grid-column: 1 / -1; }
       .army-command-unit-icons { flex: none; font-size: 12px; letter-spacing: -1px; pointer-events: auto; }
       .army-command-summary { font-size: 12px; }
       .army-command-targets .army-command-entry { overflow: hidden; }
@@ -494,7 +495,7 @@
           max-height: max(142px, calc(100dvh - var(--town-command-top, 400px) - 18px));
         }
       }
-      @media (max-width: 480px) {
+      @media (max-width: 680px) {
         #army-command-hud[data-layout="town"] .army-command-targets,
         #army-command-hud[data-layout="town"] .army-command-commands {
           grid-template-columns: 1fr;
