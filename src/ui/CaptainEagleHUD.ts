@@ -24,13 +24,12 @@ export class CaptainEagleHUD {
     this.root.textContent = `Eagle Battle · 巨鷹空戰｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式隊 ${official} · 私兵 ${personal}｜敵軍 ${enemyAlive}`
   }
 
-  updateBridgehead(enemyAlive: number,
-    deployment: Readonly<BridgeBattleDeployment>, spawned: number): void {
+  updateBridgehead(enemyAlive: number, deployment: Readonly<BridgeBattleDeployment>): void {
     const seconds = Math.ceil(deployment.preparationRemainingSeconds)
     const countdown = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
     const status = deployment.phase === 'preparing'
       ? `準備 ${countdown} · 敵騎尚未進場`
-      : deployment.phase === 'spawning' ? `南岸敵騎集結：${spawned} / 200` : '敵軍進攻中'
+      : deployment.phase === 'spawning' ? '南岸敵騎集結中' : '敵軍進攻中'
     this.root.textContent = `COMMANDER IV · BRIDGEHEAD BATTLE\n${status}\n目標：殲滅敵騎 · 剩餘 ${enemyAlive} / 200`
   }
 

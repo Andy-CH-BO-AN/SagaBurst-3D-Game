@@ -2738,8 +2738,7 @@ export class Game {
     if (this.bridgeRuntime) {
       const runtime = this.bridgeRuntime
       runtime.observe(mission, this.npcs)
-      this.captainEagleHud?.updateBridgehead(runtime.enemyAlive,
-        runtime.deployment, this.captainEagleSpawnBatch?.completed ?? 0)
+      this.captainEagleHud?.updateBridgehead(runtime.enemyAlive, runtime.deployment)
       if (this.captainResultPending) return
       if (mission.result) {
         if (!this.careerResultStats) this._showCaptainEagleResult(mission.result.outcome)
