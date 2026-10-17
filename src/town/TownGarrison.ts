@@ -13,6 +13,9 @@ export function assignTownGarrison(roster: TownActorSpec[]): TownActorSpec[] {
   const plans = siegeDefensePlans(roster)
   const gateByActor = new Map(plans.flatMap(p => [...p.infantry, ...p.cavalry].map(id => [id, p.gateId] as const)))
   const occupied: { x: number; z: number }[] = []
+  const rampartCandidates = new Map<TownGateId, {
+    points: { x: number; z: number; yaw: number }[]; checkedOccupancy: number
+  }>()
   const ranged = roster.filter(a => !a.mounted && (a.duty === 'training' || a.duty === 'gate_guard') && (a.unitKind === 'ranged' || a.unitKind === 'archer'))
   const melee = roster.filter(a => !a.mounted && (a.duty === 'training' || a.duty === 'gate_guard') && (a.unitKind === 'melee' || a.unitKind === 'spearman'))
   const cavalry = roster.filter(a => a.mounted && a.duty === 'training')
@@ -36,12 +39,30 @@ export function assignTownGarrison(roster: TownActorSpec[]): TownActorSpec[] {
       }
       let p = townGatePoint(gate, side, inward)
       if (kind === 'rampart') {
-        const candidates = layout.wallSpans.filter(d => d.gateId === gate.id).flatMap(d => {
-          const s = d.surface
-          return [.4, 2.55, 4.65].filter(along => along < s.length - .25).map(along => ({
-            x: s.startX + s.dirX * along + s.dirZ * 2, z: s.startZ + s.dirZ * along - s.dirX * 2, yaw: gate.yaw,
-          }))
-        }).filter(q => Math.hypot(q.x - gate.x, q.z - gate.z) > 12 && occupied.every(o => Math.hypot(o.x - q.x, o.z - q.z) >= 2.5))
+        let available = rampartCandidates.get(gate.id)
+        if (!available) {
+          available = {
+            points: layout.wallSpans.filter(d => d.gateId === gate.id).flatMap(d => {
+              const s = d.surface
+              return [.4, 2.55, 4.65].filter(along => along < s.length - .25).map(along => ({
+                x: s.startX + s.dirX * along + s.dirZ * 2, z: s.startZ + s.dirZ * along - s.dirX * 2, yaw: gate.yaw,
+              }))
+            }).filter(q => Math.hypot(q.x - gate.x, q.z - gate.z) > 12),
+            checkedOccupancy: 0,
+          }
+          rampartCandidates.set(gate.id, available)
+        }
+        // Occupancy only grows during this call, so prior exclusions stay valid.
+        available.points = available.points.filter(q => {
+          for (let i = available.checkedOccupancy; i < occupied.length; i++) {
+            const o = occupied[i]
+            if (!(Math.hypot(o.x - q.x, o.z - q.z) >= 2.5)) return false
+          }
+          return true
+        })
+        available.checkedOccupancy = occupied.length
+        // Sort a copy: preserve authored order for equal-distance ties each time.
+        const candidates = [...available.points]
         candidates.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))
         p = candidates[0]; occupied.push(p)
       }

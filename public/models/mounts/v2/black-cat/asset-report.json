@@ -1,0 +1,155 @@
+{
+  "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
+  "bytes": 7889000,
+  "source": {
+    "sha256": "9e6ce0835095dfec2de0e953f38a0dbaa987a50da0a28bf4e8c241ee2ac7f81a",
+    "bytes": 18758816,
+    "triangles": 10322
+  },
+  "previousPackage": {
+    "sha256": "0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986",
+    "bytes": 9409176,
+    "bodyLod0Triangles": 71856
+  },
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 12306,
+      "storedTriangles": 27890,
+      "backingTriangles": 15584,
+      "unarmoredTriangles": 15584,
+      "bodyTriangles": 5344,
+      "equipmentTriangles": 6962
+    },
+    {
+      "level": 1,
+      "triangles": 5905,
+      "storedTriangles": 11515,
+      "backingTriangles": 5610,
+      "unarmoredTriangles": 5610,
+      "bodyTriangles": 2565,
+      "equipmentTriangles": 3340
+    },
+    {
+      "level": 2,
+      "triangles": 2212,
+      "storedTriangles": 4393,
+      "backingTriangles": 2181,
+      "unarmoredTriangles": 2181,
+      "bodyTriangles": 960,
+      "equipmentTriangles": 1252
+    }
+  ],
+  "textures": [
+    {
+      "name": "normal",
+      "width": 2048,
+      "height": 2048,
+      "bytes": 4202529,
+      "mimeType": "image/png"
+    },
+    {
+      "name": "texture_0",
+      "width": 2048,
+      "height": 2048,
+      "bytes": 1197712,
+      "mimeType": "image/jpeg"
+    },
+    {
+      "name": "texture_0_metallic_roughness",
+      "width": 1024,
+      "height": 1024,
+      "bytes": 834567,
+      "mimeType": "image/png"
+    }
+  ],
+  "materials": 1,
+  "visibleDrawPrimitives": {
+    "equipped": 2,
+    "unarmored": 1
+  },
+  "residentMeshPrimitives": 9,
+  "animationMixerPerInstance": 1,
+  "whiskers": {
+    "count": 6,
+    "bone": "cat_head",
+    "segments": 8,
+    "sourceRoots": [
+      [
+        -0.04699999839067459,
+        -0.9109829068183899,
+        0.2630000114440918
+      ],
+      [
+        -0.052000001072883606,
+        -0.9021651744842529,
+        0.2720000147819519
+      ],
+      [
+        -0.05700000002980232,
+        -0.8946526646614075,
+        0.2809999883174896
+      ],
+      [
+        0.04699999839067459,
+        -0.9110299944877625,
+        0.2630000114440918
+      ],
+      [
+        0.052000001072883606,
+        -0.9018042087554932,
+        0.2720000147819519
+      ],
+      [
+        0.05700000002980232,
+        -0.8938409686088562,
+        0.2809999883174896
+      ]
+    ]
+  },
+  "muzzleRepair": {
+    "removedSourceFaces": 298,
+    "retainedSourceFaces": 10024,
+    "capTriangles": 1898
+  },
+  "saddleSeat": {
+    "heightM": 1.6228187964439391,
+    "sourceLocal": [
+      0,
+      -0.16,
+      0.281
+    ]
+  },
+  "limits": [
+    "Blender image review does not establish Browser gameplay or GPU performance.",
+    "Minor closed cheek and shoulder shading seams at close range.",
+    "Small contracted upper-leg folds beneath source tack.",
+    "Four tiny pre-existing open edge segments outside repaired muzzle remain.",
+    "Unarmored LOD0 conservatively uses 15,584 triangles to retain source head/paws/tail and continuous concealed fur; LOD1/2 reduce this to 5,610/2,181."
+  ],
+  "blenderPackedRoundtrip": {
+    "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
+    "reviewedImages": 50,
+    "sevenClips": true,
+    "runPhases": 8,
+    "allLods": true,
+    "equipmentOff": true,
+    "headCloseViews": [
+      "front",
+      "left",
+      "right",
+      "angle"
+    ],
+    "browserGameplay": false,
+    "headFollowPoses": [
+      "run",
+      "death"
+    ],
+    "shoulderOpaqueSurfaceDiagnosticFrames": [
+      18,
+      24,
+      30,
+      36
+    ]
+  }
+}
