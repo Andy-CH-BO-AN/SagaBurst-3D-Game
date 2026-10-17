@@ -6,9 +6,11 @@ import type { CareerMissionOutcome, CareerMissionResult } from '../career/Career
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { Mount } from '../world/Mount'
-import type { NPC } from '../world/NPC'
+import { Faction, type NPC } from '../world/NPC'
+import { refitCommandCheckpoint } from '../career/CareerCommandActorCheckpoint'
+import { isMissionReturnResident, stageMissionReturnResidents, type MissionReturnHome } from '../career/CareerMissionReturnRecovery'
 import { getTerrainHeight } from '../world/Terrain'
-import { townPlayerEntryPoint, townSitePoint, type TownActorSpec } from './TownRules'
+import { townPlayerEntryPoint, townSitePoint, townRoster, type TownActorSpec } from './TownRules'
 import type { TownEquipment } from './TownEquipment'
 import type { TownWorld } from './TownWorld'
 import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
@@ -25,6 +27,8 @@ export interface MissionCommitOptions {
   groundedTownReturn?: boolean
   /** A civilian transaction owns its staged checkpoint even when it equals the previous save. */
   civilianCommandStaged?: boolean
+  /** Completed formal return owns resident recovery, including unchanged/default checkpoints. */
+  residentReturnStaged?: boolean
 }
 
 interface MissionControllers {
@@ -35,7 +39,7 @@ interface MissionControllers {
 }
 
 interface ReturnResident {
-  spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw' | 'defenseGroup'> & Partial<Pick<TownActorSpec, 'id' | 'duty'>>
+  spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw' | 'defenseGroup'> & Partial<Pick<TownActorSpec, 'id' | 'duty' | 'y'>>
   npc: NPC
   homeMount?: Mount
   cycle: number
@@ -57,6 +61,7 @@ interface TownReturnScene {
   restPlayer(): void
   returnPersonalSquad?(direct: boolean): void
   preservesResident?(npc: NPC): boolean
+  applyResidentReturn?(): void
   restart(profile: CareerProfile): void
 }
 
@@ -125,7 +130,15 @@ export class TownMissionSettlement {
 
     // Cleanup empties controller rosters. Capture borrowed identities before clearing the saved mission.
     const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : captainPatrol ? this.missions.patrol?.actors ?? [] : this.missions.field.friendlies) : null
-    const next = clearCareerMission(profile, active.id)
+    const completed = Boolean(active.result || profile.claimedBattleIds.includes(active.id))
+    let next = clearCareerMission(profile, active.id)
+    if (completed) {
+      const homes: MissionReturnHome[] = inPlace ? this.town.residents.flatMap(resident => resident.spec.id ? [{
+        spec: { ...resident.spec, id: resident.spec.id },
+        ...(isMissionReturnResident(resident.spec) ? { checkpoint: refitCommandCheckpoint(resident.npc, resident.homeMount) } : {}),
+      }] : []) : townRoster().map(spec => ({ spec }))
+      next = stageMissionReturnResidents(next, homes)
+    }
     const garrison = next.townEagleGarrisons?.[profile.faction]
     if (inPlace && garrison) for (const pair of garrison.pairs) {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
@@ -133,7 +146,7 @@ export class TownMissionSettlement {
     next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
     const groundedTownReturn = captainPatrol && intent === 'direct'
     if (groundedTownReturn) delete next.playerAerialState
-    if (!this.profiles.commit(next, groundedTownReturn ? { groundedTownReturn: true } : undefined)) return { status: 'save-failed', destination: defense ? 'defense' : inPlace ? 'party' : 'restart' }
+    if (!this.profiles.commit(next, { ...(groundedTownReturn ? { groundedTownReturn: true } : {}), ...(completed ? { residentReturnStaged: true, civilianCommandStaged: true } : {}) })) return { status: 'save-failed', destination: defense ? 'defense' : inPlace ? 'party' : 'restart' }
     this.town.returnPersonalSquad?.(intent === 'direct')
     if (captainPatrol) this.missions.patrol?.release()
 
@@ -158,7 +171,13 @@ export class TownMissionSettlement {
     else if (active.kind === 'cavalry-sweep' || veteranField) this.missions.field.cleanupMission(active.targetCampId, true)
     else if (!captainPatrol) this.missions.field.cleanupMission(active.targetCampId)
     this.town.clearCombatShots()
+    if (defense) {
+      this.town.world.restoreTownDamage()
+      this.town.navigation.sync(this.town.world.obstacles)
+    }
+    if (defense || active.kind === 'duel' || this.town.cat.dead) this.restoreCat()
     for (const resident of this.town.residents) {
+      if (completed && isMissionReturnResident(resident.spec)) { this.restoreResident(resident); continue }
       if (captainPatrol) continue // Its owner already handed the exact roster to physical return/refit.
       if (this.town.preservesResident?.(resident.npc)) continue
       const restore = resident.npc.dead || (defense
@@ -179,11 +198,7 @@ export class TownMissionSettlement {
         }
       }
     }
-    if (defense || active.kind === 'duel' || this.town.cat.dead) this.restoreCat()
-    if (defense) {
-      this.town.world.restoreTownDamage()
-      this.town.navigation.sync(this.town.world.obstacles)
-    }
+    if (completed) this.town.applyResidentReturn?.()
     const entry = townPlayerEntryPoint(), entryY = getTerrainHeight(entry.x, entry.z) + .9
     if (captainPatrol && intent === 'direct') {
       this.town.player.resetForScene(entry.x, entryY, entry.z)
@@ -198,21 +213,33 @@ export class TownMissionSettlement {
   }
 
   private restoreResident(resident: ReturnResident): void {
-    resident.npc.dismountFromMount()
-    resident.npc.restoreForTown()
-    resident.npc.group.rotation.y = resident.spec.yaw ?? Math.PI
-    resident.cycle = -1
-    resident.walkTime = 0
-    this.town.releaseExternalThreat(resident.npc)
-    if (resident.homeMount) {
-      resident.homeMount.restoreForTown(resident.spec.x, resident.spec.z, resident.spec.yaw ?? Math.PI)
-      resident.npc.mountVehicle(resident.homeMount)
-    }
+    restoreMissionReturnResident(resident, npc => this.town.releaseExternalThreat(npc))
   }
 
   private restoreCat(): void {
     const spot = townSitePoint('stable', -3, 8)
     this.town.cat.restoreForTown(spot.x, spot.z, spot.yaw)
     this.town.cat.catVisual?.setEquipmentVisible(false)
+  }
+}
+
+/** Restore the same authored identity after its recovery checkpoint has been saved. */
+export function restoreMissionReturnResident(resident: ReturnResident, releaseExternalThreat: (npc: NPC) => void): void {
+  const { npc, spec, homeMount } = resident
+  npc.dismountFromMount()
+  npc.restoreForTown({ x: spec.x, z: spec.z, yaw: spec.yaw ?? Math.PI })
+  npc.group.rotation.y = spec.yaw ?? Math.PI
+  if (isMissionReturnResident(spec)) {
+    npc.combatOwnership = undefined
+    npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(undefined)
+    npc.missionMovement = false; npc.setMissionCombatTarget(undefined)
+    npc.assignSiegeObstacle(null); npc.clearEncounter(); npc.releaseOutpostRampartGarrison()
+    if (spec.role === 'civilian' || spec.role === 'merchant') npc.disarmTownCivilian()
+  }
+  resident.cycle = -1; resident.walkTime = 0
+  releaseExternalThreat(npc)
+  if (homeMount) {
+    homeMount.restoreForTown(spec.x, spec.z, spec.yaw ?? Math.PI)
+    npc.mountVehicle(homeMount)
   }
 }

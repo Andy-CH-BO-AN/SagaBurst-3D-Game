@@ -5,7 +5,9 @@ import {
   commanderTownSquadLabel,
   resolveCommanderTownTargetLabel,
   COMMANDER_TOWN_SQUAD_LABELS,
+  officialCommandHudLabel,
 } from '../../src/career/CommanderTownSquadLabels'
+import { createMissionCommandAuthority } from '../../src/career/CareerCommandAuthority'
 import { ArmyCommandUI, armyCommandTargetLabel } from '../../src/ui/ArmyCommandUI'
 import { squadCommandTarget, type SquadCommandTarget, type SquadId } from '../../src/battle/CommandTarget'
 import { Faction } from '../../src/world/NPC'
@@ -52,11 +54,14 @@ describe('Commander Town Squad Labels and HUD alignment', () => {
     expect(armyCommandTargetLabel('squad:personal')).toBe('Personal Squad · 私人小隊')
     expect(armyCommandTargetLabel('squad:civilians')).toBe('Civilian Squad · 平民／商人')
 
-    // Mission Commander context: only official squad:1 gets the mission label
+    // A legacy Captain grant keeps its name even if the profile was later promoted.
     const missionLabel = 'Mission Squad · 任務部隊'
-    expect(armyCommandTargetLabel('squad:1', missionLabel)).toBe(missionLabel)
-    expect(armyCommandTargetLabel('squad:2', missionLabel)).toBe('第 2 隊')
-    expect(armyCommandTargetLabel('squad:8', missionLabel)).toBe('第 8 隊')
+    const captain = createMissionCommandAuthority('captain', 'roman', 'captain', ['one'], [])
+    expect(armyCommandTargetLabel('squad:1', officialCommandHudLabel(captain))).toBe(missionLabel)
+    const commander = createMissionCommandAuthority('commander', 'roman', 'commander', [],
+      [{ squadId: 1, actorIds: ['one'] }, { squadId: 8, actorIds: ['eight'] }])
+    expect(armyCommandTargetLabel('squad:1', officialCommandHudLabel(commander))).toBe('第 1 隊')
+    expect(armyCommandTargetLabel('squad:8', officialCommandHudLabel(commander))).toBe('第 8 隊')
 
     // Non-squad targets (preset or all) remain unaffected by resolver
     expect(armyCommandTargetLabel('all', resolveCommanderTownTargetLabel)).toBe('全軍命令')

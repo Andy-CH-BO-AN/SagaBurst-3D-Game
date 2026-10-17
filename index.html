@@ -389,6 +389,13 @@
       .army-command-order { color: #e8c96a; font-weight: 800; }
       .army-command-targets .army-command-label { min-width: 0; }
       .army-command-targets .army-command-order { flex-shrink: 0; }
+      .army-command-targets .army-command-label { flex: 1; overflow: hidden; }
+      .army-command-name-row { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
+      .army-command-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      .army-command-unit-icons { flex: none; font-size: 12px; letter-spacing: -1px; pointer-events: auto; }
+      .army-command-summary { font-size: 12px; }
+      .army-command-targets .army-command-entry { overflow: hidden; }
+      .army-command-targets, .army-command-commands { max-height: calc(100dvh - 36px); overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
       .army-command-order.defend { color: #8fd3ff; }
       .army-command-order.charge { color: #ff9d6b; }
       .army-command-order.formation { color: #73e6a2; }
@@ -477,7 +484,8 @@
       @media (max-width: 1100px) {
         #army-command-hud[data-layout="town"] .army-command-targets,
         #army-command-hud[data-layout="town"] .army-command-commands {
-          top: var(--town-command-top, 400px);
+          top: min(var(--town-command-top, 400px), calc(100dvh - 160px));
+          max-height: max(142px, calc(100dvh - var(--town-command-top, 400px) - 18px));
         }
       }
       @media (max-width: 480px) {

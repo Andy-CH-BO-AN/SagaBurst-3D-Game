@@ -1,3 +1,7 @@
+import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
+import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
+import { stageMissionReturnResidents } from './career/CareerMissionReturnRecovery'
+import { townRoster } from './town/TownRules'
 import { CareerBridgeBattleRuntime, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, isCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { preloadHighTierEquipment } from './world/HighTierEquipment'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
@@ -1339,7 +1343,7 @@ export class Game {
     if (!this.careerProfile) this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState))
     this.armyCommandUI   = new ArmyCommandUI(playerFaction)
     if (this.hasCareerOfficialCommand) {
-      this.armyCommandUI.setOfficialSquadLabel(this.bridgeLaunch ? '第 1 隊' : 'Mission Squad · 任務部隊')
+      this.armyCommandUI.setOfficialSquadLabel(officialCommandHudLabel(this._careerCommandMission()?.officialSquad))
     }
     this.equipmentUI      = new EquipmentUI()
     this.inventoryManager = this.isTrainingGround ? createTrainingInventory(playerHeroId) : new InventoryManager(activeBattleConfig?.playerLoadout, playerHeroId, playerFaction)
@@ -2380,6 +2384,7 @@ export class Game {
   }
 
   /** Only this battle's saved permission and actual NPCs contribute to command counts. */
+  private readonly careerHudTypes = new CareerCommandHudTypes()
   private _careerCommandHudRoster() {
     const profile = this.careerProfile
     if (!profile) return undefined
@@ -2395,6 +2400,8 @@ export class Game {
     const personal: PersonalSquadMission | undefined = accepted
       ? sameRoster ? { ...accepted, members: live!.members } : accepted : undefined
     return careerCommandHudRoster({
+      unitTypes: this.careerHudTypes.read(profile),
+      personalMembers: profile.personalSquad?.members,
       sceneKey: this.bridgeLaunch ? `bridge:${this.fieldMissionId}`
         : this.captainEagleMissionId ? `eagle:${this.captainEagleMissionId}` : `outpost:${mission?.id ?? 'free'}`,
       faction: profile.faction,
@@ -3584,7 +3591,12 @@ export class Game {
       ? profile?.activeMission ? this.bridgeLaunch ? clearCareerBridgeBattle(profile, activeMissionId)
         : clearCareerMission(profile, activeMissionId) : profile
       : profile ? clearCareerOutpost(profile) : null
-    if (!next || !this.careerStore.save(refitTownCommandForSceneChange(next))) { this._showNotify('無法保存返回狀態，請重試'); return }
+    const completed = profile && (profile.activeMission?.result || profile.claimedBattleIds.includes(
+      profile.activeMission?.id ?? profile.activeOutpostMission?.id ?? ''))
+    const returned = next && refitTownCommandForSceneChange(next)
+    const recovered = returned && completed ? stageMissionReturnResidents(returned, townRoster().map(spec => ({ spec }))) : returned
+    if (!recovered || !this.careerStore.save(recovered)) { this._showNotify('無法保存返回狀態，請重試'); return }
+    this.careerProfile = recovered
     this.personalSquad?.endMission(true)
     this._disposeCareerOutpostBattleActors()
     window.removeEventListener('pagehide', this.flushVeteranOutpostOnPageHide)

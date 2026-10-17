@@ -1,3 +1,6 @@
+import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
+import { refitCommandCheckpoint } from '../career/CareerCommandActorCheckpoint'
+import { stageMissionReturnResidents, isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
 import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
@@ -19,7 +22,7 @@ import { availableCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO } from 
 import { createTownCareerEquipmentUI } from './TownCareerEquipmentUI'
 import { applyTownEquipmentRuntime, registerTownNativeMount, findTownNativeMount } from './TownEquipmentRuntime'
 import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentContext } from '../career/CareerTownEquipment'
-import { resolveCommanderTownTargetLabel } from '../career/CommanderTownSquadLabels'
+import { officialCommandHudLabel } from '../career/CommanderTownSquadLabels'
 import { townDefaultActorLoadout } from '../career/CareerTownEquipmentState'
 import { townMerchantLoadout } from './TownMerchantEquipment'
 import { careerMountType } from '../career/CareerMountController'
@@ -136,7 +139,7 @@ import { townMeleeBuildingContact } from './TownCombat'
 import { TownWorld } from './TownWorld'
 import { TOWN_NAVIGATION_BOUNDS, TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import { TownEquipment } from './TownEquipment'
-import { TownMissionSettlement, type MissionCommitOptions } from './TownMissionSettlement'
+import { TownMissionSettlement, restoreMissionReturnResident, type MissionCommitOptions } from './TownMissionSettlement'
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
 import { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import { withTownCommandSquadRoster } from './TownRules'
@@ -246,6 +249,7 @@ export class TownScene {
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
   private townRefitOnReturn = false
+  private residentReturnPending = false
   private get sceneContext() { return resolveCareerTownSceneContext(this.profile) }
   private pointerWasLocked = false
   private careerSaveFailures = 0
@@ -472,6 +476,11 @@ export class TownScene {
         releaseExternalThreat: npc => this.missionCombat.releaseExternalThreat(npc),
         beginPatrolMissionReturn: actorId => { this.patrol.beginMissionReturn(actorId) },
         beginEagleMissionReturn: actorId => { this.eagleGarrison?.beginRefit(actorId) },
+        applyResidentReturn: () => {
+          for (const resident of this.residents) if (resident.spec.role === 'civilian') this.civilianLife?.suspend(resident.spec.id)
+          this.civilianCommand?.applySavedState(this.profile.civilianCommandSquad)
+          this.residentReturnPending = false
+        },
         preservesResident: npc => Boolean(this.townCommand?.owns(npc) || this.civilianCommand?.owns(npc)),
         world: this.world, navigation: this.navigation, inventory: this.inventory,
         get player() { return town.player },
@@ -673,6 +682,7 @@ export class TownScene {
 
   private commit(profile: CareerProfile, options: MissionCommitOptions = {}): boolean {
     this.clearCareerSkillSaveTimer()
+    const restoringResidents = Boolean(options.residentReturnStaged || this.residentReturnPending)
     let next = cloneCareerProfile(profile)
     const startsFormal = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id
       || next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)
@@ -685,13 +695,13 @@ export class TownScene {
     const airScenePermissionChanged = (this.profile.townEvent?.state === 'hostile') !== (next.townEvent?.state === 'hostile')
       || this.profile.faction !== next.faction
     const civilianStateChanged = JSON.stringify(next.civilianCommandSquad) !== JSON.stringify(this.profile.civilianCommandSquad)
-    if (!options.civilianCommandStaged && !civilianStateChanged && this.civilianCommand) next.civilianCommandSquad = this.civilianCommand.checkpoint() ?? next.civilianCommandSquad
+    if (!restoringResidents && !options.civilianCommandStaged && !civilianStateChanged && this.civilianCommand) next.civilianCommandSquad = this.civilianCommand.checkpoint() ?? next.civilianCommandSquad
     const startsDefense = startsFormal && next.activeMission?.kind === 'town-defense'
     const respawning = Boolean(this.player?.dead && this.profile.activeMission && !next.activeMission)
     const returningFromDefense = Boolean(this.profile.activeMission?.kind === 'town-defense' && this.profile.activeMission.result && !next.activeMission)
     if ((startsDefense && next.rank !== 'commander' || respawning || returningFromDefense) && this.townCommand) next = this.townCommand.stageRefit(next, startsDefense)
     else if (startsFormal && this.townCommand) next = this.townCommand.stageMissionHandoff(next)
-    else if (!townStateChanged && next.faction === this.profile.faction && this.townCommand) next.townCommandSquad = this.townCommand.checkpoint() ?? next.townCommandSquad
+    else if (!restoringResidents && !townStateChanged && next.faction === this.profile.faction && this.townCommand) next.townCommandSquad = this.townCommand.checkpoint() ?? next.townCommandSquad
     if (startsFormal && next.activeMission && next.townCommandSquad) {
       const returning = new Set(next.townCommandSquad.actorIds.filter(id => {
         const member = next.townCommandSquad!.members?.[id]
@@ -819,7 +829,14 @@ export class TownScene {
       this.profile.townCommandSquad?.nativeReturnStates,
     ])
     townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(this.profile.townCommandSquad)
+    // HR/native handoff callbacks may save again before the recovered live actors are applied.
+    if (restoringResidents) next = stageMissionReturnResidents(next,
+      this.world.faction === next.faction && !this.sceneContext.missionOnlyResidents ? this.residents.map(resident => ({
+        spec: resident.spec, ...(isMissionReturnResident(resident.spec)
+          ? { checkpoint: refitCommandCheckpoint(resident.npc, resident.homeMount) } : {}),
+      })) : townRoster().map(spec => ({ spec })))
     if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
+    if (restoringResidents) this.residentReturnPending = true
     if (respawning || returningFromDefense) this.townRefitOnReturn = true
     // Authorize the live controller only after the transition and permission are durably saved.
     if (settledTownEvent && this.garrisonRestored) for (const resident of this.residents ?? []) {
@@ -839,6 +856,7 @@ export class TownScene {
     const endedFormal = Boolean(this.profile.activeMission && !next.activeMission || this.profile.activeOutpostMission && !next.activeOutpostMission)
     const rankChanged = next.rank !== this.profile.rank
     this.profile = next
+    if (restoringResidents) this.civilianCommand?.applySavedState(next.civilianCommandSquad)
     if (this.townAirCommand && (airStateChanged || airClaimsReleased || airScenePermissionChanged || startsFormal || endedFormal || rankChanged)) this.townAirCommand.applySavedState(next.townAirCommandSquad)
     this.synchronizeEagleCommandOwnership()
     this.synchronizeEaglePatrolPolicy()
@@ -1229,6 +1247,7 @@ export class TownScene {
     return Boolean(this.townCommand?.accepts(npc) && this.townCommand.commandsEnabled)
   }
   /** Snapshot HUD membership from this scene and the current persisted authority only. */
+  private readonly commandHudTypes = new CareerCommandHudTypes()
   private commandHudRoster() {
     const mission = this.profile.activeMission
     const active = mission ?? this.profile.activeOutpostMission
@@ -1248,6 +1267,9 @@ export class TownScene {
       ? sameRoster ? { ...accepted, members: live!.members } : accepted
       : !active ? live ? { ...live } : snapshotPersonalMission(this.profile) : undefined
     return careerCommandHudRoster({
+      unitTypes: { ...this.commandHudTypes.read(this.profile),
+        ...Object.fromEntries(this.residents.filter(resident => resident.spec.eagle).map(resident => [resident.spec.id, 'eagle' as const])) },
+      personalMembers: this.profile.personalSquad?.members,
       sceneKey: `town:${this.world?.faction ?? this.profile.faction}`,
       faction: this.profile.faction,
       ...(active ? { missionId: active.id } : {}),
@@ -1269,12 +1291,10 @@ export class TownScene {
 
   private synchronizeCommandActors(): void {
     const mission = this.profile?.activeMission
-    this.personalCommandUI?.setOfficialSquadLabel?.(mission?.officialSquad?.type === 'mission-official'
-      && mission.officialSquad.missionId === mission.id ? 'Mission Squad · 任務部隊'
-      : !mission && !this.profile?.activeOutpostMission && this.townCommand?.commandsEnabled
-        ? this.profile.townCommandSquad?.commandRank === 'commander'
-          ? resolveCommanderTownTargetLabel : 'Town Command Squad · 城防指揮隊'
-        : undefined)
+    const authority = mission?.officialSquad?.type === 'mission-official' && mission.officialSquad.missionId === mission.id
+      ? mission.officialSquad : !mission && !this.profile?.activeOutpostMission && this.townCommand?.commandsEnabled
+        ? this.profile.townCommandSquad : undefined
+    this.personalCommandUI?.setOfficialSquadLabel?.(officialCommandHudLabel(authority))
     if (!this.commandActors) return
     this.commandActors.length = 0
     this.commandActors.push(...new Set([...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.personalSquad?.actors ?? [])]))
@@ -2354,8 +2374,12 @@ export class TownScene {
     }
   }
   private async ensureTownCommanderAfterReturn(): Promise<void> {
-    if (this.disposed || this.commanderReturnPending || !shouldSpawnTownCommander(this.profile)
-      || this.residents.some(resident => resident.spec.id === 'commander')) return
+    if (this.disposed || this.commanderReturnPending || !shouldSpawnTownCommander(this.profile)) return
+    const existing = this.residents.find(resident => resident.spec.id === 'commander')
+    if (existing) {
+      restoreMissionReturnResident(existing, npc => this.missionCombat.releaseExternalThreat(npc))
+      return
+    }
     this.commanderReturnPending = true
     try {
       await HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCommanderHeroAsset(this.profile.faction)].descriptor)

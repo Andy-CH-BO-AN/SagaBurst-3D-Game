@@ -1,3 +1,5 @@
+import { stageMissionReturnResidents } from '../career/CareerMissionReturnRecovery'
+import { townRoster } from './TownRules'
 import { createCareerBridgeBattleLaunch, isCareerBridgeBattle } from '../career/CareerBridgeBattle'
 import { installTownStyles, starterThumbnails } from './TownUI'
 import { createCareerProfile, type CareerProfile } from '../career/CareerProfile'
@@ -34,8 +36,12 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       : active?.templateId === COMMANDER_LAST_STAND_ID && active.kind === 'commander-outpost-last-stand' ? () => createCareerCommanderOutpostLaunch(profile) : null
     if (active && captainLaunch) {
       if (profile.claimedBattleIds.includes(active.id)) {
-        const cleared = clearCareerMission(profile, active.id)
-        if (!store.save(cleared)) { status.textContent = '無法保存正式任務返回狀態，請重試。'; return }
+        const cleared = stageMissionReturnResidents(clearCareerMission(profile, active.id), townRoster().map(spec => ({ spec })))
+        if (!store.save(cleared)) {
+          status.textContent = '無法保存正式任務返回狀態，請重試。'
+          button('重試返回小鎮', () => { void start(profile) })
+          return
+        }
         profile = cleared
       } else {
         form.remove()

@@ -4,10 +4,46 @@ import type { OfficialCommandAuthority } from '../../src/career/CareerCommandAut
 import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Faction } from '../../src/world/NPC'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { acceptCommanderMission, COMMANDER_BRIDGEHEAD_ID } from '../../src/career/CommanderMissionCatalog'
+import { CareerCommandHudTypes } from '../../src/career/CareerCommandHudTypes'
+import { armyHudUnitSummary, type ArmyHudMember } from '../../src/battle/ArmyCommandHudRoster'
 
 import { createArmyCommandHarness as controllerHarness, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
 
 describe('Army command roster, dispatch and submenu', () => {
+  it('retains accepted infantry types through pending deployment and complete squad casualties, including Squad 8', () => {
+    const profile = acceptCommanderMission({ ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000 },
+      COMMANDER_BRIDGEHEAD_ID, 'hud-bridge')!
+    const types = new CareerCommandHudTypes()
+    let pending = true
+    const source = () => careerCommandHudRoster({ sceneKey: 'bridge:hud-bridge', faction: 'roman', missionId: 'hud-bridge',
+      official: profile.activeMission!.officialSquad, officialPending: pending, unitTypes: types.read(profile), actors: [] })
+    const h = controllerHarness([], null, null, null, 'roman', 'squad', true, undefined,
+      { accepts: () => false, enabled: () => true }, source)
+    const entry = () => h.ui.render.mock.lastCall![0].find(row => row.target === 'squad:8')!
+    expect(entry().units).toEqual({ icons: '🏹', description: '🏹 弓兵' })
+    expect(entry().summary).toBe('0/25 · 部署中 25')
+    const authority = profile.activeMission!.officialSquad!
+    authority.members = Object.fromEntries(authority.actorIds.map(id => [id, { status: 'dead' as const, hp: 0 }]))
+    pending = false; h.controller.update()
+    expect(entry().summary).toBe('0/25 · 陣亡 25')
+    expect(entry().units).toEqual({ icons: '🏹', description: '🏹 弓兵' })
+    expect(h.ui.render.mock.lastCall![0].filter(row => row.target !== 'all')).toHaveLength(8)
+  })
+
+  it('deduplicates real member types, limits visible icons and describes the complete mixed squad', () => {
+    const members: ArmyHudMember[] = [
+      { id: 'melee', squadId: 2, state: 'dead', unitType: 'melee' },
+      { id: 'spear', squadId: 2, state: 'pending', unitType: 'spear' },
+      { id: 'archer', squadId: 2, state: 'missing', unitType: 'archer' },
+      { id: 'second-archer', squadId: 2, state: 'deployed', unitType: 'archer' },
+      { id: 'javelin', squadId: 2, state: 'deployed', unitType: 'javelin' },
+      { id: 'other-eagle', squadId: 8, state: 'deployed', unitType: 'eagle' },
+    ]
+    expect(armyHudUnitSummary(members, 'squad:2')).toEqual({ icons: '⚔️ 🔱 🏹 +1',
+      description: '⚔️ 近戰步兵、🔱 槍兵、🏹 弓兵、➶ 標槍兵' })
+  })
 
   it('commits a direct ALL order before mutations and excludes dead, returning and unowned records', () => {
     const events: string[] = []
