@@ -58,7 +58,7 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'v
   const settlement = new TownMissionSettlement({ read: () => profile, commit }, { field, duel, defense, patrol },
     town as unknown as ConstructorParameters<typeof TownMissionSettlement>[2])
   return { settlement, field, defense, patrol, town, player, resident, residentState, storage, store, events, commit, stats,
-    read: () => profile, reload: () => { profile = store.load()! } }
+    read: () => profile, reload: () => { profile = store.load()! }, publish: (next: CareerProfile) => { profile = next } }
 }
 
 describe('Town mission settlement transactions', () => {
@@ -83,11 +83,6 @@ describe('Town mission settlement transactions', () => {
       actorIds: ['town-eagle-rider:1'], commandedActorIds: ['town-eagle-rider:1'],
       members: { 'town-eagle-rider:1': { status: 'deployed', order: 'charge', position: { x: 500, z: 500, yaw: 1 } } } }
     profile.townEagleGarrisons = { roman: { version: 1, sceneKey: 'town:roman', pairs: [] } }
-    addCareerItem(profile, 'horse', 1)
-    const refs = resolveTownActorEquipment(profile, 'roman', 'merchant').refs
-    profile.townEquipment = { roman: { version: 1, residentEquipmentVersion: 1, nativeReserve: [],
-      actors: { merchant: { ...refs, mount: { itemId: 'horse', source: 'inventory' } } } } }
-    const equipment = structuredClone(profile.townEquipment)
     h.town.preservesResident.mockReturnValue(true)
     expect(h.store.save(profile)).toBe(true)
     const beforeReturn = h.storage.getItem(CAREER_STORAGE_KEY)
@@ -113,7 +108,6 @@ describe('Town mission settlement transactions', () => {
     expect(saved.townCommandSquad?.state).toBe('TRAINING')
     expect(saved.townAirCommandSquad).toBeUndefined()
     expect(saved.townEagleGarrisons?.roman).toBeUndefined()
-    expect(saved.townEquipment).toEqual(equipment)
     expect(saved.personalSquadRuntime?.members['personal:dead']).toEqual({ status: 'deployed', order: 'defend' })
     expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
     const merit = saved.totalMerit
@@ -122,6 +116,24 @@ describe('Town mission settlement transactions', () => {
     expect(h.read().totalMerit).toBe(merit)
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBytes)
     expect(h.town.beginPatrolMissionReturn).not.toHaveBeenCalled()
+  })
+
+  it('preserves merchant native equipment and its purchased horse through completed return staging', () => {
+    const h = fixture('town-defense', true), profile = h.read()
+    profile.rank = 'commander'; profile.totalMerit = 20000
+    addCareerItem(profile, 'horse', 1)
+    const refs = resolveTownActorEquipment(profile, 'roman', 'merchant').refs
+    profile.townEquipment = { roman: { version: 1, residentEquipmentVersion: 1, nativeReserve: [],
+      actors: { merchant: { ...refs, mount: { itemId: 'horse', source: 'inventory' } } } } }
+    const equipment = structuredClone(profile.townEquipment)
+    // Settlement owns preserving staged data. Inventory/parser transactions are
+    // covered by CareerTownEquipment; keep only the commit boundary here.
+    h.commit.mockImplementation(next => { h.publish(next); return true })
+    expect(h.settlement.returnToTown('direct').status).toBe('restarted')
+    expect(h.read().townEquipment).toEqual(equipment)
+    expect(h.read().inventory?.quantities.horse).toBe(1)
+    expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(h.read())
+    expect(profile.townEquipment).toEqual(equipment)
   })
 
   it('freezes the first personal result across a failed-save retry instead of appending later contribution', () => {
