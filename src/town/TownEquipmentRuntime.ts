@@ -31,11 +31,21 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
       || physical.riderNpc && !selectedActors.has(physical.riderNpc))
   })) return plans.length
   const mountChanges = plans.filter(plan => JSON.stringify(plan.before.refs.mount) !== JSON.stringify(plan.after.refs.mount))
+  // Predict the same ordered pool consumption used below, including non-civilian plans.
+  const reusable = new Map<string, Mount[]>()
+  for (const { resident, before } of mountChanges) {
+    if (!resident.homeMount) continue
+    const key = JSON.stringify(before.refs.mount), pool = reusable.get(key) ?? []
+    pool.push(resident.homeMount); reusable.set(key, pool)
+  }
+  const reusedMounts = new Map<TownCombatResident, Mount | undefined>()
+  for (const { resident, after } of mountChanges) if (after.loadout.mountId) {
+    reusedMounts.set(resident, reusable.get(JSON.stringify(after.refs.mount))?.shift() ?? findTownNativeMount(mounts, after.refs.mount))
+  }
   const civilianMountPoints = new Map<TownCombatResident, { x: number; z: number }>()
   for (const { resident, after } of mountChanges) {
     if (resident.spec.role !== 'civilian' || !after.loadout.mountId || !canPlaceMountedCivilian) continue
-    const reusedMount = findTownNativeMount(mounts, after.refs.mount)
-      ?? mountChanges.find(plan => JSON.stringify(plan.before.refs.mount) === JSON.stringify(after.refs.mount))?.resident.homeMount
+    const reusedMount = reusedMounts.get(resident)
     let point: { x: number; z: number } = resident.npc.combatPosition
     if (!canPlaceMountedCivilian(point, resident.spec.id, reusedMount ?? null)) {
       const owner = current.civilianCommandSquad?.owners[resident.spec.id]
