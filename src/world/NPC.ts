@@ -2707,7 +2707,8 @@ export class NPC {
         let navigationRoute: NavigationRouteKind = 'direct'
         const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, targetInfo.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId) : null
         if (townStep) {
-          if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(this._tmpNavigationTarget, obstacles, navigationWorld)
+          if (townStep.blocked) navigationRoute = 'unreachable'
+          else if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(this._tmpNavigationTarget, obstacles, navigationWorld)
         } else if (layeredNav && (isCrossLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, targetInfo.position))) {
           const layeredResult = layeredNav.resolveMoveTarget(
             this.combatPosition,
@@ -3650,7 +3651,8 @@ export class NPC {
     const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, target.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId) : null
     if (townStep) {
       navigationGoal = this._tmpNavigationTarget
-      if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(navigationGoal, obstacles, navigationWorld)
+      if (townStep.blocked) navigationRoute = 'unreachable'
+      else if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(navigationGoal, obstacles, navigationWorld)
       else isConfirmedLayeredStep = true
     } else if (layeredNav && (isDifferentLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, target.position))) {
       const layeredResult = layeredNav.resolveMoveTarget(

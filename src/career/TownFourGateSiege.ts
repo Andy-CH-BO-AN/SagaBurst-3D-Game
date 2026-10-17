@@ -4,7 +4,7 @@ import type { MobileSiegeRampState } from '../campaign/MobileSiegeRampController
 import { placeSiegeRampCrew, type TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
 import { SiegeConvoy, evacuateAbandonedRamp, fallFromDestroyedRamp } from '../campaign/SiegeConvoy'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
-import type { NPC } from '../world/NPC'
+import { AIType, type NPC } from '../world/NPC'
 import type { SpatialGrid } from '../world/SpatialGrid'
 import { getTerrainHeight, type EntityCollisionBody } from '../world/Terrain'
 import type { TownWorld } from '../town/TownWorld'
@@ -14,7 +14,13 @@ import { allocateTownSiegeCrews, isTownSiegeDockConnected, planTownSiegeRamps, t
 import { TownGateBreachPolicy, type TownGateBreachEvent } from './TownGateBreachPolicy'
 import { parseTownFourGateSiegeCheckpoint, type TownFourGateSiegeCheckpoint, type TownSiegeActorCheckpoint } from './TownFourGateSiegeCheckpoint'
 
-export interface TownSiegeSectorRoster { gateId: TownGateId; wallActorIds: readonly string[]; cavalryActorIds: readonly string[] }
+export interface TownSiegeSectorRoster {
+  gateId: TownGateId
+  wallActorIds: readonly string[]
+  cavalryActorIds: readonly string[]
+  /** Optional PR8 attack roster; Crew are included automatically and may also be listed here. */
+  attackerActorIds?: readonly string[]
+}
 export interface TownFourGateSiegeOptions {
   scene: THREE.Scene
   world: TownWorld
@@ -41,6 +47,7 @@ export class TownFourGateSiege {
   private readonly actorsById = new Map<string, NPC>()
   private readonly pending = new Set<string>()
   private readonly departedActors = new Map<string, TownSiegeActorCheckpoint>()
+  private readonly routeEligibility = new Map<string, boolean>()
   private readonly playerCommands = new Set<string>()
   private readonly convoy = new SiegeConvoy<TownSiegeRampId>()
   private readonly neighbors: NPC[] = []
@@ -48,6 +55,7 @@ export class TownFourGateSiege {
   private readonly saved?: TownFourGateSiegeCheckpoint
   private readonly hitRegistered = new Set<TownSiegeRampId>()
   private readonly sectorById = new Map<TownGateId, TownSiegeSectorRoster>()
+  private readonly attackerIds = new Set<string>()
   private readonly actorSectors = new Map<string, TownGateId>()
   private restoring = false
   private disposed = false
@@ -64,10 +72,11 @@ export class TownFourGateSiege {
     for (const sector of options.sectors) {
       if (this.sectorById.has(sector.gateId) || !TOWN_GATES.some(g => g.id === sector.gateId)) throw new Error('Duplicate/invalid siege sector')
       this.sectorById.set(sector.gateId, sector)
-      for (const id of [...sector.wallActorIds, ...sector.cavalryActorIds]) {
+      for (const id of [...sector.wallActorIds, ...sector.cavalryActorIds, ...(sector.attackerActorIds ?? [])]) {
         if (this.actorSectors.has(id)) throw new Error('Actor belongs to multiple siege sectors')
         this.actorSectors.set(id, sector.gateId)
       }
+      for (const id of sector.attackerActorIds ?? []) this.attackerIds.add(id)
     }
     this.policy = new TownGateBreachPolicy(event => this.dispatch(event), this.saved?.gates)
     for (const id of this.saved?.playerCommandedActorIds ?? []) this.playerCommands.add(id)
@@ -114,7 +123,8 @@ export class TownFourGateSiege {
         const specs = slots.map(slot => slot.spec)
         placeSiegeRampCrew(specs, assignment, placement)
         for (const id of [...assignment.pusherIds, ...assignment.assaultIds]) {
-          if (this.actorSectors.has(id)) throw new Error('Crew cannot also be a Town defender')
+          if (this.actorSectors.has(id) && (!this.attackerIds.has(id) || this.actorSectors.get(id) !== assignment.gateId)) throw new Error('Crew cannot also be a Town defender or another sector')
+          this.attackerIds.add(id)
           this.actorSectors.set(id, (assignment as TownSiegeRampAssignment).gateId)
           this.crewRamps.set(id, ramp)
           const actor = this.saved?.actors[id]
@@ -245,7 +255,7 @@ export class TownFourGateSiege {
     }
   }
   private route(npc: NPC, preferred?: TownSiegeRampId): void {
-    if (!this.crewRamps.has(npc.combatantId) || npc.siegeTransport || !this.accepts(npc) || npc.campaignBreachCompleted) return
+    if (!this.attackerIds.has(npc.combatantId) || npc.siegeTransport || !this.accepts(npc) || npc.campaignBreachCompleted) return
     const gateId = this.actorSectors.get(npc.combatantId)!, nav = this.options.navigation
     const preferredId = preferred ?? npc.campaignEntranceId
     const candidates = this.entrances.select(npc.combatPosition, npc.isMounted, npc.characterFaction,
@@ -257,7 +267,7 @@ export class TownFourGateSiege {
     npc.campaignEntranceId = entry?.id ?? null
     if (entry) {
       npc.assignSiegeObstacle(null)
-      if (previous !== entry.id) npc.setTacticalOrder('charge')
+      if (previous !== entry.id) npc.setTacticalOrder(npc.aiType === AIType.RANGED ? 'attack' : 'charge')
     } else if (this.options.world.gates.get(gateId)!.state === 'closed') npc.assignSiegeObstacle(this.options.world.gates.get(gateId)!.siegeObstacle)
   }
 
@@ -272,6 +282,13 @@ export class TownFourGateSiege {
     if (this.observedRevision !== this.entrances.revision) {
       navigation.sync(world.obstacles); this.observedRevision = this.entrances.revision
       for (const npc of this.actorsById.values()) this.route(npc)
+    }
+    // A deployment/formation hold may end without a topology revision. Admit
+    // newly released AI actors once, while retaining explicit player receipts.
+    for (const npc of this.actorsById.values()) if (this.attackerIds.has(npc.combatantId)) {
+      const eligible = !npc.siegeTransport && this.accepts(npc)
+      if (eligible && !this.routeEligibility.get(npc.combatantId)) this.route(npc)
+      this.routeEligibility.set(npc.combatantId, eligible)
     }
     for (const npc of this.options.actors()) {
       if (npc.siegeTransport || !this.accepts(npc)) { this.convoy.release(npc); continue }
@@ -299,6 +316,6 @@ export class TownFourGateSiege {
     }
     this.entrances.clear(); this.options.navigation.townNav!.siegeActive = false
     for (const npc of this.actorsById.values()) { npc.campaignEntranceId = null; npc.townSiegeGateId = null; npc.siegeBypassTarget = null }
-    this.ramps.clear(); this.rampList.length = 0; this.crewRamps.clear(); this.pending.clear(); this.actorsById.clear(); this.departedActors.clear()
+    this.ramps.clear(); this.rampList.length = 0; this.crewRamps.clear(); this.pending.clear(); this.attackerIds.clear(); this.routeEligibility.clear(); this.actorsById.clear(); this.departedActors.clear()
   }
 }

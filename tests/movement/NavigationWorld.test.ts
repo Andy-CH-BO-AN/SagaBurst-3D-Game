@@ -235,7 +235,7 @@ describe('opt-in Town siege navigation', () => {
     expect(out.toArray()).toEqual([148, 10, 62])
     nav.siegeEntrances.remove(entry.id)
     const outside = new THREE.Vector3(180, 0, 62)
-    expect(nav.resolveMoveTarget(outside, goal, out, entry.id)).toEqual({ ground: true })
+    expect(nav.resolveMoveTarget(outside, goal, out, entry.id)).toEqual({ ground: true, blocked: true })
     expect(out).toEqual(outside)
   })
   it('revokes one destroyed vehicle while retaining a reachable same-gate alternative and rejecting unreachable reroutes', () => {

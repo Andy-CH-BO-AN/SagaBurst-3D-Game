@@ -59,7 +59,7 @@ export class TownLayeredNavigation {
     out.set(s.startX + s.dirX * along, s.startY + (s.topY - s.startY) * Math.min(1, along / s.length), s.startZ + s.dirZ * along)
   }
   /** null means ordinary ground travel; ground=true preserves wall/gate topology. */
-  resolveMoveTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3, entranceId?: string | null, mounted = false, sectorId?: TownGateId | null): { ground: boolean } | null {
+  resolveMoveTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3, entranceId?: string | null, mounted = false, sectorId?: TownGateId | null): { ground: boolean; blocked?: boolean } | null {
     const siege = this.resolveSiegeTarget(current, goal, out, entranceId, mounted, sectorId)
     if (siege) return siege
     const onDeck = this.isElevated(current), toDeck = this.isElevated(goal), onRamp = this.rampAt(current), toRamp = this.rampAt(goal)
@@ -105,7 +105,7 @@ export class TownLayeredNavigation {
     return { ground: false }
   }
   private resolveSiegeTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3,
-    entranceId: string | null | undefined, mounted: boolean, sectorId?: TownGateId | null): { ground: boolean } | null {
+    entranceId: string | null | undefined, mounted: boolean, sectorId?: TownGateId | null): { ground: boolean; blocked?: boolean } | null {
     if (!this.siegeActive || this.rampAt(current)) return null
     const outside = current.x <= TOWN_CITY.minX || current.x >= TOWN_CITY.maxX || current.z <= TOWN_CITY.minZ || current.z >= TOWN_CITY.maxZ
     const goalInside = goal.x > TOWN_CITY.minX && goal.x < TOWN_CITY.maxX && goal.z > TOWN_CITY.minZ && goal.z < TOWN_CITY.maxZ
@@ -140,7 +140,7 @@ export class TownLayeredNavigation {
     }
     if (!aboard && !outside) return null
     if (!entry || !entry.walkable || mounted && !entry.mounted) {
-      if (goalInside || this.isElevated(goal) || entranceId) { out.copy(current); return { ground: true } }
+      if (goalInside || this.isElevated(goal) || entranceId) { out.copy(current); return { ground: true, blocked: true } }
       return null
     }
     if (!entry.surface) {

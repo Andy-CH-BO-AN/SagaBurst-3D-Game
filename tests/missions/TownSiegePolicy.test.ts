@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
 import { siegeDefensePlans } from '../../src/career/TownSiege'
 import { TownFourGateSiege } from '../../src/career/TownFourGateSiege'
-import type { NPC } from '../../src/world/NPC'
+import { AIType, type NPC } from '../../src/world/NPC'
+import { Vector3 } from 'three'
+import { AvailableBreachEntrances } from '../../src/navigation/AvailableBreachEntrances'
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
 import { townRoster } from '../../src/town/TownRules'
 
@@ -61,6 +63,27 @@ describe('Siege deployment and shared rule ownership', () => {
     })
     expect(owner.dispatch({ gateId: 'east', kind: 'wall' })).toEqual(['east:auto'])
     expect(orders).toEqual(['east:auto'])
+  })
+
+  it('routes a PR8 non-Crew ranged attacker through its own sector while preserving Attack', () => {
+    const entries = new AvailableBreachEntrances(), orders: string[] = []
+    const eastGate = { state: 'closed', siegeObstacle: { id: 'east-gate-collider' } }
+    let siegeTarget: unknown = null
+    for (const [gateId, x] of [['north', 198], ['east', 180]] as const) entries.set({ id: `town-siege-gate:${gateId}`, gateId,
+      type: 'gate', position: new Vector3(x, 0, 62), approach: new Vector3(x, 0, 62), exit: new Vector3(x - 4, 0, 62),
+      mounted: true, walkable: true, faction: null, connectionId: gateId })
+    const npc = { combatantId: 'east:archer', dead: false, siegeTransport: null, tacticalOrder: 'attack', hasFormationTarget: false,
+      campaignBreachCompleted: false, campaignEntranceId: null as string | null, characterFaction: 'viking', aiType: AIType.RANGED,
+      combatPosition: new Vector3(200, 0, 62), isMounted: false, assignSiegeObstacle(target: unknown) { siegeTarget = target }, setTacticalOrder(order: string) { orders.push(order) } }
+    const owner = Object.assign(Object.create(TownFourGateSiege.prototype) as { route(actor: typeof npc): void }, {
+      attackerIds: new Set(['east:archer']), actorSectors: new Map([['east:archer', 'east']]), playerCommands: new Set(), departedActors: new Map(),
+      options: { acceptsOrders: () => true, world: { gates: new Map([['east', eastGate]]) }, navigation: { townNav: { siegeEntrances: entries, isElevated: () => false }, areConnected: () => true } },
+    })
+    owner.route(npc)
+    expect(npc.campaignEntranceId).toBe('town-siege-gate:east')
+    expect(orders).toEqual(['attack'])
+    entries.clear(); owner.route(npc)
+    expect(npc.campaignEntranceId).toBeNull(); expect(siegeTarget).toBe(eastGate.siegeObstacle)
   })
 
 })
