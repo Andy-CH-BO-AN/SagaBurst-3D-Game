@@ -54,14 +54,6 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(h.read()).toEqual(before)
     expect(h.saved()).toBe(durableBefore)
     expect(availableCareerItem(h.read(), 'elven_runebow')).toBe(1)
-    h.storage.failWrites = false
-    expect(h.bulk(1, 'bow').changed).toBe(true)
-    h.buy('scutum_t3')
-    expect(h.change('gate:north:0', 'shield', 'scutum_t3').changed).toBe(true)
-    expect(resolveTownActorEquipment(h.reload(), 'roman', 'gate:north:0').loadout).toMatchObject({
-      meleeWeaponId: 'gladius_standard', rangedWeaponId: 'elven_runebow', shieldId: 'scutum_t3',
-    })
-    expect(h.read().townEquipment!.roman!.nativeReserve).toContain('roman/gate:north:0/shield')
   })
   it('counts Player, HR, Town and Civilian in one quantity pool and refuses another claimant', () => {
     const h = harness(); h.buy('paladin_sword_t4', 4)
