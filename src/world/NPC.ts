@@ -524,6 +524,8 @@ export class NPC {
   missionAerialDefense = false
   /** undefined uses normal AI; null holds fire; an actor restricts mission combat to that target. */
   private missionCombatTarget: NPC | Player | null | undefined = undefined
+  /** Optional Town duty policy; mission commands and non-Town actors retain normal acquisition. */
+  combatTargetAllowed?: (target: NPC | Player) => boolean
   setMissionCombatTarget(target: NPC | Player | null | undefined): void {
     if (this.missionCombatTarget === target) return
     this.missionCombatTarget = target
@@ -2035,6 +2037,7 @@ export class NPC {
       && !this._cachedTargetIsPlayer
       && player.targetable
       && !player.dead
+      && this.combatTargetAllowed?.(player) !== false
     ) {
       const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
       const distSq = this.combatPosition.distanceToSquared(playerPos)
@@ -2053,6 +2056,7 @@ export class NPC {
         candidate === this
         || candidate.dead
         || !combatAllegiancesHostile(this, candidate)
+        || this.combatTargetAllowed?.(candidate) === false
         || candidate === this._cachedTargetNpc
       ) return
 
@@ -2100,10 +2104,11 @@ export class NPC {
       if (position && !this._isEagleTargetInBounds(position)) return false
     }
     if (this._cachedTargetIsPlayer) {
-      return this.targetsPlayer && player.targetable && !player.dead
+      return this.targetsPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false
     }
     if (this._cachedTargetNpc !== null) {
       return !this._cachedTargetNpc.dead && combatAllegiancesHostile(this, this._cachedTargetNpc)
+        && this.combatTargetAllowed?.(this._cachedTargetNpc) !== false
     }
     return false
   }
@@ -2270,7 +2275,7 @@ export class NPC {
   ): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
     if (this.missionCombatTarget !== undefined) {
       const target = this.missionCombatTarget
-      if (!target || target.dead) return null
+      if (!target || target.dead || this.combatTargetAllowed?.(target) === false) return null
       if (this.mount?.isFlyingMount && !this._isEagleTargetInBounds(target.combatPosition)) return null
       if (target === player) return this.targetsPlayer && player.targetable
         ? { position: this._getPlayerPosition(player, this._tmpTargetPosition), isDead: false, isPlayer: true } : null
@@ -2282,13 +2287,13 @@ export class NPC {
       const range = this.alertRange
       let nearest: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
       let distance = range * range
-      if (this.targetsPlayer && player.targetable && !player.dead) {
+      if (this.targetsPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false) {
         const position = this._getPlayerPosition(player, this._tmpTargetPosition), d = this.combatPosition.distanceToSquared(position)
         if (d <= distance) { distance = d; nearest = { position, isDead: false, isPlayer: true } }
       }
       const candidates = hostileNpcGrid?.getNearbyInto(this.combatPosition, range, this.eagleRangedCandidates) ?? allNPCs
       for (const npc of candidates) {
-        if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc)) continue
+        if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc) || this.combatTargetAllowed?.(npc) === false) continue
         const d = this.combatPosition.distanceToSquared(npc.combatPosition)
         if (d <= distance) { distance = d; nearest = { position: npc.combatPosition, isDead: false, isPlayer: false, npc } }
       }
@@ -2300,7 +2305,7 @@ export class NPC {
       let closestDistSq = Infinity
 
       // Player is absent from the NPC grid, but follows the same target priority.
-      if (this.targetsPlayer && player.targetable && !player.dead
+      if (this.targetsPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false
         && (!groundOnly || !player.currentMount?.isFlyingMount)) {
         const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
         if (this.playerHitFocus > 0) return { position: playerPos, isDead: false, isPlayer: true }
@@ -2309,17 +2314,17 @@ export class NPC {
       }
 
       if (hostileNpcGrid) {
-        const npc = chaseTargetCoordinator
+        const npc = chaseTargetCoordinator && !this.combatTargetAllowed
           ? chaseTargetCoordinator.findGroupTarget(this, hostileNpcGrid, groundOnly)
           : hostileNpcGrid.findNearest(this.combatPosition, candidate => !candidate.dead
-            && combatAllegiancesHostile(this, candidate) && (!groundOnly || !candidate.mount?.isFlyingMount))
+            && combatAllegiancesHostile(this, candidate) && this.combatTargetAllowed?.(candidate) !== false && (!groundOnly || !candidate.mount?.isFlyingMount))
         if (npc && combatAllegiancesHostile(this, npc)) {
           const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
           if (dSq < closestDistSq) closestTarget = { position: npc.combatPosition, isDead: false, isPlayer: false, npc }
         }
       } else {
         for (const npc of allNPCs) {
-          if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc)
+          if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc) || this.combatTargetAllowed?.(npc) === false
             || groundOnly && npc.mount?.isFlyingMount) continue
           const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
           if (dSq < closestDistSq) {

@@ -80,11 +80,13 @@ export function isCommanderTownMission(mission: ActiveCareerMission | undefined)
 }
 
 /** Returns the stable objective identity for a qualifying Commander mission kill.
- * Mount deaths, friendly fire, unrelated enemies and unowned NPCs never advance the objective.
+ * Sky Raid counts native losses from any source; personal kills and merit retain their own attribution.
  */
 export function commanderObjectiveDeathId(mission: ActiveCareerMission, event: CombatEvent): string | null {
   if (!isCommanderTownMission(mission) || event.type !== 'actor_killed' || event.target.targetType !== 'npc'
     || !mission.targetActorIds.includes(event.target.targetId)) return null
+  // Objective losses describe the world; BattleStatsTracker separately validates kill/merit sources.
+  if (mission.kind === 'commander-sky-raid') return event.target.targetId
   if (event.source.actorType === 'player') return event.target.targetId
   if (mission.officialSquad && officialMissionSourcePolicy(mission.officialSquad)(event.source)) return event.target.targetId
   if (mission.personalSquad && personalMissionSourcePolicy(mission)(event.source)) return event.target.targetId

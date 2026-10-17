@@ -96,6 +96,7 @@ export interface CareerProfile {
   playerAerialState?: CareerAerialState
   /** Minimal roaming deployment state survives mission cleanup independently in each Town. */
   townOutskirts?: Partial<Record<CharacterFaction, import('../town/TownOutskirtsWarfareController').TownOutskirtsCheckpoint>>
+  townPatrols?: Partial<Record<CharacterFaction, import('../town/TownPatrolCheckpoint').TownPatrolCheckpoint>>
   townCommandSquad?: TownCommandSquadState
   civilianCommandSquad?: CivilianCommandSquadState
   townAirCommandSquad?: TownAirCommandSquadState
@@ -487,6 +488,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.townEagleGarrisons ? { townEagleGarrisons: structuredClone(profile.townEagleGarrisons) } : {}),
     ...(profile.playerAerialState ? { playerAerialState: structuredClone(profile.playerAerialState) } : {}),
     ...(profile.townOutskirts ? { townOutskirts: structuredClone(profile.townOutskirts) } : {}),
+    ...(profile.townPatrols ? { townPatrols: structuredClone(profile.townPatrols) } : {}),
     ...(profile.townEquipment ? { townEquipment: cloneTownEquipment(profile.townEquipment) } : {}),
     ...(profile.inventory ? { inventory: { version: 1, quantities: { ...profile.inventory.quantities } } } : {}),
     skills: normalizeSkillState(profile.skills),

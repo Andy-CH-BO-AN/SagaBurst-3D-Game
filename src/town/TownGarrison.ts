@@ -91,3 +91,16 @@ export function townExternalThreatAlertRange(eagle: boolean, npc: Pick<NPC,
   return npc.isTownRampartGarrisonActive && !npc.isMounted && npc.hasActiveRangedWeapon
     ? npc.maxRangedAttackDistance : 20
 }
+
+/** Ground defenders acquire and pursue only inside their equipment-adjusted home sector. */
+export function townDefenseThreatInRange(spec: TownActorSpec, npc: Pick<NPC,
+  'isMounted' | 'rangedWeaponId' | 'combatPosition'>, target: { x: number; y: number; z: number }, range: number): boolean {
+  if (![target.x, target.y, target.z, range].every(Number.isFinite)) return false
+  const station = townStationSpec(spec, npc.isMounted, Boolean(npc.rangedWeaponId))
+  const radius = isCivilianRole(spec.role) ? Math.min(10, range) : range
+  return Math.hypot(target.x - station.x, target.z - station.z) <= radius
+    && Math.hypot(npc.combatPosition.x - station.x, npc.combatPosition.z - station.z) <= radius
+    && npc.combatPosition.distanceToSquared(target) <= radius * radius
+}
+
+function isCivilianRole(role: TownActorSpec['role']): boolean { return role === 'civilian' || role === 'merchant' }

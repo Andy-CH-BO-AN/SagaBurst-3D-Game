@@ -1,12 +1,20 @@
 import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult, recoverClaimedCareerBridgeBattle } from '../../src/career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID, createBridgeheadRoster } from '../../src/career/CommanderMissionCatalog'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
 import { claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { acceptCommanderMission, availableCommanderMissions, COMMANDER_DECAPITATION_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_LAST_STAND_ID, COMMANDER_SKY_RAID_ID, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
 import { remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
-import { type CombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
+import { CombatEventStream, type CombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
+import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
+import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
+import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
+import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from '../../src/career/CareerMissionState'
+import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
+import type { NPC } from '../../src/world/NPC'
+import type { Player } from '../../src/player/Player'
+import type { Scene } from 'three'
 import { Faction } from '../../src/combat/CombatFaction'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { Box3, Vector3 } from 'three'
@@ -80,8 +88,43 @@ describe('Commander mission roster contracts', () => {
 })
 
 describe('Commander objective, merit and persistence', () => {
+  it('starts an enemy-town mission without charging native residents or borrowing their autonomous update ownership', () => {
+    let profile = accepted(COMMANDER_DECAPITATION_ID)
+    profile.activeMission!.commanderMission!.deploymentComplete = true
+    const npc = { combatantId: 'commander', dead: false, faction: Faction.ENEMY,
+      beginExternalThreat: vi.fn(), setMissionCombatTarget: vi.fn(), setTacticalOrder: vi.fn() }
+    const spec: TownActorSpec = { ...townRoster()[0], id: 'commander', role: 'commander' }
+    // No jobs are materialized and no scene, Player or NPC constructor is used.
+    const controller = new CommanderTownMissionController(null as unknown as Scene,
+      [{ spec, npc: npc as unknown as NPC }], () => ({}) as Player,
+      () => profile, next => { profile = next; return true }, {} as NavigationWorld, new NpcSpawnScheduler())
+    onTestFinished(() => controller.dispose())
+    expect(controller.startActiveMission()).toBe(true)
+    expect(npc.beginExternalThreat).not.toHaveBeenCalled()
+    expect(npc.setTacticalOrder).not.toHaveBeenCalled()
+    expect(controller.fieldNpcs).not.toContain(npc)
+  })
 
-  it('deduplicates native NPC deaths and accepts only Player, official, or accepted HR sources', () => {
+  it('can reach 100 unique native background losses without crediting Player or command kills', () => {
+    const profile = accepted(COMMANDER_SKY_RAID_ID), mission = profile.activeMission!
+    const events = new CombatEventStream()
+    const tracker = new BattleStatsTracker(events, true, event => acceptsCareerMissionStat(mission, event),
+      undefined, careerMissionCommandMeritPolicy(mission))
+    onTestFinished(() => tracker.dispose())
+    const unsubscribe = events.subscribe(event => recordCommanderObjectiveDeath(mission, event))
+    onTestFinished(unsubscribe)
+    const background = source({ actorId: 'outskirts:cavalry:a:g0:0', actorType: 'npc', allegiance: Faction.TOWN })
+    for (const id of mission.targetActorIds.slice(0, 100)) events.emit(killed(background, id))
+    events.emit(killed(background, mission.targetActorIds[0]))
+    expect(mission.deadTargetActorIds).toHaveLength(100)
+    expect(tracker.checkpoint().kills).toBe(0)
+    expect(tracker.officialCommandCheckpoint()?.kills ?? 0).toBe(0)
+    expect(tracker.commandCheckpoint()?.kills ?? 0).toBe(0)
+    const restored = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
+    expect(restored.activeMission?.deadTargetActorIds).toEqual(mission.targetActorIds.slice(0, 100))
+  })
+
+  it('deduplicates Sky Raid native losses including background combat without accepting mounts or unrelated actors', () => {
     const profile = accepted(COMMANDER_SKY_RAID_ID, 'roman', true)
     const mission = profile.activeMission!
     const targets = mission.targetActorIds
@@ -94,10 +137,10 @@ describe('Commander objective, merit and persistence', () => {
     expect(recordCommanderObjectiveDeath(mission, killed(source(), targets[0]))).toBe(false)
     expect(recordCommanderObjectiveDeath(mission, killed(official, targets[1]))).toBe(true)
     expect(recordCommanderObjectiveDeath(mission, killed(personal, targets[2]))).toBe(true)
-    expect(recordCommanderObjectiveDeath(mission, killed(source({ actorId: 'resident', actorType: 'npc' }), targets[3]))).toBe(false)
+    expect(recordCommanderObjectiveDeath(mission, killed(source({ actorId: 'resident', actorType: 'npc' }), targets[3]))).toBe(true)
     expect(recordCommanderObjectiveDeath(mission, killed(source(), 'bandit:not-native'))).toBe(false)
     expect(recordCommanderObjectiveDeath(mission, killed(source(), targets[4], 'mount'))).toBe(false)
-    expect(mission.deadTargetActorIds).toEqual(targets.slice(0, 3))
+    expect(mission.deadTargetActorIds).toEqual(targets.slice(0, 4))
   })
 
   it('completes Decapitation only for the enemy Commander identity, never a guard or former Commander', () => {

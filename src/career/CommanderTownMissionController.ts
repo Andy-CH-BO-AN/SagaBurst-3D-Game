@@ -78,7 +78,7 @@ export class CommanderTownMissionController {
   get deploymentPositions(): readonly THREE.Vector3[] {
     return [...this.officialActors.filter(actor => !actor.dead).map(actor => actor.combatPosition), ...this.plannedPositions]
   }
-  get fieldNpcs(): NPC[] { return [...this.residents.map(resident => resident.npc), ...this.officialActors] }
+  get fieldNpcs(): NPC[] { return [...this.officialActors] }
   get military(): NPC[] { return this.targetResidents }
   get defenders(): NPC[] { return this.officialActors }
   get civilians(): NPC[] { return this.residents.filter(resident => resident.spec.role === 'civilian').map(resident => resident.npc) }
@@ -177,7 +177,7 @@ export class CommanderTownMissionController {
     for (const resident of this.residents) {
       if (resident.npc.dead) continue
       resident.npc.setMissionCombatTarget(undefined)
-      if (resident.npc.tacticalOrder === 'defend') resident.npc.setTacticalOrder('attack')
+      // Native duty and alert state belong to the Town controllers.
     }
     for (const actor of this.officialActors) {
       if (actor.dead || this.isPlayerCommanded(actor)) continue
@@ -205,12 +205,13 @@ export class CommanderTownMissionController {
     for (const resident of this.residents) {
       const actor = resident.npc
       actor.respawnEnabled = false
-      actor.beginExternalThreat()
       actor.setMissionCombatTarget(active.commanderMission?.deploymentComplete ? undefined : null)
+      // Autonomous native patrol generations own their own resources, not the objective ledger.
+      if (resident.spec.duty === 'patrol') continue
       const health = active.actorHealth?.[actor.combatantId]
       const position = active.actorPositions?.[actor.combatantId]
       if (position) {
-        const y = getTerrainHeight(position.x, position.z)
+        const y = position.y ?? resident.spec.y ?? getTerrainHeight(position.x, position.z)
         const mount = actor.mount ?? resident.homeMount
         if (mount && !mount.dead) { mount.group.position.set(position.x, y, position.z); mount.group.rotation.y = position.yaw }
         actor.group.position.set(position.x, y, position.z); actor.group.rotation.y = position.yaw
@@ -385,7 +386,7 @@ export class CommanderTownMissionController {
 
   snapshot(): BattleStatsSnapshot {
     for (const actor of this.personalActors()) this.tracker?.registerNpc(actor, true)
-    return this.tracker?.snapshot([...this.fieldNpcs, ...this.personalActors()], this.player()) ?? {
+    return this.tracker?.snapshot([...this.residents.map(resident => resident.npc), ...this.fieldNpcs, ...this.personalActors()], this.player()) ?? {
       player: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: !this.player().dead }, squads: [],
     }
   }
@@ -441,9 +442,11 @@ export class CommanderTownMissionController {
     for (const resident of this.residents) {
       const actor = resident.npc
       if (!active.targetActorIds.includes(actor.combatantId)) continue
+      if (active.kind === 'commander-sky-raid' && actor.dead) deadTargets.add(actor.combatantId)
+      if (resident.spec.duty === 'patrol') continue
       const mount = actor.mount ?? resident.homeMount
       actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
-      actorPositions[actor.combatantId] = { x: actor.combatPosition.x, z: actor.combatPosition.z, yaw: actor.group.rotation.y }
+      actorPositions[actor.combatantId] = { x: actor.combatPosition.x, y: actor.combatPosition.y, z: actor.combatPosition.z, yaw: actor.group.rotation.y }
     }
     const authority = active.officialSquad ? { ...active.officialSquad, members: { ...active.officialSquad.members } } : undefined
     for (const actor of this.officialActors) {

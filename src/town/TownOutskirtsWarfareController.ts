@@ -80,7 +80,7 @@ export function parseTownOutskirtsCheckpoint(value: unknown): TownOutskirtsCheck
         ? { engagementOrigin: { ...raw.engagementOrigin } } : {}),
       ...(raw.encounters && typeof raw.encounters === 'object' ? { encounters: Object.fromEntries(Object.entries(raw.encounters)
         .filter(([id, state]) => ids.includes(id) && ['idle', 'alerted', 'provoked', 'returning'].includes(state))) } : {}),
-      members, ...(Number.isFinite(raw.respawnRemaining) ? { respawnRemaining: Math.max(0, raw.respawnRemaining!) } : {}) })
+      members, ...(Number.isFinite(raw.respawnRemaining) ? { respawnRemaining: Math.min(60, Math.max(0, raw.respawnRemaining!)) } : {}) })
   }
   return { squads }
 }
@@ -155,10 +155,7 @@ export class TownOutskirtsWarfareController {
       members: { ...queuedMembers, ...Object.fromEntries(squad.members.map(npc => [npc.combatantId, snapshotCommandActor(npc, this.homeMounts.get(npc))])) } }
   }
 
-  private persistsSquad(squad: OutskirtsSquad): boolean {
-    return squad.spec.kind === 'bandit'
-      || outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).faction === Faction.ENEMY
-  }
+  private persistsSquad(_squad: OutskirtsSquad): boolean { return true }
 
   get hasCheckpoint(): boolean { return this.squads.some(squad => this.persistsSquad(squad)) }
 
@@ -218,7 +215,7 @@ export class TownOutskirtsWarfareController {
       squad.members = []; squad.mounts = []; squad.generation = saved.generation; squad.waypoint = saved.waypoint % squad.route.length
       squad.cavalryTier = saved.cavalryTier ?? 2
       squad.spawnArrivalState = saved.spawnArrivalState ?? (saved.state === 'SPAWNING' ? 'PATROLLING' : saved.state)
-      squad.respawnRemaining = saved.respawnRemaining
+      squad.respawnRemaining = saved.state === 'RESPAWN_COOLDOWN' ? saved.respawnRemaining ?? 60 : undefined
       if (this.shouldSuspendForSiege(squad)) {
         this.suspendedSquads.set(squad.id, structuredClone(saved))
         squad.state = 'SUSPENDED'; squad.leader = null
@@ -282,13 +279,9 @@ export class TownOutskirtsWarfareController {
         continue
       }
       if (squad.members.length > 0 && squad.members.every(member => member.dead)) {
-        if (squad.spec.kind === 'bandit' || outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).faction === Faction.ENEMY) {
-          squad.state = 'RESPAWN_COOLDOWN'; squad.respawnRemaining = 60; squad.leader = null
-          continue
-        }
-        squad.generation++
-        squad.cavalryTier = squad.spec.kind === 'cavalry' ? outskirtsCavalryTier(this.readProfile(), this.townFaction) : 2
-        this.spawnSquad(squad, true)
+        squad.state = 'RESPAWN_COOLDOWN'; squad.respawnRemaining = 60; squad.leader = null
+        squad.engagementOrigin = null; squad.commandedWaypoint = null
+        continue
       }
       this.beginTierTransition(squad)
       if (!squad.leader || squad.leader.dead) {
@@ -423,10 +416,9 @@ export class TownOutskirtsWarfareController {
     }
   }
 
-  /** Formal battle scenes hold ambient enemy generations; they never replace mission slots. */
+  /** Only a saved roster claim transfers ownership; unrelated generations keep roaming. */
   private shouldSuspendForSiege(squad: OutskirtsSquad): boolean {
-    return this.formalSiege && squad.spec.kind === 'cavalry'
-      && outskirtsCavalryTier(this.readProfile(), this.townFaction) === 4
+    return this.formalSiege && this.siegeClaimedSquads.includes(squad.id)
   }
 
   /** Called only after saved settlement. Timers did not run and no generation was consumed. */
