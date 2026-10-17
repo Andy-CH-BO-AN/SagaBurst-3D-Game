@@ -183,7 +183,7 @@ export function isEnemyTownAssaultUnlocked(profile: Pick<CareerProfile, 'complet
 }
 
 export function availableRecruitMissions(profile: CareerProfile): RecruitMissionTemplate[] {
-  if (profile.activeMission) return []
+  if (profile.activeRace || profile.activeMission) return []
   const merit = enlistmentMerit(profile)
   const completions = profile.careerMissionCompletions ?? 0
   const completedStory = profile.completedCareerMissionTemplateIds ?? []
@@ -237,7 +237,7 @@ export function careerMissionTemplatesForPage(profile: CareerProfile, page: Care
 }
 
 function isTownDefenseMissionAvailable(profile: CareerProfile, template: RecruitTownDefenseMissionTemplate): boolean {
-  return !profile.activeMission
+  return !profile.activeRace && !profile.activeMission
     && CAREER_RANKS.indexOf(profile.rank) >= CAREER_RANKS.indexOf(template.minRank)
     && enlistmentMerit(profile) >= template.requiresEnlistmentMerit
     && careerMissionCompletionsForTier(profile, careerMissionTier(template)) >= template.requiresCompletions

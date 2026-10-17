@@ -139,6 +139,13 @@ export class MissionGuide {
     }
   }
 
+  updateRace(playerPosition: THREE.Vector3, cameraYaw: number, target: THREE.Vector3 | null, label: string): void {
+    if (!target) { this.hide(); return }
+    this.root.hidden = false
+    const distance = this.pointAt(playerPosition, cameraYaw, target)
+    this.label.textContent = `${label} · ${Math.round(distance)}m`
+  }
+
   private pointAt(playerPosition: THREE.Vector3, cameraYaw: number, target: THREE.Vector3): number {
     const dx = target.x - playerPosition.x
     const dz = target.z - playerPosition.z

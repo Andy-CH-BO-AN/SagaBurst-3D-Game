@@ -50,7 +50,7 @@ export function isCareerOutpostUnlocked(profile: CareerProfile, stageId: CareerO
   return profile.rank !== 'recruit' && (stageId === 1 || Boolean(profile.completedOutpostStages?.includes((stageId - 1) as CareerOutpostStageId)))
 }
 export function acceptCareerOutpost(current: CareerProfile, stageId: CareerOutpostStageId, id: string = crypto.randomUUID()): CareerProfile | null {
-  if (!isCareerOutpostUnlocked(current, stageId) || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
+  if (!isCareerOutpostUnlocked(current, stageId) || current.activeRace || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
   const profile = cloneCareerProfile(current)
   profile.activeOutpostMission = { id, kind: 'outpost-defense', stageId, acceptedAt: Date.now() }
   profile.activeOutpostMission.personalSquad = snapshotPersonalMission(profile)
@@ -168,7 +168,7 @@ export function resolveCareerReliefMount(profile: CareerProfile): CareerMountId 
 }
 export function acceptCareerOutpostRelief(current: CareerProfile, id: string = crypto.randomUUID()): CareerProfile | null {
   const mount = resolveCareerReliefMount(current)
-  if (!isCareerOutpostReliefUnlocked(current) || !mount || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
+  if (!isCareerOutpostReliefUnlocked(current) || !mount || current.activeRace || current.activeMission || current.activeOutpostMission || current.townEvent?.state === 'hostile') return null
   const profile = cloneCareerProfile(current)
   profile.selectedMountId = mount
   profile.activeOutpostMission = { id, kind: 'outpost-relief', stageId: 3, acceptedAt: Date.now(), reliefPhase: 'march' }

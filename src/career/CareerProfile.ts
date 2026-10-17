@@ -99,6 +99,11 @@ export interface CareerProfile {
   townCommandSquad?: TownCommandSquadState
   civilianCommandSquad?: CivilianCommandSquadState
   townAirCommandSquad?: TownAirCommandSquadState
+  racePlayerState?: import('./CareerRaceState').RaceRider
+  activeRace?: import('./CareerRaceState').CareerRaceSession
+  raceRecords?: import('./CareerRaceState').CareerRaceRecord[]
+  completedRaceIds?: import('./CareerRaceState').RaceId[]
+  raceBestSeconds?: Partial<Record<import('./CareerRaceState').RaceId, number>>
   activeMission?: ActiveCareerMission
   activeOutpostMission?: CareerOutpostMission
   completedOutpostStages?: CareerOutpostStageId[]
@@ -113,7 +118,7 @@ export interface CareerProfile {
   townCommanderRecovery?: CareerDuelCommanderHome & { faction: CharacterFaction }
   /** Each unit preset unlocks only its own next Duel tier. */
   duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, CareerDuelTier>>
-  townEvent?: { id: string; state: 'hostile' | 'settled'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[]; authorizedTownCommandActorIds?: string[] }
+  townEvent?: { id: string; state: 'hostile' | 'settled'; pendingResult?: 'player_defeated' | 'town_defeated'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[]; authorizedTownCommandActorIds?: string[] }
 
   enemyEaglePatrols?: Partial<Record<CharacterFaction, EnemyEaglePatrolCheckpoint>>
   townEagleGarrisons?: TownEagleGarrisons
@@ -469,6 +474,11 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.racePlayerState ? { racePlayerState: structuredClone(profile.racePlayerState) } : {}),
+    ...(profile.activeRace ? { activeRace: structuredClone(profile.activeRace) } : {}),
+    ...(profile.raceRecords ? { raceRecords: structuredClone(profile.raceRecords) } : {}),
+    ...(profile.completedRaceIds ? { completedRaceIds: [...profile.completedRaceIds] } : {}),
+    ...(profile.raceBestSeconds ? { raceBestSeconds: { ...profile.raceBestSeconds } } : {}),
     ...(profile.townCommanderRecovery ? { townCommanderRecovery: { ...profile.townCommanderRecovery } } : {}),
     ...(profile.townCommandSquad ? { townCommandSquad: cloneTownCommandSquad(profile.townCommandSquad) } : {}),
     ...(profile.townAirCommandSquad ? { townAirCommandSquad: cloneTownAirCommandSquad(profile.townAirCommandSquad) } : {}),

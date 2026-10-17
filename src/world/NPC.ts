@@ -378,6 +378,7 @@ export class NPC {
   }
 
   get staminaValue(): number { return this.stamina }
+  restoreCombatStamina(value: number): void { this.stamina = Math.max(0, Math.min(MAX_STAMINA, value)) }
   get staminaRatio(): number { return this.stamina / MAX_STAMINA }
   get sprinting(): boolean { return this.isSprinting }
   get currentLod(): number { return this.equipmentVisualLOD.currentLevel }
@@ -3237,11 +3238,7 @@ export class NPC {
     this._updateMovementStamina(dt)
 
     this.rig.animation?.setSwordHandShape?.(this.swordPivot.visible && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
-    if (!this.animator.busy && !animationAdvanced) {
-      if (this.bowPivot.visible && this.characterFaction === 'viking') this.animator.poseBow(0)
-      else if (!this.isUsingLance && (this.visualMovementSpeed <= 0.1 || this.animator.currentAction === 'bowAim')) this.animator.poseIdle()
-    }
-    this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
+    this._updateIdleLocomotion(animationAdvanced)
     // Patrol/chase previously selected walk/run after the only possible mixer
     // update, while those states did not update the animator at all. Advance
     // exactly once here for every non-combat frame (including death clips).
@@ -3249,11 +3246,6 @@ export class NPC {
       if (import.meta.env.DEV && _collector) { var _tAnimIdle = performance.now() }
       this.animator.update(dt, cameraDistance)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimIdle!) }
-    }
-    if (!animationAdvanced && this.bowPivot.visible && this.characterFaction === 'viking') {
-      this._tmpRangedTarget.set(0, 0, 10).applyQuaternion(this.group.quaternion).add(this.group.position)
-      this._tmpRangedTarget.y += 1.4
-      this.bowVisual?.update(0, this._tmpRangedTarget, false)
     }
 
     if (this.isMounted && this.mount) {
@@ -3266,6 +3258,15 @@ export class NPC {
       this._updateFootPhysics(previousPosition, dt, obstacles)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('footPhysics', _tFoot!) }
     }
+  }
+
+  /** Presentation after movement; never cancels an actual attack or its recovery. */
+  private _updateIdleLocomotion(animationAdvanced: boolean): void {
+    if (!this.animator.busy && !animationAdvanced) {
+      if (this.animator.currentAction === 'bowAim') this.bowVisual?.update(0, undefined, false)
+      if (!this.isUsingLance && (this.visualMovementSpeed <= 0.1 || this.animator.currentAction === 'bowAim')) this.animator.poseIdle()
+    }
+    this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
   }
 
   private _updateRiderFall(dt: number, obstacles: ObstacleData[]): void {

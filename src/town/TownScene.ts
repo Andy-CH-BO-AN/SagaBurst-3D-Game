@@ -1,3 +1,8 @@
+import { raceReturnAction } from '../career/CareerRaceReturn'
+import { CareerRaceHUD } from '../ui/CareerRaceHUD'
+import { CareerRaceController } from '../career/CareerRaceController'
+import { MOUNTED_RACES, type RaceId } from '../career/CareerRaceState'
+import { RACE_LINES } from '../career/CareerRaceRoute'
 import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
 import { refitCommandCheckpoint } from '../career/CareerCommandActorCheckpoint'
 import { stageMissionReturnRebuild, stageMissionReturnResidents, isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
@@ -144,7 +149,7 @@ import { TownMissionCombat, type TownCombatResident as Resident } from './TownMi
 import { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import { withTownCommandSquadRoster } from './TownRules'
 import { TownOutskirtsWarfareController } from './TownOutskirtsWarfareController'
-import { TOWN_RULES, townActorHeroProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, townPlayerEntryPoint, TOWN_SITES, isCivilian, productStatus, townShopProducts, settleTown, updateRangerMount, type TownResult } from './TownRules'
+import { TOWN_RULES, townActorHeroProfile, TownEvent, townCaptainProfile, townMilitaryEquipment, stableHorsePositions, townSitePoint, townPlayerEntryPoint, TOWN_SITES, isCivilian, productStatus, townShopProducts, deferTownResult, settleTown, updateRangerMount, type TownResult } from './TownRules'
 
 let sound: SoundManager
 interface Shot { arrow: ArrowProjectile; readonly training: boolean; readonly player: boolean; readonly source?: NPC; readonly sourceRef?: CombatActorRef; age: number; maxLifetimeSeconds?: number }
@@ -231,6 +236,10 @@ export class TownScene {
   private townCommand?: TownCommandSquadController
   private civilianCommand?: CivilianCommandSquadController
   private townAirCommand?: TownAirCommandSquadController
+  private race?: CareerRaceController
+  private readonly raceGuide = new MissionGuide('career-race-guide')
+  private readonly raceHud = new CareerRaceHUD()
+  private raceClockDt = 0
   private captainPatrol?: CaptainPatrolCommandController
   private readonly commandActors: NPC[] = []
   private missionCombat!: TownMissionCombat
@@ -245,6 +254,7 @@ export class TownScene {
   private outskirts?: TownOutskirtsWarfareController
   private missionResultOpen = false
   private deploymentPage?: CareerMissionPage | 'duel'
+  private duelActivity: 'duel' | 'race' = 'duel'
   private duelPresetId?: UnitPresetId
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
@@ -440,6 +450,8 @@ export class TownScene {
     })
     this.defense.civilianCommandOwns = npc => Boolean(this.civilianCommand?.ownsPlayerCommand(npc) || this.civilianCommand?.ownsPeacefulTravel(npc))
     this.initializeCareerMounts()
+    this.race = new CareerRaceController(this.scene, this.navigation, this.world.obstacles, this.residents,
+      () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, { groundedTownReturn: Boolean(this.player.dead && this.profile.activeRace && !p.activeRace) }))
     this.missionCombat = new TownMissionCombat(
       { field: this.mission, duel: this.duel, defense: this.defense },
       {
@@ -450,6 +462,9 @@ export class TownScene {
         airPatrol: () => this.enemyEaglePatrol,
         personalSquad: () => this.personalSquad,
         patrol: () => this.patrol,
+        raceActors: () => this.race?.actors ?? [],
+        raceMounts: () => this.race?.allMounts ?? [],
+        onActorMoved: npc => this.race?.observeActorMovement(npc),
         commandActors: () => [...(this.captainPatrol?.fieldNpcs ?? []), ...(this.townCommand?.combatActors ?? []), ...(this.civilianCommand?.combatActors ?? []), ...(this.townAirCommand?.combatActors ?? []),
           ...this.commandActors.filter(npc => {
             const authority = this.profile.activeMission?.officialSquad
@@ -492,6 +507,10 @@ export class TownScene {
     )
     this.player.onPlayerDeath = () => this.enterMissionObserver()
     await this.restoreActiveCareerMission()
+    this.race.restore()
+    await this.race.waitForDeployment()
+    this.race.restorePlayer()
+    if (this.player.dead && this.profile.activeRace) this.enterMissionObserver()
     await this.waitForInitialMissionDeployment(progress)
     progress('預熱城外 Bandit…')
     const banditWarmupStarted = performance.now()
@@ -525,7 +544,7 @@ export class TownScene {
     this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
     this.ambientLabel.className = 'town-ambient'; this.ambientLabel.hidden = true
     document.body.append(this.hud, this.hint, this.pointerPrompt, this.ambientLabel)
-    this.compass = new CompassUI(this.camera)
+    this.compass = new CompassUI(this.camera, this.raceHud.element)
     if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q 關閉面板 · Esc 暫停／上一頁'
     const opts = { capture: true, signal: this.listeners.signal }
     window.addEventListener('keydown', e => this.key(e), opts)
@@ -533,6 +552,7 @@ export class TownScene {
       this.flushCareerSkillProgression()
       this.persistPersonalSquad(0, true)
       this.captainPatrol?.persist(true)
+      this.race?.snapshot(); this.race?.persist()
       if (this.defense?.active && !this.defense.active.result) this.defense.persistRuntimeProgress(true, this.careerMounts.checkpoint())
       if (!this.defense?.active && !this.captainPatrol?.active && this.profile.activeMission
         && (this.profile.activeMission.kind === 'veteran-field' || this.profile.activeMission.officialSquad)
@@ -684,6 +704,10 @@ export class TownScene {
     this.clearCareerSkillSaveTimer()
     const restoringResidents = Boolean(options.residentReturnStaged || this.residentReturnPending)
     let next = cloneCareerProfile(profile)
+    // Capture the live race in unrelated town saves, including the hostility transition.
+    if (this.race?.session && next.activeRace?.id === this.race.session.id) next.activeRace = structuredClone(this.race.session)
+    if (!this.race?.session && next.racePlayerState && this.profile.racePlayerState) next.racePlayerState = this.race?.capturePlayerState() ?? next.racePlayerState
+    if (next.activeRace && (next.activeMission || next.activeOutpostMission)) { this.notice = '賽馬尚未結束，不能同時接受正式任務。'; return false }
     const startsFormal = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id
       || next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)
     let townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(this.profile.townCommandSquad)
@@ -935,8 +959,8 @@ export class TownScene {
   }
 
   private enterMissionObserver(): void {
-    if (!this.profile.activeMission || this.event.hostile || this.spectator) return
-    if (this.profile.activeMission.kind === 'duel') {
+    if ((!this.profile.activeMission || this.event.hostile) && !this.profile.activeRace || this.spectator) return
+    if (this.profile.activeMission?.kind === 'duel') {
       this.duel.persistRuntimeProgress(true)
       this.input.clear()
       this.player.clearTownAction()
@@ -953,7 +977,7 @@ export class TownScene {
     this.hasPreviousTip = false
     document.getElementById('controls-hint')!.textContent = 'Observer · WASD 移動 · Mouse 視角 · Space 上升 · Ctrl 下降 · Shift 加速'
     // Save death immediately, without resolving or claiming the mission.
-    if (!this.profile.activeMission.playerDead) {
+    if (this.profile.activeMission && !this.profile.activeMission.playerDead) {
       const next = cloneCareerProfile(this.profile)
       next.activeMission!.playerDead = true
       this.commit(next)
@@ -1013,8 +1037,10 @@ export class TownScene {
     else if (this.duel?.active) this.duel.persistRuntimeProgress(true)
     else if (this.defense?.active) this.defense.persistRuntimeProgress(true, this.careerMounts.checkpoint())
     else if (this.profile.activeMission) this.mission.persistRuntimeProgress(true)
+    this.race?.snapshot()
+    const raceSaved = this.race?.persist() ?? true
     const saved = this.commit(this.profile)
-    if (!skillsSaved || !saved || this.careerSaveFailures !== failures) {
+    if (!raceSaved || !skillsSaved || !saved || this.careerSaveFailures !== failures) {
       this.panel?.remove(); this.panel = null
       this.openPauseMenu('進度保存失敗，尚未返回主選單。請確認儲存空間後，再按「上一頁」重試。')
       return
@@ -1590,7 +1616,7 @@ export class TownScene {
     const selectedPage = requestedPage !== 'duel' && !isCareerMissionPageUnlocked(this.profile, requestedPage) ? defaultPage : requestedPage
     this.deploymentPage = selectedPage
     const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.setAttribute('aria-label', '任務分類')
-    for (const [page, label] of [['recruit', '菜兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['captain', '隊長任務'], ['commander', '指揮官任務'], ['duel', '1v1 Duel · 單挑']] as const) {
+    for (const [page, label] of [['recruit', '菜兵任務'], ['soldier', '士兵任務'], ['veteran', '老兵任務'], ['captain', '隊長任務'], ['commander', '指揮官任務'], ['duel', '1 v 1 · 對決']] as const) {
       const tab = document.createElement('button'); tab.className = 'town-button'; tab.textContent = label
       tab.setAttribute('aria-pressed', String(page === selectedPage))
       tab.disabled = page !== 'duel' && !isCareerMissionPageUnlocked(this.profile, page)
@@ -1830,6 +1856,39 @@ export class TownScene {
     this.closePanel()
   }
   private openDuelPage(panel: HTMLElement): void {
+    const activities = [['duel', '單挑 Duel'], ['race', '繞城賽馬 Racing']] as const
+    const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.style.position = 'static'
+    tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '1 v 1 對決種類')
+    const content = document.createElement('section'); content.id = 'town-one-v-one-content'
+    content.setAttribute('role', 'tabpanel')
+    const buttons = activities.map(([activity, label]) => {
+      const tab = document.createElement('button'); tab.className = 'town-button'; tab.textContent = label
+      tab.id = `town-one-v-one-${activity}`; tab.setAttribute('role', 'tab')
+      tab.setAttribute('aria-controls', content.id)
+      tab.onclick = () => { this.duelActivity = activity; render() }
+      tab.onkeydown = event => {
+        const index = activities.findIndex(([id]) => id === activity)
+        const next = event.key === 'ArrowRight' ? (index + 1) % activities.length
+          : event.key === 'ArrowLeft' ? (index + activities.length - 1) % activities.length
+          : event.key === 'Home' ? 0 : event.key === 'End' ? activities.length - 1 : null
+        if (next === null) return
+        event.preventDefault(); this.duelActivity = activities[next][0]; render(); buttons[next].focus()
+      }
+      tabs.append(tab); return tab
+    })
+    const render = () => {
+      buttons.forEach((tab, index) => {
+        const selected = activities[index][0] === this.duelActivity
+        tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1
+        if (selected) content.setAttribute('aria-labelledby', tab.id)
+      })
+      content.replaceChildren()
+      if (this.duelActivity === 'race') this.openRacePage(content)
+      else this.openDuelSelection(content)
+    }
+    panel.append(tabs, content); render()
+  }
+  private openDuelSelection(panel: HTMLElement): void {
     const presets = getUnitPresetsForFaction(this.profile.faction)
     const selected = presets.find(preset => preset.id === this.duelPresetId) ?? presets[0]
     this.duelPresetId = selected.id
@@ -1857,9 +1916,82 @@ export class TownScene {
       row.append(title, details, accept); panel.append(row)
     }
   }
+  private openRacePage(panel: HTMLElement): void {
+    const racing = document.createElement('h3'); racing.textContent = 'Mounted Circuit Racing · 繞城賽馬'; panel.append(racing)
+    for (const race of MOUNTED_RACES) {
+      const row = document.createElement('article'); row.className = 'town-product'
+      const name = document.createElement('strong'); name.textContent = `${race.name} · 指揮官 · ${race.mount}`
+      const details = document.createElement('small')
+      details.textContent = `指揮官 ${race.sprint ? 'Sprint' : 'Normal（不衝刺）'} · 玩家可衝刺 · 勝利 ${race.merit} 軍功 · ${this.profile.completedRaceIds?.includes(race.id) ? '已完成' : '未完成'}`
+      const accept = this.button(row, '接受賽馬', () => this.acceptRace(race.id))
+      accept.disabled = Boolean(this.profile.activeRace || this.profile.activeMission || this.profile.activeOutpostMission)
+      row.prepend(name, details); panel.append(row)
+    }
+  }
+  private acceptRace(id: RaceId): void {
+    const fresh = this.store.loadChecked().profile
+    if (!fresh || !this.race?.accept(id, fresh)) {
+      this.openPanel('無法接受賽馬', this.race?.error || '無法讀取生涯存檔。'); return
+    }
+    this.closePanel()
+    this.notice = '跟隨 Captain 前往北門。玩家六關皆可使用 Shift 衝刺。'
+  }
+  private showRaceResult(): void {
+    const race = this.race, session = race?.session
+    if (!race || !session?.result || session.phase === 'finishing') return
+    if (!race.resultSaved && !race.persist()) {
+      const panel = this.openPanel('賽事結算尚未保存', '結果已鎖定。保存失敗，請重試；尚未發表賽果。')
+      this.button(panel, '重試保存結果', () => { if (race.persist()) { this.closePanel(); this.showRaceResult() } })
+      return
+    }
+    const name = MOUNTED_RACES.find(r => r.id === session.raceId)!.name
+    const merit = this.profile.raceRecords?.find(record => record.sessionId === session.id)?.merit ?? 0
+    const panel = this.openPanel(`${name} · ${session.result === 'win' ? 'Victory' : session.result === 'loss' ? 'Defeat' : 'Draw'}`,
+      `${session.reason ?? ''}\n玩家：${session.player.finishSeconds !== undefined ? `${session.player.finishSeconds.toFixed(2)} 秒` : 'DNF'} · ${session.opponent.actorId === 'commander' ? '指揮官' : 'NPC'}：${session.opponent.finishSeconds !== undefined ? `${session.opponent.finishSeconds.toFixed(2)} 秒` : 'DNF'}\n本場軍功：+${merit}\n結果已保存。城鎮敵對與戰損維持實際狀態。`)
+    this.button(panel, '直接返回小鎮', () => this.leaveRace())
+    if (race.canWalkBack) this.button(panel, '跟隊長走回去', () => {
+      if (!race.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
+      this.closePanel()
+    })
+  }
+  private leaveRace(direct = true): void {
+    if (!this.checkpointRaceTownResult()) return
+    const pendingTownResult = this.profile.townEvent?.pendingResult
+    const dead = this.player.dead
+    if (!this.race?.clear(direct)) { this.notice = this.race?.error || '返回狀態保存失敗，請重試。'; return }
+    if (pendingTownResult) { this.showTownResult(pendingTownResult); return }
+    const saved = this.profile.racePlayerState!
+    if (dead) {
+      // Recover only the player, without rebuilding/refitting the Town or ending hostility.
+      this.player.resetForScene(saved.position.x, saved.position.y, saved.position.z)
+      this.spectator = null
+      this.hp.setFill(this.player.hpRatio)
+    } else if (direct) {
+      const mount = this.player.currentMount
+      if (mount && saved.mounted) {
+        mount.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
+        mount.group.rotation.y = saved.mountPosition.yaw
+        this.player.syncMountTransform()
+      } else this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
+    }
+    if (direct || dead) this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
+    this.closePanel(); this.notice = '賽事已結束，已返回小鎮。'
+  }
+  private updateRaceHud(): void {
+    const race = this.race
+    const session = !this.panel && !this.equipment.visible ? race?.session ?? null : null
+    const target = race?.guideTarget ?? null
+    const distance = target ? Math.hypot(target.x - this.player.combatPosition.x, target.z - this.player.combatPosition.z) : null
+    this.raceHud.update(session, { ready: race?.ready ?? false, resultSaved: race?.resultSaved ?? false,
+      saveFailed: race?.saveFailed ?? false, error: race?.error ?? '', distance })
+    if (!session) { this.raceGuide.hide(); return }
+    this.raceGuide.updateRace(this.player.combatPosition, this.orbit.cameraYaw, target,
+      session.phase === 'racing' || session.phase === 'finishing' ? `下一站：${RACE_LINES[session.player.checkpoint]?.label ?? '完成'}`
+        : session.phase === 'returning' ? '返回小鎮' : '北門起跑區')
+  }
   private acceptDuel(presetId: UnitPresetId, tier: CareerDuelTier): void {
     const fresh = this.store.load()
-    if (!fresh || this.player.dead || this.event.hostile || !isCareerDuelUnlocked(fresh, presetId, tier) || fresh.activeMission || fresh.activeOutpostMission || fresh.townEvent?.state === 'hostile') {
+    if (!fresh || this.player.dead || this.event.hostile || !isCareerDuelUnlocked(fresh, presetId, tier) || fresh.activeRace || fresh.activeMission || fresh.activeOutpostMission || fresh.townEvent?.state === 'hostile') {
       this.openPanel('無法接受單挑', '生涯存檔已變更、該兵種 Tier 尚未解鎖，或目前正在交戰。'); return
     }
     const mission = this.duel.createMission(presetId, tier)
@@ -2481,6 +2613,7 @@ export class TownScene {
     for (const mount of this.mission?.battlefieldMounts ?? []) add(mount, true)
     for (const mount of this.defense?.enemyMounts ?? []) add(mount, true)
     for (const mount of this.duel?.allMounts ?? []) add(mount, true)
+    for (const mount of this.race?.allMounts ?? []) add(mount)
     // Outskirts mounts keep their controller's lifetime, independently of mission settlement.
     for (const mount of this.outskirts?.mounts ?? []) add(mount)
     for (const mount of this.enemyEaglePatrol?.mounts ?? []) add(mount)
@@ -2488,7 +2621,7 @@ export class TownScene {
     for (const mount of this.temporaryMounts.all) add(mount)
     add(owned)
     this.enemyEaglePatrol?.setLandingOccupants(this.combatMounts)
-    for (const npc of [...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.mission?.ambientBandits ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) {
+    for (const npc of [...(this.residents ?? []).map(r => r.npc), ...(this.mission?.fieldNpcs ?? []), ...(this.mission?.ambientBandits ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []), ...(this.race?.actors ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) {
       npc.combatMountGrid = this.combatMountGrid
     }
   }
@@ -2550,7 +2683,7 @@ export class TownScene {
     return this.profile?.rank === 'commander'
       && (this.sceneContext?.worldFaction ?? this.world?.faction) === this.profile.faction
       && !this.sceneContext?.missionOnlyResidents
-      && !this.profile.activeMission && !this.profile.activeOutpostMission
+      && !this.profile.activeRace && !this.profile.activeMission && !this.profile.activeOutpostMission
       && this.profile.townEvent?.state !== 'hostile' && !this.event?.hostile
   }
   private isProtectedTownAlly(target: NPC | Mount): boolean {
@@ -2668,6 +2801,7 @@ export class TownScene {
     }
     if (!source && this.duel?.active && target === this.duel.opponent && !this.duel.canDamageOpponent(target)) return
     if (target.dead || amount <= 0) return
+    if (!source && this.race?.actors.includes(target) && !this.prepareDamage()) return
     if (!source && this.isProtectedTownAlly(target)) return
     if (source && !townWartimeHostile(source, target)) return
     if (this.defense?.active && !source && target.faction !== Faction.ENEMY && target.faction !== Faction.BANDIT) return
@@ -2682,6 +2816,7 @@ export class TownScene {
       emit: event => this.emitCombatEvent(event),
     })
     if (!result.hitSuccess) return
+    if (!source && result.appliedDamage > 0 && this.race?.actors.includes(target)) this.activateHostility()
     if (result.appliedDamage > 0) {
       this.outskirts?.noteHit(target, !source)
       this.enemyEaglePatrol?.noteHit(target, !source)
@@ -2734,12 +2869,12 @@ export class TownScene {
   private runtimeCombatActors(): NPC[] {
     return [...new Set([
       ...(this.residents ?? []).map(resident => resident.npc),
-      ...(this.mission?.fieldNpcs ?? []), ...(this.mission?.ambientBandits ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []),
+      ...(this.mission?.fieldNpcs ?? []), ...(this.mission?.ambientBandits ?? []), ...(this.defense?.fieldNpcs ?? []), ...(this.duel?.fieldNpcs ?? []), ...(this.race?.actors ?? []),
       ...(this.missionCombat?.enemyTownHostiles ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? []),
     ])]
   }
   private updateShots(dt: number): void {
-    const runtimeActors = this.duel?.active || this.defense?.active || this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length ? this.runtimeCombatActors() : null
+    const runtimeActors = this.profile.activeRace || this.duel?.active || this.defense?.active || this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length ? this.runtimeCombatActors() : null
     const externalDefenders = runtimeActors ? [] : this.missionCombat?.externalDefenders ?? []
     for (const s of this.shots) {
       if (!s.arrow.isAlive) continue
@@ -2798,7 +2933,7 @@ export class TownScene {
         if (distance < nearest) { nearest = distance; hit = () => {
           if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile', contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
-          else if (target instanceof NPC && (this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
+          else if (target instanceof NPC && (this.race?.actors.includes(target) || this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target === this.cat && this.defense.active && s.source?.faction === Faction.ENEMY) {
             this.cat.takeDamage(s.arrow.damage)
             if (this.cat.dead && this.ranger.mount === this.cat) this.ranger.dismountFromMount()
@@ -2821,7 +2956,7 @@ export class TownScene {
         const target = contact.target
         if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, amount, 'melee', undefined, contact)
         else if (target instanceof NPC) {
-          if (this.duel?.isMissionTarget(target) || this.outskirts?.owns(target) || this.enemyEaglePatrol?.owns(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
+          if (this.race?.actors.includes(target) || this.duel?.isMissionTarget(target) || this.outskirts?.owns(target) || this.enemyEaglePatrol?.owns(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
           else this.hitResident(target, amount, 'melee', contact)
         }
       }
@@ -2857,7 +2992,7 @@ export class TownScene {
     }
     if (buildingHit >= 0) { this.player.markHitProcessed(); this.damageBuilding(buildingHit, damageResult.damage, buildingHitPosition); return }
     if (this.world.targets.some(p => p.distanceTo(tip) < .8)) { this.player.markHitProcessed(); return }
-    const combatTargets = this.duel?.active || this.defense?.active || this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length ? this.runtimeCombatActors().filter(target => !this.isProtectedTownAlly(target))
+    const combatTargets = this.profile.activeRace || this.duel?.active || this.defense?.active || this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length ? this.runtimeCombatActors().filter(target => !this.isProtectedTownAlly(target))
       : [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
         ...(this.missionCombat?.enemyTownHostiles ?? []),
         ...this.residents.map(r => r.npc).filter(target => !this.isProtectedTownAlly(target))]
@@ -2871,7 +3006,7 @@ export class TownScene {
     const amount = Math.round(damageResult.damage * getAntiCavalryMultiplier(weapon.combatKind, this.player.isMounted, contact.kind === 'mount' || target.isMounted))
     if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, amount, 'melee', undefined, contact)
     else if (target instanceof NPC) {
-      if (this.duel?.isMissionTarget(target) || this.outskirts?.owns(target) || this.enemyEaglePatrol?.owns(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
+      if (this.race?.actors.includes(target) || this.duel?.isMissionTarget(target) || this.outskirts?.owns(target) || this.enemyEaglePatrol?.owns(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
       else this.hitResident(target, amount, 'melee', contact)
     }
     if (damageResult.isCharge && this.player.currentMount) this.player.currentMount.skipImpactThisFrame = true
@@ -2888,7 +3023,7 @@ export class TownScene {
       resolveEntityCollision(playerBody, { position, radius: r.npc.mount ? .95 : .42, height: r.npc.mount ? 2.8 : 1.8, bottomOffset: 0, anchored: true }, this.world.obstacles)
     }
     for (const mount of this.townServiceMounts) if (!mount.dead) resolveEntityCollision(playerBody, { position: mount.group.position, radius: .85, height: 2, bottomOffset: 0, anchored: true }, this.world.obstacles)
-    for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
+    for (const npc of [...this.mission.fieldNpcs, ...this.defense.fieldNpcs, ...(this.duel?.fieldNpcs ?? []), ...(this.race?.actors ?? []), ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? []), ...(this.personalSquad?.actors ?? [])]) if (!npc.dead && npc.combatPosition.distanceTo(this.player.combatPosition) < 3) resolveEntityCollision(playerBody, { position: npc.combatPosition, radius: .42, height: 1.8, bottomOffset: 0, anchored: false }, this.world.obstacles)
     this.player.group.position.y = Math.max(this.player.group.position.y, getTerrainHeight(this.player.group.position.x, this.player.group.position.z) + .9)
   }
   private updateAmbient(): void {
@@ -2966,6 +3101,7 @@ export class TownScene {
       this.grid.getNearbyInto(npc.combatPosition, 60, this.neighbors), this.combatMounts) ?? false
   }
   private updatePeace(r: Resident, dt: number): void {
+    if (this.race?.owns(r.npc)) return
     if (this.civilianCommand?.updateResident(r, dt, this.camera.position, this.world.obstacles, this.navigation)) {
       this.civilianLife?.suspend(r.spec.id); return
     }
@@ -3052,6 +3188,7 @@ export class TownScene {
       ? updateRangerMount(ranger, this.cat, ranger.combatPosition.distanceTo(this.cat.group.position)) : 'unavailable'
     this.cat.catVisual?.setEquipmentVisible(status === 'mounted')
     for (const r of this.residents) {
+      if (this.race?.owns(r.npc)) continue
       if (r.npc === ranger && status === 'approach') {
         const dir = this.cat.group.position.clone().sub(ranger.group.position); dir.y = 0; ranger.group.position.addScaledVector(dir.normalize(), dt * 3.5); ranger.group.position.y = getTerrainHeight(ranger.group.position.x, ranger.group.position.z); ranger.group.rotation.y = Math.atan2(dir.x, dir.z); ranger.updateTownPeace(dt, ranger.group.position.distanceTo(this.camera.position), false, false, 3.5); continue
       }
@@ -3065,6 +3202,7 @@ export class TownScene {
         }, (origin, direction, kind, lifecycle) => this.fire(origin, direction, r.npc.rangedProjectileSpeed, r.npc.rangedDamage, false, false, kind, r.npc, lifecycle), false,
         r.npc.group.position.distanceTo(this.camera.position), null, warfare ? this.missionCombat.runtimeGrid : null, this.navigation)
     }
+    this.missionCombat.updateRaceActorsHostile(dt)
     for (const mount of this.mounts) if (!mount.dead && mount.riderNpc?.hostileToPlayer && checkMountImpact(mount, this.player.combatPosition, .6)) {
       applyMountImpactDamage(mount, this.player, this.player.combatPosition, this.elapsed, amount => this.damagePlayerFromNpc(mount.riderNpc!, amount, 'mount-impact'))
     }
@@ -3098,7 +3236,7 @@ export class TownScene {
       }
     }
     this.target = null; let nearest = 2.6
-    if (!this.event.hostile && !this.defense.active && !this.player.isFalling && !this.player.currentMount?.isAirborne) for (const id of ['captain', 'commander', 'deployment', 'merchant', 'ranger', 'cat', 'hr-officer', 'eagle-trainer']) {
+    if (!this.profile.activeRace && !this.event.hostile && !this.defense.active && !this.player.isFalling && !this.player.currentMount?.isAirborne) for (const id of ['captain', 'commander', 'deployment', 'merchant', 'ranger', 'cat', 'hr-officer', 'eagle-trainer']) {
       if (!this.serviceAvailable(id)) continue
       const pos = id === 'cat' ? this.cat.group.position : this.residents.find(r => r.spec.id === id)!.npc.combatPosition
       // Use the grounded mount's base, so the giant eagle's standing seat can still talk.
@@ -3118,6 +3256,11 @@ export class TownScene {
     this.result = result
     const next = settleTown(this.profile, this.profile.townEvent!.id, result)
     if (!this.commit(next)) { const p = this.openPanel('結算尚未保存', '保存失敗；尚未扣款或轉場。'); this.button(p, '重試保存', () => this.finish(result)); return }
+    this.showTownResult(result)
+  }
+  private showTownResult(result: TownResult): void {
+    this.result = result
+    const next = this.profile
     this.temporaryMounts.cleanup()
     const panel = this.openPanel(result === 'player_defeated' ? '弱者必須服從法律' : '小鎮已擊敗', result === 'player_defeated' ? '實際扣除 ' + next.townEvent!.penalty + ' 可用軍功，餘額 ' + next.availableMerit : '轉投 ' + next.faction + '，軍階 Recruit。本次入伍軍功歸零；歷史軍功與收藏保留。')
     this.button(panel, (result === 'player_defeated' ? '返回 ' : '前往 ') + (next.faction === 'viking' ? 'økse 村' : 'vinum 村'), () => { this.dispose(); this.onRestart(this.profile, result === 'player_defeated' ? 'death-return' : undefined) })
@@ -3186,7 +3329,9 @@ export class TownScene {
       this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina,
       this.quiver, sound, this.inventory, this.skills.getRangedMultiplier(), ready)
     this.player.group.updateWorldMatrix(true, true)
+    if (ready) this.race?.beginFrame(this.raceClockDt, dt)
     if (ready) {
+      this.race?.prepare()
       this.updateMissionSimulation(dt)
     } else {
       this.missionCombat.updateCommandTravel(dt, (this.commandActors ?? []).filter(npc => this.isAuthorizedCommandActor(npc)))
@@ -3199,6 +3344,17 @@ export class TownScene {
       this.interaction()
       this.missionCombat.updateDefeatedActors(dt)
     }
+  }
+
+  /** Remember the first native Town outcome without interrupting the trailing racer. */
+  private checkpointRaceTownResult(): boolean {
+    if (!this.profile.activeRace || this.profile.townEvent?.pendingResult) return true
+    const outcome = this.event.evaluate(this.player.dead)
+    if (!outcome) return true
+    if (this.commit(deferTownResult(this.profile, outcome))) return true
+    const panel = this.openPanel('城鎮結果尚未保存', '賽事仍保留。請重試保存後繼續觀戰或返回。')
+    this.button(panel, '重試保存', () => { if (this.checkpointRaceTownResult()) this.closePanel() })
+    return false
   }
 
   private updateMissionSimulation(dt: number): void {
@@ -3221,7 +3377,16 @@ export class TownScene {
       if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, mount.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles)
     }
     if (!this.sceneContext.missionOnlyResidents && !this.event.hostile && !this.cat.dead && !this.cat.riderNpc && this.cat !== this.careerMounts.activeMount) { this.cat.beginControlledFrame(); this.cat.finishControlledFrame(dt, this.world.obstacles) }
+    for (const mount of this.race?.allMounts ?? []) {
+      mount.setCameraDistance(mount.group.position.distanceTo(this.camera.position))
+      if (mount.dead || !mount.riderNpc && !mount.riderPlayer) mount.update(dt, this.world.obstacles)
+    }
     this.resolveBodies(); this.updateShots(dt)
+    this.race?.advance(this.raceClockDt)
+    if (!this.checkpointRaceTownResult()) return
+    if (this.race?.session?.phase === 'result' && !this.panel) this.showRaceResult()
+    const returning = this.race && raceReturnAction(this.race.session?.phase, this.race.canWalkBack, this.race.returnComplete)
+    if (returning) this.leaveRace(returning === 'direct')
     this.persistPersonalSquad(dt)
     this.captainPatrol?.update(dt)
     if (this.duel?.active) this.duel.persistRuntimeProgress()
@@ -3234,6 +3399,7 @@ export class TownScene {
     }
     if (this.spectator) this.spectator.update(this.input, dt)
     this.interaction()
+    if (this.profile.activeRace) return
     const townOutcome = this.event.evaluate(this.player.dead)
     if (townOutcome && !this.panel) this.finish(townOutcome)
     else if (!this.event.hostile) {
@@ -3272,7 +3438,8 @@ export class TownScene {
       })
     }
     this.updatePointerPrompt()
-    const dt = Math.min(.05, (time - this.last) / 1000); this.last = time
+    this.raceClockDt = Math.max(0, (time - this.last) / 1000)
+    const dt = Math.min(.05, this.raceClockDt); this.last = time
     // Keep the collapse playing even when death immediately opens a result panel.
     if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
     this.updateGameplay(dt)
@@ -3285,6 +3452,7 @@ export class TownScene {
     this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining)
     this.duelGuide.updateDuel(duelPhase, this.player.combatPosition, this.orbit.cameraYaw, this.duel.guideTarget)
     this.updateCaptainPatrolGuide()
+    this.updateRaceHud()
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && !this.defense.active && this.serviceAvailable(id)
     const missionHud = this.profile.activeMission
       ? this.mission?.travelEncounter?.active
@@ -3333,6 +3501,7 @@ export class TownScene {
     this.compass?.dispose()
     this.compass = undefined
     this.personalSquad?.cleanup()
+    this.race?.snapshot(); this.race?.persist(); this.race?.dispose(); this.raceGuide.dispose(); this.raceHud.dispose()
     this.captainPatrol?.dispose()
     this.captainPatrolGuide.dispose()
     this.personalCommands?.close()

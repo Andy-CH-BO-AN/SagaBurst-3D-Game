@@ -81,7 +81,7 @@ export function createCareerDuelMission(
   id = createCareerMissionId(CAREER_DUEL_TEMPLATE_ID),
   refereeActorId = captainActorId,
 ): ActiveCareerMission | null {
-  if (profile.activeMission || profile.activeOutpostMission || tier === 5 && profile.townEvent?.state === 'hostile' || !isCareerDuelUnlocked(profile, presetId, tier)
+  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission || tier === 5 && profile.townEvent?.state === 'hostile' || !isCareerDuelUnlocked(profile, presetId, tier)
     || !opponentActorId.trim() || !captainActorId.trim() || !refereeActorId.trim() || !id.trim()) return null
   const opponent = opponentActorId.trim(), captain = captainActorId.trim(), referee = refereeActorId.trim()
   if (tier === 5 && (opponent !== 'commander' || captain !== 'captain' || referee !== captain)) return null

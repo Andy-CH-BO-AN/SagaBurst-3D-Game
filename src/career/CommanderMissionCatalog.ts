@@ -103,7 +103,7 @@ export function getCommanderMissionAvailability(profile: CareerProfile, template
   if (!getCommanderMissionDefinition(templateId) || profile.rank !== 'commander') {
     return { unlocked: false, reason: '需要正式任命為 Commander；單有 20,000 軍功不算完成任命。' }
   }
-  if (profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的正式任務。' }
+  if (profile.activeRace || profile.activeMission || profile.activeOutpostMission) return { unlocked: false, reason: '請先完成目前的正式任務。' }
   if (profile.townEvent?.state === 'hostile') return { unlocked: false, reason: '城鎮敵對事件中無法接受任務。' }
   return { unlocked: true }
 }
