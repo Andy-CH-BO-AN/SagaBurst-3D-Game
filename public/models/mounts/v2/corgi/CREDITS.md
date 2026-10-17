@@ -1,20 +1,23 @@
-# Corgi
+# Saddled Corgi Knight
 
-Corgi by leijiaoshou, Sketchfab, CC BY 4.0. Modified for SagaBurst.
+Model created with Meshy – CC BY 4.0 License.
 
-- Model and supplied base-color map: [leijiaoshou corgi dog](https://sketchfab.com/3d-models/corgi-dog-7afb2c8ef92c40819abc690584e6772a).
-- License: [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/).
-- Source SHA-256: `498dcc12755599e30de1c458f2eb852609876968c89490c8616456d072a0c19d`.
-- Source geometry and coat are preserved; uniform scale and heading are baked into the asset.
-- SagaBurst additions: fitted canine skeleton, skin weights, idle/walk/run/death and retained jump/land/hit clips, three body LODs, saddle and stirrups.
-- The original 1024px texture is preserved; geometry uses EXT_meshopt_compression. One immutable package is shared; each corgi has its own skeleton and mixer.
-
+- Source: user-provided `Meshy_AI_Saddled_Corgi_Knight_1017070214_texture.glb`, created with the Meshy free plan.
+- Meshy: https://www.meshy.ai/
+- License: https://creativecommons.org/licenses/by/4.0/
+- Source SHA-256: `0d0a7925220ef045b7c70ed7071248565b742d76ea3d356d64b19f49a90175df`.
+- Source: 10,336 triangles, one mesh/material, 2048 base/normal and 4096 metallic-roughness maps.
+- SagaBurst changes: uniform scale/ground normalization, measured short-legged canine rig and weights, source saddle/armor visibility separation, concealed-body reconstruction, local conforming leg refinement, three conservative LODs, texture optimization and Meshopt compression.
+- The original visible fur/head/ear/paw surfaces and original equipped saddle design are retained. The concealed unarmored torso is reconstructed; small coat-color transitions may remain at the cut border.
 
 ## Animation sources
 
-- Idle and walk: [Doginx - Assets](https://tomate-salat.itch.io/doginx-assets) by Tomate Salat, CC0 1.0. Quadruped poses and foot trajectories retargeted and baked onto the existing SagaBurst armature.
-- Run: [Dog corgi animated](https://sketchfab.com/3d-models/dog-corgi-animated-5cc0075d0aa645c398c51316236ff156) by zinaida, CC-BY-4.0. Animation retargeted, stride/timing adapted for the mount, and baked onto the SagaBurst armature. Original donor geometry and textures are not included.
-- Run animation license: [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/).
-- Death: authored on the SagaBurst target rig; jump, land and hit retain the existing SagaBurst animations.
+- Idle and walk: [Doginx - Assets](https://tomate-salat.itch.io/doginx-assets), Tomate Salat, CC0 1.0.
+- Run: [Dog corgi animated](https://sketchfab.com/3d-models/dog-corgi-animated-5cc0075d0aa645c398c51316236ff156), zinaida, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+- Death: SagaBurst-authored collapse. Jump, land and hit derive from the existing accepted SagaBurst clips.
+- Accepted donor is pinned to commit `2b3447f`, package SHA-256 `601720262ab8ea55ce1c3a7bc684f6202618123d7282515ee9f6f0365cfd392f`. Donor geometry and textures are not included.
+- Seven clips are retargeted to the newly measured rest skeleton. The visual death root settles onto the measured model surface; gameplay movement remains unchanged.
 
-Rebuild and validate through [the Blender MCP pipeline](../../../../../tools/blender/README.md). Donor file hashes, mappings and final-package verification are recorded in `animation-source.json`. Original downloads and Blender working files remain outside the shipped package.
+- Historical donor model: [Corgi by leijiaoshou](https://sketchfab.com/3d-models/corgi-dog-7afb2c8ef92c40819abc690584e6772a), CC BY 4.0. Listed for derivation history; old geometry and textures are replaced.
+
+See `animation-source.json` for the retained donor chain and [the reproducible build instructions](../../../../../tools/build-meshy-corgi.md). Source downloads, Blender authoring files and intermediate previews are not shipped. Offline asset review does not establish Browser gameplay or GPU performance acceptance.

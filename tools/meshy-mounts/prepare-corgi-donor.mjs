@@ -1,0 +1,20 @@
+/** Extract the immutable accepted animation donor, never the replacement asset. */
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import assert from 'node:assert/strict';
+import {execFileSync} from 'node:child_process';
+import {readGlb, decodeGlb, encodeGlb} from '../blender/animal_glb.mjs';
+const config=JSON.parse(fs.readFileSync(new URL('./corgi.json', import.meta.url)));
+const out=path.resolve(process.argv[2] ?? 'output/meshy-corgi/donor');
+fs.mkdirSync(out,{recursive:true});
+const bytes=execFileSync('git',['show',`${config.animationDonor.commit}:${config.animationDonor.path}`],{maxBuffer:128*1024*1024});
+const hash=b=>crypto.createHash('sha256').update(b).digest('hex');
+assert.equal(hash(bytes),config.animationDonor.sha256,'Pinned donor hash mismatch');
+const packed=path.join(out,'accepted-corgi.glb');
+fs.writeFileSync(packed,bytes);
+const decoded=await decodeGlb(readGlb(packed));
+const output=encodeGlb(decoded.doc,decoded.bin);
+assert.equal(hash(output),config.animationDonor.decodedSha256,'Decoded donor hash mismatch');
+fs.writeFileSync(path.join(out,'accepted-corgi-decoded.glb'),output);
+console.log(path.join(out,'accepted-corgi-decoded.glb'));

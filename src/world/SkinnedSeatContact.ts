@@ -63,6 +63,8 @@ export class SkinnedSeatContact {
     }
   }
 
+  get hasBearingSurface(): boolean { return this.surfaces.length > 0 }
+
   align(): void {
     const surface = this.surfaces.find(({ mesh }) => {
       for (let node: THREE.Object3D | null = mesh; node && node !== this.rider; node = node.parent) if (!node.visible) return false
