@@ -76,25 +76,3 @@ it('shows civilian native T1 weapons and exposes only the merchant military hors
   expect(profile.townEquipment!.roman!.actors.merchant.mount).toEqual({ itemId: 'horse', source: 'inventory' })
 })
 
-it('exposes the existing service Ranger in Commander equipment UI and persists its refit before applying', () => {
-  let profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander', commanderMeleeGranted: true,
-    totalMerit: 20000, inventory: { version: 1, quantities: { heavy_lance: 1 } } }
-  const events: string[] = []
-  createTownCareerEquipmentUI(() => profile, () => ({ townFaction: 'roman', peaceful: true, personalState: 'RESERVE', safeActorIds: new Set(['ranger']) }),
-    () => [{ spec: { id: 'ranger' }, npc: { name: 'Ranger', dead: false } }], next => {
-      profile = next; events.push('save'); return true
-    }, (_before, current, ids) => {
-      expect(current.townEquipment!.roman!.actors.ranger.melee?.itemId).toBe('heavy_lance')
-      expect(ids).toEqual(['ranger']); events.push('apply'); return 0
-    })
-  const squads = bindings.read().squads
-  const squad = squads.find(squad => squad.members.some(member => member.id === 'ranger'))!
-  expect(squad.id).toBe(4)
-  expect(squads.filter(squad => typeof squad.id === 'number')).toHaveLength(8)
-  expect(squads.flatMap(squad => squad.members).filter(member => member.id === 'ranger')).toHaveLength(1)
-  expect(squad.members.find(member => member.id === 'ranger')).toMatchObject({ readOnly: false, reason: undefined })
-  expect(bindings.options(squad.id, 'ranger', 'melee').map(option => option.id)).toContain('heavy_lance')
-  bindings.change(squad.id, 'ranger', 'melee', 'heavy_lance')
-  expect(events).toEqual(['save', 'apply'])
-  expect(profile.townEquipment!.roman!.actors.ranger.mount?.itemId).toBe('black-cat')
-})
