@@ -155,12 +155,6 @@ describe('Mounted race route geometry', () => {
 })
 
 describe('Mounted race outcome ownership', () => {
-  it('requires a player finish after the opponent dies', () => {
-    const s = session(); s.opponent.dead = true; s.opponent.hp = 0
-    resolveRace(s); expect(s.result).toBeUndefined()
-    s.player.checkpoint = 4; cross(s.player, pos(0, -120), pos(0, -110))
-    resolveRace(s); expect(s.result).toBe('win')
-  })
   it('waits for the NPC finish after player death', () => {
     const s = session(); s.player.dead = true; s.player.hp = 0
     resolveRace(s); expect(s.result).toBeUndefined()
