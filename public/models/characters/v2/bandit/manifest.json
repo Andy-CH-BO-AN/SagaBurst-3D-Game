@@ -4,27 +4,25 @@
   "status": "ready",
   "skeleton": "project-humanoid-v1",
   "source": {
-    "title": "Fantasy Bandit",
-    "author": "tokeshi",
-    "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
-    "license": "CGTrader Royalty Free (no AI)",
-    "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
-    "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
-    "archives": {
-      "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
-      "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
-    }
+    "title": "Meshy medieval outlaw (user supplied)",
+    "author": "Meshy AI / user-supplied generation",
+    "filename": "Meshy_AI_ragged_warrior_rerigg_All_Animations.glb",
+    "sourceSha256": "fcc975506d11b7ecd2e3eaadee55f0b28ae280e05bb814bafa5e75e8588cef64",
+    "tool": "Meshy AI",
+    "plan": "Free, confirmed by owner",
+    "license": "CC BY 4.0",
+    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+    "url": "https://www.meshy.ai/"
   },
-  "attribution": "Fantasy Bandit by tokeshi / CGTrader. Licensed for incorporated game use; no standalone redistribution.",
+  "attribution": "Body: user-supplied Meshy AI generation, CC BY 4.0. Animations and original hammer: Fantasy Bandit by tokeshi / CGTrader, original incorporated-game-use license retained.",
   "modifications": [
-    "Uniform measured 1.75 m idle height; preserved source mesh, UVs and skinning",
-    "Canonical bone aliases and cached sockets",
-    "Original rigid hammer parented to right hand",
-    "Source clips and existing three-level LOD policy; PBR 2K/1K/512 maps",
-    "Source run grip baked into right finger chains for every clip; walking wrist preserved",
-    "Per-clip ground calibration baked into hips; no runtime grounding correction",
-    "DirectX body/armor/weapon normal green channel inverted for glTF; original eye normal retained",
-    "Original attack retimed through existing .252 second hit event, .48 second duration"
+    "Baked source centimetre root scale to metres, ground-centred +Z forward; uniform target height 1.75 m",
+    "Retained Meshy cloth/hair/body appearance and native skin weights; canonical bone aliases and sockets",
+    "Offline anatomical retarget of all six original tokeshi clips to the new bind pose, including both arms and palm axes",
+    "Original tokeshi hammer attached to calibrated right palm; bounded static distal-finger surface curl with original topology, UVs and weights; no old hand geometry or fabricated finger bones",
+    "Three LODs and 2K/1K/512 textures; removed unintended body emission; rough nonmetal cloth",
+    "Run-only coherent right-arm carry correction keeps original hammer away from new face; torso/left arm/combat clips unchanged",
+    "Attack duration 0.48 s and contact 0.252 s unchanged; no runtime retarget or gameplay changes"
   ],
   "handShapeMode": "authored",
   "files": {
@@ -33,13 +31,13 @@
     "lod2": "lod2.glb"
   },
   "metrics": {
-    "heightM": 1.750000006772126,
-    "shoulderWidthM": 0.5386868948029219,
-    "neckLengthM": 0.06310871904279719,
+    "heightM": 1.75,
+    "shoulderWidthM": 0.35945825795558184,
+    "neckLengthM": 0.06893694844472681,
     "triangles": {
-      "lod0": 36365,
-      "lod1": 18903,
-      "lod2": 5816
+      "lod0": 16925,
+      "lod1": 6820,
+      "lod2": 4234
     },
     "textures": {
       "lod0": 2048,
@@ -125,9 +123,9 @@
   "boneMap": "bone-map.json",
   "audit": "audit.json",
   "fileSha256": {
-    "lod0": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
-    "lod1": "8456eec59ac09a5172af8c91145017b81a6092bb04bb660a4bd51b9f3aad26e1",
-    "lod2": "15c18265c6bb9e8a86b8ed84db75e083319344858696a708f56d54f850c88c9e"
+    "lod0": "ead0fbaf590d2f2cdf92a2b18474332a3dd417d6716bf22ab2b5a45e020dbf73",
+    "lod1": "5a5849c8c09195f742216b31b577e9929397088a79560457b027e9c04acbf27a",
+    "lod2": "173274702a597f48a5d22744cf1ae13ef0077e30ce358e59a303164166b93e13"
   },
   "attackRetiming": {
     "sourceContactFrame": 30,
@@ -138,5 +136,149 @@
     "duration": 0.48,
     "hitTime": 0.252,
     "method": "piecewise linear through original NPC sword contact; combat rules unchanged"
-  }
+  },
+  "donor": {
+    "commit": "bb517258398423039a7a0dfa983681322c92a51d",
+    "path": "public/models/characters/v2/bandit/lod0.glb",
+    "sha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+    "source": {
+      "title": "Fantasy Bandit",
+      "author": "tokeshi",
+      "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
+      "license": "CGTrader Royalty Free (no AI)",
+      "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
+      "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
+      "archives": {
+        "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
+        "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
+      }
+    },
+    "licenseNote": "Fantasy Bandit by tokeshi / CGTrader. Licensed for incorporated game use; no standalone redistribution.",
+    "originalFiles": {
+      "lod0": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+      "lod1": "8456eec59ac09a5172af8c91145017b81a6092bb04bb660a4bd51b9f3aad26e1",
+      "lod2": "15c18265c6bb9e8a86b8ed84db75e083319344858696a708f56d54f850c88c9e"
+    }
+  },
+  "textureMemory": {
+    "definition": "Uncompressed RGBA8 estimates, before mipmaps; actual GPU format not measured",
+    "images": {
+      "lod0": [
+        {
+          "width": 2048,
+          "height": 2048,
+          "rgba8DecodedBytes": 16777216
+        },
+        {
+          "width": 2048,
+          "height": 2048,
+          "rgba8DecodedBytes": 16777216
+        },
+        {
+          "width": 2048,
+          "height": 2048,
+          "rgba8DecodedBytes": 16777216
+        },
+        {
+          "width": 2048,
+          "height": 2048,
+          "rgba8DecodedBytes": 16777216
+        }
+      ],
+      "lod1": [
+        {
+          "width": 1024,
+          "height": 1024,
+          "rgba8DecodedBytes": 4194304
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "rgba8DecodedBytes": 4194304
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "rgba8DecodedBytes": 4194304
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "rgba8DecodedBytes": 4194304
+        }
+      ],
+      "lod2": [
+        {
+          "width": 512,
+          "height": 512,
+          "rgba8DecodedBytes": 1048576
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "rgba8DecodedBytes": 1048576
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "rgba8DecodedBytes": 1048576
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "rgba8DecodedBytes": 1048576
+        }
+      ]
+    }
+  },
+  "lodPolicy": {
+    "lod0": "Original body topology",
+    "lod1": "Approximately 6K body triangles",
+    "lod2": "Approximately 4K body triangles, deliberately above 1.5K\u20132.5K suggestion: 2K candidates visibly collapsed face/hands; preserve facial/hand features and boot endpoints"
+  },
+  "visualAcceptance": {
+    "offline": "See PR evidence; structural audit is not art acceptance",
+    "browser": "Pending, execution sandbox blocks Chromium socket creation",
+    "gpuPerformance": "Not measured; no real GPU/display environment"
+  },
+  "staticGripFit": {
+    "method": "static-distal-source-surface-curl",
+    "bone": "hand_r",
+    "startBoneLocalY": 0.09,
+    "maximumCurlRadians": 0.75,
+    "shaftAxisBoneLocal": [
+      0.3287730913891057,
+      -0.3649133933224832,
+      0.8710605431038196
+    ],
+    "shaftCenterAtLocalZ0": [
+      0.036141,
+      0.115502,
+      0.0
+    ],
+    "modifiedVertices": 210,
+    "thumbUnchanged": true,
+    "maxVertexDisplacementM": 0.03377716176363764,
+    "maxRadialClearanceCorrectionM": 0.010854139733063326,
+    "maxSampledClearanceWorseningM": 0.0,
+    "triangleSamplesPerFace": 45,
+    "normals": "Affected source face-corner normals transformed by actual surface inverse transpose; other normals retained",
+    "preserved": [
+      "source topology",
+      "source UV seams",
+      "all source skin weights",
+      "thumb web",
+      "palm",
+      "wrist",
+      "left hand",
+      "original 23 joints"
+    ],
+    "limitation": "Static partial C grip. Source thumb/shaft overlap is retained; no independent finger articulation."
+  },
+  "metricDefinitions": {
+    "heightM": "Final retargeted idle skinned body bounds, calibrated uniformly to 1.75 m",
+    "shoulderWidthM": "Rest shoulder-joint span, not cloth surface width",
+    "neckLengthM": "Rest neck-to-head joint distance"
+  },
+  "gripLimitations": "Static low-poly fingers, no articulated finger rig. Pre-export actual-triangle diagnostic improved intersecting hand faces 25 to 21 (edited region 8 to 4); approximately 6 mm deepest sampled edited-region overlap remains source baseline. Final visual evidence is separate."
 }

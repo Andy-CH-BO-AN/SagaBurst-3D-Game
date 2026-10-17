@@ -7,7 +7,6 @@ import { shareSelectedLodPose, shareIdenticalSkinSkeletons, validateSelectedLodA
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import { civilianHumanoidAssetId } from './CivilianAppearance'
 import { BANDIT_ASSET } from './BanditAsset'
-import { createBanditFootAttack } from './BanditFootAttack'
 import { CharacterEquipmentPose, type SwordCarryGripProfile, createEquipmentPoseState, type EquipmentPoseState } from './CharacterEquipmentPose'
 import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { prepareEquipmentHandShape } from './EquipmentHandShape'
@@ -121,6 +120,13 @@ export interface HumanoidAssetManifest {
   animations?: {
     embedded: HumanoidAnimationBinding[]
     runtimeGenerated: HumanoidAnimationState[]
+    /** Small animation-only assets, sampled offline in each LOD's own bind frame. */
+    supplemental?: Array<{
+      file: string
+      clip: HumanoidAnimationState
+      duration: number
+      lodClips: [string, string, string]
+    }>
   }
 }
 
@@ -970,18 +976,18 @@ export class HumanoidAssetRegistry {
     const animationClips = manifest.selectedSource || manifest.sharedLodPose
       ? levels.map(level => optimizeSelectedAnimationClips(level.scene, level.animations))
       : resolveHumanoidAnimationClips(levels.map(level => level.animations))
-    // The retained Roman hero GLBs predate the embedded Bandit foot clip.
-    // Fitted civilian/Ranger assets already carry it in every LOD.
-    if (assetId === 'roman-hero-t4') {
-      await this.preloadAsset(BANDIT_ASSET)
-      const source = this.assets.get(BANDIT_ASSET.assetId)!.levels[0]
-      const strike = source.animations.find(clip => clip.name === 'swordSlash')!
-      const binding = manifest.animations!.embedded.find(clip => clip.clip === 'axeAttack1H')!
-      levels.forEach((level, index) => {
-        if (animationClips[index].some(clip => clip.name === 'axeAttack1HFoot')) return
-        animationClips[index] = [...animationClips[index], createBanditFootAttack(source.scene, strike, level.scene,
-          level.animations.find(clip => clip.name === 'idle')!, manifest.swordGripFrames![`lod${index}` as 'lod0'],
-          binding.duration, binding.events!.hit)]
+    for (const supplemental of manifest.animations?.supplemental ?? []) {
+      const animationAsset = await loader.loadAsync(`${base}/${supplemental.file}`)
+      levels.forEach((_level, index) => {
+        const clip = animationAsset.animations.find(clip => clip.name === supplemental.lodClips[index])
+        if (!clip || !(supplemental.duration > 0) || !Number.isFinite(supplemental.duration)
+          || Math.abs(clip.duration - supplemental.duration) > .001
+          || animationClips[index].some(clip => clip.name === supplemental.clip)) {
+          throw new Error(`${assetId} LOD${index}: invalid supplemental animation ${supplemental.clip}`)
+        }
+        // Preserve the original double-precision duration, not GLB's final Float32 key.
+        animationClips[index] = [...animationClips[index], new THREE.AnimationClip(
+          supplemental.clip, supplemental.duration, clip.tracks, clip.blendMode)]
       })
     }
     const bowClips = levels.map((level, index) => frame && !manifest.selectedSource && !manifest.sharedLodPose ? normalizeBowHandClips(level.scene, animationClips[index]) : animationClips[index])
@@ -1114,8 +1120,10 @@ export class HumanoidAssetRegistry {
       if (!assetId || !animations.some(clip => clip.name === 'mounted')) clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
       const rawClips = new Map(sharedProjectAnimationClips().map((clip) => [clip.name, clip]))
       for (const clip of gltf.animations) rawClips.set(clip.name, clip)
-      const generatedFootAttack = animations.find(clip => clip.name === 'axeAttack1HFoot')
-      if (generatedFootAttack && !rawClips.has('axeAttack1HFoot')) rawClips.set('axeAttack1HFoot', generatedFootAttack)
+      for (const supplemental of template.manifest.animations?.supplemental ?? []) {
+        const clip = animations.find(clip => clip.name === supplemental.clip)
+        if (clip) rawClips.set(clip.name, clip)
+      }
       if (template.manifest.sharedLodPose || ['ordinary22', 'roman54', 'varangian63'].includes(template.manifest.selectedSource?.rig ?? '')) {
         if (!clips.has('hit')) clips.set('hit', sharedReplacementHitClip())
         if (!rawClips.has('hit')) rawClips.set('hit', sharedReplacementHitClip())
