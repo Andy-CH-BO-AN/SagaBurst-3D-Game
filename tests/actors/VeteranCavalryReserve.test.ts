@@ -17,7 +17,8 @@ const veteran = (): CareerProfile => ({
 })
 
 function residents(): TownCavalryReserveResident[] {
-  return townRoster().map(spec => {
+  // Reuse authored identities, without allocating 230 fake NPC/mount pairs for two candidates.
+  return townRoster().filter(spec => spec.duty === 'training' && spec.unitKind === 'sword_cavalry').slice(0, 2).map(spec => {
     const npc = { combatantId: spec.id, dead: false } as NPC
     const mount = { dead: false, disposed: false, riderNpc: npc, riderPlayer: null } as Mount
     npc.mount = spec.mounted || spec.role === 'ranger' ? mount : null
@@ -41,7 +42,7 @@ describe('Veteran Town cavalry reserve roster integration', () => {
   })
 
   it('keeps a saved borrowed/temporary pair even when fresh candidates fill both slots', () => {
-    const candidates = residents().filter(r => r.spec.duty === 'training' && r.spec.unitKind === 'sword_cavalry').slice(0, 2)
+    const candidates = residents()
     const saved = { kind: 'veteran-field' as const,
       friendlyActorIds: ['cavalry-training:melee_cavalry:0', 'saved:temporary:x'],
       borrowedActorIds: ['cavalry-training:melee_cavalry:0'] }
