@@ -28,6 +28,8 @@ interface CivilianCommandOptions {
   sceneKey: string
   townFaction: CareerProfile['faction']
   refitSceneKey?: string
+  hasMountedCivilianClearance?(point: { x: number; z: number }, actorId: string): boolean
+  canPlaceMountedCivilian?(point: { x: number; z: number }, actorId: string): boolean
   canRefit?(actors: readonly NPC[], orders: readonly TacticalOrder[]): boolean
   onClaim?(npc: NPC): void
   onRelease?(npc: NPC, owner: CivilianCommandOwner): void
@@ -91,6 +93,12 @@ export class CivilianCommandSquadController {
       if (!homeMount) continue
       if (mounts.has(homeMount) || homeMount.disposed || homeMount.riderPlayer
         || homeMount.riderNpc && homeMount.riderNpc !== npc || npc.mount && npc.mount !== homeMount) return false
+      if (this.options.canPlaceMountedCivilian && this.residentsById.get(id)!.spec.role === 'civilian'
+        && (homeMount.dead || npc.dead || npc.isFalling)) {
+        const point = npc.dead || npc.isFalling ? this.residentsById.get(id)!.spec : npc.combatPosition
+        if (!this.options.canPlaceMountedCivilian(point, id)
+          && (this.owner(npc) !== 'daily' || !this.options.canPlaceMountedCivilian(this.residentsById.get(id)!.spec, id))) return false
+      }
       mounts.add(homeMount)
     }
     const actors = this.refitIds.map(id => this.residentsById.get(id)!.npc)
@@ -105,8 +113,15 @@ export class CivilianCommandSquadController {
     for (const id of this.refitIds) {
       const { npc, spec, homeMount } = this.residentsById.get(id)!, previous = this.value!.members[id]
       const member = value.members[id] = refitCommandCheckpoint(npc, homeMount)
-      if (npc.dead || npc.isFalling) member.position = {
-        x: spec.x, y: spec.y ?? getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? 0,
+      const respawnAtHome = homeMount?.dead && spec.role === 'civilian' && value.owners[id] === 'daily'
+        && this.options.canPlaceMountedCivilian && !this.options.canPlaceMountedCivilian(npc.combatPosition, id)
+      if (npc.dead || npc.isFalling || respawnAtHome) {
+        member.position = {
+          x: spec.x, y: spec.y ?? getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? 0,
+        }
+      }
+      if (spec.role === 'civilian' && member.mount?.mounted && member.position && (npc.dead || npc.isFalling || homeMount?.dead)) {
+        member.mount.position = { ...member.position }
       }
       if (value.owners[id] === 'returning') this.stageReturn(value, id, spec)
       else if (value.owners[id] === 'player') {
@@ -170,7 +185,7 @@ export class CivilianCommandSquadController {
       let restored = saved
       const profile = this.read()
       if (!profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile') {
-        const migrated = migrateCivilianHomes(saved, [...this.residentsById.values()].map(r => r.spec))
+        const migrated = migrateCivilianHomes(saved, [...this.residentsById.values()].map(r => r.spec), this.options.canPlaceMountedCivilian, this.options.hasMountedCivilianClearance)
         if (migrated !== saved) {
           const next = cloneCareerProfile(profile); next.civilianCommandSquad = migrated
           // A denied save falls back to the original checkpoint, including its deaths.
@@ -290,6 +305,9 @@ export class CivilianCommandSquadController {
     if (npc.formationCommandId !== CIVILIAN_COMMAND_RETURN_ID) this.applyReturn(npc, this.value!.members[npc.combatantId])
     npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.actors.filter(other => other !== npc && !other.dead), obstacles, navigation)
     if (npc.isFormationTargetReached(CIVILIAN_COMMAND_RETURN_ID)) {
+      if (resident.spec.role === 'civilian' && Math.hypot(npc.combatPosition.x - resident.spec.x, npc.combatPosition.z - resident.spec.z) > 2) {
+        const value = this.checkpoint()!; this.stageReturn(value, npc.combatantId, resident.spec); this.save(value); return true
+      }
       const value = this.checkpoint()!, id = npc.combatantId
       value.owners[id] = this.defaultOwner(resident.spec)
       value.members[id].order = 'attack'; delete value.members[id].formation

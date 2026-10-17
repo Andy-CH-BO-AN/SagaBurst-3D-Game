@@ -116,11 +116,7 @@ export function townRoster(): TownActorSpec[] {
       duty: 'gate_guard', gateId: gate.id, mounted: false, training: false, tier: 2, assaultObjective: false,
     })
   }
-  for (let i = 0; i < 20; i++) {
-    const anchor = civilianHomeAnchor(i, result.filter(a => a.role === 'civilian'))
-    result.push({ id: 'civilian-' + i, role: 'civilian', index: i, x: anchor.x, y: anchor.y, z: anchor.z,
-      duty: 'civilian', mounted: false, training: false, tier: 2, assaultObjective: false })
-  }
+  const civilianStart = result.length
   for (const [role, site, side, forward] of [['captain', 'hall', -8, 20], ['deployment', 'hall', 8, 20], ['merchant', 'weapons', 0, 7.5], ['ranger', 'stable', 3, 8], ['cat', 'stable', -3, 8]] as const) result.push({
     id: role, role, index: 0, ...townSitePoint(site, side, forward), duty: 'service', mounted: role === 'captain', training: false,
     ...(role === 'captain' ? { unitKind: 'sword_cavalry' as const } : role === 'deployment' ? { unitKind: 'melee' as const } : {}),
@@ -144,12 +140,16 @@ export function townRoster(): TownActorSpec[] {
   }
   result.push(...townEagleRoster())
   assignTownGarrison(result)
-  const occupied = result.filter(a => a.role !== 'civilian').map(a => a.garrison ?? a)
-  for (const civilian of result.filter(a => a.role === 'civilian')) {
-    const home = civilianHomeAnchor(civilian.index, occupied)
-    Object.assign(civilian, { x: home.x, y: home.y, z: home.z })
-    occupied.push(civilian)
+  const occupied = result.map(a => a.garrison ?? a)
+  const civilians: TownActorSpec[] = []
+  // Allocate once against final garrison stations; retain the original roster ordering.
+  for (let i = 0; i < 20; i++) {
+    const home = civilianHomeAnchor(i, occupied)
+    const civilian: TownActorSpec = { id: 'civilian-' + i, role: 'civilian', index: i, x: home.x, y: home.y, z: home.z,
+      duty: 'civilian', mounted: false, training: false, tier: 2, assaultObjective: false }
+    civilians.push(civilian); occupied.push(civilian)
   }
+  result.splice(civilianStart, 0, ...civilians)
   return result
 }
 export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger' || actor.role === 'eagle-trainer') }

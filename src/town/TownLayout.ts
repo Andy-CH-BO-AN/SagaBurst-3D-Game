@@ -55,6 +55,18 @@ export const TOWN_CITY_ROADS: readonly TownRoad[] = [
   { ax: 27, az: -58, bx: 137, bz: -58, width: 8 },
   { ax: 0, az: 42, bx: -85, bz: 44, width: 5 },
 ]
+/** Authored local streets, shared by scenery and resident clearance. */
+export const TOWN_LOCAL_ROADS: readonly TownRoad[] = [
+  { ax: 32, az: 12, bx: 74, bz: 12, width: 32 },
+  { ax: 30, az: -58, bx: 125, bz: -58, width: 6 },
+  { ax: 80, az: -58, bx: 80, bz: 42, width: 6 },
+  { ax: 80, az: 56, bx: 136, bz: 56, width: 5 },
+  { ax: 80, az: 80, bx: 138, bz: 80, width: 4 },
+]
+/** Open ground between the cavalry road and housing; no movement boundary is added. */
+export const TOWN_DUEL_CENTER = { x: 100, z: -39 } as const
+export const TOWN_MOUNTED_MISSION_MUSTER_HALF_SIZE = 12
+export const TOWN_DUEL_HALF_SIZE = 11
 /** Placement-time exclusion, including enough clearance for tree crowns and mounts. */
 export function townSceneryExcluded(x: number, z: number, radius = 0): boolean {
   // The complete wing corridor extends beyond the wall. Keep visual trees and rocks

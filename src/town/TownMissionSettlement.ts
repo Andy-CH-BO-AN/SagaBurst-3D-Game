@@ -134,11 +134,11 @@ export class TownMissionSettlement {
     const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : captainPatrol ? this.missions.patrol?.actors ?? [] : this.missions.field.friendlies) : null
     const completed = Boolean(active.result || profile.claimedBattleIds.includes(active.id))
     let next = clearCareerMission(profile, active.id)
-    if (completed) {
-      const homes: MissionReturnHome[] = inPlace ? this.town.residents.flatMap(resident => resident.spec.id ? [{
+    if (completed && inPlace) {
+      const homes: MissionReturnHome[] = this.town.residents.flatMap(resident => resident.spec.id ? [{
         spec: { ...resident.spec, id: resident.spec.id },
         ...(isMissionReturnResident(resident.spec) ? { checkpoint: refitCommandCheckpoint(resident.npc, resident.homeMount) } : {}),
-      }] : []) : townRoster().map(spec => ({ spec }))
+      }] : [])
       next = stageMissionReturnResidents(next, homes)
     }
     const garrison = next.townEagleGarrisons?.[profile.faction]

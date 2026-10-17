@@ -37,6 +37,8 @@ export enum MountType {
   XONGKORO = 'xongkoro',
 }
 
+/** Shared physical footprint for live mounts and equipment preflight without materialization. */
+export function mountCombatRadius(type: MountType): number { return type === MountType.XONGKORO ? 7 : 2 }
 export const DEFAULT_MOUNT_TYPE = MountType.HORSE
 
 /**
@@ -86,7 +88,7 @@ export class Mount {
   private readonly eagleAttackSockets: THREE.Object3D[] = []
   private collisionObstacles: readonly ObstacleData[] = []
   get isFlyingMount(): boolean { return this.type === MountType.XONGKORO }
-  get combatRadius(): number { return this.isFlyingMount ? 7 : 2 }
+  get combatRadius(): number { return mountCombatRadius(this.type) }
   get isAirborne(): boolean { return this.isFlyingMount && this.flight?.phase !== 'grounded' }
 
   get proceduralVisual(): BlackCatVisual | CorgiVisual | null { return this.catVisual ?? this.corgiVisual }
