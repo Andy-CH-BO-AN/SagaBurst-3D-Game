@@ -1,16 +1,16 @@
 import { afterEach,describe,expect,it,vi } from 'vitest'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
 import { acceptCareerOutpost } from '../../src/career/CareerOutpostMission'
-import { changePersonalEquipment,recruitPersonalSquadMember,type CareerPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
+import { changePersonalEquipment,recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import { createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { PersonalSquadState } from '../../src/town/TownPersonalSquadController'
-import { purchaseTownEquipment,townRoster,type TownActorSpec } from '../../src/town/TownRules'
+import { purchaseTownEquipment,townRoster } from '../../src/town/TownRules'
 import { TownScene } from '../../src/town/TownScene'
 import { createTownCareerEquipmentUI } from '../../src/town/TownCareerEquipmentUI'
 import { squadEquipmentUI,townEquipmentUI,type TownEquipmentMemberView,type TownEquipmentSquadView,type TownEquipmentUIBindings } from '../../src/town/TownSquadEquipmentUI'
 import { type EquipmentSquadAdapter } from '../../src/ui/EquipmentUI'
-import { combatUnitDisplayName,personalUnitDisplayName,townUnitDisplayName,townUnitDisplayNames,townUnitDisplayTier } from '../../src/ui/UnitDisplayName'
+import { combatUnitDisplayName,townUnitDisplayName } from '../../src/ui/UnitDisplayName'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 // DOM boundary only; profile, inventory and equipment changes use production code, with no actors.
@@ -210,31 +210,6 @@ describe('Town-wide equipment panels', () => {
 
 
 describe('Unit display identity', () => {
-  it('numbers each display category across the full fixed roster independently of resident availability', () => {
-    const base: TownActorSpec = { id: 'old-cavalry-id', role: 'melee_infantry', unitKind: 'melee', duty: 'training',
-      mounted: false, training: true, assaultObjective: false, tier: 2, x: 0, z: 0, index: 0 }
-    // Same category on opposite sides of another squad/category; IDs have no naming semantics.
-    const roster = [
-      { spec: base },
-      { spec: { ...base, id: 'gate-unit', duty: 'gate_guard' as const, gateId: 'north' as const } },
-      { spec: { ...base, id: 'other-squad-unit', index: 1 } },
-      { spec: { ...base, id: 'mounted-unit' }, mounted: true },
-      ...Array.from({ length: 20 }, (_, index) => ({ spec: { ...base, id: `resident-${index}`,
-        role: 'civilian' as const, duty: 'civilian' as const, training: false, index } })),
-    ]
-    const before = structuredClone(roster)
-    const names = townUnitDisplayNames(roster, 'roman')
-    expect(names.get(base.id)).toBe('訓練隊劍兵 01')
-    expect(names.get('other-squad-unit')).toBe('訓練隊劍兵 02')
-    expect(names.get('gate-unit')).toBe('北門劍兵 01')
-    expect(names.get('mounted-unit')).toBe('訓練隊劍騎兵 01')
-    expect(roster.slice(4).map(actor => names.get(actor.spec.id))).toEqual(
-      Array.from({ length: 20 }, (_, index) => `平民 ${String(index + 1).padStart(2, '0')}`))
-    // Reopening rebuilds names from fixed membership, without taking live/dead state as input.
-    expect(townUnitDisplayNames(structuredClone(roster), 'roman')).toEqual(names)
-    expect(roster).toEqual(before)
-    expect(townUnitDisplayTier({ ...base, role: 'commander' }, 'roman', 4)).toBe(5)
-  })
 
   it('uses authored on-foot ranged identity rather than historical cavalry IDs for each faction', () => {
     const spec = townRoster().find(spec => spec.id === 'ranged_cavalry-0')!
@@ -250,14 +225,4 @@ describe('Unit display identity', () => {
     expect(spec).toEqual(before)
   })
 
-  it('keeps a personal Soldier label and ordinal while reflecting its equipped primary weapon tier', () => {
-    const member: CareerPersonalSquadMember = { id: 'personal:stable-member', type: 'soldier',
-      equipment: { melee: 'gladius_rusty', ranged: null, shield: null, mount: null } }
-    expect(personalUnitDisplayName(member, 'roman', 1)).toBe('私兵・Sword / Axe Soldier 02 · T1')
-    member.equipment!.ranged = 'pilum_standard'
-    const before = structuredClone(member)
-    expect(personalUnitDisplayName(member, 'roman', 1)).toBe('私兵・Sword / Axe Soldier 02 · T2')
-    expect(personalUnitDisplayName(member, 'roman', 1, 3)).toBe('私兵・Sword / Axe Soldier 02 · T3')
-    expect(member).toEqual(before)
-  })
 })

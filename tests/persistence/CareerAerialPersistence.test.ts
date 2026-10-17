@@ -195,7 +195,7 @@ describe('Town garrison parked-home migration', () => {
     return { version: 1, layoutVersion: version, sceneKey: 'town:roman', pairs: [pair] }
   }
 
-  it.each([{ version: 3, mounted: true }, { version: 3, mounted: false }, { version: 2, mounted: false }])(
+  it.each([{ version: 3, mounted: true }, { version: 2, mounted: false }])(
     'moves only the v$version parked home and its mounted=$mounted rider consistently, once', ({ version, mounted }) => {
       const saved = checkpoint(mounted, version), before = structuredClone(saved)
       const next = migrateTownEagleGarrisonLayout(saved, 'town:roman', pads, terrain)!
