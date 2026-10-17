@@ -7,7 +7,7 @@
 - 新自動化測試放在 `tests/`，不得新增 `src/**/*.test.*` 或 `src/**/*.spec.*`。
 - 先閱讀既有 case body、helpers 與 production call path，找出真正擁有行為的能力 suite。
 - 一個 feature 只增加重要且既有測試尚未保護的邏輯；既有案例足夠時允許新增 0 case。
-- 一般 feature 優先考慮 1–3 個重要案例，這不是必須湊滿的配額，也不是複雜功能一律只能 3 個。超過時說明各自獨立的重要風險，不展開完整排列組合。
+- 一般 feature 優先新增 0–2 個真正缺少的重要案例；0 是合理結果，不設最低配額。涉及多個獨立且高風險的 failure mode 才可超過 2 個，必須說明每個案例保護的不同契約，不展開排列組合。
 - 優先擴充既有 owner，不依 PR、任務 ID、兵種或模式另建整套 regression；不以測試數量增加作為品質成果。
 - 核心 owner 保護重要演算法與 failure mode；caller 只保護必要資料傳遞、權限、失敗處理及副作用順序，不重跑完整核心矩陣。
 - 優先保護無法遊玩、取消與 rollback、資料損壞、存檔交易、ownership、重複結算、戰鬥有效命中與死亡、指揮資格、導航可達性和必要容量邊界。
@@ -16,6 +16,8 @@
 
 - 每個保留的邏輯 leaf case 最多 100ms，包含該案例的 beforeEach、body、afterEach、onTestFinished 與案例專屬 cleanup。以不受 fake timers 影響的真實單調時鐘量測；timeout 或 slowTestThreshold 不能取代預算驗證。
 - 全 repository 的 Vitest + Node 邏輯 leaf cases 合計最多 500；each、動態生成與多實作 contract 的每一列均計入。這是硬上限，不是目標配額。
+- 維護目標為全量約 400–450 個重要 case、單一 leaf 通常低於 70ms，預留 50+ 個名額及 30ms 執行餘裕；它們是**非阻擋的預警目標**，不得靠隱藏案例或刪掉必要回歸達標。500 個／100ms 的硬門檻仍由 CI 守門。
+- 若全量超過 450 個或任一 case 達 70ms，新增前先盤點該能力 owner 的現有覆蓋，優先採取淨減、去除重複 failure mode、縮小 fixture 與依賴；新案例若不可替代，需在 PR 說明風險與成本，不以硬性淨減要求犧牲關鍵保護。
 - Import／collection、setupFiles、beforeAll／afterAll 與整套 wall time 另外記錄；不得將案例成本藏入共用初始化或 cache。
 - Unit tests 不生成場景或 3D model，不建立 Scene、Group、Object3D 假場景、Mesh、geometry、material、texture、skeleton、rig 或 AnimationMixer。
 - 不呼叫 TownWorld／城牆／地形／戰場 builders，不建立會初始化模型、動畫或場景的 NPC、Player、Mount、TownScene，不解析或 preload 真實 GLB、GLTF、FBX、貼圖或動畫資產。
@@ -46,6 +48,8 @@
 ## 刪除政策與防規避
 
 - 低價值 getter／常數、文案／樣式、純外觀、淘汰功能與同 failure mode 重複案例可以直接刪，不必逐一補回，也不要求 test-only 清理新增人工 QA 場景。
+- 刪減前先以「production owner → 重要 failure mode → 保留案例」核對：同一交易的相同失敗路徑只留最有辨識力的驗證，正例、真正不同的權限／原子性／重試／存檔損壞與臨界邊界不得因名稱相似就刪。尤其不要只為省數量而刪除近期修復的 regression。
+- 效能優化優先刪除重複昂貴的 setup／大量資料生成、縮小真實計算的輸入、共用輕量且無狀態的 pure fixture；不得把案例成本移至 beforeAll 或 setupFiles，也不得僅為求快而 mock 受測邏輯。
 - 重要邏輯刪除或改寫需指出保留的 production owner 與對應測試；一般低風險重複案例以 suite／能力說明取捨即可。
 - 不為每 faction、tier、方向、武器或任務重跑相同流程。大量資料只有在容量本身是必要風險時保留，仍不得生成實體 actors，仍受 100ms 約束。
 - 禁止 skip／todo／only、縮小 discovery、改副檔名、搬至 hidden／legacy／slow／manual 或其他 runner／smoke 規避數量或時間。
@@ -57,7 +61,8 @@
 - Runner 實際 collection 是數量依據；Node release leaf cases 與 Vitest 合併，避免漏跑或重算。報告缺失、過期、collection error 或空 suite 均不能通過。
 - 既有 CI 執行的 npm script 必須觸發預算守門，不修改 workflow；任何超過 100ms 的邏輯 case 輸出檔案、完整名稱、耗時並失敗。不得吞掉 runner 的原始失敗退出碼。
 - 保留單檔／指定案例開發能力，但 subset 通過不能當作全量預算證據。
-- 先跑 affected suites（`rtk npm test -- <file-or-directory>` 或 `-t`，明確屬局部驗證），再跑 `rtk npm test` 完整執行 Vitest + Node 並合併 count／時間；`rtk npm run test:release` 只驗證 Node component，不能單獨證明合併預算。接著跑 `rtk npm run typecheck:test`、`rtk npm run build`，依變更範圍加驗既有 smoke。
-- 同環境同設定完整執行至少三次，各次均須符合 100ms 與 500；記錄 commit、Node／Vitest、OS、worker、各次最慢 case、wall time 與 import／setup 成本，不只報最好一次。
-- 對少量關鍵 owner 作受控負向驗證：暫時破壞重要 production 判斷，確認測試失敗，再還原；不引入大型 mutation framework。
-- PR 誠實記錄命令、結果、取捨、重要 owner、既有失敗與未驗證範圍；一次性量測放 PR 或 ignored `output/`，不寫入長期規範或提交大型永久審計文件。
+- 開發中可先跑受影響 suite（`rtk npm test -- <file-or-directory>` 或 `-t`，屬局部驗證），再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。
+- **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。web CI 必須通過既有 `npm run typecheck:test`、`npm test`（Vitest + Node 合併 leaf 預算）、`npm run test:release`、`npm run build` 及 Web smoke；PR 的 Desktop packaging／smoke jobs 若適用也須通過。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
+- 檢視同一次 CI 中的總 case count、max leaf 時間及 **Top 10 slow leaf**（完整名稱、檔案、hooks/cleanup 含入）；超過 450 個或有 case 達 70ms 為非阻擋預警，應標記優化方向。每個 case >100ms、總數 >500 或任一適用 CI job 失敗仍不得宣稱通過；不靠重跑三次、只挑最好的一次或增加 retry 掩蓋不穩定。只有 CI 失敗／平台異常／結果過期或有明確疑慮才重跑或補充診斷。
+- 僅在重大核心邏輯變更或新測試難確認有效性時，可對少量關鍵 owner 作受控負向驗證，確認測試真的會失敗再還原；不把 mutation check 當作每 PR 必經步驟，也不引入大型 mutation framework。
+- PR 誠實記錄 CI run URL、驗證 commit、結果、保留／刪除的 failure mode、已知失敗與未驗證範圍；一次性量測放 PR 或 ignored `output/`，不寫入長期規範或提交大型永久審計文件。

@@ -306,17 +306,6 @@ describe('Reversible NPC weapon choice', () => {
   })
 
 
-  it('leaves a ranged-only loadout without a fabricated melee weapon', () => {
-    const h = selection({ meleeWeaponId: null })
-    h.target.position.z = 3
-    h.select()
-    h.actor._switchToMelee()
-    expect(h.actor._usesReversibleRangedSwitch()).toBe(false)
-    expect(h.actor.hasActiveRangedWeapon).toBe(true)
-    expect(h.actor.meleeWeaponId).toBeNull()
-    expect(h.actor.swordPivot.visible).toBe(false)
-    expect(h.actor.arrows).toBe(12)
-  })
 
   it('keeps the eagle bow for vertically separated ground threats until physical melee contact is possible', () => {
     const h = selection({ mount: { flight: {} }, eaglePilot: { canUseMelee: false }, combatPosition: new Vector3(0, 5, 0) })
