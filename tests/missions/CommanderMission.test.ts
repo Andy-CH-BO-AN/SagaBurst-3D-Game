@@ -258,7 +258,8 @@ describe('Bridgehead official field battle', () => {
         expect(enemy.every(spec => spec.faction === Faction.ENEMY && spec.characterFaction === enemyFaction
           && spec.cavalry && spec.presetId === `${enemyFaction}_${squad.squadId <= 4 ? 'sword_cavalry' : 'lancer'}`
           && spec.loadout?.mountId === (spec.tier === 4 ? enemyFaction === 'roman' ? 'corgi' : 'black-cat' : 'horse'))).toBe(true)
-        expect(friendly.every(spec => spec.z < -22)).toBe(true); expect(enemy.every(spec => spec.z > 22)).toBe(true)
+        expect(friendly.every(spec => spec.z < -22)).toBe(true)
+        expect(enemy.every(spec => spec.z >= 230 && spec.z < 290 && Math.abs(spec.x) < 80)).toBe(true)
       }
       const captain = commander(faction); captain.rank = 'captain'
       expect(acceptCommanderMission(captain, COMMANDER_BRIDGEHEAD_ID)).toBeNull()
@@ -267,6 +268,7 @@ describe('Bridgehead official field battle', () => {
 
   it('waits for deployment and every unique target death, allows dead-player victories and gives victory precedence on mutual destruction', () => {
     const mission = accepted(COMMANDER_BRIDGEHEAD_ID).activeMission!
+    mission.bridgeDeployment = { phase: 'assault', preparationRemainingSeconds: 0 }
     const runtime = new CareerBridgeBattleRuntime(mission)
     runtime.observe(mission, mission.targetActorIds.slice(0, 199).map(combatantId => ({ combatantId, dead: true })))
     runtime.recordDeath('mount:200'); runtime.recordDeath(mission.targetActorIds[0])
@@ -283,6 +285,7 @@ describe('Bridgehead official field battle', () => {
 
   it('restores casualties and commands and commits defense merit plus Tier 5 victory once after a failed save', () => {
     const profile = accepted(COMMANDER_BRIDGEHEAD_ID, 'roman', true), mission = profile.activeMission!
+    delete mission.bridgeDeployment // Legacy in-progress saves resume the assault without another countdown.
     profile.personalSquadRuntime = snapshotPersonalMission(profile)
     const privateBefore = structuredClone(profile.personalSquadRuntime)
     const stats = { player: { damageDealt: 0, damageTaken: 10, kills: 0, structureDamage: 0,
@@ -326,6 +329,69 @@ describe('Bridgehead official field battle', () => {
     const reloadedClaim = store.load()!
     expect(reloadedClaim.totalMerit).toBe(claimed.profile.totalMerit)
     expect(reloadedClaim.personalSquadRuntime).toEqual(privateBefore)
+  })
+
+  it('spawns only friendlies during the preparation minute and resumes the saved remaining time', () => {
+    const profile = accepted(COMMANDER_BRIDGEHEAD_ID), mission = profile.activeMission!
+    const runtime = new CareerBridgeBattleRuntime(mission)
+    expect(runtime.deployment).toEqual({ phase: 'preparing', preparationRemainingSeconds: 60 })
+    expect(createCareerBridgeSpawnPlan(profile).npcSpecs.map(spec => spec.actorId)).toEqual(mission.friendlyActorIds)
+    expect(createCareerBridgeSpawnPlan(profile, 'attackers').npcSpecs).toHaveLength(0)
+    let commits = 0
+    runtime.advancePreparation(36.75)
+    expect(runtime.beginEnemyDeployment(() => { commits++; return true })).toBe(false)
+    expect(commits).toBe(0)
+    mission.bridgeDeployment = { ...runtime.deployment }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const loaded = store.load()!, resumed = new CareerBridgeBattleRuntime(loaded.activeMission!)
+    expect(resumed.deployment.preparationRemainingSeconds).toBe(23.25)
+    expect(resumed.outcome(true, true)).toBeNull()
+    resumed.advancePreparation(23)
+    expect(resumed.beginEnemyDeployment(() => true)).toBe(false)
+    resumed.advancePreparation(.25)
+    expect(resumed.beginEnemyDeployment(() => false)).toBe(false)
+    expect(resumed.deployment).toEqual({ phase: 'preparing', preparationRemainingSeconds: 0 })
+    expect(resumed.beginEnemyDeployment(state => {
+      loaded.activeMission!.bridgeDeployment = state
+      return store.save(loaded)
+    })).toBe(true)
+    expect(createCareerBridgeSpawnPlan(store.load()!, 'attackers').npcSpecs.map(spec => spec.actorId)).toEqual(mission.targetActorIds)
+    expect(resumed.beginEnemyDeployment(() => { commits++; return true })).toBe(false)
+    expect(commits).toBe(0)
+  })
+
+  it('recovers a partial distant enemy deployment without reviving casualties or starting combat before the saved barrier', () => {
+    const profile = accepted(COMMANDER_BRIDGEHEAD_ID), mission = profile.activeMission!
+    mission.bridgeDeployment = { phase: 'spawning', preparationRemainingSeconds: 0 }
+    const [survivor, casualty] = mission.targetActorIds
+    mission.deadTargetActorIds = [casualty]
+    mission.bridgeBattle = { ready: false, player: { hp: 80, stamina: 60, dead: false,
+      position: { x: 15, z: -45, yaw: 1 }, ammo: 20, shieldImpact: 0 },
+      playerStats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+      actors: Object.fromEntries([...mission.friendlyActorIds, ...mission.targetActorIds].map(id => [id, { status: 'reserve' }])) }
+    mission.bridgeBattle.actors[survivor] = { status: 'deployed', hp: 30, position: { x: 40, z: 245, yaw: Math.PI } }
+    mission.bridgeBattle.actors[casualty] = { status: 'dead', hp: 0 }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const loaded = store.load()!, runtime = new CareerBridgeBattleRuntime(loaded.activeMission!)
+    expect(runtime.deployment).toEqual({ phase: 'spawning', preparationRemainingSeconds: 0 })
+    const plan = createCareerBridgeSpawnPlan(loaded)
+    expect(plan.npcSpecs).toHaveLength(399)
+    expect(plan.npcSpecs.some(spec => spec.actorId === casualty)).toBe(false)
+    expect(plan.npcSpecs.filter(spec => spec.actorId === survivor)).toHaveLength(1)
+    expect(loaded.activeMission!.bridgeBattle!.actors[survivor].position).toEqual({ x: 40, z: 245, yaw: Math.PI })
+    runtime.advancePreparation(60)
+    expect(runtime.completeEnemyDeployment(false, () => true)).toBe(false)
+    expect(runtime.completeEnemyDeployment(true, () => false)).toBe(false)
+    expect(runtime.outcome(true, true)).toBeNull()
+    expect(runtime.completeEnemyDeployment(true, state => {
+      loaded.activeMission!.bridgeDeployment = state
+      loaded.activeMission!.bridgeBattle!.ready = true
+      loaded.activeMission!.commanderMission!.deploymentComplete = true
+      return store.save(loaded)
+    })).toBe(true)
+    expect(store.load()!.activeMission!.bridgeDeployment).toEqual({ phase: 'assault', preparationRemainingSeconds: 0 })
   })
 })
 

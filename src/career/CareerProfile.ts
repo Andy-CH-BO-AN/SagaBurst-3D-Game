@@ -507,6 +507,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.patrolReturnStates ? { patrolReturnStates: { ...profile.activeMission.patrolReturnStates } } : {}),
       ...(profile.activeMission.battle ? { battle: structuredClone(profile.activeMission.battle) } : {}),
       ...(profile.activeMission.bridgeBattle ? { bridgeBattle: structuredClone(profile.activeMission.bridgeBattle) } : {}),
+      ...(profile.activeMission.bridgeDeployment ? { bridgeDeployment: { ...profile.activeMission.bridgeDeployment } } : {}),
       ...(profile.activeMission.eagleBattle ? { eagleBattle: structuredClone(profile.activeMission.eagleBattle) } : {}),
       ...(profile.activeMission.personalSquad ? { personalSquad: clonePersonalMission(profile.activeMission.personalSquad) } : {}),
       ...(profile.activeMission.siege ? { siege: {

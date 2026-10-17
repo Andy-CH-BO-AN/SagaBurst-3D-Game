@@ -6,7 +6,7 @@ import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import { claimCareerMission, clearCareerMission, type CareerProfile } from './CareerProfile'
 import type { CareerProfileStore } from './CareerProfileStore'
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
-import { resolveCareerMissionOutcome, type ActiveCareerMission } from './CareerMissionState'
+import { resolveCareerMissionOutcome, type ActiveCareerMission, type BridgeBattleDeployment } from './CareerMissionState'
 import { commanderActorConfirmedDead } from './CommanderOutpost'
 
 /** A trusted Career launch, separate from Campaign stages and untrusted free battle config. */
@@ -42,14 +42,26 @@ export function createCareerBridgeBattleLaunch(profile: CareerProfile): CareerBr
   } }
 }
 
-export function createCareerBridgeSpawnPlan(profile: CareerProfile): BattleSpawnPlan {
+/** Older in-progress battles resume their existing assault rather than gaining another preparation minute. */
+export function resolveCareerBridgeDeployment(mission: ActiveCareerMission): BridgeBattleDeployment {
+  if (mission.bridgeDeployment) return { ...mission.bridgeDeployment }
+  const phase = mission.commanderMission?.deploymentComplete || mission.bridgeBattle?.ready ? 'assault'
+    : mission.targetActorIds.some(id => {
+      const actor = mission.bridgeBattle?.actors[id]
+      return actor && actor.status !== 'reserve'
+    }) ? 'spawning' : 'preparing'
+  return { phase, preparationRemainingSeconds: phase === 'preparing' ? 60 : 0 }
+}
+
+export function createCareerBridgeSpawnPlan(profile: CareerProfile, wave: 'initial' | 'attackers' = 'initial'): BattleSpawnPlan {
   createCareerBridgeBattleLaunch(profile)
   const mission = profile.activeMission!
   const roster = createBridgeheadRoster(mission, profile.faction)
   const alive = (id: string) => !commanderActorConfirmedDead(mission, id)
     && mission.bridgeBattle?.actors[id]?.status !== 'dead' && mission.bridgeBattle?.actors[id]?.hp !== 0
+  const enemy = resolveCareerBridgeDeployment(mission).phase !== 'preparing' ? roster.enemy : []
   return { playerSpawn: { x: 0, z: -108 }, horseSpecs: [], pickupSpecs: [],
-    npcSpecs: [...roster.friendly, ...roster.enemy].filter(spec => alive(spec.actorId!)) }
+    npcSpecs: [...(wave === 'initial' ? roster.friendly : []), ...enemy].filter(spec => alive(spec.actorId!)) }
 }
 
 /** Rider death does not remove a surviving, dismounted mount from the saved battlefield. */
@@ -64,6 +76,8 @@ export function createCareerBridgeOrphanMountPlan(profile: CareerProfile) {
 
 /** Stable objective accounting. Missing/queued actors remain alive; mount IDs never enter these sets. */
 export class CareerBridgeBattleRuntime {
+  private deploymentState: BridgeBattleDeployment
+  get deployment(): Readonly<BridgeBattleDeployment> { return this.deploymentState }
   readonly friendlyIds: Set<string>
   readonly targetIds: Set<string>
   readonly deadFriendly: Set<string>
@@ -73,6 +87,7 @@ export class CareerBridgeBattleRuntime {
   enemyAlive = 200
 
   constructor(mission: ActiveCareerMission) {
+    this.deploymentState = resolveCareerBridgeDeployment(mission)
     this.friendlyIds = new Set(mission.friendlyActorIds)
     this.targetIds = new Set(mission.targetActorIds)
     this.deadFriendly = new Set(mission.deadFriendlyActorIds)
@@ -82,6 +97,30 @@ export class CareerBridgeBattleRuntime {
       if (commanderActorConfirmedDead(mission, id) || saved?.status === 'dead' || saved?.hp === 0) this.recordDeath(id)
     }
     this.updateCounts(mission)
+  }
+
+  /** Only the live gameplay caller advances this clock; loading and queued spawns consume no preparation time. */
+  advancePreparation(dt: number): void {
+    if (this.deploymentState.phase === 'preparing' && Number.isFinite(dt)) {
+      this.deploymentState.preparationRemainingSeconds = Math.max(0, this.deploymentState.preparationRemainingSeconds - Math.max(0, dt))
+    }
+  }
+
+  beginEnemyDeployment(save: (state: BridgeBattleDeployment) => boolean): boolean {
+    if (this.deploymentState.phase !== 'preparing' || this.deploymentState.preparationRemainingSeconds > 0) return false
+    return this.transition('spawning', save)
+  }
+
+  completeEnemyDeployment(deploymentReady: boolean, save: (state: BridgeBattleDeployment) => boolean): boolean {
+    if (!deploymentReady || this.deploymentState.phase !== 'spawning') return false
+    return this.transition('assault', save)
+  }
+
+  private transition(phase: BridgeBattleDeployment['phase'], save: (state: BridgeBattleDeployment) => boolean): boolean {
+    const next = { phase, preparationRemainingSeconds: 0 }
+    if (!save(next)) return false
+    this.deploymentState = next
+    return true
   }
 
   recordDeath(actorId: string): void {
@@ -103,7 +142,7 @@ export class CareerBridgeBattleRuntime {
   }
 
   outcome(playerDead: boolean, deploymentReady: boolean) {
-    if (!deploymentReady) return null
+    if (!deploymentReady || this.deploymentState.phase !== 'assault') return null
     return resolveCareerMissionOutcome(playerDead, true, this.enemyAlive, this.friendlyAlive)
   }
 }

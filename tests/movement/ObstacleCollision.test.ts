@@ -185,6 +185,7 @@ describe('obstacle walk-surface collision', () => {
     }
     assertValidSlots(northSlots, FOOT_COLLISION_RADIUS, -1)
     assertValidSlots(southSlots, MOUNT_COLLISION_RADIUS, 1)
+    assertValidSlots(planSouthBankCavalryStaging(230).flatMap(squad => squad.slots), MOUNT_COLLISION_RADIUS, 1)
 
     // Arrows/javelins and camera rays pass freely across the river, while parapets, outer/lower bridge piers, and defensive walls block projectiles.
     expect(findBlockingProjectileObstacleAlongPath(new THREE.Vector3(35, 1.5, -28), new THREE.Vector3(35, 1.5, 28), obstacles)).toBeNull()

@@ -60,7 +60,7 @@ export const COMMANDER_MISSION_CATALOG: readonly CommanderMissionDefinition[] = 
   entry(COMMANDER_LAST_STAND_ID, 'commander-outpost-last-stand', 'Commander III · Outpost Last Stand · 前哨決戰',
     '指揮 4 支步兵隊守衛 Outpost；60 秒部署後，歼滅同時進攻的 100 名敵方騎兵。', 121, COMMANDER_LAST_STAND_ENEMIES),
   entry(COMMANDER_BRIDGEHEAD_ID, 'commander-bridgehead-battle', 'Commander IV · Bridgehead Battle · 橋頭決戰',
-    '率領200名步兵守衛北岸石橋，擊敗200名渡河進攻的敵方騎兵。八支正式小隊各25人，包含1名T4隊長與24名T3士兵。利用橋梁限制騎兵機動，發揮槍兵與遠程部隊的優勢。', 200, 200),
+    '率領200名步兵守衛北岸石橋。進場後有60秒部署時間，倒數結束後200名敵方騎兵從南岸遠方出現並渡河進攻。八支正式小隊各25人，包含1名T4隊長與24名T3士兵。利用橋梁限制騎兵機動，發揮槍兵與遠程部隊的優勢。', 200, 200),
 ]
 
 export function getCommanderMissionDefinition(id: string): CommanderMissionDefinition | null {
@@ -159,6 +159,9 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
     id, templateId, kind: definition.kind, targetCampId: -1, phase: 'PREPARING',
     targetActorIds, friendlyActorIds, acceptedAt: Date.now(),
     commanderMission: { version: 1, kind: definition.kind, deploymentComplete: false },
+    ...(templateId === COMMANDER_BRIDGEHEAD_ID ? {
+      bridgeDeployment: { phase: 'preparing' as const, preparationRemainingSeconds: 60 },
+    } : {}),
     officialSquad: createMissionCommandAuthority(id, profile.faction, profile.rank, friendlyActorIds, squads),
     ...(templateId !== COMMANDER_BRIDGEHEAD_ID ? { personalSquad: snapshotPersonalMission(profile) } : {}),
   }
@@ -271,7 +274,7 @@ export function createBridgeheadRoster(mission: ActiveCareerMission, faction: Ca
     return specForTier(mission.friendlyActorIds[(squad.squadId - 1) * 25 + index], faction, Faction.PLAYER,
       presetId, index === 0 ? 4 : 3, squad.squadId as NpcSpawnSpec['squadId'], slot.x, slot.z, null)
   }))
-  const enemy = planSouthBankCavalryStaging().flatMap(squad => squad.slots.map((slot, index) =>
+  const enemy = planSouthBankCavalryStaging(230).flatMap(squad => squad.slots.map((slot, index) =>
     specForTier(mission.targetActorIds[(squad.squadId - 1) * 25 + index], enemyFaction, Faction.ENEMY,
       preset(enemyFaction, squad.role === 'melee_cavalry' ? 'sword' : 'lancer'), index === 0 ? 4 : 3,
       squad.squadId as NpcSpawnSpec['squadId'], slot.x, slot.z,

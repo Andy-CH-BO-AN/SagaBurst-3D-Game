@@ -95,7 +95,7 @@
 ## 生涯與城鎮
 
 - `CareerProfileStore` 使用 `sagaburst_career_v1`，與 RPG／Campaign 存檔隔離。`loadChecked` 區分無存檔與損壞／不支援資料；載入失敗不得覆寫。
-- `CareerBridgeBattle` 擁有 Commander IV 的獨立 Career launch、200v200 固定編制與目標死亡判定；不使用 Campaign Stage／Outpost runtime。北岸依 faction 共用 River Crossing planner，八隊各25人，正式 authority 初始全隊受控，HR 保留原城鎮 checkpoint 且不部署。`Game` 共用既有 Career field checkpoint／Spawn Scheduler／指揮與結果 UI，400名 NPC 初始化、初始 checkpoint 成功後才顯示玩家並開始模擬；`bridgeBattle` 保存 actor／mount／player／命令狀態，重載只恢復存活者。Defense 軍功與 Tier 5 勝場透過 `claimCareerMission` 單次保存，橋頭部署錯誤保留原存檔供重試。
+- `CareerBridgeBattle` 擁有 Commander IV 的獨立 Career launch、200v200 固定編制與目標死亡判定；不使用 Campaign Stage／Outpost runtime。北岸依 faction 共用 River Crossing planner，八隊各25人，正式 authority 初始全隊受控，HR 保留原城鎮 checkpoint 且不部署。`Game` 共用 Career field checkpoint／Spawn Scheduler／指揮與結果 UI：先保存400人身分並部署200名友軍，初始 checkpoint 成功後玩家進場，自由移動與指揮60秒；倒數結束且生成階段存檔成功後，200名敵騎才從南岸遠端生成，全員初始化並保存後同步進攻。`bridgeDeployment` 保存準備剩餘秒數及 preparing／spawning／assault 階段，Loading 不計時，舊交戰存檔不重新倒數；`bridgeBattle` 保存 actor／mount／player／命令狀態，重載只恢復存活者。Defense 軍功與 Tier 5 勝場透過 `claimCareerMission` 單次保存，部署錯誤保留原存檔供重試。
 - `CommanderDecapitationDeployment` 只規劃斬首行動尚無 Player 位置的首次北側邊界部署；共用 Navigation connectivity、`PersonalSquadDeployment` 淨空／間距與 `EagleLanding` 完整翼展檢查，一併保留 Player、30 名正式騎兵及 HR／巨鷹位置。威脅範圍讀取實際 NPC 射程，原生空軍另計登鷹後射程；無完整合法配置時明確失敗，不放寬檢查。`CommanderTownMissionController`／`TownScene` 沿既有 scheduler 與 Loading barrier 套用同一配置，已有 `playerPosition` 或完成部署的 checkpoint 保留原位置、死亡與空中狀態。
 - `CareerProfile` 分開 lifetime `totalMerit`、可花費 `availableMerit` 與任命 `rank`。晉升按 enlistment baseline 計算資格，必須明確任命；領獎不自動升階。獎勵以已領 battle／mission ID 保持冪等。
 - `CareerMissionMeritPolicy`／`MeritCalculator` 管理軍功；Recruit／Soldier／Veteran／Captain board 勝場按任務 Tier 1–4 分開保存，不由當前軍階反推。Duel 擊敗 tier 按 preset 推進，不改 board 勝場。

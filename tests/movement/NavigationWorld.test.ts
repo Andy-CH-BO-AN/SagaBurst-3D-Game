@@ -138,14 +138,14 @@ describe('NavigationWorld', () => {
       minX: -PLAYABLE_WORLD_BOUND,
       maxX: PLAYABLE_WORLD_BOUND,
       minZ: -120,
-      maxZ: 120,
+      maxZ: 300,
       cellSize: 2,
     }, 4)
     world.rebuild(obstacles)
     world.beginFrame()
 
     const northPoint = new THREE.Vector3(-34, 0, -36)
-    const southPoint = new THREE.Vector3(34, 0, 36)
+    const southPoint = new THREE.Vector3(34, 0, 245)
     expect(world.areConnected(northPoint, southPoint)).toBe(true)
 
     // Direct off-bridge river crossings and map-edge river cells are blocked.

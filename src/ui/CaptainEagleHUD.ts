@@ -1,5 +1,5 @@
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
-import type { CareerMissionOutcome } from '../career/CareerMissionState'
+import type { BridgeBattleDeployment, CareerMissionOutcome } from '../career/CareerMissionState'
 import type { ArmyHudCounts } from '../battle/ArmyCommandHudRoster'
 import { renderBattleStats } from './BattleStatsView'
 
@@ -24,9 +24,13 @@ export class CaptainEagleHUD {
     this.root.textContent = `Eagle Battle · 巨鷹空戰｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式隊 ${official} · 私兵 ${personal}｜敵軍 ${enemyAlive}`
   }
 
-  updateBridgehead(friendlyAlive: number, enemyAlive: number, squads: readonly number[]): void {
+  updateBridgehead(friendlyAlive: number, enemyAlive: number, squads: readonly number[],
+    deployment: Readonly<BridgeBattleDeployment>, spawned: number): void {
+    const status = deployment.phase === 'preparing'
+      ? `準備倒數：${Math.ceil(deployment.preparationRemainingSeconds)} 秒｜可移動與指揮部隊，倒數結束後敵軍從南岸遠方出現`
+      : deployment.phase === 'spawning' ? `敵軍正在南岸遠方集結：${spawned} / 200` : '敵軍進攻中'
     this.root.style.whiteSpace = 'pre-line'
-    this.root.textContent = `COMMANDER IV · BRIDGEHEAD BATTLE\n我方：${friendlyAlive} / 200　敵方：${enemyAlive} / 200\n目標：全滅敵方騎兵\n${squads.map((alive, index) => `Squad ${index + 1}  ${alive}/25`).join('　')}`
+    this.root.textContent = `COMMANDER IV · BRIDGEHEAD BATTLE\n${status}\n我方：${friendlyAlive} / 200　敵方：${enemyAlive} / 200\n目標：全滅敵方騎兵\n${squads.map((alive, index) => `Squad ${index + 1}  ${alive}/25`).join('　')}`
   }
 
   showResult(outcome: CareerMissionOutcome, merit: number, stats: BattleStatsSnapshot, onReturn: () => void): void {

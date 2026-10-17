@@ -269,8 +269,16 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   const battle = parseCareerOutpostCheckpoint(raw.battle)
   const eagleBattle = parseCaptainEagleCheckpoint(raw.eagleBattle)
   const bridgeBattle = parseCaptainEagleCheckpoint(raw.bridgeBattle, 400)
+  const rawBridgeDeployment = raw.bridgeDeployment as Record<string, unknown> | undefined
+  const bridgeDeployment = rawBridgeDeployment && ['preparing', 'spawning', 'assault'].includes(rawBridgeDeployment.phase as string)
+    && typeof rawBridgeDeployment.preparationRemainingSeconds === 'number' && Number.isFinite(rawBridgeDeployment.preparationRemainingSeconds)
+    && rawBridgeDeployment.preparationRemainingSeconds >= 0 && rawBridgeDeployment.preparationRemainingSeconds <= 60
+    && (rawBridgeDeployment.phase === 'preparing' || rawBridgeDeployment.preparationRemainingSeconds === 0)
+    ? { phase: rawBridgeDeployment.phase as 'preparing' | 'spawning' | 'assault', preparationRemainingSeconds: rawBridgeDeployment.preparationRemainingSeconds }
+    : undefined
   if (template?.kind === 'commander-bridgehead-battle' && (
     raw.bridgeBattle !== undefined && !bridgeBattle
+    || raw.bridgeDeployment !== undefined && !bridgeDeployment
     || new Set([...friendlyActorIds, ...targetActorIds]).size !== 400
     || acceptedOfficialSquad?.squads?.length !== 8
     || acceptedOfficialSquad.squads.some((squad, index) => squad.squadId !== index + 1
@@ -298,6 +306,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     } : {}),
     ...(battle && template?.kind === 'captain-outpost-defense' ? { battle } : {}),
     ...(bridgeBattle && template?.kind === 'commander-bridgehead-battle' ? { bridgeBattle } : {}),
+    ...(bridgeDeployment && template?.kind === 'commander-bridgehead-battle' ? { bridgeDeployment } : {}),
     ...(eagleBattle && template?.kind === 'captain-eagle-battle' ? { eagleBattle } : {}),
     templateId: duel ? CAREER_DUEL_TEMPLATE_ID : template!.id,
     kind: duel ? 'duel' : template!.kind,
