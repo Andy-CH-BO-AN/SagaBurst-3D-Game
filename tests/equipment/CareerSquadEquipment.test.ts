@@ -6,7 +6,7 @@ import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../.
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { personalMemberLoadout } from '../../src/town/TownPersonalSquadController'
-import { purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts } from '../../src/town/TownRules'
+import { purchaseTownEquipment, purchaseTownMount, sellTownProduct } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 function harness(rank: CareerRank = 'captain', faction: CareerProfile['faction'] = 'roman') {
