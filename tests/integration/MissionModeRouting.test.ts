@@ -48,13 +48,14 @@ describe('Game routes Campaign and Career separately', () => {
     game._updateDefenseCampaign(1)
     expect(game.battleStats.freeze).toHaveBeenCalledOnce()
     expect(getDefenseCampaignUnlockedStage('roman', storage)).toBe(1)
-    expect(store.load()!.completedOutpostStages).toEqual([1])
+    const settled = store.load()!
+    expect(settled.completedOutpostStages).toEqual([1])
     expect(game.defenseCampaignHud.showResult.mock.calls[0][4]).toBeUndefined()
     expect(game.defenseCampaignHud.updateGate.mock.calls[0][2]).toBe(false)
-    const merit = store.load()!.totalMerit
     game._showDefenseCampaignResult('victory')
-    expect(store.load()!.totalMerit).toBe(merit)
-    expect(store.load()!.outpostBattleRecords).toHaveLength(1)
+    const recorded = store.load()!
+    expect(recorded.totalMerit).toBe(settled.totalMerit)
+    expect(recorded.outpostBattleRecords).toHaveLength(1)
   })
   it('keeps formal Campaign progress and Next Stage behavior and leaves Career untouched', () => {
     const { game, store, storage } = harness(false)
@@ -75,8 +76,9 @@ describe('Game routes Campaign and Career separately', () => {
     game.defenseCampaignHud.showResult.mock.calls[0][2]()
     expect(session.get('sagaburst_career_town')).toBe('1')
     expect(window.location.href).toBe('/game/')
-    expect(store.load()).toMatchObject({ faction: 'roman', totalMerit: merit, completedOutpostStages: [1] })
-    expect(store.load()!.activeOutpostMission).toBeUndefined()
-    expect(store.load()!.claimedBattleIds).toEqual(['battle'])
+    const returned = store.load()!
+    expect(returned).toMatchObject({ faction: 'roman', totalMerit: merit, completedOutpostStages: [1] })
+    expect(returned.activeOutpostMission).toBeUndefined()
+    expect(returned.claimedBattleIds).toEqual(['battle'])
   })
 })
