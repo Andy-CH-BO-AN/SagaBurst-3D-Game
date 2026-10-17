@@ -2,7 +2,8 @@ import type * as THREE from 'three'
 import type { CareerProfile, CareerMountId } from '../career/CareerProfile'
 import { careerMountType } from '../career/CareerMountController'
 import { resolveTownActorEquipment, type TownEquipmentRef } from '../career/CareerTownEquipment'
-import { Mount } from '../world/Mount'
+import { Mount, mountCombatRadius } from '../world/Mount'
+import { townMountPlacementBatchClear } from './TownCivilianLife'
 import { getTerrainHeight } from '../world/Terrain'
 import type { TownCombatResident } from './TownMissionCombat'
 
@@ -14,7 +15,7 @@ export function findTownNativeMount(mounts: readonly Mount[], ref: TownEquipment
 
 /** Applies a committed configuration. Existing physical mounts follow their ownership reference. */
 export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonly TownCombatResident[], mounts: Mount[],
-  previous: CareerProfile, current: CareerProfile, actorIds: readonly string[], canPlaceMountedCivilian?: (point: { x: number; z: number }, actorId: string, reusedMount?: Mount | null) => boolean): number {
+  previous: CareerProfile, current: CareerProfile, actorIds: readonly string[], canPlaceMountedCivilian?: (point: { x: number; z: number }, actorId: string, reusedMount?: Mount | null, vacatingMounts?: readonly Mount[]) => boolean): number {
   const selected = new Set(actorIds)
   const plans = residents.filter(resident => selected.has(resident.spec.id)).map(resident => ({ resident,
     before: resolveTownActorEquipment(previous, previous.faction, resident.spec.id),
@@ -42,19 +43,30 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
   for (const { resident, after } of mountChanges) if (after.loadout.mountId) {
     reusedMounts.set(resident, reusable.get(JSON.stringify(after.refs.mount))?.shift() ?? findTownNativeMount(mounts, after.refs.mount))
   }
-  const civilianMountPoints = new Map<TownCombatResident, { x: number; z: number }>()
+  const assignedMounts = new Set(reusedMounts.values())
+  // Inventory releases are disposed or reassigned; native reserves remain in place unless reused.
+  const vacatingMounts = mountChanges.flatMap(({ resident, before }) => resident.homeMount
+    && (before.refs.mount?.source !== 'native' || assignedMounts.has(resident.homeMount)) ? [resident.homeMount] : [])
+  const mountPoints = new Map<TownCombatResident, { x: number; z: number }>()
   for (const { resident, after } of mountChanges) {
-    if (resident.spec.role !== 'civilian' || !after.loadout.mountId || !canPlaceMountedCivilian) continue
+    if (!after.loadout.mountId) continue
     const reusedMount = reusedMounts.get(resident)
     let point: { x: number; z: number } = resident.npc.combatPosition
-    if (!canPlaceMountedCivilian(point, resident.spec.id, reusedMount ?? null)) {
+    if (resident.spec.role === 'civilian' && canPlaceMountedCivilian
+      && !canPlaceMountedCivilian(point, resident.spec.id, reusedMount ?? null, vacatingMounts)) {
       const owner = current.civilianCommandSquad?.owners[resident.spec.id]
       if ((owner && owner !== 'daily') || current.activeMission || current.activeOutpostMission
-        || current.townEvent?.state === 'hostile' || !canPlaceMountedCivilian(resident.spec, resident.spec.id, reusedMount ?? null)) return plans.length
+        || current.townEvent?.state === 'hostile' || !canPlaceMountedCivilian(resident.spec, resident.spec.id, reusedMount ?? null, vacatingMounts)) return plans.length
       point = resident.spec
     }
-    civilianMountPoints.set(resident, { x: point.x, z: point.z })
+    mountPoints.set(resident, { x: point.x, z: point.z })
   }
+  // All checks above see live pre-change actors. Reserve final mounted footprints together
+  // before any dismount, equipment mutation, physical relocation or new Mount construction.
+  if (!townMountPlacementBatchClear(mountChanges.flatMap(({ resident, after }) => after.loadout.mountId ? [{
+    point: mountPoints.get(resident) ?? resident.npc.combatPosition,
+    radius: mountCombatRadius(careerMountType(after.loadout.mountId as CareerMountId)),
+  }] : []))) return plans.length
   const released = new Map<string, Mount[]>()
   for (const { resident, before } of mountChanges) {
     const mount = resident.homeMount
@@ -72,7 +84,7 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
     if (mountChanges.some(plan => plan.resident === resident) && after.loadout.mountId) {
       const key = JSON.stringify(after.refs.mount)
       const reused = released.get(key)?.shift() ?? findTownNativeMount(mounts, after.refs.mount)
-      const point = civilianMountPoints.get(resident) ?? resident.npc.combatPosition
+      const point = mountPoints.get(resident) ?? resident.npc.combatPosition
       const mount = reused ?? new Mount(scene, careerMountType(after.loadout.mountId as CareerMountId), point.x, point.z)
       if (after.refs.mount?.source === 'native') registerTownNativeMount(mount, after.refs.mount.nativeId!)
       mount.reservedForTown = true

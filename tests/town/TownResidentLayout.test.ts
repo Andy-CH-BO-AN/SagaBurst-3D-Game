@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
-import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianParkedMountsClear, CIVILIAN_MOUNT_CLEARANCE } from '../../src/town/TownCivilianLife'
+import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, townMountPlacementBatchClear, CIVILIAN_MOUNT_CLEARANCE } from '../../src/town/TownCivilianLife'
 import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
 import { TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
 import { townRoster } from '../../src/town/TownRules'
@@ -86,14 +86,31 @@ describe('Town resident layout ownership', () => {
     // The player has walked away; the parked physical horse remains at the spawn point.
     const parked = { dead: false, disposed: false, riderNpc: null, riderPlayer: null,
       combatRadius: 2, group: { position: { ...point } } }
-    expect(civilianParkedMountsClear(point, [parked, parked])).toBe(false)
-    expect(civilianParkedMountsClear(point, [parked, parked], [parked])).toBe(true)
-    expect(civilianParkedMountsClear(point, [parked, { ...parked }], [parked])).toBe(false)
-    expect(civilianParkedMountsClear({ x: 105, z: 70 }, [parked])).toBe(true)
-    expect(civilianParkedMountsClear(point, [
+    expect(civilianMountsClear(point, [parked, parked])).toBe(false)
+    expect(civilianMountsClear(point, [parked, parked], [parked])).toBe(true)
+    expect(civilianMountsClear(point, [parked, { ...parked }], [parked])).toBe(false)
+    expect(civilianMountsClear({ x: 105, z: 70 }, [parked])).toBe(true)
+    expect(civilianMountsClear(point, [
       { ...parked, dead: true }, { ...parked, disposed: true },
-      { ...parked, riderNpc: {} }, { ...parked, riderPlayer: {} },
     ])).toBe(true)
+  })
+
+  it('rejects a bulk foot-to-horse placement at infantry Follow spacing using both final mounted footprints', () => {
+    const plans = [{ point: { x: 100, z: 70 }, radius: 2 }, { point: { x: 103, z: 70 }, radius: 2 }]
+    // 3m clears the old 2m horse + 0.5m walking actor precheck, but not two final horses.
+    expect(townMountPlacementBatchClear(plans)).toBe(false)
+    expect(plans[1].point).toEqual({ x: 103, z: 70 })
+    expect(townMountPlacementBatchClear([plans[0], { point: { x: 104, z: 70 }, radius: 2 }])).toBe(true)
+  })
+
+  it('keeps a nonresident HR rider mount occupied unless that exact rider is checked separately', () => {
+    const point = { x: 100, z: 70 }, resident = {}, privateSoldier = {}
+    const mount = { dead: false, disposed: false, riderNpc: privateSoldier, riderPlayer: null,
+      combatRadius: 2, group: { position: { ...point } } }
+    expect(civilianMountsClear(point, [mount], [], new Set([resident]))).toBe(false)
+    expect(civilianMountsClear(point, [mount], [], new Set([privateSoldier]))).toBe(true)
+    expect(civilianMountsClear(point, [mount], [mount], new Set([resident]))).toBe(true)
+    expect(civilianMountsClear(point, [{ ...mount, riderNpc: null, riderPlayer: privateSoldier }])).toBe(false)
   })
 
   it('rejects an overhead obstacle that clears a walker but intersects a mounted civilian', () => {

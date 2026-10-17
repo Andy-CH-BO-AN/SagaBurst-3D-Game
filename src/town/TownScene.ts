@@ -10,7 +10,7 @@ import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
-import { civilianHomeAnchor, civilianBodyClear, civilianParkedMountsClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
+import { civilianHomeAnchor, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
 import { townStationSpec } from './TownGarrison'
 import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
 import { SquadRefitSafety } from '../career/SquadRefit'
@@ -1008,7 +1008,7 @@ export class TownScene {
       e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
       const adapters = createTownCareerEquipmentUI(() => this.profile, () => this.townEquipmentContext(),
         () => this.residents, next => this.commit(next),
-        (previous, current, actorIds) => applyTownEquipmentRuntime(this.scene, this.residents, this.mounts, previous, current, actorIds, (point, actorId, reusedMount) => this.canPlaceMountedCivilian(point, actorId, reusedMount)))
+        (previous, current, actorIds) => applyTownEquipmentRuntime(this.scene, this.residents, this.mounts, previous, current, actorIds, (point, actorId, reusedMount, vacatingMounts) => this.canPlaceMountedCivilian(point, actorId, reusedMount, vacatingMounts)))
       this.equipment.open(this.skills, this.inventory, () => this.input.clear(), this.careerMounts, adapters.personal, adapters.town)
       return
     }
@@ -3107,22 +3107,25 @@ export class TownScene {
       this.grid.getNearbyInto(npc.combatPosition, 60, this.neighbors), this.combatMounts) ?? false
   }
   /** Service-time validation only; mounted residents keep their native movement and command owner. */
-  private canPlaceMountedCivilian(point: { x: number; z: number }, actorId: string, reusedMount?: Mount | null): boolean {
+  private canPlaceMountedCivilian(point: { x: number; z: number }, actorId: string, reusedMount?: Mount | null, vacatingMounts: readonly Mount[] = []): boolean {
     if (!civilianBodyClear(point, this.world.airspaceObstacles)) return false
     // Omitted = restore/refit the allocated horse; null = spawn a new physical horse.
     const reused = reusedMount === undefined ? this.residents.find(r => r.spec.id === actorId)?.homeMount : reusedMount ?? undefined
+    const coveredRiders = new Set<unknown>(this.residents.filter(r => r.spec.id !== actorId && !r.npc.dead).map(r => r.npc))
+    coveredRiders.add(this.player)
     // Use fresh owners rather than the per-frame combat list, which may predate restore/equipment.
-    if (!civilianParkedMountsClear(point, [
+    if (!civilianMountsClear(point, [
       ...this.mounts, ...this.residents.map(r => r.homeMount), this.careerMounts?.activeMount, this.player.currentMount,
       ...(this.mission?.battlefieldMounts ?? []), ...(this.defense?.enemyMounts ?? []), ...(this.duel?.allMounts ?? []),
       ...(this.race?.allMounts ?? []), ...(this.outskirts?.mounts ?? []), ...(this.enemyEaglePatrol?.mounts ?? []),
       ...(this.personalSquad?.mounts ?? []), ...this.temporaryMounts.all,
-    ], [reused])) return false
+    ], [reused, ...vacatingMounts], coveredRiders)) return false
     // Housing's 4.5m home spacing is not a physical collision radius at service time.
-    const blocked = (position: { x: number; z: number }, mounted: boolean) =>
-      Math.hypot(point.x - position.x, point.z - position.z) < CIVILIAN_MOUNT_CLEARANCE.radius + (mounted ? 2 : .5)
-    return !this.residents.some(r => r.spec.id !== actorId && !r.npc.dead && blocked(r.npc.combatPosition, Boolean(r.npc.mount)))
-      && !blocked(this.player.combatPosition, Boolean(this.player.currentMount))
+    const blocked = (position: { x: number; z: number }, radius: number) =>
+      Math.hypot(point.x - position.x, point.z - position.z) < CIVILIAN_MOUNT_CLEARANCE.radius + radius
+    return !this.residents.some(r => r.spec.id !== actorId && !r.npc.dead && blocked(r.npc.combatPosition,
+      r.npc.mount && !vacatingMounts.includes(r.npc.mount) ? r.npc.mount.combatRadius : .5))
+      && !blocked(this.player.combatPosition, this.player.currentMount?.combatRadius ?? .5)
   }
   private updatePeace(r: Resident, dt: number): void {
     if (this.race?.owns(r.npc)) return

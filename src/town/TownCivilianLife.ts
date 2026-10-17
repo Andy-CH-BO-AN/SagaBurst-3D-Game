@@ -50,20 +50,30 @@ export function civilianBodyClear(point: Point, obstacles: readonly ObstacleData
   })
 }
 
-/** The spawn check consumes physical identities; riders are checked by their actor positions. */
+/** Skip a mounted body only when its exact rider is covered by the caller's actor check. */
 export interface CivilianMountOccupant {
   dead: boolean; disposed: boolean; riderNpc: unknown; riderPlayer: unknown
   combatRadius: number; group: { position: Point }
 }
-export function civilianParkedMountsClear(point: Point, mounts: Iterable<CivilianMountOccupant | null | undefined>,
-  reused: readonly (CivilianMountOccupant | undefined)[] = []): boolean {
+export function civilianMountsClear(point: Point, mounts: Iterable<CivilianMountOccupant | null | undefined>,
+  reused: readonly (CivilianMountOccupant | undefined)[] = [], coveredRiders: ReadonlySet<unknown> = new Set()): boolean {
   const seen = new Set<CivilianMountOccupant>()
   for (const mount of mounts) {
     if (!mount || seen.has(mount)) continue
     seen.add(mount)
-    if (mount.dead || mount.disposed || mount.riderNpc || mount.riderPlayer || reused.includes(mount)) continue
+    if (mount.dead || mount.disposed || reused.includes(mount)) continue
+    if (mount.riderNpc && coveredRiders.has(mount.riderNpc) || mount.riderPlayer && coveredRiders.has(mount.riderPlayer)) continue
     if (Math.hypot(point.x - mount.group.position.x, point.z - mount.group.position.z)
       < CIVILIAN_MOUNT_CLEARANCE.radius + mount.combatRadius) return false
+  }
+  return true
+}
+
+/** Final footprints, including newly created and exchanged mounts, must fit as one batch. */
+export function townMountPlacementBatchClear(placements: readonly { point: Point; radius: number }[]): boolean {
+  for (let i = 0; i < placements.length; i++) for (let j = 0; j < i; j++) {
+    const a = placements[i], b = placements[j]
+    if (Math.hypot(a.point.x - b.point.x, a.point.z - b.point.z) < a.radius + b.radius) return false
   }
   return true
 }
