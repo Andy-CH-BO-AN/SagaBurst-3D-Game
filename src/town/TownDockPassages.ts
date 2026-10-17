@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { slabGeometry, surfaceBox } from './TownRamparts'
 import { removeObstacleData, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
@@ -46,6 +47,32 @@ export class TownDockPassages {
       }
       if (from < 1) this.addPiece(rail, from, 1)
     }
+    this.batchGeometry()
+  }
+  /** One fixed batch per material plus one independently visible batch per dock.
+   * Collision records remain separate and keep their exact slice membership.
+   */
+  batchGeometry(): void {
+    const groups = new Map<THREE.Material | THREE.Material[], Map<TownSiegeRampId | undefined, Piece[]>>()
+    for (const piece of this.pieces) {
+      let material = groups.get(piece.mesh.material)
+      if (!material) groups.set(piece.mesh.material, material = new Map())
+      let group = material.get(piece.rampId)
+      if (!group) material.set(piece.rampId, group = [])
+      group.push(piece)
+    }
+    for (const material of groups.values()) for (const pieces of material.values()) {
+      const meshes = [...new Set(pieces.map(piece => piece.mesh))]
+      if (meshes.length < 2) continue
+      const geometry = mergeGeometries(meshes.map(mesh => mesh.geometry))
+      if (!geometry) throw new Error('Incompatible dock passage geometry')
+      const mesh = new THREE.Mesh(geometry, meshes[0].material)
+      mesh.name = pieces[0].rampId ?? 'town-siege-fixed-rails'
+      mesh.castShadow = mesh.receiveShadow = true; mesh.visible = meshes[0].visible
+      for (const original of meshes) { original.removeFromParent(); original.geometry.dispose() }
+      for (const piece of pieces) piece.mesh = mesh
+      this.root.add(mesh)
+    }
   }
   isOpen(id: TownSiegeRampId): boolean { return this.open.has(id) }
   setOpen(id: TownSiegeRampId, value: boolean): void {
@@ -84,11 +111,13 @@ export class TownDockPassages {
   }
   private clearPieces(): void {
     this.railObstacles.clear()
+    const meshes = new Set<THREE.Mesh>()
     for (const piece of this.pieces.splice(0)) {
       this.airspace?.remove(piece.obstacles)
-      piece.mesh.removeFromParent(); piece.mesh.geometry.dispose()
+      meshes.add(piece.mesh)
       for (const obstacle of piece.obstacles) removeObstacleData(this.obstacles, obstacle)
     }
+    for (const mesh of meshes) { mesh.removeFromParent(); mesh.geometry.dispose() }
   }
   dispose(): void { this.clearPieces(); this.rails.length = 0; this.open.clear(); this.root.removeFromParent() }
 }

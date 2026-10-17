@@ -67,6 +67,12 @@ export async function launchTownFourGateSiegePreview(container: HTMLElement): Pr
     const saved = text ? parseTownFourGateSiegeCheckpoint(JSON.parse(text)) : undefined
     if (text && (!saved || saved.faction !== attacker)) throw new Error('Invalid preview checkpoint or faction mismatch')
     world = new TownWorld(defender, scene, Faction.PLAYER, { fourGateSiege: true })
+    const passageMeshCount = () => {
+      let meshes = 0
+      world!.siegeDockPassages!.root.traverse(object => { if (object instanceof THREE.Mesh) meshes++ })
+      return meshes
+    }
+    const passageMeshesBeforeConfigure = passageMeshCount()
     const navigation = new NavigationWorld(TOWN_NAVIGATION_BOUNDS), grid = new SpatialGrid<NPC>()
     navigation.setTownRamparts(world.fortifications.rampartLayout); navigation.sync(world.obstacles)
     const sectors: TownSiegeSectorRoster[] = TOWN_GATES.map(gate => ({ gateId: gate.id,
@@ -75,6 +81,7 @@ export async function launchTownFourGateSiegePreview(container: HTMLElement): Pr
       acceptsOrders: () => true, registerHit: ramp => { hitTargets.add(ramp.damageable) }, unregisterHit: ramp => { hitTargets.delete(ramp.damageable) } }, saved)
     const slots = createTownSiegeCrewSlots(attacker)
     siege.prepare(slots)
+    const passageMeshesAfterConfigure = passageMeshCount()
     for (const gate of world.gates.values()) hitTargets.add(gate.damageable)
     const specs: NpcSpawnSpec[] = slots.map(slot => slot.spec)
     for (const gate of TOWN_GATES) {
@@ -120,6 +127,7 @@ export async function launchTownFourGateSiegePreview(container: HTMLElement): Pr
     }
     focus('north')
     panel.innerHTML = `<strong>Four-Gate Siege · DEV</strong><div>${defender} town · 8 ramps / 80 crew + 12 representative defenders</div>
+      <div>外護欄 Mesh：配置前 ${passageMeshesBeforeConfigure} → 配置後 ${passageMeshesAfterConfigure}（含 8 處獨立通道；非實測 draw calls／FPS）</div>
       <div><a href="?fourgatepreview=1&nolock&faction=roman">Roman</a> · <a href="?fourgatepreview=1&nolock&faction=viking">Viking</a></div>
       <label>Sector <select id="siege-sector">${TOWN_GATES.map(g => `<option>${g.id}</option>`).join('')}</select></label>
       <label>Ramp <select id="siege-side"><option value="left">left</option><option value="right">right</option></select></label><br>
@@ -144,6 +152,7 @@ export async function launchTownFourGateSiegePreview(container: HTMLElement): Pr
     }
     element('siege-restore').onclick = () => { const url = new URL(location.href); url.searchParams.set('restore', '1'); location.assign(url) }
     Object.assign(window, { __fourGatePreview: { siege, actors, mounts, world, navigation, camera, controls, renderer, hitTargets,
+      passageMeshes: { beforeConfigure: passageMeshesBeforeConfigure, afterConfigure: passageMeshesAfterConfigure },
       snapshot: () => siege!.snapshot(), dispose: cleanup } })
     window.addEventListener('resize', resize); window.addEventListener('pagehide', cleanup)
     let last = performance.now(), statusElapsed = 0

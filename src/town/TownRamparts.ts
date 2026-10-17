@@ -194,7 +194,9 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       }
     } else {
       // Join the inset deck edge to the existing wall crown without a visible slit.
-      rail(s, -3.5, 0, s.length, -1.1, 0, .4)
+      // This outer seam filler can project above a neighbouring lower bridge
+      // on sloped crowns; opt-in docks must slice it with the exterior rail.
+      rail(s, -3.5, 0, s.length, -1.1, 0, .4, item.gateId)
       // Clockwise ring: exterior on the right; crenels alternate every 2.4m.
       rail(s, -3.04, 0, s.length, 0, .45, .16, item.gateId)
       // Leave the four ramp connections open in the inner safety rail.
@@ -229,5 +231,6 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
     const geometry = mergeGeometries(geometries); geometries.forEach(g => g.dispose())
     if (geometry) { const mesh = new THREE.Mesh(geometry, mat); mesh.castShadow = mesh.receiveShadow = true; root.add(mesh) }
   }
+  dockPassages?.batchGeometry()
   return root
 }
