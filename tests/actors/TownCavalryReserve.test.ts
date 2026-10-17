@@ -7,8 +7,9 @@ import { townRoster } from '../../src/town/TownRules'
 import type { Mount } from '../../src/world/Mount'
 import type { NPC } from '../../src/world/NPC'
 
-function residents(): TownCavalryReserveResident[] {
-  return townRoster().map(spec => {
+function residents(select: (spec: ReturnType<typeof townRoster>[number]) => boolean, count: number): TownCavalryReserveResident[] {
+  // Keep the production roster as the identity oracle, but only materialize needed candidate doubles.
+  return townRoster().filter(select).slice(0, count).map(spec => {
     const npc = { combatantId: spec.id, dead: false, mount: null } as unknown as NPC
     const homeMount = { dead: false, disposed: false, riderNpc: null, riderPlayer: null } as unknown as Mount
     if (spec.mounted) npc.mount = homeMount
@@ -22,7 +23,7 @@ function ordinary(count: number, unitType: TownCavalryMissionSlot['unitType'] = 
 describe('Town cavalry reserve minimal shortage matrix', () => {
 
   it('leaves a missing slot rather than reusing the available actor or claiming an unavailable actor', () => {
-    const candidates = residents().filter(r => r.spec.duty === 'training' && r.spec.unitKind === 'sword_cavalry').slice(0, 2)
+    const candidates = residents(spec => spec.duty === 'training' && spec.unitKind === 'sword_cavalry', 2)
     expect(selectTownCavalryReserve([candidates[0], candidates[0], candidates[1]], ordinary(2), new Set([candidates[1].spec.id])))
       .toEqual(['cavalry-training:melee_cavalry:0', undefined])
   })
@@ -30,7 +31,7 @@ describe('Town cavalry reserve minimal shortage matrix', () => {
 
 describe('Town cavalry reserve readiness and determinism', () => {
   it('excludes dead actors, unavailable identities and mounts that are dead, disposed or occupied', () => {
-    const roster = residents().filter(r => r.spec.duty === 'training' && r.spec.mounted).slice(0, 8)
+    const roster = residents(spec => spec.duty === 'training' && spec.mounted, 8)
     Object.assign(roster[0].npc, { dead: true })
     Object.assign(roster[2].homeMount!, { dead: true })
     Object.assign(roster[3].homeMount!, { disposed: true })
@@ -43,7 +44,7 @@ describe('Town cavalry reserve readiness and determinism', () => {
   })
 
   it('can use a healthy home mount when the current mount is unavailable, or a healthy current mount when home is unavailable', () => {
-    const roster = residents().filter(r => r.spec.duty === 'training' && r.spec.mounted).slice(0, 3)
+    const roster = residents(spec => spec.duty === 'training' && spec.mounted, 3)
     roster[0].npc.mount = { dead: true } as Mount
     roster[1].homeMount = { dead: true } as Mount
     roster[2].npc.mount = null
