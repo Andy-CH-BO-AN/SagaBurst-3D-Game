@@ -7,6 +7,7 @@ import { eagleLandingFootprint, isEagleLandingClear } from '../world/EagleLandin
 import { isEagleApproachClear } from '../world/EagleApproach'
 import { resolveTownHRLayout, type TownHRLayout } from './TownHRLayout'
 import { TownDockPassages } from './TownDockPassages'
+import { TownSiegeAirspace } from './TownSiegeAirspace'
 import { createTownFortifications } from './TownFortifications'
 import { TOWN_CENTER, TOWN_WELL, townHousing, TOWN_CITY_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
 import * as THREE from 'three'
@@ -43,6 +44,7 @@ export class TownWorld {
   readonly camps: { faction: Faction; capacity: number; spawnPoints: THREE.Vector3[] }[] = []
   readonly targets: THREE.Vector3[] = []
   readonly siegeDockPassages?: TownDockPassages
+  readonly siegeAirspace?: TownSiegeAirspace
   readonly fortifications: ReturnType<typeof createTownFortifications>
   get gates() { return this.fortifications.gates }
   readonly buildings: { id: string; ownerFaction: Faction; campId?: number; obstacles: ObstacleData[]; hp: DamageableObstacle; roof: THREE.Group; ruin: THREE.Group; damaged: boolean }[] = []
@@ -97,7 +99,10 @@ export class TownWorld {
       this.cube(this.root, wellX + side * 1.2, wellY + .5, wellZ, .3, 1, 2.7, this.stone)
       this.cube(this.root, wellX, wellY + .5, wellZ + side * 1.2, 2.7, 1, .3, this.stone)
     }
-    if (options.fourGateSiege) this.siegeDockPassages = new TownDockPassages(this.obstacles)
+    if (options.fourGateSiege) {
+      this.siegeAirspace = new TownSiegeAirspace(this.airspaceObstacles)
+      this.siegeDockPassages = new TownDockPassages(this.obstacles, this.siegeAirspace)
+    }
     this.fortifications = createTownFortifications(faction, this.obstacles, { stone: this.stone, wood: this.wood, dark: this.dark, snow: this.snow }, this.siegeDockPassages)
     this.root.add(this.fortifications.root); this.trackOwned(this.fortifications.root)
     this.batch(this.fortifications.wallRoot)

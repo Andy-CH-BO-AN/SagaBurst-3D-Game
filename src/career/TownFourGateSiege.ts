@@ -120,6 +120,7 @@ export class TownFourGateSiege {
         this.ramps.set(assignment.id, ramp); this.rampList.push(ramp)
         const saved = this.saved?.ramps.find(r => r.assignment.id === assignment.id)
         if (saved) ramp.restore(saved)
+        world.siegeAirspace?.add(ramp.obstacles)
         const specs = slots.map(slot => slot.spec)
         placeSiegeRampCrew(specs, assignment, placement)
         for (const id of [...assignment.pusherIds, ...assignment.assaultIds]) {
@@ -218,6 +219,8 @@ export class TownFourGateSiege {
   }
   private refreshGate(gateId: TownGateId): void {
     const gate = this.options.world.gates.get(gateId)!, frame = townSiegeFrame(gateId), id = `town-siege-gate:${gateId}`
+    if (gate.state === 'closed') this.options.world.siegeAirspace?.add([gate.siegeObstacle])
+    else this.options.world.siegeAirspace?.remove([gate.siegeObstacle])
     if (gate.state === 'closed') this.entrances.remove(id)
     else {
       const position = new THREE.Vector3(frame.gate.x, getTerrainHeight(frame.gate.x, frame.gate.z), frame.gate.z)
@@ -243,6 +246,7 @@ export class TownFourGateSiege {
       if (!this.restoring) this.policy.ramp(assignment.gateId, assignment.side, true)
     } else if (state === 'DESTROYED') {
       passages.setOpen(assignment.id, false); this.entrances.remove(assignment.id)
+      this.options.world.siegeAirspace?.remove(ramp.obstacles)
       if (this.hitRegistered.delete(assignment.id)) this.options.unregisterHit(ramp)
       if (!this.restoring) {
         this.policy.ramp(assignment.gateId, assignment.side, false)
@@ -315,6 +319,7 @@ export class TownFourGateSiege {
       this.options.world.siegeDockPassages!.setOpen(ramp.assignment.id, false)
       if (this.hitRegistered.delete(ramp.assignment.id)) this.options.unregisterHit(ramp)
       ramp.dispose()
+      this.options.world.siegeAirspace?.remove(ramp.obstacles)
     }
     this.entrances.clear(); this.options.navigation.townNav!.siegeActive = false
     for (const npc of this.actorsById.values()) { npc.campaignEntranceId = null; npc.townSiegeGateId = null; npc.siegeBypassTarget = null }

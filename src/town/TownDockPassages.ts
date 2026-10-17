@@ -4,6 +4,7 @@ import { removeObstacleData, type ObstacleData, type WalkRampSurface } from '../
 import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
 import type { TownGateId } from './TownLayout'
 import type { TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
+import type { TownSiegeAirspace } from './TownSiegeAirspace'
 
 export interface TownDockSite { rampId: TownSiegeRampId; gateId: TownGateId; point: THREE.Vector3; halfWidth: number }
 interface Rail { gateId: TownGateId; a: THREE.Vector3; b: THREE.Vector3; width: number; thickness: number; material: THREE.Material }
@@ -19,7 +20,7 @@ export class TownDockPassages {
   private readonly railObstacles = new Set<ObstacleData>()
   private readonly open = new Set<TownSiegeRampId>()
   private configured = false
-  constructor(private readonly obstacles: ObstacleData[]) { this.root.name = 'town-siege-dock-passages' }
+  constructor(private readonly obstacles: ObstacleData[], private readonly airspace?: TownSiegeAirspace) { this.root.name = 'town-siege-dock-passages' }
 
   addRail(gateId: TownGateId, a: THREE.Vector3, b: THREE.Vector3, width: number, thickness: number, material: THREE.Material): void {
     if (this.configured) throw new Error('Dock rails already configured')
@@ -57,6 +58,8 @@ export class TownDockPassages {
         if (value) removeObstacleData(this.obstacles, obstacle)
         else if (!this.obstacles.includes(obstacle)) { this.obstacles.push(obstacle); markObstacleTopologyChanged(this.obstacles) }
       }
+      if (value) this.airspace?.remove(piece.obstacles)
+      else this.airspace?.add(piece.obstacles)
     }
   }
   private addPiece(rail: Rail, from: number, to: number, rampId?: TownSiegeRampId): void {
@@ -75,10 +78,14 @@ export class TownDockPassages {
     }
     for (const obstacle of obstacles) this.railObstacles.add(obstacle)
     this.obstacles.push(...obstacles); this.pieces.push({ mesh, obstacles, rampId })
+    // Initial uncut rails enter TownWorld's native snapshot at construction end.
+    // Only later configuration creates replacement records that need admission.
+    if (this.configured) this.airspace?.add(obstacles)
   }
   private clearPieces(): void {
     this.railObstacles.clear()
     for (const piece of this.pieces.splice(0)) {
+      this.airspace?.remove(piece.obstacles)
       piece.mesh.removeFromParent(); piece.mesh.geometry.dispose()
       for (const obstacle of piece.obstacles) removeObstacleData(this.obstacles, obstacle)
     }
