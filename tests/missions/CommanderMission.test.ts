@@ -482,9 +482,9 @@ describe('Bridgehead reload routing', () => {
     acceptedProfile.activeMission!.personalSquad!.members['personal:hr-1'] = { status: 'dead', hp: 0 }
     acceptedProfile.personalSquad!.members.push({ id: 'personal:reserve', type: 'soldier' })
     const claimed = claimCareerMission(acceptedProfile, id, 'victory', stats).profile
-    const originalPersonal = structuredClone(claimed.personalSquad)
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     expect(store.save(claimed)).toBe(true)
+    const originalPersonal = store.load()!.personalSquad
     const loaded = store.load()!
     storage.writable = false
     expect(recoverClaimedCareerBridgeBattle(loaded, store)).toBe('save-failed')
