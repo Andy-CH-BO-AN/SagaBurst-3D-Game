@@ -97,7 +97,7 @@ export class CareerRaceHUD {
       : countdown ? '留在北門內側起跑區' : `下一站：${RACE_LINES[session.player.checkpoint]?.label ?? '完成'}`
     const distance = (!session.result || finishing) && !observing && options.distance !== null ? ` · ${Math.round(options.distance)} m` : ''
     setText(this.objective, target + distance)
-    setText(this.mode, `對手：${MOUNT_NAMES[definition.mount]} · ${definition.sprint ? '衝刺賽' : '一般速度'} · 玩家可 Shift 衝刺`)
+    setText(this.mode, `${session.opponent.actorId === 'commander' ? '指揮官' : '對手'}：${MOUNT_NAMES[definition.mount]} · ${definition.sprint ? '衝刺賽' : '一般速度'} · 玩家可 Shift 衝刺`)
     this.updateRider(session.player, 0); this.updateRider(session.opponent, 1)
     const warning = options.saveFailed ? '保存失敗，將重試；結果保存成功後才公布。'
       : countdown && !observing && !legalRaceStart(session.player.position) ? '搶跑！倒數結束前返回北門內側，否則判負。'

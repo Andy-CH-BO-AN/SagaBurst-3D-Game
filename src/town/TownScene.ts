@@ -1896,9 +1896,9 @@ export class TownScene {
     const racing = document.createElement('h3'); racing.textContent = 'Mounted Circuit Racing · 繞城賽馬'; panel.append(racing)
     for (const race of MOUNTED_RACES) {
       const row = document.createElement('article'); row.className = 'town-product'
-      const name = document.createElement('strong'); name.textContent = `${race.name} · ${race.mount}`
+      const name = document.createElement('strong'); name.textContent = `${race.name} · 指揮官 · ${race.mount}`
       const details = document.createElement('small')
-      details.textContent = `NPC ${race.sprint ? 'Sprint' : 'Normal（不衝刺）'} · 玩家可衝刺 · ${this.profile.completedRaceIds?.includes(race.id) ? '已完成' : '未完成'}`
+      details.textContent = `指揮官 ${race.sprint ? 'Sprint' : 'Normal（不衝刺）'} · 玩家可衝刺 · 勝利 ${race.merit} 軍功 · ${this.profile.completedRaceIds?.includes(race.id) ? '已完成' : '未完成'}`
       const accept = this.button(row, '接受賽馬', () => this.acceptRace(race.id))
       accept.disabled = Boolean(this.profile.activeRace || this.profile.activeMission || this.profile.activeOutpostMission)
       row.prepend(name, details); panel.append(row)
@@ -1921,8 +1921,9 @@ export class TownScene {
       return
     }
     const name = MOUNTED_RACES.find(r => r.id === session.raceId)!.name
+    const merit = this.profile.raceRecords?.find(record => record.sessionId === session.id)?.merit ?? 0
     const panel = this.openPanel(`${name} · ${session.result === 'win' ? 'Victory' : session.result === 'loss' ? 'Defeat' : 'Draw'}`,
-      `${session.reason ?? ''}\n玩家：${session.player.finishSeconds !== undefined ? `${session.player.finishSeconds.toFixed(2)} 秒` : 'DNF'} · NPC：${session.opponent.finishSeconds !== undefined ? `${session.opponent.finishSeconds.toFixed(2)} 秒` : 'DNF'}\n結果已保存。城鎮敵對與戰損維持實際狀態。`)
+      `${session.reason ?? ''}\n玩家：${session.player.finishSeconds !== undefined ? `${session.player.finishSeconds.toFixed(2)} 秒` : 'DNF'} · ${session.opponent.actorId === 'commander' ? '指揮官' : 'NPC'}：${session.opponent.finishSeconds !== undefined ? `${session.opponent.finishSeconds.toFixed(2)} 秒` : 'DNF'}\n本場軍功：+${merit}\n結果已保存。城鎮敵對與戰損維持實際狀態。`)
     this.button(panel, '直接返回小鎮', () => this.leaveRace())
     if (race.canWalkBack) this.button(panel, '跟隊長走回去', () => {
       if (!race.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }

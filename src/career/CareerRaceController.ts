@@ -9,11 +9,12 @@ import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/N
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { CareerProfile } from './CareerProfile'
 import { townPlayerEntryPoint } from '../town/TownRules'
+import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
 import { canUseCareerMount, type CareerMountController } from './CareerMountController'
-import { advanceRaceClock, advanceRaceRider, canEnterRace, lockRace, MOUNTED_RACES, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, updateRaceGuidance,
+import { advanceRaceClock, advanceRaceRider, canEnterRace, lockRace, MOUNTED_RACES, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
-import { legalRaceStart, RACE_LINES, RACE_START, RACE_START_SLOTS, raceWaypoints, type RacePoint, type RacePosition } from './CareerRaceRoute'
+import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
 
 interface RaceResident { npc: NPC; homeMount?: Mount; spec: { id: string; x: number; z: number; yaw?: number } }
 const commandId = -7400
@@ -24,6 +25,7 @@ function position(p: THREE.Vector3, yaw: number): RacePosition { return { x: p.x
 export class CareerRaceController {
   session?: CareerRaceSession
   private racer?: NPC
+  private borrowedCommander?: RaceResident
   private mount?: Mount
   private captain?: RaceResident
   private captainReturning = false
@@ -66,7 +68,8 @@ export class CareerRaceController {
     if (!s || s.result && s.phase !== 'returning' && s.phase !== 'finishing') return null
     if (s.phase === 'returning') return this.captain ? vector(this.captain.spec) : null
     if (!raceIsRunning(s)) return vector(RACE_START_SLOTS[0])
-    return raceRiderDone(s.player) ? null : vector(RACE_LINES[s.player.checkpoint]?.center ?? RACE_START)
+    const target = raceCheckpointTarget(s.player.checkpoint, s.player.position)
+    return raceRiderDone(s.player) || !target ? null : vector(target)
   }
 
   accept(id: RaceId, fresh: CareerProfile): boolean {
@@ -78,22 +81,26 @@ export class CareerRaceController {
     })) { this.error = '需實際騎乘自己持有、可用的地面坐騎，且沒有其他任務或賽馬。'; return false }
     this.navigation.sync(this.obstacles)
     const captain = this.residents.find(r => r.spec.id === 'captain' && !r.npc.dead && !r.npc.hostileToPlayer)
-    if (!captain || !this.startSlotsLegal() || !this.routePlanValid() || !this.navigation.areConnected(captain.npc.combatPosition, RACE_START)) {
-      this.error = 'Captain 或北門起跑路線暫時不可用，請確認城門與路面。'; return false
+    const commander = selectRaceCommander(this.residents)
+    if (!captain || !commander || !this.startSlotsLegal() || !this.routePlanValid()
+      || !this.navigation.areConnected(captain.npc.combatPosition, RACE_START)
+      || !this.navigation.areConnected(commander.npc.combatPosition, RACE_START)) {
+      this.error = 'Captain、指揮官或北門起跑路線暫時不可用，請確認城門與路面。'; return false
     }
     const sessionId = crypto.randomUUID(), origin = position(mount.group.position, mount.group.rotation.y)
     const makeRider = (actorId: string, mountId: RaceMountId, point: RacePosition, hp: number, mountHp: number): RaceRider => ({
       actorId, mountId, position: { ...point }, mountPosition: { ...point }, hp, mountHp, stamina: 100,
       mounted: true, dead: false, checkpoint: 0,
     })
-    const spawn = this.findSpawn(captain.npc.combatPosition)
-    if (!spawn) { this.error = '附近沒有可安全部署賽手的位置。'; return false }
+    const spawn = commander.npc.combatPosition
+    if (!this.legalSegment(spawn, spawn)) { this.error = '指揮官所在位置沒有足夠坐騎空間。'; return false }
     const session: CareerRaceSession = { version: 1, deployed: false, id: sessionId, raceId: id, phase: 'guiding', countdownSeconds: 10,
       elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
       referee: this.captureReferee(captain),
+      opponentHome: this.captureReferee(commander), opponentAmmo: commander.npc.combatAmmo,
       player: { ...makeRider('player', this.mounts.activeMountId as RaceMountId, origin, p.hp, mount.currentHp), stamina: p.staminaValue },
-      // Actual native HP replaces these provisional values on the deployment checkpoint.
-      opponent: makeRider(`race:${sessionId}`, definition.mount, position(spawn, 0), 1, 1) }
+      // The mount is race-owned; the actual native Commander and his equipment are borrowed intact.
+      opponent: { ...makeRider(TOWN_COMMANDER_ID, definition.mount, position(spawn, commander.npc.group.rotation.y), commander.npc.hp, 1), stamina: commander.npc.staminaValue } }
     const next = cloneCareerProfile(fresh); next.activeRace = session
     if (!this.commit(next)) { this.error = '參賽狀態保存失敗，比賽尚未部署。請重試。'; return false }
     this.session = structuredClone(session); this.captain = captain; this.captainHp = captain.npc.hp
@@ -127,16 +134,39 @@ export class CareerRaceController {
 
   private deploy(initial: boolean, restoring = false): void {
     const s = this.session!
-    this.batch = gameplayNpcSpawns.batch(() => { this.racer = undefined; this.mount = undefined; this.error = '賽手部署失敗；重新載入可重試同場賽事。' })
+    this.batch = gameplayNpcSpawns.batch(() => { this.disposeRacer(); this.error = '賽手部署失敗；重新載入可重試同場賽事。' })
     this.batch.enqueue(s.opponent.actorId, () => {
       const presetId: UnitPresetId = this.read().faction === 'roman' ? 'roman_sword_cavalry' : 'viking_sword_cavalry'
       const loadout = { ...UNIT_PRESETS[presetId].tierLoadouts[1], mountId: s.opponent.mountId }
-      const npc = trackNpcSpawn(new NPC(this.scene, s.opponent.position.x, s.opponent.position.z, Faction.TOWN,
+      this.borrowedCommander = s.opponent.actorId === TOWN_COMMANDER_ID ? this.residents.find(r => r.spec.id === TOWN_COMMANDER_ID) : undefined
+      if (s.opponent.actorId === TOWN_COMMANDER_ID && !this.borrowedCommander) throw new Error('Race Commander resident unavailable')
+      // Legacy in-progress sessions retain their actor identity until they finish.
+      const npc = this.borrowedCommander?.npc ?? trackNpcSpawn(new NPC(this.scene, s.opponent.position.x, s.opponent.position.z, Faction.TOWN,
         this.read().faction, AIType.MELEE, 'Circuit Rider', 1, true, loadout, presetId, undefined, s.opponent.actorId))
+      this.racer = npc
+      if (this.borrowedCommander) {
+        const home = this.borrowedCommander.homeMount
+        if (home && s.opponentHome?.mountPosition) {
+          if (restoring) {
+            const point = s.opponentHome.mountPosition
+            home.group.position.set(point.x, point.y, point.z); home.group.rotation.y = point.yaw
+            home.currentHp = Math.min(home.maxHp, s.opponentHome.mountHp ?? home.currentHp)
+            if (home.currentHp === 0) home.takeDamage(home.maxHp * 100)
+          }
+          home.visualHold = true
+        }
+        npc.dismountFromMount()
+      } else npc.setTownPeaceful()
       const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(s.opponent.mountId), s.opponent.mountPosition.x, s.opponent.mountPosition.z))
-      mount.reservedForTown = true; npc.setTownPeaceful(); npc.mountVehicle(mount)
-      this.racer = npc; this.mount = mount
-      if (initial) { s.opponent.hp = npc.hp; s.opponent.mountHp = mount.currentHp; s.opponent.stamina = npc.staminaValue }
+      mount.reservedForTown = true; this.mount = mount
+      if (!npc.dead) npc.mountVehicle(mount)
+      if (initial) {
+        if (restoring && this.borrowedCommander) {
+          npc.restoreCombatHealth(s.opponent.hp); npc.restoreCombatStamina(s.opponent.stamina)
+          if (s.opponentAmmo !== undefined) npc.restoreCombatAmmo(s.opponentAmmo)
+        }
+        s.opponent.hp = npc.hp; s.opponent.mountHp = mount.currentHp; s.opponent.stamina = npc.staminaValue
+      }
       else {
         mount.group.position.set(s.opponent.mountPosition.x, s.opponent.mountPosition.y, s.opponent.mountPosition.z)
         mount.group.rotation.y = s.opponent.mountPosition.yaw
@@ -145,6 +175,7 @@ export class CareerRaceController {
         if (!s.opponent.mounted || mount.dead) npc.dismountFromMount()
         if (!s.opponent.mounted) npc.group.position.set(s.opponent.position.x, s.opponent.position.y, s.opponent.position.z)
         npc.restoreCombatHealth(s.opponent.hp); npc.restoreCombatStamina(s.opponent.stamina)
+        if (s.opponentAmmo !== undefined) npc.restoreCombatAmmo(s.opponentAmmo)
       }
     })
     this.batch.seal(() => { s.deployed = true; if (!restoring) this.snapshot(); this.persist() })
@@ -233,14 +264,15 @@ export class CareerRaceController {
     const s = this.session!
     const rider = s[side], mount = side === 'player' ? this.mounts.activeMount : this.mount
     if (raceRiderDone(rider)) return
+    previous = rider.routePosition ?? previous
     const expected = side === 'player' ? this.mounts.activeMountId === rider.mountId && this.player().currentMount === mount : this.racer!.mount === mount
     if (!expected && !rider.dead) rider.dnf = '參賽坐騎已變更或不可用'
     advanceRaceRider(rider, previous, s.elapsedSeconds, this.frameDt,
-      this.legalSegment(previous, rider.position) && Boolean(!mount?.isAirborne),
+      raceMovementIsLegal(previous, rider.position, this.obstacles) && Boolean(!mount?.isAirborne),
       (mount?.baseSpeed ?? 10) * 2.5 * Math.min(1, this.frameMovementDt / Math.max(this.frameDt, .001)))
     if (side === 'player' && rider.dnf === '不合法路線或位移') lockRace(s, 'loss', rider.dnf)
-    // This runs before subsequent attacks/projectiles: a valid finisher's later death cannot change the result.
-    resolveRace(s)
+    // Finish timestamps are immutable before later damage. Resolve after both actors
+    // have sampled this frame, so fractional crossing times win over update order.
   }
 
   advance(dt: number): void {
@@ -280,6 +312,11 @@ export class CareerRaceController {
     const s = this.session
     if (!s || !this.racer || !this.mount) return
     if (this.captain) s.referee = this.captureReferee(this.captain)
+    if (this.borrowedCommander && s.opponentHome) {
+      s.opponentAmmo = this.borrowedCommander.npc.combatAmmo
+      const home = this.borrowedCommander.homeMount
+      if (home) { s.opponentHome.mountHp = home.currentHp; s.opponentHome.mountPosition = position(home.group.position, home.group.rotation.y) }
+    }
     const p = this.player(), playerMount = this.mounts.activeMount
     for (const side of ['player', 'opponent'] as const) {
       const actor = side === 'player' ? p : this.racer, mount = side === 'player' ? playerMount : this.mount, rider = s[side]
@@ -320,6 +357,9 @@ export class CareerRaceController {
     if (!this.session || !this.resultSaved) return false
     this.snapshot()
     const next = cloneCareerProfile(this.read()); delete next.activeRace
+    if (this.borrowedCommander && !this.borrowedCommander.npc.dead) next.townCommanderRecovery = {
+      faction: next.faction, hp: this.borrowedCommander.npc.hp, ammo: this.borrowedCommander.npc.combatAmmo,
+    }
     next.racePlayerState = this.capturePlayerState()
     const returning = next.racePlayerState
     if (direct || this.player().dead) {
@@ -339,8 +379,8 @@ export class CareerRaceController {
     }
     if (!this.commit(next)) return false
     this.captainReturning = Boolean(this.captain && !this.captain.npc.dead && !this.captain.npc.hostileToPlayer)
-    this.session = undefined
     this.disposeRacer()
+    this.session = undefined
     return true
   }
   private routePlanValid(): boolean {
@@ -350,15 +390,6 @@ export class CareerRaceController {
   }
   private startSlotsLegal(): boolean {
     return RACE_START_SLOTS.every(p => this.legalSegment(p, p) && this.navigation.areConnected(RACE_START, p))
-  }
-  private findSpawn(origin: RacePoint): THREE.Vector3 | null {
-    for (const dx of [5, -5, 8, -8]) for (const dz of [3, -3, 6]) {
-      const p = { x: origin.x + dx, z: origin.z + dz }
-      if (this.legalSegment(p, p) && this.navigation.areConnected(p, RACE_START)
-        && this.residents.every(r => Math.hypot(r.npc.combatPosition.x - p.x, r.npc.combatPosition.z - p.z) > 3)
-        && Math.hypot(this.player().combatPosition.x - p.x, this.player().combatPosition.z - p.z) > 3) return vector(p)
-    }
-    return null
   }
   /** Swept ground body clearance uses the real, current obstacles (including closed gate leaves). */
   private legalSegment(a: RacePoint, b: RacePoint): boolean {
@@ -371,6 +402,24 @@ export class CareerRaceController {
     }
     return true
   }
-  private disposeRacer(): void { if (this.player().currentMount === this.mount) this.player().dismountFromMount({ preserveWorldPosition: true }); this.batch?.cancel(); this.racer?.dispose(); this.mount?.dispose(); this.racer = undefined; this.mount = undefined }
+  private disposeRacer(): void {
+    if (this.player().currentMount === this.mount) this.player().dismountFromMount({ preserveWorldPosition: true })
+    this.batch?.cancel()
+    const borrowed = this.borrowedCommander, home = this.session?.opponentHome
+    if (borrowed) {
+      const npc = borrowed.npc, mount = borrowed.homeMount
+      if (mount) mount.visualHold = false
+      npc.missionMovement = false; npc.setTacticalOrder(npc.hostileToPlayer ? 'charge' : 'attack')
+      if (!npc.dead && home) {
+        npc.dismountFromMount()
+        // Release the native resident back to his service position only after the saved return.
+        // Do not call restoreForTown: health, ammunition and hostility stay as actually played.
+        npc.group.position.set(home.position.x, home.position.y, home.position.z); npc.group.rotation.y = home.position.yaw
+        if (home.mounted && mount && !mount.dead) npc.mountVehicle(mount)
+      }
+      this.commanded.delete(npc)
+    } else this.racer?.dispose()
+    this.mount?.dispose(); this.racer = undefined; this.mount = undefined; this.borrowedCommander = undefined
+  }
   dispose(): void { this.disposeRacer(); this.commanded.clear() }
 }
