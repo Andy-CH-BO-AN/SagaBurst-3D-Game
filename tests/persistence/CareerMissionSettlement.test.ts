@@ -4,7 +4,7 @@ import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissi
 import { createActiveCareerMission,createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { claimCareerMission,createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { TownMissionSettlement } from '../../src/town/TownMissionSettlement'
 import type { NPC } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -49,7 +49,9 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'v
     if (options?.groundedTownReturn) expect(next.playerAerialState).toBeUndefined()
     events.push('save')
     if (!store.save(next)) return false
-    profile = store.load()!
+    // save already validates and normalizes the profile. Publish its stored JSON;
+    // explicit load/reload assertions below still exercise the real restore boundary.
+    profile = JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile
     return true
   })
   // The concrete controller requires the full render-facing Player.group type; only position/yaw is consumed here.
@@ -88,15 +90,17 @@ describe('Town mission settlement transactions', () => {
     const equipment = structuredClone(profile.townEquipment)
     h.town.preservesResident.mockReturnValue(true)
     expect(h.store.save(profile)).toBe(true)
+    const beforeReturn = h.storage.getItem(CAREER_STORAGE_KEY)
     h.storage.writable = false
     expect(h.settlement.returnToTown('direct').status).toBe('save-failed')
     expect(h.events).toEqual(['save'])
     expect(h.town.restart).not.toHaveBeenCalled()
-    expect(h.store.load()!.townCommandSquad!.members!.resident).toMatchObject({ status: 'dead', hp: 0 })
+    expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(beforeReturn)
     h.storage.writable = true; h.events.length = 0
     expect(h.settlement.returnToTown('direct').status).toBe('restarted')
     expect(h.events).toEqual(['save', 'defense-cleanup'])
-    const saved = h.store.load()!
+    h.reload()
+    const saved = h.read()
     expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(saved)
     expect(saved.civilianCommandSquad?.actorIds).toHaveLength(21)
     expect(new Set(Object.values(saved.civilianCommandSquad!.owners))).toEqual(new Set(['daily']))
@@ -113,8 +117,10 @@ describe('Town mission settlement transactions', () => {
     expect(saved.personalSquadRuntime?.members['personal:dead']).toEqual({ status: 'deployed', order: 'defend' })
     expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
     const merit = saved.totalMerit
-    h.reload(); expect(h.settlement.returnToTown('direct').status).toBe('ignored')
-    expect(h.store.load()?.totalMerit).toBe(merit)
+    const savedBytes = h.storage.getItem(CAREER_STORAGE_KEY)
+    expect(h.settlement.returnToTown('direct').status).toBe('ignored')
+    expect(h.read().totalMerit).toBe(merit)
+    expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBytes)
     expect(h.town.beginPatrolMissionReturn).not.toHaveBeenCalled()
   })
 
