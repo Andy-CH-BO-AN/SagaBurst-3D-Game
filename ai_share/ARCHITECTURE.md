@@ -30,7 +30,7 @@
 - geometry、material、texture、clip 共用模板；每個角色持有獨立 skeleton、mixer、socket 與動作狀態。`CharacterVisuals` 提供共用 `CharacterRig` 契約及舊測試模型。
 - `HUMANOID_LOD_DISTANCES` 是人物 LOD 門檻的唯一來源。LOD0 是裝備 socket authority；穩態求值 LOD0 加可見 LOD，切換、fade、seek 必須補齊姿勢／時間，不能重播 gameplay 事件。
 - 距離節流只減少視覺求值；AI、移動、攻擊事件與 gameplay timer 每幀推進。跳過的 visual dt 只能補算一次。
-- `CharacterCombatAnimator` 擁有一次性攻擊／釋放事件；Player/NPC 在事件到達時造成傷害或產生投射物。完成或取消後回到最新 locomotion，換裝取消未完成動作、不補發事件。
+- `CharacterCombatAnimator` 擁有一次性攻擊／釋放事件；Player/NPC 在事件到達時造成傷害或產生投射物。完成或取消後回到最新 locomotion，換裝取消未完成動作、不補發事件。NPC 非戰鬥時使用一般站立／移動／騎乘 locomotion，不自動套用持弓準備姿勢；失去瞄準時解除搭箭與弓身蓄力，真正戰鬥瞄準、放箭及收招維持原事件流程。
 - 徒步單手斧／戰槌由實際裝備的 `animationKind` 選擇共用 `axeAttack1HFoot`，不以斧頭 mesh 判斷；騎乘及雙手仍走原 action。已選定模型使用原有 Bandit 適配 clip，保留的 Roman hero 在 registry 預載時由 `BanditFootAttack` 從同一 Bandit 來源產生共用模板，新 fitted 居民／Shadow 已離線內嵌同源 retarget；保留原單手事件時鐘與 idle 骨盆／腿，不增加 GLB 或每角色 retarget。
 - `CharacterEquipmentPose` 在 mixer 後套姿勢，下一次求值前還原。`bakedEquipmentActions` 表明已烘焙握點的動作，避免疊加通用 IK；資產與 runtime 不能同時擁有同一關節修正。
 
