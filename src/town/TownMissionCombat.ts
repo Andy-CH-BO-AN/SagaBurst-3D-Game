@@ -6,7 +6,7 @@ import type { BanditMissionController, VeteranMissionEnemySquad } from '../caree
 import type { CareerDuelController } from '../career/CareerDuelController'
 import type { TownDefenseController } from '../career/TownDefenseController'
 import type { CareerMountController } from '../career/CareerMountController'
-import type { CombatDamageMethod } from '../combat/CombatAttribution'
+import type { CombatDamageMethod, CombatEvent } from '../combat/CombatAttribution'
 import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
@@ -61,7 +61,7 @@ interface TownCombatScene {
   careerMounts: Pick<CareerMountController, 'activeMount' | 'update'>
   outskirts?(): TownOutskirtsCombatRuntime | undefined
   airPatrol?(): TownOutskirtsCombatRuntime | undefined
-  personalSquad?(): TownPersonalSquadController | undefined
+  personalSquad?(): Pick<TownPersonalSquadController, 'actors' | 'mounts' | 'state' | 'owns'> | undefined
   commandActors?(): readonly NPC[]
   raceActors?(): readonly NPC[]
   raceMounts?(): readonly Mount[]
@@ -146,13 +146,23 @@ export class TownMissionCombat {
     const field = this.missions.field
     if (source && outskirts && field.noteTravelHit(target, source, outskirts)) { this.prepareTravelCombat(); return }
     if (source && field.friendlies.includes(target) && field.isMissionTarget(source)) field.engageFormalMission()
-    if (source && (outskirts?.owns(source) || this.missions.field.fieldNpcs.includes(source)
-      || this.missions.field.ambientBandits.includes(source) || this.missions.defense.fieldNpcs.includes(source))) {
+    if (source && (outskirts?.owns(source) || this.town.airPatrol?.()?.owns(source)
+      || field.fieldNpcs.includes(source) || field.ambientBandits.includes(source)
+      || this.missions.defense.active && this.missions.defense.phase !== 'PREPARING' && this.missions.defense.fieldNpcs.includes(source)
+      || this.personalPatrolCombatActors().includes(source))) {
       const patrolHit = this.town.patrol?.().noteHostileHit(target, source)
       if (!patrolHit && outskirts?.owns(source) && !outskirts.owns(target)) this.individualThreats.set(target, 10)
     }
     const squad = this.missions.field.veteranEnemySquads.find(candidate => candidate.members.includes(target))
     if (squad) this.missions.field.markVeteranEnemySquadEngaged(squad.squadId)
+  }
+
+  /** DamageRouter events prove Player attribution and effective contact, including shields and ridden mounts. */
+  notePlayerContact(target: NPC, event: CombatEvent): boolean {
+    if (event.source.actorType !== 'player' || !['melee', 'projectile', 'mount-impact'].includes(event.method)) return false
+    const effective = event.type === 'damage_applied' && event.appliedDamage > 0
+      || event.type === 'hit_blocked' && event.blockedImpact > 0
+    return effective && (this.town.patrol?.().noteHostileHit(target, 'player') ?? false)
   }
 
   /** Called only after actual Player HP, shield or mounted contact has been resolved. */
@@ -516,12 +526,20 @@ export class TownMissionCombat {
       .some(threat => !threat.dead && townWartimeHostile(actor, threat)))
   }
 
+  /** HR sensing and hit wake retain the personal owner's return/preparation restrictions. */
+  private personalPatrolCombatActors(): readonly NPC[] {
+    const personal = this.town.personalSquad?.()
+    return personal && personal.state !== 'RETURNING' && this.missions.defense.phase !== 'PREPARING'
+      ? personal.actors.filter(actor => personal.owns(actor)) : []
+  }
+
   private preparePatrolCombatFrame(dt: number, outskirts: TownOutskirtsCombatRuntime | undefined): void {
     const patrol = this.town.patrol?.()
     if (!patrol) return
     const { field, defense } = this.missions
     const threats = new Set([...field.fieldNpcs, ...field.ambientBandits,
-      ...(defense.active && defense.phase !== 'PREPARING' ? defense.fieldNpcs : []), ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? [])])
+      ...(defense.active && defense.phase !== 'PREPARING' ? defense.fieldNpcs : []),
+      ...(outskirts?.actors ?? []), ...(this.town.airPatrol?.()?.actors ?? []), ...this.personalPatrolCombatActors()])
     this.patrolThreatGrid.clear()
     for (const actor of threats) if (!actor.dead) this.patrolThreatGrid.insert(actor)
     patrol.prepareCombatFrame(dt, this.patrolThreatGrid, {

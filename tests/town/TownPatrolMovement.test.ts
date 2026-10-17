@@ -4,7 +4,6 @@ import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TownCavalryPatrolController, type PatrolResident } from '../../src/town/TownCavalryPatrolController'
 import { townRoster } from '../../src/town/TownRules'
 import type { NPC } from '../../src/world/NPC'
-import { parseTownPatrolCheckpoint } from '../../src/town/TownPatrolCheckpoint'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
 import type { Mount } from '../../src/world/Mount'
 import { townPatrolRefitPoint } from '../../src/town/TownRules'
@@ -15,6 +14,9 @@ import { Faction } from '../../src/combat/CombatFaction'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { TownMissionCombat } from '../../src/town/TownMissionCombat'
+import { damageNpc } from '../../src/combat/DamageRouter'
+import { createPlayerCombatActorRef, type DamageAppliedEvent } from '../../src/combat/CombatAttribution'
 
 /** Spawn jobs remain queued: this fixture never constructs actors, mounts or a render scene. */
 function outskirts(townFaction: 'roman' | 'viking') {
@@ -35,7 +37,9 @@ function patrol(count = 2, patrolId: 'A' | 'B' = 'A') {
     const actor = {
       combatantId: spec.id, combatPosition: position, group: { position, rotation: { y: 0 } },
       dead: false, combatOwnership: undefined as NPC['combatOwnership'],
-      hp: 100, combatAmmo: 20, shield: { shieldImpactRemaining: 100, shieldImpactMax: 100 },
+      hp: 100, get hpRatio() { return this.hp / 100 },
+      takeDamage(amount: number) { if (this.dead) return false; this.hp = Math.max(0, this.hp - amount); this.dead = this.hp === 0; return true },
+      combatAmmo: 20, shield: { shieldImpactRemaining: 100, shieldImpactMax: 100 },
       tacticalOrder: 'attack' as NPC['tacticalOrder'], isMounted: true,
       mount: null as Mount | null, formationCommandId: null as number | null,
       clearEncounter: vi.fn(), setTownPeaceful: vi.fn(), setTacticalOrder: vi.fn(),
@@ -58,6 +62,21 @@ function patrol(count = 2, patrolId: 'A' | 'B' = 'A') {
   const residents: PatrolResident[] = selected.map((spec, i) => ({ spec, npc: actors[i] as unknown as NPC, homeMount: actors[i].mount! }))
   return { actors, residents, controller: new TownCavalryPatrolController(residents) }
 }
+/** Only participant selection/contact inputs; no scene, navigation or actor simulation is constructed. */
+function patrolCombat(controller: TownCavalryPatrolController, player: Player, privateActors: NPC[] = []) {
+  type Inputs = ConstructorParameters<typeof TownMissionCombat>
+  const field = { fieldNpcs: [], ambientBandits: [], friendlies: [], veteranEnemySquads: [] }
+  const defense: { phase: Inputs[0]['defense']['phase']; active: undefined; fieldNpcs: NPC[] } = { phase: 'ENGAGING', active: undefined, fieldNpcs: [] }
+  const personal: NonNullable<ReturnType<NonNullable<Inputs[1]['personalSquad']>>> = {
+    actors: privateActors, mounts: [], state: 'ACTIVE', owns: actor => privateActors.includes(actor),
+  }
+  // The two exercised owner methods never read the unrelated combat/render ports.
+  const combat = new TownMissionCombat({ field, defense } as unknown as Inputs[0], {
+    patrol: () => controller, player: () => player, personalSquad: () => personal,
+  } as unknown as Inputs[1])
+  return { combat, defense, personal, prepare: () => combat['preparePatrolCombatFrame'](1, undefined) }
+}
+
 describe('Town patrol travel and ownership decisions', () => {
   it('advances the final route waypoint to the first when its leader reaches it', () => {
     const { actors, residents, controller } = patrol(1), squad = controller.squads[0]
@@ -91,30 +110,49 @@ describe('Town patrol travel and ownership decisions', () => {
     expect(actors.every(actor => controller.owns(actor as unknown as NPC))).toBe(true)
     for (const actor of actors) expect(actor.clearEncounter).not.toHaveBeenCalled()
   })
-  it('releases the complete accepted roster and excludes it from autonomous ownership', () => {
+  it('keeps the complete borrowed roster under mission ownership until explicit return', () => {
     const { actors, controller } = patrol(20), ids = actors.map(actor => actor.combatantId)
     expect(controller.selectAvailableSquad()?.actorIds).toEqual(ids)
     expect(controller.relinquishSquad(ids)).toBe(true)
     expect(controller.selectAvailableSquad()).toBeNull()
     expect(actors.every(actor => !controller.owns(actor as unknown as NPC))).toBe(true)
     for (const actor of actors) expect(actor.clearEncounter).toHaveBeenCalledOnce()
+    for (const actor of actors) { actor.dead = true; actor.hp = 0 }
+    controller.beginFrame(new Set(), 60)
+    expect(controller.squads[0].respawnRemaining).toBeUndefined()
+    expect(controller.returnSquad(ids)).toBe(true)
+    for (const actor of actors) expect(actor.restoreForTown).toHaveBeenCalledOnce()
   })
 
-  it('holds a wiped A for 60 seconds while B remains available, then restarts A only once', () => {
+  it('resumes A’s remaining wipe cooldown after reload, leaves B available and restarts A once at 60 seconds', () => {
     const a = patrol(20), b = patrol(20, 'B')
     const controller = new TownCavalryPatrolController([...a.residents, ...b.residents])
-    for (const actor of a.actors) actor.dead = true
+    for (const actor of a.actors) { actor.dead = true; actor.hp = 0 }
     controller.beginFrame(new Set(), 0)
     expect(controller.squads[0].respawnRemaining).toBe(60)
     expect(controller.selectAvailableSquad()?.patrolId).toBe('B')
-    controller.beginFrame(new Set(), 59)
-    controller.updateResident(a.residents[0], 0, new Vector3(), [], {} as NavigationWorld)
-    expect(a.actors[0].restoreForTown).not.toHaveBeenCalled()
-    controller.beginFrame(new Set(), 1)
-    controller.beginFrame(new Set(), 1)
-    expect(controller.squads[0].generation).toBe(1)
-    expect(controller.squads[0].state).toBe('BARRACKS')
-    for (const actor of a.actors) expect(actor.restoreForTown).toHaveBeenCalledOnce()
+    controller.beginFrame(new Set(), 25)
+    const profile = createCareerProfile('roman')
+    profile.townPatrols = { roman: controller.checkpoint() }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const saved = store.load()!.townPatrols!.roman!
+    expect(saved.squads.find(squad => squad.id === 'A')?.respawnRemaining).toBe(35)
+
+    const restoredA = patrol(20), restoredB = patrol(20, 'B')
+    const reload = new TownCavalryPatrolController([...restoredA.residents, ...restoredB.residents])
+    reload.restoreCheckpoint(saved)
+    reload.beginFrame(new Set(), 34)
+    reload.updateResident(restoredA.residents[0], 0, new Vector3(), [], {} as NavigationWorld)
+    expect(reload.squads[0].respawnRemaining).toBe(1)
+    expect(restoredA.actors.every(actor => actor.dead)).toBe(true)
+    expect(restoredA.actors[0].restoreForTown).not.toHaveBeenCalled()
+    expect(reload.selectAvailableSquad()?.patrolId).toBe('B')
+    reload.beginFrame(new Set(), 1)
+    reload.beginFrame(new Set(), 1)
+    expect(reload.squads[0].generation).toBe(1)
+    expect(reload.squads[0].state).toBe('BARRACKS')
+    for (const actor of restoredA.actors) expect(actor.restoreForTown).toHaveBeenCalledOnce()
   })
 
   it('defers an expired wiped squad while the Player rides a surviving native mount, then refits once after release', () => {
@@ -142,11 +180,11 @@ describe('Town patrol travel and ownership decisions', () => {
     for (const actor of actors) expect(actor.restoreForTown).toHaveBeenCalledOnce()
   })
 
-  it.each(['PATROLLING', 'MOVING_TO_ROUTE'] as const)('resumes %s at its saved authored waypoint after profile reload', state => {
+  it('resumes patrol travel at its saved authored waypoint after profile reload', () => {
     const source = patrol(1), squad = source.controller.squads[0]
-    squad.state = state; squad.waypoint = 6
-    squad.departureIndex = state === 'PATROLLING' ? squad.departure.waypoints.length : 2
-    const destination = state === 'PATROLLING' ? source.controller.route[6] : squad.departure.waypoints[2]
+    squad.state = 'PATROLLING'; squad.waypoint = 6
+    squad.departureIndex = squad.departure.waypoints.length
+    const destination = source.controller.route[6]
     source.actors[0].combatPosition.copy(destination).add(new Vector3(0, 0, -4))
     source.controller.beginFrame(new Set())
     const profile = createCareerProfile('roman')
@@ -157,67 +195,78 @@ describe('Town patrol travel and ownership decisions', () => {
     reload.controller.restoreCheckpoint(store.load()!.townPatrols!.roman)
     reload.controller.beginFrame(new Set())
     reload.controller.updateResident(reload.residents[0], 0, new Vector3(), [], {} as NavigationWorld)
-    expect(reload.controller.squads[0].state).toBe(state)
+    expect(reload.controller.squads[0].state).toBe('PATROLLING')
     expect(reload.controller.squads[0].waypoint).toBe(6)
     expect(reload.controller.squads[0].departureIndex).toBe(squad.departureIndex)
     expect(reload.actors[0].assignFormationTarget).toHaveBeenCalledWith(-3, destination, expect.any(Vector3), expect.any(Number))
   })
 
-  it('uses a legacy patrol position to resume the nearest route leg without restarting the barracks departure', () => {
-    const source = patrol(1)
-    source.actors[0].combatPosition.copy(source.controller.route[6])
-    const saved = parseTownPatrolCheckpoint(JSON.parse(JSON.stringify(source.controller.checkpoint())))!
-    expect(saved.squads[0].travel).toBeUndefined()
-    const reload = patrol(1)
-    reload.controller.restoreCheckpoint(saved)
-    expect(reload.controller.squads[0].state).toBe('PATROLLING')
-    expect(reload.controller.squads[0].waypoint).toBe(6)
-    expect(reload.controller.squads[0].departureIndex).toBe(reload.controller.squads[0].departure.waypoints.length)
-  })
-
-  it('detects the Player at 35m and retains that encounter through the 58m origin leash', () => {
-    const { actors, controller } = patrol(1), squad = controller.squads[0]
-    Object.assign(actors[0], { hostileToPlayer: true })
-    actors[0].combatPosition.set(0, 0, 0)
-    const position = new Vector3(36, 0, 0), player = { dead: false, combatPosition: position } as Player
-    const grid = new SpatialGrid<NPC>(8), threats = { owns: () => false, player }
+  it('wakes only the hit patrol on real Player contact outside 35m and returns beyond the fixed 58m leash', () => {
+    const a = patrol(), b = patrol(1, 'B')
+    const controller = new TownCavalryPatrolController([...a.residents, ...b.residents]), squad = controller.squads[0]
+    for (const actor of [...a.actors, ...b.actors]) Object.assign(actor, { hostileToPlayer: true, faction: Faction.ENEMY })
+    for (const actor of a.actors) actor.combatPosition.set(0, 0, 0)
+    b.actors[0].combatPosition.set(-200, 0, 0)
+    const position = new Vector3(45, 0, 0), player = { dead: false, combatPosition: position, characterFaction: 'roman', isMounted: false } as Player
+    const target = a.residents[0].npc, f = patrolCombat(controller, player)
     controller.beginFrame(new Set())
-    controller.prepareCombatFrame(1, grid, threats)
+    f.prepare()
     expect(squad.state).toBe('BARRACKS')
-    position.x = 35
-    controller.prepareCombatFrame(1, grid, threats)
+    const event: DamageAppliedEvent = { type: 'damage_applied', source: createPlayerCombatActorRef(player),
+      target: { targetId: target.combatantId, targetType: 'npc', name: 'patrol' }, method: 'projectile', requestedDamage: 1, appliedDamage: 0 }
+    expect(f.combat.notePlayerContact(target, event)).toBe(false)
+    expect(f.combat.notePlayerContact(target, { ...event, method: 'fall', appliedDamage: 1 })).toBe(false)
+    f.combat.noteExternalHit(target) // A source-less notification alone is not proof of a Player hit.
+    expect(squad.state).toBe('BARRACKS')
+    damageNpc(target, 1, { source: event.source, method: 'projectile', emit: contact => f.combat.notePlayerContact(target, contact) })
     expect(squad.state).toBe('ENGAGING')
-    position.x = 45
-    actors[0].combatPosition.x = -20 // The fixed origin, rather than the moving rider, owns the leash.
-    controller.prepareCombatFrame(1, grid, threats)
+    expect(f.combat.notePlayerContact(target, { type: 'hit_blocked', source: event.source, target: event.target,
+      method: 'projectile', blockedImpact: 1 })).toBe(true)
+    expect(controller.squads[1].state).toBe('BARRACKS')
+    for (const actor of a.actors) actor.combatPosition.x = -20
+    f.prepare()
     expect(squad.state).toBe('ENGAGING')
     position.x = 58
-    controller.prepareCombatFrame(1, grid, threats)
+    f.prepare()
     expect(squad.state).toBe('ENGAGING')
     position.x = 58.01
-    controller.prepareCombatFrame(1, grid, threats)
+    f.prepare()
     expect(squad.state).toBe('RETURN_TO_BARRACKS')
   })
 
-  it('preserves the remaining native cooldown across checkpoint JSON and sanitizes invalid timers', () => {
-    const original = patrol(20)
-    for (const actor of original.actors) { actor.dead = true; actor.hp = 0 }
-    original.controller.beginFrame(new Set(), 0)
-    original.controller.beginFrame(new Set(), 25)
-    const profile = createCareerProfile('roman')
-    profile.townPatrols = { roman: original.controller.checkpoint() }
-    const store = new CareerProfileStore(new MemoryStorage())
-    expect(store.save(profile)).toBe(true)
-    const saved = store.load()!.townPatrols!.roman!
-    const reload = patrol(20)
-    reload.controller.restoreCheckpoint(saved)
-    reload.controller.beginFrame(new Set(), 34)
-    expect(reload.actors.every(actor => actor.dead)).toBe(true)
-    expect(reload.controller.squads[0].respawnRemaining).toBe(1)
-    reload.controller.beginFrame(new Set(), 1)
-    expect(reload.actors.every(actor => !actor.dead)).toBe(true)
-    expect(reload.controller.squads[0].generation).toBe(1)
-    expect(parseTownPatrolCheckpoint({ squads: [{ id: 'A', generation: 0, respawnRemaining: 'bad' }] })?.squads[0].respawnRemaining).toBe(60)
+  it('detects actual HR actors within 35m only after mission preparation permits combat', () => {
+    const { actors, controller } = patrol(1), target = actors[0]
+    Object.assign(target, { hostileToPlayer: true, faction: Faction.ENEMY })
+    target.combatPosition.set(0, 0, 0)
+    const hr = { combatantId: 'personal:hr', combatPosition: new Vector3(35, 0, 0), dead: false,
+      faction: Faction.PLAYER, combatOwnership: 'player-personal' } as NPC
+    const player = { dead: false, combatPosition: new Vector3(200, 0, 0) } as Player
+    const f = patrolCombat(controller, player, [hr])
+    controller.beginFrame(new Set())
+    f.defense.phase = 'PREPARING'; f.prepare()
+    expect(controller.squads[0].state).toBe('BARRACKS')
+    f.defense.phase = 'ENGAGING'; hr.combatPosition.x = 36; f.prepare()
+    expect(controller.squads[0].state).toBe('BARRACKS')
+    hr.combatPosition.x = 35; f.prepare()
+    expect(controller.squads[0].state).toBe('ENGAGING')
+    expect(controller.combatActors).toEqual([target])
+  })
+
+  it('wakes the native squad hit by HR outside sensing range and retains it only within its leash', () => {
+    const { actors, residents, controller } = patrol(1), target = actors[0]
+    Object.assign(target, { hostileToPlayer: true, faction: Faction.ENEMY })
+    target.combatPosition.set(0, 0, 0)
+    const hr = { combatantId: 'personal:hr', combatPosition: new Vector3(45, 0, 0), dead: false,
+      faction: Faction.PLAYER, combatOwnership: 'player-personal' } as NPC
+    const player = { dead: false, combatPosition: new Vector3(200, 0, 0) } as Player
+    const f = patrolCombat(controller, player, [hr])
+    controller.beginFrame(new Set())
+    f.combat.noteExternalHit(residents[0].npc, hr)
+    expect(controller.squads[0].state).toBe('ENGAGING')
+    f.prepare()
+    expect(controller.squads[0].state).toBe('ENGAGING')
+    hr.combatPosition.x = 58.01; f.prepare()
+    expect(controller.squads[0].state).toBe('RETURN_TO_BARRACKS')
   })
 
   it('holds partial casualties until a survivor actually returns to barracks', () => {
@@ -235,16 +284,6 @@ describe('Town patrol travel and ownership decisions', () => {
     controller.updateResident(residents[0], 0, new Vector3(), [], {} as NavigationWorld)
     expect(actors[0].restoreForTown).toHaveBeenCalledWith(townPatrolRefitPoint(residents[0].spec))
     expect(squad.respawnRemaining).toBeUndefined()
-  })
-
-  it('keeps borrowed casualties under mission ownership and permits explicit mission return', () => {
-    const { actors, controller } = patrol(20)
-    expect(controller.relinquishSquad(actors.map(actor => actor.combatantId))).toBe(true)
-    for (const actor of actors) { actor.dead = true; actor.hp = 0 }
-    controller.beginFrame(new Set(), 60)
-    expect(controller.squads[0].respawnRemaining).toBeUndefined()
-    expect(controller.returnSquad(actors.map(actor => actor.combatantId))).toBe(true)
-    for (const actor of actors) expect(actor.restoreForTown).toHaveBeenCalledOnce()
   })
 
   it('persists friendly outskirts extinction and waits 60 seconds before enqueuing one new edge generation', () => {

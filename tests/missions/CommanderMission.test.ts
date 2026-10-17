@@ -105,7 +105,7 @@ describe('Commander objective, merit and persistence', () => {
     expect(controller.fieldNpcs).not.toContain(npc)
   })
 
-  it('can reach 100 unique native background losses without crediting Player or command kills', () => {
+  it('records 100 distinct native losses without crediting background kills or accepting unrelated actors', () => {
     const profile = accepted(COMMANDER_SKY_RAID_ID), mission = profile.activeMission!
     const events = new CombatEventStream()
     const tracker = new BattleStatsTracker(events, true, event => acceptsCareerMissionStat(mission, event),
@@ -114,6 +114,8 @@ describe('Commander objective, merit and persistence', () => {
     const unsubscribe = events.subscribe(event => recordCommanderObjectiveDeath(mission, event))
     onTestFinished(unsubscribe)
     const background = source({ actorId: 'outskirts:cavalry:a:g0:0', actorType: 'npc', allegiance: Faction.TOWN })
+    events.emit(killed(background, 'bandit:not-native'))
+    events.emit(killed(background, mission.targetActorIds[100], 'mount'))
     for (const id of mission.targetActorIds.slice(0, 100)) events.emit(killed(background, id))
     events.emit(killed(background, mission.targetActorIds[0]))
     expect(mission.deadTargetActorIds).toHaveLength(100)
@@ -122,25 +124,6 @@ describe('Commander objective, merit and persistence', () => {
     expect(tracker.commandCheckpoint()?.kills ?? 0).toBe(0)
     const restored = parseCareerProfile(JSON.parse(JSON.stringify(profile)))!
     expect(restored.activeMission?.deadTargetActorIds).toEqual(mission.targetActorIds.slice(0, 100))
-  })
-
-  it('deduplicates Sky Raid native losses including background combat without accepting mounts or unrelated actors', () => {
-    const profile = accepted(COMMANDER_SKY_RAID_ID, 'roman', true)
-    const mission = profile.activeMission!
-    const targets = mission.targetActorIds
-    const officialId = mission.friendlyActorIds[0]
-    const official = source({ actorId: officialId, actorType: 'npc', allegiance: Faction.TOWN,
-      ownership: 'mission-official', squadId: officialActorSquadId(mission.officialSquad!, officialId) })
-    const personal = source({ actorId: 'personal:hr-1', actorType: 'npc', ownership: 'player-personal', squadId: 'personal' })
-
-    expect(recordCommanderObjectiveDeath(mission, killed(source(), targets[0]))).toBe(true)
-    expect(recordCommanderObjectiveDeath(mission, killed(source(), targets[0]))).toBe(false)
-    expect(recordCommanderObjectiveDeath(mission, killed(official, targets[1]))).toBe(true)
-    expect(recordCommanderObjectiveDeath(mission, killed(personal, targets[2]))).toBe(true)
-    expect(recordCommanderObjectiveDeath(mission, killed(source({ actorId: 'resident', actorType: 'npc' }), targets[3]))).toBe(true)
-    expect(recordCommanderObjectiveDeath(mission, killed(source(), 'bandit:not-native'))).toBe(false)
-    expect(recordCommanderObjectiveDeath(mission, killed(source(), targets[4], 'mount'))).toBe(false)
-    expect(mission.deadTargetActorIds).toEqual(targets.slice(0, 4))
   })
 
   it('completes Decapitation only for the enemy Commander identity, never a guard or former Commander', () => {

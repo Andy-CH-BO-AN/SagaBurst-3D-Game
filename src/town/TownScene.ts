@@ -2684,7 +2684,10 @@ export class TownScene {
       contact, source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)), method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
         : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
-      emit: event => this.emitCombatEvent(event),
+      emit: event => {
+        if (rider) this.missionCombat?.notePlayerContact(rider, event)
+        this.emitCombatEvent(event)
+      },
     })
     if (result.appliedDamage > 0 && rider) {
       this.outskirts?.noteHit(rider, !source)
@@ -2858,7 +2861,10 @@ export class TownScene {
       source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)),
       method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
-      emit: event => this.emitCombatEvent(event),
+      emit: event => {
+        this.missionCombat?.notePlayerContact(target, event)
+        this.emitCombatEvent(event)
+      },
     })
     if (!result.hitSuccess) return
     if (!source && result.appliedDamage > 0 && this.race?.actors.includes(target)) this.activateHostility()

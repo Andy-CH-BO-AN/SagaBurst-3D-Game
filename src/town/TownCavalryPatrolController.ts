@@ -276,14 +276,15 @@ export class TownCavalryPatrolController {
       ? s.members.filter(r => s.participants.has(r.spec.id) && this.owns(r.npc)).map(r => r.npc) : [])
   }
 
-  /** Accepted mission or roaming contacts include lethal rider/mount hits and shield blocks. */
-  noteHostileHit(target: NPC, source: NPC): boolean {
-    if (!this.owns(target) || !townWartimeHostile(target, source) || this.returning.get(target.combatantId)?.state === 'REFIT') return false
+  /** Accepted NPC contacts or proven Player contacts include lethal rider/mount hits and shield blocks. */
+  noteHostileHit(target: NPC, source: NPC | 'player'): boolean {
+    if (!this.owns(target) || (source === 'player' ? !target.hostileToPlayer : !townWartimeHostile(target, source)) || this.returning.get(target.combatantId)?.state === 'REFIT') return false
     const squad = this.squads.find(s => s.id === this.residents.get(target.combatantId)!.spec.patrolId)!
+    if (squad.state === 'RESPAWN_COOLDOWN') return false
     this.alertSquad(squad, target.combatPosition, true)
     // A lethal hit still belongs to this encounter and must be restored only after its end.
     squad.participants.add(target.combatantId)
-    squad.threats.add(source)
+    if (source !== 'player') squad.threats.add(source)
     return true
   }
 
