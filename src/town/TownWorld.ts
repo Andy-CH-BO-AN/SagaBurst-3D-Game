@@ -7,7 +7,7 @@ import { eagleLandingFootprint, isEagleLandingClear } from '../world/EagleLandin
 import { isEagleApproachClear } from '../world/EagleApproach'
 import { resolveTownHRLayout, type TownHRLayout } from './TownHRLayout'
 import { createTownFortifications } from './TownFortifications'
-import { TOWN_CENTER, TOWN_WELL, townHousing, TOWN_CITY_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
+import { TOWN_CENTER, TOWN_WELL, townHousing, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisuals'
@@ -83,11 +83,7 @@ export class TownWorld {
     const hall = this.buildings.find(building => building.id === 'town-center')!.hp.root
     this.townCenterHeight = new THREE.Box3().setFromObject(hall).max.y - getTerrainHeight(TOWN_CENTER.x, TOWN_CENTER.z)
     for (const road of TOWN_CITY_ROADS) this.road(road.ax, road.az, road.bx, road.bz, road.width)
-    this.road(32, 12, 74, 12, 32)
-    this.road(30, -58, 125, -58, 6)
-    this.road(80, -58, 80, 42, 6)
-    this.road(80, 56, 136, 56, 5)
-    this.road(80, 80, 138, 80, 4)
+    for (const road of TOWN_LOCAL_ROADS) this.road(road.ax, road.az, road.bx, road.bz, road.width)
     // A small well sits at the plaza edge, leaving its centre free for a full squad.
     const wellX = TOWN_WELL.x, wellZ = TOWN_WELL.z, wellY = getTerrainHeight(wellX, wellZ)
     this.solid(wellX, wellZ, 2.6, 1, 2.6)

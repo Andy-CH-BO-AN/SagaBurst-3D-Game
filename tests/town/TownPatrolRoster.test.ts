@@ -1,17 +1,32 @@
+import { Box3, Vector3 } from 'three'
+import { townHousing } from '../../src/town/TownLayout'
 import { describe, expect, it } from 'vitest'
 import { selectMissionCavalryActorIds } from '../../src/career/BanditMissionController'
 import { townRoster } from '../../src/town/TownRules'
 import type { NPC } from '../../src/world/NPC'
 import { civilianHumanoidAssetId } from '../../src/world/CivilianAppearance'
-import { civilianDistrict } from '../../src/town/TownCivilianLife'
+import { civilianDistrict, civilianHomeAnchor, civilianPointLegal } from '../../src/town/TownCivilianLife'
 
 describe('Town patrol roster contracts', () => {
   it('selects faction civilian sources without changing resident identities or district allocation', () => {
     const residents = townRoster().filter(spec => spec.role === 'civilian')
     expect(residents.map(spec => spec.id)).toEqual(Array.from({ length: 20 }, (_, i) => `civilian-${i}`))
     expect(residents.map(spec => civilianDistrict(spec.index))).toEqual([
-      ...Array(8).fill('plaza'), ...Array(8).fill('housing'), ...Array(4).fill('street'),
+      ...Array(20).fill('housing'),
     ])
+    const obstacles = townHousing('viking').map(home => ({ isBarricade: false, box: new Box3(
+      new Vector3(home.x - home.width / 2 - .2, -100, home.z - home.depth / 2 - .2),
+      new Vector3(home.x + home.width / 2 + .2, 100, home.z + home.depth / 2 + .2)) }))
+    const placed: { x: number; z: number }[] = []
+    for (const resident of residents) {
+      const anchor = civilianHomeAnchor(resident.index, placed, obstacles)
+      expect(anchor).toEqual(civilianHomeAnchor(resident.index, placed, obstacles))
+      expect(civilianPointLegal(anchor, placed, obstacles)).toBe(true)
+      expect(townHousing('viking').some(home => Math.hypot(anchor.x - home.x, anchor.z - home.z) < 11)).toBe(true)
+      placed.push(anchor)
+    }
+    expect(new Set(placed.map(p => townHousing('viking').reduce((a, b) =>
+      Math.hypot(a.x - p.x, a.z - p.z) < Math.hypot(b.x - p.x, b.z - p.z) ? a : b).id)).size).toBeGreaterThanOrEqual(8)
     expect(civilianHumanoidAssetId('roman')).toBe('roman-civilian')
     expect(civilianHumanoidAssetId('viking')).toBe('viking-civilian')
   })

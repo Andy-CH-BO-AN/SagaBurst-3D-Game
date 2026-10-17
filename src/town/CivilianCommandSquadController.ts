@@ -1,3 +1,4 @@
+import { findTownMerchantParking, merchantServiceCheckpoint, type MerchantParking } from './TownMerchantMount'
 import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes } from './TownCivilianLife'
 import * as THREE from 'three'
 import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
@@ -25,6 +26,7 @@ export interface CivilianCommandHudState {
   readonly members: Readonly<Record<string, Readonly<Pick<PersonalActorCheckpoint, 'status' | 'hp' | 'order'>>>>
 }
 interface CivilianCommandOptions {
+  merchantParking?: MerchantParking
   sceneKey: string
   townFaction: CareerProfile['faction']
   refitSceneKey?: string
@@ -120,6 +122,7 @@ export class CivilianCommandSquadController {
         }
       } else {
         value.owners[id] = 'daily'; member.order = 'attack'; delete member.formation
+        value.members[id] = merchantServiceCheckpoint(member, spec, this.options.merchantParking ?? findTownMerchantParking())
       }
     }
     const next = cloneCareerProfile(this.read()); next.civilianCommandSquad = value
@@ -170,7 +173,12 @@ export class CivilianCommandSquadController {
       let restored = saved
       const profile = this.read()
       if (!profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile') {
-        const migrated = migrateCivilianHomes(saved, [...this.residentsById.values()].map(r => r.spec))
+        let migrated = migrateCivilianHomes(saved, [...this.residentsById.values()].map(r => r.spec))
+        const merchant = this.residentsById.get('merchant'), member = migrated.members.merchant
+        if (merchant && member && migrated.owners.merchant === 'daily') {
+          const normalized = merchantServiceCheckpoint(member, merchant.spec, this.options.merchantParking ?? findTownMerchantParking())
+          if (normalized !== member) { migrated = cloneCivilianCommandSquad(migrated); migrated.members.merchant = normalized }
+        }
         if (migrated !== saved) {
           const next = cloneCareerProfile(profile); next.civilianCommandSquad = migrated
           // A denied save falls back to the original checkpoint, including its deaths.
@@ -290,6 +298,11 @@ export class CivilianCommandSquadController {
     if (npc.formationCommandId !== CIVILIAN_COMMAND_RETURN_ID) this.applyReturn(npc, this.value!.members[npc.combatantId])
     npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.actors.filter(other => other !== npc && !other.dead), obstacles, navigation)
     if (npc.isFormationTargetReached(CIVILIAN_COMMAND_RETURN_ID)) {
+      if (resident.spec.role === 'merchant' && npc.isMounted) return true
+      // A return restored from an older layout reaches the new home before resuming daily life.
+      if (Math.hypot(npc.combatPosition.x - resident.spec.x, npc.combatPosition.z - resident.spec.z) > 2) {
+        const value = this.checkpoint()!; this.stageReturn(value, npc.combatantId, resident.spec); this.save(value); return true
+      }
       const value = this.checkpoint()!, id = npc.combatantId
       value.owners[id] = this.defaultOwner(resident.spec)
       value.members[id].order = 'attack'; delete value.members[id].formation
@@ -339,7 +352,12 @@ export class CivilianCommandSquadController {
       } else {
         npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN)
         if (owner === 'returning' && member.formation) this.applyReturn(npc, member)
-        else if (owner === 'daily') { npc.missionMovement = false; npc.setTacticalOrder('attack'); npc.disarmTownCivilian(); npc.setTownPeaceful() }
+        else if (owner === 'daily') {
+          npc.missionMovement = false; npc.setTacticalOrder('attack'); npc.disarmTownCivilian(); npc.setTownPeaceful()
+          const resident = this.residentsById.get(id)!
+          if (resident.spec.role === 'merchant' && !npc.isMounted && resident.homeMount
+            && !resident.homeMount.riderNpc && !resident.homeMount.riderPlayer) resident.homeMount.visualHold = true
+        }
         this.options.onRelease?.(npc, owner)
       }
     }

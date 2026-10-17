@@ -1,3 +1,4 @@
+import { findTownMerchantParking, TownMerchantMountController } from './TownMerchantMount'
 import { raceReturnAction } from '../career/CareerRaceReturn'
 import { CareerRaceHUD } from '../ui/CareerRaceHUD'
 import { CareerRaceController } from '../career/CareerRaceController'
@@ -217,6 +218,7 @@ export class TownScene {
   private readonly damageNumbers = new DamageNumbers()
   private readonly ambient = new TownAmbientDialogue()
   private civilianLife = new TownCivilianLife()
+  private merchantMounts!: TownMerchantMountController
   private readonly ambientLabel = document.createElement('div')
   private ambientUntil = 0
   private ambientActor: NPC | null = null
@@ -317,6 +319,7 @@ export class TownScene {
       const home = civilianHomeAnchor(civilian.index, civilianOccupied, this.world.obstacles, this.navigation)
       Object.assign(civilian, { x: home.x, y: home.y, z: home.z }); civilianOccupied.push(civilian)
     }
+    this.merchantMounts = new TownMerchantMountController(findTownMerchantParking(this.world.airspaceObstacles, this.navigation, civilianOccupied))
     this.residentRoster = careerTownSceneRoster(profile, population)
     this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec) : population)
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
@@ -442,6 +445,7 @@ export class TownScene {
       })
     this.defense.personalActors = () => this.personalSquad?.actors ?? []
     this.civilianCommand = new CivilianCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p, { civilianCommandStaged: true }), {
+      merchantParking: this.merchantMounts.parking,
       sceneKey: `town:${context.worldFaction}`, townFaction: context.worldFaction,
       refitSceneKey: context.worldFaction === this.profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
       canRefit: (actors, orders) => this.canRefitCivilians(actors, orders),
@@ -464,6 +468,7 @@ export class TownScene {
         patrol: () => this.patrol,
         raceActors: () => this.race?.actors ?? [],
         raceMounts: () => this.race?.allMounts ?? [],
+        beforeActorUpdate: (npc, dt) => this.updateMerchantMount(npc, dt, true),
         onActorMoved: npc => this.race?.observeActorMovement(npc),
         commandActors: () => [...(this.captainPatrol?.fieldNpcs ?? []), ...(this.townCommand?.combatActors ?? []), ...(this.civilianCommand?.combatActors ?? []), ...(this.townAirCommand?.combatActors ?? []),
           ...this.commandActors.filter(npc => {
@@ -622,14 +627,18 @@ export class TownScene {
           const nativeRef = careerEquipment?.refs.mount ?? (equipmentActorIds.has(spec.id)
             ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id).refs.mount : null)
           const reused = findTownNativeMount(this.mounts, nativeRef)
-          const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z))
+          const mountHome = spec.role === 'merchant' ? this.merchantMounts.parking ?? spec : spec
+          const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), mountHome.x, mountHome.z))
           if (nativeRef?.source === 'native') registerTownNativeMount(mount, nativeRef.nativeId!)
           mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI
-          if (spec.role !== 'ranger' || mount !== this.cat) {
+          if (spec.role === 'merchant') {
+            mount.group.position.set(mountHome.x, getTerrainHeight(mountHome.x, mountHome.z), mountHome.z)
+            mount.visualHold = true
+          } else if (spec.role !== 'ranger' || mount !== this.cat) {
             // The shared native Cat starts at the stable; transferred holders need their own spawn baseline before binding.
             // Saved command/mission positions are restored after resident initialization.
             if (reused) mount.group.position.set(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
-            npc.mountVehicle(mount)
+            mount.visualHold = false; npc.mountVehicle(mount)
           }
           homeMount = mount
         }
@@ -1006,7 +1015,7 @@ export class TownScene {
       e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
       const adapters = createTownCareerEquipmentUI(() => this.profile, () => this.townEquipmentContext(),
         () => this.residents, next => this.commit(next),
-        (previous, current, actorIds) => applyTownEquipmentRuntime(this.scene, this.residents, this.mounts, previous, current, actorIds))
+        (previous, current, actorIds) => applyTownEquipmentRuntime(this.scene, this.residents, this.mounts, previous, current, actorIds, this.merchantMounts.parking))
       this.equipment.open(this.skills, this.inventory, () => this.input.clear(), this.careerMounts, adapters.personal, adapters.town)
       return
     }
@@ -3104,7 +3113,15 @@ export class TownScene {
     return this.eagleGarrison?.update(npc, dt, combat, this.camera.position, this.world.airspaceObstacles, this.navigation,
       this.grid.getNearbyInto(npc.combatPosition, 60, this.neighbors), this.combatMounts) ?? false
   }
+  private updateMerchantMount(npc: NPC, dt: number, active: boolean): boolean {
+    if (npc.combatantId !== 'merchant') return false
+    const resident = this.residents.find(r => r.npc === npc)
+    if (!resident) return false
+    return this.merchantMounts.update(resident, active, dt, this.camera.position, this.world.obstacles,
+      this.world.airspaceObstacles, this.navigation, this.residents.filter(r => r.npc !== npc && !r.npc.dead).map(r => r.npc))
+  }
   private updatePeace(r: Resident, dt: number): void {
+    if (r.spec.role === 'merchant' && this.updateMerchantMount(r.npc, dt, this.civilianCommand?.ownsPlayerCommand(r.npc) ?? false)) return
     if (this.race?.owns(r.npc)) return
     if (this.civilianCommand?.updateResident(r, dt, this.camera.position, this.world.obstacles, this.navigation)) {
       this.civilianLife?.suspend(r.spec.id); return
@@ -3193,6 +3210,7 @@ export class TownScene {
     this.cat.catVisual?.setEquipmentVisible(status === 'mounted')
     for (const r of this.residents) {
       if (this.race?.owns(r.npc)) continue
+      if (this.updateMerchantMount(r.npc, dt, true)) continue
       if (r.npc === ranger && status === 'approach') {
         const dir = this.cat.group.position.clone().sub(ranger.group.position); dir.y = 0; ranger.group.position.addScaledVector(dir.normalize(), dt * 3.5); ranger.group.position.y = getTerrainHeight(ranger.group.position.x, ranger.group.position.z); ranger.group.rotation.y = Math.atan2(dir.x, dir.z); ranger.updateTownPeace(dt, ranger.group.position.distanceTo(this.camera.position), false, false, 3.5); continue
       }

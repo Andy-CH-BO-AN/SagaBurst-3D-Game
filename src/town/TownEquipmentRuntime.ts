@@ -1,3 +1,4 @@
+import { findTownMerchantParking, type MerchantParking } from './TownMerchantMount'
 import type * as THREE from 'three'
 import type { CareerProfile, CareerMountId } from '../career/CareerProfile'
 import { careerMountType } from '../career/CareerMountController'
@@ -14,7 +15,7 @@ export function findTownNativeMount(mounts: readonly Mount[], ref: TownEquipment
 
 /** Applies a committed configuration. Existing physical mounts follow their ownership reference. */
 export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonly TownCombatResident[], mounts: Mount[],
-  previous: CareerProfile, current: CareerProfile, actorIds: readonly string[]): number {
+  previous: CareerProfile, current: CareerProfile, actorIds: readonly string[], merchantParking: MerchantParking | undefined = findTownMerchantParking()): number {
   const selected = new Set(actorIds)
   const plans = residents.filter(resident => selected.has(resident.spec.id)).map(resident => ({ resident,
     before: resolveTownActorEquipment(previous, previous.faction, resident.spec.id),
@@ -51,12 +52,16 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
       const mount = reused ?? new Mount(scene, careerMountType(after.loadout.mountId as CareerMountId), resident.npc.group.position.x, resident.npc.group.position.z)
       if (after.refs.mount?.source === 'native') registerTownNativeMount(mount, after.refs.mount.nativeId!)
       mount.reservedForTown = true
-      mount.group.position.set(resident.npc.group.position.x, getTerrainHeight(resident.npc.group.position.x, resident.npc.group.position.z), resident.npc.group.position.z)
+      const home = resident.spec.role === 'merchant' ? merchantParking ?? resident.spec : resident.npc.group.position
+      mount.group.position.set(home.x, getTerrainHeight(home.x, home.z), home.z)
       mount.group.rotation.y = resident.npc.group.rotation.y
       if (!reused) mounts.push(mount)
       resident.homeMount = mount
-      resident.npc.mountVehicle(mount)
-      if (resident.npc.mount !== mount) pending++
+      if (resident.spec.role === 'merchant') mount.visualHold = true
+      else {
+        mount.visualHold = false; resident.npc.mountVehicle(mount)
+        if (resident.npc.mount !== mount) pending++
+      }
     }
     resident.npc.setTownPeaceful()
   }

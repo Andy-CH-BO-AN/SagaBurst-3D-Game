@@ -55,6 +55,17 @@ export const TOWN_CITY_ROADS: readonly TownRoad[] = [
   { ax: 27, az: -58, bx: 137, bz: -58, width: 8 },
   { ax: 0, az: 42, bx: -85, bz: 44, width: 5 },
 ]
+/** Authored local streets, shared by scenery and resident clearance. */
+export const TOWN_LOCAL_ROADS: readonly TownRoad[] = [
+  { ax: 32, az: 12, bx: 74, bz: 12, width: 32 },
+  { ax: 30, az: -58, bx: 125, bz: -58, width: 6 },
+  { ax: 80, az: -58, bx: 80, bz: 42, width: 6 },
+  { ax: 80, az: 56, bx: 136, bz: 56, width: 5 },
+  { ax: 80, az: 80, bx: 138, bz: 80, width: 4 },
+]
+/** Clear training forecourt between the infantry and cavalry districts. */
+export const TOWN_DUEL_CENTER = { x: 111, z: -44 } as const
+export const TOWN_DUEL_HALF_SIZE = 17
 /** Placement-time exclusion, including enough clearance for tree crowns and mounts. */
 export function townSceneryExcluded(x: number, z: number, radius = 0): boolean {
   // The complete wing corridor extends beyond the wall. Keep visual trees and rocks

@@ -155,7 +155,7 @@ export class TownEagleGarrisonController {
         if (npc.combatPosition.distanceTo(mount!.group.position) <= MOUNT_DISTANCE) {
           npc.mountVehicle(mount!)
           if (npc.mount === mount) pair.duty = 'mounted-waiting'
-        } else npc.updateTownEagleBoarding(dt, distance, mount!.group.position, nearby, obstacles, navigation)
+        } else npc.updateTownMountApproach(dt, distance, mount!.group.position, nearby, obstacles, navigation)
         return true
       }
       if (pair.duty === 'mounted-waiting' && !mount!.isAirborne) {

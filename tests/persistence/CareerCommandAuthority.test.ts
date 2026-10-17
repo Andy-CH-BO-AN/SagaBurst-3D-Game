@@ -283,7 +283,8 @@ describe('Civilian and merchant borrowed mount checkpoints', () => {
     expect(h.owner.refit()).toBe(true)
     expect(h.events.filter(event => event === 'restore-mount')).toHaveLength(1)
     expect(h.events.indexOf('restore-mount')).toBeGreaterThan(h.events.indexOf('save'))
-    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
+    expect(h.actor.mount).toBeNull(); expect(h.mount.riderNpc).toBeNull()
+    expect(h.read().civilianCommandSquad!.members.merchant.mount?.mounted).toBe(false)
     expect(h.mount).toMatchObject({ dead: false, currentHp: 200 })
     expect(h.residents.find(resident => resident.spec.id === 'merchant')!.homeMount).toBe(h.mount)
   })
@@ -308,11 +309,13 @@ describe('Civilian and merchant borrowed mount checkpoints', () => {
     expect(h.events).not.toContain('refit-npc'); expect(h.events).not.toContain('mount')
   })
 
-  it('rebinds a saved mounted merchant to its existing allocated horse during scene restore', () => {
+  it('restores a legacy mounted merchant on foot while retaining its allocated wounded horse', () => {
     const h = residentRecovery('merchant', false, false)
     h.read().civilianCommandSquad!.members.merchant.mount!.mounted = true
     expect(h.controller().restore()).toBe(true)
-    expect(h.actor.mount).toBe(h.mount); expect(h.mount.riderNpc).toBe(h.actor)
+    expect(h.actor.mount).toBeNull(); expect(h.mount.riderNpc).toBeNull()
+    expect(h.read().civilianCommandSquad!.members.merchant.mount?.mounted).toBe(false)
+    expect(h.actor.hp).toBe(13)
     expect(h.mount.currentHp).toBe(17)
     expect(h.events).not.toContain('restore-mount'); expect(h.events).not.toContain('refit-npc')
   })
