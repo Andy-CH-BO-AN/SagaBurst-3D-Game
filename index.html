@@ -476,10 +476,16 @@
         top: 18px;
         left: auto;
         right: 18px;
-        width: min(440px, calc(100vw - 36px));
+        width: min(640px, calc(100vw - 36px));
         grid-template-columns: repeat(2, minmax(0, 1fr));
         padding: 6px;
         box-sizing: border-box;
+      }
+      #army-command-hud[data-layout="town"] .army-command-name-row { gap: 8px; }
+      #army-command-hud[data-layout="town"] .army-command-unit-icons {
+        font-size: 16px;
+        letter-spacing: normal;
+        word-spacing: 3px;
       }
       @media (max-width: 1100px) {
         #army-command-hud[data-layout="town"] .army-command-targets,
