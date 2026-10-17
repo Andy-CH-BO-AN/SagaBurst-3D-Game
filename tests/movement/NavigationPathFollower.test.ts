@@ -43,10 +43,10 @@ describe('NavigationPathFollower', () => {
 
 
 it('serves later followers despite earlier actors changing goals each frame', () => {
-  // 0 NPCs/Mounts/worlds: five real followers and one bounded navigation grid.
+  // Five real followers exercise queue fairness in a small bounded grid; no scene or actors.
   const budget = 2
-  const world = new NavigationWorld({ minX: -100, maxX: 100, minZ: -100, maxZ: 100, cellSize: 2 }, budget)
-  world.rebuild([obstacle(-60, -2, 60, 2)])
+  const world = new NavigationWorld({ minX: -30, maxX: 30, minZ: -30, maxZ: 30, cellSize: 2 }, budget)
+  world.rebuild([obstacle(-18, -2, 18, 2)])
   const find = vi.spyOn(world.grid, 'findPathCells'); onTestFinished(() => find.mockRestore())
   const followers = Array.from({ length: 5 }, () => new NavigationPathFollower())
   const routes = Array<string>(5), out = new THREE.Vector3()
@@ -54,8 +54,8 @@ it('serves later followers despite earlier actors changing goals each frame', ()
     const before = find.mock.calls.length
     world.beginFrame()
     followers.forEach((follower, index) => {
-      const start = new THREE.Vector3(-60 + index * 12, 0, -60)
-      const goal = new THREE.Vector3(-60 + index * 12 + (index < budget ? frame * 8 : 0), 0, 60)
+      const start = new THREE.Vector3(-18 + index * 4, 0, -20)
+      const goal = new THREE.Vector3(-18 + index * 4 + (index < budget ? frame * 2 : 0), 0, 20)
       routes[index] = follower.resolveMoveTarget(start, goal, world, true, out)
     })
     expect(find.mock.calls.length - before).toBeLessThanOrEqual(budget)
