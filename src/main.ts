@@ -1,3 +1,4 @@
+import { createCareerBridgeBattleLaunch, isCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from './career/CaptainBattleLaunch'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
 /**
@@ -38,7 +39,7 @@ if (import.meta.env.DEV) void import('./debug/ShadowPassCensus')
 let currentCareerMissionId: string | undefined
 let recoveringCareerMission = false
 
-function showCareerRecoveryError(message: string, retry: () => void): void {
+function showCareerRecoveryError(message: string, retry: () => void, label = '重試返回城鎮'): void {
   document.getElementById('asset-loading-status')?.remove()
   document.getElementById('career-recovery-error')?.remove()
   const panel = document.createElement('div')
@@ -46,7 +47,7 @@ function showCareerRecoveryError(message: string, retry: () => void): void {
   panel.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#171411;color:#eee;display:grid;place-content:center;gap:14px;padding:20px;font:16px system-ui;text-align:center'
   const info = document.createElement('p'); info.textContent = message
   const button = document.createElement('button')
-  button.textContent = '重試返回城鎮'
+  button.textContent = label
   button.onclick = retry
   panel.append(info, button)
   document.body.appendChild(panel)
@@ -62,6 +63,10 @@ function handleCareerMissionError(missionId: string, error: unknown): void {
     && loaded.profile.activeOutpostMission?.id !== missionId) return
   const game = (window as unknown as { game?: unknown }).game
   if (game instanceof Game) game.abortCareerDeployment()
+  if (loaded.profile?.activeMission?.id === missionId && isCareerBridgeBattle(loaded.profile.activeMission)) {
+    showCareerRecoveryError('橋頭任務載入失敗。已保存的編制與戰鬥進度保留，請重新載入重試。', () => window.location.reload(), '重試載入橋頭任務')
+    return
+  }
   const recovered = recoverFailedCareerMission(store, missionId)
   if (recovered === 'stale') return
   if (recovered !== 'recovered') {
@@ -111,20 +116,21 @@ async function launchGame(
   battleConfig?: BattleConfig,
   campaignConfig?: DefenseCampaignLaunchConfig,
   trainingGround = false,
+  bridgeLaunch?: CareerBridgeBattleLaunch,
 ): Promise<void> {
-  const missionId = campaignConfig?.careerMissionId ?? battleConfig?.careerEagleMissionId
+  const missionId = bridgeLaunch?.careerMissionId ?? campaignConfig?.careerMissionId ?? battleConfig?.careerEagleMissionId
   currentCareerMissionId = missionId
   const loading = document.createElement('div')
   loading.id = 'asset-loading-status'
   loading.style.cssText = 'position:fixed;inset:0;display:grid;place-items:center;color:#eee;background:#171411;z-index:9998;font:16px system-ui'
   loading.setAttribute('role', 'status')
-  loading.textContent = battleConfig?.careerEagleMissionId ? '正在部署巨鷹空戰部隊…' : campaignConfig?.careerMissionId ? '正在載入 Outpost 任務、駐軍與敵軍…' : '正在載入寫實人物與戰馬資產…'
+  loading.textContent = bridgeLaunch ? '正在部署橋頭決戰部隊…' : battleConfig?.careerEagleMissionId ? '正在部署巨鷹空戰部隊…' : campaignConfig?.careerMissionId ? '正在載入 Outpost 任務、駐軍與敵軍…' : '正在載入寫實人物與戰馬資產…'
   document.body.appendChild(loading)
 
   try {
     // Let the overlay paint before cached assets lead into synchronous scene creation.
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    const game = await Game.create(container!, battleConfig, campaignConfig, text => { loading.textContent = text }, trainingGround)
+    const game = await Game.create(container!, battleConfig, campaignConfig, text => { loading.textContent = text }, trainingGround, bridgeLaunch)
     ;(window as unknown as { game: unknown }).game = game
     if (missionId && game instanceof Game) game.onCareerDeploymentError = error => handleCareerMissionError(missionId, error)
     loading.remove()
@@ -146,6 +152,7 @@ async function launchGame(
 }
 
 function launchCareerCombat(config: CareerCombatLaunch): Promise<void> {
+  if (config.type === 'career-bridge-battle') return launchGame(config.battle, undefined, false, config)
   return config.type === 'captain-eagle' ? launchGame(config.battle) : launchGame(undefined, config)
 }
 
@@ -240,6 +247,10 @@ async function bootstrap(): Promise<void> {
       await resumeStoredCareerMission(activeCareerMission.id, () => createCareerCommanderOutpostLaunch(outpostProfile))
       return
     }
+  }
+  if (outpostProfile && activeCareerMission && isCareerBridgeBattle(activeCareerMission)) {
+    await resumeStoredCareerMission(activeCareerMission.id, () => createCareerBridgeBattleLaunch(outpostProfile))
+    return
   }
   if (outpostProfile?.activeOutpostMission) {
     const mission = outpostProfile.activeOutpostMission

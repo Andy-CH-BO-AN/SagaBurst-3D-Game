@@ -16,10 +16,10 @@ import { officialMissionSourcePolicy, officialCommandSquads } from './CareerComm
 
 export type CareerMissionPhase = 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
-export type CareerMissionKind = 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-patrol-command' | 'captain-outpost-defense' | 'captain-eagle-battle' | 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand'
+export type CareerMissionKind = 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-patrol-command' | 'captain-outpost-defense' | 'captain-eagle-battle' | 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle'
 export interface CommanderMissionState {
   version: 1
-  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand'>
+  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle'>
   /** No objective can settle before every official and accepted personal actor is registered. */
   deploymentComplete: boolean
   playerPosition?: { x: number; z: number; yaw: number }
@@ -71,6 +71,7 @@ export interface ActiveCareerMission {
   patrolAmbient?: OfficialCommandAuthority
   patrolReturnStates?: Record<string, TownPatrolReturnState>
   battle?: CareerOutpostCheckpoint
+  bridgeBattle?: CaptainEagleCheckpoint
   eagleBattle?: CaptainEagleCheckpoint
   personalSquad?: PersonalSquadMission
   siege?: TownSiegeState

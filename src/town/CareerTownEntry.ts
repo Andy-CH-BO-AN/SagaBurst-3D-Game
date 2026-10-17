@@ -1,3 +1,4 @@
+import { createCareerBridgeBattleLaunch, isCareerBridgeBattle } from '../career/CareerBridgeBattle'
 import { installTownStyles, starterThumbnails } from './TownUI'
 import { createCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { CareerProfileStore } from '../career/CareerProfileStore'
@@ -29,6 +30,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     const captainLaunch = active?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && active.kind === 'captain-outpost-defense'
       ? () => createCaptainFrontlineLaunch(profile)
       : active?.templateId === CAPTAIN_EAGLE_BATTLE_ID && active.kind === 'captain-eagle-battle' ? () => createCaptainEagleLaunch(profile)
+      : isCareerBridgeBattle(active) ? () => createCareerBridgeBattleLaunch(profile)
       : active?.templateId === COMMANDER_LAST_STAND_ID && active.kind === 'commander-outpost-last-stand' ? () => createCareerCommanderOutpostLaunch(profile) : null
     if (active && captainLaunch) {
       if (profile.claimedBattleIds.includes(active.id)) {

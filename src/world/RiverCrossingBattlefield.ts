@@ -584,7 +584,7 @@ export function getBridgeFiveCavalryLanePositions(
  * Pure deployment planner for 8 friendly infantry squads (25 soldiers each = 200 total)
  * on the North Bank (-Z) around the bridgehead and defensive walls.
  */
-export function planNorthBankInfantryDeployment(): InfantrySquadDeploymentPlan[] {
+export function planNorthBankInfantryDeployment(faction?: CharacterFaction): InfantrySquadDeploymentPlan[] {
   const configs: ReadonlyArray<{
     squadId: number
     role: InfantrySquadDeploymentPlan['role']
@@ -622,7 +622,8 @@ export function planNorthBankInfantryDeployment(): InfantrySquadDeploymentPlan[]
     }
     return {
       squadId: cfg.squadId,
-      role: cfg.role,
+      role: faction ? cfg.squadId <= 2 ? 'spearman' : cfg.squadId <= 4 ? 'melee_infantry'
+        : faction === 'roman' && cfg.squadId <= 6 ? 'javelin' : 'archer' : cfg.role,
       slots,
     }
   })
