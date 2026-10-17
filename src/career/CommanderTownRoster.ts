@@ -1,4 +1,4 @@
-import { townRoster } from '../town/TownRules'
+import { townRoster, type TownActorSpec } from '../town/TownRules'
 import { siegeDefensePlans } from './TownDefenseRoster'
 import { MAX_COMMAND_SQUAD_SIZE, type SquadId } from '../battle/CommandTarget'
 import { TOWN_EAGLE_PAIRS } from '../town/TownEagleGarrison'
@@ -9,8 +9,8 @@ import type { OfficialCommandSquad, TownCommandSquadState } from './CareerComman
  * West contributes mobile reserves to the first three gates, keeping its own ten gate guards.
  * Shared Town producers remain unchanged: service Commander is a fresh acceptance opt-in.
  */
-export function commanderGateDefenseSlots(): OfficialCommandSquad[] {
-  const roster = townRoster(), byId = new Map(roster.map(actor => [actor.id, actor]))
+export function commanderGateDefenseSlots(roster: readonly TownActorSpec[] = townRoster()): OfficialCommandSquad[] {
+  const byId = new Map(roster.map(actor => [actor.id, actor]))
   const plans = siegeDefensePlans(roster)
   const west = plans.find(plan => plan.gateId === 'west')!
   const infantry = [...west.infantry.filter(id => !byId.get(id)?.gateId), ...west.infantry.filter(id => byId.get(id)?.gateId)]

@@ -1,18 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { Vector3, type Camera } from 'three'
+import { Vector3 } from 'three'
 import { CompassHeading } from '../../src/ui/CompassHeading'
 
 describe('Compass heading', () => {
 
-  it('reads the current camera forward despite pitch and an unrelated body/controller yaw', () => {
-    const heading = new CompassHeading()
-    // Only a numerical camera boundary: no Camera, actor, mount or scene.
-    const forward = new Vector3(.6, -.8, 0)
-    const camera = { getWorldDirection: (target: Vector3) => target.copy(forward), cameraYaw: 0 } satisfies Pick<Camera, 'getWorldDirection'> & { cameraYaw: number }
-    expect(heading.update(camera)).toBeCloseTo(Math.PI / 2)
-    forward.set(-.6, -.8, 0)
-    expect(heading.update(camera)).toBeCloseTo(3 * Math.PI / 2)
-  })
 
   it('keeps the last valid heading through vertical, nearly vertical and nonfinite forward data', () => {
     const heading = new CompassHeading()

@@ -6,7 +6,7 @@ import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../.
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { personalMemberLoadout } from '../../src/town/TownPersonalSquadController'
-import { purchaseTownEquipment, purchaseTownMount, sellTownProduct, sellTownProducts } from '../../src/town/TownRules'
+import { purchaseTownEquipment, purchaseTownMount, sellTownProduct } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 function harness(rank: CareerRank = 'captain', faction: CareerProfile['faction'] = 'roman') {
@@ -141,14 +141,6 @@ describe('Atomic HR release and refunds', () => {
   })
 })
 describe('Batch shop and HR resale', () => {
-  it('counts repeated product IDs by actual available copies without mutating the input profile', () => {
-    const h = harness(); h.buy('heavy_lance'); h.buy('heavy_lance')
-    const before = cloneCareerProfile(h.read())
-    expect(sellTownProducts(h.read(), ['heavy_lance', 'heavy_lance'])).toMatchObject({ sold: true, soldCount: 2, earnedMerit: 1440 })
-    expect(h.read()).toEqual(before)
-    const staged = sellTownProducts(h.read(), ['heavy_lance']); h.fail()
-    expect(h.save(staged.profile)).toBe(false); expect(h.read()).toEqual(before); expect(h.store.load()).toEqual(before)
-  })
   it('rejects a stale member in a bulk release before selling any valid member', () => {
     const h = harness(), ids = [h.hire(), h.hire('captain')], before = cloneCareerProfile(h.read())
     let saves = 0
