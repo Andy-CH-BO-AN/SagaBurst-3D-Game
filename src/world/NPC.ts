@@ -524,8 +524,8 @@ export class NPC {
   missionAerialDefense = false
   /** undefined uses normal AI; null holds fire; an actor restricts mission combat to that target. */
   private missionCombatTarget: NPC | Player | null | undefined = undefined
-  /** Optional Town duty policy; mission commands and non-Town actors retain normal acquisition. */
-  combatTargetAllowed?: (target: NPC | Player) => boolean
+  /** Town duty policy: false rejects, 'defend' accepts without pursuit, true retains normal combat. */
+  combatTargetAllowed?: (target: NPC | Player) => boolean | 'defend'
   setMissionCombatTarget(target: NPC | Player | null | undefined): void {
     if (this.missionCombatTarget === target) return
     this.missionCombatTarget = target
@@ -2461,6 +2461,7 @@ export class NPC {
       }
     }
     const missionOrder = this.missionMovement ? this.tacticalOrder : null
+    let defensiveTargetOrder: TacticalOrder | null = null
     const missionTarget = this.missionMovement ? this._findTarget(player, allNPCs, hostileNpcGrid) : null
     const missionTargetMount = missionTarget?.isPlayer ? player.currentMount : missionTarget?.npc?.mount
     // Marching archers cannot get within the ground-contact radius of a flying
@@ -2557,6 +2558,11 @@ export class NPC {
       if (targetInfo && this.holdsRampartPosition && !this.hasActiveRangedWeapon
         && !this._isRampartMeleeThreat(targetInfo.position)) targetInfo = null
       const meleeTarget = targetInfo?.isPlayer ? player : targetInfo?.npc ?? null
+      if (meleeTarget && this.combatTargetAllowed?.(meleeTarget) === 'defend') {
+        defensiveTargetOrder = this.tacticalOrder
+        this.tacticalOrder = 'defend'
+        this.shield.shieldRaised = this.shield.active
+      }
       this._selectMerchantMeleeWeapon(meleeTarget)
       if (
         meleeTarget !== this.meleeApproachTarget
@@ -3239,6 +3245,7 @@ export class NPC {
       }
     }
 
+    if (defensiveTargetOrder) this.tacticalOrder = defensiveTargetOrder
     if (missionOrder) this.tacticalOrder = missionOrder
     this._updateMovementStamina(dt)
 

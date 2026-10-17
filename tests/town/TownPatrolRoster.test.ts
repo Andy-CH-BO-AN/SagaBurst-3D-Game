@@ -4,18 +4,21 @@ import { townRoster } from '../../src/town/TownRules'
 import type { NPC } from '../../src/world/NPC'
 import { civilianHumanoidAssetId } from '../../src/world/CivilianAppearance'
 import { civilianDistrict } from '../../src/town/TownCivilianLife'
-import { townDefenseThreatInRange } from '../../src/town/TownGarrison'
+import { townDefenseThreatInRange, townDefenseThreatResponse } from '../../src/town/TownGarrison'
 import { Vector3 } from 'three'
 
 describe('Town patrol roster contracts', () => {
-  it('bounds a ground defender to its home sector even after a nearby enemy retreats', () => {
+  it('permits stationary close defense outside home while bounding pursuit to the home sector', () => {
     const spec = townRoster().find(spec => spec.role === 'commander') ?? townRoster().find(spec => spec.duty === 'gate_guard')!
     const npc = { isMounted: false, rangedWeaponId: undefined, combatPosition: new Vector3(spec.x, spec.y ?? 0, spec.z) }
     const near = npc.combatPosition.clone().add(new Vector3(10, 0, 0))
     expect(townDefenseThreatInRange(spec, npc, near, 20)).toBe(true)
+    expect(townDefenseThreatResponse(spec, npc, near, 20)).toBe('pursue')
     expect(townDefenseThreatInRange(spec, npc, near.clone().add(new Vector3(20, 0, 0)), 20)).toBe(false)
     npc.combatPosition.add(new Vector3(22, 0, 0))
-    expect(townDefenseThreatInRange(spec, npc, npc.combatPosition.clone().add(new Vector3(1, 0, 0)), 20)).toBe(false)
+    expect(townDefenseThreatInRange(spec, npc, npc.combatPosition.clone().add(new Vector3(1, 0, 0)), 20)).toBe(true)
+    expect(townDefenseThreatResponse(spec, npc, npc.combatPosition.clone().add(new Vector3(1, 0, 0)), 20)).toBe('defend')
+    expect(townDefenseThreatResponse(spec, npc, npc.combatPosition.clone().add(new Vector3(9, 0, 0)), 20)).toBe('ignore')
   })
   it('selects faction civilian sources without changing resident identities or district allocation', () => {
     const residents = townRoster().filter(spec => spec.role === 'civilian')

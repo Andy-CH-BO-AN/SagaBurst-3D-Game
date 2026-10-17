@@ -39,6 +39,7 @@ function patrol(count = 2, patrolId: 'A' | 'B' = 'A') {
       tacticalOrder: 'attack' as NPC['tacticalOrder'], isMounted: true,
       mount: null as Mount | null, formationCommandId: null as number | null,
       clearEncounter: vi.fn(), setTownPeaceful: vi.fn(), setTacticalOrder: vi.fn(),
+      configureBanditEncounter: vi.fn(), triggerEncounterAlert: vi.fn(),
       assignFormationTarget: vi.fn(), updateTownTravel: vi.fn(),
       updateTownPeace: vi.fn(), setMissionCombatTarget: vi.fn(),
       restoreCombatAmmo: vi.fn(), releaseOutpostRampartGarrison: vi.fn(),
@@ -49,7 +50,7 @@ function patrol(count = 2, patrolId: 'A' | 'B' = 'A') {
         this.dead = false; this.hp = 100; this.combatPosition.set(p.x, 0, p.z)
       }),
     }
-    actor.mount = { dead: false, currentHp: 100, group: { position, rotation: { y: 0 } }, riderNpc: actor,
+    actor.mount = { dead: false, currentHp: 100, maxHp: 100, group: { position, rotation: { y: 0 } }, riderNpc: actor,
       restoreForTown: vi.fn() } as unknown as Mount
     return actor
   })
@@ -114,6 +115,88 @@ describe('Town patrol travel and ownership decisions', () => {
     expect(controller.squads[0].generation).toBe(1)
     expect(controller.squads[0].state).toBe('BARRACKS')
     for (const actor of a.actors) expect(actor.restoreForTown).toHaveBeenCalledOnce()
+  })
+
+  it('defers an expired wiped squad while the Player rides a surviving native mount, then refits once after release', () => {
+    const { actors, residents, controller } = patrol(20), mount = residents[0].homeMount!
+    for (const actor of actors) { actor.dead = true; actor.hp = 0 }
+    controller.beginFrame(new Set(), 0)
+    const player = { dead: false } as Player
+    mount.riderNpc = null; mount.riderPlayer = player
+    mount.group.position.set(250, 0, -230)
+    const borrowedPosition = mount.group.position.clone()
+    controller.beginFrame(new Set(), 60)
+    controller.beginFrame(new Set(), 1)
+    expect(controller.squads[0].respawnRemaining).toBe(0)
+    expect(controller.squads[0].generation).toBe(0)
+    expect(mount.group.position).toEqual(borrowedPosition)
+    expect(mount.riderPlayer).toBe(player)
+    expect(mount.restoreForTown).not.toHaveBeenCalled()
+    expect(actors.every(actor => actor.dead)).toBe(true)
+    mount.riderPlayer = null
+    controller.beginFrame(new Set(), 0)
+    controller.beginFrame(new Set(), 0)
+    expect(controller.squads[0].generation).toBe(1)
+    expect(mount.riderNpc).toBe(residents[0].npc)
+    expect(mount.restoreForTown).toHaveBeenCalledOnce()
+    for (const actor of actors) expect(actor.restoreForTown).toHaveBeenCalledOnce()
+  })
+
+  it.each(['PATROLLING', 'MOVING_TO_ROUTE'] as const)('resumes %s at its saved authored waypoint after profile reload', state => {
+    const source = patrol(1), squad = source.controller.squads[0]
+    squad.state = state; squad.waypoint = 6
+    squad.departureIndex = state === 'PATROLLING' ? squad.departure.waypoints.length : 2
+    const destination = state === 'PATROLLING' ? source.controller.route[6] : squad.departure.waypoints[2]
+    source.actors[0].combatPosition.copy(destination).add(new Vector3(0, 0, -4))
+    source.controller.beginFrame(new Set())
+    const profile = createCareerProfile('roman')
+    profile.townPatrols = { roman: source.controller.checkpoint() }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const reload = patrol(1)
+    reload.controller.restoreCheckpoint(store.load()!.townPatrols!.roman)
+    reload.controller.beginFrame(new Set())
+    reload.controller.updateResident(reload.residents[0], 0, new Vector3(), [], {} as NavigationWorld)
+    expect(reload.controller.squads[0].state).toBe(state)
+    expect(reload.controller.squads[0].waypoint).toBe(6)
+    expect(reload.controller.squads[0].departureIndex).toBe(squad.departureIndex)
+    expect(reload.actors[0].assignFormationTarget).toHaveBeenCalledWith(-3, destination, expect.any(Vector3), expect.any(Number))
+  })
+
+  it('uses a legacy patrol position to resume the nearest route leg without restarting the barracks departure', () => {
+    const source = patrol(1)
+    source.actors[0].combatPosition.copy(source.controller.route[6])
+    const saved = parseTownPatrolCheckpoint(JSON.parse(JSON.stringify(source.controller.checkpoint())))!
+    expect(saved.squads[0].travel).toBeUndefined()
+    const reload = patrol(1)
+    reload.controller.restoreCheckpoint(saved)
+    expect(reload.controller.squads[0].state).toBe('PATROLLING')
+    expect(reload.controller.squads[0].waypoint).toBe(6)
+    expect(reload.controller.squads[0].departureIndex).toBe(reload.controller.squads[0].departure.waypoints.length)
+  })
+
+  it('detects the Player at 35m and retains that encounter through the 58m origin leash', () => {
+    const { actors, controller } = patrol(1), squad = controller.squads[0]
+    Object.assign(actors[0], { hostileToPlayer: true })
+    actors[0].combatPosition.set(0, 0, 0)
+    const position = new Vector3(36, 0, 0), player = { dead: false, combatPosition: position } as Player
+    const grid = new SpatialGrid<NPC>(8), threats = { owns: () => false, player }
+    controller.beginFrame(new Set())
+    controller.prepareCombatFrame(1, grid, threats)
+    expect(squad.state).toBe('BARRACKS')
+    position.x = 35
+    controller.prepareCombatFrame(1, grid, threats)
+    expect(squad.state).toBe('ENGAGING')
+    position.x = 45
+    actors[0].combatPosition.x = -20 // The fixed origin, rather than the moving rider, owns the leash.
+    controller.prepareCombatFrame(1, grid, threats)
+    expect(squad.state).toBe('ENGAGING')
+    position.x = 58
+    controller.prepareCombatFrame(1, grid, threats)
+    expect(squad.state).toBe('ENGAGING')
+    position.x = 58.01
+    controller.prepareCombatFrame(1, grid, threats)
+    expect(squad.state).toBe('RETURN_TO_BARRACKS')
   })
 
   it('preserves the remaining native cooldown across checkpoint JSON and sanitizes invalid timers', () => {

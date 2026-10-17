@@ -11,7 +11,7 @@ import { townPatrolDeparture, townPatrolRoute, TOWN_PATROL_SPEED } from './TownP
 import { OUTSKIRTS_ALERT_RANGE, OUTSKIRTS_ENCOUNTER_LEASH, OUTSKIRTS_SENSOR_INTERVAL } from './TownOutskirtsRules'
 import { townWartimeHostile } from './TownWartime'
 import { restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
-import type { TownPatrolCheckpoint } from './TownPatrolCheckpoint'
+import type { TownPatrolCheckpoint, TownPatrolTravelCheckpoint } from './TownPatrolCheckpoint'
 import type { Player } from '../player/Player'
 
 export interface PatrolResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
@@ -213,7 +213,7 @@ export class TownCavalryPatrolController {
     return Boolean(resident && !this.hostile && !this.siegeOwned && (!this.excluded.has(resident.npc) || resident.npc.combatOwnership === 'town-command')
       && !this.returning.has(actorId)
       && (!resident.npc.combatOwnership || resident.npc.combatOwnership === 'town-command')
-      && (!resident.homeMount?.riderPlayer && (!resident.homeMount?.riderNpc || resident.homeMount.riderNpc === resident.npc)))
+      && this.canRefitMount(resident))
   }
   /** Idempotent continuation after the service checkpoint is saved, including reload. */
   requestServiceRefit(actorId: string): void {
@@ -304,9 +304,11 @@ export class TownCavalryPatrolController {
         && (squad.state === 'ENGAGING' ? squad.participants.has(r.spec.id) : this.returning.get(r.spec.id)?.state !== 'RETURN_TO_BARRACKS'))
       if (!observers.length) continue
       const player = threats.player
-      const nearbyPlayer = player && !player.dead && observers.some(r => r.npc.hostileToPlayer
-        && this.distance(r.npc.combatPosition, player.combatPosition) <= OUTSKIRTS_ALERT_RANGE)
-        && (!squad.engagementOrigin || this.distance(player.combatPosition, squad.engagementOrigin) <= OUTSKIRTS_ENCOUNTER_LEASH)
+      const nearbyPlayer = player && !player.dead && (squad.state === 'ENGAGING' && squad.engagementOrigin
+        ? observers.some(r => r.npc.hostileToPlayer)
+          && this.distance(player.combatPosition, squad.engagementOrigin) <= OUTSKIRTS_ENCOUNTER_LEASH
+        : observers.some(r => r.npc.hostileToPlayer
+          && this.distance(r.npc.combatPosition, player.combatPosition) <= OUTSKIRTS_ALERT_RANGE))
       if (nearbyPlayer && squad.state !== 'ENGAGING') this.alertSquad(squad, observers[0].npc.combatPosition, false)
       const origin = squad.engagementOrigin
       let range = OUTSKIRTS_ENCOUNTER_LEASH
@@ -492,7 +494,14 @@ export class TownCavalryPatrolController {
     return true
   }
 
+  private canRefitMount(resident: PatrolResident): boolean {
+    const mount = resident.homeMount
+    return !mount || !mount.riderPlayer && (!mount.riderNpc || mount.riderNpc === resident.npc)
+  }
+
   private refit(resident: PatrolResident, returning: PatrolReturn): void {
+    // Native assets can be borrowed from fallen riders. Wait without moving or healing either owner.
+    if (!this.canRefitMount(resident)) return
     resident.npc.missionMovement = false
     returning.state = 'REFIT'
     const destination = { x: returning.destination.x, z: returning.destination.z, yaw: returning.yaw }
@@ -529,7 +538,7 @@ export class TownCavalryPatrolController {
     squad.participants.clear()
   }
 
-  get hasCheckpoint(): boolean { return this.squads.some(s => s.generation > 0 || s.respawnRemaining !== undefined || s.members.some(r => r.npc.dead)) }
+  get hasCheckpoint(): boolean { return this.squads.length > 0 }
   get criticalSignature(): string {
     return JSON.stringify(this.squads.map(s => [s.id, s.generation, s.state,
       s.members.filter(r => r.npc.dead).map(r => r.spec.id)]))
@@ -538,8 +547,12 @@ export class TownCavalryPatrolController {
   checkpoint(): TownPatrolCheckpoint {
     return { squads: this.squads.filter(s => s.members.every(r => this.owns(r.npc) && !r.npc.combatOwnership)).map(s => ({
       id: s.id, generation: s.generation, respawnRemaining: s.respawnRemaining,
+      ...(['MOVING_TO_ROUTE', 'PATROLLING', 'PAUSED'].includes(s.state) ? { travel: {
+        state: s.state === 'PATROLLING' || s.departureIndex === s.departure.waypoints.length ? 'PATROLLING' as const : 'MOVING_TO_ROUTE' as const,
+        waypoint: s.waypoint, departureIndex: s.departureIndex, leaderActorId: s.activeLeaderActorId ?? undefined,
+      } } : {}),
       members: Object.fromEntries(s.members.map(r => [r.spec.id, snapshotCommandActor(r.npc, r.homeMount)])),
-      returning: s.members.filter(r => this.returning.get(r.spec.id)?.autonomous
+      returning: s.members.filter(r => this.returning.get(r.spec.id)?.autonomous && this.returning.get(r.spec.id)?.state !== 'REJOIN_PATROL'
         || s.state === 'ENGAGING' && s.participants.has(r.spec.id)).map(r => r.spec.id),
     })) }
   }
@@ -559,10 +572,35 @@ export class TownCavalryPatrolController {
       if (checkpoint.respawnRemaining !== undefined) {
         for (const resident of squad.members) if (!resident.npc.dead) resident.npc.restoreCombatHealth(0)
         squad.state = 'RESPAWN_COOLDOWN'; squad.respawnRemaining = checkpoint.respawnRemaining
-      } else for (const id of checkpoint.returning ?? []) {
-        if (squad.members.some(r => r.spec.id === id)) this.beginPatrolReturn(id, false, true)
+      } else {
+        if (checkpoint.travel || !checkpoint.returning?.length) this.restoreTravel(squad, checkpoint.travel)
+        for (const id of checkpoint.returning ?? []) {
+          const resident = squad.members.find(r => r.spec.id === id || r.spec.id.replace(/^enemy-town:/, '') === id.replace(/^enemy-town:/, ''))
+          if (resident) this.beginPatrolReturn(resident.spec.id, false, true)
+        }
       }
     }
+  }
+
+  private restoreTravel(squad: PatrolSquad, travel?: TownPatrolTravelCheckpoint): void {
+    const leader = squad.members.find(r => r.spec.id === travel?.leaderActorId && !r.npc.dead)
+      ?? squad.members.find(r => r.spec.patrolLeader && !r.npc.dead) ?? squad.members.find(r => !r.npc.dead)
+    if (!leader) return
+    if (travel) {
+      squad.state = travel.state; squad.waypoint = travel.waypoint; squad.departureIndex = travel.departureIndex
+    } else {
+      // Legacy snapshots kept positions but not travel progress. Resume the nearest authored leg.
+      const nearest = (points: readonly THREE.Vector3[]) => points.reduce((best, point, index) =>
+        this.distance(leader.npc.combatPosition, point) < this.distance(leader.npc.combatPosition, points[best]) ? index : best, 0)
+      const departureIndex = nearest(squad.departure.waypoints), waypoint = nearest(this.route)
+      const onRoute = this.distance(leader.npc.combatPosition, this.route[waypoint])
+        <= this.distance(leader.npc.combatPosition, squad.departure.waypoints[departureIndex])
+      squad.state = onRoute ? 'PATROLLING' : 'MOVING_TO_ROUTE'
+      squad.waypoint = onRoute ? waypoint : squad.departure.phase
+      squad.departureIndex = onRoute ? squad.departure.waypoints.length : departureIndex
+    }
+    squad.activeLeaderActorId = leader.spec.id
+    squad.trail.reset(leader.npc.combatPosition, leader.npc.group.rotation.y)
   }
 
   private advanceLifecycle(squad: PatrolSquad, dt: number): void {
@@ -571,6 +609,7 @@ export class TownCavalryPatrolController {
     if (squad.state === 'RESPAWN_COOLDOWN') {
       squad.respawnRemaining = Math.max(0, (squad.respawnRemaining ?? 60) - (Number.isFinite(dt) ? Math.max(0, dt) : 0))
       if (squad.respawnRemaining > 0) return
+      if (squad.members.some(resident => !this.canRefitMount(resident))) return
       squad.respawnRemaining = undefined; squad.generation++
       for (const resident of squad.members) {
         this.beginPatrolReturn(resident.spec.id, false, true)

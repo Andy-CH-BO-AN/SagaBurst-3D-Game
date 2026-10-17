@@ -11,7 +11,7 @@ import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { civilianHomeAnchor, TownCivilianLife } from './TownCivilianLife'
-import { townDefenseThreatInRange, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
+import { townDefenseThreatResponse, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
 import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
 import { SquadRefitSafety } from '../career/SquadRefit'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
@@ -612,18 +612,23 @@ export class TownScene {
         const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: defaultRangerMeleeWeaponId(residentArmyFaction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null, reversibleRangedSwitch: true } : military!.loadout)
         spec = townStationSpec(spec, Boolean(loadout.mountId), Boolean(loadout.rangedWeaponId))
         const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined))
-        if (spec.garrison || spec.role === 'commander') npc.combatTargetAllowed = target => {
+        if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => {
           const active = this.defense?.active
-          if (!active || isCommanderTownMission(active) || this.event.hostile
-            || active.officialSquad && officialCommandIsPlayerControlled(active.officialSquad, npc.combatantId)) return true
-          if (target === this.player) return true
-          let roster = this.defenseTargetRosters.get(active)
-          if (!roster) {
-            roster = new Set([...active.targetActorIds, ...active.friendlyActorIds, ...(active.civilianActorIds ?? [])])
-            this.defenseTargetRosters.set(active, roster)
+          const siege = active?.kind === 'town-defense' || active?.kind === 'enemy-town-assault'
+          if (this.event.hostile || this.duel?.isMissionActor(npc) || this.race?.owns(npc)
+            || npc.combatOwnership && (!siege || npc.combatOwnership !== 'mission-official')
+            || active?.officialSquad && officialCommandIsPlayerControlled(active.officialSquad, npc.combatantId)) return true
+          if (siege) {
+            if (target === this.player) return true
+            let roster = this.defenseTargetRosters.get(active!)
+            if (!roster) {
+              roster = new Set([...active!.targetActorIds, ...active!.friendlyActorIds, ...(active!.civilianActorIds ?? [])])
+              this.defenseTargetRosters.set(active!, roster)
+            }
+            if (target instanceof NPC && roster.has(target.combatantId)) return true
           }
-          if (target instanceof NPC && roster.has(target.combatantId)) return true
-          return townDefenseThreatInRange(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc))
+          const response = townDefenseThreatResponse(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc))
+          return response === 'pursue' ? true : response === 'defend' ? 'defend' : false
         }
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
