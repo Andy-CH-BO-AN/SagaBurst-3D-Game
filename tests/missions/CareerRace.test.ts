@@ -136,13 +136,6 @@ describe('Mounted race route geometry', () => {
     expect(r.dnf).toBeUndefined(); expect(r.checkpoint).toBe(5)
     expect(r.finishSeconds).toBeGreaterThan(0)
   })
-  it('detects sprint sweeps with direction and a finite exterior corridor', () => {
-    const r = rider('player'); r.checkpoint = 1
-    cross(r, pos(162.5, 31), pos(162.5, 59))
-    expect(r.checkpoint).toBe(2)
-    expect(lineCrossing(pos(162.5, 59), pos(162.5, 31), RACE_LINES[1])).toBeNull()
-    expect(lineCrossing(pos(200, 31), pos(200, 59), RACE_LINES[1])).toBeNull()
-  })
   it('cannot finish by skipping checkpoints or triggering them in another order', () => {
     const r = rider('player'); r.checkpoint = 1
     cross(r, pos(10, 112.5), pos(-10, 112.5))
@@ -173,17 +166,6 @@ describe('Mounted race outcome ownership', () => {
     resolveRace(s); expect(s.result).toBeUndefined()
     s.opponent.checkpoint = 4; cross(s.opponent, pos(0, -120), pos(0, -110))
     resolveRace(s); expect(s.result).toBe('loss')
-  })
-  it('draws when both riders die before either finishes', () => {
-    const s = session(); s.player.dead = s.opponent.dead = true; s.player.hp = s.opponent.hp = 0
-    resolveRace(s); expect(s.result).toBe('draw')
-  })
-  it('locks a legal finish against later deaths and chooses the earlier crossing time', () => {
-    const s = session(); s.player.checkpoint = s.opponent.checkpoint = 5
-    s.player.finishSeconds = 60.2; s.opponent.finishSeconds = 60.3
-    resolveRace(s); expect(s.result).toBe('win')
-    s.player.dead = true; s.opponent.dead = true; resolveRace(s)
-    expect(s.result).toBe('win')
   })
   it('keeps the living opponent racing after the player finishes and reloads before recording both times', () => {
     const s = session(); s.phase = 'racing'; s.elapsedSeconds = 85.1

@@ -156,7 +156,7 @@ export class TownWorld {
   private eagleTrainingGround(): void {
     const { trainer } = this.eagleTraining
     // Leave the first landing pad and the nearby diagonal road clear after turning the frame.
-    const x = trainer.x - 5, z = trainer.z + 7
+    const x = trainer.x - 5, z = trainer.z + 6
     const yaw = Math.atan2(this.hr.officer.x - x, this.hr.officer.z - z)
     // Clear the 2.3m on-foot NPC body (and 1.9m Player) with a little headroom.
     this.groundedTrainingSign(['XONGKORO TRAINING', '老鷹訓練場 · E 交談'], x, z, 10, yaw, 2.6)

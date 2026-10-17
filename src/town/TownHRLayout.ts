@@ -43,9 +43,11 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
   for (let z = TOWN_HR_REGION.minZ; z <= TOWN_HR_REGION.maxZ; z += 3)
     for (let x = TOWN_HR_REGION.minX; x <= TOWN_HR_REGION.maxX; x += 3) sites.push({ x, z, yaw: TOWN_HR_REGION.yaw })
   for (const site of sites) {
-    if (!clear(footprint(site, width + 4, depth + 6))) continue
+    // Reserve the eaves plus margin, without rejecting a hall beside the overhead deck.
+    if (!clear(footprint(site, width + 2.4, depth + 6))) continue
     const officer = point(site, 0, depth / 2 + 4)
-    if (!clear(footprint(officer, 4, 4))) continue
+    // Mounted body diameter is 2m; keep another .25m clearance on each side.
+    if (!clear(footprint(officer, 2.5, 2.5))) continue
     for (const courtyardSide of [1, -1]) {
       const muster = Array.from({ length: 30 }, (_, i) => point(site,
         courtyardSide * (width / 2 + 5 + Math.floor(i / 5) * 4.5), (i % 5 - 2) * 4.5))

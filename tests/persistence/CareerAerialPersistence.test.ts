@@ -3,8 +3,9 @@ import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import { emptyPersonalContribution, returnPersonalMissionToHR, type PersonalActorCheckpoint,type PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { migratePersonalTownLayout, placePersonalMissionAtHR } from '../../src/town/TownLayoutMigration'
+import { migratePersonalTownLayout, migrateTownEagleGarrisonLayout, placePersonalMissionAtHR } from '../../src/town/TownLayoutMigration'
 import { purchaseTownMount } from '../../src/town/TownRules'
+import type { TownEagleGarrisonState, TownEaglePairState } from '../../src/town/TownEagleGarrisonState'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 describe('Career airborne state serialization', () => {
@@ -140,10 +141,30 @@ describe('Career Town layout checkpoint migration', () => {
     expect(saved).toEqual(before)
   })
 
-  it('migrates a version 2 private eagle at its parked home exactly once through storage', () => {
+  it.each([{ boarding: false, mounted: true }, { boarding: true, mounted: false }])(
+    'keeps a v3 eagle at a v1 historical location in place when boarding=$boarding', ({ boarding, mounted }) => {
+      const formation = { commandId: 7, position: { x: -90, y: 2, z: 56, yaw: 0 }, reached: true }
+      const saved = personal({ boarding, order: 'follow', formation,
+        position: { x: privateHome.x + 1, y: mounted ? 5 : 2, z: privateHome.z + 2, yaw: .7 },
+        mount: { hp: 73, mounted, position: { ...privateHome }, flight: { ...grounded } } })
+      saved.layoutVersion = 3
+      const before = structuredClone(saved), actor = saved.members['personal:eagle']
+      const next = migratePersonalTownLayout(saved, 'town-home', layout, terrain)!
+      expect(next.members['personal:eagle']).toEqual({ ...before.members['personal:eagle'],
+        ...(boarding ? { formation: { ...formation, position: { ...privateHome }, reached: false } } : {}) })
+      expect(next.members['personal:eagle'].mount).toBe(actor.mount)
+      expect(next.members['personal:eagle'].position).toBe(actor.position)
+      expect(saved).toEqual(before)
+      expect(migratePersonalTownLayout(next, 'town-home', layout, terrain)).toBe(next)
+    })
+
+  it.each([
+    { version: 2, x: -95, z: 65 },
+    { version: 3, x: -90, z: 56 },
+  ])('migrates a version $version private eagle at its parked home exactly once through storage', ({ version, x, z }) => {
     const profile = createCareerProfile('roman'), saved = personal()
-    saved.layoutVersion = 2
-    saved.members['personal:eagle'].mount!.position = { x: -95, y: 2, z: 65, yaw: Math.PI }
+    saved.layoutVersion = version
+    saved.members['personal:eagle'].mount!.position = { x, y: 2, z, yaw: Math.PI }
     profile.personalSquadRuntime = saved
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(profile)).toBe(true)
@@ -151,8 +172,53 @@ describe('Career Town layout checkpoint migration', () => {
     loaded.personalSquadRuntime = migratePersonalTownLayout(loaded.personalSquadRuntime, 'town-home', layout, terrain)
     expect(store.save(loaded)).toBe(true)
     const restored = store.load()!.personalSquadRuntime!
-    expect(restored.layoutVersion).toBe(3)
+    expect(restored.layoutVersion).toBe(4)
     expect(restored.members['personal:eagle'].mount).toMatchObject({ hp: 73, position: { x: -70, y: 12, z: 25 } })
     expect(migratePersonalTownLayout(restored, 'town-home', layout, terrain)).toBe(restored)
+  })
+})
+
+
+describe('Town garrison parked-home migration', () => {
+  const pads = [{ id: 'town-eagle-pad:1', x: -78, z: -63, yaw: 0 }]
+  const terrain = () => 5
+  function checkpoint(mounted: boolean, version = 3): TownEagleGarrisonState {
+    const x = version === 2 ? -95 : -85, z = version === 2 ? -75 : -63
+    const pair: TownEaglePairState = {
+      riderId: 'town-eagle-rider:1', mountId: 'town-eagle-mount:1', homePadId: 'town-eagle-pad:1',
+      duty: mounted ? 'mounted-waiting' : 'standby', hp: 49, ammo: 3, mounted, refitAllowed: true,
+      position: { x: mounted ? x : x + 4, y: mounted ? 8 : 5, z, yaw: 0 },
+      mount: { hp: 73, position: { x, y: 5, z, yaw: 0 },
+        flight: { phase: 'grounded', yaw: 0, pitch: 0, bank: 0, speed: 0, velocity: { x: 0, y: 0, z: 0 } } },
+      patrol: { active: true, waypoint: 2, elapsed: 17 }, restRemaining: 4,
+    }
+    return { version: 1, layoutVersion: version, sceneKey: 'town:roman', pairs: [pair] }
+  }
+
+  it.each([{ version: 3, mounted: true }, { version: 3, mounted: false }, { version: 2, mounted: false }])(
+    'moves only the v$version parked home and its mounted=$mounted rider consistently, once', ({ version, mounted }) => {
+      const saved = checkpoint(mounted, version), before = structuredClone(saved)
+      const next = migrateTownEagleGarrisonLayout(saved, 'town:roman', pads, terrain)!
+      expect(next.pairs[0]).toEqual({ ...before.pairs[0],
+        position: { x: mounted ? -78 : -74, y: mounted ? 8 : 5, z: -63, yaw: 0 },
+        mount: { ...before.pairs[0].mount, position: { x: -78, y: 5, z: -63, yaw: 0 } } })
+      expect(next.layoutVersion).toBe(4)
+      expect(saved).toEqual(before)
+      expect(migrateTownEagleGarrisonLayout(next, 'town:roman', pads, terrain)).toBe(next)
+    })
+
+  it.each([true, false])('preserves every off-base grounded checkpoint field when mounted=%s', mounted => {
+    const saved = checkpoint(mounted)
+    const pair = saved.pairs[0]
+    pair.duty = mounted ? 'mounted-waiting' : 'walking-to-mount'
+    // Another pad is not this pair's home; a rider approaching from elsewhere stays put too.
+    pair.mount.position = { x: mounted ? -57 : 20, y: 5, z: mounted ? -75 : 30, yaw: .7 }
+    pair.position = { x: 21, y: mounted ? 8 : 5, z: 31, yaw: .7 }
+    const before = structuredClone(saved)
+    const next = migrateTownEagleGarrisonLayout(saved, 'town:roman', pads, terrain)!
+    expect(next.pairs[0]).toBe(pair)
+    expect(next).toEqual({ ...before, layoutVersion: 4 })
+    expect(saved).toEqual(before)
+    expect(migrateTownEagleGarrisonLayout(next, 'town:roman', pads, terrain)).toBe(next)
   })
 })

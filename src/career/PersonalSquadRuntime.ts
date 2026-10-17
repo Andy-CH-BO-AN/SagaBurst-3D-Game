@@ -466,7 +466,11 @@ export class PersonalSquadRuntime {
     npc.missionMovement = false
     if (npc.mount?.isFlyingMount) npc.setEagleFlightOrder(null)
     const boarding = this.boarding.get(npc)
-    if (boarding) { this.walkTo(npc, boarding.pad); return }
+    if (boarding) {
+      const mount = this.memberMounts.get(npc.combatantId)
+      if (mount && !mount.dead) this.orderBoarding(npc, mount, boarding.index)
+      return
+    }
     if (this.command === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
     else if (this.command === 'formation' && this.mission?.members[npc.combatantId]?.formation) {
       const f = this.mission.members[npc.combatantId].formation!, p = f.position
@@ -553,17 +557,29 @@ export class PersonalSquadRuntime {
     this.returningOnFoot.delete(actor); this.releaseEaglePad(actor.combatantId)
   }
 
-  private walkTo(actor: NPC, slot: PersonalSquadSpawnSlot): void {
+  private walkTo(actor: NPC, slot: PersonalSquadSpawnSlot, preserveHeight = false): void {
     actor.missionMovement = this.state === 'RETURNING'
-    actor.assignFormationTarget(this.returnCommand, new THREE.Vector3(slot.x, getTerrainHeight(slot.x, slot.z), slot.z),
+    actor.assignFormationTarget(this.returnCommand, new THREE.Vector3(slot.x, preserveHeight ? slot.y ?? getTerrainHeight(slot.x, slot.z) : getTerrainHeight(slot.x, slot.z), slot.z),
       new THREE.Vector3(Math.sin(slot.yaw), 0, Math.cos(slot.yaw)), undefined, actor.mount?.isFlyingMount ? 'defend' : undefined)
+  }
+
+  private orderBoarding(actor: NPC, mount: Mount, index: number): void {
+    const pad = this.position(mount.group.position, mount.group.rotation.y)
+    this.boarding.set(actor, { pad, index })
+    this.walkTo(actor, pad, true)
   }
 
   private updateEagleTransfers(): void {
     for (const [actor, boarding] of this.boarding) {
       const mount = this.memberMounts.get(actor.combatantId)
       if (actor.dead || !mount || mount.dead) { this.boarding.delete(actor); continue }
-      if (Math.hypot(actor.combatPosition.x - boarding.pad.x, actor.combatPosition.z - boarding.pad.z) > 2) continue
+      // The reserved home is not necessarily where a restored/moving mount is.
+      const position = mount.group.position
+      if (Math.hypot(position.x - boarding.pad.x, position.z - boarding.pad.z,
+        position.y - (boarding.pad.y ?? getTerrainHeight(boarding.pad.x, boarding.pad.z))) > .25) {
+        this.orderBoarding(actor, mount, boarding.index)
+      }
+      if (mount.isAirborne || actor.combatPosition.distanceTo(position) > 2) continue
       actor.mountVehicle(mount)
       if (actor.mount !== mount) continue
       this.boarding.delete(actor)
@@ -623,8 +639,8 @@ export class PersonalSquadRuntime {
     if (saved.position) npc.group.position.set(saved.position.x, saved.position.y ?? getTerrainHeight(saved.position.x, saved.position.z), saved.position.z)
     if (saved.fall) { npc.dismountFromMount(); npc.restorePendingFall(saved.fall) }
     if ((saved.boarding || this.boarding.has(npc)) && mount && !mount.dead) {
-      const pad = this.eaglePad(npc)
-      if (pad) { this.boarding.set(npc, { pad, index }); this.walkTo(npc, pad); return }
+      this.orderBoarding(npc, mount, index)
+      return
     }
     if (this.state === 'RETURNING' && npc.mount?.isFlyingMount) { this.orderEagleReturn(npc); return }
     if (saved.order === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))

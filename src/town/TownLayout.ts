@@ -5,7 +5,7 @@ import { OBB } from 'three/examples/jsm/math/OBB.js'
 
 export const TOWN_PATROL_WALL_OFFSET = 12.5
 /** Saved positions from earlier Town layouts are rebased once, preserving actor identities. */
-export const TOWN_LAYOUT_VERSION = 3
+export const TOWN_LAYOUT_VERSION = 4
 export const TOWN_CITY = { minX: -110, maxX: 150, minZ: -115, maxZ: 100, wallHeight: 8, wallThickness: 1.8, gateWidth: 14, gateHeight: 6 } as const
 export const TOWN_PLAZA = { minX: 32, maxX: 74, minZ: -4, maxZ: 28 } as const
 export const TOWN_PLAZA_CENTER = { x: (TOWN_PLAZA.minX + TOWN_PLAZA.maxX) / 2, z: (TOWN_PLAZA.minZ + TOWN_PLAZA.maxZ) / 2 } as const
@@ -26,9 +26,12 @@ export const TOWN_CAVALRY_FIELD = { minX: 27, maxX: 137, minZ: -101, maxZ: -53 }
 /** Shared mounted mission muster on the open forecourt in front of the cavalry entrance. */
 export const TOWN_MOUNTED_MISSION_MUSTER = { x: 124, z: -30 } as const
 /** Airfield layouts reserve these strips before any scenery is materialized. */
-export const TOWN_PRIVATE_EAGLE_SITES = [-90, -60, -30].map(x => ({ x, z: 56, yaw: Math.PI }))
+// Reserve clearance for the 10m west deck; z=54 also retains the terrain slope limit.
+export const TOWN_PRIVATE_EAGLE_SITES = [-85, -55, -25].map(x => ({ x, z: 54, yaw: Math.PI }))
+// Shift the northern row east, preserving pad spacing and all stable IDs.
+// Pad 4 approaches from the south to avoid the widened west ramp.
 export const TOWN_GARRISON_EAGLE_SITES = [
-  ...[[-85, -63], [-57, -75], [-29, -75], [-85, -18], [-57, -22]].map(([x, z]) => ({ x, z, yaw: 0 })),
+  ...[[-78, -63], [-50, -75], [-22, -75], [-85, -18], [-57, -22]].map(([x, z], index) => ({ x, z, yaw: index === 3 ? Math.PI : 0 })),
 ]
 export const TOWN_HR_REGION = { minX: -94, maxX: -73, minZ: 18, maxZ: 35, yaw: 0 } as const
 export interface TownRoad { ax: number; az: number; bx: number; bz: number; width: number }
@@ -53,7 +56,7 @@ export const TOWN_CITY_ROADS: readonly TownRoad[] = [
   { ax: -78, az: 0, bx: -132, bz: 0, width: 12 },
   { ax: 18, az: -55, bx: 27, bz: -58, width: 8 },
   { ax: 27, az: -58, bx: 137, bz: -58, width: 8 },
-  { ax: 0, az: 42, bx: -85, bz: 44, width: 5 },
+  { ax: 0, az: 42, bx: -85, bz: 42, width: 5 },
 ]
 /** Authored local streets, shared by scenery and resident clearance. */
 export const TOWN_LOCAL_ROADS: readonly TownRoad[] = [
