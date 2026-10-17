@@ -15,7 +15,7 @@ import { Faction } from '../combat/CombatFaction'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { TOWN_SITES } from './TownRules'
 import { DamageableObstacle } from '../world/DamageableObstacle'
-import { getTerrainHeight, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
+import { getTerrainHeight, resetTerrainScenePolicy, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_GROUND_SIZE, TOWN_BANDIT_CAMP_CENTERS, townSceneryPoint, nearTownBanditCamp } from './TownBounds'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { proceduralMaterial } from '../world/ProceduralMaterials'
@@ -48,6 +48,7 @@ export class TownWorld {
   private readonly snow = this.mat(0xd8e3ea)
   private readonly canvas = this.mat(0xa89471)
   constructor(readonly faction: CharacterFaction, scene: THREE.Scene, private readonly ownerAllegiance: Faction = Faction.TOWN) {
+    resetTerrainScenePolicy()
     setScenePlayableWorldBound(scene, TOWN_PLAYABLE_WORLD_BOUND)
     scene.add(this.root)
     this.roofMat.color.setHex(0xffffff); this.roofMat.map = this.surfaceTexture(faction === 'roman' ? 'tile' : 'thatch'); this.roofMat.bumpMap = this.roofMat.map; this.roofMat.bumpScale = .07

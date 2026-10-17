@@ -27,12 +27,13 @@ import {
   resolveShadowMapSize,
   setDirectionalShadowMapSize,
 } from './world/Sky'
-import { createTerrain, getTerrainHeight, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveObstacleCollision } from './world/Terrain'
+import { createTerrain, getTerrainHeight, resetTerrainScenePolicy, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveObstacleCollision } from './world/Terrain'
 import {
   createBridgePreviewSpawnPlan,
   createRiverCrossingBattlefield,
   getRiverCrossingTreeClearances,
   RIVER_CROSSING_LAYOUT,
+  settleRiverCrossingDrowning,
 } from './world/RiverCrossingBattlefield'
 import { Player, DEFAULT_PLAYER_MAX_HP } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
@@ -3447,6 +3448,7 @@ export class Game {
   }
 
   private _disposeCareerOutpostBattleActors(): void {
+    resetTerrainScenePolicy()
     this.compass?.dispose()
     this.compass = undefined
     this.spawningStopped = true
@@ -4821,6 +4823,7 @@ export class Game {
     // 4. Entity Collision
     if (profile) t0 = performance.now()
     this._resolveEntityCollisions()
+    settleRiverCrossingDrowning(this.player, this.npcs, this.mounts, this.hpBar)
     const collisionMs = profile ? performance.now() - t0 : 0
 
     // 5. Arrow / Projectile

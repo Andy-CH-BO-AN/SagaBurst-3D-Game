@@ -8,6 +8,7 @@ import { createPineVisual, environmentRandom, timberMaterial } from './Environme
 import type { AIType } from './NPC'
 import { proceduralMaterial } from './ProceduralMaterials'
 import {
+  getBaseProceduralTerrainHeight,
   getTerrainHeight,
   isRiverCrossingTerrainActive,
   type ObstacleData,
@@ -106,6 +107,36 @@ export interface CavalrySquadStagingPlan {
   slots: DeploymentSlot[]
 }
 
+export interface DrownableMountLike {
+  readonly dead: boolean
+  readonly disposed?: boolean
+  readonly maxHp: number
+  readonly isAirborne?: boolean
+  readonly isFlyingMount?: boolean
+  readonly group: { position: THREE.Vector3 }
+  readonly riderPlayer?: DrownablePlayerLike | null
+  readonly riderNpc?: DrownableNpcLike | null
+  takeDamage(amount: number): boolean
+}
+
+export interface DrownablePlayerLike {
+  readonly dead: boolean
+  readonly maxHp: number
+  readonly position: THREE.Vector3
+  readonly isMounted: boolean
+  readonly currentMount: DrownableMountLike | null
+  takeFallDamage(amount: number, hpBar: { setFill(ratio: number): void }): boolean
+}
+
+export interface DrownableNpcLike {
+  readonly dead: boolean
+  readonly maxHp: number
+  readonly position: THREE.Vector3
+  readonly isMounted: boolean
+  readonly mount: DrownableMountLike | null
+  takeFallDamage(amount: number): boolean
+}
+
 /**
  * River centerline Z as a function of world X.
  * Straight (z = 0) across the central bridge corridor (|x| <= 38m) for clear
@@ -155,24 +186,16 @@ export function isPointOnBridgeDeck(x: number, z: number, radius = 0): boolean {
 }
 
 /**
- * Scene-isolated terrain height policy for the River Crossing Battlefield.
- * Preserves continuous ground physics across both banks and the bridge deck
- * while carving the recessed river channel outside the bridge footprint.
+ * Natural riverbank and recessed riverbed height across all X (including beneath the bridge).
  */
-export function getRiverCrossingTerrainHeight(
+export function getRiverCrossingChannelTerrainHeight(
   x: number,
   z: number,
   baseHeight: number,
 ): number {
-  const { bridge, river } = RIVER_CROSSING_LAYOUT
+  const { river } = RIVER_CROSSING_LAYOUT
   const absX = Math.abs(x)
   const absZ = Math.abs(z)
-
-  // 1. Inside the stone bridge footprint, ground height follows the continuous bridge deck.
-  if (absX <= bridge.halfTotalWidth && absZ <= bridge.halfLength) {
-    return getBridgeDeckHeight(z)
-  }
-
   const centerZ = getRiverCenterZ(x)
   const riverDistZ = Math.abs(z - centerZ)
 
@@ -184,20 +207,205 @@ export function getRiverCrossingTerrainHeight(
   const flattenFactor = Math.max(approachFlatX * approachFlatZ * 0.88, bankEdgeFlatZ)
   const bankGroundY = baseHeight * (1 - flattenFactor)
 
-  // 2. River channel carving outside the bridge footprint.
   if (riverDistZ < river.halfBankWidth) {
     const channelBlend = 1 - THREE.MathUtils.smoothstep(riverDistZ, 13.0, river.halfBankWidth)
-    const carvedRiverY = THREE.MathUtils.lerp(bankGroundY, river.riverbedY, channelBlend)
+    return THREE.MathUtils.lerp(bankGroundY, river.riverbedY, channelBlend)
+  }
+  return bankGroundY
+}
 
-    // Smooth lateral transition across the stone pier/parapet margin (x in [9.4, 10.8]).
-    if (absX < bridge.halfTotalWidth + 1.4 && absZ <= bridge.halfLength) {
-      const sideBlend = THREE.MathUtils.smoothstep(absX, bridge.halfTotalWidth, bridge.halfTotalWidth + 1.4)
-      return THREE.MathUtils.lerp(getBridgeDeckHeight(z), carvedRiverY, sideBlend)
+/**
+ * Scene-isolated terrain height policy for the River Crossing Battlefield.
+ * Preserves continuous ground physics across both banks and the bridge deck
+ * while carving the recessed river channel outside the bridge footprint.
+ */
+export function getRiverCrossingTerrainHeight(
+  x: number,
+  z: number,
+  baseHeight: number,
+): number {
+  const { bridge } = RIVER_CROSSING_LAYOUT
+  if (Math.abs(x) <= bridge.halfTotalWidth && Math.abs(z) <= bridge.halfLength) {
+    return getBridgeDeckHeight(z)
+  }
+  return getRiverCrossingChannelTerrainHeight(x, z, baseHeight)
+}
+
+/**
+ * Rendered terrain mesh vertex height for the River Crossing Battlefield.
+ * Carves the recessed riverbed (-3.2m, below waterSurfaceY = -1.15m) all the way
+ * underneath the bridge arches so soil never fills the space under the bridge,
+ * while tucking the North/South bank abutments cleanly below the stone deck slab.
+ */
+export function getRiverCrossingMeshTerrainHeight(
+  x: number,
+  z: number,
+  baseHeight: number,
+): number {
+  const { bridge } = RIVER_CROSSING_LAYOUT
+  const channelY = getRiverCrossingChannelTerrainHeight(x, z, baseHeight)
+  if (Math.abs(x) <= bridge.halfTotalWidth && Math.abs(z) <= bridge.halfLength) {
+    return Math.min(channelY, getBridgeDeckHeight(z) - 0.28)
+  }
+  return channelY
+}
+
+/**
+ * Pure River Crossing terrain height sampler using the formal procedural baseHeight
+ * (independent of whether a River Crossing scene is currently active).
+ */
+export function sampleRiverCrossingTerrainHeight(x: number, z: number): number {
+  return getRiverCrossingTerrainHeight(x, z, getBaseProceduralTerrainHeight(x, z, null))
+}
+
+/**
+ * Ray intersection against the walkable stone bridge roadway when River Crossing
+ * terrain is active (used by FormationController so aiming at the bridge hits the
+ * deck at y ≈ 0..0.45m rather than the recessed riverbed mesh at y = -3.2m).
+ */
+export function findRiverBridgeDeckHit(
+  ray: THREE.Ray,
+): { hitPoint: THREE.Vector3; distance: number } | null {
+  if (!isRiverCrossingTerrainActive()) return null
+  const { bridge } = RIVER_CROSSING_LAYOUT
+  const box = new THREE.Box3(
+    new THREE.Vector3(-bridge.halfClearWidth, -0.2, -bridge.halfLength),
+    new THREE.Vector3(bridge.halfClearWidth, bridge.archCrownHeight + 0.2, bridge.halfLength),
+  )
+  const entry = new THREE.Vector3()
+  if (!ray.intersectBox(box, entry)) return null
+  const minDist = Math.max(0, ray.origin.distanceTo(entry) - 1)
+  const maxDist = minDist + bridge.halfLength * 2.5 + 8
+  const steps = 32
+  const point = new THREE.Vector3()
+  let prevDist = minDist
+  ray.at(prevDist, point)
+  let prevGap = point.y - getBridgeDeckHeight(point.z)
+  for (let i = 1; i <= steps; i++) {
+    const d = minDist + ((maxDist - minDist) * i) / steps
+    ray.at(d, point)
+    if (Math.abs(point.x) > bridge.halfClearWidth || Math.abs(point.z) > bridge.halfLength) {
+      prevDist = d
+      prevGap = point.y - getBridgeDeckHeight(point.z)
+      continue
     }
-    return carvedRiverY
+    const gap = point.y - getBridgeDeckHeight(point.z)
+    if (prevGap >= -0.02 && gap <= 0.02) {
+      const t = prevGap === gap ? 0 : THREE.MathUtils.clamp(prevGap / (prevGap - gap), 0, 1)
+      const hitDist = THREE.MathUtils.lerp(prevDist, d, t)
+      const hitPoint = ray.at(hitDist, new THREE.Vector3())
+      hitPoint.y = getBridgeDeckHeight(hitPoint.z)
+      return { hitPoint, distance: hitDist }
+    }
+    prevDist = d
+    prevGap = gap
+  }
+  return null
+}
+
+/**
+ * Returns true if an actor at (x, feetY, z) has entered the river water in the
+ * River Crossing Battlefield and should immediately drown.
+ * - Actors standing on the stone bridge structure or on dry riverbanks above water do not drown.
+ * - Giant Eagles flying above the water surface do not drown unless they drop into the water.
+ */
+export function shouldDrownInRiverCrossing(
+  x: number,
+  feetY: number,
+  z: number,
+  options: { isAirborneEagle?: boolean } = {},
+): boolean {
+  if (!isRiverCrossingTerrainActive()) return false
+  const { river, bridge } = RIVER_CROSSING_LAYOUT
+  const waterContactY = river.waterSurfaceY + 0.08
+  if (options.isAirborneEagle && feetY > waterContactY) return false
+  if (
+    Math.abs(x) <= bridge.halfTotalWidth
+    && Math.abs(z) <= bridge.halfLength
+    && feetY >= getBridgeDeckHeight(z) - 0.35
+  ) {
+    return false
+  }
+  const centerZ = getRiverCenterZ(x)
+  if (Math.abs(z - centerZ) > river.blockerHalfWidth) return false
+  return feetY <= waterContactY
+}
+
+/**
+ * Applies instant drowning to any living Player, NPC, or Mount that touches or
+ * falls below the river water surface in the River Crossing Battlefield.
+ * Mounted actors settle both mount and rider in the same step so no living rider
+ * or ownerless living mount remains in the river, with once-only death callbacks.
+ */
+export function settleRiverCrossingDrowning(
+  player: DrownablePlayerLike | null | undefined,
+  npcs: readonly DrownableNpcLike[],
+  mounts: readonly DrownableMountLike[],
+  hpBar: { setFill(ratio: number): void } = { setFill() {} },
+): number {
+  if (!isRiverCrossingTerrainActive()) return 0
+  const waterSurfaceY = RIVER_CROSSING_LAYOUT.river.waterSurfaceY
+  let drownedCount = 0
+
+  const drownMountAndRider = (mount: DrownableMountLike): void => {
+    const riderPlayer = mount.riderPlayer ?? (player?.currentMount === mount ? player : null)
+    const riderNpc = mount.riderNpc ?? null
+    if (!mount.dead && !mount.disposed) {
+      if (mount.takeDamage(mount.maxHp * 100)) drownedCount++
+    }
+    if (riderPlayer && !riderPlayer.dead) {
+      riderPlayer.position.y = Math.min(riderPlayer.position.y, waterSurfaceY + 0.95)
+      if (riderPlayer.takeFallDamage(riderPlayer.maxHp * 100, hpBar)) drownedCount++
+    }
+    if (riderNpc && !riderNpc.dead) {
+      riderNpc.position.y = Math.min(riderNpc.position.y, waterSurfaceY)
+      if (riderNpc.takeFallDamage(riderNpc.maxHp * 100)) drownedCount++
+    }
   }
 
-  return bankGroundY
+  for (const mount of mounts) {
+    if (mount.dead || mount.disposed) continue
+    const pos = mount.group.position
+    const isAirborneEagle = Boolean(mount.isFlyingMount && mount.isAirborne)
+    if (shouldDrownInRiverCrossing(pos.x, pos.y, pos.z, { isAirborneEagle })) {
+      drownMountAndRider(mount)
+    }
+  }
+
+  if (player && !player.dead) {
+    const mount = player.isMounted ? player.currentMount : null
+    if (mount && !mount.dead && !mount.disposed) {
+      const mPos = mount.group.position
+      const isAirborneEagle = Boolean(mount.isFlyingMount && mount.isAirborne)
+      if (shouldDrownInRiverCrossing(mPos.x, mPos.y, mPos.z, { isAirborneEagle })) {
+        drownMountAndRider(mount)
+      }
+    } else {
+      const feetY = player.position.y - 0.95
+      if (shouldDrownInRiverCrossing(player.position.x, feetY, player.position.z)) {
+        if (player.takeFallDamage(player.maxHp * 100, hpBar)) drownedCount++
+      }
+    }
+  }
+
+  for (const npc of npcs) {
+    if (npc.dead) continue
+    const mount = npc.isMounted ? npc.mount : null
+    if (mount && !mount.dead && !mount.disposed) {
+      const mPos = mount.group.position
+      const isAirborneEagle = Boolean(mount.isFlyingMount && mount.isAirborne)
+      if (shouldDrownInRiverCrossing(mPos.x, mPos.y, mPos.z, { isAirborneEagle })) {
+        drownMountAndRider(mount)
+      }
+    } else {
+      const pos = npc.position
+      if (shouldDrownInRiverCrossing(pos.x, pos.y, pos.z)) {
+        if (npc.takeFallDamage(npc.maxHp * 100)) drownedCount++
+      }
+    }
+  }
+
+  return drownedCount
 }
 
 /**
@@ -256,10 +464,11 @@ export function createRiverCrossingObstacleData(): ObstacleData[] {
   const obstacles: ObstacleData[] = []
   const { river, bridge, northDefense } = RIVER_CROSSING_LAYOUT
 
-  // 1. River channel blockers (West and East of the bridge).
-  // Ground units and A* navigation are blocked across the full playable width,
-  // while arrows/javelins (projectilePassable: true) and ThirdPersonCamera
-  // (projectileBoxes: []) pass above the water unimpeded.
+  // 1. River channel navigation & AI blockers (West and East of the bridge).
+  // A* navigation, NPC pathfinding, obstacle avoidance, and formation placement
+  // treat the river as impassable across the full playable width, while
+  // physicalPassable: true lets any unit that manually jumps off the bridge or
+  // walks off the bank enter the water and immediately drown.
   const spanLength = river.blockerExtentX - bridge.halfClearWidth
   const stepX = spanLength / river.segmentCountPerSide
   for (const side of [-1, 1] as const) {
@@ -274,16 +483,18 @@ export function createRiverCrossingObstacleData(): ObstacleData[] {
       obstacles.push({
         box: new THREE.Box3(
           new THREE.Vector3(minX, -8.0, centerZ - river.blockerHalfWidth),
-          new THREE.Vector3(maxX, 8.0, centerZ + river.blockerHalfWidth),
+          new THREE.Vector3(maxX, 4.0, centerZ + river.blockerHalfWidth),
         ),
         isBarricade: false,
+        physicalPassable: true,
         projectilePassable: true,
         projectileBoxes: [],
       })
     }
   }
 
-  // 2. Bridge stone parapets & side pier projectile volumes.
+  // 2. Bridge stone parapets (strictly outside the 16.8m clear roadway) and
+  // separate stone pier obstacles (so each pier's broad-phase box matches its projectileBoxes).
   const deckPeakY = bridge.archCrownHeight
   const parapetTopY = deckPeakY + bridge.parapetHeight
   for (const side of [-1, 1] as const) {
@@ -293,23 +504,25 @@ export function createRiverCrossingObstacleData(): ObstacleData[] {
       new THREE.Vector3(minX, -0.4, -bridge.halfLength),
       new THREE.Vector3(maxX, parapetTopY, bridge.halfLength),
     )
-    const projectileBoxes: THREE.Box3[] = [parapetBox.clone()]
-    for (const pierZ of bridge.pierZPositions) {
-      const pierMinX = side < 0 ? minX - 1.3 : minX
-      const pierMaxX = side < 0 ? maxX : maxX + 1.3
-      projectileBoxes.push(
-        new THREE.Box3(
-          new THREE.Vector3(pierMinX, river.riverbedY, pierZ - 2.2),
-          new THREE.Vector3(pierMaxX, deckPeakY + 0.25, pierZ + 2.2),
-        ),
-      )
-    }
-
     obstacles.push({
       box: parapetBox,
       isBarricade: false,
-      projectileBoxes,
+      projectileBoxes: [parapetBox.clone()],
     })
+
+    for (const pierZ of bridge.pierZPositions) {
+      const pierMinX = side < 0 ? minX - 1.3 : minX
+      const pierMaxX = side < 0 ? maxX : maxX + 1.3
+      const pierBox = new THREE.Box3(
+        new THREE.Vector3(pierMinX, river.riverbedY, pierZ - 2.2),
+        new THREE.Vector3(pierMaxX, deckPeakY + 0.25, pierZ + 2.2),
+      )
+      obstacles.push({
+        box: pierBox,
+        isBarricade: false,
+        projectileBoxes: [pierBox.clone()],
+      })
+    }
   }
 
   // 3. North Bank military defensive walls (two wing walls with a 20.8m central passage).
@@ -403,7 +616,7 @@ export function planNorthBankInfantryDeployment(): InfantrySquadDeploymentPlan[]
       for (let col = 0; col < columns; col++) {
         const x = cfg.centerX + (col - (columns - 1) * 0.5) * spacingX
         const z = cfg.frontZ - row * spacingZ
-        const y = getRiverCrossingTerrainHeight(x, z, 0)
+        const y = sampleRiverCrossingTerrainHeight(x, z)
         slots.push({ x, y, z, yaw: 0 })
       }
     }
@@ -449,7 +662,7 @@ export function planSouthBankCavalryStaging(): CavalrySquadStagingPlan[] {
       for (let col = 0; col < columns; col++) {
         const x = cfg.centerX + (col - (columns - 1) * 0.5) * spacingX
         const z = cfg.frontZ + row * spacingZ
-        const y = getRiverCrossingTerrainHeight(x, z, 0)
+        const y = sampleRiverCrossingTerrainHeight(x, z)
         slots.push({ x, y, z, yaw: Math.PI })
       }
     }
@@ -747,17 +960,17 @@ export function createRiverCrossingBattlefield(
       ),
     )
 
-    // Outer stone fascia / arch spandrel beam under the parapet
+    // Outer stone fascia cornice under the parapet
     bridgeTrimParts.push(
       createDeformedSlabGeometry(
-        0.85,
-        1.15,
+        0.88,
+        0.46,
         bridge.halfLength * 2,
         parapetCenterX - side * 0.05,
         0,
         24,
         z => getBridgeDeckHeight(z),
-        -0.55,
+        -0.24,
       ),
     )
 
@@ -793,7 +1006,7 @@ export function createRiverCrossingBattlefield(
       )
     }
 
-    // Heavy stone piers & triangular cutwaters anchored into the riverbed
+    // Heavy stone side piers & triangular cutwaters anchored into the riverbed
     for (const pierZ of bridge.pierZPositions) {
       const deckY = getBridgeDeckHeight(pierZ)
       const pierHeight = deckY - river.riverbedY + 0.2
@@ -810,17 +1023,70 @@ export function createRiverCrossingBattlefield(
       bridgeStoneParts.push(cutwater)
     }
 
-    // Bank abutment retaining walls at z = ±19.5
+    // Side bank abutment retaining wing walls at z = ±19.8
     for (const bankSign of [-1, 1] as const) {
-      const abutmentZ = bankSign * 19.5
+      const abutmentZ = bankSign * 19.8
       bridgeTrimParts.push(
-        new THREE.BoxGeometry(3.6, 3.4, 2.2).translate(
+        new THREE.BoxGeometry(3.6, 3.4, 2.4).translate(
           side * (bridge.halfTotalWidth + 1.4),
           -1.2,
           abutmentZ,
         ),
       )
     }
+  }
+
+  // Full-width stone piers anchored into the riverbed at z = -12, 0, 12
+  for (const pierZ of bridge.pierZPositions) {
+    const deckY = getBridgeDeckHeight(pierZ)
+    const pierHeight = deckY - river.riverbedY + 0.05
+    const pierCenterY = river.riverbedY + pierHeight * 0.5
+    bridgeTrimParts.push(
+      new THREE.BoxGeometry(bridge.halfTotalWidth * 2, pierHeight, 2.8).translate(0, pierCenterY, pierZ),
+    )
+  }
+
+  // Full-width North & South bank stone abutments at z = ±20.2
+  for (const bankSign of [-1, 1] as const) {
+    const abutmentZ = bankSign * 20.2
+    const deckY = getBridgeDeckHeight(abutmentZ)
+    const abutmentHeight = deckY - river.riverbedY + 0.05
+    const abutmentCenterY = river.riverbedY + abutmentHeight * 0.5
+    bridgeTrimParts.push(
+      new THREE.BoxGeometry(bridge.halfTotalWidth * 2 + 0.4, abutmentHeight, 3.4).translate(
+        0,
+        abutmentCenterY,
+        abutmentZ,
+      ),
+    )
+  }
+
+  // Four vaulted stone arch barrels spanning between the piers and bank abutments over open water
+  const archSpans: readonly [number, number][] = [
+    [-18.8, -13.2],
+    [-10.8, -1.2],
+    [1.2, 10.8],
+    [13.2, 18.8],
+  ]
+  for (const [spanMinZ, spanMaxZ] of archSpans) {
+    const spanCenterZ = (spanMinZ + spanMaxZ) * 0.5
+    const spanLenZ = spanMaxZ - spanMinZ
+    bridgeStoneParts.push(
+      createDeformedSlabGeometry(
+        bridge.halfTotalWidth * 2 - 0.15,
+        0.28,
+        spanLenZ,
+        0,
+        spanCenterZ,
+        10,
+        worldZ => {
+          const u = THREE.MathUtils.clamp((worldZ - spanCenterZ) / (spanLenZ * 0.5), -1, 1)
+          const archRise = (1 - u * u) * 0.88
+          return -1.02 + archRise + getBridgeDeckHeight(worldZ) * 0.35
+        },
+        0,
+      ),
+    )
   }
 
   // 3. North Bank military defensive walls (West and East wings with firing steps).
