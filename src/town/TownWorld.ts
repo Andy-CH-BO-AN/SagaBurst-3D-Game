@@ -1,5 +1,5 @@
 import { createTownCommandWatchtower } from './TownCommandWatchtower'
-import { getTownCommandWatchtowerLayout, validateWatchtowerPlacement } from './TownCommandWatchtowerLayout'
+import { getTownCommandWatchtowerLayout, validateWatchtowerPlacement, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
 import { resolveTownEagleGarrison, TOWN_EAGLE_GARRISON_NAME, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import { XONGKORO_LANDING } from '../world/EagleLanding'
@@ -15,17 +15,25 @@ import { Faction } from '../combat/CombatFaction'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { TOWN_SITES } from './TownRules'
 import { DamageableObstacle } from '../world/DamageableObstacle'
-import { getTerrainHeight, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
+import { getTerrainHeight, resetTerrainScenePolicy, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_GROUND_SIZE, TOWN_BANDIT_CAMP_CENTERS, townSceneryPoint, nearTownBanditCamp } from './TownBounds'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { proceduralMaterial } from '../world/ProceduralMaterials'
+
+/** Resets battlefield-specific terrain policies before sampling Town watchtower or ground heights. */
+export function initializeTownWorldTerrain(scene?: { userData: Record<string, unknown> }): CommandWatchtowerLayout {
+  resetTerrainScenePolicy()
+  if (scene) setScenePlayableWorldBound(scene as THREE.Scene, TOWN_PLAYABLE_WORLD_BOUND)
+  return getTownCommandWatchtowerLayout()
+}
+
 export class TownWorld {
   readonly root = new THREE.Group()
   readonly roads: TownRoad[] = []
   readonly hr: TownHRLayout
   readonly eagleGarrison: TownEagleGarrisonLayout
   readonly eagleTraining: TownEagleTrainingGround
-  readonly commandWatchtower = getTownCommandWatchtowerLayout()
+  readonly commandWatchtower: CommandWatchtowerLayout
   readonly townCenterHeight: number
   readonly terrainMesh: THREE.Mesh
   readonly obstacles: ObstacleData[] = []
@@ -48,7 +56,7 @@ export class TownWorld {
   private readonly snow = this.mat(0xd8e3ea)
   private readonly canvas = this.mat(0xa89471)
   constructor(readonly faction: CharacterFaction, scene: THREE.Scene, private readonly ownerAllegiance: Faction = Faction.TOWN) {
-    setScenePlayableWorldBound(scene, TOWN_PLAYABLE_WORLD_BOUND)
+    this.commandWatchtower = initializeTownWorldTerrain(scene)
     scene.add(this.root)
     this.roofMat.color.setHex(0xffffff); this.roofMat.map = this.surfaceTexture(faction === 'roman' ? 'tile' : 'thatch'); this.roofMat.bumpMap = this.roofMat.map; this.roofMat.bumpScale = .07
     this.stone.map = this.surfaceTexture('stone'); this.stone.color.setHex(0xffffff)

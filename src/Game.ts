@@ -27,7 +27,14 @@ import {
   resolveShadowMapSize,
   setDirectionalShadowMapSize,
 } from './world/Sky'
-import { createTerrain, getTerrainHeight, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveObstacleCollision } from './world/Terrain'
+import { createTerrain, getTerrainHeight, resetTerrainScenePolicy, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveObstacleCollision } from './world/Terrain'
+import {
+  createBridgePreviewSpawnPlan,
+  createRiverCrossingBattlefield,
+  getRiverCrossingTreeClearances,
+  RIVER_CROSSING_LAYOUT,
+  settleRiverCrossingDrowning,
+} from './world/RiverCrossingBattlefield'
 import { Player, DEFAULT_PLAYER_MAX_HP } from './player/Player'
 import { PlayerInput } from './player/PlayerInput'
 import { ThirdPersonCamera } from './camera/ThirdPersonCamera'
@@ -821,6 +828,7 @@ export class Game {
     const isRomanDefenseDevScenario = import.meta.env.DEV
       && (startupDevCombat === 'j' || startupDevCombat === 'scenarioj')
     const previewOutpostQuery = !this.isTrainingGround && import.meta.env.DEV ? startupQuery.get('campaignoutpost') : null
+    const isBridgePreview = !this.isTrainingGround && import.meta.env.DEV && startupQuery.has('bridgepreview')
     const previewOutpostFaction = campaignConfig
       ? careerVeteranOutpostOwner(campaignConfig)
       ?? (isRomanDefenseDevScenario
@@ -856,8 +864,13 @@ export class Game {
       damageableObstacles,
     } = createTerrain(this.scene, {
       fortifiedCampFaction: previewOutpostFaction,
-      treeClearances: siegeTreeClearances,
+      riverCrossing: isBridgePreview,
+      treeClearances: isBridgePreview ? getRiverCrossingTreeClearances() : siegeTreeClearances,
     })
+
+    if (isBridgePreview) {
+      createRiverCrossingBattlefield(this.scene, { obstacles, obstacleMeshes })
+    }
 
     // Defense Campaign owns the same faction-neutral outpost used by DEV preview.
     if (previewOutpostFaction) {
@@ -938,7 +951,7 @@ export class Game {
     this.player = new Player(this.scene, playerFaction, playerHeroId, campaignConfig?.playerVisualTier ?? battleConfig?.playerVisualTier)
     // Release and diagnostic armies are ahead at -Z for Viking, +Z for Roman. Establish the actor's
     // heading first; the camera derives its rear orbit from that heading.
-    this.player.faceDirection(0, isRoman ? 1 : -1)
+    this.player.faceDirection(0, isBridgePreview ? 1 : (isRoman ? 1 : -1))
 
     const query = startupQuery
     const benchmarkSettings = import.meta.env.DEV && !this.isTrainingGround ? parseHeroBenchmarkQuery(query) : null
@@ -989,6 +1002,8 @@ export class Game {
     } else if (heroBenchmark) {
       activeBattleConfig = heroBenchmark.config
       battlePlan = heroBenchmark.plan
+    } else if (isBridgePreview) {
+      battlePlan = createBridgePreviewSpawnPlan(playerFaction)
     } else if (this.isDevCombat) {
       this.combatTrajectoryDebugger = new CombatTrajectoryDebugger(this.scene)
       const devVal = query.get('devcombat')?.toLowerCase()
@@ -1068,7 +1083,7 @@ export class Game {
       this.player.group.position.set(playerSpawn.x, terrainY + 0.95, playerSpawn.z)
       this.player.spawnX = playerSpawn.x
       this.player.spawnZ = playerSpawn.z
-      this.thirdPersonCamera.setYaw(isRoman ? Math.PI : 0)
+      this.thirdPersonCamera.setYaw(isBridgePreview ? Math.PI : (isRoman ? Math.PI : 0))
     }
 
     this.lockOverlay    = document.getElementById('lock-overlay')!
@@ -1175,6 +1190,48 @@ export class Game {
           ...(campaignConfig.careerMissionKind === 'captain-outpost-defense' ? { veteranMission: true, missionTitle: 'Frontline Command · 前線指揮' } : {}),
         },
       )
+    } else if (isBridgePreview && battlePlan) {
+      await this._executeBattleSpawnPlan(battlePlan, progress)
+      const bridgeMode = startupQuery.get('bridgepreview')?.toLowerCase()
+      const laneXs = RIVER_CROSSING_LAYOUT.bridge.laneXPositions
+      const southFacing = new THREE.Vector3(0, 0, 1)
+      const northFacing = new THREE.Vector3(0, 0, -1)
+      let friendlySlot = 0
+      let enemySlot = 0
+      for (const npc of this.npcs) {
+        if (bridgeMode === 'hold') {
+          npc.setTacticalOrder('defend')
+          continue
+        }
+        if (npc.faction === Faction.PLAYER) {
+          const gx = laneXs[friendlySlot % laneXs.length]
+          const gz = 38
+          npc.assignFormationTarget(
+            friendlySlot + 1,
+            new THREE.Vector3(gx, getTerrainHeight(gx, gz), gz),
+            southFacing,
+            undefined,
+            'defend',
+          )
+          friendlySlot++
+        } else {
+          const gx = laneXs[enemySlot % laneXs.length]
+          const gz = -38
+          npc.assignFormationTarget(
+            enemySlot + 1,
+            new THREE.Vector3(gx, getTerrainHeight(gx, gz), gz),
+            northFacing,
+            undefined,
+            'defend',
+          )
+          enemySlot++
+        }
+      }
+      const extraCorgi = new Mount(this.scene, MountType.CORGI, -5.5, -34)
+      const extraCat = new Mount(this.scene, MountType.BLACK_CAT, 5.5, -34)
+      this.mounts.push(extraCorgi, extraCat)
+      this._aimTargetRegistry.registerMount(extraCorgi)
+      this._aimTargetRegistry.registerMount(extraCat)
     } else if (this.isDevCombat && battlePlan) {
       await this._executeBattleSpawnPlan(battlePlan, progress)
       if (isRomanDefenseDevScenario) {
@@ -1232,7 +1289,7 @@ export class Game {
         campaignConfig?.playerMountAppearanceVariant ?? 0,
       )
       this.startingHorse = startingHorse
-      const reliefHeading = campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
+      const reliefHeading = isBridgePreview ? 0 : campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
       const mountHeading = reliefHeading ?? (isRoman ? 0 : Math.PI)
       if (startingHorse.isFlyingMount) {
         const landing = findEagleLandingPosition({ ...playerSpawn, yaw: mountHeading }, this.obstacles, [], 300, 140)
@@ -1240,9 +1297,9 @@ export class Game {
         startingHorse.group.position.copy(landing)
       }
       this.mounts.push(startingHorse)
-      this.player.faceDirection(0, isRoman ? 1 : -1)
+      this.player.faceDirection(0, isBridgePreview ? 1 : (isRoman ? 1 : -1))
       this._mountPlayer(startingHorse, startingHorse.isFlyingMount ? mountHeading : reliefHeading)
-      if (reliefHeading !== undefined) this.thirdPersonCamera.setYaw(isRoman ? 0 : Math.PI)
+      if (reliefHeading !== undefined) this.thirdPersonCamera.setYaw(isBridgePreview ? Math.PI : (isRoman ? 0 : Math.PI))
     }
     
     this.damageNumbers = new DamageNumbers()
@@ -1302,7 +1359,7 @@ export class Game {
         if (order !== 'follow') this.soundManager.playCommanderCommand(playerFaction, order)
         if (this.hasCareerOfficialCommand) this._persistPersonalOutpost(true)
       },
-      campaignConfig ? 'defend' : this.isDevCombat ? 'defend' : 'attack',
+      campaignConfig ? 'defend' : (this.isDevCombat || isBridgePreview) ? 'defend' : 'attack',
       (order) => {
         if (this.hasCareerOfficialCommand && (this.player.dead || this._careerCommandFinished())) return false
         if (this.personalSquad) return !this.player.dead && this.controlMode !== 'spectator'
@@ -1323,7 +1380,7 @@ export class Game {
       } : undefined,
       this.hasCareerOfficialCommand ? this._captainCommandAuthority() : undefined,
       this.careerProfile && (this.hasCareerOfficialCommand || this.personalSquad) ? () => this._careerCommandHudRoster() : undefined,
-      Boolean(campaignConfig || isRomanDefenseDevScenario || previewOutpostFaction) && !this.personalSquad && !this.hasCareerOfficialCommand,
+      Boolean(campaignConfig || isRomanDefenseDevScenario || previewOutpostFaction || isBridgePreview) && !this.personalSquad && !this.hasCareerOfficialCommand,
       (_target, recipients) => {
         let slotIndex = 0
         for (const npc of recipients) {
@@ -3391,6 +3448,7 @@ export class Game {
   }
 
   private _disposeCareerOutpostBattleActors(): void {
+    resetTerrainScenePolicy()
     this.compass?.dispose()
     this.compass = undefined
     this.spawningStopped = true
@@ -4765,6 +4823,7 @@ export class Game {
     // 4. Entity Collision
     if (profile) t0 = performance.now()
     this._resolveEntityCollisions()
+    settleRiverCrossingDrowning(this.player, this.npcs, this.mounts, this.hpBar)
     const collisionMs = profile ? performance.now() - t0 : 0
 
     // 5. Arrow / Projectile

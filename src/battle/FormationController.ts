@@ -20,6 +20,7 @@ import { OUTPOST_WALKWAY, type OutpostWalkwayBridge, type OutpostWalkwayDeck } f
 import { getWalkRampHeight } from '../world/Terrain'
 import { getOutpostRampartArcherSlots } from '../campaign/OutpostRampartGarrison'
 import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
+import { findRiverBridgeDeckHit } from '../world/RiverCrossingBattlefield'
 import { XONGKORO } from '../movement/XongkoroConfig'
 
 /** Exact resolved checkpoint, available to save before the corresponding NPC mutation. */
@@ -146,7 +147,8 @@ export class FormationController {
     this.raycaster.setFromCamera(this.screenCenter, this.camera)
     const intersections = this.raycaster.intersectObject(this.terrainMesh, false)
     const deckHit = this.findTownRampartHit(this.raycaster.ray) ?? this.findRampartDeckHit(this.raycaster.ray)
-    if ((intersections.length === 0 && !deckHit) || this.previewParticipants.length === 0) {
+    const bridgeHit = findRiverBridgeDeckHit(this.raycaster.ray)
+    if ((intersections.length === 0 && !deckHit && !bridgeHit) || this.previewParticipants.length === 0) {
       this.previewParticipantsSignature = ''
       this.previewBlocked = false
       this.previewInitialized = false
@@ -155,11 +157,16 @@ export class FormationController {
       return
     }
 
-    const hitCenter = deckHit && (intersections.length === 0 || deckHit.distance < intersections[0].distance)
-      ? deckHit.hitPoint.clone()
-      : intersections[0].point.clone()
+    const terrainDistance = intersections.length > 0 ? intersections[0].distance : Infinity
+    const useDeckHit = Boolean(deckHit && deckHit.distance < terrainDistance && (!bridgeHit || deckHit.distance <= bridgeHit.distance))
+    const useBridgeHit = Boolean(!useDeckHit && bridgeHit && bridgeHit.distance < terrainDistance)
+    const hitCenter = useDeckHit
+      ? deckHit!.hitPoint.clone()
+      : useBridgeHit
+        ? bridgeHit!.hitPoint.clone()
+        : intersections[0].point.clone()
     const outpostNav = this.navigationWorld?.outpostNav
-    const isDeckHit = Boolean(deckHit && (intersections.length === 0 || deckHit.distance < intersections[0].distance))
+    const isDeckHit = useDeckHit
       || Boolean(outpostNav && isRampartLayer(getOutpostNavLayer(hitCenter, outpostNav.layout)))
 
     if (!isDeckHit) {

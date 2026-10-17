@@ -10,6 +10,10 @@ import { createMeadow, meadowMaterial } from './Meadow'
 import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle'
 import type { CharacterFaction } from './CharacterVisuals'
 import { ObstacleCollisionSpatialIndex } from './ObstacleCollisionSpatialIndex'
+import {
+  getRiverCrossingMeshTerrainHeight,
+  getRiverCrossingTerrainHeight,
+} from './RiverCrossingBattlefield'
 
 /** Sine amplitudes bound every terrain valley; fortified camp offsets are nonnegative. */
 export const TERRAIN_MIN_HEIGHT = -3.7
@@ -72,22 +76,63 @@ export function clampToPlayableWorld(position: THREE.Vector3, bound = PLAYABLE_W
 }
 
 let activeFortifiedCampFaction: CharacterFaction | null = null
+let activeRiverCrossing = false
+const sceneRiverCrossing = new WeakMap<object, boolean>()
+
+export function setRiverCrossingTerrainActive(active: boolean): void {
+  activeRiverCrossing = Boolean(active)
+}
+
+export function isRiverCrossingTerrainActive(): boolean {
+  return activeRiverCrossing
+}
+
+export function setSceneRiverCrossing(scene: object, active: boolean): void {
+  const enabled = Boolean(active)
+  sceneRiverCrossing.set(scene, enabled)
+  activeRiverCrossing = enabled
+}
+
+export function isSceneRiverCrossing(scene: object): boolean {
+  return sceneRiverCrossing.get(scene) ?? false
+}
+
+export function resetTerrainScenePolicy(): void {
+  activeFortifiedCampFaction = null
+  activeRiverCrossing = false
+}
 
 export interface TerrainOptions {
   fortifiedCampFaction?: CharacterFaction | null
+  riverCrossing?: boolean
   treeClearances?: readonly THREE.Box3[]
+}
+
+/**
+ * Pure procedural terrain height before any River Crossing override.
+ */
+export function getBaseProceduralTerrainHeight(
+  x: number,
+  z: number,
+  fortifiedCampFaction: CharacterFaction | null = activeFortifiedCampFaction,
+): number {
+  const h1 = Math.sin(x * 0.04) * Math.cos(z * 0.04) * 2.5
+  const h2 = Math.sin(x * 0.09 + 1.2) * Math.cos(z * 0.08 + 0.5) * 1.2
+  const campOffset = fortifiedCampFaction
+    ? getFortifiedCampHeightOffset(x, z, fortifiedCampFaction)
+    : 0
+  return h1 + h2 + campOffset
 }
 
 /**
  * Calculates terrain Y height at any (x, z) world coordinate using smooth sine/cosine wave superposition.
  */
 export function getTerrainHeight(x: number, z: number): number {
-  const h1 = Math.sin(x * 0.04) * Math.cos(z * 0.04) * 2.5
-  const h2 = Math.sin(x * 0.09 + 1.2) * Math.cos(z * 0.08 + 0.5) * 1.2
-  const campOffset = activeFortifiedCampFaction
-    ? getFortifiedCampHeightOffset(x, z, activeFortifiedCampFaction)
-    : 0
-  return h1 + h2 + campOffset
+  const baseHeight = getBaseProceduralTerrainHeight(x, z, activeFortifiedCampFaction)
+  if (activeRiverCrossing) {
+    return getRiverCrossingTerrainHeight(x, z, baseHeight)
+  }
+  return baseHeight
 }
 
 /**
@@ -150,6 +195,8 @@ export interface ObstacleData {
   walkSurface?: WalkRampSurface
   /** Overhead structure: ground navigation grids must not treat its footprint as blocked. */
   navigationPassable?: boolean
+  /** Navigation/AI blocker whose volume does not physically push actors out (e.g. open water hazard). */
+  physicalPassable?: boolean
   /** Arrows and javelins fly through (e.g. raised planking that must not block ground archers). */
   projectilePassable?: boolean
 }
@@ -636,6 +683,7 @@ export function resolveEntityCollision(
       radius,
     )
     for (const obs of candidates) {
+      if (obs.physicalPassable) continue
       if (obs.walkSurface && (walkSurfaces || mountedSurfaces && obs.walkSurface.mounted)) continue
       if (b >= obs.box.max.y - 0.001 || t <= obs.box.min.y + 0.001) continue
       if (targetX + radius > obs.box.min.x && targetX - radius < obs.box.max.x &&
@@ -712,6 +760,7 @@ export function resolveObstacleCollision(
   let supportY: number | null = null
   if (velocityY <= 0) {
     for (const obstacle of candidates) {
+      if (obstacle.physicalPassable) continue
       const ramp = admittedRamp(obstacle)
       if (!ramp) continue
       const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
@@ -749,6 +798,7 @@ export function resolveObstacleCollision(
   }
 
   for (const obstacle of candidates) {
+    if (obstacle.physicalPassable) continue
     const bottomY = position.y - bottomOffset
     const topY = bottomY + height
     const ramp = admittedRamp(obstacle)
@@ -829,6 +879,7 @@ export function resolveObstacleCollision(
   // Do not retain that ramp's height/ground flag at an unsupported final X/Z.
   if (supportY !== null && Math.abs(position.y - bottomOffset - supportY) <= epsilon) {
     const supported = candidates.some(obstacle => {
+      if (obstacle.physicalPassable) return false
       const ramp = admittedRamp(obstacle)
       if (ramp) {
         const y = getWalkRampHeight(ramp, position.x, position.z)
@@ -852,15 +903,21 @@ export function createTerrain(
   options: TerrainOptions = {},
 ): TerrainResult {
   activeFortifiedCampFaction = options.fortifiedCampFaction ?? null
+  setSceneRiverCrossing(scene, Boolean(options.riverCrossing))
   const geometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, 256, 256)
   geometry.rotateX(-Math.PI / 2)
 
-  // Apply procedural height function to PlaneGeometry vertices
+  // Apply procedural height function to PlaneGeometry vertices.
+  // In River Crossing mode, the rendered terrain mesh carves the recessed riverbed
+  // all the way underneath the bridge arches rather than rising to the bridge deck.
   const posAttr = geometry.attributes.position
   for (let i = 0; i < posAttr.count; i++) {
     const vx = posAttr.getX(i)
     const vz = posAttr.getZ(i)
-    const vy = getTerrainHeight(vx, vz)
+    const baseHeight = getBaseProceduralTerrainHeight(vx, vz, activeFortifiedCampFaction)
+    const vy = activeRiverCrossing
+      ? getRiverCrossingMeshTerrainHeight(vx, vz, baseHeight)
+      : baseHeight
     posAttr.setY(i, vy)
   }
   geometry.computeVertexNormals()

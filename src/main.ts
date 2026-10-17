@@ -181,6 +181,7 @@ async function bootstrap(): Promise<void> {
   const isDevModels = query.has('devmodels')
   const isDamageableTest = import.meta.env.DEV && query.has('damageabletest')
   const isCampaignOutpostPreview = import.meta.env.DEV && query.has('campaignoutpost')
+  const isBridgePreview = import.meta.env.DEV && query.has('bridgepreview')
 
   // 1. Highest priority: Developer scene modes (bypass setup UI)
   // Note: legacyhumanoids is a rendering modifier, not a standalone scene mode
@@ -189,6 +190,7 @@ async function bootstrap(): Promise<void> {
     || isDevModels
     || isDamageableTest
     || isCampaignOutpostPreview
+    || isBridgePreview
     || (import.meta.env.DEV && query.has('devbowqa'))
   ) {
     await launchGame()
