@@ -79,8 +79,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Host node:path and bundle/traversal behavior require platform validation.
+      # Host node:path and bundle/traversal checks run only when this PR changes
+      # release/Electron/package inputs; ordinary gameplay PRs do not duplicate them.
       - run: npm run test:release
+        if: needs.logic.outputs.platform-node-required == 'true'
       - run: npm run package:desktop -- ${{ matrix.flags }}
       - run: npm run smoke:desktop -- --packaged "${{ matrix.executable }}"
       - uses: actions/upload-artifact@v4
