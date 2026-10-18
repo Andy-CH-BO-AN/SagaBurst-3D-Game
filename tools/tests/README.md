@@ -38,12 +38,13 @@ checking still runs separately for type-only contracts.
 
 Test tooling, workflow and package changes select dedicated CI/budget contract
 tests through explicit owner policy rather than repository Full. Release/Electron
-inputs select the Node publication contracts. Removed/renamed paths, unresolved
-computed imports/globs, unavailable Git history, unmapped non-document inputs, an
-empty code selection, or a Related selection above 500 fail closed and require an
-explicit dependency/owner mapping or a smaller change. They do not convert a dev PR
-into Full. The only empty success is a strictly allowlisted docs change; release
-notes are publication inputs and are excluded from that exception.
+inputs select the Node publication contracts in the same Related logic shard.
+Removed/renamed paths, unresolved computed imports/globs, unavailable Git history,
+unmapped non-document inputs, an empty code selection, or a Related selection above
+500 fail closed and require an explicit dependency/owner mapping or a smaller
+change. They do not convert a dev PR into Full. The only empty success is a strictly
+allowlisted docs change; release notes are publication inputs and are excluded from
+that exception.
 
 Node `.test.cjs` files under `tests/` are owned by the Node runner, not Vitest.
 `node-collect.cjs` collects actual synchronous registrations in a separate process
@@ -53,9 +54,8 @@ fail post-run completeness. Both runners' actual file/leaf inventories and fresh
 reports must match the manifest before aggregate succeeds.
 
 The reusable Actions workflow emits plan, shard and aggregate artifacts plus
-selection reasons and the Top 10 slow leaves. Ordinary gameplay and CI-tooling PRs
-do not rerun the Node release component on both Desktop hosts. Windows/macOS host
-Node checks are reserved for genuinely platform-sensitive inputs such as Electron,
-asset-path/smoke, desktop package metadata or the Release workflow; formal Release
-jobs always retain them. Build, typecheck, and Web/Desktop packaging/smoke retain
-their checks.
+selection reasons and the Top 10 slow leaves. A PR executes each selected logic case
+once in the logic gate; Desktop PR jobs validate packaging and smoke only, so they
+cannot duplicate cases past the Related 500 limit. Formal Release jobs retain the
+Windows/macOS Node component checks before publication. Build, typecheck, and
+Web/Desktop packaging/smoke retain their checks.
