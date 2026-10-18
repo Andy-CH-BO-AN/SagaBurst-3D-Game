@@ -61,14 +61,16 @@ describe('bounded projectile interception and arc clearance', () => {
 
   it('sweeps a thin wall between trajectory samples', () => {
     const origin = new THREE.Vector3(0, 31.4, -200), arc = new BallisticIntercept()
-    expect(arc.solve(origin, new THREE.Vector3(0, 1.4, 200), new THREE.Vector3(), 65)).toBe(true)
-    const t = arc.flightTime * .513
+    const target = new THREE.Vector3(0, 1.4, 200)
+    expect(arc.solve(origin, target, new THREE.Vector3(), 65)).toBe(true)
+    const t = arc.direction.y * 65 / 9.8
     const wallPoint = origin.clone().addScaledVector(arc.direction, 65 * t)
     wallPoint.y -= 4.9 * t * t
     const wall: ObstacleData = { isBarricade: true, box: new THREE.Box3(
       new THREE.Vector3(-5, wallPoint.y - .08, wallPoint.z - .005),
       new THREE.Vector3(5, wallPoint.y + .08, wallPoint.z + .005),
     ) }
+    expect(wall.box.min.y).toBeGreaterThan(Math.max(origin.y, target.y))
     expect(arc.isPathClear(origin, 65, [wall], () => 0)).toBe(false)
     expect(arc.isPathClear(origin, 65, [], () => 0)).toBe(true)
   })
@@ -122,5 +124,10 @@ describe('finite projectile obstacle trace', () => {
     expect(findBlockingProjectileObstacleAlongPath(from, to, [obstacle], contact)).toBe(obstacle)
     expect(contact.point.x).toBeCloseTo(9.8)
     expect(contact.point.z).toBe(1)
+    const arc = new BallisticIntercept()
+    expect(arc.solve(from, to, new THREE.Vector3(), 15)).toBe(true)
+    expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(false)
+    obstacle.projectileWorldToLocal!.makeRotationY(Math.PI / 2).setPosition(20, 0, 0).invert()
+    expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(true)
   })
 })

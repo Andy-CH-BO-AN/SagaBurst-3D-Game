@@ -297,8 +297,11 @@ export class Mount {
   }
 
   getRiderStandingSeatWorld(target = new THREE.Vector3()): THREE.Vector3 {
+    // getWorldPosition updates this socket's ancestors; the visual already
+    // propagated its pose, so reading a seat need not traverse every LOD again.
+    if (this.eagleVisual) return this.eagleVisual.standingSocket.getWorldPosition(target)
     this.group.updateWorldMatrix(true, true)
-    return this.eagleVisual ? this.eagleVisual.standingSocket.getWorldPosition(target) : this.getSaddleSeatWorld(target)
+    return this.getSaddleSeatWorld(target)
   }
 
   /** Search real ground support beside the torso; grounded dismount is not a fall. */
@@ -384,7 +387,7 @@ export class Mount {
   }
 
   /** The existing dead update, rather than visibility or a new retirement timer, owns completion. */
-  get deathPresentationComplete(): boolean { return this.dead && this.deathTimer <= 0 }
+  get deathPresentationComplete(): boolean { return this.dead && this.deathTimer <= 0 && !this.eagleCorpseFall.active }
 
   /**
    * DEV-only diagnostic hook to replace mount visual materials with simple diagnostic materials.
@@ -441,6 +444,9 @@ export class Mount {
     this.currentHp = this.maxHp
     this.state = MountState.IDLE
     this.deathTimer = 3
+    // Completed eagle corpses retain their logical actor, but their hidden rig
+    // leaves the scene graph until this same native mount is restored.
+    if (this.eagleVisual && this.eagleVisual.root.parent !== this.group) this.group.add(this.eagleVisual.root)
     this.group.visible = true
     this.group.position.set(x, getTerrainHeight(x, z), z)
     this.group.rotation.set(0, yaw, 0)
@@ -527,7 +533,8 @@ export class Mount {
       this.skipImpactThisFrame = true
       this.eagleVisual.update(dt, { flying: this.isAirborne, sprinting: this.isSprinting, attackWeight: this.eagleAttack!.weight, dead: false,
         groundClearance: this.group.position.y - getTerrainHeight(this.group.position.x, this.group.position.z) })
-      this.group.updateWorldMatrix(true, true)
+      // Visual update has already propagated the current mount transform and
+      // final pose to the attack sockets before hit sampling.
       this.eagleAttack!.sample(this.eagleAttackSockets)
       return
     }
@@ -607,6 +614,7 @@ export class Mount {
     this.collisionObstacles = obstacles
     if (this.state === MountState.DEAD) {
       if (this.eagleVisual) {
+        if (this.deathPresentationComplete) return
         this.eagleVisual.update(dt, { flying: false, sprinting: false, attackWeight: 0, dead: true })
         if (this.eagleCorpseFall.active) {
           if (this.eagleCorpseFall.update(this.group.position, dt, obstacles, this.playableWorldBound) !== null && this.flight) {
@@ -622,7 +630,13 @@ export class Mount {
       else if (this.proceduralVisual) this.proceduralVisual.update(dt)
       else this.group.rotation.z = THREE.MathUtils.lerp(this.group.rotation.z, Math.PI / 2, dt * 8)
       this.deathTimer -= dt
-      if (this.deathTimer <= 0) this.group.visible = false
+      if (this.deathTimer <= 0) {
+        this.group.visible = false
+        // Three.js traverses invisible children for scene matrix updates too.
+        // The Mount remains in its owner's roster for settlement/checkpoints;
+        // only the completed, hidden visual subtree sleeps outside the scene.
+        this.eagleVisual?.root.removeFromParent()
+      }
       return
     }
     if (this.state === MountState.CONTROLLED && !this.visualHold) return

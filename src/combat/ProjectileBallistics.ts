@@ -74,6 +74,8 @@ export class BallisticIntercept {
   private readonly extrema = new Float64Array(5)
   private readonly previous = new THREE.Vector3()
   private readonly point = new THREE.Vector3()
+  private readonly pathBounds = new THREE.Box3()
+  private readonly pathObstacles: ObstacleData[] = []
 
   solve(origin: THREE.Vector3, target: THREE.Vector3, velocity: THREE.Vector3, speed: number): boolean {
     this.flightTime = 0
@@ -135,17 +137,41 @@ export class BallisticIntercept {
 
   isPathClear(origin: THREE.Vector3, speed: number, obstacles: readonly ObstacleData[],
     terrainHeight: (x: number, z: number) => number = getTerrainHeight): boolean {
+    this.pathObstacles.length = 0
     if (this.flightTime <= 0) return false
+    this.point.copy(origin).addScaledVector(this.direction, speed * this.flightTime)
+    this.point.y -= 0.5 * PROJECTILE_GRAVITY * this.flightTime * this.flightTime
+    this.pathBounds.min.copy(origin).min(this.point)
+    this.pathBounds.max.copy(origin).max(this.point)
+    const velocityY = this.direction.y * speed
+    const apexTime = velocityY / PROJECTILE_GRAVITY
+    if (apexTime > 0 && apexTime < this.flightTime) {
+      this.pathBounds.max.y = Math.max(this.pathBounds.max.y,
+        origin.y + velocityY * apexTime - 0.5 * PROJECTILE_GRAVITY * apexTime * apexTime)
+    }
+    this.pathBounds.expandByScalar(1e-6)
+    // Cull once per shot rather than rescan every Town obstacle for every chord.
+    // Rotated projectile slabs can protrude beyond their continuous body envelope.
+    // Their current transform still belongs to the unchanged exact trace below.
+    for (const obstacle of obstacles) {
+      if (!obstacle.projectilePassable
+        && (obstacle.projectileWorldToLocal || this.pathBounds.intersectsBox(obstacle.box))) this.pathObstacles.push(obstacle)
+    }
     const count = ballisticTrajectorySegments(speed, this.flightTime)
     this.previous.copy(origin)
-    for (let i = 1; i <= count; i++) {
-      const t = this.flightTime * i / count
-      this.point.copy(origin).addScaledVector(this.direction, speed * t)
-      this.point.y -= 0.5 * PROJECTILE_GRAVITY * t * t
-      if (this.point.y <= terrainHeight(this.point.x, this.point.z) + 0.05
-        || findBlockingProjectileObstacleAlongPath(this.previous, this.point, obstacles)) return false
-      this.previous.copy(this.point)
+    try {
+      for (let i = 1; i <= count; i++) {
+        const t = this.flightTime * i / count
+        this.point.copy(origin).addScaledVector(this.direction, speed * t)
+        this.point.y -= 0.5 * PROJECTILE_GRAVITY * t * t
+        if (this.point.y <= terrainHeight(this.point.x, this.point.z) + 0.05
+          || findBlockingProjectileObstacleAlongPath(this.previous, this.point, this.pathObstacles)) return false
+        this.previous.copy(this.point)
+      }
+      return true
+    } finally {
+      // Reuse capacity without retaining an obsolete scene's obstacle objects.
+      this.pathObstacles.length = 0
     }
-    return true
   }
 }
