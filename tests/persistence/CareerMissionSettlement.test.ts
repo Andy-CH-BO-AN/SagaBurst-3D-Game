@@ -1,3 +1,4 @@
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
 import { Vector3 } from 'three'
 import { describe,expect,it,vi } from 'vitest'
 import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
@@ -263,9 +264,9 @@ describe('Town mission settlement transactions', () => {
     expect(h.commit).toHaveBeenCalledTimes(2)
   })
 
-  it('persists a five-minute survival victory with live enemy air and actual merit once after a rejected commit', () => {
+  it('persists a survival victory at the configured deadline with live enemy air and actual merit once after a rejected commit', () => {
     const h = fixture('commander-four-gate-defense'), before = h.read(), latest = structuredClone(before.activeMission!)
-    latest.fourGateDefense!.combatElapsedSeconds = 300
+    latest.fourGateDefense!.combatElapsedSeconds = survivalSeconds
     latest.fourGateDefense!.victoryReason = 'survival'
     h.defense.snapshotActiveMission.mockReturnValue(latest)
     Object.assign(h.stats, { damageDealt: 0, kills: 0, survived: true })
@@ -277,7 +278,7 @@ describe('Town mission settlement transactions', () => {
     expect(h.settlement.finish('victory').status).toBe('saved')
     h.reload()
     const saved = h.read(), active = saved.activeMission!
-    expect(active.fourGateDefense).toMatchObject({ phase: 'RESULT', combatElapsedSeconds: 300, victoryReason: 'survival' })
+    expect(active.fourGateDefense).toMatchObject({ phase: 'RESULT', combatElapsedSeconds: survivalSeconds, victoryReason: 'survival' })
     expect(active.deadTargetActorIds ?? []).toHaveLength(0)
     expect(active.fourGateDefense!.actors[active.targetActorIds[229]]).toMatchObject({ status: 'deployed' })
     expect(active.result).toMatchObject({ outcome: 'victory', stats: { kills: 0 },

@@ -1,3 +1,4 @@
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
 import { describe, expect, it } from 'vitest'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
@@ -27,9 +28,11 @@ describe('Town defense target accounting', () => {
     rider.mount.dead = true
     expect(owner.remainingEnemies).toBe(1)
     expect(owner.evaluate(true, 0)).toBeNull() // The final civilian/service survivor still keeps the Town alive.
-    state.combatElapsedSeconds = 299.9
+    state.combatElapsedSeconds = survivalSeconds / 2
     expect(owner.evaluate(true, 0)).toBeNull()
-    state.combatElapsedSeconds = 300
+    state.combatElapsedSeconds = survivalSeconds - .1
+    expect(owner.evaluate(true, 0)).toBeNull()
+    state.combatElapsedSeconds = survivalSeconds
     expect(owner.evaluate(true, 0)).toBe('victory') // A service resident is a valid deadline survivor.
     merchant.npc.dead = true
     expect(owner.evaluate(true, 1)).toBe('victory') // A live HR ally can win while the player spectates.
