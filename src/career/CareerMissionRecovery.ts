@@ -4,10 +4,17 @@ import type { CareerProfileStore } from './CareerProfileStore'
 
 export const CAREER_RECOVERY_NOTICE_KEY = 'sagaburst_career_recovery_notice'
 
-export type CareerMissionRecoveryStatus = 'recovered' | 'stale' | 'storage-error'
+export type CareerMissionRecoveryStatus = 'recovered' | 'stale' | 'storage-error' | 'retry-required'
+
+/** Commander V owns durable preparation/arrival checkpoints; a technical error
+ * must never turn that accepted mission into an implicit cancellation. */
+export function preservesFailedCareerMission(profile: CareerProfile, missionId: string): boolean {
+  return profile.activeMission?.id === missionId && profile.activeMission.kind === 'commander-four-gate-defense'
+}
 
 /** Technical cancellation, never battle settlement: no merit, rank, claims or battle stats change. */
 export function prepareFailedCareerMissionReturn(profile: CareerProfile, missionId: string): CareerProfile | null {
+  if (preservesFailedCareerMission(profile, missionId)) return null
   const mission = profile.activeMission?.id === missionId ? profile.activeMission
     : profile.activeOutpostMission?.id === missionId ? profile.activeOutpostMission : undefined
   if (!mission) return null
@@ -51,6 +58,7 @@ export function recoverFailedCareerMission(store: Pick<CareerProfileStore, 'load
   missionId: string): CareerMissionRecoveryStatus {
   const loaded = store.loadChecked()
   if (!loaded.profile || loaded.error) return 'storage-error'
+  if (preservesFailedCareerMission(loaded.profile, missionId)) return 'retry-required'
   const next = prepareFailedCareerMissionReturn(loaded.profile, missionId)
   if (!next) return 'stale'
   return store.save(next) ? 'recovered' : 'storage-error'

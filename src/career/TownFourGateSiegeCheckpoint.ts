@@ -104,6 +104,7 @@ export function parseTownFourGateSiegeCheckpoint(value: unknown): TownFourGateSi
       ...(a.ammo !== undefined ? { ammo: a.ammo } : {}), ...(a.shieldImpact !== undefined ? { shieldImpact: a.shieldImpact } : {}),
       ...(a.fall ? { fall: parseFallingRiderSnapshot(a.fall) } : {}),
       ...(a.townRampartGarrison === true ? { townRampartGarrison: true } : {}),
+      ...(a.townRampartMounted === true ? { townRampartMounted: true } : {}),
       ...(a.formation ? { formation: { commandId: a.formation.commandId, reached: a.formation.reached,
         position: { x: a.formation.position.x, y: a.formation.position.y, z: a.formation.position.z, yaw: a.formation.position.yaw },
         ...(a.formation.arrivalOrder ? { arrivalOrder: a.formation.arrivalOrder } : {}),

@@ -34,6 +34,29 @@ export interface SiegeRampPlacement<Id extends MobileSiegeRampId = SiegeRampId> 
   /** Omitted by the legacy Outpost placement; defaults to zero. */
   dirX?: number
   dirZ: number
+  /** Opt-in long approaches follow the ground under the tower, not the distant ramp tail. */
+  terrainAnchor?: 'deck'
+}
+
+/** One height owner for planning, movement and checkpoint validation. Legacy carriers keep their rigid rear anchor. */
+export function siegeRampDeckHeightAt(placement: SiegeRampPlacement<MobileSiegeRampId>, x: number, z: number): number {
+  const dx = placement.dirX ?? 0, dz = placement.dirZ
+  if (placement.terrainAnchor === 'deck') {
+    const offset = SIEGE_RAMP.platformLength / 2
+    return getTerrainHeight(x - dx * offset, z - dz * offset) + placement.dock.y
+      - getTerrainHeight(placement.dock.x - dx * offset, placement.dock.z - dz * offset)
+  }
+  const rearX = placement.surface.startX + x - placement.dock.x
+  const rearZ = placement.surface.startZ + z - placement.dock.z
+  return getTerrainHeight(rearX, rearZ) + .04 + placement.surface.topY - placement.surface.startY
+}
+
+/** The articulated tail rests above its whole cross-section on long, uneven approaches. */
+export function siegeRampRearHeightAt(placement: SiegeRampPlacement<MobileSiegeRampId>, x: number, z: number): number {
+  if (placement.terrainAnchor !== 'deck') return getTerrainHeight(x, z) + .04
+  const lateralX = placement.dirZ * SIEGE_RAMP.halfWidth, lateralZ = -(placement.dirX ?? 0) * SIEGE_RAMP.halfWidth
+  return Math.max(getTerrainHeight(x, z), getTerrainHeight(x + lateralX, z + lateralZ),
+    getTerrainHeight(x - lateralX, z - lateralZ)) + .04
 }
 
 export function isMobileSiegeRampEnabled(config: DefenseCampaignLaunchConfig | undefined): boolean {

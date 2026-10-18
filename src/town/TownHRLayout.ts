@@ -57,8 +57,10 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
   }
   throw new Error('No walkable HR Center and mounted courtyard in the western district')
 }
+export const TOWN_HR_OFFICER_ID = 'hr-officer'
+
 export function hrOfficerSpec(layout: TownHRLayout): TownActorSpec {
-  return { id: 'hr-officer', role: 'hr-officer', duty: 'service', tier: 4, mounted: true, training: false,
+  return { id: TOWN_HR_OFFICER_ID, role: 'hr-officer', duty: 'service', tier: 4, mounted: true, training: false,
     assaultObjective: false, index: 0, ...layout.officer }
 }
 

@@ -1,3 +1,4 @@
+import type { CommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
 import type { CampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import type { CareerDuelTier, CareerDuelCommanderHome, CareerDuelTravelCheckpoint } from './CareerDuelState'
 import type { TownOutskirtsCheckpoint } from '../town/TownOutskirtsWarfareController'
@@ -14,9 +15,9 @@ import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownD
 import { personalMissionSourcePolicy, type PersonalSquadMission } from './CareerPersonalSquadMission'
 import { officialMissionSourcePolicy, officialCommandSquads } from './CareerCommandAuthority'
 
-export type CareerMissionPhase = 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
+export type CareerMissionPhase = 'DEPLOYING' | 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'SPAWNING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
-export type CareerMissionKind = 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-patrol-command' | 'captain-outpost-defense' | 'captain-eagle-battle' | 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle'
+export type CareerMissionKind = 'bandit' | 'patrol' | 'town-defense' | 'enemy-town-assault' | 'cavalry-sweep' | 'duel' | 'veteran-field' | 'veteran-outpost-defense' | 'veteran-outpost-assault' | 'captain-patrol-command' | 'captain-outpost-defense' | 'captain-eagle-battle' | 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense'
 export const BRIDGEHEAD_PREPARATION_SECONDS = 180
 export interface BridgeBattleDeployment {
   phase: 'preparing' | 'spawning' | 'assault'
@@ -24,7 +25,7 @@ export interface BridgeBattleDeployment {
 }
 export interface CommanderMissionState {
   version: 1
-  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle'>
+  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense'>
   /** No objective can settle before every official and accepted personal actor is registered. */
   deploymentComplete: boolean
   playerPosition?: { x: number; z: number; yaw: number }
@@ -68,6 +69,7 @@ export interface CareerMissionMountState {
 }
 
 export interface ActiveCareerMission {
+  fourGateDefense?: CommanderFourGateDefenseState
   outpostSiege?: CampaignSiegeCheckpoint
   commanderMission?: CommanderMissionState
   officialSquad?: OfficialCommandAuthority

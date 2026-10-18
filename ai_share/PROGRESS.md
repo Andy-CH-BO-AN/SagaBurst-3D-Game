@@ -1,10 +1,14 @@
 # SagaBurst — 目前交接
 
-更新：2026-10-16。城外遭遇戰與任務交火的目前契約見 [ARCHITECTURE.md](ARCHITECTURE.md)。
+## Commander V 四門守城交接
+
+正式 Career 任務已接入 Home Town、既有八車與八隊兵權：守方獨立準備 180 秒後才從邊境生成 230 名攻方與八車、每門獨立事件、完整 ground／air checkpoint、原子結果與正常城鎮重建。Roman／Viking 真實 WebGL 的八車移動／Dock／Crew 登城、空戰、遊玩回歸及 GPU 效能尚待驗收；CPU 幾何診斷與 CI 不代表上述通過。模組契約見 ARCHITECTURE，詳細驗證留 PR。
+
+更新：2026-10-17。城外遭遇戰與任務交火的目前契約見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 目前狀態
 
-- 新增 opt-in 四門攻城 production API 與 DEV `/?fourgatepreview=1&nolock&faction=roman|viking`，共用既有 Campaign 車體／Crew／MovingPlatform／Damage／Convoy，獨立四門事件及 v1 checkpoint。原 Town 120 人 Siege、10 秒準備與 Outpost 雙車入口保持原樣。PR8 尚未接正式 230 人任務；目前環境缺 Chrome 且安裝下載損壞，八車推進、實際登城與 Roman/Viking 接牆尚未完成實機驗收，交付維持 Draft。API 呼叫契約見 ARCHITECTURE。
+- 新增 opt-in 四門攻城 production API 與 DEV `/?fourgatepreview=1&nolock&faction=roman|viking`，共用既有 Campaign 車體／Crew／MovingPlatform／Damage／Convoy，獨立四門事件及 v1 checkpoint。原 Town 120 人 Siege、10 秒準備與 Outpost 雙車入口保持原樣。Commander V 正式整合見上方交接；八車推進、實際登城與 Roman/Viking 接牆尚未完成實機驗收，交付維持 Draft。API 呼叫契約見 ARCHITECTURE。
 
 - 普通戰馬已改用使用者提供的 MAXDESIGN-3D 模型，沿用原 horse／asset／paint IDs。三個 LOD 共用每匹獨立的 70 骨架與一次動畫求值；原生 idle／walk／gallop／death，加上由舊馬重定向的 trot／canter／jump／land／hit。來源與授權見 `public/models/mounts/v1/horse/CREDITS.md`，可重建入口為 `tools/horse/build-lightweight-horse.mjs`；舊 LOD2 工具禁止處理此版資產。
 - 馬鞍以新馬背部蒙皮，座位 socket 適配既有騎手偏移；步態依 manifest 的來源步幅速度調整播放頻率，移動數值與跳躍物理不變。land 在主動跳躍或持續騰空且明顯下降後觸地時播放，排除短暫坡面接觸。步態切換保留校準步頻並使用小幅速度容差，避免邊界反覆重啟。貼圖在 loader 內共用，實例銷毀只釋放自己的動畫與骨架資源。

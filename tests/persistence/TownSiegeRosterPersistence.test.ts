@@ -4,14 +4,62 @@ import { parseTownFourGateSiegeCheckpoint, type TownFourGateSiegeCheckpoint } fr
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
 import { describe,expect,it } from 'vitest'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
-import { createCareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { officialActorSquadId } from '../../src/career/CareerCommandAuthority'
+import { stageOfficialCommandOrder } from '../../src/career/CareerOfficialCommandOrder'
+import { Faction, type NPC } from '../../src/world/NPC'
 import { migrateTownRampartPosition } from '../../src/town/TownLayoutMigration'
 import { townRoster } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
+import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, createCommanderCavalryEscort,
+  isCommanderCavalryEscorting, parseCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
+import { parseCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
 
 describe('siege checkpoint ownership', () => {
+  it('restores exact escort ownership and a nearly expired stall without regrouping or replaying released orders', () => {
+    const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
+    expect(isCommanderCavalryEscorting(state.cavalryEscort, mission.targetActorIds[0])).toBe(false)
+    const assignments = commanderCavalryEscortAssignments(mission.id), escort = createCommanderCavalryEscort(mission.id)
+    state.cavalryEscort = escort
+    const released = assignments.filter(a => a.gateId === 'north' && a.side === -1)
+    for (const a of released) escort.actors[a.actorId].mode = 'released'
+    escort.groups['town-siege-ramp:north:left'].releaseReason = 'gate-range'
+    const east = state.siege!.ramps.find(r => r.assignment.id === 'town-siege-ramp:east:left')!
+    east.distance = 17; east.position.x -= 17
+    escort.groups[east.assignment.id] = { lastProgressDistance: 17, stallSeconds: 19.75 }
+    // This owner needs the real mission-state field/parser boundary, not two
+    // more traversals of the entire Career profile already covered below.
+    const restored = parseCommanderFourGateDefenseState(JSON.parse(JSON.stringify(state)), {
+      missionId: mission.id, faction: profile.faction, phase: mission.phase, targetActorIds: mission.targetActorIds,
+      friendlyActorIds: mission.friendlyActorIds, civilianActorIds: mission.civilianActorIds ?? [],
+      deadTargetActorIds: mission.deadTargetActorIds,
+    })!
+    expect(restored.cavalryEscort).toEqual(escort)
+    expect(isCommanderCavalryEscorting(restored.cavalryEscort, released[0].actorId)).toBe(false)
+    const actors = new Map(assignments.map(a => [a.actorId, { dead: false, position: restored.actors[a.actorId].position! }]))
+    const ramps = new Map(restored.siege!.ramps.map(r => [r.assignment.id, { state: r.state, distance: r.distance, alivePushers: 4 }]))
+    const resumed = advanceCommanderCavalryEscort(restored.cavalryEscort!, .25, actors, ramps)
+    expect(resumed.checkpoint.groups[east.assignment.id]).toEqual({ lastProgressDistance: 17, stallSeconds: 20, releaseReason: 'stalled' })
+    expect(resumed.releasedActorIds).toEqual(assignments.filter(a => a.rampId === east.assignment.id).map(a => a.actorId))
+    expect(resumed.releasedActorIds.some(id => released.some(a => a.actorId === id))).toBe(false)
+    // The mission-state boundary was exercised above; the second transition
+    // needs only this checkpoint's parser, without repeating all 230 actor records.
+    const persisted = parseCommanderCavalryEscort(JSON.parse(JSON.stringify(resumed.checkpoint)), mission.id)!
+    expect(advanceCommanderCavalryEscort(persisted, 0, actors, ramps).releasedActorIds).toEqual([])
+    const releasedId = released[0].actorId
+    const reversed = { ...persisted, actors: { ...persisted.actors,
+      [releasedId]: { ...persisted.actors[releasedId], mode: 'escort' as const } } }
+    expect(parseCommanderCavalryEscort(reversed, mission.id)).toBeUndefined()
+    const reassigned = { ...persisted, actors: { ...persisted.actors,
+      [releasedId]: { ...persisted.actors[releasedId], side: 1 as const } } }
+    expect(parseCommanderCavalryEscort(reassigned, mission.id)).toBeUndefined()
+    const unbounded = { ...persisted, groups: { ...persisted.groups,
+      [east.assignment.id]: { ...persisted.groups[east.assignment.id], stallSeconds: 20.001 } } }
+    expect(parseCommanderCavalryEscort(unbounded, mission.id)).toBeUndefined()
+  })
+
   it('retains casualties, elevated coordinates and garrison ownership through storage', () => {
     const profile = createCareerProfile('roman'), id = 'gate:north:7'
     profile.activeMission = createTownDefenseMission([id], [], 'rampart-save')
@@ -35,17 +83,65 @@ describe('siege checkpoint ownership', () => {
     expect(migrateTownRampartPosition(saved, spec, true, false, true)).toEqual(saved)
   })
 
-  it('round-trips an official formation destination without moving it back to the garrison slot', () => {
-    const profile = createCareerProfile('roman'), id = 'gate:north:7'
-    profile.activeMission = createTownDefenseMission([id], [], 'official-rampart')
+  it('round-trips a Commander formation and dismissal in both actor owners without restoring the garrison destination', () => {
+    const profile = createFourGateDefenseProfile('ATTACKING'), id = 'gate:north:7'
+    const active = profile.activeMission!, state = active.fourGateDefense!
+    state.cavalryEscort = createCommanderCavalryEscort(active.id)
     const member = { status: 'deployed' as const, hp: 37, ammo: 12, order: 'formation' as const,
       position: { x: 30, y: 9.25, z: -110.6, yaw: .7 },
-      formation: { commandId: 91, position: { x: 40, y: 8.5, z: -110.6, yaw: 0 }, reached: false } }
-    profile.activeMission.officialSquad = { type: 'mission-official', missionId: 'official-rampart', townFaction: 'roman', squadId: 1,
-      actorIds: [id], contribution: emptyPersonalContribution(), members: { [id]: member } }
-    const store = new CareerProfileStore(new MemoryStorage())
-    expect(store.save(profile)).toBe(true)
-    expect(store.load()!.activeMission!.officialSquad!.members![id]).toEqual(member)
+      mount: { hp: 0, mounted: false, position: { x: 29, y: 9.25, z: -110.6, yaw: .7 } },
+      formation: { commandId: 91, position: { x: 40, y: 8.5, z: -110.6, yaw: 0 }, reached: false as const } }
+    state.siege!.actors[id].entranceId = 'town-siege-gate:north'
+    state.siege!.actors[id].breachCompleted = true
+    const flyerId = 'four-gate-save:air:ranger:1', flyer = state.actors[flyerId]
+    flyer.position!.y = 45; flyer.mount!.position.y = 43
+    flyer.mount!.flight = { phase: 'cruise', yaw: .4, pitch: .2, bank: -.1, speed: 13, velocity: { x: 4, y: 2, z: 12 } }
+    const wallId = 'gate:north:8'
+    const wall = { ...state.actors[wallId], order: 'defend' as const, townRampartGarrison: true, townRampartMounted: true,
+      mount: { hp: 68, mounted: true, position: { x: 24, y: 9.25, z: -110.6, yaw: .7 } } }
+    state.actors[wallId] = wall
+    state.siege!.actors[wallId] = { ...wall, entranceId: null, breachCompleted: false }
+    // Only the actor snapshot boundary is supplied; command selection and all mirrors are real.
+    const npc = { combatantId: id, squadId: officialActorSquadId(active.officialSquad!, id),
+      faction: Faction.TOWN, combatOwnership: 'mission-official', dead: false } as NPC
+    const staged = stageOfficialCommandOrder(profile, [npc], 'formation', [{ npc, ...member.formation }], () => structuredClone(member))!
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save(staged)).toBe(true)
+    const loaded = store.load()!
+    const restored = loaded.activeMission!.fourGateDefense!
+    expect(restored.cavalryEscort).toEqual(state.cavalryEscort)
+    expect(loaded.activeMission!.officialSquad!.members![id]).toEqual(member)
+    expect(restored.actors[id]).toEqual(member)
+    expect(restored.siege!.actors[id]).toEqual({ ...member, entranceId: null, breachCompleted: true })
+    expect(restored.siege!.playerCommandedActorIds).toContain(id)
+    expect(restored.actors[flyerId]).toEqual(flyer)
+    expect(restored.siege!.actors[flyerId]).toBeUndefined()
+    expect(restored.actors[wallId]).toEqual(wall)
+    expect(restored.siege!.actors[wallId]).toMatchObject({ townRampartMounted: true, townRampartGarrison: true, mount: { hp: 68, mounted: true } })
+    expect(restored.player).toEqual(state.player)
+    expect(state.siege!.actors[id].entranceId).toBe('town-siege-gate:north')
+    expect(state.siege!.playerCommandedActorIds).toEqual([])
+
+    const dismissed = stageOfficialCommandOrder(loaded, [npc], 'dismiss', [], () => structuredClone(member))!
+    expect(store.save(dismissed)).toBe(true)
+    // save() validates and normalizes the final command; inspect its persisted
+    // bytes without repeating the full parser already exercised by Formation.
+    const returned = (JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile).activeMission!
+    expect(returned.officialSquad!.commandedSquadIds).not.toContain(npc.squadId)
+    expect(returned.fourGateDefense!.siege!.playerCommandedActorIds).not.toContain(id)
+    expect(returned.fourGateDefense!.actors[id]).toMatchObject({ hp: 37, order: 'defend', mount: { hp: 0, mounted: false } })
+    expect(returned.fourGateDefense!.actors[id].formation).toBeUndefined()
+    expect(returned.fourGateDefense!.siege!.actors[id]).toEqual({ ...returned.fourGateDefense!.actors[id], entranceId: null, breachCompleted: true })
+  })
+
+  it('fails closed on a same-size forged Commander target roster without deleting the corrupt saved mission', () => {
+    const profile = createFourGateDefenseProfile(), storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const raw = profile
+    raw.activeMission!.targetActorIds[229] = 'four-gate-save:air:ranger:31'
+    const corrupt = JSON.stringify(raw)
+    storage.setItem(CAREER_STORAGE_KEY, corrupt)
+    expect(store.loadChecked().profile).toBeNull()
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(corrupt)
   })
 })
 

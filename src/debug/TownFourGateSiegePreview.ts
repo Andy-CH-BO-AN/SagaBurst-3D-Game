@@ -165,7 +165,7 @@ export async function launchTownFourGateSiegePreview(container: HTMLElement): Pr
         navigation.sync(world!.obstacles); navigation.beginFrame(); siege!.update(dt)
         for (const npc of actors) npc.update(dt, player!, actors, grid.getNearbyInto(npc.combatPosition, 4, nearby), world!.obstacles, hp,
           (damage, isPlayer, target) => { if (isPlayer) damagePlayer(player!, damage, hp, null); else if (target) damageNpc(target, damage) },
-          () => {}, false, npc.combatPosition.distanceTo(camera.position), null, grid, navigation)
+          () => false, false, npc.combatPosition.distanceTo(camera.position), null, grid, navigation)
       }
       controls.update(); renderer.render(scene, camera)
       statusElapsed += dt

@@ -1,4 +1,8 @@
 import { BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, BRIDGEHEAD_ENEMY_SQUADS_PER_ROLE, bridgeheadEnemySquadsPerRole } from '../battle/BridgeheadRosterConfig'
+import { commanderGateDefenseSlots } from './CommanderTownRoster'
+import { COMMANDER_FOUR_GATE_DEFENSE_ID, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
+import { createCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
+export { COMMANDER_FOUR_GATE_DEFENSE_ID } from './CommanderFourGateDefenseRoster'
 import { planNorthBankInfantryDeployment, planSouthBankCavalryStaging } from '../world/RiverCrossingBattlefield'
 import { careerCommanderLoadout } from './CareerCommanderEquipment'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
@@ -28,8 +32,8 @@ export const COMMANDER_LAST_STAND_ENEMIES = 100
 export const COMMANDER_FORMER_COMMANDER_SLOT = 'former-commander'
 
 export interface CommanderMissionDefinition {
-  id: typeof COMMANDER_SKY_RAID_ID | typeof COMMANDER_DECAPITATION_ID | typeof COMMANDER_LAST_STAND_ID | typeof COMMANDER_BRIDGEHEAD_ID
-  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle'>
+  id: typeof COMMANDER_SKY_RAID_ID | typeof COMMANDER_DECAPITATION_ID | typeof COMMANDER_LAST_STAND_ID | typeof COMMANDER_BRIDGEHEAD_ID | typeof COMMANDER_FOUR_GATE_DEFENSE_ID
+  kind: Extract<CareerMissionKind, 'commander-sky-raid' | 'commander-decapitation' | 'commander-outpost-last-stand' | 'commander-bridgehead-battle' | 'commander-four-gate-defense'>
   name: string
   briefing: string
   friendlyCombatants: number
@@ -62,6 +66,9 @@ export const COMMANDER_MISSION_CATALOG: readonly CommanderMissionDefinition[] = 
     '指揮 4 支步兵隊守衛 Outpost；60 秒部署後，歼滅同時進攻的 100 名敵方騎兵。', 121, COMMANDER_LAST_STAND_ENEMIES),
   entry(COMMANDER_BRIDGEHEAD_ID, 'commander-bridgehead-battle', 'Commander IV · Bridgehead Battle · 橋頭決戰',
     `率領${BRIDGEHEAD_FRIENDLIES}名步兵守衛北岸石橋。進場後有${BRIDGEHEAD_PREPARATION_SECONDS}秒部署時間，倒數結束後${BRIDGEHEAD_ENEMIES}名敵方騎兵（刀／斧騎兵與槍騎兵各${BRIDGEHEAD_ENEMY_SQUADS_PER_ROLE}隊，每隊1名T4隊長與${BRIDGEHEAD_SQUAD_SIZE - 1}名T3士兵）從南岸遠方出現並渡河進攻。我方${BRIDGEHEAD_FRIENDLY_SQUADS}支正式小隊各${BRIDGEHEAD_SQUAD_SIZE}人，包含1名T4隊長與${BRIDGEHEAD_SQUAD_SIZE - 1}名T3士兵。利用橋梁限制騎兵機動，發揮槍兵與遠程部隊的優勢。`, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES),
+  entry(COMMANDER_FOUR_GATE_DEFENSE_ID, 'commander-four-gate-defense', 'Commander V · Four-Gate Town Defense · 四門總攻守城戰',
+    '防守所屬城鎮；全軍部署完成後有180秒準備。指揮原生八隊守軍與HR私兵，迎擊四門200名地面攻軍、八台攻城車及30名巨鷹騎射兵。保護平民並殲滅全部230名攻軍。',
+    commanderGateDefenseSlots().flatMap(squad => squad.actorIds).length + 1, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES),
 ]
 
 export function getCommanderMissionDefinition(id: string): CommanderMissionDefinition | null {
@@ -141,7 +148,11 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
   let friendlyActorIds: string[]
   let targetActorIds: string[]
   let squads: OfficialCommandSquad[]
-  if (templateId === COMMANDER_SKY_RAID_ID) {
+  if (templateId === COMMANDER_FOUR_GATE_DEFENSE_ID) {
+    squads = commanderGateDefenseSlots()
+    friendlyActorIds = squads.flatMap(squad => squad.actorIds)
+    targetActorIds = commanderFourGateDefenseActorIds(id)
+  } else if (templateId === COMMANDER_SKY_RAID_ID) {
     friendlyActorIds = officialIds(id, COMMANDER_SKY_RAID_RANGERS, 'ranger')
     targetActorIds = skyRaidNativeActorIds()
     squads = commandSquads(friendlyActorIds, [25, 25])
@@ -159,9 +170,13 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
     squads = commandSquads(friendlyActorIds, [30, 30, 30, 30])
   }
   return {
-    id, templateId, kind: definition.kind, targetCampId: -1, phase: 'PREPARING',
+    id, templateId, kind: definition.kind, targetCampId: -1, phase: templateId === COMMANDER_FOUR_GATE_DEFENSE_ID ? 'DEPLOYING' : 'PREPARING',
     targetActorIds, friendlyActorIds, acceptedAt: Date.now(),
     commanderMission: { version: 1, kind: definition.kind, deploymentComplete: false },
+    ...(templateId === COMMANDER_FOUR_GATE_DEFENSE_ID ? {
+      fourGateDefense: createCommanderFourGateDefenseState(),
+      civilianActorIds: townRoster().filter(actor => actor.role === 'civilian').map(actor => actor.id),
+    } : {}),
     ...(templateId === COMMANDER_BRIDGEHEAD_ID ? {
       bridgeDeployment: { phase: 'preparing' as const, preparationRemainingSeconds: BRIDGEHEAD_PREPARATION_SECONDS },
     } : {}),

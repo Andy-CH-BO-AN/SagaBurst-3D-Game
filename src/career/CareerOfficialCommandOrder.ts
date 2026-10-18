@@ -42,12 +42,30 @@ export function stageOfficialCommandOrder(current: CareerProfile, participants: 
     }
     const formation = assignments.find(assignment => assignment.npc === actor)
     if (order === 'formation' && formation) checkpoint.formation = { commandId: formation.commandId, position: { ...formation.position }, reached: formation.reached }
+    if (order === 'dismiss' && mission.kind === 'commander-four-gate-defense') {
+      checkpoint.order = 'defend'
+      delete checkpoint.formation
+    }
     staged.members[actor.combatantId] = checkpoint
     // Duplicate battlefield checkpoints must commit the same accepted order atomically.
     const battleActor = (next.activeMission ?? next.activeOutpostMission)?.battle?.actors[actor.combatantId]
     if (battleActor) battleActor.checkpoint = checkpoint
     const eagleActors = next.activeMission?.eagleBattle?.actors
     if (eagleActors?.[actor.combatantId]) eagleActors[actor.combatantId] = checkpoint
+    const fourGate = next.activeMission?.fourGateDefense
+    if (mission.kind === 'commander-four-gate-defense' && fourGate) {
+      fourGate.actors[actor.combatantId] = structuredClone(checkpoint)
+      const groundActor = fourGate.siege?.actors[actor.combatantId]
+      if (groundActor) {
+        fourGate.siege!.actors[actor.combatantId] = { ...structuredClone(checkpoint),
+          entranceId: order === 'dismiss' ? groundActor.entranceId : null,
+          breachCompleted: groundActor.breachCompleted }
+        const commanded = new Set(fourGate.siege!.playerCommandedActorIds)
+        if (order === 'dismiss') commanded.delete(actor.combatantId)
+        else commanded.add(actor.combatantId)
+        fourGate.siege!.playerCommandedActorIds = [...commanded]
+      }
+    }
   }
   if (order === 'dismiss' && mission.kind === 'captain-patrol-command') {
     const selectedSquads = new Set(actors.map(actor => officialActorSquadId(staged, actor.combatantId)))

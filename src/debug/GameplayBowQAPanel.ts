@@ -147,7 +147,7 @@ export class GameplayBowQAPanel {
     this.target.group.visible = false
     // Let the real patrol AI consume its initial airborne spawn waypoint once,
     // then use public placement to start the diagnostic on its terrain surface.
-    this.archer.update(1 / 60, this.player, [], [], [], this.hp, () => {}, () => {})
+    this.archer.update(1 / 60, this.player, [], [], [], this.hp, () => {}, () => false)
     this.archer.position.y = getTerrainHeight(this.archer.position.x, this.archer.position.z)
     this.player.group.visible = this.subject === 'player'
     this.archer.group.visible = this.subject === 'npc'

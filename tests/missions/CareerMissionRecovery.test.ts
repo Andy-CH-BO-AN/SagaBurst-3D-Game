@@ -5,6 +5,7 @@ import { prepareFailedCareerMissionReturn, recoverFailedCareerMission } from '..
 import { recruitPersonalSquadMember } from '../../src/career/CareerPersonalSquad'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
 
 function withMission(): CareerProfile {
   const base = createCareerProfile('viking')
@@ -23,6 +24,16 @@ function withMission(): CareerProfile {
 }
 
 describe('Career mission technical failure recovery', () => {
+  it('preserves an accepted four-gate mission on technical failure without writing or cancelling it', () => {
+    const current = createFourGateDefenseProfile('PREPARING')
+    current.activeMission!.fourGateDefense!.preparationRemainingSeconds = 37.5
+    const before = JSON.stringify(current), id = current.activeMission!.id
+    const save = vi.fn(() => true)
+    expect(prepareFailedCareerMissionReturn(current, id)).toBeNull()
+    expect(recoverFailedCareerMission({ loadChecked: () => ({ profile: current }), save }, id)).toBe('retry-required')
+    expect(save).not.toHaveBeenCalled()
+    expect(JSON.stringify(current)).toBe(before)
+  })
   it('removes only failed mission state and preserves owned eagles, member IDs and permanent progress', () => {
     const current = withMission()
     const recovered = prepareFailedCareerMissionReturn(current, 'mission:a')!

@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
 import type { MobileSiegeRampState } from '../campaign/MobileSiegeRampController'
-import { placeSiegeRampCrew, type TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
+import { placeSiegeRampCrew, siegeRampDeckHeightAt, type TownSiegeRampId } from '../campaign/MobileSiegeRampPolicy'
 import { SiegeConvoy, evacuateAbandonedRamp, fallFromDestroyedRamp } from '../campaign/SiegeConvoy'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import { AIType, type NPC } from '../world/NPC'
@@ -10,7 +10,7 @@ import { getTerrainHeight, type EntityCollisionBody } from '../world/Terrain'
 import type { TownWorld } from '../town/TownWorld'
 import { TOWN_GATES, type TownGateId } from '../town/TownLayout'
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
-import { allocateTownSiegeCrews, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame, type TownSiegeCrewSlot, type TownSiegeRampAssignment } from './TownFourGateSiegePolicy'
+import { allocateTownSiegeCrews, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame, townSiegeSectorReceiptsMatch, type TownSiegeApproach, type TownSiegeCrewSlot, type TownSiegeEscortClearance, type TownSiegeRampAssignment } from './TownFourGateSiegePolicy'
 import { TownGateBreachPolicy, type TownGateBreachEvent } from './TownGateBreachPolicy'
 import { parseTownFourGateSiegeCheckpoint, type TownFourGateSiegeCheckpoint, type TownSiegeActorCheckpoint } from './TownFourGateSiegeCheckpoint'
 
@@ -21,6 +21,7 @@ export interface TownSiegeSectorRoster {
   /** Optional PR8 attack roster; Crew are included automatically and may also be listed here. */
   attackerActorIds?: readonly string[]
 }
+export type TownSiegeAttackerRole = 'siege-infantry' | 'gate-cavalry' | 'ranged' | 'air'
 export interface TownFourGateSiegeOptions {
   scene: THREE.Scene
   world: TownWorld
@@ -31,6 +32,17 @@ export interface TownFourGateSiegeOptions {
   sectors: readonly TownSiegeSectorRoster[]
   /** Official authority / native duty owner decides; HR ownership is never transferred. */
   acceptsOrders(npc: NPC): boolean
+  /** Opt-in mission roles; legacy callers retain the original breach routing. */
+  attackerRole?(npc: NPC): TownSiegeAttackerRole
+  /** Also constrains layered-navigation fallback, not just the preferred route. */
+  allowMountedRamps?: boolean
+  /** Commander V starts the complete convoy at the map edge; PR7 callers retain the near-wall approach. */
+  approach?: TownSiegeApproach
+  escortClearance?: TownSiegeEscortClearance
+  /** A mission-owned temporary formation retains movement/target ownership. */
+  externalMovementOwns?(npc: NPC): boolean
+  /** Commander V may restore old equipment-derived roles; receipts remain in their original same-gate lists. */
+  historicalSectorReceipts?: boolean
   registerHit(ramp: MobileSiegeRamp<TownSiegeRampId>): void
   unregisterHit(ramp: MobileSiegeRamp<TownSiegeRampId>): void
   blockers?(): readonly EntityCollisionBody[]
@@ -84,6 +96,7 @@ export class TownFourGateSiege {
   get entrances() { return this.options.navigation.townNav!.siegeEntrances }
   get ready(): boolean { return this.prepared && !this.disposed && this.pending.size === 0 }
   get savedActors() { return this.saved?.actors }
+  setGrid(grid: SpatialGrid<NPC>): void { this.options.grid = grid }
 
   /** Plans and validates all eight before creating a vehicle or cutting any rail. */
   prepare(slots: TownSiegeCrewSlot[]): void {
@@ -94,18 +107,18 @@ export class TownFourGateSiege {
     if (slots.some(s => s.spec.characterFaction !== this.faction) || this.saved && this.saved.faction !== this.faction) throw new Error('Town siege faction mismatch')
     for (const gate of this.saved?.gates ?? []) {
       const sector = this.sectorById.get(gate.gateId)
-      if (gate.releasedWallActorIds.some(id => !sector?.wallActorIds.includes(id))
-        || gate.releasedCavalryActorIds.some(id => !sector?.cavalryActorIds.includes(id))) throw new Error('Checkpoint released actor is outside its sector')
+      if (!townSiegeSectorReceiptsMatch(sector, gate, this.options.historicalSectorReceipts)) throw new Error('Checkpoint released actor is outside its sector')
     }
-    const placements = planTownSiegeRamps(world.fortifications.rampartLayout, world.obstacles, obstacle => passages.isRailObstacle(obstacle))
+    // Existing 40m checkpoints retain their physical carrier rather than teleporting to a new start.
+    const approach = this.saved?.ramps.every(r => Math.abs(r.travelDistance - 40) < .01) ? 'near-wall' : this.options.approach
+    const placements = planTownSiegeRamps(world.fortifications.rampartLayout, world.obstacles, obstacle => passages.isRailObstacle(obstacle), approach, this.options.escortClearance)
     for (const assignment of assignments) {
       const saved = this.saved?.ramps.find(r => r.assignment.id === assignment.id)
       if (this.saved && (!saved || !this.sameCrew(assignment, saved.assignment))) throw new Error('Checkpoint crew differs from mission roster')
       if (saved) {
         const p = placements.find(p => p.id === assignment.id)!
         const expected = p.start.clone().addScaledVector(new THREE.Vector3(p.dirX!, 0, p.dirZ), saved.distance)
-        const rearX = p.surface.startX + saved.position.x - p.dock.x, rearZ = p.surface.startZ + saved.position.z - p.dock.z
-        const expectedY = getTerrainHeight(rearX, rearZ) + .04 + p.surface.topY - p.surface.startY
+        const expectedY = siegeRampDeckHeightAt(p, saved.position.x, saved.position.z)
         if (Math.abs(saved.position.y - expectedY) > .01 || Math.abs(saved.stagingZ - p.start.z) > .01 || Math.hypot(expected.x - saved.position.x, expected.z - saved.position.z) > .01
           || Math.abs(saved.travelDistance - p.start.distanceTo(p.dock.clone().setY(p.start.y))) > .01) throw new Error('Checkpoint does not match Town ramp geometry')
       }
@@ -169,7 +182,8 @@ export class TownFourGateSiege {
   register(npc: NPC): void {
     if (!this.prepared || this.disposed || this.actorsById.has(npc.combatantId) || this.departedActors.has(npc.combatantId)) throw new Error('Invalid Town siege actor registration')
     this.actorsById.set(npc.combatantId, npc)
-    npc.townSiegeGateId = this.actorSectors.get(npc.combatantId) ?? null
+    npc.townSiegeGateId = npc.mount?.isFlyingMount || this.options.attackerRole?.(npc) === 'air'
+      ? null : this.actorSectors.get(npc.combatantId) ?? null
     const saved = this.saved?.actors[npc.combatantId]
     if (saved) {
       if (saved.status === 'dead' || saved.status === 'exited') throw new Error('Cannot respawn a departed siege actor')
@@ -201,18 +215,34 @@ export class TownFourGateSiege {
     this.crewRamps.get(npc.combatantId)?.releaseCrew(npc)
     npc.campaignEntranceId = null; npc.assignSiegeObstacle(null)
   }
+  /** Dismiss returns authority to the mission; the caller restores its native duty/order. */
+  notifyPlayerReturn(npc: NPC): void {
+    if (!this.actorsById.has(npc.combatantId)) return
+    this.playerCommands.delete(npc.combatantId)
+    this.routeEligibility.delete(npc.combatantId)
+  }
+  resumeExternalMovement(npc: NPC): void {
+    this.routeEligibility.delete(npc.combatantId)
+    this.route(npc)
+  }
   private accepts(npc: NPC): boolean {
     return !npc.dead && !this.departedActors.has(npc.combatantId) && npc.combatOwnership !== 'player-personal' && !this.playerCommands.has(npc.combatantId)
-      && npc.tacticalOrder !== 'follow' && !npc.hasFormationTarget && this.options.acceptsOrders(npc)
+      && npc.tacticalOrder !== 'follow' && !npc.hasFormationTarget && !this.options.externalMovementOwns?.(npc) && this.options.acceptsOrders(npc)
   }
   private dispatch(event: TownGateBreachEvent): string[] {
     const sector = this.sectorById.get(event.gateId)
     if (!sector || this.restoring) return []
     const issued: string[] = []
     for (const id of event.kind === 'wall' ? sector.wallActorIds : sector.cavalryActorIds) {
+      if (this.options.historicalSectorReceipts) {
+        const prior = this.policy.gates.get(event.gateId)!
+        // A role migration must not issue a second order or duplicate the original receipt.
+        if (prior.releasedWallActorIds.includes(id) || prior.releasedCavalryActorIds.includes(id)) continue
+      }
       const npc = this.actorsById.get(id)
       if (!npc || !this.accepts(npc)) continue
       if (event.kind === 'wall') npc.releaseOutpostRampartGarrison()
+      npc.setMissionCombatTarget(undefined)
       npc.setTacticalOrder(event.kind === 'wall' ? 'attack' : 'charge'); issued.push(id)
     }
     return issued
@@ -241,7 +271,7 @@ export class TownFourGateSiege {
       const approach = new THREE.Vector3(s.startX - s.dirX * 2.2, s.startY, s.startZ - s.dirZ * 2.2)
       approach.y = getTerrainHeight(approach.x, approach.z)
       this.entrances.set({ id: assignment.id, gateId: assignment.gateId, type: 'siege-ramp', position: ramp.position.clone(), approach,
-        exit: ramp.placement.deckConnection.clone(), walkable: true, mounted: true, faction: null, connectionId: assignment.id,
+        exit: ramp.placement.deckConnection.clone(), walkable: true, mounted: this.options.allowMountedRamps !== false, faction: null, connectionId: assignment.id,
         surface: s, bridgeSurface: ramp.bridgeSurface, side: assignment.side })
       if (!this.restoring) this.policy.ramp(assignment.gateId, assignment.side, true)
     } else if (state === 'DESTROYED') {
@@ -260,13 +290,19 @@ export class TownFourGateSiege {
   }
   private route(npc: NPC, preferred?: TownSiegeRampId): void {
     if (!this.attackerIds.has(npc.combatantId) || npc.siegeTransport || !this.accepts(npc) || npc.campaignBreachCompleted) return
+    const role = this.options.attackerRole?.(npc)
+    // Air keeps its flight owner; archers keep normal ranged targeting and LOS.
+    // Neither is assigned a melee obstacle or a charge when a ramp docks.
+    if (npc.mount?.isFlyingMount || role === 'air' || role === 'ranged') {
+      npc.campaignEntranceId = null; npc.assignSiegeObstacle(null)
+      return
+    }
     const gateId = this.actorSectors.get(npc.combatantId)!, nav = this.options.navigation
     const preferredId = preferred ?? npc.campaignEntranceId
-    const candidates = this.entrances.select(npc.combatPosition, npc.isMounted, npc.characterFaction,
-      point => nav.townNav!.isElevated(npc.combatPosition) || nav.areConnected(npc.combatPosition, point), preferredId)
     // Same-gate routes only. PR8 may explicitly opt into a verified cross-sector policy later.
-    const entry = candidates?.gateId === gateId ? candidates : [...this.entrances.entries.values()].find(e => e.gateId === gateId
-      && e.walkable && (!npc.isMounted || e.mounted) && nav.areConnected(npc.combatPosition, e.approach))
+    const entry = this.entrances.select(npc.combatPosition, npc.isMounted, npc.characterFaction,
+      point => nav.townNav!.isElevated(npc.combatPosition) || nav.areConnected(npc.combatPosition, point), preferredId,
+      candidate => candidate.gateId === gateId && (role !== 'gate-cavalry' || candidate.type === 'gate'))
     const previous = npc.campaignEntranceId
     npc.campaignEntranceId = entry?.id ?? null
     if (entry) {
@@ -295,7 +331,7 @@ export class TownFourGateSiege {
       this.routeEligibility.set(npc.combatantId, eligible)
     }
     for (const npc of this.options.actors()) {
-      if (!this.attackerIds.has(npc.combatantId) || npc.mount?.isFlyingMount || npc.siegeTransport || !this.accepts(npc)) {
+      if (!this.attackerIds.has(npc.combatantId) || npc.mount?.isFlyingMount || this.options.attackerRole?.(npc) === 'air' || npc.siegeTransport || !this.accepts(npc)) {
         this.convoy.release(npc); continue
       }
       this.convoy.update(npc, this.rampList)

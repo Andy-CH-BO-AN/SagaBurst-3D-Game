@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import { describe,expect,it,vi } from 'vitest'
 import { createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
-import { createActiveCareerMission,createTownDefenseMission } from '../../src/career/CareerMissionState'
+import { createActiveCareerMission,createTownDefenseMission,type ActiveCareerMission } from '../../src/career/CareerMissionState'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 import { claimCareerMission,createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -15,23 +15,40 @@ import { townRoster } from '../../src/town/TownRules'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { resolveTownActorEquipment } from '../../src/career/CareerTownEquipmentState'
 import { addCareerItem } from '../../src/career/CareerInventory'
+import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
+
+/** Casualty input for settlement; no controller, combat, or result transition is simulated. */
+function fourGateCasualties(mission: ActiveCareerMission, ids: readonly string[]): void {
+  mission.deadTargetActorIds = [...ids]
+  for (const id of ids) {
+    const actor = mission.fourGateDefense!.actors[id]
+    actor.status = 'dead'; actor.hp = 0
+    if (actor.mount) actor.mount.mounted = false
+    const ground = mission.fourGateDefense!.siege!.actors[id]
+    if (ground) { ground.status = 'dead'; ground.hp = 0; if (ground.mount) ground.mount.mounted = false }
+  }
+}
 
 /** Save/controller boundaries only. Position and yaw are data, never an Object3D or scene tree. */
-function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'veteran-field' | 'duel' = 'bandit', completed = false) {
+function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'commander-four-gate-defense' | 'veteran-field' | 'duel' = 'bandit', completed = false) {
   const events: string[] = []
-  let profile = createCareerProfile('roman')
-  profile.activeMission = kind === 'captain-patrol-command'
+  let profile = kind === 'commander-four-gate-defense' ? createFourGateDefenseProfile('ATTACKING') : createCareerProfile('roman')
+  if (kind !== 'commander-four-gate-defense') profile.activeMission = kind === 'captain-patrol-command'
     ? createCaptainPatrolCommandMission(profile, ['patrol:captain'], 'settlement')
     : kind === 'duel' ? createCareerDuelMission(profile, 'roman_archer', 1, 'resident', 'captain', 'settlement')!
     : kind === 'town-defense' ? createTownDefenseMission(['resident'], [], 'settlement')
     : { ...createActiveCareerMission('recruit-bandits-01', 0, 1, 0, 'settlement'), kind }
   const stats = { damageDealt: 200, damageTaken: 100, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
   if (completed) {
-    profile = claimCareerMission(profile, 'settlement', 'victory', stats).profile
+    if (kind === 'commander-four-gate-defense') fourGateCasualties(profile.activeMission!, profile.activeMission!.targetActorIds)
+    profile = claimCareerMission(profile, profile.activeMission!.id, 'victory', stats).profile
     profile.activeMission!.phase = 'RETURNING'
   }
   const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
-  expect(store.save(profile)).toBe(true)
+  // The large formal input is already supplied by the persistence fixture. Seed
+  // bytes directly; settlement's actual save/retry and final reload own validation.
+  if (kind === 'commander-four-gate-defense') storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
+  else expect(store.save(profile)).toBe(true)
   const residentState = { dead: true, group: { position: new Vector3(9, 0, 9), rotation: { y: 0 } },
     dismountFromMount: vi.fn(), restoreCombatLoadout: vi.fn(),
     restoreForTown: vi.fn((_destination?: Parameters<NPC['restoreForTown']>[0]) => { residentState.dead = false; events.push('restore') }), mountVehicle: vi.fn() }
@@ -39,7 +56,8 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'v
     npc: residentState as unknown as NPC, cycle: 3, walkTime: 2 }
   const field = { friendlies: [resident.npc], snapshot: vi.fn(() => ({ player: stats, squads: [] })), cleanupMission: vi.fn(() => events.push('cleanup')) }
   const duel = { actors: kind === 'duel' ? [resident.npc] : [], snapshot: vi.fn(() => ({ player: stats, squads: [] })), cleanupMission: vi.fn() }
-  const defense = { active: kind === 'town-defense' ? profile.activeMission : undefined, snapshot: vi.fn(() => ({ player: stats, squads: [] })),
+  const defense = { active: kind === 'town-defense' || kind === 'commander-four-gate-defense' ? profile.activeMission : undefined,
+    snapshot: vi.fn(() => ({ player: stats, squads: [] })), snapshotActiveMission: vi.fn((): ActiveCareerMission | undefined => undefined),
     civilianSurvived: 2, civilianDeaths: 1, cleanupMission: vi.fn(() => events.push('defense-cleanup')) }
   const patrol = { actors: [resident.npc], statsSnapshot: { player: stats, squads: [] }, release: vi.fn(() => events.push('release')) }
   const player = { group: { position: new Vector3(50, 80, 70), rotation: { y: 0 } }, resetForScene: vi.fn((x: number, y: number, z: number) => {
@@ -96,8 +114,8 @@ describe('Town mission settlement transactions', () => {
     expect(h.read().activeMission).toBeUndefined()
   })
 
-  it('atomically rebuilds Commander defense at home without replaying battle checkpoints or rewards', () => {
-    const h = fixture('town-defense', true), profile = h.read()
+  it('atomically rebuilds Commander V at home without replaying four-gate checkpoints or rewards', () => {
+    const h = fixture('commander-four-gate-defense', true), profile = h.read()
     profile.rank = 'commander'; profile.totalMerit = 20000
     profile.personalSquad = { members: [{ id: 'personal:dead', type: 'soldier' }] }
     profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
@@ -118,7 +136,7 @@ describe('Town mission settlement transactions', () => {
       members: { 'town-eagle-rider:1': { status: 'deployed', order: 'charge', position: { x: 500, z: 500, yaw: 1 } } } }
     profile.townEagleGarrisons = { roman: { version: 1, sceneKey: 'town:roman', pairs: [] } }
     h.town.preservesResident.mockReturnValue(true)
-    expect(h.store.save(profile)).toBe(true)
+    h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
     const beforeReturn = h.storage.getItem(CAREER_STORAGE_KEY)
     h.storage.writable = false
     expect(h.settlement.returnToTown('direct').status).toBe('save-failed')
@@ -131,6 +149,7 @@ describe('Town mission settlement transactions', () => {
     h.reload()
     const saved = h.read()
     expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(saved)
+    expect(saved.activeMission).toBeUndefined()
     expect(saved.civilianCommandSquad?.actorIds).toHaveLength(21)
     expect(new Set(Object.values(saved.civilianCommandSquad!.owners))).toEqual(new Set(['daily']))
     expect(saved.civilianCommandSquad?.members.merchant).toEqual({ status: 'deployed', order: 'attack' })
@@ -185,21 +204,60 @@ describe('Town mission settlement transactions', () => {
     expect(h.read().activeMission!.result).toMatchObject({ outcome: 'victory', stats: { damageDealt: 200 }, meritStats: { damageDealt: 500, kills: 5 } })
   })
 
-  it('does not publish a failed result and grants its reward once after retry and reload', () => {
-    const h = fixture(), before = h.read()
+  it('atomically captures Commander V final casualties and grants defense merit and Tier 5 completion once after retry', () => {
+    const h = fixture('commander-four-gate-defense'), before = h.read(), active = before.activeMission!
+    const missionId = active.id, templateId = active.templateId, lastTargetId = active.targetActorIds[229]
+    expect(active.targetActorIds).toHaveLength(230)
+    // The durable frame has 229 deaths. Only the controller boundary knows the final contact.
+    fourGateCasualties(active, active.targetActorIds.slice(0, 229))
+    h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(before))
+    const savedBefore = h.storage.getItem(CAREER_STORAGE_KEY), latest = structuredClone(active)
+    fourGateCasualties(latest, latest.targetActorIds)
+    latest.deadCivilianActorIds = [...latest.civilianActorIds!]
+    for (const id of latest.deadCivilianActorIds) Object.assign(latest.fourGateDefense!.actors[id], { status: 'dead', hp: 0 })
+    h.defense.civilianDeaths = 20; h.defense.civilianSurvived = 0
+    latest.fourGateDefense!.actors[lastTargetId].mount!.hp = 22
+    latest.fourGateDefense!.player!.hp = 57
+    latest.playerHp = 57
+    latest.fourGateDefense!.siege!.gates[0].hp = 400
+    h.defense.snapshotActiveMission.mockReturnValue(latest)
+    Object.assign(h.stats, { structureDamage: 900, structuresDestroyed: 1, gateBreaches: 1, survived: true })
+    const beforeMerit = before.totalMerit, beforeAvailable = before.availableMerit
+    const beforeTier5 = before.careerMissionCompletionsByTier?.[5] ?? 0
     h.storage.writable = false
     expect(h.settlement.finish('victory')).toEqual({ status: 'save-failed' })
     expect(h.read()).toBe(before)
     expect(h.read().activeMission!.result).toBeUndefined()
-    expect(h.field.cleanupMission).not.toHaveBeenCalled()
+    expect(h.read().activeMission!.deadTargetActorIds).toHaveLength(229)
+    expect(h.read().activeMission!.fourGateDefense!.phase).toBe('ATTACKING')
+    expect(h.read().claimedBattleIds).not.toContain(missionId)
+    expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBefore)
+    expect(latest.fourGateDefense!.phase).toBe('ATTACKING')
+    expect(h.defense.cleanupMission).not.toHaveBeenCalled()
     h.storage.writable = true
     expect(h.settlement.finish('victory').status).toBe('saved')
-    const merit = h.read().totalMerit
-    expect(merit).toBeGreaterThan(0)
     h.reload()
+    const saved = h.read(), result = saved.activeMission!.result!
+    expect(saved.activeMission!.deadTargetActorIds).toHaveLength(230)
+    expect(saved.activeMission!.deadTargetActorIds).toContain(lastTargetId)
+    expect(saved.activeMission).toMatchObject({ phase: 'RESULT',
+      fourGateDefense: { phase: 'RESULT', attackStarted: true, actors: { [lastTargetId]: { status: 'dead', hp: 0, mount: { hp: 22, mounted: false } } },
+        player: { hp: 57 } } })
+    expect(saved.activeMission!.fourGateDefense!.siege!.gates[0].hp).toBe(400)
+    // Defense: 200 / 20 damage + 2 * 8 kills + 80 victory + 20 survival, no structure/breach bonus.
+    expect(result).toMatchObject({ outcome: 'victory', merit: { damage: 10, kills: 16, contribution: 100, total: 126 },
+      defense: { civilianSurvived: 0, civilianDeaths: 20 }, stats: { structureDamage: 900, gateBreaches: 1 } })
+    expect(saved.totalMerit).toBe(beforeMerit + 126)
+    expect(saved.availableMerit).toBe(beforeAvailable + 126)
+    expect(saved.careerMissionCompletionsByTier?.[5]).toBe(beforeTier5 + 1)
+    expect(saved.completedCareerMissionTemplateIds?.filter(id => id === templateId)).toEqual([templateId])
+    expect(saved.claimedBattleIds.filter(id => id === missionId)).toEqual([missionId])
+    const savedBytes = h.storage.getItem(CAREER_STORAGE_KEY)
     expect(h.settlement.finish('victory')).toEqual({ status: 'ignored' })
-    expect(h.read().totalMerit).toBe(merit)
-    expect(h.read().lifetimeStats).toMatchObject({ battles: 1, victories: 1, deaths: 1 })
+    expect(h.read()).toBe(saved)
+    expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBytes)
+    expect(h.defense.snapshotActiveMission).toHaveBeenCalledTimes(2)
+    expect(h.read().lifetimeStats).toMatchObject({ battles: 1, victories: 1, deaths: 0 })
     expect(h.commit).toHaveBeenCalledTimes(2)
   })
 

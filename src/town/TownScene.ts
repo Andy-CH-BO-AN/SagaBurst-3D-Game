@@ -1,4 +1,5 @@
 import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
+import { ActiveMissionClock } from '../career/ActiveMissionClock'
 import { raceReturnAction } from '../career/CareerRaceReturn'
 import { CareerRaceHUD } from '../ui/CareerRaceHUD'
 import { CareerRaceController } from '../career/CareerRaceController'
@@ -17,6 +18,7 @@ import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
 import { SquadRefitSafety } from '../career/SquadRefit'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import { playerEagleProjectileBudget, projectileTerrainContactTime, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
+import { ProjectileAdmission } from '../combat/ProjectileAdmission'
 import { TOWN_AIR_COMMAND_IDS } from '../career/TownAirCommandAuthority'
 import { TownAirCommandSquadController } from './TownAirCommandSquadController'
 import { TownEagleGarrisonController, stageTownEaglePlayerCommand } from './TownEagleGarrisonController'
@@ -83,7 +85,7 @@ import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '..
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
 import { warmTownRenderResources } from './TownRenderWarmup'
 import { findBlockingProjectileObstacleAlongPath, getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBound, resolveEntityCollision, type ObstacleData } from '../world/Terrain'
-import { damageMount, damageNpc, damagePlayer } from '../combat/DamageRouter'
+import { damageMount, damageNpc, damagePlayer, damageObstacle } from '../combat/DamageRouter'
 import { registerTownCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import { personalUnitDisplayName } from '../ui/UnitDisplayName'
 import { CombatTargetHud } from '../ui/CombatTargetHud'
@@ -137,6 +139,8 @@ import { acceptEnemyTownAssault, acceptCaptainSiegeCommand } from '../career/Ene
 import { careerTownSceneRoster, isCareerEnemyTerritoryFieldMission, resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext'
 import { townWartimeHostile } from './TownWartime'
 import { TownDefenseController } from '../career/TownDefenseController'
+import { CommanderFourGateDefenseController } from '../career/CommanderFourGateDefenseController'
+import type { DamageableObstacle } from '../world/DamageableObstacle'
 import { CommanderTownMissionController } from '../career/CommanderTownMissionController'
 import { CareerMountController } from '../career/CareerMountController'
 import { preserveHpRatio, resolveCareerHeroAsset, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
@@ -210,6 +214,8 @@ export class TownScene {
   private panel: HTMLDivElement | null = null
   private target: string | null = null
   private shots: Shot[] = []
+  private readonly projectileAdmission = new ProjectileAdmission(100, 60)
+  get projectileDiagnostics() { return { activeShots: this.shots.length, ...this.projectileAdmission.snapshot() } }
   private readonly shotObstacleContact = { fraction: Infinity, point: new THREE.Vector3() }
   private raf = 0
   private last = performance.now()
@@ -233,7 +239,7 @@ export class TownScene {
   private careerSkillSaveTimer: number | null = null
   private mission!: BanditMissionController
   private duel!: CareerDuelController
-  private defense!: TownDefenseController | CommanderTownMissionController
+  private defense!: TownDefenseController | CommanderTownMissionController | CommanderFourGateDefenseController
   private careerMounts!: CareerMountController
   private missionSettlement!: TownMissionSettlement
   private patrol!: TownCavalryPatrolController
@@ -245,6 +251,7 @@ export class TownScene {
   private readonly raceGuide = new MissionGuide('career-race-guide')
   private readonly raceHud = new CareerRaceHUD()
   private raceClockDt = 0
+  private readonly preparationClock = new ActiveMissionClock()
   private captainPatrol?: CaptainPatrolCommandController
   private readonly commandActors: NPC[] = []
   private missionCombat!: TownMissionCombat
@@ -253,6 +260,10 @@ export class TownScene {
   private personalCommands?: ArmyCommandController
   private personalSaveElapsed = 0
   private personalCriticalState = ''
+  private readonly siegeHitTargets = new Set<DamageableObstacle>()
+  private readonly siegeHitRadius = new WeakMap<DamageableObstacle, number>()
+  private readonly siegeRaycaster = new THREE.Raycaster()
+  private readonly siegeRayHits: THREE.Intersection[] = []
   private readonly defenseTargetRosters = new WeakMap<NonNullable<CareerProfile['activeMission']>, ReadonlySet<string>>()
   private personalCommandUI?: ArmyCommandUI
   private personalFormation?: FormationController
@@ -266,6 +277,10 @@ export class TownScene {
   private ambientDefeatShown = false
   private townRefitOnReturn = false
   private residentReturnPending = false
+  private get fourGateCombatHeld(): boolean {
+    return this.profile.activeMission?.kind === 'commander-four-gate-defense'
+      && (!(this.defense instanceof CommanderFourGateDefenseController) || !this.defense.combatEnabled)
+  }
   private get sceneContext() { return resolveCareerTownSceneContext(this.profile) }
   private pointerWasLocked = false
   private careerSaveFailures = 0
@@ -274,7 +289,7 @@ export class TownScene {
   private commanderReturnPending = false
   private get deploymentReady(): boolean {
     return (this.mission?.ready ?? true) && (this.defense?.ready ?? true)
-      && (!isCommanderTownMission(this.profile.activeMission) || (this.personalSquad?.ready ?? true))
+      && (!(isCommanderTownMission(this.profile.activeMission) || this.profile.activeMission?.kind === 'commander-four-gate-defense') || (this.personalSquad?.ready ?? true))
   }
   private get deploymentFailed(): boolean {
     return [...(this.mission?.spawnBatches ?? []), ...(this.defense?.spawnBatches ?? []), ...(this.outskirts?.batches ?? []), ...(this.enemyEaglePatrol?.batches ?? [])]
@@ -293,11 +308,13 @@ export class TownScene {
         sceneContext.missionOnlyResidents && !entry.borrowed ? sceneContext.worldFaction : sceneContext.residentFaction))
       const commanderHero = shouldSpawnTownCommander(profile) ? townCommanderHeroAsset(sceneContext.residentFaction) : null
       const formerCommanderHero = profile.activeMission?.kind === 'commander-decapitation' ? townCommanderHeroAsset(profile.faction) : null
+      const siegeHeroes = profile.activeMission?.kind === 'commander-four-gate-defense'
+        ? (['roman-hero-t5', 'viking-hero-t5'] as const).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor)) : []
       const personalHeroes = new Set((profile.personalSquad?.members ?? []).flatMap(member => {
         const hero = personalMemberLoadout(member, profile.faction).hero
         return hero ? [hero.visualAssetId] : []
       }))
-      await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
+      await Promise.all([...siegeHeroes, preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome)
@@ -310,7 +327,8 @@ export class TownScene {
     sound.cancelCareerAudio()
     this.renderer = renderer; renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5)); renderer.setSize(innerWidth, innerHeight); renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.toneMapping = THREE.ACESFilmicToneMapping; container.appendChild(renderer.domElement)
     const context = this.sceneContext
-    this.world = new TownWorld(context.worldFaction, this.scene, context.worldOwnerAllegiance)
+    this.world = new TownWorld(context.worldFaction, this.scene, context.worldOwnerAllegiance,
+      { fourGateSiege: profile.activeMission?.kind === 'commander-four-gate-defense' })
     this.navigation.setTownRamparts(this.world.fortifications.rampartLayout)
     const population = townConquestRoster(this.world.hr, withTownCommandSquadRoster(context.residentFaction, townRoster()), this.world.eagleTraining, this.world.eagleGarrison)
     if (shouldSpawnTownCommander(profile)) {
@@ -345,13 +363,14 @@ export class TownScene {
     await this.initializeResidents(roster, context, progress)
     this.patrol = new TownCavalryPatrolController(this.residents)
     const patrolBorrower = this.profile.activeMission
-    const patrolOwned = new Set(patrolBorrower?.kind === 'town-defense' || patrolBorrower?.kind === 'enemy-town-assault'
+    const patrolOwned = new Set(patrolBorrower?.kind === 'town-defense' || patrolBorrower?.kind === 'commander-four-gate-defense' || patrolBorrower?.kind === 'enemy-town-assault'
       ? this.residents.filter(r => r.spec.duty === 'patrol').map(r => r.spec.id)
       : [...(patrolBorrower?.officialSquad?.actorIds ?? []), ...(patrolBorrower?.borrowedActorIds ?? []),
         ...(this.profile.townCommandSquad?.commandedActorIds ?? []), ...(this.profile.townCommandSquad?.refittingActorIds ?? []),
         ...Object.keys(this.profile.townCommandSquad?.nativeReturnStates ?? {})])
     this.patrol.restoreCheckpoint(this.profile.townPatrols?.[context.worldFaction], patrolOwned)
     this.eagleGarrison = new TownEagleGarrisonController(this.residents, this.eagleLandingQueue)
+    this.eagleGarrison.setRecoveryAllowed(this.profile.activeMission?.kind !== 'commander-four-gate-defense')
     this.world.finalizeTrainingTargets()
     progress('預熱動畫、材質與陰影…')
     this.camera.position.set(0, 24, 42); this.camera.lookAt(0, 0, 0)
@@ -378,7 +397,8 @@ export class TownScene {
     this.outskirts = new TownOutskirtsWarfareController(this.scene, context.worldFaction,
       () => this.profile, this.world.obstacles, this.navigation, undefined, this.profile.activeMission?.siege?.claimedSquadIds,
       undefined, this.profile.activeMission?.siege?.attackerIds,
-      this.profile.activeMission?.kind === 'town-defense' || this.profile.activeMission?.kind === 'enemy-town-assault')
+      this.profile.activeMission?.kind === 'town-defense' || this.profile.activeMission?.kind === 'enemy-town-assault',
+      this.profile.activeMission?.kind === 'commander-four-gate-defense')
     this.outskirts.synchronizeRank()
     this.restoreOutskirtsCheckpoint()
     this.initializeEnemyEaglePatrol(context.worldFaction)
@@ -438,7 +458,18 @@ export class TownScene {
     this.duel = new CareerDuelController(this.scene, this.world, this.navigation, this.residents, this.cat, () => this.player, () => this.profile, p => this.commit(p))
     this.duel.onMarchStarted = () => this.playMissionVoice('follow')
     this.duel.onReturnStarted = () => this.playMissionVoice('return')
-    this.defense = isCommanderTownMission(this.profile.activeMission)
+    this.defense = this.profile.activeMission?.kind === 'commander-four-gate-defense'
+      ? new CommanderFourGateDefenseController(this.scene, this.residents, () => this.player, () => this.profile,
+        p => this.commit(p), this.navigation, { world: this.world, patrol: this.patrol, outskirts: this.outskirts,
+          blockers: () => this.siegeMovementBlockers(),
+          registerHit: ramp => {
+            this.siegeHitTargets.add(ramp.damageable)
+            // Conservative authored vehicle radius; cheap broad phase before precise part/wheel triangles.
+            this.siegeHitRadius.set(ramp.damageable, Math.hypot(ramp.surface.length + ramp.surface.landing,
+              ramp.surface.topY - ramp.surface.startY) + ramp.bridgeSurface.length + 8)
+          },
+          unregisterHit: ramp => { this.siegeHitTargets.delete(ramp.damageable) } })
+      : isCommanderTownMission(this.profile.activeMission)
       ? new CommanderTownMissionController(this.scene, this.residents, () => this.player, () => this.profile,
         p => this.commit(p), this.navigation, undefined, { obstacles: this.world.obstacles,
           otherThreats: () => [...this.mission.ambientBandits, ...(this.outskirts?.actors ?? []), ...(this.enemyEaglePatrol?.actors ?? [])]
@@ -532,7 +563,7 @@ export class TownScene {
       await yieldFrame()
     }
     if (import.meta.env.DEV) console.info(`[CareerTownWarmup] ambient Bandit ${Math.round(performance.now() - banditWarmupStarted)}ms`)
-    this.player.update(.2, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier(), this.deploymentReady)
+    this.player.update(.2, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.player.currentMount?.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier(), this.deploymentReady && !this.fourGateCombatHeld)
     if (!this.spectator) this.orbit.update(this.input, 0.016, this.world?.obstacles ?? [])
     progress('預熱近、中、遠景與訓練投射物…')
     const projectiles = createProjectileWarmupGroup()
@@ -550,6 +581,10 @@ export class TownScene {
     this.restoreTownCasualties()
     this.civilianCommand.restore()
     this.townCommand.resumeRefits()
+    if (this.defense instanceof CommanderFourGateDefenseController && !this.profile.activeMission?.result) {
+      this.defense.preparePlayerDeployment()
+      this.defense.completeInitialDeployment()
+    }
     this.hud.id = 'town-hud'; this.hud.style.cssText = 'position:fixed;top:20px;left:20px;z-index:90;background:#201d19de;color:#efe1c3;padding:16px 22px;border:1px solid #aa9270;line-height:1.7;font:15px system-ui;max-width:520px;pointer-events:none'
     this.hint.id = 'town-hint'; this.hint.style.cssText = 'position:fixed;bottom:110px;left:50%;transform:translateX(-50%);z-index:90;color:#fff;background:#211e19dd;padding:10px 20px;font:18px system-ui;pointer-events:none'
     this.pointerPrompt.id = 'town-pointer-prompt'; this.pointerPrompt.textContent = '點擊畫面進入遊戲'; this.pointerPrompt.style.cssText = 'position:fixed;inset:50% auto auto 50%;transform:translate(-50%,-50%);z-index:89;color:#fff4d0;background:#201d19e8;border:1px solid #aa9270;padding:14px 22px;font:600 18px system-ui;pointer-events:none'
@@ -558,6 +593,9 @@ export class TownScene {
     this.compass = new CompassUI(this.camera, this.raceHud.element)
     if (!this.spectator) document.getElementById('controls-hint')!.textContent = 'WASD 移動 · Shift 奔跑 · 滾輪 換裝 · 右鍵 舉盾／瞄準 · Tab 裝備 · E 交談 · Q 關閉面板 · Esc 暫停／上一頁'
     const opts = { capture: true, signal: this.listeners.signal }
+    document.addEventListener('visibilitychange', () => this.preparationClock.reset(), opts)
+    window.addEventListener('blur', () => this.preparationClock.reset(), opts)
+    window.addEventListener('focus', () => this.preparationClock.reset(), opts)
     window.addEventListener('keydown', e => this.key(e), opts)
     window.addEventListener('pagehide', () => {
       this.flushCareerSkillProgression()
@@ -617,7 +655,7 @@ export class TownScene {
         const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined))
         if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => {
           const active = this.defense?.active
-          const siege = active?.kind === 'town-defense' || active?.kind === 'enemy-town-assault'
+          const siege = active?.kind === 'town-defense' || active?.kind === 'commander-four-gate-defense' || active?.kind === 'enemy-town-assault'
           if (this.event.hostile || this.duel?.isMissionActor(npc) || this.race?.owns(npc)
             || npc.combatOwnership && (!siege || npc.combatOwnership !== 'mission-official')
             || active?.officialSquad && officialCommandIsPlayerControlled(active.officialSquad, npc.combatantId)) return true
@@ -750,13 +788,18 @@ export class TownScene {
       || this.profile.faction !== next.faction
     const civilianStateChanged = JSON.stringify(next.civilianCommandSquad) !== JSON.stringify(this.profile.civilianCommandSquad)
     if (!restoringResidents && !options.civilianCommandStaged && !civilianStateChanged && this.civilianCommand) next.civilianCommandSquad = this.civilianCommand.checkpoint() ?? next.civilianCommandSquad
-    const startsDefense = startsFormal && next.activeMission?.kind === 'town-defense'
+    const startsDefense = startsFormal && (next.activeMission?.kind === 'town-defense' || next.activeMission?.kind === 'commander-four-gate-defense')
+    if (startsFormal && next.activeMission?.kind === 'commander-four-gate-defense') {
+      next.activeMission.mountState = this.careerMounts.checkpoint()
+      next.activeMission.playerHp = this.player.hp
+      next.activeMission.playerStamina = this.player.staminaValue
+    }
     const respawning = Boolean(this.player?.dead && this.profile.activeMission && !next.activeMission)
-    const returningFromDefense = Boolean(this.profile.activeMission?.kind === 'town-defense' && this.profile.activeMission.result && !next.activeMission)
+    const returningFromDefense = Boolean((this.profile.activeMission?.kind === 'town-defense' || this.profile.activeMission?.kind === 'commander-four-gate-defense') && this.profile.activeMission.result && !next.activeMission)
     if ((startsDefense && next.rank !== 'commander' || respawning || returningFromDefense) && this.townCommand) next = this.townCommand.stageRefit(next, startsDefense)
     else if (startsFormal && this.townCommand) next = this.townCommand.stageMissionHandoff(next)
     else if (!restoringResidents && !townStateChanged && next.faction === this.profile.faction && this.townCommand) next.townCommandSquad = this.townCommand.checkpoint() ?? next.townCommandSquad
-    if (startsFormal && next.activeMission && next.townCommandSquad) {
+    if (startsFormal && next.activeMission && next.activeMission.kind !== 'commander-four-gate-defense' && next.townCommandSquad) {
       const returning = new Set(next.townCommandSquad.actorIds.filter(id => {
         const member = next.townCommandSquad!.members?.[id]
         return Boolean(next.townCommandSquad!.nativeReturnStates?.[id])
@@ -774,7 +817,8 @@ export class TownScene {
       const mission = next.activeMission, unavailable = this.unavailableTownCavalryActorIds(true)
       const residentDeaths = new Set((this.residents ?? []).filter(resident => resident.npc.dead).map(resident => resident.spec.id))
       // Keep casualties in the source ledger even when their native owner also reports them unavailable.
-      mission.friendlyActorIds = mission.friendlyActorIds.filter(id => !unavailable.has(id) || residentDeaths.has(id))
+      if (mission.kind !== 'commander-four-gate-defense')
+        mission.friendlyActorIds = mission.friendlyActorIds.filter(id => !unavailable.has(id) || residentDeaths.has(id))
       const dead = new Set(mission.deadFriendlyActorIds)
       for (const { spec, npc, homeMount } of this.residents ?? []) if (npc.dead && mission.friendlyActorIds.includes(spec.id)) {
         dead.add(spec.id)
@@ -782,7 +826,7 @@ export class TownScene {
           ...(homeMount ? { mountHp: homeMount.dead ? 0 : homeMount.currentHp } : {}) } }
       }
       mission.deadFriendlyActorIds = [...dead]
-      if (mission.officialSquad) {
+      if (mission.officialSquad && mission.kind !== 'commander-four-gate-defense') {
         const authority = mission.officialSquad
         authority.actorIds = authority.actorIds.filter(id => !dead.has(id) && mission.friendlyActorIds.includes(id))
         authority.squads = authority.squads?.map(squad => ({ ...squad,
@@ -827,7 +871,7 @@ export class TownScene {
     if (outgoing && !next.activeMission && this.world.faction === next.faction && next.townPatrols?.[next.faction]) {
       const borrowed = new Set([...(outgoing.officialSquad?.actorIds ?? []), ...(outgoing.borrowedActorIds ?? [])])
       const returned = new Set(this.residents.filter(r => r.spec.duty === 'patrol'
-        && (outgoing.kind === 'town-defense' || borrowed.has(r.spec.id))).map(r => r.spec.patrolId))
+        && (outgoing.kind === 'town-defense' || outgoing.kind === 'commander-four-gate-defense' || borrowed.has(r.spec.id))).map(r => r.spec.patrolId))
       next.townPatrols[next.faction] = { squads: next.townPatrols[next.faction]!.squads.filter(s => !returned.has(s.id)) }
     }
     if (next.activeMission?.kind === 'captain-patrol-command') {
@@ -851,7 +895,7 @@ export class TownScene {
         if (!resident.spec.eagle) continue
         const id = resident.npc.combatantId
         const owns = (profile: CareerProfile) => Boolean(profile.rank === 'commander' && profile.faction === faction
-          && (profile.activeMission?.kind === 'town-defense' && !profile.activeMission.result
+          && ((profile.activeMission?.kind === 'town-defense' || profile.activeMission?.kind === 'commander-four-gate-defense') && !profile.activeMission.result
             && profile.activeMission.officialSquad?.missionId === profile.activeMission.id
             && profile.activeMission.officialSquad?.townFaction === faction
             && officialCommandIsPlayerControlled(profile.activeMission.officialSquad, id)
@@ -1384,7 +1428,7 @@ export class TownScene {
     const mission = this.profile.activeMission, authority = mission?.officialSquad
     // A completely fallen air squad still needs Dismiss to release its suspended native lifecycle.
     if (order === 'dismiss' && (target === 'all' || target === 'squad:8') && this.profile.rank === 'commander'
-      && mission?.kind === 'town-defense' && !mission.result && authority?.commandRank === 'commander'
+      && (mission?.kind === 'town-defense' || mission?.kind === 'commander-four-gate-defense') && !mission.result && authority?.commandRank === 'commander'
       && authority.missionId === mission.id && authority.townFaction === this.profile.faction
       && authority.commandedSquadIds?.includes(8)) {
       official ??= cloneCareerProfile(this.profile)
@@ -1394,6 +1438,8 @@ export class TownScene {
         && authority.squads?.find(squad => squad.squadId === 8)?.actorIds.includes(npc.combatantId)) {
         const checkpoint = this.snapshotOfficialActor(npc)
         ;(staged.members ??= {})[npc.combatantId] = checkpoint
+        const fourGateDefense = official.activeMission!.fourGateDefense
+        if (fourGateDefense) fourGateDefense.actors[npc.combatantId] = structuredClone(checkpoint)
         const battle = official.activeMission!.battle?.actors[npc.combatantId]
         if (battle) battle.checkpoint = checkpoint
       }
@@ -1656,7 +1702,7 @@ export class TownScene {
     if (active) {
       const template = getCareerMissionTemplate(active.templateId)
       const badge = document.createElement('p'); badge.className = 'town-summary'
-      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 Duel · 單挑' : template?.name ?? active.templateId}\n狀態 ${active.phase}${active.kind === 'duel' ? ` · T${active.duelTier} ${UNIT_PRESETS[active.duelPresetId!].nameEn}` : active.kind === 'town-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : active.kind === 'veteran-field' ? ' · 野戰任務' : ` · 目標 Camp ${active.targetCampId + 1}`}`
+      badge.textContent = `任務進行中：${active.kind === 'duel' ? '1v1 Duel · 單挑' : template?.name ?? active.templateId}\n狀態 ${active.phase}${active.kind === 'duel' ? ` · T${active.duelTier} ${UNIT_PRESETS[active.duelPresetId!].nameEn}` : active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense' ? ' · 守住所屬城鎮' : active.kind === 'patrol' ? ' · 沿指定路線巡邏' : active.kind === 'veteran-field' ? ' · 野戰任務' : ` · 目標 Camp ${active.targetCampId + 1}`}`
       panel.append(badge)
       return
     }
@@ -1802,6 +1848,7 @@ export class TownScene {
         ? '正式兵力：玩家 1 人 + 2 支 25 人 T4 Ranger·xongkoro 空降隊；敵方：敵城原生人員（擊殺任意 100 人取勝）。私兵最多額外 30 人。'
         : definition.id === COMMANDER_DECAPITATION_ID
           ? '正式兵力：玩家 1 人 + 前任 T5 Commander + 10 T4 Lancer + 10 T4 Sword/Axe Cavalry + 9 T4 Horse Archer（全員騎乘）；敵方：敵城全體，斬首目標為 T5 Commander 1 人。'
+          : definition.id === 'commander-four-gate-defense' ? '守衛所屬城鎮：原生八隊城防部隊與最多30名 HR 私兵。敵軍230人、八台攻城車、30隻巨鷹；守方準備180秒後，敵軍才從邊境抵達，四門同時進攻。'
           : definition.id === COMMANDER_BRIDGEHEAD_ID ? '正式兵力：玩家1人 + 八隊各25名步兵；敵方八隊各25名騎兵。雙方各192 T3 + 8 T4。現有 HR 私兵最多額外30人，沿用原裝備與坐騎。'
           : '正式兵力：玩家 1 人 + 4 支 30 人步兵隊；敵軍：48 T3 + 2 T4 Lancer、24 T3 + 1 T4 Sword/Axe Cavalry、24 T3 + 1 T4 Horse Archer。60 秒部署。'
       const survival = '玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。'
@@ -2074,6 +2121,20 @@ export class TownScene {
     this.onCampaign(launch)
   }
 
+  /** NPC riders already belong to the shared grid; duplicating crew as anonymous
+   * blockers would stop their own vehicle. Only Player and unoccupied mounts are extra. */
+  private siegeMovementBlockers(): import('../world/Terrain').EntityCollisionBody[] {
+    const bodies: import('../world/Terrain').EntityCollisionBody[] = []
+    const playerMount = this.player.currentMount
+    if (!this.player.dead && !playerMount) bodies.push({ position: this.player.position, radius: .42, height: 1.8, bottomOffset: .9 })
+    if (playerMount && !playerMount.dead) bodies.push({ position: playerMount.group.position,
+      radius: playerMount.combatRadius, height: playerMount.isFlyingMount ? XONGKORO.bodyHeight : 2.6, bottomOffset: 0 })
+    for (const mount of this.combatMounts) if (!mount.dead && !mount.disposed && mount !== playerMount && !mount.riderNpc && !mount.riderPlayer)
+      bodies.push({ position: mount.group.position, radius: mount.combatRadius,
+        height: mount.isFlyingMount ? XONGKORO.bodyHeight : 2.6, bottomOffset: 0 })
+    return bodies
+  }
+
   private siegeClosureBodies() {
     const bodies: import('./TownSiegeGateClosure').GateClosureBody[] = []
     const mounts = new Set<Mount>()
@@ -2133,7 +2194,7 @@ export class TownScene {
       () => this.player,
       () => this.profile,
       p => this.commit(p),
-      () => this.world.obstacles,
+      () => this.careerMounts?.activeMount?.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles,
       () => [
         ...this.residents.filter(r => !r.npc.dead).map(r => r.npc.combatPosition),
         ...this.mounts.filter(mount => !mount.dead && (!this.sceneContext.missionOnlyResidents || mount !== this.cat)).map(mount => mount.group.position),
@@ -2206,7 +2267,7 @@ export class TownScene {
         this.captainPatrol?.resume()
       } else if (profile.activeMission.kind === 'duel') {
         this.duel.startActiveMission()
-      } else if (profile.activeMission.kind === 'town-defense' || profile.activeMission.kind === 'enemy-town-assault'
+      } else if (profile.activeMission.kind === 'town-defense' || profile.activeMission.kind === 'commander-four-gate-defense' || profile.activeMission.kind === 'enemy-town-assault'
         || profile.activeMission.kind === 'commander-sky-raid' || profile.activeMission.kind === 'commander-decapitation') {
         if (!profile.activeMission.result || profile.activeMission.phase === 'RETURNING') {
           this.siegeOpeningPending = Boolean(profile.activeMission.kind === 'enemy-town-assault'
@@ -2240,7 +2301,7 @@ export class TownScene {
         || active.kind === 'commander-decapitation') {
         if (!active.result && !active.playerDead && !active.mountState && profile.selectedMountId) this.careerMounts.activate(profile.selectedMountId)
       }
-      if (this.defense instanceof CommanderTownMissionController) this.defense.preparePlayerDeployment()
+      if (this.defense instanceof CommanderTownMissionController || this.defense instanceof CommanderFourGateDefenseController) this.defense.preparePlayerDeployment()
       if (siegeAnchor && this.player.currentMount && !this.player.currentMount.isFlyingMount) {
         const mount = this.player.currentMount
         mount.group.position.set(siegeAnchor.x, getTerrainHeight(siegeAnchor.x, siegeAnchor.z), siegeAnchor.z)
@@ -2248,7 +2309,7 @@ export class TownScene {
         this.player.syncMountTransform()
       }
       if ((active.kind === 'veteran-field' || active.kind === 'commander-sky-raid'
-        || active.kind === 'commander-decapitation') && !active.playerDead) {
+        || active.kind === 'commander-decapitation' || active.kind === 'commander-four-gate-defense') && !active.playerDead) {
         if (active.playerHp !== undefined) this.player.setHp(active.playerHp)
         if (active.playerStamina !== undefined) this.player.setStamina(active.playerStamina)
       }
@@ -2264,10 +2325,10 @@ export class TownScene {
     }
     const aerialSceneKey = this.personalSquad?.sceneKey ?? 'town-home'
     const initialDecapitation = this.defense instanceof CommanderTownMissionController && this.defense.initialDeployment
-    if (!initialDecapitation && profile.playerAerialState?.sceneKey === aerialSceneKey && profile.playerAerialState.dead && !this.player.dead) {
+    if (!initialDecapitation && this.profile.activeMission?.kind !== 'commander-four-gate-defense' && profile.playerAerialState?.sceneKey === aerialSceneKey && profile.playerAerialState.dead && !this.player.dead) {
       this.player.takeDamage(this.player.maxHp * 100, this.hp)
     }
-    if (!initialDecapitation)
+    if (!initialDecapitation && this.profile.activeMission?.kind !== 'commander-four-gate-defense')
       restoreCareerAerialState(this.player, this.careerMounts.activeMount, profile.playerAerialState, aerialSceneKey)
     this.restoringAerialState = false
   }
@@ -2675,6 +2736,7 @@ export class TownScene {
     }
   }
   private hitBattlefieldMount(mount: Mount, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
+    if (this.fourGateCombatHeld) return
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || this.personalSquad?.mounts.includes(mount))) return
     if (mount.dead || mount.disposed || amount <= 0) return
     if (!this.profile.activeMission && !this.event?.hostile && this.mounts.includes(mount) && !source) {
@@ -2754,7 +2816,7 @@ export class TownScene {
       && (resident.spec.duty === 'patrol' || resident.spec.duty === 'gate_guard' || resident.spec.duty === 'training' || resident.spec.duty === 'eagle_garrison'))) return true
     if (isCareerEnemyTerritoryFieldMission(this.profile?.activeMission) && (target === this.cat || (this.stableHorses ?? []).includes(target as Mount))) return true
     const active = this.profile?.activeMission
-    if (active?.kind === 'town-defense' || active?.kind === 'enemy-town-assault') {
+    if (active?.kind === 'town-defense' || active?.kind === 'commander-four-gate-defense' || active?.kind === 'enemy-town-assault') {
       if (target instanceof NPC) return target.faction !== Faction.ENEMY && target.faction !== Faction.BANDIT
       return target === this.cat || (this.stableHorses ?? []).includes(target)
         || (this.residents ?? []).some(resident => resident.homeMount === target)
@@ -2801,12 +2863,13 @@ export class TownScene {
   }
   private get ranger(): NPC { return this.residents.find(r => r.spec.role === 'ranger')!.npc }
   private damageBuilding(index: number, amount: number, hitPosition?: THREE.Vector3, source?: NPC, sourceRef?: CombatActorRef, method: CombatDamageMethod = 'melee'): void {
+    if (this.fourGateCombatHeld) return
     if (this.duel?.active) return
     if (source && (this.defense?.phase === 'PREPARING' || !this.defense?.assault)) return
     const b = this.world.buildings[index]; if (!b || b.hp.destroyed || !Number.isFinite(amount) || amount <= 0) return
     const townOwned = b.ownerFaction === Faction.TOWN
     if (townOwned && this.commanderProtectsOwnTown) return
-    if (townOwned && this.profile?.activeMission?.kind === 'town-defense') return
+    if (townOwned && (this.profile?.activeMission?.kind === 'town-defense' || this.profile?.activeMission?.kind === 'commander-four-gate-defense')) return
     if (townOwned && !this.defense?.assault && !this.prepareDamage()) return
     const position = hitPosition ?? b.hp.root.getWorldPosition(new THREE.Vector3())
     const { appliedDamage } = b.hp.takeDamage(amount)
@@ -2842,6 +2905,7 @@ export class TownScene {
     for (const id of this.profile.townEvent.destroyedBuildingIds ?? []) this.world.buildings.find(b => b.id === id)?.hp.destroy()
   }
   private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
+    if (this.fourGateCombatHeld) return
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || target.combatOwnership === 'player-personal')) return
     contact ??= method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined
     if (contact?.kind === 'mount' && contact.mount) {
@@ -2895,6 +2959,7 @@ export class TownScene {
     }
   }
   private damagePlayerFromNpc(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact, sourceRef?: CombatActorRef): void {
+    if (this.fourGateCombatHeld) return
     if (!source.hostileToPlayer && !this.duel?.canDamagePlayer(source)) return
     if (this.defense?.active && !source.hostileToPlayer) return
     const result = damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null, {
@@ -2909,13 +2974,17 @@ export class TownScene {
     else if (source.meleeCombatKind === 'lance') sound?.playLanceImpact(0, true)
     else sound?.playSwordHit(0, true)
   }
-  private fire(origin: THREE.Vector3, direction: THREE.Vector3, speed: number, damage: number, player: boolean, training: boolean, kind: 'arrow' | 'pilum', source?: NPC, lifecycle?: ProjectileFlightBudget): void {
-    if (player && this.player.dead) return
+  private fire(origin: THREE.Vector3, direction: THREE.Vector3, speed: number, damage: number, player: boolean, training: boolean, kind: 'arrow' | 'pilum', source?: NPC, lifecycle?: ProjectileFlightBudget): boolean {
+    if (!training && this.fourGateCombatHeld) return this.projectileAdmission.reject()
+    if (player && this.player.dead) return this.projectileAdmission.reject()
     if (player && !training && kind === 'arrow' && this.player.isMounted && this.player.currentMount?.isFlyingMount) lifecycle ??= playerEagleProjectileBudget(origin, direction, speed)
-    if (this.shots.length >= 100 || training && this.shots.filter(s => s.training).length >= 60) return
-    const shooterFaction = player ? Faction.PLAYER : source?.faction ?? Faction.ENEMY
-    this.shots.push({ arrow: new ArrowProjectile(this.scene, origin, direction, speed, damage, shooterFaction, player, kind, undefined, lifecycle), training, player, source, maxLifetimeSeconds: lifecycle?.maxLifetimeSeconds ?? 5, sourceRef: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), age: 0 })
+    const accepted = this.projectileAdmission.launch(this.shots.length, training ? this.shots.filter(s => s.training).length : 0, training, () => {
+      const shooterFaction = player ? Faction.PLAYER : source?.faction ?? Faction.ENEMY
+      this.shots.push({ arrow: new ArrowProjectile(this.scene, origin, direction, speed, damage, shooterFaction, player, kind, undefined, lifecycle), training, player, source, maxLifetimeSeconds: lifecycle?.maxLifetimeSeconds ?? 5, sourceRef: source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player), age: 0 })
+    })
+    if (!accepted) return false
     if (!training && kind === 'arrow') sound?.playBowRelease(player ? 0 : source?.currentLod ?? 0, player, player ? 0 : origin.distanceTo(this.player.combatPosition))
+    return true
   }
   /** Physical participants never become mission objective, checkpoint or contribution rosters. */
   private runtimeCombatActors(): NPC[] {
@@ -2930,6 +2999,7 @@ export class TownScene {
     const externalDefenders = runtimeActors ? [] : this.missionCombat?.externalDefenders ?? []
     for (const s of this.shots) {
       if (!s.arrow.isAlive) continue
+      if (!s.training && this.fourGateCombatHeld) { s.arrow.destroy(); continue }
       const from = s.arrow.mesh.position.clone(); s.age += dt
       if (!s.training && s.age > (s.maxLifetimeSeconds ?? 5)) { s.arrow.destroy(); continue }
       s.arrow.update(dt, this.player, [], [], () => {}, damage => damagePlayer(this.player, damage, this.hp, null), undefined, true)
@@ -2942,7 +3012,18 @@ export class TownScene {
       if (obstacle && this.shotObstacleContact.fraction * length < nearest) {
         nearest = this.shotObstacleContact.fraction * length
         const buildingIndex = this.world.buildings.findIndex(building => building.obstacles.includes(obstacle))
-        hit = () => { if (buildingIndex >= 0 && (s.player || s.source?.combatOwnership === 'player-personal' && this.defense?.assault)) this.damageBuilding(buildingIndex, s.arrow.damage, this.shotObstacleContact.point, s.source, s.sourceRef, 'projectile') }
+        const point = this.shotObstacleContact.point.clone(), structure = obstacle.damageable
+        hit = () => {
+          if (structure && this.profile.activeMission?.kind === 'commander-four-gate-defense')
+            this.damageSiegeStructure(structure, s.arrow.damage, point, s.source, s.sourceRef, 'projectile')
+          else if (buildingIndex >= 0 && (s.player || s.source?.combatOwnership === 'player-personal' && this.defense?.assault))
+            this.damageBuilding(buildingIndex, s.arrow.damage, point, s.source, s.sourceRef, 'projectile')
+        }
+      }
+      const siegeContact = this.traceSiegeContact(from, to, Math.min(length, nearest + .001))
+      if (siegeContact && siegeContact.distance <= nearest + .001) {
+        nearest = siegeContact.distance
+        hit = () => this.damageSiegeStructure(siegeContact.target, s.arrow.damage, siegeContact.point, s.source, s.sourceRef, 'projectile')
       }
       for (const target of this.world.targets) {
         const p = ray.intersectSphere(new THREE.Sphere(target, .6), new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
@@ -2998,7 +3079,53 @@ export class TownScene {
     }
     this.shots = this.shots.filter(s => s.arrow.isAlive)
   }
+  private traceSiegeContact(from: THREE.Vector3, to: THREE.Vector3, maximum = from.distanceTo(to)):
+    { target: DamageableObstacle; point: THREE.Vector3; distance: number } | null {
+    if (!this.siegeHitTargets.size || maximum <= 0) return null
+    const direction = to.clone().sub(from), length = direction.length()
+    if (length <= 1e-6) return null
+    this.siegeRaycaster.set(from, direction.multiplyScalar(1 / length))
+    this.siegeRaycaster.near = 0; this.siegeRaycaster.far = Math.min(maximum, length)
+    let nearest: { target: DamageableObstacle; point: THREE.Vector3; distance: number } | null = null
+    for (const target of this.siegeHitTargets) {
+      if (target.destroyed) continue
+      const radius = this.siegeHitRadius.get(target) ?? 0
+      if (target.root.position.distanceToSquared(from) > (maximum + radius) ** 2
+        || this.siegeRaycaster.ray.distanceSqToPoint(target.root.position) > radius * radius) continue
+      this.siegeRayHits.length = 0
+      for (const mesh of target.hitMeshes) this.siegeRaycaster.intersectObject(mesh, false, this.siegeRayHits)
+      this.siegeRayHits.sort((a, b) => a.distance - b.distance)
+      const contact = this.siegeRayHits[0]
+      if (contact && (!nearest || contact.distance < nearest.distance))
+        nearest = { target, point: contact.point.clone(), distance: contact.distance }
+    }
+    return nearest
+  }
+
+  private damageSiegeStructure(target: DamageableObstacle, amount: number, point: THREE.Vector3,
+    source?: NPC, sourceRef?: CombatActorRef, method: CombatDamageMethod = 'melee'): void {
+    // Native Ranger/civilian visuals can use the opposite culture; their army
+    // allegiance, rather than their appearance, owns friendly structure protection.
+    const sourceFaction = source && (source.faction === Faction.ENEMY || source.faction === Faction.BANDIT)
+      ? this.profile.faction === 'roman' ? 'viking' : 'roman' : this.profile.faction
+    if (this.profile.activeMission?.kind !== 'commander-four-gate-defense' || this.fourGateCombatHeld
+      || target.destroyed || !target.isDamageableBy(sourceFaction)) return
+    const result = damageObstacle(target, amount, {
+      source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)), method,
+      weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
+        : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
+      emit: event => this.emitCombatEvent(event),
+    })
+    if (!source && result.appliedDamage > 0) {
+      this.damageNumbers.spawn(result.appliedDamage, point)
+      this.showCombatTarget(target.displayName, result.hpRatio)
+    }
+    // Destroy listeners own dock/gate topology and airspace changes synchronously.
+    if (result.destroyed) this.navigation.sync(this.world.obstacles)
+  }
+
   private melee(): void {
+    if (this.fourGateCombatHeld) return
     const eagle = this.player.currentMount
     if (eagle?.isFlyingMount && !this.player.dead) {
       if (!eagle.eagleAttack?.active) return
@@ -3041,6 +3168,14 @@ export class TownScene {
         const distance = box.distanceToPoint(this.player.position)
         if (distance < nearestBuilding) { nearestBuilding = distance; buildingHit = i; buildingHitPosition = box.clampPoint(this.player.position, new THREE.Vector3()) }
       }
+    }
+    const bladeContact = this.traceSiegeContact(from, tip)
+    const sweepContact = this.traceSiegeContact(previousTip, tip)
+    const siegeContact = bladeContact ?? sweepContact
+    if (siegeContact && (buildingHit < 0 || siegeContact.point.distanceTo(this.player.position) < nearestBuilding)) {
+      this.player.markHitProcessed()
+      this.damageSiegeStructure(siegeContact.target, damageResult.damage, siegeContact.point)
+      return
     }
     if (buildingHit >= 0) { this.player.markHitProcessed(); this.damageBuilding(buildingHit, damageResult.damage, buildingHitPosition); return }
     if (this.world.targets.some(p => p.distanceTo(tip) < .8)) { this.player.markHitProcessed(); return }
@@ -3094,7 +3229,7 @@ export class TownScene {
   }
   private ambientEaglePatrolAllowed(): boolean {
     const mission = this.profile.activeMission
-    return mission?.kind !== 'duel' && !this.profile.activeOutpostMission
+    return mission?.kind !== 'duel' && mission?.kind !== 'commander-four-gate-defense' && !this.profile.activeOutpostMission
       && this.profile.townEvent?.state !== 'hostile' && !this.event?.hostile
   }
 
@@ -3107,13 +3242,14 @@ export class TownScene {
     }
     // Siege owns its native air roster; the independent opposing air patrol still flies.
     this.eagleGarrison?.setAmbientPatrolAllowed(allowed
-      && this.profile.activeMission?.kind !== 'town-defense' && this.profile.activeMission?.kind !== 'enemy-town-assault')
+      && this.profile.activeMission?.kind !== 'town-defense' && this.profile.activeMission?.kind !== 'commander-four-gate-defense' && this.profile.activeMission?.kind !== 'enemy-town-assault')
     this.enemyEaglePatrol?.setAmbientPatrolAllowed(allowed)
   }
 
   /** Native snapshots must follow legacy ground mission restore, with validated player intent last. */
   private restoreEagleCommandState(): void {
-    this.eagleGarrison?.restore(this.profile.townEagleGarrisons?.[this.world.faction], `town:${this.world.faction}`)
+    this.eagleGarrison?.restore(this.profile.townEagleGarrisons?.[this.world.faction], `town:${this.world.faction}`,
+      this.profile.activeMission?.kind === 'commander-four-gate-defense')
     this.garrisonRestored = true
     this.townAirCommand?.restore()
     const authority = this.profile.activeMission?.officialSquad
@@ -3134,7 +3270,7 @@ export class TownScene {
     if (this.townAirCommand?.ownsPlayerCommand(npc)) return true
     const mission = this.profile.activeMission, authority = mission?.officialSquad
     return Boolean(this.profile.rank === 'commander' && this.world.faction === this.profile.faction
-      && mission?.kind === 'town-defense' && !mission.result
+      && (mission?.kind === 'town-defense' || mission?.kind === 'commander-four-gate-defense') && !mission.result
       && authority?.missionId === mission.id && authority.townFaction === this.profile.faction
       && npc.combatOwnership === 'mission-official' && !npc.hostileToPlayer
       && (npc.faction === Faction.TOWN || npc.faction === Faction.PLAYER)
@@ -3352,6 +3488,27 @@ export class TownScene {
       this.onRestart(next, 'death-return')
     })
   }
+  private fourGateDefenseHud(): string {
+    if (!(this.defense instanceof CommanderFourGateDefenseController)) return ''
+    const defense = this.defense
+    const phase = defense.phase === 'PREPARING' ? `準備 ${Math.ceil(defense.preparationRemaining)} 秒`
+      : defense.phase === 'DEPLOYING' ? '守方部署中' : defense.phase === 'SPAWNING' ? '敵軍抵達中' : defense.phase === 'ATTACKING' ? '四門總攻' : '戰鬥結束'
+    const ramps = defense.fourGateSiege?.ramps
+    const gateNames = { north: '北', east: '東', south: '南', west: '西' } as const
+    const gateStatus = { closed: '關閉', open: '開啟', destroyed: '已破' } as const
+    const sectors = (['north', 'east', 'south', 'west'] as const).map(id => {
+      const gate = this.world.gates.get(id)
+      const state = (side: 'left' | 'right') => {
+        const ramp = ramps?.get(`town-siege-ramp:${id}:${side}`)
+        return !ramp ? '未抵達' : ramp.controller.state === 'DOCKED' ? '接牆'
+          : ramp.controller.state === 'DESTROYED' ? '已毀' : ramp.controller.state === 'ABANDONED' ? '停駛'
+            : defense.combatEnabled ? '推進' : '待命'
+      }
+      return `${gateNames[id]}門 ${gate ? gateStatus[gate.state] : '部署'} · 車 ${state('left')}/${state('right')}`
+    })
+    return `\nCOMMANDER V · FOUR-GATE DEFENSE\n${phase} · 敵軍 ${defense.remainingEnemies}/230\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n巨鷹騎手 ${defense.remainingAirborneEnemies}/30 · 平民死亡 ${defense.civilianDeaths}`
+  }
+
   private veteranMissionHud(): string {
     const active = this.profile.activeMission!
     const definition = getVeteranMissionDefinition(active.templateId)!
@@ -3401,8 +3558,8 @@ export class TownScene {
     this.updatePlayerCommands()
     if (!this.spectator) this.orbit.update(this.input, dt, this.world.obstacles)
     if (!this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw,
-      this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina,
-      this.quiver, sound, this.inventory, this.skills.getRangedMultiplier(), ready)
+      this.orbit.getAimPoint(new THREE.Vector3()), this.player.currentMount?.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles, this.stamina,
+      this.quiver, sound, this.inventory, this.skills.getRangedMultiplier(), ready && !this.fourGateCombatHeld)
     this.player.group.updateWorldMatrix(true, true)
     if (ready) this.race?.beginFrame(this.raceClockDt, dt)
     if (ready) {
@@ -3444,7 +3601,7 @@ export class TownScene {
     for (const horse of this.stableHorses) if (!horse.dead) horse.horseVisual?.update(dt, horse.group.position.distanceTo(this.camera.position))
     for (const m of this.mounts) {
       m.setCameraDistance(m.group.position.distanceTo(this.camera.position))
-      if (m.dead || !m.riderNpc && !m.riderPlayer && m !== this.cat && !this.stableHorses.includes(m)) m.update(dt, this.world.obstacles)
+      if (m.dead || !m.riderNpc && !m.riderPlayer && m !== this.cat && !this.stableHorses.includes(m)) m.update(dt, m.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles)
     }
     for (const mount of [...(this.outskirts?.mounts ?? []), ...(this.enemyEaglePatrol?.mounts ?? []), ...(this.personalSquad?.mounts ?? [])]) {
       if (mount.disposed) continue
@@ -3507,6 +3664,9 @@ export class TownScene {
     if (this.deploymentFailed && !this.spawnErrorShown) {
       this.spawnErrorShown = true
       const panel = this.openPanel('部隊建立失敗', '本次部署已停止，存檔仍保留完整名冊。請重試空軍部署或重新載入以恢復任務。')
+      if (this.defense instanceof CommanderFourGateDefenseController) this.button(panel, '重試敵軍部署', () => {
+        this.dispose(); this.onRestart(this.profile)
+      })
       if (this.enemyEaglePatrol?.batches.some(batch => batch.status === 'failed')) this.button(panel, '重試空軍部署', () => {
         this.enemyEaglePatrol?.retryFailedDeployment()
         if (!this.deploymentFailed) { this.spawnErrorShown = false; this.closePanel() }
@@ -3516,7 +3676,11 @@ export class TownScene {
     this.raceClockDt = Math.max(0, (time - this.last) / 1000)
     const dt = Math.min(.05, this.raceClockDt); this.last = time
     // Keep the collapse playing even when death immediately opens a result panel.
-    if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
+    if (this.player.dead) this.player.update(dt, this.input, this.orbit.cameraYaw, this.orbit.getAimPoint(new THREE.Vector3()), this.player.currentMount?.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles, this.stamina, this.quiver, sound, this.inventory, this.skills.getRangedMultiplier())
+    const preparationElapsed = this.preparationClock.advance(time,
+      !document.hidden && document.hasFocus() && !this.panel && !this.equipment.visible
+      && !this.result && !this.spawnErrorShown && !this.deploymentFailed && this.deploymentReady)
+    if (this.defense instanceof CommanderFourGateDefenseController) this.defense.setPreparationElapsed(preparationElapsed)
     this.updateGameplay(dt)
     // Lance hits suppress mount impact only for that simulation frame, as in Game.
     // Clear after all Career impact checks so subsequent guarded riding can hit again.
@@ -3546,6 +3710,8 @@ export class TownScene {
         ? `\nSKY RAID\nEnemy Town Kills: ${this.profile.activeMission.deadTargetActorIds?.length ?? 0} / 100\nFriendly Rangers: ${this.defense.defenders.filter(npc => !npc.dead).length} / 50 · Friendly Eagles: ${this.defense.enemyMounts.filter(mount => !mount.dead).length} / 50`
         : this.profile.activeMission.kind === 'commander-decapitation'
         ? `\nOPERATION DECAPITATION · ${this.defense.remainingEnemies ? '敵方 Commander 仍存活' : '敵方 Commander 已倒下'}\n行動隊 ${this.defense.defenders.filter(npc => !npc.dead).length}/30`
+        : this.profile.activeMission.kind === 'commander-four-gate-defense'
+        ? this.fourGateDefenseHud()
         : this.profile.activeMission.kind === 'town-defense'
         ? `\nTOWN DEFENSE ${this.defense.phase === 'PREPARING' ? '開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : this.profile.activeMission.phase} · 敵軍剩餘 ${this.defense.remainingEnemies} · 平民死亡 ${this.defense.civilianDeaths}/10`
         : fieldMissionHud(
@@ -3554,7 +3720,10 @@ export class TownScene {
           this.mission.remainingEnemies,
         )
       : ''
-    this.hud.textContent = `${this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : this.sceneContext.worldFaction === 'viking' ? 'økse 村' : 'vinum 村'}\n已任命軍階 ${this.profile.rank}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.townCommand?.authorizedActorIds.length ? `\n${this.profile.townCommandSquad?.commandRank === 'commander' ? '全城正式部隊' : '城防指揮隊'} ${this.townCommand.actors.filter(npc => !npc.dead).length}/${this.townCommand.authorizedActorIds.length} · ${this.townCommand.state === 'TRAINING' ? '駐防待命' : this.townCommand.state} · Q / 反引號 命令` : ''}${this.profile.personalSquad?.members.length ? `\nPersonal Squad ${this.profile.personalSquad.members.length}/30 · ${this.personalSquad?.state ?? 'RESERVE'} · Q / 反引號 命令` : ''}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
+    const compactDefense = this.profile.activeMission?.kind === 'commander-four-gate-defense'
+    this.hud.textContent = compactDefense
+      ? `${missionHud.trim()}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
+      : `${this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : this.sceneContext.worldFaction === 'viking' ? 'økse 村' : 'vinum 村'}\n已任命軍階 ${this.profile.rank}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.townCommand?.authorizedActorIds.length ? `\n${this.profile.townCommandSquad?.commandRank === 'commander' ? '全城正式部隊' : '城防指揮隊'} ${this.townCommand.actors.filter(npc => !npc.dead).length}/${this.townCommand.authorizedActorIds.length} · ${this.townCommand.state === 'TRAINING' ? '駐防待命' : this.townCommand.state} · Q / 反引號 命令` : ''}${this.profile.personalSquad?.members.length ? `\nPersonal Squad ${this.profile.personalSquad.members.length}/30 · ${this.personalSquad?.state ?? 'RESERVE'} · Q / 反引號 命令` : ''}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
     this.updateMountHud()
     this.damageNumbers.update(dt, this.camera)
     this.updateAmbient()

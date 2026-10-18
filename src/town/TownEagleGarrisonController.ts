@@ -51,6 +51,7 @@ function releasedCommandState(pair: Pick<TownEaglePairState, 'hp' | 'duty' | 'mo
 export class TownEagleGarrisonController {
   private readonly pairs = new Map<NPC, Pair>()
   private ambientPatrolAllowed = false
+  private recoveryAllowed = true
   private time = 0
   private nextTakeoff = 0
   private readonly landingQueue: EagleLandingQueue
@@ -97,6 +98,8 @@ export class TownEagleGarrisonController {
   setAmbientPatrolAllowed(allowed: boolean): void {
     this.ambientPatrolAllowed = allowed
   }
+  /** Formal deployments retain accepted casualties and resources until their saved return. */
+  setRecoveryAllowed(allowed: boolean): void { this.recoveryAllowed = allowed }
   beginFrame(dt: number): void {
     dt = Number.isFinite(dt) ? Math.max(0, dt) : 0
     this.time += dt
@@ -182,7 +185,7 @@ export class TownEagleGarrisonController {
       // at its original ground base; never heal it at the stranded airborne position.
       const retiredSurvivor = (ambientReplacement || pair.serviceRefit && pair.replacementRemaining === 0) && npc.dead && npc.deathPresentationComplete
         && !mount!.dead && !mount!.riderNpc && !mount!.riderPlayer
-      if (!combat && (pair.refitAllowed || ambientReplacement) && (!pair.serviceRefit || !npc.dead || npc.deathPresentationComplete) && !npc.isFalling && (!mount!.isAirborne || retiredSurvivor)) {
+      if (this.recoveryAllowed && !combat && (pair.refitAllowed || ambientReplacement) && (!pair.serviceRefit || !npc.dead || npc.deathPresentationComplete) && !npc.isFalling && (!mount!.isAirborne || retiredSurvivor)) {
         if (!npc.dead && Math.hypot(npc.combatPosition.x - spec.x, npc.combatPosition.z - spec.z) >= 1) {
           const destination = npc.combatFormationCheckpoint?.position
           if (!destination || destination.x !== spec.x || destination.z !== spec.z) this.walk(npc, new THREE.Vector3(spec.x, getTerrainHeight(spec.x, spec.z), spec.z), spec.yaw ?? 0)
@@ -319,6 +322,7 @@ export class TownEagleGarrisonController {
     npc.setEagleFlightOrder({ kind: 'patrol', target: new THREE.Vector3(waypoint.x, 0, waypoint.z), cruiseAltitude: spec.eagle!.cruiseAltitude })
   }
   private refit(pair: Pair): void {
+    if (!this.recoveryAllowed) return
     const { npc, spec, homeMount } = pair.resident
     if (npc.mount || npc.isFalling || homeMount!.isAirborne || !isEaglePadArrived({
       position: homeMount!.group.position, flight: homeMount!.flight!, pad: spec.eagle!.home,
@@ -348,7 +352,7 @@ export class TownEagleGarrisonController {
       mount: { hp: homeMount!.currentHp, position: position(homeMount!.group), flight: homeMount!.flight!.snapshot() },
     })) }
   }
-  restore(saved: TownEagleGarrisonState | undefined, sceneKey: string): void {
+  restore(saved: TownEagleGarrisonState | undefined, sceneKey: string, preserveActors = false): void {
     saved = migrateTownEagleGarrisonLayout(saved, sceneKey, [...this.pairs.values()].map(({ resident: { spec } }) => ({
       id: spec.eagle!.homePadId, ...spec.eagle!.home,
     })))
@@ -365,6 +369,9 @@ export class TownEagleGarrisonController {
       pair.patrolActive = state.patrol?.active ?? false
       pair.replacementRemaining = state.replacementRemaining ?? (state.duty === 'casualty' ? TOWN_EAGLE_REPLACEMENT_SECONDS : 0)
       pair.ambientRecovery = state.ambientRecovery ?? false; pair.restRemaining = state.restRemaining ?? 0
+      // A full mission checkpoint already restored these exact actors. This owner
+      // restores only its native duty/queue, never an older parallel resource snapshot.
+      if (preserveActors) { this.restoreNativeOrder(pair); continue }
       // Bind while grounded, then restore the actual flight phase and positions.
       if (state.mounted && state.hp > 0 && state.mount.hp > 0) npc.mountVehicle(mount!)
       mount!.group.position.set(state.mount.position.x, state.mount.position.y, state.mount.position.z)
