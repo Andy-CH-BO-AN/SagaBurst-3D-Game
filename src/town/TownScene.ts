@@ -10,7 +10,7 @@ import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
-import { civilianHomeAnchor, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
+import { assignTownCivilianHomes, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
 import { townDefenseThreatResponse, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
 import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
 import { SquadRefitSafety } from '../career/SquadRefit'
@@ -317,11 +317,7 @@ export class TownScene {
       population.push(townCommanderSpec(resolveTownCommanderPosition(this.world.obstacles, this.world.roads, this.navigation, population)))
     }
     this.navigation.sync(this.world.obstacles)
-    const civilianOccupied = population.filter(a => a.role !== 'civilian').map(a => a.garrison ?? a)
-    for (const civilian of population.filter(a => a.role === 'civilian')) {
-      const home = civilianHomeAnchor(civilian.index, civilianOccupied, this.world.airspaceObstacles, this.navigation)
-      Object.assign(civilian, { x: home.x, y: home.y, z: home.z }); civilianOccupied.push(civilian)
-    }
+    assignTownCivilianHomes(population, this.world.airspaceObstacles, this.navigation)
     this.residentRoster = careerTownSceneRoster(profile, population)
     this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec) : population)
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))

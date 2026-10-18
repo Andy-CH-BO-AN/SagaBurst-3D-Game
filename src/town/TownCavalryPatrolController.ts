@@ -105,7 +105,8 @@ export class TownCavalryPatrolController {
     }
   }
 
-  constructor(residents: readonly PatrolResident[]) {
+  constructor(private readonly townResidents: readonly PatrolResident[]) {
+    const residents = townResidents
     this.squads = (['A', 'B'] as const).flatMap(id => {
       const members = residents.filter(r => r.spec.duty === 'patrol' && r.spec.patrolId === id)
       const captain = members.find(r => r.spec.patrolLeader)
@@ -395,9 +396,11 @@ export class TownCavalryPatrolController {
     if (this.hostile) return
     // Observe the complete squad before any resident can run refit this frame.
     for (const squad of this.squads) this.advanceLifecycle(squad, dt)
+    // Ownership exclusions affect orders, not physical occupancy. Include all
+    // living residents once per frame so ordinary Town actors can block Patrol.
+    for (const resident of this.townResidents) if (!resident.npc.dead) this.grid.insert(resident.npc)
     for (const [id, r] of this.residents) {
       if (!this.relinquished.has(id) && !excluded.has(r.npc) && !r.npc.dead) {
-        this.grid.insert(r.npc)
         if (this.returning.get(id)?.state !== 'RETURN_TO_BARRACKS' && r.npc.mount && !r.npc.mount.dead && r.npc.mount.riderNpc === r.npc) this.available.add(id)
       }
     }

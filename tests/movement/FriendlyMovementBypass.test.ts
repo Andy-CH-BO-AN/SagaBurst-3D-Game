@@ -30,7 +30,7 @@ it('recovers around a friendly row on the open side, keeps that side, then resum
   expect(goal).toEqual(originalGoal)
 })
 
-it('leaves progressing travel alone and bounds a recovery when its mover stops', () => {
+it('ignores lateral jitter after forward progress and bounds the resulting recovery', () => {
   const bypass = new FriendlyMovementBypass(), self = actor('referee', 0, 0), goal = new Vector3(0, 0, 12)
   const direction = new Vector3(0, 0, 1), nearby = [self, actor('guard', 0, 3)]
   const clear = () => true
@@ -38,6 +38,9 @@ it('leaves progressing travel alone and bounds a recovery when its mover stops',
   self.combatPosition.z = .8
   expect(bypass.steer(.6, self, goal, direction, nearby, clear)).toBe(false)
   expect(direction).toEqual(new Vector3(0, 0, 1))
+  const previousDistance = self.combatPosition.distanceTo(goal)
+  self.combatPosition.x = .8
+  expect(self.combatPosition.distanceTo(goal)).toBeGreaterThan(previousDistance)
   expect(bypass.steer(1.2, self, goal, direction, nearby, clear)).toBe(true)
   expect(bypass.steer(8.1, self, goal, direction, nearby, clear)).toBe(false)
   expect(goal).toEqual(new Vector3(0, 0, 12))

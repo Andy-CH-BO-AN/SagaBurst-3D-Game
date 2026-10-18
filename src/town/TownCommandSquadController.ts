@@ -606,13 +606,21 @@ export class TownCommandSquadController {
     if (!this.ownsPeacefulTravel(resident.npc) || this.sceneKey !== this.value?.sceneKey) return false
     const npc = resident.npc, actor = this.value.members![npc.combatantId]
     if (npc.dead) { actor.status = 'dead'; return true }
-    if (npc.formationCommandId !== TOWN_COMMAND_RETURN_ID) this.applyReturn(npc, actor)
+    let home = this.homeStation(resident)
+    if (npc.formationCommandId !== TOWN_COMMAND_RETURN_ID || this.returnHomeChanged(resident, actor, home)) this.applyReturn(npc, actor, home)
     npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 10, this.nearby), obstacles, navigation)
-    if (npc.isFormationTargetReached(TOWN_COMMAND_RETURN_ID)) {
+    // Travel may dismount a rider whose mount died during this update. Recheck
+    // before accepting the old goal's reached flag or activating a wall station.
+    home = this.homeStation(resident)
+    if (this.returnHomeChanged(resident, actor, home)) { this.applyReturn(npc, actor, home); return true }
+    const p = actor.formation!.position, radius = npc.isMounted ? 1.2 : 1
+    const atHome = (npc.combatPosition.x - p.x) ** 2 + (npc.combatPosition.z - p.z) ** 2 <= radius ** 2
+      && Math.abs(npc.combatPosition.y - (p.y ?? getTerrainHeight(p.x, p.z))) < 1.3
+    if (atHome && npc.isFormationTargetReached(TOWN_COMMAND_RETURN_ID)) {
       npc.missionMovement = false
       actor.status = 'reserve'; actor.order = 'attack'; delete actor.formation
       npc.setTacticalOrder('attack'); npc.setTownPeaceful()
-      resident.spec = this.homeStation(resident)
+      resident.spec = home
       if (resident.spec.garrison?.kind === 'rampart' && !npc.isMounted && npc.hasActiveRangedWeapon) npc.activateTownRampartGarrison()
       if (this.value.commandRank === 'commander') {
         this.value.commandedActorIds = this.value.commandedActorIds?.filter(id => id !== npc.combatantId)
@@ -639,17 +647,22 @@ export class TownCommandSquadController {
   private homeStation(resident: TownCommandResident): TownActorSpec {
     return townStationSpec(resident.spec, Boolean(resident.homeMount && !resident.homeMount.dead || resident.npc.isMounted), Boolean(resident.npc.rangedWeaponId))
   }
+  private returnHomeChanged(resident: TownCommandResident, actor: PersonalActorCheckpoint, home: TownActorSpec): boolean {
+    if (!resident.spec.garrison) return false
+    const p = actor.formation!.position
+    return p.x !== home.x || p.z !== home.z || p.y !== home.y || p.yaw !== (home.yaw ?? Math.PI)
+  }
   private stageReturn(actor: PersonalActorCheckpoint, spec: TownActorSpec): void {
     actor.status = 'deployed'; actor.order = 'formation'
     actor.formation = { commandId: TOWN_COMMAND_RETURN_ID,
       position: { x: spec.x, y: spec.y ?? getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? Math.PI },
       reached: false, arrivalOrder: 'attack' }
   }
-  private applyReturn(npc: NPC, actor: PersonalActorCheckpoint): void {
+  private applyReturn(npc: NPC, actor: PersonalActorCheckpoint, home?: TownActorSpec): void {
     const f = actor.formation!
     const resident = this.residentsById.get(npc.combatantId)
     if (resident?.spec.garrison) {
-      const station = this.homeStation(resident)
+      const station = home ?? this.homeStation(resident)
       f.position = { x: station.x, y: station.y, z: station.z, yaw: station.yaw ?? Math.PI }
     }
     const p = f.position

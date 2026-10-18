@@ -16,6 +16,7 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { TownMissionCombat } from '../../src/town/TownMissionCombat'
 import { damageNpc } from '../../src/combat/DamageRouter'
+import { FriendlyMovementBypass } from '../../src/navigation/FriendlyMovementBypass'
 import { createPlayerCombatActorRef, type DamageAppliedEvent } from '../../src/combat/CombatAttribution'
 
 /** Spawn jobs remain queued: this fixture never constructs actors, mounts or a render scene. */
@@ -36,7 +37,7 @@ function patrol(count = 2, patrolId: 'A' | 'B' = 'A') {
     const position = new Vector3(spec.x, 0, spec.z)
     const actor = {
       combatantId: spec.id, combatPosition: position, group: { position, rotation: { y: 0 } },
-      dead: false, combatOwnership: undefined as NPC['combatOwnership'],
+      dead: false, faction: Faction.TOWN, combatOwnership: undefined as NPC['combatOwnership'],
       hp: 100, get hpRatio() { return this.hp / 100 },
       takeDamage(amount: number) { if (this.dead) return false; this.hp = Math.max(0, this.hp - amount); this.dead = this.hp === 0; return true },
       combatAmmo: 20, shield: { shieldImpactRemaining: 100, shieldImpactMax: 100 },
@@ -78,6 +79,33 @@ function patrolCombat(controller: TownCavalryPatrolController, player: Player, p
 }
 
 describe('Town patrol travel and ownership decisions', () => {
+  it('passes ordinary Town blockers through the Patrol broad phase without claiming them', () => {
+    const fixture = patrol(1), { actors, residents } = fixture, leader = actors[0]
+    const goal = fixture.controller.route[0].clone().setY(0), direction = new Vector3(0, 0, 1)
+    leader.combatPosition.copy(goal).add(new Vector3(0, 0, -20))
+    const blocker = { combatantId: 'civilian-blocker', combatPosition: leader.combatPosition.clone().add(new Vector3(0, 0, 3)),
+      faction: Faction.TOWN, dead: false, isMounted: false }
+    const citizen: PatrolResident = { spec: { id: blocker.combatantId, role: 'civilian', duty: 'civilian',
+      x: 0, z: 3, index: 0, tier: 2, mounted: false, training: false, assaultObjective: false }, npc: blocker as unknown as NPC }
+    const controller = new TownCavalryPatrolController([...residents, citizen])
+    controller.squads[0].state = 'PATROLLING'; controller.squads[0].waypoint = 0
+    const bypass = new FriendlyMovementBypass()
+    let bypassing = false, sawBlocker = false
+    leader.updateTownTravel.mockImplementation((dt: number, _distance: number, nearby: NPC[]) => {
+      sawBlocker = nearby.includes(citizen.npc)
+      direction.set(0, 0, 1)
+      bypassing = bypass.steer(dt, leader, goal, direction, nearby, () => true)
+    })
+    controller.beginFrame(new Set([citizen.npc]))
+    controller.updateResident(residents[0], .6, new Vector3(), [], {} as NavigationWorld)
+    controller.beginFrame(new Set([citizen.npc]))
+    controller.updateResident(residents[0], .6, new Vector3(), [], {} as NavigationWorld)
+    expect(sawBlocker).toBe(true)
+    expect(bypassing).toBe(true)
+    expect(Math.abs(direction.x)).toBeGreaterThan(.9)
+    expect(controller.owns(citizen.npc)).toBe(false)
+    expect(controller.owns(residents[0].npc)).toBe(true)
+  })
   it('advances the final route waypoint to the first when its leader reaches it', () => {
     const { actors, residents, controller } = patrol(1), squad = controller.squads[0]
     squad.state = 'PATROLLING'; squad.waypoint = controller.route.length - 1

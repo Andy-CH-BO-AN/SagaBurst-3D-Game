@@ -4,10 +4,14 @@ import { townStationSpec } from '../../src/town/TownGarrison'
 import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
-import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, townMountPlacementBatchClear, CIVILIAN_MOUNT_CLEARANCE } from '../../src/town/TownCivilianLife'
+import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, townMountPlacementBatchClear, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes } from '../../src/town/TownCivilianLife'
 import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
 import { TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
-import { townRoster } from '../../src/town/TownRules'
+import { townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
+import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
+import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
+import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
+import { resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
 
 describe('Town resident layout ownership', () => {
   it('migrates living daily homes and mounted positions without healing or moving other owners', () => {
@@ -129,7 +133,7 @@ describe('Town resident layout ownership', () => {
   })
 })
 
-it('keeps all four gate ground stations and reserved mounted fallbacks clear of ramp flights and approaches', () => {
+it('keeps final Town population homes, ground stations and fallbacks clear of ramp approaches and each other', () => {
   const roster = townRoster(), layout = getTownRampartLayout()
   const stations = roster.flatMap(actor => actor.garrison ? [
     ...(actor.garrison.kind === 'rampart' ? [] : [{ ...actor.garrison, radius: actor.mounted ? 1.8 : .7 }]),
@@ -149,6 +153,23 @@ it('keeps all four gate ground stations and reserved mounted fallbacks clear of 
     minimumGap = Math.min(minimumGap, Math.hypot(a.x - b.x, a.z - b.z) - a.radius - b.radius)
   }
   expect(minimumGap).toBeGreaterThanOrEqual(.59)
+  const roads = [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS], navigation = { areConnected: () => true }
+  const hr = resolveTownHRLayout('roman', [], roads), training = resolveTownEagleTrainingGround([], roads, hr)
+  const population = townConquestRoster(hr, withTownCommandSquadRoster('roman', roster), training, resolveTownEagleGarrison(training))
+  population.push(townCommanderSpec(resolveTownCommanderPosition([], roads, navigation, population)))
+  // Reserve an otherwise legal home in the final population. This makes the
+  // lost-fallback bug observable even when today's default slots happen to miss homes.
+  const unreserved = population.filter(a => a.role !== 'civilian').map(a => a.garrison ?? a)
+  const reservedHome = civilianHomeAnchor(0, unreserved, [], navigation)
+  population.find(a => a.garrison?.groundFallback)!.garrison!.groundFallback = { ...reservedHome, yaw: 0 }
+  assignTownCivilianHomes(population, [], navigation)
+  const fallbacks = population.flatMap(a => a.garrison?.groundFallback ?? [])
+  const civilians = population.filter(a => a.role === 'civilian')
+  expect(civilians).toHaveLength(20)
+  expect(population.map(a => a.id)).toEqual(expect.arrayContaining(['hr-officer', 'eagle-trainer', 'commander']))
+  let homeGap = Infinity
+  for (const civilian of civilians) for (const fallback of fallbacks) homeGap = Math.min(homeGap, Math.hypot(civilian.x - fallback.x, civilian.z - fallback.z))
+  expect(homeGap).toBeGreaterThanOrEqual(4.5)
 })
 
 it('uses unique deterministic ground fallbacks for equipment changes and restores the authored ranged station', () => {

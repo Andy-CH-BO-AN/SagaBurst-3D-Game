@@ -51,7 +51,10 @@ export class FriendlyMovementBypass {
     this.elapsed += dt
     if (this.elapsed < 1.2) return false
     this.elapsed = 0
-    const progress = Math.hypot(p.x - this.sample.x, p.z - this.sample.z)
+    // Compare both samples against the current goal: sideways/backward collision
+    // motion (or a moving Follow goal) must not count as the mover's progress.
+    const progress = Math.hypot(goal.x - this.sample.x, goal.z - this.sample.z)
+      - Math.hypot(goal.x - p.x, goal.z - p.z)
     this.sample.copy(p)
     if (progress >= .45) return false
     const dx = direction.x, dz = direction.z, radius = self.isMounted ? 1.15 : .6
