@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { gateBreachLane, gateBreachProgress, hasClearedGateBreach } from './GateBreachPortal'
+import { crossingGateBreach, gateBreachLane, gateBreachProgress, hasClearedGateBreach } from './GateBreachPortal'
 import { AvailableBreachEntrances, type BreachEntrance } from './AvailableBreachEntrances'
 import { TOWN_CITY, type TownGateId } from '../town/TownLayout'
 import { getWalkRampHeight } from '../world/Terrain'
@@ -132,7 +132,9 @@ export class TownLayeredNavigation {
       }
       if (aboard) break
     }
-    const preferred = entranceId ? this.siegeEntrances.entries.get(entranceId) : undefined
+    const preferred = entranceId ? this.siegeEntrances.entries.get(entranceId)
+      : sectorId && actorId && (goalInside || this.isElevated(goal))
+        ? crossingGateBreach(this.siegeEntrances.entries.values(), current, mounted, sectorId) : undefined
     let entry = aboard ?? (preferred && eligible(preferred) ? preferred : undefined)
     if (!entry && goalCarrier && this.connected(current, goalCarrier.approach)) entry = goalCarrier
     if (!entry && (goalInside || this.isElevated(goal))) {

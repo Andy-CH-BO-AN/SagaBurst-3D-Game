@@ -1,3 +1,5 @@
+import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import { gateBreachLane } from '../../src/navigation/GateBreachPortal'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { siegeDefensePlans } from '../../src/career/TownSiege'
 import { TownFourGateSiege, type TownSiegeAttackerRole } from '../../src/career/TownFourGateSiege'
@@ -247,6 +249,44 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(actors.map(npc => npc.campaignEntranceId)).toEqual(['town-siege-gate:east', null, null])
     expect(actors.map(npc => npc.siegeTarget)).toEqual([null, null, null])
     expect(actors.map(npc => npc.orders)).toEqual([['charge'], [], []])
+  })
+
+  it('retains actual ranged portal ownership until its body clears despite an inside lateral target', () => {
+    const nav = new TownLayeredNavigation({ decks: [], ramps: [], corners: [], lengths: [], perimeter: 1, wallSpans: [] }, () => true)
+    nav.siegeActive = true
+    const gateId = 'town-siege-gate:east', id = 'east:ranged-crossing'
+    nav.siegeEntrances.set({ id: gateId, gateId: 'east', type: 'gate', position: new Vector3(150, 0, 45),
+      approach: new Vector3(155, 0, 45), exit: new Vector3(145, 0, 45), portal: { halfWidth: 7, halfDepth: 1.2 },
+      mounted: true, walkable: true, faction: null, connectionId: 'east' })
+    const lane = 45 - gateBreachLane(id, false, 7), goal = new Vector3(130, 0, 90), out = new Vector3()
+    const npc = { role: 'ranged' as const, combatantId: id, dead: false, siegeTransport: null, hasFormationTarget: false,
+      tacticalOrder: 'attack', campaignBreachCompleted: false, campaignEntranceId: null as string | null,
+      combatPosition: new Vector3(149, 0, lane), isMounted: false, siegeTarget: {} as unknown, orders: [] as string[],
+      assignSiegeObstacle(target: unknown) { this.siegeTarget = target }, setTacticalOrder(order: string) { this.orders.push(order) } }
+    const owner = Object.assign(Object.create(TownFourGateSiege.prototype) as { route(actor: typeof npc): void }, {
+      attackerIds: new Set([id]), actorSectors: new Map([[id, 'east']]), playerCommands: new Set(), departedActors: new Map(),
+      options: { acceptsOrders: () => true, attackerRole: (actor: typeof npc) => actor.role, navigation: { townNav: nav } },
+    })
+    // The live ranged caller starts with no preferred entrance, as in the reported bug.
+    owner.route(npc)
+    expect(npc.campaignEntranceId).toBe(gateId)
+    expect(nav.resolveMoveTarget(npc.combatPosition, goal, out, npc.campaignEntranceId, false, 'east', id)).toEqual({ ground: true })
+    expect(out.toArray()).toEqual([145, 0, lane])
+    // Between topology updates navigation must infer the same physical owner itself.
+    expect(nav.resolveMoveTarget(npc.combatPosition, goal, out, null, false, 'east', id)).toEqual({ ground: true })
+    expect(out.toArray()).toEqual([145, 0, lane])
+    expect(nav.resolveMoveTarget(npc.combatPosition, goal, out, null, false, null, id)).toBeNull()
+    expect(nav.resolveMoveTarget(npc.combatPosition, new Vector3(170, 0, 90), out, null, false, 'east', id)).toBeNull()
+    expect(npc.tacticalOrder).toBe('attack'); expect(npc.orders).toEqual([]); expect(npc.siegeTarget).toBeNull()
+    npc.combatPosition.x = 148.1
+    expect(nav.hasClearedSiegeGate(npc.combatPosition, gateId, false)).toBe(true)
+    owner.route(npc); expect(npc.campaignEntranceId).toBeNull()
+    expect(nav.resolveMoveTarget(npc.combatPosition, goal, out, null, false, 'east', id)).toBeNull()
+    npc.combatPosition.set(149, 0, 90) // Near the wall plane but outside the gate aperture.
+    owner.route(npc); expect(npc.campaignEntranceId).toBeNull()
+    expect(nav.resolveMoveTarget(npc.combatPosition, goal, out, null, false, 'east', id)).toBeNull()
+    npc.combatPosition.set(130, 0, lane)
+    owner.route(npc); expect(npc.campaignEntranceId).toBeNull()
   })
 
   it('admits only rostered ground attackers to convoy detours and clears excluded actors', () => {

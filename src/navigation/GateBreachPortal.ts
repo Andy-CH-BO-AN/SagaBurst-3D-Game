@@ -27,3 +27,17 @@ export function hasClearedGateBreach(entry: BreachEntrance, point: { x: number; 
   // whole body crossed the inward frame plane, portal ownership must stay released.
   return p.along >= entry.portal.halfDepth + radius
 }
+
+/** Recover only a body physically crossing the opening, never a nearby or deep-interior actor. */
+export function crossingGateBreach(entries: Iterable<BreachEntrance>, point: { x: number; z: number },
+  mounted: boolean, gateId?: string | null): BreachEntrance | undefined {
+  const radius = mounted ? 1.25 : .6
+  for (const entry of entries) {
+    if (!entry.portal || entry.type !== 'gate' || !entry.walkable || mounted && !entry.mounted
+      || gateId && entry.gateId !== gateId) continue
+    const p = gateBreachProgress(entry, point), reach = entry.portal.halfDepth + radius
+    if (p.along >= -reach && !hasClearedGateBreach(entry, point, mounted)
+      && Math.abs(p.lateral) + radius <= entry.portal.halfWidth) return entry
+  }
+  return undefined
+}

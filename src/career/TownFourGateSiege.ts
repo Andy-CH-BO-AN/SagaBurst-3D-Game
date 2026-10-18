@@ -1,3 +1,4 @@
+import { crossingGateBreach } from '../navigation/GateBreachPortal'
 import * as THREE from 'three'
 import { MobileSiegeRamp } from '../campaign/MobileSiegeRamp'
 import type { MobileSiegeRampState } from '../campaign/MobileSiegeRampController'
@@ -293,11 +294,19 @@ export class TownFourGateSiege {
     const role = this.options.attackerRole?.(npc)
     // Air keeps its flight owner; archers keep normal ranged targeting and LOS.
     // Neither is assigned a melee obstacle or a charge when a ramp docks.
-    if (npc.mount?.isFlyingMount || role === 'air' || role === 'ranged') {
+    if (npc.mount?.isFlyingMount || role === 'air') {
       npc.campaignEntranceId = null; npc.assignSiegeObstacle(null)
       return
     }
     const gateId = this.actorSectors.get(npc.combatantId)!, nav = this.options.navigation
+    if (role === 'ranged') {
+      // Ranged keeps Attack/LOS and never receives a melee obstacle. Retain only
+      // the narrow physical crossing owner; normal outside/interior targeting stays free.
+      npc.campaignEntranceId = nav.townNav!.isElevated(npc.combatPosition) ? null
+        : crossingGateBreach(this.entrances.entries.values(), npc.combatPosition, npc.isMounted, gateId)?.id ?? null
+      npc.assignSiegeObstacle(null)
+      return
+    }
     const preferredId = preferred ?? npc.campaignEntranceId
     // Same-gate routes only. PR8 may explicitly opt into a verified cross-sector policy later.
     const entry = this.entrances.select(npc.combatPosition, npc.isMounted, npc.characterFaction,
