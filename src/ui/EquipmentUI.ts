@@ -1,3 +1,4 @@
+import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 /**
  * EquipmentUI.ts
  * Manages the RPG Character & Equipment Modal overlay (toggled via Tab or I key).
@@ -16,6 +17,8 @@ export interface EquipmentMountItem {
   available: boolean
   quantityText?: string
   allocated?: boolean
+  appearanceVariant?: HorseAppearanceVariant
+  appearanceEditable?: boolean
 }
 
 export interface EquipmentMountAdapter {
@@ -24,6 +27,7 @@ export interface EquipmentMountAdapter {
   activate(id: string): boolean
   dismiss(): boolean
   release?(id: string): boolean
+  setAppearanceVariant?(variant: HorseAppearanceVariant): boolean
 }
 
 export interface EquipmentSquadAdapter { render(container: HTMLElement, refresh: () => void): void }
@@ -236,6 +240,21 @@ export class EquipmentUI {
           else mounts.activate(mount.id)
           this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town)
         })
+        if (mount.appearanceVariant !== undefined && mounts.setAppearanceVariant) {
+          const label = document.createElement('label'); label.className = 'inv-item-desc'
+          label.textContent = '戰馬毛色 '
+          const select = document.createElement('select'); select.setAttribute('aria-label', '戰馬毛色')
+          for (const [value, name] of ['灰色', '棕色', '深色'].entries()) {
+            const option = document.createElement('option'); option.value = String(value); option.textContent = name
+            select.append(option)
+          }
+          select.value = String(mount.appearanceVariant); select.disabled = mount.appearanceEditable === false
+          select.onchange = () => {
+            mounts.setAppearanceVariant!(Number(select.value) as HorseAppearanceVariant)
+            this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town)
+          }
+          label.append(select); card.append(label)
+        }
         if (mount.allocated && mounts.release) {
           const release = document.createElement('button'); release.className = 'btn-equip'; release.textContent = '解除分配'
           release.onclick = () => { mounts.release!(mount.id); this.updateModal(skillManager, inventoryManager, onEquipChanged, mounts, squad, town) }

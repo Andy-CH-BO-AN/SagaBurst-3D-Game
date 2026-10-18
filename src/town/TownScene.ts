@@ -1,3 +1,4 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { raceReturnAction } from '../career/CareerRaceReturn'
 import { CareerRaceHUD } from '../ui/CareerRaceHUD'
 import { CareerRaceController } from '../career/CareerRaceController'
@@ -650,7 +651,7 @@ export class TownScene {
           const nativeRef = careerEquipment?.refs.mount ?? (equipmentActorIds.has(spec.id)
             ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id).refs.mount : null)
           const reused = findTownNativeMount(this.mounts, nativeRef)
-          const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z))
+          const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z, undefined, horseVariantForStableKey(`town:${residentArmyFaction}:${spec.id}`)))
           if (nativeRef?.source === 'native') registerTownNativeMount(mount, nativeRef.nativeId!)
           mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI
           if (spec.role !== 'ranger' || mount !== this.cat) {

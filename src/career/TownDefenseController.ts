@@ -1,3 +1,4 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { migrateTownRampartPosition } from '../town/TownLayoutMigration'
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
 import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
@@ -690,7 +691,7 @@ export class TownDefenseController {
           npc.applyTemporaryCombatLoadout(spec.loadout ?? {}, 3, spec.squadId, spec.presetId)
         }
         else if (spec.loadout?.mountId && (active.actorHealth?.[id]?.mountHp ?? 1) > 0) {
-          const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout.mountId), point.x, point.z))
+          const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout.mountId), point.x, point.z, undefined, horseVariantForStableKey(id)))
           npc.mountVehicle(mount)
         }
         if (npc.mount) { this.enemyMounts.push(npc.mount); this.actorMounts.set(npc, npc.mount) }

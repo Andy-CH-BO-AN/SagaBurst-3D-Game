@@ -30,7 +30,7 @@ export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampai
     defenderArmy: createCareerOutpostDefenderArmy(profile.faction, mission), careerMissionKind: mission.kind, careerMissionId: mission.id, playerHeroId: resolveCareerHeroAsset(profile),
     ...(relief ? { careerReliefPhase: mission.reliefPhase ?? 'march' } : {}),
     ...(mission.personalSquad ? { careerPersonalSquad: clonePersonalMission(mission.personalSquad) } : {}),
-    playerMountAppearanceVariant: careerMountAppearanceVariant(mount),
+    playerMountAppearanceVariant: careerMountAppearanceVariant(profile),
     capabilities: { reinforcementsEnabled: !relief, playerCommandsEnabled: mission.officialSquad?.commandRank === 'commander'
       && mission.officialSquad.missionId === mission.id && mission.officialSquad.townFaction === profile.faction && profile.rank === 'commander', gateControlEnabled: false, attackerHeroesEnabled: false },
     playerLoadout: {

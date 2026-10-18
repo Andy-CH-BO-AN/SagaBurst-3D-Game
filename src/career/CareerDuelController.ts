@@ -1,3 +1,4 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import * as THREE from 'three'
 import { UNIT_PRESETS, type UnitLoadout, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { applyHeroIncomingDamage, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
@@ -197,6 +198,7 @@ export class CareerDuelController {
         ? this.createMount(this.scene, selected.mountId, opponent.npc.group.position.x, opponent.npc.group.position.z)
         : ranger ? this.blackCat : originalMount
       if (active.duelTier === 5 && mount) {
+        mount.setAppearanceVariant(horseVariantForStableKey(`town:${this.readProfile().faction}:${opponent.spec.id}`))
         this.ownedDuelMount = mount
         mount.reservedForTown = true
       }

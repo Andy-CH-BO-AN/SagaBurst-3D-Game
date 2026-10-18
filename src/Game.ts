@@ -1312,7 +1312,7 @@ export class Game {
         playerSpawn.x,
         playerSpawn.z,
         undefined,
-        campaignConfig?.playerMountAppearanceVariant ?? 0,
+        this.careerProfile ? horseVariantFromSave(this.careerProfile.horseAppearanceVariant) : campaignConfig?.playerMountAppearanceVariant ?? 0,
       )
       this.startingHorse = startingHorse
       const reliefHeading = isBridgePreview || this.bridgeLaunch ? 0 : campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
@@ -2272,7 +2272,7 @@ export class Game {
     if (spec.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
-      const stableKey = `${spec.characterFaction}:${spec.name}:${spec.tier}`
+      const stableKey = spec.actorId ?? `${spec.characterFaction}:${spec.presetId ?? spec.name}:${spec.x}:${spec.z}`
       const variant = horseVariantForStableKey(stableKey)
       const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout?.mountId), spec.x, spec.z, undefined, variant))
       npc.mountVehicle(mount)
