@@ -1,4 +1,13 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { Vector3, type Scene } from 'three'
+import { CareerDuelController } from '../../src/career/CareerDuelController'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import type { Player } from '../../src/player/Player'
+import type { NPC } from '../../src/world/NPC'
+import type { Mount } from '../../src/world/Mount'
+import type { TownWorld } from '../../src/town/TownWorld'
+import { townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
+import { getTerrainHeight } from '../../src/world/Terrain'
 import { type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
 import { CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
@@ -21,6 +30,86 @@ function win(profile: CareerProfile, presetId: UnitPresetId, tier: CareerDuelTie
   const claim = claimCareerMission(current, current.activeMission!.id, 'victory', stats)
   return clearCareerMission(claim.profile, current.activeMission!.id)
 }
+
+/** Real controller/checkpoints and navigation; only position/order ports, no 3D actors. */
+function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING') {
+  const makeActor = (id: string, x: number, z: number) => {
+    const position = new Vector3(x, getTerrainHeight(x, z), z)
+    const body = { combatantId: id, combatPosition: position, group: { position, rotation: { y: 0 } },
+      dead: false, hp: 100, combatAmmo: 30, loadout: {}, target: undefined as Vector3 | undefined,
+      setDuelHostility: vi.fn(), restoreCombatLoadout: vi.fn(), setTacticalOrder: vi.fn(),
+      applyTemporaryCombatLoadout: vi.fn(), dismountFromMount: vi.fn(),
+      assignFollowTarget: vi.fn(), assignFormationTarget: vi.fn((_id: number, point: Vector3) => { body.target = point.clone() }) }
+    return body
+  }
+  const captain = makeActor('captain', -30, 20), opponent = makeActor('soldier-1', -60, 0)
+  const makeSpec = (actor: typeof captain, role: TownActorSpec['role'], duty: TownActorSpec['duty']): TownActorSpec => ({
+    id: actor.combatantId, role, duty, tier: 2, index: 0, mounted: false, training: duty === 'training',
+    assaultObjective: false, x: actor.combatPosition.x, z: actor.combatPosition.z })
+  const residents = [{ spec: makeSpec(captain, 'captain', 'service'), npc: captain as unknown as NPC },
+    { spec: makeSpec(opponent, 'archer_infantry', 'training'), npc: opponent as unknown as NPC }]
+  const position = new Vector3(-90, getTerrainHeight(-90, 10) + .9, 10)
+  const player = { group: { position, rotation: { y: 0 } }, combatPosition: position, dead: false,
+    hp: 100, staminaValue: 100, faceDirection: vi.fn() }
+  let profile = duel(createCareerProfile('roman'), 'roman_archer', 1, 'travel-duel')
+  profile.activeMission!.phase = phase
+  const navigation = new NavigationWorld({ minX: -150, maxX: 170, minZ: -140, maxZ: 120, cellSize: 4 })
+  navigation.sync([])
+  const query = vi.spyOn(navigation, 'queryPath'); onTestFinished(() => query.mockRestore())
+  const controller = new CareerDuelController(null as unknown as Scene, { obstacles: [] } as unknown as TownWorld,
+    navigation, residents, null as unknown as Mount, () => player as unknown as Player, () => profile,
+    next => { profile = next; return true })
+  onTestFinished(() => controller.dispose())
+  return { controller, captain, opponent, player, query }
+}
+
+describe('Career Duel physical travel and preparation', () => {
+  it('starts an accepted or legacy assembling Duel from the Captain actual position without a barracks rendezvous', () => {
+    const { controller, captain, opponent, player, query } = travelingDuel('ASSEMBLING')
+    const captainStart = captain.combatPosition.clone(), opponentStart = opponent.combatPosition.clone(), playerStart = player.combatPosition.clone()
+    expect(player.combatPosition.distanceTo(captain.combatPosition)).toBeGreaterThan(12)
+    expect(controller.startActiveMission()).toBe(true)
+    expect(controller.phase).toBe('MARCHING')
+    expect(query).toHaveBeenCalledOnce()
+    expect(query.mock.calls[0][0]).toEqual(captainStart)
+    expect(query.mock.calls[0][1]).toEqual(controller.guideTarget)
+    expect(captain.assignFormationTarget).toHaveBeenCalledOnce()
+    const oldAssembly = townSitePoint('barracks', 0, 15)
+    expect(Math.hypot(captain.target!.x - oldAssembly.x, captain.target!.z - oldAssembly.z)).toBeGreaterThan(4)
+    expect(opponent.assignFollowTarget).toHaveBeenCalledWith(captain, 0, new Vector3(-3, 0, -5), 6)
+    expect(captain.combatPosition).toEqual(captainStart)
+    expect(opponent.combatPosition).toEqual(opponentStart)
+    expect(player.combatPosition).toEqual(playerStart)
+  })
+
+  it('waits for grounded arena slots, then enters the unchanged countdown and combat after real arrival', () => {
+    const { controller, captain, opponent, player } = travelingDuel('MARCHING')
+    expect(controller.startActiveMission()).toBe(true)
+    const area = controller.guideTarget!
+    player.combatPosition.copy(area).add(new Vector3(0, .9, 0))
+    captain.combatPosition.copy(area).add(new Vector3(-2, 0, 0))
+    opponent.combatPosition.copy(area).add(new Vector3(-4, 0, 0))
+    controller.update(0)
+    expect(controller.phase).toBe('MARCHING')
+    expect(captain.target!.y).toBe(getTerrainHeight(captain.target!.x, captain.target!.z))
+    expect(Math.abs(captain.target!.y - area.y)).toBeGreaterThan(2) // Actual failing terrain, not an artificial height.
+    opponent.combatPosition.copy(opponent.target!)
+    controller.update(0)
+    expect(controller.phase).toBe('MARCHING') // Referee has not reached the slot.
+    captain.combatPosition.copy(captain.target!).add(new Vector3(0, 4, 0))
+    controller.update(0)
+    expect(controller.phase).toBe('MARCHING') // Same XZ on an invalid layer is insufficient.
+    captain.combatPosition.copy(captain.target!)
+    controller.update(0)
+    expect(controller.phase).toBe('PREPARING')
+    controller.update(4.9)
+    expect(controller.phase).toBe('PREPARING')
+    controller.update(.1)
+    expect(controller.phase).toBe('ENGAGING')
+    expect(opponent.setDuelHostility).toHaveBeenCalledWith(true)
+    expect(captain.setDuelHostility).not.toHaveBeenCalledWith(true)
+  })
+})
 
 describe('Career Duel progression per unit preset', () => {
 

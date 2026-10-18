@@ -2049,7 +2049,7 @@ export class TownScene {
     this.playMissionVoice('missionAccepted')
     if (!this.duel.startActiveMission()) { this.openPanel('單挑部署失敗', '任務已保存，重新載入可恢復同一場單挑。'); return }
     this.inventory.prepareForCombat()
-    this.notice = '已接受單挑。前往市政廳與 Captain 集合。'
+    this.notice = '已接受單挑。直接前往單挑場地，Captain 與對手將自行到場。'
     this.closePanel()
   }
   private acceptOutpostRelief(): void {
@@ -3534,7 +3534,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'captain-patrol-command'
         ? `\nPATROL COMMAND · 有效擊殺 ${this.captainPatrol?.killCount ?? this.profile.activeMission.patrolKilledActorIds?.length ?? 0}/30\n正式巡邏隊 ${this.captainPatrol?.aliveCombatants ?? 0}/20 · Q / 反引號 命令`
         : this.profile.activeMission.kind === 'duel'
-        ? `\nDUEL · T${this.profile.activeMission.duelTier} ${UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (this.duel.combatRemaining > 29 ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨裁判返回市政廳' : this.duel.phase === 'ASSEMBLING' ? '前往市政廳與 Captain 集合' : this.duel.phase === 'MARCHING' ? '跟隨 Captain 前往廣場單挑場地' : this.duel.phase}`
+        ? `\nDUEL · T${this.profile.activeMission.duelTier} ${UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (this.duel.combatRemaining > 29 ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨裁判返回市政廳' : this.duel.phase === 'ASSEMBLING' || this.duel.phase === 'MARCHING' ? '前往單挑場地 · 等待 Captain 與對手就位' : this.duel.phase}`
         : this.profile.activeMission.kind === 'veteran-field'
         ? this.veteranMissionHud()
         : this.profile.activeMission.kind === 'cavalry-sweep'

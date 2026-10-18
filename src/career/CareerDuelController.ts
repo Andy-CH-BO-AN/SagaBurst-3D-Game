@@ -8,7 +8,7 @@ import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import type { Player } from '../player/Player'
 import { townSitePoint, type TownActorSpec } from '../town/TownRules'
 import type { TownWorld } from '../town/TownWorld'
-import { findTownDuelArena, DUEL_OPPONENT_OFFSET, DUEL_REFEREE_OFFSET, DUEL_PLAYER_OFFSET } from '../town/TownDuelArena'
+import { findTownDuelArena, townDuelPosition, DUEL_OPPONENT_OFFSET, DUEL_REFEREE_OFFSET, DUEL_PLAYER_OFFSET } from '../town/TownDuelArena'
 import { Mount, mountTypeFromId } from '../world/Mount'
 import type { NPC } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
@@ -136,8 +136,8 @@ export class CareerDuelController {
   get combatEnabled(): boolean { return this.phase === 'ENGAGING' && !this.active?.result && this.combatElapsed < DUEL_COMBAT_SECONDS }
   get remainingEnemies(): number { return this.opponent && !this.opponent.dead ? 1 : 0 }
   get guideTarget(): THREE.Vector3 | null {
-    if (this.phase === 'ASSEMBLING' || this.phase === 'RETURNING') return this.assemblyPoint()
-    if (this.phase === 'MARCHING') return this.area.clone().add(this.staging ? DUEL_PLAYER_OFFSET : new THREE.Vector3())
+    if (this.phase === 'RETURNING') return this.assemblyPoint()
+    if (this.phase === 'ASSEMBLING' || this.phase === 'MARCHING') return this.staging ? townDuelPosition(this.area, DUEL_PLAYER_OFFSET) : this.area.clone()
     return null
   }
   get returnComplete(): boolean {
@@ -221,10 +221,11 @@ export class CareerDuelController {
     if (active.duelPlayerStamina !== undefined) this.player().setStamina(active.duelPlayerStamina)
     this.area.copy(area)
     this.tracker = new BattleStatsTracker(this.events, false, event => this.acceptCombatEvent(event), active.playerStats)
-    if (active.phase === 'ASSEMBLING') this.assignAssembly()
+    if (active.phase === 'ASSEMBLING') this.beginMarch()
     else if (active.phase === 'MARCHING') {
-      this.setRoute(this.assemblyPoint(), this.area, active.routeStage)
-      this.placeMarchParty(this.route[this.routeIndex] ?? this.area)
+      // Outbound travel starts where the actors actually are, including an old
+      // ASSEMBLING save. No removed-barracks detour or placement onto the route.
+      this.setRoute(this.selectRouteLeader()?.combatPosition ?? this.player().combatPosition, this.area)
       this.ensureRouteLeader()
     } else if (active.phase === 'RETURNING') {
       this.setRoute(this.area, this.assemblyPoint(), active.routeStage)
@@ -239,7 +240,10 @@ export class CareerDuelController {
       if (active.phase === 'MARCHING' && this.staging) this.assignDuelPositions()
       else if (active.phase === 'MARCHING' || active.phase === 'RETURNING') {
         const leader = this.ensureRouteLeader()
-        if (leader) this.assignMarch(leader)
+        if (leader) {
+          if (active.phase === 'MARCHING') this.setRoute(leader.combatPosition, this.area)
+          this.assignMarch(leader)
+        }
       }
     }
     return true
@@ -252,13 +256,8 @@ export class CareerDuelController {
     for (const actor of this.externalCombat) if (actor.dead) this.externalCombat.delete(actor)
     const elapsed = Number.isFinite(dt) ? Math.max(0, dt) : 0
     this.checkpoint.advance(elapsed)
-    if (active.phase === 'ASSEMBLING' && !this.player().dead
-      && this.player().combatPosition.distanceTo(this.selectRouteLeader()?.combatPosition ?? this.assemblyPoint()) <= 12) {
-      if (this.setPhase('MARCHING', 0)) {
-        this.setRoute(this.selectRouteLeader()?.combatPosition ?? this.player().combatPosition, this.area)
-        this.ensureRouteLeader()
-        this.onMarchStarted?.()
-      }
+    if (active.phase === 'ASSEMBLING' && !this.player().dead) {
+      this.beginMarch()
     } else if (active.phase === 'MARCHING') {
       if (!this.staging) {
         const leader = this.ensureRouteLeader()
@@ -307,7 +306,7 @@ export class CareerDuelController {
     if (enabled) {
       if (!this.externalCombat.has(actor)) { this.externalCombat.add(actor); actor.setTacticalOrder('attack') }
     } else if (this.externalCombat.delete(actor)) {
-      if (this.phase === 'ASSEMBLING') this.assignAssembly()
+      if (this.phase === 'ASSEMBLING') this.beginMarch()
       else if ((this.phase === 'MARCHING' && !this.staging) || this.phase === 'RETURNING') {
         const leader = this.ensureRouteLeader()
         if (leader) this.assignMarch(leader)
@@ -444,9 +443,13 @@ export class CareerDuelController {
   }
   private assemblyPoint(): THREE.Vector3 { const point = townSitePoint('barracks', 0, 15); return this.groundPoint(point) }
   private groundPoint(point: { x: number; z: number }): THREE.Vector3 { return new THREE.Vector3(point.x, getTerrainHeight(point.x, point.z), point.z) }
-  private assignAssembly(): void {
-    const assembly = this.assemblyPoint()
-    this.actors.forEach((actor, index) => { if (!actor.dead && !this.externalCombat.has(actor)) actor.assignFormationTarget(this.commandId++, assembly.clone().add(new THREE.Vector3(index * 3, 0, 0)), new THREE.Vector3(0, 0, 1), MARCH_SPEED) })
+  private beginMarch(): void {
+    // ASSEMBLING remains readable for old saves, but is no longer a location.
+    // Do not issue travel until the phase checkpoint has been acknowledged.
+    if (!this.setPhase('MARCHING', 0)) return
+    this.setRoute(this.selectRouteLeader()?.combatPosition ?? this.player().combatPosition, this.area)
+    this.ensureRouteLeader()
+    this.onMarchStarted?.()
   }
   private selectRouteLeader(): NPC | null {
     return [this.captain, this.referee, ...this.actors].find((actor): actor is NPC => Boolean(actor && !actor.dead)) ?? null
@@ -497,7 +500,7 @@ export class CareerDuelController {
     if (this.referee !== this.opponent) this.placeActor(this.referee, this.duelPosition(this.referee), -Math.PI / 2)
     this.placePlayer()
   }
-  private duelPosition(actor: NPC): THREE.Vector3 { return this.area.clone().add(actor === this.opponent ? DUEL_OPPONENT_OFFSET : DUEL_REFEREE_OFFSET) }
+  private duelPosition(actor: NPC): THREE.Vector3 { return townDuelPosition(this.area, actor === this.opponent ? DUEL_OPPONENT_OFFSET : DUEL_REFEREE_OFFSET) }
   private assignDuelPositions(): void {
     for (const actor of this.actors) if (!actor.dead && !this.externalCombat.has(actor) && !(actor === this.opponent && this.combatEnabled)) {
       const yaw = actor === this.opponent ? Math.PI : -Math.PI / 2
@@ -505,8 +508,7 @@ export class CareerDuelController {
     }
   }
   private placePlayer(): void {
-    const player = this.player(), playerPoint = this.area.clone().add(DUEL_PLAYER_OFFSET)
-    playerPoint.y = getTerrainHeight(playerPoint.x, playerPoint.z)
+    const player = this.player(), playerPoint = townDuelPosition(this.area, DUEL_PLAYER_OFFSET)
     if (player.currentMount && !player.currentMount.dead) { player.currentMount.group.position.copy(playerPoint); player.syncMountTransform() }
     else player.group.position.copy(playerPoint).add(new THREE.Vector3(0, .9, 0))
     player.faceDirection(0, 1)
