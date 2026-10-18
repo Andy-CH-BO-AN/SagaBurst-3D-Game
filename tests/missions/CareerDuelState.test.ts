@@ -32,7 +32,7 @@ function win(profile: CareerProfile, presetId: UnitPresetId, tier: CareerDuelTie
 }
 
 /** Real controller/checkpoints and navigation; only position/order ports, no 3D actors. */
-function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING') {
+function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING') {
   const makeActor = (id: string, x: number, z: number) => {
     const position = new Vector3(x, getTerrainHeight(x, z), z)
     const body = { combatantId: id, combatPosition: position, group: { position, rotation: { y: 0 } },
@@ -52,15 +52,18 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING') {
   const player = { group: { position, rotation: { y: 0 } }, combatPosition: position, dead: false,
     hp: 100, staminaValue: 100, faceDirection: vi.fn() }
   let profile = duel(createCareerProfile('roman'), 'roman_archer', 1, 'travel-duel')
+  if (phase === 'RESULT' || phase === 'RETURNING') profile = claimCareerMission(profile, 'travel-duel', 'victory', stats).profile
   profile.activeMission!.phase = phase
+  let saveAllowed = true
   const navigation = new NavigationWorld({ minX: -150, maxX: 170, minZ: -140, maxZ: 120, cellSize: 4 })
   navigation.sync([])
   const query = vi.spyOn(navigation, 'queryPath'); onTestFinished(() => query.mockRestore())
   const controller = new CareerDuelController(null as unknown as Scene, { obstacles: [] } as unknown as TownWorld,
     navigation, residents, null as unknown as Mount, () => player as unknown as Player, () => profile,
-    next => { profile = next; return true })
+    next => { if (!saveAllowed) return false; profile = next; return true })
   onTestFinished(() => controller.dispose())
-  return { controller, captain, opponent, player, query }
+  return { controller, captain, opponent, player, query, residents, read: () => profile,
+    allowSave: (allowed: boolean) => { saveAllowed = allowed } }
 }
 
 describe('Career Duel physical travel and preparation', () => {
@@ -108,6 +111,50 @@ describe('Career Duel physical travel and preparation', () => {
     expect(controller.phase).toBe('ENGAGING')
     expect(opponent.setDuelHostility).toHaveBeenCalledWith(true)
     expect(captain.setDuelHostility).not.toHaveBeenCalledWith(true)
+  })
+
+  it('commits return before routing to the Captain service home and requires actual party arrival there', () => {
+    const h = travelingDuel('RESULT')
+    expect(h.controller.startActiveMission()).toBe(true)
+    const captainStart = h.captain.combatPosition.clone(), opponentStart = h.opponent.combatPosition.clone()
+    const playerStart = h.player.combatPosition.clone(), result = structuredClone(h.read().activeMission!.result)
+    h.allowSave(false)
+    expect(h.controller.beginReturn()).toBe(false)
+    expect(h.controller.phase).toBe('RESULT')
+    expect(h.query).not.toHaveBeenCalled()
+    h.allowSave(true)
+    expect(h.controller.beginReturn()).toBe(true)
+    const home = h.residents[0].spec, target = new Vector3(home.x, getTerrainHeight(home.x, home.z), home.z)
+    expect(h.controller.guideTarget).toEqual(target)
+    expect(h.query.mock.calls[0]).toEqual([captainStart, target])
+    expect(h.captain.combatPosition).toEqual(captainStart)
+    expect(h.opponent.combatPosition).toEqual(opponentStart)
+    expect(h.player.combatPosition).toEqual(playerStart)
+    expect(h.read().activeMission!.result).toEqual(result)
+    const old = townSitePoint('barracks', 0, 15)
+    for (const actor of [h.captain, h.opponent, h.player]) actor.combatPosition.set(old.x, getTerrainHeight(old.x, old.z), old.z)
+    expect(h.controller.returnComplete).toBe(false)
+    h.captain.combatPosition.copy(target); h.player.combatPosition.copy(target)
+    expect(h.controller.returnComplete).toBe(false)
+    h.opponent.combatPosition.copy(target).add(new Vector3(3, 0, 0))
+    expect(h.controller.returnComplete).toBe(true)
+  })
+
+  it('replans an old RETURNING save from actual positions without using its barracks route stage or relocating actors', () => {
+    const h = travelingDuel('RETURNING')
+    h.read().activeMission!.routeStage = 999
+    h.captain.combatPosition.set(95, getTerrainHeight(95, -35), -35)
+    h.opponent.combatPosition.set(99, getTerrainHeight(99, -32), -32)
+    const captainStart = h.captain.combatPosition.clone(), opponentStart = h.opponent.combatPosition.clone()
+    const playerStart = h.player.combatPosition.clone()
+    expect(h.controller.startActiveMission()).toBe(true)
+    const home = h.residents[0].spec
+    expect(h.query.mock.calls[0]).toEqual([captainStart, new Vector3(home.x, getTerrainHeight(home.x, home.z), home.z)])
+    expect(h.captain.combatPosition).toEqual(captainStart)
+    expect(h.opponent.combatPosition).toEqual(opponentStart)
+    expect(h.player.combatPosition).toEqual(playerStart)
+    expect(h.captain.target).not.toEqual(h.controller.guideTarget) // Start at the newly computed route, not stale stage 999.
+    expect(h.controller.returnComplete).toBe(false)
   })
 })
 

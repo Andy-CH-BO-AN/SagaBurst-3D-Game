@@ -6,7 +6,7 @@ import { CombatEventStream, type CombatEvent } from '../combat/CombatAttribution
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import type { Player } from '../player/Player'
-import { townSitePoint, type TownActorSpec } from '../town/TownRules'
+import { townPlayerEntryPoint, type TownActorSpec } from '../town/TownRules'
 import type { TownWorld } from '../town/TownWorld'
 import { findTownDuelArena, townDuelPosition, DUEL_OPPONENT_OFFSET, DUEL_REFEREE_OFFSET, DUEL_PLAYER_OFFSET } from '../town/TownDuelArena'
 import { Mount, mountTypeFromId } from '../world/Mount'
@@ -136,13 +136,13 @@ export class CareerDuelController {
   get combatEnabled(): boolean { return this.phase === 'ENGAGING' && !this.active?.result && this.combatElapsed < DUEL_COMBAT_SECONDS }
   get remainingEnemies(): number { return this.opponent && !this.opponent.dead ? 1 : 0 }
   get guideTarget(): THREE.Vector3 | null {
-    if (this.phase === 'RETURNING') return this.assemblyPoint()
+    if (this.phase === 'RETURNING') return this.returnPoint()
     if (this.phase === 'ASSEMBLING' || this.phase === 'MARCHING') return this.staging ? townDuelPosition(this.area, DUEL_PLAYER_OFFSET) : this.area.clone()
     return null
   }
   get returnComplete(): boolean {
-    return this.phase === 'RETURNING' && this.player().combatPosition.distanceTo(this.assemblyPoint()) < RETURN_PLAYER_RADIUS
-      && this.actors.filter(actor => !actor.dead).every(actor => actor.combatPosition.distanceTo(this.assemblyPoint()) < RETURN_PLAYER_RADIUS)
+    return this.phase === 'RETURNING' && this.player().combatPosition.distanceTo(this.returnPoint()) < RETURN_PLAYER_RADIUS
+      && this.actors.filter(actor => !actor.dead).every(actor => actor.combatPosition.distanceTo(this.returnPoint()) < RETURN_PLAYER_RADIUS)
   }
   get isReturned(): boolean { return this.returnComplete }
   get outcome(): CareerMissionOutcome | null { return this.evaluate() }
@@ -233,8 +233,10 @@ export class CareerDuelController {
       this.setRoute(this.selectRouteLeader()?.combatPosition ?? this.player().combatPosition, this.area)
       this.ensureRouteLeader()
     } else if (active.phase === 'RETURNING') {
-      this.setRoute(this.area, this.assemblyPoint(), active.routeStage)
-      this.placeMarchParty(this.route[this.routeIndex] ?? this.assemblyPoint())
+      // Old return saves contain stages toward the removed barracks. Restore
+      // physical positions first, then derive a new route to the service home.
+      if (active.duelTier === 5 && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
+      this.setRoute(this.selectRouteLeader()?.combatPosition ?? this.player().combatPosition, this.returnPoint())
       this.ensureRouteLeader()
     } else {
       this.placeDuelParty()
@@ -333,7 +335,7 @@ export class CareerDuelController {
     if (!this.setPhase('RETURNING', 0)) return false
     for (const actor of this.actors) actor.setDuelHostility(false)
     this.routeLeader = null
-    this.setRoute(leader?.combatPosition ?? this.player().combatPosition, this.assemblyPoint())
+    this.setRoute(leader?.combatPosition ?? this.player().combatPosition, this.returnPoint())
     this.ensureRouteLeader()
     this.onReturnStarted?.()
     return true
@@ -446,7 +448,12 @@ export class CareerDuelController {
       ? event.target.targetId === this.opponent.combatantId || event.target.ownerActorId === this.opponent.combatantId
       : event.source.actorId === this.opponent.combatantId && (event.target.targetId === 'player' || event.target.ownerActorId === 'player')
   }
-  private assemblyPoint(): THREE.Vector3 { const point = townSitePoint('barracks', 0, 15); return this.groundPoint(point) }
+  private returnPoint(): THREE.Vector3 {
+    // Captain's authored service station is at the town hall, not the former
+    // training/barracks anchor. Final settlement restores each borrowed home.
+    const home = this.residents.find(resident => resident.npc === this.captain)?.spec ?? townPlayerEntryPoint()
+    return new THREE.Vector3(home.x, 'y' in home && home.y !== undefined ? home.y : getTerrainHeight(home.x, home.z), home.z)
+  }
   private groundPoint(point: { x: number; z: number }): THREE.Vector3 { return new THREE.Vector3(point.x, getTerrainHeight(point.x, point.z), point.z) }
   private beginMarch(): void {
     // ASSEMBLING remains readable for old saves, but is no longer a location.
@@ -488,9 +495,6 @@ export class CareerDuelController {
   private advanceRoute(leader: NPC): void {
     const target = this.route[this.routeIndex]
     if (target && leader.combatPosition.distanceTo(target) < 4 && this.routeIndex < this.route.length - 1) { this.routeIndex++; this.assignMarch(leader) }
-  }
-  private placeMarchParty(anchor: THREE.Vector3): void {
-    this.actors.forEach((actor, index) => { if (!actor.dead) this.placeActor(actor, anchor.clone().add(new THREE.Vector3(index * 3, 0, 0)), 0) })
   }
   private placeActor(actor: NPC, point: THREE.Vector3, yaw: number): void {
     point.y = getTerrainHeight(point.x, point.z)
