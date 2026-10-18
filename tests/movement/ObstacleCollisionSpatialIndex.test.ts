@@ -4,6 +4,7 @@ import {
   ObstacleCollisionSpatialIndex
 } from '../../src/world/ObstacleCollisionSpatialIndex'
 import type { ObstacleData } from '../../src/world/Terrain'
+import { markObstacleTopologyChanged } from '../../src/world/ObstacleTopology'
 
 function obstacle(
   minX: number,
@@ -36,7 +37,34 @@ describe('ObstacleCollisionSpatialIndex', () => {
     ])
   })
 
-  it('rebuilds when gate or wall topology changes the shared array length', () => {
+  it('reads live group bounds while retaining duplicate source indices and ungrouped dynamics', () => {
+    const moving = { ...obstacle(-1, -1, 1, 1), dynamic: true }
+    const group = { bounds: moving.box.clone() }
+    const grouped = { ...moving, collisionGroup: group }
+    const fixed = obstacle(-1, -1, 1, 1)
+    const loose = { ...obstacle(-1, -1, 1, 1), dynamic: true }
+    const remoteBox = obstacle(100, 100, 102, 102).box
+    let remotePartChecks = 0
+    const remote: ObstacleData = {
+      dynamic: true, isBarricade: false, collisionGroup: { bounds: remoteBox.clone() },
+      get box() { remotePartChecks++; return remoteBox },
+    }
+    const obstacles = [grouped, fixed, loose, grouped, remote]
+    const index = new ObstacleCollisionSpatialIndex()
+    index.sync(obstacles)
+    expect(index.queryNear(0, 0, 1)).toEqual([grouped, fixed, loose, grouped])
+
+    grouped.box.translate(new THREE.Vector3(80, 0, 0))
+    group.bounds.copy(grouped.box)
+    index.sync(obstacles) // No topology change: bounds remain live.
+    expect(index.queryNear(0, 0, 1)).toEqual([fixed, loose])
+    expect(index.queryNear(80, 0, 1)).toEqual([grouped, grouped])
+    loose.box.translate(new THREE.Vector3(80, 0, 0))
+    expect(index.queryNear(80, 0, 1)).toEqual([grouped, loose, grouped])
+    expect(remotePartChecks).toBe(0)
+  })
+
+  it('rebuilds when gate or wall length or same-length topology revision changes', () => {
     const gate = obstacle(-4, -0.5, 4, 0.5)
     const wall = obstacle(12, -1, 14, 1)
     const obstacles = [gate, wall]
@@ -52,5 +80,12 @@ describe('ObstacleCollisionSpatialIndex', () => {
     obstacles.push(gate)
     index.sync(obstacles)
     expect(index.queryNear(0, 0, 1)).toEqual([gate])
+
+    const replacement = obstacle(40, -1, 42, 1)
+    obstacles.splice(obstacles.indexOf(gate), 1, replacement)
+    markObstacleTopologyChanged(obstacles)
+    index.sync(obstacles)
+    expect(index.queryNear(0, 0, 1)).toEqual([])
+    expect(index.queryNear(41, 0, 1)).toEqual([replacement])
   })
 })

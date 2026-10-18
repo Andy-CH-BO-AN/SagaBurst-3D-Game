@@ -23,6 +23,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
   readonly platform: MovingPlatformSupport<NPC>
   readonly crew = new Map<string, NPC>()
   readonly obstacles: ObstacleData[] = []
+  private readonly collisionGroup = { bounds: new THREE.Box3() }
   private readonly parts: Part[] = []
   private readonly wheels: THREE.Mesh[] = []
   private readonly wheelBodies: { box: THREE.Box3; worldToLocal: THREE.Matrix4 }[] = []
@@ -115,8 +116,11 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     mesh.castShadow = true; mesh.receiveShadow = true
     this.root.add(mesh)
     const localBox = geometry.boundingBox!.clone()
-    const obstacle: ObstacleData = { box: new THREE.Box3(), dynamic: true, isBarricade: true,
-      navigationPassable: true, projectileBoxes: [localBox], projectileWorldToLocal: new THREE.Matrix4() }
+    const box = new THREE.Box3()
+    const obstacle: ObstacleData = { box, dynamic: true, collisionGroup: this.collisionGroup, isBarricade: true,
+      navigationPassable: true, projectileBoxes: [localBox], projectileWorldToLocal: new THREE.Matrix4(),
+      // This box is transformed from the same local geometry as the exact trace.
+      projectileBounds: box }
     this.obstacles.push(obstacle)
     const part = { mesh, obstacle, localBox }
     this.parts.push(part)
@@ -287,9 +291,11 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     }
     this.root.updateWorldMatrix(true, true)
     for (let i = 0; i < this.wheels.length; i++) this.wheelBodies[i].worldToLocal.copy(this.wheels[i].matrixWorld).invert()
+    this.collisionGroup.bounds.makeEmpty()
     for (const part of this.parts) {
       part.obstacle.box.copy(part.localBox).applyMatrix4(part.mesh.matrixWorld)
       part.obstacle.projectileWorldToLocal!.copy(part.mesh.matrixWorld).invert()
+      this.collisionGroup.bounds.union(part.obstacle.box)
     }
   }
 
