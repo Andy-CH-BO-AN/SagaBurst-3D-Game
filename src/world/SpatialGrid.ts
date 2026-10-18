@@ -16,6 +16,8 @@ export class SpatialGrid<T extends SpatialEntity> {
   private grid: Map<string, T[]> = new Map()
   private occupiedBuckets: SpatialBucket<T>[] = []
   private bucketOrderDirty = false
+  private nearestBuckets: SpatialBucket<T>[] = []
+  private nearestBucketsInUse = false
   private insertionOrder = new WeakMap<T, number>()
   private nextInsertionOrder = 0
   private minCellX = Infinity
@@ -30,6 +32,7 @@ export class SpatialGrid<T extends SpatialEntity> {
   clear() {
     this.grid.clear()
     this.occupiedBuckets.length = 0
+    this.nearestBuckets.length = 0
     this.bucketOrderDirty = false
     this.insertionOrder = new WeakMap<T, number>()
     this.nextInsertionOrder = 0
@@ -148,8 +151,10 @@ export class SpatialGrid<T extends SpatialEntity> {
     let closestDistSq = Infinity
     let closestOrder = Infinity
 
-    const scanCell = (cellX: number, cellZ: number): void => {
-      const cell = this.grid.get(`${cellX},${cellZ}`)
+    const scanCell = (
+      cellX: number, cellZ: number,
+      cell: T[] | undefined = this.grid.get(`${cellX},${cellZ}`),
+    ): void => {
       if (!cell) return
 
       for (let i = 0; i < cell.length; i++) {
@@ -169,41 +174,91 @@ export class SpatialGrid<T extends SpatialEntity> {
       }
     }
 
-    for (let ring = 0; ring <= maxRing; ring++) {
-      if (ring === 0) {
-        scanCell(originCellX, originCellZ)
-      } else {
-        const minX = originCellX - ring
-        const maxX = originCellX + ring
-        const minZ = originCellZ - ring
-        const maxZ = originCellZ + ring
+    let sparseBuckets: SpatialBucket<T>[] | null = null
+    let sparseIndex = 0
+    try {
+      for (let ring = 0; ring <= maxRing; ring++) {
+        if (sparseBuckets) {
+          while (sparseIndex < sparseBuckets.length) {
+            const bucket = sparseBuckets[sparseIndex]
+            if (Math.max(Math.abs(bucket.x - originCellX), Math.abs(bucket.z - originCellZ)) !== ring) break
+            scanCell(bucket.x, bucket.z, bucket.entities)
+            sparseIndex++
+          }
+        } else if (ring === 0) {
+          scanCell(originCellX, originCellZ)
+        } else {
+          const minX = originCellX - ring
+          const maxX = originCellX + ring
+          const minZ = originCellZ - ring
+          const maxZ = originCellZ + ring
 
-        for (let x = minX; x <= maxX; x++) {
-          scanCell(x, minZ)
-          scanCell(x, maxZ)
+          for (let x = minX; x <= maxX; x++) {
+            scanCell(x, minZ)
+            scanCell(x, maxZ)
+          }
+          for (let z = minZ + 1; z < maxZ; z++) {
+            scanCell(minX, z)
+            scanCell(maxX, z)
+          }
         }
-        for (let z = minZ + 1; z < maxZ; z++) {
-          scanCell(minX, z)
-          scanCell(maxX, z)
+
+        if (closest !== null && ring >= 1) {
+          const leftBoundary = (originCellX - ring) * this.cellSize
+          const rightBoundary = (originCellX + ring + 1) * this.cellSize
+          const bottomBoundary = (originCellZ - ring) * this.cellSize
+          const topBoundary = (originCellZ + ring + 1) * this.cellSize
+          const nearestUnvisitedDistance = Math.min(
+            pos.x - leftBoundary,
+            rightBoundary - pos.x,
+            pos.z - bottomBoundary,
+            topBoundary - pos.z,
+          )
+
+          // Strict > keeps equal-distance candidates eligible for insertion-order tie-breaking.
+          // Always scan at least one neighboring ring so a grid rebuilt at frame start remains
+          // robust when a fast entity crossed a cell boundary earlier in the same frame.
+          if (nearestUnvisitedDistance * nearestUnvisitedDistance > closestDistSq) break
         }
+
+        // Amortize a bucket scan/sort only after direct probing has reached that scale.
+        // Local matches keep the original cheap path; nested predicates can use it too.
+        if (!sparseBuckets && !this.nearestBucketsInUse && ring >= 1 && ring < maxRing
+          && Number.isFinite(maxRing) && (2 * ring + 1) ** 2 >= this.occupiedBuckets.length) {
+          sparseBuckets = this.nearestBuckets
+          this.nearestBucketsInUse = true
+          for (const bucket of this.occupiedBuckets) {
+            if (Math.max(Math.abs(bucket.x - originCellX), Math.abs(bucket.z - originCellZ)) > ring) {
+              sparseBuckets.push(bucket)
+            }
+          }
+          // Keep nearby's shared X/Z ordering intact. Within a ring retain the original
+          // top/bottom rows, then left/right sides, including predicate visitation order.
+          sparseBuckets.sort((a, b) => {
+            const aRing = Math.max(Math.abs(a.x - originCellX), Math.abs(a.z - originCellZ))
+            const bRing = Math.max(Math.abs(b.x - originCellX), Math.abs(b.z - originCellZ))
+            if (aRing !== bRing) return aRing - bRing
+            const aRow = Math.abs(a.z - originCellZ) === aRing
+            const bRow = Math.abs(b.z - originCellZ) === bRing
+            if (aRow !== bRow) return aRow ? -1 : 1
+            return aRow ? a.x - b.x || a.z - b.z : a.z - b.z || a.x - b.x
+          })
+        }
+        if (sparseBuckets) {
+          if (sparseIndex === sparseBuckets.length) break
+          const next = sparseBuckets[sparseIndex]
+          const nextRing = Math.max(Math.abs(next.x - originCellX), Math.abs(next.z - originCellZ))
+          // A live position may have left its insertion bucket. Before visiting a more
+          // distant occupied ring, test the last skipped empty ring's original bound.
+          // Without a candidate there is no early exit to preserve.
+          ring = Math.max(ring, nextRing - (closest === null ? 1 : 2))
+        }
+
       }
-
-      if (closest !== null && ring >= 1) {
-        const leftBoundary = (originCellX - ring) * this.cellSize
-        const rightBoundary = (originCellX + ring + 1) * this.cellSize
-        const bottomBoundary = (originCellZ - ring) * this.cellSize
-        const topBoundary = (originCellZ + ring + 1) * this.cellSize
-        const nearestUnvisitedDistance = Math.min(
-          pos.x - leftBoundary,
-          rightBoundary - pos.x,
-          pos.z - bottomBoundary,
-          topBoundary - pos.z,
-        )
-
-        // Strict > keeps equal-distance candidates eligible for insertion-order tie-breaking.
-        // Always scan at least one neighboring ring so a grid rebuilt at frame start remains
-        // robust when a fast entity crossed a cell boundary earlier in the same frame.
-        if (nearestUnvisitedDistance * nearestUnvisitedDistance > closestDistSq) break
+    } finally {
+      if (sparseBuckets) {
+        sparseBuckets.length = 0
+        this.nearestBucketsInUse = false
       }
     }
 
