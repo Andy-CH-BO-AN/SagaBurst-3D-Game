@@ -8,11 +8,20 @@ import type { CivilianCommandSquadState } from '../../src/career/CivilianCommand
 import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, townMountPlacementBatchClear, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes } from '../../src/town/TownCivilianLife'
 import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
 import { TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
-import { townRoster, withTownCommandSquadRoster } from '../../src/town/TownRules'
+import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint, withTownCommandSquadRoster } from '../../src/town/TownRules'
+import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
+import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
 import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
 import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
 import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
 import { resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
+
+/** Exact AABB equivalent of a square with vertical interval [-100,100]. */
+function squareIntersects(box: Box3, point: { x: number; z: number }, half: number): boolean {
+  return box.max.y >= -100 && box.min.y <= 100
+    && point.x - half <= box.max.x && point.x + half >= box.min.x
+    && point.z - half <= box.max.z && point.z + half >= box.min.z
+}
 
 describe('Town resident layout ownership', () => {
   it('migrates living daily homes and mounted positions without healing or moving other owners', () => {
@@ -134,8 +143,16 @@ describe('Town resident layout ownership', () => {
   })
 })
 
-it('keeps final Town population homes, ground stations and fallbacks clear of ramp approaches and each other', () => {
+it('keeps final Town population homes, ground stations and fallbacks clear of ramp approaches, watchtower and each other', () => {
   const roster = townRoster(), layout = getTownRampartLayout()
+  // Retain the original 3m resident / 5m patrol tower margins, using this
+  // invariant's existing production roster rather than a second cold fixture.
+  const footprints = watchtowerFootprints(getTownCommandWatchtowerLayout())
+  const positions = [...roster.map(actor => actor.garrison ?? actor),
+    ...roster.filter(actor => actor.patrolId).map(townPatrolRefitPoint), townPlayerEntryPoint()]
+  expect(positions.filter(point => footprints.some(box => squareIntersects(box, point, 3)))).toEqual([])
+  const patrol = [...townPatrolRoute(), ...townPatrolDeparture('A').waypoints, ...townPatrolDeparture('B').waypoints]
+  expect(patrol.filter(point => footprints.some(box => squareIntersects(box, point, 5)))).toEqual([])
   const stations = roster.flatMap(actor => actor.garrison ? [
     ...(actor.garrison.kind === 'rampart' ? [] : [{ ...actor.garrison, radius: actor.mounted ? 1.8 : .7 }]),
     ...(actor.garrison.groundFallback ? [{ ...actor.garrison.groundFallback, radius: 1.8 }] : []),

@@ -1,23 +1,15 @@
 import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, validateWatchtowerPlacement, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
+import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
 import { surfaceBox } from '../../src/town/TownRamparts'
 import { TOWN_CITY_ROADS, TOWN_CENTER, townHousing, type TownRoad } from '../../src/town/TownLayout'
-import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint } from '../../src/town/TownRules'
 import { resolveTownHRLayout } from '../../src/town/TownHRLayout'
-import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
 import { findBlockingObstacleAlongPath, getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../../src/world/Terrain'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 
 function rectangle(x: number, z: number, width: number, depth: number, yaw = 0): Box3 {
   return new Box3(new Vector3(-width / 2, -100, -depth / 2), new Vector3(width / 2, 100, depth / 2))
     .applyMatrix4(new Matrix4().makeRotationY(yaw)).translate(new Vector3(x, 0, z))
-}
-/** Exact AABB equivalent of rectangle(x,z,half*2,half*2), without a matrix/box per resident. */
-function squareIntersects(box: Box3, point: { x: number; z: number }, half: number): boolean {
-  return box.max.y >= -100 && box.min.y <= 100
-    && point.x - half <= box.max.x && point.x + half >= box.min.x
-    && point.z - half <= box.max.z && point.z + half >= box.min.z
 }
 function endpoint(surface: WalkRampSurface, end: boolean): Vector3 {
   return new Vector3(surface.startX + (end ? surface.dirX * surface.length : 0), end ? surface.topY : surface.startY,
@@ -114,16 +106,10 @@ describe('Town command watchtower', () => {
     expect(route.path.at(-1)).toEqual({ x: 10, z: 18 })
   })
 
-  it('reserves both-faction buildings, residents, roads, HR and eagle approaches, rejecting a blocked site', () => {
-    const layout = getTownCommandWatchtowerLayout(), footprints = watchtowerFootprints(layout)
-    const residents = townRoster()
-    const positions = [
-      ...residents.map(actor => actor.garrison ?? actor),
-      ...residents.filter(actor => actor.patrolId).map(townPatrolRefitPoint), townPlayerEntryPoint(),
-    ]
-    expect(positions.filter(point => footprints.some(box => squareIntersects(box, point, 3)))).toEqual([])
-    const patrol = [...townPatrolRoute(), ...townPatrolDeparture('A').waypoints, ...townPatrolDeparture('B').waypoints]
-    expect(patrol.filter(point => footprints.some(box => squareIntersects(box, point, 5)))).toEqual([])
+  it('reserves both-faction buildings, roads, HR and eagle approaches, rejecting a blocked site', () => {
+    // Resident/patrol clearance belongs to the existing formal roster invariant
+    // in TownResidentLayout; do not regenerate the entire city to test scenery.
+    const layout = getTownCommandWatchtowerLayout()
     const bothFactionObstacles: ObstacleData[] = []
     for (const faction of ['roman', 'viking'] as const) {
       // Expanded hulls include foundations, eaves and the front-facing shop porches.
