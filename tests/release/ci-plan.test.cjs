@@ -83,9 +83,11 @@ test('release code selects Node tests and deduplicates shared consumers', () => 
   assert.deepEqual(result.selected, inventory.filter(item => item.runner === 'node').map(item => item.file).sort())
   assert.equal(result.reasons['tests/release/publish.test.cjs'].length, 2)
 })
-test('platform Node checks run for Full/release inputs but not ordinary gameplay PRs', () => {
+test('platform Node checks run only for Full or host-sensitive inputs', () => {
   assert.equal(platformNodeRequired({ mode: 'related', changes: [{ status: 'M', file: 'src/Game.ts' }] }), false)
+  assert.equal(platformNodeRequired({ mode: 'related', changes: [{ status: 'M', file: 'tests/release/ci-plan.test.cjs' }] }), false)
   assert.equal(platformNodeRequired({ mode: 'related', changes: [{ status: 'M', file: 'electron/main.cjs' }] }), true)
+  assert.equal(platformNodeRequired({ mode: 'related', changes: [{ status: 'M', file: 'tests/release/asset-path.test.cjs' }] }), true)
   assert.equal(platformNodeRequired({ mode: 'full', changes: [] }), true)
 })
 test('aggregate refuses missing, failed and stale shards instead of trusting the last shard', () => {
