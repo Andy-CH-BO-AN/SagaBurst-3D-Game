@@ -83,7 +83,7 @@ describe('siege checkpoint ownership', () => {
     expect(migrateTownRampartPosition(saved, spec, true, false, true)).toEqual(saved)
   })
 
-  it('round-trips a Commander formation and dismissal in both actor owners without restoring the garrison destination', () => {
+  it('round-trips a Commander formation in both actor owners without restoring the garrison destination', () => {
     const profile = createFourGateDefenseProfile('ATTACKING'), id = 'gate:north:7'
     const active = profile.activeMission!, state = active.fourGateDefense!
     state.cavalryEscort = createCommanderCavalryEscort(active.id)
@@ -123,10 +123,30 @@ describe('siege checkpoint ownership', () => {
     expect(state.siege!.actors[id].entranceId).toBe('town-siege-gate:north')
     expect(state.siege!.playerCommandedActorIds).toEqual([])
 
+  })
+
+  it('persists Commander dismissal back to native duty in every actor owner', () => {
+    // A saved player-owned formation is the input to this distinct handoff. Do not
+    // re-run Formation's complete save/load transaction to set up Dismiss.
+    const loaded = createFourGateDefenseProfile('ATTACKING'), id = 'gate:north:7'
+    const active = loaded.activeMission!, state = active.fourGateDefense!
+    const member = { status: 'deployed' as const, hp: 37, ammo: 12, order: 'formation' as const,
+      position: { x: 30, y: 9.25, z: -110.6, yaw: .7 },
+      mount: { hp: 0, mounted: false, position: { x: 29, y: 9.25, z: -110.6, yaw: .7 } },
+      formation: { commandId: 91, position: { x: 40, y: 8.5, z: -110.6, yaw: 0 }, reached: false as const } }
+    const npc = { combatantId: id, squadId: officialActorSquadId(active.officialSquad!, id),
+      faction: Faction.TOWN, combatOwnership: 'mission-official', dead: false } as NPC
+    active.officialSquad!.commandedSquadIds = [officialActorSquadId(active.officialSquad!, id)!]
+    active.officialSquad!.members = { [id]: structuredClone(member) }
+    state.actors[id] = structuredClone(member)
+    state.siege!.actors[id] = { ...structuredClone(member), entranceId: null, breachCompleted: true }
+    state.siege!.playerCommandedActorIds = [id]
+    const nativeMember = { ...member, outpostRampartGarrison: true, townRampartGarrison: true, townRampartMounted: true }
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     const dismissed = stageOfficialCommandOrder(loaded, [npc], 'dismiss', [], () => structuredClone(nativeMember))!
     expect(store.save(dismissed)).toBe(true)
     // save() validates and normalizes the final command; inspect its persisted
-    // bytes without repeating the full parser already exercised by Formation.
+    // bytes; full-store reload is covered by the separate Formation owner case.
     const returned = (JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile).activeMission!
     expect(returned.officialSquad!.commandedSquadIds).not.toContain(npc.squadId)
     expect(returned.fourGateDefense!.siege!.playerCommandedActorIds).not.toContain(id)
