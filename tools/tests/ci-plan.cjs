@@ -121,48 +121,11 @@ async function discover({ relatedPaths = [] } = {}) {
   }
 }
 function dependencyConsumers(inventory) {
-  // Supplement native Vite runtime selection with CJS and static helper edges.
-  // Erase type-only edges to avoid pulling unrelated runtime suites into CI.
-  const ts = require('typescript')
-  const graph = new Map()
-  const runtimeAmbiguities = []
-  for (const file of [...walk('src'), ...walk('tests'), ...walk('tools'), ...walk('electron')].filter(file => /\.[cm]?[jt]sx?$/.test(file))) {
-    const source = readFileSync(resolve(root, file), 'utf8')
-    const runtime = /\.tsx?$/.test(file) ? ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext } }).outputText : source
-    const imports = ts.preProcessFile(runtime, true, true).importedFiles
-    if (/^(src\/|tests\/helpers\/|electron\/|tools\/release\/)/.test(file)) {
-      const parsed = ts.createSourceFile(file, runtime, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
-      function inspect(node) {
-        if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(node.expression) && node.expression.text === 'require'))) {
-          if (node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0])) runtimeAmbiguities.push(file)
-        }
-        ts.forEachChild(node, inspect)
-      }
-      inspect(parsed)
-      if (/import\.meta\.glob/.test(runtime)) runtimeAmbiguities.push(file)
-    }
-    const deps = []
-    for (const { fileName } of imports) {
-      if (!fileName.startsWith('.')) continue
-      const stem = resolve(root, dirname(file), fileName)
-      const target = [stem, ...['.ts', '.tsx', '.js', '.mjs', '.cjs', '/index.ts', '/index.js'].map(ext => stem + ext)].find(existsSync)
-      if (target) deps.push(local(target))
-    }
-    graph.set(file, deps)
-  }
-  const consumers = {}
-  for (const test of inventory) {
-    const visited = new Set()
-    function visit(file) {
-      if (visited.has(file)) return
-      visited.add(file)
-      ;(consumers[file] ??= []).push(test.file)
-      for (const dep of graph.get(file) ?? []) visit(dep)
-    }
-    visit(test.file)
-  }
-  consumers.runtimeAmbiguities = [...new Set(runtimeAmbiguities)]
-  return consumers
+  const sources = new Map([...walk('src'), ...walk('tests'), ...walk('tools'), ...walk('electron')]
+    .filter(file => /\.[cm]?[jt]sx?$/.test(file))
+    .map(file => [file, readFileSync(resolve(root, file), 'utf8')]))
+  // Lazy parser import keeps the dependency-free aggregate job lightweight.
+  return require('./dependencies.cjs').dependencyConsumers(inventory, sources, file => existsSync(resolve(root, file)))
 }
 async function createPlan({ mode = 'full', base = '', head = '', event = 'local' } = {}) {
   if (!['full', 'related'].includes(mode)) throw new Error(`Invalid test mode: ${mode}`)
@@ -195,10 +158,6 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     checkoutSha: git('rev-parse', 'HEAD'), changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
     inventory: found.inventory, ...selection, shards: shardFiles(selectedInventory) })
 }
-function nodeReleaseCovered(plan) {
-  const files = plan.inventory.filter(item => item.runner === 'node')
-  return files.length > 0 && files.every(item => plan.selected.includes(item.file))
-}
 function options(args) {
   const result = {}
   for (let i = 0; i < args.length; i += 2) {
@@ -216,6 +175,6 @@ if (require.main === module) (async () => {
   const evidence = `Mode: ${plan.mode}; base: ${plan.baseSha}; head: ${plan.headSha}\nChanged: ${plan.changedFiles.join(', ')}\nFallback: ${plan.fallback ?? 'none'}\n${plan.message ?? ''}\n${plan.selected.map(file => `${file}: ${plan.reasons[file].join('; ')}`).join('\n')}\nShards: ${JSON.stringify(plan.shards)}\n`
   console.log(evidence)
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n\`\`\`text\n${evidence}\`\`\`\n`)
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\nnode-release-covered=${nodeReleaseCovered(plan)}\n`)
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\n`)
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { createPlan, shardFiles, validateManifest, selectFiles, changes, options, discover, discoverNode, dependencyConsumers, docsOnly, nodeReleaseCovered }
+module.exports = { createPlan, shardFiles, validateManifest, selectFiles, changes, options, discover, discoverNode, dependencyConsumers, docsOnly }

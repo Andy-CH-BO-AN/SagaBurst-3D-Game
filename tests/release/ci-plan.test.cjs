@@ -1,6 +1,7 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { selectFiles, shardFiles, validateManifest, changes, nodeReleaseCovered } = require('../../tools/tests/ci-plan.cjs')
+const { selectFiles, shardFiles, validateManifest, changes } = require('../../tools/tests/ci-plan.cjs')
+const { dependencyConsumers } = require('../../tools/tests/dependencies.cjs')
 const { aggregate } = require('../../tools/tests/ci-run.cjs')
 const item = (file, count = 1, runner = 'vitest') => ({ file, runner, names: Array.from({ length: count }, (_, i) => `leaf ${i}`) })
 const inventory = [item('tests/movement/NavigationGrid.test.ts', 2), item('tests/career/save.test.ts'), item('tests/persistence/store.test.ts'), item('tests/release/publish.test.cjs', 2, 'node')]
@@ -26,7 +27,6 @@ test('runner changes force Full despite a known subset graph', () => {
 test('strict docs-only produces explicit empty evidence but release notes require tests', () => {
   const plan = select('README.md')
   assert.equal(plan.docsOnly, true)
-  assert.equal(nodeReleaseCovered({ inventory: [], selected: [] }), false)
   assert.deepEqual(plan.selected, [])
   assert.equal(plan.message, 'No related logic tests: documentation-only change')
   assert.equal(select('docs/releases/v1.2.0.md').mode, 'full')
@@ -62,7 +62,6 @@ test('release code selects Node tests and deduplicates shared consumers', () => 
   const result = selectFiles(inventory, [{ status: 'M', file: 'electron/main.cjs' }, { status: 'M', file: 'tools/release/publish.cjs' }], consumers)
   assert.deepEqual(result.selected, [inventory[3].file])
   assert.equal(result.reasons[inventory[3].file].length, 2)
-  assert.equal(nodeReleaseCovered({ inventory, selected: result.selected }), true)
 })
 test('aggregate refuses missing, failed and stale shards instead of trusting the last shard', () => {
   const plan = { ...full(inventory), planId: 'current' }
@@ -86,4 +85,21 @@ test('aggregate accepts more than 500 total leaves across independently valid sh
   const result = aggregate(plan, summaries)
   assert.equal(result.count, 501)
   assert.equal(result.shardCount, 2)
+})
+
+
+test('computed import in an ordinary test forces Full when its dynamic owner changes', () => {
+  const dynamic = item('tests/foo.test.ts'), staticTest = item('tests/static.test.ts')
+  const tests = [dynamic, staticTest]
+  const sources = new Map([
+    ['tests/foo.test.ts', 'export const load = (owner: string) => import(`../src/${owner}.ts`)'],
+    ['tests/static.test.ts', "import { value } from '../src/owner'; export const result = value"],
+    ['src/owner.ts', 'export const value = 1'],
+  ])
+  const graph = dependencyConsumers(tests, sources)
+  assert.deepEqual(graph['src/owner.ts'], [staticTest.file])
+  const plan = selectFiles(tests, [{ status: 'M', file: 'src/owner.ts' }], graph)
+  assert.equal(plan.mode, 'full')
+  assert.match(plan.fallback, /tests\/foo\.test\.ts/)
+  assert.deepEqual(plan.selected, tests.map(test => test.file))
 })

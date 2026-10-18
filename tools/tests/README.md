@@ -28,8 +28,8 @@ runs separately for type-only contracts.
 
 Global config, test tooling, CI, package scripts/lockfile, runtime registries and
 high-risk owners force Full. So do deleted/renamed paths, unresolved computed
-imports/globs, unavailable Git history, unmapped non-document inputs, and an empty
-code selection. Collection errors fail the gate. Extend the small `globalChange`
+imports/globs in production, all tests and test fixtures, unavailable Git history,
+unmapped non-document inputs, and an empty code selection. Collection errors fail the gate. Extend the small `globalChange`
 policy when introducing a new string-based runtime registry; do not hide dependencies
 behind dynamic imports. The only empty success is a strictly allowlisted docs change;
 release notes are publication inputs and are excluded from that exception.
@@ -45,6 +45,9 @@ later successful shard.
 
 The reusable Actions workflow emits plan, per-shard, and aggregate artifacts plus
 selection reasons and the Top 10 slow leaves in Job Summary. Main, Pages, and Release
-use Full; Pages upload/deploy and release packaging/publication require the gate.
-Desktop PRs retain platform Node checks when the same-commit gate did not cover the
-whole Node inventory. Build, typecheck, and Web/Desktop smoke retain their checks.
+use Full; Pages upload/deploy and release tag creation, packaging and publication
+require the gate. Both PR and Release Desktop matrices always run their host Node
+release tests on Windows/macOS: Ubuntu logic coverage does not replace host path
+and bundle/traversal validation. Those platform component runs are separate from
+the logic manifest and its aggregate. Build, typecheck, and Web/Desktop smoke retain
+their checks.

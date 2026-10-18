@@ -1,10 +1,6 @@
 name: Logic test gate
 on:
   workflow_call:
-    outputs:
-      node-release-covered:
-        description: All Node logic files were selected and the required gate passed
-        value: ${{ jobs.plan.outputs.node-release-covered }}
     inputs:
       mode:
         type: string
@@ -27,7 +23,6 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       has-tests: ${{ steps.plan.outputs.has-tests }}
-      node-release-covered: ${{ steps.plan.outputs.node-release-covered }}
     steps:
       - uses: actions/checkout@v4
         with:
