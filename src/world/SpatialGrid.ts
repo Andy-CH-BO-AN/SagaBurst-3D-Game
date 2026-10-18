@@ -5,9 +5,17 @@ export interface SpatialEntity {
   get combatPosition(): THREE.Vector3
 }
 
+interface SpatialBucket<T> {
+  x: number
+  z: number
+  entities: T[]
+}
+
 export class SpatialGrid<T extends SpatialEntity> {
   private cellSize: number
   private grid: Map<string, T[]> = new Map()
+  private occupiedBuckets: SpatialBucket<T>[] = []
+  private bucketOrderDirty = false
   private insertionOrder = new WeakMap<T, number>()
   private nextInsertionOrder = 0
   private minCellX = Infinity
@@ -21,6 +29,8 @@ export class SpatialGrid<T extends SpatialEntity> {
 
   clear() {
     this.grid.clear()
+    this.occupiedBuckets.length = 0
+    this.bucketOrderDirty = false
     this.insertionOrder = new WeakMap<T, number>()
     this.nextInsertionOrder = 0
     this.minCellX = Infinity
@@ -34,10 +44,17 @@ export class SpatialGrid<T extends SpatialEntity> {
     const cellX = Math.floor(pos.x / this.cellSize)
     const cellZ = Math.floor(pos.z / this.cellSize)
     const cellKey = `${cellX},${cellZ}`
-    if (!this.grid.has(cellKey)) {
-      this.grid.set(cellKey, [])
+    let cell = this.grid.get(cellKey)
+    if (!cell) {
+      cell = []
+      this.grid.set(cellKey, cell)
+      // Non-finite cells cannot be visited by finite direct queries.
+      if (Number.isFinite(cellX) && Number.isFinite(cellZ)) {
+        this.occupiedBuckets.push({ x: cellX, z: cellZ, entities: cell })
+        this.bucketOrderDirty = true
+      }
     }
-    this.grid.get(cellKey)!.push(entity)
+    cell.push(entity)
     this.insertionOrder.set(entity, this.nextInsertionOrder++)
     this.minCellX = Math.min(this.minCellX, cellX)
     this.maxCellX = Math.max(this.maxCellX, cellX)
@@ -51,11 +68,44 @@ export class SpatialGrid<T extends SpatialEntity> {
 
   getNearbyInto(pos: THREE.Vector3, radius: number, out: T[]): T[] {
     out.length = 0
-    const minX = Math.floor((pos.x - radius) / this.cellSize)
-    const maxX = Math.floor((pos.x + radius) / this.cellSize)
-    const minZ = Math.floor((pos.z - radius) / this.cellSize)
-    const maxZ = Math.floor((pos.z + radius) / this.cellSize)
+    if (this.grid.size === 0) return out
+
+    let minX = Math.floor((pos.x - radius) / this.cellSize)
+    let maxX = Math.floor((pos.x + radius) / this.cellSize)
+    let minZ = Math.floor((pos.z - radius) / this.cellSize)
+    let maxZ = Math.floor((pos.z + radius) / this.cellSize)
     const rSq = radius * radius
+    const finiteRange = Number.isFinite(minX) && Number.isFinite(maxX)
+      && Number.isFinite(minZ) && Number.isFinite(maxZ)
+
+    // A query still uses insertion-time buckets, even when an entity has moved.
+    if (finiteRange && Number.isFinite(this.minCellX) && Number.isFinite(this.maxCellX)
+      && Number.isFinite(this.minCellZ) && Number.isFinite(this.maxCellZ)) {
+      minX = Math.max(minX, this.minCellX)
+      maxX = Math.min(maxX, this.maxCellX)
+      minZ = Math.max(minZ, this.minCellZ)
+      maxZ = Math.min(maxZ, this.maxCellZ)
+    }
+    if (minX > maxX || minZ > maxZ) return out
+
+    const cellCount = (maxX - minX + 1) * (maxZ - minZ + 1)
+    if (finiteRange && cellCount > this.occupiedBuckets.length) {
+      // Sort only after a new bucket appears. Existing-cell inserts share its array.
+      if (this.bucketOrderDirty) {
+        this.occupiedBuckets.sort((a, b) => a.x - b.x || a.z - b.z)
+        this.bucketOrderDirty = false
+      }
+      for (const bucket of this.occupiedBuckets) {
+        if (bucket.x < minX) continue
+        if (bucket.x > maxX) break
+        if (bucket.z < minZ || bucket.z > maxZ) continue
+        for (let i = 0; i < bucket.entities.length; i++) {
+          const ent = bucket.entities[i]
+          if (ent.combatPosition.distanceToSquared(pos) <= rSq) out.push(ent)
+        }
+      }
+      return out
+    }
 
     for (let x = minX; x <= maxX; x++) {
       for (let z = minZ; z <= maxZ; z++) {
