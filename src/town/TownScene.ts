@@ -1065,8 +1065,10 @@ export class TownScene {
     this.target = null
     this.hasPreviousTip = false
     document.getElementById('controls-hint')!.textContent = 'Observer · WASD 移動 · Mouse 視角 · Space 上升 · Ctrl 下降 · Shift 加速'
-    // Save death immediately, without resolving or claiming the mission.
-    if (this.profile.activeMission && !this.profile.activeMission.playerDead) {
+    // Commander death is saved with the complete post-combat runtime below.
+    // An observer-only commit would retain stale actor HP, orders and FourGate player state.
+    if (this.profile.activeMission && !this.profile.activeMission.playerDead
+      && !isCommanderTownMission(this.profile.activeMission) && this.profile.activeMission.kind !== 'commander-four-gate-defense') {
       const next = cloneCareerProfile(this.profile)
       next.activeMission!.playerDead = true
       this.commit(next)
@@ -3626,7 +3628,8 @@ export class TownScene {
     if ((this.player.dead || this.profile.activeMission?.kind === 'cavalry-sweep' || this.profile.activeMission?.kind === 'veteran-field') && this.profile.activeMission && !this.profile.activeMission.result) {
       if (this.captainPatrol?.active) this.captainPatrol.persist(true)
       else if (this.duel?.active) this.duel.persistRuntimeProgress(true)
-      else if (this.defense.active) this.defense.persistRuntimeProgress(true)
+      else if (this.defense.active) this.defense.persistRuntimeProgress(
+        !(isCommanderTownMission(this.profile.activeMission) || this.profile.activeMission.kind === 'commander-four-gate-defense'))
       else this.mission.persistRuntimeProgress(this.player.dead)
     }
     if (this.spectator) this.spectator.update(this.input, dt)

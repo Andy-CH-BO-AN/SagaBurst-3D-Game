@@ -357,7 +357,7 @@ export class CommanderFourGateDefenseController {
       if (!this.saveProgress(true)) { this.state = spawning; return }
       this.releaseCombat(false)
     }
-    this.persistRuntimeProgress()
+    this.saveProgress(false)
   }
 
   updateSiege(dt: number, grid: SpatialGrid<NPC>): void {
@@ -578,12 +578,14 @@ export class CommanderFourGateDefenseController {
     if (player.currentMount) player.syncMountTransform()
   }
 
-  persistRuntimeProgress(forceStats = false, mountState?: ActiveCareerMission['mountState']): void { this.saveProgress(forceStats, mountState) }
-  private saveProgress(force: boolean, mountState?: ActiveCareerMission['mountState']): boolean {
+  persistRuntimeProgress(forceStats = false, mountState?: ActiveCareerMission['mountState']): void { this.saveProgress(forceStats, mountState, true) }
+  /** Phase transactions and early flow saves cannot acknowledge the later combat frame. */
+  private saveProgress(force: boolean, mountState?: ActiveCareerMission['mountState'], completeRuntime = false): boolean {
     const active = this.active
     if (!this.ready || !this.state || !active || active.result) return false
     return this.checkpoint.persist(() => this.snapshotActiveMission(mountState),
-      { immediate: force || this.player().dead, periodic: true, force })
+      { immediate: force, periodic: true, force,
+        deathMissionId: completeRuntime && this.player().dead ? active.id : undefined })
   }
 
   /** Stage the final frame into the same save transaction as result/reward claim. */

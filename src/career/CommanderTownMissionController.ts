@@ -369,7 +369,7 @@ export class CommanderTownMissionController {
     this.finalizeDeployment()
     if (!this.active?.commanderMission?.deploymentComplete) return
     this.checkpoint.advance(_dt)
-    this.persistRuntimeProgress()
+    this.saveProgress(false)
   }
 
   evaluate(playerDead: boolean, personalAlive = 0): CareerMissionOutcome | null {
@@ -434,40 +434,48 @@ export class CommanderTownMissionController {
   }
 
   persistRuntimeProgress(forceStats = false, mountState?: ActiveCareerMission['mountState']): void {
+    this.saveProgress(forceStats, mountState, true)
+  }
+
+  /** Early flow saves keep death pending until the post-combat runtime entry succeeds. */
+  private saveProgress(forceStats: boolean, mountState?: ActiveCareerMission['mountState'], completeRuntime = false): void {
     const active = this.active
     if (!active || active.result || !this.ready) return
-    const actorHealth = { ...(active.actorHealth ?? {}) }
-    const actorPositions = { ...(active.actorPositions ?? {}) }
-    const deadTargets = new Set(active.deadTargetActorIds ?? [])
-    const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
-    for (const resident of this.residents) {
-      const actor = resident.npc
-      if (!active.targetActorIds.includes(actor.combatantId)) continue
-      if (active.kind === 'commander-sky-raid' && actor.dead) deadTargets.add(actor.combatantId)
-      if (resident.spec.duty === 'patrol') continue
-      const mount = actor.mount ?? resident.homeMount
-      actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
-      actorPositions[actor.combatantId] = { x: actor.combatPosition.x, y: actor.combatPosition.y, z: actor.combatPosition.z, yaw: actor.group.rotation.y }
-    }
-    const authority = active.officialSquad ? { ...active.officialSquad, members: { ...active.officialSquad.members } } : undefined
-    for (const actor of this.officialActors) {
-      const mount = this.actorMounts.get(actor) ?? actor.mount ?? undefined
-      actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
-      actorPositions[actor.combatantId] = { x: actor.combatPosition.x, z: actor.combatPosition.z, yaw: actor.group.rotation.y }
-      if (actor.dead) deadFriendlies.add(actor.combatantId)
-      if (authority) authority.members![actor.combatantId] = snapshotCommandActor(actor, mount)
-    }
     const player = this.player()
-    const playerStats = this.tracker?.checkpoint() ?? active.playerStats
-    this.checkpoint.persist(() => ({ ...active,
-      ...(active.commanderMission ? { commanderMission: { ...active.commanderMission,
-        playerPosition: { x: player.combatPosition.x, z: player.combatPosition.z, yaw: player.facingYaw } } } : {}),
-      ...(authority ? { officialSquad: authority } : {}),
-      ...(mountState ? { mountState } : {}), actorHealth, actorPositions,
-      deadTargetActorIds: [...deadTargets], deadFriendlyActorIds: [...deadFriendlies],
-      playerDead: player.dead || Boolean(active.playerDead), playerHp: player.hp, playerStamina: player.staminaValue,
-      ...(playerStats ? { playerStats } : {}),
-    }), { immediate: forceStats || player.dead, periodic: true, force: forceStats })
+    this.checkpoint.persist(() => {
+      const actorHealth = { ...(active.actorHealth ?? {}) }
+      const actorPositions = { ...(active.actorPositions ?? {}) }
+      const deadTargets = new Set(active.deadTargetActorIds ?? [])
+      const deadFriendlies = new Set(active.deadFriendlyActorIds ?? [])
+      for (const resident of this.residents) {
+        const actor = resident.npc
+        if (!active.targetActorIds.includes(actor.combatantId)) continue
+        if (active.kind === 'commander-sky-raid' && actor.dead) deadTargets.add(actor.combatantId)
+        if (resident.spec.duty === 'patrol') continue
+        const mount = actor.mount ?? resident.homeMount
+        actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
+        actorPositions[actor.combatantId] = { x: actor.combatPosition.x, y: actor.combatPosition.y, z: actor.combatPosition.z, yaw: actor.group.rotation.y }
+      }
+      const authority = active.officialSquad ? { ...active.officialSquad, members: { ...active.officialSquad.members } } : undefined
+      for (const actor of this.officialActors) {
+        const mount = this.actorMounts.get(actor) ?? actor.mount ?? undefined
+        actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
+        actorPositions[actor.combatantId] = { x: actor.combatPosition.x, z: actor.combatPosition.z, yaw: actor.group.rotation.y }
+        if (actor.dead) deadFriendlies.add(actor.combatantId)
+        if (authority) authority.members![actor.combatantId] = snapshotCommandActor(actor, mount)
+      }
+      const playerStats = this.tracker?.checkpoint() ?? active.playerStats
+      return { ...active,
+        ...(active.commanderMission ? { commanderMission: { ...active.commanderMission,
+          playerPosition: { x: player.combatPosition.x, z: player.combatPosition.z, yaw: player.facingYaw } } } : {}),
+        ...(authority ? { officialSquad: authority } : {}),
+        ...(mountState ? { mountState } : {}), actorHealth, actorPositions,
+        deadTargetActorIds: [...deadTargets], deadFriendlyActorIds: [...deadFriendlies],
+        playerDead: player.dead || Boolean(active.playerDead), playerHp: player.hp, playerStamina: player.staminaValue,
+        ...(playerStats ? { playerStats } : {}),
+      }
+    }, { immediate: forceStats, periodic: true, force: forceStats,
+      deathMissionId: completeRuntime && player.dead ? active.id : undefined })
   }
 
   cleanupMission(): void {
