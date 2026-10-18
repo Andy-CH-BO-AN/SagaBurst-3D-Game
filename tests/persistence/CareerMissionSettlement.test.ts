@@ -224,7 +224,10 @@ describe('Town mission settlement transactions', () => {
     Object.assign(h.stats, { structureDamage: 900, structuresDestroyed: 1, gateBreaches: 1, survived: true })
     const beforeMerit = before.totalMerit, beforeAvailable = before.availableMerit
     const beforeTier5 = before.careerMissionCompletionsByTier?.[5] ?? 0
-    h.storage.writable = false
+    // Inject the transaction-port rejection here; storage transport failure has
+    // its own owner coverage. The successful retry still saves and reloads the
+    // complete final checkpoint through the real store.
+    h.commit.mockImplementationOnce(() => false)
     expect(h.settlement.finish('victory')).toEqual({ status: 'save-failed' })
     expect(h.read()).toBe(before)
     expect(h.read().activeMission!.result).toBeUndefined()
@@ -234,7 +237,6 @@ describe('Town mission settlement transactions', () => {
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBefore)
     expect(latest.fourGateDefense!.phase).toBe('ATTACKING')
     expect(h.defense.cleanupMission).not.toHaveBeenCalled()
-    h.storage.writable = true
     expect(h.settlement.finish('victory').status).toBe('saved')
     h.reload()
     const saved = h.read(), result = saved.activeMission!.result!
