@@ -1,10 +1,6 @@
 name: Logic test gate
 on:
   workflow_call:
-    outputs:
-      platform-node-required:
-        description: Whether this change needs host Node release tests on Windows/macOS
-        value: ${{ jobs.plan.outputs.platform-node-required }}
     inputs:
       mode:
         type: string
@@ -27,7 +23,6 @@ jobs:
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       has-tests: ${{ steps.plan.outputs.has-tests }}
-      platform-node-required: ${{ steps.plan.outputs.platform-node-required }}
     steps:
       - uses: actions/checkout@v4
         with:
