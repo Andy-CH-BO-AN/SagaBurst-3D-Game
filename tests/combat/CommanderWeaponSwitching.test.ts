@@ -210,6 +210,7 @@ function selection(overrides: Partial<SelectionActor> = {}) {
     assignedSiegeObstacle: null, _isAttackableObstacle: methods._isAttackableObstacle,
     _tmpRangedOrigin: new Vector3(), _tmpRangedLosTarget: new Vector3(),
     _tmpRangedArcPrevious: new Vector3(), _tmpRangedArcPoint: new Vector3(),
+    _rangedPathBounds: new Box3(), _rangedPathObstacles: [],
     arrows: 12, rangedActive: true, maxRangedAttackDistance: 30,
     bowArrowReleased: false, animator: { busy: false, cancel: vi.fn(), setEquipment: vi.fn(), setShieldRaised: vi.fn() }, bowVisual: { hideArrow: vi.fn() },
     swordPivot: { visible: false }, bowPivot: { visible: true }, attackTimer: 2,
