@@ -82,22 +82,23 @@ export class ObstacleCollisionSpatialIndex {
     z: number,
     radius: number,
   ): readonly ObstacleData[] {
+    return this._queryBounds(x - radius, z - radius, x + radius, z + radius, false)
+  }
+
+  /** Exact X/Z swept envelope. Height/contact remains the narrow phase's job.
+   * Shares queryNear's ephemeral buffer and deterministic source-index order. */
+  queryBounds(minX: number, minZ: number, maxX: number, maxZ: number): readonly ObstacleData[] {
+    return this._queryBounds(minX, minZ, maxX, maxZ, true)
+  }
+
+  private _queryBounds(minX: number, minZ: number, maxX: number, maxZ: number, exact: boolean): readonly ObstacleData[] {
     this.queryBuffer.length = 0
     this.queryIndices.length = 0
     if (this.obstacles.length === 0) return this.queryBuffer
-
-    const minCellX = Math.floor(
-      (x - radius) / OBSTACLE_COLLISION_GRID_CELL_SIZE,
-    )
-    const maxCellX = Math.floor(
-      (x + radius) / OBSTACLE_COLLISION_GRID_CELL_SIZE,
-    )
-    const minCellZ = Math.floor(
-      (z - radius) / OBSTACLE_COLLISION_GRID_CELL_SIZE,
-    )
-    const maxCellZ = Math.floor(
-      (z + radius) / OBSTACLE_COLLISION_GRID_CELL_SIZE,
-    )
+    const minCellX = Math.floor(minX / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+    const maxCellX = Math.floor(maxX / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+    const minCellZ = Math.floor(minZ / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+    const maxCellZ = Math.floor(maxZ / OBSTACLE_COLLISION_GRID_CELL_SIZE)
 
     const stamp = this._nextQueryStamp()
 
@@ -110,6 +111,10 @@ export class ObstacleCollisionSpatialIndex {
           const obstacleIndex = cell[i]
           if (this.seenStamp[obstacleIndex] === stamp) continue
           this.seenStamp[obstacleIndex] = stamp
+          if (exact) {
+            const box = this.obstacles[obstacleIndex].box
+            if (maxX < box.min.x || minX > box.max.x || maxZ < box.min.z || minZ > box.max.z) continue
+          }
           this.queryIndices.push(obstacleIndex)
         }
       }
@@ -119,12 +124,12 @@ export class ObstacleCollisionSpatialIndex {
     // topology. Only nearby owners need their original per-part broad phase.
     for (const group of this.dynamicGroups) {
       const bounds = group.bounds
-      if (x + radius < bounds.min.x || x - radius > bounds.max.x
-        || z + radius < bounds.min.z || z - radius > bounds.max.z) continue
+      if (maxX < bounds.min.x || minX > bounds.max.x
+        || maxZ < bounds.min.z || minZ > bounds.max.z) continue
       for (const index of group.indices) {
         const box = this.obstacles[index].box
-        if (x + radius >= box.min.x && x - radius <= box.max.x
-          && z + radius >= box.min.z && z - radius <= box.max.z) this.queryIndices.push(index)
+        if (maxX >= box.min.x && minX <= box.max.x
+          && maxZ >= box.min.z && minZ <= box.max.z) this.queryIndices.push(index)
       }
     }
 
@@ -132,8 +137,8 @@ export class ObstacleCollisionSpatialIndex {
     // existing direct-bounds fallback.
     for (const index of this.dynamicIndices) {
       const box = this.obstacles[index].box
-      if (x + radius >= box.min.x && x - radius <= box.max.x
-        && z + radius >= box.min.z && z - radius <= box.max.z) this.queryIndices.push(index)
+      if (maxX >= box.min.x && minX <= box.max.x
+        && maxZ >= box.min.z && minZ <= box.max.z) this.queryIndices.push(index)
     }
 
     // Preserve the original shared obstacle-array order. Collision push-out can

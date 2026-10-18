@@ -791,12 +791,17 @@ export class TownMissionCombat {
           else this.eagleThreatTargets.delete(npc)
         }
       }
-      const groundTarget = eligible && !spec.eagle
-        ? this.banditThreatGrid.getNearbyInto(npc.combatPosition, this.externalThreatQueryRange(resident, threatRange), this.neighbors)
-          .filter(threat => !threat.dead && townWartimeHostile(npc, threat)
-            && this.isExternalThreatInRange(resident, threat.combatPosition, threatRange))
-          .sort((a, b) => npc.combatPosition.distanceToSquared(a.combatPosition) - npc.combatPosition.distanceToSquared(b.combatPosition))[0]
-        : undefined
+      let groundTarget: NPC | undefined
+      if (eligible && !spec.eagle) {
+        let nearest = Infinity
+        for (const threat of this.banditThreatGrid.getNearbyInto(npc.combatPosition, this.externalThreatQueryRange(resident, threatRange), this.neighbors)) {
+          if (threat.dead || !townWartimeHostile(npc, threat)
+            || !this.isExternalThreatInRange(resident, threat.combatPosition, threatRange)) continue
+          const distance = npc.combatPosition.distanceToSquared(threat.combatPosition)
+          // Keep the first equal-distance candidate, as the previous stable sort did.
+          if (distance < nearest) { groundTarget = threat; nearest = distance }
+        }
+      }
       const nearbyMissionActor = eligible && (spec.eagle ? Boolean(eagleTarget) : Boolean(groundTarget))
       const nearbyPlayer = eligible && enemyTownScouts !== undefined && options.player !== undefined
         && !options.player.dead && this.isExternalThreatInRange(resident, options.player.combatPosition, threatRange)

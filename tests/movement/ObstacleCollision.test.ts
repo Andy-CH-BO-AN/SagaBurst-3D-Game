@@ -70,6 +70,20 @@ describe('obstacle walk-surface collision', () => {
     expect(position.toArray()).toEqual([2, 10, 5])
   })
 
+  it('preserves ordered penetration recovery beyond the original swept bounds', () => {
+    // Recovery may move outside the original sweep into a later source-order box.
+    const recovery = [
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-2, -1, -2), new THREE.Vector3(2, 3, 2)) },
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.3, -1, -1), new THREE.Vector3(3, 3, 1)) },
+    ]
+    const position = new THREE.Vector3(), previous = new THREE.Vector3()
+    resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0, recovery)
+    expect(position.x).toBeCloseTo(1.8)
+    position.set(.1, 0, 0)
+    resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0, recovery)
+    expect(position.x).toBeCloseTo(1.8)
+  })
+
   it('does not let a crowded mount separate a ground body through a thin railing', () => {
     const rail: ObstacleData = { isBarricade: false,
       box: new THREE.Box3(new THREE.Vector3(0, 10, -4), new THREE.Vector3(.2, 11.4, 4)) }

@@ -234,6 +234,17 @@ export function getLocalCollisionObstacles(
   return index.queryNear(x, z, radius)
 }
 
+/** Swept X/Z bounds, without radius inflation on the perpendicular axis. */
+function getSweptCollisionObstacles(obstacles: ObstacleData[], minX: number, minZ: number, maxX: number, maxZ: number): readonly ObstacleData[] {
+  let index = obstacleCollisionIndexes.get(obstacles)
+  if (!index) {
+    index = new ObstacleCollisionSpatialIndex()
+    obstacleCollisionIndexes.set(obstacles, index)
+  }
+  index.sync(obstacles)
+  return index.queryBounds(minX, minZ, maxX, maxZ)
+}
+
 export interface TerrainResult {
   terrainMesh: THREE.Mesh
   obstacles: ObstacleData[]
@@ -702,16 +713,11 @@ export function resolveEntityCollision(
     const targetZ = pos.z + offsetZ
     const b = pos.y - bottomOffset
     const t = b + height
-    const candidates = getLocalCollisionObstacles(
-      obstacles,
-      pos.x + offsetX * .5,
-      pos.z + offsetZ * .5,
-      radius + Math.max(Math.abs(offsetX), Math.abs(offsetZ)) * .5,
-    )
     const minX = Math.min(pos.x, targetX) - radius
     const maxX = Math.max(pos.x, targetX) + radius
     const minZ = Math.min(pos.z, targetZ) - radius
     const maxZ = Math.max(pos.z, targetZ) + radius
+    const candidates = getSweptCollisionObstacles(obstacles, minX, minZ, maxX, maxZ)
     for (const obs of candidates) {
       if (maxX <= obs.box.min.x || minX >= obs.box.max.x ||
         maxZ <= obs.box.min.z || minZ >= obs.box.max.z) continue
@@ -788,12 +794,14 @@ export function resolveObstacleCollision(
     x + radius > box.min.x && x - radius < box.max.x &&
     z + radius > box.min.z && z - radius < box.max.z
 
-  const candidates = getLocalCollisionObstacles(
-    obstacles,
-    (position.x + previousPosition.x) * .5,
-    (position.z + previousPosition.z) * .5,
-    radius + Math.max(Math.abs(position.x - previousPosition.x), Math.abs(position.z - previousPosition.z)) * .5,
-  )
+  const initialX = position.x
+  const initialZ = position.z
+  // No horizontal sweep needs no tighter envelope; retain the single-query
+  // recovery path for stationary bodies (including loaded overlapping actors).
+  const stationary = initialX === previousPosition.x && initialZ === previousPosition.z
+  let candidates = stationary ? getLocalCollisionObstacles(obstacles, initialX, initialZ, radius) : getSweptCollisionObstacles(obstacles,
+    Math.min(position.x, previousPosition.x) - radius, Math.min(position.z, previousPosition.z) - radius,
+    Math.max(position.x, previousPosition.x) + radius, Math.max(position.z, previousPosition.z) + radius)
 
   // Select support from the unmodified frame position. Sequential snaps can
   // otherwise climb several overlapping surfaces beyond the single-step limit.
@@ -895,6 +903,21 @@ export function resolveObstacleCollision(
   if (supportRamp) {
     const y = getWalkRampHeight(supportRamp, position.x, position.z)
     if (y !== null) position.y = (supportY = y) + bottomOffset
+  }
+
+  // Initial penetration recovery can push beyond the swept envelope. Preserve
+  // the original coarse source-ordered neighbors for that exceptional path.
+  let needsRecovery = false
+  if (!stationary) for (const obstacle of candidates) {
+    if (!obstacle.physicalPassable && !admittedRamp(obstacle) &&
+      position.y - bottomOffset < obstacle.box.max.y - epsilon &&
+      position.y - bottomOffset + height > obstacle.box.min.y + epsilon &&
+      overlapsHorizontally(position.x, position.z, obstacle.box)) { needsRecovery = true; break }
+  }
+  if (needsRecovery) {
+    candidates = getLocalCollisionObstacles(obstacles,
+      (initialX + previousPosition.x) * .5, (initialZ + previousPosition.z) * .5,
+      radius + Math.max(Math.abs(initialX - previousPosition.x), Math.abs(initialZ - previousPosition.z)) * .5)
   }
 
   for (const obstacle of candidates) {
