@@ -25,13 +25,24 @@ describe('siege checkpoint ownership', () => {
       civilianActorIds: mission.civilianActorIds ?? [], deadTargetActorIds: mission.deadTargetActorIds }
     const { combatElapsedSeconds: _legacyAbsent, ...legacy } = state
     expect(parseCommanderFourGateDefenseState(legacy, context)?.combatElapsedSeconds).toBe(0)
-    state.combatElapsedSeconds = 299.9
-    expect(parseCommanderFourGateDefenseState(state, context)?.combatElapsedSeconds).toBe(299.9)
+    state.combatElapsedSeconds = 899.9
+    expect(parseCommanderFourGateDefenseState(state, context)?.combatElapsedSeconds).toBe(899.9)
     state.victoryReason = 'survival'
     expect(parseCommanderFourGateDefenseState(state, context)).toBeUndefined()
-    state.combatElapsedSeconds = 300
-    expect(parseCommanderFourGateDefenseState({ ...state, combatElapsedSeconds: 300.1 }, context)).toBeUndefined()
+    state.combatElapsedSeconds = 900
+    expect(parseCommanderFourGateDefenseState({ ...state, combatElapsedSeconds: 900.1 }, context)).toBeUndefined()
     expect(parseCommanderFourGateDefenseState({ ...state, attackStarted: false }, context)).toBeUndefined()
+  })
+
+  it('retains settled five-minute results while rejecting them as active survival victories', () => {
+    const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
+    const context = { missionId: mission.id, faction: profile.faction, phase: mission.phase,
+      targetActorIds: mission.targetActorIds, friendlyActorIds: mission.friendlyActorIds,
+      civilianActorIds: mission.civilianActorIds ?? [], deadTargetActorIds: mission.deadTargetActorIds }
+    state.combatElapsedSeconds = 300; state.victoryReason = 'survival'
+    expect(parseCommanderFourGateDefenseState(state, context)).toBeUndefined()
+    expect(parseCommanderFourGateDefenseState({ ...state, phase: 'RESULT' }, { ...context, phase: 'VICTORY_LOCKED' }))
+      .toMatchObject({ phase: 'RESULT', combatElapsedSeconds: 300, victoryReason: 'survival' })
   })
 
   it('validates a deadline victory reason against the actual living defense', () => {
@@ -39,7 +50,7 @@ describe('siege checkpoint ownership', () => {
     const context = { missionId: mission.id, faction: profile.faction, phase: mission.phase,
       targetActorIds: mission.targetActorIds, friendlyActorIds: mission.friendlyActorIds,
       civilianActorIds: mission.civilianActorIds ?? [], deadTargetActorIds: mission.deadTargetActorIds }
-    state.combatElapsedSeconds = 300; state.victoryReason = 'survival'
+    state.combatElapsedSeconds = 900; state.victoryReason = 'survival'
     expect(parseCommanderFourGateDefenseState(state, context)?.victoryReason).toBe('survival')
     expect(parseCommanderFourGateDefenseState({ ...state, victoryReason: 'elimination' }, context)).toBeUndefined()
     state.player!.dead = true; state.player!.hp = 0

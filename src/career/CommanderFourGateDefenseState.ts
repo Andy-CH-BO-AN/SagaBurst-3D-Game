@@ -9,7 +9,7 @@ import { townRoster } from '../town/TownRules'
 import { TOWN_HR_OFFICER_ID } from '../town/TownHRLayout'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 
-export const COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS = 300
+export const COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS = 15 * 60
 export type CommanderFourGateDefenseVictoryReason = 'elimination' | 'survival'
 
 export type CommanderFourGateDefensePhase = 'DEPLOYING' | 'PREPARING' | 'SPAWNING' | 'ATTACKING' | 'RESULT'
@@ -210,8 +210,11 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     const living = (actor: PersonalActorCheckpoint | undefined): boolean => actor?.status === 'deployed' && (actor.hp ?? 0) > 0
     const allySurvives = player?.dead === false || townIds.some(id => living(actors[id]))
       || (context.personalActorIds ?? []).some(id => living(actors[id] ?? context.personalActors?.[id]))
+    // Preserve already settled five-minute victories from the previous rules.
+    // Active missions must still reach the current fifteen-minute deadline.
+    const legacySurvivalResult = raw.phase === 'RESULT' && combatElapsedSeconds === 300
     if (raw.victoryReason === 'elimination' ? enemiesRemaining !== 0
-      : enemiesRemaining === 0 || combatElapsedSeconds < COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS || !allySurvives) return undefined
+      : enemiesRemaining === 0 || !legacySurvivalResult && combatElapsedSeconds < COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS || !allySurvives) return undefined
   }
   return { version: 1, phase: raw.phase, preparationRemainingSeconds: raw.preparationRemainingSeconds,
     combatElapsedSeconds, ...(raw.victoryReason ? { victoryReason: raw.victoryReason } : {}),

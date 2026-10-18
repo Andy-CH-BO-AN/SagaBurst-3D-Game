@@ -341,7 +341,7 @@ describe('CareerMissionCheckpoint', () => {
     // survival receipt. These are plain actor ports for the canonical full roster.
     enemies.push(...profile.activeMission!.targetActorIds.filter(id => id !== archerId && id !== lancerId)
       .map(id => dataActor(id, state.actors[id])))
-    liveState.combatElapsedSeconds = 300
+    liveState.combatElapsedSeconds = 900
     expect(controller.snapshotActiveMission().fourGateDefense!.victoryReason).toBe('survival')
     player.dead = true; player.hp = 0
     for (const resident of residents) Object.assign(resident.npc, { dead: true, hp: 0 })

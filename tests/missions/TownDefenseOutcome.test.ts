@@ -27,9 +27,11 @@ describe('Town defense target accounting', () => {
     rider.mount.dead = true
     expect(owner.remainingEnemies).toBe(1)
     expect(owner.evaluate(true, 0)).toBeNull() // The final civilian/service survivor still keeps the Town alive.
-    state.combatElapsedSeconds = 299.9
-    expect(owner.evaluate(true, 0)).toBeNull()
     state.combatElapsedSeconds = 300
+    expect(owner.evaluate(true, 0)).toBeNull() // The former five-minute deadline no longer wins.
+    state.combatElapsedSeconds = 899.9
+    expect(owner.evaluate(true, 0)).toBeNull()
+    state.combatElapsedSeconds = 900
     expect(owner.evaluate(true, 0)).toBe('victory') // A service resident is a valid deadline survivor.
     merchant.npc.dead = true
     expect(owner.evaluate(true, 1)).toBe('victory') // A live HR ally can win while the player spectates.

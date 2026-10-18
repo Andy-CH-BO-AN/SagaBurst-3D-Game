@@ -67,7 +67,7 @@ export const COMMANDER_MISSION_CATALOG: readonly CommanderMissionDefinition[] = 
   entry(COMMANDER_BRIDGEHEAD_ID, 'commander-bridgehead-battle', 'Commander IV · Bridgehead Battle · 橋頭決戰',
     `率領${BRIDGEHEAD_FRIENDLIES}名步兵守衛北岸石橋。進場後有${BRIDGEHEAD_PREPARATION_SECONDS}秒部署時間，倒數結束後${BRIDGEHEAD_ENEMIES}名敵方騎兵（刀／斧騎兵與槍騎兵各${BRIDGEHEAD_ENEMY_SQUADS_PER_ROLE}隊，每隊1名T4隊長與${BRIDGEHEAD_SQUAD_SIZE - 1}名T3士兵）從南岸遠方出現並渡河進攻。我方${BRIDGEHEAD_FRIENDLY_SQUADS}支正式小隊各${BRIDGEHEAD_SQUAD_SIZE}人，包含1名T4隊長與${BRIDGEHEAD_SQUAD_SIZE - 1}名T3士兵。利用橋梁限制騎兵機動，發揮槍兵與遠程部隊的優勢。`, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES),
   entry(COMMANDER_FOUR_GATE_DEFENSE_ID, 'commander-four-gate-defense', 'Commander V · Four-Gate Town Defense · 四門總攻守城戰',
-    '防守所屬城鎮；守方部署完成後有180秒準備，之後敵軍才抵達。指揮原生八隊守軍與HR私兵，迎擊四門200名地面攻軍、八台攻城車及30名巨鷹騎射兵。正式攻擊後守住5分鐘且守方仍有人存活即可獲勝，也可提前殲滅全部230名攻軍。',
+    '防守所屬城鎮；守方部署完成後有180秒準備，之後敵軍才抵達。指揮原生八隊守軍與HR私兵，迎擊四門200名地面攻軍、八台攻城車及30名巨鷹騎射兵。正式攻擊後守住15分鐘且守方仍有人存活即可獲勝，也可提前殲滅全部230名攻軍。',
     commanderGateDefenseSlots().flatMap(squad => squad.actorIds).length + 1, COMMANDER_FOUR_GATE_DEFENSE_ENEMIES),
 ]
 
