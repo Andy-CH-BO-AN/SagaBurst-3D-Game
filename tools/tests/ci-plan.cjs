@@ -40,6 +40,20 @@ function policyConsumers(file, inventory) {
     add('tests/release/ci-plan.test.cjs')
     add('tests/release/test-budget.test.cjs')
   }
+  // The DEV-only WebGL entry cannot be imported by logic tests. Its formal
+  // siege/navigation/checkpoint owners and rejected-projectile contract are
+  // exercised without constructing the preview's renderer or scene.
+  if (file === 'src/debug/TownFourGateSiegePreview.ts') {
+    for (const owner of ['tests/missions/TownSiegePolicy.test.ts', 'tests/missions/SiegeRampPolicy.test.ts',
+      'tests/persistence/TownSiegeRosterPersistence.test.ts', 'tests/movement/NavigationWorld.test.ts',
+      'tests/combat/ProjectileBallistics.test.ts']) add(owner)
+  }
+  // Browser bootstrap dispatches to these real entry/recovery/mode owners;
+  // importing main.ts itself would instantiate the page and render runtime.
+  if (file === 'src/main.ts') {
+    for (const owner of ['tests/town/CareerTownEntry.test.ts', 'tests/missions/CareerMissionRecovery.test.ts',
+      'tests/integration/MissionModeRouting.test.ts']) add(owner)
+  }
   if (nodePublicationInput(file)) {
     for (const item of inventory) if (item.runner === 'node') hits.add(item.file)
   }

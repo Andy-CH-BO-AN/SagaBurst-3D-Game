@@ -22,6 +22,21 @@ const full = files => ({ mode: 'full', inventory: files, selected: files.map(ite
 
 test('production module selects transitive consumers without unrelated equipment suites', () => {
   assert.deepEqual(select('src/navigation/NavigationGrid.ts').selected, [inventory[0].file])
+  const previewOwners = ['tests/missions/TownSiegePolicy.test.ts', 'tests/missions/SiegeRampPolicy.test.ts',
+    'tests/persistence/TownSiegeRosterPersistence.test.ts', 'tests/movement/NavigationWorld.test.ts',
+    'tests/combat/ProjectileBallistics.test.ts']
+  const preview = selectFiles([...inventory, ...previewOwners.map(file => item(file))],
+    [{ status: 'M', file: 'src/debug/TownFourGateSiegePreview.ts' }], consumers)
+  assert.equal(preview.mode, 'related')
+  assert.deepEqual(preview.selected, previewOwners.sort())
+  const entryOwners = ['tests/town/CareerTownEntry.test.ts', 'tests/missions/CareerMissionRecovery.test.ts',
+    'tests/integration/MissionModeRouting.test.ts']
+  const entry = selectFiles([...inventory, ...entryOwners.map(file => item(file))],
+    [{ status: 'M', file: 'src/main.ts' }], consumers)
+  assert.equal(entry.mode, 'related')
+  assert.deepEqual(entry.selected, entryOwners.sort())
+
+
 })
 test('high fan-out production owner stays Related instead of forcing repository Full', () => {
   const plan = select('src/Game.ts')
