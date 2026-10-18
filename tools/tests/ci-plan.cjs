@@ -29,7 +29,12 @@ function changes(base, head, event) {
 const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/AGENTS\.md)$/.test(file)
   // Release notes are inputs to publication, not documentation-only changes.
   && !file.startsWith('docs/releases/')
-const platformNodeInput = file => /^(electron\/|tools\/release\/|tests\/release\/|docs\/releases\/)/.test(file)
+// All publication/release changes select the Node contract inventory in the
+// Linux Related shard. Only host-sensitive path/bundle/package inputs also need
+// the same component repeated on Windows and macOS.
+const nodePublicationInput = file => /^(electron\/|tools\/release\/|tests\/release\/|docs\/releases\/)/.test(file)
+  || /^(package(?:-lock)?\.json|electron-builder\.|\.github\/workflows\/release\.yml$)/.test(file)
+const platformNodeInput = file => /^(electron\/|tests\/release\/asset-path\.test\.cjs$|tests\/release\/smoke\.mjs$)/.test(file)
   || /^(package(?:-lock)?\.json|electron-builder\.|\.github\/workflows\/release\.yml$)/.test(file)
 
 function policyConsumers(file, inventory) {
@@ -40,7 +45,7 @@ function policyConsumers(file, inventory) {
     add('tests/release/ci-plan.test.cjs')
     add('tests/release/test-budget.test.cjs')
   }
-  if (platformNodeInput(file)) {
+  if (nodePublicationInput(file)) {
     for (const item of inventory) if (item.runner === 'node') hits.add(item.file)
   }
   return hits
