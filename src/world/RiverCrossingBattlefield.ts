@@ -630,27 +630,18 @@ export function planNorthBankInfantryDeployment(faction?: CharacterFaction): Inf
 }
 
 /**
- * Pure staging planner for 8 enemy cavalry squads (25 riders each = 200 total:
- * 100 sword/axe melee cavalry + 100 lance cavalry) on the South Bank (+Z).
+ * Pure cavalry staging planner. Four or six squads per role, each with 25 riders.
+ * The default preserves existing preview/legacy deployments.
  */
-export function planSouthBankCavalryStaging(frontZ = 74): CavalrySquadStagingPlan[] {
-  const configs: ReadonlyArray<{
-    squadId: number
-    role: CavalrySquadStagingPlan['role']
-    centerX: number
-    frontZ: number
-  }> = [
-    // First echelon: 4 squads × 25 = 100 sword/axe cavalry
-    { squadId: 1, role: 'melee_cavalry', centerX: -66, frontZ: 74 },
-    { squadId: 2, role: 'melee_cavalry', centerX: -22, frontZ: 74 },
-    { squadId: 3, role: 'melee_cavalry', centerX: 22, frontZ: 74 },
-    { squadId: 4, role: 'melee_cavalry', centerX: 66, frontZ: 74 },
-    // Second echelon: 4 squads × 25 = 100 lance cavalry
-    { squadId: 5, role: 'lance_cavalry', centerX: -66, frontZ: 116 },
-    { squadId: 6, role: 'lance_cavalry', centerX: -22, frontZ: 116 },
-    { squadId: 7, role: 'lance_cavalry', centerX: 22, frontZ: 116 },
-    { squadId: 8, role: 'lance_cavalry', centerX: 66, frontZ: 116 },
-  ]
+export function planSouthBankCavalryStaging(frontZ = 74, squadsPerRole: 4 | 6 = 4): CavalrySquadStagingPlan[] {
+  const spacing = squadsPerRole === 4 ? 44 : 36
+  const configs = (['melee_cavalry', 'lance_cavalry'] as const).flatMap((role, echelon) =>
+    Array.from({ length: squadsPerRole }, (_, index) => ({
+      squadId: echelon * squadsPerRole + index + 1,
+      role,
+      centerX: (index - (squadsPerRole - 1) / 2) * spacing,
+      frontZ: 74 + echelon * 42,
+    })))
 
   const columns = 5
   const rows = 5

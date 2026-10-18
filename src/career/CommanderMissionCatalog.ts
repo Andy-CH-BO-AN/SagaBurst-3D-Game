@@ -1,3 +1,4 @@
+import { BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, BRIDGEHEAD_ENEMY_SQUADS_PER_ROLE, bridgeheadEnemySquadsPerRole } from '../battle/BridgeheadRosterConfig'
 import { planNorthBankInfantryDeployment, planSouthBankCavalryStaging } from '../world/RiverCrossingBattlefield'
 import { careerCommanderLoadout } from './CareerCommanderEquipment'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
@@ -60,7 +61,7 @@ export const COMMANDER_MISSION_CATALOG: readonly CommanderMissionDefinition[] = 
   entry(COMMANDER_LAST_STAND_ID, 'commander-outpost-last-stand', 'Commander III · Outpost Last Stand · 前哨決戰',
     '指揮 4 支步兵隊守衛 Outpost；60 秒部署後，歼滅同時進攻的 100 名敵方騎兵。', 121, COMMANDER_LAST_STAND_ENEMIES),
   entry(COMMANDER_BRIDGEHEAD_ID, 'commander-bridgehead-battle', 'Commander IV · Bridgehead Battle · 橋頭決戰',
-    `率領200名步兵守衛北岸石橋。進場後有${BRIDGEHEAD_PREPARATION_SECONDS}秒部署時間，倒數結束後200名敵方騎兵從南岸遠方出現並渡河進攻。八支正式小隊各25人，包含1名T4隊長與24名T3士兵。利用橋梁限制騎兵機動，發揮槍兵與遠程部隊的優勢。`, 200, 200),
+    `率領${BRIDGEHEAD_FRIENDLIES}名步兵守衛北岸石橋。進場後有${BRIDGEHEAD_PREPARATION_SECONDS}秒部署時間，倒數結束後${BRIDGEHEAD_ENEMIES}名敵方騎兵（刀／斧騎兵與槍騎兵各${BRIDGEHEAD_ENEMY_SQUADS_PER_ROLE}隊，每隊1名T4隊長與${BRIDGEHEAD_SQUAD_SIZE - 1}名T3士兵）從南岸遠方出現並渡河進攻。我方${BRIDGEHEAD_FRIENDLY_SQUADS}支正式小隊各${BRIDGEHEAD_SQUAD_SIZE}人，包含1名T4隊長與${BRIDGEHEAD_SQUAD_SIZE - 1}名T3士兵。利用橋梁限制騎兵機動，發揮槍兵與遠程部隊的優勢。`, BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES),
 ]
 
 export function getCommanderMissionDefinition(id: string): CommanderMissionDefinition | null {
@@ -149,9 +150,9 @@ export function createCommanderMission(profile: CareerProfile, templateId: strin
     targetActorIds = [TOWN_COMMANDER_ID]
     squads = commandSquads(friendlyActorIds, [30])
   } else if (templateId === COMMANDER_BRIDGEHEAD_ID) {
-    friendlyActorIds = officialIds(id, 200, 'infantry')
-    targetActorIds = officialIds(id, 200, 'cavalry')
-    squads = commandSquads(friendlyActorIds, Array(8).fill(25))
+    friendlyActorIds = officialIds(id, BRIDGEHEAD_FRIENDLIES, 'infantry')
+    targetActorIds = officialIds(id, BRIDGEHEAD_ENEMIES, 'cavalry')
+    squads = commandSquads(friendlyActorIds, Array(BRIDGEHEAD_FRIENDLY_SQUADS).fill(BRIDGEHEAD_SQUAD_SIZE))
   } else {
     friendlyActorIds = officialIds(id, COMMANDER_LAST_STAND_FRIENDLIES, 'defender')
     targetActorIds = officialIds(id, COMMANDER_LAST_STAND_ENEMIES, 'attacker')
@@ -266,20 +267,22 @@ export function createLastStandRoster(mission: ActiveCareerMission, faction: Car
 export function createBridgeheadRoster(mission: ActiveCareerMission, faction: CareerProfile['faction']): {
   friendly: NpcSpawnSpec[]; enemy: NpcSpawnSpec[]
 } {
-  if (mission.kind !== 'commander-bridgehead-battle' || mission.friendlyActorIds.length !== 200
-    || mission.targetActorIds.length !== 200) throw new Error('Invalid Bridgehead roster')
+  const enemySquadsPerRole = bridgeheadEnemySquadsPerRole(mission.targetActorIds.length)
+  if (mission.kind !== 'commander-bridgehead-battle' || mission.friendlyActorIds.length !== BRIDGEHEAD_FRIENDLIES
+    || enemySquadsPerRole === undefined) throw new Error('Invalid Bridgehead roster')
   const enemyFaction = faction === 'roman' ? 'viking' : 'roman'
   const friendly = planNorthBankInfantryDeployment(faction).flatMap(squad => squad.slots.map((slot, index) => {
     const role = squad.role
     const presetId: UnitPresetId = role === 'javelin' ? 'roman_javelin_infantry'
       : preset(faction, role === 'spearman' ? 'spear' : role === 'melee_infantry' ? 'melee' : 'archer')
-    return specForTier(mission.friendlyActorIds[(squad.squadId - 1) * 25 + index], faction, Faction.PLAYER,
+    return specForTier(mission.friendlyActorIds[(squad.squadId - 1) * BRIDGEHEAD_SQUAD_SIZE + index], faction, Faction.PLAYER,
       presetId, index === 0 ? 4 : 3, squad.squadId as NpcSpawnSpec['squadId'], slot.x, slot.z, null)
   }))
-  const enemy = planSouthBankCavalryStaging(230).flatMap(squad => squad.slots.map((slot, index) =>
-    specForTier(mission.targetActorIds[(squad.squadId - 1) * 25 + index], enemyFaction, Faction.ENEMY,
+  const enemy = planSouthBankCavalryStaging(230, enemySquadsPerRole).flatMap(squad => squad.slots.map((slot, index) =>
+    specForTier(mission.targetActorIds[(squad.squadId - 1) * BRIDGEHEAD_SQUAD_SIZE + index], enemyFaction, Faction.ENEMY,
       preset(enemyFaction, squad.role === 'melee_cavalry' ? 'sword' : 'lancer'), index === 0 ? 4 : 3,
-      squad.squadId as NpcSpawnSpec['squadId'], slot.x, slot.z,
+      // Enemy deployment groups beyond eight are not player command squads.
+      squad.squadId <= 8 ? squad.squadId as NpcSpawnSpec['squadId'] : undefined, slot.x, slot.z,
       index === 0 ? enemyFaction === 'roman' ? 'corgi' : 'black-cat' : 'horse')))
   return { friendly, enemy }
 }

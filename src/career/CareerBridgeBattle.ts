@@ -1,3 +1,4 @@
+import { BRIDGEHEAD_FRIENDLIES, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
 import type { BattleConfig } from '../battle/BattleConfig'
 import type { BattleSpawnPlan } from '../battle/BattleSpawner'
 import { COMMANDER_BRIDGEHEAD_ID, createBridgeheadRoster } from './CommanderMissionCatalog'
@@ -44,7 +45,7 @@ export function createCareerBridgeBattleLaunch(profile: CareerProfile): CareerBr
   const mission = profile.activeMission
   if (!isCareerBridgeBattle(mission) || !mission || profile.rank !== 'commander'
     || mission.officialSquad?.commandRank !== 'commander' || mission.officialSquad.missionId !== mission.id
-    || mission.friendlyActorIds.length !== 200 || mission.targetActorIds.length !== 200) {
+    || mission.friendlyActorIds.length !== BRIDGEHEAD_FRIENDLIES || !isBridgeheadEnemyCount(mission.targetActorIds.length)) {
     throw new Error('Expected saved Commander Bridgehead mission')
   }
   return { type: 'career-bridge-battle', careerMissionId: mission.id, battle: {
@@ -102,8 +103,8 @@ export class CareerBridgeBattleRuntime {
   readonly targetIds: Set<string>
   readonly deadFriendly: Set<string>
   readonly deadTargets: Set<string>
-  friendlyAlive = 200
-  enemyAlive = 200
+  friendlyAlive = 0
+  enemyAlive = 0
 
   constructor(mission: ActiveCareerMission) {
     this.deploymentState = resolveCareerBridgeDeployment(mission)
