@@ -443,10 +443,19 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     const meritStats = parseMissionPlayerStats((raw.result as Record<string, unknown>).meritStats)
     if (meritStats) mission.result.meritStats = { ...meritStats, survived: mission.result.stats.survived }
   }
-  if (fourGateDefense && ((fourGateDefense.phase === 'RESULT') !== Boolean(mission.result)
-    || mission.result?.outcome === 'victory' && (!fourGateDefense.deploymentComplete || !fourGateDefense.attackStarted
-      || mission.deadTargetActorIds?.length !== mission.targetActorIds.length
-      || mission.targetActorIds.some(id => fourGateDefense.actors[id]?.status !== 'dead')))) return undefined
+  if (fourGateDefense) {
+    if ((fourGateDefense.phase === 'RESULT') !== Boolean(mission.result)
+      || mission.result?.outcome === 'failure' && fourGateDefense.victoryReason !== undefined) return undefined
+    if (mission.result?.outcome === 'victory') {
+      if (!fourGateDefense.deploymentComplete || !fourGateDefense.attackStarted) return undefined
+      if (fourGateDefense.victoryReason !== 'survival') {
+        if (mission.deadTargetActorIds?.length !== mission.targetActorIds.length
+          || mission.targetActorIds.some(id => fourGateDefense.actors[id]?.status !== 'dead')) return undefined
+        // Old victories predate the explicit reason and can only represent elimination.
+        fourGateDefense.victoryReason = 'elimination'
+      }
+    }
+  }
   return mission
 }
 

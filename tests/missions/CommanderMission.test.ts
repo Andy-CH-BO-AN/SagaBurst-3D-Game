@@ -21,7 +21,7 @@ import { Box3, Vector3 } from 'three'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { needsDecapitationDeployment, planDecapitationDeployment } from '../../src/career/CommanderDecapitationDeployment'
 import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
-import { advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
+import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
 import { ActiveMissionClock } from '../../src/career/ActiveMissionClock'
 
 function commander(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
@@ -87,6 +87,28 @@ describe('Commander mission board policy', () => {
     expect(spawning.siege).toBeUndefined()
     expect(advanceCommanderFourGateDefensePreparation(spawning, 100, true)).toBe(spawning)
     expect(ready.preparationRemainingSeconds).toBe(180)
+  })
+
+  it('counts only ready formal combat through the survival deadline and freezes the result clock', () => {
+    const initial = createCommanderFourGateDefenseState()
+    expect(advanceCommanderFourGateDefenseCombat(initial, 300, true)).toBe(initial)
+    const preparing = { ...initial, phase: 'PREPARING' as const }
+    expect(advanceCommanderFourGateDefenseCombat(preparing, 300, true)).toBe(preparing)
+    const spawning = { ...preparing, phase: 'SPAWNING' as const, preparationRemainingSeconds: 0 }
+    expect(advanceCommanderFourGateDefenseCombat(spawning, 300, true)).toBe(spawning)
+    const attacking = { ...spawning, phase: 'ATTACKING' as const, attackStarted: true, deploymentComplete: true }
+    expect(advanceCommanderFourGateDefenseCombat(attacking, 300, false)).toBe(attacking)
+    expect(advanceCommanderFourGateDefenseCombat(attacking, Infinity, true)).toBe(attacking)
+    expect(advanceCommanderFourGateDefenseCombat(attacking, -1, true)).toBe(attacking)
+    const nearDeadline = advanceCommanderFourGateDefenseCombat(attacking, 299.9, true)
+    expect(nearDeadline.combatElapsedSeconds).toBe(299.9)
+    const resumed = JSON.parse(JSON.stringify(nearDeadline)) as typeof nearDeadline
+    const deadline = advanceCommanderFourGateDefenseCombat(resumed, .1, true)
+    expect(deadline.combatElapsedSeconds).toBe(300)
+    expect(advanceCommanderFourGateDefenseCombat(deadline, 10, true)).toBe(deadline)
+    const result = { ...nearDeadline, phase: 'RESULT' as const }
+    expect(advanceCommanderFourGateDefenseCombat(result, 10, true)).toBe(result)
+    expect(attacking.combatElapsedSeconds).toBe(0)
   })
 
   it('uses 180 active seconds at low frame rate while excluding paused, hidden and reload gaps', () => {

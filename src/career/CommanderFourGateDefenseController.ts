@@ -29,7 +29,7 @@ import type { TownDefenseResident } from './TownDefenseController'
 import { civilianShelterSlots } from './TownDefenseState'
 import { TownFourGateSiege, type TownFourGateSiegeOptions } from './TownFourGateSiege'
 import { planCommanderFourGateDefenseDeployment } from './CommanderFourGateDefenseDeployment'
-import { advanceCommanderFourGateDefensePreparation, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
+import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
 import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, createCommanderFourGateDefenseRoster } from './CommanderFourGateDefenseRoster'
 
 export interface CommanderFourGateDefenseContext {
@@ -92,6 +92,7 @@ export class CommanderFourGateDefenseController {
   get combatEnabled(): boolean { return this.attackersReady && this.state?.attackStarted === true && this.active?.phase === 'ATTACKING' && !this.active.result }
   get spawnBatches(): readonly NpcSpawnBatch[] { return this.spawnBatch ? [this.spawnBatch] : [] }
   get preparationRemaining(): number { return this.state?.preparationRemainingSeconds ?? 180 }
+  get survivalRemaining(): number { return Math.max(0, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS - (this.state?.combatElapsedSeconds ?? 0)) }
   get military(): NPC[] {
     const ids = new Set(this.active?.friendlyActorIds ?? [])
     return this.residents.filter(r => ids.has(r.spec.id)).map(r => r.npc)
@@ -338,7 +339,10 @@ export class CommanderFourGateDefenseController {
     if (!this.ready || !this.friendlyReady || !this.state || !this.active || this.active.result) return
     this.checkpoint.advance(elapsed)
     const previous = this.state
-    this.state = advanceCommanderFourGateDefensePreparation(previous, elapsed, true)
+    // Only an already released battle earns this frame. Preparation/loading and
+    // the SPAWNING -> ATTACKING transaction cannot consume survival time.
+    this.state = advanceCommanderFourGateDefenseCombat(previous, elapsed, this.combatEnabled)
+    this.state = advanceCommanderFourGateDefensePreparation(this.state, elapsed, true)
     if (this.state.phase === 'SPAWNING' && previous.phase === 'PREPARING') {
       if (!this.saveProgress(true)) { this.state = { ...previous, preparationRemainingSeconds: 0 }; return }
       this.state = structuredClone(this.active.fourGateDefense!)
@@ -443,7 +447,7 @@ export class CommanderFourGateDefenseController {
     const complete = ids.size === COMMANDER_FOUR_GATE_DEFENSE_ENEMIES
       && this.active.targetActorIds.every(id => ids.has(id) && accounted.has(id))
     return resolveCommanderFourGateDefenseOutcome(playerDead, complete, this.remainingEnemies,
-      new Set(this.residents.filter(r => !r.npc.dead).map(r => r.npc.combatantId)).size, personalAlive)
+      new Set(this.residents.filter(r => !r.npc.dead).map(r => r.npc.combatantId)).size, personalAlive, this.state.combatElapsedSeconds ?? 0)
   }
 
   peersFor(npc: NPC): NPC[] { return townWartimePeers(npc, this.fieldNpcs) }
@@ -625,6 +629,11 @@ export class CommanderFourGateDefenseController {
       hp: mount.dead ? 0 : mount.currentHp, mounted: false,
       position: { x: mount.group.position.x, y: mount.group.position.y, z: mount.group.position.z, yaw: mount.group.rotation.y },
       ...(mount.flight ? { flight: mount.flight.snapshot() } : {}) }
+    // Capture the reason in the same final-frame transaction as casualties/reward.
+    // The store verifies the deadline, living defenders and remaining enemies.
+    if (this.evaluate(this.player().dead, this.personalActors().filter(npc => !npc.dead).length) === 'victory') {
+      state.victoryReason = this.remainingEnemies === 0 ? 'elimination' : 'survival'
+    } else delete state.victoryReason
     const authority = active.officialSquad ? structuredClone(active.officialSquad) : undefined
     if (authority) {
       authority.members = { ...authority.members }

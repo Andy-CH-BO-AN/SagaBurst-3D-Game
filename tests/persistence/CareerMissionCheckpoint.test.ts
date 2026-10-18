@@ -148,9 +148,10 @@ describe('CareerMissionCheckpoint', () => {
     state.siege!.actors[archerId].order = 'defend'; state.siege!.actors[lancerId].order = 'defend'
     const player = { hp: 85, dead: false, staminaValue: 70, position: { x: 12, y: 10, z: 18 },
       facingYaw: .5, arrowCount: 7, shield: { shieldImpactRemaining: 2 }, currentMount: null }
+    const residents = profile.activeMission!.civilianActorIds!.map(id => ({ spec: { id, role: 'civilian' }, npc: dataActor(id, state.actors[id]) }))
     const controller = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as Pick<CommanderFourGateDefenseController, 'snapshotActiveMission' | 'combatEnabled'>, {
       readProfile: () => profile, player: () => player, enemies, personalActors: () => [],
-      residents: profile.activeMission!.civilianActorIds!.map(id => ({ spec: { id, role: 'civilian' }, npc: dataActor(id, state.actors[id]) })),
+      residents,
       actorMounts: new Map(), tracker: null, startedMissionId: profile.activeMission!.id,
       spawnBatch: { pending: 0, ready: true },
       fourGateSiege: { ready: true, snapshot: () => structuredClone(state.siege!) },
@@ -207,6 +208,17 @@ describe('CareerMissionCheckpoint', () => {
     expect(saved.actors[lancerId].order).toBe('charge')
     expect(saved.siege!.actors[lancerId].order).toBe('charge')
     expect(controller.combatEnabled).toBe(true)
+    // The live final-frame snapshot, not a caller-supplied result, owns the
+    // survival receipt. These are plain actor ports for the canonical full roster.
+    enemies.push(...profile.activeMission!.targetActorIds.filter(id => id !== archerId && id !== lancerId)
+      .map(id => dataActor(id, state.actors[id])))
+    liveState.combatElapsedSeconds = 300
+    expect(controller.snapshotActiveMission().fourGateDefense!.victoryReason).toBe('survival')
+    player.dead = true; player.hp = 0
+    for (const resident of residents) Object.assign(resident.npc, { dead: true, hp: 0 })
+    liveState.victoryReason = 'survival'
+    expect(controller.snapshotActiveMission().fourGateDefense!.victoryReason).toBeUndefined()
+
   })
 
   it('saves spawning intent before enqueueing and holds combat through reload, incomplete deployment and failed attack commit', () => {
@@ -228,7 +240,7 @@ describe('CareerMissionCheckpoint', () => {
       try { storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(next)) } catch { return false }
       profile = next; return true
     }
-    type FlowEntry = Pick<CommanderFourGateDefenseController, 'updateFlow' | 'combatEnabled'> & {
+    type FlowEntry = Pick<CommanderFourGateDefenseController, 'updateFlow' | 'combatEnabled' | 'setPreparationElapsed'> & {
       state: NonNullable<NonNullable<CareerProfile['activeMission']>['fourGateDefense']>
       spawnBatch?: { pending: number; ready: boolean; status: string }
       fourGateSiege?: { ready: boolean }
@@ -285,8 +297,15 @@ describe('CareerMissionCheckpoint', () => {
     expect(profile.activeMission!.phase).toBe('SPAWNING')
     expect(controller.state.phase).toBe('SPAWNING'); expect(controller.combatEnabled).toBe(false); expect(releases).toBe(0)
     rejectAttack = false
-    controller.updateFlow(0, 0)
-    controller.updateFlow(0, 0)
+    controller.updateFlow(8, 0)
+    expect(controller.state.combatElapsedSeconds).toBe(0)
+    controller.setPreparationElapsed(0)
+    controller.updateFlow(20, 0)
+    expect(controller.state.combatElapsedSeconds).toBe(0)
+    controller.setPreparationElapsed(12.5)
+    controller.updateFlow(.05, 0)
+    expect(controller.state.combatElapsedSeconds).toBe(12.5)
+    expect(profile.activeMission!.fourGateDefense!.combatElapsedSeconds).toBe(12.5)
     expect(profile.activeMission!.phase).toBe('ATTACKING')
     expect(profile.activeMission!.fourGateDefense!.registeredTargetActorIds).toHaveLength(230)
     expect(controller.combatEnabled).toBe(true)

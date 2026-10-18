@@ -9,11 +9,17 @@ import { townRoster } from '../town/TownRules'
 import { TOWN_HR_OFFICER_ID } from '../town/TownHRLayout'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
 
+export const COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS = 300
+export type CommanderFourGateDefenseVictoryReason = 'elimination' | 'survival'
+
 export type CommanderFourGateDefensePhase = 'DEPLOYING' | 'PREPARING' | 'SPAWNING' | 'ATTACKING' | 'RESULT'
 export interface CommanderFourGateDefenseState {
   version: 1
   phase: CommanderFourGateDefensePhase
   preparationRemainingSeconds: number
+  /** Active combat only, bounded at the survival deadline. */
+  combatElapsedSeconds: number
+  victoryReason?: CommanderFourGateDefenseVictoryReason
   /** True only when the complete enemy roster can enter combat (also retained in legacy full PREPARING saves). */
   deploymentComplete: boolean
   attackStarted: boolean
@@ -28,7 +34,7 @@ export interface CommanderFourGateDefenseState {
 }
 
 export function createCommanderFourGateDefenseState(): CommanderFourGateDefenseState {
-  return { version: 1, phase: 'DEPLOYING', preparationRemainingSeconds: COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS,
+  return { version: 1, phase: 'DEPLOYING', combatElapsedSeconds: 0, preparationRemainingSeconds: COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS,
     deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [], actors: {} }
 }
 
@@ -47,12 +53,25 @@ export function advanceCommanderFourGateDefensePreparation(state: CommanderFourG
   return preparationRemainingSeconds === state.preparationRemainingSeconds ? state : { ...state, preparationRemainingSeconds }
 }
 
-/** Commander V has no civilian-loss limit. Every living Town person and deployed
- * personal member keeps the defense alive, and the final enemy death wins ties. */
+/** Called only for a frame that began in active combat; preparation and spawn time never count. */
+export function advanceCommanderFourGateDefenseCombat(state: CommanderFourGateDefenseState,
+  dt: number, ready: boolean): CommanderFourGateDefenseState {
+  if (!ready || state.phase !== 'ATTACKING' || !state.attackStarted || !state.deploymentComplete
+    || !Number.isFinite(dt) || dt < 0) return state
+  const elapsed = Math.min(COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, state.combatElapsedSeconds + dt)
+  const combatElapsedSeconds = COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS - elapsed < 1e-9
+    ? COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS : elapsed
+  return combatElapsedSeconds === state.combatElapsedSeconds ? state : { ...state, combatElapsedSeconds }
+}
+
+/** Final enemy death still wins ties. Otherwise a living ally must reach the active combat deadline. */
 export function resolveCommanderFourGateDefenseOutcome(playerDead: boolean, registrationComplete: boolean,
-  enemiesRemaining: number, aliveTownPeople: number, alivePersonal = 0): CareerMissionOutcome | null {
+  enemiesRemaining: number, aliveTownPeople: number, alivePersonal = 0,
+  combatElapsedSeconds = 0): CareerMissionOutcome | null {
   if (registrationComplete && enemiesRemaining === 0) return 'victory'
-  return playerDead && aliveTownPeople === 0 && alivePersonal === 0 ? 'failure' : null
+  if (playerDead && aliveTownPeople === 0 && alivePersonal === 0) return 'failure'
+  return registrationComplete && Number.isFinite(combatElapsedSeconds)
+    && combatElapsedSeconds >= COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS ? 'victory' : null
 }
 
 const finite = (value: unknown, max = 100000): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= max
@@ -102,10 +121,14 @@ export function parseCommanderFourGateDefenseState(value: unknown,
   context: CommanderFourGateDefenseParseContext): CommanderFourGateDefenseState | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value) || !safeId(context.missionId)) return undefined
   const raw = value as CommanderFourGateDefenseState
+  const combatElapsedSeconds = raw.combatElapsedSeconds === undefined ? 0 : raw.combatElapsedSeconds
   const slots = commanderFourGateDefenseSlots(context.missionId), targets = new Set(slots.map(slot => slot.actorId))
   if (context.targetActorIds.length !== targets.size || new Set(context.targetActorIds).size !== targets.size
     || context.targetActorIds.some(id => !targets.has(id))
     || raw.version !== 1 || !['DEPLOYING', 'PREPARING', 'SPAWNING', 'ATTACKING', 'RESULT'].includes(raw.phase)
+    || !finite(combatElapsedSeconds, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS)
+    || !raw.attackStarted && combatElapsedSeconds !== 0
+    || raw.victoryReason !== undefined && !['elimination', 'survival'].includes(raw.victoryReason)
     || !finite(raw.preparationRemainingSeconds, COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS)
     || typeof raw.deploymentComplete !== 'boolean' || typeof raw.attackStarted !== 'boolean'
     || !ids(raw.registeredTargetActorIds, targets.size) || raw.registeredTargetActorIds.some(id => !targets.has(id))
@@ -123,7 +146,9 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     || raw.deploymentComplete && raw.registeredTargetActorIds.length !== targets.size) return undefined
   // The actual Home Town adds this service resident beyond the base roster.
   // It is checkpointed as a person, never added to official military authority.
-  const allowed = new Set([TOWN_HR_OFFICER_ID, ...townRoster().filter(actor => actor.role !== 'cat').map(actor => actor.id), ...targets, ...context.friendlyActorIds, ...context.civilianActorIds, ...(context.personalActorIds ?? [])])
+  const townIds = [TOWN_HR_OFFICER_ID, ...townRoster().filter(actor => actor.role !== 'cat').map(actor => actor.id),
+    ...context.friendlyActorIds, ...context.civilianActorIds]
+  const allowed = new Set([...townIds, ...targets, ...(context.personalActorIds ?? [])])
   if (allowed.size > 1024 || [...allowed].some(id => !safeId(id))) return undefined
   const actors: CommanderFourGateDefenseState['actors'] = {}
   for (const [id, saved] of Object.entries(raw.actors)) {
@@ -179,7 +204,17 @@ export function parseCommanderFourGateDefenseState(value: unknown,
     || player?.mountActorId && (!allowed.has(player.mountActorId)
       || !(actors[player.mountActorId]?.mount || context.personalActorIds?.includes(player.mountActorId)
         && context.personalActors?.[player.mountActorId]?.mount))) return undefined
+  if (raw.victoryReason !== undefined) {
+    if (!raw.attackStarted || !raw.deploymentComplete || !['ATTACKING', 'RESULT'].includes(raw.phase)) return undefined
+    const enemiesRemaining = targets.size - dead.size
+    const living = (actor: PersonalActorCheckpoint | undefined): boolean => actor?.status === 'deployed' && (actor.hp ?? 0) > 0
+    const allySurvives = player?.dead === false || townIds.some(id => living(actors[id]))
+      || (context.personalActorIds ?? []).some(id => living(actors[id] ?? context.personalActors?.[id]))
+    if (raw.victoryReason === 'elimination' ? enemiesRemaining !== 0
+      : enemiesRemaining === 0 || combatElapsedSeconds < COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS || !allySurvives) return undefined
+  }
   return { version: 1, phase: raw.phase, preparationRemainingSeconds: raw.preparationRemainingSeconds,
+    combatElapsedSeconds, ...(raw.victoryReason ? { victoryReason: raw.victoryReason } : {}),
     deploymentComplete: raw.deploymentComplete, attackStarted: raw.attackStarted,
     registeredTargetActorIds: [...raw.registeredTargetActorIds], actors, ...(siege ? { siege } : {}),
     ...(cavalryEscort ? { cavalryEscort } : {}), ...(player ? { player } : {}) }

@@ -2,7 +2,7 @@
 
 ## Commander V 四門守城交接
 
-正式 Career 任務已接入 Home Town、既有八車與八隊兵權：守方獨立準備 180 秒後才從邊境生成 230 名攻方與八車、每門獨立事件、完整 ground／air checkpoint、原子結果與正常城鎮重建。Roman／Viking 真實 WebGL 的八車移動／Dock／Crew 登城、空戰、遊玩回歸及 GPU 效能尚待驗收；CPU 幾何診斷與 CI 不代表上述通過。模組契約見 ARCHITECTURE，詳細驗證留 PR。
+正式 Career 任務已接入 Home Town、既有八車與八隊兵權：守方獨立準備 180 秒後才從邊境生成 230 名攻方與八車、每門獨立事件、完整 ground／air checkpoint、原子結果與正常城鎮重建。正式攻擊後守住5分鐘且守方仍有人存活即可獲勝，提前全滅攻方仍勝；戰鬥計時排除準備／生成／暫停並隨存檔續算，舊存檔缺值從0開始。Roman／Viking 真實 WebGL 的八車移動／Dock／Crew 登城、空戰、遊玩回歸及 GPU 效能尚待驗收；CPU 幾何診斷與 CI 不代表上述通過。模組契約見 ARCHITECTURE，詳細驗證留 PR。
 
 更新：2026-10-17。城外遭遇戰與任務交火的目前契約見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 

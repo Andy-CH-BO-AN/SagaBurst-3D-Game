@@ -18,6 +18,35 @@ import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, creat
 import { parseCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
 
 describe('siege checkpoint ownership', () => {
+  it('bounds persisted combat time and validates the survival reason against the actual living defense', () => {
+    const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
+    const context = { missionId: mission.id, faction: profile.faction, phase: mission.phase,
+      targetActorIds: mission.targetActorIds, friendlyActorIds: mission.friendlyActorIds,
+      civilianActorIds: mission.civilianActorIds ?? [], deadTargetActorIds: mission.deadTargetActorIds }
+    const { combatElapsedSeconds: _legacyAbsent, ...legacy } = state
+    expect(parseCommanderFourGateDefenseState(legacy, context)?.combatElapsedSeconds).toBe(0)
+    state.combatElapsedSeconds = 299.9
+    expect(parseCommanderFourGateDefenseState(state, context)?.combatElapsedSeconds).toBe(299.9)
+    state.victoryReason = 'survival'
+    expect(parseCommanderFourGateDefenseState(state, context)).toBeUndefined()
+    state.combatElapsedSeconds = 300
+    expect(parseCommanderFourGateDefenseState(state, context)?.victoryReason).toBe('survival')
+    expect(parseCommanderFourGateDefenseState({ ...state, combatElapsedSeconds: 300.1 }, context)).toBeUndefined()
+    expect(parseCommanderFourGateDefenseState({ ...state, victoryReason: 'elimination' }, context)).toBeUndefined()
+    expect(parseCommanderFourGateDefenseState({ ...state, attackStarted: false }, context)).toBeUndefined()
+    state.player!.dead = true; state.player!.hp = 0
+    for (const id of [...mission.friendlyActorIds, ...mission.civilianActorIds!]) {
+      Object.assign(state.actors[id], { status: 'dead', hp: 0 })
+      if (state.siege!.actors[id]) Object.assign(state.siege!.actors[id], { status: 'dead', hp: 0 })
+    }
+    expect(parseCommanderFourGateDefenseState(state, context)).toBeUndefined()
+    const personal = { status: 'deployed' as const, hp: 1 }
+    const personalContext = { ...context, personalActorIds: ['personal:survivor'], personalActors: { 'personal:survivor': personal } }
+    expect(parseCommanderFourGateDefenseState(state, personalContext)?.victoryReason).toBe('survival')
+    expect(parseCommanderFourGateDefenseState(state, { ...personalContext,
+      personalActors: { 'personal:survivor': { status: 'reserve', hp: 1 } } })).toBeUndefined()
+  })
+
   it('restores exact escort ownership and a nearly expired stall without regrouping or replaying released orders', () => {
     const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
     expect(isCommanderCavalryEscorting(state.cavalryEscort, mission.targetActorIds[0])).toBe(false)

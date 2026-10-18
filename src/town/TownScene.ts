@@ -3492,7 +3492,7 @@ export class TownScene {
     if (!(this.defense instanceof CommanderFourGateDefenseController)) return ''
     const defense = this.defense
     const phase = defense.phase === 'PREPARING' ? `準備 ${Math.ceil(defense.preparationRemaining)} 秒`
-      : defense.phase === 'DEPLOYING' ? '守方部署中' : defense.phase === 'SPAWNING' ? '敵軍抵達中' : defense.phase === 'ATTACKING' ? '四門總攻' : '戰鬥結束'
+      : defense.phase === 'DEPLOYING' ? '守方部署中' : defense.phase === 'SPAWNING' ? '敵軍抵達中' : defense.phase === 'ATTACKING' ? `守住 ${Math.ceil(defense.survivalRemaining)} 秒即可獲勝` : '戰鬥結束'
     const ramps = defense.fourGateSiege?.ramps
     const gateNames = { north: '北', east: '東', south: '南', west: '西' } as const
     const gateStatus = { closed: '關閉', open: '開啟', destroyed: '已破' } as const

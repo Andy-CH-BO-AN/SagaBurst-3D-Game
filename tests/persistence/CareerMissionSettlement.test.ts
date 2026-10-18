@@ -263,6 +263,29 @@ describe('Town mission settlement transactions', () => {
     expect(h.commit).toHaveBeenCalledTimes(2)
   })
 
+  it('persists a five-minute survival victory with live enemy air and actual merit once after a rejected commit', () => {
+    const h = fixture('commander-four-gate-defense'), before = h.read(), latest = structuredClone(before.activeMission!)
+    latest.fourGateDefense!.combatElapsedSeconds = 300
+    latest.fourGateDefense!.victoryReason = 'survival'
+    h.defense.snapshotActiveMission.mockReturnValue(latest)
+    Object.assign(h.stats, { damageDealt: 0, kills: 0, survived: true })
+    h.commit.mockImplementationOnce(() => false)
+    expect(h.settlement.finish('victory')).toEqual({ status: 'save-failed' })
+    expect(h.read()).toBe(before)
+    expect(h.read().claimedBattleIds).not.toContain(latest.id)
+    expect(h.defense.cleanupMission).not.toHaveBeenCalled()
+    expect(h.settlement.finish('victory').status).toBe('saved')
+    h.reload()
+    const saved = h.read(), active = saved.activeMission!
+    expect(active.fourGateDefense).toMatchObject({ phase: 'RESULT', combatElapsedSeconds: 300, victoryReason: 'survival' })
+    expect(active.deadTargetActorIds ?? []).toHaveLength(0)
+    expect(active.fourGateDefense!.actors[active.targetActorIds[229]]).toMatchObject({ status: 'deployed' })
+    expect(active.result).toMatchObject({ outcome: 'victory', stats: { kills: 0 },
+      merit: { damage: 0, kills: 0, contribution: 100, total: 100 } })
+    expect(saved.claimedBattleIds.filter(id => id === latest.id)).toEqual([latest.id])
+    expect(h.settlement.finish('victory')).toEqual({ status: 'ignored' })
+  })
+
   it('keeps borrowed ownership and live state untouched when saving the return fails', () => {
     const h = fixture('captain-patrol-command', true)
     h.storage.writable = false
