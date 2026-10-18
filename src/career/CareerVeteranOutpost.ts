@@ -90,7 +90,7 @@ export function createCareerVeteranOutpostLaunch(profile: CareerProfile): Defens
     playerLoadout,
     deploymentSeconds: 0,
     playerHeroId: resolveCareerHeroAsset(profile),
-    playerMountAppearanceVariant: careerMountAppearanceVariant(mount),
+    playerMountAppearanceVariant: careerMountAppearanceVariant(profile),
     careerMissionId: mission.id,
     careerMissionKind: missionKind,
     ...(mission.personalSquad ? { careerPersonalSquad: clonePersonalMission(mission.personalSquad) } : {}),

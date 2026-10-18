@@ -1,3 +1,4 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import type * as THREE from 'three'
 import type { CareerProfile, CareerMountId } from '../career/CareerProfile'
 import { careerMountType } from '../career/CareerMountController'
@@ -85,7 +86,7 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
       const key = JSON.stringify(after.refs.mount)
       const reused = released.get(key)?.shift() ?? findTownNativeMount(mounts, after.refs.mount)
       const point = mountPoints.get(resident) ?? resident.npc.combatPosition
-      const mount = reused ?? new Mount(scene, careerMountType(after.loadout.mountId as CareerMountId), point.x, point.z)
+      const mount = reused ?? new Mount(scene, careerMountType(after.loadout.mountId as CareerMountId), point.x, point.z, undefined, horseVariantForStableKey(`town:${current.faction}:${resident.spec.id}`))
       if (after.refs.mount?.source === 'native') registerTownNativeMount(mount, after.refs.mount.nativeId!)
       mount.reservedForTown = true
       mount.group.position.set(point.x, getTerrainHeight(point.x, point.z), point.z)

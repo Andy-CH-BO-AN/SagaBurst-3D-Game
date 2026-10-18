@@ -4,7 +4,7 @@ import * as THREE from 'three'
 import { getCareerPurchaseTier, cloneCareerProfile, canonicalCareerMountId, ownsCareerHorse, type CareerMountId, type CareerProfile } from './CareerProfile'
 import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentUI'
 import type { Player } from '../player/Player'
-import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
+import { horseVariantFromSave, type HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 import { Mount, MountType } from '../world/Mount'
 import { findEagleLandingPosition, type EagleLandingPoint } from '../world/EagleLanding'
 import { syncCareerEaglePads, EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from './EaglePadReservations'
@@ -37,10 +37,8 @@ export function careerMountTier(id: CareerMountId, profile: Pick<CareerProfile, 
   return canonical === 'horse' ? Math.min(4, getCareerPurchaseTier(profile.rank)) : MOUNTS[canonical].tier
 }
 
-export function careerMountAppearanceVariant(id?: CareerMountId): HorseAppearanceVariant {
-  if (id === 'horse-t2') return 1
-  if (id === 'horse-t3') return 2
-  return 0
+export function careerMountAppearanceVariant(profile: Pick<CareerProfile, 'horseAppearanceVariant'>): HorseAppearanceVariant {
+  return horseVariantFromSave(profile.horseAppearanceVariant)
 }
 
 export function canUseCareerMount(profile: CareerProfile, id: CareerMountId): boolean {
@@ -114,7 +112,20 @@ export class CareerMountController implements EquipmentMountAdapter {
       available: careerMountTier(id, profile) <= unlockedTier && !this.unavailable.has(id) && canAllocateCareerItemToPlayer(profile, id),
       quantityText: `總持有 ${careerItemTotal(profile, id)} · 可用 ${availableCareerItem(profile, id)}`,
       allocated: profile.selectedMountId === id,
+      ...(id === 'horse' ? { appearanceVariant: careerMountAppearanceVariant(profile), appearanceEditable: !profile.activeRace } : {}),
     }))
+  }
+
+  setAppearanceVariant(variant: HorseAppearanceVariant): boolean {
+    const profile = this.readProfile()
+    if (profile.activeRace) return this.fail('賽馬期間不能變更戰馬毛色。')
+    if (![0, 1, 2].includes(variant) || !ownsCareerHorse(profile)) return this.fail('無法變更戰馬毛色。')
+    const next = cloneCareerProfile(profile)
+    next.horseAppearanceVariant = variant
+    if (!this.commit(next)) return this.fail('保存失敗，戰馬毛色沒有變更。')
+    this.active?.mount.setAppearanceVariant(variant)
+    this.statusText = '戰馬毛色已保存。'
+    return true
   }
 
   activate(rawId: string): boolean {
@@ -150,7 +161,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     }
 
     const previous = this.active
-    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(id))
+    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(profile))
     mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
     this.installDeathPersistence(id, mount)
     if (previous) this.hp.set(previous.id, previous.mount.currentHp)
@@ -182,7 +193,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     const profile = this.readProfile(), id = saved.mountId
     if (!canUseCareerMount(profile, id)) return false
     const p = saved.mountPosition
-    const mount = new Mount(this.scene, careerMountType(id), p.x, p.z, p.y)
+    const mount = new Mount(this.scene, careerMountType(id), p.x, p.z, p.y, careerMountAppearanceVariant(profile))
     this.active = { id, mount }; this.hp.set(id, saved.mountHp)
     this.installDeathPersistence(id, mount)
     mount.group.rotation.y = p.yaw
@@ -211,7 +222,7 @@ export class CareerMountController implements EquipmentMountAdapter {
         [...this.occupied(), ...(this.options.eaglePads?.pads.filter(other => other.id !== pad?.id) ?? [])], getScenePlayableWorldBound(this.scene))
       : findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), this.occupied())
     if (!position) return false
-    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(id))
+    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(profile))
     mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
     this.installDeathPersistence(id, mount)
     this.active = { id, mount }

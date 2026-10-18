@@ -1,3 +1,4 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import type { TownGarrisonStation } from '../town/TownGarrison'
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
 import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
@@ -1277,7 +1278,7 @@ export class BanditMissionController {
 
   private createVeteranMount(spec: NpcSpawnSpec): Mount {
     if (this.veteranFieldFactories.createMount) return trackNpcSpawn(this.veteranFieldFactories.createMount(spec))
-    return trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout?.mountId), spec.x, spec.z))
+    return trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout?.mountId), spec.x, spec.z, undefined, horseVariantForStableKey(spec.actorId!)))
   }
 
   private positionVeteranActor(npc: NPC, mount: Mount | null, point: THREE.Vector3, yaw: number): void {

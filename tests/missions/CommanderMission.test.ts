@@ -353,7 +353,7 @@ describe('Bridgehead official field battle', () => {
     expect(store.save(profile)).toBe(true)
     const restored = store.load()!, plan = createCareerBridgeSpawnPlan(restored)
     expect(plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)).toHaveLength(200)
-    expect(createCareerBridgeOrphanMountPlan(restored)).toMatchObject([{ actorId: mission.targetActorIds[0], saved: { hp: 42 } }])
+    expect(createCareerBridgeOrphanMountPlan(restored)).toMatchObject([{ actorId: mission.targetActorIds[0], stableKey: mission.targetActorIds[0], saved: { hp: 42 } }])
     expect(restored.activeMission!.officialSquad!.members![actor].formation).toEqual(mission.officialSquad!.members![actor].formation)
     expect(restored.activeMission!.bridgeBattle!.actors[dismounted].mount!.hp).toBe(0)
     expect(restored.activeMission!.personalSquad).toEqual(mission.personalSquad)
@@ -407,7 +407,7 @@ describe('Bridgehead official field battle', () => {
     expect(store.save(casualty)).toBe(true)
     const resumed = store.load()!
     expect(createCareerBridgeSpawnPlan(resumed).npcSpecs).toHaveLength(1)
-    expect(createCareerBridgeOrphanMountPlan(resumed)).toMatchObject([{ actorId: id, mountId: 'horse', saved: { hp: 21 } }])
+    expect(createCareerBridgeOrphanMountPlan(resumed)).toMatchObject([{ actorId: id, mountId: 'horse', stableKey: `personal:${id}`, saved: { hp: 21 } }])
     expect(commitCareerBridgeBattleResult(store, mission.id, stats)?.profile.activeMission!.result?.outcome).toBe('failure')
     const corrupted = structuredClone(resumed)
     corrupted.activeMission!.bridgeBattle!.player.mountActorId = 'personal:unaccepted'

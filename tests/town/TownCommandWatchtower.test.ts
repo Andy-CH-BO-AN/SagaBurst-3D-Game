@@ -2,8 +2,7 @@ import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
 import { surfaceBox } from '../../src/town/TownRamparts'
-import { TOWN_CITY_ROADS, TOWN_CENTER, townHousing, type TownRoad } from '../../src/town/TownLayout'
-import { resolveTownHRLayout } from '../../src/town/TownHRLayout'
+import { TOWN_CITY_ROADS, TOWN_CENTER, TOWN_HR_REGION, townHousing, type TownRoad } from '../../src/town/TownLayout'
 import { findBlockingObstacleAlongPath, getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../../src/world/Terrain'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 
@@ -118,14 +117,17 @@ describe('Town command watchtower', () => {
         rectangle(TOWN_CENTER.x, TOWN_CENTER.z, 27, 27),
         rectangle(-6, -17, 14, 16, Math.PI / 2), rectangle(-5, -39, 16, 17, Math.PI / 2),
       ].map(box => ({ box, isBarricade: false }))
-      const hr = resolveTownHRLayout(faction, obstacles, roads)
-      obstacles.push(...[
-        rectangle(hr.site.x, hr.site.z, hr.width + 4, hr.depth + 6, hr.site.yaw),
-        rectangle(hr.officer.x, hr.officer.z, 6, 6),
-        ...hr.muster.map(point => rectangle(point.x, point.z, 6, 6)),
-      ].map(box => ({ box, isBarricade: false })))
       bothFactionObstacles.push(...obstacles)
     }
+    // HR site search / resident generation belong to TownResidentLayout. Reserve
+    // its entire authored search region instead: 42m laterally covers the widest
+    // hall plus the six-column mounted courtyard on either side; 22m longitudinally
+    // covers the deepest hall, officer and courtyard, including clearance margins.
+    // This is stricter than checking only today's selected site for each faction.
+    bothFactionObstacles.push({ isBarricade: false, box: new Box3(
+      new Vector3(TOWN_HR_REGION.minX - 42, -100, TOWN_HR_REGION.minZ - 22),
+      new Vector3(TOWN_HR_REGION.maxX + 42, 100, TOWN_HR_REGION.maxZ + 22),
+    ) })
     // The tower is shared by both factions. Testing the union preserves every
     // building/HR exclusion without repeating the identical eagle corridor scan.
     expect(() => validateWatchtowerPlacement(layout, bothFactionObstacles, roads)).not.toThrow()
