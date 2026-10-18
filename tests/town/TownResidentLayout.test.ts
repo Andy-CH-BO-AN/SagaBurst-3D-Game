@@ -1,6 +1,7 @@
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { townStationSpec } from '../../src/town/TownGarrison'
+import { TownGroundStations } from '../../src/town/TownGroundStation'
 import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
@@ -185,4 +186,14 @@ it('uses unique deterministic ground fallbacks for equipment changes and restore
   expect(civilianPointLegal(mounted, [], [], { radius: 1.8, height: 2.6 })).toBe(true)
   expect(townStationSpec(mounted, false, true)).toMatchObject({ x: actor.garrison!.x, y: actor.garrison!.y, z: actor.garrison!.z, garrison: actor.garrison })
   expect(actor).toEqual(original)
+})
+
+it('selects the nearest tied ground candidate in authored order and rechecks occupancy on the reused heap', () => {
+  const stations = new TownGroundStations(getTownRampartLayout(), [{ x: 30, z: -105, radius: .7 }])
+  const first = stations.allocate('north', { x: 30, z: -105 }, false)
+  const second = stations.allocate('north', { x: 30, z: -105 }, false)
+  expect(first.x).toBeCloseTo(34.5); expect(first.z).toBeCloseTo(-105)
+  expect(second.x).toBeCloseTo(25.5); expect(second.z).toBeCloseTo(-105)
+  expect(first.y).toBe(getTerrainHeight(first.x, first.z))
+  expect(second.y).toBe(getTerrainHeight(second.x, second.z))
 })

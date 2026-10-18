@@ -8,8 +8,22 @@ import { getTerrainHeight } from '../world/Terrain'
 
 interface Point { x: number; z: number }
 export interface GroundOccupant extends Point { radius: number }
-interface StationCandidate { point: ReturnType<typeof townGatePoint>; legal?: boolean }
+interface StationCandidate { point: ReturnType<typeof townGatePoint>; order: number; distance: number; legal?: boolean }
 const eagleSites = [...TOWN_PRIVATE_EAGLE_SITES, ...TOWN_GARRISON_EAGLE_SITES]
+
+function candidateBefore(a: StationCandidate, b: StationCandidate): boolean {
+  return a.distance < b.distance || a.distance === b.distance && a.order < b.order
+}
+function siftCandidateDown(heap: StationCandidate[], index: number, size: number): void {
+  const entry = heap[index]
+  while (index * 2 + 1 < size) {
+    let child = index * 2 + 1
+    if (child + 1 < size && candidateBefore(heap[child + 1], heap[child])) child++
+    if (!candidateBefore(heap[child], entry)) break
+    heap[index] = heap[child]; index = child
+  }
+  heap[index] = entry
+}
 
 /** Uses the authored flight, landing and wall connection, not four coordinate patches. */
 export function townRampGroundExcluded(layout: TownRampartLayout, point: Point, radius: number): boolean {
@@ -73,20 +87,26 @@ export class TownGroundStations {
           // Keep each replacement in its original wall's defensive sector.
           const gateDistance = Math.hypot(p.x - gate.x, p.z - gate.z)
           if (TOWN_GATES.some(other => other !== gate && Math.hypot(p.x - other.x, p.z - other.z) + 12 < gateDistance)) continue
-          candidates.push({ point: p })
+          candidates.push({ point: p, order: candidates.length, distance: Infinity })
         }
         this.candidates.set(key, candidates)
       }
-      let candidate: ReturnType<typeof townGatePoint> | undefined, best = Infinity
+      // Heapify in linear time, then inspect only the nearest candidates until
+      // a legal free one is found. Reuse the entries rather than sorting or
+      // allocating another array per actor; original order breaks exact ties.
       for (const entry of candidates) {
-        const p = entry.point
-        const distance = (p.x - desired.x) ** 2 + (p.z - desired.z) ** 2
-        // Keep authored tie ordering, but validate geometry only for candidates
-        // that can improve this allocation. Legality is immutable in this pass;
-        // occupancy still belongs to each actor and is always checked live.
-        if (distance >= best || entry.legal === false) continue
+        entry.distance = entry.legal === false ? Infinity : (entry.point.x - desired.x) ** 2 + (entry.point.z - desired.z) ** 2
+      }
+      for (let i = Math.floor(candidates.length / 2) - 1; i >= 0; i--) siftCandidateDown(candidates, i, candidates.length)
+      let candidate: ReturnType<typeof townGatePoint> | undefined, remaining = candidates.length
+      while (remaining > 0 && Number.isFinite(candidates[0].distance)) {
+        const entry = candidates[0], p = entry.point
         if (entry.legal === undefined) entry.legal = this.staticLegal(p, radius)
-        if (entry.legal && this.unoccupied(p, radius)) { candidate = p; best = distance }
+        if (entry.legal && this.unoccupied(p, radius)) { candidate = p; break }
+        // Popped entries remain at the tail for the next allocation pass.
+        remaining--
+        candidates[0] = candidates[remaining]; candidates[remaining] = entry
+        if (remaining) siftCandidateDown(candidates, 0, remaining)
       }
       if (!candidate) throw new Error(`No clear ground garrison station in ${gateId}`)
       point = candidate
