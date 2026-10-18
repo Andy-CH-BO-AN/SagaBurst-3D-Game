@@ -53,8 +53,9 @@ fail post-run completeness. Both runners' actual file/leaf inventories and fresh
 reports must match the manifest before aggregate succeeds.
 
 The reusable Actions workflow emits plan, shard and aggregate artifacts plus
-selection reasons and the Top 10 slow leaves. Ordinary gameplay PRs do not rerun the
-Node release component on both Desktop hosts. Windows/macOS host Node checks remain
-required when a PR changes Electron, release, publication or package inputs, and in
-formal Release jobs. Build, typecheck, and Web/Desktop packaging/smoke retain their
-checks.
+selection reasons and the Top 10 slow leaves. Ordinary gameplay and CI-tooling PRs
+do not rerun the Node release component on both Desktop hosts. Windows/macOS host
+Node checks are reserved for genuinely platform-sensitive inputs such as Electron,
+asset-path/smoke, desktop package metadata or the Release workflow; formal Release
+jobs always retain them. Build, typecheck, and Web/Desktop packaging/smoke retain
+their checks.
