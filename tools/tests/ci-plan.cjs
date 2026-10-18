@@ -29,7 +29,9 @@ function changes(base, head, event) {
 const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/AGENTS\.md)$/.test(file)
   // Release notes are inputs to publication, not documentation-only changes.
   && !file.startsWith('docs/releases/')
-const nodePublicationInput = file => /^(electron\/|tools\/release\/|tests\/release\/|docs\/releases\/)/.test(file)
+// Test files select themselves and their actual consumers, regardless of folder.
+// Only publication runtime/config inputs require the broad Node owner contract.
+const nodePublicationInput = file => /^(electron\/|tools\/release\/|docs\/releases\/)/.test(file)
   || /^(package(?:-lock)?\.json|electron-builder\.|\.github\/workflows\/release\.yml$)/.test(file)
 
 function policyConsumers(file, inventory) {

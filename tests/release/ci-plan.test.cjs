@@ -45,6 +45,8 @@ test('high fan-out production owner stays Related instead of forcing repository 
 })
 test('directly modified test is selected even with no dependency edges', () => {
   assert.deepEqual(select(inventory[1].file).selected, [inventory[1].file])
+  assert.deepEqual(select('tests/release/ci-plan.test.cjs').selected, ['tests/release/ci-plan.test.cjs'])
+  assert.deepEqual(select('tests/release/publish.test.cjs').selected, ['tests/release/publish.test.cjs'])
 })
 test('shared helper selects consumers across capability directories', () => {
   assert.deepEqual(select('tests/helpers/memoryStorage.ts').selected, [inventory[1].file, inventory[2].file])
@@ -94,6 +96,10 @@ test('Related selection has one aggregate 500-leaf limit and cannot open a secon
   assert.throws(() => planShards([...within, item('tests/c.test.ts', 1)], 'related'), /entire Related CI run is limited to 500/)
 })
 test('release code selects Node tests once and deduplicates shared consumers', () => {
+  const expected = inventory.filter(item => item.runner === 'node').map(item => item.file).sort()
+  assert.deepEqual(select('tools/release/publish.cjs').selected, expected)
+  assert.deepEqual(select('tools/release/validate-tag.cjs').selected, expected)
+  assert.deepEqual(select('electron/asset-path.cjs').selected, expected)
   const result = selectFiles(inventory, [{ status: 'M', file: 'electron/main.cjs' }, { status: 'M', file: 'tools/release/publish.cjs' }], consumers)
   assert.deepEqual(result.selected, inventory.filter(item => item.runner === 'node').map(item => item.file).sort())
   assert.equal(result.reasons['tests/release/publish.test.cjs'].length, 2)
