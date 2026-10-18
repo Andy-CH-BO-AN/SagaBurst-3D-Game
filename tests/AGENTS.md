@@ -15,7 +15,7 @@
 ## 成本與邏輯範圍
 
 - 每個保留的邏輯 leaf case 最多 100ms，包含該案例的 beforeEach、body、afterEach、onTestFinished 與案例專屬 cleanup。以不受 fake timers 影響的真實單調時鐘量測；timeout 或 slowTestThreshold 不能取代預算驗證。
-- 普通 PR／push → `dev` 的 **Related CI 所有 logic jobs 合計最多 500 個 leaf cases**，不得用第二個 shard 繞過；Related 應形成單一 aggregate-limited shard。PR／push → `main`、Pages、Release 與手動 Full 才可執行完整 repository 並分成多個每 shard 最多 500 的 deterministic shards。each、動態生成與多實作 contract 的每一列均計入；單檔超過 500 時須拆分獨立能力 suite，planner fail closed。
+- 普通 PR／push → `dev` 的 **Related CI 所有 logic jobs 合計最多 500 個 leaf cases**，不得用第二個 shard繞過，也不得在 Desktop jobs 重複執行同一批 logic cases；Related 應形成單一 aggregate-limited shard。PR／push → `main`、Pages、Release 與手動 Full 才可執行完整 repository 並分成多個每 shard 最多 500 的 deterministic shards。each、動態生成與多實作 contract 的每一列均計入；單檔超過 500 時須拆分獨立能力 suite，planner fail closed。
 - 單一 leaf 通常應低於 70ms，保留 30ms 執行餘裕；這是**非阻擋的預警目標**，不得靠隱藏案例或刪掉必要回歸達標。Related aggregate／Full shard 的 500 個與每 case 100ms 都是硬門檻，不設 repository 案例配額。
 - 若任一 case 達 70ms，新增前先盤點該能力 owner 的現有覆蓋，優先採取淨減、去除重複 failure mode、縮小 fixture 與依賴；新案例若不可替代，需在 PR 說明風險與成本，不以硬性淨減要求犧牲關鍵保護。
 - Import／collection、setupFiles、beforeAll／afterAll 與整套 wall time 另外記錄；不得將案例成本藏入共用初始化或 cache。
@@ -66,7 +66,7 @@
 - Test tooling、Workflow、package/config 變更透過明確 owner policy 選取 CI／budget contract tests；Release／Electron 變更選取 Node publication tests。不得透過搬移檔案、dynamic import 或不登記依賴規避 selection。
 - 僅嚴格文件變更允許明確 docs-only empty plan。保留單檔／指定案例開發能力，但 Related／subset 通過不能代表 Full Suite 通過。
 - 開發中可先跑受影響 suite（`rtk npm test -- <file-or-directory>` 或 `-t`，屬局部驗證），再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。
-- **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 logic plan／runner／aggregate（Related aggregate 或 Full per-shard 預算）、`npm run typecheck:test`、`npm run build` 及 Web smoke。普通 gameplay 與 CI-tooling PR 不重複執行 Windows／macOS Node release component；修改 host-sensitive Electron、asset-path／smoke、Desktop package metadata 或 Release workflow 時才在各 Desktop host 執行，正式 Release 一律執行。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
+- **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 logic plan／runner／aggregate（Related aggregate 或 Full per-shard 預算）、`npm run typecheck:test`、`npm run build` 及 Web smoke。PR 中所有 selected logic cases 只在 logic gate 執行一次；Desktop PR jobs 只驗證 package／smoke，不重跑 Node logic。Windows／macOS Node component 驗證保留在正式 Release、完整測試與發佈閘門。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
 - 檢視同一次 CI 中的 mode、base/head、selection reasons、每 shard 與 aggregate case count、max leaf 時間及 **Top 10 slow leaf**（完整名稱、檔案、hooks/cleanup 含入）；有 case 達 70ms 為非阻擋預警，應標記優化方向。每個 case >100ms、Related aggregate >500、Full 任一 shard >500 或任一適用 CI job 失敗仍不得宣稱通過；不靠重跑三次、只挑最好的一次或增加 retry 掩蓋不穩定。只有 CI 失敗／平台異常／結果過期或有明確疑慮才重跑或補充診斷。
 - 僅在重大核心邏輯變更或新測試難確認有效性時，可對少量關鍵 owner 作受控負向驗證，確認測試真的會失敗再還原；不把 mutation check 當作每 PR 必經步驟，也不引入大型 mutation framework。
 - PR 誠實記錄 CI run URL、驗證 commit、結果、保留／刪除的 failure mode、已知失敗與未驗證範圍；一次性量測放 PR 或 ignored `output/`，不寫入長期規範或提交大型永久審計文件。
