@@ -140,7 +140,7 @@ export function townRoster(): TownActorSpec[] {
   }
   result.push(...townEagleRoster())
   assignTownGarrison(result)
-  const occupied = result.map(a => a.garrison ?? a)
+  const occupied = result.flatMap<{ x: number; z: number }>(a => a.garrison?.groundFallback ? [a.garrison, a.garrison.groundFallback] : [a.garrison ?? a])
   const civilians: TownActorSpec[] = []
   // Allocate once against final garrison stations; retain the original roster ordering.
   for (let i = 0; i < 20; i++) {

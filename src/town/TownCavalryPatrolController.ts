@@ -455,7 +455,7 @@ export class TownCavalryPatrolController {
             returning.urgent ? undefined : npc.isMounted ? TOWN_PATROL_SPEED : FOOT_RETURN_SPEED)
           returning.commandedMounted = npc.isMounted
         }
-        npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 4, this.nearby), obstacles, navigation)
+        npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 10, this.nearby), obstacles, navigation)
         if (npc.isFormationTargetReached(RETURN_COMMAND_ID)) this.refit(resident, returning)
       }
       return true
@@ -488,7 +488,7 @@ export class TownCavalryPatrolController {
       squad.trail.sample(-offset.z, this.anchor)
       if (npc.activeFollowTarget !== leader || npc.activeFollowSlotIndex !== slot) npc.assignFollowTarget(leader, slot, new THREE.Vector3(offset.x, 0, 0), TOWN_PATROL_SPEED, this.anchor)
     }
-    npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 4, this.nearby), obstacles, navigation, isLeader ? undefined : this.anchor)
+    npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 10, this.nearby), obstacles, navigation, isLeader ? undefined : this.anchor)
     if (isLeader) squad.trail.record(npc.combatPosition)
     const rejoined = isLeader || (resident.spec.patrolLeader
       ? this.distance(npc.combatPosition, leader.combatPosition) < 9

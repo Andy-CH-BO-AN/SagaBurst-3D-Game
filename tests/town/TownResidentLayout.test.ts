@@ -1,3 +1,6 @@
+import { getTerrainHeight } from '../../src/world/Terrain'
+import { getTownRampartLayout } from '../../src/town/TownRamparts'
+import { townStationSpec } from '../../src/town/TownGarrison'
 import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
@@ -124,4 +127,41 @@ describe('Town resident layout ownership', () => {
     expect(civilianPointLegal(roadPoint, [], [], CIVILIAN_MOUNT_CLEARANCE)).toBe(false)
     expect(civilianBodyClear(roadPoint, [])).toBe(true)
   })
+})
+
+it('keeps all four gate ground stations and reserved mounted fallbacks clear of ramp flights and approaches', () => {
+  const roster = townRoster(), layout = getTownRampartLayout()
+  const stations = roster.flatMap(actor => actor.garrison ? [
+    ...(actor.garrison.kind === 'rampart' ? [] : [{ ...actor.garrison, radius: actor.mounted ? 1.8 : .7 }]),
+    ...(actor.garrison.groundFallback ? [{ ...actor.garrison.groundFallback, radius: 1.8 }] : []),
+  ] : [])
+  expect(new Set(roster.filter(a => a.mounted && a.garrison?.kind === 'reserve').map(a => a.garrison!.gateId)).size).toBe(4)
+  const intrusions: string[] = []
+  for (const p of stations) for (const ramp of layout.ramps) {
+    const s = ramp.surface, dx = p.x - s.startX, dz = p.z - s.startZ
+    const along = dx * s.dirX + dz * s.dirZ, lateral = Math.abs(-dx * s.dirZ + dz * s.dirX)
+    if (!(along < -7.5 - p.radius || along > s.length + s.landing + p.radius + 1 || lateral > s.halfWidth + p.radius + 1)) intrusions.push(`${ramp.gateId}:${p.x},${p.z}`)
+  }
+  expect(intrusions).toEqual([])
+  let minimumGap = Infinity
+  for (let i = 0; i < stations.length; i++) for (let j = 0; j < i; j++) {
+    const a = stations[i], b = stations[j]
+    minimumGap = Math.min(minimumGap, Math.hypot(a.x - b.x, a.z - b.z) - a.radius - b.radius)
+  }
+  expect(minimumGap).toBeGreaterThanOrEqual(.59)
+})
+
+it('uses unique deterministic ground fallbacks for equipment changes and restores the authored ranged station', () => {
+  const roster = townRoster(), actor = roster.find(a => a.garrison?.kind === 'rampart')!, original = structuredClone(actor)
+  const mounted = townStationSpec(actor, true, true)
+  const melee = townStationSpec(actor, false, false)
+  expect(mounted).toEqual(townStationSpec(actor, true, true))
+  expect(melee.garrison).toEqual(mounted.garrison)
+  expect(mounted.garrison?.kind).toBe('reserve')
+  expect(mounted).toMatchObject({ id: actor.id, duty: actor.duty, tier: actor.tier })
+  expect(mounted.garrison?.gateId).toBe(actor.garrison?.gateId)
+  expect(mounted.y).toBe(getTerrainHeight(mounted.x, mounted.z))
+  expect(civilianPointLegal(mounted, [], [], { radius: 1.8, height: 2.6 })).toBe(true)
+  expect(townStationSpec(mounted, false, true)).toMatchObject({ x: actor.garrison!.x, y: actor.garrison!.y, z: actor.garrison!.z, garrison: actor.garrison })
+  expect(actor).toEqual(original)
 })

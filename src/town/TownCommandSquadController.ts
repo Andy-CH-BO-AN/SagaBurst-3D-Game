@@ -1,3 +1,4 @@
+import { townStationSpec } from './TownGarrison'
 import * as THREE from 'three'
 import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
@@ -289,7 +290,7 @@ export class TownCommandSquadController {
         if (value.commandRank === 'commander') value.commandedActorIds = value.commandedActorIds?.filter(actorId => actorId !== id)
         continue
       }
-      this.stageReturn(actor, resident.spec); returning = true
+      this.stageReturn(actor, this.homeStation(resident)); returning = true
     }
     value.state = returning ? 'RETURNING' : 'TRAINING'
     next.townCommandSquad = value
@@ -442,7 +443,8 @@ export class TownCommandSquadController {
     return true
   }
   private refitMember(resident: TownCommandResident, previous?: PersonalActorCheckpoint): PersonalActorCheckpoint {
-    const { npc, spec, homeMount } = resident
+    const { npc, homeMount } = resident
+    const spec = this.homeStation(resident)
     const claimed = this.isPlayerClaimed(spec.id)
     const member = refitCommandCheckpoint(npc, homeMount, claimed && previous?.status === 'deployed' ? 'deployed' : 'reserve')
     if (npc.dead || npc.isFalling || homeMount?.dead) {
@@ -479,7 +481,8 @@ export class TownCommandSquadController {
       const member = refitCommandCheckpoint(npc, resident.homeMount, status)
       if (defenseStart) {
         member.order = 'attack'; delete member.formation
-        member.position = { x: resident.spec.x, y: resident.spec.y, z: resident.spec.z, yaw: resident.spec.yaw ?? Math.PI }
+        const spec = this.homeStation(resident)
+        member.position = { x: spec.x, y: spec.y, z: spec.z, yaw: spec.yaw ?? Math.PI }
         if (member.mount) member.mount.position = { ...member.position }
       }
       value.members[npc.combatantId] = member
@@ -506,7 +509,7 @@ export class TownCommandSquadController {
       if (!selected.length) return undefined
       for (const npc of selected) {
         const resident = this.residentsById.get(npc.combatantId)!, actor = value.members[npc.combatantId]
-        if (order === 'dismiss') this.stageReturn(actor, resident.spec)
+        if (order === 'dismiss') this.stageReturn(actor, this.homeStation(resident))
         else this.stageOrder(actor, npc, order, assignments)
       }
       value.state = order === 'dismiss' ? 'RETURNING' : 'FOLLOWING'
@@ -528,7 +531,7 @@ export class TownCommandSquadController {
           delete member.formation
         } else if (resident.npc.dead || member.status === 'dead') {
           commanded.delete(id); member.status = 'dead'; delete member.formation
-        } else this.stageReturn(member, resident.spec)
+        } else this.stageReturn(member, this.homeStation(resident))
       }
       value.commandedActorIds = value.actorIds.filter(id => commanded.has(id))
       value.state = value.commandedActorIds.some(id => value.members?.[id]?.formation?.commandId === TOWN_COMMAND_RETURN_ID)
@@ -604,11 +607,12 @@ export class TownCommandSquadController {
     const npc = resident.npc, actor = this.value.members![npc.combatantId]
     if (npc.dead) { actor.status = 'dead'; return true }
     if (npc.formationCommandId !== TOWN_COMMAND_RETURN_ID) this.applyReturn(npc, actor)
-    npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 4, this.nearby), obstacles, navigation)
+    npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 10, this.nearby), obstacles, navigation)
     if (npc.isFormationTargetReached(TOWN_COMMAND_RETURN_ID)) {
       npc.missionMovement = false
       actor.status = 'reserve'; actor.order = 'attack'; delete actor.formation
       npc.setTacticalOrder('attack'); npc.setTownPeaceful()
+      resident.spec = this.homeStation(resident)
       if (resident.spec.garrison?.kind === 'rampart' && !npc.isMounted && npc.hasActiveRangedWeapon) npc.activateTownRampartGarrison()
       if (this.value.commandRank === 'commander') {
         this.value.commandedActorIds = this.value.commandedActorIds?.filter(id => id !== npc.combatantId)
@@ -632,6 +636,9 @@ export class TownCommandSquadController {
       commandId: formation.commandId, position: { ...formation.position }, reached: formation.reached,
     }
   }
+  private homeStation(resident: TownCommandResident): TownActorSpec {
+    return townStationSpec(resident.spec, Boolean(resident.homeMount && !resident.homeMount.dead || resident.npc.isMounted), Boolean(resident.npc.rangedWeaponId))
+  }
   private stageReturn(actor: PersonalActorCheckpoint, spec: TownActorSpec): void {
     actor.status = 'deployed'; actor.order = 'formation'
     actor.formation = { commandId: TOWN_COMMAND_RETURN_ID,
@@ -639,7 +646,13 @@ export class TownCommandSquadController {
       reached: false, arrivalOrder: 'attack' }
   }
   private applyReturn(npc: NPC, actor: PersonalActorCheckpoint): void {
-    const f = actor.formation!, p = f.position
+    const f = actor.formation!
+    const resident = this.residentsById.get(npc.combatantId)
+    if (resident?.spec.garrison) {
+      const station = this.homeStation(resident)
+      f.position = { x: station.x, y: station.y, z: station.z, yaw: station.yaw ?? Math.PI }
+    }
+    const p = f.position
     npc.clearEncounter()
     npc.missionMovement = true
     npc.assignFormationTarget(TOWN_COMMAND_RETURN_ID, new THREE.Vector3(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z),
