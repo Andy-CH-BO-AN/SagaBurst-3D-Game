@@ -82,14 +82,14 @@ export function createCareerBridgeOrphanMountPlan(profile: CareerProfile) {
   const enemy = createBridgeheadRoster(mission, profile.faction).enemy.flatMap(spec => {
     const actor = mission.bridgeBattle?.actors[spec.actorId!]
     return actor?.mount && actor.mount.hp > 0 && (commanderActorConfirmedDead(mission, spec.actorId!) || actor.status === 'dead' || actor.hp === 0)
-      ? [{ actorId: spec.actorId!, mountId: spec.loadout!.mountId!, stableKey: `${spec.characterFaction}:${spec.name}:${spec.tier}`, saved: actor.mount }] : []
+      ? [{ actorId: spec.actorId!, mountId: spec.loadout!.mountId!, stableKey: spec.actorId!, saved: actor.mount }] : []
   })
   const personal = (profile.personalSquad?.members ?? []).flatMap(member => {
     if (!mission.personalSquad?.memberIds.includes(member.id)) return []
     const actor = mission.personalSquad.members[member.id]
     const mountId = (member.equipment ?? legacyPersonalEquipment(member.type, profile.faction)).mount
     return mountId && actor?.status === 'dead' && actor.mount && actor.mount.hp > 0
-      ? [{ actorId: member.id, mountId, stableKey: null, saved: actor.mount }] : []
+      ? [{ actorId: member.id, mountId, stableKey: `personal:${member.id}`, saved: actor.mount }] : []
   })
   return [...enemy, ...personal]
 }

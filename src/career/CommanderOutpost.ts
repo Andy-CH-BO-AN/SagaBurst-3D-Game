@@ -50,7 +50,7 @@ export function createCareerCommanderOutpostLaunch(profile: CareerProfile): Defe
   return {
     type: 'defense', defenderFaction: profile.faction, stageId: 9, defenderArmy: {}, playerLoadout,
     deploymentSeconds: 60, playerHeroId: resolveCareerHeroAsset(profile),
-    playerMountAppearanceVariant: careerMountAppearanceVariant(mount), commandGrouping: 'squad',
+    playerMountAppearanceVariant: careerMountAppearanceVariant(profile), commandGrouping: 'squad',
     careerMissionId: mission.id, careerMissionKind: 'commander-outpost-last-stand',
     ...(mission.personalSquad ? { careerPersonalSquad: clonePersonalMission(mission.personalSquad) } : {}),
     capabilities: { reinforcementsEnabled: false, playerCommandsEnabled: true, gateControlEnabled: false, attackerHeroesEnabled: false },

@@ -92,6 +92,8 @@ export interface CareerProfile {
   personalSquadRuntime?: import('./CareerPersonalSquadMission').PersonalSquadMission
   /** Legacy purchases; any owned tier grants the single military horse. */
   ownedHorseTiers?: (1 | 2 | 3)[]
+  /** Cosmetic only; missing legacy values use the original grey coat. */
+  horseAppearanceVariant?: import('../world/HorseAssetRegistry').HorseAppearanceVariant
   selectedMountId?: CareerMountId
   playerAerialState?: CareerAerialState
   /** Minimal roaming deployment state survives mission cleanup independently in each Town. */
@@ -189,6 +191,7 @@ export function createCareerProfile(faction: CharacterFaction): CareerProfile {
     totalMerit: 0,
     availableMerit: 0,
     rank: 'recruit',
+    horseAppearanceVariant: 0,
     skills: createDefaultSkillState(),
     enlistmentMeritBase: 0,
     ownedWeapons: [],
