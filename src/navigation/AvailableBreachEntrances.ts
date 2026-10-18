@@ -14,6 +14,7 @@ export interface BreachEntrance {
   /** null permits both factions (a physical route is not an allegiance shortcut). */
   faction: CharacterFaction | null
   connectionId: string
+  portal?: import('./GateBreachPortal').GateBreachPortal
   gateId?: import('../town/TownLayout').TownGateId
   bridgeSurface?: WalkRampSurface
   surface?: WalkRampSurface

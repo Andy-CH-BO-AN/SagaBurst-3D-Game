@@ -104,7 +104,8 @@ describe('siege checkpoint ownership', () => {
     // Only the actor snapshot boundary is supplied; command selection and all mirrors are real.
     const npc = { combatantId: id, squadId: officialActorSquadId(active.officialSquad!, id),
       faction: Faction.TOWN, combatOwnership: 'mission-official', dead: false } as NPC
-    const staged = stageOfficialCommandOrder(profile, [npc], 'formation', [{ npc, ...member.formation }], () => structuredClone(member))!
+    const nativeMember = { ...member, outpostRampartGarrison: true, townRampartGarrison: true, townRampartMounted: true }
+    const staged = stageOfficialCommandOrder(profile, [npc], 'formation', [{ npc, ...member.formation }], () => structuredClone(nativeMember))!
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
     expect(store.save(staged)).toBe(true)
     const loaded = store.load()!
@@ -122,16 +123,54 @@ describe('siege checkpoint ownership', () => {
     expect(state.siege!.actors[id].entranceId).toBe('town-siege-gate:north')
     expect(state.siege!.playerCommandedActorIds).toEqual([])
 
-    const dismissed = stageOfficialCommandOrder(loaded, [npc], 'dismiss', [], () => structuredClone(member))!
+    const dismissed = stageOfficialCommandOrder(loaded, [npc], 'dismiss', [], () => structuredClone(nativeMember))!
     expect(store.save(dismissed)).toBe(true)
     // save() validates and normalizes the final command; inspect its persisted
     // bytes without repeating the full parser already exercised by Formation.
     const returned = (JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile).activeMission!
     expect(returned.officialSquad!.commandedSquadIds).not.toContain(npc.squadId)
     expect(returned.fourGateDefense!.siege!.playerCommandedActorIds).not.toContain(id)
-    expect(returned.fourGateDefense!.actors[id]).toMatchObject({ hp: 37, order: 'defend', mount: { hp: 0, mounted: false } })
+    expect(returned.fourGateDefense!.actors[id]).toMatchObject({ hp: 37, order: 'defend', mount: { hp: 0, mounted: false },
+      outpostRampartGarrison: true, townRampartGarrison: true, townRampartMounted: true })
     expect(returned.fourGateDefense!.actors[id].formation).toBeUndefined()
-    expect(returned.fourGateDefense!.siege!.actors[id]).toEqual({ ...returned.fourGateDefense!.actors[id], entranceId: null, breachCompleted: true })
+    expect(returned.officialSquad!.members![id]).toEqual(returned.fourGateDefense!.actors[id])
+    expect(returned.fourGateDefense!.siege!.actors[id]).toEqual({ status: 'deployed', hp: 37, ammo: 12, order: 'defend',
+      position: member.position, mount: member.mount, townRampartGarrison: true, townRampartMounted: true,
+      entranceId: null, breachCompleted: true })
+  })
+
+  it('reloads explicit Attack and Defend ownership without native station flags in any actor mirror', () => {
+    const profile = createFourGateDefenseProfile('ATTACKING'), active = profile.activeMission!, state = active.fourGateDefense!
+    const attackId = 'gate:north:7', defendId = 'gate:east:7'
+    const member = { status: 'deployed' as const, hp: 37, order: 'defend' as const,
+      position: { x: 30, y: 9.25, z: -110.6, yaw: .7 },
+      mount: { hp: 68, mounted: true, position: { x: 30, y: 9.25, z: -110.6, yaw: .7 } } }
+    const nativeMember = { ...member, outpostRampartGarrison: true, townRampartGarrison: true, townRampartMounted: true }
+    const participants = [attackId, defendId].map(id => {
+      state.actors[id] = structuredClone(nativeMember)
+      state.siege!.actors[id] = { ...structuredClone(nativeMember), entranceId: 'town-siege-gate:north', breachCompleted: false }
+      return { combatantId: id, squadId: officialActorSquadId(active.officialSquad!, id),
+        faction: Faction.TOWN, combatOwnership: 'mission-official', dead: false } as NPC
+    })
+    const snapshot = () => structuredClone(nativeMember)
+    const attacked = stageOfficialCommandOrder(profile, [participants[0]], 'attack', [], snapshot)!
+    const staged = stageOfficialCommandOrder(attacked, [participants[1]], 'defend', [], snapshot)!
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(staged)).toBe(true)
+    const loaded = store.load()!.activeMission!, restored = loaded.fourGateDefense!
+    // Both orders share the saved ownership invariant; the parser must not hide stale flags.
+    for (const [id, order] of [[attackId, 'attack'], [defendId, 'defend']] as const) {
+      const expected = { ...member, order }
+      expect(staged.activeMission!.officialSquad!.members![id]).toEqual(expected)
+      expect(staged.activeMission!.fourGateDefense!.actors[id]).toEqual(expected)
+      expect(staged.activeMission!.fourGateDefense!.siege!.actors[id]).toEqual({ ...expected, entranceId: null, breachCompleted: false })
+      expect(loaded.officialSquad!.members![id]).toEqual(expected)
+      expect(restored.actors[id]).toEqual(expected)
+      expect(restored.siege!.actors[id]).toEqual({ ...expected, entranceId: null, breachCompleted: false })
+      expect(loaded.officialSquad!.commandedSquadIds).toContain(officialActorSquadId(loaded.officialSquad!, id))
+      expect(restored.siege!.playerCommandedActorIds).toContain(id)
+      expect(state.actors[id]).toEqual(nativeMember)
+    }
   })
 
   it('fails closed on a same-size forged Commander target roster without deleting the corrupt saved mission', () => {

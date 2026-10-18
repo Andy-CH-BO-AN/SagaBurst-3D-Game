@@ -2397,8 +2397,13 @@ export class NPC {
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): void {
     this._activeNavigationWorld = navigationWorld
-    if (this.campaignEntranceId && navigationWorld?.townNav?.siegeActive
-      && navigationWorld.townNav.isElevated(this.combatPosition)) this.campaignBreachCompleted = true
+    if (this.campaignEntranceId && navigationWorld?.townNav?.siegeActive) {
+      if (navigationWorld.townNav.hasClearedSiegeGate(this.combatPosition, this.campaignEntranceId, this.isMounted)) {
+        this.campaignBreachCompleted = true
+        this.campaignEntranceId = null
+        this.assignSiegeObstacle(null)
+      } else if (navigationWorld.townNav.isElevated(this.combatPosition)) this.campaignBreachCompleted = true
+    }
     if (this.campaignEntranceId && navigationWorld?.outpostNav
       && isRampartLayer(navigationWorld.outpostNav.getNavLayer(this.combatPosition))) this.campaignBreachCompleted = true
     this.fallObstacles = obstacles
@@ -2755,7 +2760,7 @@ export class NPC {
         const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
 
         let navigationRoute: NavigationRouteKind = 'direct'
-        const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, targetInfo.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId) : null
+        const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, targetInfo.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId, this.combatantId) : null
         if (townStep) {
           if (townStep.blocked) navigationRoute = 'unreachable'
           else if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(this._tmpNavigationTarget, obstacles, navigationWorld)
@@ -3703,7 +3708,7 @@ export class NPC {
     const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
 
     let isConfirmedLayeredStep = false
-    const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, target.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId) : null
+    const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, target.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId, this.combatantId) : null
     if (townStep) {
       navigationGoal = this._tmpNavigationTarget
       if (townStep.blocked) navigationRoute = 'unreachable'

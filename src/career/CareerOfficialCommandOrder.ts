@@ -37,6 +37,10 @@ export function stageOfficialCommandOrder(current: CareerProfile, participants: 
     // A detached original mount remains this actor's resource, including its death.
     checkpoint.mount ??= staged.members[actor.combatantId]?.mount
     if (order !== 'dismiss') {
+      // Persist the ownership handoff before live actors release their native station.
+      delete checkpoint.outpostRampartGarrison
+      delete checkpoint.townRampartGarrison
+      delete checkpoint.townRampartMounted
       checkpoint.order = order
       if (order !== 'formation') delete checkpoint.formation
     }

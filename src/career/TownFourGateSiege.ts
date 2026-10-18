@@ -8,7 +8,7 @@ import { AIType, type NPC } from '../world/NPC'
 import type { SpatialGrid } from '../world/SpatialGrid'
 import { getTerrainHeight, type EntityCollisionBody } from '../world/Terrain'
 import type { TownWorld } from '../town/TownWorld'
-import { TOWN_GATES, type TownGateId } from '../town/TownLayout'
+import { TOWN_CITY, TOWN_GATES, type TownGateId } from '../town/TownLayout'
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
 import { allocateTownSiegeCrews, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame, townSiegeSectorReceiptsMatch, type TownSiegeApproach, type TownSiegeCrewSlot, type TownSiegeEscortClearance, type TownSiegeRampAssignment } from './TownFourGateSiegePolicy'
 import { TownGateBreachPolicy, type TownGateBreachEvent } from './TownGateBreachPolicy'
@@ -256,7 +256,7 @@ export class TownFourGateSiege {
       const position = new THREE.Vector3(frame.gate.x, getTerrainHeight(frame.gate.x, frame.gate.z), frame.gate.z)
       const approach = position.clone().addScaledVector(frame.outward, 5), exit = position.clone().addScaledVector(frame.inward, 5)
       approach.y = getTerrainHeight(approach.x, approach.z); exit.y = getTerrainHeight(exit.x, exit.z)
-      this.entrances.set({ id, gateId, type: 'gate', position, approach, exit, walkable: true, mounted: true, faction: null, connectionId: id })
+      this.entrances.set({ id, gateId, type: 'gate', position, approach, exit, portal: { halfWidth: TOWN_CITY.gateWidth / 2, halfDepth: TOWN_CITY.gateDepth / 2 }, walkable: true, mounted: true, faction: null, connectionId: id })
     }
     if (!this.restoring) this.policy.gate(gateId, gate.state)
     else this.policy.gates.get(gateId)!.gateState = gate.state
