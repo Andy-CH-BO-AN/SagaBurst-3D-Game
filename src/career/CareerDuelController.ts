@@ -221,7 +221,12 @@ export class CareerDuelController {
     if (active.duelPlayerStamina !== undefined) this.player().setStamina(active.duelPlayerStamina)
     this.area.copy(area)
     this.tracker = new BattleStatsTracker(this.events, false, event => this.acceptCombatEvent(event), active.playerStats)
-    if (active.phase === 'ASSEMBLING') this.beginMarch()
+    if (active.phase === 'ASSEMBLING') {
+      // Legacy T5 saves can already be away from home: restore their physical
+      // checkpoint before deriving the new direct route's starting position.
+      if (active.duelTier === 5 && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
+      this.beginMarch()
+    }
     else if (active.phase === 'MARCHING') {
       // Outbound travel starts where the actors actually are, including an old
       // ASSEMBLING save. No removed-barracks detour or placement onto the route.
