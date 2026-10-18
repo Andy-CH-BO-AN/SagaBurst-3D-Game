@@ -18,7 +18,7 @@ import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, creat
 import { parseCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
 
 describe('siege checkpoint ownership', () => {
-  it('bounds persisted combat time and validates the survival reason against the actual living defense', () => {
+  it('bounds persisted combat time and rejects survival before the deadline', () => {
     const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
     const context = { missionId: mission.id, faction: profile.faction, phase: mission.phase,
       targetActorIds: mission.targetActorIds, friendlyActorIds: mission.friendlyActorIds,
@@ -30,10 +30,18 @@ describe('siege checkpoint ownership', () => {
     state.victoryReason = 'survival'
     expect(parseCommanderFourGateDefenseState(state, context)).toBeUndefined()
     state.combatElapsedSeconds = 300
-    expect(parseCommanderFourGateDefenseState(state, context)?.victoryReason).toBe('survival')
     expect(parseCommanderFourGateDefenseState({ ...state, combatElapsedSeconds: 300.1 }, context)).toBeUndefined()
-    expect(parseCommanderFourGateDefenseState({ ...state, victoryReason: 'elimination' }, context)).toBeUndefined()
     expect(parseCommanderFourGateDefenseState({ ...state, attackStarted: false }, context)).toBeUndefined()
+  })
+
+  it('validates a deadline victory reason against the actual living defense', () => {
+    const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
+    const context = { missionId: mission.id, faction: profile.faction, phase: mission.phase,
+      targetActorIds: mission.targetActorIds, friendlyActorIds: mission.friendlyActorIds,
+      civilianActorIds: mission.civilianActorIds ?? [], deadTargetActorIds: mission.deadTargetActorIds }
+    state.combatElapsedSeconds = 300; state.victoryReason = 'survival'
+    expect(parseCommanderFourGateDefenseState(state, context)?.victoryReason).toBe('survival')
+    expect(parseCommanderFourGateDefenseState({ ...state, victoryReason: 'elimination' }, context)).toBeUndefined()
     state.player!.dead = true; state.player!.hp = 0
     for (const id of [...mission.friendlyActorIds, ...mission.civilianActorIds!]) {
       Object.assign(state.actors[id], { status: 'dead', hp: 0 })
