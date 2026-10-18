@@ -195,6 +195,10 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     checkoutSha: git('rev-parse', 'HEAD'), changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
     inventory: found.inventory, ...selection, shards: shardFiles(selectedInventory) })
 }
+function nodeReleaseCovered(plan) {
+  const files = plan.inventory.filter(item => item.runner === 'node')
+  return files.length > 0 && files.every(item => plan.selected.includes(item.file))
+}
 function options(args) {
   const result = {}
   for (let i = 0; i < args.length; i += 2) {
@@ -212,6 +216,6 @@ if (require.main === module) (async () => {
   const evidence = `Mode: ${plan.mode}; base: ${plan.baseSha}; head: ${plan.headSha}\nChanged: ${plan.changedFiles.join(', ')}\nFallback: ${plan.fallback ?? 'none'}\n${plan.message ?? ''}\n${plan.selected.map(file => `${file}: ${plan.reasons[file].join('; ')}`).join('\n')}\nShards: ${JSON.stringify(plan.shards)}\n`
   console.log(evidence)
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n\`\`\`text\n${evidence}\`\`\`\n`)
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\nnode-release-covered=${plan.inventory.filter(item => item.runner === 'node').every(item => plan.selected.includes(item.file))}\n`)
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\nnode-release-covered=${nodeReleaseCovered(plan)}\n`)
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { createPlan, shardFiles, validateManifest, selectFiles, changes, options, discover, discoverNode, dependencyConsumers, docsOnly }
+module.exports = { createPlan, shardFiles, validateManifest, selectFiles, changes, options, discover, discoverNode, dependencyConsumers, docsOnly, nodeReleaseCovered }

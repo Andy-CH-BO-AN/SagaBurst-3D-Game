@@ -1,6 +1,6 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { selectFiles, shardFiles, validateManifest, changes } = require('../../tools/tests/ci-plan.cjs')
+const { selectFiles, shardFiles, validateManifest, changes, nodeReleaseCovered } = require('../../tools/tests/ci-plan.cjs')
 const { aggregate } = require('../../tools/tests/ci-run.cjs')
 const item = (file, count = 1, runner = 'vitest') => ({ file, runner, names: Array.from({ length: count }, (_, i) => `leaf ${i}`) })
 const inventory = [item('tests/movement/NavigationGrid.test.ts', 2), item('tests/career/save.test.ts'), item('tests/persistence/store.test.ts'), item('tests/release/publish.test.cjs', 2, 'node')]
@@ -26,6 +26,7 @@ test('runner changes force Full despite a known subset graph', () => {
 test('strict docs-only produces explicit empty evidence but release notes require tests', () => {
   const plan = select('README.md')
   assert.equal(plan.docsOnly, true)
+  assert.equal(nodeReleaseCovered({ inventory: [], selected: [] }), false)
   assert.deepEqual(plan.selected, [])
   assert.equal(plan.message, 'No related logic tests: documentation-only change')
   assert.equal(select('docs/releases/v1.2.0.md').mode, 'full')
@@ -61,6 +62,7 @@ test('release code selects Node tests and deduplicates shared consumers', () => 
   const result = selectFiles(inventory, [{ status: 'M', file: 'electron/main.cjs' }, { status: 'M', file: 'tools/release/publish.cjs' }], consumers)
   assert.deepEqual(result.selected, [inventory[3].file])
   assert.equal(result.reasons[inventory[3].file].length, 2)
+  assert.equal(nodeReleaseCovered({ inventory, selected: result.selected }), true)
 })
 test('aggregate refuses missing, failed and stale shards instead of trusting the last shard', () => {
   const plan = { ...full(inventory), planId: 'current' }
