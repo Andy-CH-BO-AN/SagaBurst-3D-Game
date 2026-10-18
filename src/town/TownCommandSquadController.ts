@@ -1,4 +1,5 @@
 import { townStationSpec } from './TownGarrison'
+import { activateTownResidentHome, townResidentAtHome } from './TownResidentHome'
 import * as THREE from 'three'
 import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
@@ -284,13 +285,13 @@ export class TownCommandSquadController {
         if (value.commandRank === 'commander') value.commandedActorIds = value.commandedActorIds?.filter(actorId => actorId !== id)
         continue
       }
-      const atHome = Math.hypot(resident.npc.combatPosition.x - resident.spec.x, resident.npc.combatPosition.z - resident.spec.z) <= 2
-      if (atHome) {
+      const home = this.homeStation(resident)
+      if (townResidentAtHome(resident.npc, home)) {
         actor.status = 'reserve'; actor.order = 'attack'; delete actor.formation
         if (value.commandRank === 'commander') value.commandedActorIds = value.commandedActorIds?.filter(actorId => actorId !== id)
         continue
       }
-      this.stageReturn(actor, this.homeStation(resident)); returning = true
+      this.stageReturn(actor, home); returning = true
     }
     value.state = returning ? 'RETURNING' : 'TRAINING'
     next.townCommandSquad = value
@@ -613,15 +614,12 @@ export class TownCommandSquadController {
     // before accepting the old goal's reached flag or activating a wall station.
     home = this.homeStation(resident)
     if (this.returnHomeChanged(resident, actor, home)) { this.applyReturn(npc, actor, home); return true }
-    const p = actor.formation!.position, radius = npc.isMounted ? 1.2 : 1
-    const atHome = (npc.combatPosition.x - p.x) ** 2 + (npc.combatPosition.z - p.z) ** 2 <= radius ** 2
-      && Math.abs(npc.combatPosition.y - (p.y ?? getTerrainHeight(p.x, p.z))) < 1.3
-    if (atHome && npc.isFormationTargetReached(TOWN_COMMAND_RETURN_ID)) {
+    if (townResidentAtHome(npc, home) && npc.isFormationTargetReached(TOWN_COMMAND_RETURN_ID)) {
       npc.missionMovement = false
       actor.status = 'reserve'; actor.order = 'attack'; delete actor.formation
       npc.setTacticalOrder('attack'); npc.setTownPeaceful()
       resident.spec = home
-      if (resident.spec.garrison?.kind === 'rampart' && !npc.isMounted && npc.hasActiveRangedWeapon) npc.activateTownRampartGarrison()
+      activateTownResidentHome(npc, home)
       if (this.value.commandRank === 'commander') {
         this.value.commandedActorIds = this.value.commandedActorIds?.filter(id => id !== npc.combatantId)
         if (npc.combatOwnership === 'town-command') npc.combatOwnership = undefined

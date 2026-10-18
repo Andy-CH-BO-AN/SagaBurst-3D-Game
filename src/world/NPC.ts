@@ -3562,6 +3562,7 @@ export class NPC {
     const dist = this.group.position.distanceTo(target)
 
     if (dist < 0.5) {
+      this._friendlyBypass.clear()
       this.currentWaypointIdx = (this.currentWaypointIdx + 1) % this.waypoints.length
     } else {
       const dir = this._tmpPatrolDir.copy(target).sub(this.group.position)
@@ -4150,7 +4151,7 @@ export class NPC {
     this.state = AIState.CHASE
   }
 
-  respawn(destination?: { x: number; z: number; yaw?: number }): void {
+  respawn(destination?: { x: number; y?: number; z: number; yaw?: number }): void {
     this.shield.reset()
     this.weaponSweep.reset()
     this.meleeApproachLimit = Infinity
@@ -4176,7 +4177,7 @@ export class NPC {
     }
 
     const x = destination?.x ?? this.spawnX, z = destination?.z ?? this.spawnZ
-    const terrainY = getTerrainHeight(x, z)
+    const terrainY = destination?.y ?? getTerrainHeight(x, z)
     this.group.position.set(x, terrainY, z)
     this.velY = 0
     this.onGround = true
@@ -4207,7 +4208,7 @@ export class NPC {
     this.chargeSprintLatched = false
   }
 
-  restoreForTown(destination?: { x: number; z: number; yaw?: number }): void {
+  restoreForTown(destination?: { x: number; y?: number; z: number; yaw?: number }): void {
     this.pendingFall.clear()
     this.restoreCombatLoadout()
     this.respawn(destination)

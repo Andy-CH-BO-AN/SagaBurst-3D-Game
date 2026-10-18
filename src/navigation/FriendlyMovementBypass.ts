@@ -9,7 +9,6 @@ type ClearSegment = (from: Vector3, to: Vector3) => boolean
 /** Local recovery only: never changes the caller's goal or its static route. */
 export class FriendlyMovementBypass {
   private readonly sample = new Vector3()
-  private readonly goal = new Vector3()
   private readonly first = new Vector3()
   private readonly last = new Vector3()
   private elapsed = 0
@@ -26,8 +25,10 @@ export class FriendlyMovementBypass {
   steer(dt: number, self: BypassActor, goal: Vector3, direction: Vector3,
     nearby: readonly BypassActor[], clear: ClearSegment): boolean {
     const p = self.combatPosition
-    if (!this.initialized || this.goal.distanceToSquared(goal) > 16) {
-      this.clear(); this.initialized = true; this.sample.copy(p); this.goal.copy(goal)
+    // Assignment/order changes explicitly clear this owner. Follow coordinates
+    // are not an identity: a moving leader must not reset a blocked follower.
+    if (!this.initialized) {
+      this.clear(); this.initialized = true; this.sample.copy(p)
       let hash = 0
       for (let i = 0; i < self.combatantId.length; i++) hash = (hash * 31 + self.combatantId.charCodeAt(i)) | 0
       this.preferredSide = hash & 1 ? -1 : 1
@@ -79,7 +80,7 @@ export class FriendlyMovementBypass {
       if (!clear(p, this.first) || !clear(this.first, this.last)
         || !this.residentsClear(self, nearby, p, this.first, radius)
         || !this.residentsClear(self, nearby, this.first, this.last, radius)) continue
-      this.stage = 1; this.remaining = 8; this.validationRemaining = .35; this.activeSide = side; this.retrySide = 0; this.goal.copy(goal)
+      this.stage = 1; this.remaining = 8; this.validationRemaining = .35; this.activeSide = side; this.retrySide = 0
       direction.copy(this.first).sub(p).setY(0).normalize()
       return true
     }

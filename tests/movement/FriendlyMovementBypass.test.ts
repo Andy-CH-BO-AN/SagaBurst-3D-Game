@@ -7,19 +7,26 @@ function actor(id: string, x: number, z: number): BypassActor {
   return { combatantId: id, combatPosition: new Vector3(x, 0, z), faction: Faction.TOWN, dead: false, isMounted: false }
 }
 
-it('recovers around a friendly row on the open side, keeps that side, then resumes the untouched goal', () => {
+it('recovers behind a moving Follow goal, keeps the open side, then resumes the caller goal', () => {
   const bypass = new FriendlyMovementBypass(), self = actor('captain', 0, 0), goal = new Vector3(0, 0, 10)
   const neighbors = [self, actor('guard-left', -1, 1.5), actor('guard-right', 1, 1.5)]
-  const direction = new Vector3(0, 0, 1), originalGoal = goal.clone()
+  const direction = new Vector3(0, 0, 1)
   // A wall closes the negative-X side; the real selector must choose positive X.
   const clear = (a: Vector3, b: Vector3) => a.x >= 0 && b.x >= 0
+  expect(bypass.steer(0, self, goal, direction, neighbors, clear)).toBe(false)
+  // The leader marches at 6m/s while this follower is completely blocked.
+  goal.z += 3.6
   expect(bypass.steer(.6, self, goal, direction, neighbors, clear)).toBe(false)
+  goal.z += 3.6
   expect(bypass.steer(.6, self, goal, direction, neighbors, clear)).toBe(true)
   expect(direction.x).toBeGreaterThan(0)
   let completed = false
+  let expectedGoalZ = goal.z
   for (let i = 0; i < 180; i++) {
+    expectedGoalZ += .3; goal.z = expectedGoalZ
     direction.copy(goal).sub(self.combatPosition).setY(0).normalize()
     const active = bypass.steer(.05, self, goal, direction, neighbors, clear)
+    expect(goal).toEqual(new Vector3(0, 0, expectedGoalZ))
     if (!active) { completed = true; break }
     self.combatPosition.addScaledVector(direction, .15)
     expect(self.combatPosition.x).toBeGreaterThanOrEqual(0)
@@ -27,7 +34,7 @@ it('recovers around a friendly row on the open side, keeps that side, then resum
   }
   expect(completed).toBe(true)
   expect(self.combatPosition.z).toBeGreaterThan(3)
-  expect(goal).toEqual(originalGoal)
+  expect(goal.z).toBe(expectedGoalZ)
 })
 
 it('ignores lateral jitter after forward progress and bounds the resulting recovery', () => {

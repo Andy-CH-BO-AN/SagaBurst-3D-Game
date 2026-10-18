@@ -1,4 +1,5 @@
 import { townRampGroundExcluded } from './TownGroundStation'
+import { activateTownResidentHome, townResidentAtHome } from './TownResidentHome'
 import { townDefenseThreatInRange, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
 import type { ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import type { TownPersonalSquadController } from './TownPersonalSquadController'
@@ -724,7 +725,9 @@ export class TownMissionCombat {
         const resting = !npc.hasFormationTarget || npc.formationCommandId !== null && npc.isFormationTargetReached(npc.formationCommandId)
         const staleGroundHome = station.garrison?.kind !== 'rampart' && resting && layout
           && Math.abs(p.y - getTerrainHeight(p.x, p.z)) < .6 && townRampGroundExcluded(layout, p, npc.isMounted ? 1.8 : .7)
-        if (staleGroundHome || station.garrison?.kind !== spec.garrison.kind || station.x !== spec.x || station.y !== spec.y || station.z !== spec.z) {
+        const wrongHomeLayer = station.garrison?.kind === 'rampart' && resting
+          && Math.hypot(p.x - station.x, p.z - station.z) <= 2 && !townResidentAtHome(npc, station, 2)
+        if (staleGroundHome || wrongHomeLayer || station.garrison?.kind !== spec.garrison.kind || station.x !== spec.x || station.y !== spec.y || station.z !== spec.z) {
           // Equipment changes update home intent, then use the ordinary physical return.
           resident.spec = station
           this.garrisonReturns.set(npc, station)
@@ -867,11 +870,11 @@ export class TownMissionCombat {
       } else {
         npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
           this.garrisonReturnGrid.getNearbyInto(npc.combatPosition, 10, this.neighbors), this.town.obstacles, this.town.navigation)
-        if (npc.isFormationTargetReached(EXTERNAL_GARRISON_RETURN_ID)) {
+        if (townResidentAtHome(npc, station) && npc.isFormationTargetReached(EXTERNAL_GARRISON_RETURN_ID)) {
           this.garrisonReturns.delete(npc)
           npc.setTacticalOrder('attack')
           npc.setTownPeaceful()
-          if (station.garrison?.kind === 'rampart' && !npc.isMounted && npc.rangedWeaponId) npc.activateTownRampartGarrison()
+          activateTownResidentHome(npc, station)
         }
         return
       }
