@@ -26,9 +26,15 @@ jobs:
       event: ${{ github.event_name }}
   web:
     needs: logic
+    # Preserve the existing required check: failed logic must fail web, not skip it.
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Require successful logic gate
+        env:
+          LOGIC_RESULT: ${{ needs.logic.result }}
+        run: test "$LOGIC_RESULT" = success
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:

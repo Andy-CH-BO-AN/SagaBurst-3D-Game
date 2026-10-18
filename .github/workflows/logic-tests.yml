@@ -50,6 +50,7 @@ jobs:
           name: logic-plan
           path: output/test-plan.json
           if-no-files-found: error
+          overwrite: true
   shard:
     needs: plan
     if: needs.plan.outputs.has-tests == 'true'
@@ -79,6 +80,7 @@ jobs:
           name: logic-${{ matrix.shard }}
           path: output/shard-reports/*.json
           if-no-files-found: error
+          overwrite: true
   aggregate:
     needs: [plan, shard]
     if: always()
@@ -116,3 +118,4 @@ jobs:
           name: logic-aggregate
           path: output/aggregate.json
           if-no-files-found: error
+          overwrite: true
