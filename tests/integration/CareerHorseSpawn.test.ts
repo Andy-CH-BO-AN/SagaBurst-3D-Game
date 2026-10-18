@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as MountModule from '../../src/world/Mount'
 import { horseVariantForStableKey } from '../../src/world/HorseAssetRegistry'
 import { CareerMountController } from '../../src/career/CareerMountController'
+import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import { BanditMissionController } from '../../src/career/BanditMissionController'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { addCareerItem } from '../../src/career/CareerInventory'
@@ -51,4 +52,22 @@ describe('Career horse spawn appearance forwarding', () => {
     }
     expect(colors.size).toBeGreaterThan(1)
   })
+
+  it('forwards stable Commander V lancer coats through its real mount materializer on reconstruction', () => {
+    const create = captureMountConstruction()
+    interface MountEntry { materializeMount(spec: NpcSpawnSpec): MountModule.Mount }
+    const owner = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as MountEntry,
+      { enemyMounts: [], actorMounts: new Map() })
+    const colors = new Set<number>()
+    for (const actorId of ['four-gate-save:north:lancer:t3:1', 'four-gate-save:north:lancer:t3:2', 'four-gate-save:north:lancer:t3:3']) {
+      const spec = { actorId, x: 1, z: 2, loadout: { mountId: 'horse' } } as NpcSpawnSpec
+      owner.materializeMount(spec)
+      const variant = create.mock.calls.at(-1)![5]!
+      expect(variant).toBe(horseVariantForStableKey(actorId)); colors.add(variant)
+      owner.materializeMount({ ...spec, x: 25, z: -30 })
+      expect(create.mock.calls.at(-1)![5]).toBe(variant)
+    }
+    expect(colors.size).toBeGreaterThan(1)
+  })
+
 })

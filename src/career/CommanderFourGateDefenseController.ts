@@ -1,3 +1,4 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, isCommanderCavalryEscorting, COMMANDER_CAVALRY_ESCORT } from './CommanderCavalryEscort'
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
@@ -275,7 +276,8 @@ export class CommanderFourGateDefenseController {
 
   private materializeMount(spec: NpcSpawnSpec, saved?: PersonalActorCheckpoint): Mount | undefined {
     if (!spec.loadout?.mountId) return undefined
-    const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout.mountId), spec.x, spec.z))
+    const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout.mountId), spec.x, spec.z,
+      undefined, horseVariantForStableKey(spec.actorId!)))
     mount.temporaryCombatId = `${spec.actorId}:mount`
     this.enemyMounts.push(mount); this.actorMounts.set(spec.actorId!, mount)
     if (saved?.mount) {
