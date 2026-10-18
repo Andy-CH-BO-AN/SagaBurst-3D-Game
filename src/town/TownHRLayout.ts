@@ -23,14 +23,16 @@ function footprint(site: TownHRLayout['site'], width: number, depth: number): TH
 }
 /** Search the authored western district using actual built obstacles and road segments.
  * The full mounted courtyard is reserved even when buying only infantry. No fallback to blocked slots.
+ * Callers with an existing population can reuse its resident positions.
  */
-export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readonly ObstacleData[], roads: readonly TownRoad[]): TownHRLayout {
+export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readonly ObstacleData[], roads: readonly TownRoad[],
+  residents: readonly Pick<TownActorSpec, 'x' | 'z'>[] = townRoster()): TownHRLayout {
   const width = faction === 'roman' ? 16 : 13, depth = faction === 'roman' ? 13 : 22
   const cavalry = new THREE.Box3(new THREE.Vector3(TOWN_CAVALRY_FIELD.minX, -100, TOWN_CAVALRY_FIELD.minZ),
     new THREE.Vector3(TOWN_CAVALRY_FIELD.maxX, 100, TOWN_CAVALRY_FIELD.maxZ))
   // The roster is immutable during this search. Build its envelopes once per
   // invocation, not once for every site/officer/courtyard candidate.
-  const residentBoxes = townRoster().map(actor => new THREE.Box3(
+  const residentBoxes = residents.map(actor => new THREE.Box3(
     new THREE.Vector3(actor.x - .6, -100, actor.z - .6), new THREE.Vector3(actor.x + .6, 100, actor.z + .6)))
   const clear = (box: THREE.Box3) => {
     if (box.min.x < TOWN_CITY.minX + 5 || box.max.x > TOWN_CITY.maxX - 5
