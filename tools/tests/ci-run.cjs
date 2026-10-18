@@ -70,13 +70,20 @@ function executeShard(plan, id, out) {
       commands.push(['node_modules/vitest/vitest.mjs', 'run'])
     }
     if (shard.nodeFiles.length) commands.push(['--test', '--test-reporter=./tools/tests/node-budget-reporter.cjs', ...shard.nodeFiles])
+    const runnerErrors = []
     for (const args of commands) {
       const result = spawnSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' })
-      if (result.error || result.signal || result.status !== 0) throw new Error(`${args[0]} failed: ${result.error?.message ?? result.signal ?? result.status}`)
+      if (result.error || result.signal || result.status !== 0) runnerErrors.push(`${args[0]} failed: ${result.error?.message ?? result.signal ?? result.status}`)
     }
     for (const runner of ['vitest', 'node']) if (shard[runner === 'vitest' ? 'vitestFiles' : 'nodeFiles'].length) {
-      summary.reports.push(JSON.parse(readFileSync(join(dir, `${runner}.json`), 'utf8')))
+      try { summary.reports.push(JSON.parse(readFileSync(join(dir, `${runner}.json`), 'utf8'))) }
+      catch (error) { runnerErrors.push(`Missing ${runner} report: ${error.message}`) }
     }
+    console.log('Top 10 slow leaf cases for this shard (including hooks/cleanup):')
+    const measured = summary.reports.flatMap(report => report.cases ?? []).filter(item => Number.isFinite(item.ms)).sort((a, b) => b.ms - a.ms)
+    for (const item of measured.slice(0, 10)) console.log(`  ${item.ms.toFixed(3)}ms ${item.file} > ${item.name}`)
+    if (measured.some(item => item.ms >= 70)) console.warn('Non-blocking advisory: logic leaves >=70ms')
+    if (runnerErrors.length) throw new Error(runnerErrors.join('\n'))
     summary.result = 'passed'
     const result = verifyShard(plan, shard, summary)
     Object.assign(summary, result)

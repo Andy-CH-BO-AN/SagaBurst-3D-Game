@@ -168,12 +168,18 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   if (!['full', 'related'].includes(mode)) throw new Error(`Invalid test mode: ${mode}`)
   let changed = [], failure
   try { changed = changes(base, head, event) } catch (error) { failure = `Git history unavailable: ${error.message}` }
-  // Collection always fails closed; dependency-transform failures retry discovery
-  // without selection and force Full, never turn graph errors into empty success.
+  const globalFallback = changed.some(item => !['A', 'M'].includes(item.status) || globalChange(item.file))
+  const documentation = !failure && mode === 'related' && selectFiles([], changed, {}).docsOnly
+  if (documentation) return validateManifest({ version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
+    checkoutSha: git('rev-parse', 'HEAD'), changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed, inventory: [],
+    ...selectFiles([], changed, {}), shards: [] })
+  // Known Full fallbacks need no dependency transforms. Collection still fails
+  // closed; a graph error retries collection without selection and forces Full.
   let found
-  try { found = await discover({ relatedPaths: mode === 'related' && !failure ? changed.map(item => item.file) : [] }) }
+  try { found = await discover({ relatedPaths: mode === 'related' && !failure && !globalFallback ? changed.map(item => item.file) : [] }) }
   catch (error) { failure = `Dependency selection unavailable: ${error.message}`; found = await discover() }
-  let selection = selectFiles(found.inventory, changed, dependencyConsumers(found.inventory))
+  let selection = mode === 'full' || failure || globalFallback ? null : selectFiles(found.inventory, changed, dependencyConsumers(found.inventory))
+  if (globalFallback && mode !== 'full' && !failure) selection = selectFiles(found.inventory, changed, {})
   if (mode === 'full' || failure) {
     selection = { mode: 'full', fallback: mode === 'related' ? failure : null,
       selected: found.inventory.map(item => item.file), reasons: Object.fromEntries(found.inventory.map(item => [item.file, [mode === 'full' ? 'Explicit full suite' : failure]])) }
