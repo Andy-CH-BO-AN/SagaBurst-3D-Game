@@ -52,6 +52,11 @@ export function getTownCommandWatchtowerLayout(): CommandWatchtowerLayout {
     footprint: new Box3(new Vector3(x - 11.2, Math.min(groundY, getTerrainHeight(x, z)) - 1, z - 16.2), new Vector3(x + 11.2, groundY + c.totalHeight, z + 16.2)),
     core: new Box3(new Vector3(x - 5, Math.min(groundY, getTerrainHeight(x, z)) - 1, z - 10), new Vector3(x + 5, platformY - c.slabThickness, z + 10)) }
 }
+/** The full envelope protects wings, not arrows; physical core, slabs and rails
+ * are supplied separately and retain their projectile collision policy. */
+export function createTownCommandWatchtowerAirspaceObstacle(layout: CommandWatchtowerLayout): ObstacleData {
+  return { box: layout.footprint.clone(), isBarricade: false, projectilePassable: true }
+}
 export interface CommandWatchtowerRail { surface: WalkRampSurface; obstacles: ObstacleData[] }
 /** Shared rail data keeps ground navigation aligned with the physical slices,
  * while leaving the upper flights open underneath for foot and mounted actors. */

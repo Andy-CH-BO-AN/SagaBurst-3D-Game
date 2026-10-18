@@ -1,4 +1,6 @@
 import * as THREE from 'three'
+import { TownWatchtowerNavigation } from './TownWatchtowerNavigation'
+import type { CommandWatchtowerLayout } from '../town/TownCommandWatchtowerLayout'
 import { crossingGateBreach, gateBreachLane, gateBreachProgress, hasClearedGateBreach } from './GateBreachPortal'
 import { AvailableBreachEntrances, type BreachEntrance } from './AvailableBreachEntrances'
 import { TOWN_CITY, type TownGateId } from '../town/TownLayout'
@@ -12,6 +14,8 @@ export class TownLayeredNavigation {
   /** Empty and inactive in every existing Town mode. */
   readonly siegeEntrances = new AvailableBreachEntrances()
   siegeActive = false
+  watchtower: TownWatchtowerNavigation | null = null
+  setWatchtower(layout: CommandWatchtowerLayout): void { this.watchtower = new TownWatchtowerNavigation(layout) }
   constructor(readonly layout: TownRampartLayout, private readonly connected: (a: THREE.Vector3, b: THREE.Vector3) => boolean = () => false) {}
   rampAt(p: THREE.Vector3): TownRamp | undefined {
     return this.layout.ramps.find(r => { const y = getWalkRampHeight(r.surface, p.x, p.z); return y !== null && Math.abs(p.y - y) < 1.1 })
@@ -52,6 +56,7 @@ export class TownLayeredNavigation {
     out.copy(this.pointAt(a.distance + Math.sign(delta) * Math.min(3, Math.abs(delta))))
   }
   clampFollow(out: THREE.Vector3, leader: THREE.Vector3, slot: number, mounted: boolean): void {
+    if (this.watchtower?.clampFollow(out, leader)) return
     if (this.isElevated(leader)) { out.copy(this.pointAt(this.projection(leader).distance - (slot + 1) * (mounted ? 3.5 : 1.7))); return }
     const ramp = this.rampAt(leader)
     if (!ramp) return
@@ -60,10 +65,19 @@ export class TownLayeredNavigation {
     out.set(s.startX + s.dirX * along, s.startY + (s.topY - s.startY) * Math.min(1, along / s.length), s.startZ + s.dirZ * along)
   }
   /** null means ordinary ground travel; ground=true preserves wall/gate topology. */
-  resolveMoveTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3, entranceId?: string | null, mounted = false, sectorId?: TownGateId | null, actorId?: string): { ground: boolean; blocked?: boolean } | null {
+  resolveMoveTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3, entranceId?: string | null, mounted = false, sectorId?: TownGateId | null, actorId?: string): { ground: boolean; blocked?: boolean; tower?: boolean } | null {
     const siege = this.resolveSiegeTarget(current, goal, out, entranceId, mounted, sectorId, actorId)
     if (siege) return siege
-    const onDeck = this.isElevated(current), toDeck = this.isElevated(goal), onRamp = this.rampAt(current), toRamp = this.rampAt(goal)
+    const onDeck = this.isElevated(current), onRamp = this.rampAt(current)
+    if (!onDeck && !onRamp) {
+      const tower = this.watchtower?.resolve(current, goal, out)
+      if (tower) return tower
+    } else if (this.watchtower && this.watchtower.surfaceAt(goal) >= 0) {
+      // Leave the existing rampart through its own stairs before ground A* can
+      // approach the tower. Never route straight off a wall toward its entrance.
+      goal = this.watchtower.approach
+    }
+    const toDeck = this.isElevated(goal), toRamp = this.rampAt(goal)
     // Once a descent reaches ground, release the entrance to ordinary A* and
     // friendly avoidance. Recapturing nearby ground movers here traps them in
     // the 0.3m entrance tolerance forever, even when their goal is on ground.
@@ -105,7 +119,7 @@ export class TownLayeredNavigation {
     return Boolean(this.siegeActive && entry && hasClearedGateBreach(entry, current, mounted))
   }
   private resolveSiegeTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3,
-    entranceId: string | null | undefined, mounted: boolean, sectorId?: TownGateId | null, actorId?: string): { ground: boolean; blocked?: boolean } | null {
+    entranceId: string | null | undefined, mounted: boolean, sectorId?: TownGateId | null, actorId?: string): { ground: boolean; blocked?: boolean; tower?: boolean } | null {
     if (!this.siegeActive || this.rampAt(current)) return null
     const outside = current.x <= TOWN_CITY.minX || current.x >= TOWN_CITY.maxX || current.z <= TOWN_CITY.minZ || current.z >= TOWN_CITY.maxZ
     const goalInside = goal.x > TOWN_CITY.minX && goal.x < TOWN_CITY.maxX && goal.z > TOWN_CITY.minZ && goal.z < TOWN_CITY.maxZ

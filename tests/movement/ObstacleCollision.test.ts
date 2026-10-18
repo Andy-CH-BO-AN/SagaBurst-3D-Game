@@ -28,6 +28,7 @@ import {
   PLAYABLE_WORLD_BOUND,
   resetTerrainScenePolicy,
   resolveObstacleCollision,
+  resolveEntityCollision,
   setRiverCrossingTerrainActive,
   setSceneRiverCrossing,
   type ObstacleData,
@@ -48,6 +49,60 @@ function deck(y: number): ObstacleData {
 }
 
 describe('obstacle walk-surface collision', () => {
+  it('sweeps a thin railing from the approach side, slides along it and exits through the opening', () => {
+    const rail: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(0, 10, -4), new THREE.Vector3(.2, 11.4, 4)) }
+    const position = new THREE.Vector3(18, 10, 1)
+    const previous = new THREE.Vector3(-2, 10, 0)
+    resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0, [rail])
+    expect(position.toArray()).toEqual([-.5, 10, 1])
+    previous.copy(position)
+    position.set(.1, 10, 3)
+    resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0, [rail])
+    expect(position.toArray()).toEqual([-.5, 10, 3])
+    previous.copy(position)
+    position.z = 5
+    resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0, [rail])
+    expect(position.toArray()).toEqual([-.5, 10, 5])
+    previous.copy(position)
+    position.x = 2
+    resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0, [rail])
+    expect(position.toArray()).toEqual([2, 10, 5])
+  })
+
+  it('does not let a crowded mount separate a ground body through a thin railing', () => {
+    const rail: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(0, 10, -4), new THREE.Vector3(.2, 11.4, 4)) }
+    const first = { position: new THREE.Vector3(-.6, 10, 0), radius: 1, height: 2.6, bottomOffset: 0, anchored: true }
+    const second = { position: new THREE.Vector3(-.5, 10, 0), radius: .5, height: 2.3, bottomOffset: 0 }
+    resolveEntityCollision(first, second, [rail])
+    expect(second.position.toArray()).toEqual([-.5, 10, 0])
+    // Recover an existing penetration toward its nearby clear side.
+    first.position.x = .3
+    second.position.x = -.3
+    resolveEntityCollision(first, second, [rail])
+    expect(second.position.x).toBeCloseTo(-1.2)
+  })
+
+  it('tests railing clearance at contact instead of allowing a rising body through before it clears the top', () => {
+    const rail: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(0, 10, -4), new THREE.Vector3(.2, 11.4, 4)) }
+    const previous = new THREE.Vector3(-1, 10.95, 0)
+    const position = new THREE.Vector3(3, 13, 0)
+    resolveObstacleCollision(position, previous, 8, false, .38, 1.9, .95, [rail])
+    expect(position.x).toBeCloseTo(-.38)
+    // On the next part of the jump the feet really are above the rail.
+    previous.copy(position)
+    position.x = 3
+    resolveObstacleCollision(position, previous, 4, false, .38, 1.9, .95, [rail])
+    expect(position.x).toBe(3)
+    // The same elevated railing also leaves a ground mount's underpass clear.
+    previous.set(-2, 0, 0)
+    position.set(3, 0, 0)
+    resolveObstacleCollision(position, previous, 0, true, 1, 2.6, 0, [rail], { mountedSurfaces: true })
+    expect(position.toArray()).toEqual([3, 0, 0])
+  })
+
   it('keeps an uphill mount clear of ramp pillars while the safety rail still blocks the edge', () => {
     const surface = { startX: 0, startZ: 0, startY: 10, topY: 18,
       dirX: 0, dirZ: 1, length: 20, landing: 8, halfWidth: 3, mounted: true }

@@ -5,7 +5,8 @@ import { siegeDefensePlans } from '../career/TownDefenseRoster'
 import { getTerrainHeight } from '../world/Terrain'
 import { TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
 import { getTownRampartLayout, townRampartHeight, TOWN_RAMPART } from './TownRamparts'
-import type { TownActorSpec } from './TownRules'
+import { isTownMilitary, type TownActorSpec } from './TownRules'
+import type { TownWatchtowerNavigation } from '../navigation/TownWatchtowerNavigation'
 
 export interface TownGarrisonStation { kind: 'rampart' | 'gate' | 'reserve'; gateId: TownGateId; x: number; y: number; z: number; yaw: number; rampartHome?: TownGarrisonStation; groundFallback?: { x: number; y: number; z: number; yaw: number } }
 // Town roster queries repeat during service/layout resolution. Cache only derived
@@ -123,12 +124,21 @@ export type TownDefenseThreatResponse = 'ignore' | 'defend' | 'pursue'
 
 /** Home-sector pursuit and stationary close defense have distinct movement permissions. */
 export function townDefenseThreatResponse(spec: TownActorSpec, npc: Pick<NPC,
-  'isMounted' | 'rangedWeaponId' | 'combatPosition'>, target: { x: number; y: number; z: number }, range: number): TownDefenseThreatResponse {
+  'isMounted' | 'rangedWeaponId' | 'combatPosition'>, target: { x: number; y: number; z: number }, range: number, tower?: TownWatchtowerNavigation | null): TownDefenseThreatResponse {
   if (![target.x, target.y, target.z, range].every(Number.isFinite) || range < 0) return 'ignore'
   const station = townStationSpec(spec, npc.isMounted, Boolean(npc.rangedWeaponId))
   const radius = isCivilianRole(spec.role) ? Math.min(10, range) : range
   const distanceSquared = npc.combatPosition.distanceToSquared(target)
-  if (distanceSquared > radius * radius) return 'ignore'
+  let awarenessDistance = distanceSquared
+  if (isTownMilitary(spec) && tower) {
+    const sourceOnTower = tower.surfaceAt(npc.combatPosition) >= 0, targetOnTower = tower.surfaceAt(target) >= 0
+    const sourceReachable = sourceOnTower || Math.abs(npc.combatPosition.y - getTerrainHeight(npc.combatPosition.x, npc.combatPosition.z)) < 1.3
+    const targetReachable = targetOnTower || Math.abs(target.y - getTerrainHeight(target.x, target.z)) < 1.3
+    if ((sourceOnTower || targetOnTower) && sourceReachable && targetReachable) {
+      awarenessDistance = (target.x - npc.combatPosition.x) ** 2 + (target.z - npc.combatPosition.z) ** 2
+    }
+  }
+  if (awarenessDistance > radius * radius) return 'ignore'
   if (Math.hypot(target.x - station.x, target.z - station.z) <= radius
     && Math.hypot(npc.combatPosition.x - station.x, npc.combatPosition.z - station.z) <= radius) return 'pursue'
   // Nearby contact may be answered beyond the leash, but cannot authorize another chase step.
@@ -137,8 +147,8 @@ export function townDefenseThreatResponse(spec: TownActorSpec, npc: Pick<NPC,
 
 /** Target eligibility includes close self-defense; callers retain the movement response above. */
 export function townDefenseThreatInRange(spec: TownActorSpec, npc: Pick<NPC,
-  'isMounted' | 'rangedWeaponId' | 'combatPosition'>, target: { x: number; y: number; z: number }, range: number): boolean {
-  return townDefenseThreatResponse(spec, npc, target, range) !== 'ignore'
+  'isMounted' | 'rangedWeaponId' | 'combatPosition'>, target: { x: number; y: number; z: number }, range: number, tower?: TownWatchtowerNavigation | null): boolean {
+  return townDefenseThreatResponse(spec, npc, target, range, tower) !== 'ignore'
 }
 
 function isCivilianRole(role: TownActorSpec['role']): boolean { return role === 'civilian' || role === 'merchant' }

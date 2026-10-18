@@ -1,5 +1,5 @@
 import { createTownCommandWatchtower } from './TownCommandWatchtower'
-import { getTownCommandWatchtowerLayout, validateWatchtowerPlacement, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
+import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, validateWatchtowerPlacement, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
 import { resolveTownEagleGarrison, TOWN_EAGLE_GARRISON_NAME, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import { XONGKORO_LANDING } from '../world/EagleLanding'
@@ -147,7 +147,7 @@ export class TownWorld {
       stone: this.stone, wood: this.wood, dark: this.dark, plaster: this.plaster, snow: this.snow, accent: this.roofMat,
     })
     this.root.add(watchtower); this.trackOwned(watchtower)
-    this.airspaceObstacles.push({ box: this.commandWatchtower.footprint.clone(), isBarricade: false })
+    this.airspaceObstacles.push(createTownCommandWatchtowerAirspaceObstacle(this.commandWatchtower))
     this.airspaceObstacles.push(...this.obstacles)
     this.validateAirfield()
     this.batch(this.root)

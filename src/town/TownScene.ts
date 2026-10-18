@@ -330,6 +330,7 @@ export class TownScene {
     this.world = new TownWorld(context.worldFaction, this.scene, context.worldOwnerAllegiance,
       { fourGateSiege: profile.activeMission?.kind === 'commander-four-gate-defense' })
     this.navigation.setTownRamparts(this.world.fortifications.rampartLayout)
+    this.navigation.townNav!.setWatchtower(this.world.commandWatchtower)
     const population = townConquestRoster(this.world.hr, withTownCommandSquadRoster(context.residentFaction, townRoster()), this.world.eagleTraining, this.world.eagleGarrison)
     if (shouldSpawnTownCommander(profile)) {
       this.navigation.sync(this.world.obstacles)
@@ -668,7 +669,7 @@ export class TownScene {
             }
             if (target instanceof NPC && roster.has(target.combatantId)) return true
           }
-          const response = townDefenseThreatResponse(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc))
+          const response = townDefenseThreatResponse(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc), this.navigation.townNav?.watchtower)
           return response === 'pursue' ? true : response === 'defend' ? 'defend' : false
         }
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
