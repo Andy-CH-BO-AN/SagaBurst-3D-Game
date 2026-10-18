@@ -1,13 +1,14 @@
 import { obstacleTopologyRevision } from './ObstacleTopology'
-import type { ObstacleData } from './Terrain'
+import type { ObstacleCollisionGroup, ObstacleData } from './Terrain'
 
 export const OBSTACLE_COLLISION_GRID_CELL_SIZE = 8
 
 /**
  * Static spatial index for local obstacle collision queries.
  *
- * Static records occupy the grid; the bounded dynamic vehicle subset is queried
- * at its current bounds. Gate/wall destruction and gate open/close mutate the
+ * Static records occupy the grid; grouped dynamic parts first test their live
+ * owner envelope, while ungrouped dynamic records retain direct bounds checks.
+ * Gate/wall destruction and gate open/close mutate the
  * shared revision or length, so sync() only rebuilds when topology changes.
  *
  * queryNear() returns an ephemeral internal buffer. Callers must consume it
@@ -15,6 +16,7 @@ export const OBSTACLE_COLLISION_GRID_CELL_SIZE = 8
  */
 export class ObstacleCollisionSpatialIndex {
   private readonly dynamicIndices: number[] = []
+  private readonly dynamicGroups: (ObstacleCollisionGroup & { indices: number[] })[] = []
   private readonly cells = new Map<string, number[]>()
   private readonly queryBuffer: ObstacleData[] = []
   private readonly queryIndices: number[] = []
@@ -34,11 +36,28 @@ export class ObstacleCollisionSpatialIndex {
     this.obstacleRevision = obstacleTopologyRevision(obstacles)
     this.cells.clear()
     this.dynamicIndices.length = 0
+    this.dynamicGroups.length = 0
     this.seenStamp = new Uint32Array(obstacles.length)
+    const groups = new Map<ObstacleCollisionGroup, number[]>()
 
     for (let index = 0; index < obstacles.length; index++) {
-      if (obstacles[index].dynamic) { this.dynamicIndices.push(index); continue }
-      const box = obstacles[index].box
+      const obstacle = obstacles[index]
+      if (obstacle.dynamic) {
+        const group = obstacle.collisionGroup
+        if (!group) this.dynamicIndices.push(index)
+        else {
+          let indices = groups.get(group)
+          if (!indices) {
+            indices = []
+            groups.set(group, indices)
+            this.dynamicGroups.push({ bounds: group.bounds, indices })
+          }
+          // Retain every source index, including repeated obstacle records.
+          indices.push(index)
+        }
+        continue
+      }
+      const box = obstacle.box
       const minCellX = Math.floor(box.min.x / OBSTACLE_COLLISION_GRID_CELL_SIZE)
       const maxCellX = Math.floor(box.max.x / OBSTACLE_COLLISION_GRID_CELL_SIZE)
       const minCellZ = Math.floor(box.min.z / OBSTACLE_COLLISION_GRID_CELL_SIZE)
@@ -96,7 +115,21 @@ export class ObstacleCollisionSpatialIndex {
       }
     }
 
-    // Two vehicles have bounded collider counts; inspect only those dynamic records.
+    // Read owner bounds live: movement and bridge rotation do not change
+    // topology. Only nearby owners need their original per-part broad phase.
+    for (const group of this.dynamicGroups) {
+      const bounds = group.bounds
+      if (x + radius < bounds.min.x || x - radius > bounds.max.x
+        || z + radius < bounds.min.z || z - radius > bounds.max.z) continue
+      for (const index of group.indices) {
+        const box = this.obstacles[index].box
+        if (x + radius >= box.min.x && x - radius <= box.max.x
+          && z + radius >= box.min.z && z - radius <= box.max.z) this.queryIndices.push(index)
+      }
+    }
+
+    // General dynamic records without a complete owner envelope keep the
+    // existing direct-bounds fallback.
     for (const index of this.dynamicIndices) {
       const box = this.obstacles[index].box
       if (x + radius >= box.min.x && x - radius <= box.max.x

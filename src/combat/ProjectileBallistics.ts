@@ -151,11 +151,13 @@ export class BallisticIntercept {
     }
     this.pathBounds.expandByScalar(1e-6)
     // Cull once per shot rather than rescan every Town obstacle for every chord.
-    // Rotated projectile slabs can protrude beyond their continuous body envelope.
-    // Their current transform still belongs to the unchanged exact trace below.
+    // Only owners with a complete projectile envelope can cull rotated parts;
+    // other slabs keep the conservative fallback and the same local exact trace.
     for (const obstacle of obstacles) {
       if (!obstacle.projectilePassable
-        && (obstacle.projectileWorldToLocal || this.pathBounds.intersectsBox(obstacle.box))) this.pathObstacles.push(obstacle)
+        && (obstacle.projectileBounds
+          ? this.pathBounds.intersectsBox(obstacle.projectileBounds)
+          : obstacle.projectileWorldToLocal || this.pathBounds.intersectsBox(obstacle.box))) this.pathObstacles.push(obstacle)
     }
     const count = ballisticTrajectorySegments(speed, this.flightTime)
     this.previous.copy(origin)

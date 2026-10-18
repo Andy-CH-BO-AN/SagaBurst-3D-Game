@@ -98,7 +98,9 @@
 - Mounted 的 Ground 目標先沿合法坡道下降，清出坡底後透過現存 Gate／Palisade 入口及地面 A* 接近；沒有合法地面入口時留在城外，不以城內坡道取得未突破的外部入口。Mounted Follow 以實際 leader identity 保存單列方向，只在城牆外端反轉並保留遲滯，不能以每名 follower 的暫存座標或橋中央 X 正負號重選方向。
 - `FormationController` 跨左右翼與 Gate Bridge 配置選取部隊：重用 36 個既有胸牆射擊位置，向內延伸三排步兵站位（108 人）；騎乘／混編使用兩排 3.2m 間距。未選取者與其已保留目的地不變，超額留在城內合法空位。Preview 與 Confirm 共用解算。高架遠程 Attack／Defend 保持原位，以 bounded acquisition 尋找合法敵軍或攻城塔，局部 projectile hitbox 轉世界座標後檢查彈道及 3D 射程。
 - `CampaignBreachController` 只保存首次 Assault latch；`AvailableBreachEntrances` 保存現在可通行的 Gate／Palisade／左右 Ramp。Dock 不更改 Gate HP 或 state。入口 revision 改變時才重新指派必要路線；尚綁定的車隊排除全軍重派，遠程兵保留 Attack。通路撤銷後，未入城的存活者改走其他入口或攻門。
-- `DamageableObstacle` 管理獨立車體 HP；移動 part bounds 與 projectile inverse matrices 隨車更新。Collision spatial index 只對有限的 dynamic records 查現有 bounds，不隨每次位移重建全場 grid。Destroyed 移除 collider／surface／入口，乘員沿既有 FallingRider 流程失去支撐；Abandoned 保留車體並沿坡道撤離。Scene dispose 或 spawn failure 解除所有訂閱、hit registration、乘員關聯與 pending batch。
+- `DamageableObstacle` 管理獨立車體 HP；移動 part bounds 與 projectile inverse matrices 隨車更新。Destroyed 移除 collider／surface／入口，乘員沿既有 FallingRider 流程失去支撐；Abandoned 保留車體並沿坡道撤離。Scene dispose 或 spawn failure 解除所有訂閱、hit registration、乘員關聯與 pending batch。
+- `MobileSiegeRamp` 在同一 geometry 更新中維護所有 parts 的 `collisionGroup.bounds`，保留同一 Box3 identity 並於查詢前更新；世界與飛行空域共享這些 obstacle records。Collision spatial index 先篩整車再查目前陣列中的 part indices，保留原始順序與重複 records，未分組 dynamic 沿用逐筆查詢，靜態 grid 不隨位移重建。
+- `projectileBounds` 是 owner 明確保證完整涵蓋旋轉／縮放後 projectile geometry 的 world AABB；Mobile parts 引用同一 local geometry 算出的 live part bounds。預測彈道與實際箭段只用它篩候選，接觸仍由原 local exact trace 決定；未提供完整 bounds 的旋轉 owner 保留保守 fallback。
 
 ## 生涯與城鎮
 

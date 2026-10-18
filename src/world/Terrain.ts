@@ -170,11 +170,18 @@ export function getWalkRampHeight(surface: WalkRampSurface, x: number, z: number
   return surface.startY + (surface.topY - surface.startY) * (along / surface.length)
 }
 
+/** Owner-maintained live envelope containing every grouped physical part. */
+export interface ObstacleCollisionGroup {
+  readonly bounds: THREE.Box3
+}
+
 export interface ObstacleData {
   /** Continuous body/nav collision volume. */
   box: THREE.Box3
-  /** A bounded set of moving obstacles bypasses the static grid without rebuilding it. */
+  /** Moving obstacles bypass the static grid without rebuilding it. */
   dynamic?: boolean
+  /** Optional dynamic owner envelope, updated with part bounds before queries. */
+  collisionGroup?: ObstacleCollisionGroup
   /** Optional ground footprint for overhead arches/lintels. Body/projectile collision still uses box. */
   navigationBox?: THREE.Box3
   isBarricade: boolean
@@ -187,6 +194,11 @@ export interface ObstacleData {
   projectileBoxes?: readonly THREE.Box3[]
   /** Rigid world-to-local transform when projectileBoxes describe rotated timber. */
   projectileWorldToLocal?: THREE.Matrix4
+  /**
+   * Opt-in live world AABB containing all projectile geometry, including any
+   * rotation and scale. Owners without this guarantee retain the exact fallback.
+   */
+  projectileBounds?: THREE.Box3
   /**
    * Walkable ramp carried by this obstacle. Callers that opt in through
    * ObstacleCollisionOptions.walkSurfaces stand on it; every other caller
@@ -390,6 +402,18 @@ export function projectileObstacleEntryFraction(
   return Number.isFinite(closest) ? closest : null
 }
 
+function segmentEnvelopeIntersectsBox(
+  start: THREE.Vector3,
+  end: THREE.Vector3,
+  box: THREE.Box3,
+): boolean {
+  // Inclusive with a world-space broad-phase margin for forward/inverse
+  // transform rounding. The unchanged local exact trace owns contact precision.
+  return Math.max(start.x, end.x) >= box.min.x - SEGMENT_EPSILON && Math.min(start.x, end.x) <= box.max.x + SEGMENT_EPSILON
+    && Math.max(start.y, end.y) >= box.min.y - SEGMENT_EPSILON && Math.min(start.y, end.y) <= box.max.y + SEGMENT_EPSILON
+    && Math.max(start.z, end.z) >= box.min.z - SEGMENT_EPSILON && Math.min(start.z, end.z) <= box.max.z + SEGMENT_EPSILON
+}
+
 export interface ProjectileObstacleContact {
   fraction: number
   point: THREE.Vector3
@@ -412,11 +436,12 @@ export function findBlockingProjectileObstacleAlongPath(
 
   for (const obstacle of obstacles) {
     if (obstacle.projectilePassable) continue
-    // Cheap broad phase first. Detailed palisade stake/rail tests only run when
-    // the shot segment actually crosses that obstacle's navigation envelope.
-    // Rotating slab thickness can protrude slightly beyond its walk/nav envelope.
-    // Test that single local box directly rather than discard real edge contacts.
-    const coarseEntry = obstacle.projectileWorldToLocal
+    // Only an explicit complete-geometry bound can cull transformed parts.
+    // Other rotating slabs can protrude beyond their body/navigation envelope,
+    // so they retain the original conservative local exact fallback.
+    if (obstacle.projectileBounds
+      && !segmentEnvelopeIntersectsBox(start, end, obstacle.projectileBounds)) continue
+    const coarseEntry = obstacle.projectileWorldToLocal || obstacle.projectileBounds
       ? 0
       : segmentEntryFractionBox3D(start, end, obstacle.box)
     if (coarseEntry === null || coarseEntry >= closestFraction) continue

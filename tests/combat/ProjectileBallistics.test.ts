@@ -113,6 +113,44 @@ describe('finite projectile obstacle trace', () => {
     expect(contact.fraction).toBe(Infinity)
   })
 
+  it('culls complete rotated and scaled projectile bounds without losing edge or inside contacts', () => {
+    const localBox = new THREE.Box3(new THREE.Vector3(-2, -.2, -.2), new THREE.Vector3(2, .2, .2))
+    // Exact quarter turn and non-uniform scale, without trigonometric rounding
+    // at the outer edge: world x = local z + 10, world z = -2 * local x.
+    const localToWorld = new THREE.Matrix4().set(
+      0, 0, 1, 10,
+      0, .5, 0, 0,
+      -2, 0, 0, 0,
+      0, 0, 0, 1,
+    )
+    let exactReads = 0
+    const obstacle: ObstacleData = {
+      isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(9.9, -1, -.1), new THREE.Vector3(10.1, 1, .1)),
+      projectileBounds: localBox.clone().applyMatrix4(localToWorld),
+      projectileWorldToLocal: localToWorld.clone().invert(),
+      get projectileBoxes() { exactReads++; return [localBox] },
+    }
+    const from = new THREE.Vector3(8, 0, 4), to = new THREE.Vector3(12, 0, 4)
+    const contact = { fraction: Infinity, point: new THREE.Vector3() }
+    expect(findBlockingProjectileObstacleAlongPath(from, to, [obstacle], contact)).toBe(obstacle)
+    expect(contact.fraction).toBeCloseTo(.45)
+    expect(contact.point.x).toBeCloseTo(9.8)
+    expect(contact.point.z).toBe(4)
+    expect(findBlockingProjectileObstacleAlongPath(new THREE.Vector3(10, 0, 4), to, [obstacle], contact)).toBe(obstacle)
+    expect(contact.fraction).toBe(0)
+
+    const arc = new BallisticIntercept()
+    expect(arc.solve(from, to, new THREE.Vector3(), 15)).toBe(true)
+    expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(false)
+    exactReads = 0
+    const remoteFrom = new THREE.Vector3(28, 0, 4), remoteTo = new THREE.Vector3(32, 0, 4)
+    expect(findBlockingProjectileObstacleAlongPath(remoteFrom, remoteTo, [obstacle])).toBeNull()
+    expect(arc.solve(remoteFrom, remoteTo, new THREE.Vector3(), 15)).toBe(true)
+    expect(arc.isPathClear(remoteFrom, 15, [obstacle], () => -10)).toBe(true)
+    expect(exactReads).toBe(0)
+  })
+
   it('keeps rotated slab protrusions hittable outside their narrower walk envelope', () => {
     const obstacle: ObstacleData = { isBarricade: false,
       box: new THREE.Box3(new THREE.Vector3(9.9, -1, -.1), new THREE.Vector3(10.1, 1, .1)),
