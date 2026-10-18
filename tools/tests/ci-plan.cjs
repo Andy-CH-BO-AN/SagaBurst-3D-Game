@@ -29,12 +29,7 @@ function changes(base, head, event) {
 const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/AGENTS\.md)$/.test(file)
   // Release notes are inputs to publication, not documentation-only changes.
   && !file.startsWith('docs/releases/')
-// All publication/release changes select the Node contract inventory in the
-// Linux Related shard. Only host-sensitive path/bundle/package inputs also need
-// the same component repeated on Windows and macOS.
 const nodePublicationInput = file => /^(electron\/|tools\/release\/|tests\/release\/|docs\/releases\/)/.test(file)
-  || /^(package(?:-lock)?\.json|electron-builder\.|\.github\/workflows\/release\.yml$)/.test(file)
-const platformNodeInput = file => /^(electron\/|tests\/release\/asset-path\.test\.cjs$|tests\/release\/smoke\.mjs$)/.test(file)
   || /^(package(?:-lock)?\.json|electron-builder\.|\.github\/workflows\/release\.yml$)/.test(file)
 
 function policyConsumers(file, inventory) {
@@ -203,10 +198,6 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     inventory: found.inventory, ...selection, shards: planShards(selectedInventory, 'related'),
   })
 }
-function platformNodeRequired(plan) {
-  if (plan.mode === 'full') return true
-  return plan.changes.some(item => [item.file, item.oldFile].filter(Boolean).some(platformNodeInput))
-}
 function options(args) {
   const result = {}
   for (let i = 0; i < args.length; i += 2) {
@@ -225,6 +216,6 @@ if (require.main === module) (async () => {
   console.log(evidence)
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n\`\`\`text\n${evidence}\`\`\`\n`)
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
-    `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\nplatform-node-required=${platformNodeRequired(plan)}\n`)
+    `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\n`)
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { createPlan, shardFiles, planShards, validateManifest, selectFiles, changes, options, discover, discoverNode, dependencyConsumers, docsOnly, platformNodeRequired }
+module.exports = { createPlan, shardFiles, planShards, validateManifest, selectFiles, changes, options, discover, discoverNode, dependencyConsumers, docsOnly }
