@@ -905,98 +905,113 @@ export function resolveObstacleCollision(
     if (y !== null) position.y = (supportY = y) + bottomOffset
   }
 
-  // Initial penetration recovery can push beyond the swept envelope. Preserve
-  // the original coarse source-ordered neighbors for that exceptional path.
-  let needsRecovery = false
-  if (!stationary) for (const obstacle of candidates) {
-    if (!obstacle.physicalPassable && !admittedRamp(obstacle) &&
-      position.y - bottomOffset < obstacle.box.max.y - epsilon &&
-      position.y - bottomOffset + height > obstacle.box.min.y + epsilon &&
-      overlapsHorizontally(position.x, position.z, obstacle.box)) { needsRecovery = true; break }
-  }
-  if (needsRecovery) {
-    candidates = getLocalCollisionObstacles(obstacles,
-      (initialX + previousPosition.x) * .5, (initialZ + previousPosition.z) * .5,
-      radius + Math.max(Math.abs(initialX - previousPosition.x), Math.abs(initialZ - previousPosition.z)) * .5)
-  }
+  // Try the exact candidates first. Save scalar state so an escaping push can
+  // replay the original coarse recovery in source order, including earlier
+  // vertical/ramp effects and repeated obstacle records, without allocations.
+  const recoveryX = position.x, recoveryY = position.y, recoveryZ = position.z
+  const recoveryVelocityY = velocityY, recoveryOnGround = onGround
+  let coarseRecovery = stationary
+  let escapedRecoveryBounds: boolean
+  do {
+    escapedRecoveryBounds = false
+    for (const obstacle of candidates) {
+      if (obstacle.physicalPassable) continue
+      const bottomY = position.y - bottomOffset
+      const topY = bottomY + height
+      const ramp = admittedRamp(obstacle)
+      if (ramp) {
+        const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
+        if (surfaceY !== null) {
+          const feetY = bottomY
+          if (feetY >= surfaceY - epsilon) continue
 
-  for (const obstacle of candidates) {
-    if (obstacle.physicalPassable) continue
-    const bottomY = position.y - bottomOffset
-    const topY = bottomY + height
-    const ramp = admittedRamp(obstacle)
-    if (ramp) {
-      const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
-      if (surfaceY !== null) {
-        const feetY = bottomY
-        if (feetY >= surfaceY - epsilon) continue
+          const RAMP_THICKNESS = 0.35
+          const undersideY = surfaceY - RAMP_THICKNESS
 
-        const RAMP_THICKNESS = 0.35
-        const undersideY = surfaceY - RAMP_THICKNESS
+          // 2. Rising/jumping into the underside of the ramp from beneath:
+          // Actor hits their head on the underside and cannot pass upward through the stairs.
+          if (topY > undersideY && previousPosition.y - bottomOffset + height <= undersideY + epsilon) {
+            position.y = undersideY - height + bottomOffset
+            if (velocityY > 0) velocityY = 0
+            continue
+          }
 
-        // 2. Rising/jumping into the underside of the ramp from beneath:
-        // Actor hits their head on the underside and cannot pass upward through the stairs.
-        if (topY > undersideY && previousPosition.y - bottomOffset + height <= undersideY + epsilon) {
-          position.y = undersideY - height + bottomOffset
-          if (velocityY > 0) velocityY = 0
-          continue
+          // 3. Body horizontal penetration into the descending solid wedge from underneath:
+          if (feetY < undersideY && topY > undersideY) {
+            position.x = previousPosition.x
+            position.z = previousPosition.z
+            continue
+          }
         }
+        continue
+      }
 
-        // 3. Body horizontal penetration into the descending solid wedge from underneath:
-        if (feetY < undersideY && topY > undersideY) {
-          position.x = previousPosition.x
-          position.z = previousPosition.z
-          continue
+      const box = obstacle.box
+
+      // A descending entity lands on the obstacle's top surface.
+      if (
+        velocityY <= 0 &&
+        previousPosition.y - bottomOffset >= box.max.y - epsilon &&
+        bottomY <= box.max.y + epsilon &&
+        overlapsHorizontally(position.x, position.z, box)
+      ) {
+        position.y = box.max.y + bottomOffset
+        velocityY = 0
+        onGround = true
+        continue
+      }
+
+      // An ascending entity bonks into the obstacle's underside ceiling.
+      if (
+        previousPosition.y - bottomOffset + height <= box.min.y + epsilon &&
+        topY > box.min.y &&
+        overlapsHorizontally(position.x, position.z, box)
+      ) {
+        position.y = box.min.y - height + bottomOffset
+        if (velocityY > 0) velocityY = 0
+        continue
+      }
+
+      // Above the obstacle: it is a walkable platform, not a wall.
+      if (bottomY >= box.max.y - epsilon || topY <= box.min.y + epsilon) continue
+
+      // Reactive Push-Out (Direction A)
+      // Instantly teleport the entity to the closest valid outer edge if inside
+      if (overlapsHorizontally(position.x, position.z, box)) {
+        const dxMax = (box.max.x + radius) - position.x
+        const dxMin = position.x - (box.min.x - radius)
+        const dzMax = (box.max.z + radius) - position.z
+        const dzMin = position.z - (box.min.z - radius)
+
+        const minDist = Math.min(dxMax, dxMin, dzMax, dzMin)
+
+        if (minDist === dxMax) position.x = box.max.x + radius
+        else if (minDist === dxMin) position.x = box.min.x - radius
+        else if (minDist === dzMax) position.z = box.max.z + radius
+        else if (minDist === dzMin) position.z = box.min.z - radius
+
+        // Later corrections may escape even when every earlier push stayed in
+        // bounds. Only then can an exact-query omission become relevant.
+        if (!coarseRecovery && (
+          position.x < Math.min(initialX, previousPosition.x) || position.x > Math.max(initialX, previousPosition.x) ||
+          position.z < Math.min(initialZ, previousPosition.z) || position.z > Math.max(initialZ, previousPosition.z)
+        )) {
+          escapedRecoveryBounds = true
+          break
         }
       }
-      continue
     }
-
-    const box = obstacle.box
-
-    // A descending entity lands on the obstacle's top surface.
-    if (
-      velocityY <= 0 &&
-      previousPosition.y - bottomOffset >= box.max.y - epsilon &&
-      bottomY <= box.max.y + epsilon &&
-      overlapsHorizontally(position.x, position.z, box)
-    ) {
-      position.y = box.max.y + bottomOffset
-      velocityY = 0
-      onGround = true
-      continue
+    if (escapedRecoveryBounds) {
+      // The query replaces the shared ephemeral buffer, after its loop exits.
+      candidates = getLocalCollisionObstacles(obstacles,
+        (initialX + previousPosition.x) * .5, (initialZ + previousPosition.z) * .5,
+        radius + Math.max(Math.abs(initialX - previousPosition.x), Math.abs(initialZ - previousPosition.z)) * .5)
+      position.set(recoveryX, recoveryY, recoveryZ)
+      velocityY = recoveryVelocityY
+      onGround = recoveryOnGround
+      coarseRecovery = true
     }
-
-    // An ascending entity bonks into the obstacle's underside ceiling.
-    if (
-      previousPosition.y - bottomOffset + height <= box.min.y + epsilon &&
-      topY > box.min.y &&
-      overlapsHorizontally(position.x, position.z, box)
-    ) {
-      position.y = box.min.y - height + bottomOffset
-      if (velocityY > 0) velocityY = 0
-      continue
-    }
-
-    // Above the obstacle: it is a walkable platform, not a wall.
-    if (bottomY >= box.max.y - epsilon || topY <= box.min.y + epsilon) continue
-
-    // Reactive Push-Out (Direction A)
-    // Instantly teleport the entity to the closest valid outer edge if inside
-    if (overlapsHorizontally(position.x, position.z, box)) {
-      const dxMax = (box.max.x + radius) - position.x
-      const dxMin = position.x - (box.min.x - radius)
-      const dzMax = (box.max.z + radius) - position.z
-      const dzMin = position.z - (box.min.z - radius)
-
-      const minDist = Math.min(dxMax, dxMin, dzMax, dzMin)
-
-      if (minDist === dxMax) position.x = box.max.x + radius
-      else if (minDist === dxMin) position.x = box.min.x - radius
-      else if (minDist === dzMax) position.z = box.max.z + radius
-      else if (minDist === dzMin) position.z = box.min.z - radius
-    }
-  }
+  } while (escapedRecoveryBounds)
 
   // A later wall push may move the body off the support selected above.
   // Do not retain that ramp's height/ground flag at an unsupported final X/Z.

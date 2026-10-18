@@ -1,7 +1,8 @@
 import * as THREE from 'three'
-import { describe, expect, it, onTestFinished } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { resolveCameraDistance } from '../../src/camera/ThirdPersonCamera'
 import { FallingRider, riderFallDamage } from '../../src/movement/FallingRider'
+import { ObstacleCollisionSpatialIndex } from '../../src/world/ObstacleCollisionSpatialIndex'
 import {
   createRiverCrossingObstacleData,
   findRiverBridgeDeckHit,
@@ -82,6 +83,48 @@ describe('obstacle walk-surface collision', () => {
     position.set(.1, 0, 0)
     resolveObstacleCollision(position, previous, 0, true, .5, 2.3, 0, recovery)
     expect(position.x).toBeCloseTo(1.8)
+  })
+
+  it('keeps contained ordered push-outs on the exact candidates without a second query', () => {
+    const coarseQuery = vi.spyOn(ObstacleCollisionSpatialIndex.prototype, 'queryNear')
+    onTestFinished(() => coarseQuery.mockRestore())
+    const obstacles: ObstacleData[] = [
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(0, -1, -2), new THREE.Vector3(2, 3, 2)) },
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.2, -1, -2), new THREE.Vector3(2.3, 3, 2)) },
+    ]
+    const position = new THREE.Vector3(4, 0, 0)
+    // The sweep stops at 1.7. Recovery then pushes to 2.5 and 2.8, both
+    // inside the original [1, 4] centre span and covered by the exact query.
+    const collision = resolveObstacleCollision(position, new THREE.Vector3(1, 0, 0),
+      0, true, .5, 2.3, 0, obstacles)
+    expect(position.x).toBeCloseTo(2.8)
+    expect(position.y).toBe(0)
+    expect(position.z).toBe(0)
+    expect(collision).toEqual({ velocityY: 0, onGround: true })
+    expect(coarseQuery).not.toHaveBeenCalled()
+  })
+
+  it('replays vertical state and source order when a later recovery push escapes the sweep', () => {
+    const coarseQuery = vi.spyOn(ObstacleCollisionSpatialIndex.prototype, 'queryNear')
+    onTestFinished(() => coarseQuery.mockRestore())
+    const obstacles: ObstacleData[] = [
+      // Already below the body: replaying with the later lowered Y would
+      // incorrectly push against this earlier box.
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-5, 0, -5), new THREE.Vector3(5, 1.5, 5)) },
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-1, 3.5, -2), new THREE.Vector3(5, 4, 2)) },
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(-1, 0, -2), new THREE.Vector3(2, 4, 2)) },
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.2, 0, -.1), new THREE.Vector3(4, 4, .1)) },
+      // Outside the original Z envelope; reached only by the second push.
+      { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.3, 0, .8), new THREE.Vector3(2.7, 4, 1)) },
+    ]
+    const position = new THREE.Vector3(4, 2, 0)
+    const collision = resolveObstacleCollision(position, new THREE.Vector3(0, .5, 0),
+      2, false, .5, 2.3, 0, obstacles)
+    expect(position.x).toBeCloseTo(2.5)
+    expect(position.y).toBeCloseTo(1.2)
+    expect(position.z).toBeCloseTo(.3)
+    expect(collision).toEqual({ velocityY: 0, onGround: false })
+    expect(coarseQuery).toHaveBeenCalledTimes(1)
   })
 
   it('does not let a crowded mount separate a ground body through a thin railing', () => {
