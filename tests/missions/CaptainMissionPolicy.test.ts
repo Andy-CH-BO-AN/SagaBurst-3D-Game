@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
-import { CAPTAIN_EAGLE_BATTLE_ID, captainGateDefenseActorIds, commanderGateDefenseSquads, createCaptainGateDefenseMission, getCaptainMissionAvailability } from '../../src/career/CaptainMissionCatalog'
+import { CAPTAIN_EAGLE_BATTLE_ID, captainGateDefenseActorIds, commanderGateDefenseSlots, commanderGateDefenseSquads, createCaptainGateDefenseMission, getCaptainMissionAvailability } from '../../src/career/CaptainMissionCatalog'
 import { officialActorSquadId, officialCommandSquads } from '../../src/career/CareerCommandAuthority'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -27,6 +27,9 @@ describe('Commander accepted production rosters without actor materialization', 
 
   it('excludes unavailable or unaccepted military without moving the remaining defenders between squads', () => {
     const residents = townRoster(), accepted = townAssaultObjectiveRoster(residents).map(actor => actor.id)
+    // Canonical membership needs authored metadata only; adding real garrison/home
+    // positions must preserve every official squad's complete ID order.
+    expect(commanderGateDefenseSlots()).toEqual(commanderGateDefenseSlots(residents))
     const full = commanderGateDefenseSquads(residents, accepted)
     const unavailable = new Set(['captain', 'town-patrol:a:captain', 'town-eagle-rider:2'])
     const reduced = commanderGateDefenseSquads(residents, accepted.filter(id => id !== 'gate:south:0'), unavailable)

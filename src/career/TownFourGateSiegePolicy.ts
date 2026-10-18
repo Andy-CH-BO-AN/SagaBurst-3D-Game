@@ -106,6 +106,14 @@ function placementAt(layout: TownRampartLayout, gateId: TownGateId, side: -1 | 1
   // Bridge ends inside the real outer deck edge, beyond its 1.36m safety rail.
   const exit = townGatePoint(gate, lateral, TOWN_SIEGE_DOCK_INWARD)
   const deckConnection = new THREE.Vector3(exit.x, y, exit.z)
+  // Crown contact is independent of the approach sweep. Reject an invalid
+  // bridge width before sampling the full journey over terrain.
+  const tangent = townSiegeFrame(gateId).tangent
+  for (const offset of [-2.5, 0, 2.5]) {
+    const sample = deckConnection.clone().addScaledVector(tangent, offset)
+    const height = townRampartHeight(layout, sample.x, sample.z)
+    if (height === null || Math.abs(height - y) > .2) return null
+  }
   const dock = deckConnection.clone().addScaledVector(inward, -SIEGE_RAMP.bridgeLength)
   let length = 24
   for (let i = 0; i < 40; i++) {
@@ -186,13 +194,6 @@ function placementAt(layout: TownRampartLayout, gateId: TownGateId, side: -1 | 1
     p.escortClearance.min.y = -Infinity; p.escortClearance.max.y = Infinity
     if (Math.max(Math.abs(p.escortClearance.min.x), Math.abs(p.escortClearance.max.x),
       Math.abs(p.escortClearance.min.z), Math.abs(p.escortClearance.max.z)) > TOWN_PLAYABLE_WORLD_BOUND - 2) return null
-  }
-  // Validate the entire bridge width against the authored crown, not a gate-centre offset.
-  const tangent = townSiegeFrame(gateId).tangent
-  for (const offset of [-2.5, 0, 2.5]) {
-    const sample = deckConnection.clone().addScaledVector(tangent, offset)
-    const height = townRampartHeight(layout, sample.x, sample.z)
-    if (height === null || Math.abs(height - y) > .2) return null
   }
   if (approach === 'near-wall' && Math.abs(y - surface.startY) / length > SIEGE_RAMP.maxSlope + 1e-6) return null
   p.clearance.copy(clearance)

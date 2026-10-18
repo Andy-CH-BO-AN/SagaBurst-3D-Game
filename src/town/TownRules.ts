@@ -86,7 +86,9 @@ export function townPatrolRefitPoint(actor: Pick<TownActorSpec, 'patrolId' | 'in
   const slot = (actor.patrolId === 'B' ? 20 : 0) + actor.index
   return townSitePoint('barracks', 22 + Math.floor(slot / 8) * 4.5, -(slot % 8) * 4.5)
 }
-export function townRoster(): TownActorSpec[] {
+/** Authored resident identity and initial pose, before daily garrison/home placement.
+ * Membership-only policies use this same source without allocating unrelated stations. */
+export function townAuthoredRoster(): TownActorSpec[] {
   const result: TownActorSpec[] = []
   // Preserve the original IDs even where mounted training slots become infantry.
   const infantry = [
@@ -116,7 +118,6 @@ export function townRoster(): TownActorSpec[] {
       duty: 'gate_guard', gateId: gate.id, mounted: false, training: false, tier: 2, assaultObjective: false,
     })
   }
-  const civilianStart = result.length
   for (const [role, site, side, forward] of [['captain', 'hall', -8, 20], ['deployment', 'hall', 8, 20], ['merchant', 'weapons', 0, 7.5], ['ranger', 'stable', 3, 8], ['cat', 'stable', -3, 8]] as const) result.push({
     id: role, role, index: 0, ...townSitePoint(site, side, forward), duty: 'service', mounted: role === 'captain', training: false,
     ...(role === 'captain' ? { unitKind: 'sword_cavalry' as const } : role === 'deployment' ? { unitKind: 'melee' as const } : {}),
@@ -139,6 +140,12 @@ export function townRoster(): TownActorSpec[] {
     }
   }
   result.push(...townEagleRoster())
+  return result
+}
+export function townRoster(): TownActorSpec[] {
+  const result = townAuthoredRoster()
+  // Civilians retain their original position before the authored service residents.
+  const civilianStart = result.findIndex(actor => actor.duty === 'service')
   assignTownGarrison(result)
   const occupied = result.flatMap<{ x: number; z: number }>(a => a.garrison?.groundFallback ? [a.garrison, a.garrison.groundFallback] : [a.garrison ?? a])
   const civilians: TownActorSpec[] = []

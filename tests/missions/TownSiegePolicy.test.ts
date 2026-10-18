@@ -8,17 +8,19 @@ import { Box3, Vector3 } from 'three'
 import { AvailableBreachEntrances } from '../../src/navigation/AvailableBreachEntrances'
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
 import { townSiegeSectorReceiptsMatch } from '../../src/career/TownFourGateSiegePolicy'
-import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
+import { townAuthoredRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { getTownRampartLayout, townRampartHeight } from '../../src/town/TownRamparts'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import type { ObstacleData } from '../../src/world/Terrain'
 import { SiegeConvoy } from '../../src/campaign/SiegeConvoy'
 
-// Data owns deployment membership without constructing actors.
+// Exercise the full authored identity/capacity contract without allocating normal-Town
+// daily garrison or civilian homes. CaptainMissionPolicy keeps exact slot/order parity
+// with the positioned townRoster; TownResidentLayout owns those placement invariants.
 
 describe('Siege deployment and shared rule ownership', () => {
   it('keeps native gate membership and deploys all ground defenders without replacing the eight official squads', () => {
-    const residents = townRoster(), plans = siegeDefensePlans(residents)
+    const residents = townAuthoredRoster(), plans = siegeDefensePlans(residents)
     expect(plans.map(p => p.infantry.length).sort()).toEqual([25, 25, 25, 26])
     expect(plans.map(p => p.cavalry.length).sort()).toEqual([25, 25, 26, 26])
     for (const p of plans) expect(p.infantry.filter(id => id.startsWith('gate:')).every(id => id.startsWith(`gate:${p.gateId}:`))).toBe(true)
@@ -75,7 +77,7 @@ describe('Siege deployment and shared rule ownership', () => {
 
   it('keeps horse-equipped native infantry on supported wall slots and dismounted native cavalry at its gate', () => {
     const ids = ['gate:north:0', 'gate:north:1', 'gate:north:7', 'captain', 'town-eagle-rider:1']
-    const residents = townRoster().filter(actor => ids.includes(actor.id)), original = structuredClone(residents)
+    const residents = townAuthoredRoster().filter(actor => ids.includes(actor.id)), original = structuredClone(residents)
     const layout = getTownRampartLayout()
     const equipment = (actor: TownActorSpec) => ({ mounted: actor.id !== 'captain',
       ranged: actor.unitKind === 'archer', flying: actor.duty === 'eagle_garrison' })
