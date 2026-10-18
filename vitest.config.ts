@@ -3,8 +3,11 @@ import viteConfig from './vite.config'
 
 export default defineConfig(env => mergeConfig(viteConfig(env), {
   test: {
-    include: configDefaults.include.map(pattern => `tests/${pattern}`),
-    exclude: [...configDefaults.exclude, 'output/**', 'tools/release/**', 'tests/release/**'],
+    // CI manifest paths are exact globs; post-run completeness verifies the result.
+    include: process.env.LOGIC_TEST_FILES
+      ? JSON.parse(process.env.LOGIC_TEST_FILES)
+      : configDefaults.include.map(pattern => `tests/${pattern}`),
+    exclude: [...configDefaults.exclude, 'output/**', 'tools/release/**', 'tests/release/**', 'tests/**/*.test.cjs'],
     setupFiles: ['./tests/helpers/logicOnly.ts'],
     reporters: ['default', './tools/tests/vitest-budget-reporter.mjs'],
     maxWorkers: 2,

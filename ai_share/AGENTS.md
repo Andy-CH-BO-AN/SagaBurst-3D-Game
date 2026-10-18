@@ -35,6 +35,6 @@
 | 效能 A/B 或渲染成本歸因 | [sagaburst-performance-benchmark](skills/sagaburst-performance-benchmark/SKILL.md) |
 | 分支、PR 標題與 Commit 訊息規範 | [git-change-conventions](skills/git-change-conventions/SKILL.md) |
 
-程式變更可先在本地執行受影響測試與 `rtk npm run build` 快速回饋；跨系統變更可視需要先跑本地 `rtk npm test`。PR 最終驗收以對應最新變更的 GitHub Actions CI（含測試、型別、Build、適用的 Smoke）為準，**不要求本地完整測試或同組測試重跑三次**；細節依 [tests/AGENTS.md](../tests/AGENTS.md)。純文件修改先檢查連結、內容與差異即可。
+程式變更可先在本地執行受影響測試與 `rtk npm run build` 快速回饋；跨系統變更可視需要先跑本地 `rtk npm test`。PR 最終驗收以對應最新變更的 GitHub Actions CI（含測試、型別、Build、適用的 Smoke）為準，**不要求本地完整測試或同組測試重跑三次**；一般 PR／dev push 使用 Related Test CI，main／正式發佈前使用 Full gate；500 cases 是每 shard 上限，Related 通過不代表 Full 通過。細節依 [tests/AGENTS.md](../tests/AGENTS.md)。純文件修改先檢查連結、內容與差異即可。
 
 GitHub 認證操作使用本機 `gh`／`git` 登入環境，不要求在隔離環境重新登入。GPU 效能驗證使用本機有畫面的 Chrome 與實際 GPU；具體量測規則由 benchmark skill 維護。

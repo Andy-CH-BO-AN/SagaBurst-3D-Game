@@ -1,0 +1,118 @@
+name: Logic test gate
+on:
+  workflow_call:
+    outputs:
+      node-release-covered:
+        description: All Node logic files were selected and the required gate passed
+        value: ${{ jobs.plan.outputs.node-release-covered }}
+    inputs:
+      mode:
+        type: string
+        required: true
+      base:
+        type: string
+        default: ''
+      head:
+        type: string
+        required: true
+      event:
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      has-tests: ${{ steps.plan.outputs.has-tests }}
+      node-release-covered: ${{ steps.plan.outputs.node-release-covered }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Plan dependency-aware logic shards
+        id: plan
+        env:
+          TEST_MODE: ${{ inputs.mode }}
+          TEST_BASE: ${{ inputs.base }}
+          TEST_HEAD: ${{ inputs.head }}
+          TEST_EVENT: ${{ inputs.event }}
+        run: node tools/tests/ci-plan.cjs --mode "$TEST_MODE" --base "$TEST_BASE" --head "$TEST_HEAD" --event "$TEST_EVENT" --out output/test-plan.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logic-plan
+          path: output/test-plan.json
+          if-no-files-found: error
+  shard:
+    needs: plan
+    if: needs.plan.outputs.has-tests == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: logic-plan
+          path: output
+      - name: Run and validate shard
+        env:
+          TEST_SHARD: ${{ matrix.shard }}
+        run: node tools/tests/ci-run.cjs --manifest output/test-plan.json --shard "$TEST_SHARD" --out "output/shard-reports/$TEST_SHARD.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logic-${{ matrix.shard }}
+          path: output/shard-reports/*.json
+          if-no-files-found: error
+  aggregate:
+    needs: [plan, shard]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require successful plan and all shards
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          SHARD_RESULT: ${{ needs.shard.result }}
+          HAS_TESTS: ${{ needs.plan.outputs.has-tests }}
+        run: |
+          test "$PLAN_RESULT" = success
+          if [ "$HAS_TESTS" = true ]; then test "$SHARD_RESULT" = success; else test "$SHARD_RESULT" = skipped; fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: logic-plan
+          path: output
+      - name: Prepare reports directory (also for docs-only plans)
+        run: mkdir -p output/shard-reports
+      - uses: actions/download-artifact@v4
+        if: needs.plan.outputs.has-tests == 'true'
+        with:
+          pattern: logic-logic-*
+          path: output/shard-reports
+          merge-multiple: true
+      - name: Verify complete, unique execution and aggregate budgets
+        run: node tools/tests/ci-run.cjs --manifest output/test-plan.json --reports output/shard-reports --out output/aggregate.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: logic-aggregate
+          path: output/aggregate.json
+          if-no-files-found: error

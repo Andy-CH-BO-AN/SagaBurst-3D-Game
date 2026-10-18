@@ -1,6 +1,6 @@
 const { readFileSync } = require('node:fs')
 
-const MAX_CASES = 500
+const MAX_CASES_PER_SHARD = 500
 const MAX_CASE_MS = 100
 
 function validateReports(reports, { runId, runners = ['vitest', 'node'] } = {}) {
@@ -29,7 +29,7 @@ function validateReports(reports, { runId, runners = ['vitest', 'node'] } = {}) 
       if (item.retry || item.repeats || item.mode === 'only') errors.push(`${identity}: retry, repeat or focused case is prohibited`)
     }
   }
-  if (count === 0 || count > MAX_CASES) errors.push(`Logic case count ${count}; required 1–${MAX_CASES}`)
+  if (count === 0 || count > MAX_CASES_PER_SHARD) errors.push(`Logic case count ${count}; required 1–${MAX_CASES_PER_SHARD}`)
   if (errors.length) throw new Error(errors.join('\n'))
   return { count, maxMs: Math.max(...reports.flatMap(report => report.cases.map(item => item.ms))) }
 }
@@ -40,4 +40,4 @@ function readReport(file, runId) {
   return report
 }
 
-module.exports = { MAX_CASES, MAX_CASE_MS, validateReports, readReport }
+module.exports = { MAX_CASES_PER_SHARD, MAX_CASE_MS, validateReports, readReport }

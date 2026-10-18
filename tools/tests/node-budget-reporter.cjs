@@ -47,7 +47,7 @@ module.exports = async function* (source) {
     // are checked too. A collection crash emits test:fail and cannot pass.
     if (type === 'test:plan' && data.nesting === 0 && data.count > 0) complete = true
   }
-  const report = { runner: 'node', runId: process.env.LOGIC_TEST_RUN_ID, complete, errors, cases, wallMs: Number(hrtime.bigint() - start) / 1e6 }
+  const report = { runner: 'node', runId: process.env.LOGIC_TEST_RUN_ID, complete, errors, cases, files: [...new Set(cases.map(item => item.file))].map(file => ({ file, count: cases.filter(item => item.file === file).length })), wallMs: Number(hrtime.bigint() - start) / 1e6 }
   if (process.env.LOGIC_TEST_NODE_REPORT) writeFileSync(process.env.LOGIC_TEST_NODE_REPORT, JSON.stringify(report, null, 2))
   try {
     const result = validateReports([report], { runners: ['node'] })

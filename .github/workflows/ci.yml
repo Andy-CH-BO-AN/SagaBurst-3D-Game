@@ -1,16 +1,31 @@
 name: CI
 on:
   push:
-    branches: [dev]
+    branches: [dev, main]
   pull_request:
     branches: [dev, main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Logic test mode (manual validation always runs Full)
+        type: choice
+        options: [full]
+        default: full
 permissions:
   contents: read
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  logic:
+    uses: ./.github/workflows/logic-tests.yml
+    with:
+      mode: ${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || github.ref == 'refs/heads/main' && 'full' || 'related' }}
+      base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before || '' }}
+      head: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      event: ${{ github.event_name }}
   web:
+    needs: logic
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -21,12 +36,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck:test
-      - run: npm test
-      - run: npm run test:release
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run smoke:web
   desktop:
+    needs: logic
     # PR artifacts are validation downloads, never official GitHub Releases.
     if: github.event_name == 'pull_request'
     strategy:
@@ -59,7 +73,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      # Preserve platform Node checks unless the same-commit logic gate covered
+      # the entire Node set; never replace missing coverage with a subset result.
       - run: npm run test:release
+        if: needs.logic.outputs.node-release-covered != 'true'
       - run: npm run package:desktop -- ${{ matrix.flags }}
       - run: npm run smoke:desktop -- --packaged "${{ matrix.executable }}"
       - uses: actions/upload-artifact@v4
