@@ -56,6 +56,13 @@ function policyConsumers(file, inventory) {
     for (const owner of ['tests/town/CareerTownEntry.test.ts', 'tests/missions/CareerMissionRecovery.test.ts',
       'tests/integration/MissionModeRouting.test.ts']) add(owner)
   }
+  // The offline eagle envelope and fetched metadata share the runtime's pure
+  // validity/fallback contract; exercising it requires no GLB or render scene.
+  if (file === 'tools/build-xongkoro-bounds.mjs'
+    || /^src\/(?:world\/Xongkoro(?:Visual|GroundPose)|movement\/XongkoroConfig)\.ts$/.test(file)
+    || /^public\/models\/mounts\/v2\/xongkoro\/(?:manifest|render-bounds)\.json$/.test(file)) {
+    add('tests/world/XongkoroRenderBounds.test.ts')
+  }
   if (nodePublicationInput(file)) {
     for (const item of inventory) if (item.runner === 'node') hits.add(item.file)
   }

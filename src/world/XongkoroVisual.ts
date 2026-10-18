@@ -4,6 +4,7 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import { XONGKORO, XONGKORO_VISUAL } from '../movement/XongkoroConfig'
 import { WingbeatPhaseTracker } from '../audio/WingbeatPhase'
+import { loadXongkoroRenderBounds, xongkoroMeshLocalSphere, type XongkoroRenderBounds, type XongkoroBoundsDiagnostics } from './XongkoroRenderBounds'
 import { buildEagleGroundPose, captureEaglePose, eagleFootVertices, EAGLE_GROUND_BONES, type EagleBonePose } from './XongkoroGroundPose'
 
 const BASE = publicAssetUrl('models/mounts/v2/xongkoro')
@@ -24,6 +25,8 @@ export interface XongkoroVisualState {
 export class XongkoroVisual {
   private static template: GLTF | null = null
   private static loading: Promise<void> | null = null
+  private static renderBounds: XongkoroRenderBounds | null = null
+  static renderBoundsDiagnostics: XongkoroBoundsDiagnostics = { enabled: false, reason: 'not loaded', loadMilliseconds: 0, verificationMilliseconds: 0 }
   static get ready(): boolean { return this.template !== null }
 
   static preload(): Promise<void> {
@@ -39,7 +42,11 @@ export class XongkoroVisual {
       || manifest.bodyLengthMeters !== 10 || !manifest.source?.license || manifest.file !== 'xongkoro.glb') {
       throw new Error('xongkoro source, scale or asset contract is invalid')
     }
-    const template = await new GLTFLoader().loadAsync(`${BASE}/${manifest.file}`)
+    const assetResponse = await fetch(`${BASE}/${manifest.file}`)
+    if (!assetResponse.ok) throw new Error(`Cannot load xongkoro model (${assetResponse.status})`)
+    const asset = await assetResponse.arrayBuffer()
+    const boundsLoading = loadXongkoroRenderBounds(manifest.renderBounds === 'render-bounds.json' ? `${BASE}/render-bounds.json` : null, asset, manifest.renderBoundsSha256)
+    const template = await new GLTFLoader().parseAsync(asset, `${BASE}/`)
     for (const name of [...SOCKETS, ...[0, 1, 2].map(index => `eagle_body_lod${index}`), 'Bip01_Neck', 'Bip01_Head', ...EAGLE_GROUND_BONES, ...WING_BONES]) {
       if (!template.scene.getObjectByName(name)) throw new Error(`xongkoro is missing ${name}`)
     }
@@ -48,8 +55,21 @@ export class XongkoroVisual {
       || !template.animations.some(clip => clip.name === 'fly')) throw new Error('xongkoro rig or flight animation is invalid')
     eagleFootVertices(template.scene.getObjectByName('eagle_body_lod0') as THREE.SkinnedMesh)
     template.scene.traverse(object => {
-      if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true }
+      if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true; object.frustumCulled = false }
     })
+    const loadedBounds = await boundsLoading
+    const meshes: THREE.Mesh[] = []
+    template.scene.traverse(object => { if (object instanceof THREE.Mesh) meshes.push(object) })
+    const inventoryMatches = loadedBounds.bounds !== null && meshes.length === loadedBounds.bounds.meshes.length
+      && loadedBounds.bounds.meshes.every(envelope => meshes.some(mesh => mesh.name === envelope.name && mesh instanceof THREE.SkinnedMesh
+        && mesh.bindMode === THREE.AttachedBindMode && mesh.geometry.getAttribute('position').count === envelope.vertices
+        && (mesh.geometry.index?.count ?? 0) === envelope.triangles * 3))
+    this.renderBounds = inventoryMatches ? loadedBounds.bounds : null
+    this.renderBoundsDiagnostics = loadedBounds.diagnostics
+    if (loadedBounds.bounds && !inventoryMatches) {
+      this.renderBoundsDiagnostics = { ...loadedBounds.diagnostics, enabled: false, reason: 'render mesh inventory changed' }
+      console.warn('[xongkoro] conservative render culling disabled: render mesh inventory changed')
+    }
     this.template = template
   }
 
@@ -101,7 +121,7 @@ export class XongkoroVisual {
     for (const [index, distance] of LOD_DISTANCES.entries()) {
       const mesh = this.root.getObjectByName(`eagle_body_lod${index}`) as THREE.SkinnedMesh
       if (mesh.skeleton !== this.skeleton) mesh.bind(this.skeleton, mesh.bindMatrix)
-      // The authored flapping envelope extends beyond the reference-pose bounds.
+      // Safe fallback until a verified envelope is assigned after LOD attachment.
       mesh.frustumCulled = false
       this.lod.attach(mesh)
       this.lod.addLevel(mesh, distance, .1)
@@ -109,6 +129,17 @@ export class XongkoroVisual {
     }
     this.lod.name = 'xongkoro-lod'
     this.root.add(this.lod)
+    this.root.updateMatrixWorld(true)
+    for (const envelope of XongkoroVisual.renderBounds?.meshes ?? []) {
+      const mesh = this.root.getObjectByName(envelope.name) as THREE.SkinnedMesh
+      // r167 Frustum.intersectsObject reads SkinnedMesh.boundingSphere and
+      // transforms it by mesh.matrixWorld for each main/shadow camera. Attached
+      // skinning uses inverse(mesh.matrixWorld), so convert the root envelope
+      // after attach; geometry and its bind-pose bounds remain shared/untouched.
+      const rootToMesh = new THREE.Matrix4().copy(mesh.matrixWorld).invert().multiply(this.root.matrixWorld)
+      mesh.boundingSphere = xongkoroMeshLocalSphere(envelope, rootToMesh)
+      mesh.frustumCulled = true
+    }
     this.standingSocket = this.root.getObjectByName(SOCKETS[0])!
     this.torsoSocket = this.root.getObjectByName('Bip01_Pelvis')!
     this.headAttackSocket = this.root.getObjectByName(SOCKETS[1])!

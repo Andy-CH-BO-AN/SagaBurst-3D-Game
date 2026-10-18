@@ -240,7 +240,9 @@ describe('Commander objective, merit and persistence', () => {
 })
 
 describe('Decapitation safe edge deployment', () => {
-  const bounds = { minX: -350, maxX: 350, minZ: -350, maxZ: 350, cellSize: 5 }
+  // Only the northern deployment strip and exterior gate (-127) participate.
+  // Keep the full X span/cell size, without flooding unused southern terrain.
+  const bounds = { minX: -350, maxX: 350, minZ: -350, maxZ: -115, cellSize: 5 }
   const threats = [{ x: -29, z: -75, range: 400 }, { x: -85, z: -18, range: 400 }]
 
   it('fits all 30 mounted officials and 30 nearby HR around obstacles outside the actual opening fire ranges', () => {
