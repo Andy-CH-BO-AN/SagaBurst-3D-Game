@@ -1,3 +1,4 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { raceReturnProfile } from './CareerRaceReturn'
 import * as THREE from 'three'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
@@ -158,7 +159,7 @@ export class CareerRaceController {
         }
         npc.dismountFromMount()
       } else npc.setTownPeaceful()
-      const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(s.opponent.mountId), s.opponent.mountPosition.x, s.opponent.mountPosition.z))
+      const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(s.opponent.mountId), s.opponent.mountPosition.x, s.opponent.mountPosition.z, undefined, horseVariantForStableKey(`town:${this.read().faction}:${s.opponent.actorId}`)))
       mount.reservedForTown = true; this.mount = mount
       if (!npc.dead) npc.mountVehicle(mount)
       if (initial) {

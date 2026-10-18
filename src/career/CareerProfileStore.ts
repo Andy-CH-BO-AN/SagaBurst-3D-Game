@@ -1,3 +1,4 @@
+import { horseVariantFromSave } from '../world/HorseAssetRegistry'
 import { MOUNTED_RACES, isRaceRider, parseRaceSession, parseRaceRecords, type RaceId } from './CareerRaceState'
 import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
@@ -548,6 +549,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
       })) } : {}),
     ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|eagle-trainer|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger|hr-recruit-commander)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
+    horseAppearanceVariant: horseVariantFromSave(raw.horseAppearanceVariant),
     ...(selectedMountId ? { selectedMountId } : {}),
     ...(isRaceRider(raw.racePlayerState) ? { racePlayerState: structuredClone(raw.racePlayerState) } : {}),
     ...(activeRace ? { activeRace } : {}),

@@ -1,3 +1,4 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import * as THREE from 'three'
 import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
 import { restoreCommandActor, snapshotCommandActor } from './CareerCommandActorCheckpoint'
@@ -256,7 +257,7 @@ export class CommanderTownMissionController {
     if (squadId !== undefined) npc.setCommandSquad(squadId)
     let mount: Mount | undefined
     if (spec.loadout?.mountId) {
-      mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout.mountId), spec.x, spec.z))
+      mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout.mountId), spec.x, spec.z, undefined, horseVariantForStableKey(actorId)))
       mount.temporaryCombatId = `${actorId}:mount`
       npc.mountVehicle(mount)
       this.enemyMounts.push(mount); this.actorMounts.set(npc, mount)

@@ -1,3 +1,4 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { generateFormationSlots } from '../battle/FormationMath'
 import { registerPersonalCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
@@ -56,7 +57,7 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
   npc.respawnEnabled = false
   npc.group.rotation.y = slot.yaw
   if (!spec.mounted) return { npc }
-  const mount = trackNpcSpawn(new Mount(scene, careerMountType(spec.loadout.mountId!), boardingPad?.x ?? slot.x, boardingPad?.z ?? slot.z))
+  const mount = trackNpcSpawn(new Mount(scene, careerMountType(spec.loadout.mountId!), boardingPad?.x ?? slot.x, boardingPad?.z ?? slot.z, undefined, horseVariantForStableKey(`personal:${member.id}`)))
   mount.group.rotation.y = boardingPad?.yaw ?? slot.yaw; mount.reservedForTown = true
   if (!boardingPad) npc.mountVehicle(mount)
   return { npc, mount }

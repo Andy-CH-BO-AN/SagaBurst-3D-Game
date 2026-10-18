@@ -1,3 +1,4 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
 import { followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
@@ -552,7 +553,7 @@ export class TownOutskirtsWarfareController {
         npc.group.rotation.y = yaw
         if (cavalry) {
           const type = spec.loadout?.mountId === 'black-cat' ? MountType.BLACK_CAT : spec.loadout?.mountId === 'corgi' ? MountType.CORGI : MountType.HORSE
-          const mount = this.factories?.createMount(point.x, point.z, type) ?? new Mount(this.scene, type, point.x, point.z)
+          const mount = this.factories?.createMount(point.x, point.z, type) ?? new Mount(this.scene, type, point.x, point.z, undefined, horseVariantForStableKey(`outskirts:${this.townFaction}:${actorId}`))
           trackNpcSpawn(mount)
           mount.group.rotation.y = yaw
           npc.mountVehicle(mount)
