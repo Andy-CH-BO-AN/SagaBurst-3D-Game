@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
-import { BallisticIntercept, projectileTerrainContactTime } from '../../src/combat/ProjectileBallistics'
+import { BallisticIntercept, collectBallisticPathObstacles, projectileTerrainContactTime } from '../../src/combat/ProjectileBallistics'
 import { ProjectileAdmission, projectileAmmoAfterLaunch } from '../../src/combat/ProjectileAdmission'
 import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
 
@@ -167,5 +167,37 @@ describe('finite projectile obstacle trace', () => {
     expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(false)
     obstacle.projectileWorldToLocal!.makeRotationY(Math.PI / 2).setPosition(20, 0, 0).invert()
     expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(true)
+  })
+})
+
+
+describe('whole ballistic arc candidates', () => {
+  it('includes the unsampled apex and tolerance edge while retaining source order and duplicates', () => {
+    const origin = new THREE.Vector3(), end = new THREE.Vector3(10, 0, 0)
+    const apex: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(4, 1.2, -1), new THREE.Vector3(6, 1.3, 1)) }
+    const edge: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(10 + 5e-7, -1, -1), new THREE.Vector3(11, 1, 1)) }
+    const remote: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(4, 2, -1), new THREE.Vector3(6, 3, 1)) }
+    const bounds = new THREE.Box3(), candidates: ObstacleData[] = []
+    expect(collectBallisticPathObstacles(origin, end, 4.9, 1,
+      [edge, remote, apex, edge], bounds, candidates)).toBe(candidates)
+    expect(candidates).toEqual([edge, apex, edge])
+    expect(bounds.max.y).toBeCloseTo(1.225 + 1e-6, 10)
+    expect(bounds.containsPoint(origin)).toBe(true)
+    expect(bounds.containsPoint(end)).toBe(true)
+  })
+
+  it('releases partially collected live obstacles when collection throws', () => {
+    const arc = new BallisticIntercept(), origin = new THREE.Vector3(0, 2, 0)
+    expect(arc.solve(origin, new THREE.Vector3(8, 2, 0), new THREE.Vector3(), 15)).toBe(true)
+    const retained: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(1, -10, -1), new THREE.Vector3(2, 10, 1)) }
+    const throwing: ObstacleData = { ...retained, get projectileBounds(): THREE.Box3 { throw new Error('disposed owner') } }
+    expect(() => arc.isPathClear(origin, 15, [retained, throwing], () => -10)).toThrow('disposed owner')
+    const scratch = arc as unknown as { pathObstacles: ObstacleData[] }
+    expect(scratch.pathObstacles).toHaveLength(0)
+    expect(arc.isPathClear(origin, 15, [], () => -10)).toBe(true)
   })
 })

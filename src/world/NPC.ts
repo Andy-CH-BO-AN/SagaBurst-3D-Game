@@ -92,7 +92,7 @@ import { createNpcCombatActorRef, type CombatEventSink, type CombatDamageContext
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { EagleFlightAI, type EagleFlightCommand, type EagleTactic } from '../movement/EagleFlightAI'
 import { eagleBowEngagementRange } from '../combat/EagleRangedCombat'
-import { BallisticIntercept, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
+import { collectBallisticPathObstacles, BallisticIntercept, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../combat/ProjectileAdmission'
 import { XONGKORO } from '../movement/XongkoroConfig'
 import type { PhysicalCombatTarget } from '../combat/ShieldBlocking'
@@ -594,6 +594,8 @@ export class NPC {
   private readonly _tmpRangedLosTarget = new THREE.Vector3()
   private readonly _tmpRangedArcPrevious = new THREE.Vector3()
   private readonly _tmpRangedArcPoint = new THREE.Vector3()
+  private readonly _rangedPathBounds = new THREE.Box3()
+  private readonly _rangedPathObstacles: ObstacleData[] = []
   private readonly _rangedTargetCandidates: NPC[] = []
   private _rangedVisibleTargetHoldFrames = 0
 
@@ -1979,24 +1981,35 @@ export class NPC {
 
     const previous = this._tmpRangedArcPrevious.copy(origin)
     const point = this._tmpRangedArcPoint
-    for (let index = 1; index <= segmentCount; index++) {
-      const t = flightTime * index / segmentCount
-      point.set(
-        origin.x + unitX * horizontalSpeed * t,
-        origin.y + verticalSpeed * t - 0.5 * PROJECTILE_GRAVITY * t * t,
-        origin.z + unitZ * horizontalSpeed * t,
-      )
+    try {
+      // A single chord already scans once; keep its original direct trace.
+      let pathObstacles: readonly ObstacleData[] = obstacles
+      if (segmentCount > 1) {
+        const endTime = flightTime * segmentCount / segmentCount
+        point.set(
+          origin.x + unitX * horizontalSpeed * endTime,
+          origin.y + verticalSpeed * endTime - 0.5 * PROJECTILE_GRAVITY * endTime * endTime,
+          origin.z + unitZ * horizontalSpeed * endTime,
+        )
+        pathObstacles = collectBallisticPathObstacles(origin, point, verticalSpeed,
+          endTime, obstacles, this._rangedPathBounds, this._rangedPathObstacles)
+      }
+      for (let index = 1; index <= segmentCount; index++) {
+        const t = flightTime * index / segmentCount
+        point.set(
+          origin.x + unitX * horizontalSpeed * t,
+          origin.y + verticalSpeed * t - 0.5 * PROJECTILE_GRAVITY * t * t,
+          origin.z + unitZ * horizontalSpeed * t,
+        )
 
-      const blocker = findBlockingProjectileObstacleAlongPath(
-        previous,
-        point,
-        obstacles,
-      )
-      if (blocker) return blocker
-      previous.copy(point)
+        const blocker = findBlockingProjectileObstacleAlongPath(previous, point, pathObstacles)
+        if (blocker) return blocker
+        previous.copy(point)
+      }
+      return null
+    } finally {
+      this._rangedPathObstacles.length = 0
     }
-
-    return null
   }
 
   /** Real launch position, finite constant-velocity lead, low ballistic arc and physical clearance. */
