@@ -1,3 +1,4 @@
+import { BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
 import { MOUNTED_RACES, isRaceRider, parseRaceSession, parseRaceRecords, type RaceId } from './CareerRaceState'
 import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
@@ -260,17 +261,17 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     && officialSquad.actorIds.every(id => allFriendlyActorIds.includes(id)) ? officialSquad : undefined
   if (commanderMission) {
     const expectedFriendly = template?.kind === 'commander-sky-raid' ? 50
-      : template?.kind === 'commander-decapitation' ? 30 : template?.kind === 'commander-bridgehead-battle' ? 200 : 120
+      : template?.kind === 'commander-decapitation' ? 30 : template?.kind === 'commander-bridgehead-battle' ? BRIDGEHEAD_FRIENDLIES : 120
     const validTargets = template?.kind === 'commander-sky-raid' ? targetActorIds.length >= 100
       : template?.kind === 'commander-decapitation' ? targetActorIds.length === 1 && targetActorIds[0] === 'commander'
-      : targetActorIds.length === (template?.kind === 'commander-bridgehead-battle' ? 200 : 100)
+      : template?.kind === 'commander-bridgehead-battle' ? isBridgeheadEnemyCount(targetActorIds.length) : targetActorIds.length === 100
     if (!acceptedOfficialSquad || acceptedOfficialSquad.commandRank !== 'commander'
       || friendlyActorIds.length !== expectedFriendly || acceptedOfficialSquad.actorIds.length !== expectedFriendly
       || !friendlyActorIds.every(id => acceptedOfficialSquad.actorIds.includes(id)) || !validTargets) return undefined
   }
   const battle = parseCareerOutpostCheckpoint(raw.battle)
   const eagleBattle = parseCaptainEagleCheckpoint(raw.eagleBattle)
-  const bridgeBattle = parseCaptainEagleCheckpoint(raw.bridgeBattle, 400)
+  const bridgeBattle = parseCaptainEagleCheckpoint(raw.bridgeBattle, BRIDGEHEAD_FRIENDLIES + BRIDGEHEAD_ENEMIES)
   const personalSquad = parsePersonalMission(raw.personalSquad)
   const rawBridgeDeployment = raw.bridgeDeployment as Record<string, unknown> | undefined
   const bridgeDeployment = rawBridgeDeployment && ['preparing', 'spawning', 'assault'].includes(rawBridgeDeployment.phase as string)
@@ -282,11 +283,11 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   if (template?.kind === 'commander-bridgehead-battle' && (
     raw.bridgeBattle !== undefined && !bridgeBattle
     || raw.bridgeDeployment !== undefined && !bridgeDeployment
-    || new Set([...friendlyActorIds, ...targetActorIds]).size !== 400
-    || acceptedOfficialSquad?.squads?.length !== 8
+    || new Set([...friendlyActorIds, ...targetActorIds]).size !== friendlyActorIds.length + targetActorIds.length
+    || acceptedOfficialSquad?.squads?.length !== BRIDGEHEAD_FRIENDLY_SQUADS
     || acceptedOfficialSquad.squads.some((squad, index) => squad.squadId !== index + 1
-      || squad.actorIds.length !== 25 || squad.actorIds.some((id, slot) => id !== friendlyActorIds[index * 25 + slot]))
-    || bridgeBattle && (Object.keys(bridgeBattle.actors).length !== 400
+      || squad.actorIds.length !== BRIDGEHEAD_SQUAD_SIZE || squad.actorIds.some((id, slot) => id !== friendlyActorIds[index * BRIDGEHEAD_SQUAD_SIZE + slot]))
+    || bridgeBattle && (Object.keys(bridgeBattle.actors).length !== friendlyActorIds.length + targetActorIds.length
       || Object.keys(bridgeBattle.actors).some(id => !knownActorIds.has(id))
       || bridgeBattle.player.mountActorId && !(targetActorIds.includes(bridgeBattle.player.mountActorId)
         && bridgeBattle.actors[bridgeBattle.player.mountActorId]?.mount
