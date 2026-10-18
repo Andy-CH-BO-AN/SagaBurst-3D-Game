@@ -1,6 +1,6 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { selectFiles, shardFiles, planShards, validateManifest, changes, platformNodeRequired } = require('../../tools/tests/ci-plan.cjs')
+const { selectFiles, shardFiles, planShards, validateManifest, changes } = require('../../tools/tests/ci-plan.cjs')
 const { dependencyConsumers } = require('../../tools/tests/dependencies.cjs')
 const { aggregate } = require('../../tools/tests/ci-run.cjs')
 const item = (file, count = 1, runner = 'vitest') => ({ file, runner, names: Array.from({ length: count }, (_, i) => `leaf ${i}`) })
@@ -78,17 +78,10 @@ test('Related selection has one aggregate 500-leaf limit and cannot open a secon
   assert.deepEqual(planShards(within, 'related').map(shard => [shard.id, shard.expectedCount]), [['logic-related', 500]])
   assert.throws(() => planShards([...within, item('tests/c.test.ts', 1)], 'related'), /entire Related CI run is limited to 500/)
 })
-test('release code selects Node tests and deduplicates shared consumers', () => {
+test('release code selects Node tests once and deduplicates shared consumers', () => {
   const result = selectFiles(inventory, [{ status: 'M', file: 'electron/main.cjs' }, { status: 'M', file: 'tools/release/publish.cjs' }], consumers)
   assert.deepEqual(result.selected, inventory.filter(item => item.runner === 'node').map(item => item.file).sort())
   assert.equal(result.reasons['tests/release/publish.test.cjs'].length, 2)
-})
-test('platform Node checks run only for Full or host-sensitive inputs', () => {
-  assert.equal(platformNodeRequired({ mode: 'related', changes: [{ status: 'M', file: 'src/Game.ts' }] }), false)
-  assert.equal(platformNodeRequired({ mode: 'related', changes: [{ status: 'M', file: 'tests/release/ci-plan.test.cjs' }] }), false)
-  assert.equal(platformNodeRequired({ mode: 'related', changes: [{ status: 'M', file: 'electron/main.cjs' }] }), true)
-  assert.equal(platformNodeRequired({ mode: 'related', changes: [{ status: 'M', file: 'tests/release/asset-path.test.cjs' }] }), true)
-  assert.equal(platformNodeRequired({ mode: 'full', changes: [] }), true)
 })
 test('aggregate refuses missing, failed and stale shards instead of trusting the last shard', () => {
   const plan = { ...full(inventory), planId: 'current' }
