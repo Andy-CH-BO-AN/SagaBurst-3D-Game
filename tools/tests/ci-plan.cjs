@@ -26,35 +26,44 @@ function changes(base, head, event) {
   }
   return result
 }
-// Small map supplements the graph for runtime owners and registry/string lookups.
-const globalChange = file => /^(tools\/tests\/|\.github\/workflows\/|tests\/helpers\/logicOnly\.ts$)/.test(file)
-  || /(^|\/)(package(-lock)?\.json|[\w.-]*config\.[\w.]+)$/.test(file)
-  || /^(src\/(Game|main)\.ts|src\/world\/NPC\.ts|src\/town\/TownScene\.ts|src\/career\/CareerProfile(Store)?\.ts)$/.test(file)
-  || /(?:Registry|Catalog|Manifest|CombatAttribution|CombatEventStream|NavigationCoordinator|ArmyCommandController)\.[cm]?[jt]s$/.test(file)
 const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/AGENTS\.md)$/.test(file)
   // Release notes are inputs to publication, not documentation-only changes.
   && !file.startsWith('docs/releases/')
+const nodePublicationInput = file => /^(electron\/|tools\/release\/|tests\/release\/|docs\/releases\/)/.test(file)
+  || /^(package(?:-lock)?\.json|electron-builder\.|\.github\/workflows\/release\.yml$)/.test(file)
 
+function policyConsumers(file, inventory) {
+  const available = new Set(inventory.map(item => item.file))
+  const hits = new Set()
+  const add = fileName => { if (available.has(fileName)) hits.add(fileName) }
+  if (/^(tools\/tests\/|\.github\/workflows\/|vitest\.config\.ts$|package(?:-lock)?\.json$|tsconfig(?:\.[\w-]+)?\.json$|tests\/helpers\/logicOnly\.ts$)/.test(file)) {
+    add('tests/release/ci-plan.test.cjs')
+    add('tests/release/test-budget.test.cjs')
+  }
+  if (nodePublicationInput(file)) {
+    for (const item of inventory) if (item.runner === 'node') hits.add(item.file)
+  }
+  return hits
+}
+function relatedSelectionError(reason) {
+  throw new Error(`Related selection is unsafe: ${reason}. Add an explicit dependency/owner mapping or split the change; Full is reserved for main/release.`)
+}
 function selectFiles(inventory, changed, consumers) {
   const all = inventory.map(item => item.file)
-  const fallback = reason => ({ mode: 'full', fallback: reason, selected: all,
-    reasons: Object.fromEntries(all.map(file => [file, [reason]])) })
-  if (!changed.length) return fallback('No trustworthy changed-file evidence')
+  if (!changed.length) relatedSelectionError('No trustworthy changed-file evidence')
   if (changed.every(item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile)))) {
     return { mode: 'related', docsOnly: true, selected: [], reasons: {}, message: 'No related logic tests: documentation-only change' }
   }
-  if (consumers.runtimeAmbiguities?.length) return fallback(`Unresolved runtime imports/globs: ${consumers.runtimeAmbiguities.join(', ')}`)
-  const unsafe = changed.find(item => item.status !== 'A' && item.status !== 'M' || globalChange(item.file))
-  if (unsafe) return fallback(`Global/runtime owner or removed/renamed path: ${unsafe.oldFile ?? unsafe.file}`)
+  if (consumers.runtimeAmbiguities?.length) relatedSelectionError(`Unresolved runtime imports/globs: ${consumers.runtimeAmbiguities.join(', ')}`)
+  const unsupported = changed.find(item => !['A', 'M'].includes(item.status))
+  if (unsupported) relatedSelectionError(`Removed/renamed path: ${unsupported.oldFile ?? unsupported.file}`)
   const reasons = {}
   for (const item of changed) {
     if (docsOnly(item.file)) continue
     const hits = new Set(consumers[item.file] ?? [])
+    for (const file of policyConsumers(item.file, inventory)) hits.add(file)
     if (all.includes(item.file)) hits.add(item.file)
-    if (/^(electron\/|tools\/release\/|tests\/release\/)/.test(item.file)) {
-      inventory.filter(test => test.runner === 'node').forEach(test => hits.add(test.file))
-    }
-    if (!hits.size) return fallback(`Unmapped code/runtime input: ${item.file}`)
+    if (!hits.size) relatedSelectionError(`Unmapped code/runtime input: ${item.file}`)
     for (const file of hits) (reasons[file] ??= []).push(`Depends on or directly modified: ${item.file}`)
   }
   return { mode: 'related', selected: Object.keys(reasons).sort(), reasons }
@@ -73,21 +82,42 @@ function shardFiles(files) {
   }
   return shards
 }
+function planShards(files, mode) {
+  if (mode === 'full') return shardFiles(files)
+  const sorted = [...files].sort((a, b) => a.file.localeCompare(b.file, 'en'))
+  const count = sorted.reduce((sum, file) => sum + (file.names?.length ?? 0), 0)
+  if (!sorted.length) return []
+  if (count > MAX_CASES_PER_SHARD) {
+    throw new Error(`Related selection contains ${count} leaves; the entire Related CI run is limited to ${MAX_CASES_PER_SHARD}. Refine dependency/owner mappings or split the change; do not create another shard.`)
+  }
+  for (const file of sorted) if (!file.names?.length) throw new Error(`Empty related test file: ${file.file}`)
+  return [{
+    id: 'logic-related',
+    vitestFiles: sorted.filter(file => file.runner === 'vitest').map(file => file.file),
+    nodeFiles: sorted.filter(file => file.runner === 'node').map(file => file.file),
+    expectedCount: count,
+  }]
+}
 function validateManifest(plan) {
   const all = plan.inventory.map(item => item.file)
+  if (!['full', 'related'].includes(plan.mode)) throw new Error('Invalid manifest mode')
   if (new Set(all).size !== all.length) throw new Error('Duplicate discovered file')
   const expected = plan.mode === 'full' ? all : plan.selected
   const assigned = plan.shards.flatMap(shard => [...shard.vitestFiles, ...shard.nodeFiles])
   if (new Set(plan.shards.map(s => s.id)).size !== plan.shards.length) throw new Error('Duplicate shard ID')
   if (new Set(assigned).size !== assigned.length || [...expected].sort().join('\n') !== [...assigned].sort().join('\n')) throw new Error('Missing, unexpected or duplicate assigned test files')
   if (!assigned.length && !(plan.docsOnly && plan.mode === 'related' && plan.changedFiles.length && plan.changedFiles.every(docsOnly))) throw new Error('Empty code selection')
+  if (plan.mode === 'related' && plan.shards.length > 1) throw new Error('Related mode must use one aggregate-limited shard')
+  let total = 0
   for (const shard of plan.shards) {
     const files = [...shard.vitestFiles, ...shard.nodeFiles]
     const count = files.reduce((sum, file) => sum + plan.inventory.find(item => item.file === file).names.length, 0)
+    total += count
     if (count !== shard.expectedCount || count < 1 || count > MAX_CASES_PER_SHARD) throw new Error('Invalid shard leaf budget')
     for (const file of shard.vitestFiles) if (plan.inventory.find(item => item.file === file).runner !== 'vitest') throw new Error('Wrong Vitest assignment')
     for (const file of shard.nodeFiles) if (plan.inventory.find(item => item.file === file).runner !== 'node') throw new Error('Wrong Node assignment')
   }
+  if (plan.mode === 'related' && total > MAX_CASES_PER_SHARD) throw new Error('Related aggregate exceeds 500 leaves')
   return plan
 }
 function discoverNode() {
@@ -129,34 +159,44 @@ function dependencyConsumers(inventory) {
 }
 async function createPlan({ mode = 'full', base = '', head = '', event = 'local' } = {}) {
   if (!['full', 'related'].includes(mode)) throw new Error(`Invalid test mode: ${mode}`)
-  let changed = [], failure
-  try { changed = changes(base, head, event) } catch (error) { failure = `Git history unavailable: ${error.message}` }
-  const globalFallback = changed.some(item => !['A', 'M'].includes(item.status) || globalChange(item.file))
-  const documentation = !failure && mode === 'related' && selectFiles([], changed, {}).docsOnly
-  if (documentation) return validateManifest({ version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
-    checkoutSha: git('rev-parse', 'HEAD'), changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed, inventory: [],
-    ...selectFiles([], changed, {}), shards: [] })
-  // Known Full fallbacks need no dependency transforms. Collection still fails
-  // closed; a graph error retries collection without selection and forces Full.
-  let found
-  try { found = await discover({ relatedPaths: mode === 'related' && !failure && !globalFallback ? changed.map(item => item.file) : [] }) }
-  catch (error) { failure = `Dependency selection unavailable: ${error.message}`; found = await discover() }
-  let selection = mode === 'full' || failure || globalFallback ? null : selectFiles(found.inventory, changed, dependencyConsumers(found.inventory))
-  if (globalFallback && mode !== 'full' && !failure) selection = selectFiles(found.inventory, changed, {})
-  if (mode === 'full' || failure) {
-    selection = { mode: 'full', fallback: mode === 'related' ? failure : null,
-      selected: found.inventory.map(item => item.file), reasons: Object.fromEntries(found.inventory.map(item => [item.file, [mode === 'full' ? 'Explicit full suite' : failure]])) }
-  } else if (selection.mode === 'related' && !selection.docsOnly) {
-    // Union native Vitest and CJS/static runtime graph results; never remove native hits.
-    for (const file of found.related) if (!selection.selected.includes(file)) {
-      selection.selected.push(file); selection.reasons[file] = ['Vitest transitive runtime dependency']
-    }
-    selection.selected.sort()
+  const checkoutSha = git('rev-parse', 'HEAD')
+  if (mode === 'full') {
+    const found = await discover()
+    const selected = found.inventory.map(item => item.file)
+    return validateManifest({
+      version: 1, planId: randomUUID(), requestedMode: mode, mode: 'full', event,
+      baseSha: base, headSha: head, checkoutSha, changedFiles: [], changes: [], inventory: found.inventory,
+      fallback: null, selected, reasons: Object.fromEntries(selected.map(file => [file, ['Explicit full suite']])),
+      shards: planShards(found.inventory, 'full'),
+    })
   }
+  let changed
+  try { changed = changes(base, head, event) }
+  catch (error) { throw new Error(`Related Git history unavailable: ${error.message}. Full is reserved for main/release.`) }
+  const unsupported = changed.find(item => !['A', 'M'].includes(item.status))
+  if (unsupported) relatedSelectionError(`Removed/renamed path: ${unsupported.oldFile ?? unsupported.file}`)
+  const documentation = changed.length > 0 && changed.every(item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile)))
+  if (documentation) return validateManifest({
+    version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
+    checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed, inventory: [],
+    ...selectFiles([], changed, {}), shards: [],
+  })
+  let found
+  try { found = await discover({ relatedPaths: changed.map(item => item.file) }) }
+  catch (error) { throw new Error(`Related dependency selection unavailable: ${error.message}. Full is reserved for main/release.`) }
+  const selection = selectFiles(found.inventory, changed, dependencyConsumers(found.inventory))
+  // Union native Vitest and CJS/static runtime graph results; never remove native hits.
+  for (const file of found.related) if (!selection.selected.includes(file)) {
+    selection.selected.push(file)
+    selection.reasons[file] = ['Vitest transitive runtime dependency']
+  }
+  selection.selected.sort()
   const selectedInventory = found.inventory.filter(item => selection.selected.includes(item.file))
-  return validateManifest({ version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
-    checkoutSha: git('rev-parse', 'HEAD'), changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
-    inventory: found.inventory, ...selection, shards: shardFiles(selectedInventory) })
+  return validateManifest({
+    version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
+    checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
+    inventory: found.inventory, ...selection, shards: planShards(selectedInventory, 'related'),
+  })
 }
 function options(args) {
   const result = {}
@@ -175,6 +215,7 @@ if (require.main === module) (async () => {
   const evidence = `Mode: ${plan.mode}; base: ${plan.baseSha}; head: ${plan.headSha}\nChanged: ${plan.changedFiles.join(', ')}\nFallback: ${plan.fallback ?? 'none'}\n${plan.message ?? ''}\n${plan.selected.map(file => `${file}: ${plan.reasons[file].join('; ')}`).join('\n')}\nShards: ${JSON.stringify(plan.shards)}\n`
   console.log(evidence)
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n\`\`\`text\n${evidence}\`\`\`\n`)
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\n`)
+  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
+    `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\n`)
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { createPlan, shardFiles, validateManifest, selectFiles, changes, options, discover, discoverNode, dependencyConsumers, docsOnly }
+module.exports = { createPlan, shardFiles, planShards, validateManifest, selectFiles, changes, options, discover, discoverNode, dependencyConsumers, docsOnly }

@@ -47,7 +47,8 @@ jobs:
       - run: npm run smoke:web
   desktop:
     needs: logic
-    # PR artifacts are validation downloads, never official GitHub Releases.
+    # PR artifacts validate packaging/smoke only. Logic cases execute once in the
+    # Related gate; cross-platform Full/Node coverage is reserved for main/Release.
     if: github.event_name == 'pull_request'
     strategy:
       fail-fast: false
@@ -79,8 +80,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Host node:path and bundle/traversal behavior require platform validation.
-      - run: npm run test:release
       - run: npm run package:desktop -- ${{ matrix.flags }}
       - run: npm run smoke:desktop -- --packaged "${{ matrix.executable }}"
       - uses: actions/upload-artifact@v4
