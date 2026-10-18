@@ -103,7 +103,6 @@ export interface HorseInstance {
   stirrupLeft: THREE.Object3D
   stirrupRight: THREE.Object3D
   cameraSocket: THREE.Object3D
-  bounds: THREE.Box3
   attribution: string
   appearanceVariant: HorseAppearanceVariant
   setAppearanceVariant(variant: HorseAppearanceVariant): void
@@ -461,7 +460,6 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     () => appearanceVariant,
     template.manifest,
   )
-  const bounds = new THREE.Box3().setFromObject(root)
 
   return {
     root,
@@ -472,7 +470,6 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
     stirrupLeft: requireObject(root, 'socket_stirrup_l'),
     stirrupRight: requireObject(root, 'socket_stirrup_r'),
     cameraSocket: requireObject(root, 'socket_camera'),
-    bounds,
     attribution: template.manifest.attribution,
     get appearanceVariant() { return appearanceVariant },
     setAppearanceVariant: applyVariant,
