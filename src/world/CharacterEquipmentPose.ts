@@ -82,7 +82,9 @@ class ArmSolver {
   }
 
   solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame, bodyRotation?: THREE.Quaternion, followSampledPose = false, alignForearmRoll = false): void {
-    this.root.updateWorldMatrix(true, true)
+    // Refresh root before reading matrixWorld; bone getters refresh their own
+    // ancestor paths. Keep the solved arm subtree updates below for callers.
+    this.root.updateWorldMatrix(true, false)
     this.inverseRoot.copy(this.root.matrixWorld).invert()
     this.root.getWorldQuaternion(this.rootQ)
     this.arm.shoulder.getWorldPosition(this.shoulder).applyMatrix4(this.inverseRoot)
@@ -668,7 +670,8 @@ export class CharacterEquipmentPose {
       this.swordCarryCenter.fromArray(swordFrame.gripCenterLocal)
         .addScaledVector(this.swordCarryNormal.fromArray(swordFrame.palmNormalLocal), radius - swordFrame.gripRadius + surfaceOffset - (section?.palmOffset ?? 0))
         .addScaledVector(this.axeReach.fromArray(swordFrame.fingerDirection), fingerOffset - (section?.fingerOffset ?? 0))
-      this.root.updateWorldMatrix(true, true)
+      // Foot carry has no intervening bone writes; mounted solve already
+      // synchronizes the wrist subtree before returning.
       this.swordCarryCenter.applyMatrix4(this.rig.right.wrist.matrixWorld)
       this.target.fromArray(swordFrame.gripCenterLocal).applyMatrix4(this.swordEquipmentCorrection)
       this.swordCarryCenter.sub(this.target)

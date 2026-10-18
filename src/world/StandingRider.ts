@@ -18,7 +18,9 @@ export function fitStandingRider(
   standingSocket: THREE.Object3D,
 ): boolean {
   if (!visualRoot.parent || !rig.leftFootSocket || !rig.rightFootSocket) return false
-  visualRoot.updateWorldMatrix(true, true)
+  // Foot getters refresh their ancestor paths; only the final translation
+  // needs to propagate through the whole character.
+  visualRoot.updateWorldMatrix(true, false)
   standingSocket.updateWorldMatrix(true, false)
   rig.leftFootSocket.getWorldPosition(left)
   rig.rightFootSocket.getWorldPosition(right)
