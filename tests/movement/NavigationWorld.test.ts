@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { AvailableBreachEntrances, type BreachEntrance } from '../../src/navigation/AvailableBreachEntrances'
-import type { TownRampartLayout } from '../../src/town/TownRamparts'
+import { getTownRampartLayout, type TownRampartLayout } from '../../src/town/TownRamparts'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import {
   NavigationWorld,
@@ -13,6 +13,7 @@ import {
 } from '../../src/world/RiverCrossingBattlefield'
 import {
   findBlockingObstacleAlongPath,
+  getTerrainHeight,
   PLAYABLE_WORLD_BOUND,
   type ObstacleData,
 } from '../../src/world/Terrain'
@@ -194,6 +195,37 @@ it('updates one deferred owner to its latest destination and discards deferred w
 })
 
 const emptyTownLayout: TownRampartLayout = { decks: [], ramps: [], corners: [], lengths: [], perimeter: 1, wallSpans: [] }
+
+it('releases a descended Town actor to ground travel instead of recapturing the ramp entrance', () => {
+  const layout = getTownRampartLayout(), nav = new TownLayeredNavigation(layout)
+  const ramp = layout.ramps.find(r => r.gateId === 'north')!, s = ramp.surface
+  const goal = ramp.entrance.clone().add(new THREE.Vector3(0, 0, 12))
+  goal.y = getTerrainHeight(goal.x, goal.z)
+  const current = new THREE.Vector3(s.startX + s.dirX * 3,
+    s.startY + (s.topY - s.startY) * 3 / s.length, s.startZ + s.dirZ * 3)
+  const out = new THREE.Vector3()
+  // The actual slope retains its dedicated descent, not a sideways ground exit.
+  expect(nav.resolveMoveTarget(current, goal, out)).toEqual({ ground: false })
+  expect(out).toEqual(ramp.entrance)
+  current.copy(ramp.entrance)
+  // Follow the real adapter's returned target in bounded mathematical steps.
+  // Previously every few steps re-selected the entrance, keeping the actor
+  // within 0.3m indefinitely even without a single dynamic blocker.
+  for (let i = 0; i < 20; i++) {
+    const step = nav.resolveMoveTarget(current, goal, out)
+    if (!step) out.copy(goal)
+    const direction = out.clone().sub(current).setY(0)
+    const distance = direction.length()
+    current.addScaledVector(direction.normalize(), Math.min(.2, distance))
+    current.y = getTerrainHeight(current.x, current.z)
+  }
+  expect(current.z).toBeCloseTo(ramp.entrance.z + 4)
+  expect(nav.resolveMoveTarget(current, goal, out)).toBeNull()
+  // Re-entering the ramp still uses its existing aligned ground approach.
+  expect(nav.resolveMoveTarget(current, ramp.landing, out)).toEqual({ ground: true })
+  expect(out).toEqual(ramp.entrance)
+})
+
 function eastRamp(id: string, z: number): BreachEntrance {
   const surface = { startX: 182, startZ: z, startY: 0, topY: 10, dirX: -1, dirZ: 0, length: 24, landing: 6, halfWidth: 2.5 }
   return { id, gateId: 'east', type: 'siege-ramp', position: new THREE.Vector3(152, 10, z), approach: new THREE.Vector3(184.2, 0, z),
