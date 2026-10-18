@@ -6,7 +6,7 @@ import { intersectsSweptPart } from '../movement/SweptBodyCollision'
 import { MovingPlatformSupport } from '../movement/MovingPlatformSupport'
 import type { NPC } from '../world/NPC'
 import { MobileSiegeRampController, type MobileSiegeRampState } from './MobileSiegeRampController'
-import { SIEGE_RAMP, type MobileSiegeRampId, type SiegeRampId, type SiegeRampAssignment, type SiegeRampPlacement } from './MobileSiegeRampPolicy'
+import { SIEGE_RAMP, siegeRampDeckHeightAt, siegeRampRearHeightAt, type MobileSiegeRampId, type SiegeRampId, type SiegeRampAssignment, type SiegeRampPlacement } from './MobileSiegeRampPolicy'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 
 export type MobileSiegeRampSnapshot<Id extends MobileSiegeRampId = SiegeRampId> = Omit<CampaignSiegeCheckpoint['ramps'][number], 'assignment'> & { assignment: SiegeRampAssignment<Id> }
@@ -43,7 +43,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     private readonly changed: (ramp: MobileSiegeRamp<Id>, state: MobileSiegeRampState) => void) {
     this.position = placement.start.clone()
     this.surface = { ...placement.surface, startX: placement.surface.startX + placement.start.x - placement.dock.x, startZ: placement.surface.startZ + placement.start.z - placement.dock.z }
-    this.surface.startY = getTerrainHeight(this.surface.startX, this.surface.startZ) + .04
+    this.surface.startY = siegeRampRearHeightAt(placement, this.surface.startX, this.surface.startZ)
     this.bridgeSurface = {
       startX: this.position.x, startZ: this.position.z, startY: this.position.y,
       dirX: placement.dirX ?? 0, dirZ: placement.dirZ, halfWidth: SIEGE_RAMP.halfWidth,
@@ -173,10 +173,9 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
       this.surface.startX += dx
       this.position.z += dz
       this.surface.startZ += dz
-      // The vehicle follows terrain vertically as a rigid carrier. Its continuous
-      // ramp keeps the dock-approved slope without needing an extra-long run.
-      this.position.y = getTerrainHeight(this.surface.startX, this.surface.startZ) + .04
-        + this.placement.surface.topY - this.placement.surface.startY
+      // Long approaches anchor the tower over its own chassis. The finite tail
+      // articulates over terrain; the same owner validated its complete sweep.
+      this.position.y = siegeRampDeckHeightAt(this.placement, this.position.x, this.position.z)
       this.platform.moveTo(this.position)
       for (const id of this.assignment.pusherIds) {
         const actor = this.crew.get(id)
@@ -211,12 +210,18 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     const length = this.surface.length
     const platformLength = SIEGE_RAMP.platformLength
     this.root.position.copy(this.position)
-    this.surface.startY = getTerrainHeight(this.surface.startX, this.surface.startZ) + .04
+    this.surface.startY = siegeRampRearHeightAt(this.placement, this.surface.startX, this.surface.startZ)
     this.surface.topY = this.position.y
     const rise = this.surface.topY - this.surface.startY
     this.run.mesh.scale.z = Math.hypot(length, rise) / length
     this.run.mesh.rotation.x = -Math.atan2(rise, length)
     this.run.mesh.position.set(0, -rise / 2 - .125, -platformLength - length / 2)
+    if (this.placement.terrainAnchor === 'deck') {
+      // Place the top plane, rather than the board centre, exactly on the walk surface.
+      const angle = Math.atan2(rise, length)
+      this.run.mesh.position.set(0, -rise / 2 - Math.cos(angle) * .125,
+        -platformLength - length / 2 + Math.sin(angle) * .125)
+    }
     this.run.obstacle.walkSurface = this.surface
     this.deck.mesh.position.set(0, -.125, -platformLength / 2)
     this.deck.obstacle.walkSurface = this.surface
@@ -231,6 +236,9 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     this.bridge.mesh.rotation.x = -angle
     this.bridge.mesh.position.set(0, Math.sin(angle) * SIEGE_RAMP.bridgeLength / 2 - .125,
       Math.cos(angle) * SIEGE_RAMP.bridgeLength / 2)
+    if (this.placement.terrainAnchor === 'deck') this.bridge.mesh.position.set(0,
+      Math.sin(angle) * SIEGE_RAMP.bridgeLength / 2 - Math.cos(angle) * .125,
+      Math.cos(angle) * SIEGE_RAMP.bridgeLength / 2 + Math.sin(angle) * .125)
     this.bridge.obstacle.walkSurface = docked ? this.bridgeSurface : undefined
     this.bridgeSurface.mounted = docked
     // Stop guards at the deck edge, leaving body clearance for the 90-degree turn.

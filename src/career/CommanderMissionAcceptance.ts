@@ -15,7 +15,7 @@ export function buildCommanderAuthorityForMission(profile: Pick<CareerProfile, '
   if (profile.rank !== 'commander' || mission.officialSquad || mission.kind === 'duel'
     || mission.phase === 'RETURNING' || mission.phase === 'RESULT' || mission.result) return undefined
   let squads: OfficialCommandSquad[]
-  if (mission.kind === 'town-defense') {
+  if (mission.kind === 'town-defense' || mission.kind === 'commander-four-gate-defense') {
     if (!residentSpecs) return undefined
     squads = commanderGateDefenseSquads(residentSpecs, mission.friendlyActorIds,
       new Set(mission.deadFriendlyActorIds))

@@ -1,7 +1,42 @@
 import * as THREE from 'three'
 import { describe, expect, it } from 'vitest'
 import { BallisticIntercept, projectileTerrainContactTime } from '../../src/combat/ProjectileBallistics'
+import { ProjectileAdmission, projectileAmmoAfterLaunch } from '../../src/combat/ProjectileAdmission'
 import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
+
+describe('projectile launch admission', () => {
+  it('retains ammo on capacity rejection and accepts the next shot when a slot is free', () => {
+    const admission = new ProjectileAdmission(2, 1), shots: { training: boolean }[] = []
+    const fire = (training: boolean) => admission.launch(shots.length,
+      shots.filter(shot => shot.training).length, training, () => { shots.push({ training }) })
+    let ammo = 3
+    ammo = projectileAmmoAfterLaunch(ammo, fire(true))
+    expect(ammo).toBe(2)
+    ammo = projectileAmmoAfterLaunch(ammo, fire(true))
+    expect(ammo).toBe(2)
+    expect(shots).toHaveLength(1)
+    ammo = projectileAmmoAfterLaunch(ammo, fire(false))
+    expect(ammo).toBe(1)
+    ammo = projectileAmmoAfterLaunch(ammo, fire(false))
+    expect(ammo).toBe(1)
+    expect(shots).toHaveLength(2)
+    shots.shift()
+    ammo = projectileAmmoAfterLaunch(ammo, fire(false))
+    expect(ammo).toBe(0)
+    expect(shots).toHaveLength(2)
+    expect(admission.snapshot()).toEqual({ acceptedShots: 3, rejectedShots: 2,
+      capacityRejectedShots: 2, peakActiveShots: 2 })
+  })
+
+  it('keeps legacy void launches successful while explicit scene rejection preserves ammo', () => {
+    const admission = new ProjectileAdmission(2, 1)
+    const legacyLaunch = (): void => {}
+    expect(projectileAmmoAfterLaunch(2, legacyLaunch())).toBe(1)
+    expect(projectileAmmoAfterLaunch(2, admission.reject())).toBe(2)
+    expect(admission.snapshot()).toEqual({ acceptedShots: 0, rejectedShots: 1,
+      capacityRejectedShots: 0, peakActiveShots: 0 })
+  })
+})
 
 /** Pure kinematics and swept-path policy: no actors, mounts, assets or scene fixture. */
 describe('bounded projectile interception and arc clearance', () => {

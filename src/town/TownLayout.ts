@@ -6,7 +6,7 @@ import { OBB } from 'three/examples/jsm/math/OBB.js'
 export const TOWN_PATROL_WALL_OFFSET = 12.5
 /** Saved positions from earlier Town layouts are rebased once, preserving actor identities. */
 export const TOWN_LAYOUT_VERSION = 4
-export const TOWN_CITY = { minX: -110, maxX: 150, minZ: -115, maxZ: 100, wallHeight: 8, wallThickness: 1.8, gateWidth: 14, gateHeight: 6 } as const
+export const TOWN_CITY = { minX: -110, maxX: 150, minZ: -115, maxZ: 100, wallHeight: 8, wallThickness: 1.8, gateWidth: 14, gateHeight: 6, gateDepth: 2.4 } as const
 export const TOWN_PLAZA = { minX: 32, maxX: 74, minZ: -4, maxZ: 28 } as const
 export const TOWN_PLAZA_CENTER = { x: (TOWN_PLAZA.minX + TOWN_PLAZA.maxX) / 2, z: (TOWN_PLAZA.minZ + TOWN_PLAZA.maxZ) / 2 } as const
 export type TownGateId = 'north' | 'south' | 'east' | 'west'

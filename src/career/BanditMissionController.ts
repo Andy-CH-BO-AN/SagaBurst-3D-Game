@@ -314,7 +314,7 @@ export class BanditMissionController {
     }))
     const foreignVeteranField = this.active?.kind === 'veteran-field'
       && this.active.templateId === 'veteran-tragedy-of-the-scouts'
-    if (!foreignVeteranField) for (const campId of [0, 2, 4]) this.spawnAmbient(campId, 2)
+    if (!foreignVeteranField && this.active?.kind !== 'commander-four-gate-defense') for (const campId of [0, 2, 4]) this.spawnAmbient(campId, 2)
   }
 
   get active(): ActiveCareerMission | undefined { return this.readProfile().activeMission }

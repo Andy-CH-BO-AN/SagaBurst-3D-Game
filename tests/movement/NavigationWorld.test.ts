@@ -257,6 +257,54 @@ describe('opt-in Town siege navigation', () => {
     expect(entries.select(start, false, 'roman', () => false, left.id)).toBeNull()
     expect(entries.entries.has(right.id)).toBe(true)
   })
+  it('fans mixed attackers through a wide destroyed gate after both ramps disappear without reversing at the approach', () => {
+    const nav = new TownLayeredNavigation(emptyTownLayout, () => true)
+    nav.siegeActive = true
+    const left = eastRamp('town-siege-ramp:east:left', 62), right = eastRamp('town-siege-ramp:east:right', 25)
+    nav.siegeEntrances.set(left); nav.siegeEntrances.set(right)
+    // Destruction removes both walk surfaces. The destroyed gate is the sole route.
+    nav.siegeEntrances.remove(left.id); nav.siegeEntrances.remove(right.id)
+    const gate: BreachEntrance = { id: 'town-siege-gate:east', gateId: 'east', type: 'gate',
+      position: new THREE.Vector3(150, 0, 45), approach: new THREE.Vector3(155, 0, 45), exit: new THREE.Vector3(145, 0, 45),
+      portal: { halfWidth: 7, halfDepth: 1.2 }, walkable: true, mounted: true, faction: null, connectionId: 'east' }
+    nav.siegeEntrances.set(gate)
+    const goal = new THREE.Vector3(130, 0, 90), lanes = [new Set<number>(), new Set<number>()]
+    for (let i = 0; i < 16; i++) {
+      const mounted = i >= 8, radius = mounted ? 1.25 : .6, id = `battle:east:${mounted ? 'lancer' : 'crew'}:${i}`
+      const out = new THREE.Vector3(), start = new THREE.Vector3(164, 0, 45)
+      const entry = nav.siegeEntrances.select(start, mounted, 'viking', () => true, left.id, e => e.gateId === 'east')!
+      expect(entry.id).toBe(gate.id)
+      nav.resolveMoveTarget(start, goal, out, entry.id, mounted, 'east', id)
+      expect(out.x).toBe(155)
+      expect(Math.abs(out.z - 45) + radius).toBeLessThanOrEqual(6.65 + 1e-9)
+      lanes[Number(mounted)].add(out.z)
+      const lane = out.z
+      // ID-based routing remains identical after reload, independent of roster order.
+      nav.resolveMoveTarget(start, goal, out, entry.id, mounted, 'east', id)
+      expect(out.z).toBe(lane)
+      for (const x of [155, 153.5, 151, 150, 149, ...(mounted ? [148] : [])]) {
+        const current = new THREE.Vector3(x, 0, lane)
+        expect(nav.resolveMoveTarget(current, goal, out, entry.id, mounted, 'east', id)).toEqual({ ground: true })
+        expect(out.x).toBe(145); expect(out.x).toBeLessThan(current.x); expect(out.z).toBe(lane)
+        expect(nav.hasClearedSiegeGate(current, entry.id, mounted)).toBe(false)
+      }
+      // Still straddling the 2.4m physical jamb at the old wall-slab threshold.
+      expect(nav.hasClearedSiegeGate(new THREE.Vector3(mounted ? 147.7 : 148.4, 0, lane), entry.id, mounted)).toBe(false)
+      const inside = new THREE.Vector3(147, 0, lane)
+      expect(nav.hasClearedSiegeGate(inside, entry.id, mounted)).toBe(true)
+      expect(nav.resolveMoveTarget(inside, goal, out, null, mounted, 'east', id)).toBeNull()
+    }
+    // Once ownership is released, an unrelated interior pursuit must not select
+    // the portal again merely because its lateral distance is outside the opening.
+    expect(nav.resolveMoveTarget(new THREE.Vector3(130, 0, 90), new THREE.Vector3(120, 0, 80),
+      new THREE.Vector3(), null, true, 'east', 'released-rider')).toBeNull()
+    const legacyInside = new THREE.Vector3(130, 0, 90)
+    expect(nav.hasClearedSiegeGate(legacyInside, gate.id, true)).toBe(true)
+    expect(nav.resolveMoveTarget(legacyInside, goal, new THREE.Vector3(), gate.id, true, 'east', 'legacy-rider')).toBeNull()
+    expect(lanes[0].size).toBeGreaterThanOrEqual(4)
+    expect(lanes[1].size).toBeGreaterThanOrEqual(3)
+  })
+
   it('admits an unassigned follower only through a proven reachable entrance in its allowed sector', () => {
     let reachable = false
     const nav = new TownLayeredNavigation(emptyTownLayout, () => reachable), entry = eastRamp('town-siege-ramp:east:left', 62)

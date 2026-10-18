@@ -70,6 +70,10 @@ function handleCareerMissionError(missionId: string, error: unknown): void {
     return
   }
   const recovered = recoverFailedCareerMission(store, missionId)
+  if (recovered === 'retry-required') {
+    showCareerRecoveryError('四門守城任務載入失敗。已接受的任務、準備時間與部隊進度均保留，請重新載入重試。', () => window.location.reload(), '重試載入四門守城')
+    return
+  }
   if (recovered === 'stale') return
   if (recovered !== 'recovered') {
     showCareerRecoveryError('任務部署失敗，但生涯存檔尚未能安全保存。原始存檔未刪除。', () => handleCareerMissionError(missionId, error))

@@ -26,6 +26,7 @@ import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { damagePlayer } from '../combat/DamageRouter'
+import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../combat/ProjectileAdmission'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
 import { EAGLE_AIM, eagleRiderAimYaw, type EagleAimHeading } from './EagleFlightAim'
 import { fitStandingRider } from '../world/StandingRider'
@@ -184,7 +185,7 @@ export class Player {
   private readonly deathFade = new DeathFadeController()
   public spectatorOnly = false
 
-  onFireArrow: ((evt: ArrowLaunchEvent) => void) | null = null
+  onFireArrow: ((evt: ArrowLaunchEvent) => ProjectileLaunchResult) | null = null
   onPlayerDeath: (() => void) | null = null
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
@@ -1206,6 +1207,7 @@ export class Player {
   ): void {
     if (this.arrows <= 0) return
 
+    const ammoBeforeLaunch = this.arrows
     this.arrows -= 1
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
@@ -1227,30 +1229,33 @@ export class Player {
     this.bowVisual?.writeLaunch(arrowOrigin, arrowDirection, cameraAimPoint)
 
     if (this.onFireArrow) {
-      this.onFireArrow({
+      const accepted = this.onFireArrow({
         origin: arrowOrigin.clone(),
         direction: arrowDirection.clone(),
         speed,
         damage,
         visualKind: 'arrow',
       })
+      this.arrows = projectileAmmoAfterLaunch(ammoBeforeLaunch, accepted)
     }
   }
 
   private _firePilum(cameraAimPoint: THREE.Vector3, archeryMultiplier: number, equippedRanged: WeaponData): void {
     if (this.arrows <= 0) return
+    const ammoBeforeLaunch = this.arrows
     this.arrows -= 1
     const origin = this.bowGripPivot.getWorldPosition(this._tmpWorldNock)
     const direction = this._tmpArrowDirection.copy(cameraAimPoint).sub(origin).normalize()
     const rangedKind = getRangedCombatKind(equippedRanged) ?? 'javelin'
     if (this.onFireArrow) {
-      this.onFireArrow({
+      const accepted = this.onFireArrow({
         origin: origin.clone(),
         direction: direction.clone(),
         speed: equippedRanged.arrowSpeedMax ?? 48,
         damage: applyHeroOutgoingDamage(Math.round(equippedRanged.damageMax * archeryMultiplier * getRangedDamageMultiplier(rangedKind)), this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null),
         visualKind: 'pilum',
       })
+      this.arrows = projectileAmmoAfterLaunch(ammoBeforeLaunch, accepted)
     }
   }
 

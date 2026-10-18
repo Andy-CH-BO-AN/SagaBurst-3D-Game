@@ -68,13 +68,12 @@ interface RecruitmentTownCaller {
   openRecruitmentPanel(response?: string): void
 }
 
-/** Real HR render, recruitment transaction, Town commit and serialization; no world or actors. */
+/** Real HR render and rank rejection; observe the real store without an unrelated seed save. */
 function recruitmentHarness(rank: 'captain' | 'commander') {
   vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
   const profile: CareerProfile = { ...createCareerProfile('roman'), rank, totalMerit: 100000, availableMerit: 100000,
     townDialogueSeen: ['roman:hr-unlocked'] }
   const store = new CareerProfileStore(new MemoryStorage())
-  expect(store.save(profile)).toBe(true)
   const save = vi.spyOn(store, 'save')
   let panel = new Element('div'), message = ''
   // The prototype seam omits render/actor state that neither this panel nor its commit consumes.
@@ -91,6 +90,7 @@ describe('Town HR recruitment controls', () => {
 
   it('explains the formal-rank requirement when a previously enabled Commander button becomes stale', () => {
     const h = recruitmentHarness('commander'), button = h.row().children[2]
+    expect(button.disabled).toBe(false)
     h.town.profile.rank = 'captain'
     button.onclick!()
     expect(h.save).not.toHaveBeenCalled()

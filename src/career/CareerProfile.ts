@@ -309,6 +309,7 @@ export function claimCareerMission(
     || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
   const defense = active.kind === 'captain-outpost-defense' || active.kind === 'commander-outpost-last-stand' || active.kind === 'commander-bridgehead-battle'
+    || active.kind === 'commander-four-gate-defense'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'defense', 'mission') : null
   const battleMerit = offense ?? defense
   const merit = battleMerit ? { damage: battleMerit.characterDamage + battleMerit.structureDamage, kills: battleMerit.kills, contribution: battleMerit.victory + battleMerit.survival + battleMerit.gateBreaches, total: battleMerit.total } : calculateRecruitMissionMerit(contribution, outcome)
@@ -342,6 +343,7 @@ export function claimCareerMission(
   profile.activeMission = {
     ...active,
     phase: 'RESULT',
+    ...(active.fourGateDefense ? { fourGateDefense: { ...structuredClone(active.fourGateDefense), phase: 'RESULT' as const } } : {}),
     targetActorIds: [...active.targetActorIds],
     friendlyActorIds: [...active.friendlyActorIds],
     result: { outcome, stats: { ...stats }, merit, claimed: true,
@@ -521,6 +523,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.patrolKilledActorIds ? { patrolKilledActorIds: [...profile.activeMission.patrolKilledActorIds] } : {}),
       ...(profile.activeMission.patrolReturnStates ? { patrolReturnStates: { ...profile.activeMission.patrolReturnStates } } : {}),
       ...(profile.activeMission.battle ? { battle: structuredClone(profile.activeMission.battle) } : {}),
+      ...(profile.activeMission.fourGateDefense ? { fourGateDefense: structuredClone(profile.activeMission.fourGateDefense) } : {}),
       ...(profile.activeMission.bridgeBattle ? { bridgeBattle: structuredClone(profile.activeMission.bridgeBattle) } : {}),
       ...(profile.activeMission.bridgeDeployment ? { bridgeDeployment: { ...profile.activeMission.bridgeDeployment } } : {}),
       ...(profile.activeMission.eagleBattle ? { eagleBattle: structuredClone(profile.activeMission.eagleBattle) } : {}),

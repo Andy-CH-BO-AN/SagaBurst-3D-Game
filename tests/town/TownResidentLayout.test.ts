@@ -3,7 +3,7 @@ import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { townStationSpec } from '../../src/town/TownGarrison'
 import { TownGroundStations } from '../../src/town/TownGroundStation'
 import { describe, expect, it } from 'vitest'
-import { Box3, Vector3 } from 'three'
+import { Box3, Matrix4, Vector3 } from 'three'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
 import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, townMountPlacementBatchClear, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes } from '../../src/town/TownCivilianLife'
 import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
@@ -21,6 +21,11 @@ function squareIntersects(box: Box3, point: { x: number; z: number }, half: numb
   return box.max.y >= -100 && box.min.y <= 100
     && point.x - half <= box.max.x && point.x + half >= box.min.x
     && point.z - half <= box.max.z && point.z + half >= box.min.z
+}
+
+function rectangle(point: { x: number; z: number; yaw: number }, width: number, depth: number): Box3 {
+  return new Box3(new Vector3(-width / 2, -100, -depth / 2), new Vector3(width / 2, 100, depth / 2))
+    .applyMatrix4(new Matrix4().makeRotationY(point.yaw)).translate(new Vector3(point.x, 0, point.z))
 }
 
 describe('Town resident layout ownership', () => {
@@ -172,7 +177,19 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
   }
   expect(minimumGap).toBeGreaterThanOrEqual(.59)
   const roads = [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS], navigation = { areConnected: () => true }
-  const hr = resolveTownHRLayout('roman', [], roads), training = resolveTownEagleTrainingGround([], roads, hr)
+  const hr = resolveTownHRLayout('roman', [], roads, roster), training = resolveTownEagleTrainingGround([], roads, hr)
+  // Own full-population HR clearance here, reusing this invariant's real roster.
+  // The scenery suite only needs the west-gate guard that constrains its fixture.
+  for (const service of [hr, resolveTownHRLayout('viking', [], roads, roster)]) {
+    const courtyard = new Box3().setFromPoints(service.muster.map(p => new Vector3(p.x, 0, p.z)))
+      .expandByVector(new Vector3(2.2, 100, 2.2))
+    const residentReservations = [rectangle(service.site, service.width + 2.4, service.depth + 6),
+      rectangle(service.officer, 2.5, 2.5), courtyard]
+    expect(residentReservations.some(box => roster.some(resident => squareIntersects(box, resident, .6)))).toBe(false)
+    const towerReservations = [rectangle(service.site, service.width + 4, service.depth + 6),
+      ...[service.officer, ...service.muster].map(point => rectangle(point, 6, 6))]
+    expect(towerReservations.some(box => footprints.some(tower => tower.intersectsBox(box)))).toBe(false)
+  }
   const population = townConquestRoster(hr, withTownCommandSquadRoster('roman', roster), training, resolveTownEagleGarrison(training))
   population.push(townCommanderSpec(resolveTownCommanderPosition([], roads, navigation, population)))
   // Reserve an otherwise legal home in the final population. This makes the

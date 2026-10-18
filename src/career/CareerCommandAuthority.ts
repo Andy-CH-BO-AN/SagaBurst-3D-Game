@@ -78,6 +78,7 @@ export function parseCommandActorCheckpoint(value: unknown): PersonalActorCheckp
     ...(raw.order && orders.includes(raw.order) ? { order: raw.order } : {}),
     ...(raw.outpostRampartGarrison === true ? { outpostRampartGarrison: true } : {}),
     ...(raw.townRampartGarrison === true ? { townRampartGarrison: true } : {}),
+    ...(raw.townRampartGarrison === true && raw.townRampartMounted === true ? { townRampartMounted: true } : {}),
     ...(mountPoint && finite(raw.mount?.hp) ? { mount: { hp: nonnegative(raw.mount.hp), mounted: raw.mount.mounted === true,
       position: mountPoint, ...(flight ? { flight } : {}) } } : {}),
     ...(formationPoint && finite(raw.formation?.commandId) ? { formation: {

@@ -93,6 +93,7 @@ import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../mov
 import { EagleFlightAI, type EagleFlightCommand, type EagleTactic } from '../movement/EagleFlightAI'
 import { eagleBowEngagementRange } from '../combat/EagleRangedCombat'
 import { BallisticIntercept, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
+import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../combat/ProjectileAdmission'
 import { XONGKORO } from '../movement/XongkoroConfig'
 import type { PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import { fitStandingRider } from './StandingRider'
@@ -302,10 +303,13 @@ export class NPC {
   campaignEntranceId: string | null = null
   campaignBreachCompleted = false
   private townRampartGarrison = false
-  get isTownRampartGarrisonActive(): boolean { return this.townRampartGarrison && !this.isMounted }
-  activateTownRampartGarrison(order: 'defend' | 'attack' = 'defend'): void {
+  private townRampartMounted = false
+  get isTownRampartGarrisonActive(): boolean { return this.townRampartGarrison && (!this.isMounted || this.townRampartMounted) }
+  get isMountedTownRampartGarrisonEnabled(): boolean { return this.townRampartGarrison && this.townRampartMounted }
+  activateTownRampartGarrison(order: 'defend' | 'attack' = 'defend', allowMounted = false): void {
     this.setTacticalOrder(order)
     this.townRampartGarrison = true
+    this.townRampartMounted = allowMounted
   }
   get alertRange(): number { return this.isTownRampartGarrisonActive ? this.maxRangedAttackDistance : DETECTION_RADIUS }
   private outpostRampartGarrison = false
@@ -314,15 +318,17 @@ export class NPC {
     this.setTacticalOrder(order)
     this.outpostRampartGarrison = true
   }
-  releaseOutpostRampartGarrison(): void { this.outpostRampartGarrison = false; this.townRampartGarrison = false }
+  releaseOutpostRampartGarrison(): void {
+    this.outpostRampartGarrison = false; this.townRampartGarrison = false; this.townRampartMounted = false
+  }
   private rampartThreat: ObstacleData | null = null
   private rampartScanFrames = 0
   private readonly obstacleLocalToWorld = new THREE.Matrix4()
   get holdsRampartPosition(): boolean {
-    return !this.isMounted
-      && (this.tacticalOrder === 'defend' || this.tacticalOrder === 'attack')
-      && (this.townRampartGarrison || this.outpostRampartGarrison || Boolean(this.aiType === AIType.RANGED && this._activeNavigationWorld?.outpostNav
-        && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition))))
+    return (this.tacticalOrder === 'defend' || this.tacticalOrder === 'attack')
+      && (this.isTownRampartGarrisonActive || !this.isMounted && (this.outpostRampartGarrison
+        || Boolean(this.aiType === AIType.RANGED && this._activeNavigationWorld?.outpostNav
+          && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition)))))
   }
 
   get holdsRampartFirePosition(): boolean { return this.aiType === AIType.RANGED && this.holdsRampartPosition }
@@ -1930,7 +1936,7 @@ export class NPC {
     // cannot toggle clear/blocked between adjacent frames.
     const origin = this._tmpRangedOrigin
       .copy(this.combatPosition)
-      .setY(this.combatPosition.y + RANGED_AI_LAUNCH_HEIGHT)
+      .setY(this.combatPosition.y + (this.isMountedTownRampartGarrisonEnabled && this.isMounted ? 2.6 : RANGED_AI_LAUNCH_HEIGHT))
     const targetPoint = this._tmpRangedLosTarget
       .copy(target)
       .setY(target.y + RANGED_AI_TARGET_HEIGHT)
@@ -2382,7 +2388,7 @@ export class NPC {
     obstacles: ObstacleData[],
     _playerHpBar: Pick<HpBar, 'setFill'>,
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
-    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => void,
+    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => ProjectileLaunchResult,
     skipBoidsAndObstacles: boolean = false,
     cameraDistance: number = 0,
     _collector: NpcSubphaseCollector | null = null,
@@ -2391,8 +2397,13 @@ export class NPC {
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): void {
     this._activeNavigationWorld = navigationWorld
-    if (this.campaignEntranceId && navigationWorld?.townNav?.siegeActive
-      && navigationWorld.townNav.isElevated(this.combatPosition)) this.campaignBreachCompleted = true
+    if (this.campaignEntranceId && navigationWorld?.townNav?.siegeActive) {
+      if (navigationWorld.townNav.hasClearedSiegeGate(this.combatPosition, this.campaignEntranceId, this.isMounted)) {
+        this.campaignBreachCompleted = true
+        this.campaignEntranceId = null
+        this.assignSiegeObstacle(null)
+      } else if (navigationWorld.townNav.isElevated(this.combatPosition)) this.campaignBreachCompleted = true
+    }
     if (this.campaignEntranceId && navigationWorld?.outpostNav
       && isRampartLayer(navigationWorld.outpostNav.getNavLayer(this.combatPosition))) this.campaignBreachCompleted = true
     this.fallObstacles = obstacles
@@ -2638,9 +2649,9 @@ export class NPC {
           : this.pendingPilumTarget
         origin.copy(this.bowGripPivot.getWorldPosition(origin))
         direction.copy(aimPoint).sub(origin).normalize()
-        onFireArrow(origin, direction, 'pilum')
+        const accepted = onFireArrow(origin, direction, 'pilum')
         this.bowPivot.visible = false
-        this.arrows -= 1
+        this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
         this.attackTimer = 0
       }
       if (events.actionCompleted) {
@@ -2749,7 +2760,7 @@ export class NPC {
         const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
 
         let navigationRoute: NavigationRouteKind = 'direct'
-        const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, targetInfo.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId) : null
+        const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, targetInfo.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId, this.combatantId) : null
         if (townStep) {
           if (townStep.blocked) navigationRoute = 'unreachable'
           else if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(this._tmpNavigationTarget, obstacles, navigationWorld)
@@ -3093,12 +3104,13 @@ export class NPC {
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
 
         // Mounted ranged units orbit humans, but hold position while deliberately
-        // attacking a structure fallback.
+        // attacking a structure fallback or retaining a mission-owned wall station.
         if (
           !siegeObstacle
           && this.isMounted
           && this.hasActiveRangedWeapon
           && this.tacticalOrder !== 'defend'
+          && !this.holdsRampartPosition
         ) {
           const moveDir = this._tmpMoveDir
           moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
@@ -3165,10 +3177,10 @@ export class NPC {
               origin.copy(this.bowGripPivot.getWorldPosition(origin))
               dir.copy(aimPoint).sub(origin).normalize()
             }
-            onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
+            const accepted = onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
             this.bowVisual?.hideArrow()
 
-            this.arrows -= 1
+            this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
             this.attackTimer = 0
             if (!isBow) this.bowPivot.visible = false
             if (isBow && !rangedEvents.actionCompleted) {
@@ -3418,7 +3430,7 @@ export class NPC {
 
   private _updateEagleCombat(dt: number, player: Player, allNPCs: NPC[], nearby: NPC[], obstacles: ObstacleData[],
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
-    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => void,
+    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => ProjectileLaunchResult,
     cameraDistance: number, grid: SpatialGrid<NPC> | null): void {
     const mount = this.mount!
     const flight = mount.flight!
@@ -3505,8 +3517,8 @@ export class NPC {
       && this._prepareEagleRangedShot(target, this.eagleTargetVelocity, obstacles)) {
       const lifecycle = kind === 'bow'
         ? createProjectileFlightBudget(this.rangedProjectileSpeed, this.eagleBallisticIntercept.flightTime) : undefined
-      onFireArrow(this.eagleRangedOrigin, this.eagleBallisticIntercept.direction, kind === 'bow' ? 'arrow' : 'pilum', lifecycle)
-      this.arrows--
+      const accepted = onFireArrow(this.eagleRangedOrigin, this.eagleBallisticIntercept.direction, kind === 'bow' ? 'arrow' : 'pilum', lifecycle)
+      this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
       this.attackTimer = 0
       this.bowArrowReleased = true
       if (kind === 'javelin') this.eaglePilot.attacked()
@@ -3696,7 +3708,7 @@ export class NPC {
     const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
 
     let isConfirmedLayeredStep = false
-    const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, target.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId) : null
+    const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, target.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId, this.combatantId) : null
     if (townStep) {
       navigationGoal = this._tmpNavigationTarget
       if (townStep.blocked) navigationRoute = 'unreachable'

@@ -53,7 +53,7 @@ export class CivilianCommandSquadController {
     const profile = this.read(), mission = profile.activeMission
     return profile.rank === 'commander' && profile.faction === this.options.townFaction
       && profile.townEvent?.state !== 'hostile' && !profile.activeOutpostMission
-      && (!mission || mission.kind === 'town-defense' && !mission.result && mission.phase !== 'RETURNING'
+      && (!mission || (mission.kind === 'town-defense' || mission.kind === 'commander-four-gate-defense') && !mission.result && mission.phase !== 'RETURNING'
         && mission.phase !== 'RESULT' && mission.phase !== 'RESET')
   }
   private get matchesScene(): boolean {
@@ -230,7 +230,7 @@ export class CivilianCommandSquadController {
       if (!resident) continue
       if (resident.npc.dead) { value.owners[id] = this.defaultOwner(resident.spec); continue }
       const owner = value.owners[id]
-      if (profile.activeMission?.kind === 'town-defense' && !profile.activeMission.result && resident.spec.role === 'civilian') {
+      if ((profile.activeMission?.kind === 'town-defense' || profile.activeMission?.kind === 'commander-four-gate-defense') && !profile.activeMission.result && resident.spec.role === 'civilian') {
         value.owners[id] = 'evacuation'; delete value.members[id].formation
       } else if (owner === 'player' || owner === 'evacuation') this.stageReturn(value, id, resident.spec)
     }
@@ -318,7 +318,7 @@ export class CivilianCommandSquadController {
 
   private defaultOwner(spec: TownActorSpec): CivilianCommandOwner {
     const mission = this.read().activeMission
-    return spec.role === 'civilian' && mission?.kind === 'town-defense' && !mission.result ? 'evacuation' : 'daily'
+    return spec.role === 'civilian' && (mission?.kind === 'town-defense' || mission?.kind === 'commander-four-gate-defense') && !mission.result ? 'evacuation' : 'daily'
   }
   private stageReturn(value: CivilianCommandSquadState, id: string, spec: TownActorSpec): void {
     const member = value.members[id]

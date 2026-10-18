@@ -9,7 +9,7 @@
 - **生涯軍階指揮能力**：Captain／Commander 的角色外觀與晉升已有實作；新增指揮權限仍待玩法範圍確認。
 - **任務隊伍遇敵行軍**：自然互傷已接入；後續補 mission party 整隊暫停原 route、主動處理遭遇，再恢復行軍。
 - **Duel 場地與遭遇互動**：將 Duel 場地移至步兵／騎兵訓練場之間，再整理 Duel 與 roaming 的互動規則。
-- **Town Siege**：四門攻城部署、協同攻門與 breach flow 尚待獨立接入；目前沿用開放城門通行與既有通用障礙物攻擊。
+- **Commander V 實機驗收**：正式四門守城整合已建立；仍須在 Roman／Viking Home Town 驗證八車推進、Dock／Crew 登城、獨立破門、空軍、存檔／返回及 GPU 效能。
 
 ## 選題原則
 

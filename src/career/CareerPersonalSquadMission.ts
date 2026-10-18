@@ -26,6 +26,8 @@ export interface PersonalActorCheckpoint {
   /** True only while the system-owned initial Outpost rampart order is active. */
   outpostRampartGarrison?: boolean
   townRampartGarrison?: boolean
+  /** Mission-only permission for native infantry to hold the wall with its existing mount. */
+  townRampartMounted?: boolean
 }
 export interface PersonalSquadMission {
   squadId: typeof PERSONAL_SQUAD_ID

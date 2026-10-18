@@ -1550,8 +1550,8 @@ export class Game {
   private _bindPlayerCombatCallbacks(campaignConfig?: DefenseCampaignLaunchConfig): void {
     // Listen for arrow fire from Player
     this.player.onFireArrow = (evt) => {
-      if (this.fieldMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return
-      if (this._commanderOutpostCombatLocked()) return
+      if (this.fieldMissionId && this.careerProfile?.activeMission?.phase !== 'ENGAGING') return false
+      if (this._commanderOutpostCombatLocked()) return false
       const arrow = new ArrowProjectile(
         this.scene,
         evt.origin,
@@ -4837,7 +4837,7 @@ export class Game {
         // Dead NPCs still need animation update, but no AI/Boids
         npc.update(dt, this.player, this.npcs, Game._EMPTY_NPC_LIST, this.obstacles, this.hpBar, 
           () => {}, // dead npc can't hit
-          () => {}, // dead npc can't shoot
+          () => false, // dead npc can't shoot
           true, // skipBoidsAndObstacles
           cameraDistance,
           collector

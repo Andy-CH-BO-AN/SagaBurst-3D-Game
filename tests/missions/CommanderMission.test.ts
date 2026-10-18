@@ -21,6 +21,8 @@ import { Box3, Vector3 } from 'three'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { needsDecapitationDeployment, planDecapitationDeployment } from '../../src/career/CommanderDecapitationDeployment'
 import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
+import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
+import { ActiveMissionClock } from '../../src/career/ActiveMissionClock'
 
 function commander(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
   const profile = createCareerProfile(faction)
@@ -67,7 +69,69 @@ describe('Commander mission board policy', () => {
     expect(claimCareerMission(first.profile, missionId, 'victory', { ...stats, damageDealt: 999 }).alreadyClaimed).toBe(true)
 
     const returned = clearCareerMission(first.profile, missionId)
-    expect(availableCommanderMissions(returned)).toHaveLength(4)
+    expect(availableCommanderMissions(returned)).toHaveLength(5)
+  })
+
+  it('holds the full preparation time until native deployment is ready and records spawn intent once before creating enemies', () => {
+    const deploying = createCommanderFourGateDefenseState()
+    expect(advanceCommanderFourGateDefensePreparation(deploying, 400, true)).toBe(deploying)
+    const ready = { ...deploying, phase: 'PREPARING' as const }
+    expect(advanceCommanderFourGateDefensePreparation(ready, 400, false)).toBe(ready)
+    expect(ready.preparationRemainingSeconds).toBe(180)
+    const preparing = advanceCommanderFourGateDefensePreparation(ready, 179.75, true)
+    expect(preparing).toMatchObject({ phase: 'PREPARING', attackStarted: false, preparationRemainingSeconds: .25 })
+    const resumed = JSON.parse(JSON.stringify(preparing)) as typeof preparing
+    const spawning = advanceCommanderFourGateDefensePreparation(resumed, .25, true)
+    expect(spawning).toMatchObject({ phase: 'SPAWNING', attackStarted: false, deploymentComplete: false,
+      preparationRemainingSeconds: 0, registeredTargetActorIds: [], actors: {} })
+    expect(spawning.siege).toBeUndefined()
+    expect(advanceCommanderFourGateDefensePreparation(spawning, 100, true)).toBe(spawning)
+    expect(ready.preparationRemainingSeconds).toBe(180)
+  })
+
+  it('counts only ready formal combat through the survival deadline and freezes the result clock', () => {
+    const initial = createCommanderFourGateDefenseState()
+    expect(advanceCommanderFourGateDefenseCombat(initial, 300, true)).toBe(initial)
+    const preparing = { ...initial, phase: 'PREPARING' as const }
+    expect(advanceCommanderFourGateDefenseCombat(preparing, 300, true)).toBe(preparing)
+    const spawning = { ...preparing, phase: 'SPAWNING' as const, preparationRemainingSeconds: 0 }
+    expect(advanceCommanderFourGateDefenseCombat(spawning, 300, true)).toBe(spawning)
+    const attacking = { ...spawning, phase: 'ATTACKING' as const, attackStarted: true, deploymentComplete: true }
+    expect(advanceCommanderFourGateDefenseCombat(attacking, 300, false)).toBe(attacking)
+    expect(advanceCommanderFourGateDefenseCombat(attacking, Infinity, true)).toBe(attacking)
+    expect(advanceCommanderFourGateDefenseCombat(attacking, -1, true)).toBe(attacking)
+    const nearDeadline = advanceCommanderFourGateDefenseCombat(attacking, 299.9, true)
+    expect(nearDeadline.combatElapsedSeconds).toBe(299.9)
+    const resumed = JSON.parse(JSON.stringify(nearDeadline)) as typeof nearDeadline
+    const deadline = advanceCommanderFourGateDefenseCombat(resumed, .1, true)
+    expect(deadline.combatElapsedSeconds).toBe(300)
+    expect(advanceCommanderFourGateDefenseCombat(deadline, 10, true)).toBe(deadline)
+    const result = { ...nearDeadline, phase: 'RESULT' as const }
+    expect(advanceCommanderFourGateDefenseCombat(result, 10, true)).toBe(result)
+    expect(attacking.combatElapsedSeconds).toBe(0)
+  })
+
+  it('uses 180 active seconds at low frame rate while excluding paused, hidden and reload gaps', () => {
+    let clock = new ActiveMissionClock(), now = 0, state = createCommanderFourGateDefenseState()
+    state.phase = 'PREPARING'
+    expect(clock.advance(now, true)).toBe(0)
+    const frame = () => { now += 100; state = advanceCommanderFourGateDefensePreparation(state, clock.advance(now, true), true) }
+    for (let i = 0; i < 600; i++) frame()
+    expect(state.preparationRemainingSeconds).toBeCloseTo(120)
+    now += 100; expect(clock.advance(now, false)).toBe(0)
+    now = 900_000; expect(clock.advance(now, false)).toBe(0)
+    now += 100; expect(clock.advance(now, true)).toBe(0)
+    for (let i = 0; i < 600; i++) frame()
+    expect(state.preparationRemainingSeconds).toBeCloseTo(60)
+    clock.reset() // The real visibility/focus hook resets even when RAF has stopped.
+    now = 2_000_000; expect(clock.advance(now, true)).toBe(0)
+    frame()
+    state = JSON.parse(JSON.stringify(state)) as typeof state
+    clock = new ActiveMissionClock()
+    now = 3_000_000; expect(clock.advance(now, true)).toBe(0)
+    expect(state.preparationRemainingSeconds).toBeCloseTo(59.9)
+    for (let i = 0; i < 599; i++) frame()
+    expect(state).toMatchObject({ phase: 'SPAWNING', preparationRemainingSeconds: 0, attackStarted: false })
   })
 })
 

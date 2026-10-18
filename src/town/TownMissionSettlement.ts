@@ -3,8 +3,8 @@ import { activateTownResidentHome, restoreTownResidentHome } from './TownResiden
 import type { BanditMissionController } from '../career/BanditMissionController'
 import { restoreCareerDuelCommander, type CareerDuelController } from '../career/CareerDuelController'
 import type { TownDefenseController } from '../career/TownDefenseController'
-import { claimCareerMission, clearCareerMission, type CareerProfile } from '../career/CareerProfile'
-import type { CareerMissionOutcome, CareerMissionResult } from '../career/CareerMissionState'
+import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
+import type { ActiveCareerMission, CareerMissionOutcome, CareerMissionResult } from '../career/CareerMissionState'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { Mount } from '../world/Mount'
@@ -38,7 +38,7 @@ export interface MissionCommitOptions {
 interface MissionControllers {
   field: Pick<BanditMissionController, 'snapshot' | 'cleanupMission' | 'friendlies'>
   duel: Pick<CareerDuelController, 'snapshot' | 'cleanupMission' | 'actors'>
-  defense: Pick<TownDefenseController, 'active' | 'snapshot' | 'cleanupMission' | 'civilianSurvived' | 'civilianDeaths'>
+  defense: Pick<TownDefenseController, 'active' | 'snapshot' | 'cleanupMission' | 'civilianSurvived' | 'civilianDeaths'> & { snapshotActiveMission?(): ActiveCareerMission | undefined }
   patrol?: Pick<CaptainPatrolCommandController, 'statsSnapshot' | 'release' | 'actors'>
 }
 
@@ -92,7 +92,11 @@ export class TownMissionSettlement {
   ) {}
 
   finish(outcome: CareerMissionOutcome): MissionFinish {
-    const profile = this.profiles.read()
+    const profile = cloneCareerProfile(this.profiles.read())
+    if (profile.activeMission?.kind === 'commander-four-gate-defense' && !profile.activeMission.result) {
+      const latest = this.missions.defense.snapshotActiveMission?.()
+      if (latest?.id === profile.activeMission.id) profile.activeMission = latest
+    }
     const active = profile.activeMission
     if (!active || active.result) return { status: 'ignored' }
     const source = active.kind === 'duel' ? this.missions.duel : this.missions.defense.active ? this.missions.defense : this.missions.field
@@ -103,10 +107,10 @@ export class TownMissionSettlement {
       stats = active.kind === 'captain-patrol-command' && this.missions.patrol?.statsSnapshot
         ? this.missions.patrol.statsSnapshot : source.snapshot()
       if (active.personalSquad) this.personalResult = { missionId: active.id, outcome, stats: structuredClone(stats),
-        ...(active.kind === 'town-defense' ? { defense: { civilianSurvived: this.missions.defense.civilianSurvived, civilianDeaths: this.missions.defense.civilianDeaths } } : {}) }
+        ...((active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense') ? { defense: { civilianSurvived: this.missions.defense.civilianSurvived, civilianDeaths: this.missions.defense.civilianDeaths } } : {}) }
     }
     const claim = claimCareerMission(profile, active.id, outcome, stats.player, stats.meritPlayer)
-    if (active.kind === 'town-defense' && claim.profile.activeMission?.result) {
+    if ((active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense') && claim.profile.activeMission?.result) {
       claim.profile.activeMission.result.defense = this.personalResult?.missionId === active.id ? this.personalResult.defense : {
         civilianSurvived: this.missions.defense.civilianSurvived,
         civilianDeaths: this.missions.defense.civilianDeaths,
@@ -120,7 +124,7 @@ export class TownMissionSettlement {
     const profile = this.profiles.read()
     const active = profile.activeMission
     if (!active) return { status: 'ignored' }
-    const defense = active.kind === 'town-defense'
+    const defense = (active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense')
     if (defense && (intent !== 'direct' || !active.result)) return { status: 'ignored' }
     const veteranField = active.kind === 'veteran-field'
     const captainPatrol = active.kind === 'captain-patrol-command'

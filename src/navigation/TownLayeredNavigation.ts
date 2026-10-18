@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { crossingGateBreach, gateBreachLane, gateBreachProgress, hasClearedGateBreach } from './GateBreachPortal'
 import { AvailableBreachEntrances, type BreachEntrance } from './AvailableBreachEntrances'
 import { TOWN_CITY, type TownGateId } from '../town/TownLayout'
 import { getWalkRampHeight } from '../world/Terrain'
@@ -59,8 +60,8 @@ export class TownLayeredNavigation {
     out.set(s.startX + s.dirX * along, s.startY + (s.topY - s.startY) * Math.min(1, along / s.length), s.startZ + s.dirZ * along)
   }
   /** null means ordinary ground travel; ground=true preserves wall/gate topology. */
-  resolveMoveTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3, entranceId?: string | null, mounted = false, sectorId?: TownGateId | null): { ground: boolean; blocked?: boolean } | null {
-    const siege = this.resolveSiegeTarget(current, goal, out, entranceId, mounted, sectorId)
+  resolveMoveTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3, entranceId?: string | null, mounted = false, sectorId?: TownGateId | null, actorId?: string): { ground: boolean; blocked?: boolean } | null {
+    const siege = this.resolveSiegeTarget(current, goal, out, entranceId, mounted, sectorId, actorId)
     if (siege) return siege
     const onDeck = this.isElevated(current), toDeck = this.isElevated(goal), onRamp = this.rampAt(current), toRamp = this.rampAt(goal)
     // Once a descent reaches ground, release the entrance to ordinary A* and
@@ -99,8 +100,12 @@ export class TownLayeredNavigation {
     out.set(s.startX + s.dirX, s.startY + (s.topY - s.startY) / s.length, s.startZ + s.dirZ)
     return { ground: false }
   }
+  hasClearedSiegeGate(current: THREE.Vector3, entranceId: string | null, mounted: boolean): boolean {
+    const entry = entranceId ? this.siegeEntrances.entries.get(entranceId) : undefined
+    return Boolean(this.siegeActive && entry && hasClearedGateBreach(entry, current, mounted))
+  }
   private resolveSiegeTarget(current: THREE.Vector3, goal: THREE.Vector3, out: THREE.Vector3,
-    entranceId: string | null | undefined, mounted: boolean, sectorId?: TownGateId | null): { ground: boolean; blocked?: boolean } | null {
+    entranceId: string | null | undefined, mounted: boolean, sectorId?: TownGateId | null, actorId?: string): { ground: boolean; blocked?: boolean } | null {
     if (!this.siegeActive || this.rampAt(current)) return null
     const outside = current.x <= TOWN_CITY.minX || current.x >= TOWN_CITY.maxX || current.z <= TOWN_CITY.minZ || current.z >= TOWN_CITY.maxZ
     const goalInside = goal.x > TOWN_CITY.minX && goal.x < TOWN_CITY.maxX && goal.z > TOWN_CITY.minZ && goal.z < TOWN_CITY.maxZ
@@ -127,18 +132,35 @@ export class TownLayeredNavigation {
       }
       if (aboard) break
     }
-    const preferred = entranceId ? this.siegeEntrances.entries.get(entranceId) : undefined
+    const preferred = entranceId ? this.siegeEntrances.entries.get(entranceId)
+      : sectorId && actorId && (goalInside || this.isElevated(goal))
+        ? crossingGateBreach(this.siegeEntrances.entries.values(), current, mounted, sectorId) : undefined
     let entry = aboard ?? (preferred && eligible(preferred) ? preferred : undefined)
     if (!entry && goalCarrier && this.connected(current, goalCarrier.approach)) entry = goalCarrier
     if (!entry && (goalInside || this.isElevated(goal))) {
       entry = this.siegeEntrances.select(current, mounted, null, approach => this.connected(current, approach), undefined, eligible) ?? undefined
     }
-    if (!aboard && !outside) return null
+    // Centre-inside is not body-clear: retain the preferred portal until the
+    // whole mounted/foot footprint has passed the wall plane before chasing laterally.
+    const crossingPortal = entry === preferred && entry?.portal && actorId && !hasClearedGateBreach(entry, current, mounted)
+    if (!aboard && !outside && !crossingPortal) return null
     if (!entry || !entry.walkable || mounted && !entry.mounted) {
       if (goalInside || this.isElevated(goal) || entranceId) { out.copy(current); return { ground: true, blocked: true } }
       return null
     }
     if (!entry.surface) {
+      if (entry.portal && actorId && entry.type === 'gate') {
+        const p = gateBreachProgress(entry, current), approach = gateBreachProgress(entry, entry.approach)
+        const radius = mounted ? 1.25 : .6
+        const lane = gateBreachLane(actorId, mounted, entry.portal.halfWidth)
+        // Once admitted into the opening, keep moving through it. Euclidean
+        // distance to the old approach must not send a crossing actor backwards.
+        const crossing = p.along >= approach.along - 1
+          && Math.abs(p.lateral) + radius <= entry.portal.halfWidth
+        out.copy(crossing ? entry.exit : entry.approach)
+        out.x += -p.dz * lane; out.z += p.dx * lane
+        return { ground: true }
+      }
       out.copy(current.distanceTo(entry.approach) > 1 ? entry.approach : entry.exit)
       return { ground: true }
     }

@@ -118,6 +118,7 @@ export class TownOutskirtsWarfareController {
     private readonly scheduler: NpcSpawnScheduler = gameplayNpcSpawns,
     private readonly siegeClaimedActorIds: readonly string[] = [],
     private formalSiege = false,
+    private readonly suspendForFormalMission = false,
   ) {
     this.synchronizeRank()
   }
@@ -419,7 +420,7 @@ export class TownOutskirtsWarfareController {
 
   /** Only a saved roster claim transfers ownership; unrelated generations keep roaming. */
   private shouldSuspendForSiege(squad: OutskirtsSquad): boolean {
-    return this.formalSiege && this.siegeClaimedSquads.includes(squad.id)
+    return this.suspendForFormalMission || this.formalSiege && this.siegeClaimedSquads.includes(squad.id)
   }
 
   /** Called only after saved settlement. Timers did not run and no generation was consumed. */
