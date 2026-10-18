@@ -8,6 +8,8 @@ import { getTerrainHeight } from '../world/Terrain'
 
 interface Point { x: number; z: number }
 export interface GroundOccupant extends Point { radius: number }
+interface StationCandidate { point: ReturnType<typeof townGatePoint>; legal?: boolean }
+const eagleSites = [...TOWN_PRIVATE_EAGLE_SITES, ...TOWN_GARRISON_EAGLE_SITES]
 
 /** Uses the authored flight, landing and wall connection, not four coordinate patches. */
 export function townRampGroundExcluded(layout: TownRampartLayout, point: Point, radius: number): boolean {
@@ -28,13 +30,13 @@ export function townRampGroundExcluded(layout: TownRampartLayout, point: Point, 
 /** One allocation pass owns spacing, including reserved equipment fallback slots. */
 export class TownGroundStations {
   private readonly tower = getTownCommandWatchtowerLayout().footprint
-  private readonly candidates = new Map<string, ReturnType<typeof townGatePoint>[]>()
+  private readonly candidates = new Map<string, StationCandidate[]>()
   constructor(private readonly layout: TownRampartLayout, private readonly occupied: GroundOccupant[]) {}
 
   private staticLegal(p: Point, radius: number): boolean {
     if (townRampGroundExcluded(this.layout, p, Math.max(1.8, radius))) return false
     if (!civilianPointLegal(p, [], [], { radius, height: 2.6 })) return false
-    for (const pad of [...TOWN_PRIVATE_EAGLE_SITES, ...TOWN_GARRISON_EAGLE_SITES]) {
+    for (const pad of eagleSites) {
       const along = (pad.z - p.z) * Math.cos(pad.yaw)
       if (Math.abs(p.x - pad.x) < 16 + radius && along >= -15 - radius
         && along <= EAGLE_APPROACH.terminalDistance + radius) return false
@@ -69,15 +71,22 @@ export class TownGroundStations {
         for (let inward = 10; inward <= 94; inward += 4.5) for (let side = -120; side <= 120; side += 4.5) {
           const p = townGatePoint(gate, side, inward)
           // Keep each replacement in its original wall's defensive sector.
-          if (TOWN_GATES.some(other => other !== gate && Math.hypot(p.x - other.x, p.z - other.z) + 12 < Math.hypot(p.x - gate.x, p.z - gate.z))) continue
-          if (this.staticLegal(p, radius)) candidates.push(p)
+          const gateDistance = Math.hypot(p.x - gate.x, p.z - gate.z)
+          if (TOWN_GATES.some(other => other !== gate && Math.hypot(p.x - other.x, p.z - other.z) + 12 < gateDistance)) continue
+          candidates.push({ point: p })
         }
         this.candidates.set(key, candidates)
       }
       let candidate: ReturnType<typeof townGatePoint> | undefined, best = Infinity
-      for (const p of candidates) {
+      for (const entry of candidates) {
+        const p = entry.point
         const distance = (p.x - desired.x) ** 2 + (p.z - desired.z) ** 2
-        if (distance < best && this.unoccupied(p, radius)) { candidate = p; best = distance }
+        // Keep authored tie ordering, but validate geometry only for candidates
+        // that can improve this allocation. Legality is immutable in this pass;
+        // occupancy still belongs to each actor and is always checked live.
+        if (distance >= best || entry.legal === false) continue
+        if (entry.legal === undefined) entry.legal = this.staticLegal(p, radius)
+        if (entry.legal && this.unoccupied(p, radius)) { candidate = p; best = distance }
       }
       if (!candidate) throw new Error(`No clear ground garrison station in ${gateId}`)
       point = candidate

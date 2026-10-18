@@ -43,6 +43,7 @@ export function civilianPointLegal(point: Point, occupied: readonly Point[] = []
 
 /** Physical clearance has no residential/road exclusions or transient resident spacing. */
 export function civilianBodyClear(point: Point, obstacles: readonly ObstacleData[], clearance: { radius: number; height: number } = CIVILIAN_MOUNT_CLEARANCE): boolean {
+  if (!obstacles.length) return true
   const { x, z } = point, r = clearance.radius, y = getTerrainHeight(x, z)
   return !obstacles.some(o => {
     const box = clearance.height > 1.8 ? o.box : o.navigationBox ?? o.box
