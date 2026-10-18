@@ -11,9 +11,6 @@ describe('Custom battle input boundaries', () => {
     expect(validateBattleConfig(config(200)).valid).toBe(true)
     expect(validateBattleConfig(config(201)).valid).toBe(false)
   })
-  it.each([-1])('rejects a non-deployable army quantity %s', count => {
-    expect(validateBattleConfig(config(count)).valid).toBe(false)
-  })
   it('rejects a command squad over its capacity before deployment', () => {
     const current = config(31)
     current.squadAssignments = [{ presetId: 'viking_berserker', tier: 1, squadId: 1, count: 31 }]

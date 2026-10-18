@@ -87,7 +87,7 @@ describe('Captain battlefield Career entry routing', () => {
     profile.civilianCommandSquad = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman', sceneKey: 'town:roman',
       actorIds: ['merchant'], owners: { merchant: 'player' }, members: { merchant: { status: 'dead', hp: 0 } } }
     const store = new CareerProfileStore(local); expect(store.save(profile)).toBe(true)
-    const merit = store.load()!.totalMerit
+    const merit = profile.totalMerit
     vi.mocked(TownScene.create).mockImplementation(async (_container, restored) => {
       expect(store.load()?.activeMission).toBeUndefined()
       expect(restored.civilianCommandSquad?.actorIds).toHaveLength(21)
@@ -104,8 +104,9 @@ describe('Captain battlefield Career entry routing', () => {
     body.children[0].children.find(child => child.textContent === '重試返回小鎮')!.onclick!()
     await Promise.resolve()
     expect(TownScene.create).toHaveBeenCalledOnce()
-    expect(store.load()?.totalMerit).toBe(merit)
-    expect(store.load()?.civilianCommandSquad?.owners.merchant).toBe('daily')
+    const returned = store.load()!
+    expect(returned.totalMerit).toBe(merit)
+    expect(returned.civilianCommandSquad?.owners.merchant).toBe('daily')
   })
   it.each(['frontline', 'eagle'] as const)('%s reload resumes the actual Captain battle before constructing a Town scene', async kind => {
     const local = new MemoryStorage(), session = new MemoryStorage(), body = element()

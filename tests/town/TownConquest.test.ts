@@ -52,13 +52,13 @@ function savedTown() {
 describe('canonical free Town conquest population', () => {
 
   it('automatically requires a newly added formal resident without an objective flag', () => {
-    const added = { ...townRoster()[0], id: 'new-formal-resident' }
-    const roster = townConquestRoster(layout, [...townRoster(), added]), event = new TownEvent(roster)
+    const baseRoster = townRoster(), added = { ...baseRoster[0], id: 'new-formal-resident' }
+    const roster = townConquestRoster(layout, [...baseRoster, added]), event = new TownEvent(roster)
     roster.forEach(spec => event.register(spec.id, { dead: spec.id !== added.id }))
     event.complete(); event.hostile = true
-    expect(event.actors.size).toBe(townRoster().length + 2); expect(event.evaluate(false)).toBeNull()
+    expect(event.actors.size).toBe(baseRoster.length + 2); expect(event.evaluate(false)).toBeNull()
     event.actors.get(added.id)!.dead = true; expect(event.evaluate(false)).toBe('town_defeated')
-    expect(() => townConquestRoster(layout, [...townRoster(), added, added])).toThrow('Duplicate')
+    expect(() => townConquestRoster(layout, [...baseRoster, added, added])).toThrow('Duplicate')
     expect(() => townConquestRoster(layout, population)).toThrow('Duplicate')
   })
 })
