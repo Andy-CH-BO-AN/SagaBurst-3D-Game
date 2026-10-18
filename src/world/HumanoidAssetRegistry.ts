@@ -253,7 +253,6 @@ export interface HumanoidCharacterInstance {
   skeleton: THREE.Skeleton
   mixers: THREE.AnimationMixer[]
   rig: CharacterRig
-  bounds: THREE.Box3
   attribution: string
   update(dt: number, cameraDistance?: number): void
   dispose(): void
@@ -1182,13 +1181,11 @@ export class HumanoidAssetRegistry {
       THREE.LOD.prototype.update.call(lod, camera)
       animation.setVisibleLOD(lod.getCurrentLevel())
     }
-    const bounds = new THREE.Box3().setFromObject(root)
     return {
       root,
       skeleton,
       mixers,
       rig,
-      bounds,
       attribution: template.manifest.attribution,
       update: (dt, cameraDistance = 0) => animation.update(dt, cameraDistance),
       dispose: () => {
