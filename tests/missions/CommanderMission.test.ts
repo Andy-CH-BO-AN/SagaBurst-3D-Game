@@ -21,7 +21,7 @@ import { Box3, Vector3 } from 'three'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { needsDecapitationDeployment, planDecapitationDeployment } from '../../src/career/CommanderDecapitationDeployment'
 import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
-import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
 import { ActiveMissionClock } from '../../src/career/ActiveMissionClock'
 
 function commander(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
@@ -91,20 +91,20 @@ describe('Commander mission board policy', () => {
 
   it('counts only ready formal combat through the survival deadline and freezes the result clock', () => {
     const initial = createCommanderFourGateDefenseState()
-    expect(advanceCommanderFourGateDefenseCombat(initial, 900, true)).toBe(initial)
+    expect(advanceCommanderFourGateDefenseCombat(initial, survivalSeconds, true)).toBe(initial)
     const preparing = { ...initial, phase: 'PREPARING' as const }
-    expect(advanceCommanderFourGateDefenseCombat(preparing, 900, true)).toBe(preparing)
+    expect(advanceCommanderFourGateDefenseCombat(preparing, survivalSeconds, true)).toBe(preparing)
     const spawning = { ...preparing, phase: 'SPAWNING' as const, preparationRemainingSeconds: 0 }
-    expect(advanceCommanderFourGateDefenseCombat(spawning, 900, true)).toBe(spawning)
+    expect(advanceCommanderFourGateDefenseCombat(spawning, survivalSeconds, true)).toBe(spawning)
     const attacking = { ...spawning, phase: 'ATTACKING' as const, attackStarted: true, deploymentComplete: true }
-    expect(advanceCommanderFourGateDefenseCombat(attacking, 900, false)).toBe(attacking)
+    expect(advanceCommanderFourGateDefenseCombat(attacking, survivalSeconds, false)).toBe(attacking)
     expect(advanceCommanderFourGateDefenseCombat(attacking, Infinity, true)).toBe(attacking)
     expect(advanceCommanderFourGateDefenseCombat(attacking, -1, true)).toBe(attacking)
-    const nearDeadline = advanceCommanderFourGateDefenseCombat(attacking, 899.9, true)
-    expect(nearDeadline.combatElapsedSeconds).toBe(899.9)
+    const nearDeadline = advanceCommanderFourGateDefenseCombat(attacking, survivalSeconds - .1, true)
+    expect(nearDeadline.combatElapsedSeconds).toBe(survivalSeconds - .1)
     const resumed = JSON.parse(JSON.stringify(nearDeadline)) as typeof nearDeadline
     const deadline = advanceCommanderFourGateDefenseCombat(resumed, .1, true)
-    expect(deadline.combatElapsedSeconds).toBe(900)
+    expect(deadline.combatElapsedSeconds).toBe(survivalSeconds)
     expect(advanceCommanderFourGateDefenseCombat(deadline, 10, true)).toBe(deadline)
     const result = { ...nearDeadline, phase: 'RESULT' as const }
     expect(advanceCommanderFourGateDefenseCombat(result, 10, true)).toBe(result)

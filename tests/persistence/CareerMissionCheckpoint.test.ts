@@ -9,7 +9,7 @@ import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefens
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
 import { acceptCommanderMission, COMMANDER_DECAPITATION_ID } from '../../src/career/CommanderMissionCatalog'
-import { advanceCommanderFourGateDefensePreparation } from '../../src/career/CommanderFourGateDefenseState'
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, advanceCommanderFourGateDefensePreparation } from '../../src/career/CommanderFourGateDefenseState'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import type { NPC } from '../../src/world/NPC'
 
@@ -341,7 +341,7 @@ describe('CareerMissionCheckpoint', () => {
     // survival receipt. These are plain actor ports for the canonical full roster.
     enemies.push(...profile.activeMission!.targetActorIds.filter(id => id !== archerId && id !== lancerId)
       .map(id => dataActor(id, state.actors[id])))
-    liveState.combatElapsedSeconds = 900
+    liveState.combatElapsedSeconds = survivalSeconds
     expect(controller.snapshotActiveMission().fourGateDefense!.victoryReason).toBe('survival')
     player.dead = true; player.hp = 0
     for (const resident of residents) Object.assign(resident.npc, { dead: true, hp: 0 })

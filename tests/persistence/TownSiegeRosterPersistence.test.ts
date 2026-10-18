@@ -15,7 +15,7 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
 import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, createCommanderCavalryEscort,
   isCommanderCavalryEscorting, parseCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
-import { parseCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, parseCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
 
 describe('siege checkpoint ownership', () => {
   it('bounds persisted combat time and rejects survival before the deadline', () => {
@@ -25,22 +25,22 @@ describe('siege checkpoint ownership', () => {
       civilianActorIds: mission.civilianActorIds ?? [], deadTargetActorIds: mission.deadTargetActorIds }
     const { combatElapsedSeconds: _legacyAbsent, ...legacy } = state
     expect(parseCommanderFourGateDefenseState(legacy, context)?.combatElapsedSeconds).toBe(0)
-    state.combatElapsedSeconds = 899.9
-    expect(parseCommanderFourGateDefenseState(state, context)?.combatElapsedSeconds).toBe(899.9)
+    state.combatElapsedSeconds = survivalSeconds - .1
+    expect(parseCommanderFourGateDefenseState(state, context)?.combatElapsedSeconds).toBe(survivalSeconds - .1)
     state.victoryReason = 'survival'
     expect(parseCommanderFourGateDefenseState(state, context)).toBeUndefined()
-    state.combatElapsedSeconds = 900
-    expect(parseCommanderFourGateDefenseState({ ...state, combatElapsedSeconds: 900.1 }, context)).toBeUndefined()
+    state.combatElapsedSeconds = survivalSeconds
+    expect(parseCommanderFourGateDefenseState({ ...state, combatElapsedSeconds: survivalSeconds + .1 }, context)).toBeUndefined()
     expect(parseCommanderFourGateDefenseState({ ...state, attackStarted: false }, context)).toBeUndefined()
   })
 
-  it('retains settled five-minute results while rejecting them as active survival victories', () => {
+  it('retains settled legacy five-minute survival results', () => {
     const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
     const context = { missionId: mission.id, faction: profile.faction, phase: mission.phase,
       targetActorIds: mission.targetActorIds, friendlyActorIds: mission.friendlyActorIds,
       civilianActorIds: mission.civilianActorIds ?? [], deadTargetActorIds: mission.deadTargetActorIds }
+    // Historical save-format value, independent of the current gameplay deadline.
     state.combatElapsedSeconds = 300; state.victoryReason = 'survival'
-    expect(parseCommanderFourGateDefenseState(state, context)).toBeUndefined()
     expect(parseCommanderFourGateDefenseState({ ...state, phase: 'RESULT' }, { ...context, phase: 'VICTORY_LOCKED' }))
       .toMatchObject({ phase: 'RESULT', combatElapsedSeconds: 300, victoryReason: 'survival' })
   })
@@ -50,7 +50,7 @@ describe('siege checkpoint ownership', () => {
     const context = { missionId: mission.id, faction: profile.faction, phase: mission.phase,
       targetActorIds: mission.targetActorIds, friendlyActorIds: mission.friendlyActorIds,
       civilianActorIds: mission.civilianActorIds ?? [], deadTargetActorIds: mission.deadTargetActorIds }
-    state.combatElapsedSeconds = 900; state.victoryReason = 'survival'
+    state.combatElapsedSeconds = survivalSeconds; state.victoryReason = 'survival'
     expect(parseCommanderFourGateDefenseState(state, context)?.victoryReason).toBe('survival')
     expect(parseCommanderFourGateDefenseState({ ...state, victoryReason: 'elimination' }, context)).toBeUndefined()
     state.player!.dead = true; state.player!.hp = 0
