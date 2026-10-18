@@ -42,6 +42,22 @@ describe('SpatialGrid', () => {
     expectCandidates(out, expected)
   })
 
+  it('keeps live 3D ties in insertion rings and stops inside an empty gap', () => {
+    const grid = new SpatialGrid<Entity>(10)
+    const tie = entity('tie', 31, 0, 1)
+    const above = entity('above', 0, 30, 0)
+    const outside = entity('outside', 80, 0, 0)
+    for (const candidate of [tie, above, outside]) grid.insert(candidate)
+    tie.combatPosition.set(-30, 0, 0)
+    outside.combatPosition.set(0, 0, 0)
+
+    const visited: Entity[] = []
+    expect(grid.findNearest(new Vector3(), candidate => { visited.push(candidate); return true })).toBe(tie)
+    // Ring 3 ties the high candidate; the original strict bound stops in the gap
+    // before ring 8, even though its entity's live position is now at the query.
+    expectCandidates(visited, [above, tie])
+  })
+
   it('refreshes ordered buckets after inserts and drops the previous generation on clear', () => {
     const grid = new SpatialGrid<Entity>(10)
     const center = new Vector3()
@@ -50,12 +66,16 @@ describe('SpatialGrid', () => {
     grid.insert(right)
     grid.insert(left)
     expectCandidates(grid.getNearby(center, 100), [left, right])
+    const remoteQuery = new Vector3(1000, 0, 0)
+    expect(grid.findNearest(remoteQuery)).toBe(right)
+    expectCandidates(grid.getNearby(center, 100), [left, right])
 
     // Reusing a bucket must expose appends without rebuilding or copying its members.
     grid.insert(left)
     expectCandidates(grid.getNearby(center, 100), [left, left, right])
     const middle = entity('middle', 0, 0, 0)
     grid.insert(middle)
+    expect(grid.findNearest(center)).toBe(middle)
     expectCandidates(grid.getNearby(center, 100), [left, left, middle, right])
 
     const out = [middle]
@@ -66,6 +86,7 @@ describe('SpatialGrid', () => {
     const nextLeft = entity('nextLeft', -80, 0, 0)
     grid.insert(nextRight)
     grid.insert(nextLeft)
+    expect(grid.findNearest(remoteQuery)).toBe(nextRight)
     expectCandidates(grid.getNearbyInto(center, 100, out), [nextLeft, nextRight])
   })
 })
