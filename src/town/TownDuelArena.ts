@@ -10,6 +10,12 @@ export const DUEL_OPPONENT_OFFSET = new THREE.Vector3(0, 0, 8)
 export const DUEL_REFEREE_OFFSET = new THREE.Vector3(8, 0, DUEL_ARENA_HALF_SIZE + 5)
 export const DUEL_PLAYER_OFFSET = new THREE.Vector3(0, 0, -8)
 
+/** Validation, movement and arrival must agree on the terrain at each slot. */
+export function townDuelPosition(area: THREE.Vector3, offset: THREE.Vector3): THREE.Vector3 {
+  const x = area.x + offset.x, z = area.z + offset.z
+  return new THREE.Vector3(x, getTerrainHeight(x, z), z)
+}
+
 /** Reserve the full mounted muster footprint and road shoulders, including diagonal roads. */
 export function townDuelAreaClear(bounds: THREE.Box3): boolean {
   if ([...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS].some(road => townRoadIntersectsBox(road, bounds, 2))) return false
@@ -33,7 +39,7 @@ export function findTownDuelArena(obstacles: readonly ObstacleData[], navigation
     if (stationed.some(spec => bounds.clone().expandByScalar(spec.mounted ? 3 : 2)
       .containsPoint(new THREE.Vector3(spec.x, 0, spec.z)))) continue
     const slots = [new THREE.Vector3(), DUEL_OPPONENT_OFFSET, DUEL_REFEREE_OFFSET, DUEL_PLAYER_OFFSET]
-      .map(offset => { const slot = area.clone().add(offset); slot.y = getTerrainHeight(slot.x, slot.z); return slot })
+      .map(offset => townDuelPosition(area, offset))
     if (slots.every(slot => townDuelAreaClear(new THREE.Box3().setFromCenterAndSize(slot.clone().setY(0), new THREE.Vector3(4, 1000, 4))) && navigation.areConnected(assembly, slot) && !obstacles.some(o =>
       o.box.clone().expandByScalar(2).containsPoint(slot))
       && !stationed.some(s => Math.hypot(s.x - slot.x, s.z - slot.z) < (s.mounted ? 3 : 2)))) return area

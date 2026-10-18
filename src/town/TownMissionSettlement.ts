@@ -1,3 +1,5 @@
+import type { TownGarrisonStation } from './TownGarrison'
+import { activateTownResidentHome, restoreTownResidentHome } from './TownResidentHome'
 import type { BanditMissionController } from '../career/BanditMissionController'
 import { restoreCareerDuelCommander, type CareerDuelController } from '../career/CareerDuelController'
 import type { TownDefenseController } from '../career/TownDefenseController'
@@ -41,7 +43,7 @@ interface MissionControllers {
 }
 
 interface ReturnResident {
-  spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw' | 'defenseGroup'> & Partial<Pick<TownActorSpec, 'id' | 'duty' | 'y'>>
+  spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw' | 'defenseGroup'> & Partial<Pick<TownActorSpec, 'id' | 'duty' | 'y'>> & { garrison?: TownGarrisonStation }
   npc: NPC
   homeMount?: Mount
   cycle: number
@@ -229,10 +231,8 @@ export class TownMissionSettlement {
 
 /** Restore the same authored identity after its recovery checkpoint has been saved. */
 export function restoreMissionReturnResident(resident: ReturnResident, releaseExternalThreat: (npc: NPC) => void): void {
-  const { npc, spec, homeMount } = resident
-  npc.dismountFromMount()
-  npc.restoreForTown({ x: spec.x, z: spec.z, yaw: spec.yaw ?? Math.PI })
-  npc.group.rotation.y = spec.yaw ?? Math.PI
+  const { npc } = resident
+  const spec = restoreTownResidentHome(resident)
   if (isMissionReturnResident(spec)) {
     npc.combatOwnership = undefined
     npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(undefined)
@@ -242,8 +242,5 @@ export function restoreMissionReturnResident(resident: ReturnResident, releaseEx
   }
   resident.cycle = -1; resident.walkTime = 0
   releaseExternalThreat(npc)
-  if (homeMount) {
-    homeMount.restoreForTown(spec.x, spec.z, spec.yaw ?? Math.PI)
-    npc.mountVehicle(homeMount)
-  }
+  activateTownResidentHome(npc, spec)
 }

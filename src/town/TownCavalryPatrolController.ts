@@ -105,7 +105,8 @@ export class TownCavalryPatrolController {
     }
   }
 
-  constructor(residents: readonly PatrolResident[]) {
+  constructor(private readonly townResidents: readonly PatrolResident[]) {
+    const residents = townResidents
     this.squads = (['A', 'B'] as const).flatMap(id => {
       const members = residents.filter(r => r.spec.duty === 'patrol' && r.spec.patrolId === id)
       const captain = members.find(r => r.spec.patrolLeader)
@@ -395,9 +396,11 @@ export class TownCavalryPatrolController {
     if (this.hostile) return
     // Observe the complete squad before any resident can run refit this frame.
     for (const squad of this.squads) this.advanceLifecycle(squad, dt)
+    // Ownership exclusions affect orders, not physical occupancy. Include all
+    // living residents once per frame so ordinary Town actors can block Patrol.
+    for (const resident of this.townResidents) if (!resident.npc.dead) this.grid.insert(resident.npc)
     for (const [id, r] of this.residents) {
       if (!this.relinquished.has(id) && !excluded.has(r.npc) && !r.npc.dead) {
-        this.grid.insert(r.npc)
         if (this.returning.get(id)?.state !== 'RETURN_TO_BARRACKS' && r.npc.mount && !r.npc.mount.dead && r.npc.mount.riderNpc === r.npc) this.available.add(id)
       }
     }
@@ -455,7 +458,7 @@ export class TownCavalryPatrolController {
             returning.urgent ? undefined : npc.isMounted ? TOWN_PATROL_SPEED : FOOT_RETURN_SPEED)
           returning.commandedMounted = npc.isMounted
         }
-        npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 4, this.nearby), obstacles, navigation)
+        npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 10, this.nearby), obstacles, navigation)
         if (npc.isFormationTargetReached(RETURN_COMMAND_ID)) this.refit(resident, returning)
       }
       return true
@@ -488,7 +491,7 @@ export class TownCavalryPatrolController {
       squad.trail.sample(-offset.z, this.anchor)
       if (npc.activeFollowTarget !== leader || npc.activeFollowSlotIndex !== slot) npc.assignFollowTarget(leader, slot, new THREE.Vector3(offset.x, 0, 0), TOWN_PATROL_SPEED, this.anchor)
     }
-    npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 4, this.nearby), obstacles, navigation, isLeader ? undefined : this.anchor)
+    npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), this.grid.getNearbyInto(npc.combatPosition, 10, this.nearby), obstacles, navigation, isLeader ? undefined : this.anchor)
     if (isLeader) squad.trail.record(npc.combatPosition)
     const rejoined = isLeader || (resident.spec.patrolLeader
       ? this.distance(npc.combatPosition, leader.combatPosition) < 9

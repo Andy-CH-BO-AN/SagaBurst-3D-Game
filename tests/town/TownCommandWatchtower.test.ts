@@ -1,11 +1,9 @@
 import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, validateWatchtowerPlacement, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
+import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
 import { surfaceBox } from '../../src/town/TownRamparts'
 import { TOWN_CITY_ROADS, TOWN_CENTER, townHousing, type TownRoad } from '../../src/town/TownLayout'
-import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint } from '../../src/town/TownRules'
 import { resolveTownHRLayout } from '../../src/town/TownHRLayout'
-import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
 import { findBlockingObstacleAlongPath, getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../../src/world/Terrain'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 
@@ -108,16 +106,10 @@ describe('Town command watchtower', () => {
     expect(route.path.at(-1)).toEqual({ x: 10, z: 18 })
   })
 
-  it('reserves both-faction buildings, residents, roads, HR and eagle approaches, rejecting a blocked site', () => {
-    const layout = getTownCommandWatchtowerLayout(), footprints = watchtowerFootprints(layout)
-    const residents = townRoster()
-    const positions = [
-      ...residents.map(actor => actor.garrison ?? actor),
-      ...residents.filter(actor => actor.patrolId).map(townPatrolRefitPoint), townPlayerEntryPoint(),
-    ]
-    expect(positions.filter(point => footprints.some(box => box.intersectsBox(rectangle(point.x, point.z, 6, 6))))).toEqual([])
-    const patrol = [...townPatrolRoute(), ...townPatrolDeparture('A').waypoints, ...townPatrolDeparture('B').waypoints]
-    expect(patrol.filter(point => footprints.some(box => box.intersectsBox(rectangle(point.x, point.z, 10, 10))))).toEqual([])
+  it('reserves both-faction buildings, roads, HR and eagle approaches, rejecting a blocked site', () => {
+    // Resident/patrol clearance belongs to the existing formal roster invariant
+    // in TownResidentLayout; do not regenerate the entire city to test scenery.
+    const layout = getTownCommandWatchtowerLayout()
     const bothFactionObstacles: ObstacleData[] = []
     for (const faction of ['roman', 'viking'] as const) {
       // Expanded hulls include foundations, eaves and the front-facing shop porches.

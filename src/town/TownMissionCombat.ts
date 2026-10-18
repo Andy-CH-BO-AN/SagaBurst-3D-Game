@@ -1,3 +1,5 @@
+import { townRampGroundExcluded } from './TownGroundStation'
+import { activateTownResidentHome, townResidentAtHome } from './TownResidentHome'
 import { townDefenseThreatInRange, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
 import type { ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import type { TownPersonalSquadController } from './TownPersonalSquadController'
@@ -136,7 +138,7 @@ export class TownMissionCombat {
       if (npc.dead || npc.missionMovement || npc.formationCommandId === null
         || npc.tacticalOrder !== 'formation' && npc.tacticalOrder !== 'follow') continue
       npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
-        this.grid.getNearbyInto(npc.combatPosition, 4, this.neighbors), this.town.obstacles, this.town.navigation)
+        this.grid.getNearbyInto(npc.combatPosition, 10, this.neighbors), this.town.obstacles, this.town.navigation)
     }
   }
 
@@ -562,7 +564,7 @@ export class TownMissionCombat {
     const personal = this.town.personalSquad?.()
     if (!actor.dead && (personal?.state === 'RETURNING' || this.missions.defense.phase === 'PREPARING')) {
       actor.updateTownTravel(dt, actor.group.position.distanceTo(this.town.cameraPosition),
-        this.warfareGrid.getNearbyInto(actor.combatPosition, 8, this.neighbors), this.town.obstacles, this.town.navigation)
+        this.warfareGrid.getNearbyInto(actor.combatPosition, 10, this.neighbors), this.town.obstacles, this.town.navigation)
     } else this.updateRuntimeActor(actor, dt)
   }
 
@@ -660,15 +662,17 @@ export class TownMissionCombat {
           .some(target => !target.dead && townWartimeHostile(actor, target))
         duel.setExternalCombat(actor, externalCombat)
         if (combatant || externalCombat) this.updateRuntimeActor(actor, dt)
-        else if (duel.phase === 'PREPARING' || duel.phase === 'RESULT' || duel.phase === 'ENGAGING') {
-          if (actor.formationCommandId != null && !actor.isFormationTargetReached(actor.formationCommandId)) {
+        else {
+          // Every non-combat Duel phase uses travel, including MARCHING/RETURNING.
+          // Keep Follow updating after a temporary hold at the moving leader's slot.
+          if (actor.formationCommandId != null && (actor.tacticalOrder === 'follow' || !actor.isFormationTargetReached(actor.formationCommandId))) {
             actor.updateTownTravel(dt, actor.group.position.distanceTo(this.town.cameraPosition),
-              this.warfareGrid.getNearbyInto(actor.combatPosition, 8, this.neighbors), this.town.obstacles, this.town.navigation)
+              this.warfareGrid.getNearbyInto(actor.combatPosition, 10, this.neighbors), this.town.obstacles, this.town.navigation)
             continue
           }
           if (actor.mount) { actor.mount.beginControlledFrame(); actor.mount.finishControlledFrame(dt, this.town.obstacles) }
           actor.updateTownPeace(dt, actor.group.position.distanceTo(this.town.cameraPosition), false, false)
-        } else this.updateRuntimeActor(actor, dt)
+        }
       } else if (outskirts?.owns(actor)) this.updateOutskirtsActor(actor, outskirts, dt)
       else this.updateRuntimeActor(actor, dt)
     }
@@ -714,6 +718,22 @@ export class TownMissionCombat {
       if (this.externalThreatHasOtherOwner(npc, spec.garrison?.kind === 'rampart')) {
         this.releaseExternalThreat(npc)
         continue
+      }
+      if (spec.garrison && !npc.dead && !missionFriendlies.has(npc) && !this.externalThreatActors.has(npc) && !this.garrisonReturns.has(npc)) {
+        const station = townStationSpec(spec, npc.isMounted, Boolean(npc.rangedWeaponId))
+        const layout = this.town.navigation.townNav?.layout, p = npc.combatPosition
+        const resting = !npc.hasFormationTarget || npc.formationCommandId !== null && npc.isFormationTargetReached(npc.formationCommandId)
+        const staleGroundHome = station.garrison?.kind !== 'rampart' && resting && layout
+          && Math.abs(p.y - getTerrainHeight(p.x, p.z)) < .6 && townRampGroundExcluded(layout, p, npc.isMounted ? 1.8 : .7)
+        const wrongHomeLayer = station.garrison?.kind === 'rampart' && resting
+          && Math.hypot(p.x - station.x, p.z - station.z) <= 2 && !townResidentAtHome(npc, station, 2)
+        if (staleGroundHome || wrongHomeLayer || station.garrison?.kind !== spec.garrison.kind || station.x !== spec.x || station.y !== spec.y || station.z !== spec.z) {
+          // Equipment changes update home intent, then use the ordinary physical return.
+          resident.spec = station
+          this.garrisonReturns.set(npc, station)
+          npc.assignFormationTarget(EXTERNAL_GARRISON_RETURN_ID, new THREE.Vector3(station.x, station.y, station.z),
+            new THREE.Vector3(Math.sin(station.yaw ?? Math.PI), 0, Math.cos(station.yaw ?? Math.PI)), undefined, 'attack')
+        }
       }
       if (this.garrisonReturns.has(npc)) {
         // Only immediate, valid contact interrupts return; a distant old target cannot oscillate it.
@@ -849,12 +869,12 @@ export class TownMissionCombat {
         this.garrisonReturns.delete(npc)
       } else {
         npc.updateTownTravel(dt, npc.combatPosition.distanceTo(this.town.cameraPosition),
-          this.garrisonReturnGrid.getNearbyInto(npc.combatPosition, 4, this.neighbors), this.town.obstacles, this.town.navigation)
-        if (npc.isFormationTargetReached(EXTERNAL_GARRISON_RETURN_ID)) {
+          this.garrisonReturnGrid.getNearbyInto(npc.combatPosition, 10, this.neighbors), this.town.obstacles, this.town.navigation)
+        if (townResidentAtHome(npc, station) && npc.isFormationTargetReached(EXTERNAL_GARRISON_RETURN_ID)) {
           this.garrisonReturns.delete(npc)
           npc.setTacticalOrder('attack')
           npc.setTownPeaceful()
-          if (station.garrison?.kind === 'rampart' && !npc.isMounted && npc.rangedWeaponId) npc.activateTownRampartGarrison()
+          activateTownResidentHome(npc, station)
         }
         return
       }

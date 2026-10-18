@@ -2,6 +2,7 @@ import { cloneCivilianCommandSquad, type CivilianCommandSquadState } from '../ca
 import { TOWN_CENTER, TOWN_WELL, TOWN_CITY, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_DUEL_CENTER, TOWN_DUEL_HALF_SIZE, townHousing, TOWN_PRIVATE_EAGLE_SITES, TOWN_GARRISON_EAGLE_SITES } from './TownLayout'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
+import type { TownActorSpec } from './TownRules'
 
 export type CivilianDistrict = 'plaza' | 'housing' | 'street'
 export interface CivilianAnchor { x: number; y: number; z: number; district: CivilianDistrict }
@@ -42,6 +43,7 @@ export function civilianPointLegal(point: Point, occupied: readonly Point[] = []
 
 /** Physical clearance has no residential/road exclusions or transient resident spacing. */
 export function civilianBodyClear(point: Point, obstacles: readonly ObstacleData[], clearance: { radius: number; height: number } = CIVILIAN_MOUNT_CLEARANCE): boolean {
+  if (!obstacles.length) return true
   const { x, z } = point, r = clearance.radius, y = getTerrainHeight(x, z)
   return !obstacles.some(o => {
     const box = clearance.height > 1.8 ? o.box : o.navigationBox ?? o.box
@@ -93,6 +95,19 @@ export function civilianHomeAnchor(index: number, occupied: readonly Point[] = [
     if (civilianPointLegal({ x, z }, occupied, obstacles, CIVILIAN_MOUNT_CLEARANCE) && (!navigation || navigation.areConnected({ x: 60, z: 12 }, { x, z }))) return { x, y: getTerrainHeight(x, z), z, district }
   }
   throw new Error(`No legal civilian home for ${id}`)
+}
+
+/** Final population includes services/Commander as well as the base roster.
+ * Keep inactive equipment fallback slots reserved during this second allocation.
+ */
+export function assignTownCivilianHomes(population: readonly TownActorSpec[], obstacles: readonly ObstacleData[],
+  navigation: Pick<NavigationWorld, 'areConnected'>): void {
+  const occupied = population.filter(a => a.role !== 'civilian').flatMap<Point>(a =>
+    a.garrison?.groundFallback ? [a.garrison, a.garrison.groundFallback] : [a.garrison ?? a])
+  for (const civilian of population) if (civilian.role === 'civilian') {
+    const home = civilianHomeAnchor(civilian.index, occupied, obstacles, navigation)
+    Object.assign(civilian, { x: home.x, y: home.y, z: home.z }); occupied.push(civilian)
+  }
 }
 
 interface WalkState { remaining: number; step: number; destination?: Point }

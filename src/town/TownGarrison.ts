@@ -1,3 +1,4 @@
+import { TownGroundStations } from './TownGroundStation'
 import type { NPC } from '../world/NPC'
 import { TOWN_EAGLE_ALERT_RADIUS } from './TownEagleGarrison'
 import { siegeDefensePlans } from '../career/TownDefenseRoster'
@@ -6,10 +7,25 @@ import { TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
 import { getTownRampartLayout, townRampartHeight, TOWN_RAMPART } from './TownRamparts'
 import type { TownActorSpec } from './TownRules'
 
-export interface TownGarrisonStation { kind: 'rampart' | 'gate' | 'reserve'; gateId: TownGateId; x: number; y: number; z: number; yaw: number }
+export interface TownGarrisonStation { kind: 'rampart' | 'gate' | 'reserve'; gateId: TownGateId; x: number; y: number; z: number; yaw: number; rampartHome?: TownGarrisonStation; groundFallback?: { x: number; y: number; z: number; yaw: number } }
+// Town roster queries repeat during service/layout resolution. Cache only derived
+// placement data, cloning it into each fresh roster so equipment cannot mutate peers.
+let placementCache: { key: string; stations: Map<string, TownGarrisonStation> } | undefined
+function copyStation(station: TownGarrisonStation): TownGarrisonStation {
+  return { ...station, ...(station.groundFallback ? { groundFallback: { ...station.groundFallback } } : {}) }
+}
+
 /** Placement only: legacy duty/training/group fields remain the mission identity contract. */
 export function assignTownGarrison(roster: TownActorSpec[]): TownActorSpec[] {
   const layout = getTownRampartLayout()
+  const key = JSON.stringify([roster.map(a => [a.id, a.role, a.duty, a.mounted, a.unitKind, a.gateId, a.index, a.x, a.z, a.assaultObjective]), layout.ramps, layout.wallSpans])
+  if (placementCache?.key === key) {
+    for (const actor of roster) {
+      const station = placementCache.stations.get(actor.id)
+      if (station) actor.garrison = copyStation(station)
+    }
+    return roster
+  }
   const plans = siegeDefensePlans(roster)
   const gateByActor = new Map(plans.flatMap(p => [...p.infantry, ...p.cavalry].map(id => [id, p.gateId] as const)))
   const occupied: { x: number; z: number }[] = []
@@ -19,6 +35,9 @@ export function assignTownGarrison(roster: TownActorSpec[]): TownActorSpec[] {
   const ranged = roster.filter(a => !a.mounted && (a.duty === 'training' || a.duty === 'gate_guard') && (a.unitKind === 'ranged' || a.unitKind === 'archer'))
   const melee = roster.filter(a => !a.mounted && (a.duty === 'training' || a.duty === 'gate_guard') && (a.unitKind === 'melee' || a.unitKind === 'spearman'))
   const cavalry = roster.filter(a => a.mounted && a.duty === 'training')
+  const stationed = new Set([...ranged, ...melee, ...cavalry])
+  const ground = new TownGroundStations(layout, roster.filter(a => !stationed.has(a) && !a.eagle)
+    .map(a => ({ x: a.x, z: a.z, radius: a.mounted ? 1.8 : .7 })))
   for (const [kind, actors] of [['rampart', ranged], ['gate', melee], ['reserve', cavalry]] as const) {
     const counts = new Map<TownGateId, number>(TOWN_GATES.map(g => [g.id, 0]))
     // Preserve the existing defense/command membership when relocating residents.
@@ -66,22 +85,30 @@ export function assignTownGarrison(roster: TownActorSpec[]): TownActorSpec[] {
         candidates.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))
         p = candidates[0]; occupied.push(p)
       }
+      if (kind !== 'rampart') p = ground.allocate(gate.id, p, actor.mounted)
       const y = kind === 'rampart' ? townRampartHeight(layout, p.x, p.z)! : getTerrainHeight(p.x, p.z)
       actor.garrison = { kind, gateId: gate.id, ...p, y }
     }
   }
+  // Allocate unique fallback slots once, against every final ground station.
+  // Reusing these on return/equipment changes avoids order-dependent overlap.
+  for (const actor of ranged) {
+    const station = actor.garrison!, gate = TOWN_GATES.find(g => g.id === station.gateId)!
+    station.groundFallback = ground.allocate(gate.id, townGatePoint(gate, 48 + actor.index % 5 * 3, 18 + Math.floor(actor.index / 5) * 4), true)
+  }
+  placementCache = { key, stations: new Map(roster.flatMap(actor => actor.garrison ? [[actor.id, copyStation(actor.garrison)]] : [])) }
   return roster
 }
 /** Equipment can release a default ranged station without changing the resident's identity. */
-export function townStationSpec(spec: TownActorSpec, mounted: boolean, ranged: boolean): TownActorSpec {
-  const station = spec.garrison
+export function townStationSpec<T extends { x: number; z: number; y?: number; yaw?: number; garrison?: TownGarrisonStation }>(spec: T, mounted: boolean, ranged: boolean): T {
+  const station = spec.garrison?.rampartHome ?? spec.garrison
   if (!station) return spec
   if (station.kind === 'rampart' && (mounted || !ranged)) {
     const gate = TOWN_GATES.find(g => g.id === station.gateId)!
-    const p = townGatePoint(gate, 48 + spec.index % 5 * 3, 18 + Math.floor(spec.index / 5) * 4)
-    return { ...spec, ...p, y: getTerrainHeight(p.x, p.z), garrison: { ...station, ...p, y: getTerrainHeight(p.x, p.z), kind: 'reserve' } }
+    const p = station.groundFallback ?? new TownGroundStations(getTownRampartLayout(), []).allocate(gate.id, station, mounted)
+    return { ...spec, ...p, y: getTerrainHeight(p.x, p.z), garrison: { ...station, ...p, y: getTerrainHeight(p.x, p.z), kind: 'reserve', rampartHome: station } }
   }
-  return { ...spec, x: station.x, y: station.y, z: station.z, yaw: station.yaw }
+  return { ...spec, garrison: station, x: station.x, y: station.y, z: station.z, yaw: station.yaw }
 }
 
 /** Read live equipment/state on every sensor pass; ordinary residents retain their old radius. */

@@ -206,7 +206,8 @@ const obstacleCollisionIndexes = new WeakMap<
   ObstacleCollisionSpatialIndex
 >()
 
-function getLocalCollisionObstacles(
+/** Ephemeral shared broad-phase buffer; consume immediately without retaining it. */
+export function getLocalCollisionObstacles(
   obstacles: ObstacleData[],
   x: number,
   z: number,

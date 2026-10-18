@@ -63,15 +63,10 @@ export class TownLayeredNavigation {
     const siege = this.resolveSiegeTarget(current, goal, out, entranceId, mounted, sectorId)
     if (siege) return siege
     const onDeck = this.isElevated(current), toDeck = this.isElevated(goal), onRamp = this.rampAt(current), toRamp = this.rampAt(goal)
-    if (!onDeck && !toDeck && !onRamp && !toRamp) {
-      const foot = this.layout.ramps.find(r => {
-        const s = r.surface, along = (current.x - s.startX) * s.dirX + (current.z - s.startZ) * s.dirZ
-        const lateral = Math.abs((current.x - s.startX) * -s.dirZ + (current.z - s.startZ) * s.dirX)
-        return along >= -2.5 && along <= .2 && lateral < s.halfWidth - .5 && current.distanceTo(r.entrance) > .3
-      })
-      if (foot) { out.copy(foot.entrance); return { ground: false } }
-      return null
-    }
+    // Once a descent reaches ground, release the entrance to ordinary A* and
+    // friendly avoidance. Recapturing nearby ground movers here traps them in
+    // the 0.3m entrance tolerance forever, even when their goal is on ground.
+    if (!onDeck && !toDeck && !onRamp && !toRamp) return null
     if (onDeck && toDeck && !onRamp) { this.alongRing(current, goal, out); return { ground: false } }
     const ascending = toDeck || Boolean(toRamp)
     const ramp = onRamp ?? toRamp ?? this.layout.ramps.reduce((best, r) => {

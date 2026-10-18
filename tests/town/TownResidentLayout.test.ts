@@ -1,10 +1,27 @@
+import { getTerrainHeight } from '../../src/world/Terrain'
+import { getTownRampartLayout } from '../../src/town/TownRamparts'
+import { townStationSpec } from '../../src/town/TownGarrison'
+import { TownGroundStations } from '../../src/town/TownGroundStation'
 import { describe, expect, it } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import type { CivilianCommandSquadState } from '../../src/career/CivilianCommandAuthority'
-import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, townMountPlacementBatchClear, CIVILIAN_MOUNT_CLEARANCE } from '../../src/town/TownCivilianLife'
+import { CIVILIAN_HOME_LAYOUT_VERSION, migrateCivilianHomes, civilianHomeAnchor, civilianPointLegal, civilianBodyClear, civilianMountsClear, townMountPlacementBatchClear, CIVILIAN_MOUNT_CLEARANCE, assignTownCivilianHomes } from '../../src/town/TownCivilianLife'
 import { findTownDuelArena, townDuelAreaClear, DUEL_ARENA_HALF_SIZE } from '../../src/town/TownDuelArena'
 import { TOWN_DUEL_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_MOUNTED_MISSION_MUSTER } from '../../src/town/TownLayout'
-import { townRoster } from '../../src/town/TownRules'
+import { townRoster, townPatrolRefitPoint, townPlayerEntryPoint, withTownCommandSquadRoster } from '../../src/town/TownRules'
+import { townPatrolDeparture, townPatrolRoute } from '../../src/town/TownPatrolRoute'
+import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../../src/town/TownCommandWatchtowerLayout'
+import { resolveTownHRLayout, townConquestRoster } from '../../src/town/TownHRLayout'
+import { resolveTownEagleTrainingGround } from '../../src/town/TownEagleTrainingGround'
+import { resolveTownEagleGarrison } from '../../src/town/TownEagleGarrison'
+import { resolveTownCommanderPosition, townCommanderSpec } from '../../src/town/TownCommander'
+
+/** Exact AABB equivalent of a square with vertical interval [-100,100]. */
+function squareIntersects(box: Box3, point: { x: number; z: number }, half: number): boolean {
+  return box.max.y >= -100 && box.min.y <= 100
+    && point.x - half <= box.max.x && point.x + half >= box.min.x
+    && point.z - half <= box.max.z && point.z + half >= box.min.z
+}
 
 describe('Town resident layout ownership', () => {
   it('migrates living daily homes and mounted positions without healing or moving other owners', () => {
@@ -124,4 +141,76 @@ describe('Town resident layout ownership', () => {
     expect(civilianPointLegal(roadPoint, [], [], CIVILIAN_MOUNT_CLEARANCE)).toBe(false)
     expect(civilianBodyClear(roadPoint, [])).toBe(true)
   })
+})
+
+it('keeps final Town population homes, ground stations and fallbacks clear of ramp approaches, watchtower and each other', () => {
+  const roster = townRoster(), layout = getTownRampartLayout()
+  // Retain the original 3m resident / 5m patrol tower margins, using this
+  // invariant's existing production roster rather than a second cold fixture.
+  const footprints = watchtowerFootprints(getTownCommandWatchtowerLayout())
+  const positions = [...roster.map(actor => actor.garrison ?? actor),
+    ...roster.filter(actor => actor.patrolId).map(townPatrolRefitPoint), townPlayerEntryPoint()]
+  expect(positions.filter(point => footprints.some(box => squareIntersects(box, point, 3)))).toEqual([])
+  const patrol = [...townPatrolRoute(), ...townPatrolDeparture('A').waypoints, ...townPatrolDeparture('B').waypoints]
+  expect(patrol.filter(point => footprints.some(box => squareIntersects(box, point, 5)))).toEqual([])
+  const stations = roster.flatMap(actor => actor.garrison ? [
+    ...(actor.garrison.kind === 'rampart' ? [] : [{ ...actor.garrison, radius: actor.mounted ? 1.8 : .7 }]),
+    ...(actor.garrison.groundFallback ? [{ ...actor.garrison.groundFallback, radius: 1.8 }] : []),
+  ] : [])
+  expect(new Set(roster.filter(a => a.mounted && a.garrison?.kind === 'reserve').map(a => a.garrison!.gateId)).size).toBe(4)
+  const intrusions: string[] = []
+  for (const p of stations) for (const ramp of layout.ramps) {
+    const s = ramp.surface, dx = p.x - s.startX, dz = p.z - s.startZ
+    const along = dx * s.dirX + dz * s.dirZ, lateral = Math.abs(-dx * s.dirZ + dz * s.dirX)
+    if (!(along < -7.5 - p.radius || along > s.length + s.landing + p.radius + 1 || lateral > s.halfWidth + p.radius + 1)) intrusions.push(`${ramp.gateId}:${p.x},${p.z}`)
+  }
+  expect(intrusions).toEqual([])
+  let minimumGap = Infinity
+  for (let i = 0; i < stations.length; i++) for (let j = 0; j < i; j++) {
+    const a = stations[i], b = stations[j]
+    minimumGap = Math.min(minimumGap, Math.hypot(a.x - b.x, a.z - b.z) - a.radius - b.radius)
+  }
+  expect(minimumGap).toBeGreaterThanOrEqual(.59)
+  const roads = [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS], navigation = { areConnected: () => true }
+  const hr = resolveTownHRLayout('roman', [], roads), training = resolveTownEagleTrainingGround([], roads, hr)
+  const population = townConquestRoster(hr, withTownCommandSquadRoster('roman', roster), training, resolveTownEagleGarrison(training))
+  population.push(townCommanderSpec(resolveTownCommanderPosition([], roads, navigation, population)))
+  // Reserve an otherwise legal home in the final population. This makes the
+  // lost-fallback bug observable even when today's default slots happen to miss homes.
+  const unreserved = population.filter(a => a.role !== 'civilian').map(a => a.garrison ?? a)
+  const reservedHome = civilianHomeAnchor(0, unreserved, [], navigation)
+  population.find(a => a.garrison?.groundFallback)!.garrison!.groundFallback = { ...reservedHome, yaw: 0 }
+  assignTownCivilianHomes(population, [], navigation)
+  const fallbacks = population.flatMap(a => a.garrison?.groundFallback ?? [])
+  const civilians = population.filter(a => a.role === 'civilian')
+  expect(civilians).toHaveLength(20)
+  expect(population.map(a => a.id)).toEqual(expect.arrayContaining(['hr-officer', 'eagle-trainer', 'commander']))
+  let homeGap = Infinity
+  for (const civilian of civilians) for (const fallback of fallbacks) homeGap = Math.min(homeGap, Math.hypot(civilian.x - fallback.x, civilian.z - fallback.z))
+  expect(homeGap).toBeGreaterThanOrEqual(4.5)
+})
+
+it('uses unique deterministic ground fallbacks for equipment changes and restores the authored ranged station', () => {
+  const roster = townRoster(), actor = roster.find(a => a.garrison?.kind === 'rampart')!, original = structuredClone(actor)
+  const mounted = townStationSpec(actor, true, true)
+  const melee = townStationSpec(actor, false, false)
+  expect(mounted).toEqual(townStationSpec(actor, true, true))
+  expect(melee.garrison).toEqual(mounted.garrison)
+  expect(mounted.garrison?.kind).toBe('reserve')
+  expect(mounted).toMatchObject({ id: actor.id, duty: actor.duty, tier: actor.tier })
+  expect(mounted.garrison?.gateId).toBe(actor.garrison?.gateId)
+  expect(mounted.y).toBe(getTerrainHeight(mounted.x, mounted.z))
+  expect(civilianPointLegal(mounted, [], [], { radius: 1.8, height: 2.6 })).toBe(true)
+  expect(townStationSpec(mounted, false, true)).toMatchObject({ x: actor.garrison!.x, y: actor.garrison!.y, z: actor.garrison!.z, garrison: actor.garrison })
+  expect(actor).toEqual(original)
+})
+
+it('selects the nearest tied ground candidate in authored order and rechecks occupancy on the reused heap', () => {
+  const stations = new TownGroundStations(getTownRampartLayout(), [{ x: 30, z: -105, radius: .7 }])
+  const first = stations.allocate('north', { x: 30, z: -105 }, false)
+  const second = stations.allocate('north', { x: 30, z: -105 }, false)
+  expect(first.x).toBeCloseTo(34.5); expect(first.z).toBeCloseTo(-105)
+  expect(second.x).toBeCloseTo(25.5); expect(second.z).toBeCloseTo(-105)
+  expect(first.y).toBe(getTerrainHeight(first.x, first.z))
+  expect(second.y).toBe(getTerrainHeight(second.x, second.z))
 })

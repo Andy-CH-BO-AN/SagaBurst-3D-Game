@@ -1,3 +1,4 @@
+import { FriendlyMovementBypass } from '../navigation/FriendlyMovementBypass'
 import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
@@ -18,6 +19,8 @@ import type { HpBar } from '../ui/HpBar'
 import {
   clampToPlayableWorld,
   getScenePlayableWorldBound,
+  getWalkRampHeight,
+  getLocalCollisionObstacles,
   findBlockingObstacleAlongPath,
   findBlockingProjectileObstacleAlongPath,
   findObstacleDetourPlan,
@@ -512,6 +515,32 @@ export class NPC {
   private _detourObstacle: ObstacleData | null = null
   private _detourSide: ObstacleDetourSide = 1
   private _detourStuckElapsed = 0
+  private readonly _friendlyBypass = new FriendlyMovementBypass()
+  private readonly _bypassSample = new THREE.Vector3()
+  private readonly _bypassSegmentClear = (from: THREE.Vector3, to: THREE.Vector3): boolean => {
+    const obstacles = this.fallObstacles
+    const radius = this._movementObstacleRadius() + .2, height = this._movementObstacleHeight()
+    const steps = Math.max(1, Math.ceil(from.distanceTo(to) / .35))
+    let lastY = getTerrainHeight(from.x, from.z)
+    for (let i = 0; i <= steps; i++) {
+      const p = this._bypassSample.copy(from).lerp(to, i / steps)
+      if (Math.abs(p.x) > this.playableWorldBound || Math.abs(p.z) > this.playableWorldBound) return false
+      const y = getTerrainHeight(p.x, p.z)
+      if (Math.abs(y - lastY) > .4) return false
+      lastY = y; p.y = y
+      // Keep all special surfaces (including siege platforms) with their own navigator.
+      for (const obstacle of getLocalCollisionObstacles(obstacles, p.x, p.z, radius)) {
+        if (obstacle.physicalPassable) continue
+        if (obstacle.walkSurface && getWalkRampHeight(obstacle.walkSurface, p.x, p.z) !== null) return false
+        const b = obstacle.box
+        if (b.max.y > y + .15 && b.min.y < y + height && p.x > b.min.x - radius && p.x < b.max.x + radius
+          && p.z > b.min.z - radius && p.z < b.max.z + radius) return false
+      }
+      const grid = this._activeNavigationWorld?.grid, cell = grid?.worldToCell(p)
+      if (grid && (!cell || grid.isBlocked(cell))) return false
+    }
+    return true
+  }
   private readonly _navigationPath = new NavigationPathFollower()
   private readonly _tmpNavigationTarget = new THREE.Vector3()
   private _activeNavigationWorld: NavigationWorld | null = null
@@ -546,6 +575,7 @@ export class NPC {
     this.followSlotIndex = -1
     this.followCombatActive = false
     this._resetFollowNavigation()
+    this._friendlyBypass.clear()
   }
   assignSiegeObstacle(obstacle: ObstacleData | null): void {
     if (this.assignedSiegeObstacle === obstacle) return
@@ -1421,6 +1451,7 @@ export class NPC {
     this.followSlotIndex = -1
     this.followCombatActive = false
     this._resetFollowNavigation()
+    this._friendlyBypass.clear()
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
@@ -1450,6 +1481,7 @@ export class NPC {
     this.followSlotIndex = -1
     this.followCombatActive = false
     this._resetFollowNavigation()
+    this._friendlyBypass.clear()
     this.formationTarget = {
       commandId,
       position: target.clone(),
@@ -1480,6 +1512,7 @@ export class NPC {
     this.followSmoothedLeaderYaw = anchor?.yaw ?? target.group.rotation.y
     this.followCombatActive = false
     this._resetFollowNavigation()
+    this._friendlyBypass.clear()
     this.followNavigationCheckRemaining = this._initialStaggerPhase * .6
     const position = followSlotWorldPosition(this.followSmoothedLeaderPosition, this.followSmoothedLeaderYaw, this.followLocalOffset)
     const layeredNav = this._activeNavigationWorld?.outpostNav
@@ -2621,7 +2654,7 @@ export class NPC {
         // constructor patrol waypoints belong to Town/field NPCs, not the Player's party.
         const personalAttack = this.combatOwnership === 'player-personal' && this.tacticalOrder === 'attack'
         if (!personalAttack && !this.holdsRampartPosition && this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
-          this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld)
+          this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld, nearbyNPCs)
         }
 
         if ((!this.encounterOrigin || this.encounterAggro === 'alerted' || this.encounterAggro === 'provoked') && targetInfo && !targetInfo.isDead) {
@@ -3524,11 +3557,12 @@ export class NPC {
     this.encounterAggro = 'returning'
   }
 
-  private _updatePatrol(dt: number, obstacles: ObstacleData[], skipBoidsAndObstacles: boolean, navigationWorld: NavigationWorld | null): void {
+  private _updatePatrol(dt: number, obstacles: ObstacleData[], skipBoidsAndObstacles: boolean, navigationWorld: NavigationWorld | null, nearby: NPC[]): void {
     const target = this.waypoints[this.currentWaypointIdx]
     const dist = this.group.position.distanceTo(target)
 
     if (dist < 0.5) {
+      this._friendlyBypass.clear()
       this.currentWaypointIdx = (this.currentWaypointIdx + 1) % this.waypoints.length
     } else {
       const dir = this._tmpPatrolDir.copy(target).sub(this.group.position)
@@ -3546,7 +3580,8 @@ export class NPC {
             obstacles,
           ))
       }
-      this._faceTarget(target)
+      if (!skipBoidsAndObstacles) this._steerFriendlyGroundBypass(dt, target, dir, nearby, obstacles)
+      this._faceDirection(dir)
       this._moveByDirection(dir, this.mount ? this.mount.baseSpeed * 0.5 : PATROL_SPEED, dt)
     }
   }
@@ -3639,6 +3674,7 @@ export class NPC {
       || Boolean(navigationWorld?.townNav && navigationWorld.townNav.isElevated(this.combatPosition) !== navigationWorld.townNav.isElevated(target.position))
 
     if (distance <= arrivalDistance && !isDifferentLayer) {
+      this._friendlyBypass.clear()
       target.reached = true
       if (target.arrivalOrder === 'defend') {
         this.formationTarget = null
@@ -3771,6 +3807,11 @@ export class NPC {
       this._clearObstacleDetour()
     }
 
+    let bypassing = false
+    if (!skipBoidsAndObstacles && !isConfirmedLayeredStep && !isDifferentLayer && moveDir.lengthSq() > .0001) {
+      bypassing = this._steerFriendlyGroundBypass(dt, target.position, moveDir, nearbyNPCs, obstacles)
+    } else this._friendlyBypass.clear()
+
     if (!skipBoidsAndObstacles && moveDir.lengthSq() > 0.0001) {
       this._tmpSep.set(0, 0, 0)
       let sepCount = 0
@@ -3802,7 +3843,7 @@ export class NPC {
           moveDir.set(travelSign * .35, 0, passingZ - this.combatPosition.z).normalize()
         }
       }
-      if (navigationRoute !== 'path' && !isConfirmedLayeredStep && !(layeredNav && (isStairLayer(npcLayer) || isRampartLayer(npcLayer)))) {
+      if (!bypassing && navigationRoute !== 'path' && !isConfirmedLayeredStep && !(layeredNav && (isStairLayer(npcLayer) || isRampartLayer(npcLayer)))) {
         moveDir.copy(getObstacleAvoidanceDirection(
           this.group.position,
           moveDir,
@@ -3831,6 +3872,17 @@ export class NPC {
       }
     }
     clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position, this.playableWorldBound)
+  }
+
+  private _steerFriendlyGroundBypass(dt: number, goal: THREE.Vector3, direction: THREE.Vector3, nearby: NPC[], obstacles: ObstacleData[]): boolean {
+    const p = this.combatPosition
+    if (this.mount?.isFlyingMount || Math.abs(p.y - getTerrainHeight(p.x, p.z)) > .6
+      || this._activeNavigationWorld?.townNav?.rampAt(p)
+      || this._activeNavigationWorld?.outpostNav && this._activeNavigationWorld.outpostNav.getNavLayer(p) !== 'ground') {
+      this._friendlyBypass.clear(); return false
+    }
+    this.fallObstacles = obstacles
+    return this._friendlyBypass.steer(dt, this, goal, direction, nearby, this._bypassSegmentClear)
   }
 
   private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false, maxDistance = Infinity): void {
@@ -4099,7 +4151,7 @@ export class NPC {
     this.state = AIState.CHASE
   }
 
-  respawn(destination?: { x: number; z: number; yaw?: number }): void {
+  respawn(destination?: { x: number; y?: number; z: number; yaw?: number }): void {
     this.shield.reset()
     this.weaponSweep.reset()
     this.meleeApproachLimit = Infinity
@@ -4125,7 +4177,7 @@ export class NPC {
     }
 
     const x = destination?.x ?? this.spawnX, z = destination?.z ?? this.spawnZ
-    const terrainY = getTerrainHeight(x, z)
+    const terrainY = destination?.y ?? getTerrainHeight(x, z)
     this.group.position.set(x, terrainY, z)
     this.velY = 0
     this.onGround = true
@@ -4156,7 +4208,7 @@ export class NPC {
     this.chargeSprintLatched = false
   }
 
-  restoreForTown(destination?: { x: number; z: number; yaw?: number }): void {
+  restoreForTown(destination?: { x: number; y?: number; z: number; yaw?: number }): void {
     this.pendingFall.clear()
     this.restoreCombatLoadout()
     this.respawn(destination)

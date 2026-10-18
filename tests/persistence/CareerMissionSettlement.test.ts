@@ -6,7 +6,10 @@ import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMis
 import { claimCareerMission,createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { TownMissionSettlement } from '../../src/town/TownMissionSettlement'
-import type { NPC } from '../../src/world/NPC'
+import { NPC } from '../../src/world/NPC'
+import { createCareerDuelMission } from '../../src/career/CareerDuelState'
+import { townStationSpec } from '../../src/town/TownGarrison'
+import { getTerrainHeight } from '../../src/world/Terrain'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { townRoster } from '../../src/town/TownRules'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
@@ -14,11 +17,12 @@ import { resolveTownActorEquipment } from '../../src/career/CareerTownEquipmentS
 import { addCareerItem } from '../../src/career/CareerInventory'
 
 /** Save/controller boundaries only. Position and yaw are data, never an Object3D or scene tree. */
-function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'veteran-field' = 'bandit', completed = false) {
+function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'veteran-field' | 'duel' = 'bandit', completed = false) {
   const events: string[] = []
   let profile = createCareerProfile('roman')
   profile.activeMission = kind === 'captain-patrol-command'
     ? createCaptainPatrolCommandMission(profile, ['patrol:captain'], 'settlement')
+    : kind === 'duel' ? createCareerDuelMission(profile, 'roman_archer', 1, 'resident', 'captain', 'settlement')!
     : kind === 'town-defense' ? createTownDefenseMission(['resident'], [], 'settlement')
     : { ...createActiveCareerMission('recruit-bandits-01', 0, 1, 0, 'settlement'), kind }
   const stats = { damageDealt: 200, damageTaken: 100, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: false }
@@ -29,11 +33,12 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'v
   const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
   expect(store.save(profile)).toBe(true)
   const residentState = { dead: true, group: { position: new Vector3(9, 0, 9), rotation: { y: 0 } },
-    dismountFromMount: vi.fn(), restoreForTown: vi.fn(() => { residentState.dead = false; events.push('restore') }), mountVehicle: vi.fn() }
+    dismountFromMount: vi.fn(), restoreCombatLoadout: vi.fn(),
+    restoreForTown: vi.fn((_destination?: Parameters<NPC['restoreForTown']>[0]) => { residentState.dead = false; events.push('restore') }), mountVehicle: vi.fn() }
   const resident = { spec: { id: 'resident', role: 'melee_infantry', x: 2, z: 3, yaw: .5 },
     npc: residentState as unknown as NPC, cycle: 3, walkTime: 2 }
   const field = { friendlies: [resident.npc], snapshot: vi.fn(() => ({ player: stats, squads: [] })), cleanupMission: vi.fn(() => events.push('cleanup')) }
-  const duel = { actors: [], snapshot: vi.fn(() => ({ player: stats, squads: [] })), cleanupMission: vi.fn() }
+  const duel = { actors: kind === 'duel' ? [resident.npc] : [], snapshot: vi.fn(() => ({ player: stats, squads: [] })), cleanupMission: vi.fn() }
   const defense = { active: kind === 'town-defense' ? profile.activeMission : undefined, snapshot: vi.fn(() => ({ player: stats, squads: [] })),
     civilianSurvived: 2, civilianDeaths: 1, cleanupMission: vi.fn(() => events.push('defense-cleanup')) }
   const patrol = { actors: [resident.npc], statsSnapshot: { player: stats, squads: [] }, release: vi.fn(() => events.push('release')) }
@@ -62,6 +67,35 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'v
 }
 
 describe('Town mission settlement transactions', () => {
+  it('restores a borrowed rampart training archer at its authored height and reactivates home duty after Duel return', () => {
+    const h = fixture('duel', true)
+    const spec = townStationSpec(townRoster().find(a => a.duty === 'training' && a.garrison?.kind === 'rampart')!, false, true)
+    Object.assign(h.resident.spec, spec)
+    h.read().activeMission!.duelOpponentActorId = spec.id
+    // Plain reset ports only: execute the actual restoreForTown/respawn methods,
+    // without constructing an NPC, rig, Object3D, material or scene.
+    const body = Object.assign(h.residentState, {
+      dead: false, isMounted: false, combatantId: spec.id, combatPosition: h.residentState.group.position,
+      rangedWeaponId: undefined as string | undefined, hasActiveRangedWeapon: true,
+      shield: { reset: vi.fn() }, weaponSweep: { reset: vi.fn() }, deathFade: { reset: vi.fn() },
+      pendingFall: { clear: vi.fn() }, maxHp: 100, rig: {}, onRespawnCallbacks: [],
+      swordPivot: { visible: false }, bowPivot: { visible: false }, alertSprite: { visible: false },
+      _clearObstacleDetour: vi.fn(), _clearSiegeFallback: vi.fn(), _alignExternalVisualToMount: vi.fn(),
+      _refreshActiveShield: vi.fn(), _cancelEquipmentCombatState: vi.fn(), animator: { cancel: vi.fn() },
+      setTacticalOrder: vi.fn(), setTownPeaceful: vi.fn(), respawn: NPC.prototype.respawn,
+      activateTownRampartGarrison: vi.fn(),
+    })
+    Object.assign(body.group.rotation, { set(_x: number, y: number, _z: number) { body.group.rotation.y = y } })
+    body.restoreCombatLoadout.mockImplementation(() => { body.rangedWeaponId = 'wooden_shortbow' })
+    body.restoreForTown.mockImplementation(destination => NPC.prototype.restoreForTown.call(h.resident.npc, destination))
+    expect(h.settlement.returnToTown('arrived')).toEqual({ status: 'returned', kind: 'party' })
+    expect(body.combatPosition.toArray()).toEqual([spec.x, spec.y, spec.z])
+    expect(body.combatPosition.y).toBeGreaterThan(getTerrainHeight(spec.x, spec.z) + 5)
+    expect(body.activateTownRampartGarrison).toHaveBeenCalledOnce()
+    expect(h.resident.spec).toMatchObject({ id: spec.id, duty: 'training', garrison: spec.garrison })
+    expect(h.read().activeMission).toBeUndefined()
+  })
+
   it('atomically rebuilds Commander defense at home without replaying battle checkpoints or rewards', () => {
     const h = fixture('town-defense', true), profile = h.read()
     profile.rank = 'commander'; profile.totalMerit = 20000

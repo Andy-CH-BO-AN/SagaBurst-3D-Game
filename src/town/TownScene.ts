@@ -10,7 +10,7 @@ import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
-import { civilianHomeAnchor, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
+import { assignTownCivilianHomes, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
 import { townDefenseThreatResponse, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
 import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
 import { SquadRefitSafety } from '../career/SquadRefit'
@@ -317,11 +317,7 @@ export class TownScene {
       population.push(townCommanderSpec(resolveTownCommanderPosition(this.world.obstacles, this.world.roads, this.navigation, population)))
     }
     this.navigation.sync(this.world.obstacles)
-    const civilianOccupied = population.filter(a => a.role !== 'civilian').map(a => a.garrison ?? a)
-    for (const civilian of population.filter(a => a.role === 'civilian')) {
-      const home = civilianHomeAnchor(civilian.index, civilianOccupied, this.world.airspaceObstacles, this.navigation)
-      Object.assign(civilian, { x: home.x, y: home.y, z: home.z }); civilianOccupied.push(civilian)
-    }
+    assignTownCivilianHomes(population, this.world.airspaceObstacles, this.navigation)
     this.residentRoster = careerTownSceneRoster(profile, population)
     this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec) : population)
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
@@ -2053,7 +2049,7 @@ export class TownScene {
     this.playMissionVoice('missionAccepted')
     if (!this.duel.startActiveMission()) { this.openPanel('單挑部署失敗', '任務已保存，重新載入可恢復同一場單挑。'); return }
     this.inventory.prepareForCombat()
-    this.notice = '已接受單挑。前往市政廳與 Captain 集合。'
+    this.notice = '已接受單挑。直接前往單挑場地，Captain 與對手將自行到場。'
     this.closePanel()
   }
   private acceptOutpostRelief(): void {
@@ -2492,7 +2488,7 @@ export class TownScene {
       return
     }
     if (this.profile?.activeMission?.kind === 'duel') {
-      if (complete && result.stats.survived) this.button(panel, '跟隊長走回去', () => {
+      if (complete && result.stats.survived) this.button(panel, '跟隊長返回市政廳', () => {
         if (!this.duel.startReturning()) { this.notice = '返回狀態保存失敗，請重試。'; return }
         this.clearMissionCombatShots()
         this.missionResultOpen = false
@@ -3538,7 +3534,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'captain-patrol-command'
         ? `\nPATROL COMMAND · 有效擊殺 ${this.captainPatrol?.killCount ?? this.profile.activeMission.patrolKilledActorIds?.length ?? 0}/30\n正式巡邏隊 ${this.captainPatrol?.aliveCombatants ?? 0}/20 · Q / 反引號 命令`
         : this.profile.activeMission.kind === 'duel'
-        ? `\nDUEL · T${this.profile.activeMission.duelTier} ${UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (this.duel.combatRemaining > 29 ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨裁判返回市政廳' : this.duel.phase === 'ASSEMBLING' ? '前往市政廳與 Captain 集合' : this.duel.phase === 'MARCHING' ? '跟隨 Captain 前往廣場單挑場地' : this.duel.phase}`
+        ? `\nDUEL · T${this.profile.activeMission.duelTier} ${UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (this.duel.combatRemaining > 29 ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨隊長返回市政廳服務點' : this.duel.phase === 'ASSEMBLING' || this.duel.phase === 'MARCHING' ? '前往單挑場地 · 等待 Captain 與對手就位' : this.duel.phase}`
         : this.profile.activeMission.kind === 'veteran-field'
         ? this.veteranMissionHud()
         : this.profile.activeMission.kind === 'cavalry-sweep'
