@@ -8,7 +8,14 @@ concurrency:
   group: production-pages
   cancel-in-progress: false
 jobs:
+  logic:
+    uses: ./.github/workflows/logic-tests.yml
+    with:
+      mode: full
+      head: ${{ github.sha }}
+      event: ${{ github.event_name }}
   build:
+    needs: logic
     permissions:
       contents: read
       pages: read
@@ -21,8 +28,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
-      - run: npm run test:release
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run smoke:web

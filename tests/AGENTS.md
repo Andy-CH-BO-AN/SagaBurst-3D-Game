@@ -15,9 +15,9 @@
 ## 成本與邏輯範圍
 
 - 每個保留的邏輯 leaf case 最多 100ms，包含該案例的 beforeEach、body、afterEach、onTestFinished 與案例專屬 cleanup。以不受 fake timers 影響的真實單調時鐘量測；timeout 或 slowTestThreshold 不能取代預算驗證。
-- 全 repository 的 Vitest + Node 邏輯 leaf cases 合計最多 500；each、動態生成與多實作 contract 的每一列均計入。這是硬上限，不是目標配額。
-- 維護目標為全量約 400–450 個重要 case、單一 leaf 通常低於 70ms，預留 50+ 個名額及 30ms 執行餘裕；它們是**非阻擋的預警目標**，不得靠隱藏案例或刪掉必要回歸達標。500 個／100ms 的硬門檻仍由 CI 守門。
-- 若全量超過 450 個或任一 case 達 70ms，新增前先盤點該能力 owner 的現有覆蓋，優先採取淨減、去除重複 failure mode、縮小 fixture 與依賴；新案例若不可替代，需在 PR 說明風險與成本，不以硬性淨減要求犧牲關鍵保護。
+- 單一 CI shard／test runner invocation 的 Vitest + Node 邏輯 leaf cases 合計最多 500；each、動態生成與多實作 contract 的每一列均計入。這是 per-shard 硬上限，repository 全量合計可以超過 500。Related／Full 都依 collection deterministic 分 shard，不截斷、不遺漏、不重複。單檔超過 500 時須拆分獨立能力 suite，planner fail closed。
+- 單一 leaf 通常應低於 70ms，保留 30ms 執行餘裕；這是**非阻擋的預警目標**，不得靠隱藏案例或刪掉必要回歸達標。每 shard 500 個／每 case 100ms 的硬門檻仍由 CI 守門，不設 repository 案例配額。
+- 若任一 case 達 70ms，新增前先盤點該能力 owner 的現有覆蓋，優先採取淨減、去除重複 failure mode、縮小 fixture 與依賴；新案例若不可替代，需在 PR 說明風險與成本，不以硬性淨減要求犧牲關鍵保護。
 - Import／collection、setupFiles、beforeAll／afterAll 與整套 wall time 另外記錄；不得將案例成本藏入共用初始化或 cache。
 - Unit tests 不生成場景或 3D model，不建立 Scene、Group、Object3D 假場景、Mesh、geometry、material、texture、skeleton、rig 或 AnimationMixer。
 - 不呼叫 TownWorld／城牆／地形／戰場 builders，不建立會初始化模型、動畫或場景的 NPC、Player、Mount、TownScene，不解析或 preload 真實 GLB、GLTF、FBX、貼圖或動畫資產。
@@ -59,10 +59,13 @@
 ## Runner 與誠實驗證
 
 - Runner 實際 collection 是數量依據；Node release leaf cases 與 Vitest 合併，避免漏跑或重算。報告缺失、過期、collection error 或空 suite 均不能通過。
-- 既有 CI 執行的 npm script 必須觸發預算守門，不修改 workflow；任何超過 100ms 的邏輯 case 輸出檔案、完整名稱、耗時並失敗。不得吞掉 runner 的原始失敗退出碼。
-- 保留單檔／指定案例開發能力，但 subset 通過不能當作全量預算證據。
+- CI 與 npm test 必須經由相同 planner／manifest 與預算守門；任何超過 100ms 的邏輯 case 輸出檔案、完整名稱、耗時並失敗。不得吞掉 runner 的原始失敗退出碼。
+- 普通 PR → dev 與 push → dev 使用 dependency-aware Related Test CI；PR 使用 merge-base，push 使用 before..after。直接修改測試、跨目錄 helper consumers、間接 production 依賴都要選入；同一 logic manifest 的 Node release tests 不能漏跑或重複；各 Desktop host 保留獨立 component 驗證。
+- PR → main、push → main、正式 tag／release／Pages 發佈前與手動 Full mode 必須跑 Full Test gate。Full 可以分 shard，aggregate 必須驗證所有 discovered files 及 leaves 恰好執行一次，再允許 publish。
+- Selector 以 Vitest runtime dependency graph 加上靜態 runtime／CJS graph 選取，runtime registry／高風險 owner、runner/config、移除/搬移、Git history 不足，或 production／所有測試及 fixtures 的 computed imports／globs 等無法確定依賴時 Full fallback；collection error 直接失敗。不得透過搬移檔案、dynamic import 或不登記依賴規避 selection。
+- 僅嚴格文件變更允許明確 docs-only empty plan；code change 得到零測試一律 Full fallback／failure。保留單檔／指定案例開發能力，但 Related／subset 通過不能代表 Full Suite 通過。
 - 開發中可先跑受影響 suite（`rtk npm test -- <file-or-directory>` 或 `-t`，屬局部驗證），再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。
-- **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。web CI 必須通過既有 `npm run typecheck:test`、`npm test`（Vitest + Node 合併 leaf 預算）、`npm run test:release`、`npm run build` 及 Web smoke；PR 的 Desktop packaging／smoke jobs 若適用也須通過。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
-- 檢視同一次 CI 中的總 case count、max leaf 時間及 **Top 10 slow leaf**（完整名稱、檔案、hooks/cleanup 含入）；超過 450 個或有 case 達 70ms 為非阻擋預警，應標記優化方向。每個 case >100ms、總數 >500 或任一適用 CI job 失敗仍不得宣稱通過；不靠重跑三次、只挑最好的一次或增加 retry 掩蓋不穩定。只有 CI 失敗／平台異常／結果過期或有明確疑慮才重跑或補充診斷。
+- **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 logic plan／matrix／aggregate（Vitest + Node 合併 per-shard leaf 預算）、`npm run typecheck:test`、`npm run build` 及 Web smoke；PR／Release 的 Windows、macOS Desktop jobs 必須各自執行 Node release tests，再通過 packaging／smoke；Ubuntu logic shard 不取代 host path／bundle／traversal 驗證。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
+- 檢視同一次 CI 中的 mode、base/head、selection reasons、fallback、每 shard 與 aggregate case count、max leaf 時間及 **Top 10 slow leaf**（完整名稱、檔案、hooks/cleanup 含入）；有 case 達 70ms 為非阻擋預警，應標記優化方向。每個 case >100ms、任一 shard >500 或任一適用 CI job 失敗仍不得宣稱通過；不靠重跑三次、只挑最好的一次或增加 retry 掩蓋不穩定。只有 CI 失敗／平台異常／結果過期或有明確疑慮才重跑或補充診斷。
 - 僅在重大核心邏輯變更或新測試難確認有效性時，可對少量關鍵 owner 作受控負向驗證，確認測試真的會失敗再還原；不把 mutation check 當作每 PR 必經步驟，也不引入大型 mutation framework。
 - PR 誠實記錄 CI run URL、驗證 commit、結果、保留／刪除的 failure mode、已知失敗與未驗證範圍；一次性量測放 PR 或 ignored `output/`，不寫入長期規範或提交大型永久審計文件。
