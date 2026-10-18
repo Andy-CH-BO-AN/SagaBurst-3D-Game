@@ -79,6 +79,8 @@ export class XongkoroVisual {
   get wingbeatSequence(): number { return this.wingbeatPhase.sequence }
   get isFlapping(): boolean { return this.flapping }
   private posed = false
+  private heldPose: 'grounded' | 'dead' | null = null
+  private disposed = false
   private readonly worldPosition = new THREE.Vector3()
   private readonly offset = new THREE.Vector3()
   private readonly rootRotation = new THREE.Quaternion()
@@ -171,13 +173,11 @@ export class XongkoroVisual {
     this.offset.set(0, -lowest, 0).applyQuaternion(this.rootRotation)
     this.worldPosition.add(this.offset)
     this.torsoSocket.position.copy(this.torsoSocket.parent!.worldToLocal(this.worldPosition))
-    this.root.updateWorldMatrix(true, true)
   }
 
   /** Physics supplies the attack envelope; LOD never owns its time or contacts. */
   update(dt: number, state: XongkoroVisualState): void {
-    if (!Number.isFinite(dt) || dt < 0) return
-    this.restorePose()
+    if (this.disposed || !Number.isFinite(dt) || dt < 0) return
     // Death holds the current flight/standing base and cancels only attack.
     // Corpse physics still owns descent, support and cleanup.
     if (!state.dead) {
@@ -190,22 +190,30 @@ export class XongkoroVisual {
       const clearance = (state.groundClearance ?? Infinity) - tilt * XONGKORO.wingClearance
       this.flapWeight = Number.isNaN(clearance) ? 1 : THREE.MathUtils.smoothstep(clearance, XONGKORO_VISUAL.flapClearanceStart, XONGKORO_VISUAL.flapClearanceFull)
     }
+    const weight = state.dead ? 0 : THREE.MathUtils.clamp(state.attackWeight, 0, 1)
+    const heldPose = state.dead ? 'dead' : this.groundWeight === 1 && weight === 0 ? 'grounded' : null
     this.flight.paused = this.groundWeight === 1 || state.dead
     this.flight.setEffectiveTimeScale(state.sprinting ? XONGKORO_VISUAL.sprintFlapRate : 1)
+    // Paused flight plus an unchanged local pose needs no mixer or pose rebuild.
+    // Parent/root motion still propagates during corpse descent and repositioning;
+    // update(0) deliberately forces initialization and restore callers to resample.
+    if (dt > 0 && heldPose !== null && this.heldPose === heldPose) {
+      this.root.updateWorldMatrix(true, true)
+      return
+    }
+    this.restorePose()
     this.mixer.update(dt)
     this.flapping = state.flying && !state.dead
       && this.flapWeight > XONGKORO_VISUAL.minimumAudibleFlapWeight
       && this.groundWeight < XONGKORO_VISUAL.maximumAudibleGroundWeight
     this.wingbeatPhase.sample(this.flight.time / this.flight.getClip().duration, this.flapping)
-    this.root.updateWorldMatrix(true, true)
-    const weight = state.dead ? 0 : THREE.MathUtils.clamp(state.attackWeight, 0, 1)
     if (this.groundWeight > 0 || weight > 0 || this.flapWeight < 1) {
       for (const saved of this.saved) { saved.position.copy(saved.node.position); saved.quaternion.copy(saved.node.quaternion) }
       this.posed = true
     }
     // Near support, keep the source spread-wing reference and gradually allow
     // its full downstroke as clearance grows. Legs retain their own blend.
-    for (const pose of this.wingReference) {
+    if (this.flapWeight < 1) for (const pose of this.wingReference) {
       pose.node.position.lerp(pose.position, 1 - this.flapWeight)
       pose.node.quaternion.slerp(pose.quaternion, 1 - this.flapWeight)
     }
@@ -214,8 +222,10 @@ export class XongkoroVisual {
         pose.node.position.lerp(pose.position, this.groundWeight)
         pose.node.quaternion.slerp(pose.quaternion, this.groundWeight)
       }
-      this.root.updateWorldMatrix(true, true)
-      if (this.groundWeight < 1) this.supportTransitionFeet()
+      if (this.groundWeight < 1) {
+        this.root.updateWorldMatrix(true, true)
+        this.supportTransitionFeet()
+      }
     }
     if (weight > 0) {
       this.root.getWorldQuaternion(this.rootRotation)
@@ -226,12 +236,17 @@ export class XongkoroVisual {
       for (const thigh of this.thighs) this.rotate(thigh, XONGKORO_VISUAL.attackClawPitch * weight)
     }
     this.root.updateWorldMatrix(true, true)
+    this.heldPose = heldPose
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     this.restorePose()
     this.mixer.stopAllAction()
     this.mixer.uncacheRoot(this.root)
+    // SkeletonUtils cloned this skeleton for this instance; all LODs use it.
+    this.skeleton.dispose()
     this.root.removeFromParent()
     // Geometry, material and textures remain owned by the shared template.
   }
