@@ -34,6 +34,8 @@ Commander 新正式八隊為 26／26／26／26／25／26／25／26，共 206 人
 
 ## 已知限制
 
+原生 Scenario G 初始相機的短劍／盾牌提交分別來自可見 Roman 裝備的不同材質或陰影政策，未發現重複提交。局部 Axe／Round Shield 靜態合併尚未證明足以交付的整體收益；進一步減少裝備提交前，須同時核對 Renderer CPU、GPU timing 與既有 shadow／LOD 契約。裝備建立與回收仍由 `WeaponMeshFactory` 及各 actor owner 負責，共享資源不可由單一 NPC 釋放；本次調查結論與原始證據見 [PR #383](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/pull/383)。
+
 下列視覺／效能問題沿用既有交接，**本次未重現確認是否仍存在**：
 
 - Viking Bow LOD1/2 的手臂姿勢與 LOD0 裝備 socket 有落差，可能離手。
