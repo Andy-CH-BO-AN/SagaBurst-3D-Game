@@ -1,8 +1,8 @@
 import { expect, it } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import {
-  atCommanderRetirementRally, beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner,
-  completeCommanderRetirement, insideCommanderRetirementFinalStandZone,
+  advanceCommanderRetirementFinalStand, atCommanderRetirementRally, beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner,
+  completeCommanderRetirement,
 } from '../../src/career/CareerRetirementFinale'
 import { TOWN_RETIREMENT_EXTRACTION } from '../../src/town/TownBounds'
 import { withNativeRetirementCheckpoints } from '../helpers/RetirementMobilizationFixture'
@@ -13,11 +13,11 @@ function finaleProfile(phase: 'mobilizing' | 'final-stand', combatElapsedSeconds
   profile.personalSquad = { members: [] }
   profile.careerRetirement = { version: 1, phase, acceptedAt: 123, combatElapsedSeconds,
     mobilization: { version: 1, commandRevoked: true, refillCompleted: true, formationPrepared: true } }
-  return withNativeRetirementCheckpoints(profile)
+  return profile
 }
 
-it('starts only a complete mobilization and advances the immutable survival clock only inside the horizontal zone', () => {
-  const ready = finaleProfile('mobilizing')
+it('starts only a complete mobilization without changing the admitted checkpoint', () => {
+  const ready = withNativeRetirementCheckpoints(finaleProfile('mobilizing'))
   const original = JSON.stringify(ready)
   expect(beginCommanderRetirementFinalStand({ ...ready, rank: 'captain' })).toBeNull()
   expect(beginCommanderRetirementFinalStand({ ...ready, activeMission: {
@@ -29,30 +29,37 @@ it('starts only a complete mobilization and advances the immutable survival cloc
   expect(started.careerRetirement).toMatchObject({ phase: 'final-stand', combatElapsedSeconds: 0 })
   expect(JSON.stringify(ready)).toBe(original)
   expect(beginCommanderRetirementFinalStand(started)).toBeNull()
+  expect(completeCommanderRetirement(started, false)).toBeNull()
+})
+
+it('uses an 8 m horizontal admission trigger then advances continuously away from the rally', () => {
   const position = { ...TOWN_RETIREMENT_EXTRACTION, y: 100 }
-  expect(atCommanderRetirementRally({ ...position, x: 8 })).toBe(true)
-  expect(atCommanderRetirementRally({ ...position, x: 8.01 })).toBe(false)
-  expect(insideCommanderRetirementFinalStandZone({ ...position, x: 45 })).toBe(true)
-  expect(insideCommanderRetirementFinalStandZone({ ...position, x: 45.01 })).toBe(false)
-  const owner = new CareerRetirementFinaleOwner()
+  expect(atCommanderRetirementRally({ ...position, x: position.x + 8 })).toBe(true)
+  expect(atCommanderRetirementRally({ ...position, x: position.x + 8.01 })).toBe(false)
+  const started = finaleProfile('final-stand')
   const frame = { deltaSeconds: 42.5, playerPosition: position, playerDead: false }
-  expect(owner.advance(started, { ...frame, playerPosition: { ...position, x: 46 } })).toBe(started)
-  let progressed = owner.advance(started, frame)
-  expect(progressed.careerRetirement?.combatElapsedSeconds).toBe(42.5)
+  let result = advanceCommanderRetirementFinalStand(started, frame)
+  expect(result.profile.careerRetirement?.combatElapsedSeconds).toBe(42.5)
   expect(started.careerRetirement?.combatElapsedSeconds).toBe(0)
-  expect(completeCommanderRetirement(progressed, false)).toBeNull()
-  progressed = owner.fastForward(progressed)!
-  expect(progressed.careerRetirement?.combatElapsedSeconds).toBe(295)
-  progressed = owner.advance(progressed, { ...frame, deltaSeconds: 4.5 })
-  expect(progressed.careerRetirement?.combatElapsedSeconds).toBe(299.5)
-  expect(owner.outcome).toBeUndefined()
-  expect(owner.retryCompletion(() => { throw new Error('No terminal candidate to save yet') })).toBeNull()
+  const away = { ...position, x: position.x + 1000, z: position.z + 1000 }
+  result = advanceCommanderRetirementFinalStand(result.profile, { ...frame, playerPosition: away, deltaSeconds: 257 })
+  expect(result.profile.careerRetirement?.combatElapsedSeconds).toBe(299.5)
+  expect(result.outcome).toBeUndefined()
+  const checkpoint = result.profile
+  expect(advanceCommanderRetirementFinalStand(checkpoint, { ...frame, playerPosition: away, playerDead: true }))
+    .toEqual({ profile: checkpoint, outcome: 'fallen' })
+  result = advanceCommanderRetirementFinalStand(checkpoint, { ...frame, playerPosition: away, deltaSeconds: 0.5 })
+  expect(result.profile.careerRetirement?.combatElapsedSeconds).toBe(300)
+  expect(result.outcome).toBe('escaped')
 })
 
 it('latches escape at 300 seconds and retries an isolated unchanged candidate after a rejected save and later death', () => {
-  const current = finaleProfile('final-stand', 299.5)
+  const current = withNativeRetirementCheckpoints(finaleProfile('final-stand', 299.5))
   const owner = new CareerRetirementFinaleOwner()
-  const frame = { deltaSeconds: 0.5, playerPosition: TOWN_RETIREMENT_EXTRACTION, playerDead: false }
+  const frame = { deltaSeconds: 0.5,
+    playerPosition: { x: TOWN_RETIREMENT_EXTRACTION.x + 1000, z: TOWN_RETIREMENT_EXTRACTION.z }, playerDead: false }
+  expect(owner.fastForward(current)?.careerRetirement?.combatElapsedSeconds).toBe(299.5)
+  expect(owner.retryCompletion(() => { throw new Error('No terminal candidate to save yet') })).toBeNull()
   const progressed = owner.advance(current, frame)
   expect(progressed.careerRetirement?.combatElapsedSeconds).toBe(300)
   expect(progressed.personalSquad?.members).toEqual([])
@@ -73,8 +80,9 @@ it('latches escape at 300 seconds and retries an isolated unchanged candidate af
 })
 
 it('latches an early death at its original elapsed time despite a rejected save and later survival', () => {
-  const current = finaleProfile('final-stand', 12.5)
+  const current = withNativeRetirementCheckpoints(finaleProfile('final-stand', 12.5))
   const owner = new CareerRetirementFinaleOwner()
+  expect(owner.fastForward(current)?.careerRetirement?.combatElapsedSeconds).toBe(295)
   const frame = { deltaSeconds: 42.5, playerPosition: TOWN_RETIREMENT_EXTRACTION, playerDead: true }
   owner.advance(current, frame)
   expect(owner.outcome).toBe('fallen')

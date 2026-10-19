@@ -1,7 +1,7 @@
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import {
   atCommanderRetirementRally, beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner,
-  COMMANDER_RETIREMENT_FINAL_STAND_SECONDS, insideCommanderRetirementFinalStandZone,
+  COMMANDER_RETIREMENT_FINAL_STAND_SECONDS,
 } from '../career/CareerRetirementFinale'
 import { hasCompleteRetirementMobilizationCheckpoint } from '../career/CareerRetirementMobilization'
 import type { NPC } from '../world/NPC'
@@ -100,8 +100,7 @@ export class TownRetirementFinaleController {
 
   private advance(dt: number, position: { x: number; z: number }, dead: boolean): void {
     let current = this.deps.read()
-    const terminal = dead || insideCommanderRetirementFinalStandZone(position)
-      && current.careerRetirement!.combatElapsedSeconds + dt >= COMMANDER_RETIREMENT_FINAL_STAND_SECONDS
+    const terminal = dead || current.careerRetirement!.combatElapsedSeconds + dt >= COMMANDER_RETIREMENT_FINAL_STAND_SECONDS
     if (terminal) {
       current = cloneCareerProfile(current)
       this.deps.capture(current)

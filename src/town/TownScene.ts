@@ -1,5 +1,4 @@
 import { TownRetirementFinaleController } from './TownRetirementFinaleController'
-import { insideCommanderRetirementFinalStandZone } from '../career/CareerRetirementFinale'
 import { appendCommanderRetirementOption } from './TownRetirementUI'
 import { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
 import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
@@ -649,7 +648,7 @@ export class TownScene {
           this.inventory.prepareForCombat()
           this.clearMissionCombatShots()
           this.target = null
-          if (restored) this.notice = '最後的退休命令 · 守住撤離點'
+          if (restored) this.notice = '最後的退休命令 · 撐過最後一戰'
           else {
             sound.playCommanderCommand(this.profile.faction, 'charge')
             this.openPanel('最後的退休命令', '城鎮隊長：奉城鎮議會命令！\n退役指揮官私帶武裝離城，意圖叛亂！\n全軍進攻，不留活口！\n\n私人隊長：他們早就決定了。\n這不是退休。這是清算。')
@@ -4014,8 +4013,7 @@ export class TownScene {
       : `${this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : this.sceneContext.worldFaction === 'viking' ? 'økse 村' : 'vinum 村'}\n已任命軍階 ${this.profile.rank}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.townCommand?.authorizedActorIds.length ? `\n${this.profile.townCommandSquad?.commandRank === 'commander' ? '全城正式部隊' : '城防指揮隊'} ${this.townCommand.actors.filter(npc => !npc.dead).length}/${this.townCommand.authorizedActorIds.length} · ${this.townCommand.state === 'TRAINING' ? '駐防待命' : this.townCommand.state} · Q / 反引號 命令` : ''}${this.profile.personalSquad?.members.length ? `\nPersonal Squad ${this.profile.personalSquad.members.length}/30 · ${this.personalSquad?.state ?? 'RESERVE'} · Q / 反引號 命令` : ''}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
     if (this.retirementFinale?.active) {
       const seconds = Math.ceil(this.retirementFinale.remainingSeconds)
-      const label = insideCommanderRetirementFinalStandZone(this.player.combatPosition) ? '守住撤離點' : '返回撤離點'
-      this.hud.textContent = `${label}\n${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}\n私人部隊 ${this.personalSquad?.aliveCombatants ?? 0} · Q / 反引號 命令${this.retirementFinale.frozen ? '\n' + this.notice : ''}`
+      this.hud.textContent = `撐過最後一戰\n${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}\n私人部隊 ${this.personalSquad?.aliveCombatants ?? 0} · Q / 反引號 命令${this.retirementFinale.frozen ? '\n' + this.notice : ''}`
     } else if (this.profile.careerRetirement && this.notice) this.hud.textContent += '\n' + this.notice
     this.updateMountHud()
     this.damageNumbers.update(dt, this.camera)

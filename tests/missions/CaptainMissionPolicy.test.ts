@@ -7,7 +7,7 @@ import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { VETERAN_TOWN_DEFENSE_TEMPLATE } from '../../src/career/CareerMissionCatalog'
 import { officialActorSquadId, officialCommandSquads } from '../../src/career/CareerCommandAuthority'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { buildCommanderAuthorityForMission } from '../../src/career/CommanderMissionAcceptance'
 import { acceptVeteranMission } from '../../src/career/VeteranMission'
 import { townAssaultObjectiveRoster, townDefenseForceCounts, townRoster, type TownActorSpec } from '../../src/town/TownRules'
@@ -123,4 +123,43 @@ describe('Commander accepted production rosters without actor materialization', 
     expect(hasCompleteRetirementMobilizationCheckpoint(pending)).toBe(true)
     expect(retirementMobilizationNeedsPreparation(pending)).toBe(false)
   })
+})
+
+
+it('rejects incomplete prepared native retirement checkpoints without replacing the durable save', () => {
+  const ready = withNativeRetirementCheckpoints({ ...createCareerProfile('roman'),
+    rank: 'commander', totalMerit: 20000, commanderMeleeGranted: true,
+    careerRetirement: { version: 1, phase: 'final-stand', acceptedAt: 123, combatElapsedSeconds: 42.5,
+      mobilization: { version: 1, commandRevoked: true, refillCompleted: true, formationPrepared: true } },
+    retirementRuntime: { player: { position: { x: 0, y: 0, z: 0, yaw: 0 },
+      hp: 17, stamina: 21, arrows: 3, shieldImpact: 4, mounted: false } },
+  })
+  const casualty = ready.townCommandSquad!.members!.captain
+  casualty.hp = 0
+  casualty.status = 'dead'
+  casualty.mount!.hp = 0
+  casualty.mount!.mounted = false
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  expect(store.save(ready)).toBe(true)
+  const saved = storage.getItem(CAREER_STORAGE_KEY)
+  const restored = store.loadChecked().profile!
+  expect(restored.careerRetirement).toEqual(ready.careerRetirement)
+  expect(restored.townCommandSquad!.members!.captain).toEqual(casualty)
+  expect(restored.retirementRuntime).toEqual(ready.retirementRuntime)
+  // Complete receipts cannot silently recover missing owners, actors, mounts or resources.
+  const { [Object.keys(ready.retirementTowerGuards!)[0]]: missingGuard, ...remainingGuards } = ready.retirementTowerGuards!
+  expect(missingGuard).toBeDefined()
+  const { mount, ...unmountedCaptain } = casualty
+  expect(mount).toBeDefined()
+  const incomplete: CareerProfile[] = [
+    { ...ready, townCommandSquad: undefined },
+    { ...ready, retirementTowerGuards: remainingGuards },
+    { ...ready, townCommandSquad: { ...ready.townCommandSquad!,
+      members: { ...ready.townCommandSquad!.members, captain: unmountedCaptain } } },
+    { ...ready, retirementRuntime: undefined },
+  ]
+  for (const corrupt of incomplete) {
+    expect(store.save(corrupt)).toBe(false)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  }
 })

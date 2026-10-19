@@ -43,7 +43,7 @@ export function installCareerRetirementQa(): void {
     refresh()
   })
   const escaped = add('測試 Escaped Ending', () => {
-    message.textContent = runtime()?.testRetirementEscaped() ? '已保存至 295 秒。請留在撤離區並存活最後 5 秒。' : '尚未快轉：請確認 Final Stand 正在進行且存檔可用。'
+    message.textContent = runtime()?.testRetirementEscaped() ? '已保存至 295 秒。再存活最後 5 秒即可，移動不會暫停倒數。' : '尚未快轉：請確認 Final Stand 正在進行且存檔可用。'
     refresh()
   })
   panel.append(message); document.body.append(panel)
