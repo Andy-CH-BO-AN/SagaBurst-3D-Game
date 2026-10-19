@@ -1,10 +1,9 @@
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { hasCompleteRetirementMobilizationCheckpoint } from './CareerRetirementMobilization'
 import { parseCareerRetirementState, type CareerRetirementOutcome } from './CareerRetirementState'
-import { TOWN_RETIREMENT_EXTRACTION } from '../town/TownBounds'
+import { TOWN_RETIREMENT_RALLY_REGION } from '../town/TownBounds'
 
 export const COMMANDER_RETIREMENT_FINAL_STAND_SECONDS = 300
-export const COMMANDER_RETIREMENT_RALLY_TRIGGER_RADIUS = 8
 
 interface HorizontalPosition { x: number; z: number }
 export interface CommanderRetirementFinalStandForces {
@@ -19,14 +18,11 @@ export interface CommanderRetirementFinalStandFrame extends CommanderRetirementF
   playerPosition: HorizontalPosition
 }
 
-function withinExtractionRadius(point: HorizontalPosition, radius: number): boolean {
-  return Number.isFinite(point.x) && Number.isFinite(point.z)
-    && Math.hypot(point.x - TOWN_RETIREMENT_EXTRACTION.x, point.z - TOWN_RETIREMENT_EXTRACTION.z) <= radius
-}
-
 /** Mount type and height cannot alter the horizontal admission boundary. */
 export function atCommanderRetirementRally(point: HorizontalPosition): boolean {
-  return withinExtractionRadius(point, COMMANDER_RETIREMENT_RALLY_TRIGGER_RADIUS)
+  const area = TOWN_RETIREMENT_RALLY_REGION
+  return Number.isFinite(point.x) && Number.isFinite(point.z)
+    && point.x >= area.minX && point.x <= area.maxX && point.z >= area.minZ && point.z <= area.maxZ
 }
 
 /** Missing or unloaded canonical enemies are not proof of defeat. */

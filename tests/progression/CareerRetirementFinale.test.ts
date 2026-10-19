@@ -6,7 +6,7 @@ import {
   beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner,
   completeCommanderRetirement,
 } from '../../src/career/CareerRetirementFinale'
-import { TOWN_RETIREMENT_EXTRACTION } from '../../src/town/TownBounds'
+import { TOWN_RETIREMENT_EXTRACTION, TOWN_RETIREMENT_RALLY_REGION, townRetirementRallyTarget } from '../../src/town/TownBounds'
 import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
 import { TownRetirementFinaleController } from '../../src/town/TownRetirementFinaleController'
 import { TownRetirementMobilizationController } from '../../src/town/TownRetirementMobilizationController'
@@ -62,10 +62,22 @@ it('starts only a complete mobilization without changing the admitted checkpoint
   })).toBeNull()
 })
 
-it('uses an 8 m horizontal admission trigger then advances to escape with surviving private fighters after player death', () => {
+it('admits the northern evacuation area regardless of altitude then keeps the clock running after leaving it', () => {
   const position = { ...TOWN_RETIREMENT_EXTRACTION, y: 100 }
-  expect(atCommanderRetirementRally({ ...position, x: position.x + 8 })).toBe(true)
-  expect(atCommanderRetirementRally({ ...position, x: position.x + 8.01 })).toBe(false)
+  const area = TOWN_RETIREMENT_RALLY_REGION
+  expect(atCommanderRetirementRally(position)).toBe(true)
+  for (const x of [area.minX, area.maxX]) for (const z of [area.minZ, area.maxZ]) {
+    const edge = { x, z, y: x < 0 ? 0 : 100 }
+    expect(atCommanderRetirementRally(edge)).toBe(true)
+    expect(townRetirementRallyTarget(edge)).toEqual({ x, z })
+  }
+  for (const outside of [{ x: area.minX - .01, z: -300 }, { x: area.maxX + .01, z: -300 },
+    { x: 0, z: area.minZ - .01 }, { x: 0, z: area.maxZ + .01 },
+    { x: 0, z: -120 }, { x: 0, z: 0 }, { x: NaN, z: -300 }, { x: 0, z: Infinity }]) {
+    expect(atCommanderRetirementRally(outside)).toBe(false)
+  }
+  expect(townRetirementRallyTarget({ x: 200, z: -120 })).toEqual({ x: 145, z: -250 })
+  expect(townRetirementRallyTarget(position)).toEqual(TOWN_RETIREMENT_EXTRACTION)
   const started = finaleProfile('final-stand')
   const frame = { deltaSeconds: 42.5, playerPosition: position, playerDead: false,
     privateFightersAlive: true, allTownEnemiesDefeated: false }

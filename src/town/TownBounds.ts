@@ -24,6 +24,18 @@ export function nearTownBanditCamp(x: number, z: number, margin: number): boolea
 
 /** Inside native flight turn bounds, far from the central Town entrances. */
 export const TOWN_RETIREMENT_EXTRACTION = { x: 0, z: -318 } as const
+/** Far-north Cavalry Sweep clearing through the playable edge; not the gate approach. */
+export const TOWN_RETIREMENT_RALLY_REGION = {
+  minX: -145, maxX: 145, minZ: -TOWN_PLAYABLE_WORLD_BOUND, maxZ: -250,
+} as const
+
+/** Guide and admission share one horizontal area, independent of mount or altitude. */
+export function townRetirementRallyTarget(position: { x: number; z: number }): { x: number; z: number } {
+  const area = TOWN_RETIREMENT_RALLY_REGION
+  return { x: Math.max(area.minX, Math.min(area.maxX, position.x)),
+    z: Math.max(area.minZ, Math.min(area.maxZ, position.z)) }
+}
+
 export const TOWN_RETIREMENT_EXIT_LINE = TOWN_PLAYABLE_WORLD_BOUND - 4
 
 /** Nearest legal edge, with stable tie-breaking. Each native owner retains its movement/cleanup. */

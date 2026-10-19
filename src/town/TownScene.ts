@@ -138,7 +138,7 @@ import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpa
 import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
 import { MissionGuide } from '../career/MissionGuide'
 import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit, startCommanderRetirement } from '../career/CareerRetirement'
-import { TOWN_RETIREMENT_EXTRACTION } from './TownBounds'
+import { townRetirementRallyTarget } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { CAREER_DUEL_TIERS, type CareerDuelTier, isCareerDuelUnlocked } from '../career/CareerDuelState'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
@@ -3990,10 +3990,11 @@ export class TownScene {
     this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining)
     this.duelGuide.updateDuel(duelPhase, this.player.combatPosition, this.orbit.cameraYaw, this.duel.guideTarget)
     this.updateCaptainPatrolGuide()
-    const retirementTarget = ['departing', 'mobilizing', 'final-stand'].includes(this.profile.careerRetirement?.phase ?? '')
+    const retirementPoint = townRetirementRallyTarget(this.player.combatPosition)
+    const retirementTarget = ['departing', 'mobilizing'].includes(this.profile.careerRetirement?.phase ?? '')
       && this.world.faction === this.profile.faction && !this.sceneContext.missionOnlyResidents
       && !this.panel && !this.equipment.visible
-      ? new THREE.Vector3(TOWN_RETIREMENT_EXTRACTION.x, getTerrainHeight(TOWN_RETIREMENT_EXTRACTION.x, TOWN_RETIREMENT_EXTRACTION.z), TOWN_RETIREMENT_EXTRACTION.z) : null
+      ? new THREE.Vector3(retirementPoint.x, getTerrainHeight(retirementPoint.x, retirementPoint.z), retirementPoint.z) : null
     this.retirementGuide.updateRetirement(this.player.combatPosition, this.orbit.cameraYaw, retirementTarget)
     this.updateRaceHud()
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.defense.active && this.serviceAvailable(id)

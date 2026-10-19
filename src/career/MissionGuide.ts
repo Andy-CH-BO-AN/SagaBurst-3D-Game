@@ -150,7 +150,8 @@ export class MissionGuide {
     if (!target) { this.hide(); return }
     this.root.hidden = false
     const distance = this.pointAt(playerPosition, cameraYaw, target)
-    this.label.textContent = `前往退役集合點 · ${Math.round(distance)}m`
+    this.label.textContent = distance > 0 ? `前往退役集合區 · ${Math.round(distance)}m` : '已抵達退役集合區'
+    if (distance === 0) this.arrow.style.opacity = '.18'
   }
 
   private pointAt(playerPosition: THREE.Vector3, cameraYaw: number, target: THREE.Vector3): number {

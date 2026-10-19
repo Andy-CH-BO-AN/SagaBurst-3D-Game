@@ -43,7 +43,7 @@ export function appendCommanderRetirementOption(panel: HTMLElement, profile: Car
           accept.disabled = false
           return
         }
-        actions.openPanel('申請退休', '城鎮軍令已交回。\n所有私人部隊已改為 Follow。\n前往地圖邊緣的退役集合點。')
+        actions.openPanel('申請退休', '城鎮軍令已交回。\n所有私人部隊已改為 Follow。\n前往北方地圖邊緣的退役集合區。')
       })
       serviceButton(confirmation, '暫時留下', actions.leave)
     })

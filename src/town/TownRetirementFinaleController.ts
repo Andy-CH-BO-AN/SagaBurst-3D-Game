@@ -157,7 +157,7 @@ export class TownRetirementFinaleController {
       const next = beginCommanderRetirementFinalStand(snapshot)
       if (!next || !this.deps.save(next)) {
         this.retryRemaining = 1
-        this.deps.failed('最後點名尚未保存，城鎮仍未進攻。請留在集合點重試。')
+        this.deps.failed('最後點名尚未保存，城鎮仍未進攻。請留在集合區重試。')
         return false
       }
       this.deps.publish(next)
