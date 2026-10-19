@@ -1,11 +1,18 @@
-import { expect, it } from 'vitest'
+import { beforeEach, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import {
   advanceCommanderRetirementFinalStand, atCommanderRetirementRally, beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner,
   completeCommanderRetirement,
 } from '../../src/career/CareerRetirementFinale'
 import { TOWN_RETIREMENT_EXTRACTION } from '../../src/town/TownBounds'
-import { withNativeRetirementCheckpoints } from '../helpers/RetirementMobilizationFixture'
+import { hasCompleteRetirementMobilizationCheckpoint } from '../../src/career/CareerRetirementMobilization'
+
+// This suite owns phase/clock/latch decisions; native schema/store validation has
+// real coverage in CaptainMissionPolicy. Keep that dependency explicit and isolated.
+vi.mock('../../src/career/CareerRetirementMobilization', () => ({
+  hasCompleteRetirementMobilizationCheckpoint: vi.fn(),
+}))
+beforeEach(() => { vi.mocked(hasCompleteRetirementMobilizationCheckpoint).mockReset().mockReturnValue(true) })
 
 function finaleProfile(phase: 'mobilizing' | 'final-stand', combatElapsedSeconds = 0): CareerProfile {
   const profile = createCareerProfile('roman')
@@ -17,15 +24,19 @@ function finaleProfile(phase: 'mobilizing' | 'final-stand', combatElapsedSeconds
 }
 
 it('starts only a complete mobilization without changing the admitted checkpoint', () => {
-  const ready = withNativeRetirementCheckpoints(finaleProfile('mobilizing'))
+  const ready = finaleProfile('mobilizing')
   const original = JSON.stringify(ready)
   expect(beginCommanderRetirementFinalStand({ ...ready, rank: 'captain' })).toBeNull()
   expect(beginCommanderRetirementFinalStand({ ...ready, activeMission: {
     id: 'mission', templateId: 'recruit-bandits-01', targetCampId: 0,
     phase: 'RETURNING', targetActorIds: [], friendlyActorIds: [], acceptedAt: 123,
   } })).toBeNull()
-  expect(beginCommanderRetirementFinalStand({ ...ready, retirementTowerGuards: undefined })).toBeNull()
+  expect(hasCompleteRetirementMobilizationCheckpoint).not.toHaveBeenCalled()
+  vi.mocked(hasCompleteRetirementMobilizationCheckpoint).mockReturnValueOnce(false)
+  expect(beginCommanderRetirementFinalStand(ready)).toBeNull()
+  expect(hasCompleteRetirementMobilizationCheckpoint).toHaveBeenLastCalledWith(ready)
   const started = beginCommanderRetirementFinalStand(ready)!
+  expect(hasCompleteRetirementMobilizationCheckpoint).toHaveBeenLastCalledWith(ready)
   expect(started.careerRetirement).toMatchObject({ phase: 'final-stand', combatElapsedSeconds: 0 })
   expect(JSON.stringify(ready)).toBe(original)
   expect(beginCommanderRetirementFinalStand(started)).toBeNull()
@@ -54,7 +65,7 @@ it('uses an 8 m horizontal admission trigger then advances continuously away fro
 })
 
 it('latches escape at 300 seconds and retries an isolated unchanged candidate after a rejected save and later death', () => {
-  const current = withNativeRetirementCheckpoints(finaleProfile('final-stand', 299.5))
+  const current = finaleProfile('final-stand', 299.5)
   const owner = new CareerRetirementFinaleOwner()
   const frame = { deltaSeconds: 0.5,
     playerPosition: { x: TOWN_RETIREMENT_EXTRACTION.x + 1000, z: TOWN_RETIREMENT_EXTRACTION.z }, playerDead: false }
@@ -80,7 +91,7 @@ it('latches escape at 300 seconds and retries an isolated unchanged candidate af
 })
 
 it('latches an early death at its original elapsed time despite a rejected save and later survival', () => {
-  const current = withNativeRetirementCheckpoints(finaleProfile('final-stand', 12.5))
+  const current = finaleProfile('final-stand', 12.5)
   const owner = new CareerRetirementFinaleOwner()
   expect(owner.fastForward(current)?.careerRetirement?.combatElapsedSeconds).toBe(295)
   const frame = { deltaSeconds: 42.5, playerPosition: TOWN_RETIREMENT_EXTRACTION, playerDead: true }
