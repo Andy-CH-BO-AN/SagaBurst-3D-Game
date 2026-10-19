@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
-import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_GATE_DEFENSE_ID, captainGateDefenseActorIds, captainGateDefenseForceCounts, commanderGateDefenseSlots, commanderGateDefenseSquads, createCaptainGateDefenseMission, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
+import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_GATE_DEFENSE_ID, captainGateDefenseActorIds, commanderGateDefenseSlots, commanderGateDefenseSquads, createCaptainGateDefenseMission, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
+import { townDefenseForceCountsForProfile } from '../../src/career/TownDefenseRoster'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { VETERAN_TOWN_DEFENSE_TEMPLATE } from '../../src/career/CareerMissionCatalog'
 import { officialActorSquadId, officialCommandSquads } from '../../src/career/CareerCommandAuthority'
@@ -51,9 +52,9 @@ describe('Commander accepted production rosters without actor materialization', 
     expect(highMeritCaptain.officialSquad!.actorIds.some(id => id.startsWith('watchtower-archer:'))).toBe(false)
     const withCommander = [...residents, townCommanderSpec({ x: 0, z: 0, yaw: 0 })]
     const commandedDefense = createCaptainGateDefenseMission(commander(), accepted, [], withCommander)
-    expect(captainGateDefenseForceCounts(commander(), withCommander)).toEqual({ friendlySoldiers: 214, friendlyCombatants: 215 })
-    expect(captainGateDefenseForceCounts(commander(), withCommander).friendlySoldiers).toBe(commandedDefense.friendlyActorIds.length)
-    expect(captainGateDefenseForceCounts(commander(), withCommander, new Set(['commander']))).toEqual(force)
+    expect(townDefenseForceCountsForProfile(commander(), withCommander)).toEqual({ friendlySoldiers: 214, friendlyCombatants: 215 })
+    expect(townDefenseForceCountsForProfile(commander(), withCommander).friendlySoldiers).toBe(commandedDefense.friendlyActorIds.length)
+    expect(townDefenseForceCountsForProfile(commander(), withCommander, new Set(['commander']))).toEqual(force)
   })
 
   it('replays Frontline saved membership instead of regrouping actors after reload', () => {

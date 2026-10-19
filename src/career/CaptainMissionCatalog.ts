@@ -9,7 +9,7 @@ import { townDefenseForceCounts, type TownActorSpec } from '../town/TownRules'
 import type { TownGateId } from '../town/TownLayout'
 import { siegeDefensePlans, type SiegeDefensePlan } from './TownSiege'
 import { createMissionCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
-import { TOWN_COMMANDER_ID } from '../town/TownCommander'
+import { townDefenseCommanderIds } from './TownDefenseRoster'
 
 export const CAPTAIN_PATROL_COMMAND_ID = 'captain-patrol-command'
 export const CAPTAIN_CAVALRY_COMMAND_ID = 'captain-cavalry-command'
@@ -84,15 +84,8 @@ export function commanderGateDefenseSquads(residents: readonly TownActorSpec[], 
     actorIds: squad.actorIds.filter(id => residentIds.has(id) && accepted.has(id) && !unavailableActorIds.has(id)),
   })).filter(squad => squad.actorIds.length > 0)
 }
-function captainGateDefenseCommanderIds(profile: Pick<CareerProfile, 'rank'>, residents: readonly TownActorSpec[], unavailableActorIds: ReadonlySet<string>): string[] {
-  return profile.rank === 'commander' && !unavailableActorIds.has(TOWN_COMMANDER_ID)
-    && residents.some(actor => actor.id === TOWN_COMMANDER_ID && actor.role === 'commander') ? [TOWN_COMMANDER_ID] : []
-}
-export function captainGateDefenseForceCounts(profile: Pick<CareerProfile, 'rank'>, residents: readonly TownActorSpec[], unavailableActorIds: ReadonlySet<string> = new Set()) {
-  return townDefenseForceCounts(residents, captainGateDefenseCommanderIds(profile, residents, unavailableActorIds))
-}
 export function createCaptainGateDefenseMission(profile: CareerProfile, friendlyActorIds: string[], civilianActorIds: string[], residents: readonly TownActorSpec[], id = createCareerMissionId(CAPTAIN_GATE_DEFENSE_ID), unavailableActorIds: ReadonlySet<string> = new Set()): ActiveCareerMission {
-  const commanders = captainGateDefenseCommanderIds(profile, residents, unavailableActorIds)
+  const commanders = townDefenseCommanderIds(profile, residents, unavailableActorIds)
   const defenders = commanders.length ? [...new Set([...friendlyActorIds, ...commanders])] : friendlyActorIds
   const mission = createTownDefenseMission(defenders, civilianActorIds, id, CAPTAIN_GATE_DEFENSE_ID, profile.rank)
   const actorIds = captainGateDefenseActorIds(residents, unavailableActorIds).filter(actorId => friendlyActorIds.includes(actorId))

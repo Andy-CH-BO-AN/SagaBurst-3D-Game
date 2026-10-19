@@ -55,7 +55,8 @@ import { siegeMuster } from '../career/TownSiege'
 import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
 import { shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
-import { townAssaultObjectiveRoster, townDefenseForceCounts, townRoster, townName } from './TownRules'
+import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
+import { townDefenseCommanderIds, townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TownProjectileObstacles } from './TownProjectileObstacles'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
@@ -97,7 +98,7 @@ import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import { DamageNumbers } from '../ui/DamageNumbers'
 import { acceptCaptainFrontline, acceptCaptainEagle, createCaptainFrontlineLaunch, createCaptainEagleLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
-import { CAPTAIN_MISSION_CATALOG, CAPTAIN_PATROL_COMMAND_ID, CAPTAIN_CAVALRY_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, getCaptainMissionDefinition, getCaptainMissionAvailability, createCaptainPatrolCommandMission, captainGateDefenseBriefing, captainGateDefenseForceCounts, createCaptainGateDefenseMission } from '../career/CaptainMissionCatalog'
+import { CAPTAIN_MISSION_CATALOG, CAPTAIN_PATROL_COMMAND_ID, CAPTAIN_CAVALRY_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, getCaptainMissionDefinition, getCaptainMissionAvailability, createCaptainPatrolCommandMission, captainGateDefenseBriefing, createCaptainGateDefenseMission } from '../career/CaptainMissionCatalog'
 import { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
 import { TownCommandSquadController, TOWN_COMMAND_RETURN_ID } from './TownCommandSquadController'
 import { snapshotCommandActor, restoreCommandActor } from '../career/CareerCommandActorCheckpoint'
@@ -846,11 +847,10 @@ export class TownScene {
     }
     // The existing service Commander joins only a newly accepted Commander defense.
     // Save its actual resources before any restart; failed saves never grant live authority.
-    const defenseCommander = startsDefense && next.rank === 'commander'
-      ? (this.residents ?? []).find(resident => resident.spec.id === 'commander' && resident.spec.role === 'commander' && !resident.npc.dead)
-      : undefined
-    if (defenseCommander && next.activeMission && !next.activeMission.friendlyActorIds.includes('commander')) {
-      next.activeMission.friendlyActorIds.push('commander')
+    const defenseCommanderId = startsDefense ? townDefenseCommanderIds(next, (this.residents ?? []).map(r => r.spec),
+      new Set((this.residents ?? []).filter(r => r.npc.dead).map(r => r.spec.id)))[0] : undefined
+    if (defenseCommanderId && next.activeMission && !next.activeMission.friendlyActorIds.includes(defenseCommanderId)) {
+      next.activeMission.friendlyActorIds.push(defenseCommanderId)
     }
     if (startsFormal && next.activeMission && !next.activeMission.officialSquad) {
       next.activeMission.officialSquad = buildCommanderAuthorityForMission(next, next.activeMission, (this.residents ?? []).map(resident => resident.spec))
@@ -1773,7 +1773,7 @@ export class TownScene {
       panel.append(relief)
     }
     const missions = availableCareerMissionsForPage(this.profile, selectedPage)
-    const defenseForce = townDefenseForceCounts(this.residents.map(r => r.spec))
+    const defenseForce = this.townDefenseBoardForce()
     if (selectedPage === 'recruit' && !resolveCareerReliefMount(this.profile)) {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = 'Cavalry Sweep · 騎兵清剿'
@@ -1808,6 +1808,10 @@ export class TownScene {
       panel.append(gate)
     }
   }
+  private townDefenseBoardForce() {
+    return townDefenseForceCountsForProfile(this.profile, this.residents.map(r => r.spec),
+      new Set(this.residents.filter(r => r.npc.dead).map(r => r.spec.id)))
+  }
   private openVeteranMissionPage(panel: HTMLElement): void {
     for (const definition of VETERAN_MISSION_CATALOG) {
       const row = document.createElement('article'); row.className = 'town-product'
@@ -1825,7 +1829,7 @@ export class TownScene {
       .find(template => template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
     if (!homeDefenseTemplate || homeDefenseTemplate.kind !== 'town-defense') return
     const homeDefense = homeDefenseTemplate
-    const defenseForce = townDefenseForceCounts(this.residents.map(r => r.spec))
+    const defenseForce = this.townDefenseBoardForce()
     const veteranWins = careerMissionCompletionsForTier(this.profile, 3)
     const unlocked = availableCareerMissionsForPage(this.profile, 'veteran').some(template => template.id === homeDefense.id)
     const row = document.createElement('article'); row.className = 'town-product'
@@ -1839,9 +1843,7 @@ export class TownScene {
     row.append(title, details, accept); panel.append(row)
   }
   private openCaptainMissionPage(panel: HTMLElement): void {
-    const unavailable = new Set(this.unavailableTownCavalryActorIds(true))
-    if (this.profile.rank === 'commander') for (const resident of this.residents) if (resident.npc.dead) unavailable.add(resident.spec.id)
-    const defenseForce = captainGateDefenseForceCounts(this.profile, this.residents.map(r => r.spec), unavailable)
+    const defenseForce = this.townDefenseBoardForce()
     for (const definition of CAPTAIN_MISSION_CATALOG) {
       const availability = getCaptainMissionAvailability(this.profile, definition.id)
       const patrol = definition.id === CAPTAIN_PATROL_COMMAND_ID ? this.captainPatrol?.selectAvailableSquad() : null
