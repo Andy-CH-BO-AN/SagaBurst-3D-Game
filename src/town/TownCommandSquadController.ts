@@ -17,6 +17,7 @@ import { refitCommandActor, refitCommandCheckpoint, restoreCommandActor, snapsho
 import { commanderGateDefenseSlots, commanderTownCommandMembership } from '../career/CommanderTownRoster'
 import { emptyPersonalContribution } from '../combat/CommandMerit'
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
+import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
 import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
@@ -77,7 +78,7 @@ export class TownCommandSquadController {
   }
   get state(): TownCommandSquadState['state'] | null { return this.value?.state ?? null }
   get sceneKey(): string { return this.options.sceneKey ?? 'town-home' }
-  get authorizedActorIds(): readonly string[] { return this.value?.authorized ? this.value.actorIds : [] }
+  get authorizedActorIds(): readonly string[] { return !isTownCommandRevokedByRetirement(this.read()) && this.value?.authorized ? this.value.actorIds : [] }
   /** Read-only HUD view of living residents physically returning through either real owner. */
   get returningActorIds(): readonly string[] {
     return this.commandsEnabled
@@ -101,11 +102,11 @@ export class TownCommandSquadController {
   }
   get commandsEnabled(): boolean {
     const profile = this.read()
-    return Boolean(this.value?.authorized && this.value.townFaction === profile.faction
+    return Boolean(!isTownCommandRevokedByRetirement(profile) && this.value?.authorized && this.value.townFaction === profile.faction
       && !profile.activeMission && !profile.activeOutpostMission && !this.player().dead)
   }
   owns(npc: NPC): boolean {
-    return this.value?.sceneKey === this.sceneKey && this.residentsById.get(npc.combatantId)?.npc === npc
+    return !isTownCommandRevokedByRetirement(this.read()) && this.value?.sceneKey === this.sceneKey && this.residentsById.get(npc.combatantId)?.npc === npc
       && this.value.actorIds.includes(npc.combatantId)
   }
   accepts(npc: NPC): boolean {
@@ -119,7 +120,7 @@ export class TownCommandSquadController {
     return this.canClaimNative(resident)
   }
   get combatActors(): NPC[] {
-    if (!this.value?.authorized) return []
+    if (isTownCommandRevokedByRetirement(this.read()) || !this.value?.authorized) return []
     return this.actors.filter(npc => {
       const resident = this.residentsById.get(npc.combatantId)!
       return !isAutonomousTownGuard(npc.combatantId) && !npc.dead && !this.delegatesRuntime(resident) && !this.ownsPeacefulTravel(npc)
@@ -131,13 +132,14 @@ export class TownCommandSquadController {
   ownsPeacefulTravel(npc: NPC): boolean { return !this.townHostile && this.owns(npc) && this.isReturning(npc.combatantId) }
   private get townHostile(): boolean { return this.read().townEvent?.state === 'hostile' }
   isReserveAvailable(actorId: string): boolean {
+    if (isTownCommandRevokedByRetirement(this.read())) return false
     if (this.value?.sceneKey !== this.sceneKey || !this.value.actorIds.includes(actorId)) return true
     if (this.isReturning(actorId) || this.isNativeReturning(actorId)) return false
     if (this.value.commandRank === 'commander') return !this.isPlayerClaimed(actorId)
     return !this.value.authorized
   }
   hasPlayerCommand(target: ArmyCommandTarget): boolean {
-    if (!this.value?.authorized) return false
+    if (isTownCommandRevokedByRetirement(this.read()) || !this.value?.authorized) return false
     const ids = this.value.commandRank === 'commander' ? this.value.commandedActorIds ?? [] : this.value.actorIds
     return ids.some(id => {
       const squadId = officialActorSquadId(this.value!, id)
@@ -150,7 +152,7 @@ export class TownCommandSquadController {
   }
   private isNativeReturning(id: string): boolean { return Boolean(this.value?.nativeReturnStates?.[id]) }
   private isPlayerClaimed(id: string): boolean {
-    return Boolean(this.value && townCommandIsPlayerControlled(this.value, id))
+    return Boolean(!isTownCommandRevokedByRetirement(this.read()) && this.value && townCommandIsPlayerControlled(this.value, id))
   }
   private delegatesRuntime(resident: TownCommandResident): boolean { return Boolean(resident.spec.eagle) }
   private canClaimNative(resident: TownCommandResident): boolean {
@@ -177,7 +179,7 @@ export class TownCommandSquadController {
   grant(): boolean {
     this.synchronizeResidents()
     const profile = this.read()
-    if (!['captain', 'commander'].includes(profile.rank) || profile.activeMission || profile.activeOutpostMission
+    if (isTownCommandRevokedByRetirement(profile) || !['captain', 'commander'].includes(profile.rank) || profile.activeMission || profile.activeOutpostMission
       || this.sceneKey !== 'town-home') return true
     if (profile.rank === 'captain') {
       if (this.value?.authorized && this.value.townFaction === profile.faction && this.value.commandRank !== 'commander') return true
@@ -304,6 +306,33 @@ export class TownCommandSquadController {
     const previousClaims = new Set(previous?.commandRank === 'commander'
       ? previous.commandedActorIds ?? [] : previous?.authorized ? previous.actorIds : [])
     this.value = saved ? cloneTownCommandSquad(saved) : undefined
+    if (isTownCommandRevokedByRetirement(this.read())) {
+      if (this.value) {
+        this.value.authorized = false
+        this.value.commandedActorIds = this.value.commandRank === 'commander' ? [] : undefined
+        delete this.value.commandedSquadIds
+        this.value.state = 'TRAINING'
+        delete this.value.nativeReturnStates
+        delete this.value.refittingActorIds
+      }
+      // The phase is already durable. Release native ownership without issuing a new
+      // player order or saving again; repeated reconciliation must preserve staging.
+      for (const resident of this.residentsById.values()) {
+        const npc = resident.npc, id = resident.spec.id
+        if (this.delegatesRuntime(resident) || npc.combatOwnership === 'player-personal') continue
+        const claimed = previousClaims.has(id) || npc.combatOwnership === 'town-command' || npc.combatOwnership === 'mission-official'
+          || restore && Boolean(saved?.commandedActorIds?.includes(id) || saved?.authorized && saved.actorIds.includes(id)
+            || saved?.nativeReturnStates?.[id] || saved?.members?.[id]?.formation?.commandId === TOWN_COMMAND_RETURN_ID)
+        if (restore && this.value?.members?.[id]) restoreCommandActor(npc, this.value.members[id], resident.homeMount)
+        if (this.value?.actorIds.includes(id)) npc.setCommandSquad(undefined)
+        if (!claimed) continue
+        npc.combatOwnership = undefined
+        npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(undefined)
+        npc.missionMovement = false; npc.setMissionCombatTarget(null); npc.clearEncounter()
+        npc.setTacticalOrder('defend'); npc.setTownPeaceful()
+      }
+      return
+    }
     if (previous) for (const id of previous.actorIds) if (!this.value?.actorIds.includes(id)) {
       const npc = this.residentsById.get(id)?.npc
       if (npc?.combatOwnership === 'town-command') { npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN) }
@@ -376,6 +405,7 @@ export class TownCommandSquadController {
   private isNativeRefit(resident: TownCommandResident): boolean { return Boolean(resident.spec.eagle || resident.spec.duty === 'patrol') }
   /** Permanent membership, not living actors or HUD caches, defines the service menu. */
   get refitSquads(): { squadId: number; alive: number; total: number; pending: boolean }[] {
+    if (isTownCommandRevokedByRetirement(this.read())) return []
     const squads = this.value?.commandRank === 'commander' ? this.commanderRefitRoster()
       : this.value ? [{ squadId: 1, actorIds: this.value.actorIds }] : []
     return squads.map(squad => ({ squadId: squad.squadId, total: squad.actorIds.length,
@@ -465,6 +495,7 @@ export class TownCommandSquadController {
   }
   /** Native requests survive reload; each physical owner resumes its own saved lifecycle. */
   resumeRefits(): void {
+    if (isTownCommandRevokedByRetirement(this.read())) return
     for (const id of this.value?.refittingActorIds ?? []) {
       const resident = this.residentsById.get(id)
       if (resident && this.isNativeRefit(resident)) this.options.beginNativeRefit?.(resident)
@@ -474,6 +505,7 @@ export class TownCommandSquadController {
   /** Automatic refit shares the service's resource staging, without its peace-only gate. */
   stageRefit(current: CareerProfile, defenseStart = false): CareerProfile {
     const next = cloneCareerProfile(current), value = this.checkpoint() ?? next.townCommandSquad
+    if (isTownCommandRevokedByRetirement(current)) return next
     if (!value) return next
     value.members ??= {}
     for (const npc of this.refitActors) {
@@ -495,6 +527,7 @@ export class TownCommandSquadController {
 
   /** Call only after saving and completing the Player's return, or a manual refit. */
   applyRefit(value: TownCommandSquadState | undefined): void {
+    if (isTownCommandRevokedByRetirement(this.read())) { this.applySavedState(value); return }
     for (const npc of this.refitActors) refitCommandActor(npc, this.residentsById.get(npc.combatantId)!.homeMount)
     this.applySavedState(value)
   }
@@ -502,7 +535,7 @@ export class TownCommandSquadController {
   /** Pure command staging lets ALL commit official, HR, civilian and air ownership exactly once. */
   stageCommand(current: CareerProfile, order: TacticalOrder | 'dismiss', target: ArmyCommandTarget,
     participants: readonly NPC[], assignments: readonly FormationCommandAssignment[] = []): CareerProfile | undefined {
-    if (!this.commandsEnabled || !this.value) return undefined
+    if (isTownCommandRevokedByRetirement(current) || !this.commandsEnabled || !this.value) return undefined
     const value = this.checkpoint()!
     value.members ??= {}
     if (value.commandRank !== 'commander') {
@@ -570,7 +603,7 @@ export class TownCommandSquadController {
 
   /** A restored historical hostile event retains the saved loyal Town army. */
   beginHostility(): void {
-    if (!this.value?.authorized) return
+    if (isTownCommandRevokedByRetirement(this.read()) || !this.value?.authorized) return
     if (this.value.commandRank === 'commander') {
       this.value.commandedActorIds = this.value.actorIds.filter(id => {
         const resident = this.residentsById.get(id)

@@ -7,6 +7,7 @@ import { civilianCommandRoster, cloneCivilianCommandSquad, type CivilianCommandO
 import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
 import { refitCommandActor, refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
+import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Mount } from '../world/Mount'
 import type { Player } from '../player/Player'
@@ -51,7 +52,7 @@ export class CivilianCommandSquadController {
 
   private get scopeAllowed(): boolean {
     const profile = this.read(), mission = profile.activeMission
-    return profile.rank === 'commander' && profile.faction === this.options.townFaction
+    return !isTownCommandRevokedByRetirement(profile) && profile.rank === 'commander' && profile.faction === this.options.townFaction
       && profile.townEvent?.state !== 'hostile' && !profile.activeOutpostMission
       && (!mission || (mission.kind === 'town-defense' || mission.kind === 'commander-four-gate-defense') && !mission.result && mission.phase !== 'RETURNING'
         && mission.phase !== 'RESULT' && mission.phase !== 'RESET')
@@ -164,7 +165,7 @@ export class CivilianCommandSquadController {
   }
   get returningActorIds(): readonly string[] { return this.actors.filter(npc => this.ownsPeacefulTravel(npc)).map(npc => npc.combatantId) }
   get combatActors(): NPC[] { return this.actors.filter(npc => !npc.dead && this.ownsPlayerCommand(npc)) }
-  owns(npc: NPC): boolean { return this.matchesScene && this.residentsById.get(npc.combatantId)?.npc === npc && Boolean(this.value?.actorIds.includes(npc.combatantId)) }
+  owns(npc: NPC): boolean { return !isTownCommandRevokedByRetirement(this.read()) && this.matchesScene && this.residentsById.get(npc.combatantId)?.npc === npc && Boolean(this.value?.actorIds.includes(npc.combatantId)) }
   owner(npc: NPC): CivilianCommandOwner | undefined { return this.owns(npc) ? this.value?.owners[npc.combatantId] : undefined }
   ownsPlayerCommand(npc: NPC): boolean { return this.scopeAllowed && this.matchesScene && this.value?.missionId === this.read().activeMission?.id
     && this.owner(npc) === 'player' && this.validActor(npc) }
@@ -184,7 +185,7 @@ export class CivilianCommandSquadController {
     if (saved?.sceneKey === this.options.sceneKey && saved.townFaction === this.options.townFaction) {
       let restored = saved
       const profile = this.read()
-      if (!profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile') {
+      if (!isTownCommandRevokedByRetirement(profile) && !profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile') {
         const migrated = migrateCivilianHomes(saved, [...this.residentsById.values()].map(r => r.spec), this.options.canPlaceMountedCivilian, this.options.hasMountedCivilianClearance)
         if (migrated !== saved) {
           const next = cloneCareerProfile(profile); next.civilianCommandSquad = migrated
@@ -198,7 +199,7 @@ export class CivilianCommandSquadController {
         const member = this.value.members[npc.combatantId]
         if (member && this.validIdentity(npc)) restoreCommandActor(npc, member, this.residentsById.get(npc.combatantId)?.homeMount)
       }
-      if (saved.missionId === this.read().activeMission?.id && this.scopeAllowed) this.applyOwners(true)
+      if (isTownCommandRevokedByRetirement(profile) || saved.missionId === this.read().activeMission?.id && this.scopeAllowed) this.applyOwners(true)
     }
     return this.synchronize()
   }
@@ -207,6 +208,7 @@ export class CivilianCommandSquadController {
   synchronize(): boolean {
     const profile = this.read()
     if (profile.faction !== this.options.townFaction) return true
+    if (isTownCommandRevokedByRetirement(profile)) { this.applyOwners(); return true }
     if (!this.value) {
       if (!this.scopeAllowed) return true
       const actorIds = [...this.residentsById.keys()].filter(id => this.validIdentity(this.residentsById.get(id)!.npc)).sort()
@@ -261,6 +263,7 @@ export class CivilianCommandSquadController {
   /** Stages with other squad claims so ALL has one successful profile transaction. */
   stageCommand(current: CareerProfile, order: TacticalOrder | 'dismiss', target: ArmyCommandTarget,
     participants: readonly NPC[] = this.actors): CareerProfile | undefined {
+    if (isTownCommandRevokedByRetirement(current)) return undefined
     const selected = participants.filter(npc => this.accepts(npc) && matchesArmyCommandTarget(npc, target))
     if (!selected.length) return undefined
     const value = this.checkpoint()!
@@ -342,6 +345,22 @@ export class CivilianCommandSquadController {
     return true
   }
   private applyOwners(restore = false): void {
+    if (isTownCommandRevokedByRetirement(this.read())) {
+      for (const [id, { npc }] of this.residentsById) {
+        const owner = this.value?.owners[id]
+        const claimed = npc.combatOwnership === 'player-civilian' || owner === 'player' || owner === 'returning'
+        if (this.value?.owners[id]) this.value.owners[id] = 'daily'
+        if (npc.combatOwnership === 'player-personal') continue
+        if (this.value?.actorIds.includes(id)) npc.setCommandSquad(undefined)
+        if (!claimed) continue
+        npc.combatOwnership = undefined
+        npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(undefined)
+        npc.missionMovement = false; npc.setMissionCombatTarget(null); npc.clearEncounter()
+        npc.setTacticalOrder('defend'); npc.disarmTownCivilian(); npc.setTownPeaceful()
+        this.options.onRelease?.(npc, 'daily')
+      }
+      return
+    }
     for (const [index, npc] of this.actors.entries()) {
       if (npc.dead || !this.validActor(npc)) continue
       const id = npc.combatantId, owner = this.value!.owners[id], member = this.value!.members[id]

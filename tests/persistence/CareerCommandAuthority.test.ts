@@ -19,6 +19,8 @@ import type { CombatActorRef } from '../../src/combat/CombatAttribution'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Faction } from '../../src/world/NPC'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { isTownCommandRevokedByRetirement, revokeRetirementTownCommandClaims } from '../../src/career/CareerRetirementCommand'
+import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
 
 describe('Saved official command membership', () => {
   it('round-trips returning town members without refilling wounds or dead mounts', () => {
@@ -107,7 +109,7 @@ describe('Commander saved command grant', () => {
     expect(officialCommandIsPlayerControlled(sky, 'sky:ranger:1')).toBe(true)
   })
 
-  it('round-trips exact peaceful actor claims and native return owners without treating whole squads as commanded', () => {
+  it('round-trips exact peaceful claims until retirement revokes Town authority while preserving HR and resources', () => {
     const profile = createCareerProfile('roman')
     profile.rank = 'commander'; profile.totalMerit = 20000
     profile.townCommandSquad = { type: 'town-command', townFaction: 'roman', squadId: 1,
@@ -128,6 +130,59 @@ describe('Commander saved command grant', () => {
     clone.townCommandSquad!.commandedActorIds!.push('one')
     clone.townCommandSquad!.nativeReturnStates!.three = 'REJOIN_PATROL'
     expect(store.load()!.townCommandSquad).toEqual(profile.townCommandSquad)
+
+    const retiring = cloneCareerProfile(profile)
+    retiring.personalSquad = { members: [{ id: 'personal:retained', type: 'soldier' }] }
+    retiring.personalSquadRuntime = snapshotPersonalMission(retiring)!
+    retiring.personalSquadRuntime.state = 'ACTIVE'
+    retiring.personalSquadRuntime.members['personal:retained'] = { status: 'deployed', hp: 15, order: 'follow' }
+    retiring.civilianCommandSquad = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman',
+      sceneKey: 'town:roman', actorIds: ['merchant'], owners: { merchant: 'player' },
+      members: { merchant: { status: 'deployed', hp: 19, order: 'follow' } } }
+    retiring.townAirCommandSquad = { type: 'town-air-command', squadId: 8, townFaction: 'roman', sceneKey: 'town:roman',
+      actorIds: ['town-eagle-rider:1'], commandedActorIds: ['town-eagle-rider:1'],
+      members: { 'town-eagle-rider:1': { status: 'deployed', hp: 11, ammo: 2 } } }
+    retiring.careerRetirement = { version: 1, phase: 'departing', acceptedAt: 1, combatElapsedSeconds: 0 }
+    const departing = cloneCareerProfile(retiring)
+    revokeRetirementTownCommandClaims(retiring)
+    expect(retiring).toEqual(departing)
+    expect(isTownCommandRevokedByRetirement(retiring)).toBe(false)
+    const hud = () => careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman',
+      careerRetirement: retiring.careerRetirement, official: retiring.townCommandSquad,
+      civilians: retiring.civilianCommandSquad, personal: snapshotPersonalMission(retiring), actors: [] })
+    expect(hud().members.map(member => member.id)).toEqual(['one', 'two', 'three', 'personal:retained', 'merchant'])
+
+    retiring.careerRetirement.phase = 'mobilizing'
+    // The phase gate excludes even still-stale command snapshots before reconciliation.
+    expect(hud().members.map(member => member.id)).toEqual(['personal:retained'])
+    revokeRetirementTownCommandClaims(retiring)
+    expect(retiring.townCommandSquad).toMatchObject({ authorized: false, commandedActorIds: [], state: 'TRAINING' })
+    expect(retiring.townCommandSquad!.commandedSquadIds).toBeUndefined()
+    expect(parseTownCommandSquad(JSON.parse(JSON.stringify(retiring.townCommandSquad)))).toEqual(retiring.townCommandSquad)
+    expect(townCommandIsPlayerControlled(retiring.townCommandSquad!, 'two')).toBe(false)
+    expect(retiring.townCommandSquad!.nativeReturnStates).toBeUndefined()
+    expect(retiring.townCommandSquad!.members!.two).toMatchObject({ hp: 17, ammo: 3, shieldImpact: 4, order: 'defend' })
+    expect(retiring.townCommandSquad!.members!.two.formation).toBeUndefined()
+    expect(retiring.townCommandSquad!.members!.three.mount).toEqual(departing.townCommandSquad!.members!.three.mount)
+    expect(retiring.townAirCommandSquad!.commandedActorIds).toEqual([])
+    expect(retiring.townAirCommandSquad!.members).toEqual(departing.townAirCommandSquad!.members)
+    expect(retiring.civilianCommandSquad!.owners).toEqual({ merchant: 'daily' })
+    expect(retiring.civilianCommandSquad!.members.merchant.hp).toBe(19)
+    expect(retiring.personalSquad).toEqual(departing.personalSquad)
+    expect(retiring.personalSquadRuntime).toEqual(departing.personalSquadRuntime)
+    retiring.townCommandSquad!.members!.two.formation = {
+      commandId: -4800, position: { x: 3, z: 4, yaw: 1 }, reached: false, arrivalOrder: 'defend',
+    }
+    retiring.civilianCommandSquad!.members.merchant.formation = {
+      commandId: -4809, position: { x: 6, z: 7, yaw: 1 }, reached: false, arrivalOrder: 'defend',
+    }
+    const revoked = cloneCareerProfile(retiring)
+    revokeRetirementTownCommandClaims(retiring)
+    expect(retiring).toEqual(revoked)
+    retiring.careerRetirement.phase = 'final-stand'
+    expect(isTownCommandRevokedByRetirement(retiring)).toBe(true)
+    retiring.careerRetirement.phase = 'completed'; retiring.careerRetirement.outcome = 'escaped'
+    expect(isTownCommandRevokedByRetirement(retiring)).toBe(true)
   })
 
   it('round-trips explicit squads, ownership, casualties, formations and resource checkpoints through CareerProfileStore', () => {

@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
+import { Faction } from '../combat/CombatFaction'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
 import { isEaglePadArrived } from '../world/EaglePadArrival'
@@ -9,7 +10,7 @@ import { EagleLandingQueue } from '../world/EagleLandingQueue'
 import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import type { TownActorSpec } from './TownRules'
 import type { TownEagleDuty, TownEagleGarrisonState, TownEaglePairState } from './TownEagleGarrisonState'
-import { townEaglePatrolRoute, TOWN_EAGLE_PATROL_SECONDS, TOWN_EAGLE_REST_SECONDS, TOWN_EAGLE_REPLACEMENT_SECONDS, TOWN_EAGLE_WAYPOINT_RADIUS } from './TownEagleGarrison'
+import { townEaglePatrolRoute, TOWN_EAGLE_PAIRS, TOWN_EAGLE_PATROL_SECONDS, TOWN_EAGLE_REST_SECONDS, TOWN_EAGLE_REPLACEMENT_SECONDS, TOWN_EAGLE_WAYPOINT_RADIUS } from './TownEagleGarrison'
 import { TOWN_LAYOUT_VERSION } from './TownLayout'
 import { migrateTownEagleGarrisonLayout } from './TownLayoutMigration'
 
@@ -52,6 +53,7 @@ export class TownEagleGarrisonController {
   private readonly pairs = new Map<NPC, Pair>()
   private ambientPatrolAllowed = false
   private recoveryAllowed = true
+  private retirementMobilized = false
   private time = 0
   private nextTakeoff = 0
   private readonly landingQueue: EagleLandingQueue
@@ -69,7 +71,7 @@ export class TownEagleGarrisonController {
   /** Only an already-saved, rank/scene-validated owner calls this, before applying its order. */
   claimPlayerCommand(npc: NPC): boolean {
     const pair = this.pairs.get(npc)
-    if (!pair || !/^town-eagle-rider:[1-5]$/.test(pair.resident.spec.id)) return false
+    if (this.retirementMobilized || !pair || !/^town-eagle-rider:[1-5]$/.test(pair.resident.spec.id)) return false
     if (pair.playerOwned) return true
     pair.playerOwned = true; pair.commandReturn = false; pair.refitAllowed = false
     this.landingQueue.release(pair.resident.spec.id)
@@ -96,10 +98,80 @@ export class TownEagleGarrisonController {
   }
   /** Explicit scene authority: formal missions, hostility and protected duels must disable it. */
   setAmbientPatrolAllowed(allowed: boolean): void {
-    this.ambientPatrolAllowed = allowed
+    this.ambientPatrolAllowed = allowed && !this.retirementMobilized
   }
   /** Formal deployments retain accepted casualties and resources until their saved return. */
-  setRecoveryAllowed(allowed: boolean): void { this.recoveryAllowed = allowed }
+  setRecoveryAllowed(allowed: boolean): void { this.recoveryAllowed = allowed && !this.retirementMobilized }
+
+  /** Read-only staging for the single durable final refill. Living mounted pairs
+   * retain their flight and return through the native landing queue. Casualties
+   * recover the existing fixed assets at their own pads, never a new generation.
+   */
+  stageRetirementRefill(sceneKey: string): TownEagleGarrisonState | undefined {
+    if (this.retirementMobilized || !this.canReconcileRetirement()) return undefined
+    const saved = this.snapshot(sceneKey)
+    const byId = new Map([...this.pairs.values()].map(pair => [pair.resident.spec.id, pair]))
+    saved.nextTakeoffRemaining = 0
+    saved.pairs = TOWN_EAGLE_PAIRS.map(identity => {
+      const state = saved.pairs.find(pair => pair.riderId === identity.riderId)!
+      const { resident: { npc, homeMount: mount, spec } } = byId.get(identity.riderId)!
+      const home = spec.eagle!.home
+      const preserveFlight = !npc.dead && !mount!.dead && !npc.isFalling && npc.mount === mount
+      return { riderId: state.riderId, mountId: state.mountId, homePadId: state.homePadId,
+        hp: npc.maxHp, ammo: npc.combatAmmoCapacity,
+        position: preserveFlight ? { ...state.position }
+          : { x: spec.x, y: spec.y ?? getTerrainHeight(spec.x, spec.z), z: spec.z, yaw: spec.yaw ?? home.yaw },
+        mounted: preserveFlight, duty: preserveFlight ? 'return-queue' : 'standby',
+        refitAllowed: false, serviceRefit: false, commandReturn: false,
+        patrol: { active: false, waypoint: 0, elapsed: 0 }, replacementRemaining: 0, ambientRecovery: false, restRemaining: 0,
+        mount: { hp: mount!.maxHp,
+          position: preserveFlight ? { ...state.mount.position }
+            : { ...home, y: getTerrainHeight(home.x, home.z) },
+          flight: preserveFlight ? { ...state.mount.flight, velocity: { ...state.mount.flight.velocity } }
+            : { phase: 'grounded', yaw: home.yaw, pitch: 0, bank: 0, speed: 0, velocity: { x: 0, y: 0, z: 0 } },
+        } }
+    })
+    return saved
+  }
+
+  private canReconcileRetirement(): boolean {
+    const pairs = [...this.pairs.values()]
+    return pairs.length === TOWN_EAGLE_PAIRS.length && TOWN_EAGLE_PAIRS.every(identity =>
+      pairs.filter(({ resident: { spec } }) => identity.riderId === spec.id && identity.mountId === spec.eagle?.mountId
+        && identity.homePadId === spec.eagle.homePadId).length === 1)
+      && pairs.every(({ resident: { npc, homeMount } }) => homeMount && !homeMount.riderPlayer
+        && (!homeMount.riderNpc || homeMount.riderNpc === npc) && (!npc.mount || npc.mount === homeMount))
+  }
+
+  /** Apply only an already-saved refill or later casualty checkpoint. This does
+   * not infer completion from position and never heals an actor saved as dead.
+   */
+  reconcileRetirementMobilization(saved: TownEagleGarrisonState, sceneKey: string): boolean {
+    if (saved.sceneKey !== sceneKey || !this.canReconcileRetirement()
+      || saved.pairs.length !== TOWN_EAGLE_PAIRS.length
+      || TOWN_EAGLE_PAIRS.some(identity => saved.pairs.filter(pair => pair.riderId === identity.riderId
+        && pair.mountId === identity.mountId && pair.homePadId === identity.homePadId).length !== 1)) return false
+    this.retirementMobilized = true; this.ambientPatrolAllowed = false; this.recoveryAllowed = false
+    const checkpoint: TownEagleGarrisonState = { ...saved, pairs: saved.pairs.map(state => ({ ...state,
+      refitAllowed: false, serviceRefit: false, commandReturn: false,
+      replacementRemaining: 0, ambientRecovery: false, restRemaining: 0,
+      patrol: { active: false, waypoint: 0, elapsed: 0 },
+      duty: state.hp <= 0 || state.mount.hp <= 0 ? 'casualty'
+        : state.mounted ? 'return-queue' : state.duty === 'walking-to-standby' ? 'walking-to-standby' : 'standby',
+    })) }
+    for (const pair of this.pairs.values()) {
+      const { npc, homeMount: mount, spec } = pair.resident
+      const state = checkpoint.pairs.find(member => member.riderId === spec.id)!
+      pair.playerOwned = false; this.landingQueue.release(spec.id)
+      npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(undefined)
+      npc.setMissionCombatTarget(null); npc.missionMovement = false; npc.setTownPeaceful()
+      if (npc.mount && (!state.mounted || state.hp <= 0 || state.mount.hp <= 0)) npc.dismountFromMount()
+      if (state.hp > 0 && (npc.dead || npc.isFalling && !state.fall)) npc.restoreForTown(state.position)
+      if (state.mount.hp > 0 && mount!.dead) mount!.restoreForTown(state.mount.position.x, state.mount.position.z, state.mount.position.yaw)
+    }
+    this.restore(checkpoint, sceneKey)
+    return true
+  }
   beginFrame(dt: number): void {
     dt = Number.isFinite(dt) ? Math.max(0, dt) : 0
     this.time += dt
@@ -115,6 +187,7 @@ export class TownEagleGarrisonController {
   }
   /** Only called after the existing settlement has saved and authorized Town refit. */
   beginRefit(actorId: string): void {
+    if (this.retirementMobilized) return
     const pair = [...this.pairs.values()].find(p => p.resident.spec.id === actorId)
     if (!pair) return
     pair.refitAllowed = true
@@ -127,7 +200,7 @@ export class TownEagleGarrisonController {
     const pair = this.pairs.get(npc), mount = pair?.resident.homeMount
     // A dismissed casualty cannot finish a physical return. Service may authorize
     // its existing native recovery, while living returns and pending service wait.
-    return Boolean(pair && mount && !pair.serviceRefit
+    return Boolean(!this.retirementMobilized && pair && mount && !pair.serviceRefit
       && (!pair.refitAllowed && !pair.commandReturn || npc.dead || mount.dead)
       && (!npc.combatOwnership || npc.combatOwnership === 'town-eagle-command')
       && !mount.riderPlayer && (!mount.riderNpc || mount.riderNpc === npc))
@@ -135,6 +208,7 @@ export class TownEagleGarrisonController {
   serviceRefitPending(npc: NPC): boolean { const pair = this.pairs.get(npc); return Boolean(pair?.serviceRefit && pair.refitAllowed) }
   /** The saved service transaction authorizes recovery, never a second rider or mount. */
   requestServiceRefit(npc: NPC): void {
+    if (this.retirementMobilized) return
     const pair = this.pairs.get(npc)
     if (!pair) return
     // Commit may already have released a living Commander claim into native return.
@@ -150,6 +224,7 @@ export class TownEagleGarrisonController {
     obstacles: ObstacleData[], navigation: NavigationWorld, nearby: NPC[] = [], occupied: readonly Mount[] = []): boolean {
     const pair = this.pairs.get(npc)
     if (!pair) return false
+    if (this.retirementMobilized) combat = false
     const { spec, homeMount: mount } = pair.resident, eagle = spec.eagle!
     const distance = npc.group.position.distanceTo(camera)
     if (pair.playerOwned) {
@@ -174,7 +249,7 @@ export class TownEagleGarrisonController {
     if (pair.commandReturn && !npc.dead && !mount!.dead) combat = false
     if (npc.dead || mount!.dead) {
       if (pair.duty !== 'casualty') {
-        pair.replacementRemaining = TOWN_EAGLE_REPLACEMENT_SECONDS
+        pair.replacementRemaining = this.retirementMobilized ? 0 : TOWN_EAGLE_REPLACEMENT_SECONDS
         pair.ambientRecovery = this.ambientPatrolAllowed
       }
       pair.duty = 'casualty'

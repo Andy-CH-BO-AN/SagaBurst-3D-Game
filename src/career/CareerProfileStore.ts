@@ -1,3 +1,4 @@
+import { hasCompleteRetirementMobilizationCheckpoint, parseRetirementActorCheckpoints } from './CareerRetirementMobilization'
 import { parseCareerRetirementState } from './CareerRetirementState'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
 import { BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
@@ -572,6 +573,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (townEvent?.pendingResult !== undefined && (townEvent.state !== 'hostile' || !['player_defeated', 'town_defeated'].includes(townEvent.pendingResult))) return null
   const profile: CareerProfile = {
     ...(careerRetirement ? { careerRetirement } : {}),
+    ...(raw.retirementTowerGuards !== undefined ? { retirementTowerGuards: parseRetirementActorCheckpoints(raw.retirementTowerGuards, TOWN_WATCHTOWER_ARCHER_IDS) ?? undefined } : {}),
     ...(townEquipment ? { townEquipment } : {}),
     ...(raw.inventory ? { inventory: raw.inventory as CareerInventory } : {}),
     version: 1,
@@ -670,6 +672,10 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
         ...(previous.refittingActorIds ? { refittingActorIds: previous.refittingActorIds.filter(id => ids.has(id)) } : {}) }
     }
   }
+  if (raw.retirementTowerGuards !== undefined && !profile.retirementTowerGuards) return null
+  // Validate the raw full-resource receipt before permissive legacy normalization.
+  if (careerRetirement?.mobilization && !hasCompleteRetirementMobilizationCheckpoint({ ...raw, careerRetirement } as unknown as CareerProfile)) return null
+  if (!hasCompleteRetirementMobilizationCheckpoint(profile)) return null
   retireNativeTownAirCommand(profile, townCommandSquad)
   try { grantCommanderMelee(profile); normalizeCareerInventory(profile) } catch { return null }
   return profile

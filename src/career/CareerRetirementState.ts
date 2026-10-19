@@ -7,6 +7,7 @@ export interface CareerRetirementState {
   phase: CareerRetirementPhase
   acceptedAt: number
   combatElapsedSeconds: number
+  mobilization?: { version: 1; commandRevoked: true; refillCompleted: true; formationPrepared: true }
   outcome?: CareerRetirementOutcome
 }
 
@@ -22,6 +23,10 @@ export function parseCareerRetirementState(value: unknown): CareerRetirementStat
   if (phase === 'completed') {
     if (outcome !== 'escaped' && outcome !== 'fallen') return null
   } else if (outcome !== undefined || (phase !== 'final-stand' && combatElapsedSeconds !== 0)) return null
+  const receipt = raw.mobilization as Partial<NonNullable<CareerRetirementState['mobilization']>> | undefined
+  if (receipt !== undefined && (phase === 'departing' || !receipt || typeof receipt !== 'object'
+    || receipt.version !== 1 || receipt.commandRevoked !== true || receipt.refillCompleted !== true || receipt.formationPrepared !== true)) return null
   return { version: 1, phase, acceptedAt, combatElapsedSeconds,
+    ...(receipt ? { mobilization: { version: 1 as const, commandRevoked: true as const, refillCompleted: true as const, formationPrepared: true as const } } : {}),
     ...(outcome === 'escaped' || outcome === 'fallen' ? { outcome } : {}) }
 }

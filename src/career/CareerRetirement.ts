@@ -53,16 +53,46 @@ export function startCommanderRetirement(current: CareerProfile, acceptedAt: num
   return { started: true, profile: next }
 }
 
-/** Ordinary Town transactions cannot rewrite an irreversible checkpoint.
- * Future phase advancement must have its own validated retirement-owner transition,
- * rather than weakening this guard with an unchecked commit option.
+export type RetirementCommitPermission =
+  | { allowed: true }
+  | { allowed: false; reason: 'retirement-checkpoint-missing' | 'retirement-checkpoint-changed' | 'retirement-new-work' | 'retirement-town-hostility' }
+
+/** Generic Town retaliation cannot own the retirement betrayal sequence. */
+export function canStartOrdinaryTownHostility(profile: Pick<CareerProfile, 'careerRetirement'>): boolean {
+  return profile.careerRetirement === undefined
+}
+
+/** Compare the persisted plain-data checkpoint, including any nested mobilization receipt.
+ * Property order and omitted undefined fields do not change its persisted meaning.
  */
-export function preservesCommanderRetirement(current: CareerProfile, next: CareerProfile): boolean {
+function equalRetirementCheckpoint(current: unknown, next: unknown): boolean {
+  if (current === next) return true
+  if (!current || !next || typeof current !== 'object' || typeof next !== 'object') return false
+  if (Array.isArray(current) || Array.isArray(next)) return Array.isArray(current) && Array.isArray(next)
+    && current.length === next.length && current.every((value, index) => equalRetirementCheckpoint(value, next[index]))
+  const saved = current as Record<string, unknown>, proposed = next as Record<string, unknown>
+  const keys = Object.keys(saved).filter(key => saved[key] !== undefined)
+  return keys.length === Object.keys(proposed).filter(key => proposed[key] !== undefined).length
+    && keys.every(key => equalRetirementCheckpoint(saved[key], proposed[key]))
+}
+
+/** Validate before saving or applying runtime effects. Ordinary Town transactions cannot
+ * rewrite an irreversible checkpoint or start new work after retirement has begun.
+ * Phase advancement belongs to a separately validated retirement-owner transition.
+ */
+export function validateOrdinaryRetirementCommit(current: CareerProfile, next: CareerProfile): RetirementCommitPermission {
   const saved = current.careerRetirement, proposed = next.careerRetirement
-  return saved === undefined || proposed !== undefined
-    && proposed.version === saved.version
-    && proposed.phase === saved.phase
-    && proposed.acceptedAt === saved.acceptedAt
-    && proposed.combatElapsedSeconds === saved.combatElapsedSeconds
-    && proposed.outcome === saved.outcome
+  if (saved === undefined) return { allowed: true }
+  if (proposed === undefined) return { allowed: false, reason: 'retirement-checkpoint-missing' }
+  if (!equalRetirementCheckpoint(saved, proposed)) return { allowed: false, reason: 'retirement-checkpoint-changed' }
+  if (next.activeMission && next.activeMission.id !== current.activeMission?.id
+    || next.activeOutpostMission && next.activeOutpostMission.id !== current.activeOutpostMission?.id
+    || next.activeRace && next.activeRace.id !== current.activeRace?.id) {
+    return { allowed: false, reason: 'retirement-new-work' }
+  }
+  if (!canStartOrdinaryTownHostility(current) && next.townEvent?.state === 'hostile'
+    && (current.townEvent?.state !== 'hostile' || current.townEvent.id !== next.townEvent.id)) {
+    return { allowed: false, reason: 'retirement-town-hostility' }
+  }
+  return { allowed: true }
 }
