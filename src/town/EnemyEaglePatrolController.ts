@@ -18,7 +18,8 @@ import { EagleLandingQueue } from '../world/EagleLandingQueue'
 import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
 import { isEaglePadArrived } from '../world/EaglePadArrival'
 import { isEagleApproachClear } from '../world/EagleApproach'
-import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
+import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_RETIREMENT_EXIT_LINE, townRetirementExitPoint } from './TownBounds'
+import { XONGKORO } from '../movement/XongkoroConfig'
 import type { OutskirtsFactories } from './TownOutskirtsWarfareController'
 import { townWartimeHostile } from './TownWartime'
 import {
@@ -32,6 +33,10 @@ import {
   resolveEnemyEagleHomes,
 } from './EnemyEaglePatrolRules'
 import type { EnemyEaglePairCheckpoint, EnemyEaglePatrolCheckpoint, EnemyEagleState } from './EnemyEaglePatrolState'
+// Clear the air boundary before native turn-back steering; no flight/balance override.
+const AIR_EVACUATION_EXIT_LINE = TOWN_PLAYABLE_WORLD_BOUND - XONGKORO.boundaryMargin - 2
+const GROUND_EVACUATION_COMMAND = -5102
+
 interface Pair extends EnemyEaglePairCheckpoint {
   npc?: NPC
   mount?: Mount
@@ -59,6 +64,7 @@ export class EnemyEaglePatrolController {
   private readonly grid = new SpatialGrid<NPC>(32)
   private readonly nearby: NPC[] = []
   private readonly queue: EagleLandingQueue
+  private readonly evacuationGoals = new Map<NPC, THREE.Vector3>()
   private suspended?: EnemyEaglePatrolCheckpoint
   private enabled = false
   private disposed = false
@@ -70,7 +76,7 @@ export class EnemyEaglePatrolController {
   constructor(
     private readonly scene: THREE.Scene,
     private readonly townFaction: CharacterFaction,
-    private readonly readProfile: () => Pick<CareerProfile, 'rank' | 'faction'>,
+    private readonly readProfile: () => Pick<CareerProfile, 'rank' | 'faction' | 'careerRetirement'>,
     private readonly obstacles: ObstacleData[],
     private readonly navigation: NavigationWorld,
     private readonly factories?: OutskirtsFactories,
@@ -107,9 +113,61 @@ export class EnemyEaglePatrolController {
     return this.owns(npc) ? this.allActors : []
   }
   combatEnabled(npc: NPC): boolean {
-    return !this.formalMission && this.ownership.get(npc)?.state === 'ENGAGING'
+    return !this.readProfile().careerRetirement && !this.formalMission && this.ownership.get(npc)?.state === 'ENGAGING'
   }
+  /** Cancellation holds partial generations; only already-live pairs receive flight intent. */
+  applyRetirementPolicy(): void {
+    const retirement = this.readProfile().careerRetirement
+    if (!retirement || this.disposed) return
+    for (const pair of this.pairs) {
+      pair.batch?.cancel()
+      this.queue.release(this.key(pair))
+      pair.target = undefined
+      const npc = pair.npc
+      if (!npc || this.evacuationGoals.has(npc) || retirement.phase !== 'departing') continue
+      if (npc.dead) { this.retire(pair); continue }
+      const point = townRetirementExitPoint(npc.combatPosition)
+      const goal = new THREE.Vector3(point.x, 0, point.z)
+      npc.clearEncounter()
+      npc.setMissionCombatTarget(null)
+      npc.assignSiegeObstacle(null)
+      npc.missionMovement = false
+      npc.missionAerialDefense = false
+      // RESTING riders already stand beside their own grounded mount. Never restore/teleport flight.
+      if (pair.mount && !pair.mount.dead && !npc.mount) npc.mountVehicle(pair.mount)
+      npc.assignFormationTarget(GROUND_EVACUATION_COMMAND, goal, goal.clone().sub(npc.combatPosition).setY(0).normalize())
+      if (npc.mount?.isFlyingMount) npc.setEagleFlightOrder({ kind: 'patrol', target: goal, cruiseAltitude: this.altitude(pair) })
+      pair.commanded = 'evacuating'
+      this.evacuationGoals.set(npc, goal)
+    }
+  }
+
+  isRetirementEvacuating(npc: NPC): boolean {
+    return Boolean(this.readProfile().careerRetirement && this.owns(npc))
+  }
+
+  private prepareEvacuation(participants: readonly NPC[]): void {
+    this.lastParticipants = participants
+    this.pruneRetired()
+    for (const pair of this.pairs) {
+      const npc = pair.npc, mount = pair.mount
+      if (!npc || !mount || !this.evacuationGoals.has(npc)) continue
+      if (npc.dead) { this.evacuationGoals.delete(npc); this.retire(pair); continue }
+      const flying = npc.mount === mount && mount.isAirborne
+      const line = flying ? AIR_EVACUATION_EXIT_LINE : TOWN_RETIREMENT_EXIT_LINE - 1.5
+      if (Math.max(Math.abs(npc.combatPosition.x), Math.abs(npc.combatPosition.z)) < line
+        || mount.riderPlayer || mount.riderNpc && mount.riderNpc !== npc) continue
+      // Native cleanup at the physical flight boundary; never land or snap the pair to ground.
+      this.removeActor(npc, mount)
+      this.evacuationGoals.delete(npc)
+      pair.npc = undefined; pair.mount = undefined; pair.batch = undefined; pair.member = undefined
+    }
+    this.grid.clear()
+    for (const npc of participants) if (!npc.dead && !this.disposedActors.has(npc)) this.grid.insert(npc)
+  }
+
   synchronizeRank(): void {
+    if (this.readProfile().careerRetirement) { this.applyRetirementPolicy(); return }
     if (this.disposed || this.failure) return
     const enabled = enemyEaglePatrolEnabled(this.readProfile())
     if (enabled === this.enabled) return
@@ -165,6 +223,7 @@ export class EnemyEaglePatrolController {
     this.restoreCheckpoint(saved)
   }
   restoreCheckpoint(saved: EnemyEaglePatrolCheckpoint | undefined): void {
+    if (this.readProfile().careerRetirement) { this.applyRetirementPolicy(); return }
     if (!saved || this.disposed || !this.enabled) return
     this.clearLive()
     this.failure = undefined
@@ -188,16 +247,19 @@ export class EnemyEaglePatrolController {
     }
   }
   setAmbientPatrolAllowed(allowed: boolean): void {
+    if (this.readProfile().careerRetirement) { this.applyRetirementPolicy(); return }
     if (allowed) this.resumeAfterMission()
     else this.suspendForMission()
   }
   suspendForMission(): void {
+    if (this.readProfile().careerRetirement) { this.applyRetirementPolicy(); return }
     if (this.formalMission || this.disposed) return
     this.suspended = this.checkpoint()
     this.formalMission = true
     this.clearLive()
   }
   resumeAfterMission(): void {
+    if (this.readProfile().careerRetirement) { this.applyRetirementPolicy(); return }
     if (!this.formalMission || this.disposed) return
     this.formalMission = false
     const held = this.suspended
@@ -206,6 +268,9 @@ export class EnemyEaglePatrolController {
     else if (this.enabled) for (const p of this.pairs) this.spawn(p)
   }
   prepareFrame(dt: number, participants: readonly NPC[], player: Player): void {
+    if (this.disposed) return
+    this.applyRetirementPolicy()
+    if (this.readProfile().careerRetirement) { this.prepareEvacuation(participants); return }
     if (!this.enabled || this.formalMission || this.disposed || this.failure) return
     dt = Math.max(0, dt)
     this.time += dt
@@ -349,12 +414,13 @@ export class EnemyEaglePatrolController {
     }
   }
   noteHit(target: NPC, _playerSource: boolean): void {
+    if (this.isRetirementEvacuating(target)) return
     const p = this.ownership.get(target)
     if (p) p.sensor = 0
   }
   updateTravel(npc: NPC, dt: number, camera: THREE.Vector3): void {
     const p = this.ownership.get(npc)
-    if (this.formalMission || p?.state === 'SPAWNING') return
+    if (!this.isRetirementEvacuating(npc) && (this.formalMission || p?.state === 'SPAWNING')) return
     if (!p) {
       if (this.retiredActors.has(npc)) npc.updateTownPeace(dt, npc.combatPosition.distanceTo(camera), false, false)
       return
@@ -420,6 +486,7 @@ export class EnemyEaglePatrolController {
     )
   }
   private spawn(p: Pair): void {
+    if (this.readProfile().careerRetirement) return
     if (this.disposed || this.formalMission || p.batch?.status === 'pending') return
     const arrival: EnemyEagleState = p.state === 'SPAWNING' ? (p.arrivalState ?? 'WAITING') : p.state
     p.arrivalState = arrival
@@ -433,6 +500,7 @@ export class EnemyEaglePatrolController {
     p.batch = batch
     const spec = enemyEagleSpawnSpec(p.id, p.generation, this.townFaction, this.readProfile().faction, p.home)
     batch.enqueue(this.key(p), () => {
+      if (this.readProfile().careerRetirement) return
       const npc = trackNpcSpawn(
         this.factories?.createNpc(spec) ??
           new NPC(
@@ -551,6 +619,7 @@ export class EnemyEaglePatrolController {
     this.retired.length = 0
     this.retiredActors.clear()
     this.ownership.clear()
+    this.evacuationGoals.clear()
     this.grid.clear()
     this.lastParticipants = []
   }

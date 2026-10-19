@@ -17,6 +17,7 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 import { TownMissionCombat } from '../../src/town/TownMissionCombat'
 import { damageNpc } from '../../src/combat/DamageRouter'
 import { FriendlyMovementBypass } from '../../src/navigation/FriendlyMovementBypass'
+import { TOWN_RETIREMENT_EXIT_LINE } from '../../src/town/TownBounds'
 import { createPlayerCombatActorRef, type DamageAppliedEvent } from '../../src/combat/CombatAttribution'
 
 /** Spawn jobs remain queued: this fixture never constructs actors, mounts or a render scene. */
@@ -366,6 +367,68 @@ describe('Town patrol travel and ownership decisions', () => {
     expect(new Set(queued).size).toBe(10)
     expect(queued).toHaveLength(10)
     expect(cavalry.spawnArrivalState).toBe('ENTERING')
+  })
+
+  it('keeps a partially deployed external generation traveling while retirement cancels refill and reload materialization', () => {
+    const profile = createCareerProfile('roman')
+    profile.rank = 'commander'
+    const scheduler = new NpcSpawnScheduler()
+    const navigation = new NavigationWorld({ minX: -350, maxX: 350, minZ: -350, maxZ: 350, cellSize: 20 })
+    const position = new Vector3()
+    const recorded = {
+      combatantId: '', dead: false, faction: Faction.BANDIT, combatPosition: position,
+      group: { position, rotation: { y: 0 } }, respawnEnabled: true,
+      formationCommandId: null as number | null, destination: undefined as Vector3 | undefined,
+      target: undefined as NPC | Player | null | undefined, siege: {} as object | null,
+      encounter: 'alerted', assignments: 0, traveled: 0, disposed: false,
+      configureBanditEncounter() {},
+      clearEncounter() { this.encounter = 'idle' },
+      setMissionCombatTarget(target: NPC | Player | null | undefined) { this.target = target },
+      assignSiegeObstacle(target: object | null) { this.siege = target },
+      assignFormationTarget(id: number, target: Vector3) { this.formationCommandId = id; this.destination = target.clone(); this.assignments++ },
+      updateTownTravel() { this.traveled++ },
+      dismountFromMount() {},
+      dispose() { this.disposed = true },
+    }
+    // Narrow spawn adapter records commands only; no NPC, Mount or scene is constructed.
+    const controller = new TownOutskirtsWarfareController(null as unknown as Scene, 'roman', () => profile, [], navigation, {
+      createNpc(spec) { recorded.combatantId = spec.actorId!; position.set(spec.x, 0, spec.z); return recorded as unknown as NPC },
+      createMount() { throw new Error('This leaf never materializes a mounted actor') },
+    }, [], scheduler)
+    onTestFinished(() => controller.dispose())
+    const staleCheckpoint = controller.checkpoint()
+    scheduler.tick(1)
+    const actor = controller.actors[0]
+    expect(scheduler.pending).toBeGreaterThan(0)
+    profile.careerRetirement = { version: 1, phase: 'departing', acceptedAt: 1, combatElapsedSeconds: 0 }
+    controller.applyRetirementPolicy()
+    expect(scheduler.pending).toBe(0)
+    expect(controller.actors).toEqual([actor])
+    expect(recorded).toMatchObject({ disposed: false, target: null, siege: null, encounter: 'idle', assignments: 1 })
+    expect(recorded.destination).toEqual(new Vector3(-TOWN_RETIREMENT_EXIT_LINE, 0, -170))
+    controller.applyRetirementPolicy()
+    controller.noteHit(actor, true)
+    controller.prepareFrame(60, [actor], { dead: true } as Player)
+    controller.updateTravel(actor, .1, new Vector3())
+    scheduler.tick(2)
+    expect(recorded).toMatchObject({ disposed: false, assignments: 1, traveled: 1 })
+    expect(controller.combatEnabled(actor)).toBe(false)
+    expect(scheduler.pending).toBe(0)
+    expect(controller.squads.every(squad => squad.generation === 0)).toBe(true)
+    position.x = -TOWN_RETIREMENT_EXIT_LINE
+    controller.prepareFrame(0, [actor], { dead: true } as Player)
+    expect(recorded.disposed).toBe(true)
+    expect(controller.actors).toEqual([])
+    expect(controller.owns(actor)).toBe(false)
+    const reloadScheduler = new NpcSpawnScheduler()
+    const reload = new TownOutskirtsWarfareController(null as unknown as Scene, 'roman', () => profile, [], navigation, undefined, [], reloadScheduler)
+    onTestFinished(() => reload.dispose())
+    reload.restoreCheckpoint(staleCheckpoint)
+    profile.careerRetirement.phase = 'mobilizing'
+    reload.synchronizeRank()
+    reload.prepareFrame(120, [], { dead: true } as Player)
+    expect(reloadScheduler.pending).toBe(0)
+    expect(reload.actors).toEqual([])
   })
 
 })
