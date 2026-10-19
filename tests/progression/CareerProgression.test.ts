@@ -302,6 +302,11 @@ it('round-trips an isolated retirement checkpoint and rejects a corrupted ending
   copy.careerRetirement!.combatElapsedSeconds = 99
   expect(loaded.careerRetirement!.combatElapsedSeconds).toBe(42.5)
   const saved = storage.getItem(CAREER_STORAGE_KEY)
+  // The saved rank says Commander, but effective merit normalizes it to Captain.
+  const downgraded = { ...profile, totalMerit: 5200 }
+  expect(parseCareerProfile(downgraded)).toBeNull()
+  expect(store.save(downgraded)).toBe(false)
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
   delete profile.careerRetirement.outcome
   expect(parseCareerProfile(profile)).toBeNull()
   expect(store.save(profile)).toBe(false)

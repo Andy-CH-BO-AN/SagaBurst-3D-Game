@@ -546,6 +546,8 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const eligible = resolveCareerRank(totalMerit - enlistmentMeritBase)
   const requested = CAREER_RANKS.indexOf(raw.rank as CareerProfile['rank'])
   const rank = CAREER_RANKS[Math.max(0, Math.min(requested, CAREER_RANKS.indexOf(eligible)))]
+  // An ending checkpoint belongs only to a formally appointed, valid Commander.
+  if (careerRetirement && rank !== 'commander') return null
   const equipment = raw.equipment && typeof raw.equipment === 'object' ? raw.equipment as Record<string, unknown> : null
   const townEvent = raw.townEvent as CareerProfile['townEvent']
   const activeRace = raw.activeRace === undefined ? undefined : parseRaceSession(raw.activeRace)
