@@ -1,3 +1,4 @@
+import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
 import { prepareSeatSupport } from './SkinnedSeatContact'
 import type { FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import { prepareAuthoredBowContacts } from './BowDrawHand'
@@ -56,7 +57,7 @@ export interface HumanoidAnimationBinding {
   events?: Record<string, number>
 }
 
-export const HUMANOID_LOD_DISTANCES = [0, 28, 60] as const
+export const HUMANOID_LOD_DISTANCES = CHARACTER_LOD_DISTANCES
 export const HUMANOID_ANIMATION_THROTTLE_DISTANCE = 28
 
 export interface HumanoidAssetManifest {

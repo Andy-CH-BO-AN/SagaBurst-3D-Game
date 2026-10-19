@@ -1,3 +1,4 @@
+import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -67,7 +68,7 @@ export class BlackCatVisual {
     })
     this.root.updateMatrixWorld(true)
     this.lod.name = 'black-cat-lod'
-    for (const [index, distance] of [0, 18, 38].entries()) {
+    for (const [index, distance] of CHARACTER_LOD_DISTANCES.entries()) {
       const mesh = this.root.getObjectByName(`cat_body_lod${index}`)!
       const equipment = this.root.getObjectByName(index === 0 ? 'cat_saddle_leather' : `cat_equipment_lod${index}`)
       const level = new THREE.Group()
