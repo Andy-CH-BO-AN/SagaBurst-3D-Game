@@ -56,6 +56,7 @@ import { shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderP
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
 import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
+import { TownProjectileObstacles } from './TownProjectileObstacles'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
@@ -217,6 +218,7 @@ export class TownScene {
   private readonly projectileAdmission = new ProjectileAdmission(100, 60)
   get projectileDiagnostics() { return { activeShots: this.shots.length, ...this.projectileAdmission.snapshot() } }
   private readonly shotObstacleContact = { fraction: Infinity, point: new THREE.Vector3() }
+  private readonly projectileObstacles = new TownProjectileObstacles()
   private raf = 0
   private last = performance.now()
   private elapsed = 0
@@ -3012,7 +3014,7 @@ export class TownScene {
       if (s.training) { if (s.age > .3) s.arrow.destroy(); continue }
       const terrainTime = projectileTerrainContactTime(from, to)
       let nearest = Math.min(length + .01, terrainTime * length), hit: (() => void) | null = Number.isFinite(terrainTime) ? () => {} : null
-      const obstacle = findBlockingProjectileObstacleAlongPath(from, to, this.world.obstacles, this.shotObstacleContact)
+      const obstacle = findBlockingProjectileObstacleAlongPath(from, to, this.projectileObstacles.query(from, to, this.world.obstacles), this.shotObstacleContact)
       if (obstacle && this.shotObstacleContact.fraction * length < nearest) {
         nearest = this.shotObstacleContact.fraction * length
         const buildingIndex = this.world.buildings.findIndex(building => building.obstacles.includes(obstacle))
@@ -3750,6 +3752,7 @@ export class TownScene {
     this.raf = requestAnimationFrame(t => this.frame(t))
   }
   dispose(preservePointerLock = false): void {
+    this.projectileObstacles.clear()
     this.promotionAttempt = null
     this.cancelPendingSpawns()
     this.flushCareerSkillProgression()
