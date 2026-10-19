@@ -1,3 +1,4 @@
+import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { CorgiSeatContact } from './CorgiSeatContact'
@@ -74,7 +75,7 @@ export class CorgiVisual {
     })
     this.root.updateMatrixWorld(true)
     this.lod.name = 'corgi-lod'
-    for (const [index, distance] of [0, 18, 38].entries()) {
+    for (const [index, distance] of CHARACTER_LOD_DISTANCES.entries()) {
       const mesh = this.root.getObjectByName(`corgi_body_lod${index}`)!
       const equipment = this.root.getObjectByName(index === 0 ? 'corgi_saddle_leather' : `corgi_equipment_lod${index}`)
       const level = new THREE.Group()

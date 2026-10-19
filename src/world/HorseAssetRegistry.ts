@@ -1,3 +1,4 @@
+import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -135,7 +136,7 @@ const REQUIRED_SOCKETS = [
   'socket_camera',
 ]
 
-const LOD_DISTANCES = [0, 18, 38] as const
+const LOD_DISTANCES = CHARACTER_LOD_DISTANCES
 const MAX_PACKAGE_BYTES = 30 * 1024 * 1024
 export const HORSE_LOD2_CULLED_TINY_DETAIL_NAMES = [
   'bridle_4F_Leather_Brown_Worn_mqm_lod2',
