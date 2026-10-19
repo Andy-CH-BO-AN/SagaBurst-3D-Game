@@ -639,6 +639,7 @@ export class TownScene {
         read: () => this.profile, publish: next => { this.profile = next },
         capture: next => this.captureRetirementResources(next),
         privateFightersAlive: () => (this.personalSquad?.aliveCombatants ?? 0) > 0,
+        privateSquad: () => this.personalSquad?.hudMission,
         save: next => {
           if (!this.store.save(next)) { this.careerSaveFailures++; return false }
           this.clearCareerSkillSaveTimer(); this.careerSkillsDirty = false
@@ -893,6 +894,7 @@ export class TownScene {
         ...(mount.flight ? { flight: mount.flight.snapshot() } : {}) } } : {}),
     }
     this.retirementMobilization?.capture(next)
+    this.retirementFinale?.captureStats(next)
   }
 
   private restoreRetirementPlayer(): void {
@@ -1770,7 +1772,7 @@ export class TownScene {
   }
   private emitCombatEvent(event: CombatEvent): void {
     (this.squadRefitSafety ??= new SquadRefitSafety()).note(event)
-    if (this.retirementFinale?.active) return
+    if (this.retirementFinale?.active) { this.retirementFinale.recordEvent(event); return }
     if (this.captainPatrol?.active) this.captainPatrol.recordEvent(event)
     else (this.duel?.active ? this.duel.events : this.defense?.active ? this.defense.events : this.mission?.events)?.emit(event)
   }
@@ -2934,7 +2936,7 @@ export class TownScene {
     const seen = new Set<Mount>()
     const owned = this.careerMounts?.activeMount
     const active = this.profile.activeMission
-    const combatActive = !this.result && (this.event?.hostile || Boolean(active && !active.result && active.phase !== 'RETURNING'))
+    const combatActive = !this.result && (this.retirementFinale?.active || this.event?.hostile || Boolean(active && !active.result && active.phase !== 'RETURNING'))
     const combatId = active?.id ?? this.profile.townEvent?.id ?? 'field'
     if (combatActive) for (const resident of this.residents ?? []) {
       // T5 borrows the Commander only; its parked service mount never becomes duel loot.
@@ -4027,7 +4029,8 @@ export class TownScene {
       : `${this.sceneContext.missionOnlyResidents ? '敵境 · 斥候遭遇戰' : this.sceneContext.worldFaction === 'viking' ? 'økse 村' : 'vinum 村'}\n已任命軍階 ${this.profile.rank}\n累積軍功 ${this.profile.totalMerit} · 可用軍功 ${this.profile.availableMerit}${this.townCommand?.authorizedActorIds.length ? `\n${this.profile.townCommandSquad?.commandRank === 'commander' ? '全城正式部隊' : '城防指揮隊'} ${this.townCommand.actors.filter(npc => !npc.dead).length}/${this.townCommand.authorizedActorIds.length} · ${this.townCommand.state === 'TRAINING' ? '駐防待命' : this.townCommand.state} · Q / 反引號 命令` : ''}${this.profile.personalSquad?.members.length ? `\nPersonal Squad ${this.profile.personalSquad.members.length}/30 · ${this.personalSquad?.state ?? 'RESERVE'} · Q / 反引號 命令` : ''}${missionHud}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ''}`
     if (this.retirementFinale?.active) {
       const seconds = Math.ceil(this.retirementFinale.remainingSeconds)
-      this.hud.textContent = `撐過最後一戰\n${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}\n私人部隊 ${this.personalSquad?.aliveCombatants ?? 0}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ' · Q / 反引號 命令'}${this.retirementFinale.frozen ? '\n' + this.notice : ''}`
+      const stats = this.retirementFinale.stats
+      this.hud.textContent = `撐過最後一戰\n${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}\n玩家擊殺 ${stats.player.kills} · 小隊擊殺 ${stats.personal.kills}\n私人部隊 ${this.personalSquad?.aliveCombatants ?? 0}${this.spectator ? '\n你已戰死 · 戰鬥仍在繼續' : ' · Q / 反引號 命令'}${this.retirementFinale.frozen ? '\n' + this.notice : ''}`
     } else if (this.profile.careerRetirement && this.notice) this.hud.textContent += '\n' + this.notice
     this.updateMountHud()
     this.damageNumbers.update(dt, this.camera)
@@ -4056,6 +4059,7 @@ export class TownScene {
     this.captainPatrol?.dispose()
     this.captainPatrolGuide.dispose()
     this.retirementGuide.dispose()
+    this.retirementFinale?.dispose()
     this.personalCommands?.close()
     this.personalFormation?.cancelPlacement()
     this.personalCommandUI?.dispose()

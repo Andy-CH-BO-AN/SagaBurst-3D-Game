@@ -132,7 +132,11 @@ it('rejects incomplete prepared native retirement checkpoints without replacing 
     careerRetirement: { version: 1, phase: 'final-stand', acceptedAt: 123, combatElapsedSeconds: 42.5,
       mobilization: { version: 1, commandRevoked: true, refillCompleted: true, formationPrepared: true } },
     retirementRuntime: { player: { position: { x: 0, y: 0, z: 0, yaw: 0 },
-      hp: 0, stamina: 21, arrows: 3, shieldImpact: 4, mounted: false } },
+      hp: 0, stamina: 21, arrows: 3, shieldImpact: 4, mounted: false },
+      stats: {
+        player: { damageDealt: 12.5, damageTaken: 9, kills: 2, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+        personal: { damageDealt: 17, damageTaken: 4, kills: 3, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+      } },
   })
   const casualty = ready.townCommandSquad!.members!.captain
   casualty.hp = 0
@@ -160,9 +164,14 @@ it('rejects incomplete prepared native retirement checkpoints without replacing 
     { ...ready, townCommandSquad: { ...ready.townCommandSquad!,
       members: { ...ready.townCommandSquad!.members, captain: unmountedCaptain } } },
     { ...ready, retirementRuntime: undefined },
+    { ...ready, retirementRuntime: { ...ready.retirementRuntime!, stats: { ...ready.retirementRuntime!.stats!,
+      personal: { ...ready.retirementRuntime!.stats!.personal, kills: -1 } } } },
   ]
   for (const corrupt of incomplete) {
     expect(store.save(corrupt)).toBe(false)
     expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
   }
+  const legacy = { ...ready, retirementRuntime: { ...ready.retirementRuntime!, stats: undefined } }
+  expect(store.save(legacy)).toBe(true)
+  expect(store.load()?.retirementRuntime?.stats).toBeUndefined()
 })

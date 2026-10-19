@@ -87,7 +87,11 @@ export function showCommanderRetirementEnding(profile: CareerProfile, actions: {
     : ending.body
   story.style.whiteSpace = 'pre-line'
   const stats = document.createElement('p'); stats.className = 'town-summary'; stats.style.whiteSpace = 'pre-line'
+  const battle = profile.retirementRuntime?.stats
   stats.textContent = `Commander Victories：${careerMissionCompletionsForTier(profile, 5)}\n結局：${ending.name}`
+    + `\n\n最後一戰\n玩家擊殺：${battle?.player.kills ?? 0}　私人部隊擊殺：${battle?.personal.kills ?? 0}`
+    + `\n玩家造成傷害：${Math.round(battle?.player.damageDealt ?? 0)}　承受傷害：${Math.round(battle?.player.damageTaken ?? 0)}`
+    + `\n私人部隊造成傷害：${Math.round(battle?.personal.damageDealt ?? 0)}　承受傷害：${Math.round(battle?.personal.damageTaken ?? 0)}`
   const controls = document.createElement('div')
   screen.append(label, title, story, stats, controls)
   button(controls, '返回主選單', () => { screen.remove(); actions.home() })

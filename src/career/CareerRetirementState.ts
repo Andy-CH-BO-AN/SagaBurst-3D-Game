@@ -1,9 +1,16 @@
 import type { AerialPosition } from './CareerAerialState'
 import type { ActiveCareerMission } from './CareerMissionState'
 import type { EagleFlightSnapshot } from '../movement/EagleFlightController'
+import type { PlayerBattleStatsCheckpoint } from '../combat/BattleStatsTracker'
 
 export type CareerRetirementPhase = 'departing' | 'mobilizing' | 'final-stand' | 'completed'
 export type CareerRetirementOutcome = 'escaped' | 'fallen'
+
+/** Finale-only counters. Private contributions never merge into Player or Career merit. */
+export interface CareerRetirementStats {
+  player: PlayerBattleStatsCheckpoint
+  personal: PlayerBattleStatsCheckpoint
+}
 
 /** Durable checkpoint; phase and elapsed changes belong to the retirement state owners. */
 export interface CareerRetirementState {
@@ -19,6 +26,8 @@ export interface CareerRetirementState {
  * Falling riders continue to use the existing CareerAerialState checkpoint.
  */
 export interface CareerRetirementRuntime {
+  /** Absent on older saves; their finale counters start at zero. */
+  stats?: CareerRetirementStats
   player: {
     position: AerialPosition
     hp: number

@@ -26,7 +26,7 @@ import { parseCareerAerialState } from './CareerAerialState'
 import { canonicalInventoryId, normalizeCareerInventory, type CareerInventory } from './CareerInventory'
 import { parsePersonalSquad } from './CareerPersonalSquad'
 import { isCareerOutpostStageId, parseCareerOutpostCheckpoint, type CareerOutpostMission, type CareerOutpostRecord } from './CareerOutpostMission'
-import { parsePersonalMission } from './CareerPersonalSquadMission'
+import { emptyPersonalContribution, parsePersonalMission } from './CareerPersonalSquadMission'
 import { createCareerOutpostCommandSquads } from './CareerOutpostRoster'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
@@ -150,10 +150,25 @@ function parseRetirementRuntime(value: unknown): CareerRetirementRuntime | undef
     mount = { position: { ...saved.position }, hp: saved.hp, ...(flight ? { flight } : {}) }
   }
   if (player.mounted && !mount) return undefined
+  let stats: CareerRetirementRuntime['stats']
+  if (raw.stats !== undefined) {
+    const input = raw.stats
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined
+    const fields = ['damageDealt', 'damageTaken', 'kills', 'structureDamage', 'structuresDestroyed', 'gateBreaches'] as const
+    const counts = ['kills', 'structuresDestroyed', 'gateBreaches'] as const
+    for (const totals of [input.player, input.personal]) {
+      if (!totals || typeof totals !== 'object' || Array.isArray(totals)
+        || fields.some(key => !resource(totals[key])) || counts.some(key => !Number.isInteger(totals[key]))) return undefined
+    }
+    stats = {
+      player: parseMissionPlayerStats(input.player) ?? { ...emptyPersonalContribution(), damageTaken: 0 },
+      personal: parseMissionPlayerStats(input.personal) ?? { ...emptyPersonalContribution(), damageTaken: 0 },
+    }
+  }
   return { player: { position: { ...player.position }, hp: player.hp, stamina: player.stamina,
     arrows: player.arrows, shieldImpact: player.shieldImpact, mounted: player.mounted,
     ...(player.shieldDurability ? { shieldDurability: { ...player.shieldDurability } } : {}) },
-    ...(mountState ? { mountState } : {}), ...(mount ? { mount } : {}) }
+    ...(mountState ? { mountState } : {}), ...(mount ? { mount } : {}), ...(stats ? { stats } : {}) }
 }
 
 function parseActorPositions(value: unknown, knownActorIds: ReadonlySet<string>): ActiveCareerMission['actorPositions'] | undefined {
