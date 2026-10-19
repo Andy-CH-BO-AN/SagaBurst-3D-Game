@@ -20,6 +20,7 @@ import {
 } from '../../src/world/RiverCrossingBattlefield'
 import {
   findBlockingObstacleAlongPath,
+  setObstaclePathQuerySource,
   findBlockingProjectileObstacleAlongPath,
   getBaseProceduralTerrainHeight,
   getFortifiedCampHeightOffset,
@@ -555,4 +556,46 @@ describe('obstacle walk-surface collision', () => {
     expect(getFortifiedCampHeightOffset(0, 144, 'viking')).toBe(vikingCampOffset)
   })
 
+})
+
+
+describe('opt-in obstacle path candidates', () => {
+  it('keeps the clipped corridor, start-height margins and closest source-order tie', () => {
+    const box = (x: number, minY: number, maxY: number, z: number): ObstacleData => ({
+      isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(x, minY, z), new THREE.Vector3(x + 1, maxY, z + 1)),
+    })
+    const farther = box(2.5, 1, 3, 0)
+    const below = box(.1, 0, 1.001, 0), above = box(.1, 2.999, 4, 0)
+    const first = box(1.5, 1, 3, .5), tied = box(1.5, 1, 3, .5)
+    const remote = box(1000, 1, 3, 1000)
+    const obstacles = [farther, below, above, first, tied, first, ...Array<ObstacleData>(58).fill(remote)]
+    const start = new THREE.Vector3(0, 2, 0), target = new THREE.Vector3(100, 200, 0)
+    expect(findBlockingObstacleAlongPath(start, target, .5, 2, 1, obstacles, 3)).toBe(first)
+    const query = vi.spyOn(ObstacleCollisionSpatialIndex.prototype, 'queryBounds')
+    onTestFinished(() => { query.mockRestore(); setObstaclePathQuerySource(obstacles, false) })
+    setObstaclePathQuerySource(obstacles, true)
+    expect(findBlockingObstacleAlongPath(start, target, .5, 2, 1, obstacles, 3)).toBe(first)
+    expect(query.mock.results[0].value).toEqual([farther, below, above, first, tied, first])
+    expect(findBlockingObstacleAlongPath(start, target, .5, 2, 1, obstacles, .5)).toBeNull()
+  })
+
+  it('keeps fresh filtered arrays direct and observes their next same-length replacement', () => {
+    const wall: ObstacleData = { isBarricade: false, physicalPassable: true, projectilePassable: true,
+      box: new THREE.Box3(new THREE.Vector3(2, 0, -1), new THREE.Vector3(3, 3, 1)) }
+    const remote: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(1000, 0, 1000), new THREE.Vector3(1001, 3, 1001)) }
+    const source = [wall, ...Array<ObstacleData>(63).fill(remote)]
+    const start = new THREE.Vector3(), target = new THREE.Vector3(5, 0, 0)
+    const query = vi.spyOn(ObstacleCollisionSpatialIndex.prototype, 'queryBounds')
+    onTestFinished(() => { query.mockRestore(); setObstaclePathQuerySource(source, false) })
+    setObstaclePathQuerySource(source, true)
+    expect(findBlockingObstacleAlongPath(start, target, .5, 2.3, 0, source)).toBe(wall)
+    query.mockClear()
+    const fresh = source.filter(obstacle => !obstacle.navigationPassable)
+    expect(findBlockingObstacleAlongPath(start, target, .5, 2.3, 0, fresh)).toBe(wall)
+    fresh[0] = remote
+    expect(findBlockingObstacleAlongPath(start, target, .5, 2.3, 0, fresh)).toBeNull()
+    expect(query).not.toHaveBeenCalled()
+  })
 })

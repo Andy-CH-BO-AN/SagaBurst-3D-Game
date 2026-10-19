@@ -9,7 +9,7 @@ import { createPineVisual } from './EnvironmentVisuals'
 import { createMeadow, meadowMaterial } from './Meadow'
 import { DAMAGEABLE_OBSTACLE_HP, DamageableObstacle } from './DamageableObstacle'
 import type { CharacterFaction } from './CharacterVisuals'
-import { ObstacleCollisionSpatialIndex } from './ObstacleCollisionSpatialIndex'
+import { OBSTACLE_COLLISION_GRID_CELL_SIZE, ObstacleCollisionSpatialIndex } from './ObstacleCollisionSpatialIndex'
 import {
   getRiverCrossingMeshTerrainHeight,
   getRiverCrossingTerrainHeight,
@@ -217,6 +217,22 @@ const obstacleCollisionIndexes = new WeakMap<
   ObstacleData[],
   ObstacleCollisionSpatialIndex
 >()
+
+const obstaclePathQuerySources = new WeakSet<ObstacleData[]>()
+
+/**
+ * Opt in only a stable, owner-maintained physical source with plain data records
+ * (no accessors that issue nested queries). Membership, order and static bounds
+ * changes must notify ObstacleTopology; dynamic parts/groups keep live bounds.
+ * Fresh/scratch arrays retain the direct finder. Disable when the owner disposes.
+ */
+export function setObstaclePathQuerySource(obstacles: ObstacleData[], enabled: boolean): void {
+  if (enabled) obstaclePathQuerySources.add(obstacles)
+  else {
+    obstaclePathQuerySources.delete(obstacles)
+    obstacleCollisionIndexes.delete(obstacles)
+  }
+}
 
 /** Ephemeral shared broad-phase buffer; consume immediately without retaining it. */
 export function getLocalCollisionObstacles(
@@ -517,10 +533,36 @@ export function findBlockingObstacleAlongPath(
   const endX = position.x + dx * scale
   const endZ = position.z + dz * scale
 
+  let pathObstacles: readonly ObstacleData[] = obstacles
+  if (obstaclePathQuerySources.has(obstacles) && obstacles.length >= 64
+    && radius >= 0 && Number.isFinite(radius)
+    && height >= 0 && Number.isFinite(height)
+    && bottomOffset >= 0 && Number.isFinite(bottomOffset) && Number.isFinite(position.y)
+    && maxDistance >= 0 && (Number.isFinite(maxDistance) || maxDistance === Infinity)) {
+    // Use the original clipped endpoint and start-height narrow phase. The
+    // conservative margin also covers rounding at expanded slab boundaries.
+    const padding = radius + SEGMENT_EPSILON
+    const minX = Math.min(position.x, endX) - padding
+    const minZ = Math.min(position.z, endZ) - padding
+    const maxX = Math.max(position.x, endX) + padding
+    const maxZ = Math.max(position.z, endZ) + padding
+    const minCellX = Math.floor(minX / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+    const minCellZ = Math.floor(minZ / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+    const maxCellX = Math.floor(maxX / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+    const maxCellZ = Math.floor(maxZ / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+    // Bound cell traversal and source-order sorting for long diagonal corridors;
+    // small sources and unsafe/low-selectivity ranges keep the original scan.
+    if (Number.isSafeInteger(minCellX) && Number.isSafeInteger(minCellZ)
+      && Number.isSafeInteger(maxCellX) && Number.isSafeInteger(maxCellZ)
+      && (maxCellX - minCellX + 1) * (maxCellZ - minCellZ + 1) <= 64) {
+      pathObstacles = getSweptCollisionObstacles(obstacles, minX, minZ, maxX, maxZ)
+    }
+  }
+
   let closest: ObstacleData | null = null
   let closestFraction = Infinity
 
-  for (const obstacle of obstacles) {
+  for (const obstacle of pathObstacles) {
     if (obstacle.navigationPassable) continue
     if (!verticallyOverlapsObstacle(position.y, height, bottomOffset, obstacle.box)) continue
     const entry = segmentEntryFractionExpandedBox(
