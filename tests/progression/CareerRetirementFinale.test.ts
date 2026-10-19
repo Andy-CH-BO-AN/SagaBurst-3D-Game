@@ -1,7 +1,8 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import {
-  advanceCommanderRetirementFinalStand, atCommanderRetirementRally, beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner,
+  advanceCommanderRetirementFinalStand, areAllRetirementEnemiesDefeated, atCommanderRetirementRally,
+  beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner,
   completeCommanderRetirement,
 } from '../../src/career/CareerRetirementFinale'
 import { TOWN_RETIREMENT_EXTRACTION } from '../../src/town/TownBounds'
@@ -40,35 +41,40 @@ it('starts only a complete mobilization without changing the admitted checkpoint
   expect(started.careerRetirement).toMatchObject({ phase: 'final-stand', combatElapsedSeconds: 0 })
   expect(JSON.stringify(ready)).toBe(original)
   expect(beginCommanderRetirementFinalStand(started)).toBeNull()
-  expect(completeCommanderRetirement(started, false)).toBeNull()
+  expect(completeCommanderRetirement(started, {
+    playerDead: false, privateFightersAlive: false, allTownEnemiesDefeated: false,
+  })).toBeNull()
 })
 
-it('uses an 8 m horizontal admission trigger then advances continuously away from the rally', () => {
+it('uses an 8 m horizontal admission trigger then advances to escape with surviving private fighters after player death', () => {
   const position = { ...TOWN_RETIREMENT_EXTRACTION, y: 100 }
   expect(atCommanderRetirementRally({ ...position, x: position.x + 8 })).toBe(true)
   expect(atCommanderRetirementRally({ ...position, x: position.x + 8.01 })).toBe(false)
   const started = finaleProfile('final-stand')
-  const frame = { deltaSeconds: 42.5, playerPosition: position, playerDead: false }
+  const frame = { deltaSeconds: 42.5, playerPosition: position, playerDead: false,
+    privateFightersAlive: true, allTownEnemiesDefeated: false }
   let result = advanceCommanderRetirementFinalStand(started, frame)
   expect(result.profile.careerRetirement?.combatElapsedSeconds).toBe(42.5)
   expect(started.careerRetirement?.combatElapsedSeconds).toBe(0)
   const away = { ...position, x: position.x + 1000, z: position.z + 1000 }
-  result = advanceCommanderRetirementFinalStand(result.profile, { ...frame, playerPosition: away, deltaSeconds: 257 })
+  const deadPlayerFrame = { ...frame, playerPosition: away, playerDead: true }
+  result = advanceCommanderRetirementFinalStand(result.profile, { ...deadPlayerFrame, deltaSeconds: 257 })
   expect(result.profile.careerRetirement?.combatElapsedSeconds).toBe(299.5)
   expect(result.outcome).toBeUndefined()
   const checkpoint = result.profile
-  expect(advanceCommanderRetirementFinalStand(checkpoint, { ...frame, playerPosition: away, playerDead: true }))
-    .toEqual({ profile: checkpoint, outcome: 'fallen' })
-  result = advanceCommanderRetirementFinalStand(checkpoint, { ...frame, playerPosition: away, deltaSeconds: 0.5 })
+  result = advanceCommanderRetirementFinalStand(checkpoint, { ...deadPlayerFrame, deltaSeconds: 0.5 })
   expect(result.profile.careerRetirement?.combatElapsedSeconds).toBe(300)
   expect(result.outcome).toBe('escaped')
+  expect(completeCommanderRetirement(result.profile, deadPlayerFrame)?.careerRetirement)
+    .toMatchObject({ phase: 'completed', outcome: 'escaped', combatElapsedSeconds: 300 })
 })
 
 it('latches escape at 300 seconds and retries an isolated unchanged candidate after a rejected save and later death', () => {
   const current = finaleProfile('final-stand', 299.5)
   const owner = new CareerRetirementFinaleOwner()
   const frame = { deltaSeconds: 0.5,
-    playerPosition: { x: TOWN_RETIREMENT_EXTRACTION.x + 1000, z: TOWN_RETIREMENT_EXTRACTION.z }, playerDead: false }
+    playerPosition: { x: TOWN_RETIREMENT_EXTRACTION.x + 1000, z: TOWN_RETIREMENT_EXTRACTION.z }, playerDead: false,
+    privateFightersAlive: false, allTownEnemiesDefeated: false }
   expect(owner.fastForward(current)?.careerRetirement?.combatElapsedSeconds).toBe(299.5)
   expect(owner.retryCompletion(() => { throw new Error('No terminal candidate to save yet') })).toBeNull()
   const progressed = owner.advance(current, frame)
@@ -90,11 +96,12 @@ it('latches escape at 300 seconds and retries an isolated unchanged candidate af
   expect(beginCommanderRetirementFinalStand(escaped)).toBeNull()
 })
 
-it('latches an early death at its original elapsed time despite a rejected save and later survival', () => {
+it('latches total friendly defeat before mutual-wipe victory despite a rejected save and later survival', () => {
   const current = finaleProfile('final-stand', 12.5)
   const owner = new CareerRetirementFinaleOwner()
   expect(owner.fastForward(current)?.careerRetirement?.combatElapsedSeconds).toBe(295)
-  const frame = { deltaSeconds: 42.5, playerPosition: TOWN_RETIREMENT_EXTRACTION, playerDead: true }
+  const frame = { deltaSeconds: 42.5, playerPosition: TOWN_RETIREMENT_EXTRACTION, playerDead: true,
+    privateFightersAlive: false, allTownEnemiesDefeated: true }
   owner.advance(current, frame)
   expect(owner.outcome).toBe('fallen')
   expect(owner.retryCompletion(() => false)).toBeNull()
@@ -102,4 +109,34 @@ it('latches an early death at its original elapsed time despite a rejected save 
     { ...frame, playerDead: false })
   const fallen = owner.retryCompletion(() => true)!
   expect(fallen.careerRetirement).toMatchObject({ phase: 'completed', outcome: 'fallen', combatElapsedSeconds: 12.5 })
+})
+
+it('latches immediate escape when all Town enemies die and private fighters survive the player', () => {
+  const current = finaleProfile('final-stand', 12.5)
+  const owner = new CareerRetirementFinaleOwner()
+  const frame = { deltaSeconds: 0, playerPosition: TOWN_RETIREMENT_EXTRACTION, playerDead: true,
+    privateFightersAlive: true, allTownEnemiesDefeated: true }
+  expect(owner.advance(finaleProfile('mobilizing'), frame).careerRetirement?.phase).toBe('mobilizing')
+  expect(owner.outcome).toBeUndefined()
+  expect(owner.advance(current, frame)).toBe(current)
+  expect(owner.outcome).toBe('escaped')
+  expect(owner.retryCompletion(next => { next.careerRetirement!.outcome = 'fallen'; return false })).toBeNull()
+  owner.advance(current, { ...frame, privateFightersAlive: false })
+  const escaped = owner.retryCompletion(() => true)!
+  expect(escaped.careerRetirement).toMatchObject({ phase: 'completed', outcome: 'escaped', combatElapsedSeconds: 12.5 })
+  expect(current.careerRetirement).toMatchObject({ phase: 'final-stand', combatElapsedSeconds: 12.5 })
+})
+
+it('requires every canonical enemy to be observed dead without counting unrelated actors', () => {
+  const expectedIds = new Set(['town-guard-1', 'town-guard-2'])
+  const observed = new Map([
+    ['town-guard-1', { dead: true }],
+    ['unrelated-actor', { dead: false }],
+  ])
+  expect(areAllRetirementEnemiesDefeated(new Set(), observed)).toBe(false)
+  expect(areAllRetirementEnemiesDefeated(expectedIds, observed)).toBe(false)
+  observed.set('town-guard-2', { dead: false })
+  expect(areAllRetirementEnemiesDefeated(expectedIds, observed)).toBe(false)
+  observed.get('town-guard-2')!.dead = true
+  expect(areAllRetirementEnemiesDefeated(expectedIds, observed)).toBe(true)
 })

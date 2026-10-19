@@ -62,7 +62,7 @@ const ENDINGS = {
   escaped: {
     title: '退休結局：帶旗離城',
     name: '帶旗離城',
-    body: '你曾替這座城守住四面城門。\n最後一次，城門在你身後關上。\n\n五分鐘後，你仍然站著。\n軍權被收回，願意追隨你的人卻沒有散去。\n\n他們想讓你的退休成為一場葬禮。\n你卻帶著自己的旗，活著離開。\n\n從此，你不再為城鎮而戰。\n你只為自己，以及曾選擇站在你身旁的人拔劍。',
+    body: '你曾替這座城守住四面城門。\n最後一次，城門在你身後關上。\n\n戰鬥結束時，你仍然站著。\n軍權被收回，願意追隨你的人卻沒有散去。\n\n他們想讓你的退休成為一場葬禮。\n你卻帶著自己的旗，活著離開。\n\n從此，你不再為城鎮而戰。\n你只為自己，以及曾選擇站在你身旁的人拔劍。',
   },
 } as const
 
@@ -81,7 +81,11 @@ export function showCommanderRetirementEnding(profile: CareerProfile, actions: {
   label.textContent = outcome === 'escaped' ? 'CAREER COMPLETE · SECRET ENDING' : 'CAREER COMPLETE'
   const title = document.createElement('h1'); title.textContent = ending.title
   title.style.cssText = 'font:700 clamp(26px,4vw,40px)/1.3 Georgia,serif;color:#ffe5af'
-  const story = document.createElement('p'); story.textContent = ending.body; story.style.whiteSpace = 'pre-line'
+  const story = document.createElement('p')
+  story.textContent = outcome === 'escaped' && profile.retirementRuntime?.player.hp === 0
+    ? '你曾替這座城守住四面城門。\n最後一次，你倒在了離城的路上。\n\n但願意追隨你的人沒有散去。\n他們撐過了追殺，或擊潰了全城的敵軍，讓你的旗仍然飄揚。\n\n你沒能活著離開。\n你的部隊卻帶著你的旗，走出了這場清算。'
+    : ending.body
+  story.style.whiteSpace = 'pre-line'
   const stats = document.createElement('p'); stats.className = 'town-summary'; stats.style.whiteSpace = 'pre-line'
   stats.textContent = `Commander Victories：${careerMissionCompletionsForTier(profile, 5)}\n結局：${ending.name}`
   const controls = document.createElement('div')

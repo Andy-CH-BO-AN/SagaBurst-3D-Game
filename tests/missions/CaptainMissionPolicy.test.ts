@@ -132,7 +132,7 @@ it('rejects incomplete prepared native retirement checkpoints without replacing 
     careerRetirement: { version: 1, phase: 'final-stand', acceptedAt: 123, combatElapsedSeconds: 42.5,
       mobilization: { version: 1, commandRevoked: true, refillCompleted: true, formationPrepared: true } },
     retirementRuntime: { player: { position: { x: 0, y: 0, z: 0, yaw: 0 },
-      hp: 17, stamina: 21, arrows: 3, shieldImpact: 4, mounted: false } },
+      hp: 0, stamina: 21, arrows: 3, shieldImpact: 4, mounted: false } },
   })
   const casualty = ready.townCommandSquad!.members!.captain
   casualty.hp = 0
@@ -146,6 +146,9 @@ it('rejects incomplete prepared native retirement checkpoints without replacing 
   expect(restored.careerRetirement).toEqual(ready.careerRetirement)
   expect(restored.townCommandSquad!.members!.captain).toEqual(casualty)
   expect(restored.retirementRuntime).toEqual(ready.retirementRuntime)
+  // Player death is a resumable resource checkpoint, not an automatic ending.
+  expect(restored.careerRetirement?.phase).toBe('final-stand')
+  expect(restored.retirementRuntime?.player.hp).toBe(0)
   // Complete receipts cannot silently recover missing owners, actors, mounts or resources.
   const { [Object.keys(ready.retirementTowerGuards!)[0]]: missingGuard, ...remainingGuards } = ready.retirementTowerGuards!
   expect(missingGuard).toBeDefined()

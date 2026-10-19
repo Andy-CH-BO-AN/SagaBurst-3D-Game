@@ -7,10 +7,16 @@ export const COMMANDER_RETIREMENT_FINAL_STAND_SECONDS = 300
 export const COMMANDER_RETIREMENT_RALLY_TRIGGER_RADIUS = 8
 
 interface HorizontalPosition { x: number; z: number }
-export interface CommanderRetirementFinalStandFrame {
+export interface CommanderRetirementFinalStandForces {
+  playerDead: boolean
+  /** Runtime-owned survival check for legal combat-capable private humanoids. */
+  privateFightersAlive: boolean
+  /** Runtime-owned completion check across the canonical Town humanoid roster. */
+  allTownEnemiesDefeated: boolean
+}
+export interface CommanderRetirementFinalStandFrame extends CommanderRetirementFinalStandForces {
   deltaSeconds: number
   playerPosition: HorizontalPosition
-  playerDead: boolean
 }
 
 function withinExtractionRadius(point: HorizontalPosition, radius: number): boolean {
@@ -21,6 +27,14 @@ function withinExtractionRadius(point: HorizontalPosition, radius: number): bool
 /** Mount type and height cannot alter the horizontal admission boundary. */
 export function atCommanderRetirementRally(point: HorizontalPosition): boolean {
   return withinExtractionRadius(point, COMMANDER_RETIREMENT_RALLY_TRIGGER_RADIUS)
+}
+
+/** Missing or unloaded canonical enemies are not proof of defeat. */
+export function areAllRetirementEnemiesDefeated(expectedIds: ReadonlySet<string>,
+  observed: ReadonlyMap<string, { readonly dead: boolean }>): boolean {
+  if (expectedIds.size === 0) return false
+  for (const id of expectedIds) if (observed.get(id)?.dead !== true) return false
+  return true
 }
 
 function validFinaleProfile(current: CareerProfile, phase: 'mobilizing' | 'final-stand'): boolean {
@@ -38,14 +52,16 @@ export function beginCommanderRetirementFinalStand(current: CareerProfile): Care
   return next
 }
 
-function outcomeFor(current: CareerProfile, playerDead: boolean): CareerRetirementOutcome | undefined {
-  if (playerDead) return 'fallen'
-  return current.careerRetirement!.combatElapsedSeconds >= COMMANDER_RETIREMENT_FINAL_STAND_SECONDS ? 'escaped' : undefined
+function outcomeFor(current: CareerProfile, forces: CommanderRetirementFinalStandForces): CareerRetirementOutcome | undefined {
+  // A mutual wipe is a defeat even when the last Town enemy also dies this frame.
+  if (forces.playerDead && !forces.privateFightersAlive) return 'fallen'
+  return forces.allTownEnemiesDefeated
+    || current.careerRetirement!.combatElapsedSeconds >= COMMANDER_RETIREMENT_FINAL_STAND_SECONDS ? 'escaped' : undefined
 }
 
 /** A cheap immutable clock step, using the persisted checkpoint as its only elapsed source.
  * Native roster validation belongs at phase entry, completion and the storage boundary,
- * not in a per-frame scan of every Town actor. There is no enemy/private-survivor gate.
+ * not in a per-frame scan here. Runtime supplies authoritative force survival facts.
  */
 export function advanceCommanderRetirementFinalStand(current: CareerProfile,
   frame: CommanderRetirementFinalStandFrame): { profile: CareerProfile; outcome?: CareerRetirementOutcome } {
@@ -53,19 +69,19 @@ export function advanceCommanderRetirementFinalStand(current: CareerProfile,
   const state = current.careerRetirement!
   const delta = Number.isFinite(frame.deltaSeconds) && frame.deltaSeconds > 0 ? frame.deltaSeconds : 0
   // Rally position gates admission only; an admitted battle never pauses when leaving it.
-  const elapsed = !frame.playerDead
+  const elapsed = !frame.playerDead || frame.privateFightersAlive
     ? Math.min(COMMANDER_RETIREMENT_FINAL_STAND_SECONDS, state.combatElapsedSeconds + delta)
     : state.combatElapsedSeconds
   const profile = elapsed === state.combatElapsedSeconds ? current
     : { ...current, careerRetirement: { ...state, combatElapsedSeconds: elapsed } }
-  const outcome = outcomeFor(profile, frame.playerDead)
+  const outcome = outcomeFor(profile, frame)
   return { profile, ...(outcome ? { outcome } : {}) }
 }
 
 /** The completion transaction stages an isolated snapshot with no mission rewards. */
-export function completeCommanderRetirement(current: CareerProfile, playerDead: boolean): CareerProfile | null {
+export function completeCommanderRetirement(current: CareerProfile, forces: CommanderRetirementFinalStandForces): CareerProfile | null {
   if (!validFinaleProfile(current, 'final-stand') || !hasCompleteRetirementMobilizationCheckpoint(current)) return null
-  const outcome = outcomeFor(current, playerDead)
+  const outcome = outcomeFor(current, forces)
   if (!outcome) return null
   const next = cloneCareerProfile(current)
   next.careerRetirement = { ...next.careerRetirement!, phase: 'completed', outcome }
@@ -95,7 +111,7 @@ export class CareerRetirementFinaleOwner {
   advance(current: CareerProfile, frame: CommanderRetirementFinalStandFrame): CareerProfile {
     if (this.candidate) return current
     const result = advanceCommanderRetirementFinalStand(current, frame)
-    if (result.outcome) this.candidate = completeCommanderRetirement(result.profile, frame.playerDead)
+    if (result.outcome) this.candidate = completeCommanderRetirement(result.profile, frame)
     return result.profile
   }
 

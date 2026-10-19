@@ -1,6 +1,6 @@
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import {
-  atCommanderRetirementRally, beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner,
+  areAllRetirementEnemiesDefeated, atCommanderRetirementRally, beginCommanderRetirementFinalStand, CareerRetirementFinaleOwner,
   COMMANDER_RETIREMENT_FINAL_STAND_SECONDS,
 } from '../career/CareerRetirementFinale'
 import { hasCompleteRetirementMobilizationCheckpoint } from '../career/CareerRetirementMobilization'
@@ -15,6 +15,7 @@ interface FinaleDependencies {
   /** Raw, dedicated retirement transaction. Must not recapture a latched ending. */
   save(profile: CareerProfile): boolean
   capture(profile: CareerProfile): void
+  privateFightersAlive(): boolean
   residents: readonly { npc: NPC; spec: { id: string } }[]
   mobilization: TownRetirementMobilizationController
   eagles: TownEagleGarrisonController
@@ -30,10 +31,16 @@ export class TownRetirementFinaleController {
   private completed = false
   private retryRemaining = 0
   private readonly attackers = new Set<NPC>()
+  private readonly expectedEnemyIds: ReadonlySet<string>
+  private readonly enemiesById = new Map<string, NPC>()
 
   constructor(private readonly deps: FinaleDependencies) {
     const ids = new Set(deps.mobilization.formations?.flatMap(formation => formation.actorIds) ?? [])
-    for (const { spec, npc } of deps.residents) if (ids.has(spec.id)) this.attackers.add(npc)
+    this.expectedEnemyIds = ids
+    for (const { spec, npc } of deps.residents) if (ids.has(spec.id)) {
+      this.attackers.add(npc)
+      this.enemiesById.set(spec.id, npc)
+    }
   }
 
   get active(): boolean { return this.deps.read().careerRetirement?.phase === 'final-stand' }
@@ -93,19 +100,23 @@ export class TownRetirementFinaleController {
     return this.frozen
   }
 
-  /** Native damage may kill the player during the frame; resolve before generic outcomes. */
+  /** Resolve both armies after native damage, before generic mission/death outcomes. */
   afterCombat(position: { x: number; z: number }, dead: boolean): void {
-    if (this.active && !this.frozen && dead) this.advance(0, position, true)
+    if (this.active && !this.frozen) this.advance(0, position, dead)
   }
 
   private advance(dt: number, position: { x: number; z: number }, dead: boolean): void {
     let current = this.deps.read()
-    const terminal = dead || current.careerRetirement!.combatElapsedSeconds + dt >= COMMANDER_RETIREMENT_FINAL_STAND_SECONDS
+    const privateFightersAlive = this.deps.privateFightersAlive()
+    const allTownEnemiesDefeated = areAllRetirementEnemiesDefeated(this.expectedEnemyIds, this.enemiesById)
+    const terminal = dead && !privateFightersAlive || allTownEnemiesDefeated
+      || current.careerRetirement!.combatElapsedSeconds + dt >= COMMANDER_RETIREMENT_FINAL_STAND_SECONDS
     if (terminal) {
       current = cloneCareerProfile(current)
       this.deps.capture(current)
     }
-    this.deps.publish(this.owner.advance(current, { deltaSeconds: dt, playerPosition: position, playerDead: dead }))
+    this.deps.publish(this.owner.advance(current, { deltaSeconds: dt, playerPosition: position, playerDead: dead,
+      privateFightersAlive, allTownEnemiesDefeated }))
     if (this.frozen) this.retryCompletion()
   }
 

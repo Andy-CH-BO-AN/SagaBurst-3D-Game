@@ -39,11 +39,11 @@ export function installCareerRetirementQa(): void {
   })
   const runtime = (): RetirementQaRuntime | undefined => (window as unknown as { town?: RetirementQaRuntime }).town
   const fallen = add('測試 Fallen Ending', () => {
-    message.textContent = runtime()?.testRetirementFallen() ? '玩家已進入正常死亡流程，正在保存結局。' : '需要仍在進行中的 Final Stand。'
+    message.textContent = runtime()?.testRetirementFallen() ? '玩家已進入正常死亡流程；仍有私兵存活時會繼續觀戰。' : '需要仍在進行中的 Final Stand。'
     refresh()
   })
   const escaped = add('測試 Escaped Ending', () => {
-    message.textContent = runtime()?.testRetirementEscaped() ? '已保存至 295 秒。再存活最後 5 秒即可，移動不會暫停倒數。' : '尚未快轉：請確認 Final Stand 正在進行且存檔可用。'
+    message.textContent = runtime()?.testRetirementEscaped() ? '已保存至 295 秒。讓你或私兵再存活最後 5 秒即可，移動不會暫停倒數。' : '尚未快轉：請確認 Final Stand 正在進行且存檔可用。'
     refresh()
   })
   panel.append(message); document.body.append(panel)
