@@ -11,7 +11,13 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 
 export type MobileSiegeRampSnapshot<Id extends MobileSiegeRampId = SiegeRampId> = Omit<CampaignSiegeCheckpoint['ramps'][number], 'assignment'> & { assignment: SiegeRampAssignment<Id> }
 
-interface Part { mesh: THREE.Mesh; obstacle: ObstacleData; localBox: THREE.Box3 }
+interface Part {
+  mesh: THREE.Mesh
+  obstacle: ObstacleData
+  localBox: THREE.Box3
+  size: THREE.Vector3
+  renderMatrix: THREE.Matrix4
+}
 
 export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
   readonly root = new THREE.Group()
@@ -25,6 +31,8 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
   readonly obstacles: ObstacleData[] = []
   private readonly collisionGroup = { bounds: new THREE.Box3() }
   private readonly parts: Part[] = []
+  private readonly timber: THREE.InstancedMesh
+  private readonly timberMatrix = new THREE.Matrix4()
   private readonly wheels: THREE.Mesh[] = []
   private readonly wheelBodies: { box: THREE.Box3; worldToLocal: THREE.Matrix4 }[] = []
   private readonly wood = new THREE.MeshStandardMaterial({ color: 0x795334, roughness: .9 })
@@ -99,6 +107,11 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
       const chassis = this.part(.35, .35, SIEGE_RAMP.platformLength + 1)
       chassis.mesh.userData = { chassis: true, side }
     }
+    // Render only: original part meshes retain their collision and hit ownership.
+    this.timber = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), this.wood, this.parts.length)
+    this.timber.castShadow = true; this.timber.receiveShadow = true
+    this.timber.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    this.root.add(this.timber)
     this.damageable = new DamageableObstacle({ kind: 'siege_ramp', maxHp: DAMAGEABLE_OBSTACLE_HP.siege_ramp,
       root: this.root, hitMeshes: [...this.parts.map(p => p.mesh), ...this.wheels], ownerFaction: faction })
     for (const part of this.parts) part.obstacle.damageable = this.damageable
@@ -112,8 +125,12 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
   private part(width: number, height: number, length: number): Part {
     const geometry = new THREE.BoxGeometry(width, height, length)
     geometry.computeBoundingBox()
+    // Hidden proxies skip render warmup; prepare the first precise hit here.
+    geometry.computeBoundingSphere()
     const mesh = new THREE.Mesh(geometry, this.wood)
     mesh.castShadow = true; mesh.receiveShadow = true
+    // Three raycasts these original layer-0 targets independently of visibility.
+    mesh.visible = false
     this.root.add(mesh)
     const localBox = geometry.boundingBox!.clone()
     const box = new THREE.Box3()
@@ -122,7 +139,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
       // This box is transformed from the same local geometry as the exact trace.
       projectileBounds: box }
     this.obstacles.push(obstacle)
-    const part = { mesh, obstacle, localBox }
+    const part = { mesh, obstacle, localBox, size: new THREE.Vector3(width, height, length), renderMatrix: new THREE.Matrix4() }
     this.parts.push(part)
     return part
   }
@@ -297,6 +314,27 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
       part.obstacle.projectileWorldToLocal!.copy(part.mesh.matrixWorld).invert()
       this.collisionGroup.bounds.union(part.obstacle.box)
     }
+    this.updateTimberInstances()
+  }
+
+  private updateTimberInstances(): void {
+    const initial = this.timber.boundingSphere === null
+    let changed = false
+    for (let i = 0; i < this.parts.length; i++) {
+      const part = this.parts[i]
+      // Parts are direct root children. Their original box dimensions precede
+      // the authored local transform, including its nonuniform scale/rotation.
+      this.timberMatrix.copy(part.mesh.matrix).scale(part.size)
+      if (!initial && this.timberMatrix.equals(part.renderMatrix)) continue
+      part.renderMatrix.copy(this.timberMatrix)
+      this.timber.setMatrixAt(i, this.timberMatrix)
+      changed = true
+    }
+    // Root translation alone needs no instance upload or bounds rebuild.
+    if (!changed) return
+    this.timber.instanceMatrix.needsUpdate = true
+    this.timber.computeBoundingBox()
+    this.timber.computeBoundingSphere()
   }
 
   private localPoint(x: number, z: number): THREE.Vector3 {
@@ -330,6 +368,8 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     this.root.removeFromParent()
     for (const part of this.parts) part.mesh.geometry.dispose()
     for (const wheel of this.wheels) wheel.geometry.dispose()
+    this.timber.dispose()
+    this.timber.geometry.dispose()
     this.wood.dispose(); this.iron.dispose()
   }
 }
