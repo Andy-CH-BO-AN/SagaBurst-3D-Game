@@ -1,4 +1,4 @@
-import { validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
+import { canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
 import { hasCompleteRetirementMobilizationCheckpoint } from '../../src/career/CareerRetirementMobilization'
 import { parseCareerRetirementState } from '../../src/career/CareerRetirementState'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../../src/town/TownNativeGuardIdentity'
@@ -317,6 +317,20 @@ it('round-trips an isolated retirement checkpoint and rejects a corrupted ending
     { acceptedAt: 124 }, { combatElapsedSeconds: 43 }, { outcome: 'escaped' }]) {
     const altered = { ...cloneCareerProfile(loaded), careerRetirement: { ...loaded.careerRetirement!, ...change } }
     expect(validateOrdinaryRetirementCommit(loaded, altered as typeof loaded)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  }
+  expect(canStartOrdinaryTownHostility(createCareerProfile('roman'))).toBe(true)
+  for (const phase of ['departing', 'mobilizing', 'final-stand', 'completed'] as const) {
+    const current: CareerProfile = { ...cloneCareerProfile(loaded), careerRetirement: {
+      version: 1, phase, acceptedAt: 123, combatElapsedSeconds: 0,
+      ...(phase === 'completed' ? { outcome: 'fallen' as const } : {}),
+    } }
+    expect(canStartOrdinaryTownHostility(current)).toBe(false)
+    const hostile: CareerProfile = { ...cloneCareerProfile(current), townEvent: { id: 'ordinary-retaliation', state: 'hostile' } }
+    expect(validateOrdinaryRetirementCommit(current, hostile)).toEqual({ allowed: false, reason: 'retirement-town-hostility' })
+    // Do not rewrite legacy events or prevent existing casualty persistence.
+    expect(validateOrdinaryRetirementCommit(hostile, cloneCareerProfile(hostile))).toEqual({ allowed: true })
+    expect(validateOrdinaryRetirementCommit(hostile, { ...hostile, townEvent: { id: 'replacement', state: 'hostile' } }))
+      .toEqual({ allowed: false, reason: 'retirement-town-hostility' })
   }
   const receipt = { version: 1 as const, commandRevoked: true as const, refillCompleted: true as const, formationPrepared: true as const }
   const receipted = { ...cloneCareerProfile(loaded), careerRetirement: { ...loaded.careerRetirement!, mobilization: receipt } }

@@ -135,7 +135,7 @@ import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_DECAP
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
 import { MissionGuide } from '../career/MissionGuide'
-import { validateOrdinaryRetirementCommit, startCommanderRetirement } from '../career/CareerRetirement'
+import { canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit, startCommanderRetirement } from '../career/CareerRetirement'
 import { TOWN_RETIREMENT_EXTRACTION } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { CAREER_DUEL_TIERS, type CareerDuelTier, isCareerDuelUnlocked } from '../career/CareerDuelState'
@@ -2756,7 +2756,7 @@ export class TownScene {
   }
   /** Persist before applying the first effective hit; failure leaves the target unchanged. */
   private prepareDamage(): boolean {
-    if (this.profile.careerRetirement?.phase === 'mobilizing') return false
+    if (!canStartOrdinaryTownHostility(this.profile)) return false
     if (this.event.hostile) return true
     const active = this.profile.activeMission
     if (this.defense?.active) return false
@@ -2777,7 +2777,7 @@ export class TownScene {
     return true
   }
   private activateHostility(shout = true): void {
-    if (this.profile.careerRetirement?.phase === 'mobilizing') return
+    if (!canStartOrdinaryTownHostility(this.profile)) return
     if (this.event.hostile) return
     this.event.hostile = true
     this.event.excludeAuthorizedActors(this.profile.townEvent?.authorizedTownCommandActorIds ?? [])

@@ -135,6 +135,11 @@ it('stages only the first departing exit into mobilizing using the authored town
     expect(current.townCommandSquad?.authorized).toBe(false)
     return true
   }
+  const hostile: CareerProfile = { ...departing, townEvent: { id: 'legacy-hostile', state: 'hostile' } }
+  expect(advanceCommanderRetirementToMobilizing(hostile)).toBeNull()
+  expect(commitCommanderRetirementToMobilizing(hostile, save, reconcile)).toBe(false)
+  expect(events).toEqual([])
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(originalBytes)
   storage.failWrites = true
   expect(commitCommanderRetirementToMobilizing(current, save, reconcile)).toBe(false)
   expect(events).toEqual(['save'])

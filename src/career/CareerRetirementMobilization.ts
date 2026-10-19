@@ -24,7 +24,8 @@ export function outsideRetirementTownCore(point: { x: number; z: number }): bool
 /** Only this owner may advance the phase. The caller saves before publishing any effect. */
 export function advanceCommanderRetirementToMobilizing(current: CareerProfile): CareerProfile | null {
   if (current.rank !== 'commander' || current.careerRetirement?.phase !== 'departing'
-    || current.activeMission || current.activeOutpostMission || current.activeRace) return null
+    || current.activeMission || current.activeOutpostMission || current.activeRace
+    || current.townEvent?.state === 'hostile') return null
   const next = cloneCareerProfile(current)
   next.careerRetirement = { ...current.careerRetirement, phase: 'mobilizing' }
   return next

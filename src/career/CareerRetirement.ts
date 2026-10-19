@@ -55,7 +55,12 @@ export function startCommanderRetirement(current: CareerProfile, acceptedAt: num
 
 export type RetirementCommitPermission =
   | { allowed: true }
-  | { allowed: false; reason: 'retirement-checkpoint-missing' | 'retirement-checkpoint-changed' | 'retirement-new-work' }
+  | { allowed: false; reason: 'retirement-checkpoint-missing' | 'retirement-checkpoint-changed' | 'retirement-new-work' | 'retirement-town-hostility' }
+
+/** Generic Town retaliation cannot own the retirement betrayal sequence. */
+export function canStartOrdinaryTownHostility(profile: Pick<CareerProfile, 'careerRetirement'>): boolean {
+  return profile.careerRetirement === undefined
+}
 
 /** Compare the persisted plain-data checkpoint, including any nested mobilization receipt.
  * Property order and omitted undefined fields do not change its persisted meaning.
@@ -84,6 +89,10 @@ export function validateOrdinaryRetirementCommit(current: CareerProfile, next: C
     || next.activeOutpostMission && next.activeOutpostMission.id !== current.activeOutpostMission?.id
     || next.activeRace && next.activeRace.id !== current.activeRace?.id) {
     return { allowed: false, reason: 'retirement-new-work' }
+  }
+  if (!canStartOrdinaryTownHostility(current) && next.townEvent?.state === 'hostile'
+    && (current.townEvent?.state !== 'hostile' || current.townEvent.id !== next.townEvent.id)) {
+    return { allowed: false, reason: 'retirement-town-hostility' }
   }
   return { allowed: true }
 }
