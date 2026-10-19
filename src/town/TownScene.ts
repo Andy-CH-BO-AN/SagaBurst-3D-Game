@@ -133,7 +133,7 @@ import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_DECAP
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
 import { MissionGuide } from '../career/MissionGuide'
-import { startCommanderRetirement } from '../career/CareerRetirement'
+import { preservesCommanderRetirement, startCommanderRetirement } from '../career/CareerRetirement'
 import { TOWN_RETIREMENT_EXTRACTION } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { CAREER_DUEL_TIERS, type CareerDuelTier, isCareerDuelUnlocked } from '../career/CareerDuelState'
@@ -807,6 +807,10 @@ export class TownScene {
   }
 
   private commit(profile: CareerProfile, options: MissionCommitOptions = {}): boolean {
+    if (!preservesCommanderRetirement(this.profile, profile)) {
+      this.notice = '退役紀錄已更新，請重新操作。'
+      return false
+    }
     this.clearCareerSkillSaveTimer()
     const restoringResidents = Boolean(options.residentReturnStaged || this.residentReturnPending)
     let next = cloneCareerProfile(profile)

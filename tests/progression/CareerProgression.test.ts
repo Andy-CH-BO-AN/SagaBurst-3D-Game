@@ -1,7 +1,8 @@
+import { TownScene } from '../../src/town/TownScene'
 import { grantStarter } from '../../src/town/TownRules'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { MemoryStorage } from '../helpers/memoryStorage'
-import { describe,expect,it } from 'vitest'
+import { describe,expect,it,vi } from 'vitest'
 import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import {
 claimCareerBattle,
@@ -302,6 +303,40 @@ it('round-trips an isolated retirement checkpoint and rejects a corrupted ending
   copy.careerRetirement!.combatElapsedSeconds = 99
   expect(loaded.careerRetirement!.combatElapsedSeconds).toBe(42.5)
   const saved = storage.getItem(CAREER_STORAGE_KEY)
+  // Invoke only the real transaction entry, with storage and post-save runtime boundaries.
+  // No TownScene constructor, scene tree or actors are created.
+  const runtime = vi.fn(), clearTimer = vi.fn(), save = vi.spyOn(store, 'save')
+  const transaction = Object.assign(Object.create(TownScene.prototype) as {
+    profile: typeof loaded; commit(next: typeof loaded): boolean
+  }, { profile: loaded, store, skills: { skillState: loaded.skills },
+    clearCareerSkillSaveTimer: clearTimer, applyRetirementDeparture: runtime,
+    synchronizeEagleCommandOwnership: runtime, synchronizeEaglePatrolPolicy: runtime,
+    synchronizeCommandActors: runtime })
+  try {
+    const stale = cloneCareerProfile(loaded)
+    delete stale.careerRetirement
+    expect(transaction.commit(stale)).toBe(false)
+    // Every persisted field is owned by retirement, even when the proposed save parses.
+    for (const change of [{ version: 2 }, { phase: 'final-stand', outcome: undefined },
+      { acceptedAt: 124 }, { combatElapsedSeconds: 43 }, { outcome: 'escaped' }]) {
+      const altered = { ...cloneCareerProfile(loaded), careerRetirement: { ...loaded.careerRetirement!, ...change } }
+      expect(transaction.commit(altered as typeof loaded)).toBe(false)
+    }
+    expect(save).not.toHaveBeenCalled()
+    expect(clearTimer).not.toHaveBeenCalled()
+    expect(runtime).not.toHaveBeenCalled()
+    expect(transaction.profile).toBe(loaded)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+    const ordinary = cloneCareerProfile(loaded)
+    ordinary.availableMerit += 1
+    expect(transaction.commit(ordinary)).toBe(true)
+    expect(transaction.profile.careerRetirement).toEqual(loaded.careerRetirement)
+    expect(transaction.profile.careerRetirement).not.toBe(loaded.careerRetirement)
+    expect(store.loadChecked().profile?.availableMerit).toBe(ordinary.availableMerit)
+    expect(runtime).toHaveBeenCalled()
+  } finally { save.mockRestore() }
+  // Restore the checkpoint bytes used by the malformed-save assertions below.
+  storage.setItem(CAREER_STORAGE_KEY, saved!)
   // The saved rank says Commander, but effective merit normalizes it to Captain.
   const downgraded = { ...profile, totalMerit: 5200 }
   expect(parseCareerProfile(downgraded)).toBeNull()

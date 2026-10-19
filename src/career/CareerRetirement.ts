@@ -52,3 +52,17 @@ export function startCommanderRetirement(current: CareerProfile, acceptedAt: num
   next.careerRetirement = { version: 1, phase: 'departing', acceptedAt, combatElapsedSeconds: 0 }
   return { started: true, profile: next }
 }
+
+/** Ordinary Town transactions cannot rewrite an irreversible checkpoint.
+ * Future phase advancement must have its own validated retirement-owner transition,
+ * rather than weakening this guard with an unchecked commit option.
+ */
+export function preservesCommanderRetirement(current: CareerProfile, next: CareerProfile): boolean {
+  const saved = current.careerRetirement, proposed = next.careerRetirement
+  return saved === undefined || proposed !== undefined
+    && proposed.version === saved.version
+    && proposed.phase === saved.phase
+    && proposed.acceptedAt === saved.acceptedAt
+    && proposed.combatElapsedSeconds === saved.combatElapsedSeconds
+    && proposed.outcome === saved.outcome
+}
