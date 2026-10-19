@@ -453,7 +453,8 @@ export class CharacterEquipmentPose {
       ? 1 - smooth(state.elapsed / .08) + smooth((state.elapsed - .42) / .06) : 0
     if (live && !state.mounted && !state.lance && !state.sampledBowPose && carryBlend > 0
       && state.carryWeapon && this.selectedSource?.rig === 'roman54') {
-      this.root.updateWorldMatrix(true, true)
+      // localToWorld below refreshes the wrist's ancestor chain. No other
+      // subtree is read before the arm solve and the final pose refresh.
       this.target.fromArray(this.frames.lanceRight.gripCenterLocal)
       this.rig.right.wrist.localToWorld(this.target); this.root.worldToLocal(this.target)
       this.handWorld.copy(state.carryWeapon === 'axe' ? state.action === 'axeAttack1H' ? this.axe1Carry : this.axeCarry : this.swordCarry)
@@ -560,7 +561,9 @@ export class CharacterEquipmentPose {
     }
     // Keep the existing attack/equipment grip solve; only idle/moving gets raised stance.
     if (live && state.shield) {
-      this.root.updateWorldMatrix(true, true)
+      // The guard delta only reads the chest and root. Refresh that chain;
+      // ArmSolver refreshes the arm, and the final refresh publishes all bones.
+      this.shieldBody.updateWorldMatrix(true, false)
       this.shieldBodyDelta.copy(this.root.matrixWorld).invert().multiply(this.shieldBody.matrixWorld).multiply(this.shieldBindInverse)
       this.shieldBodyRotation.setFromRotationMatrix(this.shieldBodyDelta)
       if (state.shieldRaised && state.action === 'idle') {
