@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import { Box3, Vector3 } from 'three'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_GATE_DEFENSE_ID, captainGateDefenseActorIds, commanderGateDefenseSlots, commanderGateDefenseSquads, createCaptainGateDefenseMission, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
 import { townDefenseForceCountsForProfile } from '../../src/career/TownDefenseRoster'
-import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
+import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
+import { townDefaultActorLoadout, townEquipmentActorSpecs } from '../../src/career/CareerTownEquipmentState'
+import { TOWN_CENTER, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, townHousing } from '../../src/town/TownLayout'
+import { TOWN_WATCHTOWER_ARCHER_IDS } from '../../src/town/TownNativeGuardIdentity'
+import { getTerrainHeight } from '../../src/world/Terrain'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { VETERAN_TOWN_DEFENSE_TEMPLATE } from '../../src/career/CareerMissionCatalog'
 import { officialActorSquadId, officialCommandSquads } from '../../src/career/CareerCommandAuthority'
@@ -15,6 +20,47 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 import { withNativeRetirementCheckpoints } from '../helpers/RetirementMobilizationFixture'
 
 const captain = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000, availableMerit: 5000, ownedMounts: ['horse', 'xongkoro'] })
+
+describe('Retirement ground muster capacity without actor materialization', () => {
+  it.each(['native', 'all-mountable'] as const)('stages the complete %s army between the north gate and plaza with roads open', equipment => {
+    const natives = townEquipmentActorSpecs('roman')
+    const formations = retirementAssaultFormations([...natives, ...TOWN_WATCHTOWER_ARCHER_IDS.map(id => ({ id, role: 'archer_infantry' as const }))])!
+    const groundIds = formations.filter(formation => formation.source !== 'town-air').flatMap(formation => formation.actorIds)
+    const mounted = new Set(equipment === 'native'
+      ? natives.filter(spec => townDefaultActorLoadout('roman', spec).mountId).map(spec => spec.id)
+      : groundIds.filter(id => !TOWN_WATCHTOWER_ARCHER_IDS.includes(id)))
+    expect(groundIds.filter(id => mounted.has(id))).toHaveLength(equipment === 'native' ? 104 : 227)
+    // Conservative authored building envelopes; no world or mesh construction.
+    const obstacles = [...townHousing('viking'), TOWN_CENTER,
+      { x: -6, z: -17, width: 10, depth: 11 }, { x: -5, z: -39, width: 11, depth: 14 },
+      { x: 72, z: 30, width: 2.6, depth: 2.6 }, { x: -29, z: -41, width: 22.4, depth: 32.4 },
+      { x: 43, z: -10, width: 1, depth: 1 }, { x: 61, z: -10, width: 1, depth: 1 },
+    ].map(box => ({ isBarricade: false, box: new Box3(new Vector3(box.x - box.width / 2 - .25, -10, box.z - box.depth / 2 - .25),
+      new Vector3(box.x + box.width / 2 + .25, 50, box.z + box.depth / 2 + .25)) }))
+    const destinations = retirementGroundStaging(formations, mounted, obstacles, { areConnected: () => true })
+    expect(destinations?.size).toBe(232)
+    expect(new Set(destinations!.keys())).toEqual(new Set(groundIds))
+    const points = [...destinations!].map(([id, point]) => ({ ...point, radius: mounted.has(id) ? 1.8 : .7 }))
+    let overlap = false, blockedRoad = false
+    for (const [index, point] of points.entries()) {
+      expect(point.x).toBeGreaterThanOrEqual(-15 + point.radius)
+      expect(point.x).toBeLessThanOrEqual(90 - point.radius)
+      expect(point.z).toBeGreaterThanOrEqual(-105 + point.radius)
+      expect(point.z).toBeLessThanOrEqual(28 - point.radius)
+      expect(point.y).toBe(getTerrainHeight(point.x, point.z))
+      for (const other of points.slice(0, index)) if (Math.hypot(point.x - other.x, point.z - other.z) < point.radius + other.radius - .0001) overlap = true
+      for (const road of [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS.slice(1)]) {
+        const dx = road.bx - road.ax, dz = road.bz - road.az
+        const t = Math.max(0, Math.min(1, ((point.x - road.ax) * dx + (point.z - road.az) * dz) / (dx * dx + dz * dz)))
+        if (Math.hypot(point.x - road.ax - dx * t, point.z - road.az - dz * t) < road.width / 2 + point.radius + .5999) blockedRoad = true
+      }
+    }
+    expect(overlap).toBe(false)
+    expect(blockedRoad).toBe(false)
+    expect(points.some(point => point.z < -70)).toBe(true)
+    expect(points.some(point => point.z > 0)).toBe(true)
+  })
+})
 
 describe('Captain mission eligibility and official roster policy without actor materialization', () => {
   it('requires actual Eagle ownership, independent of the selected mount', () => {

@@ -1,4 +1,5 @@
 import { beforeEach, expect, it, onTestFinished, vi } from 'vitest'
+import { Vector3 } from 'three'
 import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import {
   advanceCommanderRetirementFinalStand, areAllRetirementEnemiesDefeated, atCommanderRetirementRally,
@@ -6,18 +7,29 @@ import {
   completeCommanderRetirement,
 } from '../../src/career/CareerRetirementFinale'
 import { TOWN_RETIREMENT_EXTRACTION } from '../../src/town/TownBounds'
-import { hasCompleteRetirementMobilizationCheckpoint } from '../../src/career/CareerRetirementMobilization'
+import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
 import { TownRetirementFinaleController } from '../../src/town/TownRetirementFinaleController'
+import { TownRetirementMobilizationController } from '../../src/town/TownRetirementMobilizationController'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Faction } from '../../src/combat/CombatFaction'
 import type { CombatActorRef, CombatEvent, CombatTargetRef } from '../../src/combat/CombatAttribution'
+import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
+import type { TacticalOrder } from '../../src/battle/TacticalOrder'
+import type { NPC } from '../../src/world/NPC'
+import type { TownActorSpec } from '../../src/town/TownRules'
 
 // This suite owns phase/clock/latch decisions; native schema/store validation has
 // real coverage in CaptainMissionPolicy. Keep that dependency explicit and isolated.
 vi.mock('../../src/career/CareerRetirementMobilization', () => ({
   hasCompleteRetirementMobilizationCheckpoint: vi.fn(),
+  retirementAssaultFormations: vi.fn(), retirementGroundStaging: vi.fn(), retirementMobilizationNeedsPreparation: vi.fn(),
 }))
-beforeEach(() => { vi.mocked(hasCompleteRetirementMobilizationCheckpoint).mockReset().mockReturnValue(true) })
+beforeEach(() => {
+  vi.mocked(hasCompleteRetirementMobilizationCheckpoint).mockReset().mockReturnValue(true)
+  vi.mocked(retirementAssaultFormations).mockReset()
+  vi.mocked(retirementGroundStaging).mockReset()
+  vi.mocked(retirementMobilizationNeedsPreparation).mockReset().mockReturnValue(false)
+})
 
 function finaleProfile(phase: 'mobilizing' | 'final-stand', combatElapsedSeconds = 0): CareerProfile {
   const profile = createCareerProfile('roman')
@@ -225,4 +237,111 @@ it('keeps only finale-owned counters across admission, checkpoint reload and a f
   expect(profile.availableMerit).toBe(checkpoint.availableMerit)
   expect(profile.careerMissionCompletionsByTier).toEqual(checkpoint.careerMissionCompletionsByTier)
   expect(complete).toHaveBeenCalledOnce()
+})
+
+type MobilizationDependencies = ConstructorParameters<typeof TownRetirementMobilizationController>[0]
+
+/** Coordinates and method ports only; native actor construction/physics belong to their own owners. */
+function mobilizationResident(id: string, checkpoint: PersonalActorCheckpoint) {
+  const position = new Vector3(checkpoint.position!.x, checkpoint.position!.y, checkpoint.position!.z)
+  let formation: PersonalActorCheckpoint['formation']
+  const actor = {
+    combatantId: id, dead: checkpoint.status === 'dead', hp: checkpoint.hp!, combatAmmo: checkpoint.ammo!,
+    mount: null, isMounted: false, characterFaction: 'roman' as const,
+    group: { position, rotation: { y: 0 } }, combatPosition: position,
+    shield: { shieldImpactRemaining: checkpoint.shieldImpact!, shieldImpactMax: 100 },
+    tacticalOrder: 'defend' as TacticalOrder,
+    get formationCommandId() { return formation?.commandId ?? null },
+    releaseOutpostRampartGarrison: vi.fn(),
+    restoreCombatHealth: vi.fn((hp: number) => { actor.hp = hp; actor.dead = hp <= 0 }),
+    restoreCombatAmmo: vi.fn((ammo: number) => { actor.combatAmmo = ammo }),
+    setTownPeaceful: vi.fn(), setMissionCombatTarget: vi.fn(), updateTownPeace: vi.fn(), updateTownTravel: vi.fn(),
+    setTacticalOrder: vi.fn((order: TacticalOrder) => { actor.tacticalOrder = order; formation = undefined }),
+    assignFormationTarget: vi.fn((commandId: number, destination: Vector3, facing: Vector3,
+      speedLimit?: number, arrivalOrder?: TacticalOrder, reached = false) => {
+      formation = { commandId, position: { x: destination.x, y: destination.y, z: destination.z,
+        yaw: Math.atan2(facing.x, facing.z) }, reached, speedLimit, arrivalOrder }
+      actor.tacticalOrder = arrivalOrder ?? 'formation'
+    }),
+  }
+  const spec: TownActorSpec = { id, role: 'archer_infantry', duty: 'watchtower_guard', mounted: false,
+    training: false, assaultObjective: true, tier: 3, index: 0, x: position.x, y: position.y, z: position.z }
+  return { actor, resident: { spec, npc: actor as unknown as NPC } }
+}
+
+function mobilizationFixture(phase: 'mobilizing' | 'final-stand', checkpoints: Record<string, PersonalActorCheckpoint>) {
+  let profile = finaleProfile(phase), allowSave = true
+  profile.retirementTowerGuards = checkpoints
+  profile.townCommandSquad = { type: 'town-command', squadId: 1, commandRank: 'commander', townFaction: 'roman',
+    sceneKey: 'town-home', state: 'TRAINING', authorized: false, actorIds: [], commandedActorIds: [],
+    contribution: emptyPersonalContribution(), members: {} }
+  profile.townEagleGarrisons = { roman: { version: 1, sceneKey: 'town:roman', pairs: [] } }
+  const actors = Object.entries(checkpoints).map(([id, checkpoint]) => mobilizationResident(id, checkpoint))
+  vi.mocked(retirementAssaultFormations).mockReturnValue([{ id: 'guards', source: 'native-guard', actorIds: Object.keys(checkpoints) }])
+  vi.mocked(retirementGroundStaging).mockReturnValue(new Map(Object.keys(checkpoints).map((id, index) =>
+    [id, { x: 10 + index * 3, y: 0, z: -30, yaw: 0 }])))
+  const save = vi.fn((next: CareerProfile) => { if (!allowSave) return false; profile = next; return true })
+  const patrol = { recallForSiege: vi.fn(), reconcileRetirementMobilization: vi.fn(() => true) }
+  const eagles = { setAmbientPatrolAllowed: vi.fn(), setRecoveryAllowed: vi.fn(),
+    stageRetirementRefill: vi.fn(), reconcileRetirementMobilization: vi.fn(() => true) }
+  const dependencies = {
+    residents: actors.map(item => item.resident), read: () => profile, save, revoke: vi.fn(), patrol, eagles,
+    navigation: { townNav: { isElevated: () => false, rampAt: () => undefined,
+      watchtower: { surfaceAt: (p: Vector3) => p.y > 0 ? 1 : -1 } } },
+    obstacles: [], nearby: () => [],
+  }
+  return { actors, save, patrol, eagles, read: () => profile, allowSave: (allowed: boolean) => { allowSave = allowed },
+    create: () => new TownRetirementMobilizationController(dependencies as unknown as MobilizationDependencies) }
+}
+
+it('saves a legacy ground-order migration before restoring actors and preserves resources through retry and reached-marker reload', () => {
+  const guard: PersonalActorCheckpoint = { status: 'deployed', hp: 17, ammo: 3, shieldImpact: 8,
+    position: { x: -29, y: 33.5, z: -41, yaw: 1 }, order: 'defend', townRampartGarrison: true }
+  const casualty: PersonalActorCheckpoint = { ...guard, status: 'dead', hp: 0 }
+  const fixture = mobilizationFixture('mobilizing', { tower: guard, casualty })
+  const original = cloneCareerProfile(fixture.read()), controller = fixture.create()
+  fixture.allowSave(false)
+  expect(controller.reconcile()).toBe(false)
+  expect(fixture.read()).toEqual(original)
+  expect(fixture.patrol.reconcileRetirementMobilization).not.toHaveBeenCalled()
+  expect(fixture.actors[0].actor.restoreCombatHealth).not.toHaveBeenCalled()
+  expect(fixture.actors[0].actor.assignFormationTarget).not.toHaveBeenCalled()
+  fixture.allowSave(true)
+  expect(controller.reconcile()).toBe(true)
+  expect(fixture.read().retirementTowerGuards!.tower).toEqual({ ...guard, order: 'formation', townRampartGarrison: undefined,
+    formation: { commandId: -4900, position: { x: 10, y: 0, z: -30, yaw: 0 }, reached: false } })
+  expect(fixture.read().retirementTowerGuards!.casualty).toEqual(casualty)
+  expect(fixture.actors[0].actor.combatPosition).toEqual(new Vector3(-29, 33.5, -41))
+  expect(fixture.actors[0].actor.hp).toBe(17)
+  expect(fixture.actors[0].actor.combatAmmo).toBe(3)
+  expect(fixture.eagles.stageRetirementRefill).not.toHaveBeenCalled()
+  fixture.read().retirementTowerGuards!.tower.formation!.reached = true
+  expect(fixture.create().reconcile()).toBe(true)
+  expect(fixture.save).toHaveBeenCalledTimes(2)
+  expect(fixture.read().retirementTowerGuards!.tower.formation!.reached).toBe(true)
+})
+
+it('finishes elevated final-stand travel before issuing one charge and leaves grounded actors to native combat', () => {
+  const guard: PersonalActorCheckpoint = { status: 'deployed', hp: 17, ammo: 3, shieldImpact: 8,
+    position: { x: -29, y: 33.5, z: -41, yaw: 1 }, order: 'charge' }
+  const fixture = mobilizationFixture('final-stand', { tower: guard, ground: { ...guard,
+    position: { x: 15, y: 0, z: -30, yaw: 0 } } })
+  const controller = fixture.create(), [tower, ground] = fixture.actors, camera = new Vector3()
+  expect(controller.reconcile()).toBe(true)
+  tower.actor.setTacticalOrder.mockClear(); ground.actor.setTacticalOrder.mockClear()
+  expect(controller.updateResident(ground.resident, .1, camera)).toBe(false)
+  expect(ground.actor.assignFormationTarget).not.toHaveBeenCalled()
+  expect(controller.updateResident(tower.resident, .1, camera)).toBe(true)
+  expect(tower.actor.assignFormationTarget).toHaveBeenCalledOnce()
+  expect(tower.actor.updateTownTravel).toHaveBeenCalledOnce()
+  expect(tower.actor.setTacticalOrder).not.toHaveBeenCalled()
+  tower.actor.updateTownTravel.mockImplementationOnce(() => { tower.actor.combatPosition.y = 0 })
+  expect(controller.updateResident(tower.resident, .1, camera)).toBe(true)
+  expect(tower.actor.assignFormationTarget).toHaveBeenCalledOnce()
+  expect(tower.actor.setTacticalOrder).toHaveBeenCalledExactlyOnceWith('charge')
+  expect(controller.updateResident(tower.resident, .1, camera)).toBe(false)
+  expect(tower.actor.setTacticalOrder).toHaveBeenCalledOnce()
+  expect(tower.actor.updateTownTravel).toHaveBeenCalledTimes(2)
+  expect(fixture.save).not.toHaveBeenCalled()
+  expect(fixture.eagles.stageRetirementRefill).not.toHaveBeenCalled()
 })

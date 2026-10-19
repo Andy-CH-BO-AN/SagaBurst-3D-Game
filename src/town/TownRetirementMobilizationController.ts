@@ -3,17 +3,15 @@ import type { CareerProfile } from '../career/CareerProfile'
 import { cloneCareerProfile } from '../career/CareerProfile'
 import { emptyPersonalContribution } from '../combat/CommandMerit'
 import { refitCommandCheckpoint, restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
-import { commitCommanderRetirementToMobilizing, hasCompleteRetirementMobilizationCheckpoint, outsideRetirementTownCore, retirementAssaultFormations, retirementMobilizationNeedsPreparation, type RetirementAssaultFormation } from '../career/CareerRetirementMobilization'
+import { commitCommanderRetirementToMobilizing, hasCompleteRetirementMobilizationCheckpoint, outsideRetirementTownCore, retirementAssaultFormations, retirementGroundStaging, retirementMobilizationNeedsPreparation, type RetirementAssaultFormation } from '../career/CareerRetirementMobilization'
 import { isTownCommandRevokedByRetirement, revokeRetirementTownCommandClaims } from '../career/CareerRetirementCommand'
 import { commanderGateDefenseSlots } from '../career/CommanderTownRoster'
 import { civilianCommandRoster } from '../career/CivilianCommandAuthority'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from './TownNativeGuardIdentity'
 import { townStationSpec } from './TownGarrison'
-import { activateTownResidentHome, restoreTownResidentHome } from './TownResidentHome'
-import { personalTownDeployment } from '../career/PersonalSquadDeployment'
+import { restoreTownResidentHome } from './TownResidentHome'
 import { CIVILIAN_HOME_LAYOUT_VERSION } from './TownCivilianLife'
-import { TOWN_CITY, TOWN_CITY_ROADS } from './TownLayout'
-import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
+import type { PersonalActorCheckpoint, PersonalActorPosition } from '../career/CareerPersonalSquadMission'
 import type { TownActorSpec } from './TownRules'
 import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
@@ -42,12 +40,18 @@ export class TownRetirementMobilizationController {
   private suspended = false
   private readonly byId: Map<string, Resident>
   private readonly residents: readonly Resident[]
+  private readonly formationIds = new Map<string, number>()
+  private groundStaging?: Map<string, PersonalActorPosition> | null
+  private readonly descending = new Set<NPC>()
   readonly formations: readonly RetirementAssaultFormation[] | null
   constructor(private readonly deps: MobilizationDependencies) {
     this.formations = retirementAssaultFormations(deps.residents.map(resident => resident.spec))
     const canonical = new Set(this.formations?.flatMap(formation => formation.actorIds) ?? [])
     this.residents = deps.residents.filter(resident => canonical.has(resident.spec.id))
     this.byId = new Map(this.residents.map(resident => [resident.spec.id, resident]))
+    this.formations?.forEach((formation, index) => {
+      for (const id of formation.actorIds) this.formationIds.set(id, -4900 - index)
+    })
   }
 
   updateBoundary(position: { x: number; z: number }): boolean {
@@ -79,6 +83,14 @@ export class TownRetirementMobilizationController {
       this.deps.revoke()
     }
     if (!next.careerRetirement?.mobilization || !hasCompleteRetirementMobilizationCheckpoint(next)) return false
+    // Older prepared saves staged native guards at home. Migrate only their
+    // orders, behind the same save-first boundary, without another resource refit.
+    if (next.careerRetirement.phase === 'mobilizing') {
+      const staged = this.stageGroundOrders(next)
+      if (!staged || staged !== next && !this.deps.save(staged)) return false
+      if (staged !== next) this.deps.revoke()
+      next = staged
+    }
     if (!this.deps.patrol.reconcileRetirementMobilization(next.townCommandSquad!.members!)) return false
     if (!this.deps.eagles.reconcileRetirementMobilization(next.townEagleGarrisons![next.faction]!, `town:${next.faction}`, next.careerRetirement?.phase === 'final-stand')) return false
     for (const resident of this.residents) {
@@ -91,6 +103,11 @@ export class TownRetirementMobilizationController {
       restoreCommandActor(resident.npc, saved, resident.homeMount)
       resident.npc.setTownPeaceful(); resident.npc.setMissionCombatTarget(null)
     }
+    // A restored battle must not start if an elevated survivor has no legal
+    // ground destination. The caller retains its existing reconciliation pause.
+    if (next.careerRetirement?.phase === 'final-stand'
+      && this.residents.some(({ spec, npc }) => !spec.eagle && !npc.dead && this.onElevatedSurface(npc))
+      && !this.groundPositions()) return false
     this.applied = true
     return true
   }
@@ -98,19 +115,13 @@ export class TownRetirementMobilizationController {
   private prepare(current: CareerProfile): CareerProfile | null {
     const residents = this.residents
     if (residents.some(({ npc, homeMount }) => npc.mount && npc.mount !== homeMount || homeMount && (homeMount.riderPlayer || homeMount.riderNpc && homeMount.riderNpc !== npc))) return null
+    const staging = this.groundPositions()
+    if (!staging) return null
     const next = cloneCareerProfile(current), sceneKey = `town:${current.faction}`
     const eagle = this.deps.eagles.stageRetirementRefill(sceneKey)
     if (!eagle) return null
     const squads = commanderGateDefenseSlots(), actorIds = squads.flatMap(squad => squad.actorIds)
     const civilianIds = civilianCommandRoster(residents.map(resident => resident.spec))
-    const road = TOWN_CITY_ROADS[0]
-    const occupied = residents.filter(resident => !civilianIds.includes(resident.spec.id)).map(resident => townStationSpec(resident.spec, Boolean(resident.homeMount), Boolean(resident.npc.rangedWeaponId)))
-    // Existing placement owner supplies deterministic, obstacle-aware distributed street slots.
-    let auxiliary: ReturnType<typeof personalTownDeployment>
-    try {
-      auxiliary = personalTownDeployment({ x: road.ax, z: road.az, yaw: 0 }, occupied, civilianIds.length,
-        TOWN_CITY, this.deps.obstacles, this.deps.navigation)
-    } catch { return null }
     const members: Record<string, PersonalActorCheckpoint> = {}
     for (const formation of this.formations!) for (const id of formation.actorIds) {
       const resident = this.byId.get(id)
@@ -124,17 +135,8 @@ export class TownRetirementMobilizationController {
         saved.position = { x: home.x, y: home.y ?? getTerrainHeight(home.x, home.z), z: home.z, yaw: home.yaw ?? 0 }
         if (saved.mount) saved.mount.position = { ...saved.position }
       }
-      delete saved.fall; delete saved.formation; delete saved.outpostRampartGarrison
-      saved.order = 'defend'
-      if (resident.spec.duty === 'watchtower_guard') {
-        saved.position = { x: home.x, y: home.y ?? getTerrainHeight(home.x, home.z), z: home.z, yaw: home.yaw ?? 0 }
-        saved.townRampartGarrison = true
-      } else {
-        const auxiliaryIndex = civilianIds.indexOf(id)
-        const destination = auxiliaryIndex >= 0 ? auxiliary[auxiliaryIndex] : home
-        saved.formation = { commandId: -4800 - this.formations!.indexOf(formation),
-          position: { x: destination.x, y: 'y' in destination && typeof destination.y === 'number' ? destination.y : getTerrainHeight(destination.x, destination.z), z: destination.z, yaw: home.yaw ?? 0 }, reached: false, arrivalOrder: 'defend' }
-      }
+      delete saved.fall
+      this.stageGroundOrder(saved, id, staging.get(id)!)
       members[id] = saved
     }
     next.townCommandSquad = { type: 'town-command', squadId: 1, commandRank: 'commander', townFaction: current.faction,
@@ -153,6 +155,43 @@ export class TownRetirementMobilizationController {
 
   private savedMember(profile: CareerProfile, id: string): PersonalActorCheckpoint | undefined {
     return profile.townCommandSquad?.members?.[id] ?? profile.civilianCommandSquad?.members[id] ?? profile.retirementTowerGuards?.[id]
+  }
+
+  private groundPositions(): Map<string, PersonalActorPosition> | null {
+    if (this.groundStaging !== undefined) return this.groundStaging
+    if (!this.formations) return this.groundStaging = null
+    // Reserved native mounts may be restored by the admitted checkpoint; retain
+    // their body clearance even when their rider is currently on foot or dead.
+    const mounted = new Set(this.residents.filter(({ npc, homeMount }) => npc.isMounted || homeMount).map(({ spec }) => spec.id))
+    const staging = retirementGroundStaging(this.formations, mounted, this.deps.obstacles, this.deps.navigation)
+    if (!staging || this.residents.some(({ spec }) => !spec.eagle && !staging.has(spec.id))) return this.groundStaging = null
+    this.groundStaging = staging
+    return staging
+  }
+
+  private stageGroundOrder(saved: PersonalActorCheckpoint, id: string, position: PersonalActorPosition): void {
+    delete saved.outpostRampartGarrison; delete saved.townRampartGarrison; delete saved.townRampartMounted
+    saved.order = 'formation'
+    // No arrivalOrder: native movement retains the reached checkpoint, making
+    // this migration idempotent even after an actor reaches its ground slot.
+    saved.formation = { commandId: this.formationIds.get(id)!, position: { ...position }, reached: false }
+  }
+
+  private stageGroundOrders(current: CareerProfile): CareerProfile | null {
+    const pending = this.residents.filter(({ spec }) => {
+      const saved = this.savedMember(current, spec.id)
+      return !spec.eagle && saved?.status !== 'dead' && saved?.formation?.commandId !== this.formationIds.get(spec.id)
+    })
+    if (!pending.length) return current
+    const staging = this.groundPositions()
+    if (!staging) return null
+    const next = cloneCareerProfile(current)
+    for (const { spec } of pending) {
+      const saved = this.savedMember(next, spec.id)
+      if (!saved) return null
+      this.stageGroundOrder(saved, spec.id, staging.get(spec.id)!)
+    }
+    return hasCompleteRetirementMobilizationCheckpoint(next) ? next : null
   }
 
   /** Called last during ordinary snapshot staging, so stale native patrol/refit data cannot win. */
@@ -176,15 +215,40 @@ export class TownRetirementMobilizationController {
   }
 
   updateResident(resident: Resident, dt: number, camera: THREE.Vector3): boolean {
-    if (!this.owns(resident.npc) || resident.spec.eagle || this.deps.read().careerRetirement?.phase === 'final-stand') return false
+    if (!this.owns(resident.npc) || resident.spec.eagle) return false
     const npc = resident.npc, distance = npc.combatPosition.distanceTo(camera)
-    if (!this.applied || npc.dead || resident.spec.duty === 'watchtower_guard') {
-      if (this.applied) activateTownResidentHome(npc, resident.spec)
-      npc.updateTownPeace(dt, distance, false, false)
-    } else {
+    if (this.deps.read().careerRetirement?.phase === 'final-stand') {
+      if (!this.applied) return true
+      if (npc.dead) { this.descending.delete(npc); return false }
+      if (!this.onElevatedSurface(npc)) {
+        if (this.descending.delete(npc)) npc.setTacticalOrder('charge')
+        return false
+      }
+      // Hostility intentionally clears peaceful formations. Reuse their ground
+      // destination until the actor has walked off the last physical stair;
+      // otherwise a ranged target can pin an archer on its old wall or tower.
+      if (!this.descending.has(npc) || npc.formationCommandId !== this.formationIds.get(resident.spec.id)) {
+        const position = this.groundPositions()?.get(resident.spec.id)
+        if (!position) return true
+        npc.assignFormationTarget(this.formationIds.get(resident.spec.id)!, new THREE.Vector3(position.x, position.y ?? getTerrainHeight(position.x, position.z), position.z),
+          new THREE.Vector3(Math.sin(position.yaw), 0, Math.cos(position.yaw)))
+        this.descending.add(npc)
+      }
       npc.updateTownTravel(dt, distance, this.deps.nearby(npc), this.deps.obstacles, this.deps.navigation)
-      activateTownResidentHome(npc, resident.spec)
+      if (!this.onElevatedSurface(npc)) {
+        this.descending.delete(npc)
+        npc.setTacticalOrder('charge')
+      }
+      return true
     }
+    if (!this.applied || npc.dead) npc.updateTownPeace(dt, distance, false, false)
+    else npc.updateTownTravel(dt, distance, this.deps.nearby(npc), this.deps.obstacles, this.deps.navigation)
     return true
+  }
+
+  private onElevatedSurface(npc: NPC): boolean {
+    const town = this.deps.navigation.townNav, position = npc.combatPosition
+    return Boolean(town && (town.isElevated(position) || town.rampAt(position)
+      || (town.watchtower?.surfaceAt(position) ?? -1) >= 0))
   }
 }

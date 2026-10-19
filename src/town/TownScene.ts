@@ -3677,6 +3677,7 @@ export class TownScene {
     for (const r of this.residents) {
       if (this.retirementFinale?.active && !this.retirementFinale.owns(r.npc)) continue
       if (this.race?.owns(r.npc)) continue
+      if (this.retirementFinale?.active && this.retirementMobilization?.updateResident(r, dt, this.camera.position)) continue
       if (r.npc === ranger && status === 'approach') {
         const dir = this.cat.group.position.clone().sub(ranger.group.position); dir.y = 0; ranger.group.position.addScaledVector(dir.normalize(), dt * 3.5); ranger.group.position.y = getTerrainHeight(ranger.group.position.x, ranger.group.position.z); ranger.group.rotation.y = Math.atan2(dir.x, dir.z); ranger.updateTownPeace(dt, ranger.group.position.distanceTo(this.camera.position), false, false, 3.5); continue
       }

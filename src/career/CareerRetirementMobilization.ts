@@ -3,16 +3,96 @@ import { revokeRetirementTownCommandClaims } from './CareerRetirementCommand'
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
 import { TOWN_EAGLE_PAIRS } from '../town/TownEagleGarrison'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
-import { TOWN_CITY } from '../town/TownLayout'
+import { TOWN_CITY, TOWN_CITY_ROADS, TOWN_GARRISON_EAGLE_SITES, TOWN_LOCAL_ROADS, TOWN_PRIVATE_EAGLE_SITES } from '../town/TownLayout'
+import { Vector3 } from 'three'
+import { generateFormationSlots } from '../battle/FormationMath'
+import { resolveFormationSlots } from '../battle/FormationPlacement'
+import { civilianBodyClear } from '../town/TownCivilianLife'
+import { townRampGroundExcluded } from '../town/TownGroundStation'
+import { getTownRampartLayout } from '../town/TownRamparts'
+import { getTownCommandWatchtowerLayout, watchtowerFootprints } from '../town/TownCommandWatchtowerLayout'
+import { EAGLE_APPROACH } from '../world/EagleApproach'
+import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
+import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { TownActorSpec } from '../town/TownRules'
 import { parseCommandActorCheckpoint } from './CareerCommandAuthority'
 import { createTownEquipmentRefsResolver, townEquipmentActorSpecs } from './CareerTownEquipmentState'
-import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
+import type { PersonalActorCheckpoint, PersonalActorPosition } from './CareerPersonalSquadMission'
 
 export interface RetirementAssaultFormation {
   id: string
   actorIds: string[]
   source: 'town-ground' | 'town-air' | 'native-guard' | 'auxiliary'
+}
+
+/** Retirement alone uses these ground muster banks. Native gate homes and roster
+ * membership remain untouched. Wider ranks also accommodate reassigned horses. */
+const RETIREMENT_MOUNTED_BANKS = [
+  { x: 20, z: -90, columns: 6 }, { x: 43, z: -90, columns: 6 }, { x: 69, z: -85, columns: 7 },
+  { x: 35.5, z: -43, columns: 6 }, { x: 57.1, z: -43, columns: 6 },
+  { x: 37.4, z: 3.6, columns: 7 }, { x: 62.6, z: 3.6, columns: 7 },
+  { x: 37.4, z: 20.4, columns: 7 }, { x: 62.6, z: 20.4, columns: 7 },
+] as const
+const RETIREMENT_FOOT_BANKS = [3, 13, 23].flatMap(z => [42, 64].map(x => ({ x, z, columns: 10 })))
+
+/** Plan the whole ground population before saving or changing live actors.
+ * FormationPlacement owns local obstacle recovery; this adapter supplies Town's
+ * real body clearance, open roads, stair exits and one shared occupancy set. */
+export function retirementGroundStaging(formations: readonly RetirementAssaultFormation[], mountedIds: ReadonlySet<string>,
+  obstacles: readonly ObstacleData[], navigation: Pick<NavigationWorld, 'areConnected'>): Map<string, PersonalActorPosition> | null {
+  const ground = formations.filter(formation => formation.source !== 'town-air')
+  const ids = ground.flatMap(formation => formation.actorIds)
+  if (new Set(ids).size !== ids.length) return null
+  const layout = getTownRampartLayout(), tower = getTownCommandWatchtowerLayout()
+  const towerBoxes = watchtowerFootprints(tower), forward = new Vector3(0, 0, -1)
+  const eaglePads = [...TOWN_PRIVATE_EAGLE_SITES, ...TOWN_GARRISON_EAGLE_SITES]
+  // Local road zero is the complete authored plaza surface, rather than a passage.
+  const roads = [...TOWN_CITY_ROADS, ...TOWN_LOCAL_ROADS.slice(1)]
+  const anchor = { x: 53, z: 12 }, occupied: { point: Vector3; radius: number }[] = []
+  const destinations = new Map<string, PersonalActorPosition>()
+  const radius = (id: string) => mountedIds.has(id) ? 1.8 : .7
+  const usable = (point: Vector3, id: string): boolean => {
+    const r = radius(id)
+    if (point.x < -15 + r || point.x > 90 - r || point.z < -105 + r || point.z > 28 - r
+      || townRampGroundExcluded(layout, point, Math.max(1.8, r))
+      || !civilianBodyClear(point, obstacles, { radius: r, height: mountedIds.has(id) ? 2.6 : 2.3 })) return false
+    if (towerBoxes.some(box => point.x > box.min.x - r && point.x < box.max.x + r
+      && point.z > box.min.z - r - 2 && point.z < box.max.z + r + 2)) return false
+    for (const road of roads) {
+      const dx = road.bx - road.ax, dz = road.bz - road.az
+      const t = Math.max(0, Math.min(1, ((point.x - road.ax) * dx + (point.z - road.az) * dz) / (dx * dx + dz * dz)))
+      if (Math.hypot(point.x - road.ax - dx * t, point.z - road.az - dz * t) < road.width / 2 + r + .6) return false
+    }
+    for (const pad of eaglePads) {
+      const along = (pad.z - point.z) * Math.cos(pad.yaw)
+      if (Math.abs(point.x - pad.x) < 16 + r && along >= -15 - r && along <= EAGLE_APPROACH.terminalDistance + r) return false
+    }
+    return occupied.every(other => (point.x - other.point.x) ** 2 + (point.z - other.point.z) ** 2 >= (r + other.radius) ** 2 - .0001)
+      && navigation.areConnected(anchor, point)
+  }
+  let mountedBank = 0, footBank = 0
+  for (const formation of ground) {
+    if (!formation.actorIds.length) continue
+    const mounted = formation.actorIds.some(id => mountedIds.has(id))
+    const preferred = mounted ? RETIREMENT_MOUNTED_BANKS : RETIREMENT_FOOT_BANKS
+    const index = mounted ? mountedBank++ : footBank++
+    const banks = [...preferred.slice(index), ...preferred.slice(0, index), ...(mounted ? RETIREMENT_FOOT_BANKS : RETIREMENT_MOUNTED_BANKS)]
+    let slots: Vector3[] | null = null
+    for (const bank of banks) {
+      const ideal = generateFormationSlots(new Vector3(bank.x, 0, bank.z), forward, formation.actorIds.length,
+        bank.columns, mounted ? 3.6 : 2, mounted ? 4.2 : 2.5)
+      for (const point of ideal) point.y = getTerrainHeight(point.x, point.z)
+      slots = resolveFormationSlots(ideal, forward, formation.actorIds, radius, usable, getTerrainHeight, 150)
+      if (slots) break
+    }
+    if (!slots) return null
+    slots.forEach((point, index) => {
+      const id = formation.actorIds[index]
+      occupied.push({ point, radius: radius(id) })
+      destinations.set(id, { x: point.x, y: point.y, z: point.z, yaw: Math.PI })
+    })
+  }
+  return destinations
 }
 
 /** Same authored city rectangle for walkers and every ridden mount; height is irrelevant. */
