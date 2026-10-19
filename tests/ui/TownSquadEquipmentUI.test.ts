@@ -6,7 +6,8 @@ import { createCareerProfile,type CareerProfile } from '../../src/career/CareerP
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import type { PersonalSquadState } from '../../src/town/TownPersonalSquadController'
 import { purchaseTownEquipment,townRoster } from '../../src/town/TownRules'
-import { TownScene } from '../../src/town/TownScene'
+import { appendCommanderRetirementOption } from '../../src/town/TownRetirementUI'
+import { areOrdinaryTownServicesPeaceful } from '../../src/career/CareerRetirement'
 import { createTownCareerEquipmentUI } from '../../src/town/TownCareerEquipmentUI'
 import { squadEquipmentUI,townEquipmentUI,type TownEquipmentMemberView,type TownEquipmentSquadView,type TownEquipmentUIBindings } from '../../src/town/TownSquadEquipmentUI'
 import { type EquipmentSquadAdapter } from '../../src/ui/EquipmentUI'
@@ -63,41 +64,41 @@ function harness(type: 'captain' | 'ranger' = 'captain') {
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-interface RecruitmentTownCaller {
-  profile: CareerProfile
-  openRecruitmentPanel(response?: string): void
-}
+describe('Town retirement service controls', () => {
+  it('blocks every stale retirement dialog action when the saved phase enters final stand', () => {
+    vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
+    let profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander',
+      careerMissionCompletionsByTier: { 5: 10 },
+      completedCareerMissionTemplateIds: ['commander-four-gate-defense'] }
+    const panels: Element[] = []
+    const openPanel = vi.fn(() => {
+      const panel = new Element('div'); panels.push(panel)
+      return panel as unknown as HTMLDivElement
+    })
+    const start = vi.fn(() => true), leave = vi.fn(), root = new Element('div')
+    appendCommanderRetirementOption(root as unknown as HTMLElement, profile, {
+      available: () => areOrdinaryTownServicesPeaceful(profile), openPanel, start, leave,
+    })
+    const apply = root.children.find(node => node.tag === 'button')!
+    expect(apply.disabled).toBe(false)
+    apply.onclick!()
+    const dialogueButtons = panels[0].children.filter(node => node.tag === 'button')
+    dialogueButtons[0].onclick!()
+    const confirmationButtons = panels[1].children.filter(node => node.tag === 'button')
+    expect(openPanel).toHaveBeenCalledTimes(2)
+    expect(confirmationButtons[0].disabled).toBe(false)
 
-/** Real HR render and rank rejection; observe the real store without an unrelated seed save. */
-function recruitmentHarness(rank: 'captain' | 'commander') {
-  vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
-  const profile: CareerProfile = { ...createCareerProfile('roman'), rank, totalMerit: 100000, availableMerit: 100000,
-    townDialogueSeen: ['roman:hr-unlocked'] }
-  const store = new CareerProfileStore(new MemoryStorage())
-  const save = vi.spyOn(store, 'save')
-  let panel = new Element('div'), message = ''
-  // The prototype seam omits render/actor state that neither this panel nor its commit consumes.
-  const town = Object.assign(Object.create(TownScene.prototype) as RecruitmentTownCaller, {
-    profile, store, skills: { skillState: profile.skills }, careerSkillSaveTimer: null,
-    openPanel(_title: string, text: string) { message = text; panel = new Element('div'); return panel },
-  })
-  const commanderRow = () => panel.descendants().find(node => node.tag === 'article' && node.children[0]?.textContent === 'T5 Commander')!
-  town.openRecruitmentPanel()
-  return { town, store, save, row: commanderRow, message: () => message }
-}
-
-describe('Town HR recruitment controls', () => {
-
-  it('explains the formal-rank requirement when a previously enabled Commander button becomes stale', () => {
-    const h = recruitmentHarness('commander'), button = h.row().children[2]
-    expect(button.disabled).toBe(false)
-    h.town.profile.rank = 'captain'
-    button.onclick!()
-    expect(h.save).not.toHaveBeenCalled()
-    expect(h.town.profile.availableMerit).toBe(100000)
-    expect(h.town.profile.personalSquad?.members ?? []).toHaveLength(0)
-    expect(h.message()).toBe('需正式任命為 Commander 才能招募。')
-    expect(h.row().children[2].disabled).toBe(true)
+    // Keep each removed dialog's captured profile unchanged: only the live gate can
+    // prevent its initial, nested, acceptance and leave callbacks after betrayal.
+    profile = { ...profile, careerRetirement: {
+      version: 1, phase: 'final-stand', acceptedAt: 1, combatElapsedSeconds: 0,
+    } }
+    expect(profile.townEvent).toBeUndefined()
+    openPanel.mockClear()
+    for (const button of [apply, ...dialogueButtons, ...confirmationButtons]) button.onclick!()
+    expect(openPanel).not.toHaveBeenCalled()
+    expect(start).not.toHaveBeenCalled()
+    expect(leave).not.toHaveBeenCalled()
   })
 })
 

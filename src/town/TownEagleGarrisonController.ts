@@ -54,6 +54,8 @@ export class TownEagleGarrisonController {
   private ambientPatrolAllowed = false
   private recoveryAllowed = true
   private retirementMobilized = false
+  private retirementFinalStand = false
+  private readonly retirementApproaches = new Map<NPC, THREE.Vector3>()
   private time = 0
   private nextTakeoff = 0
   private readonly landingQueue: EagleLandingQueue
@@ -146,7 +148,7 @@ export class TownEagleGarrisonController {
   /** Apply only an already-saved refill or later casualty checkpoint. This does
    * not infer completion from position and never heals an actor saved as dead.
    */
-  reconcileRetirementMobilization(saved: TownEagleGarrisonState, sceneKey: string): boolean {
+  reconcileRetirementMobilization(saved: TownEagleGarrisonState, sceneKey: string, finalStand = false): boolean {
     if (saved.sceneKey !== sceneKey || !this.canReconcileRetirement()
       || saved.pairs.length !== TOWN_EAGLE_PAIRS.length
       || TOWN_EAGLE_PAIRS.some(identity => saved.pairs.filter(pair => pair.riderId === identity.riderId
@@ -157,7 +159,7 @@ export class TownEagleGarrisonController {
       replacementRemaining: 0, ambientRecovery: false, restRemaining: 0,
       patrol: { active: false, waypoint: 0, elapsed: 0 },
       duty: state.hp <= 0 || state.mount.hp <= 0 ? 'casualty'
-        : state.mounted ? 'return-queue' : state.duty === 'walking-to-standby' ? 'walking-to-standby' : 'standby',
+        : finalStand ? state.duty : state.mounted ? 'return-queue' : state.duty === 'walking-to-standby' ? 'walking-to-standby' : 'standby',
     })) }
     for (const pair of this.pairs.values()) {
       const { npc, homeMount: mount, spec } = pair.resident
@@ -172,6 +174,39 @@ export class TownEagleGarrisonController {
     this.restore(checkpoint, sceneKey)
     return true
   }
+  /** The saved finale releases native combat, while all recovery remains permanently disabled. */
+  beginRetirementFinalStand(): void {
+    if (!this.retirementMobilized) return
+    this.retirementFinalStand = true
+    this.ambientPatrolAllowed = false; this.recoveryAllowed = false
+    for (const pair of this.pairs.values()) {
+      pair.refitAllowed = false; pair.serviceRefit = false; pair.commandReturn = false
+      pair.ambientRecovery = false; pair.replacementRemaining = 0; pair.patrolActive = false
+      this.landingQueue.release(pair.resident.spec.id)
+      const { npc, homeMount } = pair.resident
+      if (npc.dead || homeMount!.dead) continue
+      if (npc.mount === homeMount) {
+        pair.duty = homeMount!.isAirborne ? 'sortie' : 'mounted-waiting'
+        npc.setEagleFlightOrder(null)
+      } else if (pair.duty !== 'walking-to-mount') pair.duty = 'standby'
+    }
+  }
+
+  /** Native sensors remain bounded. Far formations travel toward the assault target
+   * with the existing flight pilot, then release it to normal airborne targeting. */
+  approachRetirementTarget(npc: NPC, target: THREE.Vector3): void {
+    if (!this.retirementFinalStand || !this.owns(npc) || npc.dead || !npc.mount?.isFlyingMount) return
+    const previous = this.retirementApproaches.get(npc)
+    if (npc.combatPosition.distanceToSquared(target) <= (npc.alertRange * .8) ** 2) {
+      if (previous) { this.retirementApproaches.delete(npc); npc.setEagleFlightOrder(null) }
+      return
+    }
+    if (!previous || previous.distanceToSquared(target) > 50 ** 2) {
+      this.retirementApproaches.set(npc, target.clone())
+      npc.setEagleFlightOrder({ kind: 'patrol', target })
+    }
+  }
+
   beginFrame(dt: number): void {
     dt = Number.isFinite(dt) ? Math.max(0, dt) : 0
     this.time += dt
@@ -224,7 +259,7 @@ export class TownEagleGarrisonController {
     obstacles: ObstacleData[], navigation: NavigationWorld, nearby: NPC[] = [], occupied: readonly Mount[] = []): boolean {
     const pair = this.pairs.get(npc)
     if (!pair) return false
-    if (this.retirementMobilized) combat = false
+    if (this.retirementMobilized) combat = this.retirementFinalStand && combat
     const { spec, homeMount: mount } = pair.resident, eagle = spec.eagle!
     const distance = npc.group.position.distanceTo(camera)
     if (pair.playerOwned) {

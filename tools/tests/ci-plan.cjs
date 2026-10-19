@@ -50,6 +50,12 @@ function policyConsumers(file, inventory) {
       'tests/persistence/TownSiegeRosterPersistence.test.ts', 'tests/movement/NavigationWorld.test.ts',
       'tests/combat/ProjectileBallistics.test.ts']) add(owner)
   }
+  // The DEV-only QA panel dispatches to the production preset, final-stand
+  // transaction and single-save entry owners without constructing a test scene.
+  if (file === 'src/debug/CareerRetirementQA.ts') {
+    for (const owner of ['tests/progression/CareerRetirementQaProfile.test.ts',
+      'tests/progression/CareerRetirementFinale.test.ts', 'tests/town/CareerTownEntry.test.ts']) add(owner)
+  }
   // Browser bootstrap dispatches to these real entry/recovery/mode owners;
   // importing main.ts itself would instantiate the page and render runtime.
   if (file === 'src/main.ts') {

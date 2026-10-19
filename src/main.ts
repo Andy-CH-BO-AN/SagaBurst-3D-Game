@@ -170,6 +170,10 @@ async function resumeStoredCareerMission(missionId: string, build: () => CareerC
 
 async function bootstrap(): Promise<void> {
   const query = new URLSearchParams(window.location.search)
+  if (import.meta.env.DEV && query.get('careerQa') === 'retirement') {
+    const { installCareerRetirementQa } = await import('./debug/CareerRetirementQA')
+    installCareerRetirementQa()
+  }
   if (import.meta.env.DEV && query.get('fourgatepreview') === '1') {
     const { launchTownFourGateSiegePreview } = await import('./debug/TownFourGateSiegePreview')
     await launchTownFourGateSiegePreview(container!)
@@ -219,7 +223,9 @@ async function bootstrap(): Promise<void> {
   // still pass validation before it can bypass the official menu.
   const careerStore = new CareerProfileStore()
   const outpostProfile = menuOnly ? null : careerStore.loadChecked().profile
-  const activeCareerMission = outpostProfile?.activeMission
+  // A saved ending wins over stale mission fields without rewriting the Career save.
+  const completedCareer = outpostProfile?.careerRetirement?.phase === 'completed'
+  const activeCareerMission = completedCareer ? undefined : outpostProfile?.activeMission
   const captainStandalone = activeCareerMission?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && activeCareerMission.kind === 'captain-outpost-defense'
     || activeCareerMission?.templateId === CAPTAIN_EAGLE_BATTLE_ID && activeCareerMission.kind === 'captain-eagle-battle'
   if (outpostProfile && activeCareerMission && captainStandalone) {
@@ -277,7 +283,7 @@ async function bootstrap(): Promise<void> {
       return
     }
   }
-  if (outpostProfile?.activeOutpostMission) {
+  if (!completedCareer && outpostProfile?.activeOutpostMission) {
     const mission = outpostProfile.activeOutpostMission
     if (outpostProfile.claimedBattleIds.includes(mission.id)) {
       const returned = stageMissionReturnRebuild(clearCareerOutpost(outpostProfile),
@@ -321,7 +327,7 @@ async function bootstrap(): Promise<void> {
     sessionStorage.removeItem('sagaburst_campaign_config')
   }
 
-  const careerResume = !menuOnly && (new CareerProfileStore().loadChecked().profile?.townEvent?.state === 'hostile' || sessionStorage.getItem(TOWN_ENTRY_KEY) === '1')
+  const careerResume = !menuOnly && (Boolean(outpostProfile?.careerRetirement) || outpostProfile?.townEvent?.state === 'hostile' || sessionStorage.getItem(TOWN_ENTRY_KEY) === '1')
   if (savedCampaign && !careerResume) {
     await launchGame(undefined, savedCampaign)
     return

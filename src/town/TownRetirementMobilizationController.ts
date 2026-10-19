@@ -70,7 +70,7 @@ export class TownRetirementMobilizationController {
       this.deps.eagles.setRecoveryAllowed(false)
       this.suspended = true
     }
-    if (current.careerRetirement?.phase !== 'mobilizing' || this.applied) return true
+    if (!['mobilizing', 'final-stand'].includes(current.careerRetirement?.phase ?? '') || this.applied) return true
     let next = current
     if (retirementMobilizationNeedsPreparation(current)) {
       const prepared = this.prepare(current)
@@ -78,9 +78,9 @@ export class TownRetirementMobilizationController {
       next = prepared
       this.deps.revoke()
     }
-    if (!hasCompleteRetirementMobilizationCheckpoint(next)) return false
+    if (!next.careerRetirement?.mobilization || !hasCompleteRetirementMobilizationCheckpoint(next)) return false
     if (!this.deps.patrol.reconcileRetirementMobilization(next.townCommandSquad!.members!)) return false
-    if (!this.deps.eagles.reconcileRetirementMobilization(next.townEagleGarrisons![next.faction]!, `town:${next.faction}`)) return false
+    if (!this.deps.eagles.reconcileRetirementMobilization(next.townEagleGarrisons![next.faction]!, `town:${next.faction}`, next.careerRetirement?.phase === 'final-stand')) return false
     for (const resident of this.residents) {
       if (resident.spec.eagle || resident.spec.duty === 'patrol') continue
       const saved = this.savedMember(next, resident.spec.id)
@@ -176,7 +176,7 @@ export class TownRetirementMobilizationController {
   }
 
   updateResident(resident: Resident, dt: number, camera: THREE.Vector3): boolean {
-    if (!this.owns(resident.npc) || resident.spec.eagle) return false
+    if (!this.owns(resident.npc) || resident.spec.eagle || this.deps.read().careerRetirement?.phase === 'final-stand') return false
     const npc = resident.npc, distance = npc.combatPosition.distanceTo(camera)
     if (!this.applied || npc.dead || resident.spec.duty === 'watchtower_guard') {
       if (this.applied) activateTownResidentHome(npc, resident.spec)

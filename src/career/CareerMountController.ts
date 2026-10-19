@@ -89,7 +89,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     private readonly options: { eaglePads?: EaglePadReservations; eagleDeployment?: () => EagleLandingPoint | undefined } = {},
   ) {
     syncCareerEaglePads(this.options.eaglePads, this.readProfile(), this.sceneKey())
-    const state = this.readProfile().activeMission?.mountState
+    const state = this.readProfile().activeMission?.mountState ?? this.readProfile().retirementRuntime?.mountState
     if (!state) return
     for (const id of Object.keys(state.hp) as CareerMountId[]) {
       const value = state.hp[id]
@@ -203,19 +203,23 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   restoreActiveMount(restoreAerial = true): boolean {
+    if (this.active) return true
     const profile = this.readProfile()
+    const retirement = profile.careerRetirement?.phase === 'final-stand' ? profile.retirementRuntime : undefined
     const aerial = restoreAerial && profile.playerAerialState?.sceneKey === this.sceneKey() ? profile.playerAerialState : undefined
-    if (aerial?.fall) return false
-    const savedId = profile.activeMission?.mountState?.activeMountId ?? (aerial?.mount ? 'xongkoro' : undefined)
+    if (aerial?.fall && !retirement?.mount) return false
+    const savedId = profile.activeMission?.mountState?.activeMountId ?? profile.retirementRuntime?.mountState?.activeMountId ?? (aerial?.mount ? 'xongkoro' : undefined)
     const id = savedId ? canonicalCareerMountId(savedId) : undefined
     if (!id || !MOUNTS[id] || !canUseCareerMount(profile, id) || this.unavailable.has(id) || (this.hp.get(id) ?? 1) <= 0) return false
     syncCareerEaglePads(this.options.eaglePads, profile, this.sceneKey())
     const pad = id === 'xongkoro' ? this.options.eaglePads?.reserve(PLAYER_EAGLE_PAD_OWNER) : undefined
     // A legacy fourth Player eagle already in flight keeps its saved runtime, even while all home pads are reserved.
-    if (id === 'xongkoro' && this.options.eaglePads && !pad && !aerial?.mount) return false
+    if (id === 'xongkoro' && this.options.eaglePads && !pad && !aerial?.mount && !retirement?.mount) return false
     const deployment = this.options.eagleDeployment?.()
-    const heading = aerial?.mount?.position.yaw ?? deployment?.yaw ?? this.player().facingYaw
-    const position = id === 'xongkoro' && aerial?.mount
+    const heading = retirement?.mount?.position.yaw ?? aerial?.mount?.position.yaw ?? deployment?.yaw ?? this.player().facingYaw
+    const position = retirement?.mount
+      ? new THREE.Vector3(retirement.mount.position.x, retirement.mount.position.y, retirement.mount.position.z)
+      : id === 'xongkoro' && aerial?.mount
       ? new THREE.Vector3(aerial.mount.position.x, aerial.mount.position.y, aerial.mount.position.z)
       : id === 'xongkoro'
       ? findEagleLandingPosition(deployment ?? { ...this.player().combatPosition, yaw: heading }, this.obstacles(),
@@ -226,7 +230,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
     this.installDeathPersistence(id, mount)
     this.active = { id, mount }
-    this.player().mountVehicle(mount, id === 'xongkoro' ? heading : undefined)
+    if (!retirement || retirement.player.mounted) this.player().mountVehicle(mount, id === 'xongkoro' ? heading : undefined)
     this.statusText = `${MOUNTS[canonicalCareerMountId(id)].name}已恢復，剩餘耐久 ${Math.ceil(mount.currentHp)}/${mount.maxHp}。`
     return true
   }
@@ -276,6 +280,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   restInTown(): void {
+    if (['final-stand', 'completed'].includes(this.readProfile().careerRetirement?.phase ?? '')) return
     if (this.active) this.removeMountVisual(this.active)
     this.active = null
     this.unavailable.clear()
@@ -339,9 +344,10 @@ export class CareerMountController implements EquipmentMountAdapter {
 
   private persistOutingState(activeMountId: CareerMountId | undefined): boolean {
     const profile = this.readProfile()
-    if (!profile.activeMission) return true
+    if (!profile.activeMission && profile.careerRetirement?.phase !== 'final-stand') return true
     const next = cloneCareerProfile(profile)
-    next.activeMission!.mountState = this.outingState(activeMountId)
+    if (next.activeMission) next.activeMission.mountState = this.outingState(activeMountId)
+    else if (next.retirementRuntime) next.retirementRuntime.mountState = this.outingState(activeMountId)
     return this.commit(next)
   }
 

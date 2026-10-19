@@ -62,6 +62,17 @@ export function canStartOrdinaryTownHostility(profile: Pick<CareerProfile, 'care
   return profile.careerRetirement === undefined
 }
 
+/** Service peace follows the saved retirement phase, even before its runtime controller
+ * is restored. Betrayal never creates a generic hostile Town event.
+ */
+export function areOrdinaryTownServicesPeaceful(
+  profile: Pick<CareerProfile, 'careerRetirement' | 'townEvent'>, runtimeHostile = false,
+): boolean {
+  const phase = profile.careerRetirement?.phase
+  return !runtimeHostile && profile.townEvent?.state !== 'hostile'
+    && phase !== 'final-stand' && phase !== 'completed'
+}
+
 /** Compare the persisted plain-data checkpoint, including any nested mobilization receipt.
  * Property order and omitted undefined fields do not change its persisted meaning.
  */

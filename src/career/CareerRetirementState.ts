@@ -1,7 +1,11 @@
+import type { AerialPosition } from './CareerAerialState'
+import type { ActiveCareerMission } from './CareerMissionState'
+import type { EagleFlightSnapshot } from '../movement/EagleFlightController'
+
 export type CareerRetirementPhase = 'departing' | 'mobilizing' | 'final-stand' | 'completed'
 export type CareerRetirementOutcome = 'escaped' | 'fallen'
 
-/** Persistence only. Runtime transitions and the final battle belong to later work. */
+/** Durable checkpoint; phase and elapsed changes belong to the retirement state owners. */
 export interface CareerRetirementState {
   version: 1
   phase: CareerRetirementPhase
@@ -9,6 +13,23 @@ export interface CareerRetirementState {
   combatElapsedSeconds: number
   mobilization?: { version: 1; commandRevoked: true; refillCompleted: true; formationPrepared: true }
   outcome?: CareerRetirementOutcome
+}
+
+/** Ordinary resource snapshots may advance without rewriting the irreversible phase.
+ * Falling riders continue to use the existing CareerAerialState checkpoint.
+ */
+export interface CareerRetirementRuntime {
+  player: {
+    position: AerialPosition
+    hp: number
+    stamina: number
+    arrows: number
+    shieldImpact: number
+    shieldDurability?: Record<string, number>
+    mounted: boolean
+  }
+  mountState?: ActiveCareerMission['mountState']
+  mount?: { position: AerialPosition; hp: number; flight?: EagleFlightSnapshot }
 }
 
 export function parseCareerRetirementState(value: unknown): CareerRetirementState | null {
