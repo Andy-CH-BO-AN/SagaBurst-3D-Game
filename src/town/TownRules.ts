@@ -1,6 +1,7 @@
 import { careerCommanderLoadout } from '../career/CareerCommanderEquipment'
 import { civilianHomeAnchor } from './TownCivilianLife'
 import { assignTownGarrison, type TownGarrisonStation } from './TownGarrison'
+import { townWatchtowerGuardRoster } from './TownWatchtowerGuardPolicy'
 import { townEagleRoster } from './TownEagleGarrison'
 import { addCareerItem, availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
 import { canonicalCareerMountId, cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
@@ -18,7 +19,7 @@ export const townName = (faction: CharacterFaction): string => faction === 'roma
 export const TOWN_RULES = { garrisonTier: 2, deathPenalty: 100, civilians: 20, stableHorses: 5 } as const
 export const CIVILIAN_PROFILE = { category: 'civilian', name: '平民 Civilian', hp: 50, retaliationWeapon: 'gladius_rusty' } as const
 export type TownRole = 'melee_cavalry' | 'lancer_cavalry' | 'ranged_cavalry' | 'ranged_infantry' | 'archer_infantry' | 'melee_infantry' | 'spearman_infantry' | 'captain' | 'commander' | 'deployment' | 'merchant' | 'ranger' | 'cat' | 'civilian' | 'hr-officer' | 'eagle-trainer'
-export type TownDuty = 'eagle_garrison' | 'training' | 'gate_guard' | 'patrol' | 'service' | 'civilian'
+export type TownDuty = 'eagle_garrison' | 'watchtower_guard' | 'training' | 'gate_guard' | 'patrol' | 'service' | 'civilian'
 export type TownPatrolId = 'A' | 'B'
 export type TownDefenseGroupId = 'A' | 'B' | 'C' | 'D' | 'E' | 'F'
 export type TownUnitKind = 'sword_cavalry' | 'lancer' | 'horse_archer' | 'melee' | 'spearman' | 'ranged' | 'archer'
@@ -58,7 +59,7 @@ export function townMilitaryEquipment(faction: CharacterFaction, actor: TownRole
     : unitKind === 'ranged' ? faction === 'roman' ? 'javelin_infantry' : 'archer' : unitKind
   const presetId = `${faction}_${kind}` as UnitPresetId
   const patrolCaptain = typeof actor !== 'string' && actor.duty === 'patrol' && actor.patrolLeader
-  const tier = typeof actor !== 'string' && actor.duty === 'eagle_garrison' ? 3 : role === 'captain' || role === 'commander' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
+  const tier = typeof actor !== 'string' && (actor.duty === 'eagle_garrison' || actor.duty === 'watchtower_guard') ? 3 : role === 'captain' || role === 'commander' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 3 : TOWN_RULES.garrisonTier
   const level: 1 | 2 | 3 | 4 = role === 'captain' || role === 'commander' || role === 'hr-officer' || role === 'deployment' || patrolCaptain ? 4 : tier
   const base = UNIT_PRESETS[presetId].tierLoadouts[tier]
   // Town owns mount placement; only standard hero equipment comes from the T4 catalog.
@@ -139,7 +140,7 @@ export function townAuthoredRoster(): TownActorSpec[] {
       })
     }
   }
-  result.push(...townEagleRoster())
+  result.push(...townEagleRoster(), ...townWatchtowerGuardRoster())
   return result
 }
 export function townRoster(): TownActorSpec[] {
@@ -160,6 +161,12 @@ export function townRoster(): TownActorSpec[] {
   return result
 }
 export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger' || actor.role === 'eagle-trainer') }
+/** Catalogs use authored natives; live boards pass the same residents as acceptance,
+ * including any service defenders added by the built Town. Player is counted once. */
+export function townDefenseForceCounts(roster: readonly TownActorSpec[] = townAuthoredRoster(), additionalDefenderIds: readonly string[] = []) {
+  const friendlySoldiers = new Set([...townAssaultObjectiveRoster([...roster]).map(actor => actor.id), ...additionalDefenderIds]).size
+  return { friendlySoldiers, friendlyCombatants: friendlySoldiers + 1 }
+}
 /** Captain's fixed T2 training residents. Selection never draws from officers, gates or Patrols. */
 export function townCommandSquadRoster(faction: CharacterFaction, roster: readonly TownActorSpec[] = townRoster()): TownActorSpec[] {
   const ids = [

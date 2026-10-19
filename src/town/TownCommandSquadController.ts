@@ -1,3 +1,4 @@
+import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
 import { townStationSpec } from './TownGarrison'
 import { activateTownResidentHome, townResidentAtHome } from './TownResidentHome'
 import * as THREE from 'three'
@@ -64,7 +65,7 @@ export class TownCommandSquadController {
   }
 
   get hasCheckpoint(): boolean { return Boolean(this.value) }
-  /** Cheap save trigger; full 210-member resource checkpoints are built only on actual saves. */
+  /** Cheap save trigger; full native-member resource checkpoints are built only on actual saves. */
   get criticalSignature(): string {
     return JSON.stringify([this.value?.authorized, this.value?.state, this.value?.commandedActorIds,
       this.value?.actorIds.map(id => {
@@ -108,7 +109,7 @@ export class TownCommandSquadController {
       && this.value.actorIds.includes(npc.combatantId)
   }
   accepts(npc: NPC): boolean {
-    if (!this.commandsEnabled || npc.dead || !this.owns(npc)) return false
+    if (isAutonomousTownGuard(npc.combatantId) || !this.commandsEnabled || npc.dead || !this.owns(npc)) return false
     const resident = this.residentsById.get(npc.combatantId)!
     if (this.delegatesRuntime(resident) || this.value?.refittingActorIds?.includes(resident.spec.id)
       && (this.options.nativeRefitPending?.(resident) ?? true)) return false
@@ -121,7 +122,7 @@ export class TownCommandSquadController {
     if (!this.value?.authorized) return []
     return this.actors.filter(npc => {
       const resident = this.residentsById.get(npc.combatantId)!
-      return !npc.dead && !this.delegatesRuntime(resident) && !this.ownsPeacefulTravel(npc)
+      return !isAutonomousTownGuard(npc.combatantId) && !npc.dead && !this.delegatesRuntime(resident) && !this.ownsPeacefulTravel(npc)
         && !this.isNativeReturning(npc.combatantId)
         && (this.townHostile || this.isPlayerClaimed(npc.combatantId)
           && this.value!.members?.[npc.combatantId]?.status === 'deployed')
@@ -172,7 +173,7 @@ export class TownCommandSquadController {
     return this.grant()
   }
 
-  /** Save canonical membership first. Promotion expands the old 30 without claiming the other 180. */
+  /** Save canonical membership first. Promotion preserves exact previous actor claims. */
   grant(): boolean {
     this.synchronizeResidents()
     const profile = this.read()
@@ -194,9 +195,7 @@ export class TownCommandSquadController {
     const membership = commanderTownCommandMembership(this.value?.townFaction === profile.faction ? this.value : undefined)
     const squads = membership.squads!
     const ids = membership.actorIds
-    const sizes = [30, 30, 30, 30, 30, 30, 25, 5]
-    if (squads.length !== 8 || ids.length !== 210 || new Set(ids).size !== ids.length
-      || squads.some((squad, index) => squad.squadId !== index + 1 || squad.actorIds.length !== sizes[index])
+    if (squads.length !== 8 || new Set(ids).size !== ids.length
       || ids.some(id => !this.residentsById.has(id))) return false
     if (this.value?.authorized && this.value.commandRank === 'commander'
       && this.value.townFaction === profile.faction && this.value.sceneKey === this.sceneKey
@@ -317,6 +316,7 @@ export class TownCommandSquadController {
       const npc = resident.npc, actor = this.value.members?.[id]
       if (!restore && previous?.authorized === this.value.authorized && previous.sceneKey === this.value.sceneKey
         && previous.commandRank === this.value.commandRank
+        && officialActorSquadId(previous, id) === officialActorSquadId(this.value, id)
         && previousClaims.has(id) === this.isPlayerClaimed(id)
         && previous.nativeReturnStates?.[id] === this.value.nativeReturnStates?.[id]
         && JSON.stringify(previous.members?.[id]) === JSON.stringify(actor)) continue

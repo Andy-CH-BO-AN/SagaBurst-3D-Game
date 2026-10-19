@@ -5,6 +5,7 @@ import { CAREER_RANKS, careerMissionCompletionsForTier, enlistmentMerit, type Ca
 import { careerMissionTierForTemplateId } from './CareerMissionTier'
 import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 import { getVeteranMissionAvailability, getVeteranMissionDefinition, VETERAN_MISSION_CATALOG, type VeteranMissionDefinition } from './VeteranMission'
+import { townDefenseForceCounts } from '../town/TownRules'
 
 export type RecruitMissionRisk = '低' | '中' | '高' | '極高'
 export type RecruitPatrolRouteId = 'south-road' | 'forest-line'
@@ -115,8 +116,7 @@ export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = 
   name: '守衛家園 · 老兵守城',
   briefing: '敵方騎兵正在逼近城鎮。加入守軍守住防線，並保護居民。',
   targetArea: 'career-town',
-  friendlySoldiers: 208,
-  friendlyCombatants: 209,
+  ...townDefenseForceCounts(),
   enemyCount: townDefenseEnemyCount(VETERAN_TOWN_DEFENSE_TEMPLATE_ID, 'veteran'),
   civilianCount: 20,
   maxCivilianDeaths: 10,

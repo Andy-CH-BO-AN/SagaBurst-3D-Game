@@ -61,7 +61,7 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
 }
 export const TOWN_HR_OFFICER_ID = 'hr-officer'
 
-export function hrOfficerSpec(layout: TownHRLayout): TownActorSpec {
+export function hrOfficerSpec(layout: Pick<TownHRLayout, 'officer'>): TownActorSpec {
   return { id: TOWN_HR_OFFICER_ID, role: 'hr-officer', duty: 'service', tier: 4, mounted: true, training: false,
     assaultObjective: false, index: 0, ...layout.officer }
 }

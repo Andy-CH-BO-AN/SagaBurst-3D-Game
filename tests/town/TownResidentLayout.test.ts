@@ -153,7 +153,7 @@ it('keeps final Town population homes, ground stations and fallbacks clear of ra
   // Retain the original 3m resident / 5m patrol tower margins, using this
   // invariant's existing production roster rather than a second cold fixture.
   const footprints = watchtowerFootprints(getTownCommandWatchtowerLayout())
-  const positions = [...roster.map(actor => actor.garrison ?? actor),
+  const positions = [...roster.filter(actor => actor.duty !== 'watchtower_guard').map(actor => actor.garrison ?? actor),
     ...roster.filter(actor => actor.patrolId).map(townPatrolRefitPoint), townPlayerEntryPoint()]
   expect(positions.filter(point => footprints.some(box => squareIntersects(box, point, 3)))).toEqual([])
   const patrol = [...townPatrolRoute(), ...townPatrolDeparture('A').waypoints, ...townPatrolDeparture('B').waypoints]

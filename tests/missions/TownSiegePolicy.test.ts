@@ -29,7 +29,9 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(plans.map(p => p.leaderId)).toEqual(['captain', 'ranger', 'town-patrol:a:captain', 'town-patrol:b:captain'])
     const trainer: TownActorSpec = { id: 'eagle-trainer', role: 'eagle-trainer', duty: 'service', tier: 4,
       mounted: false, training: false, assaultObjective: true, index: 0, x: -90, z: 36, yaw: 0 }
-    const native = [...residents, townCommanderSpec({ x: 52, z: -22, yaw: 0 }), trainer]
+    const officer: TownActorSpec = { id: 'hr-officer', role: 'hr-officer', duty: 'service', tier: 4,
+      mounted: true, training: false, assaultObjective: false, index: 0, x: -70, z: 0 }
+    const native = [...residents, townCommanderSpec({ x: 52, z: -22, yaw: 0 }), trainer, officer]
     const original = structuredClone(native), layout = getTownRampartLayout()
     // Math-only walk surfaces and two physical volumes: a firing blocker outside
     // the deck and an occupied portion of its inner lanes. No scene/model builder.
@@ -38,22 +40,27 @@ describe('Siege deployment and shared rule ownership', () => {
       { box: new Box3(new Vector3(10, -100, -112), new Vector3(20, 100, -104)), isBarricade: false },
     ]
     const deployment = planCommanderFourGateDefenseDeployment(native, layout, obstacles)
-    const groundIds = native.filter(actor => actor.duty !== 'eagle_garrison'
-      && (actor.unitKind || ['ranger', 'commander', 'eagle-trainer'].includes(actor.role))).map(actor => actor.id)
+    const groundIds = native.filter(actor => actor.duty !== 'eagle_garrison' && actor.duty !== 'watchtower_guard'
+      && (actor.unitKind || ['ranger', 'commander', 'eagle-trainer', 'hr-officer'].includes(actor.role))).map(actor => actor.id)
     const sectorIds = deployment.sectors.flatMap(sector => [...sector.wallActorIds, ...sector.cavalryActorIds])
-    expect(deployment.stations.size).toBe(205)
-    expect(new Set(sectorIds).size).toBe(205)
+    expect(deployment.stations.size).toBe(206)
+    expect(new Set(sectorIds).size).toBe(206)
     expect([...deployment.stations.keys()].sort()).toEqual(groundIds.sort())
     expect(sectorIds.sort()).toEqual(groundIds)
     expect(deployment.sectors.map(sector => [sector.wallActorIds.length, sector.cavalryActorIds.length]))
-      .toEqual([[26, 27], [26, 26], [25, 25], [25, 25]])
+      .toEqual([[26, 26], [26, 26], [25, 26], [25, 26]])
     expect(deployment.squads.map(squad => squad.squadId)).toEqual([1, 2, 3, 4, 5, 6, 7, 8])
-    expect(deployment.squads.map(squad => squad.actorIds.length)).toEqual([30, 30, 30, 30, 30, 30, 25, 5])
-    expect(new Set(deployment.squads.flatMap(squad => squad.actorIds)).size).toBe(210)
+    expect(deployment.squads.map(squad => squad.actorIds.length)).toEqual([26, 26, 26, 26, 25, 26, 25, 26])
+    expect(new Set(deployment.squads.flatMap(squad => squad.actorIds)).size).toBe(206)
     expect(deployment.squads[1].actorIds).toContain('commander')
-    expect(deployment.squads[6].actorIds).toContain('eagle-trainer')
-    expect(deployment.squads[7].actorIds).toEqual([1, 2, 3, 4, 5].map(id => `town-eagle-rider:${id}`))
-    expect(deployment.squads[7].actorIds.some(id => deployment.stations.has(id))).toBe(false)
+    expect(deployment.squads[2].actorIds).toContain('eagle-trainer')
+    expect(deployment.squads[7].actorIds).toContain('hr-officer')
+    expect(deployment.squads[5].actorIds).toContain('captain')
+    expect(deployment.squads.flatMap(squad => squad.actorIds).some(id => /^(town-eagle-rider|watchtower-archer):/.test(id))).toBe(false)
+    for (const squad of deployment.squads) for (const id of squad.actorIds) {
+      expect(deployment.stations.get(id)?.gateId).toBe(['north', 'south', 'east', 'west'][Math.floor((squad.squadId - 1) / 2)])
+      expect(deployment.stations.get(id)?.kind).toBe(squad.squadId % 2 ? 'wall' : 'cavalry')
+    }
     expect(deployment.stations.get('gate:north:0')!.z).toBeLessThan(deployment.stations.get('gate:north:4')!.z)
     expect(native).toEqual(original)
     const stations = [...deployment.stations], invalid: string[] = []
@@ -85,7 +92,7 @@ describe('Siege deployment and shared rule ownership', () => {
       ranged: actor.unitKind === 'archer', flying: actor.duty === 'eagle_garrison' })
     const deployment = planCommanderFourGateDefenseDeployment(residents, layout, [], equipment)
     expect(deployment.sectors[0].wallActorIds).toEqual(['gate:north:0', 'gate:north:1', 'gate:north:7'])
-    expect(deployment.sectors[0].cavalryActorIds).toEqual(['captain'])
+    expect(deployment.sectors.find(sector => sector.gateId === 'east')!.cavalryActorIds).toEqual(['captain'])
     expect(deployment.stations.get('captain')?.kind).toBe('cavalry')
     expect(deployment.stations.has('town-eagle-rider:1')).toBe(false)
     const wall = deployment.sectors[0].wallActorIds.map(id => deployment.stations.get(id)!)

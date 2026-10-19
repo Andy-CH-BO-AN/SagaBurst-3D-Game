@@ -138,6 +138,8 @@ export function townDefenseThreatResponse(spec: TownActorSpec, npc: Pick<NPC,
       awarenessDistance = (target.x - npc.combatPosition.x) ** 2 + (target.z - npc.combatPosition.z) ** 2
     }
   }
+  // Tower sentries may fire across height differences, but never pursue off their deck.
+  if (spec.duty === 'watchtower_guard') return distanceSquared <= radius * radius ? 'defend' : 'ignore'
   if (awarenessDistance > radius * radius) return 'ignore'
   if (Math.hypot(target.x - station.x, target.z - station.z) <= radius
     && Math.hypot(npc.combatPosition.x - station.x, npc.combatPosition.z - station.z) <= radius) return 'pursue'

@@ -2,7 +2,9 @@ import { Vector3 } from 'three'
 import { allocateTownSiegeCrews, createTownSiegeCrewSlots, townSiegeFrame } from '../../src/career/TownFourGateSiegePolicy'
 import { parseTownFourGateSiegeCheckpoint, type TownFourGateSiegeCheckpoint } from '../../src/career/TownFourGateSiegeCheckpoint'
 import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
-import { describe,expect,it } from 'vitest'
+import { describe,expect,it,vi } from 'vitest'
+import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
+import type { ActiveCareerMission } from '../../src/career/CareerMissionState'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
@@ -15,9 +17,90 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
 import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, createCommanderCavalryEscort,
   isCommanderCavalryEscorting, parseCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
-import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, parseCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, parseCommanderFourGateDefenseState, recordNativeTownGuardCombat } from '../../src/career/CommanderFourGateDefenseState'
 
 describe('siege checkpoint ownership', () => {
+  it('retires a legacy attacking eagle command receipt on reload and rejects it at native runtime restore', () => {
+    const profile = createFourGateDefenseProfile('ATTACKING', { rosterVersion: 1 })
+    const active = profile.activeMission!, state = active.fourGateDefense!
+    const id = 'town-eagle-rider:1', groundId = 'gate:north:7'
+    Object.assign(state.actors[id], { hp: 37, ammo: 2, order: 'follow',
+      mount: { hp: 41, mounted: true, position: { x: 20, y: 10, z: 30, yaw: .3 } } })
+    state.siege!.actors[id] = { ...structuredClone(state.actors[id]), entranceId: null, breachCompleted: false }
+    state.siege!.playerCommandedActorIds = [id, groundId]
+    // The siege receipt alone must trigger retirement, even without a slot-8 claim.
+    active.officialSquad!.commandedSquadIds = [1]
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
+    const loaded = store.load()!, mission = loaded.activeMission!
+    expect(mission.fourGateDefense!.siege!.playerCommandedActorIds).toEqual([groundId])
+    expect(mission.officialSquad!.commandedSquadIds).toEqual([1])
+    expect(mission.friendlyActorIds).toEqual(active.friendlyActorIds)
+    expect(mission.fourGateDefense!.actors[id]).toEqual(state.actors[id])
+    expect(loaded.townEagleGarrisons!.roman!.pairs[0]).toMatchObject({ riderId: id, duty: 'return-queue',
+      commandReturn: true, hp: 37, ammo: 2, refitAllowed: true, mount: { hp: 41 } })
+
+    // Bypass parsing with a stale receipt to exercise the actual runtime boundary.
+    // Numeric actor ports provide checkpoint effects without constructing an NPC or scene.
+    const runtime = { ...mission.fourGateDefense!, actors: { [id]: { ...mission.fourGateDefense!.actors[id] } },
+      siege: { ...mission.fourGateDefense!.siege!, playerCommandedActorIds: [id] } }
+    delete runtime.actors[id].mount
+    const npc = { combatantId: id, hp: 1, dead: false, mount: undefined,
+      group: { position: new Vector3(), rotation: { y: 0 } }, tacticalOrder: 'attack',
+      bindCombatEventSink: () => () => {}, restoreCombatHealth(hp: number) { this.hp = hp }, restoreCombatAmmo: vi.fn(),
+      setCommandSquad: vi.fn(), assignFollowTarget: vi.fn(), setMissionCombatTarget: vi.fn() }
+    const issued = new Set<string>(), notifyPlayerOrder = vi.fn()
+    const owner = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as {
+      restoreNativeActors(active: ActiveCareerMission): void
+    }, { state: runtime, residents: [{ spec: { id, duty: 'eagle_garrison' }, npc }],
+      deployment: { sectors: [], stations: new Map() }, releaseNativeEventBindings: [], events: { emit() {} },
+      actorsById: new Map(), actorMounts: new Map(), originalSquads: new Map(), groups: [],
+      playerIssuedCommands: issued, fourGateSiege: { notifyPlayerOrder }, readProfile: () => loaded })
+    owner.restoreNativeActors(mission)
+    expect(issued.size).toBe(0)
+    expect(notifyPlayerOrder).not.toHaveBeenCalled()
+    expect(npc.assignFollowTarget).not.toHaveBeenCalled()
+    expect(npc.setCommandSquad).not.toHaveBeenCalled()
+    expect(npc.tacticalOrder).toBe('attack')
+    expect(npc.hp).toBe(37)
+    // Serialize the normalized reload directly; save validation is covered by the
+    // existing compatibility case and need not traverse all 440 actors again here.
+    const persisted = (JSON.parse(JSON.stringify(loaded)) as CareerProfile).activeMission!
+    expect(persisted.fourGateDefense!.siege!.playerCommandedActorIds).toEqual([groundId])
+    expect(persisted.fourGateDefense!.actors[id]).toEqual(state.actors[id])
+  })
+
+  it('keeps an in-flight legacy 210-person snapshot and native casualties while new acceptance saves 206 plus ten autonomous defenders', () => {
+    const profile = createFourGateDefenseProfile('ATTACKING', { rosterVersion: 1 })
+    const mission = profile.activeMission!, state = mission.fourGateDefense!
+    mission.deadFriendlyActorIds = ['gate:west:0']
+    Object.assign(state.actors['gate:west:0'], { status: 'dead', hp: 0 })
+    state.combatElapsedSeconds = 143.5
+    const originalSquads = structuredClone(mission.officialSquad!.squads)
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
+    const restored = store.load()!.activeMission!
+    expect(restored.friendlyActorIds).toHaveLength(210)
+    expect(restored.officialSquad!.squads).toEqual(originalSquads)
+    expect(restored.fourGateDefense).toMatchObject({ rosterVersion: 1, combatElapsedSeconds: 143.5,
+      actors: { 'gate:west:0': { status: 'dead', hp: 0 } } })
+    const next = createFourGateDefenseProfile('PREPARING'), current = next.activeMission!
+    const archerId = 'watchtower-archer:3'
+    Object.assign(current.fourGateDefense!.actors[archerId], { status: 'dead', hp: 0 })
+    const nativeStats = current.fourGateDefense!.nativeCombatStats = { damageDealt: 0, damageTaken: 0, kills: 0 }
+    recordNativeTownGuardCombat(nativeStats, { type: 'actor_killed', method: 'projectile',
+      source: { actorId: archerId, actorType: 'npc', allegiance: Faction.TOWN, characterFaction: 'roman' },
+      target: { targetId: current.targetActorIds[0], targetType: 'npc', name: 'Attacker', allegiance: Faction.ENEMY } },
+      new Set(current.fourGateDefense!.autonomousActorIds), new Set(current.targetActorIds))
+    expect(store.save(next)).toBe(true)
+    const loaded = store.load()!.activeMission!
+    expect(loaded.friendlyActorIds).toHaveLength(206)
+    expect(loaded.fourGateDefense!.autonomousActorIds).toHaveLength(10)
+    expect(loaded.fourGateDefense!.nativeCombatStats).toEqual({ damageDealt: 0, damageTaken: 0, kills: 1 })
+    expect(loaded.fourGateDefense!.actors[archerId]).toMatchObject({ status: 'dead', hp: 0 })
+    expect(loaded.officialSquad!.actorIds).not.toContain(archerId)
+  })
+
   it('bounds persisted combat time and rejects survival before the deadline', () => {
     const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
     const context = { missionId: mission.id, faction: profile.faction, phase: mission.phase,
@@ -54,7 +137,7 @@ describe('siege checkpoint ownership', () => {
     expect(parseCommanderFourGateDefenseState(state, context)?.victoryReason).toBe('survival')
     expect(parseCommanderFourGateDefenseState({ ...state, victoryReason: 'elimination' }, context)).toBeUndefined()
     state.player!.dead = true; state.player!.hp = 0
-    for (const id of [...mission.friendlyActorIds, ...mission.civilianActorIds!]) {
+    for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []), ...mission.civilianActorIds!]) {
       Object.assign(state.actors[id], { status: 'dead', hp: 0 })
       if (state.siege!.actors[id]) Object.assign(state.siege!.actors[id], { status: 'dead', hp: 0 })
     }

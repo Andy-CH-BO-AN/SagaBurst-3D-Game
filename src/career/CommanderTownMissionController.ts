@@ -195,8 +195,8 @@ export class CommanderTownMissionController {
       const eligible = this.residents.filter(resident => resident.spec.role !== 'cat'
         && resident.npc.faction === Faction.ENEMY).map(resident => resident.spec.id)
       if (eligible.length < COMMANDER_SKY_RAID_REQUIRED_KILLS) return null
-      mission.targetActorIds = [...new Set(eligible)]
-      mission.civilianActorIds = this.residents.filter(resident => resident.spec.role === 'civilian' || resident.spec.role === 'merchant').map(resident => resident.spec.id)
+      if (mission.targetActorIds.some(id => !eligible.includes(id))) return null
+      mission.civilianActorIds ??= this.residents.filter(resident => resident.spec.role === 'civilian' || resident.spec.role === 'merchant').map(resident => resident.spec.id)
     } else if (!this.residents.some(resident => resident.spec.id === 'commander' && resident.spec.role === 'commander')) return null
     return this.commit(next) ? next.activeMission! : null
   }

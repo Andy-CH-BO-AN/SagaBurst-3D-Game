@@ -1,6 +1,7 @@
+import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
 import { BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
 import { horseVariantFromSave } from '../world/HorseAssetRegistry'
-import { commanderGateDefenseSlots } from './CommanderTownRoster'
+import { commanderGateDefenseSlots, commanderTownCommandMembership } from './CommanderTownRoster'
 import { COMMANDER_FOUR_GATE_DEFENSE_ID, commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
 import { parseCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
 import { townRoster } from '../town/TownRules'
@@ -8,7 +9,7 @@ import { MOUNTED_RACES, isRaceRider, parseRaceSession, parseRaceRecords, type Ra
 import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { parseTownEquipment } from './CareerTownEquipmentState'
-import { parseTownAirCommandSquad } from './TownAirCommandAuthority'
+import { retireNativeTownAirCommand, parseTownAirCommandSquad } from './TownAirCommandAuthority'
 import { parseCivilianCommandSquad } from './CivilianCommandAuthority'
 import { parseEnemyEaglePatrolCheckpoint } from '../town/EnemyEaglePatrolState'
 import { outskirtsSquadSpecs } from '../town/TownOutskirtsRules'
@@ -261,7 +262,8 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
   if ((targetActorIds.length === 0 && template?.kind !== 'captain-patrol-command') || (!duel && friendlyActorIds.length === 0)) return undefined
   const mountState = parseMissionMountState(raw.mountState)
   const playerStats = parseMissionPlayerStats(raw.playerStats)
-  const knownActorIds = new Set([...targetActorIds, ...allFriendlyActorIds, ...(siege || fourGateMission ? uniqueStrings(raw.civilianActorIds) : [])])
+  const knownActorIds = new Set([...targetActorIds, ...allFriendlyActorIds,
+    ...TOWN_WATCHTOWER_ARCHER_IDS, ...TOWN_WATCHTOWER_ARCHER_IDS.map(id => `enemy-town:${id}`), ...(siege || fourGateMission ? uniqueStrings(raw.civilianActorIds) : [])])
   const actorHealth = parseActorHealth(raw.actorHealth, knownActorIds)
   const actorPositions = parseActorPositions(raw.actorPositions, knownActorIds)
   const engagedEnemySquadIds = parseEngagedEnemySquadIds(raw.engagedEnemySquadIds)
@@ -276,7 +278,9 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     && (officialSquad.commandRank !== 'commander' || rank === 'commander')
     && officialSquad.actorIds.every(id => allFriendlyActorIds.includes(id)) ? officialSquad : undefined
   if (commanderMission) {
-    const nativeSquads = fourGateMission ? commanderGateDefenseSlots() : []
+    const rosterVersion = (raw.fourGateDefense as { rosterVersion?: unknown } | undefined)?.rosterVersion ?? 1
+    if (fourGateMission && rosterVersion !== 1 && rosterVersion !== 2) return undefined
+    const nativeSquads = fourGateMission ? commanderGateDefenseSlots(undefined, rosterVersion as 1 | 2) : []
     const nativeActorIds = nativeSquads.flatMap(squad => squad.actorIds)
     const expectedFriendly = fourGateMission ? nativeActorIds.length : template?.kind === 'commander-sky-raid' ? 50
       : template?.kind === 'commander-decapitation' ? 30 : template?.kind === 'commander-bridgehead-battle' ? BRIDGEHEAD_FRIENDLIES : 120
@@ -644,6 +648,21 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     lifetimeStats: parseLifetimeStats(raw.lifetimeStats),
     claimedBattleIds: uniqueStrings(raw.claimedBattleIds),
   }
+  // Migrate peaceful authority by actor identity. Active mission grants remain immutable.
+  if (!activeMission && !activeOutpostMission && profile.townEvent?.state !== 'hostile'
+    && profile.townCommandSquad?.commandRank === 'commander') {
+    const previous = profile.townCommandSquad
+    // Generic legacy grants are retained; only the authored Commander roster is migrated.
+    const legacyIds = commanderGateDefenseSlots(undefined, 1).flatMap(squad => squad.actorIds)
+    if (previous.actorIds.length === legacyIds.length && previous.actorIds.every(id => legacyIds.includes(id))) {
+      const membership = commanderTownCommandMembership(previous)
+      const ids = new Set(membership.actorIds)
+      profile.townCommandSquad = { ...previous, ...membership,
+        members: Object.fromEntries(Object.entries(previous.members ?? {}).filter(([id]) => ids.has(id))),
+        ...(previous.refittingActorIds ? { refittingActorIds: previous.refittingActorIds.filter(id => ids.has(id)) } : {}) }
+    }
+  }
+  retireNativeTownAirCommand(profile, townCommandSquad)
   try { grantCommanderMelee(profile); normalizeCareerInventory(profile) } catch { return null }
   return profile
 }

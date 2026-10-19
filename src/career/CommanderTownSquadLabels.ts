@@ -12,19 +12,23 @@ import type { OfficialCommandAuthority } from './CareerCommandAuthority'
 /** Accepted authority, including legacy Captain grants, owns display semantics. */
 export function officialCommandHudLabel(authority?: OfficialCommandAuthority): string | typeof resolveCommanderTownTargetLabel | undefined {
   if (!authority) return undefined
-  if (authority.type === 'mission-official') return authority.commandRank === 'commander' ? undefined : 'Mission Squad · 任務部隊'
+  if (authority.type === 'mission-official') {
+    const gates = authority.squads?.find(squad => squad.squadId === 8)?.actorIds.includes('hr-officer')
+      && authority.squads?.find(squad => squad.squadId === 6)?.actorIds.includes('captain')
+    return authority.commandRank === 'commander' ? gates ? resolveCommanderTownTargetLabel : undefined : 'Mission Squad · 任務部隊'
+  }
   return authority.commandRank === 'commander' ? resolveCommanderTownTargetLabel : 'Town Command Squad · 城防指揮隊'
 }
 
 export const COMMANDER_TOWN_SQUAD_LABELS: Readonly<Record<SquadIdentity, string>> = Object.freeze({
   1: '北門步兵隊',
-  2: '北門騎兵／指揮隊',
+  2: '北門騎兵隊',
   3: '南門步兵隊',
   4: '南門騎兵隊',
   5: '東門步兵隊',
   6: '東門騎兵隊',
-  7: '西門與機動部隊',
-  8: '城鎮巨鷹巡邏隊',
+  7: '西門步兵隊',
+  8: '西門騎兵隊',
   [PERSONAL_SQUAD_ID]: 'HR 私兵',
   [CIVILIAN_SQUAD_ID]: '平民／商人',
 })

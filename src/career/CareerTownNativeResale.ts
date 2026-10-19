@@ -25,7 +25,7 @@ function nativeHolders(profile: CareerProfile, faction: CareerProfile['faction']
   const held = new Set<string>()
   const resolveRefs = createTownEquipmentRefsResolver(profile, faction)
   for (const spec of townEquipmentActorSpecs(faction)) {
-    if (townEquipmentSquadForActor(spec.id) === undefined) continue
+    if (townEquipmentSquadForActor(spec.id) === undefined && !spec.eagle) continue
     for (const ref of Object.values(resolveRefs(spec))) {
       if (ref?.source === 'native') held.add(ref.nativeId!)
     }

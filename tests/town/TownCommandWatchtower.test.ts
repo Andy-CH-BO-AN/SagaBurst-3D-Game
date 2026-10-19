@@ -1,9 +1,17 @@
+import { NPC, RANGED_AI_LAUNCH_HEIGHT } from '../../src/world/NPC'
+import { getNpcRangedAttackRange } from '../../src/combat/CombatBalance'
+import { townAuthoredRoster, townMilitaryEquipment } from '../../src/town/TownRules'
+import { townWatchtowerGuardRoster } from '../../src/town/TownWatchtowerGuardPolicy'
+import { siegeDefensePlans } from '../../src/career/TownDefenseRoster'
+import { TownWatchtowerNavigation } from '../../src/navigation/TownWatchtowerNavigation'
+import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
+import { townDefenseThreatResponse } from '../../src/town/TownGarrison'
 import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
 import { surfaceBox } from '../../src/town/TownRamparts'
 import { TOWN_CITY_ROADS, TOWN_CENTER, TOWN_HR_REGION, townHousing, type TownRoad } from '../../src/town/TownLayout'
-import { findBlockingObstacleAlongPath, getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../../src/world/Terrain'
+import { findBlockingObstacleAlongPath, findBlockingProjectileObstacleAlongPath, getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../../src/world/Terrain'
 import { BallisticIntercept } from '../../src/combat/ProjectileBallistics'
 import { EagleFlightAI } from '../../src/movement/EagleFlightAI'
 import { EagleFlightController } from '../../src/movement/EagleFlightController'
@@ -30,6 +38,65 @@ const roads: readonly TownRoad[] = [...TOWN_CITY_ROADS,
 ]
 
 describe('Town command watchtower', () => {
+  it('keeps five real T3 native archers on clear supported top posts, outside gate allocation and the stair exit', () => {
+    const layout = getTownCommandWatchtowerLayout(), roster = townAuthoredRoster()
+    const guards = roster.filter(actor => actor.duty === 'watchtower_guard')
+    expect(guards.map(actor => actor.id)).toEqual(['watchtower-archer:1', 'watchtower-archer:2', 'watchtower-archer:3', 'watchtower-archer:4', 'watchtower-archer:5'])
+    expect(townWatchtowerGuardRoster(layout)).toEqual(guards)
+    expect(new Set(roster.map(actor => actor.id)).size).toBe(roster.length)
+    const gateIds = siegeDefensePlans(roster).flatMap(plan => [...plan.infantry, ...plan.cavalry])
+    const navigation = new TownWatchtowerNavigation(layout)
+    const rails = getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)
+    for (const guard of guards) {
+      expect(guard.y).toBe(layout.platformY)
+      expect(navigation.surfaceAt({ ...guard, y: guard.y! })).toBeGreaterThanOrEqual(0)
+      expect(gateIds).not.toContain(guard.id)
+      const body = new Box3(new Vector3(guard.x - .6, guard.y! + .01, guard.z - .6), new Vector3(guard.x + .6, guard.y! + 2.3, guard.z + .6))
+      expect(rails.some(rail => rail.box.intersectsBox(body))).toBe(false)
+      expect(body.intersectsBox(layout.core)).toBe(false)
+      const edge = new Vector3(guard.x + Math.sin(guard.yaw!) * .9, guard.y! + .1, guard.z + Math.cos(guard.yaw!) * .9)
+      const crossingBody = new Box3(edge.clone().add(new Vector3(-.35, 0, -.35)), edge.clone().add(new Vector3(.35, 1.8, .35)))
+      expect(rails.some(rail => rail.box.intersectsBox(crossingBody))).toBe(true)
+      expect(guard.x > -29 && guard.z > -38).toBe(false) // East stair/platform connection remains open.
+      const equipment = townMilitaryEquipment('roman', guard)
+      expect(equipment).toMatchObject({ presetId: 'roman_archer', tier: 3, level: 3 })
+      expect(townMilitaryEquipment('viking', guard)).toMatchObject({ presetId: 'viking_archer', tier: 3, level: 3 })
+      const npc = { isMounted: false, rangedWeaponId: equipment.loadout.rangedWeaponId ?? undefined,
+        combatPosition: new Vector3(guard.x, guard.y, guard.z) }
+      const target = new Vector3(guard.x, layout.groundY, guard.z - 35)
+      expect(townDefenseThreatResponse(guard, npc, target, getNpcRangedAttackRange('bow', false), navigation)).toBe('defend')
+    }
+    // A clear outward shot reaches ground level using the unchanged ballistic/solid-volume policy.
+    const guard = guards[0], origin = new Vector3(guard.x, guard.y! + RANGED_AI_LAUNCH_HEIGHT, guard.z)
+    const target = new Vector3(guard.x, layout.groundY + 1.4, guard.z - 35), arc = new BallisticIntercept()
+    expect(arc.solve(origin, target, new Vector3(), 65)).toBe(true)
+    expect(arc.isPathClear(origin, 65, [{ box: layout.core, isBarricade: false }, ...rails], () => layout.groundY)).toBe(true)
+    type RangedPort = { combatPosition: Vector3; rangedProjectileSpeed: number; isMountedTownRampartGarrisonEnabled: boolean;
+      _tmpRangedOrigin: Vector3; _tmpRangedLosTarget: Vector3; _tmpRangedArcPrevious: Vector3; _tmpRangedArcPoint: Vector3;
+      _rangedPathBounds: Box3; _rangedPathObstacles: ObstacleData[] }
+    const methods = NPC.prototype as unknown as { _findRangedTrajectoryBlocker(this: RangedPort, target: Vector3, obstacles: ObstacleData[]): ObstacleData | null }
+    const actor: RangedPort = { combatPosition: new Vector3(guard.x, guard.y, guard.z), rangedProjectileSpeed: 65,
+      isMountedTownRampartGarrisonEnabled: false, _tmpRangedOrigin: new Vector3(), _tmpRangedLosTarget: new Vector3(),
+      _tmpRangedArcPrevious: new Vector3(), _tmpRangedArcPoint: new Vector3(), _rangedPathBounds: new Box3(), _rangedPathObstacles: [] }
+    const obstacles = [{ box: layout.core, isBarricade: false }, ...rails,
+      ...layout.platform.map(surface => ({ box: surfaceBox(surface), isBarricade: false }))]
+    expect(methods._findRangedTrajectoryBlocker.call(actor, target.clone().add(new Vector3(0, -1.4, 0)), obstacles)).toBeNull()
+    // The live-shot candidate query retained from dev must preserve this real
+    // opening and still deliver physical blockers to the shared exact trace.
+    const live = new TownProjectileObstacles()
+    expect(findBlockingProjectileObstacleAlongPath(origin, target, live.query(origin, target, obstacles))).toBeNull()
+    const wall: ObstacleData = { box: new Box3(new Vector3(guard.x - 1, -100, guard.z - 10), new Vector3(guard.x + 1, 100, guard.z - 9)), isBarricade: false }
+    expect(methods._findRangedTrajectoryBlocker.call(actor, target, [...obstacles, wall])).toBe(wall)
+    expect(findBlockingProjectileObstacleAlongPath(origin, target, live.query(origin, target, [...obstacles, wall]))).toBe(wall)
+    type ContactPort = { combatPosition: Vector3; _activeNavigationWorld: { townNav: { watchtower: TownWatchtowerNavigation } } }
+    const contact = NPC.prototype as unknown as { _isRampartMeleeThreat(this: ContactPort, target: Vector3): boolean }
+    const defender: ContactPort = { combatPosition: actor.combatPosition, _activeNavigationWorld: { townNav: { watchtower: navigation } } }
+    expect(contact._isRampartMeleeThreat.call(defender, actor.combatPosition.clone().add(new Vector3(0, 0, .5)))).toBe(true)
+    expect(contact._isRampartMeleeThreat.call(defender, new Vector3(guard.x, layout.groundY, guard.z))).toBe(false)
+
+
+  })
+
   it('allows shots through the flight envelope above the deck while keeping the physical core solid', () => {
     const layout = getTownCommandWatchtowerLayout()
     const envelope = createTownCommandWatchtowerAirspaceObstacle(layout)

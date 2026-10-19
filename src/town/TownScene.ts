@@ -1,3 +1,4 @@
+import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
 import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { ActiveMissionClock } from '../career/ActiveMissionClock'
 import { raceReturnAction } from '../career/CareerRaceReturn'
@@ -55,6 +56,7 @@ import { personalTownDeployment, personalTownEagleDeployment } from '../career/P
 import { shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
 import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
+import { townDefenseCommanderIds, townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TownProjectileObstacles } from './TownProjectileObstacles'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
@@ -341,7 +343,9 @@ export class TownScene {
     this.navigation.sync(this.world.obstacles)
     assignTownCivilianHomes(population, this.world.airspaceObstacles, this.navigation)
     this.residentRoster = careerTownSceneRoster(profile, population)
-    this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec) : population)
+    const residentIds = new Set(this.residentRoster.map(entry => entry.spec.id))
+    this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec)
+      : population.filter(spec => spec.role === 'cat' || residentIds.has(spec.id)))
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
     this.skills.setSkillState(profile.skills ?? {})
   }
@@ -677,7 +681,11 @@ export class TownScene {
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
         if (spec.y !== undefined) npc.group.position.y = spec.y
-        if (spec.garrison?.kind === 'rampart') npc.activateTownRampartGarrison()
+        if (spec.garrison?.kind === 'rampart' || spec.duty === 'watchtower_guard') npc.activateTownRampartGarrison()
+        if (spec.duty === 'watchtower_guard' && this.profile.activeMission?.kind !== 'commander-four-gate-defense') {
+          const saved = this.profile.activeMission?.actorHealth?.[spec.id]
+          if (saved) npc.restoreCombatHealth(saved.hp)
+        }
         if (additionalPopulation && this.event.hostile) npc.beginTownHostility()
         let homeMount: Mount | undefined
         if (spec.role === 'ranger' && !careerEquipment) homeMount = this.cat
@@ -839,11 +847,10 @@ export class TownScene {
     }
     // The existing service Commander joins only a newly accepted Commander defense.
     // Save its actual resources before any restart; failed saves never grant live authority.
-    const defenseCommander = startsDefense && next.rank === 'commander'
-      ? (this.residents ?? []).find(resident => resident.spec.id === 'commander' && resident.spec.role === 'commander' && !resident.npc.dead)
-      : undefined
-    if (defenseCommander && next.activeMission && !next.activeMission.friendlyActorIds.includes('commander')) {
-      next.activeMission.friendlyActorIds.push('commander')
+    const defenseCommanderId = startsDefense ? townDefenseCommanderIds(next, (this.residents ?? []).map(r => r.spec),
+      new Set((this.residents ?? []).filter(r => r.npc.dead).map(r => r.spec.id)))[0] : undefined
+    if (defenseCommanderId && next.activeMission && !next.activeMission.friendlyActorIds.includes(defenseCommanderId)) {
+      next.activeMission.friendlyActorIds.push(defenseCommanderId)
     }
     if (startsFormal && next.activeMission && !next.activeMission.officialSquad) {
       next.activeMission.officialSquad = buildCommanderAuthorityForMission(next, next.activeMission, (this.residents ?? []).map(resident => resident.spec))
@@ -952,6 +959,12 @@ export class TownScene {
         spec: resident.spec, ...(isMissionReturnResident(resident.spec)
           ? { checkpoint: refitCommandCheckpoint(resident.npc, resident.homeMount) } : {}),
       })) : townRoster().map(spec => ({ spec })))
+    if (next.activeMission && next.activeMission.id === this.profile.activeMission?.id
+      && next.activeMission.kind !== 'commander-four-gate-defense') {
+      for (const { spec, npc } of this.residents ?? []) if (spec.duty === 'watchtower_guard') {
+        next.activeMission.actorHealth = { ...next.activeMission.actorHealth, [spec.id]: { hp: npc.dead ? 0 : npc.hp } }
+      }
+    }
     if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
     // No handoff callbacks may capture the outgoing battle poses over the saved rebuild.
     if (options.rebuildTown) { this.profile = next; this.careerSkillsDirty = false; return true }
@@ -1364,6 +1377,7 @@ export class TownScene {
   }
   private commandsEnabled(): boolean { return this.personalCommandsEnabled() || Boolean(!this.player?.dead && (this.civilianCommand?.commandsEnabled || this.townAirCommand?.commandsEnabled || this.townCommand?.commandsEnabled || this.profile.activeMission?.officialSquad && !this.profile.activeMission.result)) }
   private isAuthorizedCommandActor(npc: NPC): boolean {
+    if (isAutonomousTownGuard(npc.combatantId)) return false
     if (this.civilianCommand?.accepts(npc) || this.townAirCommand?.accepts(npc)) return true
     if (this.personalSquad?.owns(npc)) return this.personalCommandsEnabled()
     if (this.captainPatrol?.active?.officialSquad?.actorIds.includes(npc.combatantId)) return this.captainPatrol.accepts(npc)
@@ -1759,6 +1773,7 @@ export class TownScene {
       panel.append(relief)
     }
     const missions = availableCareerMissionsForPage(this.profile, selectedPage)
+    const defenseForce = this.townDefenseBoardForce()
     if (selectedPage === 'recruit' && !resolveCareerReliefMount(this.profile)) {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = 'Cavalry Sweep · 騎兵清剿'
@@ -1778,7 +1793,7 @@ export class TownScene {
         : template.kind === 'enemy-town-assault'
         ? `${template.briefing}\n敵方 ${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')} · 軍事守軍 ${townAssaultObjectiveRoster(townRoster()).length} · 平民 ${TOWN_RULES.civilians} · 玩家無指揮權`
         : template.kind === 'town-defense'
-        ? `${template.briefing}\n所屬 ${townName(this.profile.faction)}\n玩家 1 · AI 守軍 ${template.friendlySoldiers} · 友軍總數 ${template.friendlyCombatants}\n敵軍 ${template.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
+        ? `${template.briefing}\n所屬 ${townName(this.profile.faction)}\n玩家 1 · AI 守軍 ${defenseForce.friendlySoldiers} · 友軍總數 ${defenseForce.friendlyCombatants}\n敵軍 ${template.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
         : template.kind === 'patrol'
           ? `${template.briefing}\n路線 ${template.routeId === 'south-road' ? '南路' : '森林線'}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlyCombatants - 2} · 友軍總數 ${template.friendlyCombatants}\n任務內容 沿線巡查 · 風險 ${template.risk}`
           : template.kind === 'bandit' ? `${template.briefing}\n城外 Bandit Camp ${template.preferredCampIndex + 1}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlySoldiers} · 友軍總數 ${template.friendlyCombatants}\nBandits ${template.banditCount} · 風險 ${template.risk}` : template.briefing
@@ -1792,6 +1807,10 @@ export class TownScene {
       gate.textContent = '累積本次入伍軍功後，會逐步開放林線巡邏、敵眾我寡與大型守城任務。'
       panel.append(gate)
     }
+  }
+  private townDefenseBoardForce() {
+    return townDefenseForceCountsForProfile(this.profile, this.residents.map(r => r.spec),
+      new Set(this.residents.filter(r => r.npc.dead).map(r => r.spec.id)))
   }
   private openVeteranMissionPage(panel: HTMLElement): void {
     for (const definition of VETERAN_MISSION_CATALOG) {
@@ -1810,12 +1829,13 @@ export class TownScene {
       .find(template => template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
     if (!homeDefenseTemplate || homeDefenseTemplate.kind !== 'town-defense') return
     const homeDefense = homeDefenseTemplate
+    const defenseForce = this.townDefenseBoardForce()
     const veteranWins = careerMissionCompletionsForTier(this.profile, 3)
     const unlocked = availableCareerMissionsForPage(this.profile, 'veteran').some(template => template.id === homeDefense.id)
     const row = document.createElement('article'); row.className = 'town-product'
     const title = document.createElement('strong'); title.textContent = homeDefense.name
     const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-    details.textContent = `${homeDefense.briefing}\n老兵任務勝利 ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions} · 守護 ${townName(this.profile.faction)} · 友軍 ${homeDefense.friendlyCombatants} 人（含玩家；AI 守軍 ${homeDefense.friendlySoldiers}） · 敵軍 ${homeDefense.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${homeDefense.maxCivilianDeaths}`
+    details.textContent = `${homeDefense.briefing}\n老兵任務勝利 ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions} · 守護 ${townName(this.profile.faction)} · 友軍 ${defenseForce.friendlyCombatants} 人（含玩家；AI 守軍 ${defenseForce.friendlySoldiers}） · 敵軍 ${homeDefense.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${homeDefense.maxCivilianDeaths}`
     const accept = document.createElement('button'); accept.className = 'town-button'
     accept.textContent = unlocked ? '接受守城任務' : `需 ${homeDefense.requiresCompletions} 次老兵任務勝利 · ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions}`
     accept.disabled = !unlocked
@@ -1823,6 +1843,7 @@ export class TownScene {
     row.append(title, details, accept); panel.append(row)
   }
   private openCaptainMissionPage(panel: HTMLElement): void {
+    const defenseForce = this.townDefenseBoardForce()
     for (const definition of CAPTAIN_MISSION_CATALOG) {
       const availability = getCaptainMissionAvailability(this.profile, definition.id)
       const patrol = definition.id === CAPTAIN_PATROL_COMMAND_ID ? this.captainPatrol?.selectAvailableSquad() : null
@@ -1835,7 +1856,9 @@ export class TownScene {
       const briefing = definition.id === CAPTAIN_GATE_DEFENSE_ID
         ? captainGateDefenseBriefing(this.residents.map(r => r.spec), this.unavailableTownCavalryActorIds(true))
         : definition.briefing
-      details.textContent = `${briefing}\n${state}`
+      const force = definition.kind === 'town-defense'
+        ? `\n玩家 1 · AI 守軍 ${defenseForce.friendlySoldiers} · 友軍總數 ${defenseForce.friendlyCombatants}` : ''
+      details.textContent = `${briefing}${force}\n${state}`
       const accept = document.createElement('button'); accept.className = 'town-button'
       accept.disabled = !availability.unlocked || definition.id === CAPTAIN_PATROL_COMMAND_ID && !patrol
       accept.textContent = availability.unlocked ? accept.disabled ? '巡邏隊暫時不可用' : '接受任務' : availability.reason ?? '尚未解鎖'
@@ -2947,6 +2970,9 @@ export class TownScene {
       this.missionCombat?.noteExternalHit(target, source)
     }
     if (target.dead && this.event?.hostile && this.residents.some(resident => resident.npc === target)) this.persistCasualties()
+    if (target.dead && this.profile.activeMission?.kind !== 'commander-four-gate-defense'
+      && this.profile.activeMission && this.residents.some(resident => resident.npc === target && resident.spec.duty === 'watchtower_guard'))
+      this.commit(cloneCareerProfile(this.profile))
     if (!source) this.awardCareerSkillXp(method, result.appliedDamage, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
@@ -3282,7 +3308,7 @@ export class TownScene {
   }
 
   private playerOwnsEagleCommand(npc: NPC): boolean {
-    if (this.townAirCommand?.ownsPlayerCommand(npc)) return true
+    if (isAutonomousTownGuard(npc.combatantId)) return false
     const mission = this.profile.activeMission, authority = mission?.officialSquad
     return Boolean(this.profile.rank === 'commander' && this.world.faction === this.profile.faction
       && (mission?.kind === 'town-defense' || mission?.kind === 'commander-four-gate-defense') && !mission.result
@@ -3335,6 +3361,7 @@ export class TownScene {
     if (this.captainPatrol?.active && this.captainPatrol.owns(r.npc)) return
     if (this.updateEagleDuty(r.npc, dt, false)) return
     if (this.patrol?.updateResident(r, dt, this.camera.position, this.world.obstacles, this.navigation)) return
+    if (r.spec.duty === 'watchtower_guard' && !r.npc.dead && !r.npc.isTownRampartGarrisonActive) r.npc.activateTownRampartGarrison()
     const { npc, spec, target } = r, distance = npc.group.position.distanceTo(this.camera.position), phase = this.elapsed + spec.index * .41
     let speed = 0
     if (npc.mount) {
