@@ -5,6 +5,7 @@ import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { officialActorSquadId, officialCommandAcceptsActor, officialCommandSquads, officialCommandIsPlayerControlled, type OfficialCommandAuthority } from './CareerCommandAuthority'
 import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
 import { snapshotCommandActor } from './CareerCommandActorCheckpoint'
+import { isTownCommandRevokedByRetirement } from './CareerRetirementCommand'
 
 /** Legacy Captain saves retain their original owner until an explicit command handoff is saved. */
 export function officialPlayerOwnsActor(authority: OfficialCommandAuthority | undefined, actorId: string): boolean {
@@ -15,6 +16,7 @@ export function officialPlayerOwnsActor(authority: OfficialCommandAuthority | un
 export function stageOfficialCommandOrder(current: CareerProfile, participants: readonly NPC[],
   order: TacticalOrder | 'dismiss', assignments: readonly FormationCommandAssignment[] = [],
   snapshotActor: (actor: NPC) => PersonalActorCheckpoint = snapshotCommandActor): CareerProfile | undefined {
+  if (isTownCommandRevokedByRetirement(current)) return undefined
   const mission = current.activeMission ?? current.activeOutpostMission, authority = mission?.officialSquad
   if (!mission || current.activeMission?.result || current.claimedBattleIds.includes(mission.id) || !authority || authority.missionId !== mission.id
     || authority.townFaction !== current.faction || authority.commandRank === 'commander' && current.rank !== 'commander') return undefined

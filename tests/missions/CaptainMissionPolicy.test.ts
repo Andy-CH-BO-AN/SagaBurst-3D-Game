@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { acceptCaptainEagle, acceptCaptainFrontline, createCaptainFrontlineLaunch, createCaptainFrontlineSpawnPlan } from '../../src/career/CaptainBattleLaunch'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_GATE_DEFENSE_ID, captainGateDefenseActorIds, commanderGateDefenseSlots, commanderGateDefenseSquads, createCaptainGateDefenseMission, getCaptainMissionAvailability, getCaptainMissionDefinition } from '../../src/career/CaptainMissionCatalog'
 import { townDefenseForceCountsForProfile } from '../../src/career/TownDefenseRoster'
+import { hasCompleteRetirementMobilizationCheckpoint, retirementAssaultFormations, retirementMobilizationNeedsPreparation } from '../../src/career/CareerRetirementMobilization'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { VETERAN_TOWN_DEFENSE_TEMPLATE } from '../../src/career/CareerMissionCatalog'
 import { officialActorSquadId, officialCommandSquads } from '../../src/career/CareerCommandAuthority'
@@ -9,8 +10,9 @@ import { createCareerProfile, type CareerProfile } from '../../src/career/Career
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { buildCommanderAuthorityForMission } from '../../src/career/CommanderMissionAcceptance'
 import { acceptVeteranMission } from '../../src/career/VeteranMission'
-import { townAssaultObjectiveRoster, townDefenseForceCounts, townRoster } from '../../src/town/TownRules'
+import { townAssaultObjectiveRoster, townDefenseForceCounts, townRoster, type TownActorSpec } from '../../src/town/TownRules'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { withNativeRetirementCheckpoints } from '../helpers/RetirementMobilizationFixture'
 
 const captain = (): CareerProfile => ({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 5000, availableMerit: 5000, ownedMounts: ['horse', 'xongkoro'] })
 
@@ -84,5 +86,41 @@ describe('Commander accepted production rosters without actor materialization', 
     expect(buildCommanderAuthorityForMission(profile, { ...mission, kind: 'duel' })).toBeUndefined()
     expect(buildCommanderAuthorityForMission(profile, { ...mission, phase: 'RETURNING' })).toBeUndefined()
     expect(buildCommanderAuthorityForMission(profile, { ...mission, officialSquad: authority })).toBeUndefined()
+  })
+
+  it('assigns every native retirement humanoid exactly once and stops preparation after its durable receipt', () => {
+    const natives: Pick<TownActorSpec, 'id' | 'role'>[] = [...townRoster(),
+      { id: 'commander', role: 'commander' }, { id: 'hr-officer', role: 'hr-officer' }, { id: 'eagle-trainer', role: 'eagle-trainer' }]
+    const excluded: Pick<TownActorSpec, 'id' | 'role'>[] = [
+      { id: 'player', role: 'commander' }, { id: 'personal:1', role: 'melee_infantry' },
+      { id: 'enemy-town:captain', role: 'captain' }, { id: 'bandit:1', role: 'melee_infantry' },
+      { id: 'mission:temporary', role: 'melee_infantry' }, { id: 'town-eagle-mount:1', role: 'cat' },
+    ]
+    const formations = retirementAssaultFormations([...natives, ...excluded])!
+    const actorIds = formations.flatMap(formation => formation.actorIds)
+    expect(actorIds).toHaveLength(237)
+    expect(new Set(actorIds).size).toBe(237)
+    expect(new Set(actorIds)).toEqual(new Set(natives.filter(actor => actor.role !== 'cat').map(actor => actor.id)))
+    const ground = formations.filter(formation => formation.source === 'town-ground')
+    expect(ground).toHaveLength(8)
+    expect(ground.flatMap(formation => formation.actorIds)).toHaveLength(206)
+    expect(ground.map(formation => formation.actorIds)).toEqual(commanderGateDefenseSlots().map(squad => squad.actorIds))
+    expect(formations.find(formation => formation.source === 'town-air')?.actorIds).toHaveLength(5)
+    expect(formations.find(formation => formation.source === 'native-guard')?.actorIds).toHaveLength(5)
+    const auxiliary = formations.filter(formation => formation.source === 'auxiliary')
+    expect(auxiliary.map(formation => formation.actorIds)).toEqual([
+      [...Array.from({ length: 20 }, (_, index) => `civilian-${index}`), 'merchant'].sort(),
+    ])
+    expect(retirementAssaultFormations([...excluded, ...natives].reverse())).toEqual(formations)
+    expect(excluded.every(actor => !actorIds.includes(actor.id))).toBe(true)
+    expect(retirementAssaultFormations([...natives, natives[0]])).toBeNull()
+    expect(retirementAssaultFormations(natives.filter(actor => actor.id !== 'merchant'))).toBeNull()
+    const pending = withNativeRetirementCheckpoints({ ...commander(), careerRetirement: {
+      version: 1, phase: 'mobilizing', acceptedAt: 123, combatElapsedSeconds: 0,
+    } })
+    expect(retirementMobilizationNeedsPreparation(pending)).toBe(true)
+    pending.careerRetirement!.mobilization = { version: 1, commandRevoked: true, refillCompleted: true, formationPrepared: true }
+    expect(hasCompleteRetirementMobilizationCheckpoint(pending)).toBe(true)
+    expect(retirementMobilizationNeedsPreparation(pending)).toBe(false)
   })
 })

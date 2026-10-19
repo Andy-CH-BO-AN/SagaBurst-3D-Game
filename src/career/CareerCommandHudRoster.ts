@@ -6,6 +6,8 @@ import type { PersonalActorCheckpoint, PersonalSquadMission } from './CareerPers
 import { armyHudUnitType, type ArmyHudUnitSource, type ArmyHudUnitType } from '../battle/ArmyCommandHudRoster'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
 import { personalMemberLoadout } from './PersonalSquadRuntime'
+import type { CareerRetirementState } from './CareerRetirementState'
+import { isTownCommandRevokedByRetirement } from './CareerRetirementCommand'
 
 interface HudActor extends ArmyHudUnitSource {
   combatantId: string
@@ -14,6 +16,7 @@ interface HudActor extends ArmyHudUnitSource {
 }
 
 export interface CareerCommandHudSource {
+  careerRetirement?: CareerRetirementState
   unitTypes?: Readonly<Record<string, ArmyHudUnitType>>
   personalMembers?: readonly CareerPersonalSquadMember[]
   sceneKey: string
@@ -47,11 +50,12 @@ export interface CareerCommandHudSource {
 
 /** Only the current authority and accepted HR/resident snapshots contribute to a Career HUD. */
 export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudRoster {
-  const official = source.official?.townFaction === source.faction
+  const revoked = isTownCommandRevokedByRetirement(source)
+  const official = !revoked && source.official?.townFaction === source.faction
     && (source.official.type !== 'mission-official' || Boolean(source.missionId && source.official.missionId === source.missionId))
     ? source.official : undefined
   const personal = source.personal
-  const civilians = source.civilians?.townFaction === source.faction
+  const civilians = !revoked && source.civilians?.townFaction === source.faction
     && source.civilians.sceneKey === source.sceneKey && source.civilians.missionId === source.missionId
     ? source.civilians : undefined
   const live = new Map(source.actors.map(actor => [actor.combatantId, actor]))

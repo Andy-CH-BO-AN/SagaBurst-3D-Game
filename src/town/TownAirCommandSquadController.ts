@@ -2,6 +2,7 @@ import type { ArmyCommandTarget } from '../battle/CommandTarget'
 import type { FormationCommandAssignment } from '../battle/FormationController'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import type { CareerProfile } from '../career/CareerProfile'
+import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
 import { cloneTownAirCommandSquad, type TownAirCommandSquadState } from '../career/TownAirCommandAuthority'
 import type { Player } from '../player/Player'
 import { Faction, type NPC } from '../world/NPC'
@@ -40,8 +41,10 @@ export class TownAirCommandSquadController {
     this.value = value?.townFaction === this.townFaction
       ? { ...cloneTownAirCommandSquad(value), commandedActorIds: [] } : undefined
     for (const { npc } of this.residents) {
-      if (this.garrison.isPlayerCommandOwned(npc)) this.garrison.releasePlayerCommand(npc, !this.read().activeMission)
-      if (npc.combatOwnership === 'town-eagle-command') {
+      if (this.garrison.isPlayerCommandOwned(npc)) this.garrison.releasePlayerCommand(npc,
+        !isTownCommandRevokedByRetirement(this.read()) && !this.read().activeMission)
+      if (npc.combatOwnership === 'town-eagle-command'
+        || isTownCommandRevokedByRetirement(this.read()) && npc.combatOwnership === 'mission-official') {
         npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN)
       }
       npc.setCommandSquad(undefined)

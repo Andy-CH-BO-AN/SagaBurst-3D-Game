@@ -1,4 +1,6 @@
-import { commanderRetirementEligibility, startCommanderRetirement, type CommanderRetirementStartFailure } from '../../src/career/CareerRetirement'
+import { commanderRetirementEligibility, startCommanderRetirement, validateOrdinaryRetirementCommit, type CommanderRetirementStartFailure } from '../../src/career/CareerRetirement'
+import { advanceCommanderRetirementToMobilizing, commitCommanderRetirementToMobilizing, outsideRetirementTownCore } from '../../src/career/CareerRetirementMobilization'
+import { TOWN_CITY } from '../../src/town/TownLayout'
 import { COMMANDER_FOUR_GATE_DEFENSE_ID } from '../../src/career/CommanderFourGateDefenseRoster'
 import { createActiveCareerMission } from '../../src/career/CareerMissionState'
 import type { RaceRider } from '../../src/career/CareerRaceState'
@@ -9,7 +11,9 @@ import {
 careerMissionCompletionsForTier,
 cloneCareerProfile,createCareerProfile,type CareerProfile
 } from '../../src/career/CareerProfile'
-import { parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { emptyPersonalContribution } from '../../src/career/CareerPersonalSquadMission'
+import { MemoryStorage } from '../helpers/memoryStorage'
 import { SOLDIER_TOWN_DEFENSE_TEMPLATE_ID,TOWN_DEFENSE_TEMPLATE_ID } from '../../src/career/TownDefenseState'
 
 const stats = { damageDealt: 40, kills: 0, survived: false, damageTaken: 100, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }
@@ -90,4 +94,71 @@ it('stages an isolated departing checkpoint only when every retirement start per
   reject(profile, 'invalid-time', Number.NaN)
   reject(profile, 'invalid-time', -1)
   reject(profile, 'invalid-time', 0.5)
+})
+
+it('stages only the first departing exit into mobilizing using the authored town boundary at every riding height', () => {
+  const departing: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000,
+    townCommandSquad: { type: 'town-command', squadId: 1, townFaction: 'roman', sceneKey: 'town-home',
+      actorIds: ['gate:north:0'], authorized: true, state: 'FOLLOWING', contribution: emptyPersonalContribution() },
+    careerRetirement: { version: 1, phase: 'departing', acceptedAt: 123, combatElapsedSeconds: 0 } }
+  const original = cloneCareerProfile(departing)
+  const mobilizing = advanceCommanderRetirementToMobilizing(departing)!
+  expect(mobilizing.careerRetirement).toEqual({ version: 1, phase: 'mobilizing', acceptedAt: 123, combatElapsedSeconds: 0 })
+  expect(mobilizing).not.toBe(departing)
+  expect(mobilizing.careerRetirement).not.toBe(departing.careerRetirement)
+  expect(mobilizing.ownedWeapons).not.toBe(departing.ownedWeapons)
+  expect(departing).toEqual(original)
+  expect(validateOrdinaryRetirementCommit(departing, mobilizing)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  for (const phase of ['mobilizing', 'final-stand', 'completed'] as const) {
+    const current: CareerProfile = { ...cloneCareerProfile(departing), careerRetirement: {
+      ...departing.careerRetirement!, phase, ...(phase === 'completed' ? { outcome: 'fallen' as const } : {}),
+    } }
+    const unchanged = cloneCareerProfile(current)
+    expect(advanceCommanderRetirementToMobilizing(current)).toBeNull()
+    expect(current).toEqual(unchanged)
+  }
+  expect(advanceCommanderRetirementToMobilizing({ ...departing, careerRetirement: undefined })).toBeNull()
+  expect(advanceCommanderRetirementToMobilizing({ ...departing, rank: 'captain' })).toBeNull()
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage), events: string[] = []
+  expect(store.save(departing)).toBe(true)
+  const originalBytes = storage.getItem(CAREER_STORAGE_KEY)
+  let current = departing
+  const save = (next: CareerProfile): boolean => {
+    events.push('save')
+    if (!store.save(next)) return false
+    current = next
+    return true
+  }
+  const reconcile = (): boolean => {
+    events.push('reconcile')
+    expect(store.loadChecked().profile?.careerRetirement?.phase).toBe('mobilizing')
+    expect(current.townCommandSquad?.authorized).toBe(false)
+    return true
+  }
+  storage.failWrites = true
+  expect(commitCommanderRetirementToMobilizing(current, save, reconcile)).toBe(false)
+  expect(events).toEqual(['save'])
+  expect(current).toBe(departing)
+  expect(departing).toEqual(original)
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(originalBytes)
+  storage.failWrites = false
+  events.length = 0
+  expect(commitCommanderRetirementToMobilizing(current, save, reconcile)).toBe(true)
+  expect(events).toEqual(['save', 'reconcile'])
+  expect(departing).toEqual(original)
+  events.length = 0
+  expect(commitCommanderRetirementToMobilizing(current, save, reconcile)).toBe(false)
+  expect(events).toEqual([])
+  // Closed edges remain inside; altitude does not change the foot/horse/xongkoro boundary.
+  for (const y of [0, 3, 80]) {
+    const boundary = { x: TOWN_CITY.maxX, y, z: TOWN_CITY.minZ }
+    expect(outsideRetirementTownCore(boundary)).toBe(false)
+    expect(outsideRetirementTownCore({ ...boundary, x: TOWN_CITY.maxX + 0.01 })).toBe(true)
+  }
+  expect(outsideRetirementTownCore({ x: TOWN_CITY.minX, z: TOWN_CITY.maxZ })).toBe(false)
+  expect(outsideRetirementTownCore({ x: TOWN_CITY.minX - 0.01, z: 0 })).toBe(true)
+  expect(outsideRetirementTownCore({ x: 0, z: TOWN_CITY.minZ - 0.01 })).toBe(true)
+  expect(outsideRetirementTownCore({ x: 0, z: TOWN_CITY.maxZ + 0.01 })).toBe(true)
+  expect(outsideRetirementTownCore({ x: Number.NaN, z: 0 })).toBe(false)
+  expect(outsideRetirementTownCore({ x: 0, z: Number.POSITIVE_INFINITY })).toBe(false)
 })

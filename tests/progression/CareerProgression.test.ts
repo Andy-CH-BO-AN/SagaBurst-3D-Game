@@ -1,8 +1,12 @@
-import { TownScene } from '../../src/town/TownScene'
+import { validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
+import { hasCompleteRetirementMobilizationCheckpoint } from '../../src/career/CareerRetirementMobilization'
+import { parseCareerRetirementState } from '../../src/career/CareerRetirementState'
+import { TOWN_WATCHTOWER_ARCHER_IDS } from '../../src/town/TownNativeGuardIdentity'
 import { grantStarter } from '../../src/town/TownRules'
+import { withNativeRetirementCheckpoints } from '../helpers/RetirementMobilizationFixture'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { MemoryStorage } from '../helpers/memoryStorage'
-import { describe,expect,it,vi } from 'vitest'
+import { describe,expect,it } from 'vitest'
 import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import {
 claimCareerBattle,
@@ -10,7 +14,7 @@ cloneCareerProfile,
 createCareerProfile,
 purchaseCareerContent,
 resolveCareerRank,
-promoteCareer
+promoteCareer, type CareerProfile
 } from '../../src/career/CareerProfile'
 import {
 parseCareerProfile, CareerProfileStore, CAREER_STORAGE_KEY
@@ -35,6 +39,7 @@ function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleSt
     squads: [],
   }
 }
+
 
 describe('Career merit calculation', () => {
 
@@ -303,38 +308,84 @@ it('round-trips an isolated retirement checkpoint and rejects a corrupted ending
   copy.careerRetirement!.combatElapsedSeconds = 99
   expect(loaded.careerRetirement!.combatElapsedSeconds).toBe(42.5)
   const saved = storage.getItem(CAREER_STORAGE_KEY)
-  // Invoke only the real transaction entry, with storage and post-save runtime boundaries.
-  // No TownScene constructor, scene tree or actors are created.
-  const runtime = vi.fn(), clearTimer = vi.fn(), save = vi.spyOn(store, 'save')
-  const transaction = Object.assign(Object.create(TownScene.prototype) as {
-    profile: typeof loaded; commit(next: typeof loaded): boolean
-  }, { profile: loaded, store, skills: { skillState: loaded.skills },
-    clearCareerSkillSaveTimer: clearTimer, applyRetirementDeparture: runtime,
-    synchronizeEagleCommandOwnership: runtime, synchronizeEaglePatrolPolicy: runtime,
-    synchronizeCommandActors: runtime })
-  try {
-    const stale = cloneCareerProfile(loaded)
-    delete stale.careerRetirement
-    expect(transaction.commit(stale)).toBe(false)
-    // Every persisted field is owned by retirement, even when the proposed save parses.
-    for (const change of [{ version: 2 }, { phase: 'final-stand', outcome: undefined },
-      { acceptedAt: 124 }, { combatElapsedSeconds: 43 }, { outcome: 'escaped' }]) {
-      const altered = { ...cloneCareerProfile(loaded), careerRetirement: { ...loaded.careerRetirement!, ...change } }
-      expect(transaction.commit(altered as typeof loaded)).toBe(false)
-    }
-    expect(save).not.toHaveBeenCalled()
-    expect(clearTimer).not.toHaveBeenCalled()
-    expect(runtime).not.toHaveBeenCalled()
-    expect(transaction.profile).toBe(loaded)
-    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
-    const ordinary = cloneCareerProfile(loaded)
-    ordinary.availableMerit += 1
-    expect(transaction.commit(ordinary)).toBe(true)
-    expect(transaction.profile.careerRetirement).toEqual(loaded.careerRetirement)
-    expect(transaction.profile.careerRetirement).not.toBe(loaded.careerRetirement)
-    expect(store.loadChecked().profile?.availableMerit).toBe(ordinary.availableMerit)
-    expect(runtime).toHaveBeenCalled()
-  } finally { save.mockRestore() }
+  // The same lightweight owner used by Town commits rejects stale or rewritten checkpoints.
+  const stale = cloneCareerProfile(loaded)
+  delete stale.careerRetirement
+  expect(validateOrdinaryRetirementCommit(loaded, stale)).toEqual({ allowed: false, reason: 'retirement-checkpoint-missing' })
+  // Every persisted field is owned by retirement, even when the proposed save parses.
+  for (const change of [{ version: 2 }, { phase: 'final-stand', outcome: undefined },
+    { acceptedAt: 124 }, { combatElapsedSeconds: 43 }, { outcome: 'escaped' }]) {
+    const altered = { ...cloneCareerProfile(loaded), careerRetirement: { ...loaded.careerRetirement!, ...change } }
+    expect(validateOrdinaryRetirementCommit(loaded, altered as typeof loaded)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  }
+  const receipt = { version: 1 as const, commandRevoked: true as const, refillCompleted: true as const, formationPrepared: true as const }
+  const receipted = { ...cloneCareerProfile(loaded), careerRetirement: { ...loaded.careerRetirement!, mobilization: receipt } }
+  const equalReceipt = { ...cloneCareerProfile(receipted), careerRetirement: { ...receipted.careerRetirement,
+    mobilization: { formationPrepared: true as const, refillCompleted: true as const, commandRevoked: true as const, version: 1 as const } } }
+  expect(equalReceipt.careerRetirement.mobilization).not.toBe(receipt)
+  expect(validateOrdinaryRetirementCommit(receipted, equalReceipt)).toEqual({ allowed: true })
+  expect(validateOrdinaryRetirementCommit(receipted, loaded)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  for (const change of [{ version: 2 }, { commandRevoked: false }, { refillCompleted: false }, { formationPrepared: false }]) {
+    const altered = { ...receipted, careerRetirement: { ...receipted.careerRetirement, mobilization: { ...receipt, ...change } } }
+    expect(validateOrdinaryRetirementCommit(receipted, altered as typeof loaded)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  }
+  const ready = withNativeRetirementCheckpoints({ ...cloneCareerProfile(loaded), careerRetirement: {
+    version: 1, phase: 'mobilizing', acceptedAt: 123, combatElapsedSeconds: 0, mobilization: receipt,
+  } })
+  const receiptStorage = new MemoryStorage(), receiptStore = new CareerProfileStore(receiptStorage)
+  expect(receiptStore.save(ready)).toBe(true)
+  const restoredReady = receiptStore.loadChecked().profile!
+  expect(restoredReady.careerRetirement).toEqual(ready.careerRetirement)
+  expect(restoredReady.townCommandSquad?.authorized).toBe(false)
+  expect(restoredReady.townCommandSquad?.commandedActorIds).toEqual([])
+  const receiptCopy = cloneCareerProfile(restoredReady)
+  expect(receiptCopy.careerRetirement!.mobilization).not.toBe(restoredReady.careerRetirement!.mobilization)
+  receiptCopy.retirementTowerGuards![TOWN_WATCHTOWER_ARCHER_IDS[0]].hp = 12
+  expect(restoredReady.retirementTowerGuards![TOWN_WATCHTOWER_ARCHER_IDS[0]].hp).toBe(100)
+  const readyBytes = receiptStorage.getItem(CAREER_STORAGE_KEY)
+  for (const invalid of [null, {}, { ...receipt, version: 2 }, { ...receipt, commandRevoked: false },
+    { ...receipt, refillCompleted: false }, { ...receipt, formationPrepared: false }]) {
+    expect(parseCareerRetirementState({ ...ready.careerRetirement!, mobilization: invalid })).toBeNull()
+  }
+  const corruptReceipt = { ...ready, careerRetirement: { ...ready.careerRetirement!, mobilization: { ...receipt, version: 2 } } }
+  expect(receiptStore.save(corruptReceipt as CareerProfile)).toBe(false)
+  expect(receiptStorage.getItem(CAREER_STORAGE_KEY)).toBe(readyBytes)
+  const incomplete = cloneCareerProfile(ready)
+  delete incomplete.retirementTowerGuards![TOWN_WATCHTOWER_ARCHER_IDS[0]]
+  expect(parseCareerProfile(incomplete)).toBeNull()
+  for (const owner of ['townCommandSquad', 'civilianCommandSquad', 'townEagleGarrisons', 'retirementTowerGuards'] as const) {
+    expect(hasCompleteRetirementMobilizationCheckpoint({ ...ready, [owner]: undefined })).toBe(false)
+  }
+  expect(parseCareerProfile({ ...ready, townCommandSquad: undefined })).toBeNull()
+  const missingMount = cloneCareerProfile(ready)
+  expect(missingMount.townCommandSquad!.members!.captain.mount).toBeDefined()
+  expect(missingMount.townCommandSquad!.members!.ranger.mount).toBeDefined()
+  delete missingMount.townCommandSquad!.members!.captain.mount
+  expect(parseCareerProfile(missingMount)).toBeNull()
+  expect(parseCareerProfile({ ...ready, careerRetirement: { ...ready.careerRetirement!, phase: 'departing' } })).toBeNull()
+  const rider = { actorId: 'player', mountId: 'horse' as const, position: { x: 0, y: 0, z: 0, yaw: 0 },
+    mountPosition: { x: 0, y: 0, z: 0, yaw: 0 }, hp: 100, mountHp: 100, stamina: 100, mounted: true, dead: false, checkpoint: 0 }
+  const newWork: Partial<typeof loaded>[] = [
+    { activeMission: { id: 'new-mission', templateId: 'recruit-bandits-01', targetCampId: 0,
+      phase: 'RETURNING', targetActorIds: [], friendlyActorIds: [], acceptedAt: 124 } },
+    { activeOutpostMission: { id: 'new-outpost', kind: 'outpost-defense', stageId: 1, acceptedAt: 124 } },
+    { activeRace: { version: 1, deployed: false, id: 'new-race', raceId: 'race-1', phase: 'guiding',
+      countdownSeconds: 0, elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
+      player: rider, opponent: { ...rider, actorId: 'opponent' } } },
+  ]
+  for (const work of newWork) {
+    expect(validateOrdinaryRetirementCommit(loaded, { ...cloneCareerProfile(loaded), ...work }))
+      .toEqual({ allowed: false, reason: 'retirement-new-work' })
+  }
+  expect(loaded.careerRetirement).toEqual(profile.careerRetirement)
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  const ordinary = cloneCareerProfile(loaded)
+  ordinary.availableMerit += 1
+  expect(validateOrdinaryRetirementCommit(loaded, ordinary)).toEqual({ allowed: true })
+  expect(ordinary.careerRetirement).toEqual(loaded.careerRetirement)
+  expect(ordinary.careerRetirement).not.toBe(loaded.careerRetirement)
+  expect(store.save(ordinary)).toBe(true)
+  expect(store.loadChecked().profile?.availableMerit).toBe(ordinary.availableMerit)
   // Restore the checkpoint bytes used by the malformed-save assertions below.
   storage.setItem(CAREER_STORAGE_KEY, saved!)
   // The saved rank says Commander, but effective merit normalizes it to Captain.

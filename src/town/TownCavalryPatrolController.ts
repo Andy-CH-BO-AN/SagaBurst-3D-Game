@@ -11,6 +11,8 @@ import { townPatrolDeparture, townPatrolRoute, TOWN_PATROL_SPEED } from './TownP
 import { OUTSKIRTS_ALERT_RANGE, OUTSKIRTS_ENCOUNTER_LEASH, OUTSKIRTS_SENSOR_INTERVAL } from './TownOutskirtsRules'
 import { townWartimeHostile } from './TownWartime'
 import { restoreCommandActor, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
+import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMission'
+import { Faction } from '../combat/CombatFaction'
 import type { TownPatrolCheckpoint, TownPatrolTravelCheckpoint } from './TownPatrolCheckpoint'
 import type { Player } from '../player/Player'
 
@@ -70,6 +72,7 @@ export class TownCavalryPatrolController {
   private readonly anchor = { position: new THREE.Vector3(), yaw: 0 }
   private hostile = false
   private siegeOwned = false
+  private retirementMobilized = false
 
   /** Siege owns recall travel and casualties, even for actors currently fighting or refitting. */
   recallForSiege(): void {
@@ -85,7 +88,33 @@ export class TownCavalryPatrolController {
     }
   }
 
+  /** The retirement owner saves every resource checkpoint before this handoff.
+   * Restore the same native riders/horses, then keep native return and replacement
+   * suspended. Saved casualties are never refilled on ordinary reconciliation.
+   */
+  reconcileRetirementMobilization(members: Readonly<Record<string, PersonalActorCheckpoint>>): boolean {
+    if (!this.residents.size || [...this.residents.values()].some(({ spec, npc, homeMount }) =>
+      !members[spec.id] || homeMount && !members[spec.id].mount || spec.id.startsWith('enemy-town:')
+      || homeMount?.riderPlayer || homeMount?.riderNpc && homeMount.riderNpc !== npc
+      || npc.mount && npc.mount !== homeMount)) return false
+    this.retirementMobilized = true
+    this.recallForSiege()
+    for (const { spec, npc, homeMount } of this.residents.values()) {
+      const member = members[spec.id]
+      npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(undefined)
+      npc.setMissionCombatTarget(null); npc.missionMovement = false; npc.setTownPeaceful()
+      if (member.status !== 'dead' && (member.hp ?? 0) > 0 && (npc.dead || npc.isFalling && !member.fall)) npc.restoreForTown(member.position)
+      if (homeMount?.dead && member.mount && member.mount.hp > 0) {
+        const position = member.mount.position
+        homeMount.restoreForTown(position.x, position.z, position.yaw)
+      }
+      restoreCommandActor(npc, member, homeMount)
+    }
+    return true
+  }
+
   releaseSiegeOwnership(): void {
+    if (this.retirementMobilized) return
     this.siegeOwned = false
     this.relinquished.clear()
     for (const squad of this.squads) {
@@ -181,6 +210,7 @@ export class TownCavalryPatrolController {
 
   /** Restore saved travel ownership without repeating a completed refit. */
   restoreMissionReturn(actorId: string, state: TownPatrolReturnState, urgent = false): void {
+    if (this.retirementMobilized) return
     if (state !== 'REJOIN_PATROL') { this.beginMissionReturn(actorId, urgent); return }
     const resident = this.residents.get(actorId)
     if (!resident) return
@@ -352,6 +382,7 @@ export class TownCavalryPatrolController {
 
   /** Living casualties retain their mission position and readiness until they physically reach barracks. */
   beginMissionReturn(actorId: string, urgent = false): boolean {
+    if (this.retirementMobilized) return false
     const squad = this.squads.find(s => s.members.some(r => r.spec.id === actorId))
     if (squad?.state === 'RESPAWN_COOLDOWN') { squad.respawnRemaining = undefined; this.restartDeparture(squad) }
     const returning = this.returning.get(actorId)
@@ -360,6 +391,7 @@ export class TownCavalryPatrolController {
   }
 
   beginPatrolReturn(actorId: string, urgent = false, autonomous = false): boolean {
+    if (this.retirementMobilized) return false
     const resident = this.residents.get(actorId)
     if (!resident || this.hostile) return false
     this.relinquished.delete(actorId)

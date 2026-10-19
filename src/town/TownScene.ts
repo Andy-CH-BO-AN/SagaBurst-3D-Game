@@ -1,3 +1,5 @@
+import { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
+import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
 import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
 import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { ActiveMissionClock } from '../career/ActiveMissionClock'
@@ -133,7 +135,7 @@ import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_DECAP
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
 import { MissionGuide } from '../career/MissionGuide'
-import { preservesCommanderRetirement, startCommanderRetirement } from '../career/CareerRetirement'
+import { validateOrdinaryRetirementCommit, startCommanderRetirement } from '../career/CareerRetirement'
 import { TOWN_RETIREMENT_EXTRACTION } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { CAREER_DUEL_TIERS, type CareerDuelTier, isCareerDuelUnlocked } from '../career/CareerDuelState'
@@ -216,6 +218,7 @@ export class TownScene {
   private readonly captainPatrolGuide = new MissionGuide('career-captain-patrol-guide')
   private readonly retirementGuide = new MissionGuide('career-retirement-guide')
   private retirementDepartureApplied = false
+  private retirementMobilization?: TownRetirementMobilizationController
   private readonly hint = document.createElement('div')
   private readonly pointerPrompt = document.createElement('div')
   private panel: HTMLDivElement | null = null
@@ -523,8 +526,14 @@ export class TownScene {
             const authority = this.profile.activeMission?.officialSquad
             return authority && !this.profile.activeMission?.result && officialCommandIsPlayerControlled(authority, npc.combatantId) && this.isAuthorizedCommandActor(npc)
           })],
-        preparePeaceResidents: (excluded, dt) => { this.patrol.beginFrame(excluded, dt); this.townCommand?.beginFrame() },
-        ownsPeacefulTravel: npc => this.civilianCommand?.ownsPeacefulTravel(npc) || this.townCommand?.ownsPeacefulTravel(npc) || this.patrol.returnStateFor(npc.combatantId) !== null && !this.patrol.combatEnabled(npc) && !this.captainPatrol?.owns(npc),
+        preparePeaceResidents: (excluded, dt) => {
+          this.patrol.beginFrame(excluded, dt); this.townCommand?.beginFrame()
+          if (this.retirementMobilization?.active) {
+            this.grid.clear()
+            for (const { npc } of this.residents) if (!npc.dead) this.grid.insert(npc)
+          }
+        },
+        ownsPeacefulTravel: npc => this.retirementMobilization?.owns(npc) || this.civilianCommand?.ownsPeacefulTravel(npc) || this.townCommand?.ownsPeacefulTravel(npc) || this.patrol.returnStateFor(npc.combatantId) !== null && !this.patrol.combatEnabled(npc) && !this.captainPatrol?.owns(npc),
         peaceResident: (resident, dt) => this.updatePeace(resident, dt),
         updateEagleDuty: (npc, dt, combat) => this.updateEagleDuty(npc, dt, combat),
         playerOwnsEagleCommand: npc => this.playerOwnsEagleCommand(npc),
@@ -592,6 +601,31 @@ export class TownScene {
     this.restoreTownCasualties()
     this.civilianCommand.restore()
     this.townCommand.resumeRefits()
+    if (this.world.faction === this.profile.faction && !this.sceneContext.missionOnlyResidents) {
+      this.retirementMobilization = new TownRetirementMobilizationController({
+        residents: this.residents, read: () => this.profile,
+        save: next => {
+          next.skills = this.skills.skillState
+          next.personalSquadRuntime = this.personalSquad?.checkpoint() ?? next.personalSquadRuntime
+          next.playerAerialState = captureCareerAerialState(this.player, this.personalSquad?.sceneKey ?? 'town-home')
+          if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '退役動員保存失敗，尚未進行整補。'; return false }
+          this.profile = next
+          this.careerSkillsDirty = false
+          this.applyRetirementDeparture()
+          return true
+        },
+        revoke: () => {
+          this.personalCommands?.close()
+          this.townCommand?.applySavedState(this.profile.townCommandSquad)
+          this.townAirCommand?.applySavedState(this.profile.townAirCommandSquad)
+          this.civilianCommand?.applySavedState(this.profile.civilianCommandSquad)
+          this.synchronizeCommandActors()
+        },
+        patrol: this.patrol, eagles: this.eagleGarrison!, navigation: this.navigation, obstacles: this.world.obstacles,
+        nearby: npc => this.grid.getNearbyInto(npc.combatPosition, 10, this.neighbors),
+      })
+      if (!this.retirementMobilization.reconcile()) this.notice = '退役動員尚未完成，請稍後重試。'
+    }
     if (this.defense instanceof CommanderFourGateDefenseController && !this.profile.activeMission?.result) {
       this.defense.preparePlayerDeployment()
       this.defense.completeInitialDeployment()
@@ -807,20 +841,13 @@ export class TownScene {
   }
 
   private commit(profile: CareerProfile, options: MissionCommitOptions = {}): boolean {
-    if (!preservesCommanderRetirement(this.profile, profile)) {
+    if (!validateOrdinaryRetirementCommit(this.profile, profile).allowed) {
       this.notice = '退役紀錄已更新，請重新操作。'
       return false
     }
     this.clearCareerSkillSaveTimer()
     const restoringResidents = Boolean(options.residentReturnStaged || this.residentReturnPending)
     let next = cloneCareerProfile(profile)
-    // Retirement owns the remaining lifecycle; ordinary acceptance cannot reopen threat producers.
-    if (this.profile.careerRetirement && (next.activeMission && next.activeMission.id !== this.profile.activeMission?.id
-      || next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id
-      || next.activeRace && next.activeRace.id !== this.profile.activeRace?.id)) {
-      this.notice = '退役行程已開始，無法接受新的任務或賽事。'
-      return false
-    }
     // Capture the live race in unrelated town saves, including the hostility transition.
     if (this.race?.session && next.activeRace?.id === this.race.session.id) next.activeRace = structuredClone(this.race.session)
     if (!this.race?.session && next.racePlayerState && this.profile.racePlayerState) next.racePlayerState = this.race?.capturePlayerState() ?? next.racePlayerState
@@ -1003,6 +1030,7 @@ export class TownScene {
         next.activeMission.actorHealth = { ...next.activeMission.actorHealth, [spec.id]: { hp: npc.dead ? 0 : npc.hp } }
       }
     }
+    this.retirementMobilization?.capture(next)
     if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
     // No handoff callbacks may capture the outgoing battle poses over the saved rebuild.
     if (options.rebuildTown) { this.profile = next; this.careerSkillsDirty = false; return true }
@@ -1032,7 +1060,7 @@ export class TownScene {
     this.synchronizeEagleCommandOwnership()
     this.synchronizeEaglePatrolPolicy()
     if (startsFormal || townStateChanged || townClaimStateChanged || endedFormal) this.townCommand?.applySavedState(next.townCommandSquad)
-    if (!this.townRefitOnReturn && (endedFormal || next.rank === 'captain' || next.rank === 'commander') && !next.townEvent?.authorizedTownCommandActorIds) this.townCommand?.grant()
+    if (!isTownCommandRevokedByRetirement(next) && !this.townRefitOnReturn && (endedFormal || next.rank === 'captain' || next.rank === 'commander') && !next.townEvent?.authorizedTownCommandActorIds) this.townCommand?.grant()
     this.synchronizeCommandActors()
     if (missionFinished) this.personalSquad?.regroupAfterMission()
     if (startsFormal || missionFinished || endedFormal || rankChanged) this.civilianCommand?.synchronize()
@@ -1046,9 +1074,9 @@ export class TownScene {
     const garrison = this.eagleGarrison?.snapshot(`town:${this.world.faction}`)
     const garrisonActive = Boolean(garrison?.pairs.some(pair => pair.duty !== 'standby' || pair.hp === 0 || pair.mount.hp === 0))
     const townCommand = this.townCommand?.hasCheckpoint ? this.townCommand : undefined
-    if (!this.civilianCommand?.hasCheckpoint && !saved && !townCommand && !this.profile.personalSquadRuntime && !aerial && !this.profile.playerAerialState && !garrisonActive && !this.outskirts?.hasCheckpoint && !this.enemyEaglePatrol?.hasCheckpoint && !this.patrol?.hasCheckpoint) return
+    if (!this.civilianCommand?.hasCheckpoint && !saved && !townCommand && !this.profile.personalSquadRuntime && !aerial && !this.profile.playerAerialState && !garrisonActive && !this.outskirts?.hasCheckpoint && !this.enemyEaglePatrol?.hasCheckpoint && !this.patrol?.hasCheckpoint && !this.profile.careerRetirement?.mobilization) return
     this.personalSaveElapsed += dt
-    const critical = JSON.stringify([this.patrol?.criticalSignature, this.civilianCommand?.criticalSignature, this.enemyEaglePatrol?.criticalSignature, this.outskirts?.criticalSignature, townCommand?.criticalSignature, garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
+    const critical = JSON.stringify([this.retirementMobilization?.criticalSignature, this.patrol?.criticalSignature, this.civilianCommand?.criticalSignature, this.enemyEaglePatrol?.criticalSignature, this.outskirts?.criticalSignature, townCommand?.criticalSignature, garrison?.pairs.map(pair => [pair.riderId, pair.duty, pair.hp === 0, pair.mount.hp === 0]), aerial?.dead, Boolean(aerial?.fall), Boolean(aerial?.mount), saved?.state, saved?.memberIds.map(id => {
       const member = saved.members[id]
       return [member.status, member.order, member.mount?.hp === 0, member.formation?.commandId]
     })])
@@ -1414,11 +1442,12 @@ export class TownScene {
     return Boolean(!this.player?.dead && !this.profile.activeMission?.result && this.profile.activeMission?.kind !== 'duel'
       && (!active || active.personalSquad) && this.profile.personalSquad?.members.length)
   }
-  private commandsEnabled(): boolean { return this.personalCommandsEnabled() || Boolean(!this.player?.dead && (this.civilianCommand?.commandsEnabled || this.townAirCommand?.commandsEnabled || this.townCommand?.commandsEnabled || this.profile.activeMission?.officialSquad && !this.profile.activeMission.result)) }
+  private commandsEnabled(): boolean { return this.personalCommandsEnabled() || Boolean(!this.player?.dead && !isTownCommandRevokedByRetirement(this.profile) && (this.civilianCommand?.commandsEnabled || this.townAirCommand?.commandsEnabled || this.townCommand?.commandsEnabled || this.profile.activeMission?.officialSquad && !this.profile.activeMission.result)) }
   private isAuthorizedCommandActor(npc: NPC): boolean {
     if (isAutonomousTownGuard(npc.combatantId)) return false
-    if (this.civilianCommand?.accepts(npc) || this.townAirCommand?.accepts(npc)) return true
     if (this.personalSquad?.owns(npc)) return this.personalCommandsEnabled()
+    if (isTownCommandRevokedByRetirement(this.profile)) return false
+    if (this.civilianCommand?.accepts(npc) || this.townAirCommand?.accepts(npc)) return true
     if (this.captainPatrol?.active?.officialSquad?.actorIds.includes(npc.combatantId)) return this.captainPatrol.accepts(npc)
     const mission = this.profile.activeMission, authority = mission?.officialSquad
     if (authority && mission && !mission.result && mission.phase !== 'RETURNING' && authority.missionId === mission.id
@@ -1447,6 +1476,7 @@ export class TownScene {
       ? sameRoster ? { ...accepted, members: live!.members } : accepted
       : !active ? live ? { ...live } : snapshotPersonalMission(this.profile) : undefined
     return careerCommandHudRoster({
+      careerRetirement: this.profile.careerRetirement,
       unitTypes: { ...this.commandHudTypes.read(this.profile),
         ...Object.fromEntries(this.residents.filter(resident => resident.spec.eagle).map(resident => [resident.spec.id, 'eagle' as const])) },
       personalMembers: this.profile.personalSquad?.members,
@@ -1470,7 +1500,7 @@ export class TownScene {
   }
 
   private synchronizeCommandActors(): void {
-    const mission = this.profile?.activeMission
+    const mission = isTownCommandRevokedByRetirement(this.profile) ? undefined : this.profile?.activeMission
     const authority = mission?.officialSquad?.type === 'mission-official' && mission.officialSquad.missionId === mission.id
       ? mission.officialSquad : !mission && !this.profile?.activeOutpostMission && this.townCommand?.commandsEnabled
         ? this.profile.townCommandSquad : undefined
@@ -1485,7 +1515,7 @@ export class TownScene {
     let official = stageOfficialCommandOrder(this.profile, participants, order, assignments, npc => this.snapshotOfficialActor(npc))
     const mission = this.profile.activeMission, authority = mission?.officialSquad
     // A completely fallen air squad still needs Dismiss to release its suspended native lifecycle.
-    if (order === 'dismiss' && (target === 'all' || target === 'squad:8') && this.profile.rank === 'commander'
+    if (!isTownCommandRevokedByRetirement(this.profile) && order === 'dismiss' && (target === 'all' || target === 'squad:8') && this.profile.rank === 'commander'
       && (mission?.kind === 'town-defense' || mission?.kind === 'commander-four-gate-defense') && !mission.result && authority?.commandRank === 'commander'
       && authority.missionId === mission.id && authority.townFaction === this.profile.faction
       && authority.commandedSquadIds?.includes(8)) {
@@ -2726,6 +2756,7 @@ export class TownScene {
   }
   /** Persist before applying the first effective hit; failure leaves the target unchanged. */
   private prepareDamage(): boolean {
+    if (this.profile.careerRetirement?.phase === 'mobilizing') return false
     if (this.event.hostile) return true
     const active = this.profile.activeMission
     if (this.defense?.active) return false
@@ -2746,6 +2777,7 @@ export class TownScene {
     return true
   }
   private activateHostility(shout = true): void {
+    if (this.profile.careerRetirement?.phase === 'mobilizing') return
     if (this.event.hostile) return
     this.event.hostile = true
     this.event.excludeAuthorizedActors(this.profile.townEvent?.authorizedTownCommandActorIds ?? [])
@@ -3328,7 +3360,7 @@ export class TownScene {
       for (const shot of this.shots ?? []) if (shot.source && this.enemyEaglePatrol.owns(shot.source)) shot.arrow.destroy()
     }
     // Siege owns its native air roster; the independent opposing air patrol still flies.
-    this.eagleGarrison?.setAmbientPatrolAllowed(allowed
+    this.eagleGarrison?.setAmbientPatrolAllowed(allowed && !isTownCommandRevokedByRetirement(this.profile)
       && this.profile.activeMission?.kind !== 'town-defense' && this.profile.activeMission?.kind !== 'commander-four-gate-defense' && this.profile.activeMission?.kind !== 'enemy-town-assault')
     this.enemyEaglePatrol?.setAmbientPatrolAllowed(allowed)
   }
@@ -3354,6 +3386,7 @@ export class TownScene {
   }
 
   private playerOwnsEagleCommand(npc: NPC): boolean {
+    if (isTownCommandRevokedByRetirement(this.profile)) return false
     if (isAutonomousTownGuard(npc.combatantId)) return false
     const mission = this.profile.activeMission, authority = mission?.officialSquad
     return Boolean(this.profile.rank === 'commander' && this.world.faction === this.profile.faction
@@ -3399,6 +3432,7 @@ export class TownScene {
       && !blocked(this.player.combatPosition, this.player.currentMount?.combatRadius ?? .5)
   }
   private updatePeace(r: Resident, dt: number): void {
+    if (this.retirementMobilization?.updateResident(r, dt, this.camera.position)) return
     if (this.race?.owns(r.npc)) return
     if (this.civilianCommand?.updateResident(r, dt, this.camera.position, this.world.obstacles, this.navigation)) {
       this.civilianLife?.suspend(r.spec.id); return
@@ -3649,6 +3683,8 @@ export class TownScene {
       this.orbit.getAimPoint(new THREE.Vector3()), this.player.currentMount?.isFlyingMount ? this.world.airspaceObstacles : this.world.obstacles, this.stamina,
       this.quiver, sound, this.inventory, this.skills.getRangedMultiplier(), ready && !this.fourGateCombatHeld)
     this.player.group.updateWorldMatrix(true, true)
+    if (ready && !this.player.dead && !this.retirementMobilization?.updateBoundary(this.player.combatPosition) && this.profile.careerRetirement)
+      this.notice = '退役動員尚未完成，請稍後重試。'
     if (ready) this.race?.beginFrame(this.raceClockDt, dt)
     if (ready) {
       this.race?.prepare()
@@ -3780,7 +3816,7 @@ export class TownScene {
     this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining)
     this.duelGuide.updateDuel(duelPhase, this.player.combatPosition, this.orbit.cameraYaw, this.duel.guideTarget)
     this.updateCaptainPatrolGuide()
-    const retirementTarget = this.profile.careerRetirement?.phase === 'departing'
+    const retirementTarget = ['departing', 'mobilizing'].includes(this.profile.careerRetirement?.phase ?? '')
       && this.world.faction === this.profile.faction && !this.sceneContext.missionOnlyResidents
       && !this.panel && !this.equipment.visible
       ? new THREE.Vector3(TOWN_RETIREMENT_EXTRACTION.x, getTerrainHeight(TOWN_RETIREMENT_EXTRACTION.x, TOWN_RETIREMENT_EXTRACTION.z), TOWN_RETIREMENT_EXTRACTION.z) : null
