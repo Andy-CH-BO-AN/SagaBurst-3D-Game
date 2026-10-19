@@ -289,8 +289,6 @@ export class WeaponMeshFactory {
       blade.castShadow = true
       blade.name = 'dane-axe-single-bearded-blade'
       pivot.add(blade)
-      // The socket and cutting head are rigid iron parts of this same visual.
-      pivot.add(equipmentShadowUntil(mergeRigidGeometryParts([socket, blade], iron, 'dane-axe-head'), 1))
 
       if (tier === 3) {
         const gold = proceduralMaterial({ kind: 'bronze', color: 0xc49a50, roughness: 0.3 })
@@ -771,11 +769,11 @@ export class WeaponMeshFactory {
         pivot.add(rearStrap)
         leatherDetails.push(rearStrap)
       }
-      const rearGrip = new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather)
-      rearGrip.position.set(0, 0, 0.085)
-      pivot.add(rearGrip)
-      leatherDetails.push(rearGrip)
       pivot.add(equipmentShadowUntil(equipmentDetail(mergeRigidGeometryParts(leatherDetails, leather, 'shield-rear-strap'), 0), -1))
+      const rearGrip = equipmentShadowUntil(new THREE.Mesh(new THREE.CapsuleGeometry(0.024, 0.2, 4, 8), leather), -1)
+      rearGrip.position.set(0, 0, 0.085)
+      rearGrip.name = 'shield-rear-grip'
+      pivot.add(equipmentDetail(rearGrip, 0))
       if (tier === 3) {
         const bossDetails: THREE.Mesh[] = [boss]
         for (let index = 0; index < 8; index++) {
