@@ -1,3 +1,4 @@
+import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
 import { createTownCommandWatchtower } from './TownCommandWatchtower'
 import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, validateWatchtowerPlacement, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
 import { resolveTownEagleGarrison, TOWN_EAGLE_GARRISON_NAME, type TownEagleGarrisonLayout } from './TownEagleGarrison'
@@ -17,7 +18,7 @@ import { Faction } from '../combat/CombatFaction'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { TOWN_SITES, townSitePoint } from './TownRules'
 import { DamageableObstacle } from '../world/DamageableObstacle'
-import { getTerrainHeight, resetTerrainScenePolicy, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
+import { getTerrainHeight, removeObstacleData, resetTerrainScenePolicy, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_GROUND_SIZE, TOWN_BANDIT_CAMP_CENTERS, townSceneryPoint, nearTownBanditCamp } from './TownBounds'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { proceduralMaterial } from '../world/ProceduralMaterials'
@@ -151,6 +152,7 @@ export class TownWorld {
     this.airspaceObstacles.push(...this.obstacles)
     this.validateAirfield()
     this.batch(this.root)
+    setObstaclePathQuerySource(this.obstacles, true)
   }
 
   private eagleTrainingGround(): void {
@@ -403,7 +405,7 @@ export class TownWorld {
       ...overheadAttachments.map(box => ({ box: box.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, navigationPassable: true, damageable: hp }))]
     this.buildings.push({ id, ownerFaction: id.startsWith('camp-') ? Faction.BANDIT : this.ownerAllegiance, ...(campId === undefined ? {} : { campId }), obstacles: buildingObstacles, hp, roof, ruin, damaged: false }); this.obstacles.push(...buildingObstacles)
     this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(root), isBarricade: false })
-    hp.onDestroyed(() => { ruin.visible = true; for (const part of buildingObstacles) { const index = this.obstacles.indexOf(part); if (index >= 0) this.obstacles.splice(index, 1) } })
+    hp.onDestroyed(() => { ruin.visible = true; for (const part of buildingObstacles) removeObstacleData(this.obstacles, part) })
   }
   refreshDamage(): void { for (const b of this.buildings) if (!b.damaged && b.hp.hpRatio <= .6 && !b.hp.destroyed) { b.damaged = true; b.roof.rotation.z = .14; b.roof.position.y -= 1; b.roof.children.slice(0, 2).forEach(c => c.visible = false) } }
   restoreTownDamage(): void {
@@ -417,7 +419,10 @@ export class TownWorld {
         building.roof.children.slice(0, 2).forEach(child => { child.visible = true })
       }
       building.damaged = false
-      for (const obstacle of building.obstacles) if (!this.obstacles.includes(obstacle)) this.obstacles.push(obstacle)
+      for (const obstacle of building.obstacles) if (!this.obstacles.includes(obstacle)) {
+        this.obstacles.push(obstacle)
+        markObstacleTopologyChanged(this.obstacles)
+      }
     }
   }
   addTarget(x: number, z: number, ranged: boolean): THREE.Vector3 {
@@ -485,5 +490,6 @@ export class TownWorld {
     }
   }
   dispose(): void {
+    setObstaclePathQuerySource(this.obstacles, false)
     this.siegeDockPassages?.dispose(); this.root.traverse(child => { if (child instanceof THREE.InstancedMesh) child.dispose() }); this.root.removeFromParent(); this.geometries.forEach(g => g.dispose()); this.materials.forEach(m => m.dispose()); this.textures.forEach(t => t.dispose()) }
 }
