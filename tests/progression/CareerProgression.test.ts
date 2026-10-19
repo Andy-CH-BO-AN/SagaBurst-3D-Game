@@ -5,6 +5,7 @@ import { describe,expect,it } from 'vitest'
 import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import {
 claimCareerBattle,
+cloneCareerProfile,
 createCareerProfile,
 purchaseCareerContent,
 resolveCareerRank,
@@ -283,4 +284,32 @@ describe('Commander melee appointment and save migration', () => {
     expect(careerItemAllocated(loaded, 'sword_t5')).toBe(1)
     expect(store.loadChecked().profile).toEqual(loaded)
   })
+})
+
+it('round-trips an isolated retirement checkpoint and rejects a corrupted ending without replacing the save', () => {
+  const profile = createCareerProfile('roman')
+  profile.rank = 'commander'; profile.totalMerit = 20000
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  expect(store.save(profile)).toBe(true)
+  expect(store.loadChecked().profile?.careerRetirement).toBeUndefined()
+  profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 123, combatElapsedSeconds: 42.5, outcome: 'fallen' }
+  expect(store.save(profile)).toBe(true)
+  const loaded = store.loadChecked().profile!
+  expect(loaded.rank).toBe('commander')
+  expect(loaded.careerRetirement).toEqual(profile.careerRetirement)
+  const copy = cloneCareerProfile(loaded)
+  expect(copy.careerRetirement).not.toBe(loaded.careerRetirement)
+  copy.careerRetirement!.combatElapsedSeconds = 99
+  expect(loaded.careerRetirement!.combatElapsedSeconds).toBe(42.5)
+  const saved = storage.getItem(CAREER_STORAGE_KEY)
+  delete profile.careerRetirement.outcome
+  expect(parseCareerProfile(profile)).toBeNull()
+  expect(store.save(profile)).toBe(false)
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  const corrupted = JSON.stringify(profile)
+  storage.setItem(CAREER_STORAGE_KEY, corrupted)
+  const rejected = store.loadChecked()
+  expect(rejected.profile).toBeNull()
+  expect(rejected.error).toBeTruthy()
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(corrupted)
 })

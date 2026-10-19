@@ -1,3 +1,4 @@
+import { parseCareerRetirementState } from './CareerRetirementState'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
 import { BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
 import { horseVariantFromSave } from '../world/HorseAssetRegistry'
@@ -509,6 +510,10 @@ function parseOutpostRecord(value: unknown): CareerOutpostRecord | undefined {
 export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Record<string, unknown>
+  const careerRetirement = Object.prototype.hasOwnProperty.call(raw, 'careerRetirement')
+    ? parseCareerRetirementState(raw.careerRetirement) : undefined
+  // Never turn a malformed irreversible ending checkpoint into an ordinary Town save.
+  if (careerRetirement === null) return null
   if (raw.inventory !== undefined && (!raw.inventory || typeof raw.inventory !== 'object'
     || (raw.inventory as CareerInventory).version !== 1 || !(raw.inventory as CareerInventory).quantities
     || typeof (raw.inventory as CareerInventory).quantities !== 'object' || Array.isArray((raw.inventory as CareerInventory).quantities))) return null
@@ -564,6 +569,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (townEvent && (typeof townEvent.id !== 'string' || !townEvent.id || !['hostile', 'settled'].includes(townEvent.state))) return null
   if (townEvent?.pendingResult !== undefined && (townEvent.state !== 'hostile' || !['player_defeated', 'town_defeated'].includes(townEvent.pendingResult))) return null
   const profile: CareerProfile = {
+    ...(careerRetirement ? { careerRetirement } : {}),
     ...(townEquipment ? { townEquipment } : {}),
     ...(raw.inventory ? { inventory: raw.inventory as CareerInventory } : {}),
     version: 1,

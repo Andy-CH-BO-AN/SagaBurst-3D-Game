@@ -1,3 +1,5 @@
+import { commanderRetirementEligibility } from '../../src/career/CareerRetirement'
+import { COMMANDER_FOUR_GATE_DEFENSE_ID } from '../../src/career/CommanderFourGateDefenseRoster'
 import { describe,expect,it } from 'vitest'
 import { availableRecruitMissions } from '../../src/career/CareerMissionCatalog'
 import { claimCareerOutpost } from '../../src/career/CareerOutpostMission'
@@ -36,4 +38,20 @@ describe('Home mission prerequisites by mission tier', () => {
     expect(careerMissionCompletionsForTier(legacy, 1)).toBe(5)
     expect(careerMissionCompletionsForTier(legacy, 2)).toBe(1)
   })
+})
+
+// One qualification predicate: each requirement must be necessary, not an alternative.
+it('requires formal Commander appointment, ten Tier 5 wins and a recorded Four-Gate victory for retirement', () => {
+  const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000,
+    careerMissionCompletionsByTier: { 1: 50, 4: 50, 5: 10 },
+    completedCareerMissionTemplateIds: [COMMANDER_FOUR_GATE_DEFENSE_ID] }
+  profile.lifetimeStats.victories = 100
+  const qualified = { eligible: true, commanderVictories: 10, requiredVictories: 10, fourGateDefenseCompleted: true }
+  expect(commanderRetirementEligibility(profile)).toEqual(qualified)
+  expect(commanderRetirementEligibility({ ...profile, rank: 'captain' }).eligible).toBe(false)
+  expect(commanderRetirementEligibility({ ...profile, careerMissionCompletionsByTier: { 5: 9 } }).eligible).toBe(false)
+  expect(commanderRetirementEligibility({ ...profile, completedCareerMissionTemplateIds: [] }).eligible).toBe(false)
+  expect(commanderRetirementEligibility({ ...profile, careerRetirement: {
+    version: 1, phase: 'completed', acceptedAt: 0, combatElapsedSeconds: 42.5, outcome: 'fallen',
+  } })).toEqual(qualified)
 })

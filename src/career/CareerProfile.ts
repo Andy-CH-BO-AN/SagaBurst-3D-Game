@@ -1,3 +1,4 @@
+import type { CareerRetirementState } from './CareerRetirementState'
 import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { cloneTownEquipment, type CareerTownEquipment } from './CareerTownEquipmentState'
 import { cloneTownAirCommandSquad, type TownAirCommandSquadState } from './TownAirCommandAuthority'
@@ -77,6 +78,8 @@ export interface CareerProfile {
   /** Spendable merit. Purchases deduct this without affecting rank. */
   availableMerit: number
   rank: CareerRank
+  /** Optional ending lifecycle; retirement never changes the appointed rank. */
+  careerRetirement?: CareerRetirementState
   /** Permanent Career combat progression. Never resets when returning to town or changing missions. */
   skills?: SkillState
   enlistmentMeritBase: number
@@ -480,6 +483,7 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.careerRetirement ? { careerRetirement: { ...profile.careerRetirement } } : {}),
     ...(profile.racePlayerState ? { racePlayerState: structuredClone(profile.racePlayerState) } : {}),
     ...(profile.activeRace ? { activeRace: structuredClone(profile.activeRace) } : {}),
     ...(profile.raceRecords ? { raceRecords: structuredClone(profile.raceRecords) } : {}),
