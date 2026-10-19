@@ -138,7 +138,7 @@ import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_DECAP
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
 import { MissionGuide } from '../career/MissionGuide'
-import { canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit, startCommanderRetirement } from '../career/CareerRetirement'
+import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit, startCommanderRetirement } from '../career/CareerRetirement'
 import { TOWN_RETIREMENT_EXTRACTION } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { CAREER_DUEL_TIERS, type CareerDuelTier, isCareerDuelUnlocked } from '../career/CareerDuelState'
@@ -1348,7 +1348,7 @@ export class TownScene {
   }
   private button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement { const b = document.createElement('button'); b.textContent = label; b.className = 'town-button'; b.onclick = action; parent.append(b); return b }
   private talk(id: string, response?: string, shopPage: 'buy' | 'sell' = 'buy', shopCategory: EquipmentCategory = 'melee'): void {
-    if (this.player.dead || this.event.hostile || !this.serviceAvailable(id)) return
+    if (this.player.dead || !this.serviceAvailable(id)) return
     if (id === 'hr-officer') { this.openRecruitmentPanel(response); return }
     const role = (id === 'eagle-trainer' ? 'ranger' : id) as DialogueRole, key = this.profile.faction + ':' + id
     const firstMeet = !this.profile.townDialogueSeen?.includes(key)
@@ -1380,6 +1380,7 @@ export class TownScene {
         })
       }
       if (id === 'commander') appendCommanderRetirementOption(panel, this.profile, {
+        available: () => !this.player.dead && this.serviceAvailable('commander'),
         openPanel: (title, text) => this.openPanel(title, text),
         start: () => this.startCommanderRetirement(), leave: () => this.closePanel(),
       })
@@ -1403,6 +1404,7 @@ export class TownScene {
         panel.append(categories)
       }
       const showProducts = (page: 'buy' | 'sell' = shopPage) => {
+        if (this.player.dead || !this.serviceAvailable(id)) return
         categories.hidden = page !== 'buy'
         for (const tab of Array.from(categories.children) as HTMLButtonElement[]) {
           tab.setAttribute('aria-pressed', String(tab.dataset.category === category))
@@ -1424,6 +1426,7 @@ export class TownScene {
             const quantity = availableCareerItem(this.profile, item.id)
             return { id: item.id, name: item.name, quantity, refund: townResalePrice(this.profile, item.id) * quantity }
           }), ids => {
+            if (this.player.dead || !this.serviceAvailable(id)) return
             const result = sellTownProducts(this.profile, ids)
             if (!result.sold) { this.talk(id, '目前沒有可賣出的份數，已分配裝備會保留。', 'sell'); return }
             if (!this.commit(result.profile)) { this.talk(id, this.notice, 'sell'); return }
@@ -1454,6 +1457,7 @@ export class TownScene {
             button.disabled = townSaleStatus(this.profile, item.id) !== 'sellable'
             button.textContent = button.disabled ? '已分配，請先換裝／解除分配' : `賣出 · 收回 ${price} 軍功`
             button.onclick = () => {
+              if (this.player.dead || !this.serviceAvailable(id)) return
               const result = sellTownProduct(this.profile, item.id)
               if (!result.sold) { this.talk(id, result.reason === 'allocated' ? '物品正在使用，請先換裝或解除分配。' : '物品已不存在或無法賣出。', 'sell'); return }
               if (!this.commit(result.profile)) { this.talk(id, this.notice, 'sell'); return }
@@ -1490,6 +1494,7 @@ export class TownScene {
           updatePurchase()
           row.append(label, total)
           button.onclick = () => {
+            if (this.player.dead || !this.serviceAvailable(id)) return
             if (mount && (this.player.isFalling || this.player.currentMount?.isAirborne)) { this.talk(id, '請先安全降落，再購買或切換坐騎。', 'buy', category); return }
             const result = mount ? purchaseTownMount(this.profile, item.id, Number(quantity.value)) : purchaseTownEquipment(this.profile, item.id, Number(quantity.value))
             if (!result.purchased) {
@@ -1511,7 +1516,7 @@ export class TownScene {
     }
   }
   private nativeSaleContext(): TownNativeSaleContext {
-    return { townFaction: this.sceneContext.worldFaction, peaceful: !this.event.hostile,
+    return { townFaction: this.sceneContext.worldFaction, peaceful: areOrdinaryTownServicesPeaceful(this.profile, this.event.hostile),
       playerAlive: !this.player.dead, merchantAvailable: this.serviceAvailable('merchant') }
   }
   private appendNativeSale(panel: HTMLElement): void {
@@ -1710,7 +1715,7 @@ export class TownScene {
   }
   /** Eligibility is derived from actual resident identities and existing return/refit owners. */
   private townEquipmentContext(): TownEquipmentContext {
-    const peaceful = !this.retirementFinale?.active && !this.event.hostile && !this.player.dead && !this.sceneContext.missionOnlyResidents
+    const peaceful = areOrdinaryTownServicesPeaceful(this.profile, this.event.hostile) && !this.player.dead && !this.sceneContext.missionOnlyResidents
     const safeActorIds = new Set<string>()
     if (peaceful && !this.profile.activeMission && !this.profile.activeOutpostMission) {
       for (const { spec, npc, homeMount } of this.residents) {
@@ -1750,13 +1755,13 @@ export class TownScene {
     return npc.inCombat
   }
   private canRefitSquad(actors: readonly NPC[], nativeTravel = false): boolean {
-    return !this.retirementFinale?.active && !this.event.hostile && this.squadRefitSafety.allows(this.player, actors, [], undefined, nativeTravel ? npc => this.townRefitEngaged(npc) : undefined)
+    return areOrdinaryTownServicesPeaceful(this.profile, this.event.hostile) && this.squadRefitSafety.allows(this.player, actors, [], undefined, nativeTravel ? npc => this.townRefitEngaged(npc) : undefined)
       && !this.shots.some(shot => !shot.training && (shot.player || actors.some(actor => actor.combatantId === shot.sourceRef?.actorId)))
   }
   private canRefitCivilians(actors: readonly NPC[], orders: readonly TacticalOrder[]): boolean {
     return !this.restoringAerialState && !this.commanderReturnPending
       && (this.residentSpawnBatch?.ready ?? true) && this.deploymentReady
-      && !this.defense.active && !this.defense.servicesLocked && !this.event.hostile
+      && !this.defense.active && !this.defense.servicesLocked && areOrdinaryTownServicesPeaceful(this.profile, this.event.hostile)
       && !this.profile.activeMission && !this.profile.activeOutpostMission
       && this.world.faction === this.profile.faction
       && this.squadRefitSafety.allows(this.player, actors, orders, undefined,
@@ -1770,6 +1775,7 @@ export class TownScene {
     else (this.duel?.active ? this.duel.events : this.defense?.active ? this.defense.events : this.mission?.events)?.emit(event)
   }
   private openRecruitmentPanel(response?: string): void {
+    if (this.player.dead || !this.serviceAvailable('hr-officer')) return
     const greeting = response ?? personalSquadGreeting(this.profile)
     const panel = this.openPanel('Human Resources Center · 人力資源中心', greeting)
     if (!canRecruitPersonalSquad(this.profile)) return
@@ -1786,6 +1792,7 @@ export class TownScene {
       + '\nFollow me：從 HR Center 出發 · Dismiss：返回整補'
     panel.append(summary)
     const refit = this.button(panel, '整補私兵部隊', () => {
+      if (this.player.dead || !this.serviceAvailable('hr-officer')) return
       const repaired = this.personalSquad?.refit(next => this.commit(next))
       this.openRecruitmentPanel(repaired ? '私兵全隊已恢復完整戰力：士兵、坐騎、箭矢與盾牌皆已整補。' : this.notice || '目前無法整補私兵。')
     })
@@ -1801,6 +1808,7 @@ export class TownScene {
       button.disabled = members.length >= 30 || rankLocked
       if (rankLocked) button.title = '需正式任命為 Commander 才能招募。'
       button.onclick = () => {
+        if (this.player.dead || !this.serviceAvailable('hr-officer')) return
         const first = !this.profile.townDialogueSeen?.includes(`${this.profile.faction}:hr-recruit-${item.type}`)
         const result = recruitPersonalSquadMember(this.profile, item.type, next => this.commit(next))
         const message = result.recruited ? first ? PERSONAL_RECRUIT_DIALOGUE[item.type] : '招募成功。'
@@ -1828,6 +1836,7 @@ export class TownScene {
     }
   }
   private confirmPersonalSales(memberIds: string[]): void {
+    if (this.player.dead || !this.serviceAvailable('hr-officer')) return
     const ids = [...new Set(memberIds)]
     const members = ids.map(id => this.profile.personalSquad?.members.find(member => member.id === id))
     if (!ids.length || members.some(member => !member) || this.personalSquad?.state !== 'RESERVE'
@@ -1837,6 +1846,7 @@ export class TownScene {
     const refund = members.reduce((sum, member) => sum + personalMemberRefund(this.profile, member!), 0)
     const confirm = this.openPanel(`賣回 ${ids.length} 名隊員？`, `退款：${refund} 軍功\n目前裝備的武器、盾牌與坐騎會隨隊員離開，不會退回背包。\n想保留的裝備請先換下；非 Ranger 隊員至少要帶一把武器離開。\n這會永久解除僱用。`)
     this.button(confirm, '確認', () => {
+      if (this.player.dead || !this.serviceAvailable('hr-officer')) return
       const result = sellPersonalSquadMembers(() => this.profile, this.personalSquad!, ids, next => this.commit(next))
       if (result.sold) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership() }
       this.openRecruitmentPanel(result.sold ? `已解除僱用 ${result.soldCount} 人，退回 ${result.refund} 可用軍功。` : result.reason === 'save-failed' ? this.notice : '目前不能賣回隊員。')
@@ -1844,6 +1854,7 @@ export class TownScene {
     this.button(confirm, '取消', () => this.openRecruitmentPanel())
   }
   private openSquadRefitPanel(message = '選擇要整補的正式小隊。全滅部隊也保留原本編制。'): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
     const panel = this.openPanel('城防部隊整補', message)
     for (const squad of this.townCommand?.refitSquads ?? []) {
       const row = document.createElement('article'); row.className = 'town-product'
@@ -1855,6 +1866,7 @@ export class TownScene {
       const button = document.createElement('button'); button.className = 'town-button'; button.textContent = '整補此隊'
       button.disabled = !allowed
       button.onclick = () => {
+        if (this.player.dead || !this.serviceAvailable('deployment')) return
         button.disabled = true
         const repaired = this.townCommand!.refit(squad.squadId)
         const pending = this.townCommand!.refitSquads.find(s => s.squadId === squad.squadId)?.pending
@@ -1871,6 +1883,7 @@ export class TownScene {
       const button = document.createElement('button'); button.className = 'town-button'; button.textContent = '整補平民小隊'
       button.disabled = !this.civilianCommand.canRefit()
       button.onclick = () => {
+        if (this.player.dead || !this.serviceAvailable('deployment')) return
         button.disabled = true
         if (!this.civilianCommand!.canRefit()) { this.openSquadRefitPanel('目前無法整補'); return }
         const repaired = this.civilianCommand!.refit()
@@ -1881,6 +1894,7 @@ export class TownScene {
     this.button(panel, '重新整理', () => this.openSquadRefitPanel())
   }
   private openDeploymentPanel(greeting: string, context: DialogueContext, firstOutpost: boolean): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
     const active = this.profile.activeMission
     if (active?.result) { this.openMissionResult(active.result, true); return }
     const panel = this.openPanel('士官長', greeting)
@@ -1889,6 +1903,7 @@ export class TownScene {
     }
     const arrows = document.createElement('p'); arrows.className = 'town-summary'; arrows.textContent = `箭袋 ${this.player.arrowCount}/${PLAYER_ARROW_CAPACITY}`; panel.append(arrows)
     if (this.player.arrowCount < PLAYER_ARROW_CAPACITY) this.button(panel, '申請補滿箭矢', () => {
+      if (this.player.dead || !this.serviceAvailable('deployment')) return
       this.player.setArrowCount(PLAYER_ARROW_CAPACITY)
       this.quiver.setArrowCount(this.player.arrowCount)
       const line = this.profile.faction === 'roman'
@@ -2067,6 +2082,7 @@ export class TownScene {
     }
   }
   private acceptCommanderMission(templateId: string): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.loadChecked().profile
     if (!fresh || !getCommanderMissionDefinition(templateId) || this.player.dead || this.event.hostile) return
     const availability = getCommanderMissionAvailability(fresh, templateId)
@@ -2084,6 +2100,7 @@ export class TownScene {
     this.dispose(); this.onRestart(this.profile)
   }
   private acceptCaptainMission(templateId: string): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.loadChecked().profile, definition = getCaptainMissionDefinition(templateId)
     if (!fresh || !definition || this.player.dead || this.event.hostile) return
     const availability = getCaptainMissionAvailability(fresh, templateId)
@@ -2129,6 +2146,7 @@ export class TownScene {
     if (templateId === CAPTAIN_PATROL_COMMAND_ID) this.updateCaptainPatrolGuide()
   }
   private acceptVeteranCareerMission(templateId: string): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
     const definition = getVeteranMissionDefinition(templateId)
     const fresh = this.store.loadChecked().profile
     if (!definition || !fresh || this.player.dead || this.event.hostile) return
@@ -2231,6 +2249,7 @@ export class TownScene {
     }
   }
   private acceptRace(id: RaceId): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.loadChecked().profile
     if (!fresh || !this.race?.accept(id, fresh)) {
       this.openPanel('無法接受賽馬', this.race?.error || '無法讀取生涯存檔。'); return
@@ -2292,6 +2311,7 @@ export class TownScene {
         : session.phase === 'returning' ? '返回小鎮' : '北門起跑區')
   }
   private acceptDuel(presetId: UnitPresetId, tier: CareerDuelTier): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.load()
     if (!fresh || this.player.dead || this.event.hostile || !isCareerDuelUnlocked(fresh, presetId, tier) || fresh.activeRace || fresh.activeMission || fresh.activeOutpostMission || fresh.townEvent?.state === 'hostile') {
       this.openPanel('無法接受單挑', '生涯存檔已變更、該兵種 Tier 尚未解鎖，或目前正在交戰。'); return
@@ -2307,6 +2327,7 @@ export class TownScene {
     this.closePanel()
   }
   private acceptOutpostRelief(): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.loadChecked().profile
     const next = fresh && acceptCareerOutpostRelief(fresh)
     if (!next) { this.openPanel('無法接受任務', '需完成 Outpost I–III、擁有合法坐騎且沒有進行中的任務。'); return }
@@ -2317,6 +2338,7 @@ export class TownScene {
   }
 
   private acceptOutpost(stageId: CareerOutpostStageId): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.loadChecked().profile
     if (!fresh) { this.openPanel('無法接受任務', '無法讀取 Career profile。'); return }
     const next = acceptCareerOutpost(fresh, stageId)
@@ -2578,6 +2600,7 @@ export class TownScene {
     if (played && !this.disposed && this.profile.activeMission?.id === missionId) this.playMissionVoice('townDefense')
   }
   private acceptMission(templateId: string): void {
+    if (this.player.dead || !this.serviceAvailable('deployment')) return
     if (getCaptainMissionDefinition(templateId)) { this.acceptCaptainMission(templateId); return }
     if (getVeteranMissionDefinition(templateId)) { this.acceptVeteranCareerMission(templateId); return }
     const fresh = this.store.load()
@@ -2854,7 +2877,7 @@ export class TownScene {
     } finally { this.commanderReturnPending = false }
   }
   private serviceAvailable(id: string): boolean {
-    if (this.sceneContext.missionOnlyResidents || this.retirementFinale?.active) return false
+    if (this.sceneContext.missionOnlyResidents || !areOrdinaryTownServicesPeaceful(this.profile, this.event.hostile)) return false
     if (id === 'merchant' && this.civilianCommand?.returningActorIds.includes(id)) return false
     if (id === 'commander' && !this.residents.some(resident => resident.spec.id === id)) return false
     if (this.duel?.active && (id === 'captain' || id === 'commander' || id === 'ranger' || id === 'cat')) return false
@@ -3688,7 +3711,7 @@ export class TownScene {
       }
     }
     this.target = null; let nearest = 2.6
-    if (!this.profile.activeRace && !this.event.hostile && !this.defense.active && !this.player.isFalling && !this.player.currentMount?.isAirborne) for (const id of ['captain', 'commander', 'deployment', 'merchant', 'ranger', 'cat', 'hr-officer', 'eagle-trainer']) {
+    if (!this.profile.activeRace && !this.defense.active && !this.player.isFalling && !this.player.currentMount?.isAirborne) for (const id of ['captain', 'commander', 'deployment', 'merchant', 'ranger', 'cat', 'hr-officer', 'eagle-trainer']) {
       if (!this.serviceAvailable(id)) continue
       const pos = id === 'cat' ? this.cat.group.position : this.residents.find(r => r.spec.id === id)!.npc.combatPosition
       // Use the grounded mount's base, so the giant eagle's standing seat can still talk.
@@ -3957,7 +3980,7 @@ export class TownScene {
       ? new THREE.Vector3(TOWN_RETIREMENT_EXTRACTION.x, getTerrainHeight(TOWN_RETIREMENT_EXTRACTION.x, TOWN_RETIREMENT_EXTRACTION.z), TOWN_RETIREMENT_EXTRACTION.z) : null
     this.retirementGuide.updateRetirement(this.player.combatPosition, this.orbit.cameraYaw, retirementTarget)
     this.updateRaceHud()
-    for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && !this.defense.active && this.serviceAvailable(id)
+    for (const [id, marker] of this.serviceMarkers) marker.visible = !this.defense.active && this.serviceAvailable(id)
     const missionHud = this.profile.activeMission
       ? this.mission?.travelEncounter?.active
         ? '\n途中遭遇敵軍 · 全隊支援，解除威脅後繼續路線'

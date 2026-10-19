@@ -14,24 +14,28 @@ function button(parent: HTMLElement, label: string, action: () => void): HTMLBut
 
 /** Presentation only; acceptance still belongs to Town's save-first transaction. */
 export function appendCommanderRetirementOption(panel: HTMLElement, profile: CareerProfile, actions: {
+  available(): boolean
   openPanel(title: string, text: string): HTMLDivElement
   start(): boolean
   leave(): void
 }): void {
   if (profile.rank !== 'commander') return
+  // Recheck live service authority, not the profile captured by a removed dialog.
+  const serviceButton = (parent: HTMLElement, label: string, action: () => void) =>
+    button(parent, label, () => { if (actions.available()) action() })
   const eligibility = commanderRetirementEligibility(profile)
   const detail = document.createElement('p'); detail.className = 'town-summary'; detail.style.whiteSpace = 'pre-line'
   detail.textContent = `退休資格\n\n指揮官任務勝利：${eligibility.commanderVictories} / ${eligibility.requiredVictories}\n守住敵軍全線進攻：${eligibility.fourGateDefenseCompleted ? '已完成' : '未完成'}`
     + (eligibility.eligible ? '\n\n退休資格已完成\n你可以向前任指揮官申請退休。' : '')
   detail.title = RETIREMENT_DETAIL
   panel.append(detail)
-  const apply = button(panel, '申請退休', () => {
+  const apply = serviceButton(panel, '申請退休', () => {
     if (!eligibility.eligible || profile.careerRetirement) return
     const dialogue = actions.openPanel('前任指揮官', RETIREMENT_DIALOGUE)
-    button(dialogue, '申請退休', () => {
+    serviceButton(dialogue, '申請退休', () => {
       const confirmation = actions.openPanel('申請退休', RETIREMENT_CONFIRMATION)
       const status = document.createElement('p'); confirmation.append(status)
-      const accept = button(confirmation, '接受退休', () => {
+      const accept = serviceButton(confirmation, '接受退休', () => {
         if (accept.disabled) return
         accept.disabled = true
         if (!actions.start()) {
@@ -41,9 +45,9 @@ export function appendCommanderRetirementOption(panel: HTMLElement, profile: Car
         }
         actions.openPanel('申請退休', '城鎮軍令已交回。\n所有私人部隊已改為 Follow。\n前往地圖邊緣的退役集合點。')
       })
-      button(confirmation, '暫時留下', actions.leave)
+      serviceButton(confirmation, '暫時留下', actions.leave)
     })
-    button(dialogue, '暫時留下', actions.leave)
+    serviceButton(dialogue, '暫時留下', actions.leave)
   })
   apply.title = RETIREMENT_DETAIL
   apply.disabled = !eligibility.eligible || Boolean(profile.careerRetirement)
