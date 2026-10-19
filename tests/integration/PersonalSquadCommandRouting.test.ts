@@ -44,11 +44,12 @@ describe('Personal Squad command lifecycle routing', () => {
     // Real Follow and scheduler queues, with no materialization or scene/model constructors.
     const runtime = Object.assign(Object.create(PersonalSquadRuntime.prototype), {
       actors: [], mission, state: 'RESERVE', read: () => profile,
+      player: () => ({ dead: false, combatPosition: new Vector3(), group: { rotation: { y: 0 } } }),
       options: { scheduler }, muster: profile.personalSquad.members.map((_, index) => ({ x: index * 5, z: 0, yaw: 0 })),
       pending: new Map(), batches: [], commandRevision: 0, returnCommand: -1000,
       boarding: new Map(), returningOnFoot: new Set(), awaitingEaglePad: new Set(),
       eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(),
-    }) as Pick<PersonalSquadRuntime, 'follow' | 'dismiss' | 'checkpoint' | 'hudPendingIds' | 'cancelPendingSpawns'>
+    }) as Pick<PersonalSquadRuntime, 'follow' | 'dismiss' | 'checkpoint' | 'hudPendingIds' | 'cancelPendingSpawns' | 'canRefit' | 'updateLifecycle'>
     const issue = vi.fn((order: string) => order === 'follow' ? runtime.follow() : runtime.dismiss()), npcs: CommandRecipientFixture[] = []
     const { controller, input } = controllerHarness(npcs, null, null, null, 'roman', 'squad', true, { issue, enabled: () => true })
     try {
@@ -65,6 +66,18 @@ describe('Personal Squad command lifecycle routing', () => {
       expect(issue).toHaveBeenLastCalledWith('dismiss')
       expect(member.setTacticalOrder).not.toHaveBeenCalled()
       expect(scheduler.pending).toBe(0)
+      // The same command route must not readmit reserves/casualties in the final battle.
+      expect(runtime.canRefit).toBe(true)
+      profile.careerRetirement = { version: 1, phase: 'final-stand', acceptedAt: 1, combatElapsedSeconds: 12 }
+      const savedBefore = runtime.checkpoint()!
+      expect(runtime.follow()).toBe(false)
+      expect(runtime.canRefit).toBe(false)
+      expect(scheduler.pending).toBe(0)
+      expect(runtime.checkpoint()?.members).toEqual(savedBefore.members)
+      runtime.updateLifecycle()
+      expect(runtime.checkpoint()?.members).toEqual(savedBefore.members)
+      expect(runtime.checkpoint()?.state).toBe('ACTIVE')
+      expect(profile.personalSquad.members).toHaveLength(3)
     } finally { runtime.cancelPendingSpawns() }
   })
 

@@ -139,6 +139,11 @@ export class PersonalSquadRuntime {
   }
   get sceneKey(): string { return this.options.sceneKey ?? 'town-home' }
   get hasHR(): boolean { return this.options.hasHR !== false }
+  /** Final retirement has no HR refit boundary: every live resource and casualty stays owned. */
+  private get retirementResourcesLocked(): boolean {
+    const phase = this.read().careerRetirement?.phase
+    return phase === 'final-stand' || phase === 'completed'
+  }
   setMuster(slots: readonly PersonalSquadSpawnSlot[], eaglePads?: readonly EaglePad[]): void {
     if (eaglePads) this.eaglePads.setPads(eaglePads)
     this.muster = slots
@@ -226,7 +231,7 @@ export class PersonalSquadRuntime {
   /** HR repairs live members; absent casualties return to reserve for the next deployment. */
   get canRefit(): boolean {
     const profile = this.read()
-    return this.hasHR && this.ready && !profile.activeMission && !profile.activeOutpostMission
+    return this.hasHR && this.ready && !this.retirementResourcesLocked && !profile.activeMission && !profile.activeOutpostMission
       && Boolean(profile.personalSquad?.members.length) && this.command !== 'attack' && this.command !== 'charge'
       && !this.actors.some(actor => !actor.dead && (actor.inCombat || actor.tacticalOrder === 'attack' || actor.tacticalOrder === 'charge'))
       && (this.options.canRefit?.() ?? true)
@@ -265,7 +270,7 @@ export class PersonalSquadRuntime {
     this.mission ??= snapshotPersonalMission(profile, this.sceneKey)
     const existing = new Set(this.actors.map(actor => actor.combatantId))
     const owned = new Map((profile.personalSquad?.members ?? []).map(member => [member.id, member]))
-    if (this.mission && this.hasHR && !profile.activeMission && !profile.activeOutpostMission) {
+    if (this.mission && this.hasHR && !this.retirementResourcesLocked && !profile.activeMission && !profile.activeOutpostMission) {
       // Free-town deployment admits later hires and completed HR arrivals. Live
       // wounds and casualties remain authoritative; this is not a refit boundary.
       this.mission.memberIds = [...owned.keys()]
@@ -280,7 +285,7 @@ export class PersonalSquadRuntime {
     const memberIds = this.mission?.memberIds ?? profile.personalSquad?.members.map(member => member.id) ?? []
     for (const [index, id] of memberIds.entries()) {
       const saved = this.mission?.members[id]
-      if (existing.has(id) || this.pending.has(id) || saved && saved.status !== 'reserve') continue
+      if (this.retirementResourcesLocked || existing.has(id) || this.pending.has(id) || saved && saved.status !== 'reserve') continue
       const member = owned.get(id), slot = this.muster[index]
       if (member && slot) this.queueMember(member, slot, index)
     }
@@ -364,6 +369,13 @@ export class PersonalSquadRuntime {
     const live = this.actors.filter(actor => !actor.dead)
     this.checkpoint()
     if (this.state === 'RETURNING' && live.every(actor => !actor.mount?.isFlyingMount && !actor.mount?.isAirborne && !actor.pendingFall?.active && actor.formationCommandId !== null && actor.isFormationTargetReached(actor.formationCommandId))) {
+      if (this.retirementResourcesLocked) {
+        // Returning remains a movement command, never a resurrection/healing boundary.
+        this.state = 'ACTIVE'; this.battleWorn = true
+        for (const actor of live) actor.missionMovement = false
+        this.checkpoint()
+        return
+      }
       if (this.mission) for (const actor of live) this.mission.members[actor.combatantId].status = 'exited'
       this.disposeActors()
       if (!this.read().activeMission && !this.read().activeOutpostMission) { this.mission = undefined; this.battleWorn = false }
@@ -568,6 +580,7 @@ export class PersonalSquadRuntime {
 
   /** Refit each returned rider before admitting a legacy overflow owner to the same physical pad. */
   private finishEagleReturn(actor: NPC): void {
+    if (this.retirementResourcesLocked) return
     const mount = this.memberMounts.get(actor.combatantId)
     if (this.mission?.members[actor.combatantId]) this.mission.members[actor.combatantId].status = 'exited'
     this.options.onDispose?.(actor, mount)

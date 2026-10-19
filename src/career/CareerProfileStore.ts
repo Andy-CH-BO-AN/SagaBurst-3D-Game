@@ -1,5 +1,6 @@
 import { hasCompleteRetirementMobilizationCheckpoint, parseRetirementActorCheckpoints } from './CareerRetirementMobilization'
-import { parseCareerRetirementState } from './CareerRetirementState'
+import { parseCareerRetirementState, type CareerRetirementRuntime } from './CareerRetirementState'
+import { parseEagleFlightSnapshot } from '../movement/EagleFlightController'
 import { TOWN_WATCHTOWER_ARCHER_IDS } from '../town/TownNativeGuardIdentity'
 import { BRIDGEHEAD_FRIENDLIES, BRIDGEHEAD_ENEMIES, BRIDGEHEAD_FRIENDLY_SQUADS, BRIDGEHEAD_SQUAD_SIZE, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
 import { horseVariantFromSave } from '../world/HorseAssetRegistry'
@@ -114,6 +115,45 @@ function parseMissionMountState(value: unknown): ActiveCareerMission['mountState
     .map(canonicalCareerMountId))]
   if (!activeMountId && Object.keys(hp).length === 0 && unavailable.length === 0) return undefined
   return { ...(activeMountId ? { activeMountId } : {}), hp, unavailable }
+}
+
+/** Retirement has no mission respawn. Missing/corrupt resource data must not heal it. */
+function parseRetirementRuntime(value: unknown): CareerRetirementRuntime | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const raw = value as Partial<CareerRetirementRuntime>, player = raw.player
+  const validPosition = (point: unknown): point is CareerRetirementRuntime['player']['position'] => {
+    if (!point || typeof point !== 'object' || Array.isArray(point)) return false
+    const p = point as CareerRetirementRuntime['player']['position']
+    return [p.x, p.y, p.z, p.yaw].every(v => typeof v === 'number' && Number.isFinite(v))
+  }
+  const resource = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
+  if (!player || !validPosition(player.position) || typeof player.mounted !== 'boolean'
+    || ![player.hp, player.stamina, player.arrows, player.shieldImpact].every(resource)) return undefined
+  if (player.shieldDurability !== undefined && (!player.shieldDurability || typeof player.shieldDurability !== 'object'
+    || Array.isArray(player.shieldDurability) || Object.values(player.shieldDurability).some(value => !resource(value)))) return undefined
+  let mountState: CareerRetirementRuntime['mountState']
+  if (raw.mountState !== undefined) {
+    const state = raw.mountState
+    if (!state || typeof state !== 'object' || !state.hp || typeof state.hp !== 'object' || Array.isArray(state.hp)
+      || !Array.isArray(state.unavailable) || new Set(state.unavailable).size !== state.unavailable.length
+      || state.unavailable.some(id => !CAREER_MOUNT_IDS.includes(id))
+      || Object.entries(state.hp).some(([id, hp]) => !CAREER_MOUNT_IDS.includes(id as CareerMountId) || !resource(hp))
+      || state.activeMountId !== undefined && !CAREER_MOUNT_IDS.includes(state.activeMountId)) return undefined
+    mountState = parseMissionMountState(state) ?? { hp: {}, unavailable: [] }
+  }
+  let mount: CareerRetirementRuntime['mount']
+  if (raw.mount !== undefined) {
+    const saved = raw.mount
+    if (!saved || !validPosition(saved.position) || !resource(saved.hp)) return undefined
+    const flight = saved.flight === undefined ? undefined : parseEagleFlightSnapshot(saved.flight)
+    if (saved.flight !== undefined && !flight) return undefined
+    mount = { position: { ...saved.position }, hp: saved.hp, ...(flight ? { flight } : {}) }
+  }
+  if (player.mounted && !mount) return undefined
+  return { player: { position: { ...player.position }, hp: player.hp, stamina: player.stamina,
+    arrows: player.arrows, shieldImpact: player.shieldImpact, mounted: player.mounted,
+    ...(player.shieldDurability ? { shieldDurability: { ...player.shieldDurability } } : {}) },
+    ...(mountState ? { mountState } : {}), ...(mount ? { mount } : {}) }
 }
 
 function parseActorPositions(value: unknown, knownActorIds: ReadonlySet<string>): ActiveCareerMission['actorPositions'] | undefined {
@@ -515,6 +555,11 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ? parseCareerRetirementState(raw.careerRetirement) : undefined
   // Never turn a malformed irreversible ending checkpoint into an ordinary Town save.
   if (careerRetirement === null) return null
+  const retirementRuntime = raw.retirementRuntime === undefined ? undefined : parseRetirementRuntime(raw.retirementRuntime)
+  if (raw.retirementRuntime !== undefined && (!careerRetirement || !retirementRuntime)) return null
+  // A prepared live finale must never migrate by healing fresh player resources.
+  // Preserve receiptless legacy records; runtime refuses to start their ambush.
+  if (careerRetirement?.phase === 'final-stand' && careerRetirement.mobilization && !retirementRuntime) return null
   if (raw.inventory !== undefined && (!raw.inventory || typeof raw.inventory !== 'object'
     || (raw.inventory as CareerInventory).version !== 1 || !(raw.inventory as CareerInventory).quantities
     || typeof (raw.inventory as CareerInventory).quantities !== 'object' || Array.isArray((raw.inventory as CareerInventory).quantities))) return null
@@ -573,6 +618,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (townEvent?.pendingResult !== undefined && (townEvent.state !== 'hostile' || !['player_defeated', 'town_defeated'].includes(townEvent.pendingResult))) return null
   const profile: CareerProfile = {
     ...(careerRetirement ? { careerRetirement } : {}),
+    ...(retirementRuntime ? { retirementRuntime } : {}),
     ...(raw.retirementTowerGuards !== undefined ? { retirementTowerGuards: parseRetirementActorCheckpoints(raw.retirementTowerGuards, TOWN_WATCHTOWER_ARCHER_IDS) ?? undefined } : {}),
     ...(townEquipment ? { townEquipment } : {}),
     ...(raw.inventory ? { inventory: raw.inventory as CareerInventory } : {}),

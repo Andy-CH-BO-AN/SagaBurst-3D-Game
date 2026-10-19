@@ -352,6 +352,34 @@ it('round-trips an isolated retirement checkpoint and rejects a corrupted ending
   expect(restoredReady.careerRetirement).toEqual(ready.careerRetirement)
   expect(restoredReady.townCommandSquad?.authorized).toBe(false)
   expect(restoredReady.townCommandSquad?.commandedActorIds).toEqual([])
+  // The finale clock and both outcomes retain the Commander appointment and native casualties.
+  const finalStand = cloneCareerProfile(restoredReady)
+  finalStand.careerRetirement = { ...finalStand.careerRetirement!, phase: 'final-stand', combatElapsedSeconds: 183.5 }
+  finalStand.retirementRuntime = { player: { position: { x: 1, y: 2, z: -318, yaw: 0.4 },
+    hp: 17, stamina: 21, arrows: 3, shieldImpact: 4, shieldDurability: { shield_t1: 0 }, mounted: true },
+    mountState: { activeMountId: 'horse', hp: { horse: 9 }, unavailable: ['corgi'] },
+    mount: { position: { x: 1, y: 2, z: -318, yaw: 0.4 }, hp: 9 } }
+  const casualty = finalStand.townCommandSquad!.members!.captain
+  casualty.hp = 0; casualty.status = 'dead'; casualty.mount!.hp = 0; casualty.mount!.mounted = false
+  const resumed = parseCareerProfile(JSON.parse(JSON.stringify(finalStand)))!
+  expect(resumed.careerRetirement?.combatElapsedSeconds).toBe(183.5)
+  expect(resumed.retirementRuntime).toEqual(finalStand.retirementRuntime)
+  expect(resumed.townCommandSquad!.members!.captain).toEqual(casualty)
+  expect(parseCareerProfile({ ...finalStand, retirementRuntime: undefined })).toBeNull()
+  const runtimeCopy = cloneCareerProfile(resumed)
+  runtimeCopy.retirementRuntime!.player.hp = 90
+  runtimeCopy.retirementRuntime!.mountState!.hp.horse = 90
+  expect(resumed.retirementRuntime!.player.hp).toBe(17)
+  expect(resumed.retirementRuntime!.mountState!.hp.horse).toBe(9)
+  const invalidRuntime = cloneCareerProfile(resumed)
+  invalidRuntime.retirementRuntime!.player.hp = Number.NaN
+  expect(parseCareerProfile(invalidRuntime)).toBeNull()
+  const completed = { ...finalStand, careerRetirement: { ...finalStand.careerRetirement!,
+    phase: 'completed' as const, combatElapsedSeconds: 300, outcome: 'escaped' as const } }
+  const ending = parseCareerProfile(JSON.parse(JSON.stringify(completed)))!
+  expect(ending.rank).toBe('commander')
+  expect(ending.careerRetirement).toEqual(completed.careerRetirement)
+  expect(ending.townCommandSquad!.members!.captain).toEqual(casualty)
   const receiptCopy = cloneCareerProfile(restoredReady)
   expect(receiptCopy.careerRetirement!.mobilization).not.toBe(restoredReady.careerRetirement!.mobilization)
   receiptCopy.retirementTowerGuards![TOWN_WATCHTOWER_ARCHER_IDS[0]].hp = 12

@@ -1,4 +1,4 @@
-import type { CareerRetirementState } from './CareerRetirementState'
+import type { CareerRetirementRuntime, CareerRetirementState } from './CareerRetirementState'
 import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { cloneTownEquipment, type CareerTownEquipment } from './CareerTownEquipmentState'
 import { cloneTownAirCommandSquad, type TownAirCommandSquadState } from './TownAirCommandAuthority'
@@ -80,6 +80,8 @@ export interface CareerProfile {
   rank: CareerRank
   /** Optional ending lifecycle; retirement never changes the appointed rank. */
   careerRetirement?: CareerRetirementState
+  /** Grounded player and owned-mount resources throughout the retirement sequence. */
+  retirementRuntime?: CareerRetirementRuntime
   /** Native tower resources have no ordinary command checkpoint. */
   retirementTowerGuards?: Record<string, import('./CareerPersonalSquadMission').PersonalActorCheckpoint>
   /** Permanent Career combat progression. Never resets when returning to town or changing missions. */
@@ -486,6 +488,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
     ...(profile.retirementTowerGuards ? { retirementTowerGuards: structuredClone(profile.retirementTowerGuards) } : {}),
+    ...(profile.retirementRuntime ? { retirementRuntime: structuredClone(profile.retirementRuntime) } : {}),
     ...(profile.careerRetirement ? { careerRetirement: { ...profile.careerRetirement, ...(profile.careerRetirement.mobilization ? { mobilization: { ...profile.careerRetirement.mobilization } } : {}) } } : {}),
     ...(profile.racePlayerState ? { racePlayerState: structuredClone(profile.racePlayerState) } : {}),
     ...(profile.activeRace ? { activeRace: structuredClone(profile.activeRace) } : {}),

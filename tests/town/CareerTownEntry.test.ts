@@ -7,6 +7,8 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { enterCareerTown, TOWN_ENTRY_KEY } from '../../src/town/CareerTownEntry'
 import { TownScene } from '../../src/town/TownScene'
+import { starterThumbnails } from '../../src/town/TownUI'
+import { CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { claimCareerMission } from '../../src/career/CareerProfile'
 
@@ -14,32 +16,83 @@ vi.mock('../../src/town/TownScene', () => ({ TownScene: { create: vi.fn() } }))
 vi.mock('../../src/town/TownUI', () => ({ installTownStyles: vi.fn(), starterThumbnails: vi.fn() }))
 
 interface EntryElement {
-  textContent: string; style: Record<string, string>; children: EntryElement[]
+  textContent: string; style: Record<string, string>; children: EntryElement[]; tag: string; removed: boolean
   onclick: null | (() => void); append(...children: EntryElement[]): void; remove: ReturnType<typeof vi.fn>
+  replaceChildren(...children: EntryElement[]): void; querySelectorAll(selector: string): EntryElement[]
 }
-function element(): EntryElement {
-  return { textContent: '', style: {}, children: [] as EntryElement[], onclick: null as null | (() => void), append(...children: EntryElement[]) { this.children.push(...children) }, remove: vi.fn() }
+function element(tag = 'div'): EntryElement {
+  const value: EntryElement = {
+    textContent: '', style: {}, children: [], onclick: null, tag, removed: false,
+    append(...children) { this.children.push(...children) },
+    replaceChildren(...children) { this.children = children; this.removed = false },
+    querySelectorAll(selector) { return this.children.flatMap(child => [...(child.tag === selector ? [child] : []), ...child.querySelectorAll(selector)]) },
+    remove: vi.fn(() => { value.removed = true }),
+  }
+  return value
+}
+function findText(root: EntryElement, text: string): EntryElement | undefined {
+  if (root.removed) return undefined
+  if (root.textContent === text) return root
+  return root.children.map(child => findText(child, text)).find(Boolean)
 }
 
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 describe('Town load failure recovery', () => {
-  it('starts gameplay only after scene initialization and removal of the loading overlay', async () => {
+  it('replaces a completed Career only after confirmed starter selection and a successful save, then starts after loading', async () => {
     const local = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
-    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
-    new CareerProfileStore(local).save(profile)
-    const start = vi.fn(() => expect(body.children[1].remove).toHaveBeenCalledOnce())
+    vi.mocked(starterThumbnails).mockReturnValue(new Map())
+    const profile = createCareerProfile('roman')
+    profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
+    profile.rank = 'commander'; profile.totalMerit = profile.availableMerit = 20000
+    profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 123, combatElapsedSeconds: 42, outcome: 'fallen' }
+    const store = new CareerProfileStore(local)
+    expect(store.save(profile)).toBe(true)
+    const original = local.getItem(CAREER_STORAGE_KEY)
+    const home = vi.fn()
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home)
+    expect(TownScene.create).not.toHaveBeenCalled()
+    expect(findText(body, '退休結局：光榮退役')).toBeDefined()
+    findText(body, '開始新的 Career')!.onclick!()
+    findText(body, '取消')!.onclick!()
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
+    findText(body, '開始新的 Career')!.onclick!()
+    findText(body, '開始新生涯')!.onclick!()
+    // Cancelling the existing faction/starter creator is still non-destructive.
+    findText(body, '取消')!.onclick!()
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
+    findText(body, '開始新的 Career')!.onclick!()
+    findText(body, '開始新生涯')!.onclick!()
+    const form = body.children[body.children.length - 1]
+    const grid = form.children[form.children.length - 1]
+    local.failWrites = true
+    grid.children[0].onclick!()
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
+    expect(TownScene.create).not.toHaveBeenCalled()
+    local.failWrites = false
+    let loading: EntryElement | undefined
+    const start = vi.fn(() => expect(loading?.remove).toHaveBeenCalledOnce())
     vi.mocked(TownScene.create).mockImplementation(async () => {
+      loading = body.children[body.children.length - 1]
       expect(start).not.toHaveBeenCalled()
-      expect(body.children[1].remove).not.toHaveBeenCalled()
+      expect(loading.remove).not.toHaveBeenCalled()
       return { start } as unknown as TownScene
     })
-    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
+    grid.children[0].onclick!()
     await Promise.resolve()
     expect(start).toHaveBeenCalledOnce()
+    expect(home).not.toHaveBeenCalled()
+    const fresh = store.loadChecked().profile!
+    expect(fresh).toMatchObject({ rank: 'recruit', totalMerit: 0, availableMerit: 0, starterWeaponId: 'gladius_rusty', claimedBattleIds: [] })
+    expect(fresh.careerRetirement).toBeUndefined()
+    expect(fresh.personalSquad?.members ?? []).toEqual([])
+    expect(fresh.activeMission).toBeUndefined()
+    expect(fresh.careerMissionCompletions).toBeUndefined()
+    expect(fresh.townEvent).toBeUndefined()
+    expect(fresh.inventory?.quantities).toEqual({ gladius_rusty: 1 })
   })
 
   it('saves the castle refit before map launch and offers a retry if that save fails', async () => {
