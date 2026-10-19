@@ -263,10 +263,21 @@ export class PersonalSquadRuntime {
     if (profile.activeMission?.kind === 'duel') return false
     if ((profile.activeMission || profile.activeOutpostMission) && !this.mission) return false
     this.mission ??= snapshotPersonalMission(profile, this.sceneKey)
-    this.syncEagleReservations()
-    const memberIds = this.mission?.memberIds ?? profile.personalSquad?.members.map(member => member.id) ?? []
     const existing = new Set(this.actors.map(actor => actor.combatantId))
     const owned = new Map((profile.personalSquad?.members ?? []).map(member => [member.id, member]))
+    if (this.mission && this.hasHR && !profile.activeMission && !profile.activeOutpostMission) {
+      // Free-town deployment admits later hires and completed HR arrivals. Live
+      // wounds and casualties remain authoritative; this is not a refit boundary.
+      this.mission.memberIds = [...owned.keys()]
+      for (const id of this.mission.memberIds) {
+        const saved = this.mission.members[id]
+        if ((!saved || saved.status === 'exited') && !existing.has(id) && !this.pending.has(id)) {
+          this.mission.members[id] = { status: 'reserve', ...(saved?.eaglePadId ? { eaglePadId: saved.eaglePadId } : {}) }
+        }
+      }
+    }
+    this.syncEagleReservations()
+    const memberIds = this.mission?.memberIds ?? profile.personalSquad?.members.map(member => member.id) ?? []
     for (const [index, id] of memberIds.entries()) {
       const saved = this.mission?.members[id]
       if (existing.has(id) || this.pending.has(id) || saved && saved.status !== 'reserve') continue
@@ -466,6 +477,15 @@ export class PersonalSquadRuntime {
   private applyCommand(npc: NPC, index: number): void {
     npc.missionMovement = false
     if (npc.mount?.isFlyingMount) npc.setEagleFlightOrder(null)
+    // A formal HR return parks the owned eagle separately from its rider. A
+    // later Follow, including one issued while restore jobs are pending, boards
+    // that same mount through the ordinary live-contact transfer.
+    const ownedMount = this.memberMounts.get(npc.combatantId)
+    if (this.command === 'follow' && this.hasHR && !npc.mount && !npc.isFalling
+      && ownedMount?.isFlyingMount && !ownedMount.dead && !this.boarding.has(npc)) {
+      this.orderBoarding(npc, ownedMount, index)
+      return
+    }
     const boarding = this.boarding.get(npc)
     if (boarding) {
       const mount = this.memberMounts.get(npc.combatantId)

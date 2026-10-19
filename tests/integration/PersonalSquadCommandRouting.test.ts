@@ -10,6 +10,8 @@ import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSqu
 import type { NPC } from '../../src/world/NPC'
 import type { Mount } from '../../src/world/Mount'
 import { Faction } from '../../src/world/NPC'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 
 import { createArmyCommandHarness as controllerHarness, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
 
@@ -32,17 +34,38 @@ describe('Personal Squad command lifecycle routing', () => {
     expect(ui.render.mock.lastCall![0][0]).toMatchObject({ target: 'squad:personal', order: 'defend' })
   })
 
-  it('allows existing ALL → Follow me with an empty reserve runtime and routes Dismiss only to its owner', () => {
-    const issue = vi.fn(() => true), npcs: CommandRecipientFixture[] = []
+  it('deploys the current HR roster once through ALL → Follow and routes Dismiss only to its owner', () => {
+    const profile = createCareerProfile('roman')
+    profile.personalSquad = { members: ['returned', 'casualty', 'new'].map(id => ({ id: `personal:${id}`, type: 'soldier' as const })) }
+    const mission: PersonalSquadMission = { squadId: 'personal', sceneKey: 'town-home', state: 'RESERVE',
+      memberIds: ['personal:returned', 'personal:casualty'], contribution: emptyPersonalContribution(),
+      members: { 'personal:returned': { status: 'exited' }, 'personal:casualty': { status: 'dead', hp: 0 } } }
+    const scheduler = new NpcSpawnScheduler()
+    // Real Follow and scheduler queues, with no materialization or scene/model constructors.
+    const runtime = Object.assign(Object.create(PersonalSquadRuntime.prototype), {
+      actors: [], mission, state: 'RESERVE', read: () => profile,
+      options: { scheduler }, muster: profile.personalSquad.members.map((_, index) => ({ x: index * 5, z: 0, yaw: 0 })),
+      pending: new Map(), batches: [], commandRevision: 0, returnCommand: -1000,
+      boarding: new Map(), returningOnFoot: new Set(), awaitingEaglePad: new Set(),
+      eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(),
+    }) as Pick<PersonalSquadRuntime, 'follow' | 'dismiss' | 'checkpoint' | 'hudPendingIds' | 'cancelPendingSpawns'>
+    const issue = vi.fn((order: string) => order === 'follow' ? runtime.follow() : runtime.dismiss()), npcs: CommandRecipientFixture[] = []
     const { controller, input } = controllerHarness(npcs, null, null, null, 'roman', 'squad', true, { issue, enabled: () => true })
-    input.pressAll(); controller.update()
-    input.press('5'); controller.update()
-    expect(issue).toHaveBeenLastCalledWith('follow')
-    const member = { faction: Faction.PLAYER, presetId: 'roman_sword_cavalry', squadId: 1, dead: false, setTacticalOrder: vi.fn() }
-    npcs.push(member)
-    input.pressAll(); controller.update(); input.press('6'); controller.update()
-    expect(issue).toHaveBeenLastCalledWith('dismiss')
-    expect(member.setTacticalOrder).not.toHaveBeenCalled()
+    try {
+      input.pressAll(); controller.update(); input.press('5'); controller.update()
+      expect(issue).toHaveBeenLastCalledWith('follow')
+      expect(runtime.hudPendingIds).toEqual(['personal:returned', 'personal:new'])
+      expect(runtime.checkpoint()).toMatchObject({ memberIds: ['personal:returned', 'personal:casualty', 'personal:new'],
+        members: { 'personal:casualty': { status: 'dead', hp: 0 } } })
+      input.pressAll(); controller.update(); input.press('5'); controller.update()
+      expect(scheduler.pending).toBe(2)
+      const member = { faction: Faction.PLAYER, presetId: 'roman_sword_cavalry', squadId: 1, dead: false, setTacticalOrder: vi.fn() }
+      npcs.push(member)
+      input.pressAll(); controller.update(); input.press('6'); controller.update()
+      expect(issue).toHaveBeenLastCalledWith('dismiss')
+      expect(member.setTacticalOrder).not.toHaveBeenCalled()
+      expect(scheduler.pending).toBe(0)
+    } finally { runtime.cancelPendingSpawns() }
   })
 
   it('does not handle Personal Squad commands while a formal mission blocks the owner', () => {
@@ -93,7 +116,7 @@ describe('Personal Squad command lifecycle routing', () => {
 
 // Exercise the real restore/transfer consumer with numeric actor boundaries only.
 // No Runtime/NPC/Mount constructor, scene, geometry or model is materialized.
-function boardingHarness() {
+function boardingHarness(command: 'defend' | 'follow' = 'defend') {
   const home = { id: 'private-eagle-pad:1', x: -85, y: 0, z: 54, yaw: 0 }
   const eaglePads = new EaglePadReservations([home]); eaglePads.reserve('personal:eagle')
   const mount = {
@@ -109,16 +132,18 @@ function boardingHarness() {
     mount: undefined as Mount | undefined,
     restoreCombatHealth: vi.fn(), restoreCombatAmmo: vi.fn(), setTacticalOrder: vi.fn(),
     setEagleFlightOrder: vi.fn(), assignFormationTarget: vi.fn<NPC['assignFormationTarget']>(),
+    assignFollowTarget: vi.fn<NPC['assignFollowTarget']>(),
     mountVehicle: vi.fn((vehicle: Mount) => { actor.mount = vehicle }),
   }
   // Typed seams adapt only the actor/mount API consumed by these private owners.
   const npc = actor as unknown as NPC, vehicle = mount as unknown as Mount
   interface RestoreTransferSeam {
     restoreActor(npc: NPC, saved: PersonalActorCheckpoint, changedScene: boolean, index: number): void
+    applyCommand(npc: NPC, index: number): void
     updateEagleTransfers(): void
   }
   const runtime = Object.assign(Object.create(PersonalSquadRuntime.prototype), {
-    state: 'ACTIVE', command: 'defend', returnCommand: -1000, eaglePads,
+    state: 'ACTIVE', command, returnCommand: -1000, eaglePads, options: {}, player: () => ({}),
     memberMounts: new Map([[actor.combatantId, vehicle]]), boarding: new Map(),
   }) as RestoreTransferSeam
   return { home, mount, actor, npc, runtime }
@@ -148,9 +173,11 @@ describe('Personal Squad boarding restore and contact', () => {
     expect(h.actor.setTacticalOrder).toHaveBeenCalledWith('defend')
   })
 
-  it('keeps ordinary home boarding but waits for touchdown and vertical proximity to the actual mount', () => {
-    const h = boardingHarness()
-    h.runtime.restoreActor(h.npc, { status: 'deployed', boarding: true }, false, 0)
+  it('resumes Follow with the same parked HR eagle and boards only after touchdown and live contact', () => {
+    const h = boardingHarness('follow')
+    h.actor.hp = 49; h.mount.currentHp = 73
+    h.runtime.restoreActor(h.npc, { status: 'deployed' }, false, 0)
+    h.runtime.applyCommand(h.npc, 0)
     expect(h.actor.assignFormationTarget.mock.lastCall![1].toArray()).toEqual([-85, 0, 54])
     h.mount.flight.phase = 'cruise'
     h.runtime.updateEagleTransfers()
@@ -161,5 +188,7 @@ describe('Personal Squad boarding restore and contact', () => {
     h.mount.group.position.y = 0
     h.runtime.updateEagleTransfers()
     expect(h.actor.mountVehicle).toHaveBeenCalledExactlyOnceWith(h.mount)
+    expect(h.actor.assignFollowTarget).toHaveBeenCalledOnce()
+    expect(h.actor.hp).toBe(49); expect(h.mount.currentHp).toBe(73)
   })
 })

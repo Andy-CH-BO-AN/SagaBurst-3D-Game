@@ -21,7 +21,7 @@ import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 import type { TownWorld } from '../town/TownWorld'
 import { isCivilian, townSitePoint, type TownActorSpec } from '../town/TownRules'
 import { TOWN_MOUNTED_MISSION_MUSTER } from '../town/TownLayout'
-import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
+import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_RETIREMENT_EXIT_LINE, townRetirementExitPoint } from '../town/TownBounds'
 import { selectTownCavalryReserve, type TownCavalryMissionSlot } from '../town/TownCavalryReserve'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
@@ -57,6 +57,7 @@ interface CampRuntime {
 
 const BANDIT_LOADOUT = { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null, mountId: null } as const
 const DETECTION_RANGE = 18
+const RETIREMENT_EVACUATION_COMMAND = -5103
 const MISSION_LEADER_MARCH_SPEED = 7.5
 const LEADER_RETURN_RADIUS = 5
 const PLAYER_RETURN_RADIUS = 12
@@ -290,6 +291,7 @@ export class BanditMissionController {
   private missionBatch?: NpcSpawnBatch
   private startedMissionId?: string
   private readonly ambientBatches = new Map<number, NpcSpawnBatch>()
+  private readonly evacuationGoals = new Map<NPC, THREE.Vector3>()
   get spawnBatches(): readonly NpcSpawnBatch[] { return [...this.ambientBatches.values(), ...(this.missionBatch ? [this.missionBatch] : [])] }
   get ready(): boolean { return !this.missionBatch || this.missionBatch.pending === 0 && (this.missionBatch.status === 'pending' || this.missionBatch.ready) }
   private perceptionElapsed = PERCEPTION_INTERVAL_SECONDS
@@ -315,6 +317,54 @@ export class BanditMissionController {
     const foreignVeteranField = this.active?.kind === 'veteran-field'
       && this.active.templateId === 'veteran-tragedy-of-the-scouts'
     if (!foreignVeteranField && this.active?.kind !== 'commander-four-gate-defense') for (const campId of [0, 2, 4]) this.spawnAmbient(campId, 2)
+  }
+
+  /** Ambient camps have no standalone actor checkpoint: retirement reload leaves them empty. */
+  applyRetirementPolicy(): void {
+    const retirement = this.readProfile().careerRetirement
+    if (!retirement) return
+    for (const batch of this.ambientBatches.values()) batch.cancel()
+    if (retirement.phase !== 'departing') return
+    for (const npc of this.ambientBandits) {
+      if (npc.dead || this.evacuationGoals.has(npc)) continue
+      const point = townRetirementExitPoint(npc.combatPosition)
+      const goal = new THREE.Vector3(point.x, 0, point.z)
+      npc.clearEncounter()
+      npc.setMissionCombatTarget(null)
+      npc.assignSiegeObstacle(null)
+      npc.missionMovement = false
+      npc.missionAerialDefense = false
+      npc.assignFormationTarget(RETIREMENT_EVACUATION_COMMAND, goal, goal.clone().sub(npc.combatPosition).setY(0).normalize())
+      this.evacuationGoals.set(npc, goal)
+    }
+  }
+
+  isRetirementEvacuating(npc: NPC): boolean {
+    return Boolean(this.readProfile().careerRetirement && this.isAmbientTarget(npc))
+  }
+
+  /** Called before combat gathers its current actor list, so an exited camp member cannot linger in a grid. */
+  prepareRetirementEvacuation(participants: readonly NPC[]): void {
+    this.applyRetirementPolicy()
+    for (const [npc] of this.evacuationGoals) {
+      if (npc.dead || Math.max(Math.abs(npc.combatPosition.x), Math.abs(npc.combatPosition.z)) < TOWN_RETIREMENT_EXIT_LINE - 1.5) continue
+      for (const peer of participants) if (peer !== npc) peer.releaseCombatTarget(npc)
+      for (const camp of this.camps) {
+        const index = camp.ambient.indexOf(npc)
+        if (index >= 0) camp.ambient.splice(index, 1)
+      }
+      this.evacuationGoals.delete(npc)
+      npc.dispose()
+    }
+  }
+
+  updateRetirementTravel(npc: NPC, dt: number, camera: THREE.Vector3, nearby: NPC[]): void {
+    const goal = this.evacuationGoals.get(npc)
+    if (!goal || npc.dead) return
+    if (npc.formationCommandId !== RETIREMENT_EVACUATION_COMMAND) {
+      npc.assignFormationTarget(RETIREMENT_EVACUATION_COMMAND, goal, goal.clone().sub(npc.combatPosition).setY(0).normalize())
+    }
+    npc.updateTownTravel(dt, npc.combatPosition.distanceTo(camera), nearby, this.world.obstacles, this.navigation)
   }
 
   get active(): ActiveCareerMission | undefined { return this.readProfile().activeMission }
@@ -410,6 +460,7 @@ export class BanditMissionController {
   }
 
   startActiveMission(): boolean {
+    if (this.readProfile().careerRetirement) return false
     const active = this.active
     if (!active) return false
     if (this.startedMissionId === active.id) return this.missionBatch?.status !== 'failed'
@@ -486,6 +537,7 @@ export class BanditMissionController {
   }
 
   updateFlow(dt: number, cameraYaw: number): void {
+    if (this.readProfile().careerRetirement) { this.applyRetirementPolicy(); this.guide.hide(); return }
     if (this.active?.kind === 'captain-patrol-command') { this.guide.hide(); return }
     if (!this.ready) return
     if (this.phase === 'RETURNING') {
@@ -661,10 +713,12 @@ export class BanditMissionController {
     for (const rider of this.departingCavalry ?? []) this.disposeCavalry(rider)
     if (this.departingCavalry) this.departingCavalry.length = 0
     for (const camp of this.camps) this.disposeCamp(camp.ambient)
+    this.evacuationGoals.clear()
     this.guide.dispose()
   }
 
   private spawnAmbient(campId: number, count: number): void {
+    if (this.readProfile().careerRetirement) return
     const camp = this.camps[campId]
     if (!camp) return
     if (this.ambientBatches.get(campId)?.status === 'pending') return
@@ -672,7 +726,9 @@ export class BanditMissionController {
     this.ambientBatches.set(campId, batch)
     for (let index = 0; index < count; index++) {
       const id = `ambient:${campId}:${index}`
-      batch.enqueue(id, () => camp.ambient.push(this.spawnBandit(camp, id, index)))
+      batch.enqueue(id, () => {
+        if (!this.readProfile().careerRetirement) camp.ambient.push(this.spawnBandit(camp, id, index))
+      })
     }
     batch.seal()
   }

@@ -1,5 +1,7 @@
-import { commanderRetirementEligibility } from '../../src/career/CareerRetirement'
+import { commanderRetirementEligibility, startCommanderRetirement, type CommanderRetirementStartFailure } from '../../src/career/CareerRetirement'
 import { COMMANDER_FOUR_GATE_DEFENSE_ID } from '../../src/career/CommanderFourGateDefenseRoster'
+import { createActiveCareerMission } from '../../src/career/CareerMissionState'
+import type { RaceRider } from '../../src/career/CareerRaceState'
 import { describe,expect,it } from 'vitest'
 import { availableRecruitMissions } from '../../src/career/CareerMissionCatalog'
 import { claimCareerOutpost } from '../../src/career/CareerOutpostMission'
@@ -54,4 +56,38 @@ it('requires formal Commander appointment, ten Tier 5 wins and a recorded Four-G
   expect(commanderRetirementEligibility({ ...profile, careerRetirement: {
     version: 1, phase: 'completed', acceptedAt: 0, combatElapsedSeconds: 42.5, outcome: 'fallen',
   } })).toEqual(qualified)
+})
+
+it('stages an isolated departing checkpoint only when every retirement start permission is present', () => {
+  const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000,
+    availableMerit: 0, careerMissionCompletionsByTier: { 5: 10 },
+    completedCareerMissionTemplateIds: [COMMANDER_FOUR_GATE_DEFENSE_ID] }
+  const original = cloneCareerProfile(profile)
+  const result = startCommanderRetirement(profile, 0)
+  expect(result.started).toBe(true)
+  expect(result.profile.careerRetirement).toEqual({ version: 1, phase: 'departing', acceptedAt: 0, combatElapsedSeconds: 0 })
+  expect(result.profile).not.toBe(profile)
+  expect(result.profile.ownedWeapons).not.toBe(profile.ownedWeapons)
+  expect(profile).toEqual(original)
+
+  // Each conjunct is necessary; this is one gate, not a matrix of mission/rank variants.
+  const reject = (current: CareerProfile, reason: CommanderRetirementStartFailure, acceptedAt = 0) => {
+    const rejected = startCommanderRetirement(current, acceptedAt)
+    expect(rejected).toEqual({ started: false, profile: current, reason })
+    expect(rejected.profile).toBe(current)
+  }
+  reject(result.profile, 'already-started')
+  reject({ ...profile, careerMissionCompletionsByTier: { 5: 9 } }, 'not-eligible')
+  reject({ ...profile, activeMission: createActiveCareerMission('recruit-bandits-01', 0, 1, 0, 'active') }, 'mission-active')
+  reject({ ...profile, activeOutpostMission: { id: 'outpost', kind: 'outpost-defense', stageId: 1, acceptedAt: 0 } }, 'mission-active')
+  const rider: RaceRider = { actorId: 'player', mountId: 'horse', position: { x: 0, y: 0, z: 0, yaw: 0 },
+    mountPosition: { x: 0, y: 0, z: 0, yaw: 0 }, hp: 100, mountHp: 100, stamina: 100, mounted: true, dead: false, checkpoint: 0 }
+  reject({ ...profile, activeRace: { version: 1, deployed: true, id: 'race', raceId: 'race-1', phase: 'countdown',
+    countdownSeconds: 10, elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
+    player: rider, opponent: { ...rider, actorId: 'opponent' } } }, 'race-active')
+  reject({ ...profile, townEvent: { id: 'hostile-town', state: 'hostile' } }, 'town-hostile')
+  reject(profile, 'invalid-time', Number.POSITIVE_INFINITY)
+  reject(profile, 'invalid-time', Number.NaN)
+  reject(profile, 'invalid-time', -1)
+  reject(profile, 'invalid-time', 0.5)
 })

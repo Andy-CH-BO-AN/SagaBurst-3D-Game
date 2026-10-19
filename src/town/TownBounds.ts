@@ -21,3 +21,16 @@ export function townSceneryPoint(index: number, innerRadius: number, bands: numb
 export function nearTownBanditCamp(x: number, z: number, margin: number): boolean {
   return TOWN_BANDIT_CAMP_CENTERS.some(([cx, cz]) => Math.hypot(cx - x, cz - z) < margin)
 }
+
+/** Inside native flight turn bounds, far from the central Town entrances. */
+export const TOWN_RETIREMENT_EXTRACTION = { x: 0, z: -318 } as const
+export const TOWN_RETIREMENT_EXIT_LINE = TOWN_PLAYABLE_WORLD_BOUND - 4
+
+/** Nearest legal edge, with stable tie-breaking. Each native owner retains its movement/cleanup. */
+export function townRetirementExitPoint(position: { x: number; z: number }): { x: number; z: number } {
+  const edge = TOWN_RETIREMENT_EXIT_LINE
+  const clamp = (value: number) => Math.max(-edge, Math.min(edge, value))
+  return Math.abs(position.x) > Math.abs(position.z)
+    ? { x: position.x < 0 ? -edge : edge, z: clamp(position.z) }
+    : { x: clamp(position.x), z: position.z < 0 ? -edge : edge }
+}

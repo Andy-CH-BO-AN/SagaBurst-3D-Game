@@ -133,6 +133,8 @@ import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_DECAP
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
 import { MissionGuide } from '../career/MissionGuide'
+import { startCommanderRetirement } from '../career/CareerRetirement'
+import { TOWN_RETIREMENT_EXTRACTION } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { CAREER_DUEL_TIERS, type CareerDuelTier, isCareerDuelUnlocked } from '../career/CareerDuelState'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
@@ -212,6 +214,8 @@ export class TownScene {
   private readonly duelHud = new CareerDuelHUD()
   private readonly duelGuide = new MissionGuide('career-duel-guide')
   private readonly captainPatrolGuide = new MissionGuide('career-captain-patrol-guide')
+  private readonly retirementGuide = new MissionGuide('career-retirement-guide')
+  private retirementDepartureApplied = false
   private readonly hint = document.createElement('div')
   private readonly pointerPrompt = document.createElement('div')
   private panel: HTMLDivElement | null = null
@@ -779,10 +783,40 @@ export class TownScene {
     this.outskirts?.restoreCheckpoint(this.profile.activeMission?.patrolOutskirts ?? this.profile.townOutskirts?.[this.world.faction])
   }
 
+  /** Internal acceptance seam for the later ending UI; deliberately not exposed by any button. */
+  startCommanderRetirement(acceptedAt: number): boolean {
+    if (this.world.faction !== this.profile.faction || this.sceneContext.missionOnlyResidents) return false
+    const staged = startCommanderRetirement(this.profile, acceptedAt)
+    if (!staged.started) return false
+    // Capture casualties, pending identities and original mount ownership before acceptance.
+    staged.profile.personalSquadRuntime = this.personalSquad?.checkpoint() ?? staged.profile.personalSquadRuntime
+    return this.commit(staged.profile)
+  }
+
+  /** Persisted phase is the source of truth on both acceptance and scene restore. */
+  private applyRetirementDeparture(): void {
+    if (!this.profile.careerRetirement) return
+    if (this.world.faction !== this.profile.faction || this.sceneContext.missionOnlyResidents) return
+    this.outskirts?.applyRetirementPolicy()
+    this.enemyEaglePatrol?.applyRetirementPolicy()
+    this.mission?.applyRetirementPolicy()
+    if (this.profile.careerRetirement?.phase !== 'departing' || this.retirementDepartureApplied || !this.personalSquad) return
+    for (const shot of this.shots ?? []) if (shot.source && this.isRetirementEvacuating(shot.source)) shot.arrow.destroy()
+    this.personalSquad.follow()
+    this.retirementDepartureApplied = true
+  }
+
   private commit(profile: CareerProfile, options: MissionCommitOptions = {}): boolean {
     this.clearCareerSkillSaveTimer()
     const restoringResidents = Boolean(options.residentReturnStaged || this.residentReturnPending)
     let next = cloneCareerProfile(profile)
+    // Retirement owns the remaining lifecycle; ordinary acceptance cannot reopen threat producers.
+    if (this.profile.careerRetirement && (next.activeMission && next.activeMission.id !== this.profile.activeMission?.id
+      || next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id
+      || next.activeRace && next.activeRace.id !== this.profile.activeRace?.id)) {
+      this.notice = '退役行程已開始，無法接受新的任務或賽事。'
+      return false
+    }
     // Capture the live race in unrelated town saves, including the hostility transition.
     if (this.race?.session && next.activeRace?.id === this.race.session.id) next.activeRace = structuredClone(this.race.session)
     if (!this.race?.session && next.racePlayerState && this.profile.racePlayerState) next.racePlayerState = this.race?.capturePlayerState() ?? next.racePlayerState
@@ -988,6 +1022,7 @@ export class TownScene {
     const endedFormal = Boolean(this.profile.activeMission && !next.activeMission || this.profile.activeOutpostMission && !next.activeOutpostMission)
     const rankChanged = next.rank !== this.profile.rank
     this.profile = next
+    this.applyRetirementDeparture()
     if (restoringResidents) this.civilianCommand?.applySavedState(next.civilianCommandSquad)
     if (this.townAirCommand && (airStateChanged || airClaimsReleased || airScenePermissionChanged || startsFormal || endedFormal || rankChanged)) this.townAirCommand.applySavedState(next.townAirCommandSquad)
     this.synchronizeEagleCommandOwnership()
@@ -2359,6 +2394,7 @@ export class TownScene {
     if (!initialDecapitation && this.profile.activeMission?.kind !== 'commander-four-gate-defense')
       restoreCareerAerialState(this.player, this.careerMounts.activeMount, profile.playerAerialState, aerialSceneKey)
     this.restoringAerialState = false
+    this.applyRetirementDeparture()
   }
 
   /** Entry/reload owns Loading. In-place mission acceptance never calls this
@@ -2763,8 +2799,13 @@ export class TownScene {
       npc.combatMountGrid = this.combatMountGrid
     }
   }
+  private isRetirementEvacuating(npc: NPC): boolean {
+    return Boolean(this.outskirts?.isRetirementEvacuating(npc)
+      || this.enemyEaglePatrol?.isRetirementEvacuating(npc) || this.mission?.isRetirementEvacuating(npc))
+  }
+
   private hitBattlefieldMount(mount: Mount, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
-    if (this.fourGateCombatHeld) return
+    if (this.fourGateCombatHeld || source && this.isRetirementEvacuating(source)) return
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || this.personalSquad?.mounts.includes(mount))) return
     if (mount.dead || mount.disposed || amount <= 0) return
     if (!this.profile.activeMission && !this.event?.hostile && this.mounts.includes(mount) && !source) {
@@ -2783,7 +2824,7 @@ export class TownScene {
         this.emitCombatEvent(event)
       },
     })
-    if (result.appliedDamage > 0 && rider) {
+    if (result.appliedDamage > 0 && rider && !this.isRetirementEvacuating(rider)) {
       this.outskirts?.noteHit(rider, !source)
       this.enemyEaglePatrol?.noteHit(rider, !source)
       this.missionCombat?.noteExternalHit(rider, source)
@@ -2891,7 +2932,7 @@ export class TownScene {
   }
   private get ranger(): NPC { return this.residents.find(r => r.spec.role === 'ranger')!.npc }
   private damageBuilding(index: number, amount: number, hitPosition?: THREE.Vector3, source?: NPC, sourceRef?: CombatActorRef, method: CombatDamageMethod = 'melee'): void {
-    if (this.fourGateCombatHeld) return
+    if (this.fourGateCombatHeld || source && this.isRetirementEvacuating(source)) return
     if (this.duel?.active) return
     if (source && (this.defense?.phase === 'PREPARING' || !this.defense?.assault)) return
     const b = this.world.buildings[index]; if (!b || b.hp.destroyed || !Number.isFinite(amount) || amount <= 0) return
@@ -2933,7 +2974,7 @@ export class TownScene {
     for (const id of this.profile.townEvent.destroyedBuildingIds ?? []) this.world.buildings.find(b => b.id === id)?.hp.destroy()
   }
   private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
-    if (this.fourGateCombatHeld) return
+    if (this.fourGateCombatHeld || source && this.isRetirementEvacuating(source)) return
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || target.combatOwnership === 'player-personal')) return
     contact ??= method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined
     if (contact?.kind === 'mount' && contact.mount) {
@@ -2961,12 +3002,12 @@ export class TownScene {
     })
     if (!result.hitSuccess) return
     if (!source && result.appliedDamage > 0 && this.race?.actors.includes(target)) this.activateHostility()
-    if (result.appliedDamage > 0) {
+    if (result.appliedDamage > 0 && !this.isRetirementEvacuating(target)) {
       this.outskirts?.noteHit(target, !source)
       this.enemyEaglePatrol?.noteHit(target, !source)
       this.missionCombat?.noteExternalHit(target, source)
     }
-    if (result.blockedImpact > 0 && result.appliedDamage === 0 && source) {
+    if (result.blockedImpact > 0 && result.appliedDamage === 0 && source && !this.isRetirementEvacuating(target)) {
       this.missionCombat?.noteExternalHit(target, source)
     }
     if (target.dead && this.event?.hostile && this.residents.some(resident => resident.npc === target)) this.persistCasualties()
@@ -2979,11 +3020,11 @@ export class TownScene {
     else if (method === 'mount-impact') sound?.playHorseImpact(target.currentLod, !source)
     else if ((source?.meleeCombatKind ?? this.inventory.equippedMelee?.combatKind) === 'lance') sound?.playLanceImpact(target.currentLod, !source)
     else sound?.playSwordHit(target.currentLod, !source)
-    if (target.faction === Faction.BANDIT) {
+    if (target.faction === Faction.BANDIT && !this.isRetirementEvacuating(target)) {
       if (source) this.mission.alertGroupFor(target)
       else this.mission.provokeGroupFor(target)
     }
-    if (!source && !(this.defense.active && target.townCategory === 'civilian') && !target.dead && (target.faction === Faction.BANDIT || target.faction === Faction.ENEMY)) target.retaliateAgainstPlayer()
+    if (!source && !this.isRetirementEvacuating(target) && !(this.defense.active && target.townCategory === 'civilian') && !target.dead && (target.faction === Faction.BANDIT || target.faction === Faction.ENEMY)) target.retaliateAgainstPlayer()
     if (!source) {
       if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, target.combatPosition.clone().add(new THREE.Vector3(0, 1, 0)))
       this.showCombatTarget(result.targetName, result.hpRatio)
@@ -2991,6 +3032,7 @@ export class TownScene {
   }
   private damagePlayerFromNpc(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact, sourceRef?: CombatActorRef): void {
     if (this.fourGateCombatHeld) return
+    if (this.isRetirementEvacuating(source)) return
     if (!source.hostileToPlayer && !this.duel?.canDamagePlayer(source)) return
     if (this.defense?.active && !source.hostileToPlayer) return
     const result = damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null, {
@@ -3006,7 +3048,7 @@ export class TownScene {
     else sound?.playSwordHit(0, true)
   }
   private fire(origin: THREE.Vector3, direction: THREE.Vector3, speed: number, damage: number, player: boolean, training: boolean, kind: 'arrow' | 'pilum', source?: NPC, lifecycle?: ProjectileFlightBudget): boolean {
-    if (!training && this.fourGateCombatHeld) return this.projectileAdmission.reject()
+    if (!training && (this.fourGateCombatHeld || source && this.isRetirementEvacuating(source))) return this.projectileAdmission.reject()
     if (player && this.player.dead) return this.projectileAdmission.reject()
     if (player && !training && kind === 'arrow' && this.player.isMounted && this.player.currentMount?.isFlyingMount) lifecycle ??= playerEagleProjectileBudget(origin, direction, speed)
     const accepted = this.projectileAdmission.launch(this.shots.length, training ? this.shots.filter(s => s.training).length : 0, training, () => {
@@ -3734,6 +3776,11 @@ export class TownScene {
     this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining)
     this.duelGuide.updateDuel(duelPhase, this.player.combatPosition, this.orbit.cameraYaw, this.duel.guideTarget)
     this.updateCaptainPatrolGuide()
+    const retirementTarget = this.profile.careerRetirement?.phase === 'departing'
+      && this.world.faction === this.profile.faction && !this.sceneContext.missionOnlyResidents
+      && !this.panel && !this.equipment.visible
+      ? new THREE.Vector3(TOWN_RETIREMENT_EXTRACTION.x, getTerrainHeight(TOWN_RETIREMENT_EXTRACTION.x, TOWN_RETIREMENT_EXTRACTION.z), TOWN_RETIREMENT_EXTRACTION.z) : null
+    this.retirementGuide.updateRetirement(this.player.combatPosition, this.orbit.cameraYaw, retirementTarget)
     this.updateRaceHud()
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.event.hostile && !this.defense.active && this.serviceAvailable(id)
     const missionHud = this.profile.activeMission
@@ -3793,6 +3840,7 @@ export class TownScene {
     this.race?.snapshot(); this.race?.persist(); this.race?.dispose(); this.raceGuide.dispose(); this.raceHud.dispose()
     this.captainPatrol?.dispose()
     this.captainPatrolGuide.dispose()
+    this.retirementGuide.dispose()
     this.personalCommands?.close()
     this.personalFormation?.cancelPlacement()
     this.personalCommandUI?.dispose()
