@@ -1,9 +1,13 @@
 import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
+import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
 import { surfaceBox } from '../../src/town/TownRamparts'
 import { TOWN_CITY_ROADS, TOWN_CENTER, TOWN_HR_REGION, townHousing, type TownRoad } from '../../src/town/TownLayout'
 import { findBlockingObstacleAlongPath, getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../../src/world/Terrain'
+import { BallisticIntercept } from '../../src/combat/ProjectileBallistics'
+import { EagleFlightAI } from '../../src/movement/EagleFlightAI'
+import { EagleFlightController } from '../../src/movement/EagleFlightController'
+import { XONGKORO } from '../../src/movement/XongkoroConfig'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 
 function rectangle(x: number, z: number, width: number, depth: number, yaw = 0): Box3 {
@@ -26,6 +30,45 @@ const roads: readonly TownRoad[] = [...TOWN_CITY_ROADS,
 ]
 
 describe('Town command watchtower', () => {
+  it('allows shots through the flight envelope above the deck while keeping the physical core solid', () => {
+    const layout = getTownCommandWatchtowerLayout()
+    const envelope = createTownCommandWatchtowerAirspaceObstacle(layout)
+    const core: ObstacleData = { box: layout.core, isBarricade: false }
+    const rails = getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)
+    const deck = layout.platform.map(surface => ({ box: surfaceBox(surface), isBarricade: false }))
+    const obstacles = [envelope, core, ...rails, ...deck]
+    const target = new Vector3(-29, layout.platformY + 1.4, -41)
+    const origin = new Vector3(-29, layout.platformY + 3.6, -101)
+    const arc = new BallisticIntercept()
+    expect(envelope.box).toEqual(layout.footprint)
+    expect(arc.solve(origin, target, new Vector3(), 65)).toBe(true)
+    expect(arc.isPathClear(origin, 65, obstacles, () => layout.groundY)).toBe(true)
+    // Same physical blocker policy still rejects a shot into the tower body.
+    target.y = layout.platformY - 5
+    expect(arc.solve(origin, target, new Vector3(), 65)).toBe(true)
+    expect(arc.isPathClear(origin, 65, [envelope, core], () => layout.groundY)).toBe(false)
+  })
+
+  it('raises the ranged flight path for a high deck without losing flight avoidance or changing cruise altitude', () => {
+    const pilot = new EagleFlightAI(), flight = new EagleFlightController()
+    flight.phase = 'cruise'; flight.speed = XONGKORO.sprintSpeed
+    const position = new Vector3(0, 30, -70), destination = new Vector3()
+    const command = { kind: 'combat' as const, target: {}, destination, rangedAvailable: true }
+    expect(pilot.update(.016, flight, position, command, [], [], 300, () => 0).pitch).toBe(0)
+    destination.y = 33.5
+    const clearPitch = pilot.update(.016, flight, position, command, [], [], 300, () => 0).pitch
+    expect(clearPitch).toBeGreaterThan(0)
+    expect(pilot.canUseRanged).toBe(true)
+    const envelope: ObstacleData = { isBarricade: false, projectilePassable: true,
+      box: new Box3(new Vector3(-11.2, -1, -16.2), new Vector3(11.2, 37.5, 16.2)) }
+    // Projectile-passable does not mean fly-through: an intersecting flight
+    // envelope still changes the pilot's climb to clear the building.
+    expect(pilot.update(.016, flight, position, command, [], [envelope], 300, () => 0).pitch).toBeGreaterThan(clearPitch)
+    expect(pilot.cruiseAltitude).toBe(30)
+    pilot.reset(); destination.y = 0
+    expect(pilot.update(.016, flight, position, command, [], [], 300, () => 0).pitch).toBe(0)
+  })
+
   it('connects its mounted entrance, eight wide flights, turn landings and upper platform without height gaps', () => {
     const layout = getTownCommandWatchtowerLayout()
     expect(layout.ramps).toHaveLength(8)

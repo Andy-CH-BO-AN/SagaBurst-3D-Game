@@ -69,6 +69,7 @@ export class EagleFlightAI {
     terrainHeight: (x: number, z: number) => number = getTerrainHeight): EagleFlightIntent {
     const ground = terrainHeight(position.x, position.z)
     const agl = position.y - ground
+    let avoidanceAltitude = ground + this.cruiseAltitude
     const destination = command.destination
     this.elapsed += dt
     this.goal.copy(destination)
@@ -125,7 +126,16 @@ export class EagleFlightAI {
         this.goal.copy(this.intercept)
         const radius = Math.max(12, Math.min(XONGKORO.aiOrbitRadius, (command.rangedDistance ?? 80) * .6))
         if (distance < radius * 1.8) this.orbit(position, this.intercept, radius)
-        this.goal.y = terrainHeight(this.goal.x, this.goal.z) + this.cruiseAltitude
+        const orbitGround = terrainHeight(this.goal.x, this.goal.z)
+        this.goal.y = orbitGround + this.cruiseAltitude
+        if (this.tactic === 'RANGED_GROUND' && this.intercept.y + XONGKORO.bodyHeight + 1 > this.goal.y) {
+          // Raised walkable platforms are not terrain: approach above their deck
+          // instead of circling below it. Actual firing still requires the NPC's
+          // unchanged range, pitch/yaw and ballistic clearance checks.
+          this.goal.y = Math.max(this.goal.y, Math.min(this.intercept.y + XONGKORO.bodyHeight + 1,
+            orbitGround + XONGKORO.maxAltitude - 5))
+          avoidanceAltitude = Math.max(avoidanceAltitude, this.goal.y)
+        }
         this.rangedCommitRemaining = Math.max(0, this.rangedCommitRemaining - dt)
         const opportunity = this.rangedCommitRemaining === 0 && flight.phase === 'cruise'
           && agl >= this.cruiseAltitude - 2 && !unsafeAirIntercept && distance > 12 && distance < 110
@@ -195,12 +205,12 @@ export class EagleFlightAI {
       if (!Number.isFinite(segmentBoxTime(position, this.ahead, this.expanded))) continue
       if (this.avoidanceRemaining === 0) {
         this.avoidance.copy(this.goal)
-        if (obstacle.box.max.y + 5 < ground + this.cruiseAltitude + 8) this.avoidance.y = obstacle.box.max.y + 5
+        if (obstacle.box.max.y + 5 < avoidanceAltitude + 8) this.avoidance.y = obstacle.box.max.y + 5
         else {
           const side = this.avoidSide * (position.x <= (obstacle.box.min.x + obstacle.box.max.x) / 2 ? -1 : 1)
           this.avoidance.x = THREE.MathUtils.clamp(side < 0 ? this.expanded.min.x - 5 : this.expanded.max.x + 5, -bound + margin, bound - margin)
           this.avoidance.z = position.z + Math.cos(flight.yaw) * lookahead
-          this.avoidance.y = ground + this.cruiseAltitude
+          this.avoidance.y = avoidanceAltitude
         }
         this.avoidanceRemaining = 2
       }

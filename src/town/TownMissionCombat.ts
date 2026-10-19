@@ -263,7 +263,7 @@ export class TownMissionCombat {
     const outskirts = this.town.outskirts?.()
     const alertRange = townExternalThreatAlertRange(Boolean(resident.spec.eagle), ally)
     return [...this.missions.field.ambientBandits, ...this.missions.field.missionBandits,
-      ...this.outskirtsGrid.getNearbyInto(ally.combatPosition, alertRange, this.protectionCandidates)]
+      ...this.outskirtsGrid.getNearbyInto(ally.combatPosition, this.externalThreatQueryRange(resident, alertRange), this.protectionCandidates)]
       .some(threat => !threat.dead && townWartimeHostile(ally, threat)
         && (resident.spec.duty !== 'patrol' || !outskirts?.owns(threat))
         && this.isExternalThreatInRange(resident, threat.combatPosition, alertRange))
@@ -791,12 +791,17 @@ export class TownMissionCombat {
           else this.eagleThreatTargets.delete(npc)
         }
       }
-      const groundTarget = eligible && !spec.eagle
-        ? this.banditThreatGrid.getNearbyInto(npc.combatPosition, threatRange, this.neighbors)
-          .filter(threat => !threat.dead && townWartimeHostile(npc, threat)
-            && this.isExternalThreatInRange(resident, threat.combatPosition, threatRange))
-          .sort((a, b) => npc.combatPosition.distanceToSquared(a.combatPosition) - npc.combatPosition.distanceToSquared(b.combatPosition))[0]
-        : undefined
+      let groundTarget: NPC | undefined
+      if (eligible && !spec.eagle) {
+        let nearest = Infinity
+        for (const threat of this.banditThreatGrid.getNearbyInto(npc.combatPosition, this.externalThreatQueryRange(resident, threatRange), this.neighbors)) {
+          if (threat.dead || !townWartimeHostile(npc, threat)
+            || !this.isExternalThreatInRange(resident, threat.combatPosition, threatRange)) continue
+          const distance = npc.combatPosition.distanceToSquared(threat.combatPosition)
+          // Keep the first equal-distance candidate, as the previous stable sort did.
+          if (distance < nearest) { groundTarget = threat; nearest = distance }
+        }
+      }
       const nearbyMissionActor = eligible && (spec.eagle ? Boolean(eagleTarget) : Boolean(groundTarget))
       const nearbyPlayer = eligible && enemyTownScouts !== undefined && options.player !== undefined
         && !options.player.dead && this.isExternalThreatInRange(resident, options.player.combatPosition, threatRange)
@@ -886,9 +891,17 @@ export class TownMissionCombat {
     this.town.peaceResident(resident, dt)
   }
 
+  /** Broaden candidates only beside this reachable structure; final eligibility
+   * still applies the resident's unchanged horizontal radius and home-sector leash. */
+  private externalThreatQueryRange({ spec, npc }: TownCombatResident, range: number): number {
+    const tower = this.town.navigation.townNav?.watchtower
+    return !spec.eagle && this.isMilitary(spec) && tower?.near(npc.combatPosition, range)
+      ? Math.hypot(range, tower.layout.totalHeight + 2) : range
+  }
+
   private isExternalThreatInRange({ spec, npc }: TownCombatResident, position: THREE.Vector3, range: number): boolean {
+    if (!spec.eagle) return townDefenseThreatInRange(spec, npc, position, range, this.town.navigation.townNav?.watchtower)
     if (!(npc.combatPosition.distanceToSquared(position) <= range * range)) return false
-    if (!spec.eagle) return townDefenseThreatInRange(spec, npc, position, range)
     // Patrol sorties defend the town and their local sector; the leash is centered
     // on the town, never on a distant home pad or an unbounded enemy position.
     return Number.isFinite(position.x + position.y + position.z)

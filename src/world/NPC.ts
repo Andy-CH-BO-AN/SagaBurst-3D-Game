@@ -3014,6 +3014,8 @@ export class NPC {
           this.mount ? this.mount.baseSpeed : CHASE_SPEED,
           dt,
           this.tacticalOrder === 'charge' && !siegeObstacle,
+          townStep?.tower
+            ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z) : Infinity,
         )
         if (layeredNav && isStairLayer(npcLayer)) {
           const stair = layeredNav.getStair(layerSide(npcLayer)!)
@@ -3697,6 +3699,7 @@ export class NPC {
     const targetLayer = layeredNav ? layeredNav.getNavLayer(target.position) : 'ground'
     const isDifferentLayer = (layeredNav ? (npcLayer !== targetLayer) : false)
       || Boolean(navigationWorld?.townNav && navigationWorld.townNav.isElevated(this.combatPosition) !== navigationWorld.townNav.isElevated(target.position))
+      || navigationWorld?.townNav?.watchtower?.sameLevel(this.combatPosition, target.position) === false
 
     if (distance <= arrivalDistance && !isDifferentLayer) {
       this._friendlyBypass.clear()
@@ -3889,7 +3892,8 @@ export class NPC {
       ? Math.min(this.mount.baseSpeed, target.speedLimit ?? Infinity)
       : target.speedLimit ?? FORMATION_MOVE_SPEED
     this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt,
-      followSprint || this.missionMovement, distance)
+      followSprint || this.missionMovement, townStep?.tower
+        ? Math.hypot(this._tmpNavigationTarget.x - this.combatPosition.x, this._tmpNavigationTarget.z - this.combatPosition.z) : distance)
     if (layeredNav && isStairLayer(npcLayer)) {
       const stair = layeredNav.getStair(layerSide(npcLayer)!)
       if (stair) {
@@ -4094,6 +4098,7 @@ export class NPC {
   }
 
   private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0): boolean {
+    if (this._activeNavigationWorld?.townNav?.watchtower?.sameLevel(this.combatPosition, targetPos) === false) return false
     if (Math.abs(targetPos.y - this.combatPosition.y) > this.meleeAttackRadius + extraReach) return false
     if (this.equipmentRequiredForCombat && !this.meleeWeaponId) return false
     if (this.isUsingLance) {

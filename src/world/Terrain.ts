@@ -234,6 +234,17 @@ export function getLocalCollisionObstacles(
   return index.queryNear(x, z, radius)
 }
 
+/** Swept X/Z bounds, without radius inflation on the perpendicular axis. */
+function getSweptCollisionObstacles(obstacles: ObstacleData[], minX: number, minZ: number, maxX: number, maxZ: number): readonly ObstacleData[] {
+  let index = obstacleCollisionIndexes.get(obstacles)
+  if (!index) {
+    index = new ObstacleCollisionSpatialIndex()
+    obstacleCollisionIndexes.set(obstacles, index)
+  }
+  index.sync(obstacles)
+  return index.queryBounds(minX, minZ, maxX, maxZ)
+}
+
 export interface TerrainResult {
   terrainMesh: THREE.Mesh
   obstacles: ObstacleData[]
@@ -702,20 +713,29 @@ export function resolveEntityCollision(
     const targetZ = pos.z + offsetZ
     const b = pos.y - bottomOffset
     const t = b + height
-    const candidates = getLocalCollisionObstacles(
-      obstacles,
-      targetX,
-      targetZ,
-      radius,
-    )
+    const minX = Math.min(pos.x, targetX) - radius
+    const maxX = Math.max(pos.x, targetX) + radius
+    const minZ = Math.min(pos.z, targetZ) - radius
+    const maxZ = Math.max(pos.z, targetZ) + radius
+    const candidates = getSweptCollisionObstacles(obstacles, minX, minZ, maxX, maxZ)
     for (const obs of candidates) {
+      if (maxX <= obs.box.min.x || minX >= obs.box.max.x ||
+        maxZ <= obs.box.min.z || minZ >= obs.box.max.z) continue
       if (obs.physicalPassable) continue
       if (obs.walkSurface && (walkSurfaces || mountedSurfaces && obs.walkSurface.mounted)) continue
       if (b >= obs.box.max.y - 0.001 || t <= obs.box.min.y + 0.001) continue
       if (targetX + radius > obs.box.min.x && targetX - radius < obs.box.max.x &&
-          targetZ + radius > obs.box.min.z && targetZ - radius < obs.box.max.z) {
-        return true
-      }
+          targetZ + radius > obs.box.min.z && targetZ - radius < obs.box.max.z) return true
+      // A crowd separation can cross a thin wall even when its destination is
+      // clear. Preserve strict tangent clearance while checking the whole push.
+      if (offsetX === 0 && (pos.x + radius <= obs.box.min.x || pos.x - radius >= obs.box.max.x) ||
+        offsetZ === 0 && (pos.z + radius <= obs.box.min.z || pos.z - radius >= obs.box.max.z)) continue
+      const tx = offsetX > 0 ? (obs.box.min.x - radius - pos.x) / offsetX :
+        offsetX < 0 ? (obs.box.max.x + radius - pos.x) / offsetX : -Infinity
+      const tz = offsetZ > 0 ? (obs.box.min.z - radius - pos.z) / offsetZ :
+        offsetZ < 0 ? (obs.box.max.z + radius - pos.z) / offsetZ : -Infinity
+      if (Math.max(tx, tz) >= 0 &&
+        segmentEntryFractionExpandedBox(pos.x, pos.z, targetX, targetZ, obs.box, radius) !== null) return true
     }
     return false
   }
@@ -774,16 +794,19 @@ export function resolveObstacleCollision(
     x + radius > box.min.x && x - radius < box.max.x &&
     z + radius > box.min.z && z - radius < box.max.z
 
-  const candidates = getLocalCollisionObstacles(
-    obstacles,
-    position.x,
-    position.z,
-    radius,
-  )
+  const initialX = position.x
+  const initialZ = position.z
+  // No horizontal sweep needs no tighter envelope; retain the single-query
+  // recovery path for stationary bodies (including loaded overlapping actors).
+  const stationary = initialX === previousPosition.x && initialZ === previousPosition.z
+  let candidates = stationary ? getLocalCollisionObstacles(obstacles, initialX, initialZ, radius) : getSweptCollisionObstacles(obstacles,
+    Math.min(position.x, previousPosition.x) - radius, Math.min(position.z, previousPosition.z) - radius,
+    Math.max(position.x, previousPosition.x) + radius, Math.max(position.z, previousPosition.z) + radius)
 
   // Select support from the unmodified frame position. Sequential snaps can
   // otherwise climb several overlapping surfaces beyond the single-step limit.
   let supportY: number | null = null
+  let supportRamp: WalkRampSurface | undefined
   if (velocityY <= 0) {
     for (const obstacle of candidates) {
       if (obstacle.physicalPassable) continue
@@ -814,7 +837,10 @@ export function resolveObstacleCollision(
           break
         }
       }
-      if ((canStep || crossedTop) && (supportY === null || surfaceY > supportY)) supportY = surfaceY
+      if ((canStep || crossedTop) && (supportY === null || surfaceY > supportY)) {
+        supportY = surfaceY
+        supportRamp = ramp
+      }
     }
   }
   if (supportY !== null) {
@@ -823,83 +849,169 @@ export function resolveObstacleCollision(
     onGround = true
   }
 
-  for (const obstacle of candidates) {
-    if (obstacle.physicalPassable) continue
-    const bottomY = position.y - bottomOffset
-    const topY = bottomY + height
-    const ramp = admittedRamp(obstacle)
-    if (ramp) {
-      const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
-      if (surfaceY !== null) {
-        const feetY = bottomY
-        if (feetY >= surfaceY - epsilon) continue
+  // Sweep before overlap recovery: a thin rail can be crossed completely in
+  // one frame, or the nearest exit can already be on its wrong side. Resolve
+  // the earliest entering face, then keep tangential travel for wall sliding.
+  // Axis-aligned boxes need at most two contacts to constrain both X and Z.
+  let sweepX = previousPosition.x
+  let sweepZ = previousPosition.z
+  let sweepTime = 0
+  const endBottomY = position.y - bottomOffset
+  for (let contact = 0; contact < 2 && (position.x !== sweepX || position.z !== sweepZ); contact++) {
+    const dx = position.x - sweepX
+    const dz = position.z - sweepZ
+    const minX = Math.min(sweepX, position.x) - radius
+    const maxX = Math.max(sweepX, position.x) + radius
+    const minZ = Math.min(sweepZ, position.z) - radius
+    const maxZ = Math.max(sweepZ, position.z) + radius
+    let firstTime = Infinity
+    let hitBox: THREE.Box3 | undefined
+    let hitX = false
+    for (const obstacle of candidates) {
+      const box = obstacle.box
+      if (maxX <= box.min.x || minX >= box.max.x || maxZ <= box.min.z || minZ >= box.max.z) continue
+      if (obstacle.physicalPassable || admittedRamp(obstacle)) continue
+      if (Math.min(previousBottomY, endBottomY) >= box.max.y - epsilon ||
+        Math.max(previousBottomY, endBottomY) + height <= box.min.y + epsilon) continue
+      if (dx === 0 && (sweepX <= box.min.x - radius || sweepX >= box.max.x + radius) ||
+        dz === 0 && (sweepZ <= box.min.z - radius || sweepZ >= box.max.z + radius)) continue
+      const entry = segmentEntryFractionExpandedBox(sweepX, sweepZ, position.x, position.z, box, radius)
+      if (entry === null || entry >= firstTime) continue
+      const tx = dx > 0 ? (box.min.x - radius - sweepX) / dx :
+        dx < 0 ? (box.max.x + radius - sweepX) / dx : -Infinity
+      const tz = dz > 0 ? (box.min.z - radius - sweepZ) / dz :
+        dz < 0 ? (box.max.z + radius - sweepZ) / dz : -Infinity
+      // Already penetrating, or departing/tangent to a face: leave recovery to
+      // the existing overlap path rather than trapping a body against the wall.
+      if (Math.max(tx, tz) < 0) continue
+      const time = sweepTime + (1 - sweepTime) * entry
+      const feetY = previousBottomY + (endBottomY - previousBottomY) * time
+      if (feetY >= box.max.y - epsilon || feetY + height <= box.min.y + epsilon) continue
+      firstTime = entry
+      hitBox = box
+      hitX = tx >= tz
+    }
+    if (!hitBox) break
+    sweepX += dx * firstTime
+    sweepZ += dz * firstTime
+    sweepTime += (1 - sweepTime) * firstTime
+    if (hitX) position.x = sweepX = dx > 0 ? hitBox.min.x - radius : hitBox.max.x + radius
+    else position.z = sweepZ = dz > 0 ? hitBox.min.z - radius : hitBox.max.z + radius
+  }
+  // Sliding on a slope changes the final support height. Keep the same admitted
+  // surface instead of promoting the actor onto a different overlapping level.
+  if (supportRamp) {
+    const y = getWalkRampHeight(supportRamp, position.x, position.z)
+    if (y !== null) position.y = (supportY = y) + bottomOffset
+  }
 
-        const RAMP_THICKNESS = 0.35
-        const undersideY = surfaceY - RAMP_THICKNESS
+  // Try the exact candidates first. Save scalar state so an escaping push can
+  // replay the original coarse recovery in source order, including earlier
+  // vertical/ramp effects and repeated obstacle records, without allocations.
+  const recoveryX = position.x, recoveryY = position.y, recoveryZ = position.z
+  const recoveryVelocityY = velocityY, recoveryOnGround = onGround
+  let coarseRecovery = stationary
+  let escapedRecoveryBounds: boolean
+  do {
+    escapedRecoveryBounds = false
+    for (const obstacle of candidates) {
+      if (obstacle.physicalPassable) continue
+      const bottomY = position.y - bottomOffset
+      const topY = bottomY + height
+      const ramp = admittedRamp(obstacle)
+      if (ramp) {
+        const surfaceY = getWalkRampHeight(ramp, position.x, position.z)
+        if (surfaceY !== null) {
+          const feetY = bottomY
+          if (feetY >= surfaceY - epsilon) continue
 
-        // 2. Rising/jumping into the underside of the ramp from beneath:
-        // Actor hits their head on the underside and cannot pass upward through the stairs.
-        if (topY > undersideY && previousPosition.y - bottomOffset + height <= undersideY + epsilon) {
-          position.y = undersideY - height + bottomOffset
-          if (velocityY > 0) velocityY = 0
-          continue
+          const RAMP_THICKNESS = 0.35
+          const undersideY = surfaceY - RAMP_THICKNESS
+
+          // 2. Rising/jumping into the underside of the ramp from beneath:
+          // Actor hits their head on the underside and cannot pass upward through the stairs.
+          if (topY > undersideY && previousPosition.y - bottomOffset + height <= undersideY + epsilon) {
+            position.y = undersideY - height + bottomOffset
+            if (velocityY > 0) velocityY = 0
+            continue
+          }
+
+          // 3. Body horizontal penetration into the descending solid wedge from underneath:
+          if (feetY < undersideY && topY > undersideY) {
+            position.x = previousPosition.x
+            position.z = previousPosition.z
+            continue
+          }
         }
+        continue
+      }
 
-        // 3. Body horizontal penetration into the descending solid wedge from underneath:
-        if (feetY < undersideY && topY > undersideY) {
-          position.x = previousPosition.x
-          position.z = previousPosition.z
-          continue
+      const box = obstacle.box
+
+      // A descending entity lands on the obstacle's top surface.
+      if (
+        velocityY <= 0 &&
+        previousPosition.y - bottomOffset >= box.max.y - epsilon &&
+        bottomY <= box.max.y + epsilon &&
+        overlapsHorizontally(position.x, position.z, box)
+      ) {
+        position.y = box.max.y + bottomOffset
+        velocityY = 0
+        onGround = true
+        continue
+      }
+
+      // An ascending entity bonks into the obstacle's underside ceiling.
+      if (
+        previousPosition.y - bottomOffset + height <= box.min.y + epsilon &&
+        topY > box.min.y &&
+        overlapsHorizontally(position.x, position.z, box)
+      ) {
+        position.y = box.min.y - height + bottomOffset
+        if (velocityY > 0) velocityY = 0
+        continue
+      }
+
+      // Above the obstacle: it is a walkable platform, not a wall.
+      if (bottomY >= box.max.y - epsilon || topY <= box.min.y + epsilon) continue
+
+      // Reactive Push-Out (Direction A)
+      // Instantly teleport the entity to the closest valid outer edge if inside
+      if (overlapsHorizontally(position.x, position.z, box)) {
+        const dxMax = (box.max.x + radius) - position.x
+        const dxMin = position.x - (box.min.x - radius)
+        const dzMax = (box.max.z + radius) - position.z
+        const dzMin = position.z - (box.min.z - radius)
+
+        const minDist = Math.min(dxMax, dxMin, dzMax, dzMin)
+
+        if (minDist === dxMax) position.x = box.max.x + radius
+        else if (minDist === dxMin) position.x = box.min.x - radius
+        else if (minDist === dzMax) position.z = box.max.z + radius
+        else if (minDist === dzMin) position.z = box.min.z - radius
+
+        // Later corrections may escape even when every earlier push stayed in
+        // bounds. Only then can an exact-query omission become relevant.
+        if (!coarseRecovery && (
+          position.x < Math.min(initialX, previousPosition.x) || position.x > Math.max(initialX, previousPosition.x) ||
+          position.z < Math.min(initialZ, previousPosition.z) || position.z > Math.max(initialZ, previousPosition.z)
+        )) {
+          escapedRecoveryBounds = true
+          break
         }
       }
-      continue
     }
-
-    const box = obstacle.box
-
-    // A descending entity lands on the obstacle's top surface.
-    if (
-      velocityY <= 0 &&
-      previousPosition.y - bottomOffset >= box.max.y - epsilon &&
-      bottomY <= box.max.y + epsilon &&
-      overlapsHorizontally(position.x, position.z, box)
-    ) {
-      position.y = box.max.y + bottomOffset
-      velocityY = 0
-      onGround = true
-      continue
+    if (escapedRecoveryBounds) {
+      // The query replaces the shared ephemeral buffer, after its loop exits.
+      candidates = getLocalCollisionObstacles(obstacles,
+        (initialX + previousPosition.x) * .5, (initialZ + previousPosition.z) * .5,
+        radius + Math.max(Math.abs(initialX - previousPosition.x), Math.abs(initialZ - previousPosition.z)) * .5)
+      position.set(recoveryX, recoveryY, recoveryZ)
+      velocityY = recoveryVelocityY
+      onGround = recoveryOnGround
+      coarseRecovery = true
     }
-
-    // An ascending entity bonks into the obstacle's underside ceiling.
-    if (
-      previousPosition.y - bottomOffset + height <= box.min.y + epsilon &&
-      topY > box.min.y &&
-      overlapsHorizontally(position.x, position.z, box)
-    ) {
-      position.y = box.min.y - height + bottomOffset
-      if (velocityY > 0) velocityY = 0
-      continue
-    }
-
-    // Above the obstacle: it is a walkable platform, not a wall.
-    if (bottomY >= box.max.y - epsilon || topY <= box.min.y + epsilon) continue
-
-    // Reactive Push-Out (Direction A)
-    // Instantly teleport the entity to the closest valid outer edge if inside
-    if (overlapsHorizontally(position.x, position.z, box)) {
-      const dxMax = (box.max.x + radius) - position.x
-      const dxMin = position.x - (box.min.x - radius)
-      const dzMax = (box.max.z + radius) - position.z
-      const dzMin = position.z - (box.min.z - radius)
-
-      const minDist = Math.min(dxMax, dxMin, dzMax, dzMin)
-
-      if (minDist === dxMax) position.x = box.max.x + radius
-      else if (minDist === dxMin) position.x = box.min.x - radius
-      else if (minDist === dzMax) position.z = box.max.z + radius
-      else if (minDist === dzMin) position.z = box.min.z - radius
-    }
-  }
+  } while (escapedRecoveryBounds)
 
   // A later wall push may move the body off the support selected above.
   // Do not retain that ramp's height/ground flag at an unsupported final X/Z.
