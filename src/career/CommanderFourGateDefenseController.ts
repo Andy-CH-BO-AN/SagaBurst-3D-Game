@@ -267,7 +267,8 @@ export class CommanderFourGateDefenseController {
         if (station.kind === 'wall') npc.activateTownRampartGarrison('defend', true)
       }
       if (sectorIds.has(spec.id) && (!npc.dead || !this.state!.siege?.actors[spec.id])) this.fourGateSiege?.register(npc)
-      if (this.state!.siege?.playerCommandedActorIds.includes(spec.id) || saved && this.isPlayerCommanded(npc)) {
+      if (!isAutonomousTownGuard(spec.id)
+        && (this.state!.siege?.playerCommandedActorIds.includes(spec.id) || saved && this.isPlayerCommanded(npc))) {
         this.playerIssuedCommands.add(spec.id); this.fourGateSiege?.notifyPlayerOrder(npc)
         if (saved?.order === 'follow') {
           const index = active.officialSquad?.actorIds.indexOf(spec.id) ?? -1
@@ -625,6 +626,7 @@ export class CommanderFourGateDefenseController {
       }
       state.siege.playerCommandedActorIds = [...this.playerIssuedCommands].filter(id => Boolean(state.siege!.actors[id]))
     }
+    if (state.siege) state.siege.playerCommandedActorIds = state.siege.playerCommandedActorIds.filter(id => !isAutonomousTownGuard(id))
     // The durable start transaction includes initial AI intent before any live combat is released.
     // Reload can then retain those orders without replaying the start or gate events.
     if (state.attackStarted && !active.fourGateDefense?.attackStarted) {

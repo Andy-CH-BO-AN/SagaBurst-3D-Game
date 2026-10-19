@@ -8,6 +8,7 @@ import { TOWN_EAGLE_PAIRS } from '../town/TownEagleGarrison'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
 import { parseCommandActorCheckpoint } from './CareerCommandAuthority'
+import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
 
 /** Peaceful Town air authority never substitutes for a formal mission grant. */
 export interface TownAirCommandSquadState {
@@ -52,9 +53,11 @@ export function retireNativeTownAirCommand(profile: CareerProfile, previousTown?
   const oldTownClaims = previousTown?.commandRank === 'commander' ? previousTown.commandedActorIds ?? [] : []
   const mission = profile.activeMission
   const missionAir = mission?.officialSquad
+  const siege = mission?.fourGateDefense?.siege
+  const retiredSiegeClaims = siege?.playerCommandedActorIds.filter(isAutonomousTownGuard) ?? []
   const legacyMissionClaims = missionAir?.squads?.filter(squad => missionAir.commandedSquadIds?.includes(squad.squadId))
     .flatMap(squad => squad.actorIds).filter(id => TOWN_AIR_COMMAND_IDS.includes(id)) ?? []
-  const ids = [...new Set([...(air?.commandedActorIds ?? []), ...oldTownClaims, ...legacyMissionClaims])]
+  const ids = [...new Set([...(air?.commandedActorIds ?? []), ...oldTownClaims, ...legacyMissionClaims, ...retiredSiegeClaims])]
     .filter(id => TOWN_AIR_COMMAND_IDS.includes(id))
   let native = profile.townEagleGarrisons?.[profile.faction]
   if (ids.length) {
@@ -63,7 +66,8 @@ export function retireNativeTownAirCommand(profile: CareerProfile, previousTown?
     const pairs = [...(native?.pairs ?? [])]
     for (const spec of townEagleRoster()) {
       if (!ids.includes(spec.id) || pairs.some(pair => pair.riderId === spec.id)) continue
-      const member = air?.members[spec.id] ?? previousTown?.members?.[spec.id] ?? missionAir?.members?.[spec.id]
+      const member = mission?.fourGateDefense?.actors[spec.id]
+        ?? air?.members[spec.id] ?? previousTown?.members?.[spec.id] ?? missionAir?.members?.[spec.id]
       if (!member?.position || !member.mount) continue
       const position = (p: typeof member.position) => ({ ...p, y: p.y ?? getTerrainHeight(p.x, p.z) })
       const pair: TownEaglePairState = { riderId: spec.id, mountId: spec.eagle!.mountId, homePadId: spec.eagle!.homePadId,
@@ -84,6 +88,7 @@ export function retireNativeTownAirCommand(profile: CareerProfile, previousTown?
   if (profile.townCommandSquad?.commandedActorIds) profile.townCommandSquad.commandedActorIds =
     profile.townCommandSquad.commandedActorIds.filter(id => !TOWN_AIR_COMMAND_IDS.includes(id))
   // Keep legacy accepted membership/progress, retiring only command intent for native air.
+  if (siege) siege.playerCommandedActorIds = siege.playerCommandedActorIds.filter(id => !isAutonomousTownGuard(id))
   if (missionAir?.commandedSquadIds) missionAir.commandedSquadIds = missionAir.commandedSquadIds.filter(id =>
     missionAir.squads?.find(squad => squad.squadId === id)?.actorIds.some(actorId => !TOWN_AIR_COMMAND_IDS.includes(actorId)))
 }
