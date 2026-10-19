@@ -1,3 +1,4 @@
+import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { CombatActorRef } from '../combat/CombatAttribution'
 import { emptyPersonalContribution, type PersonalCombatContribution } from '../combat/CommandMerit'
@@ -165,12 +166,13 @@ export function officialActorSquadId(authority: OfficialCommandAuthority, actorI
 
 export function officialCommandIsPlayerControlled(authority: OfficialCommandAuthority, actorId: string): boolean {
   const squadId = officialActorSquadId(authority, actorId)
-  if (squadId === undefined) return false
+  if (isAutonomousTownGuard(actorId) || squadId === undefined) return false
   return authority.commandedSquadIds ? authority.commandedSquadIds.includes(squadId) : authority.commandRank !== 'commander'
 }
 
 /** Peaceful Commander Town authority claims only actors whose native owner completed a saved handoff. */
 export function townCommandIsPlayerControlled(authority: TownCommandSquadState, actorId: string): boolean {
+  if (isAutonomousTownGuard(actorId)) return false
   return authority.commandRank === 'commander'
     ? Boolean(authority.authorized && authority.commandedActorIds?.includes(actorId))
     : Boolean(authority.authorized && authority.actorIds.includes(actorId))
@@ -200,7 +202,7 @@ export interface OfficialCommandActor {
 /** Callers validate mission/scene, army townFaction and runtime readiness. Appearance is not army allegiance (e.g. a Roman Ranger). */
 export function officialCommandAcceptsActor(authority: OfficialCommandAuthority, actor: OfficialCommandActor): boolean {
   const saved = authority.members?.[actor.combatantId]
-  return !actor.dead && saved?.status !== 'exited' && saved?.status !== 'dead' && saved?.hp !== 0
+  return !isAutonomousTownGuard(actor.combatantId) && !actor.dead && saved?.status !== 'exited' && saved?.status !== 'dead' && saved?.hp !== 0
     && (actor.faction === Faction.TOWN || actor.faction === Faction.PLAYER)
     && actor.combatOwnership === authority.type
     && actor.squadId === officialActorSquadId(authority, actor.combatantId)

@@ -47,7 +47,7 @@ describe('Commander Town Squad Labels and HUD alignment', () => {
     expect(changed).toBe(true)
     expect(h.ui.render.mock.calls.length).toBe(initialRenderCalls + 1)
     const updatedEntry = h.ui.render.mock.lastCall![0].find(e => e.target === 'squad:2')
-    expect(updatedEntry?.label).toBe('北門騎兵／指揮隊')
+    expect(updatedEntry?.label).toBe('北門騎兵隊')
 
     // Setting identical resolver again: no re-render
     const changedAgain = h.ui.setOfficialSquadLabel(resolveCommanderTownTargetLabel)

@@ -15,9 +15,40 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
 import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, createCommanderCavalryEscort,
   isCommanderCavalryEscorting, parseCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
-import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, parseCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
+import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, parseCommanderFourGateDefenseState, recordNativeTownGuardCombat } from '../../src/career/CommanderFourGateDefenseState'
 
 describe('siege checkpoint ownership', () => {
+  it('keeps an in-flight legacy 210-person snapshot and native casualties while new acceptance saves 206 plus ten autonomous defenders', () => {
+    const profile = createFourGateDefenseProfile('ATTACKING', { rosterVersion: 1 })
+    const mission = profile.activeMission!, state = mission.fourGateDefense!
+    mission.deadFriendlyActorIds = ['gate:west:0']
+    Object.assign(state.actors['gate:west:0'], { status: 'dead', hp: 0 })
+    state.combatElapsedSeconds = 143.5
+    const originalSquads = structuredClone(mission.officialSquad!.squads)
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
+    const restored = store.load()!.activeMission!
+    expect(restored.friendlyActorIds).toHaveLength(210)
+    expect(restored.officialSquad!.squads).toEqual(originalSquads)
+    expect(restored.fourGateDefense).toMatchObject({ rosterVersion: 1, combatElapsedSeconds: 143.5,
+      actors: { 'gate:west:0': { status: 'dead', hp: 0 } } })
+    const next = createFourGateDefenseProfile('PREPARING'), current = next.activeMission!
+    const archerId = 'watchtower-archer:3'
+    Object.assign(current.fourGateDefense!.actors[archerId], { status: 'dead', hp: 0 })
+    const nativeStats = current.fourGateDefense!.nativeCombatStats = { damageDealt: 0, damageTaken: 0, kills: 0 }
+    recordNativeTownGuardCombat(nativeStats, { type: 'actor_killed', method: 'projectile',
+      source: { actorId: archerId, actorType: 'npc', allegiance: Faction.TOWN, characterFaction: 'roman' },
+      target: { targetId: current.targetActorIds[0], targetType: 'npc', name: 'Attacker', allegiance: Faction.ENEMY } },
+      new Set(current.fourGateDefense!.autonomousActorIds), new Set(current.targetActorIds))
+    expect(store.save(next)).toBe(true)
+    const loaded = store.load()!.activeMission!
+    expect(loaded.friendlyActorIds).toHaveLength(206)
+    expect(loaded.fourGateDefense!.autonomousActorIds).toHaveLength(10)
+    expect(loaded.fourGateDefense!.nativeCombatStats).toEqual({ damageDealt: 0, damageTaken: 0, kills: 1 })
+    expect(loaded.fourGateDefense!.actors[archerId]).toMatchObject({ status: 'dead', hp: 0 })
+    expect(loaded.officialSquad!.actorIds).not.toContain(archerId)
+  })
+
   it('bounds persisted combat time and rejects survival before the deadline', () => {
     const profile = createFourGateDefenseProfile('ATTACKING'), mission = profile.activeMission!, state = mission.fourGateDefense!
     const context = { missionId: mission.id, faction: profile.faction, phase: mission.phase,
@@ -54,7 +85,7 @@ describe('siege checkpoint ownership', () => {
     expect(parseCommanderFourGateDefenseState(state, context)?.victoryReason).toBe('survival')
     expect(parseCommanderFourGateDefenseState({ ...state, victoryReason: 'elimination' }, context)).toBeUndefined()
     state.player!.dead = true; state.player!.hp = 0
-    for (const id of [...mission.friendlyActorIds, ...mission.civilianActorIds!]) {
+    for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []), ...mission.civilianActorIds!]) {
       Object.assign(state.actors[id], { status: 'dead', hp: 0 })
       if (state.siege!.actors[id]) Object.assign(state.siege!.actors[id], { status: 'dead', hp: 0 })
     }

@@ -1,3 +1,5 @@
+import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
+import { hrOfficerSpec } from '../town/TownHRLayout'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { UnitLoadout } from '../battle/UnitPresetCatalog'
 import type { PersonalEquipmentSlot } from './CareerInventory'
@@ -22,7 +24,7 @@ export interface CareerTownEquipmentState {
   residentEquipmentVersion?: 1
 }
 export type CareerTownEquipment = Partial<Record<CharacterFaction, CareerTownEquipmentState>>
-export interface TownNativeItem { nativeId: string; itemId: string; actorId: string; slot: PersonalEquipmentSlot; squadId: number | 'civilian'; tier: number }
+export interface TownNativeItem { nativeId: string; itemId: string; actorId: string; slot: PersonalEquipmentSlot; squadId: number | 'civilian' | 'autonomous'; tier: number }
 export interface ResolvedTownActorEquipment {
   spec: TownActorSpec; loadout: UnitLoadout; refs: TownEquipmentRefs; tier: 1 | 2 | 3 | 4; mountTier: number
   fixedWeapons: boolean; readOnly: boolean
@@ -30,16 +32,19 @@ export interface ResolvedTownActorEquipment {
 const specCache = new Map<CharacterFaction, TownActorSpec[]>()
 const nativeCache = new Map<CharacterFaction, TownNativeItem[]>()
 let squadCache: Map<string, number | 'civilian'> | undefined
+let legacySquadCache: Map<string, number> | undefined
 const slotKeys = { melee: 'meleeWeaponId', ranged: 'rangedWeaponId', shield: 'shieldId', mount: 'mountId' } as const
 export function townEquipmentActorSpecs(faction: CharacterFaction): TownActorSpec[] {
   let specs = specCache.get(faction)
   if (!specs) {
-    const roster = townRoster()
+    const roster = townRoster().filter(spec => spec.duty !== 'watchtower_guard')
     // Equipment identities and squad membership share the same authored roster.
     // Avoid constructing a second garrison/housing layout just to obtain its IDs.
     squadCache ??= new Map<string, number | 'civilian'>([...commanderGateDefenseSlots(roster).flatMap(squad => squad.actorIds.map(id => [id, squad.squadId] as const)),
       ...Array.from({ length: 20 }, (_, i) => [`civilian-${i}`, 'civilian'] as const), ['merchant', 'civilian']])
-    specs = [...withTownCommandSquadRoster(faction, roster), townCommanderSpec({ x: 0, z: 0, yaw: 0 }), eagleTrainerSpec({ site: { x: 0, z: 0, yaw: 0 }, trainer: { x: 0, z: 0, yaw: 0 }, pads: [] })]; specCache.set(faction, specs) }
+    legacySquadCache ??= new Map(commanderGateDefenseSlots(roster, 1).flatMap(squad => squad.actorIds.map(id => [id, squad.squadId] as const)))
+    specs = [...withTownCommandSquadRoster(faction, roster),
+      hrOfficerSpec({ officer: { x: 0, z: 0, yaw: 0 } }), townCommanderSpec({ x: 0, z: 0, yaw: 0 }), eagleTrainerSpec({ site: { x: 0, z: 0, yaw: 0 }, trainer: { x: 0, z: 0, yaw: 0 }, pads: [] })]; specCache.set(faction, specs) }
   return specs
 }
 export function townEquipmentSquadForActor(actorId: string): number | 'civilian' | undefined {
@@ -58,7 +63,7 @@ export function townNativeItems(faction: CharacterFaction): TownNativeItem[] {
   const cached = nativeCache.get(faction)
   if (cached) return cached
   const items = townEquipmentActorSpecs(faction).flatMap(spec => {
-    const squadId = townEquipmentSquadForActor(spec.id)
+    const squadId = isAutonomousTownGuard(spec.id) ? 'autonomous' as const : townEquipmentSquadForActor(spec.id)
     if (squadId === undefined) return []
     const loadout = townDefaultActorLoadout(faction, spec)
     return TOWN_EQUIPMENT_SLOTS.flatMap(slot => {
@@ -74,7 +79,7 @@ export function townNativeItems(faction: CharacterFaction): TownNativeItem[] {
 /** Protected native service gear and mounts never participate in merchant resale. */
 export function isResalableTownNativeItem(faction: CharacterFaction, item: TownNativeItem): boolean {
   const spec = townEquipmentActorSpecs(faction).find(actor => actor.id === item.actorId)
-  return item.slot !== 'mount' && Boolean(spec && !['merchant', 'ranger', 'eagle-trainer'].includes(spec.role))
+  return item.slot !== 'mount' && Boolean(spec && !isAutonomousTownGuard(spec.id) && !['merchant', 'ranger', 'eagle-trainer'].includes(spec.role))
 }
 export function townEquipmentRefTier(profile: Pick<CareerProfile, 'rank'>, ref: TownEquipmentRef | null, faction: CharacterFaction): number {
   if (!ref) return 0
@@ -91,10 +96,10 @@ export function resolveTownActorEquipment(profile: CareerProfile, faction: Chara
   const base = townDefaultActorLoadout(faction, spec)
   const refs = createTownEquipmentRefsResolver(profile, faction)(spec, base)
   // Non-managed residents and fixed identities keep their authored equipment.
-  const managed = townEquipmentSquadForActor(actorId) !== undefined
+  const managed = townEquipmentSquadForActor(actorId) !== undefined || Boolean(profile.townEquipment?.[faction]?.actors[actorId])
   const loadout = managed ? { ...base, ...Object.fromEntries(TOWN_EQUIPMENT_SLOTS.map(slot => [slotKeys[slot], refs[slot]?.itemId ?? null])) } : base
   return { spec, refs, loadout, tier: Math.min(4, townEquipmentWeaponTier(profile, refs, faction) || 1) as 1 | 2 | 3 | 4, mountTier: townEquipmentRefTier(profile, refs.mount, faction),
-    fixedWeapons: spec.role === 'merchant', readOnly: false }
+    fixedWeapons: spec.role === 'merchant', readOnly: isAutonomousTownGuard(actorId) }
 }
 /** One read-only scan of current ownership. Recreate after any state write/parse;
  * returned refs remain independent mutable copies for equipment transactions. */
@@ -131,6 +136,7 @@ export function parseTownEquipment(value: unknown): CareerTownEquipment | undefi
     const claimed = new Set<string>()
     for (const [actorId, entry] of Object.entries(raw.actors)) {
       const squadId = townEquipmentSquadForActor(actorId)
+        ?? (townEquipmentActorSpecs(faction).some(spec => spec.id === actorId && spec.eagle) ? 'autonomous' : undefined)
       if (squadId === undefined || !object(entry)) throw new Error('Invalid equipment actor')
       const refs = {} as TownEquipmentRefs
       for (const slot of TOWN_EQUIPMENT_SLOTS) {
@@ -145,7 +151,10 @@ export function parseTownEquipment(value: unknown): CareerTownEquipment | undefi
         if (slot === 'mount' ? !(PLAYER_MOUNT_IDS as readonly string[]).includes(itemId) : !item || item.type !== slot) throw new Error('Invalid equipment slot')
         if (rawRef.source === 'native') {
           const source = native.get(rawRef.nativeId as string)
-          if (!source || source.itemId !== itemId || source.slot !== slot || source.squadId !== squadId || claimed.has(source.nativeId)) throw new Error('Invalid native equipment owner')
+          // Authored regrouping must not confiscate an existing native token shared in a legacy squad.
+          const legacySameSquad = source && legacySquadCache?.has(actorId)
+            && legacySquadCache.get(actorId) === legacySquadCache.get(source.actorId)
+          if (!source || source.itemId !== itemId || source.slot !== slot || source.squadId !== squadId && !legacySameSquad || claimed.has(source.nativeId)) throw new Error('Invalid native equipment owner')
           claimed.add(source.nativeId); refs[slot] = { itemId, source: 'native', nativeId: source.nativeId }
         } else {
           if (rawRef.nativeId !== undefined) throw new Error('Invalid owned equipment')
@@ -165,7 +174,7 @@ export function parseTownEquipment(value: unknown): CareerTownEquipment | undefi
       const sold = new Set<string>()
       for (const id of raw.soldNativeIds) {
         const item = typeof id === 'string' ? native.get(id) : undefined
-        if (!item || !isResalableTownNativeItem(faction, item) || claimed.has(item.nativeId)
+        if (!item || !(isResalableTownNativeItem(faction, item) || item.squadId === 'autonomous') || claimed.has(item.nativeId)
           || reserve.has(item.nativeId) || sold.has(item.nativeId)) throw new Error('Invalid sold native equipment')
         sold.add(item.nativeId); state.soldNativeIds.push(item.nativeId)
       }
@@ -198,7 +207,7 @@ export function validateTownEquipment(profile: CareerProfile): void {
     const holders = new Set<string>()
     const resolveRefs = createTownEquipmentRefsResolver(profile, faction)
     for (const spec of townEquipmentActorSpecs(faction)) {
-      if (townEquipmentSquadForActor(spec.id) === undefined) continue
+      if (townEquipmentSquadForActor(spec.id) === undefined && !spec.eagle) continue
       const refs = resolveRefs(spec)
       if (spec.role === 'merchant') {
         const base = townDefaultActorLoadout(faction, spec)

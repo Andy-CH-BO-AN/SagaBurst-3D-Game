@@ -24,8 +24,8 @@ describe('Town patrol roster contracts', () => {
   })
   it('keeps two twenty-rider patrols distinct from the service Captain, training and gate guards', () => {
     const roster = townRoster(), patrol = roster.filter(s => s.duty === 'patrol')
-    expect(roster).toHaveLength(230); expect(patrol).toHaveLength(40)
-    expect(new Set(roster.map(s => s.id)).size).toBe(230)
+    expect(roster).toHaveLength(235); expect(patrol).toHaveLength(40)
+    expect(new Set(roster.map(s => s.id)).size).toBe(roster.length)
     expect(roster.filter(s => s.role === 'captain')).toHaveLength(1)
     for (const id of ['A', 'B']) {
       const members = patrol.filter(s => s.patrolId === id)

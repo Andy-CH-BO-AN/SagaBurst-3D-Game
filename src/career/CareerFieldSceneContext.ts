@@ -74,6 +74,9 @@ export function careerTownSceneRoster(
   // the complete conquest roster assembled from the built TownWorld.
   const nativeSpecs = (isCareerEnemyTerritoryFieldMission(profile.activeMission) ? residents.filter(spec => spec.role !== 'hr-officer' && spec.role !== 'eagle-trainer') : residents)
     .filter(spec => spec.role !== 'cat')
+    // Accepted legacy Commander V snapshots keep their original native population.
+    .filter(spec => spec.duty !== 'watchtower_guard' || profile.activeMission?.kind !== 'commander-four-gate-defense'
+      || profile.activeMission.fourGateDefense?.rosterVersion === 2)
   const activeMission = profile.activeMission
   if (isCareerEnemyTerritoryFieldMission(activeMission)) {
     const nativeById = new Map(nativeSpecs.map(spec => [spec.id, spec]))

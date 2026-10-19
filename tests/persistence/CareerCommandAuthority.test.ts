@@ -1,3 +1,8 @@
+import { officialCommandHudLabel, resolveCommanderTownTargetLabel } from '../../src/career/CommanderTownSquadLabels'
+import { commanderGateDefenseSlots } from '../../src/career/CommanderTownRoster'
+import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
+import { TownAirCommandSquadController } from '../../src/town/TownAirCommandSquadController'
+import { TOWN_AUTONOMOUS_GUARD_IDS } from '../../src/town/TownNativeGuardIdentity'
 import { Vector3 } from 'three'
 import type { Player } from '../../src/player/Player'
 import { CivilianCommandSquadController, type CivilianCommandResident } from '../../src/town/CivilianCommandSquadController'
@@ -48,6 +53,60 @@ function commanderAuthority(): OfficialCommandAuthority {
 }
 
 describe('Commander saved command grant', () => {
+  it('migrates the authored peaceful army by actor identity and releases old air claims without healing or resetting cooldowns', () => {
+    const profile = createCareerProfile('roman')
+    profile.rank = 'commander'; profile.totalMerit = 20000
+    const squads = commanderGateDefenseSlots(undefined, 1), actorIds = squads.flatMap(squad => squad.actorIds)
+    profile.townCommandSquad = { type: 'town-command', townFaction: 'roman', squadId: 1, commandRank: 'commander', squads,
+      actorIds, commandedActorIds: ['captain', 'town-eagle-rider:1'], contribution: emptyPersonalContribution(),
+      authorized: true, state: 'FOLLOWING', sceneKey: 'town-home', members: {
+        captain: { status: 'deployed', hp: 17, order: 'follow' },
+        'town-eagle-rider:1': { status: 'dead', hp: 0, ammo: 2, position: { x: -90, y: 10, z: -75, yaw: 0 },
+          mount: { hp: 11, mounted: false, position: { x: -91, y: 10, z: -76, yaw: 0 } } },
+      } }
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
+    const loaded = store.load()!, town = loaded.townCommandSquad!
+    expect(town.squads!.map(squad => squad.actorIds.length)).toEqual([26, 26, 26, 26, 25, 26, 25, 26])
+    expect(town.actorIds).toHaveLength(206)
+    expect(officialActorSquadId(town, 'captain')).toBe(6)
+    expect(officialActorSquadId(town, 'hr-officer')).toBe(8)
+    expect(town.commandedActorIds).toEqual(['captain'])
+    expect(town.members!.captain).toEqual({ status: 'deployed', hp: 17, order: 'follow' })
+    const native = loaded.townEagleGarrisons!.roman!
+    expect(native.pairs[0]).toMatchObject({ riderId: 'town-eagle-rider:1', duty: 'casualty', hp: 0,
+      commandReturn: true, replacementRemaining: 60, mount: { hp: 11 } })
+    native.pairs[0].replacementRemaining = 23
+    expect(store.save(loaded)).toBe(true)
+    expect(store.load()!.townEagleGarrisons!.roman!.pairs[0].replacementRemaining).toBe(23)
+  })
+
+  it('isolates native sentries from official ALL, legacy air authority and HUD while mission-issued air remains commandable', () => {
+    const squads = commanderGateDefenseSlots(), authority = createMissionCommandAuthority('guards', 'roman', 'commander', [], squads)
+    authority.commandedSquadIds = [8]
+    expect(authority.actorIds).toHaveLength(206)
+    expect(officialCommandHudLabel(authority)).toBe(resolveCommanderTownTargetLabel)
+    expect(officialCommandIsPlayerControlled(authority, 'hr-officer')).toBe(true)
+    for (const id of TOWN_AUTONOMOUS_GUARD_IDS) {
+      expect(officialCommandAcceptsActor(authority, { combatantId: id, squadId: 8, dead: false,
+        faction: Faction.TOWN, combatOwnership: 'mission-official' })).toBe(false)
+    }
+    const legacy = createMissionCommandAuthority('legacy', 'roman', 'commander', [], commanderGateDefenseSlots(undefined, 1))
+    legacy.commandedSquadIds = [8]
+    expect(officialCommandIsPlayerControlled(legacy, 'town-eagle-rider:1')).toBe(false)
+    const roster = careerCommandHudRoster({ sceneKey: 'town:roman', faction: 'roman', missionId: 'legacy', official: legacy,
+      townAirActorIds: TOWN_AUTONOMOUS_GUARD_IDS, actors: [] })
+    expect(roster.members.some(member => TOWN_AUTONOMOUS_GUARD_IDS.includes(member.id))).toBe(false)
+    // Compatibility adapter cannot authorize an empty or populated air squad.
+    const air = new TownAirCommandSquadController([], () => { throw new Error('No Player required') },
+      () => createCareerProfile('roman'), {} as ConstructorParameters<typeof TownAirCommandSquadController>[3], 'roman')
+    expect(air.commandsEnabled).toBe(false)
+    expect(air.stageCommand(createCareerProfile('roman'), 'charge', 'all', [])).toBeUndefined()
+    const sky = createMissionCommandAuthority('sky', 'roman', 'commander', [], [{ squadId: 1, actorIds: ['sky:ranger:1'] }])
+    sky.commandedSquadIds = [1]
+    expect(officialCommandIsPlayerControlled(sky, 'sky:ranger:1')).toBe(true)
+  })
+
   it('round-trips exact peaceful actor claims and native return owners without treating whole squads as commanded', () => {
     const profile = createCareerProfile('roman')
     profile.rank = 'commander'; profile.totalMerit = 20000

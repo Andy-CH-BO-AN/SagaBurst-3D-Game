@@ -2,9 +2,11 @@
 
 ## Commander V 四門守城交接
 
-正式 Career 任務已接入 Home Town、既有八車與八隊兵權：守方獨立準備 180 秒後才從邊境生成 230 名攻方與八車、每門獨立事件、完整 ground／air checkpoint、原子結果與正常城鎮重建。正式攻擊後守住5分鐘且守方仍有人存活即可獲勝，提前全滅攻方仍勝；戰鬥計時排除準備／生成／暫停並隨存檔續算，舊存檔缺值從0開始。Roman／Viking 真實 WebGL 的八車移動／Dock／Crew 登城、空戰、遊玩回歸及 GPU 效能尚待驗收；CPU 幾何診斷與 CI 不代表上述通過。模組契約見 ARCHITECTURE，詳細驗證留 PR。
+Commander 新正式八隊為 26／26／26／26／25／26／25／26，共 206 人，四門各有步兵／騎兵；HR 本人在西門第 8 隊、Captain 在東門第 6 隊。城鎮 5 名巨鷹與新增 5 名常駐 T3 指揮塔弓兵自主防守，不受 ALL／Preset／小隊命令。新任務使用 rosterVersion 2；進行中的舊版 210 人快照保持至返回，和平授權按 Actor ID 遷移。Roman／Viking 實際塔頂站位、射擊及完整任務回歸仍需實機驗收。
 
-更新：2026-10-17。城外遭遇戰與任務交火的目前契約見 [ARCHITECTURE.md](ARCHITECTURE.md)。
+正式 Career 任務已接入 Home Town、既有八車與八隊兵權：守方獨立準備 180 秒後才從邊境生成 230 名攻方與八車、每門獨立事件、完整 ground／air checkpoint、原子結果與正常城鎮重建。正式攻擊後守住15分鐘且守方仍有人存活即可獲勝，提前全滅攻方仍勝；戰鬥計時排除準備／生成／暫停並隨存檔續算，舊存檔缺值從0開始。Roman／Viking 真實 WebGL 的八車移動／Dock／Crew 登城、空戰、遊玩回歸及 GPU 效能尚待驗收；CPU 幾何診斷與 CI 不代表上述通過。模組契約見 ARCHITECTURE，詳細驗證留 PR。
+
+更新：2026-10-19。城外遭遇戰與任務交火的目前契約見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 目前狀態
 

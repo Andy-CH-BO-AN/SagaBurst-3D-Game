@@ -1,3 +1,4 @@
+import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
 import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, commanderCavalryEscortTarget, createCommanderCavalryEscort, isCommanderCavalryEscorting, COMMANDER_CAVALRY_ESCORT } from './CommanderCavalryEscort'
 import * as THREE from 'three'
@@ -30,7 +31,7 @@ import type { TownDefenseResident } from './TownDefenseController'
 import { civilianShelterSlots } from './TownDefenseState'
 import { TownFourGateSiege, type TownFourGateSiegeOptions } from './TownFourGateSiege'
 import { planCommanderFourGateDefenseDeployment } from './CommanderFourGateDefenseDeployment'
-import { advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
+import { recordNativeTownGuardCombat, advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS, resolveCommanderFourGateDefenseOutcome } from './CommanderFourGateDefenseState'
 import { COMMANDER_FOUR_GATE_DEFENSE_ENEMIES, createCommanderFourGateDefenseRoster } from './CommanderFourGateDefenseRoster'
 
 export interface CommanderFourGateDefenseContext {
@@ -65,6 +66,7 @@ export class CommanderFourGateDefenseController {
   private readonly originalSquads = new Map<NPC, NPC['squadId']>()
   private readonly plannedPositions: THREE.Vector3[] = []
   private tracker: BattleStatsTracker | null = null
+  private nativeStatsFrozen = false
   private spawnBatch?: NpcSpawnBatch
   private startedMissionId?: string
   private friendlyReady = false
@@ -95,7 +97,7 @@ export class CommanderFourGateDefenseController {
   get preparationRemaining(): number { return this.state?.preparationRemainingSeconds ?? 180 }
   get survivalRemaining(): number { return Math.max(0, COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS - (this.state?.combatElapsedSeconds ?? 0)) }
   get military(): NPC[] {
-    const ids = new Set(this.active?.friendlyActorIds ?? [])
+    const ids = new Set([...(this.active?.friendlyActorIds ?? []), ...(this.active?.fourGateDefense?.autonomousActorIds ?? [])])
     return this.residents.filter(r => ids.has(r.spec.id)).map(r => r.npc)
   }
   get defenders(): NPC[] { return this.military }
@@ -142,7 +144,7 @@ export class CommanderFourGateDefenseController {
         return { mounted: saved?.mount ? saved.mount.mounted && saved.mount.hp > 0 : npc.isMounted, ranged: npc.hasActiveRangedWeapon,
           spear: npc.meleeWeaponId ? WEAPONS[npc.meleeWeaponId]?.combatKind === 'lance' : false,
           flying: Boolean(npc.mount?.isFlyingMount || spec.duty === 'eagle_garrison') }
-      })
+      }, this.state.rosterVersion ?? 1)
     this.roster = createCommanderFourGateDefenseRoster(active.id, this.readProfile().faction === 'roman' ? 'viking' : 'roman')
     const targetIds = new Set(active.targetActorIds)
     if (targetIds.size !== COMMANDER_FOUR_GATE_DEFENSE_ENEMIES || this.roster.all.some(spec => !targetIds.has(spec.actorId!))) return false
@@ -152,6 +154,12 @@ export class CommanderFourGateDefenseController {
     this.tracker = new BattleStatsTracker(this.events, false, event => acceptsCareerMissionStat(this.active ?? active, event),
       active.playerStats, careerMissionCommandMeritPolicy(active, () => this.active ?? active))
     for (const npc of [...this.military, ...this.personalActors()]) this.tracker.registerNpc(npc, true)
+    const nativeIds = new Set(this.military.filter(npc => isAutonomousTownGuard(npc.combatantId)).map(npc => npc.combatantId))
+    this.releaseNativeEventBindings.push(this.events.subscribe(event => {
+      if (!this.state || this.nativeStatsFrozen || !this.combatEnabled) return
+      const stats = this.state.nativeCombatStats ??= { damageDealt: 0, damageTaken: 0, kills: 0 }
+      recordNativeTownGuardCombat(stats, event, nativeIds, targetIds)
+    }))
     if (this.state.phase === 'SPAWNING' || this.state.phase === 'ATTACKING') this.beginAttackers()
     return true
   }
@@ -243,7 +251,7 @@ export class CommanderFourGateDefenseController {
       this.actorsById.set(spec.id, npc)
       if (homeMount ?? npc.mount) this.actorMounts.set(spec.id, (homeMount ?? npc.mount)!)
       npc.respawnEnabled = false
-      if (active.officialSquad?.actorIds.includes(spec.id)) {
+      if (active.officialSquad?.actorIds.includes(spec.id) && !isAutonomousTownGuard(spec.id)) {
         this.originalSquads.set(npc, npc.squadId)
         npc.setCommandSquad(officialActorSquadId(active.officialSquad, spec.id)); npc.combatOwnership = 'mission-official'
       }
@@ -266,6 +274,7 @@ export class CommanderFourGateDefenseController {
           if (index >= 0) npc.assignFollowTarget(this.player(), index, officialFollowLocalOffset(index, npc.isMounted, Boolean(this.readProfile().personalSquad?.members.length)))
         }
       }
+      if (spec.duty === 'watchtower_guard') npc.activateTownRampartGarrison()
       npc.setMissionCombatTarget(null)
     }
     for (const sector of this.deployment!.sectors) this.groups.push({ id: sector.gateId,
@@ -454,11 +463,14 @@ export class CommanderFourGateDefenseController {
 
   peersFor(npc: NPC): NPC[] { return townWartimePeers(npc, this.fieldNpcs) }
   registerPersonalActor(npc: NPC): void { this.tracker?.registerNpc(npc, true) }
-  freezeStats(): void { this.tracker?.freeze() }
+  freezeStats(): void { this.nativeStatsFrozen = true; this.tracker?.freeze() }
   snapshot(): BattleStatsSnapshot {
     for (const npc of this.personalActors()) this.tracker?.registerNpc(npc, true)
-    return this.tracker?.snapshot([...this.fieldNpcs, ...this.personalActors()], this.player()) ?? {
+    const snapshot = this.tracker?.snapshot([...this.fieldNpcs, ...this.personalActors()], this.player()) ?? {
       player: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: !this.player().dead }, squads: [] }
+    const native = this.military.filter(npc => isAutonomousTownGuard(npc.combatantId))
+    return { ...snapshot, nativeDefenders: { startingMembers: native.length, survivors: native.filter(npc => !npc.dead).length,
+      casualties: native.filter(npc => npc.dead).length, ...(this.state?.nativeCombatStats ?? { damageDealt: 0, damageTaken: 0, kills: 0 }) } }
   }
   private isPlayerCommanded(npc: NPC): boolean {
     const authority = this.active?.officialSquad
@@ -651,7 +663,7 @@ export class CommanderFourGateDefenseController {
     return { ...active, phase: state.phase, fourGateDefense: state,
       commanderMission: { ...active.commanderMission!, deploymentComplete: state.deploymentComplete },
       ...(authority ? { officialSquad: authority } : {}), ...(mountState ? { mountState } : {}),
-      deadTargetActorIds: deadTargets, deadFriendlyActorIds: this.military.filter(n => n.dead).map(n => n.combatantId),
+      deadTargetActorIds: deadTargets, deadFriendlyActorIds: this.military.filter(n => n.dead && active.friendlyActorIds.includes(n.combatantId)).map(n => n.combatantId),
       deadCivilianActorIds: this.civilians.filter(n => n.dead).map(n => n.combatantId),
       civilianActorIds: this.civilians.map(n => n.combatantId), playerDead: this.player().dead || active.playerDead,
       playerHp: this.player().hp, playerStamina: this.player().staminaValue, ...(playerStats ? { playerStats } : {}) }
@@ -673,7 +685,7 @@ export class CommanderFourGateDefenseController {
   }
   private disposeRuntime(): void {
     this.disposeAttackers(); this.startedMissionId = undefined; this.friendlyReady = false; this.preparationElapsed = undefined; this.escortAssignments = []; this.pendingEscortReleases = undefined
-    this.tracker?.dispose(); this.tracker = null
+    this.tracker?.dispose(); this.tracker = null; this.nativeStatsFrozen = false
     for (const release of this.releaseNativeEventBindings.splice(0)) release()
     for (const npc of this.enemies) npc.dispose()
     for (const mount of this.enemyMounts) mount.dispose()

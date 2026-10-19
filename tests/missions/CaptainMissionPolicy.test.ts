@@ -33,7 +33,7 @@ describe('Commander accepted production rosters without actor materialization', 
     const full = commanderGateDefenseSquads(residents, accepted)
     const unavailable = new Set(['captain', 'town-patrol:a:captain', 'town-eagle-rider:2'])
     const reduced = commanderGateDefenseSquads(residents, accepted.filter(id => id !== 'gate:south:0'), unavailable)
-    expect(reduced.flatMap(squad => squad.actorIds)).toHaveLength(204)
+    expect(reduced.flatMap(squad => squad.actorIds)).toHaveLength(200)
     expect(reduced).toEqual(full.map(squad => ({ ...squad,
       actorIds: squad.actorIds.filter(id => !unavailable.has(id) && id !== 'gate:south:0'),
     })))

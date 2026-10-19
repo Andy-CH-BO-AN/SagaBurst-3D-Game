@@ -90,7 +90,7 @@ function rebuildNativeReserve(profile: CareerProfile, faction: CareerProfile['fa
   if (!state) return
   const held = new Set<string>()
   const resolveRefs = createTownEquipmentRefsResolver(profile, faction)
-  for (const spec of townEquipmentActorSpecs(faction)) if (townEquipmentSquadForActor(spec.id) !== undefined) {
+  for (const spec of townEquipmentActorSpecs(faction)) if (townEquipmentSquadForActor(spec.id) !== undefined || spec.eagle) {
     for (const ref of Object.values(resolveRefs(spec))) if (ref?.source === 'native') held.add(ref.nativeId!)
   }
   state.nativeReserve = townNativeItems(faction).filter(item => !held.has(item.nativeId) && !state.soldNativeIds?.includes(item.nativeId)).map(item => item.nativeId).sort(naturalActorCompare)

@@ -37,6 +37,8 @@ export interface BattleStatsSnapshot {
   player: PlayerBattleStats
   squads: SquadBattleStats[]
   meritPlayer?: PlayerBattleStats
+  /** Native allies have no command squad and contribute no player command merit. */
+  nativeDefenders?: { startingMembers: number; survivors: number; casualties: number; damageDealt: number; damageTaken: number; kills: number }
 }
 
 export interface PlayerCommandMeritPolicy {

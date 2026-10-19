@@ -249,8 +249,8 @@ describe('CareerMissionCheckpoint', () => {
     expect(restored.fourGateDefense).toMatchObject({ phase: 'PREPARING', preparationRemainingSeconds: 180,
       deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [],
       actors: { 'hr-officer': { status: 'deployed', hp: 100, position: { x: 20, y: 0, z: 30 } } } })
-    expect(restored.friendlyActorIds).not.toContain('hr-officer')
-    expect(restored.officialSquad!.actorIds).not.toContain('hr-officer')
+    expect(restored.friendlyActorIds).toContain('hr-officer')
+    expect(restored.officialSquad!.squads!.find(squad => squad.squadId === 8)!.actorIds).toContain('hr-officer')
   })
 
   it('retries a failed first-attack save with current actor intent in both checkpoints before publishing combat', () => {
@@ -358,7 +358,7 @@ describe('CareerMissionCheckpoint', () => {
     profile.activeMission!.phase = 'PREPARING'; profile.activeMission!.commanderMission!.deploymentComplete = false
     profile.activeMission!.fourGateDefense = { ...materialized, phase: 'PREPARING', preparationRemainingSeconds: .25,
       deploymentComplete: false, attackStarted: false, registeredTargetActorIds: [], siege: undefined,
-      actors: Object.fromEntries([...profile.activeMission!.friendlyActorIds, ...profile.activeMission!.civilianActorIds!]
+      actors: Object.fromEntries([...profile.activeMission!.friendlyActorIds, ...(materialized.autonomousActorIds ?? []), ...profile.activeMission!.civilianActorIds!]
         .map(id => [id, materialized.actors[id]])) }
     const before = JSON.stringify(profile)
     const storage = new MemoryStorage({ failWrites: true, initialValues: [[CAREER_STORAGE_KEY, before]] })

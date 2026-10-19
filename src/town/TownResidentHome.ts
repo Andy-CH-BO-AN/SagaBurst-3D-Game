@@ -3,7 +3,7 @@ import type { NPC } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
 import { townStationSpec, type TownGarrisonStation } from './TownGarrison'
 
-interface TownHome { x: number; y?: number; z: number; yaw?: number; garrison?: TownGarrisonStation }
+interface TownHome { duty?: import('./TownRules').TownDuty; x: number; y?: number; z: number; yaw?: number; garrison?: TownGarrisonStation }
 
 /** A reached flag or matching XZ cannot establish arrival on a different floor. */
 export function townResidentAtHome(npc: Pick<NPC, 'combatPosition' | 'isMounted'>, home: TownHome,
@@ -15,7 +15,7 @@ export function townResidentAtHome(npc: Pick<NPC, 'combatPosition' | 'isMounted'
 
 export function activateTownResidentHome(npc: Pick<NPC, 'dead' | 'combatPosition' | 'isMounted' | 'rangedWeaponId' | 'activateTownRampartGarrison'>,
   home: TownHome): void {
-  if (!npc.dead && home.garrison?.kind === 'rampart' && !npc.isMounted && npc.rangedWeaponId && townResidentAtHome(npc, home))
+  if (!npc.dead && (home.garrison?.kind === 'rampart' || home.duty === 'watchtower_guard') && !npc.isMounted && npc.rangedWeaponId && townResidentAtHome(npc, home))
     npc.activateTownRampartGarrison()
 }
 

@@ -826,12 +826,12 @@ export class TownMissionCombat {
         const heldRampart = npc.isTownRampartGarrisonActive
         npc.setMissionCombatTarget(undefined)
         npc.endExternalThreat()
-        if (heldRampart && spec.garrison?.kind === 'rampart') {
+        if (heldRampart && (spec.garrison?.kind === 'rampart' || spec.duty === 'watchtower_guard')) {
           const station = townStationSpec(spec, npc.isMounted, Boolean(npc.rangedWeaponId))
-          const point = new THREE.Vector3(station.x, station.y, station.z)
+          const point = new THREE.Vector3(station.x, station.y ?? getTerrainHeight(station.x, station.z), station.z)
           if (npc.combatPosition.distanceToSquared(point) <= .25) {
             // Already at its legal elevated station: never reset its physical position.
-            if (station.garrison?.kind === 'rampart') npc.activateTownRampartGarrison()
+            if (station.garrison?.kind === 'rampart' || station.duty === 'watchtower_guard') npc.activateTownRampartGarrison()
           } else {
             this.garrisonReturns.set(npc, station)
             npc.assignFormationTarget(EXTERNAL_GARRISON_RETURN_ID, point,

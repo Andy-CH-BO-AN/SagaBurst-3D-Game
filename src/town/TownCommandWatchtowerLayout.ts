@@ -57,6 +57,20 @@ export function getTownCommandWatchtowerLayout(): CommandWatchtowerLayout {
 export function createTownCommandWatchtowerAirspaceObstacle(layout: CommandWatchtowerLayout): ObstacleData {
   return { box: layout.footprint.clone(), isBarricade: false, projectilePassable: true }
 }
+/** Shared top-deck posts also locate physical firing openings in the railing. */
+export function getTownWatchtowerGuardStations(layout: CommandWatchtowerLayout) {
+  const deck = layout.platform[0]
+  return [[.9, -1, Math.PI], [.9, 1, Math.PI], [deck.length / 2, 1, -Math.PI / 2],
+    [deck.length - .9, 1, 0], [deck.length * .3, -1, Math.PI / 2]].map(([along, side, yaw], index) => {
+    const lateral = side * (deck.halfWidth - (index === 2 || index === 4 ? .9 : 1.9))
+    const x = deck.startX + deck.dirX * along - deck.dirZ * lateral
+    const z = deck.startZ + deck.dirZ * along + deck.dirX * lateral
+    const y = getWalkRampHeight(deck, x, z)
+    if (y === null || Math.abs(y - layout.platformY) > .001) throw new Error('Unsupported watchtower guard station')
+    return { x, y, z, yaw }
+  })
+}
+
 export interface CommandWatchtowerRail { surface: WalkRampSurface; obstacles: ObstacleData[] }
 /** Shared rail data keeps ground navigation aligned with the physical slices,
  * while leaving the upper flights open underneath for foot and mounted actors. */
@@ -93,6 +107,15 @@ export function getTownCommandWatchtowerRails(layout: CommandWatchtowerLayout): 
       const other = axis === 'x' ? 'z' : 'x', fixed = side < 0 ? b.min[axis] : b.max[axis]
       const min = b.min[other], max = b.max[other]
       const openings: [number, number][] = []
+      if (s === layout.platform[0]) {
+        // Real 0.6m-wide embrasures align with native bows. The opening is narrower
+        // than a foot actor (Player diameter .76m), so bodies still hit its sides.
+        for (const post of getTownWatchtowerGuardStations(layout)) {
+          const facing = axis === 'x' ? Math.sin(post.yaw) : Math.cos(post.yaw)
+          if (Math.abs(facing - side) > .001) continue
+          openings.push([post[other] - .3, post[other] + .3])
+        }
+      }
       for (const adjacent of all) {
         if (adjacent === s) continue
         // Probe the boundary against endpoint height, so an overhead crossing

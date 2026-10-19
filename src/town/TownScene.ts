@@ -1,3 +1,4 @@
+import { isAutonomousTownGuard } from './TownNativeGuardIdentity'
 import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { ActiveMissionClock } from '../career/ActiveMissionClock'
 import { raceReturnAction } from '../career/CareerRaceReturn'
@@ -339,7 +340,9 @@ export class TownScene {
     this.navigation.sync(this.world.obstacles)
     assignTownCivilianHomes(population, this.world.airspaceObstacles, this.navigation)
     this.residentRoster = careerTownSceneRoster(profile, population)
-    this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec) : population)
+    const residentIds = new Set(this.residentRoster.map(entry => entry.spec.id))
+    this.event = new TownEvent(context.missionOnlyResidents ? this.residentRoster.map(entry => entry.spec)
+      : population.filter(spec => spec.role === 'cat' || residentIds.has(spec.id)))
     this.inventory = new TownEquipment(() => this.profile, p => this.commit(p))
     this.skills.setSkillState(profile.skills ?? {})
   }
@@ -675,7 +678,11 @@ export class TownScene {
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
         if (spec.y !== undefined) npc.group.position.y = spec.y
-        if (spec.garrison?.kind === 'rampart') npc.activateTownRampartGarrison()
+        if (spec.garrison?.kind === 'rampart' || spec.duty === 'watchtower_guard') npc.activateTownRampartGarrison()
+        if (spec.duty === 'watchtower_guard' && this.profile.activeMission?.kind !== 'commander-four-gate-defense') {
+          const saved = this.profile.activeMission?.actorHealth?.[spec.id]
+          if (saved) npc.restoreCombatHealth(saved.hp)
+        }
         if (additionalPopulation && this.event.hostile) npc.beginTownHostility()
         let homeMount: Mount | undefined
         if (spec.role === 'ranger' && !careerEquipment) homeMount = this.cat
@@ -950,6 +957,12 @@ export class TownScene {
         spec: resident.spec, ...(isMissionReturnResident(resident.spec)
           ? { checkpoint: refitCommandCheckpoint(resident.npc, resident.homeMount) } : {}),
       })) : townRoster().map(spec => ({ spec })))
+    if (next.activeMission && next.activeMission.id === this.profile.activeMission?.id
+      && next.activeMission.kind !== 'commander-four-gate-defense') {
+      for (const { spec, npc } of this.residents ?? []) if (spec.duty === 'watchtower_guard') {
+        next.activeMission.actorHealth = { ...next.activeMission.actorHealth, [spec.id]: { hp: npc.dead ? 0 : npc.hp } }
+      }
+    }
     if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
     // No handoff callbacks may capture the outgoing battle poses over the saved rebuild.
     if (options.rebuildTown) { this.profile = next; this.careerSkillsDirty = false; return true }
@@ -1362,6 +1375,7 @@ export class TownScene {
   }
   private commandsEnabled(): boolean { return this.personalCommandsEnabled() || Boolean(!this.player?.dead && (this.civilianCommand?.commandsEnabled || this.townAirCommand?.commandsEnabled || this.townCommand?.commandsEnabled || this.profile.activeMission?.officialSquad && !this.profile.activeMission.result)) }
   private isAuthorizedCommandActor(npc: NPC): boolean {
+    if (isAutonomousTownGuard(npc.combatantId)) return false
     if (this.civilianCommand?.accepts(npc) || this.townAirCommand?.accepts(npc)) return true
     if (this.personalSquad?.owns(npc)) return this.personalCommandsEnabled()
     if (this.captainPatrol?.active?.officialSquad?.actorIds.includes(npc.combatantId)) return this.captainPatrol.accepts(npc)
@@ -2945,6 +2959,9 @@ export class TownScene {
       this.missionCombat?.noteExternalHit(target, source)
     }
     if (target.dead && this.event?.hostile && this.residents.some(resident => resident.npc === target)) this.persistCasualties()
+    if (target.dead && this.profile.activeMission?.kind !== 'commander-four-gate-defense'
+      && this.profile.activeMission && this.residents.some(resident => resident.npc === target && resident.spec.duty === 'watchtower_guard'))
+      this.commit(cloneCareerProfile(this.profile))
     if (!source) this.awardCareerSkillXp(method, result.appliedDamage, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
@@ -3270,7 +3287,7 @@ export class TownScene {
   }
 
   private playerOwnsEagleCommand(npc: NPC): boolean {
-    if (this.townAirCommand?.ownsPlayerCommand(npc)) return true
+    if (isAutonomousTownGuard(npc.combatantId)) return false
     const mission = this.profile.activeMission, authority = mission?.officialSquad
     return Boolean(this.profile.rank === 'commander' && this.world.faction === this.profile.faction
       && (mission?.kind === 'town-defense' || mission?.kind === 'commander-four-gate-defense') && !mission.result
@@ -3323,6 +3340,7 @@ export class TownScene {
     if (this.captainPatrol?.active && this.captainPatrol.owns(r.npc)) return
     if (this.updateEagleDuty(r.npc, dt, false)) return
     if (this.patrol?.updateResident(r, dt, this.camera.position, this.world.obstacles, this.navigation)) return
+    if (r.spec.duty === 'watchtower_guard' && !r.npc.dead && !r.npc.isTownRampartGarrisonActive) r.npc.activateTownRampartGarrison()
     const { npc, spec, target } = r, distance = npc.group.position.distanceTo(this.camera.position), phase = this.elapsed + spec.index * .41
     let speed = 0
     if (npc.mount) {

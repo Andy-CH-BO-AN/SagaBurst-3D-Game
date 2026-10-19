@@ -1,3 +1,4 @@
+import { commanderGateDefenseSlots } from '../../src/career/CommanderTownRoster'
 import { acceptCommanderMission } from '../../src/career/CommanderMissionCatalog'
 import { COMMANDER_FOUR_GATE_DEFENSE_ID, createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
@@ -8,16 +9,22 @@ import { TownGateBreachPolicy } from '../../src/career/TownGateBreachPolicy'
 
 /** Saved data at a stated boundary, never a simulated deployment or a scene/actor constructor. */
 export function createFourGateDefenseProfile(phase: 'PREPARING' | 'SPAWNING' | 'ATTACKING' = 'PREPARING',
-  options: { legacyPrepared?: boolean } = {}): CareerProfile {
+  options: { legacyPrepared?: boolean; rosterVersion?: 1 | 2 } = {}): CareerProfile {
   const base = createCareerProfile('roman')
   base.rank = 'commander'; base.totalMerit = 20_000; base.availableMerit = 20_000
   const profile = acceptCommanderMission(base, COMMANDER_FOUR_GATE_DEFENSE_ID, 'four-gate-save')!
   const mission = profile.activeMission!, state = mission.fourGateDefense!
+  if (options.rosterVersion === 1) {
+    delete state.rosterVersion; delete state.autonomousActorIds
+    mission.officialSquad!.squads = commanderGateDefenseSlots(undefined, 1)
+    mission.friendlyActorIds = mission.officialSquad!.squads.flatMap(squad => squad.actorIds)
+    mission.officialSquad!.actorIds = [...mission.friendlyActorIds]
+  }
   const actor = (mounted: boolean): PersonalActorCheckpoint => ({
     status: 'deployed', hp: 100, position: { x: 20, y: 10, z: 30, yaw: .3 },
     ...(mounted ? { mount: { hp: 90, mounted: true, position: { x: 20, y: 10, z: 30, yaw: .3 } } } : {}),
   })
-  for (const id of [...mission.friendlyActorIds, ...(mission.civilianActorIds ?? [])]) {
+  for (const id of [...mission.friendlyActorIds, ...(state.autonomousActorIds ?? []), ...(mission.civilianActorIds ?? [])]) {
     state.actors[id] = actor(false)
   }
   mission.phase = phase

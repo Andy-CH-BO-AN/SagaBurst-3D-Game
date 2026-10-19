@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { commanderGateDefenseSlots } from './CommanderTownRoster'
+import { commanderGateDefenseSlots, commanderTownGateForSquad, type CommanderTownRosterVersion } from './CommanderTownRoster'
 import { siegeDefensePlans } from './TownDefenseRoster'
 import type { OfficialCommandSquad } from './CareerCommandAuthority'
 import type { TownSiegeSectorRoster } from './TownFourGateSiege'
@@ -131,21 +131,22 @@ function cavalryStations(gateId: TownGateId, obstacles: readonly ObstacleData[])
  * Air riders retain their native eagle owner and are intentionally absent from ground sectors.
  */
 export function planCommanderFourGateDefenseDeployment(roster: readonly TownActorSpec[], layout: TownRampartLayout,
-  obstacles: readonly ObstacleData[], equipment?: (actor: TownActorSpec) => CommanderFourGateDefenseEquipment): CommanderFourGateDefenseDeployment {
+  obstacles: readonly ObstacleData[], equipment?: (actor: TownActorSpec) => CommanderFourGateDefenseEquipment, rosterVersion: CommanderTownRosterVersion = 2): CommanderFourGateDefenseDeployment {
   if (new Set(roster.map(actor => actor.id)).size !== roster.length) throw new Error('Duplicate native Town actor identity')
   const byId = new Map(roster.map(actor => [actor.id, actor]))
   // Acceptance uses canonical authored slots, then intersects with actual residents.
   // Passing extra service residents back through allocation would duplicate the trainer.
-  const squads = commanderGateDefenseSlots().map(squad => ({ ...squad, actorIds: squad.actorIds.filter(id => byId.has(id)) }))
+  const squads = commanderGateDefenseSlots(undefined, rosterVersion).map(squad => ({ ...squad, actorIds: squad.actorIds.filter(id => byId.has(id)) }))
   const plans = siegeDefensePlans(roster)
   const nativeCavalryIds = new Set(plans.flatMap(plan => plan.cavalry))
   const gatesByActor = new Map(plans.flatMap(plan => [...plan.infantry, ...plan.cavalry].map(id => [id, plan.gateId] as const)))
   // Opt-in service Commander has no unitKind, but remains part of the native eight squads.
   for (const squad of squads) for (const id of squad.actorIds) {
     const actor = byId.get(id)
-    if (actor && !gatesByActor.has(id) && actor.duty !== 'eagle_garrison') {
-      gatesByActor.set(id, squad.squadId <= 2 ? 'north' : squad.squadId <= 4 ? 'south' : squad.squadId <= 6 ? 'east' : 'west')
-      if (actor.mounted || actor.role === 'ranger') nativeCavalryIds.add(id)
+    if (actor && actor.duty !== 'eagle_garrison' && (rosterVersion === 2 || !gatesByActor.has(id))) {
+      gatesByActor.set(id, commanderTownGateForSquad(squad.squadId))
+      if (rosterVersion === 2 ? squad.squadId % 2 === 0 : actor.mounted || actor.role === 'ranger') nativeCavalryIds.add(id)
+      else nativeCavalryIds.delete(id)
     }
   }
   const stations = new Map<string, Station>(), occupied: OccupiedStation[] = []

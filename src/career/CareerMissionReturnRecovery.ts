@@ -12,7 +12,7 @@ export interface MissionReturnHome {
 }
 
 export function isMissionReturnResident(spec: Pick<TownActorSpec, 'role'> & Partial<Pick<TownActorSpec, 'duty'>>): boolean {
-  return spec.role === 'civilian' || spec.role === 'merchant' || spec.duty === 'service'
+  return spec.role === 'civilian' || spec.role === 'merchant' || spec.duty === 'service' || spec.duty === 'watchtower_guard'
 }
 
 /** A missing resource field means the freshly constructed actor's full loadout resources.

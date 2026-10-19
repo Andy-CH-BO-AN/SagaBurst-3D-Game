@@ -4039,6 +4039,8 @@ export class NPC {
 
   private _isRampartMeleeThreat(targetPos: THREE.Vector3): boolean {
     const town = this._activeNavigationWorld?.townNav
+    if (town?.watchtower && town.watchtower.surfaceAt(this.combatPosition) >= 0)
+      return town.watchtower.sameLevel(this.combatPosition, targetPos)
     if (town) return town.isElevated(this.combatPosition) && town.isElevated(targetPos)
     const nav = this._activeNavigationWorld?.outpostNav
     if (nav) {

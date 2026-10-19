@@ -3,7 +3,7 @@ import { townAssaultObjectiveRoster, type TownActorSpec } from '../town/TownRule
 
 export interface SiegeDefensePlan { gateId: TownGateId; infantry: string[]; cavalry: string[]; leaderId?: string }
 export function siegeDefensePlans(roster: readonly TownActorSpec[]): SiegeDefensePlan[] {
-  const military = townAssaultObjectiveRoster([...roster]).filter(actor => actor.duty !== 'eagle_garrison')
+  const military = townAssaultObjectiveRoster([...roster]).filter(actor => actor.duty !== 'eagle_garrison' && actor.duty !== 'watchtower_guard')
   const plans: SiegeDefensePlan[] = TOWN_GATES.map(gate => ({ gateId: gate.id, infantry: [], cavalry: [] }))
   const leaders = ['captain', 'ranger', 'town-patrol:a:captain', 'town-patrol:b:captain']
   for (const actor of military.filter(actor => !actor.mounted && actor.role !== 'ranger' && actor.gateId)) {

@@ -1,3 +1,4 @@
+import { isAutonomousTownGuard } from '../town/TownNativeGuardIdentity'
 import type { ArmyHudMember, ArmyHudMemberState, ArmyHudRoster } from '../battle/ArmyCommandHudRoster'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import { officialCommandSquads, type OfficialCommandAuthority } from './CareerCommandAuthority'
@@ -39,7 +40,7 @@ export interface CareerCommandHudSource {
     missionId?: string
   }
   civilianReturningIds?: readonly string[]
-  /** Peaceful own-town Commander air selection; formal air remains official Squad 8. */
+  /** Legacy input retained for compatibility; native air is never commandable. */
   townAirActorIds?: readonly string[]
   actors: readonly HudActor[]
 }
@@ -68,7 +69,7 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
   const squads = official ? officialCommandSquads(official) : []
 
   for (const squad of squads) for (const id of squad.actorIds) {
-    if (seen.has(id) || personalIds.has(id) || civilianIds.has(id)) continue
+    if (isAutonomousTownGuard(id) || seen.has(id) || personalIds.has(id) || civilianIds.has(id)) continue
     seen.add(id)
     const actor = live.get(id)
     const saved = official?.members?.[id]
@@ -103,14 +104,6 @@ export function careerCommandHudRoster(source: CareerCommandHudSource): ArmyHudR
       : saved?.status === 'dead' || saved?.hp === 0 || actor?.dead ? 'dead'
       : actor ? returningCivilians.has(id) ? 'returning' : 'deployed' : 'missing'
     members.push({ id, squadId: 'civilians', state, order: actor ? actor.tacticalOrder : saved?.order, unitType: 'civilian' })
-  }
-
-  if (!source.missionId) for (const id of source.townAirActorIds ?? []) {
-    if (seen.has(id)) continue
-    const actor = live.get(id)
-    if (!actor) continue
-    seen.add(id)
-    members.push({ id, squadId: 8, state: actor.dead ? 'dead' : 'deployed', order: actor.tacticalOrder, unitType: 'eagle' })
   }
 
   // Include identities and saved assignments: equal headcounts do not imply the same authority.

@@ -29,6 +29,21 @@ function harness(faction: CareerProfile['faction'] = 'roman') {
   }
 }
 describe('Town equipment domain, canonical ownership and persisted native sources', () => {
+  it('retains a native weapon transferred within the old squad after its original owner moves to the west', () => {
+    const h = harness(), profile = h.read()
+    const previousSource = resolveTownActorEquipment(profile, 'roman', 'melee_cavalry-3').refs
+    const recipient = resolveTownActorEquipment(profile, 'roman', 'gate:north:0').refs
+    h.buy('centurion_blade')
+    profile.townEquipment = { roman: { version: 1, residentEquipmentVersion: 1, nativeReserve: ['roman/gate:north:0/melee'], actors: {
+      'melee_cavalry-3': { ...previousSource, melee: { itemId: 'centurion_blade', source: 'inventory' } },
+      'gate:north:0': { ...recipient, melee: previousSource.melee },
+    } } }
+    expect(h.store.save(profile)).toBe(true)
+    const restored = h.store.load()!
+    expect(resolveTownActorEquipment(restored, 'roman', 'gate:north:0').refs.melee).toEqual(previousSource.melee)
+    expect(resolveTownActorEquipment(restored, 'roman', 'melee_cavalry-3').refs.melee).toEqual({ itemId: 'centurion_blade', source: 'inventory' })
+  })
+
   it('rolls back a bulk bow allocation while retaining native shield ownership when storage fails', () => {
     const h = harness(); h.context.safeActorIds = new Set(['gate:north:0']); h.buy('elven_runebow')
     // The bulk owner already validates its staged domain data. Seed durable bytes
