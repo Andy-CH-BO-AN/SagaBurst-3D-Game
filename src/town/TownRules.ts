@@ -161,6 +161,12 @@ export function townRoster(): TownActorSpec[] {
   return result
 }
 export function townAssaultObjectiveRoster(roster = townRoster()): TownActorSpec[] { return roster.filter(actor => isTownMilitary(actor) || actor.role === 'ranger' || actor.role === 'eagle-trainer') }
+/** Catalogs use authored natives; live boards pass the same residents as acceptance,
+ * including any service defenders added by the built Town. Player is counted once. */
+export function townDefenseForceCounts(roster: readonly TownActorSpec[] = townAuthoredRoster(), additionalDefenderIds: readonly string[] = []) {
+  const friendlySoldiers = new Set([...townAssaultObjectiveRoster([...roster]).map(actor => actor.id), ...additionalDefenderIds]).size
+  return { friendlySoldiers, friendlyCombatants: friendlySoldiers + 1 }
+}
 /** Captain's fixed T2 training residents. Selection never draws from officers, gates or Patrols. */
 export function townCommandSquadRoster(faction: CharacterFaction, roster: readonly TownActorSpec[] = townRoster()): TownActorSpec[] {
   const ids = [

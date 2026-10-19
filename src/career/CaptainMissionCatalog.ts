@@ -5,7 +5,7 @@ import { careerItemTotal } from './CareerInventory'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
 import { createCareerMissionId, createTownDefenseMission, type ActiveCareerMission } from './CareerMissionState'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
-import { type TownActorSpec } from '../town/TownRules'
+import { townDefenseForceCounts, type TownActorSpec } from '../town/TownRules'
 import type { TownGateId } from '../town/TownLayout'
 import { siegeDefensePlans, type SiegeDefensePlan } from './TownSiege'
 import { createMissionCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
@@ -44,7 +44,7 @@ const entry = (id: string, kind: CaptainMissionKind, name: string, briefing: str
 export const CAPTAIN_MISSION_CATALOG: readonly CaptainMissionDefinition[] = [
   entry(CAPTAIN_PATROL_COMMAND_ID, 'captain-patrol-command', 'Captain I · Patrol Command · 實習隊長巡邏', '指揮既有 20 人巡邏隊，累積 30 次有效敵軍擊殺。', 21, 30),
   entry(CAPTAIN_CAVALRY_COMMAND_ID, 'cavalry-sweep', 'Captain II · Cavalry Command · 騎兵清剿', '60 騎兵（含玩家）對抗 40 Bandits；指揮第一支 29 人騎兵隊。', 60, 40),
-  entry(CAPTAIN_GATE_DEFENSE_ID, 'town-defense', 'Captain III · Gate Defense · 城門防衛', '指揮北門全部既有步兵；定位後聽從玩家命令，其餘守軍守住各自城門。', 209, 120),
+  entry(CAPTAIN_GATE_DEFENSE_ID, 'town-defense', 'Captain III · Gate Defense · 城門防衛', '指揮北門全部既有步兵；定位後聽從玩家命令，其餘守軍守住各自城門。', townDefenseForceCounts().friendlyCombatants, 120),
   entry(CAPTAIN_FRONTLINE_COMMAND_ID, 'captain-outpost-defense', 'Captain IV · Frontline Commander · 前線指揮官', 'Campaign Stage IX 防線；90 名既有守軍加玩家，200 名 T3 與 2 名 T4 敵軍；120 秒後 50 名援軍。', 91, 202),
   entry(CAPTAIN_SIEGE_COMMAND_ID, 'enemy-town-assault', 'Captain V · Siege Commander · 攻城隊長', '120 人四門進攻（含玩家）；指揮北門 29 人，其餘三門由 AI 指揮。', 120, 0),
   entry(CAPTAIN_EAGLE_BATTLE_ID, 'captain-eagle-battle', 'Captain VI · Eagle Battle · 巨鷹空戰', '30 對 30 巨鷹空戰（含玩家）；全部已招募私兵額外參戰。', 30, 30),
@@ -84,10 +84,16 @@ export function commanderGateDefenseSquads(residents: readonly TownActorSpec[], 
     actorIds: squad.actorIds.filter(id => residentIds.has(id) && accepted.has(id) && !unavailableActorIds.has(id)),
   })).filter(squad => squad.actorIds.length > 0)
 }
+function captainGateDefenseCommanderIds(profile: Pick<CareerProfile, 'rank'>, residents: readonly TownActorSpec[], unavailableActorIds: ReadonlySet<string>): string[] {
+  return profile.rank === 'commander' && !unavailableActorIds.has(TOWN_COMMANDER_ID)
+    && residents.some(actor => actor.id === TOWN_COMMANDER_ID && actor.role === 'commander') ? [TOWN_COMMANDER_ID] : []
+}
+export function captainGateDefenseForceCounts(profile: Pick<CareerProfile, 'rank'>, residents: readonly TownActorSpec[], unavailableActorIds: ReadonlySet<string> = new Set()) {
+  return townDefenseForceCounts(residents, captainGateDefenseCommanderIds(profile, residents, unavailableActorIds))
+}
 export function createCaptainGateDefenseMission(profile: CareerProfile, friendlyActorIds: string[], civilianActorIds: string[], residents: readonly TownActorSpec[], id = createCareerMissionId(CAPTAIN_GATE_DEFENSE_ID), unavailableActorIds: ReadonlySet<string> = new Set()): ActiveCareerMission {
-  const commanderAvailable = profile.rank === 'commander' && !unavailableActorIds.has(TOWN_COMMANDER_ID)
-    && residents.some(actor => actor.id === TOWN_COMMANDER_ID && actor.role === 'commander')
-  const defenders = commanderAvailable ? [...new Set([...friendlyActorIds, TOWN_COMMANDER_ID])] : friendlyActorIds
+  const commanders = captainGateDefenseCommanderIds(profile, residents, unavailableActorIds)
+  const defenders = commanders.length ? [...new Set([...friendlyActorIds, ...commanders])] : friendlyActorIds
   const mission = createTownDefenseMission(defenders, civilianActorIds, id, CAPTAIN_GATE_DEFENSE_ID, profile.rank)
   const actorIds = captainGateDefenseActorIds(residents, unavailableActorIds).filter(actorId => friendlyActorIds.includes(actorId))
   mission.officialSquad = createMissionCommandAuthority(id, profile.faction, profile.rank, actorIds,

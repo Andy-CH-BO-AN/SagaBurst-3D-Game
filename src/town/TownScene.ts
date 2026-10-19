@@ -55,8 +55,9 @@ import { siegeMuster } from '../career/TownSiege'
 import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
 import { shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
-import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
+import { townAssaultObjectiveRoster, townDefenseForceCounts, townRoster, townName } from './TownRules'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
+import { TownProjectileObstacles } from './TownProjectileObstacles'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
@@ -96,7 +97,7 @@ import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import { DamageNumbers } from '../ui/DamageNumbers'
 import { acceptCaptainFrontline, acceptCaptainEagle, createCaptainFrontlineLaunch, createCaptainEagleLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
-import { CAPTAIN_MISSION_CATALOG, CAPTAIN_PATROL_COMMAND_ID, CAPTAIN_CAVALRY_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, getCaptainMissionDefinition, getCaptainMissionAvailability, createCaptainPatrolCommandMission, captainGateDefenseBriefing, createCaptainGateDefenseMission } from '../career/CaptainMissionCatalog'
+import { CAPTAIN_MISSION_CATALOG, CAPTAIN_PATROL_COMMAND_ID, CAPTAIN_CAVALRY_COMMAND_ID, CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_FRONTLINE_COMMAND_ID, CAPTAIN_SIEGE_COMMAND_ID, CAPTAIN_EAGLE_BATTLE_ID, getCaptainMissionDefinition, getCaptainMissionAvailability, createCaptainPatrolCommandMission, captainGateDefenseBriefing, captainGateDefenseForceCounts, createCaptainGateDefenseMission } from '../career/CaptainMissionCatalog'
 import { CaptainPatrolCommandController } from '../career/CaptainPatrolCommandController'
 import { TownCommandSquadController, TOWN_COMMAND_RETURN_ID } from './TownCommandSquadController'
 import { snapshotCommandActor, restoreCommandActor } from '../career/CareerCommandActorCheckpoint'
@@ -218,6 +219,7 @@ export class TownScene {
   private readonly projectileAdmission = new ProjectileAdmission(100, 60)
   get projectileDiagnostics() { return { activeShots: this.shots.length, ...this.projectileAdmission.snapshot() } }
   private readonly shotObstacleContact = { fraction: Infinity, point: new THREE.Vector3() }
+  private readonly projectileObstacles = new TownProjectileObstacles()
   private raf = 0
   private last = performance.now()
   private elapsed = 0
@@ -1771,6 +1773,7 @@ export class TownScene {
       panel.append(relief)
     }
     const missions = availableCareerMissionsForPage(this.profile, selectedPage)
+    const defenseForce = townDefenseForceCounts(this.residents.map(r => r.spec))
     if (selectedPage === 'recruit' && !resolveCareerReliefMount(this.profile)) {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = 'Cavalry Sweep · 騎兵清剿'
@@ -1790,7 +1793,7 @@ export class TownScene {
         : template.kind === 'enemy-town-assault'
         ? `${template.briefing}\n敵方 ${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')} · 軍事守軍 ${townAssaultObjectiveRoster(townRoster()).length} · 平民 ${TOWN_RULES.civilians} · 玩家無指揮權`
         : template.kind === 'town-defense'
-        ? `${template.briefing}\n所屬 ${townName(this.profile.faction)}\n玩家 1 · AI 守軍 ${template.friendlySoldiers} · 友軍總數 ${template.friendlyCombatants}\n敵軍 ${template.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
+        ? `${template.briefing}\n所屬 ${townName(this.profile.faction)}\n玩家 1 · AI 守軍 ${defenseForce.friendlySoldiers} · 友軍總數 ${defenseForce.friendlyCombatants}\n敵軍 ${template.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
         : template.kind === 'patrol'
           ? `${template.briefing}\n路線 ${template.routeId === 'south-road' ? '南路' : '森林線'}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlyCombatants - 2} · 友軍總數 ${template.friendlyCombatants}\n任務內容 沿線巡查 · 風險 ${template.risk}`
           : template.kind === 'bandit' ? `${template.briefing}\n城外 Bandit Camp ${template.preferredCampIndex + 1}\n玩家 1 · Mission Leader 1 · Friendly soldiers ${template.friendlySoldiers} · 友軍總數 ${template.friendlyCombatants}\nBandits ${template.banditCount} · 風險 ${template.risk}` : template.briefing
@@ -1822,12 +1825,13 @@ export class TownScene {
       .find(template => template.id === VETERAN_TOWN_DEFENSE_TEMPLATE_ID)
     if (!homeDefenseTemplate || homeDefenseTemplate.kind !== 'town-defense') return
     const homeDefense = homeDefenseTemplate
+    const defenseForce = townDefenseForceCounts(this.residents.map(r => r.spec))
     const veteranWins = careerMissionCompletionsForTier(this.profile, 3)
     const unlocked = availableCareerMissionsForPage(this.profile, 'veteran').some(template => template.id === homeDefense.id)
     const row = document.createElement('article'); row.className = 'town-product'
     const title = document.createElement('strong'); title.textContent = homeDefense.name
     const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-    details.textContent = `${homeDefense.briefing}\n老兵任務勝利 ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions} · 守護 ${townName(this.profile.faction)} · 友軍 ${homeDefense.friendlyCombatants} 人（含玩家；AI 守軍 ${homeDefense.friendlySoldiers}） · 敵軍 ${homeDefense.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${homeDefense.maxCivilianDeaths}`
+    details.textContent = `${homeDefense.briefing}\n老兵任務勝利 ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions} · 守護 ${townName(this.profile.faction)} · 友軍 ${defenseForce.friendlyCombatants} 人（含玩家；AI 守軍 ${defenseForce.friendlySoldiers}） · 敵軍 ${homeDefense.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${homeDefense.maxCivilianDeaths}`
     const accept = document.createElement('button'); accept.className = 'town-button'
     accept.textContent = unlocked ? '接受守城任務' : `需 ${homeDefense.requiresCompletions} 次老兵任務勝利 · ${Math.min(veteranWins, homeDefense.requiresCompletions)}/${homeDefense.requiresCompletions}`
     accept.disabled = !unlocked
@@ -1835,6 +1839,9 @@ export class TownScene {
     row.append(title, details, accept); panel.append(row)
   }
   private openCaptainMissionPage(panel: HTMLElement): void {
+    const unavailable = new Set(this.unavailableTownCavalryActorIds(true))
+    if (this.profile.rank === 'commander') for (const resident of this.residents) if (resident.npc.dead) unavailable.add(resident.spec.id)
+    const defenseForce = captainGateDefenseForceCounts(this.profile, this.residents.map(r => r.spec), unavailable)
     for (const definition of CAPTAIN_MISSION_CATALOG) {
       const availability = getCaptainMissionAvailability(this.profile, definition.id)
       const patrol = definition.id === CAPTAIN_PATROL_COMMAND_ID ? this.captainPatrol?.selectAvailableSquad() : null
@@ -1847,7 +1854,9 @@ export class TownScene {
       const briefing = definition.id === CAPTAIN_GATE_DEFENSE_ID
         ? captainGateDefenseBriefing(this.residents.map(r => r.spec), this.unavailableTownCavalryActorIds(true))
         : definition.briefing
-      details.textContent = `${briefing}\n${state}`
+      const force = definition.kind === 'town-defense'
+        ? `\n玩家 1 · AI 守軍 ${defenseForce.friendlySoldiers} · 友軍總數 ${defenseForce.friendlyCombatants}` : ''
+      details.textContent = `${briefing}${force}\n${state}`
       const accept = document.createElement('button'); accept.className = 'town-button'
       accept.disabled = !availability.unlocked || definition.id === CAPTAIN_PATROL_COMMAND_ID && !patrol
       accept.textContent = availability.unlocked ? accept.disabled ? '巡邏隊暫時不可用' : '接受任務' : availability.reason ?? '尚未解鎖'
@@ -3015,6 +3024,7 @@ export class TownScene {
     ])]
   }
   private updateShots(dt: number): void {
+    if (!this.shots.length) return
     const runtimeActors = this.profile.activeRace || this.duel?.active || this.defense?.active || this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length ? this.runtimeCombatActors() : null
     const externalDefenders = runtimeActors ? [] : this.missionCombat?.externalDefenders ?? []
     for (const s of this.shots) {
@@ -3028,7 +3038,7 @@ export class TownScene {
       if (s.training) { if (s.age > .3) s.arrow.destroy(); continue }
       const terrainTime = projectileTerrainContactTime(from, to)
       let nearest = Math.min(length + .01, terrainTime * length), hit: (() => void) | null = Number.isFinite(terrainTime) ? () => {} : null
-      const obstacle = findBlockingProjectileObstacleAlongPath(from, to, this.world.obstacles, this.shotObstacleContact)
+      const obstacle = findBlockingProjectileObstacleAlongPath(from, to, this.projectileObstacles.query(from, to, this.world.obstacles), this.shotObstacleContact)
       if (obstacle && this.shotObstacleContact.fraction * length < nearest) {
         nearest = this.shotObstacleContact.fraction * length
         const buildingIndex = this.world.buildings.findIndex(building => building.obstacles.includes(obstacle))
@@ -3049,38 +3059,18 @@ export class TownScene {
         const p = ray.intersectSphere(new THREE.Sphere(target, .6), new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
         if (distance < nearest) { nearest = distance; hit = () => {} }
       }
-      const targets: Array<Player | NPC | Mount> = runtimeActors
-          ? s.player
-            ? runtimeActors.filter(target => !this.isProtectedTownAlly(target))
-            : s.source
-              ? [...(s.source.hostileToPlayer ? [this.player] : []), ...runtimeActors.filter(target => townWartimeHostile(s.source!, target))]
-              : [this.player]
-        : s.player
-        ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
-          ...[...this.residents.map(r => r.npc), ...this.townServiceMounts].filter(target => !this.isProtectedTownAlly(target))]
-        : s.source && externalDefenders.includes(s.source)
-          ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...(this.missionCombat?.enemyTownHostiles ?? [])]
-            .filter(npc => townWartimeHostile(s.source!, npc))
-        : s.source && (this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) || this.mission.friendlies.includes(s.source) || this.missionCombat?.enemyTownHostiles?.includes(s.source))
-          ? [...(s.source.hostileToPlayer || this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) ? [this.player] : []),
-            ...[...this.mission.combatPeersFor(s.source), ...(this.missionCombat?.enemyTownHostiles ?? []), ...externalDefenders].filter(npc => npc.faction !== s.source!.faction)]
-          : this.defense.active && s.source
-            ? [...(s.source.hostileToPlayer ? [this.player] : []), ...this.defense.peersFor(s.source),
-              ...externalDefenders.filter(npc => townWartimeHostile(s.source!, npc)),
-              ...(!this.defense.assault && s.source.faction === Faction.ENEMY && this.cat && !this.cat.dead ? [this.cat] : [])]
-          : s.source?.faction === Faction.TOWN
-            ? s.source.hostileToPlayer
-              ? [this.player]
-              : this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
-          : s.source?.faction === Faction.PLAYER
-            ? this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
-            : [this.player]
-      targets.push(...this.combatMounts.filter(mount => this.canHitTownMount(mount, s.source)))
-      for (const target of targets) {
-        if (target instanceof Mount && (target.disposed || target.riderNpc === s.source || target.riderPlayer === this.player && s.player)) continue
-        if (target.dead) continue
+      const traceTarget = (target: Player | NPC | Mount, runtimeEligibility = false): void => {
+        if (target instanceof Mount && (target.disposed || target.riderNpc === s.source || target.riderPlayer === this.player && s.player)) return
+        if (target.dead) return
         const broadPosition = target.group.position
-        if (broadPosition.distanceToSquared(from) > (length + 4 + (target instanceof Mount ? target.combatRadius : 0)) ** 2) continue
+        if (broadPosition.distanceToSquared(from) > (length + 4 + (target instanceof Mount ? target.combatRadius : 0)) ** 2) return
+        // These predicates only read live state. Reject remote/dead targets first,
+        // then recheck allegiance for every arrow after the preceding hit's effects.
+        if (runtimeEligibility && (target instanceof Mount
+          ? !this.canHitTownMount(target, s.source)
+          : target instanceof NPC && (s.player
+            ? this.isProtectedTownAlly(target)
+            : !s.source || !townWartimeHostile(s.source, target)))) return
         const contact: CombatContact = { kind: 'body', time: Infinity }
         const distance = traceCombatSegment(target, from, to, contact) ? contact.time * length : Infinity
         if (distance < nearest) { nearest = distance; hit = () => {
@@ -3093,6 +3083,35 @@ export class TownScene {
           }
           else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage, 'projectile', contact)
         } }
+      }
+      if (runtimeActors) {
+        // Preserve prefix, snapshot membership order, then independent mounts.
+        if (!s.player && (!s.source || s.source.hostileToPlayer)) traceTarget(this.player)
+        if (s.player || s.source) for (const target of runtimeActors) traceTarget(target, true)
+        for (const mount of this.combatMounts) traceTarget(mount, true)
+      } else {
+        const targets: Array<Player | NPC | Mount> = s.player
+          ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
+            ...[...this.residents.map(r => r.npc), ...this.townServiceMounts].filter(target => !this.isProtectedTownAlly(target))]
+          : s.source && externalDefenders.includes(s.source)
+            ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...(this.missionCombat?.enemyTownHostiles ?? [])]
+              .filter(npc => townWartimeHostile(s.source!, npc))
+          : s.source && (this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) || this.mission.friendlies.includes(s.source) || this.missionCombat?.enemyTownHostiles?.includes(s.source))
+            ? [...(s.source.hostileToPlayer || this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) ? [this.player] : []),
+              ...[...this.mission.combatPeersFor(s.source), ...(this.missionCombat?.enemyTownHostiles ?? []), ...externalDefenders].filter(npc => npc.faction !== s.source!.faction)]
+            : this.defense.active && s.source
+              ? [...(s.source.hostileToPlayer ? [this.player] : []), ...this.defense.peersFor(s.source),
+                ...externalDefenders.filter(npc => townWartimeHostile(s.source!, npc)),
+                ...(!this.defense.assault && s.source.faction === Faction.ENEMY && this.cat && !this.cat.dead ? [this.cat] : [])]
+            : s.source?.faction === Faction.TOWN
+              ? s.source.hostileToPlayer
+                ? [this.player]
+                : this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
+            : s.source?.faction === Faction.PLAYER
+              ? this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
+              : [this.player]
+        targets.push(...this.combatMounts.filter(mount => this.canHitTownMount(mount, s.source)))
+        for (const target of targets) traceTarget(target)
       }
       if (hit) { hit(); s.arrow.destroy(); continue }
       if ((s.age > (s.maxLifetimeSeconds ?? 5)) || to.y < getTerrainHeight(to.x, to.z)) s.arrow.destroy()
@@ -3758,6 +3777,7 @@ export class TownScene {
     this.raf = requestAnimationFrame(t => this.frame(t))
   }
   dispose(preservePointerLock = false): void {
+    this.projectileObstacles.clear()
     this.promotionAttempt = null
     this.cancelPendingSpawns()
     this.flushCareerSkillProgression()

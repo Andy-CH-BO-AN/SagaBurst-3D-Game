@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { BallisticIntercept, collectBallisticPathObstacles, projectileTerrainContactTime } from '../../src/combat/ProjectileBallistics'
 import { ProjectileAdmission, projectileAmmoAfterLaunch } from '../../src/combat/ProjectileAdmission'
 import { findBlockingProjectileObstacleAlongPath, getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
+import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
 
 describe('projectile launch admission', () => {
   it('retains ammo on capacity rejection and accepts the next shot when a slot is free', () => {
@@ -167,6 +168,56 @@ describe('finite projectile obstacle trace', () => {
     expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(false)
     obstacle.projectileWorldToLocal!.makeRotationY(Math.PI / 2).setPosition(20, 0, 0).invert()
     expect(arc.isPathClear(from, 15, [obstacle], () => -10)).toBe(true)
+  })
+})
+
+describe('Town live projectile candidates', () => {
+  it('retains complete rotated bounds, unknown protrusions, tolerance edges and duplicate source order', () => {
+    const local = new THREE.Box3(new THREE.Vector3(-2, -.2, -.2), new THREE.Vector3(2, .2, .2))
+    const transform = new THREE.Matrix4().set(0, 0, 1, 10, 0, .5, 0, 40, -2, 0, 0, 0, 0, 0, 0, 1)
+    const complete: ObstacleData = { isBarricade: false, navigationPassable: true, physicalPassable: true,
+      box: new THREE.Box3(new THREE.Vector3(9.9, 39, -.1), new THREE.Vector3(10.1, 41, .1)),
+      projectileBoxes: [local], projectileWorldToLocal: transform.clone().invert(),
+      projectileBounds: local.clone().applyMatrix4(transform) }
+    const unknown = { ...complete, projectileBounds: undefined, collisionGroup: { bounds: complete.box } }
+    const remote: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(8, 0, 3), new THREE.Vector3(12, 1, 5)) }
+    const edge: ObstacleData = { isBarricade: false,
+      box: new THREE.Box3(new THREE.Vector3(12 + 5e-7, 39, 3), new THREE.Vector3(13, 41, 5)) }
+    const source = [remote, complete, unknown, complete, edge, { ...complete, projectilePassable: true }]
+    const from = new THREE.Vector3(8, 40, 4), to = new THREE.Vector3(12, 40, 4)
+    const candidates = new TownProjectileObstacles().query(from, to, source)
+    expect(candidates).toEqual([complete, unknown, complete, edge])
+    const contact = { fraction: Infinity, point: new THREE.Vector3() }
+    expect(findBlockingProjectileObstacleAlongPath(from, to, candidates, contact)).toBe(complete)
+    expect(contact.fraction).toBeCloseTo(.45)
+    expect(contact.point.toArray()).toEqual([9.8, 40, 4])
+  })
+
+  it('reads the next arrow\'s live bounds and source after a same-length destroy/restore swap without a cache revision', () => {
+    const box = (x: number) => new THREE.Box3(new THREE.Vector3(x, 39, -1), new THREE.Vector3(x + .2, 41, 1))
+    const building: ObstacleData = { isBarricade: false, box: box(1) }
+    const moving: ObstacleData = { isBarricade: true, dynamic: true, box: box(100),
+      projectileBounds: box(1), projectileBoxes: [box(1)], projectileWorldToLocal: new THREE.Matrix4() }
+    const restored: ObstacleData = { isBarricade: false, box: box(2) }
+    const source = [building, moving, { isBarricade: false, box: box(80) },
+      { isBarricade: false, box: box(90) }, { isBarricade: false, box: box(110) }]
+    const query = new TownProjectileObstacles(), from = new THREE.Vector3(0, 40, 0), to = new THREE.Vector3(3, 40, 0)
+    const buffer = query.query(from, to, source)
+    expect(buffer).toEqual([building, moving])
+    // One hit removes a structure and restores a passage; moving parts also
+    // update without topology changes. The next arrow must see all live inputs.
+    source.splice(0, 1)
+    source.push(restored)
+    moving.projectileBounds!.translate(new THREE.Vector3(100, 0, 0))
+    moving.projectileWorldToLocal!.makeTranslation(-100, 0, 0)
+    expect(query.query(from, to, source)).toBe(buffer)
+    expect(buffer).toEqual([restored])
+    const contact = { fraction: Infinity, point: new THREE.Vector3() }
+    expect(findBlockingProjectileObstacleAlongPath(from, to, buffer, contact)).toBe(restored)
+    expect(contact.fraction).toBeCloseTo(2 / 3)
+    query.clear()
+    expect(buffer).toHaveLength(0)
   })
 })
 
