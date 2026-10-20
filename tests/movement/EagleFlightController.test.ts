@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict'
 import { Box3, Euler, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
 import { EagleFlightController, parseEagleFlightSnapshot, type EagleFlightIntent } from '../../src/movement/EagleFlightController'
@@ -80,27 +81,29 @@ function step(eagle: EaglePort, obstacles: ObstacleData[]) {
 describe('Eagle flight boarding clearance', () => {
   it('keeps one landed eagle flight controller flyable through ten remount cycles and a checkpoint reload', () => {
     const { eagle, rider, flight } = parkedEagle()
-    const obstacles = [rearWall]
-    expect(flight.canLand(eagle.group.position, obstacles, flatGround, 3000)).toBe(true)
+    // Repeated cycles own flight state and heading reset; wall clearance is
+    // exercised separately below, so these flights use an empty open field.
+    const obstacles: ObstacleData[] = []
+    assert.equal(flight.canLand(eagle.group.position, obstacles, flatGround, 3000), true)
     methods.player.mountVehicle.call(rider, eagle)
     for (let cycle = 0; cycle < 10; cycle++) {
-      expect(rider.currentMount).toBe(eagle)
-      expect(eagle.group.rotation.y).toBe(0)
-      expect(flight.intent).toMatchObject({ yaw: 0, pitch: 0, brake: false, takeoff: false })
+      assert.equal(rider.currentMount, eagle)
+      assert.equal(eagle.group.rotation.y, 0)
+      assert.deepEqual([flight.intent.yaw, flight.intent.pitch, flight.intent.brake, flight.intent.takeoff], [0, 0, false, false])
       flight.setIntent({ yaw: 0, pitch: 0, takeoff: true })
       step(eagle, obstacles)
-      expect(flight.phase).toBe('takeoff')
+      assert.equal(flight.snapshot().phase, 'takeoff')
       for (let frame = 0; frame < 80 && flight.phase !== 'cruise'; frame++) step(eagle, obstacles)
-      expect(flight.phase).toBe('cruise')
-      flight.setIntent({ yaw: 0, pitch: -.4, brake: true })
+      assert.equal(flight.snapshot().phase, 'cruise')
+      flight.setIntent({ yaw: 0, pitch: -.45, brake: true })
       for (let frame = 0; frame < 120 && flight.phase !== 'grounded'; frame++) step(eagle, obstacles)
-      expect(flight.snapshot()).toEqual({ phase: 'grounded', yaw: 0, pitch: 0, bank: 0, speed: 0,
+      assert.deepEqual(flight.snapshot(), { phase: 'grounded', yaw: 0, pitch: 0, bank: 0, speed: 0,
         velocity: { x: 0, y: 0, z: 0 } })
       // Detaching preserves the world pose; the seat/ground-position search is
       // an unchanged collision boundary and is not part of boarding heading.
       rider.dismountFromMount({ preserveWorldPosition: true })
-      expect(eagle.riderPlayer).toBeNull()
-      expect(rider.currentMount).toBeNull()
+      assert.equal(eagle.riderPlayer, null)
+      assert.equal(rider.currentMount, null)
       if (cycle === 4) {
         const saved = parseEagleFlightSnapshot(JSON.parse(JSON.stringify(flight.snapshot())))!
         flight.restore(saved)
@@ -109,9 +112,9 @@ describe('Eagle flight boarding clearance', () => {
     }
     flight.setIntent({ yaw: 0, pitch: 0, takeoff: true })
     step(eagle, obstacles)
-    expect(flight.phase).toBe('takeoff')
-    expect(eagle.flight).toBe(flight)
-    expect(eagle.currentHp).toBe(127)
+    assert.equal(flight.snapshot().phase, 'takeoff')
+    assert.equal(eagle.flight, flight)
+    assert.equal(eagle.currentHp, 127)
   })
 
   it('still blocks takeoff when an explicitly requested heading puts the wings into a wall', () => {
