@@ -1,13 +1,13 @@
 import type { CampaignSiegeCheckpoint } from './CampaignSiegeCheckpoint'
 import * as THREE from 'three'
 import { DamageableObstacle, DAMAGEABLE_OBSTACLE_HP } from '../world/DamageableObstacle'
-import { getTerrainHeight, getWalkRampHeight, removeObstacleData, type EntityCollisionBody, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
+import { getTerrainHeight, getWalkRampHeight, removeObstacleData, TERRAIN_MIN_HEIGHT, type EntityCollisionBody, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { intersectsSweptPart } from '../movement/SweptBodyCollision'
 import { MovingPlatformSupport } from '../movement/MovingPlatformSupport'
 import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
 import type { NPC } from '../world/NPC'
 import { MobileSiegeRampController, type MobileSiegeRampState } from './MobileSiegeRampController'
-import { SIEGE_RAMP, siegeRampDeckHeightAt, siegeRampRearHeightAt, siegeRampSideSkirtBox, siegeRampFrontSkirtBox, type MobileSiegeRampId, type SiegeRampId, type SiegeRampAssignment, type SiegeRampPlacement } from './MobileSiegeRampPolicy'
+import { SIEGE_RAMP, siegeRampDeckHeightAt, siegeRampRearHeightAt, siegeRampSideSkirtBox, siegeRampFrontSkirtBox, intersectsSiegeRampUnderfill, siegeRampUnderfillBounds, type MobileSiegeRampId, type SiegeRampId, type SiegeRampAssignment, type SiegeRampPlacement } from './MobileSiegeRampPolicy'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 
 export type MobileSiegeRampSnapshot<Id extends MobileSiegeRampId = SiegeRampId> = Omit<CampaignSiegeCheckpoint['ramps'][number], 'assignment'> & { assignment: SiegeRampAssignment<Id> }
@@ -67,6 +67,10 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     this.root.rotation.y = Math.atan2(placement.dirX ?? 0, placement.dirZ)
     this.run = this.part(SIEGE_RAMP.halfWidth * 2, .25, this.surface.length)
     this.deck = this.part(SIEGE_RAMP.halfWidth * 2, .25, SIEGE_RAMP.platformLength)
+    // The hull is a solid undercroft, not an empty enclosure. The exact walk
+    // plane keeps passengers above it; ordinary collision also recovers old
+    // checkpoints or spawned actors already underneath that plane.
+    this.run.obstacle.solidBelow = TERRAIN_MIN_HEIGHT - .15
     this.frontSkirt = this.part(SIEGE_RAMP.halfWidth * 2, 1, .25)
     this.bridge = this.part(SIEGE_RAMP.halfWidth * 2, .25, SIEGE_RAMP.bridgeLength)
     for (const side of [-1, 1]) {
@@ -155,7 +159,23 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     npc.siegeTransport = this.assignment.id
     npc.assignSiegeObstacle(null)
     npc.group.rotation.y = Math.atan2(this.placement.dirX ?? 0, this.placement.dirZ)
-    if (this.assignment.assaultIds.includes(npc.combatantId)) this.platform.attach(npc)
+    const assaultSlot = this.assignment.assaultIds.indexOf(npc.combatantId)
+    if (assaultSlot >= 0) {
+      // Assigned passengers do not run foot physics while transported. Repair
+      // only a saved interior overlap before binding it, otherwise a legacy
+      // hollow-hull checkpoint would keep carrying the trapped actor forever.
+      const s = this.surface, supportY = getWalkRampHeight(s, npc.position.x, npc.position.z)
+      if (npc.position.y >= TERRAIN_MIN_HEIGHT - .15 && (supportY === null || npc.position.y < supportY - .8)
+        && intersectsSiegeRampUnderfill({ position: npc.position, radius: .5, height: 2.3, bottomOffset: 0 }, s, 0)) {
+        // Use the original flat deck slot: a repaired point on the articulated
+        // slope could sink again when its terrain angle changes under rigid carry.
+        const lateral = assaultSlot % 2 === 0 ? -1 : 1
+        const along = s.length + s.landing - 1 - Math.floor(assaultSlot / 2) * 1.5
+        npc.position.set(s.startX + s.dirX * along + s.dirZ * lateral, s.topY,
+          s.startZ + s.dirZ * along - s.dirX * lateral)
+      }
+      this.platform.attach(npc)
+    }
   }
 
   releaseCrew(npc: NPC): void {
@@ -225,7 +245,8 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     swept.expandByVector(this.scratch.set(.12 + maxTravel * Math.abs(this.placement.dirX ?? 0), 0, (this.placement.dirX === undefined ? 0 : .12) + maxTravel * Math.abs(this.placement.dirZ)))
     const staticBlocked = this.shared.some(obstacle => !this.obstacles.includes(obstacle)
       && !obstacle.walkSurface && obstacle.box.intersectsBox(swept))
-    const intersectsBody = (body: EntityCollisionBody): boolean => this.parts.some(part =>
+    const intersectsBody = (body: EntityCollisionBody): boolean => intersectsSiegeRampUnderfill(body, this.surface, maxTravel)
+      || this.parts.some(part =>
       intersectsSweptPart(body, part.localBox, part.obstacle.projectileWorldToLocal!, maxTravel * this.placement.dirZ, maxTravel * (this.placement.dirX ?? 0)))
       || this.wheelBodies.some(wheel => intersectsSweptPart(body, wheel.box, wheel.worldToLocal,
         maxTravel * this.placement.dirZ, maxTravel * (this.placement.dirX ?? 0)))
@@ -330,6 +351,10 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
       part.obstacle.projectileWorldToLocal!.copy(part.mesh.matrixWorld).invert()
       this.collisionGroup.bounds.union(part.obstacle.box)
     }
+    // One continuous recovery footprint covers slope and landing. Separate
+    // solids would push embedded actors back and forth across their join.
+    siegeRampUnderfillBounds(this.run.obstacle.box, this.deck.obstacle.box, this.surface)
+    this.collisionGroup.bounds.union(this.run.obstacle.box)
     this.updateTimberInstances()
   }
 

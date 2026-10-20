@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { TownDockPassages } from './TownDockPassages'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { getTerrainHeight, getWalkRampHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
+import { getTerrainHeight, getWalkRampHeight, TERRAIN_MIN_HEIGHT, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { TOWN_CITY, TOWN_GATES, townGatePoint, type TownGateId } from './TownLayout'
 
 export const TOWN_RAMPART = { width: 10, inward: 6.2, rampWidth: 6, slope: .4, landing: 8 } as const
@@ -105,13 +105,13 @@ export function townRampartHeight(layout: TownRampartLayout, x: number, z: numbe
   return null
 }
 /** Exact sloped slab shared by visuals and projectile volumes, with no solid wall below it. */
-export function slabGeometry(s: WalkRampSurface, thickness = .35): THREE.BufferGeometry {
+export function slabGeometry(s: WalkRampSurface, thickness = .35, base?: ObstacleData['solidBelow']): THREE.BufferGeometry {
   // BoxGeometry has vertices only at its ends. Split at the slope/landing knee
   // so its triangles follow the same piecewise surface as getWalkRampHeight.
   if (s.landing > 0) {
-    const flight = slabGeometry({ ...s, landing: 0 }, thickness)
+    const flight = slabGeometry({ ...s, landing: 0 }, thickness, base)
     const landing = slabGeometry({ ...s, startX: s.startX + s.dirX * s.length, startZ: s.startZ + s.dirZ * s.length,
-      startY: s.topY, length: s.landing, landing: 0 }, thickness)
+      startY: s.topY, length: s.landing, landing: 0 }, thickness, typeof base === 'object' ? { startY: base.topY, topY: base.topY } : base)
     const geometry = mergeGeometries([flight, landing])!
     flight.dispose(); landing.dispose(); return geometry
   }
@@ -122,61 +122,49 @@ export function slabGeometry(s: WalkRampSurface, thickness = .35): THREE.BufferG
     const y = s.startY + (s.topY - s.startY) * Math.min(1, along / s.length)
     // Preserve BoxGeometry's handedness: reflecting its lateral axis turns the
     // top faces inward, so back-face culling exposes the slab's underside.
-    p.setXYZ(i, s.startX + s.dirX * along + s.dirZ * lateral, y + p.getY(i) - thickness / 2, s.startZ + s.dirZ * along - s.dirX * lateral)
+    const bottom = typeof base === 'number' ? base : base ? base.startY + (base.topY - base.startY) * Math.min(1, along / s.length) : y - thickness
+    p.setXYZ(i, s.startX + s.dirX * along + s.dirZ * lateral, p.getY(i) < 0 ? bottom : y, s.startZ + s.dirZ * along - s.dirX * lateral)
   }
-  g.computeVertexNormals(); return g
-}
-/** Low-clearance infill uses the same small boxes for mesh, body collision and
- * ground navigation. Keep each cap below the lowest surface touched by a 1m
- * mounted radius: a tall uphill AABB must never snag a body walking on the ramp.
- * The remaining gap to the slab is at most 1.15m at the authored 0.4 slope,
- * too small for any ground body. Higher underpasses remain completely open.
- */
-export function townRampUnderfillBoxes(s: WalkRampSurface): THREE.Box3[] {
-  const boxes: THREE.Box3[] = [], radius = 1, bodyHeight = 2.6, thickness = .35
-  const count = Math.max(1, Math.ceil(s.length + s.landing))
-  const heightAt = (along: number) => s.startY + (s.topY - s.startY) * Math.max(0, Math.min(1, along / s.length))
-  for (let i = 0; i < count; i++) {
-    const from = i / count * (s.length + s.landing), to = (i + 1) / count * (s.length + s.landing)
-    const low = Math.min(heightAt(from - radius), heightAt(to + radius)) - thickness
-    const a = new THREE.Vector3(s.startX + s.dirX * from, low, s.startZ + s.dirZ * from)
-    const b = new THREE.Vector3(s.startX + s.dirX * to, low, s.startZ + s.dirZ * to)
-    const box = new THREE.Box3().setFromPoints([a, b])
-    box.min.x -= Math.abs(s.dirZ) * s.halfWidth; box.max.x += Math.abs(s.dirZ) * s.halfWidth
-    box.min.z -= Math.abs(s.dirX) * s.halfWidth; box.max.z += Math.abs(s.dirX) * s.halfWidth
-    let groundMin = Infinity, groundMax = -Infinity
-    for (const x of [box.min.x - radius, (box.min.x + box.max.x) / 2, box.max.x + radius]) {
-      for (const z of [box.min.z - radius, (box.min.z + box.max.z) / 2, box.max.z + radius]) {
-        const ground = getTerrainHeight(x, z)
-        groundMin = Math.min(groundMin, ground); groundMax = Math.max(groundMax, ground)
-      }
+  g.computeVertexNormals()
+  if (base !== undefined) {
+    // Project in world units after shaping the prism: masonry rows stay level
+    // instead of stretching the original thin-box UVs up the whole foundation.
+    const normal = g.attributes.normal, uv = g.attributes.uv
+    for (let i = 0; i < p.count; i++) {
+      if (Math.abs(normal.getY(i)) > .7) uv.setXY(i, p.getX(i) / 6, p.getZ(i) / 6)
+      else uv.setXY(i, (Math.abs(normal.getX(i)) > .7 ? p.getZ(i) : p.getX(i)) / 6, p.getY(i) / 8)
     }
-    if (low >= groundMax + bodyHeight || low <= groundMin) continue
-    box.min.y = groundMin - .1
-    boxes.push(box)
   }
-  return boxes
+  return g
 }
-/** Supports sit outside the rail's inner face, clear of legal mounted travel.
- * A pillar inside the slab footprint can hit a mount's uphill radius even when
- * its top is below the surface at the pillar centre. Use a flat, conservative
- * cap shared by the visible box and its collision volume.
- */
-export function townRampSupportBox(s: WalkRampSurface, along: number, side: number): THREE.Box3 | null {
-  const lateral = side * (s.halfWidth + .15)
-  const x = s.startX + s.dirX * along - s.dirZ * lateral
-  const z = s.startZ + s.dirZ * along + s.dirX * lateral
-  const top = s.startY + (s.topY - s.startY) * Math.min(1, (along - .15) / s.length) - .35
-  const ground = getTerrainHeight(x, z)
-  return top > ground ? new THREE.Box3(new THREE.Vector3(x - .15, ground - .1, z - .15),
-    new THREE.Vector3(x + .15, top, z + .15)) : null
+/** One continuous foundation, shared by the visible prism, ground navigation
+ * and exact walk-plane collision. Its sides include the railing footprint so
+ * recovery of old overlapping saves exits both the foundation and its rails. */
+export function townRampFoundation(s: WalkRampSurface, base: NonNullable<ObstacleData['solidBelow']> = TERRAIN_MIN_HEIGHT - .15,
+  navigationPassable = false, padding = .32): ObstacleData {
+  const wide = { ...s, halfWidth: s.halfWidth + padding }
+  const box = surfaceBox(wide)
+  box.min.y = typeof base === 'number' ? base : Math.min(base.startY, base.topY)
+  const count = Math.max(1, Math.ceil(s.length / .4)), projectileBoxes: THREE.Box3[] = []
+  const cuts = Array.from({ length: count + 1 }, (_, i) => s.length * i / count)
+  if (s.landing > 0) cuts.push(s.length + s.landing)
+  for (let i = 1; i < cuts.length; i++) {
+    const from = cuts[i - 1], to = cuts[i]
+    const top = (at: number) => s.startY + (s.topY - s.startY) * Math.min(1, at / s.length)
+    const a = new THREE.Vector3(s.startX + s.dirX * from, top(from), s.startZ + s.dirZ * from)
+    const b = new THREE.Vector3(s.startX + s.dirX * to, top(to), s.startZ + s.dirZ * to)
+    const slice = surfaceBox(surface(a, b, wide.halfWidth * 2), 0)
+    slice.min.y = typeof base === 'number' ? base : base.startY + (base.topY - base.startY) * Math.min(1, from / s.length)
+    projectileBoxes.push(slice)
+  }
+  return { box, walkSurface: s, solidBelow: base, projectileBoxes, navigationPassable, isBarricade: false }
 }
-export function createTownRamparts(layout: TownRampartLayout, obstacles: ObstacleData[], material: THREE.Material, supportMaterial: THREE.Material, dockPassages?: TownDockPassages): THREE.Group {
+export function createTownRamparts(layout: TownRampartLayout, obstacles: ObstacleData[], material: THREE.Material, dockPassages?: TownDockPassages): THREE.Group {
   const root = new THREE.Group(); if (dockPassages) root.add(dockPassages.root); root.name = 'town-ramparts'
-  const parts: THREE.BufferGeometry[] = [], supports: THREE.BufferGeometry[] = []
-  const addBox = (b: THREE.Box3, support = false, navigationPassable = true) => {
+  const parts: THREE.BufferGeometry[] = []
+  const addBox = (b: THREE.Box3, navigationPassable = true) => {
     const size = b.getSize(new THREE.Vector3()), center = b.getCenter(new THREE.Vector3())
-    ;(support ? supports : parts).push(new THREE.BoxGeometry(size.x, size.y, size.z).translate(center.x, center.y, center.z))
+    parts.push(new THREE.BoxGeometry(size.x, size.y, size.z).translate(center.x, center.y, center.z))
     obstacles.push({ box: b, isBarricade: false, navigationPassable })
   }
   const rail = (s: WalkRampSurface, lateral: number, from: number, to: number, low: number, high: number, halfThickness = .16, dockGateId?: TownGateId) => {
@@ -195,8 +183,17 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       obstacles.push({ box, isBarricade: false, navigationPassable: true })
     }
   }
+  const foundations = new Map<WalkRampSurface, ObstacleData>()
+  for (const ramp of layout.ramps) {
+    const landing = layout.decks.find(deck => deck.id === `landing:${ramp.gateId}`)!.surface
+    const run = townRampFoundation(ramp.surface), top = townRampFoundation(landing)
+    run.solidRecoveryBounds = top.solidRecoveryBounds = run.box.clone().union(top.box)
+    foundations.set(ramp.surface, run); foundations.set(landing, top)
+  }
   for (const item of [...layout.decks, ...layout.ramps.map(r => ({ ...r, id: `ramp:${r.gateId}` }))]) {
-    const s = item.surface; parts.push(slabGeometry(s))
+    const s = item.surface
+    const foundation = foundations.get(s)
+    parts.push(foundation ? slabGeometry({ ...s, halfWidth: s.halfWidth + .32 }, .35, foundation.solidBelow) : slabGeometry(s))
     // Short physical slices precisely approximate the sloped timber/stone, never its empty undercroft.
     const boxes: THREE.Box3[] = [], count = Math.ceil(s.length / .4)
     const cuts = Array.from({ length: count + 1 }, (_, i) => s.length * i / count)
@@ -207,7 +204,7 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       const b = new THREE.Vector3(s.startX + s.dirX * to, s.startY + (s.topY - s.startY) * Math.min(1, to / s.length), s.startZ + s.dirZ * to)
       boxes.push(surfaceBox(surface(a, b, s.halfWidth * 2)))
     }
-    obstacles.push({ box: item.box, walkSurface: s, projectileBoxes: boxes, navigationPassable: !item.id.startsWith('ramp:'), isBarricade: false })
+    obstacles.push(foundation ?? { box: item.box, walkSurface: s, projectileBoxes: boxes, navigationPassable: true, isBarricade: false })
     if (item.id.startsWith('corner:')) {
       const index = ['north', 'east', 'south', 'west'].indexOf(item.gateId), c = layout.corners[index]
       const sx = index === 0 || index === 3 ? -1 : 1, sz = index < 2 ? -1 : 1
@@ -224,16 +221,11 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       continue
     }
     if (item.id.startsWith('ramp:')) {
-      for (const box of townRampUnderfillBoxes(s)) addBox(box, true, false)
       for (const side of [-1, 1]) rail(s, side * RAMP_RAIL, 0, s.length, 0, .9)
       rail(s, -RAMP_RAIL, s.length, s.length + s.landing, 0, .9)
       const endX = s.startX + s.dirX * (s.length + s.landing), endZ = s.startZ + s.dirZ * (s.length + s.landing)
       addBox(new THREE.Box3(new THREE.Vector3(endX - Math.abs(s.dirZ) * (W.rampWidth / 2 + .3) - Math.abs(s.dirX) * .16, s.topY, endZ - Math.abs(s.dirX) * (W.rampWidth / 2 + .3) - Math.abs(s.dirZ) * .16),
         new THREE.Vector3(endX + Math.abs(s.dirZ) * (W.rampWidth / 2 + .3) + Math.abs(s.dirX) * .16, s.topY + .9, endZ + Math.abs(s.dirX) * (W.rampWidth / 2 + .3) + Math.abs(s.dirZ) * .16)))
-      for (let along = 4; along < s.length; along += 6) for (const side of [-1, 1]) {
-        const box = townRampSupportBox(s, along, side)
-        if (box) addBox(box, true, false)
-      }
     } else {
       // Join the inset deck edge to the existing wall crown without a visible slit.
       rail(s, -(W.width / 2 + .3), 0, s.length, -1.1, 0, .4, item.gateId)
@@ -241,7 +233,6 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       rail(s, -DECK_RAIL, 0, s.length, 0, .45, .16, item.gateId)
       // Leave the four ramp connections open in the inner safety rail.
       const ramp = layout.ramps.find(r => r.gateId === item.gateId)!
-      const mid = new THREE.Vector3(s.startX + s.dirX * s.length / 2, 0, s.startZ + s.dirZ * s.length / 2)
       const sideIndex = ['north', 'east', 'south', 'west'].indexOf(item.gateId)
       const startCorner = layout.corners[sideIndex], endCorner = layout.corners[(sideIndex + 1) % 4]
       const railFrom = Math.max(0, (W.width / 2 + 1.3) - Math.hypot(s.startX - startCorner.x, s.startZ - startCorner.z))
@@ -250,13 +241,7 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       const openingFrom = connectionAlong - W.rampWidth / 2 - .16, openingTo = connectionAlong + W.rampWidth / 2 + .16
       if (Math.min(railTo, openingFrom) > railFrom) rail(s, DECK_RAIL, railFrom, Math.min(railTo, openingFrom), 0, .9)
       if (railTo > Math.max(railFrom, openingTo)) rail(s, DECK_RAIL, Math.max(railFrom, openingTo), railTo, 0, .9)
-      // Wall-side supports keep the widened inner overhang clear of housing and services.
-      // They also stop outside the four 14m gate passages.
-      const gate = TOWN_GATES.find(g => g.id === item.gateId)!
-      if (Number(item.id.split(':')[1]) % 3 === 0 && Math.hypot(mid.x - gate.x, mid.z - gate.z) > 12) {
-        const x = mid.x + s.dirZ * (W.width / 2 - .8), z = mid.z - s.dirX * (W.width / 2 - .8)
-        addBox(new THREE.Box3(new THREE.Vector3(x - .2, getTerrainHeight(x, z) - .2, z - .2), new THREE.Vector3(x + .2, (s.startY + s.topY) / 2 - .35, z + .2)), true, false)
-      }
+
     }
   }
   // Subdivision at landings must not move the original crenels into firing slots.
@@ -268,10 +253,8 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
     const span = surface(a, b, W.width)
     rail(span, -DECK_RAIL, 0, span.length, .45, 1.3, .16, gateId)
   }
-  for (const [geometries, mat] of [[parts, material], [supports, supportMaterial]] as const) {
-    const geometry = mergeGeometries(geometries); geometries.forEach(g => g.dispose())
-    if (geometry) { const mesh = new THREE.Mesh(geometry, mat); mesh.castShadow = mesh.receiveShadow = true; root.add(mesh) }
-  }
+  const geometry = mergeGeometries(parts); parts.forEach(g => g.dispose())
+  if (geometry) { const mesh = new THREE.Mesh(geometry, material); mesh.castShadow = mesh.receiveShadow = true; root.add(mesh) }
   dockPassages?.batchGeometry()
   return root
 }

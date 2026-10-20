@@ -72,6 +72,36 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(controller.state).toBe('ABANDONED')
   })
 
+  it('repairs only a living assigned passenger saved inside the hull before binding the restored platform', () => {
+    const assignment = watchdogCrew(), controller = new MobileSiegeRampController(assignment, 100)
+    controller.restore({ state: 'PUSHING', distance: 12, dockingProgress: 0 })
+    const position = new Vector3(0, 8, 26), platform = new MovingPlatformSupport(position)
+    const surface = { startX: 0, startZ: 0, startY: 0, topY: 8, dirX: 0, dirZ: 1,
+      length: 20, landing: 6, halfWidth: 2.5 }
+    const actors = [
+      { combatantId: 'a0', dead: false, position: new Vector3(1, 0, 19.8) },
+      { combatantId: 'a1', dead: false, position: new Vector3(-1, 8, 24) },
+      { combatantId: 'p0', dead: false, position: new Vector3(-1, 0, -1.6) },
+      { combatantId: 'a2', dead: true, position: new Vector3(0, 0, 22) },
+      { combatantId: 'a3', dead: false, position: new Vector3(2.6, 0, 23) },
+    ].map(actor => ({ ...actor, group: { rotation: { y: 0 } }, siegeTransport: null as string | null,
+      hp: 73, tacticalOrder: 'defend', assignSiegeObstacle() {} }))
+    const owner = Object.assign(Object.create(MobileSiegeRamp.prototype) as Pick<MobileSiegeRamp, 'register'>, {
+      controller, assignment, platform, surface, placement: { dirZ: 1 }, crew: new Map(),
+    })
+    const savedPositions = actors.map(actor => actor.position.clone())
+    for (const actor of actors) owner.register(actor as unknown as Parameters<MobileSiegeRamp['register']>[0])
+    expect(actors[0].position.toArray()).toEqual([-1, 8, 25])
+    expect(actors.slice(1, 4).map(actor => actor.position)).toEqual(savedPositions.slice(1, 4))
+    expect(actors[4].position.toArray()).toEqual([1, 8, 23.5])
+    expect(platform.size).toBe(3)
+    expect(actors.every(actor => actor.hp === 73 && actor.tacticalOrder === 'defend')).toBe(true)
+    expect(actors[3].siegeTransport).toBeNull()
+    platform.moveTo(position.clone().add(new Vector3(0, 0, 1)))
+    expect(actors[0].position.toArray()).toEqual([-1, 8, 26])
+    expect(actors[1].position.toArray()).toEqual([-1, 8, 25])
+  })
+
   it('releases surviving crew down the rear lane without withdrawing them and restores abandonment without rebinding', () => {
     const assignment = watchdogCrew(), position = new Vector3(0, 10, 30)
     const surface = { startX: 0, startZ: 0, startY: getTerrainHeight(0, 0) + .04,
@@ -87,7 +117,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     for (const npc of crew.slice(4)) platform.attach(npc)
     interface ReleaseEntry { transition(state: 'ABANDONED'): void }
     const hull = { box: new Box3(new Vector3(-2.5, -10, 0), new Vector3(2.5, 10, 30)),
-      walkSurface: surface, isBarricade: true, navigationPassable: true }
+      walkSurface: surface, solidBelow: -10, isBarricade: true, navigationPassable: true }
     let releases = 0
     const owner = Object.assign(Object.create(MobileSiegeRamp.prototype) as ReleaseEntry, {
       crew: new Map(crew.map(npc => [npc.combatantId, npc])), platform, obstacles: [hull], shared: [hull],

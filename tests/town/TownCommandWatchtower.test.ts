@@ -189,8 +189,8 @@ describe('Town command watchtower', () => {
     expect(world.grid.isBlocked(world.grid.worldToCell({ x: -15, z: -25.25 })!)).toBe(true)
     expect(world.grid.isBlocked(world.grid.worldToCell({ x: -29, z: -41 })!)).toBe(true)
     expect(world.grid.isBlocked(world.grid.worldToCell({ x: -18.35, z: -33 })!)).toBe(true)
-    expect(world.grid.isBlocked(world.grid.worldToCell({ x: -18.35, z: -48 })!)).toBe(false)
-    const start = new Vector3(-40, getTerrainHeight(-40, -41), -41), goal = new Vector3(-10, getTerrainHeight(-10, -25.25), -25.25)
+    expect(world.grid.isBlocked(world.grid.worldToCell({ x: -18.35, z: -48 })!)).toBe(true)
+    const start = new Vector3(-41, getTerrainHeight(-41, -41), -41), goal = new Vector3(-10, getTerrainHeight(-10, -25.25), -25.25)
     expect(findBlockingObstacleAlongPath(start, goal, .5, 2.3, 0, obstacles)).not.toBeNull()
     const route = world.queryPath(start, goal)
     expect(route.status).toBe('path')
@@ -203,21 +203,22 @@ describe('Town command watchtower', () => {
     expect(findBlockingObstacleAlongPath(across, new Vector3(-15, across.y, -27), .5, 2.3, 0, obstacles)).not.toBeNull()
   })
 
-  it('keeps ground routes beneath raised guardrails open', () => {
+  it('closes the tower ground undercroft and recovers an embedded landing without entering another foundation', () => {
     const layout = getTownCommandWatchtowerLayout()
     const obstacles = [...getTownCommandWatchtowerUnderfill(layout), ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
     const world = new NavigationWorld({ minX: -34, maxX: -24, minZ: -60, maxZ: -50, cellSize: .5 })
     world.rebuild(obstacles)
     const start = new Vector3(-29, getTerrainHeight(-29, -59), -59), goal = new Vector3(-29, start.y, -51)
-    // The first circuit's north flight is overhead here; mounted bodies fit.
+    // The whole first circuit now forms a single grounded building.
     expect(obstacles.some(obstacle => obstacle.box.min.x <= -29 && obstacle.box.max.x >= -29
       && obstacle.box.min.z < -56.65 && obstacle.box.max.z > -56.65)).toBe(true)
-    expect(findBlockingObstacleAlongPath(start, goal, 1, 2.6, 0, obstacles)).toBeNull()
+    expect(findBlockingObstacleAlongPath(start, goal, 1, 2.6, 0, obstacles)).not.toBeNull()
     const route = world.queryPath(start, goal)
-    expect(route.status).toBe('path')
-    if (route.status !== 'path') return
-    expect(route.path.every(cell => cell.x === 10)).toBe(true)
-    expect(route.path.at(-1)).toEqual({ x: 10, z: 18 })
+    expect(route.status).toBe('unreachable')
+    const embedded = new Vector3(-21, getTerrainHeight(-21, -51.1), -51.1), groundY = embedded.y
+    resolveObstacleCollision(embedded, embedded.clone(), 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+    expect(embedded.y).toBe(groundY)
+    expect(findBlockingObstacleAlongPath(embedded, embedded, 1, 2.6, 0, obstacles)).toBeNull()
   })
 
   it('reserves both-faction buildings, roads, HR and eagle approaches, rejecting a blocked site', () => {
