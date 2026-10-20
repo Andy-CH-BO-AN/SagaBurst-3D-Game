@@ -35,7 +35,7 @@ import {
   setSceneRiverCrossing,
   type ObstacleData,
 } from '../../src/world/Terrain'
-import { getTownRampartLayout, townRampSupportBox, townRampartHeight } from '../../src/town/TownRamparts'
+import { getTownRampartLayout, townRampSupportBox, townRampUnderfillBoxes, townRampartHeight, surfaceBox } from '../../src/town/TownRamparts'
 import { getWalkRampHeight } from '../../src/world/Terrain'
 import { initializeTownWorldTerrain } from '../../src/town/TownWorld'
 
@@ -178,6 +178,29 @@ describe('obstacle walk-surface collision', () => {
     position.x = 2.2
     resolveObstacleCollision(position, previous, 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
     expect(position.x).toBeCloseTo(1.99)
+  })
+
+  it('closes low rampart pockets while keeping the upper lane and high ground underpass open', () => {
+    for (const ramp of getTownRampartLayout().ramps) {
+      const s = ramp.surface
+      const obstacles: ObstacleData[] = [{ box: surfaceBox(s), walkSurface: s, isBarricade: false },
+        ...townRampUnderfillBoxes(s).map(box => ({ box, isBarricade: false }))]
+      const point = (along: number, lateral: number, upper: boolean) => {
+        const x = s.startX + s.dirX * along - s.dirZ * lateral
+        const z = s.startZ + s.dirZ * along + s.dirX * lateral
+        return new THREE.Vector3(x, upper ? getWalkRampHeight(s, x, z)! : getTerrainHeight(x, z), z)
+      }
+      const under = point(6, 0, false), outside = point(6, 5, false)
+      resolveObstacleCollision(under, outside, 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+      expect(Math.abs((under.x - s.startX) * -s.dirZ + (under.z - s.startZ) * s.dirX)).toBeCloseTo(s.halfWidth + 1)
+      // The same support boxes cannot snag the uphill part of a mount's radius.
+      const upper = point(6.4, 0, true), expected = upper.clone()
+      resolveObstacleCollision(upper, point(6, 0, true), 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+      expect(upper.toArray()).toEqual(expected.toArray())
+      const clear = point(s.length - 2, 0, false), clearExpected = clear.clone()
+      resolveObstacleCollision(clear, point(s.length - 2, 5, false), 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+      expect(clear.toArray()).toEqual(clearExpected.toArray())
+    }
   })
 
   it('joins the town ramp knee, turn and deck at one height without placing the flight under the widened deck', () => {

@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { slabGeometry, surfaceBox } from './TownRamparts'
-import { TOWN_COMMAND_WATCHTOWER as C, getTownCommandWatchtowerRails, watchtowerSurface, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
+import { TOWN_COMMAND_WATCHTOWER as C, getTownCommandWatchtowerRails, getTownCommandWatchtowerUnderfill, watchtowerSurface, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
 
 type Materials = { stone: THREE.Material; wood: THREE.Material; dark: THREE.Material; plaster: THREE.Material; snow: THREE.Material; accent: THREE.Material }
 /** Permanent static construction, never registered as a damageable residence. */
@@ -36,6 +36,7 @@ export function createTownCommandWatchtower(layout: CommandWatchtowerLayout, fac
     obstacles.push({ box: surfaceBox(s), walkSurface: s, projectileBoxes, isBarricade: false,
       navigationPassable: s !== layout.entrance && s !== layout.ramps[0] && s !== layout.landings[0] })
   }
+  for (const support of getTownCommandWatchtowerUnderfill(layout)) box(support.box, structure)
   for (const rail of getTownCommandWatchtowerRails(layout)) {
     const s = rail.surface
     add(slabGeometry({ ...s, startY: s.startY + C.railHeight, topY: s.topY + C.railHeight }, C.railHeight), trim)

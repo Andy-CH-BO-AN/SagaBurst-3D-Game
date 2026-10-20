@@ -1,5 +1,5 @@
 import { TownWatchtowerNavigation } from '../../src/navigation/TownWatchtowerNavigation'
-import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails } from '../../src/town/TownCommandWatchtowerLayout'
+import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, getTownCommandWatchtowerUnderfill } from '../../src/town/TownCommandWatchtowerLayout'
 import { surfaceBox } from '../../src/town/TownRamparts'
 import { resolveObstacleCollision } from '../../src/world/Terrain'
 import * as THREE from 'three'
@@ -330,7 +330,7 @@ describe('Town watchtower layered travel', () => {
     nav.setWatchtower(layout)
     const tower = nav.watchtower!
     const surfaces = [layout.entrance, ...layout.ramps, ...layout.landings, ...layout.platform]
-    const obstacles: ObstacleData[] = [{ box: layout.core, isBarricade: false },
+    const obstacles: ObstacleData[] = [{ box: layout.core, isBarricade: false }, ...getTownCommandWatchtowerUnderfill(layout),
       ...surfaces.map(surface => ({ box: surfaceBox(surface), walkSurface: surface, isBarricade: false })),
       ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
     const top = new THREE.Vector3(-29, layout.platformY, -41)

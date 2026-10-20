@@ -4,7 +4,7 @@ import { isEagleApproachClear } from '../world/EagleApproach'
 import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import { Box3, Vector3 } from 'three'
 import { getTerrainHeight, getWalkRampHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
-import { surfaceBox } from './TownRamparts'
+import { surfaceBox, townRampUnderfillBoxes } from './TownRamparts'
 
 /** Measured hall crowns include the 7m walls, 5m roof and projecting bar ends:
  * Roman 12.437m / Viking 12.629m above the authored ground origin. */
@@ -69,6 +69,13 @@ export function getTownWatchtowerGuardStations(layout: CommandWatchtowerLayout) 
     if (y === null || Math.abs(y - layout.platformY) > .001) throw new Error('Unsupported watchtower guard station')
     return { x, y, z, yaw }
   })
+}
+
+/** Ground-connected low pockets only; upper circuits never fill through their
+ * lower walking lanes. */
+export function getTownCommandWatchtowerUnderfill(layout: CommandWatchtowerLayout): ObstacleData[] {
+  return [layout.entrance, ...layout.ramps, ...layout.landings].flatMap(surface =>
+    townRampUnderfillBoxes(surface).map(box => ({ box, isBarricade: false, navigationPassable: false })))
 }
 
 export interface CommandWatchtowerRail { surface: WalkRampSurface; obstacles: ObstacleData[] }

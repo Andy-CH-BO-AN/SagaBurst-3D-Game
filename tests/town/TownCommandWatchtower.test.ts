@@ -8,10 +8,10 @@ import { TownProjectileObstacles } from '../../src/town/TownProjectileObstacles'
 import { townDefenseThreatResponse } from '../../src/town/TownGarrison'
 import { Box3, Matrix4, Vector3 } from 'three'
 import { describe, expect, it } from 'vitest'
-import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
+import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, getTownCommandWatchtowerUnderfill, validateWatchtowerPlacement } from '../../src/town/TownCommandWatchtowerLayout'
 import { surfaceBox } from '../../src/town/TownRamparts'
 import { TOWN_CITY_ROADS, TOWN_CENTER, TOWN_HR_REGION, townHousing, type TownRoad } from '../../src/town/TownLayout'
-import { findBlockingObstacleAlongPath, findBlockingProjectileObstacleAlongPath, getTerrainHeight, type ObstacleData, type WalkRampSurface } from '../../src/world/Terrain'
+import { findBlockingObstacleAlongPath, findBlockingProjectileObstacleAlongPath, getTerrainHeight, resolveObstacleCollision, type ObstacleData, type WalkRampSurface } from '../../src/world/Terrain'
 import { BallisticIntercept } from '../../src/combat/ProjectileBallistics'
 import { EagleFlightAI } from '../../src/movement/EagleFlightAI'
 import { EagleFlightController } from '../../src/movement/EagleFlightController'
@@ -177,9 +177,14 @@ describe('Town command watchtower', () => {
 
   it('routes ground actors around the solid core and low entrance rails', () => {
     const layout = getTownCommandWatchtowerLayout()
-    const obstacles = [{ box: layout.core, isBarricade: false }, ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
+    const obstacles = [{ box: layout.core, isBarricade: false }, ...getTownCommandWatchtowerUnderfill(layout), ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
     const world = new NavigationWorld({ minX: -43, maxX: -8, minZ: -62, maxZ: -20, cellSize: .5 })
     world.rebuild(obstacles)
+    // A low flight pocket is solid for both pathfinding and actual movement.
+    const under = new Vector3(-21, getTerrainHeight(-21, -41), -41)
+    expect(world.grid.isBlocked(world.grid.worldToCell(under)!)).toBe(true)
+    resolveObstacleCollision(under, new Vector3(-16, under.y, -41), 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+    expect(under.x).toBeGreaterThanOrEqual(-17.5)
     // This strip lies outside the entrance slab, but inside its safety rail.
     expect(world.grid.isBlocked(world.grid.worldToCell({ x: -15, z: -25.25 })!)).toBe(true)
     expect(world.grid.isBlocked(world.grid.worldToCell({ x: -29, z: -41 })!)).toBe(true)
@@ -200,7 +205,7 @@ describe('Town command watchtower', () => {
 
   it('keeps ground routes beneath raised guardrails open', () => {
     const layout = getTownCommandWatchtowerLayout()
-    const obstacles = getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)
+    const obstacles = [...getTownCommandWatchtowerUnderfill(layout), ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
     const world = new NavigationWorld({ minX: -34, maxX: -24, minZ: -60, maxZ: -50, cellSize: .5 })
     world.rebuild(obstacles)
     const start = new Vector3(-29, getTerrainHeight(-29, -59), -59), goal = new Vector3(-29, start.y, -51)

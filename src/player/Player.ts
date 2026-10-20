@@ -538,7 +538,9 @@ export class Player {
     this.flightRiderAimYaw = null
     this.flightRiderYaw = 0
     mount.setPlayerRider(this)
-    const targetHeading = heading !== undefined ? heading : this.facingYaw
+    // Keep a grounded eagle inside the clearance envelope it landed in.
+    // A rider approaching from its side must not rotate its wings into a wall.
+    const targetHeading = heading ?? (mount.isFlyingMount ? mount.group.rotation.y : this.facingYaw)
     this.setMountedHeading(targetHeading)
     this.syncMountTransform()
   }

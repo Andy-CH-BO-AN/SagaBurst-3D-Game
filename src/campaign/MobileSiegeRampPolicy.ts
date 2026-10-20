@@ -59,6 +59,41 @@ export function siegeRampRearHeightAt(placement: SiegeRampPlacement<MobileSiegeR
     getTerrainHeight(x - lateralX, z - lateralZ)) + .04
 }
 
+/** Local chassis-frame bounds; reused by the existing side rails, without new moving obstacles.
+ * Vertical skirts seal the undercroft while leaving the walk lane and rear pushers clear. */
+export function siegeRampSideSkirtBox(out: THREE.Box3, surface: WalkRampSurface,
+  along: number, length: number, side: number, groundHeight = getTerrainHeight): THREE.Box3 {
+  const lateral = side * (surface.halfWidth + .1)
+  let bottom = Infinity
+  for (let sample = 0; sample < 3; sample++) {
+    const distance = along + length * sample / 2
+    const x = surface.startX + surface.dirX * distance + surface.dirZ * lateral
+    const z = surface.startZ + surface.dirZ * distance - surface.dirX * lateral
+    bottom = Math.min(bottom, groundHeight(x, z))
+  }
+  const highAlong = surface.topY >= surface.startY ? along + length : along
+  const top = surface.startY + (surface.topY - surface.startY) * Math.min(1, highAlong / surface.length) + .9
+  const rear = -surface.length - surface.landing
+  out.min.set(lateral - .1, bottom - surface.topY - .15, rear + along)
+  out.max.set(lateral + .1, top - surface.topY, rear + along + length)
+  return out
+}
+
+/** The nose panel ends below the deck; walking across the deployed bridge stays clear. */
+export function siegeRampFrontSkirtBox(out: THREE.Box3, surface: WalkRampSurface,
+  groundHeight = getTerrainHeight): THREE.Box3 {
+  const along = surface.length + surface.landing
+  let bottom = Infinity
+  for (let sample = -1; sample <= 1; sample++) {
+    const lateral = sample * surface.halfWidth
+    bottom = Math.min(bottom, groundHeight(surface.startX + surface.dirX * along + surface.dirZ * lateral,
+      surface.startZ + surface.dirZ * along - surface.dirX * lateral))
+  }
+  out.min.set(-surface.halfWidth, bottom - surface.topY - .15, -.25)
+  out.max.set(surface.halfWidth, -.25, 0)
+  return out
+}
+
 export function isMobileSiegeRampEnabled(config: DefenseCampaignLaunchConfig | undefined): boolean {
   return isOutpostWalkwayEnabled(config, false)
 }

@@ -5,9 +5,12 @@ import type { OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWal
 import { MobileSiegeRamp } from '../../src/campaign/MobileSiegeRamp'
 import { MovingPlatformSupport } from '../../src/movement/MovingPlatformSupport'
 import { MobileSiegeRampController } from '../../src/campaign/MobileSiegeRampController'
+import { evacuateAbandonedRamp } from '../../src/campaign/SiegeConvoy'
+import type { SiegeRampAssignment } from '../../src/campaign/MobileSiegeRampPolicy'
 import { parseCampaignSiegeCheckpoint } from '../../src/campaign/CampaignSiegeCheckpoint'
 import { allocateTownSiegeCrews, createTownSiegeCrewSlots, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame } from '../../src/career/TownFourGateSiegePolicy'
-import { getTerrainHeight, getWalkRampHeight } from '../../src/world/Terrain'
+import { getTerrainHeight, getWalkRampHeight, type ObstacleData } from '../../src/world/Terrain'
+import { NPC } from '../../src/world/NPC'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
@@ -18,7 +21,147 @@ import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, comma
 import type { TownSiegeRampId } from '../../src/campaign/MobileSiegeRampPolicy'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 
+function watchdogCrew(): SiegeRampAssignment {
+  return { id: 'siege-ramp-left', side: -1,
+    pusherIds: ['p0', 'p1', 'p2', 'p3'], assaultIds: ['a0', 'a1', 'a2', 'a3', 'a4', 'a5'] }
+}
+
 describe('shared siege crew and vehicle lifecycle', () => {
+  it('abandons a fully deployed carrier after its first ten immobile simulation seconds exactly once', () => {
+    const assignment = watchdogCrew(), events: string[] = []
+    const controller = new MobileSiegeRampController(assignment, 100, state => events.push(state))
+    controller.observeMovement(20, 0, 0, 0, 0)
+    expect(controller.state).toBe('DEPLOYING')
+    for (const combatantId of [...assignment.pusherIds, ...assignment.assaultIds]) controller.register({ combatantId, dead: false })
+    const position = new Vector3()
+    const owner = Object.assign(Object.create(MobileSiegeRamp.prototype) as Pick<MobileSiegeRamp, 'update'>, {
+      disposed: false, controller, position, assignment, crew: new Map(), canMove: () => false,
+    })
+    for (let frame = 0; frame < 99; frame++) owner.update(.1, [])
+    for (const dt of [0, -1, NaN, Infinity]) owner.update(dt, [])
+    expect(controller.state).toBe('PUSHING')
+    owner.update(.1, [])
+    expect(controller.state).toBe('ABANDONED')
+    expect(controller.currentSpeed).toBe(0)
+    owner.update(100, [])
+    expect(events).toEqual(['PUSHING', 'ABANDONED'])
+    expect(position).toEqual(new Vector3())
+  })
+
+  it('starts a fresh actual horizontal displacement window at one metre and abandons a sub-metre next window', () => {
+    const assignment = watchdogCrew(), controller = new MobileSiegeRampController(assignment, 100)
+    for (const combatantId of [...assignment.pusherIds, ...assignment.assaultIds]) controller.register({ combatantId, dead: false })
+    controller.advance(.1, false)
+    controller.observeMovement(10, 0, 0, .6, .8)
+    expect(controller.state).toBe('PUSHING')
+    controller.observeMovement(9, .6, .8, 1.5, .8)
+    expect(controller.state).toBe('PUSHING')
+    controller.observeMovement(1, 1.5, .8, 1.5, .8)
+    expect(controller.state).toBe('ABANDONED')
+  })
+
+  it('resets an unfinished pushing observation when restoring a checkpoint', () => {
+    const assignment = watchdogCrew(), controller = new MobileSiegeRampController(assignment, 100)
+    for (const combatantId of [...assignment.pusherIds, ...assignment.assaultIds]) controller.register({ combatantId, dead: false })
+    controller.advance(.1, false)
+    controller.observeMovement(9, 30, 20, 30, 20)
+    controller.restore({ state: 'PUSHING', distance: 12, dockingProgress: 0 })
+    controller.observeMovement(9, 42, 20, 42, 20)
+    expect(controller.state).toBe('PUSHING')
+    controller.observeMovement(1, 42, 20, 42, 20)
+    expect(controller.state).toBe('ABANDONED')
+  })
+
+  it('releases surviving crew down the rear lane without withdrawing them and restores abandonment without rebinding', () => {
+    const assignment = watchdogCrew(), position = new Vector3(0, 10, 30)
+    const surface = { startX: 0, startZ: 0, startY: getTerrainHeight(0, 0) + .04,
+      dirX: 0, dirZ: 1, halfWidth: 2.5, length: 24, landing: 6, topY: 10 }
+    const crew = [...assignment.pusherIds, ...assignment.assaultIds].map((combatantId, index) => ({
+      combatantId, dead: index === 9, position: index < 4 ? new Vector3(index % 2 ? 1 : -1, getTerrainHeight(0, -3), -3)
+        : new Vector3(index % 2 ? 1 : -1, 10, 26),
+      siegeTransport: assignment.id as string | null, siegeTransportSpeed: 2,
+      siegeEvacuation: null as Vector3 | null, siegeBypassTarget: null as Vector3 | null,
+      tacticalOrder: 'defend',
+    }))
+    const platform = new MovingPlatformSupport(position)
+    for (const npc of crew.slice(4)) platform.attach(npc)
+    interface ReleaseEntry { transition(state: 'ABANDONED'): void }
+    const hull = { box: new Box3(new Vector3(-2.5, -10, 0), new Vector3(2.5, 10, 30)),
+      walkSurface: surface, isBarricade: true, navigationPassable: true }
+    let releases = 0
+    const owner = Object.assign(Object.create(MobileSiegeRamp.prototype) as ReleaseEntry, {
+      crew: new Map(crew.map(npc => [npc.combatantId, npc])), platform, obstacles: [hull], shared: [hull],
+      changed() { releases++; for (const npc of crew) evacuateAbandonedRamp(npc, { assignment, surface }) },
+    })
+    const controller = new MobileSiegeRampController(assignment, 100, state => {
+      if (state === 'ABANDONED') owner.transition(state)
+    })
+    for (const npc of crew) controller.register(npc)
+    controller.advance(.1, false); controller.observeMovement(10, 0, 0, 0, 0)
+    expect(platform.size).toBe(0)
+    expect(hull.navigationPassable).toBe(false)
+    expect(controller.alivePushers).toBe(4)
+    expect(crew.every(npc => npc.siegeTransport === null && npc.siegeTransportSpeed === 0 && npc.tacticalOrder === 'defend')).toBe(true)
+    expect(crew.filter(npc => npc.dead)).toHaveLength(1)
+    expect(crew.slice(0, 4).every(npc => npc.siegeEvacuation === null)).toBe(true)
+    for (const npc of crew.slice(4, 9)) {
+      const target = npc.siegeEvacuation!
+      expect(target.z).toBeLessThan(0)
+      expect(Math.abs(target.x)).toBeLessThan(surface.halfWidth)
+      expect(target.y).toBe(getTerrainHeight(target.x, target.z))
+    }
+    expect(crew[9].siegeEvacuation).toBeNull()
+    controller.advance(20); controller.observeMovement(20, 0, 0, 0, 0)
+    expect(releases).toBe(1)
+
+    const restored = new MobileSiegeRampController(assignment, 100, () => { throw new Error('Abandonment replayed') })
+    restored.restore({ state: 'ABANDONED', distance: 0, dockingProgress: 0 })
+    const restoredHull = { ...hull, navigationPassable: true }
+    const restoredOwner = Object.assign(Object.create(MobileSiegeRamp.prototype) as Pick<MobileSiegeRamp, 'register' | 'restore'>, {
+      controller: restored, assignment, crew: new Map(), platform, position, surface: { ...surface },
+      placement: { dock: position.clone(), surface }, obstacles: [restoredHull], shared: [restoredHull],
+      damageable: { currentHp: 520 }, updateGeometry() {},
+    })
+    restoredOwner.restore({ assignment, stagingZ: 30, position: { x: 0, y: 10, z: 30 },
+      hp: 520, state: 'ABANDONED', distance: 0, dockingProgress: 0 })
+    expect(restoredHull.navigationPassable).toBe(false)
+    const savedPositions = crew.map(npc => npc.position.clone())
+    for (const npc of crew) {
+      // Named registration adapter stops at the terminal-state gate, before NPC presentation dependencies.
+      restoredOwner.register(npc as unknown as Parameters<MobileSiegeRamp['register']>[0])
+    }
+    expect(platform.size).toBe(0)
+    expect(restored.advance(20)).toBe(0)
+    restored.observeMovement(20, 0, 0, 0, 0)
+    expect(restored.state).toBe('ABANDONED')
+    expect(crew.map(npc => npc.position)).toEqual(savedPositions)
+    // Conservative numeric side/front skirts leave only the actual rear walk
+    // lane open. Exercise the production foot collider without an actor/model.
+    const obstacles: ObstacleData[] = [hull,
+      { box: new Box3(new Vector3(-2.7, -10, 0), new Vector3(-2.5, 10.9, 30)), isBarricade: true },
+      { box: new Box3(new Vector3(2.5, -10, 0), new Vector3(2.7, 10.9, 30)), isBarricade: true },
+      { box: new Box3(new Vector3(-2.5, -10, 29.9), new Vector3(2.5, 9.75, 30.1)), isBarricade: true },
+    ]
+    interface FootFrame { group: { position: Vector3; rotation: { x: number } }; velY: number; onGround: boolean; playableWorldBound: number }
+    const foot = NPC.prototype as unknown as { _updateFootPhysics(this: FootFrame, previous: Vector3, dt: number, obstacles: ObstacleData[]): void }
+    const previous = new Vector3(), direction = new Vector3()
+    for (const npc of crew.slice(4, 9)) {
+      const target = npc.siegeEvacuation!
+      const frame: FootFrame = { group: { position: npc.position, rotation: { x: 0 } }, velY: 0, onGround: true, playableWorldBound: 300 }
+      for (let step = 0; step < 180 && npc.position.distanceTo(target) > .3; step++) {
+        previous.copy(npc.position)
+        direction.copy(target).sub(npc.position).setY(0).normalize()
+        npc.position.addScaledVector(direction, .2)
+        foot._updateFootPhysics.call(frame, previous, .1, obstacles)
+      }
+      expect(npc.position.distanceTo(target)).toBeLessThan(.3)
+      expect(npc.position.y).toBeCloseTo(getTerrainHeight(npc.position.x, npc.position.z))
+      npc.siegeEvacuation = null
+      evacuateAbandonedRamp(npc, { assignment, surface })
+      expect(npc.siegeEvacuation).toBeNull()
+    }
+  })
+
   it('releases only complete fixed escort groups from their own living gate-range and bounded ramp observations', () => {
     const assignments = commanderCavalryEscortAssignments('escort'), initial = createCommanderCavalryEscort('escort')
     const roster = createCommanderFourGateDefenseRoster('escort', 'roman')
@@ -205,6 +348,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     const events: string[] = [], lifecycle = new MobileSiegeRampController(crews[0], 1, state => events.push(state))
     for (const combatantId of [...crews[0].pusherIds, ...crews[0].assaultIds]) lifecycle.register({ combatantId, dead: false })
     lifecycle.advance(1); expect(lifecycle.state).toBe('DOCKING')
+    lifecycle.observeMovement(20, 0, 0, 0, 0); expect(lifecycle.state).toBe('DOCKING')
     lifecycle.advance(1.49); expect(lifecycle.state).toBe('DOCKING')
     lifecycle.advance(.01); expect(lifecycle.state).toBe('DOCKED')
     const restored = new MobileSiegeRampController(crews[0], 1, () => { throw new Error('Dock replayed') })
@@ -265,6 +409,15 @@ describe('shared siege crew and vehicle lifecycle', () => {
     owner.update(.1, [withdrawn])
     expect(owner.position).toEqual(stoppedAt)
     expect(controller.currentSpeed).toBe(0)
+    parts.length = 0
+    for (let frame = 0; frame < 100; frame++) owner.update(.1, [])
+    expect(controller.state).toBe('PUSHING')
+    expect(controller.distance).toBeGreaterThan(36)
+    controller.dispose()
+    const stoppedDistance = controller.distance
+    owner.update(20, [])
+    expect(controller.distance).toBe(stoppedDistance)
+    expect(controller.state).toBe('PUSHING')
   })
 
   it('restores a destroyed carrier as hidden and collision-free without replaying transitions', () => {
@@ -289,6 +442,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(damageable.destroyed).toBe(true); expect(damageable.currentHp).toBe(0)
     expect(shared).toEqual([neighbor])
     expect(position).toEqual(new Vector3(0, 10, -15)); expect(controller.state).toBe('DESTROYED')
+    controller.observeMovement(20, 0, 0, 0, 0); expect(controller.state).toBe('DESTROYED')
   })
 
 })

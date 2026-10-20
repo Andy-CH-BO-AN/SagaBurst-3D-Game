@@ -126,6 +126,37 @@ export function slabGeometry(s: WalkRampSurface, thickness = .35): THREE.BufferG
   }
   g.computeVertexNormals(); return g
 }
+/** Low-clearance infill uses the same small boxes for mesh, body collision and
+ * ground navigation. Keep each cap below the lowest surface touched by a 1m
+ * mounted radius: a tall uphill AABB must never snag a body walking on the ramp.
+ * The remaining gap to the slab is at most 1.15m at the authored 0.4 slope,
+ * too small for any ground body. Higher underpasses remain completely open.
+ */
+export function townRampUnderfillBoxes(s: WalkRampSurface): THREE.Box3[] {
+  const boxes: THREE.Box3[] = [], radius = 1, bodyHeight = 2.6, thickness = .35
+  const count = Math.max(1, Math.ceil(s.length + s.landing))
+  const heightAt = (along: number) => s.startY + (s.topY - s.startY) * Math.max(0, Math.min(1, along / s.length))
+  for (let i = 0; i < count; i++) {
+    const from = i / count * (s.length + s.landing), to = (i + 1) / count * (s.length + s.landing)
+    const low = Math.min(heightAt(from - radius), heightAt(to + radius)) - thickness
+    const a = new THREE.Vector3(s.startX + s.dirX * from, low, s.startZ + s.dirZ * from)
+    const b = new THREE.Vector3(s.startX + s.dirX * to, low, s.startZ + s.dirZ * to)
+    const box = new THREE.Box3().setFromPoints([a, b])
+    box.min.x -= Math.abs(s.dirZ) * s.halfWidth; box.max.x += Math.abs(s.dirZ) * s.halfWidth
+    box.min.z -= Math.abs(s.dirX) * s.halfWidth; box.max.z += Math.abs(s.dirX) * s.halfWidth
+    let groundMin = Infinity, groundMax = -Infinity
+    for (const x of [box.min.x - radius, (box.min.x + box.max.x) / 2, box.max.x + radius]) {
+      for (const z of [box.min.z - radius, (box.min.z + box.max.z) / 2, box.max.z + radius]) {
+        const ground = getTerrainHeight(x, z)
+        groundMin = Math.min(groundMin, ground); groundMax = Math.max(groundMax, ground)
+      }
+    }
+    if (low >= groundMax + bodyHeight || low <= groundMin) continue
+    box.min.y = groundMin - .1
+    boxes.push(box)
+  }
+  return boxes
+}
 /** Supports sit outside the rail's inner face, clear of legal mounted travel.
  * A pillar inside the slab footprint can hit a mount's uphill radius even when
  * its top is below the surface at the pillar centre. Use a flat, conservative
@@ -193,6 +224,7 @@ export function createTownRamparts(layout: TownRampartLayout, obstacles: Obstacl
       continue
     }
     if (item.id.startsWith('ramp:')) {
+      for (const box of townRampUnderfillBoxes(s)) addBox(box, true, false)
       for (const side of [-1, 1]) rail(s, side * RAMP_RAIL, 0, s.length, 0, .9)
       rail(s, -RAMP_RAIL, s.length, s.length + s.landing, 0, .9)
       const endX = s.startX + s.dirX * (s.length + s.landing), endZ = s.startZ + s.dirZ * (s.length + s.landing)
