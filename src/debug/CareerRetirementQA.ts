@@ -53,7 +53,7 @@ export function installCareerRetirementQa(): void {
     const eligible = profile && commanderRetirementEligibility(profile)
     summary.textContent = loaded.error ?? (profile && eligible
       ? `Commander Wins: ${eligible.commanderVictories}\nFour-Gate: ${eligible.fourGateDefenseCompleted ? 'Complete' : 'Incomplete'}\nAvailable Merit: ${profile.availableMerit}\nRetirement: ${profile.careerRetirement?.phase ?? (eligible.eligible ? 'Eligible' : 'Not eligible')}`
-      : '尚未建立 Career。預設：Commander、10 勝、Four-Gate 完成、100000 可用軍功、空私人部隊。')
+      : '尚未建立 Career。預設：Commander、10 勝、Four-Gate 完成、100000 可用軍功、玩家全技能 Lv.50、30 名 T5 黑貓私兵（15 斧弓盾／15 矛盾）。')
     create.textContent = profile ? '重建 Retirement QA 存檔' : '建立 Commander Retirement QA 存檔'
     create.disabled = !canReplace()
     create.title = create.disabled ? '請先返回主選單，或在結局畫面重建 QA 存檔。' : '取代單一 Career 存檔前會再次確認。'
