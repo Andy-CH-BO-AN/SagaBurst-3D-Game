@@ -29,6 +29,12 @@ test('production module selects transitive consumers without unrelated equipment
     [{ status: 'M', file: 'src/debug/TownFourGateSiegePreview.ts' }], consumers)
   assert.equal(preview.mode, 'related')
   assert.deepEqual(preview.selected, previewOwners.sort())
+  const retirementOwners = ['tests/progression/CareerRetirementQaProfile.test.ts',
+    'tests/progression/CareerRetirementFinale.test.ts', 'tests/town/CareerTownEntry.test.ts']
+  const retirement = selectFiles([...inventory, ...retirementOwners.map(file => item(file))],
+    [{ status: 'A', file: 'src/debug/CareerRetirementQA.ts' }], consumers)
+  assert.equal(retirement.mode, 'related')
+  assert.deepEqual(retirement.selected, retirementOwners.sort())
   const entryOwners = ['tests/town/CareerTownEntry.test.ts', 'tests/missions/CareerMissionRecovery.test.ts',
     'tests/integration/MissionModeRouting.test.ts']
   const entry = selectFiles([...inventory, ...entryOwners.map(file => item(file))],

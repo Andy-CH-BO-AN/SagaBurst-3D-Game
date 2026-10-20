@@ -1,3 +1,5 @@
+import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
+import { parseCareerRetirementState } from '../../src/career/CareerRetirementState'
 import { grantStarter } from '../../src/town/TownRules'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -5,10 +7,11 @@ import { describe,expect,it } from 'vitest'
 import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import {
 claimCareerBattle,
+cloneCareerProfile,
 createCareerProfile,
 purchaseCareerContent,
 resolveCareerRank,
-promoteCareer
+promoteCareer, type CareerProfile
 } from '../../src/career/CareerProfile'
 import {
 parseCareerProfile, CareerProfileStore, CAREER_STORAGE_KEY
@@ -33,6 +36,7 @@ function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleSt
     squads: [],
   }
 }
+
 
 describe('Career merit calculation', () => {
 
@@ -283,4 +287,143 @@ describe('Commander melee appointment and save migration', () => {
     expect(careerItemAllocated(loaded, 'sword_t5')).toBe(1)
     expect(store.loadChecked().profile).toEqual(loaded)
   })
+})
+
+function retirementProfile(): CareerProfile {
+  const profile = createCareerProfile('roman')
+  profile.rank = 'commander'
+  profile.totalMerit = 20000
+  profile.commanderMeleeGranted = true
+  profile.inventory = { version: 1, quantities: {} }
+  profile.equipment = {}
+  profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 123,
+    combatElapsedSeconds: 42.5, outcome: 'fallen' }
+  return profile
+}
+
+it('round-trips minimal retirement progress and resource snapshots without sharing mutable state', () => {
+  const profile = retirementProfile()
+  profile.retirementRuntime = {
+    player: { position: { x: 1, y: 2, z: -318, yaw: 0.4 }, hp: 17, stamina: 21,
+      arrows: 3, shieldImpact: 4, shieldDurability: { shield_t1: 0 }, mounted: true },
+    mountState: { activeMountId: 'horse', hp: { horse: 9 }, unavailable: ['corgi'] },
+    mount: { position: { x: 1, y: 2, z: -318, yaw: 0.4 }, hp: 9 },
+  }
+  const original = structuredClone(profile)
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  expect(store.save(profile)).toBe(true)
+  const loaded = store.loadChecked().profile!
+  expect(loaded).toEqual(original)
+  expect(profile).toEqual(original)
+  const copy = cloneCareerProfile(loaded)
+  copy.careerRetirement!.combatElapsedSeconds = 99
+  copy.retirementRuntime!.player.hp = 90
+  copy.retirementRuntime!.player.shieldDurability!.shield_t1 = 90
+  copy.retirementRuntime!.mountState!.hp.horse = 90
+  copy.retirementRuntime!.mount!.position.x = 90
+  expect(loaded).toEqual(original)
+})
+
+it('rejects corrupted retirement saves without overwriting persisted bytes', () => {
+  const profile = retirementProfile()
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  expect(store.save(profile)).toBe(true)
+  const saved = storage.getItem(CAREER_STORAGE_KEY)
+  // Rank normalization must not admit a retirement checkpoint below Commander.
+  expect(store.save({ ...profile, totalMerit: 5200 })).toBe(false)
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  const invalidRuntime = { ...profile, retirementRuntime: { player: {
+    position: { x: 0, y: 0, z: 0, yaw: 0 }, hp: Number.NaN, stamina: 0,
+    arrows: 0, shieldImpact: 0, mounted: false,
+  } } }
+  expect(store.save(invalidRuntime)).toBe(false)
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  delete profile.careerRetirement!.outcome
+  expect(store.save(profile)).toBe(false)
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  const corrupted = JSON.stringify(profile)
+  storage.setItem(CAREER_STORAGE_KEY, corrupted)
+  const rejected = store.loadChecked()
+  expect(rejected.profile).toBeNull()
+  expect(rejected.error).toBeTruthy()
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(corrupted)
+})
+
+it('preserves retirement ownership while allowing ordinary resource commits', () => {
+  const loaded = retirementProfile()
+  // Town commits must preserve every retirement-owned field.
+  const stale = cloneCareerProfile(loaded)
+  delete stale.careerRetirement
+  expect(validateOrdinaryRetirementCommit(loaded, stale)).toEqual({ allowed: false, reason: 'retirement-checkpoint-missing' })
+  // Every persisted field is owned by retirement, even when the proposed save parses.
+  for (const change of [{ version: 2 }, { phase: 'final-stand', outcome: undefined },
+    { acceptedAt: 124 }, { combatElapsedSeconds: 43 }, { outcome: 'escaped' }]) {
+    const altered = { ...cloneCareerProfile(loaded), careerRetirement: { ...loaded.careerRetirement!, ...change } }
+    expect(validateOrdinaryRetirementCommit(loaded, altered as typeof loaded)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  }
+  expect(canStartOrdinaryTownHostility(createCareerProfile('roman'))).toBe(true)
+  expect(areOrdinaryTownServicesPeaceful(createCareerProfile('roman'))).toBe(true)
+  expect(areOrdinaryTownServicesPeaceful(createCareerProfile('roman'), true)).toBe(false)
+  for (const phase of ['departing', 'mobilizing', 'final-stand', 'completed'] as const) {
+    const current: CareerProfile = { ...cloneCareerProfile(loaded), careerRetirement: {
+      version: 1, phase, acceptedAt: 123, combatElapsedSeconds: 0,
+      ...(phase === 'completed' ? { outcome: 'fallen' as const } : {}),
+    } }
+    expect(canStartOrdinaryTownHostility(current)).toBe(false)
+    // Hints, talk, markers and stale service callbacks share this saved-phase gate.
+    expect(current.townEvent).toBeUndefined()
+    expect(areOrdinaryTownServicesPeaceful(current)).toBe(phase === 'departing' || phase === 'mobilizing')
+    const hostile: CareerProfile = { ...cloneCareerProfile(current), townEvent: { id: 'ordinary-retaliation', state: 'hostile' } }
+    expect(areOrdinaryTownServicesPeaceful(hostile)).toBe(false)
+    expect(validateOrdinaryRetirementCommit(current, hostile)).toEqual({ allowed: false, reason: 'retirement-town-hostility' })
+    // Do not rewrite legacy events or prevent existing casualty persistence.
+    expect(validateOrdinaryRetirementCommit(hostile, cloneCareerProfile(hostile))).toEqual({ allowed: true })
+    expect(validateOrdinaryRetirementCommit(hostile, { ...hostile, townEvent: { id: 'replacement', state: 'hostile' } }))
+      .toEqual({ allowed: false, reason: 'retirement-town-hostility' })
+  }
+  const receipt = { version: 1 as const, commandRevoked: true as const, refillCompleted: true as const, formationPrepared: true as const }
+  const receipted = { ...cloneCareerProfile(loaded), careerRetirement: { ...loaded.careerRetirement!, mobilization: receipt } }
+  const equalReceipt = { ...cloneCareerProfile(receipted), careerRetirement: { ...receipted.careerRetirement,
+    mobilization: { formationPrepared: true as const, refillCompleted: true as const, commandRevoked: true as const, version: 1 as const } } }
+  expect(equalReceipt.careerRetirement.mobilization).not.toBe(receipt)
+  expect(validateOrdinaryRetirementCommit(receipted, equalReceipt)).toEqual({ allowed: true })
+  expect(validateOrdinaryRetirementCommit(receipted, loaded)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  for (const change of [{ version: 2 }, { commandRevoked: false }, { refillCompleted: false }, { formationPrepared: false }]) {
+    const altered = { ...receipted, careerRetirement: { ...receipted.careerRetirement, mobilization: { ...receipt, ...change } } }
+    expect(validateOrdinaryRetirementCommit(receipted, altered as typeof loaded)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  }
+  const rider = { actorId: 'player', mountId: 'horse' as const, position: { x: 0, y: 0, z: 0, yaw: 0 },
+    mountPosition: { x: 0, y: 0, z: 0, yaw: 0 }, hp: 100, mountHp: 100, stamina: 100, mounted: true, dead: false, checkpoint: 0 }
+  const newWork: Partial<typeof loaded>[] = [
+    { activeMission: { id: 'new-mission', templateId: 'recruit-bandits-01', targetCampId: 0,
+      phase: 'RETURNING', targetActorIds: [], friendlyActorIds: [], acceptedAt: 124 } },
+    { activeOutpostMission: { id: 'new-outpost', kind: 'outpost-defense', stageId: 1, acceptedAt: 124 } },
+    { activeRace: { version: 1, deployed: false, id: 'new-race', raceId: 'race-1', phase: 'guiding',
+      countdownSeconds: 0, elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
+      player: rider, opponent: { ...rider, actorId: 'opponent' } } },
+  ]
+  for (const work of newWork) {
+    expect(validateOrdinaryRetirementCommit(loaded, { ...cloneCareerProfile(loaded), ...work }))
+      .toEqual({ allowed: false, reason: 'retirement-new-work' })
+  }
+  const ordinary = cloneCareerProfile(loaded)
+  ordinary.availableMerit += 1
+  expect(validateOrdinaryRetirementCommit(loaded, ordinary)).toEqual({ allowed: true })
+  expect(ordinary.careerRetirement).toEqual(loaded.careerRetirement)
+  expect(ordinary.careerRetirement).not.toBe(loaded.careerRetirement)
+})
+
+it('round-trips a prepared retirement receipt and rejects incomplete or misplaced receipts', () => {
+  const receipt = { version: 1 as const, commandRevoked: true as const,
+    refillCompleted: true as const, formationPrepared: true as const }
+  const progress = { version: 1 as const, phase: 'mobilizing' as const,
+    acceptedAt: 123, combatElapsedSeconds: 0, mobilization: receipt }
+  const parsed = parseCareerRetirementState(JSON.parse(JSON.stringify(progress)))!
+  expect(parsed).toEqual(progress)
+  expect(parsed.mobilization).not.toBe(receipt)
+  for (const invalid of [null, {}, { ...receipt, version: 2 }, { ...receipt, commandRevoked: false },
+    { ...receipt, refillCompleted: false }, { ...receipt, formationPrepared: false }]) {
+    expect(parseCareerRetirementState({ ...progress, mobilization: invalid })).toBeNull()
+  }
+  expect(parseCareerRetirementState({ ...progress, phase: 'departing' })).toBeNull()
 })

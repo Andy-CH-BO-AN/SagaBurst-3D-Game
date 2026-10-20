@@ -16,6 +16,7 @@ import { AIType, Faction, NPC, type BanditAggroState } from '../world/NPC'
 import { SpatialGrid } from '../world/SpatialGrid'
 import type { ObstacleData } from '../world/Terrain'
 import { townWartimeHostile } from './TownWartime'
+import { townRetirementExitPoint, TOWN_RETIREMENT_EXIT_LINE } from './TownBounds'
 import {
   OUTSKIRTS_ALERT_RANGE, OUTSKIRTS_CAVALRY_SPEED, OUTSKIRTS_ENCOUNTER_LEASH,
   OUTSKIRTS_FOOT_SPEED, OUTSKIRTS_SENSOR_INTERVAL, outskirtsActorId, outskirtsCavalryFaction,
@@ -87,6 +88,7 @@ export function parseTownOutskirtsCheckpoint(value: unknown): TownOutskirtsCheck
 }
 
 const TRAVEL_COMMAND = -5
+const EVACUATION_COMMAND = -5101
 const BANDIT_LOADOUT = { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null, mountId: null } as const
 
 /** Outskirts encounter/deployment ownership; formal missions and Town Patrol retain their own actors. */
@@ -100,6 +102,9 @@ export class TownOutskirtsWarfareController {
   private readonly grid = new SpatialGrid<NPC>(16)
   private readonly nearby: NPC[] = []
   private readonly anchor = { position: new THREE.Vector3(), yaw: 0 }
+  private readonly evacuationGoals = new Map<NPC, THREE.Vector3>()
+  private readonly disposedActors = new WeakSet<NPC>()
+  private lastParticipants: readonly NPC[] = []
   private enabled = false
   private spawnFailure?: NpcSpawnBatch
   private readonly spawnBatches = new Map<string, NpcSpawnBatch>()
@@ -110,7 +115,7 @@ export class TownOutskirtsWarfareController {
   constructor(
     private readonly scene: THREE.Scene,
     private readonly townFaction: CharacterFaction,
-    private readonly readProfile: () => Pick<CareerProfile, 'rank' | 'faction'>,
+    private readonly readProfile: () => Pick<CareerProfile, 'rank' | 'faction' | 'careerRetirement'>,
     private readonly obstacles: ObstacleData[],
     private readonly navigation: NavigationWorld,
     private readonly factories?: OutskirtsFactories,
@@ -133,7 +138,66 @@ export class TownOutskirtsWarfareController {
   }
   combatEnabled(npc: NPC): boolean {
     const squad = this.squadForActor.get(npc)
-    return Boolean(squad && (npc.dead || squad.state === 'ENGAGING'))
+    return !this.isRetirementEvacuating(npc) && Boolean(squad && (npc.dead || squad.state === 'ENGAGING'))
+  }
+
+  /** Saved retirement owns future generations; live actors keep native travel until the edge. */
+  applyRetirementPolicy(): void {
+    const retirement = this.readProfile().careerRetirement
+    if (!retirement || this.disposed) return
+    for (const squad of this.squads) {
+      if (!this.externalSquad(squad)) continue
+      this.spawnBatches.get(squad.id)?.cancel()
+      if (squad.state === 'SIEGE_OWNED') continue
+      squad.state = 'RETIRING'
+      squad.engagementOrigin = null
+      squad.commandedWaypoint = null
+      if (retirement.phase !== 'departing') continue
+      for (const npc of squad.members) {
+        if (npc.dead || this.evacuationGoals.has(npc)) continue
+        const point = townRetirementExitPoint(npc.combatPosition)
+        const goal = new THREE.Vector3(point.x, 0, point.z)
+        npc.clearEncounter()
+        npc.setMissionCombatTarget(null)
+        npc.assignSiegeObstacle(null)
+        npc.missionMovement = false
+        npc.missionAerialDefense = false
+        npc.assignFormationTarget(EVACUATION_COMMAND, goal, goal.clone().sub(npc.combatPosition).setY(0).normalize(),
+          npc.isMounted ? OUTSKIRTS_CAVALRY_SPEED : OUTSKIRTS_FOOT_SPEED)
+        this.evacuationGoals.set(npc, goal)
+      }
+    }
+  }
+
+  isRetirementEvacuating(npc: NPC): boolean {
+    const squad = this.squadForActor.get(npc)
+    return Boolean(this.readProfile().careerRetirement && squad && this.externalSquad(squad))
+  }
+
+  private externalSquad(squad: OutskirtsSquad): boolean {
+    return squad.spec.kind === 'bandit'
+      || outskirtsCavalryFaction(this.townFaction, this.readProfile().faction).faction === Faction.ENEMY
+  }
+
+  private pruneEvacuated(): void {
+    for (const [npc] of this.evacuationGoals) {
+      if (npc.dead || Math.max(Math.abs(npc.combatPosition.x), Math.abs(npc.combatPosition.z)) < TOWN_RETIREMENT_EXIT_LINE - 1.5) continue
+      const squad = this.squadForActor.get(npc)!
+      const mount = this.homeMounts.get(npc)
+      for (const peer of this.lastParticipants) if (peer !== npc) peer.releaseCombatTarget(npc)
+      npc.dismountFromMount()
+      this.squadForActor.delete(npc); this.homeMounts.delete(npc); this.evacuationGoals.delete(npc)
+      this.allActors.splice(this.allActors.indexOf(npc), 1)
+      this.disposedActors.add(npc)
+      squad.members.splice(squad.members.indexOf(npc), 1)
+      npc.dispose()
+      if (mount && !mount.riderPlayer && !mount.riderNpc) {
+        this.allMounts.splice(this.allMounts.indexOf(mount), 1)
+        squad.mounts.splice(squad.mounts.indexOf(mount), 1)
+        this.retiredMounts.delete(mount)
+        mount.dispose()
+      }
+    }
   }
 
   checkpoint(): TownOutskirtsCheckpoint {
@@ -199,6 +263,7 @@ export class TownOutskirtsWarfareController {
   }
   /** Call before advancing spawn queues. Generation IDs, surviving HP and cooldown survive reload. */
   restoreCheckpoint(value: TownOutskirtsCheckpoint | undefined): void {
+    if (this.readProfile().careerRetirement) { this.applyRetirementPolicy(); return }
     if (!value) return
     this.restoredCheckpoint = value
     for (const squad of this.squads) {
@@ -242,6 +307,7 @@ export class TownOutskirtsWarfareController {
 
   private disposed = false
   synchronizeRank(): void {
+    if (this.readProfile().careerRetirement) { this.applyRetirementPolicy(); return }
     if (this.disposed || this.spawnFailure) return
     const enabled = outskirtsEnabled(this.readProfile())
     if (enabled === this.enabled) {
@@ -269,8 +335,12 @@ export class TownOutskirtsWarfareController {
 
   /** One frame owns sensors and squad orders only. The scene owns actor/mount updates and navigation budget. */
   prepareFrame(dt: number, participants: readonly NPC[], player: Player): void {
+    this.applyRetirementPolicy()
     if (!this.enabled) return
+    this.lastParticipants = participants
+    this.pruneEvacuated()
     for (const squad of this.squads) {
+      if (this.readProfile().careerRetirement && this.externalSquad(squad)) continue
       if (squad.state === 'SIEGE_OWNED' || squad.state === 'SUSPENDED' || this.spawnBatches.get(squad.id)?.status === 'pending' || this.spawnBatches.get(squad.id)?.status === 'failed') continue
       if (squad.state === 'RESPAWN_COOLDOWN') {
         squad.respawnRemaining = Math.max(0, (squad.respawnRemaining ?? 60) - Math.max(0, dt))
@@ -295,10 +365,11 @@ export class TownOutskirtsWarfareController {
     this.pruneRetiredActors()
     this.pruneRetiredMounts()
     this.grid.clear()
-    for (const actor of participants) if (!actor.dead && !this.owns(actor)) this.grid.insert(actor)
+    for (const actor of participants) if (!actor.dead && !this.disposedActors.has(actor) && !this.owns(actor)) this.grid.insert(actor)
     // Include newly reinforced members even if the caller built its participant list before this frame.
     for (const actor of this.allActors) if (!actor.dead) this.grid.insert(actor)
     for (const squad of this.squads) {
+      if (this.readProfile().careerRetirement && this.externalSquad(squad)) continue
       if (squad.state === 'SPAWNING' || squad.state === 'SIEGE_OWNED' || squad.state === 'SUSPENDED' || squad.state === 'RESPAWN_COOLDOWN') continue
       squad.sensorRemaining -= Math.max(0, dt)
       const sense = squad.sensorRemaining <= 0
@@ -313,6 +384,7 @@ export class TownOutskirtsWarfareController {
 
   /** Effective hit callbacks wake the whole squad; allied cavalry keeps mission-friendly Player protection. */
   noteHit(target: NPC, playerSource: boolean): void {
+    if (this.isRetirementEvacuating(target)) return
     const squad = this.squadForActor.get(target)
     if (!squad || this.spawnBatches.get(squad.id)?.status === 'pending' || !squad.members.includes(target)) return
     if (playerSource && target.faction === Faction.TOWN) return
@@ -320,6 +392,17 @@ export class TownOutskirtsWarfareController {
   }
 
   updateTravel(npc: NPC, dt: number, cameraPosition: THREE.Vector3): void {
+    if (this.isRetirementEvacuating(npc)) {
+      const goal = this.evacuationGoals.get(npc)
+      if (!goal || npc.dead) return
+      if (npc.formationCommandId !== EVACUATION_COMMAND) {
+        npc.assignFormationTarget(EVACUATION_COMMAND, goal, goal.clone().sub(npc.combatPosition).setY(0).normalize(),
+          npc.isMounted ? OUTSKIRTS_CAVALRY_SPEED : OUTSKIRTS_FOOT_SPEED)
+      }
+      npc.updateTownTravel(dt, npc.combatPosition.distanceTo(cameraPosition),
+        this.grid.getNearbyInto(npc.combatPosition, 4, this.nearby), this.obstacles, this.navigation)
+      return
+    }
     const squad = this.squadForActor.get(npc), leader = squad?.leader
     if (!squad || squad.state === 'SPAWNING' || !leader || npc.dead || squad.state === 'ENGAGING') return
     const speed = leader.isMounted ? OUTSKIRTS_CAVALRY_SPEED : OUTSKIRTS_FOOT_SPEED
@@ -410,6 +493,7 @@ export class TownOutskirtsWarfareController {
   }
 
   releaseSiegeOwnership(): void {
+    if (this.readProfile().careerRetirement) { this.applyRetirementPolicy(); return }
     if (this.disposed || this.spawnFailure) return
     for (const squad of this.squads) if (squad.state === 'SIEGE_OWNED') {
       squad.generation++
@@ -425,6 +509,7 @@ export class TownOutskirtsWarfareController {
 
   /** Called only after saved settlement. Timers did not run and no generation was consumed. */
   resumeAfterSiege(): void {
+    if (this.readProfile().careerRetirement) { this.applyRetirementPolicy(); return }
     if (this.disposed || this.spawnFailure) return
     this.formalSiege = false
     if (!this.suspendedSquads.size) return
@@ -515,6 +600,7 @@ export class TownOutskirtsWarfareController {
   }
 
   private spawnSquad(squad: OutskirtsSquad, edge: boolean): void {
+    if (this.readProfile().careerRetirement && this.externalSquad(squad)) return
     squad.respawnRemaining = undefined
     for (const mount of squad.mounts) this.retiredMounts.add(mount)
     squad.mounts = []
@@ -546,6 +632,7 @@ export class TownOutskirtsWarfareController {
           : { faction: Faction.BANDIT, characterFaction: 'viking', aiType: AIType.MELEE, name: 'Bandit',
             tier: 1, cavalry: false, respawnEnabled: false, loadout: BANDIT_LOADOUT }) }
       batch.enqueue(actorId, () => {
+        if (this.readProfile().careerRetirement && this.externalSquad(squad)) return
         const npc = this.factories?.createNpc(spec) ?? new NPC(this.scene, point.x, point.z, spec.faction,
           spec.characterFaction, spec.aiType, spec.name, spec.tier, cavalry, spec.loadout, spec.presetId,
           undefined, actorId, undefined, spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile)
@@ -588,7 +675,7 @@ export class TownOutskirtsWarfareController {
 
   /** Let active encounters and deployment finish before taking the old generation out of service. */
   private beginTierTransition(squad: OutskirtsSquad): void {
-    if (squad.spec.kind !== 'cavalry' || squad.cavalryTier === outskirtsCavalryTier(this.readProfile(), this.townFaction)
+    if (this.readProfile().careerRetirement || squad.spec.kind !== 'cavalry' || squad.cavalryTier === outskirtsCavalryTier(this.readProfile(), this.townFaction)
       || !['PATROLLING', 'REGROUPING', 'ENTERING'].includes(squad.state)) return
     squad.state = 'RETIRING'
     squad.commandedWaypoint = null
@@ -654,7 +741,7 @@ export class TownOutskirtsWarfareController {
     for (const npc of this.allActors) npc.dispose()
     for (const mount of this.allMounts) mount.dispose()
     this.allActors.length = 0; this.allMounts.length = 0; this.squads.length = 0
-    this.squadForActor.clear(); this.grid.clear()
+    this.squadForActor.clear(); this.grid.clear(); this.evacuationGoals.clear(); this.lastParticipants = []
     this.retiredMounts.clear(); this.homeMounts.clear(); this.suspendedSquads.clear()
   }
 
