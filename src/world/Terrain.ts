@@ -839,6 +839,9 @@ export function resolveObstacleCollision(
   obstacles: ObstacleData[],
   options: ObstacleCollisionOptions = {},
 ): ObstacleCollisionResult {
+  // Empty worlds have no support or contacts; preserve motion without building
+  // a spatial query or running the recovery passes for every body sample.
+  if (obstacles.length === 0) return { velocityY, onGround }
   const epsilon = 0.001
   const initialBottomY = position.y - bottomOffset
   const initialVelocityY = velocityY
