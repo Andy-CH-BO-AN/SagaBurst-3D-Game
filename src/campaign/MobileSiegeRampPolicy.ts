@@ -2,7 +2,7 @@ import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { AIType } from '../world/NPC'
-import { getTerrainHeight, type WalkRampSurface } from '../world/Terrain'
+import { getTerrainHeight, TERRAIN_MIN_HEIGHT, type EntityCollisionBody, type WalkRampSurface } from '../world/Terrain'
 import { getDefenseCampaignStagingZ, type DefenseCampaignLaunchConfig } from './DefenseCampaignLaunch'
 import { isOutpostWalkwayEnabled, type OutpostWalkwayLayout, type OutpostWalkwaySide } from './CampaignOutpostWalkways'
 
@@ -57,6 +57,69 @@ export function siegeRampRearHeightAt(placement: SiegeRampPlacement<MobileSiegeR
   const lateralX = placement.dirZ * SIEGE_RAMP.halfWidth, lateralZ = -(placement.dirX ?? 0) * SIEGE_RAMP.halfWidth
   return Math.max(getTerrainHeight(x, z), getTerrainHeight(x + lateralX, z + lateralZ),
     getTerrainHeight(x - lateralX, z - lateralZ)) + .04
+}
+
+/** Local chassis-frame bounds; reused by the existing side rails, without new moving obstacles.
+ * Vertical skirts seal the undercroft while leaving the walk lane and rear pushers clear. */
+export function siegeRampSideSkirtBox(out: THREE.Box3, surface: WalkRampSurface,
+  along: number, length: number, side: number, groundHeight = getTerrainHeight): THREE.Box3 {
+  const lateral = side * (surface.halfWidth + .1)
+  let bottom = Infinity
+  for (let sample = 0; sample < 3; sample++) {
+    const distance = along + length * sample / 2
+    const x = surface.startX + surface.dirX * distance + surface.dirZ * lateral
+    const z = surface.startZ + surface.dirZ * distance - surface.dirX * lateral
+    bottom = Math.min(bottom, groundHeight(x, z))
+  }
+  const highAlong = surface.topY >= surface.startY ? along + length : along
+  const top = surface.startY + (surface.topY - surface.startY) * Math.min(1, highAlong / surface.length) + .9
+  const rear = -surface.length - surface.landing
+  out.min.set(lateral - .1, bottom - surface.topY - .15, rear + along)
+  out.max.set(lateral + .1, top - surface.topY, rear + along + length)
+  return out
+}
+
+/** The nose panel ends below the deck; walking across the deployed bridge stays clear. */
+export function siegeRampFrontSkirtBox(out: THREE.Box3, surface: WalkRampSurface,
+  groundHeight = getTerrainHeight): THREE.Box3 {
+  const along = surface.length + surface.landing
+  let bottom = Infinity
+  for (let sample = -1; sample <= 1; sample++) {
+    const lateral = sample * surface.halfWidth
+    bottom = Math.min(bottom, groundHeight(surface.startX + surface.dirX * along + surface.dirZ * lateral,
+      surface.startZ + surface.dirZ * along - surface.dirX * lateral))
+  }
+  out.min.set(-surface.halfWidth, bottom - surface.topY - .15, -.25)
+  out.max.set(surface.halfWidth, -.25, 0)
+  return out
+}
+
+/** Reuse the ramp plank's body record for one continuous slope/deck solid.
+ * Call after restoring its mesh bounds; the side margin clears the outer skirts
+ * when recovering an actor loaded into the hull, including at the deck seam. */
+export function siegeRampUnderfillBounds(out: THREE.Box3, deck: THREE.Box3, surface: WalkRampSurface): THREE.Box3 {
+  out.union(deck)
+  out.min.y = TERRAIN_MIN_HEIGHT - .15
+  const marginX = Math.abs(surface.dirZ) * .2, marginZ = Math.abs(surface.dirX) * .2
+  out.min.x -= marginX; out.max.x += marginX
+  out.min.z -= marginZ; out.max.z += marginZ
+  return out
+}
+
+/** The moving shell must not enclose a body wholly inside its hollow-looking
+ * panels. Test the swept solid below the actual walking plane in O(1). */
+export function intersectsSiegeRampUnderfill(body: EntityCollisionBody, surface: WalkRampSurface, travel: number): boolean {
+  const dx = body.position.x - surface.startX, dz = body.position.z - surface.startZ
+  const lateral = dx * surface.dirZ - dz * surface.dirX
+  const along = dx * surface.dirX + dz * surface.dirZ
+  if (Math.abs(lateral) >= surface.halfWidth + .2 + body.radius
+    || along + body.radius < 0 || along - body.radius > surface.length + surface.landing + travel) return false
+  // Forward motion decreases the body's relative along coordinate. The highest
+  // overlap is its current front edge (or the approaching flat deck).
+  const highestAlong = surface.topY >= surface.startY ? along + body.radius : along - travel - body.radius
+  const ceiling = surface.startY + (surface.topY - surface.startY) * Math.max(0, Math.min(1, highestAlong / surface.length))
+  const bottom = body.position.y - body.bottomOffset
+  return bottom < ceiling - .001 && bottom + body.height > TERRAIN_MIN_HEIGHT - .15
 }
 
 export function isMobileSiegeRampEnabled(config: DefenseCampaignLaunchConfig | undefined): boolean {

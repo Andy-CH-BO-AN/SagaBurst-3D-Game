@@ -10,6 +10,9 @@ export class MobileSiegeRampController<Id extends MobileSiegeRampId = SiegeRampI
   currentSpeed = 0
   private dockElapsed = 0
   private disposed = false
+  private progressElapsed = 0
+  private progressStartX = 0
+  private progressStartZ = 0
   private readonly actors = new Map<string, SiegeCrewRecord>()
   constructor(readonly assignment: SiegeRampAssignment<Id>, readonly travelDistance: number,
     private readonly changed: (state: MobileSiegeRampState) => void = () => {}) {}
@@ -49,7 +52,22 @@ export class MobileSiegeRampController<Id extends MobileSiegeRampId = SiegeRampI
     if (this.distance >= this.travelDistance) this.transition('DOCKING')
     return moved
   }
+  /** Sample the applied world-space motion, including the very first blocked pushing frame. */
+  observeMovement(dt: number, startX: number, startZ: number, endX: number, endZ: number): void {
+    if (this.disposed || this.state !== 'PUSHING' || this.actors.size !== 10
+      || !Number.isFinite(dt) || dt <= 0) return
+    if (this.progressElapsed === 0) {
+      this.progressStartX = startX
+      this.progressStartZ = startZ
+    }
+    this.progressElapsed += dt
+    if (this.progressElapsed < 10 - 1e-9) return
+    const distance = Math.hypot(endX - this.progressStartX, endZ - this.progressStartZ)
+    this.progressElapsed = 0
+    if (distance < 1) this.transition('ABANDONED')
+  }
   restore(saved: { state: MobileSiegeRampState; distance: number; dockingProgress: number }): void {
+    this.progressElapsed = 0
     this.state = saved.state
     this.distance = Math.min(this.travelDistance, saved.distance)
     this.dockElapsed = saved.dockingProgress * SIEGE_RAMP.dockSeconds
@@ -58,10 +76,10 @@ export class MobileSiegeRampController<Id extends MobileSiegeRampId = SiegeRampI
   destroy(): void {
     if (!this.disposed && this.state !== 'DESTROYED') this.transition('DESTROYED')
   }
-  dispose(): void { this.disposed = true; this.currentSpeed = 0; this.actors.clear() }
+  dispose(): void { this.disposed = true; this.currentSpeed = 0; this.progressElapsed = 0; this.actors.clear() }
   private transition(state: MobileSiegeRampState): void {
     this.state = state
-    if (state !== 'PUSHING') this.currentSpeed = 0
+    if (state !== 'PUSHING') { this.currentSpeed = 0; this.progressElapsed = 0 }
     this.changed(state)
   }
 }

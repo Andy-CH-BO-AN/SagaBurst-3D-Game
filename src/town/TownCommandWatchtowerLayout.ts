@@ -4,7 +4,7 @@ import { isEagleApproachClear } from '../world/EagleApproach'
 import { TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import { Box3, Vector3 } from 'three'
 import { getTerrainHeight, getWalkRampHeight, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
-import { surfaceBox } from './TownRamparts'
+import { surfaceBox, townRampFoundation } from './TownRamparts'
 
 /** Measured hall crowns include the 7m walls, 5m roof and projecting bar ends:
  * Roman 12.437m / Viking 12.629m above the authored ground origin. */
@@ -69,6 +69,22 @@ export function getTownWatchtowerGuardStations(layout: CommandWatchtowerLayout) 
     if (y === null || Math.abs(y - layout.platformY) > .001) throw new Error('Unsupported watchtower guard station')
     return { x, y, z, yaw }
   })
+}
+
+/** The first circuit is a solid foundation. The second circuit fills down to
+ * 3.2m above its matching lower floor, retaining mounted headroom throughout. */
+export function getTownCommandWatchtowerUnderfill(layout: CommandWatchtowerLayout): ObstacleData[] {
+  const foundations = [townRampFoundation(layout.entrance), ...layout.ramps.map((surface, index) =>
+    index < 4 ? townRampFoundation(surface, undefined, false, .5) : townRampFoundation(surface,
+      { startY: layout.ramps[index - 4].startY + 3.2, topY: layout.ramps[index - 4].topY + 3.2 }, true, .5))]
+  for (let index = 0; index < layout.landings.length; index++) {
+    const lower = layout.landings[index - 4]
+    foundations.push(lower ? townRampFoundation(layout.landings[index], lower.topY + 3.2, true) : townRampFoundation(layout.landings[index]))
+  }
+  const ground = foundations.filter(obstacle => !obstacle.navigationPassable)
+  const recovery = ground.reduce((box, obstacle) => box.union(obstacle.box), layout.core.clone())
+  for (const obstacle of ground) obstacle.solidRecoveryBounds = recovery
+  return foundations
 }
 
 export interface CommandWatchtowerRail { surface: WalkRampSurface; obstacles: ObstacleData[] }

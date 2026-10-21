@@ -194,7 +194,10 @@ export class TownFourGateSiege {
     const ramp = this.crewRamps.get(npc.combatantId)
     if (ramp) {
       if (!this.playerCommands.has(npc.combatantId)) ramp.register(npc)
-      if (ramp.controller.state === 'ABANDONED') evacuateAbandonedRamp(npc, ramp)
+      if (ramp.controller.state === 'ABANDONED') {
+        evacuateAbandonedRamp(npc, ramp)
+        this.route(npc)
+      }
       if (ramp.controller.state === 'DOCKED' && !saved) this.route(npc, ramp.assignment.id)
     }
     this.pending.delete(npc.combatantId)
@@ -275,6 +278,9 @@ export class TownFourGateSiege {
         exit: ramp.placement.deckConnection.clone(), walkable: true, mounted: this.options.allowMountedRamps !== false, faction: null, connectionId: assignment.id,
         surface: s, bridgeSurface: ramp.bridgeSurface, side: assignment.side })
       if (!this.restoring) this.policy.ramp(assignment.gateId, assignment.side, true)
+    } else if (state === 'ABANDONED') {
+      passages.setOpen(assignment.id, false); this.entrances.remove(assignment.id)
+      this.options.navigation.sync(this.options.world.obstacles)
     } else if (state === 'DESTROYED') {
       passages.setOpen(assignment.id, false); this.entrances.remove(assignment.id)
       this.options.world.siegeAirspace?.remove(ramp.obstacles)
@@ -308,9 +314,10 @@ export class TownFourGateSiege {
       return
     }
     const preferredId = preferred ?? npc.campaignEntranceId
+    const routePosition = npc.siegeEvacuation ?? npc.combatPosition
     // Same-gate routes only. PR8 may explicitly opt into a verified cross-sector policy later.
-    const entry = this.entrances.select(npc.combatPosition, npc.isMounted, npc.characterFaction,
-      point => nav.townNav!.isElevated(npc.combatPosition) || nav.areConnected(npc.combatPosition, point), preferredId,
+    const entry = this.entrances.select(routePosition, npc.isMounted, npc.characterFaction,
+      point => nav.townNav!.isElevated(routePosition) || nav.areConnected(routePosition, point), preferredId,
       candidate => candidate.gateId === gateId && (role !== 'gate-cavalry' || candidate.type === 'gate'))
     const previous = npc.campaignEntranceId
     npc.campaignEntranceId = entry?.id ?? null

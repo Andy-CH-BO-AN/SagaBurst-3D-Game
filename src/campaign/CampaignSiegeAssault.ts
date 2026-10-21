@@ -121,6 +121,7 @@ export class CampaignSiegeAssault {
           }
         }
       }
+      if (saved?.ramps.some(ramp => ramp.state === 'ABANDONED')) this.navigation.sync(this.obstacles)
     } catch (error) { this.dispose(); throw error }
   }
 
@@ -141,7 +142,10 @@ export class CampaignSiegeAssault {
       if (spec.siegeRamp && ramp?.assignment.id !== spec.siegeRamp.id) throw new Error('Mismatched siege crew vehicle')
       if (!ramp || this.disposed) throw new Error('Missing siege vehicle during crew spawn')
       ramp.register(npc)
-      if (ramp.controller.state === 'ABANDONED') this.resumeAbandonedEvacuation(npc, ramp)
+      if (ramp.controller.state === 'ABANDONED') {
+        this.resumeAbandonedEvacuation(npc, ramp)
+        this.route(npc)
+      }
     } else if (npc.characterFaction === this.gate.attackerFaction) {
       this.route(npc)
       npc.siegeTransport = 'siege-deployment'
@@ -188,6 +192,10 @@ export class CampaignSiegeAssault {
         position: ramp.position.clone(), approach, exit: ramp.placement.deckConnection.clone(),
         faction: null, connectionId: ramp.assignment.id, surface, side: ramp.assignment.side })
       this.breach.trigger()
+    } else if (state === 'ABANDONED') {
+      this.entrances.remove(ramp.assignment.id)
+      this.walkways.setDockPassage(ramp.assignment.side, false)
+      this.navigation.sync(this.obstacles)
     } else if (state === 'DESTROYED') {
       this.entrances.remove(ramp.assignment.id)
       this.walkways.setDockPassage(ramp.assignment.side, false)
@@ -208,9 +216,10 @@ export class CampaignSiegeAssault {
     if (npc.dead || npc.siegeTransport || npc.characterFaction !== this.gate.attackerFaction
       || npc.combatOwnership === 'player-personal' || !this.acceptsOrders(npc)) return
     const previous = npc.campaignEntranceId
-    const currentLayer = this.navigation.outpostNav!.getNavLayer(npc.combatPosition)
-    const entry = this.entrances.select(npc.combatPosition, npc.isMounted, npc.characterFaction,
-      point => currentLayer !== 'ground' || this.navigation.areConnected(npc.combatPosition, point),
+    const routePosition = npc.siegeEvacuation ?? npc.combatPosition
+    const currentLayer = this.navigation.outpostNav!.getNavLayer(routePosition)
+    const entry = this.entrances.select(routePosition, npc.isMounted, npc.characterFaction,
+      point => currentLayer !== 'ground' || this.navigation.areConnected(routePosition, point),
       preferred ?? previous)
     npc.campaignEntranceId = entry?.id ?? null
     if (entry) {

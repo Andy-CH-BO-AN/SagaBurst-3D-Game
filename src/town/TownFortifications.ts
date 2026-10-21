@@ -135,6 +135,6 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
     snowCaps.instanceMatrix.needsUpdate = true; snowCaps.computeBoundingSphere(); wallRoot.add(snowCaps)
   }
   const rampartLayout = getTownRampartLayout()
-  root.add(createTownRamparts(rampartLayout, obstacles, faction === 'roman' ? materials.stone : materials.wood, materials.dark, dockPassages))
+  root.add(createTownRamparts(rampartLayout, obstacles, faction === 'roman' ? materials.stone : materials.wood, dockPassages))
   return { root, wallRoot, gates, walls, rampartLayout }
 }

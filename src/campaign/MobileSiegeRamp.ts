@@ -1,12 +1,13 @@
 import type { CampaignSiegeCheckpoint } from './CampaignSiegeCheckpoint'
 import * as THREE from 'three'
 import { DamageableObstacle, DAMAGEABLE_OBSTACLE_HP } from '../world/DamageableObstacle'
-import { getTerrainHeight, getWalkRampHeight, removeObstacleData, type EntityCollisionBody, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
+import { getTerrainHeight, getWalkRampHeight, removeObstacleData, TERRAIN_MIN_HEIGHT, type EntityCollisionBody, type ObstacleData, type WalkRampSurface } from '../world/Terrain'
 import { intersectsSweptPart } from '../movement/SweptBodyCollision'
 import { MovingPlatformSupport } from '../movement/MovingPlatformSupport'
+import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
 import type { NPC } from '../world/NPC'
 import { MobileSiegeRampController, type MobileSiegeRampState } from './MobileSiegeRampController'
-import { SIEGE_RAMP, siegeRampDeckHeightAt, siegeRampRearHeightAt, type MobileSiegeRampId, type SiegeRampId, type SiegeRampAssignment, type SiegeRampPlacement } from './MobileSiegeRampPolicy'
+import { SIEGE_RAMP, siegeRampDeckHeightAt, siegeRampRearHeightAt, siegeRampSideSkirtBox, siegeRampFrontSkirtBox, intersectsSiegeRampUnderfill, siegeRampUnderfillBounds, type MobileSiegeRampId, type SiegeRampId, type SiegeRampAssignment, type SiegeRampPlacement } from './MobileSiegeRampPolicy'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 
 export type MobileSiegeRampSnapshot<Id extends MobileSiegeRampId = SiegeRampId> = Omit<CampaignSiegeCheckpoint['ramps'][number], 'assignment'> & { assignment: SiegeRampAssignment<Id> }
@@ -39,6 +40,8 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
   private readonly iron = new THREE.MeshStandardMaterial({ color: 0x343238, roughness: .7 })
   private readonly run: Part
   private readonly deck: Part
+  private readonly frontSkirt: Part
+  private readonly hullBounds = new THREE.Box3()
   private readonly bridgeRails: Part[] = []
   private readonly bridge: Part
   private readonly railParts: Part[] = []
@@ -64,6 +67,11 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     this.root.rotation.y = Math.atan2(placement.dirX ?? 0, placement.dirZ)
     this.run = this.part(SIEGE_RAMP.halfWidth * 2, .25, this.surface.length)
     this.deck = this.part(SIEGE_RAMP.halfWidth * 2, .25, SIEGE_RAMP.platformLength)
+    // The hull is a solid undercroft, not an empty enclosure. The exact walk
+    // plane keeps passengers above it; ordinary collision also recovers old
+    // checkpoints or spawned actors already underneath that plane.
+    this.run.obstacle.solidBelow = TERRAIN_MIN_HEIGHT - .15
+    this.frontSkirt = this.part(SIEGE_RAMP.halfWidth * 2, 1, .25)
     this.bridge = this.part(SIEGE_RAMP.halfWidth * 2, .25, SIEGE_RAMP.bridgeLength)
     for (const side of [-1, 1]) {
       const rail = this.part(.2, .9, SIEGE_RAMP.bridgeLength - 1.6)
@@ -151,7 +159,23 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     npc.siegeTransport = this.assignment.id
     npc.assignSiegeObstacle(null)
     npc.group.rotation.y = Math.atan2(this.placement.dirX ?? 0, this.placement.dirZ)
-    if (this.assignment.assaultIds.includes(npc.combatantId)) this.platform.attach(npc)
+    const assaultSlot = this.assignment.assaultIds.indexOf(npc.combatantId)
+    if (assaultSlot >= 0) {
+      // Assigned passengers do not run foot physics while transported. Repair
+      // only a saved interior overlap before binding it, otherwise a legacy
+      // hollow-hull checkpoint would keep carrying the trapped actor forever.
+      const s = this.surface, supportY = getWalkRampHeight(s, npc.position.x, npc.position.z)
+      if (npc.position.y >= TERRAIN_MIN_HEIGHT - .15 && (supportY === null || npc.position.y < supportY - .8)
+        && intersectsSiegeRampUnderfill({ position: npc.position, radius: .5, height: 2.3, bottomOffset: 0 }, s, 0)) {
+        // Use the original flat deck slot: a repaired point on the articulated
+        // slope could sink again when its terrain angle changes under rigid carry.
+        const lateral = assaultSlot % 2 === 0 ? -1 : 1
+        const along = s.length + s.landing - 1 - Math.floor(assaultSlot / 2) * 1.5
+        npc.position.set(s.startX + s.dirX * along + s.dirZ * lateral, s.topY,
+          s.startZ + s.dirZ * along - s.dirX * lateral)
+      }
+      this.platform.attach(npc)
+    }
   }
 
   releaseCrew(npc: NPC): void {
@@ -174,6 +198,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     this.surface.startZ = this.placement.surface.startZ + this.position.z - this.placement.dock.z
     this.platform.moveTo(this.position)
     this.updateGeometry()
+    if (saved.state === 'ABANDONED') this.blockGroundFootprint()
     if (saved.hp === 0) {
       this.damageable.destroy()
       for (const obstacle of this.obstacles) removeObstacleData(this.shared, obstacle)
@@ -181,8 +206,10 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
   }
 
   update(dt: number, actors: readonly NPC[], blockers: readonly EntityCollisionBody[] = []): void {
-    if (this.disposed) return
-    const movement = this.controller.advance(Math.min(dt, .1), () => this.canMove(dt, actors, blockers))
+    if (this.disposed || !Number.isFinite(dt) || dt <= 0) return
+    const simulationDt = Math.min(dt, .1)
+    const startX = this.position.x, startZ = this.position.z
+    const movement = this.controller.advance(simulationDt, () => this.canMove(simulationDt, actors, blockers))
     for (const id of this.assignment.pusherIds) {
       const pusher = this.crew.get(id)
       if (pusher) pusher.siegeTransportSpeed = this.controller.currentSpeed
@@ -207,6 +234,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
       }
       this.updateGeometry()
     } else if (this.controller.state === 'DOCKING') this.updateGeometry()
+    this.controller.observeMovement(simulationDt, startX, startZ, this.position.x, this.position.z)
   }
 
   private canMove(dt: number, actors: readonly NPC[], blockers: readonly EntityCollisionBody[]): boolean {
@@ -217,7 +245,8 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     swept.expandByVector(this.scratch.set(.12 + maxTravel * Math.abs(this.placement.dirX ?? 0), 0, (this.placement.dirX === undefined ? 0 : .12) + maxTravel * Math.abs(this.placement.dirZ)))
     const staticBlocked = this.shared.some(obstacle => !this.obstacles.includes(obstacle)
       && !obstacle.walkSurface && obstacle.box.intersectsBox(swept))
-    const intersectsBody = (body: EntityCollisionBody): boolean => this.parts.some(part =>
+    const intersectsBody = (body: EntityCollisionBody): boolean => intersectsSiegeRampUnderfill(body, this.surface, maxTravel)
+      || this.parts.some(part =>
       intersectsSweptPart(body, part.localBox, part.obstacle.projectileWorldToLocal!, maxTravel * this.placement.dirZ, maxTravel * (this.placement.dirX ?? 0)))
       || this.wheelBodies.some(wheel => intersectsSweptPart(body, wheel.box, wheel.worldToLocal,
         maxTravel * this.placement.dirZ, maxTravel * (this.placement.dirX ?? 0)))
@@ -271,12 +300,20 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     }
     for (const part of this.railParts) {
       const { side, along } = part.mesh.userData
-      const localZ = -length - platformLength + along + 1
-      const point = this.localPoint(0, localZ)
-      const y = getWalkRampHeight(this.surface, point.x, point.z) ?? this.position.y
-      part.mesh.position.set(side * (SIEGE_RAMP.halfWidth + .1), y - this.position.y + .45, localZ)
-      part.mesh.rotation.x = along < length - 1 ? -Math.atan2(rise, length) : 0
+      const localZ = -length - platformLength + along + part.size.z / 2
+      if (along < length) {
+        // Reuse the short side rails as closed skirts. No box crosses the lane,
+        // and their terrain bottoms move with the same collision group as the ramp.
+        siegeRampSideSkirtBox(this.hullBounds, this.surface, along, part.size.z, side)
+        this.fitHullPanel(part)
+      } else {
+        const point = this.localPoint(0, localZ)
+        const y = getWalkRampHeight(this.surface, point.x, point.z) ?? this.position.y
+        part.mesh.position.set(side * (SIEGE_RAMP.halfWidth + .1), y - this.position.y + .45, localZ)
+      }
     }
+    siegeRampFrontSkirtBox(this.hullBounds, this.surface)
+    this.fitHullPanel(this.frontSkirt)
     for (const wheel of this.wheels) {
       const point = this.localPoint(wheel.position.x, wheel.position.z)
       wheel.position.y = getTerrainHeight(point.x, point.z) - this.position.y + .65
@@ -314,7 +351,17 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
       part.obstacle.projectileWorldToLocal!.copy(part.mesh.matrixWorld).invert()
       this.collisionGroup.bounds.union(part.obstacle.box)
     }
+    // One continuous recovery footprint covers slope and landing. Separate
+    // solids would push embedded actors back and forth across their join.
+    siegeRampUnderfillBounds(this.run.obstacle.box, this.deck.obstacle.box, this.surface)
+    this.collisionGroup.bounds.union(this.run.obstacle.box)
     this.updateTimberInstances()
+  }
+
+  private fitHullPanel(part: Part): void {
+    this.hullBounds.getCenter(part.mesh.position)
+    this.hullBounds.getSize(part.mesh.scale).divide(part.size)
+    part.mesh.rotation.x = 0
   }
 
   private updateTimberInstances(): void {
@@ -342,14 +389,23 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     return this.scratch.set(this.position.x + dz * x + dx * z, this.position.y, this.position.z - dx * x + dz * z)
   }
 
+  private blockGroundFootprint(): void {
+    let changed = false
+    for (const obstacle of this.obstacles) if (obstacle.navigationPassable !== false) {
+      obstacle.navigationPassable = false; changed = true
+    }
+    if (changed) markObstacleTopologyChanged(this.shared)
+  }
+
   private transition(state: MobileSiegeRampState): void {
     if (state === 'DOCKED') this.updateGeometry()
+    if (state === 'ABANDONED') this.blockGroundFootprint()
     if (state === 'DESTROYED') {
       this.root.visible = false
       for (const obstacle of this.obstacles) removeObstacleData(this.shared, obstacle)
     }
     if (state === 'DOCKED' || state === 'ABANDONED' || state === 'DESTROYED') {
-      for (const npc of this.crew.values()) npc.siegeTransport = null
+      for (const npc of this.crew.values()) { npc.siegeTransport = null; npc.siegeTransportSpeed = 0 }
       this.platform.release(npc => {
         if (state === 'DESTROYED') npc.pendingFall.begin(npc.position, new THREE.Vector3())
       })

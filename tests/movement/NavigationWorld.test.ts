@@ -1,5 +1,5 @@
 import { TownWatchtowerNavigation } from '../../src/navigation/TownWatchtowerNavigation'
-import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails } from '../../src/town/TownCommandWatchtowerLayout'
+import { getTownCommandWatchtowerLayout, getTownCommandWatchtowerRails, getTownCommandWatchtowerUnderfill } from '../../src/town/TownCommandWatchtowerLayout'
 import { surfaceBox } from '../../src/town/TownRamparts'
 import { resolveObstacleCollision } from '../../src/world/Terrain'
 import * as THREE from 'three'
@@ -329,9 +329,8 @@ describe('Town watchtower layered travel', () => {
     const nav = new TownLayeredNavigation(getTownRampartLayout())
     nav.setWatchtower(layout)
     const tower = nav.watchtower!
-    const surfaces = [layout.entrance, ...layout.ramps, ...layout.landings, ...layout.platform]
-    const obstacles: ObstacleData[] = [{ box: layout.core, isBarricade: false },
-      ...surfaces.map(surface => ({ box: surfaceBox(surface), walkSurface: surface, isBarricade: false })),
+    const obstacles: ObstacleData[] = [{ box: layout.core, isBarricade: false }, ...getTownCommandWatchtowerUnderfill(layout),
+      ...layout.platform.map(surface => ({ box: surfaceBox(surface), walkSurface: surface, isBarricade: false })),
       ...getTownCommandWatchtowerRails(layout).flatMap(rail => rail.obstacles)]
     const top = new THREE.Vector3(-29, layout.platformY, -41)
     const current = (direction === 'up' ? tower.approach : top).clone()
@@ -360,6 +359,12 @@ describe('Town watchtower layered travel', () => {
     const lower = layout.ramps[0], upper = layout.ramps[4]
     const a = new THREE.Vector3(lower.startX, lower.startY, lower.startZ).add(new THREE.Vector3(lower.dirX * 5, (lower.topY - lower.startY) * 5 / lower.length, lower.dirZ * 5))
     const b = new THREE.Vector3(a.x, a.y + upper.startY - lower.startY, a.z)
+    // Solid upper floors must preserve the physical lower passage even for
+    // collision callers that do not opt in to using walk surfaces as support.
+    const upperFoundation = getTownCommandWatchtowerUnderfill(layout).find(obstacle => obstacle.walkSurface === upper)!
+    const body = a.clone(), previousBody = a.clone().add(new THREE.Vector3(.2, 0, 0))
+    resolveObstacleCollision(body, previousBody, 0, true, 1, 2.6, 0, [upperFoundation])
+    expect(body).toEqual(a)
     expect(tower.surfaceAt(a)).not.toBe(tower.surfaceAt(b))
     expect(tower.sameLevel(a, b)).toBe(false)
     const out = new THREE.Vector3()

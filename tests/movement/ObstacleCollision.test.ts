@@ -35,7 +35,7 @@ import {
   setSceneRiverCrossing,
   type ObstacleData,
 } from '../../src/world/Terrain'
-import { getTownRampartLayout, townRampSupportBox, townRampartHeight } from '../../src/town/TownRamparts'
+import { getTownRampartLayout, townRampFoundation, townRampartHeight } from '../../src/town/TownRamparts'
 import { getWalkRampHeight } from '../../src/world/Terrain'
 import { initializeTownWorldTerrain } from '../../src/town/TownWorld'
 
@@ -161,14 +161,11 @@ describe('obstacle walk-surface collision', () => {
     expect(position.toArray()).toEqual([3, 0, 0])
   })
 
-  it('keeps an uphill mount clear of ramp pillars while the safety rail still blocks the edge', () => {
+  it('keeps an uphill mount clear of the solid ramp foundation while the safety rail blocks the edge', () => {
     const surface = { startX: 0, startZ: 0, startY: 10, topY: 18,
       dirX: 0, dirZ: 1, length: 20, landing: 8, halfWidth: 3, mounted: true }
-    const pillar = townRampSupportBox(surface, 6, -1)!
     const obstacles: ObstacleData[] = [
-      { ...deck(10), walkSurface: surface,
-        box: new THREE.Box3(new THREE.Vector3(-3, 9.65, 0), new THREE.Vector3(3, 18, 28)) },
-      { isBarricade: false, box: pillar },
+      townRampFoundation(surface),
       { isBarricade: false, box: new THREE.Box3(new THREE.Vector3(2.99, 10, 0), new THREE.Vector3(3.31, 19, 28)) },
     ]
     const previous = new THREE.Vector3(1.8, 11.92, 4.8)
@@ -178,6 +175,39 @@ describe('obstacle walk-surface collision', () => {
     position.x = 2.2
     resolveObstacleCollision(position, previous, 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
     expect(position.x).toBeCloseTo(1.99)
+  })
+
+  it('seals each whole rampart foundation while retaining mounted travel and recovering embedded bodies', () => {
+    for (const ramp of getTownRampartLayout().ramps) {
+      const s = ramp.surface
+      const obstacles = [townRampFoundation(s)]
+      const point = (along: number, lateral: number, upper: boolean) => {
+        const x = s.startX + s.dirX * along - s.dirZ * lateral
+        const z = s.startZ + s.dirZ * along + s.dirX * lateral
+        return new THREE.Vector3(x, upper ? getWalkRampHeight(s, x, z)! : getTerrainHeight(x, z), z)
+      }
+      // A radius touches the grounded front lip before its centre reaches the
+      // walk plane; preserve the original small step at that first contact.
+      const entrance = point(.1, 0, false), entranceExpected = point(.1, 0, true)
+      resolveObstacleCollision(entrance, point(-1.2, 0, false), 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+      expect(entrance.toArray()).toEqual(entranceExpected.toArray())
+      const under = point(6, 0, false), outside = point(6, 5, false)
+      resolveObstacleCollision(under, outside, 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+      expect(Math.abs((under.x - s.startX) * -s.dirZ + (under.z - s.startZ) * s.dirX)).toBeCloseTo(s.halfWidth + 1.32)
+      // The same support boxes cannot snag the uphill part of a mount's radius.
+      const upper = point(6.4, 0, true), expected = upper.clone()
+      resolveObstacleCollision(upper, point(6, 0, true), 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+      expect(upper.toArray()).toEqual(expected.toArray())
+      const embedded = point(s.length - 2, 0, false), groundY = embedded.y
+      resolveObstacleCollision(embedded, embedded.clone(), 0, true, 1, 2.6, 0, obstacles, { mountedSurfaces: true })
+      expect(Math.abs((embedded.x - s.startX) * -s.dirZ + (embedded.z - s.startZ) * s.dirX)).toBeCloseTo(s.halfWidth + 1.32)
+      expect(embedded.y).toBe(groundY)
+      const anchored = { position: point(6, 5, false), radius: 1, height: 2.6, bottomOffset: 0, anchored: true }
+      const other = { position: point(6, 4.32, false), radius: 1, height: 2.6, bottomOffset: 0 }
+      const before = other.position.clone()
+      resolveEntityCollision(anchored, other, obstacles)
+      expect(other.position).toEqual(before)
+    }
   })
 
   it('joins the town ramp knee, turn and deck at one height without placing the flight under the widened deck', () => {
