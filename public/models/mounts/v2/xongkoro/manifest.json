@@ -21,7 +21,7 @@
     "fullCycleWingspanMeters": 18.591856956481934,
     "fullCycleHeightMeters": 11.607138339430094,
     "standingSocketReferenceMeters": [
-      -1.4901161193847656e-08,
+      -1.4901161193847656e-8,
       2.79131817817688,
       1.6984763145446777
     ]
@@ -53,5 +53,7 @@
     "head": "socket_attack_head",
     "clawLeft": "socket_attack_claw_left",
     "clawRight": "socket_attack_claw_right"
-  }
+  },
+  "renderBounds": "render-bounds.json",
+  "renderBoundsSha256": "787ed019e45af81e7564b4675d66b343f271c418bf9cde5ee5047ce67ec3c4ba"
 }

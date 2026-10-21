@@ -53,6 +53,7 @@ export class CaptainPatrolCommandController {
   private readonly officialActors: NPC[] = []
   private returned = false
   private readonly refittingActors = new Set<string>()
+  private readonly dismissedActors = new Set<string>()
 
   constructor(residents: readonly PatrolResident[], private readonly patrol: TownCavalryPatrolController,
     private readonly player: () => Player, private readonly read: () => CareerProfile,
@@ -65,15 +66,31 @@ export class CaptainPatrolCommandController {
     return active?.kind === 'captain-patrol-command' ? active : undefined
   }
   get actors(): readonly NPC[] { return this.officialActors }
-  get fieldNpcs(): readonly NPC[] { return this.active?.phase === 'RETURNING' ? [] : this.officialActors.filter(npc => !this.refittingActors.has(npc.combatantId)) }
+  get fieldNpcs(): readonly NPC[] { return this.active?.phase === 'RETURNING' ? [] : this.officialActors.filter(npc => !this.refittingActors.has(npc.combatantId) && !this.dismissedActors.has(npc.combatantId)) }
   get friendlyActors(): readonly NPC[] { return this.officialActors }
-  get returningActorIds(): readonly string[] { return [...this.refittingActors] }
+  get returningActorIds(): readonly string[] { return [...new Set([...this.refittingActors, ...[...this.dismissedActors].filter(id => this.patrol.returnStateFor(id) !== undefined)])] }
   get ready(): boolean { return Boolean(this.active && this.missionId === this.active.id && this.officialActors.length === 20) }
   get commandsEnabled(): boolean { return this.ready && !this.active?.result && !this.player().dead }
   get killCount(): number { return this.killed.size }
-  get aliveCombatants(): number { return this.officialActors.filter(actor => !actor.dead).length }
-  owns(npc: NPC): boolean { return this.active?.phase !== 'RETURNING' && !this.refittingActors.has(npc.combatantId) && this.officialActors.includes(npc) }
-  accepts(npc: NPC): boolean { return this.commandsEnabled && this.owns(npc) }
+  get aliveCombatants(): number { return this.officialActors.filter(actor => !actor.dead && !this.dismissedActors.has(actor.combatantId)).length }
+  owns(npc: NPC): boolean { return this.active?.phase !== 'RETURNING' && !this.refittingActors.has(npc.combatantId) && !this.dismissedActors.has(npc.combatantId) && this.officialActors.includes(npc) }
+  accepts(npc: NPC): boolean { return this.commandsEnabled && !npc.dead && this.owns(npc)
+    && this.active?.officialSquad?.members?.[npc.combatantId]?.status !== 'exited' }
+  releasePlayerCommand(npc: NPC): void {
+    if (!this.accepts(npc) || npc.dead) return
+    npc.missionMovement = false
+    npc.setMissionCombatTarget(undefined)
+  }
+  /** Dismissed Patrol members leave this mission and cannot be borrowed again on reload. */
+  returnPlayerCommand(npc: NPC): void {
+    if (!this.officialActors.includes(npc) || this.dismissedActors.has(npc.combatantId)) return
+    this.dismissedActors.add(npc.combatantId)
+    this.refittingActors.delete(npc.combatantId)
+    npc.combatOwnership = undefined
+    npc.setCommandSquad(this.previousSquads.get(npc.combatantId))
+    npc.setTownPeaceful()
+    this.patrol.beginMissionReturn(npc.combatantId)
+  }
   selectAvailableSquad() { return this.patrol.selectAvailableSquad() }
   get unavailableReason(): string { return this.patrol.unavailableReason }
   get guideTarget(): THREE.Vector3 | null {
@@ -123,10 +140,12 @@ export class CaptainPatrolCommandController {
       const resident = this.residentsById.get(id)
       return resident && this.fighting(resident.npc)
     }))
-    if (!this.patrol.resumeSquad(authority.actorIds, !restore)) return false
+    const dismissed = new Set(authority.actorIds.filter(id => authority.members?.[id]?.status === 'exited'))
+    // Patrol I is one physical squad; a saved dismissal restores the return owner directly.
+    if (dismissed.size === 0 && !this.patrol.resumeSquad(authority.actorIds, !restore)) return false
     this.tracker?.dispose(); this.officialActors.length = 0; this.previousSquads.clear(); this.killed.clear()
     this.returned = false
-    this.refittingActors.clear()
+    this.refittingActors.clear(); this.dismissedActors.clear()
     for (const id of active.patrolKilledActorIds ?? []) this.killed.add(id)
     for (const id of authority.actorIds) {
       const resident = this.residentsById.get(id)
@@ -134,6 +153,15 @@ export class CaptainPatrolCommandController {
       const npc = resident.npc
       this.previousSquads.set(id, npc.squadId)
       if (restore && authority.members?.[id]) restoreCommandActor(npc, authority.members[id], resident.homeMount)
+      if (dismissed.has(id)) {
+        this.dismissedActors.add(id)
+        npc.combatOwnership = undefined; npc.setCommandSquad(this.previousSquads.get(id)); npc.setTownPeaceful()
+        const state = active.patrolReturnStates?.[id]
+        if (state) this.patrol.restoreMissionReturn(id, state)
+        else this.patrol.beginMissionReturn(id)
+        this.officialActors.push(npc)
+        continue
+      }
       if (active.phase !== 'RETURNING' && this.patrol.isRefitting(id)) {
         this.refittingActors.add(id); this.officialActors.push(npc); continue
       }
@@ -192,6 +220,9 @@ export class CaptainPatrolCommandController {
     // RETURNING keeps checkpoint updates, but Patrol owns every subsequent return/refit handover.
     if (active.phase === 'ENGAGING' && !active.result) {
       for (const id of this.refittingActors) {
+        if (active.officialSquad?.members?.[id]?.status === 'exited') {
+          this.dismissedActors.add(id); this.refittingActors.delete(id); continue
+        }
         if (this.patrol.isRefitting(id)) continue
         const npc = this.residentsById.get(id)!.npc
         if (!this.patrol.relinquish(id)) continue
@@ -213,8 +244,8 @@ export class CaptainPatrolCommandController {
       const target = reference.activeFollowTarget ?? this.player()
       const occupied = new Set(peers.filter(actor => actor.tacticalOrder === 'follow' && actor.activeFollowTarget === target)
         .map(actor => actor.activeFollowSlotIndex))
-      let slot = 0
-      while (occupied.has(slot)) slot++
+      let slot = this.active?.officialSquad?.actorIds.indexOf(npc.combatantId) ?? -1
+      if (slot < 0) { slot = 0; while (occupied.has(slot)) slot++ }
       npc.assignFollowTarget(target, slot, officialFollowLocalOffset(slot, npc.isMounted, Boolean(this.read().personalSquad?.members.length)))
     } else if (reference.combatFormationCheckpoint) {
       if (!this.options.resumeFormation?.(npc, reference)) npc.setTacticalOrder('defend')
@@ -237,13 +268,17 @@ export class CaptainPatrolCommandController {
       deadFriendlyActorIds: this.officialActors.filter(npc => npc.dead).map(npc => npc.combatantId) }
     next.officialSquad.members = Object.fromEntries(next.officialSquad.actorIds.map(id => {
       const resident = this.residentsById.get(id)!
-      return [id, snapshotCommandActor(resident.npc, resident.homeMount)]
+      const saved = snapshotCommandActor(resident.npc, resident.homeMount)
+      if (this.dismissedActors.has(id)) saved.status = 'exited'
+      return [id, saved]
     }))
     if (active.phase === 'RETURNING') next.patrolReturnStates = Object.fromEntries(next.officialSquad.actorIds.map(id =>
       [id, this.patrol.returnStateFor(id) ?? 'REJOIN_PATROL']))
-    else next.patrolReturnStates = Object.fromEntries([...this.refittingActors].map(id => [id, this.patrol.returnStateFor(id)!]))
+    else next.patrolReturnStates = Object.fromEntries([...new Set([...this.refittingActors, ...this.dismissedActors])].map(id => [id, this.patrol.returnStateFor(id) ?? 'REJOIN_PATROL']))
     const official = this.tracker?.officialCommandCheckpoint(), personal = this.tracker?.commandCheckpoint()
     if (official) next.officialSquad.contribution = official
+    const contributions = new Map(this.tracker?.officialSquadCheckpoints().map(squad => [squad.squadId, squad.contribution]))
+    if (next.officialSquad.squads) next.officialSquad.squads = next.officialSquad.squads.map(squad => ({ ...squad, contribution: contributions.get(squad.squadId) ?? squad.contribution }))
     if (personal && next.personalSquad) next.personalSquad = { ...next.personalSquad, contribution: personal }
     return next
   }
@@ -270,6 +305,7 @@ export class CaptainPatrolCommandController {
 
   private returnOfficialSquad(restore: boolean): void {
     for (const npc of this.officialActors) {
+      if (this.dismissedActors.has(npc.combatantId)) continue
       if (this.refittingActors.has(npc.combatantId)) {
         if (restore && this.active?.patrolReturnStates?.[npc.combatantId]) this.patrol.restoreMissionReturn(npc.combatantId, this.active.patrolReturnStates[npc.combatantId])
         continue
@@ -286,7 +322,7 @@ export class CaptainPatrolCommandController {
   release(): void {
     this.tracker?.dispose(); this.tracker = undefined
     if (!this.returned) {
-      const actors = this.officialActors.filter(npc => !this.refittingActors.has(npc.combatantId))
+      const actors = this.officialActors.filter(npc => !this.refittingActors.has(npc.combatantId) && !this.dismissedActors.has(npc.combatantId))
       const ids = actors.map(npc => npc.combatantId)
       for (const npc of actors) {
         npc.combatOwnership = undefined; npc.setCommandAllegiance(Faction.TOWN)
@@ -294,7 +330,7 @@ export class CaptainPatrolCommandController {
       }
       this.patrol.returnSquad(ids)
     }
-    this.officialActors.length = 0; this.previousSquads.clear(); this.refittingActors.clear(); this.missionId = undefined
+    this.officialActors.length = 0; this.previousSquads.clear(); this.refittingActors.clear(); this.dismissedActors.clear(); this.missionId = undefined
   }
   dispose(): void { this.tracker?.dispose(); this.tracker = undefined }
 }

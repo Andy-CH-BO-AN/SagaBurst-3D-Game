@@ -6,13 +6,6 @@ import { HERO_ASSETS } from './HeroAssetCatalog'
 
 /** Asset identity only; never a UnitTier or a production faction/loadout. */
 export const MAKI_HERO = HERO_ASSETS['maki-archer-t4'].descriptor
-export type MakiEquipmentMode = 'ranged' | 'ammo-exhausted'
-/** Phase 2 integration point. Proximity/charge cannot trigger melee fallback. */
-export function resolveMakiEquipmentMode(arrows: number): MakiEquipmentMode {
-  if (!Number.isFinite(arrows) || arrows < 0) throw new Error('Maki arrow count must be finite and non-negative')
-  return arrows > 0 ? 'ranged' : 'ammo-exhausted'
-}
-export const MAKI_FALLBACK = { weaponId: 'maki-ranger-bow', animation: 'axeAttack2H', shield: false } as const
 
 export interface MakiBowAsset {
   model: THREE.Object3D
@@ -55,15 +48,10 @@ export async function loadMakiRangerBow(): Promise<MakiBowAsset> {
       id: metadata.id, gripRadius: metadata.gripRadius, gripLength: metadata.gripLength, visualScale: 1,
       gripCenterLocal: new THREE.Vector3(...metadata.gripCenterLocal as [number, number, number]),
       shootingAxis: new THREE.Vector3(...metadata.shootingAxis as [number, number, number]),
-      // Extracted body/string use the same -Z shot and +Y limb basis as ordinary bows.
+      // Shadow Warden supplies its measured canonical palm frame. The unchanged
+      // bow uses the ordinary -Z shot / +Y limb basis, with no old Maki pose override.
       longitudinalAxis: DEFAULT_BOW_GRIP_PROFILE.longitudinalAxis.clone(),
       contactNormal: DEFAULT_BOW_GRIP_PROFILE.contactNormal.clone(),
-      handCalibrations: {
-        'maki-archer-t4': {
-          longitudinalAxis: new THREE.Vector3(...metadata.longitudinalAxis as [number, number, number]),
-          contactNormal: new THREE.Vector3(...metadata.contactNormal as [number, number, number]),
-        },
-      },
     }
     return { model: gltf.scene, profile, topTip: new THREE.Vector3(...metadata.topTip as [number, number, number]), bottomTip: new THREE.Vector3(...metadata.bottomTip as [number, number, number]) }
   })()

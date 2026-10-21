@@ -1,11 +1,16 @@
+import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
+import { createTownCommandWatchtower } from './TownCommandWatchtower'
+import { createTownCommandWatchtowerAirspaceObstacle, getTownCommandWatchtowerLayout, validateWatchtowerPlacement, type CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
 import { resolveTownEagleGarrison, TOWN_EAGLE_GARRISON_NAME, type TownEagleGarrisonLayout } from './TownEagleGarrison'
 import { resolveTownEagleTrainingGround, type TownEagleTrainingGround } from './TownEagleTrainingGround'
 import { XONGKORO_LANDING } from '../world/EagleLanding'
 import { eagleLandingFootprint, isEagleLandingClear } from '../world/EagleLanding'
 import { isEagleApproachClear } from '../world/EagleApproach'
 import { resolveTownHRLayout, type TownHRLayout } from './TownHRLayout'
+import { TownDockPassages } from './TownDockPassages'
+import { TownSiegeAirspace } from './TownSiegeAirspace'
 import { createTownFortifications } from './TownFortifications'
-import { TOWN_CITY_ROADS, TOWN_CAVALRY_FIELD, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
+import { TOWN_CENTER, TOWN_WELL, townHousing, TOWN_CITY_ROADS, TOWN_LOCAL_ROADS, TOWN_CITY, townRoadIntersectsBox, townSceneryExcluded, type TownRoad } from './TownLayout'
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { createCampfireVisual, createPineVisual } from '../world/EnvironmentVisuals'
@@ -13,22 +18,34 @@ import { Faction } from '../combat/CombatFaction'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { TOWN_SITES, townSitePoint } from './TownRules'
 import { DamageableObstacle } from '../world/DamageableObstacle'
-import { getTerrainHeight, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
+import { getTerrainHeight, removeObstacleData, resetTerrainScenePolicy, setObstaclePathQuerySource, setScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_GROUND_SIZE, TOWN_BANDIT_CAMP_CENTERS, townSceneryPoint, nearTownBanditCamp } from './TownBounds'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { proceduralMaterial } from '../world/ProceduralMaterials'
+
+/** Resets battlefield-specific terrain policies before sampling Town watchtower or ground heights. */
+export function initializeTownWorldTerrain(scene?: { userData: Record<string, unknown> }): CommandWatchtowerLayout {
+  resetTerrainScenePolicy()
+  if (scene) setScenePlayableWorldBound(scene as THREE.Scene, TOWN_PLAYABLE_WORLD_BOUND)
+  return getTownCommandWatchtowerLayout()
+}
+
 export class TownWorld {
   readonly root = new THREE.Group()
   readonly roads: TownRoad[] = []
   readonly hr: TownHRLayout
   readonly eagleGarrison: TownEagleGarrisonLayout
   readonly eagleTraining: TownEagleTrainingGround
+  readonly commandWatchtower: CommandWatchtowerLayout
+  readonly townCenterHeight: number
   readonly terrainMesh: THREE.Mesh
   readonly obstacles: ObstacleData[] = []
   /** Rendered roofs/crowns/boards supplement body colliders for flight clearance. */
   readonly airspaceObstacles: ObstacleData[] = []
   readonly camps: { faction: Faction; capacity: number; spawnPoints: THREE.Vector3[] }[] = []
   readonly targets: THREE.Vector3[] = []
+  readonly siegeDockPassages?: TownDockPassages
+  readonly siegeAirspace?: TownSiegeAirspace
   readonly fortifications: ReturnType<typeof createTownFortifications>
   get gates() { return this.fortifications.gates }
   readonly buildings: { id: string; ownerFaction: Faction; campId?: number; obstacles: ObstacleData[]; hp: DamageableObstacle; roof: THREE.Group; ruin: THREE.Group; damaged: boolean }[] = []
@@ -43,8 +60,8 @@ export class TownWorld {
   private readonly roofMat = this.mat(this.faction === 'roman' ? 0x9f4f35 : 0x55574a)
   private readonly snow = this.mat(0xd8e3ea)
   private readonly canvas = this.mat(0xa89471)
-  constructor(readonly faction: CharacterFaction, scene: THREE.Scene, private readonly ownerAllegiance: Faction = Faction.TOWN) {
-    setScenePlayableWorldBound(scene, TOWN_PLAYABLE_WORLD_BOUND)
+  constructor(readonly faction: CharacterFaction, scene: THREE.Scene, private readonly ownerAllegiance: Faction = Faction.TOWN, options: { fourGateSiege?: boolean } = {}) {
+    this.commandWatchtower = initializeTownWorldTerrain(scene)
     scene.add(this.root)
     this.roofMat.color.setHex(0xffffff); this.roofMat.map = this.surfaceTexture(faction === 'roman' ? 'tile' : 'thatch'); this.roofMat.bumpMap = this.roofMat.map; this.roofMat.bumpScale = .07
     this.stone.map = this.surfaceTexture('stone'); this.stone.color.setHex(0xffffff)
@@ -64,31 +81,29 @@ export class TownWorld {
     }
     g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3)); g.computeVertexNormals()
     const ground = this.mat(0xffffff); ground.vertexColors = true; const land = new THREE.Mesh(g, ground); land.receiveShadow = true; this.root.add(land); this.terrainMesh = land
-    this.road(25, -50, 25, 30, 7)
     this.building('weapons', '武器店 · ARMOURY', TOWN_SITES.weapons.x, TOWN_SITES.weapons.z, 11, 10, 3.6, 'shop', TOWN_SITES.weapons.yaw)
     this.building('stable', '馬廄 · STABLE', TOWN_SITES.stable.x, TOWN_SITES.stable.z, 14, 11, 3.7, 'stable', TOWN_SITES.stable.yaw)
-    for (const [i, [x, z]] of [[96, 70], [116, 70], [136, 70], [106, 88], [128, 88]].entries())
-      this.building('home-' + i, '住宅', x, z, 9, faction === 'roman' ? 8 : 12, 3.4, 'home')
-    this.trainingEntrance()
+    for (const home of townHousing(faction)) this.building(home.id, '住宅', home.x, home.z, home.width, home.depth, 3.4, 'home', home.yaw)
+    this.building('town-center', 'TOWN CENTER', TOWN_CENTER.x, TOWN_CENTER.z, TOWN_CENTER.width, TOWN_CENTER.depth, 7, 'hall')
+    const hall = this.buildings.find(building => building.id === 'town-center')!.hp.root
+    this.townCenterHeight = new THREE.Box3().setFromObject(hall).max.y - getTerrainHeight(TOWN_CENTER.x, TOWN_CENTER.z)
     for (const road of TOWN_CITY_ROADS) this.road(road.ax, road.az, road.bx, road.bz, road.width)
-    this.cavalryTrainingGround()
-    this.fortifications = createTownFortifications(faction, this.obstacles, { stone: this.stone, wood: this.wood, dark: this.dark, snow: this.snow })
+    for (const road of TOWN_LOCAL_ROADS) this.road(road.ax, road.az, road.bx, road.bz, road.width)
+    // A small well sits at the plaza edge, leaving its centre free for a full squad.
+    const wellX = TOWN_WELL.x, wellZ = TOWN_WELL.z, wellY = getTerrainHeight(wellX, wellZ)
+    this.solid(wellX, wellZ, 2.6, 1, 2.6)
+    for (const side of [-1, 1]) {
+      this.cube(this.root, wellX + side * 1.2, wellY + .5, wellZ, .3, 1, 2.7, this.stone)
+      this.cube(this.root, wellX, wellY + .5, wellZ + side * 1.2, 2.7, 1, .3, this.stone)
+    }
+    if (options.fourGateSiege) {
+      this.siegeAirspace = new TownSiegeAirspace(this.airspaceObstacles)
+      this.siegeDockPassages = new TownDockPassages(this.obstacles, this.siegeAirspace)
+    }
+    this.fortifications = createTownFortifications(faction, this.obstacles, { stone: this.stone, wood: this.wood, dark: this.dark, snow: this.snow }, this.siegeDockPassages)
     this.root.add(this.fortifications.root); this.trackOwned(this.fortifications.root)
     this.batch(this.fortifications.wallRoot)
     for (const child of this.fortifications.wallRoot.children) if (child instanceof THREE.Group) this.batch(child)
-    this.road(10, 20, 33, 16, 5)
-    for (const [x, z] of [[43, -41, '近戰步兵'], [70, -41, '遠程步兵'], [43, 2, '遠程步兵'], [70, 2, '近戰步兵']] as const) {
-      for (let row = 0; row < (z < -10 ? 2 : 4); row++) this.road(x - 11, z + 3 + row * 7, x + 11, z + 3 + row * 7, 5)
-      for (let i = 0; i < 2; i++) this.building('tent-' + x + '-' + z + '-' + i, '', x - 6 + i * 11, z - 9, 7, 6, 2.6, 'tent')
-    }
-    // Separate six-metre rails with four-metre passages, leaving the cavalry entrance clear.
-    for (let i = 0; i < 8; i++) {
-      const x = 86, z = -48 + i * 10, y = getTerrainHeight(x, z)
-      this.solid(x, z, .5, 1.4, 6)
-      this.cube(this.root, x, y + .7, z, .2, 1.4, .2, this.wood); this.cube(this.root, x, y + 1, z, .18, .18, 6, this.wood)
-      if (faction === 'viking') this.cube(this.root, x, y + 1.15, z, .24, .12, 6, this.snow)
-    }
-    for (const [x, z] of [[98, 36], [130, 35]]) this.campfire(x, z)
     const rockGeo = this.geo(new THREE.IcosahedronGeometry(1, 0))
     for (let i = 0; i < 36; i++) {
       const { x, z } = townSceneryPoint(i, 110, 7), y = getTerrainHeight(x, z)
@@ -128,18 +143,25 @@ export class TownWorld {
     this.eagleTraining = resolveTownEagleTrainingGround(this.obstacles, this.roads, this.hr)
     this.eagleGarrison = resolveTownEagleGarrison(this.eagleTraining)
     this.eagleTrainingGround()
+    validateWatchtowerPlacement(this.commandWatchtower, [...this.obstacles, ...this.airspaceObstacles], this.roads)
+    const watchtower = createTownCommandWatchtower(this.commandWatchtower, faction, this.obstacles, {
+      stone: this.stone, wood: this.wood, dark: this.dark, plaster: this.plaster, snow: this.snow, accent: this.roofMat,
+    })
+    this.root.add(watchtower); this.trackOwned(watchtower)
+    this.airspaceObstacles.push(createTownCommandWatchtowerAirspaceObstacle(this.commandWatchtower))
     this.airspaceObstacles.push(...this.obstacles)
     this.validateAirfield()
     this.batch(this.root)
+    setObstaclePathQuerySource(this.obstacles, true)
   }
 
   private eagleTrainingGround(): void {
     const { trainer } = this.eagleTraining
     // Leave the first landing pad and the nearby diagonal road clear after turning the frame.
-    const x = trainer.x - 4.5, z = trainer.z + 3.5
+    const x = trainer.x - 5, z = trainer.z + 6
     const yaw = Math.atan2(this.hr.officer.x - x, this.hr.officer.z - z)
     // Clear the 2.3m on-foot NPC body (and 1.9m Player) with a little headroom.
-    this.groundedTrainingSign(['XONGKORO TRAINING', '老鷹訓練場 · E 交談'], x, z, 12, yaw, 2.6)
+    this.groundedTrainingSign(['XONGKORO TRAINING', '老鷹訓練場 · E 交談'], x, z, 10, yaw, 2.6)
     // Corner stakes identify the existing terrain; no extra floor or walk-through platform.
     for (const site of [...this.eagleTraining.pads, ...this.eagleGarrison.pads]) for (const dx of [-XONGKORO_LANDING.width / 2, XONGKORO_LANDING.width / 2]) {
       for (const dz of [-XONGKORO_LANDING.depth / 2, XONGKORO_LANDING.depth / 2]) {
@@ -147,7 +169,7 @@ export class TownWorld {
         this.cube(this.root, x, getTerrainHeight(x, z) + .2, z, .3, .4, .3, this.stone)
       }
     }
-    this.groundedTrainingSign(TOWN_EAGLE_GARRISON_NAME.split(' · '), -65, -8, 12)
+    this.groundedTrainingSign(TOWN_EAGLE_GARRISON_NAME.split(' · '), -35, -8, 12)
   }
 
   private validateAirfield(): void {
@@ -205,42 +227,6 @@ export class TownWorld {
     const fire = createCampfireVisual(Math.round(x * 73 + z * 31)); fire.position.set(x, getTerrainHeight(x, z), z)
     this.trackOwned(fire); this.root.add(fire); this.solid(x, z, 1.2, .55, 1.2)
   }
-  private trainingEntrance(): void {
-    const center = townSitePoint('barracks', 0, 4), root = new THREE.Group()
-    root.position.set(center.x, getTerrainHeight(center.x, center.z), center.z); root.rotation.y = center.yaw; this.root.add(root)
-    for (const side of [-1, 1]) {
-      this.cube(root, side * 8, 1.7, 0, .35, 3.4, .35, this.wood)
-      const point = townSitePoint('barracks', side * 8, 4); this.solid(point.x, point.z, .4, 3.4, .4)
-    }
-    this.cube(root, 0, 3.3, 0, 16.5, .35, .45, this.dark)
-    this.sign(root, 'INFANTRY TRAINING', 0, 2.9, .3, 10)
-    for (const side of [-1, 1]) for (let i = 0; i < 5; i++) {
-      const point = townSitePoint('barracks', side * (10 + i * 2), 4), y = getTerrainHeight(point.x, point.z)
-      this.cube(this.root, point.x, y + .7, point.z, .2, 1.4, .2, this.wood)
-      this.cube(this.root, point.x, y + 1, point.z, .18, .16, 2.2, this.wood); this.solid(point.x, point.z, .25, 1.3, 2.2)
-    }
-    this.batch(root)
-    this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(root), isBarricade: false })
-  }
-  private cavalryTrainingGround(): void {
-    const field = TOWN_CAVALRY_FIELD
-    // Use the shared terrain directly for the training field. The old visual
-    // lane meshes added no gameplay collision or mission semantics and could
-    // cut through actors on the undulating terrain.
-    for (const x of [35, 70, 105]) {
-      this.building(`cavalry-tent-${x}`, '', x + 12, -106, 8, 5, 3, 'tent')
-      this.groundedTrainingSign([x === 35 ? this.faction === 'viking' ? 'AXE CAVALRY' : 'MELEE CAVALRY' : x === 70 ? 'LANCERS' : 'HORSE ARCHERS'], x + 12, -101, 10)
-    }
-    // Wide south-facing entrance connects to the internal mounted road.
-    const entrance = new THREE.Group(); entrance.position.set((field.minX + field.maxX) / 2, getTerrainHeight(82, -53), -53)
-    this.root.add(entrance); this.sign(entrance, 'CAVALRY TRAINING', 0, 4.2, 0, 12)
-    for (const side of [-1, 1]) {
-      this.cube(entrance, side * 8, 2.2, 0, .25, 4.4, .25, this.wood)
-      this.solid(82 + side * 8, -53, .25, 4.4, .25)
-    }
-    this.batch(entrance)
-  }
-  /** The cavalry-style timber board shares one level top; each post reaches its own terrain sample. */
   private groundedTrainingSign(lines: readonly string[], x: number, z: number, width: number, yaw = 0, minimumHeadroom = 0): void {
     const root = new THREE.Group(), ground = getTerrainHeight(x, z)
     root.position.set(x, ground, z); root.rotation.y = yaw; this.root.add(root)
@@ -318,7 +304,7 @@ export class TownWorld {
   }
   private building(id: string, _name: string, x: number, z: number, w: number, d: number, h: number, kind: string, yaw = 0, campId?: number): void {
     const y = getTerrainHeight(x, z), root = new THREE.Group(); root.position.set(x, y, z); root.rotation.y = yaw; this.root.add(root)
-    const attachments: THREE.Box3[] = []
+    const attachments: THREE.Box3[] = [], overheadAttachments: THREE.Box3[] = []
     const tent = kind === 'tent', stable = kind === 'stable', roman = this.faction === 'roman'
     const lowGround = Math.min(...[-1, 1].flatMap(sx => [-1, 1].map(sz => getTerrainHeight(x + Math.cos(yaw) * sx * w / 2 + Math.sin(yaw) * sz * d / 2, z - Math.sin(yaw) * sx * w / 2 + Math.cos(yaw) * sz * d / 2))))
     const foundationDepth = Math.max(.5, y - lowGround + .6)
@@ -374,12 +360,21 @@ export class TownWorld {
     if (['shop', 'stable', 'barracks'].includes(kind)) {
       const porchWidth = kind === 'barracks' ? 18 : w + 1
       const porchDepth = kind === 'barracks' ? 5 : 4.2
-      this.cube(root, 0, h - .15, d / 2 + porchDepth / 2, porchWidth, .22, porchDepth, this.roofMat)
-      if (!roman) this.cube(root, 0, h + .02, d / 2 + porchDepth / 2, porchWidth, .15, porchDepth, this.snow)
+      let porchHeight = h - .15
+      if (id === 'weapons') {
+        const service = townSitePoint('weapons', 0, 7.5)
+        // The merchant's terrain is higher than the shop foundation. Include rider and roof thickness.
+        porchHeight = Math.max(porchHeight, getTerrainHeight(service.x, service.z) - y + 5.5)
+      }
+      this.cube(root, 0, porchHeight, d / 2 + porchDepth / 2, porchWidth, .22, porchDepth, this.roofMat)
+      if (id === 'weapons') overheadAttachments.push(new THREE.Box3(
+        new THREE.Vector3(-porchWidth / 2, porchHeight - .11, d / 2),
+        new THREE.Vector3(porchWidth / 2, porchHeight + (roman ? .11 : .245), d / 2 + porchDepth)))
+      if (!roman) this.cube(root, 0, porchHeight + .17, d / 2 + porchDepth / 2, porchWidth, .15, porchDepth, this.snow)
       for (const side of [-1, 1]) {
         const xx = side * (porchWidth / 2 - .25), zz = d / 2 + porchDepth - .2
-        this.cube(root, xx, h / 2, zz, .22, h, .22, this.wood)
-        attachments.push(new THREE.Box3(new THREE.Vector3(xx - .14, -100, zz - .14), new THREE.Vector3(xx + .14, h, zz + .14)))
+        this.cube(root, xx, (porchHeight + .15) / 2, zz, .22, porchHeight + .15, .22, this.wood)
+        attachments.push(new THREE.Box3(new THREE.Vector3(xx - .14, -100, zz - .14), new THREE.Vector3(xx + .14, porchHeight + .15, zz + .14)))
       }
       this.sign(root, kind === 'shop' ? 'WEAPON SHOP' : stable ? 'HORSE SHOP' : 'BARRACKS', 0, kind === 'barracks' ? h - .3 : h + 1.05, kind === 'barracks' ? d / 2 + porchDepth + .15 : d / 2 + .25, stable || kind === 'barracks' ? 7 : 6)
       if (kind === 'shop') {
@@ -387,15 +382,30 @@ export class TownWorld {
         for (const side of [-1, 1]) attachments.push(new THREE.Box3(new THREE.Vector3(side * 3.8 - 1.3, -100, d / 2 + 1.5), new THREE.Vector3(side * 3.8 + 1.3, 1.15, d / 2 + 2.9)))
       }
     }
+    if (id === 'town-center') {
+      this.sign(root, roman ? 'FORUM · TOWN CENTER' : 'LONGHOUSE · TOWN CENTER', 0, h + 1, d / 2 + .4, 13)
+      for (const side of [-1, 1]) {
+        const xx = side * 9, zz = d / 2 + 2
+        this.cube(root, xx, 3, zz, roman ? .8 : .5, 6, roman ? .8 : .5, roman ? this.stone : this.dark)
+        attachments.push(new THREE.Box3(new THREE.Vector3(xx - .5, -100, zz - .5), new THREE.Vector3(xx + .5, 6, zz + .5)))
+        this.cube(root, xx, 5.8, zz + .45, 1.3, 2, .1, roman ? this.roofMat : this.canvas)
+        if (!roman) {
+          const shield = new THREE.Mesh(this.geo(new THREE.CylinderGeometry(.8, .8, .15, 12)), this.roofMat)
+          shield.rotation.x = Math.PI / 2; shield.position.set(side * 3, 3, d / 2 + .2); root.add(shield)
+        }
+      }
+      this.cube(root, 0, 6, d / 2 + 2, 20, .35, 3, roman ? this.stone : this.dark)
+    }
     const ruin = new THREE.Group(); ruin.position.copy(root.position); ruin.rotation.y = yaw; ruin.visible = false; this.root.add(ruin)
     for (let i = 0; i < 9; i++) { const chunk = this.cube(ruin, Math.sin(i * 8) * w * .35, .25 + i % 2 * .15, Math.cos(i * 4) * d * .3, 2.2, .4, .7, roman && !tent ? this.stone : this.wood); chunk.rotation.y = i * 1.7 }
     const hp = new DamageableObstacle({ kind: 'tent', maxHp: kind === 'hall' ? 900 : tent ? 120 : 300, root })
     this.batch(root); this.batch(roof); this.batch(ruin)
     const obstacle = { box: new THREE.Box3(new THREE.Vector3(-w / 2 - .2, -100, -d / 2 - .2), new THREE.Vector3(w / 2 + .2, h + 3, d / 2 + .2)).applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp }
-    const buildingObstacles = [obstacle, ...attachments.map(box => ({ box: box.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp }))]
+    const buildingObstacles = [obstacle, ...attachments.map(box => ({ box: box.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, damageable: hp })),
+      ...overheadAttachments.map(box => ({ box: box.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw)).translate(root.position), isBarricade: false, navigationPassable: true, damageable: hp }))]
     this.buildings.push({ id, ownerFaction: id.startsWith('camp-') ? Faction.BANDIT : this.ownerAllegiance, ...(campId === undefined ? {} : { campId }), obstacles: buildingObstacles, hp, roof, ruin, damaged: false }); this.obstacles.push(...buildingObstacles)
     this.airspaceObstacles.push({ box: new THREE.Box3().setFromObject(root), isBarricade: false })
-    hp.onDestroyed(() => { ruin.visible = true; for (const part of buildingObstacles) { const index = this.obstacles.indexOf(part); if (index >= 0) this.obstacles.splice(index, 1) } })
+    hp.onDestroyed(() => { ruin.visible = true; for (const part of buildingObstacles) removeObstacleData(this.obstacles, part) })
   }
   refreshDamage(): void { for (const b of this.buildings) if (!b.damaged && b.hp.hpRatio <= .6 && !b.hp.destroyed) { b.damaged = true; b.roof.rotation.z = .14; b.roof.position.y -= 1; b.roof.children.slice(0, 2).forEach(c => c.visible = false) } }
   restoreTownDamage(): void {
@@ -409,7 +419,10 @@ export class TownWorld {
         building.roof.children.slice(0, 2).forEach(child => { child.visible = true })
       }
       building.damaged = false
-      for (const obstacle of building.obstacles) if (!this.obstacles.includes(obstacle)) this.obstacles.push(obstacle)
+      for (const obstacle of building.obstacles) if (!this.obstacles.includes(obstacle)) {
+        this.obstacles.push(obstacle)
+        markObstacleTopologyChanged(this.obstacles)
+      }
     }
   }
   addTarget(x: number, z: number, ranged: boolean): THREE.Vector3 {
@@ -476,5 +489,7 @@ export class TownWorld {
       item(side < 0 ? 'recurve_longbow' : 'wooden_shortbow', 'ranged', side * 4.5, 2, front + .4, side * .3)
     }
   }
-  dispose(): void { this.root.traverse(child => { if (child instanceof THREE.InstancedMesh) child.dispose() }); this.root.removeFromParent(); this.geometries.forEach(g => g.dispose()); this.materials.forEach(m => m.dispose()); this.textures.forEach(t => t.dispose()) }
+  dispose(): void {
+    setObstaclePathQuerySource(this.obstacles, false)
+    this.siegeDockPassages?.dispose(); this.root.traverse(child => { if (child instanceof THREE.InstancedMesh) child.dispose() }); this.root.removeFromParent(); this.geometries.forEach(g => g.dispose()); this.materials.forEach(m => m.dispose()); this.textures.forEach(t => t.dispose()) }
 }

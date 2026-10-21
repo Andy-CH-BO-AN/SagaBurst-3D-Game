@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 2,
+  "id": "roman-civilian",
+  "lods": [
+    {
+      "level": 0,
+      "beforeBytes": 14860136,
+      "bytes": 11833180,
+      "beforeSha256": "bb0656921683c33ae4b78410b06fe4d4f48fd55484eaeaead16ada9ef56721d8",
+      "sha256": "f20011d5b915359c497ed1ed4d45508d32f6c5cd551dd18d379269d04e670381",
+      "extension": "EXT_meshopt_compression",
+      "method": "No quantization, filters, mesh reordering, key removal or image changes. INDICES preserves exact index bytes.",
+      "npmDecoderVersion": "meshoptimizer 0.18.1",
+      "threeDecoderVersion": "Three.js 0.167 bundled meshoptimizer 0.18",
+      "allBufferViewsByteExact": true,
+      "compressedBufferViews": 683,
+      "viewCount": 772,
+      "originalViewsSha256": "76882bc8adf77b94062bcedf882b4d8fbab34299a5e2a6f2d5f77eaeaebbe4dc",
+      "npmDecodedViewsSha256": "76882bc8adf77b94062bcedf882b4d8fbab34299a5e2a6f2d5f77eaeaebbe4dc",
+      "threeDecodedViewsSha256": "76882bc8adf77b94062bcedf882b4d8fbab34299a5e2a6f2d5f77eaeaebbe4dc"
+    },
+    {
+      "level": 1,
+      "beforeBytes": 8101928,
+      "bytes": 5117348,
+      "beforeSha256": "7953195f1689320aadde596afef84a3a0c40bb3d2c99df272027db093da63332",
+      "sha256": "d4f558bd5e4971ac73341593676d97122446740a6c3d2a77280a7a6087e360de",
+      "extension": "EXT_meshopt_compression",
+      "method": "No quantization, filters, mesh reordering, key removal or image changes. INDICES preserves exact index bytes.",
+      "npmDecoderVersion": "meshoptimizer 0.18.1",
+      "threeDecoderVersion": "Three.js 0.167 bundled meshoptimizer 0.18",
+      "allBufferViewsByteExact": true,
+      "compressedBufferViews": 683,
+      "viewCount": 772,
+      "originalViewsSha256": "f9c5eee6913308ec011a819d3b6d43651d371e783d24e7a31c4e66474a30284c",
+      "npmDecodedViewsSha256": "f9c5eee6913308ec011a819d3b6d43651d371e783d24e7a31c4e66474a30284c",
+      "threeDecodedViewsSha256": "f9c5eee6913308ec011a819d3b6d43651d371e783d24e7a31c4e66474a30284c"
+    },
+    {
+      "level": 2,
+      "beforeBytes": 5628520,
+      "bytes": 2760348,
+      "beforeSha256": "1540ed5d8870f7010a4e2ac8f2e31ec76c6e755f51352de6693c228af0eeb1a2",
+      "sha256": "645042dbfc47de915a3c08359f126447b9b783cb6117bcbd97b3b525a5b38196",
+      "extension": "EXT_meshopt_compression",
+      "method": "No quantization, filters, mesh reordering, key removal or image changes. INDICES preserves exact index bytes.",
+      "npmDecoderVersion": "meshoptimizer 0.18.1",
+      "threeDecoderVersion": "Three.js 0.167 bundled meshoptimizer 0.18",
+      "allBufferViewsByteExact": true,
+      "compressedBufferViews": 683,
+      "viewCount": 772,
+      "originalViewsSha256": "90ae0c1c4de541f800e7a3a334a96c444647af56deab59d0e55663a080ecbb23",
+      "npmDecodedViewsSha256": "90ae0c1c4de541f800e7a3a334a96c444647af56deab59d0e55663a080ecbb23",
+      "threeDecodedViewsSha256": "90ae0c1c4de541f800e7a3a334a96c444647af56deab59d0e55663a080ecbb23"
+    }
+  ],
+  "digestDefinition": "SHA-256 of ordered SHA-256 hex strings concatenated without separators"
+}

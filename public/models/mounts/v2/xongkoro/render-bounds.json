@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "threeRevision": "167",
+  "assetSha256": "be9609977c9f18c83b35adc387c46e9274f6e5221e103d35da32f6187b4f445a",
+  "poseSha256": "28bb486c4f5a6b1c028fbbc84d50b3ff7c3ceaa584bfd7ebf0669cec0feaeb91",
+  "space": "XongkoroVisual.root",
+  "method": "rotation-independent weighted bone-chain envelope",
+  "supportLiftUpperBound": 5.765438080569346,
+  "supportDisplacementUpperBound": 5.765438338304513,
+  "maximumSkinWeightSum": 1.0000000447034836,
+  "numericMarginMeters": 0.1,
+  "proof": "For every vertex: sum of nonnegative skin weights times (ancestor translation-length bounds + scale-product bound times inverse-bind vertex length + ancestor attack extensions). Linear/step translation and scale interpolation are bounded by their endpoint norms; rotations are unrestricted, including every slerp and procedural rotation. Ground translations come from production buildEagleGroundPose. Cached feet give a pre-attack support-lift upper bound; multiplying by the maximum skin-weight sum gives per-vertex displacement upper bound L. Moving the sphere center by +Y L/2 and adding L/2 encloses all support lifts in [0,L], including partial pelvis skin influence. Death and update(0) retain covered poses. The 0.1m margin covers floating-point transform/skinning error, not unproved intermediate poses.",
+  "meshes": [
+    {
+      "name": "eagle_body_lod0",
+      "vertices": 2270,
+      "triangles": 3128,
+      "material": "xongkoro_feathers",
+      "groups": 1,
+      "center": [
+        -0.0000016228450245847625,
+        4.128364268629916,
+        0.5153850137557654
+      ],
+      "radius": 17.982188172397823
+    },
+    {
+      "name": "eagle_body_lod1",
+      "vertices": 1569,
+      "triangles": 2032,
+      "material": "xongkoro_feathers",
+      "groups": 1,
+      "center": [
+        -0.0000016228450245847625,
+        4.128364268629916,
+        0.5153850137557654
+      ],
+      "radius": 17.982188172397823
+    },
+    {
+      "name": "eagle_body_lod2",
+      "vertices": 967,
+      "triangles": 1094,
+      "material": "xongkoro_feathers",
+      "groups": 1,
+      "center": [
+        -0.0000016228450245847625,
+        4.128364268629916,
+        0.5153850137557654
+      ],
+      "radius": 17.982188172397823
+    }
+  ]
+}

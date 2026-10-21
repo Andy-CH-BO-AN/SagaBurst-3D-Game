@@ -1,127 +1,72 @@
 # 測試工作規範
 
-適用於自動化測試的新增與維護；沿用 [專案規則](../ai_share/AGENTS.md) 與使用者指示。
+適用於自動化測試新增、修改與刪除；沿用 [專案規則](../ai_share/AGENTS.md) 與使用者指示。
 
-## 新增測試的順序
+## 新功能與測試責任
 
-- 新自動化測試一律放在 `tests/`，不得新增 `src/**/*.test.*` 或 `src/**/*.spec.*`。
-- 先搜尋相同 production 入口、行為與 assertions，閱讀既有 case body 及實際 call path。
-- 說清楚新增案例保護的行為、輸入條件與 failure mode，確認現有測試尚未涵蓋。
-- 優先擴充既有能力 suite；新增 suite 時明確界定它負責的規則。
-- 選擇能抓到該錯誤的最小測試層；純規則不需要建立完整場景、NPC 群或載入資產。
-- 每個案例圍繞一個行為；Arrange、Act、Assert 要能直接看懂。
-- 名稱描述 scenario + expected behavior；參數化名稱必須能辨認失敗的輸入或實作。
-- Regression case 要能在錯誤行為下失敗，不能只驗證函式有呼叫或沒有 throw。
+- 新自動化測試放在 `tests/`，不得新增 `src/**/*.test.*` 或 `src/**/*.spec.*`。
+- 先閱讀既有 case body、helpers 與 production call path，找出真正擁有行為的能力 suite。
+- 一個 feature 只增加重要且既有測試尚未保護的邏輯；既有案例足夠時允許新增 0 case。
+- 一般 feature 優先新增 0–2 個真正缺少的重要案例；0 是合理結果，不設最低配額。涉及多個獨立且高風險的 failure mode 才可超過 2 個，必須說明每個案例保護的不同契約，不展開排列組合。
+- 優先擴充既有 owner，不依 PR、任務 ID、兵種或模式另建整套 regression；不以測試數量增加作為品質成果。
+- 核心 owner 保護重要演算法與 failure mode；caller 只保護必要資料傳遞、權限、失敗處理及副作用順序，不重跑完整核心矩陣。
+- 優先保護無法遊玩、取消與 rollback、資料損壞、存檔交易、ownership、重複結算、戰鬥有效命中與死亡、指揮資格、導航可達性和必要容量邊界。
 
-## 目錄與依賴
+## 成本與邏輯範圍
 
-- 依共用能力與責任分類，跨模式使用同一主責 suite；不依任務 ID、作者或 PR 編號分類。
-- `combat/`、`commands/`、`equipment/`、`actors/`、`movement/`、`camera/` 放各能力核心規則。
-- `persistence/`、`progression/` 放儲存契約與成長規則；`missions/`、`town/` 放任務／城鎮特有政策。
-- `integration/` 依接線能力命名，驗證不同 caller、mode、phase 如何使用共用模組。
-- `assets/`、`audio/`、`ui/`、`observability/`、`release/` 各自負責資產、介面與工具契約。
-- `helpers/` 放具體 consumer 使用的 typed fixtures；`contracts/` 放多實作契約；`fixtures/` 放必要固定資料。
-- 單一 suite 保持可理解的責任範圍；不得堆成巨大的 `SharedSystems.test.ts` 或通用模式檔。
-- Production 不得反向 import `tests/`；測試可以透過公開入口使用 production 模組。
+- 每個保留的邏輯 leaf case 最多 100ms，包含該案例的 beforeEach、body、afterEach、onTestFinished 與案例專屬 cleanup。以不受 fake timers 影響的真實單調時鐘量測；timeout 或 slowTestThreshold 不能取代預算驗證。
+- 普通 PR／push → `dev` 的 **Related CI 所有 logic jobs 合計最多 500 個 leaf cases**，不得用第二個 shard繞過，也不得在 Desktop jobs 重複執行同一批 logic cases；Related 應形成單一 aggregate-limited shard。PR／push → `main`、Pages、Release 與手動 Full 才可執行完整 repository 並分成多個每 shard 最多 500 的 deterministic shards。each、動態生成與多實作 contract 的每一列均計入；單檔超過 500 時須拆分獨立能力 suite，planner fail closed。
+- 單一 leaf 通常應低於 70ms，保留 30ms 執行餘裕；這是**非阻擋的預警目標**，不得靠隱藏案例或刪掉必要回歸達標。Related aggregate／Full shard 的 500 個與每 case 100ms 都是硬門檻，不設 repository 案例配額。
+- 若任一 case 達 70ms，新增前先盤點該能力 owner 的現有覆蓋，優先採取淨減、去除重複 failure mode、縮小 fixture 與依賴；新案例若不可替代，需在 PR 說明風險與成本，不以硬性淨減要求犧牲關鍵保護。
+- Import／collection、setupFiles、beforeAll／afterAll 與整套 wall time 另外記錄；不得將案例成本藏入共用初始化或 cache。
+- Unit tests 不生成場景或 3D model，不建立 Scene、Group、Object3D 假場景、Mesh、geometry、material、texture、skeleton、rig 或 AnimationMixer。
+- 不呼叫 TownWorld／城牆／地形／戰場 builders，不建立會初始化模型、動畫或場景的 NPC、Player、Mount、TownScene，不解析或 preload 真實 GLB、GLTF、FBX、貼圖或動畫資產。
+- 不測 LOD0–2 外觀、骨架握姿、材質、陰影、美觀或需目視判斷的品質；不得用數值姿勢 assertions 或 synthetic skeleton 補回同一批外觀案例。
+- 普通資料、Career profile、save/state model、IDs、roster、數值、Map／Set、合成導航圖及碰撞資料可以測；資料 model 不等於 3D model。Vector3、Quaternion、Box3 可作數學資料使用。
+- 重要動畫事件、LOD 選擇或資源狀態僅測數值與狀態，不載入模型。不得全面 mock Three.js 或另造測試引擎來讓重型測試假裝合規。
+- `integration/`、`assets/` 或其他 runner 不能成為重型測試例外。既有 Web／Desktop release smoke 維持啟動與封裝用途，不套用 unit 100ms，也不得收容被刪案例。
 
-## Core、policy、integration 的責任
+## Fixture、expected 與 production 重用
 
-- Core suite 擁有共用演算法、狀態機、邊界輸入與錯誤處理的完整矩陣。
-- Policy suite 驗證模式特有的人數、tier、權限、unlock、勝敗與返回條件。
-- Integration suite 驗證真實 caller 提供的參數、phase gate、訂閱、ownership 與副作用順序。
-- 新模式優先補自己的 policy 與接線，不複製整套傷害、導航、換武器或 scheduler 核心測試。
-- 不同 caller 的敵我集合、可指揮對象、readiness 與 cleanup 都是獨立接線風險。
-- 多份獨立實作必須各有 coverage；不能只測其中一份就假定其他實作正確。
-- Player、NPC、Mount 若有不同 HP、死亡或裝備邏輯，分別驗證對應實作。
-- Damage routing、event emission、XP/HUD consumer 分層驗證，保留真實 producer 到 consumer 的代表接線。
-- 同名 Follow、return、spectator 等行為可能有不同政策；以輸入、輸出與不變條件界定責任。
-- 儲存測試要涵蓋 serialization、parser、舊版相容與特殊欄位；不同 schema 各有保障。
-- Controller 間傳遞 in-memory object 不能當作 storage round-trip；持久化接線需經過真實序列化邊界。
+- 直接呼叫真實 production 邏輯，使用獨立 expected；不複製演算法到 tests、不從受測輸出讀回答案、不 mock 受測決策。
+- 選擇能抓到重要錯誤的最小層；使用 typed fixture、Pick 或命名 adapter，僅提供 caller 所需欄位，不建立萬用假 Game／TownScene。
+- Fixture 只準備依賴，不暗中完成受測狀態轉換；storage、network、DOM、audio 等外部邊界可用窄 double。
+- 如重要邏輯困在重型 constructor，先找現有小入口；確實沒有才作保持行為的最小 production 抽取。正式 caller 必須真的使用抽出的 owner，不新增 test-only production 分支。
+- 每 case 圍繞一個行為，名稱清楚描述 scenario 與結果；同一交易或狀態轉換可以有多個必要 assertions，集合不變條件可迭代檢查。
+- 優先斷言公開狀態與輸出；副作用順序本身是契約時明確驗證。Regression 必須在對應錯誤行為下失敗，不能只檢查呼叫或沒有 throw。
+- 可設定 A*、scheduler 預算由測試自行指定 n，驗證同 frame 最多 n 筆、第 n + 1 筆保留、合法下一 frame 繼續及重複 timestamp 不重複耗用預算；不寫死 production 當前數值。
 
-### Spawn 測試分層
+## 時間、隔離、cleanup 與型別
 
-- Spawn Core 擁有共用 scheduler／batch 的完整機制矩陣：enqueue、frame budget、重複 ID／timestamp、reentrant jobs、cancel、rollback、loading promise 與 finalizer failure。直接使用真 scheduler 與輕量 jobs，不需要真 NPC／Mount。
-- Spawn Integration 擁有各 production caller 的 start／initialize／execute、roster 到 queue 的轉換、registration、readiness、取消與 cleanup 接線；保留開始前、最後一筆前後與 finalizer 成敗等 caller 邊界，不在各 caller 重跑完整核心矩陣。
-- Gameplay tests 不附帶重驗 Spawn。純規則使用資料；實際初始化、movement、damage、mount lifecycle 或 ownership 行為使用最小必要 actor graph。完成載入只是前置條件時，使用既有 bounded deployment driver，不逐案重驗 frame budget。
-- 正式 roster 的數量、IDs、tier、兵種、陣營與缺額，優先由 production plan／policy 的資料測試保護。完整 enqueue 接線使用真 roster producer 與 recording doubles；不得為縮短 queue 替換正在驗證的 roster 生成或 filtering，也不能以官方數量為理由建立完整實體。
-- Caller integration 可在 actor construction 邊界使用 recording NPC／Mount doubles，記錄 constructor inputs、binding 呼叫與 dispose；不得 mock 被測 caller、scheduler，或替 caller 完成 readiness、registration 與 selection 決策。
-- Doubles 只證明 caller 協定，不能作為真 actor 初始化、移動、傷害或 mount binding 內部行為的證據。這些真實行為由必要的小型 real-actor owner 承接；先查既有 owner，不因整理 Spawn 自動新增一整套。
-- 不同 production methods、registration／finalizer 與 ownership 流程各有接線 owner；同一 shared method 不因 mode 名稱不同而重跑完整流程。保留代表性的真實多 producer integration，使用 production 預設 scheduler 驗證共享 budget，不以全部注入同一 scheduler 代替預設接線。
-- 移除重複 case 前，對照每個原 assertion、特殊輸入與 failure mode 的替代 owner，並以相關負向驗證確認 caller regression protection。預期 IDs 來自獨立 identity contract，不能從受測 queue 讀回來比較自己。
+- 冷卻、延遲、倒數與重生用注入時間或 fake timers 驗證臨界前後；不任意 sleep，不改 production cadence 來加速測試。
+- 非同步工作須 await，拒絕與取消有清楚結果；不使用無限等待、真實完整巡邏／戰鬥流程或任意放寬 timeout。
+- Fixture 明確擁有 globals、timers、mocks、listeners 與排程工作。以 afterEach、onTestFinished 或 try/finally 保證 assertion 失敗及 setup 中途失敗仍 cleanup。
+- 清掉 pending jobs、取消 loading、移除 listeners，還原 globals 原 descriptor 及 mock/timer 狀態；借用資源由原 owner 釋放。
+- 使用型別清楚的介面；必要 unsafe cast 限縮在單一接縫。不得新增大量 `as any`、`@ts-ignore`、關閉 strict 或擴大 typecheck baseline。
+- 刪除／修正案例後同步移除失效 baseline 項目；保留原 ratchet，不重建整份 baseline 或更改 fingerprint 掩蓋新增錯誤。
 
-## 避免重複與共用契約
+## 刪除政策與防規避
 
-- 判斷重複前，先核對 production 模組、輸入、可觀察結果及 failure mode；名稱相似不足以判定。
-- 同一實作只有輸入不同時，優先擴充 `it.each` 等參數矩陣，保留每組獨立 expected。
-- 同一契約有多個獨立實作時，提供薄 adapter，對每個實作執行同一 contract suite。
-- Adapter 只轉接輸入與觀察介面，不複製 production 演算法，也不代替實作完成行為。
-- Setup 相同但 assertions 不同時共用 fixture，保留各案例的獨立責任與失敗訊息。
-- 現有案例已完整保護的規則，不再新增同義案例；補測應指向具體未保護的差異。
-- 共用 assertion 要有清楚名稱、輸入及 actor/phase/parameter 訊息，不隱藏 Act 或整個測試流程。
-- 必要 integration 不能因 core 已測過而省略；同樣也不在每個 integration 重跑完整 core 矩陣。
-- 若調整既有重複案例，說明每個 assertion、特殊輸入與接線由哪個測試承接；證據不足就保留。
-- 成功指標是行為責任清楚、能抓到錯誤且容易維護，不是 test count 更多或更少。
+- 低價值 getter／常數、文案／樣式、純外觀、淘汰功能與同 failure mode 重複案例可以直接刪，不必逐一補回，也不要求 test-only 清理新增人工 QA 場景。
+- 刪減前先以「production owner → 重要 failure mode → 保留案例」核對：同一交易的相同失敗路徑只留最有辨識力的驗證，正例、真正不同的權限／原子性／重試／存檔損壞與臨界邊界不得因名稱相似就刪。尤其不要只為省數量而刪除近期修復的 regression。
+- 效能優化優先刪除重複昂貴的 setup／大量資料生成、縮小真實計算的輸入、共用輕量且無狀態的 pure fixture；不得把案例成本移至 beforeAll 或 setupFiles，也不得僅為求快而 mock 受測邏輯。
+- 重要邏輯刪除或改寫需指出保留的 production owner 與對應測試；一般低風險重複案例以 suite／能力說明取捨即可。
+- 不為每 faction、tier、方向、武器或任務重跑相同流程。大量資料只有在容量本身是必要風險時保留，仍不得生成實體 actors，仍受 100ms 約束。
+- 禁止 skip／todo／only、縮小 discovery、改副檔名、搬至 hidden／legacy／slow／manual 或其他 runner／smoke 規避數量或時間。
+- 禁止把多個獨立 scenario 塞進單一 it 或大型迴圈隱藏 leaf count；不得用 retry、平均值、百分位、慢案例 allowlist 或最快一次結果宣稱達標。
+- 清理失去 consumer 的 helpers／fixtures、無用 imports、舊 timeout 理由與矛盾註解；不得刪 production 資產或改 gameplay 平衡、IDs、規則與導航／spawn 預算。
 
-## Fixture、mock 與 assertions
+## Runner 與誠實驗證
 
-- Fixture 只準備明確依賴與資源，不暗中完成受測的狀態轉移。
-- 不 mock 正在驗證的 domain behavior；可在 storage、network、render、audio 等外部邊界替換依賴。
-- Prototype fixture 只提供該入口需要的欄位；避免萬用 Game/TownScene fixture。
-- Movement double 若只接受位置輸入，明確標示它沒有驗證真實 locomotion。
-- Helper import 不自動註冊 hooks、修改 globals、建立 singleton 或啟動 scheduler。
-- Expected 來自獨立規格、明確輸入與已知結果，不直接讀受測 production constants 或重算同一演算法當答案。
-- 優先斷言公開輸出與狀態；避免 private spy 或 `mock.calls[index]` 綁住偶然的實作順序。
-- 順序本身是契約時，明確驗證事件或副作用順序及其意義。
-- 自動化資產測試驗證 runtime 契約：parse/preload、必要 LOD、runtime 查找的 bone/socket/seat、gameplay 所需 clip/event、instance 建立與 mutable state 隔離、失敗處理及 manifest/package/path。
-- 純外觀、精確 duration/pose/quaternion、weights、材質數值、未被 runtime 查找的 mesh/name、clearance/silhouette、rotation-only/payload size，逐案確認無 runtime 依賴後列為移除候選；test-only PR 記錄理由、保留／替代自動化契約與測試結果，不要求附人工 QA 場景。
-- 非資產 gameplay 中需要驗證真角色行為的測試，使用所需欄位最少的 typed visual fixture，保留受測的真實 actor、AI、移動與傷害行為；純規則不建立 actors。真實 GLB 留在少量資產契約與必要 integration。
-- 共用 GLB loader 明示是否省略 image/material payload；只有契約不依賴這些內容時可省略，材質與紋理契約使用可保留內容的載入方式。
-
-## Fixture cost and materialization ownership
-
-- Logic／policy 與 materialization 分開。若 IDs、counts、configs、slots、簡單 state objects 或 production pure function 已能證明 assertion，預設建立 0 個真 NPC／Mount／TownWorld。例如 available=1、required=2 的 shortage 應直接測 selection，不生成正式軍隊。
-- 不可為了表示 eligibility／unavailable 而先 spawn 大量 actors 再 kill／disable；使用 reduced candidate set、`unavailableActorIds`、saved IDs 或 cheap resident doubles。死亡與復原 lifecycle 本身是受測責任時，才建立必要 actors。
-- 大型實體 fixture 只因具體 capacity、crowd、碰撞／物理、placement 或 navigation 互動而保留，明確說明小型 graph 與 doubles 無法保護的 failure mode；官方 roster 與既有 full fixture 不是充分理由。Policy、save、ownership tests 不可因共用 helper 順便生成 40 Patrol、59 Sweep、99 Veteran 或整批敵軍。
-- Fixture helper 必須揭露 NPC、Mount、TownWorld、real GLB、NavigationWorld 與 battle actors 成本，並讓非 spawn／load／crowd consumers 明確選擇 lightweight mode；review 必須追進 `fixture()` 查看實際配置。
-- 單一案例若建立超過 10 個真 NPC 或 Mount，須在名稱／註解指出 actor count 為何是 failure mode 必要輸入；不是硬上限。Formation capacity、full-loop spacing、crowd／navigation、stress 合理；official count、outcome、merit、saved IDs、單一借用 callback、faction mapping、deputy election 不構成理由。
-- Small integration 只建觸發 branch 的最小 actor graph：單一 ownership 通常 1–3，雙 squad wiring 通常 4–8。Enemy／另一方不是自動必要輸入；friendly placement 不生成無關敵軍，settlement 不生成整支正式友軍。
-- **Same failure mode has one heavy integration owner.** Pure/data owners 覆蓋完整 matrix；runtime 接線使用必要的小型 graph，heavy runtime 僅保留無法以小型 graph 保護的 capacity、crowd、navigation、placement 或載入資源互動。
-- 縮減 fixture 不得複製 production 演算法、mock 掉受測 function 或自算 expected 再比自己。直接呼叫現有 production owner，並以 constructor 量測與 bounded mutation 驗證成本與偵錯能力。
-- 成本量測分開記錄 real NPC constructors、real Mount constructors、recording constructor invocations、queue jobs 與 TownWorld builds。0 real constructors 不等於沒有 setup 成本；效能比較以相同環境的實際 execution／wall time 為據。
-
-## 非同步、時間與 simulation
-
-- 狀態等待使用 bounded deterministic driver，指定 maxFrames 或 maxSimulationSeconds。
-- 未達成條件時回報 phase、actor、目標與已前進的時間／frame，讓失敗可定位。
-- 禁用 arbitrary sleeps、無限迴圈與任意放寬 timeout；非同步工作需 await 並驗證拒絕／失敗路徑。
-- 區分 simulated time 與 runner 的 wall-clock timeout；不能用 timeout 大小代表遊戲時間。
-- Gameplay 時間本身是規格時保留臨界前後檢查；共用 Spawn frame budget 的完整逐 frame 矩陣由 Spawn Core 擁有，不以一次 drain 取代該 owner。Caller 保留自己的 readiness、preparation／march 與 finalizer 邊界，不重驗共用 cadence。
-- Scheduler core 驗證 budget、cancel、rollback；caller 驗證 enqueue、registration、readiness 與 owner cleanup。不同 caller 的取消副作用不能只靠 core 代替。
-- Simulation 的動作要驅動真實受測 runtime；不要直接寫入結果狀態讓流程通過。
-- 新增高成本 simulation 前，說明純規則或小型 integration 無法保護的缺口。
-- Driver 或 fixture 共用不代表更快或不會 flaky；效能與穩定性主張需要實際量測。
-
-## 隔離、cleanup 與型別
-
-- 每個 fixture 明確擁有 globals、mocks、timers、listeners、資源與排程工作。
-- 優先使用 instance scheduler；只有跨 caller 的共享契約使用 production singleton。
-- Setup 中途失敗也要釋放已建立資源；成功建立的 fixture 提供明確 dispose。
-- 以 afterEach/onTestFinished 或 try/finally 保證 assertion 失敗時仍 cleanup，不只放在最後一個 expect 後。
-- 清除 pending jobs、取消 loading、移除 listeners，還原 globals 的原 descriptor 與 mock/timer 狀態。
-- 借用資源由原 owner dispose；不可重複銷毀共享 geometry、material、texture 或 borrowed actor。
-- Partial spawn、failed-save 等失敗案例要驗證副作用順序、資源釋放及重試能力。
-- 使用 typed builder、Pick 或命名 adapter；必要 unsafe cast 限縮在單一接縫並說明缺失介面。
-- 不新增大量 `as any`、`@ts-ignore` 或關 strict；新增型別錯誤要修正，不擴大 typecheck baseline 豁免。
-- 修掉的診斷同步移除 baseline 項目；保留原有 ratchet，不以全量重建或變更 fingerprint 演算法掩蓋錯誤。
-
-## Runner 與驗證
-
-- 新案例必須由正確 runner 實際收集；核對檔案、完整 case 名稱與參數，不能只看總數。
-- Node release tests 使用 Node runner，並納入 release script、排除 Vitest discovery，避免漏跑或跑兩次。
-- 測試變更先執行 affected suites，再跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build`、`rtk npm run test:release`。
-- Browser、資產或封裝接線變更，加驗 web smoke 與所影響平台的 desktop smoke；畫面行為依專案 skill 驗證。
-- 不以改 expected、刪 assertion、skip 或增 timeout 讓檢查通過；交付前移除 focused-only case 與非必要 skip/todo。
-- 驗證結果寫在 PR：命令、環境、結果與未驗證範圍；不要新增只記錄一次執行結果的常駐測試文件。
-- 既有失敗與本次新增失敗分開記錄；單檔重跑成功不能取代完整執行的失敗紀錄。
-- 純測試修改維持 gameplay、cadence、資產與 release 行為；確有功能變更時明示範圍並測其行為。
-- 純文件修改檢查內容、連結與 diff，不宣稱執行了未跑的測試。
+- Runner 實際 collection 是數量依據；Node release leaf cases 與 Vitest 合併，避免漏跑或重算。報告缺失、過期、collection error 或空 suite 均不能通過。
+- CI 與 npm test 必須經由相同 planner／manifest 與預算守門；任何超過 100ms 的邏輯 case 輸出檔案、完整名稱、耗時並失敗。不得吞掉 runner 的原始失敗退出碼。
+- 普通 PR → dev 與 push → dev 使用 dependency-aware Related Test CI；PR 使用 merge-base，push 使用 before..after。直接修改測試、跨目錄 helper consumers、間接 production 依賴都要選入；高 fan-out owner（例如 `Game.ts`、`TownScene.ts`、`CareerProfileStore.ts`）也依實際 dependency consumers 選取，不得只因檔名而改跑 Full。
+- Related selection 所有 runner 合計必須 `<=500`，只允許一個 aggregate-limited shard；超過 500、移除／搬移、Git history 不足、無法解析的 computed import／glob、無 mapping 或 code change 得到零測試時直接 fail closed，要求補 dependency／owner mapping 或拆小 PR，不得自動退回 Full。
+- PR → main、push → main、正式 tag／release／Pages 發佈前與手動 Full mode 必須跑 Full Test gate。只有 Full 可以分 shard並讓 aggregate 超過 500；aggregate 必須驗證所有 discovered files 及 leaves 恰好執行一次，再允許 publish。
+- Test tooling、Workflow、package/config 變更透過明確 owner policy 選取 CI／budget contract tests；Release／Electron 變更選取 Node publication tests。不得透過搬移檔案、dynamic import 或不登記依賴規避 selection。
+- 僅嚴格文件變更允許明確 docs-only empty plan。保留單檔／指定案例開發能力，但 Related／subset 通過不能代表 Full Suite 通過。
+- 開發中可先跑受影響 suite（`rtk npm test -- <file-or-directory>` 或 `-t`，屬局部驗證），再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。
+- **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 logic plan／runner／aggregate（Related aggregate 或 Full per-shard 預算）、`npm run typecheck:test`、`npm run build` 及 Web smoke。PR 中所有 selected logic cases 只在 logic gate 執行一次；Desktop PR jobs 只驗證 package／smoke，不重跑 Node logic。Windows／macOS Node component 驗證保留在正式 Release、完整測試與發佈閘門。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
+- 檢視同一次 CI 中的 mode、base/head、selection reasons、每 shard 與 aggregate case count、max leaf 時間及 **Top 10 slow leaf**（完整名稱、檔案、hooks/cleanup 含入）；有 case 達 70ms 為非阻擋預警，應標記優化方向。每個 case >100ms、Related aggregate >500、Full 任一 shard >500 或任一適用 CI job 失敗仍不得宣稱通過；不靠重跑三次、只挑最好的一次或增加 retry 掩蓋不穩定。只有 CI 失敗／平台異常／結果過期或有明確疑慮才重跑或補充診斷。
+- 僅在重大核心邏輯變更或新測試難確認有效性時，可對少量關鍵 owner 作受控負向驗證，確認測試真的會失敗再還原；不把 mutation check 當作每 PR 必經步驟，也不引入大型 mutation framework。
+- PR 誠實記錄 CI run URL、驗證 commit、結果、保留／刪除的 failure mode、已知失敗與未驗證範圍；一次性量測放 PR 或 ignored `output/`，不寫入長期規範或提交大型永久審計文件。

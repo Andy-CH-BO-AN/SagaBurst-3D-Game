@@ -1,26 +1,35 @@
 import * as THREE from 'three'
 
 const MAX_PREVIEW_SLOTS = 200
-const MARKER_GEOMETRY = new THREE.CircleGeometry(0.32, 12)
-const MARKER_MATERIAL = new THREE.MeshBasicMaterial({
-  color: 0x73e6a2,
-  transparent: true,
-  opacity: 0.72,
-  depthWrite: false,
-})
-const LINE_MATERIAL = new THREE.LineBasicMaterial({
-  color: 0x9af0bd,
-  transparent: true,
-  opacity: 0.9,
-  depthWrite: false,
-})
-const CENTER_GEOMETRY = new THREE.TorusGeometry(0.7, 0.06, 6, 24)
-const CENTER_MATERIAL = new THREE.MeshBasicMaterial({
-  color: 0x9af0bd,
-  transparent: true,
-  opacity: 0.9,
-  depthWrite: false,
-})
+let sharedResources: ReturnType<typeof createResources> | undefined
+
+function createResources() {
+  const MARKER_GEOMETRY = new THREE.CircleGeometry(0.32, 12)
+  const MARKER_MATERIAL = new THREE.MeshBasicMaterial({
+    color: 0x73e6a2,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+  })
+  const LINE_MATERIAL = new THREE.LineBasicMaterial({
+    color: 0x9af0bd,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+  })
+  const CENTER_GEOMETRY = new THREE.TorusGeometry(0.7, 0.06, 6, 24)
+  const CENTER_MATERIAL = new THREE.MeshBasicMaterial({
+    color: 0x9af0bd,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+  })
+  return { MARKER_GEOMETRY, MARKER_MATERIAL, LINE_MATERIAL, CENTER_GEOMETRY, CENTER_MATERIAL }
+}
+
+function resources() {
+  return sharedResources ??= createResources()
+}
 
 /** Lightweight, non-gameplay formation placement visuals. */
 export class FormationPreview {
@@ -34,6 +43,7 @@ export class FormationPreview {
   private readonly lineAttribute: THREE.BufferAttribute
 
   constructor(scene: THREE.Scene) {
+    const { MARKER_GEOMETRY, MARKER_MATERIAL, LINE_MATERIAL, CENTER_GEOMETRY, CENTER_MATERIAL } = resources()
     this.markers = new THREE.InstancedMesh(MARKER_GEOMETRY, MARKER_MATERIAL, MAX_PREVIEW_SLOTS)
     this.markers.name = 'formation-preview-slots'
     this.markers.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
@@ -55,6 +65,7 @@ export class FormationPreview {
   }
 
   show(center: THREE.Vector3, slots: readonly THREE.Vector3[], valid: boolean): void {
+    const { MARKER_MATERIAL, LINE_MATERIAL, CENTER_MATERIAL } = resources()
     const color = valid ? 0x73e6a2 : 0xff6f6f
     MARKER_MATERIAL.color.setHex(color)
     LINE_MATERIAL.color.setHex(color)

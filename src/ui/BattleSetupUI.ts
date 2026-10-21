@@ -29,13 +29,15 @@ import {
   attachArmyAliases,
 } from '../battle/BattleConfig'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import {
   getUnitPresetsForFaction,
+  BASE_UNIT_TIERS,
+  type BaseUnitTier,
   type UnitPresetId,
 } from '../battle/UnitPresetCatalog'
-import { HERO_ASSET_IDS, HERO_ASSETS, getHeroFixedEquipment, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { SETUP_PLAYER_HERO_IDS, HERO_ASSETS, isSetupPlayerHeroId } from '../world/HeroAssetCatalog'
 import { HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifiers } from '../battle/T4HeroCatalog'
 import {
   MAX_COMMAND_SQUAD_SIZE,
@@ -144,21 +146,25 @@ export class BattleSetupUI {
     const renderEquipmentGroup = (
       title: string,
       subtitle: string,
-      cards: Array<{ id: string | null; tier?: string; zh: string; en: string }>,
+      cards: Array<{ id: string | null; tier?: string; zh?: string; en?: string }>,
       kind: 'melee' | 'ranged' | 'shield' | 'mount',
     ) => `
       <section class="equipment-group">
         <div class="equipment-group-heading"><span>${title}</span><small>${subtitle}</small></div>
         <div class="equipment-card-grid">
-          ${cards.map(card => `
+          ${cards.map(card => {
+            const item = card.id ? kind === 'shield' ? ARMORS[card.id] : WEAPONS[card.id] : undefined
+            const [zh, ...en] = item?.name.split(' ') ?? []
+            const tier = item ? `T${item.tier}` : card.tier
+            return `
             <button type="button" class="loadout-card" role="radio" aria-checked="false"
               data-loadout-kind="${kind}" data-loadout-id="${card.id ?? ''}">
-              <span class="loadout-card-top">${card.tier ? `<b>${card.tier}</b>` : '<b>—</b>'}</span>
-              <span class="loadout-card-name">${card.zh}</span>
-              <span class="loadout-card-en">${card.en}</span>
+              <span class="loadout-card-top">${tier ? `<b>${tier}</b>` : '<b>—</b>'}</span>
+              <span class="loadout-card-name">${zh ?? card.zh}</span>
+              <span class="loadout-card-en">${item ? en.join(' ') : card.en}</span>${item?.type === 'shield' ? `<small>${item.shieldImpactMax} IMPACT</small>` : ''}
               <span class="loadout-card-check">✓</span>
             </button>
-          `).join('')}
+          `}).join('')}
         </div>
       </section>
     `
@@ -168,61 +174,70 @@ export class BattleSetupUI {
         <label class="campaign-loadout-field">玩家角色 / PLAYER CHARACTER
           <select id="battle-player-hero">
             <option value="">一般士兵 Standard</option>
-            ${HERO_ASSET_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} T4 · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
+            ${BASE_UNIT_TIERS.map(tier => `<option value="${tier}">一般士兵 T${tier} · Standard</option>`).join('')}
+            ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} ${id.endsWith('t5') ? 'T5' : 'T4'} · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
           </select>
         </label>
-        <p id="battle-fixed-equipment" hidden>遊俠固定使用 T4 弓作近戰，不攜帶盾牌。</p>
         <div class="loadout-panel-heading">
           <h2>玩家裝備</h2><span>PLAYER LOADOUT</span>
         </div>
         <div class="loadout-columns">
           <section class="loadout-category"><div class="loadout-category-heading"><h3>近戰武器</h3><span>MELEE</span></div>
             ${renderEquipmentGroup('維京', 'VIKING', [
-              { id: 'viking_axe_t1', tier: 'T1', zh: '維京長斧', en: 'VIKING AXE' },
-              { id: 'viking_axe_t2', tier: 'T2', zh: '精鋼維京長斧', en: 'STEEL VIKING AXE' },
-              { id: 'viking_axe_t3', tier: 'T3', zh: '符文維京長斧', en: 'RUNIC VIKING AXE' },
+              { id: 'viking_axe_t1' },
+              { id: 'viking_axe_t2' },
+              { id: 'viking_axe_t3' },
             ], 'melee')}
             ${renderEquipmentGroup('羅馬', 'ROMAN', [
-              { id: 'gladius_rusty', tier: 'T1', zh: '生鏽羅馬短劍', en: 'RUSTY GLADIUS' },
-              { id: 'gladius_standard', tier: 'T2', zh: '制式羅馬短劍', en: 'STANDARD GLADIUS' },
-              { id: 'centurion_blade', tier: 'T3', zh: '百夫長短劍', en: 'CENTURION BLADE' },
+              { id: 'gladius_rusty' },
+              { id: 'gladius_standard' },
+              { id: 'centurion_blade' },
             ], 'melee')}
             ${renderEquipmentGroup('T4 共用', 'SHARED T4', [
-              { id: 'paladin_sword_t4', tier: 'T4', zh: '聖騎士長劍', en: 'PALADIN SWORD' },
-              { id: 'paladin_mace_t4', tier: 'T4', zh: '聖騎士戰槌', en: 'PALADIN MACE' },
+              { id: 'paladin_sword_t4' },
+              { id: 'paladin_mace_t4' },
+            ], 'melee')}
+            ${renderEquipmentGroup('T5 共用', 'SHARED T5', [
+              { id: 'sword_t5' },
+              { id: 'axe_t5' },
             ], 'melee')}
             ${renderEquipmentGroup('長槍', 'LANCE', [
-              { id: 'hunting_spear', tier: 'T1', zh: '狩獵長槍', en: 'HUNTING SPEAR' },
-              { id: 'steel_lance', tier: 'T2', zh: '鋼製長槍', en: 'STEEL LANCE' },
-              { id: 'heavy_lance', tier: 'T3', zh: '重裝長槍', en: 'HEAVY LANCE' },
+              { id: 'hunting_spear' },
+              { id: 'steel_lance' },
+              { id: 'heavy_lance' },
+              { id: 'spear_t4' },
+              { id: 'spear_t5' },
             ], 'melee')}
           </section>
           <section class="loadout-category"><div class="loadout-category-heading"><h3>遠程武器</h3><span>RANGED</span></div>
             ${renderEquipmentGroup('維京', 'VIKING', [
-              { id: 'wooden_shortbow', tier: 'T1', zh: '木製短弓', en: 'WOODEN SHORTBOW' },
-              { id: 'recurve_longbow', tier: 'T2', zh: '反曲長弓', en: 'RECURVE LONGBOW' },
-              { id: 'elven_runebow', tier: 'T3', zh: '精靈符文弓', en: 'ELVEN RUNE BOW' },
-              { id: 'maki-ranger-bow-ranged', tier: 'T4', zh: '遊俠弓', en: 'RANGER BOW' },
+              { id: 'wooden_shortbow' },
+              { id: 'recurve_longbow' },
+              { id: 'elven_runebow' },
+              { id: 'maki-ranger-bow-ranged' },
+              { id: 'bow_t5' },
             ], 'ranged')}
             ${renderEquipmentGroup('羅馬', 'ROMAN', [
-              { id: 'pilum_basic', tier: 'T1', zh: '簡易標槍', en: 'BASIC PILUM' },
-              { id: 'pilum_standard', tier: 'T2', zh: '制式標槍', en: 'STANDARD PILUM' },
-              { id: 'legionary_pilum', tier: 'T3', zh: '軍團標槍', en: 'LEGIONARY PILUM' },
+              { id: 'pilum_basic' },
+              { id: 'pilum_standard' },
+              { id: 'legionary_pilum' },
             ], 'ranged')}
           </section>
         </div>
         <section class="loadout-category shield-category"><div class="loadout-category-heading"><h3>盾牌</h3><span>SHIELD</span></div>
-          ${renderEquipmentGroup('T4 共用', 'SHARED T4', [{ id: 'paladin_shield_t4', tier: 'T4', zh: '聖騎士盾牌', en: 'PALADIN SHIELD (48 IMPACT)' }], 'shield')}
-          ${renderEquipmentGroup('無盾', 'NONE', [{ id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' }], 'shield')}
+          ${renderEquipmentGroup('通用', 'GENERAL', [
+            { id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' },
+            { id: 'paladin_shield_t4' },
+          ], 'shield')}
           ${renderEquipmentGroup('維京', 'VIKING', [
-            { id: 'round_shield_t1', tier: 'T1', zh: '基礎圓盾', en: `BASIC ROUND SHIELD (${ARMORS.round_shield_t1.shieldImpactMax} IMPACT)` },
-            { id: 'round_shield_t2', tier: 'T2', zh: '鐵環圓盾', en: `IRON SHIELD (${ARMORS.round_shield_t2.shieldImpactMax} IMPACT)` },
-            { id: 'round_shield_t3', tier: 'T3', zh: '狂戰士圓盾', en: `BERSERKER SHIELD (${ARMORS.round_shield_t3.shieldImpactMax} IMPACT)` },
+            { id: 'round_shield_t1' },
+            { id: 'round_shield_t2' },
+            { id: 'round_shield_t3' },
           ], 'shield')}
           ${renderEquipmentGroup('羅馬', 'ROMAN', [
-            { id: 'scutum_t1', tier: 'T1', zh: '基礎方盾', en: `BASIC SCUTUM (${ARMORS.scutum_t1.shieldImpactMax} IMPACT)` },
-            { id: 'scutum_t2', tier: 'T2', zh: '軍團方盾', en: `LEGION SCUTUM (${ARMORS.scutum_t2.shieldImpactMax} IMPACT)` },
-            { id: 'scutum_t3', tier: 'T3', zh: '百夫長方盾', en: `CENTURION SCUTUM (${ARMORS.scutum_t3.shieldImpactMax} IMPACT)` },
+            { id: 'scutum_t1' },
+            { id: 'scutum_t2' },
+            { id: 'scutum_t3' },
           ], 'shield')}
         </section>
         <section class="starting-state"><div class="loadout-category-heading"><h3>出戰方式</h3><span>STARTING STATE</span></div>
@@ -386,15 +401,12 @@ export class BattleSetupUI {
 
     // Number Inputs
     this.container.querySelector<HTMLSelectElement>('#battle-player-hero')?.addEventListener('change', event => {
-      this.config.playerHeroId = (event.target as HTMLSelectElement).value as PlayerHeroId || null
-      if (this.config.playerHeroId === 'maki-archer-t4'
-        && WEAPONS[this.config.playerLoadout?.rangedWeaponId ?? '']?.combatKind !== 'bow') {
-        this.config.playerLoadout!.rangedWeaponId = T4_RANGER_BOW_RANGED_ID
-      }
-      if (!this.config.playerHeroId && this.config.playerLoadout) {
-        if (this.config.playerLoadout.meleeWeaponId.startsWith('paladin_')) this.config.playerLoadout.meleeWeaponId = 'steel_lance'
-        if (this.config.playerLoadout.shieldId === 'paladin_shield_t4') this.config.playerLoadout.shieldId = 'round_shield_t3'
-      }
+      const heroId = (event.target as HTMLSelectElement).value
+      const tier = Number(heroId) as BaseUnitTier
+      const soldier = BASE_UNIT_TIERS.includes(tier)
+      if (heroId !== '' && !soldier && !isSetupPlayerHeroId(heroId)) return
+      this.config.playerHeroId = isSetupPlayerHeroId(heroId) ? heroId : null
+      this.config.playerVisualTier = soldier ? tier : undefined
       this._refreshView()
     })
     this.container.querySelectorAll('.step-input').forEach(el => {
@@ -475,11 +487,7 @@ export class BattleSetupUI {
     this.container.querySelectorAll('.loadout-card').forEach(card => {
       card.addEventListener('click', () => {
         const target = card as HTMLElement
-        if (getHeroFixedEquipment(this.config.playerHeroId) && ['melee', 'shield'].includes(target.dataset.loadoutKind ?? '')) return
         const id = target.dataset.loadoutId || null
-        if (!this.config.playerHeroId && id?.startsWith('paladin_')) return
-        if (this.config.playerHeroId === 'maki-archer-t4' && target.dataset.loadoutKind === 'ranged'
-          && WEAPONS[id ?? '']?.combatKind !== 'bow') return
         switch (target.dataset.loadoutKind) {
           case 'melee': this.config.playerLoadout!.meleeWeaponId = id as PlayerMeleeWeaponId; break
           case 'ranged': this.config.playerLoadout!.rangedWeaponId = id as PlayerRangedWeaponId; break
@@ -505,6 +513,7 @@ export class BattleSetupUI {
       const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
       const currentLoadout = this.config.playerLoadout
       const currentHero = this.config.playerHeroId
+      const currentVisualTier = this.config.playerVisualTier
       this.config = JSON.parse(JSON.stringify(preset))
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
@@ -515,6 +524,7 @@ export class BattleSetupUI {
       this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
       this.config.playerHeroId = currentHero
+      this.config.playerVisualTier = currentVisualTier
       this.config.squadAssignments = undefined
       this._refreshView()
     }
@@ -532,6 +542,7 @@ export class BattleSetupUI {
       const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
       const currentLoadout = this.config.playerLoadout
       const currentHero = this.config.playerHeroId
+      const currentVisualTier = this.config.playerVisualTier
       this.config = createEmptyBattleConfig()
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
@@ -542,6 +553,7 @@ export class BattleSetupUI {
       this.config.playerHp = currentHp
       this.config.playerLoadout = currentLoadout
       this.config.playerHeroId = currentHero
+      this.config.playerVisualTier = currentVisualTier
       this.config.squadAssignments = undefined
       this._refreshView()
     })
@@ -943,11 +955,8 @@ export class BattleSetupUI {
     }
 
     const loadout = this.config.playerLoadout
-    const fixedEquipment = getHeroFixedEquipment(this.config.playerHeroId)
-    const fixedNotice = this.container.querySelector<HTMLElement>('#battle-fixed-equipment')
-    if (fixedNotice) fixedNotice.hidden = !fixedEquipment
     const heroSelect = this.container.querySelector<HTMLSelectElement>('#battle-player-hero')
-    if (heroSelect) heroSelect.value = this.config.playerHeroId ?? ''
+    if (heroSelect) heroSelect.value = this.config.playerHeroId ?? String(this.config.playerVisualTier ?? '')
     const armyPanel = document.getElementById('setup-army-panel')
     const loadoutPanel = document.getElementById('setup-loadout-panel')
     const armyTab = document.getElementById('setup-tab-army')
@@ -962,13 +971,7 @@ export class BattleSetupUI {
     if (loadout) {
       this.container.querySelectorAll('.loadout-card').forEach(card => {
         const el = card as HTMLButtonElement
-        const locked = (!this.config.playerHeroId && Boolean(el.dataset.loadoutId?.startsWith('paladin_')))
-          || (Boolean(fixedEquipment) && ['melee', 'shield'].includes(el.dataset.loadoutKind ?? ''))
-          || (this.config.playerHeroId === 'maki-archer-t4' && el.dataset.loadoutKind === 'ranged'
-            && WEAPONS[el.dataset.loadoutId ?? '']?.combatKind !== 'bow')
-        el.disabled = locked
-        el.setAttribute?.('aria-disabled', String(locked))
-        const selected = !locked && ((el.dataset.loadoutKind === 'melee' && el.dataset.loadoutId === loadout.meleeWeaponId)
+        const selected = ((el.dataset.loadoutKind === 'melee' && el.dataset.loadoutId === loadout.meleeWeaponId)
           || (el.dataset.loadoutKind === 'ranged' && el.dataset.loadoutId === loadout.rangedWeaponId)
           || (el.dataset.loadoutKind === 'shield' && el.dataset.loadoutId === (loadout.shieldId ?? ''))
           || (el.dataset.loadoutKind === 'mount' && el.dataset.loadoutId === (loadout.mountId ?? 'horse')))

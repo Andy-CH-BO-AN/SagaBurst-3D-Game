@@ -19,6 +19,7 @@ export interface ArmyCommandHudEntry {
   order: ArmyCommandHudOrder
   side: 'left' | 'right'
   summary?: string
+  units?: { icons: string; description: string }
 }
 
 const ORDER_LABELS: Record<ArmyCommandHudOrder, string> = {
@@ -33,10 +34,21 @@ const ORDER_LABELS: Record<ArmyCommandHudOrder, string> = {
   reserve: '待命',
 }
 
-export function armyCommandTargetLabel(target: ArmyCommandTarget | null, officialSquadLabel?: string): string {
-  if (target === 'squad:1' && officialSquadLabel) return officialSquadLabel
+export type SquadLabelResolver = (target: ArmyCommandTarget) => string | undefined
+export type OfficialSquadLabelOption = string | SquadLabelResolver
+
+export function armyCommandTargetLabel(
+  target: ArmyCommandTarget | null,
+  officialSquadLabel?: OfficialSquadLabelOption,
+): string {
   if (target === 'all') return '全軍命令'
   if (target === null) return '命令'
+  if (typeof officialSquadLabel === 'function') {
+    const resolved = officialSquadLabel(target)
+    if (resolved) return resolved
+  } else if (target === 'squad:1' && officialSquadLabel) {
+    return officialSquadLabel
+  }
   if (isSquadCommandTarget(target)) return squadLabel(squadIdFromCommandTarget(target))
   return getUnitPreset(target).nameZh
 }
@@ -48,8 +60,32 @@ export class ArmyCommandUI {
   private readonly commands: HTMLElement
   private readonly feedback: HTMLElement
   private readonly wheelHint: HTMLElement
-  private officialSquadLabel: string | undefined
-  setOfficialSquadLabel(label?: string): void { this.officialSquadLabel = label }
+  private officialSquadLabel: OfficialSquadLabelOption | undefined
+  private labelOptionVersion = 0
+  private onOfficialSquadLabelChanged: (() => void) | null = null
+
+  getLabelOptionVersion(): number { return this.labelOptionVersion ?? 0 }
+  setOnOfficialSquadLabelChanged(cb: (() => void) | null): void { this.onOfficialSquadLabelChanged = cb }
+
+  setOfficialSquadLabel(label?: OfficialSquadLabelOption): boolean {
+    if (this.officialSquadLabel === label) return false
+    this.officialSquadLabel = label
+    this.labelOptionVersion = (this.labelOptionVersion ?? 0) + 1
+    this.onOfficialSquadLabelChanged?.()
+    return true
+  }
+
+  getOfficialSquadLabel(): OfficialSquadLabelOption | undefined { return this.officialSquadLabel }
+
+  resolveSquadLabel(target: ArmyCommandTarget): string | undefined {
+    if (typeof this.officialSquadLabel === 'function') {
+      return this.officialSquadLabel(target)
+    }
+    if (target === 'squad:1' && typeof this.officialSquadLabel === 'string') {
+      return this.officialSquadLabel
+    }
+    return undefined
+  }
 
   private feedbackTimer: number | null = null
   private townHudObserver: ResizeObserver | null = null
@@ -80,6 +116,7 @@ export class ArmyCommandUI {
   dispose(): void {
     if (this.feedbackTimer !== null) window.clearTimeout(this.feedbackTimer)
     this.townHudObserver?.disconnect()
+    this.onOfficialSquadLabelChanged = null
     this.root.remove()
   }
 
@@ -95,6 +132,7 @@ export class ArmyCommandUI {
     selectedWeaponName = '',
     groupingMode: CommandGroupingMode = 'preset',
     personalCommands = false,
+    campaignFollowEnabled = false,
   ): void {
     this.wheelHint.textContent = wheelMode === 'command'
       ? `滾輪：選擇命令　[Q] ${submenuOpen ? '上一頁' : '返回武器切換'}`
@@ -132,7 +170,11 @@ export class ArmyCommandUI {
       ['3', '防禦', 'defend'],
       ['4', '列陣', 'formation'],
     ]
-    if (personalCommands) actions.push(['5', 'Follow me · 跟隨', 'follow'], ['6', 'Dismiss · 收隊', 'dismiss'])
+    if (personalCommands) {
+      actions.push(['5', 'Follow me · 跟隨', 'follow'], ['6', 'Dismiss · 收隊', 'dismiss'])
+    } else if (campaignFollowEnabled) {
+      actions.push(['5', 'Follow me · 跟隨', 'follow'])
+    }
     actions.forEach(([key, label, order], index) => {
       const row = document.createElement('div')
       row.className = `army-command-entry army-command-action ${order}`
@@ -202,14 +244,37 @@ export class ArmyCommandUI {
       row.className = 'army-command-entry'
       row.classList.toggle('highlighted', entry.target === highlightedTarget)
       const label = document.createElement('span')
+      if (entry.units && entry.units.icons.split(' ').length > 4) row.classList.add('army-command-entry-wide')
       label.className = 'army-command-label'
-      const name = entry.target === 'squad:1' && this.officialSquadLabel ? this.officialSquadLabel : entry.label
-      label.textContent = `[${entry.key}] ${name}${entry.summary ? ` ${entry.summary}` : ''}`
+      const name = this.resolveSquadLabel(entry.target) ?? entry.label
+      const heading = document.createElement('span')
+      heading.className = 'army-command-name-row'
+      const text = document.createElement('span')
+      text.className = 'army-command-name'
+      text.textContent = `[${entry.key}] ${name}`
+      heading.append(text)
+      if (entry.units?.icons) {
+        const icons = document.createElement('span')
+        icons.className = 'army-command-unit-icons'
+        icons.textContent = entry.units.icons
+        icons.title = entry.units.description
+        icons.setAttribute('role', 'img'); icons.setAttribute('aria-label', entry.units.description)
+        heading.append(icons)
+      }
+      label.append(heading)
+      if (entry.summary) {
+        const summary = document.createElement('span')
+        summary.className = 'army-command-summary'; summary.textContent = entry.summary
+        label.append(summary)
+      }
+      row.title = `${name}${entry.units?.description ? ` · ${entry.units.description}` : ''}${entry.summary ? ` · ${entry.summary}` : ''}`
+      row.setAttribute('aria-label', `${row.title} · ${ORDER_LABELS[entry.order]}`)
       const order = document.createElement('span')
       order.className = `army-command-order ${entry.order}`
       order.textContent = ORDER_LABELS[entry.order]
       row.append(label, order)
       container.appendChild(row)
     }
+    container.querySelector('.highlighted')?.scrollIntoView({ block: 'nearest' })
   }
 }

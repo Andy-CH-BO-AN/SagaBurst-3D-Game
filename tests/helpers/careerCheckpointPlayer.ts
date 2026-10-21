@@ -5,7 +5,9 @@ import type { Player } from '../../src/player/Player'
 export function careerCheckpointPlayer(dead = false): Pick<Player,
   'group' | 'combatPosition' | 'dead' | 'hp' | 'staminaValue' | 'arrowCount' | 'isFalling' | 'currentMount'>
   & { shield: Pick<Player['shield'], 'shieldImpactRemaining'> } {
-  const group = new THREE.Group()
-  return { group, combatPosition: group.position, dead, hp: dead ? 0 : 100, staminaValue: 100,
+  const position = new THREE.Vector3()
+  // Settlement reads transform data only and must not allocate a render object.
+  const group = { position, rotation: { y: 0 } } as unknown as Player['group']
+  return { group, combatPosition: position, dead, hp: dead ? 0 : 100, staminaValue: 100,
     arrowCount: 20, isFalling: false, currentMount: null, shield: { shieldImpactRemaining: 0 } }
 }

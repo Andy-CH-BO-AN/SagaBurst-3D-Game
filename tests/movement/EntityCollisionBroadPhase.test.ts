@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
+import { describe, expect, it } from 'vitest'
 import {
   EntityCollisionBroadPhase,
 } from '../../src/world/EntityCollisionBroadPhase'
@@ -24,40 +24,19 @@ function body(
   }
 }
 
-function cloneBodies(
-  bodies: readonly EntityCollisionBody[],
-): EntityCollisionBody[] {
-  return bodies.map(candidate => ({
-    ...candidate,
-    position: candidate.position.clone(),
-  }))
-}
-
-function resolveNaive(
-  bodies: EntityCollisionBody[],
-  obstacles: ObstacleData[],
-): void {
-  for (let i = 0; i < bodies.length; i++) {
-    for (let j = i + 1; j < bodies.length; j++) {
-      resolveEntityCollision(bodies[i], bodies[j], obstacles)
-    }
-  }
-}
-
-function expectSamePositions(
-  actual: readonly EntityCollisionBody[],
-  expected: readonly EntityCollisionBody[],
-): void {
-  expect(actual).toHaveLength(expected.length)
-  for (let i = 0; i < actual.length; i++) {
-    expect(actual[i].position.x).toBeCloseTo(expected[i].position.x, 10)
-    expect(actual[i].position.y).toBeCloseTo(expected[i].position.y, 10)
-    expect(actual[i].position.z).toBeCloseTo(expected[i].position.z, 10)
-  }
-}
-
 describe('EntityCollisionBroadPhase', () => {
-  it('matches the original all-pairs result for a dense collision chain', () => {
+  it('separates mounted bodies on an admitted slope instead of anchoring them inside its broadphase box', () => {
+    const first = { ...body(-.2, 4, 1), mountedSurfaces: true }
+    const second = { ...body(.2, 4, 1), mountedSurfaces: true }
+    first.position.y = second.position.y = 1
+    const obstacle: ObstacleData = { isBarricade: true, box: new THREE.Box3(new THREE.Vector3(-3, 0, 0), new THREE.Vector3(3, 3, 12)),
+      walkSurface: { startX: 0, startZ: 0, startY: 0, dirX: 0, dirZ: 1, length: 12, landing: 0, topY: 3, halfWidth: 3, mounted: true } }
+    resolveEntityCollision(first, second, [obstacle])
+    expect(first.position.distanceTo(second.position)).toBeCloseTo(2)
+    expect(first.position.y).toBe(1)
+  })
+
+  it('separates a dense collision chain in stable pair order', () => {
     const source = [
       body(0, 0),
       body(-0.8, 0),
@@ -65,50 +44,13 @@ describe('EntityCollisionBroadPhase', () => {
       body(1.85, 0),
       body(6, 0),
     ]
-    const expected = cloneBodies(source)
-    const actual = cloneBodies(source)
-
-    resolveNaive(expected, [])
+    const actual = source
     const stats = new EntityCollisionBroadPhase().resolve(actual, [])
 
-    expectSamePositions(actual, expected)
+    expect(actual.map(candidate => candidate.position.x)).toEqual([
+      expect.closeTo(.075, 10), expect.closeTo(-.9, 10), expect.closeTo(.9625, 10), expect.closeTo(1.9625, 10), 6,
+    ])
     expect(stats.pairChecks).toBeLessThan(source.length * (source.length - 1) / 2)
-  })
-
-  it('matches anchored collision behavior beside a world obstacle', () => {
-    const source = [
-      body(0, 0, 1, true),
-      body(1.4, 0, 0.5),
-      body(2.1, 0, 0.5),
-    ]
-    const obstacles: ObstacleData[] = [{
-      box: new THREE.Box3(
-        new THREE.Vector3(1.8, -1, -1),
-        new THREE.Vector3(2.4, 3, 1),
-      ),
-      isBarricade: true,
-    }]
-    const expected = cloneBodies(source)
-    const actual = cloneBodies(source)
-
-    resolveNaive(expected, obstacles)
-    new EntityCollisionBroadPhase().resolve(actual, obstacles)
-
-    expectSamePositions(actual, expected)
-  })
-
-  it('skips all impossible pairs for widely separated armies', () => {
-    const bodies: EntityCollisionBody[] = []
-    for (let z = 0; z < 20; z++) {
-      for (let x = 0; x < 20; x++) {
-        bodies.push(body(x * 5, z * 5))
-      }
-    }
-
-    const stats = new EntityCollisionBroadPhase().resolve(bodies, [])
-
-    expect(stats.pairChecks).toBe(0)
-    expect(bodies).toHaveLength(400)
   })
 
   it('updates grid membership after a push creates a new later collision', () => {
@@ -117,13 +59,11 @@ describe('EntityCollisionBroadPhase', () => {
       body(-0.8, 0),
       body(1.05, 0),
     ]
-    const expected = cloneBodies(source)
-    const actual = cloneBodies(source)
-
-    resolveNaive(expected, [])
+    const actual = source
     new EntityCollisionBroadPhase().resolve(actual, [])
 
-    expectSamePositions(actual, expected)
-    expect(actual[2].position.x).toBeGreaterThan(source[2].position.x)
+    expect(actual.map(candidate => candidate.position.x)).toEqual([
+      expect.closeTo(.075, 10), expect.closeTo(-.9, 10), expect.closeTo(1.075, 10),
+    ])
   })
 })

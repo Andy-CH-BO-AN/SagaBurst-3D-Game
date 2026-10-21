@@ -1,20 +1,23 @@
+import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
 import { generateFormationSlots } from '../battle/FormationMath'
+import { registerPersonalCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import * as THREE from 'three'
 import { PERSONAL_SQUAD_ID } from '../battle/CommandTarget'
 import { followLocalOffset } from '../battle/FollowOrder'
 import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
+import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
 import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CombatEventSink } from '../combat/CombatAttribution'
 import type { Player } from '../player/Player'
-import { T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 import { Mount } from '../world/Mount'
 import { NPC, AIType, Faction } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
 import type { EagleLandingQueue } from '../world/EagleLandingQueue'
 import { isEaglePadArrived } from '../world/EaglePadArrival'
-import { initialPersonalEquipment } from './CareerInventory'
+import { legacyPersonalEquipment } from './CareerInventory'
 import { careerEaglePadOwners, EaglePadReservations, type EaglePad } from './EaglePadReservations'
 import { careerMountType } from './CareerMountController'
 import type { CareerPersonalSquadMember } from './CareerPersonalSquad'
@@ -26,12 +29,19 @@ import { snapshotPersonalMission, clonePersonalMission, preparePersonalMissionAc
 export type PersonalSquadSpawnSlot = PersonalActorPosition
 export function personalMemberLoadout(member: CareerPersonalSquadMember, faction: CareerProfile['faction']) {
   const presetId = `${faction}_${member.type === 'soldier' ? faction === 'roman' ? 'heavy_infantry' : 'berserker' : member.type === 'ranger' ? 'horse_archer' : 'sword_cavalry'}` as UnitPresetId
-  const hero = member.type === 'soldier' ? undefined : T4_UNIT_PROFILES[member.type === 'ranger' ? `${faction}_archer` as UnitPresetId : presetId]
-  const equipment = member.equipment ?? initialPersonalEquipment(member.type, faction)
-  return { presetId, hero, tier: member.type === 'soldier' ? 2 as const : 4 as const,
-    mounted: Boolean(equipment.mount), loadout: member.type === 'ranger'
-      ? { meleeWeaponId: 'maki-ranger-bow', rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: equipment.mount }
-      : { meleeWeaponId: equipment.melee, rangedWeaponId: equipment.ranged, shieldId: equipment.shield, mountId: equipment.mount } }
+  const commanderAsset = `${faction}-hero-t5` as const
+  const hero = member.type === 'commander'
+    ? { visualAssetId: commanderAsset, combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[commanderAsset], specialCombatProfile: undefined }
+    : member.type === 'soldier' ? undefined : T4_UNIT_PROFILES[member.type === 'ranger' ? `${faction}_archer` as UnitPresetId : presetId]
+  if (member.type === 'ranger' && !member.equipment) throw new Error('Ranger equipment must be migrated and saved before deployment')
+  const equipment = member.equipment ?? legacyPersonalEquipment(member.type, faction)
+  // Ranged equipment is the initial primary weapon, matching NPC AI selection below.
+  // Reserve-only equipment changes resolve again on deployment; weapon tier never grants a hero profile.
+  const primaryWeapon = WEAPONS[equipment.ranged ?? equipment.melee ?? '']
+  // Like the Town Commander, T5 uses the existing NPC hero tier with its explicit asset and full combat profile.
+  return { presetId, hero, tier: member.type === 'soldier' ? Math.min(4, primaryWeapon?.tier ?? 1) as 1 | 2 | 3 | 4 : 4 as const,
+    mounted: Boolean(equipment.mount), loadout: { meleeWeaponId: equipment.melee, rangedWeaponId: equipment.ranged, shieldId: equipment.shield, mountId: equipment.mount,
+      ...(member.type === 'ranger' ? { reversibleRangedSwitch: true } : {}) } }
 }
 
 export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPersonalSquadMember,
@@ -39,14 +49,15 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
   assertNpcSpawnJob()
   const spec = personalMemberLoadout(member, faction)
   const npc = trackNpcSpawn(new NPC(scene, slot.x, slot.z, Faction.PLAYER, faction, spec.loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE,
-    member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : 'Personal Maki',
+    member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : member.type === 'commander' ? 'Personal Commander' : 'Personal Shadow Warden',
     spec.tier, spec.mounted, spec.loadout, spec.presetId, PERSONAL_SQUAD_ID, member.id, emit,
     spec.hero?.visualAssetId, spec.hero?.combatProfileId, spec.hero?.specialCombatProfile))
+  registerPersonalCombatDisplayName(npc, member, faction)
   npc.combatOwnership = 'player-personal'
   npc.respawnEnabled = false
   npc.group.rotation.y = slot.yaw
   if (!spec.mounted) return { npc }
-  const mount = trackNpcSpawn(new Mount(scene, careerMountType(spec.loadout.mountId!), boardingPad?.x ?? slot.x, boardingPad?.z ?? slot.z))
+  const mount = trackNpcSpawn(new Mount(scene, careerMountType(spec.loadout.mountId!), boardingPad?.x ?? slot.x, boardingPad?.z ?? slot.z, undefined, horseVariantForStableKey(`personal:${member.id}`)))
   mount.group.rotation.y = boardingPad?.yaw ?? slot.yaw; mount.reservedForTown = true
   if (!boardingPad) npc.mountVehicle(mount)
   return { npc, mount }
@@ -128,6 +139,11 @@ export class PersonalSquadRuntime {
   }
   get sceneKey(): string { return this.options.sceneKey ?? 'town-home' }
   get hasHR(): boolean { return this.options.hasHR !== false }
+  /** Final retirement has no HR refit boundary: every live resource and casualty stays owned. */
+  private get retirementResourcesLocked(): boolean {
+    const phase = this.read().careerRetirement?.phase
+    return phase === 'final-stand' || phase === 'completed'
+  }
   setMuster(slots: readonly PersonalSquadSpawnSlot[], eaglePads?: readonly EaglePad[]): void {
     if (eaglePads) this.eaglePads.setPads(eaglePads)
     this.muster = slots
@@ -207,6 +223,7 @@ export class PersonalSquadRuntime {
       this.queueMember(member, slot, index, npc => { this.restoreActor(npc, saved, changedScene, index); if (!changedScene && saved.status === 'reserve' && !saved.order && !this.boarding.has(npc)) npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted)) })
     }
     this.mission.sceneKey = this.sceneKey
+    delete this.mission.returnToHR
     this.returnCommand = Math.min(-1000, ...Object.values(this.mission.members).map(member => member.formation?.commandId ?? -1000))
     this.checkpoint()
   }
@@ -214,7 +231,7 @@ export class PersonalSquadRuntime {
   /** HR repairs live members; absent casualties return to reserve for the next deployment. */
   get canRefit(): boolean {
     const profile = this.read()
-    return this.hasHR && this.ready && !profile.activeMission && !profile.activeOutpostMission
+    return this.hasHR && this.ready && !this.retirementResourcesLocked && !profile.activeMission && !profile.activeOutpostMission
       && Boolean(profile.personalSquad?.members.length) && this.command !== 'attack' && this.command !== 'charge'
       && !this.actors.some(actor => !actor.dead && (actor.inCombat || actor.tacticalOrder === 'attack' || actor.tacticalOrder === 'charge'))
       && (this.options.canRefit?.() ?? true)
@@ -251,13 +268,24 @@ export class PersonalSquadRuntime {
     if (profile.activeMission?.kind === 'duel') return false
     if ((profile.activeMission || profile.activeOutpostMission) && !this.mission) return false
     this.mission ??= snapshotPersonalMission(profile, this.sceneKey)
-    this.syncEagleReservations()
-    const memberIds = this.mission?.memberIds ?? profile.personalSquad?.members.map(member => member.id) ?? []
     const existing = new Set(this.actors.map(actor => actor.combatantId))
     const owned = new Map((profile.personalSquad?.members ?? []).map(member => [member.id, member]))
+    if (this.mission && this.hasHR && !this.retirementResourcesLocked && !profile.activeMission && !profile.activeOutpostMission) {
+      // Free-town deployment admits later hires and completed HR arrivals. Live
+      // wounds and casualties remain authoritative; this is not a refit boundary.
+      this.mission.memberIds = [...owned.keys()]
+      for (const id of this.mission.memberIds) {
+        const saved = this.mission.members[id]
+        if ((!saved || saved.status === 'exited') && !existing.has(id) && !this.pending.has(id)) {
+          this.mission.members[id] = { status: 'reserve', ...(saved?.eaglePadId ? { eaglePadId: saved.eaglePadId } : {}) }
+        }
+      }
+    }
+    this.syncEagleReservations()
+    const memberIds = this.mission?.memberIds ?? profile.personalSquad?.members.map(member => member.id) ?? []
     for (const [index, id] of memberIds.entries()) {
       const saved = this.mission?.members[id]
-      if (existing.has(id) || this.pending.has(id) || saved && saved.status !== 'reserve') continue
+      if (this.retirementResourcesLocked || existing.has(id) || this.pending.has(id) || saved && saved.status !== 'reserve') continue
       const member = owned.get(id), slot = this.muster[index]
       if (member && slot) this.queueMember(member, slot, index)
     }
@@ -308,6 +336,7 @@ export class PersonalSquadRuntime {
       }
     }
     if (order) {
+      for (const actor of this.actors) actor.missionMovement = false
       this.command = order; this.commandRevision++
       const formation = order === 'formation' ? this.actors.find(actor => !actor.dead && actor.combatFormationCheckpoint)?.combatFormationCheckpoint : undefined
       const ids = [...this.pending.keys()]
@@ -340,6 +369,13 @@ export class PersonalSquadRuntime {
     const live = this.actors.filter(actor => !actor.dead)
     this.checkpoint()
     if (this.state === 'RETURNING' && live.every(actor => !actor.mount?.isFlyingMount && !actor.mount?.isAirborne && !actor.pendingFall?.active && actor.formationCommandId !== null && actor.isFormationTargetReached(actor.formationCommandId))) {
+      if (this.retirementResourcesLocked) {
+        // Returning remains a movement command, never a resurrection/healing boundary.
+        this.state = 'ACTIVE'; this.battleWorn = true
+        for (const actor of live) actor.missionMovement = false
+        this.checkpoint()
+        return
+      }
       if (this.mission) for (const actor of live) this.mission.members[actor.combatantId].status = 'exited'
       this.disposeActors()
       if (!this.read().activeMission && !this.read().activeOutpostMission) { this.mission = undefined; this.battleWorn = false }
@@ -404,6 +440,7 @@ export class PersonalSquadRuntime {
     const eaglePad = member.equipment?.mount === 'xongkoro' ? this.eaglePads.reserve(member.id, this.mission?.members[member.id]?.eaglePadId) : undefined
     // New excess legacy deployments wait in reserve. Existing same-scene actors retain their saved flight/position.
     const saved = this.mission?.members[member.id]
+    const returningHome = this.hasHR && this.mission?.returnToHR === true
     const restoreExistingEagle = Boolean(restore && this.mission?.sceneKey === this.sceneKey && saved?.status === 'deployed' && saved.position && saved.mount)
     if (member.equipment?.mount === 'xongkoro' && !eaglePad && !restoreExistingEagle) return
     if (eaglePad) this.reservedEagleOwners.add(member.id)
@@ -428,9 +465,9 @@ export class PersonalSquadRuntime {
       status: 'reserve', position: { ...slot }, order: 'follow' }
     batch.enqueue(member.id, () => {
       const saved = this.mission?.members[member.id]
-      const boardAtHome = this.hasHR && (!restore || saved?.boarding || saved?.status === 'reserve' && !saved.mount)
+      const boardAtHome = !returningHome && this.hasHR && (!restore || saved?.boarding || saved?.status === 'reserve' && !saved.mount)
       const deployment = !this.hasHR && eaglePad && !restoreExistingEagle ? eaglePad : slot
-      const npc = this.spawnMember(member, deployment, boardAtHome ? eaglePad : undefined, index)
+      const npc = this.spawnMember(member, deployment, boardAtHome ? eaglePad : undefined, index, returningHome ? eaglePad : undefined)
       restore?.(npc)
       if (!restore || revision !== this.commandRevision) this.applyCommand(npc, index)
       this.holdDeadPlayerFollow(npc, index)
@@ -450,9 +487,23 @@ export class PersonalSquadRuntime {
   }
 
   private applyCommand(npc: NPC, index: number): void {
+    npc.missionMovement = false
     if (npc.mount?.isFlyingMount) npc.setEagleFlightOrder(null)
+    // A formal HR return parks the owned eagle separately from its rider. A
+    // later Follow, including one issued while restore jobs are pending, boards
+    // that same mount through the ordinary live-contact transfer.
+    const ownedMount = this.memberMounts.get(npc.combatantId)
+    if (this.command === 'follow' && this.hasHR && !npc.mount && !npc.isFalling
+      && ownedMount?.isFlyingMount && !ownedMount.dead && !this.boarding.has(npc)) {
+      this.orderBoarding(npc, ownedMount, index)
+      return
+    }
     const boarding = this.boarding.get(npc)
-    if (boarding) { this.walkTo(npc, boarding.pad); return }
+    if (boarding) {
+      const mount = this.memberMounts.get(npc.combatantId)
+      if (mount && !mount.dead) this.orderBoarding(npc, mount, boarding.index)
+      return
+    }
     if (this.command === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))
     else if (this.command === 'formation' && this.mission?.members[npc.combatantId]?.formation) {
       const f = this.mission.members[npc.combatantId].formation!, p = f.position
@@ -461,9 +512,10 @@ export class PersonalSquadRuntime {
     } else if (this.command) npc.setTacticalOrder(this.command)
   }
 
-  private spawnMember(member: CareerPersonalSquadMember, slot: PersonalSquadSpawnSlot, boardingPad?: PersonalSquadSpawnSlot, memberIndex = 0): NPC {
+  private spawnMember(member: CareerPersonalSquadMember, slot: PersonalSquadSpawnSlot, boardingPad?: PersonalSquadSpawnSlot,
+    memberIndex = 0, parkedPad?: PersonalSquadSpawnSlot): NPC {
     assertNpcSpawnJob()
-    const { npc, mount } = this.spawn(this.scene, member, this.read().faction, slot, this.options.emit, boardingPad)
+    const { npc, mount } = this.spawn(this.scene, member, this.read().faction, slot, this.options.emit, boardingPad ?? parkedPad)
     trackNpcSpawn(npc); if (mount) trackNpcSpawn(mount)
     this.actors.push(npc); this.actorSet.add(npc)
     const index = this.mission?.memberIds.indexOf(member.id) ?? this.read().personalSquad?.members.findIndex(value => value.id === member.id) ?? 0
@@ -528,6 +580,7 @@ export class PersonalSquadRuntime {
 
   /** Refit each returned rider before admitting a legacy overflow owner to the same physical pad. */
   private finishEagleReturn(actor: NPC): void {
+    if (this.retirementResourcesLocked) return
     const mount = this.memberMounts.get(actor.combatantId)
     if (this.mission?.members[actor.combatantId]) this.mission.members[actor.combatantId].status = 'exited'
     this.options.onDispose?.(actor, mount)
@@ -538,16 +591,29 @@ export class PersonalSquadRuntime {
     this.returningOnFoot.delete(actor); this.releaseEaglePad(actor.combatantId)
   }
 
-  private walkTo(actor: NPC, slot: PersonalSquadSpawnSlot): void {
-    actor.assignFormationTarget(this.returnCommand, new THREE.Vector3(slot.x, getTerrainHeight(slot.x, slot.z), slot.z),
+  private walkTo(actor: NPC, slot: PersonalSquadSpawnSlot, preserveHeight = false): void {
+    actor.missionMovement = this.state === 'RETURNING'
+    actor.assignFormationTarget(this.returnCommand, new THREE.Vector3(slot.x, preserveHeight ? slot.y ?? getTerrainHeight(slot.x, slot.z) : getTerrainHeight(slot.x, slot.z), slot.z),
       new THREE.Vector3(Math.sin(slot.yaw), 0, Math.cos(slot.yaw)), undefined, actor.mount?.isFlyingMount ? 'defend' : undefined)
+  }
+
+  private orderBoarding(actor: NPC, mount: Mount, index: number): void {
+    const pad = this.position(mount.group.position, mount.group.rotation.y)
+    this.boarding.set(actor, { pad, index })
+    this.walkTo(actor, pad, true)
   }
 
   private updateEagleTransfers(): void {
     for (const [actor, boarding] of this.boarding) {
       const mount = this.memberMounts.get(actor.combatantId)
       if (actor.dead || !mount || mount.dead) { this.boarding.delete(actor); continue }
-      if (Math.hypot(actor.combatPosition.x - boarding.pad.x, actor.combatPosition.z - boarding.pad.z) > 2) continue
+      // The reserved home is not necessarily where a restored/moving mount is.
+      const position = mount.group.position
+      if (Math.hypot(position.x - boarding.pad.x, position.z - boarding.pad.z,
+        position.y - (boarding.pad.y ?? getTerrainHeight(boarding.pad.x, boarding.pad.z))) > .25) {
+        this.orderBoarding(actor, mount, boarding.index)
+      }
+      if (mount.isAirborne || actor.combatPosition.distanceTo(position) > 2) continue
       actor.mountVehicle(mount)
       if (actor.mount !== mount) continue
       this.boarding.delete(actor)
@@ -607,8 +673,8 @@ export class PersonalSquadRuntime {
     if (saved.position) npc.group.position.set(saved.position.x, saved.position.y ?? getTerrainHeight(saved.position.x, saved.position.z), saved.position.z)
     if (saved.fall) { npc.dismountFromMount(); npc.restorePendingFall(saved.fall) }
     if ((saved.boarding || this.boarding.has(npc)) && mount && !mount.dead) {
-      const pad = this.eaglePad(npc)
-      if (pad) { this.boarding.set(npc, { pad, index }); this.walkTo(npc, pad); return }
+      this.orderBoarding(npc, mount, index)
+      return
     }
     if (this.state === 'RETURNING' && npc.mount?.isFlyingMount) { this.orderEagleReturn(npc); return }
     if (saved.order === 'follow') npc.assignFollowTarget(this.player(), index, followLocalOffset(index, npc.isMounted))

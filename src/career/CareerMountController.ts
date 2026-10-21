@@ -1,9 +1,10 @@
+import type { RaceRider } from './CareerRaceState'
 import { availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from './CareerInventory'
 import * as THREE from 'three'
 import { getCareerPurchaseTier, cloneCareerProfile, canonicalCareerMountId, ownsCareerHorse, type CareerMountId, type CareerProfile } from './CareerProfile'
 import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentUI'
 import type { Player } from '../player/Player'
-import type { HorseAppearanceVariant } from '../world/HorseAssetRegistry'
+import { horseVariantFromSave, type HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 import { Mount, MountType } from '../world/Mount'
 import { findEagleLandingPosition, type EagleLandingPoint } from '../world/EagleLanding'
 import { syncCareerEaglePads, EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from './EaglePadReservations'
@@ -33,13 +34,11 @@ export function careerMountType(id: CareerMountId): MountType {
 
 export function careerMountTier(id: CareerMountId, profile: Pick<CareerProfile, 'rank'>): number {
   const canonical = canonicalCareerMountId(id)
-  return canonical === 'horse' ? getCareerPurchaseTier(profile.rank) : MOUNTS[canonical].tier
+  return canonical === 'horse' ? Math.min(4, getCareerPurchaseTier(profile.rank)) : MOUNTS[canonical].tier
 }
 
-export function careerMountAppearanceVariant(id?: CareerMountId): HorseAppearanceVariant {
-  if (id === 'horse-t2') return 1
-  if (id === 'horse-t3') return 2
-  return 0
+export function careerMountAppearanceVariant(profile: Pick<CareerProfile, 'horseAppearanceVariant'>): HorseAppearanceVariant {
+  return horseVariantFromSave(profile.horseAppearanceVariant)
 }
 
 export function canUseCareerMount(profile: CareerProfile, id: CareerMountId): boolean {
@@ -90,7 +89,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     private readonly options: { eaglePads?: EaglePadReservations; eagleDeployment?: () => EagleLandingPoint | undefined } = {},
   ) {
     syncCareerEaglePads(this.options.eaglePads, this.readProfile(), this.sceneKey())
-    const state = this.readProfile().activeMission?.mountState
+    const state = this.readProfile().activeMission?.mountState ?? this.readProfile().retirementRuntime?.mountState
     if (!state) return
     for (const id of Object.keys(state.hp) as CareerMountId[]) {
       const value = state.hp[id]
@@ -113,10 +112,24 @@ export class CareerMountController implements EquipmentMountAdapter {
       available: careerMountTier(id, profile) <= unlockedTier && !this.unavailable.has(id) && canAllocateCareerItemToPlayer(profile, id),
       quantityText: `總持有 ${careerItemTotal(profile, id)} · 可用 ${availableCareerItem(profile, id)}`,
       allocated: profile.selectedMountId === id,
+      ...(id === 'horse' ? { appearanceVariant: careerMountAppearanceVariant(profile), appearanceEditable: !profile.activeRace } : {}),
     }))
   }
 
+  setAppearanceVariant(variant: HorseAppearanceVariant): boolean {
+    const profile = this.readProfile()
+    if (profile.activeRace) return this.fail('賽馬期間不能變更戰馬毛色。')
+    if (![0, 1, 2].includes(variant) || !ownsCareerHorse(profile)) return this.fail('無法變更戰馬毛色。')
+    const next = cloneCareerProfile(profile)
+    next.horseAppearanceVariant = variant
+    if (!this.commit(next)) return this.fail('保存失敗，戰馬毛色沒有變更。')
+    this.active?.mount.setAppearanceVariant(variant)
+    this.statusText = '戰馬毛色已保存。'
+    return true
+  }
+
   activate(rawId: string): boolean {
+    if (this.readProfile().activeRace) return this.fail('賽馬期間不能召喚或切換坐騎。')
     if (this.player().isFalling || this.player().currentMount?.isAirborne) return this.fail('請先安全降落，再召喚或切換坐騎。')
     const id = canonicalCareerMountId(rawId as CareerMountId)
     const config = MOUNTS[id]
@@ -148,7 +161,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     }
 
     const previous = this.active
-    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(id))
+    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(profile))
     mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
     this.installDeathPersistence(id, mount)
     if (previous) this.hp.set(previous.id, previous.mount.currentHp)
@@ -157,6 +170,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     const next = cloneCareerProfile(profile)
     normalizeCareerInventory(next)
     next.selectedMountId = id
+    delete next.racePlayerState
     if (next.activeMission) next.activeMission.mountState = this.outingState(id)
     if (!this.commit(next)) {
       if (previousHp === undefined) this.hp.delete(id)
@@ -174,39 +188,62 @@ export class CareerMountController implements EquipmentMountAdapter {
     return true
   }
 
-  restoreActiveMount(): boolean {
+  restoreRaceMount(saved: RaceRider): boolean {
+    if (this.active) return false
+    const profile = this.readProfile(), id = saved.mountId
+    if (!canUseCareerMount(profile, id)) return false
+    const p = saved.mountPosition
+    const mount = new Mount(this.scene, careerMountType(id), p.x, p.z, p.y, careerMountAppearanceVariant(profile))
+    this.active = { id, mount }; this.hp.set(id, saved.mountHp)
+    this.installDeathPersistence(id, mount)
+    mount.group.rotation.y = p.yaw
+    if (saved.mountHp === 0) { mount.takeDamage(mount.maxHp * 100); this.unavailable.add(id) }
+    else mount.currentHp = Math.min(mount.maxHp, saved.mountHp)
+    return true
+  }
+
+  restoreActiveMount(restoreAerial = true): boolean {
+    if (this.active) return true
     const profile = this.readProfile()
-    const aerial = profile.playerAerialState?.sceneKey === this.sceneKey() ? profile.playerAerialState : undefined
-    if (aerial?.fall) return false
-    const savedId = profile.activeMission?.mountState?.activeMountId ?? (aerial?.mount ? 'xongkoro' : undefined)
+    const retirement = profile.careerRetirement?.phase === 'final-stand' ? profile.retirementRuntime : undefined
+    const aerial = restoreAerial && profile.playerAerialState?.sceneKey === this.sceneKey() ? profile.playerAerialState : undefined
+    if (aerial?.fall && !retirement?.mount) return false
+    const savedId = profile.activeMission?.mountState?.activeMountId ?? profile.retirementRuntime?.mountState?.activeMountId ?? (aerial?.mount ? 'xongkoro' : undefined)
     const id = savedId ? canonicalCareerMountId(savedId) : undefined
     if (!id || !MOUNTS[id] || !canUseCareerMount(profile, id) || this.unavailable.has(id) || (this.hp.get(id) ?? 1) <= 0) return false
     syncCareerEaglePads(this.options.eaglePads, profile, this.sceneKey())
     const pad = id === 'xongkoro' ? this.options.eaglePads?.reserve(PLAYER_EAGLE_PAD_OWNER) : undefined
     // A legacy fourth Player eagle already in flight keeps its saved runtime, even while all home pads are reserved.
-    if (id === 'xongkoro' && this.options.eaglePads && !pad && !aerial?.mount) return false
+    if (id === 'xongkoro' && this.options.eaglePads && !pad && !aerial?.mount && !retirement?.mount) return false
     const deployment = this.options.eagleDeployment?.()
-    const heading = aerial?.mount?.position.yaw ?? deployment?.yaw ?? this.player().facingYaw
-    const position = id === 'xongkoro' && aerial?.mount
+    const heading = retirement?.mount?.position.yaw ?? aerial?.mount?.position.yaw ?? deployment?.yaw ?? this.player().facingYaw
+    const position = retirement?.mount
+      ? new THREE.Vector3(retirement.mount.position.x, retirement.mount.position.y, retirement.mount.position.z)
+      : id === 'xongkoro' && aerial?.mount
       ? new THREE.Vector3(aerial.mount.position.x, aerial.mount.position.y, aerial.mount.position.z)
       : id === 'xongkoro'
       ? findEagleLandingPosition(deployment ?? { ...this.player().combatPosition, yaw: heading }, this.obstacles(),
         [...this.occupied(), ...(this.options.eaglePads?.pads.filter(other => other.id !== pad?.id) ?? [])], getScenePlayableWorldBound(this.scene))
       : findSafeCareerMountPosition(this.player().combatPosition, this.obstacles(), this.occupied())
     if (!position) return false
-    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(id))
+    const mount = new Mount(this.scene, careerMountType(id), position.x, position.z, position.y, careerMountAppearanceVariant(profile))
     mount.currentHp = Math.max(1, Math.min(mount.maxHp, this.hp.get(id) ?? mount.maxHp))
     this.installDeathPersistence(id, mount)
     this.active = { id, mount }
-    this.player().mountVehicle(mount, id === 'xongkoro' ? heading : undefined)
+    if (!retirement || retirement.player.mounted) this.player().mountVehicle(mount, id === 'xongkoro' ? heading : undefined)
     this.statusText = `${MOUNTS[canonicalCareerMountId(id)].name}已恢復，剩餘耐久 ${Math.ceil(mount.currentHp)}/${mount.maxHp}。`
     return true
   }
 
   dismiss(): boolean {
+    if (this.readProfile().activeRace) return this.fail('賽馬期間不能收起坐騎。')
     if (this.player().isFalling || this.active?.mount.isAirborne) return this.fail('請先安全降落，再收起坐騎。')
     if (!this.active) return false
     const entry = this.active
+    if (this.readProfile().racePlayerState) {
+      const next = cloneCareerProfile(this.readProfile()); delete next.racePlayerState
+      if (!this.commit(next)) return this.fail('保存失敗，坐騎仍保持召喚。')
+    }
     this.hp.set(entry.id, entry.mount.currentHp)
     if (!this.persistOutingState(undefined)) return this.fail('保存失敗，坐騎仍保持召喚。')
     this.removeMountVisual(entry)
@@ -216,9 +253,11 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   release(rawId: string): boolean {
+    if (this.readProfile().activeRace) return this.fail('賽馬期間不能解除坐騎分配。')
     if (this.player().isFalling || this.active?.mount.isAirborne) return this.fail('請先安全降落，再解除坐騎分配。')
     const id = canonicalCareerMountId(rawId as CareerMountId)
     const next = cloneCareerProfile(this.readProfile())
+    delete next.racePlayerState
     if (next.selectedMountId !== id) return false
     delete next.selectedMountId
     if (next.activeMission?.mountState) delete next.activeMission.mountState.activeMountId
@@ -241,6 +280,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   restInTown(): void {
+    if (['final-stand', 'completed'].includes(this.readProfile().careerRetirement?.phase ?? '')) return
     if (this.active) this.removeMountVisual(this.active)
     this.active = null
     this.unavailable.clear()
@@ -304,9 +344,10 @@ export class CareerMountController implements EquipmentMountAdapter {
 
   private persistOutingState(activeMountId: CareerMountId | undefined): boolean {
     const profile = this.readProfile()
-    if (!profile.activeMission) return true
+    if (!profile.activeMission && profile.careerRetirement?.phase !== 'final-stand') return true
     const next = cloneCareerProfile(profile)
-    next.activeMission!.mountState = this.outingState(activeMountId)
+    if (next.activeMission) next.activeMission.mountState = this.outingState(activeMountId)
+    else if (next.retirementRuntime) next.retirementRuntime.mountState = this.outingState(activeMountId)
     return this.commit(next)
   }
 

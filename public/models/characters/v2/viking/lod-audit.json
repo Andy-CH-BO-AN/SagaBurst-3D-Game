@@ -1,0 +1,28 @@
+{
+  "sourceSha256": "a66917fffe0b2ab9b682e14675993ddf0f184420a585e9951e629d35a40b8c0c",
+  "sourceAnimationBufferSha256": "ae2cbe3b85bed472f1dbba5109e6b8624f5d876397a64ac4a62b79ecf13dbed1",
+  "skinJoints": 22,
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 10290,
+      "bytes": 14800492,
+      "strategy": "Source geometry unchanged; wrapper normalization and texture resize only.",
+      "banditFootAxeSha256": "564339b0624da0dd3eea6ce02fc666870848e978a71b77d756f05e9d640f7f43"
+    },
+    {
+      "level": 1,
+      "triangles": 4668,
+      "bytes": 5470644,
+      "strategy": "Index-only collapse preserves original vertex attributes; welded candidate rejected for new posterior dents.",
+      "banditFootAxeSha256": "a86d1d2466b9a1a394a1a94efd06af1db8629a346eb9214fb6f13a319c993ea2"
+    },
+    {
+      "level": 2,
+      "triangles": 3600,
+      "bytes": 2263812,
+      "strategy": "Index-only collapse preserves original vertex attributes; welded candidate rejected for new posterior dents.",
+      "banditFootAxeSha256": "91ee4e1eb1fc53b8ef01e0bc4052e059a67198a2a97c91a9970a540436b1e0b8"
+    }
+  ]
+}

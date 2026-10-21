@@ -1,19 +1,40 @@
 name: CI
 on:
   push:
-    branches: [dev]
+    branches: [dev, main]
   pull_request:
     branches: [dev, main]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Logic test mode (manual validation always runs Full)
+        type: choice
+        options: [full]
+        default: full
 permissions:
   contents: read
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  logic:
+    uses: ./.github/workflows/logic-tests.yml
+    with:
+      mode: ${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || github.ref == 'refs/heads/main' && 'full' || 'related' }}
+      base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before || '' }}
+      head: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      event: ${{ github.event_name }}
   web:
+    needs: logic
+    # Preserve the existing required check: failed logic must fail web, not skip it.
+    if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Require successful logic gate
+        env:
+          LOGIC_RESULT: ${{ needs.logic.result }}
+        run: test "$LOGIC_RESULT" = success
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
@@ -21,13 +42,13 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck:test
-      - run: npm test
-      - run: npm run test:release
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run smoke:web
   desktop:
-    # PR artifacts are validation downloads, never official GitHub Releases.
+    needs: logic
+    # PR artifacts validate packaging/smoke only. Logic cases execute once in the
+    # Related gate; cross-platform Full/Node coverage is reserved for main/Release.
     if: github.event_name == 'pull_request'
     strategy:
       fail-fast: false
@@ -59,7 +80,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run test:release
       - run: npm run package:desktop -- ${{ matrix.flags }}
       - run: npm run smoke:desktop -- --packaged "${{ matrix.executable }}"
       - uses: actions/upload-artifact@v4

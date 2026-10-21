@@ -1,19 +1,22 @@
 import { obstacleTopologyRevision } from './ObstacleTopology'
-import type { ObstacleData } from './Terrain'
+import type { ObstacleCollisionGroup, ObstacleData } from './Terrain'
 
 export const OBSTACLE_COLLISION_GRID_CELL_SIZE = 8
 
 /**
  * Static spatial index for local obstacle collision queries.
  *
- * Obstacles themselves do not move. Gate/wall destruction and gate open/close
- * mutate the shared obstacle revision or length, so sync() only rebuilds when
- * topology changes.
+ * Static records occupy the grid; grouped dynamic parts first test their live
+ * owner envelope, while ungrouped dynamic records retain direct bounds checks.
+ * Gate/wall destruction and gate open/close mutate the
+ * shared revision or length, so sync() only rebuilds when topology changes.
  *
  * queryNear() returns an ephemeral internal buffer. Callers must consume it
  * immediately and must not retain or mutate it.
  */
 export class ObstacleCollisionSpatialIndex {
+  private readonly dynamicIndices: number[] = []
+  private readonly dynamicGroups: (ObstacleCollisionGroup & { indices: number[] })[] = []
   private readonly cells = new Map<string, number[]>()
   private readonly queryBuffer: ObstacleData[] = []
   private readonly queryIndices: number[] = []
@@ -32,10 +35,29 @@ export class ObstacleCollisionSpatialIndex {
     this.obstacleCount = obstacles.length
     this.obstacleRevision = obstacleTopologyRevision(obstacles)
     this.cells.clear()
+    this.dynamicIndices.length = 0
+    this.dynamicGroups.length = 0
     this.seenStamp = new Uint32Array(obstacles.length)
+    const groups = new Map<ObstacleCollisionGroup, number[]>()
 
     for (let index = 0; index < obstacles.length; index++) {
-      const box = obstacles[index].box
+      const obstacle = obstacles[index]
+      if (obstacle.dynamic) {
+        const group = obstacle.collisionGroup
+        if (!group) this.dynamicIndices.push(index)
+        else {
+          let indices = groups.get(group)
+          if (!indices) {
+            indices = []
+            groups.set(group, indices)
+            this.dynamicGroups.push({ bounds: group.bounds, indices })
+          }
+          // Retain every source index, including repeated obstacle records.
+          indices.push(index)
+        }
+        continue
+      }
+      const box = obstacle.box
       const minCellX = Math.floor(box.min.x / OBSTACLE_COLLISION_GRID_CELL_SIZE)
       const maxCellX = Math.floor(box.max.x / OBSTACLE_COLLISION_GRID_CELL_SIZE)
       const minCellZ = Math.floor(box.min.z / OBSTACLE_COLLISION_GRID_CELL_SIZE)
@@ -60,22 +82,23 @@ export class ObstacleCollisionSpatialIndex {
     z: number,
     radius: number,
   ): readonly ObstacleData[] {
+    return this._queryBounds(x - radius, z - radius, x + radius, z + radius, false)
+  }
+
+  /** Exact X/Z swept envelope. Height/contact remains the narrow phase's job.
+   * Shares queryNear's ephemeral buffer and deterministic source-index order. */
+  queryBounds(minX: number, minZ: number, maxX: number, maxZ: number): readonly ObstacleData[] {
+    return this._queryBounds(minX, minZ, maxX, maxZ, true)
+  }
+
+  private _queryBounds(minX: number, minZ: number, maxX: number, maxZ: number, exact: boolean): readonly ObstacleData[] {
     this.queryBuffer.length = 0
     this.queryIndices.length = 0
     if (this.obstacles.length === 0) return this.queryBuffer
-
-    const minCellX = Math.floor(
-      (x - radius) / OBSTACLE_COLLISION_GRID_CELL_SIZE,
-    )
-    const maxCellX = Math.floor(
-      (x + radius) / OBSTACLE_COLLISION_GRID_CELL_SIZE,
-    )
-    const minCellZ = Math.floor(
-      (z - radius) / OBSTACLE_COLLISION_GRID_CELL_SIZE,
-    )
-    const maxCellZ = Math.floor(
-      (z + radius) / OBSTACLE_COLLISION_GRID_CELL_SIZE,
-    )
+    const minCellX = Math.floor(minX / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+    const maxCellX = Math.floor(maxX / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+    const minCellZ = Math.floor(minZ / OBSTACLE_COLLISION_GRID_CELL_SIZE)
+    const maxCellZ = Math.floor(maxZ / OBSTACLE_COLLISION_GRID_CELL_SIZE)
 
     const stamp = this._nextQueryStamp()
 
@@ -88,9 +111,34 @@ export class ObstacleCollisionSpatialIndex {
           const obstacleIndex = cell[i]
           if (this.seenStamp[obstacleIndex] === stamp) continue
           this.seenStamp[obstacleIndex] = stamp
+          if (exact) {
+            const box = this.obstacles[obstacleIndex].box
+            if (maxX < box.min.x || minX > box.max.x || maxZ < box.min.z || minZ > box.max.z) continue
+          }
           this.queryIndices.push(obstacleIndex)
         }
       }
+    }
+
+    // Read owner bounds live: movement and bridge rotation do not change
+    // topology. Only nearby owners need their original per-part broad phase.
+    for (const group of this.dynamicGroups) {
+      const bounds = group.bounds
+      if (maxX < bounds.min.x || minX > bounds.max.x
+        || maxZ < bounds.min.z || minZ > bounds.max.z) continue
+      for (const index of group.indices) {
+        const box = this.obstacles[index].box
+        if (maxX >= box.min.x && minX <= box.max.x
+          && maxZ >= box.min.z && minZ <= box.max.z) this.queryIndices.push(index)
+      }
+    }
+
+    // General dynamic records without a complete owner envelope keep the
+    // existing direct-bounds fallback.
+    for (const index of this.dynamicIndices) {
+      const box = this.obstacles[index].box
+      if (maxX >= box.min.x && minX <= box.max.x
+        && maxZ >= box.min.z && minZ <= box.max.z) this.queryIndices.push(index)
     }
 
     // Preserve the original shared obstacle-array order. Collision push-out can

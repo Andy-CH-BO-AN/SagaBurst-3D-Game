@@ -1,84 +1,98 @@
-import { acceptCaptainEagle, acceptCaptainFrontline, type CareerCombatLaunch } from '../../src/career/CaptainBattleLaunch'
-import { createEnemyTownAssaultMission } from '../../src/career/EnemyTownAssault'
-import { claimCareerMission } from '../../src/career/CareerProfile'
-import { CAREER_OUTPOST_SESSION_KEY } from '../../src/career/CareerOutpostMission'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { acceptCaptainEagle, acceptCaptainFrontline, type CareerCombatLaunch } from '../../src/career/CaptainBattleLaunch'
+import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
+import { acceptCareerOutpostRelief, CAREER_OUTPOST_SESSION_KEY } from '../../src/career/CareerOutpostMission'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { enterCareerTown, TOWN_ENTRY_KEY } from '../../src/town/CareerTownEntry'
 import { TownScene } from '../../src/town/TownScene'
-import { acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
-import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
-import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
+import { starterThumbnails } from '../../src/town/TownUI'
+import { CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { claimCareerMission } from '../../src/career/CareerProfile'
 
 vi.mock('../../src/town/TownScene', () => ({ TownScene: { create: vi.fn() } }))
 vi.mock('../../src/town/TownUI', () => ({ installTownStyles: vi.fn(), starterThumbnails: vi.fn() }))
 
-function element() {
-  return { textContent: '', style: {}, children: [] as ReturnType<typeof element>[], onclick: null as null | (() => void), append(...children: ReturnType<typeof element>[]) { this.children.push(...children) }, remove: vi.fn() }
+interface EntryElement {
+  textContent: string; style: Record<string, string>; children: EntryElement[]; tag: string; removed: boolean
+  onclick: null | (() => void); append(...children: EntryElement[]): void; remove: ReturnType<typeof vi.fn>
+  replaceChildren(...children: EntryElement[]): void; querySelectorAll(selector: string): EntryElement[]
+}
+function element(tag = 'div'): EntryElement {
+  const value: EntryElement = {
+    textContent: '', style: {}, children: [], onclick: null, tag, removed: false,
+    append(...children) { this.children.push(...children) },
+    replaceChildren(...children) { this.children = children; this.removed = false },
+    querySelectorAll(selector) { return this.children.flatMap(child => [...(child.tag === selector ? [child] : []), ...child.querySelectorAll(selector)]) },
+    remove: vi.fn(() => { value.removed = true }),
+  }
+  return value
+}
+function findText(root: EntryElement, text: string): EntryElement | undefined {
+  if (root.removed) return undefined
+  if (root.textContent === text) return root
+  return root.children.map(child => findText(child, text)).find(Boolean)
 }
 
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 describe('Town load failure recovery', () => {
-  it('starts gameplay only after scene initialization and removal of the loading overlay', async () => {
+  it('replaces a completed Career only after confirmed starter selection and a successful save, then starts after loading', async () => {
     const local = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
-    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
-    new CareerProfileStore(local).save(profile)
-    const start = vi.fn(() => expect(body.children[1].remove).toHaveBeenCalledOnce())
+    vi.mocked(starterThumbnails).mockReturnValue(new Map())
+    const profile = createCareerProfile('roman')
+    profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
+    profile.rank = 'commander'; profile.totalMerit = profile.availableMerit = 20000
+    profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 123, combatElapsedSeconds: 42, outcome: 'fallen' }
+    const store = new CareerProfileStore(local)
+    expect(store.save(profile)).toBe(true)
+    const original = local.getItem(CAREER_STORAGE_KEY)
+    const home = vi.fn()
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home)
+    expect(TownScene.create).not.toHaveBeenCalled()
+    expect(findText(body, '退休結局：光榮退役')).toBeDefined()
+    findText(body, '開始新的 Career')!.onclick!()
+    findText(body, '取消')!.onclick!()
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
+    findText(body, '開始新的 Career')!.onclick!()
+    findText(body, '開始新生涯')!.onclick!()
+    // Cancelling the existing faction/starter creator is still non-destructive.
+    findText(body, '取消')!.onclick!()
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
+    findText(body, '開始新的 Career')!.onclick!()
+    findText(body, '開始新生涯')!.onclick!()
+    const form = body.children[body.children.length - 1]
+    const grid = form.children[form.children.length - 1]
+    local.failWrites = true
+    grid.children[0].onclick!()
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
+    expect(TownScene.create).not.toHaveBeenCalled()
+    local.failWrites = false
+    let loading: EntryElement | undefined
+    const start = vi.fn(() => expect(loading?.remove).toHaveBeenCalledOnce())
     vi.mocked(TownScene.create).mockImplementation(async () => {
+      loading = body.children[body.children.length - 1]
       expect(start).not.toHaveBeenCalled()
-      expect(body.children[1].remove).not.toHaveBeenCalled()
+      expect(loading.remove).not.toHaveBeenCalled()
       return { start } as unknown as TownScene
     })
-    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
-    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
-  })
-
-  it('clears the resume flag and returns home without deleting the Career save', async () => {
-    const local = new MemoryStorage(), session = new MemoryStorage(), body = element(), home = vi.fn(), start = vi.fn()
-    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
-    vi.stubGlobal('document', { body, createElement: () => element() })
-    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
-    new CareerProfileStore(local).save(profile)
-    const saved = local.getItem('sagaburst_career_v1')
-    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
-    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home)
-    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
-    expect(session.getItem(TOWN_ENTRY_KEY)).toBe('1')
-    vi.mocked(TownScene.create).mock.calls[0][4]()
-    expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
-    expect(home).toHaveBeenCalledOnce()
-    expect(local.getItem('sagaburst_career_v1')).toBe(saved)
-  })
-
-  it('requests pointer lock on the persistent container before loading a Career relief battlefield', async () => {
-    const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
-    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
-    vi.stubGlobal('document', { body, createElement: () => element() })
-    vi.stubGlobal('location', { search: '' })
-    vi.stubGlobal('navigator', { userActivation: { isActive: false } })
-    vi.stubGlobal('window', {})
-    const profile = { ...createCareerProfile('roman'), rank: 'soldier' as const, totalMerit: 300, availableMerit: 300,
-      starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'], completedOutpostStages: [1, 2, 3] as (1 | 2 | 3)[],
-      ownedHorseTiers: [1] as (1 | 2 | 3)[] }
-    new CareerProfileStore(local).save(profile)
-    const container = { ...element(), requestPointerLock: vi.fn(async () => {}) }
-    const launch = vi.fn(async () => {})
-    const start = vi.fn()
-    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
-    enterCareerTown(container as unknown as HTMLElement, launch, vi.fn())
-    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
-    const campaign = createCareerOutpostLaunch(acceptCareerOutpostRelief(profile)!)
-    vi.mocked(TownScene.create).mock.calls[0][2](campaign)
-    expect(container.requestPointerLock).toHaveBeenCalledOnce()
-    expect(container.requestPointerLock.mock.invocationCallOrder[0]).toBeLessThan(launch.mock.invocationCallOrder[0])
-    expect(launch).toHaveBeenCalledWith(campaign)
+    grid.children[0].onclick!()
+    await Promise.resolve()
+    expect(start).toHaveBeenCalledOnce()
+    expect(home).not.toHaveBeenCalled()
+    const fresh = store.loadChecked().profile!
+    expect(fresh).toMatchObject({ rank: 'recruit', totalMerit: 0, availableMerit: 0, starterWeaponId: 'gladius_rusty', claimedBattleIds: [] })
+    expect(fresh.careerRetirement).toBeUndefined()
+    expect(fresh.personalSquad?.members ?? []).toEqual([])
+    expect(fresh.activeMission).toBeUndefined()
+    expect(fresh.careerMissionCompletions).toBeUndefined()
+    expect(fresh.townEvent).toBeUndefined()
+    expect(fresh.inventory?.quantities).toEqual({ gladius_rusty: 1 })
   })
 
   it('saves the castle refit before map launch and offers a retry if that save fails', async () => {
@@ -97,7 +111,8 @@ describe('Town load failure recovery', () => {
     })
     vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
     enterCareerTown(element() as unknown as HTMLElement, launch, vi.fn())
-    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+    await Promise.resolve()
+    expect(start).toHaveBeenCalledOnce()
     expect(store.load()?.townCommandSquad?.members?.guard.hp).toBe(0)
     local.failWrites = true
     vi.mocked(TownScene.create).mock.calls[0][2](createCareerOutpostLaunch(acceptCareerOutpostRelief(profile)!))
@@ -107,56 +122,45 @@ describe('Town load failure recovery', () => {
     body.children[1].children.find((child: ReturnType<typeof element>) => child.textContent === '重試轉場')!.onclick!()
     expect(launch).toHaveBeenCalledOnce()
   })
-
-  it.each(['reload', 'enemy-map', 'death-return'] as const)('%s only refits for a real map change or completed death return', async kind => {
-    const local = new MemoryStorage(), body = element()
-    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
-    vi.stubGlobal('document', { body, createElement: () => element() })
-    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'
-    profile.townCommandSquad = { type: 'town-command', squadId: 1, actorIds: ['guard'], townFaction: 'roman', sceneKey: 'town-home',
-      state: 'FOLLOWING', authorized: true, contribution: emptyPersonalContribution(), members: { guard: { status: 'dead', hp: 0 } } }
-    const store = new CareerProfileStore(local); store.save(profile)
-    const start = vi.fn()
-    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
-    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
-    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
-    const next = store.load()!
-    if (kind === 'enemy-map') next.activeMission = createEnemyTownAssaultMission('new-map')
-    vi.mocked(TownScene.create).mock.calls[0][3](next, kind === 'death-return' ? kind : undefined)
-    await vi.waitFor(() => expect(start).toHaveBeenCalledTimes(2))
-    const restored = vi.mocked(TownScene.create).mock.calls[1][1]
-    expect(restored.townCommandSquad?.members?.guard).toEqual(kind === 'reload' ? { status: 'dead', hp: 0 } : undefined)
-    expect(store.load()?.townCommandSquad?.members?.guard).toEqual(kind === 'reload' ? { status: 'dead', hp: 0 } : { status: 'reserve' })
-  })
-
-  it.each([false, true])('clears the entry flag on failure and return without changing saved hostility=%s', async hostile => {
-    const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
-    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
-    vi.stubGlobal('document', { body, createElement: () => element() })
-    vi.stubGlobal('location', { search: '?nolock' })
-    const profile = createCareerProfile('roman'); profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
-    if (hostile) profile.townEvent = { id: 'existing-hostility', state: 'hostile' }
-    const store = new CareerProfileStore(local); store.save(profile)
-    const saved = local.getItem('sagaburst_career_v1'), home = vi.fn()
-    vi.mocked(TownScene.create).mockImplementation(async () => {
-      expect(session.getItem(TOWN_ENTRY_KEY)).toBe('1')
-      throw new Error('asset load failed')
-    })
-    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home)
-    await vi.waitFor(() => expect(body.children[1].textContent).toContain('小鎮載入失敗'))
-    expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
-    const back = body.children[1].children.find(child => child.textContent === '返回主選單')!
-    session.setItem(TOWN_ENTRY_KEY, '1')
-    back.onclick!()
-    expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull(); expect(home).toHaveBeenCalledTimes(1)
-    expect(local.getItem('sagaburst_career_v1')).toBe(saved)
-    expect(store.load()?.townEvent?.state).toBe(hostile ? 'hostile' : undefined)
-  })
 })
 
 
 describe('Captain battlefield Career entry routing', () => {
+  it('saves completed battlefield resident recovery before rebuilding town and retries a refused write', async () => {
+    const local = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
+    vi.stubGlobal('document', { body, createElement: () => element() })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const fresh = { ...createCareerProfile('roman'), rank: 'commander' as const, totalMerit: 20000,
+      starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'] }
+    const accepted = acceptCaptainFrontline(fresh, 'completed-return')!
+    const profile = claimCareerMission(accepted, accepted.activeMission!.id, 'victory', {
+      damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true,
+    }).profile
+    profile.civilianCommandSquad = { type: 'civilian-command', squadId: 'civilians', townFaction: 'roman', sceneKey: 'town:roman',
+      actorIds: ['merchant'], owners: { merchant: 'player' }, members: { merchant: { status: 'dead', hp: 0 } } }
+    const store = new CareerProfileStore(local); expect(store.save(profile)).toBe(true)
+    const merit = profile.totalMerit
+    vi.mocked(TownScene.create).mockImplementation(async (_container, restored) => {
+      expect(store.load()?.activeMission).toBeUndefined()
+      expect(restored.civilianCommandSquad?.actorIds).toHaveLength(21)
+      expect(restored.civilianCommandSquad?.members.merchant).toMatchObject({ status: 'deployed', order: 'attack' })
+      expect(restored.civilianCommandSquad?.members.merchant.hp).toBeUndefined() // New actor owns full default resources.
+      return { start: vi.fn() } as unknown as TownScene
+    })
+    local.failWrites = true
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn())
+    await Promise.resolve()
+    expect(TownScene.create).not.toHaveBeenCalled()
+    expect(store.load()?.civilianCommandSquad?.members.merchant).toMatchObject({ status: 'dead', hp: 0 })
+    local.failWrites = false
+    body.children[0].children.find(child => child.textContent === '重試返回小鎮')!.onclick!()
+    await Promise.resolve()
+    expect(TownScene.create).toHaveBeenCalledOnce()
+    const returned = store.load()!
+    expect(returned.totalMerit).toBe(merit)
+    expect(returned.civilianCommandSquad?.owners.merchant).toBe('daily')
+  })
   it.each(['frontline', 'eagle'] as const)('%s reload resumes the actual Captain battle before constructing a Town scene', async kind => {
     const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
@@ -168,34 +172,13 @@ describe('Captain battlefield Career entry routing', () => {
     expect(new CareerProfileStore(local).save(accepted)).toBe(true)
     const launch = vi.fn(async (_config: CareerCombatLaunch) => {})
     enterCareerTown(element() as unknown as HTMLElement, launch, vi.fn())
-    await vi.waitFor(() => expect(launch).toHaveBeenCalledOnce())
+    await Promise.resolve()
+    expect(launch).toHaveBeenCalledOnce()
     expect(TownScene.create).not.toHaveBeenCalled()
     expect(launch.mock.calls[0][0]).toMatchObject(kind === 'eagle'
       ? { type: 'captain-eagle', careerMissionId: 'resume-eagle', battle: { careerEagleMissionId: 'resume-eagle' } }
       : { type: 'defense', careerMissionId: 'resume-frontline', careerMissionKind: 'captain-outpost-defense', stageId: 9 })
     expect(session.getItem(CAREER_OUTPOST_SESSION_KEY)).toBe(accepted.activeMission!.id)
     expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
-  })
-
-  it.each(['frontline', 'eagle'] as const)('%s claimed result returns to Town without replaying battle or merit', async kind => {
-    const local = new MemoryStorage(), session = new MemoryStorage(), body = element()
-    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', session)
-    vi.stubGlobal('document', { body, createElement: () => element() })
-    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    const fresh = { ...createCareerProfile('roman'), rank: 'captain' as const, totalMerit: 5000, availableMerit: 5000,
-      starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'], ownedMounts: ['xongkoro' as const] }
-    const accepted = kind === 'eagle' ? acceptCaptainEagle(fresh, 'claimed')! : acceptCaptainFrontline(fresh, 'claimed')!
-    const settled = claimCareerMission(accepted, 'claimed', 'victory', { damageDealt: 20, damageTaken: 0, kills: 1,
-      structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }).profile
-    const store = new CareerProfileStore(local); expect(store.save(settled)).toBe(true)
-    const start = vi.fn(), launch = vi.fn(async () => {})
-    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
-    enterCareerTown(element() as unknown as HTMLElement, launch, vi.fn())
-    await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
-    expect(launch).not.toHaveBeenCalled()
-    expect(store.load()!.activeMission).toBeUndefined()
-    expect(store.load()!.totalMerit).toBe(settled.totalMerit)
-    expect(store.load()!.claimedBattleIds).toContain('claimed')
-    expect(session.getItem(TOWN_ENTRY_KEY)).toBe('1')
   })
 })

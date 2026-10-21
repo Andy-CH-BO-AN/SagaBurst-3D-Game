@@ -28,7 +28,8 @@ export function resolveTownEagleTrainingGround(obstacles: readonly ObstacleData[
     }
   }
   const site = pads[0]
-  const trainer = { x: site.x, z: site.z - 20, yaw: 0 }
+  // Keep the service NPC and sign at their existing clear positions beside HR.
+  const trainer = { x: site.x - 5, z: site.z - 18, yaw: 0 }
   return { site, trainer, pads }
 }
 

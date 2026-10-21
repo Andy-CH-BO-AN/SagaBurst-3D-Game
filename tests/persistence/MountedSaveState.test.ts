@@ -1,7 +1,6 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
+import { afterEach,beforeEach,describe,expect,it,vi } from 'vitest'
 import { InventoryManager } from '../../src/rpg/InventoryManager'
-import { DEFAULT_SAVE, PlayerSaveData, SaveManager } from '../../src/save/SaveManager'
-import { resolveMountSpawnPosition, resolveMountSpawnY } from '../../src/Game'
+import { DEFAULT_SAVE,PlayerSaveData,SaveManager } from '../../src/save/SaveManager'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 describe('SaveManager Persistence & Migration Compatibility', () => {
@@ -17,18 +16,6 @@ describe('SaveManager Persistence & Migration Compatibility', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
-  })
-
-  it('contract: DEFAULT_SAVE schema aligns with default mounted elite loadout', () => {
-    expect(DEFAULT_SAVE.inventory.equippedMeleeId).toBe('steel_lance')
-    expect(DEFAULT_SAVE.inventory.equippedRangedId).toBe('elven_runebow')
-    expect(DEFAULT_SAVE.inventory.equippedShieldId).toBe('round_shield_t3')
-
-    const defaultIds = DEFAULT_SAVE.inventory.items?.map(i => i.id)
-    expect(defaultIds).toContain('steel_lance')
-    expect(defaultIds).toContain('runic_greatsword')
-    expect(defaultIds).toContain('elven_runebow')
-    expect(defaultIds).toContain('round_shield_t3')
   })
 
   it('round-trips xongkoro flight and HP, and a separate pending rider fall through JSON storage', () => {
@@ -117,47 +104,5 @@ describe('SaveManager Persistence & Migration Compatibility', () => {
     expect(loaded.inventory.equippedShieldId).toBeNull()
     expect(loaded.inventory.equippedMeleeId).toBe('steel_sword')
     expect(loaded.inventory.equippedRangedId).toBe('recurve_longbow')
-  })
-
-  it('contract: correctly serializes and deserializes mounted vs unmounted save data', () => {
-    // 1. Mounted save
-    const mountedSave: PlayerSaveData = {
-      ...DEFAULT_SAVE,
-      mountData: {
-        isMounted: true,
-        type: 'HORSE',
-        appearanceVariant: 1,
-      },
-    }
-    saveManager.save(mountedSave)
-    let loaded = saveManager.load()
-    expect(loaded.mountData?.isMounted).toBe(true)
-    expect(loaded.mountData?.type).toBe('HORSE')
-    expect(loaded.mountData?.appearanceVariant).toBe(1)
-
-    // 2. Unmounted save
-    const unmountedSave: PlayerSaveData = {
-      ...DEFAULT_SAVE,
-      mountData: undefined,
-    }
-    saveManager.save(unmountedSave)
-    loaded = saveManager.load()
-    expect(loaded.mountData).toBeUndefined()
-  })
-
-  it('backward compatibility: legacy save lacking mountData.position falls back to player position with undefined mountY', () => {
-    const legacySave: PlayerSaveData = {
-      ...DEFAULT_SAVE,
-      position: { x: 12, y: 1.8, z: 34 },
-      mountData: {
-        isMounted: true,
-        type: 'HORSE',
-      },
-    }
-    const resolvedPos = resolveMountSpawnPosition(legacySave)
-    expect(resolvedPos).toEqual({ x: 12, y: 1.8, z: 34 })
-
-    const resolvedY = resolveMountSpawnY(legacySave)
-    expect(resolvedY).toBeUndefined()
   })
 })

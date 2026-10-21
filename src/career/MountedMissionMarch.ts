@@ -23,6 +23,8 @@ export interface MountedMissionMarchOptions {
   leaderDeathMode?: 'charge' | 'replace'
   /** NPCs start after Player's reserved position in this squad; null means no Player. */
   playerSquadIndex?: number | null
+  /** Existing mission AI yields only those actors claimed by a saved player order. */
+  acceptsActor?(npc: NPC): boolean
 }
 
 /** Commands only mission NPCs; the Player stays an independent rider. */
@@ -66,6 +68,7 @@ export class MountedMissionMarchController {
       return
     }
 
+    if (this.rescue.some(npc => !npc.dead) && !this.rescue.some(npc => this.accepts(npc))) return
     if (this.options.leaderDeathMode !== 'replace' && this.squads.some(squad => squad.leader?.dead)) { this.charge(); return }
     if (!this.assignTravelOrders()) { this.charge(); return }
     if (this.options.playFollow !== false) this.followVoice(() => { this.followFinished = true })
@@ -73,7 +76,7 @@ export class MountedMissionMarchController {
   }
 
   update(restoreLeaderOrders = true): void {
-    if (!this.started || this.charged) return
+    if (!this.started || this.charged || this.rescue.some(npc => !npc.dead) && !this.rescue.some(npc => this.accepts(npc))) return
     if (this.options.leaderDeathMode !== 'replace' && this.squads.some(squad => squad.leader?.dead)) { this.charge(); return }
     if (this.replaceFallenLeaders() && restoreLeaderOrders) this.assignTravelOrders()
     const leader = this.squads.find(squad => squad.leader && !squad.leader.dead)?.leader
@@ -95,18 +98,27 @@ export class MountedMissionMarchController {
   /** Formal mission contact supersedes any temporary travel interruption. */
   engage(): void { if (this.started && !this.charged) this.charge() }
 
+  /** Dismissed soldiers resume the same march/charge owner without relocating or healing. */
+  resumeActor(npc: NPC): void {
+    if (!this.started || !this.rescue.includes(npc) || !this.accepts(npc)) return
+    if (this.charged) npc.setTacticalOrder('charge')
+    else this.assignTravelOrders()
+  }
+
+  private accepts(npc: NPC): boolean { return !npc.dead && (this.options.acceptsActor?.(npc) ?? true) }
+
   private replaceFallenLeaders(): boolean {
     let changed = false
     for (const squad of this.squads) {
-      if (squad.leader && !squad.leader.dead) continue
-      const fallback = squad.members.find(npc => !npc.dead)
+      if (squad.leader && this.accepts(squad.leader)) continue
+      const fallback = squad.members.find(npc => this.accepts(npc))
       if (fallback !== squad.leader) { squad.leader = fallback; changed = true }
     }
     return changed
   }
 
   private assignTravelOrders(): boolean {
-    const living = this.rescue.filter(npc => !npc.dead)
+    const living = this.rescue.filter(npc => this.accepts(npc))
     if (!living.length) {
       return false
     }
@@ -116,9 +128,9 @@ export class MountedMissionMarchController {
     const leaders: NPC[] = []
     for (let squadIndex = 0; squadIndex < this.squads.length; squadIndex++) {
       const squad = this.squads[squadIndex]
-      const leader = squad.leader && !squad.leader.dead
+      const leader = squad.leader && this.accepts(squad.leader)
         ? squad.leader
-        : squad.members.find(npc => !npc.dead)
+        : squad.members.find(npc => this.accepts(npc))
       if (!leader) continue
       squad.leader = leader
       leaders.push(leader)
@@ -129,7 +141,7 @@ export class MountedMissionMarchController {
       } else {
         leader.assignFollowTarget(leaders[0], 0, squad.leaderOffset.clone(), speed)
       }
-      const members = squad.members.filter(npc => !npc.dead && npc !== leader)
+      const members = squad.members.filter(npc => this.accepts(npc) && npc !== leader)
       const playerSlot = this.playerSquadIndex === squadIndex ? 1 : 0
       const followerCount = this.options.followerCount
         ?? Math.max(1, squad.members.length - (playerSlot === 1 ? 0 : 1))
@@ -154,7 +166,7 @@ export class MountedMissionMarchController {
   }
 
   private orderCharge(): void {
-    for (const npc of this.rescue) if (!npc.dead) npc.setTacticalOrder('charge')
+    for (const npc of this.rescue) if (this.accepts(npc)) npc.setTacticalOrder('charge')
   }
 
   get hasCharged(): boolean { return this.charged }
@@ -174,6 +186,6 @@ function legacySquads(npcs: readonly NPC[]): Array<{ leader: NPC | undefined; me
   const second = rescue.filter(npc => npc.squadId === 2)
   return [
     { leader: first.find(npc => npc.name === 'Captain'), members: first, leaderOffset: new THREE.Vector3() },
-    { leader: second.find(npc => npc.name === 'Maki'), members: second, leaderOffset: SECOND_SQUAD_OFFSET.clone() },
+    { leader: second.find(npc => npc.specialCombatProfile === 'maki-ranger'), members: second, leaderOffset: SECOND_SQUAD_OFFSET.clone() },
   ]
 }

@@ -1,0 +1,92 @@
+import { Vector3 } from 'three'
+import { describe, expect, it } from 'vitest'
+import { SpatialGrid, type SpatialEntity } from '../../src/world/SpatialGrid'
+
+interface Entity extends SpatialEntity {
+  id: string
+  combatPosition: Vector3
+}
+
+function entity(id: string, x: number, y: number, z: number): Entity {
+  return { id, combatPosition: new Vector3(x, y, z) }
+}
+
+function expectCandidates(actual: Entity[], expected: Entity[]): void {
+  expect(actual).toHaveLength(expected.length)
+  for (let i = 0; i < expected.length; i++) expect(actual[i]).toBe(expected[i])
+}
+
+describe('SpatialGrid', () => {
+  it('preserves ordered bucket candidates and live 3D distance across local and sparse queries', () => {
+    const grid = new SpatialGrid<Entity>(10)
+    const right = entity('right', 4, 0, 0)
+    const negativeZ = entity('negativeZ', -3, 0, 4)
+    const negativeBoth = entity('negativeBoth', -3, 0, -4)
+    const sameCell = entity('sameCell', 1, 0, 1)
+    const tooHigh = entity('tooHigh', 0, 51, 0)
+    const movedAway = entity('movedAway', -1, 0, -1)
+    const movedFromOutside = entity('movedFromOutside', 900, 0, 0)
+    const farLeft = entity('farLeft', -1000, 0, -1000)
+    const farRight = entity('farRight', 1000, 0, 1000)
+    for (const candidate of [right, negativeZ, negativeBoth, sameCell, tooHigh,
+      movedAway, movedFromOutside, farLeft, farRight]) grid.insert(candidate)
+
+    movedAway.combatPosition.set(100, 0, 0)
+    movedFromOutside.combatPosition.set(0, 0, 0)
+    const center = new Vector3()
+    const out = [farLeft]
+    const expected = [negativeBoth, negativeZ, right, sameCell]
+    expect(grid.getNearbyInto(center, 5, out)).toBe(out)
+    expectCandidates(out, expected)
+    expect(grid.getNearbyInto(center, 50, out)).toBe(out)
+    expectCandidates(out, expected)
+  })
+
+  it('keeps live 3D ties in insertion rings and stops inside an empty gap', () => {
+    const grid = new SpatialGrid<Entity>(10)
+    const tie = entity('tie', 31, 0, 1)
+    const above = entity('above', 0, 30, 0)
+    const outside = entity('outside', 80, 0, 0)
+    for (const candidate of [tie, above, outside]) grid.insert(candidate)
+    tie.combatPosition.set(-30, 0, 0)
+    outside.combatPosition.set(0, 0, 0)
+
+    const visited: Entity[] = []
+    expect(grid.findNearest(new Vector3(), candidate => { visited.push(candidate); return true })).toBe(tie)
+    // Ring 3 ties the high candidate; the original strict bound stops in the gap
+    // before ring 8, even though its entity's live position is now at the query.
+    expectCandidates(visited, [above, tie])
+  })
+
+  it('refreshes ordered buckets after inserts and drops the previous generation on clear', () => {
+    const grid = new SpatialGrid<Entity>(10)
+    const center = new Vector3()
+    const right = entity('right', 90, 0, 0)
+    const left = entity('left', -90, 0, 0)
+    grid.insert(right)
+    grid.insert(left)
+    expectCandidates(grid.getNearby(center, 100), [left, right])
+    const remoteQuery = new Vector3(1000, 0, 0)
+    expect(grid.findNearest(remoteQuery)).toBe(right)
+    expectCandidates(grid.getNearby(center, 100), [left, right])
+
+    // Reusing a bucket must expose appends without rebuilding or copying its members.
+    grid.insert(left)
+    expectCandidates(grid.getNearby(center, 100), [left, left, right])
+    const middle = entity('middle', 0, 0, 0)
+    grid.insert(middle)
+    expect(grid.findNearest(center)).toBe(middle)
+    expectCandidates(grid.getNearby(center, 100), [left, left, middle, right])
+
+    const out = [middle]
+    grid.clear()
+    expect(grid.getNearbyInto(center, 100, out)).toBe(out)
+    expect(out).toEqual([])
+    const nextRight = entity('nextRight', 80, 0, 0)
+    const nextLeft = entity('nextLeft', -80, 0, 0)
+    grid.insert(nextRight)
+    grid.insert(nextLeft)
+    expect(grid.findNearest(remoteQuery)).toBe(nextRight)
+    expectCandidates(grid.getNearbyInto(center, 100, out), [nextLeft, nextRight])
+  })
+})

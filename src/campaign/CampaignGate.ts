@@ -39,6 +39,9 @@ export class CampaignBreachController {
     return this._breached
   }
 
+  /** Reload preserves the one-shot latch without replaying merit, sound or orders. */
+  restoreBreached(): void { this._breached = true }
+
   trigger(): boolean {
     if (this._breached) return false
     this._breached = true
@@ -68,7 +71,7 @@ export function applyCampaignBreachOrders(
   let defenderAttackCount = 0
 
   for (const npc of npcs) {
-    if (npc.dead || npc.combatOwnership === 'player-personal') continue
+    if (npc.dead || npc.siegeTransport || npc.combatOwnership === 'player-personal') continue
 
     if (npc.characterFaction === attackerFaction) {
       if (npc.aiType === AIType.RANGED) {
@@ -81,7 +84,7 @@ export function applyCampaignBreachOrders(
       continue
     }
 
-    if (npc.characterFaction === defenderFaction) {
+    if (npc.characterFaction === defenderFaction && !npc.isOutpostRampartGarrisonActive) {
       npc.setTacticalOrder('attack')
       defenderAttackCount++
     }
@@ -91,6 +94,68 @@ export function applyCampaignBreachOrders(
     attackerChargeCount,
     attackerAttackCount,
     defenderAttackCount,
+  }
+}
+
+export interface ReconcileCampaignGateSiegeOptions {
+  gate: CampaignGateController | null
+  breachController: CampaignBreachController | null
+  npcs: readonly NPC[]
+  attackerFaction: CharacterFaction
+  availableEntrances?: { readonly hasWalkable: boolean }
+}
+
+/**
+ * Checks whether an NPC is eligible for automated campaign gate siege targeting.
+ * Player-personal combatants (veteran/career personal squad/followers) and units
+ * with active follow orders are strictly excluded from automated gate locking.
+ */
+export function isEligibleCampaignGateAttacker(
+  npc: NPC,
+  attackerFaction: CharacterFaction,
+): boolean {
+  if (npc.dead || npc.siegeTransport || npc.campaignBreachCompleted) return false
+  if (npc.characterFaction !== attackerFaction) return false
+  if (npc.combatOwnership === 'player-personal') return false
+  if (npc.tacticalOrder === 'follow' || npc.activeFollowTarget !== null || npc.hasFormationTarget) return false
+  return true
+}
+
+/**
+ * Reconciles gate siege obstacles for campaign attackers:
+ * - When gate is closed and perimeter is NOT breached, assigns the gate's siegeObstacle
+ *   to all eligible unassigned attackers.
+ * - When perimeter IS breached OR gate is open/destroyed, clears the gate's siegeObstacle
+ *   from any NPC targeting it.
+ */
+export function reconcileCampaignGateSiege(
+  options: ReconcileCampaignGateSiegeOptions,
+): void {
+  const { gate, breachController, npcs, attackerFaction } = options
+  if (!gate) return
+
+  const shouldSiegeGate = gate.state === 'closed' && !(options.availableEntrances?.hasWalkable ?? breachController?.breached)
+
+  if (shouldSiegeGate) {
+    for (const npc of npcs) {
+      if (isEligibleCampaignGateAttacker(npc, attackerFaction)) {
+        if (!npc.hasSiegeObstacle) {
+          npc.assignSiegeObstacle?.(gate.siegeObstacle)
+        }
+      } else {
+        // If an NPC was targeting THIS gate but is no longer eligible (e.g. switched to follow,
+        // has an active follow target, or became player-personal), revoke the gate siege obstacle.
+        if (npc.siegeObstacle === gate.siegeObstacle) {
+          npc.assignSiegeObstacle?.(null)
+        }
+      }
+    }
+  } else {
+    for (const npc of npcs) {
+      if (npc.siegeObstacle === gate.siegeObstacle) {
+        npc.assignSiegeObstacle?.(null)
+      }
+    }
   }
 }
 

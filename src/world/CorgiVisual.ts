@@ -1,6 +1,9 @@
+import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import { CorgiSeatContact } from './CorgiSeatContact'
+import { SkinnedSeatContact } from './SkinnedSeatContact'
+import { RiderSeatContactCache } from './RiderSeatContactCache'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createQuadrupedAssetPreload } from './QuadrupedAssetPreload'
@@ -12,7 +15,6 @@ import {
   type QuadrupedOneShotState,
 } from './QuadrupedMountAnimation'
 
-export const CORGI_DIMENSIONS = { shoulder: 1.30, bodyLength: 3.245, saddleHeight: 1.313627550125122 } as const
 export const CORGI_RIDER_PELVIS_CLEARANCE = .17
 
 const BASE = publicAssetUrl('models/mounts/v2/corgi')
@@ -27,12 +29,14 @@ export class CorgiVisual {
 
   static preload(): Promise<void> { return this.preloadAsset() }
 
-  private readonly contacts = new WeakMap<THREE.Object3D, CorgiSeatContact>()
+  private readonly contacts = new RiderSeatContactCache((rider: THREE.Object3D) => {
+    const measured = new SkinnedSeatContact(rider, this.root,
+      this.root.getObjectByName('corgi_saddle_leather') as THREE.SkinnedMesh, this.saddleSeat)
+    return measured.hasBearingSurface ? measured : new CorgiSeatContact(rider, this.root)
+  })
 
   fitRider(rider: THREE.Object3D): void {
-    let contact = this.contacts.get(rider)
-    if (!contact) { contact = new CorgiSeatContact(rider, this.root); this.contacts.set(rider, contact) }
-    contact.align()
+    this.contacts.get(rider).align()
   }
 
   readonly root: THREE.Group
@@ -50,6 +54,7 @@ export class CorgiVisual {
   private oneShotDuration = 0
   private paused = false
   private studio = false
+  private disposed = false
   private elapsed = 0
   private playbackRate = 1
   private requestedPlaybackRate = 1
@@ -70,11 +75,22 @@ export class CorgiVisual {
     })
     this.root.updateMatrixWorld(true)
     this.lod.name = 'corgi-lod'
-    for (const [index, distance] of [0, 18, 38].entries()) {
+    for (const [index, distance] of CHARACTER_LOD_DISTANCES.entries()) {
       const mesh = this.root.getObjectByName(`corgi_body_lod${index}`)!
-      this.lod.attach(mesh)
-      this.lod.addLevel(mesh, distance, .1)
-      mesh.visible = index === 0
+      const equipment = this.root.getObjectByName(index === 0 ? 'corgi_saddle_leather' : `corgi_equipment_lod${index}`)
+      const level = new THREE.Group()
+      level.name = `corgi_lod_level_${index}`
+      this.root.add(level)
+      level.attach(mesh)
+      if (equipment) level.attach(equipment)
+      const unarmored = this.root.getObjectByName(`corgi_unarmored_lod${index}`)
+      if (unarmored) {
+        level.attach(unarmored)
+        unarmored.visible = false
+      }
+      this.lod.attach(level)
+      this.lod.addLevel(level, distance, .1)
+      level.visible = index === 0
     }
     this.root.add(this.lod)
     this.saddleSeat = this.root.getObjectByName('socket_saddle_seat')!
@@ -148,8 +164,21 @@ export class CorgiVisual {
   togglePaused(): boolean { this.paused = !this.paused; return this.paused }
 
   setEquipmentVisible(visible: boolean): void {
-    for (const name of ['corgi_saddle_leather', 'corgi_saddle_binding', 'corgi_saddle_brass']) {
-      this.root.getObjectByName(name)!.visible = visible
+    for (const name of ['corgi_saddle_leather', 'corgi_equipment_lod1', 'corgi_equipment_lod2', 'corgi_saddle_binding', 'corgi_saddle_brass']) {
+      const equipment = this.root.getObjectByName(name)
+      if (equipment) equipment.visible = visible
+    }
+    for (let index = 0; index < 3; index++) {
+      const unarmored = this.root.getObjectByName(`corgi_unarmored_lod${index}`)
+      if (unarmored) {
+        unarmored.visible = !visible
+        // Complete off-mode skins preserve source anatomy while closing fused tack cutouts.
+        // Patch-only skins leave the shared body visible in both modes.
+        if (unarmored.userData.replacesEquippedBody === true) {
+          const body = this.root.getObjectByName(`corgi_body_lod${index}`)
+          if (body) body.visible = visible
+        }
+      }
     }
   }
 
@@ -174,8 +203,12 @@ export class CorgiVisual {
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     this.mixer.stopAllAction()
     this.mixer.uncacheRoot(this.root)
+    // Bone textures belong to this cloned skeleton, unlike shared mesh resources.
+    this.skeleton.dispose()
     this.root.removeFromParent()
     // Shared geometry, maps and materials belong to the asset template.
   }

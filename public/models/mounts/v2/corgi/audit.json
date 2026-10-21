@@ -1,181 +1,92 @@
 {
-  "file": "corgi.glb",
-  "byteLength": 5052604,
-  "asset": {
-    "generator": "Khronos glTF Blender I/O v5.2.39",
-    "version": "2.0"
-  },
-  "counts": {
-    "scenes": 1,
-    "nodes": 28,
-    "meshes": 6,
-    "primitives": 6,
-    "triangles": 132165,
-    "materials": 4,
-    "textures": 1,
-    "images": 1,
-    "skins": 1,
-    "joints": 21,
-    "animations": 7
-  },
-  "jointNames": [
-    "corgi_torso",
-    "corgi_chest",
-    "corgi_front_upper_l",
-    "corgi_front_lower_l",
-    "corgi_front_paw_l",
-    "corgi_front_upper_r",
-    "corgi_front_lower_r",
-    "corgi_front_paw_r",
-    "corgi_neck",
-    "corgi_head",
-    "corgi_rear_upper_l",
-    "corgi_rear_lower_l",
-    "corgi_rear_ankle_l",
-    "corgi_rear_paw_l",
-    "corgi_rear_upper_r",
-    "corgi_rear_lower_r",
-    "corgi_rear_ankle_r",
-    "corgi_rear_paw_r",
-    "corgi_tail_0",
-    "socket_camera",
-    "socket_saddle_seat"
-  ],
-  "animationNames": [
-    "idle",
-    "walk",
-    "run",
-    "death",
-    "jump",
-    "land",
-    "hit"
-  ],
-  "extensionsUsed": [
-    "EXT_meshopt_compression"
-  ],
-  "extensionsRequired": [
-    "EXT_meshopt_compression"
-  ],
-  "preservation": {
-    "nodesExact": false,
-    "reviewedRigCorrection": {
-      "algorithm": "corgi-limb-pivots-v1",
-      "changedJoints": [
-        "corgi_front_lower_l",
-        "corgi_front_paw_l",
-        "corgi_front_lower_r",
-        "corgi_front_paw_r",
-        "corgi_rear_lower_l",
-        "corgi_rear_ankle_l",
-        "corgi_rear_paw_l",
-        "corgi_rear_lower_r",
-        "corgi_rear_ankle_r",
-        "corgi_rear_paw_r"
-      ],
-      "landmarks": {
-        "front_l": {
-          "wrist": [
-            0.113,
-            -0.618,
-            0.16
-          ]
-        },
-        "front_r": {
-          "wrist": [
-            -0.229,
-            -0.749,
-            0.16
-          ]
-        },
-        "rear_l": {
-          "hock": [
-            0.3,
-            0.918,
-            0.25
-          ],
-          "wrist": [
-            0.3,
-            0.875,
-            0.14
-          ]
-        },
-        "rear_r": {
-          "hock": [
-            -0.18,
-            1.165,
-            0.25
-          ],
-          "wrist": [
-            -0.18,
-            1.211,
-            0.14
-          ]
-        }
-      },
-      "maximumBindMatrixError": 4.535633291169461e-8
+  "id": "corgi",
+  "residentGeometryBytes": 6456472,
+  "sha256": "f05ed47e6c038ee2dfc0be053212328ecbf49673608846c1afbbbba1fafa5a6e",
+  "packageBytes": 7815968,
+  "sourceSha256": "0d0a7925220ef045b7c70ed7071248565b742d76ea3d356d64b19f49a90175df",
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 10868,
+      "storedTriangles": 26028,
+      "backingTriangles": 15160,
+      "unarmoredTriangles": 15160,
+      "bodyTriangles": 2644,
+      "equipmentTriangles": 8224
     },
-    "geometryExact": true,
-    "skinsExact": false,
-    "materialsExact": true,
-    "imagesExact": true,
-    "originalBinaryPrefixExact": true,
-    "skinCorrection": {
-      "algorithm": "corgi-anatomical-limbs-v4",
-      "meshes": [
-        {
-          "name": "corgi_body_lod0",
-          "changedVertices": 19577,
-          "transitionNodes": 9048,
-          "transitionIterations": 180,
-          "coreNodes": {
-            "corgi_front_paw_l": 658,
-            "corgi_front_paw_r": 595,
-            "corgi_rear_paw_r": 580,
-            "corgi_rear_paw_l": 562
-          },
-          "surfaceNodes": 49863,
-          "stage": "limbs",
-          "protectedBodySeedNodes": 37822,
-          "pawMembership": "connected welded surface components, including left forepaw across x=0",
-          "shaftMembership": "aligned bind segment envelopes; harmonic attachments between rigid cores and protected body seeds"
-        },
-        {
-          "name": "corgi_body_lod1",
-          "changedVertices": 4032,
-          "transitionNodes": 1764,
-          "transitionIterations": 180,
-          "coreNodes": {
-            "corgi_front_paw_l": 152,
-            "corgi_front_paw_r": 143,
-            "corgi_rear_paw_r": 134,
-            "corgi_rear_paw_l": 115
-          },
-          "surfaceNodes": 10003,
-          "stage": "limbs",
-          "protectedBodySeedNodes": 7587,
-          "pawMembership": "connected welded surface components, including left forepaw across x=0",
-          "shaftMembership": "aligned bind segment envelopes; harmonic attachments between rigid cores and protected body seeds"
-        },
-        {
-          "name": "corgi_body_lod2",
-          "changedVertices": 1329,
-          "transitionNodes": 529,
-          "transitionIterations": 180,
-          "coreNodes": {
-            "corgi_front_paw_l": 53,
-            "corgi_front_paw_r": 48,
-            "corgi_rear_paw_r": 49,
-            "corgi_rear_paw_l": 43
-          },
-          "surfaceNodes": 3003,
-          "stage": "limbs",
-          "protectedBodySeedNodes": 2250,
-          "pawMembership": "connected welded surface components, including left forepaw across x=0",
-          "shaftMembership": "aligned bind segment envelopes; harmonic attachments between rigid cores and protected body seeds"
-        }
-      ]
+    {
+      "level": 1,
+      "triangles": 5976,
+      "storedTriangles": 14313,
+      "backingTriangles": 8337,
+      "unarmoredTriangles": 8337,
+      "bodyTriangles": 1454,
+      "equipmentTriangles": 4522
     },
-    "baselineSha256": "67472e0b01af163bd30d89bd1087d799a6527154b7883de4f58fb0957798df4e",
-    "sha256": "601720262ab8ea55ce1c3a7bc684f6202618123d7282515ee9f6f0365cfd392f"
-  }
+    {
+      "level": 2,
+      "triangles": 4554,
+      "storedTriangles": 9405,
+      "backingTriangles": 4851,
+      "unarmoredTriangles": 4851,
+      "bodyTriangles": 846,
+      "equipmentTriangles": 3708
+    }
+  ],
+  "joints": 21,
+  "meshes": 9,
+  "materials": 1,
+  "textures": 3,
+  "maximumWeightError": 4.022149369120598e-08,
+  "maximumRestError": 4.058303650804831e-07,
+  "clips": [
+    {
+      "name": "idle",
+      "duration": 10,
+      "changingTracks": 2,
+      "fingerprint": "4562b66cc30b917eb7e09b48c34b964a23513be3bc2eef303e052dae4dd1e1a1"
+    },
+    {
+      "name": "walk",
+      "duration": 1.2000000476837158,
+      "changingTracks": 15,
+      "fingerprint": "8fc9bf39ce6a88cedf9b941e90d49eda7d7abbcb8104e6ffe93c5a19ed70e9d4"
+    },
+    {
+      "name": "run",
+      "duration": 0.800000011920929,
+      "changingTracks": 19,
+      "fingerprint": "a9e1758b05f10f966f965d42bf2ec138331f8dce9ef1d9a887742ebf3f068c2c"
+    },
+    {
+      "name": "jump",
+      "duration": 0.7666666507720947,
+      "changingTracks": 11,
+      "fingerprint": "6a3a88d203592218de258c302b2d50e9482d57c3e06bb3bee73c1bdc751c69e8"
+    },
+    {
+      "name": "land",
+      "duration": 0.6333333253860474,
+      "changingTracks": 11,
+      "fingerprint": "6e89dcd466812d25bb5c23d64eb85a05f3f0e84d4293512efd7e867be958805f"
+    },
+    {
+      "name": "hit",
+      "duration": 0.6333333253860474,
+      "changingTracks": 3,
+      "fingerprint": "664d140620e0f37ec951bf787db5feaeaedb1a355130e51290104da47ced35e1"
+    },
+    {
+      "name": "death",
+      "duration": 1.7999999523162842,
+      "changingTracks": 6,
+      "fingerprint": "d673578c1e79c6612ffafb16e23eb20bf5e94882e644162c6ad6cb5e50e5db4b"
+    }
+  ],
+  "structuralStatus": "pass",
+  "visualStatus": "Offline packed-GLB Blender review passed with minor concealed-fur border color transitions; Browser gameplay and GPU performance pending.",
+  "limitation": "No proof of anatomy, clipping, saddle fit, animation quality, gameplay or GPU performance.",
+  "sourceBytes": 20182548,
+  "sourceTriangles": 10336,
+  "equippedLod0TriangleReductionVsOld106167": 0.8976329744647583
 }

@@ -1,3 +1,4 @@
+import { outpostCheckpointHeight } from '../campaign/OutpostRampartGarrison'
 import * as THREE from 'three'
 import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
@@ -15,6 +16,9 @@ export function snapshotCommandActor(npc: NPC, homeMount?: Mount,
   return { status: npc.dead ? 'dead' : status, hp: npc.hp,
     position: position(npc.combatPosition, npc.mount?.group.rotation.y ?? npc.group.rotation.y),
     ammo: npc.combatAmmo, shieldImpact: npc.shield.shieldImpactRemaining, order: npc.tacticalOrder,
+    ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
+    ...(npc.isTownRampartGarrisonActive ? { townRampartGarrison: true } : {}),
+    ...(npc.isMountedTownRampartGarrisonEnabled ? { townRampartMounted: true } : {}),
     ...(npc.isFalling ? { fall: npc.fallSnapshot } : {}),
     ...(npc.combatFormationCheckpoint ? { formation: npc.combatFormationCheckpoint } : {}),
     ...(mount ? { mount: { hp: mount.dead ? 0 : mount.currentHp, mounted: npc.mount === mount,
@@ -25,6 +29,7 @@ export function snapshotCommandActor(npc: NPC, homeMount?: Mount,
 
 /** Used only while restoring a scene. Runtime handovers never move or heal the actor. */
 export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, homeMount?: Mount): void {
+  npc.releaseOutpostRampartGarrison?.()
   npc.restoreCombatHealth(saved.status === 'dead' ? 0 : saved.hp ?? npc.hp)
   if (saved.ammo !== undefined) npc.restoreCombatAmmo(saved.ammo)
   if (saved.shieldImpact !== undefined) npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, saved.shieldImpact)
@@ -36,13 +41,15 @@ export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, ho
     else {
       mount.currentHp = Math.min(mount.maxHp, saved.mount.hp)
       if (!saved.mount.mounted && npc.mount === mount) npc.dismountFromMount()
-      if (saved.mount.flight && mount.flight) mount.flight.restore(saved.mount.flight)
+      // A partially recovered scene may not have a garrison snapshot to bind this pair first.
+      // Bind the same grounded asset before its saved airborne phase makes boarding illegal.
       if (saved.mount.mounted && !npc.dead && npc.mount !== mount) npc.mountVehicle(mount)
+      if (saved.mount.flight && mount.flight) mount.flight.restore(saved.mount.flight)
     }
   }
   if (saved.position) {
     const p = saved.position
-    npc.group.position.set(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z); npc.group.rotation.y = p.yaw
+    npc.group.position.set(p.x, outpostCheckpointHeight(p.x, p.z, p.y, saved.outpostRampartGarrison, npc.characterFaction), p.z); npc.group.rotation.y = p.yaw
   }
   if (saved.fall) { npc.dismountFromMount(); npc.restorePendingFall(saved.fall) }
   if (!npc.dead && saved.formation) {
@@ -50,6 +57,11 @@ export function restoreCommandActor(npc: NPC, saved: PersonalActorCheckpoint, ho
     npc.assignFormationTarget(f.commandId, new THREE.Vector3(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z),
       new THREE.Vector3(Math.sin(p.yaw), 0, Math.cos(p.yaw)), f.speedLimit, f.arrivalOrder, f.reached)
   } else if (!npc.dead && saved.order && saved.order !== 'follow') npc.setTacticalOrder(saved.order)
+  if (!npc.dead && !saved.formation && saved.outpostRampartGarrison && (!saved.order || saved.order === 'defend' || saved.order === 'attack'))
+    npc.activateOutpostRampartGarrison(saved.order === 'attack' ? 'attack' : 'defend')
+  if (!npc.dead && (!npc.isMounted || saved.townRampartMounted) && !saved.formation && saved.townRampartGarrison
+    && (!saved.order || saved.order === 'defend' || saved.order === 'attack'))
+    npc.activateTownRampartGarrison(saved.order === 'attack' ? 'attack' : 'defend', saved.townRampartMounted === true)
 }
 
 /** Stages restored resources before a service transaction mutates the live army. */

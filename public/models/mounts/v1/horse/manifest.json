@@ -18,59 +18,30 @@
   "variants": [
     {
       "id": "paint_01",
-      "label": "Source coat paint 01",
-      "baseColor": "textures/paint_01.baseColor.ktx2"
+      "label": "Original grey",
+      "baseColor": "textures/paint_01.ktx2"
     },
     {
       "id": "paint_02",
-      "label": "Source coat paint 02",
-      "baseColor": "textures/paint_02.baseColor.ktx2"
+      "label": "Bay tint",
+      "baseColor": "textures/paint_02.ktx2"
     },
     {
       "id": "paint_03",
-      "label": "Source coat paint 03",
-      "baseColor": "textures/paint_03.baseColor.ktx2"
+      "label": "Dark tint",
+      "baseColor": "textures/paint_03.ktx2"
     }
   ],
   "sharedBodyMaps": {
-    "normal": "textures/12_body.normal.ktx2",
-    "roughness": "textures/14_body.roughness.ktx2",
-    "ao": "textures/body.ao.ktx2"
+    "normal": "textures/source-4.ktx2",
+    "roughness": "textures/source-3.ktx2",
+    "ao": "textures/source-3.ktx2"
   },
   "sharedElements": [
-    "source mane cards",
-    "source tail cards",
-    "source hooves",
-    "source tack"
+    "source mane",
+    "source tail",
+    "fitted existing saddle"
   ],
-  "eyePatch": {
-    "source": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/main_agent_visual_approval.md",
-    "sha256": "8a7990c9e43dd618b2e01868edf8926e73f6bc085424f0c785fb2eea58be6f52",
-    "geometryAccessorsChanged": [
-      47,
-      48,
-      49,
-      58,
-      53,
-      54,
-      55,
-      163,
-      164,
-      165,
-      174,
-      169,
-      170,
-      171,
-      281,
-      282,
-      283,
-      292,
-      287,
-      288,
-      289
-    ],
-    "baseColor": "textures/horse_eyes.baseColor.v10.ktx2"
-  },
   "clips": [
     "idle",
     "walk",
@@ -93,31 +64,30 @@
     "textures": "KHR_texture_basisu"
   },
   "metrics": {
-    "shoulderHeightM": 1.649999976158142,
-    "overallHeightM": 2.2764512109570205,
-    "saddleHeightM": 1.7400000095367432,
-    "widthM": 0.7039595544338226,
-    "lengthM": 2.670880973339081,
+    "shoulderHeightM": 1.654639246196456,
+    "overallHeightM": 2.362235843616561,
+    "saddleHeightM": 1.790000019923356,
+    "widthM": 0.6874346077266658,
+    "lengthM": 2.866431406736819,
     "triangles": {
-      "lod0": 64986,
-      "lod1": 20279,
-      "lod2": 4104
+      "lod0": 15644,
+      "lod1": 6173,
+      "lod2": 2327
     },
-    "eyeBaseColor": {
-      "file": "textures/horse_eyes.baseColor.v10.ktx2",
-      "bytes": 12919,
-      "sha256": "5234a5c4ff1f3387afab8f948379e32178457abde3001e489ded9ffe1442889c",
-      "width": 512,
-      "height": 512,
-      "levels": 10,
-      "supercompressionScheme": 1
-    },
-    "packageBytes": 6145021,
-    "textureCount": 48,
-    "textureMaxSize": 2048
+    "joints": 70,
+    "materials": 3,
+    "textureMaxSize": 1024,
+    "textureCount": 7,
+    "packageBytes": 2877447
   },
-  "attribution": "Horse base mesh by Tarnyloo (CC BY 3.0); rig, locomotion and tack by fdoss001 (BlendSwap page declares CC0); supplemental motion reference by Quaternius (CC0).",
+  "attribution": "Horse by MAXDESIGN-3D (CC BY 4.0); supplemental animations and saddle derived from fdoss001 / Tarnyloo (CC0 / CC BY 3.0), with Quaternius (CC0) motion reference.",
   "sources": [
+    {
+      "author": "MAXDESIGN-3D",
+      "url": "https://sketchfab.com/3d-models/horse-d9af6902210645d995e37ba4319957b6",
+      "license": "CC BY 4.0",
+      "sha256": "1af80d4517beb4c79781b15e50285ebbdf7a4fd3a8f8d08f3c1d54f1e1b60712"
+    },
     {
       "author": "fdoss001",
       "url": "https://blendswap.com/blend/28627",
@@ -137,8 +107,12 @@
       "sha256": "56cb97026a6f4dbd9024e94cc58784e94e635042e4686b4c2344bf1eba715e01"
     }
   ],
-  "reports": {
-    "packageAudit": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/v10_package_audit.json",
-    "preflight": "artifacts/mount_horse_pipeline/runtime_v10_package_candidate/reports/v10_package_preflight.json"
-  }
+  "gaitReferenceSpeeds": {
+    "walk": 2.7622,
+    "trot": 2.1741,
+    "canter": 3.7392,
+    "gallop": 12.1285
+  },
+  "revision": "lightweight-source-horse",
+  "sha256": "f5d18ced8e6d6bceb0084404bf942adcb14289a3cb5ad39de6196fe9492f0ba6"
 }

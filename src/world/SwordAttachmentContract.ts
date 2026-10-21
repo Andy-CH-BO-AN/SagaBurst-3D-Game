@@ -19,6 +19,68 @@ export function swordHandMatrix(frame: SwordGripFrame): THREE.Matrix4 {
   return new THREE.Matrix4().makeBasis(x, y, z).setPosition(...frame.gripCenterLocal)
 }
 
+/** Haft follows the thumb web; the cutting edge follows the extended fingers.
+ * Source mock-weapon normals are not anatomical palm axes. */
+export function naturalAxeHandMatrix(frame: SwordGripFrame): THREE.Matrix4 {
+  const y = new THREE.Vector3(...frame.gripAxisLocal).normalize()
+  const x = new THREE.Vector3(...frame.fingerDirection)
+  x.addScaledVector(y, -x.dot(y)).normalize()
+  const z = new THREE.Vector3().crossVectors(x, y).normalize()
+  return new THREE.Matrix4().makeBasis(x, y, z).setPosition(...frame.gripCenterLocal)
+}
+
+export interface WeaponGripSection { palmRadius: number; fingerRadius: number; palmOffset: number; fingerOffset: number }
+export interface WeaponGripSections { foot: WeaponGripSection; mounted: WeaponGripSection }
+
+/** Attachment-time section in the selected model's actual grip plane. The two
+ * anatomical extents include child transforms and the foot/mounted weapon roll. */
+function measureWeaponGripSections(model: THREE.Object3D, center: readonly number[], frame: SwordGripFrame, mountedRotation?: readonly number[]): WeaponGripSections | undefined {
+  model.updateWorldMatrix(true, true)
+  const inverse = model.matrixWorld.clone().invert(), matrix = new THREE.Matrix4()
+  const foot = new THREE.Quaternion().setFromRotationMatrix(swordHandMatrix(frame))
+  const mounted = mountedRotation ? new THREE.Quaternion(mountedRotation[0], mountedRotation[1], mountedRotation[2], mountedRotation[3]) : foot.clone()
+  const swing = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(...frame.gripAxisLocal).normalize(), new THREE.Vector3(0, 1, 0).applyQuaternion(mounted))
+  mounted.premultiply(swing.invert())
+  const normal = new THREE.Vector3(...frame.palmNormalLocal).normalize(), finger = new THREE.Vector3(...frame.fingerDirection).normalize()
+  const sections: WeaponGripSections = { foot: { palmRadius: 0, fingerRadius: 0, palmOffset: 0, fingerOffset: 0 }, mounted: { palmRadius: 0, fingerRadius: 0, palmOffset: 0, fingerOffset: 0 } }
+  const ranges = { foot: [Infinity, -Infinity, Infinity, -Infinity], mounted: [Infinity, -Infinity, Infinity, -Infinity] }
+  const points = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
+  const intersection = new THREE.Vector3(), local = new THREE.Vector3(), gripCenter = new THREE.Vector3().fromArray(center)
+  const include = (point: THREE.Vector3) => {
+    for (const [range, rotation] of [[ranges.foot, foot], [ranges.mounted, mounted]] as const) {
+      local.copy(point).sub(gripCenter).applyQuaternion(rotation)
+      const n = local.dot(normal), f = local.dot(finger)
+      range[0] = Math.min(range[0], n); range[1] = Math.max(range[1], n)
+      range[2] = Math.min(range[2], f); range[3] = Math.max(range[3], f)
+    }
+  }
+  model.traverse(object => {
+    if (!(object instanceof THREE.Mesh) || !object.geometry.attributes.position) return
+    const geometry = object.geometry, indices = geometry.index
+    matrix.multiplyMatrices(inverse, object.matrixWorld)
+    const count = indices?.count ?? geometry.attributes.position.count
+    for (let i = 0; i + 2 < count; i += 3) {
+      for (let k = 0; k < 3; k++) object.getVertexPosition(indices ? indices.getX(i + k) : i + k, points[k]).applyMatrix4(matrix)
+      for (let k = 0; k < 3; k++) {
+        const a = points[k], b = points[(k + 1) % 3]
+        const da = a.y - center[1], db = b.y - center[1]
+        if (Math.abs(da) < 1e-7) include(a)
+        if ((da >= 0 && db < 0) || (da < 0 && db >= 0)) include(intersection.copy(a).lerp(b, da / (da - db)))
+      }
+    }
+  })
+  for (const key of ['foot', 'mounted'] as const) {
+    const range = ranges[key], section = sections[key]
+    section.palmRadius = (range[1] - range[0]) / 2; section.fingerRadius = (range[3] - range[2]) / 2
+    section.palmOffset = (range[1] + range[0]) / 2; section.fingerOffset = (range[3] + range[2]) / 2
+  }
+  // Missing/tiny sections and likely guard/pommel-sized slices use the bounded
+  // authored grasp instead of deriving a target from a whole-weapon box.
+  return Object.values(sections).every(section => Number.isFinite(section.palmRadius) && Number.isFinite(section.fingerRadius)
+    && section.palmRadius > .001 && section.fingerRadius > .001 && section.palmRadius < .06 && section.fingerRadius < .06
+    && Math.abs(section.palmOffset) < .03 && Math.abs(section.fingerOffset) < .03) ? sections : undefined
+}
+
 /** Equipment owns two fixed transforms; mounting selects the forward grip. */
 export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object3D, model: THREE.Object3D, frame: SwordGripFrame, mountedRotation?: [number, number, number, number], axeMountedRotation?: [number, number, number, number]): void {
   const center = model.userData.gripCenterLocal as number[] | undefined
@@ -28,8 +90,29 @@ export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object
   const matrix = socket.matrix.clone().invert().multiply(swordHandMatrix(frame))
     .multiply(weaponFrame.invert()).multiply(model.matrix.clone().invert())
   pivot.userData.swordFootAttachment = matrix.clone()
+  pivot.userData.meleeAnimationKind = model.userData.meleeAnimationKind
+  pivot.userData.weaponGripSections = socket.userData.anatomicalSwordCarry && model.userData.meleeAnimationKind === 'sword'
+    ? measureWeaponGripSections(model, center, frame, mountedRotation) : undefined
+  pivot.userData.weaponPivotGrip = new THREE.Vector3().fromArray(center).applyMatrix4(model.matrix)
+  pivot.userData.weaponSocketGrip = new THREE.Vector3(...frame.gripCenterLocal).applyMatrix4(socket.matrix.clone().invert())
+  pivot.userData.banditFootAxeAttachment = undefined
+  if (socket.userData.banditFootAxe) {
+    pivot.userData.banditFootAxeAttachment = socket.matrix.clone().invert().multiply(naturalAxeHandMatrix(frame))
+      .multiply(new THREE.Matrix4().makeTranslation(-center[0], -center[1], -center[2])).multiply(model.matrix.clone().invert())
+    pivot.userData.naturalFootAxeCarry = socket.userData.naturalFootAxeCarry
+    pivot.userData.vikingFootAxeCarry = socket.userData.vikingFootAxeCarry
+  }
   pivot.userData.axeVisual = model.getObjectByName('dane-axe-visual')
+  pivot.userData.forwardAxeCarryRoot = pivot.userData.axeVisual ? socket.userData.forwardAxeCarryRoot : undefined
+  pivot.userData.forwardAxeCarryBaseRotation = pivot.userData.forwardAxeCarryRoot ? new THREE.Quaternion() : undefined
+  pivot.userData.forwardAxeCarryApplied = false
   pivot.userData.axeCarryWeight = undefined
+  // The source socket is actor-owned and survives LOD selection via the hand
+  // proxy. Its animation curve is evaluated by the same character mixer.
+  pivot.userData.authoredAxeSocket = socket.userData.authoredAxeSocket
+  pivot.userData.authoredAxe1Socket = socket.userData.authoredAxe1Socket
+  pivot.userData.authoredAxeActive = false
+  pivot.userData.authoredAxeModelInverse = model.matrix.clone().invert()
   pivot.userData.swordMountedAttachment = mountedRotation
     ? socket.matrix.clone().invert().multiply(new THREE.Matrix4().compose(
       new THREE.Vector3(...frame.gripCenterLocal), new THREE.Quaternion(...mountedRotation), new THREE.Vector3(1, 1, 1),
@@ -56,7 +139,17 @@ export function applySwordAttachment(socket: THREE.Object3D, pivot: THREE.Object
 }
 
 export function weaponGripWorld(model: THREE.Object3D, target: THREE.Vector3): THREE.Vector3 {
+  const attachment = model.parent?.userData
+  if (attachment?.authoredAxeActive) return model.localToWorld(target.set(0, attachment.authoredAxeGripY, 0))
   return model.localToWorld(target.fromArray(model.userData.gripCenterLocal ?? [0, 0, 0]))
+}
+
+/** Preserve the configured reach, but follow the axe's visible grip rotation.
+ * Legacy clips were authored for the unrotated reference and keep that path. */
+export function weaponTipWorld(model: THREE.Object3D, local: THREE.Vector3, target: THREE.Vector3, followVisual = false): THREE.Vector3 {
+  const visual = followVisual ? model.getObjectByName('dane-axe-visual') : undefined
+  if (visual) return visual.localToWorld(target.copy(local).sub(visual.position))
+  return model.localToWorld(target.copy(local))
 }
 
 /** Select only on context changes; both transforms retain the model grip. */
@@ -64,6 +157,20 @@ const axeAttackRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vect
 const axeCarryRotation = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), .55)
   .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), -Math.PI / 2))
 const axeGripOffset = new THREE.Vector3()
+const authoredAxeMatrix = new THREE.Matrix4()
+const carryShaft = new THREE.Vector3(), carryEdge = new THREE.Vector3(), carryDown = new THREE.Vector3(), carryCross = new THREE.Vector3()
+const carryRoll = new THREE.Quaternion(), carryWorld = new THREE.Quaternion()
+const carryLocalY = new THREE.Vector3(0, 1, 0)
+const footAttackVisual = new THREE.Quaternion(), footCarryVisual = new THREE.Quaternion()
+const footNaturalWorld = new THREE.Quaternion()
+const footMacePosition = new THREE.Vector3(), footMaceRotation = new THREE.Quaternion(), footMaceScale = new THREE.Vector3()
+// Delivered ordinary-roman socket uses +Z along the haft. The formal weapon
+// uses +Y. Grip at 0.35m leaves actual wood below the lower supporting hand.
+const authoredAxe1ModelFrame = new THREE.Matrix4().makeRotationX(Math.PI / 2)
+  .multiply(new THREE.Matrix4().makeTranslation(0, -.15, 0))
+const authoredAxeModelFrame = new THREE.Matrix4().makeRotationX(Math.PI / 2)
+  .multiply(new THREE.Matrix4().makeTranslation(0, -.35, 0))
+
 
 /** Keep carry adjustments outside the source contact/support-hand interval. */
 export function axeCarryWeight(action: string, elapsed: number): number {
@@ -73,9 +180,92 @@ export function axeCarryWeight(action: string, elapsed: number): number {
   return 1 - smooth(elapsed / .08) + smooth((elapsed - .42) / .06)
 }
 
-export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false): void {
+function selectSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false, action = 'idle', footCarryWeight = action === 'idle' ? 1 : 0): void {
   const axeVisual = pivot.userData.axeVisual as THREE.Object3D | undefined
-  if (!pivot.userData.swordAttachmentOwned || (pivot.userData.swordMounted === mounted
+  if (pivot.userData.swordAttachmentOwned && !axeVisual && pivot.userData.meleeAnimationKind === 'axe'
+    && !mounted && action === 'axeAttack1H' && pivot.userData.banditFootAxeAttachment) {
+    // Mace has no independently rotated axe mesh. Blend its attachment about
+    // the palm so the same Bandit wrist pose carries the actual equipped head.
+    pivot.userData.banditFootAxeAttachment.decompose(pivot.position, pivot.quaternion, pivot.scale)
+    pivot.userData.swordFootAttachment.decompose(footMacePosition, footMaceRotation, footMaceScale)
+    pivot.quaternion.slerp(footMaceRotation, footCarryWeight)
+    axeGripOffset.copy(pivot.userData.weaponPivotGrip).multiply(pivot.scale).applyQuaternion(pivot.quaternion)
+    pivot.position.copy(pivot.userData.weaponSocketGrip).sub(axeGripOffset)
+    pivot.userData.swordMounted = undefined
+    pivot.updateMatrix()
+    return
+  }
+  if (pivot.userData.swordAttachmentOwned && axeVisual && !mounted && action === 'idle' && pivot.userData.vikingFootAxeCarry) {
+    // Weapon-only roll about its existing palm station. Do not alter the
+    // authored Viking arm/wrist, the hand socket, attacks or mounted poses.
+    pivot.userData.swordFootAttachment.decompose(pivot.position, pivot.quaternion, pivot.scale)
+    pivot.updateMatrix()
+    axeVisual.quaternion.copy(axeAttackRotation)
+    axeVisual.updateWorldMatrix(true, false)
+    axeVisual.getWorldQuaternion(carryWorld)
+    carryShaft.set(0, 1, 0).applyQuaternion(carryWorld)
+    carryEdge.set(1, 0, 0).applyQuaternion(carryWorld)
+    carryDown.set(0, -1, 0).addScaledVector(carryShaft, carryShaft.y)
+    if (carryDown.lengthSq() > 1e-6) {
+      carryDown.normalize()
+      const angle = Math.atan2(carryShaft.dot(carryCross.crossVectors(carryEdge, carryDown)), carryEdge.dot(carryDown))
+      axeVisual.quaternion.multiply(carryRoll.setFromAxisAngle(carryLocalY, angle))
+    }
+    pivot.userData.authoredAxeActive = false
+    pivot.userData.swordMounted = undefined
+    return
+  }
+  if (pivot.userData.swordAttachmentOwned && axeVisual && !mounted && pivot.userData.banditFootAxeAttachment
+    && (action === 'axeAttack1H' || action === 'idle' && pivot.userData.naturalFootAxeCarry)) {
+    // Blend the weapon about the same palm as the source arms enter/leave
+    // the Bandit clip. This avoids an attachment jump at start/completion.
+    if (footCarryWeight > 0 && !pivot.userData.naturalFootAxeCarry) {
+      pivot.userData.swordFootAttachment.decompose(pivot.position, pivot.quaternion, pivot.scale)
+      pivot.updateMatrix()
+      axeVisual.quaternion.copy(axeAttackRotation)
+      axeVisual.updateWorldMatrix(true, false)
+      axeVisual.getWorldQuaternion(footCarryVisual)
+      if (pivot.userData.vikingFootAxeCarry) {
+        carryShaft.set(0, 1, 0).applyQuaternion(footCarryVisual)
+        carryEdge.set(1, 0, 0).applyQuaternion(footCarryVisual)
+        carryDown.set(0, -1, 0).addScaledVector(carryShaft, carryShaft.y)
+        if (carryDown.lengthSq() > 1e-6) {
+          carryDown.normalize()
+          const angle = Math.atan2(carryShaft.dot(carryCross.crossVectors(carryEdge, carryDown)), carryEdge.dot(carryDown))
+          footCarryVisual.multiply(carryRoll.setFromAxisAngle(carryLocalY, angle))
+        }
+      }
+    }
+    pivot.userData.banditFootAxeAttachment.decompose(pivot.position, pivot.quaternion, pivot.scale)
+    pivot.updateMatrix()
+    axeVisual.quaternion.identity()
+    if (footCarryWeight > 0 && !pivot.userData.naturalFootAxeCarry) {
+      axeVisual.updateWorldMatrix(true, false)
+      axeVisual.getWorldQuaternion(footNaturalWorld).invert()
+      footAttackVisual.copy(footNaturalWorld).multiply(footCarryVisual)
+      axeVisual.quaternion.slerp(footAttackVisual, footCarryWeight)
+    }
+    pivot.userData.authoredAxeActive = false
+    pivot.userData.swordMounted = undefined
+    pivot.updateMatrix()
+    return
+  }
+  const authored = pivot.userData[action === 'axeAttack1H' ? 'authoredAxe1Socket' : 'authoredAxeSocket'] as THREE.Object3D | undefined
+  if (pivot.userData.swordAttachmentOwned && axeVisual && authored && (action === 'axeAttack1H' || action === 'axeAttack2H')) {
+    authored.updateWorldMatrix(true, false)
+    pivot.parent!.updateWorldMatrix(true, false)
+    authoredAxeMatrix.copy(pivot.parent!.matrixWorld).invert().multiply(authored.matrixWorld)
+      .multiply(action === 'axeAttack1H' ? authoredAxe1ModelFrame : authoredAxeModelFrame).multiply(pivot.userData.authoredAxeModelInverse)
+    authoredAxeMatrix.decompose(pivot.position, pivot.quaternion, pivot.scale)
+    axeVisual.quaternion.identity()
+    pivot.userData.authoredAxeGripY = action === 'axeAttack1H' ? .15 : .35
+    pivot.userData.authoredAxeActive = true
+    pivot.updateMatrix()
+    return
+  }
+  const restoreAuthored = pivot.userData.authoredAxeActive === true
+  pivot.userData.authoredAxeActive = false
+  if (!pivot.userData.swordAttachmentOwned || (!restoreAuthored && pivot.userData.swordMounted === mounted
     && (!axeVisual || pivot.userData.axeCarryWeight === carryWeight && pivot.userData.axeTwoHandedCarry === twoHandedCarry))) return
   // Keep the lance's carry wrist untouched. Blend the axe attachment about its
   // fixed palm contact, then roll only the visual cutting edge toward the floor.
@@ -94,4 +284,39 @@ export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolea
   pivot.userData.axeCarryWeight = carryWeight
   pivot.userData.swordMounted = mounted
   pivot.updateMatrix()
+}
+
+const forwardAxeRootRotation = new THREE.Quaternion()
+const forwardAxeParentInverse = new THREE.Quaternion()
+const forwardAxeWorldRotation = new THREE.Quaternion()
+const forwardAxeYaw = new THREE.Quaternion()
+const forwardAxeShaft = new THREE.Vector3()
+const forwardAxeUp = new THREE.Vector3()
+
+/** Fitted carry changes only the axe's heading around its existing palm station.
+ * Preserve the sampled pitch/roll and the original contact interval; the next
+ * sample always starts from the uncorrected equipment attachment. */
+export function setSwordMountedAttachment(pivot: THREE.Object3D, mounted: boolean, carryWeight = mounted ? 1 : 0, twoHandedCarry = false, action = 'idle', footCarryWeight = action === 'idle' ? 1 : 0): void {
+  const visual = pivot.userData.axeVisual as THREE.Object3D | undefined
+  const root = pivot.userData.forwardAxeCarryRoot as THREE.Object3D | undefined
+  const baseline = pivot.userData.forwardAxeCarryBaseRotation as THREE.Quaternion | undefined
+  if (visual && baseline && pivot.userData.forwardAxeCarryApplied) {
+    visual.quaternion.copy(baseline)
+    pivot.userData.forwardAxeCarryApplied = false
+  }
+  selectSwordMountedAttachment(pivot, mounted, carryWeight, twoHandedCarry, action, footCarryWeight)
+  if (!pivot.userData.swordAttachmentOwned || !visual?.parent || !root || !baseline || footCarryWeight <= 0) return
+  baseline.copy(visual.quaternion)
+  visual.updateWorldMatrix(true, false)
+  root.getWorldQuaternion(forwardAxeRootRotation)
+  visual.getWorldQuaternion(forwardAxeWorldRotation)
+  forwardAxeShaft.set(0, 1, 0).applyQuaternion(forwardAxeWorldRotation)
+    .applyQuaternion(forwardAxeParentInverse.copy(forwardAxeRootRotation).invert())
+  if (forwardAxeShaft.x * forwardAxeShaft.x + forwardAxeShaft.z * forwardAxeShaft.z < 1e-8) return
+  forwardAxeUp.set(0, 1, 0).applyQuaternion(forwardAxeRootRotation)
+  forwardAxeYaw.setFromAxisAngle(forwardAxeUp, -Math.atan2(forwardAxeShaft.x, forwardAxeShaft.z) * footCarryWeight)
+  visual.parent!.getWorldQuaternion(forwardAxeParentInverse).invert()
+  visual.quaternion.copy(forwardAxeParentInverse).multiply(forwardAxeYaw).multiply(forwardAxeWorldRotation).normalize()
+  pivot.userData.forwardAxeCarryApplied = true
+  visual.updateMatrix()
 }

@@ -24,6 +24,8 @@ export function resolveCareerTownSceneContext(
   profile: Pick<CareerProfile, 'faction' | 'activeMission'>,
 ): CareerTownSceneContext {
   const enemyTownAssault = profile.activeMission?.kind === 'enemy-town-assault'
+    || profile.activeMission?.kind === 'commander-sky-raid'
+    || profile.activeMission?.kind === 'commander-decapitation'
   const enemyTerritoryField = isCareerEnemyTerritoryFieldMission(profile.activeMission)
   const foreignTownFaction = enemyTownAssault || enemyTerritoryField
     ? opposingFaction(profile.faction)
@@ -72,6 +74,9 @@ export function careerTownSceneRoster(
   // the complete conquest roster assembled from the built TownWorld.
   const nativeSpecs = (isCareerEnemyTerritoryFieldMission(profile.activeMission) ? residents.filter(spec => spec.role !== 'hr-officer' && spec.role !== 'eagle-trainer') : residents)
     .filter(spec => spec.role !== 'cat')
+    // Accepted legacy Commander V snapshots keep their original native population.
+    .filter(spec => spec.duty !== 'watchtower_guard' || profile.activeMission?.kind !== 'commander-four-gate-defense'
+      || profile.activeMission.fourGateDefense?.rosterVersion === 2)
   const activeMission = profile.activeMission
   if (isCareerEnemyTerritoryFieldMission(activeMission)) {
     const nativeById = new Map(nativeSpecs.map(spec => [spec.id, spec]))
@@ -98,11 +103,14 @@ export function careerTownSceneRoster(
   }
 
   const context = resolveCareerTownSceneContext(profile)
-  const allegiance = activeMission?.kind === 'enemy-town-assault' ? Faction.ENEMY : Faction.TOWN
+  const commanderTown = activeMission?.kind === 'commander-sky-raid'
+    || activeMission?.kind === 'commander-decapitation'
+  const allegiance = activeMission?.kind === 'enemy-town-assault'
+    || commanderTown ? Faction.ENEMY : Faction.TOWN
   return nativeSpecs.map(spec => ({
     spec: { ...spec },
     characterFaction: townResidentCharacterFaction(spec, context.residentFaction),
-    allegiance: spec.role === 'hr-officer' ? context.worldOwnerAllegiance : allegiance,
+    allegiance: spec.role === 'hr-officer' && !commanderTown ? context.worldOwnerAllegiance : allegiance,
     borrowed: false,
   }))
 }

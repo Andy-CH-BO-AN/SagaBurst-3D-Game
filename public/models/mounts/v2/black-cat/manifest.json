@@ -5,33 +5,84 @@
   "forward": "+Z",
   "file": "black-cat.glb",
   "source": {
-    "title": "Black Cat",
-    "author": "3D Creator (3DChuang-Ke-Ji)",
-    "url": "https://sketchfab.com/3d-models/black-cat-dd0adc10d8b94bc99dfffe0268818e0b",
+    "title": "Midnight Rider",
+    "author": "Meshy; user-provided free-plan model",
+    "url": "https://www.meshy.ai/",
     "license": "CC-BY-4.0",
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "sourceSha256": "4aec818094bf09a57ff44a24ea0be24a1cf7100f4e7a4b632c21df4dc92f2b57"
+    "file": "Meshy_AI_Midnight_Rider_1017070200_texture.glb",
+    "sourceSha256": "9e6ce0835095dfec2de0e953f38a0dbaa987a50da0a28bf4e8c241ee2ac7f81a"
   },
-  "attribution": "Black Cat by 3D Creator (3DChuang-Ke-Ji), Sketchfab, CC BY 4.0. Modified for SagaBurst.",
+  "attribution": "Model created with Meshy \u2013 CC BY 4.0 License. Modified for SagaBurst.",
   "modifications": [
-    "Uniform 3.5x scale and baked +Z heading",
-    "Fitted 25-joint feline skin",
-    "Forward-facing neck and head pose",
-    "Source-derived body LODs",
-    "Fitted saddle and leather armour",
-    "2048px source PBR maps",
-    "Meshopt compression",
-    "Donor-retargeted and target-baked idle/walk/run, authored death, retained jump/land/hit"
+    "Source-specific measured 25-node feline rig and 2.05 uniform transform normalization",
+    "Accepted seven-clip donor retargeted into measured rest bases and baked at 60 Hz",
+    "Local malformed whisker web and affected texture pixels repaired; six head-bound replacement whiskers",
+    "Original saddle and armor separated for visibility without adding legacy tack",
+    "Complete off-mode fur skin reconstructed only in concealed regions with continuous local weighting",
+    "Three skeleton-compatible LODs with one shared material and a batched fur/whisker atlas strip",
+    "2048 base/normal and 1024 metallic-roughness textures; byte-exact Meshopt buffer compression"
   ],
   "metrics": {
     "triangles": {
-      "cat_body_lod0": 71856,
-      "cat_body_lod1": 20000,
-      "cat_body_lod2": 6000
+      "cat_body_lod0": 5344,
+      "cat_saddle_leather": 6962,
+      "cat_unarmored_lod0": 15584,
+      "cat_body_lod1": 2565,
+      "cat_equipment_lod1": 3340,
+      "cat_unarmored_lod1": 5610,
+      "cat_body_lod2": 960,
+      "cat_equipment_lod2": 1252,
+      "cat_unarmored_lod2": 2181
     },
+    "visibleEquippedTriangles": [
+      12306,
+      5905,
+      2212
+    ],
+    "visibleUnarmoredTriangles": [
+      15584,
+      5610,
+      2181
+    ],
+    "residentTrianglesByLod": [
+      27890,
+      11515,
+      4393
+    ],
+    "residentGeometryBytes": 2510592,
     "textureMaxSize": 2048,
-    "packageBytes": 9409176,
-    "saddleHeightM": 1.65
+    "textures": [
+      {
+        "name": "normal",
+        "width": 2048,
+        "height": 2048,
+        "bytes": 4202529,
+        "mimeType": "image/png"
+      },
+      {
+        "name": "texture_0",
+        "width": 2048,
+        "height": 2048,
+        "bytes": 1197712,
+        "mimeType": "image/jpeg"
+      },
+      {
+        "name": "texture_0_metallic_roughness",
+        "width": 1024,
+        "height": 1024,
+        "bytes": 834567,
+        "mimeType": "image/png"
+      }
+    ],
+    "packageBytes": 7889000,
+    "saddleHeightM": 1.6228187964439391,
+    "materials": 1,
+    "storedMeshPrimitives": 9,
+    "visiblePrimitives": {
+      "equipped": 2,
+      "unarmored": 1
+    }
   },
   "lodNodes": [
     "cat_body_lod0",
@@ -51,6 +102,23 @@
     "socket_saddle_seat",
     "socket_camera"
   ],
-  "sha256": "0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986",
-  "animationSource": "animation-source.json"
+  "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
+  "animationSource": "animation-source.json",
+  "equipmentLodNodes": [
+    "cat_saddle_leather",
+    "cat_equipment_lod1",
+    "cat_equipment_lod2"
+  ],
+  "unarmoredLodNodes": [
+    "cat_unarmored_lod0",
+    "cat_unarmored_lod1",
+    "cat_unarmored_lod2"
+  ],
+  "validation": {
+    "structuralAudit": "passed",
+    "browserGameplay": "pending",
+    "gpuPerformance": "not measured",
+    "visualEvidenceKind": "Blender re-import of final packed GLB, not Browser gameplay",
+    "blenderPackedRoundtrip": "passed with documented minor art limitations"
+  }
 }

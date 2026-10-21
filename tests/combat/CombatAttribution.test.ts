@@ -1,12 +1,14 @@
-import { createCombatEventRecorder } from '../helpers/combatEventRecorder'
-import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import * as THREE from 'three'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
 import { damageNpc, damageObstacle, damagePlayer } from '../../src/combat/DamageRouter'
-import { DamageableObstacle } from '../../src/world/DamageableObstacle'
-import { AIType, Faction, NPC } from '../../src/world/NPC'
+import { ShieldCollider, ShieldState } from '../../src/combat/ShieldBlocking'
 import type { Player } from '../../src/player/Player'
-import { getTerrainHeight, type ObstacleData } from '../../src/world/Terrain'
+import { DamageableObstacle } from '../../src/world/DamageableObstacle'
+import { Faction, NPC } from '../../src/world/NPC'
+import { MountType } from '../../src/world/Mount'
+import { createCombatEventRecorder } from '../helpers/combatEventRecorder'
+import { registerTownCombatDisplayName } from '../../src/ui/CombatTargetDisplayName'
 
 function eventHarness() { return createCombatEventRecorder(onTestFinished) }
 
@@ -18,13 +20,16 @@ function mockNpc(options: {
   faction?: Faction
   characterFaction?: 'viking' | 'roman'
   presetId?: string
+  tier?: number
+  mount?: Pick<NonNullable<NPC['mount']>, 'type' | 'dead'>
   squadId?: number
   position?: THREE.Vector3
-} = {}): any {
+  shield?: ShieldState
+} = {}): NPC {
   let hp = options.hp ?? options.maxHp ?? 200
   const maxHp = options.maxHp ?? hp
   let dead = false
-  let mount: any = null
+  let mount = options.mount ?? null
 
   return {
     combatantId: options.id ?? 'npc-target',
@@ -32,8 +37,11 @@ function mockNpc(options: {
     faction: options.faction ?? Faction.ENEMY,
     characterFaction: options.characterFaction ?? 'roman',
     presetId: options.presetId ?? 'roman_heavy_infantry',
+    tier: options.tier,
+    generatedAsCavalry: false,
     squadId: options.squadId,
     shieldId: options.shieldId ?? null,
+    shield: options.shield,
     maxHp,
     combatPosition: options.position ?? new THREE.Vector3(0.5, 0, 0),
     group: { position: options.position ?? new THREE.Vector3(0.5, 0, 0) },
@@ -46,14 +54,14 @@ function mockNpc(options: {
     takeDamage(amount: number) {
       if (dead) return false
       hp = Math.max(0, hp - amount)
-      if (hp <= 0) dead = true
+      if (hp <= 0) { dead = true; mount = null }
       return true
     },
     dismountFromMount: vi.fn(() => { mount = null }),
-  }
+  } as unknown as NPC
 }
 
-function mockPlayer(hp = 200): any {
+function mockPlayer(hp = 200): Player {
   let currentHp = hp
   let dead = false
   return {
@@ -73,7 +81,7 @@ function mockPlayer(hp = 200): any {
       return true
     },
     dismountFromMount: vi.fn(),
-  }
+  } as unknown as Player
 }
 
 function sourceContext(
@@ -96,54 +104,27 @@ function sourceContext(
 }
 
 describe('Combat attribution foundation', () => {
-  it('routes nested NPC event scopes once and restores the original sink after ordered or repeated releases', () => {
-    // One real foot NPC, no Mount, Player constructor, TownWorld or GLB; actual melee observes routing.
+  it('restores nested event ownership without duplicate delivery after repeated releases', () => {
     const original = vi.fn<CombatEventSink>(), first = vi.fn<CombatEventSink>(), second = vi.fn<CombatEventSink>()
-    const scene = new THREE.Scene()
-    const npc = new NPC(scene, 0, 80, Faction.PLAYER, 'viking', AIType.MELEE, 'Scoped attacker', 1, false,
-      { meleeWeaponId: 'rusty_dagger', rangedWeaponId: null, shieldId: null }, undefined, undefined, 'scoped-attacker', original)
-    let disposed = false
-    onTestFinished(() => { if (!disposed) npc.dispose() })
-    npc.group.position.y = getTerrainHeight(0, 80)
-    const gate = new DamageableObstacle({ kind: 'gate', maxHp: 5000, root: new THREE.Object3D(), ownerFaction: 'roman' })
-    const obstacle: ObstacleData = { isBarricade: false, damageable: gate,
-      box: new THREE.Box3(new THREE.Vector3(-1, -100, 80.5), new THREE.Vector3(1, 100, 81.5)) }
-    const player = { targetable: false, dead: false, isMounted: false } as unknown as Player
-    npc.setTacticalOrder('attack'); npc.assignSiegeObstacle(obstacle)
-    const hit = (expected: ReturnType<typeof vi.fn<CombatEventSink>>) => {
-      const beforeHp = gate.currentHp, before = [original.mock.calls.length, first.mock.calls.length, second.mock.calls.length]
-      for (let frame = 0; frame < 80 && gate.currentHp === beforeHp; frame++) {
-        npc.update(.05, player, [npc], [], [obstacle], { setFill() {} }, vi.fn(), vi.fn(), true)
-      }
-      expect(gate.currentHp, 'scoped attacker must hit the structure within 4 simulated seconds').toBeLessThan(beforeHp)
-      expect([original, first, second].map((sink, index) => sink.mock.calls.length - before[index])).toEqual(
-        [original, first, second].map(sink => sink === expected ? 1 : 0))
-      expect(expected).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'structure_damaged', source: expect.objectContaining({ actorId: 'scoped-attacker' }) }))
-    }
-    hit(original)
-    const releaseFirst = npc.bindCombatEventSink(first)
-    hit(first)
-    const releaseSecond = npc.bindCombatEventSink(second)
-    hit(second)
+    const routing = { originalCombatEventSink: original, combatEventBindings: [], combatEventBindingsClosed: false }
+    // Existing routing owner has no actor, model, animation or scene dependencies.
+    const owner = routing as unknown as NPC
+    const sink = () => Object.getOwnPropertyDescriptor(NPC.prototype, 'combatEventSink')!.get!.call(owner) as CombatEventSink
+    const releaseFirst = NPC.prototype.bindCombatEventSink.call(owner, first)
+    const releaseSecond = NPC.prototype.bindCombatEventSink.call(owner, second)
+    expect(sink()).toBe(second)
     releaseFirst(); releaseFirst()
-    hit(second)
+    expect(sink()).toBe(second)
     releaseSecond(); releaseSecond()
-    hit(original)
-    const releaseOuter = npc.bindCombatEventSink(first), releaseInner = npc.bindCombatEventSink(second)
-    hit(second)
-    releaseInner()
-    hit(first)
-    releaseOuter()
-    hit(original)
-    const releaseAtDisposal = npc.bindCombatEventSink(first)
-    npc.dispose(); disposed = true
-    expect(() => { releaseAtDisposal(); releaseAtDisposal() }).not.toThrow()
-    expect(() => npc.bindCombatEventSink(second)).toThrow('Cannot bind combat events to a disposed NPC')
+    expect(sink()).toBe(original)
+    routing.combatEventBindingsClosed = true
+    expect(() => NPC.prototype.bindCombatEventSink.call(owner, first)).toThrow('disposed NPC')
   })
 
-  it('counts actual HP loss instead of requested overkill and emits one kill', () => {
+  it('preserves the mounted rider display through lethal dismount and emits actual HP loss with one kill', () => {
     const { events, stream } = eventHarness()
-    const npc = mockNpc({ hp: 3, maxHp: 200 })
+    const npc = mockNpc({ hp: 3, maxHp: 200, presetId: 'roman_archer', tier: 3,
+      mount: { type: MountType.XONGKORO, dead: false } })
     const context = sourceContext(stream)
 
     const result = damageNpc(npc, 80, context)
@@ -152,17 +133,21 @@ describe('Combat attribution foundation', () => {
     expect(result.appliedDamage).toBe(3)
     expect(result.killed).toBe(true)
     expect(result.targetId).toBe('npc-target')
+    expect(result.targetName).toBe('敵方巨鷹弓兵 · T3')
+    expect(result.hpRatio).toBe(0)
+    expect(npc.name).toBe('NPC Target')
+    expect(npc.mount).toBeNull()
     expect(events).toHaveLength(2)
     expect(events[0]).toMatchObject({
       type: 'damage_applied',
       requestedDamage: 80,
       appliedDamage: 3,
-      target: { targetId: 'npc-target' },
+      target: { targetId: 'npc-target', name: 'NPC Target' },
     })
     expect(events[1]).toMatchObject({
       type: 'actor_killed',
       source: { actorId: 'attacker', squadId: 3 },
-      target: { targetId: 'npc-target' },
+      target: { targetId: 'npc-target', name: 'NPC Target' },
     })
 
     const eventCount = events.length
@@ -175,24 +160,32 @@ describe('Combat attribution foundation', () => {
 
   it('does not reduce body damage just because a shield is equipped', () => {
     const { events, stream } = eventHarness()
-    const npc = mockNpc({ hp: 200, maxHp: 200, shieldId: 'round_shield_t1' })
+    const npc = mockNpc({ id: 'guard-roman-melee-2', hp: 200, maxHp: 200, shieldId: 'round_shield_t1' })
+    registerTownCombatDisplayName(npc, { id: 'guard-roman-melee-2', role: 'melee_infantry', unitKind: 'melee',
+      duty: 'gate_guard', gateId: 'north', mounted: false, training: false, assaultObjective: true,
+      tier: 2, index: 1, x: 0, z: 0 }, 'roman')
 
     const result = damageNpc(npc, 100, sourceContext(stream))
 
     expect(result.requestedDamage).toBe(100)
     expect(result.appliedDamage).toBe(100)
     expect(result.killed).toBe(false)
+    expect(result.targetName).toBe('敵方北門劍兵 · T2')
+    expect(result.targetId).toBe('guard-roman-melee-2')
+    expect(result.hpRatio).toBe(0.5)
+    expect(npc.name).toBe('guard-roman-melee-2')
     expect(events[0]).toMatchObject({
       type: 'damage_applied',
       requestedDamage: 100,
       appliedDamage: 100,
+      target: { targetId: 'guard-roman-melee-2', name: 'guard-roman-melee-2' },
     })
   })
 
   it('attributes player death with actual damage and never double-counts it', () => {
     const { events, stream } = eventHarness()
     const player = mockPlayer(5)
-    const hpBar = { setFill: vi.fn() } as any
+    const hpBar = { setFill: vi.fn() }
 
     const result = damagePlayer(player, 25, hpBar, null, sourceContext(stream))
 
@@ -213,7 +206,7 @@ describe('Combat attribution foundation', () => {
       maxHp: 100,
       dead: false,
       displayName: '戰馬', mountDisplayName: '戰馬坐騎',
-      group: new THREE.Group(),
+      group: { uuid: 'mount-target' },
       takeDamage(amount: number) {
         if (this.dead) return false
         this.currentHp = Math.max(0, this.currentHp - amount)
@@ -221,11 +214,13 @@ describe('Combat attribution foundation', () => {
         return true
       },
     }
-    npc.mount = mount
+    npc.mount = mount as unknown as NonNullable<NPC['mount']>
 
     const result = damageNpc(npc, 50, sourceContext(stream, { contact: { kind: 'mount', time: .1 } }))
 
     expect(result.isMountHit).toBe(true)
+    expect(result.targetName).toBe('戰馬')
+    expect(result.hpRatio).toBe(0)
     expect(result.appliedDamage).toBe(5)
     expect(result.killed).toBe(true)
     expect(result.mountDied).toBe(true)
@@ -246,7 +241,7 @@ describe('Combat attribution foundation', () => {
     const gate = new DamageableObstacle({
       kind: 'gate',
       maxHp: 5,
-      root: new THREE.Object3D(),
+      root: { uuid: 'gate', parent: null, visible: true, removeFromParent: vi.fn() } as unknown as THREE.Object3D,
       ownerFaction: 'roman',
     })
     const context = sourceContext(stream, { method: 'siege' })
@@ -268,4 +263,43 @@ describe('Combat attribution foundation', () => {
     damageObstacle(gate, 50, context)
     expect(events).toHaveLength(2)
   })
+  it('excludes a peaceful hidden shield from both direct and prepared collision queries without consuming it', () => {
+    let armed = false, updates = 0
+    const shield = new ShieldState(() => armed); shield.equip('round_shield_t1')
+    const pivot: Pick<THREE.Object3D, 'visible' | 'matrixWorld' | 'updateWorldMatrix'> = { visible: false, matrixWorld: new THREE.Matrix4(), updateWorldMatrix() { updates++ } }
+    const collider = new ShieldCollider(pivot as THREE.Object3D, shield, () => armed)
+    collider.setModel('round_shield_t1')
+    const from = new THREE.Vector3(0, 0, 1), to = new THREE.Vector3(0, 0, -1)
+    const remaining = shield.shieldImpactRemaining
+    expect(shield.active).toBe(false)
+    expect(shield.absorb(50, 2)).toEqual({ damage: 50, blockedImpact: 0 })
+    expect(collider.time(from, to)).toBe(Infinity)
+    collider.prepare(); expect(collider.preparedTime(from, to)).toBe(Infinity)
+    expect(updates).toBe(0)
+    armed = true; collider.refreshVisibility()
+    expect(pivot.visible).toBe(true)
+    expect(shield.active).toBe(true)
+    expect(collider.time(from, to)).toBeCloseTo(.36)
+    armed = false; collider.refreshVisibility()
+    expect(collider.preparedTime(from, to)).toBe(Infinity)
+    expect(pivot.visible).toBe(false)
+    expect(shield.shieldImpactRemaining).toBe(remaining)
+  })
+
+  it('consumes shield durability only for an authoritative shield contact', () => {
+    const { events, stream } = eventHarness(), shield = new ShieldState()
+    shield.equip('round_shield_t1')
+    const npc = mockNpc({ hp: 200, shield }), initial = shield.shieldImpactRemaining
+    // Only the visibility scalar is needed; no scene or collision geometry is created.
+    const pivot: Pick<THREE.Object3D, 'visible'> = { visible: false }
+    npc.shieldCollider = new ShieldCollider(pivot as THREE.Object3D, shield, () => false)
+    const result = damageNpc(npc, 50, sourceContext(stream, { method: 'projectile', contact: { kind: 'shield', time: 0 } }))
+    expect(result.appliedDamage).toBe(0)
+    expect(result.blockedImpact).toBe(1)
+    expect(shield.shieldImpactRemaining).toBe(initial - 1)
+    expect(shield.active).toBe(true)
+    expect(pivot.visible).toBe(false)
+    expect(events.map(event => event.type)).toEqual(['hit_blocked'])
+  })
+
 })

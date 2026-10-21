@@ -15,6 +15,7 @@ import { COMBAT_BALANCE, getRangedCombatKind, getRangedDamageMultiplier } from '
 import {
   UnitTier,
   BaseUnitTier,
+  BASE_UNIT_TIERS,
   CUSTOM_BATTLE_UNIT_TIERS,
   UnitPresetId,
   VikingPresetId,
@@ -22,7 +23,7 @@ import {
   VIKING_PRESET_IDS,
   ROMAN_PRESET_IDS,
 } from './UnitPresetCatalog'
-import { isHeroAssetId, type PlayerHeroId } from '../world/HeroAssetCatalog'
+import { isHeroAssetId, isSetupPlayerHeroId, type PlayerHeroId } from '../world/HeroAssetCatalog'
 
 /** Production Custom Battle limit. This remains the only limit accepted from player UI/session data. */
 export const MAX_CUSTOM_ARMY_SIZE = 200
@@ -68,11 +69,12 @@ export type PlayerMeleeWeaponId =
   | 'rusty_dagger' | 'steel_sword' | 'runic_greatsword'
   | 'viking_axe_t1' | 'viking_axe_t2' | 'viking_axe_t3'
   | 'gladius_rusty' | 'gladius_standard' | 'centurion_blade'
-  | 'hunting_spear' | 'steel_lance' | 'heavy_lance'
+  | 'hunting_spear' | 'steel_lance' | 'heavy_lance' | 'spear_t4'
   | 'paladin_sword_t4' | 'paladin_mace_t4'
+  | 'sword_t5' | 'axe_t5' | 'spear_t5'
 export type PlayerRangedWeaponId =
   | 'wooden_shortbow' | 'recurve_longbow' | 'elven_runebow'
-  | typeof T4_RANGER_BOW_RANGED_ID
+  | typeof T4_RANGER_BOW_RANGED_ID | 'bow_t5'
   | 'pilum_basic' | 'pilum_standard' | 'legionary_pilum'
 export type PlayerShieldId =
   | 'round_shield_t1' | 'round_shield_t2' | 'round_shield_t3'
@@ -101,18 +103,20 @@ export const PLAYER_MELEE_WEAPON_IDS: readonly PlayerMeleeWeaponId[] = [
   'rusty_dagger', 'steel_sword', 'runic_greatsword',
   'viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3',
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
-  'hunting_spear', 'steel_lance', 'heavy_lance',
+  'hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4',
   'paladin_sword_t4', 'paladin_mace_t4',
+  'sword_t5', 'axe_t5', 'spear_t5',
 ]
 /** Current setup UI choices; legacy Viking sword IDs remain accepted for saved loadouts. */
 export const PLAYER_MELEE_SELECTION_IDS: readonly PlayerMeleeWeaponId[] = [
   'viking_axe_t1', 'viking_axe_t2', 'viking_axe_t3',
   'gladius_rusty', 'gladius_standard', 'centurion_blade',
-  'hunting_spear', 'steel_lance', 'heavy_lance',
+  'hunting_spear', 'steel_lance', 'heavy_lance', 'spear_t4',
   'paladin_sword_t4', 'paladin_mace_t4',
+  'sword_t5', 'axe_t5', 'spear_t5',
 ]
 export const PLAYER_RANGED_WEAPON_IDS: readonly PlayerRangedWeaponId[] = [
-  'wooden_shortbow', 'recurve_longbow', 'elven_runebow', T4_RANGER_BOW_RANGED_ID,
+  'wooden_shortbow', 'recurve_longbow', 'elven_runebow', T4_RANGER_BOW_RANGED_ID, 'bow_t5',
   'pilum_basic', 'pilum_standard', 'legionary_pilum',
 ]
 export const PLAYER_SHIELD_IDS: readonly PlayerShieldId[] = [
@@ -130,6 +134,8 @@ export interface BattleConfig {
   spectator?: boolean
   playerFaction?: CharacterFaction
   playerHeroId?: PlayerHeroId | null
+  /** Explicit free-battle soldier appearance; absent legacy/Career launches follow equipment tier. */
+  playerVisualTier?: BaseUnitTier
   playerHp?: number
   playerLoadout?: PlayerLoadoutConfig
   viking: VikingArmyConfig
@@ -379,8 +385,14 @@ function validateBattleConfigWithArmyLimit(
   if (c.playerFaction !== undefined && c.playerFaction !== 'viking' && c.playerFaction !== 'roman') {
     errors.push(`Invalid player faction: ${String(c.playerFaction)}`)
   }
-  if (c.playerHeroId !== undefined && c.playerHeroId !== null && !isHeroAssetId(c.playerHeroId)) {
+  // Career launches are rebuilt from the saved mission; main rejects this marker in free setup storage.
+  const isAllowedPlayerHero = typeof c.careerEagleMissionId === 'string' && c.careerEagleMissionId.length > 0
+    ? isHeroAssetId : isSetupPlayerHeroId
+  if (c.playerHeroId !== undefined && c.playerHeroId !== null && !isAllowedPlayerHero(c.playerHeroId)) {
     errors.push(`Invalid player Hero: ${String(c.playerHeroId)}`)
+  }
+  if (c.playerVisualTier !== undefined && !(BASE_UNIT_TIERS as readonly unknown[]).includes(c.playerVisualTier)) {
+    errors.push('Invalid player visual tier')
   }
 
   if (c.playerHp !== undefined) {
@@ -394,12 +406,9 @@ function validateBattleConfigWithArmyLimit(
     if (!loadout || typeof loadout !== 'object') {
       errors.push('playerLoadout must be an object')
     } else {
-      if (!c.playerHeroId && [loadout.meleeWeaponId, loadout.shieldId].some(id => typeof id === 'string' && id.startsWith('paladin_'))) errors.push('T4 equipment requires a T4 player')
+      if (c.careerEagleMissionId && !c.playerHeroId && [loadout.meleeWeaponId, loadout.shieldId].some(id => typeof id === 'string' && id.startsWith('paladin_'))) errors.push('T4 equipment requires a T4 player')
       if (!(PLAYER_MELEE_WEAPON_IDS as readonly string[]).includes(loadout.meleeWeaponId)) errors.push(`Invalid player melee weapon: ${String(loadout.meleeWeaponId)}`)
       if (!(PLAYER_RANGED_WEAPON_IDS as readonly string[]).includes(loadout.rangedWeaponId)) errors.push(`Invalid player ranged weapon: ${String(loadout.rangedWeaponId)}`)
-      if (c.playerHeroId === 'maki-archer-t4' && WEAPONS[loadout.rangedWeaponId]?.combatKind !== 'bow') {
-        errors.push('Ranger player must equip a bow')
-      }
       if (loadout.shieldId !== null && !(PLAYER_SHIELD_IDS as readonly string[]).includes(loadout.shieldId)) errors.push(`Invalid player shield: ${String(loadout.shieldId)}`)
       if (typeof loadout.startMounted !== 'boolean') errors.push('playerLoadout.startMounted must be a boolean')
       if (loadout.mountId !== undefined && !(PLAYER_MOUNT_IDS as readonly string[]).includes(loadout.mountId)) errors.push(`Invalid player mount: ${String(loadout.mountId)}`)

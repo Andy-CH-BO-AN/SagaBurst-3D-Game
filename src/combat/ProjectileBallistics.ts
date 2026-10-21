@@ -60,6 +60,37 @@ export function ballisticTrajectorySegments(speed: number, flightTime: number): 
 }
 
 /**
+ * Conservative whole-arc broad phase. Callers own both scratch objects and clear
+ * candidates in finally, including when a live obstacle accessor throws.
+ * `end` must be computed with the caller's actual sampling arithmetic.
+ */
+export function collectBallisticPathObstacles(
+  origin: THREE.Vector3, end: THREE.Vector3, velocityY: number, flightTime: number,
+  obstacles: readonly ObstacleData[], bounds: THREE.Box3, candidates: ObstacleData[],
+): readonly ObstacleData[] {
+  candidates.length = 0
+  if (flightTime <= 0 || !Number.isFinite(origin.x + origin.y + origin.z
+    + end.x + end.y + end.z + velocityY + flightTime)) return obstacles
+  bounds.min.copy(origin).min(end)
+  bounds.max.copy(origin).max(end)
+  const apexTime = velocityY / PROJECTILE_GRAVITY
+  if (apexTime > 0 && apexTime < flightTime) {
+    const apexY = origin.y + velocityY * apexTime - 0.5 * PROJECTILE_GRAVITY * apexTime * apexTime
+    if (!Number.isFinite(apexY)) return obstacles
+    bounds.max.y = Math.max(bounds.max.y, apexY)
+  }
+  // Match the segment trace's world-space tolerance for transform rounding.
+  bounds.expandByScalar(1e-6)
+  for (const obstacle of obstacles) {
+    if (!obstacle.projectilePassable
+      && (obstacle.projectileBounds
+        ? bounds.intersectsBox(obstacle.projectileBounds)
+        : obstacle.projectileWorldToLocal || bounds.intersectsBox(obstacle.box))) candidates.push(obstacle)
+  }
+  return candidates
+}
+
+/**
  * Reusable constant-velocity intercept solver. It chooses the first positive
  * root of |target-origin + targetVelocity*t + gravityCompensation| = speed*t.
  * Quartic extrema are isolated using the derivative's monotone intervals, so
@@ -74,6 +105,8 @@ export class BallisticIntercept {
   private readonly extrema = new Float64Array(5)
   private readonly previous = new THREE.Vector3()
   private readonly point = new THREE.Vector3()
+  private readonly pathBounds = new THREE.Box3()
+  private readonly pathObstacles: ObstacleData[] = []
 
   solve(origin: THREE.Vector3, target: THREE.Vector3, velocity: THREE.Vector3, speed: number): boolean {
     this.flightTime = 0
@@ -135,17 +168,27 @@ export class BallisticIntercept {
 
   isPathClear(origin: THREE.Vector3, speed: number, obstacles: readonly ObstacleData[],
     terrainHeight: (x: number, z: number) => number = getTerrainHeight): boolean {
+    this.pathObstacles.length = 0
     if (this.flightTime <= 0) return false
+    this.point.copy(origin).addScaledVector(this.direction, speed * this.flightTime)
+    this.point.y -= 0.5 * PROJECTILE_GRAVITY * this.flightTime * this.flightTime
     const count = ballisticTrajectorySegments(speed, this.flightTime)
     this.previous.copy(origin)
-    for (let i = 1; i <= count; i++) {
-      const t = this.flightTime * i / count
-      this.point.copy(origin).addScaledVector(this.direction, speed * t)
-      this.point.y -= 0.5 * PROJECTILE_GRAVITY * t * t
-      if (this.point.y <= terrainHeight(this.point.x, this.point.z) + 0.05
-        || findBlockingProjectileObstacleAlongPath(this.previous, this.point, obstacles)) return false
-      this.previous.copy(this.point)
+    try {
+      const pathObstacles = collectBallisticPathObstacles(origin, this.point,
+        this.direction.y * speed, this.flightTime, obstacles, this.pathBounds, this.pathObstacles)
+      for (let i = 1; i <= count; i++) {
+        const t = this.flightTime * i / count
+        this.point.copy(origin).addScaledVector(this.direction, speed * t)
+        this.point.y -= 0.5 * PROJECTILE_GRAVITY * t * t
+        if (this.point.y <= terrainHeight(this.point.x, this.point.z) + 0.05
+          || findBlockingProjectileObstacleAlongPath(this.previous, this.point, pathObstacles)) return false
+        this.previous.copy(this.point)
+      }
+      return true
+    } finally {
+      // Reuse capacity without retaining an obsolete scene's obstacle objects.
+      this.pathObstacles.length = 0
     }
-    return true
   }
 }

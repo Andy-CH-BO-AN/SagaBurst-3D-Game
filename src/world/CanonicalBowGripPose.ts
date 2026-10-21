@@ -28,7 +28,8 @@ export function normalizeBowHandClips(scene: THREE.Object3D, clips: THREE.Animat
 }
 
 /** A relaxed finger wrap in anatomical coordinates; never moves the wrist/palm. */
-export function prepareBowGripShape(scene: THREE.Object3D, frame: HandGripFrame, reference?: THREE.Object3D): void {
+export function prepareBowGripShape(scene: THREE.Object3D, frame: HandGripFrame, reference?: THREE.Object3D,
+  options: { preserveLodHandTopology?: boolean } = {}): void {
   const hand = scene.getObjectByName('hand_l') as THREE.Bone
   const drawHand = scene.getObjectByName('hand_r') as THREE.Bone
   const drawFrame = deriveDrawHandFrame(scene, frame)
@@ -51,7 +52,7 @@ export function prepareBowGripShape(scene: THREE.Object3D, frame: HandGripFrame,
     const source = reference?.getObjectByName(object.name) as THREE.SkinnedMesh | undefined
     let target: Float32Array
     let drawTarget: Float32Array
-    if (source?.morphTargetDictionary?.bowGrip !== undefined) { preserveBowHandTopology(source, object); return }
+    if (!options.preserveLodHandTopology && source?.morphTargetDictionary?.bowGrip !== undefined) { preserveBowHandTopology(source, object); return }
     else {
       const anatomical = buildAnatomicalBowFingerShape(object, hand, frame)
       if (!anatomical.digits.length) return

@@ -3,6 +3,9 @@ import type { CareerProfile } from '../career/CareerProfile'
 import { Faction } from '../combat/CombatFaction'
 import { resolveUnitLoadout, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import type { NpcSpawnSpec } from '../battle/BattleSpawner'
+import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { AIType } from '../world/NPC'
 
 export const OUTSKIRTS_ALERT_RANGE = 35
 /** Keep the established Bandit encounter distance and its provoked/returning semantics. */
@@ -30,6 +33,30 @@ export function outskirtsCavalryFaction(townFaction: CharacterFaction, playerFac
   const presetId: UnitPresetId = characterFaction === 'roman' ? 'roman_sword_cavalry' : 'viking_sword_cavalry'
   return { characterFaction, faction: characterFaction === playerFaction ? Faction.TOWN : Faction.ENEMY,
     presetId, loadout: resolveUnitLoadout(presetId, 2) }
+}
+
+export type OutskirtsCavalryTier = 2 | 4
+
+/** Only the invading enemy army upgrades after an actual Commander appointment. */
+export function outskirtsCavalryTier(profile: Pick<CareerProfile, 'rank' | 'faction'>, townFaction: CharacterFaction): OutskirtsCavalryTier {
+  return profile.rank === 'commander' && outskirtsCavalryFaction(townFaction, profile.faction).faction === Faction.ENEMY ? 4 : 2
+}
+
+/** Pure roster policy, shared by deployment and data-only composition tests. */
+export function outskirtsCavalryMember(townFaction: CharacterFaction, playerFaction: CharacterFaction,
+  tier: OutskirtsCavalryTier, index: number): Omit<NpcSpawnSpec, 'actorId' | 'x' | 'z'> {
+  const army = outskirtsCavalryFaction(townFaction, playerFaction)
+  const common = { faction: army.faction, characterFaction: army.characterFaction, cavalry: true, respawnEnabled: false }
+  if (tier === 2) return { ...common, tier, aiType: AIType.MELEE,
+    name: army.characterFaction === 'roman' ? 'Sword Cavalry' : 'Axe Cavalry', presetId: army.presetId, loadout: army.loadout }
+  const ranger = index >= 5
+  const presetId: UnitPresetId = ranger ? `${army.characterFaction}_archer` : army.presetId
+  const hero = T4_UNIT_PROFILES[presetId]
+  const loadout = resolveT4UnitLoadout(presetId)
+  return { ...common, tier, aiType: ranger ? AIType.RANGED : AIType.MELEE,
+    name: ranger ? 'Ranger' : 'Captain', presetId, visualAssetId: hero.visualAssetId,
+    combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile,
+    loadout: ranger ? { ...loadout, mountId: 'black-cat' } : loadout }
 }
 
 const points = (coordinates: readonly (readonly [number, number])[]) => coordinates.map(([x, z]) => new THREE.Vector3(x, 0, z))

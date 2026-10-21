@@ -1,42 +1,116 @@
-# Viking hero T4 — asset preview
+# Replacement faction humanoids
 
-T4 is an independent asset identifier, not a UnitTier. This work is based on origin/main `7ed3860e4125e1a5ca48e4535de9c8d695b07ea8`, on `codex/viking-hero-t4`. The original checkout and its working files were preserved.
-
-## Preview
-
-Run `npm run dev` from this worktree and open `/?devhero=viking-t4`. The running review instance uses http://127.0.0.1:5174/?devhero=viking-t4 . This entry is gated by `import.meta.env.DEV` and dynamically imported before the normal game bootstrap or battle session storage is read.
-
-Controls: front / strict side / free orbit; full body / upper body / head close-up / legs and boots; same-scale Viking comparison; animation; empty hands / long axe / axe plus round shield; explicit LOD0–2; black cat; pause, replay, and normalized fixed time. Axe 1H selects a shield; axe 2H selects the axe alone. Death disables riding. Selecting mounted checks the riding box; unchecking returns to idle. The status shows actual clip time in seconds. Camera views are orthographic.
-
-Missing assets, required bones, sockets, animation bindings or calibration produce an explicit load error; there is no substitute character. The model uses the existing humanoid adapter, mixer, combat pose and equipment attachment code only as a pose preview. There is no damage, AI, campaign or combat generation.
-
-## Revised appearance
-
-The user removed the long beard, requested the original face, and subsequently restored the blue-violet cloak. The original short facial hair remains. The old dome, liner, brow band and cheek plates are removed. Only the original fitted spectacle/nasal metalwork is retained and refinished; it is fused into the new cap as one continuous metal shell, with a smoothed forehead transition. The cap follows measured source head sections; the mail coif follows the outer head and neck surface. The shoulder shawl and back cloak are welded into one surface and use three optional cloth bones. This is baked skinning, not runtime cloth simulation.
-
-The original hands and boot shapes are retained. The torso has a closed abdominal surface unioned with the original shirt to eliminate its open vest slit and intersecting shoulder layers. Continuous leg surfaces span hips, knees and ankles. The original shoes and authored shafts are fused, with a sculpted and rounded ankle transition and a shared ankle weight field. Four mail panels envelope the actual thighs and follow their matching deformation weights below the waist; front/back and side riding splits remain open. Chainmail and helmet use the same metal base color, metalness and roughness. Chainmail detail comes from a generated normal map, not ring meshes. The character mesh includes no weapon or shield.
+`viking-hero-t4` is the user-supplied blue-cloaked Varangian Review Candidate.
+`viking` and `roman` are the corresponding ordinary infantry deliveries shared
+by T1–T3. Tier loadouts and combat profiles remain separate from these visual IDs.
 
 ## Source and rebuild
 
-Versioned runtime deliverables: `public/models/characters/v2/viking-hero-t4/`: three self-contained textured GLBs, manifest, bone map, per-LOD structural/image audits, animation/skin audit, authoring measurements and attribution evidence.
+The three manifests and `source-readme.txt` files under
+`public/models/characters/v2/{viking-hero-t4,viking,roman}` identify the original
+archives, clean GLB entry, SHA-256, animation provenance, and source limitations.
+The Varangian directory additionally retains `source-license.txt`. Meshy model
+rights and Kevin Iglesias / Quaternius animation attribution remain distinct;
+this integration does not grant a new license to the source packages.
 
-Reproducible authoring is in `tools/build-viking-hero.py` and `tools/retarget-viking-hero.mjs`. The builder recreates ignored `output/hero/hero-source.blend` on demand; screenshots and logs also use ignored `output/`. This session’s temporary output is removed after PR creation at the user’s request. This follows the existing repository's script-managed source workflow. Blender 5.2 was used.
-
-From the repository root:
+Unpack the two user-owned delivery archives outside the repository, preserving
+their top-level directory names, then run:
 
 ```sh
-blender -b --python tools/build-viking-hero.py
-node tools/retarget-viking-hero.mjs
-node tools/audit-viking-hero.mjs
-npx vitest run tests/VikingHeroAssets.test.ts --testTimeout=20000
+node tools/build-replacement-humanoids.mjs /path/to/extracted-deliveries
 ```
 
-Run the existing `audit_glb.py` and `audit_glb_images.py` from `ai_share/skills/humanoid-rig-skinning/scripts/` for each LOD after rebuilding. Import the new GLBs in the preview again before recording visual approval. Do not rerun the retarget step repeatedly on already retargeted outputs: rebuild from Blender first.
+Rebuild prerequisites are the repository's npm dependencies, Blender (validated
+with 4.3.2), and Python with Pillow. Re-measuring the supplied grip data uses
+`tools/calibrate-replacement-humanoid-grips.py` with NumPy; it reads source GLB
+data without importing or executing scripts from the delivery archives.
 
-Animation uses the original ten embedded Viking clips with unchanged names, durations and event metadata. A world-rest delta retarget is baked to the hero skeleton. Ground contact is baked from actual skinned vertices into the hero pelvis track. Existing mounted upper-body and death profiles are baked separately; optional cloth motion is asset-specific. Original Viking/Roman GLBs, skeletons, geometry, event timing and manifest hashes remain unchanged. Every instance has separate bones and animation mixers, with immutable render resources shared.
+The builder validates the original SHA-256 before transformation. Source ZIPs,
+Blender files, mock weapons, videos and temporary renders are not runtime assets.
+The earlier `build-viking-hero.py` / `retarget-viking-hero.mjs` tools belong to the
+superseded asset and must not be run over the replacement directory.
 
-The black cat mesh and saddle seat are unchanged. The hero uses its own pelvis attachment offset `[0, 0.09, 0]` in metres; this is a visual alignment only.
+## Runtime contract
 
-## Measurement and evidence
+- Heights: Varangian 2.00 m, Viking 1.86 m, Roman 1.78 m; +Z forward and soles at
+  ground. Normalization is in exported transforms, not terrain or hitboxes.
+- Honest selected-source contracts: `varangian63`, `ordinary22`, `roman54`.
+  Viking stays at 22 skin joints; Roman and Varangian retain their finger tracks.
+- All three LODs carry the eleven source clips and compatible bind space. The
+  existing `SelectedLodPose` contract shares one evaluated pose across LODs;
+  identical skin bindings within a character share one Skeleton as well.
+- Source axe clips retain their complete 3.0 / 2.833333-second motion. Manifest
+  events and `meleeCycleSeconds` feed the existing T5 mixer timing mechanism;
+  equipment and hero attack-speed multipliers still own gameplay speed.
+- Formal weapons use source-calibrated grip frames. Roman's authored moving
+  two-handed axe socket remains animated. Mounted legs, seat support, generated
+  melee actions, death, and additive hit reaction remain runtime responsibilities.
+- Civilian / merchant actors use the preserved `roman-civilian` body, so fused
+  infantry armour does not leak into resident appearance.
 
-The actual GLBs are measured in `audit.json`; Blender authoring measurements are separate in `blender-measurements.json`. Stature is scalp crown minus the anatomical barefoot plane. The outsole and helmet are recorded separately. No runtime nonuniform scale is used. See `viking-hero-t4-validation.md` for the actual executed checks, screenshots and limitations.
+LOD triangle counts, texture limits and output hashes are recorded in each
+manifest and `lod-audit.json`. These are structural records, not visual approval
+or GPU performance measurements. See [manual validation](viking-hero-t4-validation.md).
+
+## Equipment and cape review corrections
+
+The eleven selected source clips remain embedded unchanged. A twelfth
+`axeAttack1HFoot` clip retargets the shipped Fantasy Bandit `swordSlash` attack
+onto ordinary Roman/Viking, Varangian and both T5 rigs. Anatomical limb and
+thumb/finger axes map the strike; the target idle pelvis and legs retain forward
+heading. The rejected whole-pelvis 1H yaw correction has been removed. Source
+active/hit/complete events, the 0.48-second melee budget, hero multipliers and
+player skill multipliers are unchanged. Only the foot 1H controller selects the
+new clip; mounted and 2H paths retain their original clips and equipment rules.
+
+After source/LOD builds (and the T4 cape repair), reproduce the appended clips:
+
+```sh
+node tools/retarget-bandit-foot-axe.mjs
+```
+
+The tool verifies the Bandit input hash, preserves the existing binary payload,
+adds independently named tracks, and records source license, clip, hashes and
+timing in each manifest. Its own append checkpoint supports deterministic rebakes.
+Bandit source assets are unchanged.
+
+Ordinary Viking and Varangian Captain foot locomotion retain their authored
+shoulder, elbow and wrist.
+Only the axe visual rolls about the existing palm station to face its cutting
+edge down; the hand socket and other weapons are untouched. This replaces the
+rejected arm IK workaround. The Bandit attack uses a separate anatomical grasp
+and blends the weapon attachment at entry/recovery. Roman foot axe/sword carry
+retains its separately requested forward-facing correction.
+The Roman free wrist uses the sampled opposite hand as a natural orientation
+reference without changing finger tracks. The Roman shield's cylindrical grip
+uses the corrected thumb-up axis sign; its palm center remains source-calibrated.
+Varangian's shield grasp has additional torso clearance and still drives the
+same visual/collision pivot.
+
+Authored ordinary bow hands register their draw-string and arrow-rest contacts
+without generating hand morphs. Roman's contact follows its source index chain.
+The mixer distinguishes scheduled bow actions from never-played actions, so
+inactive clips do not suppress carry or trigger mounted bow compensation.
+
+The cape repair is a local geometry derivative, not an animation re-export:
+posterior backing closes the source cutouts, a tapered rear offset clears the
+restored mail torso, and three long LOD2 fold triangles receive local blue-cloth
+UVs instead of crossing an unrelated atlas border. Original joints, inverse
+binds, source image bytes and all eleven animation buffers are preserved.
+The original source SHA remains in the manifest; each derived GLB SHA, source
+package SHA and triangle/repair audit are in `manifest.json` and `lod-audit.json`.
+
+The main builder includes this repair. To reproduce it independently from the
+pre-review T4 package (the files at commit `ee67a6e9`), run:
+
+```sh
+node tools/repair-varangian-cape.mjs /path/to/original-t4-package /path/to/output
+```
+
+The command verifies input hashes, preserves skeleton/animation metadata and
+payload, and checks idempotence before writing. It needs only the npm dependencies;
+source archives or Blender are unnecessary for this local repair. The derived
+cape retains source faceting and localized texture seams, especially at LOD2.
+Model-view screenshots are visual inspection evidence, not battle acceptance
+or a GPU benchmark. Full in-game mode/loadout and paired performance acceptance
+remain the separate checklist in the validation document.

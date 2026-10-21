@@ -1,7 +1,9 @@
+import { type SiegeDefensePlan } from './TownDefenseRoster'
+export { siegeDefensePlans, type SiegeDefensePlan } from './TownDefenseRoster'
 import * as THREE from 'three'
 import { TOWN_CITY, TOWN_GATES, townGatePoint, type TownGateId } from '../town/TownLayout'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../town/TownBounds'
-import { townCaptainProfile, townAssaultObjectiveRoster, type TownActorSpec } from '../town/TownRules'
+import { townCaptainProfile } from '../town/TownRules'
 import { resolveT4UnitLoadout, T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
@@ -25,7 +27,7 @@ export interface TownSiegeState {
   approachedActorIds: string[]
   defensePlans: SiegeDefensePlan[]
   gateHealth: Partial<Record<TownGateId, number>>
-  playerPosition?: { x: number; z: number; yaw: number }
+  playerPosition?: { x: number; y?: number; z: number; yaw: number }
 }
 export function newTownSiegeState(): TownSiegeState {
   return { version: 1, rosterCreated: false, rosterVersion: 2, attackerIds: [], claimedSquadIds: [], destroyedGateIds: [], releasedReserveGateIds: [], crossedActorIds: [], approachedActorIds: [], defensePlans: [], gateHealth: {} }
@@ -77,33 +79,16 @@ export function siegeRoster(faction: CharacterFaction, assault: boolean, version
     const presetId = `${faction}_${kind}` as UnitPresetId
     const cavalry = version === 1 || slot < 20
     const ranged = kind === 'horse_archer' || kind === 'archer' || kind === 'javelin_infantry'
-    const hero = captain ? townCaptainProfile(faction) : ranger ? T4_UNIT_PROFILES.viking_archer : undefined
+    const hero = captain ? townCaptainProfile(faction) : ranger ? T4_UNIT_PROFILES[`${faction}_archer`] : undefined
     const point = siegeMuster(gate.id, slot)
     return { gateId: gate.id, slot, spec: {
       x: point.x, z: point.z, faction: assault ? Faction.TOWN : Faction.ENEMY, characterFaction: faction,
-      aiType: ranged ? AIType.RANGED : AIType.MELEE, name: captain ? 'Captain' : ranger ? 'Maki' : `${gate.id} ${slot + 1}`,
+      aiType: ranged ? AIType.RANGED : AIType.MELEE, name: captain ? 'Captain' : ranger ? 'Shadow Warden' : `${gate.id} ${slot + 1}`,
       tier: hero ? 4 : 3, cavalry, respawnEnabled: false, presetId, squadId: (gateIndex + 1) as 1 | 2 | 3 | 4,
-      loadout: { ...(ranger ? resolveT4UnitLoadout(version === 1 ? 'viking_archer' : `${faction}_archer`)
+      loadout: { ...(ranger ? resolveT4UnitLoadout(`${faction}_archer`)
         : captain ? resolveT4UnitLoadout(presetId) : UNIT_PRESETS[presetId].tierLoadouts[3]),
         ...(ranger ? { mountId: 'black-cat' as const } : hero?.mountOverride ? { mountId: hero.mountOverride } : {}) },
       ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile } : {}),
     } }
   }).filter((slot): slot is SiegeRosterSlot => slot !== null))
-}
-export interface SiegeDefensePlan { gateId: TownGateId; infantry: string[]; cavalry: string[]; leaderId?: string }
-export function siegeDefensePlans(roster: readonly TownActorSpec[]): SiegeDefensePlan[] {
-  const military = townAssaultObjectiveRoster([...roster]).filter(actor => actor.duty !== 'eagle_garrison')
-  const plans: SiegeDefensePlan[] = TOWN_GATES.map(gate => ({ gateId: gate.id, infantry: [], cavalry: [] }))
-  const leaders = ['captain', 'ranger', 'town-patrol:a:captain', 'town-patrol:b:captain']
-  for (const actor of military.filter(actor => !actor.mounted && actor.role !== 'ranger' && actor.gateId)) {
-    plans.find(plan => plan.gateId === actor.gateId)!.infantry.push(actor.id)
-  }
-  for (const actor of military.filter(actor => !actor.mounted && actor.role !== 'ranger' && !actor.gateId)) {
-    [...plans].sort((a, b) => a.infantry.length - b.infantry.length)[0].infantry.push(actor.id)
-  }
-  leaders.forEach((id, index) => { if (military.some(actor => actor.id === id)) { plans[index].cavalry.push(id); plans[index].leaderId = id } })
-  for (const actor of military.filter(actor => (actor.mounted || actor.role === 'ranger') && !leaders.includes(actor.id))) {
-    [...plans].sort((a, b) => a.cavalry.length - b.cavalry.length)[0].cavalry.push(actor.id)
-  }
-  return plans
 }

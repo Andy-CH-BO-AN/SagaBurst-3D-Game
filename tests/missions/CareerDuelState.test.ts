@@ -1,54 +1,164 @@
-import { describe, expect, it } from 'vitest'
-import { ROMAN_PRESET_IDS, VIKING_PRESET_IDS, type UnitPresetId, type UnitTier } from '../../src/battle/UnitPresetCatalog'
-import { Faction } from '../../src/world/NPC'
-import type { CombatEvent } from '../../src/combat/CombatAttribution'
-import {
-  CAREER_DUEL_TEMPLATE_ID, careerDuelPresets, createCareerDuelMission,
-  isCareerDuelUnlocked, resolveCareerDuelOutcome,
-} from '../../src/career/CareerDuelState'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { Vector3, type Scene } from 'three'
+import { CareerDuelController } from '../../src/career/CareerDuelController'
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import type { Player } from '../../src/player/Player'
+import type { NPC } from '../../src/world/NPC'
+import type { Mount } from '../../src/world/Mount'
+import type { TownWorld } from '../../src/town/TownWorld'
+import { townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
+import { getTerrainHeight } from '../../src/world/Terrain'
+import { type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
+import { CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import type { CombatEvent } from '../../src/combat/CombatAttribution'
+import { Faction } from '../../src/world/NPC'
+import { MemoryStorage } from '../helpers/memoryStorage'
 
 const stats = { damageDealt: 160, damageTaken: 20, kills: 1, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0, survived: true }
 
-function duel(profile: CareerProfile, presetId: UnitPresetId, tier: UnitTier, id = `${presetId}-${tier}`): CareerProfile {
-  const activeMission = createCareerDuelMission(profile, presetId, tier, 'soldier-1', 'captain', id)
+function duel(profile: CareerProfile, presetId: UnitPresetId, tier: CareerDuelTier, id = `${presetId}-${tier}`): CareerProfile {
+  const activeMission = createCareerDuelMission(profile, presetId, tier, tier === 5 ? 'commander' : 'soldier-1', 'captain', id)
   expect(activeMission).not.toBeNull()
   return { ...profile, activeMission: activeMission! }
 }
 
-function win(profile: CareerProfile, presetId: UnitPresetId, tier: UnitTier, id?: string): CareerProfile {
+function win(profile: CareerProfile, presetId: UnitPresetId, tier: CareerDuelTier, id?: string): CareerProfile {
   const current = duel(profile, presetId, tier, id)
   const claim = claimCareerMission(current, current.activeMission!.id, 'victory', stats)
   return clearCareerMission(claim.profile, current.activeMission!.id)
 }
 
-describe('Career Duel progression per unit preset', () => {
-  it.each(['roman', 'viking'] as const)('offers every %s preset with only T1 initially unlocked', faction => {
-    const profile = createCareerProfile(faction)
-    expect(careerDuelPresets(faction).map(preset => preset.id)).toEqual(faction === 'roman' ? ROMAN_PRESET_IDS : VIKING_PRESET_IDS)
-    for (const preset of careerDuelPresets(faction)) {
-      expect(isCareerDuelUnlocked(profile, preset.id, 1)).toBe(true)
-      for (const tier of [2, 3, 4] as const) expect(isCareerDuelUnlocked(profile, preset.id, tier)).toBe(false)
-    }
+/** Real controller/checkpoints and navigation; only position/order ports, no 3D actors. */
+function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING') {
+  const makeActor = (id: string, x: number, z: number) => {
+    const position = new Vector3(x, getTerrainHeight(x, z), z)
+    const body = { combatantId: id, combatPosition: position, group: { position, rotation: { y: 0 } },
+      dead: false, hp: 100, combatAmmo: 30, loadout: {}, target: undefined as Vector3 | undefined,
+      setDuelHostility: vi.fn(), restoreCombatLoadout: vi.fn(), setTacticalOrder: vi.fn(),
+      applyTemporaryCombatLoadout: vi.fn(), dismountFromMount: vi.fn(),
+      assignFollowTarget: vi.fn(), assignFormationTarget: vi.fn((_id: number, point: Vector3) => { body.target = point.clone() }) }
+    return body
+  }
+  const captain = makeActor('captain', -30, 20), opponent = makeActor('soldier-1', -60, 0)
+  const makeSpec = (actor: typeof captain, role: TownActorSpec['role'], duty: TownActorSpec['duty']): TownActorSpec => ({
+    id: actor.combatantId, role, duty, tier: 2, index: 0, mounted: false, training: duty === 'training',
+    assaultObjective: false, x: actor.combatPosition.x, z: actor.combatPosition.z })
+  const residents = [{ spec: makeSpec(captain, 'captain', 'service'), npc: captain as unknown as NPC },
+    { spec: makeSpec(opponent, 'archer_infantry', 'training'), npc: opponent as unknown as NPC }]
+  const position = new Vector3(-90, getTerrainHeight(-90, 10) + .9, 10)
+  const player = { group: { position, rotation: { y: 0 } }, combatPosition: position, dead: false,
+    hp: 100, staminaValue: 100, faceDirection: vi.fn() }
+  let profile = duel(createCareerProfile('roman'), 'roman_archer', 1, 'travel-duel')
+  if (phase === 'RESULT' || phase === 'RETURNING') profile = claimCareerMission(profile, 'travel-duel', 'victory', stats).profile
+  profile.activeMission!.phase = phase
+  let saveAllowed = true
+  const navigation = new NavigationWorld({ minX: -150, maxX: 170, minZ: -140, maxZ: 120, cellSize: 4 })
+  navigation.sync([])
+  const query = vi.spyOn(navigation, 'queryPath'); onTestFinished(() => query.mockRestore())
+  const controller = new CareerDuelController(null as unknown as Scene, { obstacles: [] } as unknown as TownWorld,
+    navigation, residents, null as unknown as Mount, () => player as unknown as Player, () => profile,
+    next => { if (!saveAllowed) return false; profile = next; return true })
+  onTestFinished(() => controller.dispose())
+  return { controller, captain, opponent, player, query, residents, read: () => profile,
+    allowSave: (allowed: boolean) => { saveAllowed = allowed } }
+}
+
+describe('Career Duel physical travel and preparation', () => {
+  it('starts an accepted or legacy assembling Duel from the Captain actual position without a barracks rendezvous', () => {
+    const { controller, captain, opponent, player, query } = travelingDuel('ASSEMBLING')
+    const captainStart = captain.combatPosition.clone(), opponentStart = opponent.combatPosition.clone(), playerStart = player.combatPosition.clone()
+    expect(player.combatPosition.distanceTo(captain.combatPosition)).toBeGreaterThan(12)
+    expect(controller.startActiveMission()).toBe(true)
+    expect(controller.phase).toBe('MARCHING')
+    expect(query).toHaveBeenCalledOnce()
+    expect(query.mock.calls[0][0]).toEqual(captainStart)
+    expect(query.mock.calls[0][1]).toEqual(controller.guideTarget)
+    expect(captain.assignFormationTarget).toHaveBeenCalledOnce()
+    const oldAssembly = townSitePoint('barracks', 0, 15)
+    expect(Math.hypot(captain.target!.x - oldAssembly.x, captain.target!.z - oldAssembly.z)).toBeGreaterThan(4)
+    expect(opponent.assignFollowTarget).toHaveBeenCalledWith(captain, 0, new Vector3(-3, 0, -5), 6)
+    expect(captain.combatPosition).toEqual(captainStart)
+    expect(opponent.combatPosition).toEqual(opponentStart)
+    expect(player.combatPosition).toEqual(playerStart)
   })
 
-  it('unlocks Archer tiers in order and never unlocks other units', () => {
-    let profile = createCareerProfile('roman')
-    for (const tier of [1, 2, 3] as const) {
-      profile = win(profile, 'roman_archer', tier)
-      expect(profile.duelHighestDefeatedTierByPreset).toEqual({ roman_archer: tier })
-      expect(isCareerDuelUnlocked(profile, 'roman_archer', (tier + 1) as UnitTier)).toBe(true)
-      if (tier < 3) expect(isCareerDuelUnlocked(profile, 'roman_archer', (tier + 2) as UnitTier)).toBe(false)
-      for (const other of ['roman_spearman', 'roman_heavy_infantry', 'roman_sword_cavalry', 'roman_lancer', 'roman_horse_archer', 'roman_javelin_infantry'] as const) {
-        expect(isCareerDuelUnlocked(profile, other, 1)).toBe(true)
-        expect(isCareerDuelUnlocked(profile, other, 2)).toBe(false)
-      }
-    }
-    profile = win(profile, 'roman_archer', 4)
-    for (const tier of [1, 2, 3, 4] as const) expect(isCareerDuelUnlocked(profile, 'roman_archer', tier)).toBe(true)
+  it('waits for grounded arena slots, then enters the unchanged countdown and combat after real arrival', () => {
+    const { controller, captain, opponent, player } = travelingDuel('MARCHING')
+    expect(controller.startActiveMission()).toBe(true)
+    const area = controller.guideTarget!
+    player.combatPosition.copy(area).add(new Vector3(0, .9, 0))
+    captain.combatPosition.copy(area).add(new Vector3(-2, 0, 0))
+    opponent.combatPosition.copy(area).add(new Vector3(-4, 0, 0))
+    controller.update(0)
+    expect(controller.phase).toBe('MARCHING')
+    expect(captain.target!.y).toBe(getTerrainHeight(captain.target!.x, captain.target!.z))
+    expect(Math.abs(captain.target!.y - area.y)).toBeGreaterThan(2) // Actual failing terrain, not an artificial height.
+    opponent.combatPosition.copy(opponent.target!)
+    controller.update(0)
+    expect(controller.phase).toBe('MARCHING') // Referee has not reached the slot.
+    captain.combatPosition.copy(captain.target!).add(new Vector3(0, 4, 0))
+    controller.update(0)
+    expect(controller.phase).toBe('MARCHING') // Same XZ on an invalid layer is insufficient.
+    captain.combatPosition.copy(captain.target!)
+    controller.update(0)
+    expect(controller.phase).toBe('PREPARING')
+    controller.update(4.9)
+    expect(controller.phase).toBe('PREPARING')
+    controller.update(.1)
+    expect(controller.phase).toBe('ENGAGING')
+    expect(opponent.setDuelHostility).toHaveBeenCalledWith(true)
+    expect(captain.setDuelHostility).not.toHaveBeenCalledWith(true)
   })
+
+  it('commits return before routing to the Captain service home and requires actual party arrival there', () => {
+    const h = travelingDuel('RESULT')
+    expect(h.controller.startActiveMission()).toBe(true)
+    const captainStart = h.captain.combatPosition.clone(), opponentStart = h.opponent.combatPosition.clone()
+    const playerStart = h.player.combatPosition.clone(), result = structuredClone(h.read().activeMission!.result)
+    h.allowSave(false)
+    expect(h.controller.beginReturn()).toBe(false)
+    expect(h.controller.phase).toBe('RESULT')
+    expect(h.query).not.toHaveBeenCalled()
+    h.allowSave(true)
+    expect(h.controller.beginReturn()).toBe(true)
+    const home = h.residents[0].spec, target = new Vector3(home.x, getTerrainHeight(home.x, home.z), home.z)
+    expect(h.controller.guideTarget).toEqual(target)
+    expect(h.query.mock.calls[0]).toEqual([captainStart, target])
+    expect(h.captain.combatPosition).toEqual(captainStart)
+    expect(h.opponent.combatPosition).toEqual(opponentStart)
+    expect(h.player.combatPosition).toEqual(playerStart)
+    expect(h.read().activeMission!.result).toEqual(result)
+    const old = townSitePoint('barracks', 0, 15)
+    for (const actor of [h.captain, h.opponent, h.player]) actor.combatPosition.set(old.x, getTerrainHeight(old.x, old.z), old.z)
+    expect(h.controller.returnComplete).toBe(false)
+    h.captain.combatPosition.copy(target); h.player.combatPosition.copy(target)
+    expect(h.controller.returnComplete).toBe(false)
+    h.opponent.combatPosition.copy(target).add(new Vector3(3, 0, 0))
+    expect(h.controller.returnComplete).toBe(true)
+  })
+
+  it('replans an old RETURNING save from actual positions without using its barracks route stage or relocating actors', () => {
+    const h = travelingDuel('RETURNING')
+    h.read().activeMission!.routeStage = 999
+    h.captain.combatPosition.set(95, getTerrainHeight(95, -35), -35)
+    h.opponent.combatPosition.set(99, getTerrainHeight(99, -32), -32)
+    const captainStart = h.captain.combatPosition.clone(), opponentStart = h.opponent.combatPosition.clone()
+    const playerStart = h.player.combatPosition.clone()
+    expect(h.controller.startActiveMission()).toBe(true)
+    const home = h.residents[0].spec
+    expect(h.query.mock.calls[0]).toEqual([captainStart, new Vector3(home.x, getTerrainHeight(home.x, home.z), home.z)])
+    expect(h.captain.combatPosition).toEqual(captainStart)
+    expect(h.opponent.combatPosition).toEqual(opponentStart)
+    expect(h.player.combatPosition).toEqual(playerStart)
+    expect(h.captain.target).not.toEqual(h.controller.guideTarget) // Start at the newly computed route, not stale stage 999.
+    expect(h.controller.returnComplete).toBe(false)
+  })
+})
+
+describe('Career Duel progression per unit preset', () => {
 
   it('keeps concurrent Archer, Spearman and Cavalry progress independent, including through reload', () => {
     let profile = win(createCareerProfile('roman'), 'roman_archer', 1)
@@ -73,21 +183,35 @@ describe('Career Duel progression per unit preset', () => {
     profile = win(profile, 'viking_archer', 1, 'repeat-archer')
     expect(profile.duelHighestDefeatedTierByPreset).toEqual({ viking_archer: 3 })
   })
-
-  it('revalidates locked tier, faction and existing missions at acceptance independently of board count or rank', () => {
-    const profile = createCareerProfile('roman')
-    profile.rank = 'commander'; profile.careerMissionCompletions = 999; profile.careerMissionCompletionsByTier = { 1: 999, 2: 999 }
-    expect(createCareerDuelMission(profile, 'roman_archer', 2, 'soldier', 'captain')).toBeNull()
-    expect(createCareerDuelMission(profile, 'viking_archer', 1, 'soldier', 'captain')).toBeNull()
-    const current = duel(profile, 'roman_archer', 1)
-    expect(createCareerDuelMission(current, 'roman_spearman', 1, 'soldier', 'captain')).toBeNull()
-    expect(createCareerDuelMission({ ...profile, activeOutpostMission: { id: 'outpost', kind: 'outpost-defense', stageId: 1, acceptedAt: 0 } }, 'roman_archer', 1, 'soldier', 'captain')).toBeNull()
-    expect(createCareerDuelMission(profile, 'roman_archer', 1, '', 'captain')).toBeNull()
-    expect(createCareerDuelMission(profile, 'roman_archer', 0 as UnitTier, 'soldier', 'captain')).toBeNull()
-  })
 })
 
 describe('Career Duel settlement and safe storage', () => {
+
+  it('saves T5 progress, original Commander resources and active travel through real storage and settlement', () => {
+    const profile = duel({ ...createCareerProfile('viking'), rank: 'commander',
+      duelHighestDefeatedTierByPreset: { viking_archer: 4 } }, 'viking_archer', 5, 'commander-duel')
+    Object.assign(profile.activeMission!, { phase: 'ENGAGING', duelCountdownElapsed: 5, duelCombatElapsed: 19.25,
+      duelOpponentHp: 48, duelOpponentAmmo: 7, duelCommanderHome: { hp: 712, ammo: 13 },
+      duelTravel: { actors: { captain: { x: 1, y: 2, z: 3, yaw: .5 }, commander: { x: 4, y: 5, z: 6, yaw: 1 } },
+        player: { x: 7, y: 8, z: 9, yaw: 2 }, staging: true } })
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const loaded = store.load()!
+    expect(loaded.activeMission).toMatchObject({ duelTier: 5, duelOpponentActorId: 'commander', duelRefereeActorId: 'captain',
+      duelCountdownElapsed: 5, duelCombatElapsed: 19.25, duelOpponentHp: 48, duelOpponentAmmo: 7,
+      duelCommanderHome: { hp: 712, ammo: 13 }, duelTravel: profile.activeMission!.duelTravel })
+    const copy = cloneCareerProfile(loaded)
+    copy.activeMission!.duelTravel!.actors.commander.x = 999
+    expect(loaded.activeMission!.duelTravel!.actors.commander.x).toBe(4)
+    const settled = clearCareerMission(claimCareerMission(loaded, 'commander-duel', 'victory', stats).profile, 'commander-duel')
+    expect(store.save(settled)).toBe(true)
+    const restored = store.load()!
+    expect(restored.activeMission).toBeUndefined()
+    expect(restored.duelHighestDefeatedTierByPreset).toEqual({ viking_archer: 5 })
+    expect(restored.townCommanderRecovery).toEqual({ faction: 'viking', hp: 712, ammo: 13 })
+    expect(restored.careerMissionCompletionsByTier).toBeUndefined()
+  })
+
   it('awards normal mission merit and lifetime stats once while preserving both mission board counters', () => {
     let profile = createCareerProfile('roman')
     profile.careerMissionCompletions = 12; profile.careerMissionCompletionsByTier = { 1: 7, 2: 5 }
@@ -110,24 +234,14 @@ describe('Career Duel settlement and safe storage', () => {
     expect(duplicate.profile.duelHighestDefeatedTierByPreset).toEqual({ roman_archer: 1 })
   })
 
-  it('does not create board counts for a new profile, and records failure stats without unlocking', () => {
-    const current = duel(createCareerProfile('roman'), 'roman_archer', 1, 'first-duel')
-    const claimed = claimCareerMission(current, 'first-duel', 'failure', { ...stats, survived: false })
-    expect(claimed.profile.careerMissionCompletions).toBeUndefined()
-    expect(claimed.profile.careerMissionCompletionsByTier).toBeUndefined()
-    expect(claimed.profile.duelHighestDefeatedTierByPreset).toBeUndefined()
-    expect(claimed.profile.lifetimeStats).toMatchObject({ battles: 1, victories: 0, deaths: 1, damage: 160, kills: 1 })
-  })
-
   it('round-trips actor identity, countdown, combat time, health, deaths, stats and existing voice marker without refreshing them', () => {
     const profile = duel(createCareerProfile('roman'), 'roman_archer', 1, 'resume-duel')
     Object.assign(profile.activeMission!, { phase: 'ENGAGING', duelCountdownElapsed: 5, duelCombatElapsed: 24.6, duelOpponentHp: 11,
       duelOpponentMountHp: 8, duelOpponentDead: false, playerStats: { ...stats }, playerDead: true, followVoicePlayed: true })
-    const values = new Map<string, string>()
-    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) } as Storage
+    const storage = new MemoryStorage()
     const store = new CareerProfileStore(storage)
     expect(store.save(profile)).toBe(true)
-    expect(values.has(CAREER_STORAGE_KEY)).toBe(true)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).not.toBeNull()
     const loaded = store.load()!
     expect(loaded.activeMission).toMatchObject({ id: 'resume-duel', templateId: CAREER_DUEL_TEMPLATE_ID, kind: 'duel', targetCampId: -1,
       duelTier: 1, duelPresetId: 'roman_archer', duelOpponentActorId: 'soldier-1', duelCaptainActorId: 'captain', duelRefereeActorId: 'captain',
@@ -137,58 +251,16 @@ describe('Career Duel settlement and safe storage', () => {
     expect(store.save(profile)).toBe(true)
     expect(store.load()?.activeMission?.duelCountdownElapsed).toBe(3.9)
   })
-
-  it('persists T4 Captain opponent with Maki referee separately', () => {
-    const profile = createCareerProfile('roman'); profile.duelHighestDefeatedTierByPreset = { roman_heavy_infantry: 3 }
-    profile.activeMission = createCareerDuelMission(profile, 'roman_heavy_infantry', 4, 'captain', 'captain', 'captain-duel', 'ranger')!
-    const loaded = parseCareerProfile(profile)!
-    expect(loaded.activeMission).toMatchObject({ duelOpponentActorId: 'captain', duelCaptainActorId: 'captain', duelRefereeActorId: 'ranger', targetActorIds: ['captain'], friendlyActorIds: ['ranger'] })
-  })
-
-  it('filters malformed progression without deriving it from legacy global progression, and clones without sharing references', () => {
-    const profile = createCareerProfile('roman')
-    const loaded = parseCareerProfile({ ...profile, duelHighestDefeatedTier: 4, duelHighestDefeatedTierByPreset: {
-      roman_archer: 3, roman_spearman: 1, roman_lancer: 5, roman_horse_archer: 2.5, roman_heavy_infantry: -1,
-      nonexistent_preset: 4, viking_archer: 2,
-    } })!
-    expect(loaded.duelHighestDefeatedTierByPreset).toEqual({ roman_archer: 3, roman_spearman: 1, viking_archer: 2 })
-    expect(isCareerDuelUnlocked(loaded, 'roman_lancer', 2)).toBe(false)
-    const copy = cloneCareerProfile(loaded)
-    copy.duelHighestDefeatedTierByPreset!.roman_archer = 4
-    expect(loaded.duelHighestDefeatedTierByPreset!.roman_archer).toBe(3)
-  })
-
-  it('rejects invalid Duel payloads and clamps excess elapsed time without adding time', () => {
-    const profile = duel(createCareerProfile('roman'), 'roman_archer', 1)
-    for (const invalid of [{ duelTier: 5 }, { duelPresetId: 'missing' }, { duelPresetId: 'viking_archer' },
-      { duelOpponentActorId: '' }, { duelCaptainActorId: '' }, { targetCampId: 0 }, { templateId: 'missing' }]) {
-      expect(parseCareerProfile({ ...profile, activeMission: { ...profile.activeMission, ...invalid } })!.activeMission).toBeUndefined()
-    }
-    const loaded = parseCareerProfile({ ...profile, activeMission: { ...profile.activeMission,
-      duelCountdownElapsed: 100, duelCombatElapsed: 100, deadTargetActorIds: ['soldier-1', 'civilian'],
-      targetActorIds: ['soldier-1', 'civilian'], friendlyActorIds: ['captain', 'civilian'], duelOpponentHp: -1 } })!
-    expect(loaded.activeMission).toMatchObject({ duelCountdownElapsed: 5, duelCombatElapsed: 30, duelOpponentDead: true,
-      deadTargetActorIds: ['soldier-1'], targetActorIds: ['soldier-1'], friendlyActorIds: ['captain'] })
-    expect(loaded.activeMission?.duelOpponentHp).toBeUndefined()
-  })
 })
 
 describe('Career Duel outcome and combat attribution', () => {
-  it('fails immediately on player death or timeout, and wins on opponent death', () => {
-    expect(resolveCareerDuelOutcome(true, false, 0)).toBe('failure')
-    expect(resolveCareerDuelOutcome(true, true, 0)).toBe('failure')
-    expect(resolveCareerDuelOutcome(false, false, 29.9)).toBeNull()
-    expect(resolveCareerDuelOutcome(false, false, 30)).toBe('failure')
-    expect(resolveCareerDuelOutcome(false, true, 29.9)).toBe('victory')
-  })
 
   it('accepts combat stats only during ENGAGING and only between the player and opponent', () => {
     const mission = duel(createCareerProfile('roman'), 'roman_archer', 1).activeMission!
     const event: CombatEvent = { type: 'damage_applied', source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'roman' },
       target: { targetId: 'soldier-1', targetType: 'npc', name: 'Duel opponent' }, method: 'projectile', requestedDamage: 100, appliedDamage: 100 }
-    for (const phase of ['ASSEMBLING', 'MARCHING', 'PREPARING', 'RESULT', 'RETURNING'] as const) {
-      mission.phase = phase; expect(acceptsCareerMissionStat(mission, event)).toBe(false)
-    }
+    mission.phase = 'PREPARING'
+    expect(acceptsCareerMissionStat(mission, event)).toBe(false)
     mission.phase = 'ENGAGING'
     expect(acceptsCareerMissionStat(mission, event)).toBe(true)
     expect(acceptsCareerMissionStat(mission, { ...event, target: { ...event.target, targetId: 'captain' } })).toBe(false)

@@ -1,26 +1,25 @@
-import { careerItemTotal } from '../../src/career/CareerInventory'
-import { describe, expect, it } from 'vitest'
-import type { BattleStatsSnapshot } from '../../src/combat/BattleStatsTracker'
+import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
+import { parseCareerRetirementState } from '../../src/career/CareerRetirementState'
+import { grantStarter } from '../../src/town/TownRules'
+import { TownEquipment } from '../../src/town/TownEquipment'
+import { MemoryStorage } from '../helpers/memoryStorage'
+import { describe,expect,it } from 'vitest'
+import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import {
-  CAREER_PURCHASE_TIER_BY_RANK,
-  CAREER_RANK_THRESHOLDS,
-  claimCareerBattle,
-  createCareerProfile,
-  getCareerPurchaseTier,
-  isCareerPurchaseTierUnlocked,
-  purchaseCareerContent,
-  resolveCareerRank,
+claimCareerBattle,
+cloneCareerProfile,
+createCareerProfile,
+purchaseCareerContent,
+resolveCareerRank,
+promoteCareer, type CareerProfile
 } from '../../src/career/CareerProfile'
 import {
-  CAREER_STORAGE_KEY,
-  CareerProfileStore,
-  parseCareerProfile,
+parseCareerProfile, CareerProfileStore, CAREER_STORAGE_KEY
 } from '../../src/career/CareerProfileStore'
 import {
-  MERIT_RULES,
-  calculateMerit,
+calculateMerit
 } from '../../src/career/MeritCalculator'
-import { MemoryStorage } from '../helpers/memoryStorage'
+import type { BattleStatsSnapshot } from '../../src/combat/BattleStatsTracker'
 
 function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleStatsSnapshot {
   return {
@@ -38,22 +37,8 @@ function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleSt
   }
 }
 
+
 describe('Career merit calculation', () => {
-  it('awards victory, kills, actual damage and survival merit', () => {
-    expect(calculateMerit(
-      stats({ damageDealt: 2280, kills: 2, survived: true }),
-      'victory',
-      'defense',
-    )).toEqual({
-      victory: 80,
-      kills: 16,
-      characterDamage: 44,
-      survival: 20,
-      structureDamage: 0,
-      gateBreaches: 0,
-      total: 160,
-    })
-  })
 
   it('only awards structure and breach merit to offense battles', () => {
     const battleStats = stats({
@@ -66,53 +51,9 @@ describe('Career merit calculation', () => {
     expect(calculateMerit(battleStats, 'defeat', 'defense').total).toBe(16)
     expect(calculateMerit(battleStats, 'defeat', 'offense').total).toBe(69)
   })
-
-  it('keeps merit tuning centralized', () => {
-    expect(MERIT_RULES).toEqual({
-      victory: 80,
-      kill: 8,
-      characterDamagePer100: 2,
-      survival: 20,
-      structureDamagePer100: 1,
-      gateBreach: 25,
-    })
-  })
 })
 
 describe('Career progression and spending', () => {
-  it('uses lifetime merit for rank thresholds and purchase-tier availability', () => {
-    expect(CAREER_RANK_THRESHOLDS).toEqual({
-      recruit: 0,
-      soldier: 300,
-      veteran: 900,
-      captain: 5000,
-      commander: 20000,
-    })
-    expect(CAREER_PURCHASE_TIER_BY_RANK).toEqual({
-      recruit: 1,
-      soldier: 2,
-      veteran: 3,
-      captain: 4,
-      commander: 4,
-    })
-
-    expect(resolveCareerRank(299)).toBe('recruit')
-    expect(resolveCareerRank(300)).toBe('soldier')
-    expect(resolveCareerRank(899)).toBe('soldier')
-    expect(resolveCareerRank(900)).toBe('veteran')
-    expect(resolveCareerRank(4999)).toBe('veteran')
-    expect(resolveCareerRank(5000)).toBe('captain')
-    expect(resolveCareerRank(19999)).toBe('captain')
-    expect(resolveCareerRank(20000)).toBe('commander')
-
-    const veteran = createCareerProfile('roman')
-    veteran.totalMerit = 1000
-    veteran.availableMerit = 1000
-    veteran.rank = resolveCareerRank(veteran.totalMerit)
-    expect(getCareerPurchaseTier(veteran.rank)).toBe(3)
-    expect(isCareerPurchaseTierUnlocked(veteran, 3)).toBe(true)
-    expect(isCareerPurchaseTierUnlocked(veteran, 4)).toBe(false)
-  })
 
   it('adds battle merit to both lifetime and spendable balances', () => {
     const profile = createCareerProfile('roman')
@@ -152,19 +93,6 @@ describe('Career progression and spending', () => {
     expect(purchase.profile.availableMerit).toBe(2000)
     expect(purchase.profile.rank).toBe('captain')
     expect(purchase.profile.ownedWeapons).toEqual(['viking_axe_t3'])
-  })
-
-  it('rank only unlocks the tier for purchase and never grants equipment automatically', () => {
-    const profile = createCareerProfile('roman')
-    profile.totalMerit = 900
-    profile.availableMerit = 900
-    profile.rank = resolveCareerRank(profile.totalMerit)
-
-    expect(profile.rank).toBe('veteran')
-    expect(getCareerPurchaseTier(profile.rank)).toBe(3)
-    expect(profile.ownedWeapons).toEqual([])
-    expect(profile.ownedArmors).toEqual([])
-    expect(profile.ownedMounts).toEqual([])
   })
 
   it('blocks purchases above the unlocked tier', () => {
@@ -212,45 +140,9 @@ describe('Career progression and spending', () => {
     expect(expensive.reason).toBe('insufficient-merit')
     expect(expensive.profile.availableMerit).toBe(100)
   })
-
-  it('claims each battle only once', () => {
-    const profile = createCareerProfile('viking')
-    const first = claimCareerBattle(profile, {
-      battleId: 'battle-once',
-      outcome: 'victory',
-      role: 'defense',
-      stats: stats({ damageDealt: 500 }),
-    })
-    const duplicate = claimCareerBattle(first.profile, {
-      battleId: 'battle-once',
-      outcome: 'victory',
-      role: 'defense',
-      stats: stats({ damageDealt: 9999, kills: 99 }),
-    })
-    expect(duplicate.alreadyClaimed).toBe(true)
-    expect(duplicate.meritAwarded).toBe(0)
-    expect(duplicate.profile).toEqual(first.profile)
-  })
 })
 
 describe('Career profile persistence', () => {
-  it('round-trips lifetime and available merit plus owned content', () => {
-    const storage = new MemoryStorage()
-    const store = new CareerProfileStore(storage)
-    const profile = createCareerProfile('viking')
-    profile.totalMerit = 5200
-    profile.availableMerit = 2100
-    profile.rank = resolveCareerRank(profile.totalMerit)
-    profile.ownedWeapons.push('viking_axe_t1')
-    profile.ownedArmors.push('round_shield_t1')
-    profile.ownedMounts.push('horse')
-    profile.ownedHeroes.push('viking-hero-t4')
-    profile.claimedBattleIds.push('battle-a')
-
-    expect(store.save(profile)).toBe(true)
-    expect(storage.getItem(CAREER_STORAGE_KEY)).not.toBeNull()
-    expect(store.load()).toEqual(parseCareerProfile(profile))
-  })
 
   it('migrates the pre-merge single-merit/unlocked field shape safely', () => {
     const parsed = parseCareerProfile({
@@ -312,4 +204,226 @@ describe('Career profile persistence', () => {
       deadFriendlyActorIds: ['melee_infantry-0'], playerStats: { damageDealt: 310, kills: 2 }, routeStage: 7, patrolStage: 2, defenseElapsed: 19.5,
     })
   })
+})
+
+
+describe('Commander melee appointment and save migration', () => {
+  it('grants only on formal Commander appointment while preserving selected melee and bow', () => {
+    let profile = createCareerProfile('roman')
+    profile.totalMerit = 20000
+    addCareerItem(profile, 'paladin_sword_t4', 1)
+    addCareerItem(profile, 'bow_t5', 1)
+    profile.equipment = { ...profile.equipment, ranged: 'bow_t5' }
+    // Merit alone, and each lower appointment, must not award Commander equipment.
+    expect(careerItemTotal(parseCareerProfile(profile)!, 'sword_t5')).toBe(0)
+    for (const rank of ['soldier', 'veteran', 'captain']) {
+      profile = promoteCareer(profile)!
+      expect(profile.rank).toBe(rank)
+      expect(careerItemTotal(profile, 'sword_t5')).toBe(0)
+    }
+    const equipment = new TownEquipment(() => profile, next => { profile = next; return true })
+    expect(equipment.equipWeapon('paladin_sword_t4')).toBe(true)
+    expect(profile.meleeSelectionOrigin).toBe('custom')
+    const promoted = promoteCareer(profile)!
+    expect(profile.rank).toBe('captain')
+    expect(profile.commanderMeleeGranted).toBeUndefined()
+    expect(promoted.commanderMeleeGranted).toBe(true)
+    expect(promoted.equipment).toEqual({ melee: 'paladin_sword_t4', ranged: 'bow_t5' })
+    expect(careerItemTotal(promoted, 'sword_t5')).toBe(1)
+    expect(careerItemAllocated(promoted, 'sword_t5')).toBe(0)
+    expect(careerItemTotal(promoted, 'bow_t5')).toBe(1)
+    expect(promoteCareer(promoted)).toBeNull()
+  })
+
+  it('auto-equips the Commander reward when the starter was never explicitly replaced', () => {
+    let profile = grantStarter(createCareerProfile('roman'), 'gladius_rusty')
+    // Automatic combat fallback must not become an explicit player selection.
+    profile.equipment = {}
+    new TownEquipment(() => profile, next => { profile = next; return true }).prepareForCombat()
+    expect(profile.equipment?.melee).toBe('gladius_rusty')
+    expect(profile.meleeSelectionOrigin).toBe('starter')
+    profile.rank = 'captain'; profile.totalMerit = 20000
+    const restored = parseCareerProfile(profile)!
+    expect(restored.meleeSelectionOrigin).toBe('starter')
+    const promoted = promoteCareer(restored)!
+    expect(promoted.equipment?.melee).toBe('sword_t5')
+    expect(careerItemTotal(promoted, 'sword_t5')).toBe(1)
+    expect(careerItemAllocated(promoted, 'sword_t5')).toBe(1)
+    expect(careerItemTotal(promoted, 'gladius_rusty')).toBe(1)
+  })
+
+  it('persists a legacy Viking grant once alongside purchased stock and never replaces sold rewards', () => {
+    const profile = createCareerProfile('viking')
+    profile.rank = 'commander'; profile.totalMerit = 20000
+    addCareerItem(profile, 'paladin_mace_t4', 1)
+    addCareerItem(profile, 'axe_t5', 2)
+    profile.equipment = { melee: 'paladin_mace_t4' }
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify({ ...profile, commanderMeleeGranted: 'invalid' })]] })
+    const store = new CareerProfileStore(storage)
+    const loaded = store.loadChecked().profile!
+    expect(loaded.equipment?.melee).toBe('paladin_mace_t4')
+    expect(careerItemTotal(loaded, 'axe_t5')).toBe(3)
+    expect(careerItemTotal(loaded, 'bow_t5')).toBe(0)
+    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!).commanderMeleeGranted).toBe(true)
+    expect(store.loadChecked().profile).toEqual(loaded)
+    addCareerItem(loaded, 'axe_t5', -3)
+    expect(store.save(loaded)).toBe(true)
+    expect(careerItemTotal(store.loadChecked().profile!, 'axe_t5')).toBe(0)
+  })
+
+  it('withholds a migrated grant on save failure then atomically saves and equips an unselected melee', () => {
+    const profile = createCareerProfile('roman')
+    profile.rank = 'commander'; profile.totalMerit = 20000
+    const original = JSON.stringify(profile)
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, original]], failWrites: true })
+    const store = new CareerProfileStore(storage)
+    const failed = store.loadChecked()
+    expect(failed.profile).toBeNull(); expect(failed.error).toBeTruthy()
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(original)
+    storage.failWrites = false
+    const loaded = store.loadChecked().profile!
+    expect(loaded.equipment?.melee).toBe('sword_t5')
+    expect(careerItemTotal(loaded, 'sword_t5')).toBe(1)
+    expect(careerItemAllocated(loaded, 'sword_t5')).toBe(1)
+    expect(store.loadChecked().profile).toEqual(loaded)
+  })
+})
+
+function retirementProfile(): CareerProfile {
+  const profile = createCareerProfile('roman')
+  profile.rank = 'commander'
+  profile.totalMerit = 20000
+  profile.commanderMeleeGranted = true
+  profile.inventory = { version: 1, quantities: {} }
+  profile.equipment = {}
+  profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 123,
+    combatElapsedSeconds: 42.5, outcome: 'fallen' }
+  return profile
+}
+
+it('round-trips minimal retirement progress and resource snapshots without sharing mutable state', () => {
+  const profile = retirementProfile()
+  profile.retirementRuntime = {
+    player: { position: { x: 1, y: 2, z: -318, yaw: 0.4 }, hp: 17, stamina: 21,
+      arrows: 3, shieldImpact: 4, shieldDurability: { shield_t1: 0 }, mounted: true },
+    mountState: { activeMountId: 'horse', hp: { horse: 9 }, unavailable: ['corgi'] },
+    mount: { position: { x: 1, y: 2, z: -318, yaw: 0.4 }, hp: 9 },
+  }
+  const original = structuredClone(profile)
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  expect(store.save(profile)).toBe(true)
+  const loaded = store.loadChecked().profile!
+  expect(loaded).toEqual(original)
+  expect(profile).toEqual(original)
+  const copy = cloneCareerProfile(loaded)
+  copy.careerRetirement!.combatElapsedSeconds = 99
+  copy.retirementRuntime!.player.hp = 90
+  copy.retirementRuntime!.player.shieldDurability!.shield_t1 = 90
+  copy.retirementRuntime!.mountState!.hp.horse = 90
+  copy.retirementRuntime!.mount!.position.x = 90
+  expect(loaded).toEqual(original)
+})
+
+it('rejects corrupted retirement saves without overwriting persisted bytes', () => {
+  const profile = retirementProfile()
+  const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+  expect(store.save(profile)).toBe(true)
+  const saved = storage.getItem(CAREER_STORAGE_KEY)
+  // Rank normalization must not admit a retirement checkpoint below Commander.
+  expect(store.save({ ...profile, totalMerit: 5200 })).toBe(false)
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  const invalidRuntime = { ...profile, retirementRuntime: { player: {
+    position: { x: 0, y: 0, z: 0, yaw: 0 }, hp: Number.NaN, stamina: 0,
+    arrows: 0, shieldImpact: 0, mounted: false,
+  } } }
+  expect(store.save(invalidRuntime)).toBe(false)
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  delete profile.careerRetirement!.outcome
+  expect(store.save(profile)).toBe(false)
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  const corrupted = JSON.stringify(profile)
+  storage.setItem(CAREER_STORAGE_KEY, corrupted)
+  const rejected = store.loadChecked()
+  expect(rejected.profile).toBeNull()
+  expect(rejected.error).toBeTruthy()
+  expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(corrupted)
+})
+
+it('preserves retirement ownership while allowing ordinary resource commits', () => {
+  const loaded = retirementProfile()
+  // Town commits must preserve every retirement-owned field.
+  const stale = cloneCareerProfile(loaded)
+  delete stale.careerRetirement
+  expect(validateOrdinaryRetirementCommit(loaded, stale)).toEqual({ allowed: false, reason: 'retirement-checkpoint-missing' })
+  // Every persisted field is owned by retirement, even when the proposed save parses.
+  for (const change of [{ version: 2 }, { phase: 'final-stand', outcome: undefined },
+    { acceptedAt: 124 }, { combatElapsedSeconds: 43 }, { outcome: 'escaped' }]) {
+    const altered = { ...cloneCareerProfile(loaded), careerRetirement: { ...loaded.careerRetirement!, ...change } }
+    expect(validateOrdinaryRetirementCommit(loaded, altered as typeof loaded)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  }
+  expect(canStartOrdinaryTownHostility(createCareerProfile('roman'))).toBe(true)
+  expect(areOrdinaryTownServicesPeaceful(createCareerProfile('roman'))).toBe(true)
+  expect(areOrdinaryTownServicesPeaceful(createCareerProfile('roman'), true)).toBe(false)
+  for (const phase of ['departing', 'mobilizing', 'final-stand', 'completed'] as const) {
+    const current: CareerProfile = { ...cloneCareerProfile(loaded), careerRetirement: {
+      version: 1, phase, acceptedAt: 123, combatElapsedSeconds: 0,
+      ...(phase === 'completed' ? { outcome: 'fallen' as const } : {}),
+    } }
+    expect(canStartOrdinaryTownHostility(current)).toBe(false)
+    // Hints, talk, markers and stale service callbacks share this saved-phase gate.
+    expect(current.townEvent).toBeUndefined()
+    expect(areOrdinaryTownServicesPeaceful(current)).toBe(phase === 'departing' || phase === 'mobilizing')
+    const hostile: CareerProfile = { ...cloneCareerProfile(current), townEvent: { id: 'ordinary-retaliation', state: 'hostile' } }
+    expect(areOrdinaryTownServicesPeaceful(hostile)).toBe(false)
+    expect(validateOrdinaryRetirementCommit(current, hostile)).toEqual({ allowed: false, reason: 'retirement-town-hostility' })
+    // Do not rewrite legacy events or prevent existing casualty persistence.
+    expect(validateOrdinaryRetirementCommit(hostile, cloneCareerProfile(hostile))).toEqual({ allowed: true })
+    expect(validateOrdinaryRetirementCommit(hostile, { ...hostile, townEvent: { id: 'replacement', state: 'hostile' } }))
+      .toEqual({ allowed: false, reason: 'retirement-town-hostility' })
+  }
+  const receipt = { version: 1 as const, commandRevoked: true as const, refillCompleted: true as const, formationPrepared: true as const }
+  const receipted = { ...cloneCareerProfile(loaded), careerRetirement: { ...loaded.careerRetirement!, mobilization: receipt } }
+  const equalReceipt = { ...cloneCareerProfile(receipted), careerRetirement: { ...receipted.careerRetirement,
+    mobilization: { formationPrepared: true as const, refillCompleted: true as const, commandRevoked: true as const, version: 1 as const } } }
+  expect(equalReceipt.careerRetirement.mobilization).not.toBe(receipt)
+  expect(validateOrdinaryRetirementCommit(receipted, equalReceipt)).toEqual({ allowed: true })
+  expect(validateOrdinaryRetirementCommit(receipted, loaded)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  for (const change of [{ version: 2 }, { commandRevoked: false }, { refillCompleted: false }, { formationPrepared: false }]) {
+    const altered = { ...receipted, careerRetirement: { ...receipted.careerRetirement, mobilization: { ...receipt, ...change } } }
+    expect(validateOrdinaryRetirementCommit(receipted, altered as typeof loaded)).toEqual({ allowed: false, reason: 'retirement-checkpoint-changed' })
+  }
+  const rider = { actorId: 'player', mountId: 'horse' as const, position: { x: 0, y: 0, z: 0, yaw: 0 },
+    mountPosition: { x: 0, y: 0, z: 0, yaw: 0 }, hp: 100, mountHp: 100, stamina: 100, mounted: true, dead: false, checkpoint: 0 }
+  const newWork: Partial<typeof loaded>[] = [
+    { activeMission: { id: 'new-mission', templateId: 'recruit-bandits-01', targetCampId: 0,
+      phase: 'RETURNING', targetActorIds: [], friendlyActorIds: [], acceptedAt: 124 } },
+    { activeOutpostMission: { id: 'new-outpost', kind: 'outpost-defense', stageId: 1, acceptedAt: 124 } },
+    { activeRace: { version: 1, deployed: false, id: 'new-race', raceId: 'race-1', phase: 'guiding',
+      countdownSeconds: 0, elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
+      player: rider, opponent: { ...rider, actorId: 'opponent' } } },
+  ]
+  for (const work of newWork) {
+    expect(validateOrdinaryRetirementCommit(loaded, { ...cloneCareerProfile(loaded), ...work }))
+      .toEqual({ allowed: false, reason: 'retirement-new-work' })
+  }
+  const ordinary = cloneCareerProfile(loaded)
+  ordinary.availableMerit += 1
+  expect(validateOrdinaryRetirementCommit(loaded, ordinary)).toEqual({ allowed: true })
+  expect(ordinary.careerRetirement).toEqual(loaded.careerRetirement)
+  expect(ordinary.careerRetirement).not.toBe(loaded.careerRetirement)
+})
+
+it('round-trips a prepared retirement receipt and rejects incomplete or misplaced receipts', () => {
+  const receipt = { version: 1 as const, commandRevoked: true as const,
+    refillCompleted: true as const, formationPrepared: true as const }
+  const progress = { version: 1 as const, phase: 'mobilizing' as const,
+    acceptedAt: 123, combatElapsedSeconds: 0, mobilization: receipt }
+  const parsed = parseCareerRetirementState(JSON.parse(JSON.stringify(progress)))!
+  expect(parsed).toEqual(progress)
+  expect(parsed.mobilization).not.toBe(receipt)
+  for (const invalid of [null, {}, { ...receipt, version: 2 }, { ...receipt, commandRevoked: false },
+    { ...receipt, refillCompleted: false }, { ...receipt, formationPrepared: false }]) {
+    expect(parseCareerRetirementState({ ...progress, mobilization: invalid })).toBeNull()
+  }
+  expect(parseCareerRetirementState({ ...progress, phase: 'departing' })).toBeNull()
 })

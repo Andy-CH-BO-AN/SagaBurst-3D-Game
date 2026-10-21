@@ -1,8 +1,11 @@
+import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
 import * as THREE from 'three'
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createQuadrupedAssetPreload } from './QuadrupedAssetPreload'
+import { SkinnedSeatContact } from './SkinnedSeatContact'
+import { RiderSeatContactCache } from './RiderSeatContactCache'
 import {
   isQuadrupedAnimationState,
   quadrupedLocomotionClipForSpeed,
@@ -25,6 +28,13 @@ export class BlackCatVisual {
 
   readonly root: THREE.Group
   readonly saddleSeat: THREE.Object3D
+  private readonly riderContacts = new RiderSeatContactCache((rider: THREE.Object3D) => new SkinnedSeatContact(
+    rider, this.root, this.root.getObjectByName('cat_saddle_leather') as THREE.SkinnedMesh, this.saddleSeat,
+  ))
+
+  fitRider(rider: THREE.Object3D): void {
+    this.riderContacts.get(rider).align()
+  }
   readonly skeleton: THREE.Skeleton
   readonly mixer: THREE.AnimationMixer
   readonly lod = new THREE.LOD()
@@ -37,6 +47,7 @@ export class BlackCatVisual {
   private oneShotDuration = 0
   private paused = false
   private studio = false
+  private disposed = false
   private elapsed = 0
   private playbackRate = 1
   private requestedPlaybackRate = 1
@@ -57,11 +68,22 @@ export class BlackCatVisual {
     })
     this.root.updateMatrixWorld(true)
     this.lod.name = 'black-cat-lod'
-    for (const [index, distance] of [0, 18, 38].entries()) {
+    for (const [index, distance] of CHARACTER_LOD_DISTANCES.entries()) {
       const mesh = this.root.getObjectByName(`cat_body_lod${index}`)!
-      this.lod.attach(mesh)
-      this.lod.addLevel(mesh, distance, .1)
-      mesh.visible = index === 0
+      const equipment = this.root.getObjectByName(index === 0 ? 'cat_saddle_leather' : `cat_equipment_lod${index}`)
+      const level = new THREE.Group()
+      level.name = `cat_lod_level_${index}`
+      this.root.add(level)
+      level.attach(mesh)
+      if (equipment) level.attach(equipment)
+      const unarmored = this.root.getObjectByName(`cat_unarmored_lod${index}`)
+      if (unarmored) {
+        level.attach(unarmored)
+        unarmored.visible = false
+      }
+      this.lod.attach(level)
+      this.lod.addLevel(level, distance, .1)
+      level.visible = index === 0
     }
     this.root.add(this.lod)
     this.saddleSeat = this.root.getObjectByName('socket_saddle_seat')!
@@ -132,8 +154,21 @@ export class BlackCatVisual {
   togglePaused(): boolean { this.paused = !this.paused; return this.paused }
 
   setEquipmentVisible(visible: boolean): void {
-    for (const name of ['cat_saddle_leather', 'cat_saddle_binding', 'cat_saddle_brass']) {
-      this.root.getObjectByName(name)!.visible = visible
+    for (const name of ['cat_saddle_leather', 'cat_equipment_lod1', 'cat_equipment_lod2', 'cat_saddle_binding', 'cat_saddle_brass']) {
+      const equipment = this.root.getObjectByName(name)
+      if (equipment) equipment.visible = visible
+    }
+    for (let index = 0; index < 3; index++) {
+      const unarmored = this.root.getObjectByName(`cat_unarmored_lod${index}`)
+      if (unarmored) {
+        unarmored.visible = !visible
+        // Complete off-mode skins preserve source anatomy while closing fused tack cutouts.
+        // Patch-only skins leave the shared body visible in both modes.
+        if (unarmored.userData.replacesEquippedBody === true) {
+          const body = this.root.getObjectByName(`cat_body_lod${index}`)
+          if (body) body.visible = visible
+        }
+      }
     }
   }
 
@@ -158,8 +193,12 @@ export class BlackCatVisual {
   }
 
   dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
     this.mixer.stopAllAction()
     this.mixer.uncacheRoot(this.root)
+    // Bone textures belong to this cloned skeleton, unlike shared mesh resources.
+    this.skeleton.dispose()
     this.root.removeFromParent()
     // Shared geometry, maps and materials belong to the asset template.
   }

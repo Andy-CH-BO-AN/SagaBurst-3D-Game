@@ -93,13 +93,19 @@ export class CharacterCombatAnimator {
   }
 
   get currentAction(): CombatAction { return this.action }
+  private get meleeTiming() { return this.rig.animation?.getMeleeTiming?.(this.action as HumanoidAnimationState) }
+  private poseTime(elapsed: number): number {
+    const timing = this.meleeTiming
+    return timing ? elapsed * .48 / timing.duration : elapsed
+  }
   private get isMeleeAction(): boolean {
     return this.action !== 'idle' && this.action !== 'bowAim' && this.action !== 'bowRelease' && this.action !== 'pilumThrow'
   }
   get meleeHitActive(): boolean {
     if (!this.isMeleeAction) return false
     const p = COMBAT_ANIMATION_PROFILES[this.action]
-    return this.elapsed >= p.windup && this.elapsed <= p.windup + p.active
+    const timing = this.meleeTiming
+    return this.elapsed >= (timing?.activeStart ?? p.windup) && this.elapsed <= (timing?.activeEnd ?? p.windup + p.active)
   }
   get currentOwnership(): 'clip' | 'procedural' { return this.ownership }
   get busy(): boolean { return this.action !== 'idle' && this.action !== 'bowAim' }
@@ -119,15 +125,19 @@ export class CharacterCombatAnimator {
     this.rig.animation?.setEquipmentState?.({ shieldRaised: raised })
   }
 
+  private get hasEquippedSword(): boolean {
+    return this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned === true && this.meleePivot.userData.meleeAnimationKind === 'sword'
+  }
+
   setEquipment(lance: boolean, shield: boolean, mountKind: MountedPoseKind = 'HORSE', alive = true): void {
     this.mountKind = mountKind
     this.lanceEquipped = lance
     this.setShieldGuard(shield)
-    this.rig.animation?.setEquipmentState?.({ lance, shield, mountKind, alive })
+    this.rig.animation?.setEquipmentState?.({ lance, shield, mountKind, alive, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined })
   }
 
   private get usesTwoHandedAxeCarry(): boolean {
-    return !!this.meleePivot.userData.axeVisual && !this.shieldGuardEnabled && !!this.rig.animation?.has('axeMountedIdle')
+    return !!this.meleePivot.userData.swordAttachmentOwned && !!this.meleePivot.userData.axeVisual && !this.shieldGuardEnabled && !!this.rig.animation?.has('axeMountedIdle')
   }
 
   private get locomotionClip(): HumanoidAnimationState {
@@ -136,7 +146,7 @@ export class CharacterCombatAnimator {
   }
 
   setLocomotion(speed: number, mounted = false, sprinting = false): void {
-    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.elapsed) : 0, this.usesTwoHandedAxeCarry)
+    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.poseTime(this.elapsed)) : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed)))
     const state = mounted ? 'mounted' : speed <= 0.1 ? 'idle' : sprinting ? 'run' : 'walk'
     const timeScale = state === 'walk'
       ? Math.min(2, Math.max(0.1, speed / 2))
@@ -158,13 +168,15 @@ export class CharacterCombatAnimator {
     if (this.busy || (this.shieldGuardEnabled && (action === 'bowRelease' || action === 'greatswordSlash' || action === 'axeAttack2H'))) return false
     this.action = action
     this.actionTimeScale = timeScale
-    setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? axeCarryWeight(action, 0) : 0, this.usesTwoHandedAxeCarry)
+    setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? axeCarryWeight(action, 0) : 0, this.usesTwoHandedAxeCarry, this.action, 1)
     const importedState = action === 'bowRelease' || action === 'swordSlash' || action === 'pilumThrow' || action === 'axeAttack1H' || action === 'axeAttack2H'
       ? action
       : null
     this.ownership = importedState && this.rig.animation?.has(importedState) ? 'clip' : 'procedural'
     this.elapsed = 0
-    if (this.ownership === 'clip') this.rig.animation?.play(action, { fadeSeconds: 0.1, loop: false, ...(timeScale === 1 ? {} : { timeScale }) })
+    const clipTimeScale = timeScale * (this.meleeTiming?.clipTimeScale ?? 1)
+    const clipState = action === 'axeAttack1H' && this.meleePivot.userData.swordAttachmentOwned && this.meleePivot.userData.meleeAnimationKind === 'axe' && this.locomotion !== 'mounted' && this.rig.animation?.has('axeAttack1HFoot') ? 'axeAttack1HFoot' : action
+    if (this.ownership === 'clip') this.rig.animation?.play(clipState, { fadeSeconds: 0.1, loop: false, ...(clipTimeScale === 1 ? {} : { timeScale: clipTimeScale }) })
     return true
   }
 
@@ -173,7 +185,7 @@ export class CharacterCombatAnimator {
     this.ownership = 'procedural'
     this.elapsed = 0
     this.actionTimeScale = 1
-    setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? 1 : 0, this.usesTwoHandedAxeCarry)
+    setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? 1 : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed)))
     this.rig.animation?.setEquipmentState?.({ action: 'idle', elapsed: 0 })
     this.rig.animation?.play(this.locomotionClip, { fadeSeconds: 0.12, loop: true, timeScale: this.locomotionTimeScale })
     this.poseIdle()
@@ -187,11 +199,15 @@ export class CharacterCombatAnimator {
     if (!Number.isFinite(dt) || dt < 0) return this.events
     const actionDt = dt * this.actionTimeScale
     const mounted = this.locomotion === 'mounted'
-    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.elapsed + actionDt) : 0, this.usesTwoHandedAxeCarry)
-    this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed: this.elapsed + actionDt, lance: this.lanceEquipped })
+    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)) : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)))
+    this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed: this.poseTime(this.elapsed + actionDt), lance: this.lanceEquipped, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined, carryWeapon: this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual ? 'axe' : 'sword' : undefined })
     // Melee sockets drive physical collision, so their pose must follow the
     // action clock every frame, including fast T4 attacks. Idle/ranged may throttle.
     this.rig.animation?.update(dt, this.isMeleeAction ? 0 : cameraDistance)
+    // Animated sockets and forward axe carry follow the evaluated pose and
+    // LOD proxy, before this tick's hit/contact evaluation.
+    if (this.meleePivot.userData.authoredAxeSocket || this.meleePivot.userData.authoredAxe1Socket || this.meleePivot.userData.forwardAxeCarryRoot) setSwordMountedAttachment(this.meleePivot, mounted,
+      mounted ? axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)) : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)))
 
     if (this.action === 'idle' || this.action === 'bowAim') {
       return this.events
@@ -203,7 +219,7 @@ export class CharacterCombatAnimator {
     const importedPilumDuration = this.action === 'pilumThrow' && this.ownership === 'clip'
       ? this.rig.animation?.getDuration('pilumThrow')
       : undefined
-    const total = Math.round((importedPilumDuration ?? (profile.windup + profile.active + profile.recovery)) * 1e9) / 1e9
+    const total = Math.round((this.meleeTiming?.duration ?? importedPilumDuration ?? (profile.windup + profile.active + profile.recovery)) * 1e9) / 1e9
 
     if (this.action === 'bowRelease' || this.action === 'pilumThrow') {
       const pilumReleaseTime = (this.ownership === 'clip' ? PILUM_THROW_RELEASE_TIME : profile.windup) - 1e-9
@@ -219,9 +235,9 @@ export class CharacterCombatAnimator {
       }
     } else {
       const isLance = this.action === 'lanceThrust' || this.action === 'mountedLance'
-      const contactTime = this.action === 'axeAttack1H' || this.action === 'axeAttack2H'
+      const contactTime = this.meleeTiming?.hit ?? (this.action === 'axeAttack1H' || this.action === 'axeAttack2H'
         ? AXE_HIT_TIMES[this.action]
-        : Math.round((profile.windup + profile.active * (isLance ? 0.9 : 0.8)) * 1e9) / 1e9
+        : Math.round((profile.windup + profile.active * (isLance ? 0.9 : 0.8)) * 1e9) / 1e9)
       if (previous < contactTime && this.elapsed >= contactTime) {
         this.events.hitActiveStarted = true
       }
@@ -234,7 +250,7 @@ export class CharacterCombatAnimator {
       this.ownership = 'procedural'
       this.elapsed = 0
       this.actionTimeScale = 1
-      setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? 1 : 0, this.usesTwoHandedAxeCarry)
+      setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? 1 : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed)))
       this.events.actionCompleted = true
       if (returnToLocomotion) {
         this.resetWeaponPivots()
@@ -315,6 +331,10 @@ export class CharacterCombatAnimator {
   poseLanceReady(mounted: boolean): void {
     this.lanceEquipped = true
     this.rig.animation?.setEquipmentState?.({ lance: true, mounted })
+    // Releasing RMB can return here from bowAim, including a fresh aim frame
+    // after a shot. End that state before the imported-rig early return so
+    // locomotion fades out the bow clip and its equipment pose compensation.
+    if (this.action === 'bowAim') this.cancel()
     if (this.rig.equipmentGripFrames || this.busy) return
     const { right, left } = this.rig
     setRigRotation(right.shoulder, mounted ? 1.25 : 1.08, 0.08, -0.32)

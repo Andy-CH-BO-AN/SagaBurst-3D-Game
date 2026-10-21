@@ -1,3 +1,5 @@
+import { TownLayeredNavigation } from './TownLayeredNavigation'
+import type { TownRampartLayout } from '../town/TownRamparts'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import {
   NavigationGrid,
@@ -8,13 +10,15 @@ import {
   PLAYABLE_WORLD_BOUND,
   type ObstacleData,
 } from '../world/Terrain'
+import { OutpostLayeredNavigation } from './OutpostLayeredNavigation'
+import type { OutpostWalkwayLayout } from '../campaign/CampaignOutpostWalkways'
 
 export type NavigationPathQueryResult =
   | { status: 'path'; path: NavigationCell[] }
   | { status: 'pending' }
   | { status: 'unreachable' }
 
-export const NAV_PATH_REQUESTS_PER_FRAME = 2
+export const NAV_PATH_REQUESTS_PER_FRAME = 10
 export const NAV_PATH_GROUP_CELLS = 2
 
 const COMPONENT_NEIGHBORS: readonly [number, number][] = [
@@ -37,14 +41,31 @@ export class NavigationWorld {
   private obstacleSource: readonly ObstacleData[] | undefined
   private componentIds: Int32Array
   private pathRequestsThisFrame = 0
+  /** A production default with a per-world override for tests and platform profiles. */
+  private readonly pathRequestsPerFrame: number
   private readonly sharedPathCache = new Map<string, NavigationCell[] | null>()
+  private readonly pendingPathOwners = new Map<object, { start: { x: number; z: number }; goal: { x: number; z: number } }>()
+  townNav: TownLayeredNavigation | null = null
+  setTownRamparts(layout: TownRampartLayout): void { this.townNav = new TownLayeredNavigation(layout, (a, b) => this.areConnected(a, b)) }
+
+  private _outpostNav: OutpostLayeredNavigation | null = null
+
+  get outpostNav(): OutpostLayeredNavigation | null {
+    return this._outpostNav
+  }
+
+  setOutpostWalkways(layout: OutpostWalkwayLayout | null): void {
+    this._outpostNav = layout ? new OutpostLayeredNavigation(layout) : null
+  }
 
   constructor(bounds: NavigationGridOptions = {
     minX: -PLAYABLE_WORLD_BOUND,
     maxX: PLAYABLE_WORLD_BOUND,
     minZ: -PLAYABLE_WORLD_BOUND,
     maxZ: PLAYABLE_WORLD_BOUND,
-  }) {
+  }, pathRequestsPerFrame = NAV_PATH_REQUESTS_PER_FRAME) {
+    if (!Number.isInteger(pathRequestsPerFrame) || pathRequestsPerFrame < 1) throw new RangeError('pathRequestsPerFrame must be a positive integer')
+    this.pathRequestsPerFrame = pathRequestsPerFrame
     this.grid = new NavigationGrid(bounds)
     this.componentIds = new Int32Array(this.grid.cellCount)
     this.componentIds.fill(-1)
@@ -56,6 +77,17 @@ export class NavigationWorld {
 
   beginFrame(): void {
     this.pathRequestsThisFrame = 0
+    // Admit deferred followers before earlier actors can consume this frame's
+    // budget again. Map insertion order gives each waiting owner a turn;
+    // repeated requests update its destination without moving it to the rear.
+    const waiting = this.pendingPathOwners.size
+    for (let index = 0; index < waiting && this.pathRequestsThisFrame < this.pathRequestsPerFrame; index++) {
+      const next = this.pendingPathOwners.entries().next().value
+      if (!next) break
+      const [owner, request] = next
+      this.pendingPathOwners.delete(owner)
+      this.computePath(request.start, request.goal)
+    }
   }
 
   /**
@@ -71,10 +103,12 @@ export class NavigationWorld {
   rebuild(obstacles: readonly ObstacleData[]): void {
     this.grid.clear()
     for (const obstacle of obstacles) {
+      if (obstacle.navigationPassable) continue
       this.grid.setBlockedBox(obstacle.navigationBox ?? obstacle.box, true)
     }
     this._rebuildComponents()
     this.sharedPathCache.clear()
+    this.pendingPathOwners.clear()
     this.obstacleCount = obstacles.length
     this.obstacleSource = obstacles
     this.obstacleRevision = obstacleTopologyRevision(obstacles)
@@ -84,7 +118,18 @@ export class NavigationWorld {
   queryPath(
     startPosition: { x: number; z: number },
     goalPosition: { x: number; z: number },
+    owner?: object,
   ): NavigationPathQueryResult {
+    const result = this.computePath(startPosition, goalPosition)
+    if (owner) {
+      if (result.status === 'pending') this.pendingPathOwners.set(owner,
+        { start: { ...startPosition }, goal: { ...goalPosition } })
+      else this.pendingPathOwners.delete(owner)
+    }
+    return result
+  }
+
+  private computePath(startPosition: { x: number; z: number }, goalPosition: { x: number; z: number }): NavigationPathQueryResult {
     const startCell = this.grid.findNearestWalkableCell(startPosition, 2)
     const goalCell = this.grid.findNearestWalkableCell(goalPosition, 3)
     if (!startCell || !goalCell) return { status: 'unreachable' }
@@ -114,7 +159,7 @@ export class NavigationWorld {
         : { status: 'unreachable' }
     }
 
-    if (this.pathRequestsThisFrame >= NAV_PATH_REQUESTS_PER_FRAME) {
+    if (this.pathRequestsThisFrame >= this.pathRequestsPerFrame) {
       return { status: 'pending' }
     }
     this.pathRequestsThisFrame++

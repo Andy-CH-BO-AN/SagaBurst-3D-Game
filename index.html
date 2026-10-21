@@ -269,6 +269,53 @@
         transition: width 0.2s ease;
       }
 
+      /* Restored Norse compass. Reserve both side HUD columns and the target /
+         mount bars above it; marker spacing stays fixed at every viewport. */
+      #compass-container {
+        position: absolute;
+        top: 104px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: clamp(160px, calc(100vw - 1120px), 460px);
+        height: 28px;
+        background: rgba(12, 12, 14, 0.7);
+        border: 1px solid rgba(232, 201, 106, 0.35);
+        border-radius: 4px;
+        backdrop-filter: blur(6px);
+        overflow: hidden;
+        pointer-events: none;
+        user-select: none;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+      }
+      #compass-strip {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        white-space: nowrap;
+        font: 700 13px 'Segoe UI', serif;
+        letter-spacing: 0.12em;
+        color: #d4af37;
+      }
+      .compass-mark {
+        flex: 0 0 80px;
+        text-align: center;
+        text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+      }
+      .compass-north { color: #e74c3c; }
+      #compass-indicator {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 2px;
+        height: 100%;
+        background: #f39c12;
+        box-shadow: 0 0 6px #f39c12;
+      }
+
       /* ── Army Command HUD ── */
       #army-command-hud {
         position: fixed;
@@ -340,6 +387,16 @@
       }
       .army-command-label { color: rgba(255,255,255,0.94); font-weight: 650; }
       .army-command-order { color: #e8c96a; font-weight: 800; }
+      .army-command-targets .army-command-label { min-width: 0; }
+      .army-command-targets .army-command-order { flex-shrink: 0; }
+      .army-command-targets .army-command-label { flex: 1; overflow: hidden; }
+      .army-command-name-row { display: flex; align-items: center; gap: 5px; min-width: 0; white-space: nowrap; }
+      .army-command-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+      .army-command-entry-wide { grid-column: 1 / -1; }
+      .army-command-unit-icons { flex: none; font-size: 12px; letter-spacing: -1px; pointer-events: auto; }
+      .army-command-summary { font-size: 12px; }
+      .army-command-targets .army-command-entry { overflow: hidden; }
+      .army-command-targets, .army-command-commands { max-height: calc(100dvh - 36px); overflow-y: auto; overscroll-behavior: contain; pointer-events: auto; }
       .army-command-order.defend { color: #8fd3ff; }
       .army-command-order.charge { color: #ff9d6b; }
       .army-command-order.formation { color: #73e6a2; }
@@ -420,18 +477,25 @@
         top: 18px;
         left: auto;
         right: 18px;
-        width: min(440px, calc(100vw - 36px));
+        width: min(640px, calc(100vw - 36px));
         grid-template-columns: repeat(2, minmax(0, 1fr));
         padding: 6px;
         box-sizing: border-box;
       }
+      #army-command-hud[data-layout="town"] .army-command-name-row { gap: 8px; }
+      #army-command-hud[data-layout="town"] .army-command-unit-icons {
+        font-size: 16px;
+        letter-spacing: normal;
+        word-spacing: 3px;
+      }
       @media (max-width: 1100px) {
         #army-command-hud[data-layout="town"] .army-command-targets,
         #army-command-hud[data-layout="town"] .army-command-commands {
-          top: var(--town-command-top, 400px);
+          top: min(var(--town-command-top, 400px), calc(100dvh - 160px));
+          max-height: max(142px, calc(100dvh - var(--town-command-top, 400px) - 18px));
         }
       }
-      @media (max-width: 480px) {
+      @media (max-width: 680px) {
         #army-command-hud[data-layout="town"] .army-command-targets,
         #army-command-hud[data-layout="town"] .army-command-commands {
           grid-template-columns: 1fr;
@@ -595,7 +659,19 @@
         grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
         gap: 8px;
       }
-      #squad-list { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+      #squad-list, .town-equipment-members { grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+      .town-equipment-tabs, .squad-bulk-controls { display: flex; flex-wrap: wrap; gap: 6px; }
+      .town-equipment-tabs { margin-bottom: 12px; }
+      #character-modal .town-equipment-tabs .equipment-tab { flex: 0 1 auto; font-size: 12px; padding: 7px 9px; }
+      #character-modal .equipment-tab:disabled { opacity: .45; cursor: default; }
+      .squad-bulk-controls { margin: 0 0 10px; }
+      .squad-bulk-controls .btn-equip { margin-top: 0; }
+      .squad-equipment-summary { white-space: pre-line; }
+      .inventory-categories { display:flex; flex-wrap:wrap; gap:8px; }
+      .inventory-categories .equipment-tab { flex:1; padding:10px 6px; font-size:13px; }
+      .inventory-categories [aria-pressed="true"] { color:#ffe5af; border-color:#e8c96a; background:#765c35; }
+      .inventory-tier { display:flex; align-items:center; gap:12px; margin:12px 0 4px; color:#ffe5af; font-size:14px; letter-spacing:.14em; }
+      .inventory-tier::before,.inventory-tier::after { content:''; flex:1; height:1px; background:#95784f88; }
       .inventory-wide { grid-column: 1 / -1; }
       #character-modal .inventory-card {
         min-width: 0;
@@ -624,8 +700,8 @@
       #character-modal .btn-equip:disabled { opacity: 0.45; cursor: default; }
       #character-modal .btn-equip.is-active { color: #e8c96a; }
       #character-modal select { max-width: 100%; }
-      #squad-list strong { font-size: 14px; }
-      #squad-list .squad-equipment-slot select { display: block; width: 100%; padding: 5px 7px; margin: 3px 0 0; font-size: 12px; }
+      #squad-list strong, #town-equipment-list strong { font-size: 14px; }
+      #character-modal .squad-equipment-slot select { display: block; width: 100%; padding: 5px 7px; margin: 3px 0 0; font-size: 12px; }
       .equipment-panel::-webkit-scrollbar {
         width: 7px;
       }
@@ -909,7 +985,8 @@
         <div class="equipment-tabs" role="tablist" aria-label="角色與裝備分頁">
           <button id="equipment-tab-skills" class="equipment-tab" role="tab" aria-controls="equipment-panel-skills" aria-selected="false" tabindex="-1">技能 Skills</button>
           <button id="equipment-tab-items" class="equipment-tab" role="tab" aria-controls="equipment-panel-items" aria-selected="true">個人物品</button>
-          <button id="equipment-tab-squad" class="equipment-tab" role="tab" aria-controls="equipment-panel-squad" aria-selected="false" tabindex="-1">小隊</button>
+          <button id="equipment-tab-squad" class="equipment-tab" role="tab" aria-controls="equipment-panel-squad" aria-selected="false" tabindex="-1">私人小隊</button>
+          <button id="equipment-tab-town" class="equipment-tab" role="tab" aria-controls="equipment-panel-town" aria-selected="false" tabindex="-1" disabled title="升任統帥（Commander）後，才可管理友方城鎮的全城裝備。">全城</button>
         </div>
         <div id="equipment-panel-skills" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-skills" hidden>
           <div class="modal-section-title">技能成長 Skills</div>
@@ -949,6 +1026,9 @@
         <div id="equipment-panel-items" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-items">
           <div class="modal-section-title">物品欄 Inventory (點擊裝備切換)</div>
           <div id="inventory-list" class="inventory-grid"></div>
+        </div>
+        <div id="equipment-panel-town" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-town" hidden>
+          <div id="town-equipment-list"></div>
         </div>
         <div id="equipment-panel-squad" class="equipment-panel" role="tabpanel" aria-labelledby="equipment-tab-squad" hidden>
           <div id="squad-list" class="inventory-grid"></div>

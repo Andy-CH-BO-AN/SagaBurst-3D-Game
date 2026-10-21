@@ -1,0 +1,407 @@
+[
+  {
+    "weapon": "sword",
+    "author": "Efarys (https://sketchfab.com/Efarys)",
+    "license": "CC-BY-SA-4.0 (http://creativecommons.org/licenses/by-sa/4.0/)",
+    "source": {
+      "bytes": 9262824,
+      "sha256": "4575d1edabaa30b768329e76546e44e54c9a4da6a80a3e6429ab127c6cee034b",
+      "triangles": 3544,
+      "meshes": 4,
+      "primitives": 4,
+      "materials": 4,
+      "textures": 12,
+      "images": [
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/jpeg",
+          "bytes": 333045
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 719626
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 523327
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/jpeg",
+          "bytes": 421475
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 1014781
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 1173165
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/jpeg",
+          "bytes": 681620
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 958166
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 1468559
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/jpeg",
+          "bytes": 407811
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 859949
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 512290
+        }
+      ],
+      "url": "https://sketchfab.com/3d-models/paladin-longsword-free-download-7baa85e6e5d74526b2dd461d15f2b4ea"
+    },
+    "title": "Paladin Longsword [Free Download]",
+    "sourceFile": "paladin_longsword_free_download.glb",
+    "final": {
+      "bytes": 1744648,
+      "sha256": "0583cc3165d6fff92e8de43d254db43aac13d77cd8c8a3b32c8e691462df4251",
+      "triangles": 3544,
+      "meshes": 4,
+      "primitives": 4,
+      "materials": 4,
+      "textures": 12,
+      "images": [
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 50826
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 46577
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/png",
+          "bytes": 137392
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 58173
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 88385
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/png",
+          "bytes": 313065
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 115570
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 90881
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/png",
+          "bytes": 400384
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 64329
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 68051
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/png",
+          "bytes": 121846
+        }
+      ]
+    },
+    "attachmentSpace": {
+      "longAxis": "+Y",
+      "broadFace": "XY",
+      "gripCenter": [
+        0,
+        0.15,
+        0
+      ],
+      "sourceGripCenter": [
+        0.65,
+        0,
+        0
+      ],
+      "sourceToAttachmentMatrix": [
+        0,
+        -0.7136363636363636,
+        0,
+        0,
+        0.7136363636363636,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0.7136363636363636,
+        0,
+        0,
+        0.6138636363636364,
+        0,
+        1
+      ]
+    }
+  },
+  {
+    "weapon": "axe",
+    "author": "Arms Museum (https://sketchfab.com/ArmsMuseum)",
+    "license": "CC0-1.0 (http://creativecommons.org/publicdomain/zero/1.0/)",
+    "source": {
+      "bytes": 6619420,
+      "sha256": "a006114f00892d2483589116cbb23e77b5943ee5cc4ae5791befb21a7a3986f1",
+      "triangles": 10258,
+      "meshes": 3,
+      "primitives": 3,
+      "materials": 2,
+      "textures": 6,
+      "images": [
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 1702104
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 517359
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 1243894
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 1375327
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 425924
+        },
+        {
+          "width": 1024,
+          "height": 1024,
+          "mimeType": "image/png",
+          "bytes": 860425
+        }
+      ],
+      "url": "https://sketchfab.com/3d-models/decorative-double-bladed-battle-axe-f0bfbca7a2804efd9cf77fd0f5a806aa"
+    },
+    "title": "Decorative Double-Bladed Battle Axe",
+    "sourceFile": "decorative_double-bladed_battle_axe.glb",
+    "final": {
+      "bytes": 1321016,
+      "sha256": "c10b672189f9b4447c08fa17342db16e5e56b71ea1ad5062b5e08941cdd628bd",
+      "triangles": 5433,
+      "meshes": 3,
+      "primitives": 3,
+      "materials": 2,
+      "textures": 6,
+      "images": [
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/png",
+          "bytes": 374839
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 123245
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 135072
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 101219
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/png",
+          "bytes": 264321
+        },
+        {
+          "width": 512,
+          "height": 512,
+          "mimeType": "image/jpeg",
+          "bytes": 105124
+        }
+      ]
+    },
+    "attachmentSpace": {
+      "longAxis": "+Y",
+      "broadFace": "XY",
+      "gripCenter": [
+        0,
+        0.15,
+        0
+      ],
+      "sourceGripCenter": [
+        70,
+        6.5761,
+        51.1448
+      ],
+      "sourceToAttachmentMatrix": [
+        0,
+        0.0038202646387203824,
+        0,
+        0,
+        0,
+        0,
+        0.0038202646387203824,
+        0,
+        0.0038202646387203824,
+        0,
+        0,
+        0,
+        -0.1953866708944262,
+        -0.11741852471042677,
+        -0.025122442290689107,
+        1
+      ]
+    }
+  },
+  {
+    "weapon": "lance",
+    "author": "OwenKenney (https://sketchfab.com/OwenKenney)",
+    "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+    "source": {
+      "bytes": 94496,
+      "sha256": "6ca01f58e473f82abc2e85ef90c30fc1b97640837a56f00e8fcd0ca2c2bfd63d",
+      "triangles": 1780,
+      "meshes": 3,
+      "primitives": 3,
+      "materials": 3,
+      "textures": 0,
+      "images": [],
+      "url": "https://sketchfab.com/3d-models/lowpoly-cartoon-spearpike-89a9d4bc332542e9b05d47f9dec3606c"
+    },
+    "title": "Lowpoly Cartoon Spear/Pike",
+    "sourceFile": "lowpoly_cartoon_spearpike.glb",
+    "final": {
+      "bytes": 94688,
+      "sha256": "5aef2c779487832a5fa7738b5c7a483d0faeaf0b5bd1903e47b841f458facf8c",
+      "triangles": 1780,
+      "meshes": 3,
+      "primitives": 3,
+      "materials": 3,
+      "textures": 0,
+      "images": []
+    },
+    "attachmentSpace": {
+      "longAxis": "+Y",
+      "broadFace": "XY",
+      "gripCenter": [
+        0,
+        0.15,
+        0
+      ],
+      "sourceGripCenter": [
+        0,
+        12.94043077419355,
+        0
+      ],
+      "sourceToAttachmentMatrix": [
+        0,
+        0,
+        0.03332668963786455,
+        0,
+        0,
+        -0.08872504965740682,
+        0,
+        0,
+        0.03332668963786455,
+        0,
+        0,
+        0,
+        0,
+        1.298140363028558,
+        0,
+        1
+      ],
+      "supportGripCenter": [
+        0,
+        0.33,
+        0
+      ]
+    }
+  }
+]

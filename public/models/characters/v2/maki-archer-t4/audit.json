@@ -1,1051 +1,229 @@
 {
-  "sourceSha256": "de18d6e174d8b0e282dfa30a16382af44e1b815512187b8dc5ffea312dd08601",
-  "method": "Final GLB parsing; normalized skin weights; common bone hierarchy/rest transforms; identical sampled animation/socket transforms; texture dimensions read from encoded images. Bounds are not proof against visual intersections.",
-  "levels": [
+  "id": "maki-archer-t4",
+  "distinctRealLods": true,
+  "triangleBudgets": "LOD1 3000–5000; LOD2 1000–2000; strictly descending",
+  "lod0SourceRepairAccounting": {
+    "originalTriangles": 10127,
+    "removedBridgeTriangles": 304,
+    "addedLiningTriangles": 1110,
+    "addedInnerCapeRefinementTriangles": 0,
+    "expectedTriangles": 10933
+  },
+  "sourceSha256": "2a7a27018d759fe5130a132a791b1752a9009fba0ee4e3adfbb825210b291789",
+  "structuralStatus": "pass",
+  "sameLodRigAndAnimation": true,
+  "lods": [
     {
-      "lod": 0,
-      "sha256": "258dbe4286eee631e043b10476c597e9c9496e799e5596c67c162ffba3035f43",
-      "bytes": 21698188,
-      "triangles": 59986,
-      "vertices": 38482,
-      "skinnedMeshes": 13,
-      "bones": 40,
-      "maxWeightError": 4.470348358154297e-8,
-      "maxBowWristDeviationRadians": 0,
-      "maxBowLoadFrameStep": 0.18627210757636306,
-      "maxIdleRestDeviationRadians": 5.16191365590357e-8,
-      "maxBowTwistDeviationRadians": 2.1524979792875443,
-      "minHoldThumbUp": 0.9677933394721108,
-      "earlyElbowRise": [
-        0.050029953426684814,
-        0.045327383697156054
+      "level": 0,
+      "sha256": "835614cd616c3dda523dcad18a63798192a46ca3611263d10f5e96cf35f03a48",
+      "bytes": 10203776,
+      "triangles": 10933,
+      "vertices": 15489,
+      "verifiedShellPairs": 0,
+      "skinJointCount": 72,
+      "hipsAxisX": [
+        1,
+        0,
+        0
       ],
-      "minRightShoulderLift": 0.021425522723304224,
-      "maxRightHoldElbowHeightError": 1.202971500191552e-9,
+      "capeRegion": {
+        "definition": "All vertices with any fitted cape-helper influence. This tests the separated deformation ownership; it does not claim to identify every textured upper-cloak vertex.",
+        "sourceMaskSha256": "e92116a8f65f655c2dbdff50c1a5b638e6cdfba6814e79a29a62f8e39986f13e",
+        "sourceCapeFaceCount": 2832,
+        "vertices": 4429,
+        "maxArmOrHandWeight": 0
+      },
+      "meshes": 1,
+      "materials": 1,
+      "images": 3,
       "textures": [
         {
-          "name": "Image_30",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
+          "name": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4161404,
+          "mimeType": "image/png"
         },
         {
-          "name": "Image_31",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
+          "name": "texture_0",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1095431,
+          "mimeType": "image/jpeg"
         },
         {
-          "name": "Image_28",
-          "mimeType": "image/png",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_29",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_12",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_10",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_11",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_6",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_4",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_5",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_18",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_16",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_17",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_21",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_19",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_20",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_9",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_7",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_8",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_3",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_2",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_1",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_0",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_15",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_13",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_14",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_24",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_22",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_23",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_27",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_25",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_26",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
+          "name": "texture_0_metallic_roughness",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2546091,
+          "mimeType": "image/png"
         }
       ],
-      "animationNames": [
-        "bowHold",
-        "bowLoad",
-        "bowRelease",
+      "maxWeightError": 1.043081283569336e-7,
+      "minWeight": 0,
+      "clips": [
         "idle",
-        "pilumThrow",
+        "walk",
         "run",
         "swordSlash",
-        "walk",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
         "axeAttack1H",
         "axeAttack2H",
+        "axeAttack1HFoot",
         "death"
       ],
-      "samples": [
-        {
-          "name": "idle",
-          "minY": 0.0030000113794965704,
-          "maxY": 1.4608480160135378,
-          "maxExtent": 1.6424318049940902
-        },
-        {
-          "name": "walk",
-          "minY": 0.002734031508992131,
-          "maxY": 1.4155533977156167,
-          "maxExtent": 1.7624871287828832
-        },
-        {
-          "name": "run",
-          "minY": 0.0020337871458564845,
-          "maxY": 1.3785045814889636,
-          "maxExtent": 1.8680162013365234
-        },
-        {
-          "name": "bowLoad",
-          "minY": 0.0030000112204771564,
-          "maxY": 1.460848016171343,
-          "maxExtent": 1.8046389096573008
-        },
-        {
-          "name": "bowHold",
-          "minY": 0.003000011291445442,
-          "maxY": 1.4608480157426629,
-          "maxExtent": 1.799567544324997
-        },
-        {
-          "name": "bowRelease",
-          "minY": 0.003000011291445442,
-          "maxY": 1.4608480157426629,
-          "maxExtent": 1.8039521058947527
-        },
-        {
-          "name": "axeAttack2H",
-          "minY": 0.002999979840354405,
-          "maxY": 1.4608480160135378,
-          "maxExtent": 1.690517607598276
-        },
-        {
-          "name": "death",
-          "minY": -0.11384990116537934,
-          "maxY": 1.466627429673411,
-          "maxExtent": 1.7237641989481647
-        }
-      ]
+      "losslessPublicationVerification": {
+        "baselineGlbSha256": "9000cf4143cb38a427430cae188cfcee6e0ce7c3da2a0792f0b1467a8ac2ad23",
+        "decodedBufferViewsByteExact": 816,
+        "imagesDecodedRgbaIdentical": 3,
+        "jpegPayloadUnchanged": true
+      }
     },
     {
-      "lod": 1,
-      "sha256": "0a3f443c2f8643a3e94226d3332807d987ad201617dde1ef684305ce1e6f9418",
-      "bytes": 20082900,
-      "triangles": 19988,
-      "vertices": 14051,
-      "skinnedMeshes": 13,
-      "bones": 40,
-      "maxWeightError": 4.6566128730773926e-8,
-      "maxBowWristDeviationRadians": 0,
-      "maxBowLoadFrameStep": 0.18627210757636306,
-      "maxIdleRestDeviationRadians": 5.16191365590357e-8,
-      "maxBowTwistDeviationRadians": 2.1524979792875443,
-      "minHoldThumbUp": 0.9677933394721108,
-      "earlyElbowRise": [
-        0.050029953426684814,
-        0.045327383697156054
+      "level": 1,
+      "sha256": "e9330648f5fe2ee5468211fc84f274f27380267b130e135652231f0d07d1d831",
+      "bytes": 4749056,
+      "triangles": 4495,
+      "vertices": 7816,
+      "verifiedShellPairs": 0,
+      "skinJointCount": 72,
+      "hipsAxisX": [
+        1,
+        0,
+        0
       ],
-      "minRightShoulderLift": 0.021425522723304224,
-      "maxRightHoldElbowHeightError": 1.202971500191552e-9,
+      "capeRegion": {
+        "definition": "All vertices with any fitted cape-helper influence. This tests the separated deformation ownership; it does not claim to identify every textured upper-cloak vertex.",
+        "sourceMaskSha256": "e92116a8f65f655c2dbdff50c1a5b638e6cdfba6814e79a29a62f8e39986f13e",
+        "sourceCapeFaceCount": 2832,
+        "vertices": 2355,
+        "maxArmOrHandWeight": 0
+      },
+      "meshes": 1,
+      "materials": 1,
+      "images": 3,
       "textures": [
         {
-          "name": "Image_30",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
+          "name": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1449224,
+          "mimeType": "image/png"
         },
         {
-          "name": "Image_31",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
+          "name": "texture_0",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 348847,
+          "mimeType": "image/jpeg"
         },
         {
-          "name": "Image_28",
-          "mimeType": "image/png",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_29",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_12",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_10",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_11",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_6",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_4",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_5",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_18",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_16",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_17",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_21",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_19",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_20",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_9",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_7",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_8",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_3",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_2",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_1",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_0",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_15",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_13",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_14",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_24",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_22",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_23",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_27",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_25",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
-        },
-        {
-          "name": "Image_26",
-          "mimeType": "image/jpeg",
-          "size": [
-            1024,
-            1024
-          ]
+          "name": "texture_0_metallic_roughness",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 867545,
+          "mimeType": "image/png"
         }
       ],
-      "animationNames": [
-        "bowHold",
-        "bowLoad",
-        "bowRelease",
+      "maxWeightError": 1.043081283569336e-7,
+      "minWeight": 0,
+      "clips": [
         "idle",
-        "pilumThrow",
+        "walk",
         "run",
         "swordSlash",
-        "walk",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
         "axeAttack1H",
         "axeAttack2H",
+        "axeAttack1HFoot",
         "death"
       ],
-      "samples": [
-        {
-          "name": "idle",
-          "minY": 0.0030000119714372383,
-          "maxY": 1.4619864652902024,
-          "maxExtent": 1.6436992683143203
-        },
-        {
-          "name": "walk",
-          "minY": 0.00238135642924525,
-          "maxY": 1.4170586198776356,
-          "maxExtent": 1.7637555863148375
-        },
-        {
-          "name": "run",
-          "minY": 0.002021384187928402,
-          "maxY": 1.3784824011195826,
-          "maxExtent": 1.868241910335419
-        },
-        {
-          "name": "bowLoad",
-          "minY": 0.003000011814369766,
-          "maxY": 1.46198646547668,
-          "maxExtent": 1.805045803203965
-        },
-        {
-          "name": "bowHold",
-          "minY": 0.0030000118853291146,
-          "maxY": 1.4619864649814889,
-          "maxExtent": 1.7996311343270939
-        },
-        {
-          "name": "bowRelease",
-          "minY": 0.0030000118853291146,
-          "maxY": 1.4619864649814889,
-          "maxExtent": 1.803048328339756
-        },
-        {
-          "name": "axeAttack2H",
-          "minY": 0.002874661790359916,
-          "maxY": 1.4619864652902024,
-          "maxExtent": 1.6914201386963008
-        },
-        {
-          "name": "death",
-          "minY": -0.11351928165673031,
-          "maxY": 1.4665960996715057,
-          "maxExtent": 1.7244322799778486
-        }
-      ]
+      "losslessPublicationVerification": {
+        "baselineGlbSha256": "b156ae5dc7869e448361046aeb3cd4460afb76d403e9fa12fc7096cf748af642",
+        "decodedBufferViewsByteExact": 816,
+        "imagesDecodedRgbaIdentical": 3,
+        "jpegPayloadUnchanged": true
+      }
     },
     {
-      "lod": 2,
-      "sha256": "e50471d08a4c83772434f28663543eb62239e8ae1152f2b0ebb9598d3268ed6b",
-      "bytes": 5667756,
-      "triangles": 5988,
-      "vertices": 4937,
-      "skinnedMeshes": 13,
-      "bones": 40,
-      "maxWeightError": 3.888271749019623e-8,
-      "maxBowWristDeviationRadians": 0,
-      "maxBowLoadFrameStep": 0.18627210757636306,
-      "maxIdleRestDeviationRadians": 5.16191365590357e-8,
-      "maxBowTwistDeviationRadians": 2.1524979792875443,
-      "minHoldThumbUp": 0.9677933394721108,
-      "earlyElbowRise": [
-        0.050029953426684814,
-        0.045327383697156054
+      "level": 2,
+      "sha256": "856d32f3f023d328f774c8b157565fa6df6c0b9775a5d4b6a9a1c42c3c37ddc6",
+      "bytes": 2755984,
+      "triangles": 1792,
+      "vertices": 3694,
+      "verifiedShellPairs": 0,
+      "skinJointCount": 72,
+      "hipsAxisX": [
+        1,
+        0,
+        0
       ],
-      "minRightShoulderLift": 0.021425522723304224,
-      "maxRightHoldElbowHeightError": 1.202971500191552e-9,
+      "capeRegion": {
+        "definition": "All vertices with any fitted cape-helper influence. This tests the separated deformation ownership; it does not claim to identify every textured upper-cloak vertex.",
+        "sourceMaskSha256": "e92116a8f65f655c2dbdff50c1a5b638e6cdfba6814e79a29a62f8e39986f13e",
+        "sourceCapeFaceCount": 2832,
+        "vertices": 1156,
+        "maxArmOrHandWeight": 0
+      },
+      "meshes": 1,
+      "materials": 1,
+      "images": 3,
       "textures": [
         {
-          "name": "Image_30",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
+          "name": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 424197,
+          "mimeType": "image/png"
         },
         {
-          "name": "Image_31",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
+          "name": "texture_0",
+          "width": 512,
+          "height": 512,
+          "bytes": 104258,
+          "mimeType": "image/jpeg"
         },
         {
-          "name": "Image_28",
-          "mimeType": "image/png",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_29",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_12",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_10",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_11",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_6",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_4",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_5",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_18",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_16",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_17",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_21",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_19",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_20",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_9",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_7",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_8",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_3",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_2",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_1",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_0",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_15",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_13",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_14",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_24",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_22",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_23",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_27",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_25",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
-        },
-        {
-          "name": "Image_26",
-          "mimeType": "image/jpeg",
-          "size": [
-            512,
-            512
-          ]
+          "name": "texture_0_metallic_roughness",
+          "width": 512,
+          "height": 512,
+          "bytes": 275116,
+          "mimeType": "image/png"
         }
       ],
-      "animationNames": [
-        "bowHold",
-        "bowLoad",
-        "bowRelease",
+      "maxWeightError": 1.0058283805847168e-7,
+      "minWeight": 0,
+      "clips": [
         "idle",
-        "pilumThrow",
+        "walk",
         "run",
         "swordSlash",
-        "walk",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
         "axeAttack1H",
         "axeAttack2H",
+        "axeAttack1HFoot",
         "death"
       ],
-      "samples": [
-        {
-          "name": "idle",
-          "minY": 0.0030000079144991386,
-          "maxY": 1.4592594342367662,
-          "maxExtent": 1.638586768907839
-        },
-        {
-          "name": "walk",
-          "minY": 0.001277463955988968,
-          "maxY": 1.4149817349955582,
-          "maxExtent": 1.7630216138292927
-        },
-        {
-          "name": "run",
-          "minY": 0.0017405076070052573,
-          "maxY": 1.3783378384297558,
-          "maxExtent": 1.8681938212421305
-        },
-        {
-          "name": "bowLoad",
-          "minY": 0.0030000077797819966,
-          "maxY": 1.4592594344693772,
-          "maxExtent": 1.8014922485937932
-        },
-        {
-          "name": "bowHold",
-          "minY": 0.0030000078583975113,
-          "maxY": 1.4592594338706193,
-          "maxExtent": 1.7976042365786788
-        },
-        {
-          "name": "bowRelease",
-          "minY": 0.0030000078583975113,
-          "maxY": 1.4592594338706193,
-          "maxExtent": 1.8026248415659984
-        },
-        {
-          "name": "axeAttack2H",
-          "minY": 0.003000007914498978,
-          "maxY": 1.4592594342367662,
-          "maxExtent": 1.6895821046851263
-        },
-        {
-          "name": "death",
-          "minY": -0.11245605327713223,
-          "maxY": 1.4662467010924742,
-          "maxExtent": 1.7239098006908011
-        }
-      ]
+      "losslessPublicationVerification": {
+        "baselineGlbSha256": "071fca74767f822bcdc0c30c650ae1a1c4f450247af2db7072fb53ae454aa536",
+        "decodedBufferViewsByteExact": 816,
+        "imagesDecodedRgbaIdentical": 3,
+        "jpegPayloadUnchanged": true
+      }
     }
   ],
-  "commonSkeletonAndAnimations": true,
-  "requiredSockets": [
-    "socket_hand_l",
-    "socket_hand_r",
-    "socket_back",
-    "socket_head",
-    "socket_pelvis",
-    "socket_foot_l",
-    "socket_foot_r",
-    "sole_l",
-    "sole_r",
-    "bow_string_contact",
-    "bow_arrow_rest"
-  ],
-  "bow": {
-    "triangles": 4492,
-    "skins": 0,
-    "sha256": "ce3fe00325fde23a8ff83a6fd865e0380f13a7e31543a58c7d4484af1dd82862"
-  }
+  "visualStatus": "Not established by this structural audit",
+  "limitations": "No claim of collision-free cloth, correct grip or GPU performance from structural checks."
 }

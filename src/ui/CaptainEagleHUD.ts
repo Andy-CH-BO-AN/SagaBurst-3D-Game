@@ -1,5 +1,5 @@
 import type { BattleStatsSnapshot } from '../combat/BattleStatsTracker'
-import type { CareerMissionOutcome } from '../career/CareerMissionState'
+import type { BridgeBattleDeployment, CareerMissionOutcome } from '../career/CareerMissionState'
 import type { ArmyHudCounts } from '../battle/ArmyCommandHudRoster'
 import { renderBattleStats } from './BattleStatsView'
 
@@ -7,9 +7,9 @@ export class CaptainEagleHUD {
   private readonly root = document.createElement('div')
   private result?: HTMLElement
 
-  constructor() {
-    this.root.id = 'captain-eagle-hud'
-    this.root.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);padding:10px 20px;background:rgba(14,12,10,.85);border:1px solid #8e7b65;color:#e5d8c3;z-index:100;pointer-events:none;text-align:center'
+  constructor(private readonly variant: 'eagle' | 'bridgehead' = 'eagle') {
+    this.root.id = variant === 'bridgehead' ? 'bridgehead-battle-hud' : 'captain-eagle-hud'
+    if (variant === 'eagle') this.root.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);padding:10px 20px;background:rgba(14,12,10,.85);border:1px solid #8e7b65;color:#e5d8c3;z-index:100;pointer-events:none;text-align:center'
     document.body.append(this.root)
   }
 
@@ -22,6 +22,15 @@ export class CaptainEagleHUD {
       ? `${counts.personal.alive}/${counts.personal.total}${counts.personal.pending ? `（待生成 ${counts.personal.pending}）` : ''}`
       : String(privateAlive)
     this.root.textContent = `Eagle Battle · 巨鷹空戰｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式隊 ${official} · 私兵 ${personal}｜敵軍 ${enemyAlive}`
+  }
+
+  updateBridgehead(enemyAlive: number, deployment: Readonly<BridgeBattleDeployment>): void {
+    const seconds = Math.ceil(deployment.preparationRemainingSeconds)
+    const countdown = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+    const status = deployment.phase === 'preparing'
+      ? `準備 ${countdown} · 敵騎尚未進場`
+      : deployment.phase === 'spawning' ? '南岸敵騎集結中' : '敵軍進攻中'
+    this.root.textContent = `COMMANDER IV · BRIDGEHEAD BATTLE\n${status}\n目標：殲滅敵騎 · 剩餘 ${enemyAlive} / 200`
   }
 
   showResult(outcome: CareerMissionOutcome, merit: number, stats: BattleStatsSnapshot, onReturn: () => void): void {
@@ -37,7 +46,7 @@ export class CaptainEagleHUD {
     if (document.pointerLockElement) document.exitPointerLock()
     this.result?.remove()
     const modal = document.createElement('div')
-    modal.id = 'captain-eagle-result'
+    modal.id = this.variant === 'bridgehead' ? 'bridgehead-battle-result' : 'captain-eagle-result'
     modal.className = 'campaign-result-modal'
     modal.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,8,6,.85);z-index:99999;color:#ede0cd'
     modal.innerHTML = `<div class="campaign-result-card"><h1>${title}</h1><p>${message}</p>${renderBattleStats(stats, true)}<div class="campaign-result-actions"><button type="button">${action}</button></div></div>`

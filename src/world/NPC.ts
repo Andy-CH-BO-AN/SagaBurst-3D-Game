@@ -1,5 +1,9 @@
+import { FriendlyMovementBypass } from '../navigation/FriendlyMovementBypass'
+import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { CIVILIAN_PROFILE } from '../town/TownRules'
+import { townMerchantLoadout, isTownMerchantLoadout } from '../town/TownMerchantEquipment'
+import { ARMORS } from '../rpg/ArmorDatabase'
 import { applyEquipmentAttachment } from './EquipmentAttachmentContract'
 /**
  * NPC.ts
@@ -15,6 +19,8 @@ import type { HpBar } from '../ui/HpBar'
 import {
   clampToPlayableWorld,
   getScenePlayableWorldBound,
+  getWalkRampHeight,
+  getLocalCollisionObstacles,
   findBlockingObstacleAlongPath,
   findBlockingProjectileObstacleAlongPath,
   findObstacleDetourPlan,
@@ -28,18 +34,18 @@ import {
 } from './Terrain'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from './CharacterVisuals'
 import type { CharacterRig, MountedPoseKind, CharacterFaction } from './CharacterVisuals'
-import { HumanoidAssetRegistry } from './HumanoidAssetRegistry'
+import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from './HumanoidAssetRegistry'
 import type { HeroAssetId } from './HeroAssetCatalog'
-import { resolveMakiEquipmentMode } from './MakiRangerEquipment'
-import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getT4HeroCombatModifiers, resolveT4UnitLoadout, type T4CombatProfileId } from '../battle/T4HeroCatalog'
+import { resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
-const NPC_AIM_GEOMETRY = new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8)
-const AIM_PROXY_MATERIAL = new THREE.MeshBasicMaterial()
+let npcAimGeometry: THREE.CylinderGeometry | undefined
+let npcAimMaterial: THREE.MeshBasicMaterial | undefined
 import { CharacterCombatAnimator, meleeActionTimeScale, type CombatAction } from './CharacterCombatAnimator'
 import { CharacterBowVisual } from './CharacterBowVisual'
 import { applyAttachmentContract } from './HumanoidAttachmentContract'
-import { applySwordAttachment, weaponGripWorld } from './SwordAttachmentContract'
+import { applySwordAttachment, weaponGripWorld, weaponTipWorld } from './SwordAttachmentContract'
 import { applyBowAttachment } from './BowAttachmentContract'
 import { Mount } from './Mount'
 import { EquipmentVisualLODController } from './EquipmentVisualLODController'
@@ -73,12 +79,21 @@ import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinator'
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
+import {
+  clampFollowSlotToDeck,
+  clampFollowSlotToBridge,
+  clampFollowSlotToStair,
+  isRampartLayer,
+  isStairLayer,
+  layerSide,
+} from '../navigation/OutpostLayeredNavigation'
 import { damageObstacle, damageNpc, damageMount } from '../combat/DamageRouter'
 import { createNpcCombatActorRef, type CombatEventSink, type CombatDamageContext } from '../combat/CombatAttribution'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { EagleFlightAI, type EagleFlightCommand, type EagleTactic } from '../movement/EagleFlightAI'
 import { eagleBowEngagementRange } from '../combat/EagleRangedCombat'
-import { BallisticIntercept, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
+import { collectBallisticPathObstacles, BallisticIntercept, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
+import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../combat/ProjectileAdmission'
 import { XONGKORO } from '../movement/XongkoroConfig'
 import type { PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import { fitStandingRider } from './StandingRider'
@@ -99,17 +114,20 @@ export enum AIType {
   RANGED = 'RANGED',
 }
 
-export type NpcEagleFlightOrder = { kind: 'return'; target: THREE.Vector3; cruiseAltitude?: number; landingYaw: number } | { kind: 'hold'; cruiseAltitude?: number }
+export type NpcEagleFlightOrder = { kind: 'return'; target: THREE.Vector3; cruiseAltitude?: number; landingYaw: number }
+  | { kind: 'patrol'; target: THREE.Vector3; cruiseAltitude?: number }
+  | { kind: 'hold'; cruiseAltitude?: number }
 
 export type BanditAggroState = 'idle' | 'alerted' | 'provoked' | 'returning'
 
 const DETECTION_RADIUS = 300.0
 const RANGED_ATTACK_MIN = 6.0
+const RANGED_REEQUIP_MIN = RANGED_ATTACK_MIN + 3
 const RANGED_AIM_LIFT_PER_METER_SQ = 0.015
 const PROJECTILE_GRAVITY = 9.8
 const NPC_FALLBACK_PROJECTILE_SPEED = 20.0
 
-const CHASE_SPEED      = 4.8
+const CHASE_SPEED      = INFANTRY_MOVE_SPEED
 const FORMATION_MOVE_SPEED = CHASE_SPEED
 const PATROL_SPEED     = 2.2
 const AI_ATTACK_GAP    = 0.35
@@ -129,7 +147,7 @@ const NPC_DETOUR_MOUNTED_PROGRESS_DISTANCE = 0.45
 const NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES = 24
 const RANGED_TRAJECTORY_SEGMENT_LENGTH = 3.0
 const RANGED_TRAJECTORY_MAX_SEGMENTS = 16
-const RANGED_AI_LAUNCH_HEIGHT = 1.25
+export const RANGED_AI_LAUNCH_HEIGHT = 1.25
 const RANGED_AI_TARGET_HEIGHT = 1.4
 
 export const TARGET_REACQUIRE_NEAR_DISTANCE = 50
@@ -189,14 +207,24 @@ export class NPC {
   private readonly eagleCommand: EagleFlightCommand = { kind: 'cruise', destination: this.eagleGoal }
   private readonly eagleTargetVelocity = new THREE.Vector3()
   private readonly eagleLastTargetPosition = new THREE.Vector3()
-  private eagleLastTarget: object | undefined
+  private eagleLastTarget: NPC | Player | undefined
   private readonly eagleMountNeighbors: Mount[] = []
   private readonly eagleNeighborPoints: THREE.Vector3[] = []
 
   get eagleTactic(): EagleTactic | null { return this.eaglePilot.tactic }
   setEagleCruiseAltitude(altitude: number): void { this.eaglePilot.setCruiseAltitude(altitude) }
+  /** A retiring actor releases only its own references, never another owner's target. */
+  releaseCombatTarget(target: NPC): void {
+    if (this.missionCombatTarget === target) this.setMissionCombatTarget(undefined)
+    if (this._cachedTargetNpc === target) {
+      this._cachedTargetNpc = null
+      this._targetAcquisitionInitialized = false
+      this._rangedVisibleTargetHoldFrames = 0
+    }
+    if (this.eagleLastTarget === target) this.eagleLastTarget = undefined
+  }
   setEagleFlightOrder(order: NpcEagleFlightOrder | null): void {
-    this.eagleFlightOrder = order?.kind === 'return' ? { ...order, target: order.target.clone() } : order
+    this.eagleFlightOrder = order && 'target' in order ? { ...order, target: order.target.clone() } : order
     if (order?.cruiseAltitude !== undefined) this.eaglePilot.setCruiseAltitude(order.cruiseAltitude)
     this.eaglePilot.reset()
     this.eagleAnchorSet = false
@@ -213,12 +241,13 @@ export class NPC {
   private _faction: Faction
   get faction(): Faction { return this._faction }
   readonly characterFaction: CharacterFaction
-  readonly aiType: AIType
+  private _aiType: AIType
+  get aiType(): AIType { return this._aiType }
   readonly name: string
   private _tier: 1 | 2 | 3 | 4
   get tier(): 1 | 2 | 3 | 4 { return this._tier }
   readonly visualAssetId?: HeroAssetId
-  readonly combatProfileId?: T4CombatProfileId
+  readonly combatProfileId?: HeroCombatProfileId
   readonly specialCombatProfile?: 'maki-ranger'
   presetId?: UnitPresetId
   private _squadId?: SquadId
@@ -253,7 +282,8 @@ export class NPC {
   set meleeDamage(value: number) { this._meleeDamageOverride = value }
   private _rangedDamage: number
   get rangedDamage(): number { return this._rangedDamage }
-  public readonly generatedAsCavalry: boolean
+  private _generatedAsCavalry: boolean
+  get generatedAsCavalry(): boolean { return this._generatedAsCavalry }
   public mount: Mount | null = null
   public meleeAttackRadius = 1.8
   public isUsingLance = false
@@ -261,7 +291,47 @@ export class NPC {
   public rangedWeaponId?: string
   public loadout?: UnitLoadout
   private originalCombatEquipment: CombatEquipmentSnapshot | null = null
+  private careerRangedAmmo?: number
+  private get equipmentRequiredForCombat(): boolean { return Boolean(this.loadout) || this.combatOwnership === 'player-personal' || this.townCategory === 'civilian' }
   public tacticalOrder: TacticalOrder = DEFAULT_TACTICAL_ORDER
+  /** Mission transport owns movement while combat still uses this world-space root. */
+  siegeTransport: string | null = null
+  siegeTransportSpeed = 0
+  siegeEvacuation: THREE.Vector3 | null = null
+  siegeBypassTarget: THREE.Vector3 | null = null
+  townSiegeGateId: import('../town/TownLayout').TownGateId | null = null
+  campaignEntranceId: string | null = null
+  campaignBreachCompleted = false
+  private townRampartGarrison = false
+  private townRampartMounted = false
+  get isTownRampartGarrisonActive(): boolean { return this.townRampartGarrison && (!this.isMounted || this.townRampartMounted) }
+  get isMountedTownRampartGarrisonEnabled(): boolean { return this.townRampartGarrison && this.townRampartMounted }
+  activateTownRampartGarrison(order: 'defend' | 'attack' = 'defend', allowMounted = false): void {
+    this.setTacticalOrder(order)
+    this.townRampartGarrison = true
+    this.townRampartMounted = allowMounted
+  }
+  get alertRange(): number { return this.isTownRampartGarrisonActive ? this.maxRangedAttackDistance : DETECTION_RADIUS }
+  private outpostRampartGarrison = false
+  get isOutpostRampartGarrisonActive(): boolean { return this.outpostRampartGarrison }
+  activateOutpostRampartGarrison(order: 'defend' | 'attack' = 'defend'): void {
+    this.setTacticalOrder(order)
+    this.outpostRampartGarrison = true
+  }
+  releaseOutpostRampartGarrison(): void {
+    this.outpostRampartGarrison = false; this.townRampartGarrison = false; this.townRampartMounted = false
+  }
+  private rampartThreat: ObstacleData | null = null
+  private rampartScanFrames = 0
+  private readonly obstacleLocalToWorld = new THREE.Matrix4()
+  get holdsRampartPosition(): boolean {
+    return (this.tacticalOrder === 'defend' || this.tacticalOrder === 'attack')
+      && (this.isTownRampartGarrisonActive || !this.isMounted && (this.outpostRampartGarrison
+        || Boolean(this.aiType === AIType.RANGED && this._activeNavigationWorld?.outpostNav
+          && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition)))))
+  }
+
+  get holdsRampartFirePosition(): boolean { return this.aiType === AIType.RANGED && this.holdsRampartPosition }
 
   private formationTarget: {
     commandId: number
@@ -293,7 +363,12 @@ export class NPC {
   }
 
   get hasActiveRangedWeapon(): boolean {
-    return this.rangedActive && Boolean(this.rangedWeaponId) && this.arrows > 0 && !this.shieldId
+    return this.rangedActive && Boolean(this.rangedWeaponId) && this.arrows > 0
+  }
+
+  /** Ownership stays in shieldId; ranged recovery keeps both hands free until it finishes. */
+  get hasActiveShield(): boolean {
+    return Boolean(this.shieldId) && !this.rangedActive && (this.townCategory !== 'civilian' || this.townArmed)
   }
 
   get combatAmmo(): number { return this.arrows }
@@ -304,11 +379,16 @@ export class NPC {
     this._cancelEquipmentCombatState()
     this.arrows = this.rangedWeaponId && Number.isFinite(ammo) ? Math.max(0, Math.floor(ammo)) : 0
     this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
-    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null && this.specialCombatProfile !== 'maki-ranger'
-    this.bowPivot.visible = this.hasActiveRangedWeapon || this.specialCombatProfile === 'maki-ranger'
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    this._refreshActiveShield()
+    if (this.townCategory === 'civilian' && !this.townArmed) {
+      this.swordPivot.visible = this.bowPivot.visible = this.shieldPivot.visible = false
+    }
   }
 
   get staminaValue(): number { return this.stamina }
+  restoreCombatStamina(value: number): void { this.stamina = Math.max(0, Math.min(MAX_STAMINA, value)) }
   get staminaRatio(): number { return this.stamina / MAX_STAMINA }
   get sprinting(): boolean { return this.isSprinting }
   get currentLod(): number { return this.equipmentVisualLOD.currentLevel }
@@ -324,7 +404,7 @@ export class NPC {
     const kind = this.rangedCombatKind
     if (!kind) return 22.0
     const eagleRange = eagleBowEngagementRange(this.isMounted ? this.mount?.type : undefined, this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined)
-    return eagleRange ?? getNpcRangedAttackRange(kind, this.isMounted) * (getT4HeroCombatModifiers(this.combatProfileId)?.rangedAttackRangeMultiplier ?? 1)
+    return eagleRange ?? getNpcRangedAttackRange(kind, this.isMounted) * (getHeroCombatModifiers(this.combatProfileId)?.rangedAttackRangeMultiplier ?? 1)
   }
 
   get rangedProjectileSpeed(): number {
@@ -355,7 +435,7 @@ export class NPC {
   private bowGripPivot: THREE.Group
   private bowVisual?: CharacterBowVisual
   private shieldPivot: THREE.Group
-  readonly shield = new ShieldState()
+  readonly shield = new ShieldState(() => this.hasActiveShield)
   shieldCollider!: ShieldCollider
   readonly weaponSweep = new WeaponSweep()
   combatMountGrid: SpatialGrid<Mount> | null = null
@@ -441,8 +521,35 @@ export class NPC {
   private _detourObstacle: ObstacleData | null = null
   private _detourSide: ObstacleDetourSide = 1
   private _detourStuckElapsed = 0
+  private readonly _friendlyBypass = new FriendlyMovementBypass()
+  private readonly _bypassSample = new THREE.Vector3()
+  private readonly _bypassSegmentClear = (from: THREE.Vector3, to: THREE.Vector3): boolean => {
+    const obstacles = this.fallObstacles
+    const radius = this._movementObstacleRadius() + .2, height = this._movementObstacleHeight()
+    const steps = Math.max(1, Math.ceil(from.distanceTo(to) / .35))
+    let lastY = getTerrainHeight(from.x, from.z)
+    for (let i = 0; i <= steps; i++) {
+      const p = this._bypassSample.copy(from).lerp(to, i / steps)
+      if (Math.abs(p.x) > this.playableWorldBound || Math.abs(p.z) > this.playableWorldBound) return false
+      const y = getTerrainHeight(p.x, p.z)
+      if (Math.abs(y - lastY) > .4) return false
+      lastY = y; p.y = y
+      // Keep all special surfaces (including siege platforms) with their own navigator.
+      for (const obstacle of getLocalCollisionObstacles(obstacles, p.x, p.z, radius)) {
+        if (obstacle.physicalPassable) continue
+        if (obstacle.walkSurface && getWalkRampHeight(obstacle.walkSurface, p.x, p.z) !== null) return false
+        const b = obstacle.box
+        if (b.max.y > y + .15 && b.min.y < y + height && p.x > b.min.x - radius && p.x < b.max.x + radius
+          && p.z > b.min.z - radius && p.z < b.max.z + radius) return false
+      }
+      const grid = this._activeNavigationWorld?.grid, cell = grid?.worldToCell(p)
+      if (grid && (!cell || grid.isBlocked(cell))) return false
+    }
+    return true
+  }
   private readonly _navigationPath = new NavigationPathFollower()
   private readonly _tmpNavigationTarget = new THREE.Vector3()
+  private _activeNavigationWorld: NavigationWorld | null = null
 
   // Temporary destructible blocker target. NPCs never scan for structures;
   // they only react to the first blocker on the route to their human target.
@@ -453,6 +560,8 @@ export class NPC {
   missionAerialDefense = false
   /** undefined uses normal AI; null holds fire; an actor restricts mission combat to that target. */
   private missionCombatTarget: NPC | Player | null | undefined = undefined
+  /** Town duty policy: false rejects, 'defend' accepts without pursuit, true retains normal combat. */
+  combatTargetAllowed?: (target: NPC | Player) => boolean | 'defend'
   setMissionCombatTarget(target: NPC | Player | null | undefined): void {
     if (this.missionCombatTarget === target) return
     this.missionCombatTarget = target
@@ -465,7 +574,15 @@ export class NPC {
     this._clearSiegeFallback()
   }
   private assignedSiegeObstacle: ObstacleData | null = null
+  get siegeObstacle(): ObstacleData | null { return this.assignedSiegeObstacle }
   get hasSiegeObstacle(): boolean { return this._isAttackableObstacle(this.assignedSiegeObstacle) }
+  clearFollowTarget(): void {
+    this.followTarget = null
+    this.followSlotIndex = -1
+    this.followCombatActive = false
+    this._resetFollowNavigation()
+    this._friendlyBypass.clear()
+  }
   assignSiegeObstacle(obstacle: ObstacleData | null): void {
     if (this.assignedSiegeObstacle === obstacle) return
     this.assignedSiegeObstacle = obstacle
@@ -477,6 +594,8 @@ export class NPC {
   private readonly _tmpRangedLosTarget = new THREE.Vector3()
   private readonly _tmpRangedArcPrevious = new THREE.Vector3()
   private readonly _tmpRangedArcPoint = new THREE.Vector3()
+  private readonly _rangedPathBounds = new THREE.Box3()
+  private readonly _rangedPathObstacles: ObstacleData[] = []
   private readonly _rangedTargetCandidates: NPC[] = []
   private _rangedVisibleTargetHoldFrames = 0
 
@@ -488,7 +607,14 @@ export class NPC {
   get dead(): boolean { return this.state === AIState.DEAD }
   /** Completion comes from the death update, never normal visibility or visual LOD. */
   get deathPresentationComplete(): boolean { return this.dead && this.deathFade.completed }
-  
+
+  /** Native travel can use CHASE animation/state without an enemy. Service callers need actual targets. */
+  get hasLiveCombatTarget(): boolean {
+    if (this.missionCombatTarget !== undefined) return Boolean(this.missionCombatTarget && !this.missionCombatTarget.dead)
+    if (this.eagleFlightOrder) return false
+    return this._cachedTargetIsPlayer || Boolean(this._cachedTargetNpc && !this._cachedTargetNpc.dead
+      || this.eagleLastTarget && !this.eagleLastTarget.dead)
+  }
   get inCombat(): boolean {
     return this.state === AIState.CHASE || this.state === AIState.ATTACK
   }
@@ -496,15 +622,17 @@ export class NPC {
   get combatPosition(): THREE.Vector3 { return this.mount && !this.mount.isFlyingMount ? this.mount.group.position : this.group.position }
   get isMounted(): boolean { return this.mount !== null && !this.mount.dead }
   get combatAnimationAction(): CombatAction { return this.animator.currentAction }
+  get formationDestination(): Readonly<THREE.Vector3> | undefined { return this.formationTarget?.position }
   get formationCommandId(): number | null { return this.formationTarget?.commandId ?? null }
+  get hasFormationTarget(): boolean { return this.formationTarget !== null }
   get activeFollowTarget(): NPC | Player | null { return this.followTarget }
   get activeFollowSlotIndex(): number { return this.followSlotIndex }
   get activeFollowLocalOffset(): THREE.Vector3 { return this.followLocalOffset.clone() }
-  get combatFormationCheckpoint(): { commandId: number; position: { x: number; z: number; yaw: number }; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder } | undefined {
+  get combatFormationCheckpoint(): { commandId: number; position: { x: number; y?: number; z: number; yaw: number }; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder } | undefined {
     const target = this.formationTarget
     if (!target || this.tacticalOrder === 'follow') return undefined
     return { commandId: target.commandId,
-      position: { x: target.position.x, z: target.position.z, yaw: Math.atan2(target.facing.x, target.facing.z) },
+      position: { x: target.position.x, y: target.position.y, z: target.position.z, yaw: Math.atan2(target.facing.x, target.facing.z) },
       reached: target.reached, speedLimit: target.speedLimit, arrivalOrder: target.arrivalOrder }
   }
   get encounterIsAlerted(): boolean { return this.encounterOrigin !== null && this.encounterAggro !== 'idle' }
@@ -592,13 +720,11 @@ export class NPC {
 
   getWeaponTipPosition(): THREE.Vector3 {
     if (this.banditHammerTip) return this.banditHammerTip.getWorldPosition(this._tmpWeaponTip)
-    if (this.specialCombatProfile === 'maki-ranger' && this.bowVisual) return this.bowVisual.getTopTipPosition(this._tmpWeaponTip)
-    return this.swordGripPivot.localToWorld(this._tmpWeaponTip.copy(this.swordTipLocal))
+    return weaponTipWorld(this.swordGripPivot, this.swordTipLocal, this._tmpWeaponTip, this.rig.meleeTipFollowsVisual)
   }
 
   getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
     if (this.banditHammerGrip) return this.banditHammerGrip.getWorldPosition(target)
-    if (this.specialCombatProfile === 'maki-ranger' && this.bowVisual) return this.bowVisual.getGripPosition(target)
     return weaponGripWorld(this.swordGripPivot, target)
   }
 
@@ -620,30 +746,34 @@ export class NPC {
     combatantId?: string,
     combatEventSink?: CombatEventSink,
     visualAssetId?: HeroAssetId,
-    combatProfileId?: T4CombatProfileId,
+    combatProfileId?: HeroCombatProfileId,
     specialCombatProfile?: 'maki-ranger',
     readonly townCategory?: 'civilian',
     civilianStyle?: CharacterFaction,
+    readonly townCombatRole?: 'merchant',
+    spawnPlacement?: { y: number },
   ) {
+    if (townCombatRole === 'merchant') loadout = townMerchantLoadout(loadout?.mountId === 'horse' ? 'horse' : null)
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
     this.spawnZ = spawnZ
     this._faction = faction
     this.characterFaction = characterFaction
-    this.aiType = aiType
+    this._aiType = aiType
     this.name = name
     this._tier = tier
     this.visualAssetId = visualAssetId
     this.combatProfileId = combatProfileId
     this.specialCombatProfile = specialCombatProfile
-    this.maxHp = townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getT4HeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
+    this.maxHp = townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getHeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
     this.currentHp = this.maxHp
+    loadout ??= specialCombatProfile === 'maki-ranger' ? resolveT4UnitLoadout(`${characterFaction}_archer`) : undefined
     this.loadout = loadout
     this.presetId = presetId
     this._squadId = squadId
     this.combatantId = combatantId ?? `npc-${NPC.nextCombatantSerial++}`
     this.originalCombatEventSink = combatEventSink
-    this.generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
+    this._generatedAsCavalry = loadout ? Boolean(loadout.mountId) : (cavalry ?? Math.random() < 0.4)
     this._initialStaggerPhase = computeDeterministicPhase(spawnX, spawnZ, name)
 
     if (loadout) {
@@ -666,13 +796,8 @@ export class NPC {
       const combatProfile = getUnitCombatProfile(this.characterFaction, unitType, this.tier === 4 ? 3 : this.tier)
 
       this.meleeWeaponId = combatProfile.meleeWeaponId
-      this.rangedWeaponId = specialCombatProfile === 'maki-ranger'
-        ? resolveT4UnitLoadout(`${characterFaction}_archer`).rangedWeaponId ?? undefined
-        : combatProfile.rangedWeaponId
-      const canonicalRangerBow = specialCombatProfile === 'maki-ranger' && this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
-      this._rangedDamage = canonicalRangerBow
-        ? applyHeroOutgoingDamage(canonicalRangerBow.damageMax * getRangedDamageMultiplier('bow'), combatProfileId)
-        : combatProfile.rangedDamage ?? 0
+      this.rangedWeaponId = combatProfile.rangedWeaponId
+      this._rangedDamage = combatProfile.rangedDamage ?? 0
       this.isUsingLance = combatProfile.isUsingLance
       this.shieldId = combatProfile.shieldId
       this.arrows = this.aiType === AIType.RANGED ? 30 : 0
@@ -682,7 +807,7 @@ export class NPC {
     this._syncActiveMeleeEquipment()
 
     // Calibrate waypoints to terrain height
-    const baseTerrainY = getTerrainHeight(spawnX, spawnZ)
+    const baseTerrainY = spawnPlacement?.y ?? getTerrainHeight(spawnX, spawnZ)
     const basePos = new THREE.Vector3(spawnX, baseTerrainY, spawnZ)
 
     const wp1 = new THREE.Vector3(spawnX - 10, getTerrainHeight(spawnX - 10, spawnZ - 8), spawnZ - 8)
@@ -696,14 +821,15 @@ export class NPC {
     this.characterVisualGroup.rotation.y = 0 // Shared +Z gameplay heading; no per-faction flip.
     this.group.add(this.characterVisualGroup)
 
-    this.aimCollider = new THREE.Mesh(NPC_AIM_GEOMETRY, AIM_PROXY_MATERIAL)
+    this.aimCollider = new THREE.Mesh(npcAimGeometry ??= new THREE.CylinderGeometry(0.45, 0.45, 1.85, 8),
+      npcAimMaterial ??= new THREE.MeshBasicMaterial())
     this.aimCollider.name = `aim_proxy_${faction}_${name}`
     this.aimCollider.position.set(0, 0.925, 0)
     this.aimCollider.layers.set(AIM_RAYCAST_LAYER)
     this.group.add(this.aimCollider)
 
     const visualConfig = {
-      faction: this.characterFaction,
+      faction: townCategory === 'civilian' ? civilianStyle ?? this.characterFaction : this.characterFaction,
       tier: this.tier === 4 ? 3 : this.tier,
       isPlayer: false,
       civilian: townCategory === 'civilian',
@@ -745,7 +871,8 @@ export class NPC {
     this._rebuildActiveRangedVisual()
 
     this.shieldPivot = new THREE.Group()
-    this.shieldCollider = new ShieldCollider(this.shieldPivot, this.shield)
+    this.shieldCollider = new ShieldCollider(this.shieldPivot, this.shield,
+      () => this.hasActiveShield)
     this.rig.left.handSocket.add(this.shieldPivot)
     this.shieldPivot.position.set(0, 0.124, 0.019)
     this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
@@ -790,9 +917,28 @@ export class NPC {
   private duelHostile = false
   armTownCivilian(weaponId: string): void {
     if (this.townCategory !== 'civilian' || this.dead) return
+    if (!this.townArmed) {
+      const equipped = this.loadout?.meleeWeaponId
+      const ranged = this.loadout?.rangedWeaponId
+      this._setActiveMeleeWeapon(equipped && WEAPONS[equipped]?.type === 'melee' ? equipped
+        : ranged && WEAPONS[ranged]?.type === 'ranged' ? null : weaponId)
+      this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
+    }
     this.townArmed = true
-    this._setActiveMeleeWeapon(weaponId)
-    this.swordPivot.visible = true
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    this._refreshActiveShield()
+    this.shieldCollider.refreshVisibility()
+  }
+  /** Peace sheathes equipment; only the saved canonical loadout owns civilian weapons. */
+  disarmTownCivilian(): void {
+    if (this.townCategory !== 'civilian' || this.dead) return
+    this.townArmed = false
+    this._refreshActiveShield()
+    this._setActiveMeleeWeapon(this.loadout?.meleeWeaponId ?? null)
+    this.swordPivot.visible = false
+    this.bowPivot.visible = false
+    this.shieldPivot.visible = false
   }
   private get targetsPlayer(): boolean { return this.duelHostile || this.faction === Faction.ENEMY || this.faction === Faction.BANDIT || this.faction === Faction.TOWN && this.townHostile }
   get hostileToPlayer(): boolean { return this.targetsPlayer }
@@ -830,12 +976,12 @@ export class NPC {
     this.duelHostile = false
     this.respawnEnabled = false
     this.animator.cancel()
-    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
+    if (this.townCategory === 'civilian') this.disarmTownCivilian()
   }
   beginExternalThreat(): void {
     if (this.dead || this.townHostile || this.duelHostile) return
     this.animator.cancel()
-    this.setTacticalOrder('charge')
+    this.setTacticalOrder(this.isTownRampartGarrisonActive ? 'defend' : 'charge')
     this.state = AIState.CHASE
     this._targetAcquisitionInitialized = false
     this._restoreCombatReadyRangedVisual()
@@ -857,14 +1003,10 @@ export class NPC {
     this.setMissionCombatTarget(undefined)
     this.missionMovement = false
     this.animator.cancel()
-    this.setTacticalOrder('charge')
+    this.setTacticalOrder(this.isTownRampartGarrisonActive ? 'defend' : 'charge')
     this.state = AIState.CHASE
     this._restoreCombatReadyRangedVisual()
-    if (this.townCategory === 'civilian' && !this.townArmed) {
-      this.townArmed = true
-      this._setActiveMeleeWeapon(CIVILIAN_PROFILE.retaliationWeapon)
-      this.swordPivot.visible = true
-    }
+    if (this.townCategory === 'civilian') this.armTownCivilian(CIVILIAN_PROFILE.retaliationWeapon)
   }
   /** Peace uses animation and assigned motion only: no battle target search or A*. */
   updateTownPeace(dt: number, distance: number, training: boolean, startAttack: boolean, speed = 0, trainingPhase = 0): boolean {
@@ -877,8 +1019,8 @@ export class NPC {
       if (!this.deathFade.update(this.group, dt)) this.animator.update(dt, distance)
       return false
     }
-    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
-    this.animator.setLocomotion(speed, this.isMounted)
+    this.animator.setEquipment(this.isUsingLance, this.hasActiveShield && this.townCategory !== 'civilian', this.mount?.type as MountedPoseKind)
+    this.animator.setLocomotion(speed, this.isMounted, this.isSprinting && speed > 0)
     if (training && startAttack && !this.animator.busy) {
       if (this.rangedCombatKind === 'javelin') this._restoreCombatReadyRangedVisual()
       this.animator.start(this.hasActiveRangedWeapon ? (this.rangedCombatKind === 'javelin' ? 'pilumThrow' : 'bowRelease') : this._meleeAction())
@@ -892,8 +1034,17 @@ export class NPC {
     const events = this.animator.update(dt, distance)
     if (training && this.rangedCombatKind === 'javelin' && events.projectileRelease) this.bowPivot.visible = false
     if (this.isMounted) this._syncToMount()
-    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false }
+    if (this.townCategory === 'civilian') { this.swordPivot.visible = false; this.bowPivot.visible = false; this.shieldPivot.visible = false }
     return events.projectileRelease
+  }
+  /** Physical boarding is a temporary movement override, preserving the player's exact air order. */
+  updateTownEagleBoarding(dt: number, distance: number, destination: THREE.Vector3,
+    nearby: NPC[], obstacles: ObstacleData[], navigation: NavigationWorld): void {
+    const formation = this.formationTarget, order = this.tacticalOrder, follow = this.followTarget
+    this.formationTarget = { commandId: -7, position: destination.clone(), facing: new THREE.Vector3(0, 0, 1), reached: false, speedLimit: 3.5 }
+    this.tacticalOrder = 'formation'; this.followTarget = null
+    try { this.updateTownTravel(dt, distance, nearby, obstacles, navigation) }
+    finally { this.formationTarget = formation; this.tacticalOrder = order; this.followTarget = follow }
   }
   /** Reuses tactical formation/follow movement without combat acquisition or attacks. */
   updateTownTravel(dt: number, distance: number, nearby: NPC[], obstacles: ObstacleData[], navigation: NavigationWorld,
@@ -912,21 +1063,24 @@ export class NPC {
     this.isSprinting = false
     this.mount?.setCameraDistance(distance)
     this.mount?.beginControlledFrame()
+    this._activeNavigationWorld = navigation
     this._updateFormationMovement(dt, nearby, obstacles, false, navigation, followAnchor)
     for (const other of nearby) {
       if (other === this || other.dead) continue
       resolveEntityCollision(
-        { position: this.combatPosition, radius: this.isMounted ? 1 : .5, height: this.isMounted ? 2.6 : 2.3, bottomOffset: 0 },
-        { position: other.combatPosition, radius: other.isMounted ? 1 : .42, height: other.isMounted ? 2.6 : 1.8, bottomOffset: 0, anchored: true },
+        { position: this.combatPosition, radius: this.isMounted ? 1 : .5, height: this.isMounted ? 2.6 : 2.3, bottomOffset: 0, walkSurfaces: !this.isMounted },
+        { position: other.combatPosition, radius: other.isMounted ? 1 : .42, height: other.isMounted ? 2.6 : 1.8, bottomOffset: 0, anchored: true, walkSurfaces: !other.isMounted },
         obstacles,
       )
     }
     if (this.mount) this.mount.finishControlledFrame(dt, obstacles)
     else this._updateFootPhysics(previousPosition, dt, obstacles)
+    this._updateMovementStamina(dt)
     this.updateTownPeace(dt, distance, false, false, this.mount?.movementSpeed ?? this.visualMovementSpeed)
   }
 
   dispose(): void {
+    this.bowVisual?.dispose()
     this.combatEventBindingsClosed = true
     this.combatEventBindings.length = 0
     this.pendingFall.clear()
@@ -935,6 +1089,7 @@ export class NPC {
     this.mount = null
     this.animator.cancel()
     this.rig.animation?.stop()
+    disposeHumanoidInstanceSkeletons(this.characterVisualGroup)
     this.alertSprite.material.map?.dispose()
     this.alertSprite.material.dispose()
     this.group.removeFromParent()
@@ -1004,10 +1159,10 @@ export class NPC {
   }
 
   rebuildShield(): void {
-    if (this.faction === Faction.BANDIT) return
-    // Ranged loadouts (bows and javelins) cannot also carry an active shield.
-    if (this.rangedWeaponId) this.shieldId = null
-    if (this.builtShieldId === this.shieldId) return
+    if (this.builtShieldId === this.shieldId) {
+      this.shieldCollider.refreshVisibility()
+      return
+    }
     this.builtShieldId = this.shieldId
     this.shield.equip(this.shieldId)
     this.shieldCollider.setModel(this.shieldId)
@@ -1017,7 +1172,7 @@ export class NPC {
       this.attackTimer = 0
       this.bowVisual.hideArrow()
       this.bowPivot.visible = this.hasActiveRangedWeapon
-      this.swordPivot.visible = !this.hasActiveRangedWeapon
+      this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     }
 
     while (this.shieldPivot.children.length > 0) {
@@ -1029,6 +1184,10 @@ export class NPC {
       if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
     }
     this.equipmentVisualLOD.register('shield', this.shieldPivot)
+    this.shieldCollider.refreshVisibility()
+    if (this.townCategory === 'civilian' && !this.townArmed) {
+      this.swordPivot.visible = this.bowPivot.visible = this.shieldPivot.visible = false
+    }
   }
 
   private _syncActiveMeleeEquipment(): void {
@@ -1046,7 +1205,7 @@ export class NPC {
     // A new weapon must not inherit the old blade's mounted/foot attachment.
     this.swordPivot.userData.swordAttachmentOwned = false
     delete this.swordPivot.userData.equipmentAttachmentOwned
-    if (!this.meleeWeaponId || this.specialCombatProfile === 'maki-ranger' || this.faction === Faction.BANDIT) return
+    if (!this.meleeWeaponId || this.faction === Faction.BANDIT) return
     this.swordTipLocal.copy(
       WeaponMeshFactory.buildNpcMelee(
         this.characterFaction,
@@ -1080,6 +1239,7 @@ export class NPC {
 
   private _rebuildActiveRangedVisual(): void {
     this.bowVisual?.hideArrow()
+    this.bowVisual?.dispose()
     this.bowVisual = undefined
     this.bowGripPivot.clear()
     this.bowGripPivot.position.set(0, 0, 0)
@@ -1088,7 +1248,7 @@ export class NPC {
     const kind = this.rangedCombatKind
     if (kind === 'javelin') {
       this.rig.right.handSocket.add(this.bowPivot)
-      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
+      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', this.rig.rangedGripFrame ? .55 : 0, this.rig.rangedGripFrame)
       // The chosen weapon's tier controls its visual, independently of actor tier.
       WeaponMeshFactory.buildNpcRanged('roman', WEAPONS[this.rangedWeaponId!].tier, this.bowGripPivot)
     } else {
@@ -1096,12 +1256,69 @@ export class NPC {
       applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
       if (kind === 'bow') {
         this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot, this.characterVisualGroup)
-        this.bowVisual.rebuild(this.specialCombatProfile === 'maki-ranger' ? 'maki-ranger-bow' : this.rangedWeaponId!, true)
+        this.bowVisual.rebuild(this.rangedWeaponId!, true)
         this.bowVisual.hideArrow()
       }
     }
     polishWeaponMaterials(this.bowPivot)
     this.equipmentVisualLOD.register(kind === 'javelin' ? 'pilum' : 'bow', this.bowGripPivot)
+  }
+
+  /** Read-only preflight, including temporary equipment ownership, before a caller moves any mounts. */
+  canApplyCareerEquipment(loadout: UnitLoadout): boolean {
+    if (this.dead || this.isFalling || this.originalCombatEquipment) return false
+    const next = loadout
+    if (this.townCombatRole === 'merchant' && !isTownMerchantLoadout(next)) return false
+    return !(next.meleeWeaponId && WEAPONS[next.meleeWeaponId]?.type !== 'melee'
+      || next.secondaryMeleeWeaponId && WEAPONS[next.secondaryMeleeWeaponId]?.type !== 'melee'
+      || next.rangedWeaponId && WEAPONS[next.rangedWeaponId]?.type !== 'ranged'
+      || next.shieldId && !ARMORS[next.shieldId])
+  }
+
+  /** Apply a saved permanent allocation. Resource repair and mount ownership stay with the caller. */
+  applyCareerEquipment(loadout: UnitLoadout, tier?: 1 | 2 | 3 | 4): boolean {
+    if (!this.canApplyCareerEquipment(loadout)) return false
+    const next = { ...loadout }
+    const slots = ['meleeWeaponId', 'secondaryMeleeWeaponId', 'rangedWeaponId', 'shieldId', 'mountId'] as const
+    if (this.loadout && slots.every(slot => (next[slot] ?? null) === (this.loadout?.[slot] ?? null))
+      && this.aiType === (next.rangedWeaponId ? AIType.RANGED : AIType.MELEE)
+      && this.generatedAsCavalry === Boolean(next.mountId)
+      && (tier === undefined || this.combatProfileId || this.specialCombatProfile || tier === this.tier)) return true
+    const previousRanged = this.rangedWeaponId
+    const ammo = this.arrows
+    if (previousRanged) this.careerRangedAmmo = ammo
+    this.loadout = next
+    this._generatedAsCavalry = Boolean(next.mountId)
+    this._aiType = next.rangedWeaponId ? AIType.RANGED : AIType.MELEE
+    if (tier !== undefined && !this.combatProfileId && !this.specialCombatProfile) this._tier = tier
+    this._cancelEquipmentCombatState()
+    this._meleeDamageOverride = undefined
+    this._setActiveMeleeWeapon(next.meleeWeaponId ?? null)
+    this.rangedWeaponId = next.rangedWeaponId ?? undefined
+    const rangedWeapon = this.rangedWeaponId ? WEAPONS[this.rangedWeaponId] : undefined
+    this._rangedDamage = rangedWeapon
+      ? applyHeroOutgoingDamage(rangedWeapon.damageMax * getRangedDamageMultiplier(this.rangedCombatKind), this.combatProfileId) : 0
+    this.arrows = this.rangedWeaponId ? Math.min(30, previousRanged ? ammo : this.careerRangedAmmo ?? 30) : 0
+    this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
+    if (previousRanged !== this.rangedWeaponId) this._rebuildActiveRangedVisual()
+    this.shieldId = next.shieldId ?? null
+    this.rebuildShield()
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
+    this.bowPivot.visible = this.hasActiveRangedWeapon
+    if (this.townCategory === 'civilian' && !this.townArmed) {
+      this.swordPivot.visible = this.bowPivot.visible = this.shieldPivot.visible = false
+    }
+    if (this.state === AIState.ATTACK) this.state = AIState.CHASE
+    this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, this.mount?.type as MountedPoseKind)
+    this.rig.animation?.update(0)
+    return true
+  }
+
+  /** Select between the Merchant's own weapons only between swings; never repair or remove the shield. */
+  private _selectMerchantMeleeWeapon(target: Player | NPC | null): void {
+    if (this.townCombatRole !== 'merchant' || this.originalCombatEquipment || this.animator.busy) return
+    const id = target?.shield.active ? this.loadout?.secondaryMeleeWeaponId : this.loadout?.meleeWeaponId
+    if (id && id !== this.meleeWeaponId) this._setActiveMeleeWeapon(id)
   }
 
   /** Synchronizes combat values and visuals without replacing the Town loadout. Mounts are owned by the caller. */
@@ -1138,8 +1355,11 @@ export class NPC {
     this.rebuildShield()
     this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     this.bowPivot.visible = this.hasActiveRangedWeapon
+    if (this.townCategory === 'civilian' && !this.townArmed) {
+      this.swordPivot.visible = this.bowPivot.visible = this.shieldPivot.visible = false
+    }
     if (this.state === AIState.ATTACK) this.state = AIState.CHASE
-    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, this.mount?.type as MountedPoseKind)
     this.rig.animation?.update(0)
   }
 
@@ -1163,7 +1383,10 @@ export class NPC {
     this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     this.bowPivot.visible = this.hasActiveRangedWeapon
     this.originalCombatEquipment = null
-    this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), this.mount?.type as MountedPoseKind)
+    if (this.townCategory === 'civilian' && !this.townArmed) {
+      this.swordPivot.visible = this.bowPivot.visible = this.shieldPivot.visible = false
+    }
+    this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, this.mount?.type as MountedPoseKind)
     this.rig.animation?.update(0)
   }
 
@@ -1178,14 +1401,22 @@ export class NPC {
     this.bowVisual?.hideArrow()
   }
 
+  private _refreshActiveShield(): void {
+    this.shield.shieldRaised = this.shield.active && this.tacticalOrder === 'defend'
+    this.shieldCollider.refreshVisibility()
+    this.animator.setEquipment(this.isUsingLance, this.shield.active, this.mount?.type as MountedPoseKind)
+    this.animator.setShieldRaised(this.shield.shieldRaised)
+  }
+
   private _restoreCombatReadyRangedVisual(): void {
-    if (!this.hasActiveRangedWeapon) return
+    if (!this.hasActiveRangedWeapon || this.townCategory === 'civilian' && !this.townArmed) return
     this.swordPivot.visible = false
     this.bowPivot.visible = true
+    this._refreshActiveShield()
   }
 
   private _isVikingFootSpecialist(): boolean {
-    return this.originalCombatEquipment === null && this.specialCombatProfile !== 'maki-ranger' && this.characterFaction === 'viking'
+    return this.originalCombatEquipment === null && this.townCombatRole !== 'merchant' && this.specialCombatProfile !== 'maki-ranger' && this.characterFaction === 'viking'
       && !this.generatedAsCavalry
       && (this.presetId === 'viking_berserker' || this.presetId === 'viking_spearman' || this.presetId === 'viking_archer')
   }
@@ -1197,14 +1428,14 @@ export class NPC {
     this.shieldId = this.loadout.shieldId ?? null
     this.rangedActive = Boolean(this.rangedWeaponId) && this.arrows > 0
     this.rebuildShield()
-    this.swordPivot.visible = !this.hasActiveRangedWeapon
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     this.bowPivot.visible = this.hasActiveRangedWeapon
   }
 
   private _enterVikingChargeStance(): void {
-    if (!this._isVikingFootSpecialist() || !this.loadout) return
+    if (!this._isVikingFootSpecialist() || !this.loadout || this._usesReversibleRangedSwitch()) return
     this._cancelEquipmentCombatState()
-    const chargeWeapon = this.presetId === 'viking_spearman'
+    const chargeWeapon = this.presetId === 'viking_spearman' && WEAPONS[this.loadout.meleeWeaponId ?? '']?.combatKind === 'lance'
       ? (this.loadout.secondaryMeleeWeaponId ?? this.loadout.meleeWeaponId ?? null)
       : (this.loadout.meleeWeaponId ?? null)
     this._setActiveMeleeWeapon(chargeWeapon)
@@ -1221,16 +1452,19 @@ export class NPC {
   }
 
   setTacticalOrder(order: TacticalOrder): void {
+    if (order !== 'attack' && order !== 'defend') this.releaseOutpostRampartGarrison()
     if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
     this.formationTarget = null
     this.followTarget = null
     this.followSlotIndex = -1
     this.followCombatActive = false
     this._resetFollowNavigation()
+    this._friendlyBypass.clear()
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this.tacticalOrder = order
+    if (order === 'follow') this.assignSiegeObstacle(null)
     this.shield.shieldRaised = this.shield.active && order === 'defend'
     if (this.dead) return
     if (order === 'defend') this._restoreVikingDefensiveStance()
@@ -1244,15 +1478,18 @@ export class NPC {
 
   assignFormationTarget(commandId: number, target: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder, reached = false): void {
     if (this.dead) return
+    this.releaseOutpostRampartGarrison()
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this._cancelEquipmentCombatState()
+    this.assignSiegeObstacle(null)
     this.tacticalOrder = arrivalOrder ?? 'formation'
     this.followTarget = null
     this.followSlotIndex = -1
     this.followCombatActive = false
     this._resetFollowNavigation()
+    this._friendlyBypass.clear()
     this.formationTarget = {
       commandId,
       position: target.clone(),
@@ -1268,11 +1505,13 @@ export class NPC {
   assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number,
     anchor?: { position: THREE.Vector3; yaw: number }): void {
     if (this.dead || target === this) return
+    this.releaseOutpostRampartGarrison()
     if (this.mount?.isFlyingMount) this.setEagleFlightOrder(null)
     this._clearNavigationPath()
     this._clearObstacleDetour()
     this._clearSiegeFallback()
     this._cancelEquipmentCombatState()
+    this.assignSiegeObstacle(null)
     this.tacticalOrder = 'follow'
     this.followTarget = target
     this.followSlotIndex = Math.max(0, Math.floor(slotIndex))
@@ -1281,8 +1520,46 @@ export class NPC {
     this.followSmoothedLeaderYaw = anchor?.yaw ?? target.group.rotation.y
     this.followCombatActive = false
     this._resetFollowNavigation()
+    this._friendlyBypass.clear()
     this.followNavigationCheckRemaining = this._initialStaggerPhase * .6
     const position = followSlotWorldPosition(this.followSmoothedLeaderPosition, this.followSmoothedLeaderYaw, this.followLocalOffset)
+    const layeredNav = this._activeNavigationWorld?.outpostNav
+    if (layeredNav) {
+      const leaderLayer = layeredNav.getNavLayer(this.followSmoothedLeaderPosition)
+      const isDisallowedFromRamparts = Boolean(this.mount?.isFlyingMount || (this.isMounted || this.mount) && !layeredNav.hasMountedAccess || (this as any).isAnimal || (this as any).species)
+      if (isRampartLayer(leaderLayer)) {
+        if (!isDisallowedFromRamparts) {
+          const side = layerSide(leaderLayer)
+          const deck = side !== null ? layeredNav.getDeck(side) : layeredNav.layout.bridge
+          const stair = side !== null ? layeredNav.getStair(side) : undefined
+          if (deck) {
+            if (leaderLayer === 'rampart_gate') {
+              clampFollowSlotToBridge(position, this.followSmoothedLeaderPosition, this.followSlotIndex, layeredNav.layout)
+            } else {
+              clampFollowSlotToDeck(position, position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw, stair)
+            }
+          }
+        } else {
+          position.y = getTerrainHeight(position.x, position.z)
+        }
+      } else if (isStairLayer(leaderLayer)) {
+        if (!isDisallowedFromRamparts) {
+          const side = layerSide(leaderLayer)!
+          const stair = layeredNav.getStair(side)
+          const deck = layeredNav.getDeck(side)
+          if (stair) {
+            clampFollowSlotToStair(position, this.followSmoothedLeaderPosition, this.followSlotIndex, stair, deck, this.followSmoothedLeaderYaw)
+          }
+        } else {
+          position.y = getTerrainHeight(position.x, position.z)
+        }
+      }
+    }
+    if (!this.mount?.isFlyingMount) this._activeNavigationWorld?.townNav?.clampFollow(position, this.followSmoothedLeaderPosition, this.followSlotIndex, this.isMounted)
+    if (layeredNav && this.isMounted && !this.mount?.isFlyingMount
+      && layeredNav.hasMountedAccess && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
+      layeredNav.clampMountedFollow(position, this.followSmoothedLeaderPosition, this.followSlotIndex, target)
+    }
     this.formationTarget = {
       commandId: -1,
       position,
@@ -1296,9 +1573,8 @@ export class NPC {
 
   private _meleeAction(): Exclude<CombatAction, 'idle' | 'bowAim' | 'bowRelease'> {
     if (this.faction === Faction.BANDIT) return 'swordSlash'
-    if (this.specialCombatProfile === 'maki-ranger') return 'axeAttack2H'
     if (this.isUsingLance) return this.isMounted ? 'mountedLance' : 'lanceThrust'
-    if (WEAPONS[this.meleeWeaponId ?? '']?.animationKind === 'axe') return this.shieldId ? 'axeAttack1H' : 'axeAttack2H'
+    if (WEAPONS[this.meleeWeaponId ?? '']?.animationKind === 'axe') return this.hasActiveShield ? 'axeAttack1H' : 'axeAttack2H'
     return 'swordSlash'
   }
 
@@ -1398,7 +1674,7 @@ export class NPC {
       this.state = AIState.DEAD
       this.deathFade.start(this.group)
       this.animator.cancel()
-      this.animator.setEquipment(this.isUsingLance, Boolean(this.shieldId), undefined, false)
+      this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, undefined, false)
       this.rig.animation?.setEquipmentState?.({ mounted: false })
       this.rig.animation?.play('death', { fadeSeconds: 0.12, loop: false })
       this.respawnTimer = RESPAWN_TIME
@@ -1620,18 +1896,27 @@ export class NPC {
     return Math.hypot(position.x - closestX, position.z - closestZ)
   }
 
+  private _rangedObstacleDistance(point: THREE.Vector3): number {
+    return Math.hypot(point.x - this.combatPosition.x,
+      point.y + RANGED_AI_TARGET_HEIGHT - this.combatPosition.y, point.z - this.combatPosition.z)
+  }
+
   private _getObstacleAttackPoint(obstacle: ObstacleData, out: THREE.Vector3): THREE.Vector3 {
     const projectileBoxes = obstacle.projectileBoxes
     if (this.hasActiveRangedWeapon && projectileBoxes && projectileBoxes.length > 0) {
       let closestDistSq = Infinity
       for (const box of projectileBoxes) {
         box.getCenter(this._tmpSiegeCandidateCenter)
+        if (obstacle.projectileWorldToLocal) {
+          this._tmpSiegeCandidateCenter.applyMatrix4(this.obstacleLocalToWorld.copy(obstacle.projectileWorldToLocal).invert())
+        }
         const distSq = this.combatPosition.distanceToSquared(this._tmpSiegeCandidateCenter)
         if (distSq < closestDistSq) {
           closestDistSq = distSq
           out.copy(this._tmpSiegeCandidateCenter)
         }
       }
+      out.y -= RANGED_AI_TARGET_HEIGHT
       return out
     }
 
@@ -1653,7 +1938,7 @@ export class NPC {
     // cannot toggle clear/blocked between adjacent frames.
     const origin = this._tmpRangedOrigin
       .copy(this.combatPosition)
-      .setY(this.combatPosition.y + RANGED_AI_LAUNCH_HEIGHT)
+      .setY(this.combatPosition.y + (this.isMountedTownRampartGarrisonEnabled && this.isMounted ? 2.6 : RANGED_AI_LAUNCH_HEIGHT))
     const targetPoint = this._tmpRangedLosTarget
       .copy(target)
       .setY(target.y + RANGED_AI_TARGET_HEIGHT)
@@ -1696,24 +1981,35 @@ export class NPC {
 
     const previous = this._tmpRangedArcPrevious.copy(origin)
     const point = this._tmpRangedArcPoint
-    for (let index = 1; index <= segmentCount; index++) {
-      const t = flightTime * index / segmentCount
-      point.set(
-        origin.x + unitX * horizontalSpeed * t,
-        origin.y + verticalSpeed * t - 0.5 * PROJECTILE_GRAVITY * t * t,
-        origin.z + unitZ * horizontalSpeed * t,
-      )
+    try {
+      // A single chord already scans once; keep its original direct trace.
+      let pathObstacles: readonly ObstacleData[] = obstacles
+      if (segmentCount > 1) {
+        const endTime = flightTime * segmentCount / segmentCount
+        point.set(
+          origin.x + unitX * horizontalSpeed * endTime,
+          origin.y + verticalSpeed * endTime - 0.5 * PROJECTILE_GRAVITY * endTime * endTime,
+          origin.z + unitZ * horizontalSpeed * endTime,
+        )
+        pathObstacles = collectBallisticPathObstacles(origin, point, verticalSpeed,
+          endTime, obstacles, this._rangedPathBounds, this._rangedPathObstacles)
+      }
+      for (let index = 1; index <= segmentCount; index++) {
+        const t = flightTime * index / segmentCount
+        point.set(
+          origin.x + unitX * horizontalSpeed * t,
+          origin.y + verticalSpeed * t - 0.5 * PROJECTILE_GRAVITY * t * t,
+          origin.z + unitZ * horizontalSpeed * t,
+        )
 
-      const blocker = findBlockingProjectileObstacleAlongPath(
-        previous,
-        point,
-        obstacles,
-      )
-      if (blocker) return blocker
-      previous.copy(point)
+        const blocker = findBlockingProjectileObstacleAlongPath(previous, point, pathObstacles)
+        if (blocker) return blocker
+        previous.copy(point)
+      }
+      return null
+    } finally {
+      this._rangedPathObstacles.length = 0
     }
-
-    return null
   }
 
   /** Real launch position, finite constant-velocity lead, low ballistic arc and physical clearance. */
@@ -1794,6 +2090,7 @@ export class NPC {
       && !this._cachedTargetIsPlayer
       && player.targetable
       && !player.dead
+      && this.combatTargetAllowed?.(player) !== false
     ) {
       const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
       const distSq = this.combatPosition.distanceToSquared(playerPos)
@@ -1812,6 +2109,7 @@ export class NPC {
         candidate === this
         || candidate.dead
         || !combatAllegiancesHostile(this, candidate)
+        || this.combatTargetAllowed?.(candidate) === false
         || candidate === this._cachedTargetNpc
       ) return
 
@@ -1859,10 +2157,11 @@ export class NPC {
       if (position && !this._isEagleTargetInBounds(position)) return false
     }
     if (this._cachedTargetIsPlayer) {
-      return this.targetsPlayer && player.targetable && !player.dead
+      return this.targetsPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false
     }
     if (this._cachedTargetNpc !== null) {
       return !this._cachedTargetNpc.dead && combatAllegiancesHostile(this, this._cachedTargetNpc)
+        && this.combatTargetAllowed?.(this._cachedTargetNpc) !== false
     }
     return false
   }
@@ -1999,9 +2298,11 @@ export class NPC {
     let nearest: NPC | null = null
     let distanceSq = range * range + 1e-6
     let playerTarget = false
+    let airborneTarget = false
     const playerPosition = this._getPlayerPosition(player, this._tmpTargetPosition)
     if (this.targetsPlayer && player.targetable && !player.dead && this._isEagleTargetInBounds(playerPosition)) {
       playerTarget = true
+      airborneTarget = player.currentMount?.isAirborne === true
       distanceSq = this.combatPosition.distanceToSquared(playerPosition)
       if (this.playerHitFocus > 0) return { position: playerPosition, isDead: false, isPlayer: true }
     }
@@ -2010,7 +2311,10 @@ export class NPC {
       if (candidate === this || candidate.dead || !combatAllegiancesHostile(this, candidate)
         || !this._isEagleTargetInBounds(candidate.combatPosition)) continue
       const candidateDistanceSq = this.combatPosition.distanceToSquared(candidate.combatPosition)
-      if (candidateDistanceSq < distanceSq) { nearest = candidate; distanceSq = candidateDistanceSq; playerTarget = false }
+      const airborne = candidate.mount?.isAirborne === true
+      if (airborne && !airborneTarget || airborne === airborneTarget && candidateDistanceSq < distanceSq) {
+        nearest = candidate; distanceSq = candidateDistanceSq; playerTarget = false; airborneTarget = airborne
+      }
     }
     return playerTarget ? { position: playerPosition, isDead: false, isPlayer: true }
       : nearest ? { position: nearest.combatPosition, isDead: false, isPlayer: false, npc: nearest } : null
@@ -2024,7 +2328,7 @@ export class NPC {
   ): { position: THREE.Vector3, isDead: boolean, isPlayer: boolean, npc?: NPC } | null {
     if (this.missionCombatTarget !== undefined) {
       const target = this.missionCombatTarget
-      if (!target || target.dead) return null
+      if (!target || target.dead || this.combatTargetAllowed?.(target) === false) return null
       if (this.mount?.isFlyingMount && !this._isEagleTargetInBounds(target.combatPosition)) return null
       if (target === player) return this.targetsPlayer && player.targetable
         ? { position: this._getPlayerPosition(player, this._tmpTargetPosition), isDead: false, isPlayer: true } : null
@@ -2032,13 +2336,29 @@ export class NPC {
       return null
     }
     if (this.mount?.isFlyingMount) return this._findEagleTarget(player, allNPCs, hostileNpcGrid)
+    if (this.isTownRampartGarrisonActive) {
+      const range = this.alertRange
+      let nearest: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
+      let distance = range * range
+      if (this.targetsPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false) {
+        const position = this._getPlayerPosition(player, this._tmpTargetPosition), d = this.combatPosition.distanceToSquared(position)
+        if (d <= distance) { distance = d; nearest = { position, isDead: false, isPlayer: true } }
+      }
+      const candidates = hostileNpcGrid?.getNearbyInto(this.combatPosition, range, this.eagleRangedCandidates) ?? allNPCs
+      for (const npc of candidates) {
+        if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc) || this.combatTargetAllowed?.(npc) === false) continue
+        const d = this.combatPosition.distanceToSquared(npc.combatPosition)
+        if (d <= distance) { distance = d; nearest = { position: npc.combatPosition, isDead: false, isPlayer: false, npc } }
+      }
+      return nearest
+    }
     const preferGroundTargets = !this.hasActiveRangedWeapon
     const findNearest = (groundOnly: boolean) => {
       let closestTarget: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
       let closestDistSq = Infinity
 
       // Player is absent from the NPC grid, but follows the same target priority.
-      if (this.targetsPlayer && player.targetable && !player.dead
+      if (this.targetsPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false
         && (!groundOnly || !player.currentMount?.isFlyingMount)) {
         const playerPos = this._getPlayerPosition(player, this._tmpTargetPosition)
         if (this.playerHitFocus > 0) return { position: playerPos, isDead: false, isPlayer: true }
@@ -2047,17 +2367,17 @@ export class NPC {
       }
 
       if (hostileNpcGrid) {
-        const npc = chaseTargetCoordinator
+        const npc = chaseTargetCoordinator && !this.combatTargetAllowed
           ? chaseTargetCoordinator.findGroupTarget(this, hostileNpcGrid, groundOnly)
           : hostileNpcGrid.findNearest(this.combatPosition, candidate => !candidate.dead
-            && combatAllegiancesHostile(this, candidate) && (!groundOnly || !candidate.mount?.isFlyingMount))
+            && combatAllegiancesHostile(this, candidate) && this.combatTargetAllowed?.(candidate) !== false && (!groundOnly || !candidate.mount?.isFlyingMount))
         if (npc && combatAllegiancesHostile(this, npc)) {
           const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
           if (dSq < closestDistSq) closestTarget = { position: npc.combatPosition, isDead: false, isPlayer: false, npc }
         }
       } else {
         for (const npc of allNPCs) {
-          if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc)
+          if (npc === this || npc.dead || !combatAllegiancesHostile(this, npc) || this.combatTargetAllowed?.(npc) === false
             || groundOnly && npc.mount?.isFlyingMount) continue
           const dSq = this.combatPosition.distanceToSquared(npc.combatPosition)
           if (dSq < closestDistSq) {
@@ -2081,7 +2401,7 @@ export class NPC {
     obstacles: ObstacleData[],
     _playerHpBar: Pick<HpBar, 'setFill'>,
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
-    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => void,
+    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => ProjectileLaunchResult,
     skipBoidsAndObstacles: boolean = false,
     cameraDistance: number = 0,
     _collector: NpcSubphaseCollector | null = null,
@@ -2089,6 +2409,16 @@ export class NPC {
     navigationWorld: NavigationWorld | null = null,
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): void {
+    this._activeNavigationWorld = navigationWorld
+    if (this.campaignEntranceId && navigationWorld?.townNav?.siegeActive) {
+      if (navigationWorld.townNav.hasClearedSiegeGate(this.combatPosition, this.campaignEntranceId, this.isMounted)) {
+        this.campaignBreachCompleted = true
+        this.campaignEntranceId = null
+        this.assignSiegeObstacle(null)
+      } else if (navigationWorld.townNav.isElevated(this.combatPosition)) this.campaignBreachCompleted = true
+    }
+    if (this.campaignEntranceId && navigationWorld?.outpostNav
+      && isRampartLayer(navigationWorld.outpostNav.getNavLayer(this.combatPosition))) this.campaignBreachCompleted = true
     this.fallObstacles = obstacles
     if (this.pendingFall.active) {
       this._updateRiderFall(dt, obstacles)
@@ -2106,6 +2436,25 @@ export class NPC {
         }
       }
       if (import.meta.env.DEV && _collector) { _collector.endPhase('deadUpdate', _tDead!) }
+      return
+    }
+
+    if (this.siegeTransport) {
+      this.animator.setLocomotion(this.siegeTransportSpeed, false)
+      this.velY = 0
+      this.onGround = true
+      this.animator.update(dt, cameraDistance)
+      this.group.updateWorldMatrix(true, true)
+      return
+    }
+    if (this.siegeEvacuation) {
+      const previous = this._tmpPreviousPosition.copy(this.position)
+      const target = this.siegeEvacuation
+      const direction = this._tmpMoveDir.copy(target).sub(this.position).setY(0)
+      if (direction.length() < .45) this.siegeEvacuation = null
+      else { this._faceDirection(direction.normalize()); this._moveByDirection(direction, 2, dt) }
+      this._updateFootPhysics(previous, dt, obstacles)
+      this.animator.update(dt, cameraDistance)
       return
     }
 
@@ -2145,7 +2494,7 @@ export class NPC {
     let animationAdvanced = false
     const previousMountSpeed = this.mount ? this.mount.movementSpeed : 0
     if (this.mount) this.mount.beginControlledFrame()
-    const recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
+    let recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
     const recoveringPilum = this.animator.currentAction === 'pilumThrow'
     this.rebuildShield()
     this.shield.shieldRaised = this.shield.active && this.tacticalOrder === 'defend'
@@ -2157,8 +2506,8 @@ export class NPC {
 
     if (this.tacticalOrder === 'follow') {
       const contact = nearbyNPCs.some(other => other !== this && !other.dead && combatAllegiancesHostile(this, other) && other.combatPosition.distanceToSquared(this.combatPosition) <= 64
-        && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId || this.hasActiveRangedWeapon && other.combatPosition.distanceToSquared(this.combatPosition) >= RANGED_ATTACK_MIN ** 2))
-      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId && !contact) this.followCombatActive = false
+        && (!this.equipmentRequiredForCombat || this.meleeWeaponId || this.hasActiveRangedWeapon && other.combatPosition.distanceToSquared(this.combatPosition) >= RANGED_ATTACK_MIN ** 2))
+      if (this.equipmentRequiredForCombat && !this.meleeWeaponId && !contact) this.followCombatActive = false
       if (contact) {
         this.followCombatActive = true
         this._targetAcquisitionInitialized = false
@@ -2172,6 +2521,7 @@ export class NPC {
       }
     }
     const missionOrder = this.missionMovement ? this.tacticalOrder : null
+    let defensiveTargetOrder: TacticalOrder | null = null
     const missionTarget = this.missionMovement ? this._findTarget(player, allNPCs, hostileNpcGrid) : null
     const missionTargetMount = missionTarget?.isPlayer ? player.currentMount : missionTarget?.npc?.mount
     // Marching archers cannot get within the ground-contact radius of a flying
@@ -2197,13 +2547,83 @@ export class NPC {
         hostileNpcGrid,
         chaseTargetCoordinator,
       )
-      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId
+      if (this.isTownRampartGarrisonActive && targetInfo && this.combatPosition.distanceToSquared(targetInfo.position) > this.alertRange ** 2) targetInfo = null
+      if (this.equipmentRequiredForCombat && !this.meleeWeaponId
         && (!this.hasActiveRangedWeapon || targetInfo && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2)) targetInfo = null
-      if (this.hasSiegeObstacle && (this.combatOwnership !== 'player-personal' || this.meleeWeaponId || this.hasActiveRangedWeapon)) {
+      if (this.hasSiegeObstacle && (!this.equipmentRequiredForCombat || this.meleeWeaponId || this.hasActiveRangedWeapon)) {
         targetInfo = { position: this.assignedSiegeObstacle!.box.getCenter(this._tmpTargetPosition), isDead: false, isPlayer: false }
         this._siegeTargetObstacle = this.assignedSiegeObstacle
       }
+      // Weapon transitions are actions, not side effects of a range query.
+      if (this._usesReversibleRangedSwitch()) {
+        this._selectRangedMeleeMode(targetInfo, player, nearbyNPCs, obstacles)
+        recoveringBow = this.animator.currentAction === 'bowRelease' && this.bowArrowReleased
+      }
+      // A threat below a rampart is close in 3D but cannot make melee contact.
+      if (targetInfo && this.hasActiveRangedWeapon && !this._usesReversibleRangedSwitch()
+        && (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition)
+        && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2
+        && (!this.equipmentRequiredForCombat || this.meleeWeaponId)
+        && (!this.holdsRampartFirePosition || this._isRampartMeleeThreat(targetInfo.position))) {
+        this._switchToMelee()
+      }
+
+      // Elevated defenders retain their position. Expensive alternate acquisition is
+      // bounded, while a cached moving tower's aim point is refreshed every frame.
+      if (this.holdsRampartFirePosition && this.hasActiveRangedWeapon) {
+        const shootable = targetInfo && !targetInfo.isDead
+          && this._isTargetInDefendRange(targetInfo.position)
+          && this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) === null
+        if (shootable) {
+          this.rampartThreat = null
+          this._rangedVisibleTargetHoldFrames = NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES
+        }
+        else {
+          if (--this.rampartScanFrames <= 0) {
+            this.rampartScanFrames = NPC_RANGED_VISIBLE_TARGET_HOLD_FRAMES
+            this.rampartThreat = null
+            if (this._trySwitchToVisibleRangedTarget(player, allNPCs, hostileNpcGrid, obstacles)) {
+              targetInfo = this._getTarget(dt, player, allNPCs, hostileNpcGrid, chaseTargetCoordinator)
+            } else {
+              let nearest = Infinity
+              for (const obstacle of obstacles) {
+                const damageable = obstacle.damageable
+                if (!damageable || damageable.kind !== 'siege_ramp' || damageable.destroyed
+                  || damageable.ownerFaction === this.characterFaction) continue
+                const point = this._getObstacleAttackPoint(obstacle, this._tmpSiegeTarget)
+                const distance = this._rangedObstacleDistance(point) ** 2
+                if (distance > DETECTION_RADIUS ** 2 || distance >= nearest) continue
+                const blocker = this._findRangedTrajectoryBlocker(point, obstacles)
+                if (blocker && blocker.damageable !== damageable) continue
+                nearest = distance
+                this.rampartThreat = obstacle
+              }
+              targetInfo = null
+            }
+          } else targetInfo = null
+          if (this.rampartThreat?.damageable?.destroyed) this.rampartThreat = null
+          if (this.rampartThreat) {
+            const point = this._getObstacleAttackPoint(this.rampartThreat, this._tmpSiegeTarget)
+            const blocker = this._findRangedTrajectoryBlocker(point, obstacles)
+            if (!blocker || blocker.damageable === this.rampartThreat.damageable) {
+              targetInfo = { position: point, isDead: false, isPlayer: false }
+            }
+          }
+        }
+        if (!targetInfo && !recoveringBow) {
+          this.animator.cancel()
+          this.state = this.isTownRampartGarrisonActive ? AIState.IDLE : AIState.ALERT
+        }
+      }
+      if (targetInfo && this.holdsRampartPosition && !this.hasActiveRangedWeapon
+        && !this._isRampartMeleeThreat(targetInfo.position)) targetInfo = null
       const meleeTarget = targetInfo?.isPlayer ? player : targetInfo?.npc ?? null
+      if (meleeTarget && this.combatTargetAllowed?.(meleeTarget) === 'defend') {
+        defensiveTargetOrder = this.tacticalOrder
+        this.tacticalOrder = 'defend'
+        this.shield.shieldRaised = this.shield.active
+      }
+      this._selectMerchantMeleeWeapon(meleeTarget)
       if (
         meleeTarget !== this.meleeApproachTarget
         || this.isMounted !== this.meleeApproachMounted
@@ -2242,13 +2662,13 @@ export class NPC {
           : this.pendingPilumTarget
         origin.copy(this.bowGripPivot.getWorldPosition(origin))
         direction.copy(aimPoint).sub(origin).normalize()
-        onFireArrow(origin, direction, 'pilum')
+        const accepted = onFireArrow(origin, direction, 'pilum')
         this.bowPivot.visible = false
-        this.arrows -= 1
+        this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
         this.attackTimer = 0
       }
       if (events.actionCompleted) {
-        if (this.arrows === 0) this._switchToMelee(true, false)
+        if (this.arrows === 0) this._switchToMelee(false)
         this.state = AIState.CHASE
       }
     } else switch (this.state) {
@@ -2257,13 +2677,13 @@ export class NPC {
         // Personal Attack holds its actual position when no hostile is available;
         // constructor patrol waypoints belong to Town/field NPCs, not the Player's party.
         const personalAttack = this.combatOwnership === 'player-personal' && this.tacticalOrder === 'attack'
-        if (!personalAttack && this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
-          this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld)
+        if (!personalAttack && !this.holdsRampartPosition && this.tacticalOrder !== 'defend' && this.tacticalOrder !== 'charge') {
+          this._updatePatrol(dt, obstacles, skipBoidsAndObstacles, navigationWorld, nearbyNPCs)
         }
 
         if ((!this.encounterOrigin || this.encounterAggro === 'alerted' || this.encounterAggro === 'provoked') && targetInfo && !targetInfo.isDead) {
           const dist = this.combatPosition.distanceTo(targetInfo.position)
-          const detectionRadius = this.tacticalOrder === 'charge' ? Infinity : this.tacticalOrder === 'follow' ? 24 : DETECTION_RADIUS
+          const detectionRadius = this.tacticalOrder === 'charge' ? Infinity : this.tacticalOrder === 'follow' ? 24 : this.alertRange
           if (dist <= detectionRadius) {
             if (this.encounterOrigin) {
               // Awareness was already announced by idle -> alerted/provoked.
@@ -2285,7 +2705,7 @@ export class NPC {
 
         if (this.alertTimer <= 0) {
           this.alertSprite.visible = false
-          if (this.tacticalOrder === 'defend') {
+          if (this.tacticalOrder === 'defend' || this.holdsRampartPosition) {
             this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position) ? AIState.ATTACK : AIState.ALERT
             if (this.hasActiveRangedWeapon) this.attackTimer = 0
           } else {
@@ -2306,7 +2726,7 @@ export class NPC {
           break
         }
 
-        if (this.tacticalOrder === 'defend') {
+        if (this.tacticalOrder === 'defend' || this.holdsRampartPosition) {
           this._clearObstacleDetour()
           this._clearNavigationPath()
           this._clearSiegeFallback()
@@ -2346,27 +2766,70 @@ export class NPC {
         }
 
         const dist = Math.sqrt(distSq)
-        const navigationRoute = this.hasSiegeObstacle ? 'unreachable' : !skipBoidsAndObstacles
-          ? this._resolveNavigationMoveTarget(
+        const layeredNav = navigationWorld?.outpostNav ?? this._activeNavigationWorld?.outpostNav
+        const npcLayer = layeredNav ? layeredNav.getNavLayer(this.combatPosition) : 'ground'
+        const targetLayer = layeredNav ? layeredNav.getNavLayer(targetInfo.position) : 'ground'
+        const isCrossLayer = layeredNav ? (npcLayer !== targetLayer) : false
+        const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
+
+        let navigationRoute: NavigationRouteKind = 'direct'
+        const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, targetInfo.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId, this.combatantId) : null
+        if (townStep) {
+          if (townStep.blocked) navigationRoute = 'unreachable'
+          else if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(this._tmpNavigationTarget, obstacles, navigationWorld)
+        } else if (layeredNav && (isCrossLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, targetInfo.position))) {
+          const layeredResult = layeredNav.resolveMoveTarget(
+            this.combatPosition,
             targetInfo.position,
-            obstacles,
-            navigationWorld,
+            Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
+            this._tmpNavigationTarget,
+            this.campaignEntranceId,
           )
-          : 'direct'
-        if (skipBoidsAndObstacles) this._tmpNavigationTarget.copy(targetInfo.position)
+          if (layeredResult.step === 'ground_approach' || layeredResult.step === 'ground_cross') {
+            navigationRoute = !skipBoidsAndObstacles
+              ? this._resolveNavigationMoveTarget(layeredResult.target, obstacles, navigationWorld)
+              : 'direct'
+            if (navigationRoute === 'unreachable') {
+              const blocked = findBlockingObstacleAlongPath(
+                this.combatPosition,
+                layeredResult.target,
+                this._movementObstacleRadius(),
+                this._movementObstacleHeight(),
+                0,
+                obstacles,
+              ) !== null
+              if (!blocked) {
+                navigationRoute = 'direct'
+              }
+            }
+            if (skipBoidsAndObstacles || navigationRoute === 'direct') this._tmpNavigationTarget.copy(layeredResult.target)
+          } else {
+            navigationRoute = 'direct'
+          }
+        } else {
+          navigationRoute = this.hasSiegeObstacle ? 'unreachable' : !skipBoidsAndObstacles
+            ? this._resolveNavigationMoveTarget(
+              targetInfo.position,
+              obstacles,
+              navigationWorld,
+            )
+            : 'direct'
+          if (skipBoidsAndObstacles) this._tmpNavigationTarget.copy(targetInfo.position)
+        }
 
         // A normal walkable route always wins over obstacle combat.
         if (navigationRoute !== 'unreachable') {
           this._clearSiegeFallback()
         }
         let siegeObstacle = navigationRoute === 'unreachable'
-          ? this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+          ? (this._getActiveSiegeObstacle(targetInfo.position, obstacles)
+             ?? (layeredNav && isCrossLayer ? this._getActiveSiegeObstacle(this._tmpNavigationTarget, obstacles) : null))
           : null
 
         // Ranged units only draw melee against a genuinely close human target.
         // A wall between them and that human remains a navigation/siege problem.
-        if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN) {
-          if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) { this.state = AIState.ALERT; break }
+        if (!siegeObstacle && this.hasActiveRangedWeapon && !this._usesReversibleRangedSwitch() && dist < RANGED_ATTACK_MIN) {
+          if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.state = AIState.ALERT; break }
           this._switchToMelee()
         }
 
@@ -2381,7 +2844,7 @@ export class NPC {
           const directObstacle = this._findDirectDamageableBlocker(
             targetInfo.position,
             obstacles,
-          )
+          ) ?? (layeredNav && isCrossLayer ? this._findDirectDamageableBlocker(this._tmpNavigationTarget, obstacles) : null)
           if (directObstacle && this._activateDirectObstacle(directObstacle)) {
             siegeObstacle = directObstacle
           }
@@ -2413,7 +2876,7 @@ export class NPC {
 
           moveDir.copy(movementTarget).sub(this.combatPosition)
         } else if (this.hasActiveRangedWeapon) {
-          if (dist <= this.maxRangedAttackDistance && (dist >= RANGED_ATTACK_MIN || this.specialCombatProfile === 'maki-ranger')) {
+          if (dist <= this.maxRangedAttackDistance && dist >= RANGED_ATTACK_MIN) {
             const rangedBlocker = this._findRangedTrajectoryBlocker(targetInfo.position, obstacles)
             if (rangedBlocker === null) {
               // Enemy first: if the current human is actually shootable, never
@@ -2462,7 +2925,8 @@ export class NPC {
           }
         } else {
           if (
-            navigationRoute === 'direct'
+            !isCrossLayer
+            && navigationRoute === 'direct'
             && this._isTargetInMeleeApproachRange(targetInfo.position)
           ) {
             this._clearObstacleDetour()
@@ -2491,6 +2955,14 @@ export class NPC {
             if (import.meta.env.DEV && _collector) { var _tObs = performance.now() }
             this._applyPersistentObstacleDetour(moveDir, targetInfo.position, dt, obstacles)
             if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObs!) }
+            const shouldPauseMovement =
+              navigationRoute === 'pending'
+              || this.followTarget !== null
+              || this.tacticalOrder === 'follow'
+              || Boolean(layeredNav && isCrossLayer)
+            if (!this._detourActive && shouldPauseMovement) {
+              moveDir.set(0, 0, 0)
+            }
           } else if (navigationRoute !== 'unreachable') {
             this._clearObstacleDetour()
           }
@@ -2542,7 +3014,15 @@ export class NPC {
           this.mount ? this.mount.baseSpeed : CHASE_SPEED,
           dt,
           this.tacticalOrder === 'charge' && !siegeObstacle,
+          townStep?.tower
+            ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z) : Infinity,
         )
+        if (layeredNav && isStairLayer(npcLayer)) {
+          const stair = layeredNav.getStair(layerSide(npcLayer)!)
+          if (stair) {
+            this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, stair.ramp.startX - 0.55, stair.ramp.startX + 0.55)
+          }
+        }
 
         clampToPlayableWorld(this.group.position, this.playableWorldBound)
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tMvF!) }
@@ -2557,8 +3037,8 @@ export class NPC {
           break
         }
 
-        let siegeObstacle: ObstacleData | null = null
-        if (this._siegeTargetObstacle) {
+        let siegeObstacle: ObstacleData | null = this.holdsRampartFirePosition ? this.rampartThreat : null
+        if (!siegeObstacle && this._siegeTargetObstacle) {
           const navigationRoute = this.hasSiegeObstacle ? 'unreachable' : !skipBoidsAndObstacles
             ? this._resolveNavigationMoveTarget(
               targetInfo.position,
@@ -2582,7 +3062,7 @@ export class NPC {
           ? this._getObstacleAttackPoint(siegeObstacle, this._tmpSiegeTarget)
           : targetInfo.position
         const dist = siegeObstacle
-          ? this._distanceToObstacleXZ(siegeObstacle)
+          ? this.hasActiveRangedWeapon ? this._rangedObstacleDistance(attackTargetPosition) : this._distanceToObstacleXZ(siegeObstacle)
           : this.combatPosition.distanceTo(targetInfo.position)
 
         if (
@@ -2597,8 +3077,8 @@ export class NPC {
         }
 
         // Human target got too close: ranged units draw melee as before.
-        if (!siegeObstacle && this.hasActiveRangedWeapon && dist < RANGED_ATTACK_MIN && this.specialCombatProfile !== 'maki-ranger') {
-          if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) { this.animator.cancel(); this.state = AIState.ALERT; break }
+        if (!siegeObstacle && this.hasActiveRangedWeapon && !this._usesReversibleRangedSwitch() && dist < RANGED_ATTACK_MIN) {
+          if (this.equipmentRequiredForCombat && !this.meleeWeaponId) { this.animator.cancel(); this.state = AIState.ALERT; break }
           this._switchToMelee()
           this.state = AIState.CHASE
           break
@@ -2639,12 +3119,13 @@ export class NPC {
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
 
         // Mounted ranged units orbit humans, but hold position while deliberately
-        // attacking a structure fallback.
+        // attacking a structure fallback or retaining a mission-owned wall station.
         if (
           !siegeObstacle
           && this.isMounted
           && this.hasActiveRangedWeapon
           && this.tacticalOrder !== 'defend'
+          && !this.holdsRampartPosition
         ) {
           const moveDir = this._tmpMoveDir
           moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
@@ -2672,7 +3153,7 @@ export class NPC {
         if (import.meta.env.DEV && _collector) { var _tCombat = performance.now() }
         if (this.hasActiveRangedWeapon) {
           const rangedKind = this.rangedCombatKind ?? 'bow'
-          const cooldown = getRangedCooldown(rangedKind) / (getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+          const cooldown = getRangedCooldown(rangedKind) / (getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
           const isBow = rangedKind === 'bow'
           const windup = isBow ? 0.04 : (this.rig.animation?.getDuration('pilumThrow') ?? 0.45)
 
@@ -2685,12 +3166,12 @@ export class NPC {
               this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
             }
             if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim') {
-              this.animator.start('bowRelease', getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+              this.animator.start('bowRelease', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
             }
           } else {
             if (!this.animator.busy && this.attackTimer >= cooldown - windup) {
               this.pendingPilumTarget.copy(this._getElevatedRangedAimPoint(targetInfo.position))
-              if (this.animator.start('pilumThrow', getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)) this.bowPivot.visible = true
+              if (this.animator.start('pilumThrow', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)) this.bowPivot.visible = true
             }
           }
 
@@ -2711,10 +3192,10 @@ export class NPC {
               origin.copy(this.bowGripPivot.getWorldPosition(origin))
               dir.copy(aimPoint).sub(origin).normalize()
             }
-            onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
+            const accepted = onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
             this.bowVisual?.hideArrow()
 
-            this.arrows -= 1
+            this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
             this.attackTimer = 0
             if (!isBow) this.bowPivot.visible = false
             if (isBow && !rangedEvents.actionCompleted) {
@@ -2722,7 +3203,7 @@ export class NPC {
             }
           }
           if (!isBow && rangedEvents.actionCompleted) {
-            if (this.arrows === 0) this._switchToMelee(true, true)
+            if (this.arrows === 0) this._switchToMelee()
             this.state = AIState.CHASE
           }
         } else {
@@ -2737,17 +3218,17 @@ export class NPC {
             this.characterFaction,
             this.isMounted,
             this.activeCombatKind,
-            Boolean(this.shieldId),
+            this.hasActiveShield,
           )
           if (!this.animator.busy && this.attackTimer <= 0) {
-            this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1))
+            this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1))
             this.attackHitProcessed = false
           }
 
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
           if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
-          const attackSpeed = getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1
+          const attackSpeed = getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1
           this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getWeaponTipPosition())
           const meleeEvents = this.animator.update(
             dt * berserker.meleeAttackRateMultiplier,
@@ -2828,19 +3309,12 @@ export class NPC {
       }
     }
 
+    if (defensiveTargetOrder) this.tacticalOrder = defensiveTargetOrder
     if (missionOrder) this.tacticalOrder = missionOrder
-    if (this.isSprinting) {
-      this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt)
-    } else {
-      this.stamina = Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * dt)
-    }
+    this._updateMovementStamina(dt)
 
     this.rig.animation?.setSwordHandShape?.(this.swordPivot.visible && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
-    if (!this.animator.busy && !animationAdvanced) {
-      if (this.bowPivot.visible && this.characterFaction === 'viking') this.animator.poseBow(0)
-      else if (!this.isUsingLance && (this.visualMovementSpeed <= 0.1 || this.animator.currentAction === 'bowAim')) this.animator.poseIdle()
-    }
-    this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
+    this._updateIdleLocomotion(animationAdvanced)
     // Patrol/chase previously selected walk/run after the only possible mixer
     // update, while those states did not update the animator at all. Advance
     // exactly once here for every non-combat frame (including death clips).
@@ -2848,11 +3322,6 @@ export class NPC {
       if (import.meta.env.DEV && _collector) { var _tAnimIdle = performance.now() }
       this.animator.update(dt, cameraDistance)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimIdle!) }
-    }
-    if (!animationAdvanced && this.bowPivot.visible && this.characterFaction === 'viking') {
-      this._tmpRangedTarget.set(0, 0, 10).applyQuaternion(this.group.quaternion).add(this.group.position)
-      this._tmpRangedTarget.y += 1.4
-      this.bowVisual?.update(0, this._tmpRangedTarget, false)
     }
 
     if (this.isMounted && this.mount) {
@@ -2865,6 +3334,15 @@ export class NPC {
       this._updateFootPhysics(previousPosition, dt, obstacles)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('footPhysics', _tFoot!) }
     }
+  }
+
+  /** Presentation after movement; never cancels an actual attack or its recovery. */
+  private _updateIdleLocomotion(animationAdvanced: boolean): void {
+    if (!this.animator.busy && !animationAdvanced) {
+      if (this.animator.currentAction === 'bowAim') this.bowVisual?.update(0, undefined, false)
+      if (!this.isUsingLance && (this.visualMovementSpeed <= 0.1 || this.animator.currentAction === 'bowAim')) this.animator.poseIdle()
+    }
+    this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
   }
 
   private _updateRiderFall(dt: number, obstacles: ObstacleData[]): void {
@@ -2933,6 +3411,10 @@ export class NPC {
     command.target = undefined; command.altitude = undefined; command.landingYaw = undefined
     if (order?.kind === 'return') {
       command.kind = 'return'; this.eagleGoal.copy(order.target); command.landingYaw = order.landingYaw
+    } else if (order?.kind === 'patrol') {
+      // Reuse the pilot's ordinary waypoint approach without follow sprint or a
+      // formation assignment left over from boarding. The owner advances waypoints.
+      command.kind = 'formation'; this.eagleGoal.copy(order.target)
     } else if (follow) {
       command.kind = 'follow'
       const leader = this.followTarget!
@@ -2954,7 +3436,7 @@ export class NPC {
     mount.setFlightIntent(this.eaglePilot.update(dt, flight, mount.group.position, command, this.eagleNeighbors, obstacles, this.playableWorldBound))
     mount.finishControlledFrame(dt, obstacles)
     this._syncToMount()
-    if (formation && order?.kind !== 'return' && Math.hypot(mount.group.position.x - formation.position.x, mount.group.position.z - formation.position.z) < XONGKORO.aiOrbitRadius + 5) {
+    if (formation && !order && Math.hypot(mount.group.position.x - formation.position.x, mount.group.position.z - formation.position.z) < XONGKORO.aiOrbitRadius + 5) {
       formation.reached = true
       if (formation.arrivalOrder) this.tacticalOrder = formation.arrivalOrder
     }
@@ -2963,7 +3445,7 @@ export class NPC {
 
   private _updateEagleCombat(dt: number, player: Player, allNPCs: NPC[], nearby: NPC[], obstacles: ObstacleData[],
     onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
-    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => void,
+    onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => ProjectileLaunchResult,
     cameraDistance: number, grid: SpatialGrid<NPC> | null): void {
     const mount = this.mount!
     const flight = mount.flight!
@@ -2984,6 +3466,7 @@ export class NPC {
       this.eagleLastTargetPosition.copy(target.position)
     }
     this.eagleLastTarget = targetIdentity
+    if (this._usesReversibleRangedSwitch()) this._selectRangedMeleeMode(target, player, nearby, obstacles)
     this._collectEagleNeighbors(nearby, player, this.eaglePilot.canUseMelee || this.eaglePilot.maneuver === 'pass' ? targetMount : null)
     this.eagleTargets.length = 0
     const combatCandidates = grid?.getNearbyInto(mount.group.position,
@@ -3026,7 +3509,7 @@ export class NPC {
       this.eagleShotCheckRemaining = .15
     }
     const canShoot = eligible && this.eagleShotClear
-    const cooldown = getRangedCooldown(kind) / (getT4HeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
+    const cooldown = getRangedCooldown(kind) / (getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
     if (ranged && kind === 'javelin') this.attackTimer = Math.min(cooldown, this.attackTimer + dt)
     if (canShoot && target) {
       if (kind === 'bow') this.attackTimer += dt
@@ -3049,8 +3532,8 @@ export class NPC {
       && this._prepareEagleRangedShot(target, this.eagleTargetVelocity, obstacles)) {
       const lifecycle = kind === 'bow'
         ? createProjectileFlightBudget(this.rangedProjectileSpeed, this.eagleBallisticIntercept.flightTime) : undefined
-      onFireArrow(this.eagleRangedOrigin, this.eagleBallisticIntercept.direction, kind === 'bow' ? 'arrow' : 'pilum', lifecycle)
-      this.arrows--
+      const accepted = onFireArrow(this.eagleRangedOrigin, this.eagleBallisticIntercept.direction, kind === 'bow' ? 'arrow' : 'pilum', lifecycle)
+      this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
       this.attackTimer = 0
       this.bowArrowReleased = true
       if (kind === 'javelin') this.eaglePilot.attacked()
@@ -3085,7 +3568,7 @@ export class NPC {
       this.velY = 0
       this.onGround = true
     } else this.onGround = false
-    const collision = resolveObstacleCollision(this.group.position, previousPosition, this.velY, this.onGround, .5, 2.3, 0, obstacles)
+    const collision = resolveObstacleCollision(this.group.position, previousPosition, this.velY, this.onGround, .5, 2.3, 0, obstacles, { walkSurfaces: true })
     this.velY = collision.velocityY
     this.onGround = collision.onGround
     clampToPlayableWorld(this.group.position, this.playableWorldBound)
@@ -3101,11 +3584,12 @@ export class NPC {
     this.encounterAggro = 'returning'
   }
 
-  private _updatePatrol(dt: number, obstacles: ObstacleData[], skipBoidsAndObstacles: boolean, navigationWorld: NavigationWorld | null): void {
+  private _updatePatrol(dt: number, obstacles: ObstacleData[], skipBoidsAndObstacles: boolean, navigationWorld: NavigationWorld | null, nearby: NPC[]): void {
     const target = this.waypoints[this.currentWaypointIdx]
     const dist = this.group.position.distanceTo(target)
 
     if (dist < 0.5) {
+      this._friendlyBypass.clear()
       this.currentWaypointIdx = (this.currentWaypointIdx + 1) % this.waypoints.length
     } else {
       const dir = this._tmpPatrolDir.copy(target).sub(this.group.position)
@@ -3123,7 +3607,8 @@ export class NPC {
             obstacles,
           ))
       }
-      this._faceTarget(target)
+      if (!skipBoidsAndObstacles) this._steerFriendlyGroundBypass(dt, target, dir, nearby, obstacles)
+      this._faceDirection(dir)
       this._moveByDirection(dir, this.mount ? this.mount.baseSpeed * 0.5 : PATROL_SPEED, dt)
     }
   }
@@ -3138,6 +3623,8 @@ export class NPC {
   ): void {
     const target = this.formationTarget
     if (!target) return
+
+    const layeredNav = navigationWorld?.outpostNav ?? this._activeNavigationWorld?.outpostNav
 
     if (this.tacticalOrder === 'follow') {
       const leader = this.followTarget
@@ -3159,8 +3646,45 @@ export class NPC {
       followSlotWorldPosition(this.followSmoothedLeaderPosition, this.followSmoothedLeaderYaw, this.followLocalOffset, target.position)
       target.facing.set(Math.sin(this.followSmoothedLeaderYaw), 0, Math.cos(this.followSmoothedLeaderYaw))
       target.reached = false
+
+      if (layeredNav) {
+        const leaderLayer = layeredNav.getNavLayer(this.followSmoothedLeaderPosition)
+        const isDisallowedFromRamparts = Boolean(this.mount?.isFlyingMount || (this.isMounted || this.mount) && !layeredNav.hasMountedAccess || (this as any).isAnimal || (this as any).species)
+        if (isRampartLayer(leaderLayer)) {
+          if (!isDisallowedFromRamparts) {
+            const side = layerSide(leaderLayer)
+            const deck = side !== null ? layeredNav.getDeck(side) : layeredNav.layout.bridge
+            const stair = side !== null ? layeredNav.getStair(side) : undefined
+            if (deck) {
+              if (leaderLayer === 'rampart_gate') {
+                clampFollowSlotToBridge(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, layeredNav.layout)
+              } else {
+                clampFollowSlotToDeck(target.position, target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, deck, this.followSmoothedLeaderYaw, stair)
+              }
+            }
+          } else {
+            target.position.y = getTerrainHeight(target.position.x, target.position.z)
+          }
+        } else if (isStairLayer(leaderLayer)) {
+          if (!isDisallowedFromRamparts) {
+            const side = layerSide(leaderLayer)!
+            const stair = layeredNav.getStair(side)
+            const deck = layeredNav.getDeck(side)
+            if (stair) {
+              clampFollowSlotToStair(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, stair, deck, this.followSmoothedLeaderYaw)
+            }
+          } else {
+            target.position.y = getTerrainHeight(target.position.x, target.position.z)
+          }
+        }
+      }
     }
 
+    if (this.tacticalOrder === 'follow' && this.isMounted && layeredNav?.hasMountedAccess
+      && isRampartLayer(layeredNav.getNavLayer(this.followSmoothedLeaderPosition))) {
+      layeredNav.clampMountedFollow(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, this.followTarget ?? this.followSmoothedLeaderPosition)
+    }
+    if (this.tacticalOrder === 'follow' && !this.mount?.isFlyingMount) navigationWorld?.townNav?.clampFollow(target.position, this.followSmoothedLeaderPosition, this.followSlotIndex, this.isMounted)
     this.alertSprite.visible = false
     const moveDir = this._tmpMoveDir.copy(target.position).sub(this.combatPosition)
     moveDir.y = 0
@@ -3170,7 +3694,15 @@ export class NPC {
       : this.mount
         ? target.reached ? 2.4 : 1.2
         : target.reached ? 1 : FORMATION_ARRIVAL_DISTANCE
-    if (distance <= arrivalDistance) {
+
+    const npcLayer = layeredNav ? layeredNav.getNavLayer(this.combatPosition) : 'ground'
+    const targetLayer = layeredNav ? layeredNav.getNavLayer(target.position) : 'ground'
+    const isDifferentLayer = (layeredNav ? (npcLayer !== targetLayer) : false)
+      || Boolean(navigationWorld?.townNav && navigationWorld.townNav.isElevated(this.combatPosition) !== navigationWorld.townNav.isElevated(target.position))
+      || navigationWorld?.townNav?.watchtower?.sameLevel(this.combatPosition, target.position) === false
+
+    if (distance <= arrivalDistance && !isDifferentLayer) {
+      this._friendlyBypass.clear()
       target.reached = true
       if (target.arrivalOrder === 'defend') {
         this.formationTarget = null
@@ -3188,7 +3720,47 @@ export class NPC {
 
     let navigationRoute: NavigationRouteKind = 'direct'
     let navigationGoal = target.position
-    if (!skipBoidsAndObstacles && this.tacticalOrder === 'follow') {
+
+    const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
+
+    let isConfirmedLayeredStep = false
+    const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, target.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId, this.combatantId) : null
+    if (townStep) {
+      navigationGoal = this._tmpNavigationTarget
+      if (townStep.blocked) navigationRoute = 'unreachable'
+      else if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(navigationGoal, obstacles, navigationWorld)
+      else isConfirmedLayeredStep = true
+    } else if (layeredNav && (isDifferentLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, target.position))) {
+      const layeredResult = layeredNav.resolveMoveTarget(
+        this.combatPosition,
+        target.position,
+        Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
+        this._tmpNavigationTarget,
+        this.campaignEntranceId,
+      )
+      if (layeredResult.step === 'ground_approach' || layeredResult.step === 'ground_cross') {
+        navigationGoal = this._tmpNavigationTarget
+        if (!skipBoidsAndObstacles) {
+          navigationRoute = this._resolveNavigationMoveTarget(navigationGoal, obstacles, navigationWorld)
+          if (navigationRoute === 'unreachable') {
+            const blocked = findBlockingObstacleAlongPath(
+              this.combatPosition,
+              navigationGoal,
+              this._movementObstacleRadius(),
+              this._movementObstacleHeight(),
+              0,
+              obstacles,
+            ) !== null
+            if (!blocked) {
+              navigationRoute = 'direct'
+            }
+          }
+        }
+      } else {
+        isConfirmedLayeredStep = true
+        navigationRoute = 'direct'
+      }
+    } else if (!skipBoidsAndObstacles && this.tacticalOrder === 'follow') {
       this.followNavigationCheckRemaining -= dt
       if (this.followNavigationCheckRemaining <= 0) {
         this.followNavigationCheckRemaining = .65 + this._initialStaggerPhase * .35
@@ -3237,16 +3809,38 @@ export class NPC {
     } else if (!skipBoidsAndObstacles) {
       navigationRoute = this._resolveNavigationMoveTarget(target.position, obstacles, navigationWorld)
     }
-    if (navigationRoute === 'path') {
+    if (isConfirmedLayeredStep) {
       moveDir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
       this._clearObstacleDetour()
-    } else if (navigationRoute === 'pending' || navigationRoute === 'unreachable') {
-      this._applyPersistentObstacleDetour(moveDir, navigationGoal, dt, obstacles)
+    } else if (navigationRoute === 'path') {
+      moveDir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
+      this._clearObstacleDetour()
+    } else if (navigationRoute === 'direct') {
+      moveDir.copy(navigationGoal).sub(this.combatPosition).setY(0).normalize()
+      this._clearObstacleDetour()
+    } else if (navigationRoute === 'pending') {
+      moveDir.set(0, 0, 0)
+      this._clearObstacleDetour()
+    } else if (navigationRoute === 'unreachable') {
+      if (isDifferentLayer) {
+        moveDir.set(0, 0, 0)
+        this._clearObstacleDetour()
+      } else {
+        this._applyPersistentObstacleDetour(moveDir, navigationGoal, dt, obstacles)
+        if (!this._detourActive) {
+          moveDir.set(0, 0, 0)
+        }
+      }
     } else {
       this._clearObstacleDetour()
     }
 
-    if (!skipBoidsAndObstacles) {
+    let bypassing = false
+    if (!skipBoidsAndObstacles && !isConfirmedLayeredStep && !isDifferentLayer && moveDir.lengthSq() > .0001) {
+      bypassing = this._steerFriendlyGroundBypass(dt, target.position, moveDir, nearbyNPCs, obstacles)
+    } else this._friendlyBypass.clear()
+
+    if (!skipBoidsAndObstacles && moveDir.lengthSq() > 0.0001) {
       this._tmpSep.set(0, 0, 0)
       let sepCount = 0
       for (const other of nearbyNPCs) {
@@ -3260,7 +3854,24 @@ export class NPC {
         }
       }
       if (sepCount > 0) moveDir.add(this._tmpSep.divideScalar(sepCount)).normalize()
-      if (navigationRoute !== 'path') {
+      // A soldier already in its firing slot must not become a permanent
+      // one-dimensional roadblock for another formation member on the deck.
+      if (!this.mount && layeredNav && isRampartLayer(npcLayer) && Math.abs(target.position.x - this.combatPosition.x) > 1.6) {
+        const travelSign = Math.sign(target.position.x - this.combatPosition.x)
+        const blocker = nearbyNPCs.find(other => other !== this && !other.dead && !other.mount
+          && Math.abs(other.combatPosition.y - this.combatPosition.y) < .6
+          && (other.combatPosition.x - this.combatPosition.x) * travelSign > 0
+          && (other.combatPosition.x - this.combatPosition.x) * travelSign < 2
+          && Math.abs(other.combatPosition.z - this.combatPosition.z) < 1.2)
+        const side = layerSide(npcLayer)
+        const deck = side === null ? layeredNav.layout.bridge : layeredNav.getDeck(side)
+        if (blocker && deck) {
+          const midZ = (deck.slab.min.z + deck.slab.max.z) / 2
+          const passingZ = blocker.combatPosition.z >= midZ ? deck.slab.min.z + .55 : deck.slab.max.z - .55
+          moveDir.set(travelSign * .35, 0, passingZ - this.combatPosition.z).normalize()
+        }
+      }
+      if (!bypassing && navigationRoute !== 'path' && !isConfirmedLayeredStep && !(layeredNav && (isStairLayer(npcLayer) || isRampartLayer(npcLayer)))) {
         moveDir.copy(getObstacleAvoidanceDirection(
           this.group.position,
           moveDir,
@@ -3280,11 +3891,35 @@ export class NPC {
     const baseSpeed = this.mount
       ? Math.min(this.mount.baseSpeed, target.speedLimit ?? Infinity)
       : target.speedLimit ?? FORMATION_MOVE_SPEED
-    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt, followSprint || this.missionMovement)
+    this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt,
+      followSprint || this.missionMovement, townStep?.tower
+        ? Math.hypot(this._tmpNavigationTarget.x - this.combatPosition.x, this._tmpNavigationTarget.z - this.combatPosition.z) : distance)
+    if (layeredNav && isStairLayer(npcLayer)) {
+      const stair = layeredNav.getStair(layerSide(npcLayer)!)
+      if (stair) {
+        this.group.position.x = THREE.MathUtils.clamp(this.group.position.x, stair.ramp.startX - 0.55, stair.ramp.startX + 0.55)
+      }
+    }
     clampToPlayableWorld(this.mount ? this.mount.group.position : this.group.position, this.playableWorldBound)
   }
 
-  private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false): void {
+  private _steerFriendlyGroundBypass(dt: number, goal: THREE.Vector3, direction: THREE.Vector3, nearby: NPC[], obstacles: ObstacleData[]): boolean {
+    const p = this.combatPosition
+    if (this.mount?.isFlyingMount || Math.abs(p.y - getTerrainHeight(p.x, p.z)) > .6
+      || this._activeNavigationWorld?.townNav?.rampAt(p)
+      || this._activeNavigationWorld?.outpostNav && this._activeNavigationWorld.outpostNav.getNavLayer(p) !== 'ground') {
+      this._friendlyBypass.clear(); return false
+    }
+    this.fallObstacles = obstacles
+    return this._friendlyBypass.steer(dt, this, goal, direction, nearby, this._bypassSegmentClear)
+  }
+
+  private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false, maxDistance = Infinity): void {
+    if (this.siegeBypassTarget) {
+      direction.copy(this.siegeBypassTarget).sub(this.combatPosition).setY(0)
+      if (direction.lengthSq() < .16) return
+      this._faceDirection(direction.normalize())
+    }
     if (direction.lengthSq() <= 0.0001) return
     direction.normalize()
 
@@ -3292,7 +3927,7 @@ export class NPC {
     const facing = this._tmpFacing.set(Math.sin(facingYaw), 0, Math.cos(facingYaw))
     const policy = getDirectionalMovementFromVector(facing, direction)
     const multiplier = getEffectiveSpeedMultiplier(policy, Boolean(this.mount))
-    const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.activeCombatKind, Boolean(this.shieldId))
+    const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, this.activeCombatKind, this.hasActiveShield)
     if (allowSprint && policy.canSprint) {
       if (!this.chargeSprintLatched && this.stamina >= STAMINA_SPRINT_MIN) {
         this.chargeSprintLatched = true
@@ -3303,7 +3938,10 @@ export class NPC {
     }
     this.isSprinting = this.chargeSprintLatched && this.stamina > 0
     const sprintMultiplier = this.isSprinting ? SPRINT_MULTIPLIER : 1
-    const effectiveSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier * sprintMultiplier * (getT4HeroCombatModifiers(this.combatProfileId)?.moveSpeedMultiplier ?? 1)
+    const desiredSpeed = baseSpeed * multiplier * berserker.moveSpeedMultiplier * sprintMultiplier * (getHeroCombatModifiers(this.combatProfileId)?.moveSpeedMultiplier ?? 1)
+    // A fast return must stop at its slot rather than stepping over it and
+    // reversing forever; normal chase retains its existing unrestricted step.
+    const effectiveSpeed = dt > 0 ? Math.min(desiredSpeed, maxDistance / dt) : desiredSpeed
 
     this.visualMovementSpeed = Math.max(this.visualMovementSpeed, effectiveSpeed)
     if (this.mount) {
@@ -3311,6 +3949,12 @@ export class NPC {
     } else {
       this.group.position.addScaledVector(direction, effectiveSpeed * dt)
     }
+  }
+
+  private _updateMovementStamina(dt: number): void {
+    this.stamina = this.isSprinting
+      ? Math.max(0, this.stamina - STAMINA_DRAIN * dt)
+      : Math.min(MAX_STAMINA, this.stamina + STAMINA_REGEN * dt)
   }
 
   private _syncToMount(collector: NpcSubphaseCollector | null = null): void {
@@ -3340,9 +3984,10 @@ export class NPC {
   }
 
   /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
-  fitCorgiSeat(): void {
-    if (!this.mount?.corgiVisual || this.dead) return
-    this.mount.corgiVisual.fitRider(this.characterVisualGroup)
+  fitMountedSeat(): void {
+    if (!this.mount || this.dead) return
+    this.mount.corgiVisual?.fitRider(this.characterVisualGroup)
+    this.mount.catVisual?.fitRider(this.characterVisualGroup)
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {
@@ -3368,7 +4013,7 @@ export class NPC {
   /** Returns damage after applying lance charge, anti-cavalry, and berserker multipliers. */
   private _calcLanceDamage(baseDamage: number, targetIsMounted: boolean): number {
     const combatKind = this.meleeCombatKind
-    const hasShield = Boolean(this.shieldId)
+    const hasShield = this.hasActiveShield
     const berserker = getBerserkerModifiers(this.characterFaction, this.isMounted, combatKind, hasShield)
 
     let dmg = baseDamage * berserker.meleeDamageMultiplier
@@ -3392,15 +4037,31 @@ export class NPC {
     return applyHeroOutgoingDamage(Math.round(dmg), this.combatProfileId)
   }
 
+  private _isRampartMeleeThreat(targetPos: THREE.Vector3): boolean {
+    const town = this._activeNavigationWorld?.townNav
+    if (town?.watchtower && town.watchtower.surfaceAt(this.combatPosition) >= 0)
+      return town.watchtower.sameLevel(this.combatPosition, targetPos)
+    if (town) return town.isElevated(this.combatPosition) && town.isElevated(targetPos)
+    const nav = this._activeNavigationWorld?.outpostNav
+    if (nav) {
+      // The connected decks/bridge permit a close enemy to approach. Drawing a
+      // weapon here does not grant attack reach or permission to leave the wall.
+      return isRampartLayer(nav.getNavLayer(this.combatPosition))
+        && isRampartLayer(nav.getNavLayer(targetPos))
+    }
+    // Without topology, retain the conservative physical-contact fallback.
+    return this._isTargetInMeleeApproachRange(targetPos)
+  }
+
   private _isTargetInDefendRange(targetPos: THREE.Vector3): boolean {
-    if (this.hasActiveRangedWeapon && this.combatPosition.distanceTo(targetPos) < RANGED_ATTACK_MIN && this.specialCombatProfile !== 'maki-ranger') {
-      if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
-      this._switchToMelee()
-    }
     if (this.hasActiveRangedWeapon) {
-      return this.combatPosition.distanceTo(targetPos) <= this.maxRangedAttackDistance
+      const isTower = this.holdsRampartFirePosition && this.rampartThreat && targetPos === this._tmpSiegeTarget
+      const distance = isTower
+        ? this._rangedObstacleDistance(targetPos) : this.combatPosition.distanceTo(targetPos)
+      return distance <= this.maxRangedAttackDistance
+        && (isTower || distance >= RANGED_ATTACK_MIN)
     }
-    if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
+    if (this.equipmentRequiredForCombat && !this.meleeWeaponId) return false
     return this._isTargetInMeleeApproachRange(targetPos)
   }
 
@@ -3428,21 +4089,20 @@ export class NPC {
   }
 
   private _isTargetInMeleeApproachRange(targetPos: THREE.Vector3): boolean {
+    const layeredNav = this._activeNavigationWorld?.outpostNav
+    if (layeredNav) {
+      const npcLayer = layeredNav.getNavLayer(this.combatPosition)
+      const targetLayer = layeredNav.getNavLayer(targetPos)
+      if (npcLayer !== targetLayer) return false
+    }
     return this._isTargetInMeleeRange(targetPos, Math.max(0, this._meleeBodySpacing() - this.meleeAttackRadius))
       && Math.hypot(targetPos.x - this.combatPosition.x, targetPos.z - this.combatPosition.z) <= this._meleeApproachDistance()
   }
 
   private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0): boolean {
+    if (this._activeNavigationWorld?.townNav?.watchtower?.sameLevel(this.combatPosition, targetPos) === false) return false
     if (Math.abs(targetPos.y - this.combatPosition.y) > this.meleeAttackRadius + extraReach) return false
-    if (this.combatOwnership === 'player-personal' && !this.meleeWeaponId) return false
-    if (this.specialCombatProfile === 'maki-ranger' && this.bowVisual) {
-      if (this.combatPosition.distanceTo(targetPos) > this.meleeAttackRadius + extraReach) return false
-      const top = this.bowVisual.getTopTipPosition(new THREE.Vector3())
-      const bottom = this.bowVisual.getBottomTipPosition(new THREE.Vector3())
-      const targetCenter = targetPos.clone().add(new THREE.Vector3(0, 1, 0))
-      const contact = new THREE.Line3(bottom, top).closestPointToPoint(targetCenter, true, new THREE.Vector3())
-      return contact.distanceTo(targetCenter) <= 1.3 + extraReach
-    }
+    if (this.equipmentRequiredForCombat && !this.meleeWeaponId) return false
     if (this.isUsingLance) {
       const facingYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
       const forward = this._tmpFacing.set(Math.sin(facingYaw), 0, Math.cos(facingYaw))
@@ -3455,17 +4115,75 @@ export class NPC {
     return this.combatPosition.distanceTo(targetPos) <= this.meleeAttackRadius + extraReach
   }
 
-  private _switchToMelee(consumeRemainingAmmo = true, cancelAnimation = true): void {
-    if (this.specialCombatProfile === 'maki-ranger' && resolveMakiEquipmentMode(this.arrows) === 'ranged') return
-    if (consumeRemainingAmmo) this.arrows = 0
+  private _switchToMelee(cancelAnimation = true): void {
+    // Finish every committed release/swing. Switching never spends or replenishes ammo.
+    if (this.animator.busy || !this.meleeWeaponId && this.arrows > 0) return
     this.rangedActive = false
     this.pendingLanceChargeSpeed = 0
-    this.swordPivot.visible = this.specialCombatProfile !== 'maki-ranger'
-    this.bowPivot.visible = this.specialCombatProfile === 'maki-ranger'
+    this.swordPivot.visible = this.meleeWeaponId !== null && (this.townCategory !== 'civilian' || this.townArmed)
+    this.bowPivot.visible = false
     if (cancelAnimation) this.animator.cancel()
+    this._refreshActiveShield()
   }
 
-  respawn(destination?: { x: number; z: number; yaw?: number }): void {
+  private _isRangedMeleeThreat(position: THREE.Vector3): boolean {
+    if (this.combatPosition.distanceToSquared(position) > RANGED_REEQUIP_MIN ** 2
+      || Math.abs(position.y - this.combatPosition.y) > this.meleeAttackRadius) return false
+    if (this.mount?.flight && !this.eaglePilot.canUseMelee) return false
+    if (this.holdsRampartFirePosition) return this._isRampartMeleeThreat(position)
+    const town = this._activeNavigationWorld?.townNav
+    if (town && town.isElevated(this.combatPosition) !== town.isElevated(position)) return false
+    const nav = this._activeNavigationWorld?.outpostNav
+    return !nav || nav.getNavLayer(this.combatPosition) === nav.getNavLayer(position)
+  }
+
+  private _usesReversibleRangedSwitch(): boolean {
+    return Boolean(this.rangedWeaponId && this.meleeWeaponId)
+  }
+
+  /** Reuses the selected target, neighborhood and combat state machine; no extra acquisition pass. */
+  private _selectRangedMeleeMode(
+    target: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null,
+    player: Player, nearby: readonly NPC[], obstacles: ObstacleData[],
+  ): void {
+    // Committed releases and swings finish before any equipment decision.
+    if (!this.rangedWeaponId || !this.meleeWeaponId || this.animator.busy) return
+    if (this.arrows <= 0 && !this.rangedActive) return
+    // Siege targets remain valid for ranged/obstacle attacks; only hostile actors threaten melee contact.
+    // Player proximity is checked independently below, including when an obstacle is the selected target.
+    let threatSq = target && !target.isDead && target.npc && !target.npc.dead
+      && combatAllegiancesHostile(this, target.npc) && this._isRangedMeleeThreat(target.position)
+      ? this.combatPosition.distanceToSquared(target.position) : Infinity
+    if (!player.dead && combatAllegiancesHostile(this, player)
+      && this._isRangedMeleeThreat(player.combatPosition)) {
+      threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(player.combatPosition))
+    }
+    for (const other of nearby) {
+      if (other !== this && !other.dead && combatAllegiancesHostile(this, other)
+        && this._isRangedMeleeThreat(other.combatPosition)) {
+        threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(other.combatPosition))
+      }
+    }
+    let ranged = this.arrows > 0 && (this.rangedActive ? threatSq > RANGED_ATTACK_MIN ** 2
+      : threatSq >= RANGED_REEQUIP_MIN ** 2 && target !== null && !target.isDead
+        && this.combatPosition.distanceToSquared(target.position) <= this.maxRangedAttackDistance ** 2)
+    if (ranged && !this.rangedActive && target) {
+      const blocker = this._findRangedTrajectoryBlocker(target.position, obstacles)
+      // Hitting the assigned siege target is a valid shot, matching obstacle attack fallback.
+      // Do not grant this exception to human targets or any other obstruction.
+      ranged = blocker === null || (!target.isPlayer && !target.npc
+        && blocker === this.assignedSiegeObstacle && this._isAttackableObstacle(blocker))
+    }
+    if (Boolean(ranged) === this.rangedActive) return
+    this._cancelEquipmentCombatState()
+    if (ranged) {
+      this.rangedActive = true
+      this._restoreCombatReadyRangedVisual()
+    } else this._switchToMelee(false)
+    this.state = AIState.CHASE
+  }
+
+  respawn(destination?: { x: number; y?: number; z: number; yaw?: number }): void {
     this.shield.reset()
     this.weaponSweep.reset()
     this.meleeApproachLimit = Infinity
@@ -3477,26 +4195,28 @@ export class NPC {
     this.pendingLanceChargeSpeed = 0
     this.state = AIState.IDLE
     this.currentHp = this.maxHp
-    if (this.aiType === AIType.RANGED) {
+    this.careerRangedAmmo = undefined
+    if (this.rangedWeaponId) {
       this.arrows = 1
       this.rangedActive = Boolean(this.rangedWeaponId)
-      this.swordPivot.visible = !this.hasActiveRangedWeapon
+      this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
       this.bowPivot.visible = this.hasActiveRangedWeapon
     } else {
       this.arrows = 0
       this.rangedActive = false
-      this.swordPivot.visible = true
+      this.swordPivot.visible = this.meleeWeaponId !== null
       this.bowPivot.visible = false
     }
 
     const x = destination?.x ?? this.spawnX, z = destination?.z ?? this.spawnZ
-    const terrainY = getTerrainHeight(x, z)
+    const terrainY = destination?.y ?? getTerrainHeight(x, z)
     this.group.position.set(x, terrainY, z)
     this.velY = 0
     this.onGround = true
     this.group.rotation.set(0, destination?.yaw ?? 0, 0)
     this._alignExternalVisualToMount(false)
     this.animator.cancel()
+    this._refreshActiveShield()
     this.alertSprite.visible = false
     this._cachedTargetIsPlayer = false
     this._cachedTargetNpc = null
@@ -3520,7 +4240,8 @@ export class NPC {
     this.chargeSprintLatched = false
   }
 
-  restoreForTown(destination?: { x: number; z: number; yaw?: number }): void {
+  restoreForTown(destination?: { x: number; y?: number; z: number; yaw?: number }): void {
+    this.pendingFall.clear()
     this.restoreCombatLoadout()
     this.respawn(destination)
     this._cancelEquipmentCombatState()
@@ -3532,7 +4253,7 @@ export class NPC {
     }
     this.arrows = this.rangedWeaponId ? 30 : 0
     this.rangedActive = Boolean(this.rangedWeaponId)
-    this.swordPivot.visible = !this.hasActiveRangedWeapon
+    this.swordPivot.visible = !this.hasActiveRangedWeapon && this.meleeWeaponId !== null
     this.bowPivot.visible = this.hasActiveRangedWeapon
     this.stamina = MAX_STAMINA
     this.isSprinting = false

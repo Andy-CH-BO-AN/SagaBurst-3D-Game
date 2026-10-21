@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "bb517258398423039a7a0dfa983681322c92a51d",
+  "rebuild": "node tools/bake-roman-t4-foot-axe.mjs",
+  "audit": "node tools/bake-roman-t4-foot-axe.mjs --check",
+  "implementation": {
+    "file": "src/world/BanditFootAttack.ts",
+    "sha256": "89d04fe6b1d1d1112656a62eadea5d472fe465d4771ff60918331935064fe5a0",
+    "export": "createBanditFootAttack",
+    "invocation": "Original HumanoidAssetRegistry.preloadAsset, including original asset preparation; all code read from sourceCommit",
+    "threeRevision": "167"
+  },
+  "donor": {
+    "file": "public/models/characters/v2/bandit/lod0.glb",
+    "sha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+    "manifestSha256": "71d2cc3a3c6a281c09d9031406f44aeba47202ca5896ea349b1fc9e0dcd8c637",
+    "source": {
+      "title": "Fantasy Bandit",
+      "author": "tokeshi",
+      "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
+      "license": "CGTrader Royalty Free (no AI)",
+      "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
+      "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
+      "archives": {
+        "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
+        "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
+      }
+    },
+    "animation": {
+      "clip": "swordSlash",
+      "source": "tokeshi",
+      "sourceClip": "Bandit@attack.fbx",
+      "sourceSha256": "365678d394be49551873eb7e15ece206f863e66a934b7571e8e00b805b2cc5a5",
+      "firstFrame": 2,
+      "lastFrame": 47,
+      "sourceFps": 30,
+      "loop": false,
+      "duration": 0.48,
+      "events": {
+        "hit": 0.252,
+        "actionComplete": 0.48
+      }
+    },
+    "gripReference": "Original tokeshi hammer_grip/hammer_tip and RightHandMiddle1; no donor body, hammer geometry, skin or textures included in this animation asset"
+  },
+  "targetManifestSha256": "e4f7d8d8bf2214770f1cf8f39007c15e505a9b6d5897156719076c65508b3640",
+  "preservedTargetSha256": {
+    "lod0": "d044847b517f79e72b17c6ed89efb7928d50cbb8a01a36430fed62470cb0250a",
+    "lod1": "a00a0480c8b814d263f57217b88db1ccece3398e3f462ed0b3642a75c2be1458",
+    "lod2": "cb6de6a5eb2205edcf7bc02d3ee66bd9e4bce31cffcfe9cc284041d1ea730284"
+  },
+  "timing": {
+    "binding": {
+      "clip": "axeAttack1H",
+      "source": "Kevin Iglesias",
+      "sourceClip": "HumanM@Attack1H01_R",
+      "loop": false,
+      "duration": 0.48,
+      "events": {
+        "hit": 0.13090909090909092,
+        "actionComplete": 0.48
+      }
+    },
+    "samplesPerTrack": 121,
+    "sourceContactSeconds": 0.252,
+    "sourceDurationSeconds": 0.48,
+    "note": "Existing gameplay event selection and hand attachment paths are unchanged; only runtime retargeting becomes an offline bake"
+  },
+  "output": {
+    "file": "foot-axe.glb",
+    "sha256": "cba24a166da0c5163268ac9a8a5e5a289ace3d4ce57b19d3b563e1154801abb7",
+    "bytes": 56108,
+    "geometry": false,
+    "textures": false,
+    "lods": [
+      {
+        "lod": 0,
+        "duration": 0.48,
+        "tracks": 22,
+        "clipSha256": "733fc70d17b463913441af662c12efcb2f6c5b60f9f6bf62f308faf11cc39d9e"
+      },
+      {
+        "lod": 1,
+        "duration": 0.48,
+        "tracks": 22,
+        "clipSha256": "1d099e8344948d8a373c3b187d1e04e1f1689d763f7d20988032dd4b771bb25c"
+      },
+      {
+        "lod": 2,
+        "duration": 0.48,
+        "tracks": 22,
+        "clipSha256": "9f4b893584062e8fbc4b6ed0e590c4587e2d73ebdfffce63ead925e1ac1a207a"
+      }
+    ]
+  }
+}

@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
 import * as THREE from 'three'
-import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
-import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
-import { CareerReliefMarchController, createCareerReliefSpawnPlan } from '../../src/career/CareerOutpostRelief'
+import { describe, expect, it, vi } from 'vitest'
 import { getCampaignOutpostPlacement } from '../../src/campaign/CampaignOutpost'
+import { createCareerOutpostLaunch } from '../../src/career/CareerOutpostLaunch'
+import { acceptCareerOutpostRelief } from '../../src/career/CareerOutpostMission'
+import { CareerReliefMarchController, createCareerReliefSpawnPlan } from '../../src/career/CareerOutpostRelief'
+import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { NPC } from '../../src/world/NPC'
 
 function ready(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
@@ -21,7 +21,7 @@ describe('shared relief march orders', () => {
     const rescue = plan.npcSpecs.filter(spec => spec.squadId).map(spec => ({ ...spec, dead: false,
       combatPosition: new THREE.Vector3(spec.x, 0, spec.z), mount: { baseSpeed: 12 },
       assignFormationTarget: vi.fn(), assignFollowTarget: vi.fn(), setTacticalOrder: vi.fn() }))
-    const captain = rescue.find(npc => npc.name === 'Captain')!, maki = rescue.find(npc => npc.name === 'Maki')!
+    const captain = rescue.find(npc => npc.name === 'Captain')!, maki = rescue.find(npc => npc.specialCombatProfile === 'maki-ranger')!
     const follow = vi.fn(), charge = vi.fn(), breach = new THREE.Vector3(0, 0, getCampaignOutpostPlacement(faction).frontZ)
     const triggered = vi.fn()
     const controller = new CareerReliefMarchController(rescue as unknown as NPC[], breach, follow, triggered, charge, false, { chargeAfterFollow: true })

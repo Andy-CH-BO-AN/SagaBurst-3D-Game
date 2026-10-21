@@ -480,7 +480,7 @@ export function createVeteranSpawnSpec(unitSpec: VeteranRosterUnit, playerFactio
     characterFaction,
     faction: side === 'enemy' ? Faction.ENEMY : Faction.TOWN,
     aiType: ranged ? AIType.RANGED : AIType.MELEE,
-    name: unitSpec.heroRole === 'captain' ? 'Captain' : unitSpec.heroRole === 'ranger' ? 'Maki / Mounted Ranger' : 'Veteran Cavalry',
+    name: unitSpec.heroRole === 'captain' ? 'Captain' : unitSpec.heroRole === 'ranger' ? 'Shadow Warden / Mounted Ranger' : 'Veteran Cavalry',
     tier: unitSpec.tier,
     cavalry: unitSpec.mounted,
     respawnEnabled: false,

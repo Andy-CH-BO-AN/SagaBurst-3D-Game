@@ -1,6 +1,6 @@
 import { BattleSpawner, type BattleSpawnPlan } from '../battle/BattleSpawner'
 import { createEmptyRomanArmyConfig, createEmptyVikingArmyConfig, type BattleConfig, type PlayerLoadoutConfig } from '../battle/BattleConfig'
-import { getDefenseCampaignStage, resolveCampaignRolePreset } from '../campaign/CampaignConfig'
+import { resolveCampaignRolePreset } from '../campaign/CampaignConfig'
 import { createDefenseCampaignWaveConfig, positionDefenseCampaignDefenders, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
 import { canUseCareerMount } from './CareerMountController'
 import { careerItemTotal } from './CareerInventory'
@@ -8,18 +8,19 @@ import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { snapshotPersonalMission, clonePersonalMission } from './CareerPersonalSquadMission'
-import { emptyPersonalContribution } from '../combat/CommandMerit'
+import { createMissionCommandAuthority, officialActorSquadId, type OfficialCommandAuthority } from './CareerCommandAuthority'
+import { commandSquadsFromActorIds } from './MissionCommandRoster'
 import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './CaptainMissionCatalog'
 
 export interface CaptainEagleLaunchConfig { type: 'captain-eagle'; careerMissionId: string; battle: BattleConfig }
-export type CareerCombatLaunch = DefenseCampaignLaunchConfig | CaptainEagleLaunchConfig
+export type CareerCombatLaunch = DefenseCampaignLaunchConfig | CaptainEagleLaunchConfig | import('./CareerBridgeBattle').CareerBridgeBattleLaunch
 
 function captainAvailable(profile: CareerProfile): boolean {
   return (profile.rank === 'captain' || profile.rank === 'commander') && !profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile'
 }
 
-function playerLoadout(profile: CareerProfile, eagle = false): PlayerLoadoutConfig {
+export function careerCombatPlayerLoadout(profile: CareerProfile, eagle = false): PlayerLoadoutConfig {
   const mount = eagle ? 'xongkoro' : profile.selectedMountId
   return {
     meleeWeaponId: profile.equipment?.melee ?? profile.starterWeaponId ?? 'gladius_rusty',
@@ -38,7 +39,7 @@ export function createCaptainFrontlineLaunch(profile: CareerProfile): DefenseCam
   return {
     type: 'defense', careerMissionId: mission.id, careerMissionKind: 'captain-outpost-defense',
     defenderFaction: faction, stageId: 9, playerHeroId: resolveCareerHeroAsset(profile),
-    commandGrouping: 'squad', playerLoadout: playerLoadout(profile),
+    commandGrouping: 'squad', playerLoadout: careerCombatPlayerLoadout(profile),
     defenderArmy: {
       [resolveCampaignRolePreset(faction, 'frontline')]: { 1: 0, 2: 0, 3: 40 },
       [`${faction}_archer`]: { 1: 0, 2: 0, 3: 30 },
@@ -49,14 +50,21 @@ export function createCaptainFrontlineLaunch(profile: CareerProfile): DefenseCam
   }
 }
 
-export function createCaptainFrontlineSpawnPlan(launch: DefenseCampaignLaunchConfig): BattleSpawnPlan {
+export function createCaptainFrontlineSpawnPlan(
+  launch: DefenseCampaignLaunchConfig,
+  authority?: OfficialCommandAuthority,
+  options: { deployRampartGarrison?: boolean; careerGarrison?: boolean } = {},
+): BattleSpawnPlan {
   const plan = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'defenders'))
-  positionDefenseCampaignDefenders(plan.npcSpecs, launch.defenderFaction)
+  positionDefenseCampaignDefenders(plan.npcSpecs, launch.defenderFaction, options)
   const placement = getCampaignOutpostPlacement(launch.defenderFaction)
   const melee = plan.npcSpecs.filter(spec => spec.presetId === resolveCampaignRolePreset(launch.defenderFaction, 'frontline'))
     .sort((a, b) => Math.abs(a.z - placement.frontZ) - Math.abs(b.z - placement.frontZ)).slice(0, 20)
   const authorized = new Set(melee)
-  plan.npcSpecs.forEach((spec, index) => { spec.actorId = `${launch.careerMissionId}:initial:${index}`; spec.squadId = authorized.has(spec) ? 1 : 2 })
+  plan.npcSpecs.forEach((spec, index) => {
+    spec.actorId = `${launch.careerMissionId}:initial:${index}`
+    spec.squadId = (authority && officialActorSquadId(authority, spec.actorId)) ?? (authorized.has(spec) ? 1 : 2)
+  })
   return plan
 }
 
@@ -71,13 +79,16 @@ export function acceptCaptainFrontline(current: CareerProfile, id = createCareer
   next.activeMission = mission
   const launch = createCaptainFrontlineLaunch(next)
   const plan = createCaptainFrontlineSpawnPlan(launch)
-  const stage = getDefenseCampaignStage(9)
+
   mission.friendlyActorIds = plan.npcSpecs.map(spec => spec.actorId!)
-  mission.reinforcementActorIds = Array.from({ length: stage.reinforcement.count }, (_, index) => `${id}:reinforcement:${index}`)
+  const reinforcements = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'reinforcement'))
+  mission.reinforcementActorIds = reinforcements.npcSpecs.map((_, index) => `${id}:reinforcement:${index}`)
   const attackers = BattleSpawner.createSpawnPlan(createDefenseCampaignWaveConfig(launch, 'attackers'))
   mission.targetActorIds = attackers.npcSpecs.map((_, index) => `${id}:attackers:${index}`)
-  mission.officialSquad = { type: 'mission-official', missionId: id, townFaction: next.faction, squadId: 1,
-    actorIds: plan.npcSpecs.filter(spec => spec.squadId === 1).map(spec => spec.actorId!), contribution: emptyPersonalContribution() }
+  const initialSquads = commandSquadsFromActorIds(mission.friendlyActorIds)
+  mission.officialSquad = createMissionCommandAuthority(id, next.faction, next.rank,
+    plan.npcSpecs.filter(spec => spec.squadId === 1).map(spec => spec.actorId!),
+    [...initialSquads, ...commandSquadsFromActorIds(mission.reinforcementActorIds, initialSquads.length + 1)])
   return next
 }
 
@@ -89,7 +100,7 @@ export function createCaptainEagleLaunch(profile: CareerProfile): CaptainEagleLa
   viking.viking_archer = { 1: 0, 2: 0, 3: profile.faction === 'viking' ? 29 : 30 }
   return { type: 'captain-eagle', careerMissionId: mission.id, battle: {
     careerEagleMissionId: mission.id, mode: 'formation', commandGrouping: 'squad', playerFaction: profile.faction,
-    playerHeroId: resolveCareerHeroAsset(profile), playerLoadout: playerLoadout(profile, true), roman, viking,
+    playerHeroId: resolveCareerHeroAsset(profile), playerLoadout: careerCombatPlayerLoadout(profile, true), roman, viking,
     rules: { respawnEnabled: false, includeCamps: false },
   } }
 }
@@ -123,8 +134,9 @@ export function acceptCaptainEagle(current: CareerProfile, id = createCareerMiss
     friendlyActorIds: Array.from({ length: 29 }, (_, index) => `${id}:eagle:friendly:${index}`),
     targetActorIds: Array.from({ length: 30 }, (_, index) => `${id}:eagle:enemy:${index}`),
     personalSquad: snapshotPersonalMission(next),
-    officialSquad: { type: 'mission-official', missionId: id, townFaction: next.faction, squadId: 1,
-      actorIds: Array.from({ length: 29 }, (_, index) => `${id}:eagle:friendly:${index}`), contribution: emptyPersonalContribution() },
+
   }
+  next.activeMission.officialSquad = createMissionCommandAuthority(id, next.faction, next.rank,
+    next.activeMission.friendlyActorIds, [{ squadId: 1, actorIds: next.activeMission.friendlyActorIds }])
   return next
 }

@@ -1,6 +1,6 @@
 import type { TownActorSpec } from './TownRules'
 import type { TownEagleTrainingGround } from './TownEagleTrainingGround'
-import { TOWN_GARRISON_EAGLE_SITES } from './TownLayout'
+import { TOWN_CITY, TOWN_GARRISON_EAGLE_SITES } from './TownLayout'
 import { eagleLandingFootprint } from '../world/EagleLanding'
 
 /** Initial defense alert; boarding retains this minimum before mounted bow range is available. */
@@ -40,4 +40,19 @@ export function townMissionMilitaryIds(roster: readonly TownActorSpec[], savedId
   const allowed = savedIds ? new Set(savedIds) : undefined
   return new Set(roster.filter(spec => (spec.unitKind || spec.role === 'ranger' || spec.role === 'eagle-trainer')
     && (!allowed || allowed.has(spec.id))).map(spec => spec.id))
+}
+
+/** Distinct finite circuits, well inside the map's turning envelope. Flight AI owns avoidance. */
+export const TOWN_EAGLE_PATROL_SECONDS = 180
+export const TOWN_EAGLE_REST_SECONDS = 12
+export const TOWN_EAGLE_REPLACEMENT_SECONDS = 60
+export const TOWN_EAGLE_WAYPOINT_RADIUS = 32
+export function townEaglePatrolRoute(homePadId: string): readonly { x: number; z: number }[] {
+  const slot = Math.max(0, Math.min(4, Number(homePadId.split(':').at(-1)) - 1 || 0))
+  const cx = (TOWN_CITY.minX + TOWN_CITY.maxX) / 2, cz = (TOWN_CITY.minZ + TOWN_CITY.maxZ) / 2
+  const radius = 150 + slot * 10
+  return Array.from({ length: 6 }, (_, waypoint) => {
+    const angle = slot * Math.PI * 2 / 5 + waypoint * Math.PI / 3 * (slot % 2 ? -1 : 1)
+    return { x: cx + Math.sin(angle) * radius, z: cz + Math.cos(angle) * radius }
+  })
 }

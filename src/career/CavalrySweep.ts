@@ -1,5 +1,6 @@
 import { CAPTAIN_CAVALRY_COMMAND_ID, getCaptainMissionAvailability } from './CaptainMissionCatalog'
-import { emptyPersonalContribution } from '../combat/CommandMerit'
+import { createMissionCommandAuthority } from './CareerCommandAuthority'
+import { commandSquadsFromSlots } from './MissionCommandRoster'
 import * as THREE from 'three'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import { MAX_COMMAND_SQUAD_SIZE } from '../battle/CommandTarget'
@@ -23,7 +24,7 @@ export const SWEEP_DETECTION_RANGE = 80
 export const SWEEP_CENTER = new THREE.Vector3(110, 0, -TOWN_PLAYABLE_WORLD_BOUND + 35)
 export const SWEEP_CAPTAIN_START = new THREE.Vector3(TOWN_MOUNTED_MISSION_MUSTER.x, 0, TOWN_MOUNTED_MISSION_MUSTER.z)
 export const SWEEP_YAW = Math.PI
-/** Indexed by mission slot: Captain at 0, Maki at 29; gaps receive temporary riders. */
+/** Indexed by mission slot: Captain at 0, Ranger at 29; gaps receive temporary riders. */
 export type SweepGarrisonActorIds = readonly (string | undefined)[]
 export function sweepPlayerSpawn(captain = SWEEP_CAPTAIN_START, yaw = SWEEP_YAW): THREE.Vector3 {
   return followSlotWorldPosition(captain, yaw, returnFollowLocalOffset(0, 29, true, 5))
@@ -64,7 +65,7 @@ export function createSweepRoster(faction: CharacterFaction, captain = SWEEP_CAP
       const position = leader ? anchor : followSlotWorldPosition(anchor, yaw, returnFollowLocalOffset(slot, 29, true, 5))
       specs.push({
         x: position.x, z: position.z, faction: Faction.TOWN, characterFaction: faction, aiType: leader && squadId === 2 ? AIType.RANGED : AIType.MELEE,
-        name: leader ? squadId === 1 ? 'Captain' : 'Maki' : `Cavalry ${squadId}-${index}`,
+        name: leader ? squadId === 1 ? 'Captain' : 'Shadow Warden' : `Cavalry ${squadId}-${index}`,
         tier: leader ? 4 : 1, cavalry: true, respawnEnabled: false, presetId, squadId,
         loadout: { ...(hero ? resolveT4UnitLoadout(presetId) : UNIT_PRESETS[presetId].tierLoadouts[1]), mountId: hero ? squadId === 2 ? 'black-cat' : hero.mountOverride ?? 'horse' : 'horse' },
         ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile } : {}),
@@ -74,14 +75,15 @@ export function createSweepRoster(faction: CharacterFaction, captain = SWEEP_CAP
   return specs
 }
 
-/** Captain borrows the same 59 riders; only Squad A's 29 NPCs are authorized. */
+/** Both ranks borrow the same 59 riders; only an appointed Commander commands both squads. */
 export function acceptCaptainCavalryCommand(current: CareerProfile, id = createCareerMissionId(CAPTAIN_CAVALRY_COMMAND_ID), garrisonActorIds: SweepGarrisonActorIds = []): CareerProfile | null {
   if (!getCaptainMissionAvailability(current, CAPTAIN_CAVALRY_COMMAND_ID).unlocked) return null
   const profile = acceptCavalrySweep(current, id, garrisonActorIds)
   if (!profile?.activeMission) return null
   const active = profile.activeMission
   active.templateId = CAPTAIN_CAVALRY_COMMAND_ID
-  active.officialSquad = { type: 'mission-official', missionId: id, townFaction: current.faction, squadId: 1,
-    actorIds: active.friendlyActorIds.slice(0, 29), contribution: emptyPersonalContribution() }
+  const squads = commandSquadsFromSlots(active.friendlyActorIds, createSweepRoster(current.faction))
+  active.officialSquad = createMissionCommandAuthority(id, current.faction, current.rank,
+    squads.find(squad => squad.squadId === 1)?.actorIds ?? [], squads)
   return profile
 }

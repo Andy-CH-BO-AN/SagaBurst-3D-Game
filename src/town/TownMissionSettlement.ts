@@ -1,14 +1,18 @@
+import type { TownGarrisonStation } from './TownGarrison'
+import { activateTownResidentHome, restoreTownResidentHome } from './TownResidentHome'
 import type { BanditMissionController } from '../career/BanditMissionController'
-import type { CareerDuelController } from '../career/CareerDuelController'
+import { restoreCareerDuelCommander, type CareerDuelController } from '../career/CareerDuelController'
 import type { TownDefenseController } from '../career/TownDefenseController'
-import { claimCareerMission, clearCareerMission, type CareerProfile } from '../career/CareerProfile'
-import type { CareerMissionOutcome, CareerMissionResult } from '../career/CareerMissionState'
+import { claimCareerMission, clearCareerMission, cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
+import type { ActiveCareerMission, CareerMissionOutcome, CareerMissionResult } from '../career/CareerMissionState'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { Mount } from '../world/Mount'
-import type { NPC } from '../world/NPC'
+import { Faction, type NPC } from '../world/NPC'
+import { refitCommandCheckpoint } from '../career/CareerCommandActorCheckpoint'
+import { isMissionReturnResident, stageMissionReturnRebuild, stageMissionReturnResidents, type MissionReturnHome } from '../career/CareerMissionReturnRecovery'
 import { getTerrainHeight } from '../world/Terrain'
-import { townPlayerEntryPoint, townSitePoint, type TownActorSpec } from './TownRules'
+import { townPlayerEntryPoint, townSitePoint, townRoster, type TownActorSpec } from './TownRules'
 import type { TownEquipment } from './TownEquipment'
 import type { TownWorld } from './TownWorld'
 import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
@@ -21,17 +25,25 @@ interface MissionProfiles {
   commit(profile: CareerProfile, options?: MissionCommitOptions): boolean
 }
 
-export interface MissionCommitOptions { groundedTownReturn?: boolean }
+export interface MissionCommitOptions {
+  groundedTownReturn?: boolean
+  /** A civilian transaction owns its staged checkpoint even when it equals the previous save. */
+  civilianCommandStaged?: boolean
+  /** Completed formal return owns resident recovery, including unchanged/default checkpoints. */
+  residentReturnStaged?: boolean
+  /** Save canonical home state and dispose the old scene before restoring actors. */
+  rebuildTown?: boolean
+}
 
 interface MissionControllers {
   field: Pick<BanditMissionController, 'snapshot' | 'cleanupMission' | 'friendlies'>
   duel: Pick<CareerDuelController, 'snapshot' | 'cleanupMission' | 'actors'>
-  defense: Pick<TownDefenseController, 'active' | 'snapshot' | 'cleanupMission' | 'civilianSurvived' | 'civilianDeaths'>
+  defense: Pick<TownDefenseController, 'active' | 'snapshot' | 'cleanupMission' | 'civilianSurvived' | 'civilianDeaths'> & { snapshotActiveMission?(): ActiveCareerMission | undefined }
   patrol?: Pick<CaptainPatrolCommandController, 'statsSnapshot' | 'release' | 'actors'>
 }
 
 interface ReturnResident {
-  spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw' | 'defenseGroup'> & Partial<Pick<TownActorSpec, 'id' | 'duty'>>
+  spec: Pick<TownActorSpec, 'role' | 'x' | 'z' | 'yaw' | 'defenseGroup'> & Partial<Pick<TownActorSpec, 'id' | 'duty' | 'y'>> & { garrison?: TownGarrisonStation }
   npc: NPC
   homeMount?: Mount
   cycle: number
@@ -53,6 +65,7 @@ interface TownReturnScene {
   restPlayer(): void
   returnPersonalSquad?(direct: boolean): void
   preservesResident?(npc: NPC): boolean
+  applyResidentReturn?(): void
   restart(profile: CareerProfile): void
 }
 
@@ -79,7 +92,11 @@ export class TownMissionSettlement {
   ) {}
 
   finish(outcome: CareerMissionOutcome): MissionFinish {
-    const profile = this.profiles.read()
+    const profile = cloneCareerProfile(this.profiles.read())
+    if (profile.activeMission?.kind === 'commander-four-gate-defense' && !profile.activeMission.result) {
+      const latest = this.missions.defense.snapshotActiveMission?.()
+      if (latest?.id === profile.activeMission.id) profile.activeMission = latest
+    }
     const active = profile.activeMission
     if (!active || active.result) return { status: 'ignored' }
     const source = active.kind === 'duel' ? this.missions.duel : this.missions.defense.active ? this.missions.defense : this.missions.field
@@ -90,10 +107,10 @@ export class TownMissionSettlement {
       stats = active.kind === 'captain-patrol-command' && this.missions.patrol?.statsSnapshot
         ? this.missions.patrol.statsSnapshot : source.snapshot()
       if (active.personalSquad) this.personalResult = { missionId: active.id, outcome, stats: structuredClone(stats),
-        ...(active.kind === 'town-defense' ? { defense: { civilianSurvived: this.missions.defense.civilianSurvived, civilianDeaths: this.missions.defense.civilianDeaths } } : {}) }
+        ...((active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense') ? { defense: { civilianSurvived: this.missions.defense.civilianSurvived, civilianDeaths: this.missions.defense.civilianDeaths } } : {}) }
     }
     const claim = claimCareerMission(profile, active.id, outcome, stats.player, stats.meritPlayer)
-    if (active.kind === 'town-defense' && claim.profile.activeMission?.result) {
+    if ((active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense') && claim.profile.activeMission?.result) {
       claim.profile.activeMission.result.defense = this.personalResult?.missionId === active.id ? this.personalResult.defense : {
         civilianSurvived: this.missions.defense.civilianSurvived,
         civilianDeaths: this.missions.defense.civilianDeaths,
@@ -107,32 +124,44 @@ export class TownMissionSettlement {
     const profile = this.profiles.read()
     const active = profile.activeMission
     if (!active) return { status: 'ignored' }
-    const defense = active.kind === 'town-defense'
+    const defense = (active.kind === 'town-defense' || active.kind === 'commander-four-gate-defense')
     if (defense && (intent !== 'direct' || !active.result)) return { status: 'ignored' }
     const veteranField = active.kind === 'veteran-field'
     const captainPatrol = active.kind === 'captain-patrol-command'
     if (captainPatrol && !active.result) return { status: 'ignored' }
     const enemyTerritoryScout = isCareerEnemyTerritoryFieldMission(active)
+    const enemyTownOperation = active.kind === 'enemy-town-assault'
+      || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
     if (veteranField && !active.result) return { status: 'ignored' }
-    const inPlace = !enemyTerritoryScout && (defense || intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField || captainPatrol)
+    const inPlace = !defense && !enemyTerritoryScout && (intent === 'arrived' || active.kind === 'cavalry-sweep' || veteranField || captainPatrol)
     if (inPlace && !defense && active.phase !== 'RETURNING' && !((active.kind === 'cavalry-sweep' || veteranField || captainPatrol) && active.result)) return { status: 'ignored' }
 
     // Cleanup empties controller rosters. Capture borrowed identities before clearing the saved mission.
     const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : captainPatrol ? this.missions.patrol?.actors ?? [] : this.missions.field.friendlies) : null
-    const next = clearCareerMission(profile, active.id)
+    const completed = Boolean(active.result || profile.claimedBattleIds.includes(active.id))
+    let next = clearCareerMission(profile, active.id)
+    if (completed && inPlace) {
+      const homes: MissionReturnHome[] = this.town.residents.flatMap(resident => resident.spec.id ? [{
+        spec: { ...resident.spec, id: resident.spec.id },
+        ...(isMissionReturnResident(resident.spec) ? { checkpoint: refitCommandCheckpoint(resident.npc, resident.homeMount) } : {}),
+      }] : [])
+      next = stageMissionReturnResidents(next, homes)
+    }
     const garrison = next.townEagleGarrisons?.[profile.faction]
     if (inPlace && garrison) for (const pair of garrison.pairs) {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
     }
     next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
+    const rebuildTown = completed && !inPlace
+    if (rebuildTown) next = stageMissionReturnRebuild(next, townRoster().map(spec => ({ spec })), active.personalSquad)
     const groundedTownReturn = captainPatrol && intent === 'direct'
     if (groundedTownReturn) delete next.playerAerialState
-    if (!this.profiles.commit(next, groundedTownReturn ? { groundedTownReturn: true } : undefined)) return { status: 'save-failed', destination: defense ? 'defense' : inPlace ? 'party' : 'restart' }
+    if (!this.profiles.commit(next, { ...(rebuildTown ? { rebuildTown: true } : {}), ...(groundedTownReturn ? { groundedTownReturn: true } : {}), ...(completed ? { residentReturnStaged: true, civilianCommandStaged: true } : {}) })) return { status: 'save-failed', destination: inPlace ? 'party' : 'restart' }
     this.town.returnPersonalSquad?.(intent === 'direct')
     if (captainPatrol) this.missions.patrol?.release()
 
     if (!inPlace) {
-      if (active.kind === 'enemy-town-assault') this.missions.defense.cleanupMission()
+      if (defense || enemyTownOperation) this.missions.defense.cleanupMission()
       else if (active.kind === 'duel') this.missions.duel.cleanupMission()
       else this.missions.field.cleanupMission(active.targetCampId)
       if (enemyTerritoryScout) {
@@ -152,7 +181,13 @@ export class TownMissionSettlement {
     else if (active.kind === 'cavalry-sweep' || veteranField) this.missions.field.cleanupMission(active.targetCampId, true)
     else if (!captainPatrol) this.missions.field.cleanupMission(active.targetCampId)
     this.town.clearCombatShots()
+    if (defense) {
+      this.town.world.restoreTownDamage()
+      this.town.navigation.sync(this.town.world.obstacles)
+    }
+    if (defense || active.kind === 'duel' || this.town.cat.dead) this.restoreCat()
     for (const resident of this.town.residents) {
+      if (completed && isMissionReturnResident(resident.spec)) { this.restoreResident(resident); continue }
       if (captainPatrol) continue // Its owner already handed the exact roster to physical return/refit.
       if (this.town.preservesResident?.(resident.npc)) continue
       const restore = resident.npc.dead || (defense
@@ -165,14 +200,15 @@ export class TownMissionSettlement {
         } else if (resident.spec.duty === 'patrol' && resident.spec.id && this.town.beginPatrolMissionReturn) {
           this.town.releaseExternalThreat(resident.npc)
           this.town.beginPatrolMissionReturn(resident.spec.id)
-        } else this.restoreResident(resident)
+        } else {
+          this.restoreResident(resident)
+          if (active.kind === 'duel' && active.duelTier === 5 && resident.spec.id === 'commander' && active.duelCommanderHome) {
+            restoreCareerDuelCommander(resident.npc, active.duelCommanderHome, resident.homeMount)
+          }
+        }
       }
     }
-    if (defense || active.kind === 'duel' || this.town.cat.dead) this.restoreCat()
-    if (defense) {
-      this.town.world.restoreTownDamage()
-      this.town.navigation.sync(this.town.world.obstacles)
-    }
+    if (completed) this.town.applyResidentReturn?.()
     const entry = townPlayerEntryPoint(), entryY = getTerrainHeight(entry.x, entry.z) + .9
     if (captainPatrol && intent === 'direct') {
       this.town.player.resetForScene(entry.x, entryY, entry.z)
@@ -187,16 +223,7 @@ export class TownMissionSettlement {
   }
 
   private restoreResident(resident: ReturnResident): void {
-    resident.npc.dismountFromMount()
-    resident.npc.restoreForTown()
-    resident.npc.group.rotation.y = resident.spec.yaw ?? Math.PI
-    resident.cycle = -1
-    resident.walkTime = 0
-    this.town.releaseExternalThreat(resident.npc)
-    if (resident.homeMount) {
-      resident.homeMount.restoreForTown(resident.spec.x, resident.spec.z, resident.spec.yaw ?? Math.PI)
-      resident.npc.mountVehicle(resident.homeMount)
-    }
+    restoreMissionReturnResident(resident, npc => this.town.releaseExternalThreat(npc))
   }
 
   private restoreCat(): void {
@@ -204,4 +231,20 @@ export class TownMissionSettlement {
     this.town.cat.restoreForTown(spot.x, spot.z, spot.yaw)
     this.town.cat.catVisual?.setEquipmentVisible(false)
   }
+}
+
+/** Restore the same authored identity after its recovery checkpoint has been saved. */
+export function restoreMissionReturnResident(resident: ReturnResident, releaseExternalThreat: (npc: NPC) => void): void {
+  const { npc } = resident
+  const spec = restoreTownResidentHome(resident)
+  if (isMissionReturnResident(spec)) {
+    npc.combatOwnership = undefined
+    npc.setCommandAllegiance(Faction.TOWN); npc.setCommandSquad(undefined)
+    npc.missionMovement = false; npc.setMissionCombatTarget(undefined)
+    npc.assignSiegeObstacle(null); npc.clearEncounter(); npc.releaseOutpostRampartGarrison()
+    if (spec.role === 'civilian' || spec.role === 'merchant') npc.disarmTownCivilian()
+  }
+  resident.cycle = -1; resident.walkTime = 0
+  releaseExternalThreat(npc)
+  activateTownResidentHome(npc, spec)
 }

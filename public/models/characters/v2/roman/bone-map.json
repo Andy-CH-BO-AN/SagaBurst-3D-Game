@@ -1,50 +1,46 @@
 {
-  "schemaVersion": 1,
-  "skeleton": "project-humanoid-v1",
-  "sourceArmature": null,
-  "generatedFrom": "Unrigged T-pose mesh landmarks",
-  "generatedBones": [
-    "hips",
-    "spine",
-    "chest",
-    "upper_chest",
-    "neck",
-    "head",
-    "clavicle_l",
-    "clavicle_r",
-    "upper_arm_l",
-    "upper_arm_r",
-    "lower_arm_l",
-    "lower_arm_r",
-    "hand_l",
-    "hand_r",
-    "upper_leg_l",
-    "upper_leg_r",
-    "lower_leg_l",
-    "lower_leg_r",
-    "foot_l",
-    "foot_r",
-    "toe_l",
-    "toe_r"
-  ],
-  "weightPolicy": {
-    "rigidHead": ["Helmet3", "New_head", "New_eye", "New_eye_2"],
-    "chestArmour": "Chest-centre weights with shoulder islands bound to upper arms",
-    "arms": "Segmented upper-arm, lower-arm, and hand weights with joint blends",
-    "legs": "Segmented upper-leg, lower-leg, foot, and toe-region weights",
-    "skirt": "Pelvis dominant with upper-leg contribution below the tunic split",
-    "dangles": "85 percent hips and 15 percent corresponding upper leg",
-    "undertunic": "One fitted layer per upper leg"
+  "rig": "roman54",
+  "sourceToProject": {
+    "Head": "head",
+    "Neck": "neck",
+    "Hand.L": "hand_l",
+    "Forearm.L": "lower_arm_l",
+    "UpperArm.L": "upper_arm_l",
+    "Clavicle.L": "clavicle_l",
+    "Hand.R": "hand_r",
+    "Forearm.R": "lower_arm_r",
+    "UpperArm.R": "upper_arm_r",
+    "Clavicle.R": "clavicle_r",
+    "Chest": "chest",
+    "Spine": "spine",
+    "Toe.L": "toe_l",
+    "Foot.L": "foot_l",
+    "Shin.L": "lower_leg_l",
+    "Thigh.L": "upper_leg_l",
+    "Toe.R": "toe_r",
+    "Foot.R": "foot_r",
+    "Shin.R": "lower_leg_r",
+    "Thigh.R": "upper_leg_r",
+    "Hips": "hips",
+    "Root": "root",
+    "Socket_Axe2H_Grip.R": "socket_axe_2h_r"
   },
-  "generatedSockets": [
-    "socket_hand_l",
-    "socket_hand_r",
-    "socket_back",
-    "socket_head",
-    "socket_pelvis",
-    "socket_foot_l",
-    "socket_foot_r",
-    "sole_l",
-    "sole_r"
-  ]
+  "skinJointCount": 54,
+  "normalization": {
+    "scale": 0.9384777802921037,
+    "offsetY": 0.8920911008185641,
+    "sourceBounds": {
+      "min": [
+        -0.4620119694898686,
+        -0.9505724264893074,
+        -0.20439313837927425
+      ],
+      "max": [
+        0.4584639733337286,
+        0.9461160592476381,
+        0.20073197375854512
+      ]
+    }
+  },
+  "preservedDynamicGrip": true
 }

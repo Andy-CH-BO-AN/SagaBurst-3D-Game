@@ -9,7 +9,15 @@ concurrency:
   group: release-${{ github.sha }}
   cancel-in-progress: false
 jobs:
+  logic:
+    uses: ./.github/workflows/logic-tests.yml
+    with:
+      mode: full
+      head: ${{ github.sha }}
+      event: ${{ github.event_name }}
   inspect:
+    # This job can push a version tag; Full logic must succeed first.
+    needs: logic
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -58,7 +66,7 @@ jobs:
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: node tools/release/publish.cjs --check
   validate:
-    needs: inspect
+    needs: [inspect, logic]
     if: needs.inspect.outputs.published != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -75,8 +83,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
-      - run: npm run test:release
       - run: npm run build
       - run: npx playwright install --with-deps chromium
       - run: npm run smoke:web
@@ -110,6 +116,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run test:release
       - run: npm run package:desktop -- ${{ matrix.flags }}
       - run: npm run smoke:desktop -- --packaged "${{ matrix.executable }}"
       - uses: actions/upload-artifact@v4
@@ -118,9 +125,9 @@ jobs:
           path: release/SagaBurst-v*-*.zip
           if-no-files-found: error
   publish:
-    needs: [inspect, validate, desktop]
+    needs: [inspect, logic, validate, desktop]
     if: >-
-      ${{ !cancelled() && needs.inspect.result == 'success' &&
+      ${{ !cancelled() && needs.inspect.result == 'success' && needs.logic.result == 'success' &&
           (needs.inspect.outputs.published == 'true' ||
            (needs.validate.result == 'success' && needs.desktop.result == 'success')) }}
     runs-on: ubuntu-latest

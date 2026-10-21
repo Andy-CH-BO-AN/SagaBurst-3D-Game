@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { WeaponWheel } from '../../src/player/WeaponWheel'
 import { TownEquipment } from '../../src/town/TownEquipment'
-import { createCareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 describe('Career equipment persistence wiring', () => {
+  it('reports invalid equipment saves without converting retired IDs or overwriting the original', () => {
+    const raw = { ...createCareerProfile('roman'), inventory: { version: 1, quantities: { lance_t4: 1, spear_t4: 2 } },
+      equipment: { melee: 'lance_t4' } }
+    const bytes = JSON.stringify(raw)
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, bytes]] })
+    const store = new CareerProfileStore(storage)
+    expect(store.loadChecked()).toMatchObject({ profile: null, error: expect.any(String) })
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
+    expect(parseCareerProfile({ ...raw, inventory: { version: 1, quantities: { 'maki-ranger-bow': 1 } } })).toBeNull()
+  })
   it('Career selection persists exclusivity, respects failed writes and restores after returning', () => {
     let profile = createCareerProfile('roman')
     profile.ownedWeapons = ['gladius_rusty', 'pilum_basic']

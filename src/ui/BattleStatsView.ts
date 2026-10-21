@@ -41,6 +41,7 @@ export function renderBattleStats(
         <div><small>存活</small><b>${player.survived ? '✓' : '✕'}</b></div>
       </div>
       ${snapshot.meritPlayer ? `<div class="battle-stats-player-title">玩家與授權部隊軍功貢獻 · 傷害 ${whole(snapshot.meritPlayer.damageDealt)} · 擊殺 ${snapshot.meritPlayer.kills} · 建物 ${whole(snapshot.meritPlayer.structureDamage)} · 破門 ${snapshot.meritPlayer.gateBreaches}</div>` : ''}
+      ${snapshot.nativeDefenders ? `<div class="battle-stats-player-title">城鎮獨立守軍 · 傷害 ${whole(snapshot.nativeDefenders.damageDealt)} · 擊殺 ${snapshot.nativeDefenders.kills} · 存活 ${snapshot.nativeDefenders.survivors}/${snapshot.nativeDefenders.startingMembers}</div>` : ''}
       ${squadRows ? `
         <div class="battle-stats-squad-list">
           <div class="battle-stats-squad-title">小隊統計 <small>SQUADS</small></div>

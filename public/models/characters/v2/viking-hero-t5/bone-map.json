@@ -1,0 +1,191 @@
+{
+  "mode": "preserve-selected-source",
+  "runtimeAdapter": "src/world/SelectedHumanoidSource.ts",
+  "joints": [
+    {
+      "name": "hips",
+      "parent": "Steppe_project_humanoid_v1",
+      "skinJointIndex": 0
+    },
+    {
+      "name": "spine",
+      "parent": "hips",
+      "skinJointIndex": 1
+    },
+    {
+      "name": "chest",
+      "parent": "spine",
+      "skinJointIndex": 2
+    },
+    {
+      "name": "upper_chest",
+      "parent": "chest",
+      "skinJointIndex": 3
+    },
+    {
+      "name": "neck",
+      "parent": "upper_chest",
+      "skinJointIndex": 4
+    },
+    {
+      "name": "head",
+      "parent": "neck",
+      "skinJointIndex": 5
+    },
+    {
+      "name": "socket_head",
+      "parent": "head",
+      "skinJointIndex": 6
+    },
+    {
+      "name": "clavicle_l",
+      "parent": "upper_chest",
+      "skinJointIndex": 7
+    },
+    {
+      "name": "upper_arm_l",
+      "parent": "clavicle_l",
+      "skinJointIndex": 8
+    },
+    {
+      "name": "lower_arm_l",
+      "parent": "upper_arm_l",
+      "skinJointIndex": 9
+    },
+    {
+      "name": "hand_l",
+      "parent": "lower_arm_l",
+      "skinJointIndex": 10
+    },
+    {
+      "name": "socket_hand_l",
+      "parent": "hand_l",
+      "skinJointIndex": 11
+    },
+    {
+      "name": "clavicle_r",
+      "parent": "upper_chest",
+      "skinJointIndex": 12
+    },
+    {
+      "name": "upper_arm_r",
+      "parent": "clavicle_r",
+      "skinJointIndex": 13
+    },
+    {
+      "name": "lower_arm_r",
+      "parent": "upper_arm_r",
+      "skinJointIndex": 14
+    },
+    {
+      "name": "hand_r",
+      "parent": "lower_arm_r",
+      "skinJointIndex": 15
+    },
+    {
+      "name": "socket_hand_r",
+      "parent": "hand_r",
+      "skinJointIndex": 16
+    },
+    {
+      "name": "socket_back",
+      "parent": "chest",
+      "skinJointIndex": 17
+    },
+    {
+      "name": "upper_leg_l",
+      "parent": "hips",
+      "skinJointIndex": 18
+    },
+    {
+      "name": "lower_leg_l",
+      "parent": "upper_leg_l",
+      "skinJointIndex": 19
+    },
+    {
+      "name": "foot_l",
+      "parent": "lower_leg_l",
+      "skinJointIndex": 20
+    },
+    {
+      "name": "toe_l",
+      "parent": "foot_l",
+      "skinJointIndex": 21
+    },
+    {
+      "name": "socket_foot_l",
+      "parent": "foot_l",
+      "skinJointIndex": 22
+    },
+    {
+      "name": "sole_l",
+      "parent": "foot_l",
+      "skinJointIndex": 23
+    },
+    {
+      "name": "skirt_front_l",
+      "parent": "hips",
+      "skinJointIndex": 24
+    },
+    {
+      "name": "skirt_back_l",
+      "parent": "hips",
+      "skinJointIndex": 25
+    },
+    {
+      "name": "upper_leg_r",
+      "parent": "hips",
+      "skinJointIndex": 26
+    },
+    {
+      "name": "lower_leg_r",
+      "parent": "upper_leg_r",
+      "skinJointIndex": 27
+    },
+    {
+      "name": "foot_r",
+      "parent": "lower_leg_r",
+      "skinJointIndex": 28
+    },
+    {
+      "name": "toe_r",
+      "parent": "foot_r",
+      "skinJointIndex": 29
+    },
+    {
+      "name": "socket_foot_r",
+      "parent": "foot_r",
+      "skinJointIndex": 30
+    },
+    {
+      "name": "sole_r",
+      "parent": "foot_r",
+      "skinJointIndex": 31
+    },
+    {
+      "name": "skirt_front_r",
+      "parent": "hips",
+      "skinJointIndex": 32
+    },
+    {
+      "name": "skirt_back_r",
+      "parent": "hips",
+      "skinJointIndex": 33
+    },
+    {
+      "name": "skirt_apron",
+      "parent": "hips",
+      "skinJointIndex": 34
+    },
+    {
+      "name": "scabbard",
+      "parent": "hips",
+      "skinJointIndex": 35
+    },
+    {
+      "name": "socket_pelvis",
+      "parent": "hips",
+      "skinJointIndex": 36
+    }
+  ]
+}

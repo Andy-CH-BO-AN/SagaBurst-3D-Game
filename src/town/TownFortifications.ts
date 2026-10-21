@@ -1,4 +1,6 @@
 import * as THREE from 'three'
+import type { TownDockPassages } from './TownDockPassages'
+import { getTownRampartLayout, createTownRamparts } from './TownRamparts'
 import { CampaignGateController } from '../campaign/CampaignGate'
 import { DamageableObstacle } from '../world/DamageableObstacle'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
@@ -9,7 +11,7 @@ import { TOWN_CITY, TOWN_GATES, type TownGateId } from './TownLayout'
 /** All obstacles share TownWorld's live array, also used by mounts, navigation and shots. */
 export function createTownFortifications(faction: CharacterFaction, obstacles: ObstacleData[], materials: {
   stone: THREE.Material; wood: THREE.Material; dark: THREE.Material; snow: THREE.Material
-}) {
+}, dockPassages?: TownDockPassages) {
   const root = new THREE.Group(); root.name = `town-fortifications-${faction}`
   const gates = new Map<TownGateId, CampaignGateController>()
   const walls: ObstacleData[] = []
@@ -27,7 +29,7 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
     const end = horizontal ? TOWN_CITY.maxX : TOWN_CITY.maxZ
     const center = horizontal ? gate.x : gate.z
     for (const [low, high] of [[start, center - TOWN_CITY.gateWidth / 2], [center + TOWN_CITY.gateWidth / 2, end]]) {
-      const count = Math.ceil((high - low) / 20), span = (high - low) / count
+      const count = Math.ceil((high - low) / 5), span = (high - low) / count
       for (let i = 0; i < count; i++) {
         const along = low + span * (i + .5), x = horizontal ? along : gate.x, z = horizontal ? gate.z : along
         const w = horizontal ? span : TOWN_CITY.wallThickness, d = horizontal ? TOWN_CITY.wallThickness : span
@@ -44,10 +46,7 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
           const heights = [low + span * i, along, low + span * (i + 1)].map(value => getTerrainHeight(horizontal ? value : x, horizontal ? z : value))
           const base = Math.min(...heights) - 1, top = Math.max(...heights) + TOWN_CITY.wallHeight
           cube(wallRoot, x, (base + top) / 2, z, w, top - base, d, materials.stone)
-          cube(wallRoot, x, top + .1, z, w + .05, .35, d + .3, materials.stone)
-          for (let merlon = 1; merlon < span; merlon += 3) cube(wallRoot, horizontal ? low + i * span + merlon : x,
-            top + .65, horizontal ? z : low + i * span + merlon, horizontal ? 1.4 : w, 1, horizontal ? d : 1.4, materials.stone)
-          collision = new THREE.Box3(new THREE.Vector3(x - w / 2, base, z - d / 2), new THREE.Vector3(x + w / 2, top + 1.2, z + d / 2))
+          collision = new THREE.Box3(new THREE.Vector3(x - w / 2, base, z - d / 2), new THREE.Vector3(x + w / 2, top, z + d / 2))
         }
         const obstacle = { box: collision, isBarricade: false }; obstacles.push(obstacle); walls.push(obstacle)
       }
@@ -58,8 +57,8 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
       gateRoot.updateMatrixWorld(true); box.applyMatrix4(gateRoot.matrixWorld); obstacles.push({ box, isBarricade: false })
     }
     for (const side of [-1, 1]) {
-      cube(gateRoot, side * 7.9, 2, 0, 1.8, 4, 2.4, faction === 'roman' ? materials.stone : materials.dark)
-      localBox(side * 7.9, -1, 1.8, 5, 2.4)
+      cube(gateRoot, side * 7.9, 2, 0, 1.8, 4, TOWN_CITY.gateDepth, faction === 'roman' ? materials.stone : materials.dark)
+      localBox(side * 7.9, -1, 1.8, 5, TOWN_CITY.gateDepth)
     }
     if (faction === 'roman') {
       // Elliptical barrel arch: masonry ring around an actual opening, never a flat lintel.
@@ -68,28 +67,28 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
       shape.absellipse(0, 4, 8.8, 4.5, 0, Math.PI, false, 0)
       shape.lineTo(-7, 4)
       shape.absellipse(0, 4, 7, 3, Math.PI, 0, true, 0); shape.closePath()
-      const geometry = new THREE.ExtrudeGeometry(shape, { depth: 2.4, bevelEnabled: false, curveSegments: 24 })
-      geometry.translate(0, 0, -1.2)
+      const geometry = new THREE.ExtrudeGeometry(shape, { depth: TOWN_CITY.gateDepth, bevelEnabled: false, curveSegments: 24 })
+      geometry.translate(0, 0, -TOWN_CITY.gateDepth / 2)
       const arch = new THREE.Mesh(geometry, materials.stone); arch.name = 'roman-stone-arch'; arch.castShadow = arch.receiveShadow = true; gateRoot.add(arch)
       // Overhead projectile volumes must not become a navigation blocker across the door.
       const boxes: THREE.Box3[] = []
       gateRoot.updateMatrixWorld(true)
       for (let i = 0; i < 28; i++) {
         const x = -7 + i * .5, innerY = 4 + 3 * Math.sqrt(Math.max(0, 1 - Math.min(Math.abs(x), Math.abs(x + .5)) ** 2 / 49))
-        boxes.push(new THREE.Box3(new THREE.Vector3(x, innerY, -1.2), new THREE.Vector3(x + .5, 8.5, 1.2)).applyMatrix4(gateRoot.matrixWorld))
+        boxes.push(new THREE.Box3(new THREE.Vector3(x, innerY, -TOWN_CITY.gateDepth / 2), new THREE.Vector3(x + .5, 8.5, TOWN_CITY.gateDepth / 2)).applyMatrix4(gateRoot.matrixWorld))
       }
       // Arch pieces retain their height for body/projectile collision; ground navigation uses the jamb.
-      const jambBox = new THREE.Box3(new THREE.Vector3(7, -1, -1.2), new THREE.Vector3(8.8, 8.5, 1.2)).applyMatrix4(gateRoot.matrixWorld)
+      const jambBox = new THREE.Box3(new THREE.Vector3(7, -1, -TOWN_CITY.gateDepth / 2), new THREE.Vector3(8.8, 8.5, TOWN_CITY.gateDepth / 2)).applyMatrix4(gateRoot.matrixWorld)
       for (const box of boxes) obstacles.push({ box, isBarricade: false, navigationBox: jambBox })
     } else {
       for (const side of [-1, 1]) {
-        cube(gateRoot, side * 7.9, 6, 0, 1.8, 4, 2.4, materials.dark)
-        localBox(side * 7.9, 4, 1.8, 4, 2.4)
+        cube(gateRoot, side * 7.9, 6, 0, 1.8, 4, TOWN_CITY.gateDepth, materials.dark)
+        localBox(side * 7.9, 4, 1.8, 4, TOWN_CITY.gateDepth)
       }
-      cube(gateRoot, 0, 7.5, 0, 17.6, .7, 2.4, materials.dark)
+      cube(gateRoot, 0, 7.5, 0, 17.6, .7, TOWN_CITY.gateDepth, materials.dark)
       cube(gateRoot, 0, 8, 0, 17.8, .2, 2.5, materials.snow)
-      const lintel = new THREE.Box3(new THREE.Vector3(-8.8, 7.15, -1.2), new THREE.Vector3(8.8, 8.2, 1.2)).applyMatrix4(gateRoot.matrixWorld)
-      const jamb = new THREE.Box3(new THREE.Vector3(7, -1, -1.2), new THREE.Vector3(8.8, 8.2, 1.2)).applyMatrix4(gateRoot.matrixWorld)
+      const lintel = new THREE.Box3(new THREE.Vector3(-8.8, 7.15, -TOWN_CITY.gateDepth / 2), new THREE.Vector3(8.8, 8.2, TOWN_CITY.gateDepth / 2)).applyMatrix4(gateRoot.matrixWorld)
+      const jamb = new THREE.Box3(new THREE.Vector3(7, -1, -TOWN_CITY.gateDepth / 2), new THREE.Vector3(8.8, 8.2, TOWN_CITY.gateDepth / 2)).applyMatrix4(gateRoot.matrixWorld)
       obstacles.push({ box: lintel, projectileBoxes: [lintel], navigationBox: jamb, isBarricade: false })
     }
     const leaves = new THREE.Group(); leaves.name = `town-${gate.id}-gate-leaves`; gateRoot.add(leaves)
@@ -135,5 +134,7 @@ export function createTownFortifications(faction: CharacterFaction, obstacles: O
     stakes.instanceMatrix.needsUpdate = true; stakes.computeBoundingSphere(); wallRoot.add(stakes)
     snowCaps.instanceMatrix.needsUpdate = true; snowCaps.computeBoundingSphere(); wallRoot.add(snowCaps)
   }
-  return { root, wallRoot, gates, walls }
+  const rampartLayout = getTownRampartLayout()
+  root.add(createTownRamparts(rampartLayout, obstacles, faction === 'roman' ? materials.stone : materials.wood, dockPassages))
+  return { root, wallRoot, gates, walls, rampartLayout }
 }

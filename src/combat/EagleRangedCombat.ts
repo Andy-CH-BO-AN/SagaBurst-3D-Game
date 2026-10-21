@@ -8,5 +8,5 @@ export function eagleBowEngagementRange(
   weapon: Pick<WeaponData, 'type' | 'combatKind' | 'tier'> | undefined,
 ): number | undefined {
   if (mountType !== 'xongkoro' || weapon?.type !== 'ranged' || weapon.combatKind !== 'bow') return undefined
-  return EAGLE_BOW_ENGAGEMENT_RANGE_BY_TIER[weapon.tier]
+  return EAGLE_BOW_ENGAGEMENT_RANGE_BY_TIER[Math.min(weapon.tier, 4) as 1 | 2 | 3 | 4]
 }

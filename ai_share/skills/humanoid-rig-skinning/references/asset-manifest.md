@@ -34,6 +34,8 @@ Create one `manifest.json` per ordinary faction or distinct asset ID. The exampl
 
 Use `status: "blocked"` when the source file or license evidence is missing. Runtime code must only load `status: "ready"`; never infer readiness from the presence of a GLB alone.
 
+Assets published with required `EXT_meshopt_compression` buffer views must explicitly set `bufferCompression: "EXT_meshopt_compression"`. Only marked humanoid manifests enable the existing bundled Three.js decoder; no external decoder files are fetched. Keep images in their existing PNG/JPEG encoding. Run `tools/pack-faction-humanoid-buffers.mjs` after texture and animation processing, and use `decodeMeshoptGlb` from `tools/lib/meshopt-glb.mjs` before structural tools read raw accessor bytes. Its compression audit compares every view against both bundled and npm decoders without quantization or sample changes.
+
 Record third-party texture, scan, and photo credits separately if the source author used them. Keep download receipts or page snapshots outside the shipped runtime bundle when they contain account data.
 
 

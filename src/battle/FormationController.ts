@@ -15,7 +15,21 @@ import { resolveFormationSlots } from './FormationPlacement'
 import type { FormationPlacement } from './FormationPlacement'
 import { FormationPreview } from '../ui/FormationPreview'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
+import { getOutpostNavLayer, isRampartLayer, layerSide } from '../navigation/OutpostLayeredNavigation'
+import { OUTPOST_WALKWAY, type OutpostWalkwayBridge, type OutpostWalkwayDeck } from '../campaign/CampaignOutpostWalkways'
+import { getWalkRampHeight } from '../world/Terrain'
+import { getOutpostRampartArcherSlots } from '../campaign/OutpostRampartGarrison'
+import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
+import { findRiverBridgeDeckHit } from '../world/RiverCrossingBattlefield'
 import { XONGKORO } from '../movement/XongkoroConfig'
+
+/** Exact resolved checkpoint, available to save before the corresponding NPC mutation. */
+export interface FormationCommandAssignment {
+  readonly npc: NPC
+  readonly commandId: number
+  readonly position: Readonly<{ x: number; y: number; z: number; yaw: number }>
+  readonly reached: false
+}
 
 export interface FormationCommandResult {
   accepted: boolean
@@ -132,7 +146,9 @@ export class FormationController {
 
     this.raycaster.setFromCamera(this.screenCenter, this.camera)
     const intersections = this.raycaster.intersectObject(this.terrainMesh, false)
-    if (intersections.length === 0 || this.previewParticipants.length === 0) {
+    const deckHit = this.findTownRampartHit(this.raycaster.ray) ?? this.findRampartDeckHit(this.raycaster.ray)
+    const bridgeHit = findRiverBridgeDeckHit(this.raycaster.ray)
+    if ((intersections.length === 0 && !deckHit && !bridgeHit) || this.previewParticipants.length === 0) {
       this.previewParticipantsSignature = ''
       this.previewBlocked = false
       this.previewInitialized = false
@@ -141,9 +157,22 @@ export class FormationController {
       return
     }
 
-    const hitCenter = intersections[0].point.clone()
-    clampToPlayableWorld(hitCenter)
-    hitCenter.y = getTerrainHeight(hitCenter.x, hitCenter.z)
+    const terrainDistance = intersections.length > 0 ? intersections[0].distance : Infinity
+    const useDeckHit = Boolean(deckHit && deckHit.distance < terrainDistance && (!bridgeHit || deckHit.distance <= bridgeHit.distance))
+    const useBridgeHit = Boolean(!useDeckHit && bridgeHit && bridgeHit.distance < terrainDistance)
+    const hitCenter = useDeckHit
+      ? deckHit!.hitPoint.clone()
+      : useBridgeHit
+        ? bridgeHit!.hitPoint.clone()
+        : intersections[0].point.clone()
+    const outpostNav = this.navigationWorld?.outpostNav
+    const isDeckHit = useDeckHit
+      || Boolean(outpostNav && isRampartLayer(getOutpostNavLayer(hitCenter, outpostNav.layout)))
+
+    if (!isDeckHit) {
+      clampToPlayableWorld(hitCenter)
+      hitCenter.y = getTerrainHeight(hitCenter.x, hitCenter.z)
+    }
     const forward = horizontalFormationForward(this.raycaster.ray.direction)
     const geometryChanged = !this.previewInitialized
       || hitCenter.distanceToSquared(this.previewHitCenter) > 0.01
@@ -151,13 +180,22 @@ export class FormationController {
       || this.previewTopologyRevision !== (this.navigationWorld?.revision ?? -1)
     if (!geometryChanged && !participantCompositionChanged) return
 
+    const rampartLayer = outpostNav ? getOutpostNavLayer(hitCenter, outpostNav.layout) : 'ground'
+    const deck = isRampartLayer(rampartLayer)
+      ? (rampartLayer === 'rampart_gate'
+          ? outpostNav!.layout.bridge
+          : outpostNav!.getDeck(layerSide(rampartLayer)!)) ?? null
+      : null
+
     const placement = this.resolvePlacement(hitCenter, forward, this.previewParticipants, this.placementTarget)
-    const formation = placement ?? this.makeFormation(
-      hitCenter,
-      forward,
-      this.previewParticipants.length,
-      this.getMaxColumns(this.placementTarget),
-    )
+    const formation = placement ?? (deck
+      ? this.makeRampartFormation(hitCenter, forward, this.previewParticipants.length, deck)
+      : this.makeFormation(
+          hitCenter,
+          forward,
+          this.previewParticipants.length,
+          this.getMaxColumns(this.placementTarget),
+        ))
     this.previewBlocked = placement === null
     this.previewHitCenter.copy(hitCenter)
     this.previewCenter.copy(formation.center)
@@ -169,7 +207,122 @@ export class FormationController {
     this.preview.show(formation.center, formation.slots, placement !== null)
   }
 
-  confirmPlacement(): FormationCommandResult {
+  private findTownRampartHit(ray: THREE.Ray): { hitPoint: THREE.Vector3; distance: number } | null {
+    const nav = this.navigationWorld?.townNav
+    if (!nav) return null
+    let best: { hitPoint: THREE.Vector3; distance: number } | null = null
+    for (const deck of nav.layout.decks) {
+      const s = deck.surface, slope = (s.topY - s.startY) / s.length
+      const normal = new THREE.Vector3(-s.dirX * slope, 1, -s.dirZ * slope).normalize()
+      const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(normal, new THREE.Vector3(s.startX, s.startY, s.startZ))
+      if (plane.distanceToPoint(ray.origin) < 0) continue
+      const hit = ray.intersectPlane(plane, new THREE.Vector3())
+      if (!hit || getWalkRampHeight(s, hit.x, hit.z) === null) continue
+      const distance = ray.origin.distanceTo(hit)
+      if (!best || distance < best.distance) best = { hitPoint: hit, distance }
+    }
+    return best
+  }
+
+  private resolveTownRampartPlacement(center: THREE.Vector3, participants: readonly NPC[]): FormationPlacement | null {
+    const nav = this.navigationWorld?.townNav
+    if (!nav || participants.some(npc => npc.mount?.isFlyingMount)) return null
+    const mounted = participants.some(npc => npc.isMounted)
+    const slots = participants.map((_, index) => { const slot = center.clone(); nav.clampFollow(slot, center, index, mounted); return slot })
+    if (slots.some((slot, index) => this.isSlotBlocked(slot, participants[index]))) return null
+    return { center: center.clone(), slots, columns: slots.length }
+  }
+
+  findRampartDeckHit(ray: THREE.Ray): { deck: OutpostWalkwayDeck | OutpostWalkwayBridge; hitPoint: THREE.Vector3; distance: number } | null {
+    const outpostNav = this.navigationWorld?.outpostNav
+    if (!outpostNav) return null
+    let best: { deck: OutpostWalkwayDeck | OutpostWalkwayBridge; hitPoint: THREE.Vector3; distance: number } | null = null
+
+    const candidates: (OutpostWalkwayDeck | OutpostWalkwayBridge)[] = [...outpostNav.layout.decks]
+    if (outpostNav.layout.bridge) {
+      candidates.push(outpostNav.layout.bridge)
+    }
+
+    const tmpBox = new THREE.Box3()
+    const tmpHit = new THREE.Vector3()
+
+    for (const item of candidates) {
+      const slab = item.slab
+
+      // 1. Underside check: If the ray origin is underneath the slab footprint in X/Z and below slab top,
+      // looking upwards must NEVER hit the rampart (avoids false hits when looking straight up at ceiling).
+      const isUnderSlab =
+        ray.origin.x >= slab.min.x - 0.2 &&
+        ray.origin.x <= slab.max.x + 0.2 &&
+        ray.origin.z >= slab.min.z - 0.2 &&
+        ray.origin.z <= slab.max.z + 0.2 &&
+        ray.origin.y < slab.max.y
+
+      if (isUnderSlab && ray.direction.y > 0) continue
+
+      // 2. Upper bounding box of the walkway (slab top surface + parapet/railings).
+      // Bottom of upperBox is slab.min.y (bottom of wooden planks).
+      // Top of upperBox is slab.max.y + railHeight + margin.
+      const railH = OUTPOST_WALKWAY.railHeight
+      tmpBox.min.set(slab.min.x, slab.min.y, slab.min.z)
+      tmpBox.max.set(slab.max.x, slab.max.y + railH + 0.3, slab.max.z)
+
+      const intersection = ray.intersectBox(tmpBox, tmpHit)
+      if (!intersection) continue
+
+      // 3. Entry face check: If ray is pointing upwards and enters through the bottom face (-Y face)
+      // of the wood planks, it is striking the underside of the floor planks from below, not a visible face.
+      if (ray.direction.y > 0 && tmpHit.y <= slab.min.y + 0.08) {
+        continue
+      }
+
+      // 4. Safe margin clamping on the walkable surface
+      const minX = slab.min.x + 0.6
+      const maxX = slab.max.x - 0.6
+      const minZ = slab.min.z + 0.55
+      const maxZ = slab.max.z - 0.55
+
+      let targetX: number
+      let targetZ: number
+
+      if (ray.origin.y > slab.max.y && ray.direction.y < -0.0001) {
+        const tPlane = (item.topY - ray.origin.y) / ray.direction.y
+        if (tPlane > 0) {
+          targetX = ray.origin.x + tPlane * ray.direction.x
+          targetZ = ray.origin.z + tPlane * ray.direction.z
+        } else {
+          targetX = tmpHit.x
+          targetZ = tmpHit.z
+        }
+      } else {
+        targetX = tmpHit.x
+        targetZ = tmpHit.z
+      }
+
+      if (targetX < minX || targetX > maxX || targetZ < minZ || targetZ > maxZ) {
+        targetX = THREE.MathUtils.clamp(targetX, minX, maxX)
+        targetZ = THREE.MathUtils.clamp(targetZ, minZ, maxZ)
+      }
+
+      const surfaceY = ('walkSurface' in item && item.walkSurface)
+        ? (getWalkRampHeight(item.walkSurface, targetX, targetZ) ?? item.topY)
+        : item.topY
+
+      const dist = ray.origin.distanceTo(tmpHit)
+      if (!best || dist < best.distance) {
+        best = {
+          deck: item,
+          hitPoint: new THREE.Vector3(targetX, surfaceY, targetZ),
+          distance: dist,
+        }
+      }
+    }
+    return best
+  }
+
+  confirmPlacement(beforeAssign?: (
+    participants: readonly NPC[], assignments: readonly FormationCommandAssignment[],
+  ) => boolean): FormationCommandResult {
     if (this.placementTarget === null) return { accepted: false, count: 0, commandId: null, participants: [] }
     this.navigationWorld?.sync(this.obstacles)
     const snapshot = this.resolvePlacementSnapshot(this.placementTarget)
@@ -178,21 +331,41 @@ export class FormationController {
       return { accepted: false, count: 0, commandId: null, participants: [] }
     }
 
-    const commandId = this.nextCommandId++
+    // Reload restores NPC targets independently of this controller. Reserve a fresh
+    // ID above every restored command, including squads outside this selection.
+    let commandId = this.nextCommandId
+    for (const npc of this.npcs) {
+      const restoredId = npc.formationCommandId
+      if (restoredId != null && Number.isSafeInteger(restoredId) && restoredId > 0) {
+        commandId = Math.max(commandId, restoredId + 1)
+      }
+    }
     const rowAxis = formationRowAxis(snapshot.forward)
-    const assignments = assignUnitsToSlots(
+    const assignments: FormationCommandAssignment[] = assignUnitsToSlots(
       snapshot.participants.map(npc => ({ id: npc.name, position: npc.combatPosition, npc })),
       snapshot.slots,
       rowAxis,
       snapshot.center,
       snapshot.forward,
       snapshot.columns,
-    )
-    for (const assignment of assignments) {
+    ).map(assignment => {
       const npc = assignment.unit.npc
-      const slot = assignment.slot.clone()
-      if (npc.mount?.isFlyingMount) slot.y = getTerrainHeight(slot.x, slot.z) + XONGKORO.aiCruiseHeight
-      npc.assignFormationTarget(commandId, slot, snapshot.forward)
+      const slot = assignment.slot
+      return { npc, commandId, reached: false, position: {
+        x: slot.x, z: slot.z,
+        y: npc.mount?.isFlyingMount ? getTerrainHeight(slot.x, slot.z) + XONGKORO.aiCruiseHeight : slot.y,
+        yaw: Math.atan2(snapshot.forward.x, snapshot.forward.z),
+      } }
+    })
+    // Save both authority and these exact slots before mutation. A denied save also
+    // leaves the command ID available for a safe retry of the same placement.
+    if (beforeAssign && !beforeAssign(snapshot.participants, assignments)) {
+      return { accepted: false, count: 0, commandId: null, participants: [] }
+    }
+    this.nextCommandId = commandId + 1
+    for (const assignment of assignments) {
+      const { x, y, z } = assignment.position
+      assignment.npc.assignFormationTarget(commandId, new THREE.Vector3(x, y, z), snapshot.forward)
     }
     this.activeCommands.push({ id: commandId, target: this.placementTarget, participants: snapshot.participants })
     this.cancelPlacement()
@@ -286,6 +459,18 @@ export class FormationController {
     participants: readonly NPC[],
     target: ArmyCommandTarget,
   ): FormationPlacement | null {
+    if (this.navigationWorld?.townNav?.isElevated(requestedCenter)) return this.resolveTownRampartPlacement(requestedCenter, participants)
+    const outpostNav = this.navigationWorld?.outpostNav
+    if (outpostNav) {
+      const layer = getOutpostNavLayer(requestedCenter, outpostNav.layout)
+      if (isRampartLayer(layer)) {
+        const deck = layer === 'rampart_gate'
+          ? outpostNav.layout.bridge
+          : outpostNav.getDeck(layerSide(layer)!)
+        if (deck) return this.resolveRampartPlacement(requestedCenter, forward, participants, deck)
+      }
+    }
+
     const component = this.getFormationComponent(participants)
     const inside = this.getFormationRegionSide(requestedCenter, participants)
     const maxColumns = this.getMaxColumns(target)
@@ -318,6 +503,101 @@ export class FormationController {
     return null
   }
 
+  private resolveRampartPlacement(
+    requestedCenter: THREE.Vector3,
+    _forward: THREE.Vector3,
+    participants: readonly NPC[],
+    _deck: OutpostWalkwayDeck | OutpostWalkwayBridge,
+  ): FormationPlacement | null {
+    const nav = this.navigationWorld!.outpostNav!
+    const mounted = participants.some(npc => npc.isMounted || npc.mount || (npc as any).isAnimal || (npc as any).species)
+    if (mounted && (!nav.hasMountedAccess || participants.some(npc => npc.mount?.isFlyingMount))) return null
+    const faction = nav.layout.zSign < 0 ? 'roman' : 'viking'
+    const available = getOutpostRampartArcherSlots(faction)
+    const spacing = mounted ? 3.2 : 1.6
+    const candidates: THREE.Vector3[] = []
+    if (mounted) {
+      // Mixed groups use mounted clearance throughout, so slot assignment cannot
+      // accidentally place a rider in a narrow infantry firing position.
+      const left = nav.getDeck(-1)!, right = nav.getDeck(1)!
+      for (let x = left.slab.min.x + 1.2; x <= right.slab.max.x - 1.2; x += spacing) {
+        const surface = x < nav.layout.bridge.slab.min.x ? left : x > nav.layout.bridge.slab.max.x ? right : nav.layout.bridge
+        for (let z = surface.slab.min.z + 1.6; z <= surface.slab.max.z - 1.6 + .001; z += spacing) {
+          candidates.push(new THREE.Vector3(x, getWalkRampHeight(surface.walkSurface, x, z) ?? surface.topY, z))
+        }
+      }
+    } else {
+      const front = [...available.left, ...available.gate, ...available.right]
+      // Keep the front firing positions and add two ranks on the widened deck.
+      for (const inward of [0, 1.6, 3.2]) {
+        candidates.push(...front.map(slot => new THREE.Vector3(slot.x, slot.y, slot.z + nav.layout.zSign * inward)))
+      }
+    }
+    const unselected = this.npcs.filter(npc => !npc.dead && !participants.includes(npc))
+    const clear = (slot: THREE.Vector3) => unselected.every(npc => {
+      const radius = (mounted ? 1 : .5) + (npc.isMounted ? 1 : .5)
+      const occupied = [npc.combatPosition, npc.formationDestination].filter(Boolean)
+      return occupied.every(point => Math.abs(slot.y - point!.y) > 2.6
+        || (slot.x - point!.x) ** 2 + (slot.z - point!.z) ** 2 >= radius ** 2)
+    })
+    const slots = candidates
+      .filter(clear)
+      .sort((a, b) => a.distanceToSquared(requestedCenter) - b.distanceToSquared(requestedCenter))
+      .slice(0, participants.length)
+    if (slots.length < participants.length) {
+      const placement = getCampaignOutpostPlacement(faction)
+      const reserve: THREE.Vector3[] = []
+      // Interior-only reserve rows. Physical obstacles and occupied orders retain
+      // ownership; no existing defender is displaced to make room.
+      const depth = Math.abs(placement.backZ - placement.frontZ)
+      for (let inward = 8; inward < depth - 3; inward += spacing) {
+        for (let x = -placement.halfWidth + 3; x < placement.halfWidth - 3; x += spacing) {
+          const z = placement.frontZ + nav.layout.zSign * inward
+          const slot = new THREE.Vector3(x, getTerrainHeight(x, z), z)
+          if (clear(slot) && !this.isSlotBlocked(slot, mounted)) reserve.push(slot)
+        }
+      }
+      reserve.sort((a, b) => a.distanceToSquared(requestedCenter) - b.distanceToSquared(requestedCenter))
+      slots.push(...reserve.slice(0, participants.length - slots.length))
+    }
+    if (slots.length !== participants.length) return null
+    return { center: requestedCenter.clone(), slots, columns: participants.length }
+  }
+
+  private makeRampartFormation(
+    center: THREE.Vector3,
+    _forward: THREE.Vector3,
+    count: number,
+    deck: OutpostWalkwayDeck | OutpostWalkwayBridge,
+  ): { center: THREE.Vector3; slots: THREE.Vector3[] } {
+    const minX = deck.slab.min.x + 0.6
+    const maxX = deck.slab.max.x - 0.6
+    const minZ = deck.slab.min.z + 0.55
+    const maxZ = deck.slab.max.z - 0.55
+    const spacing = 1.6
+    const totalSpan = (count - 1) * spacing
+    const halfSpan = totalSpan / 2
+    const clampedCenterX = THREE.MathUtils.clamp(center.x, minX + halfSpan, maxX - halfSpan)
+    const clampedZ = THREE.MathUtils.clamp(center.z, minZ, maxZ)
+    const startX = clampedCenterX - halfSpan
+
+    const slots: THREE.Vector3[] = []
+    for (let i = 0; i < count; i++) {
+      const slotX = startX + i * spacing
+      const slotY = ('walkSurface' in deck && deck.walkSurface)
+        ? (getWalkRampHeight(deck.walkSurface, slotX, clampedZ) ?? deck.topY)
+        : deck.topY
+      slots.push(new THREE.Vector3(slotX, slotY, clampedZ))
+    }
+    const centerY = ('walkSurface' in deck && deck.walkSurface)
+      ? (getWalkRampHeight(deck.walkSurface, clampedCenterX, clampedZ) ?? deck.topY)
+      : deck.topY
+    return {
+      center: new THREE.Vector3(clampedCenterX, centerY, clampedZ),
+      slots,
+    }
+  }
+
   private makeFormation(center: THREE.Vector3, forward: THREE.Vector3, count: number, maxColumns: number): { center: THREE.Vector3; slots: THREE.Vector3[] } {
     const rawSlots = generateFormationSlots(center, forward, count, maxColumns)
     const shift = getFormationBoundaryShift(rawSlots, PLAYABLE_WORLD_BOUND)
@@ -337,6 +617,22 @@ export class FormationController {
     columns: number,
   ): boolean {
     if (slots.length !== participants.length) return false
+    if (this.navigationWorld?.townNav?.isElevated(center)) {
+      const placement = this.resolveTownRampartPlacement(center, participants)
+      return Boolean(placement && placement.slots.every((slot, index) => slot.distanceToSquared(slots[index]) < 1e-8))
+    }
+    const outpostNav = this.navigationWorld?.outpostNav
+    if (outpostNav && slots.length > 0) {
+      const slotLayer = getOutpostNavLayer(slots[0], outpostNav.layout)
+      if (isRampartLayer(slotLayer)) {
+        const deck = slotLayer === 'rampart_gate'
+          ? outpostNav.layout.bridge
+          : outpostNav.getDeck(layerSide(slotLayer)!)
+        const placement = deck ? this.resolveRampartPlacement(center, forward, participants, deck) : null
+        return placement !== null && placement.slots.length === slots.length
+          && placement.slots.every((slot, index) => slot.distanceToSquared(slots[index]) < 1e-8)
+      }
+    }
     const component = this.getFormationComponent(participants)
     const inside = this.getFormationRegionSide(this.previewHitCenter, participants)
     const rowAxis = formationRowAxis(forward)
@@ -382,6 +678,11 @@ export class FormationController {
 
   private isInFormationComponent(slot: THREE.Vector3, component: number): boolean {
     if (!this.navigationWorld) return true
+    if (this.navigationWorld.townNav?.isElevated(slot)) return true
+    if (this.navigationWorld.outpostNav) {
+      const slotLayer = getOutpostNavLayer(slot, this.navigationWorld.outpostNav.layout)
+      if (isRampartLayer(slotLayer)) return true
+    }
     if (component < 0) return false
     const cell = this.navigationWorld.grid.worldToCell(slot)
     return Boolean(cell && !this.navigationWorld.grid.isBlocked(cell)
@@ -416,13 +717,26 @@ export class FormationController {
   }
 
   private isSlotBlocked(slot: THREE.Vector3, npcOrMounted: NPC | boolean): boolean {
+    const outpostNav = this.navigationWorld?.outpostNav
+    if (outpostNav) {
+      const slotLayer = getOutpostNavLayer(slot, outpostNav.layout)
+      if (isRampartLayer(slotLayer)) return false
+    }
     const mounted = typeof npcOrMounted === 'boolean' ? npcOrMounted : npcOrMounted.isMounted
     const radius = mounted ? 1 : 0.5
     const bottom = typeof npcOrMounted !== 'boolean' && npcOrMounted.mount?.isFlyingMount
       ? getTerrainHeight(slot.x, slot.z) + XONGKORO.aiCruiseHeight : slot.y
     const top = bottom + (mounted ? 2.6 : 2.3)
     return this.obstacles.some(obstacle => {
+      if (obstacle.walkSurface && getWalkRampHeight(obstacle.walkSurface, slot.x, slot.z) !== null) return false
       const box = obstacle.box
+      if (obstacle.walkSurface && this.navigationWorld?.townNav?.isElevated(slot)) {
+        // A body straddling two sloped deck pieces stands on their joined surface;
+        // the neighbouring slab's high AABB corner is not a wall at the actor's feet.
+        const y = getWalkRampHeight(obstacle.walkSurface,
+          THREE.MathUtils.clamp(slot.x, box.min.x, box.max.x), THREE.MathUtils.clamp(slot.z, box.min.z, box.max.z))
+        if (y !== null && Math.abs(y - bottom) < .6) return false
+      }
       if (bottom >= box.max.y - 0.001 || top <= box.min.y + 0.001) return false
       return slot.x + radius > box.min.x && slot.x - radius < box.max.x
         && slot.z + radius > box.min.z && slot.z - radius < box.max.z

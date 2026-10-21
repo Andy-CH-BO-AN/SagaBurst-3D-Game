@@ -576,11 +576,27 @@
 .loadout-card.selected { border-color: #d4af37; background: linear-gradient(145deg, #3a2b1b, #24180e); box-shadow: inset 0 0 18px rgba(212,175,55,.13), 0 0 10px rgba(212,175,55,.12); }
 .loadout-card.selected .loadout-card-name { color: #ffe1a0; }
 .loadout-card.selected .loadout-card-check { display: block; }
-.shield-category { display: grid; grid-template-columns: .75fr 1.6fr 1.6fr; gap: 12px; margin-top: 26px; padding-top: 20px; border-top: 1px solid #3d3025; }
-.shield-category > .loadout-category-heading { grid-column: 1 / -1; margin-bottom: 0; }
+.shield-category { display: grid; grid-template-columns: minmax(0, 1fr); gap: 15px; margin-top: 26px; padding-top: 20px; border-top: 1px solid #3d3025; }
+.shield-category > .loadout-category-heading { margin-bottom: 0; }
 .shield-category .equipment-group { min-width: 0; margin: 0; }
-.shield-category .equipment-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.shield-category .loadout-card { min-height: 76px; }
+/* Match the weapon columns' card scale; auto-fill keeps GENERAL's empty slot. */
+.shield-category .equipment-card-grid {
+  max-width: 548px;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
+}
+.shield-category .loadout-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  min-height: 112px;
+  box-sizing: border-box;
+  line-height: 1.4;
+}
+.shield-category .loadout-card-top { flex-shrink: 0; }
+.shield-category .loadout-card-en { margin-top: 0; }
+.shield-category .loadout-card > small { margin-top: auto; padding-top: 4px; white-space: nowrap; }
 .starting-state { margin-top: 8px; padding-top: 20px; border-top: 1px solid #3d3025; }
 .starting-state-options { display: grid; grid-template-columns: repeat(2, minmax(170px, 240px)); gap: 10px; }
 .starting-state-card {
@@ -1094,8 +1110,6 @@
   .loadout-columns, .setup-main { grid-template-columns: 1fr; display: grid; }
   .setup-main { gap: 16px; }
   .equipment-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .shield-category { grid-template-columns: 1fr; }
-  .shield-category > .loadout-category-heading { grid-column: auto; }
 }
 @media (max-width: 560px) {
   .setup-title { font-size: 30px; }
@@ -1502,8 +1516,60 @@
   .campaign-squad-tabs { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
 }
 
+/* Bridgehead objectives fit between the existing command panels. Squad counts
+   remain in ArmyCommandUI instead of duplicating a second roster here. */
+#bridgehead-battle-hud {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 32px));
+  padding: 8px 12px;
+  border: 1px solid #8e7b65;
+  border-radius: 5px;
+  background: rgba(14, 12, 10, .82);
+  color: #e5d8c3;
+  font: 600 12px/1.5 system-ui, sans-serif;
+  white-space: pre-line;
+  text-align: center;
+  pointer-events: none;
+}
+body:has(#bridgehead-battle-hud) #enemy-hud { top: 148px; }
+@media (max-width: 1200px) {
+  body:has(#bridgehead-battle-hud) .army-command-targets,
+  body:has(#bridgehead-battle-hud) .army-command-commands {
+    width: 225px;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+  body:has(#bridgehead-battle-hud) .army-command-targets { left: 16px; right: auto; }
+  body:has(#bridgehead-battle-hud) .army-command-commands { right: 16px; left: auto; }
+  body:has(#bridgehead-battle-hud) .army-command-entry {
+    min-height: 32px;
+    padding: 4px 6px;
+    gap: 6px;
+    font-size: 12px;
+  }
+  body:has(#bridgehead-battle-hud) .army-command-panel-title {
+    padding: 3px 2px;
+    font-size: 13px;
+  }
+}
+@media (max-width: 900px) {
+  body:has(#bridgehead-battle-hud) .army-command-targets,
+  body:has(#bridgehead-battle-hud) .army-command-commands {
+    top: 196px;
+    width: min(340px, calc(100vw - 32px));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+}
+
 /* ── Defense Campaign Runtime HUD ── */
-#defense-campaign-hud {
+#defense-campaign-hud,
+.campaign-status-hud {
   position: fixed;
   top: 18px;
   left: 50%;
@@ -1517,6 +1583,7 @@
   grid-template-areas:
     "stage phase"
     "counts counts"
+    "squads squads"
     "gate gate"
     "timer timer";
   gap: 8px 22px;
@@ -1555,6 +1622,12 @@
 .campaign-hud-counts .roman { color: #e96b5c; }
 .campaign-hud-counts .viking { color: #64a9d8; }
 .campaign-hud-vs { color: #8a7b69; font-size: .85em; }
+.campaign-hud-squads {
+  grid-area: squads;
+  color: #b9ad9d;
+  text-align: center;
+  font: 600 12px/1.5 'Segoe UI', sans-serif;
+}
 
 .campaign-hud-gate {
   grid-area: gate;
@@ -1571,8 +1644,53 @@
   overflow-wrap: anywhere;
 }
 
+/* Mounted circuits use the campaign frame, with a clear clock, objective and two progress rows. */
+#career-race-hud {
+  grid-template-columns: minmax(120px, .8fr) minmax(0, 1.2fr);
+  grid-template-areas: "stage phase" "clock objective" "counts counts" "squads squads" "warning warning";
+  gap: 8px 18px;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+#career-race-hud[hidden], #career-race-hud [hidden] { display: none; }
+#career-race-hud .campaign-hud-stage { font-weight: 800; letter-spacing: .03em; }
+#career-race-hud .campaign-hud-phase { text-align: right; font-size: 16px; }
+.race-hud-clock { grid-area: clock; font-variant-numeric: tabular-nums; }
+.race-hud-clock > span, .race-hud-objective > span { display: block; color: #b9ad9d; font-size: 12px; margin-bottom: 2px; }
+.race-hud-clock > strong { display: block; color: #f3d59c; font-size: 30px; line-height: 1.1; }
+#career-race-hud[data-phase="countdown"] .race-hud-clock > strong { color: #ffb17b; font-size: 48px; }
+.race-hud-objective { grid-area: objective; }
+.race-hud-objective > strong { display: block; font-size: 17px; line-height: 1.4; color: #fff0ce; }
+#career-race-hud .race-hud-racers { gap: 20px; padding-top: 9px; font-size: 14px; }
+.race-hud-rider { flex: 1; min-width: 0; }
+.race-hud-rider > div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 8px; }
+.race-hud-rider strong { font-size: 13px; }
+.race-hud-player { color: #8bc7ff; }
+.race-hud-opponent { color: #f0bd7e; }
+.race-hud-rider progress { display: block; width: 100%; height: 7px; margin-top: 6px; border: 0; border-radius: 4px; overflow: hidden; appearance: none; accent-color: currentColor; }
+.race-hud-rider progress::-webkit-progress-bar { background: #fff2; }
+.race-hud-rider progress::-webkit-progress-value { background: currentColor; }
+.race-hud-rider progress::-moz-progress-bar { background: currentColor; }
+.race-hud-warning { grid-area: warning; border-left: 3px solid #ffb17b; padding: 5px 8px; background: #ed8b2922; color: #ffd5a7; font: 700 14px/1.45 'Segoe UI', sans-serif; }
+body:has(#career-race-hud:not([hidden])) #town-hud { display: none; }
+body:has(#career-race-hud:not([hidden])) #enemy-hud { top: calc(var(--career-race-hud-bottom, 190px) + 48px); }
+@media (max-width: 1360px) {
+  body:has(#career-race-hud:not([hidden])) #army-command-hud[data-layout="town"] .army-command-targets,
+  body:has(#career-race-hud:not([hidden])) #army-command-hud[data-layout="town"] .army-command-commands {
+    top: calc(var(--career-race-hud-bottom, 190px) + 48px);
+  }
+}
+@media (max-width: 620px) {
+  #career-race-hud { gap: 7px 12px; }
+  #career-race-hud .campaign-hud-stage { font-size: 13px; }
+  #career-race-hud .campaign-hud-phase { font-size: 14px; }
+  .race-hud-objective > strong { font-size: 15px; }
+  .race-hud-clock > strong { font-size: 26px; }
+}
+
 /* Campaign status owns the top center. Actor bars and notices use separate zones. */
-body:has(#defense-campaign-hud) #mount-hud {
+body:has(#defense-campaign-hud) #mount-hud,
+body:has(#career-race-hud:not([hidden])) #mount-hud,
+body:has(#bridgehead-battle-hud) #mount-hud {
   top: auto;
   bottom: 138px;
   left: 24px;
@@ -1580,16 +1698,33 @@ body:has(#defense-campaign-hud) #mount-hud {
   box-sizing: border-box;
   width: 240px;
 }
+@media (max-width: 900px) {
+  body:has(#bridgehead-battle-hud) #mount-hud {
+    top: 196px;
+    bottom: auto;
+    left: auto;
+    right: 16px;
+    width: 200px;
+  }
+  body:has(#bridgehead-battle-hud):has(.army-command-commands.visible) #mount-hud {
+    left: 16px;
+    right: auto;
+  }
+}
 body:has(#defense-campaign-hud) #enemy-hud {
   top: 208px;
 }
-body:has(#defense-campaign-hud) #save-notify {
+body:has(#defense-campaign-hud) #save-notify,
+body:has(#career-race-hud:not([hidden])) #save-notify,
+body:has(#bridgehead-battle-hud) #save-notify {
   top: auto;
   bottom: 220px;
   box-sizing: border-box;
   width: min(420px, calc(100vw - 32px));
 }
-body:has(#defense-campaign-hud) .army-command-feedback {
+body:has(#defense-campaign-hud) .army-command-feedback,
+body:has(#career-race-hud:not([hidden])) .army-command-feedback,
+body:has(#bridgehead-battle-hud) .army-command-feedback {
   top: auto;
   bottom: 280px;
   max-width: calc(100vw - 48px);
@@ -1751,7 +1886,8 @@ body:has(#defense-campaign-hud) .army-command-feedback {
 .campaign-result-actions button:hover { border-color: #d4af37; color: #f0d39c; }
 
 @media (max-width: 620px) {
-  #defense-campaign-hud {
+  #defense-campaign-hud,
+  .campaign-status-hud {
     min-width: 0;
     width: calc(100vw - 24px);
     top: 12px;

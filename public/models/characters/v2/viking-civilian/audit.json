@@ -1,0 +1,229 @@
+{
+  "id": "viking-civilian",
+  "distinctRealLods": true,
+  "triangleBudgets": "LOD1 3000–5000; LOD2 1000–2000; strictly descending",
+  "lod0SourceRepairAccounting": {
+    "originalTriangles": 10295,
+    "removedBridgeTriangles": 138,
+    "addedLiningTriangles": 1234,
+    "addedInnerCapeRefinementTriangles": 313,
+    "expectedTriangles": 11704
+  },
+  "sourceSha256": "d793d2a8aa196d928bd2188ff66502a02eca2328d6024528a856c6787362172d",
+  "structuralStatus": "pass",
+  "sameLodRigAndAnimation": true,
+  "lods": [
+    {
+      "level": 0,
+      "sha256": "fe95e98a50581906bb306cfcb13a5fe219c904eccfbe2ca2c17427a385de3652",
+      "bytes": 11769868,
+      "triangles": 11704,
+      "vertices": 16634,
+      "verifiedShellPairs": 0,
+      "skinJointCount": 72,
+      "hipsAxisX": [
+        1,
+        0,
+        0
+      ],
+      "capeRegion": {
+        "definition": "All vertices with any fitted cape-helper influence. This tests the separated deformation ownership; it does not claim to identify every textured upper-cloak vertex.",
+        "sourceMaskSha256": "18a95e774352a64887b2f942eaea764361dc6decccd0f0a4b7eb9f9ceb47008b",
+        "sourceCapeFaceCount": 2675,
+        "vertices": 2836,
+        "maxArmOrHandWeight": 0
+      },
+      "meshes": 1,
+      "materials": 1,
+      "images": 3,
+      "textures": [
+        {
+          "name": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 5096234,
+          "mimeType": "image/png"
+        },
+        {
+          "name": "texture_0",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1554104,
+          "mimeType": "image/jpeg"
+        },
+        {
+          "name": "texture_0_metallic_roughness",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2682497,
+          "mimeType": "image/png"
+        }
+      ],
+      "maxWeightError": 1.1920928955078125e-7,
+      "minWeight": 0,
+      "clips": [
+        "idle",
+        "walk",
+        "run",
+        "swordSlash",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeAttack1HFoot",
+        "death"
+      ],
+      "losslessPublicationVerification": {
+        "baselineGlbSha256": "10059eb47a2cb5eef215880b88117e091693726974920297045d772f754c9615",
+        "decodedBufferViewsByteExact": 816,
+        "imagesDecodedRgbaIdentical": 3,
+        "jpegPayloadUnchanged": true
+      }
+    },
+    {
+      "level": 1,
+      "sha256": "9536629eda6300193197c5388246eccfda01b14d13a1c860e83fa90f43bb0a74",
+      "bytes": 5165108,
+      "triangles": 4321,
+      "vertices": 7756,
+      "verifiedShellPairs": 119,
+      "skinJointCount": 72,
+      "hipsAxisX": [
+        1,
+        0,
+        0
+      ],
+      "capeRegion": {
+        "definition": "All vertices with any fitted cape-helper influence. This tests the separated deformation ownership; it does not claim to identify every textured upper-cloak vertex.",
+        "sourceMaskSha256": "18a95e774352a64887b2f942eaea764361dc6decccd0f0a4b7eb9f9ceb47008b",
+        "sourceCapeFaceCount": 2675,
+        "vertices": 1121,
+        "maxArmOrHandWeight": 0
+      },
+      "meshes": 1,
+      "materials": 1,
+      "images": 3,
+      "textures": [
+        {
+          "name": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1672319,
+          "mimeType": "image/png"
+        },
+        {
+          "name": "texture_0",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 505767,
+          "mimeType": "image/jpeg"
+        },
+        {
+          "name": "texture_0_metallic_roughness",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 907173,
+          "mimeType": "image/png"
+        }
+      ],
+      "maxWeightError": 1.2293457984924316e-7,
+      "minWeight": 0,
+      "clips": [
+        "idle",
+        "walk",
+        "run",
+        "swordSlash",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeAttack1HFoot",
+        "death"
+      ],
+      "losslessPublicationVerification": {
+        "baselineGlbSha256": "9e469ce38dab235ff62bcb484330b291463c2e06540dc11567a9e754e7714445",
+        "decodedBufferViewsByteExact": 816,
+        "imagesDecodedRgbaIdentical": 3,
+        "jpegPayloadUnchanged": true
+      }
+    },
+    {
+      "level": 2,
+      "sha256": "b3f8eead0b088e05b2bfa1550d8ba6d52570808c26dfe1597a3abc50421dcb45",
+      "bytes": 2853532,
+      "triangles": 1645,
+      "vertices": 3514,
+      "verifiedShellPairs": 64,
+      "skinJointCount": 72,
+      "hipsAxisX": [
+        1,
+        0,
+        0
+      ],
+      "capeRegion": {
+        "definition": "All vertices with any fitted cape-helper influence. This tests the separated deformation ownership; it does not claim to identify every textured upper-cloak vertex.",
+        "sourceMaskSha256": "18a95e774352a64887b2f942eaea764361dc6decccd0f0a4b7eb9f9ceb47008b",
+        "sourceCapeFaceCount": 2675,
+        "vertices": 531,
+        "maxArmOrHandWeight": 0
+      },
+      "meshes": 1,
+      "materials": 1,
+      "images": 3,
+      "textures": [
+        {
+          "name": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 473049,
+          "mimeType": "image/png"
+        },
+        {
+          "name": "texture_0",
+          "width": 512,
+          "height": 512,
+          "bytes": 151440,
+          "mimeType": "image/jpeg"
+        },
+        {
+          "name": "texture_0_metallic_roughness",
+          "width": 512,
+          "height": 512,
+          "bytes": 285325,
+          "mimeType": "image/png"
+        }
+      ],
+      "maxWeightError": 1.1920928955078125e-7,
+      "minWeight": 0,
+      "clips": [
+        "idle",
+        "walk",
+        "run",
+        "swordSlash",
+        "bowLoad",
+        "bowHold",
+        "bowRelease",
+        "pilumThrow",
+        "axeMountedIdle",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeAttack1HFoot",
+        "death"
+      ],
+      "losslessPublicationVerification": {
+        "baselineGlbSha256": "b3876b92db6ad68836214ba32fc37f07d7fb8f177309dfe01a1a239d9096145b",
+        "decodedBufferViewsByteExact": 816,
+        "imagesDecodedRgbaIdentical": 3,
+        "jpegPayloadUnchanged": true
+      }
+    }
+  ],
+  "visualStatus": "Not established by this structural audit",
+  "limitations": "No claim of collision-free cloth, correct grip or GPU performance from structural checks."
+}

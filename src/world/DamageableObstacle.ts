@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { CharacterFaction } from './CharacterVisuals'
 
 export type DamageableObstacleKind =
+  | 'siege_ramp'
   | 'tree'
   | 'palisade'
   | 'gate'
@@ -10,6 +11,7 @@ export type DamageableObstacleKind =
   | 'campfire'
 
 export const DAMAGEABLE_OBSTACLE_HP: Readonly<Record<DamageableObstacleKind, number>> = {
+  siege_ramp: 520,
   tree: 180,
   // Palisade wall sections are deliberately tougher than the gate so the
   // intended breach point is also the cheaper structure to destroy.
@@ -29,6 +31,7 @@ export interface DamageableObstacleOptions {
 }
 
 export const DAMAGEABLE_OBSTACLE_NAMES: Readonly<Record<DamageableObstacleKind, string>> = {
+  siege_ramp: 'Siege Ramp',
   tree: 'Tree',
   palisade: 'Palisade',
   gate: 'Gate',

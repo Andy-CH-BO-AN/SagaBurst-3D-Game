@@ -7,6 +7,7 @@ import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODContr
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { createPaladinEquipment } from './PaladinEquipment'
+import { createT4Polearm, createT5BowBody, createT5Melee } from './HighTierEquipment'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -156,8 +157,8 @@ export interface NpcRangedMeshParts {
 }
 
 // Shared immutable grip resources; cloned shield instances own only transforms.
-const PALADIN_GRIP_GEOMETRY = new THREE.CapsuleGeometry(.024, .2, 4, 8)
-const PALADIN_GRIP_MOUNT_GEOMETRY = new THREE.BoxGeometry(.055, .035, .17)
+let paladinGripGeometry: THREE.CapsuleGeometry | undefined
+let paladinGripMountGeometry: THREE.BoxGeometry | undefined
 
 export class WeaponMeshFactory {
   /**
@@ -166,6 +167,34 @@ export class WeaponMeshFactory {
   static buildMelee(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
     const tipLocal = new THREE.Vector3(0, 1.2, 0)
     pivot.userData.gripCenterLocal = [0, 0.15, 0]
+    if (WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
+    else delete pivot.userData.meleeAnimationKind
+
+    if (weaponId === 'spear_t4' || weaponId === 'spear_t5') {
+      pivot.userData.supportPointLocal = [0, .33, 0]
+      pivot.userData.forwardAxisLocal = [0, 1, 0]
+      pivot.userData.tipLocal = [0, 2.6, 0]
+      pivot.add(weaponId === 'spear_t5' ? createT5Melee(weaponId) : createT4Polearm())
+      return { tipLocal: new THREE.Vector3(0, 2.6, 0) }
+    }
+
+    if (weaponId === 'sword_t5') {
+      pivot.add(createT5Melee(weaponId))
+      return { tipLocal: new THREE.Vector3(0, 1.3275, 0) }
+    }
+    if (weaponId === 'axe_t5') {
+      // Reuse the existing weapon-only carry/attack transform and Bandit foot-axe pose.
+      // The normalized asset has its shaft along +Y and its grip at y=.15.
+      const visual = new THREE.Group()
+      visual.name = 'dane-axe-visual'
+      visual.position.y = .15
+      visual.rotation.x = .45
+      const model = createT5Melee(weaponId)
+      model.position.y = -.15
+      visual.add(model)
+      pivot.add(visual)
+      return { tipLocal: new THREE.Vector3(0, 1.51, 0) }
+    }
 
     if (weaponId === 'paladin_sword_t4' || weaponId === 'paladin_mace_t4') {
       pivot.add(createPaladinEquipment(weaponId))
@@ -355,6 +384,10 @@ export class WeaponMeshFactory {
    * 建構遠程武器的 3D mesh group
    */
   static buildRanged(weaponId: string, pivot: THREE.Group, consolidateMaterialGroups = false): { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number } {
+    if (weaponId === 'bow_t5') {
+      pivot.add(createT5BowBody())
+      return { topTip: new THREE.Vector3(0, .85, .21), botTip: new THREE.Vector3(0, -.85, .21), stringLength: .85 }
+    }
     const profile = DEFAULT_BOW_GRIP_PROFILE
     const tier = WEAPONS[weaponId]?.tier ?? 2
     const halfSpan = weaponId === 'wooden_shortbow' ? 0.62 : weaponId === 'elven_runebow' ? 1.02 : 0.85
@@ -529,6 +562,8 @@ export class WeaponMeshFactory {
   }
 
   static buildNpcMelee(characterFaction: CharacterFaction, tier: number, isLance: boolean, pivot: THREE.Group, weaponId?: string): THREE.Vector3 {
+    if (weaponId && WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
+    else delete pivot.userData.meleeAnimationKind
     if (weaponId) {
       if (weaponId.startsWith('gladius_') || weaponId === 'centurion_blade') {
         const gladiusTier = weaponId === 'gladius_rusty' ? 1 : weaponId === 'gladius_standard' ? 2 : 3
@@ -641,12 +676,12 @@ export class WeaponMeshFactory {
     if (shieldId === 'paladin_shield_t4') {
       pivot.add(createPaladinEquipment(shieldId))
       // Same central vertical grip geometry and frame as the existing shields.
-      const rearGrip = equipmentShadowUntil(new THREE.Mesh(PALADIN_GRIP_GEOMETRY, leather), -1)
+      const rearGrip = equipmentShadowUntil(new THREE.Mesh(paladinGripGeometry ??= new THREE.CapsuleGeometry(.024, .2, 4, 8), leather), -1)
       rearGrip.position.set(0, 0, 0.085)
       rearGrip.name = 'shield-rear-grip'
       pivot.add(equipmentDetail(rearGrip, 0))
       for (const y of [-.10, .10]) {
-        const mount = new THREE.Mesh(PALADIN_GRIP_MOUNT_GEOMETRY, leather)
+        const mount = new THREE.Mesh(paladinGripMountGeometry ??= new THREE.BoxGeometry(.055, .035, .17), leather)
         mount.name = 'shield-grip-mount'
         mount.position.set(0, y, .16)
         pivot.add(equipmentDetail(equipmentShadowUntil(mount, -1), 0))

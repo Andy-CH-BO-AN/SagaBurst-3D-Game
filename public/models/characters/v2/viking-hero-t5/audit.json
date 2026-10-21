@@ -1,0 +1,244 @@
+{
+  "source": {
+    "title": "Steppe Iron Guard",
+    "sourceArchive": "Roman_Steppe_Selected_Complete.zip",
+    "sourceEntry": "Steppe/Steppe_Selected_11Clips_Candidate.glb",
+    "sourceSha256": "59cfd8bebeb1b87a4e97c99b6e476dd920a32fff3b6941669fc749fc37b3a931",
+    "license": "Meshy account/service/input terms; project animation sources retain their original terms",
+    "licenseEvidence": "source-readme.txt"
+  },
+  "fileSha256": {
+    "lod0": "59cfd8bebeb1b87a4e97c99b6e476dd920a32fff3b6941669fc749fc37b3a931",
+    "lod1": "9a3a70051d88ef36601201f16b3acc4f626d22308f3f7e725ab64daa3f8418da",
+    "lod2": "ce6e5d8257f08ef52c3988e3b29bc0fce76729ca3080c88c714c3553c2ee84ae"
+  },
+  "metrics": {
+    "heightM": 2.1193006331863145,
+    "shoulderWidthM": 0.6645790819402477,
+    "neckLengthM": 0.10067855666644003,
+    "triangles": {
+      "lod0": 10389,
+      "lod1": 9517,
+      "lod2": 9181
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    },
+    "uniformScale": 1.1186500854923693,
+    "bodyLandmarks": [
+      {
+        "name": "hips",
+        "source": 1.0299999713897705,
+        "reference": 1.0630946159362793
+      },
+      {
+        "name": "upper_arm_l",
+        "source": 1.4399998853056628,
+        "reference": 1.6427268470861613
+      },
+      {
+        "name": "upper_arm_r",
+        "source": 1.439999849241724,
+        "reference": 1.6427270426208738
+      }
+    ]
+  },
+  "jointCount": 37,
+  "animations": [
+    {
+      "name": "axeMountedIdle",
+      "channels": 111
+    },
+    {
+      "name": "bowHold",
+      "channels": 111
+    },
+    {
+      "name": "bowLoad",
+      "channels": 111
+    },
+    {
+      "name": "bowRelease",
+      "channels": 111
+    },
+    {
+      "name": "idle",
+      "channels": 111
+    },
+    {
+      "name": "pilumThrow",
+      "channels": 111
+    },
+    {
+      "name": "run",
+      "channels": 111
+    },
+    {
+      "name": "swordSlash",
+      "channels": 111
+    },
+    {
+      "name": "walk",
+      "channels": 111
+    },
+    {
+      "name": "axeAttack1H",
+      "channels": 111
+    },
+    {
+      "name": "axeAttack2H",
+      "channels": 111
+    }
+  ],
+  "sourceRepairs": null,
+  "lodAudit": "lod-audit.json",
+  "sourceVerification": "source-verification.json",
+  "performanceAcceptance": {
+    "status": "passed",
+    "date": "2026-10-12",
+    "protocol": "hero-100-continuous-melee-v1",
+    "hardware": {
+      "cpu": "Apple M1 Pro",
+      "physicalMemoryBytes": 17179869184
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "observationMs": 20000,
+    "warmupMs": 6000,
+    "unchangedQualityAndShadows": true,
+    "sourceSha256": "31587285929e855d8eb777ba93e4922cc331f3f506baf7f144b1849088bda21a",
+    "comparisons": [
+      {
+        "faction": "viking",
+        "view": "near",
+        "pairs": 3,
+        "baseline": {
+          "sampleCount": 675,
+          "durationMs": 20024.8,
+          "meanFps": 33.71072700304145,
+          "onePercentLowFps": 20.75303883782976,
+          "meanFrameMs": 29.664148148148154,
+          "p95FrameMs": 41.69999999999891
+        },
+        "candidate": {
+          "sampleCount": 1685,
+          "durationMs": 20008.1,
+          "meanFps": 84.21505075393712,
+          "onePercentLowFps": 49.6060694484966,
+          "meanFrameMs": 11.874362017804154,
+          "p95FrameMs": 17.200000000000728
+        },
+        "baselineLods": [
+          94,
+          6,
+          0
+        ],
+        "candidateLods": [
+          93,
+          7,
+          0
+        ],
+        "comparableLods": true,
+        "comparableSettings": true,
+        "ratios": {
+          "meanFps": 2.4981677418686066,
+          "onePercentLowFps": 2.390303889282565,
+          "p95FrameMs": 0.4124700239808436
+        },
+        "passed": true,
+        "nearBoundary": false
+      },
+      {
+        "faction": "viking",
+        "view": "mid",
+        "pairs": 3,
+        "baseline": {
+          "sampleCount": 641,
+          "durationMs": 20033.199999999997,
+          "meanFps": 32.02326057741786,
+          "onePercentLowFps": 19.85252410663619,
+          "meanFrameMs": 31.22730109204368,
+          "p95FrameMs": 41.79999999999927
+        },
+        "candidate": {
+          "sampleCount": 1850,
+          "durationMs": 20008.3,
+          "meanFps": 92.45977999570188,
+          "onePercentLowFps": 52.910052910055,
+          "meanFrameMs": 10.815513513513512,
+          "p95FrameMs": 16.900000000001455
+        },
+        "baselineLods": [
+          0,
+          100,
+          0
+        ],
+        "candidateLods": [
+          0,
+          100,
+          0
+        ],
+        "comparableLods": true,
+        "comparableSettings": true,
+        "ratios": {
+          "meanFps": 2.8872693888298997,
+          "onePercentLowFps": 2.6651549508693724,
+          "p95FrameMs": 0.40430622009573564
+        },
+        "passed": true,
+        "nearBoundary": false
+      },
+      {
+        "faction": "viking",
+        "view": "far",
+        "pairs": 3,
+        "baseline": {
+          "sampleCount": 748,
+          "durationMs": 20009.5,
+          "meanFps": 37.384485438543,
+          "onePercentLowFps": 23.222060957910138,
+          "meanFrameMs": 26.749064171122992,
+          "p95FrameMs": 34.599999999998545
+        },
+        "candidate": {
+          "sampleCount": 2028,
+          "durationMs": 20008.2,
+          "meanFps": 101.36654903881718,
+          "onePercentLowFps": 55.2340873224607,
+          "meanFrameMs": 9.865187376725839,
+          "p95FrameMs": 16.799999999999272
+        },
+        "baselineLods": [
+          0,
+          0,
+          100
+        ],
+        "candidateLods": [
+          0,
+          0,
+          100
+        ],
+        "comparableLods": true,
+        "comparableSettings": true,
+        "ratios": {
+          "meanFps": 2.711460325044607,
+          "onePercentLowFps": 2.3785178853234514,
+          "p95FrameMs": 0.48554913294797625
+        },
+        "passed": true,
+        "nearBoundary": false
+      }
+    ],
+    "reloadCyclesPerTierPerView": 5,
+    "allLifecycleChecksPassed": true,
+    "rawEvidence": "Local ignored output/t5-acceptance/benchmark-{near,mid,far}-optimized.json",
+    "limitations": [
+      "DEV-instrumented game loop; not uninstrumented production.",
+      "JS heap/resource counts are not total RAM/VRAM."
+    ]
+  }
+}

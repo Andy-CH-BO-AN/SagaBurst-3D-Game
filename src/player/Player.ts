@@ -3,7 +3,6 @@ import { applyEquipmentAttachment } from '../world/EquipmentAttachmentContract'
 import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { HERO_COMBAT_PROFILE_BY_ASSET, applyHeroIncomingDamage, applyHeroOutgoingDamage, getT4HeroCombatModifiers } from '../battle/T4HeroCatalog'
-import { createMakiRangerBowInstance } from '../world/MakiRangerEquipment'
 /**
  * Player.ts
  * The player character (capsule geometry).
@@ -27,15 +26,16 @@ import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
 import { Mount } from '../world/Mount'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { damagePlayer } from '../combat/DamageRouter'
+import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../combat/ProjectileAdmission'
 import type { CombatDamageContext } from '../combat/CombatAttribution'
 import { EAGLE_AIM, eagleRiderAimYaw, type EagleAimHeading } from './EagleFlightAim'
 import { fitStandingRider } from '../world/StandingRider'
 import { applyCharacterMountedPose, buildCharacterVisual, polishWeaponMaterials } from '../world/CharacterVisuals'
 import type { CharacterRig, MountedPoseKind } from '../world/CharacterVisuals'
-import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
+import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from '../world/HumanoidAssetRegistry'
 import { CharacterCombatAnimator, meleeActionTimeScale, type CombatAction } from '../world/CharacterCombatAnimator'
 import { applyAttachmentContract } from '../world/HumanoidAttachmentContract'
-import { applySwordAttachment, weaponGripWorld } from '../world/SwordAttachmentContract'
+import { applySwordAttachment, weaponGripWorld, weaponTipWorld } from '../world/SwordAttachmentContract'
 import { applyBowAttachment } from '../world/BowAttachmentContract'
 import {
   CharacterBowVisual,
@@ -105,7 +105,6 @@ export class Player {
   private bowPivot!: THREE.Group
   private bowGripPivot!: THREE.Group
   private bowVisual: CharacterBowVisual | null = null
-  private meleeBowVisual: CharacterBowVisual | null = null
   private currentRangedId: string = ''
 
   private shieldPivot!: THREE.Group
@@ -186,7 +185,7 @@ export class Player {
   private readonly deathFade = new DeathFadeController()
   public spectatorOnly = false
 
-  onFireArrow: ((evt: ArrowLaunchEvent) => void) | null = null
+  onFireArrow: ((evt: ArrowLaunchEvent) => ProjectileLaunchResult) | null = null
   onPlayerDeath: (() => void) | null = null
 
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
@@ -247,7 +246,7 @@ export class Player {
   }
 
   getWeaponGripPosition(target: THREE.Vector3): THREE.Vector3 {
-    return this.meleeBowVisual?.getGripPosition(target) ?? weaponGripWorld(this.swordGripPivot, target)
+    return weaponGripWorld(this.swordGripPivot, target)
   }
 
   getBowGripPosition(target: THREE.Vector3): THREE.Vector3 {
@@ -293,7 +292,8 @@ export class Player {
 
   private readonly playableWorldBound: number
 
-  constructor(scene: THREE.Scene, private readonly visualFaction: 'viking' | 'roman' = 'viking', readonly heroAssetId?: HeroAssetId | null) {
+  constructor(scene: THREE.Scene, private readonly visualFaction: 'viking' | 'roman' = 'viking', readonly heroAssetId?: HeroAssetId | null,
+    private readonly visualTier?: 1 | 2 | 3) {
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.group = new THREE.Group()
     this.group.name = 'player'
@@ -316,20 +316,26 @@ export class Player {
     this.shieldPivot = new THREE.Group()
     this.shieldCollider = new ShieldCollider(this.shieldPivot, this.shield)
 
-    this._buildMesh(2)
+    try {
+      this._buildMesh(this.visualTier ?? 2)
 
-    const heroCombat = this.heroAssetId ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId]) : null
-    if (heroCombat) this.setMaxHp(heroCombat.maxHp)
+      const heroCombat = this.heroAssetId ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId]) : null
+      if (heroCombat) this.setMaxHp(heroCombat.maxHp)
 
-    // Build default initial weapons (Steel Sword & Recurve Longbow)
-    this.rebuildMeleeWeapon('steel_sword')
-    this.rebuildRangedWeapon('recurve_longbow')
+      // Build default initial weapons (Steel Sword & Recurve Longbow)
+      this.rebuildMeleeWeapon('steel_sword')
+      this.rebuildRangedWeapon('recurve_longbow')
 
-    scene.add(this.group)
+      scene.add(this.group)
 
-    // Initial position calibrated with terrain height at [0, 0]
-    const terrainY = getTerrainHeight(0, 0)
-    this.group.position.set(0, terrainY + PLAYER_HALF_HEIGHT, 0)
+      // Initial position calibrated with terrain height at [0, 0]
+      const terrainY = getTerrainHeight(0, 0)
+      this.group.position.set(0, terrainY + PLAYER_HALF_HEIGHT, 0)
+    } catch (error) {
+      // A failed constructor has no caller-owned instance to dispose later.
+      this.dispose()
+      throw error
+    }
   }
 
   private _buildMesh(tier: 1 | 2 | 3): void {
@@ -337,6 +343,9 @@ export class Player {
     this.swordPivot.removeFromParent()
     this.bowPivot.removeFromParent()
     this.shieldPivot.removeFromParent()
+    this.animator?.cancel()
+    this.rig?.animation?.stop()
+    disposeHumanoidInstanceSkeletons(this.characterVisualGroup)
     this.characterVisualGroup.clear()
     this.characterVisualGroup.position.y = HumanoidAssetRegistry.ready
       ? -PLAYER_HALF_HEIGHT
@@ -378,10 +387,6 @@ export class Player {
     this.shieldPivot.position.set(0, 0.124, 0.019)
     this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
     if (this.rig.equipmentGripFrames) applyEquipmentAttachment(this.rig.left.handSocket, this.shieldPivot, this.shieldPivot, this.rig.equipmentGripFrames.shieldLeft, 'shield')
-    if (this.currentMeleeId === 'maki-ranger-bow') {
-      this.currentMeleeId = ''
-      this.rebuildMeleeWeapon('maki-ranger-bow')
-    }
     this.animator = new CharacterCombatAnimator(this.rig, this.swordPivot, this.bowPivot)
     this.isSwinging = false
     this.hitEventPending = false
@@ -405,22 +410,6 @@ export class Player {
       this.swordGripPivot.remove(this.swordGripPivot.children[0])
     }
 
-    this.meleeBowVisual = null
-    if (weaponId === 'maki-ranger-bow') {
-      const bow = createMakiRangerBowInstance()
-      this.meleeBowVisual = new CharacterBowVisual(this.swordPivot, this.swordGripPivot, this.characterVisualGroup)
-      applyBowAttachment(this.rig.left.handSocket, this.swordPivot)
-      this.rig.left.handSocket.add(this.swordPivot)
-      this.swordPivot.userData.swordAttachmentOwned = false
-      delete this.swordPivot.userData.equipmentAttachmentOwned
-      this.meleeBowVisual.rebuildFromAsset(bow.model, bow.profile, bow.topTip, bow.bottomTip)
-      this.meleeBowVisual.update(0, undefined, false)
-      return
-    }
-    if (this.swordPivot.parent !== this.rig.right.handSocket) {
-      applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', .15)
-      this.rig.right.handSocket.add(this.swordPivot)
-    }
     const { tipLocal } = WeaponMeshFactory.buildMelee(weaponId, this.swordGripPivot)
     this.swordTipLocal.copy(tipLocal)
 
@@ -445,26 +434,26 @@ export class Player {
     this.currentRangedId = weaponId
     const weapon = WEAPONS[weaponId]
     this.bowPivot.removeFromParent()
+    this.bowVisual?.dispose()
     this.bowGripPivot.clear()
     if (weapon?.animationKind === 'pilum') {
       this.bowVisual = null
-      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', 0)
+      applyAttachmentContract(this.rig.right.handSocket, 'r', this.bowPivot, 'ranged', this.rig.rangedGripFrame ? .55 : 0, this.rig.rangedGripFrame)
       this.rig.right.handSocket.add(this.bowPivot)
       WeaponMeshFactory.buildNpcRanged('roman', weapon.tier, this.bowGripPivot)
     } else {
       this.bowVisual = new CharacterBowVisual(this.bowPivot, this.bowGripPivot, this.characterVisualGroup)
       applyBowAttachment(this.rig.left.handSocket, this.bowPivot)
       this.rig.left.handSocket.add(this.bowPivot)
-      this.bowVisual.rebuild(this.heroAssetId === 'maki-archer-t4' ? 'maki-ranger-bow' : weaponId)
+      this.bowVisual.rebuild(weaponId)
     }
     polishWeaponMaterials(this.bowPivot)
     this.bowPivot.visible = false
   }
 
   getSwordTipPosition(): THREE.Vector3 {
-    if (this.meleeBowVisual) return this.meleeBowVisual.getTopTipPosition(this._tmpTipWorld)
     const tipWorld = this._tmpTipWorld
-    this.swordGripPivot.localToWorld(tipWorld.copy(this.swordTipLocal))
+    weaponTipWorld(this.swordGripPivot, this.swordTipLocal, tipWorld, this.rig.meleeTipFollowsVisual)
     return tipWorld
   }
 
@@ -549,7 +538,9 @@ export class Player {
     this.flightRiderAimYaw = null
     this.flightRiderYaw = 0
     mount.setPlayerRider(this)
-    const targetHeading = heading !== undefined ? heading : this.facingYaw
+    // Keep a grounded eagle inside the clearance envelope it landed in.
+    // A rider approaching from its side must not rotate its wings into a wall.
+    const targetHeading = heading ?? (mount.isFlyingMount ? mount.group.rotation.y : this.facingYaw)
     this.setMountedHeading(targetHeading)
     this.syncMountTransform()
   }
@@ -591,7 +582,7 @@ export class Player {
       preserveWorldPosition = true
     }
     const mountPosition = groundedEagleDismount ? this.fallFeet.clone().addScaledVector(THREE.Object3D.DEFAULT_UP, PLAYER_HALF_HEIGHT)
-      : preserveWorldPosition ? null : this.currentMount.group.position.clone()
+      : preserveWorldPosition ? null : this.currentMount.group.position.clone().addScaledVector(THREE.Object3D.DEFAULT_UP, PLAYER_HALF_HEIGHT)
     this.currentMount.releaseRider()
     this.currentMount = null
     this.isMounted = false
@@ -717,11 +708,13 @@ export class Player {
   }
 
   dispose(): void {
+    this.bowVisual?.dispose()
     this.fallingRider.clear()
     this.fallContext = undefined
     this.onPlayerDeath = null
-    this.animator.cancel()
-    this.rig.animation?.stop()
+    this.animator?.cancel()
+    this.rig?.animation?.stop()
+    disposeHumanoidInstanceSkeletons(this.characterVisualGroup)
     this.onFireArrow = null
     this.group.removeFromParent()
   }
@@ -843,7 +836,7 @@ export class Player {
     const leftMouseDown = combatEnabled && input.isLeftMouseDown
     const rightMouseDown = combatEnabled && input.isRightMouseDown
 
-    const visualTier = Math.min(3, Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2)) as 1 | 2 | 3
+    const visualTier = this.visualTier ?? Math.min(3, Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2)) as 1 | 2 | 3
     if (visualTier !== this.currentArmorTier) this._buildMesh(visualTier)
 
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)
@@ -1030,7 +1023,6 @@ export class Player {
     if (flyingMount?.eagleVisual) fitStandingRider(this.characterVisualGroup, this.rig, flyingMount.eagleVisual.standingSocket)
     this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getSwordTipPosition())
     if (!isPilum) this._updateBowPose(maxChargeTime, cameraAimPoint)
-    if (this.swordPivot.visible) this.meleeBowVisual?.update(0, undefined, false)
     if (animationEvents.hitActiveStarted) this.hitEventPending = true
     if (this.animator.isLanceThrustActive) {
       if (!this.hasPrevLanceTip) {
@@ -1162,6 +1154,7 @@ export class Player {
         PLAYER_HALF_HEIGHT * 2,
         PLAYER_HALF_HEIGHT,
         obstacles,
+        { walkSurfaces: true },
       )
       this.velY = playerCollision.velocityY
       this.onGround = playerCollision.onGround
@@ -1172,9 +1165,10 @@ export class Player {
   }
 
   /** Run after the mount animation, before render; keeps the contact on this frame's seat. */
-  fitCorgiSeat(): void {
-    if (!this.currentMount?.corgiVisual || this.dead) return
-    this.currentMount.corgiVisual.fitRider(this.characterVisualGroup)
+  fitMountedSeat(): void {
+    if (!this.currentMount || this.dead) return
+    this.currentMount.corgiVisual?.fitRider(this.characterVisualGroup)
+    this.currentMount.catVisual?.fitRider(this.characterVisualGroup)
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {
@@ -1215,6 +1209,7 @@ export class Player {
   ): void {
     if (this.arrows <= 0) return
 
+    const ammoBeforeLaunch = this.arrows
     this.arrows -= 1
 
     const maxChargeTime = equippedRanged ? equippedRanged.speedOrCharge : MAX_BOW_CHARGE_TIME
@@ -1236,30 +1231,33 @@ export class Player {
     this.bowVisual?.writeLaunch(arrowOrigin, arrowDirection, cameraAimPoint)
 
     if (this.onFireArrow) {
-      this.onFireArrow({
+      const accepted = this.onFireArrow({
         origin: arrowOrigin.clone(),
         direction: arrowDirection.clone(),
         speed,
         damage,
         visualKind: 'arrow',
       })
+      this.arrows = projectileAmmoAfterLaunch(ammoBeforeLaunch, accepted)
     }
   }
 
   private _firePilum(cameraAimPoint: THREE.Vector3, archeryMultiplier: number, equippedRanged: WeaponData): void {
     if (this.arrows <= 0) return
+    const ammoBeforeLaunch = this.arrows
     this.arrows -= 1
     const origin = this.bowGripPivot.getWorldPosition(this._tmpWorldNock)
     const direction = this._tmpArrowDirection.copy(cameraAimPoint).sub(origin).normalize()
     const rangedKind = getRangedCombatKind(equippedRanged) ?? 'javelin'
     if (this.onFireArrow) {
-      this.onFireArrow({
+      const accepted = this.onFireArrow({
         origin: origin.clone(),
         direction: direction.clone(),
         speed: equippedRanged.arrowSpeedMax ?? 48,
         damage: applyHeroOutgoingDamage(Math.round(equippedRanged.damageMax * archeryMultiplier * getRangedDamageMultiplier(rangedKind)), this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null),
         visualKind: 'pilum',
       })
+      this.arrows = projectileAmmoAfterLaunch(ammoBeforeLaunch, accepted)
     }
   }
 

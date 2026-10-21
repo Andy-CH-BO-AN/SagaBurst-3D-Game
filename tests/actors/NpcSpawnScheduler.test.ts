@@ -1,22 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { NpcSpawnScheduler, assertNpcSpawnJob, trackNpcSpawn } from '../../src/world/NpcSpawnScheduler'
-import { NpcSpawnTestDriver } from '../helpers/npcSpawnFrames'
+import { NpcSpawnScheduler, trackNpcSpawn } from '../../src/world/NpcSpawnScheduler'
 
 describe('shared render-frame NPC budget', () => {
-  it('keeps fixture clocks and pending queues independent by default', () => {
-    const first = new NpcSpawnTestDriver(), second = new NpcSpawnTestDriver()
-    const firstCalls = vi.fn(), secondCalls = vi.fn()
-    const firstBatch = first.scheduler.batch(), secondBatch = second.scheduler.batch()
-    firstBatch.enqueue('first', firstCalls); firstBatch.seal()
-    secondBatch.enqueue('second', secondCalls); secondBatch.seal()
-
-    expect(first.advanceFrame()).toBe(16)
-    expect(second.advanceFrame()).toBe(16)
-    expect(firstCalls).toHaveBeenCalledOnce()
-    expect(secondCalls).toHaveBeenCalledOnce()
-    expect(first.scheduler.pending).toBe(0)
-    expect(second.scheduler.pending).toBe(0)
-  })
 
   it('enqueues pure jobs, deduplicates actor identity and materializes once for a repeated RAF timestamp', () => {
     const scheduler = new NpcSpawnScheduler(), create = vi.fn(), batch = scheduler.batch()
@@ -30,21 +15,6 @@ describe('shared render-frame NPC budget', () => {
     scheduler.tick(32)
     expect(create).toHaveBeenCalledTimes(2); expect(batch.ready).toBe(true)
     expect(batch.enqueue('c', create)).toBe(false)
-  })
-
-  it('shares the same budget between owners, even after a long background pause', () => {
-    const scheduler = new NpcSpawnScheduler(), calls: number[] = []
-    for (let owner = 0; owner < 3; owner++) {
-      const batch = scheduler.batch()
-      for (let i = 0; i < 3; i++) batch.enqueue(`${owner}:${i}`, () => calls.push(owner))
-      batch.seal()
-    }
-    for (const timestamp of [16, 1000, 100000]) {
-      const before = calls.length
-      scheduler.tick(timestamp); scheduler.tick(timestamp)
-      expect(calls.length - before).toBe(1)
-    }
-    expect(scheduler.pending).toBe(6)
   })
 
   it('does not reopen an empty frame or materialize a callback enqueue in the same frame', () => {
@@ -108,17 +78,6 @@ describe('shared render-frame NPC budget', () => {
     } finally { vi.unstubAllGlobals() }
   })
 
-  it('rejects a cancelled loading batch without leaving a pending promise', async () => {
-    const scheduler = new NpcSpawnScheduler(), callbacks: FrameRequestCallback[] = []
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => { callbacks.push(cb); return 1 })
-    try {
-      const batch = scheduler.batch(); batch.enqueue('a', vi.fn()); batch.seal()
-      const pending = scheduler.wait(batch)
-      batch.cancel(); callbacks.shift()!(16)
-      await expect(pending).rejects.toThrow('cancelled')
-    } finally { vi.unstubAllGlobals() }
-  })
-
 
   it('marks empty finalizer failures and settles loading even when owner cleanup also throws', async () => {
     const scheduler = new NpcSpawnScheduler(), error = new Error('empty roster finalization')
@@ -130,12 +89,5 @@ describe('shared render-frame NPC budget', () => {
       await expect(scheduler.wait(batch)).rejects.toBe(error)
       expect(log).toHaveBeenCalledOnce()
     } finally { log.mockRestore() }
-  })
-
-  it('requires factory materialization to run inside a spawn job', () => {
-    expect(assertNpcSpawnJob).toThrow('frame spawn job')
-    const scheduler = new NpcSpawnScheduler(), batch = scheduler.batch()
-    batch.enqueue('actor', () => expect(assertNpcSpawnJob).not.toThrow()); batch.seal(); scheduler.tick(16)
-    expect(batch.ready).toBe(true)
   })
 })

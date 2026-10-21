@@ -7,9 +7,9 @@ import {
   type UnitPresetId,
 } from './UnitPresetCatalog'
 import type { TacticalOrder } from './TacticalOrder'
-import { armyHudCountSummary, countArmyHudRoster, type ArmyHudRoster } from './ArmyCommandHudRoster'
+import { armyHudCountSummary, armyHudUnitSummary, armyHudUnitType, countArmyHudRoster, type ArmyHudRoster } from './ArmyCommandHudRoster'
 import { ArmyCommandUI, type ArmyCommandHudEntry, type ArmyCommandHudOrder } from '../ui/ArmyCommandUI'
-import type { FormationController } from './FormationController'
+import type { FormationCommandAssignment, FormationController } from './FormationController'
 import type { InventoryManager } from '../rpg/InventoryManager'
 import {
   isSquadCommandTarget,
@@ -18,6 +18,7 @@ import {
   squadIdFromCommandTarget,
   squadDisplayOrder,
   squadLabel,
+  squadShortcutKey,
   type ArmyCommandTarget,
   type CommandGroupingMode,
   type SquadIdentity as SquadId,
@@ -37,6 +38,9 @@ export interface ArmyCommandAuthority {
   enabled(): boolean
   /** Owns Follow/Dismiss destinations and mission-specific handoff policy. */
   issue?(order: TacticalOrder | 'dismiss', target: ArmyCommandTarget): boolean
+  /** Persist direct-order ownership before mutations; Follow/Dismiss are owned by issue. */
+  beforeIssue?(order: TacticalOrder, target: ArmyCommandTarget, participants: readonly NPC[],
+    assignments?: readonly FormationCommandAssignment[]): boolean
 }
 
 const VIKING_SHORTCUTS: readonly ArmyCommandShortcut[] = [
@@ -129,6 +133,8 @@ export class ArmyCommandController {
     private readonly personalCommands?: { issue(order: TacticalOrder | 'dismiss'): boolean; enabled(): boolean },
     private readonly commandAuthority?: ArmyCommandAuthority,
     private readonly hudRoster?: () => ArmyHudRoster | undefined,
+    private readonly campaignFollowEnabled = false,
+    private readonly onCampaignFollow?: ((target: ArmyCommandTarget, recipients: readonly NPC[]) => void) | null,
   ) {
     this.faction = faction
     this.shortcuts = getArmyCommandShortcuts(faction)
@@ -150,6 +156,10 @@ export class ArmyCommandController {
       this._onFormationCompleted(commandId, target, participants, status)
     })
     if (this.commandAuthority) this.formation?.setParticipantPolicy?.(npc => this._acceptsNpc(npc))
+    this.ui?.setOnOfficialSquadLabelChanged?.(() => {
+      this._syncRosterSelection()
+      if (this.commandsEnabled) this._renderUi()
+    })
     this._syncRosterSelection()
     this._renderUi()
   }
@@ -197,7 +207,7 @@ export class ArmyCommandController {
 
     if (this.formation?.isPlacementMode) {
       this.formation.updatePlacement()
-      for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9']) {
+      for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']) {
         this._consumeDigit(key)
       }
       while (this.input.consumeWheelStep() !== 0) {
@@ -216,8 +226,12 @@ export class ArmyCommandController {
         this.formation.cancelPlacement()
         this._renderUi()
       } else if (confirmed) {
-        const result = this.formation.confirmPlacement()
+        const target = this.selectedTarget
+        if (!target) return
+        const result = this.formation.confirmPlacement((participants, assignments) =>
+          this.commandAuthority?.beforeIssue?.('formation', target, participants, assignments) ?? true)
         if (result.accepted) {
+          for (const npc of result.participants) npc.releaseOutpostRampartGarrison?.()
           this._setFormationDesiredOrders(this.selectedTarget, result.participants, result.commandId)
           this.onCommandIssued?.('formation', this.selectedTarget ?? undefined)
           this.ui.showFeedback(`${this._targetLabel(this.selectedTarget)} → 列陣`)
@@ -236,7 +250,7 @@ export class ArmyCommandController {
         while (this.input.consumeWheelStep() !== 0) {
           // Returning from a submenu discards wheel movement from that page.
         }
-        for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9']) {
+        for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']) {
           this._consumeDigit(key)
         }
         this.input.consumeMiddleClick()
@@ -259,14 +273,20 @@ export class ArmyCommandController {
       }
 
       let commandKey: string | null = null
-      for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9']) {
+      for (const key of ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0']) {
         if (!this._consumeDigit(key)) continue
-        if (commandKey === null && Number(key) <= (this._hasPartyCommands() ? 6 : 4)) commandKey = key
+        if (commandKey === null && Number(key) >= 1 && Number(key) <= this._maxSubmenuCommands()) commandKey = key
       }
       if (commandKey !== null) {
         this.highlightedCommandIndex = Number(commandKey) - 1
-        if (this._hasPartyCommands() && (commandKey === '5' || commandKey === '6')) {
-          this._issue(commandKey === '5' ? 'follow' : 'dismiss')
+        if (commandKey === '5') {
+          if (this._hasPartyCommands() || this.campaignFollowEnabled) {
+            this._issue('follow')
+            return
+          }
+        }
+        if (commandKey === '6' && (this.personalCommands || this.commandAuthority)) {
+          this._issue('dismiss')
           return
         }
         const command = getCommandFromSubmenuKey(commandKey)
@@ -320,8 +340,19 @@ export class ArmyCommandController {
     this._renderUi()
   }
 
+  private _maxSubmenuCommands(): number {
+    if (this.personalCommands || this.commandAuthority) return 6
+    if (this.campaignFollowEnabled) return 5
+    return 4
+  }
+
   private _selectHighlightedCommand(): void {
-    const commands: readonly (TacticalOrder | 'dismiss')[] = this._hasPartyCommands() ? [...WHEEL_COMMANDS, 'follow', 'dismiss'] : WHEEL_COMMANDS
+    const commands: readonly (TacticalOrder | 'dismiss')[] =
+      this.personalCommands || this.commandAuthority
+        ? [...WHEEL_COMMANDS, 'follow', 'dismiss']
+        : this.campaignFollowEnabled
+          ? [...WHEEL_COMMANDS, 'follow']
+          : WHEEL_COMMANDS
     const command = commands[this.highlightedCommandIndex]
     if (!command) return
     if (command === 'formation') {
@@ -346,7 +377,7 @@ export class ArmyCommandController {
   private _moveCommandHighlight(direction: -1 | 1): void {
     this.highlightedCommandIndex = Math.max(
       0,
-      Math.min((this._hasPartyCommands() ? 6 : WHEEL_COMMANDS.length) - 1, this.highlightedCommandIndex + direction),
+      Math.min(this._maxSubmenuCommands() - 1, this.highlightedCommandIndex + direction),
     )
   }
 
@@ -372,7 +403,7 @@ export class ArmyCommandController {
     if (!target) return
     if (this.commandAuthority && !this.commandAuthority.enabled()) { this.close(); return }
 
-    if (order !== 'dismiss' && this.canIssueOrder && !this.canIssueOrder(order)) {
+    if (order !== 'dismiss' && order !== 'follow' && this.canIssueOrder && !this.canIssueOrder(order)) {
       this.ui.showFeedback(this.personalCommands ? '請先下令 Follow me，讓私人隊伍跟隨你。' : '部署階段：敵軍尚未進場')
       this._closeSubmenu()
       return
@@ -392,6 +423,19 @@ export class ArmyCommandController {
       this._closeSubmenu()
       return
     }
+
+    if (this.campaignFollowEnabled && order === 'follow') {
+      const recipients = this.npcs.filter(npc => !npc.dead && this._acceptsNpc(npc) && matchesArmyCommandTarget(npc, target))
+      for (const npc of recipients) npc.releaseOutpostRampartGarrison?.()
+      this._clearFormationDesiredOrders(target)
+      this._setDesiredOrder(target, 'follow')
+      this.onCampaignFollow?.(target, recipients)
+      this.onCommandIssued?.('follow', target)
+      this.ui.showFeedback(`${this._targetLabel(target)} → Follow me · 跟隨`)
+      this._closeSubmenu()
+      return
+    }
+
     if (order === 'dismiss') return
     // Career authority can retain living but returning (non-commandable) NPCs.
     // Do not claim an order succeeded when every recipient is currently ineligible.
@@ -399,13 +443,17 @@ export class ArmyCommandController {
       this._closeSubmenu()
       return
     }
+    const participants = this.npcs.filter(npc => !npc.dead && this._acceptsNpc(npc) && matchesArmyCommandTarget(npc, target))
+    if (this.commandAuthority?.beforeIssue && !this.commandAuthority.beforeIssue(order, target, participants)) {
+      this._closeSubmenu()
+      return
+    }
     this._clearFormationDesiredOrders(target)
     this._setDesiredOrder(target, order)
 
-    for (const npc of this.npcs) {
-      if (!this._acceptsNpc(npc)) continue
-      if (!matchesArmyCommandTarget(npc, target)) continue
-      if (npc.dead) continue
+    for (const npc of participants) {
+      if ((order !== 'attack' && order !== 'defend') || !npc.holdsRampartPosition) npc.releaseOutpostRampartGarrison?.()
+      npc.clearFollowTarget?.()
       npc.setTacticalOrder(order)
     }
 
@@ -535,6 +583,7 @@ export class ArmyCommandController {
       selectedWeapon?.name ?? '',
       this.groupingMode,
       this._hasPartyCommands(),
+      this.campaignFollowEnabled,
     )
   }
 
@@ -543,7 +592,7 @@ export class ArmyCommandController {
       return [
         ...[...this.seenSquadIds]
           .sort((a, b) => squadDisplayOrder(a) - squadDisplayOrder(b))
-          .map(squadId => ({ key: String(squadDisplayOrder(squadId)), target: squadCommandTarget(squadId) })),
+          .map(squadId => ({ key: squadShortcutKey(squadId), target: squadCommandTarget(squadId) })),
         { key: '`', target: 'all' as const },
       ]
     }
@@ -584,7 +633,7 @@ export class ArmyCommandController {
       this.hudContextId = context
     }
 
-    const previousPersonalOrder = this.orders.get('squad:personal')
+    const previousOrders = new Map(this.orders)
     if (this.commandAuthority || snapshot) { this.seenPresetIds.clear(); this.seenSquadIds.clear() }
     if (snapshot) for (const member of snapshot.members) {
       // Reserve HR members may be selected for Follow, but are not field soldiers.
@@ -607,17 +656,26 @@ export class ArmyCommandController {
         if (!this.orders.has(target)) this.orders.set(target, npc.squadId === 'personal' ? npc.tacticalOrder : this.initialOrder)
       }
     }
-    const personal = this.npcs.filter(npc => this._acceptsNpc(npc) && npc.squadId === 'personal'
-      && !npc.dead && (!visibleIds || visibleIds.has(npc.combatantId)))
-    if (personal.length) this.orders.set('squad:personal', personal.every(npc => npc.tacticalOrder === personal[0].tacticalOrder) ? personal[0].tacticalOrder : 'mixed')
+    // Career HUD reflects live/checkpoint commands, including restored secondary squads.
+    // A dispatch-only caller may omit orders; in that case retain the controller's cache.
+    for (const squadId of this.seenSquadIds) {
+      const memberOrders = snapshot
+        ? snapshot.members.filter(member => member.squadId === squadId && !['dead', 'exited', 'reserve'].includes(member.state))
+          .map(member => member.order).filter((order): order is TacticalOrder => Boolean(order))
+        : squadId === 'personal' ? this.npcs.filter(npc => this._acceptsNpc(npc) && npc.squadId === squadId && !npc.dead)
+          .map(npc => npc.tacticalOrder).filter((order): order is TacticalOrder => Boolean(order)) : []
+      if (memberOrders.length) this.orders.set(squadCommandTarget(squadId),
+        memberOrders.every(order => order === memberOrders[0]) ? memberOrders[0] : 'mixed')
+    }
 
     const available = this._availableShortcuts()
-    const signature = `${context}:${snapshot?.members.map(member => `${member.id}:${member.state}`).join('|') ?? ''}:${this.groupingMode}:${available
+    const signature = `${context}:${this.ui?.getLabelOptionVersion?.() ?? 0}:${snapshot?.members.map(member => `${member.id}:${member.state}:${member.unitType ?? ''}`).join('|') ?? ''}:${this.groupingMode}:${available
       .map(shortcut => this.groupingMode === 'squad'
-        ? `${shortcut.target}:${this._targetCountSummary(shortcut.target)}` : shortcut.target)
+        ? `${shortcut.target}:${this._targetCountSummary(shortcut.target)}:${this._unitSummary(shortcut.target).description}` : shortcut.target)
       .join('|')}`
     const targets = this._wheelTargets()
-    let changed = signature !== this.rosterSignature || previousPersonalOrder !== this.orders.get('squad:personal')
+    let changed = signature !== this.rosterSignature
+      || [...this.orders].some(([target, order]) => previousOrders.get(target) !== order)
     this.rosterSignature = signature
 
     if (!this.highlightedTarget || !targets.includes(this.highlightedTarget)) {
@@ -641,9 +699,16 @@ export class ArmyCommandController {
         label: this._targetLabel(shortcut.target),
         order: this._hudOrder(shortcut.target),
         side: isAll || Number(shortcut.key) <= (this.groupingMode === 'squad' ? 4 : (this.faction === 'viking' ? 3 : 4)) ? 'left' : 'right',
+        units: this.groupingMode === 'squad' && !isAll ? this._unitSummary(shortcut.target) : undefined,
         summary: this.groupingMode === 'squad' ? this._targetCountSummary(shortcut.target) : undefined,
       }
     })
+  }
+
+  private _unitSummary(target: ArmyCommandTarget) {
+    return armyHudUnitSummary(this.hudRosterSnapshot?.members ?? this.npcs.filter(npc => this._acceptsNpc(npc) && npc.squadId).map(npc => ({
+      id: npc.combatantId, squadId: npc.squadId!, state: npc.dead ? 'dead' as const : 'deployed' as const, unitType: armyHudUnitType(npc),
+    })), target)
   }
 
   /** Scene-owned return/training lifecycles override stale combat command caches. */
@@ -668,6 +733,8 @@ export class ArmyCommandController {
   private _targetLabel(target: ArmyCommandTarget | null): string {
     if (target === null) return '命令'
     if (target === 'all') return '全軍'
+    const custom = this.ui?.resolveSquadLabel?.(target)
+    if (custom) return custom
     if (isSquadCommandTarget(target)) return squadLabel(squadIdFromCommandTarget(target))
     return getUnitPreset(target).nameZh
   }
@@ -685,6 +752,10 @@ export class ArmyCommandController {
       if (!npc.dead) alive++
     }
     return `${alive}/${total}`
+  }
+
+  getDesiredOrderForNpc(npc: NPC): TacticalOrder {
+    return this._desiredOrderForNpc(npc)
   }
 
   private _desiredOrderForNpc(npc: NPC): TacticalOrder {

@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe,expect,it } from 'vitest'
 import { acceptCaptainEagle } from '../../src/career/CaptainBattleLaunch'
-import { createCareerProfile } from '../../src/career/CareerProfile'
-import { purchaseTownMount } from '../../src/town/TownRules'
-import { CareerProfileStore } from '../../src/career/CareerProfileStore'
-import { MemoryStorage } from '../helpers/memoryStorage'
 import { parseCaptainEagleCheckpoint } from '../../src/career/CaptainEagleCheckpoint'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { purchaseTownMount } from '../../src/town/TownRules'
+import { MemoryStorage } from '../helpers/memoryStorage'
 
 function eagleProfile() {
   return acceptCaptainEagle(purchaseTownMount({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 40000, availableMerit: 30000 }, 'xongkoro').profile, 'aerial-mission')!

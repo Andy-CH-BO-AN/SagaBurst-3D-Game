@@ -1,0 +1,106 @@
+{
+  "sourceSha256": "2a7a27018d759fe5130a132a791b1752a9009fba0ee4e3adfbb825210b291789",
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 10933,
+      "bytes": 10203776,
+      "sha256": "835614cd616c3dda523dcad18a63798192a46ca3611263d10f5e96cf35f03a48",
+      "meshes": 1,
+      "materials": 1,
+      "images": [
+        {
+          "name": "normal",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 4161404,
+          "encoding": "image/png"
+        },
+        {
+          "name": "texture_0",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 1095431,
+          "encoding": "image/jpeg"
+        },
+        {
+          "name": "texture_0_metallic_roughness",
+          "width": 2048,
+          "height": 2048,
+          "bytes": 2546091,
+          "encoding": "image/png"
+        }
+      ]
+    },
+    {
+      "level": 1,
+      "triangles": 4495,
+      "bytes": 4749056,
+      "sha256": "e9330648f5fe2ee5468211fc84f274f27380267b130e135652231f0d07d1d831",
+      "meshes": 1,
+      "materials": 1,
+      "images": [
+        {
+          "name": "normal",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 1449224,
+          "encoding": "image/png"
+        },
+        {
+          "name": "texture_0",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 348847,
+          "encoding": "image/jpeg"
+        },
+        {
+          "name": "texture_0_metallic_roughness",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 867545,
+          "encoding": "image/png"
+        }
+      ]
+    },
+    {
+      "level": 2,
+      "triangles": 1792,
+      "bytes": 2755984,
+      "sha256": "856d32f3f023d328f774c8b157565fa6df6c0b9775a5d4b6a9a1c42c3c37ddc6",
+      "meshes": 1,
+      "materials": 1,
+      "images": [
+        {
+          "name": "normal",
+          "width": 512,
+          "height": 512,
+          "bytes": 424197,
+          "encoding": "image/png"
+        },
+        {
+          "name": "texture_0",
+          "width": 512,
+          "height": 512,
+          "bytes": 104258,
+          "encoding": "image/jpeg"
+        },
+        {
+          "name": "texture_0_metallic_roughness",
+          "width": 512,
+          "height": 512,
+          "bytes": 275116,
+          "encoding": "image/png"
+        }
+      ]
+    }
+  ],
+  "imageDecodeVerified": true,
+  "normalResize": "Lanczos followed by RGB vector normalization",
+  "visualAcceptance": "Focused offline production-runtime poses were visually reviewed for source appearance, locomotion, weapon grips, mounted composition and death. This is not browser/GPU/manual play acceptance or a claim of continuous collision-free cloth; final real-LOD matrix evidence is recorded separately.",
+  "losslessRecompression": {
+    "method": "PNG optimize level 9; retain smaller existing payload; JPEG copied unchanged",
+    "equalityAudit": "texture-recompression-audit.json"
+  },
+  "bufferCompression": "EXT_meshopt_compression"
+}

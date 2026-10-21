@@ -1,0 +1,43 @@
+{
+  "model": "Masked_Roman_Selected_11Clips.glb",
+  "sha256": "9bc9dc10a52df00a5caaabe600d48e6164b0a1a619a05dfc5aeec27116652ca8",
+  "size_bytes": 26522396,
+  "animation_count": 11,
+  "animation_names": [
+    "idle",
+    "walk",
+    "run",
+    "swordSlash",
+    "bowLoad",
+    "bowHold",
+    "bowRelease",
+    "pilumThrow",
+    "axeMountedIdle",
+    "axeAttack1H",
+    "axeAttack2H"
+  ],
+  "embedded_image_count": 3,
+  "external_buffer_or_image_dependencies": false,
+  "death_animation_included": false,
+  "structural_preservation_pass": true,
+  "strict_resampling_all_numeric_checks_pass": false,
+  "warnings": [
+    {
+      "kind": "strict_resampling_fidelity_threshold_exceeded",
+      "clip": "swordSlash",
+      "threshold_degrees": 0.1,
+      "maximum_bone_axis_error_degrees": 0.1230941237990597,
+      "maximum_foot_toe_rest_delta_error_degrees": 0.02333962013156595,
+      "explanation": "Final NLA-exported animation uses a uniform 150 Hz grid. Off-grid donor direction-change keys are not explicit samples. This is a bounded resampling difference, not a geometry-preservation failure. The strict 0.1 degree threshold remains unchanged."
+    },
+    {
+      "kind": "strict_resampling_fidelity_threshold_exceeded",
+      "clip": "bowRelease",
+      "threshold_degrees": 0.1,
+      "maximum_bone_axis_error_degrees": 1.877758334005583,
+      "maximum_foot_toe_rest_delta_error_degrees": 1.758426218811501,
+      "explanation": "Final NLA-exported animation uses a uniform 150 Hz grid. Off-grid donor direction-change keys are not explicit samples. This is a bounded resampling difference, not a geometry-preservation failure. The strict 0.1 degree threshold remains unchanged."
+    }
+  ],
+  "runtime_validated": false
+}

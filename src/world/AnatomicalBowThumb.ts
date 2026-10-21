@@ -270,8 +270,14 @@ export function buildAnatomicalBowThumbShape(
       direction.normalize()
       const mass: number[] = tr.map(i => movable[i] && !terminal[i] ? 1 : 0)
       const total = mass.reduce((sum, value, k) => sum + value * bary.getComponent(k) ** 2, 0)
-      if (total < 1e-8) continue
-      for (let k = 0; k < 3; k++) x[tr[k]].addScaledVector(direction, (radius + .0003 - distance) * mass[k] * bary.getComponent(k) / total)
+      // Minimize displacement plus squared contact error, instead of enforcing
+      // an infinitely stiff contact. Near a fixed palm/finger edge, the only
+      // movable corner can have almost zero barycentric influence. Dividing by
+      // that influence alone sends it metres away to satisfy an unreachable
+      // contact and defeats the locally rigid solve above. The identity term
+      // keeps this least-squares system conditioned without moving fixed skin;
+      // clearance still reports any contact the thumb cannot resolve.
+      for (let k = 0; k < 3; k++) x[tr[k]].addScaledVector(direction, (radius + .0003 - distance) * mass[k] * bary.getComponent(k) / (1 + total))
     }
   }
   for (let i = 0; i < unique.length; i++) if (movable[i]) for (const vertex of vertexIds[i]) posed[vertex].copy(x[i])

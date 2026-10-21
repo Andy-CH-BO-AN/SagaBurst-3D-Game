@@ -14,6 +14,7 @@ import type { CareerProfile } from './CareerProfile'
 import type { ActiveCareerMission, VeteranOutpostBattleState } from './CareerMissionState'
 import type { CampaignFaction } from '../campaign/CampaignConfig'
 import { clonePersonalMission } from './CareerPersonalSquadMission'
+import { deployOutpostRampartGarrison } from '../campaign/OutpostRampartGarrison'
 
 export type CareerVeteranOutpostSpawnWave = 'initial' | 'reinforcement'
 
@@ -89,13 +90,14 @@ export function createCareerVeteranOutpostLaunch(profile: CareerProfile): Defens
     playerLoadout,
     deploymentSeconds: 0,
     playerHeroId: resolveCareerHeroAsset(profile),
-    playerMountAppearanceVariant: careerMountAppearanceVariant(mount),
+    playerMountAppearanceVariant: careerMountAppearanceVariant(profile),
     careerMissionId: mission.id,
     careerMissionKind: missionKind,
     ...(mission.personalSquad ? { careerPersonalSquad: clonePersonalMission(mission.personalSquad) } : {}),
     capabilities: {
       reinforcementsEnabled: mission.templateId === 'veteran-dread-outpost',
-      playerCommandsEnabled: false,
+      playerCommandsEnabled: mission.officialSquad?.commandRank === 'commander'
+        && mission.officialSquad.missionId === mission.id && mission.officialSquad.townFaction === profile.faction && profile.rank === 'commander',
       gateControlEnabled: false,
       attackerHeroesEnabled: false,
     },
@@ -174,6 +176,7 @@ function toMissionSpec(
 export function createCareerVeteranOutpostSpawnPlan(
   launch: DefenseCampaignLaunchConfig,
   wave: CareerVeteranOutpostSpawnWave,
+  options: { deployRampartGarrison?: boolean } = {},
 ): BattleSpawnPlan {
   const data = launch.careerVeteranOutpost
   if (!data || launch.careerMissionId !== data.missionId) throw new Error('Expected a Veteran Outpost launch')
@@ -188,6 +191,9 @@ export function createCareerVeteranOutpostSpawnPlan(
 
   if (wave === 'initial') {
     positionVeteranOutpostRoster(planned, data.outpostFaction, data.playerFaction)
+    if (options.deployRampartGarrison !== false) {
+      deployOutpostRampartGarrison(planned.map(({ spec }) => spec), data.outpostFaction)
+    }
     if (data.templateId === 'veteran-dread-outpost') {
       const enemySpecs = planned
         .filter(({ spec }) => spec.characterFaction !== data.playerFaction)
@@ -224,9 +230,13 @@ export function createCareerVeteranOutpostReinforcementPlan(launch: DefenseCampa
 
 /** The owner is explicit so Career IV keeps the actual enemy fort and gate ownership. */
 export function careerVeteranOutpostOwner(launch: DefenseCampaignLaunchConfig): CampaignFaction {
-  return launch.careerVeteranOutpost?.outpostFaction ?? launch.defenderFaction
+  return launch.careerVeteranOutpost?.outpostFaction
+    ?? launch.careerCommanderOutpost?.outpostFaction
+    ?? launch.defenderFaction
 }
 
 export function careerVeteranOutpostOpposingFaction(launch: DefenseCampaignLaunchConfig): CampaignFaction {
-  return launch.careerVeteranOutpost?.playerFaction ?? launch.defenderFaction
+  return launch.careerVeteranOutpost?.playerFaction
+    ?? launch.careerCommanderOutpost?.playerFaction
+    ?? launch.defenderFaction
 }

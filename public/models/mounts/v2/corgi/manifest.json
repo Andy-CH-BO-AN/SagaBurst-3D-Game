@@ -5,32 +5,148 @@
   "forward": "+Z",
   "file": "corgi.glb",
   "source": {
-    "title": "Corgi",
-    "author": "leijiaoshou",
-    "url": "https://sketchfab.com/3d-models/corgi-dog-7afb2c8ef92c40819abc690584e6772a",
+    "title": "Saddled Corgi Knight",
+    "author": "Meshy (user-provided free-plan asset)",
+    "url": "https://www.meshy.ai/",
     "license": "CC-BY-4.0",
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "sourceSha256": "498dcc12755599e30de1c458f2eb852609876968c89490c8616456d072a0c19d"
+    "sourceFile": "Meshy_AI_Saddled_Corgi_Knight_1017070214_texture.glb",
+    "sourceSha256": "0d0a7925220ef045b7c70ed7071248565b742d76ea3d356d64b19f49a90175df"
   },
-  "attribution": "Corgi by leijiaoshou, Sketchfab, CC BY 4.0. Modified for SagaBurst.",
+  "attribution": "Model created with Meshy \u2013 CC BY 4.0 License. Modified for SagaBurst.",
   "modifications": [
-    "Uniform 4x scale and baked +Z heading",
-    "Fitted 21-joint canine skin",
-    "Source-derived body LODs",
-    "Thin source-fitted rounded cushion and stirrups",
-    "1024px original base-color map",
-    "Meshopt compression",
-    "Donor-retargeted and target-baked idle/walk/run, authored death, jump/land/hit adapted to corrected wrist/hock basis"
+    "Uniform 1.65 scale with source paw-ground normalization and +Z heading",
+    "Source-measured short-legged 21-joint rig, shared body/equipment border weights and actual saddle-center socket",
+    "Original saddle and armor separated for visibility; concealed unarmored body reconstructed while preserving exposed source fur, head, ears and paws",
+    "Conforming local leg subdivision preserves source rest surface, UVs and normals",
+    "Seven accepted donor clips retargeted through measured rest bases; death-only visual settle",
+    "Three index-only Meshopt LODs with locked borders; conservative LOD2 preserves atlas and silhouette",
+    "2048 base-color JPEG, 1024 normal PNG and 1024 metallic-roughness PNG; byte-exact Meshopt buffer compression",
+    "Idle limb first-frame reference normalization preserves idle motion and removes persistent donor front-paw lift"
   ],
   "metrics": {
     "triangles": {
-      "corgi_body_lod0": 99991,
-      "corgi_body_lod1": 19999,
-      "corgi_body_lod2": 5999
+      "corgi_body_lod0": 2644,
+      "corgi_saddle_leather": 8224,
+      "corgi_unarmored_lod0": 15160,
+      "corgi_body_lod1": 1454,
+      "corgi_equipment_lod1": 4522,
+      "corgi_unarmored_lod1": 8337,
+      "corgi_body_lod2": 846,
+      "corgi_equipment_lod2": 3708,
+      "corgi_unarmored_lod2": 4851
     },
-    "textureMaxSize": 1024,
-    "packageBytes": 5052604,
-    "saddleHeightM": 1.313627550125122
+    "equippedTriangles": [
+      10868,
+      5976,
+      4554
+    ],
+    "unarmoredTriangles": [
+      15160,
+      8337,
+      4851
+    ],
+    "residentTriangles": 49746,
+    "textureMaxSize": 2048,
+    "textures": [
+      {
+        "name": "normal_fur_atlas",
+        "width": 1024,
+        "height": 1024,
+        "bytes": 1352174,
+        "mimeType": "image/png"
+      },
+      {
+        "name": "texture_0_fur_atlas",
+        "width": 2048,
+        "height": 2048,
+        "bytes": 1372242,
+        "mimeType": "image/jpeg"
+      },
+      {
+        "name": "texture_0_metallic_roughness_fur_atlas",
+        "width": 1024,
+        "height": 1024,
+        "bytes": 777673,
+        "mimeType": "image/png"
+      }
+    ],
+    "packageBytes": 7815968,
+    "saddleHeightM": 1.3804707527160645,
+    "sourceBytes": 20182548,
+    "sourceTriangles": 10336,
+    "residentGeometryBytes": 6456472,
+    "seatSurfaceMeasurement": {
+      "seatCenter": [
+        0,
+        1.3804707527160645,
+        -0.30000001192092896
+      ],
+      "sampleFootprint": {
+        "width": 0.32,
+        "length": 0.5
+      },
+      "surfaceSamples": [
+        {
+          "x": -0.16,
+          "z": -0.55,
+          "height": 1.392737788415578
+        },
+        {
+          "x": 0,
+          "z": -0.55,
+          "height": 1.4092445412348402
+        },
+        {
+          "x": 0.16,
+          "z": -0.55,
+          "height": 1.3917802528615164
+        },
+        {
+          "x": -0.16,
+          "z": -0.3,
+          "height": 1.3537222747953845
+        },
+        {
+          "x": 0,
+          "z": -0.3,
+          "height": 1.380470765324819
+        },
+        {
+          "x": 0.16,
+          "z": -0.3,
+          "height": 1.3528149563851082
+        },
+        {
+          "x": -0.16,
+          "z": -0.05,
+          "height": 1.4080242194602888
+        },
+        {
+          "x": 0,
+          "z": -0.05,
+          "height": 1.5203865511631056
+        },
+        {
+          "x": 0.16,
+          "z": -0.05,
+          "height": 1.3976150319815068
+        }
+      ],
+      "equipmentBounds": {
+        "min": [
+          -0.4944208686882232,
+          0.3219859883814485,
+          -1.7143931356404147
+        ],
+        "max": [
+          0.4876426291440146,
+          1.5467183589935303,
+          0.9592867469051671
+        ]
+      },
+      "note": "Footprint is a measured nine-point seat sampling area, not a physics collider or inferred complete saddle outline."
+    }
   },
   "lodNodes": [
     "corgi_body_lod0",
@@ -50,6 +166,13 @@
     "socket_saddle_seat",
     "socket_camera"
   ],
-  "sha256": "601720262ab8ea55ce1c3a7bc684f6202618123d7282515ee9f6f0365cfd392f",
-  "animationSource": "animation-source.json"
+  "sha256": "f05ed47e6c038ee2dfc0be053212328ecbf49673608846c1afbbbba1fafa5a6e",
+  "animationSource": "animation-source.json",
+  "validation": {
+    "assetContract": "pass; standalone exact-file mesh/skin/bind/seven-clip audit",
+    "blenderVisual": "Reviewed packed-GLB round-trip: seven clips, equipped/unarmored views, three LODs, run/land/death phases; minor concealed-fur color seams remain",
+    "browserGameplay": "pending; Draft PR",
+    "gpuBenchmark": "not performed; no credible GPU environment"
+  },
+  "lodOptimizationNote": "Conservative equipped LOD2 retains 4,554 triangles: lower geometry-only budgets produced leather-atlas streaks and silhouette damage; UV/normal-aware locked-border simplification preserves appearance. Unarmored LOD2 is 4,851."
 }

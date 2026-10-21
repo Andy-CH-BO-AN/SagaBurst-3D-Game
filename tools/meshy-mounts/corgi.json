@@ -1,0 +1,19 @@
+{
+  "source": {
+    "file": "Meshy_AI_Saddled_Corgi_Knight_1017070214_texture.glb",
+    "sha256": "0d0a7925220ef045b7c70ed7071248565b742d76ea3d356d64b19f49a90175df"
+  },
+  "animationDonor": {
+    "commit": "2b3447f",
+    "path": "public/models/mounts/v2/corgi/corgi.glb",
+    "sha256": "601720262ab8ea55ce1c3a7bc684f6202618123d7282515ee9f6f0365cfd392f",
+    "decodedSha256": "2afa16764607268b84123dfec818aac141fc1c1fb2afdb4ebd6a51bab19bf5fa"
+  },
+  "toolchain": {
+    "blender": "4.3.2",
+    "numpy": "2.3.5",
+    "scipy": "1.17.0",
+    "meshoptimizerOfflineSimplifier": "1.3.0",
+    "meshoptimizerInstall": "npm --cache output/npm-cache install --prefix output/meshy-tools --no-package-lock --ignore-scripts meshoptimizer@1.3.0"
+  }
+}

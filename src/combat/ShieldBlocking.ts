@@ -5,15 +5,15 @@ import type { Mount } from '../world/Mount'
 
 export const SHIELD_CONFIG = {
   axeImpactByTier: { 1: 2, 2: 4, 3: 8 },
-  mountedLanceImpactByTier: { 1: 10, 2: 20, 3: 40 },
+  mountedLanceImpactByTier: { 1: 10, 2: 20, 3: 40, 4: 60, 5: 80 },
   xpPerBlockedImpact: 20,
 } as const
 export function weaponShieldImpact(id?: string, isMounted = false): number {
   const weapon = WEAPONS[id ?? '']
   if (weapon?.shieldImpact !== undefined) return weapon.shieldImpact
-  if (!weapon || weapon.tier === 4) return 1
-  if (weapon.animationKind === 'axe') return SHIELD_CONFIG.axeImpactByTier[weapon.tier]
-  if (isMounted && weapon.combatKind === 'lance') return SHIELD_CONFIG.mountedLanceImpactByTier[weapon.tier]
+  if (!weapon) return 1
+  if (weapon.animationKind === 'axe') return (SHIELD_CONFIG.axeImpactByTier as Readonly<Partial<Record<number, number>>>)[weapon.tier] ?? 1
+  if (isMounted && weapon.combatKind === 'lance') return (SHIELD_CONFIG.mountedLanceImpactByTier as Readonly<Partial<Record<number, number>>>)[weapon.tier] ?? 1
   return 1
 }
 export function blockingReduction(level: number): number {
@@ -27,7 +27,8 @@ export class ShieldState {
   private id: string | null = null
   private readonly used = new Map<string, number>()
   get shieldBroken(): boolean { return this.shieldImpactMax > 0 && this.shieldImpactRemaining <= 0 }
-  get active(): boolean { return this.shieldImpactRemaining > 0 }
+  constructor(private readonly canUse: () => boolean = () => true) {}
+  get active(): boolean { return this.canUse() && this.shieldImpactRemaining > 0 }
   equip(id: string | null): void {
     if (id === this.id) return
     if (this.id) this.used.set(this.id, this.shieldImpactRemaining)
@@ -37,6 +38,18 @@ export class ShieldState {
     this.shieldRaised = false
   }
   reset(): void { this.used.clear(); this.shieldImpactRemaining = this.shieldImpactMax; this.shieldRaised = false }
+  /** Instance transfer preserves damage to both the held shield and previously equipped shields. */
+  captureDurability(): Readonly<Record<string, number>> {
+    return { ...Object.fromEntries(this.used), ...(this.id ? { [this.id]: this.shieldImpactRemaining } : {}) }
+  }
+  restoreDurability(remaining: Readonly<Record<string, number>>): void {
+    this.used.clear()
+    for (const [id, value] of Object.entries(remaining)) {
+      if (ARMORS[id] && Number.isFinite(value)) this.used.set(id, Math.max(0, Math.min(ARMORS[id].shieldImpactMax, value)))
+    }
+    this.shieldImpactRemaining = this.id ? this.used.get(this.id) ?? this.shieldImpactMax : 0
+    this.shieldRaised = false
+  }
   absorb(damage: number, impact: number, level = 0): { damage: number; blockedImpact: number } {
     if (!this.active || !Number.isFinite(impact) || impact <= 0) return { damage, blockedImpact: 0 }
     const blockedImpact = Math.min(this.shieldImpactRemaining, impact)
@@ -94,7 +107,8 @@ export class ShieldCollider {
   private readonly b = new THREE.Vector3()
   private readonly box = new THREE.Box3()
   private paladin = false
-  constructor(private readonly pivot: THREE.Object3D, private readonly state: ShieldState) {}
+  constructor(private readonly pivot: THREE.Object3D, private readonly state: ShieldState,
+    private readonly visibilityAllowed: () => boolean = () => true) {}
   setModel(id: string | null): void {
     this.paladin = id === 'paladin_shield_t4'
     if (this.paladin) this.box.set(this.a.set(-.334, -.55, .123), this.b.set(.334, .55, .301))
@@ -102,17 +116,17 @@ export class ShieldCollider {
     else this.box.set(this.a.set(-.43, -.43, .12), this.b.set(.43, .43, .28))
   }
   time(from: THREE.Vector3, to: THREE.Vector3): number {
-    if (!this.state.active) return Infinity
+    if (!this.state.active || !this.visibilityAllowed()) return Infinity
     this.prepare()
     return this.preparedTime(from, to)
   }
   prepare(): void {
-    if (!this.state.active) return
+    if (!this.state.active || !this.visibilityAllowed()) return
     this.pivot.updateWorldMatrix(true, false)
     this.inverse.copy(this.pivot.matrixWorld).invert()
   }
   preparedTime(from: THREE.Vector3, to: THREE.Vector3): number {
-    if (!this.state.active) return Infinity
+    if (!this.state.active || !this.visibilityAllowed()) return Infinity
     this.a.copy(from).applyMatrix4(this.inverse); this.b.copy(to).applyMatrix4(this.inverse)
     const broad = segmentBoxTime(this.a, this.b, this.box)
     if (!this.paladin || !Number.isFinite(broad)) return broad
@@ -120,7 +134,7 @@ export class ShieldCollider {
     for (const band of PALADIN_BANDS) contact = Math.min(contact, segmentBoxTime(this.a, this.b, band))
     return contact
   }
-  refreshVisibility(): void { this.pivot.visible = !this.state.shieldBroken }
+  refreshVisibility(): void { this.pivot.visible = this.visibilityAllowed() && !this.state.shieldBroken }
 }
 
 export interface PhysicalCombatTarget {

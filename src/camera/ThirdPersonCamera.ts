@@ -16,6 +16,7 @@ const CAMERA_DISTANCE = 6
 const FIRST_PERSON_FORWARD_OFFSET = 0.55
 // The captain's larger head/helmet needs additional clearance during aim poses.
 const CAPTAIN_FIRST_PERSON_FORWARD_OFFSET = 1.1
+const COMMANDER_EAGLE_FORWARD_OFFSET = 1.5
 const CAMERA_HEIGHT_OFFSET = 0.8  // standing eye/chest line above capsule centre
 const MOUNTED_CAMERA_HEIGHT_OFFSET = -0.1 // mounted root already includes seat + capsule height
 const CAMERA_COLLISION_MARGIN = 0.28
@@ -27,9 +28,11 @@ const CAMERA_TERRAIN_SAMPLE_COUNT = 24
 
 const NORMAL_FOV = 58
 const AIM_FOV    = 28
+const COMMANDER_EAGLE_AIM_FOV = 22
 const LEVEL_AIM_PITCH = 0.3
 
 const collisionRay = new THREE.Ray()
+const collisionLocalRay = new THREE.Ray()
 const collisionDirection = new THREE.Vector3()
 const collisionHit = new THREE.Vector3()
 const collisionSample = new THREE.Vector3()
@@ -63,16 +66,26 @@ export function resolveCameraDistance(
   let allowedDistance = desiredDistance
 
   for (const obstacle of obstacles) {
-    const box = obstacle.box
-    const width = box.max.x - box.min.x
-    const depth = box.max.z - box.min.z
-    if (Math.max(width, depth) < CAMERA_MIN_HORIZONTAL_OBSTACLE_SPAN) continue
+    // Walk-surface slabs contain many narrow projectile slices. Their world
+    // envelope is conservative; reject a missed slab before visiting its slices.
+    if (obstacle.walkSurface && !obstacle.projectileWorldToLocal
+      && !collisionRay.intersectsBox(obstacle.box)) continue
+    const boxes = obstacle.projectileBoxes ?? [obstacle.box]
+    const ray = obstacle.projectileBoxes?.length && obstacle.projectileWorldToLocal
+      ? collisionLocalRay.copy(collisionRay).applyMatrix4(obstacle.projectileWorldToLocal)
+      : collisionRay
+    for (const box of boxes) {
+      const width = box.max.x - box.min.x
+      const depth = box.max.z - box.min.z
+      if (Math.max(width, depth) < CAMERA_MIN_HORIZONTAL_OBSTACLE_SPAN) continue
 
-    const hit = collisionRay.intersectBox(box, collisionHit)
-    if (!hit) continue
-    const distance = origin.distanceTo(hit)
-    if (distance > desiredDistance) continue
-    allowedDistance = Math.min(allowedDistance, Math.max(0, distance - obstacleMargin))
+      const hit = ray.intersectBox(box, collisionHit)
+      if (!hit) continue
+      // The transform is rigid, so ray distances are preserved in local space.
+      const distance = ray.origin.distanceTo(hit)
+      if (distance > desiredDistance) continue
+      allowedDistance = Math.min(allowedDistance, Math.max(0, distance - obstacleMargin))
+    }
   }
 
   if (options.terrainHeight) {
@@ -117,6 +130,11 @@ export class ThirdPersonCamera {
     this._updateAimDirection()
   }
 
+  /** Replace the actor without resetting aim blend, collision recovery or flight view. */
+  followPlayer(player: Player): void {
+    this.player = player
+  }
+
   setYaw(value: number): void {
     this.yaw = value
     this._updateAimDirection()
@@ -156,6 +174,8 @@ export class ThirdPersonCamera {
     // Consume mouse delta
     const { dx, dy } = input.consumeMouseDelta()
     const flight = this.player.currentMount?.flight
+    const commanderEagle = Boolean(flight && (this.player.heroAssetId === 'roman-hero-t5'
+      || this.player.heroAssetId === 'viking-hero-t5'))
     if (flight) {
       this.flightAim.update(dx, dy, input.isRightMouseDown, flight, dt,
         Number(Boolean(input.keys['KeyA'])) - Number(Boolean(input.keys['KeyD'])))
@@ -176,7 +196,8 @@ export class ThirdPersonCamera {
     const targetBlend = this.player.isRangedAimViewActive ? 1 : 0
     const alpha = 1 - Math.exp(-18 * dt)
     this.aimViewBlend = THREE.MathUtils.lerp(this.aimViewBlend, targetBlend, alpha)
-    this.camera.fov = THREE.MathUtils.lerp(NORMAL_FOV, AIM_FOV, this.aimViewBlend)
+    this.camera.fov = THREE.MathUtils.lerp(NORMAL_FOV,
+      commanderEagle ? COMMANDER_EAGLE_AIM_FOV : AIM_FOV, this.aimViewBlend)
     this.camera.updateProjectionMatrix()
 
     // The camera and projectile share one forward ray.  Looking back at the
@@ -211,7 +232,8 @@ export class ThirdPersonCamera {
     const safeFirstPersonDistance = resolveCameraDistance(
       this.cameraTarget,
       this.aimDirection,
-      this.player.heroAssetId === 'viking-hero-t4' ? CAPTAIN_FIRST_PERSON_FORWARD_OFFSET : FIRST_PERSON_FORWARD_OFFSET,
+      commanderEagle ? COMMANDER_EAGLE_FORWARD_OFFSET
+        : this.player.heroAssetId === 'viking-hero-t4' ? CAPTAIN_FIRST_PERSON_FORWARD_OFFSET : FIRST_PERSON_FORWARD_OFFSET,
       obstacles,
       { obstacleMargin: FIRST_PERSON_COLLISION_MARGIN },
     )

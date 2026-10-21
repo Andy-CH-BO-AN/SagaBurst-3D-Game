@@ -1,119 +1,73 @@
 {
   "schemaVersion": 1,
-  "id": "viking-tier2-v2",
+  "id": "viking",
   "status": "ready",
-  "readyAt": "2026-07-20T05:04:53Z",
+  "skeleton": "project-humanoid-v1",
   "source": {
-    "uid": "79321179bafb4d558f0cd6a4a014ba9a",
-    "title": "Viking - rigged for animation",
-    "author": "Andy Woodhead",
-    "url": "https://sketchfab.com/3d-models/viking-rigged-for-animation-79321179bafb4d558f0cd6a4a014ba9a",
-    "license": "CC-BY-4.0",
-    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "downloadedAt": "2026-07-20T03:49:30Z",
-    "sourceArchive": "Viking rigged1.zip",
-    "sourceSha256": "20751eaca2d86361b5e73a9cb2929484df3effb2e236c81c05e7401856a311e8",
-    "fbxSha256": "b3283c31998b0a76591a8e2639978a3abf551ce4b0a34d550fb861505e64f6f2"
+    "title": "Ordinary Viking Infantry",
+    "sourceArchive": "Roman_Viking_Ordinary_LOD0_11Clips_Mock.zip",
+    "sourceEntry": "Viking/Viking_Infantry_LOD0_GripAndWeaponAdjusted_DERIVED_11Clips.glb",
+    "sourceSha256": "a66917fffe0b2ab9b682e14675993ddf0f184420a585e9951e629d35a40b8c0c",
+    "license": "User-supplied Meshy model and derived animation; mixed animation-source licenses retained in source-readme.txt",
+    "licenseEvidence": "source-readme.txt"
   },
-  "attribution": "Viking - rigged for animation by Andy Woodhead, licensed under CC BY 4.0. Male face image credit: Photodjo.",
-  "supplementaryPermission": "Andy Woodhead (Model author): Yes - you are free to use the whole model or parts of it in any way.",
-  "rightsRisk": "CC BY grants only rights the licensor has authority to grant; preserve both Andy Woodhead and Photodjo credits.",
-  "modifications": [
-    "Corrected upper-arm/forearm bind twist; retargeted hands using source index/pinky landmarks and target mesh thumb axes; removed runtime bow-wrist override",
-    "Reconnected the supplied albedo, OpenGL normal, roughness, and metallic maps",
-    "Applied uniform metre normalization to 1.86 m",
-    "Rebuilt the UE4-compatible rig as project-humanoid-v1 and consolidated twist/finger weights into contract bones",
-    "Added hand, back, head, pelvis, foot, and sole socket bones",
-    "Removed 4,159 vertices belonging to the source shield and spear back-equipment islands",
-    "Generated approximately 60k, 20k, and 6k triangle LODs",
-    "Downsampled embedded maps to actual 2K, 1K, and 512 maximum dimensions",
-    "Retargeted eight selected male clips to project-humanoid-v1 at 30 FPS with in-place locomotion and gameplay-compatible event timing"
-  ],
-  "metrics": {
-    "heightM": 1.86,
-    "shoulderWidthM": 0.455137,
-    "neckLengthM": 0.098211,
-    "kneeHeightM": 0.536408,
-    "kneeHeightRatio": 0.288391,
-    "triangles": {
-      "lod0": 59996,
-      "lod1": 19998,
-      "lod2": 5972
-    },
-    "textures": {
-      "lod0": 2048,
-      "lod1": 1024,
-      "lod2": 512
-    },
-    "uniformScaleAppliedInBlender": 0.9122049575833375,
-    "runtimeScale": [
-      1,
-      1,
-      1
+  "attribution": "Ordinary Viking Infantry: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt.",
+  "selectedSource": {
+    "rig": "ordinary22",
+    "uniformScale": 1,
+    "seatBearing": [
+      [
+        0.12344799935817719,
+        -0.015542990528047085,
+        -0.09567201137542725
+      ],
+      [
+        -0.12849600613117218,
+        -0.01392499078065157,
+        -0.09310900419950485
+      ]
     ]
   },
-  "handGripFrames": {
-    "left": {
-      "palmContactCenter": [
-        -0.0133329214741,
-        0.1,
-        0.0105268421545
-      ],
-      "palmNormal": [
-        -0.92,
-        0,
-        -0.392
-      ],
-      "thumbDir": -1,
-      "thumbDirection": [
-        0.392,
-        0,
-        -0.92
-      ],
-      "fingerDirection": [
-        0,
-        1,
-        0
-      ],
-      "wristCenter": [
-        0.015,
-        0,
-        0
-      ],
-      "fingerBase": 0.13,
-      "thumbBaseCenter": [
-        0.01,
-        0.04,
-        -0.035
-      ]
-    }
-  },
+  "handShapeMode": "authored",
+  "preserveLodHandTopology": false,
+  "bakedEquipmentActions": [
+    "axeAttack1H",
+    "axeAttack2H"
+  ],
   "files": {
     "lod0": "lod0.glb",
     "lod1": "lod1.glb",
     "lod2": "lod2.glb"
   },
-  "fileSha256": {
-    "lod0": "967fdcfb290876dd8c9a5fc985daeb173f1a3d7ad44b33d7e54ef9bec730f93f",
-    "lod1": "a117febc32324ab56b4642e68d7ee5defa3c313563fd8919aeecde1ac5df5bf3",
-    "lod2": "8bdd766457a5de23c0f4690e8a5dfd975d5c01c3cafe986a8f4ff81ddef872d5"
+  "metrics": {
+    "heightM": 1.86,
+    "overallHeightM": 1.86,
+    "shoulderWidthM": 0.441154922676357,
+    "neckLengthM": 0.11037482018019391,
+    "triangles": {
+      "lod0": 10290,
+      "lod1": 4668,
+      "lod2": 3600
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    }
   },
-  "skeleton": "project-humanoid-v1",
-  "boneMap": "bone-map.json",
-  "audit": "audit.json",
   "animations": {
     "embedded": [
       {
         "clip": "idle",
         "source": "Kevin Iglesias",
-        "sourceClip": "HumanM@Idle01",
+        "sourceClip": "idle",
         "loop": true,
         "duration": 2.7
       },
       {
         "clip": "walk",
         "source": "Kevin Iglesias",
-        "sourceClip": "HumanM@Walk01_Forward",
+        "sourceClip": "walk",
         "loop": true,
         "duration": 0.8,
         "nominalSpeed": 2
@@ -121,318 +75,392 @@
       {
         "clip": "run",
         "source": "Kevin Iglesias",
-        "sourceClip": "HumanM@Run01_Forward",
+        "sourceClip": "run",
         "loop": true,
         "duration": 0.6,
         "nominalSpeed": 4
       },
       {
+        "clip": "swordSlash",
+        "source": "Quaternius",
+        "sourceClip": "swordSlash",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.25,
+          "actionComplete": 0.48
+        }
+      },
+      {
         "clip": "bowLoad",
         "source": "Kevin Iglesias",
-        "sourceClip": "HumanM@BowShot01 - Load",
+        "sourceClip": "bowLoad",
         "loop": false,
-        "duration": 0.833333
+        "duration": 0.8333333333333334
       },
       {
         "clip": "bowHold",
         "source": "Kevin Iglesias",
-        "sourceClip": "HumanM@BowShot01 - Hold",
+        "sourceClip": "bowHold",
         "loop": true,
-        "duration": 1.333333
+        "duration": 1.3333333333333333
       },
       {
         "clip": "bowRelease",
         "source": "Kevin Iglesias",
-        "sourceClip": "HumanM@BowShot01 - Release",
+        "sourceClip": "bowRelease",
         "loop": false,
         "duration": 0.22,
         "events": {
-          "projectileRelease": 0.04,
+          "projectileRelease": 0.06,
           "actionComplete": 0.22
-        }
-      },
-      {
-        "clip": "swordSlash",
-        "source": "Quaternius",
-        "sourceClip": "Sword_Regular_A",
-        "loop": false,
-        "duration": 0.48,
-        "events": {
-          "hit": 0.252,
-          "actionComplete": 0.48
         }
       },
       {
         "clip": "pilumThrow",
         "source": "Quaternius",
-        "sourceClip": "OverhandThrow",
+        "sourceClip": "pilumThrow",
         "loop": false,
         "duration": 1.5,
         "events": {
-          "projectileRelease": 0.566667,
+          "projectileRelease": 0.6333333333333333,
           "actionComplete": 1.5
         }
       },
       {
-        "clip": "axeAttack1H",
+        "clip": "axeMountedIdle",
         "source": "Kevin Iglesias",
-        "sourceClip": "HumanM@Attack1H01_R",
+        "sourceClip": "axeMountedIdle",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "axeAttack1H",
+        "source": "Meshy",
+        "sourceClip": "axeAttack1H",
         "loop": false,
-        "duration": 0.48,
+        "duration": 3,
+        "meleeCycleSeconds": 0.48,
         "events": {
-          "hit": 0.13090909090909092,
-          "actionComplete": 0.48
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.6333333333333333,
+          "actionComplete": 3
         }
       },
       {
         "clip": "axeAttack2H",
-        "source": "Kevin Iglesias",
-        "sourceClip": "HumanM@Attack2H01",
+        "source": "Meshy",
+        "sourceClip": "axeAttack2H",
         "loop": false,
-        "duration": 0.48,
+        "duration": 2.8333333333333335,
+        "meleeCycleSeconds": 0.48,
         "events": {
-          "hit": 0.17,
-          "actionComplete": 0.48
+          "activeStart": 1.025,
+          "hit": 1.0583333333333333,
+          "activeEnd": 1.125,
+          "actionComplete": 2.8333333333333335
         }
+      },
+      {
+        "clip": "axeAttack1HFoot",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@attack.fbx",
+        "sourceSha256": "365678d394be49551873eb7e15ece206f863e66a934b7571e8e00b805b2cc5a5",
+        "firstFrame": 2,
+        "lastFrame": 47,
+        "sourceFps": 30,
+        "loop": false,
+        "duration": 3,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.6333333333333333,
+          "actionComplete": 3
+        },
+        "meleeCycleSeconds": 0.48
       }
     ],
     "runtimeGenerated": [
-      "idle",
-      "walk",
-      "run",
-      "bowLoad",
-      "bowHold",
-      "bowRelease",
-      "swordSlash",
-      "pilumThrow",
+      "mounted",
+      "death",
+      "hit",
       "daggerSlash",
       "greatswordSlash",
       "lanceThrust",
-      "mountedLance",
-      "mounted",
-      "death"
+      "mountedLance"
     ]
   },
-  "animationSources": [
-    {
-      "author": "Kevin Iglesias",
-      "package": "Human Archer Animations FREE",
-      "license": "Unity Asset Store EULA",
-      "sha256": "87565026f3a3b0aa8aeaadbcc155533ee58d927f5c443a6b2a11f396a461c904"
-    },
-    {
-      "author": "Quaternius",
-      "package": "Universal Animation Library 2",
-      "license": "CC0 1.0",
-      "sha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68"
-    }
-  ],
-  "evidence": {
-    "attribution": "attribution-evidence.json",
-    "sourcePackage": "source-package-audit.json",
-    "sourceFbx": "source-fbx-audit.json",
-    "deformation": "evidence/deformation-audit.json"
+  "fileSha256": {
+    "lod0": "564339b0624da0dd3eea6ce02fc666870848e978a71b77d756f05e9d640f7f43",
+    "lod1": "a86d1d2466b9a1a394a1a94efd06af1db8629a346eb9214fb6f13a319c993ea2",
+    "lod2": "91ee4e1eb1fc53b8ef01e0bc4052e059a67198a2a97c91a9970a540436b1e0b8"
   },
-  "remainingUncertainties": [
-    "Imported clips preserve the existing gameplay event timing; unsupported combat states still use deterministic procedural poses.",
-    "The source has no horns. Use socket_head for the separate runtime short-horn accessory with total span at most 0.44 m.",
-    "Mounted clearance must still be checked against the actual cat and corgi saddles in the browser."
+  "visualAcceptance": "Runtime visual integration pending; structural LOD generation is not gameplay acceptance.",
+  "knownLimitations": [
+    "LOD2 exceeds target to preserve source UV/skin surface; lower-count welded candidate showed new posterior dents."
   ],
+  "handGripFrames": {
+    "left": {
+      "palmContactCenter": [
+        0.022391128619031083,
+        0.09383814252999918,
+        -0.07377474255832447
+      ],
+      "palmNormal": [
+        -0.9993557480568677,
+        -0.034436926808916496,
+        -0.010108753516413929
+      ],
+      "thumbDir": 1,
+      "thumbDirection": [
+        0.01054355181354382,
+        -0.012467810290485267,
+        -0.9998666847243763
+      ],
+      "fingerDirection": [
+        0,
+        1,
+        0
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0,
+        0.04,
+        0
+      ],
+      "fingerBase": 0.08
+    }
+  },
   "swordGripFrames": {
     "lod0": {
       "gripCenterLocal": [
-        0.035307040349122895,
-        0.10000000000000006,
-        0.001164125677330132
+        0.0038641407154500484,
+        0.09566476196050644,
+        -0.07424764335155487
       ],
       "gripAxisLocal": [
-        -0.39198745660208,
-        -8.037757494161521e-17,
-        -0.9199705614130448
+        -0.0857414205897412,
+        -0.11807350151763628,
+        -0.9892962433137092
       ],
       "palmNormalLocal": [
-        0.9199705614130447,
-        -9.458797493129303e-17,
-        -0.3919874566020799
+        -0.154973672579104,
+        -0.9792866749288249,
+        0.1303102801554455
       ],
       "fingerDirection": [
-        2.7755575615628914e-17,
+        0,
         1,
-        2.7755575615628914e-17
+        0
       ],
       "wristCenter": [
-        -0.015,
-        5.634381849972669e-17,
-        -1.1018963519404679e-16
+        0,
+        0,
+        0
       ],
       "thumbBaseCenter": [
-        -0.009999999999999998,
-        0.04000000000000005,
-        -0.03500000000000011
+        0,
+        0.04,
+        0
       ],
-      "fingerBase": 0.13000000000000006,
-      "gripRadius": 0.041440000000000005
+      "fingerBase": 0.08,
+      "gripRadius": 0.024
     },
     "lod1": {
       "gripCenterLocal": [
-        -0.0012670364460109081,
-        0.05759544044605765,
-        -0.08904564533223806
+        0.0038641407154500484,
+        0.09566476196050644,
+        -0.07424764335155487
       ],
       "gripAxisLocal": [
-        -0.8892003305373548,
-        -0.4447014282393678,
-        -0.1075333059759871
+        -0.0857414205897412,
+        -0.11807350151763628,
+        -0.9892962433137092
       ],
       "palmNormalLocal": [
-        0.3731335530364335,
-        -0.5688721708436377,
-        -0.7329091381870295
+        -0.154973672579104,
+        -0.9792866749288249,
+        0.1303102801554455
       ],
       "fingerDirection": [
-        -0.2647532257153272,
-        0.6918273541346437,
-        -0.6717742489440834
+        0,
+        1,
+        0
       ],
       "wristCenter": [
-        -0.010377528084515208,
-        0.00523542766847952,
-        0.009481420089008563
+        0,
+        0,
+        0
       ],
       "thumbBaseCenter": [
-        -0.0410206342841968,
-        0.009039775699744661,
-        -0.03406772387690499
+        0,
+        0.04,
+        0
       ],
-      "fingerBase": 0.1300001356409985,
-      "gripRadius": 0.041440000000000005
+      "fingerBase": 0.08,
+      "gripRadius": 0.024
     },
     "lod2": {
       "gripCenterLocal": [
-        -0.0012670364460109081,
-        0.05759544044605765,
-        -0.08904564533223806
+        0.0038641407154500484,
+        0.09566476196050644,
+        -0.07424764335155487
       ],
       "gripAxisLocal": [
-        -0.8892003305373548,
-        -0.4447014282393678,
-        -0.1075333059759871
+        -0.0857414205897412,
+        -0.11807350151763628,
+        -0.9892962433137092
       ],
       "palmNormalLocal": [
-        0.3731335530364335,
-        -0.5688721708436377,
-        -0.7329091381870295
+        -0.154973672579104,
+        -0.9792866749288249,
+        0.1303102801554455
       ],
       "fingerDirection": [
-        -0.2647532257153272,
-        0.6918273541346437,
-        -0.6717742489440834
+        0,
+        1,
+        0
       ],
       "wristCenter": [
-        -0.010377528084515208,
-        0.00523542766847952,
-        0.009481420089008563
+        0,
+        0,
+        0
       ],
       "thumbBaseCenter": [
-        -0.0410206342841968,
-        0.009039775699744661,
-        -0.03406772387690499
+        0,
+        0.04,
+        0
       ],
-      "fingerBase": 0.1300001356409985,
-      "gripRadius": 0.041440000000000005
+      "fingerBase": 0.08,
+      "gripRadius": 0.024
     }
   },
-  "swordGripCalibration": {
-    "version": 1,
-    "hand": "hand_r",
-    "samples": [
-      [
-        0.00502320941620793,
-        0.08500000000000005,
-        0.03580749710718134
+  "rangedGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        0.003864126279950142,
+        0.09566481411457062,
+        -0.07424764335155487
       ],
-      [
-        -0.010434061014743423,
-        0.08500000000000016,
-        0.020653812345412303
+      "gripAxisLocal": [
+        0.8051074106995609,
+        0.1513071572379684,
+        -0.5735051886471589
       ],
-      [
-        -0.016204548392717344,
-        0.08500000000000019,
-        0.0013727156741139002
+      "palmNormalLocal": [
+        0.0018295208679894454,
+        0.9662765946142571,
+        0.2574998942797227
       ],
-      [
-        -0.00036018031684115215,
-        0.10000000000000023,
-        0.03810128925430656
+      "fingerDirection": [
+        0,
+        1,
+        0
       ],
-      [
-        -0.012842094090250278,
-        0.10000000000000009,
-        0.021679843829758738
+      "wristCenter": [
+        0,
+        0,
+        0
       ],
-      [
-        -0.01801946128361076,
-        0.10000000000000023,
-        0.0021460263841467375
+      "thumbBaseCenter": [
+        0,
+        0.04,
+        0
       ],
-      [
-        -0.0065433606123692645,
-        0.11500000000000007,
-        0.040735861728053324
-      ],
-      [
-        -0.015544228349879563,
-        0.11500000000000016,
-        0.022831187992557234
-      ],
-      [
-        -0.020843964974194384,
-        0.11500000000000002,
-        0.003349510565352043
-      ]
-    ],
-    "method": "right palm rays; outer leather-wrap radius; per-LOD bind basis"
-  },
-  "swordAttackBuild": {
-    "sourceClip": "Sword_Regular_A",
-    "sourceSha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68",
-    "duration": 0.48,
-    "fps": 30,
-    "lowerBody": "target bind stance with source pelvis yaw (no pelvis translation)",
-    "timeMapping": {
-      "method": "u + amplitude * sin(pi * u)",
-      "amplitude": 0.05015460992414121,
-      "contactSeconds": 0.252,
-      "sourceContactNormalized": 0.575
-    }
-  },
-  "axeAttackBuild": {
-    "sourceSha256": "bcd47d323e40419d4dda188d51bd5d91021e6ca42d8dc0c30f1e5053401244f5",
-    "license": "Standard Asset Store EULA",
-    "licenseEvidence": "Human Melee Animations 2.0 FREE.pdf",
-    "sourceUrl": "https://kevdev.itch.io/human-melee-animatons-free",
-    "sourceDistribution": "Retargeted rotation tracks only; source archive, FBX and meshes excluded from public/Git.",
-    "rootMotionRemoved": true,
-    "duration": 0.48,
-    "contactSourceFrames": {
-      "axeAttack1H": 10,
-      "axeAttack2H": 18
+      "fingerBase": 0.08,
+      "gripRadius": 0.024
     },
-    "contactMeasurement": "Actual blade edge passes character-forward during the first strike; source frame 1 maps to t=0."
+    "lod1": {
+      "gripCenterLocal": [
+        0.003864126279950142,
+        0.09566481411457062,
+        -0.07424764335155487
+      ],
+      "gripAxisLocal": [
+        0.8051074106995609,
+        0.1513071572379684,
+        -0.5735051886471589
+      ],
+      "palmNormalLocal": [
+        0.0018295208679894454,
+        0.9662765946142571,
+        0.2574998942797227
+      ],
+      "fingerDirection": [
+        0,
+        1,
+        0
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0,
+        0.04,
+        0
+      ],
+      "fingerBase": 0.08,
+      "gripRadius": 0.024
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        0.003864126279950142,
+        0.09566481411457062,
+        -0.07424764335155487
+      ],
+      "gripAxisLocal": [
+        0.8051074106995609,
+        0.1513071572379684,
+        -0.5735051886471589
+      ],
+      "palmNormalLocal": [
+        0.0018295208679894454,
+        0.9662765946142571,
+        0.2574998942797227
+      ],
+      "fingerDirection": [
+        0,
+        1,
+        0
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0,
+        0.04,
+        0
+      ],
+      "fingerBase": 0.08,
+      "gripRadius": 0.024
+    }
   },
-  "bowLodBuild": {
-    "sourceSha256": "967fdcfb290876dd8c9a5fc985daeb173f1a3d7ad44b33d7e54ef9bec730f93f",
-    "sourceLOD": 0,
-    "clips": [
-      "bowLoad",
-      "bowHold",
-      "bowRelease"
-    ],
-    "targetLODs": [
-      1,
-      2
-    ],
-    "method": "Re-express authority skin deformation in target rest basis and retained left-hand topology frame; preserve two-key load endpoints for runtime completion"
+  "banditFootAxe": {
+    "sourceAsset": "bandit/lod0.glb",
+    "sourceSha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+    "sourceClip": "swordSlash",
+    "source": {
+      "title": "Fantasy Bandit",
+      "author": "tokeshi",
+      "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
+      "license": "CGTrader Royalty Free (no AI)",
+      "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
+      "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
+      "archives": {
+        "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
+        "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
+      }
+    },
+    "retarget": "Anatomical limb axes and thumb/finger grasp; target idle pelvis and legs; original 1H event clock retained",
+    "rebuild": "node tools/retarget-bandit-foot-axe.mjs"
   }
 }

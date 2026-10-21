@@ -1,0 +1,21 @@
+{
+  "sourceSha256": "95ac717b6dde8aa07906b080aefe1a5d6bdffcc7b50b7d5152d2909c195e4274",
+  "sourceFile": "Meshy_AI_Roman_Statesman_Pose_1016083929_texture.glb",
+  "generator": "Meshy",
+  "userEvidence": "User confirmed all three models were generated with the free Meshy plan.",
+  "license": "Creative Commons Attribution 4.0 International",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+  "policyUrl": "https://help.meshy.ai/en/articles/16102098-can-i-use-meshy-assets-commercially",
+  "credit": "Meshy",
+  "changes": [
+    "uniform source-envelope normalization",
+    "fitted project-humanoid-v1 skeleton and finger chains",
+    "anatomical/topological skin weights",
+    "measured garment helper bones without cloth physics",
+    "three genuine offline LODs",
+    "resized embedded texture maps",
+    "retargeted existing project animation tracks, fitted contact and grip calibration, and baked cape response",
+    "lossless PNG recompression and byte-exact meshopt buffer packing for publication, preserving all decoded pixels and geometry/skin/animation values"
+  ],
+  "scope": "Model provenance only. Existing project animation source terms are retained separately."
+}

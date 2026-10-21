@@ -11,7 +11,8 @@ import {
   ArmyConfig,
   normalizeArmyConfig,
 } from './BattleConfig'
-import { T4_UNIT_PROFILES, resolveT4UnitLoadout, type T4CombatProfileId } from './T4HeroCatalog'
+import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from './T4HeroCatalog'
+import type { HeroCombatProfileId } from './HeroCombatProfile'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { TERRAIN_TREE_POSITIONS } from '../world/Terrain'
@@ -30,7 +31,10 @@ import {
 
 export interface NpcSpawnSpec {
   actorId?: string
+  siegeRamp?: { id: import('../campaign/MobileSiegeRampPolicy').MobileSiegeRampId; role: 'pusher' | 'assault' }
   x: number
+  /** Optional elevated materialization height; ordinary ground spawns omit it. */
+  spawnY?: number
   z: number
   characterFaction: CharacterFaction
   faction: Faction
@@ -42,9 +46,11 @@ export interface NpcSpawnSpec {
   presetId?: UnitPresetId
   loadout?: UnitLoadout
   visualAssetId?: HeroAssetId
-  combatProfileId?: T4CombatProfileId
+  combatProfileId?: HeroCombatProfileId
   specialCombatProfile?: 'maki-ranger'
   squadId?: SquadId
+  /** Initial Outpost-only hold state; cleared permanently by a player order. */
+  outpostRampartGarrison?: boolean
 }
 
 export interface CampPickupSpec {
@@ -108,7 +114,7 @@ interface UnitInstance {
   aiType: AIType
   loadout: UnitLoadout
   visualAssetId?: HeroAssetId
-  combatProfileId?: T4CombatProfileId
+  combatProfileId?: HeroCombatProfileId
   specialCombatProfile?: 'maki-ranger'
 }
 
@@ -123,7 +129,7 @@ interface PendingNpc {
   presetId?: UnitPresetId
   loadout?: UnitLoadout
   visualAssetId?: HeroAssetId
-  combatProfileId?: T4CombatProfileId
+  combatProfileId?: HeroCombatProfileId
   specialCombatProfile?: 'maki-ranger'
 }
 

@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
 import * as THREE from 'three'
+import { describe, expect, it } from 'vitest'
 import { resolveFormationSlots } from '../../src/battle/FormationPlacement'
 
 describe('Formation local slot resolution', () => {

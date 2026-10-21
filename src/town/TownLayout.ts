@@ -5,9 +5,9 @@ import { OBB } from 'three/examples/jsm/math/OBB.js'
 
 export const TOWN_PATROL_WALL_OFFSET = 12.5
 /** Saved positions from earlier Town layouts are rebased once, preserving actor identities. */
-export const TOWN_LAYOUT_VERSION = 2
-export const TOWN_CITY = { minX: -110, maxX: 150, minZ: -115, maxZ: 100, wallHeight: 8, wallThickness: 1.8, gateWidth: 14, gateHeight: 6 } as const
-export const TOWN_PLAZA = { minX: -17, maxX: 18, minZ: -10, maxZ: 10 } as const
+export const TOWN_LAYOUT_VERSION = 4
+export const TOWN_CITY = { minX: -110, maxX: 150, minZ: -115, maxZ: 100, wallHeight: 8, wallThickness: 1.8, gateWidth: 14, gateHeight: 6, gateDepth: 2.4 } as const
+export const TOWN_PLAZA = { minX: 32, maxX: 74, minZ: -4, maxZ: 28 } as const
 export const TOWN_PLAZA_CENTER = { x: (TOWN_PLAZA.minX + TOWN_PLAZA.maxX) / 2, z: (TOWN_PLAZA.minZ + TOWN_PLAZA.maxZ) / 2 } as const
 export type TownGateId = 'north' | 'south' | 'east' | 'west'
 export interface TownGateSpec { id: TownGateId; x: number; z: number; yaw: number }
@@ -26,10 +26,12 @@ export const TOWN_CAVALRY_FIELD = { minX: 27, maxX: 137, minZ: -101, maxZ: -53 }
 /** Shared mounted mission muster on the open forecourt in front of the cavalry entrance. */
 export const TOWN_MOUNTED_MISSION_MUSTER = { x: 124, z: -30 } as const
 /** Airfield layouts reserve these strips before any scenery is materialized. */
-export const TOWN_PRIVATE_EAGLE_SITES = [-95, -65, -35].map(x => ({ x, z: 65, yaw: Math.PI }))
+// Reserve clearance for the 10m west deck; z=54 also retains the terrain slope limit.
+export const TOWN_PRIVATE_EAGLE_SITES = [-85, -55, -25].map(x => ({ x, z: 54, yaw: Math.PI }))
+// Shift the northern row east, preserving pad spacing and all stable IDs.
+// Pad 4 approaches from the south to avoid the widened west ramp.
 export const TOWN_GARRISON_EAGLE_SITES = [
-  ...[-95, -65, -35].map(x => ({ x, z: -75, yaw: 0 })),
-  ...[-95, -65].map(x => ({ x, z: -25, yaw: 0 })),
+  ...[[-78, -63], [-50, -75], [-22, -75], [-85, -18], [-57, -22]].map(([x, z], index) => ({ x, z, yaw: index === 3 ? Math.PI : 0 })),
 ]
 export const TOWN_HR_REGION = { minX: -94, maxX: -73, minZ: 18, maxZ: 35, yaw: 0 } as const
 export interface TownRoad { ax: number; az: number; bx: number; bz: number; width: number }
@@ -54,8 +56,20 @@ export const TOWN_CITY_ROADS: readonly TownRoad[] = [
   { ax: -78, az: 0, bx: -132, bz: 0, width: 12 },
   { ax: 18, az: -55, bx: 27, bz: -58, width: 8 },
   { ax: 27, az: -58, bx: 137, bz: -58, width: 8 },
-  { ax: 0, az: 42, bx: -85, bz: 44, width: 5 },
+  { ax: 0, az: 42, bx: -85, bz: 42, width: 5 },
 ]
+/** Authored local streets, shared by scenery and resident clearance. */
+export const TOWN_LOCAL_ROADS: readonly TownRoad[] = [
+  { ax: 32, az: 12, bx: 74, bz: 12, width: 32 },
+  { ax: 30, az: -58, bx: 125, bz: -58, width: 6 },
+  { ax: 80, az: -58, bx: 80, bz: 42, width: 6 },
+  { ax: 80, az: 56, bx: 136, bz: 56, width: 5 },
+  { ax: 80, az: 80, bx: 138, bz: 80, width: 4 },
+]
+/** Open ground between the cavalry road and housing; no movement boundary is added. */
+export const TOWN_DUEL_CENTER = { x: 100, z: -39 } as const
+export const TOWN_MOUNTED_MISSION_MUSTER_HALF_SIZE = 12
+export const TOWN_DUEL_HALF_SIZE = 11
 /** Placement-time exclusion, including enough clearance for tree crowns and mounts. */
 export function townSceneryExcluded(x: number, z: number, radius = 0): boolean {
   // The complete wing corridor extends beyond the wall. Keep visual trees and rocks
@@ -79,3 +93,14 @@ export function townSceneryExcluded(x: number, z: number, radius = 0): boolean {
     return Math.hypot(x - road.ax - t * dx, z - road.az - t * dz) < road.width / 2 + radius + 4
   })
 }
+
+/** The same footprints materialize housing and place residents; faction changes depth only. */
+export function townHousing(faction: 'roman' | 'viking') {
+  return [[96, 70], [116, 70], [136, 70], [106, 88], [128, 88],
+    [42, -70], [64, -70], [86, -70], [108, -70], [94, -19], [117, -19], [78, 72]]
+    .map(([x, z], i) => ({ id: `home-${i}`, x, z, width: 9, depth: faction === 'roman' ? 8 : 12,
+      yaw: i < 5 || z < -50 ? 0 : Math.PI }))
+}
+
+export const TOWN_CENTER = { x: 52, z: -22, width: 24, depth: 20, yaw: 0 } as const
+export const TOWN_WELL = { x: 72, z: 30, radius: 1.35 } as const

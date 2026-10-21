@@ -23,27 +23,33 @@ function footprint(site: TownHRLayout['site'], width: number, depth: number): TH
 }
 /** Search the authored western district using actual built obstacles and road segments.
  * The full mounted courtyard is reserved even when buying only infantry. No fallback to blocked slots.
+ * Callers with an existing population can reuse its resident positions.
  */
-export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readonly ObstacleData[], roads: readonly TownRoad[]): TownHRLayout {
+export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readonly ObstacleData[], roads: readonly TownRoad[],
+  residents: readonly Pick<TownActorSpec, 'x' | 'z'>[] = townRoster()): TownHRLayout {
   const width = faction === 'roman' ? 16 : 13, depth = faction === 'roman' ? 13 : 22
   const cavalry = new THREE.Box3(new THREE.Vector3(TOWN_CAVALRY_FIELD.minX, -100, TOWN_CAVALRY_FIELD.minZ),
     new THREE.Vector3(TOWN_CAVALRY_FIELD.maxX, 100, TOWN_CAVALRY_FIELD.maxZ))
-  const residents = townRoster()
+  // The roster is immutable during this search. Build its envelopes once per
+  // invocation, not once for every site/officer/courtyard candidate.
+  const residentBoxes = residents.map(actor => new THREE.Box3(
+    new THREE.Vector3(actor.x - .6, -100, actor.z - .6), new THREE.Vector3(actor.x + .6, 100, actor.z + .6)))
   const clear = (box: THREE.Box3) => {
     if (box.min.x < TOWN_CITY.minX + 5 || box.max.x > TOWN_CITY.maxX - 5
       || box.min.z < TOWN_CITY.minZ + 5 || box.max.z > TOWN_CITY.maxZ - 5 || cavalry.intersectsBox(box)) return false
     if (obstacles.some(obstacle => obstacle.box.intersectsBox(box))) return false
-    if (residents.some(actor => box.intersectsBox(new THREE.Box3(
-      new THREE.Vector3(actor.x - .6, -100, actor.z - .6), new THREE.Vector3(actor.x + .6, 100, actor.z + .6))))) return false
+    if (residentBoxes.some(resident => box.intersectsBox(resident))) return false
     return !roads.some(road => townRoadIntersectsBox(road, box, 1))
   }
   const sites = [{ x: -85, z: 25, yaw: TOWN_HR_REGION.yaw }]
   for (let z = TOWN_HR_REGION.minZ; z <= TOWN_HR_REGION.maxZ; z += 3)
     for (let x = TOWN_HR_REGION.minX; x <= TOWN_HR_REGION.maxX; x += 3) sites.push({ x, z, yaw: TOWN_HR_REGION.yaw })
   for (const site of sites) {
-    if (!clear(footprint(site, width + 4, depth + 6))) continue
+    // Reserve the eaves plus margin, without rejecting a hall beside the overhead deck.
+    if (!clear(footprint(site, width + 2.4, depth + 6))) continue
     const officer = point(site, 0, depth / 2 + 4)
-    if (!clear(footprint(officer, 4, 4))) continue
+    // Mounted body diameter is 2m; keep another .25m clearance on each side.
+    if (!clear(footprint(officer, 2.5, 2.5))) continue
     for (const courtyardSide of [1, -1]) {
       const muster = Array.from({ length: 30 }, (_, i) => point(site,
         courtyardSide * (width / 2 + 5 + Math.floor(i / 5) * 4.5), (i % 5 - 2) * 4.5))
@@ -53,8 +59,10 @@ export function resolveTownHRLayout(faction: CharacterFaction, obstacles: readon
   }
   throw new Error('No walkable HR Center and mounted courtyard in the western district')
 }
-export function hrOfficerSpec(layout: TownHRLayout): TownActorSpec {
-  return { id: 'hr-officer', role: 'hr-officer', duty: 'service', tier: 4, mounted: true, training: false,
+export const TOWN_HR_OFFICER_ID = 'hr-officer'
+
+export function hrOfficerSpec(layout: Pick<TownHRLayout, 'officer'>): TownActorSpec {
+  return { id: TOWN_HR_OFFICER_ID, role: 'hr-officer', duty: 'service', tier: 4, mounted: true, training: false,
     assaultObjective: false, index: 0, ...layout.officer }
 }
 

@@ -1,0 +1,2314 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-16T16:20:32.256332+00:00",
+  "sourceBaseCommit": "b2110e763cfdf55bd7c690125e5a1e2621cdaa57",
+  "scope": "Offline CPU-evaluated production Registry/Studio/Animator/EquipmentPose and actual NPC/Player flows, rendered with Blender. No replacement controller or synthetic skeleton. Browser gameplay, WebGL/Electron rendering and GPU performance are unverified.",
+  "runtimeBundles": {
+    "current": {
+      "file": "output/faction-integration/runtime-qa/live-right-hand-real3lod.mjs",
+      "sha256": "d9703b2fb278b2fd1ef8c8f55b1b7993f976c6b9a2139549e04ae7fe42ba37ff"
+    },
+    "b211Before": {
+      "file": "output/faction-integration/runtime-qa/live-before.mjs",
+      "sha256": "c726e882e4fce7cff91f6d8f420b8bcffc31ce8f63dbff74c463cb7e53bae1e3"
+    },
+    "slopeBefore": {
+      "file": "output/faction-integration/slope-seat-fix/runtime-before.mjs",
+      "sha256": "3cfc9ee1aa2cbdaa143ede12ca939bc904af380697dbefa2140c665615f61ff4"
+    },
+    "slopeAfter": {
+      "file": "output/faction-integration/slope-seat-fix/runtime-after.mjs",
+      "sha256": "e1d894402730fed9122d522c46057ec3b3d52374f6904806b0c045a5d7c117de"
+    }
+  },
+  "finalAssets": {
+    "maki-archer-t4": {
+      "manifest.json": "3a5ca9544196a9ab15f5ef04da6a72235b2e2b481fa74f2e3f5b358ab2a584fa",
+      "lod0.glb": "835614cd616c3dda523dcad18a63798192a46ca3611263d10f5e96cf35f03a48",
+      "lod1.glb": "e9330648f5fe2ee5468211fc84f274f27380267b130e135652231f0d07d1d831",
+      "lod2.glb": "856d32f3f023d328f774c8b157565fa6df6c0b9775a5d4b6a9a1c42c3c37ddc6"
+    },
+    "roman-civilian": {
+      "manifest.json": "882373e4b43dda2fe19a671f6a5068c2f52aabbe279db218b65cba22530dcd9e",
+      "lod0.glb": "f20011d5b915359c497ed1ed4d45508d32f6c5cd551dd18d379269d04e670381",
+      "lod1.glb": "d4f558bd5e4971ac73341593676d97122446740a6c3d2a77280a7a6087e360de",
+      "lod2.glb": "645042dbfc47de915a3c08359f126447b9b783cb6117bcbd97b3b525a5b38196"
+    },
+    "viking-civilian": {
+      "manifest.json": "0b2975e5e4c869c31fb3cc6bea038358cd706bebf260318ee2b3bb7ff64c3f24",
+      "lod0.glb": "fe95e98a50581906bb306cfcb13a5fe219c904eccfbe2ca2c17427a385de3652",
+      "lod1.glb": "9536629eda6300193197c5388246eccfda01b14d13a1c860e83fa90f43bb0a74",
+      "lod2.glb": "b3f8eead0b088e05b2bfa1550d8ba6d52570808c26dfe1597a3abc50421dcb45"
+    }
+  },
+  "beforeAssets": {
+    "maki-archer-t4": {
+      "manifest.json": "4b12fdd1aa964d996a5e8414c90c0a8cfb3c98745c5f5608e7abde97c8d72395",
+      "lod0.glb": "835614cd616c3dda523dcad18a63798192a46ca3611263d10f5e96cf35f03a48",
+      "lod1.glb": "e9330648f5fe2ee5468211fc84f274f27380267b130e135652231f0d07d1d831",
+      "lod2.glb": "856d32f3f023d328f774c8b157565fa6df6c0b9775a5d4b6a9a1c42c3c37ddc6"
+    },
+    "roman-civilian": {
+      "manifest.json": "97544af8e7c665c19fb0efbd9890a99a11a87a6894f8fe42d1418de01e802857",
+      "lod0.glb": "f20011d5b915359c497ed1ed4d45508d32f6c5cd551dd18d379269d04e670381",
+      "lod1.glb": "d4f558bd5e4971ac73341593676d97122446740a6c3d2a77280a7a6087e360de",
+      "lod2.glb": "645042dbfc47de915a3c08359f126447b9b783cb6117bcbd97b3b525a5b38196"
+    },
+    "viking-civilian": {
+      "manifest.json": "1ef2c58515d0d7bc51b72c4b1791177bec91acce176af4e06e5431ced6f4dac3",
+      "lod0.glb": "a282eb7c31b79532b7fd1696e656f53a00374e79cf46c4a734965814181c4e85",
+      "lod1.glb": "a5bd6d00d1589b168212312c1e86ccbbd0fa22d0748f8ad772221d439d884590",
+      "lod2.glb": "9f948092b43db11d9a46cbc5d3b5255f363215a1971a560581922479880fc9ab"
+    }
+  },
+  "publicMatchesSnapshot": true,
+  "metadataOnlyUpdate": {
+    "asset": "viking-civilian",
+    "evaluatedManifestSha256": "c77bb6c45b74863d65c799fb7869c5b409116c7b35a71ef05858db474aa54b8e",
+    "finalManifestSha256": "0b2975e5e4c869c31fb3cc6bea038358cd706bebf260318ee2b3bb7ff64c3f24",
+    "changedTopLevelFields": [
+      "knownLimitations"
+    ],
+    "runtimeRelevantFieldsExact": true,
+    "before": [
+      "Cloth uses fitted helper bones and baked poses; no dynamic cloth collision.",
+      "Hard angular inner-sleeve folds remain visible in some raised-arm poses; localized lining closes the reviewed openings without claiming smooth cloth simulation.",
+      "The existing two-handed axe support hand retains its partly open/sliding source pose, emphasized by the low-poly fingers.",
+      "The target-only grounded death retains a slightly propped prone shape from the authored motion; contacting extremities do not imply a fully flat torso.",
+      "Raw source-mode bow poses may hover: gameplay retains the bow pelvis while replacing leg tracks with locomotion legs, and the fitted contact bake preserves that composed stance.",
+      "Per-frame locomotion planting removes authored airborne run clearance. Actual idle/run fades on the reviewed fitted targets can briefly dip soles about 2.5\u20134.7 cm; source-clearance-preserving locomotion remains unfinished.",
+      "The inherited short early two-handed-axe runtime transition can briefly dip feet about 2\u20134 cm; the shared blend and body/root behavior are unchanged.",
+      "Coarse LOD2 final death contact can retain about 3.7\u20137.5 mm of surface-floor penetration under the shared identical animation.",
+      "LOD2 retains a small dark angular hood fold and coarse hard edges; the large posterior inner-shell crossings were repaired with paired lining."
+    ],
+    "after": [
+      "Cloth uses fitted helper bones and baked poses; no dynamic cloth collision.",
+      "Hard angular inner-sleeve folds remain visible in some raised-arm poses; localized lining closes the reviewed openings without claiming smooth cloth simulation.",
+      "The existing two-handed axe support hand retains its partly open/sliding source pose, emphasized by the low-poly fingers.",
+      "The target-only grounded death retains a slightly propped prone shape from the authored motion; contacting extremities do not imply a fully flat torso.",
+      "Raw source-mode bow poses may hover: gameplay retains the bow pelvis while replacing leg tracks with locomotion legs, and the fitted contact bake preserves that composed stance.",
+      "Per-frame locomotion planting removes authored airborne run clearance. Actual idle/run fades on the reviewed fitted targets can briefly dip soles about 2.5\u20134.7 cm; source-clearance-preserving locomotion remains unfinished.",
+      "The inherited short early two-handed-axe runtime transition can briefly dip feet about 2\u20134 cm; the shared blend and body/root behavior are unchanged.",
+      "Coarse LOD2 final death contact can retain about 3.7\u20137.5 mm of surface-floor penetration under the shared identical animation.",
+      "LOD2 retains a small dark angular hood fold and coarse hard edges; the large posterior inner-shell crossings were repaired with paired lining.",
+      "The widest steel sword grip retains a broad low-poly C silhouette around its raised rings in extreme closeups; the corrected grasp preserves blade orientation with a bounded local attachment translation.",
+      "Corrected right-hand skin changes authored non-sword fingertips. Coarse one-handed axe haft overlap remains and can be deeper than the original; this repair does not claim zero weapon/hand penetration."
+    ]
+  },
+  "numericAudit": {
+    "checkedAt": "2026-10-16T16:12:04.356Z",
+    "snapshots": 381,
+    "assets": [
+      "maki-archer-t4",
+      "roman-civilian",
+      "viking-civilian"
+    ],
+    "failures": [
+      "axe endpoint/reach"
+    ],
+    "pass": false,
+    "scope": "Standalone numeric production-runtime QA gates only. Mesh contact, art quality, browser and GPU acceptance are separate."
+  },
+  "poseCoverage": {
+    "snapshots": 381,
+    "unsupported": [],
+    "nonfiniteVertices": 0,
+    "expectedAssetAndExactlyOneLODAssertions": 381,
+    "caseNamesPerAsset": {
+      "maki-archer-t4": [
+        "sword-0.05",
+        "axe1h-0.05",
+        "axe2h-0.05",
+        "bow-0.05",
+        "death-0.05",
+        "death-gameplay-0.05",
+        "walk-0.05",
+        "run-0.05",
+        "bowRelease-0.05",
+        "idle-0.05",
+        "lance-0.05",
+        "pilum-0.05",
+        "hit-0.05",
+        "bowHold-0.05",
+        "sword-0.28",
+        "axe1h-0.28",
+        "axe2h-0.28",
+        "bow-0.28",
+        "death-0.28",
+        "death-gameplay-0.28",
+        "walk-0.28",
+        "run-0.28",
+        "bowRelease-0.28",
+        "idle-0.28",
+        "lance-0.28",
+        "pilum-0.28",
+        "hit-0.28",
+        "bowHold-0.28",
+        "sword-0.55",
+        "axe1h-0.55",
+        "axe2h-0.55",
+        "bow-0.55",
+        "death-0.55",
+        "death-gameplay-0.55",
+        "walk-0.55",
+        "run-0.55",
+        "bowRelease-0.55",
+        "idle-0.55",
+        "lance-0.55",
+        "pilum-0.55",
+        "hit-0.55",
+        "bowHold-0.55",
+        "sword-0.85",
+        "axe1h-0.85",
+        "axe2h-0.85",
+        "bow-0.85",
+        "death-0.85",
+        "death-gameplay-0.85",
+        "walk-0.85",
+        "run-0.85",
+        "bowRelease-0.85",
+        "idle-0.85",
+        "lance-0.85",
+        "pilum-0.85",
+        "hit-0.85",
+        "bowHold-0.85",
+        "mounted-axe2h-0.05",
+        "mounted-bow-0.05",
+        "mounted-bowRelease-0.05",
+        "mounted-lance-0.05",
+        "mounted-sword-0.05",
+        "mounted-axe1h-0.05",
+        "mounted-axe2h-0.28",
+        "mounted-bow-0.28",
+        "mounted-bowRelease-0.28",
+        "mounted-lance-0.28",
+        "mounted-sword-0.28",
+        "mounted-axe1h-0.28",
+        "mounted-axe2h-0.55",
+        "mounted-bow-0.55",
+        "mounted-bowRelease-0.55",
+        "mounted-lance-0.55",
+        "mounted-sword-0.55",
+        "mounted-axe1h-0.55",
+        "mounted-axe2h-0.85",
+        "mounted-bow-0.85",
+        "mounted-bowRelease-0.85",
+        "mounted-lance-0.85",
+        "mounted-sword-0.85",
+        "mounted-axe1h-0.85",
+        "run-0.1",
+        "run-0.25",
+        "run-0.6",
+        "run-0.75",
+        "death-1",
+        "death-gameplay-1",
+        "mounted-bow",
+        "mounted-axe2h",
+        "mounted-idle",
+        "bowRelease-0.2",
+        "mounted-bowRelease-0.2",
+        "axe2h-0.4",
+        "mounted-axe2h-0.4",
+        "run-to-idle-0.03",
+        "run-to-idle-0.08",
+        "run-to-idle-0.16",
+        "run-to-idle-0.32",
+        "idle-to-run-0.03",
+        "idle-to-run-0.08",
+        "idle-to-run-0.16",
+        "idle-to-run-0.32",
+        "moving-walk-bowHold-0.2",
+        "moving-walk-bowHold-0.55",
+        "moving-run-bowHold-0.2",
+        "moving-run-bowHold-0.55",
+        "gait-walk-bow-0.2",
+        "gait-walk-axe2h-0.2",
+        "gait-walk-bow-0.55",
+        "gait-walk-axe2h-0.55",
+        "gait-run-bow-0.2",
+        "gait-run-axe2h-0.2",
+        "gait-run-bow-0.55",
+        "gait-run-axe2h-0.55",
+        "lod1-bow-0.28",
+        "lod1-axe2h-0.28",
+        "lod2-bow-0.28",
+        "lod2-axe2h-0.28",
+        "lod1-run-0.1",
+        "lod1-run-0.6",
+        "lod2-run-0.1",
+        "lod2-run-0.6",
+        "lod1-death-gameplay-1",
+        "lod2-death-gameplay-1",
+        "lod1-mounted-bow",
+        "lod1-axe1h",
+        "lod2-mounted-bow",
+        "lod2-axe1h"
+      ],
+      "roman-civilian": [
+        "sword-0.05",
+        "axe1h-0.05",
+        "axe2h-0.05",
+        "bow-0.05",
+        "death-0.05",
+        "death-gameplay-0.05",
+        "walk-0.05",
+        "run-0.05",
+        "bowRelease-0.05",
+        "idle-0.05",
+        "lance-0.05",
+        "pilum-0.05",
+        "hit-0.05",
+        "bowHold-0.05",
+        "sword-0.28",
+        "axe1h-0.28",
+        "axe2h-0.28",
+        "bow-0.28",
+        "death-0.28",
+        "death-gameplay-0.28",
+        "walk-0.28",
+        "run-0.28",
+        "bowRelease-0.28",
+        "idle-0.28",
+        "lance-0.28",
+        "pilum-0.28",
+        "hit-0.28",
+        "bowHold-0.28",
+        "sword-0.55",
+        "axe1h-0.55",
+        "axe2h-0.55",
+        "bow-0.55",
+        "death-0.55",
+        "death-gameplay-0.55",
+        "walk-0.55",
+        "run-0.55",
+        "bowRelease-0.55",
+        "idle-0.55",
+        "lance-0.55",
+        "pilum-0.55",
+        "hit-0.55",
+        "bowHold-0.55",
+        "sword-0.85",
+        "axe1h-0.85",
+        "axe2h-0.85",
+        "bow-0.85",
+        "death-0.85",
+        "death-gameplay-0.85",
+        "walk-0.85",
+        "run-0.85",
+        "bowRelease-0.85",
+        "idle-0.85",
+        "lance-0.85",
+        "pilum-0.85",
+        "hit-0.85",
+        "bowHold-0.85",
+        "mounted-axe2h-0.05",
+        "mounted-bow-0.05",
+        "mounted-bowRelease-0.05",
+        "mounted-lance-0.05",
+        "mounted-sword-0.05",
+        "mounted-axe1h-0.05",
+        "mounted-axe2h-0.28",
+        "mounted-bow-0.28",
+        "mounted-bowRelease-0.28",
+        "mounted-lance-0.28",
+        "mounted-sword-0.28",
+        "mounted-axe1h-0.28",
+        "mounted-axe2h-0.55",
+        "mounted-bow-0.55",
+        "mounted-bowRelease-0.55",
+        "mounted-lance-0.55",
+        "mounted-sword-0.55",
+        "mounted-axe1h-0.55",
+        "mounted-axe2h-0.85",
+        "mounted-bow-0.85",
+        "mounted-bowRelease-0.85",
+        "mounted-lance-0.85",
+        "mounted-sword-0.85",
+        "mounted-axe1h-0.85",
+        "run-0.1",
+        "run-0.25",
+        "run-0.6",
+        "run-0.75",
+        "death-1",
+        "death-gameplay-1",
+        "mounted-bow",
+        "mounted-axe2h",
+        "mounted-idle",
+        "bowRelease-0.2",
+        "mounted-bowRelease-0.2",
+        "axe2h-0.4",
+        "mounted-axe2h-0.4",
+        "run-to-idle-0.03",
+        "run-to-idle-0.08",
+        "run-to-idle-0.16",
+        "run-to-idle-0.32",
+        "idle-to-run-0.03",
+        "idle-to-run-0.08",
+        "idle-to-run-0.16",
+        "idle-to-run-0.32",
+        "moving-walk-bowHold-0.2",
+        "moving-walk-bowHold-0.55",
+        "moving-run-bowHold-0.2",
+        "moving-run-bowHold-0.55",
+        "gait-walk-bow-0.2",
+        "gait-walk-axe2h-0.2",
+        "gait-walk-bow-0.55",
+        "gait-walk-axe2h-0.55",
+        "gait-run-bow-0.2",
+        "gait-run-axe2h-0.2",
+        "gait-run-bow-0.55",
+        "gait-run-axe2h-0.55",
+        "lod1-bow-0.28",
+        "lod1-axe2h-0.28",
+        "lod2-bow-0.28",
+        "lod2-axe2h-0.28",
+        "lod1-run-0.1",
+        "lod1-run-0.6",
+        "lod2-run-0.1",
+        "lod2-run-0.6",
+        "lod1-death-gameplay-1",
+        "lod2-death-gameplay-1",
+        "lod1-mounted-bow",
+        "lod1-axe1h",
+        "lod2-mounted-bow",
+        "lod2-axe1h"
+      ],
+      "viking-civilian": [
+        "sword-0.05",
+        "axe1h-0.05",
+        "axe2h-0.05",
+        "bow-0.05",
+        "death-0.05",
+        "death-gameplay-0.05",
+        "walk-0.05",
+        "run-0.05",
+        "bowRelease-0.05",
+        "idle-0.05",
+        "lance-0.05",
+        "pilum-0.05",
+        "hit-0.05",
+        "bowHold-0.05",
+        "sword-0.28",
+        "axe1h-0.28",
+        "axe2h-0.28",
+        "bow-0.28",
+        "death-0.28",
+        "death-gameplay-0.28",
+        "walk-0.28",
+        "run-0.28",
+        "bowRelease-0.28",
+        "idle-0.28",
+        "lance-0.28",
+        "pilum-0.28",
+        "hit-0.28",
+        "bowHold-0.28",
+        "sword-0.55",
+        "axe1h-0.55",
+        "axe2h-0.55",
+        "bow-0.55",
+        "death-0.55",
+        "death-gameplay-0.55",
+        "walk-0.55",
+        "run-0.55",
+        "bowRelease-0.55",
+        "idle-0.55",
+        "lance-0.55",
+        "pilum-0.55",
+        "hit-0.55",
+        "bowHold-0.55",
+        "sword-0.85",
+        "axe1h-0.85",
+        "axe2h-0.85",
+        "bow-0.85",
+        "death-0.85",
+        "death-gameplay-0.85",
+        "walk-0.85",
+        "run-0.85",
+        "bowRelease-0.85",
+        "idle-0.85",
+        "lance-0.85",
+        "pilum-0.85",
+        "hit-0.85",
+        "bowHold-0.85",
+        "mounted-axe2h-0.05",
+        "mounted-bow-0.05",
+        "mounted-bowRelease-0.05",
+        "mounted-lance-0.05",
+        "mounted-sword-0.05",
+        "mounted-axe1h-0.05",
+        "mounted-axe2h-0.28",
+        "mounted-bow-0.28",
+        "mounted-bowRelease-0.28",
+        "mounted-lance-0.28",
+        "mounted-sword-0.28",
+        "mounted-axe1h-0.28",
+        "mounted-axe2h-0.55",
+        "mounted-bow-0.55",
+        "mounted-bowRelease-0.55",
+        "mounted-lance-0.55",
+        "mounted-sword-0.55",
+        "mounted-axe1h-0.55",
+        "mounted-axe2h-0.85",
+        "mounted-bow-0.85",
+        "mounted-bowRelease-0.85",
+        "mounted-lance-0.85",
+        "mounted-sword-0.85",
+        "mounted-axe1h-0.85",
+        "run-0.1",
+        "run-0.25",
+        "run-0.6",
+        "run-0.75",
+        "death-1",
+        "death-gameplay-1",
+        "mounted-bow",
+        "mounted-axe2h",
+        "mounted-idle",
+        "bowRelease-0.2",
+        "mounted-bowRelease-0.2",
+        "axe2h-0.4",
+        "mounted-axe2h-0.4",
+        "run-to-idle-0.03",
+        "run-to-idle-0.08",
+        "run-to-idle-0.16",
+        "run-to-idle-0.32",
+        "idle-to-run-0.03",
+        "idle-to-run-0.08",
+        "idle-to-run-0.16",
+        "idle-to-run-0.32",
+        "moving-walk-bowHold-0.2",
+        "moving-walk-bowHold-0.55",
+        "moving-run-bowHold-0.2",
+        "moving-run-bowHold-0.55",
+        "gait-walk-bow-0.2",
+        "gait-walk-axe2h-0.2",
+        "gait-walk-bow-0.55",
+        "gait-walk-axe2h-0.55",
+        "gait-run-bow-0.2",
+        "gait-run-axe2h-0.2",
+        "gait-run-bow-0.55",
+        "gait-run-axe2h-0.55",
+        "lod1-bow-0.28",
+        "lod1-axe2h-0.28",
+        "lod2-bow-0.28",
+        "lod2-axe2h-0.28",
+        "lod1-run-0.1",
+        "lod1-run-0.6",
+        "lod2-run-0.1",
+        "lod2-run-0.6",
+        "lod1-death-gameplay-1",
+        "lod2-death-gameplay-1",
+        "lod1-mounted-bow",
+        "lod1-axe1h",
+        "lod2-mounted-bow",
+        "lod2-axe1h"
+      ]
+    },
+    "dataDirectory": "output/faction-integration/runtime-qa/final-hand-381",
+    "evidenceSha256": "dbd9a11f6a00cb0cbd9cf352dd2dea49564da8834f96ef81f70302d9da0941fc"
+  },
+  "resourcesAndEvents": [
+    {
+      "asset": "maki-archer-t4",
+      "mixersPerActor": [
+        1,
+        1
+      ],
+      "lodSkeletonIdentityShared": true,
+      "actorSkeletonIsolation": true,
+      "actorPoseIsolation": true,
+      "geometryAndMaterialSharedAcrossActors": true,
+      "textureSharedAcrossActors": true,
+      "resources": [
+        {
+          "lod": 0,
+          "meshes": 1,
+          "triangles": 10933,
+          "vertices": 15489,
+          "textures": 3,
+          "skeletons": 1,
+          "materials": 1
+        },
+        {
+          "lod": 1,
+          "meshes": 1,
+          "triangles": 4495,
+          "vertices": 7816,
+          "textures": 3,
+          "skeletons": 1,
+          "materials": 1
+        },
+        {
+          "lod": 2,
+          "meshes": 1,
+          "triangles": 1792,
+          "vertices": 3694,
+          "textures": 3,
+          "skeletons": 1,
+          "materials": 1
+        }
+      ],
+      "realLodInputs": {
+        "distinctHashes": true,
+        "distinctVertexCounts": true,
+        "hashes": [
+          "835614cd616c3dda523dcad18a63798192a46ca3611263d10f5e96cf35f03a48",
+          "e9330648f5fe2ee5468211fc84f274f27380267b130e135652231f0d07d1d831",
+          "856d32f3f023d328f774c8b157565fa6df6c0b9775a5d4b6a9a1c42c3c37ddc6"
+        ],
+        "diagnostic": null,
+        "shippingBlocked": false
+      },
+      "lodSwitch": {
+        "before": {
+          "action": "axeAttack1H",
+          "elapsed": 0.17,
+          "mixerTime": 14.492000000000017
+        },
+        "after": {
+          "action": "axeAttack1H",
+          "elapsed": 0.17,
+          "mixerTime": 14.492000000000017
+        },
+        "unchanged": true
+      },
+      "mountedCape": {
+        "evaluation": "Actual mounted run carry pose, then production setLocomotion(4,false,true) and .30s update; current cape helpers only",
+        "angles": [
+          {
+            "bone": "cape_upper",
+            "expectedPitch": 0.35,
+            "actualPitch": 0.3500000000000009,
+            "error": 9.43689570931383e-16
+          },
+          {
+            "bone": "cape_mid",
+            "expectedPitch": 0.7,
+            "actualPitch": 0.7000000000178379,
+            "error": 1.783795333665239e-11
+          },
+          {
+            "bone": "cape_lower",
+            "expectedPitch": 0.95,
+            "actualPitch": 0.9500000000461123,
+            "error": 4.611233617168864e-11
+          }
+        ],
+        "maxMountedPitchError": 4.611233617168864e-11,
+        "dismountedClip": "run",
+        "unmountedOverlayDelta": 0,
+        "unmountedReapplyDelta": 0
+      },
+      "meleeCycles": [
+        {
+          "weapon": "sword",
+          "shield": false,
+          "mounted": false,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "sword",
+          "shield": false,
+          "mounted": true,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": true,
+          "mounted": false,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": true,
+          "mounted": true,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": false,
+          "mounted": false,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": false,
+          "mounted": true,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        }
+      ],
+      "largeDtAndCancelPass": true,
+      "deathSuppressionPass": true
+    },
+    {
+      "asset": "roman-civilian",
+      "mixersPerActor": [
+        1,
+        1
+      ],
+      "lodSkeletonIdentityShared": true,
+      "actorSkeletonIsolation": true,
+      "actorPoseIsolation": true,
+      "geometryAndMaterialSharedAcrossActors": true,
+      "textureSharedAcrossActors": true,
+      "resources": [
+        {
+          "lod": 0,
+          "meshes": 1,
+          "triangles": 10300,
+          "vertices": 16166,
+          "textures": 3,
+          "skeletons": 1,
+          "materials": 1
+        },
+        {
+          "lod": 1,
+          "meshes": 1,
+          "triangles": 4498,
+          "vertices": 8507,
+          "textures": 3,
+          "skeletons": 1,
+          "materials": 1
+        },
+        {
+          "lod": 2,
+          "meshes": 1,
+          "triangles": 1797,
+          "vertices": 4047,
+          "textures": 3,
+          "skeletons": 1,
+          "materials": 1
+        }
+      ],
+      "realLodInputs": {
+        "distinctHashes": true,
+        "distinctVertexCounts": true,
+        "hashes": [
+          "f20011d5b915359c497ed1ed4d45508d32f6c5cd551dd18d379269d04e670381",
+          "d4f558bd5e4971ac73341593676d97122446740a6c3d2a77280a7a6087e360de",
+          "645042dbfc47de915a3c08359f126447b9b783cb6117bcbd97b3b525a5b38196"
+        ],
+        "diagnostic": null,
+        "shippingBlocked": false
+      },
+      "lodSwitch": {
+        "before": {
+          "action": "axeAttack1H",
+          "elapsed": 0.17,
+          "mixerTime": 14.492000000000017
+        },
+        "after": {
+          "action": "axeAttack1H",
+          "elapsed": 0.17,
+          "mixerTime": 14.492000000000017
+        },
+        "unchanged": true
+      },
+      "mountedCape": {
+        "evaluation": "Actual mounted run carry pose, then production setLocomotion(4,false,true) and .30s update; current cape helpers only",
+        "angles": [],
+        "maxMountedPitchError": null,
+        "dismountedClip": "run",
+        "unmountedOverlayDelta": 0,
+        "unmountedReapplyDelta": 0
+      },
+      "meleeCycles": [
+        {
+          "weapon": "sword",
+          "shield": false,
+          "mounted": false,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "sword",
+          "shield": false,
+          "mounted": true,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": true,
+          "mounted": false,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": true,
+          "mounted": true,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": false,
+          "mounted": false,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": false,
+          "mounted": true,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        }
+      ],
+      "largeDtAndCancelPass": true,
+      "deathSuppressionPass": true
+    },
+    {
+      "asset": "viking-civilian",
+      "mixersPerActor": [
+        1,
+        1
+      ],
+      "lodSkeletonIdentityShared": true,
+      "actorSkeletonIsolation": true,
+      "actorPoseIsolation": true,
+      "geometryAndMaterialSharedAcrossActors": true,
+      "textureSharedAcrossActors": true,
+      "resources": [
+        {
+          "lod": 0,
+          "meshes": 1,
+          "triangles": 11704,
+          "vertices": 16634,
+          "textures": 3,
+          "skeletons": 1,
+          "materials": 1
+        },
+        {
+          "lod": 1,
+          "meshes": 1,
+          "triangles": 4321,
+          "vertices": 7756,
+          "textures": 3,
+          "skeletons": 1,
+          "materials": 1
+        },
+        {
+          "lod": 2,
+          "meshes": 1,
+          "triangles": 1645,
+          "vertices": 3514,
+          "textures": 3,
+          "skeletons": 1,
+          "materials": 1
+        }
+      ],
+      "realLodInputs": {
+        "distinctHashes": true,
+        "distinctVertexCounts": true,
+        "hashes": [
+          "fe95e98a50581906bb306cfcb13a5fe219c904eccfbe2ca2c17427a385de3652",
+          "9536629eda6300193197c5388246eccfda01b14d13a1c860e83fa90f43bb0a74",
+          "b3f8eead0b088e05b2bfa1550d8ba6d52570808c26dfe1597a3abc50421dcb45"
+        ],
+        "diagnostic": null,
+        "shippingBlocked": false
+      },
+      "lodSwitch": {
+        "before": {
+          "action": "axeAttack1H",
+          "elapsed": 0.17,
+          "mixerTime": 14.492000000000017
+        },
+        "after": {
+          "action": "axeAttack1H",
+          "elapsed": 0.17,
+          "mixerTime": 14.492000000000017
+        },
+        "unchanged": true
+      },
+      "mountedCape": {
+        "evaluation": "Actual mounted run carry pose, then production setLocomotion(4,false,true) and .30s update; current cape helpers only",
+        "angles": [
+          {
+            "bone": "cape_upper",
+            "expectedPitch": 0.35,
+            "actualPitch": 0.3500000000000006,
+            "error": 6.106226635438361e-16
+          },
+          {
+            "bone": "cape_mid",
+            "expectedPitch": 0.7,
+            "actualPitch": 0.7000000000262907,
+            "error": 2.6290747356938482e-11
+          },
+          {
+            "bone": "cape_lower",
+            "expectedPitch": 0.95,
+            "actualPitch": 0.9500000000627826,
+            "error": 6.278266795334275e-11
+          }
+        ],
+        "maxMountedPitchError": 6.278266795334275e-11,
+        "dismountedClip": "run",
+        "unmountedOverlayDelta": 0,
+        "unmountedReapplyDelta": 0
+      },
+      "meleeCycles": [
+        {
+          "weapon": "sword",
+          "shield": false,
+          "mounted": false,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "sword",
+          "shield": false,
+          "mounted": true,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": true,
+          "mounted": false,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": true,
+          "mounted": true,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": false,
+          "mounted": false,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        },
+        {
+          "weapon": "axe",
+          "shield": false,
+          "mounted": true,
+          "counts": {
+            "hit": 1,
+            "complete": 1
+          }
+        }
+      ],
+      "largeDtAndCancelPass": true,
+      "deathSuppressionPass": true
+    }
+  ],
+  "disposalAudit": {
+    "method": "Actual production registry disposal; real CPU-created bone textures and disposal events. No WebGL allocation or GPU-memory claim.",
+    "pass": true,
+    "assets": [
+      {
+        "asset": "maki-archer-t4",
+        "isolatedOwnedBoneTextures": true,
+        "ownedADisposalsAfterRepeatedDispose": 1,
+        "ownedBUnaffected": true,
+        "otherActorClockAdvances": true,
+        "otherActorVerticesFinite": true,
+        "sharedResourceDisposalsBeforeB": 0,
+        "ownedBDisposals": 1,
+        "sharedResourceDisposalsAfterBoth": 0,
+        "freshActorFromRetainedTemplate": {
+          "sharedGeometry": true,
+          "finiteVertexPerMesh": true,
+          "mixerAdvances": true
+        },
+        "sharedResourceDisposalsAfterFreshActor": 0,
+        "pass": true
+      },
+      {
+        "asset": "roman-civilian",
+        "isolatedOwnedBoneTextures": true,
+        "ownedADisposalsAfterRepeatedDispose": 1,
+        "ownedBUnaffected": true,
+        "otherActorClockAdvances": true,
+        "otherActorVerticesFinite": true,
+        "sharedResourceDisposalsBeforeB": 0,
+        "ownedBDisposals": 1,
+        "sharedResourceDisposalsAfterBoth": 0,
+        "freshActorFromRetainedTemplate": {
+          "sharedGeometry": true,
+          "finiteVertexPerMesh": true,
+          "mixerAdvances": true
+        },
+        "sharedResourceDisposalsAfterFreshActor": 0,
+        "pass": true
+      },
+      {
+        "asset": "viking-civilian",
+        "isolatedOwnedBoneTextures": true,
+        "ownedADisposalsAfterRepeatedDispose": 1,
+        "ownedBUnaffected": true,
+        "otherActorClockAdvances": true,
+        "otherActorVerticesFinite": true,
+        "sharedResourceDisposalsBeforeB": 0,
+        "ownedBDisposals": 1,
+        "sharedResourceDisposalsAfterBoth": 0,
+        "freshActorFromRetainedTemplate": {
+          "sharedGeometry": true,
+          "finiteVertexPerMesh": true,
+          "mixerAdvances": true
+        },
+        "sharedResourceDisposalsAfterFreshActor": 0,
+        "pass": true
+      }
+    ]
+  },
+  "decoderFailureAudits": [
+    {
+      "mode": "missing-marker",
+      "method": "Removed the decoder marker from the local manifest response only; required-extension GLBs remain unchanged; restored the original response for retry.",
+      "initialError": "THREE.GLTFLoader: setMeshoptDecoder must be called before loading compressed files",
+      "failureCacheCleared": true,
+      "noPartialTemplate": true,
+      "retry": {
+        "lods": 3,
+        "mixers": 1,
+        "clip": "run"
+      },
+      "retryError": null,
+      "pass": true
+    },
+    {
+      "mode": "missing-decoder",
+      "method": "Temporarily disabled the real Three MeshoptDecoder.supported flag in this standalone process, then restored it.",
+      "initialError": "THREE.GLTFLoader: setMeshoptDecoder must be called before loading compressed files",
+      "failureCacheCleared": true,
+      "noPartialTemplate": true,
+      "retry": {
+        "lods": 3,
+        "mixers": 1,
+        "clip": "run"
+      },
+      "retryError": null,
+      "pass": true
+    },
+    {
+      "mode": "corrupt-stream",
+      "method": "Replaced one compressed stream header in a local fetch response only; original files unchanged; retried with original response.",
+      "initialError": "Malformed buffer data: -1",
+      "failureCacheCleared": true,
+      "noPartialTemplate": true,
+      "retry": {
+        "lods": 3,
+        "mixers": 1,
+        "clip": "run"
+      },
+      "retryError": null,
+      "pass": true
+    }
+  ],
+  "actualPlayerContextRestoration": {
+    "method": "Real Player.update input flow; phase lock only for equal-pose context restoration comparison via existing animation.seek (play+update(0) does not evaluate the Three mixer). Actual attack/bow frames use unmodified continuous updates.",
+    "checks": [
+      {
+        "context": "mounted sword after axe and lance",
+        "maxBoneMatrixDelta": 0,
+        "maxWeaponMatrixDelta": 0,
+        "gripDeltaM": 0,
+        "tipDeltaM": 0
+      },
+      {
+        "context": "mounted sword after bow/release",
+        "maxBoneMatrixDelta": 4.440892098500626e-16,
+        "maxWeaponMatrixDelta": 2.220446049250313e-16,
+        "gripDeltaM": 7.850462293418876e-17,
+        "tipDeltaM": 1.6653345369377348e-16
+      },
+      {
+        "context": "mounted sword after attack",
+        "maxBoneMatrixDelta": 4.996003610813204e-16,
+        "maxWeaponMatrixDelta": 2.220446049250313e-16,
+        "gripDeltaM": 1.2412670766236366e-16,
+        "tipDeltaM": 2.482534153247273e-16
+      },
+      {
+        "context": "foot sword after mount roundtrip",
+        "maxBoneMatrixDelta": 6.661338147750939e-16,
+        "maxWeaponMatrixDelta": 3.3306690738754696e-16,
+        "gripDeltaM": 2.435541875787129e-16,
+        "tipDeltaM": 5.551115123125783e-16
+      },
+      {
+        "context": "foot sword after hidden/restored",
+        "maxBoneMatrixDelta": 6.661338147750939e-16,
+        "maxWeaponMatrixDelta": 3.3306690738754696e-16,
+        "gripDeltaM": 2.435541875787129e-16,
+        "tipDeltaM": 5.551115123125783e-16
+      }
+    ],
+    "isolation": {
+      "sameWeaponObject": false,
+      "oldActorDelta": {
+        "maxBoneMatrixDelta": 0,
+        "maxWeaponMatrixDelta": 0,
+        "gripDeltaM": 0,
+        "tipDeltaM": 0
+      },
+      "partnerAfterDispose": {
+        "maxBoneMatrixDelta": 0,
+        "maxWeaponMatrixDelta": 0,
+        "gripDeltaM": 0,
+        "tipDeltaM": 0
+      },
+      "partnerWeaponVisible": true
+    },
+    "events": [
+      {
+        "id": "viking-civilian",
+        "frame": 453,
+        "action": "bowRelease",
+        "hitActiveStarted": false,
+        "projectileRelease": true,
+        "actionCompleted": false
+      },
+      {
+        "id": "viking-civilian",
+        "frame": 464,
+        "action": "bowRelease",
+        "hitActiveStarted": false,
+        "projectileRelease": false,
+        "actionCompleted": true
+      },
+      {
+        "id": "viking-civilian",
+        "frame": 567,
+        "action": "swordSlash",
+        "hitActiveStarted": true,
+        "projectileRelease": false,
+        "actionCompleted": false
+      },
+      {
+        "id": "viking-civilian",
+        "frame": 580,
+        "action": "swordSlash",
+        "hitActiveStarted": false,
+        "projectileRelease": false,
+        "actionCompleted": true
+      }
+    ],
+    "data": "output/faction-integration/runtime-qa/hand-context-real3lod-settled/contexts.json"
+  },
+  "selectedImages": [
+    {
+      "file": "hand-grips.jpg",
+      "sha256": "e3153e3797995ae1097925f97da970013c9efa98325188b995fcc878ebb4198e",
+      "bytes": 1414128,
+      "notes": "New render of final geometry/runtime evaluations. Before panels use b211. Hand/handle isolates are explicitly labeled; LOD1/2 use final corrected web weights.",
+      "title": "Offline production-runtime pose render | left hands and Nordic sword grip",
+      "subtitle": "b211 before / final candidate after. Actual NPC poses; expected asset ID and one LOD asserted. Detail cells omit Horse; cropped cells omit occluding body/trim handle only. Steel C-shaped gap, hard low-poly fingers and foot T5 overlap remain.",
+      "rows": 6,
+      "cols": 4,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "asset": "roman-civilian",
+          "case": "before-peace-idle",
+          "label": "Roman before | free left idle",
+          "target": [
+            0.33393413510804093,
+            1.9292335558105247,
+            -0.029386698546502475
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 0.35,
+          "resolvedAsset": "roman-civilian-humanoid-v2",
+          "visibleLods": [
+            "roman-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/roman-civilian__before-peace-idle.json",
+          "snapshotSha256": "1ec803f7ec3b7fb488dc375cf9d478a5b4ac1ce7d3d94d1c93e5da4d080915c3"
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "asset": "roman-civilian",
+          "case": "after-peace-idle",
+          "label": "Roman after | free left idle",
+          "target": [
+            0.33393413510804093,
+            1.9292335558105247,
+            -0.029386698546502475
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 0.35,
+          "resolvedAsset": "roman-civilian-humanoid-v2",
+          "visibleLods": [
+            "roman-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/roman-civilian__after-peace-idle.json",
+          "snapshotSha256": "84f35109d22f0b0baeac844479ed7768da72c9ac963b7f7a23b983dfeb177fd4"
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "asset": "roman-civilian",
+          "case": "before-peace-run",
+          "label": "Roman before | free left run",
+          "target": [
+            0.4282307918002666,
+            1.9706467735347504,
+            -0.16976247574895836
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 0.35,
+          "resolvedAsset": "roman-civilian-humanoid-v2",
+          "visibleLods": [
+            "roman-civilian-lod0"
+          ],
+          "sampledSeconds": 0.1499999761581423,
+          "sampledNormalizedPhase": 0.24999995032946504,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/roman-civilian__before-peace-run.json",
+          "snapshotSha256": "24ca2a39d6e503a1e532788aa3ecffa054b9382d051b1e1fe511ab3c9033b21d"
+        },
+        {
+          "row": 0,
+          "col": 3,
+          "asset": "roman-civilian",
+          "case": "after-peace-run",
+          "label": "Roman after | free left run",
+          "target": [
+            0.4282307918002666,
+            1.9706467735347504,
+            -0.16976247574895836
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 0.35,
+          "resolvedAsset": "roman-civilian-humanoid-v2",
+          "visibleLods": [
+            "roman-civilian-lod0"
+          ],
+          "sampledSeconds": 0.1499999761581423,
+          "sampledNormalizedPhase": 0.24999995032946504,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/roman-civilian__after-peace-run.json",
+          "snapshotSha256": "4ce0f5e6e50ddf6b845d9bcb9e3554a48226017079ed53a63e066c25a5f4fc2a"
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "asset": "viking-civilian",
+          "case": "before-peace-idle",
+          "label": "Nordic before | free left idle",
+          "target": [
+            0.3503591277948789,
+            1.9325665969548835,
+            0.00994049980240326
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 0.35,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__before-peace-idle.json",
+          "snapshotSha256": "9540a6d1982bec16c32964c680354d51a472af0b4779c25c61267fa732df76f4"
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "asset": "viking-civilian",
+          "case": "after-peace-idle",
+          "label": "Nordic after | free left idle",
+          "target": [
+            0.3503591277948789,
+            1.9325665969548835,
+            0.00994049980240326
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 0.35,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__after-peace-idle.json",
+          "snapshotSha256": "f65ac9f626537bbc87c6dd11d14ce93ecec09695277b2bca7b2aa1dba32b5df7"
+        },
+        {
+          "row": 1,
+          "col": 2,
+          "asset": "viking-civilian",
+          "case": "before-peace-run",
+          "label": "Nordic before | free left run",
+          "target": [
+            0.4411206593090625,
+            1.9721610570914605,
+            -0.13388403051142045
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 0.35,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.1499999761581423,
+          "sampledNormalizedPhase": 0.24999995032946504,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__before-peace-run.json",
+          "snapshotSha256": "e825ca40a3e1b5dfc9452d0a8ccf43c224684d68cb42c82803cf54e4c403a037"
+        },
+        {
+          "row": 1,
+          "col": 3,
+          "asset": "viking-civilian",
+          "case": "after-peace-run",
+          "label": "Nordic after | free left run",
+          "target": [
+            0.4411206593090625,
+            1.9721610570914605,
+            -0.13388403051142045
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 0.35,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.1499999761581423,
+          "sampledNormalizedPhase": 0.24999995032946504,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__after-peace-run.json",
+          "snapshotSha256": "9f8b8ad7372fd46d08f08b190f655f2128e6ea57fc777f7794870c21a40ce883"
+        },
+        {
+          "row": 2,
+          "col": 0,
+          "asset": "maki-archer-t4",
+          "case": "before-peace-idle",
+          "label": "Shadow before | free left idle",
+          "target": [
+            0.36267274565507607,
+            1.9857155334636938,
+            0.04318804788677917
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 1.8,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/maki-archer-t4__before-peace-idle.json",
+          "snapshotSha256": "81a9bfaa5cffb4355ea50e274d99914236f861a66b7272c9dc3d79b75df019b1"
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "asset": "maki-archer-t4",
+          "case": "after-peace-idle",
+          "label": "Shadow after | free left idle",
+          "target": [
+            0.36267274565507607,
+            1.9857155334636938,
+            0.04318804788677917
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 1.8,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/maki-archer-t4__after-peace-idle.json",
+          "snapshotSha256": "325aa8af7d3a72338bf8f72206ead6557aa7f6608fbbc95febfdb39e9ea7375a"
+        },
+        {
+          "row": 2,
+          "col": 2,
+          "asset": "maki-archer-t4",
+          "case": "before-peace-run",
+          "label": "Shadow before | free left run",
+          "target": [
+            0.46016058276459304,
+            2.02438303385016,
+            -0.10675280183735045
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 1.8,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 0.1499999761581423,
+          "sampledNormalizedPhase": 0.24999995032946504,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/maki-archer-t4__before-peace-run.json",
+          "snapshotSha256": "372028ba953ae933da628b0aad50346f3e79063b6fed78205c63a5e18ecab658"
+        },
+        {
+          "row": 2,
+          "col": 3,
+          "asset": "maki-archer-t4",
+          "case": "after-peace-run",
+          "label": "Shadow after | free left run",
+          "target": [
+            0.46016058276459304,
+            2.02438303385016,
+            -0.10675280183735045
+          ],
+          "angle": 0,
+          "scale": 0.85,
+          "exposure": 1.8,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 0.1499999761581423,
+          "sampledNormalizedPhase": 0.24999995032946504,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/maki-archer-t4__after-peace-run.json",
+          "snapshotSha256": "c9d14169ecef29d87b324ae9f97c7868e79080fad441de665f0e4a8e5905dbe2"
+        },
+        {
+          "row": 3,
+          "col": 0,
+          "asset": "viking-civilian",
+          "case": "beforeGrip-mounted-steel_sword",
+          "label": "Nordic steel_sword before | mounted detail",
+          "target": [
+            -0.2865601295737321,
+            2.7170248358026106,
+            -0.07157578699493237
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 0.7,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__beforeGrip-mounted-steel_sword.json",
+          "snapshotSha256": "f246701e100cba6ea88cbe5f51d174f65228d73269374a5bd3d3a3c236ec0e1b"
+        },
+        {
+          "row": 3,
+          "col": 1,
+          "asset": "viking-civilian",
+          "case": "afterGrip-mounted-steel_sword",
+          "label": "Nordic steel_sword after | mounted detail",
+          "target": [
+            -0.2865601295737321,
+            2.7170248358026106,
+            -0.07157578699493237
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 0.7,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__afterGrip-mounted-steel_sword.json",
+          "snapshotSha256": "34ec22061bc98470cde963b76ca8acf7f1901f2c6da3da9d33992d83771e09e6"
+        },
+        {
+          "row": 3,
+          "col": 2,
+          "asset": "viking-civilian",
+          "case": "section-after-isolate-steel_sword",
+          "label": "steel_sword after | cropped hand/handle palm",
+          "target": [
+            -0.2632762440141145,
+            2.7076561072180483,
+            -0.0930750842241316
+          ],
+          "scale": 0.25,
+          "exposure": 0.4,
+          "angle": -1.5484710574967115,
+          "elevation": 0.03483598704147298,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__section-after-isolate-steel_sword.json",
+          "snapshotSha256": "a64a4e3c125eceae76faef1ae708a66248006d1989d71cc51b383f243e6a82d8"
+        },
+        {
+          "row": 3,
+          "col": 3,
+          "asset": "viking-civilian",
+          "case": "section-after-isolate-steel_sword",
+          "label": "steel_sword after | cropped hand/handle end",
+          "target": [
+            -0.2632762440141145,
+            2.7076561072180483,
+            -0.0930750842241316
+          ],
+          "scale": 0.25,
+          "exposure": 0.4,
+          "angle": 0.024281657364974046,
+          "elevation": 0.056073392740907176,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__section-after-isolate-steel_sword.json",
+          "snapshotSha256": "a64a4e3c125eceae76faef1ae708a66248006d1989d71cc51b383f243e6a82d8"
+        },
+        {
+          "row": 4,
+          "col": 0,
+          "asset": "viking-civilian",
+          "case": "beforeGrip-mounted-sword_t5",
+          "label": "Nordic sword_t5 before | mounted detail",
+          "target": [
+            -0.3030850717701677,
+            2.7134236567307966,
+            -0.07177491385772825
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 0.7,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__beforeGrip-mounted-sword_t5.json",
+          "snapshotSha256": "5f52e34cd57b6d6a8e1fd9e23407b77cc841b55dc8671a0dac221e619e2ca04a"
+        },
+        {
+          "row": 4,
+          "col": 1,
+          "asset": "viking-civilian",
+          "case": "afterGrip-mounted-sword_t5",
+          "label": "Nordic sword_t5 after | mounted detail",
+          "target": [
+            -0.3030850717701677,
+            2.7134236567307966,
+            -0.07177491385772825
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 0.7,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__afterGrip-mounted-sword_t5.json",
+          "snapshotSha256": "347892db10f9ba9d987ef93cac1b459e3601053580a6bd28a766ee2fca491ea3"
+        },
+        {
+          "row": 4,
+          "col": 2,
+          "asset": "viking-civilian",
+          "case": "section-after-isolate-sword_t5",
+          "label": "sword_t5 after | cropped hand/handle palm",
+          "target": [
+            -0.29632612840698563,
+            2.7004537490744207,
+            -0.09347333794972335
+          ],
+          "scale": 0.25,
+          "exposure": 0.4,
+          "angle": -1.5484710574967115,
+          "elevation": 0.03483598704147298,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__section-after-isolate-sword_t5.json",
+          "snapshotSha256": "16d995668fc856f530a4e3548a7fc3201a06e6b4c76209d65057a88a7f496a1d"
+        },
+        {
+          "row": 4,
+          "col": 3,
+          "asset": "viking-civilian",
+          "case": "section-after-isolate-sword_t5",
+          "label": "sword_t5 after | cropped hand/handle end",
+          "target": [
+            -0.29632612840698563,
+            2.7004537490744207,
+            -0.09347333794972335
+          ],
+          "scale": 0.25,
+          "exposure": 0.4,
+          "angle": 0.024281657364974046,
+          "elevation": 0.056073392740907176,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__section-after-isolate-sword_t5.json",
+          "snapshotSha256": "16d995668fc856f530a4e3548a7fc3201a06e6b4c76209d65057a88a7f496a1d"
+        },
+        {
+          "row": 5,
+          "col": 0,
+          "asset": "viking-civilian",
+          "case": "lod1-isolate-sword_t5",
+          "label": "T5 mounted | genuine LOD1 hand detail",
+          "target": [
+            -0.29632612840698563,
+            2.7004537490744207,
+            -0.09347333794972335
+          ],
+          "scale": 0.32,
+          "exposure": 0.4,
+          "angle": -1.5484710574967115,
+          "elevation": 0.03483598704147298,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod1"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__lod1-isolate-sword_t5.json",
+          "snapshotSha256": "dd3e956f4300b6029528bc111ded0850720957ceadb0cb255bedf7b7591e822c"
+        },
+        {
+          "row": 5,
+          "col": 1,
+          "asset": "viking-civilian",
+          "case": "lod2-isolate-sword_t5",
+          "label": "T5 mounted | genuine LOD2 hand detail",
+          "target": [
+            -0.29632612840698563,
+            2.7004537490744207,
+            -0.09347333794972335
+          ],
+          "scale": 0.32,
+          "exposure": 0.4,
+          "angle": -1.5484710574967115,
+          "elevation": 0.03483598704147298,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod2"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__lod2-isolate-sword_t5.json",
+          "snapshotSha256": "5e7596ddf37fbf89ba52a6af58751bdffe4d9db7aea0e665055ab27e1e68a86c"
+        },
+        {
+          "row": 5,
+          "col": 2,
+          "asset": "viking-civilian",
+          "case": "footSection-after-isolate-sword_t5",
+          "label": "T5 foot | cropped palm; 2.09mm overlap remains",
+          "target": [
+            -0.313784721755913,
+            1.8447193246535167,
+            -0.11122692992222347
+          ],
+          "scale": 0.25,
+          "exposure": 0.4,
+          "angle": -0.682464417338526,
+          "elevation": 0.1573891550183669,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__footSection-after-isolate-sword_t5.json",
+          "snapshotSha256": "800a52b70ef1e16beaf88b93b6edf04138a2c46124e3ae4bf02b83da39a31eda"
+        },
+        {
+          "row": 5,
+          "col": 3,
+          "asset": "viking-civilian",
+          "case": "footSection-after-isolate-sword_t5",
+          "label": "T5 foot | cropped end; 2.09mm overlap remains",
+          "target": [
+            -0.313784721755913,
+            1.8447193246535167,
+            -0.11122692992222347
+          ],
+          "scale": 0.25,
+          "exposure": 0.4,
+          "angle": 0.9414964764118193,
+          "elevation": 0.32310653143595897,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__footSection-after-isolate-sword_t5.json",
+          "snapshotSha256": "800a52b70ef1e16beaf88b93b6edf04138a2c46124e3ae4bf02b83da39a31eda"
+        }
+      ]
+    },
+    {
+      "file": "axe-carry.jpg",
+      "sha256": "23444240e71482bd4a0b4b94378017264971ed2c0e6e677abf67cb8b715a91ec",
+      "bytes": 349145,
+      "notes": "New final runtime render. Before/after idle pairs share a camera; all complete axes remain framed. Horse body omitted.",
+      "title": "Offline production-runtime pose render | all three forward axe carries",
+      "subtitle": "Actual Player.update: idle / walk / run / mounted. Same camera for each before/after pair; entire axe framed; Horse body omitted because offline KTX2 appearance is unverified. Combat contact is separate: Nordic 1H overlap increases 6.59mm foot / 3.25mm mounted; two strict 1um reach checks remain failed.",
+      "rows": 3,
+      "cols": 6,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "asset": "roman-civilian",
+          "case": "before-axe-idle",
+          "label": "Roman before | idle front",
+          "target": [
+            -0.6017904481637556,
+            1.8557184223372458,
+            0.4320300717010387
+          ],
+          "angle": 0,
+          "scale": 2.3626432732347844,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "roman-civilian-humanoid-v2",
+          "visibleLods": [
+            "roman-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/roman-civilian__before-axe-idle.json",
+          "snapshotSha256": "9d471c0168d37a760d94798164ecfaf50350b407af0166a5957f57e39cc53699"
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "asset": "roman-civilian",
+          "case": "after-axe-idle",
+          "label": "Roman after | idle front",
+          "target": [
+            -0.6017904481637556,
+            1.8557184223372458,
+            0.4320300717010387
+          ],
+          "angle": 0,
+          "scale": 2.3626432732347844,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "roman-civilian-humanoid-v2",
+          "visibleLods": [
+            "roman-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/roman-civilian__after-axe-idle.json",
+          "snapshotSha256": "539ad82a535584983caafe22a7b0ece4e952e5be766d1e234d0c9d1e50ffeb43"
+        },
+        {
+          "row": 0,
+          "col": 2,
+          "asset": "roman-civilian",
+          "case": "after-axe-walk",
+          "label": "Roman after | walk side",
+          "target": [
+            0.017509112273866367,
+            1.6418566945255435,
+            4.517690935363303
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 2.091611709166386,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "roman-civilian-humanoid-v2",
+          "visibleLods": [
+            "roman-civilian-lod0"
+          ],
+          "sampledSeconds": 0.19999998807907093,
+          "sampledNormalizedPhase": 0.24999998137354865,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/roman-civilian__after-axe-walk.json",
+          "snapshotSha256": "4abbec5b1db2d0a3d4306efa48f6e32c007ffd14ec3eea0783f1bfe93507cbda"
+        },
+        {
+          "row": 0,
+          "col": 3,
+          "asset": "roman-civilian",
+          "case": "after-axe-run",
+          "label": "Roman after | run side",
+          "target": [
+            -0.025563262364114603,
+            0.9797093612907366,
+            12.441453769171634
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 2.4744249851344087,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "roman-civilian-humanoid-v2",
+          "visibleLods": [
+            "roman-civilian-lod0"
+          ],
+          "sampledSeconds": 0.4999999761581422,
+          "sampledNormalizedPhase": 0.833333260483215,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/roman-civilian__after-axe-run.json",
+          "snapshotSha256": "0395e750e799a73ae3a3a252410a0cf6224f12039e78cbacbd42c60c91e286bd"
+        },
+        {
+          "row": 0,
+          "col": 4,
+          "asset": "roman-civilian",
+          "case": "after-axe-mounted",
+          "label": "Roman after | mounted front",
+          "target": [
+            -0.0013173666850364585,
+            1.99156363462801,
+            12.493567444581412
+          ],
+          "angle": 0,
+          "scale": 1.803369086371312,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "roman-civilian-humanoid-v2",
+          "visibleLods": [
+            "roman-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/roman-civilian__after-axe-mounted.json",
+          "snapshotSha256": "327fb647d116d61eec49a67044c9a84414b60fdaee7e156a86991cd344b77848"
+        },
+        {
+          "row": 0,
+          "col": 5,
+          "asset": "roman-civilian",
+          "case": "after-axe-mounted",
+          "label": "Roman after | mounted side",
+          "target": [
+            -0.0013173666850364585,
+            1.99156363462801,
+            12.493567444581412
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 1.803369086371312,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "roman-civilian-humanoid-v2",
+          "visibleLods": [
+            "roman-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/roman-civilian__after-axe-mounted.json",
+          "snapshotSha256": "327fb647d116d61eec49a67044c9a84414b60fdaee7e156a86991cd344b77848"
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "asset": "viking-civilian",
+          "case": "before-axe-idle",
+          "label": "Nordic before | idle front",
+          "target": [
+            -0.5932148943959022,
+            1.85593843267534,
+            0.48619385652749647
+          ],
+          "angle": 0,
+          "scale": 2.40587875636238,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__before-axe-idle.json",
+          "snapshotSha256": "2b62a50df298a8f35b6f6553cd8d240fcd2c42cd0447ef4f49ab15faeb1377dd"
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "asset": "viking-civilian",
+          "case": "after-axe-idle",
+          "label": "Nordic after | idle front",
+          "target": [
+            -0.5932148943959022,
+            1.85593843267534,
+            0.48619385652749647
+          ],
+          "angle": 0,
+          "scale": 2.40587875636238,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__after-axe-idle.json",
+          "snapshotSha256": "3e1d007ea30b1726f49a2712c53816ef23b2a4b6d583480a946eb0da2194ff96"
+        },
+        {
+          "row": 1,
+          "col": 2,
+          "asset": "viking-civilian",
+          "case": "after-axe-walk",
+          "label": "Nordic after | walk side",
+          "target": [
+            0.017771666216047505,
+            1.5653336030511402,
+            5.737487470461124
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 2.090110305965683,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.19999998807907093,
+          "sampledNormalizedPhase": 0.24999998137354865,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__after-axe-walk.json",
+          "snapshotSha256": "cd5e30079dca2ba3b948ce83218edc51d1883f74242a7c2a75e9885333662b26"
+        },
+        {
+          "row": 1,
+          "col": 3,
+          "asset": "viking-civilian",
+          "case": "after-axe-run",
+          "label": "Nordic after | run side",
+          "target": [
+            -0.02468036163128648,
+            0.656794919910609,
+            16.097939220567163
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 2.4701187868782704,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.4999999761581422,
+          "sampledNormalizedPhase": 0.833333260483215,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__after-axe-run.json",
+          "snapshotSha256": "fc3a43232f9dc7dddcc75395275697e48062c11647d3905160b7a13e513cfd86"
+        },
+        {
+          "row": 1,
+          "col": 4,
+          "asset": "viking-civilian",
+          "case": "after-axe-mounted",
+          "label": "Nordic after | mounted front",
+          "target": [
+            -0.0010662851852693556,
+            1.68526709724714,
+            15.886341586339391
+          ],
+          "angle": 0,
+          "scale": 1.794096183480738,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__after-axe-mounted.json",
+          "snapshotSha256": "e8668428c6299700cc02bbde9edb3e4ccf4036be49ac08053ab6cb8f4868b04e"
+        },
+        {
+          "row": 1,
+          "col": 5,
+          "asset": "viking-civilian",
+          "case": "after-axe-mounted",
+          "label": "Nordic after | mounted side",
+          "target": [
+            -0.0010662851852693556,
+            1.68526709724714,
+            15.886341586339391
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 2.360483037706596,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "viking-civilian-humanoid-v2",
+          "visibleLods": [
+            "viking-civilian-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/viking-civilian__after-axe-mounted.json",
+          "snapshotSha256": "e8668428c6299700cc02bbde9edb3e4ccf4036be49ac08053ab6cb8f4868b04e"
+        },
+        {
+          "row": 2,
+          "col": 0,
+          "asset": "maki-archer-t4",
+          "case": "before-axe-idle",
+          "label": "Shadow before | idle front",
+          "target": [
+            -0.5745422779835849,
+            1.913207274850025,
+            0.48724186051053286
+          ],
+          "angle": 0,
+          "scale": 2.4790760983965927,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/maki-archer-t4__before-axe-idle.json",
+          "snapshotSha256": "687cce6a5b136702b6a500f1dbd7adc63a355e3bf92115ed08ea50a751268d80"
+        },
+        {
+          "row": 2,
+          "col": 1,
+          "asset": "maki-archer-t4",
+          "case": "after-axe-idle",
+          "label": "Shadow after | idle front",
+          "target": [
+            -0.5745422779835849,
+            1.913207274850025,
+            0.48724186051053286
+          ],
+          "angle": 0,
+          "scale": 2.4790760983965927,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/maki-archer-t4__after-axe-idle.json",
+          "snapshotSha256": "3565d8c25c62dccbe6890853faa63af40e028049db3340be5b8815f30bd3c64e"
+        },
+        {
+          "row": 2,
+          "col": 2,
+          "asset": "maki-archer-t4",
+          "case": "after-axe-walk",
+          "label": "Shadow after | walk side",
+          "target": [
+            -0.005975044754857273,
+            1.5094988970335144,
+            7.297430211575994
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 2.230410799916981,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 0.19999998807907093,
+          "sampledNormalizedPhase": 0.24999998137354865,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/maki-archer-t4__after-axe-walk.json",
+          "snapshotSha256": "57294ec9fd22b01dfdec863a090b15e6ecd7a8c59b24e8353c6bc0fc9944a7d3"
+        },
+        {
+          "row": 2,
+          "col": 3,
+          "asset": "maki-archer-t4",
+          "case": "after-axe-run",
+          "label": "Shadow after | run side",
+          "target": [
+            -0.03213118916831173,
+            0.3464418599851832,
+            20.723746628494744
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 2.7070817424961606,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 0.4999999761581422,
+          "sampledNormalizedPhase": 0.833333260483215,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/maki-archer-t4__after-axe-run.json",
+          "snapshotSha256": "1d86abb9032c73888a9e6ec0d679257848436d4d84fdad6ce2e481f334dcce1d"
+        },
+        {
+          "row": 2,
+          "col": 4,
+          "asset": "maki-archer-t4",
+          "case": "after-axe-mounted",
+          "label": "Shadow after | mounted front",
+          "target": [
+            -0.00171098950174553,
+            1.3007889187701265,
+            20.42961172487601
+          ],
+          "angle": 0,
+          "scale": 1.9216561119171773,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/maki-archer-t4__after-axe-mounted.json",
+          "snapshotSha256": "3333220863f246cf29e52a477003b19627275007e18c8e8ff7f1e2fa404437b4"
+        },
+        {
+          "row": 2,
+          "col": 5,
+          "asset": "maki-archer-t4",
+          "case": "after-axe-mounted",
+          "label": "Shadow after | mounted side",
+          "target": [
+            -0.00171098950174553,
+            1.3007889187701265,
+            20.42961172487601
+          ],
+          "angle": 1.5707963267948966,
+          "scale": 2.7370576542209113,
+          "exposure": 0.35,
+          "excludeHorse": true,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 0.49999999999999994,
+          "sampledNormalizedPhase": 0.18518518191469716,
+          "snapshot": "output/faction-integration/runtime-qa/final-selected-inputs/maki-archer-t4__after-axe-mounted.json",
+          "snapshotSha256": "3333220863f246cf29e52a477003b19627275007e18c8e8ff7f1e2fa404437b4"
+        }
+      ]
+    },
+    {
+      "file": "slope-seat-contact.jpg",
+      "sha256": "9f67f97df680dee96b6324dd235c1a23eff4ba50294cfb5f6f2ee43cab258fb2",
+      "bytes": 152383,
+      "notes": "Previously accepted actual Player terrain/seat-cache evaluation and rendered tiles retained; only title/labels recomposed. Original hand/weapon policy intentionally retained to isolate the seat-cache fix.",
+      "title": "Offline production-runtime pose render | slope rider seat after equipment rebuild",
+      "subtitle": "Same actual Player.update terrain/input and BlackCat gait. Original hand/weapon policy retained to isolate seat-cache fix; these cells do not show the new hand correction. Offline lighting, no browser/GPU acceptance.",
+      "rows": 2,
+      "cols": 2,
+      "cells": [
+        {
+          "row": 0,
+          "col": 0,
+          "asset": "maki-archer-t4",
+          "case": "before-slope-frame-119",
+          "label": "before | frame 119 / 2.00s | before tier swap",
+          "angle": 0,
+          "scale": 8,
+          "target": [
+            -45.679999999999836,
+            1.7535184699654636,
+            20
+          ],
+          "exposure": 0.4,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 1.9999999999999978,
+          "sampledNormalizedPhase": 0.740740727658788,
+          "snapshot": "output/faction-integration/runtime-qa/slope-live-comparison/maki-archer-t4__before-slope-frame-119.json",
+          "snapshotSha256": "45caa36245d730d0e56094835da36d757d0510d269f152090dca241a4db81bba"
+        },
+        {
+          "row": 0,
+          "col": 1,
+          "asset": "maki-archer-t4",
+          "case": "after-slope-frame-119",
+          "label": "after | frame 119 / 2.00s | before tier swap",
+          "angle": 0,
+          "scale": 8,
+          "target": [
+            -45.679999999999836,
+            1.7535184699654636,
+            20
+          ],
+          "exposure": 0.4,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 1.9999999999999978,
+          "sampledNormalizedPhase": 0.740740727658788,
+          "snapshot": "output/faction-integration/runtime-qa/slope-live-comparison/maki-archer-t4__after-slope-frame-119.json",
+          "snapshotSha256": "32f9c473a27892fe54d4b87dc582753bbb0aaebe504118a87f140e897084ab12"
+        },
+        {
+          "row": 1,
+          "col": 0,
+          "asset": "maki-archer-t4",
+          "case": "before-slope-frame-420",
+          "label": "before | frame 420 / 7.02s | after tier 2 \u2192 3 rebuild",
+          "angle": 0,
+          "scale": 8,
+          "target": [
+            40.40600000000038,
+            5.641121057176459,
+            20
+          ],
+          "exposure": 0.4,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 2.316666618982943,
+          "sampledNormalizedPhase": 0.8580246585441255,
+          "snapshot": "output/faction-integration/runtime-qa/slope-live-comparison/maki-archer-t4__before-slope-frame-420.json",
+          "snapshotSha256": "8ecda20304a3ca69d88e0134d5c387336c2a1c4856b7843a2f395626fb04ffc6"
+        },
+        {
+          "row": 1,
+          "col": 1,
+          "asset": "maki-archer-t4",
+          "case": "after-slope-frame-420",
+          "label": "after | frame 420 / 7.02s | after tier 2 \u2192 3 rebuild",
+          "angle": 0,
+          "scale": 8,
+          "target": [
+            40.40600000000038,
+            5.641121057176459,
+            20
+          ],
+          "exposure": 0.4,
+          "resolvedAsset": "maki-archer-t4-humanoid-v2",
+          "visibleLods": [
+            "maki-archer-t4-lod0"
+          ],
+          "sampledSeconds": 2.316666618982943,
+          "sampledNormalizedPhase": 0.8580246585441255,
+          "snapshot": "output/faction-integration/runtime-qa/slope-live-comparison/maki-archer-t4__after-slope-frame-420.json",
+          "snapshotSha256": "27787d02e287b3cb7759e30a512ef4a627a205ff5d4a8be56fd7ddcd08f9050b"
+        }
+      ]
+    }
+  ],
+  "strictReachExceptions": {
+    "thresholdM": 1e-06,
+    "pass": false,
+    "interpretation": "World reach equals configured 1.36m multiplied by the inherited non-unit linear-axis norm. Final visual quaternion is normalized; pre-existing socket/attachment non-unit TRS contributes direction-dependent micrometre residual when carry yaw changes. Original 1um gate is retained and remains failed for these two samples.",
+    "samples": [
+      {
+        "case": "mounted-axe1h-0.05",
+        "beforeReachM": 1.35999942074339,
+        "afterReachM": 1.3600014188049816,
+        "beforeVisualYNorm": 0.9999995740760221,
+        "afterVisualYNorm": 1.0000010432389568,
+        "afterReachEquals136TimesLinearAxisNormErrorM": 2.220446049250313e-16
+      },
+      {
+        "case": "mounted-axe2h-0.05",
+        "beforeReachM": 1.3600001142444245,
+        "afterReachM": 1.3600015364052427,
+        "beforeVisualYNorm": 1.000000084003253,
+        "afterVisualYNorm": 1.0000011297097373,
+        "afterReachEquals136TimesLinearAxisNormErrorM": -2.220446049250313e-16
+      }
+    ],
+    "visualAndGameplayTipDistanceM": 0,
+    "ancestorTRSExactlyMatchesB211": true,
+    "noGateRelaxation": true,
+    "report": "output/faction-integration/runtime-qa/axe-reach-precision-comparison.json",
+    "asset": "maki-archer-t4"
+  },
+  "knownVisualLimitations": [
+    "Nordic steel sword retains a coarse C-shaped hand silhouette and visible gap at extreme close range.",
+    "Nordic foot T5 has 3 sampled hand vertices inside the actual handle, maximum nearest-surface depth 2.091mm; mounted approval is not a perfect-contact claim.",
+    "Nordic 1H axe grip overlap exists in b211 and increases from 25.918 to 32.505 mm on foot (.28/.55), and 28.005 to 31.255 mm mounted (.28). 2H sampled maximum decreases 27.214 to 25.315 mm. Actual closed-mesh ray parity; vertex sampling is not a global triangle penetration bound.",
+    "Coarse LOD hand simplification and angular authored non-sword finger contours remain.",
+    "Previously documented cape/elbow/hood, early transition floor and propped death limitations remain; historical b211 sheets are not relabeled as current hand-rig images.",
+    "Horse offline KTX2 appearance was unreliable in the renderer; final hand/axe sheets omit the Horse body. The game Horse material was not changed."
+  ],
+  "relatedMeasurements": {
+    "nonSwordSamples": 56,
+    "nonSwordEventsExact": true,
+    "steadyNonSwordWeaponVerticesExact": true,
+    "data": "output/faction-integration/runtime-qa/nonsword-hand-comparison.json",
+    "axeSurfacePenetration": "output/faction-integration/runtime-qa/axe-hand-penetration.json",
+    "mountedSwordTranslationsM": {
+      "steel": 0.0660948465,
+      "t5": 0.052334441
+    },
+    "mountedSwordRotationDeltaRad": 0,
+    "mountedSwordMaxRigidResidualM": 1.6e-07,
+    "swordDirectionFlipApplied": false,
+    "finalLowerLODContainmentReport": "output/faction-integration/runtime-qa/hand-final-lower-lod-containment.json"
+  }
+}

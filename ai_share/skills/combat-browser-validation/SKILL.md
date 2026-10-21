@@ -18,7 +18,7 @@ description: 使用 Playwright CLI 驗證 SagaBurst 的瀏覽器戰鬥畫面、�
 | `/?devmodels=humans&nolock` | 人物 LOD、骨架、握點與 controller／raw clip 比較 |
 | `/?devmodels=mounts&nolock` | Horse 變體、LOD、騎士與動畫 |
 | `/?devmodels=black-cat&nolock`、`/?devmodels=corgi&nolock` | 指定坐騎；可用鍵位以工作室 HUD 為準 |
-| `/?devhero=maki-t4&nolock` | Maki 英雄預覽；其餘英雄 ID 見 `HeroAssetCatalog`／`main.ts` |
+| `/?devhero=maki-t4&nolock` | Shadow Warden 遊俠預覽（保留舊 route）；平民用 `roman-civilian`／`viking-civilian`，其餘英雄 ID 見 `HeroAssetCatalog`／`main.ts` |
 | `/?devcombat&nolock` | 預設 50v50 騎兵診斷，Player 軌跡 |
 | `/?devcombat=a&nolock`、`b`、`c`、`d` | A：50v50 遠程步兵；B：100v100 近戰步兵；C：100v100 混編；D：100v100 騎兵 |
 | `/?devcombat=all&nolock` | 同預設診斷，加 NPC 軌跡；只在需要時啟用，輸出量大 |
