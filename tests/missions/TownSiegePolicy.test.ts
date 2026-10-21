@@ -332,4 +332,26 @@ describe('Siege deployment and shared rule ownership', () => {
     convoy.dispose(); expect(npc.siegeBypassTarget).toBeNull()
   })
 
+  it('returns gate movement to mounted attackers as soon as their body clears the vehicle front', () => {
+    const convoy = new SiegeConvoy()
+    onTestFinished(() => convoy.dispose())
+    const npc = { combatPosition: new Vector3(0, 0, 2), isMounted: true, siegeBypassTarget: null as Vector3 | null }
+    const ramp = { position: new Vector3(), placement: { dirX: 0, dirZ: 1 }, controller: { state: 'PUSHING' },
+      surface: { startX: 0, startZ: -30, halfWidth: 2.5 } }
+    const detours = convoy as unknown as { update(actor: typeof npc, ramps: readonly typeof ramp[]): void }
+    // Between a moving vehicle and the wall, the gate remains a valid sideways
+    // destination. An unnecessary +6m convoy waypoint would lead through the wall.
+    detours.update(npc, [ramp])
+    expect(npc.siegeBypassTarget).toBeNull()
+    npc.combatPosition.z = -5
+    detours.update(npc, [ramp])
+    expect(npc.siegeBypassTarget).toEqual(new Vector3(6.5, 0, -5))
+    npc.combatPosition.set(6.5, 0, 1.49)
+    detours.update(npc, [ramp])
+    expect(npc.siegeBypassTarget).not.toBeNull()
+    npc.combatPosition.z = 1.5
+    detours.update(npc, [ramp])
+    expect(npc.siegeBypassTarget).toBeNull()
+  })
+
 })

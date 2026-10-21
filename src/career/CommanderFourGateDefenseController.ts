@@ -404,7 +404,8 @@ export class CommanderFourGateDefenseController {
       actors.set(assignment.actorId, { dead: true, position: new THREE.Vector3(saved.x, saved.y ?? 0, saved.z) })
     }
     const ramps = new Map([...this.fourGateSiege.ramps].map(([id, ramp]) => [id, {
-      state: ramp.controller.state, distance: ramp.controller.distance, alivePushers: ramp.controller.alivePushers }]))
+      state: ramp.controller.state, position: ramp.position,
+      distance: ramp.controller.distance, alivePushers: ramp.controller.alivePushers }]))
     const advanced = advanceCommanderCavalryEscort(previous, dt, actors, ramps)
     this.state!.cavalryEscort = advanced.checkpoint
     if (advanced.releasedActorIds.length) {

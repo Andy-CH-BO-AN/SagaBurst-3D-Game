@@ -112,7 +112,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
         const brace = this.part(.24, .24, 1)
         brace.mesh.userData = { towerBrace: true, side, direction }
       }
-      const chassis = this.part(.35, .35, SIEGE_RAMP.platformLength + 1)
+      const chassis = this.part(.35, .35, SIEGE_RAMP.platformLength + SIEGE_RAMP.chassisOverhang * 2)
       chassis.mesh.userData = { chassis: true, side }
     }
     // Render only: original part meshes retain their collision and hit ownership.

@@ -157,6 +157,12 @@ describe('siege checkpoint ownership', () => {
     const released = assignments.filter(a => a.gateId === 'north' && a.side === -1)
     for (const a of released) escort.actors[a.actorId].mode = 'released'
     escort.groups['town-siege-ramp:north:left'].releaseReason = 'gate-range'
+    // Keep the restored convoy outside the gate release radius while its stall clock resumes.
+    for (const ramp of state.siege!.ramps) {
+      const { outward } = townSiegeFrame(ramp.assignment.gateId)
+      ramp.travelDistance += 100; ramp.position.x += outward.x * 100; ramp.position.z += outward.z * 100
+      ramp.stagingZ += outward.z * 100
+    }
     const east = state.siege!.ramps.find(r => r.assignment.id === 'town-siege-ramp:east:left')!
     east.distance = 17; east.position.x -= 17
     escort.groups[east.assignment.id] = { lastProgressDistance: 17, stallSeconds: 19.75 }
@@ -170,7 +176,8 @@ describe('siege checkpoint ownership', () => {
     expect(restored.cavalryEscort).toEqual(escort)
     expect(isCommanderCavalryEscorting(restored.cavalryEscort, released[0].actorId)).toBe(false)
     const actors = new Map(assignments.map(a => [a.actorId, { dead: false, position: restored.actors[a.actorId].position! }]))
-    const ramps = new Map(restored.siege!.ramps.map(r => [r.assignment.id, { state: r.state, distance: r.distance, alivePushers: 4 }]))
+    const ramps = new Map(restored.siege!.ramps.map(r => [r.assignment.id,
+      { state: r.state, position: r.position, distance: r.distance, alivePushers: 4 }]))
     const resumed = advanceCommanderCavalryEscort(restored.cavalryEscort!, .25, actors, ramps)
     expect(resumed.checkpoint.groups[east.assignment.id]).toEqual({ lastProgressDistance: 17, stallSeconds: 20, releaseReason: 'stalled' })
     expect(resumed.releasedActorIds).toEqual(assignments.filter(a => a.rampId === east.assignment.id).map(a => a.actorId))

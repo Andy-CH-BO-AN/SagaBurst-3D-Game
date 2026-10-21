@@ -202,8 +202,10 @@ describe('shared siege crew and vehicle lifecycle', () => {
       const gate = TOWN_GATES.find(g => g.id === a.gateId)!
       return [a.actorId, { dead: false, position: { x: gate.x + 80, z: gate.z } }]
     }))
-    const ramps = new Map<TownSiegeRampId, CommanderCavalryEscortRampFrame>(assignments.map(a => [a.rampId,
-      { state: 'PUSHING', distance: 0, alivePushers: 4 }]))
+    const ramps = new Map<TownSiegeRampId, CommanderCavalryEscortRampFrame>(assignments.map(a => {
+      const gate = TOWN_GATES.find(g => g.id === a.gateId)!
+      return [a.rampId, { state: 'PUSHING', position: { x: gate.x + 80, z: gate.z }, distance: 0, alivePushers: 4 }]
+    }))
     const north = assignments.filter(a => a.gateId === 'north' && a.side === -1)
     actors.get(north[0].actorId)!.position = { x: 50.001, z: -115 }
     actors.get(north[1].actorId)!.position = { x: 0, z: -115 }
@@ -241,7 +243,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     // live charge/routing, and a successful retry delivers the same group once.
     let accept = false
     const effects: string[] = []
-    const npc = { combatantId: north[0].actorId, dead: false, combatPosition: { x: 50, z: -115 }, missionMovement: true,
+    const npc = { combatantId: north[0].actorId, dead: false, combatPosition: { x: 0, z: -215 }, missionMovement: true,
       setMissionCombatTarget(value: unknown) { expect(value).toBeUndefined(); effects.push('target') },
       setTacticalOrder(order: string) { effects.push(order) } }
     interface ReleaseEntry {
@@ -251,7 +253,8 @@ describe('shared siege crew and vehicle lifecycle', () => {
     }
     const owner = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as ReleaseEntry, {
       state: { cavalryEscort: initial }, enemies: [npc], actorsById: new Map([[npc.combatantId, npc]]), escortAssignments: [],
-      fourGateSiege: { ramps: new Map(), resumeExternalMovement() { effects.push('route') } },
+      fourGateSiege: { ramps: new Map([[north[0].rampId, { position: { x: 0, z: -165 },
+        controller: { state: 'PUSHING', distance: 0, alivePushers: 4 } }]]), resumeExternalMovement() { effects.push('route') } },
       saveProgress(this: ReleaseEntry) {
         expect(this.pendingEscortReleases).toEqual(north.map(a => a.actorId))
         expect(this.state.cavalryEscort.actors[npc.combatantId].mode).toBe('released')
@@ -267,6 +270,25 @@ describe('shared siege crew and vehicle lifecycle', () => {
     owner.updateCavalryEscort(0); owner.updateCavalryEscort(0)
     expect(effects).toEqual(['reject', 'commit', 'target', 'charge', 'route'])
     expect(npc.missionMovement).toBe(false)
+  })
+
+  it('releases trailing cavalry when their own ramp front reaches the fifty-metre gate radius', () => {
+    const assignments = commanderCavalryEscortAssignments('convoy'), initial = createCommanderCavalryEscort('convoy')
+    const north = assignments.filter(a => a.gateId === 'north' && a.side === -1)
+    const actors = new Map<string, CommanderCavalryEscortActorFrame>(north.map(a => [a.actorId,
+      { dead: false, position: { x: 30, z: -215 } }]))
+    const ramp: CommanderCavalryEscortRampFrame = {
+      state: 'PUSHING', position: { x: 30, z: -155.001 }, distance: 10, alivePushers: 4,
+    }
+    const ramps = new Map<TownSiegeRampId, CommanderCavalryEscortRampFrame>([[north[0].rampId, ramp]])
+    const waiting = advanceCommanderCavalryEscort(initial, 0, actors, ramps)
+    expect(waiting.releasedActorIds).toEqual([])
+    ramp.position.z = -155
+    const released = advanceCommanderCavalryEscort(waiting.checkpoint, 0, actors, ramps)
+    expect(released.releasedActorIds).toEqual(north.map(a => a.actorId))
+    expect(released.checkpoint.groups[north[0].rampId].releaseReason).toBe('gate-range')
+    expect(assignments.filter(a => a.rampId !== north[0].rampId).every(a => released.checkpoint.actors[a.actorId].mode === 'escort')).toBe(true)
+    expect(advanceCommanderCavalryEscort(released.checkpoint, 0, actors, ramps).releasedActorIds).toEqual([])
   })
 
   it('allocates the formal 230 attackers with eighty unique Town crew and stable gate roles', () => {

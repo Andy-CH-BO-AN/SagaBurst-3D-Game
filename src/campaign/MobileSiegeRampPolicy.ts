@@ -9,6 +9,7 @@ import { isOutpostWalkwayEnabled, type OutpostWalkwayLayout, type OutpostWalkway
 export const SIEGE_RAMP = {
   halfWidth: 2.5,
   platformLength: 6,
+  chassisOverhang: .5,
   maxSlope: .45,
   speed: INFANTRY_MOVE_SPEED,
   bridgeLength: 4,

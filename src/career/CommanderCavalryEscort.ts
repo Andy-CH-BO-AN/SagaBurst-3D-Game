@@ -51,6 +51,8 @@ export interface CommanderCavalryEscortActorFrame {
 }
 export interface CommanderCavalryEscortRampFrame {
   state: MobileSiegeRampState
+  /** Live front/deck anchor; escorts leave before the trailing formation reaches the gate. */
+  position: { x: number; z: number }
   distance: number
   alivePushers: number
 }
@@ -104,10 +106,11 @@ export function advanceCommanderCavalryEscort(checkpoint: CommanderCavalryEscort
     const gate = TOWN_GATES.find(gate => gate.id === members[0][1].gateId)!
     const gatePoint = townGatePoint(gate, 0, 0), ramp = ramps.get(id)
     let reason: CommanderCavalryEscortReleaseReason | undefined
-    if (living.some(([actorId]) => {
+    if (living.length > 0 && (ramp && Math.hypot(ramp.position.x - gatePoint.x, ramp.position.z - gatePoint.z)
+      <= COMMANDER_CAVALRY_ESCORT.releaseDistance || living.some(([actorId]) => {
       const position = actors.get(actorId)!.position
       return Math.hypot(position.x - gatePoint.x, position.z - gatePoint.z) <= COMMANDER_CAVALRY_ESCORT.releaseDistance
-    })) reason = 'gate-range'
+    }))) reason = 'gate-range'
     else if (members.every(([actorId]) => actors.get(actorId)?.dead === true)) reason = 'group-dead'
     else if (ramp?.state === 'DESTROYED') reason = 'ramp-destroyed'
     else if (ramp?.state === 'ABANDONED') reason = 'ramp-abandoned'
