@@ -180,7 +180,7 @@
 | `CareerOutpostMission`、`CareerOutpostLaunch`、`CareerOutpostRelief`、`EnemyTownAssault` | 跨 Town／Game 的任務啟動與恢復；從 Career 狀態重建配置。`CareerOutpostRoster` 共用 production army 與 wave IDs，regular Outpost／Relief 新 Commander 的正式授權、Pending 與 checkpoint 沿相同分隊政策，Captain／舊任務不回填全軍授權；不改自由戰役配置、兵力或援軍時間 |
 
 Commander V 的 `CommanderFourGateDefenseDeployment` 依既有 `siegeDefensePlans` 與正式八隊身份，在真實 walk surfaces 上保留盾兵外列、槍兵內列、合法遠程射界與門內騎兵，避開原生／私人巨鷹 pads 與進場走廊。`TownFourGateSiege.prepare/register/update/snapshot` 直接接入 Scene 的同一 SpatialGrid、命中物件與動態空域；騎兵只走本門 gate passage，弓兵與空軍保留各自 AI，明確玩家命令與 Dismiss receipt 原子鏡像到 mission／PR7 checkpoint。`fourGateDefense` bounded parser 保留完整騎手與原坐騎資源（空軍不塞進 PR7 地面 parser），只以 230 名騎手／士兵死亡核銷目標。結算透過 `snapshotActiveMission` 將最後一 frame 與既有防守軍功／Tier 5 勝場同次保存；返回成功保存後才清場並重建正常 Home Town。正式任務隔離 ambient 敵軍，原任務不改變。
-Commander V 新任務的60名槍騎由 `CommanderCavalryEscort` 固定分成每門左7／右8，沿實際車尾的 mounted formation 掩護推進，不成為 Crew／平台乘員，也不改投射物防護。任一存活組員距本門地面水平50m內，或本車毀棄／無推手／20秒未前進0.5m／全組死亡時，原子保存 release receipt 與 Charge 命令後交回原 Gate AI；保存失敗保持原 escort。`TownFourGateSiege` 的臨時 movement owner 排除 route／convoy 搶令；固定槽、進度及停滯秒數隨任務 checkpoint 保存。已有敵軍／攻城車或 ATTACKING 的無 escort 舊檔不重新集結。
+Commander V 新任務的60名槍騎由 `CommanderCavalryEscort` 固定分成每門左7／右8，沿實際車尾的 mounted formation 掩護推進，不成為 Crew／平台乘員，也不改投射物防護。組內仍有人存活且本車前端或任一存活組員距本門地面水平50m內，或本車毀棄／無推手／20秒未前進0.5m／全組死亡時，原子保存 release receipt 與 Charge 命令後交回原 Gate AI；保存失敗保持原 escort。`TownFourGateSiege` 的臨時 movement owner 排除 route／convoy 搶令；固定槽、進度及停滯秒數隨任務 checkpoint 保存。已有敵軍／攻城車或 ATTACKING 的無 escort 舊檔不重新集結。
 
 任務保存名單、階段、必要死亡／統計與 checkpoint；不把重載等同新任務。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。任務勝敗優先序依各 state 模組，Duel 與團體任務不共用同一玩家死亡規則。
 

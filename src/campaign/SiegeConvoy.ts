@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { NPC } from '../world/NPC'
 import type { MobileSiegeRamp } from './MobileSiegeRamp'
-import type { MobileSiegeRampId } from './MobileSiegeRampPolicy'
+import { SIEGE_RAMP, type MobileSiegeRampId } from './MobileSiegeRampPolicy'
 import { getTerrainHeight, getWalkRampHeight } from '../world/Terrain'
 import type { MobileSiegeRampState } from './MobileSiegeRampController'
 
@@ -17,13 +17,16 @@ export class SiegeConvoy<Id extends MobileSiegeRampId> {
     const p = npc.combatPosition
     const along = (r: MobileSiegeRamp<Id>, x: number, z: number) => (p.x - x) * (r.placement.dirX ?? 0) + (p.z - z) * r.placement.dirZ
     const lateral = (r: MobileSiegeRamp<Id>) => (p.x - r.position.x) * r.placement.dirZ - (p.z - r.position.z) * (r.placement.dirX ?? 0)
+    // Match the chassis front and the ground body used by canMove. Once clear,
+    // normal gate targeting owns the rider even in the narrow gap before a wall.
+    const frontClearance = SIEGE_RAMP.chassisOverhang + (npc.isMounted ? 1 : .5)
     let bypass = this.bypassing.get(npc)
-    if (bypass && (!needsGroundBypass(bypass.ramp.controller.state) || along(bypass.ramp, bypass.ramp.position.x, bypass.ramp.position.z) > 5)) {
+    if (bypass && (!needsGroundBypass(bypass.ramp.controller.state) || along(bypass.ramp, bypass.ramp.position.x, bypass.ramp.position.z) >= frontClearance)) {
       this.bypassing.delete(npc); npc.siegeBypassTarget = null; bypass = undefined
     }
     if (!bypass) {
       const ramp = ramps.find(r => needsGroundBypass(r.controller.state) && Math.abs(lateral(r)) < r.surface.halfWidth + 3
-        && along(r, r.position.x, r.position.z) < 5 && along(r, r.surface.startX, r.surface.startZ) > -8)
+        && along(r, r.position.x, r.position.z) < frontClearance && along(r, r.surface.startX, r.surface.startZ) > -8)
       if (ramp) {
         const side = Math.sign(lateral(ramp)) || -Math.sign(ramp.position.x * ramp.placement.dirZ - ramp.position.z * (ramp.placement.dirX ?? 0)) || 1
         bypass = { ramp, lateral: side * (ramp.surface.halfWidth + 4) }; this.bypassing.set(npc, bypass)
