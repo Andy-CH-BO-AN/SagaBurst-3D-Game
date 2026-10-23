@@ -78,7 +78,7 @@ function policyConsumers(file, inventory) {
 function relatedSelectionError(reason) {
   throw new Error(`Related selection is unsafe: ${reason}. Add an explicit dependency/owner mapping or split the change; Full is reserved for main/release.`)
 }
-function selectFiles(inventory, changed, consumers) {
+function selectFiles(inventory, changed, consumers, evidence) {
   const all = inventory.map(item => item.file)
   if (!changed.length) relatedSelectionError('No trustworthy changed-file evidence')
   if (changed.every(item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile)))) {
@@ -87,18 +87,29 @@ function selectFiles(inventory, changed, consumers) {
   if (consumers.runtimeAmbiguities?.length) relatedSelectionError(`Unresolved runtime imports/globs: ${consumers.runtimeAmbiguities.join(', ')}`)
   const unsupported = changed.find(item => !['A', 'M'].includes(item.status))
   if (unsupported) relatedSelectionError(`Removed/renamed path: ${unsupported.oldFile ?? unsupported.file}`)
-  const reasons = {}
-  const details = {}
+  const typeOnlyFiles = evidence ? changed.filter(item => item.file.startsWith('src/') && /\.tsx?$/.test(item.file) && !policyConsumers(item.file, inventory).size && evidence.sources.has(item.file) && evidence.previousSources.has(item.file)
+    && require('./dependencies.cjs').runtimeEquivalent(evidence.previousSources.get(item.file), evidence.sources.get(item.file))).map(item => item.file) : []
+  const behaviorChanges = evidence ? changed.filter(item => item.file.startsWith('src/') && /\.tsx?$/.test(item.file)
+    && !policyConsumers(item.file, inventory).size && !typeOnlyFiles.includes(item.file)) : []
+  let behavior = { selected: [], selectedCases: {}, reasons: {}, details: {} }
+  if (behaviorChanges.length) {
+    try { behavior = require('./behavior.cjs').selectBehaviors(inventory, behaviorChanges, consumers, evidence) }
+    catch (error) { relatedSelectionError(error.message) }
+  }
+  const reasons = behavior.reasons
+  const details = behavior.details
+  const selectedCases = behavior.selectedCases
   const { dependencyChain } = require('./dependencies.cjs')
   for (const item of changed) {
-    if (docsOnly(item.file)) continue
+    if (docsOnly(item.file) || behaviorChanges.includes(item) || typeOnlyFiles.includes(item.file)) continue
     const runtime = new Set(consumers[item.file] ?? [])
     const policy = policyConsumers(item.file, inventory)
     const hits = new Set([...runtime, ...policy])
     if (all.includes(item.file)) hits.add(item.file)
     if (!hits.size) relatedSelectionError(`Unmapped code/runtime input: ${item.file}`)
     for (const file of hits) {
-      (reasons[file] ??= []).push(`Depends on or directly modified: ${item.file}`)
+      selectedCases[file] = inventory.find(item => item.file === file).names.map((_, i) => i)
+      ;(reasons[file] ??= []).push(`Depends on or directly modified: ${item.file}`)
       // Verifiable evidence only: the chain comes from the same graph used to select.
       const source = file === item.file ? 'Direct modification'
         : runtime.has(file) ? 'Static Runtime Dependency' : 'Explicit owner policy'
@@ -106,35 +117,31 @@ function selectFiles(inventory, changed, consumers) {
       ;(details[file] ??= []).push({ changed: item.file, source, chain })
     }
   }
-  return { mode: 'related', selected: Object.keys(reasons).sort(), reasons, details }
+  return { ...behavior, mode: 'related', selected: Object.keys(reasons).sort(), selectedCases, reasons, details, typeOnlyFiles,
+    excludedCandidates: behavior.excludedCandidates?.filter(file => !Object.hasOwn(reasons, file)) }
 }
 // Human-readable selection evidence, derived only from the manifest (no test re-run).
+function selectedNames(plan, file) {
+  const names = plan.inventory.find(item => item.file === file)?.names ?? []
+  return plan.mode === 'related' && plan.selectedCases?.[file]
+    ? plan.selectedCases[file].map(index => names[index]) : names
+}
 function selectionSummary(plan) {
-  const leaves = file => plan.inventory.find(item => item.file === file)?.names.length ?? 0
-  const lines = [`Mode: ${plan.mode === 'full' ? 'Full' : 'Related'}`, `Base SHA: ${plan.baseSha || '-'}; Head SHA: ${plan.headSha || '-'}`,
-    `Changed files (${plan.changedFiles.length}): ${plan.changedFiles.join(', ') || '-'}`]
   const selected = plan.selected ?? []
-  const total = selected.reduce((sum, file) => sum + leaves(file), 0)
-  lines.push(`Selected test files: ${selected.length}; selected leaf cases: ${total}${plan.mode === 'related' ? ` (Related aggregate budget ${total}/${MAX_CASES_PER_SHARD})` : ''}`)
-  lines.push(`Shards: ${plan.shards.length} ${JSON.stringify(plan.shards.map(shard => [shard.id, shard.expectedCount]))}`)
-  if (plan.message) lines.push(plan.message)
-  if (plan.mode === 'related') {
-    const fanout = {}
-    for (const [file, list] of Object.entries(plan.details ?? {})) for (const entry of list) (fanout[entry.changed] ??= new Set()).add(file)
-    const ranked = Object.entries(fanout).map(([file, set]) => [file, set.size, [...set].reduce((sum, test) => sum + leaves(test), 0)])
-      .sort((a, b) => b[2] - a[2] || a[0].localeCompare(b[0], 'en')).slice(0, 10)
-    lines.push('Top high fan-out changed modules (files selected / leaves):', ...ranked.map(([file, count, leafCount]) => `  ${file}: ${count} files / ${leafCount} leaves`))
-    lines.push('Selections (largest suites first):')
-    const bySize = [...selected].sort((a, b) => leaves(b) - leaves(a) || a.localeCompare(b, 'en'))
-    for (const file of bySize) {
-      lines.push(`  Selected: ${file} (leaf count ${leaves(file)})`)
-      for (const entry of plan.details?.[file] ?? [{ changed: '?', source: plan.reasons[file]?.join('; ') ?? 'unknown', chain: null }]) {
-        const chain = entry.chain ? entry.chain.join(' → ') : entry.source === 'Static Runtime Dependency' ? 'no static chain resolved' : '-'
-        lines.push(`    ${entry.source}: ${entry.changed}${entry.chain ? `\n      ${chain}` : ''}`)
-      }
-    }
-  } else lines.push('Selection: explicit full suite (all discovered files; completeness verified by aggregate)')
-  return lines.join('\n')
+  const total = selected.reduce((sum, file) => sum + selectedNames(plan, file).length, 0)
+  return [
+    `Mode: ${plan.mode === 'full' ? 'Full' : 'Related'}`,
+    `Base SHA: ${plan.baseSha || '-'}; Head SHA: ${plan.headSha || '-'}`,
+    `Changed Behavior: ${(plan.changedBehaviors ?? plan.changedFiles).slice(0, 8).join(', ') || (plan.typeOnlyFiles?.length ? 'Typecheck only (identical runtime)' : '-')}${(plan.changedBehaviors?.length ?? 0) > 8 ? ' (shared module behavior)' : ''}`,
+    `Selected: ${selected.length} files / ${total} cases`,
+    'Owners:', ...[...new Set(Object.values(plan.details ?? {}).flatMap(entries => entries.flatMap(entry => entry.owners ?? [])))].map(owner => `  ${owner}`),
+    ...(plan.changedBehaviors?.length ? [] : selected.map(file => `  ${file}: ${selectedNames(plan, file).length} cases`)),
+    `Excluded: ${plan.excludedCandidates?.length ?? 0} import-only candidate files`,
+    `Conservative caller cases: ${Object.values(plan.details ?? {}).reduce((sum, entries) => sum + new Set(entries.flatMap(entry => entry.conservativeCases ?? [])).size, 0)}`,
+    `Unmapped / Unsafe: ${plan.unsafe?.length ?? 0}`,
+    `Budget: ${total} / ${plan.mode === 'related' ? MAX_CASES_PER_SHARD : 'Full per-shard 500'}`,
+    `Shards: ${plan.shards.length}`, ...(plan.message ? [plan.message] : []),
+  ].join('\n')
 }
 function shardFiles(files) {
   const shards = []
@@ -168,18 +175,28 @@ function planShards(files, mode) {
 }
 function validateManifest(plan) {
   const all = plan.inventory.map(item => item.file)
+  if (plan.mode === 'full' && plan.selectedCases) throw new Error('Full must not use behavior filters')
+  if (plan.selectedCases) {
+    if (Object.keys(plan.selectedCases).sort().join('\n') !== [...plan.selected].sort().join('\n')) throw new Error('Missing or unexpected case selection')
+    for (const [file, indices] of Object.entries(plan.selectedCases)) {
+      const item = plan.inventory.find(item => item.file === file)
+      if (!item || !Array.isArray(indices) || !indices.length || new Set(indices).size !== indices.length
+        || indices.some(i => !Number.isInteger(i) || i < 0 || i >= item.names.length)) throw new Error('Invalid/duplicate selected leaf identity')
+      if (indices.length !== item.names.length && (new Set(item.names).size !== item.names.length || item.nativeNames && new Set(item.nativeNames).size !== item.nativeNames.length)) throw new Error('Ambiguous partial leaf identity; select complete owner suite')
+    }
+  }
   if (!['full', 'related'].includes(plan.mode)) throw new Error('Invalid manifest mode')
   if (new Set(all).size !== all.length) throw new Error('Duplicate discovered file')
   const expected = plan.mode === 'full' ? all : plan.selected
   const assigned = plan.shards.flatMap(shard => [...shard.vitestFiles, ...shard.nodeFiles])
   if (new Set(plan.shards.map(s => s.id)).size !== plan.shards.length) throw new Error('Duplicate shard ID')
   if (new Set(assigned).size !== assigned.length || [...expected].sort().join('\n') !== [...assigned].sort().join('\n')) throw new Error('Missing, unexpected or duplicate assigned test files')
-  if (!assigned.length && !(plan.docsOnly && plan.mode === 'related' && plan.changedFiles.length && plan.changedFiles.every(docsOnly))) throw new Error('Empty code selection')
+  if (!assigned.length && !(plan.mode === 'related' && plan.changedFiles.length && plan.changedFiles.every(file => docsOnly(file) || plan.typeOnlyFiles?.includes(file)))) throw new Error('Empty code selection')
   if (plan.mode === 'related' && plan.shards.length > 1) throw new Error('Related mode must use one aggregate-limited shard')
   let total = 0
   for (const shard of plan.shards) {
     const files = [...shard.vitestFiles, ...shard.nodeFiles]
-    const count = files.reduce((sum, file) => sum + plan.inventory.find(item => item.file === file).names.length, 0)
+    const count = files.reduce((sum, file) => sum + selectedNames(plan, file).length, 0)
     total += count
     if (count !== shard.expectedCount || count < 1 || count > MAX_CASES_PER_SHARD) throw new Error('Invalid shard leaf budget')
     for (const file of shard.vitestFiles) if (plan.inventory.find(item => item.file === file).runner !== 'vitest') throw new Error('Wrong Vitest assignment')
@@ -198,7 +215,7 @@ async function discover({ relatedPaths = [] } = {}) {
   const { createVitest } = await import('vitest/node')
   const priorFiles = process.env.LOGIC_TEST_FILES
   delete process.env.LOGIC_TEST_FILES
-  const ctx = await createVitest('test', { root, watch: false, reporters: [], related: relatedPaths.map(file => resolve(root, file)) })
+  const ctx = await createVitest('test', { root, watch: false, includeTaskLocation: true, reporters: [], related: relatedPaths.map(file => resolve(root, file)) })
   try {
     const specs = await ctx.globTestSpecifications()
     const related = relatedPaths.length ? await ctx.getRelevantTestSpecifications() : []
@@ -206,9 +223,16 @@ async function discover({ relatedPaths = [] } = {}) {
     if (unhandledErrors.length) throw new Error(unhandledErrors.map(error => error.message).join('\n'))
     const inventory = testModules.map(module => {
       if (module.errors().length || [...module.children.allSuites()].some(s => s.errors().length)) throw new Error(`Collection error: ${module.moduleId}: ${JSON.stringify(module.errors())}`)
-      const names = [...module.children.allTests()].map(test => test.fullName)
+      const tests = [...module.children.allTests()]
+      if (tests.some(test => test.result().state === 'skipped')) throw new Error(`Hidden Vitest registration: ${module.moduleId}`)
+      const names = tests.map(test => test.fullName)
+      const nativeNames = tests.map(test => {
+        const parts = [test.name]
+        for (let parent = test.parent; parent.type !== 'module'; parent = parent.parent) parts.unshift(parent.name)
+        return parts.join(' ')
+      })
       if (!names.length) throw new Error(`Empty test file: ${module.moduleId}`)
-      return { runner: 'vitest', file: local(module.moduleId), names }
+      return { runner: 'vitest', file: local(module.moduleId), names, nativeNames, locations: tests.map(test => test.location) }
     })
     if (inventory.length !== specs.length) throw new Error('Incomplete Vitest discovery')
     const node = discoverNode()
@@ -252,16 +276,34 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   let found
   try { found = await discover({ relatedPaths: changed.map(item => item.file) }) }
   catch (error) { throw new Error(`Related dependency selection unavailable: ${error.message}. Full is reserved for main/release.`) }
-  const selection = selectFiles(found.inventory, changed, dependencyConsumers(found.inventory))
-  // Union native Vitest and CJS/static runtime graph results; never remove native hits.
-  // A native-only hit is reported with its source rather than an invented chain.
-  for (const file of found.related) if (!selection.selected.includes(file)) {
-    selection.selected.push(file)
-    selection.reasons[file] = ['Vitest transitive runtime dependency']
-    selection.details[file] = [{ changed: changed.map(item => item.file).join(', '), source: 'Vitest native relevant (not in static graph)', chain: null }]
+  const consumers = dependencyConsumers(found.inventory)
+  const start = event === 'pull_request' ? git('merge-base', base, head) : base
+  const sources = consumers.sources
+  const previousSources = new Map(sources)
+  const ranges = {}
+  for (const item of changed.filter(item => item.file.startsWith('src/') && /\.tsx?$/.test(item.file))) {
+    const old = item.status === 'A' ? '' : execFileSync('git', ['show', `${start}:${item.file}`], { cwd: root, encoding: 'utf8' })
+    previousSources.set(item.file, old)
+    // Compare the tested checkout (PR merge ref) with the actual base source.
+    // This also covers merge-ref edits and uncommitted representative probes.
+    const diff = execFileSync('git', ['diff', '--no-ext-diff', '--unified=0', start, '--', item.file], { cwd: root, encoding: 'utf8' })
+    ranges[item.file] = [[], []]
+    for (const match of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+      ranges[item.file][0].push([+match[3], match[4] === undefined ? 1 : +match[4]])
+      ranges[item.file][1].push([+match[1], match[2] === undefined ? 1 : +match[2]])
+    }
+    if (!ranges[item.file][0].length) relatedSelectionError(`Missing behavior diff: ${item.file}`)
   }
-  selection.selected.sort()
+  const selection = selectFiles(found.inventory, changed, consumers, { sources, previousSources, ranges })
+  // Native related results are candidates only. An unexplained native-only edge
+  // is unsafe; never silently exclude it or unconditionally union it into leaves.
+  for (const file of found.related) {
+    if (!changed.some(item => (consumers[item.file] ?? []).includes(file) || policyConsumers(item.file, found.inventory).has(file) || item.file === file)) {
+      relatedSelectionError(`Native-only dependency requires mapping: ${file}`)
+    }
+  }
   const selectedInventory = found.inventory.filter(item => selection.selected.includes(item.file))
+    .map(item => ({ ...item, names: selection.selectedCases[item.file].map(i => item.names[i]) }))
   return validateManifest({
     version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
     checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
@@ -288,4 +330,4 @@ if (require.main === module) (async () => {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
     `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\n`)
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { createPlan, shardFiles, planShards, validateManifest, selectFiles, selectionSummary, changes, options, discover, discoverNode, dependencyConsumers, docsOnly }
+module.exports = { createPlan, shardFiles, planShards, validateManifest, selectFiles, selectionSummary, changes, options, discover, discoverNode, dependencyConsumers, docsOnly, selectedNames }

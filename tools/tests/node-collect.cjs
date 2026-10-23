@@ -9,6 +9,10 @@ function register(name, options, callback) {
   if (typeof options === 'function') callback = options
   if (options?.skip || options?.todo || options?.only) throw new Error('Hidden/focused Node registration')
   current.names.push([...parents, name].join(' > '))
+  current.nativeNames.push([...parents, name].join(' '))
+  const frame = new Error().stack.split('\n').find(line => line.includes(resolve(current.file) + ':'))
+  const match = frame?.match(/:(\d+):(\d+)\)?$/)
+  current.locations.push(match ? { line: +match[1], column: +match[2] } : null)
   return Promise.resolve()
 }
 function suite(name, options, callback) {
@@ -25,7 +29,7 @@ Object.assign(register, { test: register, it: register, describe: suite, suite,
 Object.assign(suite, { skip: forbidden, todo: forbidden, only: forbidden })
 Module._load = function (id, ...args) { return id === 'node:test' || id === 'test' ? register : original.call(this, id, ...args) }
 for (const file of process.argv.slice(2)) {
-  current = { file, runner: 'node', names: [] }
+  current = { file, runner: 'node', names: [], nativeNames: [], locations: [] }
   require(resolve(file))
   if (!current.names.length) throw new Error(`Empty Node collection: ${file}`)
   files.push(current)

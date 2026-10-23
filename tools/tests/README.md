@@ -3,7 +3,7 @@
 `ci-plan.cjs` collects leaves without running their bodies and produces a JSON
 manifest. Related and Full deliberately have different budgets:
 
-- **Related** (`PR/push → dev`) selects dependency consumers and must fit in one
+- **Related** (`PR/push → dev`) selects behavior owners/caller contracts and must fit in one
   aggregate set of at most 500 leaves. It never opens a second shard to bypass the
   limit. If selection is unsafe, unmapped, removed/renamed, or exceeds 500, planning
   fails with an actionable error instead of silently running repository Full.
@@ -30,11 +30,32 @@ PR comparison uses merge-base; push comparison uses exactly before..after. The C
 checkout is the tested merge commit for PRs; the manifest separately records the
 PR head/base and binds shard execution to the checkout SHA and unique plan digest.
 
-Selection uses native Vitest transitive runtime dependencies and a supplemental
-TypeScript-erased static/CJS graph. Shared owners such as `Game.ts`, `TownScene.ts`
-and `CareerProfileStore.ts` do not force Full by name: their actual consumers are
-selected. A helper's consumers can span several capability directories. Type
-checking still runs separately for type-only contracts.
+Related uses Git diff hunks and the TypeScript Compiler API to identify changed
+functions/methods in both base and tested checkout. Runtime imports (including
+Vitest related results) supply candidates, not the final union. Test callbacks,
+scoped hooks, helpers, symbol references, structural caller signatures, constructor
+and prototype provenance determine which collected leaves can reach the behavior.
+Type erasure plus identical JavaScript token streams proves type-only edits; those
+require typecheck without automatically selecting runtime logic tests.
+
+Direct Owners exercise the changed behavior. Caller Contracts reach it through
+production callers. Import-only candidates have no such runtime path and are
+excluded. Hoisted replacement module mocks are boundaries only when their factory
+cannot reach the real module; partial/original imports stay conservative. Shared
+state/exports expand to the module's runtime behaviors. Unresolved dispatch expands
+conservatively; eval, missing owners, missing history or unexplained native-only
+edges fail closed. No runtime LLM or remote API is involved.
+
+Each manifest retains the complete discovery inventory and identifies Related
+leaves by exact file, full runner name and collection ordinal (`selectedCases`).
+`each` rows are collected separately. Duplicate/ambiguous names, unknown body
+locations and dynamic registration wrappers expand to the complete owner file.
+Both runners also record their native ancestor-separated filter names. Partial execution uses
+anchored, escaped names in isolated per-file runner invocations; whole files remain
+batched. Node file workers run serially so compiler and workflow-fixture startup
+cannot compete with another file inside a 100ms leaf budget. Only manifest-unselected leaves may be omitted from execution reports.
+Selected skips, extras, missing leaves, duplicates and stale reports fail aggregate.
+Full prohibits case filters and still runs every discovered leaf exactly once.
 
 Test tooling, workflow and package changes select dedicated CI/budget contract
 tests through explicit owner policy rather than repository Full. Release/Electron
@@ -42,8 +63,7 @@ inputs select the Node publication contracts in the same Related logic shard.
 Removed/renamed paths, unresolved computed imports/globs, unavailable Git history,
 unmapped non-document inputs, an empty code selection, or a Related selection above
 500 fail closed and require an explicit dependency/owner mapping or a smaller
-change. They do not convert a dev PR into Full. The only empty success is a strictly
-allowlisted docs change; release notes are publication inputs and are excluded from
+change. They do not convert a dev PR into Full. Empty success requires strictly allowlisted docs or proven type-only edits; release notes are publication inputs and are excluded from
 that exception.
 
 Node `.test.cjs` files under `tests/` are owned by the Node runner, not Vitest.
@@ -83,13 +103,11 @@ stale or incomplete gates never publish; cross-run artifacts are not reused.
 
 ## Reading the selection summary
 
-The planner writes a `Logic test selection` section to the job summary (also stdout):
-mode, base/head, changed files, selected files and leaves, shard count, the top
-fan-out changed modules and, per suite, the source (`Direct modification`, `Static
-Runtime Dependency`, `Explicit owner policy`, or `Vitest native relevant`) with the
-exact import chain, e.g. `tests/x.test.ts → src/A.ts → src/world/NPC.ts → src/changed.ts`.
-Native-only hits state that no static chain was resolved instead of inventing one.
-Fix high fan-out at the source: have lightweight modules import small owners
-(for example `AIType` from `src/world/NpcAIType.ts`, `Faction` from
-`src/combat/CombatFaction.ts`) instead of the large `NPC.ts` runtime. Do not exclude
-tests in the planner.
+The summary prints mode, base/head, changed behaviors, selected files/cases, owners,
+import-only candidate count, unsafe count and the actual budget. The manifest and
+fresh runner reports retain detailed evidence under ignored `output/`; summary
+does not print hundreds of import chains. Aggregate retains the Top 10 slow leaves.
+
+PRs retain Web smoke and Desktop packaging/smoke. Post-merge `push → dev` keeps
+logic, typecheck and build but skips browser installation and Web smoke. Main,
+manual Full and publication Web checks keep Web smoke and exact-SHA Full proof.

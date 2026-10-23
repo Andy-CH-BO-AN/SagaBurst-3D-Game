@@ -22,6 +22,9 @@ module.exports = async function* (source) {
     if (type === 'test:pass' || type === 'test:fail') {
       // Name-filtered development runs report unselected tests as skipped.
       // They are explicitly partial; a full run still rejects every skip/todo.
+      const fullName = ancestors.slice(0, data.nesting).map(item => item.name).concat(data.name).join(' > ')
+      const selected = process.env.LOGIC_TEST_CASES ? JSON.parse(process.env.LOGIC_TEST_CASES) : null
+      if (selected && data.skip && !selected.includes(fullName)) continue
       if ((data.skip || data.todo) && process.env.LOGIC_TEST_TARGETED === '1') continue
       if (data.skip || data.todo) errors.push(`${data.file} > ${data.name}: skipped/todo tests or suites are prohibited`)
       // Node emits a file wrapper when no leaf matches a name filter (and for
@@ -30,7 +33,7 @@ module.exports = async function* (source) {
       if (fileWrapper && type === 'test:pass' && process.env.LOGIC_TEST_TARGETED !== '1') errors.push(`${data.file}: no leaf tests collected`)
       if (data.details.type === 'test' && !fileWrapper && !ancestors[data.nesting]?.hasChildren) {
         cases.push({
-          file: data.file, name: ancestors.slice(0, data.nesting).map(item => item.name).concat(data.name).join(' > '),
+          id: `${data.file}:${data.line}:${data.column}:${cases.length}`, file: data.file, name: ancestors.slice(0, data.nesting).map(item => item.name).concat(data.name).join(' > '),
           nesting: data.nesting, ms: data.details.duration_ms,
           state: type === 'test:pass' && !data.skip && !data.todo ? 'passed' : 'failed',
         })

@@ -42,7 +42,7 @@ if (runNode) {
   const files = readdirSync(join(root, 'tests/release')).filter(file => file.endsWith('.test.cjs')).sort().map(file => `tests/release/${file}`)
   const explicitFiles = args.some(arg => arg.endsWith('.test.cjs'))
   if (files.length === 0) { console.error('Node logic collection is empty'); failed = true }
-  else run(['--test', '--test-reporter=./tools/tests/node-budget-reporter.cjs', ...(releaseOnly ? args : nodeFiles), ...(explicitFiles ? [] : files)])
+  else run(['--test', '--test-concurrency=1', '--test-reporter=./tools/tests/node-budget-reporter.cjs', ...(releaseOnly ? args : nodeFiles), ...(explicitFiles ? [] : files)])
 }
 try {
   const runners = [...(runVitest ? ['vitest'] : []), ...(runNode ? ['node'] : [])]

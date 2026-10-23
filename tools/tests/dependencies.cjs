@@ -55,6 +55,7 @@ function dependencyConsumers(inventory, sources, exists = file => sources.has(fi
   }
   consumers.runtimeAmbiguities = [...new Set(runtimeAmbiguities)]
   // Exposed so the planner can explain a selection with a verifiable import chain.
+  consumers.sources = sources
   consumers.graph = graph
   return consumers
 }
@@ -77,4 +78,14 @@ function dependencyChain(graph, from, to) {
   }
   return null
 }
-module.exports = { dependencyConsumers, dependencyChain }
+function runtimeEquivalent(before, after) {
+  const fingerprint = source => {
+    const runtime = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext, removeComments: true } }).outputText
+    const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.Standard, runtime)
+    const tokens = []
+    for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) tokens.push([kind, scanner.getTokenText()])
+    return JSON.stringify(tokens)
+  }
+  return fingerprint(before) === fingerprint(after)
+}
+module.exports = { dependencyConsumers, dependencyChain, runtimeEquivalent }

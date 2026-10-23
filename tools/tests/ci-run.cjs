@@ -3,12 +3,12 @@ const { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync } = 
 const { resolve, join, relative } = require('node:path')
 const { randomUUID, createHash } = require('node:crypto')
 const { validateReports } = require('./budget.cjs')
-const { validateManifest, options, createPlan, shardFiles, discoverNode } = require('./ci-plan.cjs')
+const { validateManifest, options, createPlan, shardFiles, discoverNode, selectedNames } = require('./ci-plan.cjs')
 const root = resolve(__dirname, '../..')
 const normalize = file => relative(root, resolve(root, file)).replaceAll('\\', '/')
 const digest = plan => createHash('sha256').update(JSON.stringify(plan)).digest('hex')
 function exact(actual, expected, label) {
-  if ([...actual].sort().join('\n') !== [...expected].sort().join('\n')) throw new Error(`Missing, unexpected or duplicate ${label}`)
+  if (JSON.stringify([...actual].sort()) !== JSON.stringify([...expected].sort())) throw new Error(`Missing, unexpected or duplicate ${label}`)
 }
 function verifyShard(plan, shard, summary) {
   if (!summary || !summary.runId || summary.planId !== plan.planId || summary.planDigest !== digest(plan) || summary.shardId !== shard.id || summary.result !== 'passed') throw new Error(`Missing, stale or failed shard: ${shard.id}`)
@@ -20,8 +20,7 @@ function verifyShard(plan, shard, summary) {
     exact(files, shard[report.runner === 'vitest' ? 'vitestFiles' : 'nodeFiles'], `${report.runner} files in ${shard.id}`)
     actualFiles.push(...files)
     for (const file of files) {
-      const expected = plan.inventory.find(item => item.file === file)
-      exact(report.cases.filter(item => normalize(item.file) === file).map(item => item.name), expected.names, `leaves in ${file}`)
+      exact(report.cases.filter(item => normalize(item.file) === file).map(item => item.name), selectedNames(plan, file), `leaves in ${file}`)
     }
     for (const item of report.cases) if (!files.includes(normalize(item.file))) throw new Error(`Unexpected leaf file: ${item.file}`)
   }
@@ -70,22 +69,40 @@ function executeShard(plan, id, out) {
     baseSha: plan.baseSha, headSha: plan.headSha, selectedFiles: [...shard.vitestFiles, ...shard.nodeFiles],
     reasons: Object.fromEntries([...shard.vitestFiles, ...shard.nodeFiles].map(file => [file, plan.reasons[file]])), result: 'failed', reports: [] }
   try {
-    const commands = []
-    // Vitest CLI positional filters are substrings; use an escaped exact include
-    // config through the environment to avoid matching a similarly named file.
-    if (shard.vitestFiles.length) {
-      env.LOGIC_TEST_FILES = JSON.stringify(shard.vitestFiles)
-      commands.push(['node_modules/vitest/vitest.mjs', 'run'])
-    }
-    if (shard.nodeFiles.length) commands.push(['--test', '--test-reporter=./tools/tests/node-budget-reporter.cjs', ...shard.nodeFiles])
     const runnerErrors = []
-    for (const args of commands) {
-      const result = spawnSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' })
-      if (result.error || result.signal || result.status !== 0) runnerErrors.push(`${args[0]} failed: ${result.error?.message ?? result.signal ?? result.status}`)
-    }
-    for (const runner of ['vitest', 'node']) if (shard[runner === 'vitest' ? 'vitestFiles' : 'nodeFiles'].length) {
-      try { summary.reports.push(JSON.parse(readFileSync(join(dir, `${runner}.json`), 'utf8'))) }
-      catch (error) { runnerErrors.push(`Missing ${runner} report: ${error.message}`) }
+    for (const runner of ['vitest', 'node']) {
+      const files = shard[runner === 'vitest' ? 'vitestFiles' : 'nodeFiles']
+      if (!files.length) continue
+      const reports = []
+      // Per-file filters prevent a matching name in a different file from running.
+      const fullFiles = files.filter(file => selectedNames(plan, file).length === plan.inventory.find(item => item.file === file).names.length)
+      const groups = [...(fullFiles.length ? [fullFiles] : []), ...files.filter(file => !fullFiles.includes(file)).map(file => [file])]
+      for (const group of groups) {
+        const file = group[0]
+        const item = plan.inventory.find(item => item.file === file)
+        const names = selectedNames(plan, file)
+        const partial = names.length !== item.names.length
+        env.LOGIC_TEST_CASES = partial ? JSON.stringify(names) : ''
+        const escape = name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const nativeNames = (plan.selectedCases?.[file] ?? item.names.map((_,i)=>i)).map(i => item.nativeNames?.[i] ?? item.names[i].replaceAll(' > ', ' '))
+        const pattern = `^(?:${nativeNames.map(escape).join('|')})$`
+        let args
+        if (runner === 'vitest') {
+          env.LOGIC_TEST_FILES = JSON.stringify(group)
+          args = ['node_modules/vitest/vitest.mjs', 'run', ...(partial ? ['--testNamePattern', pattern] : [])]
+        } else {
+          delete env.LOGIC_TEST_FILES
+          args = ['--test', '--test-concurrency=1', '--test-reporter=./tools/tests/node-budget-reporter.cjs', ...(partial ? [`--test-name-pattern=${pattern}`] : []), ...group]
+        }
+        const result = spawnSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' })
+        if (result.error || result.signal || result.status !== 0) runnerErrors.push(`${file} failed: ${result.error?.message ?? result.signal ?? result.status}`)
+        try { reports.push(JSON.parse(readFileSync(join(dir, `${runner}.json`), 'utf8'))) }
+        catch (error) { runnerErrors.push(`Missing ${runner} report: ${error.message}`) }
+        // A following process must not accidentally reuse this file's report.
+        require('node:fs').rmSync(join(dir, `${runner}.json`), { force: true })
+      }
+      summary.reports.push({ runner, runId, complete: reports.length === groups.length && reports.every(r => r.complete && r.runId === runId),
+        errors: reports.flatMap(r => r.errors), cases: reports.flatMap(r => r.cases), files: reports.flatMap(r => r.files) })
     }
     console.log('Top 10 slow leaf cases for this shard (including hooks/cleanup):')
     const measured = summary.reports.flatMap(report => report.cases ?? []).filter(item => Number.isFinite(item.ms)).sort((a, b) => b.ms - a.ms)
