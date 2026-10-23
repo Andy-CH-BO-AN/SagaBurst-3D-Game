@@ -26,19 +26,19 @@ function changes(base, head, event) {
   }
   return result
 }
-const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/AGENTS\.md)$/.test(file)
+const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/(?:AGENTS|tooling\/README)\.md|tools\/horse\/README\.md)$/.test(file)
   // Release notes are inputs to publication, not documentation-only changes.
   && !file.startsWith('docs/releases/')
 // Test files select themselves and their actual consumers, regardless of folder.
 // Only publication runtime/config inputs require the broad Node owner contract.
-const nodePublicationInput = file => /^(electron\/|tools\/release\/|docs\/releases\/)/.test(file)
+const nodePublicationInput = file => /^(electron\/|\.github\/scripts\/release\/|docs\/releases\/)/.test(file)
   || /^(package(?:-lock)?\.json|electron-builder\.|\.github\/workflows\/release\.yml$)/.test(file)
 
 function policyConsumers(file, inventory) {
   const available = new Set(inventory.map(item => item.file))
   const hits = new Set()
   const add = fileName => { if (available.has(fileName)) hits.add(fileName) }
-  if (/^(tools\/tests\/|\.github\/workflows\/|vitest\.config\.ts$|package(?:-lock)?\.json$|tsconfig(?:\.[\w-]+)?\.json$|tests\/helpers\/logicOnly\.ts$)/.test(file)) {
+  if (/^(tests\/tooling\/|\.github\/workflows\/|vitest\.config\.ts$|package(?:-lock)?\.json$|tsconfig(?:\.[\w-]+)?\.json$|tests\/helpers\/logicOnly\.ts$)/.test(file)) {
     add('tests/release/ci-plan.test.cjs')
     add('tests/release/test-budget.test.cjs')
     add('tests/release/workflow-contract.test.cjs')
@@ -208,7 +208,7 @@ function validateManifest(plan) {
 function discoverNode() {
   const files = walk('tests').filter(file => /\.test\.cjs$/.test(file))
   if (!files.length) throw new Error('Empty Node discovery')
-  return JSON.parse(execFileSync(process.execPath, ['tools/tests/node-collect.cjs', ...files], { cwd: root, encoding: 'utf8' }))
+  return JSON.parse(execFileSync(process.execPath, ['tests/tooling/node-collect.cjs', ...files], { cwd: root, encoding: 'utf8' }))
 }
 async function discover({ relatedPaths = [] } = {}) {
   // Public Vitest 4.1 API, matching `vitest related` and `vitest list --json`.
@@ -243,7 +243,7 @@ async function discover({ relatedPaths = [] } = {}) {
   }
 }
 function dependencyConsumers(inventory) {
-  const sources = new Map([...walk('src'), ...walk('tests'), ...walk('tools'), ...walk('electron')]
+  const sources = new Map([...walk('src'), ...walk('tests'), ...walk('tools'), ...walk('electron'), ...walk('.github/scripts')]
     .filter(file => /\.[cm]?[jt]sx?$/.test(file))
     .map(file => [file, readFileSync(resolve(root, file), 'utf8')]))
   // Lazy parser import keeps the dependency-free aggregate job lightweight.

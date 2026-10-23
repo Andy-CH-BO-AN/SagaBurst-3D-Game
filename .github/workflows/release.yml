@@ -66,7 +66,7 @@ jobs:
             tag="v$(node -p "require('./package.json').version")"
             export RELEASE_TAG="$tag"
             node - <<'NODE'
-          const { validateVersion } = require('./tools/release/validate-tag.cjs')
+          const { validateVersion } = require('./.github/scripts/release/validate-tag.cjs')
           const { version } = require('./package.json')
           const lock = require('./package-lock.json')
           validateVersion(version, lock, process.env.RELEASE_TAG)
@@ -87,7 +87,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
-        run: node tools/release/publish.cjs --check
+        run: node .github/scripts/release/publish.cjs --check
   validate:
     needs: [inspect, gate]
     if: needs.inspect.outputs.published != 'true'
@@ -100,7 +100,7 @@ jobs:
         with:
           fetch-depth: 0
       - run: git fetch origin refs/heads/main:refs/remotes/origin/main --tags --force
-      - run: node tools/release/validate-tag.cjs
+      - run: node .github/scripts/release/validate-tag.cjs
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -166,7 +166,7 @@ jobs:
         if: needs.inspect.outputs.published != 'true'
         run: |
           git fetch origin refs/heads/main:refs/remotes/origin/main --tags --force
-          node tools/release/validate-tag.cjs
+          node .github/scripts/release/validate-tag.cjs
       - uses: actions/download-artifact@v4
         if: needs.inspect.outputs.published != 'true'
         with:
@@ -176,4 +176,4 @@ jobs:
       - name: Publish player downloads
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node tools/release/publish.cjs
+        run: node .github/scripts/release/publish.cjs

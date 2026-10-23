@@ -1,8 +1,8 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { selectFiles, selectionSummary, shardFiles, planShards, validateManifest, changes } = require('../../tools/tests/ci-plan.cjs')
-const { dependencyConsumers } = require('../../tools/tests/dependencies.cjs')
-const { aggregate } = require('../../tools/tests/ci-run.cjs')
+const { selectFiles, selectionSummary, shardFiles, planShards, validateManifest, changes } = require('../tooling/ci-plan.cjs')
+const { dependencyConsumers } = require('../tooling/dependencies.cjs')
+const { aggregate } = require('../tooling/ci-run.cjs')
 const item = (file, count = 1, runner = 'vitest') => ({ file, runner, names: Array.from({ length: count }, (_, i) => `leaf ${i}`) })
 const inventory = [
   item('tests/movement/NavigationGrid.test.ts', 2),
@@ -59,7 +59,7 @@ test('shared helper selects consumers across capability directories', () => {
 })
 test('test runner and workflow changes select dedicated CI contracts without Full fallback', () => {
   const expected = ['tests/release/ci-plan.test.cjs', 'tests/release/test-budget.test.cjs']
-  assert.deepEqual(select('tools/tests/run.cjs').selected, expected)
+  assert.deepEqual(select('tests/tooling/run.cjs').selected, expected)
   assert.deepEqual(select('.github/workflows/ci.yml').selected, expected)
 })
 test('strict docs-only produces explicit empty evidence but release notes select Node publication contracts', () => {
@@ -103,10 +103,10 @@ test('Related selection has one aggregate 500-leaf limit and cannot open a secon
 })
 test('release code selects Node tests once and deduplicates shared consumers', () => {
   const expected = inventory.filter(item => item.runner === 'node').map(item => item.file).sort()
-  assert.deepEqual(select('tools/release/publish.cjs').selected, expected)
-  assert.deepEqual(select('tools/release/validate-tag.cjs').selected, expected)
+  assert.deepEqual(select('.github/scripts/release/publish.cjs').selected, expected)
+  assert.deepEqual(select('.github/scripts/release/validate-tag.cjs').selected, expected)
   assert.deepEqual(select('electron/asset-path.cjs').selected, expected)
-  const result = selectFiles(inventory, [{ status: 'M', file: 'electron/main.cjs' }, { status: 'M', file: 'tools/release/publish.cjs' }], consumers)
+  const result = selectFiles(inventory, [{ status: 'M', file: 'electron/main.cjs' }, { status: 'M', file: '.github/scripts/release/publish.cjs' }], consumers)
   assert.deepEqual(result.selected, inventory.filter(item => item.runner === 'node').map(item => item.file).sort())
   assert.equal(result.reasons['tests/release/publish.test.cjs'].length, 2)
 })
@@ -168,4 +168,17 @@ test('lightweight enum import does not select suites; real runtime import chain 
   assert.match(text, /Selected: 1 files \/ 2 cases/)
   assert.match(text, /Owners:/)
   assert.match(text, /Budget: 2 \/ 500/)
+})
+
+test('only the owned Node collector load crosses the computed-import boundary', () => {
+  const sources = new Map([
+    ['tests/tooling/node-collect.cjs', 'require(resolve(file))'],
+    ['tests/tooling/unowned.cjs', 'require(resolve(file))'],
+    ['tests/ordinary.test.cjs', 'require(resolve(file))'],
+    ['.github/scripts/release/publish.cjs', 'require(selectedModule)'],
+  ])
+  const graph = dependencyConsumers(inventory, sources)
+  assert.deepEqual(graph.runtimeAmbiguities, ['tests/tooling/unowned.cjs', 'tests/ordinary.test.cjs', '.github/scripts/release/publish.cjs'])
+  sources.set('tests/tooling/node-collect.cjs', 'require(resolve(otherFile))')
+  assert.ok(dependencyConsumers(inventory, sources).runtimeAmbiguities.includes('tests/tooling/node-collect.cjs'))
 })

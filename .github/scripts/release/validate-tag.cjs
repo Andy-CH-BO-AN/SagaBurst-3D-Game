@@ -11,8 +11,8 @@ function validateRelease(version, lock, tag, git) {
   return tagged
 }
 if (require.main === module) {
-  const { version } = require('../../package.json')
-  const lock = require('../../package-lock.json')
+  const { version } = require('../../../package.json')
+  const lock = require('../../../package-lock.json')
   const tag = process.env.RELEASE_TAG || process.env.GITHUB_REF_NAME
   const git = ref => execFileSync('git', ['rev-parse', ref], { encoding: 'utf8' }).trim()
   console.log(`Validated ${tag} at main HEAD ${validateRelease(version, lock, tag, git)}`)

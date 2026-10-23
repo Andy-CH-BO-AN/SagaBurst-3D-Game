@@ -1,4 +1,7 @@
-# Logic test CI
+# Logic test tooling
+
+Local npm tests and CI share this runner/planner; release publication helpers live
+under `.github/scripts/release/`. `typecheck.cjs` owns the test diagnostic ratchet.
 
 `ci-plan.cjs` collects leaves without running their bodies and produces a JSON
 manifest. Related and Full deliberately have different budgets:
@@ -16,9 +19,9 @@ The 100ms limit includes each leaf's hooks and cleanup. A single file larger tha
 or filtering leaves.
 
 ```sh
-node tools/tests/ci-plan.cjs --mode related --base BASE_SHA --head HEAD_SHA --event pull_request --out output/test-plan.json
+node tests/tooling/ci-plan.cjs --mode related --base BASE_SHA --head HEAD_SHA --event pull_request --out output/test-plan.json
 npm test -- --manifest output/test-plan.json --shard logic-related --out output/shard-reports/logic-related.json
-node tools/tests/ci-run.cjs --manifest output/test-plan.json --reports output/shard-reports
+node tests/tooling/ci-run.cjs --manifest output/test-plan.json --reports output/shard-reports
 ```
 
 Use `--mode full` for the complete repository. `npm test` uses the same Full planner
@@ -65,6 +68,12 @@ unmapped non-document inputs, an empty code selection, or a Related selection ab
 500 fail closed and require an explicit dependency/owner mapping or a smaller
 change. They do not convert a dev PR into Full. Empty success requires strictly allowlisted docs or proven type-only edits; release notes are publication inputs and are excluded from
 that exception.
+
+The static graph includes `.github/scripts/` and scans release helpers for computed
+imports. `tests/tooling/` remains inside dependency validation: only the collector's
+specific `require(resolve(file))` crosses the explicit tooling owner boundary,
+because it loads the discovered Node test list in an isolated process. Computed
+loads elsewhere (including other tooling and ordinary tests) still fail closed.
 
 Node `.test.cjs` files under `tests/` are owned by the Node runner, not Vitest.
 `node-collect.cjs` collects actual synchronous registrations in a separate process

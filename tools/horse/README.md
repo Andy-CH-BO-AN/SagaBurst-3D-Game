@@ -11,8 +11,8 @@ The source-specific repair rejects an unexpected GLB hash. The animation/saddle
 donor is read from commit `db7e0c0`; shallow clones may pass `--donor=/path/original-horse_runtime.glb`.
 Both original files remain external. Output is staged, never published automatically.
 Inspect `tacked.glb` in Blender and `package/horse_runtime.glb` through the game loader
-before replacing the public package. The legacy `consolidate-horse-lod2.mjs` tool
-does not support this topology.
+before replacing the public package. The retired v10-only LOD consolidation script is available in Git history,
+not a rebuild entry point for this topology.
 
 Pipeline: repair body coordinates/normals/winding → split verified native timeline
 and retarget missing motion in world rest space → fit leg lengths using FABRIK →

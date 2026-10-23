@@ -44,7 +44,7 @@ jobs:
           TEST_BASE: ${{ inputs.base }}
           TEST_HEAD: ${{ inputs.head }}
           TEST_EVENT: ${{ inputs.event }}
-        run: node tools/tests/ci-plan.cjs --mode "$TEST_MODE" --base "$TEST_BASE" --head "$TEST_HEAD" --event "$TEST_EVENT" --out output/test-plan.json
+        run: node tests/tooling/ci-plan.cjs --mode "$TEST_MODE" --base "$TEST_BASE" --head "$TEST_HEAD" --event "$TEST_EVENT" --out output/test-plan.json
       - uses: actions/upload-artifact@v4
         with:
           name: logic-plan
@@ -73,7 +73,7 @@ jobs:
       - name: Run and validate shard
         env:
           TEST_SHARD: ${{ matrix.shard }}
-        run: node tools/tests/ci-run.cjs --manifest output/test-plan.json --shard "$TEST_SHARD" --out "output/shard-reports/$TEST_SHARD.json"
+        run: node tests/tooling/ci-run.cjs --manifest output/test-plan.json --shard "$TEST_SHARD" --out "output/shard-reports/$TEST_SHARD.json"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -114,10 +114,10 @@ jobs:
           path: output/shard-reports
           merge-multiple: true
       - name: Verify complete, unique execution and aggregate budgets
-        run: node tools/tests/ci-run.cjs --manifest output/test-plan.json --reports output/shard-reports --out output/aggregate.json
+        run: node tests/tooling/ci-run.cjs --manifest output/test-plan.json --reports output/shard-reports --out output/aggregate.json
       - name: Publish verified Full SHA for same-run reuse
         id: verified
-        run: node tools/tests/ci-run.cjs --verified-sha output/test-plan.json >> "$GITHUB_OUTPUT"
+        run: node tests/tooling/ci-run.cjs --verified-sha output/test-plan.json >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: logic-aggregate

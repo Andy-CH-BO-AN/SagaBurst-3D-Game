@@ -11,13 +11,21 @@ function dependencyConsumers(inventory, sources, exists = file => sources.has(fi
     const runtime = /\.tsx?$/.test(file) ? ts.transpileModule(source, {
       compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext },
     }).outputText : source
-    if (/^(src\/|tests\/|electron\/|tools\/release\/)/.test(file)) {
+    if (/^(src\/|tests\/|electron\/|\.github\/scripts\/release\/)/.test(file)) {
       const parsed = ts.createSourceFile(file, runtime, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
       function inspect(node) {
         if (ts.isCallExpression(node)) {
           const callee = node.expression
           if (callee.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(callee) && callee.text === 'require')) {
-            if (node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0])) runtimeAmbiguities.push(file)
+            // The registration-only Node collector intentionally loads the exact
+            // discovered file list. Its explicit tooling owner is ci-plan/budget;
+            // this is the only computed-load boundary, not a tests/ exemption.
+            const arg = node.arguments[0]
+            const collectorLoad = file === 'tests/tooling/node-collect.cjs'
+              && ts.isIdentifier(callee) && callee.text === 'require' && node.arguments.length === 1
+              && ts.isCallExpression(arg) && ts.isIdentifier(arg.expression) && arg.expression.text === 'resolve'
+              && arg.arguments.length === 1 && ts.isIdentifier(arg.arguments[0]) && arg.arguments[0].text === 'file'
+            if (!collectorLoad && (node.arguments.length !== 1 || !ts.isStringLiteralLike(arg))) runtimeAmbiguities.push(file)
           }
         }
         // Inspect syntax instead of text so fixture strings do not create false

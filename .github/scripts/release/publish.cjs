@@ -85,8 +85,8 @@ function createGhClient(repo, tag, run = args => execFileSync('gh', args, {
   }
 }
 async function main() {
-  const { version } = require('../../package.json')
-  const lock = require('../../package-lock.json')
+  const { version } = require('../../../package.json')
+  const lock = require('../../../package-lock.json')
   const tag = process.env.RELEASE_TAG || process.env.GITHUB_REF_NAME
   const repo = process.env.GITHUB_REPOSITORY
   validateVersion(version, lock, tag)

@@ -1,7 +1,7 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { validateReports, readReport } = require('../../tools/tests/budget.cjs')
-const nodeReporter = require('../../tools/tests/node-budget-reporter.cjs')
+const { validateReports, readReport } = require('../tooling/budget.cjs')
+const nodeReporter = require('../tooling/node-budget-reporter.cjs')
 
 const report = (runner, count, ms = 100) => ({ runner, runId: 'current', complete: true, errors: [],
   cases: Array.from({ length: count }, (_, index) => ({ file: `${runner}.test`, name: `case ${index}`, state: 'passed', ms })) })

@@ -4,7 +4,7 @@ const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { spawnSync } = require('node:child_process')
 const yaml = require('js-yaml')
-const { verifiedFullSha } = require('../../tools/tests/ci-run.cjs')
+const { verifiedFullSha } = require('../tooling/ci-run.cjs')
 
 const workflowDir = resolve(__dirname, '../../.github/workflows')
 const workflowFiles = ['ci.yml', 'logic-tests.yml', 'deploy-pages.yml', 'release.yml']

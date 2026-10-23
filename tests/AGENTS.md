@@ -67,7 +67,7 @@
 - Related manifest 保留完整 discovery，以檔案、完整 runner 名稱及 collection ordinal 精準指定 leaf；each 每列獨立計數。名稱重複、動態 wrapper 或無法安全對應 body 時，保守執行完整 owner file。Runner 僅可省略 manifest 未選 leaf；已選 skip、漏跑、多跑、重複或過期 evidence 均失敗。Full 禁用 Behavior Filter。
 - 型別消除後 JavaScript tokens 相同的修改只交由 Typecheck；其餘 runtime 變更沒有 owner、無法安全解析或超過預算時 fail closed，不可用不完整 mapping 靜默排除。
 - 修正 Related 過度選取時，優先讓輕量模組只依賴輕量 owner（如 `NpcAIType.ts` 的 `AIType`、`CombatFaction.ts` 的 `Faction`），不得在 planner 以固定排除名單隱藏 tests；以精簡 CI Summary 檢視 Changed Behavior、Owners、Selected cases、import-only 候選數與 Unsafe；完整診斷保留 ignored output/。
-- Test tooling、Workflow、package/config 變更透過明確 owner policy 選取 CI／budget contract tests；Release／Electron 變更選取 Node publication tests。不得透過搬移檔案、dynamic import 或不登記依賴規避 selection。
+- `tests/tooling/`、Workflow、package/config 變更透過明確 owner policy 選取 CI／budget contract tests；`.github/scripts/release/`／Electron 變更選取 Node publication tests。不得透過搬移檔案、dynamic import 或不登記依賴規避 selection。
 - 僅嚴格文件變更允許明確 docs-only empty plan。保留單檔／指定案例開發能力，但 Related／subset 通過不能代表 Full Suite 通過。
 - 開發中可先跑受影響 suite（`rtk npm test -- <file-or-directory>` 或 `-t`，屬局部驗證），再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。
 - **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 logic plan／runner／aggregate（Related aggregate 或 Full per-shard 預算）、`npm run typecheck:test`、`npm run build` 及 Web smoke。PR 保留 Web smoke；合併後 push → dev 不再安裝 Chromium 或執行 Web smoke，但保留 Typecheck、Build，main／發佈流程仍執行 Web smoke。PR 中所有 selected logic cases 只在 logic gate 執行一次；Desktop PR jobs 只驗證 package／smoke，不重跑 Node logic。Windows／macOS Node component 驗證保留在正式 Release、完整測試與發佈閘門。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。
