@@ -2,7 +2,7 @@
  * BattleConfig.ts
  * Core domain types, validation, presets, and combat mapping rules for Custom Battle.
  */
-import { AIType } from '../world/NPC'
+import { AIType } from '../world/NpcAIType'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import {

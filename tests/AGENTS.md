@@ -63,6 +63,8 @@
 - 普通 PR → dev 與 push → dev 使用 dependency-aware Related Test CI；PR 使用 merge-base，push 使用 before..after。直接修改測試、跨目錄 helper consumers、間接 production 依賴都要選入；高 fan-out owner（例如 `Game.ts`、`TownScene.ts`、`CareerProfileStore.ts`）也依實際 dependency consumers 選取，不得只因檔名而改跑 Full。
 - Related selection 所有 runner 合計必須 `<=500`，只允許一個 aggregate-limited shard；超過 500、移除／搬移、Git history 不足、無法解析的 computed import／glob、無 mapping 或 code change 得到零測試時直接 fail closed，要求補 dependency／owner mapping 或拆小 PR，不得自動退回 Full。
 - PR → main、push → main、正式 tag／release／Pages 發佈前與手動 Full mode 必須跑 Full Test gate。只有 Full 可以分 shard並讓 aggregate 超過 500；aggregate 必須驗證所有 discovered files 及 leaves 恰好執行一次，再允許 publish。
+- main Full gate 只執行一次：`push → main` 由 `ci.yml` 跑 Full，Pages 與 Release 於同一 workflow run 以 `needs` 共用、不再各自重跑；Pages 與 Release 僅接受綁定同一精確 SHA 的 aggregate 驗證（`verified-sha`），失敗、取消、SHA 不符或缺少驗證即自行跑 Full 或失敗（Pages 另在部署前確認 `GITHUB_SHA` 仍為最新 `origin/main`，過期則 skip 以免舊 commit 覆蓋新版網站）。手動 `v*` tag 無同 run 證明，必須 Full。
+- 修正 Related 過度選取時，優先讓輕量模組只依賴輕量 owner（如 `NpcAIType.ts` 的 `AIType`、`CombatFaction.ts` 的 `Faction`），不得在 planner 以固定排除名單隱藏 tests；用 CI Summary 的 import chain 追蹤 fan-out。
 - Test tooling、Workflow、package/config 變更透過明確 owner policy 選取 CI／budget contract tests；Release／Electron 變更選取 Node publication tests。不得透過搬移檔案、dynamic import 或不登記依賴規避 selection。
 - 僅嚴格文件變更允許明確 docs-only empty plan。保留單檔／指定案例開發能力，但 Related／subset 通過不能代表 Full Suite 通過。
 - 開發中可先跑受影響 suite（`rtk npm test -- <file-or-directory>` 或 `-t`，屬局部驗證），再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。

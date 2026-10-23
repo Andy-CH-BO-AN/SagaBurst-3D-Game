@@ -1,8 +1,15 @@
 name: Release
 on:
+  # Normal main pushes arrive through ci.yml, which already ran the one Full gate for
+  # this SHA and passes its verified SHA. A manually pushed tag has no such proof and
+  # runs its own Full gate. (Tags pushed by GITHUB_TOKEN do not trigger workflows.)
   push:
-    branches: [main]
     tags: ['v*']
+  workflow_call:
+    inputs:
+      logic-verified-sha:
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -10,14 +17,30 @@ concurrency:
   cancel-in-progress: false
 jobs:
   logic:
+    if: inputs.logic-verified-sha == ''
     uses: ./.github/workflows/logic-tests.yml
     with:
       mode: full
       head: ${{ github.sha }}
       event: ${{ github.event_name }}
-  inspect:
-    # This job can push a version tag; Full logic must succeed first.
+  gate:
+    # Single decision point: either this workflow's own Full gate succeeded, or the
+    # caller proved a Full gate for exactly this SHA in the same workflow run.
     needs: logic
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      LOGIC_RESULT: ${{ needs.logic.result }}
+      VERIFIED_SHA: ${{ inputs.logic-verified-sha }}
+    steps:
+      - name: Require a successful Full gate for this exact SHA
+        run: |
+          set -euo pipefail
+          if [ -n "$VERIFIED_SHA" ]; then test "$LOGIC_RESULT" = skipped && test "$VERIFIED_SHA" = "$GITHUB_SHA" && test "$GITHUB_EVENT_NAME" = push && test "$GITHUB_REF" = refs/heads/main && echo "Reusing same-run Full gate for $GITHUB_SHA" | tee -a "$GITHUB_STEP_SUMMARY"; else test "$LOGIC_RESULT" = success; fi
+  inspect:
+    # This job can push a version tag; the Full gate must have succeeded first.
+    needs: gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -66,7 +89,7 @@ jobs:
           RELEASE_TAG: ${{ steps.tag.outputs.tag }}
         run: node tools/release/publish.cjs --check
   validate:
-    needs: [inspect, logic]
+    needs: [inspect, gate]
     if: needs.inspect.outputs.published != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -125,9 +148,9 @@ jobs:
           path: release/SagaBurst-v*-*.zip
           if-no-files-found: error
   publish:
-    needs: [inspect, logic, validate, desktop]
+    needs: [inspect, gate, validate, desktop]
     if: >-
-      ${{ !cancelled() && needs.inspect.result == 'success' && needs.logic.result == 'success' &&
+      ${{ !cancelled() && needs.inspect.result == 'success' && needs.gate.result == 'success' &&
           (needs.inspect.outputs.published == 'true' ||
            (needs.validate.result == 'success' && needs.desktop.result == 'success')) }}
     runs-on: ubuntu-latest

@@ -1,6 +1,6 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { selectFiles, shardFiles, planShards, validateManifest, changes } = require('../../tools/tests/ci-plan.cjs')
+const { selectFiles, selectionSummary, shardFiles, planShards, validateManifest, changes } = require('../../tools/tests/ci-plan.cjs')
 const { dependencyConsumers } = require('../../tools/tests/dependencies.cjs')
 const { aggregate } = require('../../tools/tests/ci-run.cjs')
 const item = (file, count = 1, runner = 'vitest') => ({ file, runner, names: Array.from({ length: count }, (_, i) => `leaf ${i}`) })
@@ -148,4 +148,24 @@ test('computed import in an ordinary test blocks Related selection when its owne
   const graph = dependencyConsumers(tests, sources)
   assert.deepEqual(graph['src/owner.ts'], [staticTest.file])
   assert.throws(() => selectFiles(tests, [{ status: 'M', file: 'src/owner.ts' }], graph), /tests\/foo\.test\.ts/)
+})
+test('lightweight enum import does not select suites; real runtime import chain is explained', () => {
+  const sources = new Map([
+    ['src/world/NpcAIType.ts', 'export enum AIType { MELEE = "MELEE" }'],
+    ['src/world/NPC.ts', 'import { Route } from "../navigation/Route"\nexport { AIType } from "./NpcAIType"\nexport class NPC { route = Route }'],
+    ['src/navigation/Route.ts', 'export const Route = 1'],
+    ['src/battle/BattleConfig.ts', 'import { AIType } from "../world/NpcAIType"\nexport const config = AIType'],
+    ['tests/missions/BattleConfig.test.ts', 'import { config } from "../../src/battle/BattleConfig"\nconfig'],
+    ['tests/actors/Spawner.test.ts', 'import { NPC } from "../../src/world/NPC"\nNPC'],
+  ])
+  const files = [item('tests/missions/BattleConfig.test.ts', 3), item('tests/actors/Spawner.test.ts', 2)]
+  const graph = dependencyConsumers(files, sources)
+  const plan = selectFiles(files, [{ status: 'M', file: 'src/navigation/Route.ts' }], graph)
+  assert.deepEqual(plan.selected, ['tests/actors/Spawner.test.ts'])
+  assert.deepEqual(plan.details['tests/actors/Spawner.test.ts'], [{ changed: 'src/navigation/Route.ts', source: 'Static Runtime Dependency',
+    chain: ['tests/actors/Spawner.test.ts', 'src/world/NPC.ts', 'src/navigation/Route.ts'] }])
+  const text = selectionSummary({ mode: 'related', baseSha: 'b', headSha: 'h', changedFiles: ['src/navigation/Route.ts'], inventory: files, shards: [], ...plan })
+  assert.match(text, /Selected: tests\/actors\/Spawner\.test\.ts \(leaf count 2\)/)
+  assert.match(text, /tests\/actors\/Spawner\.test\.ts → src\/world\/NPC\.ts → src\/navigation\/Route\.ts/)
+  assert.match(text, /src\/navigation\/Route\.ts: 1 files \/ 2 leaves/)
 })
