@@ -79,6 +79,7 @@ import { WEAPONS, type WeaponCombatKind } from '../rpg/WeaponDatabase'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { ChaseTargetCoordinator } from '../navigation/ChaseTargetCoordinator'
 import { NavigationPathFollower, type NavigationRouteKind } from '../navigation/NavigationPathFollower'
+import { LayeredNavigationRoute } from '../navigation/LayeredNavigationRoute'
 import {
   clampFollowSlotToDeck,
   clampFollowSlotToBridge,
@@ -548,6 +549,7 @@ export class NPC {
     return true
   }
   private readonly _navigationPath = new NavigationPathFollower()
+  private readonly _layeredNavigationRoute = new LayeredNavigationRoute(this._navigationPath)
   private readonly _tmpNavigationTarget = new THREE.Vector3()
   private _activeNavigationWorld: NavigationWorld | null = null
 
@@ -2770,42 +2772,17 @@ export class NPC {
         const npcLayer = layeredNav ? layeredNav.getNavLayer(this.combatPosition) : 'ground'
         const targetLayer = layeredNav ? layeredNav.getNavLayer(targetInfo.position) : 'ground'
         const isCrossLayer = layeredNav ? (npcLayer !== targetLayer) : false
-        const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
-
         let navigationRoute: NavigationRouteKind = 'direct'
-        const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, targetInfo.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId, this.combatantId) : null
-        if (townStep) {
-          if (townStep.blocked) navigationRoute = 'unreachable'
-          else if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(this._tmpNavigationTarget, obstacles, navigationWorld)
-        } else if (layeredNav && (isCrossLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, targetInfo.position))) {
-          const layeredResult = layeredNav.resolveMoveTarget(
-            this.combatPosition,
-            targetInfo.position,
-            Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
-            this._tmpNavigationTarget,
-            this.campaignEntranceId,
-          )
-          if (layeredResult.step === 'ground_approach' || layeredResult.step === 'ground_cross') {
-            navigationRoute = !skipBoidsAndObstacles
-              ? this._resolveNavigationMoveTarget(layeredResult.target, obstacles, navigationWorld)
-              : 'direct'
-            if (navigationRoute === 'unreachable') {
-              const blocked = findBlockingObstacleAlongPath(
-                this.combatPosition,
-                layeredResult.target,
-                this._movementObstacleRadius(),
-                this._movementObstacleHeight(),
-                0,
-                obstacles,
-              ) !== null
-              if (!blocked) {
-                navigationRoute = 'direct'
-              }
-            }
-            if (skipBoidsAndObstacles || navigationRoute === 'direct') this._tmpNavigationTarget.copy(layeredResult.target)
-          } else {
-            navigationRoute = 'direct'
-          }
+        const layeredStep = this._layeredNavigationRoute.resolve({
+          position: this.combatPosition, goal: targetInfo.position, world: navigationWorld, outpost: layeredNav ?? null,
+          currentLayer: npcLayer, targetLayer, differentLayer: isCrossLayer,
+          mounted: this.isMounted, outpostMounted: Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
+          flying: Boolean(this.mount?.isFlyingMount), radius: this._movementObstacleRadius(), height: this._movementObstacleHeight(),
+          entranceId: this.campaignEntranceId, sectorId: this.townSiegeGateId, actorId: this.combatantId,
+          skipGroundNavigation: skipBoidsAndObstacles,
+        }, obstacles, this._tmpNavigationTarget)
+        if (layeredStep) {
+          navigationRoute = layeredStep.route
         } else {
           navigationRoute = this.hasSiegeObstacle ? 'unreachable' : !skipBoidsAndObstacles
             ? this._resolveNavigationMoveTarget(
@@ -3014,7 +2991,7 @@ export class NPC {
           this.mount ? this.mount.baseSpeed : CHASE_SPEED,
           dt,
           this.tacticalOrder === 'charge' && !siegeObstacle,
-          townStep?.tower
+          layeredStep?.tower
             ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z) : Infinity,
         )
         if (layeredNav && isStairLayer(npcLayer)) {
@@ -3721,45 +3698,18 @@ export class NPC {
     let navigationRoute: NavigationRouteKind = 'direct'
     let navigationGoal = target.position
 
-    const isRampartCorridor = layeredNav ? (isRampartLayer(npcLayer) && isRampartLayer(targetLayer)) : false
-
-    let isConfirmedLayeredStep = false
-    const townStep = !this.mount?.isFlyingMount ? navigationWorld?.townNav?.resolveMoveTarget(this.combatPosition, target.position, this._tmpNavigationTarget, this.campaignEntranceId, this.isMounted, this.townSiegeGateId, this.combatantId) : null
-    if (townStep) {
+    const layeredStep = this._layeredNavigationRoute.resolve({
+      position: this.combatPosition, goal: target.position, world: navigationWorld, outpost: layeredNav ?? null,
+      currentLayer: npcLayer, targetLayer, differentLayer: isDifferentLayer,
+      mounted: this.isMounted, outpostMounted: Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
+      flying: Boolean(this.mount?.isFlyingMount), radius: this._movementObstacleRadius(), height: this._movementObstacleHeight(),
+      entranceId: this.campaignEntranceId, sectorId: this.townSiegeGateId, actorId: this.combatantId,
+      skipGroundNavigation: skipBoidsAndObstacles,
+    }, obstacles, this._tmpNavigationTarget)
+    const isConfirmedLayeredStep = layeredStep?.confirmedLayeredStep ?? false
+    if (layeredStep) {
+      navigationRoute = layeredStep.route
       navigationGoal = this._tmpNavigationTarget
-      if (townStep.blocked) navigationRoute = 'unreachable'
-      else if (townStep.ground) navigationRoute = this._resolveNavigationMoveTarget(navigationGoal, obstacles, navigationWorld)
-      else isConfirmedLayeredStep = true
-    } else if (layeredNav && (isDifferentLayer || isRampartCorridor || isStairLayer(npcLayer) || layeredNav.needsSiegeRoute(this.combatPosition, target.position))) {
-      const layeredResult = layeredNav.resolveMoveTarget(
-        this.combatPosition,
-        target.position,
-        Boolean(this.isMounted || this.mount || (this as any).isAnimal || (this as any).species),
-        this._tmpNavigationTarget,
-        this.campaignEntranceId,
-      )
-      if (layeredResult.step === 'ground_approach' || layeredResult.step === 'ground_cross') {
-        navigationGoal = this._tmpNavigationTarget
-        if (!skipBoidsAndObstacles) {
-          navigationRoute = this._resolveNavigationMoveTarget(navigationGoal, obstacles, navigationWorld)
-          if (navigationRoute === 'unreachable') {
-            const blocked = findBlockingObstacleAlongPath(
-              this.combatPosition,
-              navigationGoal,
-              this._movementObstacleRadius(),
-              this._movementObstacleHeight(),
-              0,
-              obstacles,
-            ) !== null
-            if (!blocked) {
-              navigationRoute = 'direct'
-            }
-          }
-        }
-      } else {
-        isConfirmedLayeredStep = true
-        navigationRoute = 'direct'
-      }
     } else if (!skipBoidsAndObstacles && this.tacticalOrder === 'follow') {
       this.followNavigationCheckRemaining -= dt
       if (this.followNavigationCheckRemaining <= 0) {
@@ -3892,7 +3842,7 @@ export class NPC {
       ? Math.min(this.mount.baseSpeed, target.speedLimit ?? Infinity)
       : target.speedLimit ?? FORMATION_MOVE_SPEED
     this._moveByDirection(moveDir, followCatchUp ? baseSpeed * 1.15 : baseSpeed, dt,
-      followSprint || this.missionMovement, townStep?.tower
+      followSprint || this.missionMovement, layeredStep?.tower
         ? Math.hypot(this._tmpNavigationTarget.x - this.combatPosition.x, this._tmpNavigationTarget.z - this.combatPosition.z) : distance)
     if (layeredNav && isStairLayer(npcLayer)) {
       const stair = layeredNav.getStair(layerSide(npcLayer)!)

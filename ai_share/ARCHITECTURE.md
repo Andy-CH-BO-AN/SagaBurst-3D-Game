@@ -215,7 +215,9 @@ Career 場景進入／重載的 Loading barrier 只等待當次已宣告的 Init
 
 Commander Last Stand 的初始名冊為 120 名友軍步兵加接受時 HR 私兵；60 秒準備完成才使用 Defense Campaign wave owner 交錯排入 50 Lancer／25 Sword-Axe Cavalry／25 Horse Archer。騎手及坐騎於同一 job 建立，每人立即收到 Charge（Squad 5／6）或 Attack（Squad 7）。攻方重用 Campaign staging 距離計算，透過 `DefenseCampaignDeployment` 檢查 ±300m 內、障礙 clearance 與正門外側導航連通，最近至少 150m。勝利按完整 100 個 stable target IDs 判定，未生成 ID 仍算未消滅；重載以既有 actorHealth／actorPositions 還原已生成存活者，確認死者略過，remaining wave 只補尚未存在的 IDs，每個成功 job 保存 checkpoint，不重設 timeline 或重播結算。
 
-NavigationWorld 保留每影格最多兩筆 A* 查詢；NavigationPathFollower 以自身作為 pending owner，超出額度時保存最新起終點，下個 beginFrame 按等待順序優先處理，避免固定 actor 順序及移動目標讓私兵／後段城防永久拿不到路徑。Topology rebuild 清除 deferred 工作及 cache。Town 軍隊、原生 Patrol、平民／商人與 HR 地面 Dismiss 使用既有 urgent formation／原生移動速度與體力規則回崗，到位或重新接令後釋放 urgency；和平移動動畫沿用實際 sprint 狀態，不改原生巡邏速度、傷害或生命。
+`LayeredNavigationRoute` 共用 NPC 追擊與編隊的 Town／Outpost 高架路徑與地面 A* 接續，沿用每個 actor 原有 `NavigationPathFollower`；Town ground approach 保留拓樸查詢，Outpost 沿原 skip 與實體障礙重驗規則。攻擊／攻城、Follow 節流、到位與局部避讓仍由 NPC 的各行為擁有。
+
+NavigationWorld 統一管理每影格 A* 查詢預算；NavigationPathFollower 以自身作為 pending owner，超出額度時保存最新起終點，下個 beginFrame 按等待順序優先處理，避免固定 actor 順序及移動目標讓私兵／後段城防永久拿不到路徑。Topology rebuild 清除 deferred 工作及 cache。Town 軍隊、原生 Patrol、平民／商人與 HR 地面 Dismiss 使用既有 urgent formation／原生移動速度與體力規則回崗，到位或重新接令後釋放 urgency；和平移動動畫沿用實際 sprint 狀態，不改原生巡邏速度、傷害或生命。
 
 ## 效能解讀
 
