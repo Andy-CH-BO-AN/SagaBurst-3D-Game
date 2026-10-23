@@ -1,3 +1,4 @@
+import type { TownProfileChange } from './TownProfileCommit'
 import type { TownGarrisonStation } from './TownGarrison'
 import { activateTownResidentHome, restoreTownResidentHome } from './TownResidentHome'
 import type { BanditMissionController } from '../career/BanditMissionController'
@@ -9,10 +10,9 @@ import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { Mount } from '../world/Mount'
 import { Faction, type NPC } from '../world/NPC'
-import { refitCommandCheckpoint } from '../career/CareerCommandActorCheckpoint'
-import { isMissionReturnResident, stageMissionReturnRebuild, stageMissionReturnResidents, type MissionReturnHome } from '../career/CareerMissionReturnRecovery'
+import { isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
 import { getTerrainHeight } from '../world/Terrain'
-import { townPlayerEntryPoint, townSitePoint, townRoster, type TownActorSpec } from './TownRules'
+import { townPlayerEntryPoint, townSitePoint, type TownActorSpec } from './TownRules'
 import type { TownEquipment } from './TownEquipment'
 import type { TownWorld } from './TownWorld'
 import { isCareerEnemyTerritoryFieldMission } from '../career/CareerFieldSceneContext'
@@ -22,18 +22,9 @@ import type { CaptainPatrolCommandController } from '../career/CaptainPatrolComm
 interface MissionProfiles {
   read(): CareerProfile
   /** Publishes the profile only after saving it; false leaves the current profile unchanged. */
-  commit(profile: CareerProfile, options?: MissionCommitOptions): boolean
+  commit(profile: CareerProfile, change?: TownProfileChange): boolean
 }
 
-export interface MissionCommitOptions {
-  groundedTownReturn?: boolean
-  /** A civilian transaction owns its staged checkpoint even when it equals the previous save. */
-  civilianCommandStaged?: boolean
-  /** Completed formal return owns resident recovery, including unchanged/default checkpoints. */
-  residentReturnStaged?: boolean
-  /** Save canonical home state and dispose the old scene before restoring actors. */
-  rebuildTown?: boolean
-}
 
 interface MissionControllers {
   field: Pick<BanditMissionController, 'snapshot' | 'cleanupMission' | 'friendlies'>
@@ -140,23 +131,12 @@ export class TownMissionSettlement {
     const borrowed = (inPlace || enemyTerritoryScout) && !defense ? new Set(active.kind === 'duel' ? this.missions.duel.actors : captainPatrol ? this.missions.patrol?.actors ?? [] : this.missions.field.friendlies) : null
     const completed = Boolean(active.result || profile.claimedBattleIds.includes(active.id))
     let next = clearCareerMission(profile, active.id)
-    if (completed && inPlace) {
-      const homes: MissionReturnHome[] = this.town.residents.flatMap(resident => resident.spec.id ? [{
-        spec: { ...resident.spec, id: resident.spec.id },
-        ...(isMissionReturnResident(resident.spec) ? { checkpoint: refitCommandCheckpoint(resident.npc, resident.homeMount) } : {}),
-      }] : [])
-      next = stageMissionReturnResidents(next, homes)
-    }
     const garrison = next.townEagleGarrisons?.[profile.faction]
     if (inPlace && garrison) for (const pair of garrison.pairs) {
       if (defense || pair.hp <= 0 || pair.mount.hp <= 0) pair.refitAllowed = true
     }
     next.personalSquadRuntime = intent === 'arrived' && active.personalSquad?.state !== 'RESERVE' ? active.personalSquad : undefined
-    const rebuildTown = completed && !inPlace
-    if (rebuildTown) next = stageMissionReturnRebuild(next, townRoster().map(spec => ({ spec })), active.personalSquad)
-    const groundedTownReturn = captainPatrol && intent === 'direct'
-    if (groundedTownReturn) delete next.playerAerialState
-    if (!this.profiles.commit(next, { ...(rebuildTown ? { rebuildTown: true } : {}), ...(groundedTownReturn ? { groundedTownReturn: true } : {}), ...(completed ? { residentReturnStaged: true, civilianCommandStaged: true } : {}) })) return { status: 'save-failed', destination: inPlace ? 'party' : 'restart' }
+    if (!this.profiles.commit(next, { kind: 'mission-return', destination: inPlace ? 'in-place' : 'restart', travel: intent })) return { status: 'save-failed', destination: inPlace ? 'party' : 'restart' }
     this.town.returnPersonalSquad?.(intent === 'direct')
     if (captainPatrol) this.missions.patrol?.release()
 

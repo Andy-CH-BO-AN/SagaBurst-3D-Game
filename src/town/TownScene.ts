@@ -1,3 +1,4 @@
+import { commitTownProfile, type TownProfileChange } from './TownProfileCommit'
 import { TownRetirementFinaleController } from './TownRetirementFinaleController'
 import { appendCommanderRetirementOption } from './TownRetirementUI'
 import { TownRetirementMobilizationController } from './TownRetirementMobilizationController'
@@ -11,8 +12,6 @@ import { CareerRaceController } from '../career/CareerRaceController'
 import { MOUNTED_RACES, type RaceId } from '../career/CareerRaceState'
 import { RACE_LINES } from '../career/CareerRaceRoute'
 import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
-import { refitCommandCheckpoint } from '../career/CareerCommandActorCheckpoint'
-import { stageMissionReturnRebuild, stageMissionReturnResidents, isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
 import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
@@ -26,7 +25,7 @@ import { playerEagleProjectileBudget, projectileTerrainContactTime, type Project
 import { ProjectileAdmission } from '../combat/ProjectileAdmission'
 import { TOWN_AIR_COMMAND_IDS } from '../career/TownAirCommandAuthority'
 import { TownAirCommandSquadController } from './TownAirCommandSquadController'
-import { TownEagleGarrisonController, stageTownEaglePlayerCommand } from './TownEagleGarrisonController'
+import { TownEagleGarrisonController } from './TownEagleGarrisonController'
 import { EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from '../career/EaglePadReservations'
 import { AerialViewPolicy, usesAerialView } from '../camera/AerialViewPolicy'
 import { captureCareerAerialState, restoreCareerAerialState } from '../career/CareerAerialState'
@@ -46,7 +45,6 @@ import { ArmyCommandController } from '../battle/ArmyCommandController'
 import { CivilianCommandSquadController } from './CivilianCommandSquadController'
 import { officialCommandAcceptsActor, officialCommandIsPlayerControlled } from '../career/CareerCommandAuthority'
 import { stageOfficialCommandOrder } from '../career/CareerOfficialCommandOrder'
-import { buildCommanderAuthorityForMission } from '../career/CommanderMissionAcceptance'
 import { careerCommandHudRoster } from '../career/CareerCommandHudRoster'
 import type { PersonalSquadMission } from '../career/CareerPersonalSquadMission'
 import { ArmyCommandUI } from '../ui/ArmyCommandUI'
@@ -54,13 +52,13 @@ import { FormationController, type FormationCommandAssignment } from '../battle/
 import { canRecruitPersonalSquad, personalSquadGreeting, recruitPersonalSquadMember, PERSONAL_SQUAD_PRODUCTS, PERSONAL_RECRUIT_DIALOGUE } from '../career/CareerPersonalSquad'
 import { townConquestRoster } from './TownHRLayout'
 import { TownPersonalSquadController, personalMemberLoadout } from './TownPersonalSquadController'
-import { followDeployedPersonalMission, snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
+import { snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
 import { siegeMuster } from '../career/TownSiege'
 import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
 import { shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
 import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
-import { townDefenseCommanderIds, townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
+import { townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TownProjectileObstacles } from './TownProjectileObstacles'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
@@ -109,7 +107,6 @@ import { snapshotCommandActor, restoreCommandActor } from '../career/CareerComma
 import { matchesArmyCommandTarget, type ArmyCommandTarget } from '../battle/CommandTarget'
 import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import type { TacticalOrder } from '../battle/TacticalOrder'
-import { emptyPersonalContribution } from '../combat/CommandMerit'
 import { getDefenseCampaignStage } from '../campaign/CampaignConfig'
 import { acceptCareerOutpostRelief, isCareerOutpostReliefUnlocked, resolveCareerReliefMount, acceptCareerOutpost, isCareerOutpostUnlocked, CAREER_OUTPOST_STAGES, type CareerOutpostStageId } from '../career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from '../career/CareerOutpostLaunch'
@@ -137,7 +134,7 @@ import { acceptCommanderMission as acceptCommanderCareerMission, COMMANDER_DECAP
 import { BanditMissionController, selectMissionCavalryActorIds, veteranPlayerSpawn, veteranPlayerYaw } from '../career/BanditMissionController'
 import { CareerDuelController, restoreCareerDuelCommander } from '../career/CareerDuelController'
 import { MissionGuide } from '../career/MissionGuide'
-import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit, startCommanderRetirement } from '../career/CareerRetirement'
+import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, startCommanderRetirement } from '../career/CareerRetirement'
 import { townRetirementRallyTarget } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
 import { CAREER_DUEL_TIERS, type CareerDuelTier, isCareerDuelUnlocked } from '../career/CareerDuelState'
@@ -161,7 +158,7 @@ import { townMeleeBuildingContact } from './TownCombat'
 import { TownWorld } from './TownWorld'
 import { TOWN_NAVIGATION_BOUNDS, TOWN_PLAYABLE_WORLD_BOUND } from './TownBounds'
 import { TownEquipment } from './TownEquipment'
-import { TownMissionSettlement, restoreMissionReturnResident, type MissionCommitOptions } from './TownMissionSettlement'
+import { TownMissionSettlement, restoreMissionReturnResident } from './TownMissionSettlement'
 import { TownMissionCombat, type TownCombatResident as Resident } from './TownMissionCombat'
 import { TownCavalryPatrolController } from './TownCavalryPatrolController'
 import { withTownCommandSquadRoster } from './TownRules'
@@ -498,7 +495,7 @@ export class TownScene {
         ambientEnemies: () => this.mission.ambientBandits,
       })
     this.defense.personalActors = () => this.personalSquad?.actors ?? []
-    this.civilianCommand = new CivilianCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p, { civilianCommandStaged: true }), {
+    this.civilianCommand = new CivilianCommandSquadController(this.residents, () => this.player, () => this.profile, p => this.commit(p, 'civilian-command'), {
       sceneKey: `town:${context.worldFaction}`, townFaction: context.worldFaction,
       refitSceneKey: context.worldFaction === this.profile.faction ? 'town-home' : `town-enemy:${context.worldFaction}`,
       canRefit: (actors, orders) => this.canRefitCivilians(actors, orders),
@@ -510,7 +507,7 @@ export class TownScene {
     this.defense.civilianCommandOwns = npc => Boolean(this.civilianCommand?.ownsPlayerCommand(npc) || this.civilianCommand?.ownsPeacefulTravel(npc))
     this.initializeCareerMounts()
     this.race = new CareerRaceController(this.scene, this.navigation, this.world.obstacles, this.residents,
-      () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, { groundedTownReturn: Boolean(this.player.dead && this.profile.activeRace && !p.activeRace) }))
+      () => this.player, this.hp, this.careerMounts, () => this.profile, p => this.commit(p, this.player.dead && this.profile.activeRace && !p.activeRace ? 'grounded-return' : 'ordinary'))
     this.missionCombat = new TownMissionCombat(
       { field: this.mission, duel: this.duel, defense: this.defense },
       {
@@ -941,233 +938,55 @@ export class TownScene {
     return true
   }
 
-  private commit(profile: CareerProfile, options: MissionCommitOptions = {}): boolean {
-    if (!validateOrdinaryRetirementCommit(this.profile, profile).allowed) {
-      this.notice = '退役紀錄已更新，請重新操作。'
-      return false
-    }
-    this.clearCareerSkillSaveTimer()
-    const restoringResidents = Boolean(options.residentReturnStaged || this.residentReturnPending)
-    let next = cloneCareerProfile(profile)
-    // Capture the live race in unrelated town saves, including the hostility transition.
-    if (this.race?.session && next.activeRace?.id === this.race.session.id) next.activeRace = structuredClone(this.race.session)
-    if (!this.race?.session && next.racePlayerState && this.profile.racePlayerState) next.racePlayerState = this.race?.capturePlayerState() ?? next.racePlayerState
-    if (next.activeRace && (next.activeMission || next.activeOutpostMission)) { this.notice = '賽馬尚未結束，不能同時接受正式任務。'; return false }
-    const startsFormal = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id
-      || next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)
-    let townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(this.profile.townCommandSquad)
-    const airStateChanged = JSON.stringify(next.townAirCommandSquad) !== JSON.stringify(this.profile.townAirCommandSquad)
-    if (!airStateChanged && this.townAirCommand) next.townAirCommandSquad = this.townAirCommand.checkpoint() ?? next.townAirCommandSquad
-    if (this.townAirCommand) next = this.townAirCommand.stageContext(next)
-    const airClaimsReleased = Boolean(this.profile.townAirCommandSquad?.commandedActorIds.length
-      && !next.townAirCommandSquad?.commandedActorIds.length)
-    const airScenePermissionChanged = (this.profile.townEvent?.state === 'hostile') !== (next.townEvent?.state === 'hostile')
-      || this.profile.faction !== next.faction
-    const civilianStateChanged = JSON.stringify(next.civilianCommandSquad) !== JSON.stringify(this.profile.civilianCommandSquad)
-    if (!restoringResidents && !options.civilianCommandStaged && !civilianStateChanged && this.civilianCommand) next.civilianCommandSquad = this.civilianCommand.checkpoint() ?? next.civilianCommandSquad
-    const startsDefense = startsFormal && (next.activeMission?.kind === 'town-defense' || next.activeMission?.kind === 'commander-four-gate-defense')
-    if (startsFormal && next.activeMission?.kind === 'commander-four-gate-defense') {
-      next.activeMission.mountState = this.careerMounts.checkpoint()
-      next.activeMission.playerHp = this.player.hp
-      next.activeMission.playerStamina = this.player.staminaValue
-    }
-    const respawning = Boolean(this.player?.dead && this.profile.activeMission && !next.activeMission)
-    const returningFromDefense = Boolean((this.profile.activeMission?.kind === 'town-defense' || this.profile.activeMission?.kind === 'commander-four-gate-defense') && this.profile.activeMission.result && !next.activeMission)
-    if ((startsDefense && next.rank !== 'commander' || respawning || returningFromDefense) && this.townCommand) next = this.townCommand.stageRefit(next, startsDefense)
-    else if (startsFormal && this.townCommand) next = this.townCommand.stageMissionHandoff(next)
-    else if (!restoringResidents && !townStateChanged && next.faction === this.profile.faction && this.townCommand) next.townCommandSquad = this.townCommand.checkpoint() ?? next.townCommandSquad
-    if (startsFormal && next.activeMission && next.activeMission.kind !== 'commander-four-gate-defense' && next.townCommandSquad) {
-      const returning = new Set(next.townCommandSquad.actorIds.filter(id => {
-        const member = next.townCommandSquad!.members?.[id]
-        return Boolean(next.townCommandSquad!.nativeReturnStates?.[id])
-          || member?.status !== 'dead' && member?.formation?.commandId === -4400 && !member.formation.reached
-      }))
-      next.activeMission.friendlyActorIds = next.activeMission.friendlyActorIds.filter(id => !returning.has(id))
-      if (next.activeMission.officialSquad) {
-        const authority = next.activeMission.officialSquad
-        authority.actorIds = authority.actorIds.filter(id => !returning.has(id))
-        if (authority.squads) authority.squads = authority.squads.map(squad => ({ ...squad, actorIds: squad.actorIds.filter(id => !returning.has(id)) })).filter(squad => squad.actorIds.length)
-        if (authority.commandedSquadIds) authority.commandedSquadIds = authority.commandedSquadIds.filter(id => authority.squads?.some(squad => squad.squadId === id) ?? true)
-      }
-    }
-    if (startsDefense && next.rank === 'commander' && next.activeMission) {
-      const mission = next.activeMission, unavailable = this.unavailableTownCavalryActorIds(true)
-      const residentDeaths = new Set((this.residents ?? []).filter(resident => resident.npc.dead).map(resident => resident.spec.id))
-      // Keep casualties in the source ledger even when their native owner also reports them unavailable.
-      if (mission.kind !== 'commander-four-gate-defense')
-        mission.friendlyActorIds = mission.friendlyActorIds.filter(id => !unavailable.has(id) || residentDeaths.has(id))
-      const dead = new Set(mission.deadFriendlyActorIds)
-      for (const { spec, npc, homeMount } of this.residents ?? []) if (npc.dead && mission.friendlyActorIds.includes(spec.id)) {
-        dead.add(spec.id)
-        mission.actorHealth = { ...mission.actorHealth, [spec.id]: { hp: 0,
-          ...(homeMount ? { mountHp: homeMount.dead ? 0 : homeMount.currentHp } : {}) } }
-      }
-      mission.deadFriendlyActorIds = [...dead]
-      if (mission.officialSquad && mission.kind !== 'commander-four-gate-defense') {
-        const authority = mission.officialSquad
-        authority.actorIds = authority.actorIds.filter(id => !dead.has(id) && mission.friendlyActorIds.includes(id))
-        authority.squads = authority.squads?.map(squad => ({ ...squad,
-          actorIds: squad.actorIds.filter(id => authority.actorIds.includes(id)),
-        })).filter(squad => squad.actorIds.length)
-      }
-    }
-    // The existing service Commander joins only a newly accepted Commander defense.
-    // Save its actual resources before any restart; failed saves never grant live authority.
-    const defenseCommanderId = startsDefense ? townDefenseCommanderIds(next, (this.residents ?? []).map(r => r.spec),
-      new Set((this.residents ?? []).filter(r => r.npc.dead).map(r => r.spec.id)))[0] : undefined
-    if (defenseCommanderId && next.activeMission && !next.activeMission.friendlyActorIds.includes(defenseCommanderId)) {
-      next.activeMission.friendlyActorIds.push(defenseCommanderId)
-    }
-    if (startsFormal && next.activeMission && !next.activeMission.officialSquad) {
-      next.activeMission.officialSquad = buildCommanderAuthorityForMission(next, next.activeMission, (this.residents ?? []).map(resident => resident.spec))
-    }
-    if (startsDefense && next.rank === 'commander' && next.activeMission?.officialSquad) {
-      const mission = next.activeMission, authority = mission.officialSquad!
-      for (const { spec, npc, homeMount } of this.residents ?? []) {
-        if (!authority.actorIds.includes(spec.id)) continue
-        const saved = snapshotCommandActor(npc, homeMount)
-        authority.members = { ...authority.members, [spec.id]: saved }
-        mission.actorHealth = { ...mission.actorHealth, [spec.id]: { hp: npc.hp,
-          ...(saved.mount ? { mountHp: saved.mount.hp } : {}) } }
-      }
-    }
-    const airPatrol = this.enemyEaglePatrol?.checkpoint()
-    if (airPatrol) next.enemyEaglePatrols = { ...next.enemyEaglePatrols, [this.world.faction]: airPatrol }
-    const outskirts = this.outskirts?.cooldownCheckpoint()
-    if (outskirts?.squads.length) next.townOutskirts = { ...next.townOutskirts, [this.world.faction]: outskirts }
-    const patrol = this.patrol?.checkpoint()
-    if (patrol?.squads.length) {
-      const previous = next.townPatrols?.[this.world.faction]?.squads ?? []
-      next.townPatrols = { ...next.townPatrols, [this.world.faction]: {
-        squads: [...previous.filter(s => !patrol.squads.some(current => current.id === s.id)), ...patrol.squads],
-      } }
-    }
-    // A completed borrow/refit belongs to the mission return, not the old autonomous ledger.
-    const outgoing = this.profile.activeMission
-    if (outgoing && !next.activeMission && this.world.faction === next.faction && next.townPatrols?.[next.faction]) {
-      const borrowed = new Set([...(outgoing.officialSquad?.actorIds ?? []), ...(outgoing.borrowedActorIds ?? [])])
-      const returned = new Set(this.residents.filter(r => r.spec.duty === 'patrol'
-        && (outgoing.kind === 'town-defense' || outgoing.kind === 'commander-four-gate-defense' || borrowed.has(r.spec.id))).map(r => r.spec.patrolId))
-      next.townPatrols[next.faction] = { squads: next.townPatrols[next.faction]!.squads.filter(s => !returned.has(s.id)) }
-    }
-    if (next.activeMission?.kind === 'captain-patrol-command') {
-      next.activeMission.patrolOutskirts = this.outskirts?.checkpoint() ?? next.activeMission.patrolOutskirts
-      if (this.mission?.ambientBandits.length) next.activeMission.patrolAmbient = {
-        type: 'mission-official', townFaction: this.profile.faction, squadId: 1,
-        actorIds: this.mission.ambientBandits.map(actor => actor.combatantId), contribution: emptyPersonalContribution(),
-        members: Object.fromEntries(this.mission.ambientBandits.map(actor => [actor.combatantId, snapshotCommandActor(actor)])),
-      }
-    }
-    next.skills = this.skills.skillState
-    const settledTownEvent = this.profile.townEvent?.state === 'hostile'
-      && next.townEvent?.state === 'settled' && next.townEvent.id === this.profile.townEvent.id
-    if (this.garrisonRestored && this.eagleGarrison) {
-      // The live actors belong to this constructed world even while a saved transition changes the profile.
-      const faction = this.world.faction
-      const refit = !next.activeMission && this.profile.activeMission ? new Set(next.townEagleGarrisons?.[faction]?.pairs.filter(pair => pair.refitAllowed).map(pair => pair.riderId)) : undefined
-      let snapshot = this.eagleGarrison.snapshot(`town:${faction}`)
-      const claimed: string[] = [], released: string[] = []
-      for (const resident of this.residents ?? []) {
-        if (!resident.spec.eagle) continue
-        const id = resident.npc.combatantId
-        const owns = (profile: CareerProfile) => Boolean(profile.rank === 'commander' && profile.faction === faction
-          && ((profile.activeMission?.kind === 'town-defense' || profile.activeMission?.kind === 'commander-four-gate-defense') && !profile.activeMission.result
-            && profile.activeMission.officialSquad?.missionId === profile.activeMission.id
-            && profile.activeMission.officialSquad?.townFaction === faction
-            && officialCommandIsPlayerControlled(profile.activeMission.officialSquad, id)
-            || !profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile'
-              && profile.townAirCommandSquad?.commandedActorIds.includes(id)))
-        if (owns(next)) claimed.push(id)
-        else if (owns(this.profile)) released.push(id)
-      }
-      if (claimed.length) snapshot = stageTownEaglePlayerCommand(snapshot, claimed, true)
-      if (released.length) snapshot = stageTownEaglePlayerCommand(snapshot, released, false, !this.profile.activeMission && !this.profile.activeOutpostMission
-        && !next.activeMission && !next.activeOutpostMission
-        && next.townEvent?.state !== 'hostile' && next.faction === faction)
-      const serviceIds = (next.townCommandSquad?.refittingActorIds ?? []).filter(id =>
-        !this.profile.townCommandSquad?.refittingActorIds?.includes(id) && /^town-eagle-rider:[1-5]$/.test(id))
-      if (serviceIds.length) snapshot = stageTownEaglePlayerCommand(snapshot, serviceIds, false, true)
-      for (const pair of snapshot.pairs) if (serviceIds.includes(pair.riderId)) pair.serviceRefit = true
-      for (const pair of snapshot.pairs) if (settledTownEvent || refit?.has(pair.riderId) || serviceIds.includes(pair.riderId)) pair.refitAllowed = true
-      next.townEagleGarrisons = { ...next.townEagleGarrisons, [faction]: snapshot }
-    }
-    if (this.player && !this.restoringAerialState && !options.groundedTownReturn) next.playerAerialState = captureCareerAerialState(this.player, this.personalSquad?.sceneKey ?? 'town-home')
-    if (respawning || options.groundedTownReturn) delete next.playerAerialState
-    const newMission = Boolean(next.activeMission && next.activeMission.id !== this.profile.activeMission?.id)
-    const newOutpost = Boolean(next.activeOutpostMission && next.activeOutpostMission.id !== this.profile.activeOutpostMission?.id)
-    const missionFinished = Boolean(next.activeMission?.result
-      && next.activeMission.id === this.profile.activeMission?.id && !this.profile.activeMission.result)
-    const active = next.activeMission ?? next.activeOutpostMission
-    if ((newMission || newOutpost) && next.activeMission?.kind !== 'duel') {
-      const roster = snapshotPersonalMission(next)
-      if (roster) active!.personalSquad = this.personalSquad?.captureForNewMission(roster) ?? roster
-    } else if (active?.personalSquad) {
-      const saved = this.personalSquad?.checkpoint()
-      if (saved) {
-        saved.contribution = (this.captainPatrol?.active ? this.captainPatrol.checkpoint()?.personalSquad?.contribution : this.defense?.active ? this.defense.personalContribution : this.mission?.personalContribution) ?? saved.contribution
-        active.personalSquad = saved
-      }
-    }
-    if (missionFinished && active?.personalSquad) active.personalSquad = followDeployedPersonalMission(active.personalSquad)
-    if (newMission || newOutpost) next.personalSquadRuntime = undefined
-    const townClaimStateChanged = JSON.stringify([
-      next.townCommandSquad?.commandedActorIds,
-      next.townCommandSquad?.nativeReturnStates,
-    ]) !== JSON.stringify([
-      this.profile.townCommandSquad?.commandedActorIds,
-      this.profile.townCommandSquad?.nativeReturnStates,
-    ])
-    townStateChanged = JSON.stringify(next.townCommandSquad) !== JSON.stringify(this.profile.townCommandSquad)
-    // HR/native handoff callbacks may save again before the recovered live actors are applied.
-    if (options.rebuildTown) next = stageMissionReturnRebuild(next, townRoster().map(spec => ({ spec })))
-    else if (restoringResidents) next = stageMissionReturnResidents(next,
-      this.world.faction === next.faction && !this.sceneContext.missionOnlyResidents ? this.residents.map(resident => ({
-        spec: resident.spec, ...(isMissionReturnResident(resident.spec)
-          ? { checkpoint: refitCommandCheckpoint(resident.npc, resident.homeMount) } : {}),
-      })) : townRoster().map(spec => ({ spec })))
-    if (next.activeMission && next.activeMission.id === this.profile.activeMission?.id
-      && next.activeMission.kind !== 'commander-four-gate-defense') {
-      for (const { spec, npc } of this.residents ?? []) if (spec.duty === 'watchtower_guard') {
-        next.activeMission.actorHealth = { ...next.activeMission.actorHealth, [spec.id]: { hp: npc.dead ? 0 : npc.hp } }
-      }
-    }
-    if (next.careerRetirement?.phase === 'final-stand') this.captureRetirementResources(next)
-    else this.retirementMobilization?.capture(next)
-    if (!this.store.save(next)) { this.careerSaveFailures++; this.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
-    // No handoff callbacks may capture the outgoing battle poses over the saved rebuild.
-    if (options.rebuildTown) { this.profile = next; this.careerSkillsDirty = false; return true }
-    if (restoringResidents) this.residentReturnPending = true
-    if (respawning || returningFromDefense) this.townRefitOnReturn = true
-    // Authorize the live controller only after the transition and permission are durably saved.
-    if (settledTownEvent && this.garrisonRestored) for (const resident of this.residents ?? []) {
-      if (resident.spec.eagle) this.eagleGarrison?.beginRefit(resident.spec.id)
-    }
-    if (newMission || newOutpost) {
-      this.personalCommands?.close()
-      if (next.activeMission?.kind === 'duel') this.personalSquad?.cleanup()
-      else this.personalSquad?.beginMission(active?.personalSquad)
-    }
-    if (next.activeMission && next.activeMission.id !== this.profile.activeMission?.id) {
-      this.player?.shield?.reset()
-      for (const resident of this.residents ?? []) resident.npc?.shield?.reset()
-    }
-    if (next.activeMission?.id !== this.profile.activeMission?.id || next.faction !== this.profile.faction) sound?.cancelCareerAudio()
-    if (next.rank !== this.profile.rank) this.deploymentPage = undefined
-    const endedFormal = Boolean(this.profile.activeMission && !next.activeMission || this.profile.activeOutpostMission && !next.activeOutpostMission)
-    const rankChanged = next.rank !== this.profile.rank
-    this.profile = next
-    this.applyRetirementDeparture()
-    if (restoringResidents) this.civilianCommand?.applySavedState(next.civilianCommandSquad)
-    if (this.townAirCommand && (airStateChanged || airClaimsReleased || airScenePermissionChanged || startsFormal || endedFormal || rankChanged)) this.townAirCommand.applySavedState(next.townAirCommandSquad)
-    this.synchronizeEagleCommandOwnership()
-    this.synchronizeEaglePatrolPolicy()
-    if (startsFormal || townStateChanged || townClaimStateChanged || endedFormal) this.townCommand?.applySavedState(next.townCommandSquad)
-    if (!isTownCommandRevokedByRetirement(next) && !this.townRefitOnReturn && (endedFormal || next.rank === 'captain' || next.rank === 'commander') && !next.townEvent?.authorizedTownCommandActorIds) this.townCommand?.grant()
-    this.synchronizeCommandActors()
-    if (missionFinished) this.personalSquad?.regroupAfterMission()
-    if (startsFormal || missionFinished || endedFormal || rankChanged) this.civilianCommand?.synchronize()
-    this.careerSkillsDirty = false
-    return true
+  private commit(profile: CareerProfile, change: TownProfileChange = 'ordinary'): boolean {
+    const scene = this
+    return commitTownProfile({
+      applyRetirementDeparture: () => scene.applyRetirementDeparture(),
+      get captainPatrol() { return scene.captainPatrol },
+      captureRetirementResources: (next) => scene.captureRetirementResources(next),
+      get careerMounts() { return scene.careerMounts },
+      get careerSaveFailures() { return scene.careerSaveFailures },
+      set careerSaveFailures(value) { scene.careerSaveFailures = value },
+      get careerSkillsDirty() { return scene.careerSkillsDirty },
+      set careerSkillsDirty(value) { scene.careerSkillsDirty = value },
+      get civilianCommand() { return scene.civilianCommand },
+      clearCareerSkillSaveTimer: () => scene.clearCareerSkillSaveTimer(),
+      get defense() { return scene.defense },
+      get deploymentPage() { return scene.deploymentPage },
+      set deploymentPage(value) { scene.deploymentPage = value },
+      get eagleGarrison() { return scene.eagleGarrison },
+      get enemyEaglePatrol() { return scene.enemyEaglePatrol },
+      get garrisonRestored() { return scene.garrisonRestored },
+      get mission() { return scene.mission },
+      get notice() { return scene.notice },
+      set notice(value) { scene.notice = value },
+      get outskirts() { return scene.outskirts },
+      get patrol() { return scene.patrol },
+      get personalCommands() { return scene.personalCommands },
+      get personalSquad() { return scene.personalSquad },
+      get player() { return scene.player },
+      get profile() { return scene.profile },
+      set profile(value) { scene.profile = value },
+      get race() { return scene.race },
+      get residentReturnPending() { return scene.residentReturnPending },
+      set residentReturnPending(value) { scene.residentReturnPending = value },
+      get residents() { return scene.residents },
+      get restoringAerialState() { return scene.restoringAerialState },
+      get retirementMobilization() { return scene.retirementMobilization },
+      get sceneContext() { return scene.sceneContext },
+      get skills() { return scene.skills },
+      get store() { return scene.store },
+      synchronizeCommandActors: () => scene.synchronizeCommandActors(),
+      synchronizeEagleCommandOwnership: () => scene.synchronizeEagleCommandOwnership(),
+      synchronizeEaglePatrolPolicy: () => scene.synchronizeEaglePatrolPolicy(),
+      get townAirCommand() { return scene.townAirCommand },
+      get townCommand() { return scene.townCommand },
+      get townRefitOnReturn() { return scene.townRefitOnReturn },
+      set townRefitOnReturn(value) { scene.townRefitOnReturn = value },
+      unavailableTownCavalryActorIds: (includeReturning) => scene.unavailableTownCavalryActorIds(includeReturning),
+      get world() { return scene.world },
+      cancelCareerAudio: () => sound?.cancelCareerAudio(),
+    }, profile, change)
   }
 
   private persistPersonalSquad(dt: number, force = false): void {

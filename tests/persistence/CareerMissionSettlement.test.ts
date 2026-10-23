@@ -1,3 +1,6 @@
+import { createDefaultSkillState } from '../../src/rpg/SkillManager'
+import type { TownActorSpec } from '../../src/town/TownRules'
+import { commitTownProfile, type TownProfileCommitRuntime, type TownProfileChange } from '../../src/town/TownProfileCommit'
 import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds } from '../../src/career/CommanderFourGateDefenseState'
 import { Vector3 } from 'three'
 import { describe,expect,it,vi } from 'vitest'
@@ -53,7 +56,7 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'c
   const residentState = { dead: true, group: { position: new Vector3(9, 0, 9), rotation: { y: 0 } },
     dismountFromMount: vi.fn(), restoreCombatLoadout: vi.fn(),
     restoreForTown: vi.fn((_destination?: Parameters<NPC['restoreForTown']>[0]) => { residentState.dead = false; events.push('restore') }), mountVehicle: vi.fn() }
-  const resident = { spec: { id: 'resident', role: 'melee_infantry', x: 2, z: 3, yaw: .5 },
+  const resident: { spec: TownActorSpec; npc: NPC; cycle: number; walkTime: number } = { spec: { id: 'resident', role: 'melee_infantry' as const, duty: 'training' as const, mounted: false, training: true, assaultObjective: false, tier: 3 as const, index: 0, x: 2, z: 3, yaw: .5 },
     npc: residentState as unknown as NPC, cycle: 3, walkTime: 2 }
   const field = { friendlies: [resident.npc], snapshot: vi.fn(() => ({ player: stats, squads: [] })), cleanupMission: vi.fn(() => events.push('cleanup')) }
   const duel = { actors: kind === 'duel' ? [resident.npc] : [], snapshot: vi.fn(() => ({ player: stats, squads: [] })), cleanupMission: vi.fn() }
@@ -69,23 +72,72 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'c
     world: { obstacles: [], restoreTownDamage: vi.fn(() => events.push('repair')) }, navigation: { sync: vi.fn(() => { events.push('navigation'); return true }) },
     preservesResident: vi.fn(() => false), inventory: { sheathAll: vi.fn() }, releaseExternalThreat: vi.fn(), beginPatrolMissionReturn: vi.fn(() => events.push('native-return')),
     clearCombatShots: vi.fn(), restPlayer: vi.fn(), restart: vi.fn(), returnPersonalSquad: vi.fn() }
-  const commit = vi.fn((next: CareerProfile, options?: { groundedTownReturn?: boolean }) => {
-    if (options?.groundedTownReturn) expect(next.playerAerialState).toBeUndefined()
-    events.push('save')
-    if (!store.save(next)) return false
-    // save already validates and normalizes the profile. Publish its stored JSON;
-    // explicit load/reload assertions below still exercise the real restore boundary.
-    profile = JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!) as CareerProfile
-    return true
-  })
+  const runtime: TownProfileCommitRuntime = {
+    get profile() { return profile }, set profile(next) { profile = next },
+    store: { save(next) { events.push('save'); return store.save(next) } },
+    get skills() { return { skillState: profile.skills ?? createDefaultSkillState() } },
+    residents: [resident], world: { faction: profile.faction }, sceneContext: { missionOnlyResidents: false },
+    garrisonRestored: false, restoringAerialState: false, residentReturnPending: false,
+    townRefitOnReturn: false, careerSaveFailures: 0, careerSkillsDirty: false, notice: '',
+    clearCareerSkillSaveTimer() {}, unavailableTownCavalryActorIds: () => new Set(),
+    captureRetirementResources() {}, applyRetirementDeparture() {},
+    synchronizeEagleCommandOwnership() {}, synchronizeEaglePatrolPolicy() {}, synchronizeCommandActors() {}, cancelCareerAudio() {},
+  }
+  const commit = vi.fn((next: CareerProfile, change?: TownProfileChange) => commitTownProfile(runtime, next, change))
   // The concrete controller requires the full render-facing Player.group type; only position/yaw is consumed here.
   const settlement = new TownMissionSettlement({ read: () => profile, commit }, { field, duel, defense, patrol },
     town as unknown as ConstructorParameters<typeof TownMissionSettlement>[2])
-  return { settlement, field, defense, patrol, town, player, resident, residentState, storage, store, events, commit, stats,
+  return { settlement, field, defense, patrol, town, player, resident, residentState, storage, store, events, commit, stats, runtime,
     read: () => profile, reload: () => { profile = store.load()! }, publish: (next: CareerProfile) => { profile = next } }
 }
 
 describe('Town mission settlement transactions', () => {
+  it('preserves completed return recovery through rejected writes and a reentrant handoff save', () => {
+    const h = fixture('bandit', true)
+    h.resident.spec.id = 'merchant'; h.resident.spec.role = 'merchant'; h.resident.spec.duty = 'service'
+    Object.assign(h.residentState, { hp: 9, maxHp: 100, combatPosition: h.residentState.group.position,
+      combatAmmo: 1, combatAmmoCapacity: 20, shield: { shieldImpactRemaining: 3, shieldImpactMax: 40 },
+      tacticalOrder: 'defend', setCommandAllegiance: vi.fn(), setCommandSquad: vi.fn(),
+      setMissionCombatTarget: vi.fn(), assignSiegeObstacle: vi.fn(), clearEncounter: vi.fn(),
+      releaseOutpostRampartGarrison: vi.fn(), disarmTownCivilian: vi.fn() })
+    const stale = { type: 'civilian-command' as const, squadId: 'civilians' as const, townFaction: 'roman' as const,
+      sceneKey: 'town:roman', actorIds: ['merchant'], owners: { merchant: 'player' as const },
+      members: { merchant: { status: 'dead' as const, hp: 0 } } }
+    h.read().civilianCommandSquad = structuredClone(stale)
+    const apply = vi.fn().mockImplementationOnce(() => {
+      expect(h.store.load()!.civilianCommandSquad!.members.merchant.hp).toBe(100)
+      expect(h.commit(h.read())).toBe(true)
+    })
+    h.runtime.civilianCommand = { checkpoint: vi.fn(() => structuredClone(stale)), applySavedState: apply, synchronize: vi.fn() }
+    const before = structuredClone(h.read())
+    h.storage.writable = false
+    expect(h.settlement.returnToTown('arrived').status).toBe('save-failed')
+    expect(h.read()).toEqual(before); expect(apply).not.toHaveBeenCalled()
+    expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
+    h.storage.writable = true
+    expect(h.settlement.returnToTown('arrived').status).toBe('returned')
+    expect(h.store.load()!.civilianCommandSquad).toMatchObject({ owners: { merchant: 'daily' },
+      members: { merchant: { status: 'deployed', hp: 100, ammo: 20, shieldImpact: 40 } } })
+    expect(h.runtime.civilianCommand.checkpoint).not.toHaveBeenCalled()
+    expect(apply).toHaveBeenCalledTimes(2)
+  })
+
+  it('captures ordinary live casualties without applying completed-return recovery', () => {
+    const h = fixture()
+    const saved = { type: 'civilian-command' as const, squadId: 'civilians' as const, townFaction: 'roman' as const,
+      sceneKey: 'town:roman', actorIds: ['merchant'], owners: { merchant: 'player' as const },
+      members: { merchant: { status: 'deployed' as const, hp: 50 } } }
+    h.read().civilianCommandSquad = saved
+    const live = { ...saved, members: { merchant: { status: 'dead' as const, hp: 0 } } }
+    h.runtime.civilianCommand = { checkpoint: () => live, applySavedState: vi.fn(), synchronize: vi.fn() }
+    expect(h.commit(h.read())).toBe(true)
+    expect(h.store.load()!.civilianCommandSquad).toMatchObject({ owners: { merchant: 'player' },
+      members: { merchant: { status: 'dead', hp: 0 } } })
+    expect(h.read().activeMission?.id).toBe('settlement')
+    expect(h.runtime.residentReturnPending).toBe(false)
+    expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
+  })
+
   it('restores a borrowed rampart training archer at its authored height and reactivates home duty after Duel return', () => {
     const h = fixture('duel', true)
     const spec = townStationSpec(townRoster().find(a => a.duty === 'training' && a.garrison?.kind === 'rampart')!, false, true)
@@ -147,9 +199,9 @@ describe('Town mission settlement transactions', () => {
     h.storage.writable = true; h.events.length = 0
     expect(h.settlement.returnToTown('direct').status).toBe('restarted')
     expect(h.events).toEqual(['save', 'defense-cleanup'])
+    expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(h.read())
     h.reload()
     const saved = h.read()
-    expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(saved)
     expect(saved.activeMission).toBeUndefined()
     expect(saved.civilianCommandSquad?.actorIds).toHaveLength(21)
     expect(new Set(Object.values(saved.civilianCommandSquad!.owners))).toEqual(new Set(['daily']))
@@ -337,7 +389,7 @@ describe('Town mission settlement transactions', () => {
     expect(h.settlement.returnToTown('direct')).toEqual({ status: 'restarted' })
     expect(h.events).toEqual(['save', 'defense-cleanup'])
     expect(h.read().activeMission).toBeUndefined()
-    expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(h.store.load())
+    expect(h.town.restart).toHaveBeenCalledExactlyOnceWith(h.read())
     expect(h.town.navigation.sync).not.toHaveBeenCalled()
   })
 
