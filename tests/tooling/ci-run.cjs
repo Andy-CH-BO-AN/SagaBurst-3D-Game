@@ -92,7 +92,7 @@ function executeShard(plan, id, out) {
           args = ['node_modules/vitest/vitest.mjs', 'run', ...(partial ? ['--testNamePattern', pattern] : [])]
         } else {
           delete env.LOGIC_TEST_FILES
-          args = ['--test', '--test-concurrency=1', '--test-reporter=./tools/tests/node-budget-reporter.cjs', ...(partial ? [`--test-name-pattern=${pattern}`] : []), ...group]
+          args = ['--test', '--test-concurrency=1', '--test-reporter=./tests/tooling/node-budget-reporter.cjs', ...(partial ? [`--test-name-pattern=${pattern}`] : []), ...group]
         }
         const result = spawnSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' })
         if (result.error || result.signal || result.status !== 0) runnerErrors.push(`${file} failed: ${result.error?.message ?? result.signal ?? result.status}`)

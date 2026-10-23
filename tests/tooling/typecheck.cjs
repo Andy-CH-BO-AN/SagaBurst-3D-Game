@@ -2,7 +2,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 const ts = require('typescript')
 
-const root = path.resolve(__dirname, '..')
+const root = path.resolve(__dirname, '../..')
 const configPath = path.join(root, 'tsconfig.test.json')
 const baselinePath = path.join(root, 'tests/typecheck-baseline.json')
 const baselineVersion = 2

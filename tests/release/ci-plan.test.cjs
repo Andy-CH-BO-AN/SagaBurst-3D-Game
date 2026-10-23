@@ -1,8 +1,8 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { selectFiles, selectionSummary, shardFiles, planShards, validateManifest, changes } = require('../../tools/tests/ci-plan.cjs')
-const { dependencyConsumers } = require('../../tools/tests/dependencies.cjs')
-const { aggregate } = require('../../tools/tests/ci-run.cjs')
+const { selectFiles, selectionSummary, shardFiles, planShards, validateManifest, changes } = require('../tooling/ci-plan.cjs')
+const { dependencyConsumers, relocationOnly } = require('../tooling/dependencies.cjs')
+const { aggregate } = require('../tooling/ci-run.cjs')
 const item = (file, count = 1, runner = 'vitest') => ({ file, runner, names: Array.from({ length: count }, (_, i) => `leaf ${i}`) })
 const inventory = [
   item('tests/movement/NavigationGrid.test.ts', 2),
@@ -59,7 +59,7 @@ test('shared helper selects consumers across capability directories', () => {
 })
 test('test runner and workflow changes select dedicated CI contracts without Full fallback', () => {
   const expected = ['tests/release/ci-plan.test.cjs', 'tests/release/test-budget.test.cjs']
-  assert.deepEqual(select('tools/tests/run.cjs').selected, expected)
+  assert.deepEqual(select('tests/tooling/run.cjs').selected, expected)
   assert.deepEqual(select('.github/workflows/ci.yml').selected, expected)
 })
 test('strict docs-only produces explicit empty evidence but release notes select Node publication contracts', () => {
@@ -76,8 +76,8 @@ test('missing or zero base SHA fails closed before diff', () => {
   assert.throws(() => changes('', 'head', 'push'), /Missing base/)
   assert.throws(() => changes('0000000', 'head', 'push'), /Missing base/)
 })
-test('deleted and renamed paths fail Related planning instead of losing old consumers', () => {
-  assert.throws(() => selectFiles(inventory, [{ status: 'R100', oldFile: 'src/old.ts', file: 'src/new.ts' }], consumers), /Removed\/renamed/)
+test('removed and renamed paths require trustworthy base dependency evidence', () => {
+  assert.throws(() => selectFiles(inventory, [{ status: 'R100', oldFile: 'src/old.ts', file: 'src/new.ts' }], consumers), /Missing base dependency graph/)
 })
 test('Full completeness rejects omissions and duplicate file assignments', () => {
   const plan = full(inventory)
@@ -103,10 +103,10 @@ test('Related selection has one aggregate 500-leaf limit and cannot open a secon
 })
 test('release code selects Node tests once and deduplicates shared consumers', () => {
   const expected = inventory.filter(item => item.runner === 'node').map(item => item.file).sort()
-  assert.deepEqual(select('tools/release/publish.cjs').selected, expected)
-  assert.deepEqual(select('tools/release/validate-tag.cjs').selected, expected)
+  assert.deepEqual(select('.github/scripts/release/publish.cjs').selected, expected)
+  assert.deepEqual(select('.github/scripts/release/validate-tag.cjs').selected, expected)
   assert.deepEqual(select('electron/asset-path.cjs').selected, expected)
-  const result = selectFiles(inventory, [{ status: 'M', file: 'electron/main.cjs' }, { status: 'M', file: 'tools/release/publish.cjs' }], consumers)
+  const result = selectFiles(inventory, [{ status: 'M', file: 'electron/main.cjs' }, { status: 'M', file: '.github/scripts/release/publish.cjs' }], consumers)
   assert.deepEqual(result.selected, inventory.filter(item => item.runner === 'node').map(item => item.file).sort())
   assert.equal(result.reasons['tests/release/publish.test.cjs'].length, 2)
 })
@@ -168,4 +168,122 @@ test('lightweight enum import does not select suites; real runtime import chain 
   assert.match(text, /Selected: 1 files \/ 2 cases/)
   assert.match(text, /Owners:/)
   assert.match(text, /Budget: 2 \/ 500/)
+})
+
+test('only the owned Node collector load crosses the computed-import boundary', () => {
+  const sources = new Map([
+    ['tests/tooling/node-collect.cjs', 'require(resolve(file))'],
+    ['tests/tooling/unowned.cjs', 'require(resolve(file))'],
+    ['tests/ordinary.test.cjs', 'require(resolve(file))'],
+    ['.github/scripts/release/publish.cjs', 'require(selectedModule)'],
+  ])
+  const graph = dependencyConsumers(inventory, sources)
+  assert.deepEqual(graph.runtimeAmbiguities, ['tests/tooling/unowned.cjs', 'tests/ordinary.test.cjs', '.github/scripts/release/publish.cjs'])
+  sources.set('tests/tooling/node-collect.cjs', 'require(resolve(otherFile))')
+  assert.ok(dependencyConsumers(inventory, sources).runtimeAmbiguities.includes('tests/tooling/node-collect.cjs'))
+})
+
+// Separate snapshots deliberately avoid resolving old imports against checkout.
+function lifecycle(before, after, changes, discovered) {
+  const oldSources = new Map(before), sources = new Map(after)
+  const files = discovered ?? [...sources.keys()].filter(file => /\.test\.[ct]s$/.test(file)).map(file => item(file))
+  const oldTests = [...oldSources.keys()].filter(file => /\.test\.[ct]s$/.test(file)).map(file => item(file))
+  const previousConsumers = dependencyConsumers(oldTests, oldSources)
+  const evidence = { previousConsumers, previousFiles: new Set(oldSources.keys()), previousTexts: oldSources, files: new Set(sources.keys()),
+    sources, previousSources: oldSources, texts: sources, ranges: {} }
+  return selectFiles(files, changes, dependencyConsumers(files, sources), evidence)
+}
+test('rename plus edit unions base and head owners and follows renamed tests, not unrelated suites', () => {
+  const before = [
+    ['src/old.ts', 'export const value = 1'],
+    ['tests/moved.test.ts', "import { value } from '../src/old'; value"],
+    ['tests/former.test.ts', "import { value } from '../src/old'; value"],
+    ['tests/unrelated.test.ts', 'export const value = 0'],
+  ]
+  const after = [
+    ['src/new.ts', 'export const value = 2'],
+    ['tests/renamed.test.ts', "import { value } from '../src/new'; value"],
+    ['tests/former.test.ts', 'export const value = 0'],
+    ['tests/unrelated.test.ts', 'export const value = 0'],
+  ]
+  const plan = lifecycle(before, after, [
+    { status: 'R080', oldFile: 'src/old.ts', file: 'src/new.ts' },
+    { status: 'R090', oldFile: 'tests/moved.test.ts', file: 'tests/renamed.test.ts' },
+  ])
+  assert.deepEqual(plan.selected, ['tests/former.test.ts', 'tests/renamed.test.ts'])
+  assert.deepEqual(plan.details['tests/former.test.ts'][0].chain, ['tests/former.test.ts', 'src/old.ts'])
+  assert.equal(plan.details['tests/former.test.ts'][0].source, 'Base Runtime Dependency')
+})
+test('deletion keeps surviving old consumers but never executes removed test files', () => {
+  const before = [
+    ['src/removed.ts', 'export const value = 1'],
+    ['tests/stays.test.ts', "import { value } from '../src/removed'; value"],
+    ['tests/removed.test.ts', "import { value } from '../src/removed'; value"],
+  ]
+  const after = [['tests/stays.test.ts', 'export const value = 0']]
+  const plan = lifecycle(before, after, [{ status: 'D', file: 'src/removed.ts' }, { status: 'D', file: 'tests/removed.test.ts' }])
+  assert.deepEqual(plan.selected, ['tests/stays.test.ts'])
+  assert.deepEqual(plan.retiredFiles, ['tests/removed.test.ts'])
+  assert.throws(() => lifecycle(before, after, [{ status: 'D', file: 'src/removed.ts' }]), /Base test owner is not in current discovery/)
+})
+test('orphan input retirement is explicit empty evidence; surviving unmapped references fail closed', () => {
+  const plan = lifecycle([['scripts/obsolete.py', 'print(1)']], [], [{ status: 'D', file: 'scripts/obsolete.py' }])
+  assert.deepEqual(plan.retiredFiles, ['scripts/obsolete.py'])
+  validateManifest({ inventory: [], changedFiles: ['scripts/obsolete.py'], shards: [], ...plan })
+  const before = [['src/dead.ts', 'export const value = 1'], ['src/caller.ts', "import { value } from './dead'; value"]]
+  const after = [['src/caller.ts', 'export const value = 0']]
+  assert.throws(() => lifecycle(before, after, [{ status: 'D', file: 'src/dead.ts' }]), /surviving references: src\/caller.ts/)
+  assert.throws(() => lifecycle([['tools/target.cjs', 'module.exports = 1']], [['tools/runner.cjs', "const path = './' + 'target' + '.cjs'; require(path)"]], [{ status: 'D', file: 'tools/target.cjs' }]), /surviving references: tools\/runner.cjs/)
+  assert.throws(() => lifecycle([['public/old.svg', '<svg/>']], [['index.html', '<img src="/old.svg">']], [{ status: 'D', file: 'public/old.svg' }]), /surviving references: index.html/)
+  assert.throws(() => lifecycle([['scripts/dead.py', 'print(1)']], [['Makefile', 'python scripts/dead.py']], [{ status: 'D', file: 'scripts/dead.py' }]), /surviving references: Makefile/)
+  assert.throws(() => lifecycle([['scripts/dead.py', 'print(1)']], [['scripts/caller.py', 'import dead']], [{ status: 'D', file: 'scripts/dead.py' }]), /surviving references: scripts\/caller.py/)
+  assert.throws(() => lifecycle([['scripts/dead.py', 'print(1)']], [['package.json', '{"scripts":{"check":"python scripts/dead.py"}}']], [{ status: 'D', file: 'scripts/dead.py' }]), /surviving references: package.json/)
+})
+test('dangling relative imports fail closed while Vite query imports retain their dependency', () => {
+  const before = [['src/old.ts', 'export const value = 1'], ['tests/owner.test.ts', "import { value } from '../src/old'; value"]]
+  assert.throws(() => lifecycle(before, [before[1]], [{ status: 'D', file: 'src/old.ts' }]), /Unresolved runtime dependencies.*src\/old/)
+  const sources = new Map([['src/raw.ts', 'export const value = 1'], ['tests/raw.test.ts', "import text from '../src/raw.ts?raw'; text"]])
+  assert.deepEqual(dependencyConsumers([item('tests/raw.test.ts')], sources)['src/raw.ts'], ['tests/raw.test.ts'])
+})
+test('native candidates omit only proven relocation-only inputs, never dependency or config behavior edits', () => {
+  const changes = [{ status: 'R100', oldFile: 'scripts/old/run.cjs', file: 'checks/new/run.cjs' }]
+  const base = new Set(['scripts/old/run.cjs']), head = new Set(['checks/new/run.cjs'])
+  const before = '{"scripts":{"test":"node scripts/old/run.cjs --strict"},"dependencies":{"owner":"1"}}'
+  const after = '{"scripts":{"test":"node checks/new/run.cjs --strict"},"dependencies":{"owner":"1"}}'
+  const project = (old, next, files = head, input = 'package.json') => relocationOnly(old, next, changes, base, files, input)
+  assert.equal(project(before, after), true)
+  assert.equal(project(before, after.replace('--strict', '--loose')), false)
+  assert.equal(project(before.replace(' --strict', '*'), after.replace(' --strict', '*')), false)
+  assert.equal(project(before.replace(' --strict', '${SUFFIX}'), after.replace(' --strict', '${SUFFIX}')), false)
+  assert.equal(project(before, after.replace('"owner":"1"', '"owner":"2"')), false)
+  const config = "defineConfig({test: {exclude: ['scripts/old/**'], reporters: ['./scripts/old/run.cjs']}})"
+  const moved = config.replaceAll('scripts/old', 'checks/new')
+  assert.equal(project(config, moved, head, 'vitest.config.ts'), true)
+  assert.equal(project(config, moved, new Set([...head, 'checks/new/extra.test.ts']), 'vitest.config.ts'), false)
+  assert.equal(project(config, moved, new Set([...head, 'scripts/old/replacement.cjs']), 'vitest.config.ts'), false)
+  const behavior = "defineConfig({test: {env: {APP_MODE: 'scripts/old/run.cjs'}}})"
+  assert.equal(project(behavior, behavior.replace('scripts/old', 'checks/new'), head, 'vitest.config.ts'), false)
+  assert.equal(project(before.replace('node scripts', 'node prefixscripts'), after.replace('node checks', 'node prefixchecks')), false)
+
+})
+
+test('behavior edits retain base ownership when its test is renamed', () => {
+  const before = new Map([
+    ['src/owner.ts', 'export function value() {\n return 1\n}'],
+    ['tests/old.test.ts', "import { value } from '../src/owner'\ntest('value', () => value())"],
+  ])
+  const after = new Map([
+    ['src/owner.ts', 'export function value() {\n return 2\n}'],
+    ['tests/new.test.ts', before.get('tests/old.test.ts')],
+  ])
+  const inventory = [{ ...item('tests/new.test.ts'), locations: [{ line: 2, column: 1 }] }]
+  const prior = dependencyConsumers([item('tests/old.test.ts')], before)
+  const plan = selectFiles(inventory, [{ status: 'M', file: 'src/owner.ts' },
+    { status: 'R100', oldFile: 'tests/old.test.ts', file: 'tests/new.test.ts' }], dependencyConsumers(inventory, after), {
+    sources: after, previousSources: before, previousConsumers: prior,
+    previousFiles: new Set(before.keys()), previousTexts: before, files: new Set(after.keys()), texts: after,
+    ranges: { 'src/owner.ts': [[[2, 1]], [[2, 1]]] }, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  })
+  assert.deepEqual(plan.selected, ['tests/new.test.ts'])
+  assert.ok(plan.changedBehaviors.some(name => name.endsWith('#value')))
 })

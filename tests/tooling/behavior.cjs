@@ -24,7 +24,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     if (!name.startsWith('.')) return ts.resolveModuleName(name, posix.resolve(from), options, ts.sys).resolvedModule
     const stem = posix.normalize(posix.join(posix.dirname(from), name))
     const file = [stem, ...['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js'].map(ext => stem + ext)].find(f => sources.has(f))
-    return file ? { resolvedFileName: file, extension: file.endsWith('.ts') ? ts.Extension.Ts : ts.Extension.Js } : ts.resolveModuleName(name, from, options, ts.sys).resolvedModule
+    return file ? { resolvedFileName: file, extension: file.endsWith('.ts') ? ts.Extension.Ts : ts.Extension.Js } : undefined
   })
   const program = ts.createProgram([...sources.keys()], options, host)
   const checker = program.getTypeChecker()
@@ -338,15 +338,17 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
 function selectBehaviors(inventory, changed, consumers, evidence) {
   const { sources, previousSources, ranges, compilerOptions } = evidence
   const head = behaviorGraph(sources, consumers.graph, compilerOptions)
-  const previous = previousSources === sources ? consumers : require('./dependencies.cjs').dependencyConsumers(inventory, previousSources)
+  const previous = evidence.previousConsumers ?? (previousSources === sources ? consumers : require('./dependencies.cjs').dependencyConsumers(inventory, previousSources))
   if (previous.runtimeAmbiguities?.length) throw new Error(`Unresolved base runtime imports: ${previous.runtimeAmbiguities.join(', ')}`)
   const graphs = [head, previousSources === sources ? head : behaviorGraph(previousSources, previous.graph, compilerOptions)]
+  const testRenames = evidence.testRenames ?? new Map()
+  const oldTestPaths = new Map([...testRenames].map(([before, after]) => [after, before]))
   const selectedCases = {}, reasons = {}, details = {}, changedBehaviors = new Set(), candidates = new Set()
   for (const change of changed) {
     const targets = graphs.map((g, i) => g.changedNodes(change.file, ranges[change.file][i]))
     for (let i=0; i<2; i++) for (const id of targets[i]) changedBehaviors.add(`${change.file}#${graphs[i].nodes.get(id).label}`)
     const covered = [new Set(), new Set()]
-    for (const file of new Set([...(consumers[change.file] ?? []), ...(previous[change.file] ?? [])])) {
+    for (const file of new Set([...(consumers[change.file] ?? []), ...(previous[change.file] ?? []).map(file => testRenames.get(file) ?? file)])) {
       candidates.add(file)
       const suite = inventory.find(item => item.file === file)
       if (!suite) continue
@@ -359,13 +361,17 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
       for (let index=0; index<suite.names.length; index++) {
         let hit = false, uncertain = fallback
         for (let i=0; i<2; i++) {
-          const roots = !fallback && graphs[i].caseRoots(file, suite.locations[index])
+          const graphFile = i === 1 ? oldTestPaths.get(file) ?? file : file
+          // Current collection coordinates are not trustworthy for an edited
+          // base test body. Follow its whole old owner, then execute head leaves.
+          const sameBody = i === 0 || previousSources.get(graphFile) === sources.get(file)
+          const roots = !fallback && sameBody && graphs[i].caseRoots(graphFile, suite.locations[index])
           if (!roots) uncertain = true
-          const reached = graphs[i].reachable(roots || graphs[i].wholeFileRoots(file), file)
+          const reached = graphs[i].reachable(roots || graphs[i].wholeFileRoots(graphFile), graphFile)
           for (const id of reached) if (graphs[i].nodes.get(id)?.unsafe) throw new Error(`Unsafe runtime dispatch: ${file}: ${graphs[i].nodes.get(id).unsafe}`)
           for (const id of targets[i]) if (reached.has(id)) {
             hit = true; covered[i].add(id)
-            const path = graphs[i].explain(roots || graphs[i].wholeFileRoots(file), reached, id)
+            const path = graphs[i].explain(roots || graphs[i].wholeFileRoots(graphFile), reached, id)
             if (path.conservative) { conservativeCases.add(index); caller = true }
             for (const step of path) { owners.add(step.behavior); if (step.file !== change.file) caller = true }
           }

@@ -1,6 +1,6 @@
 const { execFileSync } = require('node:child_process')
 const { readFileSync, writeFileSync, readdirSync, appendFileSync, mkdirSync, existsSync } = require('node:fs')
-const { resolve, relative, dirname, join } = require('node:path')
+const { resolve, relative, dirname, join, posix } = require('node:path')
 const { randomUUID } = require('node:crypto')
 const { MAX_CASES_PER_SHARD } = require('./budget.cjs')
 const root = resolve(__dirname, '../..')
@@ -26,19 +26,19 @@ function changes(base, head, event) {
   }
   return result
 }
-const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/AGENTS\.md)$/.test(file)
+const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/(?:AGENTS|tooling\/README)\.md|tools\/horse\/README\.md)$/.test(file)
   // Release notes are inputs to publication, not documentation-only changes.
   && !file.startsWith('docs/releases/')
 // Test files select themselves and their actual consumers, regardless of folder.
 // Only publication runtime/config inputs require the broad Node owner contract.
-const nodePublicationInput = file => /^(electron\/|tools\/release\/|docs\/releases\/)/.test(file)
+const nodePublicationInput = file => /^(electron\/|\.github\/scripts\/release\/|docs\/releases\/)/.test(file)
   || /^(package(?:-lock)?\.json|electron-builder\.|\.github\/workflows\/release\.yml$)/.test(file)
 
 function policyConsumers(file, inventory) {
   const available = new Set(inventory.map(item => item.file))
   const hits = new Set()
   const add = fileName => { if (available.has(fileName)) hits.add(fileName) }
-  if (/^(tools\/tests\/|\.github\/workflows\/|vitest\.config\.ts$|package(?:-lock)?\.json$|tsconfig(?:\.[\w-]+)?\.json$|tests\/helpers\/logicOnly\.ts$)/.test(file)) {
+  if (/^(tests\/tooling\/|\.github\/workflows\/|vitest\.config\.ts$|package(?:-lock)?\.json$|tsconfig(?:\.[\w-]+)?\.json$|tests\/helpers\/logicOnly\.ts$)/.test(file)) {
     add('tests/release/ci-plan.test.cjs')
     add('tests/release/test-budget.test.cjs')
     add('tests/release/workflow-contract.test.cjs')
@@ -81,19 +81,27 @@ function relatedSelectionError(reason) {
 function selectFiles(inventory, changed, consumers, evidence) {
   const all = inventory.map(item => item.file)
   if (!changed.length) relatedSelectionError('No trustworthy changed-file evidence')
+  const unsupported = changed.find(item => !/^(?:A|M|D|R\d+)$/.test(item.status))
+  if (unsupported) relatedSelectionError(`Unsupported Git change: ${unsupported.status} ${unsupported.file}`)
   if (changed.every(item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile)))) {
     return { mode: 'related', docsOnly: true, selected: [], reasons: {}, message: 'No related logic tests: documentation-only change' }
   }
   if (consumers.runtimeAmbiguities?.length) relatedSelectionError(`Unresolved runtime imports/globs: ${consumers.runtimeAmbiguities.join(', ')}`)
-  const unsupported = changed.find(item => !['A', 'M'].includes(item.status))
-  if (unsupported) relatedSelectionError(`Removed/renamed path: ${unsupported.oldFile ?? unsupported.file}`)
-  const typeOnlyFiles = evidence ? changed.filter(item => item.file.startsWith('src/') && /\.tsx?$/.test(item.file) && !policyConsumers(item.file, inventory).size && evidence.sources.has(item.file) && evidence.previousSources.has(item.file)
+  if (consumers.unresolvedImports?.length) relatedSelectionError(`Unresolved runtime dependencies: ${consumers.unresolvedImports.join(', ')}`)
+  const lifecycle = changed.filter(item => item.status === 'D' || item.status.startsWith('R'))
+  const previous = evidence?.previousConsumers
+  if (lifecycle.length && (!previous?.graph || !evidence.previousFiles || !evidence.files)) relatedSelectionError('Missing base dependency graph for removed/renamed paths')
+  if (previous?.runtimeAmbiguities?.length || previous?.unresolvedImports?.length) relatedSelectionError(`Unresolved base dependencies: ${[...(previous.runtimeAmbiguities ?? []), ...(previous.unresolvedImports ?? [])].join(', ')}`)
+  const renamed = new Map(changed.filter(item => item.status.startsWith('R')).map(item => [item.oldFile, item.file]))
+  const surviving = file => renamed.get(file) ?? file
+  const retiredFiles = []
+  const typeOnlyFiles = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && item.file.startsWith('src/') && /\.tsx?$/.test(item.file) && !policyConsumers(item.file, inventory).size && evidence.sources.has(item.file) && evidence.previousSources.has(item.file)
     && require('./dependencies.cjs').runtimeEquivalent(evidence.previousSources.get(item.file), evidence.sources.get(item.file))).map(item => item.file) : []
-  const behaviorChanges = evidence ? changed.filter(item => item.file.startsWith('src/') && /\.tsx?$/.test(item.file)
+  const behaviorChanges = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && item.file.startsWith('src/') && /\.tsx?$/.test(item.file)
     && !policyConsumers(item.file, inventory).size && !typeOnlyFiles.includes(item.file)) : []
   let behavior = { selected: [], selectedCases: {}, reasons: {}, details: {} }
   if (behaviorChanges.length) {
-    try { behavior = require('./behavior.cjs').selectBehaviors(inventory, behaviorChanges, consumers, evidence) }
+    try { behavior = require('./behavior.cjs').selectBehaviors(inventory, behaviorChanges, consumers, { ...evidence, testRenames: renamed }) }
     catch (error) { relatedSelectionError(error.message) }
   }
   const reasons = behavior.reasons
@@ -101,23 +109,46 @@ function selectFiles(inventory, changed, consumers, evidence) {
   const selectedCases = behavior.selectedCases
   const { dependencyChain } = require('./dependencies.cjs')
   for (const item of changed) {
-    if (docsOnly(item.file) || behaviorChanges.includes(item) || typeOnlyFiles.includes(item.file)) continue
-    const runtime = new Set(consumers[item.file] ?? [])
-    const policy = policyConsumers(item.file, inventory)
-    const hits = new Set([...runtime, ...policy])
-    if (all.includes(item.file)) hits.add(item.file)
-    if (!hits.size) relatedSelectionError(`Unmapped code/runtime input: ${item.file}`)
+    if ((docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile))) || behaviorChanges.includes(item) || typeOnlyFiles.includes(item.file)) continue
+    const oldFile = item.oldFile ?? item.file
+    const removed = item.status === 'D'
+    const historical = lifecycle.includes(item)
+    if (historical && (!evidence.previousFiles.has(oldFile) || (removed ? evidence.files.has(item.file) : !evidence.files.has(item.file)))) {
+      relatedSelectionError(`Git lifecycle does not match base/checkout: ${oldFile} -> ${item.file}`)
+    }
+    const runtime = new Set(removed ? [] : consumers[item.file] ?? [])
+    const baseRuntime = new Map(historical ? (previous[oldFile] ?? []).map(file => [surviving(file), file]) : [])
+    for (const [file, oldTest] of baseRuntime) if (!all.includes(file) && !changed.some(change => change.status === 'D' && change.file === oldTest)) {
+      relatedSelectionError(`Base test owner is not in current discovery: ${oldTest} -> ${file}`)
+    }
+    const policy = new Set([...policyConsumers(item.file, inventory), ...(historical ? policyConsumers(oldFile, inventory) : [])])
+    const hits = new Set([...runtime, ...policy, ...baseRuntime.keys()].filter(file => all.includes(file)))
+    if (!removed && all.includes(item.file)) hits.add(item.file)
+    if (!hits.size) {
+      // A removed standalone input/test can be retired only after proving that
+      // no surviving runtime source or configured entry still refers to it.
+      const liveDependents = historical ? [...previous.graph.keys()].filter(file => file !== oldFile
+        && evidence.files.has(surviving(file)) && dependencyChain(previous.graph, file, oldFile)) : []
+      const name = posix.basename(oldFile), stem = name.slice(0, name.length - posix.extname(name).length)
+      const references = removed ? [...evidence.texts].filter(([file, source]) => file !== oldFile
+        && (source.includes(name) || source.includes(stem))).map(([file]) => file) : []
+      if (removed && evidence.previousTexts?.has(oldFile) && !liveDependents.length && !references.length) { retiredFiles.push(item.file); continue }
+      relatedSelectionError(`Unmapped code/runtime input: ${oldFile}${item.oldFile ? ` -> ${item.file}` : ''}${liveDependents.length || references.length ? `; surviving references: ${[...new Set([...liveDependents, ...references])].join(', ')}` : ''}`)
+    }
     for (const file of hits) {
       selectedCases[file] = inventory.find(item => item.file === file).names.map((_, i) => i)
-      ;(reasons[file] ??= []).push(`Depends on or directly modified: ${item.file}`)
-      // Verifiable evidence only: the chain comes from the same graph used to select.
-      const source = file === item.file ? 'Direct modification'
-        : runtime.has(file) ? 'Static Runtime Dependency' : 'Explicit owner policy'
-      const chain = source === 'Static Runtime Dependency' && consumers.graph ? dependencyChain(consumers.graph, file, item.file) : null
+      ;(reasons[file] ??= []).push(`Depends on or directly modified: ${oldFile}${item.oldFile ? ` -> ${item.file}` : ''}`)
+      // Base chains retain original paths; only their executable test identity
+      // is mapped through the actual Git rename records into head discovery.
+      const source = !removed && file === item.file ? 'Direct modification'
+        : runtime.has(file) ? 'Static Runtime Dependency'
+        : baseRuntime.has(file) ? 'Base Runtime Dependency' : 'Explicit owner policy'
+      const chain = source === 'Static Runtime Dependency' && consumers.graph ? dependencyChain(consumers.graph, file, item.file)
+        : source === 'Base Runtime Dependency' ? dependencyChain(previous.graph, baseRuntime.get(file), oldFile) : null
       ;(details[file] ??= []).push({ changed: item.file, source, chain })
     }
   }
-  return { ...behavior, mode: 'related', selected: Object.keys(reasons).sort(), selectedCases, reasons, details, typeOnlyFiles,
+  return { ...behavior, mode: 'related', selected: Object.keys(reasons).sort(), selectedCases, reasons, details, typeOnlyFiles, retiredFiles,
     excludedCandidates: behavior.excludedCandidates?.filter(file => !Object.hasOwn(reasons, file)) }
 }
 // Human-readable selection evidence, derived only from the manifest (no test re-run).
@@ -137,6 +168,7 @@ function selectionSummary(plan) {
     'Owners:', ...[...new Set(Object.values(plan.details ?? {}).flatMap(entries => entries.flatMap(entry => entry.owners ?? [])))].map(owner => `  ${owner}`),
     ...(plan.changedBehaviors?.length ? [] : selected.map(file => `  ${file}: ${selectedNames(plan, file).length} cases`)),
     `Excluded: ${plan.excludedCandidates?.length ?? 0} import-only candidate files`,
+    ...(plan.retiredFiles?.length ? [`Retired (no surviving consumers): ${plan.retiredFiles.join(', ')}`] : []),
     `Conservative caller cases: ${Object.values(plan.details ?? {}).reduce((sum, entries) => sum + new Set(entries.flatMap(entry => entry.conservativeCases ?? [])).size, 0)}`,
     `Unmapped / Unsafe: ${plan.unsafe?.length ?? 0}`,
     `Budget: ${total} / ${plan.mode === 'related' ? MAX_CASES_PER_SHARD : 'Full per-shard 500'}`,
@@ -191,7 +223,7 @@ function validateManifest(plan) {
   const assigned = plan.shards.flatMap(shard => [...shard.vitestFiles, ...shard.nodeFiles])
   if (new Set(plan.shards.map(s => s.id)).size !== plan.shards.length) throw new Error('Duplicate shard ID')
   if (new Set(assigned).size !== assigned.length || [...expected].sort().join('\n') !== [...assigned].sort().join('\n')) throw new Error('Missing, unexpected or duplicate assigned test files')
-  if (!assigned.length && !(plan.mode === 'related' && plan.changedFiles.length && plan.changedFiles.every(file => docsOnly(file) || plan.typeOnlyFiles?.includes(file)))) throw new Error('Empty code selection')
+  if (!assigned.length && !(plan.mode === 'related' && plan.changedFiles.length && plan.changedFiles.every(file => docsOnly(file) || plan.typeOnlyFiles?.includes(file) || plan.retiredFiles?.includes(file)))) throw new Error('Empty code selection')
   if (plan.mode === 'related' && plan.shards.length > 1) throw new Error('Related mode must use one aggregate-limited shard')
   let total = 0
   for (const shard of plan.shards) {
@@ -208,7 +240,7 @@ function validateManifest(plan) {
 function discoverNode() {
   const files = walk('tests').filter(file => /\.test\.cjs$/.test(file))
   if (!files.length) throw new Error('Empty Node discovery')
-  return JSON.parse(execFileSync(process.execPath, ['tools/tests/node-collect.cjs', ...files], { cwd: root, encoding: 'utf8' }))
+  return JSON.parse(execFileSync(process.execPath, ['tests/tooling/node-collect.cjs', ...files], { cwd: root, encoding: 'utf8' }))
 }
 async function discover({ relatedPaths = [] } = {}) {
   // Public Vitest 4.1 API, matching `vitest related` and `vitest list --json`.
@@ -242,13 +274,38 @@ async function discover({ relatedPaths = [] } = {}) {
     if (priorFiles !== undefined) process.env.LOGIC_TEST_FILES = priorFiles
   }
 }
-function dependencyConsumers(inventory) {
-  const sources = new Map([...walk('src'), ...walk('tests'), ...walk('tools'), ...walk('electron')]
-    .filter(file => /\.[cm]?[jt]sx?$/.test(file))
-    .map(file => [file, readFileSync(resolve(root, file), 'utf8')]))
-  // Lazy parser import keeps the dependency-free aggregate job lightweight.
-  return require('./dependencies.cjs').dependencyConsumers(inventory, sources, file => existsSync(resolve(root, file)))
+const sourceFile = file => /\.[cm]?[jt]sx?$/.test(file)
+const testFile = file => /^tests\/.*\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file)
+function snapshot(ref) {
+  const files = new Set((ref ? git('ls-tree', '-r', '--name-only', ref) : git('ls-files')).split('\n').filter(Boolean))
+  // Inspect every tracked text format for retirement/entry references (HTML,
+  // CSS, extensionless build inputs, etc.), not just parsed JS/TS dependencies.
+  const names = execFileSync('git', ['grep', '-I', '-l', '-z', '-e', '', ...(ref ? [ref] : []), '--'], { cwd: root, encoding: 'utf8' })
+    .split('\0').filter(Boolean).map(file => ref ? file.slice(ref.length + 1) : file)
+  const texts = new Map()
+  if (ref) {
+    // One Git read preserves the complete base tree, including removed helpers,
+    // renamed tests, and existence of non-source dependency targets such as JSON.
+    const output = execFileSync('git', ['cat-file', '--batch'], {
+      cwd: root, input: names.map(file => `${ref}:${file}\n`).join(''), maxBuffer: 64 * 1024 * 1024,
+    })
+    let offset = 0
+    for (const file of names) {
+      const end = output.indexOf(10, offset)
+      const header = output.subarray(offset, end).toString().split(' ')
+      if (header[1] !== 'blob') relatedSelectionError(`Missing base blob: ${file}`)
+      const size = Number(header[2])
+      texts.set(file, output.subarray(end + 1, end + 1 + size).toString())
+      offset = end + 2 + size
+    }
+  } else for (const file of names) if (existsSync(resolve(root, file))) texts.set(file, readFileSync(resolve(root, file), 'utf8'))
+  for (const file of files) if (!ref && !existsSync(resolve(root, file))) files.delete(file)
+  return { files, texts, sources: new Map([...texts].filter(([file]) => sourceFile(file))) }
 }
+function dependencyConsumers(inventory, tree = snapshot()) {
+  return require('./dependencies.cjs').dependencyConsumers(inventory, tree.sources, file => tree.files.has(file))
+}
+
 async function createPlan({ mode = 'full', base = '', head = '', event = 'local' } = {}) {
   if (!['full', 'related'].includes(mode)) throw new Error(`Invalid test mode: ${mode}`)
   const checkoutSha = git('rev-parse', 'HEAD')
@@ -265,23 +322,28 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   let changed
   try { changed = changes(base, head, event) }
   catch (error) { throw new Error(`Related Git history unavailable: ${error.message}. Full is reserved for main/release.`) }
-  const unsupported = changed.find(item => !['A', 'M'].includes(item.status))
-  if (unsupported) relatedSelectionError(`Removed/renamed path: ${unsupported.oldFile ?? unsupported.file}`)
   const documentation = changed.length > 0 && changed.every(item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile)))
   if (documentation) return validateManifest({
     version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
     checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed, inventory: [],
     ...selectFiles([], changed, {}), shards: [],
   })
-  let found
-  try { found = await discover({ relatedPaths: changed.map(item => item.file) }) }
-  catch (error) { throw new Error(`Related dependency selection unavailable: ${error.message}. Full is reserved for main/release.`) }
-  const consumers = dependencyConsumers(found.inventory)
   const start = event === 'pull_request' ? git('merge-base', base, head) : base
-  const sources = consumers.sources
-  const previousSources = new Map(sources)
+  const currentTree = snapshot(), baseTree = snapshot(start)
+  // Vitest's watch-mode force-rerun triggers are not runtime edges. Omit only
+  // inputs proved byte-identical after Git-derived relocations from that query;
+  // normal owner selection still processes them, and real config changes remain.
+  const relocatedInputs = changed.filter(item => item.status === 'M' && require('./dependencies.cjs').relocationOnly(
+    baseTree.texts.get(item.file), currentTree.texts.get(item.file), changed, baseTree.files, currentTree.files, item.file)).map(item => item.file)
+  let found
+  try { found = await discover({ relatedPaths: changed.filter(item => item.status !== 'D' && !relocatedInputs.includes(item.file)).map(item => item.file) }) }
+  catch (error) { throw new Error(`Related dependency selection unavailable: ${error.message}. Full is reserved for main/release.`) }
+  const consumers = dependencyConsumers(found.inventory, currentTree)
+  const previousConsumers = dependencyConsumers([...baseTree.sources.keys()].filter(testFile).map(file => ({ file })), baseTree)
+  const sources = currentTree.sources
+  const previousSources = baseTree.sources
   const ranges = {}
-  for (const item of changed.filter(item => item.file.startsWith('src/') && /\.tsx?$/.test(item.file))) {
+  for (const item of changed.filter(item => ['A', 'M'].includes(item.status) && item.file.startsWith('src/') && /\.tsx?$/.test(item.file))) {
     const old = item.status === 'A' ? '' : execFileSync('git', ['show', `${start}:${item.file}`], { cwd: root, encoding: 'utf8' })
     previousSources.set(item.file, old)
     // Compare the tested checkout (PR merge ref) with the actual base source.
@@ -294,7 +356,7 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     }
     if (!ranges[item.file][0].length) relatedSelectionError(`Missing behavior diff: ${item.file}`)
   }
-  const selection = selectFiles(found.inventory, changed, consumers, { sources, previousSources, ranges })
+  const selection = selectFiles(found.inventory, changed, consumers, { sources, previousSources, ranges, previousConsumers, previousFiles: baseTree.files, previousTexts: baseTree.texts, files: currentTree.files, texts: currentTree.texts })
   // Native related results are candidates only. An unexplained native-only edge
   // is unsafe; never silently exclude it or unconditionally union it into leaves.
   for (const file of found.related) {
@@ -307,7 +369,7 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   return validateManifest({
     version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
     checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
-    inventory: found.inventory, ...selection, shards: planShards(selectedInventory, 'related'),
+    inventory: found.inventory, ...selection, relocatedInputs, shards: planShards(selectedInventory, 'related'),
   })
 }
 function options(args) {
@@ -330,4 +392,4 @@ if (require.main === module) (async () => {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
     `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\n`)
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { createPlan, shardFiles, planShards, validateManifest, selectFiles, selectionSummary, changes, options, discover, discoverNode, dependencyConsumers, docsOnly, selectedNames }
+module.exports = { snapshot, createPlan, shardFiles, planShards, validateManifest, selectFiles, selectionSummary, changes, options, discover, discoverNode, dependencyConsumers, docsOnly, selectedNames }
