@@ -59,3 +59,37 @@ once in the logic gate; Desktop PR jobs validate packaging and smoke only, so th
 cannot duplicate cases past the Related 500 limit. Formal Release jobs retain the
 Windows/macOS Node component checks before publication. Build, typecheck, and
 Web/Desktop packaging/smoke retain their checks.
+
+## Main Full gate sharing
+
+`ci.yml` is the only workflow that runs on `push → main`. It runs one Full logic gate
+(plan, shards, aggregate integrity, missing/duplicate checks), then `web`, then calls
+`deploy-pages.yml` and `release.yml` as reusable workflows in the same run with
+`needs: [logic, web]`. Pages and Release therefore never start without a successful
+Full gate for the same SHA and never run Full again.
+
+The aggregate job emits `verified-sha` only for a Full manifest whose checked-out
+commit equals the requested head (`ci-run.cjs --verified-sha`). `ci.yml` hands it to
+both `deploy-pages.yml` and `release.yml`. Pages requires a non-empty `verified-sha`
+equal to `GITHUB_SHA` on a `push` to `refs/heads/main`, and checks under the
+`production-pages` concurrency lock that `GITHUB_SHA` is still the current
+`origin/main` head (skipping stale out-of-order commits instead of overwriting a
+newer deployment). Release's `gate` job accepts `verified-sha` only if it equals
+`GITHUB_SHA`, the event is a `push` to `refs/heads/main`, and its own `logic` job was
+skipped. An empty or mismatching value makes Release run its own Full gate. A
+manually pushed `v*` tag has no same-run proof and always runs Full. Tags created by
+Release with `GITHUB_TOKEN` do not trigger another workflow run. Failed, cancelled,
+stale or incomplete gates never publish; cross-run artifacts are not reused.
+
+## Reading the selection summary
+
+The planner writes a `Logic test selection` section to the job summary (also stdout):
+mode, base/head, changed files, selected files and leaves, shard count, the top
+fan-out changed modules and, per suite, the source (`Direct modification`, `Static
+Runtime Dependency`, `Explicit owner policy`, or `Vitest native relevant`) with the
+exact import chain, e.g. `tests/x.test.ts → src/A.ts → src/world/NPC.ts → src/changed.ts`.
+Native-only hits state that no static chain was resolved instead of inventing one.
+Fix high fan-out at the source: have lightweight modules import small owners
+(for example `AIType` from `src/world/NpcAIType.ts`, `Faction` from
+`src/combat/CombatFaction.ts`) instead of the large `NPC.ts` runtime. Do not exclude
+tests in the planner.

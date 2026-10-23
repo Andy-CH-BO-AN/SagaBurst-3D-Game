@@ -110,10 +110,9 @@ export enum AIState {
 export { Faction } from '../combat/CombatFaction'
 import { Faction } from '../combat/CombatFaction'
 
-export enum AIType {
-  MELEE = 'MELEE',
-  RANGED = 'RANGED',
-}
+// Re-exported for the existing `NPC` import API; the enum is owned by NpcAIType.ts.
+export { AIType } from './NpcAIType'
+import { AIType } from './NpcAIType'
 
 export type NpcEagleFlightOrder = { kind: 'return'; target: THREE.Vector3; cruiseAltitude?: number; landingYaw: number }
   | { kind: 'patrol'; target: THREE.Vector3; cruiseAltitude?: number }

@@ -14,8 +14,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A main commit owns publication, so each main push gets its own group and is
+  # never cancelled by a later push; every other ref still supersedes older runs.
+  group: ci-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || github.ref }}
+  cancel-in-progress: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 jobs:
   logic:
     uses: ./.github/workflows/logic-tests.yml
@@ -36,6 +38,10 @@ jobs:
           LOGIC_RESULT: ${{ needs.logic.result }}
         run: test "$LOGIC_RESULT" = success
       - uses: actions/checkout@v4
+      - name: Lint GitHub Actions workflows
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash | bash -s -- 1.7.7 /tmp
+          /tmp/actionlint
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -87,3 +93,27 @@ jobs:
           name: preview-${{ matrix.platform }}-${{ matrix.arch }}
           path: release/SagaBurst-v*-*.zip
           if-no-files-found: error
+  # push -> main is the single orchestrator for one Full gate. Pages and Release run
+  # in this same workflow run, so they cannot race, reuse a PR run, or see a
+  # different SHA; they start only after the Full logic gate and Web job succeed.
+  pages:
+    needs: [logic, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-pages.yml
+    with:
+      # Require the same verified Full SHA proof as Release; fail closed if absent.
+      logic-verified-sha: ${{ needs.logic.outputs.verified-sha }}
+  release:
+    needs: [logic, web]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      # Empty unless the aggregate verified a Full run for exactly this SHA; an
+      # empty value makes Release run its own Full gate (fail closed).
+      logic-verified-sha: ${{ needs.logic.outputs.verified-sha }}

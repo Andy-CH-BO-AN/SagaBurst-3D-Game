@@ -54,6 +54,27 @@ function dependencyConsumers(inventory, sources, exists = file => sources.has(fi
     visit(test.file)
   }
   consumers.runtimeAmbiguities = [...new Set(runtimeAmbiguities)]
+  // Exposed so the planner can explain a selection with a verifiable import chain.
+  consumers.graph = graph
   return consumers
 }
-module.exports = { dependencyConsumers }
+// Shortest runtime import chain `from → ... → to`, or null when there is none.
+function dependencyChain(graph, from, to) {
+  if (from === to) return [from]
+  const previous = new Map([[from, null]])
+  const queue = [from]
+  for (let i = 0; i < queue.length; i++) {
+    for (const dep of graph.get(queue[i]) ?? []) {
+      if (previous.has(dep)) continue
+      previous.set(dep, queue[i])
+      if (dep === to) {
+        const chain = []
+        for (let node = to; node !== null; node = previous.get(node)) chain.unshift(node)
+        return chain
+      }
+      queue.push(dep)
+    }
+  }
+  return null
+}
+module.exports = { dependencyConsumers, dependencyChain }

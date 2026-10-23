@@ -48,6 +48,14 @@ function aggregate(plan, summaries) {
     `\n\`\`\`json\n${JSON.stringify({ ...result, changedFiles: plan.changedFiles, reasons: plan.reasons, fallback: plan.fallback, docsOnly: plan.docsOnly }, null, 2)}\n\`\`\`\n`)
   return result
 }
+// A same-run consumer may skip a duplicate Full gate only when the manifest is a
+// Full plan whose checked-out commit is exactly the requested head. Anything else
+// yields no SHA, so the consumer fails closed into its own Full gate.
+function verifiedFullSha(plan) {
+  validateManifest(plan)
+  const sha = plan.mode === 'full' && !plan.scope && plan.headSha && plan.checkoutSha === plan.headSha ? plan.headSha : ''
+  return /^[0-9a-f]{40}$/.test(sha) ? sha : ''
+}
 function executeShard(plan, id, out) {
   validateManifest(plan)
   if (plan.checkoutSha && execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim() !== plan.checkoutSha) throw new Error('Stale checkout: manifest is for a different commit')
@@ -100,7 +108,9 @@ function executeShard(plan, id, out) {
 }
 if (require.main === module) (async () => {
   const args = options(process.argv.slice(2))
-  if (args.local) {
+  if (args['verified-sha']) {
+    console.log(`sha=${verifiedFullSha(JSON.parse(readFileSync(args['verified-sha'], 'utf8')))}`)
+  } else if (args.local) {
     const inventory = args.local === 'release' ? discoverNode() : null
     const plan = inventory ? { planId: randomUUID(), mode: 'related', scope: 'node-release', event: 'local', baseSha: '', headSha: '', changedFiles: [], inventory, selected: inventory.map(item => item.file), reasons: Object.fromEntries(inventory.map(item => [item.file, ['Node release component']])), shards: shardFiles(inventory) } : await createPlan({ mode: 'full', event: 'local' })
     const out = 'output/test-budget/local'
@@ -117,4 +127,4 @@ if (require.main === module) (async () => {
     } else throw new Error('Expected --shard or --reports')
   }
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { verifyShard, aggregate, executeShard }
+module.exports = { verifyShard, aggregate, executeShard, verifiedFullSha }

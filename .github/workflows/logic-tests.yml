@@ -14,6 +14,11 @@ on:
       event:
         type: string
         required: true
+    outputs:
+      # Non-empty only for a completed, aggregate-verified Full run whose manifest
+      # was planned and checked out at exactly the requested head SHA.
+      verified-sha:
+        value: ${{ jobs.aggregate.outputs.verified-sha }}
 permissions:
   contents: read
 jobs:
@@ -81,6 +86,8 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      verified-sha: ${{ steps.verified.outputs.sha }}
     steps:
       - name: Require successful plan and all shards
         env:
@@ -108,6 +115,9 @@ jobs:
           merge-multiple: true
       - name: Verify complete, unique execution and aggregate budgets
         run: node tools/tests/ci-run.cjs --manifest output/test-plan.json --reports output/shard-reports --out output/aggregate.json
+      - name: Publish verified Full SHA for same-run reuse
+        id: verified
+        run: node tools/tests/ci-run.cjs --verified-sha output/test-plan.json >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
           name: logic-aggregate

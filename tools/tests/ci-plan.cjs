@@ -41,6 +41,7 @@ function policyConsumers(file, inventory) {
   if (/^(tools\/tests\/|\.github\/workflows\/|vitest\.config\.ts$|package(?:-lock)?\.json$|tsconfig(?:\.[\w-]+)?\.json$|tests\/helpers\/logicOnly\.ts$)/.test(file)) {
     add('tests/release/ci-plan.test.cjs')
     add('tests/release/test-budget.test.cjs')
+    add('tests/release/workflow-contract.test.cjs')
   }
   // The DEV-only WebGL entry cannot be imported by logic tests. Its formal
   // siege/navigation/checkpoint owners and rejected-projectile contract are
@@ -87,15 +88,53 @@ function selectFiles(inventory, changed, consumers) {
   const unsupported = changed.find(item => !['A', 'M'].includes(item.status))
   if (unsupported) relatedSelectionError(`Removed/renamed path: ${unsupported.oldFile ?? unsupported.file}`)
   const reasons = {}
+  const details = {}
+  const { dependencyChain } = require('./dependencies.cjs')
   for (const item of changed) {
     if (docsOnly(item.file)) continue
-    const hits = new Set(consumers[item.file] ?? [])
-    for (const file of policyConsumers(item.file, inventory)) hits.add(file)
+    const runtime = new Set(consumers[item.file] ?? [])
+    const policy = policyConsumers(item.file, inventory)
+    const hits = new Set([...runtime, ...policy])
     if (all.includes(item.file)) hits.add(item.file)
     if (!hits.size) relatedSelectionError(`Unmapped code/runtime input: ${item.file}`)
-    for (const file of hits) (reasons[file] ??= []).push(`Depends on or directly modified: ${item.file}`)
+    for (const file of hits) {
+      (reasons[file] ??= []).push(`Depends on or directly modified: ${item.file}`)
+      // Verifiable evidence only: the chain comes from the same graph used to select.
+      const source = file === item.file ? 'Direct modification'
+        : runtime.has(file) ? 'Static Runtime Dependency' : 'Explicit owner policy'
+      const chain = source === 'Static Runtime Dependency' && consumers.graph ? dependencyChain(consumers.graph, file, item.file) : null
+      ;(details[file] ??= []).push({ changed: item.file, source, chain })
+    }
   }
-  return { mode: 'related', selected: Object.keys(reasons).sort(), reasons }
+  return { mode: 'related', selected: Object.keys(reasons).sort(), reasons, details }
+}
+// Human-readable selection evidence, derived only from the manifest (no test re-run).
+function selectionSummary(plan) {
+  const leaves = file => plan.inventory.find(item => item.file === file)?.names.length ?? 0
+  const lines = [`Mode: ${plan.mode === 'full' ? 'Full' : 'Related'}`, `Base SHA: ${plan.baseSha || '-'}; Head SHA: ${plan.headSha || '-'}`,
+    `Changed files (${plan.changedFiles.length}): ${plan.changedFiles.join(', ') || '-'}`]
+  const selected = plan.selected ?? []
+  const total = selected.reduce((sum, file) => sum + leaves(file), 0)
+  lines.push(`Selected test files: ${selected.length}; selected leaf cases: ${total}${plan.mode === 'related' ? ` (Related aggregate budget ${total}/${MAX_CASES_PER_SHARD})` : ''}`)
+  lines.push(`Shards: ${plan.shards.length} ${JSON.stringify(plan.shards.map(shard => [shard.id, shard.expectedCount]))}`)
+  if (plan.message) lines.push(plan.message)
+  if (plan.mode === 'related') {
+    const fanout = {}
+    for (const [file, list] of Object.entries(plan.details ?? {})) for (const entry of list) (fanout[entry.changed] ??= new Set()).add(file)
+    const ranked = Object.entries(fanout).map(([file, set]) => [file, set.size, [...set].reduce((sum, test) => sum + leaves(test), 0)])
+      .sort((a, b) => b[2] - a[2] || a[0].localeCompare(b[0], 'en')).slice(0, 10)
+    lines.push('Top high fan-out changed modules (files selected / leaves):', ...ranked.map(([file, count, leafCount]) => `  ${file}: ${count} files / ${leafCount} leaves`))
+    lines.push('Selections (largest suites first):')
+    const bySize = [...selected].sort((a, b) => leaves(b) - leaves(a) || a.localeCompare(b, 'en'))
+    for (const file of bySize) {
+      lines.push(`  Selected: ${file} (leaf count ${leaves(file)})`)
+      for (const entry of plan.details?.[file] ?? [{ changed: '?', source: plan.reasons[file]?.join('; ') ?? 'unknown', chain: null }]) {
+        const chain = entry.chain ? entry.chain.join(' → ') : entry.source === 'Static Runtime Dependency' ? 'no static chain resolved' : '-'
+        lines.push(`    ${entry.source}: ${entry.changed}${entry.chain ? `\n      ${chain}` : ''}`)
+      }
+    }
+  } else lines.push('Selection: explicit full suite (all discovered files; completeness verified by aggregate)')
+  return lines.join('\n')
 }
 function shardFiles(files) {
   const shards = []
@@ -215,9 +254,11 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   catch (error) { throw new Error(`Related dependency selection unavailable: ${error.message}. Full is reserved for main/release.`) }
   const selection = selectFiles(found.inventory, changed, dependencyConsumers(found.inventory))
   // Union native Vitest and CJS/static runtime graph results; never remove native hits.
+  // A native-only hit is reported with its source rather than an invented chain.
   for (const file of found.related) if (!selection.selected.includes(file)) {
     selection.selected.push(file)
     selection.reasons[file] = ['Vitest transitive runtime dependency']
+    selection.details[file] = [{ changed: changed.map(item => item.file).join(', '), source: 'Vitest native relevant (not in static graph)', chain: null }]
   }
   selection.selected.sort()
   const selectedInventory = found.inventory.filter(item => selection.selected.includes(item.file))
@@ -241,10 +282,10 @@ if (require.main === module) (async () => {
   const out = args.out ?? 'output/test-plan.json'
   mkdirSync(dirname(resolve(root, out)), { recursive: true })
   writeFileSync(out, JSON.stringify(plan, null, 2))
-  const evidence = `Mode: ${plan.mode}; base: ${plan.baseSha}; head: ${plan.headSha}\nChanged: ${plan.changedFiles.join(', ')}\nFallback: ${plan.fallback ?? 'none'}\n${plan.message ?? ''}\n${plan.selected.map(file => `${file}: ${plan.reasons[file].join('; ')}`).join('\n')}\nShards: ${JSON.stringify(plan.shards)}\n`
+  const evidence = `${selectionSummary(plan)}\nFallback: ${plan.fallback ?? 'none'}\n`
   console.log(evidence)
-  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n\`\`\`text\n${evidence}\`\`\`\n`)
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `\n### Logic test selection\n\n\`\`\`text\n${evidence}\`\`\`\n`)
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
     `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\n`)
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { createPlan, shardFiles, planShards, validateManifest, selectFiles, changes, options, discover, discoverNode, dependencyConsumers, docsOnly }
+module.exports = { createPlan, shardFiles, planShards, validateManifest, selectFiles, selectionSummary, changes, options, discover, discoverNode, dependencyConsumers, docsOnly }
