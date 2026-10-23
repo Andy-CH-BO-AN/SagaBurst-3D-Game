@@ -58,6 +58,10 @@ test('push to main shares one Full gate with Pages and Release, bound to the exa
   // Web job runs actionlint in CI so every runner environment enforces reusable workflow/permissions/needs lint.
   assert.ok(ci.jobs.web.steps.some(step => typeof step.run === 'string' && step.run.includes('actionlint')))
 
+  for (const command of ['npx playwright install --with-deps chromium', 'npm run smoke:web']) {
+    assert.equal(ci.jobs.web.steps.find(step => step.run === command).if, "github.event_name != 'push' || github.ref != 'refs/heads/dev'")
+  }
+
   // Concurrency: main pushes are isolated per-SHA and never cancelled; other refs cancel in-progress runs.
   assert.match(ci.concurrency.group, /github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && github\.sha \|\| github\.ref/)
   assert.match(ci.concurrency['cancel-in-progress'], /!\(github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\)/)

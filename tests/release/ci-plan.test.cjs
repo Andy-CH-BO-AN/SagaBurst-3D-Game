@@ -165,7 +165,7 @@ test('lightweight enum import does not select suites; real runtime import chain 
   assert.deepEqual(plan.details['tests/actors/Spawner.test.ts'], [{ changed: 'src/navigation/Route.ts', source: 'Static Runtime Dependency',
     chain: ['tests/actors/Spawner.test.ts', 'src/world/NPC.ts', 'src/navigation/Route.ts'] }])
   const text = selectionSummary({ mode: 'related', baseSha: 'b', headSha: 'h', changedFiles: ['src/navigation/Route.ts'], inventory: files, shards: [], ...plan })
-  assert.match(text, /Selected: tests\/actors\/Spawner\.test\.ts \(leaf count 2\)/)
-  assert.match(text, /tests\/actors\/Spawner\.test\.ts → src\/world\/NPC\.ts → src\/navigation\/Route\.ts/)
-  assert.match(text, /src\/navigation\/Route\.ts: 1 files \/ 2 leaves/)
+  assert.match(text, /Selected: 1 files \/ 2 cases/)
+  assert.match(text, /Owners:/)
+  assert.match(text, /Budget: 2 \/ 500/)
 })

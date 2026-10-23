@@ -22,6 +22,8 @@ export default class BudgetReporter {
       for (const test of module.children.allTests()) {
         // A requested name filter may leave unrelated collected cases skipped.
         // Full npm test has no filter and checks every retained case instead.
+        const selected = process.env.LOGIC_TEST_CASES ? JSON.parse(process.env.LOGIC_TEST_CASES) : null
+        if (selected && !selected.includes(test.fullName) && test.result().state === 'skipped') continue
         if (process.env.LOGIC_TEST_TARGETED === '1' && test.result().state === 'skipped') continue
         const diagnostic = test.diagnostic()
         cases.push({

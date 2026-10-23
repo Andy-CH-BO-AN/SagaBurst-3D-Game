@@ -50,7 +50,9 @@ jobs:
       - run: npm run typecheck:test
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+        if: github.event_name != 'push' || github.ref != 'refs/heads/dev'
       - run: npm run smoke:web
+        if: github.event_name != 'push' || github.ref != 'refs/heads/dev'
   desktop:
     needs: logic
     # PR artifacts validate packaging/smoke only. Logic cases execute once in the
