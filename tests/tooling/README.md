@@ -8,7 +8,7 @@ manifest. Related and Full deliberately have different budgets:
 
 - **Related** (`PR/push → dev`) selects behavior owners/caller contracts and must fit in one
   aggregate set of at most 500 leaves. It never opens a second shard to bypass the
-  limit. If selection is unsafe, unmapped, removed/renamed, or exceeds 500, planning
+  limit. If selection is unsafe, unmapped, or exceeds 500, planning
   fails with an actionable error instead of silently running repository Full.
 - **Full** (`PR/push → main`, Pages, Release, manual Full) runs the complete
   repository and may split sorted whole files into deterministic shards of at most
@@ -63,11 +63,29 @@ Full prohibits case filters and still runs every discovered leaf exactly once.
 Test tooling, workflow and package changes select dedicated CI/budget contract
 tests through explicit owner policy rather than repository Full. Release/Electron
 inputs select the Node publication contracts in the same Related logic shard.
-Removed/renamed paths, unresolved computed imports/globs, unavailable Git history,
-unmapped non-document inputs, an empty code selection, or a Related selection above
+Unresolved computed or relative imports/globs, unavailable Git history,
+unmapped non-document inputs, an unexplained empty code selection, or a Related selection above
 500 fail closed and require an explicit dependency/owner mapping or a smaller
-change. They do not convert a dev PR into Full. Empty success requires strictly allowlisted docs or proven type-only edits; release notes are publication inputs and are excluded from
+change. They do not convert a dev PR into Full. Empty success requires strictly allowlisted docs, proven type-only edits, or explicit retirement evidence; release notes are publication inputs and are excluded from
 that exception.
+
+Renames/deletions use independent complete base and checkout source snapshots,
+including non-source dependency existence. Base test consumers map to current
+discovery by identity or Git rename lineage, never a fixed migration table. Both
+old/new runtime consumers and policy owners select surviving whole owner suites;
+ordinary production edits retain behavior-level filtering. Removed tests are not
+executed. Missing owners or dangling dependencies fail closed. An orphan deletion
+is retired only when no surviving source dependency or runtime/config reference
+remains, and the manifest records that evidence explicitly.
+
+Vitest's watch-mode force-rerun triggers remain enabled. The native-related query
+omits only inputs proven byte-identical to base after simultaneous, boundary-aware
+Git-derived replacements in known path-bearing fields (Node script entry operands
+and Vitest include/exclude/setupFiles/reporters). Arbitrary env/name/data strings
+never qualify. Directory/glob replacements additionally require an
+exact two-sided descendant mapping with no extra destination or old-path occupants.
+Explicit owner policy still selects those inputs. Dependency, argument or config
+behavior edits do not qualify and retain normal conservative candidate validation.
 
 The static graph includes `.github/scripts/` and scans release helpers for computed
 imports. `tests/tooling/` remains inside dependency validation: only the collector's
