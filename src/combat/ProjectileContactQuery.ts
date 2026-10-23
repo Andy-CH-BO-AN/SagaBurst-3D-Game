@@ -88,6 +88,7 @@ export class ProjectileContactQuery {
     // live geometry; neither its point nor contact may alias query scratch state.
     const point = kind === 'siege' ? siege!.point.clone()
       : kind === 'obstacle' && town ? this.obstacleContact.point.clone()
+      : town && length === 0 ? from.clone()
       : new Vector3().lerpVectors(from, to, town ? nearest / length : nearest)
     if (kind === 'actor') return { kind, target: actor!, contact: { ...this.best }, point }
     if (kind === 'obstacle') return { kind, obstacle: obstacle!, point }

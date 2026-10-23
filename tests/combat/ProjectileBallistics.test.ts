@@ -313,5 +313,10 @@ describe('shared live projectile first contact', () => {
     practice.x = 1.611
     expect(query.find(from, to, input)).toBeNull()
     expect(siege!.point.x).toBe(.8005)
+    // A stationary shot already touching terrain still returns its own finite point.
+    const grounded = new THREE.Vector3(0, getTerrainHeight(0, 0) - 1, 0)
+    const stationary = query.find(grounded, grounded, input)
+    expect(stationary).toMatchObject({ kind: 'terrain', point: grounded })
+    expect(stationary!.point).not.toBe(grounded)
   })
 })
