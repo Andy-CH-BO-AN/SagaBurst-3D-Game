@@ -21,7 +21,7 @@ import { townDefenseThreatResponse, townExternalThreatAlertRange, townStationSpe
 import { EnemyEaglePatrolController } from './EnemyEaglePatrolController'
 import { SquadRefitSafety } from '../career/SquadRefit'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
-import { playerEagleProjectileBudget, projectileTerrainContactTime, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
+import { playerEagleProjectileBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
 import { ProjectileAdmission } from '../combat/ProjectileAdmission'
 import { TOWN_AIR_COMMAND_IDS } from '../career/TownAirCommandAuthority'
 import { TownAirCommandSquadController } from './TownAirCommandSquadController'
@@ -61,6 +61,7 @@ import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
 import { townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TownProjectileObstacles } from './TownProjectileObstacles'
+import { ProjectileContactQuery } from '../combat/ProjectileContactQuery'
 import { TemporaryBattlefieldMounts } from '../career/TemporaryBattlefieldMounts'
 import { WeaponWheel } from '../player/WeaponWheel'
 import { WeaponWheelUI } from '../ui/WeaponWheelUI'
@@ -89,7 +90,7 @@ import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
 import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ArrowProjectile, createProjectileWarmupGroup } from '../world/ArrowProjectile'
 import { warmTownRenderResources } from './TownRenderWarmup'
-import { findBlockingProjectileObstacleAlongPath, getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBound, resolveEntityCollision, type ObstacleData } from '../world/Terrain'
+import { getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBound, resolveEntityCollision, type ObstacleData } from '../world/Terrain'
 import { damageMount, damageNpc, damagePlayer, damageObstacle } from '../combat/DamageRouter'
 import { registerTownCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import { personalUnitDisplayName } from '../ui/UnitDisplayName'
@@ -118,7 +119,7 @@ import { StaminaBar } from '../ui/StaminaBar'
 import { QuiverUI } from '../ui/QuiverUI'
 import { EquipmentUI } from '../ui/EquipmentUI'
 import { SkillManager } from '../rpg/SkillManager'
-import { SHIELD_CONFIG, traceCombatSegment, type CombatContact } from '../combat/ShieldBlocking'
+import { SHIELD_CONFIG, type CombatContact } from '../combat/ShieldBlocking'
 import { canAwardPlayerSkillProgression, resolveCombatSkill, skillStatesEqual } from '../rpg/CombatSkillProgression'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
@@ -226,7 +227,7 @@ export class TownScene {
   private shots: Shot[] = []
   private readonly projectileAdmission = new ProjectileAdmission(100, 60)
   get projectileDiagnostics() { return { activeShots: this.shots.length, ...this.projectileAdmission.snapshot() } }
-  private readonly shotObstacleContact = { fraction: Infinity, point: new THREE.Vector3() }
+  private readonly shotContacts = new ProjectileContactQuery()
   private readonly projectileObstacles = new TownProjectileObstacles()
   private raf = 0
   private last = performance.now()
@@ -3074,46 +3075,36 @@ export class TownScene {
       if (!s.training && s.age > (s.maxLifetimeSeconds ?? 5)) { s.arrow.destroy(); continue }
       s.arrow.update(dt, this.player, [], [], () => {}, damage => damagePlayer(this.player, damage, this.hp, null), undefined, true)
       if (!s.arrow.isAlive) continue
-      const to = s.arrow.mesh.position, delta = to.clone().sub(from), length = delta.length(), ray = new THREE.Ray(from, delta.normalize())
+      const to = s.arrow.mesh.position
       if (s.training) { if (s.age > .3) s.arrow.destroy(); continue }
-      const terrainTime = projectileTerrainContactTime(from, to)
-      let nearest = Math.min(length + .01, terrainTime * length), hit: (() => void) | null = Number.isFinite(terrainTime) ? () => {} : null
-      const obstacle = findBlockingProjectileObstacleAlongPath(from, to, this.projectileObstacles.query(from, to, this.world.obstacles), this.shotObstacleContact)
-      if (obstacle && this.shotObstacleContact.fraction * length < nearest) {
-        nearest = this.shotObstacleContact.fraction * length
-        const buildingIndex = this.world.buildings.findIndex(building => building.obstacles.includes(obstacle))
-        const point = this.shotObstacleContact.point.clone(), structure = obstacle.damageable
-        hit = () => {
+      const hit = this.shotContacts.find(from, to, {
+        world: { kind: 'town', practiceTargets: this.world.targets,
+          traceSiege: (start, end, maximum) => this.traceSiegeContact(start, end, maximum) },
+        obstacles: this.projectileObstacles.query(from, to, this.world.obstacles),
+        targets: this.shotTargets(s, runtimeActors, externalDefenders),
+        acceptsTarget: target => {
+          if (target instanceof Mount && (target.disposed || target.riderNpc === s.source || target.riderPlayer === this.player && s.player)) return false
+          if (target.dead) return false
+          // Recheck live allegiance for every shot after the preceding hit's effects.
+          return !runtimeActors || !(target instanceof Mount
+            ? !this.canHitTownMount(target, s.source)
+            : target instanceof NPC && (s.player
+              ? this.isProtectedTownAlly(target)
+              : !s.source || !townWartimeHostile(s.source, target)))
+        },
+      })
+      if (hit) {
+        if (hit.kind === 'obstacle') {
+          const buildingIndex = this.world.buildings.findIndex(building => building.obstacles.includes(hit.obstacle))
+          const structure = hit.obstacle.damageable
           if (structure && this.profile.activeMission?.kind === 'commander-four-gate-defense')
-            this.damageSiegeStructure(structure, s.arrow.damage, point, s.source, s.sourceRef, 'projectile')
+            this.damageSiegeStructure(structure, s.arrow.damage, hit.point, s.source, s.sourceRef, 'projectile')
           else if (buildingIndex >= 0 && (s.player || s.source?.combatOwnership === 'player-personal' && this.defense?.assault))
-            this.damageBuilding(buildingIndex, s.arrow.damage, point, s.source, s.sourceRef, 'projectile')
-        }
-      }
-      const siegeContact = this.traceSiegeContact(from, to, Math.min(length, nearest + .001))
-      if (siegeContact && siegeContact.distance <= nearest + .001) {
-        nearest = siegeContact.distance
-        hit = () => this.damageSiegeStructure(siegeContact.target, s.arrow.damage, siegeContact.point, s.source, s.sourceRef, 'projectile')
-      }
-      for (const target of this.world.targets) {
-        const p = ray.intersectSphere(new THREE.Sphere(target, .6), new THREE.Vector3()), distance = p?.distanceTo(from) ?? Infinity
-        if (distance < nearest) { nearest = distance; hit = () => {} }
-      }
-      const traceTarget = (target: Player | NPC | Mount, runtimeEligibility = false): void => {
-        if (target instanceof Mount && (target.disposed || target.riderNpc === s.source || target.riderPlayer === this.player && s.player)) return
-        if (target.dead) return
-        const broadPosition = target.group.position
-        if (broadPosition.distanceToSquared(from) > (length + 4 + (target instanceof Mount ? target.combatRadius : 0)) ** 2) return
-        // These predicates only read live state. Reject remote/dead targets first,
-        // then recheck allegiance for every arrow after the preceding hit's effects.
-        if (runtimeEligibility && (target instanceof Mount
-          ? !this.canHitTownMount(target, s.source)
-          : target instanceof NPC && (s.player
-            ? this.isProtectedTownAlly(target)
-            : !s.source || !townWartimeHostile(s.source, target)))) return
-        const contact: CombatContact = { kind: 'body', time: Infinity }
-        const distance = traceCombatSegment(target, from, to, contact) ? contact.time * length : Infinity
-        if (distance < nearest) { nearest = distance; hit = () => {
+            this.damageBuilding(buildingIndex, s.arrow.damage, hit.point, s.source, s.sourceRef, 'projectile')
+        } else if (hit.kind === 'siege') {
+          this.damageSiegeStructure(hit.target, s.arrow.damage, hit.point, s.source, s.sourceRef, 'projectile')
+        } else if (hit.kind === 'actor') {
+          const { target, contact } = hit
           if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile', contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target instanceof NPC && (this.race?.actors.includes(target) || this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
@@ -3122,42 +3113,45 @@ export class TownScene {
             if (this.cat.dead && this.ranger.mount === this.cat) this.ranger.dismountFromMount()
           }
           else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage, 'projectile', contact)
-        } }
+        }
+        s.arrow.destroy(); continue
       }
-      if (runtimeActors) {
-        // Preserve prefix, snapshot membership order, then independent mounts.
-        if (!s.player && (!s.source || s.source.hostileToPlayer)) traceTarget(this.player)
-        if (s.player || s.source) for (const target of runtimeActors) traceTarget(target, true)
-        for (const mount of this.combatMounts) traceTarget(mount, true)
-      } else {
-        const targets: Array<Player | NPC | Mount> = s.player
-          ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
-            ...[...this.residents.map(r => r.npc), ...this.townServiceMounts].filter(target => !this.isProtectedTownAlly(target))]
-          : s.source && externalDefenders.includes(s.source)
-            ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...(this.missionCombat?.enemyTownHostiles ?? [])]
-              .filter(npc => townWartimeHostile(s.source!, npc))
-          : s.source && (this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) || this.mission.friendlies.includes(s.source) || this.missionCombat?.enemyTownHostiles?.includes(s.source))
-            ? [...(s.source.hostileToPlayer || this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) ? [this.player] : []),
-              ...[...this.mission.combatPeersFor(s.source), ...(this.missionCombat?.enemyTownHostiles ?? []), ...externalDefenders].filter(npc => npc.faction !== s.source!.faction)]
-            : this.defense.active && s.source
-              ? [...(s.source.hostileToPlayer ? [this.player] : []), ...this.defense.peersFor(s.source),
-                ...externalDefenders.filter(npc => townWartimeHostile(s.source!, npc)),
-                ...(!this.defense.assault && s.source.faction === Faction.ENEMY && this.cat && !this.cat.dead ? [this.cat] : [])]
-            : s.source?.faction === Faction.TOWN
-              ? s.source.hostileToPlayer
-                ? [this.player]
-                : this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
-            : s.source?.faction === Faction.PLAYER
-              ? this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
-              : [this.player]
-        targets.push(...this.combatMounts.filter(mount => this.canHitTownMount(mount, s.source)))
-        for (const target of targets) traceTarget(target)
-      }
-      if (hit) { hit(); s.arrow.destroy(); continue }
       if ((s.age > (s.maxLifetimeSeconds ?? 5)) || to.y < getTerrainHeight(to.x, to.z)) s.arrow.destroy()
     }
     this.shots = this.shots.filter(s => s.arrow.isAlive)
   }
+  private *shotTargets(s: Shot, runtimeActors: readonly NPC[] | null, externalDefenders: readonly NPC[]): Iterable<Player | NPC | Mount> {
+    if (runtimeActors) {
+      // Preserve prefix, snapshot membership order, then independent mounts.
+      if (!s.player && (!s.source || s.source.hostileToPlayer)) yield this.player
+      if (s.player || s.source) yield* runtimeActors
+      yield* this.combatMounts
+    } else {
+      const targets: Array<Player | NPC | Mount> = s.player
+        ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...this.defense.playerEnemies,
+          ...[...this.residents.map(r => r.npc), ...this.townServiceMounts].filter(target => !this.isProtectedTownAlly(target))]
+        : s.source && externalDefenders.includes(s.source)
+          ? [...this.mission.ambientBandits, ...this.mission.missionBandits, ...(this.missionCombat?.enemyTownHostiles ?? [])]
+            .filter(npc => townWartimeHostile(s.source!, npc))
+        : s.source && (this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) || this.mission.friendlies.includes(s.source) || this.missionCombat?.enemyTownHostiles?.includes(s.source))
+          ? [...(s.source.hostileToPlayer || this.mission.missionBandits.includes(s.source) || this.mission.ambientBandits.includes(s.source) ? [this.player] : []),
+            ...[...this.mission.combatPeersFor(s.source), ...(this.missionCombat?.enemyTownHostiles ?? []), ...externalDefenders].filter(npc => npc.faction !== s.source!.faction)]
+          : this.defense.active && s.source
+            ? [...(s.source.hostileToPlayer ? [this.player] : []), ...this.defense.peersFor(s.source),
+              ...externalDefenders.filter(npc => townWartimeHostile(s.source!, npc)),
+              ...(!this.defense.assault && s.source.faction === Faction.ENEMY && this.cat && !this.cat.dead ? [this.cat] : [])]
+          : s.source?.faction === Faction.TOWN
+            ? s.source.hostileToPlayer
+              ? [this.player]
+              : this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
+          : s.source?.faction === Faction.PLAYER
+            ? this.mission.combatPeersFor(s.source).filter(npc => npc.faction === Faction.BANDIT)
+            : [this.player]
+      targets.push(...this.combatMounts.filter(mount => this.canHitTownMount(mount, s.source)))
+      yield* targets
+    }
+  }
+
   private traceSiegeContact(from: THREE.Vector3, to: THREE.Vector3, maximum = from.distanceTo(to)):
     { target: DamageableObstacle; point: THREE.Vector3; distance: number } | null {
     if (!this.siegeHitTargets.size || maximum <= 0) return null

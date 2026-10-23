@@ -5,12 +5,12 @@
 import * as THREE from 'three'
 import { NPC, Faction } from './NPC'
 import type { Player } from '../player/Player'
-import { getScenePlayableWorldBound, projectileObstacleEntryFraction, type ObstacleData } from './Terrain'
-import { PROJECTILE_GRAVITY, createProjectileFlightBudget, projectileTerrainContactTime, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
-import { traceCombatSegment, type CombatContact } from '../combat/ShieldBlocking'
+import { getScenePlayableWorldBound, type ObstacleData } from './Terrain'
+import { PROJECTILE_GRAVITY, createProjectileFlightBudget, type ProjectileFlightBudget } from '../combat/ProjectileBallistics'
+import { ProjectileContactQuery } from '../combat/ProjectileContactQuery'
 import { damageMount, damageNpc, damageObstacle, damageReceiver, type DamageResult } from '../combat/DamageRouter'
-import type { DamageReceiver } from '../combat/DamageReceiver'
-import type { Mount } from './Mount'
+import { isDamageReceiver, type DamageReceiver } from '../combat/DamageReceiver'
+import { Mount } from './Mount'
 import type {
   CombatActorRef,
   CombatDamageContext,
@@ -118,8 +118,7 @@ export class ArrowProjectile {
   // ── Reusable temporary vectors (P-1: avoid per-frame GC pressure) ──
   private readonly _tmpTargetPos = new THREE.Vector3()
   private readonly previousPosition = new THREE.Vector3()
-  private readonly contact: CombatContact = { kind: 'body', time: Infinity }
-  private readonly bestContact: CombatContact = { kind: 'body', time: Infinity }
+  private readonly contacts = new ProjectileContactQuery()
 
   readonly damage: number
   readonly shooterFaction: Faction
@@ -279,64 +278,31 @@ export class ArrowProjectile {
 
     if (visualOnly) return
 
-    // Give the arrowhead enough clearance to leave the nock before testing
-    // world geometry, then collide against the procedural terrain height—not
-    // the global y=0 plane, which incorrectly swallowed shots fired in valleys.
-    const worldCollisionsEnabled = this.travelledDistance >= 0.12
-    let nearest = worldCollisionsEnabled ? projectileTerrainContactTime(this.previousPosition, this.mesh.position) : Infinity
-    let hitObstacle: ObstacleData | undefined
-    let hitNpc: NPC | undefined
-    let hitPlayer = false
-    let hitMount: Mount | undefined
-    let hitReceiver: DamageReceiver | undefined
-
-    // ── Hit Detection 2: Obstacles (Trees / Barricades / Campaign Structures) ──
-    if (worldCollisionsEnabled) {
-      for (const obs of obstacles) {
-        const time = projectileObstacleEntryFraction(obs, this.previousPosition, this.mesh.position)
-        if (time !== null && time < nearest) { nearest = time; hitObstacle = obs }
-      }
-    }
-    const broadRadius = this.previousPosition.distanceTo(this.mesh.position) + 4
-    if (this.shooterFaction === Faction.ENEMY && player.targetable
-      && player.group.position.distanceToSquared(this.previousPosition) <= broadRadius * broadRadius
-      && traceCombatSegment(player, this.previousPosition, this.mesh.position, this.contact) && this.contact.time < nearest) {
-      nearest = this.contact.time; hitPlayer = true; hitObstacle = undefined
-      Object.assign(this.bestContact, this.contact)
-    }
-    for (const npc of npcs) {
-      if (npc.dead || npc.faction === this.shooterFaction || npc.group.position.distanceToSquared(this.previousPosition) > broadRadius * broadRadius) continue
-      if (traceCombatSegment(npc, this.previousPosition, this.mesh.position, this.contact) && this.contact.time < nearest) {
-        nearest = this.contact.time; hitNpc = npc; hitPlayer = false; hitObstacle = undefined
-        Object.assign(this.bestContact, this.contact)
-      }
-    }
-    // Hostile and unowned mounts remain physical targets even after their rider leaves.
-    for (const mount of mounts) {
-      if (mount.dead || mount.disposed || !projectileCanHitMount(mount, this.shooterFaction) || (this.isPlayerFired && mount === player.currentMount)
-        || (mount.riderNpc && mount.riderNpc.combatantId === this.attribution?.source.actorId)
-        || mount.group.position.distanceToSquared(this.previousPosition) > (broadRadius + mount.combatRadius) ** 2) continue
-      if (traceCombatSegment(mount, this.previousPosition, this.mesh.position, this.contact) && this.contact.time < nearest) {
-        nearest = this.contact.time; hitMount = mount; hitNpc = undefined; hitPlayer = false; hitObstacle = undefined
-        Object.assign(this.bestContact, this.contact)
-      }
-    }
-    for (const target of receivers) {
-      if (target.group.position.distanceToSquared(this.previousPosition) > broadRadius * broadRadius) continue
-      if (traceCombatSegment(target, this.previousPosition, this.mesh.position, this.contact) && this.contact.time < nearest) {
-        nearest = this.contact.time; hitReceiver = target; hitMount = undefined; hitNpc = undefined; hitPlayer = false; hitObstacle = undefined
-        Object.assign(this.bestContact, this.contact)
-      }
-    }
-    if (Number.isFinite(nearest)) {
-      this.mesh.position.lerpVectors(this.previousPosition, this.mesh.position, nearest)
-      if (hitNpc || hitPlayer || hitMount || hitReceiver) {
+    const hit = this.contacts.find(this.previousPosition, this.mesh.position, {
+      world: { kind: 'battle', travelledDistance: this.travelledDistance }, obstacles,
+      targets: this.orderedTargets(player, npcs, mounts, receivers),
+      acceptsTarget: target => {
+        if (target === player) return this.shooterFaction === Faction.ENEMY && player.targetable
+        if (target instanceof NPC) return !target.dead && target.faction !== this.shooterFaction
+        if (target instanceof Mount) return !target.dead && !target.disposed && projectileCanHitMount(target, this.shooterFaction)
+          && !(this.isPlayerFired && target === player.currentMount)
+          && !(target.riderNpc && target.riderNpc.combatantId === this.attribution?.source.actorId)
+        return true
+      },
+    })
+    if (hit) {
+      this.mesh.position.copy(hit.point)
+      if (hit.kind === 'actor') {
+        const hitNpc = hit.target instanceof NPC ? hit.target : undefined
+        const hitMount = hit.target instanceof Mount ? hit.target : undefined
+        const hitReceiver = isDamageReceiver(hit.target) ? hit.target : undefined
+        const hitPlayer = hit.target === player
         const context = this._damageContext()
-        if (context) context.contact = this.bestContact
+        if (context) context.contact = hit.contact
         // Unattributed projectiles still physically block, but never award XP.
         const physicalContext = context ?? {
           source: { actorId: 'unattributed-projectile', actorType: 'npc' as const, allegiance: this.shooterFaction, characterFaction: player.characterFaction },
-          method: 'projectile' as const, contact: this.bestContact, hostileToTarget: false,
+          method: 'projectile' as const, contact: hit.contact, hostileToTarget: false,
         }
         const playerMountHit = hitMount === player.currentMount
         const result = hitReceiver ? damageReceiver(hitReceiver, this.damage, physicalContext)
@@ -346,8 +312,8 @@ export class ArrowProjectile {
         this.destroy()
         return
       }
-      if (hitObstacle) {
-        const damageable = hitObstacle.damageable
+      if (hit.kind === 'obstacle') {
+        const damageable = hit.obstacle.damageable
         const canDamageObstacle = damageable
           && !damageable.destroyed
           && (
@@ -371,6 +337,14 @@ export class ArrowProjectile {
       return
     }
 
+  }
+
+  private *orderedTargets(player: Player, npcs: readonly NPC[], mounts: readonly Mount[], receivers: readonly DamageReceiver[]):
+    Iterable<Player | NPC | Mount | DamageReceiver> {
+    yield player
+    yield* npcs
+    yield* mounts
+    yield* receivers
   }
 
   private _damageContext(): CombatDamageContext | undefined {
