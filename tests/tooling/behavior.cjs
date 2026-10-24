@@ -1,5 +1,6 @@
 const ts = require('typescript')
 const { posix } = require('node:path')
+const { declarationSnapshot, changedDeclarations, runtimeImports, inertValue } = require('./behavior-changes.cjs')
 
 const callable = n => n && ts.isFunctionLike(n) && n.body
 const typeOnly = n => ts.isTypeNode(n) || ts.isInterfaceDeclaration(n) || ts.isTypeAliasDeclaration(n)
@@ -47,9 +48,11 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     const sf = program.getSourceFile(fullPath)
     const top = add(sf, '<module>')
     files.set(file, { sf, top, registrations: [], hooks: [], blocked: new Set() })
+    const importBindings = runtimeImports(sf).bindings
     function index(n) {
       if (typeOnly(n)) return
-      if (callable(n) || ts.isVariableDeclaration(n) || member(n) || ts.isClassDeclaration(n) || ts.isEnumDeclaration(n)) {
+      if ((ts.isImportSpecifier(n) || ts.isNamespaceImport(n) || ts.isImportClause(n)) && n.name && importBindings.has(n.name.text)) add(n, `<import:${n.name.text}>`)
+      if (callable(n) || ts.isVariableDeclaration(n) || member(n) || ts.isClassLike(n) || ts.isEnumDeclaration(n)) {
         const owner = n.parent?.name?.getText?.()
         add(n, `${owner ? owner + '.' : ''}${n.name?.getText() ?? (ts.isConstructorDeclaration(n) ? 'constructor' : '<callback>')}`)
       }
@@ -91,18 +94,32 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     }
     return closures.get(file)
   }
-  function symbolEdges(n, entry) {
-    let symbol = checker.getSymbolAtLocation(n)
-    if (symbol?.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol)
-    for (const decl of symbol?.declarations ?? []) {
-      const id = byAst.get(decl)
+  function linkSymbol(symbol, entry, seen = new Set()) {
+    if (!symbol || seen.has(symbol)) return symbol
+    seen.add(symbol)
+    for (const decl of symbol.declarations ?? []) {
+      let owner = decl
+      while (ts.isBindingElement(owner) || ts.isObjectBindingPattern(owner) || ts.isArrayBindingPattern(owner)) owner = owner.parent
+      const id = byAst.get(owner)
       if (id && id !== entry.id) { entry.edges.add(id); entry.conservativeEdges.delete(id) }
     }
+    // Preserve intermediate import/re-export bindings instead of flattening
+    // directly to the final declaration: an unchanged caller can be retargeted.
+    return symbol.flags & ts.SymbolFlags.Alias
+      ? linkSymbol(checker.getImmediateAliasedSymbol(symbol), entry, seen) : symbol
+  }
+  function symbolEdges(n, entry, original = checker.getSymbolAtLocation(n)) {
+    const symbol = linkSymbol(original, entry)
+    const namespace = symbol && symbol.flags & (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule)
+    const namedAccess = (ts.isPropertyAccessExpression(n.parent) || ts.isElementAccessExpression(n.parent)) && n.parent.expression === n
+      && (ts.isPropertyAccessExpression(n.parent) || ts.isStringLiteralLike(n.parent.argumentExpression))
+    // Namespace escape, dynamic access and enumeration may read any export.
+    if (namespace && !namedAccess) for (const exported of checker.getExportsOfModule(symbol)) linkSymbol(exported, entry)
     // A CommonJS/destructured class binding can have a BindingElement symbol
     // while its runtime type still identifies the actual class declaration.
     const valueType = checker.getTypeAtLocation(n)
     for (const decl of valueType.getConstructSignatures().length ? valueType.symbol?.declarations ?? [] : []) {
-      if (ts.isClassDeclaration(decl) && byAst.has(decl)) entry.edges.add(byAst.get(decl))
+      if (ts.isClassLike(decl) && byAst.has(decl)) entry.edges.add(byAst.get(decl))
     }
     return symbol
   }
@@ -117,7 +134,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     return n
   }
   function inspect(n, entry, root = false) {
-    if (typeOnly(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) return
+    if (typeOnly(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n) || ts.isImportSpecifier(n) || ts.isNamespaceImport(n) || ts.isImportClause(n)) return
     // Registration callbacks are separate roots. Suite hooks are applied below.
     if (registration(n)) {
       if (root) {
@@ -135,9 +152,13 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
       return
     }
     if (!root && byAst.has(n)) { entry.edges.add(byAst.get(n)); return }
-    if (ts.isClassDeclaration(n)) {
+    if (ts.isClassLike(n)) {
       for (const clause of n.heritageClauses ?? []) for (const type of clause.types) inspect(type.expression, entry)
+      for (const decorator of ts.getDecorators(n) ?? []) inspect(decorator.expression, entry)
       for (const child of n.members) {
+        for (const decorator of ts.canHaveDecorators(child) ? ts.getDecorators(child) ?? [] : []) inspect(decorator.expression, entry)
+        if (child.name && ts.isComputedPropertyName(child.name)) inspect(child.name.expression, entry)
+        if (ts.isClassStaticBlockDeclaration(child)) inspect(child.body, entry)
         if (child.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword) && ts.isPropertyDeclaration(child)) {
           const id = byAst.get(child); if (id) entry.edges.add(id)
         }
@@ -152,10 +173,10 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
           if (byAst.has(child)) entry.edges.add(byAst.get(child))
         }
         for (const clause of declaration.heritageClauses ?? []) for (const type of clause.types) {
-          for (const base of checker.getTypeAtLocation(type.expression).symbol?.declarations ?? []) if (ts.isClassDeclaration(base)) construct(base, seen)
+          for (const base of checker.getTypeAtLocation(type.expression).symbol?.declarations ?? []) if (ts.isClassLike(base)) construct(base, seen)
         }
       }
-      for (const declaration of checker.getTypeAtLocation(n.expression).symbol?.declarations ?? []) if (ts.isClassDeclaration(declaration)) construct(declaration)
+      for (const declaration of checker.getTypeAtLocation(n.expression).symbol?.declarations ?? []) if (ts.isClassLike(declaration)) construct(declaration)
     }
     const unknownDispatch = expression => {
       const value = origin(expression)
@@ -166,7 +187,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
         if (!entry.edges.has(id)) entry.conservativeEdges.add(id)
         entry.edges.add(id)
         const owner = nodes.get(id).ast.parent
-        if (ts.isClassDeclaration(owner)) entry.edges.add(byAst.get(owner))
+        if (ts.isClassLike(owner)) entry.edges.add(byAst.get(owner))
       }
     }
     if (ts.isCallExpression(n)) {
@@ -181,6 +202,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
       })
       if (n.expression.getText() === 'eval') entry.unsafe = 'eval runtime dispatch'
     }
+    if (ts.isShorthandPropertyAssignment(n)) symbolEdges(n.name, entry, checker.getShorthandAssignmentValueSymbol(n))
     if (ts.isIdentifier(n) && n !== n.parent?.name) symbolEdges(n, entry)
     if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) {
       const keyType = ts.isElementAccessExpression(n) ? checker.getTypeAtLocation(n.argumentExpression) : null
@@ -189,9 +211,9 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
         : keyType?.flags & ts.TypeFlags.StringLiteral ? keyType.value : null
       const symbol = symbolEdges(ts.isPropertyAccessExpression(n) ? n.name : n.argumentExpression, entry)
       const original = origin(n.expression)
-      if (name && original !== n.expression) {
+      if (name) {
         const actual = checker.getPropertyOfType(checker.getTypeAtLocation(original), name)
-        for (const decl of actual?.declarations ?? []) if (byAst.has(decl)) { entry.edges.add(byAst.get(decl)); entry.conservativeEdges.delete(byAst.get(decl)) }
+        linkSymbol(actual, entry)
       }
       const concrete = symbol?.declarations?.some(d => byAst.has(d) || d.getSourceFile().isDeclarationFile)
       if (!concrete && name) for (const id of byMember.get(name) ?? []) {
@@ -208,7 +230,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
           if (!entry.edges.has(id)) entry.conservativeEdges.add(id)
           entry.edges.add(id)
           const parent = nodes.get(id).ast.parent
-          if (ts.isClassDeclaration(parent)) entry.edges.add(byAst.get(parent))
+          if (ts.isClassLike(parent)) entry.edges.add(byAst.get(parent))
         }
       }
     }
@@ -224,12 +246,25 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     if (ts.isSourceFile(entry.ast) || entry.label === '<suite setup>') {
       function eager(n) {
         if (typeOnly(n) || registration(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n) || callable(n)) return
-        if (ts.isClassDeclaration(n)) {
-          for (const m of n.members) if (m.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword) && m.initializer) inspect(m.initializer, entry)
+        if (ts.isEnumDeclaration(n)) {
+          for (const m of n.members) if (m.initializer && !inertValue(m.initializer)) inspect(m.initializer, entry)
           return
         }
-        if (ts.isVariableDeclaration(n)) { if (n.initializer) eager(n.initializer); return }
-        if (ts.isCallExpression(n) || ts.isNewExpression(n)) { inspect(n, entry); return }
+        if (ts.isClassLike(n)) {
+          for (const decorator of ts.getDecorators(n) ?? []) inspect(decorator.expression, entry)
+          for (const clause of n.heritageClauses ?? []) for (const type of clause.types) inspect(type.expression, entry)
+          for (const m of n.members) {
+            for (const decorator of ts.canHaveDecorators(m) ? ts.getDecorators(m) ?? [] : []) inspect(decorator.expression, entry)
+            if (ts.isClassStaticBlockDeclaration(m)) inspect(m.body, entry)
+            else if (m.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword) && m.initializer
+              && !inertValue(m.initializer)) inspect(m.initializer, entry)
+            if (m.name && ts.isComputedPropertyName(m.name)) inspect(m.name.expression, entry)
+          }
+          return
+        }
+        if (ts.isVariableStatement(n)) { n.declarationList.declarations.forEach(eager); return }
+        if (ts.isVariableDeclaration(n)) { if (n.initializer && !inertValue(n.initializer)) inspect(n.initializer, entry); return }
+        if (ts.isStatement(n) || ts.isCallExpression(n) || ts.isNewExpression(n)) { inspect(n, entry); return }
         ts.forEachChild(n, eager)
       }
       eager(entry.ast)
@@ -254,7 +289,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     const visit = id => {
       if (seen.has(id) || blocked.has(nodes.get(id)?.file)) return
       const ast = nodes.get(id)?.ast
-      const owner = ast?.parent && ts.isClassDeclaration(ast.parent) ? byAst.get(ast.parent) : null
+      const owner = ast?.parent && ts.isClassLike(ast.parent) ? byAst.get(ast.parent) : null
       if (owner && !seen.has(owner)) {
         if (!pending.has(owner)) pending.set(owner, new Set())
         pending.get(owner).add(id)
@@ -296,26 +331,17 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
   function wholeFileRoots(file) {
     return [...nodes.values()].filter(n => n.file === file).map(n => n.id)
   }
-  function changedNodes(file, ranges) {
+  const declarations = new Map()
+  function snapshot(file) {
     const info = files.get(file)
     if (!info) throw new Error(`Missing behavior source: ${file}`)
-    const hits = new Set()
-    for (const [start, count] of ranges) {
-      if (!count) continue
-      const end = start + count - 1
-      const matches = [...nodes.values()].filter(n => n.file === file && callable(n.ast)
-        && info.sf.getLineAndCharacterOfPosition(n.ast.getStart()).line + 1 <= start
-        && info.sf.getLineAndCharacterOfPosition(n.ast.end).line + 1 >= end)
-        .sort((a,b) => (a.ast.end-a.ast.pos)-(b.ast.end-b.ast.pos))
-      if (matches.length) hits.add(matches[0].id)
-      else {
-        hits.shared = true
-        // Shared state, public data shape, exports, or module effects: all runtime
-        // behaviors in this module are affected. Never guess from feature words.
-        for (const n of nodes.values()) if (n.file === file) hits.add(n.id)
-      }
-    }
-    return hits
+    if (!declarations.has(file)) declarations.set(file, declarationSnapshot(info.sf, byAst))
+    return declarations.get(file)
+  }
+  function changedNodes(file, previous) {
+    const { ids, moduleEffect } = changedDeclarations(snapshot(file), previous.snapshot(file))
+    if (moduleEffect) ids.add(files.get(file).top)
+    return ids
   }
   const explanations = new WeakMap()
   function explain(roots, reached, target) {
@@ -335,11 +361,12 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     if (!previous.has(target)) return []
     const path = []
     for (let next = target; next; next = previous.get(next)) path.unshift(nodes.get(next))
-    const behaviors = path.filter(n => n.file.startsWith('src/') && callable(n.ast)).map(n => ({ file: n.file, behavior: n.label }))
+    const behaviors = path.filter(n => n.file.startsWith('src/') && (callable(n.ast) || n.id === target && n.label !== '<module>')).map(n => ({ file: n.file, behavior: n.label }))
+    behaviors.initialization = path.some(n => n.label === '<module>')
     behaviors.conservative = path.some((n, index) => n.conservativeEdges.has(path[index + 1]?.id))
     return behaviors
   }
-  return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, explain }
+  return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, snapshot, explain }
 }
 
 function selectBehaviors(inventory, changed, consumers, evidence) {
@@ -352,7 +379,7 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
   const oldTestPaths = new Map([...testRenames].map(([before, after]) => [after, before]))
   const selectedCases = {}, reasons = {}, details = {}, changedBehaviors = new Set(), candidates = new Set()
   for (const change of changed) {
-    const targets = graphs.map((g, i) => g.changedNodes(change.file, ranges[change.file][i]))
+    const targets = graphs.map((g, i) => g.changedNodes(change.file, graphs[1 - i]))
     for (let i=0; i<2; i++) for (const id of targets[i]) changedBehaviors.add(`${change.file}#${graphs[i].nodes.get(id).label}`)
     const covered = [new Set(), new Set()]
     for (const file of new Set([...(consumers[change.file] ?? []), ...(previous[change.file] ?? []).map(file => testRenames.get(file) ?? file)])) {
@@ -362,7 +389,8 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
       const fallback = !suite.locations || suite.locations.length !== suite.names.length
         || suite.names.some((name, i) => suite.names.indexOf(name) !== i)
         || suite.nativeNames && new Set(suite.nativeNames).size !== suite.nativeNames.length
-      const matched = [], owners = new Set(), conservativeCases = new Set()
+      const matched = [], owners = new Set(), conservativeCases = new Set(), initializationCases = new Set()
+      let runtimeHit = false
       let caller = false
       let whole = false
       for (let index=0; index<suite.names.length; index++) {
@@ -380,6 +408,8 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
           for (const id of targets[i]) if (reached.has(id)) {
             hit = true; covered[i].add(id)
             const path = graphs[i].explain(actualRoots, reached, id)
+            if (path.initialization) initializationCases.add(index)
+            else runtimeHit = true
             if (path.conservative) { conservativeCases.add(index); caller = true }
             for (const step of path) { owners.add(step.behavior); if (step.file !== change.file) caller = true }
           }
@@ -391,10 +421,10 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
       if (matched.length) {
         selectedCases[file] = [...new Set([...(selectedCases[file] ?? []), ...matched])].sort((a,b)=>a-b)
         ;(reasons[file] ??= []).push(`Runtime behavior reference: ${change.file}`)
-        ;(details[file] ??= []).push({ changed: change.file, source: caller ? 'Caller Contract' : 'Direct Owner', owners: [...owners].sort(), conservativeCases: [...conservativeCases] })
+        ;(details[file] ??= []).push({ changed: change.file, source: !runtimeHit ? 'Module Initialization' : caller ? 'Caller Contract' : 'Direct Owner', owners: [...owners].sort(), conservativeCases: [...conservativeCases], initializationCases: [...initializationCases] })
       }
     }
-    for (let i=0; i<2; i++) if (!targets[i].shared) for (const id of targets[i]) {
+    for (let i=0; i<2; i++) for (const id of targets[i]) {
       if (!covered[i].has(id)) throw new Error(`Unsafe/unmapped behavior: ${change.file}#${graphs[i].nodes.get(id).label}; no proven owner cases`)
     }
     if (!Object.values(details).some(list=>list.some(d=>d.changed===change.file))) throw new Error(`Unsafe/unmapped behavior: ${change.file}; no proven owner cases`)

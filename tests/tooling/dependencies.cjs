@@ -9,8 +9,8 @@ function dependencyConsumers(inventory, sources, exists = file => sources.has(fi
   const unresolvedImports = []
   for (const [file, source] of sources) {
     // Match Vite's runtime graph; type-only contracts are checked by typecheck.
-    const runtime = /\.tsx?$/.test(file) ? ts.transpileModule(source, {
-      compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext },
+    const runtime = /\.d\.[cm]?ts$/.test(file) ? '' : /\.tsx?$/.test(file) ? ts.transpileModule(source, {
+      fileName: file, compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext },
     }).outputText : source
     if (/^(src\/|tests\/|electron\/|\.github\/scripts\/release\/)/.test(file)) {
       const parsed = ts.createSourceFile(file, runtime, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
@@ -89,9 +89,10 @@ function dependencyChain(graph, from, to) {
   }
   return null
 }
-function runtimeEquivalent(before, after) {
+function runtimeEquivalent(before, after, fileName = 'owner.ts') {
+  if (/\.d\.[cm]?ts$/.test(fileName)) return true
   const fingerprint = source => {
-    const runtime = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext, removeComments: true } }).outputText
+    const runtime = ts.transpileModule(source, { fileName, compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext, removeComments: true } }).outputText
     const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.Standard, runtime)
     const tokens = []
     for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) tokens.push([kind, scanner.getTokenText()])
