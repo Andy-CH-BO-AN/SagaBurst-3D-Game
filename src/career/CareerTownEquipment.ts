@@ -1,5 +1,6 @@
+import { isCareerShopItemUseUnlocked } from './CareerShopCatalog'
 import type { CareerProfile } from './CareerProfile'
-import { cloneCareerProfile, getCareerPurchaseTier } from './CareerProfile'
+import { cloneCareerProfile } from './CareerProfile'
 import { availableCareerItem, careerItemTotals, normalizeCareerInventory, type PersonalEquipmentSlot } from './CareerInventory'
 import { canRecruitPersonalSquad, type PersonalSquadAuthority } from './CareerPersonalSquad'
 import type { SquadId } from '../battle/CommandTarget'
@@ -33,7 +34,7 @@ export function townEquipmentSquads(profile: CareerProfile): TownEquipmentSquad[
     { id: 'civilian' as const, name: commanderTownSquadLabel('civilian')!, actorIds: [...Array.from({ length: 20 }, (_, i) => `civilian-${i}`), 'merchant'] }]
 }
 export function careerEquipmentCategory(itemId: string): BulkEquipmentCategory | undefined {
-  if (['horse', 'corgi', 'black-cat'].includes(itemId)) return 'mount'
+  if (['horse', 'corgi', 'black-cat', 'snow-leopard'].includes(itemId)) return 'mount'
   const item = WEAPONS[itemId]
   if (!item) return undefined
   if (item.type === 'ranged') return item.combatKind === 'bow' ? 'bow' : undefined
@@ -130,7 +131,7 @@ export function changeTownEquipment(read: () => CareerProfile, context: TownEqui
   if ((previous?.itemId ?? null) === itemId) return fail(current, 'no-op')
   if (itemId && availableCareerItem(next, itemId) < 1) return fail(current, 'no-available-item')
   const ref: TownEquipmentRef | null = itemId ? { itemId, source: 'inventory' } : null
-  if (ref && townEquipmentRefTier(current, ref, context.townFaction) > getCareerPurchaseTier(current.rank)) return fail(current, 'rank-locked')
+  if (ref && !isCareerShopItemUseUnlocked(current, ref.itemId)) return fail(current, 'rank-locked')
   refs[slot] = ref
   if (target !== 'civilian' && !refs.melee && !refs.ranged) return fail(current, 'last-weapon')
   writeRefs(next, context, target, actorId, refs)
@@ -185,7 +186,7 @@ export function bulkCareerEquipment(read: () => CareerProfile, context: TownEqui
     if (!candidate.requested || actor.actorId === 'merchant' && candidate.itemId !== 'horse') return false
     // Both the changed slot and the resulting active weapon must retain their previous tiers.
     return candidate.tier >= townEquipmentRefTier(next, before.get(actor.actorId)![slot], context.townFaction)
-      && candidate.tier <= getCareerPurchaseTier(current.rank)
+      && Boolean(candidate.itemId && isCareerShopItemUseUnlocked(current, candidate.itemId))
   }
   const plan = planBulkEquipment(actors, candidates, accepts, resultTier)
   const changed: string[] = []

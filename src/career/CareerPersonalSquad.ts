@@ -1,8 +1,9 @@
+import { isCareerShopItemUseUnlocked } from './CareerShopCatalog'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
 import { addCareerItem, initialPersonalEquipment, normalizeCareerInventory, availableCareerItem, validPersonalEquipment, type PersonalEquipment, type PersonalEquipmentSlot } from './CareerInventory'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { cloneCareerProfile, getCareerPurchaseTier, type CareerProfile } from './CareerProfile'
+import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 
 export const PERSONAL_SQUAD_LIMIT = 30
 export type PersonalSquadMemberType = 'soldier' | 'captain' | 'ranger' | 'commander'
@@ -110,7 +111,7 @@ export function changePersonalEquipment(read: () => CareerProfile, authority: Pe
   const member = next.personalSquad!.members.find(member => member.id === memberId)!
   const equipment = member.equipment!
   if (id !== equipment[slot] && id && availableCareerItem(next, id) < 1) return fail('no-available-item')
-  if (id && (item?.tier ?? (id === 'horse' ? 1 : 4)) > getCareerPurchaseTier(current.rank)) return fail('rank-locked')
+  if (id && !isCareerShopItemUseUnlocked(current, id)) return fail('rank-locked')
   Object.assign(equipment, { [slot]: id })
   if (!equipment.melee && !equipment.ranged) return fail('last-weapon')
   if (!validPersonalEquipment(member.type, equipment)) return fail('invalid-item')

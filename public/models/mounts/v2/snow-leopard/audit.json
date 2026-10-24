@@ -1,0 +1,175 @@
+{
+  "schemaVersion": 1,
+  "sha256": "6c5b50acc0502237d0ba7e8cc980b5163a3609f701cb232ee40dff76b97cd80f",
+  "source": {
+    "file": "Meshy_AI_Character_output.glb",
+    "sourceSha256": "a149122f5ec78ad5573fb5591f4993867bae29b56a75b4979fa4b3592e8d674c",
+    "title": "Armored Snow Leopard",
+    "creatorPlatform": "Meshy",
+    "license": "User-authorized redistribution",
+    "permissionEvidence": "Supplying user explicitly stated: 我擁有模型並有權提交修改後資產",
+    "selection": "User explicitly selected this rigged GLB in place of the earlier raw FBX source"
+  },
+  "package": {
+    "sha256": "6c5b50acc0502237d0ba7e8cc980b5163a3609f701cb232ee40dff76b97cd80f",
+    "packageBytes": 5482308,
+    "triangles": [
+      14494,
+      6364,
+      2723
+    ],
+    "simplifierRelativeError": [
+      0.00915762223303318,
+      0.02404419519007206,
+      0.05820135772228241
+    ],
+    "donorSha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
+    "materials": 1,
+    "skins": 1,
+    "joints": 54,
+    "clips": [
+      {
+        "name": "idle",
+        "duration": 10
+      },
+      {
+        "name": "walk",
+        "duration": 1.2
+      },
+      {
+        "name": "run",
+        "duration": 0.8
+      },
+      {
+        "name": "jump",
+        "duration": 0.7666666666666667
+      },
+      {
+        "name": "land",
+        "duration": 0.6333333333333333
+      },
+      {
+        "name": "hit",
+        "duration": 0.6333333333333333
+      },
+      {
+        "name": "death",
+        "duration": 1.8
+      }
+    ]
+  },
+  "preservation": {
+    "sourcePositionsExact": true,
+    "sourceCornerNormalsExact": true,
+    "source48RestMatricesExact": true,
+    "sourceUV": "unchanged"
+  },
+  "armor": {
+    "method": "Source metallic UV mask with four measured side-plate volumes, rigid least-squares fitted controllers, 45mm edge collars retaining native skin, rigid saddle and helmet cores",
+    "patchedVertices": 28670,
+    "retainedVertexSkin": 27944,
+    "regions": {
+      "plate_shoulder_l": {
+        "vertices": 5599,
+        "rigidCoreVertices": 4269,
+        "fitVertices": 429,
+        "sourceBounds": {
+          "sign": 1,
+          "bounds": [
+            [
+              0.275,
+              0.66
+            ],
+            [
+              -1.14,
+              -0.57
+            ],
+            [
+              0.565,
+              1.325
+            ]
+          ],
+          "feather": 0.045
+        }
+      },
+      "plate_shoulder_r": {
+        "vertices": 5956,
+        "rigidCoreVertices": 4584,
+        "fitVertices": 438,
+        "sourceBounds": {
+          "sign": -1,
+          "bounds": [
+            [
+              0.275,
+              0.66
+            ],
+            [
+              -1.14,
+              -0.57
+            ],
+            [
+              0.565,
+              1.325
+            ]
+          ],
+          "feather": 0.045
+        }
+      },
+      "plate_hip_l": {
+        "vertices": 4832,
+        "rigidCoreVertices": 3637,
+        "fitVertices": 396,
+        "sourceBounds": {
+          "sign": 1,
+          "bounds": [
+            [
+              0.28,
+              0.64
+            ],
+            [
+              0.105,
+              0.86
+            ],
+            [
+              0.555,
+              1.29
+            ]
+          ],
+          "feather": 0.045
+        }
+      },
+      "plate_hip_r": {
+        "vertices": 4583,
+        "rigidCoreVertices": 3557,
+        "fitVertices": 371,
+        "sourceBounds": {
+          "sign": -1,
+          "bounds": [
+            [
+              0.28,
+              0.64
+            ],
+            [
+              0.105,
+              0.86
+            ],
+            [
+              0.555,
+              1.29
+            ]
+          ],
+          "feather": 0.045
+        }
+      }
+    }
+  },
+  "validation": {
+    "structuralAudit": "pending independent audit",
+    "blenderPackedRoundtrip": "pending visual acceptance",
+    "browserGameplay": "pending",
+    "gpuPerformance": "not measured",
+    "knownLimitations": [
+      "PROVISIONAL: armor seams and upper croup plates remain under active visual repair"
+    ]
+  }
+}

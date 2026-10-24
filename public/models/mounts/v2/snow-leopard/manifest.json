@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "id": "snow-leopard-v2",
+  "status": "provisional",
+  "forward": "+Z",
+  "file": "snow-leopard.glb",
+  "source": {
+    "file": "Meshy_AI_Character_output.glb",
+    "sourceSha256": "a149122f5ec78ad5573fb5591f4993867bae29b56a75b4979fa4b3592e8d674c",
+    "title": "Armored Snow Leopard",
+    "creatorPlatform": "Meshy",
+    "license": "User-authorized redistribution",
+    "permissionEvidence": "Supplying user explicitly stated: 我擁有模型並有權提交修改後資產",
+    "selection": "User explicitly selected this rigged GLB in place of the earlier raw FBX source"
+  },
+  "sha256": "6c5b50acc0502237d0ba7e8cc980b5163a3609f701cb232ee40dff76b97cd80f",
+  "animationSource": "animation-source.json",
+  "rigMapping": "rig-mapping.json",
+  "metrics": {
+    "triangles": {
+      "snow_leopard_body_lod0": 14494,
+      "snow_leopard_body_lod1": 6364,
+      "snow_leopard_body_lod2": 2723
+    },
+    "visibleEquippedTriangles": [
+      14494,
+      6364,
+      2723
+    ],
+    "textureMaxSize": 2048,
+    "textures": [
+      {
+        "name": "base-color",
+        "width": 2048,
+        "height": 2048,
+        "mimeType": "image/jpeg"
+      },
+      {
+        "name": "metallic-roughness",
+        "width": 1024,
+        "height": 1024,
+        "mimeType": "image/png"
+      }
+    ],
+    "packageBytes": 5482308,
+    "saddleHeightM": 1.5374562740325928,
+    "materials": 1,
+    "storedMeshPrimitives": 3,
+    "visiblePrimitives": 1,
+    "joints": 54
+  },
+  "lodNodes": [
+    "snow_leopard_body_lod0",
+    "snow_leopard_body_lod1",
+    "snow_leopard_body_lod2"
+  ],
+  "clips": [
+    "idle",
+    "walk",
+    "run",
+    "jump",
+    "land",
+    "hit",
+    "death"
+  ],
+  "sockets": [
+    "socket_saddle_seat",
+    "socket_camera"
+  ],
+  "validation": {
+    "structuralAudit": "pending independent audit",
+    "blenderPackedRoundtrip": "pending visual acceptance",
+    "browserGameplay": "pending",
+    "gpuPerformance": "not measured",
+    "knownLimitations": [
+      "PROVISIONAL: armor seams and upper croup plates remain under active visual repair"
+    ]
+  }
+}

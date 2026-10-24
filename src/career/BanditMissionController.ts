@@ -484,6 +484,9 @@ export class BanditMissionController {
       return started
     }
     this.ambientBatches.get(camp.id)?.cancel()
+    // The mission owns this camp now, so superseded ambient work is no longer
+    // a deployment prerequisite when restoring an active mission.
+    this.ambientBatches.delete(camp.id)
     this.disposeCamp(camp.ambient)
     camp.ambient = []
     const encounterCenter = template.kind === 'patrol' ? this.patrolEncounterPoint(template, active.id, camp.center) : undefined

@@ -3937,6 +3937,7 @@ export class NPC {
     if (!this.mount || this.dead) return
     this.mount.corgiVisual?.fitRider(this.characterVisualGroup)
     this.mount.catVisual?.fitRider(this.characterVisualGroup)
+    this.mount.snowLeopardVisual?.fitRider(this.characterVisualGroup)
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {

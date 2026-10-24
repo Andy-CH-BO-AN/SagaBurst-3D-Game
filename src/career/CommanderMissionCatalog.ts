@@ -10,10 +10,10 @@ import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { CombatEvent } from '../combat/CombatAttribution'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
 import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
-import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
+import { UNIT_PRESETS, type UnitPresetId, type UnitLoadout } from '../battle/UnitPresetCatalog'
 import { AIType, Faction } from '../world/NPC'
 import { townCommanderHeroAsset } from '../town/TownCommander'
-import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
+import { TOWN_COMMANDER_ID, TOWN_COMMANDER_MOUNT_ID } from '../town/TownCommanderIdentity'
 import { townRoster } from '../town/TownRules'
 import { createMissionCommandAuthority, officialMissionSourcePolicy, type OfficialCommandSquad } from './CareerCommandAuthority'
 import { personalMissionSourcePolicy, snapshotPersonalMission } from './CareerPersonalSquadMission'
@@ -212,7 +212,7 @@ function specForTier(
   squadId: NpcSpawnSpec['squadId'],
   x = 0,
   z = 0,
-  forcedMount?: 'horse' | 'black-cat' | 'corgi' | 'xongkoro' | null,
+  forcedMount?: UnitLoadout['mountId'],
 ): NpcSpawnSpec {
   const ranged = UNIT_PRESETS[presetId].traits.includes('bow_fire') || UNIT_PRESETS[presetId].traits.includes('javelin_throw')
   const hero = tier === 4 ? T4_UNIT_PROFILES[presetId] : undefined
@@ -241,9 +241,9 @@ export function createDecapitationRoster(mission: ActiveCareerMission, faction: 
     if (index === 0) {
       const presetId = preset(faction, 'sword')
       const asset = townCommanderHeroAsset(faction)
-      return { ...specForTier(actorId, faction, Faction.TOWN, presetId, 4, 1, 0, 0, canonicalMount),
+      return { ...specForTier(actorId, faction, Faction.TOWN, presetId, 4, 1, 0, 0, TOWN_COMMANDER_MOUNT_ID),
         name: `Former ${faction === 'roman' ? 'Roman' : 'Viking'} Commander`, visualAssetId: asset,
-        aiType: AIType.RANGED, loadout: { ...careerCommanderLoadout(faction), mountId: canonicalMount },
+        aiType: AIType.RANGED, loadout: { ...careerCommanderLoadout(faction), mountId: TOWN_COMMANDER_MOUNT_ID },
         combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[asset] }
     }
     const escortIndex = index - 1

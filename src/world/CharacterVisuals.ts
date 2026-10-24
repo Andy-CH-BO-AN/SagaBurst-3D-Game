@@ -3,7 +3,7 @@ import { proceduralMaterial } from './ProceduralMaterials'
 import { XONGKORO_VISUAL } from '../movement/XongkoroConfig'
 
 export type CharacterFaction = 'viking' | 'roman'
-export type MountedPoseKind = 'BLACK_CAT' | 'CORGI' | 'HORSE' | 'xongkoro'
+export type MountedPoseKind = 'BLACK_CAT' | 'SNOW_LEOPARD' | 'CORGI' | 'HORSE' | 'xongkoro'
 
 export interface CharacterVisualConfig {
   faction: CharacterFaction
@@ -239,8 +239,8 @@ export function applyCharacterMountedPose(rig: CharacterRig, mounted: boolean, k
     const spread = kind === 'CORGI' ? .72 : kind === 'HORSE' ? 0.58 : 0.82
     const kneeBend = kind === 'CORGI' ? 1.08 : kind === 'HORSE' ? 1.22 : 1.05
     setRigRotation(leg.hip, -0.68 * leg.forwardBendSign, 0, leg.side * spread)
-    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, kind === 'CORGI' ? 0 : kind === 'BLACK_CAT' ? -leg.side * 0.42 : 0)
-    setRigRotation(leg.ankle, (kind === 'HORSE' ? -0.44 : -0.38) * leg.forwardBendSign, 0, kind === 'CORGI' ? -leg.side * spread : kind === 'BLACK_CAT' ? -leg.side * .30 : 0)
+    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, kind === 'CORGI' ? 0 : (kind === 'BLACK_CAT' || kind === 'SNOW_LEOPARD') ? -leg.side * 0.42 : 0)
+    setRigRotation(leg.ankle, (kind === 'HORSE' ? -0.44 : -0.38) * leg.forwardBendSign, 0, kind === 'CORGI' ? -leg.side * spread : (kind === 'BLACK_CAT' || kind === 'SNOW_LEOPARD') ? -leg.side * .30 : 0)
   }
 }
 

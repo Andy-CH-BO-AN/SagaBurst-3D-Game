@@ -83,62 +83,62 @@ describe('Career progression and spending', () => {
     const purchase = purchaseCareerContent(profile, {
       kind: 'weapon',
       id: 'viking_axe_t3',
-      cost: 1200,
+      cost: 900,
       requiredTier: 3,
     })
 
     expect(purchase.purchased).toBe(true)
-    expect(purchase.spentMerit).toBe(1200)
+    expect(purchase.spentMerit).toBe(900)
     expect(purchase.profile.totalMerit).toBe(5200)
-    expect(purchase.profile.availableMerit).toBe(2000)
+    expect(purchase.profile.availableMerit).toBe(2300)
     expect(purchase.profile.rank).toBe('captain')
     expect(purchase.profile.ownedWeapons).toEqual(['viking_axe_t3'])
   })
 
-  it('blocks purchases above the unlocked tier', () => {
+  it.each([
+    { kind: 'hero', id: 'roman-hero-t4', cost: 3000, requiredTier: 4 },
+    { kind: 'mount', id: 'xongkoro', cost: 10000, requiredTier: 4 },
+  ] as const)('keeps $id purchase rank-gated despite sufficient merit', request => {
     const profile = createCareerProfile('roman')
     profile.totalMerit = 900
-    profile.availableMerit = 9999
+    profile.availableMerit = 20000
     profile.rank = resolveCareerRank(profile.totalMerit)
-
-    const result = purchaseCareerContent(profile, {
-      kind: 'hero',
-      id: 'roman-hero-t4',
-      cost: 3000,
-      requiredTier: 4,
-    })
+    const original = structuredClone(profile)
+    const result = purchaseCareerContent(profile, request)
 
     expect(result.purchased).toBe(false)
     expect(result.reason).toBe('tier-locked')
-    expect(result.profile.availableMerit).toBe(9999)
-    expect(result.profile.ownedHeroes).toEqual([])
+    expect(result.spentMerit).toBe(0)
+    expect(result.profile).toEqual(original)
+    expect(profile).toEqual(original)
   })
 
   it('charges for duplicate tradable ownership and blocks insufficient balance', () => {
     const profile = createCareerProfile('viking')
     profile.totalMerit = 5000
-    profile.availableMerit = 100
-    profile.rank = 'captain'
+    profile.availableMerit = 300
+    profile.rank = 'recruit'
     profile.ownedMounts.push('horse')
 
     const duplicate = purchaseCareerContent(profile, {
       kind: 'mount',
       id: 'horse',
-      cost: 50,
+      cost: 200,
       requiredTier: 1,
     })
     expect(duplicate.purchased).toBe(true)
-    expect(duplicate.profile.availableMerit).toBe(50)
+    expect(duplicate.profile.availableMerit).toBe(100)
     expect(careerItemTotal(duplicate.profile, 'horse')).toBe(2)
 
     const expensive = purchaseCareerContent(profile, {
       kind: 'mount',
-      id: 'black-cat',
-      cost: 500,
-      requiredTier: 4,
+      id: 'snow-leopard',
+      cost: 9000,
+      requiredTier: 5,
     })
     expect(expensive.reason).toBe('insufficient-merit')
-    expect(expensive.profile.availableMerit).toBe(100)
+    expect(expensive.profile).toEqual(profile)
+    expect(profile.availableMerit).toBe(300)
   })
 })
 

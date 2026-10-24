@@ -6,7 +6,7 @@ import type { PersonalEquipmentSlot } from './CareerInventory'
 import type { CareerProfile } from './CareerProfile'
 import { commanderGateDefenseSlots } from './CommanderTownRoster'
 import { townRoster, withTownCommandSquadRoster, townMilitaryEquipment, townActorHeroProfile, CIVILIAN_PROFILE, type TownActorSpec } from '../town/TownRules'
-import { townCommanderSpec } from '../town/TownCommanderIdentity'
+import { townCommanderSpec, TOWN_COMMANDER_MOUNT_ID } from '../town/TownCommanderIdentity'
 import { eagleTrainerSpec } from '../town/TownEagleTrainingGround'
 import { defaultRangerMeleeWeaponId, WEAPONS, T4_RANGER_BOW_RANGED_ID } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
@@ -57,6 +57,7 @@ export function townDefaultActorLoadout(faction: CharacterFaction, spec: TownAct
   if (spec.role === 'cat') return { meleeWeaponId: null, rangedWeaponId: null, shieldId: null, mountId: null }
   if (spec.role === 'ranger' || spec.role === 'eagle-trainer') return { meleeWeaponId: defaultRangerMeleeWeaponId(faction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: spec.role === 'ranger' ? 'black-cat' : null, reversibleRangedSwitch: true }
   const military = townMilitaryEquipment(faction, spec), hero = townActorHeroProfile(faction, spec)
+  if (spec.role === 'commander') return { ...military.loadout, mountId: spec.mounted ? TOWN_COMMANDER_MOUNT_ID : null }
   return { ...military.loadout, mountId: spec.eagle ? 'xongkoro' : spec.mounted ? hero?.mountOverride ?? military.loadout.mountId ?? 'horse' : null }
 }
 export function townNativeItems(faction: CharacterFaction): TownNativeItem[] {
@@ -70,7 +71,7 @@ export function townNativeItems(faction: CharacterFaction): TownNativeItem[] {
       const itemId = loadout[slotKeys[slot]]
       if (!itemId) return []
       return [{ nativeId: `${faction}/${spec.id}/${slot}`, itemId, actorId: spec.id, slot, squadId,
-        tier: slot === 'mount' ? itemId === 'horse' ? 1 : 4 : (WEAPONS[itemId] ?? ARMORS[itemId]).tier }]
+        tier: slot === 'mount' ? itemId === TOWN_COMMANDER_MOUNT_ID ? 5 : itemId === 'horse' ? 1 : 4 : (WEAPONS[itemId] ?? ARMORS[itemId]).tier }]
     })
   })
   nativeCache.set(faction, items)
@@ -84,7 +85,7 @@ export function isResalableTownNativeItem(faction: CharacterFaction, item: TownN
 export function townEquipmentRefTier(profile: Pick<CareerProfile, 'rank'>, ref: TownEquipmentRef | null, faction: CharacterFaction): number {
   if (!ref) return 0
   if (ref.source === 'native') return townNativeItems(faction).find(item => item.nativeId === ref.nativeId)?.tier ?? 0
-  return (WEAPONS[ref.itemId] ?? ARMORS[ref.itemId])?.tier ?? (ref.itemId === 'horse' ? ['captain', 'commander'].includes(profile.rank) ? 4 : profile.rank === 'veteran' ? 3 : profile.rank === 'soldier' ? 2 : 1 : 4)
+  return (WEAPONS[ref.itemId] ?? ARMORS[ref.itemId])?.tier ?? (ref.itemId === TOWN_COMMANDER_MOUNT_ID ? 5 : ref.itemId === 'horse' ? ['captain', 'commander'].includes(profile.rank) ? 4 : profile.rank === 'veteran' ? 3 : profile.rank === 'soldier' ? 2 : 1 : 4)
 }
 /** Active weapons use the same ranged-first tier as permanent NPC loadouts. */
 export function townEquipmentWeaponTier(profile: Pick<CareerProfile, 'rank'>, refs: TownEquipmentRefs, faction: CharacterFaction): number {
@@ -146,7 +147,13 @@ export function parseTownEquipment(value: unknown): CareerTownEquipment | undefi
         // Authenticate the original fixed token before upgrading its item identity.
         const legacyMerchantSword = legacyResidents && actorId === 'merchant' && slot === 'melee'
           && rawRef.source === 'native' && rawRef.nativeId === `${faction}/merchant/melee` && rawRef.itemId === 'paladin_sword_t4'
-        const itemId = legacyMerchantSword ? townMerchantLoadout().meleeWeaponId! : rawRef.itemId
+        // Only the authored Commander token changes species. Retain its holder/reserve
+        // identity, and never convert an inventory purchase or another resident's mount.
+        const legacyCommanderMount = slot === 'mount' && rawRef.source === 'native'
+          && rawRef.nativeId === `${faction}/commander/mount`
+          && rawRef.itemId === (faction === 'roman' ? 'corgi' : 'black-cat')
+        const itemId = legacyCommanderMount ? TOWN_COMMANDER_MOUNT_ID
+          : legacyMerchantSword ? townMerchantLoadout().meleeWeaponId! : rawRef.itemId
         const item = WEAPONS[itemId] ?? ARMORS[itemId]
         if (slot === 'mount' ? !(PLAYER_MOUNT_IDS as readonly string[]).includes(itemId) : !item || item.type !== slot) throw new Error('Invalid equipment slot')
         if (rawRef.source === 'native') {

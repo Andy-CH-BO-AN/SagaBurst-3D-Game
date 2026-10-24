@@ -1,0 +1,130 @@
+{
+  "schemaVersion": 1,
+  "animal": "snow-leopard",
+  "sha256": "6c5b50acc0502237d0ba7e8cc980b5163a3609f701cb232ee40dff76b97cd80f",
+  "donor": {
+    "path": "public/models/mounts/v2/black-cat/black-cat.glb",
+    "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
+    "geometryTransferred": false,
+    "skinTransferred": false
+  },
+  "sources": {
+    "doginx": {
+      "file": "Doginx fbx + unity.zip",
+      "sha256": "87a0e0beaa0b3ccae02ba8d4f5ab7e8ed6daece218548beff1e33996aefc0205",
+      "title": "Doginx - Assets",
+      "author": "Tomate Salat",
+      "url": "https://tomate-salat.itch.io/doginx-assets",
+      "license": "CC0-1.0",
+      "licenseUrl": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "used": "idle and walk poses/foot trajectories",
+      "sourceMember": "Models/Meshes/characters.fbx"
+    },
+    "cat_run": {
+      "file": "cat_rigged.fbx",
+      "sha256": "e1386997828c40e21b1923b7763b118127a46adacd248457789d520492c69792",
+      "title": "Lowpoly Cat + Run Animation",
+      "author": "Daily Lowpoly",
+      "url": "https://dailylowpoly.itch.io/lowpoly-cat-running",
+      "license": "Creator permits use in commercial projects",
+      "licenseUrl": "https://dailylowpoly.itch.io/lowpoly-cat-running",
+      "used": "cat run poses/foot trajectories"
+    }
+  },
+  "bake": {
+    "tool": "tools/blender/build_snow_leopard.py",
+    "fps": 60,
+    "method": "Native source rest matrices and weights; donor world-rest rotation deltas converted through target parent/rest bases; native paws use donor idle sole reference and a 60 degree locomotion envelope; rigid plate controls fit native deformed plate samples; final surface-ground correction is baked",
+    "horizontalRootMotion": "removed; game physics owns horizontal motion",
+    "clips": [
+      {
+        "name": "idle",
+        "duration": 10
+      },
+      {
+        "name": "walk",
+        "duration": 1.2
+      },
+      {
+        "name": "run",
+        "duration": 0.8
+      },
+      {
+        "name": "jump",
+        "duration": 0.7666666666666667
+      },
+      {
+        "name": "land",
+        "duration": 0.6333333333333333
+      },
+      {
+        "name": "hit",
+        "duration": 0.6333333333333333
+      },
+      {
+        "name": "death",
+        "duration": 1.8
+      }
+    ],
+    "perClip": {
+      "idle": {
+        "duration": 10,
+        "frames": 601,
+        "fps": 60,
+        "pawPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.06710896980762482
+      },
+      "walk": {
+        "duration": 1.2000000476837158,
+        "frames": 73,
+        "fps": 60,
+        "pawPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.05061913621425629
+      },
+      "run": {
+        "duration": 0.8000000317891439,
+        "frames": 49,
+        "fps": 60,
+        "pawPoseSamplesLimited": 22,
+        "maximumGroundCorrectionM": 0.2317654300928116
+      },
+      "jump": {
+        "duration": 0.7666666507720947,
+        "frames": 47,
+        "fps": 60,
+        "pawPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.04187786173820496
+      },
+      "land": {
+        "duration": 0.6333333253860474,
+        "frames": 39,
+        "fps": 60,
+        "pawPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.09591802549362183
+      },
+      "hit": {
+        "duration": 0.6333333253860474,
+        "frames": 39,
+        "fps": 60,
+        "pawPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.0016455777145456523
+      },
+      "death": {
+        "duration": 1.7999998728434246,
+        "frames": 109,
+        "fps": 60,
+        "pawPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.20320805501937866
+      }
+    }
+  },
+  "validation": {
+    "structuralAudit": "pending independent audit",
+    "blenderPackedRoundtrip": "pending visual acceptance",
+    "browserGameplay": "pending",
+    "gpuPerformance": "not measured",
+    "knownLimitations": [
+      "PROVISIONAL: armor seams and upper croup plates remain under active visual repair"
+    ]
+  }
+}

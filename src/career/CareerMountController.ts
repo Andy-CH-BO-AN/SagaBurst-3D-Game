@@ -1,3 +1,4 @@
+import { isCareerShopItemUseUnlocked } from './CareerShopCatalog'
 import type { RaceRider } from './CareerRaceState'
 import { availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from './CareerInventory'
 import * as THREE from 'three'
@@ -14,6 +15,7 @@ const MOUNTS: Readonly<Record<ReturnType<typeof canonicalCareerMountId>, Omit<Eq
   horse: { id: 'horse', name: '軍用戰馬', tier: 1 },
   'black-cat': { id: 'black-cat', name: '黑貓英雄坐騎', tier: 4 },
   corgi: { id: 'corgi', name: '柯基英雄坐騎', tier: 4 },
+  'snow-leopard': { id: 'snow-leopard', name: '重甲雪豹', tier: 5 },
   xongkoro: { id: 'xongkoro', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4 },
 }
 
@@ -21,6 +23,7 @@ export function ownedCareerMountIds(profile: Pick<CareerProfile, 'ownedMounts' |
   const result: CareerMountId[] = ownsCareerHorse(profile) ? ['horse'] : []
   if (profile.ownedMounts.includes('black-cat')) result.push('black-cat')
   if (profile.ownedMounts.includes('corgi')) result.push('corgi')
+  if (profile.ownedMounts.includes('snow-leopard')) result.push('snow-leopard')
   if (profile.ownedMounts.includes('xongkoro')) result.push('xongkoro')
   return result
 }
@@ -28,6 +31,7 @@ export function ownedCareerMountIds(profile: Pick<CareerProfile, 'ownedMounts' |
 export function careerMountType(id: CareerMountId): MountType {
   if (id === 'black-cat') return MountType.BLACK_CAT
   if (id === 'corgi') return MountType.CORGI
+  if (id === 'snow-leopard') return MountType.SNOW_LEOPARD
   if (id === 'xongkoro') return MountType.XONGKORO
   return MountType.HORSE
 }
@@ -43,7 +47,7 @@ export function careerMountAppearanceVariant(profile: Pick<CareerProfile, 'horse
 
 export function canUseCareerMount(profile: CareerProfile, id: CareerMountId): boolean {
   const canonical = canonicalCareerMountId(id)
-  return canAllocateCareerItemToPlayer(profile, canonical) && careerMountTier(canonical, profile) <= getCareerPurchaseTier(profile.rank)
+  return isCareerShopItemUseUnlocked(profile, canonical) && canAllocateCareerItemToPlayer(profile, canonical)
 }
 
 export function findSafeCareerMountPosition(
@@ -104,13 +108,13 @@ export class CareerMountController implements EquipmentMountAdapter {
 
   list(): EquipmentMountItem[] {
     const profile = this.readProfile()
-    const unlockedTier = getCareerPurchaseTier(profile.rank)
     return ownedCareerMountIds(profile).map(id => ({
       ...MOUNTS[canonicalCareerMountId(id)],
       tier: careerMountTier(id, profile),
       active: this.active?.id === id && this.player().currentMount === this.active.mount,
-      available: careerMountTier(id, profile) <= unlockedTier && !this.unavailable.has(id) && canAllocateCareerItemToPlayer(profile, id),
+      available: canUseCareerMount(profile, id) && !this.unavailable.has(id),
       quantityText: `總持有 ${careerItemTotal(profile, id)} · 可用 ${availableCareerItem(profile, id)}`,
+      ...(!isCareerShopItemUseUnlocked(profile, canonicalCareerMountId(id)) ? { unavailableReason: '巨鷹訓練需 Captain / Commander 軍階' } : {}),
       allocated: profile.selectedMountId === id,
       ...(id === 'horse' ? { appearanceVariant: careerMountAppearanceVariant(profile), appearanceEditable: !profile.activeRace } : {}),
     }))
@@ -135,7 +139,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     const config = MOUNTS[id]
     const profile = this.readProfile()
     if (!config || !ownedCareerMountIds(profile).includes(id)) return this.fail('尚未擁有這匹坐騎。')
-    if (!canUseCareerMount(profile, id)) return this.fail('目前軍階不能使用這匹坐騎。')
+    if (!canUseCareerMount(profile, id)) return this.fail(!isCareerShopItemUseUnlocked(profile, id) ? '巨鷹訓練需 Captain / Commander 軍階。' : '這匹坐騎已分配給其他單位。')
     if (this.unavailable.has(id)) return this.fail('這匹坐騎本次出城已倒下，回到和平小鎮休整後才能再用。')
     if (this.active?.id === id && !this.active.mount.dead) {
       if (!this.player().isMounted) this.player().mountVehicle(this.active.mount, id === 'xongkoro' ? this.active.mount.group.rotation.y : undefined)

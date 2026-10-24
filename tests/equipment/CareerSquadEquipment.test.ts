@@ -1,7 +1,9 @@
+import { canUseCareerMount, ownedCareerMountIds } from '../../src/career/CareerMountController'
+import { addCareerItem } from '../../src/career/CareerInventory'
 import { describe, expect, it } from 'vitest'
 import { availableCareerItem, careerItemAllocated, careerItemTotal, careerItemTotals, type PersonalEquipmentSlot } from '../../src/career/CareerInventory'
 import { changePersonalEquipment, recruitPersonalSquadMember, sellPersonalSquadMember, sellPersonalSquadMembers, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../../src/career/CareerPersonalSquad'
-import { cloneCareerProfile, createCareerProfile, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
+import { cloneCareerProfile, createCareerProfile, purchaseCareerContent, type CareerPurchaseRequest, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
 import { TownEquipment } from '../../src/town/TownEquipment'
@@ -18,7 +20,7 @@ function harness(rank: CareerRank = 'captain', faction: CareerProfile['faction']
   const save = (next: CareerProfile) => { if (!store.save(next)) return false; profile = next; return true }
   return { read, save, store, authority, fail: () => { storage.failWrites = true }, set: (next: CareerProfile) => { profile = next },
     hire(type: PersonalSquadMemberType = 'soldier') { const result = recruitPersonalSquadMember(profile, type, save); expect(result.recruited).toBe(true); return profile.personalSquad!.members.at(-1)!.id },
-    buy(id: string) { const result = ['horse', 'corgi', 'black-cat', 'xongkoro'].includes(id) ? purchaseTownMount(profile, id) : purchaseTownEquipment(profile, id); expect(result.purchased).toBe(true); expect(save(result.profile)).toBe(true) },
+    buy(id: string) { const result = ['horse', 'corgi', 'black-cat', 'snow-leopard', 'xongkoro'].includes(id) ? purchaseTownMount(profile, id) : purchaseTownEquipment(profile, id); expect(result.purchased).toBe(true); expect(save(result.profile)).toBe(true) },
     change(id: string, slot: PersonalEquipmentSlot, item: string | null) { return changePersonalEquipment(read, authority, id, slot, item, save) },
     sell(id: string) { return sellPersonalSquadMember(read, authority, id, save) },
     sellMany(ids: string[]) { return sellPersonalSquadMembers(read, authority, ids, save) },
@@ -31,10 +33,64 @@ function balanced(profile: CareerProfile) {
   }
 }
 describe('Shared Career quantity inventory and personal equipment', () => {
-  it('blocks T5 shop purchases before formal Commander appointment despite sufficient merit', () => {
-    const h = harness('captain'), before = cloneCareerProfile(h.read())
+  it('lets a Recruit buy and equip high-tier weapons and shields while retaining their quality tiers', () => {
+    const h = harness('recruit'), before = cloneCareerProfile(h.read())
     const result = purchaseTownEquipment(h.read(), 'axe_t5', 2)
-    expect(result).toMatchObject({ purchased: false, spentMerit: 0, reason: 'tier-locked' })
+    expect(result).toMatchObject({ purchased: true, spentMerit: 5000 })
+    expect(result.profile).toMatchObject({ rank: 'recruit', totalMerit: 60000, availableMerit: 55000 })
+    expect(h.read()).toEqual(before)
+    expect(h.save(result.profile)).toBe(true)
+    h.buy('paladin_shield_t4')
+    const equipment = new TownEquipment(h.read, h.save)
+    expect(equipment.inventoryStacks.find(stack => stack.item.id === 'axe_t5')).toMatchObject({ quantity: 2, item: { tier: 5 } })
+    expect(equipment.canEquipWeapon('axe_t5')).toBe(true)
+    expect(equipment.equipWeapon('axe_t5')).toBe(true)
+    expect(equipment.equipWeapon('paladin_shield_t4')).toBe(true)
+    const loaded = h.store.load()!
+    expect(loaded).toMatchObject({ rank: 'recruit', equipment: { melee: 'axe_t5', shield: 'paladin_shield_t4' } })
+    expect(careerItemTotal(loaded, 'axe_t5')).toBe(2)
+  })
+  it('lets a Recruit use a purchased snow leopard and preserves selection, allocation and wounded or dead mission saves', () => {
+    const h = harness('recruit')
+    addCareerItem(h.read(), 'horse', 1); h.read().selectedMountId = 'horse'
+    const bought = purchaseTownMount(h.read(), 'snow-leopard')
+    expect(bought).toMatchObject({ purchased: true, spentMerit: 9000, profile: { rank: 'recruit', availableMerit: 51000, selectedMountId: 'horse' } })
+    expect(careerItemTotal(bought.profile, 'snow-leopard')).toBe(1)
+    expect(availableCareerItem(bought.profile, 'snow-leopard')).toBe(1)
+    expect(ownedCareerMountIds(bought.profile)).toContain('snow-leopard')
+    expect(h.save(bought.profile)).toBe(true)
+    h.set(h.store.load()!)
+    expect(h.read().rank).toBe('recruit')
+    expect(canUseCareerMount(h.read(), 'snow-leopard')).toBe(true)
+    expect(h.read().availableMerit).toBe(51000)
+    h.read().selectedMountId = 'snow-leopard'
+    h.read().activeMission = { id: 'snow-leopard-mission', templateId: 'recruit-bandits-01', kind: 'bandit', targetCampId: 0,
+      phase: 'RETURNING', targetActorIds: ['target'], friendlyActorIds: ['captain'], acceptedAt: 1,
+      mountState: { activeMountId: 'snow-leopard', hp: { 'snow-leopard': 317 }, unavailable: [] } }
+    expect(h.save(h.read())).toBe(true)
+    h.set(h.store.load()!)
+    expect(h.read().activeMission!.mountState).toEqual({ activeMountId: 'snow-leopard', hp: { 'snow-leopard': 317 }, unavailable: [] })
+    expect(h.read().selectedMountId).toBe('snow-leopard')
+    expect(careerItemAllocated(h.read(), 'snow-leopard')).toBe(1)
+    h.read().activeMission!.mountState = { hp: { 'snow-leopard': 0 }, unavailable: ['snow-leopard'] }
+    expect(h.save(h.read())).toBe(true)
+    const restored = h.store.load()!
+    expect(restored.activeMission!.mountState).toEqual({ hp: { 'snow-leopard': 0 }, unavailable: ['snow-leopard'] })
+    expect(careerItemTotal(restored, 'snow-leopard')).toBe(1)
+    balanced(restored)
+  })
+  it.each([
+    { field: 'unknown ID', change: { id: 'unknown-mount' } },
+    { field: 'wrong kind', change: { kind: 'weapon' } },
+    { field: 'forged cost', change: { cost: 0 } },
+    { field: 'forged tier', change: { requiredTier: 1 } },
+    { field: 'invalid quantity', change: { quantity: 0 } },
+  ] as const)('rejects a shop receipt with $field without changing inventory or merit', ({ change }) => {
+    const h = harness('recruit'), before = cloneCareerProfile(h.read())
+    const receipt: CareerPurchaseRequest = { kind: 'mount', id: 'snow-leopard', requiredTier: 5, cost: 9000 }
+    const result = purchaseCareerContent(h.read(), { ...receipt, ...change })
+    expect(result.purchased).toBe(false)
+    expect(result.spentMerit).toBe(0)
     expect(result.profile).toEqual(before)
     expect(h.read()).toEqual(before)
   })
@@ -69,14 +125,14 @@ describe('Shared Career quantity inventory and personal equipment', () => {
   })
   it('purchases three identical weapons, assigns two, and prevents a third claimant after Player takes one', () => {
     const h = harness(), a = h.hire(), b = h.hire(), c = h.hire()
-    for (let i = 0; i < 3; i++) h.buy('heavy_lance')
-    h.change(a, 'melee', 'heavy_lance'); h.change(b, 'melee', 'heavy_lance')
-    expect(careerItemTotal(h.read(), 'heavy_lance')).toBe(3); expect(availableCareerItem(h.read(), 'heavy_lance')).toBe(1)
-    const equipment = new TownEquipment(h.read, h.save); expect(equipment.equipWeapon('heavy_lance')).toBe(true)
-    equipment.sheathAll(); expect(availableCareerItem(h.read(), 'heavy_lance')).toBe(0)
-    expect(h.change(c, 'melee', 'heavy_lance').reason).toBe('no-available-item')
-    expect(equipment.unequipWeapon('heavy_lance')).toBe(true); expect(h.change(c, 'melee', 'heavy_lance').changed).toBe(true)
-    expect(equipment.equipWeapon('heavy_lance')).toBe(false); balanced(h.read())
+    for (let i = 0; i < 3; i++) h.buy('axe_t5')
+    h.change(a, 'melee', 'axe_t5'); h.change(b, 'melee', 'axe_t5')
+    expect(careerItemTotal(h.read(), 'axe_t5')).toBe(3); expect(availableCareerItem(h.read(), 'axe_t5')).toBe(1)
+    const equipment = new TownEquipment(h.read, h.save); expect(equipment.equipWeapon('axe_t5')).toBe(true)
+    equipment.sheathAll(); expect(availableCareerItem(h.read(), 'axe_t5')).toBe(0)
+    expect(h.change(c, 'melee', 'axe_t5').reason).toBe('no-available-item')
+    expect(equipment.unequipWeapon('axe_t5')).toBe(true); expect(h.change(c, 'melee', 'axe_t5').changed).toBe(true)
+    expect(equipment.equipWeapon('axe_t5')).toBe(false); balanced(h.read())
   })
   it('equips Ranger weapons normally and never restores a deliberately removed default on reload', () => {
     const h = harness(), id = h.hire('ranger')

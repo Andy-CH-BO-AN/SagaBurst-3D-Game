@@ -10,6 +10,7 @@ import { HumanoidAssetRegistry, type HumanoidAssetDescriptor, type HumanoidChara
 import { HumanoidStudioPlayback } from './HumanoidStudioPlayback'
 import { CorgiVisual } from '../world/CorgiVisual'
 import { BlackCatVisual } from '../world/BlackCatVisual'
+import { SnowLeopardVisual } from '../world/SnowLeopardVisual'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
 import { XongkoroVisual } from '../world/XongkoroVisual'
 import { HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET } from '../world/Mount'
@@ -41,7 +42,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
   panel.textContent = `正在載入${label}資產…`
   document.body.append(panel)
   try {
-    await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HumanoidAssetRegistry.preloadAsset(descriptor), ...(reference ? [HumanoidAssetRegistry.preloadAsset(reference)] : []), CorgiVisual.preload(), BlackCatVisual.preload(), XongkoroVisual.preload()])
+    await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HumanoidAssetRegistry.preloadAsset(descriptor), ...(reference ? [HumanoidAssetRegistry.preloadAsset(reference)] : []), CorgiVisual.preload(), BlackCatVisual.preload(), SnowLeopardVisual.preload(), XongkoroVisual.preload()])
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#b4bac1')
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
@@ -79,9 +80,10 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
     const manifest = await fetch(publicAssetUrl(`models/characters/v2/${descriptor.assetId}/manifest.json`)).then(response => response.json())
     const playback = new HumanoidStudioPlayback(hero, 'idle', faction, roman ? 'CORGI' : 'BLACK_CAT', maki ? { bow: await loadMakiRangerBow() } : undefined, { swordId: 'paladin_sword_t4', axeId: 'paladin_mace_t4', shieldId: 'paladin_shield_t4' })
     playback.setEquipmentLoadout('none', false)
-    const mounts = { CORGI: new CorgiVisual(), BLACK_CAT: new BlackCatVisual(), HORSE: HorseAssetRegistry.createInstance(), xongkoro: new XongkoroVisual() }
+    const mounts = { CORGI: new CorgiVisual(), BLACK_CAT: new BlackCatVisual(), SNOW_LEOPARD: new SnowLeopardVisual(), HORSE: HorseAssetRegistry.createInstance(), xongkoro: new XongkoroVisual() }
     for (const mount of Object.values(mounts)) { mount.root.visible = false; scene.add(mount.root) }
-    let mountKind: MountedPoseKind = roman ? 'CORGI' : 'BLACK_CAT'
+    let mountKind: MountedPoseKind = commander ? 'SNOW_LEOPARD' : roman ? 'CORGI' : 'BLACK_CAT'
+    playback.mountKind = mountKind
     // DEV-only inspection of the actual rendered instance, selected mixers and equipment.
     Object.assign(window, { __heroPreview: { hero, normal, playback, scene, camera, controls, renderer, manifest, mounts } })
     let paused = false, time = 0, selectedLOD = 0, compare = true, riding = false, sourcePlayback = ''
@@ -116,7 +118,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       }
       hero.root.updateMatrixWorld(true)
       if (riding && mount instanceof CorgiVisual) mount.fitRider(hero.root)
-      if (riding && mount instanceof BlackCatVisual) mount.fitRider(hero.root)
+      if (riding && (mount instanceof BlackCatVisual || mount instanceof SnowLeopardVisual)) mount.fitRider(hero.root)
     }
     const sample = () => {
       if (sourcePlayback) {
@@ -146,7 +148,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       <label>裝備 <select id="hero-equipment"><option value="none">空手</option><option value="sword">${WEAPONS.paladin_sword_t4.name}</option><option value="axe">${WEAPONS.paladin_mace_t4.name}</option><option value="shield">${WEAPONS.paladin_sword_t4.name} + ${ARMORS.paladin_shield_t4.name}</option><option value="axe-shield">${WEAPONS.paladin_mace_t4.name} + ${ARMORS.paladin_shield_t4.name}</option><option value="selected-axe">${WEAPONS.viking_axe_t3.name}</option><option value="selected-axe-shield">${WEAPONS.viking_axe_t3.name} + ${ARMORS.paladin_shield_t4.name}</option><option value="lance">${WEAPONS.steel_lance.name}</option><option value="bow">${WEAPONS[maki ? 'maki-ranger-bow-ranged' : 'recurve_longbow'].name}</option></select></label><br>
       <label><input id="hero-shield-raised" type="checkbox"> 舉盾</label><br>
       <label>LOD <select id="hero-lod"><option value="0">LOD0</option><option value="1">LOD1</option><option value="2">LOD2</option></select></label><br>
-      <label><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="BLACK_CAT" ${!roman ? 'selected' : ''}>Black Cat</option><option value="CORGI" ${roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>
+      <label><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="SNOW_LEOPARD" ${commander ? 'selected' : ''}>Armored Snow Leopard</option><option value="BLACK_CAT" ${!commander && !roman ? 'selected' : ''}>Black Cat</option><option value="CORGI" ${!commander && roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>
       <button id="hero-pause">暫停</button> <button id="hero-replay">重新播放</button><br>
       <label>固定時間 <input id="hero-time" type="range" min="0" max="1" step="0.001" value="0" style="width:160px"></label>
       <div id="hero-status"></div><hr><div>${commander ? '來源 T5 模型 · 同陣營 T4 身體尺度校準' : maki || civilian ? '新模型 · 一般 Humanoid 裝備' : roman ? 'Paladin 原始模型適配' : '一般角色 1.86 m'}<br>${civilian ? '含鞋全高' : commander ? '含盔鞋全高' : maki ? '鞋底至兜帽' : roman ? '含頭盔角飾全高' : '英雄本體'} ${manifest.metrics.heightM.toFixed(3)} m${commander || maki || civilian || roman ? '' : `<br>含盔鞋 ${manifest.metrics.overallHeightM.toFixed(3)} m`}</div>

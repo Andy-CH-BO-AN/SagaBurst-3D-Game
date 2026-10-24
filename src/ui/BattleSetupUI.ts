@@ -249,6 +249,7 @@ export class BattleSetupUI {
         <section class="loadout-category"><div class="loadout-category-heading"><h3>坐騎</h3><span>MOUNT</span></div>
           ${renderEquipmentGroup('坐騎種類', 'MOUNT TYPE', [
             { id: 'black-cat', zh: '黑貓', en: 'BLACK CAT' },
+            { id: 'snow-leopard', zh: '重甲雪豹', en: 'ARMORED SNOW LEOPARD' },
             { id: 'corgi', zh: '柯基', en: 'CORGI' },
             { id: 'xongkoro', zh: '巨鷹英雄坐騎', en: 'xongkoro' },
             { id: 'horse', zh: '馬', en: 'HORSE' },
