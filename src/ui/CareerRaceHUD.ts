@@ -1,5 +1,5 @@
 import type { CareerRaceSession, RaceRider } from '../career/CareerRaceState'
-import { MOUNTED_RACES } from '../career/CareerRaceState'
+import { raceDefinitionForSchedule } from '../career/CareerRaceState'
 import { RACE_LINES, legalRaceStart } from '../career/CareerRaceRoute'
 
 interface RaceHUDOptions {
@@ -73,7 +73,7 @@ export class CareerRaceHUD {
       if (!session) document.body.style.removeProperty('--career-race-hud-bottom')
     }
     if (!session) return
-    const definition = MOUNTED_RACES.find(race => race.id === session.raceId)!
+    const definition = raceDefinitionForSchedule(session.raceId, session.scheduleVersion)!
     const countdown = session.phase === 'countdown'
     const finishing = session.phase === 'finishing'
     const observing = session.player.dead || Boolean(session.player.dnf)
