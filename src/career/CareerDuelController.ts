@@ -28,10 +28,13 @@ export interface CareerDuelRoster {
   mount: Mount | null
 }
 
-/** Existing Duel mounts retain their archetype; T5 uses the selected legal T4 equipment. */
+/** Existing Duel classes retain their weapons/mounts; shield-bearing T5 Commanders use their war shield. */
 function duelLoadout(presetId: UnitPresetId, tier: CareerDuelTier): UnitLoadout {
-  if (tier === 5) return { ...resolveT4UnitLoadout(presetId),
-    ...(UNIT_PRESETS[presetId].traits.includes('bow_fire') ? { rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null } : {}) }
+  if (tier === 5) {
+    const selected = resolveT4UnitLoadout(presetId)
+    return { ...selected, shieldId: selected.shieldId ? 'commander_shield_t5' : null,
+      ...(UNIT_PRESETS[presetId].traits.includes('bow_fire') ? { rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null } : {}) }
+  }
   const base = UNIT_PRESETS[presetId].tierLoadouts[tier === 4 ? 3 : tier]
   return tier === 4 ? { ...resolveT4UnitLoadout(presetId), mountId: base.mountId } : base
 }

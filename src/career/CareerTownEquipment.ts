@@ -82,7 +82,8 @@ function writeRefs(profile: CareerProfile, context: TownEquipmentContext, target
     return
   }
   profile.townEquipment ??= {}
-  const state = profile.townEquipment[context.townFaction] ??= { version: 1, actors: {}, nativeReserve: [], residentEquipmentVersion: 1 }
+  const state = profile.townEquipment[context.townFaction] ??= { version: 1, actors: {}, nativeReserve: [], residentEquipmentVersion: 1,
+    commanderShieldItemId: 'commander_shield_t5' }
   state.actors[actorId] = refs
 }
 /** Persist every native token either at one holder or in the same authored Squad's reserve. */
@@ -94,7 +95,7 @@ function rebuildNativeReserve(profile: CareerProfile, faction: CareerProfile['fa
   for (const spec of townEquipmentActorSpecs(faction)) if (townEquipmentSquadForActor(spec.id) !== undefined || spec.eagle) {
     for (const ref of Object.values(resolveRefs(spec))) if (ref?.source === 'native') held.add(ref.nativeId!)
   }
-  state.nativeReserve = townNativeItems(faction).filter(item => !held.has(item.nativeId) && !state.soldNativeIds?.includes(item.nativeId)).map(item => item.nativeId).sort(naturalActorCompare)
+  state.nativeReserve = townNativeItems(faction, state).filter(item => !held.has(item.nativeId) && !state.soldNativeIds?.includes(item.nativeId)).map(item => item.nativeId).sort(naturalActorCompare)
 }
 function validateStaged(next: CareerProfile, context: TownEquipmentContext): void {
   rebuildNativeReserve(next, context.townFaction)
@@ -166,7 +167,7 @@ export function bulkCareerEquipment(read: () => CareerProfile, context: TownEqui
   }
   if (target !== 'personal') {
     const reserve = new Set(next.townEquipment?.[context.townFaction]?.nativeReserve ?? [])
-    for (const item of townNativeItems(context.townFaction)) if (item.squadId === target && reserve.has(item.nativeId) && careerEquipmentCategory(item.itemId) === category) {
+    for (const item of townNativeItems(context.townFaction, next.townEquipment?.[context.townFaction])) if (item.squadId === target && reserve.has(item.nativeId) && careerEquipmentCategory(item.itemId) === category) {
       add(`reserve/${item.nativeId}`, { itemId: item.itemId, source: 'native', nativeId: item.nativeId })
     }
   }

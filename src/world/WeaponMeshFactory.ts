@@ -7,7 +7,7 @@ import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODContr
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { createPaladinEquipment } from './PaladinEquipment'
-import { createT4Polearm, createT5BowBody, createT5Melee } from './HighTierEquipment'
+import { createT4Polearm, createT5BowBody, createT5Melee, createT5Shield } from './HighTierEquipment'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -673,17 +673,29 @@ export class WeaponMeshFactory {
     const bronze = proceduralMaterial({ kind: 'bronze', color: 0xa47b42, roughness: 0.43, metalness: 0.72 })
     const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
 
-    if (shieldId === 'paladin_shield_t4') {
-      pivot.add(createPaladinEquipment(shieldId))
+    if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5') {
+      const commander = shieldId === 'commander_shield_t5'
+      pivot.add(commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'))
+      // Laurelguard's front is +Z, but its central rear is near Z=0 rather than
+      // Paladin's +.13. Keep the original GLB axes and move only its rear grip.
+      const gripZ = commander ? -.085 : .085
+      pivot.userData.gripCenterLocal = [0, 0, gripZ]
       // Same central vertical grip geometry and frame as the existing shields.
       const rearGrip = equipmentShadowUntil(new THREE.Mesh(paladinGripGeometry ??= new THREE.CapsuleGeometry(.024, .2, 4, 8), leather), -1)
-      rearGrip.position.set(0, 0, 0.085)
+      rearGrip.position.set(0, 0, gripZ)
       rearGrip.name = 'shield-rear-grip'
       pivot.add(equipmentDetail(rearGrip, 0))
       for (const y of [-.10, .10]) {
         const mount = new THREE.Mesh(paladinGripMountGeometry ??= new THREE.BoxGeometry(.055, .035, .17), leather)
         mount.name = 'shield-grip-mount'
         mount.position.set(0, y, .16)
+        if (commander) {
+          // Measured rear surface at Y=-.10 / +.10 is -.0187 / +.0077.
+          // The mounts seat ~1cm into that lining, never through the front.
+          const rearSeatZ = y < 0 ? -.008 : .018
+          mount.position.z = (gripZ + rearSeatZ) / 2
+          mount.scale.z = (rearSeatZ - gripZ) / .17
+        }
         pivot.add(equipmentDetail(equipmentShadowUntil(mount, -1), 0))
       }
       return

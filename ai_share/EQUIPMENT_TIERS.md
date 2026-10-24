@@ -1,6 +1,6 @@
 # 裝備盤點與外觀規格
 
-正式裝備共 **33 件（近戰 18、遠程 8、盾牌 7）**，其中 T1–T3 有 18 件武器與 6 面盾牌；另有以下共用 T4／T5 裝備及 Maki 專屬弓。人物胸甲、頭盔與衣物屬於 humanoid GLB，不是獨立防具物品。
+正式裝備共 **34 件（近戰 18、遠程 8、盾牌 8）**，其中 T1–T3 有 18 件武器與 6 面盾牌；另有以下共用 T4／T5 裝備及 Maki 專屬弓。人物胸甲、頭盔與衣物屬於 humanoid GLB，不是獨立防具物品。
 
 商店購買與玩家倉庫共用 EquipmentCatalog，依近戰 Melee／遠程 Ranged／防具 Armor 切換，分類內按 Tier 1→5、固定種類與 Item ID 排序；空 Tier 不顯示。玩家倉庫另設坐騎 Mounts 分頁，按 Tier／ID 排序並保留騎乘、收起與解除分配功能。商店、倉庫與裝備選單共用 WeaponDatabase／ArmorDatabase 的中英名稱，名稱本身不含 Tier 前綴。
 
@@ -21,7 +21,7 @@
 
 ## 共用 T4 裝備
 
-Campaign／Custom Battle 的 Roman／Viking 玩家 T1–T5 均可共用，保留各自英雄倍率；玩家角色選單可明確選擇 T1–T3 士兵外觀或既有 T4／T5 英雄，裝備不會改寫明確選定的士兵外觀。T5 僅開放玩家，NPC 仍使用原有 T1–T4 配置。Career 沿用 Captain 解鎖與軍功購買，Training Ground 沿用全部目錄物品。Ranger 沿用一般武器與盾牌互斥規則。
+Campaign／Custom Battle 的 Roman／Viking 玩家 T1–T5 均可共用，保留各自英雄倍率；玩家角色選單可明確選擇 T1–T3 士兵外觀或既有 T4／T5 英雄，裝備不會改寫明確選定的士兵外觀。T5 玩家裝備與正式 Career Commander 預設裝備分開處理，一般 NPC 仍使用原有 T1–T4 配置。Career 一般裝備只需足夠軍功，不限制 Rank，Training Ground 沿用全部目錄物品。Ranger 沿用一般武器與盾牌互斥規則。
 
 Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440；Captain／Commander 的 Roman／Viking 玩家皆可購買、裝備及分配給 RESERVE 私兵。`maki-ranger-bow-ranged` 是可交易的遠程弓；舊 `maki-ranger-bow` 近戰 ID 及其專用轉換已移除。HR Ranger 的近戰、遠程與坐騎皆由正式庫存分配；缺失的舊配置透過一次性 migration 補齊並保存 ownership，不在 runtime 臨時生成武器。HR T4 Captain 初始維持 T3 劍／斧與盾，升級須使用購入庫存。
 
@@ -37,6 +37,12 @@ Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440�
 
 `PaladinEquipment` 預載並共用幾何、材質與貼圖；每個持有者只複製物件變換。來源、授權及可重建流程見 `public/models/weapons/paladin/ATTRIBUTION.md`。Paladin 身體不含常駐武器。
 
+## T5 指揮官戰盾
+
+`commander_shield_t5`（指揮官戰盾 / Commander's War Shield）由 Roman、Viking 共用，96 衝擊耐久，售價 2,250 Merit，Recruit 即可正常購買與分配。原始 Laurelguard GLB 位於 `public/models/weapons/t5/shield.glb`，高 1.20m、寬約 0.57445m，來源與 hash 見同目錄 `sources.json`。保留原 geometry、UV、PBR 紋理與尺度；+Z 為正面，runtime 共用 T4 垂直握把幾何，握點另校準為 `[0, 0, -0.085]`。碰撞使用依實際輪廓內縮的 24 個固定 Box3 bands，中央背面不含握把，不逐三角面查詢。
+
+正式 Commander 的 Town／任務／Town Defense 及恢復裝備共用 `careerCommanderLoadout`；T5 Duel 僅將原本持盾的選定兵種換成 T5 盾，保留該 Duel 的武器與坐騎規則。Captain、HR、商人與巡邏隊預設不變。原生 `faction/commander/shield` token 保留同一身份；已轉移、保留或售出的舊 T4 token，以及玩家自訂配置均不強制換盾。`commanderShieldItemId` 保存其種類，未自訂的舊原生預設才升級；顯式空盾與庫存配置保持，沒有免費玩家背包發放。
+
 ## T4 槍與 T5 弓
 
 | ID | 基礎傷害 | 攻擊／蓄力 | 射程／箭速 | Career 購買 |
@@ -46,7 +52,7 @@ Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440�
 
 步兵與騎兵共用唯一 T4 長槍及 `models/weapons/high-tier/spear.glb`；商店與裝備選單只列一項。已移除 `lance_t4` 別名與自動轉換；無效裝備存檔沿用既有讀取失敗提示並保留原資料。沿用徒步反騎兵 ×2、速度嚴格大於 10m/s 的騎乘衝鋒 ×3。盾牌衝擊僅騎乘時為 60，徒步維持 1。T5 弓的獨立骨架與來源動畫接在 `CharacterBowVisual`，沿用現有弦、搭箭、投射物與傷害修正；來源、校準與重建見該資產目錄 `ATTRIBUTION.md`。
 
-Career 正式 Roman T5 Commander 預設 T5 弓＋T4 Sword；Viking 預設 T5 弓＋T4 Mace，兩者均無盾。城鎮與斬首任務的前任指揮官共用 `careerCommanderLoadout`。近敵小於 6m 切近戰、附近敵人均超過 9m 且目前遠程目標可射擊時切回弓；不消耗尚存箭矢，空箭袋持續近戰。Duel 的臨時裝備暫停此策略；HR T5 私兵仍領原 T2 武器，需玩家購買分配新裝備。武器 T5 不擴充一般 NPC tier，巨鷹弓射程仍最高 500m。
+Career 正式 Roman T5 Commander 預設 T5 弓＋T5 長劍；Viking 預設 T5 弓＋T5 雙刃斧，兩者均配 `commander_shield_t5`。射箭時沿用既有機制收盾，切回近戰才啟用盾牌。城鎮與斬首任務的前任指揮官共用 `careerCommanderLoadout`。近敵小於 6m 切近戰、附近敵人均超過 9m 且目前遠程目標可射擊時切回弓；不消耗尚存箭矢，空箭袋持續近戰。Duel 的臨時裝備暫停此策略；HR T5 私兵仍領原 T2 武器，需玩家購買分配新裝備。武器 T5 不擴充一般 NPC tier，巨鷹弓射程仍最高 500m。
 
 ## 三階視覺
 

@@ -8,8 +8,10 @@ function config(count: number): BattleConfig {
 }
 describe('Custom battle input boundaries', () => {
   it('accepts the maximum army and rejects one soldier above it', () => {
-    expect(validateBattleConfig(config(200)).valid).toBe(true)
-    expect(validateBattleConfig(config(201)).valid).toBe(false)
+    const current = config(200)
+    current.playerLoadout = { meleeWeaponId: 'sword_t5', rangedWeaponId: 'bow_t5', shieldId: 'commander_shield_t5', startMounted: false }
+    expect(validateBattleConfig(current)).toEqual({ valid: true, errors: [] })
+    expect(validateBattleConfig({ ...current, viking: config(201).viking }).valid).toBe(false)
   })
   it('rejects a command squad over its capacity before deployment', () => {
     const current = config(31)

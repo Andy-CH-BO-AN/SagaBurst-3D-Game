@@ -59,7 +59,8 @@ test('push to main shares one Full gate with Pages and Release, bound to the exa
   assert.ok(ci.jobs.web.steps.some(step => typeof step.run === 'string' && step.run.includes('actionlint')))
 
   for (const command of ['npx playwright install --with-deps chromium', 'npm run smoke:web']) {
-    assert.equal(ci.jobs.web.steps.find(step => step.run === command).if, "github.event_name != 'push' || github.ref != 'refs/heads/dev'")
+    assert.equal(ci.jobs.web.steps.find(step => step.run === command).if,
+      "github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')")
   }
 
   // Concurrency: main pushes are isolated per-SHA and never cancelled; other refs cancel in-progress runs.
