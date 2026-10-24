@@ -46,17 +46,17 @@
       ],
       "palmNormal": [
         -0.9927587509155273,
-        5.960465188081798e-08,
+        5.960465188081798e-8,
         -0.12012538313865662
       ],
       "thumbDir": 1,
       "thumbDirection": [
         0.12012536823749542,
-        -1.3038519597330378e-08,
+        -1.3038519597330378e-8,
         -0.9927588105201721
       ],
       "fingerDirection": [
-        3.72529100900465e-08,
+        3.72529100900465e-8,
         1,
         0
       ],
@@ -82,18 +82,18 @@
       ],
       "gripAxisLocal": [
         -0.12012524902820587,
-        -9.872020712009544e-08,
+        -9.872020712009544e-8,
         -0.9927587509155273
       ],
       "palmNormalLocal": [
         0.9927587509155273,
-        1.788139627478813e-07,
+        1.788139627478813e-7,
         -0.12012524902820587
       ],
       "fingerDirection": [
-        -1.6391281576488836e-07,
+        -1.6391281576488836e-7,
         1,
-        -8.940698847936801e-08
+        -8.940698847936801e-8
       ],
       "wristCenter": [
         0,
@@ -116,18 +116,18 @@
       ],
       "gripAxisLocal": [
         -0.12012524902820587,
-        -9.872020712009544e-08,
+        -9.872020712009544e-8,
         -0.9927587509155273
       ],
       "palmNormalLocal": [
         0.9927587509155273,
-        1.788139627478813e-07,
+        1.788139627478813e-7,
         -0.12012524902820587
       ],
       "fingerDirection": [
-        -1.6391281576488836e-07,
+        -1.6391281576488836e-7,
         1,
-        -8.940698847936801e-08
+        -8.940698847936801e-8
       ],
       "wristCenter": [
         0,
@@ -150,18 +150,18 @@
       ],
       "gripAxisLocal": [
         -0.12012524902820587,
-        -9.872020712009544e-08,
+        -9.872020712009544e-8,
         -0.9927587509155273
       ],
       "palmNormalLocal": [
         0.9927587509155273,
-        1.788139627478813e-07,
+        1.788139627478813e-7,
         -0.12012524902820587
       ],
       "fingerDirection": [
-        -1.6391281576488836e-07,
+        -1.6391281576488836e-7,
         1,
-        -8.940698847936801e-08
+        -8.940698847936801e-8
       ],
       "wristCenter": [
         0,
@@ -186,18 +186,18 @@
       ],
       "gripAxisLocal": [
         0.12012524902820587,
-        9.872020712009544e-08,
+        9.872020712009544e-8,
         0.9927587509155273
       ],
       "palmNormalLocal": [
         0.9927587509155273,
-        1.788139627478813e-07,
+        1.788139627478813e-7,
         -0.12012524902820587
       ],
       "fingerDirection": [
-        -1.6391281576488836e-07,
+        -1.6391281576488836e-7,
         1,
-        -8.940698847936801e-08
+        -8.940698847936801e-8
       ],
       "wristCenter": [
         0,
@@ -220,18 +220,18 @@
       ],
       "gripAxisLocal": [
         0.12012524902820587,
-        9.872020712009544e-08,
+        9.872020712009544e-8,
         0.9927587509155273
       ],
       "palmNormalLocal": [
         0.9927587509155273,
-        1.788139627478813e-07,
+        1.788139627478813e-7,
         -0.12012524902820587
       ],
       "fingerDirection": [
-        -1.6391281576488836e-07,
+        -1.6391281576488836e-7,
         1,
-        -8.940698847936801e-08
+        -8.940698847936801e-8
       ],
       "wristCenter": [
         0,
@@ -254,18 +254,18 @@
       ],
       "gripAxisLocal": [
         0.12012524902820587,
-        9.872020712009544e-08,
+        9.872020712009544e-8,
         0.9927587509155273
       ],
       "palmNormalLocal": [
         0.9927587509155273,
-        1.788139627478813e-07,
+        1.788139627478813e-7,
         -0.12012524902820587
       ],
       "fingerDirection": [
-        -1.6391281576488836e-07,
+        -1.6391281576488836e-7,
         1,
-        -8.940698847936801e-08
+        -8.940698847936801e-8
       ],
       "wristCenter": [
         0,
@@ -290,16 +290,16 @@
       ],
       "gripAxisLocal": [
         0.12012536823749542,
-        -1.3038519597330378e-08,
+        -1.3038519597330378e-8,
         -0.9927588105201721
       ],
       "palmNormalLocal": [
         -0.9927587509155273,
-        5.960465188081798e-08,
+        5.960465188081798e-8,
         -0.12012538313865662
       ],
       "fingerDirection": [
-        3.72529100900465e-08,
+        3.72529100900465e-8,
         1,
         0
       ],
@@ -324,16 +324,16 @@
       ],
       "gripAxisLocal": [
         0.12012536823749542,
-        -1.3038519597330378e-08,
+        -1.3038519597330378e-8,
         -0.9927588105201721
       ],
       "palmNormalLocal": [
         -0.9927587509155273,
-        5.960465188081798e-08,
+        5.960465188081798e-8,
         -0.12012538313865662
       ],
       "fingerDirection": [
-        3.72529100900465e-08,
+        3.72529100900465e-8,
         1,
         0
       ],
@@ -358,16 +358,16 @@
       ],
       "gripAxisLocal": [
         0.12012536823749542,
-        -1.3038519597330378e-08,
+        -1.3038519597330378e-8,
         -0.9927588105201721
       ],
       "palmNormalLocal": [
         -0.9927587509155273,
-        5.960465188081798e-08,
+        5.960465188081798e-8,
         -0.12012538313865662
       ],
       "fingerDirection": [
-        3.72529100900465e-08,
+        3.72529100900465e-8,
         1,
         0
       ],
@@ -780,15 +780,15 @@
     "Cloth uses fitted helper bones and baked poses; no dynamic cloth collision.",
     "The target-only grounded death retains a slightly propped prone shape from the authored motion; contacting extremities do not imply a fully flat torso.",
     "Raw source-mode bow poses may hover: gameplay retains the bow pelvis while replacing leg tracks with locomotion legs, and the fitted contact bake preserves that composed stance.",
-    "The inherited short early two-handed-axe runtime transition can briefly dip feet about 2\u20134 cm; the shared blend and body/root behavior are unchanged.",
+    "The inherited short early two-handed-axe runtime transition can briefly dip feet about 2–4 cm; the shared blend and body/root behavior are unchanged.",
     "The existing two-handed axe support hand retains its partly open/sliding source pose, emphasized by the low-poly fingers.",
-    "Per-frame locomotion planting removes authored airborne run clearance. Actual idle/run fades on the reviewed fitted targets can briefly dip soles about 2.5\u20134.7 cm; source-clearance-preserving locomotion remains unfinished.",
-    "Coarse LOD2 final death contact can retain about 3.7\u20137.5 mm of surface-floor penetration under the shared identical animation."
+    "Per-frame locomotion planting removes authored airborne run clearance. Actual idle/run fades on the reviewed fitted targets can briefly dip soles about 2.5–4.7 cm; source-clearance-preserving locomotion remains unfinished.",
+    "Coarse LOD2 final death contact can retain about 3.7–7.5 mm of surface-floor penetration under the shared identical animation."
   ],
   "fileSha256": {
-    "lod0": "f20011d5b915359c497ed1ed4d45508d32f6c5cd551dd18d379269d04e670381",
-    "lod1": "d4f558bd5e4971ac73341593676d97122446740a6c3d2a77280a7a6087e360de",
-    "lod2": "645042dbfc47de915a3c08359f126447b9b783cb6117bcbd97b3b525a5b38196"
+    "lod0": "2d4d5f05f05c84691ed58ae37bfa8c9f14e41d86ca94e5d56507df068079254e",
+    "lod1": "08576b92e0c932bcbd54d20a2c08e0e8fa9374118e3c2c2d9caef14e451cd37b",
+    "lod2": "63a4e3cd5ffd2f9d38824ef752697ea3631350e1494cfb90c07bff5d3f78d4ef"
   },
   "animations": {
     "embedded": [
@@ -888,14 +888,16 @@
         "source": "Meshy",
         "sourceClip": "axeAttack2H",
         "loop": false,
-        "duration": 2.8333333333333335,
+        "duration": 0.48,
         "meleeCycleSeconds": 0.48,
         "events": {
-          "activeStart": 1.025,
-          "hit": 1.075,
-          "activeEnd": 1.125,
-          "actionComplete": 2.8333333333333335
-        }
+          "activeStart": 0.1625,
+          "hit": 0.245833333,
+          "activeEnd": 0.258333333,
+          "actionComplete": 0.48
+        },
+        "attackFadeInSeconds": 0.1,
+        "attackTransition": "inertial"
       },
       {
         "clip": "axeAttack1HFoot",
@@ -954,5 +956,37 @@
       "publication-equality-audit.json"
     ],
     "equalityAudit": "publication-equality-audit.json"
+  },
+  "axeAttack2HTrim": {
+    "version": 1,
+    "recipe": "tools/assets/axe-2h-trim.json",
+    "recipeSha256": "4b8134be3b24fae7970611858178f487fa275090035802188087d5fd486c50ed",
+    "sourceDuration": 2.8333333333333335,
+    "sourceRange": [
+      0.9666666666666667,
+      1.2
+    ],
+    "sourceEvents": {
+      "activeStart": 1.025,
+      "hit": 1.075,
+      "activeEnd": 1.125,
+      "actionComplete": 2.8333333333333335
+    },
+    "inputSha256": {
+      "lod0.glb": "f20011d5b915359c497ed1ed4d45508d32f6c5cd551dd18d379269d04e670381",
+      "lod1.glb": "d4f558bd5e4971ac73341593676d97122446740a6c3d2a77280a7a6087e360de",
+      "lod2.glb": "645042dbfc47de915a3c08359f126447b9b783cb6117bcbd97b3b525a5b38196"
+    },
+    "duration": 0.48,
+    "events": {
+      "activeStart": 0.1625,
+      "hit": 0.245833333,
+      "activeEnd": 0.258333333,
+      "actionComplete": 0.48
+    },
+    "attackFadeInSeconds": 0.1,
+    "attackTransition": "inertial",
+    "preservation": "Only axeAttack2H channels and their referenced samples are replaced. Geometry, skin, textures, other animation payloads and runtime attack cycles are unchanged.",
+    "validation": "Animation/asset and production-controller trajectory checks; live browser gameplay, visual contact/clearance and mounted aesthetic acceptance remain unverified."
   }
 }

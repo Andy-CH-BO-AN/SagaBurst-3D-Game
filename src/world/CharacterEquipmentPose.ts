@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import type { ArmRig, CharacterRig, MountedPoseKind } from './CharacterVisuals'
 import { applyCharacterMountedPose, setRigRotation } from './CharacterVisuals'
 import { AXE_HIT_TIMES, COMBAT_ANIMATION_PROFILES } from './CharacterCombatAnimator'
-import { naturalAxeHandMatrix, swordHandMatrix, type WeaponGripSections } from './SwordAttachmentContract'
+import { axeRecoveryWeight, naturalAxeHandMatrix, swordHandMatrix, type WeaponGripSections } from './SwordAttachmentContract'
 import { equipmentWeaponFrame, type EquipmentGripFrame, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { XONGKORO_VISUAL } from '../movement/XongkoroConfig'
 import { SelectedMountedSkirt, type SelectedHumanoidSource } from './SelectedHumanoidSource'
@@ -29,6 +29,8 @@ export interface EquipmentPoseState {
   mountKind: MountedPoseKind
   action: string
   elapsed: number
+  /** Only measured, trimmed 2H actions opt into continuous pose corrections. */
+  continuousAxeAction?: boolean
   alive: boolean
 }
 export interface SwordCarryGripProfile {
@@ -41,6 +43,18 @@ export interface SwordCarryGripProfile {
   digits: Record<string, [number, number, number, number]>
 }
 export const createEquipmentPoseState = (): EquipmentPoseState => ({ shield: false, lance: false, mounted: false, mountKind: 'HORSE', action: 'idle', elapsed: 0, alive: true })
+
+interface ArmBendContinuity {
+  ready: boolean
+  axis: THREE.Vector3
+  bend: THREE.Vector3
+  twist: number
+  upperReady: boolean
+  upperX: THREE.Vector3
+  upperY: THREE.Vector3
+  upperTransported: THREE.Quaternion
+  upperTwist: number
+}
 
 /** 只旋轉骨骼的兩節 IK；明確肘平面避免手臂翻面。 */
 class ArmSolver {
@@ -81,7 +95,7 @@ class ArmSolver {
     this.lowerLength = arm.wrist.position.length()
   }
 
-  solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame, bodyRotation?: THREE.Quaternion, followSampledPose = false, alignForearmRoll = false): void {
+  solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame, bodyRotation?: THREE.Quaternion, followSampledPose = false, alignForearmRoll = false, continuity?: ArmBendContinuity): void {
     // Refresh root before reading matrixWorld; bone getters refresh their own
     // ancestor paths. Keep the solved arm subtree updates below for callers.
     this.root.updateWorldMatrix(true, false)
@@ -104,7 +118,34 @@ class ArmSolver {
     this.bend.set(this.side < 0 ? -0.15 : 0.65, -1, this.side < 0 ? -0.35 : -0.1)
     if (bodyRotation) this.bend.applyQuaternion(bodyRotation)
     if (followSampledPose) this.bend.subVectors(this.sampledElbow, this.shoulder)
-    this.bend.addScaledVector(this.axis, -this.bend.dot(this.axis)).normalize()
+    this.bend.addScaledVector(this.axis, -this.bend.dot(this.axis))
+    const poleRatio = continuity ? this.bend.length() / this.upperLength : 1
+    const conditionedPole = continuity?.ready && poleRatio < .25
+    if (conditionedPole) {
+      // Only opted-in 2H conditions the poorly defined sampled elbow plane.
+      // Below sin(angle)=.25, transport a root-space reference and smoothly
+      // recover the sampled plane's unwrapped angle. Outside this cone
+      // use the original solution exactly; no grip target is moved.
+      this.y.copy(continuity.bend).applyQuaternion(this.swing.setFromUnitVectors(continuity.axis, this.axis))
+      this.y.addScaledVector(this.axis, -this.y.dot(this.axis)).normalize()
+      if (this.bend.lengthSq() >= 1e-12) {
+        this.bend.normalize()
+        const angle = Math.atan2(this.x.crossVectors(this.y, this.bend).dot(this.axis), this.y.dot(this.bend))
+        continuity.twist += Math.atan2(Math.sin(angle - continuity.twist), Math.cos(angle - continuity.twist))
+      }
+      this.bend.copy(this.y).applyQuaternion(this.swing.setFromAxisAngle(this.axis, continuity.twist * smooth(poleRatio / .25)))
+      continuity.bend.copy(this.y)
+    } else {
+      if (continuity && this.bend.lengthSq() < 1e-12) {
+        this.bend.set(Math.abs(this.axis.y) < .9 ? 0 : 1, Math.abs(this.axis.y) < .9 ? 1 : 0, 0)
+        this.bend.addScaledVector(this.axis, -this.bend.dot(this.axis))
+      }
+      this.bend.normalize()
+    }
+    if (continuity) {
+      if (!conditionedPole) { continuity.bend.copy(this.bend); continuity.twist = 0 }
+      continuity.axis.copy(this.axis); continuity.ready = true
+    }
     const along = (this.upperLength ** 2 - this.lowerLength ** 2 + distance ** 2) / (2 * distance)
     this.elbow.copy(this.shoulder).addScaledVector(this.axis, along).addScaledVector(this.bend, Math.sqrt(Math.max(0, this.upperLength ** 2 - along ** 2)))
     if (followSampledPose) {
@@ -123,7 +164,29 @@ class ArmSolver {
       }
       this.x.subVectors(this.sampledElbow, this.shoulder).normalize()
       this.y.subVectors(this.elbow, this.shoulder).normalize()
-      this.q.copy(this.sampledUpper).premultiply(this.swing.setFromUnitVectors(this.x, this.y))
+      this.swing.setFromUnitVectors(this.x, this.y)
+      if (continuity) {
+        const upperDot = this.x.dot(this.y)
+        if (!continuity.upperReady || upperDot >= -.8) {
+          continuity.upperTransported.copy(this.swing)
+          continuity.upperTwist = 0
+        } else {
+          // Near antiparallel upper-arm directions, transport the swing from
+          // both endpoint increments so it still maps x -> y exactly, then
+          // smoothly recover the shortest-arc axial twist as upperDot -> -0.8.
+          this.upperRotation.setFromUnitVectors(continuity.upperY, this.y)
+          this.parentQ.setFromUnitVectors(this.x, continuity.upperX)
+          continuity.upperTransported.premultiply(this.upperRotation).multiply(this.parentQ).normalize()
+          this.upperRotation.copy(this.swing).multiply(this.parentQ.copy(continuity.upperTransported).invert()).normalize()
+          const twist = 2 * Math.atan2(this.upperRotation.x * this.y.x + this.upperRotation.y * this.y.y + this.upperRotation.z * this.y.z, this.upperRotation.w)
+          continuity.upperTwist += Math.atan2(Math.sin(twist - continuity.upperTwist), Math.cos(twist - continuity.upperTwist))
+          this.swing.setFromAxisAngle(this.y, continuity.upperTwist * smooth((upperDot + 1) / .2)).multiply(continuity.upperTransported).normalize()
+        }
+        continuity.upperX.copy(this.x)
+        continuity.upperY.copy(this.y)
+        continuity.upperReady = true
+      }
+      this.q.copy(this.sampledUpper).premultiply(this.swing)
     } else {
       this.q.copy(handRotation).multiply(this.neutralWrist)
       this.x.copy(this.lowerAxis).applyQuaternion(this.q)
@@ -159,7 +222,47 @@ class ArmSolver {
 }
 
 /** 每個 LOD 一份骨架求值器；不持有或修正武器物件。 */
+export function blendContinuousLocalQuaternion(
+  saved: THREE.Quaternion,
+  target: THREE.Quaternion,
+  weight: number,
+  prevDelta?: THREE.Quaternion,
+  deltaScratch = new THREE.Quaternion(),
+  axisScratch = new THREE.Vector3(),
+): THREE.Quaternion {
+  deltaScratch.copy(saved).invert().multiply(target).normalize()
+  if (prevDelta ? deltaScratch.dot(prevDelta) < 0 : deltaScratch.w < 0) {
+    deltaScratch.set(-deltaScratch.x, -deltaScratch.y, -deltaScratch.z, -deltaScratch.w)
+  }
+  prevDelta?.copy(deltaScratch)
+  if (weight <= 0) target.copy(saved)
+  else if (weight < 1) {
+    axisScratch.set(deltaScratch.x, deltaScratch.y, deltaScratch.z)
+    const sinHalf = axisScratch.length()
+    if (sinHalf > 1e-8) {
+      const angle = 2 * Math.atan2(sinHalf, deltaScratch.w)
+      axisScratch.multiplyScalar(1 / sinHalf)
+      target.setFromAxisAngle(axisScratch, angle * weight).premultiply(saved).normalize()
+    } else target.copy(saved)
+  }
+  return deltaScratch
+}
+
 export class CharacterEquipmentPose {
+  private continuousAxeClearanceYaw: number | undefined
+  private continuousAxeLeftElapsed: number | undefined
+  private hasContinuousAxeLeftOffset = false
+  private readonly continuousAxeLeftOffset = [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()]
+  private hasContinuousRelaxedDelta = false
+  private readonly continuousRelaxedDelta = [new THREE.Quaternion(), new THREE.Quaternion(), new THREE.Quaternion()]
+  private readonly continuousAxeLeftPole: ArmBendContinuity = {
+    ready: false, axis: new THREE.Vector3(), bend: new THREE.Vector3(), twist: 0,
+    upperReady: false, upperX: new THREE.Vector3(), upperY: new THREE.Vector3(), upperTransported: new THREE.Quaternion(), upperTwist: 0,
+  }
+  private readonly continuousAxePalm = {
+    ready: false, source: new THREE.Quaternion(), shaft: new THREE.Vector3(),
+    transported: new THREE.Quaternion(), result: new THREE.Quaternion(), twist: 0,
+  }
   private readonly fittedCloth?: FittedHumanoidCloth
   private readonly mountedSkirt?: SelectedMountedSkirt
   private readonly saved: Array<{ node: THREE.Object3D, q: THREE.Quaternion }> = []
@@ -294,9 +397,18 @@ export class CharacterEquipmentPose {
 
   stop(): void {
     this.restore()
+    this.continuousAxeClearanceYaw = undefined
+    this.continuousAxeLeftElapsed = undefined
+    this.hasContinuousAxeLeftOffset = false
+    this.hasContinuousRelaxedDelta = false
+    this.continuousAxeLeftPole.ready = this.continuousAxeLeftPole.upperReady = this.continuousAxePalm.ready = false
     for (const { mesh, right, left, shield } of this.morphs) {
       for (const index of [right, left, shield]) if (index !== undefined) mesh.morphTargetInfluences![index] = 0
     }
+  }
+
+  private blendContinuousLocal(saved: THREE.Quaternion, target: THREE.Quaternion, weight: number, prevDelta?: THREE.Quaternion): void {
+    blendContinuousLocalQuaternion(saved, target, weight, prevDelta, this.boneWorld, this.attackAxis)
   }
 
   private rotateArm(node: THREE.Object3D, angle: number): void {
@@ -317,6 +429,17 @@ export class CharacterEquipmentPose {
     this.hipsSamplePosition.copy(this.seatedHips.position)
     this.applied = true
     const live = state.alive && state.action !== 'death'
+    if (!live || !state.continuousAxeAction || state.action !== 'axeAttack2H' || !state.mounted || state.mountKind !== 'CORGI' || state.elapsed <= 0) this.continuousAxeClearanceYaw = undefined
+    const continuousLeftAcquisition = live && state.continuousAxeAction && !state.shield
+      && state.action === 'axeAttack2H' && !this.bakedActions.includes(state.action)
+    if (!continuousLeftAcquisition || state.elapsed <= 0 || (this.continuousAxeLeftElapsed !== undefined && state.elapsed < this.continuousAxeLeftElapsed)) {
+      this.hasContinuousAxeLeftOffset = false
+      this.hasContinuousRelaxedDelta = false
+      this.continuousAxeLeftPole.ready = this.continuousAxeLeftPole.upperReady = this.continuousAxePalm.ready = false
+    } else if (this.continuousAxeLeftElapsed !== undefined && this.continuousAxeLeftElapsed < .42 && state.elapsed >= .42) {
+      this.hasContinuousAxeLeftOffset = false
+    }
+    this.continuousAxeLeftElapsed = continuousLeftAcquisition ? state.elapsed : undefined
     const selectedMountedBow = live && state.mounted && !!this.selectedSource
       && (state.action === 'bowAim' || state.action === 'bowRelease' || (state.action === 'idle' && !!state.sampledBowPose))
     if (live && this.bowFullBodyStance && (state.moving || state.mounted)
@@ -429,13 +552,21 @@ export class CharacterEquipmentPose {
         this.target.add(this.axeReach)
         this.axeLeftBones.forEach((bone, index) => this.axeSavedLeft[index].copy(bone.quaternion))
         this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, true)
-        this.axeLeftBones.forEach((bone, index) => bone.quaternion.copy(this.axeSavedLeft[index].slerp(bone.quaternion, relaxedHandWeight)))
+        if (continuousLeftAcquisition) {
+          for (let i = 0; i < 3; i++) {
+            const prev = this.hasContinuousRelaxedDelta ? this.continuousRelaxedDelta[i] : undefined
+            this.blendContinuousLocal(this.axeSavedLeft[i], this.axeLeftBones[i].quaternion, relaxedHandWeight, prev)
+            if (!prev) this.continuousRelaxedDelta[i].copy(this.boneWorld)
+          }
+          this.hasContinuousRelaxedDelta = true
+        } else this.axeLeftBones.forEach((bone, index) => bone.quaternion.copy(this.axeSavedLeft[index].slerp(bone.quaternion, relaxedHandWeight)))
       }
     }
     // Free Roman wrist: mirror the sampled opposite hand in character space,
     // distribute pronation through the forearm and retain the sampled elbow.
-    // Fingers, attacks, shields and bow poses remain source-owned.
-    if (live && this.selectedSource?.rig === 'roman54' && !state.shield && !state.sampledBowPose && state.action === 'idle') {
+    // Trimmed 2H releases this source-owned hand only during recovery.
+    const authoredRecovery = axeRecoveryWeight(state.action, state.elapsed, state.continuousAxeAction)
+    if (live && this.selectedSource?.rig === 'roman54' && !state.shield && !state.sampledBowPose && (state.action === 'idle' || authoredRecovery > 0)) {
       this.root.updateWorldMatrix(true, true)
       this.root.getWorldQuaternion(this.rootWorld).invert()
       this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
@@ -444,12 +575,14 @@ export class CharacterEquipmentPose {
       this.rig.left.wrist.getWorldPosition(this.axeReach)
       this.root.worldToLocal(this.axeReach)
       this.target.add(this.axeReach)
+      if (authoredRecovery > 0) for (let i = 0; i < 3; i++) this.axeSavedLeft[i].copy(this.axeLeftBones[i].quaternion)
       this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, true)
+      if (authoredRecovery > 0) for (let i = 0; i < 3; i++) this.axeLeftBones[i].quaternion.copy(this.axeSavedLeft[i].slerp(this.axeLeftBones[i].quaternion, authoredRecovery))
     }
     // Roman foot carry: +Y shaft points toward gameplay +Z and the axe's
     // +X cutting edge points down. Solve the arm around its existing palm,
     // preserving the fixed weapon attachment and source finger animation.
-    const carryBlend = state.action === 'idle' ? 1 : state.action === 'axeAttack1H' || state.action === 'swordSlash'
+    const carryBlend = state.action === 'idle' ? 1 : authoredRecovery > 0 ? authoredRecovery : state.action === 'axeAttack1H' || state.action === 'swordSlash'
       ? 1 - smooth(state.elapsed / .08) + smooth((state.elapsed - .42) / .06) : 0
     if (live && !state.mounted && !state.lance && !state.sampledBowPose && carryBlend > 0
       && state.carryWeapon && this.selectedSource?.rig === 'roman54') {
@@ -553,10 +686,21 @@ export class CharacterEquipmentPose {
         this.target.set(0, 1, 0).transformDirection(this.axeMatrix)
         const horizontal = Math.hypot(this.target.x, this.target.z)
         this.axeReach.set(-Math.sin(.9) * horizontal, this.target.y, Math.cos(.9) * horizontal)
-        const angle = this.target.angleTo(this.axeReach)
-        this.attackAxis.crossVectors(this.target, this.axeReach).normalize().applyQuaternion(this.rootWorld)
         const clearance = smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .38) / .1))
-        if (angle > 1e-6) this.rotateArm(this.rig.right.shoulder, angle * clearance)
+        if (state.continuousAxeAction) {
+          // The target keeps the same height and horizontal length. A root-up
+          // yaw reaches it without a near-antipodal 3D cross-product axis flip.
+          let yaw = -.9 - Math.atan2(this.target.x, this.target.z)
+          yaw = Math.atan2(Math.sin(yaw), Math.cos(yaw))
+          if (this.continuousAxeClearanceYaw !== undefined) yaw = this.continuousAxeClearanceYaw + Math.atan2(Math.sin(yaw - this.continuousAxeClearanceYaw), Math.cos(yaw - this.continuousAxeClearanceYaw))
+          this.continuousAxeClearanceYaw = clearance > 0 ? yaw : undefined
+          this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
+          this.rotateArm(this.rig.right.shoulder, yaw * clearance)
+        } else {
+          const angle = this.target.angleTo(this.axeReach)
+          this.attackAxis.crossVectors(this.target, this.axeReach).normalize().applyQuaternion(this.rootWorld)
+          if (angle > 1e-6) this.rotateArm(this.rig.right.shoulder, angle * clearance)
+        }
       }
     }
     // Keep the existing attack/equipment grip solve; only idle/moving gets raised stance.
@@ -595,7 +739,9 @@ export class CharacterEquipmentPose {
       // to the actual haft (5cm above the butt), retaining the source torso,
       // right arm and weapon arc. Blend acquisition/release, not the strike.
       const blend = smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .42) / .06))
+      const blendRight = state.continuousAxeAction && state.elapsed >= .42 && blend < 1
       for (let i = 0; i < 3; i++) this.axeSavedLeft[i].copy(this.axeLeftBones[i].quaternion)
+      if (blendRight) for (let i = 0; i < 3; i++) this.carrySaved[i].copy(this.carryBones[i].quaternion)
       this.root.updateWorldMatrix(true, true)
       this.axeInverseRoot.copy(this.root.matrixWorld).invert()
       this.axeMatrix.copy(this.axeInverseRoot).multiply(this.rig.right.wrist.matrixWorld).multiply(this.axeGripInHand)
@@ -607,7 +753,37 @@ export class CharacterEquipmentPose {
         this.rig.left.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
         this.attackAxis.fromArray(this.frames.lanceLeft.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
         this.target.set(0, 1, 0).transformDirection(this.axeMatrix)
-        this.handWorld.premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.target))
+        if (continuousLeftAcquisition) {
+          const palm = this.continuousAxePalm, alignment = this.attackAxis.dot(this.target)
+          // Repeated update(0) is exact, but changed inputs at the same action
+          // time (for example a new mount/LOD) still get aligned to their shaft.
+          if (palm.ready && palm.source.equals(this.handWorld) && palm.shaft.equals(this.target)) this.handWorld.copy(palm.result)
+          else {
+            this.boneWorld.copy(this.handWorld)
+            this.parentInverse.copy(this.handWorld).premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.target))
+            if (!palm.ready || (alignment >= -.85 && state.elapsed < .42)) {
+              this.handWorld.copy(this.parentInverse)
+              palm.transported.copy(this.handWorld); palm.twist = 0
+            } else {
+              // Near antiparallel axes or during release, preserve source angular
+              // increments in a transported palm and align the grasp axis to the haft.
+              this.attackRotation.copy(palm.source).invert().premultiply(this.boneWorld)
+              palm.transported.premultiply(this.attackRotation)
+              this.attackAxis.fromArray(this.frames.lanceLeft.gripAxisLocal).applyQuaternion(palm.transported).normalize()
+              palm.transported.premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.target)).normalize()
+              if (state.elapsed >= .42) {
+                this.handWorld.copy(palm.transported)
+                palm.twist = 0
+              } else {
+                this.attackRotation.copy(palm.transported).invert().premultiply(this.parentInverse).normalize()
+                const twist = 2 * Math.atan2(this.attackRotation.x * this.target.x + this.attackRotation.y * this.target.y + this.attackRotation.z * this.target.z, this.attackRotation.w)
+                palm.twist += Math.atan2(Math.sin(twist - palm.twist), Math.cos(twist - palm.twist))
+                this.handWorld.copy(palm.transported).premultiply(this.attackRotation.setFromAxisAngle(this.target, palm.twist * smooth((alignment + 1) / .15))).normalize()
+              }
+            }
+            palm.source.copy(this.boneWorld); palm.shaft.copy(this.target); palm.result.copy(this.handWorld); palm.ready = true
+          }
+        } else this.handWorld.premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.target))
       }
       this.supportPalm.copy(this.handWorld).multiply(this.axeLeftPalmFrame)
       this.hasSupportPalm = true
@@ -630,9 +806,49 @@ export class CharacterEquipmentPose {
         }
       }
       this.axeRight.solve(this.axeRightGrip, this.axeRightRotation, this.frames.lanceRight, undefined, true)
+      if (blendRight) {
+        // The shared reach projection moves the right hand too. Release both
+        // arms together so the shortened clip does not drop that correction
+        // abruptly at completion; acquisition and the strike remain unchanged.
+        for (let i = 0; i < 3; i++) this.carryBones[i].quaternion.copy(this.carrySaved[i].slerp(this.carryBones[i].quaternion, blend))
+        this.rig.right.shoulder.updateWorldMatrix(true, true)
+        // Follow the actual, partially released haft rather than the fully
+        // projected target. Carry its palm rotation into the support solve.
+        this.rig.right.wrist.getWorldQuaternion(this.boneWorld).premultiply(this.rootWorld)
+        this.attackRotation.copy(this.axeRightRotation).invert().premultiply(this.boneWorld)
+        this.handWorld.premultiply(this.attackRotation)
+        this.supportPalm.copy(this.handWorld).multiply(this.axeLeftPalmFrame)
+        this.axeMatrix.copy(this.axeInverseRoot).multiply(this.rig.right.wrist.matrixWorld).multiply(this.axeGripInHand)
+        this.axeRightGrip.setFromMatrixPosition(this.axeMatrix)
+        this.axeLeftOffset.set(0, -.1, 0).transformDirection(this.axeMatrix).multiplyScalar(.1)
+      }
       this.target.copy(this.axeRightGrip).add(this.axeLeftOffset)
-      this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, !!this.selectedSource)
-      for (let i = 0; i < 3; i++) this.axeLeftBones[i].quaternion.copy(this.axeSavedLeft[i].slerp(this.axeLeftBones[i].quaternion, blend))
+      this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, !!this.selectedSource, continuousLeftAcquisition ? this.continuousAxeLeftPole : undefined)
+      if (continuousLeftAcquisition && state.elapsed < .08 && !state.mounted) {
+        // Qsolve(t) * offset(0) starts at the sampled local pose. Decay this
+        // fixed right-local offset, not a newly chosen sampled-to-IK short arc:
+        // that moving arc can cross 180 degrees and flip during acquisition.
+        if (!this.hasContinuousAxeLeftOffset) {
+          for (let i = 0; i < 3; i++) {
+            const offset = this.continuousAxeLeftOffset[i].copy(this.axeLeftBones[i].quaternion).invert().multiply(this.axeSavedLeft[i]).normalize()
+            if (offset.w < 0) offset.set(-offset.x, -offset.y, -offset.z, -offset.w)
+          }
+          this.hasContinuousAxeLeftOffset = true
+        }
+        for (let i = 0; i < 3; i++) {
+          this.attackRotation.identity().slerp(this.continuousAxeLeftOffset[i], 1 - smooth(state.elapsed / .08))
+          if (state.elapsed <= 0) this.axeLeftBones[i].quaternion.copy(this.axeSavedLeft[i])
+          else this.axeLeftBones[i].quaternion.multiply(this.attackRotation).normalize()
+        }
+        if (state.elapsed > 0) this.hasContinuousAxeLeftOffset = true
+      } else if (continuousLeftAcquisition && (state.elapsed >= .42 || (state.mounted && state.elapsed < .08))) {
+        for (let i = 0; i < 3; i++) {
+          const prev = this.hasContinuousAxeLeftOffset ? this.continuousAxeLeftOffset[i] : undefined
+          this.blendContinuousLocal(this.axeSavedLeft[i], this.axeLeftBones[i].quaternion, blend, prev)
+          if (!prev) this.continuousAxeLeftOffset[i].copy(this.boneWorld)
+        }
+        this.hasContinuousAxeLeftOffset = true
+      } else for (let i = 0; i < 3; i++) this.axeLeftBones[i].quaternion.copy(this.axeSavedLeft[i].slerp(this.axeLeftBones[i].quaternion, blend))
     }
     // Fitted sword grasp owns only the right arm/digits. Keep the sampled
     // source blade orientation, including attacks; shift only its grasp station.

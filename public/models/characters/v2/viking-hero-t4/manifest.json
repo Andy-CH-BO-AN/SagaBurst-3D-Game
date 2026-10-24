@@ -77,14 +77,16 @@
         "source": "Meshy",
         "sourceClip": "axeAttack2H",
         "loop": false,
-        "duration": 2.8333333333333335,
+        "duration": 0.48,
         "meleeCycleSeconds": 0.48,
         "events": {
-          "activeStart": 1.025,
-          "hit": 1.0666666666666667,
-          "activeEnd": 1.125,
-          "actionComplete": 2.8333333333333335
-        }
+          "activeStart": 0.116666667,
+          "hit": 0.158333333,
+          "activeEnd": 0.175,
+          "actionComplete": 0.48
+        },
+        "attackFadeInSeconds": 0.06,
+        "attackTransition": "inertial"
       },
       {
         "clip": "axeMountedIdle",
@@ -193,9 +195,9 @@
     ]
   },
   "fileSha256": {
-    "lod0": "58d26d132392d51741adeac74f630738c20e11e5b50760791034da9d2eca0da3",
-    "lod1": "907f8ee59f87389e12cf9f921b30c972159d1768b9355ee0c39ec22988163ede",
-    "lod2": "ad8eeef6de4c4165442cff0ade60336ea99d8c3250a1e2f35cbcbd28c20b0edc"
+    "lod0": "5831cf7d8b612294bbec1e1762977d3772347dc7b9c63db40967d35168daf217",
+    "lod1": "dd3080f88630e5f02b8e32b248f47209475f8638ff565bfe0894db8920d0bffc",
+    "lod2": "474c83d6bef11e571d6b8c24b523e59a466d5cb6674ac4a013945a7954d4c361"
   },
   "visualAcceptance": "Runtime visual integration pending; structural LOD generation is not gameplay acceptance.",
   "knownLimitations": [
@@ -467,5 +469,40 @@
     },
     "retarget": "Anatomical limb axes and thumb/finger grasp; target idle pelvis and legs; original 1H event clock retained",
     "rebuild": "node tools/retarget-bandit-foot-axe.mjs"
+  },
+  "axeAttack2HTrim": {
+    "version": 1,
+    "recipe": "tools/assets/axe-2h-trim.json",
+    "recipeSha256": "0a6cd66e16f160b85e439a1ba4d48fb963b4d829a98ef0ade7d2918bd81104eb",
+    "sourceDuration": 2.8333333333333335,
+    "sourceRange": [
+      0.9333333333333333,
+      1.3666666666666667
+    ],
+    "sourceEvents": {
+      "activeStart": 1.025,
+      "hit": 1.0666666666666667,
+      "activeEnd": 1.125,
+      "actionComplete": 2.8333333333333335
+    },
+    "inputSha256": {
+      "lod0.glb": "58d26d132392d51741adeac74f630738c20e11e5b50760791034da9d2eca0da3",
+      "lod1.glb": "907f8ee59f87389e12cf9f921b30c972159d1768b9355ee0c39ec22988163ede",
+      "lod2.glb": "ad8eeef6de4c4165442cff0ade60336ea99d8c3250a1e2f35cbcbd28c20b0edc"
+    },
+    "duration": 0.48,
+    "events": {
+      "activeStart": 0.116666667,
+      "hit": 0.158333333,
+      "activeEnd": 0.175,
+      "actionComplete": 0.48
+    },
+    "attackFadeInSeconds": 0.06,
+    "attackTransition": "inertial",
+    "knownLimitations": [
+      "The pre-existing authored attachment switch at attack entry remains numerically unchanged from origin/dev. Completion now recovers continuously to the carry attachment; browser appearance, contact and self/mount clearance still require actual playback acceptance."
+    ],
+    "preservation": "Only axeAttack2H channels and their referenced samples are replaced. Geometry, skin, textures, other animation payloads and runtime attack cycles are unchanged.",
+    "validation": "Animation/asset and production-controller trajectory checks; live browser gameplay, visual contact/clearance and mounted aesthetic acceptance remain unverified."
   }
 }

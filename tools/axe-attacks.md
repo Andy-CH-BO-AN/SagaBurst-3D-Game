@@ -1,12 +1,94 @@
 # Humanoid axe animation pipeline
 
-`axeAttack1H` uses Kevin Iglesias's `HumanM@Attack1H01_R.fbx`;
-`axeAttack2H` uses `HumanM@Attack2H01.fbx` from the supplied
-`Human Melee Animations FREE.zip`. The archive's PDF licenses commercial game
-use under the Standard Asset Store EULA. Keep the original archive outside
-`public/` and Git; the game embeds only retargeted rotation tracks.
+The independent Roman T4 `axeAttack2H` uses Kevin Iglesias's
+`HumanM@Attack2H01.fbx` from `Human Melee Animations FREE.zip`, already retimed
+to 0.48 s. Keep it unchanged when processing the selected Meshy attacks.
+Ordinary Roman/Viking, Viking T4, both T5 commanders, Maki and both civilian
+variants instead inherit the selected Meshy `axeAttack2H` take. Their retained
+strike is now genuinely cut/re-keyed to 0.48 s; the discarded windup/wait samples
+are removed from the published GLB, not skipped at runtime. Other clips are untouched.
+Source licensing remains asset-specific; keep source archives outside `public/` and Git.
 
-## Rebuild
+## Meshy strike-only final stage
+
+After the relevant selected-humanoid, retarget, LOD and packing builders, run:
+
+```sh
+node tools/trim-two-handed-axe.mjs [character-output-root]
+```
+
+The default root is `public/models/characters/v2`. The measured, hash-pinned
+recipe is `tools/assets/axe-2h-trim.json`; a changed upstream source fails closed
+and must be remeasured. Rebuilding the same output is idempotent and checks both
+the recipe fingerprint and output hashes. Restore the recorded input files to
+apply a changed recipe; never trim an already trimmed clip a second time.
+
+The ordinary/T5/Maki/civilian interval is 0.966666667–1.2 source seconds;
+Varangian retains 0.933333333–1.366666667 for its longer recoil. These boundaries
+were selected after sampling actual bone/weapon motion: the rapid strike peaks
+around 1.0625 s, then decelerates; the long initial raise and late wait are outside
+the retained interval. All channels share the same affine mapping to 0–0.48 s.
+LINEAR rotations use slerp, STEP retains authored discontinuities, and cubic
+curves retain their Hermite interpolation/tangent scale (with bounded adaptive
+rotation refinement). Shared non-target accessors and compressed payloads stay intact.
+
+Events are remeasured at 240 Hz through the production registry and actual
+`CharacterCombatAnimator.start/update`, after settling Idle, using the outer
+cutting edge of the equipped Dane axe (not the source-only Studio preview). `activeStart` is the pre-contact edge-height apex followed by downward and
+forward travel, `hit` its maximum forward reach during the
+retained downward strike, and `activeEnd` its subsequent descent below the
+pelvis. Per-asset times and contact coordinates are in the recipe and manifests.
+`sourceEvents` preserves the original manifest for provenance only; it is not
+a new measurement and does not drive the new event mapping.
+A pelvis-plane entry is not used: corrected carry can keep the edge in front
+throughout. These are geometry-based contact markers, not fixed clip percentages or the old
+1.06–1.08 s events. `actionComplete` is 0.48 s. Runtime cycles, including weapon
+0.54 s overrides, hero/Berserker multipliers and NPC attack gaps remain unchanged.
+The eight trimmed bindings opt into an action-clock fade-in scaled with attack
+speed: 0.06 s for Varangian and the existing 0.1 s for the other seven. The
+Varangian fade retains its measured 0.06 s duration; its left-arm native
+shortest-arc seam is prevented by the fixed-offset transition below, not by
+shrinking fade until the problem is hidden. A fixed 0.1 s wall-clock blend also crosses seams in
+all eight families at high attack speeds; scaling prevents that regression. The independent Roman T4
+and all other animation families retain their previous transition defaults.
+All eight trimmed 2H bindings opt into a fixed-offset entry/exit
+transition: a single initial local TRS offset decays onto the moving clip,
+without repeatedly choosing an idle/target quaternion hemisphere. This is C0
+pose continuity, not a guarantee of matching velocity or aesthetic acceptance.
+The relaxed-hand equipment overlay follows that same transition clock rather
+than the immediately full native target weight; its scalar changes cannot
+reintroduce a wrist snap outside the corrected bone pose.
+Trimmed 2H carry headings unwrap across the atan2 branch cut. Their Corgi
+clearance uses continuous root-up yaw to reach the same shaft height/heading,
+not a near-antipodal shortest-3D-axis correction. Legacy 1H/2H bindings keep
+their original paths. The generic right-hand reach correction is blended out
+only during the existing final recovery window, with the left hand following
+the actual haft. The generic left arm acquires its support grip using a
+fixed initial local rotation offset over the existing first 0.08 s, avoiding
+a new per-frame shortest-arc flip; after acquisition the strike solver is
+unchanged. Unrelated animation assets are unchanged.
+
+`manifest.axeAttack2HTrim` records this subsequent stage and supersedes the
+animation-timing/output-file claims of earlier source/LOD/compression audits;
+those earlier files remain historical evidence for their original hashes.
+Asset preservation and numeric/controller checks do not establish live browser
+visual acceptance, self/mount clearance or arbitrary-large-dt swept collision.
+Those checks must be reported separately, not inferred from successful parsing.
+Trimmed authored 2H attachments recover during 0.42–0.48 s using a fixed
+initial socket-space rotation/anchor offset onto the true carry attachment.
+The grip station transitions to the equipped model marker; Roman carry arm
+corrections enter over the same interval. This removes the newly enlarged
+completion discontinuity without changing the active strike. The pre-existing
+attack-entry attachment/IK changes remain, numerically unchanged from dev;
+this work does not claim to repair every pre-existing acquisition issue.
+Canceling an authored trimmed attack during 0.42–0.48 s stops gameplay and
+hit eligibility immediately, while its already-started equipment recovery
+finishes at the original action-clock rate. Locomotion begins immediately;
+the visual-only tail emits neither hit nor completion events and is cleared
+by a new action or equipment change. Other actions and earlier cancellation
+retain their prior behavior. Actual playback is still required before visual acceptance.
+
+## Legacy Kevin-source rebuild
 
 Run from the project root (substitute the local archive path):
 
@@ -42,9 +124,10 @@ Each repair is asset-owned and idempotent. When verifying a rebuild, check uncha
 
 - Weapon `animationKind: 'axe'` selects the independent axe family. Player and
   NPC choose 1H/2H from the current shield equipment at each attack start.
-- Source frame 10/34 is the 1H hit (0.130909 s); frame 18/49 is the 2H hit
+- For the legacy Kevin clips only, source frame 10/34 is the 1H hit (0.130909 s); frame 18/49 is the 2H hit
   (0.170000 s). Frame 1 maps to time zero. `AXE_HIT_TIMES` and the manifest
-  record these separately. Existing berserker rate scaling still applies.
+  record these separately. Meshy 2H uses the remeasured per-asset events above.
+  Existing berserker rate scaling still applies.
 - The animator alone emits the one-shot melee event, including coarse steps,
   distance throttling and cancellation. Completion restores current locomotion.
 - 1H keeps the normal shield layer. 2H closes the off hand and constrains both
@@ -63,7 +146,7 @@ Each repair is asset-owned and idempotent. When verifying a rebuild, check uncha
 ## Verify
 
 ```sh
-rtk npm test -- --run tests/assets/AxeAttack.test.ts tests/assets/HumanoidAnimationAssets.test.ts tests/assets/CharacterCombatAnimator.test.ts tests/assets/EquipmentPose.test.ts tests/combat/MeleeTierParity.test.ts tests/equipment/ShieldEquipmentState.test.ts tests/equipment/PlayerLoadout.test.ts tests/equipment/VikingInfantryLoadout.test.ts tests/equipment/VikingPlayerAxeSelection.test.ts --maxWorkers=2
+npm test -- tests/combat/CommanderWeaponSwitching.test.ts tests/assets/HumanoidAssetPreload.test.ts
 ```
 
 Use the production humanoid and mount studios with the normal Vite server

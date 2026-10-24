@@ -1,0 +1,373 @@
+{
+  "version": 1,
+  "clip": "axeAttack2H",
+  "duration": 0.48,
+  "measurement": {
+    "sampleRateHz": 240,
+    "method": "240 Hz production HumanoidAssetRegistry + CharacterCombatAnimator.start/update, with Idle settled first and the equipped Dane axe. Marker is the midpoint of the actual outer +X cutting edge. activeStart: the pre-contact edge-height apex, followed by downward and forward travel; hit: maximum forward reach of the retained downward strike; activeEnd: edge descends below pelvis after contact. A pelvis-plane entry rule is not applicable to takes whose corrected carry keeps the edge in front throughout. Cut boundaries retain the source acceleration, strike and deceleration; Varangian retains longer recoil. events is measured on the trimmed runtime trajectory, never a percentage or old-event remap. sourceEvents preserves the original manifest as provenance only and is not used for new event mapping.",
+    "excludedAsset": "roman-hero-t4 retains the independent Kevin Iglesias 0.48 second clip unchanged."
+  },
+  "assets": {
+    "roman": {
+      "sourceDuration": 2.8333333333333335,
+      "sourceRange": [
+        0.9666666666666667,
+        1.2
+      ],
+      "sourceEvents": {
+        "activeStart": 1.025,
+        "hit": 1.075,
+        "activeEnd": 1.125,
+        "actionComplete": 2.8333333333333335
+      },
+      "inputSha256": {
+        "lod0.glb": "2d08e05d15a1690fa80a26066d1e579ed543a0c05b7a6d11d04b52d56a40bda9",
+        "lod1.glb": "c6ee94040c51bb8a7000c0c9102672d439efca92d42023bee865157b94be26ea",
+        "lod2.glb": "656a2e5376b09379477219c3b38304875637fc6591c7a3742354fa89f72c6741"
+      },
+      "events": {
+        "activeStart": 0.0875,
+        "hit": 0.216666667,
+        "activeEnd": 0.245833333,
+        "actionComplete": 0.48
+      },
+      "contactMeasurement": {
+        "downstrokeStartLocal": [
+          -0.635586808,
+          2.009421436,
+          0.233271756
+        ],
+        "cuttingEdgeLocal": [
+          0.40651013,
+          1.061354586,
+          1.599788379
+        ],
+        "pelvisLocal": [
+          -0.0,
+          0.609141816,
+          -0.030031287
+        ],
+        "originalTimeAtNewHit": 1.071990741
+      },
+      "attackFadeInSeconds": 0.1,
+      "knownLimitations": [
+        "The pre-existing authored attachment switch at attack entry remains numerically unchanged from origin/dev. Completion now recovers continuously to the carry attachment; browser appearance, contact and self/mount clearance still require actual playback acceptance."
+      ],
+      "attackTransition": "inertial"
+    },
+    "viking": {
+      "sourceDuration": 2.8333333333333335,
+      "sourceRange": [
+        0.9666666666666667,
+        1.2
+      ],
+      "sourceEvents": {
+        "activeStart": 1.025,
+        "hit": 1.0583333333333333,
+        "activeEnd": 1.125,
+        "actionComplete": 2.8333333333333335
+      },
+      "inputSha256": {
+        "lod0.glb": "564339b0624da0dd3eea6ce02fc666870848e978a71b77d756f05e9d640f7f43",
+        "lod1.glb": "a86d1d2466b9a1a394a1a94efd06af1db8629a346eb9214fb6f13a319c993ea2",
+        "lod2.glb": "91ee4e1eb1fc53b8ef01e0bc4052e059a67198a2a97c91a9970a540436b1e0b8"
+      },
+      "events": {
+        "activeStart": 0.1375,
+        "hit": 0.2375,
+        "activeEnd": 0.2625,
+        "actionComplete": 0.48
+      },
+      "contactMeasurement": {
+        "downstrokeStartLocal": [
+          0.225938932,
+          2.344679678,
+          0.481403429
+        ],
+        "cuttingEdgeLocal": [
+          0.241087606,
+          1.020018673,
+          1.737323379
+        ],
+        "pelvisLocal": [
+          3.4e-08,
+          0.652195299,
+          -0.009803425
+        ],
+        "originalTimeAtNewHit": 1.082118056
+      },
+      "attackFadeInSeconds": 0.1,
+      "knownLimitations": [
+        "The pre-existing authored attachment switch at attack entry remains numerically unchanged from origin/dev. Completion now recovers continuously to the carry attachment; browser appearance, contact and self/mount clearance still require actual playback acceptance."
+      ],
+      "attackTransition": "inertial"
+    },
+    "viking-hero-t4": {
+      "sourceDuration": 2.8333333333333335,
+      "sourceRange": [
+        0.9333333333333333,
+        1.3666666666666667
+      ],
+      "sourceEvents": {
+        "activeStart": 1.025,
+        "hit": 1.0666666666666667,
+        "activeEnd": 1.125,
+        "actionComplete": 2.8333333333333335
+      },
+      "inputSha256": {
+        "lod0.glb": "58d26d132392d51741adeac74f630738c20e11e5b50760791034da9d2eca0da3",
+        "lod1.glb": "907f8ee59f87389e12cf9f921b30c972159d1768b9355ee0c39ec22988163ede",
+        "lod2.glb": "ad8eeef6de4c4165442cff0ade60336ea99d8c3250a1e2f35cbcbd28c20b0edc"
+      },
+      "events": {
+        "activeStart": 0.116666667,
+        "hit": 0.158333333,
+        "activeEnd": 0.175,
+        "actionComplete": 0.48
+      },
+      "contactMeasurement": {
+        "downstrokeStartLocal": [
+          0.126679727,
+          2.198382997,
+          0.610410769
+        ],
+        "cuttingEdgeLocal": [
+          0.429161852,
+          1.108746117,
+          1.713831692
+        ],
+        "pelvisLocal": [
+          3e-09,
+          0.694510037,
+          7e-09
+        ],
+        "originalTimeAtNewHit": 1.076273148
+      },
+      "attackFadeInSeconds": 0.06,
+      "knownLimitations": [
+        "The pre-existing authored attachment switch at attack entry remains numerically unchanged from origin/dev. Completion now recovers continuously to the carry attachment; browser appearance, contact and self/mount clearance still require actual playback acceptance."
+      ],
+      "attackTransition": "inertial"
+    },
+    "roman-hero-t5": {
+      "sourceDuration": 2.8333332538604736,
+      "sourceRange": [
+        0.9666666666666667,
+        1.2
+      ],
+      "sourceEvents": {
+        "activeStart": 0.9666666666666667,
+        "hit": 1.0666666666666667,
+        "activeEnd": 1.2,
+        "actionComplete": 2.8333332538604736
+      },
+      "inputSha256": {
+        "lod0.glb": "7490c74e27318a7ee32f702407a06b094d178552720f6776ee82c0fbb5395327",
+        "lod1.glb": "4283c211856b6c86b9d4066d4e330199eb0c90e9084a373145fbdda74d17e3c8",
+        "lod2.glb": "f3b9a160308aae8c954adffe011f46b9bef0db62aa52502f8065b8626866048a"
+      },
+      "events": {
+        "activeStart": 0.166666667,
+        "hit": 0.2625,
+        "activeEnd": 0.291666667,
+        "actionComplete": 0.48
+      },
+      "contactMeasurement": {
+        "downstrokeStartLocal": [
+          0.477790756,
+          2.240151462,
+          0.576041105
+        ],
+        "cuttingEdgeLocal": [
+          0.897828488,
+          1.056782262,
+          1.725182396
+        ],
+        "pelvisLocal": [
+          -0.149788885,
+          0.663101476,
+          0.392981776
+        ],
+        "originalTimeAtNewHit": 1.094270833
+      },
+      "attackFadeInSeconds": 0.1,
+      "attackTransition": "inertial"
+    },
+    "viking-hero-t5": {
+      "sourceDuration": 2.8333333333333335,
+      "sourceRange": [
+        0.9666666666666667,
+        1.2
+      ],
+      "sourceEvents": {
+        "activeStart": 0.9666666666666667,
+        "hit": 1.0666666666666667,
+        "activeEnd": 1.2,
+        "actionComplete": 2.8333333333333335
+      },
+      "inputSha256": {
+        "lod0.glb": "3cf3f3fd2bc467a573d79d03170bd60fd210cd661c091c56ae341be408b4b0db",
+        "lod1.glb": "332699a8fae78760b680e2817a2411a54172199205c8a3a81a5ddcf94762f6d5",
+        "lod2.glb": "4be3c8ae1b3af885370bdfe1657ba3ee95bc1ec9ddf17e218791375a3b12a662"
+      },
+      "events": {
+        "activeStart": 0.145833333,
+        "hit": 0.229166667,
+        "activeEnd": 0.254166667,
+        "actionComplete": 0.48
+      },
+      "contactMeasurement": {
+        "downstrokeStartLocal": [
+          0.059627252,
+          2.74879888,
+          0.331989389
+        ],
+        "cuttingEdgeLocal": [
+          0.930611796,
+          1.35631417,
+          1.890270425
+        ],
+        "pelvisLocal": [
+          -9e-09,
+          0.748961475,
+          -2.7e-08
+        ],
+        "originalTimeAtNewHit": 1.07806713
+      },
+      "attackFadeInSeconds": 0.1,
+      "attackTransition": "inertial"
+    },
+    "maki-archer-t4": {
+      "sourceDuration": 2.8333333333333335,
+      "sourceRange": [
+        0.9666666666666667,
+        1.2
+      ],
+      "sourceEvents": {
+        "activeStart": 1.025,
+        "hit": 1.075,
+        "activeEnd": 1.125,
+        "actionComplete": 2.8333333333333335
+      },
+      "inputSha256": {
+        "lod0.glb": "835614cd616c3dda523dcad18a63798192a46ca3611263d10f5e96cf35f03a48",
+        "lod1.glb": "e9330648f5fe2ee5468211fc84f274f27380267b130e135652231f0d07d1d831",
+        "lod2.glb": "856d32f3f023d328f774c8b157565fa6df6c0b9775a5d4b6a9a1c42c3c37ddc6"
+      },
+      "events": {
+        "activeStart": 0.1625,
+        "hit": 0.245833333,
+        "activeEnd": 0.258333333,
+        "actionComplete": 0.48
+      },
+      "contactMeasurement": {
+        "downstrokeStartLocal": [
+          -0.804427529,
+          1.562320705,
+          0.700007062
+        ],
+        "cuttingEdgeLocal": [
+          0.000239393,
+          0.729203322,
+          1.610170455
+        ],
+        "pelvisLocal": [
+          -9e-09,
+          0.59325271,
+          0.009999968
+        ],
+        "originalTimeAtNewHit": 1.086168981
+      },
+      "attackFadeInSeconds": 0.1,
+      "attackTransition": "inertial"
+    },
+    "roman-civilian": {
+      "sourceDuration": 2.8333333333333335,
+      "sourceRange": [
+        0.9666666666666667,
+        1.2
+      ],
+      "sourceEvents": {
+        "activeStart": 1.025,
+        "hit": 1.075,
+        "activeEnd": 1.125,
+        "actionComplete": 2.8333333333333335
+      },
+      "inputSha256": {
+        "lod0.glb": "f20011d5b915359c497ed1ed4d45508d32f6c5cd551dd18d379269d04e670381",
+        "lod1.glb": "d4f558bd5e4971ac73341593676d97122446740a6c3d2a77280a7a6087e360de",
+        "lod2.glb": "645042dbfc47de915a3c08359f126447b9b783cb6117bcbd97b3b525a5b38196"
+      },
+      "events": {
+        "activeStart": 0.1625,
+        "hit": 0.245833333,
+        "activeEnd": 0.258333333,
+        "actionComplete": 0.48
+      },
+      "contactMeasurement": {
+        "downstrokeStartLocal": [
+          -0.825188877,
+          1.502713712,
+          0.597814331
+        ],
+        "cuttingEdgeLocal": [
+          -0.029889416,
+          0.676201418,
+          1.510690465
+        ],
+        "pelvisLocal": [
+          -9e-09,
+          0.557022051,
+          -0.06000003
+        ],
+        "originalTimeAtNewHit": 1.086168981
+      },
+      "attackFadeInSeconds": 0.1,
+      "attackTransition": "inertial"
+    },
+    "viking-civilian": {
+      "sourceDuration": 2.8333333333333335,
+      "sourceRange": [
+        0.9666666666666667,
+        1.2
+      ],
+      "sourceEvents": {
+        "activeStart": 1.025,
+        "hit": 1.075,
+        "activeEnd": 1.125,
+        "actionComplete": 2.8333333333333335
+      },
+      "inputSha256": {
+        "lod0.glb": "fe95e98a50581906bb306cfcb13a5fe219c904eccfbe2ca2c17427a385de3652",
+        "lod1.glb": "9536629eda6300193197c5388246eccfda01b14d13a1c860e83fa90f43bb0a74",
+        "lod2.glb": "b3f8eead0b088e05b2bfa1550d8ba6d52570808c26dfe1597a3abc50421dcb45"
+      },
+      "events": {
+        "activeStart": 0.1625,
+        "hit": 0.245833333,
+        "activeEnd": 0.258333333,
+        "actionComplete": 0.48
+      },
+      "contactMeasurement": {
+        "downstrokeStartLocal": [
+          -0.819932633,
+          1.495650889,
+          0.643138762
+        ],
+        "cuttingEdgeLocal": [
+          -0.026757853,
+          0.699950006,
+          1.559818905
+        ],
+        "pelvisLocal": [
+          -9e-09,
+          0.561543693,
+          -0.015000031
+        ],
+        "originalTimeAtNewHit": 1.086168981
+      },
+      "attackFadeInSeconds": 0.1,
+      "attackTransition": "inertial"
+    }
+  }
+}

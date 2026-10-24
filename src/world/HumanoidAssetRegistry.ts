@@ -9,6 +9,7 @@ import { publicAssetUrl } from '../assets/publicAssetUrl'
 import { civilianHumanoidAssetId } from './CivilianAppearance'
 import { BANDIT_ASSET } from './BanditAsset'
 import { CharacterEquipmentPose, type SwordCarryGripProfile, createEquipmentPoseState, type EquipmentPoseState } from './CharacterEquipmentPose'
+import { InertialPoseTransition } from './InertialPoseTransition'
 import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { prepareEquipmentHandShape } from './EquipmentHandShape'
 import * as THREE from 'three'
@@ -54,6 +55,10 @@ export interface HumanoidAnimationBinding {
   nominalSpeed?: number
   /** Runtime cycle only; the embedded clip and its source event times stay intact. */
   meleeCycleSeconds?: number
+  /** Opt-in 2H axe blend length in the base action clock, not source clip time. */
+  attackFadeInSeconds?: number
+  /** Explicit opt-in for fixed-offset entry/exit blends on this 2H axe take. */
+  attackTransition?: 'inertial'
   events?: Record<string, number>
 }
 
@@ -471,6 +476,9 @@ export class MixerController implements HumanoidAnimationController {
   private visibleLOD: number | null = null
   private transitionRemaining = 0
   private readonly pendingMixerDt: number[]
+  private readonly inertialAxe: boolean
+  private readonly inertialTransitions: InertialPoseTransition[]
+  private relaxedHandTransitionStart: number | undefined
   setEquipmentState(state: Partial<EquipmentPoseState>): void { Object.assign(this.equipmentState, state) }
   private needsLevel(index: number): boolean {
     return this.visibleLOD === null || index === 0 || index === this.visibleLOD || this.transitionRemaining > 0
@@ -479,6 +487,9 @@ export class MixerController implements HumanoidAnimationController {
     this.equipmentLayers.forEach((layer, index) => { if (all || this.needsLevel(index)) layer.restore() })
   }
   private finishPose(all = false): void {
+    for (let index = 0; index < this.inertialTransitions.length; index++) {
+      if (all || this.needsLevel(index)) this.inertialTransitions[index].apply()
+    }
     const alive = this.equipmentState.alive
     this.equipmentState.alive = alive && this.poseLayersEnabled && this.current !== 'death'
     // Equipment action can already be idle while Three is fading out bowHold
@@ -500,6 +511,13 @@ export class MixerController implements HumanoidAnimationController {
       if (action?.isScheduled() && action.enabled) this.equipmentState.relaxedHandWeight += action.getEffectiveWeight()
     }
     this.equipmentState.relaxedHandWeight = Math.min(1, this.equipmentState.relaxedHandWeight)
+    if (this.relaxedHandTransitionStart !== undefined) {
+      // Native actions switch to full target weight immediately for an inertial
+      // pose. Its hand overlay must follow the same clock as the bone offsets.
+      const blend = this.inertialTransitions[0]?.blend ?? 1
+      this.equipmentState.relaxedHandWeight = THREE.MathUtils.lerp(this.relaxedHandTransitionStart, this.equipmentState.relaxedHandWeight, blend)
+      if (blend === 1) this.relaxedHandTransitionStart = undefined
+    }
     Object.assign(this.evaluatedEquipmentState, this.equipmentState)
     this.equipmentLayers.forEach((layer, index) => {
       if (all || this.needsLevel(index)) {
@@ -518,7 +536,10 @@ export class MixerController implements HumanoidAnimationController {
     const dt = this.pendingMixerDt[index]
     if (dt === 0) return
     this.equipmentLayers[index]?.restore()
+    this.inertialTransitions[index]?.restore()
     this.mixers[index].update(dt)
+    this.inertialTransitions[index]?.advance(dt)
+    this.inertialTransitions[index]?.apply()
     this.pendingMixerDt[index] = 0
   }
   private catchUpInactive(): void {
@@ -537,6 +558,7 @@ export class MixerController implements HumanoidAnimationController {
     // Use the authority's last evaluated pose, not newer gameplay state from a
     // skipped distance tick. Do not consume the shared far accumulator here.
     layer?.restore()
+    this.inertialTransitions[index]?.apply()
     const palm = index === 0 ? undefined : this.equipmentLayers[0]?.axeSupportPalm
     if (palm) layer?.apply(this.evaluatedEquipmentState, palm)
     else layer?.apply(this.evaluatedEquipmentState)
@@ -568,12 +590,29 @@ export class MixerController implements HumanoidAnimationController {
   }
 
   constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel, bindings: HumanoidAnimationBinding[] = [], relaxedLeftThumbForward = false) {
+    this.inertialAxe = bindings.some(binding => binding.clip === 'axeAttack2H' && binding.attackTransition === 'inertial')
+    this.inertialTransitions = this.inertialAxe ? mixers.map((mixer, index) => {
+      const nodes = new Set<THREE.Object3D>()
+      for (const clip of [...clipsPerLevel[index], ...rawClipsPerLevel[index]]) for (const track of clip.tracks) {
+        const parsed = THREE.PropertyBinding.parseTrackName(track.name)
+        if (!['position', 'quaternion', 'scale'].includes(parsed.propertyName)) continue
+        const node = THREE.PropertyBinding.findNode(mixer.getRoot(), parsed.nodeName) as THREE.Object3D | null
+        if (!node || parsed.objectName || parsed.propertyIndex) throw new Error(`Unsupported inertial pose track: ${track.name}`)
+        nodes.add(node)
+      }
+      return new InertialPoseTransition([...nodes])
+    }) : []
     for (const binding of bindings) {
       if (binding.meleeCycleSeconds === undefined) continue
       const { activeStart, hit, activeEnd } = binding.events ?? {}
       if (!(binding.meleeCycleSeconds > 0 && activeStart >= 0 && hit > activeStart && activeEnd > hit && binding.duration > activeEnd)) throw new Error(`Invalid melee timeline: ${binding.clip}`)
       const ratio = binding.meleeCycleSeconds / binding.duration
-      this.meleeTimings.set(binding.clip, { duration: binding.meleeCycleSeconds, activeStart: activeStart * ratio, hit: hit * ratio, activeEnd: activeEnd * ratio, clipTimeScale: 1 / ratio })
+      const fade = binding.attackFadeInSeconds
+      const attackFadeInSeconds = binding.clip === 'axeAttack2H' && typeof fade === 'number' && Number.isFinite(fade) && fade >= 0 ? fade : undefined
+      this.meleeTimings.set(binding.clip, {
+        duration: binding.meleeCycleSeconds, activeStart: activeStart * ratio, hit: hit * ratio, activeEnd: activeEnd * ratio, clipTimeScale: 1 / ratio,
+        ...(attackFadeInSeconds === undefined ? {} : { attackFadeInSeconds }),
+      })
     }
     this.pendingMixerDt = mixers.map(() => 0)
     mixers.forEach((mixer, index) => {
@@ -672,7 +711,9 @@ export class MixerController implements HumanoidAnimationController {
       this.bowLegState = null
     }
     const fadeSeconds = options.fadeSeconds ?? 0.12
-    if (state === this.current) {
+    const inertial = this.poseLayersEnabled && this.inertialAxe && (state === 'axeAttack2H' || this.current === 'axeAttack2H'
+      || this.inertialTransitions.some(transition => transition.active))
+    if (state === this.current && !(inertial && options.startNormalizedTime !== undefined)) {
       for (const action of next) {
         action.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
         action.clampWhenFinished = !loop
@@ -689,7 +730,14 @@ export class MixerController implements HumanoidAnimationController {
     this.transitionRemaining = Math.max(this.transitionRemaining, fadeSeconds)
     this.restoreEquipment(true)
     const previous = this.current ? bindings.get(this.current) ?? [] : []
-    for (const action of previous) action.fadeOut(fadeSeconds)
+    if (inertial) {
+      if (this.relaxedHandActions.length) this.relaxedHandTransitionStart = this.equipmentState.relaxedHandWeight ?? 0
+      for (const transition of this.inertialTransitions) transition.capture()
+      // Discard only the outgoing pose's unevaluated distance debt. It must not
+      // advance the new attack beyond its independently clocked start.
+      this.farAccumulator = 0
+      for (const actions of bindings.values()) for (const action of actions) action.stop()
+    } else for (const action of previous) action.fadeOut(fadeSeconds)
     for (const action of next) {
       action.reset().setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, loop ? Infinity : 1)
       action.clampWhenFinished = !loop
@@ -697,7 +745,12 @@ export class MixerController implements HumanoidAnimationController {
       if (options.startNormalizedTime !== undefined) {
         action.time = THREE.MathUtils.clamp(options.startNormalizedTime, 0, 1) * action.getClip().duration
       }
-      action.fadeIn(fadeSeconds).play()
+      if (inertial) action.setEffectiveWeight(1).play()
+      else action.fadeIn(fadeSeconds).play()
+    }
+    if (inertial) for (let index = 0; index < this.mixers.length; index++) {
+      this.mixers[index].update(0)
+      this.inertialTransitions[index].begin(fadeSeconds)
     }
     this.current = state
     for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = this.poseLayersEnabled && state.startsWith('bow') ? 1 : 0
@@ -720,6 +773,8 @@ export class MixerController implements HumanoidAnimationController {
       action.paused = true
     }
     this.restoreEquipment(true)
+    for (const transition of this.inertialTransitions) transition.clear()
+    this.relaxedHandTransitionStart = undefined
     for (const mixer of this.mixers) mixer.update(0)
     this.finishPose(true)
     return true
@@ -736,7 +791,10 @@ export class MixerController implements HumanoidAnimationController {
     this.restoreEquipment()
     for (let index = 0; index < this.mixers.length; index++) {
       if (this.needsLevel(index)) {
-        this.mixers[index].update(this.pendingMixerDt[index] + dt)
+        const elapsed = this.pendingMixerDt[index] + dt
+        this.inertialTransitions[index]?.restore()
+        this.mixers[index].update(elapsed)
+        this.inertialTransitions[index]?.advance(elapsed)
         this.pendingMixerDt[index] = 0
       } else this.pendingMixerDt[index] += dt
     }
@@ -747,6 +805,8 @@ export class MixerController implements HumanoidAnimationController {
   stop(): void {
     this.catchUpInactive()
     this.equipmentLayers.forEach(layer => layer.stop())
+    for (const transition of this.inertialTransitions) transition.clear()
+    this.relaxedHandTransitionStart = undefined
     for (const mixer of this.mixers) mixer.stopAllAction()
     for (const mesh of this.bowMeshes) mesh.morphTargetInfluences![mesh.morphTargetDictionary!.bowGrip] = 0
     this.current = null
