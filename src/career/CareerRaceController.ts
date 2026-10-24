@@ -14,7 +14,7 @@ import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
 import { canUseCareerMount, type CareerMountController } from './CareerMountController'
-import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
+import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
 import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
 
@@ -96,7 +96,7 @@ export class CareerRaceController {
     })
     const spawn = commander.npc.combatPosition
     if (!this.legalSegment(spawn, spawn)) { this.error = '指揮官所在位置沒有足夠坐騎空間。'; return false }
-    const session: CareerRaceSession = { version: 1, deployed: false, id: sessionId, raceId: id, phase: 'guiding', countdownSeconds: 10,
+    const session: CareerRaceSession = { version: 1, scheduleVersion: 2, deployed: false, id: sessionId, raceId: id, phase: 'guiding', countdownSeconds: 10,
       elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
       referee: this.captureReferee(captain),
       opponentHome: this.captureReferee(commander), opponentAmmo: commander.npc.combatAmmo,
@@ -214,7 +214,7 @@ export class CareerRaceController {
       }
       return
     }
-    const definition = MOUNTED_RACES.find(r => r.id === s.raceId)!
+    const definition = raceDefinitionForSchedule(s.raceId, s.scheduleVersion)!
     if (this.ownsCaptain && this.captain) {
       const home = s.phase === 'returning' || this.captainReturning
       this.order(this.captain.npc, home ? this.captain.spec : { x: RACE_START.x, z: RACE_START.z + 7 }, false, 5)

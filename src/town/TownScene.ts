@@ -9,7 +9,7 @@ import { ActiveMissionClock } from '../career/ActiveMissionClock'
 import { raceReturnAction } from '../career/CareerRaceReturn'
 import { CareerRaceHUD } from '../ui/CareerRaceHUD'
 import { CareerRaceController } from '../career/CareerRaceController'
-import { MOUNTED_RACES, type RaceId } from '../career/CareerRaceState'
+import { MOUNTED_RACES, raceDefinitionForSchedule, type RaceId } from '../career/CareerRaceState'
 import { RACE_LINES } from '../career/CareerRaceRoute'
 import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
 import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
@@ -2078,7 +2078,7 @@ export class TownScene {
       this.openPanel('無法接受賽馬', this.race?.error || '無法讀取生涯存檔。'); return
     }
     this.closePanel()
-    this.notice = '跟隨 Captain 前往北門。玩家六關皆可使用 Shift 衝刺。'
+    this.notice = '跟隨 Captain 前往北門。玩家所有賽事皆可使用 Shift 衝刺。'
   }
   private showRaceResult(): void {
     const race = this.race, session = race?.session
@@ -2088,7 +2088,7 @@ export class TownScene {
       this.button(panel, '重試保存結果', () => { if (race.persist()) { this.closePanel(); this.showRaceResult() } })
       return
     }
-    const name = MOUNTED_RACES.find(r => r.id === session.raceId)!.name
+    const name = raceDefinitionForSchedule(session.raceId, session.scheduleVersion)!.name
     const merit = this.profile.raceRecords?.find(record => record.sessionId === session.id)?.merit ?? 0
     const panel = this.openPanel(`${name} · ${session.result === 'win' ? 'Victory' : session.result === 'loss' ? 'Defeat' : 'Draw'}`,
       `${session.reason ?? ''}\n玩家：${session.player.finishSeconds !== undefined ? `${session.player.finishSeconds.toFixed(2)} 秒` : 'DNF'} · ${session.opponent.actorId === 'commander' ? '指揮官' : 'NPC'}：${session.opponent.finishSeconds !== undefined ? `${session.opponent.finishSeconds.toFixed(2)} 秒` : 'DNF'}\n本場軍功：+${merit}\n結果已保存。城鎮敵對與戰損維持實際狀態。`)

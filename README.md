@@ -105,7 +105,7 @@ Formal missions grant their own command authority and rosters. Check the command
 
 #### Mounted circuit racing
 
-Visit **Sergeant → 1v1 → Racing** for six races against the town's Commander. Arrive riding a living, available **ground mount that you own**; xongkoro cannot enter. There is no rank requirement for racing, though your mount must be usable at your rank.
+Visit **Sergeant → 1v1 → Racing** for eight races against the town's Commander. Arrive riding a living, available **ground mount that you own**; xongkoro cannot enter. Racing and ground mounts have no rank requirement.
 
 Follow the Captain to the north gate, stay inside the marked start area through the **10-second countdown**, then ride out through the north gate, around the **east → south → west** sides of the town, and back through the north gate. Follow all **five checkpoints**; cutting through the town or dismounting prevents a legal finish. The player can use `Shift` in every race.
 
@@ -113,12 +113,14 @@ Follow the Captain to the north gate, stay inside the marked start area through 
 | --- | --- | --- | --- |
 | I | Horse | Normal | 100 |
 | II | Corgi | Normal | 400 |
-| III | Black Cat | Normal | 900 |
-| IV | Horse | Sprint | 1,600 |
-| V | Corgi | Sprint | 2,500 |
-| VI | Black Cat | Sprint | 3,600 |
+| III | Snow Leopard | Normal | 900 |
+| IV | Black Cat | Normal | 1,600 |
+| V | Horse | Sprint | 2,500 |
+| VI | Corgi | Sprint | 3,600 |
+| VII | Snow Leopard | Sprint | 4,900 |
+| VIII | Black Cat | Sprint | 6,400 |
 
-Race results and your best legal finish times are saved.
+Race results and your best legal finish times are saved. Races already accepted in an older save retain their original names and rewards; new entries use the eight-race schedule. Existing results and best times remain attached to the same mount and pace.
 
 #### Mounts and flight
 

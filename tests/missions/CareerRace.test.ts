@@ -9,7 +9,7 @@ import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
-import { canEnterRace, finalizeRaceDeployment, MOUNTED_RACES, RACE_PLAYER_CAN_SPRINT, advanceRaceClock, advanceRaceRider, resolveRace, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance,
+import { canEnterRace, finalizeRaceDeployment, MOUNTED_RACES, RACE_PLAYER_CAN_SPRINT, advanceRaceClock, advanceRaceRider, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
 import { RACE_START_SLOTS, RACE_LINES, lineCrossing, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -31,13 +31,14 @@ function cross(r: RaceRider, from: RacePosition, to: RacePosition, time = 20): v
 }
 
 describe('Mounted race policy and countdown', () => {
-  it('exposes six independent opponents, NPC-only speed modes and rank-independent entry', () => {
+  it('orders four normal then four sprint opponents with snow leopards before black cats and stable save IDs', () => {
     expect(MOUNTED_RACES.map(r => [r.id, r.mount, r.sprint])).toEqual([
-      ['race-1', 'horse', false], ['race-2', 'corgi', false], ['race-3', 'black-cat', false],
-      ['race-4', 'horse', true], ['race-5', 'corgi', true], ['race-6', 'black-cat', true],
+      ['race-1', 'horse', false], ['race-2', 'corgi', false], ['race-7', 'snow-leopard', false], ['race-3', 'black-cat', false],
+      ['race-4', 'horse', true], ['race-5', 'corgi', true], ['race-8', 'snow-leopard', true], ['race-6', 'black-cat', true],
     ])
     expect(RACE_PLAYER_CAN_SPRINT).toBe(true)
-    expect(MOUNTED_RACES.map(r => r.merit)).toEqual([100, 400, 900, 1600, 2500, 3600])
+    expect(MOUNTED_RACES.map(r => r.name)).toEqual(['Race I', 'Race II', 'Race III', 'Race IV', 'Race V', 'Race VI', 'Race VII', 'Race VIII'])
+    expect(MOUNTED_RACES.map(r => r.merit)).toEqual([100, 400, 900, 1600, 2500, 3600, 4900, 6400])
     const p = profile()
     expect(canEnterRace(p, mount)).toBe(true)
     p.rank = 'commander'; expect(canEnterRace(p, mount)).toBe(true)
@@ -232,6 +233,7 @@ describe('Race persistence independent of hostility and Duel', () => {
   })
   it('round-trips hostile countdown, route, deaths and mount resources without resetting progress', () => {
     const p = profile(), s = session(); s.phase = 'racing'; s.countdownSeconds = 0; s.elapsedSeconds = 83.5
+    s.scheduleVersion = 2; s.raceId = 'race-7'; s.opponent.mountId = 'snow-leopard'
     s.player.checkpoint = 3; s.player.mountHp = 17; s.opponent.hp = 0; s.opponent.dead = true; s.opponent.mounted = false
     s.opponent.actorId = 'commander'; s.opponentHome = { position: pos(25, -20), hp: 100, mounted: true, mountHp: 15, mountPosition: pos(25, -20) }; s.opponentAmmo = 7
     p.activeRace = s; p.townEvent = { id: 'hostility', state: 'hostile', deadActorIds: ['merchant'] }
@@ -242,7 +244,62 @@ describe('Race persistence independent of hostility and Duel', () => {
     expect(loaded.activeRace!.player.checkpoint).toBe(3)
     expect(parseCareerProfile({ ...loaded, activeRace: { ...s, player: { ...s.player, checkpoint: 99 } } })).toBeNull()
     expect(parseCareerProfile({ ...loaded, activeRace: { ...s, opponentHome: undefined } })).toBeNull()
+    expect(parseCareerProfile({ ...loaded, activeRace: { ...s, scheduleVersion: 3 } })).toBeNull()
+    expect(parseCareerProfile({ ...loaded, activeRace: { ...s, scheduleVersion: undefined } })).toBeNull()
+    expect(parseCareerProfile({ ...loaded, activeRace: { ...s, opponent: { ...s.opponent, mountId: 'black-cat' } } })).toBeNull()
     expect(parseCareerProfile(createCareerProfile('viking'))).not.toBeNull()
+  })
+  it('accepts the current snow-leopard sprint schedule and saves its reward once after reload', () => {
+    const store = new CareerProfileStore(new MemoryStorage())
+    let current = profile(); addCareerItem(current, 'snow-leopard', 1); current.selectedMountId = 'snow-leopard'
+    const point = new Vector3(25, 0, -20)
+    const groundMount = { group: { position: point, rotation: { y: 0 } }, currentHp: 317, dead: false, isAirborne: false }
+    const player = { currentMount: groundMount, isMounted: true, dead: false, hp: 80, staminaValue: 70 }
+    const residents = ['captain', 'commander'].map(id => ({ spec: { id }, npc: {
+      combatPosition: point, group: { rotation: { y: 0 } }, hp: 100, staminaValue: 60, combatAmmo: 7,
+      dead: false, hostileToPlayer: false, isFalling: false,
+    } }))
+    // Acceptance is real; only model deployment is replaced at the rendering boundary.
+    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
+    Object.assign(controller, { player: () => player, mounts: { activeMountId: 'snow-leopard', activeMount: groundMount },
+      navigation: { sync: vi.fn(), areConnected: () => true }, obstacles: [], residents, waypoints: raceWaypoints(),
+      commit: (next: CareerProfile) => { if (!store.save(next)) return false; current = store.load()!; return true }, deploy: vi.fn() })
+    expect(controller.accept('race-8', current)).toBe(true)
+    const resumed = store.load()!.activeRace!
+    expect(resumed).toMatchObject({ scheduleVersion: 2, raceId: 'race-8',
+      player: { mountId: 'snow-leopard', mountHp: 317 }, opponent: { actorId: 'commander', mountId: 'snow-leopard' } })
+    expect(raceDefinitionForSchedule(resumed.raceId, resumed.scheduleVersion)).toMatchObject({ name: 'Race VII', merit: 4900, sprint: true })
+    resumed.phase = 'racing'; resumed.player.checkpoint = 5; resumed.player.finishSeconds = 80; resumed.opponent.dnf = 'mount lost'; resolveRace(resumed)
+    expect(store.save(raceRecordProfile(current, resumed))).toBe(true)
+    const settled = store.load()!
+    expect(settled.raceRecords).toEqual([expect.objectContaining({ raceId: 'race-8', scheduleVersion: 2, merit: 4900 })])
+    expect(settled.availableMerit).toBe(current.availableMerit + 4900)
+    expect(raceRecordProfile(settled, resumed).availableMerit).toBe(settled.availableMerit)
+    expect(parseCareerProfile({ ...settled, raceRecords: [{ ...settled.raceRecords![0], scheduleVersion: 3 }] })).toBeNull()
+  })
+  it('settles an old black-cat session at its accepted reward before replaying the same ID under the new schedule', () => {
+    const store = new CareerProfileStore(new MemoryStorage()), p = profile(), old = session()
+    old.raceId = 'race-6'; old.opponent.mountId = 'black-cat'; old.phase = 'racing'
+    p.activeRace = old
+    expect(store.save(p)).toBe(true)
+    const resumed = store.load()!.activeRace!
+    expect(raceDefinitionForSchedule(resumed.raceId, resumed.scheduleVersion)).toMatchObject({ name: 'Race VI', merit: 3600 })
+    resumed.player.checkpoint = 5; resumed.player.finishSeconds = 77; resumed.opponent.dnf = 'mount lost'; resolveRace(resumed)
+    const settled = raceRecordProfile(store.load()!, resumed)
+    const returned = raceReturnProfile(settled, resumed.player, undefined, 100)!
+    expect(store.save(returned)).toBe(true)
+    const replay = session(); replay.id = 'replay'; replay.opponent.actorId = 'race:replay'
+    replay.scheduleVersion = 2; replay.raceId = 'race-6'; replay.opponent.mountId = 'black-cat'
+    const loaded = store.load()!; loaded.activeRace = replay
+    expect(store.save(loaded)).toBe(true)
+    const fresh = store.load()!.activeRace!
+    expect(raceDefinitionForSchedule(fresh.raceId, fresh.scheduleVersion)).toMatchObject({ name: 'Race VIII', merit: 6400 })
+    fresh.phase = 'racing'; fresh.player.checkpoint = 5; fresh.player.finishSeconds = 80; fresh.opponent.dnf = 'mount lost'; resolveRace(fresh)
+    expect(store.save(raceRecordProfile(store.load()!, fresh))).toBe(true)
+    const final = store.load()!
+    expect(final.raceRecords?.map(r => [r.raceId, r.scheduleVersion, r.merit])).toEqual([['race-6', undefined, 3600], ['race-6', 2, 6400]])
+    expect(final.availableMerit).toBe(p.availableMerit + 10000)
+    expect(final.completedRaceIds).toEqual(['race-6']); expect(final.raceBestSeconds).toEqual({ 'race-6': 77 })
   })
   it('publishes a result only after successful storage and retries idempotently without clearing hostility', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage), p = profile(), s = session()
