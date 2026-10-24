@@ -33,8 +33,8 @@ PR comparison uses merge-base; push comparison uses exactly before..after. The C
 checkout is the tested merge commit for PRs; the manifest separately records the
 PR head/base and binds shard execution to the checkout SHA and unique plan digest.
 
-Related uses Git diff hunks and the TypeScript Compiler API to identify changed
-functions/methods in both base and tested checkout. Runtime imports (including
+Related uses Git base/checkout snapshots and the TypeScript Compiler API to compare
+runtime declarations, class members and import bindings, not textual hunk envelopes. Runtime imports (including
 Vitest related results) supply candidates, not the final union. Test callbacks,
 scoped hooks, helpers, symbol references, structural caller signatures, constructor
 and prototype provenance determine which collected leaves can reach the behavior.
@@ -44,10 +44,20 @@ require typecheck without automatically selecting runtime logic tests.
 Direct Owners exercise the changed behavior. Caller Contracts reach it through
 production callers. Import-only candidates have no such runtime path and are
 excluded. Hoisted replacement module mocks are boundaries only when their factory
-cannot reach the real module; partial/original imports stay conservative. Shared
-state/exports expand to the module's runtime behaviors. Unresolved dispatch expands
-conservatively; eval, missing owners, missing history or unexplained native-only
-edges fail closed. No runtime LLM or remote API is involved.
+cannot reach the real module; partial/original imports stay conservative. Literal
+shared data remains one declaration owner: dynamic lookup, enumeration, aliases,
+destructuring and namespace escape are retained rather than guessed by item key.
+Comments and erased types do not widen another runtime edit in the same file.
+
+Every leaf still includes its module initialization root. Unknown calls/new,
+coercion, assignments, static blocks, decorators, computed keys, changed import
+module identities and reflective class-shape changes retain that conservative
+boundary. An initializer is not presumed pure because its result is assigned.
+Existing named-import retargets follow intermediate import/re-export bindings.
+Initialization paths are reported separately, never as an empty Direct Owner.
+Each precise changed target still needs an owner even beside a module effect.
+Unresolved dispatch expands conservatively; eval, missing owners, missing history
+or unexplained native-only edges fail closed. No runtime LLM or remote API is involved.
 
 Each manifest retains the complete discovery inventory and identifies Related
 leaves by exact file, full runner name and collection ordinal (`selectedCases`).

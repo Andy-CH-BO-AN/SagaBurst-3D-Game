@@ -120,7 +120,7 @@ function selectFiles(inventory, changed, consumers, evidence) {
   const surviving = file => renamed.get(file) ?? file
   const retiredFiles = []
   const typeOnlyFiles = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && item.file.startsWith('src/') && /\.tsx?$/.test(item.file) && !policyConsumers(item.file, inventory).size && evidence.sources.has(item.file) && evidence.previousSources.has(item.file)
-    && require('./dependencies.cjs').runtimeEquivalent(evidence.previousSources.get(item.file), evidence.sources.get(item.file))).map(item => item.file) : []
+    && require('./dependencies.cjs').runtimeEquivalent(evidence.previousSources.get(item.file), evidence.sources.get(item.file), item.file)).map(item => item.file) : []
   const behaviorChanges = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && item.file.startsWith('src/') && /\.tsx?$/.test(item.file)
     && !policyConsumers(item.file, inventory).size && !typeOnlyFiles.includes(item.file)) : []
   let behavior = { selected: [], selectedCases: {}, reasons: {}, details: {} }
@@ -187,12 +187,13 @@ function selectionSummary(plan) {
   return [
     `Mode: ${plan.mode === 'full' ? 'Full' : 'Related'}`,
     `Base SHA: ${plan.baseSha || '-'}; Head SHA: ${plan.headSha || '-'}`,
-    `Changed Behavior: ${(plan.changedBehaviors ?? plan.changedFiles).slice(0, 8).join(', ') || (plan.typeOnlyFiles?.length ? 'Typecheck only (identical runtime)' : '-')}${(plan.changedBehaviors?.length ?? 0) > 8 ? ' (shared module behavior)' : ''}`,
+    `Changed Behavior: ${(plan.changedBehaviors ?? plan.changedFiles).slice(0, 8).join(', ') || (plan.typeOnlyFiles?.length ? 'Typecheck only (identical runtime)' : '-')}${(plan.changedBehaviors?.length ?? 0) > 8 ? ` (${plan.changedBehaviors.length} total)` : ''}`,
     `Selected: ${selected.length} files / ${total} cases`,
     'Owners:', ...[...new Set(Object.values(plan.details ?? {}).flatMap(entries => entries.flatMap(entry => entry.owners ?? [])))].map(owner => `  ${owner}`),
     ...(plan.changedBehaviors?.length ? [] : selected.map(file => `  ${file}: ${selectedNames(plan, file).length} cases`)),
     `Excluded: ${plan.excludedCandidates?.length ?? 0} import-only candidate files`,
     ...(plan.retiredFiles?.length ? [`Retired (no surviving consumers): ${plan.retiredFiles.join(', ')}`] : []),
+    `Module initialization references: ${Object.values(plan.details ?? {}).reduce((sum, entries) => sum + new Set(entries.flatMap(entry => entry.initializationCases ?? [])).size, 0)} cases`,
     `Conservative caller cases: ${Object.values(plan.details ?? {}).reduce((sum, entries) => sum + new Set(entries.flatMap(entry => entry.conservativeCases ?? [])).size, 0)}`,
     `Unmapped / Unsafe: ${plan.unsafe?.length ?? 0}`,
     `Budget: ${total} / ${plan.mode === 'related' ? MAX_CASES_PER_SHARD : 'Full per-shard 500'}`,
