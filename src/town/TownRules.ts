@@ -1,13 +1,14 @@
+import { CAREER_SHOP_PRODUCTS, isCareerShopItemUseUnlocked, type CareerShopProduct } from '../career/CareerShopCatalog'
+export { XONGKORO_PRODUCT } from '../career/CareerShopCatalog'
 import { careerCommanderLoadout } from '../career/CareerCommanderEquipment'
 import { civilianHomeAnchor } from './TownCivilianLife'
 import { assignTownGarrison, type TownGarrisonStation } from './TownGarrison'
 import { townWatchtowerGuardRoster } from './TownWatchtowerGuardPolicy'
 import { townEagleRoster } from './TownEagleGarrison'
 import { addCareerItem, availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
-import { canonicalCareerMountId, cloneCareerProfile, getCareerPurchaseTier, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
+import { canonicalCareerMountId, cloneCareerProfile, ownsCareerHorse, purchaseCareerContent, type CareerPurchaseResult, type CareerProfile, type CareerRank } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
 import { WEAPONS } from '../rpg/WeaponDatabase'
-import { ARMORS } from '../rpg/ArmorDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { NPC } from '../world/NPC'
 import type { Mount } from '../world/Mount'
@@ -274,30 +275,21 @@ export function grantStarter(current: CareerProfile, weapon: string): CareerProf
   return profile
 }
 export function careerTownWeapon(profile: CareerProfile): string {
-  const tier = getCareerPurchaseTier(profile.rank)
-  return [profile.equipment?.melee, ...profile.ownedWeapons].find(id => id && WEAPONS[id]?.type === 'melee' && WEAPONS[id].tier <= tier && isTownShopWeapon(id) && canAllocateCareerItemToPlayer(profile, id)) ?? ''
+  return [profile.equipment?.melee, ...profile.ownedWeapons].find(id => id && WEAPONS[id]?.type === 'melee' && isTownShopWeapon(id) && canAllocateCareerItemToPlayer(profile, id)) ?? ''
 }
-export interface TownProduct { id: string; category: 'weapon' | 'armor' | 'mount'; name: string; tier: 1 | 2 | 3 | 4 | 5; price: number }
+export type TownProduct = CareerShopProduct
 // Ranger Bow remains the same ranged shop item; melee uses normal equipment.
 export function isTownShopWeapon(id: string): boolean {
   return Boolean(WEAPONS[id])
 }
-export const XONGKORO_PRODUCT: Readonly<TownProduct> = { id: 'xongkoro', category: 'mount', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4, price: 10000 }
-export const TOWN_PRODUCTS: TownProduct[] = [
-  ...Object.values(WEAPONS).filter(w => isTownShopWeapon(w.id)).map(w => ({ id: w.id, category: 'weapon' as const, name: w.name, tier: w.tier, price: w.tier * w.tier * 100 })),
-  ...Object.values(ARMORS).map(a => ({ id: a.id, category: 'armor' as const, name: a.name, tier: a.tier, price: a.tier * a.tier * 90 })),
-  { id: 'horse', category: 'mount', name: '軍用戰馬', tier: 1, price: 200 },
-  { id: 'black-cat', category: 'mount', name: '黑貓英雄坐騎', tier: 4, price: 4000 },
-  { id: 'corgi', category: 'mount', name: '柯基英雄坐騎', tier: 4, price: 4000 },
-  XONGKORO_PRODUCT,
-]
+export const TOWN_PRODUCTS = CAREER_SHOP_PRODUCTS
 export function townShopProducts(serviceId: string): TownProduct[] {
   if (serviceId === 'eagle-trainer') return TOWN_PRODUCTS.filter(item => item.id === 'xongkoro')
   return TOWN_PRODUCTS.filter(item => item.id !== 'xongkoro' && (item.category === 'mount') === (serviceId !== 'merchant'))
 }
 export function productStatus(profile: CareerProfile, item: TownProduct): string {
-  if (getCareerPurchaseTier(profile.rank) < item.tier) return '軍階未解鎖'
-  return profile.availableMerit < item.price ? '已解鎖・餘額不足' : '已解鎖・餘額足夠'
+  if (!isCareerShopItemUseUnlocked(profile, item.id)) return '軍階未解鎖'
+  return profile.availableMerit < item.price ? '餘額不足・可使用' : '可購買・可使用'
 }
 export function townCampaignTarget(faction: CharacterFaction) { return { defenderFaction: faction, stageId: 1 as const } }
 export function updateRangerMount(ranger: Pick<NPC, 'dead' | 'mount' | 'mountVehicle' | 'dismountFromMount'>, cat: Mount, distance: number): 'foot' | 'approach' | 'mounted' {
@@ -323,7 +315,7 @@ export function purchaseTownMount(profile: CareerProfile, productId: string, qua
   const result = purchaseCareerContent(profile, {
     id: item.id, kind: 'mount', requiredTier: item.tier, cost: item.price, quantity,
   })
-  if (result.purchased) result.profile.selectedMountId = item.id as PlayerMountId
+  if (result.purchased && !profile.selectedMountId) result.profile.selectedMountId = item.id as PlayerMountId
   return result
 }
 

@@ -95,7 +95,7 @@ function parseMissionPlayerStats(value: unknown): ActiveCareerMission['playerSta
 }
 
 const MISSION_PHASES: CareerMissionPhase[] = ['DEPLOYING', 'ASSEMBLING', 'MARCHING', 'ENGAGING', 'RETURNING', 'PREPARING', 'SPAWNING', 'ATTACKING', 'VICTORY_LOCKED', 'FAILURE_LOCKED', 'RESET', 'RESULT']
-const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'corgi', 'xongkoro']
+const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'corgi', 'snow-leopard', 'xongkoro']
 
 function parseMissionMountState(value: unknown): ActiveCareerMission['mountState'] {
   if (!value || typeof value !== 'object') return undefined

@@ -12,6 +12,8 @@ import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 import { HorseLandingAnimation } from './HorseLandingAnimation'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
 import { BlackCatVisual } from './BlackCatVisual'
+import { SnowLeopardVisual, SNOW_LEOPARD_HURTBOX } from './SnowLeopardVisual'
+import type { QuadrupedVisual } from './QuadrupedVisual'
 import { CorgiVisual } from './CorgiVisual'
 import { isQuadrupedAnimationState, type MountAnimationState } from './QuadrupedMountAnimation'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
@@ -35,6 +37,7 @@ export enum MountType {
   CORGI = 'CORGI',
   HORSE = 'HORSE',
   XONGKORO = 'xongkoro',
+  SNOW_LEOPARD = 'SNOW_LEOPARD',
 }
 
 /** Shared physical footprint for live mounts and equipment preflight without materialization. */
@@ -62,6 +65,7 @@ export enum MountState {
 export function mountTypeFromSave(value: string): MountType {
   if (value === 'xongkoro') return MountType.XONGKORO
   if (value === MountType.BLACK_CAT) return MountType.BLACK_CAT
+  if (value === MountType.SNOW_LEOPARD || value === 'snow-leopard') return MountType.SNOW_LEOPARD
   if (value === MountType.CORGI) return MountType.CORGI
   if (value === MountType.HORSE) return MountType.HORSE
   return DEFAULT_MOUNT_TYPE
@@ -70,6 +74,7 @@ export function mountTypeFromSave(value: string): MountType {
 export function mountTypeFromId(value: string | null | undefined): MountType {
   if (value === 'xongkoro') return MountType.XONGKORO
   if (value === 'black-cat') return MountType.BLACK_CAT
+  if (value === 'snow-leopard') return MountType.SNOW_LEOPARD
   if (value === 'corgi') return MountType.CORGI
   return DEFAULT_MOUNT_TYPE
 }
@@ -79,6 +84,7 @@ export class Mount {
   readonly type: MountType
   readonly horseVisual: HorseInstance | null
   readonly catVisual: BlackCatVisual | null = null
+  readonly snowLeopardVisual: SnowLeopardVisual | null = null
   readonly corgiVisual: CorgiVisual | null = null
   readonly eagleVisual: XongkoroVisual | null = null
   readonly flight: EagleFlightController | null = null
@@ -91,7 +97,7 @@ export class Mount {
   get combatRadius(): number { return mountCombatRadius(this.type) }
   get isAirborne(): boolean { return this.isFlyingMount && this.flight?.phase !== 'grounded' }
 
-  get proceduralVisual(): BlackCatVisual | CorgiVisual | null { return this.catVisual ?? this.corgiVisual }
+  get proceduralVisual(): QuadrupedVisual | CorgiVisual | null { return this.catVisual ?? this.snowLeopardVisual ?? this.corgiVisual }
   public appearanceVariant: HorseAppearanceVariant
   public readonly aimCollider: THREE.Mesh
   public readonly aimColliders: readonly THREE.Mesh[]
@@ -122,7 +128,7 @@ export class Mount {
   public visualHold = false
 
   get currentLod(): number {
-    return this.eagleVisual?.lod.getCurrentLevel() ?? this.horseVisual?.lod.getCurrentLevel() ?? this.catVisual?.lod.getCurrentLevel() ?? this.corgiVisual?.lod.getCurrentLevel() ?? 0
+    return this.eagleVisual?.lod.getCurrentLevel() ?? this.horseVisual?.lod.getCurrentLevel() ?? this.proceduralVisual?.lod.getCurrentLevel() ?? 0
   }
 
   private impactTimes = new Map<object, number>()
@@ -147,7 +153,8 @@ export class Mount {
     this.appearanceVariant = type === MountType.HORSE ? horseVariantFromSave(appearanceVariant) : 0
     this.group = new THREE.Group()
     this.group.name = `mount_${type}`
-    this.baseSpeed = type === MountType.BLACK_CAT ? 13.2 : 12
+    this.baseSpeed = type === MountType.BLACK_CAT ? 13.2 : type === MountType.SNOW_LEOPARD ? 12.8 : 12
+    if (type === MountType.SNOW_LEOPARD) this.maxHp = this.currentHp = 500
 
     if (type === MountType.XONGKORO) {
       this.horseVisual = null
@@ -176,13 +183,20 @@ export class Mount {
         this.rideHeightOffset = this.catVisual.root.worldToLocal(this.catVisual.saddleSeat.getWorldPosition(new THREE.Vector3())).y
         this.ridePitch = 0
       }
-      else {
+      else if (type === MountType.SNOW_LEOPARD) {
+        this.snowLeopardVisual = new SnowLeopardVisual()
+        this.group.add(this.snowLeopardVisual.root)
+        this.snowLeopardVisual.root.updateWorldMatrix(true, true)
+        this.rideHeightOffset = this.getSaddleSeatLocal().y
+        this.ridePitch = 0
+      }
+      else if (type === MountType.CORGI) {
         this.corgiVisual = new CorgiVisual()
         this.group.add(this.corgiVisual.root)
         this.corgiVisual.root.updateWorldMatrix(true, true)
         this.rideHeightOffset = this.getSaddleSeatLocal().y
         this.ridePitch = 0
-      }
+      } else throw new Error(`Unsupported mount type: ${type}`)
     }
 
     const startY = y ?? getTerrainHeight(x, z)
@@ -193,6 +207,10 @@ export class Mount {
       mountAimMaterial ??= new THREE.MeshBasicMaterial())
     this.aimCollider.name = `aim_proxy_mount_${type}`
     this.aimCollider.position.set(0, 0.825, 0)
+    if (this.type === MountType.SNOW_LEOPARD) {
+      this.aimCollider.scale.set(SNOW_LEOPARD_HURTBOX.size[0] / 1.1, SNOW_LEOPARD_HURTBOX.size[1] / 1.65, SNOW_LEOPARD_HURTBOX.size[2] / 2.4)
+      this.aimCollider.position.fromArray(SNOW_LEOPARD_HURTBOX.center)
+    }
     if (this.isFlyingMount) {
       this.aimCollider.scale.set(XONGKORO.torsoHurtSize[0] / 1.1, XONGKORO.torsoHurtSize[1] / 1.65, XONGKORO.torsoHurtSize[2] / 2.4)
       this.aimCollider.position.fromArray(XONGKORO.torsoHurtCenter)
@@ -235,6 +253,7 @@ export class Mount {
   get displayName(): string {
     if (this.isFlyingMount) return 'xongkoro'
     if (this.type === MountType.HORSE) return '戰馬'
+    if (this.type === MountType.SNOW_LEOPARD) return '重甲雪豹'
     return this.type === MountType.BLACK_CAT ? '黑貓' : '柯基'
   }
   get mountDisplayName(): string { return `${this.displayName}坐騎` }

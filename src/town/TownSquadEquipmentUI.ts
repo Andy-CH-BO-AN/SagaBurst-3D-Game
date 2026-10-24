@@ -1,3 +1,4 @@
+import { careerShopProduct, isCareerShopItemUseUnlocked } from '../career/CareerShopCatalog'
 import type { CareerProfile } from '../career/CareerProfile'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
 import { availableCareerItem, careerItemTotal, careerItemTotals, legacyPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
@@ -47,7 +48,7 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
       for (const slot of ['melee', 'ranged', 'shield', 'mount'] as PersonalEquipmentSlot[]) {
         const label = document.createElement('label'); label.className = 'inv-item-desc squad-equipment-slot'; label.style.display = 'block'
         const current = equipment[slot], item = current ? WEAPONS[current] ?? ARMORS[current] : undefined
-        label.textContent = SLOT_LABELS[slot] + (item ? ` · T${item.tier}` : current ? current === 'horse' ? ' · T1' : ' · T4' : '') + ': '
+        label.textContent = SLOT_LABELS[slot] + (current ? ` · T${item?.tier ?? careerShopProduct(current)?.tier ?? '?'}` : '') + ': '
         const select = document.createElement('select'); select.className = 'town-button'; select.setAttribute('aria-label', `${title.textContent} ${slot}`)
         const canRemove = slot !== 'melee' && slot !== 'ranged' || Boolean(equipment[slot === 'melee' ? 'ranged' : 'melee'])
         if (canRemove || !equipment[slot]) select.add(new Option('None', ''))
@@ -55,9 +56,12 @@ export function squadEquipmentUI(read: () => CareerProfile, state: () => Persona
           const item = WEAPONS[id] ?? ARMORS[id]
           const fits = slot === 'mount' ? (PLAYER_MOUNT_IDS as readonly string[]).includes(id) : item?.type === (slot === 'shield' ? 'shield' : slot)
           if (!fits || !availableCareerItem(profile, id) && equipment[slot] !== id) continue
-          const name = item?.name ?? ({ horse: 'Horse', corgi: 'Corgi', 'black-cat': 'Black Cat', xongkoro: 'xongkoro' } as Record<string, string>)[id]
-          const tier = item?.tier ?? (id === 'horse' ? 1 : 4)
-          select.add(new Option(`${name} · T${tier} · 可用 ${availableCareerItem(profile, id)} / ${careerItemTotal(profile, id)}`, id))
+          const name = item?.name ?? careerShopProduct(id)?.name ?? id
+          const tier = item?.tier ?? careerShopProduct(id)!.tier
+          const locked = !isCareerShopItemUseUnlocked(profile, id)
+          const option = new Option(`${name} · T${tier} · 可用 ${availableCareerItem(profile, id)} / ${careerItemTotal(profile, id)}` + (locked ? ' · 巨鷹訓練需 Captain / Commander 軍階' : ''), id)
+          option.disabled = locked
+          select.add(option)
         }
         select.value = equipment[slot] ?? ''; select.disabled = !canChange; select.title = canChange ? '' : lockNotice
         select.onchange = () => {

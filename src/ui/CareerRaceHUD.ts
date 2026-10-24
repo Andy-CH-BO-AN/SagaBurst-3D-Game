@@ -10,7 +10,7 @@ interface RaceHUDOptions {
   distance: number | null
 }
 
-const MOUNT_NAMES = { horse: '戰馬', corgi: '柯基', 'black-cat': '黑貓' } as const
+const MOUNT_NAMES = { horse: '戰馬', corgi: '柯基', 'black-cat': '黑貓', 'snow-leopard': '重甲雪豹' } as const
 function setText(element: HTMLElement, value: string): void {
   if (element.textContent !== value) element.textContent = value
 }

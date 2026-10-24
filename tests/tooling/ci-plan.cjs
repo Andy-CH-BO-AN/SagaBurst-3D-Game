@@ -63,6 +63,22 @@ function policyConsumers(file, inventory) {
     for (const owner of ['tests/town/CareerTownEntry.test.ts', 'tests/missions/CareerMissionRecovery.test.ts',
       'tests/integration/MissionModeRouting.test.ts']) add(owner)
   }
+  // Setup screens pass their selection to the production configuration and
+  // spawn-plan boundaries; campaign stage access has its own progress owner.
+  if (file === 'src/ui/BattleSetupUI.ts' || file === 'src/ui/CampaignSetupUI.ts') {
+    for (const owner of ['tests/missions/BattleConfig.test.ts', 'tests/actors/BattleSpawner.test.ts']) add(owner)
+    if (file === 'src/ui/CampaignSetupUI.ts') add('tests/progression/CampaignProgress.test.ts')
+  }
+  // Offline mount authoring and DEV viewers are verified with the actual GLB
+  // in Blender/Chrome. Their pure preload, playback-state and seat-cache owners
+  // remain the logic gate; tests must never load a mesh or construct a skeleton.
+  if (/^public\/models\/mounts\/v2\/snow-leopard\//.test(file)
+    || ['tools/blender/build_snow_leopard.py', 'tools/blender/snow_leopard_package.mjs',
+      'tools/blender/snow_leopard_skin_regions.json',
+      'src/debug/VikingHeroPreview.ts'].includes(file)) {
+    for (const owner of ['tests/assets/QuadrupedAssetPreload.test.ts',
+      'tests/actors/RiderSeatContactCache.test.ts', 'tests/actors/MountDeathPresentation.test.ts']) add(owner)
+  }
   // The offline eagle envelope and fetched metadata share the runtime's pure
   // validity/fallback contract; exercising it requires no GLB or render scene.
   if (file === 'tools/build-xongkoro-bounds.mjs'

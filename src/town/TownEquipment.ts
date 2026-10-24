@@ -1,12 +1,13 @@
+import { isCareerShopItemUseUnlocked } from '../career/CareerShopCatalog'
 import { availableCareerItem, canAllocateCareerItemToPlayer, careerItemTotal, normalizeCareerInventory } from '../career/CareerInventory'
 import { InventoryManager } from '../rpg/InventoryManager'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
-import { cloneCareerProfile, getCareerPurchaseTier, type CareerProfile } from '../career/CareerProfile'
+import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { careerTownWeapon, isTownShopWeapon } from './TownRules'
 export function canUseCareerEquipment(profile: CareerProfile, id: string): boolean {
   const item = WEAPONS[id] ?? ARMORS[id]
-  return Boolean(item && item.tier <= getCareerPurchaseTier(profile.rank) && (Boolean(ARMORS[id]) || isTownShopWeapon(id))
+  return Boolean(item && isCareerShopItemUseUnlocked(profile, id) && (Boolean(ARMORS[id]) || isTownShopWeapon(id))
     && canAllocateCareerItemToPlayer(profile, id))
 }
 /** Temporary hand state is separate from persisted preferences and ownership. */
@@ -56,7 +57,7 @@ export class TownEquipment extends InventoryManager {
     this.shieldEnabled = false
     this.drawn.clear()
   }
-  override get inventoryStacks() { this.syncOwnership(); return super.inventoryStacks.filter(({ item }) => { const data = WEAPONS[item.id] ?? ARMORS[item.id]; return data && data.tier <= getCareerPurchaseTier(this.read().rank) }).map(stack => ({ ...stack, quantity: careerItemTotal(this.read(), stack.item.id) })) }
+  override get inventoryStacks() { this.syncOwnership(); return super.inventoryStacks.map(stack => ({ ...stack, quantity: careerItemTotal(this.read(), stack.item.id) })) }
   override isEquipped(id: string): boolean { return this.drawn.has(id) && super.isEquipped(id) }
   override isAllocated(id: string): boolean { return Object.values(this.read().equipment ?? {}).includes(id) }
   override itemAvailability(id: string): string { return `總持有 ${careerItemTotal(this.read(), id)} · 可用 ${availableCareerItem(this.read(), id)}` }

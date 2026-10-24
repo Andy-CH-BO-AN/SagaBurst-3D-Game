@@ -11,7 +11,7 @@ import type { PersonalActorCheckpoint } from '../career/CareerPersonalSquadMissi
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { CharacterFaction } from '../world/CharacterVisuals'
-import { Mount, MountType } from '../world/Mount'
+import { Mount, MountType, mountTypeFromId } from '../world/Mount'
 import { AIType, Faction, NPC, type BanditAggroState } from '../world/NPC'
 import { SpatialGrid } from '../world/SpatialGrid'
 import type { ObstacleData } from '../world/Terrain'
@@ -640,7 +640,7 @@ export class TownOutskirtsWarfareController {
         npc.respawnEnabled = false
         npc.group.rotation.y = yaw
         if (cavalry) {
-          const type = spec.loadout?.mountId === 'black-cat' ? MountType.BLACK_CAT : spec.loadout?.mountId === 'corgi' ? MountType.CORGI : MountType.HORSE
+          const type = mountTypeFromId(spec.loadout?.mountId)
           const mount = this.factories?.createMount(point.x, point.z, type) ?? new Mount(this.scene, type, point.x, point.z, undefined, horseVariantForStableKey(`outskirts:${this.townFaction}:${actorId}`))
           trackNpcSpawn(mount)
           mount.group.rotation.y = yaw

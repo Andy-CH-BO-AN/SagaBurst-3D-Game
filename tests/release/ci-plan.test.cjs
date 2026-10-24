@@ -287,3 +287,37 @@ test('behavior edits retain base ownership when its test is renamed', () => {
   assert.deepEqual(plan.selected, ['tests/new.test.ts'])
   assert.ok(plan.changedBehaviors.some(name => name.endsWith('#value')))
 })
+
+test('behavior explanations reuse leaf paths without sharing roots or reachability', () => {
+  const { behaviorGraph } = require('../tooling/behavior.cjs')
+  const sources = new Map([
+    ['src/owner.ts', `export function first() { return 1 }
+export function second() { return 2 }
+export function both() { return first() + second() }`],
+    ['tests/owner.test.ts', `import { both, first } from '../src/owner'
+test('both', () => both())
+test('single', () => first())`],
+  ])
+  const graph = behaviorGraph(sources, dependencyConsumers([], sources).graph,
+    { noLib: true, noResolve: true, types: [] })
+  const id = label => [...graph.nodes.values()].find(node => node.label === label).id
+  const roots = graph.caseRoots('tests/owner.test.ts', { line: 2 })
+  const reached = graph.reachable(roots, 'tests/owner.test.ts')
+  let traversals = 0
+  for (const node of graph.nodes.values()) {
+    const edges = node.edges
+    node.edges = { *[Symbol.iterator]() { traversals++; yield* edges } }
+  }
+  const first = graph.explain(roots, reached, id('first'))
+  assert.deepEqual([...first], [{ file: 'src/owner.ts', behavior: 'both' }, { file: 'src/owner.ts', behavior: 'first' }])
+  assert.equal(first.conservative, false)
+  const afterFirst = traversals
+  assert.deepEqual([...graph.explain(roots, reached, id('second'))],
+    [{ file: 'src/owner.ts', behavior: 'both' }, { file: 'src/owner.ts', behavior: 'second' }])
+  assert.equal(traversals, afterFirst, 'sibling targets reuse the same shortest-path tree')
+  const limited = new Set(reached)
+  limited.delete(id('second'))
+  assert.deepEqual(graph.explain(roots, limited, id('second')), [])
+  const single = graph.caseRoots('tests/owner.test.ts', { line: 3 })
+  assert.deepEqual(graph.explain(single, graph.reachable(single, 'tests/owner.test.ts'), id('second')), [])
+})

@@ -372,6 +372,7 @@ export class CampaignSetupUI {
             <span>坐騎</span>
             <select id="campaign-player-mount">
               <option value="black-cat" ${loadout.mountId === 'black-cat' ? 'selected' : ''}>黑貓</option>
+              <option value="snow-leopard" ${loadout.mountId === 'snow-leopard' ? 'selected' : ''}>重甲雪豹</option>
               <option value="corgi" ${loadout.mountId === 'corgi' ? 'selected' : ''}>柯基</option>
               <option value="xongkoro" ${loadout.mountId === 'xongkoro' ? 'selected' : ''}>xongkoro 巨鷹</option>
               <option value="horse" ${!loadout.mountId || loadout.mountId === 'horse' ? 'selected' : ''}>馬</option>

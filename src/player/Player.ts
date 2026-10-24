@@ -1169,6 +1169,7 @@ export class Player {
     if (!this.currentMount || this.dead) return
     this.currentMount.corgiVisual?.fitRider(this.characterVisualGroup)
     this.currentMount.catVisual?.fitRider(this.characterVisualGroup)
+    this.currentMount.snowLeopardVisual?.fitRider(this.characterVisualGroup)
   }
 
   private _alignExternalVisualToMount(mounted: boolean): void {

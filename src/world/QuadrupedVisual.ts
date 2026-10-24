@@ -1,0 +1,210 @@
+import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
+import * as THREE from 'three'
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
+import { SkinnedSeatContact } from './SkinnedSeatContact'
+import { RiderSeatContactCache } from './RiderSeatContactCache'
+import {
+  isQuadrupedAnimationState,
+  quadrupedLocomotionClipForSpeed,
+  type QuadrupedAnimationState,
+  type QuadrupedLocomotionState,
+  type QuadrupedOneShotState,
+} from './QuadrupedMountAnimation'
+
+interface QuadrupedVisualConfig {
+  readonly name: string
+  readonly bodyPrefix: string
+  readonly saddleMesh: string
+  readonly equipmentMeshes?: readonly string[]
+  readonly gaitSpeeds: { readonly walk: number; readonly run: number }
+  readonly boundingSphere: { readonly center: readonly [number, number, number]; readonly radius: number }
+}
+
+/** Baked quadruped clips and independent skin instances share one playback/LOD owner. */
+export class QuadrupedVisual {
+  readonly root: THREE.Group
+  readonly saddleSeat: THREE.Object3D
+  private readonly riderContacts = new RiderSeatContactCache((rider: THREE.Object3D) => {
+    const saddle = this.root.getObjectByName(this.config.saddleMesh) as THREE.SkinnedMesh
+    // Seat raycasts need the current pose; a full-body saddle keeps its authored all-clips culling bound.
+    const bodyBound = this.config.saddleMesh === `${this.config.bodyPrefix}_body_lod0`
+      ? saddle.boundingSphere?.clone() : undefined
+    try {
+      return new SkinnedSeatContact(rider, this.root, saddle, this.saddleSeat)
+    } finally {
+      if (bodyBound) saddle.boundingSphere = bodyBound
+    }
+  })
+
+  fitRider(rider: THREE.Object3D): void {
+    this.riderContacts.get(rider).align()
+  }
+  readonly skeleton: THREE.Skeleton
+  readonly mixer: THREE.AnimationMixer
+  readonly lod = new THREE.LOD()
+  private readonly actions = new Map<QuadrupedAnimationState, THREE.AnimationAction>()
+  private current: QuadrupedAnimationState = 'idle'
+  private currentAction: THREE.AnimationAction
+  private locomotion: QuadrupedLocomotionState = 'idle'
+  private oneShot: QuadrupedOneShotState | null = null
+  private oneShotAction: THREE.AnimationAction | null = null
+  private oneShotDuration = 0
+  private paused = false
+  private studio = false
+  private disposed = false
+  private elapsed = 0
+  private playbackRate = 1
+  private requestedPlaybackRate = 1
+
+  constructor(template: GLTF | null, private readonly config: QuadrupedVisualConfig) {
+    if (!template) throw new Error(`${config.name} assets were not preloaded`)
+    this.root = cloneSkeleton(template.scene) as THREE.Group
+    this.root.name = `${config.name}-mount-v2`
+    const body = this.root.getObjectByName(`${config.bodyPrefix}_body_lod0`) as THREE.SkinnedMesh
+    if (!body?.isSkinnedMesh) throw new Error(`${config.name} body has no fitted skeleton`)
+    this.skeleton = body.skeleton
+    this.root.traverse(object => {
+      if (object instanceof THREE.SkinnedMesh) {
+        if (object.skeleton !== this.skeleton) object.bind(this.skeleton, object.bindMatrix)
+        object.boundingSphere = new THREE.Sphere(new THREE.Vector3().fromArray(config.boundingSphere.center), config.boundingSphere.radius)
+      }
+    })
+    this.root.updateMatrixWorld(true)
+    this.lod.name = `${config.name}-lod`
+    for (const [index, distance] of CHARACTER_LOD_DISTANCES.entries()) {
+      const mesh = this.root.getObjectByName(`${this.config.bodyPrefix}_body_lod${index}`)!
+      const equipmentName = config.equipmentMeshes?.[index]
+      const equipment = equipmentName ? this.root.getObjectByName(equipmentName) : undefined
+      const level = new THREE.Group()
+      level.name = `${config.bodyPrefix}_lod_level_${index}`
+      this.root.add(level)
+      level.attach(mesh)
+      if (equipment) level.attach(equipment)
+      const unarmored = this.root.getObjectByName(`${this.config.bodyPrefix}_unarmored_lod${index}`)
+      if (unarmored) {
+        level.attach(unarmored)
+        unarmored.visible = false
+      }
+      this.lod.attach(level)
+      this.lod.addLevel(level, distance, .1)
+      level.visible = index === 0
+    }
+    this.root.add(this.lod)
+    this.saddleSeat = this.root.getObjectByName('socket_saddle_seat')!
+    this.mixer = new THREE.AnimationMixer(this.root)
+    for (const clip of template.animations) {
+      if (isQuadrupedAnimationState(clip.name)) this.actions.set(clip.name, this.mixer.clipAction(clip))
+    }
+    this.currentAction = this.actions.get('idle')!
+    this.play('idle', true)
+    this.mixer.update(0)
+    this.root.updateMatrixWorld(true)
+  }
+
+  private play(clip: QuadrupedAnimationState, immediate = false): void {
+    const previous = this.currentAction
+    const next = this.actions.get(clip)!
+    const once = clip === 'jump' || clip === 'land' || clip === 'hit' || clip === 'death'
+    next.reset().setEffectiveWeight(1).setEffectiveTimeScale(this.playbackRate)
+    next.setLoop(once ? THREE.LoopOnce : THREE.LoopRepeat, once ? 1 : Infinity)
+    next.clampWhenFinished = once
+    next.play()
+    if (previous !== next) {
+      if (immediate) previous.stop()
+      else previous.crossFadeTo(next, .12, false)
+    }
+    this.current = clip
+    this.currentAction = next
+  }
+
+  setLocomotion(speed: number): void {
+    this.studio = false
+    this.locomotion = quadrupedLocomotionClipForSpeed(speed, this.locomotion)
+    this.requestedPlaybackRate = this.locomotion === 'idle'
+      ? 1 : Math.min(speed / this.config.gaitSpeeds[this.locomotion], 3)
+    if (this.oneShot || this.current === 'death') return
+    this.playbackRate = this.requestedPlaybackRate
+    if (this.current !== this.locomotion) this.play(this.locomotion)
+    this.currentAction.setEffectiveTimeScale(this.playbackRate)
+  }
+
+  playOnce(clip: QuadrupedOneShotState): void {
+    if (this.current === 'death') return
+    const action = this.actions.get(clip)
+    if (!action) return
+    this.oneShot = clip
+    this.oneShotAction = action
+    this.oneShotDuration = action.getClip().duration
+    this.playbackRate = 1
+    this.play(clip)
+  }
+
+  playStudioClip(clip: QuadrupedAnimationState): void {
+    if (!this.actions.has(clip)) return
+    this.studio = true
+    this.oneShot = null
+    this.oneShotAction = null
+    this.oneShotDuration = 0
+    this.paused = false
+    this.elapsed = 0
+    this.playbackRate = 1
+    this.requestedPlaybackRate = 1
+    this.mixer.stopAllAction()
+    this.play(clip, true)
+    this.mixer.update(0)
+    this.root.updateMatrixWorld(true)
+  }
+
+  togglePaused(): boolean { this.paused = !this.paused; return this.paused }
+
+  setEquipmentVisible(visible: boolean): void {
+    for (const name of this.config.equipmentMeshes ?? []) {
+      const equipment = this.root.getObjectByName(name)
+      if (equipment) equipment.visible = visible
+    }
+    for (let index = 0; index < 3; index++) {
+      const unarmored = this.root.getObjectByName(`${this.config.bodyPrefix}_unarmored_lod${index}`)
+      if (unarmored) {
+        unarmored.visible = !visible
+        // Complete off-mode skins preserve source anatomy while closing fused tack cutouts.
+        // Patch-only skins leave the shared body visible in both modes.
+        if (unarmored.userData.replacesEquippedBody === true) {
+          const body = this.root.getObjectByName(`${this.config.bodyPrefix}_body_lod${index}`)
+          if (body) body.visible = visible
+        }
+      }
+    }
+  }
+
+  update(dt: number): void {
+    if (this.paused || !Number.isFinite(dt) || dt < 0) return
+    this.elapsed += dt
+    this.mixer.update(dt)
+    // Jump stays tucked until physics sends land; death stays fallen.
+    if (!this.studio && this.oneShotAction && this.oneShot !== 'jump' && this.oneShot !== 'death') {
+      if (this.oneShotAction.time >= this.oneShotDuration) {
+        this.oneShot = null
+        this.oneShotAction = null
+        this.playbackRate = this.requestedPlaybackRate
+        this.play(this.locomotion)
+      }
+    }
+    this.root.updateMatrixWorld(true)
+  }
+
+  debugState() {
+    return { clip: this.current, time: this.elapsed, actionTime: this.currentAction.time, playbackRate: this.playbackRate, paused: this.paused, lod: this.lod.getCurrentLevel(), mixerCount: 1, skeletonCount: 1 }
+  }
+
+  dispose(): void {
+    if (this.disposed) return
+    this.disposed = true
+    this.mixer.stopAllAction()
+    this.mixer.uncacheRoot(this.root)
+    // Bone textures belong to this cloned skeleton, unlike shared mesh resources.
+    this.skeleton.dispose()
+    this.root.removeFromParent()
+    // Shared geometry, maps and materials belong to the asset template.
+  }
+}

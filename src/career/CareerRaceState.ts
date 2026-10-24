@@ -4,7 +4,7 @@ import { canAllocateCareerItemToPlayer } from './CareerInventory'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { insideRaceTown, illegalTownCrossing, legalRaceStart, lineCrossing, RACE_LINES, type RacePosition } from './CareerRaceRoute'
 
-export type RaceMountId = 'horse' | 'corgi' | 'black-cat'
+export type RaceMountId = 'horse' | 'corgi' | 'black-cat' | 'snow-leopard'
 export type RaceId = 'race-1' | 'race-2' | 'race-3' | 'race-4' | 'race-5' | 'race-6'
 export type RaceOutcome = 'win' | 'loss' | 'draw'
 export const RACE_PLAYER_CAN_SPRINT = true
@@ -187,7 +187,7 @@ function object(value: unknown): Record<string, unknown> | null { return value !
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n)
 const nonnegative = (n: unknown): n is number => finite(n) && n >= 0
 const raceId = (id: unknown): id is RaceId => MOUNTED_RACES.some(race => race.id === id)
-const mountId = (id: unknown): id is RaceMountId => ['horse', 'corgi', 'black-cat'].includes(id as string)
+const mountId = (id: unknown): id is RaceMountId => ['horse', 'corgi', 'black-cat', 'snow-leopard'].includes(id as string)
 const outcome = (value: unknown): value is RaceOutcome => ['win', 'loss', 'draw'].includes(value as string)
 function position(value: unknown): value is RacePosition {
   const p = object(value)

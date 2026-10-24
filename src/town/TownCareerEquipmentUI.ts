@@ -1,3 +1,4 @@
+import { careerShopProduct } from '../career/CareerShopCatalog'
 import type { CareerProfile } from '../career/CareerProfile'
 import { availableCareerItem, careerItemTotals, legacyPersonalEquipment, type PersonalEquipmentSlot } from '../career/CareerInventory'
 import { PLAYER_MOUNT_IDS } from '../battle/BattleConfig'
@@ -14,8 +15,7 @@ export interface TownEquipmentUIResident {
   npc: Pick<TownCombatResident['npc'], 'dead'>
 }
 
-const MOUNT_NAMES: Record<string, string> = { horse: '軍用戰馬', corgi: '柯基英雄坐騎', 'black-cat': '黑貓英雄坐騎', xongkoro: '巨鷹 xongkoro' }
-const itemName = (id: string | null | undefined) => id ? (WEAPONS[id] ?? ARMORS[id])?.name ?? MOUNT_NAMES[id] ?? id : 'None'
+const itemName = (id: string | null | undefined) => id ? careerShopProduct(id)?.name ?? id : 'None'
 
 /** Both views share the profile, transaction entry and Personal adapter. No UI-owned roster exists. */
 export function createTownCareerEquipmentUI(read: () => CareerProfile, context: () => TownEquipmentContext,
@@ -91,7 +91,7 @@ export function createTownCareerEquipmentUI(read: () => CareerProfile, context: 
       for (const id of Object.keys(careerItemTotals(profile)).sort()) {
         const item = WEAPONS[id] ?? ARMORS[id]
         const fits = slot === 'mount' ? (PLAYER_MOUNT_IDS as readonly string[]).includes(id) && (target === 'personal' || careerEquipmentCategory(id) === 'mount') : item?.type === slot
-        if (fits && (actorId !== 'merchant' || slot !== 'mount' || id === 'horse') && (availableCareerItem(profile, id) > 0 || current === id)) options.push({ id, label: `${itemName(id)}${item ? ` · T${item.tier}` : ''} · 可用 ${availableCareerItem(profile, id)}` })
+        if (fits && (actorId !== 'merchant' || slot !== 'mount' || id === 'horse') && (availableCareerItem(profile, id) > 0 || current === id)) options.push({ id, label: `${itemName(id)} · T${item?.tier ?? careerShopProduct(id)?.tier ?? '?'} · 可用 ${availableCareerItem(profile, id)}` })
       }
       return options
     },

@@ -23,6 +23,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CorgiVisual } from './world/CorgiVisual'
 import { BlackCatVisual } from './world/BlackCatVisual'
+import { SnowLeopardVisual } from './world/SnowLeopardVisual'
 import { XongkoroVisual } from './world/XongkoroVisual'
 import { XONGKORO } from './movement/XongkoroConfig'
 import { MountStudioSeatContact } from './debug/MountStudioSeatContact'
@@ -435,6 +436,7 @@ export class Game {
         await Promise.all([
           HorseAssetRegistry.preload(renderer),
           BlackCatVisual.preload(),
+          SnowLeopardVisual.preload(),
           CorgiVisual.preload(),
           ...(usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
         ])
@@ -444,7 +446,7 @@ export class Game {
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
+      await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       if (trainingGround) heroAssets.add('maki-archer-t4')
       const validationHero = import.meta.env.DEV && trainingGround ? commanderValidationHero(query) : undefined
@@ -982,7 +984,7 @@ export class Game {
     this.activeRenderProbe = getActiveRenderProbe(query)
     const devModelsMode = this.isTrainingGround ? null : query.get('devmodels')
     this.isHumanoidStudio = devModelsMode === 'humans'
-    this.isMountStudio = devModelsMode === 'mounts' || devModelsMode === 'black-cat' || devModelsMode === 'corgi'
+    this.isMountStudio = devModelsMode === 'mounts' || devModelsMode === 'black-cat' || devModelsMode === 'corgi' || devModelsMode === 'snow-leopard'
     this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
 
     // DEV-only: NPC subphase profiling (?npcsubphase=1 requires ?devcombat to be present)
@@ -1610,6 +1612,10 @@ export class Game {
       if (text) this.trainingUI?.setDamage(text)
     })
     this._resetTraining()
+    if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('mount') === 'snow-leopard') {
+      const mount = this.mounts.find(candidate => candidate.type === MountType.SNOW_LEOPARD)
+      if (mount) this._mountPlayer(mount, mount.group.rotation.y)
+    }
   }
 
   private _refillTraining(): void {
@@ -1833,8 +1839,9 @@ export class Game {
     const model = new URLSearchParams(window.location.search).get('devmodels')
     const isCat = model === 'black-cat'
     const isCorgi = model === 'corgi'
-    const isProcedural = isCat || isCorgi
-    const mount = new Mount(this.scene, isCat ? MountType.BLACK_CAT : isCorgi ? MountType.CORGI : DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
+    const isSnowLeopard = model === 'snow-leopard'
+    const isProcedural = isCat || isCorgi || isSnowLeopard
+    const mount = new Mount(this.scene, isSnowLeopard ? MountType.SNOW_LEOPARD : isCat ? MountType.BLACK_CAT : isCorgi ? MountType.CORGI : DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
     const studioClips = isProcedural ? QUADRUPED_STUDIO_CLIPS : HORSE_STUDIO_CLIPS
     if (isProcedural) {
       this.camera.position.set(isCorgi ? 6.4 : 4.4, HUMANOID_STUDIO_FLOOR_Y + (isCorgi ? 2.8 : 2.6), isCorgi ? 6.8 : 4.0)
@@ -1921,7 +1928,7 @@ export class Game {
       if (isProcedural && !isCorgi) rider.root.visible = false
       this.mountStudioRider = rider
       this.mountStudioRiderPelvisHeight = pelvisHeight
-      if (isCat) this.mountStudioSeatContacts.set(rider, new MountStudioSeatContact(
+      if (isCat && MountStudioSeatContact.supports(rider.root)) this.mountStudioSeatContacts.set(rider, new MountStudioSeatContact(
         rider.root, mount.group, mount.catVisual!.root.getObjectByName('cat_saddle_leather') as THREE.SkinnedMesh,
       ))
     }
@@ -1954,6 +1961,7 @@ export class Game {
       toolbar.style.cssText = 'position:fixed;top:24px;left:32px;right:32px;z-index:40;color:#e6d7bb;font:14px system-ui;display:flex;align-items:center;gap:12px'
       toolbar.innerHTML = '<div style="margin-right:auto"><div style="letter-spacing:4px;font-size:11px;color:#b99a66">SAGABURST / MOUNTS</div><h1 style="font:28px Georgia,serif;margin:8px 0">月影旅者 · 黑貓坐騎</h1></div>'
       if (isCorgi) toolbar.querySelector('h1')!.textContent = '赤金衛士 · 柯基坐騎'
+      if (isSnowLeopard) toolbar.querySelector('h1')!.textContent = '重甲雪豹 · T5 指揮官坐騎'
       const poses: [string, number, number, number][] = isCorgi
         ? [['正面', 0, 1.4, 8], ['側面', -7.8, 1.4, 0], ['背面', 0, 1.4, -8], ['三分之四', -6.4, 2.8, 6.8]]
         : [['正面', 0, 2.1, 6], ['側面', 6, 2.0, 0], ['背面', 0, 2.2, -6], ['三分之四', 4.4, 2.6, 4]]
@@ -1964,7 +1972,7 @@ export class Game {
         button.onclick = () => { this.camera.position.set(x, HUMANOID_STUDIO_FLOOR_Y + y, z); this.studioControls?.target.set(0, HUMANOID_STUDIO_FLOOR_Y + 1.1, -0.2); this.studioControls?.update() }
         toolbar.appendChild(button)
       }
-      const ride = document.createElement('a'); ride.textContent = '進入試騎 →'; ride.href = '?training=1&nolock'
+      const ride = document.createElement('a'); ride.textContent = '進入試騎 →'; ride.href = isSnowLeopard ? '?training=1&nolock&mount=snow-leopard&devcommander=viking' : '?training=1&nolock'
       ride.style.cssText = 'padding:10px 16px;background:#b99a66;color:#201b14;border-radius:5px;text-decoration:none'
       toolbar.appendChild(ride)
       if (isCorgi) {
@@ -1974,7 +1982,7 @@ export class Game {
         riderWeaponButton.onclick = cycleRiderWeapon
         toolbar.appendChild(riderWeaponButton)
       }
-      {
+      if (!isSnowLeopard) {
         let equipped = true
         const armor = document.createElement('button'); armor.textContent = '護甲：開'
         armor.style.cssText = 'padding:9px 14px;background:#282522;color:#e6d7bb;border:1px solid #766347;border-radius:5px;cursor:pointer'
@@ -1990,9 +1998,9 @@ export class Game {
         picker.style.cssText = 'position:fixed;top:110px;right:32px;z-index:40;padding:10px 14px;background:#282522;color:#e6d7bb;border:1px solid #766347;border-radius:5px;font:14px system-ui'
         picker.textContent = '騎士：'
         const select = document.createElement('select')
-        select.setAttribute('aria-label', isCorgi ? '柯基騎士' : '黑貓騎士')
+        select.setAttribute('aria-label', isSnowLeopard ? '雪豹騎士' : isCorgi ? '柯基騎士' : '黑貓騎士')
         select.style.cssText = 'background:#282522;color:#e6d7bb;border:0;font:inherit;padding:4px'
-        for (const [value, label] of (isCorgi ? [['roman-t2', '一般羅馬人'], ['roman-t4', 'T4 羅馬禁衛軍'], ['maki-t4', 'T4 遊俠 Shadow Warden']] : [['viking-t2', '一般維京人'], ['viking-t4', 'T4 維京英雄'], ['maki-t4', 'T4 遊俠 Shadow Warden']])) {
+        for (const [value, label] of (isSnowLeopard ? [['viking-t2', '一般維京人'], ['viking-t5', 'T5 維京指揮官'], ['roman-t5', 'T5 羅馬指揮官']] : isCorgi ? [['roman-t2', '一般羅馬人'], ['roman-t4', 'T4 羅馬禁衛軍'], ['maki-t4', 'T4 遊俠 Shadow Warden']] : [['viking-t2', '一般維京人'], ['viking-t4', 'T4 維京英雄'], ['maki-t4', 'T4 遊俠 Shadow Warden']])) {
           select.add(new Option(label, value))
         }
         const feedback = document.createElement('span')
@@ -2007,7 +2015,7 @@ export class Game {
             if (!riders.has(key)) {
               const { loadMakiRangerBow } = await import('./world/MakiRangerEquipment')
               const maki = key === 'maki-t4'
-              const descriptor = HERO_ASSETS[maki ? 'maki-archer-t4' : isCorgi ? 'roman-hero-t4' : 'viking-hero-t4'].descriptor
+              const descriptor = HERO_ASSETS[key === 'roman-t5' ? 'roman-hero-t5' : key === 'viking-t5' ? 'viking-hero-t5' : maki ? 'maki-archer-t4' : isCorgi ? 'roman-hero-t4' : 'viking-hero-t4'].descriptor
               await HumanoidAssetRegistry.preloadAsset(descriptor)
               const bowAssets = maki ? { bow: await loadMakiRangerBow() } : undefined
               const rider = HumanoidAssetRegistry.createCharacterInstance({ faction: descriptor.faction, tier: 2, isPlayer: false }, descriptor.assetId)
@@ -2051,7 +2059,7 @@ export class Game {
         }
         select.onchange = () => { void changeRider() }
         const requested = new URLSearchParams(window.location.search).get('rider')
-        select.value = requested && [...select.options].some(option => option.value === requested) ? requested : isCorgi ? 'roman-t2' : 'viking-t4'
+        select.value = requested && [...select.options].some(option => option.value === requested) ? requested : isSnowLeopard ? 'viking-t5' : isCorgi ? 'roman-t2' : 'viking-t4'
         void changeRider()
       }
     }
@@ -2095,6 +2103,7 @@ export class Game {
       )
       this.mountStudioSeatContacts.get(this.mountStudioRider)?.align()
       this.mountStudioHorse.corgiVisual?.fitRider(this.mountStudioRider.root)
+      this.mountStudioHorse.snowLeopardVisual?.fitRider(this.mountStudioRider.root)
     }
     const state = this.mountStudioHorse.getHorseDebugState()
     if (!state) {

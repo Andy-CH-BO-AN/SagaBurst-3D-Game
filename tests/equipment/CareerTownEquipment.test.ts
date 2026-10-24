@@ -29,6 +29,27 @@ function harness(faction: CareerProfile['faction'] = 'roman') {
   }
 }
 describe('Town equipment domain, canonical ownership and persisted native sources', () => {
+  it('migrates a transferred Commander native mount without recreating it at its original owner', () => {
+    const h = harness(), profile = h.read()
+    const commander = resolveTownActorEquipment(profile, 'roman', 'commander')
+    const recipient = resolveTownActorEquipment(profile, 'roman', 'cavalry-training:melee_cavalry:0')
+    h.buy('horse')
+    profile.townEquipment = { roman: { version: 1, residentEquipmentVersion: 1,
+      actors: {
+        commander: { ...commander.refs, mount: { itemId: 'horse', source: 'inventory' } },
+        'cavalry-training:melee_cavalry:0': { ...recipient.refs, mount: { itemId: 'corgi', source: 'native', nativeId: 'roman/commander/mount' } },
+      }, nativeReserve: ['roman/cavalry-training:melee_cavalry:0/mount'] } }
+    h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
+    const loaded = h.reload()
+    expect(loaded).not.toBeNull()
+    expect(resolveTownActorEquipment(loaded, 'roman', 'cavalry-training:melee_cavalry:0')).toMatchObject({ mountTier: 5,
+      refs: { mount: { itemId: 'snow-leopard', source: 'native', nativeId: 'roman/commander/mount' } } })
+    expect(resolveTownActorEquipment(loaded, 'roman', 'commander').loadout.mountId).toBe('horse')
+    expect(careerItemTotal(loaded, 'snow-leopard')).toBe(0)
+    expect(loaded.inventory).toEqual(profile.inventory)
+    expect(h.reload()).toEqual(loaded)
+  })
+
   it('retains a native weapon transferred within the old squad after its original owner moves to the west', () => {
     const h = harness(), profile = h.read()
     const previousSource = resolveTownActorEquipment(profile, 'roman', 'melee_cavalry-3').refs

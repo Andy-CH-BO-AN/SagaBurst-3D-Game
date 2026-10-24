@@ -16,6 +16,7 @@ export interface EquipmentMountItem {
   active: boolean
   available: boolean
   quantityText?: string
+  unavailableReason?: string
   allocated?: boolean
   appearanceVariant?: HorseAppearanceVariant
   appearanceEditable?: boolean
@@ -230,7 +231,7 @@ export class EquipmentUI {
         card.className = `inventory-card ${mount.active ? 'equipped' : ''}`
         card.innerHTML = `
           <div class="inv-item-header"><span class="inv-item-name">${mount.name} T${mount.tier}</span></div>
-          <div class="inv-item-stats">${mount.active ? '騎乘中' : mount.allocated ? '已分配給 Player' : mount.available ? '可騎乘' : '本次無法使用'}</div>
+          <div class="inv-item-stats">${mount.active ? '騎乘中' : mount.allocated ? '已分配給 Player' : mount.available ? '可騎乘' : mount.unavailableReason ?? '本次無法使用'}</div>
           <div class="inv-item-desc">${mount.quantityText ?? ''}</div>
           <button class="btn-equip ${mount.active ? 'is-active' : ''}" ${mount.available ? '' : 'disabled'}>${mount.active ? '【收起】' : '【騎乘】'}</button>
         `

@@ -27,7 +27,7 @@ export function careerCombatPlayerLoadout(profile: CareerProfile, eagle = false)
     rangedWeaponId: profile.equipment?.ranged ?? 'wooden_shortbow',
     shieldId: profile.equipment?.shield ?? null,
     startMounted: Boolean(mount && canUseCareerMount(profile, mount)),
-    mountId: mount === 'black-cat' || mount === 'corgi' || mount === 'xongkoro' ? mount : 'horse',
+    mountId: mount === 'black-cat' || mount === 'corgi' || mount === 'snow-leopard' || mount === 'xongkoro' ? mount : 'horse',
   } as PlayerLoadoutConfig
 }
 

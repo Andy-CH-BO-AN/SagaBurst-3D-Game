@@ -1,3 +1,4 @@
+import { careerShopProduct } from './CareerShopCatalog'
 import type { CareerRetirementRuntime, CareerRetirementState } from './CareerRetirementState'
 import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { cloneTownEquipment, type CareerTownEquipment } from './CareerTownEquipmentState'
@@ -178,6 +179,7 @@ export interface CareerPurchaseRequest {
 export type CareerPurchaseFailureReason =
   | 'invalid-id'
   | 'invalid-cost'
+  | 'invalid-tier'
   | 'invalid-quantity'
   | 'already-owned'
   | 'tier-locked'
@@ -404,7 +406,7 @@ export function purchaseCareerContent(
   current: CareerProfile,
   request: CareerPurchaseRequest,
 ): CareerPurchaseResult {
-  const id = request.id.trim()
+  const id = typeof request.id === 'string' ? request.id.trim() : ''
   if (!id || request.kind !== 'hero' && !isTradableCareerItem(id)) {
     return {
       profile: cloneCareerProfile(current),
@@ -422,6 +424,17 @@ export function purchaseCareerContent(
     }
   }
 
+  // Only catalog-backed shop goods have rank-free purchase rights. Never trust caller prices or tiers.
+  const item = request.kind === 'hero' ? undefined : careerShopProduct(id)
+  if (request.kind !== 'hero' && (!item || item.category !== request.kind)) {
+    return { profile: cloneCareerProfile(current), purchased: false, spentMerit: 0, reason: 'invalid-id' }
+  }
+  if (item && request.cost !== item.price) {
+    return { profile: cloneCareerProfile(current), purchased: false, spentMerit: 0, reason: 'invalid-cost' }
+  }
+  if (item && request.requiredTier !== item.tier) {
+    return { profile: cloneCareerProfile(current), purchased: false, spentMerit: 0, reason: 'invalid-tier' }
+  }
   const quantity = request.quantity ?? 1
   if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > MAX_BULK_PURCHASE_QUANTITY
     || request.kind === 'hero' && quantity !== 1) {
@@ -433,7 +446,7 @@ export function purchaseCareerContent(
   }
 
   const profile = cloneCareerProfile(current)
-  if (!isCareerPurchaseTierUnlocked(profile, request.requiredTier)) {
+  if ((!item || item.id === 'xongkoro') && !isCareerPurchaseTierUnlocked(profile, request.requiredTier)) {
     return {
       profile,
       purchased: false,

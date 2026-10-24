@@ -15,7 +15,7 @@ import { resolveCareerTownSceneContext } from './CareerFieldSceneContext'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 
 export const ENEMY_TOWN_ASSAULT_ID = 'career-enemy-town-assault'
-/** Deploy owned, rank-legal shields and mounts at their highest tier. */
+/** Deploy owned, usable shields and mounts at their highest tier. */
 export function prepareEnemyTownAssaultEquipment(current: CareerProfile): CareerProfile {
   const profile = cloneCareerProfile(current)
   const shields = [...(profile.equipment?.shield ? [profile.equipment.shield] : []), ...profile.ownedArmors]
