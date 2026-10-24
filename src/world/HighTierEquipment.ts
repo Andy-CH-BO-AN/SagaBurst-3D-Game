@@ -10,6 +10,7 @@ export const HIGH_TIER_WEAPON_ASSETS = {
   sword_t5: 'models/weapons/t5/sword.glb',
   axe_t5: 'models/weapons/t5/axe.glb',
   spear_t5: 'models/weapons/t5/lance.glb',
+  commander_shield_t5: 'models/weapons/t5/shield.glb',
 } as const
 const templates = new Map<string, GLTF>()
 let bowBody: THREE.Group | undefined
@@ -53,6 +54,10 @@ export function createT4Polearm(): THREE.Group {
 /** Instances own transforms only; immutable geometry/materials stay in the preload cache. */
 export function createT5Melee(id: 'sword_t5' | 'axe_t5' | 'spear_t5'): THREE.Group {
   return template(id).scene.clone(true)
+}
+/** Original 1.20m Laurelguard body; no rescale, material rewrite or per-owner resources. */
+export function createT5Shield(): THREE.Group {
+  return template('commander_shield_t5').scene.clone(true)
 }
 /** Static drop/preview body uses cached bind geometry without allocating a skeleton. */
 export function createT5BowBody(): THREE.Group {

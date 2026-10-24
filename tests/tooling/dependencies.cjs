@@ -1,5 +1,6 @@
 const ts = require('typescript')
 const { posix } = require('node:path')
+const { isDeepStrictEqual: same } = require('node:util')
 
 // Sources and existence checks form the filesystem boundary. The planner supplies
 // repository sources; unit tests can exercise the same parser on tiny source maps.
@@ -100,6 +101,45 @@ function runtimeEquivalent(before, after, fileName = 'owner.ts') {
   }
   return fingerprint(before) === fingerprint(after)
 }
+// A production-to-dev move changes packaging, not npm ci's test-installed graph.
+// Prove the complete manifest/lock pair; publication/CI owner selection stays intact.
+function dependencyPlacementOnly(beforePackage, afterPackage, beforeLock, afterLock) {
+  const record = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+  const placement = value => {
+    if (!record(value)) throw new Error('Missing package metadata')
+    const { dependencies = {}, devDependencies = {}, ...other } = value
+    if (!record(dependencies) || !record(devDependencies)
+      || Object.keys(dependencies).some(name => Object.hasOwn(devDependencies, name))
+      || !Object.values({ ...dependencies, ...devDependencies }).every(version => typeof version === 'string')) throw new Error('Ambiguous dependency placement')
+    return { dependencies, devDependencies, other }
+  }
+  try {
+    const before = placement(JSON.parse(beforePackage)), after = placement(JSON.parse(afterPackage))
+    const moved = Object.keys(before.dependencies).filter(name => !Object.hasOwn(after.dependencies, name))
+    if (!moved.length || !same(before.other, after.other)
+      || !same({ ...before.dependencies, ...before.devDependencies }, { ...after.dependencies, ...after.devDependencies })
+      || Object.entries(after.dependencies).some(([name, version]) => before.dependencies[name] !== version)) return false
+    const locks = [JSON.parse(beforeLock), JSON.parse(afterLock)]
+    if (!locks.every(lock => record(lock) && lock.lockfileVersion === 3 && record(lock.packages))) return false
+    for (const [index, manifest] of [before, after].entries()) {
+      const root = placement(locks[index].packages[''])
+      if (!same(root.dependencies, manifest.dependencies) || !same(root.devDependencies, manifest.devDependencies)) return false
+    }
+    const [{ packages: previous, ...oldFields }, { packages: current, ...newFields }] = locks
+    if (!same(oldFields, newFields) || !same(Object.keys(previous).sort(), Object.keys(current).sort())) return false
+    for (const name of Object.keys(previous)) {
+      if (name === '') {
+        if (!same(placement(previous[name]).other, placement(current[name]).other)) return false
+        continue
+      }
+      if (!record(previous[name]) || !record(current[name])) return false
+      const { dev: oldDev, ...oldMetadata } = previous[name], { dev: newDev, ...newMetadata } = current[name]
+      if (!same(oldMetadata, newMetadata)
+        || (!same(oldDev, newDev) && !((oldDev === undefined || oldDev === false) && newDev === true))) return false
+    }
+    return true
+  } catch { return false }
+}
 // Prove relocation-only edits from Git lineage, never from a migration list.
 // Directory/glob rewrites qualify only for a complete, one-to-one tree move.
 function relocationOnly(before, after, changes, baseFiles, headFiles, input) {
@@ -161,4 +201,4 @@ function relocationOnly(before, after, changes, baseFiles, headFiles, input) {
   for (const [start, end, text] of edits.sort((a,b) => b[0]-a[0])) projected = projected.slice(0,start) + text + projected.slice(end)
   return projected === after
 }
-module.exports = { dependencyConsumers, dependencyChain, runtimeEquivalent, relocationOnly }
+module.exports = { dependencyConsumers, dependencyChain, runtimeEquivalent, dependencyPlacementOnly, relocationOnly }

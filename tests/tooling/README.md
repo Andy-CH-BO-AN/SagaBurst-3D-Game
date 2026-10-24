@@ -94,8 +94,14 @@ Git-derived replacements in known path-bearing fields (Node script entry operand
 and Vitest include/exclude/setupFiles/reporters). Arbitrary env/name/data strings
 never qualify. Directory/glob replacements additionally require an
 exact two-sided descendant mapping with no extra destination or old-path occupants.
-Explicit owner policy still selects those inputs. Dependency, argument or config
-behavior edits do not qualify and retain normal conservative candidate validation.
+Explicit owner policy still selects those inputs. A complete package/lock pair can
+also prove an unchanged test-installed graph when identical dependencies move only
+from production to development: package lists, versions, resolved URLs, integrity,
+optional flags and all other metadata must match, except the corresponding placement
+and lock dev flags. Such inputs still select publication/CI owners because production
+packaging changes; the proof only removes Vitest's global watch-trigger candidates.
+Dependency version, argument or config behavior edits do not qualify and retain
+normal conservative candidate validation.
 
 The static graph includes `.github/scripts/` and scans release helpers for computed
 imports. `tests/tooling/` remains inside dependency validation: only the collector's

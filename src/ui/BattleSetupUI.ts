@@ -228,6 +228,7 @@ export class BattleSetupUI {
           ${renderEquipmentGroup('通用', 'GENERAL', [
             { id: null, zh: '不攜帶盾牌', en: 'NO SHIELD' },
             { id: 'paladin_shield_t4' },
+            { id: 'commander_shield_t5' },
           ], 'shield')}
           ${renderEquipmentGroup('維京', 'VIKING', [
             { id: 'round_shield_t1' },

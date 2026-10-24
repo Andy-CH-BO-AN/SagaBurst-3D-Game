@@ -49,10 +49,12 @@ jobs:
       - run: npm ci
       - run: npm run typecheck:test
       - run: npm run build
+      # Browser smoke belongs to production/main and explicit manual validation.
+      # PRs retain package/Desktop smoke, but do not download Chromium.
       - run: npx playwright install --with-deps chromium
-        if: github.event_name != 'push' || github.ref != 'refs/heads/dev'
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
       - run: npm run smoke:web
-        if: github.event_name != 'push' || github.ref != 'refs/heads/dev'
+        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
   desktop:
     needs: logic
     # PR artifacts validate packaging/smoke only. Logic cases execute once in the
