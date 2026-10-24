@@ -1,4 +1,4 @@
-import { Box3, Vector3, type Object3D } from 'three'
+import { Box3, Quaternion, Vector3, type Object3D } from 'three'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { ShieldState } from '../../src/combat/ShieldBlocking'
 import { describe, expect, it, vi } from 'vitest'
@@ -10,39 +10,215 @@ import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
 import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
-import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES } from '../../src/world/CharacterCombatAnimator'
-import type { EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
+import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale } from '../../src/world/CharacterCombatAnimator'
+import { MixerController } from '../../src/world/HumanoidAssetRegistry'
+import { InertialPoseTransition } from '../../src/world/InertialPoseTransition'
+import { axeRecoveryWeight } from '../../src/world/SwordAttachmentContract'
+import { WEAPONS } from '../../src/rpg/WeaponDatabase'
+import { blendContinuousLocalQuaternion, type EquipmentPoseState } from '../../src/world/CharacterEquipmentPose'
 import type { HumanoidAnimationController } from '../../src/world/CharacterVisuals'
 
 /** Real animation state owner; only the external clip/pose boundary is doubled. */
-function lanceAnimator() {
+function combatAnimator(getMeleeTiming?: HumanoidAnimationController['getMeleeTiming'], weapon: 'lance' | 'axe' = 'lance') {
   const state: Partial<EquipmentPoseState> = {}
+  const attachment: Record<string, unknown> = weapon === 'lance'
+    ? { equipmentAttachmentOwned: 'lance' }
+    : { swordAttachmentOwned: true, meleeAnimationKind: 'axe' }
+  const meleePivot = { visible: true, userData: attachment }
   const animation = {
     setEquipmentState: (update: Partial<EquipmentPoseState>) => Object.assign(state, update),
     play: vi.fn(() => true), seek: vi.fn(() => true), has: () => true,
     setBowLocomotion: vi.fn(), update: vi.fn(), getDuration: () => undefined, stop: vi.fn(),
+    getMeleeTiming,
   } satisfies HumanoidAnimationController
   // No constructor, rig, bones or mixer: the production methods need only this
   // equipment ownership marker and scalar action/locomotion state.
   const animator = Object.assign(Object.create(CharacterCombatAnimator.prototype), {
     rig: { animation, equipmentGripFrames: {} },
-    meleePivot: { visible: true, userData: { equipmentAttachmentOwned: 'lance' } },
+    meleePivot,
     bowPivot: { visible: false, userData: {} },
     action: 'idle', ownership: 'procedural', elapsed: 0, actionTimeScale: 1,
     shieldGuardEnabled: false, shieldRaised: false, lanceEquipped: false,
     locomotion: 'idle', mountKind: 'HORSE', locomotionTimeScale: 1,
     events: { hitActiveStarted: false, projectileRelease: false, actionCompleted: false },
   }) as CharacterCombatAnimator
+  return { animator, animation, state, attachment, meleePivot }
+}
+
+function lanceAnimator() {
+  const fixture = combatAnimator()
+  const { animator } = fixture
   animator.setEquipment(true, false, 'HORSE')
   animator.setLocomotion(0, true)
-  return { animator, animation, state }
+  return fixture
 }
+
+function trimmedAxeAnimator(attackFadeInSeconds?: number) {
+  // Exercise the real registry conversion with data only: no clips or mixers.
+  const controller = new MixerController([], [], [], [{
+    clip: 'axeAttack2H', source: 'Meshy', sourceClip: 'axeAttack2H', loop: false,
+    duration: .48, meleeCycleSeconds: .48, attackFadeInSeconds,
+    events: { activeStart: .12, hit: .18, activeEnd: .24, actionComplete: .48 },
+  }])
+  return { controller, ...combatAnimator(state => controller.getMeleeTiming(state), 'axe') }
+}
+
+describe('Combat animator imported melee clock', () => {
+  it('decays one fixed rotation offset continuously across a target hemisphere change without accumulating on repeated samples', () => {
+    const axis = new Vector3(0, 1, 0)
+    const target = { position: new Vector3(4, 2, 1), quaternion: new Quaternion(), scale: new Vector3(2, 3, 4) }
+    const transition = new InertialPoseTransition([target])
+    transition.capture()
+    target.position.set(0, 0, 0)
+    target.quaternion.setFromAxisAngle(axis, 170 * Math.PI / 180)
+    target.scale.set(1, 1, 1)
+    transition.begin(1)
+    expect(transition.blend).toBe(0)
+    expect(target.quaternion.angleTo(new Quaternion())).toBeLessThan(1e-7)
+    expect(target.position.toArray()).toEqual([4, 2, 1])
+
+    transition.restore()
+    target.position.set(2, 0, 0)
+    target.quaternion.setFromAxisAngle(axis, 179 * Math.PI / 180)
+    transition.advance(.25)
+    expect(transition.blend).toBe(.15625)
+    transition.advance(.25)
+    expect(transition.blend).toBe(.5)
+    transition.apply()
+    // Half of the fixed -170 degree offset leaves +94 degrees, not the
+    // opposite route selected by blending a changing target against idle.
+    const expected = new Quaternion().setFromAxisAngle(axis, 94 * Math.PI / 180)
+    expect(target.quaternion.angleTo(expected)).toBeLessThan(1e-7)
+    transition.apply()
+    expect(target.quaternion.angleTo(expected)).toBeLessThan(1e-7)
+    expect(target.position.toArray()).toEqual([4, 1, .5])
+    expect(target.scale.toArray()).toEqual([1.5, 2, 2.5])
+
+    transition.restore()
+    target.quaternion.setFromAxisAngle(axis, 181 * Math.PI / 180)
+    transition.apply()
+    expected.setFromAxisAngle(axis, 96 * Math.PI / 180)
+    expect(target.quaternion.angleTo(expected)).toBeLessThan(1e-7)
+    transition.advance(.5)
+    transition.apply()
+    expected.setFromAxisAngle(axis, 181 * Math.PI / 180)
+    expect(target.quaternion.angleTo(expected)).toBeLessThan(1e-7)
+    expect(target.position.toArray()).toEqual([2, 0, 0])
+    expect(target.scale.toArray()).toEqual([1, 1, 1])
+    expect(transition.active).toBe(false)
+    expect(transition.blend).toBe(1)
+
+    // Dynamic relative rotation (saved^-1 * target) during trimmed 2H axe
+    // release/acquisition must also track across the 180-degree hemisphere
+    // boundary without flipping the blended branch when prevDelta is carried.
+    const saved = new Quaternion().setFromAxisAngle(axis, 20 * Math.PI / 180)
+    const dynamicTarget = new Quaternion().setFromAxisAngle(axis, 199 * Math.PI / 180)
+    const prevDelta = blendContinuousLocalQuaternion(saved, dynamicTarget, .5).clone()
+    expect(dynamicTarget.angleTo(new Quaternion().setFromAxisAngle(axis, 109.5 * Math.PI / 180))).toBeLessThan(1e-7)
+
+    dynamicTarget.setFromAxisAngle(axis, 201 * Math.PI / 180)
+    blendContinuousLocalQuaternion(saved, dynamicTarget, .5, prevDelta)
+    expect(dynamicTarget.angleTo(new Quaternion().setFromAxisAngle(axis, 110.5 * Math.PI / 180))).toBeLessThan(1e-7)
+  })
+
+  it('keeps the weapon cycle and emits one hit when a fast distant swing crosses contact and completion together', () => {
+    const { animator, animation, controller } = trimmedAxeAnimator(.06)
+    // The recovery clock remains clamped when one update skips its entire window.
+    expect(axeRecoveryWeight('axeAttack2H', .42, true)).toBe(0)
+    expect(axeRecoveryWeight('axeAttack2H', .45, true)).toBeCloseTo(.5)
+    expect(axeRecoveryWeight('axeAttack2H', 2, true)).toBe(1)
+    expect(axeRecoveryWeight('axeAttack2H', 2)).toBe(0)
+    expect(axeRecoveryWeight('axeAttack1H', 2, true)).toBe(0)
+    expect(controller.getMeleeTiming('axeAttack2H')).toEqual({
+      duration: .48, activeStart: .12, hit: .18, activeEnd: .24, clipTimeScale: 1, attackFadeInSeconds: .06,
+    })
+    // A .54s weapon cycle at 2.25x hero speed must finish in .24s, not .48s.
+    const timeScale = meleeActionTimeScale('axeAttack2H', WEAPONS.axe_t5, 2.25)
+    expect(timeScale).toBe(2)
+    expect(animator.start('axeAttack2H', timeScale)).toBe(true)
+    expect(animation.play).toHaveBeenLastCalledWith('axeAttack2H', {
+      fadeSeconds: .03, loop: false, timeScale: 2,
+    })
+    expect(animator.update(.059, 100).hitActiveStarted).toBe(false)
+    expect(animator.meleeHitActive).toBe(false)
+    // Source .175s is active, but must not use the legacy .17s fallback hit.
+    expect(animator.update(.0285, 100).hitActiveStarted).toBe(false)
+    expect(animator.meleeHitActive).toBe(true)
+    expect(animator.busy).toBe(true)
+    expect(animator.update(.1525, 100)).toEqual({
+      hitActiveStarted: true, projectileRelease: false, actionCompleted: true,
+    })
+    expect(animation.update).toHaveBeenCalledWith(.1525, 0)
+    expect(animator.busy).toBe(false)
+    expect(animator.meleeHitActive).toBe(false)
+    expect(animator.update(1, 100)).toEqual({
+      hitActiveStarted: false, projectileRelease: false, actionCompleted: false,
+    })
+  })
+
+  it('cancels an imported axe without a fade opt-in before contact and restores the latest mounted locomotion', () => {
+    // A measured melee timeline does not itself opt into a different fade.
+    const { animator, animation, state } = trimmedAxeAnimator()
+    animator.setLocomotion(2)
+    expect(animator.start('axeAttack2H', 2)).toBe(true)
+    expect(animation.play).toHaveBeenLastCalledWith('axeAttack2H', {
+      fadeSeconds: .1, loop: false, timeScale: 2,
+    })
+    expect(animator.update(.08, 100).hitActiveStarted).toBe(false)
+    expect(animator.meleeHitActive).toBe(true)
+    animator.setLocomotion(4, true)
+    animator.cancel()
+    expect(animator.currentAction).toBe('idle')
+    expect(state).toMatchObject({ action: 'idle', elapsed: 0, mounted: true })
+    expect(animation.play).toHaveBeenLastCalledWith('mounted', expect.objectContaining({ loop: true, timeScale: 1 }))
+    expect(animator.update(1, 100)).toEqual({
+      hitActiveStarted: false, projectileRelease: false, actionCompleted: false,
+    })
+    expect(animator.meleeHitActive).toBe(false)
+  })
+
+  it('cancels gameplay immediately while the authored axe visual release finishes without another event', () => {
+    const { animator, animation, state, attachment, meleePivot } = trimmedAxeAnimator(.06)
+    // Presence markers only; the geometry attachment boundary remains absent.
+    Object.assign(attachment, { swordAttachmentOwned: false, equipmentAttachmentOwned: 'axe', authoredAxeSocket: {}, axeVisual: {} })
+    animator.setLocomotion(0, true)
+    animator.start('axeAttack2H', 2)
+    expect(animator.update(.225).hitActiveStarted).toBe(true)
+    animator.cancel()
+    expect(animator.currentAction).toBe('idle')
+    expect(animator.busy).toBe(false)
+    expect(animator.meleeHitActive).toBe(false)
+    expect(state.action).toBe('axeAttack2H')
+    expect(state.elapsed).toBeCloseTo(.45)
+    animator.setLocomotion(4, true)
+    animator.poseIdle()
+    expect(animator.update(0, 100)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false })
+    expect(state.elapsed).toBeCloseTo(.45)
+    expect(animator.update(.014, 100).actionCompleted).toBe(false)
+    expect(state.elapsed).toBeCloseTo(.478)
+    expect(animation.update).toHaveBeenLastCalledWith(.014, 0)
+    animator.cancel()
+    expect(state.elapsed).toBeCloseTo(.478)
+    // None/bow can hide the old axe without replacing its visual identity.
+    const holdsTail = Object.getOwnPropertyDescriptor(CharacterCombatAnimator.prototype, 'hasCanceledAxePose')!.get!
+    meleePivot.visible = false
+    expect(holdsTail.call(animator)).toBe(false)
+    meleePivot.visible = true
+    attachment.meleeAnimationKind = 'sword'
+    expect(holdsTail.call(animator)).toBe(false)
+    attachment.meleeAnimationKind = 'axe'
+    expect(holdsTail.call(animator)).toBe(true)
+    expect(animator.update(1, 100)).toEqual({ hitActiveStarted: false, projectileRelease: false, actionCompleted: false })
+    expect(state).toMatchObject({ action: 'idle', elapsed: 0, continuousAxeAction: false })
+  })
+})
 
 describe('Combat animator bow-to-lance recovery', () => {
   it('ends the fresh bow aim after a shot and permits another mounted shot', () => {
     const { animator, animation, state } = lanceAnimator()
     animator.poseBow(1)
     expect(animator.start('bowRelease')).toBe(true)
+    expect(animation.play).toHaveBeenLastCalledWith('bowRelease', { fadeSeconds: .1, loop: false })
     animator.poseLanceReady(true)
     expect(animator.currentAction).toBe('bowRelease')
     const profile = COMBAT_ANIMATION_PROFILES.bowRelease

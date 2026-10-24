@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import type { CharacterRig, HumanoidAnimationState, MountedPoseKind } from './CharacterVisuals'
 import { setRigRotation } from './CharacterVisuals'
-import { axeCarryWeight, setSwordMountedAttachment } from './SwordAttachmentContract'
+import { axeCarryWeight, axeRecoveryWeight, setSwordMountedAttachment } from './SwordAttachmentContract'
 import type { WeaponData } from '../rpg/WeaponDatabase'
 
 export type CombatAction =
@@ -72,6 +72,9 @@ export class CharacterCombatAnimator {
   private ownership: 'clip' | 'procedural' = 'procedural'
   private elapsed = 0
   private actionTimeScale = 1
+  private canceledAxePose = 0
+  private canceledAxePoseRate = 1
+  private canceledAxeVisual: unknown
   private shieldGuardEnabled = false
   private shieldRaised = false
   private lanceEquipped = false
@@ -133,11 +136,27 @@ export class CharacterCombatAnimator {
     this.mountKind = mountKind
     this.lanceEquipped = lance
     this.setShieldGuard(shield)
+    if (!alive || !this.hasCanceledAxePose) this.clearCanceledAxePose()
     this.rig.animation?.setEquipmentState?.({ lance, shield, mountKind, alive, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined })
   }
 
   private get usesTwoHandedAxeCarry(): boolean {
     return !!this.meleePivot.userData.swordAttachmentOwned && !!this.meleePivot.userData.axeVisual && !this.shieldGuardEnabled && !!this.rig.animation?.has('axeMountedIdle')
+  }
+
+  private get usesContinuousAxeCarry(): boolean {
+    return this.action === 'axeAttack2H' && this.meleeTiming?.attackFadeInSeconds !== undefined
+  }
+
+  private get hasCanceledAxePose(): boolean {
+    return this.canceledAxePose > 0 && this.meleePivot.visible && this.meleePivot.userData.meleeAnimationKind === 'axe'
+      && !this.shieldGuardEnabled && !this.lanceEquipped
+      && this.canceledAxeVisual === this.meleePivot.userData.axeVisual
+  }
+
+  private clearCanceledAxePose(): void {
+    this.canceledAxePose = 0
+    this.canceledAxeVisual = undefined
   }
 
   private get locomotionClip(): HumanoidAnimationState {
@@ -146,7 +165,10 @@ export class CharacterCombatAnimator {
   }
 
   setLocomotion(speed: number, mounted = false, sprinting = false): void {
-    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.poseTime(this.elapsed)) : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed)))
+    const poseAction = this.hasCanceledAxePose ? 'axeAttack2H' : this.action
+    const poseElapsed = this.hasCanceledAxePose ? this.canceledAxePose : this.poseTime(this.elapsed)
+    const continuous = this.hasCanceledAxePose || this.usesContinuousAxeCarry
+    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
     const state = mounted ? 'mounted' : speed <= 0.1 ? 'idle' : sprinting ? 'run' : 'walk'
     const timeScale = state === 'walk'
       ? Math.min(2, Math.max(0.1, speed / 2))
@@ -166,27 +188,44 @@ export class CharacterCombatAnimator {
 
   start(action: Exclude<CombatAction, 'idle' | 'bowAim'>, timeScale = 1): boolean {
     if (this.busy || (this.shieldGuardEnabled && (action === 'bowRelease' || action === 'greatswordSlash' || action === 'axeAttack2H'))) return false
+    this.clearCanceledAxePose()
     this.action = action
     this.actionTimeScale = timeScale
-    setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? axeCarryWeight(action, 0) : 0, this.usesTwoHandedAxeCarry, this.action, 1)
+    delete this.meleePivot.userData.continuousAxeCarryHeading
+    setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? axeCarryWeight(action, 0) : 0, this.usesTwoHandedAxeCarry, this.action, 1, this.usesContinuousAxeCarry)
     const importedState = action === 'bowRelease' || action === 'swordSlash' || action === 'pilumThrow' || action === 'axeAttack1H' || action === 'axeAttack2H'
       ? action
       : null
     this.ownership = importedState && this.rig.animation?.has(importedState) ? 'clip' : 'procedural'
     this.elapsed = 0
-    const clipTimeScale = timeScale * (this.meleeTiming?.clipTimeScale ?? 1)
+    const timing = this.meleeTiming
+    const clipTimeScale = timeScale * (timing?.clipTimeScale ?? 1)
+    // Some trimmed 2H takes must finish blending before their quaternion seam.
+    // Keep that phase fixed at higher attack speeds without changing the clock.
+    const attackFade = action === 'axeAttack2H' ? timing?.attackFadeInSeconds : undefined
+    const fadeSeconds = attackFade !== undefined && Number.isFinite(timeScale) && timeScale > 0 ? attackFade / timeScale : .1
     const clipState = action === 'axeAttack1H' && this.meleePivot.userData.swordAttachmentOwned && this.meleePivot.userData.meleeAnimationKind === 'axe' && this.locomotion !== 'mounted' && this.rig.animation?.has('axeAttack1HFoot') ? 'axeAttack1HFoot' : action
-    if (this.ownership === 'clip') this.rig.animation?.play(clipState, { fadeSeconds: 0.1, loop: false, ...(clipTimeScale === 1 ? {} : { timeScale: clipTimeScale }) })
+    if (this.ownership === 'clip') this.rig.animation?.play(clipState, { fadeSeconds, loop: false, ...(clipTimeScale === 1 ? {} : { timeScale: clipTimeScale }) })
     return true
   }
 
   cancel(): void {
+    const poseElapsed = this.poseTime(this.elapsed)
+    if (!this.hasCanceledAxePose && this.usesContinuousAxeCarry && this.meleePivot.userData.authoredAxeSocket
+      && this.meleePivot.userData.axeVisual && poseElapsed >= .42 && poseElapsed < .48 && this.actionTimeScale > 0) {
+      // Gameplay cancels now. Let only the already-started visual release
+      // finish, rather than dropping its torso and attachment offsets at once.
+      this.canceledAxePose = poseElapsed
+      this.canceledAxePoseRate = this.actionTimeScale * .48 / this.meleeTiming!.duration
+      this.canceledAxeVisual = this.meleePivot.userData.axeVisual
+    }
+    if (!this.hasCanceledAxePose) this.clearCanceledAxePose()
     this.action = 'idle'
     this.ownership = 'procedural'
     this.elapsed = 0
     this.actionTimeScale = 1
-    setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? 1 : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed)))
-    this.rig.animation?.setEquipmentState?.({ action: 'idle', elapsed: 0 })
+    if (!this.hasCanceledAxePose) setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? 1 : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed)))
+    this.rig.animation?.setEquipmentState?.({ action: this.hasCanceledAxePose ? 'axeAttack2H' : 'idle', elapsed: this.hasCanceledAxePose ? this.canceledAxePose : 0 })
     this.rig.animation?.play(this.locomotionClip, { fadeSeconds: 0.12, loop: true, timeScale: this.locomotionTimeScale })
     this.poseIdle()
   }
@@ -199,15 +238,27 @@ export class CharacterCombatAnimator {
     if (!Number.isFinite(dt) || dt < 0) return this.events
     const actionDt = dt * this.actionTimeScale
     const mounted = this.locomotion === 'mounted'
-    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)) : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)))
-    this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed: this.poseTime(this.elapsed + actionDt), lance: this.lanceEquipped, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined, carryWeapon: this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual ? 'axe' : 'sword' : undefined })
+    const canceledPose = this.hasCanceledAxePose
+    if (!canceledPose) this.clearCanceledAxePose()
+    else this.canceledAxePose = Math.min(.48, this.canceledAxePose + dt * this.canceledAxePoseRate)
+    const poseAction = canceledPose ? 'axeAttack2H' : this.action
+    const poseElapsed = canceledPose ? this.canceledAxePose : this.poseTime(this.elapsed + actionDt)
+    const continuous = canceledPose || this.usesContinuousAxeCarry
+    setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
+    this.rig.animation?.setEquipmentState?.({ action: poseAction, elapsed: poseElapsed, continuousAxeAction: continuous, lance: this.lanceEquipped, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined, carryWeapon: this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual ? 'axe' : 'sword' : undefined })
     // Melee sockets drive physical collision, so their pose must follow the
     // action clock every frame, including fast T4 attacks. Idle/ranged may throttle.
-    this.rig.animation?.update(dt, this.isMeleeAction ? 0 : cameraDistance)
+    this.rig.animation?.update(dt, this.isMeleeAction || canceledPose ? 0 : cameraDistance)
     // Animated sockets and forward axe carry follow the evaluated pose and
     // LOD proxy, before this tick's hit/contact evaluation.
     if (this.meleePivot.userData.authoredAxeSocket || this.meleePivot.userData.authoredAxe1Socket || this.meleePivot.userData.forwardAxeCarryRoot) setSwordMountedAttachment(this.meleePivot, mounted,
-      mounted ? axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)) : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed + actionDt)))
+      mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
+    if (canceledPose && this.canceledAxePose >= .48) {
+      this.clearCanceledAxePose()
+      setSwordMountedAttachment(this.meleePivot, mounted, mounted ? 1 : 0, this.usesTwoHandedAxeCarry)
+      this.rig.animation?.setEquipmentState?.({ action: 'idle', elapsed: 0, continuousAxeAction: false })
+      this.rig.animation?.update(0, cameraDistance)
+    }
 
     if (this.action === 'idle' || this.action === 'bowAim') {
       return this.events
@@ -266,7 +317,7 @@ export class CharacterCombatAnimator {
     this.action = 'idle'
     this.actionTimeScale = 1
     this.ownership = 'procedural'
-    this.rig.animation?.setEquipmentState?.({ action: 'idle', elapsed: 0 })
+    this.rig.animation?.setEquipmentState?.({ action: this.hasCanceledAxePose ? 'axeAttack2H' : 'idle', elapsed: this.hasCanceledAxePose ? this.canceledAxePose : 0 })
     this.rig.animation?.play(this.locomotionClip, { fadeSeconds: 0.12, loop: true, timeScale: this.locomotionTimeScale })
     if (this.rig.animation?.has('idle')) {
       this.resetWeaponPivots()
@@ -289,6 +340,7 @@ export class CharacterCombatAnimator {
 
   poseBow(chargeRatio: number, aimBlend = 1): void {
     if (this.busy || this.shieldGuardEnabled) return
+    this.clearCanceledAxePose()
     this.rig.animation?.setEquipmentState?.({ action: 'bowAim' })
     this.action = 'bowAim'
     const imported = this.rig.animation?.has('bowLoad') && this.rig.animation.has('bowHold')

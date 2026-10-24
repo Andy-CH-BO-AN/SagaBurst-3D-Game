@@ -80,6 +80,8 @@ export interface HumanoidMeleeTiming {
   hit: number
   activeEnd: number
   clipTimeScale: number
+  /** Optional 2H axe fade in base action seconds; action speed scales it once. */
+  attackFadeInSeconds?: number
 }
 
 export interface CharacterRig {

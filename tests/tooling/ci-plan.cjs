@@ -79,6 +79,14 @@ function policyConsumers(file, inventory) {
     for (const owner of ['tests/assets/QuadrupedAssetPreload.test.ts',
       'tests/actors/RiderSeatContactCache.test.ts', 'tests/actors/MountDeathPresentation.test.ts']) add(owner)
   }
+  // Offline humanoid axe edits feed the manifest timing and compressed-loader
+  // contracts. Binary/pose preservation is an asset-build audit, not a unit Scene.
+  if (['tools/trim-two-handed-axe.mjs', 'tools/lib/axe-clip-trim.mjs',
+    'tools/assets/axe-2h-trim.json', 'tools/axe-attacks.md'].includes(file)
+    || /^public\/models\/characters\/v2\/(?:roman|viking|viking-hero-t4|roman-hero-t5|viking-hero-t5|maki-archer-t4|roman-civilian|viking-civilian)\/(?:lod[012]\.glb|manifest\.json)$/.test(file)) {
+    add('tests/combat/CommanderWeaponSwitching.test.ts')
+    add('tests/assets/HumanoidAssetPreload.test.ts')
+  }
   // The offline eagle envelope and fetched metadata share the runtime's pure
   // validity/fallback contract; exercising it requires no GLB or render scene.
   if (file === 'tools/build-xongkoro-bounds.mjs'
