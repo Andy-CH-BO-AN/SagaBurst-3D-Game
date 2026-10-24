@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "snow-leopard-v2",
-  "status": "provisional",
+  "status": "ready",
   "forward": "+Z",
   "file": "snow-leopard.glb",
   "source": {
@@ -13,19 +13,19 @@
     "permissionEvidence": "Supplying user explicitly stated: 我擁有模型並有權提交修改後資產",
     "selection": "User explicitly selected this rigged GLB in place of the earlier raw FBX source"
   },
-  "sha256": "6c5b50acc0502237d0ba7e8cc980b5163a3609f701cb232ee40dff76b97cd80f",
+  "sha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
   "animationSource": "animation-source.json",
   "rigMapping": "rig-mapping.json",
   "metrics": {
     "triangles": {
-      "snow_leopard_body_lod0": 14494,
-      "snow_leopard_body_lod1": 6364,
-      "snow_leopard_body_lod2": 2723
+      "snow_leopard_body_lod0": 17532,
+      "snow_leopard_body_lod1": 6476,
+      "snow_leopard_body_lod2": 2741
     },
     "visibleEquippedTriangles": [
-      14494,
-      6364,
-      2723
+      17532,
+      6476,
+      2741
     ],
     "textureMaxSize": 2048,
     "textures": [
@@ -42,12 +42,12 @@
         "mimeType": "image/png"
       }
     ],
-    "packageBytes": 5482308,
+    "packageBytes": 5742856,
     "saddleHeightM": 1.5374562740325928,
     "materials": 1,
     "storedMeshPrimitives": 3,
     "visiblePrimitives": 1,
-    "joints": 54
+    "joints": 55
   },
   "lodNodes": [
     "snow_leopard_body_lod0",
@@ -68,12 +68,17 @@
     "socket_camera"
   ],
   "validation": {
-    "structuralAudit": "pending independent audit",
-    "blenderPackedRoundtrip": "pending visual acceptance",
-    "browserGameplay": "pending",
-    "gpuPerformance": "not measured",
+    "structuralAudit": "passed: final Meshopt decode, 48 native rest bones, normalized finite skin weights, coincident-copy agreement, 3 LODs, 7 clips, sockets and embedded texture decode",
+    "blenderPackedRoundtrip": "inspected: final packed asset reimported in Blender 4.3.2; rest and 7 clips at 5 phases, 3 LODs and front/both sides, plus rear/low-angle run extrema. Residual attachment-strip stretch remains; not final art sign-off.",
+    "runtimeReadiness": "ready means source-authorized, structurally valid and available to the existing runtime loader; it does not assert completed gameplay or performance acceptance",
+    "browserGameplay": "not verified: shell Chromium launch blocked by environment sandbox; cloud browser cannot reach the isolated preview server",
+    "gpuPerformance": "not measured; 200v200 not run",
     "knownLimitations": [
-      "PROVISIONAL: armor seams and upper croup plates remain under active visual repair"
-    ]
+      "Residual visual limitation: flexible belly/chainmail attachment strips still stretch at extreme run poses, especially from below. The original large body-to-hip sheet is reduced, not every local stretch eliminated; this is not final art sign-off.",
+      "LOD1/LOD2 retain visibly faceted armor at close range. LOD0 has 17532 triangles, above the 14500 target; head/tail/paw preservation locks remain enabled.",
+      "120 Hz interpolation sampling found up to 0.009405 m ground penetration between baked run keys. No gameplay contact tuning was performed.",
+      "Browser gameplay, mounted rider/weapon contact, WebGL/GPU timing and 200v200 performance were not verified in this environment."
+    ],
+    "productionLoader": "passed in Node: unchanged SnowLeopardVisual.preload -> QuadrupedAssetPreload -> GLTFLoader/MeshoptDecoder -> constructor; local file-backed fetch and sharp image decode boundary, no WebGL"
   }
 }

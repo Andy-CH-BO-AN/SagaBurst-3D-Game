@@ -1,5 +1,5 @@
 """Retarget the user-selected rigged snow-leopard GLB without replacing its rig.
-Blender -b --python tools/blender/build_snow_leopard.py -- --source-glb PATH
+Blender -b --python-exit-code 1 --python tools/blender/build_snow_leopard.py -- --source-glb PATH
  --donor-decoded output/snow-leopard/donor.glb --output-directory output/snow-leopard
 Meshopt/source-preserving LOD packaging: tools/blender/snow_leopard_package.mjs.
 """
@@ -104,10 +104,10 @@ mapto([18],'cat_rear_paw_l');mapto([9],'cat_rear_paw_r')
 for index,number in enumerate([8,7,6,5,4]):mapto([number],'cat_tail_'+str(index))
 # Decode/import current Production BlackCat; sample poses at original durations.
 before=set(bpy.data.objects);bpy.ops.import_scene.gltf(filepath=str(Path(a.donor_decoded).resolve()));donor_objects=set(bpy.data.objects)-before;donor=next(o for o in donor_objects if o.type=='ARMATURE');donor.animation_data_create();scene=bpy.context.scene;source_fps=scene.render.fps
-clips=['idle','walk','run','jump','land','hit','death'];source_actions={clip:next(ac for ac in bpy.data.actions if ac.name==clip) for clip in clips};rest={n:(donor.matrix_world@b.matrix_local).copy() for n,b in donor.data.bones.items()};samples={};durations={}
+clips=['idle','walk','run','jump','land','hit','death'];source_actions={clip:next(ac for ac in bpy.data.actions if ac.name==clip or ac.name.startswith(clip+'_')) for clip in clips};rest={n:(donor.matrix_world@b.matrix_local).copy() for n,b in donor.data.bones.items()};samples={};durations={}
 for clip,act in source_actions.items():
  donor.animation_data.action=act
- if act.slots:donor.animation_data.action_slot=act.slots[0]
+ if getattr(act,'slots',None):donor.animation_data.action_slot=act.slots[0]
  start,end=act.frame_range;duration=(end-start)/source_fps;durations[clip]=duration;count=round(duration*60);poses=[]
  for f in range(count+1):
   frame=start+(end-start)*f/count;scene.frame_set(math.floor(frame),subframe=frame%1);bpy.context.view_layer.update();poses.append({n:(donor.matrix_world@donor.pose.bones[n].matrix).copy() for n in rest})
@@ -231,16 +231,14 @@ for clip in clips:
    q=pb.rotation_quaternion.normalized()
    if pb.name in previous and q.dot(previous[pb.name])<0:q.negate()
    pb.rotation_quaternion=q;previous[pb.name]=q.copy();pb.keyframe_insert('rotation_quaternion',frame=frame);pb.keyframe_insert('location',frame=frame)
- for layer in act.layers:
-  for strip in layer.strips:
-   for bag in strip.channelbags:
-    for curve in bag.fcurves:
-     for key in curve.keyframe_points:key.interpolation='LINEAR'
+ curves=act.fcurves if not hasattr(act,'layers') else [curve for layer in act.layers for strip in layer.strips for bag in strip.channelbags for curve in bag.fcurves]
+ for curve in curves:
+  for key in curve.keyframe_points:key.interpolation='LINEAR'
  report['clips'][clip]={'duration':durations[clip],'frames':len(samples[clip]),'fps':60,'pawPoseSamplesLimited':paw_limited,'proximalPoseSamplesLimited':proximal_limited}
 # Sample deformed final source surface and correct only penetrations (death rests on flank).
 for clip in clips:
  action=bpy.data.actions[clip];rig.animation_data.action=action
- if action.slots:rig.animation_data.action_slot=action.slots[0]
+ if getattr(action,'slots',None):rig.animation_data.action_slot=action.slots[0]
  corrections=[];contact_errors=[];last_quaternions={}
  for frame in range(1,len(samples[clip])+1):
   scene.frame_set(frame);bpy.context.view_layer.update()
@@ -284,6 +282,33 @@ if a.skin_mode=='fitted':
   for i in points:point_faces[i].add(poly.index)
   for i,j in zip(points,points[1:]+points[:1]):adjacency[i].add(j);adjacency[j].add(i)
  field={point:{body.vertex_groups[g.group].name:g.weight for g in mesh.vertices[indices[0]].groups} for point,indices in copies.items()}
+ # The torso/strap domain overlaps the connected inner thighs and shoulders.
+ # Retain the native limb field across that collar instead of pinning it to
+ # Bone_001: otherwise an axial vertex and its moving neighbour form a sheet.
+ # Use all native chain influences, including zero-weight neighbours via the
+ # smooth collar, rather than guessing limb ownership from a bounding box.
+ limb_bones={'Bone_'+str(n).zfill(3) for n in list(range(9,14))+list(range(18,23))+list(range(26,31))+list(range(32,37))}
+ limb_collar={};native_field={}
+ for point,indices in copies.items():
+  native=original_weights[indices[0]].copy()
+  # Inner attachment skin is shared with the axial body, not a rigid calf.
+  # Route distal pull through the corresponding upper segment in this band;
+  # actual paw/shaft cores (without axial weight) remain exactly native.
+  axial=sum(weight for name,weight in native.items() if name in {'Bone_000','Bone_001','Bone_002','Bone_003','Bone_014','Bone_015','Bone_016','Bone_017','Bone_031','Bone_037'})
+  t=max(0,min(1,(axial-.15)/.20));proximal=t*t*(3-2*t);t=max(0,min(1,(mesh.vertices[indices[0]].co.z-.45)/.25));proximal*=t*t*(3-2*t)
+  for chain,upper in [([9,10,11,12],13),([18,19,20,21],22),([26,27,28,29],30),([32,33,34,35],36)]:
+   upper='Bone_'+str(upper).zfill(3)
+   for number in chain:
+    name='Bone_'+str(number).zfill(3);transfer=native.get(name,0)*proximal
+    if transfer:native[name]-=transfer;native[upper]=native.get(upper,0)+transfer
+  native_field[point]=native
+  influence=sum(weight for name,weight in native.items() if name in limb_bones)
+  t=max(0,min(1,(influence-.15)/.45));blend=t*t*(3-2*t)
+  # The native hip/shoulder pivots are at 1.10-1.13m. Fade below them,
+  # preserving the saddle bearing and upper torso instead of softening armor.
+  height=mesh.vertices[indices[0]].co.z;t=max(0,min(1,(1.13-height)/.23));blend*=t*t*(3-2*t);limb_collar[point]=blend
+  if blend:
+   current=field[point];field[point]={name:current.get(name,0)*(1-blend)+native.get(name,0)*blend for name in set(current)|set(native)}
  patch_reports=[]
  for patch in coherent_patches:
   face_set=set(patch['faces']);points={vertex_point[i] for face in face_set for i in mesh.polygons[face].vertices};excluded=set(patch['excludedCanonicalPoints']);boundary={point for point in points if point_faces[point]-face_set}|(excluded&points)
@@ -296,6 +321,7 @@ if a.skin_mode=='fitted':
   for point in points:
    if point in excluded:continue
    t=min(1,distance.get(point,3)/3);alpha=t*t*(3-2*t)
+   if patch['controller']=='Bone_001':alpha*=1-limb_collar[point]
    if not alpha:continue
    weights={name:value*(1-alpha) for name,value in field[point].items()};weights[patch['controller']]=weights.get(patch['controller'],0)+alpha;field[point]=weights
    rigid_count+=alpha==1
@@ -303,6 +329,29 @@ if a.skin_mode=='fitted':
  # Overlapping fields never soften the source-verified rigid plate cores.
  for controller,points in regions['lockedCoreCanonicalPointsByController'].items():
   for point in points:field[point]={controller:1}
+ # Relax the shared attachment field on both sides of the collar, not only
+ # vertices that already have limb weights. Fixed distal, torso and rigid-armor
+ # cores bound this local harmonic solve; geometry and rest bones never move.
+ locked={point for points in regions['lockedCoreCanonicalPointsByController'].values() for point in points}
+ coordinates={point:mesh.vertices[indices[0]].co for point,indices in copies.items()}
+ collar={point for point in copies if .48<coordinates[point].z<1.35 and sum(weight for name,weight in native_field[point].items() if name in limb_bones)>.05}
+ for _ in range(2):collar|={other for point in collar for other in adjacency[point] if .48<coordinates[other].z<1.35}
+ # Keep the accepted saddle panel/bearing and the fitted armor interiors rigid.
+ fixed=locked|{point for point in copies if coordinates[point].z<=.53 or coordinates[point].z>=1.35 or (-.54<coordinates[point].y<.08 and coordinates[point].z>.98)}
+ for point in collar:
+  if any(name.startswith('plate_') and weight>.999 for name,weight in field[point].items()):fixed.add(point)
+ free=sorted(collar-fixed);names=[group.name for group in body.vertex_groups];columns={name:i for i,name in enumerate(names)}
+ values=np.zeros((len(copies),len(names)))
+ for point,weights in field.items():
+  for name,weight in weights.items():values[point,columns[name]]=weight
+ initial=values.copy();links=np.array([(point,other) for point in free for other in adjacency[point]],dtype=int)
+ if len(links):
+  lengths=np.array([max(.005,(coordinates[point]-coordinates[other]).length) for point,other in links]);conductance=1/lengths
+  degree=np.bincount(links[:,0],weights=conductance,minlength=len(copies));screen=.03*degree
+  for _ in range(120):
+   total=np.zeros_like(values);np.add.at(total,links[:,0],values[links[:,1]]*conductance[:,None])
+   values[free]=(total[free]+initial[free]*screen[free,None])/(degree[free]+screen[free])[:,None]
+  for point in free:field[point]={name:float(values[point,column]) for name,column in columns.items() if values[point,column]>1e-8}
  all_indices=list(range(len(mesh.vertices)))
  for group in body.vertex_groups:group.remove(all_indices)
  for point,indices in copies.items():
@@ -315,7 +364,8 @@ if a.skin_mode=='fitted':
   for index in indices[1:]:
    weights={body.vertex_groups[g.group].name:g.weight for g in mesh.vertices[index].groups};maximum_copy_weight_error=max(maximum_copy_weight_error,max((abs(reference.get(name,0)-weights.get(name,0)) for name in set(reference)|set(weights)),default=0))
  assert maximum_copy_weight_error==0
- report['armor']['method']='Source material/geometry anchors and position-welded connected skin fields; fitted rigid plate cores, continuous three-edge-ring collars, and axial belly straps; unchanged source topology'
+ report['armor']['method']='Source material/geometry anchors and position-welded connected skin fields; fitted rigid plate cores, upper-segment limb-root support, harmonic attachment collars and axial belly straps; unchanged source topology'
+ report['armor']['limbRootCollar']={'method':'Restore upper-segment participation in axial/limb bridges, retain native distal cores, and preserve limb weights through the overlapping torso/strap domain, with smooth native-chain influence collar from 0.15 to 0.60, fading from 0.90m to the 1.13m native proximal pivots; axial scapula helpers, saddle bearing and rigid plate cores retained','canonicalPoints':sum(value>0 for value in limb_collar.values()),'harmonicCollarPoints':len(free),'harmonicIterations':120,'harmonicScreen':.03}
  report['armor']['innerLining']={'addedFaces':0,'addedVertices':0,'note':'Rejected synthetic lining removed; original connected torso surface retained'}
  report['armor']['recessedBacking']={'addedFaces':0,'addedVertices':0,'note':'Rejected isolated triangle copies removed'}
  report['armor']['connectorUnderlap']={'faces':sum(len(p['faces']) for p in coherent_patches),'sourceTopologyUnchanged':True,'maximumCoincidentCopyWeightError':maximum_copy_weight_error,'patches':patch_reports,'method':'Position-welded source surface fields with three-ring continuous collars. All original triangles remain connected; coincident UV/normal copies share identical weights. No split edges, added geometry or moved source vertices.'}
@@ -332,7 +382,7 @@ for level in [1,2]:
 rig.animation_data.action=None
 for clip in clips:
  action=bpy.data.actions[clip];track=rig.animation_data.nla_tracks.new();track.name=clip;strip=track.strips.new(clip,1,action);strip.extrapolation='NOTHING';strip.blend_type='REPLACE'
- if action.slots:strip.action_slot=action.slots[0]
+ if getattr(action,'slots',None):strip.action_slot=action.slots[0]
 for pb in rig.pose.bones:pb.matrix_basis=Matrix.Identity(4)
 scene.frame_set(0);activate(rig)
 for obj in lods:obj.select_set(True)

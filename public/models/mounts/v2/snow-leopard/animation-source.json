@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "animal": "snow-leopard",
-  "sha256": "6c5b50acc0502237d0ba7e8cc980b5163a3609f701cb232ee40dff76b97cd80f",
+  "sha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
   "donor": {
     "path": "public/models/mounts/v2/black-cat/black-cat.glb",
     "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
@@ -34,7 +34,14 @@
   "bake": {
     "tool": "tools/blender/build_snow_leopard.py",
     "fps": 60,
-    "method": "Native source rest matrices and weights; donor world-rest rotation deltas converted through target parent/rest bases; native paws use donor idle sole reference and a 60 degree locomotion envelope; rigid plate controls fit native deformed plate samples; final surface-ground correction is baked",
+    "method": "Native SmartRig rest matrices retained; anatomical limb retarget with donor-phase baked contact, local tail clearance, fitted rigid plate cores and continuous position-welded source-surface skin fields; original source topology retained",
+    "retarget": {
+      "runLimbs": "Absolute anatomical segment direction into native lengths and rest roll; periodic sigma1.25-frame direction filtering removes single-sample donor turns; no angle clamps",
+      "otherClips": "Native rest-basis world rotation deltas; walk adds per-foot donor-phase stance contact; idle/walk/run tail clearance rotates native tail base before body floor correction",
+      "runDistal": "Signed sagittal angle interpolation from donor paw to metatarsal using donor height and hip-relative extension; periodic Gaussian sigma3frames; extra native toe articulated",
+      "runContact": "Native-length local sole penetration correction on all four feet before whole-body floor correction, then all-foot donor-phase stance contact (front run six-frame contact envelope and two-link lower/carpal assembly, other stance q25/q50); baked only"
+    },
+    "armorFit": "Rigid plate controls fit native deformed plate samples; connected source material/geometry domains share identical weights across UV/normal copies and continuous three-ring collars",
     "horizontalRootMotion": "removed; game physics owns horizontal motion",
     "clips": [
       {
@@ -72,59 +79,269 @@
         "frames": 601,
         "fps": 60,
         "pawPoseSamplesLimited": 0,
-        "maximumGroundCorrectionM": 0.06710896980762482
+        "proximalPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0
       },
       "walk": {
         "duration": 1.2000000476837158,
         "frames": 73,
         "fps": 60,
         "pawPoseSamplesLimited": 0,
-        "maximumGroundCorrectionM": 0.05061913621425629
+        "proximalPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.0003804542571306229
       },
       "run": {
         "duration": 0.8000000317891439,
         "frames": 49,
         "fps": 60,
-        "pawPoseSamplesLimited": 22,
-        "maximumGroundCorrectionM": 0.2317654300928116
+        "pawPoseSamplesLimited": 0,
+        "proximalPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.0002780944555997849,
+        "hindSoleHeightsM": [
+          {
+            "l": 0.5663709044456482,
+            "r": 0.5865409970283508
+          },
+          {
+            "l": 0.6177911758422852,
+            "r": 0.5937638282775879
+          },
+          {
+            "l": 0.6623994708061218,
+            "r": 0.5959054827690125
+          },
+          {
+            "l": 0.6947627067565918,
+            "r": 0.5919569134712219
+          },
+          {
+            "l": 0.7080976963043213,
+            "r": 0.5740541815757751
+          },
+          {
+            "l": 0.6928867697715759,
+            "r": 0.5305453538894653
+          },
+          {
+            "l": 0.6564607620239258,
+            "r": 0.46975675225257874
+          },
+          {
+            "l": 0.5926229953765869,
+            "r": 0.3914874792098999
+          },
+          {
+            "l": 0.5366405248641968,
+            "r": 0.3304923474788666
+          },
+          {
+            "l": 0.5062829256057739,
+            "r": 0.30082908272743225
+          },
+          {
+            "l": 0.4671127200126648,
+            "r": 0.2665680944919586
+          },
+          {
+            "l": 0.43632519245147705,
+            "r": 0.24704769253730774
+          },
+          {
+            "l": 0.3941963315010071,
+            "r": 0.21913570165634155
+          },
+          {
+            "l": 0.33610445261001587,
+            "r": 0.1747286319732666
+          },
+          {
+            "l": 0.28230732679367065,
+            "r": 0.13044373691082
+          },
+          {
+            "l": 0.22033625841140747,
+            "r": 0.06713330745697021
+          },
+          {
+            "l": 0.17086182534694672,
+            "r": 0.002000019885599613
+          },
+          {
+            "l": 0.11386975646018982,
+            "r": 0.001999919768422842
+          },
+          {
+            "l": 0.07507762312889099,
+            "r": 0.0020010587759315968
+          },
+          {
+            "l": 0.036710478365421295,
+            "r": 0.002000812441110611
+          },
+          {
+            "l": 0.019729485735297203,
+            "r": 0.002000201493501663
+          },
+          {
+            "l": 0.006566484458744526,
+            "r": 0.002000205684453249
+          },
+          {
+            "l": 0.0023561499547213316,
+            "r": 0.002003137953579426
+          },
+          {
+            "l": 0.0019997931085526943,
+            "r": 0.0020281714387238026
+          },
+          {
+            "l": 0.001999898115172982,
+            "r": 0.0020143981091678143
+          },
+          {
+            "l": 0.09759791195392609,
+            "r": 0.002026554197072983
+          },
+          {
+            "l": 0.23123964667320251,
+            "r": 0.0020327181555330753
+          },
+          {
+            "l": 0.2394450604915619,
+            "r": 0.0020274491980671883
+          },
+          {
+            "l": 0.21754224598407745,
+            "r": 0.002010743133723736
+          },
+          {
+            "l": 0.09599115699529648,
+            "r": 0.0020044869743287563
+          },
+          {
+            "l": 0.0020210447255522013,
+            "r": 0.002015689853578806
+          },
+          {
+            "l": 0.002014333847910166,
+            "r": 0.001999898813664913
+          },
+          {
+            "l": 0.0020162174478173256,
+            "r": 0.0019999677315354347
+          },
+          {
+            "l": 0.002017820719629526,
+            "r": 0.002001429907977581
+          },
+          {
+            "l": 0.0038083111867308617,
+            "r": 0.0019999677315354347
+          },
+          {
+            "l": 0.001999553758651018,
+            "r": 0.0019999840296804905
+          },
+          {
+            "l": 0.0020192808005958796,
+            "r": 0.001999913714826107
+          },
+          {
+            "l": 0.002000063192099333,
+            "r": 0.0020000445656478405
+          },
+          {
+            "l": 0.002034161239862442,
+            "r": 0.002000072505325079
+          },
+          {
+            "l": 0.002000014530494809,
+            "r": 0.01100931502878666
+          },
+          {
+            "l": 0.0020000524818897247,
+            "r": 0.1254919022321701
+          },
+          {
+            "l": 0.0019999982323497534,
+            "r": 0.23470619320869446
+          },
+          {
+            "l": 0.001999954227358103,
+            "r": 0.3197178542613983
+          },
+          {
+            "l": 0.027697915211319923,
+            "r": 0.3786337375640869
+          },
+          {
+            "l": 0.13730426132678986,
+            "r": 0.4140789806842804
+          },
+          {
+            "l": 0.2406182736158371,
+            "r": 0.4379805028438568
+          },
+          {
+            "l": 0.3456503748893738,
+            "r": 0.47329193353652954
+          },
+          {
+            "l": 0.46465998888015747,
+            "r": 0.5333538055419922
+          },
+          {
+            "l": 0.5663709044456482,
+            "r": 0.5865409970283508
+          }
+        ]
       },
       "jump": {
         "duration": 0.7666666507720947,
         "frames": 47,
         "fps": 60,
         "pawPoseSamplesLimited": 0,
-        "maximumGroundCorrectionM": 0.04187786173820496
+        "proximalPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.041877943694591524
       },
       "land": {
         "duration": 0.6333333253860474,
         "frames": 39,
         "fps": 60,
         "pawPoseSamplesLimited": 0,
-        "maximumGroundCorrectionM": 0.09591802549362183
+        "proximalPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.09591795843839646
       },
       "hit": {
         "duration": 0.6333333253860474,
         "frames": 39,
         "fps": 60,
         "pawPoseSamplesLimited": 0,
-        "maximumGroundCorrectionM": 0.0016455777145456523
+        "proximalPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.0016455303044058383
       },
       "death": {
         "duration": 1.7999998728434246,
         "frames": 109,
         "fps": 60,
         "pawPoseSamplesLimited": 0,
-        "maximumGroundCorrectionM": 0.20320805501937866
+        "proximalPoseSamplesLimited": 0,
+        "maximumGroundCorrectionM": 0.20320804011821747
       }
     }
   },
   "validation": {
-    "structuralAudit": "pending independent audit",
-    "blenderPackedRoundtrip": "pending visual acceptance",
-    "browserGameplay": "pending",
-    "gpuPerformance": "not measured",
+    "structuralAudit": "passed: final Meshopt decode, 48 native rest bones, normalized finite skin weights, coincident-copy agreement, 3 LODs, 7 clips, sockets and embedded texture decode",
+    "blenderPackedRoundtrip": "inspected: final packed asset reimported in Blender 4.3.2; rest and 7 clips at 5 phases, 3 LODs and front/both sides, plus rear/low-angle run extrema. Residual attachment-strip stretch remains; not final art sign-off.",
+    "runtimeReadiness": "ready means source-authorized, structurally valid and available to the existing runtime loader; it does not assert completed gameplay or performance acceptance",
+    "browserGameplay": "not verified: shell Chromium launch blocked by environment sandbox; cloud browser cannot reach the isolated preview server",
+    "gpuPerformance": "not measured; 200v200 not run",
     "knownLimitations": [
-      "PROVISIONAL: armor seams and upper croup plates remain under active visual repair"
-    ]
+      "Residual visual limitation: flexible belly/chainmail attachment strips still stretch at extreme run poses, especially from below. The original large body-to-hip sheet is reduced, not every local stretch eliminated; this is not final art sign-off.",
+      "LOD1/LOD2 retain visibly faceted armor at close range. LOD0 has 17532 triangles, above the 14500 target; head/tail/paw preservation locks remain enabled.",
+      "120 Hz interpolation sampling found up to 0.009405 m ground penetration between baked run keys. No gameplay contact tuning was performed.",
+      "Browser gameplay, mounted rider/weapon contact, WebGL/GPU timing and 200v200 performance were not verified in this environment."
+    ],
+    "productionLoader": "passed in Node: unchanged SnowLeopardVisual.preload -> QuadrupedAssetPreload -> GLTFLoader/MeshoptDecoder -> constructor; local file-backed fetch and sharp image decode boundary, no WebGL"
   }
 }

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "sha256": "6c5b50acc0502237d0ba7e8cc980b5163a3609f701cb232ee40dff76b97cd80f",
+  "sha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
   "source": {
     "file": "Meshy_AI_Character_output.glb",
     "sourceSha256": "a149122f5ec78ad5573fb5591f4993867bae29b56a75b4979fa4b3592e8d674c",
@@ -11,22 +11,22 @@
     "selection": "User explicitly selected this rigged GLB in place of the earlier raw FBX source"
   },
   "package": {
-    "sha256": "6c5b50acc0502237d0ba7e8cc980b5163a3609f701cb232ee40dff76b97cd80f",
-    "packageBytes": 5482308,
+    "sha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
+    "packageBytes": 5742856,
     "triangles": [
-      14494,
-      6364,
-      2723
+      17532,
+      6476,
+      2741
     ],
     "simplifierRelativeError": [
-      0.00915762223303318,
-      0.02404419519007206,
-      0.05820135772228241
+      0.011718310415744781,
+      0.03070499189198017,
+      0.06432212889194489
     ],
     "donorSha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
     "materials": 1,
     "skins": 1,
-    "joints": 54,
+    "joints": 55,
     "clips": [
       {
         "name": "idle",
@@ -60,14 +60,14 @@
   },
   "preservation": {
     "sourcePositionsExact": true,
-    "sourceCornerNormalsExact": true,
+    "sourceCornerNormalMaxError": 0,
     "source48RestMatricesExact": true,
     "sourceUV": "unchanged"
   },
   "armor": {
-    "method": "Source metallic UV mask with four measured side-plate volumes, rigid least-squares fitted controllers, 45mm edge collars retaining native skin, rigid saddle and helmet cores",
-    "patchedVertices": 28670,
-    "retainedVertexSkin": 27944,
+    "method": "Source material/geometry anchors and position-welded connected skin fields; fitted rigid plate cores, upper-segment limb-root support, harmonic attachment collars and axial belly straps; unchanged source topology",
+    "patchedVertices": 32917,
+    "retainedVertexSkin": 23697,
     "regions": {
       "plate_shoulder_l": {
         "vertices": 5599,
@@ -116,9 +116,9 @@
         }
       },
       "plate_hip_l": {
-        "vertices": 4832,
-        "rigidCoreVertices": 3637,
-        "fitVertices": 396,
+        "vertices": 4583,
+        "rigidCoreVertices": 3606,
+        "fitVertices": 393,
         "sourceBounds": {
           "sign": 1,
           "bounds": [
@@ -138,10 +138,33 @@
           "feather": 0.045
         }
       },
+      "plate_croup": {
+        "vertices": 4195,
+        "rigidCoreVertices": 3274,
+        "fitVertices": 336,
+        "sourceBounds": {
+          "sign": 1,
+          "bounds": [
+            [
+              -0.62,
+              0.62
+            ],
+            [
+              0.21,
+              0.94
+            ],
+            [
+              1.18,
+              1.67
+            ]
+          ],
+          "feather": 0.035
+        }
+      },
       "plate_hip_r": {
-        "vertices": 4583,
-        "rigidCoreVertices": 3557,
-        "fitVertices": 371,
+        "vertices": 4231,
+        "rigidCoreVertices": 3472,
+        "fitVertices": 362,
         "sourceBounds": {
           "sign": -1,
           "bounds": [
@@ -161,15 +184,449 @@
           "feather": 0.045
         }
       }
+    },
+    "limbRootCollar": {
+      "method": "Restore upper-segment participation in axial/limb bridges, retain native distal cores, and preserve limb weights through the overlapping torso/strap domain, with smooth native-chain influence collar from 0.15 to 0.60, fading from 0.90m to the 1.13m native proximal pivots; axial scapula helpers, saddle bearing and rigid plate cores retained",
+      "canonicalPoints": 7509,
+      "harmonicCollarPoints": 5176,
+      "harmonicIterations": 120,
+      "harmonicScreen": 0.03
+    },
+    "innerLining": {
+      "addedFaces": 0,
+      "addedVertices": 0,
+      "note": "Rejected synthetic lining removed; original connected torso surface retained"
+    },
+    "recessedBacking": {
+      "addedFaces": 0,
+      "addedVertices": 0,
+      "note": "Rejected isolated triangle copies removed"
+    },
+    "connectorUnderlap": {
+      "faces": 19014,
+      "sourceTopologyUnchanged": true,
+      "maximumCoincidentCopyWeightError": 0,
+      "patches": [
+        {
+          "id": "continuous_torso_and_belly_straps",
+          "controller": "Bone_001",
+          "sourceFaces": 4982,
+          "canonicalPoints": 2466,
+          "boundaryPoints": 795,
+          "rigidInteriorPoints": 64,
+          "transition": "Three position-welded edge rings, smoothstep to unchanged boundary field"
+        },
+        {
+          "id": "plate_shoulder_l_complete_surface",
+          "controller": "plate_shoulder_l",
+          "sourceFaces": 3181,
+          "canonicalPoints": 1405,
+          "boundaryPoints": 197,
+          "rigidInteriorPoints": 849,
+          "transition": "Three position-welded edge rings, smoothstep to unchanged boundary field"
+        },
+        {
+          "id": "plate_shoulder_r_complete_surface",
+          "controller": "plate_shoulder_r",
+          "sourceFaces": 3300,
+          "canonicalPoints": 1441,
+          "boundaryPoints": 218,
+          "rigidInteriorPoints": 821,
+          "transition": "Three position-welded edge rings, smoothstep to unchanged boundary field"
+        },
+        {
+          "id": "plate_hip_l_complete_surface",
+          "controller": "plate_hip_l",
+          "sourceFaces": 2628,
+          "canonicalPoints": 1172,
+          "boundaryPoints": 146,
+          "rigidInteriorPoints": 690,
+          "transition": "Three position-welded edge rings, smoothstep to unchanged boundary field"
+        },
+        {
+          "id": "plate_hip_r_complete_surface",
+          "controller": "plate_hip_r",
+          "sourceFaces": 2403,
+          "canonicalPoints": 1051,
+          "boundaryPoints": 149,
+          "rigidInteriorPoints": 598,
+          "transition": "Three position-welded edge rings, smoothstep to unchanged boundary field"
+        },
+        {
+          "id": "plate_croup_complete_surface",
+          "controller": "plate_croup",
+          "sourceFaces": 2520,
+          "canonicalPoints": 1089,
+          "boundaryPoints": 170,
+          "rigidInteriorPoints": 467,
+          "transition": "Three position-welded edge rings, smoothstep to unchanged boundary field"
+        }
+      ],
+      "method": "Position-welded source surface fields with three-ring continuous collars. All original triangles remain connected; coincident UV/normal copies share identical weights. No split edges, added geometry or moved source vertices."
     }
   },
   "validation": {
-    "structuralAudit": "pending independent audit",
-    "blenderPackedRoundtrip": "pending visual acceptance",
-    "browserGameplay": "pending",
-    "gpuPerformance": "not measured",
+    "structuralAudit": "passed: final Meshopt decode, 48 native rest bones, normalized finite skin weights, coincident-copy agreement, 3 LODs, 7 clips, sockets and embedded texture decode",
+    "blenderPackedRoundtrip": "inspected: final packed asset reimported in Blender 4.3.2; rest and 7 clips at 5 phases, 3 LODs and front/both sides, plus rear/low-angle run extrema. Residual attachment-strip stretch remains; not final art sign-off.",
+    "runtimeReadiness": "ready means source-authorized, structurally valid and available to the existing runtime loader; it does not assert completed gameplay or performance acceptance",
+    "browserGameplay": "not verified: shell Chromium launch blocked by environment sandbox; cloud browser cannot reach the isolated preview server",
+    "gpuPerformance": "not measured; 200v200 not run",
     "knownLimitations": [
-      "PROVISIONAL: armor seams and upper croup plates remain under active visual repair"
+      "Residual visual limitation: flexible belly/chainmail attachment strips still stretch at extreme run poses, especially from below. The original large body-to-hip sheet is reduced, not every local stretch eliminated; this is not final art sign-off.",
+      "LOD1/LOD2 retain visibly faceted armor at close range. LOD0 has 17532 triangles, above the 14500 target; head/tail/paw preservation locks remain enabled.",
+      "120 Hz interpolation sampling found up to 0.009405 m ground penetration between baked run keys. No gameplay contact tuning was performed.",
+      "Browser gameplay, mounted rider/weapon contact, WebGL/GPU timing and 200v200 performance were not verified in this environment."
+    ],
+    "productionLoader": "passed in Node: unchanged SnowLeopardVisual.preload -> QuadrupedAssetPreload -> GLTFLoader/MeshoptDecoder -> constructor; local file-backed fetch and sharp image decode boundary, no WebGL"
+  },
+  "independentChecks": {
+    "assetSha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
+    "maximumRestInverseBindError": 9.393271416247018e-07,
+    "lods": [
+      {
+        "lod": 0,
+        "vertices": 33186,
+        "triangles": 17532,
+        "weightedVertices": 33186,
+        "maximumWeightSumError": 1.341104507446289e-07,
+        "maximumCoincidentWeightError": 0
+      },
+      {
+        "lod": 1,
+        "vertices": 9762,
+        "triangles": 6476,
+        "weightedVertices": 9762,
+        "maximumWeightSumError": 1.2479722499847412e-07,
+        "maximumCoincidentWeightError": 0
+      },
+      {
+        "lod": 2,
+        "vertices": 3287,
+        "triangles": 2741,
+        "weightedVertices": 3287,
+        "maximumWeightSumError": 1.1827796697616577e-07,
+        "maximumCoincidentWeightError": 0
+      }
+    ],
+    "sampleHz": 120,
+    "sampledClipCount": 7,
+    "sampledLodCount": 3,
+    "allSampledPositionsFinite": true,
+    "minimumSampledHeightM": -0.00940492069952476,
+    "maximumAnimationDifferenceFromSameBakeBaseline": 0,
+    "baselineNote": "The committed PR GLB was stale relative to its builder. Animation equality compares the same current builder before/after this skin repair, not the older shipped PR binary.",
+    "visualReview": "315 phase/LOD/view renders generated; LOD0 front and both-side contact sheets, LOD1/2 side sheets and selected original/final close-ups and run extrema were inspected as pixels, including front/rear/low angles."
+  },
+  "limbRootDiagnosis": {
+    "cause": "Overlapping torso/belly-strap field overwrote native proximal limb weights with Bone_001, with sharp transitions into rigid plate controls. This was a local attachment issue, not globally absent thigh weights or a native bind-pose mismatch.",
+    "sourcePointExamples": {
+      "8427": {
+        "sourcePosition": [
+          -0.1649748533964157,
+          0.5445038080215454,
+          0.5957529544830322
+        ],
+        "native": {
+          "Bone_013": 0.5656673312187195,
+          "Bone_022": 0.22553053498268127,
+          "Bone_012": 0.17627306282520294,
+          "Bone_008": 0.03252909705042839
+        },
+        "before": {
+          "Bone_001": 0.747040867805481,
+          "Bone_013": 0.14790181815624237,
+          "Bone_022": 0.058968186378479004,
+          "Bone_012": 0.046089112758636475
+        },
+        "after": {
+          "Bone_013": 0.5227289795875549,
+          "Bone_022": 0.2533109188079834,
+          "Bone_012": 0.12061835825443268,
+          "plate_hip_r": 0.10334175080060959
+        }
+      },
+      "4737": {
+        "sourcePosition": [
+          0.1388537883758545,
+          -0.408732146024704,
+          0.6395289301872253
+        ],
+        "native": {
+          "Bone_017": 0.4159698784351349,
+          "Bone_029": 0.3225908875465393,
+          "Bone_030": 0.2606366276741028,
+          "Bone_016": 0.0008026832365430892
+        },
+        "before": {
+          "Bone_001": 1.0
+        },
+        "after": {
+          "Bone_001": 0.42102906107902527,
+          "Bone_030": 0.2862377464771271,
+          "Bone_017": 0.18664658069610596,
+          "Bone_036": 0.1060866191983223
+        }
+      }
+    },
+    "edgeComparisonAtRunSeconds": 0.06666666666666667,
+    "sourceEdgeComparison": [
+      {
+        "asset": "original_pr",
+        "edge": "left_hip_long",
+        "time": 0.06666666666666667,
+        "sourceMatchError": 7.920075813483186e-08,
+        "restLength": 0.06690915838268996,
+        "posedLength": 0.6025640091288652,
+        "ratio": 9.005703011274974,
+        "weights": [
+          {
+            "Bone_001": 1,
+            "Bone_000": 0
+          },
+          {
+            "plate_hip_l": 1,
+            "Bone_000": 0
+          }
+        ]
+      },
+      {
+        "asset": "original_pr",
+        "edge": "left_hip_short",
+        "time": 0.06666666666666667,
+        "sourceMatchError": 8.429369702178807e-08,
+        "restLength": 0.023857493404852596,
+        "posedLength": 0.5335374056814033,
+        "ratio": 22.363514751004068,
+        "weights": [
+          {
+            "Bone_001": 1,
+            "Bone_000": 0
+          },
+          {
+            "plate_hip_l": 1,
+            "Bone_000": 0
+          }
+        ]
+      },
+      {
+        "asset": "same_bake_before_fix",
+        "edge": "left_hip_long",
+        "time": 0.06666666666666667,
+        "sourceMatchError": 7.920075813483186e-08,
+        "restLength": 0.06690915838268996,
+        "posedLength": 0.3968789119818937,
+        "ratio": 5.931608191989604,
+        "weights": [
+          {
+            "Bone_001": 0.7407407164573669,
+            "plate_hip_l": 0.25925925374031067,
+            "Bone_000": 0
+          },
+          {
+            "plate_hip_l": 1,
+            "Bone_000": 0
+          }
+        ]
+      },
+      {
+        "asset": "same_bake_before_fix",
+        "edge": "left_hip_short",
+        "time": 0.06666666666666667,
+        "sourceMatchError": 8.429369702178807e-08,
+        "restLength": 0.023857493404852596,
+        "posedLength": 0.46378150176310046,
+        "ratio": 19.43965754880048,
+        "weights": [
+          {
+            "Bone_001": 1,
+            "Bone_000": 0
+          },
+          {
+            "plate_hip_l": 1,
+            "Bone_000": 0
+          }
+        ]
+      },
+      {
+        "asset": "final",
+        "edge": "left_hip_long",
+        "time": 0.06666666666666667,
+        "sourceMatchError": 7.920075813483186e-08,
+        "restLength": 0.06690915838268996,
+        "posedLength": 0.23856351971241,
+        "ratio": 3.5654837914405553,
+        "weights": [
+          {
+            "plate_hip_l": 0.4798501431941986,
+            "Bone_001": 0.3551234304904938,
+            "Bone_022": 0.08459309488534927,
+            "Bone_003": 0.08043331652879715
+          },
+          {
+            "plate_hip_l": 1,
+            "Bone_000": 0
+          }
+        ]
+      },
+      {
+        "asset": "final",
+        "edge": "left_hip_short",
+        "time": 0.06666666666666667,
+        "sourceMatchError": 8.429369702178807e-08,
+        "restLength": 0.023857493404852596,
+        "posedLength": 0.1382134093762126,
+        "ratio": 5.793291316517774,
+        "weights": [
+          {
+            "plate_hip_l": 0.6446627378463745,
+            "Bone_001": 0.20688766241073608,
+            "Bone_022": 0.08391646295785904,
+            "Bone_003": 0.06453312933444977
+          },
+          {
+            "plate_hip_l": 1,
+            "Bone_000": 0
+          }
+        ]
+      },
+      {
+        "asset": "final_packed",
+        "edge": "left_hip_short",
+        "time": 0.06666666666666667,
+        "sourceMatchError": 8.429369702178807e-08,
+        "restLength": 0.023857493404852596,
+        "posedLength": 0.1382134093762126,
+        "ratio": 5.793291316517774,
+        "weights": [
+          {
+            "plate_hip_l": 0.6446627378463745,
+            "Bone_001": 0.20688766241073608,
+            "Bone_022": 0.08391646295785904,
+            "Bone_003": 0.06453312933444977
+          },
+          {
+            "plate_hip_l": 1,
+            "Bone_000": 0
+          }
+        ]
+      }
+    ],
+    "edgeComparisonNote": "Lengths are meters; exact original source positions matched within 8.5e-8 m. The long-edge source endpoint is removed by LOD simplification, so its final-source result is not claimed as an exact packed-edge result. The short edge survives and its packed result is exact.",
+    "remainingRunExtrema": [
+      {
+        "lod": 0,
+        "name": "run",
+        "duration": 0.800000011920929,
+        "samples": 98,
+        "minY": -0.00940492069952476,
+        "maximumRootEdgeIncrease": 0.2775285308491626,
+        "maximumRootEdgeRatio": 8.426002916705785,
+        "worst": {
+          "time": 0.7505154751010776,
+          "indices": [
+            7145,
+            7146
+          ],
+          "restLength": 0.09365563249553566,
+          "posedLength": 0.3711841633446983,
+          "midGame": [
+            -0.34676823019981384,
+            1.0096459090709686,
+            -0.08521537482738495
+          ]
+        }
+      },
+      {
+        "lod": 1,
+        "name": "run",
+        "duration": 0.800000011920929,
+        "samples": 98,
+        "minY": -0.00940492069952476,
+        "maximumRootEdgeIncrease": 0.26628954625179047,
+        "maximumRootEdgeRatio": 6.235453732042595,
+        "worst": {
+          "time": 0.5525773278216726,
+          "indices": [
+            1587,
+            1707
+          ],
+          "restLength": 0.06483998532965529,
+          "posedLength": 0.33112953158144576,
+          "midGame": [
+            -0.3805612176656723,
+            1.1631508469581604,
+            0.5416358709335327
+          ]
+        }
+      },
+      {
+        "lod": 2,
+        "name": "run",
+        "duration": 0.800000011920929,
+        "samples": 98,
+        "minY": 0.010061488018193673,
+        "maximumRootEdgeIncrease": 0.30250368430515645,
+        "maximumRootEdgeRatio": 5.595422720548294,
+        "worst": {
+          "time": 0.7505154751010776,
+          "indices": [
+            502,
+            508
+          ],
+          "restLength": 0.11910550802246182,
+          "posedLength": 0.4216091923276183,
+          "midGame": [
+            -0.36449915170669556,
+            0.8838642239570618,
+            -0.030805621296167374
+          ]
+        }
+      }
     ]
+  },
+  "productionLoaderChecks": {
+    "sha256": "e020c8c90fa24bae19d79d9291a58249336718ee1640a21e289856a04b32319a",
+    "sourcePath": "src/world/SnowLeopardVisual.ts -> src/world/QuadrupedAssetPreload.ts -> actual GLTFLoader/MeshoptDecoder -> QuadrupedVisual",
+    "boundaries": {
+      "fetch": "Local file-backed fetch only; blob image fetch uses Node native fetch",
+      "imageBitmap": "Sharp decodes real embedded JPEG/PNG to RGBA; plain Node image object substituted for browser ImageBitmap"
+    },
+    "notValidated": [
+      "No WebGL renderer or GPU upload",
+      "No actual browser/gameplay",
+      "No Player/NPC rider contact or visual rig quality acceptance"
+    ],
+    "manifestStatus": "ready",
+    "requests": [
+      "manifest.json",
+      "snow-leopard.glb"
+    ],
+    "decodedImages": [
+      {
+        "format": "png",
+        "width": 1024,
+        "height": 1024,
+        "rgbaBytes": 4194304,
+        "options": {
+          "premultiplyAlpha": "none",
+          "colorSpaceConversion": "none"
+        }
+      },
+      {
+        "format": "jpeg",
+        "width": 2048,
+        "height": 2048,
+        "rgbaBytes": 16777216,
+        "options": {
+          "premultiplyAlpha": "none",
+          "colorSpaceConversion": "none"
+        }
+      }
+    ],
+    "meshCount": 3,
+    "skeletonBones": 55,
+    "instanceIndependence": true,
+    "sharedGeometryMaterialsSurvivedDisposal": true,
+    "finiteSkinnedVertexSamples": 1294580
   }
 }

@@ -317,20 +317,27 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     }
     return hits
   }
+  const explanations = new WeakMap()
   function explain(roots, reached, target) {
-    const previous = new Map(roots.map(id => [id, null])), queue = [...roots]
-    for (let i=0; i<queue.length; i++) {
-      const id = queue[i]
-      if (id === target) {
-        const path = []
-        for (let next = id; next; next = previous.get(next)) path.unshift(nodes.get(next))
-        const behaviors = path.filter(n => n.file.startsWith('src/') && callable(n.ast)).map(n => ({ file: n.file, behavior: n.label }))
-        behaviors.conservative = path.some((n, index) => n.conservativeEdges.has(path[index + 1]?.id))
-        return behaviors
-      }
+    // Shared-module edits can match many targets in one leaf. Reuse that leaf's
+    // shortest-path tree instead of traversing the same graph for every target.
+    // Expand lazily, preserving the original BFS order and conservative edges.
+    let search = explanations.get(roots)
+    if (!search || search.reached !== reached) {
+      search = { reached, previous: new Map(roots.map(id => [id, null])), queue: [...roots], cursor: 0 }
+      explanations.set(roots, search)
+    }
+    const { previous, queue } = search
+    while (!previous.has(target) && search.cursor < queue.length) {
+      const id = queue[search.cursor++]
       for (const next of nodes.get(id)?.edges ?? []) if (reached.has(next) && !previous.has(next)) { previous.set(next, id); queue.push(next) }
     }
-    return []
+    if (!previous.has(target)) return []
+    const path = []
+    for (let next = target; next; next = previous.get(next)) path.unshift(nodes.get(next))
+    const behaviors = path.filter(n => n.file.startsWith('src/') && callable(n.ast)).map(n => ({ file: n.file, behavior: n.label }))
+    behaviors.conservative = path.some((n, index) => n.conservativeEdges.has(path[index + 1]?.id))
+    return behaviors
   }
   return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, explain }
 }
@@ -367,11 +374,12 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
           const sameBody = i === 0 || previousSources.get(graphFile) === sources.get(file)
           const roots = !fallback && sameBody && graphs[i].caseRoots(graphFile, suite.locations[index])
           if (!roots) uncertain = true
-          const reached = graphs[i].reachable(roots || graphs[i].wholeFileRoots(graphFile), graphFile)
+          const actualRoots = roots || graphs[i].wholeFileRoots(graphFile)
+          const reached = graphs[i].reachable(actualRoots, graphFile)
           for (const id of reached) if (graphs[i].nodes.get(id)?.unsafe) throw new Error(`Unsafe runtime dispatch: ${file}: ${graphs[i].nodes.get(id).unsafe}`)
           for (const id of targets[i]) if (reached.has(id)) {
             hit = true; covered[i].add(id)
-            const path = graphs[i].explain(roots || graphs[i].wholeFileRoots(graphFile), reached, id)
+            const path = graphs[i].explain(actualRoots, reached, id)
             if (path.conservative) { conservativeCases.add(index); caller = true }
             for (const step of path) { owners.add(step.behavior); if (step.file !== change.file) caller = true }
           }
