@@ -479,7 +479,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (!declaration || mutatedBindings.has(declaration) || mutatedObjectBindings.has(declaration) || bindingAliases.has(declaration)) return false
     const facts = bindingInvalidations.get(declaration)
     return !!facts?.size && [...facts].every(fact => ts.isIdentifier(fact) && ts.isPropertyAccessExpression(fact.parent)
-      && fact.parent.expression === fact && ['fn', 'mock'].includes(fact.parent.name.text)
+      && fact.parent.expression === fact && ['fn', 'mock', 'mocked'].includes(fact.parent.name.text)
       && ts.isCallExpression(fact.parent.parent) && fact.parent.parent.expression === fact.parent)
   }
   const emptyMockExports = new WeakMap()
@@ -514,9 +514,80 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (replacement && emptyPaths.length) emptyMockExports.set(factory, emptyPaths)
     return replacement ? 'replacement' : 'uncertain'
   }
+  const deferredMockConfigurations = new WeakMap(), mockInvocationCandidates = new WeakMap()
+  const operationKey = node => `${local(node.getSourceFile().fileName)}:${node.getStart()}`
+  const mockRuntimeOperations = new Set([...inputEdges, ...inputRisks].filter(input => !['import', 'glob'].includes(input.kind))
+    .map(input => `${input.readerFile ?? input.from}:${input.readerStart ?? input.start}`))
+  const mockDataOperations = new Set([...inputEdges, ...inputRisks].filter(input => !['import', 'execute', 'glob'].includes(input.kind))
+    .map(input => `${input.readerFile ?? input.from}:${input.readerStart ?? input.start}`))
+  const finiteMockSyntax = new Set([
+    'Block', 'ExpressionStatement', 'ReturnStatement', 'VariableStatement', 'VariableDeclarationList', 'VariableDeclaration',
+    'CallExpression', 'NewExpression', 'PropertyAccessExpression', 'ElementAccessExpression', 'Identifier', 'Parameter',
+    'ParenthesizedExpression', 'AsExpression', 'TypeAssertionExpression', 'NonNullExpression', 'SatisfiesExpression',
+    'StringLiteral', 'NumericLiteral', 'NoSubstitutionTemplateLiteral', 'TrueKeyword', 'FalseKeyword', 'NullKeyword',
+    'ObjectLiteralExpression', 'PropertyAssignment', 'ArrayLiteralExpression', 'PrefixUnaryExpression',
+    'IfStatement', 'EmptyStatement', 'ThrowStatement', 'TryStatement', 'CatchClause',
+    'AsyncKeyword', 'ExportKeyword', 'DefaultKeyword', 'EqualsGreaterThanToken', 'QuestionToken',
+  ].map(kind => ts.SyntaxKind[kind]))
+  function mockLexicalValue(declaration) {
+    if (!sources.has(declaration.getSourceFile().fileName) || declaration.getSourceFile().isDeclarationFile
+      || ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Ambient) return false
+    if (![ts.isVariableDeclaration, ts.isParameter, ts.isBindingElement, ts.isFunctionDeclaration, ts.isFunctionExpression,
+      ts.isClassDeclaration, ts.isEnumDeclaration, ts.isImportSpecifier, ts.isNamespaceImport, ts.isImportClause, ts.isImportEqualsDeclaration].some(isKind => isKind(declaration))) return false
+    for (let owner = declaration; owner && !ts.isSourceFile(owner); owner = owner.parent) if (owner.isTypeOnly || ts.getCombinedModifierFlags(owner) & ts.ModifierFlags.Ambient) return false
+    return true
+  }
+  function finiteMockCallback(callback, seen = new Set()) {
+    if (!callable(callback) || seen.has(callback) || !callback.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)) return false
+    const visiting = new Set(seen); visiting.add(callback)
+    const returnedValue = expression => {
+      const value = origin(expression)
+      if (inertValue(value)) return true
+      if (!ts.isCallExpression(value)) return false
+      if (mockDataOperations.has(operationKey(value))) return true
+      const declaration = checker.getResolvedSignature(value)?.declaration
+      return !!declaration?.body && finiteMockCallback(declaration, visiting)
+    }
+    let known = ts.isBlock(callback.body) || returnedValue(callback.body)
+    const visit = node => {
+      if (!known || typeOnly(node)) return
+      if (node !== callback && !finiteMockSyntax.has(node.kind)) { known = false; return }
+      if (ts.isReturnStatement(node) && node.expression && !returnedValue(node.expression)) { known = false; return }
+      if (node !== callback && callable(node)) { known = false; return }
+      if (ts.isVariableDeclaration(node) && !ts.isIdentifier(node.name) || ts.isAwaitExpression(node)) { known = false; return }
+      if (ts.isIdentifier(node) && ['globalThis', 'window', 'eval'].includes(node.text)) { known = false; return }
+      if (ts.isIdentifier(node) && node.text !== 'undefined'
+        && !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)
+        && !(ts.isPropertyAssignment(node.parent) && node.parent.name === node)) {
+        const declarations = checker.getSymbolAtLocation(node)?.declarations ?? []
+        const operationCallee = ts.isCallExpression(node.parent) && node.parent.expression === node && mockRuntimeOperations.has(operationKey(node.parent))
+        if (!operationCallee && !declarations.some(mockLexicalValue)) { known = false; return }
+      }
+      const provenCall = call => {
+        if (mockRuntimeOperations.has(operationKey(call))) return true
+        const declaration = checker.getResolvedSignature(call)?.declaration
+        return !!declaration?.body && sources.has(declaration.getSourceFile().fileName) && finiteMockCallback(declaration, visiting)
+      }
+      if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+        if (!provenCall(node)) { known = false; return }
+      }
+      if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+        let access = node
+        while ((ts.isPropertyAccessExpression(access.parent) || ts.isElementAccessExpression(access.parent)) && access.parent.expression === access) access = access.parent
+        if (!(ts.isCallExpression(access.parent) || ts.isNewExpression(access.parent)) || access.parent.expression !== access || !provenCall(access.parent)) { known = false; return }
+      }
+      if (ts.isPrefixUnaryExpression(node) && !inertValue(node)) { known = false; return }
+      ts.forEachChild(node, visit)
+    }
+    visit(callback)
+    return known
+  }
   function stableEmptyMockExports(candidate) {
     const paths = emptyMockExports.get(candidate.factory)
     if (!paths) return true
+    candidate.configurations = new Map(paths.map(path => [JSON.stringify(path), []]))
+    candidate.configurationCalls = new Set()
+    candidate.invocations = []
     // Mock implementations survive clearAllMocks and can be shared by sibling
     // cases. Only direct calls of the initially empty exports are benign; all
     // other uses require substitution/escape proof that this boundary lacks.
@@ -526,6 +597,8 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       const visit = node => {
         if (!stable || ts.isTypeNode(node) || ts.isImportDeclaration(node)) return
         if (ts.isExportDeclaration(node)) { stable = false; return }
+        if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+          && ['resetAllMocks', 'restoreAllMocks'].includes(node.expression.name.text) && vitestReceiver(node.expression.expression)) { stable = false; return }
         if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
           || ts.isPropertyAccessExpression(node.expression) && ['importMock', 'importActual'].includes(node.expression.name.text) && vitestReceiver(node.expression.expression))) {
           const specifiers = node.arguments[0] && literalKeys(node.arguments[0])
@@ -545,8 +618,18 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
               if (keys?.length !== 1) { stable = false; return }
               path.push(keys[0])
             }
-            if (!ts.isCallExpression(access.parent) || access.parent.expression !== access
-              || !paths.some(expected => expected.length === path.length && expected.every((key, index) => key === path[index]))) { stable = false; return }
+            let wrapper = access.parent
+            if (ts.isCallExpression(wrapper) && wrapper.arguments.length === 1 && wrapper.arguments[0] === access
+              && ts.isPropertyAccessExpression(wrapper.expression) && wrapper.expression.name.text === 'mocked' && emptyMockReceiver(wrapper.expression.expression)) access = wrapper
+            const method = ts.isPropertyAccessExpression(access.parent) && access.parent.expression === access ? access.parent : null
+            const configuration = method && ts.isCallExpression(method.parent) && method.parent.expression === method ? method.parent : null
+            const key = JSON.stringify(path)
+            if (configuration && ['mockImplementation', 'mockImplementationOnce'].includes(method.name.text)
+              && candidate.configurations.has(key) && configuration.arguments.length === 1 && finiteMockCallback(configuration.arguments[0])) {
+              candidate.configurations.get(key).push(configuration.arguments[0]); candidate.configurationCalls.add(configuration)
+            } else if (ts.isCallExpression(access.parent) && access.parent.expression === access && candidate.configurations.has(key)) {
+              candidate.invocations.push({ call: access.parent, key })
+            } else { stable = false; return }
           }
         }
         ts.forEachChild(node, visit)
@@ -822,6 +905,17 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (ts.isShorthandPropertyAssignment(n)) providerEscape(n.name, entry, n)
     if (ts.isArrayLiteralExpression(n)) for (const element of n.elements) providerEscape(element, entry, n)
     if (ts.isCallExpression(n)) {
+      if (deferredMockConfigurations.has(n) && entry.mockConfigurationCall !== n) {
+        const id = `${entry.file}:${n.getStart()}:<mock configuration>`
+        if (!nodes.has(id)) {
+          const operation = { id, ast: n, file: entry.file, label: '<mock configuration>', mockConfigurationCall: n,
+            mockConfigurationFor: deferredMockConfigurations.get(n), prepared: true, edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map() }
+          nodes.set(id, operation); inspect(n, operation)
+        }
+        connect(entry, id)
+        return
+      }
+      if (mockInvocationCandidates.has(n)) (entry.mockInvocations ??= []).push({ call: n, alternatives: mockInvocationCandidates.get(n) })
       if ((ts.isIdentifier(n.expression) && n.expression.text === 'require' || n.expression.kind === ts.SyntaxKind.ImportKeyword) && ts.isStringLiteralLike(n.arguments[0])) {
         const target = importedModule(entry.file, n.arguments[0].text)
         if (files.has(target)) {
@@ -904,8 +998,26 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (left.getText() !== 'module.exports' && left.getText().startsWith('module.exports.') && reconfiguredExportFiles.has(statement.getSourceFile().fileName)) return false
     return inertExportBinding(assignment.right)
   }
+  const mockModes = new Map()
+  for (const candidate of mockCandidates) {
+    candidate.mode = mockFactoryMode(candidate.factory)
+    if (candidate.mode === 'replacement' && !stableEmptyMockExports(candidate)) candidate.mode = 'uncertain'
+    candidate.boundaryKey = `${candidate.file}:${candidate.target ?? providerName({ module: candidate.provider })}`
+    if (!mockModes.has(candidate.boundaryKey)) mockModes.set(candidate.boundaryKey, new Set())
+    mockModes.get(candidate.boundaryKey).add(candidate.mode)
+  }
+  for (const candidate of mockCandidates) if (candidate.mode === 'replacement' && mockModes.get(candidate.boundaryKey).size === 1) {
+    for (const call of candidate.configurationCalls ?? []) {
+      if (!deferredMockConfigurations.has(call)) deferredMockConfigurations.set(call, [])
+      deferredMockConfigurations.get(call).push(candidate)
+    }
+    for (const invocation of candidate.invocations ?? []) {
+      if (!mockInvocationCandidates.has(invocation.call)) mockInvocationCandidates.set(invocation.call, [])
+      mockInvocationCandidates.get(invocation.call).push({ candidate, key: invocation.key })
+    }
+  }
   for (const entry of nodes.values()) {
-    if (entry.shape) continue
+    if (entry.shape || entry.prepared) continue
     if (ts.isSourceFile(entry.ast) || entry.label === '<suite setup>') {
       function eager(n) {
         if (typeOnly(n) || registration(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n) || callable(n) || inertCommonJSExport(n)) return
@@ -1069,14 +1181,6 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   // CJS require calls retain original bindings; a Vitest module replacement
   // cannot establish a file-wide boundary for those consumers.
   for (const input of inputEdges ?? []) if (input.kind === 'import' && /^require\s*\(/.test(input.inputExpression ?? input.expression)) commonjsTargets.add(input.to)
-  const mockModes = new Map()
-  for (const candidate of mockCandidates) {
-    candidate.mode = mockFactoryMode(candidate.factory)
-    if (candidate.mode === 'replacement' && !stableEmptyMockExports(candidate)) candidate.mode = 'uncertain'
-    candidate.boundaryKey = `${candidate.file}:${candidate.target ?? providerName({ module: candidate.provider })}`
-    if (!mockModes.has(candidate.boundaryKey)) mockModes.set(candidate.boundaryKey, new Set())
-    mockModes.get(candidate.boundaryKey).add(candidate.mode)
-  }
   for (const { file, target, provider, ast, mode: ownMode, boundaryKey } of mockCandidates) {
     const mode = mockModes.get(boundaryKey).size === 1 ? ownMode : 'uncertain', info = files.get(file)
     if (mode === 'original') continue
@@ -1147,6 +1251,8 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const seen = new Set(), states = new Map(), first = new Map(), queue = []
     const enqueue = (id, environment, parent, evidence, conservative = false, mainFile = testFile, processContext = 'test') => {
       if (!nodes.has(id)) return
+      const configuration = nodes.get(id).mockConfigurationFor
+      if (processContext === 'test' && configuration?.some(candidate => candidate.file === testFile && blocked.has(candidate.target))) return
       const gate = nodes.get(id).mainGuard
       if (gate && (gate.file === mainFile) !== gate.isMain) return
       if (processContext === 'test' && blocked.has(nodes.get(id).file)) { pending.push([id, environment, parent, evidence, conservative, mainFile, processContext]); return }
@@ -1162,6 +1268,15 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       const [key, state] = queue[cursor], entry = nodes.get(state.id)
       seen.add(state.id); if (!first.has(state.id)) first.set(state.id, key)
       if (entry.nodeEntry) executions.push([key, state, entry])
+      for (const invocation of entry.mockInvocations ?? []) for (const { candidate, key: exportKey } of invocation.alternatives) {
+        if (state.processContext !== 'test' || candidate.file !== testFile || candidate.mode !== 'replacement') continue
+        for (const callback of candidate.configurations.get(exportKey) ?? []) {
+          const target = nodes.get(byAst.get(callback))
+          if (!target) continue
+          enqueue(target.id, callEnvironment(target, { args: invocation.call.arguments, call: invocation.call }, state.environment), key,
+            { evidence: 'finite shared mock implementation alternatives', exportPath: JSON.parse(exportKey), callsite: { file: entry.file, start: invocation.call.getStart() }, configurationFile: local(callback.getSourceFile().fileName), replacementStatus: blocked.has(candidate.target) ? 'replaced' : 'uncertain' }, true, state.mainFile, state.processContext)
+        }
+      }
       for (const event of entry.providerEvents ?? []) if (state.processContext === 'test' && event.action === 'uncertain') {
         const target = providerTarget(event.provider, event.ast), replacement = files.get(testFile)?.replacementMocks.get(target)
         if (replacement && blocked.delete(target)) {

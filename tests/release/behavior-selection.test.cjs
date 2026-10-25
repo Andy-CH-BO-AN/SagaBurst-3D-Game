@@ -57,8 +57,8 @@ export function unrelated() { return 0 }`
     "test('alias', () => { const { nested: { values: [first] } } = TABLE; return first })",
     "test('shorthand', () => ({ TABLE }))",
     "test('unrelated', () => unrelated())",
-  ])
-  assert.deepEqual(indices(plan), [0, 1, 2])
+  ], [], 'src/owner.js', 'tests/owner.test.js')
+  assert.deepEqual(plan.selectedCases['tests/owner.test.js'], [0, 1, 2])
 })
 
 test('namespace dynamic reads and enumeration retain export owners while concrete siblings stay separate', () => {
@@ -924,4 +924,114 @@ for (const acquisition of ["import('../src/owner')", "vi.importMock('../src/owne
   assert.throws(() => selection(before, before.replace('return 1', 'return 2'), [
     "import { run } from '../src/owner'", "test('real', () => run())",
   ], [['tests/empty.test.ts', `import { vi } from 'vitest'; import { run } from '../src/owner'\nvi.mock('../src/owner', () => ({ run: vi.fn() }))\ntest('configure', async () => { const mod = await ${acquisition}; mod.run.mockImplementation(globalThis.real) })\ntest('later', () => run())`]]), /Unsafe (?:mock boundary|runtime import|runtime input)/)
+})
+
+test('finite shared mock callbacks execute on export calls, not on configuration alone', () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/configured.test.ts'
+  const sources = new Map([
+    ['src/owner.ts', 'export function run() { return 1 }'],
+    ['src/entry.ts', "import { run } from './owner'; export function enter() { return run() }"],
+    [file, [
+      "import { vi } from 'vitest'; import fs from 'node:fs'; import { run } from '../src/owner'; import { enter } from '../src/entry'",
+      "vi.mock('../src/owner', () => ({ run: vi.fn() }))",
+      "test('configure only', () => { vi.mocked(run).mockImplementation(() => fs.readFileSync('config.json', 'utf8')) })",
+      "test('invoke shared implementation', () => { enter() })",
+    ].join('\n')],
+  ])
+  const inventory = [{file,names:['configure only','invoke shared implementation'],locations:[{line:3,column:1},{line:4,column:1}]}]
+  const files = new Set([...sources.keys(),'config.json'])
+  const consumers = dependencyConsumers(inventory,sources,path=>files.has(path),{files})
+  const plan = selectBehaviors(inventory,[{status:'M',file:'config.json'}],consumers,{
+    sources,previousSources:sources,previousConsumers:consumers,ranges:{},compilerOptions:{noLib:true,noResolve:true,types:[]},
+  })
+  assert.deepEqual(plan.selectedCases[file],[1])
+  assert.ok(JSON.stringify(plan).includes('finite shared mock implementation alternatives'))
+})
+
+test('finite mock callback substitution does not execute the unrelated original implementation', () => {
+  const before = 'export function run() { return 1 }'
+  const plan = selection(before,before.replace('return 1','return 2'),[
+    "import { run } from '../src/owner'", "test('real', () => run())",
+  ], [['tests/configured.test.ts', "import { vi } from 'vitest'; import { run } from '../src/owner'\nvi.mock('../src/owner', () => ({ run: vi.fn() }))\ntest('configured', () => { vi.mocked(run).mockImplementation(() => 0); run() })"]])
+  assert.deepEqual(indices(plan),[0])
+  assert.equal(plan.selectedCases['tests/configured.test.ts'],undefined)
+})
+
+for (const [name, callback, tail] of [
+  ['opaque inline delegate', '() => globalThis.original()', ''],
+  ['unbound global value accessor', '() => { dangerous; return 0 }', ''],
+  ['unknown returned receiver', 'value => value', ''],
+  ['global reset lifetime', '() => 0', 'vi.resetAllMocks()'],
+]) test(`finite mock callback union remains blocked: ${name}`, () => {
+  const before = 'export function run() { return 1 }'
+  assert.throws(() => selection(before,before.replace('return 1','return 2'),[
+    "import { run } from '../src/owner'", "test('real', () => run())",
+  ], [['tests/configured.test.ts', `import { vi } from 'vitest'; import { run } from '../src/owner'\nvi.mock('../src/owner', () => ({ run: vi.fn() }))\ntest('configured', () => { vi.mocked(run).mockImplementation(${callback}); ${tail}; run() })`]]), /Unsafe mock boundary/)
+})
+
+test('Once and default mock implementations remain finite shared alternatives', () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/once.test.ts'
+  const sources = new Map([
+    ['src/owner.ts', 'export function run() { return 1 }'],
+    [file, [
+      "import { vi } from 'vitest'; import fs from 'node:fs'; import { run } from '../src/owner'",
+      "vi.mock('../src/owner', () => ({ run: vi.fn() }))",
+      "test('configure', () => { vi.mocked(run).mockImplementationOnce(() => fs.readFileSync('once.json', 'utf8')); vi.mocked(run).mockImplementation(() => 0) })",
+      "test('invoke', () => { run() })",
+    ].join('\n')],
+  ])
+  const inventory = [{file,names:['configure','invoke'],locations:[{line:3,column:1},{line:4,column:1}]}]
+  const files = new Set([...sources.keys(),'once.json'])
+  const consumers = dependencyConsumers(inventory,sources,path=>files.has(path),{files})
+  const plan = selectBehaviors(inventory,[{status:'M',file:'once.json'}],consumers,{sources,previousSources:sources,previousConsumers:consumers,ranges:{},compilerOptions:{noLib:true,noResolve:true,types:[]}})
+  assert.deepEqual(plan.selectedCases[file],[1])
+})
+
+test('shared configuration helpers retain their real execution outside the mocked case process', () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const sources = new Map([
+    ['src/owner.ts', 'export function run() { return 1 }; run.mockImplementation = callback => callback()'],
+    ['src/configure.ts', "import { vi } from 'vitest'; import fs from 'node:fs'; import { run } from './owner'; export function configure() { vi.mocked(run).mockImplementation(() => fs.readFileSync('config.json', 'utf8')) }"],
+    ['tests/mock.test.ts', "import { vi } from 'vitest'; import { run } from '../src/owner'; import { configure } from '../src/configure'\nvi.mock('../src/owner', () => ({ run: vi.fn() }))\ntest('configure only', () => { configure() })\ntest('invoke', () => { run() })"],
+    ['tests/real.test.ts', "import { configure } from '../src/configure'\ntest('actual custom API', () => { configure() })"],
+  ])
+  const inventory = [...sources].filter(([file])=>file.startsWith('tests/')).map(([file,source])=>{
+    const locations = source.split('\n').flatMap((line,index)=>line.startsWith('test(')?[{line:index+1,column:1}]:[])
+    return {file,names:locations.map((_,index)=>`case ${index}`),locations}
+  })
+  const files = new Set([...sources.keys(),'config.json'])
+  const consumers = dependencyConsumers(inventory,sources,path=>files.has(path),{files})
+  const plan = selectBehaviors(inventory,[{status:'M',file:'config.json'}],consumers,{sources,previousSources:sources,previousConsumers:consumers,ranges:{},compilerOptions:{noLib:true,noResolve:true,types:[]}})
+  assert.deepEqual(plan.selectedCases['tests/mock.test.ts'],[1])
+  assert.deepEqual(plan.selectedCases['tests/real.test.ts'],[0])
+})
+
+for (const [name, dependency, callback] of [
+  ['imported opaque helper', 'export function helper() { return globalThis.original() }', '() => { helper(); return 0 }'],
+  ['side-effect getter', 'export const helper = { get value() { return globalThis.original() } }', '() => { helper.value; return 0 }'],
+  ['destructured getter', 'export const helper = { get value() { return globalThis.original() } }', '() => { const { value } = helper; return 0 }'],
+  ['unknown thenable', 'export const helper = globalThis.thenable', 'async () => { await helper; return 0 }'],
+  ['computed key coercion', 'export const helper = globalThis.keyObject', '() => { ({ [helper]: 0 }); return 0 }'],
+  ['ambient-only global value', 'declare global { const dangerous: unknown }; export {}', '() => { dangerous; return 0 }'],
+]) test(`finite mock callback grammar rejects ${name}`, () => {
+  const before = 'export function run() { return 1 }'
+  assert.throws(() => selection(before,before.replace('return 1','return 2'),[
+    "import { run } from '../src/owner'", "test('real', () => run())",
+  ], [
+    ['src/helper.ts',dependency],
+    ['tests/configured.test.ts', `import { vi } from 'vitest'; import { run } from '../src/owner'; import { helper } from '../src/helper'\nvi.mock('../src/owner', () => ({ run: vi.fn() }))\ntest('configured', () => { vi.mocked(run).mockImplementation(${callback}); run() })`],
+  ]), /Unsafe mock boundary/)
+})
+
+
+test('mock configuration wrappers require their own stable Vitest receiver', () => {
+  const before = 'export function run() { return 1 }'
+  assert.throws(() => selection(before,before.replace('return 1','return 2'),[
+    "import { run } from '../src/owner'", "test('real', () => run())",
+  ], [
+    ['src/configure.ts', "import { vi } from 'vitest'; import { run } from './owner'; vi.mocked = globalThis.fake; export function configure() { vi.mocked(run).mockImplementation(() => 0) }"],
+    ['tests/configured.test.ts', "import { vi } from 'vitest'; import { run } from '../src/owner'; import { configure } from '../src/configure'\nvi.mock('../src/owner', () => ({ run: vi.fn() }))\ntest('configured', () => { configure(); run() })"],
+  ]), /Unsafe mock boundary/)
 })
