@@ -10,12 +10,29 @@ import { parseEagleFlightSnapshot, type EagleFlightSnapshot } from '../movement/
 
 const SAVE_KEY = 'wdyh_save_v1'
 
+/** Legacy saves did not record their actual maximum or custom-HP provenance.
+ * Never guess a 200 baseline from their current HP or equipment. */
+export function restoreSavedPlayerHp(data: Pick<PlayerSaveData, 'hp' | 'maxHp'>, newMaxHp: number): number {
+  const hp = Number.isFinite(data.hp) ? Math.max(0, data.hp) : 0
+  if (hp === 0 || !Number.isFinite(newMaxHp) || newMaxHp <= 0) return 0
+  const oldMax = data.maxHp
+  return Math.min(newMaxHp, typeof oldMax === 'number' && Number.isFinite(oldMax) && oldMax > 0
+    ? hp / oldMax * newMaxHp : hp)
+}
+
 export interface SkillDetail {
   level: number
   xp: number
 }
 
 export interface PlayerSaveData {
+  /** Captured identity is independent of currently equipped weapons. */
+  healthRulesVersion?: 1
+  maxHp?: number
+  characterTier?: 1 | 2 | 3
+  characterFaction?: 'roman' | 'viking'
+  /** Present only for an explicitly selected custom HP override. */
+  baseMaxHpOverride?: number
   falling?: FallingRiderSnapshot
   position: { x: number; y: number; z: number }
   hp: number
@@ -125,6 +142,12 @@ export class SaveManager {
       return {
         ...DEFAULT_SAVE,
         ...parsed,
+        healthRulesVersion: parsed.healthRulesVersion === 1 ? 1 : undefined,
+        maxHp: typeof parsed.maxHp === 'number' && Number.isFinite(parsed.maxHp) && parsed.maxHp > 0 ? parsed.maxHp : undefined,
+        characterTier: parsed.characterTier === 1 || parsed.characterTier === 2 || parsed.characterTier === 3 ? parsed.characterTier : undefined,
+        characterFaction: parsed.characterFaction === 'roman' || parsed.characterFaction === 'viking' ? parsed.characterFaction : undefined,
+        baseMaxHpOverride: typeof parsed.baseMaxHpOverride === 'number' && Number.isFinite(parsed.baseMaxHpOverride) && parsed.baseMaxHpOverride > 0
+          ? parsed.baseMaxHpOverride : undefined,
         falling: parseFallingRiderSnapshot(parsed.falling),
         position: { ...DEFAULT_SAVE.position, ...parsed.position },
         skills: {

@@ -1,4 +1,5 @@
 import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
+import { getOrdinarySoldierAssetId } from '../combat/OrdinarySoldierProfile'
 import { prepareSeatSupport } from './SkinnedSeatContact'
 import type { FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import { prepareAuthoredBowContacts } from './BowDrawHand'
@@ -85,6 +86,8 @@ export interface HumanoidAssetManifest {
   } | null
   selectedSource?: SelectedHumanoidSource
   /** Identical LOD bind spaces and clips share one actor-owned skeleton/mixer. */
+  /** Complete source skin, padded to the existing four-set plugin contract. */
+  skinInfluenceSets?: 4
   sharedLodPose?: boolean
   /** Keep the equipped axe carry forward without changing the authored wrist. */
   forwardAxeCarry?: boolean
@@ -200,8 +203,19 @@ export const ORDINARY_HUMANOID_ASSETS: Record<CharacterFaction, HumanoidAssetDes
   viking: { assetId: 'viking', faction: 'viking', heightM: 1.86, maxShoulderWidthM: .54, neckLengthM: .11037482018019391 },
 }
 
+/** Measured source anatomy; T3 continues to use ORDINARY_HUMANOID_ASSETS unchanged. */
+export const TIERED_ORDINARY_HUMANOID_ASSETS = {
+  'roman-t1': { assetId: 'roman-t1', faction: 'roman', heightM: 1.78, maxShoulderWidthM: .4042321163, neckLengthM: .0768731880 },
+  'roman-t2': { assetId: 'roman-t2', faction: 'roman', heightM: 1.78, maxShoulderWidthM: .4145330483, neckLengthM: .0731541124 },
+  'viking-t1': { assetId: 'viking-t1', faction: 'viking', heightM: 1.86, maxShoulderWidthM: .4581928559, neckLengthM: .0776720027 },
+  'viking-t2': { assetId: 'viking-t2', faction: 'viking', heightM: 1.86, maxShoulderWidthM: .4795944902, neckLengthM: .0773273763 },
+} as const satisfies Record<string, HumanoidAssetDescriptor>
+
 export function resolveHumanoidAssetId(config: CharacterVisualConfig, assetId?: string): string | undefined {
-  return config.civilian ? civilianHumanoidAssetId(config.civilianStyle ?? config.faction) : assetId
+  if (config.civilian) return civilianHumanoidAssetId(config.civilianStyle ?? config.faction)
+  // Explicit hero, bandit and other specialised appearances retain ownership.
+  // Ordinary bodies use the same formal character tier as their combat profile.
+  return assetId ?? (config.ordinarySoldier === false ? undefined : getOrdinarySoldierAssetId(config.faction, config.tier))
 }
 
 interface HumanoidTemplate {
@@ -934,6 +948,7 @@ export class HumanoidAssetRegistry {
 
   static get ready(): boolean {
     return this.templates.has('viking') && this.templates.has('roman')
+      && Object.keys(TIERED_ORDINARY_HUMANOID_ASSETS).every(id => this.assets.has(id))
   }
 
   static preload(): Promise<void> {
@@ -951,7 +966,7 @@ export class HumanoidAssetRegistry {
     const manifest = await response.json() as HumanoidAssetManifest
     validateHumanoidManifest(faction, manifest, descriptor)
     if (manifest.bufferCompression === 'EXT_meshopt_compression') loader.setMeshoptDecoder(MeshoptDecoder)
-    if (manifest.selectedSource?.rig === 'mixamo66') loader.register(multiInfluenceSkinningPlugin)
+    if (manifest.selectedSource?.rig === 'mixamo66' || manifest.skinInfluenceSets === 4) loader.register(multiInfluenceSkinningPlugin)
     const files = manifest.files!
     const lod0File = (!descriptor && expGroup && ['g0', 'g1', 'g2', 'g3'].includes(expGroup))
       ? `lod0.${expGroup}.glb`
@@ -1065,7 +1080,9 @@ export class HumanoidAssetRegistry {
   }
 
   private static async loadAll(): Promise<void> {
-    await Promise.all([this.preloadAsset(BANDIT_ASSET), ...(['viking', 'roman'] as const).map(async faction => {
+    await Promise.all([this.preloadAsset(BANDIT_ASSET),
+      ...Object.values(TIERED_ORDINARY_HUMANOID_ASSETS).map(descriptor => this.preloadAsset(descriptor)),
+      ...(['viking', 'roman'] as const).map(async faction => {
       this.templates.set(faction, await this.loadTemplate(faction, faction, ORDINARY_HUMANOID_ASSETS[faction]))
     })])
   }

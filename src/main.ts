@@ -1,3 +1,4 @@
+import { needsPlayerHpConfirmation } from './combat/OrdinarySoldierProfile'
 import { createCareerBridgeBattleLaunch, isCareerBridgeBattle, recoverClaimedCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from './career/CaptainBattleLaunch'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
@@ -186,16 +187,18 @@ async function bootstrap(): Promise<void> {
     return
   }
   const menuOnly = query.get('menu') === '1'
-  if (import.meta.env.DEV && ['viking-t4', 'roman-t4', 'maki-t4', 'roman-t5', 'viking-t5', 'roman-civilian', 'viking-civilian'].includes(query.get('devhero') ?? '')) {
+  if (import.meta.env.DEV && ['viking-t4', 'roman-t4', 'maki-t4', 'roman-t5', 'viking-t5', 'roman-civilian', 'viking-civilian', 'roman-t1', 'roman-t2', 'viking-t1', 'viking-t2'].includes(query.get('devhero') ?? '')) {
     const { launchVikingHeroPreview, ROMAN_HERO } = await import('./debug/VikingHeroPreview')
     const { HERO_ASSETS } = await import('./world/HeroAssetCatalog')
-    const { CIVILIAN_HUMANOID_ASSETS } = await import('./world/HumanoidAssetRegistry')
+    const { CIVILIAN_HUMANOID_ASSETS, TIERED_ORDINARY_HUMANOID_ASSETS } = await import('./world/HumanoidAssetRegistry')
     const requested = query.get('devhero')
-    const descriptor = requested === 'roman-civilian' ? CIVILIAN_HUMANOID_ASSETS.roman
+    const tiered = requested === 'roman-t1' || requested === 'roman-t2' || requested === 'viking-t1' || requested === 'viking-t2'
+      ? TIERED_ORDINARY_HUMANOID_ASSETS[requested] : undefined
+    const descriptor = tiered ?? (requested === 'roman-civilian' ? CIVILIAN_HUMANOID_ASSETS.roman
       : requested === 'viking-civilian' ? CIVILIAN_HUMANOID_ASSETS.viking
       : requested === 'roman-t5' ? HERO_ASSETS['roman-hero-t5'].descriptor
       : requested === 'viking-t5' ? HERO_ASSETS['viking-hero-t5'].descriptor
-      : requested === 'maki-t4' ? (await import('./world/MakiRangerEquipment')).MAKI_HERO : requested === 'roman-t4' ? ROMAN_HERO : undefined
+      : requested === 'maki-t4' ? (await import('./world/MakiRangerEquipment')).MAKI_HERO : requested === 'roman-t4' ? ROMAN_HERO : undefined)
     await launchVikingHeroPreview(container!, descriptor)
     return
   }
@@ -351,7 +354,7 @@ async function bootstrap(): Promise<void> {
     sessionStorage.removeItem('sagaburst_battle_config')
   }
 
-  if (savedConfig && !careerResume) {
+  if (savedConfig && !needsPlayerHpConfirmation(savedConfig) && !careerResume) {
     await launchGame(savedConfig)
     return
   }
@@ -399,6 +402,27 @@ async function bootstrap(): Promise<void> {
     )
   }
 
+  const showCustomBattle = (initialConfig?: BattleConfig): void => {
+    const setupUI = new BattleSetupUI(initialConfig)
+    setupUI.mount(
+      document.body,
+      async (config) => {
+        try {
+          sessionStorage.removeItem('sagaburst_campaign_config')
+          sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
+          sessionStorage.setItem('sagaburst_battle_config', JSON.stringify(config))
+        } catch (e) {
+          console.warn('sessionStorage set error', e)
+        }
+        await launchGame(config)
+      },
+      () => {
+        setupUI.destroy()
+        showHome()
+      },
+    )
+  }
+
   showHome = (): void => {
     const menu = new MainMenuUI()
     menu.mount(document.body, {
@@ -406,24 +430,7 @@ async function bootstrap(): Promise<void> {
       onCareer: () => { menu.destroy(); enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError) },
       onCustomBattle: () => {
         menu.destroy()
-        const setupUI = new BattleSetupUI()
-        setupUI.mount(
-          document.body,
-          async (config) => {
-            try {
-              sessionStorage.removeItem('sagaburst_campaign_config')
-              sessionStorage.removeItem(DEFENSE_CAMPAIGN_SETUP_TARGET_STORAGE_KEY)
-              sessionStorage.setItem('sagaburst_battle_config', JSON.stringify(config))
-            } catch (e) {
-              console.warn('sessionStorage set error', e)
-            }
-            await launchGame(config)
-          },
-          () => {
-            setupUI.destroy()
-            showHome()
-          },
-        )
+        showCustomBattle()
       },
       onCampaign: () => {
         menu.destroy()
@@ -442,6 +449,8 @@ async function bootstrap(): Promise<void> {
 
   if (careerResume) {
     enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError)
+  } else if (savedConfig && needsPlayerHpConfirmation(savedConfig)) {
+    showCustomBattle(savedConfig)
   } else if (requestedCampaignSetup) {
     showCampaignSetup(requestedCampaignSetup)
   } else {

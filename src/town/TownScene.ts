@@ -152,7 +152,7 @@ import { CommanderFourGateDefenseController } from '../career/CommanderFourGateD
 import type { DamageableObstacle } from '../world/DamageableObstacle'
 import { CommanderTownMissionController } from '../career/CommanderTownMissionController'
 import { CareerMountController } from '../career/CareerMountController'
-import { preserveHpRatio, resolveCareerHeroAsset, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
+import { preserveHpRatio, resolveCareerCharacterTier, resolveCareerOrdinaryTier, resolveCareerHeroAsset, resolveCareerPlayerMaxHp } from '../career/CareerPlayerProfile'
 import { createTownDefenseMission, type CareerMissionOutcome, type CareerMissionResult } from '../career/CareerMissionState'
 import { VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from '../career/TownDefenseState'
 import { getAntiCavalryMultiplier } from '../combat/CombatBalance'
@@ -403,7 +403,7 @@ export class TownScene {
     }
     for (const resident of this.residents) { resident.npc.setTownPeaceful(); resident.npc.updateTownPeace(.2, resident.npc.group.position.distanceTo(this.camera.position), false, false) }
     progress('村莊準備完成，生成玩家…')
-    this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile))
+    this.player = new Player(this.scene, profile.faction, resolveCareerHeroAsset(profile), resolveCareerOrdinaryTier(profile))
     this.bindBlockingProgression()
     this.player.setMaxHp(resolveCareerPlayerMaxHp(profile, DEFAULT_PLAYER_MAX_HP), true)
     const townEntry = townPlayerEntryPoint()
@@ -732,7 +732,7 @@ export class TownScene {
           ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id) : undefined
         const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian || spec.role === 'commander' ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: defaultRangerMeleeWeaponId(residentArmyFaction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null, reversibleRangedSwitch: true } : military!.loadout)
         spec = townStationSpec(spec, Boolean(loadout.mountId), Boolean(loadout.rangedWeaponId))
-        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined))
+        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined, undefined, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : military!.level))
         if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => {
           const active = this.defense?.active
           const siege = active?.kind === 'town-defense' || active?.kind === 'commander-four-gate-defense' || active?.kind === 'enemy-town-assault'
@@ -2518,7 +2518,7 @@ export class TownScene {
 
   private applyCareerPlayerIdentity(profile: CareerProfile): boolean {
     const hero = resolveCareerHeroAsset(profile)
-    if (this.player.heroAssetId === hero) return this.commit(profile)
+    if (this.player.heroAssetId === hero && this.player.characterTier === resolveCareerCharacterTier(profile)) return this.commit(profile)
     const old = this.player
     const position = old.group.position.clone()
     const facing = old.facingYaw
@@ -2528,7 +2528,7 @@ export class TownScene {
     // Build away from the live scene; failed creation leaves the original actor usable.
     const stagingScene = new THREE.Scene()
     setScenePlayableWorldBound(stagingScene, getScenePlayableWorldBound(this.scene))
-    const candidate = new Player(stagingScene, profile.faction, hero)
+    const candidate = new Player(stagingScene, profile.faction, hero, resolveCareerOrdinaryTier(profile))
     let committed = false
     try {
       this.bindBlockingProgression(candidate)

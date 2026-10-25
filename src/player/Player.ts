@@ -1,3 +1,4 @@
+import { getOrdinarySoldierHp, resolveOrdinarySoldierTier, type OrdinarySoldierTier, type SoldierFaction } from '../combat/OrdinarySoldierProfile'
 import { Faction } from '../combat/CombatFaction'
 import { applyEquipmentAttachment } from '../world/EquipmentAttachmentContract'
 import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
@@ -292,8 +293,8 @@ export class Player {
 
   private readonly playableWorldBound: number
 
-  constructor(scene: THREE.Scene, private readonly visualFaction: 'viking' | 'roman' = 'viking', readonly heroAssetId?: HeroAssetId | null,
-    private readonly visualTier?: 1 | 2 | 3) {
+  constructor(scene: THREE.Scene, private visualFaction: SoldierFaction = 'viking', readonly heroAssetId?: HeroAssetId | null,
+    private visualTier: OrdinarySoldierTier = 2) {
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.group = new THREE.Group()
     this.group.name = 'player'
@@ -320,7 +321,7 @@ export class Player {
       this._buildMesh(this.visualTier ?? 2)
 
       const heroCombat = this.heroAssetId ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId]) : null
-      if (heroCombat) this.setMaxHp(heroCombat.maxHp)
+      this.setMaxHp(heroCombat?.maxHp ?? getOrdinarySoldierHp(this.visualFaction, this.visualTier))
 
       // Build default initial weapons (Steel Sword & Recurve Longbow)
       this.rebuildMeleeWeapon('steel_sword')
@@ -336,6 +337,19 @@ export class Player {
       this.dispose()
       throw error
     }
+  }
+
+  get characterTier(): 1 | 2 | 3 | 4 | 5 {
+    return this.heroAssetId ? this.heroAssetId.endsWith('-t5') ? 5 : 4 : this.visualTier
+  }
+  get ordinaryCharacterTier(): OrdinarySoldierTier { return this.visualTier }
+
+  /** Restore a formal ordinary identity; equipment updates never call this method. */
+  setCharacterIdentity(faction: SoldierFaction, tier: OrdinarySoldierTier): void {
+    if (this.heroAssetId || faction === this.visualFaction && tier === this.visualTier) return
+    this.visualFaction = faction
+    this.visualTier = resolveOrdinarySoldierTier(tier)
+    this._buildMesh(this.visualTier)
   }
 
   private _buildMesh(tier: 1 | 2 | 3): void {
@@ -836,7 +850,7 @@ export class Player {
     const leftMouseDown = combatEnabled && input.isLeftMouseDown
     const rightMouseDown = combatEnabled && input.isRightMouseDown
 
-    const visualTier = this.visualTier ?? Math.min(3, Math.max(equippedMelee?.tier ?? 2, equippedRanged?.tier ?? 2)) as 1 | 2 | 3
+    const visualTier = this.visualTier
     if (visualTier !== this.currentArmorTier) this._buildMesh(visualTier)
 
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)

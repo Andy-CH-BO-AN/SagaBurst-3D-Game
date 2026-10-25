@@ -2,7 +2,7 @@ import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { gateBreachLane } from '../../src/navigation/GateBreachPortal'
 import { describe, expect, it, onTestFinished } from 'vitest'
-import { siegeDefensePlans } from '../../src/career/TownSiege'
+import { siegeDefensePlans, siegeActorCharacterTier } from '../../src/career/TownSiege'
 import { TownFourGateSiege, type TownSiegeAttackerRole } from '../../src/career/TownFourGateSiege'
 import { planCommanderFourGateDefenseDeployment } from '../../src/career/CommanderFourGateDefenseDeployment'
 import { AIType, NPC } from '../../src/world/NPC'
@@ -357,4 +357,14 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(npc.siegeBypassTarget).toBeNull()
   })
 
+})
+
+// A reload rebuilds an outskirts-owned rider from the siege equipment roster.
+it('keeps borrowed outskirts soldiers at their formal tier across siege reconstruction', () => {
+  expect(siegeActorCharacterTier('outskirts:cavalry:a:0', 3)).toBe(2)
+  expect(siegeActorCharacterTier('outskirts:cavalry:c:9:wave:12', 3)).toBe(2)
+  expect(siegeActorCharacterTier('mission:siege:1', 3)).toBe(3)
+  expect(siegeActorCharacterTier('outskirts:cavalry:a:0', 4)).toBe(4)
+  expect(siegeActorCharacterTier('outskirts:bandit:a:0', 3)).toBe(3)
+  expect(siegeActorCharacterTier('outskirts:cavalry:a:10', 3)).toBe(3)
 })

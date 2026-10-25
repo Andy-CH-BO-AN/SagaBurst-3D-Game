@@ -79,6 +79,8 @@ function policyConsumers(file, inventory) {
       'tests/combat/ProjectileBallistics.test.ts', 'tests/equipment/WeaponWheel.test.ts',
       'tests/equipment/CareerSquadEquipment.test.ts']) add(owner)
   }
+  // Career migration introduces an explicit persistence initialization owner.
+  if (file === 'src/career/CareerHealthMigration.ts') add('tests/persistence/HealthPersistence.test.ts')
   // Original shield pixels/geometry are inspected offline and in gameplay, never
   // loaded by unit tests. These existing owners protect its face collision,
   // durability, bow/shield visibility and paid inventory/ownership contracts.
@@ -103,6 +105,16 @@ function policyConsumers(file, inventory) {
     || /^public\/models\/characters\/v2\/(?:roman|viking|viking-hero-t4|roman-hero-t5|viking-hero-t5|maki-archer-t4|roman-civilian|viking-civilian)\/(?:lod[012]\.glb|manifest\.json)$/.test(file)) {
     add('tests/combat/CommanderWeaponSwitching.test.ts')
     add('tests/assets/HumanoidAssetPreload.test.ts')
+  }
+  // Tiered bodies reuse the same loader and animation clock. Geometry, finger
+  // skinning and textures are audited offline, never loaded in unit tests.
+  if (['tools/build-tiered-faction-soldiers.py', 'tools/retarget-tiered-faction-soldiers.mjs',
+    'tools/audit-tiered-faction-soldiers.mjs', 'tools/audit-tiered-source-preservation.py',
+    'tools/lib/tiered-finger-pose.mjs', 'tools/render-tiered-soldier-review.py', 'tools/tiered-faction-soldiers.md',
+    'src/debug/VikingHeroPreview.ts'].includes(file)
+    || /^public\/models\/characters\/v2\/(?:roman|viking)-t[12]\//.test(file)) {
+    add('tests/assets/HumanoidAssetPreload.test.ts')
+    add('tests/combat/CommanderWeaponSwitching.test.ts')
   }
   // The offline eagle envelope and fetched metadata share the runtime's pure
   // validity/fallback contract; exercising it requires no GLB or render scene.
