@@ -13,7 +13,7 @@ import type { CareerProfile } from './CareerProfile'
 import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
-import { canUseCareerMount, type CareerMountController } from './CareerMountController'
+import { CAREER_MOUNT_INTERACTION_DISTANCE, canUseCareerMount, type CareerMountController } from './CareerMountController'
 import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
 import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
@@ -39,6 +39,7 @@ export class CareerRaceController {
   private framePhase?: CareerRaceSession['phase']
   private frameDt = 0
   private frameMovementDt = 0
+  private lastPlayerMount?: Mount | null
   private stallSeconds = 0
   private lastOpponentPosition?: RacePosition
   private batch?: NpcSpawnBatch
@@ -106,6 +107,7 @@ export class CareerRaceController {
     const next = cloneCareerProfile(fresh); next.activeRace = session
     if (!this.commit(next)) { this.error = '參賽狀態保存失敗，比賽尚未部署。請重試。'; return false }
     this.session = structuredClone(session); this.captain = captain; this.captainHp = captain.npc.hp
+    this.lastPlayerMount = p.currentMount
     this.deploy(true)
     return true
   }
@@ -203,6 +205,7 @@ export class CareerRaceController {
     p.setStamina(r.stamina)
     if (r.dead) p.takeDamage(p.maxHp * 100, this.hp)
     else p.setHp(r.hp)
+    this.lastPlayerMount = p.currentMount
   }
 
   prepare(): void {
@@ -251,13 +254,17 @@ export class CareerRaceController {
     if (!s || !this.ready || s.result && s.phase !== 'finishing') return
     this.framePhase = s.phase; this.frameDt = dt; this.frameMovementDt = movementDt
     const previous = { ...s.player.position }
+    const mount = this.player().currentMount
+    const mountingDistance = mount && this.lastPlayerMount !== undefined && mount !== this.lastPlayerMount
+      ? CAREER_MOUNT_INTERACTION_DISTANCE : 0
+    this.lastPlayerMount = mount
     this.snapshot()
     const guideReady = s.guideFallback || this.ownsCaptain && this.captain!.npc.combatPosition.distanceTo(vector({ x: RACE_START.x, z: RACE_START.z + 7 })) < 4
     const ready = Boolean(guideReady && (s.player.dead || s.player.dnf || legalRaceStart(s.player.position))
       && (s.opponent.dead || s.opponent.dnf || legalRaceStart(s.opponent.position))
       && (s.player.dead || s.opponent.dead || Math.hypot(s.player.position.x - s.opponent.position.x, s.player.position.z - s.opponent.position.z) > 2.1))
     advanceRaceClock(s, dt, ready)
-    if (raceIsRunning(s) && (this.framePhase === 'racing' || this.framePhase === 'finishing')) this.progress('player', previous)
+    if (raceIsRunning(s) && (this.framePhase === 'racing' || this.framePhase === 'finishing')) this.progress('player', previous, mountingDistance)
   }
   observeActorMovement(actor: NPC): void {
     if (actor !== this.racer || !this.session || !raceIsRunning(this.session)) return
@@ -265,16 +272,14 @@ export class CareerRaceController {
     this.snapshot()
     if (this.framePhase === 'racing' || this.framePhase === 'finishing') this.progress('opponent', previous)
   }
-  private progress(side: 'player' | 'opponent', previous: RacePosition): void {
+  private progress(side: 'player' | 'opponent', previous: RacePosition, mountingDistance = 0): void {
     const s = this.session!
-    const rider = s[side], mount = side === 'player' ? this.mounts.activeMount : this.mount
+    const rider = s[side], mount = side === 'player' ? this.player().currentMount : this.racer!.mount
     if (raceRiderDone(rider)) return
     previous = rider.routePosition ?? previous
-    const expected = side === 'player' ? this.mounts.activeMountId === rider.mountId && this.player().currentMount === mount : this.racer!.mount === mount
-    if (!expected && !rider.dead) rider.dnf = '參賽坐騎已變更或不可用'
     advanceRaceRider(rider, previous, s.elapsedSeconds, this.frameDt,
       raceMovementIsLegal(previous, rider.position, this.obstacles) && Boolean(!mount?.isAirborne),
-      (mount?.baseSpeed ?? 10) * 2.5 * Math.min(1, this.frameMovementDt / Math.max(this.frameDt, .001)))
+      (mount?.baseSpeed ?? 10) * 2.5 * Math.min(1, this.frameMovementDt / Math.max(this.frameDt, .001)), mountingDistance)
     if (side === 'player' && rider.dnf === '不合法路線或位移') lockRace(s, 'loss', rider.dnf)
     // Finish timestamps are immutable before later damage. Resolve after both actors
     // have sampled this frame, so fractional crossing times win over update order.
@@ -286,10 +291,6 @@ export class CareerRaceController {
     const phase = s.phase
     this.snapshot()
     if (!s.result || s.phase === 'finishing') {
-      for (const rider of [s.player, s.opponent]) if (!raceRiderDone(rider)) {
-        if (rider.mountHp <= 0) rider.dnf = '坐騎已死亡'
-        else if (!rider.mounted) rider.dnf = '已離開參賽坐騎'
-      }
       updateRaceGuidance(s, Boolean(this.captain && !this.captain.npc.dead && !this.captain.npc.hostileToPlayer),
         Boolean(this.captain && this.captain.npc.hp < (this.captainHp ?? this.captain.npc.hp)))
       if ((raceIsRunning(s) || phase === 'guiding') && !raceRiderDone(s.opponent)) {
@@ -300,8 +301,7 @@ export class CareerRaceController {
       }
       if (s.elapsedSeconds > 900) for (const rider of [s.player, s.opponent]) if (!raceRiderDone(rider)) rider.dnf = '超過賽事時間'
       // Entering another gate or an illegal route is an explicit player disqualification.
-      if (!s.result && s.player.dnf && !s.player.dead && s.player.dnf !== '坐騎已死亡' && s.player.dnf !== '已離開參賽坐騎'
-        && s.player.dnf !== '參賽坐騎已變更或不可用' && s.player.dnf !== '超過賽事時間') lockRace(s, 'loss', s.player.dnf)
+      if (!s.result && s.player.dnf && !s.player.dead && s.player.dnf !== '超過賽事時間') lockRace(s, 'loss', s.player.dnf)
       resolveRace(s)
     }
     this.saveElapsed += dt
@@ -327,6 +327,7 @@ export class CareerRaceController {
       const actor = side === 'player' ? p : this.racer, mount = side === 'player' ? playerMount : this.mount, rider = s[side]
       rider.hp = actor.hp; rider.dead = actor.dead; rider.stamina = actor.staminaValue
       const active = side === 'player' ? p.currentMount : this.racer.mount
+      // Save the owned mount separately; borrowed mounts must not become owned on reload.
       rider.mounted = Boolean(mount && active === mount && !mount.dead)
       const point = active === mount && mount ? mount.group.position : actor.combatPosition
       rider.position = position(point, side === 'player' ? p.facingYaw : this.racer.group.rotation.y)

@@ -38,7 +38,7 @@ import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentConte
 import { officialCommandHudLabel } from '../career/CommanderTownSquadLabels'
 import { townDefaultActorLoadout } from '../career/CareerTownEquipmentState'
 import { townMerchantLoadout } from './TownMerchantEquipment'
-import { careerMountType } from '../career/CareerMountController'
+import { CAREER_MOUNT_INTERACTION_DISTANCE, careerMountType } from '../career/CareerMountController'
 import { personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
 import { appendTownSaleDropdown } from './TownSaleUI'
 import { sellTownNativeProducts, townNativeSaleGate, townNativeSaleStock, type TownNativeSaleContext, type TownNativeSaleRequest } from '../career/CareerTownNativeResale'
@@ -2121,7 +2121,10 @@ export class TownScene {
         mount.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
         mount.group.rotation.y = saved.mountPosition.yaw
         this.player.syncMountTransform()
-      } else this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
+      } else {
+        if (mount) this.player.dismountFromMount({ preserveWorldPosition: true })
+        this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
+      }
     }
     if (direct || dead) this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
     this.closePanel(); this.notice = '賽事已結束，已返回小鎮。'
@@ -3535,7 +3538,7 @@ export class TownScene {
     this.nearbyTemporaryMount = null
     const playerPosition = this.player.currentMount?.group.position ?? this.player.combatPosition
     if (!this.player.isMounted && !this.player.isFalling) {
-      let mountDistance = 3
+      let mountDistance = CAREER_MOUNT_INTERACTION_DISTANCE
       const mounts = new Set([this.careerMounts?.activeMount, ...this.temporaryMounts.all, ...(this.outskirts?.mounts ?? [])])
       for (const mount of mounts) {
         if (!mount?.availableForPlayer || mount.isAirborne || Math.abs(mount.group.position.y - playerPosition.y) > 3) continue

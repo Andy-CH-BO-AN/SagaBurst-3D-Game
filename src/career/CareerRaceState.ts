@@ -167,12 +167,12 @@ export function resolveRace(session: CareerRaceSession): void {
   } else if ((a.dead || a.dnf) && (b.dead || b.dnf)) lockRace(session, 'draw', '雙方皆無法合法完賽')
 }
 export function advanceRaceRider(rider: RaceRider, previous: RacePosition, elapsed: number, dt: number,
-  legalSegment: boolean, maximumSpeed: number): void {
+  legalSegment: boolean, maximumSpeed: number, mountingDistance = 0): void {
   if (rider.finishSeconds !== undefined || rider.dnf || rider.dead) return
   previous = rider.routePosition ?? previous
-  if (rider.mountHp <= 0) rider.dnf = '坐騎已死亡'
-  else if (!rider.mounted) rider.dnf = '已離開參賽坐騎'
-  else if (!legalSegment || Math.hypot(rider.position.x - previous.x, rider.position.z - previous.z) > maximumSpeed * dt + 1.5
+  // The racer must follow the route, but can continue on foot or another mount.
+  // A nearby mount interaction moves the rider to its seat once; still validate the swept route.
+  if (!legalSegment || Math.hypot(rider.position.x - previous.x, rider.position.z - previous.z) > maximumSpeed * dt + 1.5 + mountingDistance
     || illegalTownCrossing(previous, rider.position, rider.checkpoint)) rider.dnf = '不合法路線或位移'
   if (rider.dnf) return
   rider.routePosition = { ...rider.position }
@@ -212,6 +212,7 @@ function position(value: unknown): value is RacePosition {
   const p = object(value)
   return Boolean(p && finite(p.x) && finite(p.z) && finite(p.y) && finite(p.yaw) && Math.abs(p.x) <= 350 && Math.abs(p.z) <= 350)
 }
+const LEGACY_MOUNT_DNF_REASONS = new Set(['參賽坐騎已變更或不可用', '已離開參賽坐騎', '坐騎已死亡'])
 export function isRaceRider(value: unknown): value is RaceRider {
   const r = object(value)
   return Boolean(r && typeof r.actorId === 'string' && r.actorId.length > 0 && mountId(r.mountId)
@@ -247,7 +248,15 @@ export function parseRaceSession(value: unknown): CareerRaceSession | null {
     || (s.guideFallback !== undefined && typeof s.guideFallback !== 'string')
     || (s.phase === 'finishing' || s.phase === 'result' || s.phase === 'returning') !== (s.result !== undefined)
     || s.phase === 'finishing' && s.player.finishSeconds === undefined && s.opponent.finishSeconds === undefined) return null
-  return structuredClone(s) as unknown as CareerRaceSession
+  const session = structuredClone(s) as unknown as CareerRaceSession
+  if (!session.result) for (const rider of [session.player, session.opponent]) {
+    if (!rider.dnf || !LEGACY_MOUNT_DNF_REASONS.has(rider.dnf)) continue
+    delete rider.dnf
+    // DNF stopped progression samples; resume here without granting missed checkpoints
+    // or treating movement accumulated while spectating as a single-frame teleport.
+    rider.routePosition = { ...rider.position }
+  }
+  return session
 }
 export function parseRaceRecords(value: unknown): CareerRaceRecord[] | null {
   if (!Array.isArray(value)) return null

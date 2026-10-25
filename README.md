@@ -107,7 +107,7 @@ Formal missions grant their own command authority and rosters. Check the command
 
 Visit **Sergeant → 1v1 → Racing** for eight races against the town's Commander. Arrive riding a living, available **ground mount that you own**; xongkoro cannot enter. Racing and ground mounts have no rank requirement.
 
-Follow the Captain to the north gate, stay inside the marked start area through the **10-second countdown**, then ride out through the north gate, around the **east → south → west** sides of the town, and back through the north gate. Follow all **five checkpoints**; cutting through the town or dismounting prevents a legal finish. The player can use `Shift` in every race.
+Follow the Captain to the north gate, stay inside the marked start area through the **10-second countdown**, then head out through the north gate, around the **east → south → west** sides of the town, and back through the north gate. Follow all **five checkpoints**; cutting through the town prevents a legal finish. After entering a race, either racer can dismount, switch to another available ground mount, or continue on foot after their mount dies. The first legal finisher wins, including on foot. The player can use `Shift` in every race.
 
 | Race | Opponent's mount | Opponent's pace | Victory merit |
 | --- | --- | --- | --- |
