@@ -1,4 +1,4 @@
-const { spawnSync, execFileSync } = require('node:child_process')
+const childProcess = require('node:child_process')
 const { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync } = require('node:fs')
 const { resolve, join, relative } = require('node:path')
 const { randomUUID, createHash } = require('node:crypto')
@@ -7,11 +7,24 @@ const { validateManifest, options, createPlan, shardFiles, discoverNode, selecte
 const root = resolve(__dirname, '../..')
 const normalize = file => relative(root, resolve(root, file)).replaceAll('\\', '/')
 const digest = plan => createHash('sha256').update(JSON.stringify(plan)).digest('hex')
+function assertPlanCheckout(plan, state) {
+  if (!plan.checkoutSha) return // Explicit development subsets have no Git-bound manifest.
+  if (state.sha !== plan.checkoutSha) throw new Error('Stale checkout: manifest is for a different commit')
+  if ((plan.comparison || plan.executionSnapshot) && state.dirty) throw new Error('Dirty checkout: sources differ from the planned commit')
+}
+function checkCurrentCheckout(plan) {
+  if (!plan.checkoutSha) return
+  assertPlanCheckout(plan, {
+    sha: childProcess.execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+    dirty: Boolean(childProcess.execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).trim()),
+  })
+}
 function exact(actual, expected, label) {
   if (JSON.stringify([...actual].sort()) !== JSON.stringify([...expected].sort())) throw new Error(`Missing, unexpected or duplicate ${label}`)
 }
 function verifyShard(plan, shard, summary) {
   if (!summary || !summary.runId || summary.planId !== plan.planId || summary.planDigest !== digest(plan) || summary.shardId !== shard.id || summary.result !== 'passed') throw new Error(`Missing, stale or failed shard: ${shard.id}`)
+  if (plan.checkoutSha && summary.checkoutSha !== plan.checkoutSha) throw new Error(`Stale execution snapshot: ${shard.id}`)
   const runners = ['vitest', 'node'].filter(runner => shard[runner === 'vitest' ? 'vitestFiles' : 'nodeFiles'].length)
   const result = validateReports(summary.reports, { runId: summary.runId, runners })
   const actualFiles = []
@@ -28,6 +41,7 @@ function verifyShard(plan, shard, summary) {
   return { ...result, files: actualFiles }
 }
 function aggregate(plan, summaries) {
+  checkCurrentCheckout(plan)
   validateManifest(plan)
   exact(summaries.map(summary => summary.shardId), plan.shards.map(shard => shard.id), 'shard reports')
   const results = plan.shards.map(shard => verifyShard(plan, shard, summaries.find(summary => summary.shardId === shard.id)))
@@ -57,7 +71,7 @@ function verifiedFullSha(plan) {
 }
 function executeShard(plan, id, out) {
   validateManifest(plan)
-  if (plan.checkoutSha && execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim() !== plan.checkoutSha) throw new Error('Stale checkout: manifest is for a different commit')
+  checkCurrentCheckout(plan)
   const shard = plan.shards.find(shard => shard.id === id)
   if (!shard) throw new Error(`Unknown shard: ${id}`)
   const runId = randomUUID()
@@ -66,7 +80,7 @@ function executeShard(plan, id, out) {
   const env = { ...process.env, LOGIC_TEST_RUN_ID: runId, LOGIC_TEST_TARGETED: '0',
     LOGIC_TEST_VITEST_REPORT: join(dir, 'vitest.json'), LOGIC_TEST_NODE_REPORT: join(dir, 'node.json') }
   const summary = { planId: plan.planId, planDigest: digest(plan), runId, shardId: id, mode: plan.mode,
-    baseSha: plan.baseSha, headSha: plan.headSha, selectedFiles: [...shard.vitestFiles, ...shard.nodeFiles],
+    baseSha: plan.baseSha, headSha: plan.headSha, checkoutSha: plan.checkoutSha, selectedFiles: [...shard.vitestFiles, ...shard.nodeFiles],
     reasons: Object.fromEntries([...shard.vitestFiles, ...shard.nodeFiles].map(file => [file, plan.reasons[file]])), result: 'failed', reports: [] }
   try {
     const runnerErrors = []
@@ -94,7 +108,7 @@ function executeShard(plan, id, out) {
           delete env.LOGIC_TEST_FILES
           args = ['--test', '--test-concurrency=1', '--test-reporter=./tests/tooling/node-budget-reporter.cjs', ...(partial ? [`--test-name-pattern=${pattern}`] : []), ...group]
         }
-        const result = spawnSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' })
+        const result = childProcess.spawnSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' })
         if (result.error || result.signal || result.status !== 0) runnerErrors.push(`${file} failed: ${result.error?.message ?? result.signal ?? result.status}`)
         try { reports.push(JSON.parse(readFileSync(join(dir, `${runner}.json`), 'utf8'))) }
         catch (error) { runnerErrors.push(`Missing ${runner} report: ${error.message}`) }
@@ -109,6 +123,7 @@ function executeShard(plan, id, out) {
     for (const item of measured.slice(0, 10)) console.log(`  ${item.ms.toFixed(3)}ms ${item.file} > ${item.name}`)
     if (measured.some(item => item.ms >= 70)) console.warn('Non-blocking advisory: logic leaves >=70ms')
     if (runnerErrors.length) throw new Error(runnerErrors.join('\n'))
+    checkCurrentCheckout(plan)
     summary.result = 'passed'
     const result = verifyShard(plan, shard, summary)
     Object.assign(summary, result)
@@ -144,4 +159,4 @@ if (require.main === module) (async () => {
     } else throw new Error('Expected --shard or --reports')
   }
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { verifyShard, aggregate, executeShard, verifiedFullSha }
+module.exports = { verifyShard, aggregate, executeShard, verifiedFullSha, assertPlanCheckout }

@@ -1,187 +1,96 @@
 const { execFileSync } = require('node:child_process')
-const { readFileSync, writeFileSync, readdirSync, appendFileSync, mkdirSync, existsSync } = require('node:fs')
+const { readFileSync, writeFileSync, readdirSync, appendFileSync, mkdirSync } = require('node:fs')
 const { resolve, relative, dirname, join, posix } = require('node:path')
-const { randomUUID } = require('node:crypto')
+const { randomUUID, createHash } = require('node:crypto')
 const { MAX_CASES_PER_SHARD } = require('./budget.cjs')
 const root = resolve(__dirname, '../..')
 const slash = file => file.replaceAll('\\', '/')
-const local = file => slash(relative(root, resolve(root, file)))
-function walk(dir) {
-  return readdirSync(resolve(root, dir), { withFileTypes: true }).flatMap(item =>
-    item.isDirectory() ? walk(`${dir}/${item.name}`) : [`${dir}/${item.name}`]).sort()
+const local = (file, repositoryRoot = root) => slash(relative(repositoryRoot, resolve(repositoryRoot, file)))
+function walk(dir, repositoryRoot = root) {
+  return readdirSync(resolve(repositoryRoot, dir), { withFileTypes: true }).flatMap(item =>
+    item.isDirectory() ? walk(`${dir}/${item.name}`, repositoryRoot) : [`${dir}/${item.name}`]).sort()
 }
 function git(...args) { return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim() }
-function changes(base, head, event) {
-  if (!base || !head || /^0+$/.test(base)) throw new Error('Missing base/head SHA or initial push')
-  git('cat-file', '-e', `${base}^{commit}`)
-  git('cat-file', '-e', `${head}^{commit}`)
-  // PRs use merge-base; pushes use exactly before..after, including multi-commit pushes.
-  const start = event === 'pull_request' ? git('merge-base', base, head) : base
-  const entries = execFileSync('git', ['diff', '--name-status', '-z', '--find-renames', start, head], { cwd: root, encoding: 'utf8' }).split('\0')
-  const result = []
-  for (let i = 0; i < entries.length && entries[i];) {
-    const status = entries[i++], file = entries[i++]
-    if (/^[RC]/.test(status)) result.push({ status, oldFile: file, file: entries[i++] })
-    else result.push({ status, file })
-  }
-  return result
+function changes(base, head, event, repositoryRoot = root) {
+  const { comparison, changedFiles } = require('./git-snapshots.cjs')
+  const scope = comparison({ base, head, event, repositoryRoot })
+  return changedFiles(scope.beforeSha, scope.afterSha, repositoryRoot)
 }
 const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/(?:AGENTS|tooling\/README)\.md|tools\/horse\/README\.md)$/.test(file)
-  // Release notes are inputs to publication, not documentation-only changes.
-  && !file.startsWith('docs/releases/')
-// Test files select themselves and their actual consumers, regardless of folder.
-// Only publication runtime/config inputs require the broad Node owner contract.
-const nodePublicationInput = file => /^(electron\/|\.github\/scripts\/release\/|docs\/releases\/)/.test(file)
-  || /^(package(?:-lock)?\.json|electron-builder\.|\.github\/workflows\/release\.yml$)/.test(file)
+// Code ownership is derived from runtime symbols in either supported language.
+// Directly modified tests remain whole-file owners; imports alone are candidates.
+const behaviorSource = file => /\.[cm]?[jt]sx?$/.test(file)
 
-function policyConsumers(file, inventory) {
-  const available = new Set(inventory.map(item => item.file))
-  const hits = new Set()
-  const add = fileName => { if (available.has(fileName)) hits.add(fileName) }
-  if (/^(tests\/tooling\/|\.github\/workflows\/|vitest\.config\.ts$|package(?:-lock)?\.json$|tsconfig(?:\.[\w-]+)?\.json$|tests\/helpers\/logicOnly\.ts$)/.test(file)) {
-    add('tests/release/ci-plan.test.cjs')
-    add('tests/release/test-budget.test.cjs')
-    add('tests/release/workflow-contract.test.cjs')
-  }
-  // The DEV-only WebGL entry cannot be imported by logic tests. Its formal
-  // siege/navigation/checkpoint owners and rejected-projectile contract are
-  // exercised without constructing the preview's renderer or scene.
-  if (file === 'src/debug/TownFourGateSiegePreview.ts') {
-    for (const owner of ['tests/missions/TownSiegePolicy.test.ts', 'tests/missions/SiegeRampPolicy.test.ts',
-      'tests/persistence/TownSiegeRosterPersistence.test.ts', 'tests/movement/NavigationWorld.test.ts',
-      'tests/combat/ProjectileBallistics.test.ts']) add(owner)
-  }
-  // The DEV-only QA panel dispatches to the production preset, final-stand
-  // transaction and single-save entry owners without constructing a test scene.
-  if (file === 'src/debug/CareerRetirementQA.ts') {
-    for (const owner of ['tests/progression/CareerRetirementQaProfile.test.ts',
-      'tests/progression/CareerRetirementFinale.test.ts', 'tests/town/CareerTownEntry.test.ts']) add(owner)
-  }
-  // Browser bootstrap dispatches to these real entry/recovery/mode owners;
-  // importing main.ts itself would instantiate the page and render runtime.
-  if (file === 'src/main.ts') {
-    for (const owner of ['tests/town/CareerTownEntry.test.ts', 'tests/missions/CareerMissionRecovery.test.ts',
-      'tests/integration/MissionModeRouting.test.ts']) add(owner)
-  }
-  // Setup screens pass their selection to the production configuration and
-  // spawn-plan boundaries; campaign stage access has its own progress owner.
-  if (file === 'src/ui/BattleSetupUI.ts' || file === 'src/ui/CampaignSetupUI.ts') {
-    for (const owner of ['tests/missions/BattleConfig.test.ts', 'tests/actors/BattleSpawner.test.ts']) add(owner)
-    if (file === 'src/ui/CampaignSetupUI.ts') add('tests/progression/CampaignProgress.test.ts')
-  }
-  // Weapon source geometry and grip/string appearance require real-browser QA.
-  // Existing owners protect equip/re-equip, lance/bow switching, projectile
-  // collision and Career ownership without importing a model or fake scene.
-  if (['tools/build-meshy-weapons.py',
-    'public/models/weapons/t5/lance.glb', 'public/models/weapons/t5/ATTRIBUTION.md'].includes(file)
-    || file.startsWith('public/models/weapons/maki-ranger-bow/')) {
-    for (const owner of ['tests/combat/CommanderWeaponSwitching.test.ts',
-      'tests/combat/ProjectileBallistics.test.ts', 'tests/equipment/WeaponWheel.test.ts',
-      'tests/equipment/CareerSquadEquipment.test.ts']) add(owner)
-  }
-  // Duel's new ordinary-health dependency is exercised by its real pure owner
-  // and controller checkpoint contract without instantiating render actors.
-  if (file === 'src/career/CareerDuelState.ts') add('tests/missions/CareerDuelState.test.ts')
-  // T4 visual asset/loader changes reuse the existing equip/save and axe action owners.
-  // Geometry, material and grip validation stays in offline/browser QA.
-  if (['tools/build-t4-battle-axe.py', 'tools/build-paladin.py'].includes(file)
-    || file.startsWith('public/models/weapons/paladin/')) {
-    for (const owner of ['tests/combat/CommanderWeaponSwitching.test.ts',
-      'tests/equipment/WeaponWheel.test.ts', 'tests/equipment/CareerTownEquipment.test.ts']) add(owner)
-  }
-  // Career migration introduces an explicit persistence initialization owner.
-  if (file === 'src/career/CareerHealthMigration.ts') add('tests/persistence/HealthPersistence.test.ts')
-  // Original shield pixels/geometry are inspected offline and in gameplay, never
-  // loaded by unit tests. These existing owners protect its face collision,
-  // durability, bow/shield visibility and paid inventory/ownership contracts.
-  if (file === 'public/models/weapons/t5/shield.glb' || file === 'public/models/weapons/t5/sources.json') {
-    for (const owner of ['tests/combat/CombatAttribution.test.ts', 'tests/combat/CommanderWeaponSwitching.test.ts',
-      'tests/equipment/CareerSquadEquipment.test.ts', 'tests/equipment/CareerTownEquipment.test.ts']) add(owner)
-  }
-  // Offline mount authoring and DEV viewers are verified with the actual GLB
-  // in Blender/Chrome. Their pure preload, playback-state and seat-cache owners
-  // remain the logic gate; tests must never load a mesh or construct a skeleton.
-  if (/^public\/models\/mounts\/v2\/snow-leopard\//.test(file)
-    || ['tools/blender/build_snow_leopard.py', 'tools/blender/snow_leopard_package.mjs',
-      'tools/blender/snow_leopard_skin_regions.json',
-      'src/debug/VikingHeroPreview.ts'].includes(file)) {
-    for (const owner of ['tests/assets/QuadrupedAssetPreload.test.ts',
-      'tests/actors/RiderSeatContactCache.test.ts', 'tests/actors/MountDeathPresentation.test.ts']) add(owner)
-  }
-  // Black-cat geometry, skinning and clips have a standalone asset audit.
-  // Its runtime owners cover preload publication and rider-contact invalidation.
-  if (/^public\/models\/mounts\/v2\/black-cat\//.test(file)
-    || ['tools/blender/build_black_cat_v3.mjs', 'tools/blender/black_cat_v3_regions.json',
-      'tools/validate-black-cat-v3.mjs',
-      'tools/blender/black_cat_v3_skin.mjs', 'tools/blender/black_cat_v3_motion.mjs'].includes(file)) {
-    add('tests/assets/QuadrupedAssetPreload.test.ts')
-    add('tests/actors/RiderSeatContactCache.test.ts')
-  }
-  // Offline humanoid axe edits feed the manifest timing and compressed-loader
-  // contracts. Binary/pose preservation is an asset-build audit, not a unit Scene.
-  if (['tools/trim-two-handed-axe.mjs', 'tools/lib/axe-clip-trim.mjs',
-    'tools/assets/axe-2h-trim.json', 'tools/axe-attacks.md'].includes(file)
-    || /^public\/models\/characters\/v2\/(?:roman|viking|viking-hero-t4|roman-hero-t5|viking-hero-t5|maki-archer-t4|roman-civilian|viking-civilian)\/(?:lod[012]\.glb|manifest\.json)$/.test(file)) {
-    add('tests/combat/CommanderWeaponSwitching.test.ts')
-    add('tests/assets/HumanoidAssetPreload.test.ts')
-  }
-  // Tiered bodies reuse the same loader and animation clock. Geometry, finger
-  // skinning and textures are audited offline, never loaded in unit tests.
-  if (['tools/build-tiered-faction-soldiers.py', 'tools/retarget-tiered-faction-soldiers.mjs',
-    'tools/audit-tiered-faction-soldiers.mjs', 'tools/audit-tiered-source-preservation.py',
-    'tools/lib/tiered-finger-pose.mjs', 'tools/render-tiered-soldier-review.py', 'tools/tiered-faction-soldiers.md',
-    'src/debug/VikingHeroPreview.ts'].includes(file)
-    || /^public\/models\/characters\/v2\/(?:roman|viking)-t[12]\//.test(file)) {
-    add('tests/assets/HumanoidAssetPreload.test.ts')
-    add('tests/combat/CommanderWeaponSwitching.test.ts')
-  }
-  // The offline eagle envelope and fetched metadata share the runtime's pure
-  // validity/fallback contract; exercising it requires no GLB or render scene.
-  if (file === 'tools/build-xongkoro-bounds.mjs'
-    || /^src\/(?:world\/Xongkoro(?:Visual|GroundPose)|movement\/XongkoroConfig)\.ts$/.test(file)
-    || /^public\/models\/mounts\/v2\/xongkoro\/(?:manifest|render-bounds)\.json$/.test(file)) {
-    add('tests/world/XongkoroRenderBounds.test.ts')
-  }
-  if (nodePublicationInput(file)) {
-    for (const item of inventory) if (item.runner === 'node') hits.add(item.file)
-  }
-  return hits
-}
-function relatedSelectionError(reason) {
-  throw new Error(`Related selection is unsafe: ${reason}. Add an explicit dependency/owner mapping or split the change; Full is reserved for main/release.`)
+function relatedSelectionError(reason, diagnostics, cause) {
+  const error = new Error(`Related selection is unsafe: ${reason}. Resolve the reported runtime evidence or add its missing direct contract; Full is reserved for main/release.`, cause === undefined ? undefined : { cause })
+  if (diagnostics) error.diagnostics = { ...diagnostics, executable: false, result: 'blocked' }
+  throw error
 }
 function selectFiles(inventory, changed, consumers, evidence) {
   const all = inventory.map(item => item.file)
   if (!changed.length) relatedSelectionError('No trustworthy changed-file evidence')
   const unsupported = changed.find(item => !/^(?:A|M|D|R\d+)$/.test(item.status))
   if (unsupported) relatedSelectionError(`Unsupported Git change: ${unsupported.status} ${unsupported.file}`)
-  if (changed.every(item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile)))) {
+  const qualifiedDocumentation = new Set()
+  const exactInputReader = (file, graph, status) => (graph?.inputEdges ?? []).some(edge => edge.to === file && (!edge.changeKinds || edge.changeKinds.includes(status[0])))
+  const possibleInputReader = (file, graph) => [...(graph?.inputRisks ?? []), ...(graph?.inputPatterns ?? [])].some(risk =>
+    (risk.directoryInputs || (risk.pattern ? new RegExp(risk.pattern).test(file) : risk.candidates?.includes(file)))
+    && (graph[risk.from] ?? []).some(consumer => all.includes(consumer)))
+  const documentationOnly = item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile))
+    && (qualifiedDocumentation.has(item.file) || !(consumers[item.file]?.length) && !(evidence?.previousConsumers?.[item.oldFile ?? item.file]?.length))
+    && !exactInputReader(item.file, consumers, item.status) && !exactInputReader(item.oldFile ?? item.file, evidence?.previousConsumers, item.status)
+    && (qualifiedDocumentation.has(item.file) || !possibleInputReader(item.file, consumers) && !possibleInputReader(item.oldFile ?? item.file, evidence?.previousConsumers))
+  if (changed.every(documentationOnly)) {
     return { mode: 'related', docsOnly: true, selected: [], reasons: {}, message: 'No related logic tests: documentation-only change' }
   }
-  if (consumers.runtimeAmbiguities?.length) relatedSelectionError(`Unresolved runtime imports/globs: ${consumers.runtimeAmbiguities.join(', ')}`)
-  if (consumers.unresolvedImports?.length) relatedSelectionError(`Unresolved runtime dependencies: ${consumers.unresolvedImports.join(', ')}`)
+  const relevantRisk = (risk, graph) => {
+    const file = typeof risk === 'string' ? risk.split(' -> ')[0] : risk.from
+    return changed.some(item => item.file === file || item.oldFile === file)
+      || all.includes(file) || (graph[file] ?? []).some(consumer => all.includes(consumer))
+  }
+  const unsafeImports = (consumers.runtimeAmbiguities ?? []).filter(risk => relevantRisk(risk, consumers))
+  const missingImports = (consumers.unresolvedImports ?? []).filter(risk => relevantRisk(risk, consumers))
+  if (!evidence && unsafeImports.length) relatedSelectionError(`Unresolved runtime imports/globs: ${unsafeImports.join(', ')}`)
+  if (missingImports.length) relatedSelectionError(`Unresolved runtime dependencies: ${missingImports.join(', ')}`)
   const lifecycle = changed.filter(item => item.status === 'D' || item.status.startsWith('R'))
   const previous = evidence?.previousConsumers
   if (lifecycle.length && (!previous?.graph || !evidence.previousFiles || !evidence.files)) relatedSelectionError('Missing base dependency graph for removed/renamed paths')
-  if (previous?.runtimeAmbiguities?.length || previous?.unresolvedImports?.length) relatedSelectionError(`Unresolved base dependencies: ${[...(previous.runtimeAmbiguities ?? []), ...(previous.unresolvedImports ?? [])].join(', ')}`)
+  const baseRisks = [...(previous?.unresolvedImports ?? [])].filter(risk => relevantRisk(risk, previous))
+  if (baseRisks.length) relatedSelectionError(`Unresolved base dependencies: ${baseRisks.join(', ')}`)
   const renamed = new Map(changed.filter(item => item.status.startsWith('R')).map(item => [item.oldFile, item.file]))
   const surviving = file => renamed.get(file) ?? file
   const retiredFiles = []
-  const typeOnlyFiles = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && item.file.startsWith('src/') && /\.tsx?$/.test(item.file) && !policyConsumers(item.file, inventory).size && evidence.sources.has(item.file) && evidence.previousSources.has(item.file)
+  const typeOnlyFiles = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && behaviorSource(item.file) && !all.includes(item.file) && !exactInputReader(item.file, consumers, item.status) && !exactInputReader(item.file, previous, item.status) && !possibleInputReader(item.file, consumers) && !possibleInputReader(item.file, previous) && evidence.sources.has(item.file) && evidence.previousSources.has(item.file)
     && require('./dependencies.cjs').runtimeEquivalent(evidence.previousSources.get(item.file), evidence.sources.get(item.file), item.file)).map(item => item.file) : []
-  const behaviorChanges = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && item.file.startsWith('src/') && /\.tsx?$/.test(item.file)
-    && !policyConsumers(item.file, inventory).size && !typeOnlyFiles.includes(item.file)) : []
+  const inputClassifications = evidence ? changed.filter(item => !behaviorSource(item.file) && !documentationOnly(item))
+    .map(item => ({ file: item.file, ...require('./dependencies.cjs').classifyChangedInput(item.file, consumers),
+      ...(item.status !== 'A' ? { previous: require('./dependencies.cjs').classifyChangedInput(item.oldFile ?? item.file, evidence.previousConsumers ?? {}) } : {}) })) : []
+  const zeroLogicFiles = inputClassifications.filter(input => input.kind === 'visual-asset' && input.logicCoverage === false && input.edges?.length && input.validationBoundary
+    && (!input.previous || input.previous.kind === 'visual-asset')).map(input => input.file)
+  const runtimeInputs = new Set(inputClassifications.filter(input => ['runtime-input', 'unresolved-input'].includes(input.kind)).map(input => input.file))
+  const behaviorChanges = evidence ? changed.filter(item => ['A', 'M'].includes(item.status)
+    && (behaviorSource(item.file) || runtimeInputs.has(item.file) || possibleInputReader(item.file, consumers) || possibleInputReader(item.file, previous)) && !all.includes(item.file) && !typeOnlyFiles.includes(item.file)) : []
   let behavior = { selected: [], selectedCases: {}, reasons: {}, details: {} }
   if (behaviorChanges.length) {
     try { behavior = require('./behavior.cjs').selectBehaviors(inventory, behaviorChanges, consumers, { ...evidence, testRenames: renamed }) }
-    catch (error) { relatedSelectionError(error.message) }
+    catch (error) { relatedSelectionError(error.message, error.diagnostics, error) }
+  }
+  for (const file of behavior.unobservedEquivalentSources ?? []) {
+    if (!behaviorSource(file) || !require('./dependencies.cjs').runtimeEquivalent(evidence.previousSources.get(file), evidence.sources.get(file), file)) relatedSelectionError(`Unsafe source equivalence qualification: ${file}`)
+    if (!typeOnlyFiles.includes(file)) typeOnlyFiles.push(file)
+  }
+  for (const file of behavior.unobservedInputCandidates ?? []) {
+    if (!docsOnly(file)) relatedSelectionError(`Unclassified input: ${file}; no executed reader found, but no visual/offline safety proof exists`)
+    qualifiedDocumentation.add(file)
+    const classification = inputClassifications.find(input => input.file === file)
+    if (classification) Object.assign(classification, { kind: 'documentation', logicCoverage: false, reason: 'No exact input edge and no case or scoped hook reaches the potential reader' })
   }
   const reasons = behavior.reasons
   const details = behavior.details
   const selectedCases = behavior.selectedCases
   const { dependencyChain } = require('./dependencies.cjs')
   for (const item of changed) {
-    if ((docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile))) || behaviorChanges.includes(item) || typeOnlyFiles.includes(item.file)) continue
+    if (documentationOnly(item) || zeroLogicFiles.includes(item.file) || behaviorChanges.includes(item) || typeOnlyFiles.includes(item.file)) continue
     const oldFile = item.oldFile ?? item.file
     const removed = item.status === 'D'
     const historical = lifecycle.includes(item)
@@ -193,8 +102,7 @@ function selectFiles(inventory, changed, consumers, evidence) {
     for (const [file, oldTest] of baseRuntime) if (!all.includes(file) && !changed.some(change => change.status === 'D' && change.file === oldTest)) {
       relatedSelectionError(`Base test owner is not in current discovery: ${oldTest} -> ${file}`)
     }
-    const policy = new Set([...policyConsumers(item.file, inventory), ...(historical ? policyConsumers(oldFile, inventory) : [])])
-    const hits = new Set([...runtime, ...policy, ...baseRuntime.keys()].filter(file => all.includes(file)))
+    const hits = new Set([...runtime, ...baseRuntime.keys()].filter(file => all.includes(file)))
     if (!removed && all.includes(item.file)) hits.add(item.file)
     if (!hits.size) {
       // A removed standalone input/test can be retired only after proving that
@@ -214,13 +122,19 @@ function selectFiles(inventory, changed, consumers, evidence) {
       // is mapped through the actual Git rename records into head discovery.
       const source = !removed && file === item.file ? 'Direct modification'
         : runtime.has(file) ? 'Static Runtime Dependency'
-        : baseRuntime.has(file) ? 'Base Runtime Dependency' : 'Explicit owner policy'
+        : baseRuntime.has(file) ? 'Base Runtime Dependency' : 'Historical surviving consumer'
       const chain = source === 'Static Runtime Dependency' && consumers.graph ? dependencyChain(consumers.graph, file, item.file)
         : source === 'Base Runtime Dependency' ? dependencyChain(previous.graph, baseRuntime.get(file), oldFile) : null
-      ;(details[file] ??= []).push({ changed: item.file, source, chain })
+      ;(details[file] ??= []).push({ changed: item.file, source, chain,
+        caseEvidence: selectedCases[file].map(index => ({ index, name: inventory.find(item => item.file === file).names[index],
+          reason: source === 'Direct modification' ? 'Directly modified test' : 'Necessary whole-owner fallback',
+          path: (chain ?? [file, item.file]).map(path => ({ file: path })),
+          fallbackReason: source === 'Direct modification' ? 'Direct test edits select their complete collected owner' : historical ? 'Surviving consumer across deletion/rename lineage' : 'Only file-level runtime evidence supplied' })) })
     }
   }
-  return { ...behavior, mode: 'related', selected: Object.keys(reasons).sort(), selectedCases, reasons, details, typeOnlyFiles, retiredFiles,
+  return { ...behavior, mode: 'related', selected: Object.keys(reasons).sort(), selectedCases, reasons, details, typeOnlyFiles, retiredFiles, inputClassifications, zeroLogicFiles,
+    documentationFiles: changed.filter(documentationOnly).map(item => item.file),
+    ...(changed.every(documentationOnly) ? { docsOnly: true, message: 'No related logic tests: documentation-only change' } : {}),
     excludedCandidates: behavior.excludedCandidates?.filter(file => !Object.hasOwn(reasons, file)) }
 }
 // Human-readable selection evidence, derived only from the manifest (no test re-run).
@@ -235,14 +149,16 @@ function selectionSummary(plan) {
   return [
     `Mode: ${plan.mode === 'full' ? 'Full' : 'Related'}`,
     `Base SHA: ${plan.baseSha || '-'}; Head SHA: ${plan.headSha || '-'}`,
-    `Changed Behavior: ${(plan.changedBehaviors ?? plan.changedFiles).slice(0, 8).join(', ') || (plan.typeOnlyFiles?.length ? 'Typecheck only (identical runtime)' : '-')}${(plan.changedBehaviors?.length ?? 0) > 8 ? ` (${plan.changedBehaviors.length} total)` : ''}`,
+    `Changed behaviors: ${plan.changedBehaviors?.length ?? 0}; changed files: ${plan.changedFiles?.length ?? 0}; type-only: ${plan.typeOnlyFiles?.length ?? 0}`,
     `Selected: ${selected.length} files / ${total} cases`,
-    'Owners:', ...[...new Set(Object.values(plan.details ?? {}).flatMap(entries => entries.flatMap(entry => entry.owners ?? [])))].map(owner => `  ${owner}`),
-    ...(plan.changedBehaviors?.length ? [] : selected.map(file => `  ${file}: ${selectedNames(plan, file).length} cases`)),
+    `Comparison: ${plan.comparison ? `${plan.comparison.beforeSha} -> ${plan.comparison.afterSha}` : '-'}; checkout: ${plan.checkoutSha ?? '-'}` ,
+    ...(plan.comparison?.eventBaseMismatch ? ['Event base differs from tested target parent; PR intent retained separately'] : []),
+    `Reasons: ${[...new Set(Object.values(plan.details ?? {}).flatMap(entries => entries.flatMap(entry => (entry.caseEvidence ?? []).map(item => item.reason))))].slice(0, 6).join('; ') || '-'}`,
     `Excluded: ${plan.excludedCandidates?.length ?? 0} import-only candidate files`,
     ...(plan.retiredFiles?.length ? [`Retired (no surviving consumers): ${plan.retiredFiles.join(', ')}`] : []),
     `Module initialization references: ${Object.values(plan.details ?? {}).reduce((sum, entries) => sum + new Set(entries.flatMap(entry => entry.initializationCases ?? [])).size, 0)} cases`,
     `Conservative caller cases: ${Object.values(plan.details ?? {}).reduce((sum, entries) => sum + new Set(entries.flatMap(entry => entry.conservativeCases ?? [])).size, 0)}`,
+    ...(plan.zeroLogicFiles?.length ? [`Proven zero logic: ${plan.zeroLogicFiles.join(', ')} (appearance not verified)`] : []),
     `Unmapped / Unsafe: ${plan.unsafe?.length ?? 0}`,
     `Budget: ${total} / ${plan.mode === 'related' ? MAX_CASES_PER_SHARD : 'Full per-shard 500'}`,
     `Shards: ${plan.shards.length}`, ...(plan.message ? [plan.message] : []),
@@ -268,7 +184,7 @@ function planShards(files, mode) {
   const count = sorted.reduce((sum, file) => sum + (file.names?.length ?? 0), 0)
   if (!sorted.length) return []
   if (count > MAX_CASES_PER_SHARD) {
-    throw new Error(`Related selection contains ${count} leaves; the entire Related CI run is limited to ${MAX_CASES_PER_SHARD}. Refine dependency/owner mappings or split the change; do not create another shard.`)
+    throw new Error(`Related selection contains ${count} leaves; the entire Related CI run is limited to ${MAX_CASES_PER_SHARD}. Resolve imprecise runtime evidence or split the change; do not create another shard.`)
   }
   for (const file of sorted) if (!file.names?.length) throw new Error(`Empty related test file: ${file.file}`)
   return [{
@@ -279,6 +195,7 @@ function planShards(files, mode) {
   }]
 }
 function validateManifest(plan) {
+  if (plan?.executable === false || plan?.result === 'blocked' || plan?.schema === 'logic-plan-blocked/v1') throw new Error('Blocked diagnostics are not an executable test manifest')
   const all = plan.inventory.map(item => item.file)
   if (plan.mode === 'full' && plan.selectedCases) throw new Error('Full must not use behavior filters')
   if (plan.selectedCases) {
@@ -296,7 +213,7 @@ function validateManifest(plan) {
   const assigned = plan.shards.flatMap(shard => [...shard.vitestFiles, ...shard.nodeFiles])
   if (new Set(plan.shards.map(s => s.id)).size !== plan.shards.length) throw new Error('Duplicate shard ID')
   if (new Set(assigned).size !== assigned.length || [...expected].sort().join('\n') !== [...assigned].sort().join('\n')) throw new Error('Missing, unexpected or duplicate assigned test files')
-  if (!assigned.length && !(plan.mode === 'related' && plan.changedFiles.length && plan.changedFiles.every(file => docsOnly(file) || plan.typeOnlyFiles?.includes(file) || plan.retiredFiles?.includes(file)))) throw new Error('Empty code selection')
+  if (!assigned.length && !(plan.mode === 'related' && plan.changedFiles.length && plan.changedFiles.every(file => docsOnly(file) || plan.typeOnlyFiles?.includes(file) || plan.retiredFiles?.includes(file) || (plan.zeroLogicFiles?.includes(file) && plan.inputClassifications?.some(input => input.file === file && input.kind === 'visual-asset' && input.logicCoverage === false && input.edges?.length && input.validationBoundary && (!input.previous || input.previous.kind === 'visual-asset')))))) throw new Error('Empty code selection')
   if (plan.mode === 'related' && plan.shards.length > 1) throw new Error('Related mode must use one aggregate-limited shard')
   let total = 0
   for (const shard of plan.shards) {
@@ -310,17 +227,17 @@ function validateManifest(plan) {
   if (plan.mode === 'related' && total > MAX_CASES_PER_SHARD) throw new Error('Related aggregate exceeds 500 leaves')
   return plan
 }
-function discoverNode() {
-  const files = walk('tests').filter(file => /\.test\.cjs$/.test(file))
+function discoverNode(repositoryRoot = root) {
+  const files = walk('tests', repositoryRoot).filter(file => /\.test\.cjs$/.test(file))
   if (!files.length) throw new Error('Empty Node discovery')
-  return JSON.parse(execFileSync(process.execPath, ['tests/tooling/node-collect.cjs', ...files], { cwd: root, encoding: 'utf8' }))
+  return JSON.parse(execFileSync(process.execPath, [resolve(__dirname, 'node-collect.cjs'), ...files], { cwd: repositoryRoot, encoding: 'utf8' }))
 }
-async function discover({ relatedPaths = [] } = {}) {
+async function discover({ relatedPaths = [], repositoryRoot = root } = {}) {
   // Public Vitest 4.1 API, matching `vitest related` and `vitest list --json`.
   const { createVitest } = await import('vitest/node')
   const priorFiles = process.env.LOGIC_TEST_FILES
   delete process.env.LOGIC_TEST_FILES
-  const ctx = await createVitest('test', { root, watch: false, includeTaskLocation: true, reporters: [], related: relatedPaths.map(file => resolve(root, file)) })
+  const ctx = await createVitest('test', { root: repositoryRoot, watch: false, includeTaskLocation: true, reporters: [], related: relatedPaths.map(file => resolve(repositoryRoot, file)) })
   try {
     const specs = await ctx.globTestSpecifications()
     const related = relatedPaths.length ? await ctx.getRelevantTestSpecifications() : []
@@ -337,11 +254,11 @@ async function discover({ relatedPaths = [] } = {}) {
         return parts.join(' ')
       })
       if (!names.length) throw new Error(`Empty test file: ${module.moduleId}`)
-      return { runner: 'vitest', file: local(module.moduleId), names, nativeNames, locations: tests.map(test => test.location) }
+      return { runner: 'vitest', file: local(module.moduleId, repositoryRoot), names, nativeNames, locations: tests.map(test => test.location) }
     })
     if (inventory.length !== specs.length) throw new Error('Incomplete Vitest discovery')
-    const node = discoverNode()
-    return { inventory: [...inventory, ...node].sort((a, b) => a.file.localeCompare(b.file, 'en')), related: related.map(spec => local(spec.moduleId)) }
+    const node = discoverNode(repositoryRoot)
+    return { inventory: [...inventory, ...node].sort((a, b) => a.file.localeCompare(b.file, 'en')), related: related.map(spec => local(spec.moduleId, repositoryRoot)) }
   } finally {
     await ctx.close()
     if (priorFiles !== undefined) process.env.LOGIC_TEST_FILES = priorFiles
@@ -349,60 +266,85 @@ async function discover({ relatedPaths = [] } = {}) {
 }
 const sourceFile = file => /\.[cm]?[jt]sx?$/.test(file)
 const testFile = file => /^tests\/.*\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file)
-function snapshot(ref) {
-  const files = new Set((ref ? git('ls-tree', '-r', '--name-only', ref) : git('ls-files')).split('\n').filter(Boolean))
-  // Inspect every tracked text format for retirement/entry references (HTML,
-  // CSS, extensionless build inputs, etc.), not just parsed JS/TS dependencies.
-  const names = execFileSync('git', ['grep', '-I', '-l', '-z', '-e', '', ...(ref ? [ref] : []), '--'], { cwd: root, encoding: 'utf8' })
-    .split('\0').filter(Boolean).map(file => ref ? file.slice(ref.length + 1) : file)
+function snapshot(ref, repositoryRoot = root) {
+  if (!ref) throw new Error('Missing immutable snapshot ref')
+  const git = (...args) => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8' }).trim()
+  ref = git('rev-parse', '--verify', `${ref}^{commit}`)
+  const files = new Set(git('ls-tree', '-r', '--name-only', ref).split('\n').filter(Boolean))
+  // Read all text formats from the same immutable Git object, never the worktree.
+  const names = execFileSync('git', ['grep', '-I', '-l', '-z', '-e', '', ref, '--'], { cwd: repositoryRoot, encoding: 'utf8' })
+    .split('\0').filter(Boolean).map(file => file.slice(ref.length + 1))
   const texts = new Map()
-  if (ref) {
-    // One Git read preserves the complete base tree, including removed helpers,
-    // renamed tests, and existence of non-source dependency targets such as JSON.
-    const output = execFileSync('git', ['cat-file', '--batch'], {
-      cwd: root, input: names.map(file => `${ref}:${file}\n`).join(''), maxBuffer: 64 * 1024 * 1024,
-    })
-    let offset = 0
-    for (const file of names) {
-      const end = output.indexOf(10, offset)
-      const header = output.subarray(offset, end).toString().split(' ')
-      if (header[1] !== 'blob') relatedSelectionError(`Missing base blob: ${file}`)
-      const size = Number(header[2])
-      texts.set(file, output.subarray(end + 1, end + 1 + size).toString())
-      offset = end + 2 + size
-    }
-  } else for (const file of names) if (existsSync(resolve(root, file))) texts.set(file, readFileSync(resolve(root, file), 'utf8'))
-  for (const file of files) if (!ref && !existsSync(resolve(root, file))) files.delete(file)
-  return { files, texts, sources: new Map([...texts].filter(([file]) => sourceFile(file))) }
+  const output = execFileSync('git', ['cat-file', '--batch'], {
+    cwd: repositoryRoot, input: names.map(file => `${ref}:${file}\n`).join(''), maxBuffer: 64 * 1024 * 1024,
+  })
+  let offset = 0
+  for (const file of names) {
+    const end = output.indexOf(10, offset)
+    const header = output.subarray(offset, end).toString().split(' ')
+    if (header[1] !== 'blob') relatedSelectionError(`Missing base blob: ${file}`)
+    const size = Number(header[2])
+    texts.set(file, output.subarray(end + 1, end + 1 + size).toString())
+    offset = end + 2 + size
+  }
+  return { sha: ref, files, texts, sources: new Map([...texts].filter(([file]) => sourceFile(file))) }
 }
-function dependencyConsumers(inventory, tree = snapshot()) {
-  return require('./dependencies.cjs').dependencyConsumers(inventory, tree.sources, file => tree.files.has(file))
+function dependencyConsumers(inventory, tree = snapshot(git('rev-parse', 'HEAD'))) {
+  return require('./dependencies.cjs').dependencyConsumers(inventory, tree.sources, file => tree.files.has(file), { files: tree.files, texts: tree.texts })
 }
 
-async function createPlan({ mode = 'full', base = '', head = '', event = 'local' } = {}) {
+function analyzerIdentity() {
+  const hash = createHash('sha256')
+  for (const name of readdirSync(__dirname).filter(name => /\.[cm]?js$/.test(name)).sort()) {
+    hash.update(name + '\0').update(readFileSync(join(__dirname, name))).update('\0')
+  }
+  return { checkoutSha: git('rev-parse', 'HEAD'), sourceDigest: hash.digest('hex') }
+}
+async function createPlan({ mode = 'full', base = '', head = '', event = 'local', repositoryRoot = root, 'repository-root': cliRoot } = {}) {
+  repositoryRoot = resolve(cliRoot ?? repositoryRoot)
+  const planningContext = { requestedMode: mode, event, eventBaseSha: base, requestedHeadSha: head, repositoryRoot,
+    checkoutSha: null, comparison: null, analyzer: null, stage: 'initialization' }
+  try {
+  const git = (...args) => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8' }).trim()
+  const { comparison, changedFiles, diffRanges, assertCleanCheckout } = require('./git-snapshots.cjs')
   if (!['full', 'related'].includes(mode)) throw new Error(`Invalid test mode: ${mode}`)
+  const analyzer = analyzerIdentity()
+  planningContext.analyzer = analyzer
+  const verifiedAnalyzer = () => {
+    if (JSON.stringify(analyzerIdentity()) !== JSON.stringify(analyzer)) throw new Error('Analyzer changed during planning; replay a stable analyzer snapshot')
+    return analyzer
+  }
   const checkoutSha = git('rev-parse', 'HEAD')
+  planningContext.checkoutSha = checkoutSha
   if (mode === 'full') {
-    const found = await discover()
+    const executionSnapshot = event === 'local' ? undefined : { checkoutSha, kind: 'fixed-checkout' }
+    if (executionSnapshot) {
+      assertCleanCheckout(repositoryRoot, checkoutSha)
+      if (event === 'pull_request') planningContext.comparison = executionSnapshot.comparison = comparison({ base, head, event, repositoryRoot })
+      else if (!head || git('rev-parse', '--verify', `${head}^{commit}`) !== checkoutSha) throw new Error('Snapshot mismatch: Full checkout must equal requested head')
+    }
+    planningContext.stage = 'discovery'
+    const found = await discover({ repositoryRoot })
+    if (executionSnapshot) assertCleanCheckout(repositoryRoot, checkoutSha)
     const selected = found.inventory.map(item => item.file)
     return validateManifest({
       version: 1, planId: randomUUID(), requestedMode: mode, mode: 'full', event,
-      baseSha: base, headSha: head, checkoutSha, changedFiles: [], changes: [], inventory: found.inventory,
+      baseSha: base, headSha: head, checkoutSha, ...(executionSnapshot ? { executionSnapshot, analyzer: verifiedAnalyzer() } : {}), changedFiles: [], changes: [], inventory: found.inventory,
       fallback: null, selected, reasons: Object.fromEntries(selected.map(file => [file, ['Explicit full suite']])),
       shards: planShards(found.inventory, 'full'),
     })
   }
-  let changed
-  try { changed = changes(base, head, event) }
+  planningContext.stage = 'comparison'
+  let changed, comparisonSnapshot
+  try {
+    planningContext.comparison = comparisonSnapshot = comparison({ base, head, event, repositoryRoot })
+    planningContext.changes = changed = changedFiles(comparisonSnapshot.beforeSha, comparisonSnapshot.afterSha, repositoryRoot)
+    if (comparisonSnapshot.intent) comparisonSnapshot.intent.changes = changedFiles(comparisonSnapshot.intent.beforeSha, comparisonSnapshot.intent.afterSha, repositoryRoot)
+  }
   catch (error) { throw new Error(`Related Git history unavailable: ${error.message}. Full is reserved for main/release.`) }
-  const documentation = changed.length > 0 && changed.every(item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile)))
-  if (documentation) return validateManifest({
-    version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
-    checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed, inventory: [],
-    ...selectFiles([], changed, {}), shards: [],
-  })
-  const start = event === 'pull_request' ? git('merge-base', base, head) : base
-  const currentTree = snapshot(), baseTree = snapshot(start)
+  planningContext.stage = 'snapshots'
+  const start = comparisonSnapshot.beforeSha
+  const currentTree = snapshot(comparisonSnapshot.afterSha, repositoryRoot), baseTree = snapshot(start, repositoryRoot)
   // Vitest's watch-mode force-rerun triggers are not runtime edges. Omit only
   // inputs proved byte-identical after Git-derived relocations from that query;
   // normal owner selection still processes them, and real config changes remain.
@@ -414,43 +356,44 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     baseTree.texts.get('package.json'), currentTree.texts.get('package.json'),
     baseTree.texts.get('package-lock.json'), currentTree.texts.get('package-lock.json'))
     ? changed.filter(item => item.status === 'M' && ['package.json', 'package-lock.json'].includes(item.file)).map(item => item.file) : []
+  planningContext.stage = 'discovery'
   let found
-  try { found = await discover({ relatedPaths: changed.filter(item => item.status !== 'D'
+  try { found = await discover({ repositoryRoot, relatedPaths: changed.filter(item => item.status !== 'D'
     && !relocatedInputs.includes(item.file) && !dependencyPlacementInputs.includes(item.file)).map(item => item.file) }) }
   catch (error) { throw new Error(`Related dependency selection unavailable: ${error.message}. Full is reserved for main/release.`) }
+  planningContext.stage = 'dependency-analysis'
   const consumers = dependencyConsumers(found.inventory, currentTree)
   const previousConsumers = dependencyConsumers([...baseTree.sources.keys()].filter(testFile).map(file => ({ file })), baseTree)
   const sources = currentTree.sources
   const previousSources = baseTree.sources
   const ranges = {}
-  for (const item of changed.filter(item => ['A', 'M'].includes(item.status) && item.file.startsWith('src/') && /\.tsx?$/.test(item.file))) {
-    const old = item.status === 'A' ? '' : execFileSync('git', ['show', `${start}:${item.file}`], { cwd: root, encoding: 'utf8' })
-    previousSources.set(item.file, old)
-    // Compare the tested checkout (PR merge ref) with the actual base source.
-    // This also covers merge-ref edits and uncommitted representative probes.
-    const diff = execFileSync('git', ['diff', '--no-ext-diff', '--unified=0', start, '--', item.file], { cwd: root, encoding: 'utf8' })
-    ranges[item.file] = [[], []]
-    for (const match of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
-      ranges[item.file][0].push([+match[3], match[4] === undefined ? 1 : +match[4]])
-      ranges[item.file][1].push([+match[1], match[2] === undefined ? 1 : +match[2]])
-    }
+  for (const item of changed.filter(item => ['A', 'M'].includes(item.status) && sourceFile(item.file))) {
+    if (item.status === 'A') previousSources.set(item.file, '')
+    ranges[item.file] = diffRanges(start, comparisonSnapshot.afterSha, item.file, repositoryRoot)
     if (!ranges[item.file][0].length) relatedSelectionError(`Missing behavior diff: ${item.file}`)
   }
-  const selection = selectFiles(found.inventory, changed, consumers, { sources, previousSources, ranges, previousConsumers, previousFiles: baseTree.files, previousTexts: baseTree.texts, files: currentTree.files, texts: currentTree.texts })
+  assertCleanCheckout(repositoryRoot, checkoutSha)
+  planningContext.stage = 'selection'
+  const selection = selectFiles(found.inventory, changed, consumers, { repositoryRoot, sources, previousSources, ranges, previousConsumers, previousFiles: baseTree.files, previousTexts: baseTree.texts, files: currentTree.files, texts: currentTree.texts })
   // Native related results are candidates only. An unexplained native-only edge
   // is unsafe; never silently exclude it or unconditionally union it into leaves.
   for (const file of found.related) {
-    if (!changed.some(item => (consumers[item.file] ?? []).includes(file) || policyConsumers(item.file, found.inventory).has(file) || item.file === file)) {
-      relatedSelectionError(`Native-only dependency requires mapping: ${file}`)
+    if (!changed.some(item => (consumers[item.file] ?? []).includes(file) || item.file === file)) {
+      relatedSelectionError(`Native-only dependency has no resolved input/symbol evidence: ${file}`)
     }
   }
   const selectedInventory = found.inventory.filter(item => selection.selected.includes(item.file))
     .map(item => ({ ...item, names: selection.selectedCases[item.file].map(i => item.names[i]) }))
+  planningContext.stage = 'manifest-validation'
   return validateManifest({
     version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
-    checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
+    checkoutSha, comparison: comparisonSnapshot, analyzer: verifiedAnalyzer(), changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
     inventory: found.inventory, ...selection, relocatedInputs, dependencyPlacementInputs, shards: planShards(selectedInventory, 'related'),
   })
+  } catch (error) {
+    error.planningContext = planningContext
+    throw error
+  }
 }
 function options(args) {
   const result = {}
@@ -460,9 +403,45 @@ function options(args) {
   }
   return result
 }
+// Failure evidence is deliberately a different schema and file, never a partial
+// executable manifest. Keep structured case paths and missing provenance intact.
+function writeBlockedDiagnostics(error, { args = {}, argv = [] } = {}) {
+  const manifestPath = args.out ?? 'output/test-plan.json'
+  const file = resolve(manifestPath.replace(/\.json$/i, '') + '.blocked.json')
+  const context = error.planningContext ?? null
+  const causes = [], seen = new Set([error])
+  let cause = error.cause
+  // Keep the original parser/graph stack without recursing through arbitrary or
+  // cyclic Error.cause chains while handling an already-failed planner.
+  while (cause != null && causes.length < 4 && !seen.has(cause)) {
+    seen.add(cause)
+    causes.push({ name: cause.name ?? 'Error', message: cause.message ?? String(cause), stack: cause.stack ?? null })
+    cause = cause.cause
+  }
+  const diagnostic = {
+    schema: 'logic-plan-blocked/v1', version: 1, executable: false, result: 'blocked',
+    requested: { args, argv }, context,
+    unavailable: {
+      ...(!context?.checkoutSha ? { checkoutSha: 'Planning failed before the actual checkout SHA was established' } : {}),
+      ...(!context?.comparison ? { comparison: 'No verified comparison was established before failure' } : {}),
+      ...(!context?.analyzer ? { analyzer: 'Analyzer identity was not established before failure' } : {}),
+    },
+    error: { name: error.name ?? 'Error', message: error.message ?? String(error), stack: error.stack ?? null, causes, causesTruncated: cause != null },
+    diagnostics: error.diagnostics ?? { missingEvidence: error.message ?? String(error) },
+  }
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify(diagnostic, null, 2))
+  return { file, diagnostic }
+}
 if (require.main === module) (async () => {
-  const args = options(process.argv.slice(2))
-  const plan = await createPlan(args)
+  const argv = process.argv.slice(2)
+  let args, plan
+  try { args = options(argv); plan = await createPlan(args) }
+  catch (error) {
+    try { console.error(`Blocked planning diagnostics: ${writeBlockedDiagnostics(error, { args, argv }).file}`) }
+    catch (reportError) { console.error(`Could not persist blocked planning diagnostics: ${reportError.message}`) }
+    throw error
+  }
   const out = args.out ?? 'output/test-plan.json'
   mkdirSync(dirname(resolve(root, out)), { recursive: true })
   writeFileSync(out, JSON.stringify(plan, null, 2))
@@ -472,4 +451,4 @@ if (require.main === module) (async () => {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
     `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\n`)
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { snapshot, createPlan, shardFiles, planShards, validateManifest, selectFiles, selectionSummary, changes, options, discover, discoverNode, dependencyConsumers, docsOnly, selectedNames }
+module.exports = { writeBlockedDiagnostics, snapshot, createPlan, shardFiles, planShards, validateManifest, selectFiles, selectionSummary, changes, options, discover, discoverNode, dependencyConsumers, docsOnly, selectedNames }

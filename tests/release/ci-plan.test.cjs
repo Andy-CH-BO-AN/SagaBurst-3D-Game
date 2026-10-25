@@ -2,7 +2,8 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { selectFiles, selectionSummary, shardFiles, planShards, validateManifest, changes } = require('../tooling/ci-plan.cjs')
 const { dependencyConsumers, dependencyPlacementOnly, relocationOnly } = require('../tooling/dependencies.cjs')
-const { aggregate } = require('../tooling/ci-run.cjs')
+const { aggregate, assertPlanCheckout } = require('../tooling/ci-run.cjs')
+const { comparison, changedFiles, diffRanges } = require('../tooling/git-snapshots.cjs')
 const item = (file, count = 1, runner = 'vitest') => ({ file, runner, names: Array.from({ length: count }, (_, i) => `leaf ${i}`) })
 const inventory = [
   item('tests/movement/NavigationGrid.test.ts', 2),
@@ -20,41 +21,18 @@ const consumers = {
 const select = file => selectFiles(inventory, [{ status: 'M', file }], consumers)
 const full = files => ({ mode: 'full', inventory: files, selected: files.map(item => item.file), changedFiles: [], shards: shardFiles(files) })
 
-test('production module selects transitive consumers without unrelated equipment suites', () => {
-  assert.deepEqual(select('src/navigation/NavigationGrid.ts').selected, [inventory[0].file])
-  const previewOwners = ['tests/missions/TownSiegePolicy.test.ts', 'tests/missions/SiegeRampPolicy.test.ts',
-    'tests/persistence/TownSiegeRosterPersistence.test.ts', 'tests/movement/NavigationWorld.test.ts',
-    'tests/combat/ProjectileBallistics.test.ts']
-  const preview = selectFiles([...inventory, ...previewOwners.map(file => item(file))],
-    [{ status: 'M', file: 'src/debug/TownFourGateSiegePreview.ts' }], consumers)
-  assert.equal(preview.mode, 'related')
-  assert.deepEqual(preview.selected, previewOwners.sort())
-  const retirementOwners = ['tests/progression/CareerRetirementQaProfile.test.ts',
-    'tests/progression/CareerRetirementFinale.test.ts', 'tests/town/CareerTownEntry.test.ts']
-  const retirement = selectFiles([...inventory, ...retirementOwners.map(file => item(file))],
-    [{ status: 'A', file: 'src/debug/CareerRetirementQA.ts' }], consumers)
-  assert.equal(retirement.mode, 'related')
-  assert.deepEqual(retirement.selected, retirementOwners.sort())
-  const entryOwners = ['tests/town/CareerTownEntry.test.ts', 'tests/missions/CareerMissionRecovery.test.ts',
-    'tests/integration/MissionModeRouting.test.ts']
-  const entry = selectFiles([...inventory, ...entryOwners.map(file => item(file))],
-    [{ status: 'M', file: 'src/main.ts' }], consumers)
-  assert.equal(entry.mode, 'related')
-  assert.deepEqual(entry.selected, entryOwners.sort())
-  const shieldOwners = ['tests/combat/CombatAttribution.test.ts', 'tests/combat/CommanderWeaponSwitching.test.ts',
-    'tests/equipment/CareerSquadEquipment.test.ts', 'tests/equipment/CareerTownEquipment.test.ts']
-  const shield = selectFiles([...inventory, ...shieldOwners.map(file => item(file))],
-    [{ status: 'A', file: 'public/models/weapons/t5/shield.glb' }, { status: 'M', file: 'public/models/weapons/t5/sources.json' }], consumers)
-  assert.equal(shield.mode, 'related')
-  assert.deepEqual(shield.selected, shieldOwners.sort())
-  const humanoidOwners = ['tests/assets/HumanoidAssetPreload.test.ts', 'tests/combat/CommanderWeaponSwitching.test.ts']
-  const tiered = selectFiles([...inventory, ...humanoidOwners.map(file => item(file))], [
-    { status: 'A', file: 'public/models/characters/v2/roman-t1/lod0.glb' },
-    { status: 'A', file: 'public/models/characters/v2/viking-t2/manifest.json' },
-    { status: 'A', file: 'tools/build-tiered-faction-soldiers.py' },
-    { status: 'A', file: 'tools/retarget-tiered-faction-soldiers.mjs' },
-  ], consumers)
-  assert.deepEqual(tiered.selected, humanoidOwners.sort())
+test('production module selects actual transitive consumers, never implicit filename owners', () => {
+  const files = [item('tests/route.test.ts'), item('tests/unrelated.test.ts')]
+  const sources = new Map([
+    ['src/route.ts', 'export const route = 1'],
+    ['src/caller.ts', "export { route } from './route'"],
+    ['tests/route.test.ts', "import { route } from '../src/caller'; route"],
+    ['tests/unrelated.test.ts', 'export const unrelated = 0'],
+  ])
+  const graph = dependencyConsumers(files, sources)
+  assert.deepEqual(selectFiles(files, [{ status: 'M', file: 'src/route.ts' }], graph).selected, ['tests/route.test.ts'])
+  assert.throws(() => selectFiles(files, [{ status: 'M', file: 'src/debug/Preview.ts' }], graph), /Unmapped/)
+  assert.throws(() => selectFiles(files, [{ status: 'M', file: 'src/main.ts' }], graph), /Unmapped/)
 })
 test('high fan-out production owner stays Related instead of forcing repository Full', () => {
   const plan = select('src/Game.ts')
@@ -69,17 +47,64 @@ test('directly modified test is selected even with no dependency edges', () => {
 test('shared helper selects consumers across capability directories', () => {
   assert.deepEqual(select('tests/helpers/memoryStorage.ts').selected, [inventory[1].file, inventory[2].file])
 })
-test('test runner and workflow changes select dedicated CI contracts without Full fallback', () => {
-  const expected = ['tests/release/ci-plan.test.cjs', 'tests/release/test-budget.test.cjs']
-  assert.deepEqual(select('tests/tooling/run.cjs').selected, expected)
-  assert.deepEqual(select('.github/workflows/ci.yml').selected, expected)
+test('runner imports and actual workflow reads select only their consumers without Full fallback', () => {
+  const files = [item('tests/runner.test.cjs', 1, 'node'), item('tests/config.test.cjs', 1, 'node'), item('tests/unrelated.test.cjs', 1, 'node')]
+  const sources = new Map([
+    ['tests/runner.test.cjs', "require('./tooling/run.cjs')"],
+    ['tests/config.test.cjs', "const { readFileSync } = require('node:fs'); readFileSync('.github/workflows/ci.yml', 'utf8')"],
+    ['tests/tooling/run.cjs', 'module.exports = 1'],
+    ['tests/unrelated.test.cjs', 'module.exports = 0'],
+  ])
+  const paths = new Set([...sources.keys(), '.github/workflows/ci.yml'])
+  const graph = dependencyConsumers(files, sources, file => paths.has(file), { files: paths })
+  for (const [changed, expected] of [['tests/tooling/run.cjs', 'tests/runner.test.cjs'], ['.github/workflows/ci.yml', 'tests/config.test.cjs']]) {
+    const plan = selectFiles(files, [{ status: 'M', file: changed }], graph)
+    assert.equal(plan.mode, 'related')
+    assert.deepEqual(plan.selected, [expected])
+  }
 })
-test('strict docs-only produces explicit empty evidence but release notes select Node publication contracts', () => {
+test('documentation has empty evidence unless an actual runtime reader consumes it', () => {
   const plan = select('README.md')
   assert.equal(plan.docsOnly, true)
   assert.deepEqual(plan.selected, [])
   assert.equal(plan.message, 'No related logic tests: documentation-only change')
-  assert.deepEqual(select('docs/releases/v1.2.0.md').selected, inventory.filter(item => item.runner === 'node').map(item => item.file).sort())
+  assert.equal(select('docs/releases/v1.2.0.md').docsOnly, true)
+  const files = [item('tests/notes.test.cjs', 1, 'node'), item('tests/unrelated.test.cjs', 1, 'node')]
+  const sources = new Map([['tests/notes.test.cjs', "require('node:fs').readFileSync('docs/releases/v1.2.0.md', 'utf8')"]])
+  const paths = new Set([...sources.keys(), 'docs/releases/v1.2.0.md'])
+  const graph = dependencyConsumers(files, sources, file => paths.has(file), { files: paths })
+  assert.deepEqual(selectFiles(files, [{ status: 'M', file: 'docs/releases/v1.2.0.md' }], graph).selected, ['tests/notes.test.cjs'])
+  const dynamicSources = new Map([['tests/notes.test.cjs', "require('node:fs').readFileSync(runtimePath, 'utf8')"]])
+  const dynamicGraph = dependencyConsumers(files, dynamicSources, file => paths.has(file), { files: paths })
+  assert.throws(() => selectFiles(files, [{ status: 'M', file: 'docs/releases/v1.2.0.md' }], dynamicGraph, {
+    sources: dynamicSources, previousSources: dynamicSources, previousConsumers: dynamicGraph,
+    files: paths, previousFiles: paths, texts: dynamicSources, previousTexts: dynamicSources, ranges: {},
+    compilerOptions: { noLib: true, noResolve: true, types: [] },
+  }), error => {
+    assert.match(error.message, /Unsafe runtime input:.*runtimePath/)
+    assert.ok(error.cause instanceof Error)
+    assert.match(error.cause.stack, /behavior\.cjs/)
+    assert.equal(error.cause.message.includes('Related selection is unsafe:'), false)
+    return true
+  })
+  const unusedSources = new Map([
+    ['src/reader.ts', `import {readFileSync} from 'node:fs'; export const marker=1;
+export function read(file: string) { return readFileSync(file, 'utf8') }`],
+    ['tests/notes.test.cjs', `const reader=require('../src/reader');
+test('marker', () => reader.marker)`],
+  ])
+  const unusedFiles = new Set([...unusedSources.keys(), 'docs/releases/v1.2.0.md'])
+  const unusedGraph = dependencyConsumers(files, unusedSources, file => unusedFiles.has(file), { files: unusedFiles })
+  const unused = selectFiles([{ ...files[0], locations: [{ line: 2 }] }], [{ status: 'M', file: 'docs/releases/v1.2.0.md' }], unusedGraph, {
+    sources: unusedSources, previousSources: unusedSources, previousConsumers: unusedGraph,
+    files: unusedFiles, previousFiles: unusedFiles, texts: unusedSources, previousTexts: unusedSources, ranges: {},
+    compilerOptions: { noLib: true, noResolve: true, types: [] },
+  })
+  assert.equal(unused.docsOnly, true)
+  assert.deepEqual(unused.selected, [])
+  assert.deepEqual(unused.unobservedInputCandidates, ['docs/releases/v1.2.0.md'])
+  const untested = dependencyConsumers([], sources, file => paths.has(file), { files: paths })
+  assert.throws(() => selectFiles([], [{ status: 'M', file: 'docs/releases/v1.2.0.md' }], untested), /Unmapped code\/runtime input/)
 })
 test('unmapped code fails Related planning instead of silently running Full', () => {
   assert.throws(() => select('src/new-owner.ts'), /Related selection is unsafe.*Unmapped/)
@@ -113,22 +138,33 @@ test('Related selection has one aggregate 500-leaf limit and cannot open a secon
   assert.deepEqual(planShards(within, 'related').map(shard => [shard.id, shard.expectedCount]), [['logic-related', 500]])
   assert.throws(() => planShards([...within, item('tests/c.test.ts', 1)], 'related'), /entire Related CI run is limited to 500/)
 })
-test('release code selects Node tests once and deduplicates shared consumers', () => {
-  const expected = inventory.filter(item => item.runner === 'node').map(item => item.file).sort()
-  assert.deepEqual(select('.github/scripts/release/publish.cjs').selected, expected)
-  assert.deepEqual(select('.github/scripts/release/validate-tag.cjs').selected, expected)
-  assert.deepEqual(select('electron/asset-path.cjs').selected, expected)
-  const result = selectFiles(inventory, [{ status: 'M', file: 'electron/main.cjs' }, { status: 'M', file: '.github/scripts/release/publish.cjs' }], consumers)
-  assert.deepEqual(result.selected, inventory.filter(item => item.runner === 'node').map(item => item.file).sort())
-  assert.equal(result.reasons['tests/release/publish.test.cjs'].length, 2)
+test('release code selects actual Node consumers once and deduplicates shared consumers', () => {
+  const files = [item('tests/release/ship.test.cjs', 1, 'node'), item('tests/release/unrelated.test.cjs', 1, 'node')]
+  const sources = new Map([
+    ['tests/release/ship.test.cjs', "require('../../electron/main.cjs'); require('../../.github/scripts/release/publish.cjs')"],
+    ['electron/main.cjs', 'module.exports = 1'],
+    ['.github/scripts/release/publish.cjs', 'module.exports = 2'],
+  ])
+  const graph = dependencyConsumers(files, sources)
+  const result = selectFiles(files, [{ status: 'M', file: 'electron/main.cjs' }, { status: 'M', file: '.github/scripts/release/publish.cjs' }], graph)
+  assert.deepEqual(result.selected, ['tests/release/ship.test.cjs'])
+  assert.equal(result.reasons['tests/release/ship.test.cjs'].length, 2)
+  assert.throws(() => selectFiles(files, [{ status: 'M', file: '.github/scripts/release/unread.cjs' }], graph), /Unmapped/)
 })
 test('aggregate refuses missing, failed and stale shards instead of trusting the last shard', () => {
   const plan = { ...full(inventory), planId: 'current' }
   assert.throws(() => aggregate(plan, []), /shard reports/)
   assert.throws(() => aggregate(plan, [{ shardId: 'logic-1', planId: 'old', result: 'passed' }]), /stale/)
+  const strict = { ...plan, checkoutSha: 'tested', comparison: { afterSha: 'tested' } }
+  assert.doesNotThrow(() => assertPlanCheckout(strict, { sha: 'tested', dirty: false }))
+  assert.throws(() => assertPlanCheckout(strict, { sha: 'tested', dirty: true }), /Dirty/)
+  assert.throws(() => assertPlanCheckout(strict, { sha: 'other', dirty: false }), /Stale/)
+  const development = { ...plan, checkoutSha: 'tested' }
+  assert.doesNotThrow(() => assertPlanCheckout(development, { sha: 'tested', dirty: true }))
+  assert.throws(() => assertPlanCheckout(development, { sha: 'other', dirty: false }), /Stale/)
 })
 test('unresolved dynamic imports fail Related planning instead of expanding to Full', () => {
-  assert.throws(() => selectFiles(inventory, [{ status: 'M', file: 'src/navigation/NavigationGrid.ts' }], { ...consumers, runtimeAmbiguities: ['src/runtime.ts'] }), /Unresolved runtime imports/)
+  assert.throws(() => selectFiles(inventory, [{ status: 'M', file: 'src/navigation/NavigationGrid.ts' }], { ...consumers, 'src/runtime.ts': [inventory[0].file], runtimeAmbiguities: ['src/runtime.ts'] }), /Unresolved runtime imports/)
 })
 test('aggregate accepts more than 500 total leaves only for independently valid Full shards', () => {
   const { createHash } = require('node:crypto')
@@ -174,15 +210,15 @@ test('lightweight enum import does not select suites; real runtime import chain 
   const graph = dependencyConsumers(files, sources)
   const plan = selectFiles(files, [{ status: 'M', file: 'src/navigation/Route.ts' }], graph)
   assert.deepEqual(plan.selected, ['tests/actors/Spawner.test.ts'])
-  assert.deepEqual(plan.details['tests/actors/Spawner.test.ts'], [{ changed: 'src/navigation/Route.ts', source: 'Static Runtime Dependency',
+  assert.deepEqual(plan.details['tests/actors/Spawner.test.ts'].map(({ changed, source, chain }) => ({ changed, source, chain })), [{ changed: 'src/navigation/Route.ts', source: 'Static Runtime Dependency',
     chain: ['tests/actors/Spawner.test.ts', 'src/world/NPC.ts', 'src/navigation/Route.ts'] }])
   const text = selectionSummary({ mode: 'related', baseSha: 'b', headSha: 'h', changedFiles: ['src/navigation/Route.ts'], inventory: files, shards: [], ...plan })
   assert.match(text, /Selected: 1 files \/ 2 cases/)
-  assert.match(text, /Owners:/)
+  assert.match(text, /Reasons:/)
   assert.match(text, /Budget: 2 \/ 500/)
 })
 
-test('only the owned Node collector load crosses the computed-import boundary', () => {
+test('computed imports retain uncertainty without collector filename exemptions', () => {
   const sources = new Map([
     ['tests/tooling/node-collect.cjs', 'require(resolve(file))'],
     ['tests/tooling/unowned.cjs', 'require(resolve(file))'],
@@ -190,7 +226,7 @@ test('only the owned Node collector load crosses the computed-import boundary', 
     ['.github/scripts/release/publish.cjs', 'require(selectedModule)'],
   ])
   const graph = dependencyConsumers(inventory, sources)
-  assert.deepEqual(graph.runtimeAmbiguities, ['tests/tooling/unowned.cjs', 'tests/ordinary.test.cjs', '.github/scripts/release/publish.cjs'])
+  assert.deepEqual(graph.runtimeAmbiguities, [...sources.keys()])
   sources.set('tests/tooling/node-collect.cjs', 'require(resolve(otherFile))')
   assert.ok(dependencyConsumers(inventory, sources).runtimeAmbiguities.includes('tests/tooling/node-collect.cjs'))
 })
@@ -365,15 +401,345 @@ test('single', () => first())`],
     node.edges = { *[Symbol.iterator]() { traversals++; yield* edges } }
   }
   const first = graph.explain(roots, reached, id('first'))
-  assert.deepEqual([...first], [{ file: 'src/owner.ts', behavior: 'both' }, { file: 'src/owner.ts', behavior: 'first' }])
+  assert.deepEqual([...first], [
+    { file: 'tests/owner.test.ts', behavior: '<callback>', line: 2, processContext: 'test', root: true },
+    { file: 'src/owner.ts', behavior: 'both', line: 3, processContext: 'test', evidence: 'callable provenance',
+      callsite: { file: 'tests/owner.test.ts', start: sources.get('tests/owner.test.ts').indexOf('both()') } },
+    { file: 'src/owner.ts', behavior: 'first', line: 1, processContext: 'test', evidence: 'callable provenance',
+      callsite: { file: 'src/owner.ts', start: sources.get('src/owner.ts').indexOf('first() +') } },
+  ])
   assert.equal(first.conservative, false)
   const afterFirst = traversals
   assert.deepEqual([...graph.explain(roots, reached, id('second'))],
-    [{ file: 'src/owner.ts', behavior: 'both' }, { file: 'src/owner.ts', behavior: 'second' }])
+    [
+      { file: 'tests/owner.test.ts', behavior: '<callback>', line: 2, processContext: 'test', root: true },
+      { file: 'src/owner.ts', behavior: 'both', line: 3, processContext: 'test', evidence: 'callable provenance',
+      callsite: { file: 'tests/owner.test.ts', start: sources.get('tests/owner.test.ts').indexOf('both()') } },
+      { file: 'src/owner.ts', behavior: 'second', line: 2, processContext: 'test', evidence: 'callable provenance',
+        callsite: { file: 'src/owner.ts', start: sources.get('src/owner.ts').indexOf('second() }') } },
+    ])
   assert.equal(traversals, afterFirst, 'sibling targets reuse the same shortest-path tree')
   const limited = new Set(reached)
   limited.delete(id('second'))
   assert.deepEqual(graph.explain(roots, limited, id('second')), [])
   const single = graph.caseRoots('tests/owner.test.ts', { line: 3 })
   assert.deepEqual(graph.explain(single, graph.reachable(single, 'tests/owner.test.ts'), id('second')), [])
+})
+
+test('PR comparison uses the verified target parent, excluding target-only behavior but retaining merge resolution', () => {
+  const { comparisonLineage } = require('../tooling/git-snapshots.cjs')
+  const { declarationSnapshot, changedDeclarations } = require('../tooling/behavior-changes.cjs')
+  const ts = require('typescript')
+  const scope = comparisonLineage({ event: 'pull_request', base: 'event-base', head: 'pr-head',
+    checkout: 'tested-merge', parents: ['target-parent', 'pr-head'], intentBase: 'common-base', targetDescendsFromEventBase: true })
+  const trees = {
+    'event-base': 'class Owner { A() { return 0 } B() { return 0 } C() { return 0 } }',
+    'target-parent': 'class Owner { A() { return 0 } B() { return 1 } C() { return 0 } }',
+    'tested-merge': 'class Owner { A() { return 1 } B() { return 1 } C() { return 2 } }',
+  }
+  const declarations = sha => {
+    const sf = ts.createSourceFile('src/owner.ts', trees[sha], ts.ScriptTarget.Latest, true)
+    const ids = new Map(sf.statements[0].members.map(member => [member, member.name.text]))
+    return declarationSnapshot(sf, ids)
+  }
+  assert.deepEqual([...changedDeclarations(declarations(scope.afterSha), declarations(scope.beforeSha)).ids].sort(), ['A', 'C'])
+  assert.equal(scope.eventBaseMismatch, true)
+  assert.equal(scope.eventBaseSha, 'event-base')
+  assert.deepEqual(scope.intent, { beforeSha: 'common-base', afterSha: 'pr-head' })
+})
+test('PR snapshot rejects head-only checkout, unrelated merge, octopus merge and missing intent history', () => {
+  const { comparisonLineage } = require('../tooling/git-snapshots.cjs')
+  const valid = { event: 'pull_request', base: 'base', head: 'head', checkout: 'merge', parents: ['target', 'head'], intentBase: 'base', targetDescendsFromEventBase: true }
+  assert.throws(() => comparisonLineage({ ...valid, checkout: 'head', parents: ['base'] }), /lineage/)
+  assert.throws(() => comparisonLineage({ ...valid, parents: ['target', 'other'] }), /lineage/)
+  assert.throws(() => comparisonLineage({ ...valid, parents: ['target', 'head', 'other'] }), /lineage/)
+  assert.throws(() => comparisonLineage({ ...valid, intentBase: undefined }), /history/)
+  assert.throws(() => comparisonLineage({ ...valid, targetDescendsFromEventBase: false }), /Unsupported PR target lineage/)
+  assert.throws(() => comparisonLineage({ ...valid, targetDescendsFromEventBase: undefined }), /verified ancestor/)
+  assert.equal(comparisonLineage({ ...valid, base: 'target', targetDescendsFromEventBase: undefined }).eventBaseMismatch, false)
+})
+test('push comparison preserves exact event before and after; local head intent is explicit rather than a fake merge', () => {
+  const { comparisonLineage } = require('../tooling/git-snapshots.cjs')
+  const input = { event: 'push', base: 'before', head: 'after', checkout: 'after', parents: ['intermediate'] }
+  const scope = comparisonLineage(input)
+  assert.equal(scope.beforeSha, 'before')
+  assert.equal(scope.afterSha, 'after')
+  assert.equal(scope.kind, 'push-event')
+  assert.throws(() => comparisonLineage({ ...input, checkout: 'newer' }), /Snapshot mismatch/)
+  const local = comparisonLineage({ ...input, event: 'local', intentBase: 'common' })
+  assert.equal(local.kind, 'local-head-intent')
+  assert.equal(local.beforeSha, 'common')
+  assert.throws(() => comparisonLineage({ ...input, event: 'unknown' }), /Unsupported/)
+})
+
+test('Git transport binds lineage, rename records and diff ranges to the same immutable comparison', t => {
+  const childProcess = require('node:child_process')
+  const root = '/virtual/snapshot-repository'
+  const base = 'a'.repeat(40), head = 'b'.repeat(40), target = 'c'.repeat(40), checkout = 'd'.repeat(40)
+  const calls = []
+  let ancestorStatus = 0
+  const transport = t.mock.method(childProcess, 'execFileSync', (command, args, options) => {
+    assert.equal(command, 'git')
+    assert.equal(options.cwd, root)
+    calls.push(args)
+    if (args[0] === 'rev-parse') {
+      const ref = args.at(-1)
+      return ({ 'event-base^{commit}': base, 'pr-head^{commit}': head, 'HEAD^{commit}': checkout, HEAD: checkout })[ref]
+    }
+    if (args[0] === 'show') return `${target} ${head}\n`
+    if (args[0] === 'merge-base' && args[1] === '--is-ancestor') {
+      assert.deepEqual(args, ['merge-base', '--is-ancestor', base, target])
+      if (ancestorStatus) throw Object.assign(new Error('ancestry unavailable'), { status: ancestorStatus })
+      return ''
+    }
+    if (args[0] === 'merge-base') return base
+    if (args[0] === 'cat-file') { assert.deepEqual(args, ['cat-file', '-e', `${target}^{commit}`]); return '' }
+    if (args[0] === 'status') { assert.deepEqual(args, ['status', '--porcelain', '--untracked-files=all']); return '' }
+    if (args.includes('--name-status')) {
+      assert.deepEqual(args.slice(-2), [target, checkout])
+      return 'R090\0src/old.cjs\0src/new.cjs\0D\0src/removed.cjs\0A\0src/added.cjs\0'
+    }
+    if (args.includes('--unified=0')) {
+      assert.deepEqual(args.slice(-4), [target, checkout, '--', 'src/new.cjs'])
+      return '@@ -3,2 +3,1 @@\n-old\n-old\n+new\n'
+    }
+    throw new Error(`Unexpected Git operation: ${args.join(' ')}`)
+  })
+  try {
+    const scope = comparison({ base: 'event-base', head: 'pr-head', event: 'pull_request', repositoryRoot: root })
+    assert.equal(scope.beforeSha, target)
+    assert.equal(scope.afterSha, checkout)
+    assert.equal(scope.eventBaseSha, base)
+    assert.equal(scope.targetDescendsFromEventBase, true)
+    assert.deepEqual(changedFiles(scope.beforeSha, scope.afterSha, root), [
+      { status: 'R090', oldFile: 'src/old.cjs', file: 'src/new.cjs' },
+      { status: 'D', file: 'src/removed.cjs' }, { status: 'A', file: 'src/added.cjs' },
+    ])
+    assert.deepEqual(diffRanges(scope.beforeSha, scope.afterSha, 'src/new.cjs', root), [[[3, 1]], [[3, 2]]])
+    assert.ok(calls.some(args => args[0] === 'status'))
+    ancestorStatus = 1
+    assert.throws(() => comparison({ base: 'event-base', head: 'pr-head', event: 'pull_request', repositoryRoot: root }), /Unsupported PR target lineage/)
+    ancestorStatus = 128
+    assert.throws(() => comparison({ base: 'event-base', head: 'pr-head', event: 'pull_request', repositoryRoot: root }), /ancestry unavailable/)
+  } finally {
+    transport.mock.restore()
+  }
+})
+
+for (const { name, collectionFailure } of [
+  { name: 'planner collects both runners against fixed Git trees before issuing a documentation-only manifest', collectionFailure: false },
+  { name: 'planner preserves verified snapshot context and closes the collector when discovery fails', collectionFailure: true },
+]) test(name, async t => {
+  const childProcess = require('node:child_process'), fs = require('node:fs')
+  const { registerHooks } = require('node:module')
+  const { resolve } = require('node:path')
+  const { tmpdir } = require('node:os')
+  const { pathToFileURL } = require('node:url')
+  const plannerPath = require.resolve('../tooling/ci-plan.cjs')
+  const snapshotPath = require.resolve('../tooling/git-snapshots.cjs')
+  const savedModules = [plannerPath, snapshotPath].map(path => [path, require.cache[path]])
+  const previousChildren = [...module.children]
+  const analyzerRoot = resolve(__dirname, '../..')
+  const before = 'a'.repeat(40), after = 'b'.repeat(40), analyzer = 'e'.repeat(40)
+  const nodeFile = 'tests/unit/node.test.cjs', webFile = 'tests/unit/web.test.mjs'
+  const sources = new Map([
+    ['README.md', 'before'],
+    [nodeFile, "const { test } = require('node:test'); test('node leaf', () => {})"],
+    [webFile, "import { test } from 'vitest'; test('web leaf', () => {})"],
+  ])
+  const reads = [], collected = [], factoryCalls = []
+  const existingFilter = process.env.LOGIC_TEST_FILES
+  const key = Symbol.for('sagaburst.planner.collector-boundary')
+  const previousGlobal = Object.getOwnPropertyDescriptor(globalThis, key)
+  let root, closed = 0, hooks
+  const transport = t.mock.method(childProcess, 'execFileSync', (command, args, options) => {
+    if (command === process.execPath) {
+      assert.equal(options.cwd, root)
+      assert.deepEqual(args, [resolve(analyzerRoot, 'tests/tooling/node-collect.cjs'), nodeFile])
+      collected.push(nodeFile)
+      return JSON.stringify([{ file: nodeFile, runner: 'node', names: ['node leaf'], nativeNames: ['node leaf'], locations: [{ line: 1, column: 1 }] }])
+    }
+    assert.equal(command, 'git')
+    if (options.cwd === analyzerRoot) {
+      assert.deepEqual(args, ['rev-parse', 'HEAD'])
+      return analyzer
+    }
+    assert.equal(options.cwd, root)
+    if (args[0] === 'rev-parse') return args.at(-1) === `${before}^{commit}` ? before : after
+    if (args[0] === 'show') return before
+    if (args[0] === 'status') { assert.ok(args.includes('--untracked-files=all')); return '' }
+    if (args[0] === 'cat-file' && args[1] === '-e') { assert.equal(args[2], `${before}^{commit}`); return '' }
+    if (args[0] === 'diff') {
+      assert.ok(args.includes('--name-status'))
+      assert.deepEqual(args.slice(-2), [before, after])
+      return 'M\0README.md\0'
+    }
+    if (args[0] === 'ls-tree') {
+      assert.ok([before, after].includes(args.at(-1)))
+      return [...sources.keys()].join('\n')
+    }
+    if (args[0] === 'grep') {
+      const ref = args.at(-2)
+      assert.ok([before, after].includes(ref))
+      return [...sources.keys()].map(file => `${ref}:${file}\0`).join('')
+    }
+    if (args[0] === 'cat-file' && args[1] === '--batch') {
+      const entries = options.input.trim().split('\n')
+      reads.push(entries)
+      return Buffer.concat(entries.flatMap(entry => {
+        const ref = entry.slice(0, 40), file = entry.slice(41)
+        assert.ok([before, after].includes(ref))
+        const body = Buffer.from(file === 'README.md' && ref === after ? 'after' : sources.get(file))
+        return [Buffer.from(`${'f'.repeat(40)} blob ${body.length}\n`), body, Buffer.from('\n')]
+      }))
+    }
+    throw new Error(`Unexpected Git operation: ${args.join(' ')}`)
+  })
+  try {
+    root = fs.mkdtempSync(resolve(tmpdir(), 'planner-collection-'))
+    fs.mkdirSync(resolve(root, 'tests/unit'), { recursive: true })
+    fs.writeFileSync(resolve(root, nodeFile), sources.get(nodeFile))
+    fs.writeFileSync(resolve(root, webFile), sources.get(webFile))
+    process.env.LOGIC_TEST_FILES = 'development-filter-must-not-affect-discovery'
+    Object.defineProperty(globalThis, key, { configurable: true, value: (...args) => {
+      factoryCalls.push(args)
+      assert.equal(process.env.LOGIC_TEST_FILES, undefined)
+      const moduleId = resolve(root, webFile)
+      const spec = { moduleId }
+      return {
+        globTestSpecifications: async () => [spec],
+        getRelevantTestSpecifications: async () => [],
+        collectTests: async specs => {
+          assert.deepEqual(specs, [spec])
+          if (collectionFailure) return { unhandledErrors: [new Error('collector evidence unavailable')], testModules: [] }
+          return { unhandledErrors: [], testModules: [{ moduleId, errors: () => [], children: {
+            allSuites: () => [], allTests: () => [{ name: 'web leaf', fullName: 'web leaf', parent: { type: 'module' },
+              location: { line: 1, column: 1 }, result: () => ({ state: 'pending' }) }],
+          } }] }
+        },
+        close: async () => { closed++ },
+      }
+    } })
+    hooks = registerHooks({ resolve(specifier, context, nextResolve) {
+      if (specifier === 'vitest/node' && context.parentURL === pathToFileURL(plannerPath).href) {
+        return { url: 'data:text/javascript,export const createVitest=(...args)=>globalThis[Symbol.for("sagaburst.planner.collector-boundary")](...args)', shortCircuit: true }
+      }
+      return nextResolve(specifier, context)
+    } })
+    for (const [path] of savedModules) delete require.cache[path]
+    const { createPlan, snapshot } = require('../tooling/ci-plan.cjs')
+    assert.throws(() => snapshot(), /Missing immutable snapshot ref/)
+    if (collectionFailure) {
+    await assert.rejects(createPlan({ mode: 'related', event: 'push', base: before, head: after, repositoryRoot: root }), error => {
+      assert.match(error.message, /collector evidence unavailable/)
+      assert.equal(error.planningContext.stage, 'discovery')
+      assert.equal(error.planningContext.checkoutSha, after)
+      assert.equal(error.planningContext.comparison.beforeSha, before)
+      assert.equal(error.planningContext.comparison.afterSha, after)
+      assert.equal(error.planningContext.analyzer.checkoutSha, analyzer)
+      return true
+    })
+    } else {
+    const plan = await createPlan({ mode: 'related', event: 'push', base: before, head: after, repositoryRoot: root })
+    assert.equal(plan.docsOnly, true)
+    assert.deepEqual(plan.changedFiles, ['README.md'])
+    assert.deepEqual(plan.selected, [])
+    assert.deepEqual(plan.shards, [])
+    assert.deepEqual(plan.inventory.map(({ file, runner, names }) => ({ file, runner, names })), [
+      { file: nodeFile, runner: 'node', names: ['node leaf'] }, { file: webFile, runner: 'vitest', names: ['web leaf'] },
+    ])
+    assert.equal(plan.checkoutSha, after)
+    assert.equal(plan.comparison.beforeSha, before)
+    assert.equal(plan.comparison.afterSha, after)
+    assert.equal(plan.analyzer.checkoutSha, analyzer)
+    assert.match(plan.analyzer.sourceDigest, /^[a-f0-9]{64}$/)
+    assert.deepEqual(reads.map(entries => entries.map(entry => entry.slice(0, 40))), [[after, after, after], [before, before, before]])
+    assert.deepEqual(collected, [nodeFile])
+    assert.equal(factoryCalls.length, 1)
+    assert.equal(factoryCalls[0][0], 'test')
+    assert.equal(factoryCalls[0][1].root, root)
+    assert.deepEqual(factoryCalls[0][1].related, [resolve(root, 'README.md')])
+    assert.equal(closed, 1)
+    assert.equal(process.env.LOGIC_TEST_FILES, 'development-filter-must-not-affect-discovery')
+    }
+    assert.equal(closed, 1)
+    assert.equal(process.env.LOGIC_TEST_FILES, 'development-filter-must-not-affect-discovery')
+  } finally {
+    hooks?.deregister()
+    transport.mock.restore()
+    for (const [path, cached] of savedModules) { delete require.cache[path]; if (cached) require.cache[path] = cached }
+    module.children.splice(0, module.children.length, ...previousChildren)
+    if (previousGlobal) Object.defineProperty(globalThis, key, previousGlobal)
+    else delete globalThis[key]
+    if (existingFilter === undefined) delete process.env.LOGIC_TEST_FILES
+    else process.env.LOGIC_TEST_FILES = existingFilter
+    if (root) fs.rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('blocked diagnostics preserve failure evidence separately and cannot execute or relax workflow gates', t => {
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require('node:fs')
+  const { tmpdir } = require('node:os')
+  const { join, resolve } = require('node:path')
+  const { writeBlockedDiagnostics } = require('../tooling/ci-plan.cjs')
+  const { executeShard } = require('../tooling/ci-run.cjs')
+  const childProcess = require('node:child_process')
+  const blockedSpawn = t.mock.method(childProcess, 'spawnSync', () => { throw 'Unexpected subprocess before diagnostic rejection' })
+  const blockedExec = t.mock.method(childProcess, 'execFileSync', () => { throw 'Unexpected checkout lookup before diagnostic rejection' })
+  const directory = mkdtempSync(join(tmpdir(), 'blocked-plan-'))
+  try {
+    const manifest = join(directory, 'plan.json')
+    writeFileSync(manifest, 'existing manifest must remain untouched')
+    const original = new RangeError('Maximum call stack size exceeded')
+    original.cause = original // A pathological cause must not make failure reporting recurse.
+    const error = Object.assign(new Error('missing receiver provenance', { cause: original }), {
+      planningContext: { checkoutSha: 'tested', comparison: { beforeSha: 'target', afterSha: 'tested' }, analyzer: { sourceDigest: 'analyzer' }, stage: 'selection' },
+      diagnostics: { changed: 'src/owner.cjs', test: 'tests/owner.test.cjs', caseIndex: 0,
+        path: [{ file: 'tests/owner.test.cjs', behavior: 'contract', line: 3, root: true }],
+        unresolved: { expression: 'receiver[key]()', missingEvidence: 'receiver provenance', line: 4, column: 2 } },
+    })
+    const args = { mode: 'related', event: 'pull_request', base: 'event-base', head: 'requested-head', out: manifest }
+    const argv = ['--mode', 'related', '--base', 'event-base']
+    const written = writeBlockedDiagnostics(error, { args, argv })
+    assert.equal(written.file, join(directory, 'plan.blocked.json'))
+    const diagnostic = JSON.parse(readFileSync(join(directory, 'plan.blocked.json'), 'utf8'))
+    assert.equal(readFileSync(manifest, 'utf8'), 'existing manifest must remain untouched')
+    assert.equal(diagnostic.schema, 'logic-plan-blocked/v1')
+    assert.equal(diagnostic.executable, false)
+    assert.equal(diagnostic.result, 'blocked')
+    assert.deepEqual(diagnostic.requested, { args, argv })
+    assert.deepEqual(diagnostic.context, error.planningContext)
+    assert.deepEqual(diagnostic.diagnostics, error.diagnostics)
+    assert.match(diagnostic.error.stack, /missing receiver provenance/)
+    assert.deepEqual(diagnostic.error.causes, [{ name: 'RangeError', message: original.message, stack: original.stack }])
+    assert.equal(diagnostic.error.causesTruncated, true)
+    assert.deepEqual(diagnostic.unavailable, {})
+    assert.throws(() => validateManifest(diagnostic), /not an executable test manifest/)
+    assert.throws(() => aggregate(diagnostic, []), /not an executable test manifest/)
+    assert.throws(() => executeShard(diagnostic, 'logic-related', join(directory, 'report.json')), /not an executable test manifest/)
+    assert.equal(blockedSpawn.mock.callCount(), 0)
+    assert.equal(blockedExec.mock.callCount(), 0)
+    let nested = new Error('root cause')
+    for (let depth = 0; depth < 5; depth++) nested = new Error(`transport layer ${depth}`, { cause: nested })
+    const early = writeBlockedDiagnostics(new Error('Git history unavailable', { cause: nested }), { args: { out: join(directory, 'early.json') } }).diagnostic
+    assert.equal(early.error.causes.length, 4)
+    assert.equal(early.error.causesTruncated, true)
+    assert.equal(early.context, null)
+    assert.match(early.unavailable.checkoutSha, /before the actual checkout SHA was established/)
+    assert.equal(early.diagnostics.missingEvidence, 'Git history unavailable')
+
+    const workflow = require('js-yaml').load(readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8'))
+    const upload = workflow.jobs.plan.steps.find(step => step.with?.name === 'logic-plan-blocked')
+    assert.equal(upload.if, 'always()')
+    assert.equal(upload.with.path, 'output/test-plan.blocked.json')
+    assert.equal(upload.with['if-no-files-found'], 'ignore')
+    const executableUpload = workflow.jobs.plan.steps.find(step => step.with?.name === 'logic-plan')
+    assert.equal(executableUpload.if, undefined)
+    assert.equal(executableUpload.with.path, 'output/test-plan.json')
+    assert.equal(executableUpload.with['if-no-files-found'], 'error')
+    assert.equal(workflow.jobs.shard.needs, 'plan')
+    assert.match(workflow.jobs.aggregate.steps[0].run, /test "\$PLAN_RESULT" = success/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })

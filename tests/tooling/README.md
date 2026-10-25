@@ -3,6 +3,15 @@
 Local npm tests and CI share this runner/planner; release publication helpers live
 under `.github/scripts/release/`. `typecheck.cjs` owns the test diagnostic ratchet.
 
+**Implementation status: WIP, not accepted for merge.** The current PR's own
+Related plan and fixed historical replays remain blocked; passing development
+subsets do not replace that gate. The graph still lacks a general unknown-effect
+frontier and complete return/instance provenance. Do not infer that every opaque
+getter, callback or external effect is detected merely because modeled evidence
+has guards. See [the exact checkpoint and remaining roots](../../docs/related-selection-replay.md).
+Manual source-to-test policies/owner mappings remain forbidden, including moving
+them into JSON/YAML, tags, or allow/deny lists; this limitation is not a fallback.
+
 `ci-plan.cjs` collects leaves without running their bodies and produces a JSON
 manifest. Related and Full deliberately have different budgets:
 
@@ -29,9 +38,15 @@ and runs all Full shards locally. `npm run test:release` is a Node component run
 never repository Full evidence. Explicit `.test.ts` and `.test.cjs` development file
 lists can be combined in `npm test -- ...`; they remain subset evidence.
 
-PR comparison uses merge-base; push comparison uses exactly before..after. The CI
-checkout is the tested merge commit for PRs; the manifest separately records the
-PR head/base and binds shard execution to the checkout SHA and unique plan digest.
+PR analysis validates the tested merge's two parents against the requested head,
+then uses **target parent → tested merge** consistently for files, source snapshots,
+AST declarations, and rename/delete lineage. The event base and intent diff are
+retained separately, including an explicit event-base mismatch. Push analysis uses
+exactly its event before → after. Missing history, wrong lineage, dirty snapshots,
+and checkout mismatches fail closed. Plan, shard execution and aggregate bind to
+the same tested commit. `--repository-root` supports fixed historical worktrees
+while recording the independent analyzer version/digest; it does not copy tooling
+changes into the historical feature diff. Local explicit subsets remain available.
 
 Related uses Git base/checkout snapshots and the TypeScript Compiler API to compare
 runtime declarations, class members and import bindings, not textual hunk envelopes. Runtime imports (including
@@ -49,20 +64,24 @@ shared data remains one declaration owner: dynamic lookup, enumeration, aliases,
 destructuring and namespace escape are retained rather than guessed by item key.
 Comments and erased types do not widen another runtime edit in the same file.
 
-Related/dev deliberately does **not** follow module-to-module initialization
-edges. Imports still resolve runtime symbols and discover candidate files; an
-import alone is not a behavior owner. Each leaf retains its own module setup,
-registration inputs and scoped hooks, and follows actual function, method, class
-and value references, including initializer expressions reached through a value.
-Initialized data and reflective class shape remain their declaration/class owners,
-not blanket module owners. This applies consistently to Three.js and other imports;
-there is no package-name whitelist or fixed test exclusion list.
+Related/dev follows an actual import to executable module initialization, not to
+every function or class member in that module. A top-level value read or static
+block is a real initialization dependency and retains an explicit initialization
+trace; publishing a callable binding does not execute its body. Plain import
+closure alone is not an owner. Each leaf retains its module setup, registration
+inputs and scoped hooks, and follows actual function, method, class and value
+references. Initialized data and reflective class shape remain addressable
+owners, not blanket module owners. No package-name whitelist or fixed test
+exclusion list replaces this evidence.
 
-This is a pragmatic dev risk tradeoff, not a proof that initialization is pure.
-Hidden global/prototype mutations, decorators or static effects observed only via
-module loading can be missed by Related. Main/release Full remains the backstop
-and executes every discovered leaf. Side-effect-only edits with no addressable
-behavior owner still fail closed rather than silently produce an empty code plan.
+Canonical unshadowed CommonJS main guards distinguish imported modules from
+proved Node subprocess entry points. A real subprocess gets its own main entry
+and process context; parent test mocks do not suppress its runtime consumers.
+Mutated, escaped or otherwise unresolved guard/provider bindings retain uncertainty.
+
+Unresolved initialization effects, decorators and side-effect-only edits without
+an addressable runtime owner fail closed with their missing evidence. Full remains
+the complete main/release gate, not a substitute for unresolved Related evidence.
 Directly changed tests still select their whole owner; real symbol dependencies,
 unknown dispatch, missing owners/history and unexplained native-only edges retain
 their existing guards. No runtime LLM or remote API is involved.
@@ -78,19 +97,23 @@ cannot compete with another file inside a 100ms leaf budget. Only manifest-unsel
 Selected skips, extras, missing leaves, duplicates and stale reports fail aggregate.
 Full prohibits case filters and still runs every discovered leaf exactly once.
 
-Test tooling, workflow and package changes select dedicated CI/budget contract
-tests through explicit owner policy rather than repository Full. Release/Electron
-inputs select the Node publication contracts in the same Related logic shard.
-Unresolved computed or relative imports/globs, unavailable Git history,
-unmapped non-document inputs, an unexplained empty code selection, or a Related selection above
-500 fail closed and require an explicit dependency/owner mapping or a smaller
-change. They do not convert a dev PR into Full. Empty success requires strictly allowlisted docs, proven type-only edits, or explicit retirement evidence; release notes are publication inputs and are excluded from
-that exception.
+All supported TS/JS/CJS/MJS code uses the same symbol/member analysis. Receivers,
+finite computed keys, constructor/initializer effects and actual shape observation
+are distinct; same method names or import closure are not ownership evidence.
+Non-import inputs are derived from actual reads, URLs, loaders, registries and CLI
+calls. There are no feature-specific owner lists or test-name/path heuristics.
+
+Relevant unresolved expressions report their location and missing proof; genuinely
+untested runtime behavior is a separate failure. Neither becomes a Full fallback.
+Proven purely visual/offline outputs may have zero logic coverage, with the proof
+and validation boundary recorded; public/, tools/, JSON or binary extension alone
+is never that proof. Animation timing, collisions, numeric and persistence inputs
+still require actual consumer analysis. Unit tests do not load/render models.
 
 Renames/deletions use independent complete base and checkout source snapshots,
 including non-source dependency existence. Base test consumers map to current
 discovery by identity or Git rename lineage, never a fixed migration table. Both
-old/new runtime consumers and policy owners select surviving whole owner suites;
+old/new runtime consumers select surviving owners with explicit lifecycle evidence;
 ordinary production edits retain behavior-level filtering. Removed tests are not
 executed. Missing owners or dangling dependencies fail closed. An orphan deletion
 is retired only when no surviving source dependency or runtime/config reference
@@ -102,12 +125,12 @@ Git-derived replacements in known path-bearing fields (Node script entry operand
 and Vitest include/exclude/setupFiles/reporters). Arbitrary env/name/data strings
 never qualify. Directory/glob replacements additionally require an
 exact two-sided descendant mapping with no extra destination or old-path occupants.
-Explicit owner policy still selects those inputs. A complete package/lock pair can
+Actual input consumers still determine those inputs’ selection. A complete package/lock pair can
 also prove an unchanged test-installed graph when identical dependencies move only
 from production to development: package lists, versions, resolved URLs, integrity,
 optional flags and all other metadata must match, except the corresponding placement
-and lock dev flags. Such inputs still select publication/CI owners because production
-packaging changes; the proof only removes Vitest's global watch-trigger candidates.
+and lock dev flags. Production packaging changes still follow actual configuration consumers; this
+proof only removes Vitest's global watch-trigger candidates.
 Dependency version, argument or config behavior edits do not qualify and retain
 normal conservative candidate validation.
 
@@ -164,3 +187,11 @@ pushes to dev also skip Desktop. Main Release packaging remains unchanged.
 Post-merge `push → dev` keeps
 logic, typecheck and build but skips browser installation and Web smoke. Main,
 manual Full and publication Web checks keep Web smoke and exact-SHA Full proof.
+
+Each selected case records its root/scoped hook, actual receiver/key evidence and
+path to the changed declaration/input. CI summaries show snapshots, selection
+size, main reasons, unresolved risks and budget; detailed paths stay in artifacts.
+
+Manual source-to-test policies are prohibited, including mappings moved to JSON,
+YAML, standalone JavaScript, comments, tags or allow/deny lists. Generic algorithm
+constants and the existing 500-case / 100ms safety limits remain legitimate.

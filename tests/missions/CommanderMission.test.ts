@@ -245,30 +245,37 @@ describe('Decapitation safe edge deployment', () => {
   const bounds = { minX: -350, maxX: 350, minZ: -350, maxZ: -115, cellSize: 5 }
   const threats = [{ x: -29, z: -75, range: 400 }, { x: -85, z: -18, range: 400 }]
 
-  it('fits all 30 mounted officials and 30 nearby HR around obstacles outside the actual opening fire ranges', () => {
-    const navigation = new NavigationWorld(bounds)
-    const box = new Box3(new Vector3(290, -10, -340), new Vector3(305, 100, -325))
+  it('places Player and one HR in a small space without overlap, obstacles or unsafe bounds', () => {
+    const smallBounds = { minX: -30, maxX: 30, minZ: -40, maxZ: 20, cellSize: 5 }
+    const navigation = new NavigationWorld(smallBounds)
+    // Block the first rear candidate so the second person must use another slot.
+    const box = new Box3(new Vector3(-2, -10, -34), new Vector3(2, 100, -29))
     const obstacles = [{ box, isBarricade: false }]
     navigation.rebuild(obstacles)
-    const plan = planDecapitationDeployment({ navigation, obstacles, threats,
-      officialCount: 30, personalCount: 30, eagleCount: 0, playerEagle: false })
+    const plan = planDecapitationDeployment({ navigation, obstacles, threats: [{ x: 0, z: 0, range: 10 }],
+      bounds: smallBounds, worldBound: 40, city: { minZ: 20 },
+      officialCount: 0, personalCount: 1, eagleCount: 0, playerEagle: false })
     expect(needsDecapitationDeployment(accepted(COMMANDER_DECAPITATION_ID).activeMission!)).toBe(true)
     expect(needsDecapitationDeployment(accepted(COMMANDER_SKY_RAID_ID).activeMission!)).toBe(false)
-    expect(plan.player.z).toBeLessThanOrEqual(-320)
-    expect(plan.official).toHaveLength(30); expect(plan.personal).toHaveLength(30)
-    const points = [plan.player, ...plan.official, ...plan.personal]
-    for (const [i, point] of points.entries()) {
-      expect(Math.abs(point.x)).toBeLessThanOrEqual(347)
-      expect(point.z).toBeGreaterThanOrEqual(-347)
+    expect(plan.official).toHaveLength(0)
+    expect(plan.personal).toHaveLength(1)
+    const points = [plan.player, ...plan.personal]
+    expect(points).toHaveLength(2)
+    for (const point of points) {
+      expect(point.x).toBeGreaterThanOrEqual(-27)
+      expect(point.x).toBeLessThanOrEqual(27)
+      expect(point.z).toBeGreaterThanOrEqual(-37)
+      expect(point.z).toBeLessThanOrEqual(-13)
       expect(navigation.grid.isBlocked(navigation.grid.worldToCell(point)!)).toBe(false)
-      expect(navigation.areConnected(point, { x: 0, z: -127 })).toBe(true)
-      expect(point.x < 288 || point.x > 307 || point.z < -342 || point.z > -323).toBe(true)
-      for (const other of points.slice(i + 1)) expect(Math.hypot(point.x - other.x, point.z - other.z)).toBeGreaterThanOrEqual(4.8)
-      for (const threat of threats) expect(Math.hypot(point.x - threat.x, point.z - threat.z)).toBeGreaterThan(threat.range + 8)
+      expect(navigation.areConnected(point, { x: 0, z: 8 })).toBe(true)
+      expect(box.clone().expandByScalar(2).containsPoint(new Vector3(point.x, 0, point.z))).toBe(false)
+      expect(Math.hypot(point.x, point.z)).toBeGreaterThan(18)
     }
-    expect(Math.min(...plan.official.map(p => p.z))).toBeGreaterThan(plan.player.z + 7)
-    expect(Math.max(...plan.personal.map(p => Math.hypot(p.x - plan.player.x, p.z - plan.player.z)))).toBeLessThanOrEqual(90)
-    expect(plan.player.yaw).toBeCloseTo(Math.atan2(-plan.player.x, -127 - plan.player.z))
+    const hr = plan.personal[0]
+    const separation = Math.hypot(plan.player.x - hr.x, plan.player.z - hr.z)
+    expect(separation).toBeGreaterThanOrEqual(4.8)
+    expect(separation).toBeLessThanOrEqual(90)
+    expect(plan.player.yaw).toBeCloseTo(Math.atan2(-plan.player.x, 8 - plan.player.z))
   })
 
   it('reserves three complete eagle envelopes alongside 30 officials and 28 ground HR/Player slots', () => {

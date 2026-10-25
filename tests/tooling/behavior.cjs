@@ -1,5 +1,6 @@
 const ts = require('typescript')
 const { posix } = require('node:path')
+const { isBuiltin } = require('node:module')
 const { declarationSnapshot, changedDeclarations, runtimeImports, inertValue } = require('./behavior-changes.cjs')
 
 const callable = n => n && ts.isFunctionLike(n) && n.body
@@ -11,68 +12,249 @@ const hook = n => ts.isCallExpression(n) && /^(?:beforeEach|afterEach|beforeAll|
 // A runtime reference graph, not an import graph. Class references do not imply
 // invocation of every method. Constructor/field initializers and module effects
 // have their own nodes. Unknown structural dispatch is conservatively linked to
-// compatible member names in the actual runtime dependency closure.
-function behaviorGraph(sources, importGraph, compilerOptions = {}) {
-  sources = new Map([...sources].map(([file, source]) => [posix.resolve(file), source]))
-  const local = file => posix.relative(process.cwd(), file)
-  const options = { allowJs: true, target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, skipLibCheck: true, ...compilerOptions }
+// finite member keys of the actual receiver; unresolved dispatch fails closed.
+function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoot = process.cwd(), inputEdges = [], inputRisks = [], runtimeImportRisks = [], inputPatterns = []) {
+  sources = new Map([...sources].map(([file, source]) => [posix.resolve(repositoryRoot, file), source]))
+  const local = file => posix.relative(repositoryRoot, file)
+  const options = { allowJs: true, target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler, skipLibCheck: true, ...compilerOptions }
   const host = ts.createCompilerHost(options)
   const originalSource = host.getSourceFile.bind(host), originalExists = host.fileExists.bind(host), originalRead = host.readFile.bind(host)
   host.getSourceFile = (file, language) => sources.has(file) ? ts.createSourceFile(file, sources.get(file), language, true) : originalSource(file, language)
   host.fileExists = file => sources.has(file) || originalExists(file)
   host.readFile = file => sources.get(file) ?? originalRead(file)
   host.resolveModuleNames = (names, from) => names.map(name => {
-    if (!name.startsWith('.')) return ts.resolveModuleName(name, posix.resolve(from), options, ts.sys).resolvedModule
+    // Dependency declaration files must resolve their own relative imports.
+    // Only project-source imports are constrained to the immutable snapshot.
+    if (!name.startsWith('.') || !sources.has(posix.resolve(from))) return ts.resolveModuleName(name, posix.resolve(from), options, ts.sys).resolvedModule
     const stem = posix.normalize(posix.join(posix.dirname(from), name))
     const file = [stem, ...['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js'].map(ext => stem + ext)].find(f => sources.has(f))
     return file ? { resolvedFileName: file, extension: file.endsWith('.ts') ? ts.Extension.Ts : ts.Extension.Js } : undefined
   })
   const program = ts.createProgram([...sources.keys()], options, host)
   const checker = program.getTypeChecker()
-  const nodes = new Map(), byAst = new Map(), byMember = new Map(), files = new Map(), mockCandidates = [], invokedSymbols = new Set()
+  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), commonjsTargets = new Set(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set(), escapedBindings = new Set(), mutatedObjectBindings = new Set(), bindingAliases = new Map(), mutatedImplicitRequireFiles = new Set(), escapedImplicitRequireFiles = new Set(), mutatedImplicitModuleFiles = new Set(), mutatedRequireMainFiles = new Set(), escapedExportFiles = new Set(), reconfiguredExportFiles = new Set()
+  const activeProviders = new Set(), cyclicProviders = new Set()
+  const bindingInvalidations = new Map(), loaderAcquisitions = new WeakMap(), loaderScopeContexts = new WeakMap(), initializationModules = new Map()
+  let factsComplete = false
+  function invalidateObjectBinding(set, declaration, ast) {
+    set.add(declaration)
+    if (!bindingInvalidations.has(declaration)) bindingInvalidations.set(declaration, new Set())
+    bindingInvalidations.get(declaration).add(ast)
+  }
+  function connect(entry, id, guard = null) {
+    entry.edges.add(id)
+    entry.edgeGuards ??= new Map()
+    if (!entry.edgeGuards.has(id)) entry.edgeGuards.set(id, new Set())
+    entry.edgeGuards.get(id).add(guard)
+  }
+  function bindingDeclaration(expression) {
+    const symbol = ts.isShorthandPropertyAssignment(expression.parent) ? checker.getShorthandAssignmentValueSymbol(expression.parent) : checker.getSymbolAtLocation(expression)
+    return symbol?.valueDeclaration ?? symbol?.declarations?.find(declaration => ts.isVariableDeclaration(declaration) || ts.isParameter(declaration) || ts.isBindingElement(declaration) || ts.isImportSpecifier(declaration) || ts.isNamespaceImport(declaration) || ts.isImportClause(declaration))
+  }
+  function baseBinding(expression) {
+    while (expression && (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression) || ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isNonNullExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isSatisfiesExpression(expression) || ts.isSpreadElement(expression) || ts.isSpreadAssignment(expression) || ts.isAwaitExpression(expression) || ts.isYieldExpression(expression))) expression = expression.expression
+    return expression && bindingDeclaration(expression)
+  }
+  function stableBinding(expression, seen = new Set()) {
+    const declaration = baseBinding(expression)
+    if (!declaration) return true
+    if (seen.has(declaration)) return false
+    seen.add(declaration)
+    if (mutatedBindings.has(declaration) || mutatedObjectBindings.has(declaration) || escapedBindings.has(declaration)) return false
+    return !bindingAliases.has(declaration) || stableBinding(bindingAliases.get(declaration), seen)
+  }
+  function nativeTarget(expression, seen = new Set()) {
+    if (!stableBinding(expression)) return false
+    if (providerRequire(expression)) return true
+    if (!ts.isIdentifier(expression)) return false
+    const declaration = bindingDeclaration(expression)
+    if (!declaration || seen.has(declaration)) return false
+    seen.add(declaration)
+    if (ts.isNamespaceImport(declaration)) return false
+    if (ts.isImportClause(declaration)) return ts.isImportDeclaration(declaration.parent) && isBuiltin(declaration.parent.moduleSpecifier.text)
+    return ts.isVariableDeclaration(declaration) && declaration.initializer && nativeTarget(declaration.initializer, seen)
+  }
+  function controlledCall(expression) {
+    while (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isNonNullExpression(expression) || ts.isSatisfiesExpression(expression)) expression = expression.expression
+    if (!ts.isCallExpression(expression)) return false
+    if (expression.expression.getText() === 'vi.spyOn' && vitestReceiver(expression.expression.expression) && stableBinding(expression.expression.expression)) return true
+    if (ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === 'method' && nativeTracker(expression.expression.expression)) return true
+    const provider = providerOf(expression.expression)
+    return provider?.module === 'node:test' && stableBinding(expression.expression) && ['test', 'it', 'describe', 'before', 'after', 'beforeEach', 'afterEach'].includes(provider.export)
+  }
+  function implicitCommonJS(identifier, name) {
+    return ts.isIdentifier(identifier) && identifier.text === name
+      && !(ts.isPropertyAccessExpression(identifier.parent) && identifier.parent.name === identifier)
+      && !(ts.isPropertyAssignment(identifier.parent) && identifier.parent.name === identifier)
+      && !(checker.getSymbolAtLocation(identifier)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName)
+        && !declaration.getSourceFile().isDeclarationFile && (ts.isVariableDeclaration(declaration) || ts.isParameter(declaration) || ts.isBindingElement(declaration)
+          || ts.isFunctionDeclaration(declaration) || ts.isFunctionExpression(declaration) || ts.isClassDeclaration(declaration) || ts.isClassExpression(declaration) || ts.isEnumDeclaration(declaration) || ts.isModuleDeclaration(declaration)
+          || ts.isImportSpecifier(declaration) || ts.isNamespaceImport(declaration) || ts.isImportClause(declaration) || ts.isImportEqualsDeclaration(declaration)))
+  }
+  const implicitRequire = identifier => implicitCommonJS(identifier, 'require')
+  function requireProperty(target) {
+    if (!ts.isPropertyAccessExpression(target) && !ts.isElementAccessExpression(target)) return null
+    let member = target
+    while (ts.isPropertyAccessExpression(member.expression) || ts.isElementAccessExpression(member.expression)) member = member.expression
+    if (!implicitRequire(member.expression)) return null
+    return { key: ts.isPropertyAccessExpression(member) ? member.name.text : ts.isStringLiteralLike(member.argumentExpression) ? member.argumentExpression.text : null }
+  }
+  function invalidateAssignment(target) {
+    if (ts.isIdentifier(target)) {
+      const declaration = bindingDeclaration(target)
+      if (implicitRequire(target)) mutatedImplicitRequireFiles.add(target.getSourceFile().fileName)
+      else if (implicitCommonJS(target, 'module')) mutatedImplicitModuleFiles.add(target.getSourceFile().fileName)
+      else if (declaration) mutatedBindings.add(declaration)
+    } else if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+      const property = requireProperty(target)
+      if (property && (property.key === null || property.key === 'main')) mutatedRequireMainFiles.add(target.getSourceFile().fileName)
+      if (property?.key !== 'main') { const declaration = baseBinding(target.expression); if (declaration) invalidateObjectBinding(mutatedObjectBindings, declaration, target) }
+    } else ts.forEachChild(target, invalidateAssignment)
+  }
+  function optionalReceiver(expression) {
+    for (let node = expression; node && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) || ts.isCallExpression(node)); node = node.expression) {
+      if (node.questionDotToken) return node.expression
+    }
+    return null
+  }
+  function invocationReference(node) {
+    if ((ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent)) && node.parent.name === node) node = node.parent
+    while (node.parent && (ts.isParenthesizedExpression(node.parent) || ts.isAsExpression(node.parent) || ts.isNonNullExpression(node.parent))) node = node.parent
+    if (functionAdapter(node.parent)) node = node.parent
+    return ts.isCallExpression(node.parent) && node.parent.expression === node
+  }
+  function invocation(entry, target, call) {
+    connect(entry, target, optionalReceiver(call))
+    let args = [...(call.arguments ?? [])]
+    if (functionAdapter(call.expression)) {
+      const adapter = call.expression.name.text
+      args = adapter === 'call' ? args.slice(1) : adapter === 'apply' && args[1] && ts.isArrayLiteralExpression(args[1]) ? [...args[1].elements] : null
+    }
+    entry.callContexts ??= new Map()
+    if (!entry.callContexts.has(target)) entry.callContexts.set(target, [])
+    const contexts = entry.callContexts.get(target)
+    if (!contexts.some(context => context.call === call)) contexts.push({ call, args })
+    entry.edgeEvidence.set(target, { evidence: 'callable provenance', callsite: { file: entry.file, start: call.getStart() } })
+  }
   function add(ast, label) {
     if (byAst.has(ast)) return byAst.get(ast)
     const file = local(ast.getSourceFile().fileName)
     const id = `${file}:${ast.pos}:${label}`
-    const entry = { id, ast, file, label, edges: new Set(), conservativeEdges: new Set() }
+    const entry = { id, ast, file, label, edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map() }
     nodes.set(id, entry); byAst.set(ast, id)
-    if (member(ast)) {
-      const name = ast.name.getText().replace(/^['"]|['"]$/g, '')
-      if (!byMember.has(name)) byMember.set(name, [])
-      byMember.get(name).push(id)
-    }
     return id
   }
   for (const fullPath of sources.keys()) {
     const file = local(fullPath)
     const sf = program.getSourceFile(fullPath)
     const top = add(sf, '<module>')
-    files.set(file, { sf, top, registrations: [], hooks: [], blocked: new Set() })
-    const importBindings = runtimeImports(sf).bindings
+    files.set(file, { sf, top, registrations: [], hooks: [], blocked: new Set(), blockedProviders: new Set(), uncertainMocks: new Map(), uncertainProviders: new Map(), replacementMocks: new Map() })
+    const imports = runtimeImports(sf)
+    const importBindings = imports.bindings
+    runtimeModules.set(file, new Set())
+    initializationModules.set(file, new Set())
+    const runtimeModule = (name, ast) => {
+      const stem = posix.normalize(posix.join(posix.dirname(file), name))
+      const target = (importGraph.get(file) ?? []).find(dep => dep === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js'].some(ext => dep === stem + ext))
+      if (target) {
+        runtimeModules.get(file).add(target)
+        let deferred = false
+        for (let parent = ast?.parent; parent && !ts.isSourceFile(parent); parent = parent.parent) if (callable(parent)) deferred = true
+        if (!deferred) initializationModules.get(file).add(target)
+      }
+      return target
+    }
     function index(n) {
       if (typeOnly(n)) return
-      if ((ts.isImportSpecifier(n) || ts.isNamespaceImport(n) || ts.isImportClause(n)) && n.name && importBindings.has(n.name.text)) add(n, `<import:${n.name.text}>`)
-      if (callable(n) || ts.isVariableDeclaration(n) || member(n) || ts.isClassLike(n) || ts.isEnumDeclaration(n)) {
-        const owner = n.parent?.name?.getText?.()
-        add(n, `${owner ? owner + '.' : ''}${n.name?.getText() ?? (ts.isConstructorDeclaration(n) ? 'constructor' : '<callback>')}`)
+      if (!n.getSourceFile().isDeclarationFile && ts.isIdentifier(n) && implicitRequire(n)) {
+        const parent = n.parent
+        const benign = ts.isCallExpression(parent) && parent.expression === n
+          || (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) && parent.expression === n
+          || ts.isBinaryExpression(parent) && parent.left === n && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+        if (!benign) escapedImplicitRequireFiles.add(n.getSourceFile().fileName)
       }
-      if (ts.isCallExpression(n) && n.expression.getText() === 'vi.mock' && ts.isStringLiteralLike(n.arguments[0]) && callable(n.arguments[1])) {
-        const factory = n.arguments[1]
-        let partial = false
-        function check(child) {
-          if (ts.isSpreadAssignment(child) || ts.isCallExpression(child) && (child.expression.kind === ts.SyntaxKind.ImportKeyword || child.expression.getText() === 'require') || /importOriginal|importActual/.test(child.getText()) && ts.isIdentifier(child)) partial = true
-          ts.forEachChild(child, check)
+      if (ts.isImportDeclaration(n) && imports.modules.some(specifier => specifier.startsWith(n.moduleSpecifier.getText()))) runtimeModule(n.moduleSpecifier.text, n)
+      if (ts.isExportDeclaration(n) && !n.isTypeOnly && n.moduleSpecifier && (!n.exportClause || !ts.isNamedExports(n.exportClause) || n.exportClause.elements.some(element => !element.isTypeOnly))) runtimeModule(n.moduleSpecifier.text, n)
+      if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword || n.expression.getText() === 'require') && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0])) {
+        const target = runtimeModule(n.arguments[0].text, n)
+        if (target && providerRequire(n)) commonjsTargets.add(target)
+      }
+      if ((ts.isImportSpecifier(n) || ts.isNamespaceImport(n) || ts.isImportClause(n)) && n.name && importBindings.has(n.name.text)) add(n, `<import:${n.name.text}>`)
+      if (callable(n) || ts.isClassStaticBlockDeclaration(n) || ts.isVariableDeclaration(n) || member(n) || ts.isClassLike(n) || ts.isEnumDeclaration(n)) {
+        const owner = n.parent?.name?.getText?.()
+        add(n, `${owner ? owner + '.' : ''}${n.name?.getText() ?? (ts.isConstructorDeclaration(n) ? 'constructor' : ts.isClassStaticBlockDeclaration(n) ? '<static initialization>' : '<callback>')}`)
+      }
+      if (ts.isCallExpression(n) && n.expression.getText() === 'vi.mock' && ts.isStringLiteralLike(n.arguments[0]) && vitestReceiver(n.expression.expression)) {
+        const stem = posix.normalize(posix.join(posix.dirname(file), n.arguments[0].text))
+        const target = (importGraph.get(file) ?? []).find(dep => dep === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js', '/index.cjs'].some(extension => dep === stem + extension))
+        mockCandidates.push({ file, target, provider: n.arguments[0].text, factory: n.arguments[1], ast: n })
+      }
+      if ((ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment)
+        || ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(n.operator))) {
+        invalidateAssignment(n.left ?? n.operand)
+      }
+      if (ts.isForOfStatement(n) || ts.isForInStatement(n)) invalidateAssignment(n.initializer)
+      if (ts.isDeleteExpression(n)) invalidateAssignment(n.expression)
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && baseBinding(n.initializer)) bindingAliases.set(n, n.initializer)
+      if (ts.isBindingElement(n)) {
+        let owner = n.parent
+        while (owner && !ts.isVariableDeclaration(owner)) owner = owner.parent
+        if (owner?.initializer) bindingAliases.set(n, owner.initializer)
+      }
+      const escape = expression => {
+        const visit = node => {
+          if (typeOnly(node)) return
+          if (ts.isIdentifier(node)) {
+            if (implicitRequire(node)) return
+            if (implicitCommonJS(node, 'exports') && !((ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent)) && node.parent.expression === node)) escapedExportFiles.add(node.getSourceFile().fileName)
+            if (implicitCommonJS(node, 'module')) {
+              const namespace = ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === 'exports' ? node.parent : node
+              if (!((ts.isPropertyAccessExpression(namespace.parent) || ts.isElementAccessExpression(namespace.parent)) && namespace.parent.expression === namespace)) escapedExportFiles.add(node.getSourceFile().fileName)
+            }
+            const declaration = bindingDeclaration(node)
+            // Unknown expressions may capture outer references, but their own
+            // callback parameters/locals are not escaped caller bindings.
+            if (declaration && !(declaration.getSourceFile() === expression.getSourceFile() && expression.pos <= declaration.pos && declaration.end <= expression.end)) invalidateObjectBinding(escapedBindings, declaration, node)
+          }
+          ts.forEachChild(node, visit)
         }
-        check(factory)
-        if (!partial) {
-          const stem = posix.normalize(posix.join(posix.dirname(file), n.arguments[0].text))
-          const target = (importGraph.get(file) ?? []).find(dep => dep === stem || dep === stem + '.ts' || dep === stem + '/index.ts')
-          if (target) mockCandidates.push({ file, target, factory })
-        }
+        visit(expression)
+      }
+      if (ts.isVariableDeclaration(n) && n.initializer && !bindingAliases.has(n) && !controlledCall(n.initializer)) escape(n.initializer)
+      if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) escape(n.right)
+      if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(n.left) && n.left.name.text === 'exports' && implicitCommonJS(n.left.expression, 'module')
+        && (!ts.isObjectLiteralExpression(n.right) || n.right.properties.some(property => ts.isGetAccessor(property) || ts.isSetAccessor(property) || ts.isSpreadAssignment(property)))) reconfiguredExportFiles.add(n.getSourceFile().fileName)
+      if (ts.isArrowFunction(n) && !ts.isBlock(n.body)) escape(n.body)
+      if (ts.isPropertyDeclaration(n) && n.initializer) escape(n.initializer)
+      if (ts.isCallExpression(n) || ts.isNewExpression(n)) {
+        const controlled = ts.isCallExpression(n) && controlledCall(n)
+        if (!controlled) for (const argument of n.arguments ?? []) escape(argument)
+      }
+      if (ts.isReturnStatement(n) && n.expression) escape(n.expression)
+      if (ts.isPropertyAssignment(n)) escape(n.initializer)
+      if (ts.isShorthandPropertyAssignment(n)) escape(n.name)
+      if (ts.isArrayLiteralExpression(n)) for (const element of n.elements) escape(element)
+      if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+        && (ts.isPropertyAccessExpression(n.left) || ts.isElementAccessExpression(n.left))) {
+        const symbol = receiverSymbol(origin(n.left.expression))
+        if (symbol) mutatedReceivers.add(symbol)
+        const declaration = baseBinding(n.left.expression); if (declaration && requireProperty(n.left)?.key !== 'main') invalidateObjectBinding(mutatedObjectBindings, declaration, n.left)
+      }
+      if (ts.isCallExpression(n) && /^(?:Object\.(?:assign|defineProperty|defineProperties)|Reflect\.set)$/.test(n.expression.getText()) && n.arguments[0]) {
+        const symbol = receiverSymbol(origin(n.arguments[0]))
+        if (symbol) mutatedReceivers.add(symbol)
       }
       if (ts.isCallExpression(n)) {
-        const callee = ts.isPropertyAccessExpression(n.expression) && ['call', 'apply', 'bind'].includes(n.expression.name.text) ? n.expression.expression : n.expression
-        if (ts.isIdentifier(callee)) invokedSymbols.add(checker.getSymbolAtLocation(callee))
+        if (ts.isPropertyAccessExpression(n.expression) && /^(?:mockImplementation|mockReset|mockRestore)/.test(n.expression.name.text)) delegatingMocks.add(origin(n.expression.expression))
+        const callee = functionAdapter(n.expression) ? n.expression.expression : n.expression
+        if (ts.isIdentifier(callee)) { const symbol = checker.getSymbolAtLocation(callee); if (symbol) invokedSymbols.add(symbol) }
+        const signature = checker.getResolvedSignature(n)
+        n.arguments.forEach((argument, index) => {
+          const parameter = signature?.parameters[index]
+          if (!parameter || !(parameter.declarations ?? []).some(decl => sources.has(decl.getSourceFile().fileName))) return
+          if (!parameterInputs.has(parameter)) parameterInputs.set(parameter, new Set())
+          parameterInputs.get(parameter).add(argument)
+        })
       }
       if (registration(n)) {
         files.get(file).registrations.push(n); add(n, '<registration>')
@@ -84,42 +266,113 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
       ts.forEachChild(n, index)
     }
     index(sf)
-  }
-  const closures = new Map()
-  function closure(file) {
-    if (!closures.has(file)) {
-      const seen = new Set()
-      const visit = f => { if (seen.has(f)) return; seen.add(f); for (const dep of importGraph.get(f) ?? []) visit(dep) }
-      visit(file); closures.set(file, seen)
+    const exports = new Map()
+    for (const statement of sf.statements) if (ts.isExpressionStatement(statement) && ts.isBinaryExpression(statement.expression)) {
+      const assignment = statement.expression, left = assignment.left.getText()
+      if (left === 'module.exports' && ts.isObjectLiteralExpression(assignment.right)) {
+        for (const property of assignment.right.properties) if (property.name && !ts.isComputedPropertyName(property.name)) exports.set(property.name.text, add(property, `<export:${property.name.text}>`))
+      } else if (left === 'module.exports') exports.set('<default>', add(assignment, '<export:default>'))
+      else if (/^(?:module\.exports|exports)\.[\w$]+$/.test(left)) exports.set(left.split('.').pop(), add(assignment, `<export:${left.split('.').pop()}>`))
     }
-    return closures.get(file)
+    commonjs.set(file, exports)
+    for (const entry of [...nodes.values()]) if (entry.file === file && ts.isClassLike(entry.ast)) {
+      const domains = {}
+      for (const domain of ['instance', 'prototype', 'static']) {
+        const id = `${entry.id}:<${domain} shape>`
+        nodes.set(id, { id, ast: entry.ast, file, label: `${entry.label}.<${domain} shape>`, edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map(), shape: true })
+        domains[domain] = id
+      }
+      shapes.set(entry.ast, domains)
+    }
   }
-  function linkSymbol(symbol, entry, seen = new Set()) {
+  let changedBindings = true
+  while (changedBindings) {
+    changedBindings = false
+    for (const [alias, expression] of bindingAliases) if (mutatedObjectBindings.has(alias) || escapedBindings.has(alias)) {
+      const original = baseBinding(expression)
+      if (original) {
+        if (!escapedBindings.has(original)) { escapedBindings.add(original); changedBindings = true }
+        if (!bindingInvalidations.has(original)) bindingInvalidations.set(original, new Set())
+        for (const fact of bindingInvalidations.get(alias) ?? []) if (!bindingInvalidations.get(original).has(fact)) {
+          bindingInvalidations.get(original).add(fact); changedBindings = true
+        }
+      }
+    }
+  }
+  // Data-reader candidate expansion is not executable module provenance.
+  // Keep this graph distinct from importGraph, which also contains input edges.
+  for (const input of inputEdges ?? []) if (['import', 'execute'].includes(input.kind)) {
+    if (!runtimeModules.has(input.from)) runtimeModules.set(input.from, new Set())
+    runtimeModules.get(input.from).add(input.to)
+  }
+  const runtimeClosures = new Map()
+  function runtimeReaches(file, target) {
+    if (!runtimeClosures.has(file)) {
+      const seen = new Set(), queue = [file]
+      for (let index = 0; index < queue.length; index++) {
+        const next = queue[index]
+        if (seen.has(next)) continue
+        seen.add(next); queue.push(...(runtimeModules.get(next) ?? []))
+      }
+      runtimeClosures.set(file, seen)
+    }
+    return runtimeClosures.get(file).has(target)
+  }
+  const initializationClosures = new Map()
+  function initializesFrom(processEntry, file) {
+    if (!initializationClosures.has(processEntry)) {
+      const visited = new Set(), queue = [processEntry]
+      for (const next of queue) if (!visited.has(next)) { visited.add(next); queue.push(...(initializationModules.get(next) ?? [])) }
+      initializationClosures.set(processEntry, visited)
+    }
+    return initializationClosures.get(processEntry).has(file)
+  }
+  function requiredModule(n) {
+    n = origin(n)
+    if (!ts.isCallExpression(n) || n.expression.getText() !== 'require' || !n.arguments[0] || !ts.isStringLiteralLike(n.arguments[0])) return null
+    const file = local(n.getSourceFile().fileName)
+    const stem = posix.normalize(posix.join(posix.dirname(file), n.arguments[0].text))
+    return (importGraph.get(file) ?? []).find(dep => dep === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js'].some(ext => dep === stem + ext))
+  }
+  function linkSymbol(symbol, entry, seen = new Set(), guard = null) {
     if (!symbol || seen.has(symbol)) return symbol
     seen.add(symbol)
     for (const decl of symbol.declarations ?? []) {
+      if (ts.isVariableDeclaration(decl) && decl.initializer && ts.isIdentifier(decl.name)) {
+        const id = commonjs.get(requiredModule(decl.initializer))?.get('<default>')
+        if (id) connect(entry, id, guard)
+      }
+      if (ts.isBindingElement(decl) && ts.isVariableDeclaration(decl.parent.parent) && decl.parent.parent.initializer) {
+        const module = requiredModule(decl.parent.parent.initializer)
+        const id = commonjs.get(module)?.get((decl.propertyName ?? decl.name).getText())
+        if (id) { connect(entry, id, guard); entry.edgeEvidence.set(id, { receiver: module, key: (decl.propertyName ?? decl.name).getText(), evidence: 'CommonJS export binding' }) }
+      }
       let owner = decl
       while (ts.isBindingElement(owner) || ts.isObjectBindingPattern(owner) || ts.isArrayBindingPattern(owner)) owner = owner.parent
       const id = byAst.get(owner)
-      if (id && id !== entry.id) { entry.edges.add(id); entry.conservativeEdges.delete(id) }
+      if (id && id !== entry.id) { connect(entry, id, guard); if (!entry.typeReceiverEdges?.has(id)) entry.conservativeEdges.delete(id) }
     }
     // Preserve intermediate import/re-export bindings instead of flattening
     // directly to the final declaration: an unchanged caller can be retargeted.
     return symbol.flags & ts.SymbolFlags.Alias
-      ? linkSymbol(checker.getImmediateAliasedSymbol(symbol), entry, seen) : symbol
+      ? linkSymbol(checker.getImmediateAliasedSymbol(symbol), entry, seen, guard) : symbol
   }
   function symbolEdges(n, entry, original = checker.getSymbolAtLocation(n)) {
-    const symbol = linkSymbol(original, entry)
+    const access = (ts.isPropertyAccessExpression(n.parent) || ts.isElementAccessExpression(n.parent)) && n.parent.name === n ? n.parent : n
+    const symbol = linkSymbol(original, entry, new Set(), optionalReceiver(access))
+    if (!invocationReference(n)) for (const declaration of symbol?.declarations ?? []) if (callable(declaration) && byAst.has(declaration)) {
+      entry.opaqueTargets ??= new Set(); entry.opaqueTargets.add(byAst.get(declaration))
+    }
     const namespace = symbol && symbol.flags & (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule)
     const namedAccess = (ts.isPropertyAccessExpression(n.parent) || ts.isElementAccessExpression(n.parent)) && n.parent.expression === n
-      && (ts.isPropertyAccessExpression(n.parent) || ts.isStringLiteralLike(n.parent.argumentExpression))
+      && (ts.isPropertyAccessExpression(n.parent) || literalKeys(n.parent.argumentExpression))
     // Namespace escape, dynamic access and enumeration may read any export.
     if (namespace && !namedAccess) for (const exported of checker.getExportsOfModule(symbol)) linkSymbol(exported, entry)
     // A CommonJS/destructured class binding can have a BindingElement symbol
     // while its runtime type still identifies the actual class declaration.
     const valueType = checker.getTypeAtLocation(n)
     for (const decl of valueType.getConstructSignatures().length ? valueType.symbol?.declarations ?? [] : []) {
-      if (ts.isClassLike(decl) && byAst.has(decl)) entry.edges.add(byAst.get(decl))
+      if (ts.isClassLike(decl) && byAst.has(decl)) connect(entry, byAst.get(decl))
     }
     return symbol
   }
@@ -127,13 +380,493 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     if (seen.has(n)) return n
     seen.add(n)
     if (ts.isAsExpression(n) || ts.isParenthesizedExpression(n) || ts.isNonNullExpression(n) || ts.isTypeAssertionExpression(n)) return origin(n.expression, seen)
+    if (ts.isCallExpression(n) && n.expression.getText() === 'Object.create' && n.arguments.length === 1) return origin(n.arguments[0], seen)
     if (ts.isIdentifier(n)) {
-      const declaration = checker.getSymbolAtLocation(n)?.valueDeclaration
+      const symbol = checker.getSymbolAtLocation(n)
+      const declaration = symbol?.valueDeclaration
+      if (declaration && ts.isBindingElement(declaration) && ts.isVariableDeclaration(declaration.parent.parent) && declaration.parent.parent.initializer) {
+        const module = requiredModule(declaration.parent.parent.initializer)
+        const exported = nodes.get(commonjs.get(module)?.get((declaration.propertyName ?? declaration.name).getText()))?.ast
+        if (exported && ts.isPropertyAssignment(exported)) return origin(exported.initializer, seen)
+        if (exported && ts.isShorthandPropertyAssignment(exported)) return exported.name
+        if (exported && ts.isBinaryExpression(exported)) return origin(exported.right, seen)
+      }
+      const inputs = parameterInputs.get(symbol)
+      if (inputs?.size === 1) return origin([...inputs][0], seen)
       if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) return origin(declaration.initializer, seen)
     }
     return n
   }
+  function receiverSymbol(receiver) {
+    let symbol = checker.getSymbolAtLocation(receiver)
+    const seen = new Set()
+    while (symbol?.flags & ts.SymbolFlags.Alias && !seen.has(symbol)) {
+      seen.add(symbol); symbol = checker.getImmediateAliasedSymbol(symbol)
+    }
+    return symbol
+  }
+  function externalReceiver(receiver) {
+    const symbol = receiverSymbol(receiver)
+    // Prove the value binding itself is external (not merely an instance cast
+    // to a library interface). Local extension writes invalidate this boundary.
+    return !!symbol?.declarations?.length && !mutatedReceivers.has(symbol)
+      && symbol.declarations.every(decl => !sources.has(decl.getSourceFile().fileName))
+  }
+  const providerName = provider => provider?.module ? provider.module.replace(/^node:/, '') : provider?.global ? `global:${provider.global}` : null
+  function providerRequire(expression) {
+    return ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.expression.text === 'require'
+      && ts.isStringLiteralLike(expression.arguments[0])
+      // node: builtins bypass require.cache. Mutating the function object's
+      // cache/properties does not replace its direct [[Call]] identity.
+      && (expression.arguments[0].text.startsWith('node:') || stableBinding(expression.expression))
+      && !mutatedImplicitRequireFiles.has(expression.getSourceFile().fileName) && !escapedImplicitRequireFiles.has(expression.getSourceFile().fileName)
+      && implicitRequire(expression.expression)
+  }
+  function providerOf(expression) {
+    const value = origin(expression)
+    if (activeProviders.has(value)) {
+      for (const active of activeProviders) cyclicProviders.add(active)
+      cyclicProviders.add(value)
+      return null
+    }
+    activeProviders.add(value)
+    try { return providerValue(value) } finally { activeProviders.delete(value) }
+  }
+  function providerValue(expression) {
+    if (providerRequire(expression)) return { module: expression.arguments[0].text, export: '*' }
+    if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === 'method') {
+      const handle = nativeReplacement(expression)
+      if (handle?.provider) return { ...handle.provider, export: handle.method ?? '*' }
+    }
+    if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
+      const provider = providerOf(expression.expression)
+      const keys = ts.isPropertyAccessExpression(expression) ? [expression.name.text] : literalKeys(expression.argumentExpression)
+      return provider && keys?.[0] !== 'prototype' ? { ...provider, export: keys?.length === 1 ? keys[0] : '*' } : provider
+    }
+    const symbol = checker.getSymbolAtLocation(expression)
+    for (const declaration of symbol?.declarations ?? []) {
+      for (let node = declaration; node; node = node.parent) if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
+        return { module: node.moduleSpecifier.text, export: ts.isNamespaceImport(declaration) ? '*' : ts.isImportClause(declaration) ? isBuiltin(node.moduleSpecifier.text) ? '*' : 'default' : declaration.propertyName?.text ?? declaration.name?.text ?? '*' }
+      }
+      const variable = ts.isBindingElement(declaration) ? declaration.parent.parent : declaration
+      const initializer = variable.initializer
+      if (initializer && providerRequire(initializer)) return { module: initializer.arguments[0].text, export: ts.isBindingElement(declaration) ? (declaration.propertyName ?? declaration.name).getText() : '*' }
+    }
+    return null
+  }
+  function spy(expression, seen = new Set()) {
+    expression = origin(expression)
+    if (seen.has(expression)) return null
+    seen.add(expression)
+    if (!ts.isCallExpression(expression)) return null
+    if (expression.expression.getText() === 'vi.spyOn' && expression.arguments.length >= 2
+      && vitestReceiver(expression.expression.expression) && stableBinding(expression.expression.expression)) {
+      const keys = literalKeys(expression.arguments[1]), provider = providerOf(expression.arguments[0])
+      return provider && keys?.length === 1 ? { provider, method: keys[0] } : null
+    }
+    return ts.isPropertyAccessExpression(expression.expression) ? spy(expression.expression.expression, seen) : null
+  }
+  function vitestReceiver(expression) {
+    const provider = providerOf(expression)
+    if (provider?.module === 'vitest' && provider.export === 'vi') return true
+    return ts.isIdentifier(expression) && expression.text === 'vi'
+      && !(checker.getSymbolAtLocation(expression)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName))
+  }
+  function emptyMockReceiver(expression) {
+    if (!vitestReceiver(expression)) return false
+    if (stableBinding(expression)) return true
+    const declaration = baseBinding(expression)
+    if (!declaration || mutatedBindings.has(declaration) || mutatedObjectBindings.has(declaration) || bindingAliases.has(declaration)) return false
+    const facts = bindingInvalidations.get(declaration)
+    return !!facts?.size && [...facts].every(fact => ts.isIdentifier(fact) && ts.isPropertyAccessExpression(fact.parent)
+      && fact.parent.expression === fact && ['fn', 'mock', 'mocked'].includes(fact.parent.name.text)
+      && ts.isCallExpression(fact.parent.parent) && fact.parent.parent.expression === fact.parent)
+  }
+  const emptyMockExports = new WeakMap()
+  function mockFactoryMode(factory) {
+    const plainParameters = fn => fn.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)
+    if (!factory || !callable(factory) || !plainParameters(factory)) return 'uncertain'
+    const unwrap = value => value && (ts.isParenthesizedExpression(value) || ts.isAsExpression(value) || ts.isAwaitExpression(value)) ? unwrap(value.expression) : value
+    const returned = fn => ts.isBlock(fn.body) ? fn.body.statements.length === 1 && ts.isReturnStatement(fn.body.statements[0]) ? fn.body.statements[0].expression : undefined : fn.body
+    const value = unwrap(returned(factory))
+    const original = expression => {
+      expression = unwrap(expression)
+      return !!factory.parameters[0] && expression && ts.isCallExpression(expression) && expression.arguments.length === 0 && ts.isIdentifier(expression.expression)
+        && checker.getSymbolAtLocation(expression.expression)?.valueDeclaration === factory.parameters[0] && !mutatedBindings.has(factory.parameters[0])
+    }
+    if (original(value) || value && ts.isObjectLiteralExpression(value) && value.properties.length === 1 && ts.isSpreadAssignment(value.properties[0]) && original(value.properties[0].expression)) return 'original'
+    const emptyPaths = []
+    const closed = (expression, path = [], allowEmpty = true) => {
+      expression = unwrap(expression)
+      if (!expression) return false
+      if (ts.isLiteralExpression(expression) || [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(expression.kind)) return true
+      if (allowEmpty && ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === 'fn'
+        && expression.arguments.length === 0 && emptyMockReceiver(expression.expression.expression)) {
+        emptyPaths.push(path); return true
+      }
+      if (ts.isArrayLiteralExpression(expression)) return expression.elements.every((element, index) => closed(element, [...path, String(index)], allowEmpty))
+      if (ts.isObjectLiteralExpression(expression)) return expression.properties.every(property => !property.name || !ts.isComputedPropertyName(property.name))
+        && expression.properties.every(property => ts.isPropertyAssignment(property) ? closed(property.initializer, [...path, property.name.text ?? property.name.getText()], allowEmpty) : (ts.isMethodDeclaration(property) || ts.isGetAccessor(property)) && closed(property))
+      if (callable(expression)) return plainParameters(expression) && (ts.isBlock(expression.body) && expression.body.statements.length === 0 || closed(returned(expression), path, false))
+      return false
+    }
+    const replacement = value && ts.isObjectLiteralExpression(value) && closed(value)
+    if (replacement && emptyPaths.length) emptyMockExports.set(factory, emptyPaths)
+    return replacement ? 'replacement' : 'uncertain'
+  }
+  const deferredMockConfigurations = new WeakMap(), mockInvocationCandidates = new WeakMap(), nativeCallbackRegistrations = new WeakSet(), nativeCallbackProviders = new Set(), persistentNativeCandidates = []
+  const operationKey = node => `${local(node.getSourceFile().fileName)}:${node.getStart()}`
+  const mockRuntimeOperations = new Set([...inputEdges, ...inputRisks].filter(input => !['import', 'glob'].includes(input.kind))
+    .map(input => `${input.readerFile ?? input.from}:${input.readerStart ?? input.start}`))
+  const mockDataOperations = new Set([...inputEdges, ...inputRisks].filter(input => !['import', 'execute', 'glob'].includes(input.kind))
+    .map(input => `${input.readerFile ?? input.from}:${input.readerStart ?? input.start}`))
+  const finiteMockSyntax = new Set([
+    'Block', 'ExpressionStatement', 'ReturnStatement', 'VariableStatement', 'VariableDeclarationList', 'VariableDeclaration',
+    'CallExpression', 'NewExpression', 'PropertyAccessExpression', 'ElementAccessExpression', 'Identifier', 'Parameter',
+    'ParenthesizedExpression', 'AsExpression', 'TypeAssertionExpression', 'NonNullExpression', 'SatisfiesExpression',
+    'StringLiteral', 'NumericLiteral', 'NoSubstitutionTemplateLiteral', 'TrueKeyword', 'FalseKeyword', 'NullKeyword',
+    'ObjectLiteralExpression', 'PropertyAssignment', 'ArrayLiteralExpression', 'PrefixUnaryExpression',
+    'IfStatement', 'EmptyStatement', 'ThrowStatement', 'TryStatement', 'CatchClause',
+    'AsyncKeyword', 'ExportKeyword', 'DefaultKeyword', 'EqualsGreaterThanToken', 'QuestionToken',
+  ].map(kind => ts.SyntaxKind[kind]))
+  function mockLexicalValue(declaration) {
+    if (!sources.has(declaration.getSourceFile().fileName) || declaration.getSourceFile().isDeclarationFile
+      || ts.getCombinedModifierFlags(declaration) & ts.ModifierFlags.Ambient) return false
+    if (![ts.isVariableDeclaration, ts.isParameter, ts.isBindingElement, ts.isFunctionDeclaration, ts.isFunctionExpression,
+      ts.isClassDeclaration, ts.isEnumDeclaration, ts.isImportSpecifier, ts.isNamespaceImport, ts.isImportClause, ts.isImportEqualsDeclaration].some(isKind => isKind(declaration))) return false
+    for (let owner = declaration; owner && !ts.isSourceFile(owner); owner = owner.parent) if (owner.isTypeOnly || ts.getCombinedModifierFlags(owner) & ts.ModifierFlags.Ambient) return false
+    return true
+  }
+  function finiteMockCallback(callback, seen = new Set(), diagnostic) {
+    const reject = (node, reason) => {
+      if (diagnostic && !diagnostic.unsupported) {
+        const source = node.getSourceFile(), start = node.getStart(), position = source.getLineAndCharacterOfPosition(start)
+        diagnostic.unsupported = { reason, file: local(source.fileName), start, line: position.line + 1, column: position.character + 1,
+          syntax: ts.SyntaxKind[node.kind], expression: node.getText().slice(0, 400) }
+      }
+      return false
+    }
+    if (!callable(callback) || seen.has(callback) || !callback.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)) return reject(callback, 'Callable identity, acyclic helper path, or plain callback parameters are unproven')
+    const visiting = new Set(seen); visiting.add(callback)
+    const returnedValue = expression => {
+      const value = origin(expression)
+      if (inertValue(value)) return true
+      if (!ts.isCallExpression(value)) return reject(value, 'Returned value lacks closed-value evidence')
+      if (mockDataOperations.has(operationKey(value))) return true
+      const declaration = checker.getResolvedSignature(value)?.declaration
+      return !!declaration?.body && finiteMockCallback(declaration, visiting, diagnostic) || reject(value, 'Returned call lacks a recorded data-operation or finite source-helper proof')
+    }
+    let known = ts.isBlock(callback.body) || returnedValue(callback.body)
+    const visit = node => {
+      if (!known || typeOnly(node)) return
+      if (node !== callback && !finiteMockSyntax.has(node.kind)) { known = reject(node, 'AST construct is outside the supported finite callback effect grammar'); return }
+      if (ts.isReturnStatement(node) && node.expression && !returnedValue(node.expression)) { known = reject(node, 'Returned value lacks closed-value evidence'); return }
+      if (node !== callback && callable(node)) { known = reject(node, 'Nested callable effects lack finite callback proof'); return }
+      if (ts.isVariableDeclaration(node) && !ts.isIdentifier(node.name) || ts.isAwaitExpression(node)) { known = reject(node, 'Destructuring or asynchronous effects lack finite callback proof'); return }
+      if (ts.isIdentifier(node) && ['globalThis', 'window', 'eval'].includes(node.text)) { known = reject(node, 'Ambient dynamic effects lack finite callback proof'); return }
+      if (ts.isIdentifier(node) && node.text !== 'undefined'
+        && !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)
+        && !(ts.isPropertyAssignment(node.parent) && node.parent.name === node)) {
+        const declarations = checker.getSymbolAtLocation(node)?.declarations ?? []
+        const operationCallee = ts.isCallExpression(node.parent) && node.parent.expression === node && mockRuntimeOperations.has(operationKey(node.parent))
+        if (!operationCallee && !declarations.some(mockLexicalValue)) { known = reject(node, 'Identifier lacks a proven lexical value or recorded runtime operation'); return }
+      }
+      const provenCall = call => {
+        if (mockRuntimeOperations.has(operationKey(call))) return true
+        const declaration = checker.getResolvedSignature(call)?.declaration
+        return !!declaration?.body && sources.has(declaration.getSourceFile().fileName) && finiteMockCallback(declaration, visiting, diagnostic)
+      }
+      if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+        if (!provenCall(node)) { known = reject(node, 'Call effects lack a recorded runtime operation or finite source-helper proof'); return }
+      }
+      if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+        let access = node
+        while ((ts.isPropertyAccessExpression(access.parent) || ts.isElementAccessExpression(access.parent)) && access.parent.expression === access) access = access.parent
+        if (!(ts.isCallExpression(access.parent) || ts.isNewExpression(access.parent)) || access.parent.expression !== access || !provenCall(access.parent)) { known = reject(node, 'Property access lacks a proven operation boundary; accessor or receiver effects are unresolved'); return }
+      }
+      if (ts.isPrefixUnaryExpression(node) && !inertValue(node)) { known = reject(node, 'Unary operation lacks inert-value proof'); return }
+      ts.forEachChild(node, visit)
+    }
+    visit(callback)
+    return known
+  }
+  function stableEmptyMockExports(candidate) {
+    const paths = emptyMockExports.get(candidate.factory)
+    if (!paths) return true
+    candidate.configurations = new Map(paths.map(path => [JSON.stringify(path), []]))
+    candidate.configurationCalls = new Set()
+    candidate.invocations = []
+    // Mock implementations survive clearAllMocks and can be shared by sibling
+    // cases. Only direct calls of the initially empty exports are benign; all
+    // other uses require substitution/escape proof that this boundary lacks.
+    for (const [file, info] of files) {
+      if (candidate.target && file !== candidate.file && !runtimeModules.get(file)?.has(candidate.target) && !runtimeReaches(candidate.file, file)) continue
+      let stable = true
+      const visit = node => {
+        if (!stable || ts.isTypeNode(node) || ts.isImportDeclaration(node)) return
+        if (ts.isExportDeclaration(node)) { stable = false; return }
+        if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+          && ['resetAllMocks', 'restoreAllMocks'].includes(node.expression.name.text) && vitestReceiver(node.expression.expression)) { stable = false; return }
+        if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+          || ts.isPropertyAccessExpression(node.expression) && ['importMock', 'importActual'].includes(node.expression.name.text) && vitestReceiver(node.expression.expression))) {
+          const specifiers = node.arguments[0] && literalKeys(node.arguments[0])
+          if (!specifiers || specifiers.some(specifier => candidate.target
+            ? importedModule(file, specifier) === candidate.target
+            : providerName({ module: specifier }) === providerName({ module: candidate.provider }))) { stable = false; return }
+        }
+        if (ts.isIdentifier(node) && !((ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)
+          || (ts.isPropertyAssignment(node.parent) && node.parent.name === node))) {
+          const provider = providerOf(node)
+          const matches = candidate.target ? providerTarget(provider, node) === candidate.target : providerName(provider) === providerName({ module: candidate.provider })
+          if (matches) {
+            let access = node, path = provider.export === '*' ? [] : [provider.export]
+            while ((ts.isPropertyAccessExpression(access.parent) || ts.isElementAccessExpression(access.parent)) && access.parent.expression === access) {
+              access = access.parent
+              const keys = ts.isPropertyAccessExpression(access) ? [access.name.text] : literalKeys(access.argumentExpression)
+              if (keys?.length !== 1) { stable = false; return }
+              path.push(keys[0])
+            }
+            let wrapper = access.parent
+            if (ts.isCallExpression(wrapper) && wrapper.arguments.length === 1 && wrapper.arguments[0] === access
+              && ts.isPropertyAccessExpression(wrapper.expression) && wrapper.expression.name.text === 'mocked' && emptyMockReceiver(wrapper.expression.expression)) access = wrapper
+            const method = ts.isPropertyAccessExpression(access.parent) && access.parent.expression === access ? access.parent : null
+            const configuration = method && ts.isCallExpression(method.parent) && method.parent.expression === method ? method.parent : null
+            const key = JSON.stringify(path)
+            if (configuration && ['mockImplementation', 'mockImplementationOnce'].includes(method.name.text)
+              && candidate.configurations.has(key) && configuration.arguments.length === 1 && finiteMockCallback(configuration.arguments[0])) {
+              candidate.configurations.get(key).push(configuration.arguments[0]); candidate.configurationCalls.add(configuration)
+            } else if (ts.isCallExpression(access.parent) && access.parent.expression === access && candidate.configurations.has(key)) {
+              candidate.invocations.push({ call: access.parent, key })
+            } else { stable = false; return }
+          }
+        }
+        ts.forEachChild(node, visit)
+      }
+      visit(info.sf)
+      if (!stable) return false
+    }
+    return true
+  }
+  function nativeTracker(expression) {
+    if (!stableBinding(expression)) return false
+    const provider = providerOf(expression)
+    if (provider?.module === 'node:test' && provider.export === 'mock') return true
+    if (!ts.isPropertyAccessExpression(expression) || expression.name.text !== 'mock') return false
+    const declaration = checker.getSymbolAtLocation(expression.expression)?.valueDeclaration
+    if (!declaration || !ts.isParameter(declaration) || !callable(declaration.parent) || declaration.parent.parameters[0] !== declaration) return false
+    const callback = declaration.parent, registration = callback.parent
+    const registrationProvider = ts.isCallExpression(registration) && registration.arguments.includes(callback) && providerOf(registration.expression)
+    return registrationProvider?.module === 'node:test' && stableBinding(registration.expression) && ['test', 'it', 'default', '*'].includes(registrationProvider.export)
+  }
+  function nativeReplacement(call) {
+    if (!ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression) || call.expression.name.text !== 'method' || call.arguments.length < 2) return null
+    const provider = providerOf(call.arguments[0])
+    if (!provider) {
+      if (cyclicProviders.has(origin(call.arguments[0])) && nativeTracker(call.expression.expression)) return { cyclicProvider: call.arguments[0].getText() }
+      return null
+    }
+    const keys = literalKeys(call.arguments[1]), trackerProven = nativeTracker(call.expression.expression)
+    const callback = call.arguments[2]
+    const statement = callback && callable(callback) && ts.isBlock(callback.body) && callback.body.statements.length === 1 ? callback.body.statements[0] : null
+    const literalThrow = statement && ts.isThrowStatement(statement) && (ts.isStringLiteralLike(statement.expression) || ts.isNumericLiteral(statement.expression)
+      || [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(statement.expression.kind))
+    const known = trackerProven && nativeTarget(call.arguments[0]) && call.arguments.length === 3 && ts.isStringLiteralLike(call.arguments[1]) && literalThrow
+      && callback.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)
+    // inputStatus still requires a live property lookup: captured CJS function
+    // values do not change when this provider object's method is replaced.
+    return { provider, method: keys?.length === 1 ? keys[0] : null, trackerProven, native: true, persistent: providerOf(call.expression.expression)?.module === 'node:test' && providerOf(call.expression.expression)?.export === 'mock', action: known ? 'replace' : 'uncertain',
+      callback: trackerProven && nativeTarget(call.arguments[0]) && call.arguments.length === 3 && ts.isStringLiteralLike(call.arguments[1]) && callable(callback) ? callback : null }
+  }
+  function replacementEvent(call, entry) {
+    const name = call.expression.getText()
+    let event = nativeReplacement(call)
+    if (event?.cyclicProvider) { entry.unsafe = `cyclic native mock provider provenance: ${event.cyclicProvider}`; return }
+    if (event) {
+      // Index-time native provenance must not depend on the later operation
+      // inventory. Qualify callback bodies only during complete graph inspection.
+      const effectDiagnostic = {}, registrationProven = !!event.callback
+      const effectsProven = event.callback && finiteMockCallback(event.callback, new Set(), effectDiagnostic)
+      event.boundaryDiagnostic = { registrationIdentity: registrationProven ? 'proven' : 'unproven',
+        effectCompleteness: registrationProven ? effectsProven ? 'proven' : 'unproven' : 'not-evaluated',
+        registration: { file: entry.file, start: call.getStart(), expression: call.getText().slice(0, 400) },
+        ...(effectDiagnostic.unsupported ? { unsupported: effectDiagnostic.unsupported } : {}),
+        ...(!registrationProven ? { missingEvidence: 'Native tracker/target, literal method, exact callback identity, or registration arity is unproven' } : {}) }
+      if (effectsProven) {
+        nativeCallbackRegistrations.add(event.callback)
+        // The existing literal-throw boundary has no runtime callback effects.
+        if (event.action === 'replace') event.callback = null
+        else nativeCallbackProviders.add(providerName(event.provider))
+        event.action = 'replace'
+      } else event.callback = null
+      if (event.persistent) { persistentNativeCandidates.push({ ...event, file: entry.file, ast: call }); nativeCallbackProviders.add(providerName(event.provider)) }
+      ;(entry.providerEvents ??= []).push({ ...event, ast: call }); return
+    }
+    if (name === 'vi.spyOn' && call.arguments[0] && vitestReceiver(call.expression.expression)) {
+      providerOf(call.arguments[0])
+      if (cyclicProviders.has(origin(call.arguments[0]))) { entry.unsafe = `cyclic mock provider provenance: ${call.arguments[0].getText()}`; return }
+    }
+    if (name === 'vi.stubGlobal' && ts.isStringLiteralLike(call.arguments[0]) && call.arguments[1]) {
+      const replacement = origin(call.arguments[1])
+      let base = replacement
+      const constant = ts.isCallExpression(base) && ts.isPropertyAccessExpression(base.expression) && /^mock(?:ReturnValue|ResolvedValue|RejectedValue)$/.test(base.expression.name.text)
+      while (ts.isCallExpression(base) && ts.isPropertyAccessExpression(base.expression) && /^mock/.test(base.expression.name.text)) base = origin(base.expression.expression)
+      const known = ts.isCallExpression(base) && base.expression.getText() === 'vi.fn' && (constant || base.arguments.length === 0) && !delegatingMocks.has(replacement)
+      event = { provider: { global: call.arguments[0].text }, action: known ? 'replace' : 'uncertain' }
+    } else if (['vi.restoreAllMocks', 'vi.unstubAllGlobals'].includes(name)) event = { action: 'restore', all: true, boundary: name === 'vi.unstubAllGlobals' ? 'global' : 'module' }
+    else if (ts.isPropertyAccessExpression(call.expression)) {
+      const method = call.expression.name.text, target = spy(call.expression.expression)
+      const receiver = origin(call.expression.expression)
+      if (/^(?:mockImplementation|restore)/.test(method) && ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'mock') {
+        const value = origin(receiver.expression), handle = ts.isCallExpression(value) ? nativeReplacement(value) : null
+        const provider = handle?.provider ?? providerOf(value)
+        if (provider) event = { provider, method: handle?.method ?? provider.export, action: 'uncertain', reason: 'Native mock implementation or restoration changed' }
+      }
+      if (['restoreAll', 'reset'].includes(method) && nativeTracker(receiver)) event = { all: true, boundary: 'module', action: 'uncertain' }
+      if (target && /^mock(?:ReturnValue|ResolvedValue|RejectedValue)$/.test(method)) event = { ...target, action: 'replace' }
+      else if (target && method === 'mockRestore') event = { ...target, action: 'restore' }
+      else if (target && /^mock(?:Implementation|ReturnValueOnce|ResolvedValueOnce|RejectedValueOnce)/.test(method)) event = { ...target, action: 'uncertain' }
+    }
+    if (event) (entry.providerEvents ??= []).push({ ...event, ast: call })
+  }
+  function providerEscape(expression, entry, ast) {
+    const provider = providerOf(expression)
+    if (!provider) return
+    ;(entry.providerEvents ??= []).push({ provider, action: 'uncertain', ast, reason: 'Provider value escapes its proven replacement boundary' })
+  }
+  function providerTarget(provider, ast) {
+    if (!provider?.module?.startsWith('.')) return null
+    const file = local(ast.getSourceFile().fileName), stem = posix.normalize(posix.join(posix.dirname(file), provider.module))
+    return (importGraph.get(file) ?? []).find(target => target === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js', '/index.cjs'].some(extension => target === stem + extension))
+  }
+  function functionAdapter(expression) {
+    if (!expression || !ts.isPropertyAccessExpression(expression) || !['call', 'apply', 'bind'].includes(expression.name.text)) return false
+    const type = checker.getTypeAtLocation(origin(expression.expression))
+    return !!type.getCallSignatures().length || !!(type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown))
+  }
+  function callableValues(expression, seen = new Set()) {
+    const value = origin(expression)
+    if (seen.has(value)) return []
+    seen.add(value)
+    if (callable(value)) return byAst.has(value) ? [byAst.get(value)] : []
+    if (ts.isCallExpression(value)) {
+      const declaration = checker.getResolvedSignature(value)?.declaration
+      if (!declaration?.body || seen.has(declaration)) return []
+      seen.add(declaration)
+      const result = []
+      const returns = node => {
+        if (node !== declaration.body && callable(node)) return
+        if (ts.isReturnStatement(node) && node.expression) result.push(...callableValues(node.expression, seen))
+        else ts.forEachChild(node, returns)
+      }
+      returns(declaration.body)
+      return result
+    }
+    const declaration = receiverSymbol(value)?.valueDeclaration
+    return declaration && callable(declaration) && byAst.has(declaration) ? [byAst.get(declaration)] : []
+  }
+  function literalKeys(n) {
+    n = origin(n)
+    if (ts.isStringLiteralLike(n) || ts.isNumericLiteral(n)) return [n.text]
+    if (ts.isConditionalExpression(n)) {
+      const a = literalKeys(n.whenTrue), b = literalKeys(n.whenFalse)
+      return a && b ? [...new Set([...a, ...b])] : null
+    }
+    const type = checker.getTypeAtLocation(n)
+    const types = type.isUnion() ? type.types : [type]
+    return types.every(t => t.flags & (ts.TypeFlags.StringLiteral | ts.TypeFlags.NumberLiteral)) ? types.map(t => String(t.value)) : null
+  }
+  function receiverClasses(receiver, inherited = false) {
+    const result = new Set()
+    const inspectType = type => {
+      for (const part of type.isUnion() ? type.types : [type]) for (const decl of part.symbol?.declarations ?? []) if (ts.isClassLike(decl) && !result.has(decl)) {
+        result.add(decl)
+        if (inherited) for (const clause of decl.heritageClauses ?? []) for (const base of clause.types) inspectType(checker.getTypeAtLocation(base.expression))
+      }
+    }
+    inspectType(checker.getTypeAtLocation(receiver))
+    if (ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'prototype') inspectType(checker.getTypeAtLocation(origin(receiver.expression)))
+    return result
+  }
+  function resolveMember(receiver, keys, entry, access, reflective = false, invoked = false) {
+    receiver = origin(receiver)
+    const type = checker.getTypeAtLocation(receiver)
+    const classes = receiverClasses(receiver, true)
+    const concreteReceiver = receiver.kind === ts.SyntaxKind.ThisKeyword || ts.isNewExpression(receiver) || ts.isObjectLiteralExpression(receiver)
+      || !!type.getConstructSignatures().length || ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'prototype' && !!checker.getTypeAtLocation(receiver.expression).getConstructSignatures().length
+    let resolved = false
+    for (const key of keys ?? []) {
+      const references = { ...entry, edges: new Set(), edgeGuards: new Map(), conservativeEdges: new Set(), edgeEvidence: new Map() }
+      const exported = commonjs.get(requiredModule(receiver))?.get(key)
+      if (exported) { connect(references, exported); resolved = true }
+      const symbol = checker.getPropertyOfType(type, key)
+      linkSymbol(symbol, references, new Set(), optionalReceiver(access))
+      if (symbol?.declarations?.some(decl => decl.getSourceFile().isDeclarationFile || !ts.isMethodSignature(decl) && !ts.isPropertySignature(decl))) resolved = true
+      for (const id of references.edges) {
+        connect(entry, id, optionalReceiver(access))
+        const typeDerived = !concreteReceiver && (callable(nodes.get(id)?.ast) || callable(nodes.get(id)?.ast.initializer))
+        if (typeDerived) { entry.typeReceiverEdges ??= new Set(); entry.typeReceiverEdges.add(id) }
+        if (keys.length > 1 || typeDerived) entry.conservativeEdges.add(id)
+        entry.edgeEvidence.set(id, { receiver: receiver.getText(), key, ...(keys.length > 1 ? { keyCandidates: keys } : {}), evidence: typeDerived ? 'receiver type; runtime allocation unproven' : 'receiver symbol', ...(reflective ? { observation: 'reflection' } : {}) })
+      }
+    }
+    // Unknown dispatch is not permission to connect unrelated classes. Only
+    // executable member access needs dispatch evidence; dynamic data reads keep
+    // their actual object/value owner through ordinary symbol references.
+    const parent = access.parent
+    const executed = invoked || ts.isCallExpression(parent) && parent.expression === access
+      || functionAdapter(parent)
+
+    if (executed && (!keys || !resolved) && !externalReceiver(receiver)) {
+      const position = access.getSourceFile().getLineAndCharacterOfPosition(access.getStart())
+      ;(entry.dispatchRisks ??= []).push({
+        owners: [...classes].map(decl => byAst.get(decl)).filter(Boolean), keys,
+        reason: `${entry.file}:${position.line + 1}:${position.character + 1}: receiver ${receiver.getText()}; missing ${keys ? 'runtime receiver symbol' : 'finite property keys'} for ${access.getText()}`,
+      })
+    }
+    return resolved
+  }
+  function resolveAccess(n, entry) {
+    const keys = ts.isPropertyAccessExpression(n) ? [n.name.text] : literalKeys(n.argumentExpression)
+    // Use the member symbol only, not the computed key variable's symbol.
+    if (ts.isPropertyAccessExpression(n)) symbolEdges(n.name, entry)
+    resolveMember(n.expression, keys, entry, n)
+  }
+  function importedModule(file, specifier) {
+    if (!specifier.startsWith('.')) return null
+    const stem = posix.normalize(posix.join(posix.dirname(file), specifier))
+    return [...(runtimeModules.get(file) ?? [])].find(target => target === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js'].some(extension => target === stem + extension))
+  }
+  function mainCondition(expression) {
+    while (ts.isParenthesizedExpression(expression)) expression = expression.expression
+    if (!ts.isBinaryExpression(expression) || ![ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(expression.operatorToken.kind)) return null
+    let left = expression.left, right = expression.right
+    if (ts.isIdentifier(left) && left.text === 'module') [left, right] = [right, left]
+    if (!ts.isPropertyAccessExpression(left) || left.name.text !== 'main' || !ts.isIdentifier(left.expression) || left.expression.text !== 'require' || !ts.isIdentifier(right) || right.text !== 'module') return null
+    const file = expression.getSourceFile().fileName
+    if (mutatedImplicitRequireFiles.has(file) || escapedImplicitRequireFiles.has(file) || mutatedRequireMainFiles.has(file) || mutatedImplicitModuleFiles.has(file)) return null
+    if (!implicitRequire(left.expression) || !implicitCommonJS(right, 'module')) return null
+    return { file: local(file), isMain: expression.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken, expression: expression.getText() }
+  }
+  function inertLocalCall(expression) {
+    if (!stableBinding(expression)) return false
+    const targets = [...callableValues(expression)].map(id => nodes.get(id)?.ast)
+    return targets.length > 0 && targets.every(fn => callable(fn) && fn.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)
+      && (ts.isBlock(fn.body) ? fn.body.statements.length === 1 && ts.isReturnStatement(fn.body.statements[0]) && inertValue(fn.body.statements[0].expression) : inertValue(fn.body)))
+  }
   function inspect(n, entry, root = false) {
+    if (ts.isIfStatement(n)) {
+      const condition = mainCondition(n.expression)
+      if (condition && !callable(n.thenStatement) && !callable(n.elseStatement)) {
+        for (const [branch, truth] of [[n.thenStatement, true], [n.elseStatement, false]]) if (branch) {
+          const id = add(branch, '<main entry guard>'), gate = nodes.get(id)
+          gate.mainGuard = { ...condition, isMain: truth ? condition.isMain : !condition.isMain }
+          connect(entry, id)
+          entry.edgeEvidence.set(id, { evidence: 'canonical CommonJS entry guard', ...gate.mainGuard })
+        }
+        return
+      }
+    }
+    if (ts.isWithStatement(n)) entry.unsafe = 'with dynamic scope'
     if (typeOnly(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n) || ts.isImportSpecifier(n) || ts.isNamespaceImport(n) || ts.isImportClause(n)) return
     // Registration callbacks are separate roots. Suite hooks are applied below.
     if (registration(n)) {
@@ -151,101 +884,173 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
       }
       return
     }
-    if (!root && byAst.has(n)) { entry.edges.add(byAst.get(n)); return }
+    // Defining an unused closure is not executing it. References and actual
+    // argument/callee positions still enter the separately indexed callable.
+    if (!root && ts.isReturnStatement(n) && n.expression && callable(n.expression)) return
+    if (!root && ts.isFunctionDeclaration(n)) return
+    if (!root && ts.isVariableDeclaration(n) && inertValue(n.initializer)) return
+    if (!root && nativeCallbackRegistrations.has(n)) return
+    if (!root && byAst.has(n)) {
+      connect(entry, byAst.get(n))
+      if (callable(n) && !invocationReference(n)) { entry.opaqueTargets ??= new Set(); entry.opaqueTargets.add(byAst.get(n)) }
+      return
+    }
     if (ts.isClassLike(n)) {
       for (const clause of n.heritageClauses ?? []) for (const type of clause.types) inspect(type.expression, entry)
       for (const decorator of ts.getDecorators(n) ?? []) inspect(decorator.expression, entry)
       for (const child of n.members) {
         for (const decorator of ts.canHaveDecorators(child) ? ts.getDecorators(child) ?? [] : []) inspect(decorator.expression, entry)
         if (child.name && ts.isComputedPropertyName(child.name)) inspect(child.name.expression, entry)
-        if (ts.isClassStaticBlockDeclaration(child)) inspect(child.body, entry)
+        if (ts.isClassStaticBlockDeclaration(child)) inspect(child, entry)
         if (child.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword) && ts.isPropertyDeclaration(child)) {
-          const id = byAst.get(child); if (id) entry.edges.add(id)
+          const id = byAst.get(child); if (id) connect(entry, id)
         }
       }
       return
     }
     if (ts.isNewExpression(n)) {
-      const construct = (declaration, seen = new Set()) => {
+      for (const argument of n.arguments ?? []) providerEscape(argument, entry, n)
+      const construct = (declaration, seen = new Set(), direct = true) => {
         if (seen.has(declaration)) return
         seen.add(declaration)
-        for (const child of declaration.members) if (ts.isConstructorDeclaration(child) || ts.isPropertyDeclaration(child)) {
-          if (byAst.has(child)) entry.edges.add(byAst.get(child))
+        for (const child of declaration.members) if (ts.isConstructorDeclaration(child) || ts.isPropertyDeclaration(child) && !child.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword)) {
+          if (byAst.has(child)) { if (ts.isConstructorDeclaration(child) && direct) invocation(entry, byAst.get(child), n); else connect(entry, byAst.get(child)) }
         }
         for (const clause of declaration.heritageClauses ?? []) for (const type of clause.types) {
-          for (const base of checker.getTypeAtLocation(type.expression).symbol?.declarations ?? []) if (ts.isClassLike(base)) construct(base, seen)
+          for (const base of checker.getTypeAtLocation(type.expression).symbol?.declarations ?? []) if (ts.isClassLike(base)) construct(base, seen, false)
         }
       }
       for (const declaration of checker.getTypeAtLocation(n.expression).symbol?.declarations ?? []) if (ts.isClassLike(declaration)) construct(declaration)
     }
-    const unknownDispatch = expression => {
-      const value = origin(expression)
-      if (!ts.isElementAccessExpression(value)) return
-      const type = checker.getTypeAtLocation(value.argumentExpression)
-      if (ts.isStringLiteralLike(value.argumentExpression) || type.flags & ts.TypeFlags.StringLiteral) return
-      for (const ids of byMember.values()) for (const id of ids) if (closure(entry.file).has(nodes.get(id).file)) {
-        if (!entry.edges.has(id)) entry.conservativeEdges.add(id)
-        entry.edges.add(id)
-        const owner = nodes.get(id).ast.parent
-        if (ts.isClassLike(owner)) entry.edges.add(byAst.get(owner))
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) {
+      if (ts.isPropertyAccessExpression(n.left) || ts.isElementAccessExpression(n.left)) {
+        const provider = providerOf(n.left.expression), keys = ts.isPropertyAccessExpression(n.left) ? [n.left.name.text] : literalKeys(n.left.argumentExpression)
+        if (provider) (entry.providerEvents ??= []).push({ provider, method: keys?.length === 1 ? keys[0] : null, action: 'uncertain', ast: n, reason: 'Provider export mutation' })
       }
+      providerEscape(n.right, entry, n)
     }
+    if (ts.isReturnStatement(n) && n.expression) providerEscape(n.expression, entry, n)
+    if (ts.isPropertyAssignment(n)) providerEscape(n.initializer, entry, n)
+    if (ts.isShorthandPropertyAssignment(n)) providerEscape(n.name, entry, n)
+    if (ts.isArrayLiteralExpression(n)) for (const element of n.elements) providerEscape(element, entry, n)
     if (ts.isCallExpression(n)) {
-      unknownDispatch(n.expression)
-      if (ts.isPropertyAccessExpression(n.expression) && ['call', 'apply', 'bind'].includes(n.expression.name.text)) unknownDispatch(n.expression.expression)
-      // An opaque callback consumer may invoke an aliased computed method too.
-      const signature = checker.getResolvedSignature(n)
-      n.arguments.forEach((arg, index) => {
-        const parameter = signature?.parameters[index]
-        const type = parameter && checker.getTypeOfSymbolAtLocation(parameter, n)
-        if (ts.isIdentifier(arg) && (type?.getCallSignatures().length || invokedSymbols.has(parameter))) unknownDispatch(arg)
-      })
+      if (deferredMockConfigurations.has(n) && entry.mockConfigurationCall !== n) {
+        const id = `${entry.file}:${n.getStart()}:<mock configuration>`
+        if (!nodes.has(id)) {
+          const operation = { id, ast: n, file: entry.file, label: '<mock configuration>', mockConfigurationCall: n,
+            mockConfigurationFor: deferredMockConfigurations.get(n), prepared: true, edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map() }
+          nodes.set(id, operation); inspect(n, operation)
+        }
+        connect(entry, id)
+        return
+      }
+      if (mockInvocationCandidates.has(n)) (entry.mockInvocations ??= []).push({ call: n, alternatives: mockInvocationCandidates.get(n) })
+      if ((ts.isIdentifier(n.expression) && n.expression.text === 'require' || n.expression.kind === ts.SyntaxKind.ImportKeyword) && ts.isStringLiteralLike(n.arguments[0])) {
+        const target = importedModule(entry.file, n.arguments[0].text)
+        if (files.has(target)) {
+          if (providerRequire(n) || n.expression.kind === ts.SyntaxKind.ImportKeyword) {
+            connect(entry, files.get(target).top); entry.conservativeEdges.add(files.get(target).top)
+            entry.edgeEvidence.set(files.get(target).top, { evidence: 'actual module initialization', expression: n.getText() })
+          } else if (!inertLocalCall(n.expression)) {
+            const risk = { target, expression: n.getText(), reason: 'CommonJS loader identity or cache provenance is unresolved' }
+            ;(entry.moduleEntryRisks ??= []).push(risk)
+            if (implicitRequire(n.expression) && !mutatedImplicitRequireFiles.has(n.getSourceFile().fileName)
+              && !escapedImplicitRequireFiles.has(n.getSourceFile().fileName)) {
+              loaderAcquisitions.set(risk, n)
+              commonjsTargets.add(target)
+              // This edge is provisional. Every affected case must qualify the
+              // loader against its complete process/scope trace before selection.
+              connect(entry, files.get(target).top); entry.conservativeEdges.add(files.get(target).top)
+              entry.edgeEvidence.set(files.get(target).top, { evidence: 'module initialization with per-case loader scope guard', expression: n.getText() })
+            }
+          }
+        }
+      }
+      replacementEvent(n, entry)
+      if (!nativeReplacement(n) && !spy(n)) for (const argument of n.arguments) providerEscape(argument, entry, n)
       if (n.expression.getText() === 'eval') entry.unsafe = 'eval runtime dispatch'
+      let callee = n.expression
+      if (functionAdapter(callee)) callee = callee.expression
+      for (const id of callableValues(callee)) invocation(entry, id, n)
+      const signature = checker.getResolvedSignature(n)
+      n.arguments.forEach((argument, index) => {
+        if (nativeCallbackRegistrations.has(argument)) return
+        const parameter = signature?.parameters[index]
+        const parameterType = parameter && checker.getTypeOfSymbolAtLocation(parameter, n)
+        if (!parameterType?.getCallSignatures().length && !invokedSymbols.has(parameter) && !checker.getTypeAtLocation(argument).getCallSignatures().length) return
+        for (const id of callableValues(argument)) {
+          connect(entry, id)
+          entry.opaqueTargets ??= new Set(); entry.opaqueTargets.add(id)
+        }
+        const callback = origin(argument)
+        if (ts.isElementAccessExpression(callback)) resolveMember(callback.expression, literalKeys(callback.argumentExpression), entry, callback, false, true)
+      })
+      const value = origin(callee)
+      if (ts.isElementAccessExpression(value) && value !== callee) resolveMember(value.expression, literalKeys(value.argumentExpression), entry, value, false, true)
     }
     if (ts.isShorthandPropertyAssignment(n)) symbolEdges(n.name, entry, checker.getShorthandAssignmentValueSymbol(n))
     if (ts.isIdentifier(n) && n !== n.parent?.name) symbolEdges(n, entry)
     if (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) {
-      const keyType = ts.isElementAccessExpression(n) ? checker.getTypeAtLocation(n.argumentExpression) : null
-      const name = ts.isPropertyAccessExpression(n) ? n.name.text
-        : ts.isStringLiteralLike(n.argumentExpression) ? n.argumentExpression.text
-        : keyType?.flags & ts.TypeFlags.StringLiteral ? keyType.value : null
-      const symbol = symbolEdges(ts.isPropertyAccessExpression(n) ? n.name : n.argumentExpression, entry)
-      const original = origin(n.expression)
-      if (name) {
-        const actual = checker.getPropertyOfType(checker.getTypeAtLocation(original), name)
-        linkSymbol(actual, entry)
-      }
-      const concrete = symbol?.declarations?.some(d => byAst.has(d) || d.getSourceFile().isDeclarationFile)
-      if (!concrete && name) for (const id of byMember.get(name) ?? []) {
-        const candidate = nodes.get(id)
-        const expected = symbol && checker.getTypeOfSymbolAtLocation(symbol, n)
-        const actual = checker.getTypeAtLocation(candidate.ast)
-        if (closure(entry.file).has(candidate.file) && (!expected || expected.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)
-          || checker.isTypeAssignableTo(actual, expected))) { if (!entry.edges.has(id)) entry.conservativeEdges.add(id); entry.edges.add(id) }
-      }
-      // Dynamic property dispatch cannot prove an exclusion. Conservatively
-      // retain every member in its dependency closure, including casts to any.
-      if (!name && ts.isElementAccessExpression(n) && ts.isCallExpression(n.parent) && n.parent.expression === n) {
-        for (const ids of byMember.values()) for (const id of ids) if (closure(entry.file).has(nodes.get(id).file)) {
-          if (!entry.edges.has(id)) entry.conservativeEdges.add(id)
-          entry.edges.add(id)
-          const parent = nodes.get(id).ast.parent
-          if (ts.isClassLike(parent)) entry.edges.add(byAst.get(parent))
-        }
-      }
+      resolveAccess(n, entry)
     }
-    // Reflection contracts such as getOwnPropertyDescriptor(proto, 'getter').
-    if (ts.isCallExpression(n) && /\.(?:getOwnPropertyDescriptor|spyOn)$/.test(n.expression.getText())) {
-      for (const arg of n.arguments) if (ts.isStringLiteralLike(arg)) for (const id of byMember.get(arg.text) ?? []) {
-        if (closure(entry.file).has(nodes.get(id).file)) entry.edges.add(id)
+    // Reflection is tied to the observed receiver, never a repository name scan.
+    if (ts.isCallExpression(n) && /\.(?:getOwnPropertyDescriptor|spyOn|getOwnPropertyNames|getOwnPropertyDescriptors|ownKeys|keys|entries|values)$/.test(n.expression.getText()) && n.arguments[0]) {
+      const receiver = origin(n.arguments[0])
+      const key = n.arguments[1]
+      if (key) resolveMember(receiver, literalKeys(key), entry, n, true)
+      else {
+        const domain = ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'prototype' ? 'prototype'
+          : checker.getTypeAtLocation(receiver).getConstructSignatures().length ? 'static' : 'instance'
+        for (const declaration of receiverClasses(receiver, domain === 'instance')) {
+          const shape = shapes.get(declaration)?.[domain]
+          if (shape) { connect(entry, shape); entry.edgeEvidence.set(shape, { receiver: receiver.getText(), observation: 'reflection', shape: domain }) }
+        }
       }
     }
     ts.forEachChild(n, child => inspect(child, entry))
   }
+  function inertExportBinding(expression) {
+    if (inertValue(expression)) return true
+    if (ts.isIdentifier(expression)) return (checker.getSymbolAtLocation(expression)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName))
+    if (ts.isObjectLiteralExpression(expression)) return expression.properties.every(property => ts.isShorthandPropertyAssignment(property)
+      ? inertExportBinding(property.name) : ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name) && inertExportBinding(property.initializer))
+    return false
+  }
+  function inertCommonJSExport(statement) {
+    if (!ts.isExpressionStatement(statement) || !ts.isBinaryExpression(statement.expression) || statement.expression.operatorToken.kind !== ts.SyntaxKind.EqualsToken) return false
+    const assignment = statement.expression, left = assignment.left
+    if (!ts.isPropertyAccessExpression(left)) return false
+    let root = left
+    while (ts.isPropertyAccessExpression(root)) root = root.expression
+    const direct = implicitCommonJS(root, 'exports') ? /^exports\.[\w$]+$/.test(left.getText())
+      : implicitCommonJS(root, 'module') && /^module\.exports(?:\.[\w$]+)?$/.test(left.getText())
+    if (!direct || escapedExportFiles.has(statement.getSourceFile().fileName)) return false
+    if (left.getText() !== 'module.exports' && left.getText().startsWith('module.exports.') && reconfiguredExportFiles.has(statement.getSourceFile().fileName)) return false
+    return inertExportBinding(assignment.right)
+  }
+  const mockModes = new Map()
+  for (const candidate of mockCandidates) {
+    candidate.mode = mockFactoryMode(candidate.factory)
+    if (candidate.mode === 'replacement' && !stableEmptyMockExports(candidate)) candidate.mode = 'uncertain'
+    candidate.boundaryKey = `${candidate.file}:${candidate.target ?? providerName({ module: candidate.provider })}`
+    if (!mockModes.has(candidate.boundaryKey)) mockModes.set(candidate.boundaryKey, new Set())
+    mockModes.get(candidate.boundaryKey).add(candidate.mode)
+  }
+  for (const candidate of mockCandidates) if (candidate.mode === 'replacement' && mockModes.get(candidate.boundaryKey).size === 1) {
+    for (const call of candidate.configurationCalls ?? []) {
+      if (!deferredMockConfigurations.has(call)) deferredMockConfigurations.set(call, [])
+      deferredMockConfigurations.get(call).push(candidate)
+    }
+    for (const invocation of candidate.invocations ?? []) {
+      if (!mockInvocationCandidates.has(invocation.call)) mockInvocationCandidates.set(invocation.call, [])
+      mockInvocationCandidates.get(invocation.call).push({ candidate, key: invocation.key })
+    }
+  }
   for (const entry of nodes.values()) {
+    if (entry.shape || entry.prepared) continue
     if (ts.isSourceFile(entry.ast) || entry.label === '<suite setup>') {
       function eager(n) {
-        if (typeOnly(n) || registration(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n) || callable(n)) return
+        if (typeOnly(n) || registration(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n) || callable(n) || inertCommonJSExport(n)) return
         if (ts.isEnumDeclaration(n)) {
           for (const m of n.members) if (m.initializer && !inertValue(m.initializer)) inspect(m.initializer, entry)
           return
@@ -255,7 +1060,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
           for (const clause of n.heritageClauses ?? []) for (const type of clause.types) inspect(type.expression, entry)
           for (const m of n.members) {
             for (const decorator of ts.canHaveDecorators(m) ? ts.getDecorators(m) ?? [] : []) inspect(decorator.expression, entry)
-            if (ts.isClassStaticBlockDeclaration(m)) inspect(m.body, entry)
+            if (ts.isClassStaticBlockDeclaration(m)) inspect(m, entry)
             else if (m.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword) && m.initializer
               && !inertValue(m.initializer)) inspect(m.initializer, entry)
             if (m.name && ts.isComputedPropertyName(m.name)) inspect(m.name.expression, entry)
@@ -263,44 +1068,405 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
           return
         }
         if (ts.isVariableStatement(n)) { n.declarationList.declarations.forEach(eager); return }
-        if (ts.isVariableDeclaration(n)) { if (n.initializer && !inertValue(n.initializer)) inspect(n.initializer, entry); return }
+        if (ts.isVariableDeclaration(n)) { if (n.initializer && !inertValue(n.initializer)) inspect(n, entry); return }
         if (ts.isStatement(n) || ts.isCallExpression(n) || ts.isNewExpression(n)) { inspect(n, entry); return }
         ts.forEachChild(n, eager)
       }
       eager(entry.ast)
     } else inspect(entry.ast, entry, true)
   }
-  // Related/dev uses imports for symbol resolution and candidate discovery, not
-  // module-to-module execution edges. A leaf's own setup/hooks and actual value
-  // references remain roots; importing a module alone does not select its cases.
-  for (const { file, target, factory } of mockCandidates) {
-    const seen = new Set(), queue = [byAst.get(factory)]
-    for (let i=0; i<queue.length; i++) {
-      const id = queue[i]
-      if (seen.has(id)) continue
-      seen.add(id)
-      queue.push(...(nodes.get(id)?.edges ?? []))
+  for (const [file, info] of files) for (const statement of info.sf.statements) {
+    if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) || statement.isTypeOnly || !statement.moduleSpecifier || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue
+    if (ts.isImportDeclaration(statement) && (statement.importClause?.isTypeOnly || !statement.importClause?.name && ts.isNamedImports(statement.importClause?.namedBindings ?? {}) && statement.importClause.namedBindings.elements.length > 0 && statement.importClause.namedBindings.elements.every(element => element.isTypeOnly))) continue
+    if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause) && statement.exportClause.elements.length > 0 && statement.exportClause.elements.every(element => element.isTypeOnly)) continue
+    const target = importedModule(file, statement.moduleSpecifier.text)
+    if (files.has(target)) {
+      connect(nodes.get(info.top), files.get(target).top)
+      nodes.get(info.top).conservativeEdges.add(files.get(target).top)
+      nodes.get(info.top).edgeEvidence.set(files.get(target).top, { evidence: 'actual module initialization', expression: statement.getText() })
     }
-    if (![...seen].some(id => nodes.get(id)?.file === target)) files.get(file).blocked.add(target)
+  }
+  function actualReaderCall(input) {
+    const file = input.readerFile ?? input.from, info = files.get(file)
+    const offset = input.readerStart ?? input.start
+    if (!info || offset === undefined) return null
+    let call
+    const locate = node => {
+      if (node.getStart() <= offset && offset < node.end) {
+        if (ts.isCallExpression(node) || ts.isNewExpression(node)) call = node
+        ts.forEachChild(node, locate)
+      }
+    }
+    locate(info.sf)
+    return call?.getStart() === offset ? call : null
+  }
+  function readerBinding(input) {
+    const call = actualReaderCall(input)
+    if (!call) return { live: false }
+    const unwrap = expression => ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isNonNullExpression(expression) ? unwrap(expression.expression) : expression
+    const imported = expression => {
+      const declaration = checker.getSymbolAtLocation(expression)?.declarations?.find(declaration => ts.isImportSpecifier(declaration) || ts.isNamespaceImport(declaration) || ts.isImportClause(declaration))
+      return declaration
+    }
+    const moduleKind = (expression, seen = new Set()) => {
+      expression = unwrap(expression)
+      if (seen.has(expression)) return null
+      seen.add(expression)
+      if (imported(expression)) return 'esm'
+      if (providerRequire(expression)) return 'cjs'
+      if (ts.isNewExpression(expression)) return moduleKind(expression.expression, seen)
+      const declaration = bindingDeclaration(expression)
+      if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer && !mutatedBindings.has(declaration)) return moduleKind(declaration.initializer, seen)
+      return null
+    }
+    const nativeSnapshot = (expression, seen = new Set()) => {
+      expression = unwrap(expression)
+      if (seen.has(expression)) return true
+      seen.add(expression)
+      const binding = imported(expression)
+      if (binding) {
+        let statement = binding
+        while (statement && !ts.isImportDeclaration(statement)) statement = statement.parent
+        return (ts.isImportSpecifier(binding) || ts.isNamespaceImport(binding)) && !!statement?.moduleSpecifier?.text && isBuiltin(statement.moduleSpecifier.text)
+      }
+      const declaration = bindingDeclaration(expression)
+      return !!(declaration && ts.isVariableDeclaration(declaration) && declaration.initializer && nativeSnapshot(declaration.initializer, seen))
+    }
+    const callee = unwrap(call.expression)
+    if (ts.isIdentifier(callee)) {
+      const binding = imported(callee)
+      if (binding) return { live: true, moduleKind: 'esm', methodLive: !nativeSnapshot(callee) }
+      if (input.provider?.global === callee.text && !(checker.getSymbolAtLocation(callee)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName))) return { live: true, moduleKind: 'global' }
+      // Destructuring or assigning a function captures its current value; a
+      // later provider-object spy does not necessarily replace this call.
+      return { live: false }
+    }
+    if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) {
+      const kind = moduleKind(callee.expression)
+      return { live: !!kind, moduleKind: kind, methodLive: !nativeSnapshot(callee.expression) }
+    }
+    return { live: false }
+  }
+  const inputs = new Map()
+  for (const input of inputEdges ?? []) {
+    const crossModule = input.readerFile && input.readerFile !== input.from
+    const readerFile = crossModule ? input.readerFile : input.from
+    const info = files.get(readerFile)
+    if (!info) continue
+    const offset = (crossModule ? input.readerStart : input.start) ?? info.sf.getPositionOfLineAndCharacter(input.line - 1, input.column - 1)
+    let ast = info.sf
+    function locate(node) {
+      if (node.getStart() <= offset && offset < node.end) {
+        ast = node
+        ts.forEachChild(node, locate)
+      }
+    }
+    locate(info.sf)
+    let owner = ast
+    while (owner && !byAst.has(owner)) owner = owner.parent
+    const ownerId = byAst.get(owner) ?? info.top
+    const id = `${readerFile}:${offset}:<input:${input.to}>`
+    nodes.set(id, { id, ast, file: readerFile, provider: input.provider, readerBinding: readerBinding(input), readerCall: actualReaderCall(input), changeKinds: input.changeKinds, inputSet: input.inputSet, readerMethod: input.kind === 'load' ? 'loadAsync' : input.provider?.export, label: `<input:${input.to}>`, edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map() })
+    connect(nodes.get(ownerId), id)
+    if (input.kind === 'import' && files.has(input.to)) { connect(nodes.get(id), files.get(input.to).top); nodes.get(id).conservativeEdges.add(files.get(input.to).top) }
+    if (input.kind === 'execute' && input.executionKind === 'node-entry' && files.has(input.to)) nodes.get(id).nodeEntry = { file: input.to, target: files.get(input.to).top }
+    if (crossModule || input.conservative || input.inputSet && input.kind !== 'directory-membership') nodes.get(ownerId).conservativeEdges.add(id)
+    nodes.get(ownerId).edgeEvidence.set(id, { input: input.to, expression: input.expression, evidence: input.kind, ...(input.inputSet ? { inputSet: input.inputSet, ...(input.resolution || input.kind !== 'directory-membership' ? { resolution: input.resolution ?? 'possible bounded directory input' } : {}) } : {}), ...(crossModule ? { callerContext: { file: input.from, line: input.line, column: input.column }, resolution: 'finite factory context' } : {}) })
+    if (!(files.has(input.to) && (input.kind === 'import' || input.executionKind === 'node-entry'))) {
+      if (!inputs.has(input.to)) inputs.set(input.to, new Set())
+      inputs.get(input.to).add(id)
+    }
+  }
+  // Listing operations remain observable even when their proven snapshot set is empty.
+  // These are operation nodes, not invented file targets.
+  for (const pattern of inputPatterns ?? []) for (const listing of pattern.directoryInputs ?? []) {
+    const info = files.get(listing.listingFile), offset = listing.listingStart
+    if (!info || offset === undefined) continue
+    let ast = info.sf, owner = info.sf
+    const locate = node => {
+      if (node.getStart() <= offset && offset < node.end) {
+        ast = node; if (byAst.has(node)) owner = node
+        ts.forEachChild(node, locate)
+      }
+    }
+    locate(info.sf)
+    const id = `${listing.listingFile}:${offset}:<directory-listing>`
+    if (nodes.has(id)) continue
+    nodes.set(id, { id, ast, file: listing.listingFile, label: '<directory-listing>', directoryInput: listing, readerBinding: readerBinding({ readerFile: listing.listingFile, readerStart: listing.listingStart, provider: listing.listingProvider }),
+      edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map() })
+    const entry = nodes.get(byAst.get(owner))
+    connect(entry, id)
+    entry.edgeEvidence.set(id, { evidence: 'snapshot directory listing', expression: listing.listingExpression, directory: listing.directory, predicate: listing.predicate })
+  }
+  for (const risk of [...(inputRisks ?? []), ...(runtimeImportRisks ?? []).map(risk => ({ ...risk, moduleImport: true }))]) {
+    const info = files.get(risk.from)
+    if (!info) continue
+    const offset = risk.start ?? info.sf.getPositionOfLineAndCharacter(risk.line - 1, risk.column - 1)
+    let owner = info.sf
+    function locate(node) {
+      if (node.getStart() <= offset && offset < node.end) {
+        if (byAst.has(node)) owner = node
+        ts.forEachChild(node, locate)
+      }
+    }
+    locate(info.sf)
+    ;(nodes.get(byAst.get(owner)).inputRisks ??= []).push({ ...risk, start: offset })
+  }
+  // CJS require calls retain original bindings; a Vitest module replacement
+  // cannot establish a file-wide boundary for those consumers.
+  for (const input of inputEdges ?? []) if (input.kind === 'import' && /^require\s*\(/.test(input.inputExpression ?? input.expression)) commonjsTargets.add(input.to)
+  for (const { file, target, provider, ast, mode: ownMode, boundaryKey } of mockCandidates) {
+    const mode = mockModes.get(boundaryKey).size === 1 ? ownMode : 'uncertain', info = files.get(file)
+    if (mode === 'original') continue
+    const uncertain = { provider, target, expression: ast.getText(), reason: mode === 'replacement' ? 'CommonJS consumer is not replaced by an ESM module mock' : 'Mock factory delegation or returned exports are unresolved' }
+    if (mode === 'replacement' && (!target || !commonjsTargets.has(target))) {
+      if (target) { info.blocked.add(target); info.replacementMocks.set(target, { provider, target, expression: ast.getText() }) }
+      info.blockedProviders.add(providerName({ module: provider }))
+    } else {
+      if (target) info.uncertainMocks.set(target, uncertain)
+      info.uncertainProviders.set(providerName({ module: provider }), uncertain)
+    }
+  }
+  function mockUncertainty(path, testFile, reached) {
+    for (const step of path) if (step.processContext === 'test' && reached?.mockUncertainties?.has(step.file)) return reached.mockUncertainties.get(step.file)
+    for (const step of path) if (step.processContext === 'test' && files.get(testFile)?.uncertainMocks.has(step.file)) return files.get(testFile).uncertainMocks.get(step.file)
+    return null
+  }
+  function nullishValue(expression, environment, visited = new Set()) {
+    if (!expression) return 'undefined'
+    if (visited.has(expression)) return 'unknown'
+    visited.add(expression)
+    if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isNonNullExpression(expression)) return nullishValue(expression.expression, environment, visited)
+    if (expression.kind === ts.SyntaxKind.NullKeyword) return 'null'
+    if (ts.isVoidExpression(expression) || ts.isOmittedExpression(expression)) return 'undefined'
+    if (ts.isIdentifier(expression)) {
+      const declaration = checker.getSymbolAtLocation(expression)?.valueDeclaration
+      if (declaration && mutatedBindings.has(declaration)) return 'unknown'
+      if (declaration && environment.has(declaration)) return environment.get(declaration)
+      if (expression.text === 'undefined' && (!declaration || !sources.has(declaration.getSourceFile().fileName))) return 'undefined'
+      if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) return nullishValue(declaration.initializer, environment, visited)
+      return 'unknown'
+    }
+    if (ts.isLiteralExpression(expression) || ts.isObjectLiteralExpression(expression) || ts.isArrayLiteralExpression(expression) || ts.isNewExpression(expression) || callable(expression)
+      || [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(expression.kind)) return 'present'
+    if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+      const left = nullishValue(expression.left, environment, visited)
+      return left === 'null' || left === 'undefined' ? nullishValue(expression.right, environment, visited) : left
+    }
+    return 'unknown'
+  }
+  const contextIds = new WeakMap()
+  let contextOrdinal = 0
+  function contextKey(environment) {
+    return [...environment].map(([parameter, value]) => {
+      if (!contextIds.has(parameter)) contextIds.set(parameter, contextOrdinal++)
+      return `${contextIds.get(parameter)}:${value}`
+    }).sort().join(',')
+  }
+  function callEnvironment(target, context, parent) {
+    if (!callable(target.ast)) return parent
+    const environment = new Map()
+    for (let ancestor = target.ast.parent; ancestor; ancestor = ancestor.parent) if (callable(ancestor)) {
+      for (const parameter of ancestor.parameters) if (parent.has(parameter)) environment.set(parameter, parent.get(parameter))
+    }
+    if (!context?.args) return environment
+    let spread = false
+    target.ast.parameters.forEach((parameter, index) => {
+      const argument = context.args[index]
+      spread ||= !!argument && ts.isSpreadElement(argument)
+      let value = parameter.dotDotDotToken ? 'present' : spread ? 'unknown' : nullishValue(argument, parent)
+      if (value === 'undefined' && parameter.initializer) value = nullishValue(parameter.initializer, environment)
+      if (value !== 'unknown' && !mutatedBindings.has(parameter)) environment.set(parameter, value)
+    })
+    return environment
   }
   function reachable(roots, testFile) {
-    const blocked = files.get(testFile)?.blocked ?? new Set()
-    const seen = new Set(), pending = new Map()
-    const visit = id => {
-      if (seen.has(id) || blocked.has(nodes.get(id)?.file)) return
-      const ast = nodes.get(id)?.ast
-      const owner = ast?.parent && ts.isClassLike(ast.parent) ? byAst.get(ast.parent) : null
-      if (owner && !seen.has(owner)) {
-        if (!pending.has(owner)) pending.set(owner, new Set())
-        pending.get(owner).add(id)
-        return
-      }
-      seen.add(id)
-      for (const next of nodes.get(id)?.edges ?? []) visit(next)
-      for (const next of pending.get(id) ?? []) visit(next)
+    const blocked = new Set(files.get(testFile)?.blocked ?? []), pending = [], mockUncertainties = new Map()
+    const seen = new Set(), states = new Map(), first = new Map(), queue = []
+    const enqueue = (id, environment, parent, evidence, conservative = false, mainFile = testFile, processContext = 'test') => {
+      if (!nodes.has(id)) return
+      const configuration = nodes.get(id).mockConfigurationFor
+      if (processContext === 'test' && configuration?.some(candidate => candidate.file === testFile && blocked.has(candidate.target))) return
+      const gate = nodes.get(id).mainGuard
+      if (gate && (gate.file === mainFile) !== gate.isMain) return
+      if (processContext === 'test' && blocked.has(nodes.get(id).file)) { pending.push([id, environment, parent, evidence, conservative, mainFile, processContext]); return }
+      const key = `${id}\0${processContext}\0${mainFile}\0${contextKey(environment)}`
+      if (states.has(key)) return
+      const state = { id, environment, parent, evidence, conservative, mainFile, processContext }
+      states.set(key, state); queue.push([key, state])
     }
-    roots.forEach(visit)
+    roots.forEach(id => enqueue(id, new Map(), null, null))
+    seen.trace = { states, first }
+    const executions = [], processedExecutions = new Set()
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      const [key, state] = queue[cursor], entry = nodes.get(state.id)
+      seen.add(state.id); if (!first.has(state.id)) first.set(state.id, key)
+      if (entry.nodeEntry || entry.readerCall && nativeCallbackProviders.has(providerName(entry.provider))) executions.push([key, state, entry])
+      for (const invocation of entry.mockInvocations ?? []) for (const { candidate, key: exportKey } of invocation.alternatives) {
+        if (state.processContext !== 'test' || candidate.file !== testFile || candidate.mode !== 'replacement') continue
+        for (const callback of candidate.configurations.get(exportKey) ?? []) {
+          const target = nodes.get(byAst.get(callback))
+          if (!target) continue
+          enqueue(target.id, callEnvironment(target, { args: invocation.call.arguments, call: invocation.call }, state.environment), key,
+            { evidence: 'finite shared mock implementation alternatives', exportPath: JSON.parse(exportKey), callsite: { file: entry.file, start: invocation.call.getStart() }, configurationFile: local(callback.getSourceFile().fileName), replacementStatus: blocked.has(candidate.target) ? 'replaced' : 'uncertain' }, true, state.mainFile, state.processContext)
+        }
+      }
+      for (const event of entry.providerEvents ?? []) if (state.processContext === 'test' && event.action === 'uncertain') {
+        const target = providerTarget(event.provider, event.ast), replacement = files.get(testFile)?.replacementMocks.get(target)
+        if (replacement && blocked.delete(target)) {
+          mockUncertainties.set(target, { ...replacement, reason: 'Replacement exports are reconfigured or escape on this case path', reconfiguration: event.ast.getText() })
+          for (const attempt of pending) if (nodes.get(attempt[0]).file === target) enqueue(...attempt)
+        }
+      }
+      for (const next of entry.edges) {
+        const guards = entry.edgeGuards?.get(next)
+        const guarded = guards?.size && !guards.has(null)
+        const facts = guarded ? [...guards].map(expression => ({ receiver: expression.getText(), value: nullishValue(expression, state.environment) })) : []
+        if (guarded && facts.every(fact => fact.value === 'null' || fact.value === 'undefined')) continue
+        const target = nodes.get(next)
+        if (!target) continue
+        const contexts = [...(entry.callContexts?.get(next) ?? [null])]
+        if (entry.callContexts?.has(next) && entry.opaqueTargets?.has(next)) contexts.push(null)
+        for (const context of contexts) {
+          const environment = callEnvironment(target, context, state.environment)
+          const parameters = context && callable(target.ast) ? target.ast.parameters.filter(parameter => environment.has(parameter)).map(parameter => ({ name: parameter.name.getText(), value: environment.get(parameter) })) : []
+          const evidence = { ...entry.edgeEvidence.get(next), ...(context ? { callsite: { file: entry.file, start: context.call.getStart() } } : {}),
+            ...(parameters.length ? { parameters } : {}), ...(facts.length ? { optionalGuard: facts } : {}) }
+          enqueue(next, environment, key, evidence, entry.conservativeEdges.has(next) || facts.some(fact => fact.value === 'unknown'), state.mainFile, state.processContext)
+        }
+      }
+      if (cursor === queue.length - 1) for (const [executionKey, executionState, operation] of executions) {
+        if (processedExecutions.has(executionKey)) continue
+        processedExecutions.add(executionKey)
+        const resolution = inputResolution(operation.provider, operation.readerMethod, roots, seen, operation.id, testFile, undefined, executionKey)
+        if (resolution.status === 'replaced') {
+          const target = nodes.get(byAst.get(resolution.callback)), call = operation.readerCall
+          if (target && call) enqueue(target.id, callEnvironment(target, { args: call.arguments, call }, executionState.environment), executionKey,
+            { evidence: 'finite native replacement callback', callsite: { file: local(call.getSourceFile().fileName), start: call.getStart() } }, true, executionState.mainFile, executionState.processContext)
+          continue
+        }
+        if (resolution.status === 'uncertain' && executionState.processContext === 'test') {
+          // Ordering/binding uncertainty must retain the possible replacement's
+          // input scope, not only the original child/reader's dependencies.
+          const alternatives = [...persistentNativeEvents(operation.provider, operation.readerMethod, testFile)]
+          for (const id of seen) if ([...states.values()].some(state => state.id === id && state.processContext === 'test')) {
+            alternatives.push(...(nodes.get(id).providerEvents ?? []).filter(event => event.callback))
+          }
+          for (const event of alternatives) {
+            if (providerName(event.provider) !== providerName(operation.provider)
+              || event.method && operation.readerMethod && event.method !== operation.readerMethod
+              || !event.callback && event.action === 'replace') continue
+            seen.entryUncertainties ??= []
+            seen.entryUncertainties.push({ id: operation.id, callback: byAst.get(event.callback), kind: 'native-callback',
+              provider: providerName(event.provider), method: event.method, registration: { file: local(event.ast.getSourceFile().fileName), start: event.ast.getStart() },
+              effectScope: event.callback ? 'bounded conservative callback graph' : 'unbounded opaque persistent callback',
+              reason: event.persistent ? 'Persistent global native mock lifetime or callback effects are unresolved' : 'Native replacement callback invocation or ordering is unresolved' })
+          }
+        }
+        if (!operation.nodeEntry) continue
+        if (resolution.status === 'uncertain') {
+          seen.entryUncertainties ??= []
+          const candidates = new Set(executionState.processContext === 'test' ? persistentNativeEvents(operation.provider, operation.readerMethod, testFile) : [])
+          for (const [, state] of states) if (state.processContext === executionState.processContext) {
+            for (const event of nodes.get(state.id).providerEvents ?? []) candidates.add(event)
+          }
+          const replacementBoundaries = [...candidates].filter(event => event.boundaryDiagnostic
+            && providerName(event.provider) === providerName(operation.provider)
+            && (!event.method || !operation.readerMethod || event.method === operation.readerMethod))
+            .map(event => ({ ...event.boundaryDiagnostic, invocationReplacement: 'unproven', evidenceRole: 'matching registration candidate, not proof of invocation' }))
+          seen.entryUncertainties.push({ id: operation.id, file: operation.nodeEntry.file, reason: 'Node entry provider replacement or delegation is unresolved', replacementBoundaries })
+          continue
+        }
+        enqueue(operation.nodeEntry.target, new Map(), executionKey, { evidence: 'proven Node entry', mainFile: operation.nodeEntry.file }, false, operation.nodeEntry.file, `node:${operation.nodeEntry.file}`)
+      }
+    }
+    seen.trace = { states, first }
+    seen.mockUncertainties = mockUncertainties
     return seen
+  }
+  function moduleEntryStatus(risk, reached, ownerId, testFile) {
+    const acquisition = loaderAcquisitions.get(risk)
+    if (!factsComplete || !acquisition || !reached.trace) return 'uncertain'
+    // Only an eager captured binding qualifies here. A later fresh require is
+    // not evidence of cache contents or restoration, even in an unrelated case.
+    for (let ast = acquisition.parent; ast && !ts.isSourceFile(ast); ast = ast.parent) if (callable(ast)) return 'uncertain'
+    const declaration = baseBinding(acquisition.expression)
+    if (!declaration || mutatedBindings.has(declaration) || bindingAliases.has(declaration)) return 'uncertain'
+    const facts = bindingInvalidations.get(declaration)
+    if (!facts?.size) return 'uncertain' // Never reinterpret missing provenance as safety.
+    let scoped = loaderScopeContexts.get(reached)
+    if (!scoped) {
+      scoped = new Map()
+      for (const state of reached.trace.states.values()) {
+        if (!scoped.has(state.id)) scoped.set(state.id, [])
+        scoped.get(state.id).push(state)
+      }
+      loaderScopeContexts.set(reached, scoped)
+    }
+    const contexts = scoped.get(ownerId) ?? []
+    if (!contexts.length) return 'uncertain'
+    for (const context of contexts) {
+      const processEntry = context.mainFile ?? testFile
+      // A module loaded later by a callback is not an eager process capture.
+      if (!initializesFrom(processEntry, local(acquisition.getSourceFile().fileName))) return 'uncertain'
+      for (const fact of facts) {
+        const file = local(fact.getSourceFile().fileName)
+        if (!runtimeReaches(processEntry, file)) continue
+        let owner, callback
+        for (let ast = fact; ast && !ts.isSourceFile(ast); ast = ast.parent) {
+          if (!owner && byAst.has(ast)) owner = byAst.get(ast)
+          if (callable(ast) && ts.isCallExpression(ast.parent) && registration(ast.parent)) {
+            const provider = providerOf(ast.parent.expression)
+            if (['node:test', 'vitest'].includes(provider?.module) && ['test', 'it'].includes(provider.export)
+              && stableBinding(ast.parent.expression)) callback = byAst.get(ast)
+          }
+        }
+        const ownerStates = scoped.get(owner) ?? []
+        if (ownerStates.some(state => state.processContext === context.processContext)) return 'uncertain'
+        if (ownerStates.length) continue // An actually reached different process cannot mutate this cache.
+        // An unrelated registered leaf is not an initializer. Do not extend this
+        // exemption to arbitrary callbacks/helpers whose invocation is unknown.
+        if (callback && !(scoped.get(callback) ?? []).some(state => state.processContext === context.processContext)) continue
+        return 'uncertain'
+      }
+    }
+    return 'real'
+  }
+  function callbackMayAffect(callback, targets, changedFile, reached, testFile) {
+    if (!callback) return true // An opaque persistent callback has no bounded effect proof.
+    const pending = [callback], visited = new Set()
+    for (const id of pending) {
+      if (visited.has(id)) continue
+      visited.add(id)
+      if (targets.has(id)) return true
+      const node = nodes.get(id)
+      if (!node) continue
+      if (node.inputRisks?.some(risk => ['import', 'execute', 'glob'].includes(risk.kind) || risk.moduleImport
+        || (risk.pattern ? new RegExp(risk.pattern).test(changedFile) : !risk.candidates?.length || risk.candidates.includes(changedFile)))) return true
+      if (node.moduleEntryRisks?.some(risk => entryMayAffect(risk.target, changedFile))) return true
+      pending.push(...node.edges)
+      for (const invocation of node.mockInvocations ?? []) for (const { candidate, key } of invocation.alternatives) {
+        if (candidate.file === testFile && candidate.mode === 'replacement') pending.push(...(candidate.configurations.get(key) ?? []).map(fn => byAst.get(fn)).filter(Boolean))
+      }
+      if (node.readerCall && nativeCallbackProviders.has(providerName(node.provider))) {
+        const alternatives = [...persistentNativeEvents(node.provider, node.readerMethod, testFile)]
+        for (const owner of reached) if ([...reached.trace.states.values()].some(state => state.id === owner && state.processContext === 'test')) alternatives.push(...(nodes.get(owner)?.providerEvents ?? []))
+        if (alternatives.some(event => (event.callback || event.action === 'uncertain') && providerName(event.provider) === providerName(node.provider)
+          && (!event.method || !node.readerMethod || event.method === node.readerMethod))) return true
+      }
+      if (node.nodeEntry) pending.push(node.nodeEntry.target)
+    }
+    return false
+  }
+  function persistentNativeEvents(provider, method, testFile) {
+    return persistentNativeCandidates.filter(event => providerName(event.provider) === providerName(provider)
+      && (!event.method || !method || event.method === method) && runtimeReaches(testFile, event.file))
+  }
+  function entryMayAffect(file, target) {
+    if (runtimeReaches(file, target)) return true
+    if (inputEdges.some(input => input.to === target && runtimeReaches(file, input.readerFile ?? input.from))) return true
+    return [...inputRisks, ...inputPatterns].some(input => runtimeReaches(file, input.readerFile ?? input.from)
+      && (input.pattern ? new RegExp(input.pattern).test(target) : !input.candidates?.length || input.candidates.includes(target)))
   }
   function caseRoots(file, location) {
     const info = files.get(file)
@@ -335,18 +1501,37 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
   function snapshot(file) {
     const info = files.get(file)
     if (!info) throw new Error(`Missing behavior source: ${file}`)
-    if (!declarations.has(file)) declarations.set(file, declarationSnapshot(info.sf, byAst))
+    if (!declarations.has(file)) declarations.set(file, declarationSnapshot(info.sf, byAst, shapes))
     return declarations.get(file)
   }
-  function changedNodes(file, previous) {
-    const { ids, moduleEffect } = changedDeclarations(snapshot(file), previous.snapshot(file))
-    // Side-effect-only changes with no addressable owner still fail closed.
-    // Other initialization effects are deliberately not blanket import owners.
-    if (moduleEffect && !ids.size) ids.add(files.get(file).top)
+  function changedNodes(file, previous, status = 'M') {
+    const inputTargets = [...(inputs.get(file) ?? [])].filter(id => !nodes.get(id).changeKinds || nodes.get(id).changeKinds.includes(status[0]))
+    if (!files.has(file)) return new Set(inputTargets)
+    const before = previous.hasFile(file) ? previous.snapshot(file) : { entries: new Map(), initializationOrder: [], modules: [], sideEffectModules: [] }
+    const { ids, moduleEffect } = changedDeclarations(snapshot(file), before)
+    // An independently changed opaque initialization effect cannot be hidden
+    // by a different covered callable/value in the same patch.
+    if (moduleEffect) { ids.add(files.get(file).top); nodes.get(files.get(file).top).unmappedModuleEffect = true }
+    // Source files may also be consumed as bytes, independently of executed declarations.
+    for (const id of inputTargets) ids.add(id)
     return ids
   }
   const explanations = new WeakMap()
-  function explain(roots, reached, target) {
+  function explain(roots, reached, target, stateKey) {
+    if (reached.trace) {
+      const { states, first } = reached.trace
+      if (!first.has(target)) return []
+      const path = []
+      for (let key = stateKey ?? first.get(target); key; key = states.get(key).parent) path.unshift(states.get(key))
+      const result = path.map((state, index) => {
+        const node = nodes.get(state.id)
+        return { file: node.file, behavior: node.label, line: node.ast.getSourceFile().getLineAndCharacterOfPosition(node.ast.getStart()).line + 1, processContext: state.processContext, ...(index ? state.evidence : { root: true }) }
+      })
+      result.rootId = path[0]?.id
+      result.initialization = path.some(state => nodes.get(state.id).label === '<module>')
+      result.conservative = path.some(state => state.conservative)
+      return result
+    }
     // Shared-module edits can match many targets in one leaf. Reuse that leaf's
     // shortest-path tree instead of traversing the same graph for every target.
     // Expand lazily, preserving the original BFS order and conservative edges.
@@ -363,35 +1548,110 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     if (!previous.has(target)) return []
     const path = []
     for (let next = target; next; next = previous.get(next)) path.unshift(nodes.get(next))
-    const behaviors = path.filter(n => n.file.startsWith('src/') && (callable(n.ast) || n.id === target && n.label !== '<module>')).map(n => ({ file: n.file, behavior: n.label }))
+    const behaviors = path.map((n, index) => ({ file: n.file, behavior: n.label, line: n.ast.getSourceFile().getLineAndCharacterOfPosition(n.ast.getStart()).line + 1, ...(index ? path[index - 1].edgeEvidence.get(n.id) : { root: true }) }))
+    behaviors.rootId = path[0]?.id
     behaviors.initialization = path.some(n => n.label === '<module>')
     behaviors.conservative = path.some((n, index) => n.conservativeEdges.has(path[index + 1]?.id))
     return behaviors
   }
-  return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, snapshot, explain }
+  function inputResolution(provider, method, roots, reached, target, testFile, inputProof, stateKey) {
+    if (!provider) return { status: 'real' }
+    if (!stateKey && reached.trace) {
+      const states = [...reached.trace.states].filter(([, state]) => state.id === target)
+      const results = states.map(([key]) => [key, inputStatus(provider, method, roots, reached, target, testFile, inputProof, key)])
+      if (results.some(([, status]) => status === 'uncertain')) return { status: 'uncertain' }
+      const real = results.find(([, status]) => status === 'real')
+      if (real) { reached.trace.first.set(target, real[0]); return { status: 'real' } }
+      return { status: results.length ? 'replaced' : 'uncertain' }
+    }
+    const processContext = reached.trace?.states.get(stateKey)?.processContext ?? 'test'
+    if (processContext !== 'test') {
+      // A real subprocess cannot inherit its parent's test mock registry. Local
+      // replacement machinery in that process is not modeled as a test scope.
+      for (const [, state] of reached.trace.states) if (state.processContext === processContext) {
+        const entry = nodes.get(state.id), info = files.get(entry.file)
+        if (info?.blockedProviders.has(providerName(provider)) || info?.uncertainProviders.has(providerName(provider))) return { status: 'uncertain' }
+        if ((entry.providerEvents ?? []).some(event => event.all || providerName(event.provider) === providerName(provider))) return { status: 'uncertain' }
+      }
+      return { status: 'real' }
+    }
+    const key = providerName(provider)
+    if (files.get(testFile)?.uncertainProviders.has(key)) return { status: 'uncertain' }
+    const binding = inputProof ? readerBinding(inputProof) : nodes.get(target)?.readerBinding ?? { live: false }
+    const initial = persistentNativeEvents(provider, method, testFile).length ? 'uncertain' : files.get(testFile)?.blockedProviders.has(key) ? binding.live && binding.moduleKind === 'esm' ? 'replaced' : 'uncertain' : 'real'
+    const inputPath = explain(roots, reached, target, stateKey)
+    const rootAst = nodes.get(inputPath.rootId)?.ast
+    if (!rootAst) return { status: 'uncertain' }
+    const invocation = inputPath.find(step => step.callsite?.file === testFile && rootAst.getStart() <= step.callsite.start && step.callsite.start < rootAst.end)?.callsite.start
+      ?? (nodes.get(target)?.file === testFile ? nodes.get(target).ast.getStart() : null)
+    const events = []
+    for (const id of reached) for (const event of nodes.get(id)?.providerEvents ?? []) {
+      if (reached.trace && ![...reached.trace.states.values()].some(state => state.id === id && state.processContext === processContext)) continue
+      if (event.all && (event.boundary === 'global') !== !!provider.global) continue
+      if (!event.all && (providerName(event.provider) !== key || event.provider.export && event.provider.export !== '*' && provider.export && event.provider.export !== provider.export || event.method && method && event.method !== method)) continue
+      let scope = 'helper', conditional = false
+      for (let node = event.ast; node; node = node.parent) {
+        if (ts.isIfStatement(node) || ts.isConditionalExpression(node) || ts.isIterationStatement(node, false)) conditional = true
+        if (ts.isCallExpression(node) && /^(?:afterEach|afterAll|after|onTestFinished)$/.test(node.expression.getText())) { scope = 'after'; break }
+        if (ts.isCallExpression(node) && /^(?:beforeEach|beforeAll|before)$/.test(node.expression.getText())) { scope = 'before'; break }
+        if (node === rootAst) { scope = 'body'; break }
+        if (ts.isSourceFile(node)) scope = 'helper'
+      }
+      if (scope === 'after') continue
+      if (scope === 'body' && invocation !== null && event.ast.getStart() > invocation) {
+        // The same reader may be invoked again after this restore. Without a
+        // distinct invocation identity, never claim every read was replaced.
+        if (event.action === 'restore' || event.action === 'uncertain' || event.callback) return { status: 'uncertain' }
+        continue
+      }
+      if (scope === 'helper') {
+        const eventPath = explain(roots, reached, id)
+        const callsite = eventPath.find(step => step.callsite?.file === testFile && rootAst.getStart() <= step.callsite.start && step.callsite.start < rootAst.end)?.callsite.start
+        if (callsite === undefined || invocation === null) { events.push({ action: 'uncertain', order: Infinity }); continue }
+        if (callsite > invocation) {
+          if (event.action === 'restore' || event.action === 'uncertain' || event.callback) return { status: 'uncertain' }
+          continue
+        }
+        events.push({ action: conditional ? 'uncertain' : event.action, native: event.native, callback: event.callback, order: callsite })
+      } else events.push({ action: conditional || scope === 'body' && invocation === null ? 'uncertain' : event.action, native: event.native, callback: event.callback, order: scope === 'before' ? -1 : event.ast.getStart() })
+    }
+    events.sort((a,b) => a.order - b.order)
+    const event = events.at(-1), action = event?.action
+    const tied = events.filter(candidate => candidate.order === event?.order)
+    if (tied.some(candidate => candidate.callback) && tied.some(candidate => candidate.callback !== event.callback || candidate.action !== action)) return { status: 'uncertain' }
+    // Unresolved input risks have no scheduled operation node. Do not suppress
+    // them while silently dropping an effectful replacement callback.
+    if (action === 'replace' && event.callback && (inputProof || !nodes.get(target)?.readerCall)) return { status: 'uncertain' }
+    const status = action === 'replace' ? binding.live && binding.methodLive !== false ? 'replaced' : 'uncertain' : action === 'uncertain' ? 'uncertain' : initial
+    return { status, callback: status === 'replaced' ? event?.callback : null }
+  }
+  function inputStatus(...args) { return inputResolution(...args).status }
+  factsComplete = true
+  return { nodes, reachable, moduleEntryStatus, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, mockUncertainty, runtimeReaches, entryMayAffect, callbackMayAffect, hasFile: file => files.has(file) }
 }
 
 function selectBehaviors(inventory, changed, consumers, evidence) {
   const { sources, previousSources, ranges, compilerOptions } = evidence
-  const head = behaviorGraph(sources, consumers.graph, compilerOptions)
+  const head = behaviorGraph(sources, consumers.graph, compilerOptions, evidence.repositoryRoot, consumers.inputEdges, consumers.inputRisks, consumers.runtimeImportRisks, consumers.inputPatterns)
   const previous = evidence.previousConsumers ?? (previousSources === sources ? consumers : require('./dependencies.cjs').dependencyConsumers(inventory, previousSources))
-  if (previous.runtimeAmbiguities?.length) throw new Error(`Unresolved base runtime imports: ${previous.runtimeAmbiguities.join(', ')}`)
-  const graphs = [head, previousSources === sources ? head : behaviorGraph(previousSources, previous.graph, compilerOptions)]
+  const graphs = [head, previousSources === sources ? head : behaviorGraph(previousSources, previous.graph, compilerOptions, evidence.repositoryRoot, previous.inputEdges, previous.inputRisks, previous.runtimeImportRisks, previous.inputPatterns)]
   const testRenames = evidence.testRenames ?? new Map()
   const oldTestPaths = new Map([...testRenames].map(([before, after]) => [after, before]))
-  const selectedCases = {}, reasons = {}, details = {}, changedBehaviors = new Set(), candidates = new Set()
+  const selectedCases = {}, reasons = {}, details = {}, changedBehaviors = new Set(), candidates = new Set(), uncovered = new Set(), unobservedInputCandidates = [], unobservedEquivalentSources = []
   for (const change of changed) {
-    const targets = graphs.map((g, i) => g.changedNodes(change.file, graphs[1 - i]))
+    const targets = graphs.map((g, i) => change.status === 'A' && i === 1 ? new Set() : g.changedNodes(change.file, graphs[1 - i], change.status))
     for (let i=0; i<2; i++) for (const id of targets[i]) changedBehaviors.add(`${change.file}#${graphs[i].nodes.get(id).label}`)
     const covered = [new Set(), new Set()]
-    for (const file of new Set([...(consumers[change.file] ?? []), ...(previous[change.file] ?? []).map(file => testRenames.get(file) ?? file)])) {
+    const riskConsumers = graph => [...(graph.runtimeImportRisks ?? []), ...(graph.inputPatterns ?? []), ...(graph.inputRisks ?? []).filter(risk => risk.pattern ? new RegExp(risk.pattern).test(change.file) : !risk.candidates?.length || risk.candidates.includes(change.file))]
+      .flatMap(risk => [...(graph[risk.from] ?? []), ...(inventory.some(suite => suite.file === risk.from) ? [risk.from] : [])])
+    for (const file of new Set([...(consumers[change.file] ?? []), ...riskConsumers(consumers), ...[...(previous[change.file] ?? []), ...riskConsumers(previous)].map(file => testRenames.get(file) ?? file)])) {
       candidates.add(file)
       const suite = inventory.find(item => item.file === file)
       if (!suite) continue
       const fallback = !suite.locations || suite.locations.length !== suite.names.length
         || suite.names.some((name, i) => suite.names.indexOf(name) !== i)
         || suite.nativeNames && new Set(suite.nativeNames).size !== suite.nativeNames.length
-      const matched = [], owners = new Set(), conservativeCases = new Set(), initializationCases = new Set()
+      const caseEvidence = [], matched = [], owners = new Set(), conservativeCases = new Set(), initializationCases = new Set()
       let runtimeHit = false
       let caller = false
       let whole = false
@@ -406,32 +1666,106 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
           if (!roots) uncertain = true
           const actualRoots = roots || graphs[i].wholeFileRoots(graphFile)
           const reached = graphs[i].reachable(actualRoots, graphFile)
-          for (const id of reached) if (graphs[i].nodes.get(id)?.unsafe) throw new Error(`Unsafe runtime dispatch: ${file}: ${graphs[i].nodes.get(id).unsafe}`)
+          for (const entry of reached.entryUncertainties ?? []) if (entry.kind === 'native-callback' ? graphs[i].callbackMayAffect(entry.callback, targets[i], change.file, reached, graphFile) : graphs[i].entryMayAffect(entry.file, change.file)) {
+            const error = new Error(`Unsafe ${entry.kind === 'native-callback' ? 'native callback' : 'Node entry'}: ${entry.reason}; case ${file}#${suite.names[index]}; changed ${change.file}`)
+            error.diagnostics = { executable: false, changed: change.file, test: file, caseIndex: index, path: [...graphs[i].explain(actualRoots, reached, entry.id)], unresolved: entry }
+            throw error
+          }
+          for (const id of reached) {
+            const unresolved = graphs[i].nodes.get(id)
+            const failRisk = (message, risk) => {
+              const error = new Error(`${message}; case ${file}#${suite.names[index]}; changed ${change.file}`)
+              error.diagnostics = { executable: false, result: 'blocked', changed: change.file, test: file, caseIndex: index, case: suite.names[index], path: [...graphs[i].explain(actualRoots, reached, id)], unresolved: risk }
+              throw error
+            }
+            if (unresolved?.unsafe) failRisk(`Unsafe runtime dispatch: ${file}: ${unresolved.unsafe}`, { reason: unresolved.unsafe })
+            for (const risk of unresolved?.moduleEntryRisks ?? []) if (graphs[i].entryMayAffect(risk.target, change.file) && graphs[i].moduleEntryStatus(risk, reached, id, graphFile) !== 'real') failRisk(`Unsafe module initialization: ${risk.reason}`, risk)
+            if (unresolved?.directoryInput) {
+              const listing = unresolved.directoryInput
+              const status = graphs[i].inputStatus(listing.listingProvider, listing.listingProvider?.export, actualRoots, reached, id, graphFile)
+              if (status !== 'real') failRisk('Unsafe runtime directory membership: listing provider is replaced or its delegation is unresolved', { ...listing, providerStatus: status })
+            }
+            for (const risk of unresolved?.inputRisks ?? []) {
+              const candidateInput = risk.moduleImport || ['import', 'execute', 'glob'].includes(risk.kind)
+                || (risk.pattern ? new RegExp(risk.pattern).test(change.file) : !risk.candidates?.length || risk.candidates.includes(change.file))
+              // A changed caller is not evidence that a bounded output read can
+              // consume this changed input. Source bytes are inputs too.
+              if (!candidateInput) continue
+              const providerStatus = graphs[i].inputStatus(risk.provider, risk.kind === 'load' ? 'loadAsync' : risk.provider?.export, actualRoots, reached, id, graphFile, risk)
+              if (providerStatus === 'replaced') continue
+              if (candidateInput && providerStatus === 'uncertain') failRisk('Unsafe runtime input: ambiguous replacement/restore ordering', risk)
+              if (candidateInput) failRisk(`Unsafe runtime ${risk.moduleImport ? 'import' : 'input'}: ${risk.from}:${risk.line}:${risk.column}: ${risk.expression}; ${risk.reason}; missing ${risk.missingEvidence ?? 'resolvable input provenance'}`, risk)
+            }
+            for (const risk of unresolved?.dispatchRisks ?? []) {
+              const affectsChange = [...targets[i]].some(target => {
+                const node = graphs[i].nodes.get(target)
+                if (risk.owners.length) return risk.owners.some(owner => graphs[i].nodes.get(owner).ast === node.ast || graphs[i].nodes.get(owner).ast === node.ast.parent)
+                if (!graphs[i].runtimeReaches(graphFile, node.file)) return false
+                return !risk.keys || !!node.ast.name && (member(node.ast) || callable(node.ast) || ts.isVariableDeclaration(node.ast) && callable(node.ast.initializer) || ts.isPropertyAssignment(node.ast) || ts.isShorthandPropertyAssignment(node.ast)) && risk.keys.includes(node.ast.name.getText().replace(/^['"]|['"]$/g, ''))
+              })
+              if (affectsChange) failRisk(`Unsafe runtime dispatch: ${file}: ${risk.reason}`, risk)
+            }
+          }
           for (const id of targets[i]) if (reached.has(id)) {
+            const target = graphs[i].nodes.get(id)
+            // Importing a module executes initialization, but does not prove a
+            // contract for an otherwise unaddressable changed module effect.
+            if (target.unmappedModuleEffect) continue
+            const dependencyPath = graphs[i].explain(actualRoots, reached, id)
+            const mock = graphs[i].mockUncertainty(dependencyPath, graphFile, reached)
+            if (mock) {
+              const error = new Error(`Unsafe mock boundary: ${file}#${suite.names[index]}; ${mock.reason}; ${mock.expression}`)
+              error.diagnostics = { executable: false, changed: change.file, test: file, caseIndex: index, path: [...dependencyPath], unresolved: mock }
+              throw error
+            }
+            const providerStatus = graphs[i].inputStatus(target.provider, target.readerMethod, actualRoots, reached, id, graphFile)
+            if (providerStatus === 'replaced') continue
+            if (providerStatus === 'uncertain') { const error = new Error(`Unsafe runtime input: ${file}#${suite.names[index]}; ambiguous replacement/restore ordering for ${target.label}`); error.diagnostics = { executable: false, changed: change.file, test: file, caseIndex: index, path: [...graphs[i].explain(actualRoots, reached, id)] }; throw error }
             hit = true; covered[i].add(id)
             const path = graphs[i].explain(actualRoots, reached, id)
+            caseEvidence.push({ index, name: suite.names[index], snapshot: i === 0 ? 'after' : 'before', reason: uncertain ? 'necessary whole-owner fallback' : path.initialization ? 'necessary module initialization' : path.conservative ? 'finite receiver dependency' : 'exact symbol dependency', path: [...path] })
             if (path.initialization) initializationCases.add(index)
             else runtimeHit = true
             if (path.conservative) { conservativeCases.add(index); caller = true }
-            for (const step of path) { owners.add(step.behavior); if (step.file !== change.file) caller = true }
+            for (const step of path) if (step.file !== file && !/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(step.file) && !step.root) { owners.add(step.behavior); if (step.file !== change.file) caller = true }
           }
         }
         if (hit) matched.push(index)
         if (uncertain && hit) whole = true
       }
-      if (whole) matched.splice(0, matched.length, ...suite.names.map((_, i) => i))
+      if (whole) {
+        matched.splice(0, matched.length, ...suite.names.map((_, i) => i))
+        for (const index of matched) if (!caseEvidence.some(item => item.index === index)) caseEvidence.push({ index, name: suite.names[index], reason: 'necessary whole-owner fallback', missingEvidence: 'ambiguous registration identity or changed base callback coordinates', path: caseEvidence[0]?.path ?? [] })
+      }
       if (matched.length) {
         selectedCases[file] = [...new Set([...(selectedCases[file] ?? []), ...matched])].sort((a,b)=>a-b)
         ;(reasons[file] ??= []).push(`Runtime behavior reference: ${change.file}`)
-        ;(details[file] ??= []).push({ changed: change.file, source: !runtimeHit ? 'Module Initialization' : caller ? 'Caller Contract' : 'Direct Owner', owners: [...owners].sort(), conservativeCases: [...conservativeCases], initializationCases: [...initializationCases] })
+        ;(details[file] ??= []).push({ changed: change.file, source: !runtimeHit ? 'Module Initialization' : caller ? 'Caller Contract' : 'Direct Owner', owners: [...owners].sort(), conservativeCases: [...conservativeCases], initializationCases: [...initializationCases], caseEvidence })
       }
     }
     for (let i=0; i<2; i++) for (const id of targets[i]) {
-      if (!covered[i].has(id)) throw new Error(`Unsafe/unmapped behavior: ${change.file}#${graphs[i].nodes.get(id).label}; no proven owner cases`)
+      if (covered[i].has(id)) continue
+      const label = graphs[i].nodes.get(id).label
+      if (graphs[i].nodes.get(id).shape) continue
+      if (!covered[i].has(id)) uncovered.add(`Unsafe/unmapped behavior: ${change.file}#${label}; no proven owner cases`)
     }
-    if (!Object.values(details).some(list=>list.some(d=>d.changed===change.file))) throw new Error(`Unsafe/unmapped behavior: ${change.file}; no proven owner cases`)
+    if (!Object.values(details).some(list=>list.some(d=>d.changed===change.file))) {
+      const exactInput = [...(consumers.inputEdges ?? []), ...(previous.inputEdges ?? [])].some(edge => edge.to === change.file && (!edge.changeKinds || edge.changeKinds.includes(change.status[0])))
+      if (!exactInput && targets.every(ids => ids.size === 0)) {
+        if (!graphs.some(graph => graph.hasFile(change.file))) unobservedInputCandidates.push(change.file)
+        else if (sources.has(change.file) && previousSources.has(change.file)
+          && require('./dependencies.cjs').runtimeEquivalent(previousSources.get(change.file), sources.get(change.file), change.file)) unobservedEquivalentSources.push(change.file)
+        else uncovered.add(`Unsafe/unmapped behavior: ${change.file}; no proven owner cases`)
+      } else uncovered.add(`Unsafe/unmapped behavior: ${change.file}; no proven owner cases`)
+    }
   }
-  return { selected: Object.keys(selectedCases).sort(), selectedCases, reasons, details,
-    changedBehaviors: [...changedBehaviors].sort(), excludedCandidates: [...candidates].filter(f=>!selectedCases[f]).sort(), unsafe: [] }
+  const result = { selected: Object.keys(selectedCases).sort(), selectedCases, reasons, details,
+    unobservedInputCandidates: unobservedInputCandidates.sort(), unobservedEquivalentSources: unobservedEquivalentSources.sort(), changedBehaviors: [...changedBehaviors].sort(), excludedCandidates: [...candidates].filter(f=>!selectedCases[f]).sort(), unsafe: [...uncovered] }
+  if (uncovered.size) {
+    const error = new Error([...uncovered].join('\n'))
+    error.diagnostics = result // Incomplete evidence only; never an executable plan.
+    throw error
+  }
+  return result
 }
 module.exports = { behaviorGraph, selectBehaviors }
