@@ -713,7 +713,7 @@ export class TownScene {
       }
       if (target instanceof NPC && roster.has(target.combatantId)) return true
     }
-    if (target instanceof NPC && this.mission?.allowsMissionCombatTarget(npc, target)) return true
+    if (target instanceof NPC && this.missionCombat?.allowsFieldMissionCombatTarget(npc, target)) return true
     const response = townDefenseThreatResponse(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc), this.navigation.townNav?.watchtower)
     return response === 'pursue' ? true : response === 'defend' ? 'defend' : false
   }
