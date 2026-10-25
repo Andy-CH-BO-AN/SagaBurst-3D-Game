@@ -79,6 +79,9 @@ function policyConsumers(file, inventory) {
       'tests/combat/ProjectileBallistics.test.ts', 'tests/equipment/WeaponWheel.test.ts',
       'tests/equipment/CareerSquadEquipment.test.ts']) add(owner)
   }
+  // Duel's new ordinary-health dependency is exercised by its real pure owner
+  // and controller checkpoint contract without instantiating render actors.
+  if (file === 'src/career/CareerDuelState.ts') add('tests/missions/CareerDuelState.test.ts')
   // Career migration introduces an explicit persistence initialization owner.
   if (file === 'src/career/CareerHealthMigration.ts') add('tests/persistence/HealthPersistence.test.ts')
   // Original shield pixels/geometry are inspected offline and in gameplay, never

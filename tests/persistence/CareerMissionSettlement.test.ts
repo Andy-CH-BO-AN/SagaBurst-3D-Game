@@ -216,7 +216,7 @@ describe('Town mission settlement transactions', () => {
       _clearObstacleDetour: vi.fn(), _clearSiegeFallback: vi.fn(), _alignExternalVisualToMount: vi.fn(),
       _refreshActiveShield: vi.fn(), _cancelEquipmentCombatState: vi.fn(), animator: { cancel: vi.fn() },
       setTacticalOrder: vi.fn(), setTownPeaceful: vi.fn(), respawn: NPC.prototype.respawn,
-      activateTownRampartGarrison: vi.fn(),
+      activateTownRampartGarrison: vi.fn(), restoreOrdinaryTier: vi.fn(),
     })
     Object.assign(body.group.rotation, { set(_x: number, y: number, _z: number) { body.group.rotation.y = y } })
     body.restoreCombatLoadout.mockImplementation(() => { body.rangedWeaponId = 'wooden_shortbow' })
@@ -225,6 +225,7 @@ describe('Town mission settlement transactions', () => {
     expect(body.combatPosition.toArray()).toEqual([spec.x, spec.y, spec.z])
     expect(body.combatPosition.y).toBeGreaterThan(getTerrainHeight(spec.x, spec.z) + 5)
     expect(body.activateTownRampartGarrison).toHaveBeenCalledOnce()
+    expect(body.restoreOrdinaryTier).toHaveBeenCalledOnce()
     expect(h.resident.spec).toMatchObject({ id: spec.id, duty: 'training', garrison: spec.garrison })
     expect(h.read().activeMission).toBeUndefined()
   })
