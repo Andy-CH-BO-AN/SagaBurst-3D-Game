@@ -1,4 +1,4 @@
-const { spawnSync, execFileSync } = require('node:child_process')
+const childProcess = require('node:child_process')
 const { readFileSync, writeFileSync, mkdirSync, readdirSync, appendFileSync } = require('node:fs')
 const { resolve, join, relative } = require('node:path')
 const { randomUUID, createHash } = require('node:crypto')
@@ -15,8 +15,8 @@ function assertPlanCheckout(plan, state) {
 function checkCurrentCheckout(plan) {
   if (!plan.checkoutSha) return
   assertPlanCheckout(plan, {
-    sha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
-    dirty: Boolean(execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).trim()),
+    sha: childProcess.execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim(),
+    dirty: Boolean(childProcess.execFileSync('git', ['status', '--porcelain', '--untracked-files=all'], { cwd: root, encoding: 'utf8' }).trim()),
   })
 }
 function exact(actual, expected, label) {
@@ -108,7 +108,7 @@ function executeShard(plan, id, out) {
           delete env.LOGIC_TEST_FILES
           args = ['--test', '--test-concurrency=1', '--test-reporter=./tests/tooling/node-budget-reporter.cjs', ...(partial ? [`--test-name-pattern=${pattern}`] : []), ...group]
         }
-        const result = spawnSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' })
+        const result = childProcess.spawnSync(process.execPath, args, { cwd: root, env, stdio: 'inherit' })
         if (result.error || result.signal || result.status !== 0) runnerErrors.push(`${file} failed: ${result.error?.message ?? result.signal ?? result.status}`)
         try { reports.push(JSON.parse(readFileSync(join(dir, `${runner}.json`), 'utf8'))) }
         catch (error) { runnerErrors.push(`Missing ${runner} report: ${error.message}`) }

@@ -679,12 +679,15 @@ for (const { name, collectionFailure } of [
   }
 })
 
-test('blocked diagnostics preserve failure evidence separately and cannot execute or relax workflow gates', () => {
+test('blocked diagnostics preserve failure evidence separately and cannot execute or relax workflow gates', t => {
   const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require('node:fs')
   const { tmpdir } = require('node:os')
   const { join, resolve } = require('node:path')
   const { writeBlockedDiagnostics } = require('../tooling/ci-plan.cjs')
   const { executeShard } = require('../tooling/ci-run.cjs')
+  const childProcess = require('node:child_process')
+  const blockedSpawn = t.mock.method(childProcess, 'spawnSync', () => { throw new Error('Unexpected subprocess before diagnostic rejection') })
+  const blockedExec = t.mock.method(childProcess, 'execFileSync', () => { throw new Error('Unexpected checkout lookup before diagnostic rejection') })
   const directory = mkdtempSync(join(tmpdir(), 'blocked-plan-'))
   try {
     const manifest = join(directory, 'plan.json')
@@ -712,6 +715,8 @@ test('blocked diagnostics preserve failure evidence separately and cannot execut
     assert.throws(() => validateManifest(diagnostic), /not an executable test manifest/)
     assert.throws(() => aggregate(diagnostic, []), /not an executable test manifest/)
     assert.throws(() => executeShard(diagnostic, 'logic-related', join(directory, 'report.json')), /not an executable test manifest/)
+    assert.equal(blockedSpawn.mock.callCount(), 0)
+    assert.equal(blockedExec.mock.callCount(), 0)
     const early = writeBlockedDiagnostics(new Error('Git history unavailable'), { args: { out: join(directory, 'early.json') } }).diagnostic
     assert.equal(early.context, null)
     assert.match(early.unavailable.checkoutSha, /before the actual checkout SHA was established/)
