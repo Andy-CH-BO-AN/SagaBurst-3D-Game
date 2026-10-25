@@ -3,6 +3,7 @@ const assert = require('node:assert/strict')
 const { selectFiles, selectionSummary, shardFiles, planShards, validateManifest, changes } = require('../tooling/ci-plan.cjs')
 const { dependencyConsumers, dependencyPlacementOnly, relocationOnly } = require('../tooling/dependencies.cjs')
 const { aggregate, assertPlanCheckout } = require('../tooling/ci-run.cjs')
+const { comparison, changedFiles, diffRanges } = require('../tooling/git-snapshots.cjs')
 const item = (file, count = 1, runner = 'vitest') => ({ file, runner, names: Array.from({ length: count }, (_, i) => `leaf ${i}`) })
 const inventory = [
   item('tests/movement/NavigationGrid.test.ts', 2),
@@ -473,9 +474,6 @@ test('push comparison preserves exact event before and after; local head intent 
 
 test('Git transport binds lineage, rename records and diff ranges to the same immutable comparison', t => {
   const childProcess = require('node:child_process')
-  const modulePath = require.resolve('../tooling/git-snapshots.cjs')
-  const cached = require.cache[modulePath]
-  const previousChildren = [...module.children]
   const root = '/virtual/snapshot-repository'
   const base = 'a'.repeat(40), head = 'b'.repeat(40), target = 'c'.repeat(40), checkout = 'd'.repeat(40)
   const calls = []
@@ -507,9 +505,7 @@ test('Git transport binds lineage, rename records and diff ranges to the same im
     }
     throw new Error(`Unexpected Git operation: ${args.join(' ')}`)
   })
-  delete require.cache[modulePath]
   try {
-    const { comparison, changedFiles, diffRanges } = require('../tooling/git-snapshots.cjs')
     const scope = comparison({ base: 'event-base', head: 'pr-head', event: 'pull_request', repositoryRoot: root })
     assert.equal(scope.beforeSha, target)
     assert.equal(scope.afterSha, checkout)
@@ -527,9 +523,6 @@ test('Git transport binds lineage, rename records and diff ranges to the same im
     assert.throws(() => comparison({ base: 'event-base', head: 'pr-head', event: 'pull_request', repositoryRoot: root }), /ancestry unavailable/)
   } finally {
     transport.mock.restore()
-    delete require.cache[modulePath]
-    if (cached) require.cache[modulePath] = cached
-    module.children.splice(0, module.children.length, ...previousChildren)
   }
 })
 

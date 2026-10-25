@@ -1,8 +1,8 @@
-const { execFileSync } = require('node:child_process')
+const childProcess = require('node:child_process')
 const { resolve } = require('node:path')
 const defaultRoot = resolve(__dirname, '../..')
 function git(root, ...args) {
-  return execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim()
+  return childProcess.execFileSync('git', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).trim()
 }
 // This pure boundary makes the accepted lineage explicit; event metadata is
 // never substituted for the first parent of the commit actually under test.
@@ -55,7 +55,7 @@ function comparison({ base, head, event = 'local', repositoryRoot = defaultRoot 
   return result
 }
 function changedFiles(before, after, root = defaultRoot) {
-  const entries = execFileSync('git', ['diff', '--no-ext-diff', '--name-status', '-z', '--find-renames', before, after], { cwd: root, encoding: 'utf8' }).split('\0')
+  const entries = childProcess.execFileSync('git', ['diff', '--no-ext-diff', '--name-status', '-z', '--find-renames', before, after], { cwd: root, encoding: 'utf8' }).split('\0')
   const result = []
   for (let i = 0; i < entries.length && entries[i];) {
     const status = entries[i++], file = entries[i++]
@@ -65,7 +65,7 @@ function changedFiles(before, after, root = defaultRoot) {
   return result
 }
 function diffRanges(before, after, file, root = defaultRoot) {
-  const diff = execFileSync('git', ['diff', '--no-ext-diff', '--no-textconv', '--unified=0', before, after, '--', file], { cwd: root, encoding: 'utf8' })
+  const diff = childProcess.execFileSync('git', ['diff', '--no-ext-diff', '--no-textconv', '--unified=0', before, after, '--', file], { cwd: root, encoding: 'utf8' })
   const ranges = [[], []]
   for (const match of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
     ranges[0].push([+match[3], match[4] === undefined ? 1 : +match[4]])
