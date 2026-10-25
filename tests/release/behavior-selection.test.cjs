@@ -14,7 +14,7 @@ function selection(before, after, body, other = [], ownerFile = 'src/owner.ts') 
     const locations = source.split('\n').flatMap((line, index) => /^test\(/.test(line) ? [{ line: index + 1, column: 1 }] : [])
     return { file, runner: 'vitest', names: locations.map((_, index) => `case ${index}`), locations }
   })
-  return selectFiles(inventory, [{ status: 'M', file: ownerFile }], dependencyConsumers(inventory, sources), {
+  return selectFiles(inventory, [{ status: before === '' ? 'A' : 'M', file: ownerFile }], dependencyConsumers(inventory, sources), {
     sources, previousSources, ranges: { [ownerFile]: [[[1, after.split('\n').length]], [[1, before.split('\n').length]]] },
     compilerOptions: { noLib: true, noResolve: true, types: [] },
   })
@@ -96,6 +96,16 @@ test('side-effect-only import edits without an addressable behavior owner fail c
     "import { value } from '../src/owner'",
     "test('value', () => value)",
   ], [['src/registration.ts', 'globalThis.registered = true']]), /Unsafe\/unmapped behavior/)
+})
+
+test('a new runtime module has no phantom initialization owner in its empty base', () => {
+  const plan = selection('', "import { value } from './values'; export function read() { return value }", [
+    "import { read } from '../src/owner'",
+    "test('new owner', () => read())",
+    "test('unrelated', () => 0)",
+  ], [['src/values.ts', 'export const value = 1']])
+  assert.deepEqual(indices(plan), [0])
+  assert.deepEqual(plan.changedBehaviors, ['src/owner.ts#<import:value>', 'src/owner.ts#read'])
 })
 
 test('retargeting an existing named import selects its unchanged caller but not unrelated exports', () => {

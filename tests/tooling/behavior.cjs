@@ -339,10 +339,13 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
     return declarations.get(file)
   }
   function changedNodes(file, previous) {
-    const { ids, moduleEffect } = changedDeclarations(snapshot(file), previous.snapshot(file))
+    const current = snapshot(file)
+    const { ids, moduleEffect } = changedDeclarations(current, previous.snapshot(file))
     // Side-effect-only changes with no addressable owner still fail closed.
     // Other initialization effects are deliberately not blanket import owners.
-    if (moduleEffect && !ids.size) ids.add(files.get(file).top)
+    // An empty side of an addition/removal has no runtime owner. The opposite
+    // graph still retains every real import, declaration and removed effect.
+    if (moduleEffect && !ids.size && (current.entries.size || current.modules.length)) ids.add(files.get(file).top)
     return ids
   }
   const explanations = new WeakMap()
