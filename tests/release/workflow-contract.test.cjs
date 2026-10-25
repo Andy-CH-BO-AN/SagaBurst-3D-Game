@@ -62,6 +62,16 @@ test('push to main shares one Full gate with Pages and Release, bound to the exa
     assert.equal(ci.jobs.web.steps.find(step => step.run === command).if, "github.event_name != 'push' || github.ref != 'refs/heads/dev'")
   }
 
+  // Dev PRs/pushes skip both desktop platforms without skipping another CI gate.
+  // Main PR previews, main Release packages, and manual validation keep their paths.
+  assert.equal(ci.jobs.desktop.if, "github.event_name == 'pull_request' && github.base_ref != 'dev'")
+  assert.equal(ci.jobs.desktop.needs, 'logic')
+  for (const job of Object.values(ci.jobs)) {
+    assert.ok(![].concat(job.needs ?? []).includes('desktop'))
+  }
+  assert.equal(release.jobs.desktop.if, undefined)
+  assert.equal(release.jobs.desktop.needs, 'validate')
+
   // Concurrency: main pushes are isolated per-SHA and never cancelled; other refs cancel in-progress runs.
   assert.match(ci.concurrency.group, /github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && github\.sha \|\| github\.ref/)
   assert.match(ci.concurrency['cancel-in-progress'], /!\(github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\)/)

@@ -270,9 +270,9 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
       eager(entry.ast)
     } else inspect(entry.ast, entry, true)
   }
-  for (const [file, info] of files) for (const dep of importGraph.get(file) ?? []) {
-    if (files.has(dep)) nodes.get(info.top).edges.add(files.get(dep).top)
-  }
+  // Related/dev uses imports for symbol resolution and candidate discovery, not
+  // module-to-module execution edges. A leaf's own setup/hooks and actual value
+  // references remain roots; importing a module alone does not select its cases.
   for (const { file, target, factory } of mockCandidates) {
     const seen = new Set(), queue = [byAst.get(factory)]
     for (let i=0; i<queue.length; i++) {
@@ -340,7 +340,9 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}) {
   }
   function changedNodes(file, previous) {
     const { ids, moduleEffect } = changedDeclarations(snapshot(file), previous.snapshot(file))
-    if (moduleEffect) ids.add(files.get(file).top)
+    // Side-effect-only changes with no addressable owner still fail closed.
+    // Other initialization effects are deliberately not blanket import owners.
+    if (moduleEffect && !ids.size) ids.add(files.get(file).top)
     return ids
   }
   const explanations = new WeakMap()

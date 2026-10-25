@@ -4,7 +4,7 @@
 
 `feature → dev → main → vX.Y.Z`
 
-- Open all feature and bugfix PRs against **dev**. Pushes and PRs run `npm ci`, `npm test`, and `npm run build` plus release and Pages smoke checks. PRs also package and smoke-test both desktop targets; preview artifacts are Actions downloads, never official releases.
+- Open all feature and bugfix PRs against **dev**. Pushes and PRs run `npm ci`, `npm test`, and `npm run build` plus release and Pages smoke checks. Only PRs into main package and smoke-test both desktop targets; PRs into dev and pushes to dev skip those jobs; preview artifacts are Actions downloads, never official releases.
 - Promote a tested **dev** with a Release PR into **main**. Only main pushes deploy the production website. Do not develop features directly on main.
 - **main** is the default and production branch. Always select dev as the feature PR base.
 

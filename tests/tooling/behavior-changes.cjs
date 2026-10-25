@@ -129,7 +129,7 @@ function declarationSnapshot(sf, byAst) {
       add(`class:${name}`, statement, printer.printNode(ts.EmitHint.Unspecified, header, sf),
         decorators(statement) || (statement.heritageClauses ?? []).some(c => c.token === ts.SyntaxKind.ExtendsKeyword), true)
       // Adding/removing/reordering members changes reflective class shape even
-      // when no case invokes a new member. Keep that unknown surface conservative.
+      // when no case invokes a new member. Class references retain this owner.
       const runtimeMembers = statement.members.filter(m => fingerprint(`class __BehaviorOwner { ${m.getText(sf)} }`) !== emptyClass)
       const shape = runtimeMembers.map(m => [m.kind, m.name?.getText(sf) ?? '<constructor>',
         !!m.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword)])
@@ -162,8 +162,10 @@ function changedDeclarations(current, previous) {
   if (current.initializationOrder.filter(key => common.has(key)).join('\n') !== beforeOrder.join('\n')) moduleEffect = true
   for (const [key, owner] of current.entries) {
     if (owner.fingerprint === previous.entries.get(key)?.fingerprint) continue
-    if (owner.effect || !owner.id) moduleEffect = true
-    else ids.add(owner.id)
+    // Initializers and class shape are value/class owners in Related/dev.
+    // Their potential ambient effects do not expand to every importing leaf.
+    if (owner.id) ids.add(owner.id)
+    else moduleEffect = true
   }
   return { ids, moduleEffect }
 }
