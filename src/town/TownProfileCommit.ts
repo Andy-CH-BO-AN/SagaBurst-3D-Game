@@ -1,4 +1,5 @@
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
+import { captureBorrowedCharacterIdentities } from '../career/CareerBorrowedIdentity'
 import { validateOrdinaryRetirementCommit } from '../career/CareerRetirement'
 import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
 import { stageMissionReturnRebuild, stageMissionReturnResidents, stageMissionReturnPlayerHealth, isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
@@ -191,6 +192,15 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
       mission.actorHealth = { ...mission.actorHealth, [spec.id]: { hp: npc.hp,
         ...(saved.mount ? { mountHp: saved.mount.hp } : {}) } }
     }
+  }
+  // Capture native bodies while the accepting scene still owns them, including
+  // missions that immediately rebuild a field scene after this transaction.
+  if (startsFormal && next.activeMission && next.activeMission.kind !== 'duel') {
+    const mission = next.activeMission
+    const identities = captureBorrowedCharacterIdentities(runtime.residents.map(({ spec, npc }) => ({
+      combatantId: spec.id, characterIdentity: npc.characterIdentity,
+    })), [...mission.friendlyActorIds, ...(mission.borrowedActorIds ?? [])], mission.borrowedActorIdentities)
+    if (Object.keys(identities).length) mission.borrowedActorIdentities = identities
   }
   const airPatrol = runtime.enemyEaglePatrol?.checkpoint()
   if (airPatrol) next.enemyEaglePatrols = { ...next.enemyEaglePatrols, [runtime.world.faction]: airPatrol }

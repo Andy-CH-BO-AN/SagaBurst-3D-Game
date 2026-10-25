@@ -3,9 +3,9 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { MountType } from '../world/Mount'
 import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { HeroCombatProfileId } from '../battle/HeroCombatProfile'
-import { PERSONAL_SQUAD_PRODUCTS, type CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
-import { legacyPersonalEquipment } from '../career/CareerInventory'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import type { CareerPersonalSquadMember } from '../career/CareerPersonalSquad'
+import { PERSONAL_ROLE_NAMES, defaultPersonalRecruitmentChoice } from '../career/CareerRecruitmentCatalog'
+import { resolveCharacterIdentity } from '../combat/CharacterIdentity'
 
 const FACTIONS = { roman: '羅馬', viking: '維京' } as const
 const GATES = { north: '北門', south: '南門', east: '東門', west: '西門' } as const
@@ -66,12 +66,14 @@ export function townUnitDisplayNames(roster: readonly { spec: TownActorSpec; mou
 }
 
 /** Permanent member order is supplied by the roster, never inferred from its UUID. */
-export function personalUnitDisplayName(member: CareerPersonalSquadMember, faction: CharacterFaction, index?: number, ordinaryTier?: number): string {
-  const product = PERSONAL_SQUAD_PRODUCTS.find(item => item.type === member.type)
-  const equipment = member.equipment ?? legacyPersonalEquipment(member.type, faction)
-  const tier = member.type === 'soldier' ? Math.min(4, ordinaryTier ?? WEAPONS[equipment.ranged ?? equipment.melee ?? '']?.tier ?? 1)
-    : member.type === 'commander' ? 5 : 4
-  return `私兵・${product?.name.replace(/^T\d+\s+/, '') ?? '士兵'}${index === undefined ? '' : ` ${number(index + 1)}`}${tierSuffix(tier)}`
+export function personalUnitDisplayName(member: CareerPersonalSquadMember, faction: CharacterFaction, index?: number): string {
+  faction = member.characterFaction ?? faction
+  const legacy = defaultPersonalRecruitmentChoice(member.type, faction)
+  const identity = resolveCharacterIdentity({ characterFaction: faction, characterTier: member.characterTier ?? legacy.characterTier,
+    heroArchetype: member.heroArchetype ?? legacy.heroArchetype })
+  const hero = identity.heroArchetype === 'captain' ? '隊長・' : identity.heroArchetype === 'ranger' ? '遊俠・'
+    : identity.heroArchetype === 'commander' ? '指揮官・' : ''
+  return `私兵・${FACTIONS[faction]}${hero}${PERSONAL_ROLE_NAMES[member.recruitmentRole ?? legacy.recruitmentRole]}${index === undefined ? '' : ` ${number(index + 1)}`}${tierSuffix(identity.characterTier)}`
 }
 
 export interface CombatUnitDisplayInfo {

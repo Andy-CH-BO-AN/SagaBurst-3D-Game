@@ -1,4 +1,5 @@
 import { resolveOrdinaryNpcHp } from '../combat/OrdinarySoldierProfile'
+import { resolveCharacterIdentity, type CharacterIdentity, type CharacterTier, type HeroArchetype } from '../combat/CharacterIdentity'
 import { FriendlyMovementBypass } from '../navigation/FriendlyMovementBypass'
 import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
@@ -450,7 +451,13 @@ export class NPC {
 
   private _maxHp: number
   get maxHp(): number { return this._maxHp }
-  get characterTier(): 1 | 2 | 3 | 4 { return this._characterTier }
+  private _characterTier: CharacterTier
+  readonly heroArchetype?: HeroArchetype
+  get characterTier(): CharacterTier { return this._characterTier }
+  get characterIdentity(): CharacterIdentity {
+    return { characterFaction: this.characterFaction, characterTier: this.characterTier, heroArchetype: this.heroArchetype,
+      visualAssetId: this.visualAssetId, combatProfileId: this.combatProfileId, specialCombatProfile: this.specialCombatProfile }
+  }
   private originalOrdinaryTier?: 1 | 2 | 3
   private currentHp: number
 
@@ -757,8 +764,16 @@ export class NPC {
     civilianStyle?: CharacterFaction,
     readonly townCombatRole?: 'merchant',
     spawnPlacement?: { y: number },
-    private _characterTier: 1 | 2 | 3 | 4 = tier,
+    characterTier?: CharacterTier,
+    heroArchetype?: HeroArchetype,
   ) {
+    const identity = resolveCharacterIdentity({ characterFaction, characterTier, heroArchetype, tier,
+      visualAssetId, combatProfileId, specialCombatProfile })
+    this._characterTier = identity.characterTier
+    this.heroArchetype = identity.heroArchetype
+    visualAssetId = identity.visualAssetId
+    combatProfileId = identity.combatProfileId
+    specialCombatProfile = identity.specialCombatProfile
     if (townCombatRole === 'merchant') loadout = townMerchantLoadout(loadout?.mountId === 'horse' ? 'horse' : null)
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.spawnX = spawnX
@@ -838,7 +853,7 @@ export class NPC {
 
     const visualConfig = {
       faction: townCategory === 'civilian' ? civilianStyle ?? this.characterFaction : this.characterFaction,
-      tier: this.characterTier === 4 ? 3 : this.characterTier,
+      tier: this.characterTier >= 4 ? 3 : this.characterTier as 1 | 2 | 3,
       isPlayer: false,
       ordinarySoldier: !(faction === Faction.BANDIT || visualAssetId || combatProfileId || specialCombatProfile || townCombatRole),
       civilian: townCategory === 'civilian',
@@ -1333,10 +1348,10 @@ export class NPC {
   /** Duel identity is temporary; equipment refits elsewhere never change a resident's body or HP. */
   applyTemporaryOrdinaryTier(tier: 1 | 2 | 3): void {
     if (this.townCategory || this.townCombatRole || this.visualAssetId || this.combatProfileId
-      || this.specialCombatProfile || this.faction === Faction.BANDIT || this.characterTier === 4) {
+      || this.specialCombatProfile || this.faction === Faction.BANDIT || this.characterTier >= 4) {
       throw new Error('Only ordinary soldiers can borrow a Duel character tier')
     }
-    const original = this.originalOrdinaryTier ?? this.characterTier
+    const original = this.originalOrdinaryTier ?? this.characterTier as 1 | 2 | 3
     this.replaceOrdinaryTier(tier)
     this.originalOrdinaryTier = original
   }

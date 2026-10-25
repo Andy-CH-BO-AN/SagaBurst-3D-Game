@@ -70,7 +70,9 @@ function troop(slot: CommanderFourGateDefenseSlot, faction: CharacterFaction): N
   return { actorId: slot.actorId, x: point.x, z: point.z, faction: Faction.ENEMY, characterFaction: faction,
     aiType: slot.role === 'lancer' ? AIType.MELEE : AIType.RANGED,
     name: `${slot.role === 'ranger' ? 'Giant Eagle Ranger' : `${gateLabel} ${slot.role === 'lancer' ? 'Lancer' : 'Archer'}`} T${tier}`,
-    tier, cavalry: Boolean(loadout.mountId), respawnEnabled: false, presetId, loadout,
+    tier, characterTier: tier,
+    ...(hero ? { heroArchetype: hero.combatProfileId === 'ranger' ? 'ranger' as const : 'captain' as const } : {}),
+    cavalry: Boolean(loadout.mountId), respawnEnabled: false, presetId, loadout,
     ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId,
       ...(hero.specialCombatProfile ? { specialCombatProfile: hero.specialCombatProfile } : {}) } : {}) }
 }

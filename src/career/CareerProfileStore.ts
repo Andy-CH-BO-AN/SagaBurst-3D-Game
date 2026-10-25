@@ -1,4 +1,6 @@
 import { migrateCareerHealth } from './CareerHealthMigration'
+import { legacySiegeCharacterTier, parseBorrowedCharacterIdentities } from './CareerBorrowedIdentity'
+import { siegeRoster, siegeRosterVersion } from './TownSiege'
 import { hasCompleteRetirementMobilizationCheckpoint, parseRetirementActorCheckpoints } from './CareerRetirementMobilization'
 import { parseCareerRetirementState, type CareerRetirementRuntime } from './CareerRetirementState'
 import { parseEagleFlightSnapshot } from '../movement/EagleFlightController'
@@ -519,6 +521,23 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       }
     }
   }
+  const borrowedActorIdentities = parseBorrowedCharacterIdentities(raw.borrowedActorIdentities,
+    [...mission.friendlyActorIds, ...mission.targetActorIds, ...(mission.siege?.attackerIds ?? [])])
+  if (borrowedActorIdentities) mission.borrowedActorIdentities = borrowedActorIdentities
+  // Only old siege records need the historical ID adapter. Its result becomes
+  // structured data once, so runtime factories never guess from actor names.
+  if (raw.borrowedActorIdentities === undefined && mission.siege?.rosterCreated
+    && mission.siege.attackerIds.some(id => legacySiegeCharacterTier(id, 3) === 2)) {
+    const assault = mission.kind === 'enemy-town-assault'
+    const characterFaction = assault ? faction : faction === 'roman' ? 'viking' : 'roman'
+    siegeRoster(characterFaction, assault, siegeRosterVersion(mission.siege)).forEach(({ spec }, index) => {
+      const id = mission.siege!.attackerIds[index]
+      if (id && legacySiegeCharacterTier(id, spec.tier) !== spec.tier) {
+        mission.borrowedActorIdentities = { ...mission.borrowedActorIdentities,
+          [id]: { characterFaction, characterTier: 2 } }
+      }
+    })
+  }
   return mission
 }
 
@@ -583,7 +602,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   let townEquipment: CareerProfile['townEquipment']
   try { townEquipment = parseTownEquipment(raw.townEquipment) } catch { return null }
   let personalSquad: CareerProfile['personalSquad']
-  try { personalSquad = parsePersonalSquad(raw.personalSquad) } catch { return null }
+  try { personalSquad = parsePersonalSquad(raw.personalSquad, raw.faction === 'viking' ? 'viking' : 'roman') } catch { return null }
 
   if (raw.version !== 1) return null
   if (raw.faction !== 'roman' && raw.faction !== 'viking') return null
@@ -618,7 +637,8 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   // Invalid in-flight races must never be silently discarded into a fresh Town.
   if (raw.racePlayerState !== undefined && !isRaceRider(raw.racePlayerState)) return null
   if (activeRace === null || raceRecords === null || activeRace && (raw.activeMission || raw.activeOutpostMission)) return null
-  const activeMission = parseActiveMission(raw.activeMission, raw.faction, rank)
+  let activeMission: ActiveCareerMission | undefined
+  try { activeMission = parseActiveMission(raw.activeMission, raw.faction, rank) } catch { return null }
   const savedMission = raw.activeMission as Partial<ActiveCareerMission> | undefined
   // Never silently turn a rejected in-flight Commander V checkpoint into a peaceful Town.
   if ((savedMission?.kind === 'commander-four-gate-defense' || savedMission?.templateId === COMMANDER_FOUR_GATE_DEFENSE_ID)
@@ -758,8 +778,15 @@ export class CareerProfileStore {
       // A migrated grant is usable only after its inventory and receipt are durably saved.
       // Failed storage leaves the original save intact and exposes no partially granted profile.
       const previous = source as Partial<CareerProfile>
-      const rangerMigration = profile && profile.personalSquad?.members.some(member => member.type === 'ranger'
+      const rangerMigration = profile && profile.personalSquad?.members.some(member => member.type === 'ranger' && member.rangerEquipmentVersion === 1
         && previous.personalSquad?.members.find(saved => saved.id === member.id)?.rangerEquipmentVersion !== 1)
+      const personalIdentityMigration = profile && profile.personalSquad?.members.some(member => {
+        const saved = previous.personalSquad?.members.find(value => value.id === member.id)
+        return !saved || saved.characterFaction !== member.characterFaction || saved.characterTier !== member.characterTier || saved.heroArchetype !== member.heroArchetype
+          || saved.recruitmentRole !== member.recruitmentRole || saved.originalHirePrice !== member.originalHirePrice
+      })
+      const borrowedIdentityMigration = profile && profile.activeMission?.borrowedActorIdentities !== undefined
+        && previous.activeMission?.borrowedActorIdentities === undefined
       // Resident and Ranger receipts are independent: either may already be current
       // when the other migration runs. Publish both together only after one save.
       const residentMigration = profile && (['roman', 'viking'] as const).some(faction =>
@@ -768,7 +795,7 @@ export class CareerProfileStore {
       const commanderShieldMigration = profile && (['roman', 'viking'] as const).some(faction =>
         profile.townEquipment?.[faction]?.commanderShieldItemId !== undefined
         && previous.townEquipment?.[faction]?.commanderShieldItemId === undefined)
-      if (profile && (profile.healthRulesVersion !== previous.healthRulesVersion || residentMigration || rangerMigration || commanderShieldMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true)
+      if (profile && (profile.healthRulesVersion !== previous.healthRulesVersion || residentMigration || rangerMigration || personalIdentityMigration || borrowedIdentityMigration || commanderShieldMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true)
         && !this.save(profile)) return { profile: null, error: '生涯資料升級無法儲存；原資料已保留，請重試。' }
       return profile ? { profile } : { profile: null, error: '生涯存檔損壞或版本不支援；原資料已保留。' }
     } catch { return { profile: null, error: '無法讀取生涯存檔；原資料已保留。' } }

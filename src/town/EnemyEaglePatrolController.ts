@@ -517,6 +517,8 @@ export class EnemyEaglePatrolController {
             spec.presetId,
             undefined,
             spec.actorId,
+            undefined, spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile,
+            undefined, undefined, undefined, undefined, spec.characterTier, spec.heroArchetype,
           ),
       )
       const mount = trackNpcSpawn(

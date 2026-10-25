@@ -25,6 +25,7 @@ import { TOWN_MOUNTED_MISSION_MUSTER } from '../town/TownLayout'
 import { TOWN_PLAYABLE_WORLD_BOUND, TOWN_RETIREMENT_EXIT_LINE, townRetirementExitPoint } from '../town/TownBounds'
 import { selectTownCavalryReserve, type TownCavalryMissionSlot } from '../town/TownCavalryReserve'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { captureBorrowedCharacterIdentities } from './CareerBorrowedIdentity'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import {
   getRecruitMissionTemplate,
@@ -456,15 +457,26 @@ export class BanditMissionController {
     const available = selectMissionInfantryActorIds(this.residents, friendlySoldiers, unavailableActorIds)
     const mission = createActiveCareerMission(template.id, campId, enemyCount, 0, undefined, template.kind, this.missionCaptain.combatantId)
     mission.friendlyActorIds = [this.missionCaptain.combatantId, ...available]
+    mission.borrowedActorIdentities = captureBorrowedCharacterIdentities(this.residents.map(resident => resident.npc), mission.friendlyActorIds)
     mission.personalSquad = snapshotPersonalMission(this.readProfile())
     return mission
   }
 
   startActiveMission(): boolean {
     if (this.readProfile().careerRetirement) return false
-    const active = this.active
-    if (!active) return false
+    const pending = this.active
+    if (!pending) return false
+    let active: ActiveCareerMission = pending
     if (this.startedMissionId === active.id) return this.missionBatch?.status !== 'failed'
+    const borrowedActorIdentities = captureBorrowedCharacterIdentities(this.residents.map(resident => resident.npc),
+      active.friendlyActorIds, active.borrowedActorIdentities)
+    if (Object.keys(borrowedActorIdentities).length
+      && JSON.stringify(borrowedActorIdentities) !== JSON.stringify(active.borrowedActorIdentities)) {
+      const next = cloneCareerProfile(this.readProfile())
+      next.activeMission!.borrowedActorIdentities = borrowedActorIdentities
+      if (!this.commit(next)) return false
+      active = next.activeMission!
+    }
     if (active.kind === 'veteran-field') {
       if (!getVeteranMissionDefinition(active.templateId)) return false
       this.disposeMissionEntities()
@@ -1327,7 +1339,8 @@ export class BanditMissionController {
     if (this.veteranFieldFactories.createNpc) return trackNpcSpawn(this.veteranFieldFactories.createNpc(spec, actorId))
     return trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, spec.tier,
       spec.cavalry, spec.loadout, spec.presetId, spec.squadId, actorId, this.events.emit,
-      spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile))
+      spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile, undefined, undefined, undefined, undefined,
+      spec.characterTier, spec.heroArchetype))
   }
 
   private resolveVeteranMount(spec: NpcSpawnSpec, npc: NPC, homeMount: Mount | undefined, temporary: boolean): Mount | null {

@@ -66,7 +66,9 @@ export function createSweepRoster(faction: CharacterFaction, captain = SWEEP_CAP
       specs.push({
         x: position.x, z: position.z, faction: Faction.TOWN, characterFaction: faction, aiType: leader && squadId === 2 ? AIType.RANGED : AIType.MELEE,
         name: leader ? squadId === 1 ? 'Captain' : 'Shadow Warden' : `Cavalry ${squadId}-${index}`,
-        tier: leader ? 4 : 1, cavalry: true, respawnEnabled: false, presetId, squadId,
+        tier: leader ? 4 : 1, characterTier: leader ? 4 : 1,
+        ...(leader ? { heroArchetype: hero?.combatProfileId === 'ranger' ? 'ranger' as const : 'captain' as const } : {}),
+        cavalry: true, respawnEnabled: false, presetId, squadId,
         loadout: { ...(hero ? resolveT4UnitLoadout(presetId) : UNIT_PRESETS[presetId].tierLoadouts[1]), mountId: hero ? squadId === 2 ? 'black-cat' : hero.mountOverride ?? 'horse' : 'horse' },
         ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId, specialCombatProfile: hero.specialCombatProfile } : {}),
       })

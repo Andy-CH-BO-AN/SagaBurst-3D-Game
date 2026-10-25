@@ -50,7 +50,7 @@ import { careerCommandHudRoster } from '../career/CareerCommandHudRoster'
 import type { PersonalSquadMission } from '../career/CareerPersonalSquadMission'
 import { ArmyCommandUI } from '../ui/ArmyCommandUI'
 import { FormationController, type FormationCommandAssignment } from '../battle/FormationController'
-import { canRecruitPersonalSquad, personalSquadGreeting, recruitPersonalSquadMember, PERSONAL_SQUAD_PRODUCTS, PERSONAL_RECRUIT_DIALOGUE } from '../career/CareerPersonalSquad'
+import { canRecruitPersonalSquad, personalSquadGreeting, recruitPersonalSquadMember, PERSONAL_RECRUIT_DIALOGUE } from '../career/CareerPersonalSquad'
 import { townConquestRoster } from './TownHRLayout'
 import { TownPersonalSquadController, personalMemberLoadout } from './TownPersonalSquadController'
 import { snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
@@ -96,6 +96,8 @@ import { getScenePlayableWorldBound, getTerrainHeight, setScenePlayableWorldBoun
 import { damageMount, damageNpc, damagePlayer, damageObstacle } from '../combat/DamageRouter'
 import { registerTownCombatDisplayName } from '../ui/CombatTargetDisplayName'
 import { personalUnitDisplayName } from '../ui/UnitDisplayName'
+import { appendPersonalRecruitmentConfigurator } from './TownRecruitmentPanel'
+import type { PersonalRecruitmentChoice } from '../career/CareerRecruitmentCatalog'
 import { CombatTargetHud } from '../ui/CombatTargetHud'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod, type CombatActorRef, type CombatEvent } from '../combat/CombatAttribution'
 import { SpatialGrid } from '../world/SpatialGrid'
@@ -745,6 +747,7 @@ export class TownScene {
         const military = !civilian && !ranger ? townMilitaryEquipment(residentArmyFaction, spec) : null
         const preset = military?.presetId
         const hero = townActorHeroProfile(residentArmyFaction, spec)
+        const borrowedIdentity = borrowed ? this.profile.activeMission?.borrowedActorIdentities?.[spec.id] : undefined
         const heroAsset = spec.role === 'commander' ? townCommanderHeroAsset(residentArmyFaction) : hero?.visualAssetId
         const combatProfile = heroAsset ? HERO_COMBAT_PROFILE_BY_ASSET[heroAsset] : undefined
         const careerEquipment = residentArmyFaction === this.profile.faction && equipmentActorIds.has(spec.id)
@@ -752,7 +755,7 @@ export class TownScene {
           ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id) : undefined
         const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian || spec.role === 'commander' ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: defaultRangerMeleeWeaponId(residentArmyFaction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null, reversibleRangedSwitch: true } : military!.loadout)
         spec = townStationSpec(spec, Boolean(loadout.mountId), Boolean(loadout.rangedWeaponId))
-        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined, undefined, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : military!.level))
+        const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, borrowedIdentity?.characterFaction ?? characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, borrowedIdentity?.visualAssetId ?? (ranger ? 'maki-archer-t4' : heroAsset), borrowedIdentity?.combatProfileId ?? (ranger ? 'ranger' : combatProfile), borrowedIdentity?.specialCombatProfile ?? (ranger ? 'maki-ranger' : undefined), civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined, undefined, borrowedIdentity?.characterTier ?? (civilian ? TOWN_RULES.garrisonTier : spec.role === 'commander' ? 5 : ranger || hero ? 4 : military!.level), borrowedIdentity?.heroArchetype))
         if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => this.residentCombatTargetAllowed(spec, npc, target)
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
@@ -1602,20 +1605,19 @@ export class TownScene {
     if (this.captainPatrol?.active) this.captainPatrol.recordEvent(event)
     else (this.duel?.active ? this.duel.events : this.defense?.active ? this.defense.events : this.mission?.events)?.emit(event)
   }
+  private recruitmentChoice: PersonalRecruitmentChoice = { characterTier: 1, recruitmentRole: 'swordsman' }
   private openRecruitmentPanel(response?: string): void {
     if (this.player.dead || !this.serviceAvailable('hr-officer')) return
     const greeting = response ?? personalSquadGreeting(this.profile)
     const panel = this.openPanel('Human Resources Center · 人力資源中心', greeting)
-    if (!canRecruitPersonalSquad(this.profile)) return
-    if (!this.profile.townDialogueSeen?.includes(`${this.profile.faction}:hr-unlocked`)) {
+    if (canRecruitPersonalSquad(this.profile) && !this.profile.townDialogueSeen?.includes(`${this.profile.faction}:hr-unlocked`)) {
       const next = cloneCareerProfile(this.profile)
       next.townDialogueSeen = [...(next.townDialogueSeen ?? []), `${next.faction}:hr-unlocked`]
       if (!this.commit(next)) { this.openPanel('無法保存交談紀錄', this.notice); return }
     }
     const members = this.profile.personalSquad?.members ?? []
     const summary = document.createElement('p'); summary.className = 'town-summary'; summary.style.whiteSpace = 'pre-line'
-    summary.textContent = `PERSONAL SQUAD · ${members.length} / 30\nAvailable Merit: ${this.profile.availableMerit.toLocaleString()}\n`
-      + PERSONAL_SQUAD_PRODUCTS.map(item => `${item.name} ×${members.filter(member => member.type === item.type).length}`).join('\n')
+    summary.textContent = `PERSONAL SQUAD · ${members.length} / 30\nAvailable Merit: ${this.profile.availableMerit.toLocaleString()}`
       + (members.length === 30 ? '\n你的隊伍已經滿了。三十人，是目前允許你的上限。' : '')
       + '\nFollow me：從 HR Center 出發 · Dismiss：返回整補'
     panel.append(summary)
@@ -1627,25 +1629,21 @@ export class TownScene {
     refit.disabled = !this.personalSquad?.canRefit
     refit.title = refit.disabled ? '僅限和平狀態；請先停止交戰並改用 Follow、Defend 或 Formation。' : ''
     const list = document.createElement('div'); list.className = 'town-products'; panel.append(list)
-    for (const item of PERSONAL_SQUAD_PRODUCTS) {
-      const row = document.createElement('article'); row.className = 'town-product'
-      const title = document.createElement('strong'); title.textContent = item.name
-      const price = document.createElement('small'); price.textContent = `${item.price} Merit`
-      const button = document.createElement('button'); button.className = 'town-button'; button.textContent = 'Recruit · 招募'
-      const rankLocked = !canRecruitPersonalSquad(this.profile, item.type)
-      button.disabled = members.length >= 30 || rankLocked
-      if (rankLocked) button.title = '需正式任命為 Commander 才能招募。'
-      button.onclick = () => {
+    appendPersonalRecruitmentConfigurator(list, {
+      readProfile: () => this.profile, serviceAvailable: () => !this.player.dead && this.serviceAvailable('hr-officer'),
+      choice: this.recruitmentChoice, onChoice: choice => { this.recruitmentChoice = choice },
+      recruit: choice => {
         if (this.player.dead || !this.serviceAvailable('hr-officer')) return
-        const first = !this.profile.townDialogueSeen?.includes(`${this.profile.faction}:hr-recruit-${item.type}`)
-        const result = recruitPersonalSquadMember(this.profile, item.type, next => this.commit(next))
-        const message = result.recruited ? first ? PERSONAL_RECRUIT_DIALOGUE[item.type] : '招募成功。'
+        const type = choice.heroArchetype ?? 'soldier'
+        const first = !this.profile.townDialogueSeen?.includes(`${this.profile.faction}:hr-recruit-${type}`)
+        const result = recruitPersonalSquadMember(this.profile, choice, next => this.commit(next))
+        if (result.recruited) { this.inventory.syncOwnership(); this.careerMounts.syncOwnership() }
+        const message = result.recruited ? first ? PERSONAL_RECRUIT_DIALOGUE[type] : '招募成功。'
           : result.reason === 'rank-locked' ? '需正式任命為 Commander 才能招募。' : result.reason === 'insufficient-merit' ? '軍功不足。' : result.reason === 'squad-full'
             ? '你的隊伍已經滿了。三十人，是目前允許你的上限。' : result.reason === 'save-failed' ? this.notice : '目前無法招募。'
         this.openRecruitmentPanel(message)
-      }
-      row.append(title, price, button); list.append(row)
-    }
+      },
+    })
     const heading = document.createElement('h3'); heading.textContent = 'Sell / Release Member · 賣回／解除僱用'; list.append(heading)
     appendTownSaleDropdown(list, members.map((member, index) => ({
       id: member.id, name: personalUnitDisplayName(member, this.profile.faction, index),

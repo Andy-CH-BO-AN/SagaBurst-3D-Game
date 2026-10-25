@@ -14,6 +14,7 @@ import type { CareerMountId, CareerRank } from './CareerProfile'
 import { townDefenseEnemyCount, VETERAN_TOWN_DEFENSE_TEMPLATE_ID } from './TownDefenseState'
 import { personalMissionSourcePolicy, type PersonalSquadMission } from './CareerPersonalSquadMission'
 import { officialMissionSourcePolicy, officialCommandSquads } from './CareerCommandAuthority'
+import type { BorrowedCharacterIdentities } from './CareerBorrowedIdentity'
 
 export type CareerMissionPhase = 'DEPLOYING' | 'ASSEMBLING' | 'MARCHING' | 'ENGAGING' | 'RETURNING' | 'PREPARING' | 'SPAWNING' | 'ATTACKING' | 'VICTORY_LOCKED' | 'FAILURE_LOCKED' | 'RESET' | 'RESULT'
 export type CareerMissionOutcome = 'victory' | 'failure'
@@ -128,6 +129,8 @@ export interface ActiveCareerMission {
   reinforcementActorIds?: string[]
   chargedSquadIds?: number[]
   borrowedActorIds?: string[]
+  /** Native identity receipts survive scene reconstruction independently of loaned equipment. */
+  borrowedActorIdentities?: BorrowedCharacterIdentities
   veteranRosterVersion?: 1 | 2 | 3
   actorHealth?: Record<string, { hp: number; mountHp?: number }>
   actorPositions?: Record<string, { x: number; y?: number; z: number; yaw: number; outpostRampartGarrison?: boolean; townRampartGarrison?: boolean }>
