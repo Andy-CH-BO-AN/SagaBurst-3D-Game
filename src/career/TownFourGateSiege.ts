@@ -335,8 +335,11 @@ export class TownFourGateSiege {
       const radius = ramp.surface.length + ramp.surface.landing + 10
       ramp.update(dt, grid.getNearbyInto(ramp.position, radius, this.neighbors), blockers)
     }
+    // Observe moving ground footprints before this frame's actor routes. The
+    // navigation owner ignores sub-cell motion and retains the existing budget.
+    navigation.sync(world.obstacles)
     if (this.observedRevision !== this.entrances.revision) {
-      navigation.sync(world.obstacles); this.observedRevision = this.entrances.revision
+      this.observedRevision = this.entrances.revision
       for (const npc of this.actorsById.values()) this.route(npc)
     }
     // A deployment/formation hold may end without a topology revision. Admit

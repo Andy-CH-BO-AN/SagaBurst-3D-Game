@@ -5,7 +5,8 @@ import { LayeredNavigationRoute } from '../../src/navigation/LayeredNavigationRo
 import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
-import type { ObstacleData } from '../../src/world/Terrain'
+import { findBlockingObstacleAlongPath, findBlockingProjectileObstacleAlongPath, resolveObstacleCollision, type ObstacleData } from '../../src/world/Terrain'
+import { updateSiegeRampGroundObstacle } from '../../src/campaign/MobileSiegeRampPolicy'
 
 function box(x0: number, z0: number, x1: number, z1: number): Box3 {
   return new Box3(new Vector3(x0, -10, z0), new Vector3(x1, 15, z1))
@@ -42,6 +43,45 @@ it('keeps a Town ground approach pending on skipped boids frames and resumes its
   expect(route.resolve(input, obstacles, out)).toEqual({ route: 'path', confirmedLayeredStep: false, tower: false })
   expect(world.grid.isBlocked(world.grid.worldToCell(out)!)).toBe(false)
   expect(out.equals(input.goal)).toBe(false)
+})
+
+it('routes around the complete live hull while retaining its rear boarding and upper walk lane', () => {
+  const world = new NavigationWorld({ minX: 140, maxX: 200, minZ: -20, maxZ: 20 })
+  const hull: ObstacleData = { box: box(152, -2.7, 182, 2.7), isBarricade: true, navigationPassable: true }
+  const chassis: ObstacleData = { box: box(151.5, -2.87, 158, 2.87), isBarricade: true, navigationPassable: true }
+  const ground: ObstacleData = { box: new Box3(), isBarricade: true }
+  updateSiegeRampGroundObstacle(ground, [hull, chassis])
+  const obstacles = [ground]
+  world.sync(obstacles)
+  expect(findBlockingObstacleAlongPath(new Vector3(160, 0, 5), new Vector3(160, 0, 2.8), .5, 2.3, 0, obstacles)).toBe(ground)
+  expect(findBlockingObstacleAlongPath(new Vector3(148, 0, 0), new Vector3(151.4, 0, 0), .5, 2.3, 0, obstacles)).toBe(ground)
+  expect(findBlockingObstacleAlongPath(new Vector3(187, 0, 0), new Vector3(184.2, 0, 0), 1, 2.6, 0, obstacles)).toBeNull()
+  const town = world.townNav = new TownLayeredNavigation({ decks: [], ramps: [], corners: [], lengths: [], perimeter: 1, wallSpans: [] })
+  const surface = { startX: 182, startZ: 0, startY: 0, topY: 10, dirX: -1, dirZ: 0, length: 24, landing: 6, halfWidth: 2.5 }
+  town.siegeActive = true
+  town.siegeEntrances.set({ id: 'hull-route', gateId: 'east', type: 'siege-ramp', position: new Vector3(152, 10, 0),
+    approach: new Vector3(184.2, 0, 0), exit: new Vector3(148, 10, 0), surface,
+    bridgeSurface: { ...surface, startX: 152, startY: 10, length: 4, landing: 0 },
+    faction: null, walkable: true, mounted: true, connectionId: 'hull-route' })
+  const route = new LayeredNavigationRoute(new NavigationPathFollower()), out = new Vector3()
+  // Body-clear beside the chassis, but its centre is in a coarse blocked edge cell.
+  const input = request(world, new Vector3(165, 0, 3.95), new Vector3(140, 10, 0))
+  input.entranceId = 'hull-route'
+  input.mounted = true; input.radius = 1; input.height = 2.6
+  expect(world.grid.isBlocked(world.grid.worldToCell(input.position)!)).toBe(true)
+  expect(route.resolve(input, obstacles, out)?.route).toBe('path')
+  expect(world.grid.isBlocked(world.grid.worldToCell(out)!)).toBe(false)
+  input.position.set(184.2, 0, 0)
+  expect(route.resolve(input, obstacles, out)?.confirmedLayeredStep).toBe(true)
+  expect(out.x).toBe(181)
+  input.position.set(158, 10, 0)
+  expect(route.resolve(input, obstacles, out)?.confirmedLayeredStep).toBe(true)
+  expect(out.x).toBeCloseTo(152.3)
+  // Navigation must not create an invisible collision or projectile wall above the slope.
+  const previous = new Vector3(170, 8, 0), position = new Vector3(169, 8, 0)
+  resolveObstacleCollision(position, previous, 0, false, .5, 2.3, 0, obstacles)
+  expect(position.toArray()).toEqual([169, 8, 0])
+  expect(findBlockingProjectileObstacleAlongPath(previous, position, obstacles)).toBeNull()
 })
 
 /** Only mathematical surfaces are needed; no world builder or rendered actors. */

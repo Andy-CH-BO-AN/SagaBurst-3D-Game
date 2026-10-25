@@ -100,7 +100,7 @@
 - `FormationController` 跨左右翼與 Gate Bridge 配置選取部隊：重用 36 個既有胸牆射擊位置，向內延伸三排步兵站位（108 人）；騎乘／混編使用兩排 3.2m 間距。未選取者與其已保留目的地不變，超額留在城內合法空位。Preview 與 Confirm 共用解算。高架遠程 Attack／Defend 保持原位，以 bounded acquisition 尋找合法敵軍或攻城塔，局部 projectile hitbox 轉世界座標後檢查彈道及 3D 射程。
 - `CampaignBreachController` 只保存首次 Assault latch；`AvailableBreachEntrances` 保存現在可通行的 Gate／Palisade／左右 Ramp。Dock 不更改 Gate HP 或 state。入口 revision 改變時才重新指派必要路線；尚綁定的車隊排除全軍重派，遠程兵保留 Attack。通路撤銷後，未入城的存活者改走其他入口或攻門。
 - `DamageableObstacle` 管理獨立車體 HP；移動 part bounds 與 projectile inverse matrices 隨車更新。Destroyed 移除 collider／surface／入口，乘員沿既有 FallingRider 流程失去支撐；Abandoned 保留車體並沿坡道撤離。Scene dispose 或 spawn failure 解除所有訂閱、hit registration、乘員關聯與 pending batch。
-- `MobileSiegeRamp` 在同一 geometry 更新中維護所有 parts 的 `collisionGroup.bounds`，保留同一 Box3 identity 並於查詢前更新；世界與飛行空域共享這些 obstacle records。Collision spatial index 先篩整車再查目前陣列中的 part indices，保留原始順序與重複 records，未分組 dynamic 沿用逐筆查詢，靜態 grid 不隨位移重建。
+- `MobileSiegeRamp` 在同一 geometry 更新中維護所有 parts 的 `collisionGroup.bounds`，保留同一 Box3 identity 並於查詢前更新；世界與飛行空域共享這些 obstacle records。Collision spatial index 先篩整車再查目前陣列中的 part indices，保留原始順序與重複 records，未分組 dynamic 沿用逐筆查詢，靜態 collision grid 不隨位移重建。另以單一 ground-only obstacle 聯集車體與底架（不含橋面），供地面導航／局部繞路使用；不新增實體或投射物碰撞。NavigationWorld 只在動態 blocker 跨越佔格邊界時重建 ground topology，Town 在車移動後、角色查路前同步；合法登坡仍由 layered route 接管。
 - `projectileBounds` 是 owner 明確保證完整涵蓋旋轉／縮放後 projectile geometry 的 world AABB；Mobile parts 引用同一 local geometry 算出的 live part bounds。預測彈道與實際箭段只用它篩候選，接觸仍由原 local exact trace 決定；未提供完整 bounds 的旋轉 owner 保留保守 fallback。
 
 ## 生涯與城鎮
@@ -183,7 +183,7 @@
 | `CareerOutpostMission`、`CareerOutpostLaunch`、`CareerOutpostRelief`、`EnemyTownAssault` | 跨 Town／Game 的任務啟動與恢復；從 Career 狀態重建配置。`CareerOutpostRoster` 共用 production army 與 wave IDs，regular Outpost／Relief 新 Commander 的正式授權、Pending 與 checkpoint 沿相同分隊政策，Captain／舊任務不回填全軍授權；不改自由戰役配置、兵力或援軍時間 |
 
 Commander V 的 `CommanderFourGateDefenseDeployment` 依既有 `siegeDefensePlans` 與正式八隊身份，在真實 walk surfaces 上保留盾兵外列、槍兵內列、合法遠程射界與門內騎兵，避開原生／私人巨鷹 pads 與進場走廊。`TownFourGateSiege.prepare/register/update/snapshot` 直接接入 Scene 的同一 SpatialGrid、命中物件與動態空域；騎兵只走本門 gate passage，弓兵與空軍保留各自 AI，明確玩家命令與 Dismiss receipt 原子鏡像到 mission／PR7 checkpoint。`fourGateDefense` bounded parser 保留完整騎手與原坐騎資源（空軍不塞進 PR7 地面 parser），只以 230 名騎手／士兵死亡核銷目標。結算透過 `snapshotActiveMission` 將最後一 frame 與既有防守軍功／Tier 5 勝場同次保存；返回成功保存後才清場並重建正常 Home Town。正式任務隔離 ambient 敵軍，原任務不改變。
-Commander V 新任務的60名槍騎由 `CommanderCavalryEscort` 固定分成每門左7／右8，沿實際車尾的 mounted formation 掩護推進，不成為 Crew／平台乘員，也不改投射物防護。組內仍有人存活且本車前端或任一存活組員距本門地面水平50m內，或本車毀棄／無推手／20秒未前進0.5m／全組死亡時，原子保存 release receipt 與 Charge 命令後交回原 Gate AI；保存失敗保持原 escort。`TownFourGateSiege` 的臨時 movement owner 排除 route／convoy 搶令；固定槽、進度及停滯秒數隨任務 checkpoint 保存。已有敵軍／攻城車或 ATTACKING 的無 escort 舊檔不重新集結。
+Commander V 新任務的60名槍騎由 `CommanderCavalryEscort` 固定分成每門左7／右8，沿實際車尾的 mounted formation 掩護推進，不成為 Crew／平台乘員，也不改投射物防護。組內仍有人存活且本車前端或任一存活組員距本門地面水平50m內，或本車毀棄／無推手／20秒未前進0.5m／全組死亡時，原子保存 release receipt 與 Charge 命令後交回原 Gate AI；保存失敗保持原 escort。`TownFourGateSiege` 的臨時 movement owner 排除 route／convoy 搶令；固定槽、進度及停滯秒數隨任務 checkpoint 保存。同一護車命令每前進1m只刷新 formation 目標，保留受阻恢復／局部繞行狀態並重新驗證 A* endpoint；真正換令或到位後的重新派令仍重設。已有敵軍／攻城車或 ATTACKING 的無 escort 舊檔不重新集結。
 
 任務保存名單、階段、必要死亡／統計與 checkpoint；不把重載等同新任務。借用居民不得被任務 cleanup 當臨時 NPC／Mount 銷毀。任務勝敗優先序依各 state 模組，Duel 與團體任務不共用同一玩家死亡規則。
 
@@ -220,7 +220,7 @@ Commander Last Stand 的初始名冊為 120 名友軍步兵加接受時 HR 私�
 
 `LayeredNavigationRoute` 共用 NPC 追擊與編隊的 Town／Outpost 高架路徑與地面 A* 接續，沿用每個 actor 原有 `NavigationPathFollower`；Town ground approach 保留拓樸查詢，Outpost 沿原 skip 與實體障礙重驗規則。攻擊／攻城、Follow 節流、到位與局部避讓仍由 NPC 的各行為擁有。
 
-NavigationWorld 統一管理每影格 A* 查詢預算；NavigationPathFollower 以自身作為 pending owner，超出額度時保存最新起終點，下個 beginFrame 按等待順序優先處理，避免固定 actor 順序及移動目標讓私兵／後段城防永久拿不到路徑。Topology rebuild 清除 deferred 工作及 cache。Town 軍隊、原生 Patrol、平民／商人與 HR 地面 Dismiss 使用既有 urgent formation／原生移動速度與體力規則回崗，到位或重新接令後釋放 urgency；和平移動動畫沿用實際 sprint 狀態，不改原生巡邏速度、傷害或生命。
+NavigationWorld 統一管理每影格 A* 查詢預算；NavigationPathFollower 以自身作為 pending owner，超出額度時保存最新起終點，下個 beginFrame 按等待順序優先處理，避免固定 actor 順序及移動目標讓私兵／後段城防永久拿不到路徑。結構拓樸重建清除 deferred 工作及 cache；移動 blocker 跨格只失效路徑並保留待處理座標與 FIFO。四門戰鬥在單一 beginFrame 預算內延後新搜尋，先完成車輛移動／同步再受理等待者，早期角色仍可用有效 cache 或排隊，不另重置額度。Town 軍隊、原生 Patrol、平民／商人與 HR 地面 Dismiss 使用既有 urgent formation／原生移動速度與體力規則回崗，到位或重新接令後釋放 urgency；和平移動動畫沿用實際 sprint 狀態，不改原生巡邏速度、傷害或生命。
 
 ## 效能解讀
 

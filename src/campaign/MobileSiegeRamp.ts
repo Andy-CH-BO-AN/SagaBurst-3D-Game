@@ -7,7 +7,7 @@ import { MovingPlatformSupport } from '../movement/MovingPlatformSupport'
 import { markObstacleTopologyChanged } from '../world/ObstacleTopology'
 import type { NPC } from '../world/NPC'
 import { MobileSiegeRampController, type MobileSiegeRampState } from './MobileSiegeRampController'
-import { SIEGE_RAMP, siegeRampDeckHeightAt, siegeRampRearHeightAt, siegeRampSideSkirtBox, siegeRampFrontSkirtBox, intersectsSiegeRampUnderfill, siegeRampUnderfillBounds, type MobileSiegeRampId, type SiegeRampId, type SiegeRampAssignment, type SiegeRampPlacement } from './MobileSiegeRampPolicy'
+import { SIEGE_RAMP, siegeRampDeckHeightAt, siegeRampRearHeightAt, siegeRampSideSkirtBox, siegeRampFrontSkirtBox, intersectsSiegeRampUnderfill, siegeRampUnderfillBounds, updateSiegeRampGroundObstacle, type MobileSiegeRampId, type SiegeRampId, type SiegeRampAssignment, type SiegeRampPlacement } from './MobileSiegeRampPolicy'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 
 export type MobileSiegeRampSnapshot<Id extends MobileSiegeRampId = SiegeRampId> = Omit<CampaignSiegeCheckpoint['ramps'][number], 'assignment'> & { assignment: SiegeRampAssignment<Id> }
@@ -29,7 +29,9 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
   readonly controller: MobileSiegeRampController<Id>
   readonly platform: MovingPlatformSupport<NPC>
   readonly crew = new Map<string, NPC>()
-  readonly obstacles: ObstacleData[] = []
+  private readonly groundObstacle: ObstacleData = { box: new THREE.Box3(), isBarricade: true }
+  private readonly groundParts: ObstacleData[] = []
+  readonly obstacles: ObstacleData[] = [this.groundObstacle]
   private readonly collisionGroup = { bounds: new THREE.Box3() }
   private readonly parts: Part[] = []
   private readonly timber: THREE.InstancedMesh
@@ -72,9 +74,9 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     // checkpoints or spawned actors already underneath that plane.
     this.run.obstacle.solidBelow = TERRAIN_MIN_HEIGHT - .15
     this.frontSkirt = this.part(SIEGE_RAMP.halfWidth * 2, 1, .25)
-    this.bridge = this.part(SIEGE_RAMP.halfWidth * 2, .25, SIEGE_RAMP.bridgeLength)
+    this.bridge = this.part(SIEGE_RAMP.halfWidth * 2, .25, SIEGE_RAMP.bridgeLength, false)
     for (const side of [-1, 1]) {
-      const rail = this.part(.2, .9, SIEGE_RAMP.bridgeLength - 1.6)
+      const rail = this.part(.2, .9, SIEGE_RAMP.bridgeLength - 1.6, false)
       rail.mesh.userData.side = side
       this.bridgeRails.push(rail)
     }
@@ -123,6 +125,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     this.damageable = new DamageableObstacle({ kind: 'siege_ramp', maxHp: DAMAGEABLE_OBSTACLE_HP.siege_ramp,
       root: this.root, hitMeshes: [...this.parts.map(p => p.mesh), ...this.wheels], ownerFaction: faction })
     for (const part of this.parts) part.obstacle.damageable = this.damageable
+    this.groundObstacle.damageable = this.damageable
     this.platform = new MovingPlatformSupport(this.position)
     this.controller = new MobileSiegeRampController(assignment, Math.hypot(placement.start.x - placement.dock.x, placement.start.z - placement.dock.z), state => this.transition(state))
     this.unsubscribe = this.damageable.onDestroyed(() => this.controller.destroy())
@@ -130,7 +133,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     shared.push(...this.obstacles)
   }
 
-  private part(width: number, height: number, length: number): Part {
+  private part(width: number, height: number, length: number, groundFootprint = true): Part {
     const geometry = new THREE.BoxGeometry(width, height, length)
     geometry.computeBoundingBox()
     // Hidden proxies skip render warmup; prepare the first precise hit here.
@@ -147,6 +150,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
       // This box is transformed from the same local geometry as the exact trace.
       projectileBounds: box }
     this.obstacles.push(obstacle)
+    if (groundFootprint) this.groundParts.push(obstacle)
     const part = { mesh, obstacle, localBox, size: new THREE.Vector3(width, height, length), renderMatrix: new THREE.Matrix4() }
     this.parts.push(part)
     return part
@@ -355,6 +359,7 @@ export class MobileSiegeRamp<Id extends MobileSiegeRampId = SiegeRampId> {
     // solids would push embedded actors back and forth across their join.
     siegeRampUnderfillBounds(this.run.obstacle.box, this.deck.obstacle.box, this.surface)
     this.collisionGroup.bounds.union(this.run.obstacle.box)
+    updateSiegeRampGroundObstacle(this.groundObstacle, this.groundParts)
     this.updateTimberInstances()
   }
 

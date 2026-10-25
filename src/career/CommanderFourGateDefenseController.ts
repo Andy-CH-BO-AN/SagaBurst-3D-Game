@@ -433,8 +433,12 @@ export class CommanderFourGateDefenseController {
       npc.missionMovement = false; npc.setMissionCombatTarget(null); npc.assignSiegeObstacle(null)
       // Keep navigation paths between meaningful carrier advances, including reload.
       if (saved?.commandId === commandId && Math.hypot(saved.position.x - target.x, saved.position.z - target.z) < 1) continue
-      npc.assignFormationTarget(commandId, new THREE.Vector3(target.x, getTerrainHeight(target.x, target.z), target.z),
-        new THREE.Vector3(ramp.surface.dirX, 0, ramp.surface.dirZ), Math.max(.1, ramp.controller.currentSpeed), 'defend')
+      const position = new THREE.Vector3(target.x, getTerrainHeight(target.x, target.z), target.z)
+      const facing = new THREE.Vector3(ramp.surface.dirX, 0, ramp.surface.dirZ)
+      const speed = Math.max(.1, ramp.controller.currentSpeed)
+      if (!npc.refreshFormationTarget(commandId, position, facing, speed, 'defend')) {
+        npc.assignFormationTarget(commandId, position, facing, speed, 'defend')
+      }
     }
   }
 

@@ -1503,6 +1503,22 @@ export class NPC {
     this._restoreCombatReadyRangedVisual()
   }
 
+  /** Refresh a moving slot without restarting recovery for the same live order. */
+  refreshFormationTarget(commandId: number, position: THREE.Vector3, facing: THREE.Vector3, speedLimit?: number, arrivalOrder?: TacticalOrder): boolean {
+    const target = this.formationTarget
+    if (this.dead || !target || target.commandId !== commandId || target.arrivalOrder !== arrivalOrder
+      || this.tacticalOrder !== (arrivalOrder ?? 'formation')) return false
+    target.position.copy(position)
+    target.facing.copy(facing).setY(0).normalize()
+    target.speedLimit = speedLimit
+    target.reached = false
+    // The endpoint changed, so validate a fresh A* route. Local detours and
+    // stalled-friendly recovery keep their progress and revalidate live blockers.
+    this._clearNavigationPath()
+    this.state = AIState.CHASE
+    return true
+  }
+
   assignFollowTarget(target: NPC | Player, slotIndex: number, localOffset = followLocalOffset(slotIndex, this.isMounted), marchSpeed?: number,
     anchor?: { position: THREE.Vector3; yaw: number }): void {
     if (this.dead || target === this) return
@@ -1861,6 +1877,7 @@ export class NPC {
       !this.duelHostile
       && damageable
       && !damageable.destroyed
+      && damageable.isDamageableBy(this.characterFaction)
     )
   }
 

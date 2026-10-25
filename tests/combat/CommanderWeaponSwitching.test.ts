@@ -325,6 +325,7 @@ describe('NPC non-combat locomotion ownership', () => {
 interface SelectionTarget { position: Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC }
 
 interface SelectionActor {
+  characterFaction: NPC['characterFaction']
   faction: Faction
   specialCombatProfile?: 'maki-ranger'
   holdsRampartFirePosition: boolean
@@ -381,7 +382,7 @@ interface SelectionMethods extends Pick<SelectionActor, '_cancelEquipmentCombatS
 const methods = NPC.prototype as unknown as SelectionMethods
 function selection(overrides: Partial<SelectionActor> = {}) {
   const actor = {
-    faction: Faction.ENEMY, holdsRampartFirePosition: false, combatPosition: new Vector3(), rangedWeaponId: 'recurve_longbow',
+    characterFaction: 'roman', faction: Faction.ENEMY, holdsRampartFirePosition: false, combatPosition: new Vector3(), rangedWeaponId: 'recurve_longbow',
     meleeWeaponId: 'steel_sword', meleeAttackRadius: 1.8, shieldId: null, shieldPivot: { visible: false }, tacticalOrder: 'attack',
     shieldCollider: { refreshVisibility() { actor.shieldPivot.visible = actor.hasActiveShield && !actor.shield.shieldBroken } },
     assignedSiegeObstacle: null, _isAttackableObstacle: methods._isAttackableObstacle,
@@ -560,6 +561,16 @@ describe('Reversible NPC weapon choice', () => {
     h.select()
     expect(h.actor.rangedActive).toBe(false)
     expect(h.actor.arrows).toBe(12)
+  })
+
+  it('excludes friendly structures while retaining hostile and unowned siege blockers', () => {
+    const { actor } = selection()
+    const root: Pick<Object3D, 'parent'> = { parent: null }
+    const candidates = (['roman', 'viking', null] as const).map(ownerFaction => ({
+      box: new Box3(new Vector3(-1, -1, 3), new Vector3(1, 3, 5)), isBarricade: true,
+      damageable: new DamageableObstacle({ kind: 'siege_ramp', maxHp: 100, root: root as Object3D, ownerFaction }),
+    }))
+    expect(candidates.filter(obstacle => actor._isAttackableObstacle(obstacle))).toEqual([candidates[1], candidates[2]])
   })
 
   it('resumes shooting its assigned siege target after a hostile retreats without allowing unrelated blockers', () => {
