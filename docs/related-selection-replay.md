@@ -4,13 +4,14 @@ This is a recovery recipe for PR #411, **not selection policy or an owner map**.
 Do not import these historical scenarios into the planner. Keep generated plans,
 logs and identity comparisons under ignored `output/`; do not commit them.
 
-## Current handoff — 2026-10-25 20:44 UTC
+## Current handoff — 2026-10-25 21:13 UTC
 
 **Keep #411 Draft; acceptance is incomplete.** Published checkpoint
-`448a52a2439df843d9cb5c6fda045e3428af7a2e`, tree
-`3230fab7691dd07a4225c2bf00ee22474da7262b`, contains the independently
+`ee5b06ada7665c224627e4f4c49150726780dfa7`, tree
+`ae75642ca7ba1931f3f9df2374d5e7f5d7204ddd`, contains the independently
 reviewed provider-cycle correction, original-cause diagnostics, and source-local
-ambient `require` proof with Node `node:` cache-bypass semantics. Do not merge.
+ambient `require` proof with Node `node:` cache-bypass semantics, and the reviewed
+main-entry/process-context increment. Do not merge.
 
 Completed foundations include removal of manual owner maps, immutable comparison
 snapshots, scoped runtime/input evidence, conservative open directory domains,
@@ -41,22 +42,39 @@ local functions, substitutions, pipelines, conditionals and redirects remain
 unsupported. A filename exemption or a list of familiar command names would
 not prove safety. The separate ordinal 0 genuinely reads the changed workflow
 and must remain selected. No executable manifest or successful own-plan result
-has been produced by this debug replay. Latest checkpoint CI
-[40231707963](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/40231707963)
-was still planning at this checkpoint; do not infer its terminal outcome.
+has been produced by this debug replay. The later exact-head CI
+[40232356687](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/40232356687),
+head `19a81b72967ec01955ec318bdcf4440b3035ccd6`, was cancelled at the existing
+10-minute planning job limit. The CLI ran from 20:48:08 to 20:57:58 UTC; no
+executable manifest or blocked artifact was produced. This is a separate planner
+cost blocker, not a successful fail-closed analysis or a superseded-head result.
+Do not increase the timeout to hide it.
+
+The new main increment distinguishes actual initialization from function-binding
+publication and imported modules from proven Node entry points. Unknown literal
+loader provenance now stays explicit rather than disappearing. Source-local main
+writes/deletes/escapes invalidate pruning; actual JS/MJS unused and empty imports
+retain executed initialization. Child processes cannot inherit parent mocks.
+Builtin default-object method replacement is distinct from named/namespace export
+snapshots, and a fake `vi` cannot prove a spy boundary. These are bounded proofs,
+not a cache interpreter: cache mutation plus a bare relative loader can still be
+unresolved in a real repository case. Synthetic positive fixtures do not establish
+that the actual full snapshot is accepted.
 
 ### Remaining, in order
 
-1. Keep the unsupported inline-shell effects explicit and fail closed; a broad
-   shell interpreter is not an approved shortcut. Re-run the complete actual-merge
-   plan to a terminal result; subset tests and captured-input replays are not acceptance.
-2. Finish the separate, **unpublished** canonical CommonJS main-guard change:
-   track main entry and process context, preserve actual imported initialization,
-   and prevent parent test mocks from suppressing a real Node child's consumers.
-   Unknown execution and non-lexical scopes remain fail closed.
+1. Profile the immutable actual-merge planner and remove proved redundant work
+   without changing output, snapshot/context isolation, timeouts or safety gates.
+   Candidate hotspots are repeated per-case reachability across changed files and
+   provider checks repeatedly scanning all contextual states. Measure first;
+   sharing mutable `trace.first` across changes would be unsafe.
+2. Keep unsupported inline-shell effects explicit and fail closed; a broad shell
+   interpreter is not an approved shortcut. Re-run the complete actual-merge plan
+   to a terminal result; subsets and captured-input replays are not acceptance.
 3. Implement bounded allocation provenance for actual fake versus real receiver
-   instances. Current type-derived paths are explicitly conservative, not proved
-   concrete-instance execution. Mutation/escape must retain uncertainty.
+   instances if safely achievable. Current type-derived paths are explicitly
+   conservative, not proved concrete-instance execution. Mutation/escape must
+   retain uncertainty.
 4. Re-run all four historical fixed snapshots below with one frozen analyzer and
    report exact retained/added/removed identities. All recorded historical runs
    remain blocked; a newer Black Cat-only replay does not validate the others.
@@ -68,7 +86,8 @@ was still planning at this checkpoint; do not infer its terminal outcome.
 - `node tests/tooling/run.cjs tests/release/behavior-selection.test.cjs tests/release/ci-plan.test.cjs tests/release/test-budget.test.cjs`:
   native checkpoint 127 passed, max 88.277ms (`run-cExZtx`); isolated cycle
   correction 131 passed, max 86.502ms (`run-bV6B99`); final isolated ambient
-  correction 138 passed, max 79.464ms (`run-InJ3en`). These are development subsets.
+  correction 138 passed, max 79.464ms (`run-InJ3en`). Reviewed main/process/initialization and spy-provenance increment: 162 passed,
+  max 82.499ms (`run-OjDYYc`). These are development subsets.
 - `node tests/tooling/run.cjs tests/release/ci-plan.test.cjs`: isolated cause
   diagnostics 33 passed, max 62.521ms (`run-oocBP7`). The attempt against an
   unrelated uncommitted main-guard patch failed an added trace-field expectation;
