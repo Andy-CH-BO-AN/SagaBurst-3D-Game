@@ -49,8 +49,8 @@ def main():
     # Rz(+90deg): source +X shaft -> +Y, broad XY face remains XY.
     # Centre the wooden shaft, not the asymmetric blade bounding box.
     shaft_y, shaft_z = .795, -.0018
-    # Match T5 upper extent 1.51; leave .24m of real wood below the .15 grip.
-    offset = [shaft_y * scale, -.09 - low[0] * scale, -shaft_z * scale]
+    # Leave .44m below the .15 grip: the broad head clears low carry/swing poses.
+    offset = [shaft_y * scale, -.29 - low[0] * scale, -shaft_z * scale]
     matrix = [0, scale, 0, 0, -scale, 0, 0, 0, 0, 0, scale, 0, *offset, 1]
     doc["nodes"][0] = {"name": "t4-battle-axe-attachment-space", "mesh": 0, "matrix": matrix}
     metadata = {

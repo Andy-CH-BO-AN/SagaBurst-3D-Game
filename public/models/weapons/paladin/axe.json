@@ -12,7 +12,7 @@
       0
     ],
     "sourceGripCenter": [
-      -1.2352762699127198,
+      -0.7941061735153198,
       0.795,
       -0.0018
     ],
@@ -30,7 +30,7 @@
       0.4533398832631729,
       0,
       0.3604052071942225,
-      0.7100000000000001,
+      0.51,
       0.0008160117898737112,
       1
     ],
@@ -38,18 +38,18 @@
     "rotationZDegrees": 90
   },
   "geometryPolicy": "All source geometry/accessor and embedded texture bytes unchanged; no decimation or image re-encoding.",
-  "finalSha256": "4c93c222c6f46c582cc51766490de83591727e9a45900d6614dad7eb2fd3ec62",
-  "bytes": 7363712,
+  "finalSha256": "c7f2f6214c568376ce623dcf75224192663a5096b860d3429aa644d0bcd95548",
+  "bytes": 7363684,
   "triangles": 3150,
   "measuredBounds": {
     "min": [
       -0.3649386168353193,
-      -0.08999999999999997,
+      -0.29000000000000004,
       -0.08281503395884623
     ],
     "max": [
       0.3604052071942225,
-      1.5100000000000002,
+      1.31,
       0.07792019701670153
     ],
     "size": [
