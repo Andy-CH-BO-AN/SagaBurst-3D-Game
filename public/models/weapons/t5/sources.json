@@ -340,32 +340,10 @@
     }
   },
   {
-    "weapon": "lance",
-    "author": "OwenKenney (https://sketchfab.com/OwenKenney)",
-    "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
-    "source": {
-      "bytes": 94496,
-      "sha256": "6ca01f58e473f82abc2e85ef90c30fc1b97640837a56f00e8fcd0ca2c2bfd63d",
-      "triangles": 1780,
-      "meshes": 3,
-      "primitives": 3,
-      "materials": 3,
-      "textures": 0,
-      "images": [],
-      "url": "https://sketchfab.com/3d-models/lowpoly-cartoon-spearpike-89a9d4bc332542e9b05d47f9dec3606c"
-    },
-    "title": "Lowpoly Cartoon Spear/Pike",
-    "sourceFile": "lowpoly_cartoon_spearpike.glb",
-    "final": {
-      "bytes": 94688,
-      "sha256": "5aef2c779487832a5fa7738b5c7a483d0faeaf0b5bd1903e47b841f458facf8c",
-      "triangles": 1780,
-      "meshes": 3,
-      "primitives": 3,
-      "materials": 3,
-      "textures": 0,
-      "images": []
-    },
+    "sourceFile": "Meshy_AI_A_legendary_Tier_5_Co_1025135854_texture.glb",
+    "sourceSha256": "6d6c61c47de71c9493cac25daaa3823b7af845b39757c3aab2709d8cc48c737e",
+    "sourceProvider": "Meshy; user-supplied textured GLB",
+    "build": "tools/build-meshy-weapons.py",
     "attachmentSpace": {
       "longAxis": "+Y",
       "broadFace": "XY",
@@ -374,35 +352,58 @@
         0.15,
         0
       ],
-      "sourceGripCenter": [
-        0,
-        12.94043077419355,
-        0
-      ],
-      "sourceToAttachmentMatrix": [
-        0,
-        0,
-        0.03332668963786455,
-        0,
-        0,
-        -0.08872504965740682,
-        0,
-        0,
-        0.03332668963786455,
-        0,
-        0,
-        0,
-        0,
-        1.298140363028558,
-        0,
-        1
-      ],
       "supportGripCenter": [
         0,
         0.33,
         0
+      ],
+      "tipLocal": [
+        0,
+        2.6,
+        0
+      ],
+      "lengthMeters": 3.1,
+      "boundsMin": [
+        -0.10243171024063613,
+        -0.5,
+        -0.044771627414197664
+      ],
+      "boundsMax": [
+        0.10304916977449256,
+        2.6000000000000005,
+        0.045526664821940524
+      ],
+      "sourceToAttachmentMatrix": [
+        0.621933439274771,
+        -1.3434189004051724,
+        0.0,
+        0.0,
+        1.3434189004051724,
+        0.621933439274771,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.480397090261254,
+        0.0,
+        -0.009390991452889977,
+        1.0349511151900277,
+        0.0007890839478932321,
+        1.0
+      ],
+      "uniformScale": 1.480397090261254,
+      "rotationZRadians": -1.137226952656822,
+      "sourceGripCenter": [
+        0.5451332163742547,
+        -0.24537810549654146,
+        -0.0005330218176489242
       ]
-    }
+    },
+    "geometryPolicy": "No decimation. Original body accessors and all embedded texture bytes preserved. Bow string split only for existing draw animation.",
+    "finalSha256": "46164c9f1ab44144d75daecfa3d97f810e87acf3a844f4aff51335de2f1b810b",
+    "triangles": 2994,
+    "bytes": 18170604,
+    "weapon": "lance"
   },
   {
     "weapon": "shield",

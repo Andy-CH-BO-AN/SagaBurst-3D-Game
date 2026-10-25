@@ -1,0 +1,73 @@
+{
+  "sourceFile": "Meshy_AI_tactical_forest_longb_1025131328_texture.glb",
+  "sourceSha256": "26f815e1793412b85ac0fe109dc654eedb3be5e30354c7866c2704cc9ce2e338",
+  "sourceProvider": "Meshy; user-supplied textured GLB",
+  "build": "tools/build-meshy-weapons.py",
+  "attachmentSpace": {
+    "id": "maki-ranger-bow",
+    "gripRadius": 0.035,
+    "gripLength": 0.19,
+    "gripCenterLocal": [
+      0,
+      0,
+      0
+    ],
+    "shootingAxis": [
+      0,
+      0,
+      -1
+    ],
+    "longitudinalAxis": [
+      0,
+      1,
+      0
+    ],
+    "contactNormal": [
+      -1,
+      0,
+      0
+    ],
+    "topTip": [
+      -0.0012892746977093545,
+      0.873717779532455,
+      0.15086611430100536
+    ],
+    "bottomTip": [
+      -0.001330630861425748,
+      -0.8637942531553602,
+      0.15111227442857184
+    ],
+    "bodyHeightMeters": 1.85,
+    "sourceGripCenter": [
+      -0.064,
+      0.95,
+      0.0005
+    ],
+    "sourceToAttachmentMatrix": [
+      0.0,
+      0.0,
+      0.9736842227444427,
+      0.0,
+      0.0,
+      0.9736842227444427,
+      0.0,
+      0.0,
+      -0.9736842227444427,
+      0.0,
+      0.0,
+      0.0,
+      0.00048684211137222137,
+      -0.9250000116072205,
+      0.062315790255644335,
+      1.0
+    ],
+    "originalTriangles": 3062,
+    "bodyTriangles": 3020,
+    "finalTriangles": 3102,
+    "stringGeometry": "Unit-height two-part source string; original triangles preserved, seam crossings split. CharacterBowVisual supplies existing draw transforms."
+  },
+  "geometryPolicy": "No decimation. Original body accessors and all embedded texture bytes preserved. Bow string split only for existing draw animation.",
+  "finalSha256": "1cb82efbb3f4032e4d98d90190890745873b10ffad207eecc10c75f80085b029",
+  "triangles": 3102,
+  "bytes": 6339888
+}
