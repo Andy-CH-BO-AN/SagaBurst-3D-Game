@@ -3,6 +3,15 @@
 Local npm tests and CI share this runner/planner; release publication helpers live
 under `.github/scripts/release/`. `typecheck.cjs` owns the test diagnostic ratchet.
 
+**Implementation status: WIP, not accepted for merge.** The current PR's own
+Related plan and fixed historical replays remain blocked; passing development
+subsets do not replace that gate. The graph still lacks a general unknown-effect
+frontier and complete return/instance provenance. Do not infer that every opaque
+getter, callback or external effect is detected merely because modeled evidence
+has guards. See [the exact checkpoint and remaining roots](../../docs/related-selection-replay.md).
+Manual source-to-test policies/owner mappings remain forbidden, including moving
+them into JSON/YAML, tags, or allow/deny lists; this limitation is not a fallback.
+
 `ci-plan.cjs` collects leaves without running their bodies and produces a JSON
 manifest. Related and Full deliberately have different budgets:
 
