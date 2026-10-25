@@ -538,3 +538,50 @@ test('replacement runtime shape cannot inherit original primitive escape assumpt
     "import { TABLE } from '../src/owner'", "test('plain', () => TABLE)",
   ],[['tests/shape.test.ts', "import * as owner from '../src/owner'\nvi.mock('../src/owner', () => ({ TABLE: { run: () => 0 } }))\ntest('escape', () => { globalThis.mutate(owner.TABLE); return owner.TABLE })"]]),/Unsafe mock boundary/)
 })
+
+for (const scenario of [
+  {name:'live namespace with literal throw', safe:true},
+  {name:'captured CommonJS function', captured:true},
+  {name:'opaque callback', callback:'() => globalThis.original()'},
+  {name:'callback default effects', callback:"(value = globalThis.original()) => { throw 'blocked' }"},
+  {name:'finite restoration options', options:', { times: 1 }'},
+  {name:'unresolved tracker', tracker:'globalThis.tracker'},
+  {name:'later mock implementation', later:'replacement.mock.mockImplementation(globalThis.original)'},
+  {name:'later restoration', later:'replacement.mock.restore()'},
+  {name:'escaped mock handle', later:'globalThis.reconfigure(replacement)'},
+  {name:'tracker reset', later:'t.mock.reset()'},
+  {name:'reassigned tracker', before:"t = { mock: { method() {} } }"},
+  {name:'reassigned target', before:"processIO = { spawnSync() {} }"},
+  {name:'escaped tracker', before:'globalThis.mutate(t)'},
+  {name:'escaped target', before:'globalThis.mutate(processIO)'},
+  {name:'aliased escaped tracker', before:'const alias = t; globalThis.mutate(alias)'},
+  {name:'mutated tracker method', before:'t.mock.method = () => {}'},
+  {name:'mutated imported tracker', tracker:'mock', before:'mock.method = () => {}'},
+  {name:'reconfiguration between invocations', later:'try { run() } catch {} replacement.mock.mockImplementation(globalThis.original)'},
+  {name:'escaped property tracker alias', before:'const trackerAlias = t.mock; globalThis.mutate(trackerAlias)'},
+  {name:'escaped destructured tracker alias', before:'const { mock: trackerAlias } = t; globalThis.mutate(trackerAlias)'},
+  {name:'unproven same-name spy escape', before:'const vi = globalThis.unknown; vi.spyOn(processIO)'},
+  {name:'wrapped tracker alias escape', before:'const trackerAlias = (t.mock); globalThis.mutate(trackerAlias)'},
+  {name:'assigned tracker alias escape', before:'let trackerAlias; trackerAlias = t.mock; globalThis.mutate(trackerAlias)'},
+  {name:'destructuring tracker property write', before:'[t.mock.method] = [() => {}]'},
+  {name:'unknown conditional tracker extraction', before:'const trackerAlias = globalThis.flag ? t.mock : globalThis.other; globalThis.mutate(trackerAlias)'},
+  {name:'unknown conditional argument escape', before:'globalThis.mutate(globalThis.flag ? t.mock : globalThis.other)'},
+  {name:'reassigned test registrar', registrationSetup:'test = globalThis.customRegistrar;'},
+  {name:'reassigned implicit require', before:"require = () => ({ spawnSync() {} }); const fakeIO = require('node:child_process')", target:'fakeIO', unverified:true},
+  {name:'dynamic with scope', dynamicScope:true},
+
+
+]) test(`native nondelegating boundary: ${scenario.name}`, () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/process.test.cjs', owner = 'src/process.cjs'
+  const before = `${scenario.captured ? "const { spawnSync } = require('node:child_process')" : "const processIO = require('node:child_process')"}; function run() { ${scenario.captured ? 'spawnSync' : 'processIO.spawnSync'}('node', [globalThis.script]); return 1 }; exports.run = run`
+  const body = `let { test, mock } = require('node:test'); let processIO = require('node:child_process'); const { run } = require('../src/process.cjs'); ${scenario.registrationSetup ?? ''}\ntest('boundary', (t) => { ${scenario.dynamicScope ? 'with (globalThis.scope) {' : ''} ${scenario.before ?? ''}; const replacement = ${scenario.tracker ?? 't.mock'}.method(${scenario.target ?? 'processIO'}, 'spawnSync', ${scenario.callback ?? "() => { throw 'blocked' }"}${scenario.options ?? ''}); ${scenario.later ?? ''}; run(); ${scenario.dynamicScope ? '}' : ''} })`
+  const sources = new Map([[owner,before.replace('return 1','return 2')],[file,body]])
+  const previousSources = new Map(sources); previousSources.set(owner,before)
+  const inventory = [{file,names:['boundary'],locations:[{line:2,column:1}]}], files = new Set(sources.keys())
+  const consumers = dependencyConsumers(inventory,sources,path=>files.has(path),{files})
+  const previousConsumers = dependencyConsumers(inventory,previousSources,path=>files.has(path),{files})
+  const plan = () => selectBehaviors(inventory,[{status:'M',file:owner}],consumers,{sources,previousSources,previousConsumers,ranges:{},compilerOptions:{noLib:true,noResolve:true,types:[]}})
+  if (scenario.safe) assert.deepEqual(plan().selectedCases[file],[0])
+  else assert.throws(plan,scenario.dynamicScope ? /Unsafe runtime dispatch:.*with dynamic scope/ : scenario.unverified ? /Unsafe runtime input/ : /Unsafe runtime input: ambiguous replacement/)
+})

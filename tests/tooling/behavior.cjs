@@ -31,21 +31,55 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   })
   const program = ts.createProgram([...sources.keys()], options, host)
   const checker = program.getTypeChecker()
-  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), commonjsTargets = new Set(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set()
+  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), commonjsTargets = new Set(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set(), escapedBindings = new Set(), mutatedObjectBindings = new Set(), bindingAliases = new Map(), mutatedImplicitRequireFiles = new Set()
   function connect(entry, id, guard = null) {
     entry.edges.add(id)
     entry.edgeGuards ??= new Map()
     if (!entry.edgeGuards.has(id)) entry.edgeGuards.set(id, new Set())
     entry.edgeGuards.get(id).add(guard)
   }
+  function bindingDeclaration(expression) {
+    const symbol = ts.isShorthandPropertyAssignment(expression.parent) ? checker.getShorthandAssignmentValueSymbol(expression.parent) : checker.getSymbolAtLocation(expression)
+    return symbol?.valueDeclaration ?? symbol?.declarations?.find(declaration => ts.isVariableDeclaration(declaration) || ts.isParameter(declaration) || ts.isBindingElement(declaration) || ts.isImportSpecifier(declaration) || ts.isNamespaceImport(declaration) || ts.isImportClause(declaration))
+  }
+  function baseBinding(expression) {
+    while (expression && (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression) || ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isNonNullExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isSatisfiesExpression(expression) || ts.isSpreadElement(expression) || ts.isSpreadAssignment(expression) || ts.isAwaitExpression(expression) || ts.isYieldExpression(expression))) expression = expression.expression
+    return expression && bindingDeclaration(expression)
+  }
+  function stableBinding(expression, seen = new Set()) {
+    const declaration = baseBinding(expression)
+    if (!declaration) return true
+    if (seen.has(declaration)) return false
+    seen.add(declaration)
+    if (mutatedBindings.has(declaration) || mutatedObjectBindings.has(declaration) || escapedBindings.has(declaration)) return false
+    return !bindingAliases.has(declaration) || stableBinding(bindingAliases.get(declaration), seen)
+  }
+  function nativeTarget(expression, seen = new Set()) {
+    if (!stableBinding(expression)) return false
+    if (providerRequire(expression)) return true
+    if (!ts.isIdentifier(expression)) return false
+    const declaration = bindingDeclaration(expression)
+    if (!declaration || seen.has(declaration)) return false
+    seen.add(declaration)
+    if (ts.isNamespaceImport(declaration) || ts.isImportClause(declaration)) return true
+    return ts.isVariableDeclaration(declaration) && declaration.initializer && nativeTarget(declaration.initializer, seen)
+  }
+  function controlledCall(expression) {
+    while (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isNonNullExpression(expression) || ts.isSatisfiesExpression(expression)) expression = expression.expression
+    if (!ts.isCallExpression(expression)) return false
+    if (expression.expression.getText() === 'vi.spyOn' && vitestReceiver(expression.expression.expression) && stableBinding(expression.expression.expression)) return true
+    if (ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === 'method' && nativeTracker(expression.expression.expression)) return true
+    const provider = providerOf(expression.expression)
+    return provider?.module === 'node:test' && stableBinding(expression.expression) && ['test', 'it', 'describe', 'before', 'after', 'beforeEach', 'afterEach'].includes(provider.export)
+  }
   function invalidateAssignment(target) {
     if (ts.isIdentifier(target)) {
-      const symbol = ts.isShorthandPropertyAssignment(target.parent) ? checker.getShorthandAssignmentValueSymbol(target.parent) : checker.getSymbolAtLocation(target)
-      const declaration = symbol?.valueDeclaration
+      const declaration = bindingDeclaration(target)
       if (declaration) mutatedBindings.add(declaration)
-    } else if (!ts.isPropertyAccessExpression(target) && !ts.isElementAccessExpression(target)) {
-      ts.forEachChild(target, invalidateAssignment)
-    }
+      else if (target.text === 'require') mutatedImplicitRequireFiles.add(target.getSourceFile().fileName)
+    } else if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
+      const declaration = baseBinding(target.expression); if (declaration) mutatedObjectBindings.add(declaration)
+    } else ts.forEachChild(target, invalidateAssignment)
   }
   function optionalReceiver(expression) {
     for (let node = expression; node && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) || ts.isCallExpression(node)); node = node.expression) {
@@ -117,10 +151,42 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
         invalidateAssignment(n.left ?? n.operand)
       }
       if (ts.isForOfStatement(n) || ts.isForInStatement(n)) invalidateAssignment(n.initializer)
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && baseBinding(n.initializer)) bindingAliases.set(n, n.initializer)
+      if (ts.isBindingElement(n)) {
+        let owner = n.parent
+        while (owner && !ts.isVariableDeclaration(owner)) owner = owner.parent
+        if (owner?.initializer) bindingAliases.set(n, owner.initializer)
+      }
+      const escape = expression => {
+        const visit = node => {
+          if (typeOnly(node)) return
+          if (ts.isIdentifier(node)) {
+            const declaration = bindingDeclaration(node)
+            // Unknown expressions may capture outer references, but their own
+            // callback parameters/locals are not escaped caller bindings.
+            if (declaration && !(declaration.getSourceFile() === expression.getSourceFile() && expression.pos <= declaration.pos && declaration.end <= expression.end)) escapedBindings.add(declaration)
+          }
+          ts.forEachChild(node, visit)
+        }
+        visit(expression)
+      }
+      if (ts.isVariableDeclaration(n) && n.initializer && !bindingAliases.has(n) && !controlledCall(n.initializer)) escape(n.initializer)
+      if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) escape(n.right)
+      if (ts.isArrowFunction(n) && !ts.isBlock(n.body)) escape(n.body)
+      if (ts.isPropertyDeclaration(n) && n.initializer) escape(n.initializer)
+      if (ts.isCallExpression(n) || ts.isNewExpression(n)) {
+        const controlled = ts.isCallExpression(n) && controlledCall(n)
+        if (!controlled) for (const argument of n.arguments ?? []) escape(argument)
+      }
+      if (ts.isReturnStatement(n) && n.expression) escape(n.expression)
+      if (ts.isPropertyAssignment(n)) escape(n.initializer)
+      if (ts.isShorthandPropertyAssignment(n)) escape(n.name)
+      if (ts.isArrayLiteralExpression(n)) for (const element of n.elements) escape(element)
       if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
         && (ts.isPropertyAccessExpression(n.left) || ts.isElementAccessExpression(n.left))) {
         const symbol = receiverSymbol(origin(n.left.expression))
         if (symbol) mutatedReceivers.add(symbol)
+        const declaration = baseBinding(n.left.expression); if (declaration) mutatedObjectBindings.add(declaration)
       }
       if (ts.isCallExpression(n) && /^(?:Object\.(?:assign|defineProperty|defineProperties)|Reflect\.set)$/.test(n.expression.getText()) && n.arguments[0]) {
         const symbol = receiverSymbol(origin(n.arguments[0]))
@@ -165,6 +231,14 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
         domains[domain] = id
       }
       shapes.set(entry.ast, domains)
+    }
+  }
+  let changedBindings = true
+  while (changedBindings) {
+    changedBindings = false
+    for (const [alias, expression] of bindingAliases) if (mutatedObjectBindings.has(alias) || escapedBindings.has(alias)) {
+      const original = baseBinding(expression)
+      if (original && !escapedBindings.has(original)) { escapedBindings.add(original); changedBindings = true }
     }
   }
   // Data-reader candidate expansion is not executable module provenance.
@@ -274,12 +348,17 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   const providerName = provider => provider?.module ? provider.module.replace(/^node:/, '') : provider?.global ? `global:${provider.global}` : null
   function providerRequire(expression) {
     return ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.expression.text === 'require'
-      && ts.isStringLiteralLike(expression.arguments[0])
+      && ts.isStringLiteralLike(expression.arguments[0]) && stableBinding(expression.expression)
+      && !mutatedImplicitRequireFiles.has(expression.getSourceFile().fileName)
       && !(checker.getSymbolAtLocation(expression.expression)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName))
   }
   function providerOf(expression) {
     expression = origin(expression)
     if (providerRequire(expression)) return { module: expression.arguments[0].text, export: '*' }
+    if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === 'method') {
+      const handle = nativeReplacement(expression)
+      if (handle) return { ...handle.provider, export: handle.method ?? '*' }
+    }
     if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
       const provider = providerOf(expression.expression)
       const keys = ts.isPropertyAccessExpression(expression) ? [expression.name.text] : literalKeys(expression.argumentExpression)
@@ -338,6 +417,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     return value && ts.isObjectLiteralExpression(value) && closed(value) ? 'replacement' : 'uncertain'
   }
   function nativeTracker(expression) {
+    if (!stableBinding(expression)) return false
     const provider = providerOf(expression)
     if (provider?.module === 'node:test' && provider.export === 'mock') return true
     if (!ts.isPropertyAccessExpression(expression) || expression.name.text !== 'mock') return false
@@ -345,17 +425,22 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (!declaration || !ts.isParameter(declaration) || !callable(declaration.parent) || declaration.parent.parameters[0] !== declaration) return false
     const callback = declaration.parent, registration = callback.parent
     const registrationProvider = ts.isCallExpression(registration) && registration.arguments.includes(callback) && providerOf(registration.expression)
-    return registrationProvider?.module === 'node:test' && ['test', 'it', 'default', '*'].includes(registrationProvider.export)
+    return registrationProvider?.module === 'node:test' && stableBinding(registration.expression) && ['test', 'it', 'default', '*'].includes(registrationProvider.export)
   }
   function nativeReplacement(call) {
     if (!ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression) || call.expression.name.text !== 'method' || call.arguments.length < 2) return null
     const provider = providerOf(call.arguments[0])
     if (!provider) return null
-    const keys = literalKeys(call.arguments[1])
-    // A native method replacement does not update previously captured CJS
-    // function bindings. Provider identity alone cannot prove a read was mocked.
-    return { provider, method: keys?.length === 1 ? keys[0] : null,
-      trackerProven: nativeTracker(call.expression.expression), action: 'uncertain' }
+    const keys = literalKeys(call.arguments[1]), trackerProven = nativeTracker(call.expression.expression)
+    const callback = call.arguments[2]
+    const statement = callback && callable(callback) && ts.isBlock(callback.body) && callback.body.statements.length === 1 ? callback.body.statements[0] : null
+    const literalThrow = statement && ts.isThrowStatement(statement) && (ts.isStringLiteralLike(statement.expression) || ts.isNumericLiteral(statement.expression)
+      || [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(statement.expression.kind))
+    const known = trackerProven && nativeTarget(call.arguments[0]) && call.arguments.length === 3 && ts.isStringLiteralLike(call.arguments[1]) && literalThrow
+      && callback.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)
+    // inputStatus still requires a live property lookup: captured CJS function
+    // values do not change when this provider object's method is replaced.
+    return { provider, method: keys?.length === 1 ? keys[0] : null, trackerProven, action: known ? 'replace' : 'uncertain' }
   }
   function replacementEvent(call, entry) {
     const name = call.expression.getText()
@@ -371,6 +456,13 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     } else if (['vi.restoreAllMocks', 'vi.unstubAllGlobals'].includes(name)) event = { action: 'restore', all: true, boundary: name === 'vi.unstubAllGlobals' ? 'global' : 'module' }
     else if (ts.isPropertyAccessExpression(call.expression)) {
       const method = call.expression.name.text, target = spy(call.expression.expression)
+      const receiver = origin(call.expression.expression)
+      if (/^(?:mockImplementation|restore)/.test(method) && ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'mock') {
+        const value = origin(receiver.expression), handle = ts.isCallExpression(value) ? nativeReplacement(value) : null
+        const provider = handle?.provider ?? providerOf(value)
+        if (provider) event = { provider, method: handle?.method ?? provider.export, action: 'uncertain', reason: 'Native mock implementation or restoration changed' }
+      }
+      if (['restoreAll', 'reset'].includes(method) && nativeTracker(receiver)) event = { all: true, boundary: 'module', action: 'uncertain' }
       if (target && /^mock(?:ReturnValue|ResolvedValue|RejectedValue)$/.test(method)) event = { ...target, action: 'replace' }
       else if (target && method === 'mockRestore') event = { ...target, action: 'restore' }
       else if (target && /^mock(?:Implementation|ReturnValueOnce|ResolvedValueOnce|RejectedValueOnce)/.test(method)) event = { ...target, action: 'uncertain' }
@@ -481,6 +573,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     resolveMember(n.expression, keys, entry, n)
   }
   function inspect(n, entry, root = false) {
+    if (ts.isWithStatement(n)) entry.unsafe = 'with dynamic scope'
     if (typeOnly(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n) || ts.isImportSpecifier(n) || ts.isNamespaceImport(n) || ts.isImportClause(n)) return
     // Registration callbacks are separate roots. Suite hooks are applied below.
     if (registration(n)) {
@@ -643,7 +736,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       if (imported(expression)) return 'esm'
       if (providerRequire(expression)) return 'cjs'
       if (ts.isNewExpression(expression)) return moduleKind(expression.expression, seen)
-      const declaration = checker.getSymbolAtLocation(expression)?.valueDeclaration
+      const declaration = bindingDeclaration(expression)
       if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer && !mutatedBindings.has(declaration)) return moduleKind(declaration.initializer, seen)
       return null
     }

@@ -686,8 +686,8 @@ test('blocked diagnostics preserve failure evidence separately and cannot execut
   const { writeBlockedDiagnostics } = require('../tooling/ci-plan.cjs')
   const { executeShard } = require('../tooling/ci-run.cjs')
   const childProcess = require('node:child_process')
-  const blockedSpawn = t.mock.method(childProcess, 'spawnSync', () => { throw new Error('Unexpected subprocess before diagnostic rejection') })
-  const blockedExec = t.mock.method(childProcess, 'execFileSync', () => { throw new Error('Unexpected checkout lookup before diagnostic rejection') })
+  const blockedSpawn = t.mock.method(childProcess, 'spawnSync', () => { throw 'Unexpected subprocess before diagnostic rejection' })
+  const blockedExec = t.mock.method(childProcess, 'execFileSync', () => { throw 'Unexpected checkout lookup before diagnostic rejection' })
   const directory = mkdtempSync(join(tmpdir(), 'blocked-plan-'))
   try {
     const manifest = join(directory, 'plan.json')
