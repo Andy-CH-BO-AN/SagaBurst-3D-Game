@@ -128,10 +128,12 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
   function provenReader(unit, node) {
     const callee = node.expression
     const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : ''
-    if (name === 'fetch' || name === 'URL') return ts.isIdentifier(callee) && !binding(unit, name, node) && !importOrigin(unit, callee, node) ? { global: name } : false
-    if (['readFile', 'readFileSync'].includes(name)) {
-      const origin = importOrigin(unit, ts.isIdentifier(callee) ? callee : callee.expression, node)
-      return origin && ['fs', 'node:fs', 'fs/promises', 'node:fs/promises'].includes(origin.module) && (origin.imported === name || origin.imported === '*') ? { module: origin.module, export: name } : false
+    if ((name === 'fetch' || name === 'URL') && ts.isIdentifier(callee) && !binding(unit, name, node) && !importOrigin(unit, callee, node)) return { global: name }
+    const named = ts.isIdentifier(callee)
+    const readerOrigin = importOrigin(unit, named ? callee : ts.isPropertyAccessExpression(callee) ? callee.expression : callee, node)
+    const readerName = named ? readerOrigin?.imported : name
+    if (ts.isCallExpression(node) && ['readFile', 'readFileSync'].includes(readerName)) {
+      return readerOrigin && ['fs', 'node:fs', 'fs/promises', 'node:fs/promises'].includes(readerOrigin.module) && (named || readerOrigin.imported === '*') ? { module: readerOrigin.module, export: readerName } : false
     }
     if (name === 'loadAsync' && ts.isPropertyAccessExpression(callee)) {
       let receiver = callee.expression
@@ -415,7 +417,7 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     function visit(node) {
       if (ts.isCallExpression(node)) {
         const name = ts.isIdentifier(node.expression) ? node.expression.text : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : ''
-        if (['fetch', 'readFile', 'readFileSync', 'loadAsync'].includes(name)) found = true
+        if (['fetch', 'readFile', 'readFileSync', 'loadAsync'].includes(name) || ['readFile', 'readFileSync'].includes(provenReader(units.get(fn.getSourceFile().fileName), node)?.export)) found = true
       }
       if (!found) ts.forEachChild(node, visit)
     }
@@ -519,7 +521,8 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
             record(file, node, operand ?? args ?? command, 'execute', env, origin, { provider, unresolved, pathOrigin, reason: unresolved ? 'Subprocess executable, script argument or launch options lack bounded entry evidence' : undefined, missingEvidence: unresolved ? node.getText(unit.ast) : undefined, executionKind: nodeExecutable ? 'node-entry' : unresolvedExecutable ? undefined : 'script-entry' })
           }
         }
-        if (node.arguments.length && ['readFile', 'readFileSync', 'fetch', 'loadAsync'].includes(name)) record(file, node, node.arguments[0], name.startsWith('readFile') ? 'read' : name === 'fetch' ? 'fetch' : 'load', env, origin)
+        const aliasedRead = ['readFile', 'readFileSync'].includes(provenReader(unit, node)?.export)
+        if (node.arguments.length && (aliasedRead || ['readFile', 'readFileSync', 'fetch', 'loadAsync'].includes(name))) record(file, node, node.arguments[0], aliasedRead || name.startsWith('readFile') ? 'read' : name === 'fetch' ? 'fetch' : 'load', env, origin)
         // Resolve small local read wrappers using actual caller arguments. A
         // parameterized declaration is also retained as an unresolved risk.
         if (ts.isIdentifier(node.expression)) {

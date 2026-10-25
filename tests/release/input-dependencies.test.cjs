@@ -313,3 +313,24 @@ for (const [scenario, source] of [
   assert.equal(graph.inputRisks.length, 1)
   assert.equal(graph.inputRisks[0].kind, 'execute')
 })
+
+test('filesystem import aliases select their reading leaf rather than a real sibling reader', () => {
+  const file = 'tests/alias.test.mjs'
+  const source = `import {test} from 'node:test'; import {readFileSync, readFileSync as read} from 'node:fs';
+test('alias',()=>read('cfg.json'));
+test('sibling',()=>readFileSync('other.json'));`
+  const graph = analyze([[file, source]], ['cfg.json', 'other.json'])
+  assert.equal(graph.inputEdges.find(edge => edge.to === 'cfg.json').provider.export, 'readFileSync')
+  assert.equal(graph.inputRisks.length, 0)
+  const inventory = [{file, runner:'node', names:['alias','sibling'], locations:[{line:2,column:1},{line:3,column:1}]}]
+  const selected = require('../tooling/behavior.cjs').selectBehaviors(inventory, [{status:'M',file:'cfg.json'}], graph,
+    {sources:graph.sources,previousSources:graph.sources,previousConsumers:graph,ranges:{},compilerOptions:{noLib:true,noResolve:true,types:[]}})
+  assert.deepEqual(selected.selectedCases[file], [0])
+})
+
+test('a same-named local reader cannot inherit filesystem provider evidence', () => {
+  const graph = analyze([['tests/fake.cjs', "function readFileSync(path) { return path }; readFileSync('cfg.json')"]], ['cfg.json'])
+  assert.deepEqual(graph.inputEdges, [])
+  assert.equal(graph.inputRisks.length, 1)
+  assert.match(graph.inputRisks[0].reason, /lacks verified API receiver provenance/)
+})

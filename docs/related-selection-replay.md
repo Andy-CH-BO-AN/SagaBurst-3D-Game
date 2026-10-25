@@ -4,14 +4,15 @@ This is a recovery recipe for PR #411, **not selection policy or an owner map**.
 Do not import these historical scenarios into the planner. Keep generated plans,
 logs and identity comparisons under ignored `output/`; do not commit them.
 
-## Current handoff — 2026-10-25 21:13 UTC
+## Current handoff — 2026-10-25 21:35 UTC
 
 **Keep #411 Draft; acceptance is incomplete.** Published checkpoint
-`ee5b06ada7665c224627e4f4c49150726780dfa7`, tree
-`ae75642ca7ba1931f3f9df2374d5e7f5d7204ddd`, contains the independently
+`f3a0bf3be921077fb7e832579ab19a9f45dd7737`, tree
+`65746efef71ab06cd1b2af11ad6e5c24da91efaa`, contains the independently
 reviewed provider-cycle correction, original-cause diagnostics, and source-local
 ambient `require` proof with Node `node:` cache-bypass semantics, and the reviewed
-main-entry/process-context increment. Do not merge.
+main-entry/process-context increment plus an invocation-local lexical binding
+memo. Do not merge.
 
 Completed foundations include removal of manual owner maps, immutable comparison
 snapshots, scoped runtime/input evidence, conservative open directory domains,
@@ -61,14 +62,44 @@ not a cache interpreter: cache mutation plus a bare relative loader can still be
 unresolved in a real repository case. Synthetic positive fixtures do not establish
 that the actual full snapshot is accepted.
 
+### New fixed-snapshot evidence
+
+Main checkpoint [CI 40234505636](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/40234505636)
+**failed with a real blocked diagnostic**, not a timeout. Its checkout was
+`1446d1fd06093a1e153669aabb242772bf883f24`, target parent
+`a4579ac3cea9152fc6d891c2e87043db0c0ca821`, head `ddd9eff`.
+The [original blocked artifact 12614233744](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/40234505636/artifacts/12614233744)
+was downloaded and verified: ZIP SHA256
+`2bb8d7c6057ec499a23d91db20d0f70b81c0adbbc31928325ace2fd10d504cf7`.
+Its first blocker is `tests/release/ci-plan.test.cjs`, ordinal 0,
+`production module selects actual transitive consumers, never implicit filename owners`.
+The trace reaches its top-level captured relative require at line 3; later sibling
+callbacks' cache mutations currently invalidate the loader proof. Acquisition-time
+and reachable-process scoping remain to fix; prior relevant mutations and mutable
+exports must not be globally exempted.
+
+Two local diagnostics held those source inputs fixed. The first was killed by
+SIGKILL after 590.896s while still in the first `inputDependencies` phase; the
+signal alone does not establish OOM or a timeout. Its lone CPU profile was a short
+Vitest worker profile, **not main-planner attribution**. The second used the
+separate frozen memo analyzer `f3a0bf3`; after about 319s the direct child's observed
+RSS peak reached 5.13GiB, still in that phase. It was explicitly interrupted to
+protect the workspace (owned session exit 130). No full result/parity was obtained,
+and the child PID could not be independently inspected across execution namespaces.
+Neither diagnostic proves a speedup or an accepted plan. The memo is safe lexical
+query reuse, but does not resolve the large repeated input-analysis expansion.
+
 ### Remaining, in order
 
 1. Profile the immutable actual-merge planner and remove proved redundant work
    without changing output, snapshot/context isolation, timeouts or safety gates.
-   Candidate hotspots are repeated per-case reachability across changed files and
-   provider checks repeatedly scanning all contextual states. Measure first;
-   sharing mutable `trace.first` across changes would be unsafe.
-2. Keep unsupported inline-shell effects explicit and fail closed; a broad shell
+   Observed first-phase cost is in input analysis, before behavior traversal. The
+   next bounded candidate is a conservative fixed point that avoids repeatedly
+   expanding local-function bodies only when this inspector cannot emit records.
+   It must retain every input kind, unknown route and recursive emitting consumer.
+   Do not infer runtime no-I/O from such an optimization.
+2. Resolve captured-loader acquisition scope and genuine aliased input API
+   origins without name-based ownership. Keep unsupported inline-shell effects explicit and fail closed; a broad shell
    interpreter is not an approved shortcut. Re-run the complete actual-merge plan
    to a terminal result; subsets and captured-input replays are not acceptance.
 3. Implement bounded allocation provenance for actual fake versus real receiver
@@ -87,7 +118,10 @@ that the actual full snapshot is accepted.
   native checkpoint 127 passed, max 88.277ms (`run-cExZtx`); isolated cycle
   correction 131 passed, max 86.502ms (`run-bV6B99`); final isolated ambient
   correction 138 passed, max 79.464ms (`run-InJ3en`). Reviewed main/process/initialization and spy-provenance increment: 162 passed,
-  max 82.499ms (`run-OjDYYc`). These are development subsets.
+  max 82.499ms (`run-OjDYYc`). Pure binding memo input contracts: 30 passed,
+  max 68.602ms. A tiny fixed fixture has identical complete edges/risks/patterns
+  before and after; its cold-load wall times are not speed or leaf-budget evidence.
+  These are development subsets, not full-snapshot parity.
 - `node tests/tooling/run.cjs tests/release/ci-plan.test.cjs`: isolated cause
   diagnostics 33 passed, max 62.521ms (`run-oocBP7`). The attempt against an
   unrelated uncommitted main-guard patch failed an added trace-field expectation;
