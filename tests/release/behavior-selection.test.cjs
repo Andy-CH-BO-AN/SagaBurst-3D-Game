@@ -287,14 +287,16 @@ test('receiver provenance and finite keys exclude same-name methods and mere cla
     "test('same name', () => { const values: { [key: string]: Unrelated } = {}; values[globalThis.key].apply(); return Unrelated.prototype.update.call({}) })",
     "test('reference', () => Owner)",
     "test('sibling', () => Owner.prototype.other.call({}))",
+    "test('type-only receiver', () => { const invoke = (actor: Owner) => actor.update(); globalThis.consume(invoke) })",
   ], [['tests/unrelated.test.ts', [
     "const bindings = globalThis.bindings",
     "function unusedImport(name) { return import(name) }",
     "test('unrelated same name', () => bindings.update())",
   ].join('\n')]])
   assert.deepEqual(plan.selected, ['tests/owner.test.ts'])
-  assert.deepEqual(indices(plan), [0, 1])
+  assert.deepEqual(indices(plan), [0, 1, 5])
   assert.ok(plan.details['tests/owner.test.ts'][0].caseEvidence.some(e => e.path.some(p => p.key === 'update')))
+  assert.ok(plan.details['tests/owner.test.ts'][0].caseEvidence.some(e => e.index === 5 && e.reason === 'finite receiver dependency' && e.path.some(p => p.evidence === 'receiver type; runtime allocation unproven')))
 })
 
 test('unknown receiver dispatch fails with expression evidence rather than expanding member names', () => {

@@ -214,7 +214,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       let owner = decl
       while (ts.isBindingElement(owner) || ts.isObjectBindingPattern(owner) || ts.isArrayBindingPattern(owner)) owner = owner.parent
       const id = byAst.get(owner)
-      if (id && id !== entry.id) { connect(entry, id, guard); entry.conservativeEdges.delete(id) }
+      if (id && id !== entry.id) { connect(entry, id, guard); if (!entry.typeReceiverEdges?.has(id)) entry.conservativeEdges.delete(id) }
     }
     // Preserve intermediate import/re-export bindings instead of flattening
     // directly to the final declaration: an unchanged caller can be retargeted.
@@ -404,6 +404,8 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     receiver = origin(receiver)
     const type = checker.getTypeAtLocation(receiver)
     const classes = receiverClasses(receiver, true)
+    const concreteReceiver = receiver.kind === ts.SyntaxKind.ThisKeyword || ts.isNewExpression(receiver) || ts.isObjectLiteralExpression(receiver)
+      || !!type.getConstructSignatures().length || ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'prototype' && !!checker.getTypeAtLocation(receiver.expression).getConstructSignatures().length
     let resolved = false
     for (const key of keys ?? []) {
       const references = { ...entry, edges: new Set(), edgeGuards: new Map(), conservativeEdges: new Set(), edgeEvidence: new Map() }
@@ -414,8 +416,10 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       if (symbol?.declarations?.some(decl => decl.getSourceFile().isDeclarationFile || !ts.isMethodSignature(decl) && !ts.isPropertySignature(decl))) resolved = true
       for (const id of references.edges) {
         connect(entry, id, optionalReceiver(access))
-        if (keys.length > 1) entry.conservativeEdges.add(id)
-        entry.edgeEvidence.set(id, { receiver: receiver.getText(), key, ...(keys.length > 1 ? { keyCandidates: keys } : {}), evidence: 'receiver symbol', ...(reflective ? { observation: 'reflection' } : {}) })
+        const typeDerived = !concreteReceiver && (callable(nodes.get(id)?.ast) || callable(nodes.get(id)?.ast.initializer))
+        if (typeDerived) { entry.typeReceiverEdges ??= new Set(); entry.typeReceiverEdges.add(id) }
+        if (keys.length > 1 || typeDerived) entry.conservativeEdges.add(id)
+        entry.edgeEvidence.set(id, { receiver: receiver.getText(), key, ...(keys.length > 1 ? { keyCandidates: keys } : {}), evidence: typeDerived ? 'receiver type; runtime allocation unproven' : 'receiver symbol', ...(reflective ? { observation: 'reflection' } : {}) })
       }
     }
     // Unknown dispatch is not permission to connect unrelated classes. Only

@@ -273,3 +273,36 @@ for (const a of readdirSync('names').filter(name => name.endsWith('.json'))) {
   assert.deepEqual(graph.inputEdges.filter(edge => edge.kind === 'read' && edge.inputExpression.includes("a + '-' + a")).map(edge => edge.to), ['pairs/a.json-a.json', 'pairs/b.json-b.json'])
   assert.equal(graph.inputRisks.length, 0)
 })
+
+test('verified child-process launches distinguish Node entry mode from other interpreters', () => {
+  const file = 'tests/entry.cjs'
+  const sources = new Map([[file, `const {execFileSync: run}=require('node:child_process');
+run(process.execPath, ['tools/entry.cjs']);
+require('node:child_process').spawnSync('node', ['tools/entry.cjs'], {shell:false});
+run('python3', ['tools/report.py']);
+const {resolve}=require('node:path');
+run(process.execPath, [resolve(__dirname, '../tools/entry.cjs')], {cwd:runtimeRoot});`]])
+  const files = new Set([file, 'tools/entry.cjs', 'tools/report.py'])
+  const graph = dependencyConsumers([{ file }], sources, path => files.has(path), { files })
+  assert.equal(graph.inputRisks.length, 0)
+  assert.deepEqual(graph.inputEdges.map(edge => [edge.to, edge.executionKind, edge.provider.export]), [
+    ['tools/entry.cjs', 'node-entry', 'execFileSync'],
+    ['tools/entry.cjs', 'node-entry', 'spawnSync'],
+    ['tools/report.py', 'script-entry', 'execFileSync'],
+    ['tools/entry.cjs', 'node-entry', 'execFileSync'],
+  ])
+  assert.equal(graph.inputEdges.at(-1).pathOrigin, 'module-directory')
+})
+
+for (const [scenario, source] of [
+  ['a same-named local launcher', "function spawnSync() {}; spawnSync('node', ['tools/entry.cjs'])"],
+  ['a conditional executable', "const {spawnSync}=require('node:child_process'); spawnSync(flag ? 'node' : runtimeExecutable, ['tools/entry.cjs'])"],
+  ['an unresolved script', "const {spawnSync}=require('node:child_process'); spawnSync('node', [runtimeScript])"],
+  ['a shadowed process executable', "const {spawnSync}=require('node:child_process'); const process = {execPath:runtimeExecutable}; spawnSync(process.execPath, ['tools/entry.cjs'])"],
+  ['an unproven working directory', "const {spawnSync}=require('node:child_process'); spawnSync('node', ['tools/entry.cjs'], {cwd:runtimeRoot})"],
+]) test(`Node entry proof rejects ${scenario}`, () => {
+  const graph = analyze([['tests/entry.cjs', source]], ['tools/entry.cjs'])
+  assert.equal(graph.inputEdges.length, 0)
+  assert.equal(graph.inputRisks.length, 1)
+  assert.equal(graph.inputRisks[0].kind, 'execute')
+})

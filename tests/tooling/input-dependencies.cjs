@@ -344,8 +344,8 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     }
     return UNKNOWN
   }
-  function record(file, node, operand, kind, env, origin) {
-    const unit = units.get(file), evaluated = evaluate(operand, file, env)
+  function record(file, node, operand, kind, env, origin, execution = null) {
+    const unit = units.get(file), evaluated = execution?.unresolved ? UNKNOWN : evaluate(operand, file, env)
     for (const alternative of choices(evaluated).flatMap(value => kind === 'read' && value?.[URL_VALUE] ? choices(value.href) : [value])) {
     const raw = typeof alternative === 'string' ? alternative : UNKNOWN
     if (/^(?:https?:|data:|blob:)/.test(raw)) continue
@@ -353,15 +353,17 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     let value = raw.replace(/[?#].*$/, '')
     if (kind === 'import' && !unknownPath(value)) value = modulePath(file, value) ?? posix.join(posix.dirname(file), value)
     else if (kind === 'url') value = posix.join(posix.dirname(file), value)
-    else if (kind !== 'read' && value.startsWith('/')) value = 'public/' + value.replace(/^\/+/, '')
+    else if (!['read', 'execute'].includes(kind) && value.startsWith('/')) value = 'public/' + value.replace(/^\/+/, '')
     value = posix.normalize(value).replace(/^\.\//, '')
     const evidenceNode = origin ?? node
     const evidenceAst = evidenceNode.getSourceFile()
     const position = evidenceAst.getLineAndCharacterOfPosition(evidenceNode.getStart(evidenceAst))
     const proof = { from: evidenceAst.fileName, readerFile: file, readerStart: node.getStart(unit.ast), readerEnd: node.end, kind, line: position.line + 1, column: position.character + 1, start: evidenceNode.getStart(evidenceAst), end: evidenceNode.end, expression: evidenceNode.getText(evidenceAst), inputExpression: node.getText(unit.ast), contract: 'runtime-input' }
-    const provider = ['read', 'fetch', 'load', 'url'].includes(kind) ? provenReader(unit, node) : null
+    if (execution?.executionKind) proof.executionKind = execution.executionKind
+    if (execution?.pathOrigin) proof.pathOrigin = execution.pathOrigin
+    const provider = kind === 'execute' ? execution?.provider : ['read', 'fetch', 'load', 'url'].includes(kind) ? provenReader(unit, node) : null
     if (provider) proof.provider = provider
-    const verified = !['read', 'fetch', 'load', 'url'].includes(kind) || !!provider
+    const verified = !['read', 'fetch', 'load', 'url', 'execute'].includes(kind) || !!provider
     if (!verified) {
       const pattern = '^.*$'
       risks.push({ ...proof, pattern, candidates: [], reason: 'Input-like call lacks verified API receiver provenance', missingEvidence: node.expression.getText(unit.ast) })
@@ -393,7 +395,7 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
       for (const target of candidates) edges.push({ ...proof, ...possible, to: target, inputSet: { pattern, directoryInputs, observedTargets } })
     } else if (unknownPath(value)) {
       const pattern = pathPattern(value)
-      risks.push({ ...proof, pattern, candidates: value.replaceAll(UNKNOWN, '').replaceAll('/', '').length ? files.filter(candidate => new RegExp(pattern).test(candidate)) : [], reason: 'Input expression has an unresolved runtime value', missingEvidence: operand.getText(unit.ast) })
+      risks.push({ ...proof, pattern, candidates: value.replaceAll(UNKNOWN, '').replaceAll('/', '').length ? files.filter(candidate => new RegExp(pattern).test(candidate)) : [], reason: execution?.reason ?? 'Input expression has an unresolved runtime value', missingEvidence: execution?.missingEvidence ?? operand.getText(unit.ast) })
     } else if (exists(value)) edges.push({ ...proof, to: value })
     else risks.push({ ...proof, pattern: '^' + value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', candidates: [], reason: 'Resolved input is absent from this snapshot', missingEvidence: value })
     }
@@ -485,9 +487,29 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
             }
           }
         }
-        if (['spawn', 'spawnSync', 'execFile', 'execFileSync'].includes(name) && node.arguments.length > 1 && ['node', 'bash', 'sh', 'python', 'python3'].includes(evaluate(node.arguments[0], file, env)) && ts.isArrayLiteralExpression(node.arguments[1])) {
-          const operand = node.arguments[1].elements[0]
-          if (operand && typeof evaluate(operand, file, env) === 'string' && !evaluate(operand, file, env).startsWith('-')) record(file, node, operand, 'execute', env, origin)
+        const processApis = ['spawn', 'spawnSync', 'execFile', 'execFileSync']
+        const calleeOrigin = ts.isIdentifier(node.expression) ? importOrigin(unit, node.expression, node) : null
+        if (processApis.includes(name) || calleeOrigin && ['child_process', 'node:child_process'].includes(calleeOrigin.module) && processApis.includes(calleeOrigin.imported)) {
+          const apiOrigin = calleeOrigin ?? (ts.isPropertyAccessExpression(node.expression) ? importOrigin(unit, node.expression.expression, node) : null)
+          const method = ts.isIdentifier(node.expression) ? apiOrigin?.imported : name
+          const provider = apiOrigin && ['child_process', 'node:child_process'].includes(apiOrigin.module) && processApis.includes(method) && (ts.isIdentifier(node.expression) || apiOrigin.imported === '*') ? { module: apiOrigin.module, export: method } : null
+          const command = node.arguments[0]
+          const executable = evaluate(command, file, env)
+          const nodeExecutable = executable === 'node' || command && ts.isPropertyAccessExpression(command) && command.name.text === 'execPath' && ts.isIdentifier(command.expression) && command.expression.text === 'process' && !binding(unit, 'process', command) && !importOrigin(unit, command.expression, command)
+          const unresolvedExecutable = !nodeExecutable && (typeof executable !== 'string' || unknownPath(executable)) && (provider || command && ts.isPropertyAccessExpression(command) && command.name.text === 'execPath')
+          if (nodeExecutable || unresolvedExecutable || ['bash', 'sh', 'python', 'python3'].includes(executable)) {
+            const args = node.arguments[1], operand = args && ts.isArrayLiteralExpression(args) ? args.elements[0] : null
+            const values = operand && !ts.isSpreadElement(operand) ? choices(evaluate(operand, file, env)) : [UNKNOWN]
+            const options = node.arguments[2]
+            // Node's __dirname is absolute even though snapshot paths are stored
+            // repository-relative. A verified path call anchored there is
+            // independent of a subprocess cwd; arbitrary strings are not.
+            const anchor = operand && ts.isCallExpression(operand) && pathCall(unit, operand.expression, operand) ? operand.arguments[0] : null
+            const pathOrigin = anchor && ts.isIdentifier(anchor) && anchor.text === '__dirname' && !binding(unit, '__dirname', anchor) && !importOrigin(unit, anchor, anchor) ? 'module-directory' : undefined
+            const safeOptions = !options || ts.isObjectLiteralExpression(options) && options.properties.every(property => ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name) && (property.name.text !== 'shell' || property.initializer.kind === ts.SyntaxKind.FalseKeyword) && (property.name.text !== 'cwd' || pathOrigin === 'module-directory' || ts.isStringLiteralLike(property.initializer) && property.initializer.text === '.'))
+            const unresolved = !!unresolvedExecutable || !safeOptions || values.some(value => typeof value !== 'string' || unknownPath(value) || value.startsWith('-'))
+            record(file, node, operand ?? args ?? command, 'execute', env, origin, { provider, unresolved, pathOrigin, reason: unresolved ? 'Subprocess executable, script argument or launch options lack bounded entry evidence' : undefined, missingEvidence: unresolved ? node.getText(unit.ast) : undefined, executionKind: nodeExecutable ? 'node-entry' : unresolvedExecutable ? undefined : 'script-entry' })
+          }
         }
         if (node.arguments.length && ['readFile', 'readFileSync', 'fetch', 'loadAsync'].includes(name)) record(file, node, node.arguments[0], name.startsWith('readFile') ? 'read' : name === 'fetch' ? 'fetch' : 'load', env, origin)
         // Resolve small local read wrappers using actual caller arguments. A
