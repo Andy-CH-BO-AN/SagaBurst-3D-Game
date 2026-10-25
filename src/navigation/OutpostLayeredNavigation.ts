@@ -407,9 +407,9 @@ export class OutpostLayeredNavigation {
     return this.layout.decks.find(d => d.side === side)
   }
 
-  /** A local contact lane, not permission to skip the route between remote layers. */
+  /** Supported feet and a local contact lane; movement still owns body clearance. */
   hasDirectMeleeConnection(from: THREE.Vector3, to: THREE.Vector3,
-    radius: number, height: number, obstacles: ObstacleData[]): boolean {
+    height: number, obstacles: ObstacleData[]): boolean {
     const fromLayer = this.getNavLayer(from), toLayer = this.getNavLayer(to)
     if (!isRampartLayer(fromLayer) && !isRampartLayer(toLayer)) return fromLayer === toLayer
     if (!isRampartLayer(fromLayer) || !isRampartLayer(toLayer)) return false
@@ -431,12 +431,15 @@ export class OutpostLayeredNavigation {
       const deckY = getWalkRampHeight(deck.walkSurface, seamX, seamZ)
       if (bridgeY === null || deckY === null || Math.abs(bridgeY - deckY) > WALK_SURFACE_STEP_UP) return false
     }
-    // Use physical collision, including rails that deliberately do not block
-    // the ground navigation grid. Scratch positions leave the actors untouched.
+    // A contact segment must clear intervening physical barriers, including
+    // rails omitted from the ground grid. It does not move the attacker's full
+    // body onto the defender: that would reject legal weapon reach whenever a
+    // rail behind the defender overlaps the attacker's larger collision radius.
+    // Actual movement retains its full body clearance in its existing owner.
     this.meleePreviousPosition.copy(from)
     this.meleePosition.copy(to)
     resolveObstacleCollision(this.meleePosition, this.meleePreviousPosition, 0, true,
-      radius, height, 0, obstacles, { walkSurfaces: true })
+      0, height, 0, obstacles, { walkSurfaces: true })
     return Math.abs(this.meleePosition.x - to.x) < .001 && Math.abs(this.meleePosition.z - to.z) < .001
   }
 

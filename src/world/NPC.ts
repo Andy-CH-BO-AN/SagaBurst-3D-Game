@@ -349,7 +349,13 @@ export class NPC {
       && (this.isTownRampartGarrisonActive || !this.isMounted && this.outpostRampartGarrison)
   }
 
-  get holdsRampartFirePosition(): boolean { return this.aiType === AIType.RANGED && this.holdsRampartPosition }
+  get holdsRampartFirePosition(): boolean {
+    // An explicit Defend command owns stationary fire even after a formation
+    // released native duty. This never grants Attack a movement-hold policy.
+    return this.aiType === AIType.RANGED && (this.holdsRampartPosition
+      || this.tacticalOrder === 'defend' && !this.isMounted && Boolean(this._activeNavigationWorld?.outpostNav
+        && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition))))
+  }
 
   private formationTarget: {
     commandId: number
@@ -524,6 +530,7 @@ export class NPC {
   private readonly _tmpFaceDir = new THREE.Vector3()
   private readonly _tmpDismountPosition = new THREE.Vector3()
   private readonly _tmpTargetPosition = new THREE.Vector3()
+  private readonly _meleeTargetSupportPosition = new THREE.Vector3()
   private readonly _liveTargetInfo: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } = {
     position: new THREE.Vector3(),
     isDead: false,
@@ -2628,6 +2635,7 @@ export class NPC {
         }
       }
     }
+    const playerBodyBaseOffset = !player.isMounted ? player.bodyBaseOffset ?? 0 : 0
     const missionOrder = this.missionMovement ? this.tacticalOrder : null
     let defensiveTargetOrder: TacticalOrder | null = null
     const missionTarget = this.missionMovement ? this._findTarget(player, allNPCs, hostileNpcGrid) : null
@@ -2638,7 +2646,7 @@ export class NPC {
     const missionRangedRange = this.missionAerialDefense && missionTargetMount?.isFlyingMount && missionTargetMount.isAirborne
       ? this.maxRangedAttackDistance : Math.min(20, this.maxRangedAttackDistance)
     const missionContact = missionTarget && !missionTarget.isDead
-      && (this.hasActiveRangedWeapon ? this.combatPosition.distanceToSquared(missionTarget.position) <= missionRangedRange ** 2 : this._isTargetInDefendRange(missionTarget.position))
+      && (this.hasActiveRangedWeapon ? this.combatPosition.distanceToSquared(missionTarget.position) <= missionRangedRange ** 2 : this._isTargetInDefendRange(missionTarget.position, missionTarget.isPlayer ? playerBodyBaseOffset : 0))
       && this._findRangedTrajectoryBlocker(missionTarget.position, obstacles) === null
     if (missionContact) {
       this.tacticalOrder = 'defend'
@@ -2672,7 +2680,7 @@ export class NPC {
         && (this.tacticalOrder === 'defend' || this.holdsRampartFirePosition)
         && this.combatPosition.distanceToSquared(targetInfo.position) < RANGED_ATTACK_MIN ** 2
         && (!this.equipmentRequiredForCombat || this.meleeWeaponId)
-        && (!this.holdsRampartFirePosition || this._isRampartMeleeThreat(targetInfo.position))) {
+        && (!this.holdsRampartFirePosition || this._isRampartMeleeThreat(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0))) {
         this._switchToMelee()
       }
 
@@ -2680,7 +2688,7 @@ export class NPC {
       // bounded, while a cached moving tower's aim point is refreshed every frame.
       if (this.holdsRampartFirePosition && this.hasActiveRangedWeapon) {
         const shootable = targetInfo && !targetInfo.isDead
-          && this._isTargetInDefendRange(targetInfo.position)
+          && this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
           && this._findRangedTrajectoryBlocker(targetInfo.position, obstacles) === null
         if (shootable) {
           this.rampartThreat = null
@@ -2724,7 +2732,7 @@ export class NPC {
         }
       }
       if (targetInfo && this.holdsRampartPosition && !this.hasActiveRangedWeapon
-        && !this._isRampartMeleeThreat(targetInfo.position)) targetInfo = null
+        && !this._isRampartMeleeThreat(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) targetInfo = null
       const meleeTarget = targetInfo?.isPlayer ? player : targetInfo?.npc ?? null
       if (meleeTarget && this.combatTargetAllowed?.(meleeTarget) === 'defend') {
         defensiveTargetOrder = this.tacticalOrder
@@ -2812,7 +2820,7 @@ export class NPC {
         if (this.alertTimer <= 0) {
           this.alertSprite.visible = false
           if (this.tacticalOrder === 'defend' || this.holdsRampartPosition) {
-            this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position) ? AIState.ATTACK : AIState.ALERT
+            this.state = targetInfo && this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0) ? AIState.ATTACK : AIState.ALERT
             if (this.hasActiveRangedWeapon) this.attackTimer = 0
           } else {
             this.state = AIState.CHASE
@@ -2837,7 +2845,7 @@ export class NPC {
           this._clearNavigationPath()
           this._clearSiegeFallback()
           this.animator.cancel()
-          this.state = this._isTargetInDefendRange(targetInfo.position)
+          this.state = this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
             ? AIState.ATTACK
             : AIState.ALERT
           break
@@ -3006,7 +3014,7 @@ export class NPC {
         } else {
           if (
             navigationRoute === 'direct'
-            && this._isTargetInMeleeApproachRange(targetInfo.position)
+            && this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
           ) {
             this._clearObstacleDetour()
             this._clearSiegeFallback()
@@ -3147,7 +3155,7 @@ export class NPC {
         if (
           !siegeObstacle
           && this.tacticalOrder === 'defend'
-          && !this._isTargetInDefendRange(targetInfo.position)
+          && !this._isTargetInDefendRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
         ) {
           this.animator.cancel()
           this.pendingLanceChargeSpeed = 0
@@ -3288,7 +3296,7 @@ export class NPC {
         } else {
           // A target can leave physical reach during recovery. Recheck before
           // starting the next swing rather than attacking at the old data range.
-          if (!siegeObstacle && !this.animator.busy && !this._isTargetInMeleeApproachRange(targetInfo.position)) {
+          if (!siegeObstacle && !this.animator.busy && !this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
             this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
             this.pendingLanceChargeSpeed = 0
             break
@@ -3337,7 +3345,7 @@ export class NPC {
                   this.pendingLanceChargeSpeed = 0
                 }
               }
-            } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4)) {
+            } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
               const targetIsMounted = targetInfo.isPlayer
                 ? Boolean(player?.isMounted)
                 : Boolean(targetInfo.npc?.isMounted)
@@ -3359,7 +3367,7 @@ export class NPC {
               // Weapon length is only an initial estimate: actual arcs, shields
               // and hand offsets can require a closer position. A complete miss
               // must make progress instead of repeating the same stationary swing.
-              if (this._isTargetInMeleeRange(targetInfo.position)) {
+              if (this._isTargetInMeleeRange(targetInfo.position, 0, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
                 this.meleeApproachLimit = Math.max(this._meleeBodySpacing(), Math.min(
                   this._meleeApproachDistance(),
                   Math.hypot(
@@ -3376,7 +3384,7 @@ export class NPC {
             this.attackTimer -= dt
             const stillInRange = siegeObstacle
               ? this._isObstacleInMeleeRange(siegeObstacle)
-              : this._isTargetInMeleeApproachRange(targetInfo.position)
+              : this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
             if (this.attackTimer <= 0 && !stillInRange) {
               this.state = AIState.CHASE
               this.pendingLanceChargeSpeed = 0
@@ -4090,7 +4098,17 @@ export class NPC {
     return applyHeroOutgoingDamage(Math.round(dmg), this.combatProfileId)
   }
 
-  private _isRampartMeleeThreat(targetPos: THREE.Vector3): boolean {
+  private _hasOutpostMeleeConnection(targetPos: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
+    const nav = this._activeNavigationWorld?.outpostNav
+    if (!nav) return true
+    // Combat keeps its existing aim/root coordinates; only support queries use feet.
+    const support = targetBodyBaseOffset === 0 ? targetPos
+      : this._meleeTargetSupportPosition.copy(targetPos).setY(targetPos.y + targetBodyBaseOffset)
+    return nav.hasDirectMeleeConnection(this.combatPosition, support,
+      this._movementObstacleHeight(), this.fallObstacles)
+  }
+
+  private _isRampartMeleeThreat(targetPos: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
     const town = this._activeNavigationWorld?.townNav
     if (town?.watchtower && town.watchtower.surfaceAt(this.combatPosition) >= 0)
       return town.watchtower.sameLevel(this.combatPosition, targetPos)
@@ -4099,15 +4117,13 @@ export class NPC {
     if (nav) {
       // Weapon readiness and physical hits share the same local contact lane.
       return isRampartLayer(nav.getNavLayer(this.combatPosition))
-        && isRampartLayer(nav.getNavLayer(targetPos))
-        && nav.hasDirectMeleeConnection(this.combatPosition, targetPos,
-          this._movementObstacleRadius(), this._movementObstacleHeight(), this.fallObstacles)
+        && this._hasOutpostMeleeConnection(targetPos, targetBodyBaseOffset)
     }
     // Without topology, retain the conservative physical-contact fallback.
-    return this._isTargetInMeleeApproachRange(targetPos)
+    return this._isTargetInMeleeApproachRange(targetPos, targetBodyBaseOffset)
   }
 
-  private _isTargetInDefendRange(targetPos: THREE.Vector3): boolean {
+  private _isTargetInDefendRange(targetPos: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
     if (this.hasActiveRangedWeapon) {
       const isTower = this.holdsRampartFirePosition && this.rampartThreat && targetPos === this._tmpSiegeTarget
       const distance = isTower
@@ -4116,7 +4132,7 @@ export class NPC {
         && (isTower || distance >= RANGED_ATTACK_MIN)
     }
     if (this.equipmentRequiredForCombat && !this.meleeWeaponId) return false
-    return this._isTargetInMeleeApproachRange(targetPos)
+    return this._isTargetInMeleeApproachRange(targetPos, targetBodyBaseOffset)
   }
 
   private _meleeBodySpacing(): number {
@@ -4142,12 +4158,12 @@ export class NPC {
     )
   }
 
-  private _isTargetInMeleeApproachRange(targetPos: THREE.Vector3): boolean {
-    return this._isTargetInMeleeRange(targetPos, Math.max(0, this._meleeBodySpacing() - this.meleeAttackRadius))
+  private _isTargetInMeleeApproachRange(targetPos: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
+    return this._isTargetInMeleeRange(targetPos, Math.max(0, this._meleeBodySpacing() - this.meleeAttackRadius), targetBodyBaseOffset)
       && Math.hypot(targetPos.x - this.combatPosition.x, targetPos.z - this.combatPosition.z) <= this._meleeApproachDistance()
   }
 
-  private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0): boolean {
+  private _isTargetInMeleeRange(targetPos: THREE.Vector3, extraReach = 0, targetBodyBaseOffset = 0): boolean {
     if (this._activeNavigationWorld?.townNav?.watchtower?.sameLevel(this.combatPosition, targetPos) === false) return false
     if (Math.abs(targetPos.y - this.combatPosition.y) > this.meleeAttackRadius + extraReach) return false
     if (this.equipmentRequiredForCombat && !this.meleeWeaponId) return false
@@ -4160,9 +4176,7 @@ export class NPC {
       const lateralDist = Math.sqrt(Math.max(0, toTarget.lengthSq() - forwardDist * forwardDist))
       if (!(forwardDist > 0 && forwardDist <= this.meleeAttackRadius + extraReach && lateralDist <= 1.4)) return false
     } else if (this.combatPosition.distanceTo(targetPos) > this.meleeAttackRadius + extraReach) return false
-    const outpost = this._activeNavigationWorld?.outpostNav
-    return !outpost || outpost.hasDirectMeleeConnection(this.combatPosition, targetPos,
-      this._movementObstacleRadius(), this._movementObstacleHeight(), this.fallObstacles)
+    return !this._activeNavigationWorld?.outpostNav || this._hasOutpostMeleeConnection(targetPos, targetBodyBaseOffset)
   }
 
   private _switchToMelee(cancelAnimation = true): void {
@@ -4176,16 +4190,14 @@ export class NPC {
     this._refreshActiveShield()
   }
 
-  private _isRangedMeleeThreat(position: THREE.Vector3): boolean {
+  private _isRangedMeleeThreat(position: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
     if (this.combatPosition.distanceToSquared(position) > RANGED_REEQUIP_MIN ** 2
       || Math.abs(position.y - this.combatPosition.y) > this.meleeAttackRadius) return false
     if (this.mount?.flight && !this.eaglePilot.canUseMelee) return false
-    if (this.holdsRampartFirePosition) return this._isRampartMeleeThreat(position)
+    if (this.holdsRampartFirePosition) return this._isRampartMeleeThreat(position, targetBodyBaseOffset)
     const town = this._activeNavigationWorld?.townNav
     if (town && town.isElevated(this.combatPosition) !== town.isElevated(position)) return false
-    const nav = this._activeNavigationWorld?.outpostNav
-    return !nav || nav.hasDirectMeleeConnection(this.combatPosition, position,
-      this._movementObstacleRadius(), this._movementObstacleHeight(), this.fallObstacles)
+    return !this._activeNavigationWorld?.outpostNav || this._hasOutpostMeleeConnection(position, targetBodyBaseOffset)
   }
 
   private _usesReversibleRangedSwitch(): boolean {
@@ -4206,7 +4218,7 @@ export class NPC {
       && combatAllegiancesHostile(this, target.npc) && this._isRangedMeleeThreat(target.position)
       ? this.combatPosition.distanceToSquared(target.position) : Infinity
     if (!player.dead && combatAllegiancesHostile(this, player)
-      && this._isRangedMeleeThreat(player.combatPosition)) {
+      && this._isRangedMeleeThreat(player.combatPosition, !player.isMounted ? player.bodyBaseOffset ?? 0 : 0)) {
       threatSq = Math.min(threatSq, this.combatPosition.distanceToSquared(player.combatPosition))
     }
     for (const other of nearby) {

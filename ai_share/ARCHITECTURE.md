@@ -223,7 +223,7 @@ Commander Last Stand 的初始名冊為 120 名友軍步兵加接受時 HR 私�
 
 `LayeredNavigationRoute` 共用 NPC 追擊與編隊的 Town／Outpost 高架路徑與地面 A* 接續，沿用每個 actor 原有 `NavigationPathFollower`；Town ground approach 保留拓樸查詢，Outpost 沿原 skip 與實體障礙重驗規則。攻擊／攻城、Follow 節流、到位與局部避讓仍由 NPC 的各行為擁有。
 
-`Game` 在一般 NPC 與 HR 私兵生成時啟用 `NPC.enableBattlefieldEngagement`，由 NPC 建構時取得的 scene playable half-bound 快取完整水平對角線平方，供一般地面 `attack` 的開始接戰與追擊中止共用。新波次與 checkpoint 重建走相同入口；不覆寫保存命令、目標授權、Follow／駐軍／Encounter 或巨鷹政策，實際武器距離與高差仍另行判斷。Outpost 固守僅來自明確駐軍旗標；位置與遠程兵種不授予駐軍職責。
+`Game` 在一般 NPC 與 HR 私兵生成時啟用 `NPC.enableBattlefieldEngagement`，由 NPC 建構時取得的 scene playable half-bound 快取完整水平對角線平方，供一般地面 `attack` 的開始接戰與追擊中止共用。新波次與 checkpoint 重建走相同入口；不覆寫保存命令、目標授權、Follow／駐軍／Encounter 或巨鷹政策，實際武器距離與高差仍另行判斷。Outpost 固守僅來自明確駐軍旗標；位置與遠程兵種不授予駐軍職責。明確 `defend` 的牆上遠程兵另保留射擊換目標政策，不授予移動固守或新的駐軍旗標。Outpost 近戰連接使用腳底支撐座標與中心接觸通道；Player 由既有 body offset 換算，戰鬥瞄準與武器距離保留原座標，實際移動仍使用完整身體碰撞。
 
 NavigationWorld 統一管理每影格 A* 查詢預算；NavigationPathFollower 以自身作為 pending owner，超出額度時保存最新起終點，下個 beginFrame 按等待順序優先處理，避免固定 actor 順序及移動目標讓私兵／後段城防永久拿不到路徑。結構拓樸重建清除 deferred 工作及 cache；移動 blocker 跨格只失效路徑並保留待處理座標與 FIFO。四門戰鬥在單一 beginFrame 預算內延後新搜尋，先完成車輛移動／同步再受理等待者，早期角色仍可用有效 cache 或排隊，不另重置額度。Town 軍隊、原生 Patrol、平民／商人與 HR 地面 Dismiss 使用既有 urgent formation／原生移動速度與體力規則回崗，到位或重新接令後釋放 urgency；和平移動動畫沿用實際 sprint 狀態，不改原生巡邏速度、傷害或生命。
 
