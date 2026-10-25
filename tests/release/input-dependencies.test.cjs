@@ -21,6 +21,13 @@ test('publish', () => read('publish.yml'));`],
   assert.equal(proof.edges[0].line, 4)
   assert.equal(graph.inputEdges.find(edge => edge.to.endsWith('publish.yml')).expression, "read('publish.yml')")
   assert.equal(graph.inputRisks.length, 0)
+  // Both caller environments revisit the same reader AST; only lexical binding,
+  // never evaluated input values, may be shared.
+  assert.equal(new Set(graph.inputEdges.map(edge => edge.readerStart)).size, 1)
+  const next = analyze([...graph.sources].map(([file, source]) => [file, source.replace('build.yml', 'preview.yml')]),
+    ['.github/workflows/preview.yml', '.github/workflows/publish.yml'])
+  assert.deepEqual(next.inputEdges.map(edge => edge.to), ['.github/workflows/preview.yml', '.github/workflows/publish.yml'])
+  assert.deepEqual(graph.inputEdges.map(edge => edge.to), ['.github/workflows/build.yml', '.github/workflows/publish.yml'])
   const { selectBehaviors } = require('../tooling/behavior.cjs')
   const file = 'tests/release/contract.test.cjs'
   const inventory = [{ file, runner: 'node', names: ['build', 'publish'], locations: [{ line: 4, column: 1 }, { line: 5, column: 1 }] }]

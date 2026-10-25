@@ -73,7 +73,14 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     if (exportWrites !== 1 || invalidExports || declarations.has('module') || declarations.has('exports')) { cjsExports.clear(); cjsExportRefs.clear() }
     units.set(file, { ast, declarations, imports, calls, opaqueModules, importBindings, pendingImports, cjsExports, cjsExportRefs, cjsBoundary: exportWrites > 0 || invalidExports || file.endsWith('.cjs') })
   }
+  const lexicalBindings = new WeakMap()
   function binding(unit, name, at) {
+    if (!at) return null
+    let byNode = lexicalBindings.get(unit)
+    if (!byNode) { byNode = new WeakMap(); lexicalBindings.set(unit, byNode) }
+    let names = byNode.get(at)
+    if (!names) { names = new Map(); byNode.set(at, names) }
+    if (names.has(name)) return names.get(name)
     const declarations = unit.declarations.get(name) ?? []
     // Bind nearest enclosing lexical scope, not another function's same-name local.
     for (let scope = at; scope; scope = scope.parent) {
@@ -82,8 +89,9 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
         while (owner && !ts.isBlock(owner) && !ts.isSourceFile(owner) && !ts.isFunctionLike(owner)) owner = owner.parent
         return owner === scope
       })
-      if (found) return found
+      if (found) { names.set(name, found); return found }
     }
+    names.set(name, null)
     return null
   }
   for (const unit of units.values()) for (const item of unit.pendingImports) {
