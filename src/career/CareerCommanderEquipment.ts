@@ -8,7 +8,7 @@ export function careerCommanderLoadout(faction: CharacterFaction): UnitLoadout {
   return {
     rangedWeaponId: 'bow_t5',
     meleeWeaponId: faction === 'roman' ? 'sword_t5' : 'axe_t5',
-    shieldId: null, mountId: null, reversibleRangedSwitch: true,
+    shieldId: 'commander_shield_t5', mountId: null, reversibleRangedSwitch: true,
   }
 }
 

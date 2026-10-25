@@ -1,6 +1,7 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Vector3, type Scene } from 'three'
-import { CareerDuelController } from '../../src/career/CareerDuelController'
+import { CareerDuelController, selectCareerDuelRoster } from '../../src/career/CareerDuelController'
+import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
 import type { NPC } from '../../src/world/NPC'
@@ -189,7 +190,14 @@ describe('Career Duel settlement and safe storage', () => {
 
   it('saves T5 progress, original Commander resources and active travel through real storage and settlement', () => {
     const profile = duel({ ...createCareerProfile('viking'), rank: 'commander',
-      duelHighestDefeatedTierByPreset: { viking_archer: 4 } }, 'viking_archer', 5, 'commander-duel')
+      duelHighestDefeatedTierByPreset: { viking_sword_cavalry: 4 } }, 'viking_sword_cavalry', 5, 'commander-duel')
+    const commander = townCommanderSpec({ x: 0, z: 0, yaw: 0 })
+    const roster = selectCareerDuelRoster([
+      { spec: { ...commander, id: 'captain', role: 'captain' }, npc: { dead: false } as NPC },
+      { spec: commander, npc: { dead: false } as NPC },
+    ], null as unknown as Mount, profile.activeMission!.duelPresetId!, 5)
+    expect(roster?.loadout).toMatchObject({ shieldId: 'commander_shield_t5', meleeWeaponId: 'paladin_mace_t4',
+      rangedWeaponId: null, mountId: 'black-cat' })
     Object.assign(profile.activeMission!, { phase: 'ENGAGING', duelCountdownElapsed: 5, duelCombatElapsed: 19.25,
       duelOpponentHp: 48, duelOpponentAmmo: 7, duelCommanderHome: { hp: 712, ammo: 13 },
       duelTravel: { actors: { captain: { x: 1, y: 2, z: 3, yaw: .5 }, commander: { x: 4, y: 5, z: 6, yaw: 1 } },
@@ -207,7 +215,7 @@ describe('Career Duel settlement and safe storage', () => {
     expect(store.save(settled)).toBe(true)
     const restored = store.load()!
     expect(restored.activeMission).toBeUndefined()
-    expect(restored.duelHighestDefeatedTierByPreset).toEqual({ viking_archer: 5 })
+    expect(restored.duelHighestDefeatedTierByPreset).toEqual({ viking_sword_cavalry: 5 })
     expect(restored.townCommanderRecovery).toEqual({ faction: 'viking', hp: 712, ammo: 13 })
     expect(restored.careerMissionCompletionsByTier).toBeUndefined()
   })

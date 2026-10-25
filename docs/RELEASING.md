@@ -4,7 +4,7 @@
 
 `feature → dev → main → vX.Y.Z`
 
-- Open all feature and bugfix PRs against **dev**. Pushes and PRs run `npm ci`, `npm test`, and `npm run build` plus release and Pages smoke checks. Only PRs into main package and smoke-test both desktop targets; PRs into dev and pushes to dev skip those jobs; preview artifacts are Actions downloads, never official releases.
+- Open all feature and bugfix PRs against **dev**. Pushes and PRs run the logic gate, test Typecheck and Build. PRs into dev or main and pushes to dev do not install Chromium or run Web smoke. Main pushes, Pages, Release and manual Full validation retain Web smoke. Only PRs into main package and smoke-test both desktop targets; PRs into dev and pushes to dev skip those jobs. Preview artifacts are Actions downloads, never official releases.
 - Promote a tested **dev** with a Release PR into **main**. Only main pushes deploy the production website. Do not develop features directly on main.
 - **main** is the default and production branch. Always select dev as the feature PR base.
 
@@ -35,7 +35,7 @@ Use Node.js 22 or later, and run `npm ci`.
 | `npm run package:desktop -- --mac --arm64` | Apple Silicon ZIP; run on macOS |
 | `npm run smoke:desktop -- --packaged "path/to/executable"` | Verify the packaged app, secure preferences, assets and storage |
 
-For local web smoke testing, install the browser with `npx playwright install chromium`, or set `SMOKE_BROWSER_PATH` to an installed Chrome executable. Desktop smoke uses the app's bundled Electron. CI installs Chromium automatically. Generated `dist/`, `dist-desktop/`, `release/` and diagnostic `output/` stay out of Git.
+For local web smoke testing, install the browser with `npx playwright install chromium`, or set `SMOKE_BROWSER_PATH` to an installed Chrome executable. Desktop smoke uses the app's bundled Electron and needs no separate Chromium download. Playwright remains a development dependency for smoke tests and performance benchmarks, not a packaged runtime dependency. CI installs Chromium only for the retained Web smoke jobs. Generated `dist/`, `dist-desktop/`, `release/` and diagnostic `output/` stay out of Git.
 
 macOS packages use explicit ad-hoc signing (`identity: "-"`, `hardenedRuntime: false`) until Developer ID credentials are configured. PR CI enables `CSC_FOR_PULL_REQUEST` for these explicit ad-hoc signatures; certificate/signing secrets must stay out of PR jobs. The packaged macOS smoke check first runs strict deep signature verification, so broken residual Electron signatures cannot pass CI. Each macOS ZIP includes `MACOS-FIRST-LAUNCH.txt`; downloaded apps still require manual approval because these builds are not Apple-notarized. With Developer ID signing later, enable hardened runtime, configure the required entitlements and notarization, and replace the first-launch instructions.
 
