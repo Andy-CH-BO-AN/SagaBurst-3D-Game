@@ -104,8 +104,7 @@ export async function launchTownFourGateSiegePreview(container: HTMLElement): Pr
       if (state?.status === 'dead' || state?.status === 'exited') continue
       batch.enqueue(spec.actorId!, () => {
         const npc = trackNpcSpawn(new NPC(scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, spec.tier,
-          spec.cavalry, spec.loadout, spec.presetId, undefined, spec.actorId, undefined, spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile, undefined, undefined, undefined,
-          spec.spawnY !== undefined ? { y: spec.spawnY } : undefined, spec.characterTier, spec.heroArchetype))
+          spec.cavalry, spec.loadout, spec.presetId, undefined, spec.actorId, undefined, spec.visualAssetId, spec.combatProfileId))
         if (spec.spawnY !== undefined) npc.position.y = spec.spawnY
         npc.respawnEnabled = false
         if (spec.cavalry) {
