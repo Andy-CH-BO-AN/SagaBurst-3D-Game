@@ -182,6 +182,7 @@ import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled } from './campaign/Cam
 import { resolveDefenseCampaignAttackerDeployment } from './campaign/DefenseCampaignDeployment'
 import {
   applyCampaignBreachOrders,
+  restoreCampaignBreachCheckpoint,
   isCampaignGateOccupied,
   reconcileCampaignGateSiege,
   type CampaignBreachController,
@@ -910,6 +911,11 @@ export class Game {
       damageableObstacles.push(...outpost.damageableObstacles)
       this.previewCampaignGate = outpost.gateController
       this.previewCampaignBreachController = outpost.breachController
+      const savedCareerOutpost = campaignConfig?.careerVeteranOutpost ?? campaignConfig?.careerCommanderOutpost
+      const savedBattle = this._personalOutpostMission()?.battle
+      restoreCampaignBreachCheckpoint(outpost.breachController,
+        savedCareerOutpost ? this.careerProfile?.activeMission?.outpostSiege : savedBattle?.outpostSiege,
+        savedCareerOutpost ? { state: savedCareerOutpost.runtimeState.gateState, hp: savedCareerOutpost.runtimeState.gateHealth } : savedBattle?.gate)
       this.previewCampaignGate.onStateChange(state => {
         if (state === 'open' || state === 'destroyed') {
           for (const npc of this.npcs) {
@@ -1166,7 +1172,7 @@ export class Game {
           : this._personalOutpostMission()?.battle ? { initialSnapshot: this._personalOutpostMission()!.battle!.runtime } : {}),
       })
       if (relief) {
-        initializeCareerReliefBattlefield(this.previewCampaignGate!, this.npcs.filter(npc => !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId)))
+        initializeCareerReliefBattlefield(this.previewCampaignGate!, this.npcs.filter(npc => !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId)), this.previewCampaignBreachController ?? undefined)
         this.navigationWorld.sync(this.obstacles)
         this.campaignAttackersStarted = true
         const placement = getCampaignOutpostPlacement(campaignConfig.defenderFaction)
@@ -1203,6 +1209,7 @@ export class Game {
           relief,
           playerIsAttacker: veteranOutpost?.templateId === 'veteran-outpost-assault',
           reinforcementsEnabled: capabilities.reinforcementsEnabled,
+          reinforcementArrivalTracked: veteranOutpost?.templateId === 'veteran-dread-outpost',
           returnToTown: Boolean(campaignConfig.careerMissionId),
           meritAwarded: () => this.careerMeritAwarded,
           ...(veteranOutpost ? {
@@ -2282,6 +2289,7 @@ export class Game {
       undefined,
       spec.spawnY !== undefined ? { y: spec.spawnY } : undefined,
     ))
+    npc.enableBattlefieldEngagement()
     if (spec.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
@@ -2359,6 +2367,19 @@ export class Game {
         : campaign.careerVeteranOutpost ? 'attack' : DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
     if (careerOutpost) this._restoreCareerVeteranNpcState(npc, restorePosition)
     else this._restorePersonalOutpostNpc(npc)
+    // Rebuild automatic post-breach intent without replaying the global event.
+    // Saved player-owned orders remain authoritative, including Defend/Follow.
+    const authority = this._careerCommandMission()?.officialSquad
+    if (this.previewCampaignBreachController?.breached && !officialPlayerOwnsActor(authority, npc.combatantId)) {
+      const saved = this._personalOutpostMission()?.battle?.actors[npc.combatantId]
+      const command = saved ? authority?.members?.[npc.combatantId] ?? saved.checkpoint : undefined
+      const hasRestoredIntent = !authority?.actorIds.includes(npc.combatantId) && Boolean(command?.order || command?.formation)
+      // Legacy Relief attackers may only have resources saved. Keep restored commands,
+      // but give actors with no saved intent the same orders as a fresh breached battle.
+      if (isOutpostOwner || campaign.careerMissionKind === 'outpost-relief' && !hasRestoredIntent) {
+        applyCampaignBreachOrders([npc], opposingCampaignFaction(careerVeteranOutpostOwner(campaign)))
+      }
+    }
   }
 
   private async _executeBattleSpawnPlan(plan: BattleSpawnPlan, progress: (text: string) => void = () => {}): Promise<NPC[]> {
@@ -2995,6 +3016,7 @@ export class Game {
         this.navigationWorld.grid, this.obstacles, this.navigationWorld),
       emit: this.combatEvents.emit,
       onSpawn: (npc, mount) => {
+        npc.enableBattlefieldEngagement()
         this.npcs.push(npc); this.battleStats.registerNpc(npc); this._aimTargetRegistry.registerNpc(npc)
         if (this.bridgeLaunch) this.careerVeteranActorMounts.set(npc.combatantId, mount ?? null)
         if (mount) { this.mounts.push(mount); this._aimTargetRegistry.registerMount(mount) }
@@ -3108,6 +3130,7 @@ export class Game {
   }
 
   private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
+    if (this.restoringCareerOutpostGate) return
     this.campaignSiegeAssault?.refreshPhysicalEntrances()
     if (this.previewCampaignGate) {
       for (const npc of this.npcs) {
@@ -3118,7 +3141,6 @@ export class Game {
     }
     const authority = this._careerCommandMission()?.officialSquad
     const result = applyCampaignBreachOrders(this.npcs.filter(npc => !officialPlayerOwnsActor(authority, npc.combatantId)), attackerFaction)
-    if (this.restoringCareerOutpostGate) return
     this.soundManager.playCommanderCommand(attackerFaction, 'charge')
     this._showNotify(
       `⚔️ Breach! ${attackerFaction === 'viking' ? '維京' : '羅馬'}近戰衝鋒｜`
@@ -3126,9 +3148,7 @@ export class Game {
       + `守軍 ${result.defenderAttackCount} → attack`,
       3500,
     )
-    if (this.defenseCampaignConfig?.careerVeteranOutpost?.templateId === 'veteran-outpost-assault') {
-      this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
-    }
+    if (this.defenseCampaignConfig?.careerMissionId) this._persistPersonalOutpost(true)
   }
 
   private _restoreCareerVeteranNpcState(npc: NPC, restorePosition = true): void {
@@ -3521,7 +3541,7 @@ export class Game {
             if (this.defenseCampaignConfig?.careerVeteranOutpost) {
               this._startCareerVeteranReinforcementMarch(this.campaignReinforcementArrived)
               this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
-            } else this._showNotify(`🐎 援軍全數抵達：${this.campaignSpawnQueue.length} 名刀騎兵`, 3500)
+            } else this._showNotify(`🐎 援軍全數進場：${this.campaignSpawnQueue.length} 名刀騎兵`, 3500)
           }
 
           this.campaignSpawnQueue = []
@@ -3796,7 +3816,7 @@ export class Game {
           this._showNotify(`🐎 第 90 秒援軍開始進場：${queued} 名騎兵`, 3500)
         } else {
           this.soundManager.playCommanderCommand(campaign.defenderFaction, 'attack')
-          this._showNotify(`🐎 援軍開始抵達：${queued} 名刀騎兵`, 3500)
+          this._showNotify(`🐎 援軍開始進場：${queued} 名刀騎兵`, 3500)
         }
       } else if (event === 'defeat') {
         this._showDefenseCampaignResult('defeat', true)

@@ -5,7 +5,7 @@ import { returnFollowLocalOffset, followSlotWorldPosition } from '../battle/Foll
 import { createDefenseCampaignWaveConfig, positionDefenseCampaignReinforcements, type DefenseCampaignLaunchConfig } from '../campaign/DefenseCampaignLaunch'
 import { getCampaignOutpostPlacement, getCampaignDefenderFacingYaw } from '../campaign/CampaignOutpost'
 import { resolveCampaignRolePreset } from '../campaign/CampaignConfig'
-import { applyCampaignBreachOrders, type CampaignGateController } from '../campaign/CampaignGate'
+import { applyCampaignBreachOrders, type CampaignGateController, type CampaignBreachController } from '../campaign/CampaignGate'
 import { AIType, type NPC } from '../world/NPC'
 
 const SECOND_SQUAD_OFFSET = new THREE.Vector3(28, 0, -4.4)
@@ -71,9 +71,11 @@ export function createCareerReliefSpawnPlan(launch: DefenseCampaignLaunchConfig)
 }
 
 /** Invoke the complete destruction lifecycle, including collision and breach observers. */
-export function initializeCareerReliefBattlefield(gate: CampaignGateController, npcs: readonly NPC[]): void {
+export function initializeCareerReliefBattlefield(gate: CampaignGateController, npcs: readonly NPC[],
+  breach?: Pick<CampaignBreachController, 'breached'>): void {
+  const restoredBreach = breach?.breached === true
   gate.damageable.destroy()
-  applyCampaignBreachOrders(npcs, gate.attackerFaction)
+  if (!restoredBreach) applyCampaignBreachOrders(npcs, gate.attackerFaction)
 }
 
 export { MountedMissionMarchController as CareerReliefMarchController } from './MountedMissionMarch'

@@ -4,13 +4,59 @@ import type { OfficialCommandAuthority } from '../../src/career/CareerCommandAut
 import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Faction } from '../../src/world/NPC'
+import { stageOfficialCommandOrder } from '../../src/career/CareerOfficialCommandOrder'
+import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
+import { restoreCommandActor, snapshotCommandActor } from '../../src/career/CareerCommandActorCheckpoint'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { acceptCommanderMission, COMMANDER_BRIDGEHEAD_ID } from '../../src/career/CommanderMissionCatalog'
 import { CareerCommandHudTypes } from '../../src/career/CareerCommandHudTypes'
 
-import { createArmyCommandHarness as controllerHarness, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
+import { createArmyCommandHarness as controllerHarness, createRampartCommandActor, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
 
 describe('Army command roster, dispatch and submenu', () => {
+  it('saves player Attack before releasing Outpost duty and restores the same mobile order', () => {
+    const actor = createRampartCommandActor('outpost:guard')
+    actor.combatOwnership = 'mission-official'
+    actor.activateOutpostRampartGarrison('attack')
+    expect(actor.holdsRampartPosition).toBe(true) // Internal mission Attack still permits explicit duty.
+    actor.setTacticalOrder('defend')
+    const profile = { ...createCareerProfile('roman'), rank: 'commander' as const }
+    profile.activeOutpostMission = { id: 'outpost', kind: 'outpost-defense', stageId: 1, acceptedAt: 0,
+      officialSquad: { type: 'mission-official', missionId: 'outpost', townFaction: 'roman', squadId: 1,
+        commandRank: 'commander', actorIds: [actor.combatantId], commandedSquadIds: [],
+        squads: [{ squadId: 1, actorIds: [actor.combatantId] }], contribution: emptyPersonalContribution() } }
+    let saved: ReturnType<typeof stageOfficialCommandOrder>, allowSave = false
+    const h = controllerHarness([actor], null, null, null, 'roman', 'squad', true, undefined, {
+      accepts: () => true, enabled: () => true,
+      beforeIssue: (order, _target, participants) => {
+        const next = stageOfficialCommandOrder(profile, participants, order)
+        if (!allowSave || !next) return false
+        saved = next
+        return true
+      },
+    })
+    const attack = () => { h.input.press('1'); h.controller.update(); h.input.press('1'); h.controller.update() }
+    attack()
+    expect(actor.tacticalOrder).toBe('defend')
+    expect(actor.isOutpostRampartGarrisonActive).toBe(true)
+    expect(actor.holdsRampartPosition).toBe(true)
+    allowSave = true; attack()
+    expect(actor.tacticalOrder).toBe('attack')
+    expect(actor.isOutpostRampartGarrisonActive).toBe(false)
+    expect(actor.holdsRampartPosition).toBe(false)
+    const checkpoint = saved!.activeOutpostMission!.officialSquad!.members![actor.combatantId]
+    expect(checkpoint.order).toBe('attack')
+    expect(checkpoint.outpostRampartGarrison).toBeUndefined()
+    expect(snapshotCommandActor(actor)).toEqual(checkpoint)
+    const restored = createRampartCommandActor(actor.combatantId)
+    restored.activateOutpostRampartGarrison()
+    restoreCommandActor(restored, parseCommandActorCheckpoint(JSON.parse(JSON.stringify(checkpoint)))!)
+    expect(restored.tacticalOrder).toBe('attack')
+    expect(restored.isOutpostRampartGarrisonActive).toBe(false)
+    expect(restored.holdsRampartPosition).toBe(false)
+    expect(h.ui.render.mock.lastCall![0].find(row => row.target === 'squad:1')?.order).toBe('attack')
+  })
+
   it('retains accepted infantry types through pending deployment and complete squad casualties, including Squad 8', () => {
     const profile = acceptCommanderMission({ ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000 },
       COMMANDER_BRIDGEHEAD_ID, 'hud-bridge')!

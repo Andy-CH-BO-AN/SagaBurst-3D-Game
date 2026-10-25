@@ -58,16 +58,18 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(deployment.squads[7].actorIds).toContain('hr-officer')
     expect(deployment.squads[5].actorIds).toContain('captain')
     expect(deployment.squads.flatMap(squad => squad.actorIds).some(id => /^(town-eagle-rider|watchtower-archer):/.test(id))).toBe(false)
-    for (const squad of deployment.squads) for (const id of squad.actorIds) {
-      expect(deployment.stations.get(id)?.gateId).toBe(['north', 'south', 'east', 'west'][Math.floor((squad.squadId - 1) / 2)])
-      expect(deployment.stations.get(id)?.kind).toBe(squad.squadId % 2 ? 'wall' : 'cavalry')
-    }
+    expect(deployment.squads.flatMap(squad => squad.actorIds.map(id => {
+      const station = deployment.stations.get(id)
+      return [id, station?.gateId, station?.kind]
+    }))).toEqual(deployment.squads.flatMap(squad => squad.actorIds.map(id => [id,
+      ['north', 'south', 'east', 'west'][Math.floor((squad.squadId - 1) / 2)], squad.squadId % 2 ? 'wall' : 'cavalry'])))
     expect(deployment.stations.get('gate:north:0')!.z).toBeLessThan(deployment.stations.get('gate:north:4')!.z)
     expect(native).toEqual(original)
     const stations = [...deployment.stations], invalid: string[] = []
+    const nativeById = new Map(native.map(actor => [actor.id, actor]))
     const radius = (kind: 'wall' | 'cavalry') => kind === 'wall' ? .6 : 1.25
     for (const [index, [id, station]] of stations.entries()) {
-      const r = radius(station.kind), spec = native.find(actor => actor.id === id)!
+      const r = radius(station.kind), spec = nativeById.get(id)!
       if (station.kind === 'wall' && townRampartHeight(layout, station.x, station.z) !== station.y) invalid.push(`${id}:unsupported`)
       if (spec.gateId && station.gateId !== spec.gateId) invalid.push(`${id}:wrong gate`)
       if (obstacles.some(({ box }) => station.x + r > box.min.x && station.x - r < box.max.x
@@ -78,8 +80,9 @@ describe('Siege deployment and shared rule ownership', () => {
       if (station.kind === 'cavalry' && station.x >= -99 && station.x <= -71 && station.z >= -27 && station.z <= 113) invalid.push(`${id}:eagle corridor`)
       for (let other = 0; other < index; other++) {
         const neighbor = stations[other][1]
+        const dx = neighbor.x - station.x, dz = neighbor.z - station.z, clearance = r + radius(neighbor.kind)
         if (Math.abs(neighbor.y - station.y) < 3.6
-          && Math.hypot(neighbor.x - station.x, neighbor.z - station.z) < r + radius(neighbor.kind)) invalid.push(`${id}:overlap`)
+          && dx * dx + dz * dz < clearance * clearance) invalid.push(`${id}:overlap`)
       }
     }
     expect(invalid).toEqual([])
@@ -136,6 +139,28 @@ describe('Siege deployment and shared rule ownership', () => {
     actor.releaseOutpostRampartGarrison(); actor.mount = null; actor.activateTownRampartGarrison()
     expect(actor.holdsRampartFirePosition).toBe(true)
     expect(actor.isMountedTownRampartGarrisonEnabled).toBe(false)
+  })
+
+  it('requires explicit Outpost duty and does not reclaim a ranged melee attacker still standing on the rampart after release', () => {
+    type GarrisonActor = Pick<NPC, 'activateOutpostRampartGarrison' | 'releaseOutpostRampartGarrison'
+      | 'isOutpostRampartGarrisonActive' | 'holdsRampartPosition' | 'tacticalOrder' | 'setTacticalOrder'>
+    // Only order side effects are a boundary. The real duty lifecycle and hold policy run
+    // on a ranged actor that has already drawn melee, without constructing a scene/model.
+    const actor = Object.assign(Object.create(NPC.prototype) as GarrisonActor, {
+      mount: null, rangedActive: false, tacticalOrder: 'attack',
+      townRampartGarrison: false, outpostRampartGarrison: false,
+      group: { position: new Vector3(4, 8, -20) },
+      _activeNavigationWorld: { outpostNav: { getNavLayer: () => 'rampart_left' } },
+      setTacticalOrder(this: GarrisonActor, order: NPC['tacticalOrder']) { this.tacticalOrder = order },
+    })
+    Object.defineProperty(actor, 'aiType', { value: AIType.RANGED })
+    expect(actor.holdsRampartPosition).toBe(false)
+    actor.activateOutpostRampartGarrison('attack')
+    expect(actor.isOutpostRampartGarrisonActive).toBe(true)
+    expect(actor.holdsRampartPosition).toBe(true)
+    actor.releaseOutpostRampartGarrison()
+    expect(actor.isOutpostRampartGarrisonActive).toBe(false)
+    expect(actor.holdsRampartPosition).toBe(false)
   })
 
   it('releases only East wall defenders once when East-left docks, keeping all cavalry and East-right independent', () => {

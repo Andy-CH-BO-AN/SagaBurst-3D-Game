@@ -12,6 +12,7 @@ import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
 import { careerCommanderLoadout } from '../../src/career/CareerCommanderEquipment'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
+import type { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale } from '../../src/world/CharacterCombatAnimator'
 import { MixerController } from '../../src/world/HumanoidAssetRegistry'
 import { InertialPoseTransition } from '../../src/world/InertialPoseTransition'
@@ -330,7 +331,8 @@ interface SelectionActor {
   faction: Faction
   specialCombatProfile?: 'maki-ranger'
   holdsRampartFirePosition: boolean
-  _activeNavigationWorld?: { townNav: TownLayeredNavigation }
+  holdsRampartPosition?: boolean
+  _activeNavigationWorld?: { townNav?: TownLayeredNavigation; outpostNav?: Pick<OutpostLayeredNavigation, 'getNavLayer'> }
   combatPosition: Vector3
   rangedWeaponId: string
   meleeWeaponId: string | null
@@ -348,7 +350,7 @@ interface SelectionActor {
   shieldPivot: { visible: boolean }
   shieldCollider: { refreshVisibility(): void }
   tacticalOrder: string
-  mount?: { flight: object }
+  mount?: { flight: object } | null
   eaglePilot?: { canUseMelee: boolean }
   arrows: number
   rangedActive: boolean
@@ -562,6 +564,45 @@ describe('Reversible NPC weapon choice', () => {
     h.select()
     expect(h.actor.rangedActive).toBe(false)
     expect(h.actor.arrows).toBe(12)
+  })
+
+  it('keeps a player-commanded wall defender shooting a visible hostile beyond a closer enemy below without reclaiming native duty', () => {
+    const h = selection({ tacticalOrder: 'defend', combatPosition: new Vector3(0, 5, 0),
+      _activeNavigationWorld: { outpostNav: { getNavLayer: () => 'rampart_left' } },
+      _findRangedTrajectoryBlocker: methods._findRangedTrajectoryBlocker })
+    h.target.position.set(0, 0, 0)
+    const below = h.target.npc!
+    const shootable = { faction: Faction.PLAYER, dead: false, combatPosition: new Vector3(0, 5, 18) } as NPC
+    // Formation completion has set Defend and released native duty. Navigation
+    // classification and path-clearing effects are the only targeting boundaries.
+    const actor = Object.assign(h.actor, {
+      _aiType: AIType.RANGED, mount: null, townRampartGarrison: false, outpostRampartGarrison: false,
+      targetsPlayer: false, missionCombatTarget: undefined, _cachedTargetIsPlayer: false,
+      _cachedTargetNpc: below, _rangedTargetCandidates: [] as NPC[],
+      _clearObstacleDetour() {}, _clearNavigationPath() {}, _clearSiegeFallback() {},
+    })
+    Object.defineProperties(actor, Object.fromEntries([
+      'aiType', 'isMounted', 'isTownRampartGarrisonActive', 'holdsRampartPosition', 'holdsRampartFirePosition',
+    ].map(name => [name, Object.getOwnPropertyDescriptor(NPC.prototype, name)!])))
+    const targeting = NPC.prototype as unknown as {
+      _findTarget(this: typeof actor, player: Player, npcs: NPC[]): SelectionTarget | null
+      _trySwitchToVisibleRangedTarget(this: typeof actor, player: Player, npcs: NPC[], grid: null, obstacles: ObstacleData[]): boolean
+      _isTargetInDefendRange(this: typeof actor, position: Vector3): boolean
+    }
+    const player = h.player as Player
+    expect(targeting._findTarget.call(actor, player, [below, shootable])?.npc).toBe(below)
+    expect(actor.holdsRampartPosition).toBe(false)
+    expect(actor.holdsRampartFirePosition).toBe(true)
+    expect(targeting._isTargetInDefendRange.call(actor, below.combatPosition)).toBe(false)
+    expect(targeting._trySwitchToVisibleRangedTarget.call(actor, player, [below, shootable], null, [])).toBe(true)
+    expect(actor._cachedTargetNpc).toBe(shootable)
+    expect(targeting._isTargetInDefendRange.call(actor, shootable.combatPosition)).toBe(true)
+    h.select([below], { position: shootable.combatPosition, isDead: false, isPlayer: false, npc: shootable })
+    expect(actor.rangedActive).toBe(true)
+    expect(actor.arrows).toBe(12)
+    actor.tacticalOrder = 'attack'
+    expect(actor.holdsRampartPosition).toBe(false)
+    expect(actor.holdsRampartFirePosition).toBe(false)
   })
 
   it('excludes friendly structures while retaining hostile and unowned siege blockers', () => {
