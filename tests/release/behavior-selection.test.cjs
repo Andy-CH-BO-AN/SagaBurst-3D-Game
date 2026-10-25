@@ -342,3 +342,27 @@ test('actual input readers exclude full provider replacements but retain partial
   assert.deepEqual(plan.selected, ['tests/partial.test.ts','tests/real.test.ts','tests/scoped.test.ts'])
   assert.deepEqual(plan.selectedCases['tests/scoped.test.ts'], [1])
 })
+
+test('null defaults short-circuit constructor getters without losing real or mixed call contexts', () => {
+  const before = `export class Inventory { get value() { return 1 } }
+class Reader { value: number; constructor(inventory: Inventory | null = null) { this.value = inventory?.value ?? 0 } }
+export function make(inventory: Inventory | null = null) { return new Reader(inventory) }
+export function mutated(inventory: Inventory | null = null) { ({ inventory } = { inventory: new Inventory() }); return new Reader(inventory) }
+export function loop(inventory: Inventory | null = null) { for (inventory of [new Inventory()]) return new Reader(inventory) }`
+  const plan = selection(before, before.replace('return 1', 'return 2'), [
+    "import { Inventory, make, mutated, loop } from '../src/owner'",
+    "test('omitted', () => make())",
+    "test('undefined default', () => make(undefined))",
+    "test('explicit null', () => make(null))",
+    "test('real getter', () => make(new Inventory()))",
+    "test('mixed calls', () => { make(); return make(new Inventory()) })",
+    "test('unknown input', () => make(globalThis.inventory))",
+    "test('mutated default', () => mutated())",
+    "test('loop assignment', () => loop())",
+    "test('escaped arrow', () => { const read = (inventory: Inventory | null = null) => inventory?.value; read(); globalThis.consume(read) })",
+  ])
+  assert.deepEqual(indices(plan), [3, 4, 5, 6, 7, 8])
+  const mixed = plan.details['tests/owner.test.ts'][0].caseEvidence.find(evidence => evidence.index === 4 && evidence.snapshot === 'after')
+  assert.equal(mixed.path.find(step => step.behavior === 'make').parameters[0].value, 'present')
+  assert.ok(mixed.path.some(step => step.optionalGuard?.some(guard => guard.value === 'present')))
+})

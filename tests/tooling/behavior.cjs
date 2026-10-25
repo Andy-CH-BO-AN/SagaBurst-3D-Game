@@ -31,7 +31,47 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   })
   const program = ts.createProgram([...sources.keys()], options, host)
   const checker = program.getTypeChecker()
-  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set()
+  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set()
+  function connect(entry, id, guard = null) {
+    entry.edges.add(id)
+    entry.edgeGuards ??= new Map()
+    if (!entry.edgeGuards.has(id)) entry.edgeGuards.set(id, new Set())
+    entry.edgeGuards.get(id).add(guard)
+  }
+  function invalidateAssignment(target) {
+    if (ts.isIdentifier(target)) {
+      const symbol = ts.isShorthandPropertyAssignment(target.parent) ? checker.getShorthandAssignmentValueSymbol(target.parent) : checker.getSymbolAtLocation(target)
+      const declaration = symbol?.valueDeclaration
+      if (declaration) mutatedBindings.add(declaration)
+    } else if (!ts.isPropertyAccessExpression(target) && !ts.isElementAccessExpression(target)) {
+      ts.forEachChild(target, invalidateAssignment)
+    }
+  }
+  function optionalReceiver(expression) {
+    for (let node = expression; node && (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node) || ts.isCallExpression(node)); node = node.expression) {
+      if (node.questionDotToken) return node.expression
+    }
+    return null
+  }
+  function invocationReference(node) {
+    if ((ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent)) && node.parent.name === node) node = node.parent
+    while (node.parent && (ts.isParenthesizedExpression(node.parent) || ts.isAsExpression(node.parent) || ts.isNonNullExpression(node.parent))) node = node.parent
+    if (functionAdapter(node.parent)) node = node.parent
+    return ts.isCallExpression(node.parent) && node.parent.expression === node
+  }
+  function invocation(entry, target, call) {
+    connect(entry, target, optionalReceiver(call))
+    let args = [...(call.arguments ?? [])]
+    if (functionAdapter(call.expression)) {
+      const adapter = call.expression.name.text
+      args = adapter === 'call' ? args.slice(1) : adapter === 'apply' && args[1] && ts.isArrayLiteralExpression(args[1]) ? [...args[1].elements] : null
+    }
+    entry.callContexts ??= new Map()
+    if (!entry.callContexts.has(target)) entry.callContexts.set(target, [])
+    const contexts = entry.callContexts.get(target)
+    if (!contexts.some(context => context.call === call)) contexts.push({ call, args })
+    entry.edgeEvidence.set(target, { evidence: 'callable provenance', callsite: { file: entry.file, start: call.getStart() } })
+  }
   function add(ast, label) {
     if (byAst.has(ast)) return byAst.get(ast)
     const file = local(ast.getSourceFile().fileName)
@@ -77,6 +117,11 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
           mockCandidates.push({ file, target, provider: n.arguments[0].text, factory })
         }
       }
+      if ((ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment)
+        || ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(n.operator))) {
+        invalidateAssignment(n.left ?? n.operand)
+      }
+      if (ts.isForOfStatement(n) || ts.isForInStatement(n)) invalidateAssignment(n.initializer)
       if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment
         && (ts.isPropertyAccessExpression(n.left) || ts.isElementAccessExpression(n.left))) {
         const symbol = receiverSymbol(origin(n.left.expression))
@@ -153,31 +198,35 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const stem = posix.normalize(posix.join(posix.dirname(file), n.arguments[0].text))
     return (importGraph.get(file) ?? []).find(dep => dep === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js'].some(ext => dep === stem + ext))
   }
-  function linkSymbol(symbol, entry, seen = new Set()) {
+  function linkSymbol(symbol, entry, seen = new Set(), guard = null) {
     if (!symbol || seen.has(symbol)) return symbol
     seen.add(symbol)
     for (const decl of symbol.declarations ?? []) {
       if (ts.isVariableDeclaration(decl) && decl.initializer && ts.isIdentifier(decl.name)) {
         const id = commonjs.get(requiredModule(decl.initializer))?.get('<default>')
-        if (id) entry.edges.add(id)
+        if (id) connect(entry, id, guard)
       }
       if (ts.isBindingElement(decl) && ts.isVariableDeclaration(decl.parent.parent) && decl.parent.parent.initializer) {
         const module = requiredModule(decl.parent.parent.initializer)
         const id = commonjs.get(module)?.get((decl.propertyName ?? decl.name).getText())
-        if (id) { entry.edges.add(id); entry.edgeEvidence.set(id, { receiver: module, key: (decl.propertyName ?? decl.name).getText(), evidence: 'CommonJS export binding' }) }
+        if (id) { connect(entry, id, guard); entry.edgeEvidence.set(id, { receiver: module, key: (decl.propertyName ?? decl.name).getText(), evidence: 'CommonJS export binding' }) }
       }
       let owner = decl
       while (ts.isBindingElement(owner) || ts.isObjectBindingPattern(owner) || ts.isArrayBindingPattern(owner)) owner = owner.parent
       const id = byAst.get(owner)
-      if (id && id !== entry.id) { entry.edges.add(id); entry.conservativeEdges.delete(id) }
+      if (id && id !== entry.id) { connect(entry, id, guard); entry.conservativeEdges.delete(id) }
     }
     // Preserve intermediate import/re-export bindings instead of flattening
     // directly to the final declaration: an unchanged caller can be retargeted.
     return symbol.flags & ts.SymbolFlags.Alias
-      ? linkSymbol(checker.getImmediateAliasedSymbol(symbol), entry, seen) : symbol
+      ? linkSymbol(checker.getImmediateAliasedSymbol(symbol), entry, seen, guard) : symbol
   }
   function symbolEdges(n, entry, original = checker.getSymbolAtLocation(n)) {
-    const symbol = linkSymbol(original, entry)
+    const access = (ts.isPropertyAccessExpression(n.parent) || ts.isElementAccessExpression(n.parent)) && n.parent.name === n ? n.parent : n
+    const symbol = linkSymbol(original, entry, new Set(), optionalReceiver(access))
+    if (!invocationReference(n)) for (const declaration of symbol?.declarations ?? []) if (callable(declaration) && byAst.has(declaration)) {
+      entry.opaqueTargets ??= new Set(); entry.opaqueTargets.add(byAst.get(declaration))
+    }
     const namespace = symbol && symbol.flags & (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule)
     const namedAccess = (ts.isPropertyAccessExpression(n.parent) || ts.isElementAccessExpression(n.parent)) && n.parent.expression === n
       && (ts.isPropertyAccessExpression(n.parent) || literalKeys(n.parent.argumentExpression))
@@ -187,7 +236,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     // while its runtime type still identifies the actual class declaration.
     const valueType = checker.getTypeAtLocation(n)
     for (const decl of valueType.getConstructSignatures().length ? valueType.symbol?.declarations ?? [] : []) {
-      if (ts.isClassLike(decl) && byAst.has(decl)) entry.edges.add(byAst.get(decl))
+      if (ts.isClassLike(decl) && byAst.has(decl)) connect(entry, byAst.get(decl))
     }
     return symbol
   }
@@ -330,14 +379,14 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const classes = receiverClasses(receiver, true)
     let resolved = false
     for (const key of keys ?? []) {
-      const references = { ...entry, edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map() }
+      const references = { ...entry, edges: new Set(), edgeGuards: new Map(), conservativeEdges: new Set(), edgeEvidence: new Map() }
       const exported = commonjs.get(requiredModule(receiver))?.get(key)
-      if (exported) { references.edges.add(exported); resolved = true }
+      if (exported) { connect(references, exported); resolved = true }
       const symbol = checker.getPropertyOfType(type, key)
-      linkSymbol(symbol, references)
+      linkSymbol(symbol, references, new Set(), optionalReceiver(access))
       if (symbol?.declarations?.some(decl => decl.getSourceFile().isDeclarationFile || !ts.isMethodSignature(decl) && !ts.isPropertySignature(decl))) resolved = true
       for (const id of references.edges) {
-        entry.edges.add(id)
+        connect(entry, id, optionalReceiver(access))
         if (keys.length > 1) entry.conservativeEdges.add(id)
         entry.edgeEvidence.set(id, { receiver: receiver.getText(), key, ...(keys.length > 1 ? { keyCandidates: keys } : {}), evidence: 'receiver symbol', ...(reflective ? { observation: 'reflection' } : {}) })
       }
@@ -387,7 +436,11 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (!root && ts.isReturnStatement(n) && n.expression && callable(n.expression)) return
     if (!root && ts.isFunctionDeclaration(n)) return
     if (!root && ts.isVariableDeclaration(n) && inertValue(n.initializer)) return
-    if (!root && byAst.has(n)) { entry.edges.add(byAst.get(n)); return }
+    if (!root && byAst.has(n)) {
+      connect(entry, byAst.get(n))
+      if (callable(n) && !invocationReference(n)) { entry.opaqueTargets ??= new Set(); entry.opaqueTargets.add(byAst.get(n)) }
+      return
+    }
     if (ts.isClassLike(n)) {
       for (const clause of n.heritageClauses ?? []) for (const type of clause.types) inspect(type.expression, entry)
       for (const decorator of ts.getDecorators(n) ?? []) inspect(decorator.expression, entry)
@@ -396,20 +449,20 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
         if (child.name && ts.isComputedPropertyName(child.name)) inspect(child.name.expression, entry)
         if (ts.isClassStaticBlockDeclaration(child)) inspect(child, entry)
         if (child.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword) && ts.isPropertyDeclaration(child)) {
-          const id = byAst.get(child); if (id) entry.edges.add(id)
+          const id = byAst.get(child); if (id) connect(entry, id)
         }
       }
       return
     }
     if (ts.isNewExpression(n)) {
-      const construct = (declaration, seen = new Set()) => {
+      const construct = (declaration, seen = new Set(), direct = true) => {
         if (seen.has(declaration)) return
         seen.add(declaration)
         for (const child of declaration.members) if (ts.isConstructorDeclaration(child) || ts.isPropertyDeclaration(child) && !child.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword)) {
-          if (byAst.has(child)) entry.edges.add(byAst.get(child))
+          if (byAst.has(child)) { if (ts.isConstructorDeclaration(child) && direct) invocation(entry, byAst.get(child), n); else connect(entry, byAst.get(child)) }
         }
         for (const clause of declaration.heritageClauses ?? []) for (const type of clause.types) {
-          for (const base of checker.getTypeAtLocation(type.expression).symbol?.declarations ?? []) if (ts.isClassLike(base)) construct(base, seen)
+          for (const base of checker.getTypeAtLocation(type.expression).symbol?.declarations ?? []) if (ts.isClassLike(base)) construct(base, seen, false)
         }
       }
       for (const declaration of checker.getTypeAtLocation(n.expression).symbol?.declarations ?? []) if (ts.isClassLike(declaration)) construct(declaration)
@@ -419,13 +472,16 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       if (n.expression.getText() === 'eval') entry.unsafe = 'eval runtime dispatch'
       let callee = n.expression
       if (functionAdapter(callee)) callee = callee.expression
-      for (const id of callableValues(callee)) { entry.edges.add(id); entry.edgeEvidence.set(id, { evidence: 'callable provenance', callsite: { file: entry.file, start: n.getStart() } }) }
+      for (const id of callableValues(callee)) invocation(entry, id, n)
       const signature = checker.getResolvedSignature(n)
       n.arguments.forEach((argument, index) => {
         const parameter = signature?.parameters[index]
         const parameterType = parameter && checker.getTypeOfSymbolAtLocation(parameter, n)
         if (!parameterType?.getCallSignatures().length && !invokedSymbols.has(parameter) && !checker.getTypeAtLocation(argument).getCallSignatures().length) return
-        for (const id of callableValues(argument)) entry.edges.add(id)
+        for (const id of callableValues(argument)) {
+          connect(entry, id)
+          entry.opaqueTargets ??= new Set(); entry.opaqueTargets.add(id)
+        }
         const callback = origin(argument)
         if (ts.isElementAccessExpression(callback)) resolveMember(callback.expression, literalKeys(callback.argumentExpression), entry, callback, false, true)
       })
@@ -447,7 +503,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
           : checker.getTypeAtLocation(receiver).getConstructSignatures().length ? 'static' : 'instance'
         for (const declaration of receiverClasses(receiver, domain === 'instance')) {
           const shape = shapes.get(declaration)?.[domain]
-          if (shape) { entry.edges.add(shape); entry.edgeEvidence.set(shape, { receiver: receiver.getText(), observation: 'reflection', shape: domain }) }
+          if (shape) { connect(entry, shape); entry.edgeEvidence.set(shape, { receiver: receiver.getText(), observation: 'reflection', shape: domain }) }
         }
       }
     }
@@ -502,7 +558,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const ownerId = byAst.get(owner) ?? info.top
     const id = `${readerFile}:${offset}:<input:${input.to}>`
     nodes.set(id, { id, ast, file: readerFile, provider: input.provider, readerMethod: input.kind === 'load' ? 'loadAsync' : input.provider?.export, label: `<input:${input.to}>`, edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map() })
-    nodes.get(ownerId).edges.add(id)
+    connect(nodes.get(ownerId), id)
     if (crossModule) nodes.get(ownerId).conservativeEdges.add(id)
     nodes.get(ownerId).edgeEvidence.set(id, { input: input.to, expression: input.expression, evidence: input.kind, ...(crossModule ? { callerContext: { file: input.from, line: input.line, column: input.column }, resolution: 'finite factory context' } : {}) })
     if (!inputs.has(input.to)) inputs.set(input.to, new Set())
@@ -537,15 +593,87 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const original = [...seen].some(id => { const name = nodes.get(id)?.ast.name; return name && providerName(providerOf(name)) === providerName({ module: provider }) })
     if (!original) files.get(file).blockedProviders.add(providerName({ module: provider }))
   }
+  function nullishValue(expression, environment, visited = new Set()) {
+    if (!expression) return 'undefined'
+    if (visited.has(expression)) return 'unknown'
+    visited.add(expression)
+    if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isNonNullExpression(expression)) return nullishValue(expression.expression, environment, visited)
+    if (expression.kind === ts.SyntaxKind.NullKeyword) return 'null'
+    if (ts.isVoidExpression(expression) || ts.isOmittedExpression(expression)) return 'undefined'
+    if (ts.isIdentifier(expression)) {
+      const declaration = checker.getSymbolAtLocation(expression)?.valueDeclaration
+      if (declaration && mutatedBindings.has(declaration)) return 'unknown'
+      if (declaration && environment.has(declaration)) return environment.get(declaration)
+      if (expression.text === 'undefined' && (!declaration || !sources.has(declaration.getSourceFile().fileName))) return 'undefined'
+      if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) return nullishValue(declaration.initializer, environment, visited)
+      return 'unknown'
+    }
+    if (ts.isLiteralExpression(expression) || ts.isObjectLiteralExpression(expression) || ts.isArrayLiteralExpression(expression) || ts.isNewExpression(expression) || callable(expression)
+      || [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(expression.kind)) return 'present'
+    if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
+      const left = nullishValue(expression.left, environment, visited)
+      return left === 'null' || left === 'undefined' ? nullishValue(expression.right, environment, visited) : left
+    }
+    return 'unknown'
+  }
+  const contextIds = new WeakMap()
+  let contextOrdinal = 0
+  function contextKey(environment) {
+    return [...environment].map(([parameter, value]) => {
+      if (!contextIds.has(parameter)) contextIds.set(parameter, contextOrdinal++)
+      return `${contextIds.get(parameter)}:${value}`
+    }).sort().join(',')
+  }
+  function callEnvironment(target, context, parent) {
+    if (!callable(target.ast)) return parent
+    const environment = new Map()
+    for (let ancestor = target.ast.parent; ancestor; ancestor = ancestor.parent) if (callable(ancestor)) {
+      for (const parameter of ancestor.parameters) if (parent.has(parameter)) environment.set(parameter, parent.get(parameter))
+    }
+    if (!context?.args) return environment
+    let spread = false
+    target.ast.parameters.forEach((parameter, index) => {
+      const argument = context.args[index]
+      spread ||= !!argument && ts.isSpreadElement(argument)
+      let value = parameter.dotDotDotToken ? 'present' : spread ? 'unknown' : nullishValue(argument, parent)
+      if (value === 'undefined' && parameter.initializer) value = nullishValue(parameter.initializer, environment)
+      if (value !== 'unknown' && !mutatedBindings.has(parameter)) environment.set(parameter, value)
+    })
+    return environment
+  }
   function reachable(roots, testFile) {
     const blocked = files.get(testFile)?.blocked ?? new Set()
-    const seen = new Set()
-    const visit = id => {
-      if (seen.has(id) || blocked.has(nodes.get(id)?.file)) return
-      seen.add(id)
-      for (const next of nodes.get(id)?.edges ?? []) visit(next)
+    const seen = new Set(), states = new Map(), first = new Map(), queue = []
+    const enqueue = (id, environment, parent, evidence, conservative = false) => {
+      if (!nodes.has(id) || blocked.has(nodes.get(id).file)) return
+      const key = `${id}\0${contextKey(environment)}`
+      if (states.has(key)) return
+      const state = { id, environment, parent, evidence, conservative }
+      states.set(key, state); queue.push([key, state])
     }
-    roots.forEach(visit)
+    roots.forEach(id => enqueue(id, new Map(), null, null))
+    for (let cursor = 0; cursor < queue.length; cursor++) {
+      const [key, state] = queue[cursor], entry = nodes.get(state.id)
+      seen.add(state.id); if (!first.has(state.id)) first.set(state.id, key)
+      for (const next of entry.edges) {
+        const guards = entry.edgeGuards?.get(next)
+        const guarded = guards?.size && !guards.has(null)
+        const facts = guarded ? [...guards].map(expression => ({ receiver: expression.getText(), value: nullishValue(expression, state.environment) })) : []
+        if (guarded && facts.every(fact => fact.value === 'null' || fact.value === 'undefined')) continue
+        const target = nodes.get(next)
+        if (!target) continue
+        const contexts = [...(entry.callContexts?.get(next) ?? [null])]
+        if (entry.callContexts?.has(next) && entry.opaqueTargets?.has(next)) contexts.push(null)
+        for (const context of contexts) {
+          const environment = callEnvironment(target, context, state.environment)
+          const parameters = context && callable(target.ast) ? target.ast.parameters.filter(parameter => environment.has(parameter)).map(parameter => ({ name: parameter.name.getText(), value: environment.get(parameter) })) : []
+          const evidence = { ...entry.edgeEvidence.get(next), ...(context ? { callsite: { file: entry.file, start: context.call.getStart() } } : {}),
+            ...(parameters.length ? { parameters } : {}), ...(facts.length ? { optionalGuard: facts } : {}) }
+          enqueue(next, environment, key, evidence, entry.conservativeEdges.has(next) || facts.some(fact => fact.value === 'unknown'))
+        }
+      }
+    }
+    seen.trace = { states, first }
     return seen
   }
   function caseRoots(file, location) {
@@ -595,6 +723,20 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   }
   const explanations = new WeakMap()
   function explain(roots, reached, target) {
+    if (reached.trace) {
+      const { states, first } = reached.trace
+      if (!first.has(target)) return []
+      const path = []
+      for (let key = first.get(target); key; key = states.get(key).parent) path.unshift(states.get(key))
+      const result = path.map((state, index) => {
+        const node = nodes.get(state.id)
+        return { file: node.file, behavior: node.label, line: node.ast.getSourceFile().getLineAndCharacterOfPosition(node.ast.getStart()).line + 1, ...(index ? state.evidence : { root: true }) }
+      })
+      result.rootId = path[0]?.id
+      result.initialization = path.some(state => nodes.get(state.id).label === '<module>')
+      result.conservative = path.some(state => state.conservative)
+      return result
+    }
     // Shared-module edits can match many targets in one leaf. Reuse that leaf's
     // shortest-path tree instead of traversing the same graph for every target.
     // Expand lazily, preserving the original BFS order and conservative edges.
