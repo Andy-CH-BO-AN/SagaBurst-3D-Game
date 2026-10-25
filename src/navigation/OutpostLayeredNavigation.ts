@@ -3,6 +3,9 @@ import * as THREE from 'three'
 import {
   getTerrainHeight,
   getWalkRampHeight,
+  resolveObstacleCollision,
+  WALK_SURFACE_STEP_UP,
+  type ObstacleData,
 } from '../world/Terrain'
 import {
   type OutpostWalkwayBridge,
@@ -373,6 +376,8 @@ export class OutpostLayeredNavigation {
   readonly layout: OutpostWalkwayLayout
   private readonly leftWaypoints: StairWaypoints
   private readonly rightWaypoints: StairWaypoints
+  private readonly meleePosition = new THREE.Vector3()
+  private readonly meleePreviousPosition = new THREE.Vector3()
 
   constructor(layout: OutpostWalkwayLayout) {
     this.layout = layout
@@ -400,6 +405,51 @@ export class OutpostLayeredNavigation {
 
   getDeck(side: OutpostWalkwaySide): OutpostWalkwayDeck | undefined {
     return this.layout.decks.find(d => d.side === side)
+  }
+
+  /** A local contact lane, not permission to skip the route between remote layers. */
+  hasDirectMeleeConnection(from: THREE.Vector3, to: THREE.Vector3,
+    radius: number, height: number, obstacles: ObstacleData[]): boolean {
+    const fromLayer = this.getNavLayer(from), toLayer = this.getNavLayer(to)
+    if (!isRampartLayer(fromLayer) && !isRampartLayer(toLayer)) return fromLayer === toLayer
+    if (!isRampartLayer(fromLayer) || !isRampartLayer(toLayer)) return false
+    const fromSurface = this._rampartContactSurfaceAt(from), toSurface = this._rampartContactSurfaceAt(to)
+    if (!fromSurface || !toSurface) return false
+    if (fromSurface !== toSurface) {
+      const bridge = this.layout.bridge
+      if (fromSurface !== bridge && toSurface !== bridge) return false
+      const deck = this.layout.decks.find(candidate => candidate === (fromSurface === bridge ? toSurface : fromSurface))
+      if (!deck) return false
+      const seamX = deck.side < 0 ? bridge.slab.min.x : bridge.slab.max.x
+      // Both convex surfaces must actually meet where this segment crosses.
+      // A matching layer label alone cannot bridge an empty or disconnected gap.
+      if (seamX < deck.slab.min.x || seamX > deck.slab.max.x || from.x === to.x) return false
+      const t = (seamX - from.x) / (to.x - from.x)
+      if (t < 0 || t > 1) return false
+      const seamZ = from.z + (to.z - from.z) * t
+      const bridgeY = getWalkRampHeight(bridge.walkSurface, seamX, seamZ)
+      const deckY = getWalkRampHeight(deck.walkSurface, seamX, seamZ)
+      if (bridgeY === null || deckY === null || Math.abs(bridgeY - deckY) > WALK_SURFACE_STEP_UP) return false
+    }
+    // Use physical collision, including rails that deliberately do not block
+    // the ground navigation grid. Scratch positions leave the actors untouched.
+    this.meleePreviousPosition.copy(from)
+    this.meleePosition.copy(to)
+    resolveObstacleCollision(this.meleePosition, this.meleePreviousPosition, 0, true,
+      radius, height, 0, obstacles, { walkSurfaces: true })
+    return Math.abs(this.meleePosition.x - to.x) < .001 && Math.abs(this.meleePosition.z - to.z) < .001
+  }
+
+  private _rampartContactSurfaceAt(position: THREE.Vector3): OutpostWalkwayDeck | OutpostWalkwayBridge | undefined {
+    // Layer classification has a body margin; contact requires real support.
+    const bridge = this.layout.bridge
+    const bridgeY = getWalkRampHeight(bridge.walkSurface, position.x, position.z)
+    if (bridgeY !== null && Math.abs(bridgeY - position.y) <= .85) return bridge
+    for (const deck of this.layout.decks) {
+      const y = getWalkRampHeight(deck.walkSurface, position.x, position.z)
+      if (y !== null && Math.abs(y - position.y) <= .85) return deck
+    }
+    return undefined
   }
 
   getStair(side: OutpostWalkwaySide): OutpostWalkwayStair | undefined {

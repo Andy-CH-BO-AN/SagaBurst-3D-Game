@@ -313,6 +313,25 @@ export class NPC {
     this.townRampartMounted = allowMounted
   }
   get alertRange(): number { return this.isTownRampartGarrisonActive ? this.maxRangedAttackDistance : DETECTION_RADIUS }
+  private battlefieldEngagementRangeSq: number | null = null
+
+  /** Game opts formal battle actors in once, including newly spawned/restored waves. */
+  enableBattlefieldEngagement(): void {
+    const side = this.playableWorldBound * 2
+    this.battlefieldEngagementRangeSq = side * side * 2
+  }
+
+  private _isTargetWithinEngagementRange(position: THREE.Vector3, chasing: boolean): boolean {
+    if (this.tacticalOrder === 'charge') return true
+    if (this.tacticalOrder === 'attack' && this.battlefieldEngagementRangeSq !== null
+      && !this.encounterOrigin && !this.mount?.isFlyingMount && !this.holdsRampartPosition) {
+      const dx = position.x - this.combatPosition.x, dz = position.z - this.combatPosition.z
+      return dx * dx + dz * dz <= this.battlefieldEngagementRangeSq
+    }
+    const range = this.tacticalOrder === 'follow' ? (chasing ? 36 : 24)
+      : chasing ? DETECTION_RADIUS * 1.5 : this.alertRange
+    return this.combatPosition.distanceToSquared(position) <= range * range
+  }
   private outpostRampartGarrison = false
   get isOutpostRampartGarrisonActive(): boolean { return this.outpostRampartGarrison }
   activateOutpostRampartGarrison(order: 'defend' | 'attack' = 'defend'): void {
@@ -327,9 +346,7 @@ export class NPC {
   private readonly obstacleLocalToWorld = new THREE.Matrix4()
   get holdsRampartPosition(): boolean {
     return (this.tacticalOrder === 'defend' || this.tacticalOrder === 'attack')
-      && (this.isTownRampartGarrisonActive || !this.isMounted && (this.outpostRampartGarrison
-        || Boolean(this.aiType === AIType.RANGED && this._activeNavigationWorld?.outpostNav
-          && isRampartLayer(this._activeNavigationWorld.outpostNav.getNavLayer(this.combatPosition)))))
+      && (this.isTownRampartGarrisonActive || !this.isMounted && this.outpostRampartGarrison)
   }
 
   get holdsRampartFirePosition(): boolean { return this.aiType === AIType.RANGED && this.holdsRampartPosition }
@@ -2773,9 +2790,7 @@ export class NPC {
         }
 
         if ((!this.encounterOrigin || this.encounterAggro === 'alerted' || this.encounterAggro === 'provoked') && targetInfo && !targetInfo.isDead) {
-          const dist = this.combatPosition.distanceTo(targetInfo.position)
-          const detectionRadius = this.tacticalOrder === 'charge' ? Infinity : this.tacticalOrder === 'follow' ? 24 : this.alertRange
-          if (dist <= detectionRadius) {
+          if (this._isTargetWithinEngagementRange(targetInfo.position, false)) {
             if (this.encounterOrigin) {
               // Awareness was already announced by idle -> alerted/provoked.
               this.state = AIState.CHASE
@@ -2829,8 +2844,7 @@ export class NPC {
         }
 
         const distSq = this.combatPosition.distanceToSquared(targetInfo.position)
-        const maxDetectionDistance = this.tacticalOrder === 'follow' ? 36 : DETECTION_RADIUS * 1.5
-        if (this.tacticalOrder !== 'charge' && distSq > maxDetectionDistance * maxDetectionDistance) {
+        if (!this._isTargetWithinEngagementRange(targetInfo.position, true)) {
           this._clearObstacleDetour()
           this._clearNavigationPath()
           this._clearSiegeFallback()
@@ -2991,8 +3005,7 @@ export class NPC {
           }
         } else {
           if (
-            !isCrossLayer
-            && navigationRoute === 'direct'
+            navigationRoute === 'direct'
             && this._isTargetInMeleeApproachRange(targetInfo.position)
           ) {
             this._clearObstacleDetour()
@@ -4084,10 +4097,11 @@ export class NPC {
     if (town) return town.isElevated(this.combatPosition) && town.isElevated(targetPos)
     const nav = this._activeNavigationWorld?.outpostNav
     if (nav) {
-      // The connected decks/bridge permit a close enemy to approach. Drawing a
-      // weapon here does not grant attack reach or permission to leave the wall.
+      // Weapon readiness and physical hits share the same local contact lane.
       return isRampartLayer(nav.getNavLayer(this.combatPosition))
         && isRampartLayer(nav.getNavLayer(targetPos))
+        && nav.hasDirectMeleeConnection(this.combatPosition, targetPos,
+          this._movementObstacleRadius(), this._movementObstacleHeight(), this.fallObstacles)
     }
     // Without topology, retain the conservative physical-contact fallback.
     return this._isTargetInMeleeApproachRange(targetPos)
@@ -4129,12 +4143,6 @@ export class NPC {
   }
 
   private _isTargetInMeleeApproachRange(targetPos: THREE.Vector3): boolean {
-    const layeredNav = this._activeNavigationWorld?.outpostNav
-    if (layeredNav) {
-      const npcLayer = layeredNav.getNavLayer(this.combatPosition)
-      const targetLayer = layeredNav.getNavLayer(targetPos)
-      if (npcLayer !== targetLayer) return false
-    }
     return this._isTargetInMeleeRange(targetPos, Math.max(0, this._meleeBodySpacing() - this.meleeAttackRadius))
       && Math.hypot(targetPos.x - this.combatPosition.x, targetPos.z - this.combatPosition.z) <= this._meleeApproachDistance()
   }
@@ -4150,9 +4158,11 @@ export class NPC {
       toTarget.y = 0
       const forwardDist = toTarget.dot(forward)
       const lateralDist = Math.sqrt(Math.max(0, toTarget.lengthSq() - forwardDist * forwardDist))
-      return forwardDist > 0 && forwardDist <= this.meleeAttackRadius + extraReach && lateralDist <= 1.4
-    }
-    return this.combatPosition.distanceTo(targetPos) <= this.meleeAttackRadius + extraReach
+      if (!(forwardDist > 0 && forwardDist <= this.meleeAttackRadius + extraReach && lateralDist <= 1.4)) return false
+    } else if (this.combatPosition.distanceTo(targetPos) > this.meleeAttackRadius + extraReach) return false
+    const outpost = this._activeNavigationWorld?.outpostNav
+    return !outpost || outpost.hasDirectMeleeConnection(this.combatPosition, targetPos,
+      this._movementObstacleRadius(), this._movementObstacleHeight(), this.fallObstacles)
   }
 
   private _switchToMelee(cancelAnimation = true): void {
@@ -4174,7 +4184,8 @@ export class NPC {
     const town = this._activeNavigationWorld?.townNav
     if (town && town.isElevated(this.combatPosition) !== town.isElevated(position)) return false
     const nav = this._activeNavigationWorld?.outpostNav
-    return !nav || nav.getNavLayer(this.combatPosition) === nav.getNavLayer(position)
+    return !nav || nav.hasDirectMeleeConnection(this.combatPosition, position,
+      this._movementObstacleRadius(), this._movementObstacleHeight(), this.fallObstacles)
   }
 
   private _usesReversibleRangedSwitch(): boolean {

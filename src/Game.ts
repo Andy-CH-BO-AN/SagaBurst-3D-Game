@@ -1203,6 +1203,7 @@ export class Game {
           relief,
           playerIsAttacker: veteranOutpost?.templateId === 'veteran-outpost-assault',
           reinforcementsEnabled: capabilities.reinforcementsEnabled,
+          reinforcementArrivalTracked: veteranOutpost?.templateId === 'veteran-dread-outpost',
           returnToTown: Boolean(campaignConfig.careerMissionId),
           meritAwarded: () => this.careerMeritAwarded,
           ...(veteranOutpost ? {
@@ -2282,6 +2283,7 @@ export class Game {
       undefined,
       spec.spawnY !== undefined ? { y: spec.spawnY } : undefined,
     ))
+    npc.enableBattlefieldEngagement()
     if (spec.outpostRampartGarrison) npc.activateOutpostRampartGarrison()
     npc.respawnEnabled = spec.respawnEnabled
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
@@ -2995,6 +2997,7 @@ export class Game {
         this.navigationWorld.grid, this.obstacles, this.navigationWorld),
       emit: this.combatEvents.emit,
       onSpawn: (npc, mount) => {
+        npc.enableBattlefieldEngagement()
         this.npcs.push(npc); this.battleStats.registerNpc(npc); this._aimTargetRegistry.registerNpc(npc)
         if (this.bridgeLaunch) this.careerVeteranActorMounts.set(npc.combatantId, mount ?? null)
         if (mount) { this.mounts.push(mount); this._aimTargetRegistry.registerMount(mount) }
@@ -3521,7 +3524,7 @@ export class Game {
             if (this.defenseCampaignConfig?.careerVeteranOutpost) {
               this._startCareerVeteranReinforcementMarch(this.campaignReinforcementArrived)
               this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
-            } else this._showNotify(`🐎 援軍全數抵達：${this.campaignSpawnQueue.length} 名刀騎兵`, 3500)
+            } else this._showNotify(`🐎 援軍全數進場：${this.campaignSpawnQueue.length} 名刀騎兵`, 3500)
           }
 
           this.campaignSpawnQueue = []
@@ -3796,7 +3799,7 @@ export class Game {
           this._showNotify(`🐎 第 90 秒援軍開始進場：${queued} 名騎兵`, 3500)
         } else {
           this.soundManager.playCommanderCommand(campaign.defenderFaction, 'attack')
-          this._showNotify(`🐎 援軍開始抵達：${queued} 名刀騎兵`, 3500)
+          this._showNotify(`🐎 援軍開始進場：${queued} 名刀騎兵`, 3500)
         }
       } else if (event === 'defeat') {
         this._showDefenseCampaignResult('defeat', true)

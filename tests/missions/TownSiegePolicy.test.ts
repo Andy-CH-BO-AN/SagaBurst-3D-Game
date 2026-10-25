@@ -138,6 +138,28 @@ describe('Siege deployment and shared rule ownership', () => {
     expect(actor.isMountedTownRampartGarrisonEnabled).toBe(false)
   })
 
+  it('requires explicit Outpost duty and does not reclaim a ranged melee attacker still standing on the rampart after release', () => {
+    type GarrisonActor = Pick<NPC, 'activateOutpostRampartGarrison' | 'releaseOutpostRampartGarrison'
+      | 'isOutpostRampartGarrisonActive' | 'holdsRampartPosition' | 'tacticalOrder' | 'setTacticalOrder'>
+    // Only order side effects are a boundary. The real duty lifecycle and hold policy run
+    // on a ranged actor that has already drawn melee, without constructing a scene/model.
+    const actor = Object.assign(Object.create(NPC.prototype) as GarrisonActor, {
+      mount: null, rangedActive: false, tacticalOrder: 'attack',
+      townRampartGarrison: false, outpostRampartGarrison: false,
+      group: { position: new Vector3(4, 8, -20) },
+      _activeNavigationWorld: { outpostNav: { getNavLayer: () => 'rampart_left' } },
+      setTacticalOrder(this: GarrisonActor, order: NPC['tacticalOrder']) { this.tacticalOrder = order },
+    })
+    Object.defineProperty(actor, 'aiType', { value: AIType.RANGED })
+    expect(actor.holdsRampartPosition).toBe(false)
+    actor.activateOutpostRampartGarrison('attack')
+    expect(actor.isOutpostRampartGarrisonActive).toBe(true)
+    expect(actor.holdsRampartPosition).toBe(true)
+    actor.releaseOutpostRampartGarrison()
+    expect(actor.isOutpostRampartGarrisonActive).toBe(false)
+    expect(actor.holdsRampartPosition).toBe(false)
+  })
+
   it('releases only East wall defenders once when East-left docks, keeping all cavalry and East-right independent', () => {
     const events: string[] = [], policy = new TownGateBreachPolicy(event => { events.push(`${event.gateId}:${event.kind}`); return ['east:wall:1'] })
     policy.ramp('east', -1, true); policy.ramp('east', -1, true)

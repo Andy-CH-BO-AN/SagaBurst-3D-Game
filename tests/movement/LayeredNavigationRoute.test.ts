@@ -4,9 +4,11 @@ import type { OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWal
 import { LayeredNavigationRoute } from '../../src/navigation/LayeredNavigationRoute'
 import { NavigationPathFollower } from '../../src/navigation/NavigationPathFollower'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
+import { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { findBlockingObstacleAlongPath, findBlockingProjectileObstacleAlongPath, resolveObstacleCollision, type ObstacleData } from '../../src/world/Terrain'
 import { updateSiegeRampGroundObstacle } from '../../src/campaign/MobileSiegeRampPolicy'
+import { NPC } from '../../src/world/NPC'
 
 function box(x0: number, z0: number, x1: number, z1: number): Box3 {
   return new Box3(new Vector3(x0, -10, z0), new Vector3(x1, 15, z1))
@@ -98,6 +100,38 @@ function outpostLayout(): OutpostWalkwayLayout {
       bounds: box(side * 8 - 2, 5, side * 8 + 2, 16), rails: [], cap: box(side * 8 - 2, 5, side * 8 + 2, 6) })),
     bridge: { topY: 10, slab: new Box3(new Vector3(-4, 9.5, 0), new Vector3(4, 10, 6)), walkSurface: { ...flat, halfWidth: 4 }, ...extras } }
 }
+
+it('allows local melee across a supported deck/bridge seam while rejecting a rail, gap or lower floor', () => {
+  const layout = outpostLayout(), nav = new OutpostLayeredNavigation(layout)
+  const deck = new Vector3(-4.8, 10, 3), bridge = new Vector3(-3.7, 10, 3)
+  const actor = { combatPosition: deck, meleeAttackRadius: 1.8, mount: null,
+    holdsRampartFirePosition: false, equipmentRequiredForCombat: false, isUsingLance: false,
+    _activeNavigationWorld: { outpostNav: nav }, fallObstacles: [] as ObstacleData[],
+    _movementObstacleRadius: () => .5, _movementObstacleHeight: () => 2.3 }
+  const contact = NPC.prototype as unknown as {
+    _isRangedMeleeThreat(this: typeof actor, position: Vector3): boolean
+    _isTargetInMeleeRange(this: typeof actor, position: Vector3): boolean
+  }
+  expect(nav.getNavLayer(deck)).toBe('rampart_left')
+  expect(nav.getNavLayer(bridge)).toBe('rampart_gate')
+  expect(nav.hasDirectMeleeConnection(deck, bridge, .5, 2.3, [])).toBe(true)
+  expect(nav.hasDirectMeleeConnection(bridge, deck, .5, 2.3, [])).toBe(true)
+  expect(contact._isRangedMeleeThreat.call(actor, bridge)).toBe(true)
+  expect(contact._isTargetInMeleeRange.call(actor, bridge)).toBe(true)
+  const rail: ObstacleData = { box: new Box3(new Vector3(-4.3, 10, 0), new Vector3(-4.2, 11, 6)),
+    isBarricade: false, navigationPassable: true }
+  expect(nav.hasDirectMeleeConnection(deck, bridge, .5, 2.3, [rail])).toBe(false)
+  actor.fallObstacles = [rail]
+  expect(contact._isRangedMeleeThreat.call(actor, bridge)).toBe(false)
+  expect(contact._isTargetInMeleeRange.call(actor, bridge)).toBe(false)
+  actor.fallObstacles = []
+  expect(nav.hasDirectMeleeConnection(deck, new Vector3(-3.7, 0, 3), .5, 2.3, [])).toBe(false)
+  // Nav's body margin still labels the endpoints elevated, but a real 0.2m gap
+  // in their support surfaces cannot grant contact across an absent connection.
+  layout.decks[0].slab.max.x = -4.2
+  layout.decks[0].walkSurface.halfWidth = 3.8
+  expect(nav.hasDirectMeleeConnection(deck, bridge, .5, 2.3, [])).toBe(false)
+})
 
 it('keeps an Outpost ground approach blocked unless the caller explicitly skips ground navigation', () => {
   const world = new NavigationWorld({ minX: -30, maxX: 30, minZ: -10, maxZ: 40, cellSize: 2 })
