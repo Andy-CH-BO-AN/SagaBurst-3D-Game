@@ -334,3 +334,15 @@ test('a same-named local reader cannot inherit filesystem provider evidence', ()
   assert.equal(graph.inputRisks.length, 1)
   assert.match(graph.inputRisks[0].reason, /lacks verified API receiver provenance/)
 })
+
+test('input-free call cycles preserve argument reads and nested reader evidence', () => {
+  const graph = analyze([['tests/cycle.cjs', `const {readFileSync}=require('node:fs');
+function left(value) { return right(value) }
+function right(value) { left(value); return value }
+left(readFileSync('argument.json'));
+function outer() { const nested = () => readFileSync('nested.json'); return 0 }
+outer();`]], ['argument.json', 'nested.json'])
+  assert.deepEqual([...new Set(graph.inputEdges.map(edge => edge.to))].sort(), ['argument.json', 'nested.json'])
+  assert.ok(graph.inputEdges.some(edge => edge.to === 'nested.json' && edge.expression === 'outer()'))
+  assert.equal(graph.inputRisks.length, 0)
+})

@@ -475,6 +475,65 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     closedBodies.set(fn, closed)
     return closed
   }
+  const processApis = ['spawn', 'spawnSync', 'execFile', 'execFileSync']
+  const callName = node => ts.isIdentifier(node.expression) ? node.expression.text : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : ''
+  function readKind(unit, node) {
+    if (!node.arguments.length) return null
+    const name = callName(node), aliased = ['readFile', 'readFileSync'].includes(provenReader(unit, node)?.export)
+    return aliased || name.startsWith('readFile') && ['readFile', 'readFileSync'].includes(name) ? 'read'
+      : name === 'fetch' ? 'fetch' : name === 'loadAsync' ? 'load' : null
+  }
+  function inspectedTarget(file, node) {
+    if (!ts.isIdentifier(node.expression)) return null
+    const unit = units.get(file), name = node.expression.text
+    let targetFile = file, decl = binding(unit, name, node)
+    if ((!decl || decl === unit.importBindings.get(name)) && unit.imports.has(name) && !effects(unit, decl).written) {
+      const [target, imported] = unit.imports.get(name); targetFile = target
+      const targetUnit = units.get(target), exported = targetUnit?.cjsBoundary ? targetUnit.cjsExports.get(imported) : imported
+      decl = exported && targetUnit?.declarations.get(exported)?.[0]
+    }
+    const fn = decl?.initializer ?? decl
+    return fn && ts.isFunctionLike(fn) && fn.body && !effects(units.get(targetFile), decl).written && (targetFile === file || containsInput(fn)) ? { fn, file: targetFile } : null
+  }
+  // This summarizes emissions of this inspector, not runtime freedom from I/O.
+  // Only its recursive callable-body expansion is pruned. Original syntax and
+  // argument walks remain unchanged; pure recursive SCCs need a fixed point.
+  const emissionSummaries = new Map()
+  function mayEmitInput(target) {
+    if (emissionSummaries.has(target.fn)) return emissionSummaries.get(target.fn).mayEmit
+    const added = []
+    function register(item) {
+      if (!emissionSummaries.has(item.fn)) {
+        const summary = { ...item, seed: false, mayEmit: false, dependencies: new Set(), parents: new Set() }
+        emissionSummaries.set(item.fn, summary); added.push(summary)
+      }
+      return emissionSummaries.get(item.fn)
+    }
+    const root = register(target)
+    for (let index = 0; index < added.length; index++) {
+      const summary = added[index], unit = units.get(summary.file)
+      function scan(node) {
+        if (ts.isCallExpression(node)) {
+          const name = callName(node), imported = ts.isIdentifier(node.expression) ? importOrigin(unit, node.expression, node) : null
+          if (readKind(unit, node) || (name === 'require' || node.expression.kind === ts.SyntaxKind.ImportKeyword) && node.arguments.length === 1 && !ts.isStringLiteralLike(node.arguments[0])
+            || processApis.includes(name) || imported && ['child_process', 'node:child_process'].includes(imported.module) && processApis.includes(imported.imported)) summary.seed = true
+          const next = inspectedTarget(summary.file, node)
+          if (next) { const dependency = register(next); summary.dependencies.add(dependency); dependency.parents.add(summary) }
+        }
+        if (ts.isNewExpression(node) && node.expression.getText(unit.ast) === 'URL' && node.arguments?.length === 2 && node.arguments[1].getText(unit.ast) === 'import.meta.url') summary.seed = true
+        // Include nested declarations/defaults/arguments: no runtime branch or
+        // callback-execution assumptions are introduced by this optimization.
+        ts.forEachChild(node, scan)
+      }
+      scan(summary.fn)
+    }
+    const pending = added.filter(summary => summary.seed || [...summary.dependencies].some(dependency => dependency.mayEmit))
+    for (const summary of pending) summary.mayEmit = true
+    for (let index = 0; index < pending.length; index++) for (const parent of pending[index].parents) if (!parent.mayEmit) {
+      parent.mayEmit = true; pending.push(parent)
+    }
+    return root.mayEmit
+  }
   function inspect(node, file, env = new Map(), active = new Set(), origin) {
       const unit = units.get(file)
       // A closed local wrapper is analyzed at every invocation with its actual
@@ -497,7 +556,6 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
             }
           }
         }
-        const processApis = ['spawn', 'spawnSync', 'execFile', 'execFileSync']
         const calleeOrigin = ts.isIdentifier(node.expression) ? importOrigin(unit, node.expression, node) : null
         if (processApis.includes(name) || calleeOrigin && ['child_process', 'node:child_process'].includes(calleeOrigin.module) && processApis.includes(calleeOrigin.imported)) {
           const apiOrigin = calleeOrigin ?? (ts.isPropertyAccessExpression(node.expression) ? importOrigin(unit, node.expression.expression, node) : null)
@@ -521,24 +579,15 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
             record(file, node, operand ?? args ?? command, 'execute', env, origin, { provider, unresolved, pathOrigin, reason: unresolved ? 'Subprocess executable, script argument or launch options lack bounded entry evidence' : undefined, missingEvidence: unresolved ? node.getText(unit.ast) : undefined, executionKind: nodeExecutable ? 'node-entry' : unresolvedExecutable ? undefined : 'script-entry' })
           }
         }
-        const aliasedRead = ['readFile', 'readFileSync'].includes(provenReader(unit, node)?.export)
-        if (node.arguments.length && (aliasedRead || ['readFile', 'readFileSync', 'fetch', 'loadAsync'].includes(name))) record(file, node, node.arguments[0], aliasedRead || name.startsWith('readFile') ? 'read' : name === 'fetch' ? 'fetch' : 'load', env, origin)
-        // Resolve small local read wrappers using actual caller arguments. A
-        // parameterized declaration is also retained as an unresolved risk.
-        if (ts.isIdentifier(node.expression)) {
-          let targetFile = file, decl = binding(unit, name, node)
-          if ((!decl || decl === unit.importBindings.get(name)) && unit.imports.has(name) && !effects(unit, decl).written) {
-            const [target, imported] = unit.imports.get(name); targetFile = target
-            const targetUnit = units.get(target)
-          const exported = targetUnit?.cjsBoundary ? targetUnit.cjsExports.get(imported) : imported
-          decl = exported && targetUnit?.declarations.get(exported)?.[0]
-          }
-          const fn = decl?.initializer ?? decl
-          if (fn && ts.isFunctionLike(fn) && fn.body && !active.has(fn) && !effects(units.get(targetFile), decl).written && (targetFile === file || containsInput(fn))) {
-            const local = new Map(env)
-            fn.parameters.forEach((p, i) => { if (ts.isIdentifier(p.name)) local.set(p.name.text, evaluate(node.arguments[i], file, env)) })
-            inspect(fn.body, targetFile, local, new Set(active).add(fn), origin ?? node)
-          }
+        const kind = readKind(unit, node)
+        if (kind) record(file, node, node.arguments[0], kind, env, origin)
+        // Preserve caller environments/origins for every potentially emitting
+        // body; arguments are still visited even when the body is emission-free.
+        const target = inspectedTarget(file, node)
+        if (target && !active.has(target.fn) && mayEmitInput(target)) {
+          const local = new Map(env)
+          target.fn.parameters.forEach((p, i) => { if (ts.isIdentifier(p.name)) local.set(p.name.text, evaluate(node.arguments[i], file, env)) })
+          inspect(target.fn.body, target.file, local, new Set(active).add(target.fn), origin ?? node)
         }
       }
       if (ts.isNewExpression(node) && node.expression.getText(unit.ast) === 'URL' && node.arguments?.length === 2 && node.arguments[1].getText(unit.ast) === 'import.meta.url') record(file, node, node.arguments[0], 'url', env, origin)
