@@ -15,7 +15,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 SOURCES = {
     'bow': ('Meshy_AI_tactical_forest_longb_1025131328_texture.glb', '26f815e1793412b85ac0fe109dc654eedb3be5e30354c7866c2704cc9ce2e338'),
-    'lance': ('Meshy_AI_A_legendary_Tier_5_Co_1025132049_texture.glb', '64e9a5aac4142f5a51f424f57c405f8c0de9b56ff3c37c7ee8779e05d6d19a8d'),
+    'lance': ('Meshy_AI_A_legendary_Tier_5_Co_1025135854_texture.glb', '6d6c61c47de71c9493cac25daaa3823b7af845b39757c3aab2709d8cc48c737e'),
 }
 
 def read(path):

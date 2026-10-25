@@ -3,17 +3,17 @@
 ## Current lance replacement
 
 `lance.glb` now uses the user-supplied textured Meshy file
-`Meshy_AI_A_legendary_Tier_5_Co_1025132049_texture.glb`.
-Source SHA-256: `64e9a5aac4142f5a51f424f57c405f8c0de9b56ff3c37c7ee8779e05d6d19a8d`.
+`Meshy_AI_A_legendary_Tier_5_Co_1025135854_texture.glb`.
+Source SHA-256: `6d6c61c47de71c9493cac25daaa3823b7af845b39757c3aab2709d8cc48c737e`.
 The source contains no license declaration; the previous lance credit below
 does not license this replacement. Rebuild using Python 3 + NumPy:
 `python3 tools/build-meshy-weapons.py /path/to/downloads`.
 
-The original 87,284 triangles, one mesh/material, and all three embedded JPEG
+The user-selected reduced source has 2,994 triangles, one mesh/material, and three embedded PNG
 maps (base colour, metallic/roughness, normal) are retained byte for byte.
 No decimation, texture resizing, or per-frame processing is added.
-Uniform scale is `0.433557939`; rotation Z is `-1.132609553` radians;
-translation is `(-0.615273859, 0.747846413, 0.000395144)`.
+Uniform scale is `1.480397090`; rotation Z is `-1.137226953` radians;
+translation is `(-0.009390991, 1.034951115, 0.000789084)`.
 Final length is 3.1 m, Y extent `[-0.5, 2.6]`; main/support grips stay
 `(0, 0.15, 0)` / `(0, 0.33, 0)`. The tip coincides with the existing
 `(0, 2.6, 0)` reference. Exact matrix, bounds and hashes are in `sources.json`.
