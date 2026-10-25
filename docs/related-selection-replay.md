@@ -4,11 +4,11 @@ This is a recovery recipe for PR #411, **not selection policy or an owner map**.
 Do not import these historical scenarios into the planner. Keep generated plans,
 logs and identity comparisons under ignored `output/`; do not commit them.
 
-## Current handoff — 2026-10-25 22:12 UTC
+## Current handoff — 2026-10-25 22:37 UTC
 
 **Keep #411 Draft; acceptance is incomplete.** Published checkpoint
-`b397b2f1da90ff695fc2df021d1cb34e72303c15`, tree
-`b1e332d353bfbde07a81022cd2d285301c6834e6`, contains the independently
+`b66347b7ffa657581bd676da130760859e992876`, tree
+`64fd29677d8133341f1e7d83e51c4a4e9706123f`, contains the independently
 reviewed provider-cycle correction, original-cause diagnostics, and source-local
 ambient `require` proof with Node `node:` cache-bypass semantics, and the reviewed
 main-entry/process-context increment plus an invocation-local lexical binding
@@ -19,6 +19,50 @@ snapshots, scoped runtime/input evidence, conservative open directory domains,
 source-byte readers, explicit conservative receiver evidence, and narrow native
 mock proofs. The requested small-space two-person placement test remains; game
 army capacity is unchanged. Related 500 / per-leaf 100ms and Full gates remain.
+
+### Latest bounded mock checkpoint
+
+Stable empty mock lifetime proof passed 135 cases, max 77.747ms (`run-PkMFeU`).
+The subsequent configured-callback core passed 150 cases, max 95.113ms
+(`run-86S5iN`), independently reviewed. Configuration does not execute a callback;
+actual invocations attach conservative finite alternatives for the same proven
+mock identity. Callback input/execute effects remain real graph dependencies.
+The positive grammar excludes opaque helpers, unbound/ambient values, getter and
+implicit-protocol effects, unknown mutation/escape and unstable API receivers.
+It is not a general heap interpreter. Old failed assertions/budget attempts remain
+in ignored output and are not represented as passing results.
+
+The earlier 103.155ms failure (`run-gnY7lb`) affected the dynamic-key/destructuring
+fixture. Its sources contain only JavaScript syntax; using .js fixture paths
+removes unnecessary TypeScript transpilation while retaining all four synthetic
+leaves and the same selected-index assertion. Nothing moved into beforeAll and
+no threshold changed. Final 95.113ms passes the 100ms limit but remains above the
+70ms advisory target; cold graph construction is still the cost to monitor.
+
+Latest completed [CI 40239452012](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/40239452012)
+used prior head `e8bef42b238d6d9d86227bda8e6e075748b9ce09`, tested merge
+`bdd187a4517b53bafb21817b230fdb46cb24778a`, target parent
+`a4579ac3cea9152fc6d891c2e87043db0c0ca821`. It failed in about 95s at
+ci-plan ordinal 30, `planner collects both runners against fixed Git trees before
+issuing a documentation-only manifest`: native Node-entry replacement/delegation
+is unresolved. The live Git-transport fix cleared its earlier blocker; this is
+a distinct actual collector callback, not a cache error or gameplay failure.
+New-head CI 40240928532 is pending. Local typecheck had zero diagnostics and build
+passed at the transport/empty-mock checkpoint; this is not final CI acceptance.
+
+The next bounded native-callback increment must preserve the winning event,
+actual reader AST/arguments separately from wrapper attribution, and parent
+process context. The existing realistic Git/collector dispatcher uses conditions,
+property reads and assertion/Buffer/JSON calls outside this grammar and remains
+unsupported. Do not describe finite native callback support as clearing it.
+
+A fresh serial four-scenario replay is running against the exact published
+`b66347b` analyzer, tooling digest
+`5fa92d81133beee640d6a1899816ff95b09e529eb3324a5efdf23e348a14e79b`.
+Until terminal, the earlier caa8 results below remain earlier results. Historical
+mock syntax still not proved includes expect observer chains, mockResolvedValue
+with local callable identity, returned literal own-callable properties, and
+`.mock.calls[0][2]` callback invocation. General NPC allocation is also incomplete.
 
 An earlier complete own-plan attempt used head
 `bcca8386a8fd7143bfe9f5ce186e0355603aa918`, actual tested merge
@@ -173,9 +217,9 @@ This subset is not latest-head CI acceptance.
    snapshots. Keep unsupported inline-shell effects explicit and fail closed; a broad shell
    interpreter is not an approved shortcut. Re-run the complete actual-merge plan
    to a terminal result; subsets and captured-input replays are not acceptance.
-3. First resolve bounded explicit module-mock substitutions; then implement
-   bounded allocation provenance for actual fake versus real receiver instances
-   if safely achievable. Current type-derived paths are explicitly
+3. The bounded module-mock core is published. Resolve the explicit unsupported
+   observer/returned-callable/native forms above before claiming historical
+   acceptance; general allocation provenance remains incomplete. Current type-derived paths are explicitly
    conservative, not proved concrete-instance execution. Mutation/escape must
    retain uncertainty.
 4. Re-run all four historical fixed snapshots below with one frozen analyzer and
