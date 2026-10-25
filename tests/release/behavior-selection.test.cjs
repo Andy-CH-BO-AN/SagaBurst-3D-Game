@@ -623,7 +623,17 @@ test('a nondelegating subprocess replacement cannot establish Node entry', () =>
 })
 
 test('an opaque subprocess replacement cannot establish Node entry', () => {
-  assert.throws(() => mainEntrySelection({ processSetup: "t.mock.method(processIO, 'execFileSync', globalThis.delegate)", direct: true }), /Unsafe Node entry/)
+  assert.throws(() => mainEntrySelection({ processSetup: "t.mock.method(processIO, 'execFileSync', globalThis.delegate)", direct: true }), error => {
+    assert.match(error.message, /Unsafe Node entry/)
+    assert.equal(error.diagnostics.test, 'tests/entry.test.cjs')
+    assert.equal(error.diagnostics.caseIndex, 1)
+    const [boundary] = error.diagnostics.unresolved.replacementBoundaries
+    assert.equal(boundary.registrationIdentity, 'unproven')
+    assert.equal(boundary.effectCompleteness, 'not-evaluated')
+    assert.equal(boundary.invocationReplacement, 'unproven')
+    assert.match(boundary.missingEvidence, /callback identity/)
+    return true
+  })
 })
 
 for (const scenario of [
@@ -667,6 +677,19 @@ test('direct', () => readConfig())`
       assert.match(error.message, scenario.unresolved || scenario.alias || scenario.nested ? /Unsafe runtime input/ : /Unsafe (?:Node entry|native callback)/)
       assert.equal(error.diagnostics.test, file)
       assert.equal(error.diagnostics.caseIndex, scenario.persistent ? 1 : 0)
+      if (scenario.original) {
+        const [boundary] = error.diagnostics.unresolved.replacementBoundaries
+        assert.equal(boundary.registrationIdentity, 'proven')
+        assert.equal(boundary.effectCompleteness, 'unproven')
+        assert.equal(boundary.invocationReplacement, 'unproven')
+        assert.equal(boundary.unsupported.file, file)
+        assert.equal(boundary.unsupported.syntax, 'CallExpression')
+        assert.equal(boundary.unsupported.expression, 'replacement.mock.original()')
+        assert.equal(boundary.unsupported.start, source.indexOf('replacement.mock.original()'))
+        assert.equal(boundary.unsupported.line, 3)
+        assert.equal(boundary.unsupported.column, source.split('\n')[2].indexOf('replacement.mock.original()') + 1)
+        assert.match(boundary.unsupported.reason, /Returned call lacks/)
+      }
       return true
     })
     return

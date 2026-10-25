@@ -537,46 +537,54 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     for (let owner = declaration; owner && !ts.isSourceFile(owner); owner = owner.parent) if (owner.isTypeOnly || ts.getCombinedModifierFlags(owner) & ts.ModifierFlags.Ambient) return false
     return true
   }
-  function finiteMockCallback(callback, seen = new Set()) {
-    if (!callable(callback) || seen.has(callback) || !callback.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)) return false
+  function finiteMockCallback(callback, seen = new Set(), diagnostic) {
+    const reject = (node, reason) => {
+      if (diagnostic && !diagnostic.unsupported) {
+        const source = node.getSourceFile(), start = node.getStart(), position = source.getLineAndCharacterOfPosition(start)
+        diagnostic.unsupported = { reason, file: local(source.fileName), start, line: position.line + 1, column: position.character + 1,
+          syntax: ts.SyntaxKind[node.kind], expression: node.getText().slice(0, 400) }
+      }
+      return false
+    }
+    if (!callable(callback) || seen.has(callback) || !callback.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)) return reject(callback, 'Callable identity, acyclic helper path, or plain callback parameters are unproven')
     const visiting = new Set(seen); visiting.add(callback)
     const returnedValue = expression => {
       const value = origin(expression)
       if (inertValue(value)) return true
-      if (!ts.isCallExpression(value)) return false
+      if (!ts.isCallExpression(value)) return reject(value, 'Returned value lacks closed-value evidence')
       if (mockDataOperations.has(operationKey(value))) return true
       const declaration = checker.getResolvedSignature(value)?.declaration
-      return !!declaration?.body && finiteMockCallback(declaration, visiting)
+      return !!declaration?.body && finiteMockCallback(declaration, visiting, diagnostic) || reject(value, 'Returned call lacks a recorded data-operation or finite source-helper proof')
     }
     let known = ts.isBlock(callback.body) || returnedValue(callback.body)
     const visit = node => {
       if (!known || typeOnly(node)) return
-      if (node !== callback && !finiteMockSyntax.has(node.kind)) { known = false; return }
-      if (ts.isReturnStatement(node) && node.expression && !returnedValue(node.expression)) { known = false; return }
-      if (node !== callback && callable(node)) { known = false; return }
-      if (ts.isVariableDeclaration(node) && !ts.isIdentifier(node.name) || ts.isAwaitExpression(node)) { known = false; return }
-      if (ts.isIdentifier(node) && ['globalThis', 'window', 'eval'].includes(node.text)) { known = false; return }
+      if (node !== callback && !finiteMockSyntax.has(node.kind)) { known = reject(node, 'AST construct is outside the supported finite callback effect grammar'); return }
+      if (ts.isReturnStatement(node) && node.expression && !returnedValue(node.expression)) { known = reject(node, 'Returned value lacks closed-value evidence'); return }
+      if (node !== callback && callable(node)) { known = reject(node, 'Nested callable effects lack finite callback proof'); return }
+      if (ts.isVariableDeclaration(node) && !ts.isIdentifier(node.name) || ts.isAwaitExpression(node)) { known = reject(node, 'Destructuring or asynchronous effects lack finite callback proof'); return }
+      if (ts.isIdentifier(node) && ['globalThis', 'window', 'eval'].includes(node.text)) { known = reject(node, 'Ambient dynamic effects lack finite callback proof'); return }
       if (ts.isIdentifier(node) && node.text !== 'undefined'
         && !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)
         && !(ts.isPropertyAssignment(node.parent) && node.parent.name === node)) {
         const declarations = checker.getSymbolAtLocation(node)?.declarations ?? []
         const operationCallee = ts.isCallExpression(node.parent) && node.parent.expression === node && mockRuntimeOperations.has(operationKey(node.parent))
-        if (!operationCallee && !declarations.some(mockLexicalValue)) { known = false; return }
+        if (!operationCallee && !declarations.some(mockLexicalValue)) { known = reject(node, 'Identifier lacks a proven lexical value or recorded runtime operation'); return }
       }
       const provenCall = call => {
         if (mockRuntimeOperations.has(operationKey(call))) return true
         const declaration = checker.getResolvedSignature(call)?.declaration
-        return !!declaration?.body && sources.has(declaration.getSourceFile().fileName) && finiteMockCallback(declaration, visiting)
+        return !!declaration?.body && sources.has(declaration.getSourceFile().fileName) && finiteMockCallback(declaration, visiting, diagnostic)
       }
       if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
-        if (!provenCall(node)) { known = false; return }
+        if (!provenCall(node)) { known = reject(node, 'Call effects lack a recorded runtime operation or finite source-helper proof'); return }
       }
       if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
         let access = node
         while ((ts.isPropertyAccessExpression(access.parent) || ts.isElementAccessExpression(access.parent)) && access.parent.expression === access) access = access.parent
-        if (!(ts.isCallExpression(access.parent) || ts.isNewExpression(access.parent)) || access.parent.expression !== access || !provenCall(access.parent)) { known = false; return }
+        if (!(ts.isCallExpression(access.parent) || ts.isNewExpression(access.parent)) || access.parent.expression !== access || !provenCall(access.parent)) { known = reject(node, 'Property access lacks a proven operation boundary; accessor or receiver effects are unresolved'); return }
       }
-      if (ts.isPrefixUnaryExpression(node) && !inertValue(node)) { known = false; return }
+      if (ts.isPrefixUnaryExpression(node) && !inertValue(node)) { known = reject(node, 'Unary operation lacks inert-value proof'); return }
       ts.forEachChild(node, visit)
     }
     visit(callback)
@@ -676,7 +684,14 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (event) {
       // Index-time native provenance must not depend on the later operation
       // inventory. Qualify callback bodies only during complete graph inspection.
-      if (event.callback && finiteMockCallback(event.callback)) {
+      const effectDiagnostic = {}, registrationProven = !!event.callback
+      const effectsProven = event.callback && finiteMockCallback(event.callback, new Set(), effectDiagnostic)
+      event.boundaryDiagnostic = { registrationIdentity: registrationProven ? 'proven' : 'unproven',
+        effectCompleteness: registrationProven ? effectsProven ? 'proven' : 'unproven' : 'not-evaluated',
+        registration: { file: entry.file, start: call.getStart(), expression: call.getText().slice(0, 400) },
+        ...(effectDiagnostic.unsupported ? { unsupported: effectDiagnostic.unsupported } : {}),
+        ...(!registrationProven ? { missingEvidence: 'Native tracker/target, literal method, exact callback identity, or registration arity is unproven' } : {}) }
+      if (effectsProven) {
         nativeCallbackRegistrations.add(event.callback)
         // The existing literal-throw boundary has no runtime callback effects.
         if (event.action === 'replace') event.callback = null
@@ -1351,7 +1366,15 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
         if (!operation.nodeEntry) continue
         if (resolution.status === 'uncertain') {
           seen.entryUncertainties ??= []
-          seen.entryUncertainties.push({ id: operation.id, file: operation.nodeEntry.file, reason: 'Node entry provider replacement or delegation is unresolved' })
+          const candidates = new Set(executionState.processContext === 'test' ? persistentNativeEvents(operation.provider, operation.readerMethod, testFile) : [])
+          for (const [, state] of states) if (state.processContext === executionState.processContext) {
+            for (const event of nodes.get(state.id).providerEvents ?? []) candidates.add(event)
+          }
+          const replacementBoundaries = [...candidates].filter(event => event.boundaryDiagnostic
+            && providerName(event.provider) === providerName(operation.provider)
+            && (!event.method || !operation.readerMethod || event.method === operation.readerMethod))
+            .map(event => ({ ...event.boundaryDiagnostic, invocationReplacement: 'unproven', evidenceRole: 'matching registration candidate, not proof of invocation' }))
+          seen.entryUncertainties.push({ id: operation.id, file: operation.nodeEntry.file, reason: 'Node entry provider replacement or delegation is unresolved', replacementBoundaries })
           continue
         }
         enqueue(operation.nodeEntry.target, new Map(), executionKey, { evidence: 'proven Node entry', mainFile: operation.nodeEntry.file }, false, operation.nodeEntry.file, `node:${operation.nodeEntry.file}`)

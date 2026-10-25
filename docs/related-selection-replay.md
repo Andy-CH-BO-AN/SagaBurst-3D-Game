@@ -4,7 +4,7 @@ This is a recovery recipe for PR #411, **not selection policy or an owner map**.
 Do not import these historical scenarios into the planner. Keep generated plans,
 logs and identity comparisons under ignored `output/`; do not commit them.
 
-## Current handoff — 2026-10-25 23:14 UTC
+## Current handoff — 2026-10-25 23:28 UTC
 
 **Keep #411 Draft; acceptance is incomplete.** Published checkpoint
 `a7d98d43506d10041f09c52ac66604bc2382be3e`, tree
@@ -19,6 +19,22 @@ snapshots, scoped runtime/input evidence, conservative open directory domains,
 source-byte readers, explicit conservative receiver evidence, and narrow native
 mock proofs. The requested small-space two-person placement test remains; game
 army capacity is unchanged. Related 500 / per-leaf 100ms and Full gates remain.
+
+### Diagnostic-only follow-up
+
+The subsequent native-boundary diagnostic patch does not widen callback proof or
+change selection/gates. Existing rejected Node-entry cases now distinguish a
+proven registration identity from unproven callback effect completeness, retaining
+`invocationReplacement: unproven`. The first unsupported AST expression includes
+its source file, offset, line and column. Matching registration candidates are
+explicitly not proof that the callback was invoked.
+
+The same 195 focused leaves pass (`run-YSktjo`, max 84.271ms); ordered
+file/name/nesting/state identities match `run-c3Fwjr`. Existing opaque-callback
+and captured-original negatives still fail closed with the same case identity,
+now asserting the reason/location. This is diagnostic evidence, not resolution
+of the remaining native callback or historical replay blockers. The historical
+replay below remains attributed to its frozen analyzer, not this later patch.
 
 ### Integrated checkpoint and remaining acceptance boundary
 
