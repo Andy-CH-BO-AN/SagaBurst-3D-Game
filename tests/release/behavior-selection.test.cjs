@@ -585,3 +585,39 @@ for (const scenario of [
   if (scenario.safe) assert.deepEqual(plan().selectedCases[file],[0])
   else assert.throws(plan,scenario.dynamicScope ? /Unsafe runtime dispatch:.*with dynamic scope/ : scenario.unverified ? /Unsafe runtime input/ : /Unsafe runtime input: ambiguous replacement/)
 })
+
+test('ordinary recursive parameter provenance terminates without a mock boundary', () => {
+  const { behaviorGraph } = require('../tooling/behavior.cjs')
+  const file = 'src/walk.ts'
+  const graph = behaviorGraph(new Map([[file, 'export function walk(node) { if (node.parent) walk(node.parent); return node.value }']]), new Map(), { noLib: true, noResolve: true, types: [] })
+  const owner = [...graph.nodes.values()].find(node => node.label === 'walk')
+  assert.ok(owner)
+  assert.equal(owner.unsafe, undefined)
+})
+
+test('ordinary cyclic imports retain the actual exported callable', () => {
+  const before = 'import { other } from "./other"; export function run() { return 1 }; export function unused() { return other() }'
+  const plan = selection(before, before.replace('return 1', 'return 2'), [
+    "import { run } from '../src/owner'",
+    "test('caller', () => run())",
+  ], [['src/other.ts', "import { run } from './owner'; export function other() { return run() }"]])
+  assert.deepEqual(indices(plan), [0])
+})
+
+test('a reached native mock with cyclic provider provenance fails closed', () => {
+  const before = 'export function run() { return 1 }'
+  assert.throws(() => selection(before, before.replace('return 1', 'return 2'), [
+    "import { test, mock } from 'node:test'; import { run } from '../src/owner'",
+    "test('cyclic', () => { const handle = mock.method(handle, 'run', () => { throw 'blocked' }); run() })",
+  ]), /Unsafe runtime dispatch:.*cyclic native mock provider provenance/)
+})
+
+test('an unused cyclic mock helper does not poison an unrelated case root', () => {
+  const before = 'export function run() { return 1 }'
+  const plan = selection(before, before.replace('return 1', 'return 2'), [
+    "import { test, mock } from 'node:test'; import { run } from '../src/owner'",
+    "function unused() { const handle = mock.method(handle, 'run', () => { throw 'blocked' }) }",
+    "test('caller', () => run())",
+  ])
+  assert.deepEqual(indices(plan), [0])
+})

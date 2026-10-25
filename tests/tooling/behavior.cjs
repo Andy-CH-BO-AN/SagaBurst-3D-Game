@@ -32,6 +32,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   const program = ts.createProgram([...sources.keys()], options, host)
   const checker = program.getTypeChecker()
   const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), commonjsTargets = new Set(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set(), escapedBindings = new Set(), mutatedObjectBindings = new Set(), bindingAliases = new Map(), mutatedImplicitRequireFiles = new Set()
+  const activeProviders = new Set(), cyclicProviders = new Set()
   function connect(entry, id, guard = null) {
     entry.edges.add(id)
     entry.edgeGuards ??= new Map()
@@ -353,11 +354,20 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       && !(checker.getSymbolAtLocation(expression.expression)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName))
   }
   function providerOf(expression) {
-    expression = origin(expression)
+    const value = origin(expression)
+    if (activeProviders.has(value)) {
+      for (const active of activeProviders) cyclicProviders.add(active)
+      cyclicProviders.add(value)
+      return null
+    }
+    activeProviders.add(value)
+    try { return providerValue(value) } finally { activeProviders.delete(value) }
+  }
+  function providerValue(expression) {
     if (providerRequire(expression)) return { module: expression.arguments[0].text, export: '*' }
     if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === 'method') {
       const handle = nativeReplacement(expression)
-      if (handle) return { ...handle.provider, export: handle.method ?? '*' }
+      if (handle?.provider) return { ...handle.provider, export: handle.method ?? '*' }
     }
     if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
       const provider = providerOf(expression.expression)
@@ -430,7 +440,10 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   function nativeReplacement(call) {
     if (!ts.isCallExpression(call) || !ts.isPropertyAccessExpression(call.expression) || call.expression.name.text !== 'method' || call.arguments.length < 2) return null
     const provider = providerOf(call.arguments[0])
-    if (!provider) return null
+    if (!provider) {
+      if (cyclicProviders.has(origin(call.arguments[0])) && nativeTracker(call.expression.expression)) return { cyclicProvider: call.arguments[0].getText() }
+      return null
+    }
     const keys = literalKeys(call.arguments[1]), trackerProven = nativeTracker(call.expression.expression)
     const callback = call.arguments[2]
     const statement = callback && callable(callback) && ts.isBlock(callback.body) && callback.body.statements.length === 1 ? callback.body.statements[0] : null
@@ -445,7 +458,12 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   function replacementEvent(call, entry) {
     const name = call.expression.getText()
     let event = nativeReplacement(call)
+    if (event?.cyclicProvider) { entry.unsafe = `cyclic native mock provider provenance: ${event.cyclicProvider}`; return }
     if (event) { (entry.providerEvents ??= []).push({ ...event, ast: call }); return }
+    if (name === 'vi.spyOn' && call.arguments[0] && vitestReceiver(call.expression.expression)) {
+      providerOf(call.arguments[0])
+      if (cyclicProviders.has(origin(call.arguments[0]))) { entry.unsafe = `cyclic mock provider provenance: ${call.arguments[0].getText()}`; return }
+    }
     if (name === 'vi.stubGlobal' && ts.isStringLiteralLike(call.arguments[0]) && call.arguments[1]) {
       const replacement = origin(call.arguments[1])
       let base = replacement
