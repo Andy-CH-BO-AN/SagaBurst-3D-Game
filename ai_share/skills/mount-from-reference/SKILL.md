@@ -19,6 +19,8 @@ description: 依參考圖或使用者指定的 GLB/FBX，在此 Three.js 遊戲�
 
 只處理既有坐騎的 donor retarget／bake、腿根凹陷、腳掌扭曲、背部／尾根斷裂或移動時停播時，讀 [references/animation-deformation.md](references/animation-deformation.md)，直接進入該診斷流程；不重走下方外觀建模步驟。
 
+硬甲與身體連在同一張網格、腿根被拉成薄片，或多次平滑仍無改善時，再讀 [references/skinning-boundaries.md](references/skinning-boundaries.md)，定位來源表面、權重覆寫與固定邊界。
+
 ## 先決定這輪要驗證什麼
 
 - 新建坐騎時，裸模比例可先完成，但在細化毛皮與裝飾前就放入實際騎士、粗鞍及任務需要的武器，確認乘坐與持械空間可行。只修局部缺陷時沿用已接受的外觀，不重做整隻。
