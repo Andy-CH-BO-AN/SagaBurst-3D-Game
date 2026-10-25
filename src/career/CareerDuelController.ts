@@ -255,9 +255,9 @@ export class CareerDuelController {
     this.area.copy(area)
     this.tracker = new BattleStatsTracker(this.events, false, event => this.acceptCombatEvent(event), active.playerStats)
     if (active.phase === 'ASSEMBLING') {
-      // Legacy T5 saves can already be away from home: restore their physical
+      // Persistent T5/tutorial parties may already be away from home: restore their physical
       // checkpoint before deriving the new direct route's starting position.
-      if (active.duelTier === 5 && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
+      if ((active.duelTier === 5 || active.duelTutorialCareerId) && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
       this.beginMarch()
     }
     else if (active.phase === 'MARCHING') {
@@ -268,14 +268,14 @@ export class CareerDuelController {
     } else if (active.phase === 'RETURNING') {
       // Old return saves contain stages toward the removed barracks. Restore
       // physical positions first, then derive a new route to the service home.
-      if (active.duelTier === 5 && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
+      if ((active.duelTier === 5 || active.duelTutorialCareerId) && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
       this.setRoute(this.selectRouteLeader()?.combatPosition ?? this.player().combatPosition, this.returnPoint())
       this.ensureRouteLeader()
     } else {
       this.placeDuelParty()
       if (active.phase === 'ENGAGING' && !active.result) opponent.npc.setDuelHostility(true)
     }
-    if (active.duelTier === 5 && active.duelTravel) {
+    if ((active.duelTier === 5 || active.duelTutorialCareerId) && active.duelTravel) {
       this.restoreTravelCheckpoint(active.duelTravel)
       if (active.phase === 'MARCHING' && this.staging) this.assignDuelPositions()
       else if (active.phase === 'MARCHING' || active.phase === 'RETURNING') {
@@ -388,7 +388,7 @@ export class CareerDuelController {
     const playerStats = this.tracker?.checkpoint()
     const statsChanged = Boolean(playerStats && (Object.keys(playerStats) as (keyof typeof playerStats)[])
       .some(key => playerStats[key] !== (active.playerStats?.[key] ?? 0)))
-    const travel = active.duelTier === 5 ? this.travelCheckpoint(this.actors, this.staging) : undefined
+    const travel = active.duelTier === 5 || active.duelTutorialCareerId ? this.travelCheckpoint(this.actors, this.staging) : undefined
     const samePosition = (left: CareerDuelTravelCheckpoint['player'], right: CareerDuelTravelCheckpoint['player'] | undefined) =>
       Boolean(right && left.x === right.x && left.y === right.y && left.z === right.z && left.yaw === right.yaw)
     const travelChanged = Boolean(travel && (travel.staging !== active.duelTravel?.staging
@@ -437,7 +437,7 @@ export class CareerDuelController {
 
   private runtimeMission(active: ActiveCareerMission): ActiveCareerMission {
     const player = this.player()
-    return { ...active, ...(active.duelTier === 5 ? { duelTravel: this.travelCheckpoint(this.actors, this.staging) } : {}), duelCountdownElapsed: this.countdownElapsed, duelCombatElapsed: this.combatElapsed,
+    return { ...active, ...(active.duelTier === 5 || active.duelTutorialCareerId ? { duelTravel: this.travelCheckpoint(this.actors, this.staging) } : {}), duelCountdownElapsed: this.countdownElapsed, duelCombatElapsed: this.combatElapsed,
       duelOpponentHp: this.opponent?.hp,
       ...(active.duelTier! <= 3 ? { duelOpponentMaxHp: this.opponent?.maxHp } : {}), ...(this.opponentMount ? { duelOpponentMountHp: this.opponentMount.currentHp } : {}),
       ...(Number.isFinite(player.hp) && player.hp >= 0 ? { duelPlayerHp: player.hp } : {}),

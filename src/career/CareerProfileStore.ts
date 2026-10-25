@@ -429,7 +429,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       duelTier: raw.duelTier as CareerDuelTier,
       ...(typeof raw.duelTutorialCareerId === 'string' ? { duelTutorialCareerId: raw.duelTutorialCareerId } : {}),
       ...(raw.duelTier === 5 || raw.duelTutorialCareerId ? { duelCommanderHome: parseCareerDuelCommanderHome(raw.duelCommanderHome),
-        duelTravel: parseCareerDuelTravelCheckpoint(raw.duelTravel, [duelOpponentActorId, duelCaptainActorId]) } : {}),
+        duelTravel: parseCareerDuelTravelCheckpoint(raw.duelTravel, [...new Set([duelOpponentActorId, duelCaptainActorId, ...(raw.duelTutorialCareerId ? [duelRefereeActorId] : [])])]) } : {}),
       duelPresetId: raw.duelPresetId as UnitPresetId,
       duelOpponentActorId, duelCaptainActorId, duelRefereeActorId,
       duelCountdownElapsed: Math.min(DUEL_COUNTDOWN_SECONDS, nonNegativeNumber(raw.duelCountdownElapsed)),

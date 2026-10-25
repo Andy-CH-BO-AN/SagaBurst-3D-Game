@@ -106,7 +106,7 @@ export class TownTutorialController {
         const price = careerShopProduct('horse')!.price
         text = `購買第一匹普通馬 · ${price} 軍功\n${h.profile().availableMerit < price ? '目前可用軍功不足，可先做任務再回來。' : '成功購買並保存後獎勵 50 軍功。'}`
       } else if (step === 'horse-use') {
-        text = '第一匹馬已登記\n按 Tab 選擇召喚普通馬，靠近按 E 騎乘。\n可參加：士官長 → 1v1 → Racing／繞城賽馬。比賽可稍後再玩。'
+        text = '第一匹馬已登記\n按 Tab → 坐騎 → 騎乘。E 可下馬，之後靠近普通馬再按 E 上馬。\n可參加：士官長 → 1v1 → Racing／繞城賽馬。比賽可稍後再玩。'
         interact = false
       } else if (step === 'horse-intro') {
         const affordable = h.profile().availableMerit >= careerShopProduct('horse')!.price

@@ -39,6 +39,7 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING'
     const body = { combatantId: id, combatPosition: position, group: { position, rotation: { y: 0 } },
       dead: false, hp: 100, maxHp: 200, characterFaction: 'roman', characterTier: 3, combatAmmo: 30, loadout: {}, target: undefined as Vector3 | undefined,
       setDuelHostility: vi.fn(), restoreCombatLoadout: vi.fn(), restoreOrdinaryTier: vi.fn(),
+      restoreForTown: vi.fn(), restoreCombatAmmo: vi.fn(),
       applyTemporaryOrdinaryTier: vi.fn(), restoreCombatHealth: vi.fn(), setTacticalOrder: vi.fn(),
       applyTemporaryCombatLoadout: vi.fn(), dismountFromMount: vi.fn(),
       assignFollowTarget: vi.fn(), assignFormationTarget: vi.fn((_id: number, point: Vector3) => { body.target = point.clone() }) }
@@ -52,7 +53,8 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING'
     { spec: makeSpec(opponent, 'archer_infantry', 'training'), npc: opponent as unknown as NPC }]
   const position = new Vector3(-90, getTerrainHeight(-90, 10) + .9, 10)
   const player = { group: { position, rotation: { y: 0 } }, combatPosition: position, dead: false,
-    hp: 100, staminaValue: 100, faceDirection: vi.fn() }
+    hp: 100, staminaValue: 100, faceDirection: vi.fn(),
+    setHp: vi.fn((hp: number) => { player.hp = hp }), setStamina: vi.fn((stamina: number) => { player.staminaValue = stamina }) }
   let profile = duel(createCareerProfile('roman'), 'roman_archer', 1, 'travel-duel')
   if (phase === 'RESULT' || phase === 'RETURNING') profile = claimCareerMission(profile, 'travel-duel', 'victory', stats).profile
   profile.activeMission!.phase = phase
@@ -80,6 +82,35 @@ describe('Career Duel physical travel and preparation', () => {
     expect(createCareerTutorialDuelMission(profile, 'roman_sword_cavalry', 'soldier-1', 'ranger')).toBeNull()
     profile.activeMission = mission!
     expect(createCareerTutorialDuelMission(profile, 'roman_sword_cavalry', 'captain', 'ranger')).toBeNull()
+  })
+
+  it('saves and resumes tutorial Captain, referee and player travel from the durable physical checkpoint', () => {
+    const h = travelingDuel('MARCHING')
+    h.opponent.combatantId = 'ranger'
+    h.residents[1].spec.id = 'ranger'; h.residents[1].spec.role = 'ranger'
+    const current = h.read(); delete current.activeMission
+    current.activeMission = createCareerTutorialDuelMission(current, 'roman_sword_cavalry', 'captain', 'ranger')!
+    h.read().activeMission!.phase = 'MARCHING'
+    expect(h.controller.startActiveMission()).toBe(true)
+    h.captain.combatPosition.set(91, getTerrainHeight(91, -31), -31)
+    h.opponent.combatPosition.set(95, getTerrainHeight(95, -29), -29)
+    h.player.combatPosition.set(88, getTerrainHeight(88, -27) + .9, -27)
+    const expectedCaptain = h.captain.combatPosition.clone(), expectedReferee = h.opponent.combatPosition.clone()
+    const expectedPlayer = h.player.combatPosition.clone()
+    h.controller.persistRuntimeProgress(true)
+    const parsed = parseCareerProfile(JSON.parse(JSON.stringify(h.read())))!
+    expect(Object.keys(parsed.activeMission!.duelTravel!.actors).sort()).toEqual(['captain', 'ranger'])
+    expect(parsed.activeMission!.duelTravel!.player).toMatchObject({ x: 88, z: -27 })
+    h.controller.cleanupMission()
+    Object.assign(h.read(), parsed)
+    h.captain.combatPosition.set(-30, getTerrainHeight(-30, 20), 20)
+    h.opponent.combatPosition.set(-60, getTerrainHeight(-60, 0), 0)
+    h.player.combatPosition.set(-90, getTerrainHeight(-90, 10) + .9, 10)
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect(h.captain.combatPosition).toEqual(expectedCaptain)
+    expect(h.opponent.combatPosition).toEqual(expectedReferee)
+    expect(h.player.combatPosition).toEqual(expectedPlayer)
+    expect(h.read().duelHighestDefeatedTierByPreset).toBeUndefined()
   })
 
   it('maps ordinary Duel identity HP by faction and tier without healing injuries or zero HP', () => {
