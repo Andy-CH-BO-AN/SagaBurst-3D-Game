@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import type { CareerProfile } from '../career/CareerProfile'
 import { cloneCareerProfile } from '../career/CareerProfile'
-import { claimCareerTutorialReward, deferCareerTutorial, recordCareerTutorialOperation, startCareerTutorial } from '../career/CareerTutorial'
+import { claimCareerTutorialReward, deferCareerTutorial, hasCareerTutorialHorse, recordCareerTutorialOperation, startCareerTutorial } from '../career/CareerTutorial'
 import type { CareerTutorialStageId } from '../career/CareerTutorialState'
 import { MissionGuide } from '../career/MissionGuide'
 import { careerShopProduct } from '../career/CareerShopCatalog'
@@ -93,12 +93,17 @@ export class TownTutorialController {
         return
       }
       if (step === 'duel' && t.duelOutcome && !t.town.replay) { this.record('town', 'duel'); return }
-      if (step === 'horse' && t.purchases.horse) {
+      if (step === 'horse' && hasCareerTutorialHorse(h.profile())) {
         this.change(profile => { recordCareerTutorialOperation(profile, 'town', 'horse'); claimCareerTutorialReward(profile, 'horse') })
         return
       }
       if (step === 'horse-use' && h.playerHorse()) { this.record('town', 'horse-use'); return }
-      if (step === 'weapon') { npc('merchant', '武器店主'); text = '購買第一把正式武器\n可使用操作練習獲得的 100 軍功。交易保存後獎勵 20 軍功；按 Tab 查看／裝備購買的武器。' }
+      if (step === 'weapon') {
+        npc('merchant', '武器店主')
+        text = t.legacy
+          ? '完成一筆武器店交易\n既有裝備會保留；起始配發不算購買。此步驟只承認已保存的商店購買紀錄，成功交易後獎勵 20 軍功。'
+          : '購買第一把正式武器\n可使用操作練習獲得的 100 軍功。交易保存後獎勵 20 軍功；按 Tab 查看／裝備購買的武器。'
+      }
       else if (step === 'duel') { npc('captain', '騎兵隊長'); text = '新兵切磋\n靠近隊長按 E，選「新兵切磋」。不需要坐騎；勝負皆可繼續。' }
       else if (step === 'horse') {
         const vendor = ['ranger', 'cat', 'eagle-trainer'].find(id => townShopProducts(id).some(item => item.id === 'horse'))
@@ -106,13 +111,14 @@ export class TownTutorialController {
         const price = careerShopProduct('horse')!.price
         text = `購買第一匹普通馬 · ${price} 軍功\n${h.profile().availableMerit < price ? '目前可用軍功不足，可先做任務再回來。' : '成功購買並保存後獎勵 50 軍功。'}`
       } else if (step === 'horse-use') {
-        text = '第一匹馬已登記\n按 Tab → 坐騎 → 騎乘。E 可下馬，之後靠近普通馬再按 E 上馬。\n可參加：士官長 → 1v1 → Racing／繞城賽馬。比賽可稍後再玩。'
+        text = `${t.legacy && !t.purchases.horse ? '已承認既有普通馬，不需重新購買；未補發購馬獎勵。' : '第一匹馬已登記'}\n按 Tab → 坐騎 → 騎乘。E 可下馬，之後靠近普通馬再按 E 上馬。\n可參加：士官長 → 1v1 → Racing／繞城賽馬。比賽可稍後再玩。`
         interact = false
       } else if (step === 'horse-intro') {
         const affordable = h.profile().availableMerit >= careerShopProduct('horse')!.price
-        if (t.settledMissionIds.length >= 2 && (affordable || t.purchases.horse)) {
-          npc('deployment', '士官長'); text = '已完成兩次正式實戰，回士官長了解第一匹馬。'
-        } else text = `正式實戰 ${Math.min(2, t.settledMissionIds.length)} / 2\n找士官長接受目前軍階的戰鬥任務，勝負皆計入。${!affordable && !t.purchases.horse ? '\n先累積足夠的可用軍功，再向士官長了解買馬。' : ''}`
+        const hasHorse = hasCareerTutorialHorse(h.profile())
+        if (t.settledMissionIds.length >= 2 && (affordable || hasHorse)) {
+          npc('deployment', '士官長'); text = hasHorse ? '已完成兩次正式實戰，回士官長了解普通馬的騎乘與賽馬。' : '已完成兩次正式實戰，回士官長了解第一匹馬。'
+        } else text = `正式實戰 ${Math.min(2, t.settledMissionIds.length)} / 2\n找士官長接受目前軍階的戰鬥任務，勝負皆計入。${!affordable && !hasHorse ? '\n先累積足夠的可用軍功，再向士官長了解買馬。' : ''}`
       } else { npc('deployment', '士官長'); text = step === 'report' ? '城鎮報到\n找士官長開始新兵引導。' : step === 'duel-intro' ? '武器購買已保存 · 獎勵只領一次\n回士官長了解與隊長切磋。' : '切磋已結束\n回士官長了解正式戰鬥任務。' }
     } else if (stage === 'captain') { npc('deployment', '士官長'); text = '你現在可以指揮部隊\n找士官長開始「隊長指揮訓練」：30 名 AI，玩家額外計算。' }
     else if (stage === 'hr') {
@@ -202,8 +208,10 @@ export class TownTutorialController {
       } else if (t.town.step === 'missions') {
         addText('之後可找士官長 → 1v1，選擇兵種並依序挑戰 T1–T5。\n現在可從下方目前軍階任務頁接受正式戰鬥；正常結算兩次後，我再介紹馬店。')
         this.record('town', 'missions')
-      } else if (t.town.step === 'horse-intro' && t.settledMissionIds.length >= 2 && (t.purchases.horse || h.profile().availableMerit >= careerShopProduct('horse')!.price)) {
-        addText(`你已完成兩次實戰。普通馬售價 ${careerShopProduct('horse')!.price} 可用軍功；擁有後可召喚、騎乘，也能參加士官長 → 1v1 → Racing／繞城賽馬。成功買馬後另有一次性 50 軍功獎勵。`)
+      } else if (t.town.step === 'horse-intro' && t.settledMissionIds.length >= 2 && (hasCareerTutorialHorse(h.profile()) || h.profile().availableMerit >= careerShopProduct('horse')!.price)) {
+        addText(t.legacy && !t.purchases.horse && hasCareerTutorialHorse(h.profile())
+          ? '你已完成兩次實戰，也已持有普通馬，不需重新購買。按 Tab → 坐騎 → 騎乘，也能參加士官長 → 1v1 → Racing／繞城賽馬。既有馬匹不會被當作新購買，不補發 50 軍功。'
+          : `你已完成兩次實戰。普通馬售價 ${careerShopProduct('horse')!.price} 可用軍功；擁有後可召喚、騎乘，也能參加士官長 → 1v1 → Racing／繞城賽馬。成功買馬後另有一次性 50 軍功獎勵。`)
         this.record('town', 'horse-intro')
       }
     }

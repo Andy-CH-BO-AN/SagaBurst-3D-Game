@@ -1,4 +1,4 @@
-import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
+import { cloneCareerProfile, ownsCareerHorse, type CareerProfile } from './CareerProfile'
 import type { CareerProfileStore } from './CareerProfileStore'
 import { careerTutorialStep, type CareerTutorialSession, type CareerTutorialStageId } from './CareerTutorialState'
 
@@ -18,6 +18,11 @@ export function commitCareerTutorial(store: Pick<CareerProfileStore, 'loadChecke
 export function canStartCareerTutorial(profile: CareerProfile): boolean {
   return !profile.activeMission && !profile.activeOutpostMission && !profile.activeRace
     && !profile.careerRetirement && profile.townEvent?.state !== 'hostile'
+}
+/** Loaded legacy ownership can satisfy guidance, but never invents a purchase/reward receipt. */
+export function hasCareerTutorialHorse(profile: CareerProfile): boolean {
+  const tutorial = profile.tutorial
+  return Boolean(tutorial && (tutorial.purchases.horse || tutorial.legacy && ownsCareerHorse(profile)))
 }
 export function startCareerTutorial(profile: CareerProfile, stage: CareerTutorialStageId, replay = false): CareerTutorialSession | null {
   const tutorial = profile.tutorial
