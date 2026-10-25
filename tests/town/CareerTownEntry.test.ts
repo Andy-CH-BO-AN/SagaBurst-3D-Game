@@ -14,6 +14,18 @@ import { claimCareerMission } from '../../src/career/CareerProfile'
 vi.mock('../../src/town/TownScene', () => ({ TownScene: { create: vi.fn() } }))
 vi.mock('../../src/town/TownUI', () => ({ installTownStyles: vi.fn() }))
 
+interface FactionViewDouble {
+  options: { initialFaction?: 'roman' | 'viking'; backLabel?: string; onStart(faction: 'roman' | 'viking'): Promise<void>; onBack(): void }
+  mount: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn>; setBusy: ReturnType<typeof vi.fn>
+  showError: ReturnType<typeof vi.fn>; setVisible: ReturnType<typeof vi.fn>; setCommittedFaction: ReturnType<typeof vi.fn>
+}
+const factionViews = vi.hoisted(() => [] as FactionViewDouble[])
+vi.mock('../../src/town/FactionSelectionUI', () => ({ FactionSelectionUI: class {
+  mount = vi.fn(); dispose = vi.fn(); setBusy = vi.fn(); showError = vi.fn(); setVisible = vi.fn(); setCommittedFaction = vi.fn()
+  constructor(readonly options: FactionViewDouble['options']) { factionViews.push(this) }
+} }))
+
+
 interface EntryElement {
   textContent: string; style: Record<string, string>; children: EntryElement[]; tag: string; removed: boolean
   onclick: null | (() => void); append(...children: EntryElement[]): void; remove: ReturnType<typeof vi.fn>
@@ -37,7 +49,7 @@ function findText(root: EntryElement, text: string): EntryElement | undefined {
   return root.children.map(child => findText(child, text)).find(Boolean)
 }
 
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
+afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); factionViews.length = 0 })
 
 describe('Town load failure recovery', () => {
   it('replaces a completed Career after faction confirmation and saved tutorial routing without issuing weapons', async () => {
@@ -65,24 +77,29 @@ describe('Town load failure recovery', () => {
     findText(body, '開始新的 Career')!.onclick!()
     findText(body, '開始新生涯')!.onclick!()
     // Cancelling faction selection is still non-destructive.
-    findText(body, '取消')!.onclick!()
+    const cancelledView = factionViews.at(-1)!
+    cancelledView.options.onBack()
+    await cancelledView.options.onStart('viking')
+    expect(training).not.toHaveBeenCalled()
+    expect(cancelledView.dispose).toHaveBeenCalledOnce()
     expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
     findText(body, '開始新的 Career')!.onclick!()
     findText(body, '開始新生涯')!.onclick!()
-    const enlist = findText(body, '開始新兵訓練')!
+    const view = factionViews.at(-1)!
     local.failWrites = true
-    enlist.onclick!()
+    await view.options.onStart('viking')
+    expect(view.showError).toHaveBeenCalled()
+    expect(view.dispose).not.toHaveBeenCalled()
     expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
     expect(TownScene.create).not.toHaveBeenCalled()
     expect(training).not.toHaveBeenCalled()
     local.failWrites = false
-    enlist.onclick!()
-    await Promise.resolve()
+    await view.options.onStart('viking')
     expect(training).toHaveBeenCalledOnce()
     expect(TownScene.create).not.toHaveBeenCalled()
     expect(home).not.toHaveBeenCalled()
     const fresh = store.loadChecked().profile!
-    expect(fresh).toMatchObject({ rank: 'recruit', totalMerit: 0, availableMerit: 0, ownedWeapons: [], claimedBattleIds: [] })
+    expect(fresh).toMatchObject({ faction: 'viking', rank: 'recruit', totalMerit: 0, availableMerit: 0, ownedWeapons: [], claimedBattleIds: [] })
     expect(fresh.starterWeaponId).toBeUndefined()
     expect(fresh.equipment).toEqual({})
     expect(fresh.careerRetirement).toBeUndefined()
@@ -92,6 +109,8 @@ describe('Town load failure recovery', () => {
     expect(fresh.townEvent).toBeUndefined()
     expect(fresh.inventory?.quantities).toEqual({})
     expect(fresh.tutorial?.careerId).not.toBe(profile.tutorial?.careerId)
+    expect(view.setCommittedFaction).toHaveBeenCalledWith('viking')
+    expect(view.dispose).toHaveBeenCalledOnce()
   })
 
   it('resumes a saved unarmed Career in Town without asking for a starter or issuing one', async () => {
@@ -109,12 +128,77 @@ describe('Town load failure recovery', () => {
     await Promise.resolve()
     expect(start).toHaveBeenCalledOnce()
     expect(training).not.toHaveBeenCalled()
-    expect(findText(body, '開始新兵訓練')).toBeUndefined()
+    expect(factionViews).toHaveLength(0)
     expect(vi.mocked(TownScene.create).mock.calls[0][1]).toMatchObject({ faction: 'viking', ownedWeapons: [], equipment: {} })
     const saved = store.loadChecked().profile!
     expect(saved.starterWeaponId).toBeUndefined()
     expect(saved.inventory?.quantities).toEqual({})
     expect(saved.tutorial?.careerId).toBe(profile.tutorial!.careerId)
+  })
+
+  it('retries a failed tutorial launch with the same chosen Career and session while rejecting duplicate starts', async () => {
+    const local = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
+    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    let finishLaunch = () => {}
+    const training = vi.fn<(context: { careerId: string; sessionId: string; stage: string }) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('asset unavailable'))
+      .mockImplementationOnce(() => new Promise<void>(resolve => { finishLaunch = resolve }))
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn(), undefined, training)
+    const view = factionViews[0], store = new CareerProfileStore(local)
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBeNull()
+    expect(training).not.toHaveBeenCalled()
+    await view.options.onStart('viking')
+    const first = store.loadChecked().profile!
+    expect(first).toMatchObject({ faction: 'viking', rank: 'recruit', ownedWeapons: [], equipment: {}, inventory: { quantities: {} } })
+    expect(first.starterWeaponId).toBeUndefined()
+    expect(view.showError).toHaveBeenCalledWith(expect.stringContaining('角色與教學已保存'))
+    expect(view.showError).not.toHaveBeenCalledWith(expect.stringContaining('asset unavailable'))
+    expect(view.setVisible).toHaveBeenLastCalledWith(true)
+    expect(view.dispose).not.toHaveBeenCalled()
+    const retry = view.options.onStart('roman')
+    try {
+      await view.options.onStart('roman')
+      expect(training).toHaveBeenCalledTimes(2)
+      expect(training.mock.calls[1][0]).toEqual(training.mock.calls[0][0])
+      expect(store.loadChecked().profile!.tutorial?.careerId).toBe(first.tutorial!.careerId)
+      expect(store.loadChecked().profile!.faction).toBe('viking')
+    } finally { finishLaunch(); await retry }
+    expect(view.dispose).toHaveBeenCalledOnce()
+    const saved = local.getItem(CAREER_STORAGE_KEY)
+    await view.options.onStart('roman')
+    expect(training).toHaveBeenCalledTimes(2)
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  })
+
+  it('returns home after a failed replacement launch without reviving the old ending or accepting stale callbacks', async () => {
+    const local = new MemoryStorage(), body = element(), home = vi.fn()
+    const training = vi.fn(async () => { throw new Error('load failed') })
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
+    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const previous = createCareerProfile('roman')
+    previous.rank = 'commander'; previous.totalMerit = previous.availableMerit = 20000
+    previous.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 123, combatElapsedSeconds: 42, outcome: 'fallen' }
+    const store = new CareerProfileStore(local)
+    expect(store.save(previous)).toBe(true)
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home, undefined, training)
+    findText(body, '開始新的 Career')!.onclick!()
+    findText(body, '開始新生涯')!.onclick!()
+    const view = factionViews[0]
+    await view.options.onStart('viking')
+    const saved = local.getItem(CAREER_STORAGE_KEY)
+    expect(store.loadChecked().profile!.tutorial?.careerId).not.toBe(previous.tutorial!.careerId)
+    view.options.onBack()
+    await view.options.onStart('roman')
+    view.options.onBack()
+    expect(home).toHaveBeenCalledOnce()
+    expect(view.dispose).toHaveBeenCalledOnce()
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+    expect(training).toHaveBeenCalledOnce()
+    expect(findText(body, '退休結局：光榮退役')).toBeUndefined()
+    expect(TownScene.create).not.toHaveBeenCalled()
   })
 
   it('saves the castle refit before map launch and offers a retry if that save fails', async () => {

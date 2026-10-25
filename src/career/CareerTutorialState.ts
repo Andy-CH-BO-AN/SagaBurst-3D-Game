@@ -4,6 +4,8 @@ import type { CharacterFaction } from '../world/CharacterVisuals'
 export const CAREER_TUTORIAL_STAGES = ['recruit', 'town', 'captain', 'hr', 'commander'] as const
 export type CareerTutorialStageId = typeof CAREER_TUTORIAL_STAGES[number]
 export type CareerTutorialRewardId = 'recruit' | 'weapon' | 'duel' | 'horse'
+/** Canonical awards shared by settlement, save validation and onboarding presentation. */
+export const CAREER_TUTORIAL_REWARD_AMOUNTS = { recruit: 100, weapon: 20, horse: 50, duelVictory: 500, duelDefeat: 20 } as const
 export type CareerTutorialStatus = 'locked' | 'available' | 'active' | 'deferred' | 'completed'
 export interface CareerTutorialStage {
   status: CareerTutorialStatus
@@ -85,7 +87,7 @@ export function parseCareerTutorialState(value: unknown): CareerTutorialState | 
   const rewards: CareerTutorialState['rewards'] = {}
   for (const [key, amount] of Object.entries(raw.rewards)) {
     if (!['recruit', 'weapon', 'duel', 'horse'].includes(key) || typeof amount !== 'number'
-      || !(key === 'duel' ? [20, 500].includes(amount) : amount === ({ recruit: 100, weapon: 20, horse: 50 } as Record<string, number>)[key])) return null
+      || !(key === 'duel' ? [CAREER_TUTORIAL_REWARD_AMOUNTS.duelDefeat, CAREER_TUTORIAL_REWARD_AMOUNTS.duelVictory].some(value => value === amount) : amount === (CAREER_TUTORIAL_REWARD_AMOUNTS as Readonly<Record<string, number>>)[key])) return null
     rewards[key as CareerTutorialRewardId] = amount
   }
   if (raw.duelOutcome !== undefined && raw.duelOutcome !== 'victory' && raw.duelOutcome !== 'defeat') return null
@@ -128,7 +130,7 @@ export function claimCareerTutorialReward(profile: CareerProfile, reward: Career
     : reward === 'weapon' ? t.purchases.weaponIds.length > 0 && !t.town.replay
     : reward === 'horse' ? t.purchases.horse && !t.town.replay : Boolean(t.duelOutcome) && !t.town.replay
   if (!eligible) return 0
-  const amount = reward === 'duel' ? t.duelOutcome === 'victory' ? 500 : 20 : { recruit: 100, weapon: 20, horse: 50 }[reward]
+  const amount = reward === 'duel' ? t.duelOutcome === 'victory' ? CAREER_TUTORIAL_REWARD_AMOUNTS.duelVictory : CAREER_TUTORIAL_REWARD_AMOUNTS.duelDefeat : CAREER_TUTORIAL_REWARD_AMOUNTS[reward]
   t.rewards[reward] = amount
   profile.totalMerit += amount
   profile.availableMerit += amount

@@ -1,7 +1,3 @@
-import * as THREE from 'three'
-import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
-import { WEAPONS } from '../rpg/WeaponDatabase'
-
 export function installTownStyles(): void {
   if (document.getElementById('town-styles')) return
   const style = document.createElement('style'); style.id = 'town-styles'
@@ -42,37 +38,7 @@ export function installTownStyles(): void {
     .duel-countdown-label { font-size:18px; font-weight:600; letter-spacing:.08em }
     .duel-countdown-value { font-size:clamp(48px,7vw,80px); font-weight:800; line-height:1.15; font-variant-numeric:tabular-nums }
     #career-entry { position:fixed; inset:0; overflow:auto; z-index:1000; padding:clamp(20px,5vh,60px) clamp(20px,6vw,100px); box-sizing:border-box; background:radial-gradient(ellipse at 30% 0,#473a28,#171b1f 65%); color:#ead8b8; font:16px/1.6 system-ui }
-    #career-entry h1 { margin:5px 0; font:700 34px Georgia,serif } #career-entry select { padding:10px 16px; color:#ead8b8; background:#332d24; border:1px solid #92754e; border-radius:4px; font-size:16px }
-    .town-starters { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin:22px 0 }
-    .town-starter { text-align:left; border:1px solid #796142; background:linear-gradient(#393328,#222526); color:#eee0c5; border-radius:8px; padding:16px; cursor:pointer; font:14px/1.5 system-ui; display:flex; flex-direction:column }
-    .town-starter:hover,.town-starter:focus-visible { border-color:#f2cd8b; outline:2px solid #a9874f; transform:translateY(-2px) }
-    .town-starter img { width:100%; height:150px; object-fit:contain; display:block; background:radial-gradient(#5a4b3377,transparent); margin-bottom:12px }
-    .town-starter strong { display:block; font-size:17px; min-height:50px } .town-starter p { margin:8px 0; color:#c6b698 }
-    .town-starter dl { width:100%; margin-top:auto; display:grid; grid-template-columns:1fr 1fr; margin:12px 0 0; padding-top:10px; border-top:1px solid #8f764455; gap:6px } .town-starter dd { margin:0; text-align:right; color:#f4d191 }
+    #career-entry h1 { margin:5px 0; font:700 34px Georgia,serif }
   `
   document.head.append(style)
-}
-
-/** Small previews of the same procedural models used in-game; no external art or guessed stats. */
-export function starterThumbnails(ids: readonly string[]): Map<string, string> {
-  const result = new Map<string, string>(), renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
-  renderer.setSize(300, 220); renderer.outputColorSpace = THREE.SRGBColorSpace
-  const scene = new THREE.Scene(), camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .01, 100)
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xc3bbaa, 4)); const light = new THREE.DirectionalLight(0xffe6bc, 3); light.position.set(3, 4, 5); scene.add(light)
-  try {
-    for (const id of ids) {
-      const root = new THREE.Group()
-      if (WEAPONS[id].combatKind === 'javelin') WeaponMeshFactory.buildNpcRanged('roman', WEAPONS[id].tier, root)
-      else if (WEAPONS[id].type === 'ranged') WeaponMeshFactory.buildRanged(id, root, true)
-      else WeaponMeshFactory.buildMelee(id, root)
-      root.rotation.z = -.5; root.rotation.y = .3; scene.add(root); root.updateMatrixWorld(true)
-      const box = new THREE.Box3().setFromObject(root), center = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3())
-      const half = Math.max(size.y, size.x / (300 / 220)) * .6
-      camera.left = -half * 300 / 220; camera.right = -camera.left; camera.top = half; camera.bottom = -half
-      camera.position.copy(center).add(new THREE.Vector3(0, 0, 12)); camera.lookAt(center); camera.updateProjectionMatrix()
-      renderer.render(scene, camera); result.set(id, renderer.domElement.toDataURL('image/png'))
-      root.removeFromParent(); root.traverse(o => { if (o instanceof THREE.Mesh) o.geometry.dispose() })
-    }
-  } finally { renderer.dispose(); renderer.forceContextLoss() }
-  return result
 }
