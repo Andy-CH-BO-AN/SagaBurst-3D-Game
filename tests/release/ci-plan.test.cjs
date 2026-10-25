@@ -47,6 +47,14 @@ test('production module selects transitive consumers without unrelated equipment
     [{ status: 'A', file: 'public/models/weapons/t5/shield.glb' }, { status: 'M', file: 'public/models/weapons/t5/sources.json' }], consumers)
   assert.equal(shield.mode, 'related')
   assert.deepEqual(shield.selected, shieldOwners.sort())
+  const humanoidOwners = ['tests/assets/HumanoidAssetPreload.test.ts', 'tests/combat/CommanderWeaponSwitching.test.ts']
+  const tiered = selectFiles([...inventory, ...humanoidOwners.map(file => item(file))], [
+    { status: 'A', file: 'public/models/characters/v2/roman-t1/lod0.glb' },
+    { status: 'A', file: 'public/models/characters/v2/viking-t2/manifest.json' },
+    { status: 'A', file: 'tools/build-tiered-faction-soldiers.py' },
+    { status: 'A', file: 'tools/retarget-tiered-faction-soldiers.mjs' },
+  ], consumers)
+  assert.deepEqual(tiered.selected, humanoidOwners.sort())
 })
 test('high fan-out production owner stays Related instead of forcing repository Full', () => {
   const plan = select('src/Game.ts')

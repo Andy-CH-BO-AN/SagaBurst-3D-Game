@@ -122,7 +122,7 @@ describe('Shared Career quantity inventory and personal equipment', () => {
     expect(availableCareerItem(h.read(), 'gladius_rusty')).toBe(1)
     const sold = sellTownProduct(h.read(), 'gladius_rusty'); expect(sold.sold).toBe(true); h.save(sold.profile)
     expect(careerItemTotal(h.read(), 'gladius_rusty')).toBe(0)
-    const loaded = h.store.load()!; expect(personalMemberLoadout(loaded.personalSquad!.members[0], 'roman')).toMatchObject({ tier: 3, loadout: { meleeWeaponId: 'heavy_lance' } })
+    const loaded = h.store.load()!; expect(personalMemberLoadout(loaded.personalSquad!.members[0], 'roman')).toMatchObject({ tier: 3, characterTier: 2, loadout: { meleeWeaponId: 'heavy_lance' } })
     balanced(loaded)
   })
   it('preserves all three NPC slots through bow and shield swaps, persistence and quantity allocation', () => {

@@ -1,3 +1,4 @@
+import { migrateCareerHealth } from './CareerHealthMigration'
 import { hasCompleteRetirementMobilizationCheckpoint, parseRetirementActorCheckpoints } from './CareerRetirementMobilization'
 import { parseCareerRetirementState, type CareerRetirementRuntime } from './CareerRetirementState'
 import { parseEagleFlightSnapshot } from '../movement/EagleFlightController'
@@ -638,6 +639,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(townEquipment ? { townEquipment } : {}),
     ...(raw.inventory ? { inventory: raw.inventory as CareerInventory } : {}),
     version: 1,
+    ...(raw.healthRulesVersion === 1 ? { healthRulesVersion: 1 as const } : {}),
     faction: raw.faction,
     totalMerit,
     availableMerit,
@@ -739,6 +741,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (!hasCompleteRetirementMobilizationCheckpoint(profile)) return null
   retireNativeTownAirCommand(profile, townCommandSquad)
   try { grantCommanderMelee(profile); normalizeCareerInventory(profile) } catch { return null }
+  migrateCareerHealth(profile)
   return profile
 }
 
@@ -764,8 +767,8 @@ export class CareerProfileStore {
       const commanderShieldMigration = profile && (['roman', 'viking'] as const).some(faction =>
         profile.townEquipment?.[faction]?.commanderShieldItemId !== undefined
         && previous.townEquipment?.[faction]?.commanderShieldItemId === undefined)
-      if (profile && (residentMigration || rangerMigration || commanderShieldMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true)
-        && !this.save(profile)) return { profile: null, error: '生涯裝備升級無法儲存；原資料已保留，請重試。' }
+      if (profile && (profile.healthRulesVersion !== previous.healthRulesVersion || residentMigration || rangerMigration || commanderShieldMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true)
+        && !this.save(profile)) return { profile: null, error: '生涯資料升級無法儲存；原資料已保留，請重試。' }
       return profile ? { profile } : { profile: null, error: '生涯存檔損壞或版本不支援；原資料已保留。' }
     } catch { return { profile: null, error: '無法讀取生涯存檔；原資料已保留。' } }
   }
