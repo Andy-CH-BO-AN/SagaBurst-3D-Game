@@ -101,6 +101,22 @@ function raceHealth(hp: number): NonNullable<CareerProfile['racePlayerState']> {
 }
 
 describe('Town mission settlement transactions', () => {
+  it('saves the accepted native body before a field transition and publishes nothing on a rejected write', () => {
+    const h = fixture()
+    const peaceful = createCareerProfile('roman'); h.publish(peaceful)
+    Object.assign(h.player.shield, { reset: vi.fn() })
+    Object.assign(h.residentState, { dead: false, hp: 37, characterIdentity: { characterFaction: 'roman', characterTier: 2 } })
+    const next = { ...peaceful, activeMission: { ...createActiveCareerMission('recruit-bandits-01', 0, 1, 0, 'accept-native'),
+      friendlyActorIds: ['resident'] } }
+    const write = vi.spyOn(h.runtime.store, 'save').mockReturnValueOnce(false)
+    expect(h.commit(next)).toBe(false)
+    expect(h.read().activeMission).toBeUndefined()
+    expect(next.activeMission).not.toHaveProperty('borrowedActorIdentities')
+    expect(h.commit(next)).toBe(true)
+    expect(write.mock.calls[0][0].activeMission!.borrowedActorIdentities).toEqual({ resident: { characterFaction: 'roman', characterTier: 2 } })
+    expect(h.store.load()!.activeMission!.borrowedActorIdentities).toEqual({ resident: { characterFaction: 'roman', characterTier: 2 } })
+  })
+
   it('saves and applies full player HP before reentrant completed-arrival handoffs without losing flight or other resources', () => {
     const h = fixture('bandit', true), player = h.player
     player.hp = 37; player.isFalling = true

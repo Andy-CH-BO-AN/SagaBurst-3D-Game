@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { getOrdinarySoldierHp, resolveOrdinaryNpcHp, resolveOrdinaryPlayerBaseHp, resolveOrdinarySoldierTier } from '../../src/combat/OrdinarySoldierProfile'
 import { resolveCareerCharacterTier, resolveCareerPlayerMaxHp, preserveHpRatio } from '../../src/career/CareerPlayerProfile'
 import { createCareerProfile, promoteCareer } from '../../src/career/CareerProfile'
+import { characterIdentityMaxHp, resolveCharacterIdentity } from '../../src/combat/CharacterIdentity'
+import { personalMemberLoadout } from '../../src/career/PersonalSquadRuntime'
 
 describe('Ordinary character health identity', () => {
   it.each([
@@ -41,5 +43,26 @@ describe('Ordinary character health identity', () => {
     expect(resolveCareerCharacterTier(profile)).toBe(5)
     expect(resolveCareerPlayerMaxHp(profile)).toBe(954)
     expect(resolveOrdinarySoldierTier()).toBe(2)
+  })
+  it('adapts a legacy Commander profile to T5 and rejects contradictory explicit body data', () => {
+    const identity = resolveCharacterIdentity({ characterFaction: 'roman', tier: 4,
+      visualAssetId: 'roman-hero-t5', combatProfileId: 'roman-commander' })
+    expect(identity).toMatchObject({ characterTier: 5, heroArchetype: 'commander' })
+    expect(characterIdentityMaxHp(identity)).toBe(850)
+    expect(() => resolveCharacterIdentity({ ...identity, characterTier: 4 })).toThrow('Conflicting')
+  })
+  it.each([
+    { type: 'captain', characterTier: 4, heroArchetype: 'captain', recruitmentRole: 'archer', melee: 'gladius_standard', ranged: 'recurve_longbow', profile: 'praetorian', hp: 500 },
+    { type: 'ranger', characterTier: 4, heroArchetype: 'ranger', recruitmentRole: 'spearman', melee: 'steel_lance', ranged: null, profile: 'ranger', hp: 300 },
+  ] as const)('keeps $heroArchetype identity when explicit equipment selects $recruitmentRole combat', ({ type, characterTier, heroArchetype, recruitmentRole, melee, ranged, profile, hp }) => {
+    const member = { id: 'personal-identity', type, characterFaction: 'roman' as const, characterTier, heroArchetype, recruitmentRole,
+      equipment: { melee, ranged, shield: null, mount: null } }
+    const spec = personalMemberLoadout(member, 'roman')
+    expect(spec.identity).toMatchObject({ characterTier: 4, heroArchetype, combatProfileId: profile })
+    expect(characterIdentityMaxHp(spec.identity)).toBe(hp)
+    expect(spec.loadout).toMatchObject({ meleeWeaponId: melee, rangedWeaponId: ranged })
+    const upgraded = personalMemberLoadout({ ...member, equipment: { ...member.equipment, melee: 'sword_t5' } }, 'viking')
+    expect(upgraded.identity).toEqual(spec.identity)
+    expect(upgraded.presetId).toBe(ranged ? 'roman_archer' : 'roman_heavy_infantry')
   })
 })

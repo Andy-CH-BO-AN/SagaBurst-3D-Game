@@ -17,18 +17,18 @@ export function registerPersonalCombatDisplayName(npc: object, member: CareerPer
   personalActors.set(npc, { member, faction })
 }
 
-type CombatDisplayActor = Pick<NPC, 'characterFaction' | 'tier' | 'presetId' | 'combatProfileId'
+type CombatDisplayActor = Pick<NPC, 'characterFaction' | 'characterTier' | 'presetId' | 'combatProfileId'
   | 'specialCombatProfile' | 'townCategory' | 'faction' | 'generatedAsCavalry' | 'hostileToPlayer' | 'combatOwnership' | 'isMounted' | 'mount'>
 
 /** Never fall back to NPC.name: it may be a stable internal runtime identifier. */
 export function npcCombatDisplayName(npc: CombatDisplayActor): string {
   const personal = personalActors.get(npc)
-  if (personal) return personalUnitDisplayName(personal.member, personal.faction, undefined, npc.tier)
+  if (personal) return personalUnitDisplayName(personal.member, personal.faction)
   const town = townActors.get(npc)
   if (!town && npc.combatOwnership === 'player-personal') return '私兵 Private Soldier'
   return combatUnitDisplayName({
     faction: town?.faction ?? npc.characterFaction,
-    tier: npc.tier,
+    tier: npc.characterTier,
     presetId: npc.presetId,
     combatProfileId: npc.combatProfileId ?? (npc.specialCombatProfile === 'maki-ranger' ? 'ranger' : undefined),
     civilian: npc.townCategory === 'civilian',

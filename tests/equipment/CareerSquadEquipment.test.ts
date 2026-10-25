@@ -2,7 +2,7 @@ import { canUseCareerMount, ownedCareerMountIds } from '../../src/career/CareerM
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { describe, expect, it } from 'vitest'
 import { availableCareerItem, careerItemAllocated, careerItemTotal, careerItemTotals, type PersonalEquipmentSlot } from '../../src/career/CareerInventory'
-import { changePersonalEquipment, recruitPersonalSquadMember, sellPersonalSquadMember, sellPersonalSquadMembers, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../../src/career/CareerPersonalSquad'
+import { changePersonalEquipment, personalMemberRefund, recruitPersonalSquadMember, sellPersonalSquadMember, sellPersonalSquadMembers, type PersonalSquadAuthority, type PersonalSquadMemberType } from '../../src/career/CareerPersonalSquad'
 import { cloneCareerProfile, createCareerProfile, purchaseCareerContent, type CareerPurchaseRequest, type CareerProfile, type CareerRank } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { T4_RANGER_BOW_RANGED_ID } from '../../src/rpg/WeaponDatabase'
@@ -128,15 +128,15 @@ describe('Shared Career quantity inventory and personal equipment', () => {
   it('preserves all three NPC slots through bow and shield swaps, persistence and quantity allocation', () => {
     const h = harness(), id = h.hire(); h.buy('recurve_longbow'); h.buy('elven_runebow'); h.buy('scutum_t3')
     expect(h.change(id, 'ranged', 'recurve_longbow').changed).toBe(true)
-    expect(h.read().personalSquad!.members[0].equipment).toMatchObject({ melee: 'gladius_rusty', ranged: 'recurve_longbow', shield: 'scutum_t2' })
-    expect(availableCareerItem(h.read(), 'scutum_t2')).toBe(0)
+    expect(h.read().personalSquad!.members[0].equipment).toMatchObject({ melee: 'gladius_rusty', ranged: 'recurve_longbow', shield: 'scutum_t1' })
+    expect(availableCareerItem(h.read(), 'scutum_t1')).toBe(0)
     expect(h.change(id, 'shield', 'scutum_t3').changed).toBe(true)
     expect(h.change(id, 'ranged', 'elven_runebow').changed).toBe(true)
     const loaded = h.store.load()!
     expect(loaded.personalSquad!.members[0].equipment).toMatchObject({ melee: 'gladius_rusty', ranged: 'elven_runebow', shield: 'scutum_t3' })
     expect(personalMemberLoadout(loaded.personalSquad!.members[0], 'roman').loadout).toMatchObject({ meleeWeaponId: 'gladius_rusty', rangedWeaponId: 'elven_runebow', shieldId: 'scutum_t3' })
     expect(availableCareerItem(loaded, 'recurve_longbow')).toBe(1)
-    expect(availableCareerItem(loaded, 'scutum_t2')).toBe(1)
+    expect(availableCareerItem(loaded, 'scutum_t1')).toBe(1)
     expect(sellTownProduct(loaded, 'scutum_t3').sold).toBe(false)
     balanced(loaded)
   })
@@ -154,20 +154,28 @@ describe('Shared Career quantity inventory and personal equipment', () => {
   it('equips Ranger weapons normally and never restores a deliberately removed default on reload', () => {
     const h = harness(), id = h.hire('ranger')
     expect(h.read().availableMerit).toBe(59500)
-    expect(h.read().personalSquad!.members[0].equipment).toEqual({ melee: 'centurion_blade', ranged: T4_RANGER_BOW_RANGED_ID, shield: null, mount: 'horse' })
-    expect(availableCareerItem(h.read(), 'centurion_blade')).toBe(0)
+    expect(h.read().personalSquad!.members[0].equipment).toEqual({ melee: 'gladius_standard', ranged: 'recurve_longbow', shield: null, mount: 'horse' })
+    expect(availableCareerItem(h.read(), 'gladius_standard')).toBe(0)
     h.buy('heavy_lance'); h.buy('scutum_t2')
     expect(h.change(id, 'melee', 'heavy_lance').changed).toBe(true)
     expect(h.change(id, 'shield', 'scutum_t2').changed).toBe(true)
     expect(h.change(id, 'ranged', null).changed).toBe(true)
-    expect(availableCareerItem(h.read(), T4_RANGER_BOW_RANGED_ID)).toBe(1)
+    expect(availableCareerItem(h.read(), 'recurve_longbow')).toBe(1)
     expect(h.change(id, 'melee', null).reason).toBe('last-weapon')
     expect(h.change(id, 'shield', null).changed).toBe(true)
     const loaded = h.store.load()!
     expect(loaded.personalSquad!.members[0].equipment).toEqual({ melee: 'heavy_lance', ranged: null, shield: null, mount: 'horse' })
     expect(personalMemberLoadout(loaded.personalSquad!.members[0], 'roman')).toMatchObject({ tier: 4, mounted: true,
       hero: { combatProfileId: 'ranger' }, loadout: { meleeWeaponId: 'heavy_lance', rangedWeaponId: null, shieldId: null, reversibleRangedSwitch: true } })
-    expect(careerItemTotal(loaded, T4_RANGER_BOW_RANGED_ID)).toBe(1)
+    expect(careerItemTotal(loaded, 'recurve_longbow')).toBe(1)
+    expect(careerItemTotal(loaded, T4_RANGER_BOW_RANGED_ID)).toBe(0)
+    expect(loaded.personalSquad!.members[0]).toMatchObject({ characterTier: 4, heroArchetype: 'ranger', recruitmentRole: 'archer', originalHirePrice: 500, initialEquipmentVersion: 1 })
+    const withoutOldRangerReceipt = cloneCareerProfile(loaded)
+    delete withoutOldRangerReceipt.personalSquad!.members[0].rangerEquipmentVersion
+    const newReceiptOnly = parseCareerProfile(withoutOldRangerReceipt)!
+    expect(newReceiptOnly.personalSquad!.members[0].equipment).toEqual(loaded.personalSquad!.members[0].equipment)
+    expect(newReceiptOnly.inventory).toEqual(loaded.inventory)
+    expect(parseCareerProfile(JSON.parse(JSON.stringify(newReceiptOnly)))).toEqual(newReceiptOnly)
     expect(parseCareerProfile(JSON.parse(JSON.stringify(loaded)))).toEqual(loaded)
     balanced(loaded)
   })
@@ -191,7 +199,7 @@ describe('Atomic HR release and refunds', () => {
     expect(careerItemTotal(h.read(), 'heavy_lance')).toBe(2); expect(availableCareerItem(h.read(), 'heavy_lance')).toBe(0)
     expect(h.read().equipment).toEqual(before.equipment); expect(h.read().personalSquad!.members[0]).toEqual(before.personalSquad!.members[1])
     expect(careerItemTotal(h.read(), 'gladius_rusty')).toBe(2); expect(availableCareerItem(h.read(), 'gladius_rusty')).toBe(2)
-    expect(careerItemTotal(h.read(), 'scutum_t2')).toBe(1); balanced(h.read())
+    expect(careerItemTotal(h.read(), 'scutum_t1')).toBe(1); balanced(h.read())
   })
   it('rolls back member, allocations and currency when saving a release fails', () => {
     const h = harness(), id = h.hire('captain'), before = cloneCareerProfile(h.read()), disk = h.store.load()
@@ -222,12 +230,38 @@ describe('Inventory migration and normalization', () => {
     expect(careerItemTotal(loaded, T4_RANGER_BOW_RANGED_ID)).toBe(2)
     expect(availableCareerItem(loaded, T4_RANGER_BOW_RANGED_ID)).toBe(1)
     expect(careerItemTotal(loaded, 'horse')).toBe(3); expect(loaded.personalSquad!.members.map(member => member.originalHirePrice)).toEqual([50, 500, 500])
+    expect(loaded.personalSquad!.members.map(member => [member.characterTier, member.heroArchetype])).toEqual([[2, undefined], [4, 'captain'], [4, 'ranger']])
+    expect(personalMemberRefund(loaded, loaded.personalSquad!.members[0])).toBe(40)
     expect(parseCareerProfile(JSON.parse(JSON.stringify(loaded)))).toEqual(loaded); balanced(loaded)
   })
   it('rejects a save that allocates one weapon copy to two Ranger squad members', () => {
     const h = harness(); h.hire('ranger'); h.hire('ranger')
-    const invalid = cloneCareerProfile(h.read()); invalid.inventory!.quantities.centurion_blade = 1
+    const invalid = cloneCareerProfile(h.read()); invalid.inventory!.quantities.gladius_standard = 1
     expect(parseCareerProfile(invalid)).toBeNull()
+  })
+  it('rejects an explicit hero identity inconsistent with the saved member type', () => {
+    const h = harness(); h.hire('ranger')
+    const invalid = cloneCareerProfile(h.read())
+    invalid.personalSquad!.members[0].heroArchetype = 'captain'
+    expect(parseCareerProfile(invalid)).toBeNull()
+  })
+  it('commits a receiptless legacy member identity once before exposing the migrated profile', () => {
+    const h = harness(), id = h.hire(), legacy = cloneCareerProfile(h.read()), member = legacy.personalSquad!.members[0]
+    delete member.originalHirePrice
+    // The new grant receipt identifies the current catalog; old receiptless Soldiers cost 50.
+    expect(parseCareerProfile(legacy)!.personalSquad!.members[0].originalHirePrice).toBe(200)
+    delete member.characterFaction; delete member.characterTier; delete member.recruitmentRole; delete member.initialEquipmentVersion; delete member.originalHirePrice
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), bytes = JSON.stringify(legacy)
+    storage.setItem(CAREER_STORAGE_KEY, bytes); storage.failWrites = true
+    expect(store.loadChecked()).toMatchObject({ profile: null, error: expect.any(String) })
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
+    storage.failWrites = false
+    const loaded = store.loadChecked().profile!
+    expect(loaded.personalSquad!.members[0]).toMatchObject({ id, characterFaction: 'roman', characterTier: 2, recruitmentRole: 'swordsman', originalHirePrice: 50 })
+    expect(loaded.inventory).toEqual(legacy.inventory)
+    expect(JSON.parse(storage.getItem(CAREER_STORAGE_KEY)!)).toEqual(loaded)
+    storage.failWrites = true
+    expect(store.loadChecked().profile).toEqual(loaded)
   })
   it('atomically migrates legacy Ranger and resident receipts once, preserving choices and mounts across failed-save retry', () => {
     const legacy: CareerProfile = { ...createCareerProfile('viking'), rank: 'captain', totalMerit: 6000, availableMerit: 1234,

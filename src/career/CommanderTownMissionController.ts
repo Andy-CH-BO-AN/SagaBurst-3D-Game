@@ -250,7 +250,8 @@ export class CommanderTownMissionController {
     const actorId = spec.actorId!
     const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, spec.faction, spec.characterFaction, spec.aiType,
       spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, actorId, this.events.emit,
-      spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile))
+      spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile, undefined, undefined, undefined, undefined,
+      spec.characterTier, spec.heroArchetype))
     npc.respawnEnabled = false
     npc.combatOwnership = 'mission-official'
     const squadId = active.officialSquad && officialActorSquadId(active.officialSquad, actorId)

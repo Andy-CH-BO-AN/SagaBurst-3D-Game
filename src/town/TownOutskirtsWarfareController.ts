@@ -635,7 +635,7 @@ export class TownOutskirtsWarfareController {
         if (this.readProfile().careerRetirement && this.externalSquad(squad)) return
         const npc = this.factories?.createNpc(spec) ?? new NPC(this.scene, point.x, point.z, spec.faction,
           spec.characterFaction, spec.aiType, spec.name, spec.tier, cavalry, spec.loadout, spec.presetId,
-          undefined, actorId, undefined, spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile)
+          undefined, actorId, undefined, spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile, undefined, undefined, undefined, undefined, spec.characterTier, spec.heroArchetype)
         trackNpcSpawn(npc)
         npc.respawnEnabled = false
         npc.group.rotation.y = yaw

@@ -3,7 +3,10 @@ import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
 import { returnPersonalMissionToHR, type PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Vector3, Euler } from 'three'
-import { PersonalSquadRuntime } from '../../src/career/PersonalSquadRuntime'
+import { PersonalSquadRuntime, spawnPersonalSquadActor } from '../../src/career/PersonalSquadRuntime'
+import { HumanoidAssetRegistry } from '../../src/world/HumanoidAssetRegistry'
+import * as HighTierEquipment from '../../src/world/HighTierEquipment'
+import * as PaladinEquipment from '../../src/world/PaladinEquipment'
 import { EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { migratePersonalTownLayout } from '../../src/town/TownLayoutMigration'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
@@ -16,6 +19,40 @@ import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { createArmyCommandHarness as controllerHarness, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
 
 describe('Personal Squad command lifecycle routing', () => {
+  it('keeps a newly recruited hero pending until assets load and propagates asset failure without materialization', async () => {
+    let rejectAsset!: (error: Error) => void
+    const assetLoad = new Promise<void>((_, reject) => { rejectAsset = reject })
+    const spies = [vi.spyOn(HumanoidAssetRegistry, 'preload').mockResolvedValue(),
+      vi.spyOn(HumanoidAssetRegistry, 'preloadAsset').mockReturnValue(assetLoad),
+      vi.spyOn(HighTierEquipment, 'preloadHighTierEquipment').mockResolvedValue(),
+      vi.spyOn(PaladinEquipment, 'preloadPaladinEquipment').mockResolvedValue()]
+    const profile = createCareerProfile('roman')
+    profile.personalSquad = { members: [{ id: 'personal:new-hero', type: 'commander', characterTier: 5, heroArchetype: 'commander',
+      equipment: { melee: 'gladius_standard', ranged: null, shield: 'scutum_t2', mount: 'horse' } }] }
+    const scheduler = new NpcSpawnScheduler()
+    const runtime = Object.assign(Object.create(PersonalSquadRuntime.prototype), {
+      actors: [], mounts: [], state: 'RESERVE', read: () => profile, spawn: spawnPersonalSquadActor,
+      player: () => ({ dead: false, combatPosition: new Vector3(), group: { rotation: { y: 0 } } }),
+      options: { scheduler }, muster: [{ x: 0, z: 0, yaw: 0 }], pending: new Map(), batches: [],
+      commandRevision: 0, eaglePads: new EaglePadReservations([]), reservedEagleOwners: new Set(),
+    }) as Pick<PersonalSquadRuntime, 'follow' | 'hudPendingIds' | 'ready' | 'waitForSpawns' | 'cancelPendingSpawns' | 'actors'>
+    try {
+      expect(runtime.follow()).toBe(true)
+      expect(runtime.hudPendingIds).toEqual(['personal:new-hero'])
+      expect(scheduler.pending).toBe(0)
+      const error = new Error('Commander asset unavailable')
+      rejectAsset(error)
+      await Promise.allSettled([assetLoad])
+      await Promise.resolve()
+      await expect(runtime.waitForSpawns()).rejects.toBe(error)
+      expect(runtime.ready).toBe(false)
+      expect(runtime.actors).toHaveLength(0)
+      expect(scheduler.pending).toBe(0)
+    } finally {
+      runtime.cancelPendingSpawns()
+      for (const spy of spies) spy.mockRestore()
+    }
+  })
   it('keeps private ALL and its identity separate from all eight official squads; ineffective Dismiss keeps the command', () => {
     const official = Array.from({ length: 8 }, (_, i) => ({ squadId: i + 1, setTacticalOrder: vi.fn() }))
     const personal = { faction: Faction.PLAYER, presetId: 'roman_sword_cavalry', squadId: 'personal', dead: false,

@@ -1,4 +1,5 @@
 import { horseVariantForStableKey } from '../world/HorseAssetRegistry'
+import { captureBorrowedCharacterIdentities, resolveBorrowedCharacterIdentity } from './CareerBorrowedIdentity'
 import { migrateTownRampartPosition } from '../town/TownLayoutMigration'
 import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorCheckpoint'
 import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
@@ -8,7 +9,7 @@ import { townMissionMilitaryIds } from '../town/TownEagleGarrison'
 import { shouldSpawnTownCommander, TOWN_COMMANDER_ID } from '../town/TownCommander'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
-import { SIEGE_PREPARATION_SECONDS, siegeNearestGate, siegeReservePoint, siegeRoster, siegeRosterVersion, siegeActorCharacterTier, siegeAttackerOrder, siegeDefensePlans, siegeMuster, siegePoint, siegeOutward, insideSiegeTown, type TownSiegeState } from './TownSiege'
+import { SIEGE_PREPARATION_SECONDS, siegeNearestGate, siegeReservePoint, siegeRoster, siegeRosterVersion, siegeAttackerOrder, siegeDefensePlans, siegeMuster, siegePoint, siegeOutward, insideSiegeTown, type TownSiegeState } from './TownSiege'
 import { TOWN_GATES, type TownGateId } from '../town/TownLayout'
 import type { CampaignGateController } from '../campaign/CampaignGate'
 import { closeSiegeGate, overlapsGateClosure, type GateClosureBody } from '../town/TownSiegeGateClosure'
@@ -623,6 +624,8 @@ export class TownDefenseController {
     ])
     // Borrowed identities and health must survive a reload before the first runtime checkpoint.
     const borrowed = new Map((claim?.actors ?? []).map(npc => [npc.combatantId, npc]))
+    mission.borrowedActorIdentities = captureBorrowedCharacterIdentities(claim?.actors ?? [], siege.attackerIds,
+      mission.borrowedActorIdentities)
     for (const id of this.pendingRoster?.borrowedActorIds ?? []) {
       const npc = borrowed.get(id)
       if (!npc || npc.dead) dead.add(id)
@@ -679,9 +682,10 @@ export class TownDefenseController {
       const point = this.walkable(siegeMuster(gateId, slot), occupied, spec.cavalry ? 4.8 : 2.5)
       this.plannedArmyPositions.push(point.clone())
       const saved = active.actorPositions?.[id]
+      const identity = resolveBorrowedCharacterIdentity(id, spec, active.borrowedActorIdentities)
       if (saved) this.plannedArmyPositions.push(new THREE.Vector3(saved.x, 0, saved.z))
       const materialize = () => {
-        const npc = reused ?? trackNpcSpawn(new NPC(this.scene, point.x, point.z, spec.faction, spec.characterFaction, spec.aiType, spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, id, this.events.emit, spec.visualAssetId, spec.combatProfileId, spec.specialCombatProfile, undefined, undefined, undefined, undefined, siegeActorCharacterTier(id, spec.tier)))
+        const npc = reused ?? trackNpcSpawn(new NPC(this.scene, point.x, point.z, spec.faction, identity.characterFaction, spec.aiType, spec.name, spec.tier, spec.cavalry, spec.loadout, spec.presetId, spec.squadId, id, this.events.emit, identity.visualAssetId, identity.combatProfileId, identity.specialCombatProfile, undefined, undefined, undefined, undefined, identity.characterTier, identity.heroArchetype))
         npc.respawnEnabled = false; npc.missionAerialDefense = true; npc.clearEncounter()
         const commandSquad = active.officialSquad && officialActorSquadId(active.officialSquad, id)
         if (commandSquad !== undefined) { npc.setCommandSquad(commandSquad); npc.combatOwnership = 'mission-official' }

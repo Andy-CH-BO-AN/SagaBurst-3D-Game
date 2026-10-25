@@ -221,7 +221,9 @@ function specForTier(
   return {
     actorId, x, z, faction: allegiance, characterFaction: faction,
     aiType: ranged ? AIType.RANGED : AIType.MELEE, name: actorId.split(':').at(-1) ?? actorId,
-    tier, cavalry: Boolean(loadout.mountId), respawnEnabled: false, presetId, squadId, loadout,
+    tier, characterTier: tier,
+    ...(hero ? { heroArchetype: hero.combatProfileId === 'ranger' ? 'ranger' as const : 'captain' as const } : {}),
+    cavalry: Boolean(loadout.mountId), respawnEnabled: false, presetId, squadId, loadout,
     ...(hero ? { visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId,
       ...(hero.specialCombatProfile ? { specialCombatProfile: hero.specialCombatProfile } : {}) } : {}),
   }
@@ -242,6 +244,7 @@ export function createDecapitationRoster(mission: ActiveCareerMission, faction: 
       const presetId = preset(faction, 'sword')
       const asset = townCommanderHeroAsset(faction)
       return { ...specForTier(actorId, faction, Faction.TOWN, presetId, 4, 1, 0, 0, TOWN_COMMANDER_MOUNT_ID),
+        characterTier: 5, heroArchetype: 'commander',
         name: `Former ${faction === 'roman' ? 'Roman' : 'Viking'} Commander`, visualAssetId: asset,
         aiType: AIType.RANGED, loadout: { ...careerCommanderLoadout(faction), mountId: TOWN_COMMANDER_MOUNT_ID },
         combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[asset] }

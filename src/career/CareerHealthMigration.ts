@@ -47,7 +47,7 @@ export function migrateCareerHealth(profile: CareerProfile): void {
   const addSpec = (spec: NpcSpawnSpec, id = spec.actorId) => {
     if (!id) return
     if (spec.faction === Faction.BANDIT || spec.combatProfileId || spec.specialCombatProfile || spec.visualAssetId) identities.delete(id)
-    else add(id, spec.characterFaction, spec.tier)
+    else add(id, spec.characterFaction, spec.characterTier ?? spec.tier)
   }
   const addTown = (faction: Culture, prefix = '') => {
     for (const spec of townRoster()) {
@@ -58,7 +58,7 @@ export function migrateCareerHealth(profile: CareerProfile): void {
   addTown(profile.faction)
   addTown(opposite(profile.faction), 'enemy-town:')
   const townIdentities = new Map(identities)
-  for (const member of profile.personalSquad?.members ?? []) if (member.type === 'soldier') add(member.id, profile.faction, 2)
+  for (const member of profile.personalSquad?.members ?? []) if (member.type === 'soldier') add(member.id, member.characterFaction ?? profile.faction, member.characterTier ?? 2)
   const actor = (id: string, record: HealthRecord | undefined, identity = identities.get(id)) => {
     if (identity) convert(record, COMBAT_BALANCE.hp.npcDefault, getOrdinarySoldierHp(identity.faction, identity.tier))
   }
@@ -119,11 +119,16 @@ export function migrateCareerHealth(profile: CareerProfile): void {
         if (id) {
           addSpec(spec, id)
           const identity = identities.get(id)
-          if (identity) add(id, identity.faction, siegeActorCharacterTier(id, spec.tier))
+          if (identity) add(id, mission.borrowedActorIdentities?.[id]?.characterFaction ?? identity.faction,
+            mission.borrowedActorIdentities?.[id]?.characterTier ?? siegeActorCharacterTier(id, spec.tier))
         }
       })
     }
-    // Duels only change a resident's equipment; its Town formal tier remains authoritative.
+    for (const [id, identity] of Object.entries(mission.borrowedActorIdentities ?? {})) {
+      add(id, identity.characterFaction, identity.characterTier)
+    }
+    // Receiptless legacy Duel wounds use the native body. Modern temporary-tier
+    // Duel saves carry their measured max HP and bypass that legacy conversion.
   }
   const outpost = profile.activeOutpostMission
   if (outpost?.battle) {

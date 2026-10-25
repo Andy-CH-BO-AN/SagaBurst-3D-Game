@@ -9,6 +9,7 @@ import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { NpcSpawnSpec } from '../battle/BattleSpawner'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import { AIType, Faction } from '../world/NPC'
+import { legacySiegeCharacterTier } from './CareerBorrowedIdentity'
 
 export const SIEGE_COMBATANTS = 120
 export const SIEGE_PREPARATION_SECONDS = 10
@@ -66,7 +67,7 @@ export function siegeRosterVersion(state: Pick<TownSiegeState, 'rosterCreated' |
  * IDs survive mission ownership and reload; the T3 roster entry describes the
  * borrowed equipment, not a promotion. Fresh mission IDs and heroes keep theirs. */
 export function siegeActorCharacterTier(actorId: string, rosterTier: 1 | 2 | 3 | 4): 1 | 2 | 3 | 4 {
-  return rosterTier === 3 && /^outskirts:cavalry:[abc]:[0-9](?::wave:[1-9]\d*)?$/.test(actorId) ? 2 : rosterTier
+  return legacySiegeCharacterTier(actorId, rosterTier)
 }
 /** Native Viking charge swaps foot archers to daggers; siege bow infantry retain their ranged role. */
 export function siegeAttackerOrder(presetId?: UnitPresetId): 'attack' | 'charge' {
@@ -90,7 +91,9 @@ export function siegeRoster(faction: CharacterFaction, assault: boolean, version
     return { gateId: gate.id, slot, spec: {
       x: point.x, z: point.z, faction: assault ? Faction.TOWN : Faction.ENEMY, characterFaction: faction,
       aiType: ranged ? AIType.RANGED : AIType.MELEE, name: captain ? 'Captain' : ranger ? 'Shadow Warden' : `${gate.id} ${slot + 1}`,
-      tier: hero ? 4 : 3, cavalry, respawnEnabled: false, presetId, squadId: (gateIndex + 1) as 1 | 2 | 3 | 4,
+      tier: hero ? 4 : 3, characterTier: hero ? 4 : 3,
+      ...(hero ? { heroArchetype: ranger ? 'ranger' as const : 'captain' as const } : {}),
+      cavalry, respawnEnabled: false, presetId, squadId: (gateIndex + 1) as 1 | 2 | 3 | 4,
       loadout: { ...(ranger ? resolveT4UnitLoadout(`${faction}_archer`)
         : captain ? resolveT4UnitLoadout(presetId) : UNIT_PRESETS[presetId].tierLoadouts[3]),
         ...(ranger ? { mountId: 'black-cat' as const } : hero?.mountOverride ? { mountId: hero.mountOverride } : {}) },
