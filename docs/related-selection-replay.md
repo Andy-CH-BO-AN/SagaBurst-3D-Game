@@ -18,8 +18,8 @@ source tree and tooling digest are identical. Use the published commit when
 restoring outside the original workspace.
 They failed closed; **none produced a successful executable after-count**.
 The subsequent remote WIP checkpoint
-`0397b0023ee137bce862be274a8bc8e1bcf61d13` (null-context and filtered-directory fixes) was **not historically replayed**.
-Do not transfer the older results to that checkpoint or a newer head.
+`0397b0023ee137bce862be274a8bc8e1bcf61d13` (null-context and filtered-directory fixes) was replayed for **Black Cat only**, as recorded below.
+Do not transfer older results to a newer head or another historical scenario.
 
 | Scenario / original run | Original files / cases | Frozen replay result |
 | --- | ---: | --- |
@@ -34,6 +34,34 @@ Partial graph diagnostics were not executable manifests and could precede the
 whole-file union for directly modified tests. They are **not after-counts**.
 Distinguish a genuine missing contract, unresolved analysis, unsupported offline
 classification and visual validation boundaries; do not turn any into zero logic.
+
+## Later Black Cat replay — still blocked
+
+On 2026-10-25 at 18:22 UTC, the unchanged Black Cat checkout `87c5fc9`
+was replayed with local analyzer `6a90e7bfee3a819093413a59a072f6ae5939e878`.
+The publicly recoverable equivalent is `0397b0023ee137bce862be274a8bc8e1bcf61d13`,
+tree `04739d5d70210b62b0198ad59219dc08fb379943`. Start/end tooling digest:
+`44b31eca1589b1ce098833da6ee96cee75df2fb2a384e2f3db8a995ee5cf6f3b`.
+
+The unrelated `bindings.read` versus offline-builder `read` failure is removed.
+The replay remains **blocked**. Its 150 unsafe strings represent 10 files, not
+150 distinct missing game contracts; its 100 partial cases are **not** an
+after-count (directly modified test-file union has not completed).
+
+- 139 entries concern five offline builder/validator/regions files, including
+  import/constant/module and file-level duplicates. Their generic offline-input
+  classification remains unresolved; this is not proof of zero logic.
+- `Game._spawnMountStudio`, `TownScene.initialize` and `TownScene.updateHostile`
+  lack historical caller tests, but the changed statements are armor-toggle UI
+  and `QuadrupedVisual.setEquipmentVisible` scene visibility. They are unclassified
+  presentation boundaries, not missing HP/save/gameplay contracts. No tests should
+  construct models merely to manufacture owners for these methods.
+- `animation-source.json` is provenance metadata with no identified runtime reader;
+  this inspection alone does not prove absence of dynamic readers.
+- `manifest.json` and `black-cat.glb` have real runtime boundaries: manifest approval,
+  required clips/nodes, clip duration and saddle-derived ride height. Existing
+  mocked `/mount` preload cases do not validate changed Black Cat asset content.
+  Do not label the complete model logic-free or its appearance unit-validated.
 
 ## Immutable recovery inputs
 

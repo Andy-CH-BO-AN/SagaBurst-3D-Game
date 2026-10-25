@@ -535,12 +535,13 @@ for (const { name, collectionFailure } of [
   const childProcess = require('node:child_process'), fs = require('node:fs')
   const { registerHooks } = require('node:module')
   const { resolve } = require('node:path')
+  const { tmpdir } = require('node:os')
   const { pathToFileURL } = require('node:url')
   const plannerPath = require.resolve('../tooling/ci-plan.cjs')
   const snapshotPath = require.resolve('../tooling/git-snapshots.cjs')
   const savedModules = [plannerPath, snapshotPath].map(path => [path, require.cache[path]])
   const previousChildren = [...module.children]
-  const analyzerRoot = resolve(__dirname, '../..'), root = resolve(analyzerRoot, 'output/virtual-planner-root')
+  const analyzerRoot = resolve(__dirname, '../..')
   const before = 'a'.repeat(40), after = 'b'.repeat(40), analyzer = 'e'.repeat(40)
   const nodeFile = 'tests/unit/node.test.cjs', webFile = 'tests/unit/web.test.mjs'
   const sources = new Map([
@@ -552,14 +553,7 @@ for (const { name, collectionFailure } of [
   const existingFilter = process.env.LOGIC_TEST_FILES
   const key = Symbol.for('sagaburst.planner.collector-boundary')
   const previousGlobal = Object.getOwnPropertyDescriptor(globalThis, key)
-  const readDirectory = fs.readdirSync
-  let closed = 0, hooks
-  const directoryMock = t.mock.method(fs, 'readdirSync', (directory, options) => {
-    const entry = (name, directory = false) => ({ name, isDirectory: () => directory })
-    if (directory === resolve(root, 'tests')) return [entry('unit', true)]
-    if (directory === resolve(root, 'tests/unit')) return [entry('node.test.cjs'), entry('web.test.mjs')]
-    return readDirectory(directory, options)
-  })
+  let root, closed = 0, hooks
   const transport = t.mock.method(childProcess, 'execFileSync', (command, args, options) => {
     if (command === process.execPath) {
       assert.equal(options.cwd, root)
@@ -604,6 +598,10 @@ for (const { name, collectionFailure } of [
     throw new Error(`Unexpected Git operation: ${args.join(' ')}`)
   })
   try {
+    root = fs.mkdtempSync(resolve(tmpdir(), 'planner-collection-'))
+    fs.mkdirSync(resolve(root, 'tests/unit'), { recursive: true })
+    fs.writeFileSync(resolve(root, nodeFile), sources.get(nodeFile))
+    fs.writeFileSync(resolve(root, webFile), sources.get(webFile))
     process.env.LOGIC_TEST_FILES = 'development-filter-must-not-affect-discovery'
     Object.defineProperty(globalThis, key, { configurable: true, value: (...args) => {
       factoryCalls.push(args)
@@ -671,13 +669,13 @@ for (const { name, collectionFailure } of [
   } finally {
     hooks?.deregister()
     transport.mock.restore()
-    directoryMock.mock.restore()
     for (const [path, cached] of savedModules) { delete require.cache[path]; if (cached) require.cache[path] = cached }
     module.children.splice(0, module.children.length, ...previousChildren)
     if (previousGlobal) Object.defineProperty(globalThis, key, previousGlobal)
     else delete globalThis[key]
     if (existingFilter === undefined) delete process.env.LOGIC_TEST_FILES
     else process.env.LOGIC_TEST_FILES = existingFilter
+    if (root) fs.rmSync(root, { recursive: true, force: true })
   }
 })
 
