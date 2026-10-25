@@ -2,6 +2,8 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { selectFiles } = require('../tooling/ci-plan.cjs')
 const { dependencyConsumers } = require('../tooling/dependencies.cjs')
+const { declarationSnapshot, changedDeclarations } = require('../tooling/behavior-changes.cjs')
+const ts = require('typescript')
 
 function selection(before, after, body, other = [], ownerFile = 'src/owner.ts') {
   const file = 'tests/owner.test.ts'
@@ -26,13 +28,25 @@ export const TABLE = { old: 1 }
 export function unrelated() { return 0 }`
   const after = before.replace('old description', 'new description').replace("= 'old'", "= 'old' | 'new'")
     .replace('{ old: 1 }', '{ old: 1, added: 2 }')
-  const plan = selection(before, after, [
-    "import { TABLE, unrelated } from '../src/owner'",
-    "test('data', () => TABLE['old'])",
-    "test('import only', () => unrelated())",
-  ])
-  assert.deepEqual(indices(plan), [0])
-  assert.deepEqual(plan.changedBehaviors, ['src/owner.ts#TABLE'])
+  // This regression belongs to declaration diffing. The following selection
+  // cases separately cover routing data owners without sibling import leaves.
+  const snapshot = source => {
+    const sf = ts.createSourceFile('src/owner.ts', source, ts.ScriptTarget.Latest, true)
+    const byAst = new Map()
+    for (const statement of sf.statements) {
+      if (ts.isVariableStatement(statement)) {
+        for (const declaration of statement.declarationList.declarations) byAst.set(declaration, declaration.name.text)
+      } else if (ts.isFunctionDeclaration(statement)) byAst.set(statement, statement.name.text)
+    }
+    return declarationSnapshot(sf, byAst)
+  }
+  const current = snapshot(after), previous = snapshot(before)
+  const forward = changedDeclarations(current, previous)
+  const backward = changedDeclarations(previous, current)
+  assert.deepEqual([...forward.ids], ['TABLE'])
+  assert.deepEqual([...backward.ids], ['TABLE'])
+  assert.equal(forward.moduleEffect, false)
+  assert.equal(backward.moduleEffect, false)
 })
 
 test('shared data follows dynamic keys and nested destructuring aliases without selecting sibling imports', () => {

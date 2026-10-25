@@ -365,7 +365,7 @@ export class TownScene {
     const roster = this.residentRoster
     const yieldFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
     const catSpot = townSitePoint('stable', -3, 8)
-    this.cat = new Mount(this.scene, MountType.BLACK_CAT, catSpot.x, catSpot.z); this.cat.group.rotation.y = catSpot.yaw; this.cat.reservedForTown = true; this.cat.catVisual?.setEquipmentVisible(false); this.mounts.push(this.cat)
+    this.cat = new Mount(this.scene, MountType.BLACK_CAT, catSpot.x, catSpot.z); this.cat.group.rotation.y = catSpot.yaw; this.cat.reservedForTown = true; this.cat.catVisual?.setEquipmentVisible(true); this.mounts.push(this.cat)
     registerTownNativeMount(this.cat, `${context.worldFaction}/ranger/mount`)
     this.cat.group.visible = !context.missionOnlyResidents
     if (!context.missionOnlyResidents) {
@@ -3490,7 +3490,6 @@ export class TownScene {
     this.grid.clear(); for (const r of this.residents) if (!r.npc.dead) this.grid.insert(r.npc)
     const ranger = this.ranger, status = this.usesNativeRangerCat()
       ? updateRangerMount(ranger, this.cat, ranger.combatPosition.distanceTo(this.cat.group.position)) : 'unavailable'
-    this.cat.catVisual?.setEquipmentVisible(status === 'mounted')
     for (const r of this.residents) {
       if (this.retirementFinale?.active && !this.retirementFinale.owns(r.npc)) continue
       if (this.race?.owns(r.npc)) continue

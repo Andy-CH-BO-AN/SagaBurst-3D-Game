@@ -238,13 +238,20 @@ export function applyCharacterMountedPose(rig: CharacterRig, mounted: boolean, k
       setRigRotation(leg.ankle, XONGKORO_VISUAL.standingAnklePitch * leg.forwardBendSign, 0, -leg.side * XONGKORO_VISUAL.standingSpread)
       continue
     }
+    if (kind === 'BLACK_CAT') {
+      // Follow the source saddle's stirrups without widening or moving its geometry.
+      setRigRotation(leg.hip, -0.798 * leg.forwardBendSign, 0, leg.side * 0.511)
+      setRigRotation(leg.knee, 1.436 * leg.forwardBendSign, 0, -leg.side * 0.306)
+      setRigRotation(leg.ankle, -0.8 * leg.forwardBendSign, 0, -leg.side * 0.688)
+      continue
+    }
     // Follow each animal barrel and keep the soles upright. The source corgi
     // is narrower than the old procedural model; its calves follow the flanks.
     const spread = kind === 'CORGI' ? .72 : kind === 'HORSE' ? 0.58 : 0.82
     const kneeBend = kind === 'CORGI' ? 1.08 : kind === 'HORSE' ? 1.22 : 1.05
     setRigRotation(leg.hip, -0.68 * leg.forwardBendSign, 0, leg.side * spread)
-    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, kind === 'CORGI' ? 0 : (kind === 'BLACK_CAT' || kind === 'SNOW_LEOPARD') ? -leg.side * 0.42 : 0)
-    setRigRotation(leg.ankle, (kind === 'HORSE' ? -0.44 : -0.38) * leg.forwardBendSign, 0, kind === 'CORGI' ? -leg.side * spread : (kind === 'BLACK_CAT' || kind === 'SNOW_LEOPARD') ? -leg.side * .30 : 0)
+    setRigRotation(leg.knee, kneeBend * leg.forwardBendSign, 0, kind === 'CORGI' ? 0 : kind === 'SNOW_LEOPARD' ? -leg.side * 0.42 : 0)
+    setRigRotation(leg.ankle, (kind === 'HORSE' ? -0.44 : -0.38) * leg.forwardBendSign, 0, kind === 'CORGI' ? -leg.side * spread : kind === 'SNOW_LEOPARD' ? -leg.side * .30 : 0)
   }
 }
 

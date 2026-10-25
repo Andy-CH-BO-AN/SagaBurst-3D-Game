@@ -205,7 +205,7 @@ export class TownMissionSettlement {
   private restoreCat(): void {
     const spot = townSitePoint('stable', -3, 8)
     this.town.cat.restoreForTown(spot.x, spot.z, spot.yaw)
-    this.town.cat.catVisual?.setEquipmentVisible(false)
+    this.town.cat.catVisual?.setEquipmentVisible(true)
   }
 }
 

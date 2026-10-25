@@ -1,7 +1,7 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "animal": "black-cat",
-  "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
+  "sha256": "55e9a8eb0b633523e347c120c2b8775ebf49e0caac103d88644ea53f77a5b3da",
   "sources": {
     "doginx": {
       "file": "Doginx fbx + unity.zip",
@@ -25,185 +25,187 @@
       "used": "cat run poses/foot trajectories"
     }
   },
-  "legacyDonorBaseline": {
-    "commit": "e44a5240c1668e767fdee4964ab9507e9f53adf7",
-    "sha256": "09a6b9a6d3d62522abb9e0bf341a303b1a9443bf909411fcc9052d0a55e01c7d"
-  },
-  "validation": {
-    "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
-    "structuralAudit": "passed",
-    "blenderPackedRoundtrip": "passed with documented minor art limitations",
-    "browserGameplay": "pending",
-    "gpuPerformance": "not measured"
-  },
   "acceptedDonor": {
-    "commit": "2b3447f990772cc133f5cff28a5b96c2763a7e8d",
+    "commit": "ea18eff8ceab74e88afc738019127792ea03e311",
     "path": "public/models/mounts/v2/black-cat/black-cat.glb",
-    "sha256": "0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986",
-    "decodedSha256": "16ddf362e11968b0426f1683fc102a41617ab0431e95535c1a7d5875e616eaae"
+    "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
+    "bytes": 7889000
   },
-  "legacyAcceptedBake": {
-    "tool": "tools/blender/build_animations.py",
-    "fps": 60,
-    "forward": "+Z",
-    "method": "Evaluated donor body rotations and foot trajectories adapted to original target limb lengths and joint axes; sampled target Actions; no donor geometry or rig exported.",
-    "bodyMapping": {
-      "idle": {
-        "cat_torso": "Animal",
-        "cat_chest": "Body",
-        "cat_neck": "Head",
-        "cat_head": "Head",
-        "cat_tail_0": "Tail"
-      },
-      "walk": {
-        "cat_torso": "Animal",
-        "cat_chest": "Body",
-        "cat_neck": "Head",
-        "cat_head": "Head",
-        "cat_tail_0": "Tail"
-      },
-      "run": {
-        "cat_torso": "pelvis",
-        "cat_chest": "body_2",
-        "cat_neck": "neck",
-        "cat_head": "head",
-        "cat_tail_0": "tail_1",
-        "cat_tail_1": "tail_2",
-        "cat_tail_2": "tail_3",
-        "cat_tail_3": "tail_4",
-        "cat_tail_4": "tail_4"
-      }
-    },
-    "footMapping": {
-      "doginx": {
-        "cat_front_paw_l": "Foot.Front.L",
-        "cat_front_paw_r": "Foot.Front.R",
-        "cat_rear_paw_l": "Foot.Back.L",
-        "cat_rear_paw_r": "Foot.Back.R"
-      },
-      "cat_run": {
-        "cat_front_paw_l": "leg_front_left_4",
-        "cat_front_paw_r": "leg_front_right_4",
-        "cat_rear_paw_l": "leg_back_left_4",
-        "cat_rear_paw_r": "leg_back_right_4"
-      }
-    },
-    "horizontalRootMotion": "removed; game physics owns horizontal translation",
-    "nominalSpeedsMps": {
-      "walk": 2,
-      "run": 13.2
-    },
-    "clips": [
-      {
-        "name": "idle",
-        "channels": 75,
-        "duration": 10
-      },
-      {
-        "name": "walk",
-        "channels": 75,
-        "duration": 1.2
-      },
-      {
-        "name": "run",
-        "channels": 75,
-        "duration": 0.8
-      },
-      {
-        "name": "death",
-        "channels": 75,
-        "duration": 1.8
-      },
-      {
-        "name": "jump",
-        "channels": 75,
-        "duration": 0.7666666666666667
-      },
-      {
-        "name": "land",
-        "channels": 75,
-        "duration": 0.6333333333333333
-      },
-      {
-        "name": "hit",
-        "channels": 75,
-        "duration": 0.6333333333333333
-      }
-    ],
-    "authored": [
-      "death"
-    ],
-    "retainedFromBaseline": [
-      "jump",
-      "land",
-      "hit"
-    ]
+  "geometrySource": {
+    "file": "Meshy_AI_Character_output (1).glb",
+    "sha256": "59c10fb0582b5dd90d3e281a73ad4b522ef33213506b315470b1382f6d521c4b",
+    "originalBones": 53,
+    "originalClips": 0
   },
   "bake": {
-    "tool": "tools/build-meshy-black-cat.py",
+    "tool": "tools/blender/build_black_cat_v3.mjs",
     "fps": 60,
     "forward": "+Z",
-    "method": "Per-bone rest-basis delta from accepted donor idle reference, evaluated at original import-time 24fps and sampled at 60Hz; measured source rest geometry and limb lengths retained. Local exported torso correction prevents mesh penetration; gameplay root remains unchanged.",
+    "sourceToAsset": [
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0,
+      1
+    ],
+    "method": "Offline donor world/rest quaternion adaptation, source limb rest-axis mapping, and source-length walk/run IK. True paw rotations use source rest-basis deltas; the hock/metatarsus is distinct from the paw. Walk/run preserve donor contact order and duration while adapting reach and stance to the shorter source rig. Other clips retain donor cadence and sampled rotation/translation poses.",
+    "boneMapping": {
+      "Bone_000": "cat_torso",
+      "Bone_001": "cat_torso",
+      "Bone_002": "cat_torso",
+      "Bone_003": "cat_torso",
+      "Bone_004": "cat_torso",
+      "Bone_023": "cat_torso",
+      "Bone_024": "cat_torso",
+      "Bone_025": "cat_torso",
+      "Bone_026": "cat_torso",
+      "Bone_027": "cat_chest",
+      "Bone_028": "cat_chest",
+      "Bone_029": "cat_neck",
+      "Bone_030": "cat_neck",
+      "Bone_041": "cat_neck",
+      "Bone_042": "cat_neck",
+      "Bone_044": "cat_neck",
+      "Bone_043": "cat_head",
+      "Bone_045": "cat_head",
+      "Bone_046": "cat_head",
+      "Bone_047": "cat_head",
+      "Bone_048": "cat_head",
+      "Bone_049": "cat_head",
+      "Bone_050": "cat_head",
+      "Bone_051": "cat_head",
+      "Bone_052": "cat_head",
+      "Bone_035": "cat_front_upper_l",
+      "Bone_034": "cat_front_lower_l",
+      "Bone_033": "cat_front_lower_l",
+      "Bone_032": "cat_front_paw_l",
+      "Bone_031": "cat_front_paw_l",
+      "Bone_040": "cat_front_upper_r",
+      "Bone_039": "cat_front_lower_r",
+      "Bone_038": "cat_front_lower_r",
+      "Bone_037": "cat_front_paw_r",
+      "Bone_036": "cat_front_paw_r",
+      "Bone_014": "cat_rear_upper_l",
+      "Bone_013": "cat_rear_lower_l",
+      "Bone_012": "cat_rear_ankle_l",
+      "Bone_011": "cat_rear_paw_l",
+      "Bone_010": "cat_rear_paw_l",
+      "Bone_009": "cat_rear_upper_r",
+      "Bone_008": "cat_rear_lower_r",
+      "Bone_007": "cat_rear_ankle_r",
+      "Bone_006": "cat_rear_paw_r",
+      "Bone_005": "cat_rear_paw_r",
+      "Bone_022": "cat_tail_0",
+      "Bone_021": "cat_tail_0",
+      "Bone_020": "cat_tail_1",
+      "Bone_019": "cat_tail_1",
+      "Bone_018": "cat_tail_2",
+      "Bone_017": "cat_tail_3",
+      "Bone_016": "cat_tail_3",
+      "Bone_015": "cat_tail_4"
+    },
     "clips": [
+      {
+        "name": "death",
+        "duration": 1.7999999523162842
+      },
+      {
+        "name": "hit",
+        "duration": 0.6333333253860474
+      },
       {
         "name": "idle",
         "duration": 10
       },
       {
-        "name": "walk",
-        "duration": 1.2
-      },
-      {
-        "name": "run",
-        "duration": 0.8
-      },
-      {
-        "name": "death",
-        "duration": 1.8
-      },
-      {
         "name": "jump",
-        "duration": 0.7666666666666667
+        "duration": 0.7666666507720947
       },
       {
         "name": "land",
-        "duration": 0.6333333333333333
+        "duration": 0.6333333253860474
       },
       {
-        "name": "hit",
-        "duration": 0.6333333333333333
+        "name": "run",
+        "duration": 0.800000011920929
+      },
+      {
+        "name": "walk",
+        "duration": 1.2000000476837158
       }
     ],
-    "groundCorrectionsM": {
+    "clipAdaptation": {
       "death": {
-        "minimum": 0,
-        "maximum": 0.00530617032200098
+        "samples": 109,
+        "maxGroundLift": 0.08337084483622323
       },
       "hit": {
-        "minimum": 0,
-        "maximum": 0
+        "samples": 39,
+        "maxGroundLift": 0.02007161107258322
       },
       "idle": {
-        "minimum": 0,
-        "maximum": 0
+        "samples": 601,
+        "maxGroundLift": 0.01459128136960234
       },
       "jump": {
-        "minimum": 0,
-        "maximum": 0
+        "samples": 47,
+        "maxGroundLift": 0.02007161107258322
       },
       "land": {
-        "minimum": 0,
-        "maximum": 0.1583142876625061
+        "samples": 39,
+        "maxGroundLift": 0.0469345963100432
       },
       "run": {
-        "minimum": 0,
-        "maximum": 0.10686337947845459
+        "samples": 49,
+        "maxGroundLift": 0.03412648766411789,
+        "trajectory": {
+          "adapter": "tools/blender/animal_trajectory.py",
+          "sourceHipSpan": 1.0954874694052328,
+          "targetStride": 0.8763899755241863,
+          "sourceBellyClearance": 0.5392199754714966,
+          "targetLift": 0.4192199754714966,
+          "nominalSpeed": 13.2,
+          "preservesDonorContactOrder": true
+        }
       },
       "walk": {
-        "minimum": 0,
-        "maximum": 0.05730653926730156
+        "samples": 73,
+        "maxGroundLift": 0,
+        "trajectory": {
+          "adapter": "tools/blender/animal_trajectory.py",
+          "sourceHipSpan": 1.0954874694052328,
+          "targetStride": 0.6025181081728781,
+          "sourceBellyClearance": 0.5392199754714966,
+          "targetLift": 0.075,
+          "nominalSpeed": 2,
+          "preservesDonorContactOrder": true
+        }
       }
     },
-    "geometrySourceSha256": "9e6ce0835095dfec2de0e953f38a0dbaa987a50da0a28bf4e8c241ee2ac7f81a"
+    "horizontalRootMotion": "Removed; existing game physics owns world translation.",
+    "runtimeRetarget": false,
+    "channelsPerClip": 54,
+    "constantTracks": "Retained to preserve authored offsets and existing clip transition restoration. No per-frame retarget; runtime evaluates the exported 53-bone rig."
+  },
+  "validation": {
+    "structuralAudit": "passed",
+    "sourceAndDonorPinned": true,
+    "exactDonorDurations": true,
+    "knownLimitations": [
+      "Model-space run minimum Y is -0.008148m at sampled phase0.13; this is not a terrain/contact simulation.",
+      "Body/gear supports are shared at source seams; close underside fur compression remains around fixed original equipment."
+    ],
+    "browserGameplay": "See manifest.json / asset-report.json for final production-path evidence."
   }
 }
