@@ -699,7 +699,7 @@ test('blocked diagnostics preserve failure evidence separately and cannot execut
     const argv = ['--mode', 'related', '--base', 'event-base']
     const written = writeBlockedDiagnostics(error, { args, argv })
     assert.equal(written.file, join(directory, 'plan.blocked.json'))
-    const diagnostic = JSON.parse(readFileSync(written.file, 'utf8'))
+    const diagnostic = JSON.parse(readFileSync(join(directory, 'plan.blocked.json'), 'utf8'))
     assert.equal(readFileSync(manifest, 'utf8'), 'existing manifest must remain untouched')
     assert.equal(diagnostic.schema, 'logic-plan-blocked/v1')
     assert.equal(diagnostic.executable, false)
