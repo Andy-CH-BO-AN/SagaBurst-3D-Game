@@ -873,3 +873,55 @@ for (const { scenario, foreign, active, fresh, importedSetup, expected } of [
   assert.ok([...graph.nodes.values()].some(entry => entry.file === owner && entry.label === '<module>' && reached.has(entry.id)), 'retain the actual initialization candidate under its scope guard')
   if (foreign) assert.equal(graph.runtimeReaches(file, 'tests/independent.test.cjs'), false)
 })
+
+test('stable empty Vitest factory exports exclude only the mocked module consumer', () => {
+  const before = 'export function run() { return 1 }'
+  const plan = selection(before, before.replace('return 1', 'return 2'), [
+    "import { run } from '../src/owner'",
+    "test('real', () => run())",
+  ], [['tests/empty.test.ts', "import { vi } from 'vitest'; import { run } from '../src/owner'\nvi.mock('../src/owner', () => ({ run: vi.fn() }))\ntest('empty', () => run())"]])
+  assert.deepEqual(indices(plan), [0])
+  assert.equal(plan.selectedCases['tests/empty.test.ts'], undefined)
+})
+
+for (const [name, setup] of [
+  ['sibling implementation persists through clearAllMocks', "test('configure', () => { vi.mocked(run).mockImplementation(globalThis.real) }); afterEach(() => vi.clearAllMocks())"],
+  ['export escapes to an opaque helper', "test('configure', () => globalThis.mutate(run))"],
+]) test(`empty mock export lifetime: ${name}`, () => {
+  const before = 'export function run() { return 1 }'
+  const receiver = "import { vi, afterEach } from 'vitest'"
+  assert.throws(() => selection(before, before.replace('return 1', 'return 2'), [
+    "import { run } from '../src/owner'", "test('real', () => run())",
+  ], [['tests/empty.test.ts', `${receiver}; import { run } from '../src/owner'\nvi.mock('../src/owner', () => ({ run: vi.fn() }))\n${setup}\ntest('later', () => run())`]]), /Unsafe mock boundary/)
+})
+
+
+test('a local fake vi factory does not exclude the real module owner', () => {
+  const before = 'export function run() { return 1 }'
+  const plan = selection(before, before.replace('return 1', 'return 2'), [
+    "import { run } from '../src/owner'",
+    "const vi = { fn: () => globalThis.real, mock() {} }",
+    "vi.mock('../src/owner', () => ({ run: vi.fn() }))",
+    "test('actual original', () => run())",
+  ])
+  assert.deepEqual(indices(plan), [0])
+})
+
+
+test('empty mock export re-exports remain uncertain across mutable aliases', () => {
+  const before = 'export function run() { return 1 }'
+  assert.throws(() => selection(before, before.replace('return 1', 'return 2'), [
+    "import { run } from '../src/owner'", "test('real', () => run())",
+  ], [
+    ['src/bridge.ts', "export { run } from './owner'"],
+    ['tests/empty.test.ts', "import { vi } from 'vitest'; import { run } from '../src/owner'; import { run as alias } from '../src/bridge'\nvi.mock('../src/owner', () => ({ run: vi.fn() }))\ntest('mutate alias', () => { globalThis.mutate(alias); run() })"],
+  ]), /Unsafe mock boundary/)
+})
+
+
+for (const acquisition of ["import('../src/owner')", "vi.importMock('../src/owner')", 'import(globalThis.moduleName)']) test(`empty mock export namespace acquisition remains uncertain: ${acquisition}`, () => {
+  const before = 'export function run() { return 1 }'
+  assert.throws(() => selection(before, before.replace('return 1', 'return 2'), [
+    "import { run } from '../src/owner'", "test('real', () => run())",
+  ], [['tests/empty.test.ts', `import { vi } from 'vitest'; import { run } from '../src/owner'\nvi.mock('../src/owner', () => ({ run: vi.fn() }))\ntest('configure', async () => { const mod = await ${acquisition}; mod.run.mockImplementation(globalThis.real) })\ntest('later', () => run())`]]), /Unsafe (?:mock boundary|runtime import|runtime input)/)
+})

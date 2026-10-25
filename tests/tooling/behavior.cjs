@@ -472,6 +472,17 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     return ts.isIdentifier(expression) && expression.text === 'vi'
       && !(checker.getSymbolAtLocation(expression)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName))
   }
+  function emptyMockReceiver(expression) {
+    if (!vitestReceiver(expression)) return false
+    if (stableBinding(expression)) return true
+    const declaration = baseBinding(expression)
+    if (!declaration || mutatedBindings.has(declaration) || mutatedObjectBindings.has(declaration) || bindingAliases.has(declaration)) return false
+    const facts = bindingInvalidations.get(declaration)
+    return !!facts?.size && [...facts].every(fact => ts.isIdentifier(fact) && ts.isPropertyAccessExpression(fact.parent)
+      && fact.parent.expression === fact && ['fn', 'mock'].includes(fact.parent.name.text)
+      && ts.isCallExpression(fact.parent.parent) && fact.parent.parent.expression === fact.parent)
+  }
+  const emptyMockExports = new WeakMap()
   function mockFactoryMode(factory) {
     const plainParameters = fn => fn.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)
     if (!factory || !callable(factory) || !plainParameters(factory)) return 'uncertain'
@@ -484,17 +495,66 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
         && checker.getSymbolAtLocation(expression.expression)?.valueDeclaration === factory.parameters[0] && !mutatedBindings.has(factory.parameters[0])
     }
     if (original(value) || value && ts.isObjectLiteralExpression(value) && value.properties.length === 1 && ts.isSpreadAssignment(value.properties[0]) && original(value.properties[0].expression)) return 'original'
-    const closed = expression => {
+    const emptyPaths = []
+    const closed = (expression, path = [], allowEmpty = true) => {
       expression = unwrap(expression)
       if (!expression) return false
       if (ts.isLiteralExpression(expression) || [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(expression.kind)) return true
-      if (ts.isArrayLiteralExpression(expression)) return expression.elements.every(closed)
+      if (allowEmpty && ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression) && expression.expression.name.text === 'fn'
+        && expression.arguments.length === 0 && emptyMockReceiver(expression.expression.expression)) {
+        emptyPaths.push(path); return true
+      }
+      if (ts.isArrayLiteralExpression(expression)) return expression.elements.every((element, index) => closed(element, [...path, String(index)], allowEmpty))
       if (ts.isObjectLiteralExpression(expression)) return expression.properties.every(property => !property.name || !ts.isComputedPropertyName(property.name))
-        && expression.properties.every(property => ts.isPropertyAssignment(property) ? closed(property.initializer) : (ts.isMethodDeclaration(property) || ts.isGetAccessor(property)) && closed(property))
-      if (callable(expression)) return plainParameters(expression) && (ts.isBlock(expression.body) && expression.body.statements.length === 0 || closed(returned(expression)))
+        && expression.properties.every(property => ts.isPropertyAssignment(property) ? closed(property.initializer, [...path, property.name.text ?? property.name.getText()], allowEmpty) : (ts.isMethodDeclaration(property) || ts.isGetAccessor(property)) && closed(property))
+      if (callable(expression)) return plainParameters(expression) && (ts.isBlock(expression.body) && expression.body.statements.length === 0 || closed(returned(expression), path, false))
       return false
     }
-    return value && ts.isObjectLiteralExpression(value) && closed(value) ? 'replacement' : 'uncertain'
+    const replacement = value && ts.isObjectLiteralExpression(value) && closed(value)
+    if (replacement && emptyPaths.length) emptyMockExports.set(factory, emptyPaths)
+    return replacement ? 'replacement' : 'uncertain'
+  }
+  function stableEmptyMockExports(candidate) {
+    const paths = emptyMockExports.get(candidate.factory)
+    if (!paths) return true
+    // Mock implementations survive clearAllMocks and can be shared by sibling
+    // cases. Only direct calls of the initially empty exports are benign; all
+    // other uses require substitution/escape proof that this boundary lacks.
+    for (const [file, info] of files) {
+      if (candidate.target && file !== candidate.file && !runtimeModules.get(file)?.has(candidate.target) && !runtimeReaches(candidate.file, file)) continue
+      let stable = true
+      const visit = node => {
+        if (!stable || ts.isTypeNode(node) || ts.isImportDeclaration(node)) return
+        if (ts.isExportDeclaration(node)) { stable = false; return }
+        if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword
+          || ts.isPropertyAccessExpression(node.expression) && ['importMock', 'importActual'].includes(node.expression.name.text) && vitestReceiver(node.expression.expression))) {
+          const specifiers = node.arguments[0] && literalKeys(node.arguments[0])
+          if (!specifiers || specifiers.some(specifier => candidate.target
+            ? importedModule(file, specifier) === candidate.target
+            : providerName({ module: specifier }) === providerName({ module: candidate.provider }))) { stable = false; return }
+        }
+        if (ts.isIdentifier(node) && !((ts.isPropertyAccessExpression(node.parent) && node.parent.name === node)
+          || (ts.isPropertyAssignment(node.parent) && node.parent.name === node))) {
+          const provider = providerOf(node)
+          const matches = candidate.target ? providerTarget(provider, node) === candidate.target : providerName(provider) === providerName({ module: candidate.provider })
+          if (matches) {
+            let access = node, path = provider.export === '*' ? [] : [provider.export]
+            while ((ts.isPropertyAccessExpression(access.parent) || ts.isElementAccessExpression(access.parent)) && access.parent.expression === access) {
+              access = access.parent
+              const keys = ts.isPropertyAccessExpression(access) ? [access.name.text] : literalKeys(access.argumentExpression)
+              if (keys?.length !== 1) { stable = false; return }
+              path.push(keys[0])
+            }
+            if (!ts.isCallExpression(access.parent) || access.parent.expression !== access
+              || !paths.some(expected => expected.length === path.length && expected.every((key, index) => key === path[index]))) { stable = false; return }
+          }
+        }
+        ts.forEachChild(node, visit)
+      }
+      visit(info.sf)
+      if (!stable) return false
+    }
+    return true
   }
   function nativeTracker(expression) {
     if (!stableBinding(expression)) return false
@@ -1012,6 +1072,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   const mockModes = new Map()
   for (const candidate of mockCandidates) {
     candidate.mode = mockFactoryMode(candidate.factory)
+    if (candidate.mode === 'replacement' && !stableEmptyMockExports(candidate)) candidate.mode = 'uncertain'
     candidate.boundaryKey = `${candidate.file}:${candidate.target ?? providerName({ module: candidate.provider })}`
     if (!mockModes.has(candidate.boundaryKey)) mockModes.set(candidate.boundaryKey, new Set())
     mockModes.get(candidate.boundaryKey).add(candidate.mode)
