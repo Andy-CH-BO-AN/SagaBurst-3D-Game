@@ -2,7 +2,7 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { selectFiles, selectionSummary, shardFiles, planShards, validateManifest, changes } = require('../tooling/ci-plan.cjs')
 const { dependencyConsumers, dependencyPlacementOnly, relocationOnly } = require('../tooling/dependencies.cjs')
-const { aggregate } = require('../tooling/ci-run.cjs')
+const { aggregate, assertPlanCheckout } = require('../tooling/ci-run.cjs')
 const item = (file, count = 1, runner = 'vitest') => ({ file, runner, names: Array.from({ length: count }, (_, i) => `leaf ${i}`) })
 const inventory = [
   item('tests/movement/NavigationGrid.test.ts', 2),
@@ -154,7 +154,6 @@ test('aggregate refuses missing, failed and stale shards instead of trusting the
   const plan = { ...full(inventory), planId: 'current' }
   assert.throws(() => aggregate(plan, []), /shard reports/)
   assert.throws(() => aggregate(plan, [{ shardId: 'logic-1', planId: 'old', result: 'passed' }]), /stale/)
-  const { assertPlanCheckout } = require('../tooling/ci-run.cjs')
   const strict = { ...plan, checkoutSha: 'tested', comparison: { afterSha: 'tested' } }
   assert.doesNotThrow(() => assertPlanCheckout(strict, { sha: 'tested', dirty: false }))
   assert.throws(() => assertPlanCheckout(strict, { sha: 'tested', dirty: true }), /Dirty/)

@@ -4,11 +4,11 @@ This is a recovery recipe for PR #411, **not selection policy or an owner map**.
 Do not import these historical scenarios into the planner. Keep generated plans,
 logs and identity comparisons under ignored `output/`; do not commit them.
 
-## Current handoff — 2026-10-25 21:35 UTC
+## Current handoff — 2026-10-25 21:57 UTC
 
 **Keep #411 Draft; acceptance is incomplete.** Published checkpoint
-`f3a0bf3be921077fb7e832579ab19a9f45dd7737`, tree
-`65746efef71ab06cd1b2af11ad6e5c24da91efaa`, contains the independently
+`caa8c33211d05534a253db71d67af190913cdaeb`, tree
+`365ac126cdca088b7d9daf4d9168433f14cf5384`, contains the independently
 reviewed provider-cycle correction, original-cause diagnostics, and source-local
 ambient `require` proof with Node `node:` cache-bypass semantics, and the reviewed
 main-entry/process-context increment plus an invocation-local lexical binding
@@ -89,17 +89,55 @@ and the child PID could not be independently inspected across execution namespac
 Neither diagnostic proves a speedup or an accepted plan. The memo is safe lexical
 query reuse, but does not resolve the large repeated input-analysis expansion.
 
+### Emission-summary validation and latest scope checkpoint
+
+Frozen analyzer `89f25bb1bc56edf776e772caab7d036aa9fc1370` was run separately
+against the unchanged `1446d1f` source snapshot. It terminated after 102.364s with
+exit 1 and no signal, timeout or operator stop. Both roots remained clean with
+unchanged identities. Head/base input-analysis phases completed in 3.581s/3.549s;
+inclusive dependency phases were 8.301s/7.619s, and behavior selection 56.525s.
+The complete blocked diagnostics (including every path/line/context/case and
+unresolved field), comparison, changes, checkout, stage and status equal the
+original CI artifact above. Analyzer identity, absolute paths and stack locations
+are intentionally excluded from that equality. This is **blocked-result parity**,
+not an executable manifest or an after-count. Earlier aborted local attempts are
+not silently counted as successful baselines.
+
+Sampled direct-child RSS peaked at 3.68GiB and kernel high-water RSS at 4.20GiB.
+These are instrumented-process observations, not unprofiled CI or game memory.
+The genuine main PID/TID-0 CPU profile is 229MiB; profiler overhead may contribute
+materially. Raw profiles remain ignored and are not committed.
+
+Latest cache-scope [CI 40237324562](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/40237324562)
+(head `caa8c33`, checkout `62ca94b17b726f4157ab6df317467feed6d4b151`)
+reached a blocked result in about 95s. The earlier ordinal 0 blocker is cleared.
+The new first blocker is ordinal 13, the aggregate stale/missing-shard contract:
+it redundantly requires `ci-run.cjs` inside the callback to obtain
+`assertPlanCheckout`, although the same module is already imported at file scope.
+That pure contract now shares the existing top-level capture; its assertions are
+unchanged. The focused ci-plan subset passed 33 cases, max 44.876ms
+(`run-TR8TuW`), including hooks/cleanup. This is fixture dependency clarification, **not proof that arbitrary
+cache restoration or fresh requires are safe**. Real cache/fresh-load negative
+contracts remain. Original artifact 12614893635 was verified with ZIP SHA256
+`7cc1f8f26b38544257a08a2bcb4a7dc7dac5e4dd9e9961682a1d8fa164f45e61`.
+
+The new frozen four-scenario replay uses analyzer `caa8c33` (tooling digest
+`331242589a85da05a352b2361634c3b94a3720093fb4a090b61683bfe743e4a9`).
+Duel has terminated blocked at an unproved loader receiver on a historical
+CareerTownEntry path; it has no executable after-count. Remaining scenarios are
+being collected serially before classifying the full remaining set. Do not
+replace the older recorded replay identities with guessed new exclusions.
+
 ### Remaining, in order
 
 1. Profile the immutable actual-merge planner and remove proved redundant work
    without changing output, snapshot/context isolation, timeouts or safety gates.
-   Observed first-phase cost is in input analysis, before behavior traversal. The
-   next bounded candidate is a conservative fixed point that avoids repeatedly
-   expanding local-function bodies only when this inspector cannot emit records.
-   It must retain every input kind, unknown route and recursive emitting consumer.
-   Do not infer runtime no-I/O from such an optimization.
-2. Resolve captured-loader acquisition scope and genuine aliased input API
-   origins without name-based ownership. Keep unsupported inline-shell effects explicit and fail closed; a broad shell
+   The conservative emission fixed point now terminates the previously expensive
+   input phase and preserves the complete fixed-snapshot blocked result. Continue
+   to monitor actual latest-head planning; do not infer runtime no-I/O from this
+   optimization or reuse earlier acceptance results.
+2. Recheck the published captured-loader and input-alias fixes on actual latest
+   snapshots. Keep unsupported inline-shell effects explicit and fail closed; a broad shell
    interpreter is not an approved shortcut. Re-run the complete actual-merge plan
    to a terminal result; subsets and captured-input replays are not acceptance.
 3. Implement bounded allocation provenance for actual fake versus real receiver
