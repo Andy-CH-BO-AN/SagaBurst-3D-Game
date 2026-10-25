@@ -31,7 +31,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   })
   const program = ts.createProgram([...sources.keys()], options, host)
   const checker = program.getTypeChecker()
-  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set()
+  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), commonjsTargets = new Set(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set()
   function connect(entry, id, guard = null) {
     entry.edges.add(id)
     entry.edgeGuards ??= new Map()
@@ -84,7 +84,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const file = local(fullPath)
     const sf = program.getSourceFile(fullPath)
     const top = add(sf, '<module>')
-    files.set(file, { sf, top, registrations: [], hooks: [], blocked: new Set(), blockedProviders: new Set() })
+    files.set(file, { sf, top, registrations: [], hooks: [], blocked: new Set(), blockedProviders: new Set(), uncertainMocks: new Map(), uncertainProviders: new Map(), replacementMocks: new Map() })
     const imports = runtimeImports(sf)
     const importBindings = imports.bindings
     runtimeModules.set(file, new Set())
@@ -92,30 +92,25 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       const stem = posix.normalize(posix.join(posix.dirname(file), name))
       const target = (importGraph.get(file) ?? []).find(dep => dep === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js'].some(ext => dep === stem + ext))
       if (target) runtimeModules.get(file).add(target)
+      return target
     }
     function index(n) {
       if (typeOnly(n)) return
       if (ts.isImportDeclaration(n) && imports.modules.some(specifier => specifier.startsWith(n.moduleSpecifier.getText()))) runtimeModule(n.moduleSpecifier.text)
       if (ts.isExportDeclaration(n) && !n.isTypeOnly && n.moduleSpecifier && (!n.exportClause || !ts.isNamedExports(n.exportClause) || n.exportClause.elements.some(element => !element.isTypeOnly))) runtimeModule(n.moduleSpecifier.text)
-      if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword || n.expression.getText() === 'require') && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0])) runtimeModule(n.arguments[0].text)
+      if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword || n.expression.getText() === 'require') && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0])) {
+        const target = runtimeModule(n.arguments[0].text)
+        if (target && providerRequire(n)) commonjsTargets.add(target)
+      }
       if ((ts.isImportSpecifier(n) || ts.isNamespaceImport(n) || ts.isImportClause(n)) && n.name && importBindings.has(n.name.text)) add(n, `<import:${n.name.text}>`)
       if (callable(n) || ts.isClassStaticBlockDeclaration(n) || ts.isVariableDeclaration(n) || member(n) || ts.isClassLike(n) || ts.isEnumDeclaration(n)) {
         const owner = n.parent?.name?.getText?.()
         add(n, `${owner ? owner + '.' : ''}${n.name?.getText() ?? (ts.isConstructorDeclaration(n) ? 'constructor' : ts.isClassStaticBlockDeclaration(n) ? '<static initialization>' : '<callback>')}`)
       }
-      if (ts.isCallExpression(n) && n.expression.getText() === 'vi.mock' && ts.isStringLiteralLike(n.arguments[0]) && callable(n.arguments[1])) {
-        const factory = n.arguments[1]
-        let partial = false
-        function check(child) {
-          if (ts.isSpreadAssignment(child) || ts.isCallExpression(child) && (child.expression.kind === ts.SyntaxKind.ImportKeyword || child.expression.getText() === 'require') || /importOriginal|importActual/.test(child.getText()) && ts.isIdentifier(child)) partial = true
-          ts.forEachChild(child, check)
-        }
-        check(factory)
-        if (!partial) {
-          const stem = posix.normalize(posix.join(posix.dirname(file), n.arguments[0].text))
-          const target = (importGraph.get(file) ?? []).find(dep => dep === stem || dep === stem + '.ts' || dep === stem + '/index.ts')
-          mockCandidates.push({ file, target, provider: n.arguments[0].text, factory })
-        }
+      if (ts.isCallExpression(n) && n.expression.getText() === 'vi.mock' && ts.isStringLiteralLike(n.arguments[0]) && vitestReceiver(n.expression.expression)) {
+        const stem = posix.normalize(posix.join(posix.dirname(file), n.arguments[0].text))
+        const target = (importGraph.get(file) ?? []).find(dep => dep === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js', '/index.cjs'].some(extension => dep === stem + extension))
+        mockCandidates.push({ file, target, provider: n.arguments[0].text, factory: n.arguments[1], ast: n })
       }
       if ((ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment)
         || ((ts.isPrefixUnaryExpression(n) || ts.isPostfixUnaryExpression(n)) && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(n.operator))) {
@@ -285,9 +280,10 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   function providerOf(expression) {
     expression = origin(expression)
     if (providerRequire(expression)) return { module: expression.arguments[0].text, export: '*' }
-    if (ts.isPropertyAccessExpression(expression)) {
+    if (ts.isPropertyAccessExpression(expression) || ts.isElementAccessExpression(expression)) {
       const provider = providerOf(expression.expression)
-      return provider && expression.name.text !== 'prototype' ? { ...provider, export: expression.name.text } : provider
+      const keys = ts.isPropertyAccessExpression(expression) ? [expression.name.text] : literalKeys(expression.argumentExpression)
+      return provider && keys?.[0] !== 'prototype' ? { ...provider, export: keys?.length === 1 ? keys[0] : '*' } : provider
     }
     const symbol = checker.getSymbolAtLocation(expression)
     for (const declaration of symbol?.declarations ?? []) {
@@ -310,6 +306,36 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       return provider && keys?.length === 1 ? { provider, method: keys[0] } : null
     }
     return ts.isPropertyAccessExpression(expression.expression) ? spy(expression.expression.expression, seen) : null
+  }
+  function vitestReceiver(expression) {
+    const provider = providerOf(expression)
+    if (provider?.module === 'vitest' && provider.export === 'vi') return true
+    return ts.isIdentifier(expression) && expression.text === 'vi'
+      && !(checker.getSymbolAtLocation(expression)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName))
+  }
+  function mockFactoryMode(factory) {
+    const plainParameters = fn => fn.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)
+    if (!factory || !callable(factory) || !plainParameters(factory)) return 'uncertain'
+    const unwrap = value => value && (ts.isParenthesizedExpression(value) || ts.isAsExpression(value) || ts.isAwaitExpression(value)) ? unwrap(value.expression) : value
+    const returned = fn => ts.isBlock(fn.body) ? fn.body.statements.length === 1 && ts.isReturnStatement(fn.body.statements[0]) ? fn.body.statements[0].expression : undefined : fn.body
+    const value = unwrap(returned(factory))
+    const original = expression => {
+      expression = unwrap(expression)
+      return !!factory.parameters[0] && expression && ts.isCallExpression(expression) && expression.arguments.length === 0 && ts.isIdentifier(expression.expression)
+        && checker.getSymbolAtLocation(expression.expression)?.valueDeclaration === factory.parameters[0] && !mutatedBindings.has(factory.parameters[0])
+    }
+    if (original(value) || value && ts.isObjectLiteralExpression(value) && value.properties.length === 1 && ts.isSpreadAssignment(value.properties[0]) && original(value.properties[0].expression)) return 'original'
+    const closed = expression => {
+      expression = unwrap(expression)
+      if (!expression) return false
+      if (ts.isLiteralExpression(expression) || [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(expression.kind)) return true
+      if (ts.isArrayLiteralExpression(expression)) return expression.elements.every(closed)
+      if (ts.isObjectLiteralExpression(expression)) return expression.properties.every(property => !property.name || !ts.isComputedPropertyName(property.name))
+        && expression.properties.every(property => ts.isPropertyAssignment(property) ? closed(property.initializer) : (ts.isMethodDeclaration(property) || ts.isGetAccessor(property)) && closed(property))
+      if (callable(expression)) return plainParameters(expression) && (ts.isBlock(expression.body) && expression.body.statements.length === 0 || closed(returned(expression)))
+      return false
+    }
+    return value && ts.isObjectLiteralExpression(value) && closed(value) ? 'replacement' : 'uncertain'
   }
   function nativeTracker(expression) {
     const provider = providerOf(expression)
@@ -350,6 +376,16 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       else if (target && /^mock(?:Implementation|ReturnValueOnce|ResolvedValueOnce|RejectedValueOnce)/.test(method)) event = { ...target, action: 'uncertain' }
     }
     if (event) (entry.providerEvents ??= []).push({ ...event, ast: call })
+  }
+  function providerEscape(expression, entry, ast) {
+    const provider = providerOf(expression)
+    if (!provider) return
+    ;(entry.providerEvents ??= []).push({ provider, action: 'uncertain', ast, reason: 'Provider value escapes its proven replacement boundary' })
+  }
+  function providerTarget(provider, ast) {
+    if (!provider?.module?.startsWith('.')) return null
+    const file = local(ast.getSourceFile().fileName), stem = posix.normalize(posix.join(posix.dirname(file), provider.module))
+    return (importGraph.get(file) ?? []).find(target => target === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js', '/index.cjs'].some(extension => target === stem + extension))
   }
   function functionAdapter(expression) {
     if (!expression || !ts.isPropertyAccessExpression(expression) || !['call', 'apply', 'bind'].includes(expression.name.text)) return false
@@ -486,6 +522,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       return
     }
     if (ts.isNewExpression(n)) {
+      for (const argument of n.arguments ?? []) providerEscape(argument, entry, n)
       const construct = (declaration, seen = new Set(), direct = true) => {
         if (seen.has(declaration)) return
         seen.add(declaration)
@@ -498,8 +535,20 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       }
       for (const declaration of checker.getTypeAtLocation(n.expression).symbol?.declarations ?? []) if (ts.isClassLike(declaration)) construct(declaration)
     }
+    if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) {
+      if (ts.isPropertyAccessExpression(n.left) || ts.isElementAccessExpression(n.left)) {
+        const provider = providerOf(n.left.expression), keys = ts.isPropertyAccessExpression(n.left) ? [n.left.name.text] : literalKeys(n.left.argumentExpression)
+        if (provider) (entry.providerEvents ??= []).push({ provider, method: keys?.length === 1 ? keys[0] : null, action: 'uncertain', ast: n, reason: 'Provider export mutation' })
+      }
+      providerEscape(n.right, entry, n)
+    }
+    if (ts.isReturnStatement(n) && n.expression) providerEscape(n.expression, entry, n)
+    if (ts.isPropertyAssignment(n)) providerEscape(n.initializer, entry, n)
+    if (ts.isShorthandPropertyAssignment(n)) providerEscape(n.name, entry, n)
+    if (ts.isArrayLiteralExpression(n)) for (const element of n.elements) providerEscape(element, entry, n)
     if (ts.isCallExpression(n)) {
       replacementEvent(n, entry)
+      if (!nativeReplacement(n) && !spy(n)) for (const argument of n.arguments) providerEscape(argument, entry, n)
       if (n.expression.getText() === 'eval') entry.unsafe = 'eval runtime dispatch'
       let callee = n.expression
       if (functionAdapter(callee)) callee = callee.expression
@@ -673,20 +722,32 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     locate(info.sf)
     ;(nodes.get(byAst.get(owner)).inputRisks ??= []).push({ ...risk, start: offset })
   }
-  // Related/dev uses imports for symbol resolution and candidate discovery, not
-  // module-to-module execution edges. A leaf's own setup/hooks and actual value
-  // references remain roots; importing a module alone does not select its cases.
-  for (const { file, target, provider, factory } of mockCandidates) {
-    const seen = new Set(), queue = [byAst.get(factory)]
-    for (let i=0; i<queue.length; i++) {
-      const id = queue[i]
-      if (seen.has(id)) continue
-      seen.add(id)
-      queue.push(...(nodes.get(id)?.edges ?? []))
+  // CJS require calls retain original bindings; a Vitest module replacement
+  // cannot establish a file-wide boundary for those consumers.
+  for (const input of inputEdges ?? []) if (input.kind === 'import' && /^require\s*\(/.test(input.inputExpression ?? input.expression)) commonjsTargets.add(input.to)
+  const mockModes = new Map()
+  for (const candidate of mockCandidates) {
+    candidate.mode = mockFactoryMode(candidate.factory)
+    candidate.boundaryKey = `${candidate.file}:${candidate.target ?? providerName({ module: candidate.provider })}`
+    if (!mockModes.has(candidate.boundaryKey)) mockModes.set(candidate.boundaryKey, new Set())
+    mockModes.get(candidate.boundaryKey).add(candidate.mode)
+  }
+  for (const { file, target, provider, ast, mode: ownMode, boundaryKey } of mockCandidates) {
+    const mode = mockModes.get(boundaryKey).size === 1 ? ownMode : 'uncertain', info = files.get(file)
+    if (mode === 'original') continue
+    const uncertain = { provider, target, expression: ast.getText(), reason: mode === 'replacement' ? 'CommonJS consumer is not replaced by an ESM module mock' : 'Mock factory delegation or returned exports are unresolved' }
+    if (mode === 'replacement' && (!target || !commonjsTargets.has(target))) {
+      if (target) { info.blocked.add(target); info.replacementMocks.set(target, { provider, target, expression: ast.getText() }) }
+      info.blockedProviders.add(providerName({ module: provider }))
+    } else {
+      if (target) info.uncertainMocks.set(target, uncertain)
+      info.uncertainProviders.set(providerName({ module: provider }), uncertain)
     }
-    if (target && ![...seen].some(id => nodes.get(id)?.file === target)) files.get(file).blocked.add(target)
-    const original = [...seen].some(id => { const name = nodes.get(id)?.ast.name; return name && providerName(providerOf(name)) === providerName({ module: provider }) })
-    if (!original) files.get(file).blockedProviders.add(providerName({ module: provider }))
+  }
+  function mockUncertainty(path, testFile, reached) {
+    for (const step of path) if (reached?.mockUncertainties?.has(step.file)) return reached.mockUncertainties.get(step.file)
+    for (const step of path) if (files.get(testFile)?.uncertainMocks.has(step.file)) return files.get(testFile).uncertainMocks.get(step.file)
+    return null
   }
   function nullishValue(expression, environment, visited = new Set()) {
     if (!expression) return 'undefined'
@@ -737,10 +798,11 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     return environment
   }
   function reachable(roots, testFile) {
-    const blocked = files.get(testFile)?.blocked ?? new Set()
+    const blocked = new Set(files.get(testFile)?.blocked ?? []), pending = [], mockUncertainties = new Map()
     const seen = new Set(), states = new Map(), first = new Map(), queue = []
     const enqueue = (id, environment, parent, evidence, conservative = false) => {
-      if (!nodes.has(id) || blocked.has(nodes.get(id).file)) return
+      if (!nodes.has(id)) return
+      if (blocked.has(nodes.get(id).file)) { pending.push([id, environment, parent, evidence, conservative]); return }
       const key = `${id}\0${contextKey(environment)}`
       if (states.has(key)) return
       const state = { id, environment, parent, evidence, conservative }
@@ -750,6 +812,13 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     for (let cursor = 0; cursor < queue.length; cursor++) {
       const [key, state] = queue[cursor], entry = nodes.get(state.id)
       seen.add(state.id); if (!first.has(state.id)) first.set(state.id, key)
+      for (const event of entry.providerEvents ?? []) if (event.action === 'uncertain') {
+        const target = providerTarget(event.provider, event.ast), replacement = files.get(testFile)?.replacementMocks.get(target)
+        if (replacement && blocked.delete(target)) {
+          mockUncertainties.set(target, { ...replacement, reason: 'Replacement exports are reconfigured or escape on this case path', reconfiguration: event.ast.getText() })
+          for (const attempt of pending) if (nodes.get(attempt[0]).file === target) enqueue(...attempt)
+        }
+      }
       for (const next of entry.edges) {
         const guards = entry.edgeGuards?.get(next)
         const guarded = guards?.size && !guards.has(null)
@@ -769,6 +838,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       }
     }
     seen.trace = { states, first }
+    seen.mockUncertainties = mockUncertainties
     return seen
   }
   function caseRoots(file, location) {
@@ -860,8 +930,9 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   function inputStatus(provider, method, roots, reached, target, testFile, inputProof) {
     if (!provider) return 'real'
     const key = providerName(provider)
+    if (files.get(testFile)?.uncertainProviders.has(key)) return 'uncertain'
     const binding = inputProof ? readerBinding(inputProof) : nodes.get(target)?.readerBinding ?? { live: false }
-    if (files.get(testFile)?.blockedProviders.has(key)) return binding.live && binding.moduleKind === 'esm' ? 'replaced' : 'uncertain'
+    const initial = files.get(testFile)?.blockedProviders.has(key) ? binding.live && binding.moduleKind === 'esm' ? 'replaced' : 'uncertain' : 'real'
     const inputPath = explain(roots, reached, target)
     const rootAst = nodes.get(inputPath.rootId)?.ast
     if (!rootAst) return 'uncertain'
@@ -883,7 +954,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       if (scope === 'body' && invocation !== null && event.ast.getStart() > invocation) {
         // The same reader may be invoked again after this restore. Without a
         // distinct invocation identity, never claim every read was replaced.
-        if (event.action === 'restore') return 'uncertain'
+        if (event.action === 'restore' || event.action === 'uncertain') return 'uncertain'
         continue
       }
       if (scope === 'helper') {
@@ -896,9 +967,9 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     }
     events.sort((a,b) => a.order - b.order)
     const action = events.at(-1)?.action
-    return action === 'replace' ? binding.live ? 'replaced' : 'uncertain' : action === 'uncertain' ? 'uncertain' : 'real'
+    return action === 'replace' ? binding.live ? 'replaced' : 'uncertain' : action === 'uncertain' ? 'uncertain' : initial
   }
-  return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, runtimeReaches, hasFile: file => files.has(file) }
+  return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, mockUncertainty, runtimeReaches, hasFile: file => files.has(file) }
 }
 
 function selectBehaviors(inventory, changed, consumers, evidence) {
@@ -973,6 +1044,13 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
           }
           for (const id of targets[i]) if (reached.has(id)) {
             const target = graphs[i].nodes.get(id)
+            const dependencyPath = graphs[i].explain(actualRoots, reached, id)
+            const mock = graphs[i].mockUncertainty(dependencyPath, graphFile, reached)
+            if (mock) {
+              const error = new Error(`Unsafe mock boundary: ${file}#${suite.names[index]}; ${mock.reason}; ${mock.expression}`)
+              error.diagnostics = { executable: false, changed: change.file, test: file, caseIndex: index, path: [...dependencyPath], unresolved: mock }
+              throw error
+            }
             const providerStatus = graphs[i].inputStatus(target.provider, target.readerMethod, actualRoots, reached, id, graphFile)
             if (providerStatus === 'replaced') continue
             if (providerStatus === 'uncertain') { const error = new Error(`Unsafe runtime input: ${file}#${suite.names[index]}; ambiguous replacement/restore ordering for ${target.label}`); error.diagnostics = { executable: false, changed: change.file, test: file, caseIndex: index, path: [...graphs[i].explain(actualRoots, reached, id)] }; throw error }

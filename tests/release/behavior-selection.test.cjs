@@ -485,3 +485,56 @@ for (const scenario of [
   if (scenario.selected) assert.deepEqual(run().selectedCases[file],[0])
   else assert.throws(run,/Unsafe runtime input:.*Input expression has an unresolved runtime value/)
 })
+
+for (const [name, factory, cjs] of [
+  ['opaque factory return', '() => makeFactory()', false],
+  ['partial original with unproven override', 'async original => ({ ...await original(), TABLE: { value: 0 } })', false],
+  ['CommonJS require unaffected by literal ESM module replacement', '() => ({ TABLE: { value: 0 } })', true],
+]) test(`module mock provenance: ${name}`, () => {
+  const owner = cjs ? 'src/owner.cjs' : 'src/owner.ts'
+  const before = cjs ? 'const TABLE = { value: 1 }; module.exports = { TABLE }' : 'export const TABLE = { value: 1 }'
+  const reference = cjs ? "const { TABLE } = require('../src/owner.cjs')" : "import { TABLE } from '../src/owner'"
+  const specifier = cjs ? '../src/owner.cjs' : '../src/owner'
+  assert.throws(() => selection(before,before.replace('value: 1','value: 2'),[
+    reference, "test('real', () => TABLE.value)",
+  ],[['tests/opaque.test.ts', `${reference}\nvi.mock('${specifier}', ${factory})\ntest('opaque boundary', () => TABLE.value)`]],owner),/Unsafe mock boundary/)
+})
+
+for (const [name, factory, setup = ''] of [
+  ['factory default effects', "(original = globalThis.originalRead('config.json')) => ({ readFileSync: () => 'fake' })"],
+  ['reader default effects', "() => ({ readFileSync: (path, encoding = globalThis.originalRead(path)) => 'fake' })"],
+  ['reader destructuring effects', "() => ({ readFileSync: ({ path }) => 'fake' })"],
+  ['reconfigurable mock function export', "() => ({ readFileSync: vi.fn() })", 'fs.readFileSync.mockImplementation(globalThis.originalRead)'],
+  ['spy delegation after literal replacement', "() => ({ readFileSync: () => 'fake' })", "vi.spyOn(fs, 'readFileSync').mockImplementation(globalThis.originalRead)"],
+]) test(`module replacement effect proof: ${name}`, () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const sources = new Map([
+    ['src/read.ts', "import { readFileSync } from 'node:fs'; export function read() { return readFileSync('config.json') }"],
+    ['tests/plain.test.ts', "import { read } from '../src/read'\ntest('plain', () => read())"],
+    ['tests/effect.test.ts', `import * as fs from 'node:fs'; import { read } from '../src/read'\nvi.mock('node:fs', ${factory})\ntest('effect', () => { ${setup}; read() })`],
+  ])
+  const inventory = [...sources].filter(([file])=>file.startsWith('tests/')).map(([file,source]) => ({file,names:['case'],locations:source.split('\n').flatMap((line,index)=>line.startsWith('test(')?[{line:index+1,column:1}]:[])}))
+  const files = new Set([...sources.keys(),'config.json']), consumers = dependencyConsumers(inventory,sources,path=>files.has(path),{files})
+  assert.throws(()=>selectBehaviors(inventory,[{status:'M',file:'config.json'}],consumers,{sources,previousSources:sources,previousConsumers:consumers,ranges:{},compilerOptions:{noLib:true,noResolve:true,types:[]}}),/Unsafe runtime input.*ambiguous replacement/)
+})
+
+for (const [name, extraMock, setup] of [
+  ['namespace export mutation', '', 'owner.TABLE.value = globalThis.originalValue'],
+  ['namespace export escape', '', 'globalThis.mutate(owner.TABLE)'],
+  ['namespace export constructor escape', '', 'new globalThis.Mutator(owner.TABLE)'],
+  ['computed namespace export escape', '', "globalThis.mutate(owner['TABLE'])"],
+  ['competing opaque factory', "vi.mock('../src/owner', () => makeFactory())", ''],
+  ['competing original factory', "vi.mock('../src/owner', async original => ({ ...await original() }))", ''],
+]) test(`module replacement invalidation: ${name}`, () => {
+  const before = 'export const TABLE = { value: 1 }'
+  assert.throws(()=>selection(before,before.replace('value: 1','value: 2'),[
+    "import { TABLE } from '../src/owner'", "test('plain', () => TABLE.value)",
+  ],[['tests/mutated.test.ts', `import * as owner from '../src/owner'\nvi.mock('../src/owner', () => ({ TABLE: { value: 0 } }))\n${extraMock}\ntest('boundary', () => { ${setup}; return owner.TABLE.value })`]]),/Unsafe mock boundary/)
+})
+
+test('replacement runtime shape cannot inherit original primitive escape assumptions', () => {
+  const before = "export const TABLE = 'before'"
+  assert.throws(()=>selection(before,before.replace('before','after'),[
+    "import { TABLE } from '../src/owner'", "test('plain', () => TABLE)",
+  ],[['tests/shape.test.ts', "import * as owner from '../src/owner'\nvi.mock('../src/owner', () => ({ TABLE: { run: () => 0 } }))\ntest('escape', () => { globalThis.mutate(owner.TABLE); return owner.TABLE })"]]),/Unsafe mock boundary/)
+})
