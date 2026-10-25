@@ -21,8 +21,8 @@ const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|te
 // Directly modified tests remain whole-file owners; imports alone are candidates.
 const behaviorSource = file => /\.[cm]?[jt]sx?$/.test(file)
 
-function relatedSelectionError(reason, diagnostics) {
-  const error = new Error(`Related selection is unsafe: ${reason}. Resolve the reported runtime evidence or add its missing direct contract; Full is reserved for main/release.`)
+function relatedSelectionError(reason, diagnostics, cause) {
+  const error = new Error(`Related selection is unsafe: ${reason}. Resolve the reported runtime evidence or add its missing direct contract; Full is reserved for main/release.`, cause === undefined ? undefined : { cause })
   if (diagnostics) error.diagnostics = { ...diagnostics, executable: false, result: 'blocked' }
   throw error
 }
@@ -73,7 +73,7 @@ function selectFiles(inventory, changed, consumers, evidence) {
   let behavior = { selected: [], selectedCases: {}, reasons: {}, details: {} }
   if (behaviorChanges.length) {
     try { behavior = require('./behavior.cjs').selectBehaviors(inventory, behaviorChanges, consumers, { ...evidence, testRenames: renamed }) }
-    catch (error) { relatedSelectionError(error.message, error.diagnostics) }
+    catch (error) { relatedSelectionError(error.message, error.diagnostics, error) }
   }
   for (const file of behavior.unobservedEquivalentSources ?? []) {
     if (!behaviorSource(file) || !require('./dependencies.cjs').runtimeEquivalent(evidence.previousSources.get(file), evidence.sources.get(file), file)) relatedSelectionError(`Unsafe source equivalence qualification: ${file}`)
@@ -409,6 +409,15 @@ function writeBlockedDiagnostics(error, { args = {}, argv = [] } = {}) {
   const manifestPath = args.out ?? 'output/test-plan.json'
   const file = resolve(manifestPath.replace(/\.json$/i, '') + '.blocked.json')
   const context = error.planningContext ?? null
+  const causes = [], seen = new Set([error])
+  let cause = error.cause
+  // Keep the original parser/graph stack without recursing through arbitrary or
+  // cyclic Error.cause chains while handling an already-failed planner.
+  while (cause != null && causes.length < 4 && !seen.has(cause)) {
+    seen.add(cause)
+    causes.push({ name: cause.name ?? 'Error', message: cause.message ?? String(cause), stack: cause.stack ?? null })
+    cause = cause.cause
+  }
   const diagnostic = {
     schema: 'logic-plan-blocked/v1', version: 1, executable: false, result: 'blocked',
     requested: { args, argv }, context,
@@ -417,7 +426,7 @@ function writeBlockedDiagnostics(error, { args = {}, argv = [] } = {}) {
       ...(!context?.comparison ? { comparison: 'No verified comparison was established before failure' } : {}),
       ...(!context?.analyzer ? { analyzer: 'Analyzer identity was not established before failure' } : {}),
     },
-    error: { name: error.name ?? 'Error', message: error.message ?? String(error), stack: error.stack ?? null },
+    error: { name: error.name ?? 'Error', message: error.message ?? String(error), stack: error.stack ?? null, causes, causesTruncated: cause != null },
     diagnostics: error.diagnostics ?? { missingEvidence: error.message ?? String(error) },
   }
   mkdirSync(dirname(file), { recursive: true })

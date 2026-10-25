@@ -79,7 +79,13 @@ test('documentation has empty evidence unless an actual runtime reader consumes 
     sources: dynamicSources, previousSources: dynamicSources, previousConsumers: dynamicGraph,
     files: paths, previousFiles: paths, texts: dynamicSources, previousTexts: dynamicSources, ranges: {},
     compilerOptions: { noLib: true, noResolve: true, types: [] },
-  }), /Unsafe runtime input:.*runtimePath/)
+  }), error => {
+    assert.match(error.message, /Unsafe runtime input:.*runtimePath/)
+    assert.ok(error.cause instanceof Error)
+    assert.match(error.cause.stack, /behavior\.cjs/)
+    assert.equal(error.cause.message.includes('Related selection is unsafe:'), false)
+    return true
+  })
   const unusedSources = new Map([
     ['src/reader.ts', `import {readFileSync} from 'node:fs'; export const marker=1;
 export function read(file: string) { return readFileSync(file, 'utf8') }`],
@@ -692,7 +698,9 @@ test('blocked diagnostics preserve failure evidence separately and cannot execut
   try {
     const manifest = join(directory, 'plan.json')
     writeFileSync(manifest, 'existing manifest must remain untouched')
-    const error = Object.assign(new Error('missing receiver provenance'), {
+    const original = new RangeError('Maximum call stack size exceeded')
+    original.cause = original // A pathological cause must not make failure reporting recurse.
+    const error = Object.assign(new Error('missing receiver provenance', { cause: original }), {
       planningContext: { checkoutSha: 'tested', comparison: { beforeSha: 'target', afterSha: 'tested' }, analyzer: { sourceDigest: 'analyzer' }, stage: 'selection' },
       diagnostics: { changed: 'src/owner.cjs', test: 'tests/owner.test.cjs', caseIndex: 0,
         path: [{ file: 'tests/owner.test.cjs', behavior: 'contract', line: 3, root: true }],
@@ -711,13 +719,19 @@ test('blocked diagnostics preserve failure evidence separately and cannot execut
     assert.deepEqual(diagnostic.context, error.planningContext)
     assert.deepEqual(diagnostic.diagnostics, error.diagnostics)
     assert.match(diagnostic.error.stack, /missing receiver provenance/)
+    assert.deepEqual(diagnostic.error.causes, [{ name: 'RangeError', message: original.message, stack: original.stack }])
+    assert.equal(diagnostic.error.causesTruncated, true)
     assert.deepEqual(diagnostic.unavailable, {})
     assert.throws(() => validateManifest(diagnostic), /not an executable test manifest/)
     assert.throws(() => aggregate(diagnostic, []), /not an executable test manifest/)
     assert.throws(() => executeShard(diagnostic, 'logic-related', join(directory, 'report.json')), /not an executable test manifest/)
     assert.equal(blockedSpawn.mock.callCount(), 0)
     assert.equal(blockedExec.mock.callCount(), 0)
-    const early = writeBlockedDiagnostics(new Error('Git history unavailable'), { args: { out: join(directory, 'early.json') } }).diagnostic
+    let nested = new Error('root cause')
+    for (let depth = 0; depth < 5; depth++) nested = new Error(`transport layer ${depth}`, { cause: nested })
+    const early = writeBlockedDiagnostics(new Error('Git history unavailable', { cause: nested }), { args: { out: join(directory, 'early.json') } }).diagnostic
+    assert.equal(early.error.causes.length, 4)
+    assert.equal(early.error.causesTruncated, true)
     assert.equal(early.context, null)
     assert.match(early.unavailable.checkoutSha, /before the actual checkout SHA was established/)
     assert.equal(early.diagnostics.missingEvidence, 'Git history unavailable')
