@@ -4,7 +4,7 @@ This is a recovery recipe for PR #411, **not selection policy or an owner map**.
 Do not import these historical scenarios into the planner. Keep generated plans,
 logs and identity comparisons under ignored `output/`; do not commit them.
 
-## Current handoff — 2026-10-25 23:04 UTC
+## Current handoff — 2026-10-25 23:14 UTC
 
 **Keep #411 Draft; acceptance is incomplete.** Published checkpoint
 `a7d98d43506d10041f09c52ac66604bc2382be3e`, tree
@@ -31,19 +31,36 @@ callbacks and nested replacement effects remain explicit uncertainty. Callback
 risk qualification uses actual callback/helper/input reach, not whole-file owners.
 
 The final focused behavior/planner run passed 195 leaves, max 75.273ms including
-cleanup (`run-c3Fwjr`). A separate **integrated development subset passed 336/500
-leaves**, max **74.398ms**, wall 7.35s (`run-ss3xEJ`): all 13 test files directly
-modified against target `a4579ac` plus the workflow contract, 99 Vitest + 237 Node.
-The dynamic-key/destructuring leaf remains a non-blocking >=70ms advisory.
-`npm run typecheck:test` passed with zero diagnostics and `npm run build` passed.
-These results do not constitute an executable Related plan or a passed CI gate.
+cleanup (`run-c3Fwjr`). The corrected **actual-tested-merge development cohort
+passed 272/500 leaves**, max **68.350ms**, wall 5.39s (`run-v3c0k7`): six test files
+changed by **target parent -> tested merge**, plus the existing workflow contract
+suite, 35 Vitest + 237 Node. This explicit whole-file development cohort is not a
+selected Related manifest.
 
-At the exact native checkpoint, the integrated command was:
+Validation ran on clean detached tested merge
+`3a1ce8a153d419aad7601c18059ca54948c2cff1`, tree
+`18164f38a06e3f0112a0660d80ace53cde2f1d9b`, with parents target
+`a4579ac3cea9152fc6d891c2e87043db0c0ca821` and PR head
+`c6e7c95c5bbd179e9e8222bb853937f4ffb670dc`. The written scope records these
+identities, the seven suite paths and clean start/end; raw executed native case
+identities are retained rather than inventing collection ordinals. The same
+actual merge passed `npm run typecheck:test` with zero diagnostics and
+`npm run build`. No production source file changes appear in this PR's
+**target-parent -> tested-merge** diff; newer target gameplay changes are preserved.
+
+**Correction to the earlier report:** the 336-pass branch-head subset
+(`run-ss3xEJ`, max 74.398ms) was real, but its file list used target-to-branch
+comparison and included reverse differences from newer target-only features.
+It was overinclusive, not "13 directly modified PR test files." Its original
+reports remain preserved and explicitly superseded for scope by the tested-merge
+272-case cohort above. Neither result is CI acceptance.
+
+At that exact tested merge, the corrected integrated command was:
 
 ```sh
 node tests/tooling/run.cjs $(git diff --name-only \
   a4579ac3cea9152fc6d891c2e87043db0c0ca821 \
-  a7d98d43506d10041f09c52ac66604bc2382be3e -- tests | grep -E '\.test\.') \
+  3a1ce8a153d419aad7601c18059ca54948c2cff1 -- tests | grep -E '\.test\.') \
   tests/release/workflow-contract.test.cjs
 npm run typecheck:test
 npm run build
@@ -104,7 +121,7 @@ below; the new finite callback core **did not clear those historical blockers**.
    effects; do not add path/name exclusions or a broad shell interpreter.
 4. **End-to-end acceptance.** Obtain an executable own-plan and historical
    identity comparisons, then run/aggregate the exact selected cases and check
-   latest-head CI. Do not substitute these 336 development cases, older green
+   latest-head CI. Do not substitute these 272 development cases, older green
    heads or null after-counts for that result. Keep Draft; do not merge.
 
 ### Latest bounded mock checkpoint
