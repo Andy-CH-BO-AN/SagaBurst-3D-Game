@@ -427,7 +427,40 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
       }
     }
     for (let i=0; i<2; i++) for (const id of targets[i]) {
-      if (!covered[i].has(id)) throw new Error(`Unsafe/unmapped behavior: ${change.file}#${graphs[i].nodes.get(id).label}; no proven owner cases`)
+      if (covered[i].has(id)) continue
+      const label = graphs[i].nodes.get(id).label
+      // Explicit initialization ownership is not permission to suppress an
+      // untested function, initialized value, class, or unsafe dispatch.
+      if (label === '<module>') {
+        for (const file of evidence.initializationOwners?.get(change.file) ?? []) {
+          const suite = inventory.find(item => item.file === file)
+          if (!suite?.names.length) continue
+          const fallback = !suite.locations || suite.locations.length !== suite.names.length
+            || suite.names.some((name, index) => suite.names.indexOf(name) !== index)
+            || suite.nativeNames && new Set(suite.nativeNames).size !== suite.nativeNames.length
+          // An explicit owner can sit outside the import candidate graph. It
+          // must still pass the same head/base runtime-dispatch safety gate.
+          for (let side = 0; side < graphs.length; side++) {
+            const graphFile = side === 1 ? oldTestPaths.get(file) ?? file : file
+            const sameBody = side === 0 || previousSources.get(graphFile) === sources.get(file)
+            for (let index = 0; index < suite.names.length; index++) {
+              const roots = !fallback && sameBody && graphs[side].caseRoots(graphFile, suite.locations[index])
+              const reached = graphs[side].reachable(roots || graphs[side].wholeFileRoots(graphFile), graphFile)
+              for (const target of reached) if (graphs[side].nodes.get(target)?.unsafe) {
+                throw new Error(`Unsafe runtime dispatch: ${file}: ${graphs[side].nodes.get(target).unsafe}`)
+              }
+            }
+          }
+          selectedCases[file] = suite.names.map((_, index) => index)
+          if (!details[file]?.some(detail => detail.changed === change.file && detail.source === 'Explicit Initialization Owner')) {
+            ;(reasons[file] ??= []).push(`Explicit initialization owner: ${change.file}`)
+            ;(details[file] ??= []).push({ changed: change.file, source: 'Explicit Initialization Owner',
+              owners: ['<module>'], conservativeCases: [], initializationCases: selectedCases[file] })
+          }
+          covered[i].add(id)
+        }
+      }
+      if (!covered[i].has(id)) throw new Error(`Unsafe/unmapped behavior: ${change.file}#${label}; no proven owner cases`)
     }
     if (!Object.values(details).some(list=>list.some(d=>d.changed===change.file))) throw new Error(`Unsafe/unmapped behavior: ${change.file}; no proven owner cases`)
   }

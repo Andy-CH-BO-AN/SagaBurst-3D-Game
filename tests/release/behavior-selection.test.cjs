@@ -98,6 +98,34 @@ test('side-effect-only import edits without an addressable behavior owner fail c
   ], [['src/registration.ts', 'globalThis.registered = true']]), /Unsafe\/unmapped behavior/)
 })
 
+test('an explicit initialization owner does not widen a mapped source to import-only caller leaves', () => {
+  const owner = 'src/career/CareerHealthMigration.ts'
+  const before = 'export function unchanged() { return 0 }'
+  const after = "import { value } from './values'; " + before + '; export function added() { return value }'
+  const plan = selection(before, after, [
+    "import { added, unchanged } from '../src/career/CareerHealthMigration'",
+    "test('affected caller', () => added())",
+    "test('unrelated placement', () => unchanged())",
+  ], [
+    ['src/career/values.ts', 'export const value = 1'],
+    ['tests/persistence/HealthPersistence.test.ts', [
+      "import { unchanged } from '../../src/career/CareerHealthMigration'",
+      "test('initialization contract', () => unchanged())",
+    ].join('\n')],
+  ], owner)
+  assert.deepEqual(indices(plan), [0])
+  assert.deepEqual(plan.selectedCases['tests/persistence/HealthPersistence.test.ts'], [0])
+  assert.ok(plan.details['tests/persistence/HealthPersistence.test.ts'].some(detail =>
+    detail.source === 'Explicit Initialization Owner' && detail.owners.includes('<module>')))
+  assert.ok(plan.details['tests/owner.test.ts'].every(detail => detail.source !== 'Static Runtime Dependency'))
+  assert.throws(() => selection(before, after, [
+    "import { added } from '../src/career/CareerHealthMigration'", "test('caller', () => added())",
+  ], [
+    ['src/career/values.ts', 'export const value = 1'],
+    ['tests/persistence/HealthPersistence.test.ts', "test('opaque initialization owner', () => eval('opaque()'))"],
+  ], owner), /Unsafe runtime dispatch/)
+})
+
 test('retargeting an existing named import selects its unchanged caller but not unrelated exports', () => {
   const before = "import { first as chosen } from './values'; export { chosen }; export function read() { return chosen }; export function wrapped() { return { chosen } }; export function other() { return 0 }"
   const plan = selection(before, before.replace('first as', 'second as'), [
@@ -130,6 +158,17 @@ test('a covered initialization effect cannot hide a different unmapped callable 
   ]), /Unsafe\/unmapped behavior: src\/owner.ts#untested/)
 })
 
+
+test('an initialization mapping cannot cover an unreferenced initialized value or callable', () => {
+  const owner = 'src/career/CareerHealthMigration.ts'
+  const before = 'export const value = 0; export function untested() { return 1 }'
+  const body = ["import { value } from '../src/career/CareerHealthMigration'", "test('value', () => value)"]
+  const explicit = [['tests/persistence/HealthPersistence.test.ts', "test('initialization contract', () => 0)"]]
+  assert.throws(() => selection(before, before.replace('return 1', 'return 2'), body, explicit, owner),
+    /Unsafe\/unmapped behavior: src\/career\/CareerHealthMigration.ts#untested/)
+  assert.throws(() => selection(before, before + '; export const unreferenced = register()', body, explicit, owner),
+    /Unsafe\/unmapped behavior: src\/career\/CareerHealthMigration.ts#unreferenced/)
+})
 
 test('unreferenced module assignments do not expand data changes to import-only leaves', () => {
   const before = 'export const TABLE = { value: 1 }; globalThis.saved = TABLE.value; export function unrelated() { return 0 }'

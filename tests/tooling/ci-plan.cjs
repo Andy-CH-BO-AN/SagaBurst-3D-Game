@@ -34,6 +34,14 @@ const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|te
 const nodePublicationInput = file => /^(electron\/|\.github\/scripts\/release\/|docs\/releases\/)/.test(file)
   || /^(package(?:-lock)?\.json|electron-builder\.|\.github\/workflows\/release\.yml$)/.test(file)
 
+// Initialization fallbacks cover only an otherwise-unmapped module boundary.
+// Runtime functions/values still require their actual symbol/call-path owners;
+// unlike asset/entry policies below, these never expand all import consumers.
+const initializationOwnerPolicy = new Map([
+  ['src/career/CareerHealthMigration.ts', ['tests/persistence/HealthPersistence.test.ts']],
+  ['src/career/CareerDuelState.ts', ['tests/missions/CareerDuelState.test.ts']],
+])
+
 function policyConsumers(file, inventory) {
   const available = new Set(inventory.map(item => item.file))
   const hits = new Set()
@@ -86,8 +94,6 @@ function policyConsumers(file, inventory) {
     for (const owner of ['tests/combat/CommanderWeaponSwitching.test.ts',
       'tests/equipment/WeaponWheel.test.ts', 'tests/equipment/CareerTownEquipment.test.ts']) add(owner)
   }
-  // Career migration introduces an explicit persistence initialization owner.
-  if (file === 'src/career/CareerHealthMigration.ts') add('tests/persistence/HealthPersistence.test.ts')
   // Original shield pixels/geometry are inspected offline and in gameplay, never
   // loaded by unit tests. These existing owners protect its face collision,
   // durability, bow/shield visibility and paid inventory/ownership contracts.
@@ -170,7 +176,7 @@ function selectFiles(inventory, changed, consumers, evidence) {
     && !policyConsumers(item.file, inventory).size && !typeOnlyFiles.includes(item.file)) : []
   let behavior = { selected: [], selectedCases: {}, reasons: {}, details: {} }
   if (behaviorChanges.length) {
-    try { behavior = require('./behavior.cjs').selectBehaviors(inventory, behaviorChanges, consumers, { ...evidence, testRenames: renamed }) }
+    try { behavior = require('./behavior.cjs').selectBehaviors(inventory, behaviorChanges, consumers, { ...evidence, testRenames: renamed, initializationOwners: initializationOwnerPolicy }) }
     catch (error) { relatedSelectionError(error.message) }
   }
   const reasons = behavior.reasons
@@ -437,7 +443,8 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   // Native related results are candidates only. An unexplained native-only edge
   // is unsafe; never silently exclude it or unconditionally union it into leaves.
   for (const file of found.related) {
-    if (!changed.some(item => (consumers[item.file] ?? []).includes(file) || policyConsumers(item.file, found.inventory).has(file) || item.file === file)) {
+    if (!changed.some(item => (consumers[item.file] ?? []).includes(file) || policyConsumers(item.file, found.inventory).has(file)
+      || (initializationOwnerPolicy.get(item.file) ?? []).includes(file) || item.file === file)) {
       relatedSelectionError(`Native-only dependency requires mapping: ${file}`)
     }
   }
