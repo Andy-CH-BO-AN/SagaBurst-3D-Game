@@ -10,7 +10,12 @@ import type { SiegeRampAssignment } from '../../src/campaign/MobileSiegeRampPoli
 import { parseCampaignSiegeCheckpoint } from '../../src/campaign/CampaignSiegeCheckpoint'
 import { allocateTownSiegeCrews, createTownSiegeCrewSlots, isTownSiegeDockConnected, planTownSiegeRamps, townSiegeFrame } from '../../src/career/TownFourGateSiegePolicy'
 import { getTerrainHeight, getWalkRampHeight, type ObstacleData } from '../../src/world/Terrain'
-import { NPC } from '../../src/world/NPC'
+import { NPC, AIType, AIState } from '../../src/world/NPC'
+import { CampaignBreachController, applyCampaignBreachOrders, restoreCampaignBreachCheckpoint, type CampaignGateController } from '../../src/campaign/CampaignGate'
+import { snapshotCommandActor, restoreCommandActor } from '../../src/career/CareerCommandActorCheckpoint'
+import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
+import { createRampartCommandActor } from '../helpers/armyCommandHarness'
+import { initializeCareerReliefBattlefield } from '../../src/career/CareerOutpostRelief'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
@@ -27,6 +32,57 @@ function watchdogCrew(): SiegeRampAssignment {
 }
 
 describe('shared siege crew and vehicle lifecycle', () => {
+  it('releases native defenders once on any Outpost breach and reloads without redispatching orders', () => {
+    const guard = createRampartCommandActor('guard'), ordinary = createRampartCommandActor('ordinary')
+    guard.activateOutpostRampartGarrison()
+    ordinary.setTacticalOrder('defend')
+    const dead = createRampartCommandActor('dead'), passenger = createRampartCommandActor('passenger')
+    const personal = createRampartCommandActor('personal')
+    for (const actor of [dead, passenger, personal]) actor.activateOutpostRampartGarrison()
+    Object.assign(dead, { state: AIState.DEAD }); passenger.siegeTransport = 'siege-ramp-left'
+    personal.combatOwnership = 'player-personal'
+    const melee = createRampartCommandActor('attacker-melee', 'viking', AIType.MELEE)
+    const ranged = createRampartCommandActor('attacker-ranged', 'viking')
+    const controller = new CampaignBreachController()
+    let dispatches = 0, result: ReturnType<typeof applyCampaignBreachOrders> | undefined
+    controller.onBreach(() => { dispatches++; result = applyCampaignBreachOrders([guard, ordinary, dead, passenger, personal, melee, ranged], 'viking') })
+    expect(guard.tacticalOrder).toBe('defend')
+    expect(guard.holdsRampartPosition).toBe(true)
+    expect(controller.trigger()).toBe(true)
+    expect(result).toEqual({ attackerChargeCount: 1, attackerAttackCount: 1, defenderAttackCount: 2 })
+    expect(guard.tacticalOrder).toBe('attack')
+    expect(guard.isOutpostRampartGarrisonActive).toBe(false)
+    expect(guard.holdsRampartPosition).toBe(false)
+    expect(ordinary.tacticalOrder).toBe('attack')
+    expect(melee.tacticalOrder).toBe('charge'); expect(ranged.tacticalOrder).toBe('attack')
+    for (const actor of [dead, passenger, personal]) {
+      expect(actor.tacticalOrder).toBe('defend')
+      expect(actor.isOutpostRampartGarrisonActive).toBe(true)
+    }
+    const checkpoint = parseCommandActorCheckpoint(JSON.parse(JSON.stringify(snapshotCommandActor(guard))))!
+    expect(checkpoint.order).toBe('attack'); expect(checkpoint.outpostRampartGarrison).toBeUndefined()
+    guard.setTacticalOrder('defend') // Later player intent is not overwritten by another entrance.
+    expect(controller.trigger()).toBe(false)
+    expect(guard.tacticalOrder).toBe('defend'); expect(dispatches).toBe(1)
+    const restoredBreach = new CampaignBreachController()
+    restoredBreach.onBreach(() => { dispatches++ })
+    restoreCampaignBreachCheckpoint(restoredBreach, { breached: true }, { state: 'closed', hp: 100 })
+    // Physical gate/palisade/docked-ramp restoration all observe the same saved latch.
+    expect(restoredBreach.trigger()).toBe(false)
+    expect(dispatches).toBe(1)
+    const restoredGuard = createRampartCommandActor('guard')
+    restoredGuard.activateOutpostRampartGarrison()
+    restoreCommandActor(restoredGuard, checkpoint)
+    expect(restoredGuard.tacticalOrder).toBe('attack')
+    expect(restoredGuard.isOutpostRampartGarrisonActive).toBe(false)
+    expect(restoredGuard.holdsRampartPosition).toBe(false)
+    restoredGuard.setTacticalOrder('defend')
+    const reliefGate = { attackerFaction: 'viking', damageable: { destroy: () => restoredBreach.trigger() } }
+    initializeCareerReliefBattlefield(reliefGate as unknown as CampaignGateController, [restoredGuard], restoredBreach)
+    expect(restoredGuard.tacticalOrder).toBe('defend')
+    expect(dispatches).toBe(1)
+  })
+
   it('abandons a fully deployed carrier after its first ten immobile simulation seconds exactly once', () => {
     const assignment = watchdogCrew(), events: string[] = []
     const controller = new MobileSiegeRampController(assignment, 100, state => events.push(state))

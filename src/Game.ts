@@ -182,6 +182,7 @@ import { getOutpostWalkwayLayout, isOutpostWalkwayEnabled } from './campaign/Cam
 import { resolveDefenseCampaignAttackerDeployment } from './campaign/DefenseCampaignDeployment'
 import {
   applyCampaignBreachOrders,
+  restoreCampaignBreachCheckpoint,
   isCampaignGateOccupied,
   reconcileCampaignGateSiege,
   type CampaignBreachController,
@@ -910,6 +911,11 @@ export class Game {
       damageableObstacles.push(...outpost.damageableObstacles)
       this.previewCampaignGate = outpost.gateController
       this.previewCampaignBreachController = outpost.breachController
+      const savedCareerOutpost = campaignConfig?.careerVeteranOutpost ?? campaignConfig?.careerCommanderOutpost
+      const savedBattle = this._personalOutpostMission()?.battle
+      restoreCampaignBreachCheckpoint(outpost.breachController,
+        savedCareerOutpost ? this.careerProfile?.activeMission?.outpostSiege : savedBattle?.outpostSiege,
+        savedCareerOutpost ? { state: savedCareerOutpost.runtimeState.gateState, hp: savedCareerOutpost.runtimeState.gateHealth } : savedBattle?.gate)
       this.previewCampaignGate.onStateChange(state => {
         if (state === 'open' || state === 'destroyed') {
           for (const npc of this.npcs) {
@@ -1166,7 +1172,7 @@ export class Game {
           : this._personalOutpostMission()?.battle ? { initialSnapshot: this._personalOutpostMission()!.battle!.runtime } : {}),
       })
       if (relief) {
-        initializeCareerReliefBattlefield(this.previewCampaignGate!, this.npcs.filter(npc => !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId)))
+        initializeCareerReliefBattlefield(this.previewCampaignGate!, this.npcs.filter(npc => !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId)), this.previewCampaignBreachController ?? undefined)
         this.navigationWorld.sync(this.obstacles)
         this.campaignAttackersStarted = true
         const placement = getCampaignOutpostPlacement(campaignConfig.defenderFaction)
@@ -2361,6 +2367,12 @@ export class Game {
         : campaign.careerVeteranOutpost ? 'attack' : DEFENSE_CAMPAIGN_RULES.initialDefenderOrder)
     if (careerOutpost) this._restoreCareerVeteranNpcState(npc, restorePosition)
     else this._restorePersonalOutpostNpc(npc)
+    // Rebuild automatic post-breach intent without replaying the global event.
+    // Saved player-owned orders remain authoritative, including Defend/Follow.
+    if (isOutpostOwner && this.previewCampaignBreachController?.breached
+      && !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId)) {
+      applyCampaignBreachOrders([npc], opposingCampaignFaction(careerVeteranOutpostOwner(campaign)))
+    }
   }
 
   private async _executeBattleSpawnPlan(plan: BattleSpawnPlan, progress: (text: string) => void = () => {}): Promise<NPC[]> {
@@ -3111,6 +3123,7 @@ export class Game {
   }
 
   private _applyCampaignBreachOrders(attackerFaction: CampaignFaction): void {
+    if (this.restoringCareerOutpostGate) return
     this.campaignSiegeAssault?.refreshPhysicalEntrances()
     if (this.previewCampaignGate) {
       for (const npc of this.npcs) {
@@ -3121,7 +3134,6 @@ export class Game {
     }
     const authority = this._careerCommandMission()?.officialSquad
     const result = applyCampaignBreachOrders(this.npcs.filter(npc => !officialPlayerOwnsActor(authority, npc.combatantId)), attackerFaction)
-    if (this.restoringCareerOutpostGate) return
     this.soundManager.playCommanderCommand(attackerFaction, 'charge')
     this._showNotify(
       `⚔️ Breach! ${attackerFaction === 'viking' ? '維京' : '羅馬'}近戰衝鋒｜`
@@ -3129,9 +3141,7 @@ export class Game {
       + `守軍 ${result.defenderAttackCount} → attack`,
       3500,
     )
-    if (this.defenseCampaignConfig?.careerVeteranOutpost?.templateId === 'veteran-outpost-assault') {
-      this._persistCareerVeteranOutpostCheckpoint({ immediate: true })
-    }
+    if (this.defenseCampaignConfig?.careerMissionId) this._persistPersonalOutpost(true)
   }
 
   private _restoreCareerVeteranNpcState(npc: NPC, restorePosition = true): void {

@@ -452,7 +452,10 @@ export class ArmyCommandController {
     this._setDesiredOrder(target, order)
 
     for (const npc of participants) {
-      if ((order !== 'attack' && order !== 'defend') || !npc.holdsRampartPosition) npc.releaseOutpostRampartGarrison?.()
+      // Player Attack takes over Outpost duty only after authorization/save succeeds.
+      // Town's native Attack station policy remains owned by its scene.
+      if ((order !== 'attack' && order !== 'defend') || !npc.holdsRampartPosition
+        || order === 'attack' && npc.isOutpostRampartGarrisonActive) npc.releaseOutpostRampartGarrison?.()
       npc.clearFollowTarget?.()
       npc.setTacticalOrder(order)
     }
