@@ -4,12 +4,13 @@ This is a recovery recipe for PR #411, **not selection policy or an owner map**.
 Do not import these historical scenarios into the planner. Keep generated plans,
 logs and identity comparisons under ignored `output/`; do not commit them.
 
-## Current handoff — 2026-10-25 20:18 UTC
+## Current handoff — 2026-10-25 20:44 UTC
 
 **Keep #411 Draft; acceptance is incomplete.** Published checkpoint
-`fd598a4b3e1ae08b2bdc3ae8999b4f4aef22d1e7`, tree
-`28afb5e2fd40882224c12abdf1c8b637b1e5ec92`, contains the independently
-reviewed provider-cycle correction and original-cause diagnostics. Do not merge.
+`448a52a2439df843d9cb5c6fda045e3428af7a2e`, tree
+`3230fab7691dd07a4225c2bf00ee22474da7262b`, contains the independently
+reviewed provider-cycle correction, original-cause diagnostics, and source-local
+ambient `require` proof with Node `node:` cache-bypass semantics. Do not merge.
 
 Completed foundations include removal of manual owner maps, immutable comparison
 snapshots, scoped runtime/input evidence, conservative open directory domains,
@@ -26,25 +27,29 @@ The last complete own-plan attempt used head
 failed with a provider-resolution stack overflow. Instrumented capture of that
 same clean snapshot confirmed repeated `providerOf` property recursion. Its
 serialized selector inputs are an ignored debugging cache, not an acceptance
-manifest. Replaying them with the cycle correction removes the RangeError but
-still **blocks** on the following real case:
+manifest. Replaying them with the cycle and ambient corrections removes the RangeError
+and the previously reported native boundary gap, but still **blocks** on:
 
-`tests/release/ci-plan.test.cjs`, ordinal 32,
-`blocked diagnostics preserve failure evidence separately and cannot execute or relax workflow gates`.
+`tests/release/workflow-contract.test.cjs`, ordinal 1,
+`Release and Pages gate scripts enforce exact-SHA Full proof, tag fallback, and out-of-order stale deploy skip`.
 
-The unresolved operation is `childProcess.spawnSync(process.execPath, args, ... )`
-inside `executeShard`, lifted to the test's invalid-manifest call. The real test
-rejects before any subprocess, with zero-call assertions. In the full analyzed
-program its two native mock calls currently have no proved provider/event;
-namespace/ambient binding facts are being investigated. Cache writes must not be
-confused with rewriting the callable `require` identity, but mutable cached
-exports must not be globally declared safe either. No filename exemption is valid.
+This case executes `bash -c` with transformed script blocks read from
+`.github/workflows/deploy-pages.yml` and `.github/workflows/release.yml`.
+Those are not the changed `.github/workflows/logic-tests.yml`. However, the
+analyzer cannot yet prove the complete inline Bash program's input effects:
+local functions, substitutions, pipelines, conditionals and redirects remain
+unsupported. A filename exemption or a list of familiar command names would
+not prove safety. The separate ordinal 0 genuinely reads the changed workflow
+and must remain selected. No executable manifest or successful own-plan result
+has been produced by this debug replay. Latest checkpoint CI
+[40231707963](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/40231707963)
+was still planning at this checkpoint; do not infer its terminal outcome.
 
 ### Remaining, in order
 
-1. Resolve that concrete full-program native binding gap with actual graph facts,
-   a small positive contract and a genuine mutation negative. Re-run the complete
-   actual-merge plan to a terminal result; subset tests are not acceptance.
+1. Keep the unsupported inline-shell effects explicit and fail closed; a broad
+   shell interpreter is not an approved shortcut. Re-run the complete actual-merge
+   plan to a terminal result; subset tests and captured-input replays are not acceptance.
 2. Finish the separate, **unpublished** canonical CommonJS main-guard change:
    track main entry and process context, preserve actual imported initialization,
    and prevent parent test mocks from suppressing a real Node child's consumers.
@@ -62,7 +67,8 @@ exports must not be globally declared safe either. No filename exemption is vali
 
 - `node tests/tooling/run.cjs tests/release/behavior-selection.test.cjs tests/release/ci-plan.test.cjs tests/release/test-budget.test.cjs`:
   native checkpoint 127 passed, max 88.277ms (`run-cExZtx`); isolated cycle
-  correction 131 passed, max 86.502ms (`run-bV6B99`). These are development subsets.
+  correction 131 passed, max 86.502ms (`run-bV6B99`); final isolated ambient
+  correction 138 passed, max 79.464ms (`run-InJ3en`). These are development subsets.
 - `node tests/tooling/run.cjs tests/release/ci-plan.test.cjs`: isolated cause
   diagnostics 33 passed, max 62.521ms (`run-oocBP7`). The attempt against an
   unrelated uncommitted main-guard patch failed an added trace-field expectation;
