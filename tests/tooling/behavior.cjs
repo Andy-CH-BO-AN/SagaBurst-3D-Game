@@ -31,7 +31,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   })
   const program = ts.createProgram([...sources.keys()], options, host)
   const checker = program.getTypeChecker()
-  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), commonjsTargets = new Set(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set(), escapedBindings = new Set(), mutatedObjectBindings = new Set(), bindingAliases = new Map(), mutatedImplicitRequireFiles = new Set()
+  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), commonjsTargets = new Set(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set(), escapedBindings = new Set(), mutatedObjectBindings = new Set(), bindingAliases = new Map(), mutatedImplicitRequireFiles = new Set(), escapedImplicitRequireFiles = new Set()
   const activeProviders = new Set(), cyclicProviders = new Set()
   function connect(entry, id, guard = null) {
     entry.edges.add(id)
@@ -73,11 +73,18 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const provider = providerOf(expression.expression)
     return provider?.module === 'node:test' && stableBinding(expression.expression) && ['test', 'it', 'describe', 'before', 'after', 'beforeEach', 'afterEach'].includes(provider.export)
   }
+  function implicitRequire(identifier) {
+    return ts.isIdentifier(identifier) && identifier.text === 'require'
+      && !(ts.isPropertyAccessExpression(identifier.parent) && identifier.parent.name === identifier)
+      && !(ts.isPropertyAssignment(identifier.parent) && identifier.parent.name === identifier)
+      && !(checker.getSymbolAtLocation(identifier)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName)
+        && !declaration.getSourceFile().isDeclarationFile && !ts.isIdentifier(declaration))
+  }
   function invalidateAssignment(target) {
     if (ts.isIdentifier(target)) {
       const declaration = bindingDeclaration(target)
-      if (declaration) mutatedBindings.add(declaration)
-      else if (target.text === 'require') mutatedImplicitRequireFiles.add(target.getSourceFile().fileName)
+      if (implicitRequire(target)) mutatedImplicitRequireFiles.add(target.getSourceFile().fileName)
+      else if (declaration) mutatedBindings.add(declaration)
     } else if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
       const declaration = baseBinding(target.expression); if (declaration) mutatedObjectBindings.add(declaration)
     } else ts.forEachChild(target, invalidateAssignment)
@@ -131,6 +138,13 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     }
     function index(n) {
       if (typeOnly(n)) return
+      if (!n.getSourceFile().isDeclarationFile && ts.isIdentifier(n) && implicitRequire(n)) {
+        const parent = n.parent
+        const benign = ts.isCallExpression(parent) && parent.expression === n
+          || (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) && parent.expression === n
+          || ts.isBinaryExpression(parent) && parent.left === n && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+        if (!benign) escapedImplicitRequireFiles.add(n.getSourceFile().fileName)
+      }
       if (ts.isImportDeclaration(n) && imports.modules.some(specifier => specifier.startsWith(n.moduleSpecifier.getText()))) runtimeModule(n.moduleSpecifier.text)
       if (ts.isExportDeclaration(n) && !n.isTypeOnly && n.moduleSpecifier && (!n.exportClause || !ts.isNamedExports(n.exportClause) || n.exportClause.elements.some(element => !element.isTypeOnly))) runtimeModule(n.moduleSpecifier.text)
       if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword || n.expression.getText() === 'require') && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0])) {
@@ -162,6 +176,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
         const visit = node => {
           if (typeOnly(node)) return
           if (ts.isIdentifier(node)) {
+            if (implicitRequire(node)) return
             const declaration = bindingDeclaration(node)
             // Unknown expressions may capture outer references, but their own
             // callback parameters/locals are not escaped caller bindings.
@@ -349,9 +364,12 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   const providerName = provider => provider?.module ? provider.module.replace(/^node:/, '') : provider?.global ? `global:${provider.global}` : null
   function providerRequire(expression) {
     return ts.isCallExpression(expression) && ts.isIdentifier(expression.expression) && expression.expression.text === 'require'
-      && ts.isStringLiteralLike(expression.arguments[0]) && stableBinding(expression.expression)
-      && !mutatedImplicitRequireFiles.has(expression.getSourceFile().fileName)
-      && !(checker.getSymbolAtLocation(expression.expression)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName))
+      && ts.isStringLiteralLike(expression.arguments[0])
+      // node: builtins bypass require.cache. Mutating the function object's
+      // cache/properties does not replace its direct [[Call]] identity.
+      && (expression.arguments[0].text.startsWith('node:') || stableBinding(expression.expression))
+      && !mutatedImplicitRequireFiles.has(expression.getSourceFile().fileName) && !escapedImplicitRequireFiles.has(expression.getSourceFile().fileName)
+      && implicitRequire(expression.expression)
   }
   function providerOf(expression) {
     const value = origin(expression)

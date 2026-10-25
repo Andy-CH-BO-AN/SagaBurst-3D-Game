@@ -621,3 +621,49 @@ test('an unused cyclic mock helper does not poison an unrelated case root', () =
   ])
   assert.deepEqual(indices(plan), [0])
 })
+
+function ambientNativeSelection({ ambient = true, specifier = 'node:child_process', localSetup = '', pollution = "require.cache['child_process'] = { exports: {} }" } = {}) {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/ambient.test.cjs', owner = 'src/ambient.cjs'
+  const before = "const processIO = require('node:child_process'); function run() { processIO.spawnSync('node', [globalThis.script]); return 1 }; exports.run = run"
+  const body = `const { test } = require('node:test'); const { run } = require('../src/ambient.cjs');
+test('boundary', t => { ${localSetup}; const processIO = require('${specifier}'); t.mock.method(processIO, 'spawnSync', () => { throw 'blocked' }); run() })`
+  const sources = new Map([
+    ...(ambient ? [['ambient.d.ts', 'declare var require: { (id: string): any; cache: { [id: string]: any } };']] : []),
+    ['src/cache.cjs', `${pollution}; exports.done = true`], [owner, before.replace('return 1', 'return 2')], [file, body],
+  ])
+  const previousSources = new Map(sources); previousSources.set(owner, before)
+  const inventory = [{ file, names: ['boundary'], locations: [{ line: 2, column: 1 }] }], files = new Set(sources.keys())
+  return selectBehaviors(inventory, [{ status: 'M', file: owner }], dependencyConsumers(inventory, sources, path => files.has(path), { files }), {
+    sources, previousSources, previousConsumers: dependencyConsumers(inventory, previousSources, path => files.has(path), { files }), ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  })
+}
+
+test('node-prefixed native providers bypass a mutated shared require cache', () => {
+  assert.deepEqual(ambientNativeSelection().selectedCases['tests/ambient.test.cjs'], [0])
+})
+
+test('bare native-provider specifiers do not bypass a mutated require cache', () => {
+  assert.throws(() => ambientNativeSelection({ specifier: 'child_process' }), /Unsafe runtime input/)
+})
+
+test('an ambient require reassignment invalidates only its actual CommonJS source', () => {
+  assert.deepEqual(ambientNativeSelection({ pollution: 'require = globalThis.fakeRequire' }).selectedCases['tests/ambient.test.cjs'], [0])
+})
+
+test('a same-source ambient require reassignment cannot prove a builtin namespace', () => {
+  assert.throws(() => ambientNativeSelection({ localSetup: 'require = globalThis.fakeRequire' }), /Unsafe runtime input/)
+})
+
+test('an opaque escape of the source-local require callable remains uncertain', () => {
+  assert.throws(() => ambientNativeSelection({ localSetup: 'globalThis.mutate(require)' }), /Unsafe runtime input/)
+})
+
+test('replacing the source-local require with a Proxy cannot prove a builtin namespace', () => {
+  assert.throws(() => ambientNativeSelection({ localSetup: 'require = new Proxy(require, globalThis.handler)' }), /Unsafe runtime input/)
+})
+
+
+test('a require expando declaration cannot hide direct callable reassignment', () => {
+  assert.throws(() => ambientNativeSelection({ ambient: false, localSetup: 'require.cache = {}; require = globalThis.fakeRequire' }), /Unsafe runtime input/)
+})
