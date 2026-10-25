@@ -1,100 +1,506 @@
 {
-  "file": "black-cat.glb",
-  "byteLength": 9409176,
+  "status": "pass",
+  "source": {
+    "sha256": "59c10fb0582b5dd90d3e281a73ad4b522ef33213506b315470b1382f6d521c4b",
+    "bytes": 22923612
+  },
   "asset": {
-    "generator": "Khronos glTF Blender I/O v5.2.39",
-    "version": "2.0"
+    "sha256": "55e9a8eb0b633523e347c120c2b8775ebf49e0caac103d88644ea53f77a5b3da",
+    "bytes": 23948876
   },
-  "counts": {
-    "scenes": 1,
-    "nodes": 32,
-    "meshes": 6,
-    "primitives": 6,
-    "triangles": 111472,
-    "materials": 4,
-    "textures": 3,
-    "images": 3,
-    "skins": 1,
-    "joints": 25,
-    "animations": 7
+  "donor": {
+    "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
+    "bytes": 7889000
   },
-  "jointNames": [
-    "cat_torso",
-    "cat_chest",
-    "cat_front_upper_l",
-    "cat_front_lower_l",
-    "cat_front_paw_l",
-    "cat_front_upper_r",
-    "cat_front_lower_r",
-    "cat_front_paw_r",
-    "cat_neck",
-    "cat_head",
-    "cat_rear_upper_l",
-    "cat_rear_lower_l",
-    "cat_rear_ankle_l",
-    "cat_rear_paw_l",
-    "cat_rear_upper_r",
-    "cat_rear_lower_r",
-    "cat_rear_ankle_r",
-    "cat_rear_paw_r",
-    "cat_tail_0",
-    "cat_tail_1",
-    "cat_tail_2",
-    "cat_tail_3",
-    "cat_tail_4",
-    "socket_camera",
-    "socket_saddle_seat"
+  "sourceToAsset": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1
   ],
-  "animationNames": [
-    "idle",
-    "walk",
-    "run",
-    "death",
-    "jump",
-    "land",
-    "hit"
-  ],
-  "extensionsUsed": [
-    "EXT_meshopt_compression",
-    "KHR_materials_specular"
-  ],
-  "extensionsRequired": [
-    "EXT_meshopt_compression"
-  ],
-  "preservation": {
-    "nodesExact": true,
-    "reviewedRigCorrection": null,
-    "geometryExact": true,
-    "skinsExact": true,
-    "materialsExact": true,
-    "imagesExact": true,
-    "originalBinaryPrefixExact": true,
-    "skinCorrection": {
-      "algorithm": "cat-paw-lumbar-v6",
+  "uniformScale": 1,
+  "geometry": {
+    "sourceTriangles": 30266,
+    "finalTriangles": 30266,
+    "matchedSourceTriangles": 30266,
+    "windingPreserved": true,
+    "maximumPositionError": 0,
+    "maximumUvError": 0,
+    "maximumNormalError": 0,
+    "tolerances": {
+      "positionInSourceUnits": 2e-06,
+      "uv": 1e-06,
+      "normalVector": 2e-05
+    }
+  },
+  "skin": {
+    "joints": 53,
+    "maximumWeightError": 4.470348358154297e-08,
+    "maximumRestPositionError": 6.990384203982825e-07,
+    "identicalJointOrderingAndInverseBinds": true
+  },
+  "lods": [
+    {
+      "level": 0,
+      "triangles": 30266,
       "meshes": [
-        {
-          "name": "cat_body_lod0",
-          "changedVertices": 6654
-        },
-        {
-          "name": "cat_body_lod1",
-          "changedVertices": 2063
-        },
-        {
-          "name": "cat_body_lod2",
-          "changedVertices": 798
-        },
-        {
-          "name": "cat_saddle_binding",
-          "changedVertices": 1151
-        },
-        {
-          "name": "cat_saddle_leather",
-          "changedVertices": 388
-        }
+        "cat_body_lod0",
+        "cat_saddle_leather"
       ]
     },
-    "baselineSha256": "09a6b9a6d3d62522abb9e0bf341a303b1a9443bf909411fcc9052d0a55e01c7d",
-    "sha256": "0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986"
-  }
+    {
+      "level": 1,
+      "triangles": 13921,
+      "meshes": [
+        "cat_body_lod1",
+        "cat_equipment_lod1"
+      ]
+    },
+    {
+      "level": 2,
+      "triangles": 3932,
+      "meshes": [
+        "cat_body_lod2",
+        "cat_equipment_lod2"
+      ]
+    }
+  ],
+  "clips": [
+    {
+      "name": "idle",
+      "duration": 10,
+      "donorDuration": 10,
+      "channels": 54,
+      "changingChannels": 2,
+      "fingerprint": "d0876a39c1919c8f02577d8d7103e2bdee9c9bd4bed3384953c6ccd1e2da49a9"
+    },
+    {
+      "name": "walk",
+      "duration": 1.2000000476837158,
+      "donorDuration": 1.2000000476837158,
+      "channels": 54,
+      "changingChannels": 16,
+      "fingerprint": "4894c336c8f46337533dfbb7cf7961d7cf5b1839adc22457b43c82f6ea0944dd"
+    },
+    {
+      "name": "run",
+      "duration": 0.800000011920929,
+      "donorDuration": 0.800000011920929,
+      "channels": 54,
+      "changingChannels": 24,
+      "fingerprint": "14783f71f0fa13cf83c644b0365cf07abea48a4f8d2200412434f8b5f5ff016d"
+    },
+    {
+      "name": "jump",
+      "duration": 0.7666666507720947,
+      "donorDuration": 0.7666666507720947,
+      "channels": 54,
+      "changingChannels": 19,
+      "fingerprint": "c23b1e4e4b85137d957d9492921482b072c89deedac24151621d4cea55be4a24"
+    },
+    {
+      "name": "land",
+      "duration": 0.6333333253860474,
+      "donorDuration": 0.6333333253860474,
+      "channels": 54,
+      "changingChannels": 19,
+      "fingerprint": "f7e82b15b92f7b76eede18c86af3df2d7fd067539251451283c9e59143449698"
+    },
+    {
+      "name": "hit",
+      "duration": 0.6333333253860474,
+      "donorDuration": 0.6333333253860474,
+      "channels": 54,
+      "changingChannels": 7,
+      "fingerprint": "ea1f4a541f92ebb43af43bb9703311425d255e8ddcd18b5b7e325a5b1fa365ae"
+    },
+    {
+      "name": "death",
+      "duration": 1.7999999523162842,
+      "donorDuration": 1.7999999523162842,
+      "channels": 54,
+      "changingChannels": 6,
+      "fingerprint": "42d2f28498e7c8435ddd97ac85aeb96190e3571d23a4cee9af6d454fadb80352"
+    }
+  ],
+  "appearance": {
+    "materialConfigurationPreserved": true,
+    "originalImages": [
+      {
+        "sha256": "09017939f71c1a3f899d4097d6dde97bbdc211deaea6df3f6d73936dc789c163",
+        "bytes": 8027998,
+        "mimeType": "image/jpeg"
+      },
+      {
+        "sha256": "2480f824327825269de054457db91ed863aa18ad9395e1da755b64aede524a1f",
+        "bytes": 11762098,
+        "mimeType": "image/jpeg"
+      },
+      {
+        "sha256": "637fb9b5e999a9695bfb17a4e291fed06e3223b8ae427ac7732fca08052ce08c",
+        "bytes": 1711196,
+        "mimeType": "image/jpeg"
+      }
+    ],
+    "finalImages": [
+      {
+        "sha256": "09017939f71c1a3f899d4097d6dde97bbdc211deaea6df3f6d73936dc789c163",
+        "bytes": 8027998,
+        "mimeType": "image/jpeg"
+      },
+      {
+        "sha256": "2480f824327825269de054457db91ed863aa18ad9395e1da755b64aede524a1f",
+        "bytes": 11762098,
+        "mimeType": "image/jpeg"
+      },
+      {
+        "sha256": "637fb9b5e999a9695bfb17a4e291fed06e3223b8ae427ac7732fca08052ce08c",
+        "bytes": 1711196,
+        "mimeType": "image/jpeg"
+      }
+    ],
+    "equippedMaterialImageBytesUnchanged": true,
+    "equippedMaterialMapImages": [
+      {
+        "role": "baseColorTexture",
+        "image": 1
+      },
+      {
+        "role": "metallicRoughnessTexture",
+        "image": 2
+      },
+      {
+        "role": "normalTexture",
+        "image": 0
+      }
+    ],
+    "imageCompressionAppearance": "Current package retains exact original image bytes; alternate compression requires separate visual acceptance and a reviewed contract update"
+  },
+  "posed": {
+    "gltfLoaderSucceeded": true,
+    "rigidEquipment": {
+      "regionsSha256": "b72835a1b7dd3a3c88bc73a21f1c724336b7ae936e5881d049d16f9893550be2",
+      "sourceFaces": 7524,
+      "equipmentSourceFaces": 10875,
+      "scopeFingerprints": {
+        "equipmentFaceIndices": {
+          "count": 10875,
+          "sha256": "7f9923ff855d890550510a71203aba64d4bde4fca0d04f46174468ffeeba494e"
+        },
+        "rigidEquipmentFaceIndices": {
+          "count": 7524,
+          "sha256": "e07c2984ae2d81ec51fed9f7c87c847080001f14fbb4af248575f1b8b797fb81"
+        }
+      },
+      "scope": "Explicit original source triangle IDs for rigid saddle/equipment; flexible tack excluded",
+      "vertices": 6287,
+      "everyRigidVertexChecked": true,
+      "measurement": "All original rigid-region edges plus every rigid vertex to spatial anchors"
+    },
+    "saddleToleranceMeters": 5e-05,
+    "clips": [
+      {
+        "name": "death",
+        "rigiditySamples": 217,
+        "checkedDistances": 51179,
+        "maximumSaddleDistanceError": 7.423439940534848e-08,
+        "maximumSharedSourceBoundarySeparation": 0,
+        "maximumCoincidentPositionSeparation": 0,
+        "bodyBounds": [
+          {
+            "phase": 0,
+            "bodyMinY": 0.0057853377663633155,
+            "bodyMaxY": 1.7057857267040457
+          },
+          {
+            "phase": 0.13,
+            "bodyMinY": 0.005062024006753486,
+            "bodyMaxY": 1.7053880973557114
+          },
+          {
+            "phase": 0.37,
+            "bodyMinY": 0.0019766376838728766,
+            "bodyMaxY": 1.7510804902871278
+          },
+          {
+            "phase": 0.63,
+            "bodyMinY": 0.001998595278554913,
+            "bodyMaxY": 0.8586463591628286
+          },
+          {
+            "phase": 0.89,
+            "bodyMinY": 0.005840662065392644,
+            "bodyMaxY": 0.8068572749705383
+          },
+          {
+            "phase": 1,
+            "bodyMinY": 0.005840662065392644,
+            "bodyMaxY": 0.8068572745908666
+          }
+        ]
+      },
+      {
+        "name": "hit",
+        "rigiditySamples": 77,
+        "checkedDistances": 51179,
+        "maximumSaddleDistanceError": 3.868192655076541e-08,
+        "maximumSharedSourceBoundarySeparation": 0,
+        "maximumCoincidentPositionSeparation": 0,
+        "bodyBounds": [
+          {
+            "phase": 0,
+            "bodyMinY": 0.0019999462647011723,
+            "bodyMaxY": 1.720376357872587
+          },
+          {
+            "phase": 0.13,
+            "bodyMinY": 0.0019999462647011723,
+            "bodyMaxY": 1.7310270997942319
+          },
+          {
+            "phase": 0.37,
+            "bodyMinY": 0.0019999462647011723,
+            "bodyMaxY": 1.7480809042886623
+          },
+          {
+            "phase": 0.63,
+            "bodyMinY": 0.0019999462647011723,
+            "bodyMaxY": 1.7504136986079817
+          },
+          {
+            "phase": 0.89,
+            "bodyMinY": 0.0019999462647011723,
+            "bodyMaxY": 1.7353678098533418
+          },
+          {
+            "phase": 1,
+            "bodyMinY": 0.0019999462647011723,
+            "bodyMaxY": 1.720376357872587
+          }
+        ]
+      },
+      {
+        "name": "idle",
+        "rigiditySamples": 1201,
+        "checkedDistances": 51179,
+        "maximumSaddleDistanceError": 3.868192655076541e-08,
+        "maximumSharedSourceBoundarySeparation": 0,
+        "maximumCoincidentPositionSeparation": 0,
+        "bodyBounds": [
+          {
+            "phase": 0,
+            "bodyMinY": 0.0019999073655751496,
+            "bodyMaxY": 1.7203768071820955
+          },
+          {
+            "phase": 0.13,
+            "bodyMinY": 0.0019999073655751496,
+            "bodyMaxY": 1.728470381506166
+          },
+          {
+            "phase": 0.37,
+            "bodyMinY": 0.0019999073655751496,
+            "bodyMaxY": 1.7517284386399838
+          },
+          {
+            "phase": 0.63,
+            "bodyMinY": 0.0019999073655751496,
+            "bodyMaxY": 1.7739974029814072
+          },
+          {
+            "phase": 0.89,
+            "bodyMinY": 0.0019999073655751496,
+            "bodyMaxY": 1.715495984746183
+          },
+          {
+            "phase": 1,
+            "bodyMinY": 0.0019999073655751496,
+            "bodyMaxY": 1.7203768071820955
+          }
+        ]
+      },
+      {
+        "name": "jump",
+        "rigiditySamples": 93,
+        "checkedDistances": 51179,
+        "maximumSaddleDistanceError": 3.868192655076541e-08,
+        "maximumSharedSourceBoundarySeparation": 0,
+        "maximumCoincidentPositionSeparation": 0,
+        "bodyBounds": [
+          {
+            "phase": 0,
+            "bodyMinY": 0.0019999462647011723,
+            "bodyMaxY": 1.720376357872587
+          },
+          {
+            "phase": 0.13,
+            "bodyMinY": 0.001996451733086879,
+            "bodyMaxY": 1.7411852116540294
+          },
+          {
+            "phase": 0.37,
+            "bodyMinY": 0.046307247253632465,
+            "bodyMaxY": 1.8147258688112506
+          },
+          {
+            "phase": 0.63,
+            "bodyMinY": 0.07204473594906026,
+            "bodyMaxY": 1.8465023876931828
+          },
+          {
+            "phase": 0.89,
+            "bodyMinY": 0.07204473594906026,
+            "bodyMaxY": 1.8465023876931759
+          },
+          {
+            "phase": 1,
+            "bodyMinY": 0.07204473594906026,
+            "bodyMaxY": 1.8465023876931759
+          }
+        ]
+      },
+      {
+        "name": "land",
+        "rigiditySamples": 77,
+        "checkedDistances": 51179,
+        "maximumSaddleDistanceError": 3.868192655076541e-08,
+        "maximumSharedSourceBoundarySeparation": 0,
+        "maximumCoincidentPositionSeparation": 0,
+        "bodyBounds": [
+          {
+            "phase": 0,
+            "bodyMinY": 0.0019999462647011723,
+            "bodyMaxY": 1.720376357872587
+          },
+          {
+            "phase": 0.13,
+            "bodyMinY": 0.0019924409910295716,
+            "bodyMaxY": 1.7266296571489408
+          },
+          {
+            "phase": 0.37,
+            "bodyMinY": 0.00199906171338091,
+            "bodyMaxY": 1.7433674219688764
+          },
+          {
+            "phase": 0.63,
+            "bodyMinY": 0.0019994176584252725,
+            "bodyMaxY": 1.7448709136694622
+          },
+          {
+            "phase": 0.89,
+            "bodyMinY": 0.001988207715824501,
+            "bodyMaxY": 1.7303067840523743
+          },
+          {
+            "phase": 1,
+            "bodyMinY": 0.0019999462647011723,
+            "bodyMaxY": 1.720376357872587
+          }
+        ]
+      },
+      {
+        "name": "run",
+        "rigiditySamples": 97,
+        "checkedDistances": 51179,
+        "maximumSaddleDistanceError": 3.868192655076541e-08,
+        "maximumSharedSourceBoundarySeparation": 0,
+        "maximumCoincidentPositionSeparation": 0,
+        "bodyBounds": [
+          {
+            "phase": 0,
+            "bodyMinY": 0.2260417459212182,
+            "bodyMaxY": 1.6376002621300199
+          },
+          {
+            "phase": 0.13,
+            "bodyMinY": -0.008148235814707331,
+            "bodyMaxY": 1.6354633587460057
+          },
+          {
+            "phase": 0.37,
+            "bodyMinY": 0.1541632207242712,
+            "bodyMaxY": 1.7936269586140965
+          },
+          {
+            "phase": 0.63,
+            "bodyMinY": 0.017086845846806663,
+            "bodyMaxY": 1.7642171511984341
+          },
+          {
+            "phase": 0.89,
+            "bodyMinY": 0.03250792044615038,
+            "bodyMaxY": 1.6814162255438827
+          },
+          {
+            "phase": 1,
+            "bodyMinY": 0.2260417459212182,
+            "bodyMaxY": 1.6376002621300199
+          }
+        ]
+      },
+      {
+        "name": "walk",
+        "rigiditySamples": 145,
+        "checkedDistances": 51179,
+        "maximumSaddleDistanceError": 3.868192655076541e-08,
+        "maximumSharedSourceBoundarySeparation": 0,
+        "maximumCoincidentPositionSeparation": 0,
+        "bodyBounds": [
+          {
+            "phase": 0,
+            "bodyMinY": 0.0029999288451015133,
+            "bodyMaxY": 1.633557636772426
+          },
+          {
+            "phase": 0.13,
+            "bodyMinY": 0.009909637450934879,
+            "bodyMaxY": 1.6610818555314497
+          },
+          {
+            "phase": 0.37,
+            "bodyMinY": 0.0027688313718507484,
+            "bodyMaxY": 1.6749173061127678
+          },
+          {
+            "phase": 0.63,
+            "bodyMinY": 0.0027945703239576672,
+            "bodyMaxY": 1.6813527142930775
+          },
+          {
+            "phase": 0.89,
+            "bodyMinY": 0.0028660478452153634,
+            "bodyMaxY": 1.6584285628355269
+          },
+          {
+            "phase": 1,
+            "bodyMinY": 0.002999928845101539,
+            "bodyMaxY": 1.633557636772426
+          }
+        ]
+      }
+    ],
+    "boundary": {
+      "sharedSourceIndexPairCount": 837,
+      "toleranceMeters": 5e-05,
+      "coincidentDistinctSourceIndexPairCount": 776,
+      "coincidentPositionPolicy": "Diagnostic only: distinct source indices at the same position may belong to independent surfaces; they are not assumed to share support."
+    },
+    "boundsInterpretation": "Model-space body bounds are diagnostics only; runtime jump translation and terrain are not simulated. They do not establish contact or a natural gait."
+  },
+  "limits": [
+    "This asset audit does not prove natural gait, foot contact, absence of clipping, rider fit, LOD switching, gameplay, or GPU performance. Those require separate evidence."
+  ]
 }

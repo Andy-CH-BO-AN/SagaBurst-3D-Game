@@ -1,155 +1,120 @@
 {
-  "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
-  "bytes": 7889000,
-  "source": {
-    "sha256": "9e6ce0835095dfec2de0e953f38a0dbaa987a50da0a28bf4e8c241ee2ac7f81a",
-    "bytes": 18758816,
-    "triangles": 10322
-  },
-  "previousPackage": {
-    "sha256": "0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986",
-    "bytes": 9409176,
-    "bodyLod0Triangles": 71856
-  },
-  "lods": [
-    {
-      "level": 0,
-      "triangles": 12306,
-      "storedTriangles": 27890,
-      "backingTriangles": 15584,
-      "unarmoredTriangles": 15584,
-      "bodyTriangles": 5344,
-      "equipmentTriangles": 6962
-    },
-    {
-      "level": 1,
-      "triangles": 5905,
-      "storedTriangles": 11515,
-      "backingTriangles": 5610,
-      "unarmoredTriangles": 5610,
-      "bodyTriangles": 2565,
-      "equipmentTriangles": 3340
-    },
-    {
-      "level": 2,
-      "triangles": 2212,
-      "storedTriangles": 4393,
-      "backingTriangles": 2181,
-      "unarmoredTriangles": 2181,
-      "bodyTriangles": 960,
-      "equipmentTriangles": 1252
+  "schemaVersion": 2,
+  "sha256": "55e9a8eb0b633523e347c120c2b8775ebf49e0caac103d88644ea53f77a5b3da",
+  "sourceSha256": "59c10fb0582b5dd90d3e281a73ad4b522ef33213506b315470b1382f6d521c4b",
+  "sourceContract": {
+    "sourceTriangles": 30266,
+    "finalTriangles": 30266,
+    "matchedSourceTriangles": 30266,
+    "windingPreserved": true,
+    "maximumPositionError": 0,
+    "maximumUvError": 0,
+    "maximumNormalError": 0,
+    "tolerances": {
+      "positionInSourceUnits": 2e-06,
+      "uv": 1e-06,
+      "normalVector": 2e-05
     }
+  },
+  "sourceToAsset": [
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    1
   ],
-  "textures": [
+  "sourceImages": [
     {
-      "name": "normal",
+      "image": 0,
+      "width": 4096,
+      "height": 4096,
+      "bytes": 8027998,
+      "mimeType": "image/jpeg",
+      "sha256": "09017939f71c1a3f899d4097d6dde97bbdc211deaea6df3f6d73936dc789c163"
+    },
+    {
+      "image": 1,
+      "width": 4096,
+      "height": 4096,
+      "bytes": 11762098,
+      "mimeType": "image/jpeg",
+      "sha256": "2480f824327825269de054457db91ed863aa18ad9395e1da755b64aede524a1f"
+    },
+    {
+      "image": 2,
       "width": 2048,
       "height": 2048,
-      "bytes": 4202529,
-      "mimeType": "image/png"
-    },
-    {
-      "name": "texture_0",
-      "width": 2048,
-      "height": 2048,
-      "bytes": 1197712,
-      "mimeType": "image/jpeg"
-    },
-    {
-      "name": "texture_0_metallic_roughness",
-      "width": 1024,
-      "height": 1024,
-      "bytes": 834567,
-      "mimeType": "image/png"
+      "bytes": 1711196,
+      "mimeType": "image/jpeg",
+      "sha256": "637fb9b5e999a9695bfb17a4e291fed06e3223b8ae427ac7732fca08052ce08c"
     }
   ],
-  "materials": 1,
-  "visibleDrawPrimitives": {
-    "equipped": 2,
-    "unarmored": 1
-  },
-  "residentMeshPrimitives": 9,
-  "animationMixerPerInstance": 1,
-  "whiskers": {
-    "count": 6,
-    "bone": "cat_head",
-    "segments": 8,
-    "sourceRoots": [
-      [
-        -0.04699999839067459,
-        -0.9109829068183899,
-        0.2630000114440918
-      ],
-      [
-        -0.052000001072883606,
-        -0.9021651744842529,
-        0.2720000147819519
-      ],
-      [
-        -0.05700000002980232,
-        -0.8946526646614075,
-        0.2809999883174896
-      ],
-      [
-        0.04699999839067459,
-        -0.9110299944877625,
-        0.2630000114440918
-      ],
-      [
-        0.052000001072883606,
-        -0.9018042087554932,
-        0.2720000147819519
-      ],
-      [
-        0.05700000002980232,
-        -0.8938409686088562,
-        0.2809999883174896
-      ]
+  "metrics": {
+    "packageBytes": 23948876,
+    "joints": 53,
+    "materials": 1,
+    "storedPrimitives": 6,
+    "visibleDrawCalls": 2,
+    "lodTriangles": [
+      30266,
+      13921,
+      3932
     ]
   },
-  "muzzleRepair": {
-    "removedSourceFaces": 298,
-    "retainedSourceFaces": 10024,
-    "capTriangles": 1898
+  "skin": {
+    "method": "Continuous position-domain attachment solve with native shaft anchors and actual rigid saddle surface",
+    "geometricPoints": 15099,
+    "freePoints": 5061,
+    "fixedCounts": {
+      "rigid": 3947,
+      "native": 6091,
+      "tail": 3066
+    },
+    "iterations": 283,
+    "residual": 9.728825098864746e-07,
+    "maxDroppedWeight": 0.15462405939065005
   },
-  "saddleSeat": {
-    "heightM": 1.6228187964439391,
-    "sourceLocal": [
+  "equipment": {
+    "originalSaddleGeometry": "unchanged",
+    "rigidSourceFaces": 7524,
+    "flexibleTack": "Front chest harness and its low return bend with the source body; complete saddle, bags and stirrups remain rigid.",
+    "sharedBoundaryPairs": 837,
+    "maximumSharedBoundarySeparationMeters": 0,
+    "maximumRigidDistanceErrorMeters": 7.423439940534848e-08
+  },
+  "sockets": {
+    "socket_saddle_seat": [
       0,
-      -0.16,
-      0.281
+      1.266,
+      0.12
+    ],
+    "socket_camera": [
+      0,
+      1.566,
+      0.12
     ]
   },
-  "limits": [
-    "Blender image review does not establish Browser gameplay or GPU performance.",
-    "Minor closed cheek and shoulder shading seams at close range.",
-    "Small contracted upper-leg folds beneath source tack.",
-    "Four tiny pre-existing open edge segments outside repaired muzzle remain.",
-    "Unarmored LOD0 conservatively uses 15,584 triangles to retain source head/paws/tail and continuous concealed fur; LOD1/2 reduce this to 5,610/2,181."
-  ],
-  "blenderPackedRoundtrip": {
-    "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
-    "reviewedImages": 50,
-    "sevenClips": true,
-    "runPhases": 8,
-    "allLods": true,
-    "equipmentOff": true,
-    "headCloseViews": [
-      "front",
-      "left",
-      "right",
-      "angle"
-    ],
-    "browserGameplay": false,
-    "headFollowPoses": [
-      "run",
-      "death"
-    ],
-    "shoulderOpaqueSurfaceDiagnosticFrames": [
-      18,
-      24,
-      30,
-      36
-    ]
-  }
+  "validation": {
+    "independentAssetContract": "passed",
+    "blenderCriticalPoses": "Final package re-import: run0/.5/.875, jump.5 side/under, land.5 reviewed; earlier same-motion all-seven fixed-phase review plus all-key/midpoint structural checks.",
+    "browserGameplay": "Passed public-path SHA verification; six real NPC riders (three Viking T4 and three T5); walk/run, both-tier jump-land-idle, hit recovery, dismount/remount, death ejection and final-pose hold, LOD0/1/2, town saddle initialization/restoration. No application console errors.",
+    "performance": "Passed three sequential baseline/candidate pairs on headed Chrome / Apple M1 Pro; 3s warmup + 15s samples, 1280x720 DPR1; six real moving riders, natural LOD1/2. Exact served GLB responses hashed before warmup."
+  },
+  "knownLimitations": [
+    "Model-space run minimum Y is -0.008148m at sampled phase0.13; this is not a terrain/contact simulation.",
+    "Body/gear supports are shared at source seams; close underside fur compression remains around fixed original equipment.",
+    "Source JPEG maps are retained byte-for-byte at original resolutions; package size increased from 7,889,000 to 23,948,876 bytes.",
+    "Performance sampling covers natural LOD1/2 only; no large-battle or near-camera LOD0 stress claim."
+  ]
 }

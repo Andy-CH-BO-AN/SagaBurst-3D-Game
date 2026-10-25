@@ -86,6 +86,15 @@ function policyConsumers(file, inventory) {
     for (const owner of ['tests/assets/QuadrupedAssetPreload.test.ts',
       'tests/actors/RiderSeatContactCache.test.ts', 'tests/actors/MountDeathPresentation.test.ts']) add(owner)
   }
+  // Black-cat geometry, skinning and clips have a standalone asset audit.
+  // Its runtime owners cover preload publication and rider-contact invalidation.
+  if (/^public\/models\/mounts\/v2\/black-cat\//.test(file)
+    || ['tools/blender/build_black_cat_v3.mjs', 'tools/blender/black_cat_v3_regions.json',
+      'tools/validate-black-cat-v3.mjs',
+      'tools/blender/black_cat_v3_skin.mjs', 'tools/blender/black_cat_v3_motion.mjs'].includes(file)) {
+    add('tests/assets/QuadrupedAssetPreload.test.ts')
+    add('tests/actors/RiderSeatContactCache.test.ts')
+  }
   // Offline humanoid axe edits feed the manifest timing and compressed-loader
   // contracts. Binary/pose preservation is an asset-build audit, not a unit Scene.
   if (['tools/trim-two-handed-axe.mjs', 'tools/lib/axe-clip-trim.mjs',

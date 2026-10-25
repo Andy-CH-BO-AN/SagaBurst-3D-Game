@@ -1982,11 +1982,11 @@ export class Game {
         riderWeaponButton.onclick = cycleRiderWeapon
         toolbar.appendChild(riderWeaponButton)
       }
-      if (!isSnowLeopard) {
+      if (isCorgi) {
         let equipped = true
         const armor = document.createElement('button'); armor.textContent = '護甲：開'
         armor.style.cssText = 'padding:9px 14px;background:#282522;color:#e6d7bb;border:1px solid #766347;border-radius:5px;cursor:pointer'
-        armor.onclick = () => { equipped = !equipped; (mount.catVisual ?? mount.corgiVisual)!.setEquipmentVisible(equipped); armor.textContent = `護甲：${equipped ? '開' : '關'}` }
+        armor.onclick = () => { equipped = !equipped; mount.corgiVisual!.setEquipmentVisible(equipped); armor.textContent = `護甲：${equipped ? '開' : '關'}` }
         toolbar.appendChild(armor)
       }
       document.body.appendChild(toolbar)

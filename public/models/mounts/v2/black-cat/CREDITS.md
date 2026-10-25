@@ -1,35 +1,34 @@
-# Midnight Rider Black Cat
+# T4 Black Cat — source-preserving replacement
 
-Model created with Meshy – CC BY 4.0 License.
+The user supplied `Meshy_AI_Character_output (1).glb` and confirmed ownership and permission to submit the modified asset. The original file is an external rebuild input; this record does not assign an open-source license to it.
 
-- Creator platform: [Meshy](https://www.meshy.ai/).
-- License: [Creative Commons Attribution 4.0](https://creativecommons.org/licenses/by/4.0/).
-- User-provided free-plan model: `Meshy_AI_Midnight_Rider_1017070200_texture.glb`.
-- Original SHA-256: `9e6ce0835095dfec2de0e953f38a0dbaa987a50da0a28bf4e8c241ee2ac7f81a`.
-- [Meshy's free-plan commercial-use and attribution guidance](https://help.meshy.ai/en/articles/16102098-can-i-use-meshy-assets-commercially).
-- No individual creator or public asset URL was supplied; none is inferred.
+- Source SHA-256: `59c10fb0582b5dd90d3e281a73ad4b522ef33213506b315470b1382f6d521c4b`
+- Source: 30,266 triangles, 23,515 vertices, 53 bones, no animation clips.
+- Every source triangle is retained exactly once in equipped LOD0, including the original saddle, bags, stirrups, fur, face, whiskers and tail. Rest positions, corner normals, UVs, material settings and three original JPEG images are unchanged.
+- Only skeleton animation, skin weights, sockets and separate distant LODs were adapted. The latest requested scope is the equipped black cat; there is no reconstructed unequipped geometry.
 
-SagaBurst modifications: source-specific measured feline rest skeleton and skin,
-seven retargeted/baked mount actions, local malformed whisker-web removal and
-texture repair, six head-bound replacement whiskers, source saddle/armor
-visibility separation, reconstruction of concealed fur for equipment-off mode,
-three compatible LODs, normalized transform and saddle/camera sockets, texture
-optimization and Meshopt buffer compression. Original exposed geometry and
-source tack are retained except the documented local repair/graft boundaries.
-There is no live hair, cloth or whisker physics.
+## Animation provenance
 
-## Animation sources and derivation
+All seven clips come from the production black cat at commit `ea18eff8ceab74e88afc738019127792ea03e311`, path `public/models/mounts/v2/black-cat/black-cat.glb`, SHA-256 `37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b`. The immutable Git version is the donor; the new output must never be used as its own input.
 
-The animation donor is SagaBurst's accepted black-cat asset at immutable commit
-`2b3447f990772cc133f5cff28a5b96c2763a7e8d`, compressed SHA-256
-`0e5d7a40f1230d8b9d21a56512b8c37d038166573fd488a03aa7eb6c4f5a3986`.
-The new package transfers its motion into the newly measured rest bases. It does
-not contain the old animal mesh, old saddle or old textures.
+The donor credits [Doginx — Tomate Salat](https://tomate-salat.itch.io/doginx-assets) under CC0 for idle/walk poses, and [Lowpoly Cat + Run Animation — Daily Lowpoly](https://dailylowpoly.itch.io/lowpoly-cat-running) with the creator's permission for commercial-project use. SagaBurst's retained jump, land, hit and authored death motion are inherited from the pinned donor. `animation-source.json` preserves these source hashes and the new offline bake mapping.
 
-- Idle/walk: [Doginx - Assets](https://tomate-salat.itch.io/doginx-assets), Tomate Salat, [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/).
-- Run: [Lowpoly Cat + Run Animation](https://dailylowpoly.itch.io/lowpoly-cat-running), Daily Lowpoly. Creator permits commercial project use. Motion was retargeted and baked by SagaBurst; donor mesh/textures are not included.
-- Death, jump, land and hit: existing SagaBurst-authored/accepted target animations.
-- Historical accepted donor model: [Black Cat by 3D Creator (3DChuang-Ke-Ji)](https://sketchfab.com/3d-models/black-cat-dd0adc10d8b94bc99dfffe0268818e0b), CC BY 4.0. Listed for derivation history; its geometry and textures are replaced.
+The replacement uses source-rest basis adaptation. Walk/run retain donor duration and contact order, with source-length IK and stance timing adapted to this smaller skeleton. It does not claim identical trajectories. No animation is retargeted every frame at runtime.
 
-Reproduction: [Black Cat build instructions](../../../../../tools/meshy-mounts/black-cat-build.md).
-Original downloads, intermediate blends and review renders are excluded from the shipped assets.
+## Rebuild and verify
+
+Run from repository root. The production dependency versions remain unchanged. The build-only simplifier is meshoptimizer **1.3.0**; the existing production Meshopt encoder/decoder remains **0.18.1**.
+
+```sh
+rtk proxy mkdir -p output/black-cat-v3
+rtk proxy git show ea18eff8ceab74e88afc738019127792ea03e311:public/models/mounts/v2/black-cat/black-cat.glb > output/black-cat-v3/donor.glb
+rtk proxy npm install --prefix output/black-cat-v3/build-deps --no-save --package-lock=false --ignore-scripts meshoptimizer@1.3.0
+rtk proxy node tools/blender/build_black_cat_v3.mjs --source '/absolute/path/Meshy_AI_Character_output (1).glb' --donor output/black-cat-v3/donor.glb --output output/black-cat-v3/build --simplifier output/black-cat-v3/build-deps/node_modules/meshoptimizer/meshopt_simplifier.js
+rtk proxy node tools/validate-black-cat-v3.mjs --source '/absolute/path/Meshy_AI_Character_output (1).glb' --asset output/black-cat-v3/build/black-cat.glb --donor output/black-cat-v3/donor.glb --transform-json output/black-cat-v3/build/source-transform.json --regions-json tools/blender/black_cat_v3_regions.json --report output/black-cat-v3/contract-audit.json
+```
+
+The source-to-game transform is identity: meters, +Y up and +Z forward. The builder reads exact source corner attributes directly, partitions the reviewed source face IDs, repairs weights on the original surface, bakes 60Hz clips and derives LOD1/2 from independent copies. Meshopt encoding does not quantize LOD0. `black_cat_v3_regions.json` is a reviewed source-specific partition, not a generic color threshold to rerun on arbitrary assets.
+
+`audit.json` is the independent final asset check. It proves triangle correspondence, material/image preservation, original binds, clip durations, rigid saddle distances and shared body/gear seams. It does not prove natural motion or gameplay. Final browser evidence and performance results belong in `asset-report.json` and the PR.
+
+Known limits: the original high-resolution texture payload is retained; close underside poses still have fur compression near the fixed saddle. A model-space run sample at phase 0.13 reaches 8.15mm below zero; this is recorded rather than called perfect foot contact. The source rig retains 53 bones and 54 baked channels per clip, including constant offset/restoration tracks.

@@ -5,120 +5,84 @@
   "forward": "+Z",
   "file": "black-cat.glb",
   "source": {
-    "title": "Midnight Rider",
-    "author": "Meshy; user-provided free-plan model",
+    "title": "Rigged Black Cat",
+    "author": "Meshy; user-provided model",
     "url": "https://www.meshy.ai/",
-    "license": "CC-BY-4.0",
-    "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
-    "file": "Meshy_AI_Midnight_Rider_1017070200_texture.glb",
-    "sourceSha256": "9e6ce0835095dfec2de0e953f38a0dbaa987a50da0a28bf4e8c241ee2ac7f81a"
+    "license": "User-owned; modified-asset redistribution authorized by the user",
+    "file": "Meshy_AI_Character_output (1).glb",
+    "sourceSha256": "59c10fb0582b5dd90d3e281a73ad4b522ef33213506b315470b1382f6d521c4b"
   },
-  "attribution": "Model created with Meshy \u2013 CC BY 4.0 License. Modified for SagaBurst.",
+  "attribution": "User-provided Meshy model. Original geometry, saddle, UVs and image bytes retained; rig/weights and baked animation adapted for SagaBurst. Animation credits are recorded separately.",
   "modifications": [
-    "Source-specific measured 25-node feline rig and 2.05 uniform transform normalization",
-    "Accepted seven-clip donor retargeted into measured rest bases and baked at 60 Hz",
-    "Local malformed whisker web and affected texture pixels repaired; six head-bound replacement whiskers",
-    "Original saddle and armor separated for visibility without adding legacy tack",
-    "Complete off-mode fur skin reconstructed only in concealed regions with continuous local weighting",
-    "Three skeleton-compatible LODs with one shared material and a batched fur/whisker atlas strip",
-    "2048 base/normal and 1024 metallic-roughness textures; byte-exact Meshopt buffer compression"
+    "Every original LOD0 triangle retained exactly once across body and equipment, with unchanged source positions, normals, UVs and image bytes",
+    "Original 53-bone skeleton and inverse binds retained; continuous source-surface weights repair saddle attachments and tail base",
+    "Seven pinned production donor clips retargeted offline at 60Hz; walk/run contact phases adapted to source limb lengths with analytic IK",
+    "Independent LOD1/LOD2 simplification; lossless Meshopt compression without LOD0 quantization",
+    "Original saddle retained with source-space rider/camera sockets; equipped appearance is always shown"
   ],
   "metrics": {
     "triangles": {
-      "cat_body_lod0": 5344,
-      "cat_saddle_leather": 6962,
-      "cat_unarmored_lod0": 15584,
-      "cat_body_lod1": 2565,
-      "cat_equipment_lod1": 3340,
-      "cat_unarmored_lod1": 5610,
-      "cat_body_lod2": 960,
-      "cat_equipment_lod2": 1252,
-      "cat_unarmored_lod2": 2181
+      "cat_body_lod0": 19391,
+      "cat_saddle_leather": 10875,
+      "cat_body_lod1": 8919,
+      "cat_equipment_lod1": 5002,
+      "cat_body_lod2": 2520,
+      "cat_equipment_lod2": 1412
     },
     "visibleEquippedTriangles": [
-      12306,
-      5905,
-      2212
-    ],
-    "visibleUnarmoredTriangles": [
-      15584,
-      5610,
-      2181
+      30266,
+      13921,
+      3932
     ],
     "residentTrianglesByLod": [
-      27890,
-      11515,
-      4393
+      30266,
+      13921,
+      3932
     ],
-    "residentGeometryBytes": 2510592,
-    "textureMaxSize": 2048,
-    "textures": [
-      {
-        "name": "normal",
-        "width": 2048,
-        "height": 2048,
-        "bytes": 4202529,
-        "mimeType": "image/png"
-      },
-      {
-        "name": "texture_0",
-        "width": 2048,
-        "height": 2048,
-        "bytes": 1197712,
-        "mimeType": "image/jpeg"
-      },
-      {
-        "name": "texture_0_metallic_roughness",
-        "width": 1024,
-        "height": 1024,
-        "bytes": 834567,
-        "mimeType": "image/png"
-      }
-    ],
-    "packageBytes": 7889000,
-    "saddleHeightM": 1.6228187964439391,
+    "textureMaxSize": 4096,
+    "packageBytes": 23948876,
+    "saddleHeightM": 1.266,
     "materials": 1,
-    "storedMeshPrimitives": 9,
+    "storedMeshPrimitives": 6,
     "visiblePrimitives": {
-      "equipped": 2,
-      "unarmored": 1
-    }
+      "equipped": 2
+    },
+    "bones": 53
   },
   "lodNodes": [
     "cat_body_lod0",
     "cat_body_lod1",
     "cat_body_lod2"
   ],
-  "clips": [
-    "idle",
-    "walk",
-    "run",
-    "death",
-    "jump",
-    "land",
-    "hit"
-  ],
-  "sockets": [
-    "socket_saddle_seat",
-    "socket_camera"
-  ],
-  "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b",
-  "animationSource": "animation-source.json",
   "equipmentLodNodes": [
     "cat_saddle_leather",
     "cat_equipment_lod1",
     "cat_equipment_lod2"
   ],
-  "unarmoredLodNodes": [
-    "cat_unarmored_lod0",
-    "cat_unarmored_lod1",
-    "cat_unarmored_lod2"
+  "clips": [
+    "death",
+    "hit",
+    "idle",
+    "jump",
+    "land",
+    "run",
+    "walk"
   ],
+  "sockets": [
+    "socket_saddle_seat",
+    "socket_camera"
+  ],
+  "sha256": "55e9a8eb0b633523e347c120c2b8775ebf49e0caac103d88644ea53f77a5b3da",
+  "animationSource": "animation-source.json",
   "validation": {
-    "structuralAudit": "passed",
-    "browserGameplay": "pending",
-    "gpuPerformance": "not measured",
-    "visualEvidenceKind": "Blender re-import of final packed GLB, not Browser gameplay",
-    "blenderPackedRoundtrip": "passed with documented minor art limitations"
+    "structuralAudit": "passed: independent source-face geometry/UV/normal/image equivalence and posed saddle/seam checks",
+    "browserGameplay": "passed public-path six-rider T4/T5 action/LOD/death and town saddle QA; see asset-report.json",
+    "gpuPerformance": "passed three paired LOD1/2 development samples; renderer submission is CPU timing, not GPU timing; see asset-report.json",
+    "blenderPackedRoundtrip": "reviewed critical run/jump/land poses; no mesh explosion",
+    "knownLimitations": [
+      "Dense 4096/2048/4096 source textures retained without resampling.",
+      "A sampled run phase has 8.15mm minimum paw penetration; runtime contact verification is recorded separately.",
+      "Close underside views retain minor fur compression around the fixed original saddle; no source geometry was altered."
+    ]
   }
 }
