@@ -251,6 +251,18 @@ export class NavigationGrid {
    * Optional padding lets a caller bake actor clearance into the grid later.
    */
   setBlockedBox(box: THREE.Box3, blocked: boolean, padding = 0): void {
+    const [firstX, lastX, firstZ, lastZ] = this.boxCellRange(box, padding)
+    if (lastX < firstX || lastZ < firstZ) return
+
+    for (let z = firstZ; z <= lastZ; z++) {
+      for (let x = firstX; x <= lastX; x++) {
+        this.blocked[this._index(x, z)] = blocked ? 1 : 0
+      }
+    }
+  }
+
+  /** Shared raster bounds keep moving-obstacle invalidation identical to occupancy. */
+  boxCellRange(box: THREE.Box3, padding = 0): readonly [number, number, number, number] {
     const minX = box.min.x - padding
     const maxX = box.max.x + padding
     const minZ = box.min.z - padding
@@ -267,13 +279,7 @@ export class NavigationGrid {
       Math.floor((maxZ - this.minZ - COST_EPSILON) / this.cellSize),
     )
 
-    if (lastX < firstX || lastZ < firstZ) return
-
-    for (let z = firstZ; z <= lastZ; z++) {
-      for (let x = firstX; x <= lastX; x++) {
-        this.blocked[this._index(x, z)] = blocked ? 1 : 0
-      }
-    }
+    return lastX < firstX || lastZ < firstZ ? [0, -1, 0, -1] : [firstX, lastX, firstZ, lastZ]
   }
 
   findPath(

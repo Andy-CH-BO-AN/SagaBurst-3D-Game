@@ -39,8 +39,10 @@ export class NavigationWorld {
   private obstacleCount = -1
   private obstacleRevision = -1
   private obstacleSource: readonly ObstacleData[] | undefined
+  private readonly dynamicFootprints = new Map<ObstacleData, string>()
   private componentIds: Int32Array
   private pathRequestsThisFrame = 0
+  private pathSearchesDeferred = false
   /** A production default with a per-world override for tests and platform profiles. */
   private readonly pathRequestsPerFrame: number
   private readonly sharedPathCache = new Map<string, NavigationCell[] | null>()
@@ -75,8 +77,21 @@ export class NavigationWorld {
     return this._revision
   }
 
-  beginFrame(): void {
+  beginFrame(deferSearches = false): void {
     this.pathRequestsThisFrame = 0
+    this.pathSearchesDeferred = deferSearches
+    if (!deferSearches) this.drainWaitingOwners()
+  }
+
+  /** Moving Town carriers finish their topology update before spending this
+   * frame's existing budget. Cached paths remain usable during early updates. */
+  resumePathSearches(): void {
+    if (!this.pathSearchesDeferred) return
+    this.pathSearchesDeferred = false
+    this.drainWaitingOwners()
+  }
+
+  private drainWaitingOwners(): void {
     // Admit deferred followers before earlier actors can consume this frame's
     // budget again. Map insertion order gives each waiting owner a turn;
     // repeated requests update its destination without moving it to the rear.
@@ -95,20 +110,38 @@ export class NavigationWorld {
    * obstacle collection revision or length. Rebuild only when topology changes.
    */
   sync(obstacles: readonly ObstacleData[]): boolean {
-    if (obstacles === this.obstacleSource && obstacles.length === this.obstacleCount && obstacleTopologyRevision(obstacles) === this.obstacleRevision) return false
-    this.rebuild(obstacles)
+    let movingFootprint = false
+    if (obstacles === this.obstacleSource && obstacles.length === this.obstacleCount
+      && obstacleTopologyRevision(obstacles) === this.obstacleRevision) {
+      // Only blocking dynamic bodies need observation. Sub-cell motion and
+      // height changes do not alter ground topology or invalidate every route.
+      let changed = false
+      for (const [obstacle, footprint] of this.dynamicFootprints) {
+        if (obstacle.navigationPassable || this.grid.boxCellRange(obstacle.navigationBox ?? obstacle.box).join(',') !== footprint) {
+          changed = true; break
+        }
+      }
+      if (!changed) return false
+      movingFootprint = true
+    }
+    this.rebuild(obstacles, movingFootprint)
     return true
   }
 
-  rebuild(obstacles: readonly ObstacleData[]): void {
+  rebuild(obstacles: readonly ObstacleData[], preserveWaitingOwners = false): void {
     this.grid.clear()
+    this.dynamicFootprints.clear()
     for (const obstacle of obstacles) {
       if (obstacle.navigationPassable) continue
       this.grid.setBlockedBox(obstacle.navigationBox ?? obstacle.box, true)
+      if (obstacle.dynamic) this.dynamicFootprints.set(obstacle,
+        this.grid.boxCellRange(obstacle.navigationBox ?? obstacle.box).join(','))
     }
     this._rebuildComponents()
     this.sharedPathCache.clear()
-    this.pendingPathOwners.clear()
+    // Waiting work stores coordinates, never a path through old topology.
+    // Moving vehicles must not repeatedly send later actors to the queue's end.
+    if (!preserveWaitingOwners) this.pendingPathOwners.clear()
     this.obstacleCount = obstacles.length
     this.obstacleSource = obstacles
     this.obstacleRevision = obstacleTopologyRevision(obstacles)
@@ -159,7 +192,7 @@ export class NavigationWorld {
         : { status: 'unreachable' }
     }
 
-    if (this.pathRequestsThisFrame >= this.pathRequestsPerFrame) {
+    if (this.pathSearchesDeferred || this.pathRequestsThisFrame >= this.pathRequestsPerFrame) {
       return { status: 'pending' }
     }
     this.pathRequestsThisFrame++

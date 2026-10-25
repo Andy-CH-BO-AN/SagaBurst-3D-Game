@@ -213,7 +213,8 @@ export class TownMissionCombat {
 
   update(dt: number, cameraYaw: number, elapsed: number): void {
     this.town.navigation.sync(this.town.obstacles)
-    this.town.navigation.beginFrame()
+    this.town.navigation.beginFrame(this.missions.defense.active?.kind === 'commander-four-gate-defense'
+      && this.missions.defense.combatEnabled)
     if (this.missions.duel.active) {
       this.missions.duel.update(dt, true)
       this.updateTownWithDuel(dt, elapsed)
@@ -976,6 +977,7 @@ export class TownMissionCombat {
     defense.updateFlow(dt, cameraYaw)
     this.town.updateCommandCue()
     if (defense.active?.kind === 'commander-four-gate-defense' && !defense.combatEnabled) {
+      this.town.navigation.resumePathSearches()
       this.updateFourGatePreparation(dt)
       return
     }
@@ -1009,6 +1011,7 @@ export class TownMissionCombat {
     // PR7 owns carrier motion, dock topology, per-gate releases and convoy routing.
     // The scene's existing grid is shared by all eight ramps.
     defense.updateSiege?.(dt, this.grid)
+    this.town.navigation.resumePathSearches()
     for (const actor of actors) {
       const resident = residents.get(actor)
       if (this.updateOwnedActor(actor, updates.take(actor, Boolean(resident)), dt, outskirts, resident)) continue
