@@ -80,16 +80,16 @@ function runtimeImports(sf) {
   return { bindings, modules }
 }
 
-function declarationSnapshot(sf, byAst) {
+function declarationSnapshot(sf, byAst, shapes = new Map()) {
   const entries = new Map(), initializationOrder = [], imports = runtimeImports(sf)
   const fingerprint = source => runtimeFingerprint(source, sf.fileName)
   const emptyClass = fingerprint('class __BehaviorOwner {}')
   const duplicates = new Map()
-  function add(key, node, source, effect = false, initializes = false) {
+  function add(key, node, source, effect = false, initializes = false, id = byAst.get(node)) {
     const ordinal = duplicates.get(key) ?? 0
     duplicates.set(key, ordinal + 1)
     key += `:${ordinal}`
-    entries.set(key, { id: byAst.get(node), fingerprint: fingerprint(source), effect })
+    entries.set(key, { id, fingerprint: fingerprint(source), effect })
     if (initializes) initializationOrder.push(key)
   }
   const decorators = node => ts.canHaveDecorators(node) && !!ts.getDecorators(node)?.length
@@ -128,12 +128,15 @@ function declarationSnapshot(sf, byAst) {
         statement.typeParameters, statement.heritageClauses, [])
       add(`class:${name}`, statement, printer.printNode(ts.EmitHint.Unspecified, header, sf),
         decorators(statement) || (statement.heritageClauses ?? []).some(c => c.token === ts.SyntaxKind.ExtendsKeyword), true)
-      // Adding/removing/reordering members changes reflective class shape even
-      // when no case invokes a new member. Class references retain this owner.
+      // Reflective shape is a separate owner, reached only through an observed
+      // receiver. Merely referencing a class does not observe all its members.
       const runtimeMembers = statement.members.filter(m => fingerprint(`class __BehaviorOwner { ${m.getText(sf)} }`) !== emptyClass)
-      const shape = runtimeMembers.map(m => [m.kind, m.name?.getText(sf) ?? '<constructor>',
-        !!m.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword)])
-      add(`class-shape:${name}`, statement, `void ${JSON.stringify(shape)}`, true)
+      for (const domain of ['instance', 'prototype', 'static']) {
+        const shape = runtimeMembers.filter(m => !ts.isConstructorDeclaration(m) && !ts.isClassStaticBlockDeclaration(m)
+          && (m.modifiers?.some(mod => mod.kind === ts.SyntaxKind.StaticKeyword) ? 'static' : ts.isPropertyDeclaration(m) ? 'instance' : 'prototype') === domain)
+          .map(m => [m.kind, m.name?.getText(sf)])
+        add(`class-shape:${name}:${domain}`, statement, `void ${JSON.stringify(shape)}`, false, false, shapes.get(statement)?.[domain])
+      }
       for (const member of runtimeMembers) {
         // Abstract/overload/type members have no executable body or initializer.
         const source = `class __BehaviorOwner { ${member.getText(sf)} }`
@@ -145,18 +148,29 @@ function declarationSnapshot(sf, byAst) {
           || staticMember && ts.isPropertyDeclaration(member) && !inertValue(member.initializer)
         add(key, member, source, !!effect, !!staticMember)
       }
+    } else if (ts.isExpressionStatement(statement) && ts.isBinaryExpression(statement.expression)
+      && /^(?:module\.exports|exports)(?:\.[\w$]+)?$/.test(statement.expression.left.getText(sf))) {
+      const assignment = statement.expression
+      if (assignment.left.getText(sf) === 'module.exports' && ts.isObjectLiteralExpression(assignment.right)) {
+        for (const property of assignment.right.properties) {
+          if (!property.name || ts.isComputedPropertyName(property.name)) { add('module:exports', statement, statement.getText(sf), true); continue }
+          add(`export:${property.name.getText(sf)}`, property, `void ({ ${property.getText(sf)} })`)
+        }
+      } else add(`export:${assignment.left.getText(sf)}`, assignment, statement.getText(sf))
     } else {
       // Exports, assignments, registration calls, namespaces and unknown syntax
       // retain the module initialization boundary, including their removal.
       add(`module:${statement.kind}`, statement, statement.getText(sf), true, true)
     }
   }
-  return { entries, initializationOrder, modules: imports.modules }
+  return { entries, initializationOrder, modules: imports.modules, sideEffectModules: sf.statements.filter(s => ts.isImportDeclaration(s) && !s.importClause).map(s => s.moduleSpecifier.getText(sf)) }
 }
 
 function changedDeclarations(current, previous) {
   const ids = new Set()
-  let moduleEffect = current.modules.join('\n') !== previous.modules.join('\n')
+  // Named bindings have addressable identities. Only side-effect imports lack
+  // a value/call owner and therefore need a module boundary.
+  let moduleEffect = (current.sideEffectModules ?? []).join('\n') !== (previous.sideEffectModules ?? []).join('\n')
   const common = new Set(current.initializationOrder.filter(key => previous.entries.has(key)))
   const beforeOrder = previous.initializationOrder.filter(key => common.has(key))
   if (current.initializationOrder.filter(key => common.has(key)).join('\n') !== beforeOrder.join('\n')) moduleEffect = true

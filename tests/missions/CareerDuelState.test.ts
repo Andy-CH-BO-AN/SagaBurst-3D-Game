@@ -69,6 +69,34 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING'
 }
 
 describe('Career Duel physical travel and preparation', () => {
+  it('creates the selected ordinary tier HP checkpoint without changing the resident or player identity', () => {
+    const profile = createCareerProfile('roman')
+    const opponent = { combatantId: 'soldier-1', dead: false, hp: 100, maxHp: 200,
+      characterFaction: 'roman', characterTier: 3, presetId: 'roman_archer' } satisfies
+      Pick<NPC, 'combatantId' | 'dead' | 'hp' | 'maxHp' | 'characterFaction' | 'characterTier' | 'presetId'>
+    const captain = { combatantId: 'captain', dead: false } satisfies Pick<NPC, 'combatantId' | 'dead'>
+    const spec = { tier: 3, index: 0, mounted: false, training: false, assaultObjective: false, x: 0, z: 0 } as const
+    const residents = [
+      { spec: { ...spec, id: 'captain', role: 'captain', duty: 'service' }, npc: captain },
+      { spec: { ...spec, id: 'soldier-1', role: 'archer_infantry', duty: 'training', training: true }, npc: opponent },
+    ] satisfies { spec: TownActorSpec; npc: object }[]
+    const player = { hp: 73, staminaValue: 41, characterTier: 3 }
+    // createMission only reads these data ports; no scene, model or navigation setup is needed.
+    const controller = new CareerDuelController(null as unknown as Scene, null as unknown as TownWorld,
+      null as unknown as NavigationWorld, residents as unknown as ConstructorParameters<typeof CareerDuelController>[3],
+      null as unknown as Mount, () => player as unknown as Player, () => profile, () => false)
+    onTestFinished(() => controller.dispose())
+
+    expect(controller.createMission('roman_archer', 1)).toMatchObject({
+      duelTier: 1, duelPresetId: 'roman_archer', duelOpponentActorId: 'soldier-1',
+      duelCaptainActorId: 'captain', duelRefereeActorId: 'captain',
+      duelOpponentHp: 50, duelOpponentMaxHp: 100, duelPlayerHp: 73, duelPlayerStamina: 41,
+    })
+    expect(opponent).toMatchObject({ hp: 100, maxHp: 200, characterTier: 3, dead: false })
+    expect(player).toEqual({ hp: 73, staminaValue: 41, characterTier: 3 })
+    expect(profile.activeMission).toBeUndefined()
+  })
+
   it('maps ordinary Duel identity HP by faction and tier without healing injuries or zero HP', () => {
     const expected = { roman: [100, 150, 200], viking: [90, 135, 180] } as const
     for (const faction of ['roman', 'viking'] as const) for (const tier of [1, 2, 3] as const) {

@@ -4,30 +4,28 @@ const { isDeepStrictEqual: same } = require('node:util')
 
 // Sources and existence checks form the filesystem boundary. The planner supplies
 // repository sources; unit tests can exercise the same parser on tiny source maps.
-function dependencyConsumers(inventory, sources, exists = file => sources.has(file)) {
+function dependencyConsumers(inventory, sources, exists = file => sources.has(file), treeEvidence = {}) {
   const graph = new Map()
   const runtimeAmbiguities = []
   const unresolvedImports = []
+  const runtimeImportRisks = []
   for (const [file, source] of sources) {
     // Match Vite's runtime graph; type-only contracts are checked by typecheck.
-    const runtime = /\.d\.[cm]?ts$/.test(file) ? '' : /\.tsx?$/.test(file) ? ts.transpileModule(source, {
+    const runtime = /\.d\.[cm]?ts$/.test(file) ? '' : /\.[cm]?tsx?$/.test(file) ? ts.transpileModule(source, {
       fileName: file, compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ESNext },
     }).outputText : source
-    if (/^(src\/|tests\/|electron\/|\.github\/scripts\/release\/)/.test(file)) {
-      const parsed = ts.createSourceFile(file, runtime, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+    if (/\.[cm]?[jt]sx?$/.test(file)) {
+      const parsed = ts.createSourceFile(file, /\.d\.[cm]?ts$/.test(file) ? '' : source, ts.ScriptTarget.Latest, true)
       function inspect(node) {
         if (ts.isCallExpression(node)) {
           const callee = node.expression
           if (callee.kind === ts.SyntaxKind.ImportKeyword || (ts.isIdentifier(callee) && callee.text === 'require')) {
-            // The registration-only Node collector intentionally loads the exact
-            // discovered file list. Its explicit tooling owner is ci-plan/budget;
-            // this is the only computed-load boundary, not a tests/ exemption.
             const arg = node.arguments[0]
-            const collectorLoad = file === 'tests/tooling/node-collect.cjs'
-              && ts.isIdentifier(callee) && callee.text === 'require' && node.arguments.length === 1
-              && ts.isCallExpression(arg) && ts.isIdentifier(arg.expression) && arg.expression.text === 'resolve'
-              && arg.arguments.length === 1 && ts.isIdentifier(arg.arguments[0]) && arg.arguments[0].text === 'file'
-            if (!collectorLoad && (node.arguments.length !== 1 || !ts.isStringLiteralLike(arg))) runtimeAmbiguities.push(file)
+            if (node.arguments.length !== 1 || !ts.isStringLiteralLike(arg)) {
+              runtimeAmbiguities.push(file)
+              const position = parsed.getLineAndCharacterOfPosition(node.getStart(parsed))
+              runtimeImportRisks.push({ from: file, kind: 'import', line: position.line + 1, column: position.character + 1, expression: node.getText(parsed), receiver: callee.getText(parsed), missingEvidence: arg?.getText(parsed) ?? '<missing argument>', reason: 'Computed module operand is not statically resolved' })
+            }
           }
         }
         // Inspect syntax instead of text so fixture strings do not create false
@@ -37,7 +35,11 @@ function dependencyConsumers(inventory, sources, exists = file => sources.has(fi
           const property = ts.isPropertyAccessExpression(node) ? node.name.text
             : ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : null
           if (ts.isMetaProperty(owner) && owner.keywordToken === ts.SyntaxKind.ImportKeyword
-            && owner.name.text === 'meta' && ['glob', 'globEager'].includes(property)) runtimeAmbiguities.push(file)
+            && owner.name.text === 'meta' && ['glob', 'globEager'].includes(property)) {
+            runtimeAmbiguities.push(file)
+            const position = parsed.getLineAndCharacterOfPosition(node.getStart(parsed))
+            runtimeImportRisks.push({ from: file, kind: 'glob', line: position.line + 1, column: position.character + 1, expression: node.getText(parsed), receiver: owner.getText(parsed), missingEvidence: 'Glob expansion is not statically resolved', reason: 'Unresolved module glob' })
+          }
         }
         ts.forEachChild(node, inspect)
       }
@@ -47,11 +49,17 @@ function dependencyConsumers(inventory, sources, exists = file => sources.has(fi
     for (const { fileName } of ts.preProcessFile(runtime, true, true).importedFiles) {
       if (!fileName.startsWith('.')) continue
       const stem = posix.normalize(posix.join(posix.dirname(file), fileName.replace(/[?#].*$/, '')))
-      const target = [stem, ...['.ts', '.tsx', '.js', '.mjs', '.cjs', '/index.ts', '/index.js'].map(ext => stem + ext)].find(exists)
+      const target = [stem, ...(/\.[cm]?jsx?$/.test(stem) ? [stem.replace(/\.js$/, '.ts'), stem.replace(/\.mjs$/, '.mts'), stem.replace(/\.cjs$/, '.cts')] : []), ...['.ts', '.tsx', '.js', '.mjs', '.cjs', '/index.ts', '/index.tsx', '/index.js', '/index.cjs', '/index.mjs'].map(ext => stem + ext)].find(exists)
       if (target) deps.push(target)
       else unresolvedImports.push(`${file} -> ${fileName}`)
     }
     graph.set(file, deps)
+  }
+  const inputs = require('./input-dependencies.cjs').inputDependencies(sources, exists, [...(treeEvidence.files ?? sources.keys())], treeEvidence.texts ?? sources)
+  for (const edge of inputs.edges) {
+    const deps = graph.get(edge.from) ?? []
+    if (!deps.includes(edge.to)) deps.push(edge.to)
+    graph.set(edge.from, deps)
   }
   const consumers = {}
   for (const test of inventory) {
@@ -63,10 +71,22 @@ function dependencyConsumers(inventory, sources, exists = file => sources.has(fi
       for (const dep of graph.get(file) ?? []) visit(dep)
     }
     visit(test.file)
+    // Candidate reachability is deliberately separate from proven graph edges.
+    // Case analysis must reject a reached unresolved reader, not label it proof.
+    for (const risk of inputs.risks) if (visited.has(risk.from)) for (const candidate of risk.candidates) {
+      const owners = consumers[candidate] ??= []
+      if (!owners.includes(test.file)) owners.push(test.file)
+    }
   }
-  consumers.runtimeAmbiguities = [...new Set(runtimeAmbiguities)]
+  const resolvedImports = new Set(inputs.edges.filter(edge => edge.kind === 'import').map(edge => edge.from + ':' + edge.expression))
+  const importRisks = runtimeImportRisks.filter(risk => !resolvedImports.has(risk.from + ':' + risk.expression))
+  consumers.runtimeAmbiguities = [...new Set(runtimeAmbiguities)].filter(file => !runtimeImportRisks.some(risk => risk.from === file) || importRisks.some(risk => risk.from === file))
   consumers.unresolvedImports = [...new Set(unresolvedImports)]
   // Exposed so the planner can explain a selection with a verifiable import chain.
+  consumers.runtimeImportRisks = importRisks
+  consumers.inputTexts = treeEvidence.texts ?? sources
+  consumers.inputEdges = inputs.edges
+  consumers.inputRisks = inputs.risks
   consumers.sources = sources
   consumers.graph = graph
   return consumers
@@ -201,4 +221,4 @@ function relocationOnly(before, after, changes, baseFiles, headFiles, input) {
   for (const [start, end, text] of edits.sort((a,b) => b[0]-a[0])) projected = projected.slice(0,start) + text + projected.slice(end)
   return projected === after
 }
-module.exports = { dependencyConsumers, dependencyChain, runtimeEquivalent, dependencyPlacementOnly, relocationOnly }
+module.exports = { classifyChangedInput: require('./input-dependencies.cjs').classifyChangedInput, dependencyConsumers, dependencyChain, runtimeEquivalent, dependencyPlacementOnly, relocationOnly }

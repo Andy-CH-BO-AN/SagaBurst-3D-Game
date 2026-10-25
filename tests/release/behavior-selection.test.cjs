@@ -51,14 +51,12 @@ export function unrelated() { return 0 }`
 
 test('shared data follows dynamic keys and nested destructuring aliases without selecting sibling imports', () => {
   const before = `export const TABLE = { nested: { values: [1] } }
-export function read() { const { nested: { values: [first] } } = TABLE; return first }
-export function wrapped() { return { TABLE } }
 export function unrelated() { return 0 }`
   const plan = selection(before, before.replace('[1]', '[2]'), [
-    "import { TABLE, read, wrapped, unrelated } from '../src/owner'",
+    "import { TABLE, unrelated } from '../src/owner'",
     "test('dynamic', () => { const key = globalThis.key; return TABLE[key] })",
-    "test('alias', () => read())",
-    "test('shorthand', () => wrapped())",
+    "test('alias', () => { const { nested: { values: [first] } } = TABLE; return first })",
+    "test('shorthand', () => ({ TABLE }))",
     "test('unrelated', () => unrelated())",
   ])
   assert.deepEqual(indices(plan), [0, 1, 2])
@@ -90,40 +88,24 @@ test('eager initializer changes retain value consumers without selecting import-
   assert.deepEqual(plan.details['tests/owner.test.ts'][0].initializationCases, [])
 })
 
-test('side-effect-only import edits without an addressable behavior owner fail closed', () => {
+test('opaque import effects fail closed even alongside a covered value change', () => {
   const before = "import './registration'; export const value = 0"
-  assert.throws(() => selection(before, 'export const value = 0', [
+  assert.throws(() => selection(before, 'export const value = 1', [
     "import { value } from '../src/owner'",
     "test('value', () => value)",
   ], [['src/registration.ts', 'globalThis.registered = true']]), /Unsafe\/unmapped behavior/)
 })
 
-test('an explicit initialization owner does not widen a mapped source to import-only caller leaves', () => {
-  const owner = 'src/career/CareerHealthMigration.ts'
+test('new imported behavior is covered by its actual caller without manual initialization owners', () => {
   const before = 'export function unchanged() { return 0 }'
   const after = "import { value } from './values'; " + before + '; export function added() { return value }'
   const plan = selection(before, after, [
-    "import { added, unchanged } from '../src/career/CareerHealthMigration'",
+    "import { added, unchanged } from '../src/owner'",
     "test('affected caller', () => added())",
     "test('unrelated placement', () => unchanged())",
-  ], [
-    ['src/career/values.ts', 'export const value = 1'],
-    ['tests/persistence/HealthPersistence.test.ts', [
-      "import { unchanged } from '../../src/career/CareerHealthMigration'",
-      "test('initialization contract', () => unchanged())",
-    ].join('\n')],
-  ], owner)
+  ], [['src/values.ts', 'export const value = 1']])
   assert.deepEqual(indices(plan), [0])
-  assert.deepEqual(plan.selectedCases['tests/persistence/HealthPersistence.test.ts'], [0])
-  assert.ok(plan.details['tests/persistence/HealthPersistence.test.ts'].some(detail =>
-    detail.source === 'Explicit Initialization Owner' && detail.owners.includes('<module>')))
-  assert.ok(plan.details['tests/owner.test.ts'].every(detail => detail.source !== 'Static Runtime Dependency'))
-  assert.throws(() => selection(before, after, [
-    "import { added } from '../src/career/CareerHealthMigration'", "test('caller', () => added())",
-  ], [
-    ['src/career/values.ts', 'export const value = 1'],
-    ['tests/persistence/HealthPersistence.test.ts', "test('opaque initialization owner', () => eval('opaque()'))"],
-  ], owner), /Unsafe runtime dispatch/)
+  assert.ok(plan.details['tests/owner.test.ts'][0].caseEvidence.every(e => e.path[0].root))
 })
 
 test('retargeting an existing named import selects its unchanged caller but not unrelated exports', () => {
@@ -158,17 +140,6 @@ test('a covered initialization effect cannot hide a different unmapped callable 
   ]), /Unsafe\/unmapped behavior: src\/owner.ts#untested/)
 })
 
-
-test('an initialization mapping cannot cover an unreferenced initialized value or callable', () => {
-  const owner = 'src/career/CareerHealthMigration.ts'
-  const before = 'export const value = 0; export function untested() { return 1 }'
-  const body = ["import { value } from '../src/career/CareerHealthMigration'", "test('value', () => value)"]
-  const explicit = [['tests/persistence/HealthPersistence.test.ts', "test('initialization contract', () => 0)"]]
-  assert.throws(() => selection(before, before.replace('return 1', 'return 2'), body, explicit, owner),
-    /Unsafe\/unmapped behavior: src\/career\/CareerHealthMigration.ts#untested/)
-  assert.throws(() => selection(before, before + '; export const unreferenced = register()', body, explicit, owner),
-    /Unsafe\/unmapped behavior: src\/career\/CareerHealthMigration.ts#unreferenced/)
-})
 
 test('unreferenced module assignments do not expand data changes to import-only leaves', () => {
   const before = 'export const TABLE = { value: 1 }; globalThis.saved = TABLE.value; export function unrelated() { return 0 }'
@@ -214,17 +185,21 @@ test('coercion initializers remain value owners instead of blanket import owners
   assert.deepEqual(plan.changedBehaviors, ['src/owner.ts#value'])
 })
 
-test('scoped hook data reads select only leaves in their actual registration scope', () => {
+test('scoped hooks and consumed callbacks exclude sibling unused closure definitions', () => {
   const before = 'export const TABLE = { value: 1 }; export function other() { return 0 }'
   const plan = selection(before, before.replace('value: 1', 'value: 2'), [
     "import { TABLE, other } from '../src/owner'",
+    "function factory() { return () => TABLE.value }",
     "describe('scope', () => {",
     "beforeEach(() => TABLE.value)",
     "test('hook', () => other())",
     "})",
-    "test('outside', () => other())",
+    "test('outside', () => { function unused() { return TABLE.value }; const unusedArrow = () => TABLE.value; return other() })",
+    "test('callback', () => [0].map(() => TABLE.value))",
+    "test('creation only', () => { factory(); return other() })",
+    "test('returned callback invoked', () => { const callback = factory(); return callback() })",
   ])
-  assert.deepEqual(indices(plan), [0])
+  assert.deepEqual(indices(plan), [0, 2, 4])
 })
 
 test('replacement mocks remain boundaries while partial mocks retain precise data dependencies', () => {
@@ -294,11 +269,71 @@ export function unrelated() { return 0 }`
   const plan = selection(before, before.replace('old =', 'current ='), [
     "import { Owner, read, unrelated } from '../src/owner'",
     "test('construction', () => new Owner())",
-    "test('reflection', () => Object.getOwnPropertyNames(Owner.prototype))",
+    "test('reflection', () => Object.getOwnPropertyNames(new Owner()))",
     "test('caller', () => read())",
     "test('import only', () => unrelated())",
   ])
   assert.deepEqual(indices(plan), [0, 1, 2])
-  assert.ok(plan.changedBehaviors.includes('src/owner.ts#Owner'))
+  assert.ok(plan.changedBehaviors.includes('src/owner.ts#Owner.<instance shape>'))
   assert.ok(!plan.changedBehaviors.includes('src/owner.ts#<module>'))
+})
+
+test('receiver provenance and finite keys exclude same-name methods and mere class references', () => {
+  const before = 'export class Owner { update() { return 1 } other() { return 0 } }; export class Unrelated { update() { return 9 } apply() { return 0 } }'
+  const plan = selection(before, before.replace('return 1', 'return 2'), [
+    "import { Owner, Unrelated } from '../src/owner'",
+    "test('direct', () => Owner.prototype.update.call({}))",
+    "test('finite alias', () => { const receiver = Owner.prototype; const key = 'update'; const callback = receiver[key]; return callback.call({}) })",
+    "test('same name', () => { const values: { [key: string]: Unrelated } = {}; values[globalThis.key].apply(); return Unrelated.prototype.update.call({}) })",
+    "test('reference', () => Owner)",
+    "test('sibling', () => Owner.prototype.other.call({}))",
+  ])
+  assert.deepEqual(indices(plan), [0, 1])
+  assert.ok(plan.details['tests/owner.test.ts'][0].caseEvidence.some(e => e.path.some(p => p.key === 'update')))
+})
+
+test('unknown receiver dispatch fails with expression evidence rather than expanding member names', () => {
+  const before = 'export class Owner { update() { return 1 } }'
+  assert.throws(() => selection(before, before.replace('return 1', 'return 2'), [
+    "import { Owner } from '../src/owner'",
+    "test('opaque', () => { const receiver = Owner.prototype; return receiver[globalThis.key]() })",
+  ]), /Unsafe runtime dispatch:.*receiver Owner.prototype; missing finite property keys/)
+})
+
+test('CommonJS export identities preserve exact callers without module-wide consumer union', () => {
+  const before = 'function first() { return 1 }; function second() { return 2 }; module.exports = { chosen: first, second }'
+  const plan = selection(before, before.replace('chosen: first', 'chosen: second'), [
+    "const { chosen, second } = require('../src/owner.cjs')",
+    "test('retargeted export', () => chosen())",
+    "test('unchanged export', () => second())",
+  ], [], 'src/owner.cjs')
+  assert.deepEqual(indices(plan), [0])
+  assert.ok(plan.details['tests/owner.test.ts'][0].caseEvidence.some(e => e.path.some(p => p.evidence === 'CommonJS export binding')))
+})
+
+test('actual input readers exclude full provider replacements but retain partial and restored reads', () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const sources = new Map([
+    ['src/read.ts', "import { readFileSync } from 'node:fs'; export function read() { return readFileSync('config.json', 'utf8') }"],
+    ['tests/real.test.ts', "import { read } from '../src/read'\ntest('real', () => read())"],
+    ['tests/replaced.test.ts', "import { read } from '../src/read'\nvi.mock('node:fs', () => ({ readFileSync: () => 'fake' }))\ntest('replaced', () => read())"],
+    ['tests/partial.test.ts', "import { read } from '../src/read'\nvi.mock('node:fs', async importOriginal => ({ ...await importOriginal() }))\ntest('partial', () => read())"],
+    ['tests/scoped.test.ts', [
+      "import * as fs from 'node:fs'; import { read } from '../src/read'",
+      "afterEach(() => vi.restoreAllMocks())",
+      "test('replaced', () => { const replacement = vi.spyOn(fs, 'readFileSync').mockReturnValue('fake'); return read() })",
+      "test('restored', () => { const replacement = vi.spyOn(fs, 'readFileSync').mockReturnValue('fake'); replacement.mockRestore(); return read() })",
+    ].join('\n')],
+  ])
+  const inventory = [...sources].filter(([file]) => file.startsWith('tests/')).map(([file, source]) => {
+    const locations = source.split('\n').flatMap((line,index) => line.startsWith('test(') ? [{line:index+1,column:1}] : [])
+    return {file, names:locations.map((_,index)=>`case ${index}`), locations}
+  })
+  const files = new Set([...sources.keys(), 'config.json'])
+  const consumers = dependencyConsumers(inventory, sources, file=>files.has(file), {files})
+  const plan = selectBehaviors(inventory, [{status:'M',file:'config.json'}], consumers, {
+    sources,previousSources:sources,previousConsumers:consumers,ranges:{},compilerOptions:{noLib:true,noResolve:true,types:[]},
+  })
+  assert.deepEqual(plan.selected, ['tests/partial.test.ts','tests/real.test.ts','tests/scoped.test.ts'])
+  assert.deepEqual(plan.selectedCases['tests/scoped.test.ts'], [1])
 })
