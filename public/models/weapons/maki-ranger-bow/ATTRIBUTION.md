@@ -1,3 +1,33 @@
+# T4 Ranger Bow
+
+Current `bow.glb` is the user-supplied Meshy textured model
+`Meshy_AI_tactical_forest_longb_1025131328_texture.glb`.
+Source SHA-256: `26f815e1793412b85ac0fe109dc654eedb3be5e30354c7866c2704cc9ce2e338`.
+The supplied GLB contains no license declaration; this record does not assign
+the previous model's license to the replacement.
+
+Rebuild with Python 3 + NumPy:
+`python3 tools/build-meshy-weapons.py /path/to/downloads`.
+See `source.json` and `attachment.json` for hashes and the exact matrix.
+
+- Body height: 1.85 m; uniform scale 0.973684223, rotation Y = -90 degrees.
+- Source grip `(-0.064, 0.95, 0.0005)` maps to `(0, 0, 0)`.
+- Translation: `(0.000486842, -0.925000012, 0.062315790)`.
+- Canonical upright axis +Y, shot axis -Z; the original static string faces +Z.
+- All 3,020 body triangles and original geometry accessor bytes are retained.
+  The 42 string triangles are partitioned at the nock seam into 82 triangles;
+  none are decimated or discarded. Two unit-height string meshes reuse the
+  existing endpoint transform updates. Final total: 3,102 triangles.
+- All three embedded JPEG images (base colour, metallic/roughness, normal),
+  UVs and PBR material properties are retained without re-encoding.
+- Existing weapon ID, cached loader, hand attachment, draw/release timing,
+  arrow launch and equipment LOD policies remain in use.
+
+## Historical source credit
+
+The following credit documents the previously shipped Spirit Bow and its
+associated character work. It does not describe or license the current Meshy bow.
+
 # Maki T4 Ranger
 
 Maki (Archer) by Blue Spirit.

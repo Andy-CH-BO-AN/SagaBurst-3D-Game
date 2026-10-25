@@ -69,6 +69,16 @@ function policyConsumers(file, inventory) {
     for (const owner of ['tests/missions/BattleConfig.test.ts', 'tests/actors/BattleSpawner.test.ts']) add(owner)
     if (file === 'src/ui/CampaignSetupUI.ts') add('tests/progression/CampaignProgress.test.ts')
   }
+  // Weapon source geometry and grip/string appearance require real-browser QA.
+  // Existing owners protect equip/re-equip, lance/bow switching, projectile
+  // collision and Career ownership without importing a model or fake scene.
+  if (['src/world/CharacterBowVisual.ts', 'tools/build-meshy-weapons.py',
+    'public/models/weapons/t5/lance.glb', 'public/models/weapons/t5/ATTRIBUTION.md'].includes(file)
+    || file.startsWith('public/models/weapons/maki-ranger-bow/')) {
+    for (const owner of ['tests/combat/CommanderWeaponSwitching.test.ts',
+      'tests/combat/ProjectileBallistics.test.ts', 'tests/equipment/WeaponWheel.test.ts',
+      'tests/equipment/CareerSquadEquipment.test.ts']) add(owner)
+  }
   // Original shield pixels/geometry are inspected offline and in gameplay, never
   // loaded by unit tests. These existing owners protect its face collision,
   // durability, bow/shield visibility and paid inventory/ownership contracts.

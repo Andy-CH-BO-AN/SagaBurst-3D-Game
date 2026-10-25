@@ -86,10 +86,15 @@ export class CharacterBowVisual {
     this.profile = profile
     this.gripPivot.clear()
     this.gripPivot.add(model)
-    this.configure({ topTip, botTip, stringLength: topTip.distanceTo(botTip) / 2 }, profile.id)
+    // Authored string halves keep the source PBR surface and triangle detail.
+    // Their unit-height geometry uses the same endpoint transforms as cylinders.
+    const top = model.getObjectByName('bow-string-top')
+    const bottom = model.getObjectByName('bow-string-bottom')
+    const strings = top instanceof THREE.Mesh && bottom instanceof THREE.Mesh ? { top, bottom } : undefined
+    this.configure({ topTip, botTip, stringLength: topTip.distanceTo(botTip) / 2 }, profile.id, strings)
   }
 
-  private configure(parts: { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number }, weaponId: string): void {
+  private configure(parts: { topTip: THREE.Vector3, botTip: THREE.Vector3, stringLength: number }, weaponId: string, strings?: { top: THREE.Mesh; bottom: THREE.Mesh }): void {
     // Rebuild can follow pilum, an animated attachment or another bow instance.
     this.gripPivot.position.set(0, 0, 0)
     this.gripPivot.quaternion.identity()
@@ -97,11 +102,11 @@ export class CharacterBowVisual {
     this.drawContact = this.arrowRest = undefined
     this.topTip.copy(parts.topTip)
     this.bottomTip.copy(parts.botTip)
-    this.stringLength = parts.stringLength
+    this.stringLength = strings ? 1 : parts.stringLength
 
-    const stringMat = new THREE.MeshBasicMaterial({ color: 0xffffff })
-    this.stringTop = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
-    this.stringBottom = equipmentShadowUntil(new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
+    const stringMat = strings ? undefined : new THREE.MeshBasicMaterial({ color: 0xffffff })
+    this.stringTop = equipmentShadowUntil(strings?.top ?? new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
+    this.stringBottom = equipmentShadowUntil(strings?.bottom ?? new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, this.stringLength, 4), stringMat), -1)
     this.stringTop.name = 'bow-string-top'
     this.stringBottom.name = 'bow-string-bottom'
     this.gripPivot.add(this.stringTop, this.stringBottom)
