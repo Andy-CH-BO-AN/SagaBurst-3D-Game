@@ -192,3 +192,37 @@ test('CommonJS named export and destructured alias preserve actual reader argume
   const changed = dependencyConsumers([], sources)
   assert.ok(changed.inputRisks.some(risk => risk.pattern === '^.*$'))
 })
+
+for (const [name, predicate] of [
+  ['literal suffix', "name => name.endsWith('.cjs')"],
+  ['terminal regex literal', 'name => /\\.[cm]?js$/.test(name)'],
+]) test(`directory readers retain a residual ${name} constraint without treating documents as code`, () => {
+  const file = 'tests/tooling/digest.cjs'
+  const source = `const {readdirSync, readFileSync}=require('node:fs'); const {join}=require('node:path');
+for (const name of readdirSync(__dirname).filter(${predicate}).sort()) readFileSync(join(__dirname, name));`
+  const sources = new Map([[file, source]])
+  const files = new Set([file, 'tests/tooling/other.cjs', 'tests/tooling/README.md'])
+  const graph = dependencyConsumers([{ file }], sources, path => files.has(path), { files })
+  assert.equal(graph.inputRisks.length, 1)
+  const risk = graph.inputRisks[0]
+  assert.equal(risk.provider.module, 'node:fs')
+  assert.equal(new RegExp(risk.pattern).test('tests/tooling/README.md'), false)
+  assert.equal(new RegExp(risk.pattern).test('tests/tooling/not-yet-listed.cjs'), true)
+  assert.deepEqual(risk.candidates, [file, 'tests/tooling/other.cjs'])
+  assert.equal(classifyChangedInput('tests/tooling/README.md', graph).kind, 'unclassified')
+  assert.equal(classifyChangedInput('tests/tooling/other.cjs', graph).kind, 'unresolved-input')
+})
+
+for (const [name, directory, predicate, listing = 'readdirSync', prelude = ''] of [
+  ['regex flags', '__dirname', 'name => /\\.cjs$/i.test(name)'],
+  ['a dynamic predicate', '__dirname', 'name => runtimeRegex.test(name)'],
+  ['an unknown directory', 'runtimeDirectory', "name => name.endsWith('.cjs')"],
+  ['a named binding used as a namespace', '__dirname', "name => name.endsWith('.cjs')", 'fakeFs.readdirSync', "const { readdirSync: fakeFs } = require('node:fs');"],
+]) test(`directory readers preserve uncertainty for ${name}`, () => {
+  const sources = new Map([['tests/tooling/digest.cjs', `const {readdirSync, readFileSync}=require('node:fs'); const {join}=require('node:path');
+${prelude}
+for (const name of ${listing}(${directory}).filter(${predicate})) readFileSync(join(__dirname, name));`]])
+  const graph = dependencyConsumers([], sources)
+  assert.equal(graph.inputRisks.length, 1)
+  assert.equal(new RegExp(graph.inputRisks[0].pattern).test('tests/tooling/README.md'), true)
+})

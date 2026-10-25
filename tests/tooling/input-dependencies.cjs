@@ -10,7 +10,10 @@ const union = values => { const all = [...new Set(values.flatMap(choices))]; ret
 const combine = (left, right, operation) => union(choices(left).flatMap(a => choices(right).map(b => operation(a, b))))
 const stringValue = value => ['string', 'number'].includes(typeof value) ? String(value) : UNKNOWN
 function inputDependencies(sources, exists, files = [...sources.keys()], texts = sources) {
-  const units = new Map(), edges = [], risks = []
+  const units = new Map(), edges = [], risks = [], pathnamePatterns = new Map()
+  const escapePattern = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const unknownPath = value => value.includes(UNKNOWN) || /\x01\d+\x02/.test(value)
+  const pathPattern = value => '^' + value.split(/(\x00|\x01\d+\x02)/).map(part => part === UNKNOWN ? '.*' : pathnamePatterns.get(part) ?? escapePattern(part)).join('') + '$'
   const modulePath = (file, name) => {
     const stem = posix.normalize(posix.join(posix.dirname(file), name))
     return [stem, ...['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js', '/index.cjs', '/index.mjs'].map(ext => stem + ext)].find(exists)
@@ -205,6 +208,41 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     const origin = importOrigin(unit, named ? callee : ts.isPropertyAccessExpression(callee) ? callee.expression : callee, at)
     return !!origin && ['path', 'node:path'].includes(origin.module) && (named ? ['join', 'resolve'].includes(origin.imported) : origin.imported === '*')
   }
+  function directoryEntryPattern(declaration, file, env, seen) {
+    const unit = units.get(file), loop = declaration?.parent?.parent
+    if (!loop || !ts.isForOfStatement(loop) || loop.initializer !== declaration.parent) return UNKNOWN
+    let iterable = loop.expression
+    if (ts.isCallExpression(iterable) && ts.isPropertyAccessExpression(iterable.expression) && iterable.expression.name.text === 'sort' && iterable.arguments.length === 0) iterable = iterable.expression.expression
+    if (!ts.isCallExpression(iterable) || !ts.isPropertyAccessExpression(iterable.expression) || iterable.expression.name.text !== 'filter' || iterable.arguments.length !== 1) return UNKNOWN
+    const predicate = iterable.arguments[0], listing = iterable.expression.expression
+    if (!ts.isArrowFunction(predicate) || predicate.parameters.length !== 1 || !ts.isIdentifier(predicate.parameters[0].name) || !ts.isCallExpression(predicate.body)) return UNKNOWN
+    if (!ts.isCallExpression(listing) || listing.arguments.length !== 1) return UNKNOWN
+    const callee = listing.expression, origin = importOrigin(unit, ts.isIdentifier(callee) ? callee : ts.isPropertyAccessExpression(callee) ? callee.expression : callee, listing)
+    const method = ts.isIdentifier(callee) ? origin?.imported : ts.isPropertyAccessExpression(callee) ? callee.name.text : null
+    if (!origin || !['fs', 'node:fs'].includes(origin.module) || method !== 'readdirSync' || !ts.isIdentifier(callee) && origin.imported !== '*') return UNKNOWN
+    const directory = evaluate(listing.arguments[0], file, env, seen)
+    if (typeof directory !== 'string' || unknownPath(directory) || !files.some(path => posix.dirname(path) === posix.normalize(directory))) return UNKNOWN
+    const body = predicate.body, name = predicate.parameters[0].name.text
+    let suffix = null
+    if (ts.isPropertyAccessExpression(body.expression) && body.expression.name.text === 'endsWith' && ts.isIdentifier(body.expression.expression) && body.expression.expression.text === name && body.arguments.length === 1 && ts.isStringLiteralLike(body.arguments[0])) suffix = body.arguments[0].text
+    if (ts.isPropertyAccessExpression(body.expression) && body.expression.name.text === 'test' && body.expression.expression.kind === ts.SyntaxKind.RegularExpressionLiteral && body.arguments.length === 1 && ts.isIdentifier(body.arguments[0]) && body.arguments[0].text === name) {
+      const literal = body.expression.expression.getText(unit.ast), slash = literal.lastIndexOf('/')
+      if (slash !== literal.length - 1) return UNKNOWN // flags change the predicate contract
+      const source = literal.slice(1, slash)
+      // A required terminal literal is a sound (possibly wider) constraint.
+      // Alternatives/groups/escaped terminal classes remain unresolved.
+      if (source.includes('|') || source.includes('(')) return UNKNOWN
+      const terminal = /([A-Za-z0-9_-]+)\$$/.exec(source)
+      if (!terminal || source[terminal.index - 1] === '\\') return UNKNOWN
+      try { new RegExp(source) } catch { return UNKNOWN }
+      suffix = terminal[1]
+    }
+    if (!suffix || /[\\/]/.test(suffix)) return UNKNOWN
+    const pattern = '[^/]*' + escapePattern(suffix)
+    let token = [...pathnamePatterns].find(([, existing]) => existing === pattern)?.[0]
+    if (!token) { token = '\x01' + pathnamePatterns.size + '\x02'; pathnamePatterns.set(token, pattern) }
+    return token
+  }
   function evaluate(node, file, env = new Map(), seen = new Set()) {
     if (!node || seen.has(node)) return UNKNOWN
     const next = new Set(seen).add(node), unit = units.get(file)
@@ -227,7 +265,7 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
       if (node.text === '__dirname') return posix.dirname(file)
       const decl = binding(unit, node.text, node), effect = effects(unit, decl)
       if (effect.written) return UNKNOWN
-      const value = env.has(node.text) ? env.get(node.text) : decl?.initializer ? ev(decl.initializer) : UNKNOWN
+      const value = env.has(node.text) ? env.get(node.text) : decl?.initializer ? ev(decl.initializer) : directoryEntryPattern(decl, file, env, next)
       return choices(value).some(item => item && typeof item === 'object' && (effect.escaped || [...effect.escapedMembers].some(member => item[member] === UNKNOWN || !['string', 'number', 'boolean'].includes(typeof item[member])))) ? UNKNOWN : value
     }
     if (ts.isTemplateExpression(node)) return node.templateSpans.reduce((prefix, span) => combine(prefix, ev(span.expression), (a, b) => stringValue(a) + stringValue(b) + span.literal.text), node.head.text)
@@ -290,9 +328,9 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     for (const alternative of choices(evaluated).flatMap(value => kind === 'read' && value?.[URL_VALUE] ? choices(value.href) : [value])) {
     const raw = typeof alternative === 'string' ? alternative : UNKNOWN
     if (/^(?:https?:|data:|blob:)/.test(raw)) continue
-    if (kind === 'import' && !raw.startsWith('.') && !raw.includes(UNKNOWN)) continue
+    if (kind === 'import' && !raw.startsWith('.') && !unknownPath(raw)) continue
     let value = raw.replace(/[?#].*$/, '')
-    if (kind === 'import' && !value.includes(UNKNOWN)) value = modulePath(file, value) ?? posix.join(posix.dirname(file), value)
+    if (kind === 'import' && !unknownPath(value)) value = modulePath(file, value) ?? posix.join(posix.dirname(file), value)
     else if (kind === 'url') value = posix.join(posix.dirname(file), value)
     else if (kind !== 'read' && value.startsWith('/')) value = 'public/' + value.replace(/^\/+/, '')
     value = posix.normalize(value).replace(/^\.\//, '')
@@ -306,8 +344,8 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     if (!verified) {
       const pattern = '^.*$'
       risks.push({ ...proof, pattern, candidates: [], reason: 'Input-like call lacks verified API receiver provenance', missingEvidence: node.expression.getText(unit.ast) })
-    } else if (value.includes(UNKNOWN)) {
-      const pattern = '^' + value.split(UNKNOWN).map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*') + '$'
+    } else if (unknownPath(value)) {
+      const pattern = pathPattern(value)
       risks.push({ ...proof, pattern, candidates: value.replaceAll(UNKNOWN, '').replaceAll('/', '').length ? files.filter(candidate => new RegExp(pattern).test(candidate)) : [], reason: 'Input expression has an unresolved runtime value', missingEvidence: operand.getText(unit.ast) })
     } else if (exists(value)) edges.push({ ...proof, to: value })
     else risks.push({ ...proof, pattern: '^' + value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', candidates: [], reason: 'Resolved input is absent from this snapshot', missingEvidence: value })
