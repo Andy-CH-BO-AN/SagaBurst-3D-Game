@@ -51,7 +51,7 @@ interface TownReturnScene {
   world: Pick<TownWorld, 'restoreTownDamage' | 'obstacles'>
   navigation: Pick<NavigationWorld, 'sync'>
   inventory: Pick<TownEquipment, 'sheathAll'>
-  readonly player: Pick<Player, 'group' | 'resetForScene'>
+  readonly player: Pick<Player, 'group'>
   clearCombatShots(): void
   restPlayer(): void
   returnPersonalSquad?(direct: boolean): void
@@ -190,10 +190,6 @@ export class TownMissionSettlement {
     }
     if (completed) this.town.applyResidentReturn?.()
     const entry = townPlayerEntryPoint(), entryY = getTerrainHeight(entry.x, entry.z) + .9
-    if (captainPatrol && intent === 'direct') {
-      this.town.player.resetForScene(entry.x, entryY, entry.z)
-      this.town.player.group.rotation.y = entry.yaw
-    }
     this.town.restPlayer()
     if ((active.kind === 'cavalry-sweep' || veteranField) && (intent === 'direct' || active.phase !== 'RETURNING')) {
       this.town.player.group.position.set(entry.x, entryY, entry.z)

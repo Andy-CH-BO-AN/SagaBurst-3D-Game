@@ -1,3 +1,5 @@
+import { COMBAT_BALANCE } from '../combat/CombatBalance'
+import { resolveCareerPlayerMaxHp } from './CareerPlayerProfile'
 import { cloneCareerProfile, type CareerProfile } from './CareerProfile'
 import type { PersonalActorCheckpoint } from './CareerPersonalSquadMission'
 import { civilianCommandRoster } from './CivilianCommandAuthority'
@@ -58,6 +60,16 @@ export function stageMissionReturnResidents(current: CareerProfile, homes: reado
   return next
 }
 
+/** Only completed formal returns may replace the health replayed by older
+ * race/aerial checkpoints. Preserve their movement and other resource state. */
+export function stageMissionReturnPlayerHealth(current: CareerProfile,
+  maxHp = resolveCareerPlayerMaxHp(current, COMBAT_BALANCE.hp.playerDefault)): CareerProfile {
+  return { ...current,
+    ...(current.playerAerialState ? { playerAerialState: { ...current.playerAerialState, hp: maxHp, dead: false } } : {}),
+    ...(current.racePlayerState ? { racePlayerState: { ...current.racePlayerState, hp: maxHp, dead: false } } : {}),
+  }
+}
+
 /** Explicit completed mission return only. Ordinary town reloads retain all checkpoints. */
 export function stageMissionReturnRebuild(current: CareerProfile,
   homes: readonly MissionReturnHome[], personal = current.personalSquadRuntime): CareerProfile {
@@ -78,5 +90,5 @@ export function stageMissionReturnRebuild(current: CareerProfile,
     if (padId) roster.members[id].eaglePadId = padId
   }
   next.personalSquadRuntime = returnPersonalMissionToHR(roster)
-  return next
+  return stageMissionReturnPlayerHealth(next)
 }

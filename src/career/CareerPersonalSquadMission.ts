@@ -61,13 +61,14 @@ export function clonePersonalMission(value: PersonalSquadMission): PersonalSquad
     }])) }
 }
 
-/** A completed scene-rebuild return refits every owned member using the fresh actor's loadout resources. */
+/** A completed scene-rebuild return stores every owned member at HR.
+ * Follow creates its next actor with the equipped loadout's full resources. */
 export function returnPersonalMissionToHR(value: PersonalSquadMission | undefined): PersonalSquadMission | undefined {
   if (!value) return undefined
   const next = clonePersonalMission(value)
   next.sceneKey = 'town-home'; next.state = 'RESERVE'; next.returnToHR = true
   delete next.pendingMemberIds; delete next.playerLastPosition
-  next.members = Object.fromEntries(next.memberIds.map(id => [id, { status: 'deployed', order: 'defend',
+  next.members = Object.fromEntries(next.memberIds.map(id => [id, { status: 'reserve',
     ...(value.members[id]?.eaglePadId ? { eaglePadId: value.members[id].eaglePadId } : {}) }]))
   return next
 }
