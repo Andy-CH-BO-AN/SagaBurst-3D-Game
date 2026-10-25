@@ -21,6 +21,8 @@
 | 生涯 | `src/career/`：軍功、任命軍階、任務狀態、保存及恢復 |
 | 呈現 | `src/ui/`、`src/audio/SoundManager.ts`、`src/debug/`：DOM UI、音效與 DEV 工作室／診斷 |
 
+Career 教學由 `CareerTutorialState` 擁有角色識別、步驟、交易／正式任務收據與固定一次性獎勵；`CareerTutorial` 載入最新同角色存檔並在保存成功後發布。舊檔缺少教學欄位時保存非強制的遷移狀態，不當作新角色。`CareerTownEntry`／`main` 只以持久化 session 啟動 `CareerTutorialLaunch`，自由訓練與一般自訂戰鬥不取得此能力。`CareerTutorialScene` 接收 Game 的實際操作／有效命中及 `ArmyCommandController.onAccepted`，演練只保留教學進度，隔離正式任務、技能與部隊資源。`TownTutorialController` 重用 MissionGuide、現有商店、HR 與指揮授權；新兵切磋沿用 Duel 並以角色識別標記走獨立獎勵結算，不改正式逐階解鎖。Captain／Commander 教學隨正式任命交易保存，不以軍功門檻自行啟動。
+
 ## 角色資產與動畫
 
 - 軍用 `viking-hero-t4`／`viking`／`roman` 使用交付來源的 63／22／54 骨與 11 段動畫；以離線名稱／原點正規化及明確 `selectedSource` 契約接入，不冒用 T5 來源骨架。三 LOD 沿用 `SelectedLodPose`，同角色相同 joints／inverse bind 的多 mesh 共用 Skeleton，不同角色不共用可變骨骼。居民與商人由 `CharacterVisualConfig.civilian` 及 `civilianStyle ?? faction` 選擇 `roman-civilian`／`viking-civilian` 的獨立來源模型。
