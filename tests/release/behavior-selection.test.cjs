@@ -682,7 +682,7 @@ test('an unused cyclic mock helper does not poison an unrelated case root', () =
   assert.deepEqual(indices(plan), [0])
 })
 
-function ambientNativeSelection({ namespaceTarget = false, readerSpecifier = 'node:child_process', vitestSpy = false, namespaceReader = false, namedReader = false, readerESM = false, ambient = true, specifier = 'node:child_process', localSetup = '', pollution = "require.cache['child_process'] = { exports: {} }" } = {}) {
+function ambientNativeSelection({ namespaceTarget = false, readerSpecifier = 'node:child_process', vitestSpy = false, namespaceReader = false, namedReader = false, readerESM = false, ambient = true, loadCache = false, specifier = 'node:child_process', localSetup = '', pollution = "require.cache['child_process'] = { exports: {} }" } = {}) {
   const { selectBehaviors } = require('../tooling/behavior.cjs')
   const file = readerESM ? 'tests/ambient.test.mjs' : 'tests/ambient.test.cjs', owner = readerESM ? 'src/ambient.mjs' : 'src/ambient.cjs'
   let before = readerESM ? namespaceReader ? "import * as processIO from 'node:child_process'; export function run() { processIO.spawnSync('node', [globalThis.script]); return 1 }" : namedReader ? "import { spawnSync } from 'node:child_process'; export function run() { spawnSync('node', [globalThis.script]); return 1 }" : "import processIO from 'node:child_process'; export function run() { processIO.spawnSync('node', [globalThis.script]); return 1 }" : "const processIO = require('node:child_process'); function run() { processIO.spawnSync('node', [globalThis.script]); return 1 }; exports.run = run"
@@ -690,7 +690,7 @@ function ambientNativeSelection({ namespaceTarget = false, readerSpecifier = 'no
   const body = readerESM
     ? `${vitestSpy ? "import { vi } from 'vitest';" : ''} import { test } from 'node:test'; import ${namespaceTarget ? '* as processIO' : 'processIO'} from '${specifier}'; import { run } from '../src/ambient.mjs'; import '../src/cache.cjs';
 test('boundary', t => { ${vitestSpy ? "vi.spyOn(processIO, 'spawnSync').mockReturnValue({ status: 0 })" : "t.mock.method(processIO, 'spawnSync', () => { throw 'blocked' })"}; run() })`
-    : `const { test } = require('node:test'); const { run } = require('../src/ambient.cjs');
+    : `const { test } = require('node:test'); ${loadCache ? "require('../src/cache.cjs');" : ''} const { run } = require('../src/ambient.cjs');
 test('boundary', t => { ${localSetup}; const processIO = require('${specifier}'); t.mock.method(processIO, 'spawnSync', () => { throw 'blocked' }); run() })`
   const sources = new Map([
     ...(ambient ? [['ambient.d.ts', 'declare var require: { (id: string): any; cache: { [id: string]: any } };']] : []),
@@ -775,8 +775,8 @@ test('an unproven literal loader cannot disappear behind another real initialize
 })
 
 
-test('an unresolved cache-sensitive relative reader remains a blocked native scenario', () => {
-  assert.throws(() => ambientNativeSelection({ readerESM: false }), /Unsafe module initialization/)
+test('a prior imported cache writer keeps a relative reader blocked', () => {
+  assert.throws(() => ambientNativeSelection({ readerESM: false, loadCache: true }), /Unsafe module initialization/)
 })
 
 test('an unresolved cache-sensitive relative importer remains a blocked main scenario', () => {
@@ -838,4 +838,38 @@ test('a locally shadowed spy name cannot suppress a real default-object reader',
   assert.throws(() => selectBehaviors(inventory, [{ status: 'M', file: 'config.json' }], consumers, {
     sources, previousSources: sources, previousConsumers: consumers, ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
   }), /Unsafe runtime input:.*ambiguous replacement/)
+})
+
+for (const { scenario, foreign, active, fresh, importedSetup, expected } of [
+  { scenario: 'an unreachable sibling cache callback does not taint an eager capture', expected: 'real' },
+  { scenario: 'an unrelated test process cache callback does not taint an eager capture', foreign: true, expected: 'real' },
+  { scenario: 'a reached cache alias mutation keeps the captured loader uncertain', active: true, expected: 'uncertain' },
+  { scenario: 'a fresh callback require does not acquire a cache restoration proof', fresh: true, expected: 'uncertain' },
+  { scenario: 'an eager helper with a local same-name registrar is not an unrelated test callback', importedSetup: true, expected: 'uncertain' },
+]) test(scenario, () => {
+  const { behaviorGraph } = require('../tooling/behavior.cjs')
+  const file = 'tests/capture.test.cjs', owner = 'src/owner.cjs'
+  const mutation = "const saved = require.cache['owner']; delete require.cache['owner']; require.cache['owner'] = saved"
+  const body = [
+    `const { test } = require('node:test'); ${importedSetup ? "require('../src/setup.cjs')" : ''}`,
+    fresh ? 'const marker = 0' : "const { value } = require('../src/owner.cjs')",
+    `test('reader', () => { ${active ? mutation + ';' : ''} ${fresh ? "require('../src/owner.cjs').value()" : 'value()'} })`,
+    ...(!foreign ? [`test('cache maintenance', () => { ${mutation} })`] : []),
+  ].join('\n')
+  const sources = new Map([
+    [owner, 'function value() { return 1 }; module.exports = { value }'], [file, body],
+    ['ambient.d.ts', 'declare var require: { (id: string): any; cache: { [id: string]: any } };'],
+    ...(importedSetup ? [['src/setup.cjs', `function test(_, callback) { callback() }; test('setup', () => { ${mutation} })`]] : []),
+    ...(foreign ? [['tests/independent.test.cjs', `const { test } = require('node:test'); test('cache maintenance', () => { ${mutation} })`]] : []),
+  ])
+  const graph = behaviorGraph(sources, dependencyConsumers([{ file }], sources).graph, { noLib: true, noResolve: true, types: [] })
+  const roots = graph.caseRoots(file, { line: 3 })
+  const reached = graph.reachable(roots, file)
+  const entries = [...graph.nodes.values()].filter(entry => reached.has(entry.id) && entry.file === file && entry.moduleEntryRisks?.some(risk => risk.target === owner))
+  assert.ok(entries.length, 'the uncertain loader must remain represented, not disappear')
+  for (const entry of entries) for (const risk of entry.moduleEntryRisks.filter(risk => risk.target === owner)) {
+    assert.equal(graph.moduleEntryStatus(risk, reached, entry.id, file), expected)
+  }
+  assert.ok([...graph.nodes.values()].some(entry => entry.file === owner && entry.label === '<module>' && reached.has(entry.id)), 'retain the actual initialization candidate under its scope guard')
+  if (foreign) assert.equal(graph.runtimeReaches(file, 'tests/independent.test.cjs'), false)
 })

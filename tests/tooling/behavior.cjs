@@ -34,6 +34,13 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   const checker = program.getTypeChecker()
   const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), commonjsTargets = new Set(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set(), escapedBindings = new Set(), mutatedObjectBindings = new Set(), bindingAliases = new Map(), mutatedImplicitRequireFiles = new Set(), escapedImplicitRequireFiles = new Set(), mutatedImplicitModuleFiles = new Set(), mutatedRequireMainFiles = new Set(), escapedExportFiles = new Set(), reconfiguredExportFiles = new Set()
   const activeProviders = new Set(), cyclicProviders = new Set()
+  const bindingInvalidations = new Map(), loaderAcquisitions = new WeakMap(), loaderScopeContexts = new WeakMap(), initializationModules = new Map()
+  let factsComplete = false
+  function invalidateObjectBinding(set, declaration, ast) {
+    set.add(declaration)
+    if (!bindingInvalidations.has(declaration)) bindingInvalidations.set(declaration, new Set())
+    bindingInvalidations.get(declaration).add(ast)
+  }
   function connect(entry, id, guard = null) {
     entry.edges.add(id)
     entry.edgeGuards ??= new Map()
@@ -101,7 +108,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     } else if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
       const property = requireProperty(target)
       if (property && (property.key === null || property.key === 'main')) mutatedRequireMainFiles.add(target.getSourceFile().fileName)
-      if (property?.key !== 'main') { const declaration = baseBinding(target.expression); if (declaration) mutatedObjectBindings.add(declaration) }
+      if (property?.key !== 'main') { const declaration = baseBinding(target.expression); if (declaration) invalidateObjectBinding(mutatedObjectBindings, declaration, target) }
     } else ts.forEachChild(target, invalidateAssignment)
   }
   function optionalReceiver(expression) {
@@ -145,10 +152,16 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const imports = runtimeImports(sf)
     const importBindings = imports.bindings
     runtimeModules.set(file, new Set())
-    const runtimeModule = name => {
+    initializationModules.set(file, new Set())
+    const runtimeModule = (name, ast) => {
       const stem = posix.normalize(posix.join(posix.dirname(file), name))
       const target = (importGraph.get(file) ?? []).find(dep => dep === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js'].some(ext => dep === stem + ext))
-      if (target) runtimeModules.get(file).add(target)
+      if (target) {
+        runtimeModules.get(file).add(target)
+        let deferred = false
+        for (let parent = ast?.parent; parent && !ts.isSourceFile(parent); parent = parent.parent) if (callable(parent)) deferred = true
+        if (!deferred) initializationModules.get(file).add(target)
+      }
       return target
     }
     function index(n) {
@@ -160,10 +173,10 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
           || ts.isBinaryExpression(parent) && parent.left === n && parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment
         if (!benign) escapedImplicitRequireFiles.add(n.getSourceFile().fileName)
       }
-      if (ts.isImportDeclaration(n) && imports.modules.some(specifier => specifier.startsWith(n.moduleSpecifier.getText()))) runtimeModule(n.moduleSpecifier.text)
-      if (ts.isExportDeclaration(n) && !n.isTypeOnly && n.moduleSpecifier && (!n.exportClause || !ts.isNamedExports(n.exportClause) || n.exportClause.elements.some(element => !element.isTypeOnly))) runtimeModule(n.moduleSpecifier.text)
+      if (ts.isImportDeclaration(n) && imports.modules.some(specifier => specifier.startsWith(n.moduleSpecifier.getText()))) runtimeModule(n.moduleSpecifier.text, n)
+      if (ts.isExportDeclaration(n) && !n.isTypeOnly && n.moduleSpecifier && (!n.exportClause || !ts.isNamedExports(n.exportClause) || n.exportClause.elements.some(element => !element.isTypeOnly))) runtimeModule(n.moduleSpecifier.text, n)
       if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword || n.expression.getText() === 'require') && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0])) {
-        const target = runtimeModule(n.arguments[0].text)
+        const target = runtimeModule(n.arguments[0].text, n)
         if (target && providerRequire(n)) commonjsTargets.add(target)
       }
       if ((ts.isImportSpecifier(n) || ts.isNamespaceImport(n) || ts.isImportClause(n)) && n.name && importBindings.has(n.name.text)) add(n, `<import:${n.name.text}>`)
@@ -201,7 +214,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
             const declaration = bindingDeclaration(node)
             // Unknown expressions may capture outer references, but their own
             // callback parameters/locals are not escaped caller bindings.
-            if (declaration && !(declaration.getSourceFile() === expression.getSourceFile() && expression.pos <= declaration.pos && declaration.end <= expression.end)) escapedBindings.add(declaration)
+            if (declaration && !(declaration.getSourceFile() === expression.getSourceFile() && expression.pos <= declaration.pos && declaration.end <= expression.end)) invalidateObjectBinding(escapedBindings, declaration, node)
           }
           ts.forEachChild(node, visit)
         }
@@ -225,7 +238,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
         && (ts.isPropertyAccessExpression(n.left) || ts.isElementAccessExpression(n.left))) {
         const symbol = receiverSymbol(origin(n.left.expression))
         if (symbol) mutatedReceivers.add(symbol)
-        const declaration = baseBinding(n.left.expression); if (declaration && requireProperty(n.left)?.key !== 'main') mutatedObjectBindings.add(declaration)
+        const declaration = baseBinding(n.left.expression); if (declaration && requireProperty(n.left)?.key !== 'main') invalidateObjectBinding(mutatedObjectBindings, declaration, n.left)
       }
       if (ts.isCallExpression(n) && /^(?:Object\.(?:assign|defineProperty|defineProperties)|Reflect\.set)$/.test(n.expression.getText()) && n.arguments[0]) {
         const symbol = receiverSymbol(origin(n.arguments[0]))
@@ -277,7 +290,13 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     changedBindings = false
     for (const [alias, expression] of bindingAliases) if (mutatedObjectBindings.has(alias) || escapedBindings.has(alias)) {
       const original = baseBinding(expression)
-      if (original && !escapedBindings.has(original)) { escapedBindings.add(original); changedBindings = true }
+      if (original) {
+        if (!escapedBindings.has(original)) { escapedBindings.add(original); changedBindings = true }
+        if (!bindingInvalidations.has(original)) bindingInvalidations.set(original, new Set())
+        for (const fact of bindingInvalidations.get(alias) ?? []) if (!bindingInvalidations.get(original).has(fact)) {
+          bindingInvalidations.get(original).add(fact); changedBindings = true
+        }
+      }
     }
   }
   // Data-reader candidate expansion is not executable module provenance.
@@ -298,6 +317,15 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       runtimeClosures.set(file, seen)
     }
     return runtimeClosures.get(file).has(target)
+  }
+  const initializationClosures = new Map()
+  function initializesFrom(processEntry, file) {
+    if (!initializationClosures.has(processEntry)) {
+      const visited = new Set(), queue = [processEntry]
+      for (const next of queue) if (!visited.has(next)) { visited.add(next); queue.push(...(initializationModules.get(next) ?? [])) }
+      initializationClosures.set(processEntry, visited)
+    }
+    return initializationClosures.get(processEntry).has(file)
   }
   function requiredModule(n) {
     n = origin(n)
@@ -740,7 +768,19 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
           if (providerRequire(n) || n.expression.kind === ts.SyntaxKind.ImportKeyword) {
             connect(entry, files.get(target).top); entry.conservativeEdges.add(files.get(target).top)
             entry.edgeEvidence.set(files.get(target).top, { evidence: 'actual module initialization', expression: n.getText() })
-          } else if (!inertLocalCall(n.expression)) (entry.moduleEntryRisks ??= []).push({ target, expression: n.getText(), reason: 'CommonJS loader identity or cache provenance is unresolved' })
+          } else if (!inertLocalCall(n.expression)) {
+            const risk = { target, expression: n.getText(), reason: 'CommonJS loader identity or cache provenance is unresolved' }
+            ;(entry.moduleEntryRisks ??= []).push(risk)
+            if (implicitRequire(n.expression) && !mutatedImplicitRequireFiles.has(n.getSourceFile().fileName)
+              && !escapedImplicitRequireFiles.has(n.getSourceFile().fileName)) {
+              loaderAcquisitions.set(risk, n)
+              commonjsTargets.add(target)
+              // This edge is provisional. Every affected case must qualify the
+              // loader against its complete process/scope trace before selection.
+              connect(entry, files.get(target).top); entry.conservativeEdges.add(files.get(target).top)
+              entry.edgeEvidence.set(files.get(target).top, { evidence: 'module initialization with per-case loader scope guard', expression: n.getText() })
+            }
+          }
         }
       }
       replacementEvent(n, entry)
@@ -1102,6 +1142,54 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     seen.mockUncertainties = mockUncertainties
     return seen
   }
+  function moduleEntryStatus(risk, reached, ownerId, testFile) {
+    const acquisition = loaderAcquisitions.get(risk)
+    if (!factsComplete || !acquisition || !reached.trace) return 'uncertain'
+    // Only an eager captured binding qualifies here. A later fresh require is
+    // not evidence of cache contents or restoration, even in an unrelated case.
+    for (let ast = acquisition.parent; ast && !ts.isSourceFile(ast); ast = ast.parent) if (callable(ast)) return 'uncertain'
+    const declaration = baseBinding(acquisition.expression)
+    if (!declaration || mutatedBindings.has(declaration) || bindingAliases.has(declaration)) return 'uncertain'
+    const facts = bindingInvalidations.get(declaration)
+    if (!facts?.size) return 'uncertain' // Never reinterpret missing provenance as safety.
+    let scoped = loaderScopeContexts.get(reached)
+    if (!scoped) {
+      scoped = new Map()
+      for (const state of reached.trace.states.values()) {
+        if (!scoped.has(state.id)) scoped.set(state.id, [])
+        scoped.get(state.id).push(state)
+      }
+      loaderScopeContexts.set(reached, scoped)
+    }
+    const contexts = scoped.get(ownerId) ?? []
+    if (!contexts.length) return 'uncertain'
+    for (const context of contexts) {
+      const processEntry = context.mainFile ?? testFile
+      // A module loaded later by a callback is not an eager process capture.
+      if (!initializesFrom(processEntry, local(acquisition.getSourceFile().fileName))) return 'uncertain'
+      for (const fact of facts) {
+        const file = local(fact.getSourceFile().fileName)
+        if (!runtimeReaches(processEntry, file)) continue
+        let owner, callback
+        for (let ast = fact; ast && !ts.isSourceFile(ast); ast = ast.parent) {
+          if (!owner && byAst.has(ast)) owner = byAst.get(ast)
+          if (callable(ast) && ts.isCallExpression(ast.parent) && registration(ast.parent)) {
+            const provider = providerOf(ast.parent.expression)
+            if (['node:test', 'vitest'].includes(provider?.module) && ['test', 'it'].includes(provider.export)
+              && stableBinding(ast.parent.expression)) callback = byAst.get(ast)
+          }
+        }
+        const ownerStates = scoped.get(owner) ?? []
+        if (ownerStates.some(state => state.processContext === context.processContext)) return 'uncertain'
+        if (ownerStates.length) continue // An actually reached different process cannot mutate this cache.
+        // An unrelated registered leaf is not an initializer. Do not extend this
+        // exemption to arbitrary callbacks/helpers whose invocation is unknown.
+        if (callback && !(scoped.get(callback) ?? []).some(state => state.processContext === context.processContext)) continue
+        return 'uncertain'
+      }
+    }
+    return 'real'
+  }
   function entryMayAffect(file, target) {
     if (runtimeReaches(file, target)) return true
     if (inputEdges.some(input => input.to === target && runtimeReaches(file, input.readerFile ?? input.from))) return true
@@ -1256,7 +1344,8 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const action = events.at(-1)?.action
     return action === 'replace' ? binding.live && binding.methodLive !== false ? 'replaced' : 'uncertain' : action === 'uncertain' ? 'uncertain' : initial
   }
-  return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, mockUncertainty, runtimeReaches, entryMayAffect, hasFile: file => files.has(file) }
+  factsComplete = true
+  return { nodes, reachable, moduleEntryStatus, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, mockUncertainty, runtimeReaches, entryMayAffect, hasFile: file => files.has(file) }
 }
 
 function selectBehaviors(inventory, changed, consumers, evidence) {
@@ -1308,7 +1397,7 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
               throw error
             }
             if (unresolved?.unsafe) failRisk(`Unsafe runtime dispatch: ${file}: ${unresolved.unsafe}`, { reason: unresolved.unsafe })
-            for (const risk of unresolved?.moduleEntryRisks ?? []) if (graphs[i].entryMayAffect(risk.target, change.file)) failRisk(`Unsafe module initialization: ${risk.reason}`, risk)
+            for (const risk of unresolved?.moduleEntryRisks ?? []) if (graphs[i].entryMayAffect(risk.target, change.file) && graphs[i].moduleEntryStatus(risk, reached, id, graphFile) !== 'real') failRisk(`Unsafe module initialization: ${risk.reason}`, risk)
             if (unresolved?.directoryInput) {
               const listing = unresolved.directoryInput
               const status = graphs[i].inputStatus(listing.listingProvider, listing.listingProvider?.export, actualRoots, reached, id, graphFile)
