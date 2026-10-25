@@ -182,23 +182,24 @@ export class WeaponMeshFactory {
       pivot.add(createT5Melee(weaponId))
       return { tipLocal: new THREE.Vector3(0, 1.3275, 0) }
     }
-    if (weaponId === 'axe_t5') {
+    if (weaponId === 'axe_t5' || weaponId === 'paladin_mace_t4') {
       // Reuse the existing weapon-only carry/attack transform and Bandit foot-axe pose.
       // The normalized asset has its shaft along +Y and its grip at y=.15.
       const visual = new THREE.Group()
       visual.name = 'dane-axe-visual'
       visual.position.y = .15
       visual.rotation.x = .45
-      const model = createT5Melee(weaponId)
+      const model = weaponId === 'paladin_mace_t4' ? createPaladinEquipment(weaponId) : createT5Melee(weaponId)
       model.position.y = -.15
       visual.add(model)
       pivot.add(visual)
-      return { tipLocal: new THREE.Vector3(0, 1.51, 0) }
+      // Preserve each weapon's existing gameplay reach marker independently of its new mesh.
+      return { tipLocal: new THREE.Vector3(0, weaponId === 'paladin_mace_t4' ? .99375 : 1.51, 0) }
     }
 
-    if (weaponId === 'paladin_sword_t4' || weaponId === 'paladin_mace_t4') {
+    if (weaponId === 'paladin_sword_t4') {
       pivot.add(createPaladinEquipment(weaponId))
-      return { tipLocal: new THREE.Vector3(0, weaponId === 'paladin_sword_t4' ? 1.3275 : .99375, 0) }
+      return { tipLocal: new THREE.Vector3(0, 1.3275, 0) }
     }
 
     if (weaponId === 'gladius_rusty' || weaponId === 'gladius_standard' || weaponId === 'centurion_blade') {

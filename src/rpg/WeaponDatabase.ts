@@ -79,10 +79,10 @@ export const WEAPONS: Record<string, WeaponData> = {
     description: '羅馬與維京 T4 共用長劍；命中盾面造成 1 點固定衝擊。',
   },
   paladin_mace_t4: {
-    id: 'paladin_mace_t4', name: '破盾戰槌 Shieldbreaker Mace', type: 'melee', tier: 4,
+    id: 'paladin_mace_t4', name: "隊長雙刃戰斧 Captain's Double-Bitted Axe", type: 'melee', tier: 4,
     combatKind: 'sword', animationKind: 'axe', damageMin: 55, damageMax: 55,
     speedOrCharge: .54, meleeCycleSeconds: .54, shieldImpact: 12, range: 1.8,
-    description: '羅馬與維京 T4 共用戰槌；沿用長斧動作，命中盾面造成 12 點固定衝擊，無護甲穿透。',
+    description: '羅馬與維京 T4 共用雙刃戰斧；可單手或雙手揮砍，命中盾面造成 12 點固定衝擊，無護甲穿透。',
   },
   // ── Melee Weapons (Swords) ──
   rusty_dagger: {
