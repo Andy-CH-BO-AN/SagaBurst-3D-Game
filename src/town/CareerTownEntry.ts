@@ -18,9 +18,12 @@ import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
 import { TownScene } from './TownScene'
 import { grantStarter, STARTER_WEAPONS } from './TownRules'
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import { canStartCareerTutorial, commitCareerTutorial, startCareerTutorial } from '../career/CareerTutorial'
+import type { CareerTutorialLaunch } from '../career/CareerTutorialLaunch'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
 export function enterCareerTown(container: HTMLElement, launchCampaign: (config: CareerCombatLaunch) => Promise<void>, home: () => void,
-  onMissionLaunchError?: (missionId: string, error: unknown) => void): void {
+  onMissionLaunchError?: (missionId: string, error: unknown) => void,
+  launchTutorial?: (context: CareerTutorialLaunch) => Promise<void>): void {
   installTownStyles()
   const store = new CareerProfileStore(), loaded = store.loadChecked()
   const form = document.createElement('div'); form.id = 'career-entry'; form.className = 'town-entry'
@@ -37,6 +40,24 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
         newCareer: () => showCreator(null, profile),
       })
       return
+    }
+    // Routing is a capability saved on this enlistment, never inferred from a free-mode URL.
+    if (launchTutorial && profile.tutorial && canStartCareerTutorial(profile)) {
+      if (!profile.tutorial.session && !profile.tutorial.legacy && profile.tutorial.recruit.status === 'available') {
+        const started = commitCareerTutorial(store, profile.tutorial.careerId, next => Boolean(startCareerTutorial(next, 'recruit')))
+        if (!started.ok) {
+          status.textContent = '無法保存新兵教學，尚未離開角色建立畫面。請重試。'
+          button('重試進入新兵教學', () => { void start(profile) })
+          return
+        }
+        profile = started.profile
+      }
+      const session = profile.tutorial?.session
+      if (session) {
+        form.remove()
+        await launchTutorial({ careerId: session.careerId, sessionId: session.id, stage: session.stage })
+        return
+      }
     }
     const active = profile.activeMission
     const captainLaunch = active?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && active.kind === 'captain-outpost-defense'
@@ -104,7 +125,15 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       }, () => {
         sessionStorage.removeItem(TOWN_ENTRY_KEY)
         home()
-      }, message => { loading.textContent = message })
+      }, message => { loading.textContent = message }, (stage, replay) => {
+        if (!launchTutorial || !profile.tutorial) return false
+        const started = commitCareerTutorial(store, profile.tutorial.careerId, next => Boolean(startCareerTutorial(next, stage, replay)))
+        if (!started.ok) return false
+        const session = started.profile.tutorial!.session!
+        // Town disposes its listeners and renderer before the next scene is constructed.
+        queueMicrotask(() => { void launchTutorial({ careerId: session.careerId, sessionId: session.id, stage: session.stage }) })
+        return true
+      })
       if (import.meta.env.DEV) (window as unknown as { town: TownScene }).town = town
       loading.remove()
       town.start()

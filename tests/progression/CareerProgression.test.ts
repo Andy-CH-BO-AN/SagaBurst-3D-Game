@@ -1,3 +1,5 @@
+import { claimCareerTutorialReward, commitCareerTutorial, recordCareerTutorialOperation, startCareerTutorial, deferCareerTutorial } from '../../src/career/CareerTutorial'
+import { CAREER_TUTORIAL_OPERATIONS } from '../../src/career/CareerTutorialState'
 import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
 import { parseCareerRetirementState } from '../../src/career/CareerRetirementState'
 import { grantStarter } from '../../src/town/TownRules'
@@ -93,6 +95,8 @@ describe('Career progression and spending', () => {
     expect(purchase.profile.availableMerit).toBe(2300)
     expect(purchase.profile.rank).toBe('captain')
     expect(purchase.profile.ownedWeapons).toEqual(['viking_axe_t3'])
+    expect(purchase.profile.tutorial?.purchases.weaponIds).toEqual(['viking_axe_t3'])
+    expect(profile.tutorial?.purchases.weaponIds).toEqual([])
   })
 
   it.each([
@@ -129,6 +133,8 @@ describe('Career progression and spending', () => {
     expect(duplicate.purchased).toBe(true)
     expect(duplicate.profile.availableMerit).toBe(100)
     expect(careerItemTotal(duplicate.profile, 'horse')).toBe(2)
+    expect(duplicate.profile.tutorial?.purchases.horse).toBe(true)
+    expect(profile.tutorial?.purchases.horse).toBe(false)
 
     const expensive = purchaseCareerContent(profile, {
       kind: 'mount',
@@ -219,6 +225,8 @@ describe('Commander melee appointment and save migration', () => {
     for (const rank of ['soldier', 'veteran', 'captain']) {
       profile = promoteCareer(profile)!
       expect(profile.rank).toBe(rank)
+      expect(profile.tutorial?.captain.status).toBe(rank === 'captain' ? 'available' : 'locked')
+      expect(profile.tutorial?.commander.status).toBe('locked')
       expect(careerItemTotal(profile, 'sword_t5')).toBe(0)
     }
     const equipment = new TownEquipment(() => profile, next => { profile = next; return true })
@@ -228,6 +236,7 @@ describe('Commander melee appointment and save migration', () => {
     expect(profile.rank).toBe('captain')
     expect(profile.commanderMeleeGranted).toBeUndefined()
     expect(promoted.commanderMeleeGranted).toBe(true)
+    expect(promoted.tutorial?.commander.status).toBe('available')
     expect(promoted.equipment).toEqual({ melee: 'paladin_sword_t4', ranged: 'bow_t5' })
     expect(careerItemTotal(promoted, 'sword_t5')).toBe(1)
     expect(careerItemAllocated(promoted, 'sword_t5')).toBe(0)
@@ -426,4 +435,57 @@ it('round-trips a prepared retirement receipt and rejects incomplete or misplace
     expect(parseCareerRetirementState({ ...progress, mobilization: invalid })).toBeNull()
   }
   expect(parseCareerRetirementState({ ...progress, phase: 'departing' })).toBeNull()
+})
+
+
+describe('Career tutorial durable transactions', () => {
+  it('keeps the final operation and fixed reward atomic on failed storage, retries once and never pays a replay', () => {
+    const profile = createCareerProfile('roman')
+    const session = startCareerTutorial(profile, 'recruit')!
+    for (const operation of CAREER_TUTORIAL_OPERATIONS.recruit.flat().slice(0, -1)) {
+      expect(recordCareerTutorialOperation(profile, 'recruit', operation)).toBe(true)
+    }
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save(profile)).toBe(true)
+    storage.failWrites = true
+    const claim = (candidate: CareerProfile) => recordCareerTutorialOperation(candidate, 'recruit', 'dismounted')
+    expect(commitCareerTutorial(store, session.careerId, claim, session.id)).toEqual({ ok: false, reason: 'save-failed' })
+    expect(store.load()!.totalMerit).toBe(0)
+    expect(store.load()!.tutorial?.recruit.step).toBe('dismounted')
+    expect(store.load()!.tutorial?.rewards.recruit).toBeUndefined()
+    storage.failWrites = false
+    const saved = commitCareerTutorial(store, session.careerId, claim, session.id)
+    expect(saved.ok).toBe(true)
+    expect(store.load()).toMatchObject({ totalMerit: 100, availableMerit: 100, rank: 'recruit', tutorial: { rewards: { recruit: 100 }, recruit: { status: 'completed' } } })
+    expect(commitCareerTutorial(store, session.careerId, claim, session.id)).toEqual({ ok: false, reason: 'rejected' })
+    const replay = store.load()!
+    deferCareerTutorial(replay, 'recruit')
+    expect(startCareerTutorial(replay, 'recruit', true)).not.toBeNull()
+    for (const operation of CAREER_TUTORIAL_OPERATIONS.recruit.flat()) recordCareerTutorialOperation(replay, 'recruit', operation)
+    expect(claimCareerTutorialReward(replay, 'recruit')).toBe(0)
+    expect(store.save(replay)).toBe(true)
+    expect(store.load()!.totalMerit).toBe(100)
+    expect(store.load()!.lifetimeStats.battles).toBe(0)
+    expect(store.load()!.skills).toEqual(profile.skills)
+  })
+
+  it('durably migrates an old career without forcing Recruit and rejects callbacks from a replaced enlistment', () => {
+    const legacy = createCareerProfile('roman')
+    delete legacy.tutorial
+    legacy.totalMerit = 5200; legacy.availableMerit = 4100; legacy.rank = 'captain'
+    legacy.activeMission = { id: 'ongoing', templateId: 'recruit-bandits-01', kind: 'bandit', targetCampId: 0,
+      phase: 'RETURNING', targetActorIds: ['bandit'], friendlyActorIds: ['captain'], acceptedAt: 1 }
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(legacy)]] })
+    const store = new CareerProfileStore(storage), migrated = store.load()!
+    expect(migrated.tutorial).toMatchObject({ legacy: true, recruit: { status: 'deferred' }, captain: { status: 'deferred' }, commander: { status: 'locked' } })
+    expect(store.load()!.tutorial?.careerId).toBe(migrated.tutorial!.careerId)
+    expect(migrated).toMatchObject({ rank: 'captain', totalMerit: 5200, availableMerit: 4100, activeMission: { id: 'ongoing' } })
+    const replacement = createCareerProfile('viking')
+    // Only the ending creation transaction may replace an existing character.
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(replacement))
+    expect(commitCareerTutorial(store, migrated.tutorial!.careerId, p => { p.availableMerit += 100 })).toEqual({ ok: false, reason: 'stale-career' })
+    expect(store.save(migrated)).toBe(false)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(JSON.stringify(replacement))
+    expect(store.load()!.tutorial?.careerId).toBe(replacement.tutorial!.careerId)
+  })
 })

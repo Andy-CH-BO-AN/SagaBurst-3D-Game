@@ -39,7 +39,7 @@ function findText(root: EntryElement, text: string): EntryElement | undefined {
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 describe('Town load failure recovery', () => {
-  it('replaces a completed Career only after confirmed starter selection and a successful save, then starts after loading', async () => {
+  it('replaces a completed Career only after confirmed starter selection and saved tutorial routing', async () => {
     const local = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
     vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
@@ -53,7 +53,10 @@ describe('Town load failure recovery', () => {
     expect(store.save(profile)).toBe(true)
     const original = local.getItem(CAREER_STORAGE_KEY)
     const home = vi.fn()
-    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home)
+    const training = vi.fn(async (context: { careerId: string; sessionId: string; stage: string }) => {
+      expect(store.loadChecked().profile?.tutorial?.session).toMatchObject({ careerId: context.careerId, id: context.sessionId, stage: 'recruit' })
+    })
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home, undefined, training)
     expect(TownScene.create).not.toHaveBeenCalled()
     expect(findText(body, '退休結局：光榮退役')).toBeDefined()
     findText(body, '開始新的 Career')!.onclick!()
@@ -72,18 +75,12 @@ describe('Town load failure recovery', () => {
     grid.children[0].onclick!()
     expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
     expect(TownScene.create).not.toHaveBeenCalled()
+    expect(training).not.toHaveBeenCalled()
     local.failWrites = false
-    let loading: EntryElement | undefined
-    const start = vi.fn(() => expect(loading?.remove).toHaveBeenCalledOnce())
-    vi.mocked(TownScene.create).mockImplementation(async () => {
-      loading = body.children[body.children.length - 1]
-      expect(start).not.toHaveBeenCalled()
-      expect(loading.remove).not.toHaveBeenCalled()
-      return { start } as unknown as TownScene
-    })
     grid.children[0].onclick!()
     await Promise.resolve()
-    expect(start).toHaveBeenCalledOnce()
+    expect(training).toHaveBeenCalledOnce()
+    expect(TownScene.create).not.toHaveBeenCalled()
     expect(home).not.toHaveBeenCalled()
     const fresh = store.loadChecked().profile!
     expect(fresh).toMatchObject({ rank: 'recruit', totalMerit: 0, availableMerit: 0, starterWeaponId: 'gladius_rusty', claimedBattleIds: [] })
@@ -93,6 +90,7 @@ describe('Town load failure recovery', () => {
     expect(fresh.careerMissionCompletions).toBeUndefined()
     expect(fresh.townEvent).toBeUndefined()
     expect(fresh.inventory?.quantities).toEqual({ gladius_rusty: 1 })
+    expect(fresh.tutorial?.careerId).not.toBe(profile.tutorial?.careerId)
   })
 
   it('saves the castle refit before map launch and offers a retry if that save fails', async () => {

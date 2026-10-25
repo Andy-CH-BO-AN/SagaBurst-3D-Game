@@ -52,6 +52,8 @@ export class TrainingGround {
     this.markers.add(marker)
   }
 
+  addTutorialMarker(x: number, z: number): void { this.addMarker(x, z, 1.6, 0xffdf77) }
+
   resetMounts(): void {
     this.mounts.forEach((mount, index) => {
       const placement = this.plan.mounts[index]

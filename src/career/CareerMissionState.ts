@@ -97,6 +97,8 @@ export interface ActiveCareerMission {
   playerStats?: PlayerBattleStatsCheckpoint
   duelCommanderHome?: CareerDuelCommanderHome
   duelTravel?: CareerDuelTravelCheckpoint
+  /** Career-scoped tutorial duel; never participates in official tier unlocks. */
+  duelTutorialCareerId?: string
   duelTier?: CareerDuelTier
   duelPresetId?: UnitPresetId
   duelOpponentActorId?: string

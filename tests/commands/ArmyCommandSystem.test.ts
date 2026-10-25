@@ -4,6 +4,7 @@ import type { OfficialCommandAuthority } from '../../src/career/CareerCommandAut
 import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Faction } from '../../src/world/NPC'
+import type { NPC } from '../../src/world/NPC'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { acceptCommanderMission, COMMANDER_BRIDGEHEAD_ID } from '../../src/career/CommanderMissionCatalog'
 import { CareerCommandHudTypes } from '../../src/career/CareerCommandHudTypes'
@@ -11,6 +12,29 @@ import { CareerCommandHudTypes } from '../../src/career/CareerCommandHudTypes'
 import { createArmyCommandHarness as controllerHarness, type CommandRecipientFixture } from '../helpers/armyCommandHarness'
 
 describe('Army command roster, dispatch and submenu', () => {
+  it('publishes tutorial formation evidence only after a real placement owner accepts eligible participants', () => {
+    const actor = { combatantId: 'drill:1', faction: Faction.PLAYER, squadId: 1, dead: false }
+    const participant = actor as unknown as NPC
+    let placing = false, accepted = false
+    const h = controllerHarness([actor], {
+      get isPlacementMode() { return placing },
+      setCompletionHandler: vi.fn(), beginPlacement: () => { placing = true }, updatePlacement: vi.fn(),
+      cancelPlacement: () => { placing = false },
+      confirmPlacement: () => {
+        placing = !accepted
+        return accepted ? { accepted: true, count: 1, commandId: 7, participants: [participant] }
+          : { accepted: false, count: 0, commandId: null, participants: [] }
+      },
+    }, null, null, 'roman', 'squad')
+    const evidence = vi.fn(); h.controller.onAccepted = evidence
+    h.input.press('1'); h.controller.update(); h.input.press('4'); h.controller.update()
+    h.input.pressE(); h.controller.update()
+    expect(evidence).not.toHaveBeenCalled()
+    expect(h.controller.isFormationPlacementMode).toBe(true)
+    accepted = true; h.input.pressE(); h.controller.update()
+    expect(evidence).toHaveBeenCalledExactlyOnceWith({ order: 'formation', target: 'squad:1', participantCount: 1 })
+    expect(h.controller.isSubmenuOpen).toBe(false)
+  })
   it('retains accepted infantry types through pending deployment and complete squad casualties, including Squad 8', () => {
     const profile = acceptCommanderMission({ ...createCareerProfile('roman'), rank: 'commander', totalMerit: 20000 },
       COMMANDER_BRIDGEHEAD_ID, 'hud-bridge')!
@@ -42,9 +66,12 @@ describe('Army command roster, dispatch and submenu', () => {
     const onIssued = vi.fn()
     const h = controllerHarness(actors, null, null, null, 'roman', 'squad', true, undefined,
       { accepts: npc => !['returning', 'bystander'].includes(npc.combatantId), enabled: () => true, beforeIssue }, undefined, onIssued)
+    const onAccepted = vi.fn()
+    h.controller.onAccepted = onAccepted
     h.input.pressAll(); h.controller.update(); h.input.press('3'); h.controller.update()
     expect(events).toEqual(['save'])
     expect(onIssued).not.toHaveBeenCalled()
+    expect(onAccepted).not.toHaveBeenCalled()
     for (const actor of actors) expect(actor.setTacticalOrder).not.toHaveBeenCalled()
     expect(h.ui.render.mock.lastCall![0].find(entry => entry.target === 'all')?.order).toBe('attack')
     saved = true; events.length = 0
@@ -53,6 +80,7 @@ describe('Army command roster, dispatch and submenu', () => {
     expect(events).toEqual(['save', 'north', 'east', 'private', 'resident'])
     for (const actor of actors.slice(4)) expect(actor.setTacticalOrder).not.toHaveBeenCalled()
     expect(onIssued).toHaveBeenCalledWith('defend', 'all')
+    expect(onAccepted).toHaveBeenCalledExactlyOnceWith({ order: 'defend', target: 'all', participantCount: 4 })
   })
 
   it('commands explicit Town allies and personal members separately while excluding unassigned PLAYER troops', () => {
