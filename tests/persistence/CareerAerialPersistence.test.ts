@@ -83,23 +83,35 @@ describe('Career Town layout checkpoint migration', () => {
     const saved = store.load()!.personalSquadRuntime!
     expect(saved).toMatchObject({ sceneKey: 'town-home', state: 'RESERVE', returnToHR: true })
     expect(saved.pendingMemberIds).toBeUndefined()
-    const home = placePersonalMissionAtHR(saved, { ...layout, padForMember: id => id === 'personal:eagle' ? secondPad : undefined }, terrain)
-    expect(home.returnToHR).toBe(true) // The spawn owner parks mounts, then consumes the intent.
-    expect(home.members['personal:eagle']).toEqual({ status: 'deployed',
-      eaglePadId: 'private-eagle-pad:2', order: 'defend', position: { x: -90, y: 12, z: 70, yaw: 0 } })
-    expect(home.members['personal:foot']).toEqual({ status: 'deployed', order: 'defend',
-      position: { x: -85, y: 12, z: 70, yaw: 0 } })
-    expect(home.members['personal:dead']).toEqual({ status: 'deployed', order: 'defend',
-      position: { x: -80, y: 12, z: 70, yaw: 0 } })
-    // Missing HP/ammo/shield/mount overrides mean a newly constructed actor's full equipped resources.
+    // Older saves may still carry deployed/casualty resources under the durable return flag.
+    const legacy = { ...saved, members: structuredClone(battle.members) }
+    const home = placePersonalMissionAtHR(legacy, { ...layout, padForMember: id => id === 'personal:eagle' ? secondPad : undefined })
+    expect(home.returnToHR).toBe(true) // The runtime consumes the intent without spawning actors.
+    expect(home.members).toEqual({
+      'personal:eagle': { status: 'reserve', eaglePadId: 'private-eagle-pad:2' },
+      'personal:foot': { status: 'reserve' }, 'personal:dead': { status: 'reserve' },
+    })
+    // Missing HP/ammo/shield/mount overrides give the next Follow full equipped resources.
     expect(Object.values(saved.members)).toEqual([
-      { status: 'deployed', order: 'defend', eaglePadId: 'private-eagle-pad:1' },
-      { status: 'deployed', order: 'defend' }, { status: 'deployed', order: 'defend' },
+      { status: 'reserve', eaglePadId: 'private-eagle-pad:1' },
+      { status: 'reserve' }, { status: 'reserve' },
     ])
     expect(battle).toEqual(before)
     profile.personalSquadRuntime = home
     expect(store.save(profile)).toBe(true)
-    expect(placePersonalMissionAtHR(store.load()!.personalSquadRuntime!, layout, terrain)).toEqual(home)
+    expect(placePersonalMissionAtHR(store.load()!.personalSquadRuntime!, layout)).toEqual(home)
+  })
+
+  it('restores Dismiss eligibility for an ambiguous old HR standby without refitting or moving its actors', () => {
+    const saved = personal({ order: 'formation',
+      formation: { commandId: 17, position: { x: 300, z: 200, yaw: 1 }, reached: false } })
+    saved.state = 'RESERVE' // Old formal-return snapshots consumed returnToHR before saving.
+    const before = structuredClone(saved)
+    const repaired = placePersonalMissionAtHR(saved, layout)
+    expect(repaired).toEqual({ ...before, state: 'ACTIVE' })
+    expect(repaired.members).toBe(saved.members)
+    expect(placePersonalMissionAtHR(repaired, layout)).toBe(repaired)
+    expect(saved).toEqual(before)
   })
 
   it('relocates a boarding eagle and changes its walking destination while retaining the rider position and wounds', () => {

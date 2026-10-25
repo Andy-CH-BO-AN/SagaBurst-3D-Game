@@ -18,19 +18,21 @@ export interface PersonalTownMigrationLayout {
   padForMember?: (memberId: string) => EaglePad | undefined
 }
 
-/** Resolve the durable return intent against the actual home's legal muster and allocated pads. */
-export function placePersonalMissionAtHR(saved: PersonalSquadMission, layout: PersonalTownMigrationLayout,
-  terrainHeight: GroundHeight = getTerrainHeight): PersonalSquadMission {
-  if (!saved.returnToHR || saved.sceneKey !== 'town-home') return saved
+/** Consume a formal return before any actors spawn. Legacy RESERVE actors whose
+ * return flag was already consumed may since have fought or received commands:
+ * preserve their exact resources/positions and restore Dismiss eligibility only.
+ * The caller must restrict this repair to free home-town entry, never a mission.
+ */
+export function placePersonalMissionAtHR(saved: PersonalSquadMission, layout: PersonalTownMigrationLayout): PersonalSquadMission {
+  if (saved.sceneKey !== 'town-home') return saved
+  if (!saved.returnToHR) return saved.state === 'RESERVE'
+    && saved.memberIds.some(id => saved.members[id]?.status === 'deployed')
+      ? { ...saved, state: 'ACTIVE' } : saved
   const next = returnPersonalMissionToHR(saved)!
-  for (const [index, id] of next.memberIds.entries()) {
-    const member = next.members[id], slot = layout.muster[index]
-    if (!member || !slot) continue
-    member.position = { ...slot, y: terrainHeight(slot.x, slot.z) }
+  for (const id of next.memberIds) {
     const pad = layout.padForMember?.(id)
-    if (pad) member.eaglePadId = pad.id
+    if (pad) next.members[id].eaglePadId = pad.id
   }
-  // The spawn owner consumes this flag after capturing the parked-mount intent for its jobs.
   next.layoutVersion = TOWN_LAYOUT_VERSION
   return next
 }

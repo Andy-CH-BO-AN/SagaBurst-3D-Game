@@ -2401,7 +2401,8 @@ export class TownScene {
 
   private restorePersonalSquad(saved: CareerProfile['personalSquadRuntime']): void {
     if (!saved || !this.personalSquad) return
-    if (this.personalSquad.hasHR && saved.returnToHR) saved = placePersonalMissionAtHR(saved,
+    if (this.personalSquad.hasHR && !this.profile.activeMission && !this.profile.activeOutpostMission
+      && !this.profile.careerRetirement) saved = placePersonalMissionAtHR(saved,
       { muster: this.world.hr.muster, eaglePads: this.world.eagleTraining.pads,
         padForMember: id => this.privateEaglePads?.get(id) })
     if (this.personalSquad.hasHR) saved = migratePersonalTownLayout(saved, this.personalSquad.sceneKey,

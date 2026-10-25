@@ -584,9 +584,9 @@ describe('Bridgehead reload routing', () => {
     expect(recoverClaimedCareerBridgeBattle(store.load()!, store)).toBe('return-to-town')
     const returned = store.load()!
     expect(returned.activeMission).toBeUndefined()
-    expect(returned.personalSquadRuntime?.members['personal:hr-1']).toEqual({ status: 'deployed', order: 'defend' })
+    expect(returned.personalSquadRuntime?.members['personal:hr-1']).toEqual({ status: 'reserve' })
     expect(returned.personalSquadRuntime?.memberIds).toEqual(['personal:hr-1', 'personal:reserve'])
-    expect(returned.personalSquadRuntime?.members['personal:reserve']).toEqual({ status: 'deployed', order: 'defend' })
+    expect(returned.personalSquadRuntime?.members['personal:reserve']).toEqual({ status: 'reserve' })
     expect(returned.personalSquad).toEqual(originalPersonal)
     expect(returned.totalMerit).toBe(claimed.totalMerit)
     expect(returned.careerMissionCompletionsByTier?.[5]).toBe(1)

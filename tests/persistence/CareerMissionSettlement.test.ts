@@ -1,3 +1,4 @@
+import { careerCheckpointPlayer } from '../helpers/careerCheckpointPlayer'
 import { createDefaultSkillState } from '../../src/rpg/SkillManager'
 import type { TownActorSpec } from '../../src/town/TownRules'
 import { commitTownProfile, type TownProfileCommitRuntime, type TownProfileChange } from '../../src/town/TownProfileCommit'
@@ -64,9 +65,11 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'c
     snapshot: vi.fn(() => ({ player: stats, squads: [] })), snapshotActiveMission: vi.fn((): ActiveCareerMission | undefined => undefined),
     civilianSurvived: 2, civilianDeaths: 1, cleanupMission: vi.fn(() => events.push('defense-cleanup')) }
   const patrol = { actors: [resident.npc], statsSnapshot: { player: stats, squads: [] }, release: vi.fn(() => events.push('release')) }
-  const player = { group: { position: new Vector3(50, 80, 70), rotation: { y: 0 } }, resetForScene: vi.fn((x: number, y: number, z: number) => {
+  const player = { ...careerCheckpointPlayer(), maxHp: 437,
+    fallSnapshot: undefined as { active: boolean; highestFeetY: number; velocity: { x: number; y: number; z: number } } | undefined,
+    setHp: vi.fn((hp: number) => { player.hp = hp }), group: { position: new Vector3(50, 80, 70), rotation: { y: 0 } }, resetForScene: vi.fn((x: number, y: number, z: number) => {
     expect(store.load()!.playerAerialState).toBeUndefined()
-    player.group.position.set(x, y, z); events.push('reset')
+    player.group.position.set(x, y, z); player.hp = player.maxHp; player.dead = false; player.isFalling = false; events.push('reset')
   }) }
   const town = { residents: [resident], player, cat: { restoreForTown: vi.fn(), catVisual: null },
     world: { obstacles: [], restoreTownDamage: vi.fn(() => events.push('repair')) }, navigation: { sync: vi.fn(() => { events.push('navigation'); return true }) },
@@ -75,6 +78,7 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'c
   const runtime: TownProfileCommitRuntime = {
     get profile() { return profile }, set profile(next) { profile = next },
     store: { save(next) { events.push('save'); return store.save(next) } },
+    player: player as unknown as NonNullable<TownProfileCommitRuntime['player']>,
     get skills() { return { skillState: profile.skills ?? createDefaultSkillState() } },
     residents: [resident], world: { faction: profile.faction }, sceneContext: { missionOnlyResidents: false },
     garrisonRestored: false, restoringAerialState: false, residentReturnPending: false,
@@ -91,7 +95,58 @@ function fixture(kind: 'bandit' | 'captain-patrol-command' | 'town-defense' | 'c
     read: () => profile, reload: () => { profile = store.load()! }, publish: (next: CareerProfile) => { profile = next } }
 }
 
+function raceHealth(hp: number): NonNullable<CareerProfile['racePlayerState']> {
+  return { actorId: 'player', mountId: 'horse', hp, dead: false, stamina: 31, mountHp: 43, mounted: false,
+    checkpoint: 0, position: { x: 4, y: 1, z: 5, yaw: .3 }, mountPosition: { x: 6, y: 0, z: 7, yaw: .4 } }
+}
+
 describe('Town mission settlement transactions', () => {
+  it('saves and applies full player HP before reentrant completed-arrival handoffs without losing flight or other resources', () => {
+    const h = fixture('bandit', true), player = h.player
+    player.hp = 37; player.isFalling = true
+    player.fallSnapshot = { active: true, highestFeetY: 100, velocity: { x: 1, y: -3, z: 2 } }
+    h.read().racePlayerState = raceHealth(37)
+    h.runtime.race = { session: undefined, capturePlayerState: () => ({ ...raceHealth(player.hp), dead: player.dead }) }
+    const reenter = vi.fn().mockImplementationOnce(() => {
+      expect(player.hp).toBe(437)
+      expect(h.store.load()!.playerAerialState?.hp).toBe(437)
+      expect(h.commit(h.read())).toBe(true)
+    })
+    h.runtime.synchronizeEagleCommandOwnership = reenter
+    h.storage.writable = false
+    expect(h.settlement.returnToTown('arrived').status).toBe('save-failed')
+    expect(player.hp).toBe(37)
+    expect(player.setHp).not.toHaveBeenCalled()
+    h.storage.writable = true
+    expect(h.settlement.returnToTown('arrived').status).toBe('returned')
+    const saved = h.store.load()!
+    expect(saved.playerAerialState).toMatchObject({ hp: 437, dead: false, fall: player.fallSnapshot })
+    expect(saved.racePlayerState).toEqual({ ...raceHealth(37), hp: 437 })
+    expect(player.hp).toBe(437)
+    expect(reenter).toHaveBeenCalledTimes(2)
+    expect(h.player.resetForScene).not.toHaveBeenCalled()
+  })
+
+  it('saves a completed direct Veteran return without an old fall before resetting the live player', () => {
+    const h = fixture('veteran-field', true), player = h.player
+    player.hp = 0; player.dead = true; player.isFalling = true
+    player.fallSnapshot = { active: true, highestFeetY: 100, velocity: { x: 1, y: -3, z: 2 } }
+    h.read().activeMission!.result!.outcome = 'failure'
+    h.read().racePlayerState = raceHealth(0)
+    h.read().racePlayerState!.dead = true
+    h.runtime.race = { session: undefined, capturePlayerState: () => ({ ...raceHealth(player.hp), dead: player.dead }) }
+    const reenter = vi.fn().mockImplementationOnce(() => {
+      expect(player.dead).toBe(false); expect(player.isFalling).toBe(false)
+      expect(h.commit(h.read())).toBe(true)
+    })
+    h.runtime.synchronizeEagleCommandOwnership = reenter
+    expect(h.settlement.returnToTown('direct').status).toBe('returned')
+    expect(h.store.load()!.playerAerialState).toBeUndefined()
+    expect(h.store.load()!.racePlayerState).toMatchObject({ hp: 437, dead: false, mountHp: 43, stamina: 31 })
+    expect(h.player.resetForScene).toHaveBeenCalledOnce()
+    expect(h.events.indexOf('save')).toBeLessThan(h.events.indexOf('reset'))
+  })
+
   it('preserves completed return recovery through rejected writes and a reentrant handoff save', () => {
     const h = fixture('bandit', true)
     h.resident.spec.id = 'merchant'; h.resident.spec.role = 'merchant'; h.resident.spec.duty = 'service'
@@ -123,7 +178,10 @@ describe('Town mission settlement transactions', () => {
   })
 
   it('captures ordinary live casualties without applying completed-return recovery', () => {
-    const h = fixture()
+    const h = fixture(), player = h.player
+    player.hp = 37; player.isFalling = true
+    player.fallSnapshot = { active: true, highestFeetY: 100, velocity: { x: 1, y: -3, z: 2 } }
+    h.read().racePlayerState = raceHealth(37)
     const saved = { type: 'civilian-command' as const, squadId: 'civilians' as const, townFaction: 'roman' as const,
       sceneKey: 'town:roman', actorIds: ['merchant'], owners: { merchant: 'player' as const },
       members: { merchant: { status: 'deployed' as const, hp: 50 } } }
@@ -134,6 +192,10 @@ describe('Town mission settlement transactions', () => {
     expect(h.store.load()!.civilianCommandSquad).toMatchObject({ owners: { merchant: 'player' },
       members: { merchant: { status: 'dead', hp: 0 } } })
     expect(h.read().activeMission?.id).toBe('settlement')
+    expect(player.hp).toBe(37)
+    expect(player.setHp).not.toHaveBeenCalled()
+    expect(h.store.load()!.playerAerialState?.hp).toBe(37)
+    expect(h.store.load()!.racePlayerState?.hp).toBe(37)
     expect(h.runtime.residentReturnPending).toBe(false)
     expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
   })
@@ -170,6 +232,8 @@ describe('Town mission settlement transactions', () => {
   it('atomically rebuilds Commander V at home without replaying four-gate checkpoints or rewards', () => {
     const h = fixture('commander-four-gate-defense', true), profile = h.read()
     profile.rank = 'commander'; profile.totalMerit = 20000
+    profile.racePlayerState = raceHealth(23)
+    const previousRace = structuredClone(profile.racePlayerState)
     profile.personalSquad = { members: [{ id: 'personal:dead', type: 'soldier' }] }
     profile.activeMission!.personalSquad = snapshotPersonalMission(profile)!
     profile.activeMission!.personalSquad!.members['personal:dead'] = { status: 'dead', hp: 0 }
@@ -203,6 +267,7 @@ describe('Town mission settlement transactions', () => {
     h.reload()
     const saved = h.read()
     expect(saved.activeMission).toBeUndefined()
+    expect(saved.racePlayerState).toEqual({ ...previousRace, hp: 851, dead: false }) // 850 commander + 1 earned skill HP
     expect(saved.civilianCommandSquad?.actorIds).toHaveLength(21)
     expect(new Set(Object.values(saved.civilianCommandSquad!.owners))).toEqual(new Set(['daily']))
     expect(saved.civilianCommandSquad?.members.merchant).toEqual({ status: 'deployed', order: 'attack' })
@@ -214,7 +279,7 @@ describe('Town mission settlement transactions', () => {
     expect(saved.townCommandSquad?.state).toBe('TRAINING')
     expect(saved.townAirCommandSquad).toBeUndefined()
     expect(saved.townEagleGarrisons?.roman).toBeUndefined()
-    expect(saved.personalSquadRuntime?.members['personal:dead']).toEqual({ status: 'deployed', order: 'defend' })
+    expect(saved.personalSquadRuntime?.members['personal:dead']).toEqual({ status: 'reserve' })
     expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
     const merit = saved.totalMerit
     const savedBytes = h.storage.getItem(CAREER_STORAGE_KEY)
@@ -376,7 +441,7 @@ describe('Town mission settlement transactions', () => {
     h.read().playerAerialState = { sceneKey: 'town-home', hp: 100, dead: false, position: { x: 50, y: 80, z: 70, yaw: 0 },
       fall: { active: true, highestFeetY: 100, velocity: { x: 0, y: -10, z: 0 } } }
     expect(h.settlement.returnToTown('direct')).toEqual({ status: 'returned', kind: 'party' })
-    expect(h.events).toEqual(['save', 'release', 'reset'])
+    expect(h.events).toEqual(['save', 'reset', 'release'])
     expect(h.read().playerAerialState).toBeUndefined()
     expect(h.read().activeMission).toBeUndefined()
     expect(h.residentState.restoreForTown).not.toHaveBeenCalled()
@@ -395,7 +460,11 @@ describe('Town mission settlement transactions', () => {
 
   it('cannot abandon an unfinished Veteran battle through direct return', () => {
     const h = fixture('veteran-field')
+    h.player.hp = 37
     expect(h.settlement.returnToTown('direct')).toEqual({ status: 'ignored' })
+    expect(h.player.hp).toBe(37)
+    expect(h.player.setHp).not.toHaveBeenCalled()
+    expect(h.player.resetForScene).not.toHaveBeenCalled()
     expect(h.read().activeMission).toBeDefined()
     expect(h.commit).not.toHaveBeenCalled()
     expect(h.field.cleanupMission).not.toHaveBeenCalled()

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { careerCommandHudRoster } from '../../src/career/CareerCommandHudRoster'
-import type { PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
+import { returnPersonalMissionToHR, type PersonalSquadMission } from '../../src/career/CareerPersonalSquadMission'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Vector3, Euler } from 'three'
 import { PersonalSquadRuntime } from '../../src/career/PersonalSquadRuntime'
@@ -78,6 +78,45 @@ describe('Personal Squad command lifecycle routing', () => {
       expect(runtime.checkpoint()?.members).toEqual(savedBefore.members)
       expect(runtime.checkpoint()?.state).toBe('ACTIVE')
       expect(profile.personalSquad.members).toHaveLength(3)
+    } finally { runtime.cancelPendingSpawns() }
+  })
+
+  it('restores a formal HR return without actors and queues the full equipped reserve only once on Follow', () => {
+    const profile = createCareerProfile('roman')
+    profile.personalSquad = { members: [
+      { id: 'personal:foot', type: 'soldier' },
+      { id: 'personal:cat', type: 'captain', equipment: { melee: null, ranged: null, shield: null, mount: 'black-cat' } },
+      { id: 'personal:eagle', type: 'ranger', equipment: { melee: null, ranged: null, shield: null, mount: 'xongkoro' } },
+    ] }
+    const saved = returnPersonalMissionToHR({ squadId: 'personal', sceneKey: 'battle', state: 'ACTIVE',
+      memberIds: profile.personalSquad.members.map(member => member.id), contribution: emptyPersonalContribution(),
+      members: { 'personal:foot': { status: 'dead', hp: 0 }, 'personal:cat': { status: 'deployed', hp: 7, ammo: 0 },
+        'personal:eagle': { status: 'deployed', hp: 9, eaglePadId: 'private-eagle-pad:1' } } })!
+    const scheduler = new NpcSpawnScheduler()
+    const runtime = Object.assign(Object.create(PersonalSquadRuntime.prototype), {
+      actors: [], mounts: [], state: 'RESERVE', read: () => profile,
+      player: () => ({ dead: false, combatPosition: new Vector3(), group: { rotation: { y: 0 } } }),
+      options: { scheduler }, muster: profile.personalSquad.members.map((_, index) => ({ x: index * 5, z: 0, yaw: 0 })),
+      pending: new Map(), batches: [], commandRevision: 0, returnCommand: -1000,
+      boarding: new Map(), returningOnFoot: new Set(), awaitingEaglePad: new Set(),
+      eaglePads: new EaglePadReservations([{ id: 'private-eagle-pad:1', x: 30, z: 0, yaw: 0 }]), reservedEagleOwners: new Set(),
+    }) as Pick<PersonalSquadRuntime, 'restoreMission' | 'follow' | 'checkpoint' | 'hudPendingIds' | 'cancelPendingSpawns' | 'actors' | 'mounts'>
+    const equipment = structuredClone(profile.personalSquad)
+    try {
+      runtime.restoreMission(saved)
+      expect(runtime.checkpoint()).toMatchObject({ state: 'RESERVE', members: {
+        'personal:foot': { status: 'reserve' }, 'personal:cat': { status: 'reserve' },
+        'personal:eagle': { status: 'reserve', eaglePadId: 'private-eagle-pad:1' },
+      } })
+      expect(scheduler.pending).toBe(0)
+      expect(runtime.actors).toHaveLength(0)
+      expect(runtime.mounts).toHaveLength(0)
+      expect(runtime.follow()).toBe(true)
+      expect(runtime.follow()).toBe(true)
+      expect(runtime.hudPendingIds).toEqual(['personal:foot', 'personal:cat', 'personal:eagle'])
+      expect(scheduler.pending).toBe(3)
+      expect(runtime.checkpoint()?.state).toBe('DEPLOYING')
+      expect(profile.personalSquad).toEqual(equipment)
     } finally { runtime.cancelPendingSpawns() }
   })
 

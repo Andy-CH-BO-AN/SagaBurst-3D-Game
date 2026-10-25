@@ -1,7 +1,7 @@
 import { cloneCareerProfile, type CareerProfile } from '../career/CareerProfile'
 import { validateOrdinaryRetirementCommit } from '../career/CareerRetirement'
 import { isTownCommandRevokedByRetirement } from '../career/CareerRetirementCommand'
-import { stageMissionReturnRebuild, stageMissionReturnResidents, isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
+import { stageMissionReturnRebuild, stageMissionReturnResidents, stageMissionReturnPlayerHealth, isMissionReturnResident } from '../career/CareerMissionReturnRecovery'
 import { refitCommandCheckpoint, snapshotCommandActor } from '../career/CareerCommandActorCheckpoint'
 import { buildCommanderAuthorityForMission } from '../career/CommanderMissionAcceptance'
 import { townDefenseCommanderIds } from '../career/TownDefenseRoster'
@@ -10,7 +10,8 @@ import { captureCareerAerialState } from '../career/CareerAerialState'
 import { followDeployedPersonalMission, snapshotPersonalMission } from '../career/CareerPersonalSquadMission'
 import { emptyPersonalContribution } from '../combat/CommandMerit'
 import { stageTownEaglePlayerCommand } from './TownEagleGarrisonController'
-import { townRoster } from './TownRules'
+import { townRoster, townPlayerEntryPoint } from './TownRules'
+import { getTerrainHeight } from '../world/Terrain'
 import type { TownCombatResident } from './TownMissionCombat'
 import type { CareerProfileStore } from '../career/CareerProfileStore'
 import type { CareerRaceController } from '../career/CareerRaceController'
@@ -94,7 +95,8 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   const completedReturn = Boolean(outgoingReturn && (outgoingReturn.result || runtime.profile.claimedBattleIds.includes(outgoingReturn.id)))
   const rebuildTown = completedReturn && missionReturn?.destination === 'restart'
   const groundedTownReturn = change === 'grounded-return'
-    || outgoingReturn?.kind === 'captain-patrol-command' && missionReturn?.travel === 'direct'
+    || missionReturn?.travel === 'direct' && (outgoingReturn?.kind === 'captain-patrol-command'
+      || completedReturn && missionReturn.destination === 'in-place')
   const restoringResidents = Boolean(completedReturn || runtime.residentReturnPending)
   let next = cloneCareerProfile(profile)
   // Return owns canonical recovery before live ledgers are considered. The
@@ -292,7 +294,17 @@ export function commitTownProfile(runtime: TownProfileCommitRuntime, profile: Ca
   }
   if (next.careerRetirement?.phase === 'final-stand') runtime.captureRetirementResources(next)
   else runtime.retirementMobilization?.capture(next)
+  // Run after the last live snapshot, before saving. Nested handoffs must see
+  // the same recovered player HP as this durable completed-return checkpoint.
+  if (completedReturn && !rebuildTown) next = stageMissionReturnPlayerHealth(next, runtime.player?.maxHp)
   if (!runtime.store.save(next)) { runtime.careerSaveFailures++; runtime.notice = '保存失敗，資料尚未變更。請確認瀏覽器儲存空間後重試。'; return false }
+  if (completedReturn && !rebuildTown && runtime.player) {
+    if (groundedTownReturn) {
+      const entry = townPlayerEntryPoint()
+      runtime.player.resetForScene(entry.x, getTerrainHeight(entry.x, entry.z) + .9, entry.z)
+      runtime.player.group.rotation.y = entry.yaw
+    } else runtime.player.setHp(runtime.player.maxHp)
+  }
   // No handoff callbacks may capture the outgoing battle poses over the saved rebuild.
   if (rebuildTown) { runtime.profile = next; runtime.careerSkillsDirty = false; return true }
   if (restoringResidents) runtime.residentReturnPending = true
