@@ -62,27 +62,26 @@ test('namespace dynamic reads and enumeration retain export owners while concret
   assert.deepEqual(indices(plan), [0, 1, 2])
 })
 
-test('unknown eager initializer effects retain module consumers and report initialization instead of Direct Owner', () => {
-  const before = 'export const value = 0; export function unrelated() { return 0 }'
+test('eager initializer changes retain value consumers without selecting import-only siblings', () => {
+  const before = 'export const value = 0; export function read() { return value }; export function unrelated() { return 0 }'
   const after = before.replace('value = 0', 'value = register()')
   const plan = selection(before, after, [
-    "import { value, unrelated } from '../src/owner'",
+    "import { value, read, unrelated } from '../src/owner'",
     "test('value', () => value)",
-    "test('module effect', () => unrelated())",
+    "test('caller', () => read())",
+    "test('import only', () => unrelated())",
   ])
   assert.deepEqual(indices(plan), [0, 1])
-  assert.ok(plan.changedBehaviors.includes('src/owner.ts#<module>'))
-  assert.deepEqual(plan.details['tests/owner.test.ts'][0].initializationCases, [0, 1])
+  assert.deepEqual(plan.changedBehaviors, ['src/owner.ts#value'])
+  assert.deepEqual(plan.details['tests/owner.test.ts'][0].initializationCases, [])
 })
 
-test('removing a side-effect import retains base initialization evidence', () => {
+test('side-effect-only import edits without an addressable behavior owner fail closed', () => {
   const before = "import './registration'; export const value = 0"
-  const plan = selection(before, 'export const value = 0', [
+  assert.throws(() => selection(before, 'export const value = 0', [
     "import { value } from '../src/owner'",
-    "test('effect', () => value)",
-  ], [['src/registration.ts', 'globalThis.registered = true']])
-  assert.deepEqual(indices(plan), [0])
-  assert.equal(plan.details['tests/owner.test.ts'][0].source, 'Module Initialization')
+    "test('value', () => value)",
+  ], [['src/registration.ts', 'globalThis.registered = true']]), /Unsafe\/unmapped behavior/)
 })
 
 test('retargeting an existing named import selects its unchanged caller but not unrelated exports', () => {
@@ -118,25 +117,25 @@ test('a covered initialization effect cannot hide a different unmapped callable 
 })
 
 
-test('unchanged top-level assignment keeps consumers of its changed data-derived effect', () => {
+test('unreferenced module assignments do not expand data changes to import-only leaves', () => {
   const before = 'export const TABLE = { value: 1 }; globalThis.saved = TABLE.value; export function unrelated() { return 0 }'
   const plan = selection(before, before.replace('value: 1', 'value: 2'), [
     "import { TABLE, unrelated } from '../src/owner'",
     "test('direct', () => TABLE.value)",
     "test('effect', () => { unrelated(); return globalThis.saved })",
   ])
-  assert.deepEqual(indices(plan), [0, 1])
-  assert.deepEqual(plan.details['tests/owner.test.ts'][0].initializationCases, [1])
+  assert.deepEqual(indices(plan), [0])
+  assert.deepEqual(plan.details['tests/owner.test.ts'][0].initializationCases, [])
 })
 
-test('unchanged static blocks retain effects derived from a changed data declaration', () => {
+test('unreferenced static blocks do not expand data changes to every importer', () => {
   const before = 'export const TABLE = { value: 1 }; class Registrar { static { globalThis.saved = TABLE.value } }; export function other() { return 0 }'
   const plan = selection(before, before.replace('value: 1', 'value: 2'), [
     "import { TABLE, other } from '../src/owner'",
     "test('direct', () => TABLE.value)",
     "test('effect', () => { other(); return globalThis.saved })",
   ])
-  assert.deepEqual(indices(plan), [0, 1])
+  assert.deepEqual(indices(plan), [0])
 })
 
 test('class extends imports remain runtime bindings and retain possible definition-time effects', () => {
@@ -151,15 +150,15 @@ test('class extends imports remain runtime bindings and retain possible definiti
 })
 
 
-test('numeric coercion is an initialization effect when it can invoke user-defined conversion', () => {
+test('coercion initializers remain value owners instead of blanket import owners', () => {
   const before = 'export const value = +{ valueOf() { globalThis.saved = 1; return 0 } }; export function other() { return 0 }'
   const plan = selection(before, before.replace('saved = 1', 'saved = 2'), [
     "import { value, other } from '../src/owner'",
     "test('direct', () => value)",
     "test('effect', () => { other(); return globalThis.saved })",
   ])
-  assert.deepEqual(indices(plan), [0, 1])
-  assert.ok(plan.changedBehaviors.includes('src/owner.ts#<module>'))
+  assert.deepEqual(indices(plan), [0])
+  assert.deepEqual(plan.changedBehaviors, ['src/owner.ts#value'])
 })
 
 test('scoped hook data reads select only leaves in their actual registration scope', () => {
@@ -232,4 +231,21 @@ test('declaration-only source filenames contribute no runtime imports or emit fa
   assert.deepEqual(graph.graph.get(file), [])
   assert.deepEqual(graph.unresolvedImports, [])
   assert.equal(runtimeEquivalent(source, source.replace('value: Value', 'value: string'), file), true)
+})
+
+
+test('class field shape changes retain construction and reflection owners without sibling imports', () => {
+  const before = `export class Owner { old = 1 }
+export function read() { return new Owner() }
+export function unrelated() { return 0 }`
+  const plan = selection(before, before.replace('old =', 'current ='), [
+    "import { Owner, read, unrelated } from '../src/owner'",
+    "test('construction', () => new Owner())",
+    "test('reflection', () => Object.getOwnPropertyNames(Owner.prototype))",
+    "test('caller', () => read())",
+    "test('import only', () => unrelated())",
+  ])
+  assert.deepEqual(indices(plan), [0, 1, 2])
+  assert.ok(plan.changedBehaviors.includes('src/owner.ts#Owner'))
+  assert.ok(!plan.changedBehaviors.includes('src/owner.ts#<module>'))
 })

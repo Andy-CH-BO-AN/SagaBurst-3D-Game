@@ -49,15 +49,23 @@ shared data remains one declaration owner: dynamic lookup, enumeration, aliases,
 destructuring and namespace escape are retained rather than guessed by item key.
 Comments and erased types do not widen another runtime edit in the same file.
 
-Every leaf still includes its module initialization root. Unknown calls/new,
-coercion, assignments, static blocks, decorators, computed keys, changed import
-module identities and reflective class-shape changes retain that conservative
-boundary. An initializer is not presumed pure because its result is assigned.
-Existing named-import retargets follow intermediate import/re-export bindings.
-Initialization paths are reported separately, never as an empty Direct Owner.
-Each precise changed target still needs an owner even beside a module effect.
-Unresolved dispatch expands conservatively; eval, missing owners, missing history
-or unexplained native-only edges fail closed. No runtime LLM or remote API is involved.
+Related/dev deliberately does **not** follow module-to-module initialization
+edges. Imports still resolve runtime symbols and discover candidate files; an
+import alone is not a behavior owner. Each leaf retains its own module setup,
+registration inputs and scoped hooks, and follows actual function, method, class
+and value references, including initializer expressions reached through a value.
+Initialized data and reflective class shape remain their declaration/class owners,
+not blanket module owners. This applies consistently to Three.js and other imports;
+there is no package-name whitelist or fixed test exclusion list.
+
+This is a pragmatic dev risk tradeoff, not a proof that initialization is pure.
+Hidden global/prototype mutations, decorators or static effects observed only via
+module loading can be missed by Related. Main/release Full remains the backstop
+and executes every discovered leaf. Side-effect-only edits with no addressable
+behavior owner still fail closed rather than silently produce an empty code plan.
+Directly changed tests still select their whole owner; real symbol dependencies,
+unknown dispatch, missing owners/history and unexplained native-only edges retain
+their existing guards. No runtime LLM or remote API is involved.
 
 Each manifest retains the complete discovery inventory and identifies Related
 leaves by exact file, full runner name and collection ordinal (`selectedCases`).
@@ -145,6 +153,8 @@ import-only candidate count, unsafe count and the actual budget. The manifest an
 fresh runner reports retain detailed evidence under ignored `output/`; summary
 does not print hundreds of import chains. Aggregate retains the Top 10 slow leaves.
 
-PRs retain Web smoke and Desktop packaging/smoke. Post-merge `push → dev` keeps
+PRs retain Web smoke. Desktop previews run only for PRs into main, not dev;
+pushes to dev also skip Desktop. Main Release packaging remains unchanged.
+Post-merge `push → dev` keeps
 logic, typecheck and build but skips browser installation and Web smoke. Main,
 manual Full and publication Web checks keep Web smoke and exact-SHA Full proof.
