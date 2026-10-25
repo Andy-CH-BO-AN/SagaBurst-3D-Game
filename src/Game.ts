@@ -2369,9 +2369,16 @@ export class Game {
     else this._restorePersonalOutpostNpc(npc)
     // Rebuild automatic post-breach intent without replaying the global event.
     // Saved player-owned orders remain authoritative, including Defend/Follow.
-    if (isOutpostOwner && this.previewCampaignBreachController?.breached
-      && !officialPlayerOwnsActor(this._careerCommandMission()?.officialSquad, npc.combatantId)) {
-      applyCampaignBreachOrders([npc], opposingCampaignFaction(careerVeteranOutpostOwner(campaign)))
+    const authority = this._careerCommandMission()?.officialSquad
+    if (this.previewCampaignBreachController?.breached && !officialPlayerOwnsActor(authority, npc.combatantId)) {
+      const saved = this._personalOutpostMission()?.battle?.actors[npc.combatantId]
+      const command = saved ? authority?.members?.[npc.combatantId] ?? saved.checkpoint : undefined
+      const hasRestoredIntent = !authority?.actorIds.includes(npc.combatantId) && Boolean(command?.order || command?.formation)
+      // Legacy Relief attackers may only have resources saved. Keep restored commands,
+      // but give actors with no saved intent the same orders as a fresh breached battle.
+      if (isOutpostOwner || campaign.careerMissionKind === 'outpost-relief' && !hasRestoredIntent) {
+        applyCampaignBreachOrders([npc], opposingCampaignFaction(careerVeteranOutpostOwner(campaign)))
+      }
     }
   }
 

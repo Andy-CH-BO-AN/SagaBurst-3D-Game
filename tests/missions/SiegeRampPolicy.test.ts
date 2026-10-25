@@ -1,5 +1,7 @@
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { Box3, Matrix4, Vector3, type Object3D } from 'three'
+import { Game } from '../../src/Game'
+import { createDefaultDefensePlayerLoadout, type DefenseCampaignLaunchConfig } from '../../src/campaign/DefenseCampaignLaunch'
 import { allocateSiegeRampCrews, getSiegeRampPlacement, placeSiegeRampCrew, siegeRampDeckHeightAt, siegeRampRearHeightAt, SIEGE_RAMP } from '../../src/campaign/MobileSiegeRampPolicy'
 import type { OutpostWalkwayLayout } from '../../src/campaign/CampaignOutpostWalkways'
 import { MobileSiegeRamp } from '../../src/campaign/MobileSiegeRamp'
@@ -16,6 +18,9 @@ import { snapshotCommandActor, restoreCommandActor } from '../../src/career/Care
 import { parseCommandActorCheckpoint } from '../../src/career/CareerCommandAuthority'
 import { createRampartCommandActor } from '../helpers/armyCommandHarness'
 import { initializeCareerReliefBattlefield } from '../../src/career/CareerOutpostRelief'
+import { parseCareerOutpostCheckpoint } from '../../src/career/CareerOutpostMission'
+import { createCareerProfile } from '../../src/career/CareerProfile'
+import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { createCommanderFourGateDefenseRoster } from '../../src/career/CommanderFourGateDefenseRoster'
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
@@ -77,9 +82,64 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(restoredGuard.isOutpostRampartGarrisonActive).toBe(false)
     expect(restoredGuard.holdsRampartPosition).toBe(false)
     restoredGuard.setTacticalOrder('defend')
+    const legacyPosition = { hp: 80, x: 0, z: -120, yaw: 0 }
+    const saved = parseCareerOutpostCheckpoint({
+      runtime: { phase: 'assault', activePhase: 'assault', deploymentRemainingSeconds: 0, assaultElapsedSeconds: 10,
+        reinforcementRemainingSeconds: 0, reinforcementTriggered: false, battleFinished: false },
+      actors: {
+        'legacy-melee': legacyPosition,
+        'legacy-ranged': { ...legacyPosition, checkpoint: { status: 'deployed', hp: 80 } },
+        'saved-defend': { ...legacyPosition, checkpoint: { status: 'deployed', hp: 80, order: 'defend' } },
+        'saved-formation': { ...legacyPosition, checkpoint: { status: 'deployed', hp: 80,
+          formation: { commandId: 91, position: { x: 8, z: -110, yaw: 1 }, reached: false } } },
+        controlled: { ...legacyPosition, checkpoint: { status: 'deployed', hp: 80, order: 'attack' } },
+      },
+      player: { hp: 100, stamina: 100, dead: false, x: 0, z: 100, yaw: 0 },
+      playerStats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 },
+      wave: null, waveIndex: 0, attackersStarted: true, reinforcementsSpawned: false,
+      gate: { state: 'destroyed', hp: 0 },
+    })!
+    expect(saved).toBeDefined()
+    expect(saved.actors['legacy-melee'].checkpoint).toBeUndefined()
+    expect(saved.actors['legacy-ranged'].checkpoint?.order).toBeUndefined()
+    expect(saved.actors['saved-formation'].checkpoint?.order).toBeUndefined()
+    const legacyMelee = createRampartCommandActor('legacy-melee', 'viking', AIType.MELEE)
+    const legacyRanged = createRampartCommandActor('legacy-ranged', 'viking')
+    const savedDefend = createRampartCommandActor('saved-defend', 'viking')
+    const savedFormation = createRampartCommandActor('saved-formation', 'viking')
+    const controlled = createRampartCommandActor('controlled')
+    controlled.combatOwnership = 'mission-official'
+    const nativeAttackers = [legacyMelee, legacyRanged, savedDefend, savedFormation]
+    for (const actor of nativeAttackers) actor.setCommandSquad(undefined)
+    const profile = createCareerProfile('roman')
+    profile.rank = 'commander'
+    profile.activeOutpostMission = { id: 'relief', kind: 'outpost-relief', stageId: 3, acceptedAt: 0, battle: saved,
+      officialSquad: { type: 'mission-official', missionId: 'relief', townFaction: 'roman', squadId: 1,
+        commandRank: 'commander', actorIds: [controlled.combatantId], commandedSquadIds: [1],
+        squads: [{ squadId: 1, actorIds: [controlled.combatantId] }], contribution: emptyPersonalContribution(),
+        members: { controlled: { status: 'deployed', hp: 80, order: 'defend' } } } }
+    const campaign: DefenseCampaignLaunchConfig = { type: 'defense', defenderFaction: 'roman', stageId: 3,
+      defenderArmy: {}, playerLoadout: createDefaultDefensePlayerLoadout('roman'),
+      careerMissionKind: 'outpost-relief', careerMissionId: 'relief' }
+    // The real per-actor restore caller owns fallback orders. Only its stored scene data is supplied.
+    interface InitialNpcRestorePort { _configureCampaignInitialNpc(npc: NPC, campaign: DefenseCampaignLaunchConfig): void }
+    const game = Object.assign(Object.create(Game.prototype) as InitialNpcRestorePort, {
+      defenseCampaignConfig: campaign, careerProfile: profile, campaignOriginalDefenders: [],
+      careerVeteranActorMounts: new Map(), previewCampaignBreachController: restoredBreach,
+    })
+    restoreCampaignBreachCheckpoint(restoredBreach, saved.outpostSiege, saved.gate)
+    const restoredActors = [...nativeAttackers, controlled]
+    for (const actor of restoredActors) game._configureCampaignInitialNpc(actor, campaign)
     const reliefGate = { attackerFaction: 'viking', damageable: { destroy: () => restoredBreach.trigger() } }
-    initializeCareerReliefBattlefield(reliefGate as unknown as CampaignGateController, [restoredGuard], restoredBreach)
+    initializeCareerReliefBattlefield(reliefGate as unknown as CampaignGateController, [restoredGuard, ...restoredActors], restoredBreach)
+    expect(legacyMelee.tacticalOrder).toBe('charge')
+    expect(legacyRanged.tacticalOrder).toBe('attack')
+    expect(savedDefend.tacticalOrder).toBe('defend')
+    expect(savedFormation.tacticalOrder).toBe('formation')
+    expect(savedFormation.formationCommandId).toBe(91)
+    expect(controlled.tacticalOrder).toBe('defend')
     expect(restoredGuard.tacticalOrder).toBe('defend')
+    expect(restoredBreach.trigger()).toBe(false)
     expect(dispatches).toBe(1)
   })
 
