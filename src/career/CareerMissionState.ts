@@ -106,6 +106,7 @@ export interface ActiveCareerMission {
   duelCombatElapsed?: number
   duelOpponentDead?: boolean
   duelOpponentHp?: number
+  duelOpponentMaxHp?: number
   duelOpponentMountHp?: number
   duelPlayerHp?: number
   duelPlayerStamina?: number

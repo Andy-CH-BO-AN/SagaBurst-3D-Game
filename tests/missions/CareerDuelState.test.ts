@@ -10,7 +10,7 @@ import type { TownWorld } from '../../src/town/TownWorld'
 import { townSitePoint, type TownActorSpec } from '../../src/town/TownRules'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { type UnitPresetId } from '../../src/battle/UnitPresetCatalog'
-import { CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
+import { careerDuelOpponentHealth, CAREER_DUEL_TEMPLATE_ID, createCareerDuelMission, isCareerDuelUnlocked, type CareerDuelTier } from '../../src/career/CareerDuelState'
 import { acceptsCareerMissionStat } from '../../src/career/CareerMissionState'
 import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
@@ -37,8 +37,9 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING'
   const makeActor = (id: string, x: number, z: number) => {
     const position = new Vector3(x, getTerrainHeight(x, z), z)
     const body = { combatantId: id, combatPosition: position, group: { position, rotation: { y: 0 } },
-      dead: false, hp: 100, combatAmmo: 30, loadout: {}, target: undefined as Vector3 | undefined,
-      setDuelHostility: vi.fn(), restoreCombatLoadout: vi.fn(), setTacticalOrder: vi.fn(),
+      dead: false, hp: 100, maxHp: 200, characterFaction: 'roman', characterTier: 3, combatAmmo: 30, loadout: {}, target: undefined as Vector3 | undefined,
+      setDuelHostility: vi.fn(), restoreCombatLoadout: vi.fn(), restoreOrdinaryTier: vi.fn(),
+      applyTemporaryOrdinaryTier: vi.fn(), restoreCombatHealth: vi.fn(), setTacticalOrder: vi.fn(),
       applyTemporaryCombatLoadout: vi.fn(), dismountFromMount: vi.fn(),
       assignFollowTarget: vi.fn(), assignFormationTarget: vi.fn((_id: number, point: Vector3) => { body.target = point.clone() }) }
     return body
@@ -68,12 +69,37 @@ function travelingDuel(phase: 'ASSEMBLING' | 'MARCHING' | 'RESULT' | 'RETURNING'
 }
 
 describe('Career Duel physical travel and preparation', () => {
+  it('maps ordinary Duel identity HP by faction and tier without healing injuries or zero HP', () => {
+    const expected = { roman: [100, 150, 200], viking: [90, 135, 180] } as const
+    for (const faction of ['roman', 'viking'] as const) for (const tier of [1, 2, 3] as const) {
+      const maxHp = expected[faction][tier - 1]
+      expect(careerDuelOpponentHealth(faction, tier, 100, 200)).toEqual({ maxHp, hp: maxHp / 2 })
+      expect(careerDuelOpponentHealth(faction, tier, 0, 200)).toEqual({ maxHp, hp: 0 })
+    }
+  })
+
+  it('resumes a tiered opponent checkpoint without rescaling twice and restores borrowed identity on cleanup', () => {
+    const h = travelingDuel('MARCHING')
+    Object.assign(h.read().activeMission!, { duelTier: 2, duelOpponentHp: 45, duelOpponentMaxHp: 150 })
+    expect(h.controller.startActiveMission()).toBe(true)
+    expect(h.opponent.applyTemporaryOrdinaryTier).toHaveBeenCalledWith(2)
+    expect(h.opponent.restoreCombatHealth).toHaveBeenCalledWith(45)
+    expect(h.opponent.applyTemporaryCombatLoadout.mock.calls[0][1]).toBe(2)
+    expect(h.captain.applyTemporaryOrdinaryTier).not.toHaveBeenCalled()
+    h.controller.cleanupMission()
+    expect(h.opponent.restoreOrdinaryTier).toHaveBeenCalledOnce()
+    expect(h.opponent.restoreCombatLoadout).toHaveBeenCalledOnce()
+  })
+
   it('starts an accepted or legacy assembling Duel from the Captain actual position without a barracks rendezvous', () => {
     const { controller, captain, opponent, player, query } = travelingDuel('ASSEMBLING')
     const captainStart = captain.combatPosition.clone(), opponentStart = opponent.combatPosition.clone(), playerStart = player.combatPosition.clone()
     expect(player.combatPosition.distanceTo(captain.combatPosition)).toBeGreaterThan(12)
     expect(controller.startActiveMission()).toBe(true)
     expect(controller.phase).toBe('MARCHING')
+    expect(opponent.applyTemporaryOrdinaryTier).toHaveBeenCalledWith(1)
+    expect(opponent.restoreCombatHealth).toHaveBeenCalledWith(50)
+    expect(opponent.applyTemporaryCombatLoadout.mock.calls[0][1]).toBe(1)
     expect(query).toHaveBeenCalledOnce()
     expect(query.mock.calls[0][0]).toEqual(captainStart)
     expect(query.mock.calls[0][1]).toEqual(controller.guideTarget)
@@ -244,7 +270,7 @@ describe('Career Duel settlement and safe storage', () => {
 
   it('round-trips actor identity, countdown, combat time, health, deaths, stats and existing voice marker without refreshing them', () => {
     const profile = duel(createCareerProfile('roman'), 'roman_archer', 1, 'resume-duel')
-    Object.assign(profile.activeMission!, { phase: 'ENGAGING', duelCountdownElapsed: 5, duelCombatElapsed: 24.6, duelOpponentHp: 11,
+    Object.assign(profile.activeMission!, { phase: 'ENGAGING', duelCountdownElapsed: 5, duelCombatElapsed: 24.6, duelOpponentHp: 11, duelOpponentMaxHp: 100,
       duelOpponentMountHp: 8, duelOpponentDead: false, playerStats: { ...stats }, playerDead: true, followVoicePlayed: true })
     const storage = new MemoryStorage()
     const store = new CareerProfileStore(storage)
@@ -253,7 +279,7 @@ describe('Career Duel settlement and safe storage', () => {
     const loaded = store.load()!
     expect(loaded.activeMission).toMatchObject({ id: 'resume-duel', templateId: CAREER_DUEL_TEMPLATE_ID, kind: 'duel', targetCampId: -1,
       duelTier: 1, duelPresetId: 'roman_archer', duelOpponentActorId: 'soldier-1', duelCaptainActorId: 'captain', duelRefereeActorId: 'captain',
-      phase: 'ENGAGING', duelCountdownElapsed: 5, duelCombatElapsed: 24.6, duelOpponentHp: 11, duelOpponentMountHp: 8,
+      phase: 'ENGAGING', duelCountdownElapsed: 5, duelCombatElapsed: 24.6, duelOpponentHp: 11, duelOpponentMaxHp: 100, duelOpponentMountHp: 8,
       playerDead: true, followVoicePlayed: true, playerStats: { damageDealt: 160, kills: 1 } })
     profile.activeMission!.phase = 'PREPARING'; profile.activeMission!.duelCountdownElapsed = 3.9
     expect(store.save(profile)).toBe(true)

@@ -16,7 +16,7 @@ import { getTerrainHeight } from '../world/Terrain'
 import type { CareerProfile } from './CareerProfile'
 import { CareerMissionCheckpoint } from './CareerMissionCheckpoint'
 import type { ActiveCareerMission, CareerMissionOutcome, CareerMissionPhase } from './CareerMissionState'
-import { createCareerDuelMission, DUEL_COMBAT_SECONDS, DUEL_COUNTDOWN_SECONDS, isCareerDuelPresetId, isCareerDuelTier, resolveCareerDuelOutcome, type CareerDuelTier, type CareerDuelCommanderHome, type CareerDuelTravelCheckpoint } from './CareerDuelState'
+import { careerDuelOpponentHealth, createCareerDuelMission, DUEL_COMBAT_SECONDS, DUEL_COUNTDOWN_SECONDS, isCareerDuelPresetId, isCareerDuelTier, resolveCareerDuelOutcome, type CareerDuelTier, type CareerDuelCommanderHome, type CareerDuelTravelCheckpoint } from './CareerDuelState'
 
 export interface CareerDuelResident { spec: TownActorSpec; npc: NPC; homeMount?: Mount }
 
@@ -54,6 +54,7 @@ export function selectCareerDuelRoster(residents: readonly CareerDuelResident[],
   else {
     const mounted = Boolean(loadout.mountId)
     opponent = residents.filter(resident => resident.spec.duty === 'training' && !resident.npc.dead
+      && resident.npc.characterTier !== 4 && !resident.npc.visualAssetId && !resident.npc.combatProfileId && !resident.npc.specialCombatProfile
       && (!mounted || Boolean((resident.homeMount ?? resident.npc.mount) && !(resident.homeMount ?? resident.npc.mount)!.dead)))
       .sort((a, b) => {
         const score = (resident: CareerDuelResident) => Number(resident.npc.presetId === presetId) * 4
@@ -158,8 +159,11 @@ export class CareerDuelController {
       roster.captain.npc.combatantId, undefined, roster.referee.npc.combatantId)
     if (!mission) return null
     const player = this.player()
+    const ordinaryHealth = tier <= 3 ? careerDuelOpponentHealth(roster.opponent.npc.characterFaction, tier,
+      roster.opponent.npc.hp, roster.opponent.npc.maxHp) : undefined
     return { ...mission, ...(tier === 5 ? { duelCommanderHome: { hp: roster.opponent.npc.hp, ammo: roster.opponent.npc.combatAmmo },
-      duelTravel: this.travelCheckpoint([roster.captain.npc, roster.opponent.npc], false) } : {}), duelOpponentHp: roster.opponent.npc.hp,
+      duelTravel: this.travelCheckpoint([roster.captain.npc, roster.opponent.npc], false) } : {}), duelOpponentHp: ordinaryHealth?.hp ?? roster.opponent.npc.hp,
+      ...(ordinaryHealth ? { duelOpponentMaxHp: ordinaryHealth.maxHp } : {}),
       ...(roster.mount ? { duelOpponentMountHp: roster.mount.currentHp } : {}),
       ...(Number.isFinite(player.hp) && player.hp >= 0 ? { duelPlayerHp: player.hp } : {}),
       ...(Number.isFinite(player.staminaValue) && player.staminaValue >= 0 ? { duelPlayerStamina: player.staminaValue } : {}) }
@@ -172,6 +176,8 @@ export class CareerDuelController {
     const opponent = this.residents.find(resident => resident.npc.combatantId === active.duelOpponentActorId)
     const referee = this.residents.find(resident => resident.npc.combatantId === (active.duelRefereeActorId ?? active.duelCaptainActorId))
     if (!captain || !opponent || !referee) return false
+    if (active.duelTier <= 3 && (opponent.npc.characterTier === 4 || opponent.npc.visualAssetId
+      || opponent.npc.combatProfileId || opponent.npc.specialCombatProfile)) return false
     if (active.duelTier === 5 && (opponent.spec.id !== 'commander' || opponent.spec.role !== 'commander'
       || captain.spec.role !== 'captain' || referee !== captain)) return false
     const area = findTownDuelArena(this.world.obstacles, this.navigation, this.residents.map(resident => resident.spec))
@@ -190,8 +196,12 @@ export class CareerDuelController {
     }))]
     for (const actor of this.actors) { actor.setDuelHostility(false); actor.respawnEnabled = false }
     const selected = duelLoadout(active.duelPresetId, active.duelTier)
+    const ordinaryHealth = active.duelTier <= 3 ? careerDuelOpponentHealth(opponent.npc.characterFaction, active.duelTier,
+      active.duelOpponentHp ?? opponent.npc.hp, active.duelOpponentMaxHp ?? opponent.npc.maxHp) : undefined
+    if (active.duelTier <= 3) opponent.npc.applyTemporaryOrdinaryTier(active.duelTier as 1 | 2 | 3)
     const ranger = active.duelTier === 4 && UNIT_PRESETS[active.duelPresetId].traits.includes('bow_fire')
-    opponent.npc.applyTemporaryCombatLoadout(ranger ? { ...opponent.npc.loadout } : selected)
+    opponent.npc.applyTemporaryCombatLoadout(ranger ? { ...opponent.npc.loadout } : selected,
+      active.duelTier <= 3 ? active.duelTier as 1 | 2 | 3 : undefined)
     if (active.duelOpponentAmmo !== undefined) opponent.npc.restoreCombatAmmo(active.duelOpponentAmmo)
     const originalMount = opponent.homeMount ?? opponent.npc.mount
     opponent.npc.dismountFromMount()
@@ -216,6 +226,7 @@ export class CareerDuelController {
       }
     }
     if (active.duelOpponentDead || active.deadTargetActorIds?.includes(opponent.npc.combatantId)) opponent.npc.takeDamage(Number.MAX_SAFE_INTEGER)
+    else if (ordinaryHealth) opponent.npc.restoreCombatHealth(ordinaryHealth.hp)
     else if (active.duelTier === 5 && active.duelOpponentHp !== undefined) opponent.npc.restoreCombatHealth(active.duelOpponentHp)
     else if (active.duelOpponentHp !== undefined && opponent.npc.hp > active.duelOpponentHp) {
       opponent.npc.takeDamage((opponent.npc.hp - active.duelOpponentHp) / applyHeroIncomingDamage(1, opponent.npc.combatProfileId))
@@ -382,7 +393,7 @@ export class CareerDuelController {
   cleanupMission(): void {
     this.tracker?.dispose()
     this.tracker = null
-    for (const actor of this.actors) { actor.setDuelHostility(false); actor.restoreCombatLoadout(); actor.setTacticalOrder('attack') }
+    for (const actor of this.actors) { actor.setDuelHostility(false); actor.restoreCombatLoadout(); actor.restoreOrdinaryTier(); actor.setTacticalOrder('attack') }
     if (this.commanderHome && this.missionOpponent) {
       const resident = this.residents.find(candidate => candidate.npc === this.missionOpponent)
       this.missionOpponent.group.rotation.y = resident?.spec.yaw ?? Math.PI
@@ -410,7 +421,8 @@ export class CareerDuelController {
   private runtimeMission(active: ActiveCareerMission): ActiveCareerMission {
     const player = this.player()
     return { ...active, ...(active.duelTier === 5 ? { duelTravel: this.travelCheckpoint(this.actors, this.staging) } : {}), duelCountdownElapsed: this.countdownElapsed, duelCombatElapsed: this.combatElapsed,
-      duelOpponentHp: this.opponent?.hp, ...(this.opponentMount ? { duelOpponentMountHp: this.opponentMount.currentHp } : {}),
+      duelOpponentHp: this.opponent?.hp,
+      ...(active.duelTier! <= 3 ? { duelOpponentMaxHp: this.opponent?.maxHp } : {}), ...(this.opponentMount ? { duelOpponentMountHp: this.opponentMount.currentHp } : {}),
       ...(Number.isFinite(player.hp) && player.hp >= 0 ? { duelPlayerHp: player.hp } : {}),
       ...(Number.isFinite(player.staminaValue) && player.staminaValue >= 0 ? { duelPlayerStamina: player.staminaValue } : {}),
       ...(Number.isFinite(this.opponent?.combatAmmo) ? { duelOpponentAmmo: this.opponent!.combatAmmo } : {}),

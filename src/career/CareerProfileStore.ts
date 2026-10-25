@@ -433,6 +433,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       duelCountdownElapsed: Math.min(DUEL_COUNTDOWN_SECONDS, nonNegativeNumber(raw.duelCountdownElapsed)),
       duelCombatElapsed: Math.min(DUEL_COMBAT_SECONDS, nonNegativeNumber(raw.duelCombatElapsed)),
       duelOpponentDead: raw.duelOpponentDead === true || uniqueStrings(raw.deadTargetActorIds).includes(duelOpponentActorId),
+      ...(typeof raw.duelOpponentMaxHp === 'number' && Number.isFinite(raw.duelOpponentMaxHp) && raw.duelOpponentMaxHp > 0 ? { duelOpponentMaxHp: raw.duelOpponentMaxHp } : {}),
       ...(typeof raw.duelOpponentHp === 'number' && Number.isFinite(raw.duelOpponentHp) && raw.duelOpponentHp >= 0 ? { duelOpponentHp: raw.duelOpponentHp } : {}),
       ...(typeof raw.duelOpponentMountHp === 'number' && Number.isFinite(raw.duelOpponentMountHp) && raw.duelOpponentMountHp >= 0 ? { duelOpponentMountHp: raw.duelOpponentMountHp } : {}),
       ...(typeof raw.duelPlayerHp === 'number' && Number.isFinite(raw.duelPlayerHp) && raw.duelPlayerHp >= 0 ? { duelPlayerHp: raw.duelPlayerHp } : {}),
