@@ -4,6 +4,87 @@ This is a recovery recipe for PR #411, **not selection policy or an owner map**.
 Do not import these historical scenarios into the planner. Keep generated plans,
 logs and identity comparisons under ignored `output/`; do not commit them.
 
+## Current handoff — 2026-10-25 20:18 UTC
+
+**Keep #411 Draft; acceptance is incomplete.** Published checkpoint
+`fd598a4b3e1ae08b2bdc3ae8999b4f4aef22d1e7`, tree
+`28afb5e2fd40882224c12abdf1c8b637b1e5ec92`, contains the independently
+reviewed provider-cycle correction and original-cause diagnostics. Do not merge.
+
+Completed foundations include removal of manual owner maps, immutable comparison
+snapshots, scoped runtime/input evidence, conservative open directory domains,
+source-byte readers, explicit conservative receiver evidence, and narrow native
+mock proofs. The requested small-space two-person placement test remains; game
+army capacity is unchanged. Related 500 / per-leaf 100ms and Full gates remain.
+
+The last complete own-plan attempt used head
+`bcca8386a8fd7143bfe9f5ce186e0355603aa918`, actual tested merge
+`e19605f37cd73a91626f8d5ac483e73fd53dda58`, target parent
+`d2220ba74a13202d244477e9237b009b7e9c2381`, and event base
+`2ae8a4332ce9c954b204fca8acab20b7add25f3d`.
+[Exact-head CI 40228144864](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/40228144864)
+failed with a provider-resolution stack overflow. Instrumented capture of that
+same clean snapshot confirmed repeated `providerOf` property recursion. Its
+serialized selector inputs are an ignored debugging cache, not an acceptance
+manifest. Replaying them with the cycle correction removes the RangeError but
+still **blocks** on the following real case:
+
+`tests/release/ci-plan.test.cjs`, ordinal 32,
+`blocked diagnostics preserve failure evidence separately and cannot execute or relax workflow gates`.
+
+The unresolved operation is `childProcess.spawnSync(process.execPath, args, ... )`
+inside `executeShard`, lifted to the test's invalid-manifest call. The real test
+rejects before any subprocess, with zero-call assertions. In the full analyzed
+program its two native mock calls currently have no proved provider/event;
+namespace/ambient binding facts are being investigated. Cache writes must not be
+confused with rewriting the callable `require` identity, but mutable cached
+exports must not be globally declared safe either. No filename exemption is valid.
+
+### Remaining, in order
+
+1. Resolve that concrete full-program native binding gap with actual graph facts,
+   a small positive contract and a genuine mutation negative. Re-run the complete
+   actual-merge plan to a terminal result; subset tests are not acceptance.
+2. Finish the separate, **unpublished** canonical CommonJS main-guard change:
+   track main entry and process context, preserve actual imported initialization,
+   and prevent parent test mocks from suppressing a real Node child's consumers.
+   Unknown execution and non-lexical scopes remain fail closed.
+3. Implement bounded allocation provenance for actual fake versus real receiver
+   instances. Current type-derived paths are explicitly conservative, not proved
+   concrete-instance execution. Mutation/escape must retain uncertainty.
+4. Re-run all four historical fixed snapshots below with one frozen analyzer and
+   report exact retained/added/removed identities. All recorded historical runs
+   remain blocked; a newer Black Cat-only replay does not validate the others.
+5. Verify latest exact-head CI, selected counts/max leaf time, typecheck and build.
+   Earlier results cannot be carried forward to a new head.
+
+### Commands and verified results
+
+- `node tests/tooling/run.cjs tests/release/behavior-selection.test.cjs tests/release/ci-plan.test.cjs tests/release/test-budget.test.cjs`:
+  native checkpoint 127 passed, max 88.277ms (`run-cExZtx`); isolated cycle
+  correction 131 passed, max 86.502ms (`run-bV6B99`). These are development subsets.
+- `node tests/tooling/run.cjs tests/release/ci-plan.test.cjs`: isolated cause
+  diagnostics 33 passed, max 62.521ms (`run-oocBP7`). The attempt against an
+  unrelated uncommitted main-guard patch failed an added trace-field expectation;
+  it was not counted as a pass or hidden by retrying the same tree.
+- To resume complete latest-merge planning in a new clean worktree:
+
+  ```sh
+  git fetch origin refs/pull/411/merge
+  git worktree add --detach ../related-acceptance "$(git rev-parse FETCH_HEAD)"
+  cd ../related-acceptance
+  npm ci
+  node tests/tooling/ci-plan.cjs --mode related \
+    --base 2ae8a4332ce9c954b204fca8acab20b7add25f3d \
+    --head "$(git rev-parse HEAD^2)" --event pull_request \
+    --out output/resume-plan.json
+  ```
+
+  The planner must verify the actual merge parents and record the event-base
+  mismatch; never replace this with event-base-to-head selection. Preserve any
+  `.blocked.json` as non-executable evidence. Run `npm run typecheck:test` and
+  `npm run build` on the final candidate and inspect its exact-head CI.
+
 ## Recorded checkpoint — not completed acceptance
 
 The four original GitHub `logic-plan` artifacts were downloaded and their ZIP
@@ -262,8 +343,8 @@ expectations for fixed historical fixtures, **never selection rules**:
   coordinates used by NPC projectile origins. This is mixed code/data/assets,
   not a pure visual zero-logic example.
 
-Before claiming completion: resolve the read/read false risk and input
-classification gaps, inspect fixture/default-value paths (a static typed path is
+Before claiming completion: recheck the corrected read/read attribution and
+resolve remaining input classification gaps, inspect fixture/default-value paths (a static typed path is
 not proof a concrete test exercises it), rerun all four against one frozen new
 analyzer, inspect exact retained/added/removed identities, and separately report
 latest exact-head CI. Original artifacts may be gone later; retain downloaded
