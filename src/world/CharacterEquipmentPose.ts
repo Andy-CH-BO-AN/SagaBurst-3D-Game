@@ -587,8 +587,7 @@ export class CharacterEquipmentPose {
     const carryBlend = state.action === 'idle' ? 1 : authoredRecovery > 0 ? authoredRecovery : state.action === 'axeAttack1H' || state.action === 'swordSlash'
       ? 1 - smooth(state.elapsed / .08) + smooth((state.elapsed - .42) / .06) : 0
     if (live && !state.mounted && !state.lance && !state.sampledBowPose && carryBlend > 0
-      && state.carryWeapon && (this.selectedSource?.rig === 'roman54'
-        || state.carryWeapon === 'axe' && (this.selectedSource?.rig === 'ordinary22' || this.selectedSource?.rig === 'varangian63'))) {
+      && state.carryWeapon && (this.selectedSource?.rig === 'roman54' || state.carryWeapon === 'axe')) {
       // localToWorld below refreshes the wrist's ancestor chain. No other
       // subtree is read before the arm solve and the final pose refresh.
       this.target.fromArray(this.frames.lanceRight.gripCenterLocal)
