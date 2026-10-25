@@ -352,7 +352,9 @@ export class CharacterEquipmentPose {
     const hand = (frame: EquipmentGripFrame) => new THREE.Quaternion().setFromRotationMatrix(swordHandMatrix(frame)).invert()
     const forwardCarry = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0)))
     this.swordCarry = forwardCarry.clone().multiply(hand(frames.lanceRight))
-    this.axeCarry = forwardCarry.clone().multiply(new THREE.Quaternion().setFromRotationMatrix(naturalAxeHandMatrix(frames.lanceRight)).invert())
+    const axeHand = selectedSource?.rig === 'roman54' ? naturalAxeHandMatrix(frames.lanceRight)
+      : swordHandMatrix(frames.lanceRight).multiply(new THREE.Matrix4().makeRotationX(.45))
+    this.axeCarry = forwardCarry.clone().multiply(new THREE.Quaternion().setFromRotationMatrix(axeHand).invert())
     this.carryBones = [rig.right.shoulder, rig.right.elbow, rig.right.wrist]
     this.axe1Carry = this.axeCarry
     this.shieldL = new THREE.Quaternion().setFromRotationMatrix(equipmentWeaponFrame('shield')).multiply(hand(frames.shieldLeft))
@@ -579,13 +581,13 @@ export class CharacterEquipmentPose {
       this.left.solve(this.target, this.handWorld, this.frames.lanceLeft, undefined, true, true)
       if (authoredRecovery > 0) for (let i = 0; i < 3; i++) this.axeLeftBones[i].quaternion.copy(this.axeSavedLeft[i].slerp(this.axeLeftBones[i].quaternion, authoredRecovery))
     }
-    // Roman foot carry: +Y shaft points toward gameplay +Z and the axe's
+    // Shared sword/axe foot carry: +Y shaft points toward gameplay +Z and the axe's
     // +X cutting edge points down. Solve the arm around its existing palm,
     // preserving the fixed weapon attachment and source finger animation.
     const carryBlend = state.action === 'idle' ? 1 : authoredRecovery > 0 ? authoredRecovery : state.action === 'axeAttack1H' || state.action === 'swordSlash'
       ? 1 - smooth(state.elapsed / .08) + smooth((state.elapsed - .42) / .06) : 0
     if (live && !state.mounted && !state.lance && !state.sampledBowPose && carryBlend > 0
-      && state.carryWeapon && this.selectedSource?.rig === 'roman54') {
+      && state.carryWeapon && (this.selectedSource?.rig === 'roman54' || state.carryWeapon === 'axe')) {
       // localToWorld below refreshes the wrist's ancestor chain. No other
       // subtree is read before the arm solve and the final pose refresh.
       this.target.fromArray(this.frames.lanceRight.gripCenterLocal)

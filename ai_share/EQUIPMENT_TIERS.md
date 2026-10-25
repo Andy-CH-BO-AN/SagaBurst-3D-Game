@@ -30,7 +30,7 @@ Career 商店的 Sword／Mace／Ranger Bow 各售 1600 軍功，Shield 售 1440�
 | ID | 來源外觀 | 基礎傷害 | 基礎完整攻擊週期 | 盾牌衝擊／耐久 |
 | --- | --- | --- | --- | --- |
 | `paladin_sword_t4` | DJMaesen Paladin 原始長劍 | 60 | 0.48 秒／Sword | 衝擊 1 |
-| `paladin_mace_t4` | Efarys Paladin Mace | 55 | 0.54 秒／Axe 1H 或 2H | 衝擊 12 |
+| `paladin_mace_t4` | 隊長雙刃戰斧 Captain's Double-Bitted Axe | 55 | 0.54 秒／Axe 1H 或 2H | 衝擊 12 |
 | `paladin_shield_t4` | Efarys Paladin Shield＋既有中央握把 | — | — | 耐久 48 |
 
 不含護甲穿透或被動減傷。`meleeCycleSeconds` 同步縮放動畫、接觸事件與收招；T1–T3 未設定此欄位，時序維持原狀。物理命中盾面才消耗固定衝擊，不乘英雄傷害倍率；不足耐久沿用 `ShieldState.absorb` 比例溢出。

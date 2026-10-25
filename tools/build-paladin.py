@@ -64,15 +64,7 @@ for v in sword.data.vertices:
 textures(1024)
 export([sword], EQUIP / 'sword.glb')
 
-# Source mace points along +X; fit a 1.25m weapon to the canonical grip.
-meshes = load('paladin_mace_free_download.glb')
-flatten(meshes)
-for o in meshes:
-    for v in o.data.vertices:
-        x, y, z = v.co
-        v.co = Vector((z * .625, y * .625, (x + .35) * .625 + .15))
-textures(512)
-export(meshes, EQUIP / 'mace.glb')
+# T4 axe is authored separately by build-t4-battle-axe.py.
 
 # The two large surfaces are the complete shield. Other meshes form straps/grips.
 meshes = load('paladin_shield_free_download.glb')
@@ -223,5 +215,5 @@ for lod, budget, tex in [(0, 16000, 2048), (1, 7800, 1024), (2, 1900, 512)]:
 (OUT / 'paladin-build.json').write_text(json.dumps(metrics, indent=2) + '\n')
 (OUT / 'bone-map.json').write_text(json.dumps({'skeleton': 'project-humanoid-v1', 'sourceToProject': name_map,
     'method': 'Original source skin; offline T-pose normalization and world-rest animation retarget'}, indent=2) + '\n')
-(EQUIP / 'sources.json').write_text(json.dumps([provenance(n) for n in ['paladin.glb', 'paladin_mace_free_download.glb', 'paladin_shield_free_download.glb']], indent=2) + '\n')
+(EQUIP / 'sources.json').write_text(json.dumps([provenance(n) for n in ['paladin.glb', 'paladin_shield_free_download.glb']], indent=2) + '\n')
 print(json.dumps(metrics))

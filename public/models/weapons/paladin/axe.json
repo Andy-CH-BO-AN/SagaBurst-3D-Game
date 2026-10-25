@@ -1,0 +1,61 @@
+{
+  "sourceFile": "Meshy_AI_slender_handle_battle_1025140134_texture.glb",
+  "sourceSha256": "7bce3b5be271e96319610e09c56553acd4543268943466f48ffc2410f319997e",
+  "sourceProvider": "Meshy; user-supplied textured GLB",
+  "build": "tools/build-t4-battle-axe.py",
+  "attachmentSpace": {
+    "longAxis": "+Y",
+    "broadFace": "XY",
+    "gripCenter": [
+      0,
+      0.15,
+      0
+    ],
+    "sourceGripCenter": [
+      -1.2352762699127198,
+      0.795,
+      -0.0018
+    ],
+    "sourceToAttachmentMatrix": [
+      0,
+      0.4533398832631729,
+      0,
+      0,
+      -0.4533398832631729,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0.4533398832631729,
+      0,
+      0.3604052071942225,
+      0.7100000000000001,
+      0.0008160117898737112,
+      1
+    ],
+    "uniformScale": 0.4533398832631729,
+    "rotationZDegrees": 90
+  },
+  "geometryPolicy": "All source geometry/accessor and embedded texture bytes unchanged; no decimation or image re-encoding.",
+  "finalSha256": "4c93c222c6f46c582cc51766490de83591727e9a45900d6614dad7eb2fd3ec62",
+  "bytes": 7363712,
+  "triangles": 3150,
+  "measuredBounds": {
+    "min": [
+      -0.3649386168353193,
+      -0.08999999999999997,
+      -0.08281503395884623
+    ],
+    "max": [
+      0.3604052071942225,
+      1.5100000000000002,
+      0.07792019701670153
+    ],
+    "size": [
+      0.7253438240295418,
+      1.6,
+      0.16073523097554776
+    ]
+  }
+}

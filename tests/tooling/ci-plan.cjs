@@ -79,6 +79,13 @@ function policyConsumers(file, inventory) {
       'tests/combat/ProjectileBallistics.test.ts', 'tests/equipment/WeaponWheel.test.ts',
       'tests/equipment/CareerSquadEquipment.test.ts']) add(owner)
   }
+  // T4 visual asset/loader changes reuse the existing equip/save and axe action owners.
+  // Geometry, material and grip validation stays in offline/browser QA.
+  if (['tools/build-t4-battle-axe.py', 'tools/build-paladin.py'].includes(file)
+    || file.startsWith('public/models/weapons/paladin/')) {
+    for (const owner of ['tests/combat/CommanderWeaponSwitching.test.ts',
+      'tests/equipment/WeaponWheel.test.ts', 'tests/equipment/CareerTownEquipment.test.ts']) add(owner)
+  }
   // Career migration introduces an explicit persistence initialization owner.
   if (file === 'src/career/CareerHealthMigration.ts') add('tests/persistence/HealthPersistence.test.ts')
   // Original shield pixels/geometry are inspected offline and in gameplay, never
