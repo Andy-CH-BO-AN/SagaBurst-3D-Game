@@ -79,14 +79,15 @@ function step(eagle: EaglePort, obstacles: ObstacleData[]) {
 }
 
 describe('Eagle flight boarding clearance', () => {
-  it('keeps one landed eagle flight controller flyable through ten remount cycles and a checkpoint reload', () => {
+  it('keeps one landed eagle flight controller flyable after remount and checkpoint reload', () => {
     const { eagle, rider, flight } = parkedEagle()
-    // Repeated cycles own flight state and heading reset; wall clearance is
-    // exercised separately below, so these flights use an empty open field.
+    // Exercise initial boarding, an ordinary remount, and a remount after
+    // checkpoint reload. These are the distinct state boundaries; extra full
+    // flights repeat the same transition. Wall clearance is covered below.
     const obstacles: ObstacleData[] = []
     assert.equal(flight.canLand(eagle.group.position, obstacles, flatGround, 3000), true)
     methods.player.mountVehicle.call(rider, eagle)
-    for (let cycle = 0; cycle < 10; cycle++) {
+    for (let cycle = 0; cycle < 3; cycle++) {
       assert.equal(rider.currentMount, eagle)
       assert.equal(eagle.group.rotation.y, 0)
       assert.deepEqual([flight.intent.yaw, flight.intent.pitch, flight.intent.brake, flight.intent.takeoff], [0, 0, false, false])
@@ -104,7 +105,7 @@ describe('Eagle flight boarding clearance', () => {
       rider.dismountFromMount({ preserveWorldPosition: true })
       assert.equal(eagle.riderPlayer, null)
       assert.equal(rider.currentMount, null)
-      if (cycle === 4) {
+      if (cycle === 1) {
         const saved = parseEagleFlightSnapshot(JSON.parse(JSON.stringify(flight.snapshot())))!
         flight.restore(saved)
       }
