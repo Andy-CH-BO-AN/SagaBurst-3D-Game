@@ -10,6 +10,7 @@ import type { TownDefenseController } from '../career/TownDefenseController'
 import type { CareerMountController } from '../career/CareerMountController'
 import type { CombatDamageMethod, CombatEvent } from '../combat/CombatAttribution'
 import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
+import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
 import type { HpBar } from '../ui/HpBar'
@@ -34,7 +35,7 @@ export interface TownCombatResident {
 }
 
 interface MissionControllers {
-  field: Pick<BanditMissionController, 'active' | 'fieldNpcs' | 'friendlies' | 'ambientBandits' | 'missionBandits' | 'combatPeersFor' | 'updateFlow' | 'updateDepartingCavalry' | 'departingNpcs' | 'cavalryMounts' | 'veteranEnemySquads' | 'markVeteranEnemySquadEngaged' | 'travelEncounter' | 'prepareTravelEncounter' | 'noteTravelHit' | 'engageFormalMission' | 'isMissionTarget' | 'prepareRetirementEvacuation' | 'isRetirementEvacuating' | 'updateRetirementTravel'>
+  field: Pick<BanditMissionController, 'active' | 'fieldNpcs' | 'friendlies' | 'ambientBandits' | 'missionBandits' | 'combatPeersFor' | 'updateFlow' | 'updateDepartingCavalry' | 'departingNpcs' | 'cavalryMounts' | 'veteranEnemySquads' | 'markVeteranEnemySquadEngaged' | 'travelEncounter' | 'prepareTravelEncounter' | 'noteTravelHit' | 'engageFormalMission' | 'isMissionTarget' | 'allowsMissionCombatTarget' | 'prepareRetirementEvacuation' | 'isRetirementEvacuating' | 'updateRetirementTravel'>
   duel: Pick<CareerDuelController, 'active' | 'phase' | 'update' | 'isMissionActor' | 'fieldNpcs' | 'allMounts' | 'opponent' | 'combatEnabled' | 'persistRuntimeProgress' | 'setExternalCombat'>
   defense: Pick<TownDefenseController, 'active' | 'phase' | 'assault' | 'updateFlow' | 'fieldNpcs' | 'peersFor' | 'updateCivilianOrder' | 'waitingEnemies' | 'enemyMounts'> & {
     readonly combatEnabled?: boolean
@@ -124,6 +125,25 @@ export class TownMissionCombat {
 
   get runtimeParticipants(): NPC[] { return this.runtimeActors }
   get runtimeGrid(): SpatialGrid<NPC> { return this.warfareGrid }
+
+  /** A field borrower follows its live combat owner's hostile roster, rather than its home station. */
+  allowsFieldMissionCombatTarget(npc: NPC, target: NPC): boolean {
+    const { field } = this.missions
+    const active = field.active
+    if (!active || !['bandit', 'patrol', 'cavalry-sweep', 'veteran-field'].includes(active.kind ?? 'bandit')
+      || !field.friendlies.includes(npc) || !combatAllegiancesHostile(npc, target)) return false
+    // A settled mission can still encounter roaming enemies on its return journey.
+    if ((active.phase === 'MARCHING' || active.phase === 'RETURNING')
+      && field.travelEncounter.owns(npc) && field.travelEncounter.hostileActors.includes(target)) return true
+    if (active.result) return false
+    if (field.allowsMissionCombatTarget(npc, target)) return true
+    if (active.kind !== 'veteran-field') return false
+    if ((active.phase === 'ASSEMBLING' || active.phase === 'MARCHING') && this.engagedVeteranEnemies.has(target)
+      && field.missionBandits.includes(target) && field.isMissionTarget(target)) return true
+    return active.phase === 'ENGAGING' && active.templateId === 'veteran-tragedy-of-the-scouts'
+      && this.enemyTownHostileActors.includes(target)
+  }
+
   get externalDefenders(): readonly NPC[] {
     return [...new Set([...this.externalThreatActors, ...(this.town.patrol?.().combatActors ?? [])])].filter(npc => !npc.hostileToPlayer)
   }

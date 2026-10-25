@@ -691,7 +691,8 @@ export class BanditMissionController {
   /** Formal field combat borrows residents beyond their home station's pursuit leash. */
   allowsMissionCombatTarget(npc: NPC, target: NPC): boolean {
     const active = this.active
-    return Boolean(active && (active.kind ?? 'bandit') === 'bandit' && active.phase === 'ENGAGING'
+    return Boolean(active && !active.result && ['bandit', 'patrol', 'cavalry-sweep', 'veteran-field'].includes(active.kind ?? 'bandit')
+      && active.phase === 'ENGAGING'
       && this.friendlies.includes(npc) && this.missionBandits.includes(target)
       && this.isMissionTarget(target) && combatAllegiancesHostile(npc, target))
   }
