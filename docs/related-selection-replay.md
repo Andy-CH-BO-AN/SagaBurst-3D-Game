@@ -4,11 +4,11 @@ This is a recovery recipe for PR #411, **not selection policy or an owner map**.
 Do not import these historical scenarios into the planner. Keep generated plans,
 logs and identity comparisons under ignored `output/`; do not commit them.
 
-## Current handoff — 2026-10-25 21:57 UTC
+## Current handoff — 2026-10-25 22:12 UTC
 
 **Keep #411 Draft; acceptance is incomplete.** Published checkpoint
-`caa8c33211d05534a253db71d67af190913cdaeb`, tree
-`365ac126cdca088b7d9daf4d9168433f14cf5384`, contains the independently
+`b397b2f1da90ff695fc2df021d1cb34e72303c15`, tree
+`b1e332d353bfbde07a81022cd2d285301c6834e6`, contains the independently
 reviewed provider-cycle correction, original-cause diagnostics, and source-local
 ambient `require` proof with Node `node:` cache-bypass semantics, and the reviewed
 main-entry/process-context increment plus an invocation-local lexical binding
@@ -20,7 +20,7 @@ source-byte readers, explicit conservative receiver evidence, and narrow native
 mock proofs. The requested small-space two-person placement test remains; game
 army capacity is unchanged. Related 500 / per-leaf 100ms and Full gates remain.
 
-The last complete own-plan attempt used head
+An earlier complete own-plan attempt used head
 `bcca8386a8fd7143bfe9f5ce186e0355603aa918`, actual tested merge
 `e19605f37cd73a91626f8d5ac483e73fd53dda58`, target parent
 `d2220ba74a13202d244477e9237b009b7e9c2381`, and event base
@@ -123,10 +123,43 @@ contracts remain. Original artifact 12614893635 was verified with ZIP SHA256
 
 The new frozen four-scenario replay uses analyzer `caa8c33` (tooling digest
 `331242589a85da05a352b2361634c3b94a3720093fb4a090b61683bfe743e4a9`).
-Duel has terminated blocked at an unproved loader receiver on a historical
-CareerTownEntry path; it has no executable after-count. Remaining scenarios are
-being collected serially before classifying the full remaining set. Do not
-replace the older recorded replay identities with guessed new exclusions.
+All four terminated with stable analyzer/source snapshots and **blocked**, with
+no partial selected identities and no executable after-count:
+
+| Scenario | Original cases | Wall seconds | After |
+| --- | ---: | ---: | --- |
+| Duel | 387 | 116.1 | null / blocked |
+| Black Cat | 283 | 107.6 | null / blocked |
+| Axe | 350 | 115.3 | null / blocked |
+| Control | 283 | 115.0 | null / blocked |
+
+The common exact identity is `tests/town/CareerTownEntry.test.ts`, Vitest ordinal
+0, `Town load failure recovery > replaces a completed Career only after confirmed
+starter selection and a successful save, then starts after loading`. Its actual
+literal module factory mocks `TownScene.create` with `vi.fn()` and later supplies
+explicit callbacks. Current graph uncertainty admits the original TownScene path:
+Duel/Axe reach HorseAssetRegistry's fluent GLTF loader; Black Cat/control reach
+TownScene's finite high-tier asset collection broadened into a public-path risk.
+These are mock/receiver/input-analysis gaps, **not established missing gameplay
+tests**. Planned correction is bounded actual mock substitution with conservative
+finite callback alternatives; opaque mutations/escapes remain unsafe. General
+NPC allocation provenance is still incomplete. No guessed retained/removed sets
+are reported, and no new tests are inserted into historical trees.
+
+Latest completed [CI 40238338141](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/40238338141)
+used head `f285bb6301ac8d310d855f9334e827af58af888a`, tested merge
+`c2e887747618ff10afa291dd54d95b8ae8caf093`, first parent
+`a4579ac3cea9152fc6d891c2e87043db0c0ca821`. It failed closed at
+`tests/release/ci-plan.test.cjs`, `Git transport binds lineage, rename records and
+diff ranges to the same immutable comparison`: an intentional native-transport
+reload had unresolved cache provenance. Artifact 12615599000 was downloaded and
+ZIP SHA256 matched the CI upload log:
+`99d6bdeab8c682c96cbff773de55fdf24c43154f6bcf67506d3d0d21dfd31de2`.
+The published follow-up uses a live native child-process boundary rather than a
+captured function, allowing a stable test import without cache reload. All Git
+transport assertions remain; 33 cases passed, max 52.349ms including cleanup
+(`run-rnDMMy`), independently reviewed. Other genuine reload contracts remain.
+This subset is not latest-head CI acceptance.
 
 ### Remaining, in order
 
@@ -140,13 +173,14 @@ replace the older recorded replay identities with guessed new exclusions.
    snapshots. Keep unsupported inline-shell effects explicit and fail closed; a broad shell
    interpreter is not an approved shortcut. Re-run the complete actual-merge plan
    to a terminal result; subsets and captured-input replays are not acceptance.
-3. Implement bounded allocation provenance for actual fake versus real receiver
-   instances if safely achievable. Current type-derived paths are explicitly
+3. First resolve bounded explicit module-mock substitutions; then implement
+   bounded allocation provenance for actual fake versus real receiver instances
+   if safely achievable. Current type-derived paths are explicitly
    conservative, not proved concrete-instance execution. Mutation/escape must
    retain uncertainty.
 4. Re-run all four historical fixed snapshots below with one frozen analyzer and
-   report exact retained/added/removed identities. All recorded historical runs
-   remain blocked; a newer Black Cat-only replay does not validate the others.
+   report exact retained/added/removed identities. The latest four frozen runs
+   remain blocked at the common mock boundary above; never substitute partial counts.
 5. Verify latest exact-head CI, selected counts/max leaf time, typecheck and build.
    Earlier results cannot be carried forward to a new head.
 
