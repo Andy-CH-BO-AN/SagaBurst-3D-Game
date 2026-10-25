@@ -31,7 +31,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   })
   const program = ts.createProgram([...sources.keys()], options, host)
   const checker = program.getTypeChecker()
-  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set()
+  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set()
   function add(ast, label) {
     if (byAst.has(ast)) return byAst.get(ast)
     const file = local(ast.getSourceFile().fileName)
@@ -45,9 +45,19 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const sf = program.getSourceFile(fullPath)
     const top = add(sf, '<module>')
     files.set(file, { sf, top, registrations: [], hooks: [], blocked: new Set(), blockedProviders: new Set() })
-    const importBindings = runtimeImports(sf).bindings
+    const imports = runtimeImports(sf)
+    const importBindings = imports.bindings
+    runtimeModules.set(file, new Set())
+    const runtimeModule = name => {
+      const stem = posix.normalize(posix.join(posix.dirname(file), name))
+      const target = (importGraph.get(file) ?? []).find(dep => dep === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js'].some(ext => dep === stem + ext))
+      if (target) runtimeModules.get(file).add(target)
+    }
     function index(n) {
       if (typeOnly(n)) return
+      if (ts.isImportDeclaration(n) && imports.modules.some(specifier => specifier.startsWith(n.moduleSpecifier.getText()))) runtimeModule(n.moduleSpecifier.text)
+      if (ts.isExportDeclaration(n) && !n.isTypeOnly && n.moduleSpecifier && (!n.exportClause || !ts.isNamedExports(n.exportClause) || n.exportClause.elements.some(element => !element.isTypeOnly))) runtimeModule(n.moduleSpecifier.text)
+      if (ts.isCallExpression(n) && (n.expression.kind === ts.SyntaxKind.ImportKeyword || n.expression.getText() === 'require') && n.arguments[0] && ts.isStringLiteralLike(n.arguments[0])) runtimeModule(n.arguments[0].text)
       if ((ts.isImportSpecifier(n) || ts.isNamespaceImport(n) || ts.isImportClause(n)) && n.name && importBindings.has(n.name.text)) add(n, `<import:${n.name.text}>`)
       if (callable(n) || ts.isClassStaticBlockDeclaration(n) || ts.isVariableDeclaration(n) || member(n) || ts.isClassLike(n) || ts.isEnumDeclaration(n)) {
         const owner = n.parent?.name?.getText?.()
@@ -116,6 +126,25 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       }
       shapes.set(entry.ast, domains)
     }
+  }
+  // Data-reader candidate expansion is not executable module provenance.
+  // Keep this graph distinct from importGraph, which also contains input edges.
+  for (const input of inputEdges ?? []) if (['import', 'execute'].includes(input.kind)) {
+    if (!runtimeModules.has(input.from)) runtimeModules.set(input.from, new Set())
+    runtimeModules.get(input.from).add(input.to)
+  }
+  const runtimeClosures = new Map()
+  function runtimeReaches(file, target) {
+    if (!runtimeClosures.has(file)) {
+      const seen = new Set(), queue = [file]
+      for (let index = 0; index < queue.length; index++) {
+        const next = queue[index]
+        if (seen.has(next)) continue
+        seen.add(next); queue.push(...(runtimeModules.get(next) ?? []))
+      }
+      runtimeClosures.set(file, seen)
+    }
+    return runtimeClosures.get(file).has(target)
   }
   function requiredModule(n) {
     n = origin(n)
@@ -628,7 +657,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const action = events.at(-1)?.action
     return action === 'replace' ? 'replaced' : action === 'uncertain' ? 'uncertain' : 'real'
   }
-  return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, hasFile: file => files.has(file) }
+  return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, runtimeReaches, hasFile: file => files.has(file) }
 }
 
 function selectBehaviors(inventory, changed, consumers, evidence) {
@@ -638,7 +667,7 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
   const graphs = [head, previousSources === sources ? head : behaviorGraph(previousSources, previous.graph, compilerOptions, evidence.repositoryRoot, previous.inputEdges, previous.inputRisks, previous.runtimeImportRisks)]
   const testRenames = evidence.testRenames ?? new Map()
   const oldTestPaths = new Map([...testRenames].map(([before, after]) => [after, before]))
-  const selectedCases = {}, reasons = {}, details = {}, changedBehaviors = new Set(), candidates = new Set(), uncovered = new Set()
+  const selectedCases = {}, reasons = {}, details = {}, changedBehaviors = new Set(), candidates = new Set(), uncovered = new Set(), unobservedInputCandidates = []
   for (const change of changed) {
     const targets = graphs.map((g, i) => change.status === 'A' && i === 1 ? new Set() : g.changedNodes(change.file, graphs[1 - i]))
     for (let i=0; i<2; i++) for (const id of targets[i]) changedBehaviors.add(`${change.file}#${graphs[i].nodes.get(id).label}`)
@@ -690,6 +719,7 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
               const affectsChange = [...targets[i]].some(target => {
                 const node = graphs[i].nodes.get(target)
                 if (risk.owners.length) return risk.owners.some(owner => graphs[i].nodes.get(owner).ast === node.ast || graphs[i].nodes.get(owner).ast === node.ast.parent)
+                if (!graphs[i].runtimeReaches(graphFile, node.file)) return false
                 return !risk.keys || !!node.ast.name && (member(node.ast) || callable(node.ast) || ts.isVariableDeclaration(node.ast) && callable(node.ast.initializer) || ts.isPropertyAssignment(node.ast) || ts.isShorthandPropertyAssignment(node.ast)) && risk.keys.includes(node.ast.name.getText().replace(/^['"]|['"]$/g, ''))
               })
               if (affectsChange) failRisk(`Unsafe runtime dispatch: ${file}: ${risk.reason}`, risk)
@@ -728,10 +758,14 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
       if (graphs[i].nodes.get(id).shape) continue
       if (!covered[i].has(id)) uncovered.add(`Unsafe/unmapped behavior: ${change.file}#${label}; no proven owner cases`)
     }
-    if (!Object.values(details).some(list=>list.some(d=>d.changed===change.file))) uncovered.add(`Unsafe/unmapped behavior: ${change.file}; no proven owner cases`)
+    if (!Object.values(details).some(list=>list.some(d=>d.changed===change.file))) {
+      const exactInput = [...(consumers.inputEdges ?? []), ...(previous.inputEdges ?? [])].some(edge => edge.to === change.file)
+      if (!graphs.some(graph => graph.hasFile(change.file)) && !exactInput && targets.every(ids => ids.size === 0)) unobservedInputCandidates.push(change.file)
+      else uncovered.add(`Unsafe/unmapped behavior: ${change.file}; no proven owner cases`)
+    }
   }
   const result = { selected: Object.keys(selectedCases).sort(), selectedCases, reasons, details,
-    changedBehaviors: [...changedBehaviors].sort(), excludedCandidates: [...candidates].filter(f=>!selectedCases[f]).sort(), unsafe: [...uncovered] }
+    unobservedInputCandidates: unobservedInputCandidates.sort(), changedBehaviors: [...changedBehaviors].sort(), excludedCandidates: [...candidates].filter(f=>!selectedCases[f]).sort(), unsafe: [...uncovered] }
   if (uncovered.size) {
     const error = new Error([...uncovered].join('\n'))
     error.diagnostics = result // Incomplete evidence only; never an executable plan.

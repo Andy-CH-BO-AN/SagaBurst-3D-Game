@@ -80,6 +80,24 @@ test('documentation has empty evidence unless an actual runtime reader consumes 
     files: paths, previousFiles: paths, texts: dynamicSources, previousTexts: dynamicSources, ranges: {},
     compilerOptions: { noLib: true, noResolve: true, types: [] },
   }), /Unsafe runtime input:.*runtimePath/)
+  const unusedSources = new Map([
+    ['src/reader.ts', `import {readFileSync} from 'node:fs'; export const marker=1;
+export function read(file: string) { return readFileSync(file, 'utf8') }`],
+    ['tests/notes.test.cjs', `const reader=require('../src/reader');
+test('marker', () => reader.marker)`],
+  ])
+  const unusedFiles = new Set([...unusedSources.keys(), 'docs/releases/v1.2.0.md'])
+  const unusedGraph = dependencyConsumers(files, unusedSources, file => unusedFiles.has(file), { files: unusedFiles })
+  const unused = selectFiles([{ ...files[0], locations: [{ line: 2 }] }], [{ status: 'M', file: 'docs/releases/v1.2.0.md' }], unusedGraph, {
+    sources: unusedSources, previousSources: unusedSources, previousConsumers: unusedGraph,
+    files: unusedFiles, previousFiles: unusedFiles, texts: unusedSources, previousTexts: unusedSources, ranges: {},
+    compilerOptions: { noLib: true, noResolve: true, types: [] },
+  })
+  assert.equal(unused.docsOnly, true)
+  assert.deepEqual(unused.selected, [])
+  assert.deepEqual(unused.unobservedInputCandidates, ['docs/releases/v1.2.0.md'])
+  const untested = dependencyConsumers([], sources, file => paths.has(file), { files: paths })
+  assert.throws(() => selectFiles([], [{ status: 'M', file: 'docs/releases/v1.2.0.md' }], untested), /Unmapped code\/runtime input/)
 })
 test('unmapped code fails Related planning instead of silently running Full', () => {
   assert.throws(() => select('src/new-owner.ts'), /Related selection is unsafe.*Unmapped/)
@@ -609,7 +627,8 @@ test('planner collects both runners against fixed Git trees before issuing a doc
       return nextResolve(specifier, context)
     } })
     for (const [path] of savedModules) delete require.cache[path]
-    const { createPlan } = require('../tooling/ci-plan.cjs')
+    const { createPlan, snapshot } = require('../tooling/ci-plan.cjs')
+    assert.throws(() => snapshot(), /Missing immutable snapshot ref/)
     const plan = await createPlan({ mode: 'related', event: 'push', base: before, head: after, repositoryRoot: root })
     assert.equal(plan.docsOnly, true)
     assert.deepEqual(plan.changedFiles, ['README.md'])

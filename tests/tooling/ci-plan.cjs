@@ -1,5 +1,5 @@
 const { execFileSync } = require('node:child_process')
-const { readFileSync, writeFileSync, readdirSync, appendFileSync, mkdirSync, existsSync } = require('node:fs')
+const { readFileSync, writeFileSync, readdirSync, appendFileSync, mkdirSync } = require('node:fs')
 const { resolve, relative, dirname, join, posix } = require('node:path')
 const { randomUUID, createHash } = require('node:crypto')
 const { MAX_CASES_PER_SHARD } = require('./budget.cjs')
@@ -31,12 +31,15 @@ function selectFiles(inventory, changed, consumers, evidence) {
   if (!changed.length) relatedSelectionError('No trustworthy changed-file evidence')
   const unsupported = changed.find(item => !/^(?:A|M|D|R\d+)$/.test(item.status))
   if (unsupported) relatedSelectionError(`Unsupported Git change: ${unsupported.status} ${unsupported.file}`)
+  const qualifiedDocumentation = new Set()
+  const exactInputReader = (file, graph) => (graph?.inputEdges ?? []).some(edge => edge.to === file)
   const possibleInputReader = (file, graph) => (graph?.inputRisks ?? []).some(risk =>
     (risk.pattern ? new RegExp(risk.pattern).test(file) : risk.candidates?.includes(file))
     && (graph[risk.from] ?? []).some(consumer => all.includes(consumer)))
   const documentationOnly = item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile))
     && !(consumers[item.file]?.length) && !(evidence?.previousConsumers?.[item.oldFile ?? item.file]?.length)
-    && !possibleInputReader(item.file, consumers) && !possibleInputReader(item.oldFile ?? item.file, evidence?.previousConsumers)
+    && !exactInputReader(item.file, consumers) && !exactInputReader(item.oldFile ?? item.file, evidence?.previousConsumers)
+    && (qualifiedDocumentation.has(item.file) || !possibleInputReader(item.file, consumers) && !possibleInputReader(item.oldFile ?? item.file, evidence?.previousConsumers))
   if (changed.every(documentationOnly)) {
     return { mode: 'related', docsOnly: true, selected: [], reasons: {}, message: 'No related logic tests: documentation-only change' }
   }
@@ -71,6 +74,12 @@ function selectFiles(inventory, changed, consumers, evidence) {
   if (behaviorChanges.length) {
     try { behavior = require('./behavior.cjs').selectBehaviors(inventory, behaviorChanges, consumers, { ...evidence, testRenames: renamed }) }
     catch (error) { relatedSelectionError(error.message, error.diagnostics) }
+  }
+  for (const file of behavior.unobservedInputCandidates ?? []) {
+    if (!docsOnly(file)) relatedSelectionError(`Unclassified input: ${file}; no executed reader found, but no visual/offline safety proof exists`)
+    qualifiedDocumentation.add(file)
+    const classification = inputClassifications.find(input => input.file === file)
+    if (classification) Object.assign(classification, { kind: 'documentation', logicCoverage: false, reason: 'No exact input edge and no case or scoped hook reaches the potential reader' })
   }
   const reasons = behavior.reasons
   const details = behavior.details
@@ -120,6 +129,8 @@ function selectFiles(inventory, changed, consumers, evidence) {
     }
   }
   return { ...behavior, mode: 'related', selected: Object.keys(reasons).sort(), selectedCases, reasons, details, typeOnlyFiles, retiredFiles, inputClassifications, zeroLogicFiles,
+    documentationFiles: changed.filter(documentationOnly).map(item => item.file),
+    ...(changed.every(documentationOnly) ? { docsOnly: true, message: 'No related logic tests: documentation-only change' } : {}),
     excludedCandidates: behavior.excludedCandidates?.filter(file => !Object.hasOwn(reasons, file)) }
 }
 // Human-readable selection evidence, derived only from the manifest (no test re-run).
@@ -251,33 +262,29 @@ async function discover({ relatedPaths = [], repositoryRoot = root } = {}) {
 const sourceFile = file => /\.[cm]?[jt]sx?$/.test(file)
 const testFile = file => /^tests\/.*\.(?:test|spec)\.[cm]?[jt]sx?$/.test(file)
 function snapshot(ref, repositoryRoot = root) {
+  if (!ref) throw new Error('Missing immutable snapshot ref')
   const git = (...args) => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8' }).trim()
-  const files = new Set((ref ? git('ls-tree', '-r', '--name-only', ref) : git('ls-files')).split('\n').filter(Boolean))
-  // Inspect every tracked text format for retirement/entry references (HTML,
-  // CSS, extensionless build inputs, etc.), not just parsed JS/TS dependencies.
-  const names = execFileSync('git', ['grep', '-I', '-l', '-z', '-e', '', ...(ref ? [ref] : []), '--'], { cwd: repositoryRoot, encoding: 'utf8' })
-    .split('\0').filter(Boolean).map(file => ref ? file.slice(ref.length + 1) : file)
+  ref = git('rev-parse', '--verify', `${ref}^{commit}`)
+  const files = new Set(git('ls-tree', '-r', '--name-only', ref).split('\n').filter(Boolean))
+  // Read all text formats from the same immutable Git object, never the worktree.
+  const names = execFileSync('git', ['grep', '-I', '-l', '-z', '-e', '', ref, '--'], { cwd: repositoryRoot, encoding: 'utf8' })
+    .split('\0').filter(Boolean).map(file => file.slice(ref.length + 1))
   const texts = new Map()
-  if (ref) {
-    // One Git read preserves the complete base tree, including removed helpers,
-    // renamed tests, and existence of non-source dependency targets such as JSON.
-    const output = execFileSync('git', ['cat-file', '--batch'], {
-      cwd: repositoryRoot, input: names.map(file => `${ref}:${file}\n`).join(''), maxBuffer: 64 * 1024 * 1024,
-    })
-    let offset = 0
-    for (const file of names) {
-      const end = output.indexOf(10, offset)
-      const header = output.subarray(offset, end).toString().split(' ')
-      if (header[1] !== 'blob') relatedSelectionError(`Missing base blob: ${file}`)
-      const size = Number(header[2])
-      texts.set(file, output.subarray(end + 1, end + 1 + size).toString())
-      offset = end + 2 + size
-    }
-  } else for (const file of names) if (existsSync(resolve(repositoryRoot, file))) texts.set(file, readFileSync(resolve(repositoryRoot, file), 'utf8'))
-  for (const file of files) if (!ref && !existsSync(resolve(repositoryRoot, file))) files.delete(file)
-  return { sha: ref ?? null, files, texts, sources: new Map([...texts].filter(([file]) => sourceFile(file))) }
+  const output = execFileSync('git', ['cat-file', '--batch'], {
+    cwd: repositoryRoot, input: names.map(file => `${ref}:${file}\n`).join(''), maxBuffer: 64 * 1024 * 1024,
+  })
+  let offset = 0
+  for (const file of names) {
+    const end = output.indexOf(10, offset)
+    const header = output.subarray(offset, end).toString().split(' ')
+    if (header[1] !== 'blob') relatedSelectionError(`Missing base blob: ${file}`)
+    const size = Number(header[2])
+    texts.set(file, output.subarray(end + 1, end + 1 + size).toString())
+    offset = end + 2 + size
+  }
+  return { sha: ref, files, texts, sources: new Map([...texts].filter(([file]) => sourceFile(file))) }
 }
-function dependencyConsumers(inventory, tree = snapshot()) {
+function dependencyConsumers(inventory, tree = snapshot(git('rev-parse', 'HEAD'))) {
   return require('./dependencies.cjs').dependencyConsumers(inventory, tree.sources, file => tree.files.has(file), { files: tree.files, texts: tree.texts })
 }
 

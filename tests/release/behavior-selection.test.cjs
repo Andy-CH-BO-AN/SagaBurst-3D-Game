@@ -287,7 +287,12 @@ test('receiver provenance and finite keys exclude same-name methods and mere cla
     "test('same name', () => { const values: { [key: string]: Unrelated } = {}; values[globalThis.key].apply(); return Unrelated.prototype.update.call({}) })",
     "test('reference', () => Owner)",
     "test('sibling', () => Owner.prototype.other.call({}))",
-  ])
+  ], [['tests/unrelated.test.ts', [
+    "const bindings = globalThis.bindings",
+    "function unusedImport(name) { return import(name) }",
+    "test('unrelated same name', () => bindings.update())",
+  ].join('\n')]])
+  assert.deepEqual(plan.selected, ['tests/owner.test.ts'])
   assert.deepEqual(indices(plan), [0, 1])
   assert.ok(plan.details['tests/owner.test.ts'][0].caseEvidence.some(e => e.path.some(p => p.key === 'update')))
 })
