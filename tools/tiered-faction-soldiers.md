@@ -3,6 +3,28 @@
 Only the four new ordinary T1/T2 bodies are built here. Existing Roman/Viking T3,
 heroes, civilians, Bandit, merchant and mounts remain their current assets.
 
+## Runtime pose ownership
+
+The four authored finger rigs opt into `preserveMountedFingerTracks`. The derived
+mounted upper-body clip must retain their thirty canonical finger quaternion
+channels; retaining only `hand_l/r` restores the fingers to their open bind pose.
+This opt-in leaves existing T3/hero/civilian mounted-track selection unchanged.
+`alignAuthoredCarryGrip` aligns the right forearm/hand to the actual forward
+lance or mounted-sword shaft. Its inverse equipment-proxy correction preserves
+the sampled weapon world transform. At full extension, the minimum swing of the
+existing clavicle brings the wrist into reach without translating joints,
+stretching bones or moving the weapon; foot swords, bows, throws and two-hand actions retain their
+existing pose owners.
+Roman T1/T2 also opt into `relaxedLeftThumbForward: "including-lance"`: their free
+left palm uses the existing anatomical forearm-pronation solve, including when
+the right hand carries a one-handed lance. Shields, bow poses and two-hand action
+ownership remain separate; this is not a global wrist rotation.
+
+Raw clip/cylinder views do not exercise these contracts. Equipment review must
+sample the production registry, mixer/controller, equipment pose and actual
+weapon attachment together. CPU-produced skinned meshes can be rendered offline
+for diagnosis, but that is not an interactive WebGL acceptance pass.
+
 ## Inputs and ownership
 
 The owner supplied these Meshy archives and confirmed on 2026-10-25 that they own

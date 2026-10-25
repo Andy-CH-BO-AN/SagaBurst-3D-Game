@@ -2,7 +2,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { multiInfluenceSkinningPlugin } from '../../src/world/MultiInfluenceSkinning'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { HumanoidAssetRegistry, resolveHumanoidAssetId, type HumanoidAssetManifest, type HumanoidAssetDescriptor } from '../../src/world/HumanoidAssetRegistry'
+import { HumanoidAssetRegistry, filterMountedIdleTracks, resolveHumanoidAssetId, type HumanoidAssetManifest, type HumanoidAssetDescriptor } from '../../src/world/HumanoidAssetRegistry'
 
 type ManifestResponse = Pick<Response, 'ok' | 'status' | 'json'>
 type ManifestFetch = (...args: Parameters<typeof fetch>) => Promise<ManifestResponse>
@@ -60,4 +60,23 @@ describe('humanoid buffer-compression opt-in', () => {
     expect(plugin).not.toHaveBeenCalledWith(multiInfluenceSkinningPlugin)
     expect(load).toHaveBeenCalledTimes(3)
   })
+})
+
+// Track selection is a data contract, not a synthetic rig or visual grip assertion.
+it('preserves authored mounted finger channels only for opted-in packages without inheriting lower-body or accessory motion', () => {
+  const rotation = (name: string) => ({ name: `${name}.quaternion`, times: [0, 0.75], values: [0, 0, 0, 1, 0, 0, 0, 1] })
+  const upper = ['spine', 'chest', 'upper_chest', 'clavicle_l', 'upper_arm_r', 'lower_arm_l', 'hand_r', 'neck', 'head'].map(rotation)
+  const fingers = ['l', 'r'].flatMap(side => ['thumb', 'index', 'middle', 'ring', 'pinky']
+    .flatMap(digit => [1, 2, 3].map(joint => rotation(`${digit}_0${joint}_${side}`))))
+  const excluded = ['hips', 'upper_leg_l', 'lower_leg_r', 'foot_l', 'toe_r', 'hair_l', 'cloth_front', 'socket_hand_r', 'index_04_r'].map(rotation)
+  const fingerPosition = { name: 'index_01_r.position', times: [0, 0.75], values: [0, 0, 0, 1, 0, 0] }
+  const tracks = [...upper, ...fingers, ...excluded, fingerPosition]
+  const original = structuredClone(tracks)
+  const selected = filterMountedIdleTracks(tracks, true)
+  expect(fingers).toHaveLength(30)
+  expect(selected).toEqual([...upper, ...fingers])
+  // Keep the authored timing/value arrays intact, not resampled or rewritten.
+  for (let index = 0; index < selected.length; index++) expect(selected[index]).toBe(tracks[index])
+  expect(filterMountedIdleTracks(tracks)).toEqual(upper)
+  expect(tracks).toEqual(original)
 })

@@ -89,6 +89,8 @@ export interface HumanoidAssetManifest {
   /** Complete source skin, padded to the existing four-set plugin contract. */
   skinInfluenceSets?: 4
   sharedLodPose?: boolean
+  /** Preserve authored canonical finger channels when deriving mounted upper-body idle. */
+  preserveMountedFingerTracks?: boolean
   /** Keep the equipped axe carry forward without changing the authored wrist. */
   forwardAxeCarry?: boolean
   clothRig?: FittedHumanoidClothRig
@@ -116,10 +118,12 @@ export interface HumanoidAssetManifest {
   shieldGripFrames?: Record<'lod0' | 'lod1' | 'lod2', SwordGripFrame>
   /** Posed source hands already authored in the asset; do not apply faction morphs. */
   handShapeMode?: 'authored'
+  /** Align authored finger grasp to the fixed production lance/mounted-sword shaft. */
+  alignAuthoredCarryGrip?: boolean
   /** Asset-local anatomical grasp for a visible sword, on foot and mounted. */
   swordCarryGrips?: SwordCarryGripProfile[]
   /** Relaxed fitted left hand: thumb web follows character-forward. */
-  relaxedLeftThumbForward?: boolean
+  relaxedLeftThumbForward?: boolean | 'including-lance'
   /** Generate grip morphs on each authored LOD without substituting LOD0 hand geometry. */
   preserveLodHandTopology?: boolean
   /** These clips already contain asset-specific equipment contact constraints. */
@@ -400,9 +404,14 @@ function sharedReplacementHitClip(): THREE.AnimationClip {
 
 /** Reuse authored Idle above the pelvis; mounted legs remain procedural.
  * An empty mounted clip otherwise blends the arms back to the bind T-pose. */
-export function createMountedIdleClip(idle: THREE.AnimationClip): THREE.AnimationClip {
-  return new THREE.AnimationClip('mounted', idle.duration, idle.tracks.filter(track =>
-    /^(spine|chest|upper_chest|clavicle_|upper_arm_|lower_arm_|hand_|neck|head)/.test(track.name)))
+export function filterMountedIdleTracks<T extends { name: string }>(tracks: readonly T[], preserveFingerTracks = false): T[] {
+  return tracks.filter(track =>
+    /^(spine|chest|upper_chest|clavicle_|upper_arm_|lower_arm_|hand_|neck|head)/.test(track.name)
+    || preserveFingerTracks && /^(thumb|index|middle|ring|pinky)_0[123]_[lr]\.quaternion$/.test(track.name))
+}
+
+export function createMountedIdleClip(idle: THREE.AnimationClip, preserveFingerTracks = false): THREE.AnimationClip {
+  return new THREE.AnimationClip('mounted', idle.duration, filterMountedIdleTracks(idle.tracks, preserveFingerTracks))
 }
 
 let vikingHornMaterial: THREE.MeshStandardMaterial | undefined
@@ -603,7 +612,7 @@ export class MixerController implements HumanoidAnimationController {
     for (const action of this.hitReactions) action.reset().setLoop(THREE.LoopOnce, 1).setEffectiveWeight(.65).play()
   }
 
-  constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel, bindings: HumanoidAnimationBinding[] = [], relaxedLeftThumbForward = false) {
+  constructor(private readonly mixers: THREE.AnimationMixer[], clipsPerLevel: THREE.AnimationClip[][], rawClipsPerLevel = clipsPerLevel, bindings: HumanoidAnimationBinding[] = [], relaxedLeftThumbForward: boolean | 'including-lance' = false) {
     this.inertialAxe = bindings.some(binding => binding.clip === 'axeAttack2H' && binding.attackTransition === 'inertial')
     this.inertialTransitions = this.inertialAxe ? mixers.map((mixer, index) => {
       const nodes = new Set<THREE.Object3D>()
@@ -1194,7 +1203,7 @@ export class HumanoidAssetRegistry {
       const animations = template.animationClips?.[index] ?? gltf.animations
       const clips = new Map(sharedProjectAnimationClips().map((clip) => [clip.name, clip]))
       for (const clip of animations) clips.set(clip.name, clip)
-      if (!assetId || !animations.some(clip => clip.name === 'mounted')) clips.set('mounted', createMountedIdleClip(clips.get('idle')!))
+      if (!assetId || !animations.some(clip => clip.name === 'mounted')) clips.set('mounted', createMountedIdleClip(clips.get('idle')!, template.manifest.preserveMountedFingerTracks))
       const rawClips = new Map(sharedProjectAnimationClips().map((clip) => [clip.name, clip]))
       for (const clip of gltf.animations) rawClips.set(clip.name, clip)
       for (const supplemental of template.manifest.animations?.supplemental ?? []) {
@@ -1205,7 +1214,7 @@ export class HumanoidAssetRegistry {
         if (!clips.has('hit')) clips.set('hit', sharedReplacementHitClip())
         if (!rawClips.has('hit')) rawClips.set('hit', sharedReplacementHitClip())
       }
-      if (!assetId || !gltf.animations.some(clip => clip.name === 'mounted')) rawClips.set('mounted', createMountedIdleClip(rawClips.get('idle')!))
+      if (!assetId || !gltf.animations.some(clip => clip.name === 'mounted')) rawClips.set('mounted', createMountedIdleClip(rawClips.get('idle')!, template.manifest.preserveMountedFingerTracks))
       rawClipsPerLevel.push([...rawClips.values()])
       for (const clip of template.bowClips?.[index] ?? []) clips.set(clip.name, clip)
       clipsPerLevel.push([...clips.values()])
@@ -1245,10 +1254,10 @@ export class HumanoidAssetRegistry {
       if (frames) {
         const layerRig = createHumanoidRigAdapter(level.object, animation)
         layerRig.swordGripFrame = template.manifest.swordGripFrames?.[(['lod0', 'lod1', 'lod2'] as const)[index]]
-        animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips)
+        animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips, template.manifest.alignAuthoredCarryGrip)
       }
     }
-    animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig, template.manifest.swordCarryGrips ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined)
+    animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined)
     if (template.manifest.swordCarryGrips && rig.right.handSocket) rig.right.handSocket.userData.anatomicalSwordCarry = true
     animation.onPoseEvaluated()
     animation.play('idle')

@@ -1,3 +1,4 @@
+import { minimumReachableShoulderSwing } from '../../src/world/AuthoredCarryGrip'
 import { Box3, Quaternion, Vector3, type Object3D } from 'three'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { ShieldState } from '../../src/combat/ShieldBlocking'
@@ -670,4 +671,32 @@ it('preserves merchant fixed gear with a purchased horse and switches only its e
   expect(actor.meleeWeaponId).toBe('sword_t5')
   expect(actor.loadout).toEqual({ meleeWeaponId: 'sword_t5', secondaryMeleeWeaponId: 'axe_t5',
     shieldId: 'paladin_shield_t4', rangedWeaponId: null, mountId: 'horse' })
+})
+
+
+it('uses the smallest shoulder swing and approaches zero continuously at the reach boundary', () => {
+  const shoulder = new Vector3(0, 1, 0), wrist = new Vector3(1, 0, 0)
+  const swing = minimumReachableShoulderSwing(shoulder, wrist, 1)!
+  expect(swing).toBeCloseTo(Math.PI / 6, 12)
+  expect(minimumReachableShoulderSwing(shoulder.clone().negate(), wrist, 1)).toBeCloseTo(swing, 12)
+  const axis = new Vector3(0, 0, -1)
+  expect(wrist.distanceTo(shoulder.clone().applyAxisAngle(axis, swing))).toBeCloseTo(1, 12)
+  expect(wrist.distanceTo(shoulder.clone().applyAxisAngle(axis, swing / 2))).toBeGreaterThan(1)
+  expect(minimumReachableShoulderSwing(shoulder, wrist, Math.sqrt(2))).toBeCloseTo(0, 12)
+  const epsilon = 1e-5
+  const nearBoundary = Math.sqrt(2 - 2 * Math.sin(epsilon))
+  expect(minimumReachableShoulderSwing(shoulder, wrist, nearBoundary)).toBeCloseTo(epsilon, 10)
+  expect(shoulder.toArray()).toEqual([0, 1, 0])
+  expect(wrist.toArray()).toEqual([1, 0, 0])
+})
+
+it('does not invent a reachable shoulder swing for impossible targets or invalid geometry', () => {
+  const shoulder = new Vector3(0, 1, 0), wrist = new Vector3(2, 0, 0)
+  expect(minimumReachableShoulderSwing(shoulder, wrist, 1)).toBeCloseTo(Math.PI / 2, 12)
+  expect(minimumReachableShoulderSwing(shoulder, wrist, 0.5)).toBeNull()
+  expect(minimumReachableShoulderSwing(shoulder, new Vector3(), 1)).toBe(0)
+  expect(minimumReachableShoulderSwing(shoulder, new Vector3(), 0.5)).toBeNull()
+  expect(minimumReachableShoulderSwing(new Vector3(), wrist, 1)).toBeNull()
+  expect(minimumReachableShoulderSwing(shoulder, wrist, Number.NaN)).toBeNull()
+  expect(minimumReachableShoulderSwing(new Vector3(Infinity, 0, 0), wrist, 1)).toBeNull()
 })
