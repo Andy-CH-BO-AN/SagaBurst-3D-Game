@@ -28,9 +28,10 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
   const maki = descriptor.assetId === MAKI_HERO.assetId
   const civilian = descriptor.assetId.endsWith('-civilian')
   const commander = descriptor.assetId.endsWith('-t5')
+  const ordinary = /^(roman|viking)-t[12]$/.test(descriptor.assetId)
   const roman = descriptor.faction === 'roman'
   const faction = descriptor.faction
-  const label = civilian ? (roman ? 'Roman Civilian · Roman Statesman' : 'Viking Civilian · Nordic Warrior') : commander ? (roman ? '禁衛軍指揮官 · Roman T5' : '鐵衛指揮官 · Viking T5') : maki ? 'Shadow Warden · T4 遊俠英雄' : roman ? '聖騎士 Paladin T4' : '維京英雄 · T4'
+  const label = ordinary ? `${roman ? '羅馬' : '維京'}普通士兵 · ${descriptor.assetId}` : civilian ? (roman ? 'Roman Civilian · Roman Statesman' : 'Viking Civilian · Nordic Warrior') : commander ? (roman ? '禁衛軍指揮官 · Roman T5' : '鐵衛指揮官 · Viking T5') : maki ? 'Shadow Warden · T4 遊俠英雄' : roman ? '聖騎士 Paladin T4' : '維京英雄 · T4'
   const reference = commander ? (roman ? ROMAN_HERO : VIKING_HERO) : undefined
   const factionLabel = roman ? '羅馬人' : '維京'
   const actions: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'swordSlash', 'axeAttack1H', 'axeAttack1HFoot', 'axeAttack2H', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'hit', 'mounted', 'axeMountedIdle', 'death']
@@ -73,7 +74,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
     scene.add(ground, new THREE.GridHelper(10, 20, 0x888f99, 0x9ca3ac))
     const hero = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: 2, isPlayer: false }, descriptor.assetId)
     const availableActions = actions.filter(action => hero.rig.animation!.has(action))
-    const normal = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: 2, isPlayer: false }, reference?.assetId)
+    const normal = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: ordinary ? 3 : 2, isPlayer: false }, reference?.assetId)
     scene.add(hero.root, normal.root)
     normal.rig.animation!.play('idle', { fadeSeconds: 0, loop: true })
     normal.rig.animation!.update(.2)

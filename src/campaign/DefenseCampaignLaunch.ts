@@ -576,6 +576,7 @@ export function createDefenseCampaignWaveConfig(
     spectator: false,
     playerFaction: launch.careerVeteranOutpost?.playerFaction ?? launch.careerCommanderOutpost?.playerFaction ?? launch.defenderFaction,
     playerHp: COMBAT_BALANCE.hp.playerDefault,
+    playerHpSource: 'default',
     playerLoadout: { ...launch.playerLoadout },
     playerHeroId: launch.playerHeroId,
     playerVisualTier: launch.playerVisualTier,

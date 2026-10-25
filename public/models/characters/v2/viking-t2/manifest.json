@@ -1,0 +1,1141 @@
+{
+  "schemaVersion": 1,
+  "id": "viking-t2",
+  "status": "ready",
+  "skeleton": "project-humanoid-v1",
+  "sharedLodPose": true,
+  "handShapeMode": "authored",
+  "preserveLodHandTopology": true,
+  "source": {
+    "title": "viking-t2 owner-provided Meshy soldier",
+    "sourceArchive": "Meshy_AI_rigged_warrior_biped.zip",
+    "sourceFile": "Meshy_AI_rigged_warrior_biped_Animation_Walking_frame_rate_30.fbx",
+    "sourceSha256": "a1255bb902a7a61e8e1a8e37035141dc8faf0557cfe7abbf4ad97f2eb0e13e03",
+    "license": "Owner-confirmed user-provided Meshy asset; redistribution permission confirmed 2026-10-25",
+    "licenseEvidence": "attribution-evidence.json"
+  },
+  "attribution": "Owner-provided Meshy model. Existing SagaBurst animation sources retain their respective licenses; see animation-source-attribution.txt.",
+  "files": {
+    "lod0": "lod0.glb",
+    "lod1": "lod1.glb",
+    "lod2": "lod2.glb"
+  },
+  "metrics": {
+    "heightM": 1.86,
+    "shoulderWidthM": 0.47959449019898304,
+    "neckLengthM": 0.07732737629203885,
+    "triangles": {
+      "lod0": 12380,
+      "lod1": 10521,
+      "lod2": 8664
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    }
+  },
+  "handGripFrames": {
+    "left": {
+      "palmContactCenter": [
+        0.011734358966350555,
+        0.08971022814512253,
+        0.017371604219079018
+      ],
+      "palmNormal": [
+        0.052070502191782,
+        -0.058739032596349716,
+        0.9969143867492676
+      ],
+      "thumbDir": 1,
+      "thumbDirection": [
+        -0.9912409782409668,
+        0.11828181147575378,
+        0.0587434358894825
+      ],
+      "fingerDirection": [
+        0.12136739492416382,
+        0.9912412166595459,
+        0.05206554755568504
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "fingerBase": 0.10950383999999999,
+      "thumbBaseCenter": [
+        -0.021811775863170624,
+        0.05274497717618942,
+        0.010628304444253445
+      ]
+    }
+  },
+  "swordGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        -0.01446189358830452,
+        0.09553901851177216,
+        0.0335136316716671
+      ],
+      "gripAxisLocal": [
+        0.9879116415977478,
+        0.15439850091934204,
+        -0.01384430006146431
+      ],
+      "palmNormalLocal": [
+        0.01184769906103611,
+        0.013844193890690804,
+        0.9998340606689453
+      ],
+      "fingerDirection": [
+        -0.1545645296573639,
+        0.9879116415977478,
+        -0.011847572401165962
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.02006569877266884,
+        0.05680440738797188,
+        0.007929460145533085
+      ],
+      "fingerBase": 0.11546683199999999,
+      "gripRadius": 0.022
+    },
+    "lod1": {
+      "gripCenterLocal": [
+        -0.01446189358830452,
+        0.09553901851177216,
+        0.0335136316716671
+      ],
+      "gripAxisLocal": [
+        0.9879116415977478,
+        0.15439850091934204,
+        -0.01384430006146431
+      ],
+      "palmNormalLocal": [
+        0.01184769906103611,
+        0.013844193890690804,
+        0.9998340606689453
+      ],
+      "fingerDirection": [
+        -0.1545645296573639,
+        0.9879116415977478,
+        -0.011847572401165962
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.02006569877266884,
+        0.05680440738797188,
+        0.007929460145533085
+      ],
+      "fingerBase": 0.11546683199999999,
+      "gripRadius": 0.022
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        -0.01446189358830452,
+        0.09553901851177216,
+        0.0335136316716671
+      ],
+      "gripAxisLocal": [
+        0.9879116415977478,
+        0.15439850091934204,
+        -0.01384430006146431
+      ],
+      "palmNormalLocal": [
+        0.01184769906103611,
+        0.013844193890690804,
+        0.9998340606689453
+      ],
+      "fingerDirection": [
+        -0.1545645296573639,
+        0.9879116415977478,
+        -0.011847572401165962
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.02006569877266884,
+        0.05680440738797188,
+        0.007929460145533085
+      ],
+      "fingerBase": 0.11546683199999999,
+      "gripRadius": 0.022
+    }
+  },
+  "rangedGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        -0.01446189358830452,
+        0.09553901851177216,
+        0.0335136316716671
+      ],
+      "gripAxisLocal": [
+        -0.9879116415977478,
+        -0.15439850091934204,
+        0.01384430006146431
+      ],
+      "palmNormalLocal": [
+        0.01184769906103611,
+        0.013844193890690804,
+        0.9998340606689453
+      ],
+      "fingerDirection": [
+        -0.1545645296573639,
+        0.9879116415977478,
+        -0.011847572401165962
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.02006569877266884,
+        0.05680440738797188,
+        0.007929460145533085
+      ],
+      "fingerBase": 0.11546683199999999,
+      "gripRadius": 0.022
+    },
+    "lod1": {
+      "gripCenterLocal": [
+        -0.01446189358830452,
+        0.09553901851177216,
+        0.0335136316716671
+      ],
+      "gripAxisLocal": [
+        -0.9879116415977478,
+        -0.15439850091934204,
+        0.01384430006146431
+      ],
+      "palmNormalLocal": [
+        0.01184769906103611,
+        0.013844193890690804,
+        0.9998340606689453
+      ],
+      "fingerDirection": [
+        -0.1545645296573639,
+        0.9879116415977478,
+        -0.011847572401165962
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.02006569877266884,
+        0.05680440738797188,
+        0.007929460145533085
+      ],
+      "fingerBase": 0.11546683199999999,
+      "gripRadius": 0.022
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        -0.01446189358830452,
+        0.09553901851177216,
+        0.0335136316716671
+      ],
+      "gripAxisLocal": [
+        -0.9879116415977478,
+        -0.15439850091934204,
+        0.01384430006146431
+      ],
+      "palmNormalLocal": [
+        0.01184769906103611,
+        0.013844193890690804,
+        0.9998340606689453
+      ],
+      "fingerDirection": [
+        -0.1545645296573639,
+        0.9879116415977478,
+        -0.011847572401165962
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.02006569877266884,
+        0.05680440738797188,
+        0.007929460145533085
+      ],
+      "fingerBase": 0.11546683199999999,
+      "gripRadius": 0.022
+    }
+  },
+  "shieldGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        0.012879909947514534,
+        0.08841796964406967,
+        0.039303719997406006
+      ],
+      "gripAxisLocal": [
+        -0.9912409782409668,
+        0.11828181147575378,
+        0.0587434358894825
+      ],
+      "palmNormalLocal": [
+        0.052070502191782,
+        -0.058739032596349716,
+        0.9969143867492676
+      ],
+      "fingerDirection": [
+        0.12136739492416382,
+        0.9912412166595459,
+        0.05206554755568504
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        -0.021811775863170624,
+        0.05274497717618942,
+        0.010628304444253445
+      ],
+      "fingerBase": 0.10950383999999999,
+      "gripRadius": 0.022
+    },
+    "lod1": {
+      "gripCenterLocal": [
+        0.012879909947514534,
+        0.08841796964406967,
+        0.039303719997406006
+      ],
+      "gripAxisLocal": [
+        -0.9912409782409668,
+        0.11828181147575378,
+        0.0587434358894825
+      ],
+      "palmNormalLocal": [
+        0.052070502191782,
+        -0.058739032596349716,
+        0.9969143867492676
+      ],
+      "fingerDirection": [
+        0.12136739492416382,
+        0.9912412166595459,
+        0.05206554755568504
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        -0.021811775863170624,
+        0.05274497717618942,
+        0.010628304444253445
+      ],
+      "fingerBase": 0.10950383999999999,
+      "gripRadius": 0.022
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        0.012879909947514534,
+        0.08841796964406967,
+        0.039303719997406006
+      ],
+      "gripAxisLocal": [
+        -0.9912409782409668,
+        0.11828181147575378,
+        0.0587434358894825
+      ],
+      "palmNormalLocal": [
+        0.052070502191782,
+        -0.058739032596349716,
+        0.9969143867492676
+      ],
+      "fingerDirection": [
+        0.12136739492416382,
+        0.9912412166595459,
+        0.05206554755568504
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        -0.021811775863170624,
+        0.05274497717618942,
+        0.010628304444253445
+      ],
+      "fingerBase": 0.10950383999999999,
+      "gripRadius": 0.022
+    }
+  },
+  "boneMap": "bone-map.json",
+  "audit": "audit.json",
+  "animationRetarget": {
+    "sourceAsset": "viking/lod0.glb",
+    "groundContact": {
+      "mode": "floor"
+    },
+    "version": 1,
+    "sourceSha256": "ae80de4d2c8f4792f343f63255bc9e286aad729a7d339fa0c3f813ab498424e2",
+    "sourceManifestSha256": "d29c4685446fb92b9c4eec9997f26b405ef3a99afdae8ecf12282b5d04da40d7",
+    "source": {
+      "title": "Ordinary Viking Infantry",
+      "sourceArchive": "Roman_Viking_Ordinary_LOD0_11Clips_Mock.zip",
+      "sourceEntry": "Viking/Viking_Infantry_LOD0_GripAndWeaponAdjusted_DERIVED_11Clips.glb",
+      "sourceSha256": "a66917fffe0b2ab9b682e14675993ddf0f184420a585e9951e629d35a40b8c0c",
+      "license": "User-supplied Meshy model and derived animation; mixed animation-source licenses retained in source-readme.txt",
+      "licenseEvidence": "animation-source-attribution.txt",
+      "upstreamLicenseEvidence": "source-readme.txt"
+    },
+    "animationSources": null,
+    "attributionFile": "animation-source-attribution.txt",
+    "attributionSha256": "1e8dfa0b88032e54bf39a56c1ecff270256291a0e76640b36ac46c44c887e92e",
+    "upstreamReadme": {
+      "sourceAsset": "viking/source-readme.txt",
+      "sha256": "fd2d1946f6f924737c2948d18e642c9d8634d688d89ff7497c405eda62b05494"
+    },
+    "method": "Measured anatomical limb axes, target-local grip frames, canonical LOD0 pose shared across every LOD; no heading offsets or wrist patches",
+    "rootMotion": "No source planar translation or scale; target anatomical limb lengths retained; vertical pelvis/contact measured on LOD0 skin, including actual idle-leg composition for bow; bounded cloth-helper offsets audited separately",
+    "sourceBindings": [
+      {
+        "clip": "idle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "idle",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "walk",
+        "source": "Kevin Iglesias",
+        "sourceClip": "walk",
+        "loop": true,
+        "duration": 0.8,
+        "nominalSpeed": 2
+      },
+      {
+        "clip": "run",
+        "source": "Kevin Iglesias",
+        "sourceClip": "run",
+        "loop": true,
+        "duration": 0.6,
+        "nominalSpeed": 4
+      },
+      {
+        "clip": "swordSlash",
+        "source": "Quaternius",
+        "sourceClip": "swordSlash",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.25,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "bowLoad",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowLoad",
+        "loop": false,
+        "duration": 0.8333333333333334
+      },
+      {
+        "clip": "bowHold",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowHold",
+        "loop": true,
+        "duration": 1.3333333333333333
+      },
+      {
+        "clip": "bowRelease",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowRelease",
+        "loop": false,
+        "duration": 0.22,
+        "events": {
+          "projectileRelease": 0.06,
+          "actionComplete": 0.22
+        }
+      },
+      {
+        "clip": "pilumThrow",
+        "source": "Quaternius",
+        "sourceClip": "pilumThrow",
+        "loop": false,
+        "duration": 1.5,
+        "events": {
+          "projectileRelease": 0.6333333333333333,
+          "actionComplete": 1.5
+        }
+      },
+      {
+        "clip": "axeMountedIdle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "axeMountedIdle",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "axeAttack1H",
+        "source": "Meshy",
+        "sourceClip": "axeAttack1H",
+        "loop": false,
+        "duration": 3,
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.6333333333333333,
+          "actionComplete": 3
+        }
+      },
+      {
+        "clip": "axeAttack2H",
+        "source": "Meshy",
+        "sourceClip": "axeAttack2H",
+        "loop": false,
+        "duration": 0.48,
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 0.1375,
+          "hit": 0.2375,
+          "activeEnd": 0.2625,
+          "actionComplete": 0.48
+        },
+        "attackFadeInSeconds": 0.1,
+        "attackTransition": "inertial"
+      },
+      {
+        "clip": "axeAttack1HFoot",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@attack.fbx",
+        "sourceSha256": "365678d394be49551873eb7e15ece206f863e66a934b7571e8e00b805b2cc5a5",
+        "firstFrame": 2,
+        "lastFrame": 47,
+        "sourceFps": 30,
+        "loop": false,
+        "duration": 3,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.6333333333333333,
+          "actionComplete": 3
+        },
+        "meleeCycleSeconds": 0.48
+      }
+    ],
+    "canonicalPoseSha256": "914506c1f074541029c104dc81a676d3ff5d4a302f26ff9b8559fa2df2b507c7",
+    "measuredLegScale": 0.8297391220141088,
+    "exactOptimization": {
+      "collapsedTracks": 439,
+      "removedExactConstantSamples": 51315,
+      "beforeAnimationStreamBytes": 1580176,
+      "afterConstantTrackStreamBytes": 557856
+    },
+    "targetMeasurementsSha256": "e712cb6ec949c5319ba183ab389e6d4a3aeefe7c41a2ac9d90b63abf33b2d0de",
+    "helperRules": {
+      "clothRig": null,
+      "skirt": [],
+      "skirtApron": null
+    },
+    "bowGroundContact": {
+      "policy": "idle-composition",
+      "rawPoseNote": "Gameplay replaces bow leg tracks with locomotion legs while retaining bow pelvis. Raw source-mode bow may hover to preserve the measured composed stance.",
+      "clips": [
+        {
+          "clip": "bowLoad",
+          "method": "Whole fitted idle-leg cycle composed under authored bow pelvis; raw bow may hover",
+          "idleSamples": 487,
+          "soleVerticesPerSample": 1149,
+          "maximumClearanceRestoredM": 0.0007174730824424103
+        },
+        {
+          "clip": "bowHold",
+          "method": "Whole fitted idle-leg cycle composed under authored bow pelvis; raw bow may hover",
+          "idleSamples": 487,
+          "soleVerticesPerSample": 1149,
+          "maximumClearanceRestoredM": 0.0007174734048472908
+        },
+        {
+          "clip": "bowRelease",
+          "method": "Whole fitted idle-leg cycle composed under authored bow pelvis; raw bow may hover",
+          "idleSamples": 487,
+          "soleVerticesPerSample": 1149,
+          "maximumClearanceRestoredM": 0.002663351838544936
+        }
+      ]
+    },
+    "capeFloorValidation": {
+      "failedFloorSamples": 0,
+      "maximumRemainingPenetrationM": 0,
+      "clips": []
+    },
+    "banditFootAxe": {
+      "sourceAsset": "bb517258398423039a7a0dfa983681322c92a51d:public/models/characters/v2/bandit/lod0.glb",
+      "sourceCommit": "bb517258398423039a7a0dfa983681322c92a51d",
+      "sourceSha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
+      "sourceManifestSha256": "71d2cc3a3c6a281c09d9031406f44aeba47202ca5896ea349b1fc9e0dcd8c637",
+      "source": {
+        "title": "Fantasy Bandit",
+        "author": "tokeshi",
+        "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
+        "license": "CGTrader Royalty Free (no AI)",
+        "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
+        "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
+        "archives": {
+          "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
+          "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
+        }
+      },
+      "sourceBinding": {
+        "clip": "swordSlash",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@attack.fbx",
+        "sourceSha256": "365678d394be49551873eb7e15ece206f863e66a934b7571e8e00b805b2cc5a5",
+        "firstFrame": 2,
+        "lastFrame": 47,
+        "sourceFps": 30,
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.252,
+          "actionComplete": 0.48
+        }
+      },
+      "sourceClip": "swordSlash",
+      "sourceHit": 0.252,
+      "duration": 3,
+      "events": {
+        "activeStart": 1.4333333333333333,
+        "hit": 1.5666666666666667,
+        "activeEnd": 1.6333333333333333,
+        "actionComplete": 3
+      },
+      "meleeCycleSeconds": 0.48
+    },
+    "rebuild": "node tools/retarget-faction-humanoids.mjs --target-dir <clean-target-directory>",
+    "fingerAdaptation": {
+      "sourceAsset": "roman/lod0.glb",
+      "sourceSha256": "142102c670dcbbffae0527d732d6f139db6f8aa61b83cbdfb2b76bba632c6b34",
+      "method": "Existing anatomical retarget applied to thirty target-local finger rotations only; Viking body channels, action durations and events retained.",
+      "fingerChannelsPerClip": 30,
+      "bodyChannelsUnchanged": true
+    },
+    "fingerPoseCorrections": {
+      "correctedTracks": 312,
+      "releaseFadeSeconds": 0.12,
+      "specification": {
+        "rotations": {
+          "thumb_01_l": [
+            0.6,
+            0,
+            0.5
+          ],
+          "index_01_l": [
+            0.7,
+            0,
+            0
+          ],
+          "index_02_l": [
+            0.7,
+            0,
+            0
+          ],
+          "index_03_l": [
+            0.7,
+            0,
+            0
+          ],
+          "middle_01_l": [
+            0.35,
+            0,
+            0
+          ],
+          "middle_02_l": [
+            0.35,
+            0,
+            0
+          ],
+          "middle_03_l": [
+            0.35,
+            0,
+            0
+          ],
+          "ring_01_l": [
+            0.35,
+            0,
+            0
+          ],
+          "ring_02_l": [
+            0.35,
+            0,
+            0
+          ],
+          "ring_03_l": [
+            0.35,
+            0,
+            0
+          ],
+          "pinky_01_l": [
+            0.35,
+            0,
+            0
+          ],
+          "pinky_02_l": [
+            0.35,
+            0,
+            0
+          ],
+          "pinky_03_l": [
+            0.35,
+            0,
+            0
+          ],
+          "thumb_01_r": [
+            0.6,
+            0,
+            -0.5
+          ],
+          "index_01_r": [
+            0.7,
+            0,
+            0
+          ],
+          "index_02_r": [
+            0.7,
+            0,
+            0
+          ],
+          "index_03_r": [
+            0.7,
+            0,
+            0
+          ],
+          "middle_01_r": [
+            0.35,
+            0,
+            0
+          ],
+          "middle_02_r": [
+            0.35,
+            0,
+            0
+          ],
+          "middle_03_r": [
+            0.35,
+            0,
+            0
+          ],
+          "ring_01_r": [
+            0.35,
+            0,
+            0
+          ],
+          "ring_02_r": [
+            0.35,
+            0,
+            0
+          ],
+          "ring_03_r": [
+            0.35,
+            0,
+            0
+          ],
+          "pinky_01_r": [
+            0.35,
+            0,
+            0
+          ],
+          "pinky_02_r": [
+            0.35,
+            0,
+            0
+          ],
+          "pinky_03_r": [
+            0.35,
+            0,
+            0
+          ]
+        },
+        "clips": {
+          "bowHold": {
+            "thumb_01_r": [
+              0,
+              0,
+              0
+            ],
+            "index_01_r": [
+              0,
+              0,
+              0
+            ],
+            "index_02_r": [
+              0,
+              0,
+              0
+            ],
+            "index_03_r": [
+              0,
+              0,
+              0
+            ],
+            "middle_01_r": [
+              0,
+              0,
+              0
+            ],
+            "middle_02_r": [
+              0,
+              0,
+              0
+            ],
+            "middle_03_r": [
+              0,
+              0,
+              0
+            ],
+            "ring_01_r": [
+              0,
+              0,
+              0
+            ],
+            "ring_02_r": [
+              0,
+              0,
+              0
+            ],
+            "ring_03_r": [
+              0,
+              0,
+              0
+            ],
+            "pinky_01_r": [
+              0,
+              0,
+              0
+            ],
+            "pinky_02_r": [
+              0,
+              0,
+              0
+            ],
+            "pinky_03_r": [
+              0,
+              0,
+              0
+            ]
+          },
+          "bowLoad": {
+            "thumb_01_r": [
+              0,
+              0,
+              0
+            ],
+            "index_01_r": [
+              0,
+              0,
+              0
+            ],
+            "index_02_r": [
+              0,
+              0,
+              0
+            ],
+            "index_03_r": [
+              0,
+              0,
+              0
+            ],
+            "middle_01_r": [
+              0,
+              0,
+              0
+            ],
+            "middle_02_r": [
+              0,
+              0,
+              0
+            ],
+            "middle_03_r": [
+              0,
+              0,
+              0
+            ],
+            "ring_01_r": [
+              0,
+              0,
+              0
+            ],
+            "ring_02_r": [
+              0,
+              0,
+              0
+            ],
+            "ring_03_r": [
+              0,
+              0,
+              0
+            ],
+            "pinky_01_r": [
+              0,
+              0,
+              0
+            ],
+            "pinky_02_r": [
+              0,
+              0,
+              0
+            ],
+            "pinky_03_r": [
+              0,
+              0,
+              0
+            ]
+          },
+          "bowRelease": {
+            "thumb_01_r": [
+              0,
+              0,
+              0
+            ],
+            "index_01_r": [
+              0,
+              0,
+              0
+            ],
+            "index_02_r": [
+              0,
+              0,
+              0
+            ],
+            "index_03_r": [
+              0,
+              0,
+              0
+            ],
+            "middle_01_r": [
+              0,
+              0,
+              0
+            ],
+            "middle_02_r": [
+              0,
+              0,
+              0
+            ],
+            "middle_03_r": [
+              0,
+              0,
+              0
+            ],
+            "ring_01_r": [
+              0,
+              0,
+              0
+            ],
+            "ring_02_r": [
+              0,
+              0,
+              0
+            ],
+            "ring_03_r": [
+              0,
+              0,
+              0
+            ],
+            "pinky_01_r": [
+              0,
+              0,
+              0
+            ],
+            "pinky_02_r": [
+              0,
+              0,
+              0
+            ],
+            "pinky_03_r": [
+              0,
+              0,
+              0
+            ]
+          }
+        },
+        "releaseFadeSeconds": 0.12
+      }
+    }
+  },
+  "visualAcceptance": {
+    "status": "sampled-offline-reviewed",
+    "handContact": "sampled-cylinder-grips-reviewed",
+    "runtime": "not-run",
+    "limitations": [
+      "Original low-poly hand facets and some web creases remain.",
+      "Grip render uses a representative cylinder, not actual runtime weapon geometry.",
+      "Actual-game weapon contact, mounted/seat animation and live LOD transitions remain unrun."
+    ]
+  },
+  "fileSha256": {
+    "lod0": "07d4eb559a6a5377f71fcf0f73b15930e92287bf74271649fd4cfc1d4c6a2e94",
+    "lod1": "a18851f4efe1f56585e563cfc3b20f4505564a89263507724d7c2c32c0837f82",
+    "lod2": "2e4e7d612fd29ec0986d08da4b528d845aa8e3acc847c01d4cc9a1aa96d5dab2"
+  },
+  "animations": {
+    "embedded": [
+      {
+        "clip": "idle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "idle",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "walk",
+        "source": "Kevin Iglesias",
+        "sourceClip": "walk",
+        "loop": true,
+        "duration": 0.8,
+        "nominalSpeed": 2
+      },
+      {
+        "clip": "run",
+        "source": "Kevin Iglesias",
+        "sourceClip": "run",
+        "loop": true,
+        "duration": 0.6,
+        "nominalSpeed": 4
+      },
+      {
+        "clip": "swordSlash",
+        "source": "Quaternius",
+        "sourceClip": "swordSlash",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.25,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "bowLoad",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowLoad",
+        "loop": false,
+        "duration": 0.8333333333333334
+      },
+      {
+        "clip": "bowHold",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowHold",
+        "loop": true,
+        "duration": 1.3333333333333333
+      },
+      {
+        "clip": "bowRelease",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowRelease",
+        "loop": false,
+        "duration": 0.22,
+        "events": {
+          "projectileRelease": 0.06,
+          "actionComplete": 0.22
+        }
+      },
+      {
+        "clip": "pilumThrow",
+        "source": "Quaternius",
+        "sourceClip": "pilumThrow",
+        "loop": false,
+        "duration": 1.5,
+        "events": {
+          "projectileRelease": 0.6333333333333333,
+          "actionComplete": 1.5
+        }
+      },
+      {
+        "clip": "axeMountedIdle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "axeMountedIdle",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "axeAttack1H",
+        "source": "Meshy",
+        "sourceClip": "axeAttack1H",
+        "loop": false,
+        "duration": 3,
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.6333333333333333,
+          "actionComplete": 3
+        }
+      },
+      {
+        "clip": "axeAttack2H",
+        "source": "Meshy",
+        "sourceClip": "axeAttack2H",
+        "loop": false,
+        "duration": 0.48,
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 0.1375,
+          "hit": 0.2375,
+          "activeEnd": 0.2625,
+          "actionComplete": 0.48
+        },
+        "attackFadeInSeconds": 0.1,
+        "attackTransition": "inertial"
+      },
+      {
+        "clip": "axeAttack1HFoot",
+        "source": "tokeshi",
+        "sourceClip": "Bandit@attack.fbx",
+        "sourceSha256": "365678d394be49551873eb7e15ece206f863e66a934b7571e8e00b805b2cc5a5",
+        "firstFrame": 2,
+        "lastFrame": 47,
+        "sourceFps": 30,
+        "loop": false,
+        "duration": 3,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.6333333333333333,
+          "actionComplete": 3
+        },
+        "meleeCycleSeconds": 0.48
+      }
+    ],
+    "runtimeGenerated": [
+      "mounted",
+      "death",
+      "hit",
+      "daggerSlash",
+      "greatswordSlash",
+      "lanceThrust",
+      "mountedLance"
+    ],
+    "attributionFile": "animation-source-attribution.txt"
+  },
+  "knownLimitations": [
+    "Raw source-mode bow poses may hover: gameplay retains the bow pelvis while replacing leg tracks with locomotion legs, and the fitted contact bake preserves that composed stance.",
+    "The inherited short early two-handed-axe runtime transition can briefly dip feet about 2–4 cm; the shared blend and body/root behavior are unchanged."
+  ],
+  "skinInfluenceSets": 4,
+  "bufferCompression": "EXT_meshopt_compression"
+}

@@ -1,0 +1,440 @@
+{
+  "schemaVersion": 1,
+  "id": "viking-t2",
+  "structuralStatus": "passed",
+  "source": {
+    "title": "viking-t2 owner-provided Meshy soldier",
+    "sourceArchive": "Meshy_AI_rigged_warrior_biped.zip",
+    "sourceFile": "Meshy_AI_rigged_warrior_biped_Animation_Walking_frame_rate_30.fbx",
+    "sourceSha256": "a1255bb902a7a61e8e1a8e37035141dc8faf0557cfe7abbf4ad97f2eb0e13e03",
+    "license": "Owner-confirmed user-provided Meshy asset; redistribution permission confirmed 2026-10-25",
+    "licenseEvidence": "attribution-evidence.json"
+  },
+  "sourcePreservation": {
+    "sourceFbxSha256": "a1255bb902a7a61e8e1a8e37035141dc8faf0557cfe7abbf4ad97f2eb0e13e03",
+    "sourceVertexCount": 5132,
+    "retainedOriginalVertexPositions": true,
+    "unchangedNonHandTopologyAndUvs": true,
+    "normalizedPositionMaxDifferenceM": 1.5359765386647212e-8,
+    "unchangedWeightVertices": 5001,
+    "changedHandWeightVertices": 131,
+    "insertedHandSurfaceVertices": 1028,
+    "newVertexSourceSurfaceMaxDistanceM": 1.3743242277541867e-7,
+    "changedOutsideSourceHandOwnership": 0,
+    "method": "Coordinate-matched original source versus pre-LOD finger rig. Every original position retained. Weight edits restricted to original hand>=0.45 vertices. New vertices confined to original faces with hand-owned subdivision edges; all unaffected face topology/UV corners retained."
+  },
+  "sharedLodSkeletonAndSockets": true,
+  "handSurfacePreservation": {
+    "status": "passed",
+    "method": "Bidirectional finger-weighted rest position and named-weight correspondence, independent of indices or UV seam duplication.",
+    "positionToleranceM": 0.000001,
+    "weightTolerance": 0.00001
+  },
+  "lods": [
+    {
+      "lod": "lod0",
+      "sha256": "07d4eb559a6a5377f71fcf0f73b15930e92287bf74271649fd4cfc1d4c6a2e94",
+      "vertices": 18449,
+      "fingerWeightedUniquePositions": 1099,
+      "handSurfaceSha256": "edae6e03df81f6ba08db2652a067455d622d3bb2b5672cf2fe78edd2f4825bf7",
+      "maxHandWeightDelta": 0,
+      "maxInfluences": 10,
+      "minFirstFourWeightSum": 0.7488423809409142,
+      "verticesWithAdditionalInfluences": 5548,
+      "maxWeightSumError": 1.5410478226840496e-7,
+      "fingerInfluences": {
+        "pinky_01_l": 101,
+        "thumb_02_l": 191,
+        "thumb_03_l": 189,
+        "thumb_01_l": 71,
+        "pinky_02_l": 147,
+        "index_01_l": 157,
+        "middle_01_l": 198,
+        "ring_01_l": 127,
+        "middle_02_l": 250,
+        "index_02_l": 195,
+        "ring_02_l": 227,
+        "pinky_03_l": 83,
+        "index_03_l": 100,
+        "ring_03_l": 124,
+        "middle_03_l": 102,
+        "pinky_01_r": 119,
+        "ring_01_r": 134,
+        "pinky_02_r": 214,
+        "middle_01_r": 171,
+        "thumb_02_r": 205,
+        "thumb_01_r": 104,
+        "thumb_03_r": 164,
+        "index_01_r": 111,
+        "middle_03_r": 75,
+        "middle_02_r": 217,
+        "ring_03_r": 114,
+        "ring_02_r": 230,
+        "index_03_r": 101,
+        "index_02_r": 182,
+        "pinky_03_r": 135
+      },
+      "clips": [
+        {
+          "name": "idle",
+          "duration": 2.700000047683716,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "640cce3eb368dd7145b0b0d8ea9301d07e198b354974cbdef2673560d451bbe2"
+        },
+        {
+          "name": "walk",
+          "duration": 0.800000011920929,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "f5ca9fd597888a4839a41997190f9603d144e18825a0fc830f1d9508a3bc8f4e"
+        },
+        {
+          "name": "run",
+          "duration": 0.6000000238418579,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "07685e1bc8a77bbe03874da6d170dc69a403d2b8bfead2e06c9bbe4b5b02bf61"
+        },
+        {
+          "name": "swordSlash",
+          "duration": 0.47999998927116394,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "b547be91d25bc7f80d6df2d406feefa6a01ce9026990d160fa8a625bad96853a"
+        },
+        {
+          "name": "bowLoad",
+          "duration": 0.8333333134651184,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "b55be020454e98f82abe0fabc1c8fa07b423f5ef61c401c33f5fa4caa68ebbfa"
+        },
+        {
+          "name": "bowHold",
+          "duration": 1.3333333730697632,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "fbde363c3c339ed9c5c5aaa0c90cc4e7f0c85779935866a0af010d4b817e4159"
+        },
+        {
+          "name": "bowRelease",
+          "duration": 0.2199999988079071,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 15,
+          "fingerPoseSha256": "de7f128499018ddb755f08363ee12965f1596671fb8175f3db8fedb6e2a10bff"
+        },
+        {
+          "name": "pilumThrow",
+          "duration": 1.5,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 15,
+          "fingerPoseSha256": "449341fa673db9ceb9c29ee41a3e4670efc9d054da20fd8ecac2ded320ea7c41"
+        },
+        {
+          "name": "axeMountedIdle",
+          "duration": 2.700000047683716,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "c7a873f7bba4244b16eaaed050acde18e8fb5234376c5747e8885ed848ed89fb"
+        },
+        {
+          "name": "axeAttack1H",
+          "duration": 3,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "e655369a352833c17f20821c1dd8346ff576b53165ef6fd1dfead56bfaaebd17"
+        },
+        {
+          "name": "axeAttack2H",
+          "duration": 0.47999998927116394,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "3930e70e633d2df03760622d0c6bfe56334602fbce67cf4c7e160d8ab4998688"
+        },
+        {
+          "name": "axeAttack1HFoot",
+          "duration": 3,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "6421b74ac78fc26b5308ffc44ad20110b517c859188f1b380a20756a46247153"
+        }
+      ]
+    },
+    {
+      "lod": "lod1",
+      "sha256": "a18851f4efe1f56585e563cfc3b20f4505564a89263507724d7c2c32c0837f82",
+      "vertices": 15851,
+      "fingerWeightedUniquePositions": 1099,
+      "handSurfaceSha256": "edae6e03df81f6ba08db2652a067455d622d3bb2b5672cf2fe78edd2f4825bf7",
+      "maxHandWeightDelta": 0,
+      "maxInfluences": 10,
+      "minFirstFourWeightSum": 0.7488423809409142,
+      "verticesWithAdditionalInfluences": 4730,
+      "maxWeightSumError": 1.5410478226840496e-7,
+      "fingerInfluences": {
+        "pinky_01_l": 101,
+        "thumb_02_l": 191,
+        "thumb_03_l": 189,
+        "thumb_01_l": 71,
+        "pinky_02_l": 147,
+        "index_01_l": 157,
+        "middle_01_l": 198,
+        "ring_01_l": 127,
+        "middle_02_l": 250,
+        "index_02_l": 195,
+        "ring_02_l": 227,
+        "pinky_03_l": 83,
+        "index_03_l": 100,
+        "ring_03_l": 124,
+        "middle_03_l": 102,
+        "pinky_01_r": 120,
+        "ring_01_r": 134,
+        "pinky_02_r": 215,
+        "middle_01_r": 171,
+        "thumb_02_r": 205,
+        "thumb_01_r": 104,
+        "thumb_03_r": 164,
+        "index_01_r": 111,
+        "middle_03_r": 75,
+        "middle_02_r": 217,
+        "ring_03_r": 114,
+        "ring_02_r": 230,
+        "index_03_r": 101,
+        "index_02_r": 182,
+        "pinky_03_r": 135
+      },
+      "clips": [
+        {
+          "name": "idle",
+          "duration": 2.700000047683716,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "640cce3eb368dd7145b0b0d8ea9301d07e198b354974cbdef2673560d451bbe2"
+        },
+        {
+          "name": "walk",
+          "duration": 0.800000011920929,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "f5ca9fd597888a4839a41997190f9603d144e18825a0fc830f1d9508a3bc8f4e"
+        },
+        {
+          "name": "run",
+          "duration": 0.6000000238418579,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "07685e1bc8a77bbe03874da6d170dc69a403d2b8bfead2e06c9bbe4b5b02bf61"
+        },
+        {
+          "name": "swordSlash",
+          "duration": 0.47999998927116394,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "b547be91d25bc7f80d6df2d406feefa6a01ce9026990d160fa8a625bad96853a"
+        },
+        {
+          "name": "bowLoad",
+          "duration": 0.8333333134651184,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "b55be020454e98f82abe0fabc1c8fa07b423f5ef61c401c33f5fa4caa68ebbfa"
+        },
+        {
+          "name": "bowHold",
+          "duration": 1.3333333730697632,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "fbde363c3c339ed9c5c5aaa0c90cc4e7f0c85779935866a0af010d4b817e4159"
+        },
+        {
+          "name": "bowRelease",
+          "duration": 0.2199999988079071,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 15,
+          "fingerPoseSha256": "de7f128499018ddb755f08363ee12965f1596671fb8175f3db8fedb6e2a10bff"
+        },
+        {
+          "name": "pilumThrow",
+          "duration": 1.5,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 15,
+          "fingerPoseSha256": "449341fa673db9ceb9c29ee41a3e4670efc9d054da20fd8ecac2ded320ea7c41"
+        },
+        {
+          "name": "axeMountedIdle",
+          "duration": 2.700000047683716,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "c7a873f7bba4244b16eaaed050acde18e8fb5234376c5747e8885ed848ed89fb"
+        },
+        {
+          "name": "axeAttack1H",
+          "duration": 3,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "e655369a352833c17f20821c1dd8346ff576b53165ef6fd1dfead56bfaaebd17"
+        },
+        {
+          "name": "axeAttack2H",
+          "duration": 0.47999998927116394,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "3930e70e633d2df03760622d0c6bfe56334602fbce67cf4c7e160d8ab4998688"
+        },
+        {
+          "name": "axeAttack1HFoot",
+          "duration": 3,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "6421b74ac78fc26b5308ffc44ad20110b517c859188f1b380a20756a46247153"
+        }
+      ]
+    },
+    {
+      "lod": "lod2",
+      "sha256": "2e4e7d612fd29ec0986d08da4b528d845aa8e3acc847c01d4cc9a1aa96d5dab2",
+      "vertices": 12689,
+      "fingerWeightedUniquePositions": 1099,
+      "handSurfaceSha256": "edae6e03df81f6ba08db2652a067455d622d3bb2b5672cf2fe78edd2f4825bf7",
+      "maxHandWeightDelta": 0,
+      "maxInfluences": 10,
+      "minFirstFourWeightSum": 0.7488423809409142,
+      "verticesWithAdditionalInfluences": 3844,
+      "maxWeightSumError": 1.5410478226840496e-7,
+      "fingerInfluences": {
+        "pinky_01_l": 101,
+        "thumb_02_l": 191,
+        "thumb_03_l": 189,
+        "thumb_01_l": 71,
+        "pinky_02_l": 147,
+        "index_01_l": 157,
+        "middle_01_l": 198,
+        "ring_01_l": 127,
+        "middle_02_l": 250,
+        "index_02_l": 195,
+        "ring_02_l": 227,
+        "pinky_03_l": 83,
+        "index_03_l": 100,
+        "ring_03_l": 124,
+        "middle_03_l": 102,
+        "pinky_01_r": 120,
+        "ring_01_r": 134,
+        "pinky_02_r": 215,
+        "middle_01_r": 171,
+        "thumb_02_r": 205,
+        "thumb_01_r": 104,
+        "thumb_03_r": 164,
+        "index_01_r": 111,
+        "middle_03_r": 75,
+        "middle_02_r": 217,
+        "ring_03_r": 114,
+        "ring_02_r": 230,
+        "index_03_r": 101,
+        "index_02_r": 182,
+        "pinky_03_r": 135
+      },
+      "clips": [
+        {
+          "name": "idle",
+          "duration": 2.700000047683716,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "640cce3eb368dd7145b0b0d8ea9301d07e198b354974cbdef2673560d451bbe2"
+        },
+        {
+          "name": "walk",
+          "duration": 0.800000011920929,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "f5ca9fd597888a4839a41997190f9603d144e18825a0fc830f1d9508a3bc8f4e"
+        },
+        {
+          "name": "run",
+          "duration": 0.6000000238418579,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "07685e1bc8a77bbe03874da6d170dc69a403d2b8bfead2e06c9bbe4b5b02bf61"
+        },
+        {
+          "name": "swordSlash",
+          "duration": 0.47999998927116394,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "b547be91d25bc7f80d6df2d406feefa6a01ce9026990d160fa8a625bad96853a"
+        },
+        {
+          "name": "bowLoad",
+          "duration": 0.8333333134651184,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "b55be020454e98f82abe0fabc1c8fa07b423f5ef61c401c33f5fa4caa68ebbfa"
+        },
+        {
+          "name": "bowHold",
+          "duration": 1.3333333730697632,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "fbde363c3c339ed9c5c5aaa0c90cc4e7f0c85779935866a0af010d4b817e4159"
+        },
+        {
+          "name": "bowRelease",
+          "duration": 0.2199999988079071,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 15,
+          "fingerPoseSha256": "de7f128499018ddb755f08363ee12965f1596671fb8175f3db8fedb6e2a10bff"
+        },
+        {
+          "name": "pilumThrow",
+          "duration": 1.5,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 15,
+          "fingerPoseSha256": "449341fa673db9ceb9c29ee41a3e4670efc9d054da20fd8ecac2ded320ea7c41"
+        },
+        {
+          "name": "axeMountedIdle",
+          "duration": 2.700000047683716,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "c7a873f7bba4244b16eaaed050acde18e8fb5234376c5747e8885ed848ed89fb"
+        },
+        {
+          "name": "axeAttack1H",
+          "duration": 3,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "e655369a352833c17f20821c1dd8346ff576b53165ef6fd1dfead56bfaaebd17"
+        },
+        {
+          "name": "axeAttack2H",
+          "duration": 0.47999998927116394,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "3930e70e633d2df03760622d0c6bfe56334602fbce67cf4c7e160d8ab4998688"
+        },
+        {
+          "name": "axeAttack1HFoot",
+          "duration": 3,
+          "fingerTracks": 30,
+          "animatedFingerTracks": 0,
+          "fingerPoseSha256": "6421b74ac78fc26b5308ffc44ad20110b517c859188f1b380a20756a46247153"
+        }
+      ]
+    }
+  ],
+  "visualValidation": {
+    "status": "sampled-offline-reviewed",
+    "scope": "Source appearance, representative LOD0 sword/bow cylinder grips, bow release hook-to-relax samples, full-body bow and LOD2 idle samples reviewed offline in Blender. Not a complete runtime acceptance.",
+    "iteration": "Initial pointed/fanned grip deformation failed review. Hand-only linear subdivision, proximal web weight blending, smooth joint weights and measured target-local finger curl/opposition corrections resolved the sampled explosive/pointed grip concern.",
+    "limitations": [
+      "Original low-poly hand facets and some web creases remain.",
+      "Grip render uses a representative cylinder, not actual runtime weapon geometry.",
+      "Actual-game weapon contact, mounted/seat animation and live LOD transitions remain unrun."
+    ],
+    "evidence": "Ignored output/tiered-sources/viking-t2/grip-final-l.png, grip-final-r.png, release-.1.png, release-.8.png; output/tiered-sources/final-bow-full.png and final-lod2-full.png."
+  },
+  "runtimeValidation": {
+    "status": "not-run",
+    "note": "Actual-game weapon contact, mounted/seat motion, live LOD transitions and formation acceptance require runtime verification."
+  }
+}

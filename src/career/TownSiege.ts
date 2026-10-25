@@ -62,6 +62,12 @@ export interface SiegeRosterSlot { gateId: TownGateId; slot: number; spec: NpcSp
 export function siegeRosterVersion(state: Pick<TownSiegeState, 'rosterCreated' | 'rosterVersion'>): SiegeRosterVersion {
   return state.rosterCreated ? state.rosterVersion ?? 1 : 2
 }
+/** Siege borrowing only accepts ordinary T2 outskirts generations. Their stable
+ * IDs survive mission ownership and reload; the T3 roster entry describes the
+ * borrowed equipment, not a promotion. Fresh mission IDs and heroes keep theirs. */
+export function siegeActorCharacterTier(actorId: string, rosterTier: 1 | 2 | 3 | 4): 1 | 2 | 3 | 4 {
+  return rosterTier === 3 && /^outskirts:cavalry:[abc]:[0-9](?::wave:[1-9]\d*)?$/.test(actorId) ? 2 : rosterTier
+}
 /** Native Viking charge swaps foot archers to daggers; siege bow infantry retain their ranged role. */
 export function siegeAttackerOrder(presetId?: UnitPresetId): 'attack' | 'charge' {
   return presetId === 'roman_archer' || presetId === 'viking_archer' ? 'attack' : 'charge'

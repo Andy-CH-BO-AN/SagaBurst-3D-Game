@@ -11,6 +11,8 @@ export interface CharacterVisualConfig {
   isPlayer: boolean
   civilian?: boolean
   civilianStyle?: CharacterFaction
+  /** Special roles without a dedicated asset retain their original faction body. */
+  ordinarySoldier?: boolean
 }
 
 export interface ArmRig {

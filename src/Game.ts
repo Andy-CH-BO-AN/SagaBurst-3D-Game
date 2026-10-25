@@ -1,3 +1,4 @@
+import { getOrdinarySoldierHp, resolveOrdinaryPlayerBaseHp, resolveOrdinarySoldierTier } from './combat/OrdinarySoldierProfile'
 import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
@@ -120,7 +121,7 @@ export function handleProjectileHitEffects(
 
   return { enemyHudShown, xpGranted }
 }
-import { SaveManager, type PlayerSaveData } from './save/SaveManager'
+import { SaveManager, restoreSavedPlayerHp, type PlayerSaveData } from './save/SaveManager'
 import { StaminaBar } from './ui/StaminaBar'
 import { HpBar } from './ui/HpBar'
 import { NPC, Faction, AIState, AIType, NPC_NEIGHBOR_QUERY_RADIUS } from './world/NPC'
@@ -221,7 +222,7 @@ import { MissionGuide } from './career/MissionGuide'
 import type { CampaignFaction } from './campaign/CampaignConfig'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from './career/CareerMissionState'
 import { TownEquipment } from './town/TownEquipment'
-import { resolveCareerPlayerMaxHp } from './career/CareerPlayerProfile'
+import { resolveCareerHeroAsset, resolveCareerOrdinaryTier, resolveCareerPlayerMaxHp } from './career/CareerPlayerProfile'
 import { TOWN_ENTRY_KEY } from './town/CareerTownEntry'
 import { defenseCampaignCapabilities } from './campaign/DefenseCampaignLaunch'
 import { DefenseCampaignRuntime } from './campaign/DefenseCampaignRuntime'
@@ -239,7 +240,6 @@ import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
 import { updateEagleWingbeatAudio } from './audio/EagleWingbeatAudio'
 import { InventoryManager } from './rpg/InventoryManager'
 import {
-  COMBAT_BALANCE,
   getAntiCavalryMultiplier,
 } from './combat/CombatBalance'
 import { calculatePlayerMeleeDamage } from './combat/PlayerMeleeDamage'
@@ -521,6 +521,7 @@ export class Game {
   private input!: PlayerInput
   private player!: Player
   private basePlayerMaxHp: number = DEFAULT_PLAYER_MAX_HP
+  private playerMaxHpOverride?: number
   private thirdPersonCamera!: ThirdPersonCamera
   private spectatorController!: SpectatorCameraController
   private controlMode: PlayerControlMode = 'player'
@@ -956,7 +957,7 @@ export class Game {
 
     // ── Player & Input ──
     const validationHero = import.meta.env.DEV && this.isTrainingGround ? commanderValidationHero(startupQuery) : undefined
-    const playerFaction = (validationHero ? HERO_ASSETS[validationHero].descriptor.faction : undefined)
+    const playerFaction = this.careerProfile?.faction ?? (validationHero ? HERO_ASSETS[validationHero].descriptor.faction : undefined)
       ?? campaignConfig?.careerVeteranOutpost?.playerFaction
       ?? campaignConfig?.careerCommanderOutpost?.playerFaction
       ?? campaignConfig?.defenderFaction
@@ -970,8 +971,8 @@ export class Game {
             : 'viking')
     const isRoman = playerFaction === 'roman'
     this.input = new PlayerInput()
-    const playerHeroId = campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId ?? validationHero
-    this.player = new Player(this.scene, playerFaction, playerHeroId, campaignConfig?.playerVisualTier ?? battleConfig?.playerVisualTier)
+    const playerHeroId = this.careerProfile ? resolveCareerHeroAsset(this.careerProfile) ?? undefined : campaignConfig?.playerHeroId ?? battleConfig?.playerHeroId ?? validationHero
+    this.player = new Player(this.scene, playerFaction, playerHeroId, this.careerProfile ? resolveCareerOrdinaryTier(this.careerProfile) : resolveOrdinarySoldierTier(campaignConfig?.playerVisualTier ?? battleConfig?.playerVisualTier))
     // Release and diagnostic armies are ahead at -Z for Viking, +Z for Roman. Establish the actor's
     // heading first; the camera derives its rear orbit from that heading.
     if (this.bridgeLaunch) this.player.group.visible = false
@@ -1063,7 +1064,9 @@ export class Game {
 
     const initialPlayerHp = playerHeroId
       ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[playerHeroId])!.maxHp
-      : activeBattleConfig?.playerHp ?? COMBAT_BALANCE.hp.playerDefault
+      : resolveOrdinaryPlayerBaseHp(playerFaction, this.player.ordinaryCharacterTier, activeBattleConfig)
+    this.playerMaxHpOverride = !playerHeroId && activeBattleConfig?.playerHp !== undefined && activeBattleConfig.playerHpSource !== 'default'
+      ? activeBattleConfig.playerHp : undefined
     this.basePlayerMaxHp = initialPlayerHp
     this.player.setMaxHp(initialPlayerHp, true)
 
@@ -1671,7 +1674,8 @@ export class Game {
     this.player = new Player(this.scene, 'viking', heroId)
     this.basePlayerMaxHp = heroId
       ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[heroId])!.maxHp
-      : DEFAULT_PLAYER_MAX_HP
+      : getOrdinarySoldierHp('viking', 2)
+    this.playerMaxHpOverride = undefined
     this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState))
     this.player.setDamageHud(this.hpBar)
     this.inventoryManager = createTrainingInventory(heroId)
@@ -4133,6 +4137,10 @@ export class Game {
       falling: this.player.isFalling ? this.player.fallSnapshot : undefined,
       position: { x: pos.x, y: pos.y, z: pos.z },
       hp: this.player.hp,
+      healthRulesVersion: 1,
+      maxHp: this.player.maxHp,
+      ...(this.player.heroAssetId ? {} : { characterTier: this.player.ordinaryCharacterTier, characterFaction: this.player.characterFaction,
+        ...(this.playerMaxHpOverride !== undefined ? { baseMaxHpOverride: this.playerMaxHpOverride } : {}) }),
       stamina: this.player.staminaValue,
       arrows: this.player.arrowCount,
       skills: {
@@ -4197,8 +4205,15 @@ export class Game {
       this.skillManager.setSkillState(data.skills)
     }
     this.player.blockingLevel = this.skillManager.skillState.blocking.level
+    if (!this.player.heroAssetId) {
+      const faction = data.characterFaction ?? this.player.characterFaction
+      const tier = data.characterTier ?? this.player.ordinaryCharacterTier
+      this.player.setCharacterIdentity(faction, tier)
+      if (data.healthRulesVersion === 1) this.playerMaxHpOverride = data.baseMaxHpOverride
+      this.basePlayerMaxHp = this.playerMaxHpOverride ?? getOrdinarySoldierHp(faction, tier)
+    }
     this.player.setMaxHp(resolveSkillAdjustedMaxHp(this.basePlayerMaxHp, this.skillManager.skillState), false)
-    this.player.setHp(data.hp ?? this.player.maxHp)
+    this.player.setHp(restoreSavedPlayerHp(data, this.player.maxHp))
     if (data.inventory) {
       this.inventoryManager.loadSaveState(data.inventory)
     }
@@ -4230,6 +4245,7 @@ export class Game {
     }
     if (data.falling) this.player.restorePendingFall(data.falling)
 
+    if (this.player.hp <= 0) { this.player.detachFromMountOnDeath(); this.player.takeDamage(this.player.maxHp * 100, this.hpBar) }
     this._showNotify('📂 讀檔成功（還原背包與裝備）')
   }
 

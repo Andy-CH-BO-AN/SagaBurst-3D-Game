@@ -1,3 +1,4 @@
+import { needsPlayerHpConfirmation, resolveOrdinaryPlayerBaseHp, resolveOrdinarySoldierTier } from '../combat/OrdinarySoldierProfile'
 /**
  * BattleSetupUI.ts
  * Lightweight, dependency-free DOM interface for Custom Battle configuration.
@@ -74,6 +75,7 @@ export class BattleSetupUI {
     }
     if (this.config.playerHp === undefined) {
       this.config.playerHp = COMBAT_BALANCE.hp.playerDefault
+      this.config.playerHpSource = 'default'
     }
     if (!this.config.playerLoadout) {
       this.config.playerLoadout = createDefaultPlayerLoadout()
@@ -342,8 +344,14 @@ export class BattleSetupUI {
 
         <div class="setup-player-hp-panel">
           <div class="player-hp-control">
+            <label for="player-hp-source">生命值規則：</label>
+            <select id="player-hp-source">
+              ${needsPlayerHpConfirmation(this.config) ? '<option value="" selected>舊設定未記錄來源，請確認</option>' : ''}
+              <option value="default" ${this.config.playerHpSource === 'default' ? 'selected' : ''}>依陣營／角色 Tier</option>
+              <option value="custom" ${this.config.playerHpSource === 'custom' ? 'selected' : ''}>保留自訂生命值</option>
+            </select>
             <label for="player-hp-input">玩家生命值 PLAYER HP (1–9999):</label>
-            <input type="number" id="player-hp-input" min="1" max="9999" value="${this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault}" class="player-hp-input" />
+            <input type="number" id="player-hp-input" min="1" max="9999" value="${resolveOrdinaryPlayerBaseHp(this.config.playerFaction ?? 'viking', resolveOrdinarySoldierTier(this.config.playerVisualTier), this.config)}" class="player-hp-input" />
           </div>
         </div>
 
@@ -473,16 +481,26 @@ export class BattleSetupUI {
       this._refreshView()
     })
 
+    document.getElementById('player-hp-source')?.addEventListener('change', event => {
+      const source = (event.target as HTMLSelectElement).value
+      if (source !== 'default' && source !== 'custom') return
+      this.config.playerHpSource = source
+      this._refreshView()
+    })
     const hpInput = document.getElementById('player-hp-input') as HTMLInputElement | null
     hpInput?.addEventListener('input', () => {
       const raw = parseInt(hpInput.value, 10)
       const val = isNaN(raw) ? COMBAT_BALANCE.hp.playerDefault : Math.max(1, Math.min(9999, raw))
       this.config.playerHp = val
+      this.config.playerHpSource = 'custom'
+      this._refreshView()
     })
     hpInput?.addEventListener('blur', () => {
+      if (this.config.playerHpSource !== 'custom') return
       const raw = parseInt(hpInput.value, 10)
       const val = isNaN(raw) ? COMBAT_BALANCE.hp.playerDefault : Math.max(1, Math.min(9999, raw))
       this.config.playerHp = val
+      this.config.playerHpSource = 'custom'
       hpInput.value = String(val)
     })
 
@@ -512,7 +530,8 @@ export class BattleSetupUI {
       const currentCommandGrouping = this.config.commandGrouping ?? 'preset'
       const currentSpectator = this.config.spectator ?? false
       const currentFaction = this.config.playerFaction ?? 'viking'
-      const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
+      const currentHp = this.config.playerHp
+      const currentHpSource = this.config.playerHpSource
       const currentLoadout = this.config.playerLoadout
       const currentHero = this.config.playerHeroId
       const currentVisualTier = this.config.playerVisualTier
@@ -524,6 +543,7 @@ export class BattleSetupUI {
       this.config.spectator = currentSpectator
       this.config.playerFaction = currentFaction
       this.config.playerHp = currentHp
+      this.config.playerHpSource = currentHpSource
       this.config.playerLoadout = currentLoadout
       this.config.playerHeroId = currentHero
       this.config.playerVisualTier = currentVisualTier
@@ -541,7 +561,8 @@ export class BattleSetupUI {
       const currentCommandGrouping = this.config.commandGrouping ?? 'preset'
       const currentSpectator = this.config.spectator ?? false
       const currentFaction = this.config.playerFaction ?? 'viking'
-      const currentHp = this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault
+      const currentHp = this.config.playerHp
+      const currentHpSource = this.config.playerHpSource
       const currentLoadout = this.config.playerLoadout
       const currentHero = this.config.playerHeroId
       const currentVisualTier = this.config.playerVisualTier
@@ -553,6 +574,7 @@ export class BattleSetupUI {
       this.config.spectator = currentSpectator
       this.config.playerFaction = currentFaction
       this.config.playerHp = currentHp
+      this.config.playerHpSource = currentHpSource
       this.config.playerLoadout = currentLoadout
       this.config.playerHeroId = currentHero
       this.config.playerVisualTier = currentVisualTier
@@ -569,7 +591,7 @@ export class BattleSetupUI {
     // Start battle button
     document.getElementById('btn-start-battle')?.addEventListener('click', () => {
       const validation = validateBattleConfig(this.config)
-      if (!validation.valid || !this.onStartCallback) return
+      if (!validation.valid || needsPlayerHpConfirmation(this.config) || !this.onStartCallback) return
 
       if (this.config.commandGrouping === 'squad') {
         this.config.squadAssignments ??= []
@@ -800,7 +822,7 @@ export class BattleSetupUI {
   }
 
   private _launchBattle(config: BattleConfig): void {
-    if (!this.onStartCallback) return
+    if (!this.onStartCallback || needsPlayerHpConfirmation(this.config)) return
     if (typeof window !== 'undefined' && !window.location.search.includes('nolock')) {
       try {
         const canvasContainer = document.getElementById('canvas-container')
@@ -936,7 +958,7 @@ export class BattleSetupUI {
     }
 
     if (startBtn) {
-      startBtn.disabled = !validation.valid
+      startBtn.disabled = !validation.valid || needsPlayerHpConfirmation(this.config)
     }
     const startLabel = document.getElementById('btn-start-battle-label')
     const startSubtitle = document.getElementById('btn-start-battle-subtitle')
@@ -949,10 +971,12 @@ export class BattleSetupUI {
       spectatorCheckbox.checked = Boolean(this.config.spectator)
     }
 
+    const hpSource = document.getElementById('player-hp-source') as HTMLSelectElement | null
+    if (hpSource) hpSource.value = this.config.playerHpSource ?? ''
     const playerHpInput = document.getElementById('player-hp-input') as HTMLInputElement | null
     if (playerHpInput) {
       const heroProfile = this.config.playerHeroId ? getT4HeroCombatModifiers(HERO_COMBAT_PROFILE_BY_ASSET[this.config.playerHeroId]) : null
-      playerHpInput.value = String(heroProfile?.maxHp ?? this.config.playerHp ?? COMBAT_BALANCE.hp.playerDefault)
+      playerHpInput.value = String(heroProfile?.maxHp ?? resolveOrdinaryPlayerBaseHp(this.config.playerFaction ?? 'viking', resolveOrdinarySoldierTier(this.config.playerVisualTier), this.config))
       playerHpInput.disabled = Boolean(heroProfile)
     }
 

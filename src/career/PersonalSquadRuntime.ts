@@ -39,7 +39,7 @@ export function personalMemberLoadout(member: CareerPersonalSquadMember, faction
   // Reserve-only equipment changes resolve again on deployment; weapon tier never grants a hero profile.
   const primaryWeapon = WEAPONS[equipment.ranged ?? equipment.melee ?? '']
   // Like the Town Commander, T5 uses the existing NPC hero tier with its explicit asset and full combat profile.
-  return { presetId, hero, tier: member.type === 'soldier' ? Math.min(4, primaryWeapon?.tier ?? 1) as 1 | 2 | 3 | 4 : 4 as const,
+  return { presetId, hero, characterTier: member.type === 'soldier' ? 2 as const : 4 as const, tier: member.type === 'soldier' ? Math.min(4, primaryWeapon?.tier ?? 1) as 1 | 2 | 3 | 4 : 4 as const,
     mounted: Boolean(equipment.mount), loadout: { meleeWeaponId: equipment.melee, rangedWeaponId: equipment.ranged, shieldId: equipment.shield, mountId: equipment.mount,
       ...(member.type === 'ranger' ? { reversibleRangedSwitch: true } : {}) } }
 }
@@ -51,7 +51,7 @@ export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPerson
   const npc = trackNpcSpawn(new NPC(scene, slot.x, slot.z, Faction.PLAYER, faction, spec.loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE,
     member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : member.type === 'commander' ? 'Personal Commander' : 'Personal Shadow Warden',
     spec.tier, spec.mounted, spec.loadout, spec.presetId, PERSONAL_SQUAD_ID, member.id, emit,
-    spec.hero?.visualAssetId, spec.hero?.combatProfileId, spec.hero?.specialCombatProfile))
+    spec.hero?.visualAssetId, spec.hero?.combatProfileId, spec.hero?.specialCombatProfile, undefined, undefined, undefined, undefined, spec.characterTier))
   registerPersonalCombatDisplayName(npc, member, faction)
   npc.combatOwnership = 'player-personal'
   npc.respawnEnabled = false

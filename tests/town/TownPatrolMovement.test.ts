@@ -44,11 +44,11 @@ function patrol(count = 2, patrolId: 'A' | 'B' = 'A') {
       combatAmmo: 20, shield: { shieldImpactRemaining: 100, shieldImpactMax: 100 },
       tacticalOrder: 'attack' as NPC['tacticalOrder'], isMounted: true,
       mount: null as Mount | null, formationCommandId: null as number | null,
-      clearEncounter: vi.fn(), setTownPeaceful: vi.fn(), setTacticalOrder: vi.fn(),
-      configureBanditEncounter: vi.fn(), triggerEncounterAlert: vi.fn(),
+      clearEncounter: vi.fn(), setTownPeaceful() {}, setTacticalOrder() {},
+      configureBanditEncounter() {}, triggerEncounterAlert() {},
       assignFormationTarget: vi.fn(), updateTownTravel: vi.fn(),
-      updateTownPeace: vi.fn(), setMissionCombatTarget: vi.fn(),
-      restoreCombatAmmo: vi.fn(), releaseOutpostRampartGarrison: vi.fn(),
+      updateTownPeace() {}, setMissionCombatTarget() {},
+      restoreCombatAmmo() {}, releaseOutpostRampartGarrison() {},
       restoreCombatHealth(hp: number) { this.hp = hp; this.dead = hp === 0 },
       dismountFromMount() { this.mount = null },
       mountVehicle(mount: Mount) { this.mount = mount; mount.riderNpc = this as unknown as NPC },
@@ -154,7 +154,9 @@ describe('Town patrol travel and ownership decisions', () => {
   })
 
   it('resumes A’s remaining wipe cooldown after reload, leaves B available and restarts A once at 60 seconds', () => {
-    const a = patrol(20), b = patrol(20, 'B')
+    // Wipe timing needs multiple A members, not a full roster; B needs all 20
+    // because mission availability deliberately requires a complete native squad.
+    const a = patrol(2), b = patrol(20, 'B')
     const controller = new TownCavalryPatrolController([...a.residents, ...b.residents])
     for (const actor of a.actors) { actor.dead = true; actor.hp = 0 }
     controller.beginFrame(new Set(), 0)
@@ -168,7 +170,7 @@ describe('Town patrol travel and ownership decisions', () => {
     const saved = store.load()!.townPatrols!.roman!
     expect(saved.squads.find(squad => squad.id === 'A')?.respawnRemaining).toBe(35)
 
-    const restoredA = patrol(20), restoredB = patrol(20, 'B')
+    const restoredA = patrol(2), restoredB = patrol(20, 'B')
     const reload = new TownCavalryPatrolController([...restoredA.residents, ...restoredB.residents])
     reload.restoreCheckpoint(saved)
     reload.beginFrame(new Set(), 34)

@@ -1,3 +1,4 @@
+import { resolveOrdinaryNpcHp } from '../combat/OrdinarySoldierProfile'
 import { FriendlyMovementBypass } from '../navigation/FriendlyMovementBypass'
 import { INFANTRY_MOVE_SPEED } from '../movement/MovementBalance'
 import { combatAllegiancesHostile } from '../combat/CombatFaction'
@@ -753,6 +754,7 @@ export class NPC {
     civilianStyle?: CharacterFaction,
     readonly townCombatRole?: 'merchant',
     spawnPlacement?: { y: number },
+    readonly characterTier: 1 | 2 | 3 | 4 = tier,
   ) {
     if (townCombatRole === 'merchant') loadout = townMerchantLoadout(loadout?.mountId === 'horse' ? 'horse' : null)
     this.playableWorldBound = getScenePlayableWorldBound(scene)
@@ -766,7 +768,9 @@ export class NPC {
     this.visualAssetId = visualAssetId
     this.combatProfileId = combatProfileId
     this.specialCombatProfile = specialCombatProfile
-    this.maxHp = townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getHeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault
+    this.maxHp = resolveOrdinaryNpcHp({ faction: characterFaction, tier: this.characterTier, civilian: townCategory === 'civilian',
+      special: faction === Faction.BANDIT || Boolean(visualAssetId || combatProfileId || specialCombatProfile || townCombatRole) },
+      townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getHeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault)
     this.currentHp = this.maxHp
     loadout ??= specialCombatProfile === 'maki-ranger' ? resolveT4UnitLoadout(`${characterFaction}_archer`) : undefined
     this.loadout = loadout
@@ -831,8 +835,9 @@ export class NPC {
 
     const visualConfig = {
       faction: townCategory === 'civilian' ? civilianStyle ?? this.characterFaction : this.characterFaction,
-      tier: this.tier === 4 ? 3 : this.tier,
+      tier: this.characterTier === 4 ? 3 : this.characterTier,
       isPlayer: false,
+      ordinarySoldier: !(faction === Faction.BANDIT || visualAssetId || combatProfileId || specialCombatProfile || townCombatRole),
       civilian: townCategory === 'civilian',
       civilianStyle,
     } as const

@@ -72,6 +72,8 @@ export interface CareerLifetimeStats {
 
 export interface CareerProfile {
   version: 1
+  /** One-time ordinary-soldier HP migration receipt, independent of equipment migrations. */
+  healthRulesVersion?: 1
   faction: CharacterFaction
 
   /** Lifetime earned merit. Never decreases; appointments use merit earned during this enlistment. */
@@ -196,6 +198,7 @@ export interface CareerPurchaseResult {
 export function createCareerProfile(faction: CharacterFaction): CareerProfile {
   return {
     version: 1,
+    healthRulesVersion: 1,
     faction,
     totalMerit: 0,
     availableMerit: 0,
