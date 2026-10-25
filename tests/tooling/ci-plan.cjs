@@ -32,13 +32,13 @@ function selectFiles(inventory, changed, consumers, evidence) {
   const unsupported = changed.find(item => !/^(?:A|M|D|R\d+)$/.test(item.status))
   if (unsupported) relatedSelectionError(`Unsupported Git change: ${unsupported.status} ${unsupported.file}`)
   const qualifiedDocumentation = new Set()
-  const exactInputReader = (file, graph) => (graph?.inputEdges ?? []).some(edge => edge.to === file)
-  const possibleInputReader = (file, graph) => (graph?.inputRisks ?? []).some(risk =>
-    (risk.pattern ? new RegExp(risk.pattern).test(file) : risk.candidates?.includes(file))
+  const exactInputReader = (file, graph, status) => (graph?.inputEdges ?? []).some(edge => edge.to === file && (!edge.changeKinds || edge.changeKinds.includes(status[0])))
+  const possibleInputReader = (file, graph) => [...(graph?.inputRisks ?? []), ...(graph?.inputPatterns ?? [])].some(risk =>
+    (risk.directoryInputs || (risk.pattern ? new RegExp(risk.pattern).test(file) : risk.candidates?.includes(file)))
     && (graph[risk.from] ?? []).some(consumer => all.includes(consumer)))
   const documentationOnly = item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile))
-    && !(consumers[item.file]?.length) && !(evidence?.previousConsumers?.[item.oldFile ?? item.file]?.length)
-    && !exactInputReader(item.file, consumers) && !exactInputReader(item.oldFile ?? item.file, evidence?.previousConsumers)
+    && (qualifiedDocumentation.has(item.file) || !(consumers[item.file]?.length) && !(evidence?.previousConsumers?.[item.oldFile ?? item.file]?.length))
+    && !exactInputReader(item.file, consumers, item.status) && !exactInputReader(item.oldFile ?? item.file, evidence?.previousConsumers, item.status)
     && (qualifiedDocumentation.has(item.file) || !possibleInputReader(item.file, consumers) && !possibleInputReader(item.oldFile ?? item.file, evidence?.previousConsumers))
   if (changed.every(documentationOnly)) {
     return { mode: 'related', docsOnly: true, selected: [], reasons: {}, message: 'No related logic tests: documentation-only change' }
@@ -60,7 +60,7 @@ function selectFiles(inventory, changed, consumers, evidence) {
   const renamed = new Map(changed.filter(item => item.status.startsWith('R')).map(item => [item.oldFile, item.file]))
   const surviving = file => renamed.get(file) ?? file
   const retiredFiles = []
-  const typeOnlyFiles = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && behaviorSource(item.file) && !all.includes(item.file) && !exactInputReader(item.file, consumers) && !exactInputReader(item.file, previous) && evidence.sources.has(item.file) && evidence.previousSources.has(item.file)
+  const typeOnlyFiles = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && behaviorSource(item.file) && !all.includes(item.file) && !exactInputReader(item.file, consumers, item.status) && !exactInputReader(item.file, previous, item.status) && !possibleInputReader(item.file, consumers) && !possibleInputReader(item.file, previous) && evidence.sources.has(item.file) && evidence.previousSources.has(item.file)
     && require('./dependencies.cjs').runtimeEquivalent(evidence.previousSources.get(item.file), evidence.sources.get(item.file), item.file)).map(item => item.file) : []
   const inputClassifications = evidence ? changed.filter(item => !behaviorSource(item.file) && !documentationOnly(item))
     .map(item => ({ file: item.file, ...require('./dependencies.cjs').classifyChangedInput(item.file, consumers),
@@ -69,11 +69,15 @@ function selectFiles(inventory, changed, consumers, evidence) {
     && (!input.previous || input.previous.kind === 'visual-asset')).map(input => input.file)
   const runtimeInputs = new Set(inputClassifications.filter(input => ['runtime-input', 'unresolved-input'].includes(input.kind)).map(input => input.file))
   const behaviorChanges = evidence ? changed.filter(item => ['A', 'M'].includes(item.status)
-    && (behaviorSource(item.file) || runtimeInputs.has(item.file)) && !all.includes(item.file) && !typeOnlyFiles.includes(item.file)) : []
+    && (behaviorSource(item.file) || runtimeInputs.has(item.file) || possibleInputReader(item.file, consumers) || possibleInputReader(item.file, previous)) && !all.includes(item.file) && !typeOnlyFiles.includes(item.file)) : []
   let behavior = { selected: [], selectedCases: {}, reasons: {}, details: {} }
   if (behaviorChanges.length) {
     try { behavior = require('./behavior.cjs').selectBehaviors(inventory, behaviorChanges, consumers, { ...evidence, testRenames: renamed }) }
     catch (error) { relatedSelectionError(error.message, error.diagnostics) }
+  }
+  for (const file of behavior.unobservedEquivalentSources ?? []) {
+    if (!behaviorSource(file) || !require('./dependencies.cjs').runtimeEquivalent(evidence.previousSources.get(file), evidence.sources.get(file), file)) relatedSelectionError(`Unsafe source equivalence qualification: ${file}`)
+    if (!typeOnlyFiles.includes(file)) typeOnlyFiles.push(file)
   }
   for (const file of behavior.unobservedInputCandidates ?? []) {
     if (!docsOnly(file)) relatedSelectionError(`Unclassified input: ${file}; no executed reader found, but no visual/offline safety proof exists`)

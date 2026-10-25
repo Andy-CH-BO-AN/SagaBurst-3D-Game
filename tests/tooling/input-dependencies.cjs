@@ -10,10 +10,20 @@ const union = values => { const all = [...new Set(values.flatMap(choices))]; ret
 const combine = (left, right, operation) => union(choices(left).flatMap(a => choices(right).map(b => operation(a, b))))
 const stringValue = value => ['string', 'number'].includes(typeof value) ? String(value) : UNKNOWN
 function inputDependencies(sources, exists, files = [...sources.keys()], texts = sources) {
-  const units = new Map(), edges = [], risks = [], pathnamePatterns = new Map()
+  const units = new Map(), edges = [], risks = [], patterns = [], pathnamePatterns = new Map()
   const escapePattern = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const unknownPath = value => value.includes(UNKNOWN) || /\x01\d+\x02/.test(value)
-  const pathPattern = value => '^' + value.split(/(\x00|\x01\d+\x02)/).map(part => part === UNKNOWN ? '.*' : pathnamePatterns.get(part) ?? escapePattern(part)).join('') + '$'
+  const pathPattern = value => {
+    const captures = new Map()
+    return '^' + value.split(/(\x00|\x01\d+\x02)/).map(part => {
+      if (part === UNKNOWN) return '.*'
+      if (!pathnamePatterns.has(part)) return escapePattern(part)
+      if (captures.has(part)) return '\\k<' + captures.get(part) + '>'
+      const name = 'entry' + captures.size
+      captures.set(part, name)
+      return '(?<' + name + '>' + pathnamePatterns.get(part).pattern + ')'
+    }).join('') + '$'
+  }
   const modulePath = (file, name) => {
     const stem = posix.normalize(posix.join(posix.dirname(file), name))
     return [stem, ...['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js', '/index.cjs', '/index.mjs'].map(ext => stem + ext)].find(exists)
@@ -223,8 +233,12 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     const directory = evaluate(listing.arguments[0], file, env, seen)
     if (typeof directory !== 'string' || unknownPath(directory) || !files.some(path => posix.dirname(path) === posix.normalize(directory))) return UNKNOWN
     const body = predicate.body, name = predicate.parameters[0].name.text
-    let suffix = null
-    if (ts.isPropertyAccessExpression(body.expression) && body.expression.name.text === 'endsWith' && ts.isIdentifier(body.expression.expression) && body.expression.expression.text === name && body.arguments.length === 1 && ts.isStringLiteralLike(body.arguments[0])) suffix = body.arguments[0].text
+    let suffix = null, predicateContract = null, accepts = null
+    if (ts.isPropertyAccessExpression(body.expression) && body.expression.name.text === 'endsWith' && ts.isIdentifier(body.expression.expression) && body.expression.expression.text === name && body.arguments.length === 1 && ts.isStringLiteralLike(body.arguments[0])) {
+      suffix = body.arguments[0].text
+      predicateContract = { kind: 'endsWith', value: suffix }
+      accepts = name => name.endsWith(suffix)
+    }
     if (ts.isPropertyAccessExpression(body.expression) && body.expression.name.text === 'test' && body.expression.expression.kind === ts.SyntaxKind.RegularExpressionLiteral && body.arguments.length === 1 && ts.isIdentifier(body.arguments[0]) && body.arguments[0].text === name) {
       const literal = body.expression.expression.getText(unit.ast), slash = literal.lastIndexOf('/')
       if (slash !== literal.length - 1) return UNKNOWN // flags change the predicate contract
@@ -234,13 +248,20 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
       if (source.includes('|') || source.includes('(')) return UNKNOWN
       const terminal = /([A-Za-z0-9_-]+)\$$/.exec(source)
       if (!terminal || source[terminal.index - 1] === '\\') return UNKNOWN
-      try { new RegExp(source) } catch { return UNKNOWN }
+      let regex
+      try { regex = new RegExp(source) } catch { return UNKNOWN }
+      predicateContract = { kind: 'regex', source, flags: '' }
+      accepts = name => regex.test(name)
       suffix = terminal[1]
     }
     if (!suffix || /[\\/]/.test(suffix)) return UNKNOWN
     const pattern = '[^/]*' + escapePattern(suffix)
-    let token = [...pathnamePatterns].find(([, existing]) => existing === pattern)?.[0]
-    if (!token) { token = '\x01' + pathnamePatterns.size + '\x02'; pathnamePatterns.set(token, pattern) }
+    const normalizedDirectory = posix.normalize(directory)
+    const prefix = normalizedDirectory === '.' ? '' : normalizedDirectory + '/'
+    const names = [...new Set(files.filter(path => path.startsWith(prefix)).map(path => path.slice(prefix.length).split('/')[0]))].filter(accepts).sort()
+    const contract = { pattern, names, directory: normalizedDirectory, predicate: predicateContract, bindingFile: file, bindingStart: declaration.getStart(unit.ast), bindingEnd: declaration.end, listingFile: file, listingStart: listing.getStart(unit.ast), listingEnd: listing.end, listingExpression: listing.getText(unit.ast), listingProvider: { module: origin.module, export: 'readdirSync' }, snapshotBoundary: 'Names are observed Git-snapshot inventory only, not runtime membership proof; the read domain remains open' }
+    let token = [...pathnamePatterns].find(([, existing]) => JSON.stringify(existing) === JSON.stringify(contract))?.[0]
+    if (!token) { token = '\x01' + pathnamePatterns.size + '\x02'; pathnamePatterns.set(token, contract) }
     return token
   }
   function evaluate(node, file, env = new Map(), seen = new Set()) {
@@ -344,6 +365,32 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     if (!verified) {
       const pattern = '^.*$'
       risks.push({ ...proof, pattern, candidates: [], reason: 'Input-like call lacks verified API receiver provenance', missingEvidence: node.expression.getText(unit.ast) })
+    } else if (!value.includes(UNKNOWN) && /\x01\d+\x02/.test(value)) {
+      const tokens = [...new Set(value.match(/\x01\d+\x02/g))]
+      let resolved = [value]
+      for (const token of tokens) resolved = resolved.flatMap(path => pathnamePatterns.get(token).names.map(name => path.split(token).join(name)))
+      const directoryInputs = tokens.map(token => pathnamePatterns.get(token))
+      const pattern = pathPattern(value)
+      const observedTargets = [...new Set(resolved.map(path => posix.normalize(path)))].sort()
+      // A real directory listing yields basenames in this bounded domain, but
+      // runtime writes/removes can change membership. Snapshot names therefore
+      // never prove absence or execution: retain every matching tracked target.
+      const domain = new RegExp(pattern)
+      const candidates = files.filter(path => domain.test(path)).sort()
+      const possible = { conservative: true, possible: true, resolution: 'possible-directory-input' }
+      const membershipPatterns = directoryInputs.map(input => ({
+        pattern: '^' + escapePattern(input.directory === '.' ? '' : input.directory + '/') + input.pattern + '$',
+        candidates: input.names.map(name => posix.join(input.directory, name)), directory: input.directory, predicate: input.predicate, changeKinds: ['A', 'D', 'R'],
+      }))
+      patterns.push({ ...proof, ...possible, contract: 'bounded-directory-input-set', pattern, candidates, observedTargets, directoryInputs, membershipPatterns })
+      for (const [index, membership] of membershipPatterns.entries()) for (const entry of membership.candidates) {
+        const listing = directoryInputs[index], provider = listing.listingProvider
+        const position = units.get(listing.listingFile).ast.getLineAndCharacterOfPosition(listing.listingStart)
+        const membershipProof = { ...proof, from: listing.listingFile, readerFile: listing.listingFile, readerStart: listing.listingStart, readerEnd: listing.listingEnd, start: listing.listingStart, end: listing.listingEnd, line: position.line + 1, column: position.character + 1, expression: listing.listingExpression, inputExpression: listing.listingExpression, provider, context: { from: proof.from, start: proof.start, expression: proof.expression } }
+        if (exists(entry)) edges.push({ ...membershipProof, ...possible, to: entry, kind: 'directory-membership', changeKinds: membership.changeKinds, inputSet: { pattern, directoryInputs } })
+        else risks.push({ ...membershipProof, pattern: '^' + escapePattern(entry) + '(?:/.*)?$', candidates: files.filter(file => file.startsWith(entry + '/')), reason: 'Directory membership spans multiple tracked descendants', missingEvidence: entry })
+      }
+      for (const target of candidates) edges.push({ ...proof, ...possible, to: target, inputSet: { pattern, directoryInputs, observedTargets } })
     } else if (unknownPath(value)) {
       const pattern = pathPattern(value)
       risks.push({ ...proof, pattern, candidates: value.replaceAll(UNKNOWN, '').replaceAll('/', '').length ? files.filter(candidate => new RegExp(pattern).test(candidate)) : [], reason: 'Input expression has an unresolved runtime value', missingEvidence: operand.getText(unit.ast) })
@@ -480,15 +527,16 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     }
   }
   const unique = values => [...new Map(values.map(value => [JSON.stringify(value), value])).values()]
-  return { edges: unique(edges), risks: unique(risks) }
+  return { edges: unique(edges), risks: unique(risks), patterns: unique(patterns) }
 }
 function classifyChangedInput(file, consumers) {
   const edges = (consumers.inputEdges ?? []).filter(edge => edge.to === file)
   const risks = (consumers.inputRisks ?? []).filter(risk => risk.from === file || risk.candidates.includes(file) || risk.pattern && new RegExp(risk.pattern).test(file))
+  const patterns = (consumers.inputPatterns ?? []).filter(input => new RegExp(input.pattern).test(file))
   const text = consumers.inputTexts?.get(file)
   const inertSvg = typeof text === 'string' && /^\s*(?:<\?xml[^>]*>\s*)?<svg[\s>]/i.test(text) && !/<(?:script|foreignObject|image|use|animate[\w-]*|set|style)\b|\bon[\w-]+\s*=|(?:href|url)\s*[=(]|<!DOCTYPE|<!ENTITY/i.test(text)
   const codeReferences = [...(consumers.sources ?? [])].some(([, source]) => source.includes(file) || source.includes(posix.basename(file)))
-  if (edges.length && edges.every(edge => edge.contract === 'browser-icon') && !risks.length && inertSvg && !codeReferences) return { kind: 'visual-asset', edges, risks, logicCoverage: false, reason: 'Inert SVG is consumed only by an HTML browser-icon contract', validationBoundary: 'Browser icon presentation; logic tests do not verify appearance. Existing build validation still applies.' }
-  return { kind: risks.length ? 'unresolved-input' : edges.length ? 'runtime-input' : 'unclassified', edges, risks }
+  if (edges.length && edges.every(edge => edge.contract === 'browser-icon') && !risks.length && inertSvg && !codeReferences) return { kind: 'visual-asset', edges, risks, patterns, logicCoverage: false, reason: 'Inert SVG is consumed only by an HTML browser-icon contract', validationBoundary: 'Browser icon presentation; logic tests do not verify appearance. Existing build validation still applies.' }
+  return { kind: risks.length ? 'unresolved-input' : edges.length ? 'runtime-input' : 'unclassified', edges, risks, patterns }
 }
 module.exports = { inputDependencies, classifyChangedInput }

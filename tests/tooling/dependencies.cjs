@@ -87,6 +87,7 @@ function dependencyConsumers(inventory, sources, exists = file => sources.has(fi
   consumers.inputTexts = treeEvidence.texts ?? sources
   consumers.inputEdges = inputs.edges
   consumers.inputRisks = inputs.risks
+  consumers.inputPatterns = inputs.patterns
   consumers.sources = sources
   consumers.graph = graph
   return consumers

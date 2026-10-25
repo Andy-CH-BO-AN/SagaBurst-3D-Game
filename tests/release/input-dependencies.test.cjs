@@ -196,21 +196,29 @@ test('CommonJS named export and destructured alias preserve actual reader argume
 for (const [name, predicate] of [
   ['literal suffix', "name => name.endsWith('.cjs')"],
   ['terminal regex literal', 'name => /\\.[cm]?js$/.test(name)'],
-]) test(`directory readers retain a residual ${name} constraint without treating documents as code`, () => {
+]) test(`directory readers retain a conservative open ${name} input domain`, () => {
   const file = 'tests/tooling/digest.cjs'
   const source = `const {readdirSync, readFileSync}=require('node:fs'); const {join}=require('node:path');
 for (const name of readdirSync(__dirname).filter(${predicate}).sort()) readFileSync(join(__dirname, name));`
   const sources = new Map([[file, source]])
-  const files = new Set([file, 'tests/tooling/other.cjs', 'tests/tooling/README.md'])
+  const files = new Set([file, 'tests/tooling/other.cjs', 'tests/tooling/README.md', 'tests/tooling/almostjs'])
   const graph = dependencyConsumers([{ file }], sources, path => files.has(path), { files })
-  assert.equal(graph.inputRisks.length, 1)
-  const risk = graph.inputRisks[0]
-  assert.equal(risk.provider.module, 'node:fs')
-  assert.equal(new RegExp(risk.pattern).test('tests/tooling/README.md'), false)
-  assert.equal(new RegExp(risk.pattern).test('tests/tooling/not-yet-listed.cjs'), true)
-  assert.deepEqual(risk.candidates, [file, 'tests/tooling/other.cjs'])
+  assert.equal(graph.inputRisks.length, 0)
+  assert.equal(graph.inputPatterns.length, 1)
+  const inputSet = graph.inputPatterns[0]
+  assert.equal(inputSet.provider.module, 'node:fs')
+  assert.equal(new RegExp(inputSet.pattern).test('tests/tooling/README.md'), false)
+  assert.equal(new RegExp(inputSet.pattern).test('tests/tooling/not-yet-listed.cjs'), true)
+  assert.deepEqual(graph.inputEdges.filter(edge => edge.kind === 'read').map(edge => edge.to), (name === 'terminal regex literal' ? [file, 'tests/tooling/other.cjs', 'tests/tooling/almostjs'] : [file, 'tests/tooling/other.cjs']).sort())
+  assert.deepEqual(graph.inputEdges.filter(edge => edge.kind === 'directory-membership').map(edge => edge.to), [file, 'tests/tooling/other.cjs'])
+  assert.deepEqual(inputSet.observedTargets, [file, 'tests/tooling/other.cjs'])
+  assert.ok(graph.inputEdges.filter(edge => edge.kind === 'read').every(edge => edge.conservative && edge.possible && edge.resolution === 'possible-directory-input'))
   assert.equal(classifyChangedInput('tests/tooling/README.md', graph).kind, 'unclassified')
-  assert.equal(classifyChangedInput('tests/tooling/other.cjs', graph).kind, 'unresolved-input')
+  assert.equal(classifyChangedInput('tests/tooling/other.cjs', graph).kind, 'runtime-input')
+  files.add('tests/tooling/not-yet-listed.cjs')
+  const next = dependencyConsumers([{ file }], sources, path => files.has(path), { files })
+  assert.ok(next.inputEdges.some(edge => edge.to === 'tests/tooling/not-yet-listed.cjs'))
+  assert.ok(!graph.inputEdges.some(edge => edge.to === 'tests/tooling/not-yet-listed.cjs'))
 })
 
 for (const [name, directory, predicate, listing = 'readdirSync', prelude = ''] of [
@@ -225,4 +233,43 @@ for (const name of ${listing}(${directory}).filter(${predicate})) readFileSync(j
   const graph = dependencyConsumers([], sources)
   assert.equal(graph.inputRisks.length, 1)
   assert.equal(new RegExp(graph.inputRisks[0].pattern).test('tests/tooling/README.md'), true)
+})
+
+test('directory read domain stays open when runtime writes create a new listing member', () => {
+  const file = 'tests/digest.cjs'
+  const sources = new Map([[file, `const {readdirSync, readFileSync, writeFileSync}=require('node:fs'); const {join}=require('node:path');
+writeFileSync('registry/unlisted.json', '{}');
+for (const name of readdirSync('registry').filter(name => name.endsWith('.json'))) readFileSync(join('payloads', name));`]])
+  const files = new Set([file, 'registry/selected.json', 'payloads/selected.json', 'payloads/unlisted.json'])
+  const graph = dependencyConsumers([{ file }], sources, path => files.has(path), { files })
+  assert.deepEqual(graph.inputEdges.filter(edge => edge.kind === 'read').map(edge => edge.to), ['payloads/selected.json', 'payloads/unlisted.json'])
+  assert.deepEqual(graph.inputPatterns[0].observedTargets, ['payloads/selected.json'])
+  assert.equal(classifyChangedInput('payloads/unlisted.json', graph).kind, 'runtime-input')
+  assert.deepEqual(graph.inputEdges.filter(edge => edge.kind === 'directory-membership').map(edge => edge.to), ['registry/selected.json'])
+  assert.equal(graph.inputRisks.length, 0)
+  assert.equal(graph.inputPatterns[0].directoryInputs[0].directory, 'registry')
+  files.add('registry/unlisted.json')
+  const next = dependencyConsumers([{ file }], sources, path => files.has(path), { files })
+  assert.ok(next.inputEdges.some(edge => edge.kind === 'read' && edge.to === 'payloads/unlisted.json'))
+  const membership = next.inputEdges.find(edge => edge.kind === 'directory-membership' && edge.to === 'registry/unlisted.json')
+  assert.deepEqual(membership.changeKinds, ['A', 'D', 'R'])
+  assert.equal(membership.inputExpression, "readdirSync('registry')")
+  assert.ok(graph.inputEdges.some(edge => edge.to === 'payloads/unlisted.json' && edge.conservative))
+})
+
+test('independent directory bindings cross-product while repeated binding references remain correlated', () => {
+  const file = 'tests/digest.cjs'
+  const sources = new Map([[file, `const {readdirSync, readFileSync}=require('node:fs'); const {join}=require('node:path');
+for (const a of readdirSync('names').filter(name => name.endsWith('.json'))) {
+  for (const b of readdirSync('names').filter(name => name.endsWith('.json'))) {
+    readFileSync(join('pairs', a + '-' + b));
+    readFileSync(join('pairs', a + '-' + a));
+  }
+}`]])
+  const pairs = ['a.json-a.json', 'a.json-b.json', 'b.json-a.json', 'b.json-b.json'].map(name => 'pairs/' + name)
+  const files = new Set([file, 'names/a.json', 'names/b.json', ...pairs])
+  const graph = dependencyConsumers([{ file }], sources, path => files.has(path), { files })
+  assert.deepEqual(graph.inputEdges.filter(edge => edge.kind === 'read' && edge.inputExpression.includes("a + '-' + b")).map(edge => edge.to), pairs)
+  assert.deepEqual(graph.inputEdges.filter(edge => edge.kind === 'read' && edge.inputExpression.includes("a + '-' + a")).map(edge => edge.to), ['pairs/a.json-a.json', 'pairs/b.json-b.json'])
+  assert.equal(graph.inputRisks.length, 0)
 })

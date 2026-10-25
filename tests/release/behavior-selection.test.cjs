@@ -396,3 +396,65 @@ test('source-byte readers remain input owners alongside executed declarations', 
   assert.deepEqual(bytesOnly.selectedCases[file], [1])
   assert.deepEqual(bytesOnly.typeOnlyFiles, [])
 })
+
+function directoryPlan(setup, entries, changed = {status:'M',file:'payload/a.txt'}, planner = false) {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const reader = 'src/read.cjs', file = 'tests/list.test.cjs'
+  const readSource = "const fs = require('node:fs'); exports.read = () => { for (const name of fs.readdirSync('registry').filter(name => name.endsWith('.txt'))) fs.readFileSync('payload/' + name, 'utf8') }"
+    const testSource = "const { test, mock } = require('node:test'); const fs = require('node:fs'); const { read } = require('../src/read.cjs')\n" +
+      `test('read', (t) => { ${setup}; read() })`
+    const sources = new Map([[reader, readSource], [file, testSource], ['src/comment.cjs', 'exports.value = 1 // changed bytes']])
+    const previousSources = changed.file === 'src/comment.cjs' ? new Map(sources) : sources
+    if (previousSources !== sources) previousSources.set('src/comment.cjs', 'exports.value = 1')
+    const inventory = [{file, names:['read'], locations:[{line:2,column:1}]}]
+    const previousFiles = new Set([...sources.keys(), ...entries]), files = new Set(previousFiles)
+    if (changed.status === 'D') files.delete(changed.file)
+    if (changed.status.startsWith('R')) { files.delete(changed.oldFile); files.add(changed.file) }
+    const consumers = dependencyConsumers(inventory, sources, path => files.has(path), {files})
+    const previousConsumers = previousSources === sources && !['D','R'].includes(changed.status[0]) ? consumers : dependencyConsumers(inventory, previousSources, path => previousFiles.has(path), {files:previousFiles})
+    return (planner ? selectFiles : selectBehaviors)(inventory, [changed], consumers, {
+      sources, previousSources, previousConsumers, files, previousFiles, ranges:{}, compilerOptions:{noLib:true,noResolve:true,types:[]},
+    })
+  }
+
+const directoryCases = [
+  { name: 'real listing retains its possible payload reader', setup: '', entries: ['registry/a.txt','payload/a.txt'], selectedCases: [0] },
+  { name: 'shadowed require cannot impersonate a mocked provider', setup: "{ const require = () => ({}); const fake = require('node:fs'); t.mock.method(fake, 'readdirSync', () => []) }", entries: ['registry/a.txt','payload/a.txt'], selectedCases: [0] },
+  { name: 'Node TestContext listing replacement is uncertain', setup: "t.mock.method(fs, 'readdirSync', () => ['a.txt'])", entries: ['registry/a.txt','payload/a.txt'], unsafe: true },
+  { name: 'imported native mock cannot justify an empty listing set', setup: "mock.method(fs, 'readdirSync', () => ['a.txt'])", entries: ['registry/ignored.bin','payload/a.txt'], unsafe: true },
+  { name: 'unresolved tracker cannot justify an empty listing set', setup: "globalThis.tracker.method(fs, 'readdirSync', () => ['a.txt'])", entries: ['registry/ignored.bin','payload/a.txt'], unsafe: true },
+  { name: 'member content changes do not change listed names', setup: '', entries: ['registry/a.txt','payload/a.txt'], changed: {status:'M',file:'registry/a.txt'}, unobserved: ['registry/a.txt'] },
+  { name: 'added directory member retains the listing consumer', setup: '', entries: ['registry/a.txt','payload/a.txt'], changed: {status:'A',file:'registry/a.txt'}, selectedCases: [0] },
+  { name: 'deleted directory member retains conservative lifecycle owner', setup: '', entries: ['registry/a.txt','payload/a.txt'], changed: {status:'D',file:'registry/a.txt'}, planner: true, selected: ['tests/list.test.cjs'] },
+  { name: 'renamed directory member retains conservative lifecycle owner', setup: '', entries: ['registry/a.txt','payload/a.txt'], changed: {status:'R100',oldFile:'registry/a.txt',file:'registry/b.txt'}, planner: true, selected: ['tests/list.test.cjs'] },
+  { name: 'unread source comment qualifies only after listing proof', setup: '', entries: ['registry/ignored.bin','payload/a.txt'], changed: {status:'M',file:'src/comment.cjs'}, planner: true, typeOnly: ['src/comment.cjs'] },
+  { name: 'source comment cannot bypass unknown listing replacement', setup: "globalThis.tracker.method(fs, 'readdirSync', () => ['a.txt'])", entries: ['registry/ignored.bin','payload/a.txt'], changed: {status:'M',file:'src/comment.cjs'}, planner: true, unsafe: true },
+  { name: 'documentation cannot bypass unknown listing replacement', setup: "globalThis.tracker.method(fs, 'readdirSync', () => ['a.txt'])", entries: ['registry/ignored.bin','payload/a.txt'], changed: {status:'M',file:'README.md'}, planner: true, unsafe: true },
+]
+for (const scenario of directoryCases) test(`directory provenance: ${scenario.name}`, () => {
+  const run = () => directoryPlan(scenario.setup, scenario.entries, scenario.changed, scenario.planner)
+  if (scenario.unsafe) { assert.throws(run, /Unsafe runtime directory membership/); return }
+  const result = run()
+  if (scenario.selectedCases) assert.deepEqual(result.selectedCases['tests/list.test.cjs'], scenario.selectedCases)
+  if (scenario.selected) assert.deepEqual(result.selected, scenario.selected)
+  if (scenario.typeOnly) assert.deepEqual(result.typeOnlyFiles, scenario.typeOnly)
+  if (scenario.unobserved) { assert.deepEqual(result.selected, []); assert.deepEqual(result.unobservedInputCandidates, scenario.unobserved) }
+})
+
+for (const [name, setup] of [
+  ['spy', "vi.spyOn(fs, 'readFileSync').mockReturnValue('fake')"],
+  ['module mock', "vi.mock('node:fs', () => ({ readFileSync: () => 'fake' }))"],
+]) test(`captured CommonJS reader cannot be excluded by a later ${name}`, () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/captured.test.ts'
+  const sources = new Map([
+    ['src/read.cjs', "const { readFileSync } = require('node:fs'); exports.read = () => readFileSync('config.json', 'utf8')"],
+    [file, ["import * as fs from 'node:fs'; const { read } = require('../src/read.cjs')", `test('replacement', () => { ${setup}; read() })`, "test('plain', () => read())"].join('\n')],
+  ])
+  const inventory = [{ file, names:['replacement','plain'], locations:[{line:2,column:1},{line:3,column:1}] }]
+  const files = new Set([...sources.keys(), 'config.json'])
+  const consumers = dependencyConsumers(inventory, sources, path => files.has(path), {files})
+  assert.throws(() => selectBehaviors(inventory, [{status:'M',file:'config.json'}], consumers, {
+    sources, previousSources:sources, previousConsumers:consumers, ranges:{}, compilerOptions:{noLib:true,noResolve:true,types:[]},
+  }), error => /Unsafe runtime input.*ambiguous replacement/.test(error.message) && error.diagnostics.caseIndex === 0)
+})
