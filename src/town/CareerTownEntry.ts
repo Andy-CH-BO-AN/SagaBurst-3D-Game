@@ -1,7 +1,7 @@
 import { stageMissionReturnRebuild } from '../career/CareerMissionReturnRecovery'
 import { townRoster } from './TownRules'
 import { createCareerBridgeBattleLaunch, isCareerBridgeBattle } from '../career/CareerBridgeBattle'
-import { installTownStyles, starterThumbnails } from './TownUI'
+import { installTownStyles } from './TownUI'
 import type { CareerProfile } from '../career/CareerProfile'
 import { createAndSaveCareer } from '../career/CareerCreation'
 import { showCommanderRetirementEnding } from './TownRetirementUI'
@@ -16,8 +16,6 @@ import { resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext
 import { COMMANDER_LAST_STAND_ID } from '../career/CommanderMissionCatalog'
 import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
 import { TownScene } from './TownScene'
-import { grantStarter, STARTER_WEAPONS } from './TownRules'
-import { WEAPONS } from '../rpg/WeaponDatabase'
 import { canStartCareerTutorial, commitCareerTutorial, startCareerTutorial } from '../career/CareerTutorial'
 import type { CareerTutorialLaunch } from '../career/CareerTutorialLaunch'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
@@ -37,7 +35,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       form.remove()
       showCommanderRetirementEnding(profile, {
         home: () => { sessionStorage.removeItem(TOWN_ENTRY_KEY); home() },
-        newCareer: () => showCreator(null, profile),
+        newCareer: () => showCreator(profile),
       })
       return
     }
@@ -163,7 +161,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       back.onclick = () => { sessionStorage.removeItem(TOWN_ENTRY_KEY); loading.remove(); home() }; loading.append(back)
     }
   }
-  const showCreator = (existing: CareerProfile | null, replacement?: CareerProfile): void => {
+  const showCreator = (replacement?: CareerProfile): void => {
     form.replaceChildren(heading, status)
     document.body.append(form)
     button(replacement ? '取消' : '返回主選單', () => {
@@ -171,42 +169,25 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       if (replacement) void start(replacement)
       else home()
     })
-    let faction: 'roman' | 'viking' = existing?.faction ?? 'roman'
-    status.textContent = existing ? '補選一次起始武器；原有軍功與收藏保留。' : '選擇陣營與一把 T1 起始武器。新角色只配發這一把武器。'
-    if (!existing) {
-      const select = document.createElement('select'); select.innerHTML = '<option value="roman">Roman 羅馬</option><option value="viking">Viking 維京</option>'; select.onchange = () => { faction = select.value as typeof faction }; form.append(select)
-    }
-    const grid = document.createElement('div'); grid.className = 'town-starters'; form.append(grid)
-    const thumbnails = starterThumbnails(STARTER_WEAPONS)
-    for (const id of STARTER_WEAPONS) {
-      const weapon = WEAPONS[id], card = document.createElement('button'); card.className = 'town-starter'
-      const image = document.createElement('img'); image.src = thumbnails.get(id)!; image.alt = weapon.name
-      const name = document.createElement('strong'); name.textContent = weapon.name
-      const description = document.createElement('p'); description.textContent = weapon.description
-      const stats = document.createElement('dl')
-      for (const [label, value] of [['傷害', weapon.damageMin + '–' + weapon.damageMax], [weapon.type === 'melee' ? '揮擊時間' : '蓄力時間', weapon.speedOrCharge + ' 秒'], [weapon.type === 'melee' ? '距離' : '彈速', weapon.range ? weapon.range + ' m' : weapon.arrowSpeedMin + '–' + weapon.arrowSpeedMax + ' m/s']]) {
-        const term = document.createElement('dt'), detail = document.createElement('dd'); term.textContent = label; detail.textContent = value; stats.append(term, detail)
-      }
-      const choose = document.createElement('p'); choose.textContent = 'T1 · 選擇此武器 →'
-      card.append(image, name, description, stats, choose); grid.append(card)
-      card.onclick = () => {
-        let profile: CareerProfile | null = null
-        if (existing) {
-          const selected = grantStarter(existing, id)
-          if (store.save(selected)) profile = selected
-        } else {
-          const fresh = store.loadChecked()
-          const sameEnding = !replacement || fresh.profile?.careerRetirement?.acceptedAt === replacement.careerRetirement?.acceptedAt
-            && fresh.profile?.careerRetirement?.outcome === replacement.careerRetirement?.outcome
-          if (!fresh.error && sameEnding) profile = createAndSaveCareer(fresh.profile, faction, id, Boolean(replacement), next => store.save(next))
-        }
-        if (!profile) { status.textContent = '保存失敗或原存檔已更新。角色與配發尚未完成，原存檔保留，請重試。'; return }
-        grid.querySelectorAll('button').forEach(button => { button.disabled = true })
-        void start(profile)
-      }
-    }
-
+    let faction: 'roman' | 'viking' = 'roman'
+    status.textContent = '選擇陣營後進入新兵訓練。練習裝備免費借用；完成可領 100 軍功，再到武器店購買第一把永久武器。'
+    const select = document.createElement('select')
+    select.setAttribute('aria-label', '選擇陣營')
+    select.innerHTML = '<option value="roman">Roman 羅馬</option><option value="viking">Viking 維京</option>'
+    select.onchange = () => { faction = select.value as typeof faction }
+    form.append(select)
+    const enlist = button('開始新兵訓練', () => {
+      const fresh = store.loadChecked()
+      const sameEnding = !replacement || fresh.profile?.tutorial?.careerId === replacement.tutorial?.careerId
+        && fresh.profile?.careerRetirement?.acceptedAt === replacement.careerRetirement?.acceptedAt
+        && fresh.profile?.careerRetirement?.outcome === replacement.careerRetirement?.outcome
+      const profile = !fresh.error && sameEnding
+        ? createAndSaveCareer(fresh.profile, faction, Boolean(replacement), next => store.save(next)) : null
+      if (!profile) { status.textContent = '保存失敗或原存檔已更新。角色尚未建立，原存檔保留，請重試。'; return }
+      enlist.disabled = select.disabled = true
+      void start(profile)
+    })
   }
-  if (loaded.profile?.careerRetirement?.phase === 'completed' || loaded.profile?.starterWeaponId) { void start(loaded.profile); return }
-  showCreator(loaded.profile)
+  if (loaded.profile) { void start(loaded.profile); return }
+  showCreator()
 }

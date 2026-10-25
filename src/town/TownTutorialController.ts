@@ -98,7 +98,7 @@ export class TownTutorialController {
         return
       }
       if (step === 'horse-use' && h.playerHorse()) { this.record('town', 'horse-use'); return }
-      if (step === 'weapon') { npc('merchant', '武器店主'); text = '購買一把武器\n交易保存後獎勵 20 軍功。購買後按 Tab 查看／裝備新武器。' }
+      if (step === 'weapon') { npc('merchant', '武器店主'); text = '購買第一把正式武器\n可使用操作練習獲得的 100 軍功。交易保存後獎勵 20 軍功；按 Tab 查看／裝備購買的武器。' }
       else if (step === 'duel') { npc('captain', '騎兵隊長'); text = '新兵切磋\n靠近隊長按 E，選「新兵切磋」。不需要坐騎；勝負皆可繼續。' }
       else if (step === 'horse') {
         const vendor = ['ranger', 'cat', 'eagle-trainer'].find(id => townShopProducts(id).some(item => item.id === 'horse'))
@@ -194,7 +194,7 @@ export class TownTutorialController {
     addText(`生涯教學 · 新兵 ${status(t.recruit.status)} · 隊長 ${status(t.captain.status)} · 指揮官 ${status(t.commander.status)}\nHP 是生命；體力用於攻擊、格擋與奔跑。累積軍功決定升階資格，可用軍功用於交易。達門檻後仍需找 NPC 正式接受任命。`)
     if (t.town.status !== 'locked' && t.town.status !== 'completed' && t.town.status !== 'deferred') {
       if (t.town.step === 'report') {
-        addText('歡迎報到。先到武器店實際購買一把可用武器；起始配發與訓練場借用品不算。成功購買後按 Tab 查看與裝備。')
+        addText('歡迎報到。操作練習使用的是借用品，不會帶進城鎮。請到武器店，用練習獎勵購買第一把正式武器；成功購買後按 Tab 查看與裝備。舊角色先前已保存的購買紀錄也會承認。')
         this.record('town', 'report')
       } else if (t.town.step === 'duel-intro') {
         addText('接著找騎兵隊長，選「新兵切磋」。這場不用馬，勝負皆可繼續；每次角色生涯只發一次教學獎勵。')

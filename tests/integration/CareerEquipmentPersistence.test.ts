@@ -3,6 +3,9 @@ import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { WeaponWheel } from '../../src/player/WeaponWheel'
 import { TownEquipment } from '../../src/town/TownEquipment'
+import { purchaseTownEquipment } from '../../src/town/TownRules'
+import { addCareerItem } from '../../src/career/CareerInventory'
+import { deferCareerTutorial } from '../../src/career/CareerTutorial'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 describe('Career equipment persistence wiring', () => {
@@ -16,12 +19,35 @@ describe('Career equipment persistence wiring', () => {
     expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(bytes)
     expect(parseCareerProfile({ ...raw, inventory: { version: 1, quantities: { 'maki-ranger-bow': 1 } } })).toBeNull()
   })
-  it('Career selection persists exclusivity, respects failed writes and restores after returning', () => {
+  it('keeps an unarmed Career empty until its first saved purchase, then persists selection exclusivity and failed writes', () => {
     let profile = createCareerProfile('roman')
-    profile.ownedWeapons = ['gladius_rusty', 'pilum_basic']
-    profile.ownedArmors = ['scutum_t1']
+    deferCareerTutorial(profile, 'recruit')
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    profile = store.load()!
     let canSave = true
-    const inv = new TownEquipment(() => profile, next => { if (!canSave) return false; profile = next; return true })
+    const commit = (next: typeof profile) => { if (!canSave || !store.save(next)) return false; profile = next; return true }
+    const inv = new TownEquipment(() => profile, commit)
+    inv.prepareForCombat()
+    expect(inv.saveState.items).toEqual([])
+    expect(inv.meleeEnabled || inv.rangedEnabled || inv.shieldEnabled).toBe(false)
+    expect(new WeaponWheel().cycle(inv, 1)).toBeNull()
+    expect(profile.ownedWeapons).toEqual([])
+    expect(profile.starterWeaponId).toBeUndefined()
+    // The first permanent weapon comes from the same canonical transaction as the Town shop.
+    profile.totalMerit = 100; profile.availableMerit = 100
+    const purchase = purchaseTownEquipment(profile, 'gladius_rusty')
+    expect(purchase.purchased).toBe(true)
+    expect(commit(purchase.profile)).toBe(true)
+    expect(profile.availableMerit).toBe(0)
+    expect(profile.ownedWeapons).toEqual(['gladius_rusty'])
+    expect(profile.tutorial?.purchases.weaponIds).toEqual(['gladius_rusty'])
+    expect(profile.starterWeaponId).toBeUndefined()
+    expect(inv.equipWeapon('gladius_rusty')).toBe(true)
+    expect(store.load()!.equipment?.melee).toBe('gladius_rusty')
+    addCareerItem(profile, 'pilum_basic', 1)
+    addCareerItem(profile, 'scutum_t1', 1)
+    expect(commit(profile)).toBe(true)
     expect(inv.rangedEnabled).toBe(false)
     expect(inv.equipWeapon('pilum_basic')).toBe(true)
     expect(inv.equipWeapon('scutum_t1')).toBe(true)
@@ -32,7 +58,6 @@ describe('Career equipment persistence wiring', () => {
     canSave = true
     expect(inv.equipWeapon('pilum_basic')).toBe(true)
     expect(profile.equipment?.shield).toBeNull()
-    const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(profile)).toBe(true)
     profile = store.load()!
     const returned = new TownEquipment(() => profile, () => true)

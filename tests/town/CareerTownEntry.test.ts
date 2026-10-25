@@ -7,18 +7,18 @@ import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { enterCareerTown, TOWN_ENTRY_KEY } from '../../src/town/CareerTownEntry'
 import { TownScene } from '../../src/town/TownScene'
-import { starterThumbnails } from '../../src/town/TownUI'
 import { CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { claimCareerMission } from '../../src/career/CareerProfile'
 
 vi.mock('../../src/town/TownScene', () => ({ TownScene: { create: vi.fn() } }))
-vi.mock('../../src/town/TownUI', () => ({ installTownStyles: vi.fn(), starterThumbnails: vi.fn() }))
+vi.mock('../../src/town/TownUI', () => ({ installTownStyles: vi.fn() }))
 
 interface EntryElement {
   textContent: string; style: Record<string, string>; children: EntryElement[]; tag: string; removed: boolean
   onclick: null | (() => void); append(...children: EntryElement[]): void; remove: ReturnType<typeof vi.fn>
   replaceChildren(...children: EntryElement[]): void; querySelectorAll(selector: string): EntryElement[]
+  setAttribute(name: string, value: string): void
 }
 function element(tag = 'div'): EntryElement {
   const value: EntryElement = {
@@ -26,6 +26,7 @@ function element(tag = 'div'): EntryElement {
     append(...children) { this.children.push(...children) },
     replaceChildren(...children) { this.children = children; this.removed = false },
     querySelectorAll(selector) { return this.children.flatMap(child => [...(child.tag === selector ? [child] : []), ...child.querySelectorAll(selector)]) },
+    setAttribute: vi.fn(),
     remove: vi.fn(() => { value.removed = true }),
   }
   return value
@@ -39,12 +40,11 @@ function findText(root: EntryElement, text: string): EntryElement | undefined {
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 describe('Town load failure recovery', () => {
-  it('replaces a completed Career only after confirmed starter selection and saved tutorial routing', async () => {
+  it('replaces a completed Career after faction confirmation and saved tutorial routing without issuing weapons', async () => {
     const local = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
     vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
     vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
-    vi.mocked(starterThumbnails).mockReturnValue(new Map())
     const profile = createCareerProfile('roman')
     profile.starterWeaponId = 'gladius_rusty'; profile.ownedWeapons = ['gladius_rusty']
     profile.rank = 'commander'; profile.totalMerit = profile.availableMerit = 20000
@@ -64,33 +64,57 @@ describe('Town load failure recovery', () => {
     expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
     findText(body, '開始新的 Career')!.onclick!()
     findText(body, '開始新生涯')!.onclick!()
-    // Cancelling the existing faction/starter creator is still non-destructive.
+    // Cancelling faction selection is still non-destructive.
     findText(body, '取消')!.onclick!()
     expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
     findText(body, '開始新的 Career')!.onclick!()
     findText(body, '開始新生涯')!.onclick!()
-    const form = body.children[body.children.length - 1]
-    const grid = form.children[form.children.length - 1]
+    const enlist = findText(body, '開始新兵訓練')!
     local.failWrites = true
-    grid.children[0].onclick!()
+    enlist.onclick!()
     expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
     expect(TownScene.create).not.toHaveBeenCalled()
     expect(training).not.toHaveBeenCalled()
     local.failWrites = false
-    grid.children[0].onclick!()
+    enlist.onclick!()
     await Promise.resolve()
     expect(training).toHaveBeenCalledOnce()
     expect(TownScene.create).not.toHaveBeenCalled()
     expect(home).not.toHaveBeenCalled()
     const fresh = store.loadChecked().profile!
-    expect(fresh).toMatchObject({ rank: 'recruit', totalMerit: 0, availableMerit: 0, starterWeaponId: 'gladius_rusty', claimedBattleIds: [] })
+    expect(fresh).toMatchObject({ rank: 'recruit', totalMerit: 0, availableMerit: 0, ownedWeapons: [], claimedBattleIds: [] })
+    expect(fresh.starterWeaponId).toBeUndefined()
+    expect(fresh.equipment).toEqual({})
     expect(fresh.careerRetirement).toBeUndefined()
     expect(fresh.personalSquad?.members ?? []).toEqual([])
     expect(fresh.activeMission).toBeUndefined()
     expect(fresh.careerMissionCompletions).toBeUndefined()
     expect(fresh.townEvent).toBeUndefined()
-    expect(fresh.inventory?.quantities).toEqual({ gladius_rusty: 1 })
+    expect(fresh.inventory?.quantities).toEqual({})
     expect(fresh.tutorial?.careerId).not.toBe(profile.tutorial?.careerId)
+  })
+
+  it('resumes a saved unarmed Career in Town without asking for a starter or issuing one', async () => {
+    const local = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
+    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    const profile = createCareerProfile('viking')
+    profile.inventory = { version: 1, quantities: {} }; profile.equipment = {}
+    profile.tutorial!.recruit.status = 'deferred'
+    const store = new CareerProfileStore(local); expect(store.save(profile)).toBe(true)
+    const start = vi.fn(), training = vi.fn()
+    vi.mocked(TownScene.create).mockResolvedValue({ start } as unknown as TownScene)
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn(), undefined, training)
+    await Promise.resolve()
+    expect(start).toHaveBeenCalledOnce()
+    expect(training).not.toHaveBeenCalled()
+    expect(findText(body, '開始新兵訓練')).toBeUndefined()
+    expect(vi.mocked(TownScene.create).mock.calls[0][1]).toMatchObject({ faction: 'viking', ownedWeapons: [], equipment: {} })
+    const saved = store.loadChecked().profile!
+    expect(saved.starterWeaponId).toBeUndefined()
+    expect(saved.inventory?.quantities).toEqual({})
+    expect(saved.tutorial?.careerId).toBe(profile.tutorial!.careerId)
   })
 
   it('saves the castle refit before map launch and offers a retry if that save fails', async () => {

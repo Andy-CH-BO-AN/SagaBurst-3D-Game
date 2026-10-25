@@ -1653,6 +1653,7 @@ export class Game {
   private _initializeCareerTutorial(): void {
     this.tutorialScene = new CareerTutorialScene(this.tutorialLaunch!, {
       returnToTown: () => this._exitCareerTutorial(),
+      clearInput: () => { this.input.clear(); this.player.clearTownAction(); this.armyCommandController.close() },
       reset: () => {
         this.input.clear(); this.player.clearTownAction()
         if (this.isTrainingGround) this._resetTraining()
@@ -1682,15 +1683,17 @@ export class Game {
   private _updateCareerTutorial(dt: number): void {
     const tutorial = this.tutorialScene
     if (!tutorial) return
+    const paused = Boolean(this.trainingUI?.paused)
     const horse = this.trainingGround?.mounts.find(mount => mount.type === MountType.HORSE)
-    tutorial.equipmentClosed(this.inventoryManager.meleeEnabled && this.inventoryManager.equippedMelee.type === 'melee' && !this.equipmentUI.visible)
+    if (!paused) tutorial.equipmentClosed(this.inventoryManager.meleeEnabled && this.inventoryManager.equippedMelee.type === 'melee' && !this.equipmentUI.visible)
     tutorial.update({ position: this.player.combatPosition, cameraYaw: this.thirdPersonCamera.cameraYaw,
       cameraPitch: this.thirdPersonCamera.cameraPitch, inputLocked: this.input.isLocked,
-      hidden: this.equipmentUI.visible || Boolean(this.trainingUI?.paused), dead: this.player.dead, onFoot: !this.player.isMounted,
+      hidden: this.equipmentUI.visible, paused, dead: this.player.dead, onFoot: !this.player.isMounted,
       mountedOnPracticeHorse: Boolean(horse && !horse.dead && this.player.currentMount === horse && this.player.isMounted),
       shieldRaised: this.player.hasShield && this.player.shield.shieldRaised,
       horsePosition: horse?.group.position, friendlyCount: this.npcs.filter(npc => !npc.dead && npc.faction === Faction.PLAYER).length,
     }, dt)
+    if (paused) this.trainingUI?.placePauseBelowTutorial(tutorial.panelBottom)
     if (this.tutorialLaunch?.stage === 'captain' && tutorial.step === 'selected'
       && this.armyCommandController.isSubmenuOpen && this.armyCommandController.selected === 'squad:1') tutorial.operation('selected')
     if (this.tutorialLaunch?.stage === 'captain' && tutorial.engagementEnabled) {

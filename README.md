@@ -59,11 +59,11 @@ Choose **Roman Defense** or **Viking Defense** and defend your faction's outpost
 
 Create a Roman or Viking character and rise through **Recruit → Soldier → Veteran → Captain → Commander**.
 
-Choose your faction and starter weapon, then explore your fortified town and its surroundings. Press `E` near service NPCs to talk, including while mounted. Shops buy and sell weapons, shields, and mounts; `Tab` opens your character, inventory, and available squad equipment pages.
+Choose your faction to begin recruit training with borrowed equipment. Complete the training for 100 merit, then buy your first permanent weapon in town. Press `E` near service NPCs to talk, including while mounted. Shops buy and sell weapons, shields, and mounts; `Tab` opens your character, inventory, and available squad equipment pages.
 
 #### Progressive tutorials
 
-New characters begin with movement, equipment, melee, shields, archery, and horse practice. Completing the practice awards **100 merit once**. Borrowed gear stays in the training scene. You can defer the tutorial and resume through the **Sergeant**.
+New characters begin with movement, equipment, melee, shields, archery, and horse practice. Instructions appear below the compass. Press `Esc` to use the tutorial's reset, retry, and defer buttons while paused. Completing the practice saves **100 merit once** and automatically returns to town to buy the first weapon from the existing shop. New characters receive no permanent starter weapon; borrowed gear stays in the training scene. You can defer the tutorial and resume through the **Sergeant**. Existing characters keep their owned weapons.
 
 The Sergeant then introduces buying a weapon (**20 merit once**) and sparring with the real Cavalry Captain (**500 for victory or 20 for a normal defeat**, once, without unlocking formal duel tiers). After two normally settled battle missions and enough available merit for a horse, the horse introduction awards **50 merit once** after purchase. Races remain optional: **Sergeant → 1v1 → Racing**.
 

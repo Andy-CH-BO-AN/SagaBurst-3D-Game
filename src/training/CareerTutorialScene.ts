@@ -35,6 +35,7 @@ export interface TutorialSceneFrame {
   cameraPitch: number
   inputLocked: boolean
   hidden: boolean
+  paused: boolean
   dead: boolean
   onFoot: boolean
   mountedOnPracticeHorse: boolean
@@ -50,6 +51,7 @@ export class CareerTutorialScene {
   private readonly root = document.createElement('section')
   private readonly text = document.createElement('p')
   private readonly status = document.createElement('small')
+  private readonly interactionHint = document.createElement('small')
   private readonly retry = document.createElement('button')
   private readonly leave = document.createElement('button')
   private readonly reset = document.createElement('button')
@@ -61,10 +63,11 @@ export class CareerTutorialScene {
   private looked = 0
   private hudVisibleSeconds = 0
   private disposed = false
+  private recruitReturnQueued = false
   readonly movementPoint = new THREE.Vector3(109, 0, 43)
   readonly ridePoints = [new THREE.Vector3(70, 0, 77), new THREE.Vector3(85, 0, 82), new THREE.Vector3(95, 0, 65)]
 
-  constructor(readonly launch: CareerTutorialLaunch, private readonly actions: { returnToTown(): void; reset(): void }) {
+  constructor(readonly launch: CareerTutorialLaunch, private readonly actions: { returnToTown(): void; reset(): void; clearInput(): void }) {
     const loaded = this.store.loadChecked()
     if (!loaded.profile || loaded.error || loaded.profile.tutorial?.careerId !== launch.careerId
       || loaded.profile.tutorial.session?.id !== launch.sessionId || loaded.profile.tutorial.session.stage !== launch.stage) {
@@ -72,13 +75,18 @@ export class CareerTutorialScene {
     }
     this.profile = loaded.profile
     this.root.id = 'career-tutorial-scene'
-    this.root.style.cssText = 'position:fixed;left:18px;top:88px;z-index:1102;width:min(420px,calc(100vw - 36px));background:#171411d9;color:#fff1cf;padding:14px;border:1px solid #b49968;border-radius:7px;font:15px/1.55 system-ui'
+    this.root.style.cssText = 'position:fixed;left:50%;top:0;transform:translateX(-50%);z-index:1102;width:min(440px,calc(100vw - 32px));box-sizing:border-box;overflow:auto;background:#171411e8;color:#fff1cf;padding:14px;border:1px solid #b49968;border-radius:7px;font:15px/1.55 system-ui'
+    this.root.hidden = true
     const title = document.createElement('strong'); title.textContent = launch.stage === 'recruit' ? '新兵操作訓練' : '隊長指揮訓練 · 30 名 AI'
     this.leave.textContent = '稍後繼續 · 返回城鎮'; this.leave.onclick = () => this.returnToTown()
-    this.reset.textContent = '安全重置演練'; this.reset.onclick = () => actions.reset()
-    this.retry.textContent = '重試保存'; this.retry.hidden = true; this.retry.onclick = () => { const next = this.pending; this.pending = undefined; this.retry.hidden = true; next?.() }
+    this.reset.textContent = '安全重置演練'; this.reset.onclick = () => { actions.clearInput(); actions.reset() }
+    this.retry.textContent = '重試保存'; this.retry.hidden = true; this.retry.onclick = () => { actions.clearInput(); const next = this.pending; this.pending = undefined; this.retry.hidden = true; next?.() }
+    this.interactionHint.style.cssText = 'display:block;margin-top:6px;color:#e8d49d'
+    this.interactionHint.textContent = launch.stage === 'recruit'
+      ? 'Esc 顯示游標，可操作教學按鈕；點「繼續訓練」返回。'
+      : 'Esc 顯示游標，可操作教學按鈕；點擊遊戲畫面返回指揮。'
     for (const button of [this.leave, this.reset, this.retry]) button.style.cssText = 'margin:8px 8px 0 0;padding:7px;cursor:pointer'
-    this.root.append(title, this.text, this.status, document.createElement('br'), this.leave, this.reset, this.retry)
+    this.root.append(title, this.text, this.status, this.interactionHint, this.leave, this.reset, this.retry)
     for (const event of ['mousedown', 'mouseup', 'wheel', 'click']) this.root.addEventListener(event, e => e.stopPropagation())
     document.body.append(this.root)
     this.render()
@@ -86,6 +94,7 @@ export class CareerTutorialScene {
 
   get step(): string { return this.profile.tutorial![this.launch.stage].step }
   get complete(): boolean { return this.step === 'complete' }
+  get panelBottom(): number { return this.root.getBoundingClientRect().bottom }
   get engagementEnabled(): boolean { return this.launch.stage === 'captain' && ['attack', 'charge', 'back', 'complete'].includes(this.step) }
 
   operation(event: string): void {
@@ -115,8 +124,18 @@ export class CareerTutorialScene {
 
   update(frame: TutorialSceneFrame, dt: number): void {
     if (this.disposed) return
+    if (this.launch.stage === 'recruit' && this.complete && !this.recruitReturnQueued) {
+      this.recruitReturnQueued = true
+      // Finish the current Game frame before disposing its actors and renderer.
+      queueMicrotask(() => { if (!this.disposed) this.returnToTown() })
+    }
     this.root.hidden = frame.hidden
     if (frame.hidden) { this.guide.hide(); return }
+    this.positionBelowCompass()
+    if (frame.paused) {
+      this.previousYaw = this.previousPitch = undefined
+      this.guide.hide(); return
+    }
     if (frame.dead) {
       this.status.textContent = '演練中倒下不扣生涯軍功；可安全重置或返回城鎮。'
       this.guide.hide(); return
@@ -154,8 +173,30 @@ export class CareerTutorialScene {
     this.guide.updateRace(frame.position, frame.cameraYaw, target, label)
   }
 
+  /** The existing scene update follows the live compass and wrapping HUD without another listener/RAF. */
+  private positionBelowCompass(): void {
+    const compass = document.getElementById('compass-container')
+    if (!compass) return
+    const anchor = compass.getBoundingClientRect(), bounds = this.root.getBoundingClientRect()
+    const center = anchor.left + anchor.width / 2
+    const left = center - bounds.width / 2, right = center + bounds.width / 2
+    let top = anchor.bottom + 12
+    const blockers = document.querySelectorAll<HTMLElement>('.army-command-targets, .army-command-commands, .army-command-feedback, #training-ground-ui .training-title, #training-ground-ui .training-actions, #training-ground-ui .training-damage')
+    for (const element of blockers) {
+      const style = getComputedStyle(element)
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue
+      const rect = element.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0 && rect.left < right && rect.right > left
+        && rect.top < top + bounds.height && rect.bottom > top) top = rect.bottom + 12
+    }
+    this.root.style.left = `${Math.round(center)}px`
+    this.root.style.top = `${Math.round(top)}px`
+    this.root.style.maxHeight = `${Math.max(100, window.innerHeight - top - 12)}px`
+  }
+
   returnToTown(): void {
     if (this.disposed) return
+    this.actions.clearInput()
     const result = commitCareerTutorial(this.store, this.launch.careerId,
       next => deferCareerTutorial(next, this.launch.stage), this.launch.sessionId)
     if (!result.ok) {
@@ -168,8 +209,8 @@ export class CareerTutorialScene {
   private render(): void {
     const state = this.profile.tutorial![this.launch.stage]
     this.text.textContent = this.complete
-      ? state.replay ? '重播完成。不重複發放軍功，也不增加正式任務紀錄。'
-        : this.launch.stage === 'recruit' ? '全部操作已完成並保存，100 軍功已入帳。累積軍功決定任命資格，可用軍功用於消費；達門檻後仍須找 NPC 正式接受任命。'
+      ? state.replay ? this.launch.stage === 'recruit' ? '重播完成，正在返回城鎮。不重複發放軍功，也不增加正式任務紀錄。' : '重播完成。不重複發放軍功，也不增加正式任務紀錄。'
+        : this.launch.stage === 'recruit' ? '全部操作已完成並保存，100 軍功已入帳，正在返回城鎮。累積軍功決定任命資格，可用軍功用於消費；達門檻後仍須找 NPC 正式接受任命。'
           : '指揮訓練已完成並保存。返回同一生涯角色後可前往 HR 建立私人小隊；本次不增加正式任務、擊殺或技能 XP。'
       : (this.launch.stage === 'recruit' ? RECRUIT_HINTS : CAPTAIN_HINTS)[this.step] ?? '依目前標記完成操作。'
     if (this.launch.stage === 'recruit' && this.step === 'melee-hit-1') this.text.textContent += ` 已命中 ${state.operations.includes('melee-hit-1') ? 1 : 0}/2。`
