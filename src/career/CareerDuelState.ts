@@ -1,3 +1,4 @@
+import { getOrdinarySoldierHp } from '../combat/OrdinarySoldierProfile'
 import {
   getUnitPresetsForFaction, UNIT_PRESETS,
   type UnitPreset, type UnitPresetId, type UnitTier,
@@ -11,6 +12,15 @@ export const DUEL_COUNTDOWN_SECONDS = 5
 export const DUEL_COMBAT_SECONDS = 30
 export const CAREER_DUEL_TIERS = [1, 2, 3, 4, 5] as const
 export type CareerDuelTier = UnitTier | 5
+
+/** Carry saved injury across a temporary Duel identity; never revive zero HP. */
+export function careerDuelOpponentHealth(faction: CharacterFaction, tier: CareerDuelTier,
+  hp: number, sourceMaxHp: number): { hp: number; maxHp: number } {
+  const maxHp = tier <= 3 ? getOrdinarySoldierHp(faction, tier as 1 | 2 | 3) : sourceMaxHp
+  const current = Number.isFinite(hp) ? Math.max(0, hp) : 0
+  return { maxHp, hp: Math.min(maxHp, sourceMaxHp > 0 && Number.isFinite(sourceMaxHp)
+    ? current / sourceMaxHp * maxHp : current) }
+}
 
 /** Resources lent to a Duel are restored after its saved settlement, including a scene reload. */
 export interface CareerDuelCommanderHome { hp: number; ammo: number }

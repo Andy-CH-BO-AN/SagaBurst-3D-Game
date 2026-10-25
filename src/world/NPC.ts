@@ -448,7 +448,10 @@ export class NPC {
   readonly equipmentVisualLOD = new EquipmentVisualLODController()
   private builtShieldId: string | null | undefined = undefined
 
-  readonly maxHp: number
+  private _maxHp: number
+  get maxHp(): number { return this._maxHp }
+  get characterTier(): 1 | 2 | 3 | 4 { return this._characterTier }
+  private originalOrdinaryTier?: 1 | 2 | 3
   private currentHp: number
 
   private state: AIState = AIState.IDLE
@@ -754,7 +757,7 @@ export class NPC {
     civilianStyle?: CharacterFaction,
     readonly townCombatRole?: 'merchant',
     spawnPlacement?: { y: number },
-    readonly characterTier: 1 | 2 | 3 | 4 = tier,
+    private _characterTier: 1 | 2 | 3 | 4 = tier,
   ) {
     if (townCombatRole === 'merchant') loadout = townMerchantLoadout(loadout?.mountId === 'horse' ? 'horse' : null)
     this.playableWorldBound = getScenePlayableWorldBound(scene)
@@ -768,7 +771,7 @@ export class NPC {
     this.visualAssetId = visualAssetId
     this.combatProfileId = combatProfileId
     this.specialCombatProfile = specialCombatProfile
-    this.maxHp = resolveOrdinaryNpcHp({ faction: characterFaction, tier: this.characterTier, civilian: townCategory === 'civilian',
+    this._maxHp = resolveOrdinaryNpcHp({ faction: characterFaction, tier: this.characterTier, civilian: townCategory === 'civilian',
       special: faction === Faction.BANDIT || Boolean(visualAssetId || combatProfileId || specialCombatProfile || townCombatRole) },
       townCategory === 'civilian' ? CIVILIAN_PROFILE.hp : getHeroCombatModifiers(combatProfileId)?.maxHp ?? COMBAT_BALANCE.hp.npcDefault)
     this.currentHp = this.maxHp
@@ -1325,6 +1328,71 @@ export class NPC {
     if (this.townCombatRole !== 'merchant' || this.originalCombatEquipment || this.animator.busy) return
     const id = target?.shield.active ? this.loadout?.secondaryMeleeWeaponId : this.loadout?.meleeWeaponId
     if (id && id !== this.meleeWeaponId) this._setActiveMeleeWeapon(id)
+  }
+
+  /** Duel identity is temporary; equipment refits elsewhere never change a resident's body or HP. */
+  applyTemporaryOrdinaryTier(tier: 1 | 2 | 3): void {
+    if (this.townCategory || this.townCombatRole || this.visualAssetId || this.combatProfileId
+      || this.specialCombatProfile || this.faction === Faction.BANDIT || this.characterTier === 4) {
+      throw new Error('Only ordinary soldiers can borrow a Duel character tier')
+    }
+    const original = this.originalOrdinaryTier ?? this.characterTier
+    this.replaceOrdinaryTier(tier)
+    this.originalOrdinaryTier = original
+  }
+
+  restoreOrdinaryTier(): void {
+    if (this.originalOrdinaryTier === undefined) return
+    this.replaceOrdinaryTier(this.originalOrdinaryTier)
+    this.originalOrdinaryTier = undefined
+  }
+
+  private replaceOrdinaryTier(tier: 1 | 2 | 3): void {
+    if (tier === this.characterTier) return
+    // Build first: a failed asset lookup must leave the existing resident intact.
+    const staging = new THREE.Group()
+    const config = { faction: this.characterFaction, tier, isPlayer: false, ordinarySoldier: true } as const
+    const visual = HumanoidAssetRegistry.createCharacterVisual(staging, config)
+    const ratio = this.hpRatio
+    this.animator.cancel()
+    this.rig.animation?.stop()
+    this.swordPivot.removeFromParent()
+    this.bowPivot.removeFromParent()
+    this.shieldPivot.removeFromParent()
+    this.bowVisual?.dispose()
+    this.bowVisual = undefined
+    disposeHumanoidInstanceSkeletons(this.characterVisualGroup)
+    this.characterVisualGroup.clear()
+    this.characterVisualGroup.add(...staging.children)
+    this.bodyMesh = visual.bodyMesh as THREE.Group
+    this.headMesh = visual.headMesh as THREE.Mesh
+    this.rig = visual.rig
+    this.bodyHitNodes = [this.rig.left.elbow, this.rig.left.wrist, this.rig.right.elbow, this.rig.right.wrist, this.rig.leftLeg.ankle, this.rig.rightLeg.ankle]
+    this._characterTier = tier
+    this._maxHp = resolveOrdinaryNpcHp({ faction: this.characterFaction, tier }, this.maxHp)
+    this.currentHp = Math.min(this.maxHp, Math.max(0, ratio * this.maxHp))
+    this.externalPelvisHeight = 0
+    if (this.rig.pelvis) {
+      this.characterVisualGroup.updateWorldMatrix(true, true)
+      this.rig.pelvis.getWorldPosition(this._tmpPelvisWorld)
+      this.externalPelvisHeight = this.characterVisualGroup.worldToLocal(this._tmpPelvisWorld).y
+    }
+    this.rig.right.handSocket.add(this.swordPivot)
+    applyAttachmentContract(this.rig.right.handSocket, 'r', this.swordPivot, 'melee', this.characterFaction === 'viking' ? 0.15 : 0.10)
+    this.swordPivot.userData.swordAttachmentOwned = false
+    this.rig.left.handSocket.add(this.shieldPivot)
+    this.shieldPivot.position.set(0, 0.124, 0.019)
+    this.shieldPivot.rotation.set(-1.42, Math.PI, -0.12)
+    this.builtShieldId = undefined
+    this.rebuildShield()
+    this.animator = new CharacterCombatAnimator(this.rig, this.swordPivot, this.bowPivot)
+    this._rebuildActiveRangedVisual()
+    this._rebuildActiveMeleeVisual()
+    const lod = this.bodyMesh.children.find((child): child is THREE.LOD => child instanceof THREE.LOD)
+    if (lod) this.equipmentVisualLOD.followHumanoid(lod)
+    this.animator.setEquipment(this.isUsingLance, this.hasActiveShield, this.mount?.type as MountedPoseKind)
+    this._alignExternalVisualToMount(Boolean(this.mount))
+    this.rig.animation?.update(0)
   }
 
   /** Synchronizes combat values and visuals without replacing the Town loadout. Mounts are owned by the caller. */
@@ -4213,6 +4281,7 @@ export class NPC {
   }
 
   restoreForTown(destination?: { x: number; y?: number; z: number; yaw?: number }): void {
+    this.restoreOrdinaryTier()
     this.pendingFall.clear()
     this.restoreCombatLoadout()
     this.respawn(destination)

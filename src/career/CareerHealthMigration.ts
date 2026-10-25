@@ -185,7 +185,7 @@ export function migrateCareerHealth(profile: CareerProfile): void {
       if (mission.playerHp !== undefined) { const saved = { hp: mission.playerHp, dead: mission.playerDead }; player(saved); mission.playerHp = saved.hp }
       if (mission.duelPlayerHp !== undefined) { const saved = { hp: mission.duelPlayerHp, dead: mission.playerDead }; player(saved); mission.duelPlayerHp = saved.hp }
     }
-    if (mission.duelOpponentHp !== undefined && mission.duelOpponentActorId) {
+    if (mission.duelOpponentHp !== undefined && mission.duelOpponentActorId && mission.duelOpponentMaxHp === undefined) {
       const saved = { hp: mission.duelOpponentHp, dead: mission.duelOpponentDead }; actor(mission.duelOpponentActorId, saved); mission.duelOpponentHp = saved.hp
     }
     actors(mission.actorHealth)

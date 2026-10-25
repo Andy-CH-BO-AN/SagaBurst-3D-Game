@@ -79,6 +79,9 @@ function policyConsumers(file, inventory) {
       'tests/combat/ProjectileBallistics.test.ts', 'tests/equipment/WeaponWheel.test.ts',
       'tests/equipment/CareerSquadEquipment.test.ts']) add(owner)
   }
+  // Duel's new ordinary-health dependency is exercised by its real pure owner
+  // and controller checkpoint contract without instantiating render actors.
+  if (file === 'src/career/CareerDuelState.ts') add('tests/missions/CareerDuelState.test.ts')
   // T4 visual asset/loader changes reuse the existing equip/save and axe action owners.
   // Geometry, material and grip validation stays in offline/browser QA.
   if (['tools/build-t4-battle-axe.py', 'tools/build-paladin.py'].includes(file)
