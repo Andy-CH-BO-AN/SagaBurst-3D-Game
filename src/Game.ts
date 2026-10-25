@@ -314,6 +314,8 @@ export function resolveMountSpawnY(
 import { damageMount, damageNpc, damageObstacle, damagePlayer, damageReceiver } from './combat/DamageRouter'
 import { isDamageReceiver } from './combat/DamageReceiver'
 import { TrainingGround } from './training/TrainingGround'
+import { CareerTutorialScene } from './training/CareerTutorialScene'
+import type { CareerTutorialLaunch } from './career/CareerTutorialLaunch'
 import { createTrainingGroundPlan, createTrainingInventory } from './training/TrainingGroundPlan'
 import { trainingDamageText } from './training/TrainingDamageDisplay'
 import { TrainingGroundUI } from './ui/TrainingGroundUI'
@@ -395,6 +397,7 @@ export class Game {
     progress: (text: string) => void = () => {},
     trainingGround = false,
     bridgeLaunch?: CareerBridgeBattleLaunch,
+    tutorialLaunch?: CareerTutorialLaunch,
   ): Promise<Game | GameplayBowQAPanel> {
     const query = new URLSearchParams(window.location.search)
     const activeProbe = getActiveRenderProbe(query)
@@ -440,7 +443,7 @@ export class Game {
           CorgiVisual.preload(),
           ...(usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
         ])
-        game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch)
+        game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch, tutorialLaunch)
         await game.initialization
         CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
         game.clock.start(); requestAnimationFrame(game._loop)
@@ -497,12 +500,19 @@ export class Game {
         ...[...heroAssets].map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor)),
         ...(heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
       ])
-      game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch)
+      game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch, tutorialLaunch)
       await game.initialization
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
       game.clock.start(); requestAnimationFrame(game._loop)
       return game
     } catch (error) {
+      if (tutorialLaunch && game) {
+        game.abortCareerDeployment()
+        game.tutorialScene?.dispose()
+        game.trainingDamageUnsubscribe?.()
+        game.trainingUI?.dispose()
+        game.equipmentUI?.close()
+      }
       game?.compass?.dispose()
       if (game) game.compass = undefined
       renderer.dispose()
@@ -570,6 +580,9 @@ export class Game {
   }
 
   private battleController: BattleController | null = null
+  private tutorialScene?: CareerTutorialScene
+  private tutorialFaction?: 'roman' | 'viking'
+  private tutorialEquipmentMeleeId?: string
   private readonly defenseCampaignConfig: DefenseCampaignLaunchConfig | null
   private defenseCampaignRuntime: DefenseCampaignRuntime | null = null
   private defenseCampaignHud: DefenseCampaignHUD | null = null
@@ -748,9 +761,21 @@ export class Game {
     progress: (text: string) => void = () => {},
     readonly isTrainingGround = false,
     private readonly bridgeLaunch?: CareerBridgeBattleLaunch,
+    private readonly tutorialLaunch?: CareerTutorialLaunch,
   ) {
     this.renderer = renderer
     if (isTrainingGround && (battleConfig || campaignConfig)) throw new Error('Training Ground cannot use a battle or Career launch')
+    if (tutorialLaunch) {
+      const profile = new CareerProfileStore().loadChecked().profile
+      const session = profile?.tutorial?.session
+      if (!session || session.id !== tutorialLaunch.sessionId || session.careerId !== tutorialLaunch.careerId
+        || session.stage !== tutorialLaunch.stage || isTrainingGround !== (session.stage === 'recruit')
+        || profile?.activeMission || profile?.activeOutpostMission || profile?.activeRace || profile?.careerRetirement
+        || profile?.townEvent?.state === 'hostile' || campaignConfig || bridgeLaunch || battleConfig?.careerEagleMissionId) {
+        throw new Error('教學場景與保存的生涯 session 不符。')
+      }
+      this.tutorialFaction = profile.faction
+    }
     this.defenseCampaignConfig = campaignConfig ?? null
     this.captainEagleMissionId = battleConfig?.careerEagleMissionId ?? null
     if (campaignConfig?.careerMissionId || this.fieldMissionId) {
@@ -957,7 +982,7 @@ export class Game {
 
     // ── Player & Input ──
     const validationHero = import.meta.env.DEV && this.isTrainingGround ? commanderValidationHero(startupQuery) : undefined
-    const playerFaction = this.careerProfile?.faction ?? (validationHero ? HERO_ASSETS[validationHero].descriptor.faction : undefined)
+    const playerFaction = this.careerProfile?.faction ?? this.tutorialFaction ?? (validationHero ? HERO_ASSETS[validationHero].descriptor.faction : undefined)
       ?? campaignConfig?.careerVeteranOutpost?.playerFaction
       ?? campaignConfig?.careerCommanderOutpost?.playerFaction
       ?? campaignConfig?.defenderFaction
@@ -1296,12 +1321,14 @@ export class Game {
       this._declareCaptainEagleRoster(battlePlan)
     } else if (battleConfig && battlePlan) {
       await this._executeBattleSpawnPlan(battlePlan, progress)
-      this.battleController = new BattleController(
+      if (this.tutorialLaunch?.stage === 'captain') {
+        for (const npc of this.npcs) npc.setTacticalOrder('defend')
+      } else this.battleController = new BattleController(
         battleConfig,
         () => this.battleStats.snapshot(this.npcs, this.player),
         battleConfig.commandGrouping === 'squad',
       )
-      this.battleController.initCounts(this.npcs)
+      this.battleController?.initCounts(this.npcs)
     }
 
     if (
@@ -1390,7 +1417,7 @@ export class Game {
         if (order !== 'follow') this.soundManager.playCommanderCommand(playerFaction, order)
         if (this.hasCareerOfficialCommand) this._persistPersonalOutpost(true)
       },
-      campaignConfig || this.bridgeLaunch ? 'defend' : (this.isDevCombat || isBridgePreview) ? 'defend' : 'attack',
+      campaignConfig || this.bridgeLaunch || this.tutorialLaunch ? 'defend' : (this.isDevCombat || isBridgePreview) ? 'defend' : 'attack',
       (order) => {
         if (this.hasCareerOfficialCommand && (this.player.dead || this._careerCommandFinished())) return false
         if (this.personalSquad) return !this.player.dead && this.controlMode !== 'spectator'
@@ -1510,6 +1537,7 @@ export class Game {
     this._setupResize()
     this._setupShortcuts()
     if (this.isTrainingGround) this._initializeTrainingGround()
+    if (this.tutorialLaunch) this._initializeCareerTutorial()
     if (heroBenchmark && benchmarkSettings) {
       const terrainHeight = getTerrainHeight(0, 0)
       this.camera.position.fromArray(heroBenchmark.camera.position)
@@ -1613,12 +1641,84 @@ export class Game {
     this.trainingDamageUnsubscribe = this.combatEvents.subscribe(event => {
       const text = trainingDamageText(event, this.player.currentMount?.displayName)
       if (text) this.trainingUI?.setDamage(text)
+      this.tutorialScene?.combat(event)
     })
     this._resetTraining()
     if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('mount') === 'snow-leopard') {
       const mount = this.mounts.find(candidate => candidate.type === MountType.SNOW_LEOPARD)
       if (mount) this._mountPlayer(mount, mount.group.rotation.y)
     }
+  }
+
+  private _initializeCareerTutorial(): void {
+    this.tutorialScene = new CareerTutorialScene(this.tutorialLaunch!, {
+      returnToTown: () => this._exitCareerTutorial(),
+      clearInput: () => { this.input.clear(); this.player.clearTownAction(); this.armyCommandController.close() },
+      reset: () => {
+        this.input.clear(); this.player.clearTownAction()
+        if (this.isTrainingGround) this._resetTraining()
+        else window.location.reload()
+      },
+    })
+    if (this.trainingGround) {
+      this.trainingGround.addTutorialMarker(this.tutorialScene.movementPoint.x, this.tutorialScene.movementPoint.z)
+      for (const point of this.tutorialScene.ridePoints) this.trainingGround.addTutorialMarker(point.x, point.z)
+      for (const element of document.querySelectorAll<HTMLElement>('[data-training="exit"], [data-training="pause-exit"]')) element.textContent = '稍後繼續 · 返回城鎮'
+      const title = document.querySelector('#training-ground-ui .training-title small')
+      if (title) title.textContent = '本次 Career 操作訓練 · 免費借用資源 · 不累積戰鬥 XP'
+      const character = document.querySelector<HTMLSelectElement>('#training-ground-ui select')
+      if (character) character.disabled = true
+    }
+    this.armyCommandController.onAccepted = event => {
+      if (this.tutorialLaunch?.stage !== 'captain' || event.target !== 'squad:1' || event.participantCount <= 0) return
+      this.tutorialScene?.operation(event.order)
+    }
+    this.armyCommandController.onNavigation = (event, target) => {
+      if (this.tutorialLaunch?.stage !== 'captain') return
+      if (event === 'selected' && target === 'squad:1') this.tutorialScene?.operation('selected')
+      if (event === 'back') this.tutorialScene?.operation('back')
+    }
+  }
+
+  private _updateCareerTutorial(dt: number): void {
+    const tutorial = this.tutorialScene
+    if (!tutorial) return
+    const paused = Boolean(this.trainingUI?.paused)
+    const horse = this.trainingGround?.mounts.find(mount => mount.type === MountType.HORSE)
+    if (!paused) tutorial.equipmentClosed(this.inventoryManager.meleeEnabled && this.inventoryManager.equippedMelee.type === 'melee' && !this.equipmentUI.visible)
+    tutorial.update({ position: this.player.combatPosition, cameraYaw: this.thirdPersonCamera.cameraYaw,
+      cameraPitch: this.thirdPersonCamera.cameraPitch, inputLocked: this.input.isLocked,
+      hidden: this.equipmentUI.visible, paused, dead: this.player.dead, onFoot: !this.player.isMounted,
+      mountedOnPracticeHorse: Boolean(horse && !horse.dead && this.player.currentMount === horse && this.player.isMounted),
+      shieldRaised: this.player.hasShield && this.player.shield.shieldRaised,
+      horsePosition: horse?.group.position, friendlyCount: this.npcs.filter(npc => !npc.dead && npc.faction === Faction.PLAYER).length,
+    }, dt)
+    if (paused) this.trainingUI?.placePauseBelowTutorial(tutorial.panelBottom)
+    if (this.tutorialLaunch?.stage === 'captain' && tutorial.step === 'selected'
+      && this.armyCommandController.isSubmenuOpen && this.armyCommandController.selected === 'squad:1') tutorial.operation('selected')
+    if (this.tutorialLaunch?.stage === 'captain' && tutorial.engagementEnabled) {
+      for (const npc of this.npcs) if (!npc.dead && npc.faction === Faction.ENEMY && npc.tacticalOrder === 'defend') npc.setTacticalOrder('attack')
+    }
+  }
+
+  private _exitCareerTutorial(): void {
+    this.tutorialScene?.dispose(); this.tutorialScene = undefined
+    this.spawningStopped = true
+    this.sceneListeners.abort(); this.input.dispose()
+    window.removeEventListener('pagehide', this.flushCareerSkillsOnPageHide)
+    for (const batch of this.spawnBatches) batch.cancel()
+    this.trainingDamageUnsubscribe?.(); this.trainingUI?.dispose()
+    this.equipmentUI.close(); this._disposeCareerOutpostBattleActors()
+    this.trainingGround?.dispose(); this.player.dispose()
+    for (const arrow of this.arrows) arrow.destroy()
+    this._aimTargetRegistry.clear(); this.damageNumbers.clear(); this.weaponWheelUI.dispose()
+    this.soundManager.updateHorseGallopLoops([])
+    for (const timer of [this.hintTimer, this.notifyTimer, this.enemyHudTimer, this.deathBannerTimer]) if (timer !== null) clearTimeout(timer)
+    this.renderer.dispose(); this.renderer.forceContextLoss()
+    sessionStorage.removeItem('sagaburst_battle_config'); sessionStorage.removeItem('sagaburst_campaign_config')
+    sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+    if (document.pointerLockElement) document.exitPointerLock()
+    window.location.assign(`${window.location.pathname}${window.location.search.includes('nolock') ? '?nolock' : ''}`)
   }
 
   private _refillTraining(): void {
@@ -1669,6 +1769,7 @@ export class Game {
 
   private _changeTrainingCharacter(heroId?: PlayerHeroId): void {
     if (!this.trainingGround) return
+    if (this.tutorialLaunch) return
     this._resetTraining()
     this.player.dispose()
     this.player = new Player(this.scene, 'viking', heroId)
@@ -1686,6 +1787,7 @@ export class Game {
 
   private _exitTraining(): void {
     if (!this.trainingGround) return
+    if (this.tutorialScene) { this.tutorialScene.returnToTown(); return }
     this.trainingDamageUnsubscribe?.()
     this.trainingUI?.dispose()
     this.sceneListeners.abort()
@@ -4003,8 +4105,11 @@ export class Game {
     this.input.clear()
     this.player.clearTownAction()
     this.armyCommandController.close()
+    if (!this.equipmentUI.visible) this.tutorialEquipmentMeleeId = this.inventoryManager.equippedMelee.id
     this.equipmentUI.toggle(this.skillManager, this.inventoryManager, () => {
       this._showNotify(`⚔️ 已裝備：${this.inventoryManager.equippedMelee.name}`)
+      if (this.inventoryManager.meleeEnabled && this.inventoryManager.equippedMelee.id !== this.tutorialEquipmentMeleeId) this.tutorialScene?.equipmentSelected()
+      this.tutorialEquipmentMeleeId = this.inventoryManager.equippedMelee.id
     })
     if (this.equipmentUI.visible) {
       if (document.pointerLockElement) document.exitPointerLock()
@@ -4076,7 +4181,7 @@ export class Game {
   }
 
   private _awardPlayerSkillXpFromEvent(event: CombatEvent): void {
-    if (this.isTrainingGround) return
+    if (this.isTrainingGround || this.tutorialLaunch) return
     const meleeWeapon = event.type === 'damage_applied' && event.weaponId
       ? WEAPONS[event.weaponId] ?? this.inventoryManager.equippedMelee
       : this.inventoryManager.equippedMelee
@@ -4096,7 +4201,7 @@ export class Game {
   }
 
   private _applyPlayerSkillAward(award: import('./rpg/CombatSkillProgression').SkillProgressionAward): void {
-    if (this.isTrainingGround) return
+    if (this.isTrainingGround || this.tutorialLaunch) return
     if (this.player.dead || this.player.spectatorOnly || this.controlMode !== 'player') return
 
     const before = this.skillManager.skillState
@@ -4126,7 +4231,7 @@ export class Game {
   }
 
   _saveGame(): void {
-    if (this.isTrainingGround) return
+    if (this.isTrainingGround || this.tutorialLaunch) return
     if (this.defenseCampaignConfig?.careerMissionId || this.fieldMissionId) return
     if (this.player.dead || this.controlMode === 'spectator') return
     const pos = this.player.position
@@ -4170,7 +4275,7 @@ export class Game {
   }
 
   _loadGame(): void {
-    if (this.isTrainingGround) return
+    if (this.isTrainingGround || this.tutorialLaunch) return
     if (this.defenseCampaignConfig?.careerMissionId || this.fieldMissionId) return
     if (this.player.dead || this.controlMode === 'spectator') return
     if (this.player.isFalling || this.player.currentMount?.isAirborne) {
@@ -4526,6 +4631,7 @@ export class Game {
       if (isEPressed) {
         const prevMount = this.player.currentMount
         this.player.dismountFromMount()
+        if (!this.player.isMounted && prevMount.type === MountType.HORSE && this.trainingGround?.mounts.includes(prevMount)) this.tutorialScene?.operation('dismounted')
         if (prevMount) this._aimTargetRegistry.registerMount(prevMount)
         this.pickupPromptEl.classList.remove('visible')
         this.mountHud.classList.remove('visible')
@@ -4726,6 +4832,7 @@ export class Game {
     const frameStart = profile ? performance.now() : 0
     let t0 = 0
     const dt = Math.min(this.clock.getDelta(), 0.05)
+    this._updateCareerTutorial(dt)
 
     if (this.trainingUI?.paused || this.isTrainingGround && this.equipmentUI.visible) {
       this.soundManager.updateEagleWingbeats([])

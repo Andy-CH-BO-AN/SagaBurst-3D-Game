@@ -98,6 +98,9 @@ export function tacticalOrderLabel(order: TacticalOrder | 'mixed'): string {
 }
 
 export class ArmyCommandController {
+  /** Scene observers receive only accepted commands with actual eligible recipients. */
+  onAccepted?: (event: { order: TacticalOrder | 'dismiss'; target: ArmyCommandTarget; participantCount: number }) => void
+  onNavigation?: (event: 'selected' | 'back' | 'mode', target?: ArmyCommandTarget) => void
   private readonly faction: CharacterFaction
   private readonly shortcuts: readonly ArmyCommandShortcut[]
   private readonly orders = new Map<ArmyCommandTarget, TacticalOrder | 'mixed'>()
@@ -224,6 +227,7 @@ export class ArmyCommandController {
 
       if (goBack) {
         this.formation.cancelPlacement()
+        this.onNavigation?.('back', this.selectedTarget ?? undefined)
         this._renderUi()
       } else if (confirmed) {
         const target = this.selectedTarget
@@ -234,6 +238,7 @@ export class ArmyCommandController {
           for (const npc of result.participants) npc.releaseOutpostRampartGarrison?.()
           this._setFormationDesiredOrders(this.selectedTarget, result.participants, result.commandId)
           this.onCommandIssued?.('formation', this.selectedTarget ?? undefined)
+          if (result.participants.length) this.onAccepted?.({ order: 'formation', target, participantCount: result.participants.length })
           this.ui.showFeedback(`${this._targetLabel(this.selectedTarget)} → 列陣`)
           this._closeSubmenu()
         } else {
@@ -247,6 +252,7 @@ export class ArmyCommandController {
       const qBack = this.input.consumeKeyPress('KeyQ')
       const backquoteBack = this.input.consumeKeyPress('Backquote')
       if (qBack || backquoteBack) {
+        this.onNavigation?.('back', this.selectedTarget ?? undefined)
         while (this.input.consumeWheelStep() !== 0) {
           // Returning from a submenu discards wheel movement from that page.
         }
@@ -305,6 +311,7 @@ export class ArmyCommandController {
 
     if (this.input.consumeKeyPress('KeyQ')) {
       this.wheelInputMode = this.wheelInputMode === 'weapon' ? 'command' : 'weapon'
+      this.onNavigation?.('mode')
       while (this.input.consumeWheelStep() !== 0) {
         // A queued step from the old mode must not act in the new mode.
       }
@@ -337,6 +344,7 @@ export class ArmyCommandController {
     if (target !== 'all') this.highlightedTarget = target
     this.highlightedCommandIndex = 0
     this.submenuOpen = true
+    this.onNavigation?.('selected', target)
     this._renderUi()
   }
 
@@ -410,6 +418,7 @@ export class ArmyCommandController {
     }
 
     if ((this.personalCommands || this.commandAuthority) && (order === 'follow' || order === 'dismiss')) {
+      const participantCount = this.npcs.filter(npc => !npc.dead && this._acceptsNpc(npc) && matchesArmyCommandTarget(npc, target)).length
       const accepted = this.commandAuthority
         ? this.commandAuthority.issue?.(order, target) ?? false
         : this.personalCommands!.issue(order)
@@ -419,6 +428,7 @@ export class ArmyCommandController {
       }
       this._clearFormationDesiredOrders(target)
       this._setDesiredOrder(target, order === 'dismiss' ? 'defend' : order)
+      if (participantCount) this.onAccepted?.({ order, target, participantCount })
       this.ui.showFeedback(`${this._targetLabel(target)} → ${order === 'follow' ? 'Follow me' : 'Dismiss · 收隊'}`)
       this._closeSubmenu()
       return
@@ -431,6 +441,7 @@ export class ArmyCommandController {
       this._setDesiredOrder(target, 'follow')
       this.onCampaignFollow?.(target, recipients)
       this.onCommandIssued?.('follow', target)
+      if (recipients.length) this.onAccepted?.({ order, target, participantCount: recipients.length })
       this.ui.showFeedback(`${this._targetLabel(target)} → Follow me · 跟隨`)
       this._closeSubmenu()
       return
@@ -458,6 +469,7 @@ export class ArmyCommandController {
     }
 
     this.onCommandIssued?.(order, target)
+    if (participants.length) this.onAccepted?.({ order, target, participantCount: participants.length })
     this.ui.showFeedback(`${this._targetLabel(target)} → ${ORDER_LABELS[order]}`)
     this._closeSubmenu()
   }

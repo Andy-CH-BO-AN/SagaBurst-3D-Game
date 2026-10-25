@@ -1,3 +1,4 @@
+import { createCareerTutorialState, parseCareerTutorialState } from './CareerTutorialState'
 import { migrateCareerHealth } from './CareerHealthMigration'
 import { hasCompleteRetirementMobilizationCheckpoint, parseRetirementActorCheckpoints } from './CareerRetirementMobilization'
 import { parseCareerRetirementState, type CareerRetirementRuntime } from './CareerRetirementState'
@@ -426,8 +427,9 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     playerDead: raw.playerDead === true,
     ...(duel ? {
       duelTier: raw.duelTier as CareerDuelTier,
-      ...(raw.duelTier === 5 ? { duelCommanderHome: parseCareerDuelCommanderHome(raw.duelCommanderHome),
-        duelTravel: parseCareerDuelTravelCheckpoint(raw.duelTravel, [duelOpponentActorId, duelCaptainActorId]) } : {}),
+      ...(typeof raw.duelTutorialCareerId === 'string' ? { duelTutorialCareerId: raw.duelTutorialCareerId } : {}),
+      ...(raw.duelTier === 5 || raw.duelTutorialCareerId ? { duelCommanderHome: parseCareerDuelCommanderHome(raw.duelCommanderHome),
+        duelTravel: parseCareerDuelTravelCheckpoint(raw.duelTravel, [...new Set([duelOpponentActorId, duelCaptainActorId, ...(raw.duelTutorialCareerId ? [duelRefereeActorId] : [])])]) } : {}),
       duelPresetId: raw.duelPresetId as UnitPresetId,
       duelOpponentActorId, duelCaptainActorId, duelRefereeActorId,
       duelCountdownElapsed: Math.min(DUEL_COUNTDOWN_SECONDS, nonNegativeNumber(raw.duelCountdownElapsed)),
@@ -609,6 +611,10 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const eligible = resolveCareerRank(totalMerit - enlistmentMeritBase)
   const requested = CAREER_RANKS.indexOf(raw.rank as CareerProfile['rank'])
   const rank = CAREER_RANKS[Math.max(0, Math.min(requested, CAREER_RANKS.indexOf(eligible)))]
+  const tutorial = raw.tutorial === undefined ? createCareerTutorialState(rank, false) : parseCareerTutorialState(raw.tutorial)
+  if (!tutorial) return null
+  const tutorialDuel = (raw.activeMission as Partial<ActiveCareerMission> | undefined)?.duelTutorialCareerId
+  if (tutorialDuel !== undefined && tutorialDuel !== tutorial.careerId) return null
   // An ending checkpoint belongs only to a formally appointed, valid Commander.
   if (careerRetirement && rank !== 'commander') return null
   const equipment = raw.equipment && typeof raw.equipment === 'object' ? raw.equipment as Record<string, unknown> : null
@@ -619,6 +625,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (raw.racePlayerState !== undefined && !isRaceRider(raw.racePlayerState)) return null
   if (activeRace === null || raceRecords === null || activeRace && (raw.activeMission || raw.activeOutpostMission)) return null
   const activeMission = parseActiveMission(raw.activeMission, raw.faction, rank)
+  if (tutorialDuel !== undefined && activeMission?.duelTutorialCareerId !== tutorialDuel) return null
   const savedMission = raw.activeMission as Partial<ActiveCareerMission> | undefined
   // Never silently turn a rejected in-flight Commander V checkpoint into a peaceful Town.
   if ((savedMission?.kind === 'commander-four-gate-defense' || savedMission?.templateId === COMMANDER_FOUR_GATE_DEFENSE_ID)
@@ -642,6 +649,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     version: 1,
     ...(raw.healthRulesVersion === 1 ? { healthRulesVersion: 1 as const } : {}),
     faction: raw.faction,
+    tutorial,
     totalMerit,
     availableMerit,
     rank,
@@ -722,6 +730,14 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     lifetimeStats: parseLifetimeStats(raw.lifetimeStats),
     claimedBattleIds: uniqueStrings(raw.claimedBattleIds),
   }
+  // Legacy wins without mission identities cannot prove distinct settlements; keep only durable identified records.
+  if (raw.tutorial === undefined) {
+    tutorial.settledMissionIds = [...new Set([
+      ...(profile.outpostBattleRecords ?? []).map(record => record.id),
+      ...(activeMission?.kind !== 'duel' && activeMission?.result?.claimed && profile.claimedBattleIds.includes(activeMission.id)
+        ? [activeMission.id] : []),
+    ])]
+  }
   // Migrate peaceful authority by actor identity. Active mission grants remain immutable.
   if (!activeMission && !activeOutpostMission && profile.townEvent?.state !== 'hostile'
     && profile.townCommandSquad?.commandRank === 'commander') {
@@ -768,7 +784,7 @@ export class CareerProfileStore {
       const commanderShieldMigration = profile && (['roman', 'viking'] as const).some(faction =>
         profile.townEquipment?.[faction]?.commanderShieldItemId !== undefined
         && previous.townEquipment?.[faction]?.commanderShieldItemId === undefined)
-      if (profile && (profile.healthRulesVersion !== previous.healthRulesVersion || residentMigration || rangerMigration || commanderShieldMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true)
+      if (profile && (previous.tutorial === undefined || profile.healthRulesVersion !== previous.healthRulesVersion || residentMigration || rangerMigration || commanderShieldMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true)
         && !this.save(profile)) return { profile: null, error: '生涯資料升級無法儲存；原資料已保留，請重試。' }
       return profile ? { profile } : { profile: null, error: '生涯存檔損壞或版本不支援；原資料已保留。' }
     } catch { return { profile: null, error: '無法讀取生涯存檔；原資料已保留。' } }
@@ -782,8 +798,15 @@ export class CareerProfileStore {
 
   save(profile: CareerProfile): boolean {
     try {
+      const existingBytes = this.storage.getItem(CAREER_STORAGE_KEY)
+      const existing = existingBytes ? JSON.parse(existingBytes) as Partial<CareerProfile> : null
+      // An old scene may never replace a later enlistment. Creation may replace only a completed ending.
+      if (existing?.tutorial?.careerId && profile.tutorial?.careerId !== existing.tutorial.careerId
+        && !(existing.careerRetirement?.phase === 'completed' && profile.tutorial?.legacy === false
+          && profile.rank === 'recruit' && profile.totalMerit === 0 && !profile.careerRetirement)) return false
       const parsed = parseCareerProfile(profile)
       if (!parsed) return false
+      if (profile.tutorial && !parsed.tutorial || profile.activeMission?.duelTutorialCareerId && parsed.activeMission?.duelTutorialCareerId !== profile.activeMission.duelTutorialCareerId) return false
       if (profile.activeMission?.outpostSiege && !parsed.activeMission?.outpostSiege
         || profile.activeMission?.battle?.outpostSiege && !parsed.activeMission?.battle?.outpostSiege
         || profile.activeOutpostMission?.battle?.outpostSiege && !parsed.activeOutpostMission?.battle?.outpostSiege) return false

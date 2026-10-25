@@ -16,7 +16,7 @@ This guide describes the current repository version. The hosted game and desktop
 
 Desktop downloads include the game assets and work offline. No development tools are needed.
 
-**First time playing?** Start with **Training Ground** to practice weapons and mounts, then try **Custom Battle**. Choose **Career** when you want a character, equipment, and troops that persist between sessions.
+**First time playing?** Create a character in **Career** to start the recruit tutorial. Use **Training Ground** for free practice or **Custom Battle** to configure your own armies.
 
 Click the game view to capture the mouse and control the camera. `Esc` releases the cursor; Career and Training Ground also offer a pause menu.
 
@@ -59,7 +59,17 @@ Choose **Roman Defense** or **Viking Defense** and defend your faction's outpost
 
 Create a Roman or Viking character and rise through **Recruit → Soldier → Veteran → Captain → Commander**.
 
-Choose your faction and starter weapon, then explore your fortified town and its surroundings. Press `E` near service NPCs to talk, including while mounted. Shops buy and sell weapons, shields, and mounts; `Tab` opens your character, inventory, and available squad equipment pages.
+Choose your faction to begin recruit training with borrowed equipment. Complete the training for 100 merit, then buy your first permanent weapon in town. Press `E` near service NPCs to talk, including while mounted. Shops buy and sell weapons, shields, and mounts; `Tab` opens your character, inventory, and available squad equipment pages.
+
+#### Progressive tutorials
+
+New characters begin with movement, equipment, melee, shields, archery, and horse practice. Instructions appear below the compass. Press `Esc` to use the tutorial's reset, retry, and defer buttons while paused. Completing the practice saves **100 merit once** and automatically returns to town to buy the first weapon from the existing shop. New characters receive no permanent starter weapon; borrowed gear stays in the training scene. You can defer the tutorial and resume through the **Sergeant**. Existing characters keep their owned weapons.
+
+The Sergeant then introduces buying a weapon (**20 merit once**) and sparring with the real Cavalry Captain (**500 for victory or 20 for a normal defeat**, once, without unlocking formal duel tiers). After two normally settled battle missions and enough available merit for a horse, the horse introduction awards **50 merit once** after purchase. Races remain optional: **Sergeant → 1v1 → Racing**.
+
+Your first saved **Captain** appointment unlocks a **30 AI** command drill, followed by HR recruitment and **Personal Squad → Follow me**. Your first saved **Commander** appointment introduces the watchtower route, **ALL → Defend**, and an individual squad's Formation command on clear ground outside the tower.
+
+Progress belongs to the current character. Tutorials can be resumed or replayed; replay does not repeat rewards. Existing characters retain their saves and can choose applicable tutorials through the Sergeant. Drills do not earn formal mission wins or permanent combat XP, or consume official troops and private squad resources.
 
 #### Merit and appointments
 
@@ -205,7 +215,7 @@ For **Formation**, aim the crosshair at the ground, check the preview, then pres
 
 ## Saves
 
-Career automatically saves your faction, appointed rank, merit, equipment, mounts, combat skills, troops, duel progression, race results and best times, and mission checkpoints. Enter Career again to resume your saved progress. Campaign saves each faction's stage progression. Training and Custom Battle do not advance Career.
+Career automatically saves your faction, appointed rank, merit, equipment, mounts, combat skills, troops, duel progression, race results and best times, mission checkpoints, and tutorial progress. Enter Career again to resume your saved progress. Campaign saves each faction's stage progression. Free Training Ground and ordinary Custom Battle do not advance Career.
 
 Saves stay on the device. **Browser and desktop saves are separate and do not sync.** Desktop saves persist when you replace the app with a newer version. Clearing browser site data or the app's user data removes the corresponding saves.
 

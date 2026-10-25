@@ -1,0 +1,135 @@
+#career-faction-selection {
+  --career-gold: #e0c28b;
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  overflow: auto;
+  color: #e9e1d1;
+  background:
+    radial-gradient(ellipse at 7% 26%, #6a382533, transparent 52%),
+    radial-gradient(ellipse at 95% 22%, #38556b38, transparent 52%),
+    linear-gradient(175deg, #1c2022, #0c1013 70%);
+  font: 15px/1.6 system-ui, -apple-system, "PingFang TC", "Microsoft JhengHei", sans-serif;
+  color-scheme: dark;
+}
+#career-faction-selection[hidden] { display: none; }
+#career-faction-selection *, #career-faction-selection *::before, #career-faction-selection *::after { box-sizing: border-box; }
+#career-faction-selection button { font: inherit; cursor: pointer; }
+#career-faction-selection button:disabled { cursor: wait; }
+.career-faction-shell { max-width: 1504px; margin: auto; padding: 28px 32px 24px; }
+.career-faction-header { position: relative; text-align: center; margin-bottom: 28px; }
+.career-faction-back { position: absolute; top: 0; left: 0; padding: 9px 15px; color: #d2c4ac; background: #17191ac9; border: 1px solid #786647; border-radius: 4px; transition: border-color .16s, background .16s; }
+.career-faction-back:hover { background: #352e24; border-color: #c7aa75; }
+.career-faction-eyebrow { margin: 0 0 4px; color: #b49a71; font-size: 12px; letter-spacing: .18em; }
+.career-faction-header h1 { margin: 0; color: #f0ddaf; font: 700 clamp(34px, 3.2vw, 52px)/1.35 "Songti TC", "Noto Serif TC", serif; letter-spacing: .12em; text-shadow: 0 3px 18px #000; }
+.career-faction-subtitle { margin: 10px 0 0; color: #c6c3b9; font-size: 16px; letter-spacing: .04em; }
+.career-faction-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; padding: 0; margin: 0; border: 0; min-width: 0; }
+.career-faction-option { --faction-accent: #e7c28b; --faction-tint: #884323; position: relative; min-width: 0; }
+.career-faction-viking { --faction-accent: #b9d4e8; --faction-tint: #3a698c; }
+.career-faction-option > input { position: absolute; top: 25px; left: 25px; width: 1px; height: 1px; opacity: 0; margin: 0; }
+.career-faction-card { position: relative; display: grid; grid-template-columns: 46% 54%; min-height: 556px; height: 100%; border: 1px solid #77634c; border-radius: 9px; cursor: pointer; background: radial-gradient(ellipse at 12% 42%, #7a352d75, transparent 66%), linear-gradient(115deg, #3a221c, #211716 55%, #141719); box-shadow: 0 14px 38px #0005, inset 0 0 0 5px #0002; transition: border-color .18s, box-shadow .18s, filter .18s; isolation: isolate; }
+.career-faction-card::before { content: ""; position: absolute; inset: 7px; z-index: -1; pointer-events: none; border: 1px solid #b1854c45; border-radius: 5px; background: repeating-linear-gradient(115deg, transparent 0 36px, #ffffff02 37px 38px); }
+.career-faction-viking .career-faction-card { grid-template-columns: 54% 46%; border-color: #536675; background: radial-gradient(ellipse at 90% 38%, #40678270, transparent 66%), linear-gradient(245deg, #24333e, #151f28 55%, #11171c); }
+.career-faction-card[data-selected="false"] { filter: brightness(.84); }
+.career-faction-card[data-selected="true"] { border-color: var(--faction-accent); box-shadow: 0 14px 38px #0006, 0 0 0 1px var(--faction-accent), inset 0 0 28px #fff1; }
+.career-faction-card:hover { filter: brightness(1.05); border-color: var(--faction-accent); }
+.career-faction-option > input:focus-visible + .career-faction-card { outline: 3px solid #fff0b0; outline-offset: 5px; }
+.career-faction-option > input:disabled + .career-faction-card { cursor: default; }
+.career-faction-portrait { position: relative; display: grid; align-items: end; min-width: 0; align-self: stretch; }
+.career-faction-portrait::after { content: ""; position: absolute; inset: auto 0 0; height: 20%; background: linear-gradient(transparent, #13151699); pointer-events: none; border-radius: 0 0 0 8px; }
+.career-faction-portrait img { display: block; position: relative; width: 100%; height: auto; max-height: 540px; object-fit: contain; object-position: bottom; align-self: end; filter: drop-shadow(0 9px 15px #0008); }
+.career-faction-standard { position: absolute; top: 9%; left: 17%; width: 45%; height: 44%; color: var(--faction-accent); opacity: .10; border: 1px solid currentColor; padding: 12%; background: linear-gradient(#fff1, transparent); clip-path: polygon(0 0, 100% 0, 100% 85%, 50% 100%, 0 85%); }
+.career-faction-standard svg { width: 100%; height: 100%; }
+.career-faction-copy { display: flex; flex-direction: column; min-width: 0; padding: 22px 25px 22px 6px; }
+.career-faction-viking .career-faction-copy { grid-column: 1; grid-row: 1; padding: 22px 6px 22px 25px; }
+.career-faction-viking .career-faction-portrait { grid-column: 2; grid-row: 1; }
+.career-faction-selection { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; color: var(--faction-accent); font-size: 12px; letter-spacing: .08em; border: 1px solid #bdb29a50; border-radius: 20px; padding: 2px 9px; margin-bottom: 11px; }
+.career-faction-selection svg { width: 14px; height: 14px; }
+.career-faction-card[data-selected="false"] .career-faction-selection svg { visibility: hidden; }
+.career-faction-name { color: var(--faction-accent); font: 700 38px/1.1 "Songti TC", "Noto Serif TC", serif; letter-spacing: .14em; }
+.career-faction-name > span { display: block; font: 400 17px/1.7 Georgia, serif; letter-spacing: .21em; }
+.career-faction-motto { display: block; padding-top: 12px; margin-top: 9px; border-top: 1px solid #c4aa794d; font: 700 20px/1.5 "Songti TC", "Noto Serif TC", serif; color: #f1e6d1; }
+.career-faction-description { display: block; margin-top: 8px; color: #c5bcb0; font-size: 14px; line-height: 1.65; }
+.career-faction-features { display: flex; flex-direction: column; gap: 13px; margin: 21px 0 18px; }
+.career-faction-feature { display: flex; gap: 11px; align-items: flex-start; }
+.career-faction-feature-icon { display: grid; place-items: center; flex: 0 0 33px; width: 33px; height: 33px; border: 1px solid #c5ad796b; border-radius: 50%; color: var(--faction-accent); }
+.career-faction-feature-icon svg { width: 20px; height: 20px; }
+.career-faction-feature strong { display: block; font-size: 16px; font-weight: 600; color: #e7dfce; line-height: 1.4; }
+.career-faction-feature > span:last-child > span { display: block; margin-top: 3px; color: #c2bbb0; font-size: 13px; line-height: 1.55; }
+.career-faction-fit { display: block; border-top: 1px solid #a9936a40; padding-top: 12px; margin-top: auto; }
+.career-faction-fit strong { display: block; color: var(--faction-accent); font-size: 13px; font-weight: 600; }
+.career-faction-fit > span { display: block; margin-top: 3px; color: #d4cebf; font-size: 14px; }
+.career-faction-rule { display: block; margin-top: 13px; font-size: 12px; line-height: 1.6; color: #b6b2ab; }
+.career-faction-action { text-align: center; margin: 26px auto 25px; }
+.career-faction-start { display: inline-flex; justify-content: center; align-items: center; gap: 22px; min-height: 62px; min-width: 440px; max-width: 100%; padding: 14px 30px; border: 1px solid #e5c582; border-radius: 5px; box-shadow: inset 0 0 0 4px #17120d77, 0 6px 26px #0008, 0 0 20px #a97e2420; background: linear-gradient(#6f5735, #41321e); color: #fff0cb; font: 700 21px/1.5 "Songti TC", "Noto Serif TC", serif !important; transition: background .18s, box-shadow .18s; }
+.career-faction-start svg { width: 21px; height: 21px; flex-shrink: 0; }
+.career-faction-start:hover { background: linear-gradient(#8b6d40, #564025); box-shadow: inset 0 0 0 4px #17120d77, 0 6px 26px #0008, 0 0 25px #bd944c36; }
+.career-faction-start:disabled { opacity: .7; }
+.career-faction-back:focus-visible, .career-faction-start:focus-visible { outline: 3px solid #fff0b0; outline-offset: 4px; }
+.career-faction-caption { margin: 11px 0 0; color: #aaa69c; font-size: 12px; }
+.career-faction-commit { margin: 10px 0; color: #e0c28b; }
+.career-faction-error { margin: 14px auto 0; max-width: 700px; padding: 12px 16px; color: #ffd3c4; border: 1px solid #a86652; background: #4c2920; border-radius: 4px; overflow-wrap: anywhere; }
+.career-faction-footer { display: grid; grid-template-columns: 1.35fr 1fr; gap: 48px; border-top: 1px solid #8a775c61; padding-top: 20px; }
+.career-faction-footer h2 { display: flex; align-items: center; gap: 13px; margin: 0 0 17px; color: #d8bf93; font: 600 18px/1.5 "Songti TC", "Noto Serif TC", serif; letter-spacing: .08em; }
+.career-faction-footer h2::after { content: ""; flex: 1; height: 1px; background: linear-gradient(#8a775c70, #8a775c00); }
+.career-faction-footer ol { list-style: none; padding: 0; margin: 0; }
+.career-faction-steps { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.career-faction-steps li { position: relative; display: flex; gap: 10px; align-items: center; }
+.career-faction-steps li + li::before { content: "→"; color: #a6906c; margin-right: 7px; }
+.career-faction-steps svg { flex: 0 0 29px; width: 29px; height: 29px; color: #c5a877; }
+.career-faction-steps strong { font-size: 15px; font-weight: 600; white-space: nowrap; }
+.career-faction-steps small { display: block; color: #a7a59f; font-size: 12px; }
+.career-faction-next > p { margin: 14px 0 0; color: #a7a59f; font-size: 12px; }
+.career-faction-ranks { display: flex; justify-content: space-between; align-items: flex-start; gap: 15px; }
+.career-faction-ranks li { position: relative; display: flex; align-items: center; flex-direction: column; gap: 6px; color: #c8bea9; font-size: 13px; }
+.career-faction-ranks li + li::before { content: "→"; position: absolute; left: -24px; top: 17px; color: #8f7d60; }
+.career-faction-rank-badge { display: grid; place-items: center; position: relative; width: 46px; height: 46px; border: 1px solid #76654b; border-radius: 50%; background: linear-gradient(#353127, #181d20); color: #c8ad7d; }
+.career-faction-rank-badge svg { width: 25px; height: 25px; opacity: .5; }
+.career-faction-rank-badge b { position: absolute; bottom: 1px; font: 11px Georgia, serif; background: #202322; padding: 0 3px; }
+.career-faction-style-note { margin: 20px 0 0; color: #8f918e; font-size: 12px; text-align: center; }
+.career-faction-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+@media (max-width: 1350px) {
+  .career-faction-shell { padding-left: 24px; padding-right: 24px; }
+  .career-faction-choices { gap: 20px; }
+  .career-faction-card { grid-template-columns: 42% 58%; }
+  .career-faction-viking .career-faction-card { grid-template-columns: 58% 42%; }
+  .career-faction-copy { padding-right: 20px; }
+  .career-faction-viking .career-faction-copy { padding-left: 20px; }
+  .career-faction-footer { gap: 30px; grid-template-columns: 1.5fr 1fr; }
+  .career-faction-steps li { gap: 7px; }
+  .career-faction-steps li + li::before { margin-right: 0; }
+}
+@media (max-width: 1100px) {
+  .career-faction-header { padding-top: 55px; }
+  .career-faction-choices { grid-template-columns: 1fr; max-width: 760px; margin: auto; }
+  .career-faction-card { min-height: 520px; grid-template-columns: 46% 54%; }
+  .career-faction-viking .career-faction-card { grid-template-columns: 54% 46%; }
+  .career-faction-footer { grid-template-columns: 1fr; max-width: 760px; margin: auto; }
+  .career-faction-growth { max-width: 520px; width: 100%; }
+}
+@media (max-width: 600px) {
+  .career-faction-shell { padding: 20px 16px; }
+  .career-faction-header { margin-bottom: 23px; }
+  .career-faction-header h1 { font-size: 34px; letter-spacing: .06em; }
+  .career-faction-subtitle { font-size: 15px; max-width: 290px; margin: 10px auto 0; }
+  .career-faction-card, .career-faction-viking .career-faction-card { grid-template-columns: 1fr; }
+  .career-faction-portrait, .career-faction-viking .career-faction-portrait { grid-column: 1; grid-row: 1; height: 330px; }
+  .career-faction-portrait img { width: 100%; height: 330px; object-fit: contain; }
+  .career-faction-standard { left: 10%; width: 24%; }
+  .career-faction-copy, .career-faction-viking .career-faction-copy { grid-column: 1; grid-row: 2; padding: 20px 24px 24px; background: #11171abf; border-radius: 0 0 8px 8px; }
+  .career-faction-features { gap: 16px; }
+  .career-faction-description { font-size: 15px; }
+  .career-faction-feature > span:last-child > span { font-size: 14px; }
+  .career-faction-start { min-width: 0; width: 100%; padding: 14px; gap: 10px; font-size: 18px !important; }
+  .career-faction-caption { padding: 0 12px; }
+  .career-faction-steps { flex-direction: column; align-items: stretch; gap: 17px; }
+  .career-faction-steps li + li::before { content: none; }
+  .career-faction-steps svg { margin-right: 6px; }
+  .career-faction-next > p { font-size: 13px; }
+  .career-faction-ranks { gap: 9px; }
+  .career-faction-ranks li + li::before { left: -15px; }
+  .career-faction-rank-badge { width: 42px; height: 42px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #career-faction-selection * { transition: none; scroll-behavior: auto; }
+}

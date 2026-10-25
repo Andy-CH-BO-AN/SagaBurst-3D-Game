@@ -146,6 +146,16 @@ export class MissionGuide {
     this.label.textContent = `${label} · ${Math.round(distance)}m`
   }
 
+  /** Tutorial targets share the mission presentation, with names supplied by the live owner. */
+  updateTutorial(playerPosition: THREE.Vector3, cameraYaw: number, target: THREE.Vector3 | null,
+    label: string, interact = false): void {
+    if (!target) { this.hide(); return }
+    this.root.hidden = false
+    const distance = playerPosition.distanceTo(target)
+    this.pointAt(playerPosition, cameraYaw, target)
+    this.label.textContent = `${label} · ${Math.round(distance)}m${interact ? ' · 靠近按 E 交談' : ''}`
+  }
+
   updateRetirement(playerPosition: THREE.Vector3, cameraYaw: number, target: THREE.Vector3 | null): void {
     if (!target) { this.hide(); return }
     this.root.hidden = false

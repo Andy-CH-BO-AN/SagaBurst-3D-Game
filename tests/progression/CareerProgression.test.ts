@@ -1,3 +1,6 @@
+import { claimCareerTutorialReward, commitCareerTutorial, hasCareerTutorialHorse, recordCareerTutorialOperation, startCareerTutorial, deferCareerTutorial } from '../../src/career/CareerTutorial'
+import { CAREER_TUTORIAL_OPERATIONS } from '../../src/career/CareerTutorialState'
+import { careerShopProduct } from '../../src/career/CareerShopCatalog'
 import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, validateOrdinaryRetirementCommit } from '../../src/career/CareerRetirement'
 import { parseCareerRetirementState } from '../../src/career/CareerRetirementState'
 import { grantStarter } from '../../src/town/TownRules'
@@ -93,6 +96,8 @@ describe('Career progression and spending', () => {
     expect(purchase.profile.availableMerit).toBe(2300)
     expect(purchase.profile.rank).toBe('captain')
     expect(purchase.profile.ownedWeapons).toEqual(['viking_axe_t3'])
+    expect(purchase.profile.tutorial?.purchases.weaponIds).toEqual(['viking_axe_t3'])
+    expect(profile.tutorial?.purchases.weaponIds).toEqual([])
   })
 
   it.each([
@@ -119,6 +124,7 @@ describe('Career progression and spending', () => {
     profile.availableMerit = 300
     profile.rank = 'recruit'
     profile.ownedMounts.push('horse')
+    expect(hasCareerTutorialHorse(profile)).toBe(false)
 
     const duplicate = purchaseCareerContent(profile, {
       kind: 'mount',
@@ -129,6 +135,9 @@ describe('Career progression and spending', () => {
     expect(duplicate.purchased).toBe(true)
     expect(duplicate.profile.availableMerit).toBe(100)
     expect(careerItemTotal(duplicate.profile, 'horse')).toBe(2)
+    expect(duplicate.profile.tutorial?.purchases.horse).toBe(true)
+    expect(hasCareerTutorialHorse(duplicate.profile)).toBe(true)
+    expect(profile.tutorial?.purchases.horse).toBe(false)
 
     const expensive = purchaseCareerContent(profile, {
       kind: 'mount',
@@ -152,7 +161,7 @@ describe('Career profile persistence', () => {
       rank: 'commander',
       unlockedWeapons: ['gladius_rusty'],
       unlockedShields: ['scutum_t1'],
-      unlockedMounts: ['horse'],
+      unlockedMounts: ['horse-t2'],
       unlockedHeroes: ['roman-hero-t4'],
       claimedBattleIds: [],
       lifetimeStats: {},
@@ -168,6 +177,9 @@ describe('Career profile persistence', () => {
       ownedMounts: ['horse'],
       ownedHeroes: ['roman-hero-t4'],
     })
+    expect(hasCareerTutorialHorse(parsed!)).toBe(true)
+    expect(parsed?.tutorial?.purchases).toEqual({ weaponIds: [], horse: false })
+    expect(parsed?.tutorial?.rewards).toEqual({})
   })
 
   it('preserves spendable merit above lifetime earned merit and rejects bad faction/version', () => {
@@ -219,6 +231,8 @@ describe('Commander melee appointment and save migration', () => {
     for (const rank of ['soldier', 'veteran', 'captain']) {
       profile = promoteCareer(profile)!
       expect(profile.rank).toBe(rank)
+      expect(profile.tutorial?.captain.status).toBe(rank === 'captain' ? 'available' : 'locked')
+      expect(profile.tutorial?.commander.status).toBe('locked')
       expect(careerItemTotal(profile, 'sword_t5')).toBe(0)
     }
     const equipment = new TownEquipment(() => profile, next => { profile = next; return true })
@@ -228,6 +242,7 @@ describe('Commander melee appointment and save migration', () => {
     expect(profile.rank).toBe('captain')
     expect(profile.commanderMeleeGranted).toBeUndefined()
     expect(promoted.commanderMeleeGranted).toBe(true)
+    expect(promoted.tutorial?.commander.status).toBe('available')
     expect(promoted.equipment).toEqual({ melee: 'paladin_sword_t4', ranged: 'bow_t5' })
     expect(careerItemTotal(promoted, 'sword_t5')).toBe(1)
     expect(careerItemAllocated(promoted, 'sword_t5')).toBe(0)
@@ -426,4 +441,133 @@ it('round-trips a prepared retirement receipt and rejects incomplete or misplace
     expect(parseCareerRetirementState({ ...progress, mobilization: invalid })).toBeNull()
   }
   expect(parseCareerRetirementState({ ...progress, phase: 'departing' })).toBeNull()
+})
+
+
+describe('Career tutorial durable transactions', () => {
+  it('recognizes a migrated legacy horse below its price without charging or inventing a reward on reload and replay', () => {
+    const legacy = createCareerProfile('roman')
+    delete legacy.tutorial
+    legacy.ownedHorseTiers = [2]
+    legacy.totalMerit = 1000; legacy.availableMerit = 0
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(legacy)]] })
+    const store = new CareerProfileStore(storage), loaded = store.load()!
+    const original = cloneCareerProfile(loaded)
+    expect(loaded.availableMerit).toBeLessThan(careerShopProduct('horse')!.price)
+    expect(hasCareerTutorialHorse(loaded)).toBe(true)
+    expect(loaded).toEqual(original)
+    expect(careerItemTotal(loaded, 'horse')).toBe(1)
+    expect(loaded.tutorial?.purchases.horse).toBe(false)
+    loaded.tutorial!.town = { status: 'active', step: 'horse', replay: false,
+      operations: ['report', 'weapon', 'duel-intro', 'duel', 'missions', 'horse-intro'] }
+    expect(recordCareerTutorialOperation(loaded, 'town', 'horse')).toBe(true)
+    expect(claimCareerTutorialReward(loaded, 'horse')).toBe(0)
+    expect(store.save(loaded)).toBe(true)
+    const restored = store.load()!
+    expect(hasCareerTutorialHorse(restored)).toBe(true)
+    expect(restored).toMatchObject({ totalMerit: 1000, availableMerit: 0,
+      tutorial: { legacy: true, purchases: { horse: false }, town: { step: 'horse-use' } } })
+    expect(restored.tutorial?.rewards.horse).toBeUndefined()
+    expect(careerItemTotal(restored, 'horse')).toBe(1)
+    expect(recordCareerTutorialOperation(restored, 'town', 'horse-use')).toBe(true)
+    expect(restored.tutorial?.town.status).toBe('completed')
+    startCareerTutorial(restored, 'town', true)
+    expect(restored.tutorial?.town.replay).toBe(true)
+    expect(hasCareerTutorialHorse(restored)).toBe(true)
+    expect(claimCareerTutorialReward(restored, 'horse')).toBe(0)
+    expect(store.save(restored)).toBe(true)
+    expect(store.load()).toMatchObject({ totalMerit: 1000, availableMerit: 0,
+      tutorial: { purchases: { horse: false }, rewards: {}, town: { replay: true } } })
+  })
+
+  it('requires a real purchase after a legacy starting weapon and pays its receipt only once through reload and replay', () => {
+    const legacy = grantStarter(createCareerProfile('roman'), 'gladius_rusty')
+    delete legacy.tutorial
+    legacy.totalMerit = 1000; legacy.availableMerit = 1000
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(legacy)]] })
+    const store = new CareerProfileStore(storage), loaded = store.load()!
+    startCareerTutorial(loaded, 'town')
+    expect(recordCareerTutorialOperation(loaded, 'town', 'report')).toBe(true)
+    expect(claimCareerTutorialReward(loaded, 'weapon')).toBe(0)
+    expect(loaded.tutorial?.town).toMatchObject({ step: 'weapon', operations: ['report'] })
+    expect(loaded.tutorial?.purchases.weaponIds).toEqual([])
+    expect(careerItemTotal(loaded, 'gladius_rusty')).toBe(1)
+    expect(store.save(loaded)).toBe(true)
+    const restored = store.load()!
+    expect(restored.tutorial?.town.step).toBe('weapon')
+    expect(restored.tutorial?.purchases.weaponIds).toEqual([])
+    expect(restored.tutorial?.rewards.weapon).toBeUndefined()
+
+    const item = careerShopProduct('gladius_rusty')!
+    const purchase = purchaseCareerContent(restored, { kind: 'weapon', id: item.id, cost: item.price, requiredTier: item.tier })
+    expect(purchase.purchased).toBe(true)
+    expect(purchase.profile.tutorial?.purchases.weaponIds).toEqual(['gladius_rusty'])
+    expect(recordCareerTutorialOperation(purchase.profile, 'town', 'weapon')).toBe(true)
+    expect(claimCareerTutorialReward(purchase.profile, 'weapon')).toBe(20)
+    expect(purchase.profile.tutorial?.town.step).toBe('duel-intro')
+    expect(store.save(purchase.profile)).toBe(true)
+    const paid = store.load()!
+    expect(paid.availableMerit).toBe(1000 - item.price + 20)
+    expect(paid.totalMerit).toBe(1020)
+    expect(careerItemTotal(paid, 'gladius_rusty')).toBe(2)
+    expect(claimCareerTutorialReward(paid, 'weapon')).toBe(0)
+    paid.tutorial!.town = { status: 'completed', step: 'complete', replay: false,
+      operations: [...CAREER_TUTORIAL_OPERATIONS.town.flat()] }
+    startCareerTutorial(paid, 'town', true)
+    expect(paid.tutorial?.town.replay).toBe(true)
+    expect(claimCareerTutorialReward(paid, 'weapon')).toBe(0)
+    expect(store.save(paid)).toBe(true)
+    expect(store.load()).toMatchObject({ totalMerit: 1020, availableMerit: 1000 - item.price + 20,
+      tutorial: { purchases: { weaponIds: ['gladius_rusty'] }, rewards: { weapon: 20 } } })
+  })
+
+  it('keeps the final operation and fixed reward atomic on failed storage, retries once and never pays a replay', () => {
+    const profile = createCareerProfile('roman')
+    const session = startCareerTutorial(profile, 'recruit')!
+    for (const operation of CAREER_TUTORIAL_OPERATIONS.recruit.flat().slice(0, -1)) {
+      expect(recordCareerTutorialOperation(profile, 'recruit', operation)).toBe(true)
+    }
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save(profile)).toBe(true)
+    storage.failWrites = true
+    const claim = (candidate: CareerProfile) => recordCareerTutorialOperation(candidate, 'recruit', 'dismounted')
+    expect(commitCareerTutorial(store, session.careerId, claim, session.id)).toEqual({ ok: false, reason: 'save-failed' })
+    expect(store.load()!.totalMerit).toBe(0)
+    expect(store.load()!.tutorial?.recruit.step).toBe('dismounted')
+    expect(store.load()!.tutorial?.rewards.recruit).toBeUndefined()
+    storage.failWrites = false
+    const saved = commitCareerTutorial(store, session.careerId, claim, session.id)
+    expect(saved.ok).toBe(true)
+    expect(store.load()).toMatchObject({ totalMerit: 100, availableMerit: 100, rank: 'recruit', tutorial: { rewards: { recruit: 100 }, recruit: { status: 'completed' } } })
+    expect(commitCareerTutorial(store, session.careerId, claim, session.id)).toEqual({ ok: false, reason: 'rejected' })
+    const replay = store.load()!
+    deferCareerTutorial(replay, 'recruit')
+    expect(startCareerTutorial(replay, 'recruit', true)).not.toBeNull()
+    for (const operation of CAREER_TUTORIAL_OPERATIONS.recruit.flat()) recordCareerTutorialOperation(replay, 'recruit', operation)
+    expect(claimCareerTutorialReward(replay, 'recruit')).toBe(0)
+    expect(store.save(replay)).toBe(true)
+    expect(store.load()!.totalMerit).toBe(100)
+    expect(store.load()!.lifetimeStats.battles).toBe(0)
+    expect(store.load()!.skills).toEqual(profile.skills)
+  })
+
+  it('durably migrates an old career without forcing Recruit and rejects callbacks from a replaced enlistment', () => {
+    const legacy = createCareerProfile('roman')
+    delete legacy.tutorial
+    legacy.totalMerit = 5200; legacy.availableMerit = 4100; legacy.rank = 'captain'
+    legacy.activeMission = { id: 'ongoing', templateId: 'recruit-bandits-01', kind: 'bandit', targetCampId: 0,
+      phase: 'RETURNING', targetActorIds: ['bandit'], friendlyActorIds: ['captain'], acceptedAt: 1 }
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(legacy)]] })
+    const store = new CareerProfileStore(storage), migrated = store.load()!
+    expect(migrated.tutorial).toMatchObject({ legacy: true, recruit: { status: 'deferred' }, captain: { status: 'deferred' }, commander: { status: 'locked' } })
+    expect(store.load()!.tutorial?.careerId).toBe(migrated.tutorial!.careerId)
+    expect(migrated).toMatchObject({ rank: 'captain', totalMerit: 5200, availableMerit: 4100, activeMission: { id: 'ongoing' } })
+    const replacement = createCareerProfile('viking')
+    // Only the ending creation transaction may replace an existing character.
+    storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(replacement))
+    expect(commitCareerTutorial(store, migrated.tutorial!.careerId, p => { p.availableMerit += 100 })).toEqual({ ok: false, reason: 'stale-career' })
+    expect(store.save(migrated)).toBe(false)
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(JSON.stringify(replacement))
+    expect(store.load()!.tutorial?.careerId).toBe(replacement.tutorial!.careerId)
+  })
 })

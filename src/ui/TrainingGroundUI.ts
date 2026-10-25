@@ -68,6 +68,16 @@ export class TrainingGroundUI {
   }
 
   setDamage(text: string | null): void { this.damage.textContent = text ?? '最近命中：—' }
+  /** Career's persistent tutorial stays above this pause card, including short viewports. */
+  placePauseBelowTutorial(bottom: number): void {
+    if (!this.paused) return
+    const top = Math.round(bottom + 12)
+    this.pausePanel.style.padding = `${top}px 16px 16px`
+    this.pausePanel.style.alignItems = 'start'
+    const card = this.pausePanel.querySelector<HTMLElement>('.training-pause-card')!
+    card.style.maxHeight = `${Math.max(96, window.innerHeight - top - 16)}px`
+    card.style.overflowY = 'auto'
+  }
   pause(): void {
     if (this.paused) return
     this.paused = true; this.pausePanel.hidden = false; this.actions.onPause()
