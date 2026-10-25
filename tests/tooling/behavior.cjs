@@ -951,15 +951,15 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
               if (status !== 'real') failRisk('Unsafe runtime directory membership: listing provider is replaced or its delegation is unresolved', { ...listing, providerStatus: status })
             }
             for (const risk of unresolved?.inputRisks ?? []) {
-              const candidateInput = risk.moduleImport || !graphs.some(graph => graph.hasFile(change.file)) && (risk.pattern ? new RegExp(risk.pattern).test(change.file) : !risk.candidates?.length || risk.candidates.includes(change.file))
-              const changedReader = [...targets[i]].some(target => {
-                const node = graphs[i].nodes.get(target)
-                return node.file === risk.from && node.ast.getStart() <= risk.start && risk.start < node.ast.end
-              })
+              const candidateInput = risk.moduleImport || ['import', 'execute', 'glob'].includes(risk.kind)
+                || (risk.pattern ? new RegExp(risk.pattern).test(change.file) : !risk.candidates?.length || risk.candidates.includes(change.file))
+              // A changed caller is not evidence that a bounded output read can
+              // consume this changed input. Source bytes are inputs too.
+              if (!candidateInput) continue
               const providerStatus = graphs[i].inputStatus(risk.provider, risk.kind === 'load' ? 'loadAsync' : risk.provider?.export, actualRoots, reached, id, graphFile, risk)
               if (providerStatus === 'replaced') continue
-              if ((candidateInput || changedReader) && providerStatus === 'uncertain') failRisk('Unsafe runtime input: ambiguous replacement/restore ordering', risk)
-              if (candidateInput || changedReader) failRisk(`Unsafe runtime ${risk.moduleImport ? 'import' : 'input'}: ${risk.from}:${risk.line}:${risk.column}: ${risk.expression}; ${risk.reason}; missing ${risk.missingEvidence ?? 'resolvable input provenance'}`, risk)
+              if (candidateInput && providerStatus === 'uncertain') failRisk('Unsafe runtime input: ambiguous replacement/restore ordering', risk)
+              if (candidateInput) failRisk(`Unsafe runtime ${risk.moduleImport ? 'import' : 'input'}: ${risk.from}:${risk.line}:${risk.column}: ${risk.expression}; ${risk.reason}; missing ${risk.missingEvidence ?? 'resolvable input provenance'}`, risk)
             }
             for (const risk of unresolved?.dispatchRisks ?? []) {
               const affectsChange = [...targets[i]].some(target => {

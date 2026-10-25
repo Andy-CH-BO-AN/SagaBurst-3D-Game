@@ -460,3 +460,28 @@ for (const [name, setup] of [
     sources, previousSources:sources, previousConsumers:consumers, ranges:{}, compilerOptions:{noLib:true,noResolve:true,types:[]},
   }), error => /Unsafe runtime input.*ambiguous replacement/.test(error.message) && error.diagnostics.caseIndex === 0)
 })
+
+for (const scenario of [
+  { name:'bounded report output does not block its changed caller', expression:"'output/test-budget/' + globalThis.report + '.json'", changed:'src/owner.cjs', selected:true },
+  { name:'unknown reader matching a changed asset fails closed', expression:"'config/' + globalThis.name + '.json'", changed:'config/a.json' },
+  { name:'unknown reader matching changed source bytes fails closed', expression:"'src/' + globalThis.name + '.cjs'", changed:'src/input.cjs' },
+]) test(`read-risk relevance: ${scenario.name}`, () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/reader.test.cjs'
+  const before = `const fs = require('node:fs'); function run() { fs.readFileSync(${scenario.expression}, 'utf8'); return 1 }; exports.run = run`
+  const sources = new Map([
+    ['src/owner.cjs', scenario.selected ? before.replace('return 1','return 2') : before],
+    ['src/input.cjs', 'exports.value = 2'],
+    [file, "const { run } = require('../src/owner.cjs')\ntest('run', () => run())"],
+  ])
+  const previousSources = new Map(sources); previousSources.set('src/owner.cjs', before); previousSources.set('src/input.cjs','exports.value = 1')
+  const inventory = [{file,names:['run'],locations:[{line:2,column:1}]}]
+  const files = new Set([...sources.keys(),'config/a.json'])
+  const consumers = dependencyConsumers(inventory,sources,path=>files.has(path),{files})
+  const previousConsumers = dependencyConsumers(inventory,previousSources,path=>files.has(path),{files})
+  const run = () => selectBehaviors(inventory,[{status:'M',file:scenario.changed}],consumers,{
+    sources,previousSources,previousConsumers,ranges:{},compilerOptions:{noLib:true,noResolve:true,types:[]},
+  })
+  if (scenario.selected) assert.deepEqual(run().selectedCases[file],[0])
+  else assert.throws(run,/Unsafe runtime input:.*Input expression has an unresolved runtime value/)
+})
