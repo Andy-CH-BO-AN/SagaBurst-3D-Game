@@ -626,6 +626,62 @@ test('an opaque subprocess replacement cannot establish Node entry', () => {
   assert.throws(() => mainEntrySelection({ processSetup: "t.mock.method(processIO, 'execFileSync', globalThis.delegate)", direct: true }), /Unsafe Node entry/)
 })
 
+for (const scenario of [
+  { name: 'invoked callback retains its real parent input reader', invoke: true },
+  { name: 'registration alone does not execute a callback input reader', invoke: false },
+  { name: 'captured native function cannot claim callback substitution', invoke: true, captured: true, unsafe: true },
+  { name: 'unsupported namespace capture alias retains provider uncertainty', invoke: true, captured: true, alias: true, unsafe: true },
+  { name: 'native original handle delegation remains unresolved', invoke: true, original: true, unsafe: true },
+  { name: 'unresolved operation cannot discard replacement input effects', invoke: true, unresolved: true, unsafe: true },
+  { name: 'helper replacement between invocations cannot drop the later reader', invoke: true, later: true, unsafe: true },
+  { name: 'unordered hook callbacks cannot choose one reader arbitrarily', invoke: true, tied: true, unsafe: true },
+  { name: 'ambiguous callbacks do not own unrelated same-file inputs', invoke: true, tied: true, irrelevant: true },
+  { name: 'ambiguous callbacks retain nested native replacement effects', invoke: true, tied: true, irrelevant: true, nested: true, unsafe: true },
+  { name: 'a sibling global tracker retains its finite callback input scope', invoke: true, persistent: true, unsafe: true },
+  { name: 'a sibling opaque global tracker cannot lose unknown effects', invoke: true, persistent: true, opaque: true, unsafe: true },
+]) test(`native callback execution: ${scenario.name}`, () => {
+  const { selectBehaviors, behaviorGraph } = require('../tooling/behavior.cjs')
+  const file = 'tests/native-callback.test.cjs'
+  const callbackInput = scenario.irrelevant ? 'other.json' : 'config.json'
+  const source = `const { test, mock, beforeEach } = require('node:test'); const processIO = require('node:child_process'); const fs = require('node:fs'); const { readFileSync: originalRead } = require('node:fs'); ${scenario.tied ? `beforeEach(() => { mock.method(processIO, 'execFileSync', () => 'done') }); beforeEach(() => { mock.method(processIO, 'execFileSync', () => fs.readFileSync('${callbackInput}')) });` : ''} ${scenario.persistent ? `test('install', () => { mock.method(processIO, 'execFileSync', ${scenario.opaque ? 'globalThis.delegate' : "() => readConfig()"}) });` : ''}
+function readConfig() { return fs.readFileSync('config.json') } ${scenario.captured ? scenario.alias ? 'const { execFileSync } = processIO;' : "const { execFileSync } = require('node:child_process');" : ''} function launch() { ${scenario.captured ? 'execFileSync' : 'processIO.execFileSync'}('node', [${scenario.unresolved ? 'globalThis.entry' : "'src/child.cjs'"}]) } ${scenario.later ? "function installLater() { mock.method(processIO, 'execFileSync', () => readConfig()) }" : ''}
+test('boundary', t => { ${scenario.nested ? "t.mock.method(fs, 'readFileSync', () => originalRead('config.json'));" : ''} ${scenario.tied || scenario.persistent ? '' : `const replacement = t.mock.method(processIO, 'execFileSync', ${scenario.original ? '() => replacement.mock.original()' : scenario.later ? "() => 'done'" : "() => readConfig()"});`} ${scenario.invoke ? 'launch();' : ''} ${scenario.later ? 'installLater(); launch()' : ''} })
+test('direct', () => readConfig())`
+  const sources = new Map([[file, source], ['src/child.cjs', scenario.original ? "require('node:fs').readFileSync('config.json')" : "require('node:fs').readFileSync('other.json')"]])
+  const files = new Set([...sources.keys(), 'config.json', 'other.json'])
+  const inventory = [{ file, names: [...(scenario.persistent ? ['install'] : []), 'boundary', 'direct'], locations: [...(scenario.persistent ? [{ line: 1, column: 1 }] : []), { line: 3, column: 1 }, { line: 4, column: 1 }] }]
+  const consumers = dependencyConsumers(inventory, sources, path => files.has(path), { files })
+  if (!scenario.invoke) {
+    const graph = behaviorGraph(sources, consumers.graph, { noLib: true, noResolve: true, types: [] }, process.cwd(), consumers.inputEdges, consumers.inputRisks)
+    const reached = graph.reachable(graph.caseRoots(file, { line: 3, column: 1 }), file)
+    assert.equal([...reached].some(id => graph.nodes.get(id).label === '<input:config.json>'), false)
+    const direct = graph.reachable(graph.caseRoots(file, { line: 4, column: 1 }), file)
+    assert.equal([...direct].some(id => graph.nodes.get(id).label === '<input:config.json>'), true)
+    return
+  }
+  const select = () => selectBehaviors(inventory, [{ status: 'M', file: 'config.json' }], consumers, {
+    sources, previousSources: sources, previousConsumers: consumers, ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  })
+  if (scenario.unsafe) {
+    assert.throws(select, error => {
+      assert.match(error.message, scenario.unresolved || scenario.alias || scenario.nested ? /Unsafe runtime input/ : /Unsafe (?:Node entry|native callback)/)
+      assert.equal(error.diagnostics.test, file)
+      assert.equal(error.diagnostics.caseIndex, scenario.persistent ? 1 : 0)
+      return true
+    })
+    return
+  }
+  const plan = select()
+  assert.deepEqual(plan.selectedCases[file], scenario.invoke && !scenario.irrelevant ? [0, 1] : [1])
+  if (scenario.invoke && !scenario.irrelevant) {
+    const evidence = JSON.stringify(plan)
+    assert.ok(evidence.includes('finite native replacement callback'))
+    assert.ok(evidence.includes(`"start":${source.indexOf('processIO.execFileSync')}`))
+    assert.ok(!evidence.includes('proven Node entry'))
+    assert.ok(evidence.includes('"processContext":"test"'))
+  }
+})
+
 test('written implicit require.main cannot establish canonical main identity', () => {
   assert.deepEqual(mainEntrySelection({ setup: 'require.main = module' }).selectedCases['tests/entry.test.cjs'], [0, 1])
 })

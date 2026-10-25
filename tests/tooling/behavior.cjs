@@ -514,7 +514,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (replacement && emptyPaths.length) emptyMockExports.set(factory, emptyPaths)
     return replacement ? 'replacement' : 'uncertain'
   }
-  const deferredMockConfigurations = new WeakMap(), mockInvocationCandidates = new WeakMap()
+  const deferredMockConfigurations = new WeakMap(), mockInvocationCandidates = new WeakMap(), nativeCallbackRegistrations = new WeakSet(), nativeCallbackProviders = new Set(), persistentNativeCandidates = []
   const operationKey = node => `${local(node.getSourceFile().fileName)}:${node.getStart()}`
   const mockRuntimeOperations = new Set([...inputEdges, ...inputRisks].filter(input => !['import', 'glob'].includes(input.kind))
     .map(input => `${input.readerFile ?? input.from}:${input.readerStart ?? input.start}`))
@@ -666,13 +666,26 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       && callback.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)
     // inputStatus still requires a live property lookup: captured CJS function
     // values do not change when this provider object's method is replaced.
-    return { provider, method: keys?.length === 1 ? keys[0] : null, trackerProven, native: true, action: known ? 'replace' : 'uncertain' }
+    return { provider, method: keys?.length === 1 ? keys[0] : null, trackerProven, native: true, persistent: providerOf(call.expression.expression)?.module === 'node:test' && providerOf(call.expression.expression)?.export === 'mock', action: known ? 'replace' : 'uncertain',
+      callback: trackerProven && nativeTarget(call.arguments[0]) && call.arguments.length === 3 && ts.isStringLiteralLike(call.arguments[1]) && callable(callback) ? callback : null }
   }
   function replacementEvent(call, entry) {
     const name = call.expression.getText()
     let event = nativeReplacement(call)
     if (event?.cyclicProvider) { entry.unsafe = `cyclic native mock provider provenance: ${event.cyclicProvider}`; return }
-    if (event) { (entry.providerEvents ??= []).push({ ...event, ast: call }); return }
+    if (event) {
+      // Index-time native provenance must not depend on the later operation
+      // inventory. Qualify callback bodies only during complete graph inspection.
+      if (event.callback && finiteMockCallback(event.callback)) {
+        nativeCallbackRegistrations.add(event.callback)
+        // The existing literal-throw boundary has no runtime callback effects.
+        if (event.action === 'replace') event.callback = null
+        else nativeCallbackProviders.add(providerName(event.provider))
+        event.action = 'replace'
+      } else event.callback = null
+      if (event.persistent) { persistentNativeCandidates.push({ ...event, file: entry.file, ast: call }); nativeCallbackProviders.add(providerName(event.provider)) }
+      ;(entry.providerEvents ??= []).push({ ...event, ast: call }); return
+    }
     if (name === 'vi.spyOn' && call.arguments[0] && vitestReceiver(call.expression.expression)) {
       providerOf(call.arguments[0])
       if (cyclicProviders.has(origin(call.arguments[0]))) { entry.unsafe = `cyclic mock provider provenance: ${call.arguments[0].getText()}`; return }
@@ -861,6 +874,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (!root && ts.isReturnStatement(n) && n.expression && callable(n.expression)) return
     if (!root && ts.isFunctionDeclaration(n)) return
     if (!root && ts.isVariableDeclaration(n) && inertValue(n.initializer)) return
+    if (!root && nativeCallbackRegistrations.has(n)) return
     if (!root && byAst.has(n)) {
       connect(entry, byAst.get(n))
       if (callable(n) && !invocationReference(n)) { entry.opaqueTargets ??= new Set(); entry.opaqueTargets.add(byAst.get(n)) }
@@ -945,6 +959,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       for (const id of callableValues(callee)) invocation(entry, id, n)
       const signature = checker.getResolvedSignature(n)
       n.arguments.forEach((argument, index) => {
+        if (nativeCallbackRegistrations.has(argument)) return
         const parameter = signature?.parameters[index]
         const parameterType = parameter && checker.getTypeOfSymbolAtLocation(parameter, n)
         if (!parameterType?.getCallSignatures().length && !invokedSymbols.has(parameter) && !checker.getTypeAtLocation(argument).getCallSignatures().length) return
@@ -1056,10 +1071,10 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       nodes.get(info.top).edgeEvidence.set(files.get(target).top, { evidence: 'actual module initialization', expression: statement.getText() })
     }
   }
-  function readerBinding(input) {
+  function actualReaderCall(input) {
     const file = input.readerFile ?? input.from, info = files.get(file)
     const offset = input.readerStart ?? input.start
-    if (!info || offset === undefined) return { live: false }
+    if (!info || offset === undefined) return null
     let call
     const locate = node => {
       if (node.getStart() <= offset && offset < node.end) {
@@ -1068,6 +1083,10 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       }
     }
     locate(info.sf)
+    return call?.getStart() === offset ? call : null
+  }
+  function readerBinding(input) {
+    const call = actualReaderCall(input)
     if (!call) return { live: false }
     const unwrap = expression => ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isNonNullExpression(expression) ? unwrap(expression.expression) : expression
     const imported = expression => {
@@ -1132,7 +1151,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     while (owner && !byAst.has(owner)) owner = owner.parent
     const ownerId = byAst.get(owner) ?? info.top
     const id = `${readerFile}:${offset}:<input:${input.to}>`
-    nodes.set(id, { id, ast, file: readerFile, provider: input.provider, readerBinding: readerBinding(input), changeKinds: input.changeKinds, inputSet: input.inputSet, readerMethod: input.kind === 'load' ? 'loadAsync' : input.provider?.export, label: `<input:${input.to}>`, edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map() })
+    nodes.set(id, { id, ast, file: readerFile, provider: input.provider, readerBinding: readerBinding(input), readerCall: actualReaderCall(input), changeKinds: input.changeKinds, inputSet: input.inputSet, readerMethod: input.kind === 'load' ? 'loadAsync' : input.provider?.export, label: `<input:${input.to}>`, edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map() })
     connect(nodes.get(ownerId), id)
     if (input.kind === 'import' && files.has(input.to)) { connect(nodes.get(id), files.get(input.to).top); nodes.get(id).conservativeEdges.add(files.get(input.to).top) }
     if (input.kind === 'execute' && input.executionKind === 'node-entry' && files.has(input.to)) nodes.get(id).nodeEntry = { file: input.to, target: files.get(input.to).top }
@@ -1267,7 +1286,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     for (let cursor = 0; cursor < queue.length; cursor++) {
       const [key, state] = queue[cursor], entry = nodes.get(state.id)
       seen.add(state.id); if (!first.has(state.id)) first.set(state.id, key)
-      if (entry.nodeEntry) executions.push([key, state, entry])
+      if (entry.nodeEntry || entry.readerCall && nativeCallbackProviders.has(providerName(entry.provider))) executions.push([key, state, entry])
       for (const invocation of entry.mockInvocations ?? []) for (const { candidate, key: exportKey } of invocation.alternatives) {
         if (state.processContext !== 'test' || candidate.file !== testFile || candidate.mode !== 'replacement') continue
         for (const callback of candidate.configurations.get(exportKey) ?? []) {
@@ -1304,9 +1323,33 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       if (cursor === queue.length - 1) for (const [executionKey, executionState, operation] of executions) {
         if (processedExecutions.has(executionKey)) continue
         processedExecutions.add(executionKey)
-        const status = inputStatus(operation.provider, operation.readerMethod, roots, seen, operation.id, testFile, undefined, executionKey)
-        if (status === 'replaced') continue
-        if (status === 'uncertain') {
+        const resolution = inputResolution(operation.provider, operation.readerMethod, roots, seen, operation.id, testFile, undefined, executionKey)
+        if (resolution.status === 'replaced') {
+          const target = nodes.get(byAst.get(resolution.callback)), call = operation.readerCall
+          if (target && call) enqueue(target.id, callEnvironment(target, { args: call.arguments, call }, executionState.environment), executionKey,
+            { evidence: 'finite native replacement callback', callsite: { file: local(call.getSourceFile().fileName), start: call.getStart() } }, true, executionState.mainFile, executionState.processContext)
+          continue
+        }
+        if (resolution.status === 'uncertain' && executionState.processContext === 'test') {
+          // Ordering/binding uncertainty must retain the possible replacement's
+          // input scope, not only the original child/reader's dependencies.
+          const alternatives = [...persistentNativeEvents(operation.provider, operation.readerMethod, testFile)]
+          for (const id of seen) if ([...states.values()].some(state => state.id === id && state.processContext === 'test')) {
+            alternatives.push(...(nodes.get(id).providerEvents ?? []).filter(event => event.callback))
+          }
+          for (const event of alternatives) {
+            if (providerName(event.provider) !== providerName(operation.provider)
+              || event.method && operation.readerMethod && event.method !== operation.readerMethod
+              || !event.callback && event.action === 'replace') continue
+            seen.entryUncertainties ??= []
+            seen.entryUncertainties.push({ id: operation.id, callback: byAst.get(event.callback), kind: 'native-callback',
+              provider: providerName(event.provider), method: event.method, registration: { file: local(event.ast.getSourceFile().fileName), start: event.ast.getStart() },
+              effectScope: event.callback ? 'bounded conservative callback graph' : 'unbounded opaque persistent callback',
+              reason: event.persistent ? 'Persistent global native mock lifetime or callback effects are unresolved' : 'Native replacement callback invocation or ordering is unresolved' })
+          }
+        }
+        if (!operation.nodeEntry) continue
+        if (resolution.status === 'uncertain') {
           seen.entryUncertainties ??= []
           seen.entryUncertainties.push({ id: operation.id, file: operation.nodeEntry.file, reason: 'Node entry provider replacement or delegation is unresolved' })
           continue
@@ -1365,6 +1408,36 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       }
     }
     return 'real'
+  }
+  function callbackMayAffect(callback, targets, changedFile, reached, testFile) {
+    if (!callback) return true // An opaque persistent callback has no bounded effect proof.
+    const pending = [callback], visited = new Set()
+    for (const id of pending) {
+      if (visited.has(id)) continue
+      visited.add(id)
+      if (targets.has(id)) return true
+      const node = nodes.get(id)
+      if (!node) continue
+      if (node.inputRisks?.some(risk => ['import', 'execute', 'glob'].includes(risk.kind) || risk.moduleImport
+        || (risk.pattern ? new RegExp(risk.pattern).test(changedFile) : !risk.candidates?.length || risk.candidates.includes(changedFile)))) return true
+      if (node.moduleEntryRisks?.some(risk => entryMayAffect(risk.target, changedFile))) return true
+      pending.push(...node.edges)
+      for (const invocation of node.mockInvocations ?? []) for (const { candidate, key } of invocation.alternatives) {
+        if (candidate.file === testFile && candidate.mode === 'replacement') pending.push(...(candidate.configurations.get(key) ?? []).map(fn => byAst.get(fn)).filter(Boolean))
+      }
+      if (node.readerCall && nativeCallbackProviders.has(providerName(node.provider))) {
+        const alternatives = [...persistentNativeEvents(node.provider, node.readerMethod, testFile)]
+        for (const owner of reached) if ([...reached.trace.states.values()].some(state => state.id === owner && state.processContext === 'test')) alternatives.push(...(nodes.get(owner)?.providerEvents ?? []))
+        if (alternatives.some(event => (event.callback || event.action === 'uncertain') && providerName(event.provider) === providerName(node.provider)
+          && (!event.method || !node.readerMethod || event.method === node.readerMethod))) return true
+      }
+      if (node.nodeEntry) pending.push(node.nodeEntry.target)
+    }
+    return false
+  }
+  function persistentNativeEvents(provider, method, testFile) {
+    return persistentNativeCandidates.filter(event => providerName(event.provider) === providerName(provider)
+      && (!event.method || !method || event.method === method) && runtimeReaches(testFile, event.file))
   }
   function entryMayAffect(file, target) {
     if (runtimeReaches(file, target)) return true
@@ -1458,15 +1531,15 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     behaviors.conservative = path.some((n, index) => n.conservativeEdges.has(path[index + 1]?.id))
     return behaviors
   }
-  function inputStatus(provider, method, roots, reached, target, testFile, inputProof, stateKey) {
-    if (!provider) return 'real'
+  function inputResolution(provider, method, roots, reached, target, testFile, inputProof, stateKey) {
+    if (!provider) return { status: 'real' }
     if (!stateKey && reached.trace) {
       const states = [...reached.trace.states].filter(([, state]) => state.id === target)
       const results = states.map(([key]) => [key, inputStatus(provider, method, roots, reached, target, testFile, inputProof, key)])
-      if (results.some(([, status]) => status === 'uncertain')) return 'uncertain'
+      if (results.some(([, status]) => status === 'uncertain')) return { status: 'uncertain' }
       const real = results.find(([, status]) => status === 'real')
-      if (real) { reached.trace.first.set(target, real[0]); return 'real' }
-      return results.length ? 'replaced' : 'uncertain'
+      if (real) { reached.trace.first.set(target, real[0]); return { status: 'real' } }
+      return { status: results.length ? 'replaced' : 'uncertain' }
     }
     const processContext = reached.trace?.states.get(stateKey)?.processContext ?? 'test'
     if (processContext !== 'test') {
@@ -1474,18 +1547,18 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       // replacement machinery in that process is not modeled as a test scope.
       for (const [, state] of reached.trace.states) if (state.processContext === processContext) {
         const entry = nodes.get(state.id), info = files.get(entry.file)
-        if (info?.blockedProviders.has(providerName(provider)) || info?.uncertainProviders.has(providerName(provider))) return 'uncertain'
-        if ((entry.providerEvents ?? []).some(event => event.all || providerName(event.provider) === providerName(provider))) return 'uncertain'
+        if (info?.blockedProviders.has(providerName(provider)) || info?.uncertainProviders.has(providerName(provider))) return { status: 'uncertain' }
+        if ((entry.providerEvents ?? []).some(event => event.all || providerName(event.provider) === providerName(provider))) return { status: 'uncertain' }
       }
-      return 'real'
+      return { status: 'real' }
     }
     const key = providerName(provider)
-    if (files.get(testFile)?.uncertainProviders.has(key)) return 'uncertain'
+    if (files.get(testFile)?.uncertainProviders.has(key)) return { status: 'uncertain' }
     const binding = inputProof ? readerBinding(inputProof) : nodes.get(target)?.readerBinding ?? { live: false }
-    const initial = files.get(testFile)?.blockedProviders.has(key) ? binding.live && binding.moduleKind === 'esm' ? 'replaced' : 'uncertain' : 'real'
+    const initial = persistentNativeEvents(provider, method, testFile).length ? 'uncertain' : files.get(testFile)?.blockedProviders.has(key) ? binding.live && binding.moduleKind === 'esm' ? 'replaced' : 'uncertain' : 'real'
     const inputPath = explain(roots, reached, target, stateKey)
     const rootAst = nodes.get(inputPath.rootId)?.ast
-    if (!rootAst) return 'uncertain'
+    if (!rootAst) return { status: 'uncertain' }
     const invocation = inputPath.find(step => step.callsite?.file === testFile && rootAst.getStart() <= step.callsite.start && step.callsite.start < rootAst.end)?.callsite.start
       ?? (nodes.get(target)?.file === testFile ? nodes.get(target).ast.getStart() : null)
     const events = []
@@ -1505,23 +1578,33 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       if (scope === 'body' && invocation !== null && event.ast.getStart() > invocation) {
         // The same reader may be invoked again after this restore. Without a
         // distinct invocation identity, never claim every read was replaced.
-        if (event.action === 'restore' || event.action === 'uncertain') return 'uncertain'
+        if (event.action === 'restore' || event.action === 'uncertain' || event.callback) return { status: 'uncertain' }
         continue
       }
       if (scope === 'helper') {
         const eventPath = explain(roots, reached, id)
         const callsite = eventPath.find(step => step.callsite?.file === testFile && rootAst.getStart() <= step.callsite.start && step.callsite.start < rootAst.end)?.callsite.start
         if (callsite === undefined || invocation === null) { events.push({ action: 'uncertain', order: Infinity }); continue }
-        if (callsite > invocation) continue
-        events.push({ action: conditional ? 'uncertain' : event.action, native: event.native, order: callsite })
-      } else events.push({ action: conditional || scope === 'body' && invocation === null ? 'uncertain' : event.action, native: event.native, order: scope === 'before' ? -1 : event.ast.getStart() })
+        if (callsite > invocation) {
+          if (event.action === 'restore' || event.action === 'uncertain' || event.callback) return { status: 'uncertain' }
+          continue
+        }
+        events.push({ action: conditional ? 'uncertain' : event.action, native: event.native, callback: event.callback, order: callsite })
+      } else events.push({ action: conditional || scope === 'body' && invocation === null ? 'uncertain' : event.action, native: event.native, callback: event.callback, order: scope === 'before' ? -1 : event.ast.getStart() })
     }
     events.sort((a,b) => a.order - b.order)
-    const action = events.at(-1)?.action
-    return action === 'replace' ? binding.live && binding.methodLive !== false ? 'replaced' : 'uncertain' : action === 'uncertain' ? 'uncertain' : initial
+    const event = events.at(-1), action = event?.action
+    const tied = events.filter(candidate => candidate.order === event?.order)
+    if (tied.some(candidate => candidate.callback) && tied.some(candidate => candidate.callback !== event.callback || candidate.action !== action)) return { status: 'uncertain' }
+    // Unresolved input risks have no scheduled operation node. Do not suppress
+    // them while silently dropping an effectful replacement callback.
+    if (action === 'replace' && event.callback && (inputProof || !nodes.get(target)?.readerCall)) return { status: 'uncertain' }
+    const status = action === 'replace' ? binding.live && binding.methodLive !== false ? 'replaced' : 'uncertain' : action === 'uncertain' ? 'uncertain' : initial
+    return { status, callback: status === 'replaced' ? event?.callback : null }
   }
+  function inputStatus(...args) { return inputResolution(...args).status }
   factsComplete = true
-  return { nodes, reachable, moduleEntryStatus, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, mockUncertainty, runtimeReaches, entryMayAffect, hasFile: file => files.has(file) }
+  return { nodes, reachable, moduleEntryStatus, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, mockUncertainty, runtimeReaches, entryMayAffect, callbackMayAffect, hasFile: file => files.has(file) }
 }
 
 function selectBehaviors(inventory, changed, consumers, evidence) {
@@ -1560,8 +1643,8 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
           if (!roots) uncertain = true
           const actualRoots = roots || graphs[i].wholeFileRoots(graphFile)
           const reached = graphs[i].reachable(actualRoots, graphFile)
-          for (const entry of reached.entryUncertainties ?? []) if (graphs[i].entryMayAffect(entry.file, change.file)) {
-            const error = new Error(`Unsafe Node entry: ${entry.reason}; case ${file}#${suite.names[index]}; changed ${change.file}`)
+          for (const entry of reached.entryUncertainties ?? []) if (entry.kind === 'native-callback' ? graphs[i].callbackMayAffect(entry.callback, targets[i], change.file, reached, graphFile) : graphs[i].entryMayAffect(entry.file, change.file)) {
+            const error = new Error(`Unsafe ${entry.kind === 'native-callback' ? 'native callback' : 'Node entry'}: ${entry.reason}; case ${file}#${suite.names[index]}; changed ${change.file}`)
             error.diagnostics = { executable: false, changed: change.file, test: file, caseIndex: index, path: [...graphs[i].explain(actualRoots, reached, entry.id)], unresolved: entry }
             throw error
           }
