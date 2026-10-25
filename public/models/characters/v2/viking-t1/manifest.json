@@ -4,6 +4,8 @@
   "status": "ready",
   "skeleton": "project-humanoid-v1",
   "sharedLodPose": true,
+  "preserveMountedFingerTracks": true,
+  "alignAuthoredCarryGrip": true,
   "handShapeMode": "authored",
   "preserveLodHandTopology": true,
   "source": {

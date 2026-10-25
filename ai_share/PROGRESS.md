@@ -2,7 +2,7 @@
 
 ## 普通士兵 T1/T2 與共用 HP
 
-四份 owner-confirmed Meshy 模型已加入獨立 T1/T2 身體及 30 根加權手指骨；局部手部加線／權重校準改善初版尖片，保留原身體蒙皮與低模風格，原 T3 與特殊角色資產不替換。Player／NPC 共用普通士兵基礎 HP，Career 正式軍階、技能、舊存檔比例與自訂 HP 來源分開處理，契約見 ARCHITECTURE。Blender 來源／動畫外觀檢查不等於實際裝備接觸或騎乘驗收；本次雲端瀏覽器未能執行 WebGL 預覽，仍維持 Draft，不宣告完整視覺驗收。未執行效能基準。
+四份 owner-confirmed Meshy 模型已加入獨立 T1/T2 身體及 30 根加權手指骨；局部手部加線／權重校準改善初版尖片，保留原身體蒙皮與低模風格，原 T3 與特殊角色資產不替換。Player／NPC 共用普通士兵基礎 HP，Career 正式軍階、技能、舊存檔比例與自訂 HP 來源分開處理，契約見 ARCHITECTURE。Blender 來源／動畫外觀檢查不等於實際裝備接觸或騎乘驗收；雲端瀏覽器未能執行 WebGL 預覽，不宣告完整視覺驗收。使用者遊戲回報確認 mounted 衍生 clip 漏指骨，以及新 Roman 左掌未進自由手校正；修復已接入 scoped mounted 指軌、自由左手與實際槍／騎乘劍握軸校正；正式 CPU controller／裝備取樣及 Blender 渲染可重現並對照原故障，仍不是實際 WebGL 或完整騎乘驗收。未執行效能基準。
 
 ## Commander V 四門守城交接
 

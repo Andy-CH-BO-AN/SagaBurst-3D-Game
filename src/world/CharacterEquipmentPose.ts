@@ -1,3 +1,4 @@
+import { minimumReachableShoulderSwing } from './AuthoredCarryGrip'
 import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import * as THREE from 'three'
 import type { ArmRig, CharacterRig, MountedPoseKind } from './CharacterVisuals'
@@ -315,6 +316,10 @@ export class CharacterEquipmentPose {
   private readonly bowChestWorld = new THREE.Quaternion()
   private readonly bowHalfTurnInverse = new THREE.Quaternion()
 
+  private readonly carryClavicle?: THREE.Object3D
+  private readonly carryClavicleAnchor = new THREE.Vector3()
+  private readonly carryShoulderAxis = new THREE.Vector3()
+  private readonly carryWristAxis = new THREE.Vector3()
   private readonly mountedSwordShaftLocal?: THREE.Vector3
   private readonly swordCarryDigits: Array<{ node: THREE.Object3D, targets: THREE.Quaternion[] }> = []
   private readonly swordCarryFrame?: EquipmentGripFrame
@@ -331,8 +336,12 @@ export class CharacterEquipmentPose {
 
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
 
-  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource, clothRig?: FittedHumanoidClothRig, private readonly relaxedLeftThumbForward = false, private readonly swordCarryGrips?: readonly SwordCarryGripProfile[]) {
-    if (swordCarryGrips?.length && frames.lanceRight.modelRotationLocal) this.mountedSwordShaftLocal = new THREE.Vector3(0, 1, 0)
+  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource, clothRig?: FittedHumanoidClothRig, private readonly relaxedLeftThumbForward: boolean | 'including-lance' = false, private readonly swordCarryGrips?: readonly SwordCarryGripProfile[], private readonly alignAuthoredCarryGrip = false) {
+    if (alignAuthoredCarryGrip) {
+      if (rig.right.shoulder.parent?.name !== 'clavicle_r') throw new Error('Authored carry alignment requires the canonical right clavicle')
+      this.carryClavicle = rig.right.shoulder.parent
+    }
+    if ((swordCarryGrips?.length || alignAuthoredCarryGrip) && frames.lanceRight.modelRotationLocal) this.mountedSwordShaftLocal = new THREE.Vector3(0, 1, 0)
       .applyQuaternion(new THREE.Quaternion().fromArray(frames.lanceRight.modelRotationLocal))
     if (swordCarryGrips?.length && rig.swordGripFrame) {
       this.swordCarryFrame = { ...frames.lanceRight, ...rig.swordGripFrame, gripCenterLocal: [...rig.swordGripFrame.gripCenterLocal] }
@@ -377,6 +386,7 @@ export class CharacterEquipmentPose {
     const nodes = [rig.right.shoulder, rig.right.elbow, rig.right.wrist, rig.left.shoulder, rig.left.elbow, rig.left.wrist,
       rig.leftLeg.hip, rig.leftLeg.knee, rig.leftLeg.ankle, rig.rightLeg.hip, rig.rightLeg.knee, rig.rightLeg.ankle]
     nodes.push(this.seatedHips)
+    if (this.carryClavicle) nodes.push(this.carryClavicle)
     nodes.push(...this.swordCarryDigits.map(digit => digit.node))
     if (this.mountedSkirt) nodes.push(...this.mountedSkirt.nodes)
     if (this.fittedCloth) nodes.push(...this.fittedCloth.nodes)
@@ -534,7 +544,8 @@ export class CharacterEquipmentPose {
     // anatomical thumb web toward +Z, distributing pronation into the forearm.
     // The mixer weight releases this correction before bow/2H contacts take over.
     const relaxedHandWeight = state.relaxedHandWeight ?? 0
-    if (live && this.relaxedLeftThumbForward && !state.shield && !state.lance && !state.sampledBowPose
+    if (live && this.relaxedLeftThumbForward && !state.shield
+      && (!state.lance || this.relaxedLeftThumbForward === 'including-lance') && !state.sampledBowPose
       && !this.bakedActions.includes(state.action) && state.action !== 'greatswordSlash' && relaxedHandWeight > 0) {
       this.root.updateWorldMatrix(true, true)
       this.root.getWorldQuaternion(this.rootWorld).invert()
@@ -849,6 +860,50 @@ export class CharacterEquipmentPose {
         }
         this.hasContinuousAxeLeftOffset = true
       } else for (let i = 0; i < 3; i++) this.axeLeftBones[i].quaternion.copy(this.axeSavedLeft[i].slerp(this.axeLeftBones[i].quaternion, blend))
+    }
+    // These authored finger rigs curl around their measured anatomical shaft.
+    // Production lance/mounted-sword attachments instead keep a forward shaft.
+    // Align the arm to that existing shaft, then counter-transform only the
+    // equipment proxy: neither weapon world pose nor gameplay reach may change.
+    // Bow, throws and two-handed contacts retain their own pose owners.
+    if (live && this.alignAuthoredCarryGrip && this.mountedSwordShaftLocal && this.rig.swordGripFrame
+      && (state.lance || state.mounted && state.actualSword) && !state.sampledBowPose
+      && !['pilumThrow', 'axeAttack2H', 'greatswordSlash'].includes(state.action)) {
+      const frame = this.rig.swordGripFrame
+      this.root.updateWorldMatrix(true, true)
+      this.swordEquipmentCorrection.copy(this.rig.right.wrist.matrixWorld)
+      this.root.getWorldQuaternion(this.rootWorld).invert()
+      this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+      this.attackAxis.fromArray(frame.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
+      this.axeReach.copy(this.mountedSwordShaftLocal).applyQuaternion(this.handWorld).normalize()
+      this.handWorld.premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.axeReach))
+      this.target.fromArray(frame.gripCenterLocal).applyMatrix4(this.swordEquipmentCorrection)
+      this.root.worldToLocal(this.target)
+      // Near full extension, recover reach through anatomical shoulder-girdle
+      // protraction, not a discontinuous hand roll or a stretched arm. The
+      // clavicle rotates about its existing root and is restored each sample.
+      if (this.carryClavicle) {
+        this.carryClavicle.getWorldPosition(this.carryClavicleAnchor)
+        this.root.worldToLocal(this.carryClavicleAnchor)
+        this.rig.right.shoulder.getWorldPosition(this.carryShoulderAxis)
+        this.root.worldToLocal(this.carryShoulderAxis)
+        this.carryShoulderAxis.sub(this.carryClavicleAnchor)
+        this.carryWristAxis.fromArray(frame.gripCenterLocal).applyQuaternion(this.handWorld)
+          .negate().add(this.target).sub(this.carryClavicleAnchor)
+        const reach = this.rig.right.elbow.position.length() + this.rig.right.wrist.position.length() - .00101
+        const swing = minimumReachableShoulderSwing(this.carryShoulderAxis, this.carryWristAxis, reach)
+        if (swing !== null && swing > 0) {
+          this.attackRotation.setFromUnitVectors(this.carryShoulderAxis.normalize(), this.carryWristAxis.normalize())
+          this.attackAxis.set(this.attackRotation.x, this.attackRotation.y, this.attackRotation.z).normalize()
+          this.root.getWorldQuaternion(this.rootWorld)
+          this.attackAxis.applyQuaternion(this.rootWorld)
+          this.rotateArm(this.carryClavicle, swing)
+        }
+      }
+      this.axeRight.solve(this.target, this.handWorld, frame, undefined, true, true)
+      this.axeMatrix.copy(this.rig.right.wrist.matrixWorld).invert()
+      this.swordEquipmentCorrection.premultiply(this.axeMatrix)
+      this.hasSwordEquipmentCorrection = true
     }
     // Fitted sword grasp owns only the right arm/digits. Keep the sampled
     // source blade orientation, including attacks; shift only its grasp station.
