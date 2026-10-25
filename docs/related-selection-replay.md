@@ -4,11 +4,11 @@ This is a recovery recipe for PR #411, **not selection policy or an owner map**.
 Do not import these historical scenarios into the planner. Keep generated plans,
 logs and identity comparisons under ignored `output/`; do not commit them.
 
-## Current handoff — 2026-10-25 22:37 UTC
+## Current handoff — 2026-10-25 23:04 UTC
 
 **Keep #411 Draft; acceptance is incomplete.** Published checkpoint
-`b66347b7ffa657581bd676da130760859e992876`, tree
-`64fd29677d8133341f1e7d83e51c4a4e9706123f`, contains the independently
+`a7d98d43506d10041f09c52ac66604bc2382be3e`, tree
+`75909e1e8e16421e1e337478164a6f3575ed6aa0`, contains the independently
 reviewed provider-cycle correction, original-cause diagnostics, and source-local
 ambient `require` proof with Node `node:` cache-bypass semantics, and the reviewed
 main-entry/process-context increment plus an invocation-local lexical binding
@@ -19,6 +19,93 @@ snapshots, scoped runtime/input evidence, conservative open directory domains,
 source-byte readers, explicit conservative receiver evidence, and narrow native
 mock proofs. The requested small-space two-person placement test remains; game
 army capacity is unchanged. Related 500 / per-leaf 100ms and Full gates remain.
+
+### Integrated checkpoint and remaining acceptance boundary
+
+The reviewed native-callback increment preserves actual callback effects and
+process/lifetime evidence rather than treating every native replacement as pure.
+Only proven finite bodies are substituted; configuration alone does not execute
+them. Actual reader AST/arguments remain separate from caller-wrapper attribution.
+Ambiguous order, persistent global Node mocks, captured originals, unknown
+callbacks and nested replacement effects remain explicit uncertainty. Callback
+risk qualification uses actual callback/helper/input reach, not whole-file owners.
+
+The final focused behavior/planner run passed 195 leaves, max 75.273ms including
+cleanup (`run-c3Fwjr`). A separate **integrated development subset passed 336/500
+leaves**, max **74.398ms**, wall 7.35s (`run-ss3xEJ`): all 13 test files directly
+modified against target `a4579ac` plus the workflow contract, 99 Vitest + 237 Node.
+The dynamic-key/destructuring leaf remains a non-blocking >=70ms advisory.
+`npm run typecheck:test` passed with zero diagnostics and `npm run build` passed.
+These results do not constitute an executable Related plan or a passed CI gate.
+
+At the exact native checkpoint, the integrated command was:
+
+```sh
+node tests/tooling/run.cjs $(git diff --name-only \
+  a4579ac3cea9152fc6d891c2e87043db0c0ca821 \
+  a7d98d43506d10041f09c52ac66604bc2382be3e -- tests | grep -E '\.test\.') \
+  tests/release/workflow-contract.test.cjs
+npm run typecheck:test
+npm run build
+```
+
+[Exact-head CI 40242336727](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/40242336727)
+**failed**, tested merge `7d2dd90d0659d9cd9ebfbec6d66b4a0fe6c5bcae`, target parent
+`a4579ac3cea9152fc6d891c2e87043db0c0ca821`, second parent `a7d98d4`.
+Its first blocker is still ci-plan ordinal 30, `planner collects both runners
+against fixed Git trees before issuing a documentation-only manifest`, with
+unresolved native Node-entry replacement/delegation. No logic shard executed;
+web acceptance was consequently gated off, not passed by the local build.
+Original blocked artifact 12617635908 was downloaded and its ZIP SHA256 verified
+against the CI upload log:
+`589c1d8f8eaf155f4d6ca179bd46243ea9a7ad41c99b348e0e2caaa52da96c64`.
+
+The final four fixed historical replays used analyzer `a7d98d4`, tree above,
+tooling digest `71289439eba0650adaab795bba4556a08fa892410bf970a4bcaff7e8645cf0cd`.
+All analyzer/historical snapshots remained clean and stable:
+
+| Scenario | Original leaves | Seconds | Executable after |
+| --- | ---: | ---: | --- |
+| Duel | 387 | 115.946 | null / blocked |
+| Black Cat | 283 | 112.694 | null / blocked |
+| Axe | 350 | 110.952 | null / blocked |
+| Control | 283 | 104.551 | null / blocked |
+
+Every complete diagnostics object is deeply equal to both earlier `b66347b` and
+`caa8c33` rounds, including exact identity, path and unresolved candidates. No
+partial selection or retained/added/removed set exists. The common exact
+CareerTownEntry identity and the fluent-loader/finite-registry paths are recorded
+below; the new finite callback core **did not clear those historical blockers**.
+
+#### Concrete remaining roots (not manual selection policies)
+
+1. **General callback effects and return/receiver provenance.** Replacement
+   identity and effect completeness are distinct. A visible callback body can
+   theoretically be traversed with its return kept unknown, but the current
+   normal graph does not emit a risk for every unknown property/getter, bare
+   callable, external operation or implicit iterator/coercion/toJSON effect.
+   `resolveMember` leaves plain unknown reads and external receivers unresolved;
+   `callEnvironment` carries null/undefined/present, not accessor-free object
+   shapes. Therefore simply dropping `finiteMockCallback` would be unsound.
+   The next generic seam is explicit unknown-effect frontiers and return
+   provenance propagated only into actual uses, while traversing all proven
+   body calls/reads. Unknown frontiers must remain blocked, not declared pure.
+   The actual collector dispatcher additionally uses argv/options property
+   reads, array/Map operations, Buffer/JSON and assertions; this checkpoint does
+   not whitelist it or implement a general interpreter.
+2. **Historical mock/value/allocation gap.** Genuine expect observers, returned
+   `{start}` callable identity, `mockResolvedValue`, `mock.calls[0][2]` argument
+   projection, Map returns, and actual async callback assignments/reads still
+   need reusable value/effect evidence. Original/fake NPC instances remain
+   explicitly conservative where allocation is not proved. Adding a matcher
+   exception alone would not solve these callbacks.
+3. **Inline-shell effects.** The workflow contract's transformed YAML bash
+   snippets remain unsupported. Proven text provenance is not proof of shell
+   effects; do not add path/name exclusions or a broad shell interpreter.
+4. **End-to-end acceptance.** Obtain an executable own-plan and historical
+   identity comparisons, then run/aggregate the exact selected cases and check
+   latest-head CI. Do not substitute these 336 development cases, older green
+   heads or null after-counts for that result. Keep Draft; do not merge.
 
 ### Latest bounded mock checkpoint
 
@@ -47,7 +134,7 @@ ci-plan ordinal 30, `planner collects both runners against fixed Git trees befor
 issuing a documentation-only manifest`: native Node-entry replacement/delegation
 is unresolved. The live Git-transport fix cleared its earlier blocker; this is
 a distinct actual collector callback, not a cache error or gameplay failure.
-New-head CI 40240928532 is pending. Local typecheck had zero diagnostics and build
+That checkpoint CI 40240928532 also failed at the same collector boundary. Local typecheck had zero diagnostics and build
 passed at the transport/empty-mock checkpoint; this is not final CI acceptance.
 
 The next bounded native-callback increment must preserve the winning event,
@@ -56,13 +143,9 @@ process context. The existing realistic Git/collector dispatcher uses conditions
 property reads and assertion/Buffer/JSON calls outside this grammar and remains
 unsupported. Do not describe finite native callback support as clearing it.
 
-A fresh serial four-scenario replay is running against the exact published
-`b66347b` analyzer, tooling digest
-`5fa92d81133beee640d6a1899816ff95b09e529eb3324a5efdf23e348a14e79b`.
-Until terminal, the earlier caa8 results below remain earlier results. Historical
-mock syntax still not proved includes expect observer chains, mockResolvedValue
-with local callable identity, returned literal own-callable properties, and
-`.mock.calls[0][2]` callback invocation. General NPC allocation is also incomplete.
+The intermediate `b66347b` four-scenario replay also completed blocked; the
+final `a7d98d4` result above supersedes its status, not its immutable evidence.
+Historical observer/returned-callable/logged-argument forms remain unsupported.
 
 An earlier complete own-plan attempt used head
 `bcca8386a8fd7143bfe9f5ce186e0355603aa918`, actual tested merge
@@ -165,7 +248,7 @@ cache restoration or fresh requires are safe**. Real cache/fresh-load negative
 contracts remain. Original artifact 12614893635 was verified with ZIP SHA256
 `7cc1f8f26b38544257a08a2bcb4a7dc7dac5e4dd9e9961682a1d8fa164f45e61`.
 
-The new frozen four-scenario replay uses analyzer `caa8c33` (tooling digest
+An earlier frozen four-scenario replay uses analyzer `caa8c33` (tooling digest
 `331242589a85da05a352b2361634c3b94a3720093fb4a090b61683bfe743e4a9`).
 All four terminated with stable analyzer/source snapshots and **blocked**, with
 no partial selected identities and no executable after-count:
