@@ -72,7 +72,7 @@ function policyConsumers(file, inventory) {
   // Weapon source geometry and grip/string appearance require real-browser QA.
   // Existing owners protect equip/re-equip, lance/bow switching, projectile
   // collision and Career ownership without importing a model or fake scene.
-  if (['src/world/CharacterBowVisual.ts', 'tools/build-meshy-weapons.py',
+  if (['tools/build-meshy-weapons.py',
     'public/models/weapons/t5/lance.glb', 'public/models/weapons/t5/ATTRIBUTION.md'].includes(file)
     || file.startsWith('public/models/weapons/maki-ranger-bow/')) {
     for (const owner of ['tests/combat/CommanderWeaponSwitching.test.ts',
