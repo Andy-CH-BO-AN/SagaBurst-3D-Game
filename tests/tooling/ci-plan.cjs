@@ -81,8 +81,7 @@ function policyConsumers(file, inventory) {
   }
   // T4 visual asset/loader changes reuse the existing equip/save and axe action owners.
   // Geometry, material and grip validation stays in offline/browser QA.
-  if (['tools/build-t4-battle-axe.py', 'tools/build-paladin.py',
-    'src/world/PaladinEquipment.ts'].includes(file)
+  if (['tools/build-t4-battle-axe.py', 'tools/build-paladin.py'].includes(file)
     || file.startsWith('public/models/weapons/paladin/')) {
     for (const owner of ['tests/combat/CommanderWeaponSwitching.test.ts',
       'tests/equipment/WeaponWheel.test.ts', 'tests/equipment/CareerTownEquipment.test.ts']) add(owner)
