@@ -403,5 +403,63 @@
         0
       ]
     }
+  },
+  {
+    "weapon": "shield",
+    "id": "commander_shield_t5",
+    "title": "Laurelguard T5 Shield",
+    "sourceFile": "Laurelguard_T5_1p20m_clean_centered.glb",
+    "source": {
+      "providedBy": "User attachment for T5 Commander War Shield request",
+      "bytes": 7134472,
+      "sha256": "d60d5b7cb75ffc286b2c5e4ce81e459b737487d4dfb43a660295dfd020715f50",
+      "triangles": 4111,
+      "meshes": 1,
+      "materials": 1,
+      "textures": 3,
+      "author": "Not supplied",
+      "license": "Not supplied; no license inferred"
+    },
+    "final": {
+      "path": "models/weapons/t5/shield.glb",
+      "byteIdenticalToSource": true,
+      "heightMeters": 1.2,
+      "widthMeters": 0.574448,
+      "bounds": {
+        "min": [
+          -0.287224,
+          -0.6,
+          -0.101899
+        ],
+        "max": [
+          0.287224,
+          0.6,
+          0.15608
+        ]
+      },
+      "preserved": "Original geometry, UV, normals, embedded base color, metallic/roughness and normal textures; no rebake or rescale"
+    },
+    "attachmentSpace": {
+      "longAxis": "+Y",
+      "front": "+Z",
+      "rear": "-Z",
+      "gripCenter": [
+        0,
+        0,
+        -0.085
+      ],
+      "runtimeGrip": "Shared Paladin vertical capsule and two scaled rear brackets; no change to source GLB",
+      "mounts": [
+        {
+          "y": -0.1,
+          "rearSeatZ": -0.008
+        },
+        {
+          "y": 0.1,
+          "rearSeatZ": 0.018
+        }
+      ]
+    },
+    "collision": "24 conservative model-space Box3 bands sampled from original silhouette; central rear cutoff -0.050 excludes grip, final 1cm of each tip intentionally omitted. Fixed curved-depth approximation, no runtime triangle traversal."
   }
 ]

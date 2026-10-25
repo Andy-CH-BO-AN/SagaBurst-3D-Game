@@ -36,14 +36,14 @@ function validateNativeOwnership(profile: CareerProfile, faction: CareerProfile[
   const state = profile.townEquipment?.[faction], held = nativeHolders(profile, faction)
   const all = [...held, ...(state?.nativeReserve ?? []), ...(state?.soldNativeIds ?? [])]
   // The schema validator already authenticates IDs; this also rejects missing token ownership.
-  if (all.length !== new Set(all).size || all.length !== townNativeItems(faction).length) throw new Error('Invalid native ownership')
+  if (all.length !== new Set(all).size || all.length !== townNativeItems(faction, state).length) throw new Error('Invalid native ownership')
 }
 /** Only catalog-priced, idle native weapons and shields; inventory quantities stay separate. */
 export function townNativeSaleStock(profile: CareerProfile, faction: CareerProfile['faction']): TownNativeSaleStock[] {
   const state = profile.townEquipment?.[faction], reserve = new Set(state?.nativeReserve ?? []), sold = new Set(state?.soldNativeIds ?? [])
   const held = nativeHolders(profile, faction)
   const stock = new Map<string, TownNativeSaleStock>()
-  for (const item of townNativeItems(faction)) {
+  for (const item of townNativeItems(faction, state)) {
     if (!reserve.has(item.nativeId) || sold.has(item.nativeId) || held.has(item.nativeId) || !isResalableTownNativeItem(faction, item)) continue
     const product = TOWN_PRODUCTS.find(product => product.id === item.itemId && product.category !== 'mount')
     const price = townResalePrice(profile, item.itemId)

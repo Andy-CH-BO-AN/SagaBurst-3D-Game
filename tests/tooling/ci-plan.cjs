@@ -69,6 +69,13 @@ function policyConsumers(file, inventory) {
     for (const owner of ['tests/missions/BattleConfig.test.ts', 'tests/actors/BattleSpawner.test.ts']) add(owner)
     if (file === 'src/ui/CampaignSetupUI.ts') add('tests/progression/CampaignProgress.test.ts')
   }
+  // Original shield pixels/geometry are inspected offline and in gameplay, never
+  // loaded by unit tests. These existing owners protect its face collision,
+  // durability, bow/shield visibility and paid inventory/ownership contracts.
+  if (file === 'public/models/weapons/t5/shield.glb' || file === 'public/models/weapons/t5/sources.json') {
+    for (const owner of ['tests/combat/CombatAttribution.test.ts', 'tests/combat/CommanderWeaponSwitching.test.ts',
+      'tests/equipment/CareerSquadEquipment.test.ts', 'tests/equipment/CareerTownEquipment.test.ts']) add(owner)
+  }
   // Offline mount authoring and DEV viewers are verified with the actual GLB
   // in Blender/Chrome. Their pure preload, playback-state and seat-cache owners
   // remain the logic gate; tests must never load a mesh or construct a skeleton.
@@ -360,8 +367,15 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   // normal owner selection still processes them, and real config changes remain.
   const relocatedInputs = changed.filter(item => item.status === 'M' && require('./dependencies.cjs').relocationOnly(
     baseTree.texts.get(item.file), currentTree.texts.get(item.file), changed, baseTree.files, currentTree.files, item.file)).map(item => item.file)
+  // Dependency placement still selects publication/CI owners below. Only its
+  // proven unchanged test-installed graph avoids Vitest's global watch trigger.
+  const dependencyPlacementInputs = require('./dependencies.cjs').dependencyPlacementOnly(
+    baseTree.texts.get('package.json'), currentTree.texts.get('package.json'),
+    baseTree.texts.get('package-lock.json'), currentTree.texts.get('package-lock.json'))
+    ? changed.filter(item => item.status === 'M' && ['package.json', 'package-lock.json'].includes(item.file)).map(item => item.file) : []
   let found
-  try { found = await discover({ relatedPaths: changed.filter(item => item.status !== 'D' && !relocatedInputs.includes(item.file)).map(item => item.file) }) }
+  try { found = await discover({ relatedPaths: changed.filter(item => item.status !== 'D'
+    && !relocatedInputs.includes(item.file) && !dependencyPlacementInputs.includes(item.file)).map(item => item.file) }) }
   catch (error) { throw new Error(`Related dependency selection unavailable: ${error.message}. Full is reserved for main/release.`) }
   const consumers = dependencyConsumers(found.inventory, currentTree)
   const previousConsumers = dependencyConsumers([...baseTree.sources.keys()].filter(testFile).map(file => ({ file })), baseTree)
@@ -394,7 +408,7 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   return validateManifest({
     version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
     checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
-    inventory: found.inventory, ...selection, relocatedInputs, shards: planShards(selectedInventory, 'related'),
+    inventory: found.inventory, ...selection, relocatedInputs, dependencyPlacementInputs, shards: planShards(selectedInventory, 'related'),
   })
 }
 function options(args) {

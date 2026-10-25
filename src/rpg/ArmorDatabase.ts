@@ -1,7 +1,7 @@
 /**
  * ArmorDatabase.ts
  * Centralized definition for shields and armors.
- * Tier 1 (Common/Grey), Tier 2 (Rare/Blue), Tier 3 (Epic/Gold).
+ * Shield quality tiers 1–5; legendary shields share the T5 weapon color.
  */
 
 export type ArmorType = 'shield'
@@ -10,12 +10,17 @@ export interface ArmorData {
   id: string
   name: string
   type: ArmorType
-  tier: 1 | 2 | 3 | 4
+  tier: 1 | 2 | 3 | 4 | 5
   shieldImpactMax: number
   description: string
 }
 
 export const ARMORS: Record<string, ArmorData> = {
+  commander_shield_t5: {
+    id: 'commander_shield_t5', name: "指揮官戰盾 Commander's War Shield", type: 'shield', tier: 5,
+    shieldImpactMax: 96,
+    description: '羅馬與維京 T5 共用實體盾牌。96 衝擊耐久；僅實際命中盾面才格擋。',
+  },
   paladin_shield_t4: {
     id: 'paladin_shield_t4', name: "隊長戰盾 Captain's War Shield", type: 'shield', tier: 4,
     shieldImpactMax: 48,

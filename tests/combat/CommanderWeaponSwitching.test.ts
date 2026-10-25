@@ -9,6 +9,7 @@ import type { ObstacleData } from '../../src/world/Terrain'
 import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
 import type { UnitLoadout } from '../../src/battle/UnitPresetCatalog'
 import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
+import { careerCommanderLoadout } from '../../src/career/CareerCommanderEquipment'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale } from '../../src/world/CharacterCombatAnimator'
 import { MixerController } from '../../src/world/HumanoidAssetRegistry'
@@ -446,8 +447,10 @@ function temporaryLoadoutActor(): TemporaryLoadoutActor {
 }
 
 describe('Reversible NPC weapon choice', () => {
-  it('repeats ordinary shielded hybrid switching with hysteresis and preserves ammo and damaged shield', () => {
-    const h = selection({ shieldId: 'round_shield_t3', tacticalOrder: 'defend' })
+  it('repeats Commander shielded hybrid switching with hysteresis and preserves ammo and damaged shield', () => {
+    const loadout = careerCommanderLoadout('viking')
+    const h = selection({ shieldId: loadout.shieldId, meleeWeaponId: loadout.meleeWeaponId,
+      rangedWeaponId: loadout.rangedWeaponId!, tacticalOrder: 'defend' })
     expect(h.actor._usesReversibleRangedSwitch()).toBe(true)
     expect(h.actor.hasActiveRangedWeapon).toBe(true)
     expect(h.actor.shield.active).toBe(false)
@@ -475,7 +478,7 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.shield.active).toBe(true)
     expect(h.actor.shield.shieldImpactRemaining).toBe(initial - 2)
     expect(h.actor.arrows).toBe(12)
-    expect(h.actor.shieldId).toBe('round_shield_t3')
+    expect(h.actor.shieldId).toBe('commander_shield_t5')
     h.actor.arrows = 0
     hostile.combatPosition.z = 12
     h.select([hostile])

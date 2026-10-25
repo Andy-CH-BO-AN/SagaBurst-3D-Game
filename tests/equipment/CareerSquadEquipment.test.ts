@@ -33,22 +33,39 @@ function balanced(profile: CareerProfile) {
   }
 }
 describe('Shared Career quantity inventory and personal equipment', () => {
-  it('lets a Recruit buy and equip high-tier weapons and shields while retaining their quality tiers', () => {
+  it('lets a Recruit buy, equip, save and resell high-tier weapons and shields without duplicating allocated copies', () => {
     const h = harness('recruit'), before = cloneCareerProfile(h.read())
     const result = purchaseTownEquipment(h.read(), 'axe_t5', 2)
     expect(result).toMatchObject({ purchased: true, spentMerit: 5000 })
     expect(result.profile).toMatchObject({ rank: 'recruit', totalMerit: 60000, availableMerit: 55000 })
     expect(h.read()).toEqual(before)
     expect(h.save(result.profile)).toBe(true)
-    h.buy('paladin_shield_t4')
+    expect(careerItemTotal(h.read(), 'commander_shield_t5')).toBe(0)
+    const shields = purchaseTownEquipment(h.read(), 'commander_shield_t5', 2)
+    expect(shields).toMatchObject({ purchased: true, spentMerit: 4500, profile: { availableMerit: 50500 } })
+    expect(h.save(shields.profile)).toBe(true)
     const equipment = new TownEquipment(h.read, h.save)
     expect(equipment.inventoryStacks.find(stack => stack.item.id === 'axe_t5')).toMatchObject({ quantity: 2, item: { tier: 5 } })
+    expect(equipment.inventoryStacks.find(stack => stack.item.id === 'commander_shield_t5')).toMatchObject({
+      quantity: 2, item: { name: "指揮官戰盾 Commander's War Shield", tier: 5, shieldImpactMax: 96 },
+    })
     expect(equipment.canEquipWeapon('axe_t5')).toBe(true)
     expect(equipment.equipWeapon('axe_t5')).toBe(true)
-    expect(equipment.equipWeapon('paladin_shield_t4')).toBe(true)
+    expect(equipment.equipWeapon('commander_shield_t5')).toBe(true)
     const loaded = h.store.load()!
-    expect(loaded).toMatchObject({ rank: 'recruit', equipment: { melee: 'axe_t5', shield: 'paladin_shield_t4' } })
+    expect(loaded).toMatchObject({ rank: 'recruit', equipment: { melee: 'axe_t5', shield: 'commander_shield_t5' } })
     expect(careerItemTotal(loaded, 'axe_t5')).toBe(2)
+    expect(careerItemTotal(loaded, 'commander_shield_t5')).toBe(2)
+    expect(careerItemAllocated(loaded, 'commander_shield_t5')).toBe(1)
+    expect(availableCareerItem(loaded, 'commander_shield_t5')).toBe(1)
+    const sold = sellTownProduct(loaded, 'commander_shield_t5')
+    expect(sold).toMatchObject({ sold: true, earnedMerit: 1125, profile: { availableMerit: 51625 } })
+    expect(h.save(sold.profile)).toBe(true)
+    const remaining = h.store.load()!
+    expect(careerItemTotal(remaining, 'commander_shield_t5')).toBe(1)
+    expect(remaining.equipment?.shield).toBe('commander_shield_t5')
+    expect(sellTownProduct(remaining, 'commander_shield_t5')).toMatchObject({ sold: false, reason: 'allocated' })
+    balanced(remaining)
   })
   it('lets a Recruit use a purchased snow leopard and preserves selection, allocation and wounded or dead mission saves', () => {
     const h = harness('recruit')

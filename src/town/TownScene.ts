@@ -15,6 +15,7 @@ import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
 import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
+import { ARMORS } from '../rpg/ArmorDatabase'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { assignTownCivilianHomes, civilianBodyClear, civilianMountsClear, CIVILIAN_MOUNT_CLEARANCE, TownCivilianLife } from './TownCivilianLife'
 import { townDefenseThreatResponse, townExternalThreatAlertRange, townStationSpec } from './TownGarrison'
@@ -1272,6 +1273,7 @@ export class TownScene {
           const row = document.createElement('article'); row.className = 'town-product'
           const title = document.createElement('strong'); title.textContent = item.name
           const meta = document.createElement('small'); meta.textContent = (item.id === 'horse' ? '隨軍階 T1–T4' : 'T' + item.tier) + ' · ' + item.price + ' 軍功 · ' + productStatus(this.profile, item) + ` · 總持有 ${careerItemTotal(this.profile, item.id)} · 可用 ${availableCareerItem(this.profile, item.id)}`
+          if (ARMORS[item.id]) meta.textContent += ` · ${ARMORS[item.id].shieldImpactMax} 衝擊耐久`
           row.append(title, meta)
           if (page === 'sell') {
             const price = townResalePrice(this.profile, item.id)

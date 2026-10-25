@@ -1,7 +1,7 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { selectFiles, selectionSummary, shardFiles, planShards, validateManifest, changes } = require('../tooling/ci-plan.cjs')
-const { dependencyConsumers, relocationOnly } = require('../tooling/dependencies.cjs')
+const { dependencyConsumers, dependencyPlacementOnly, relocationOnly } = require('../tooling/dependencies.cjs')
 const { aggregate } = require('../tooling/ci-run.cjs')
 const item = (file, count = 1, runner = 'vitest') => ({ file, runner, names: Array.from({ length: count }, (_, i) => `leaf ${i}`) })
 const inventory = [
@@ -41,8 +41,12 @@ test('production module selects transitive consumers without unrelated equipment
     [{ status: 'M', file: 'src/main.ts' }], consumers)
   assert.equal(entry.mode, 'related')
   assert.deepEqual(entry.selected, entryOwners.sort())
-
-
+  const shieldOwners = ['tests/combat/CombatAttribution.test.ts', 'tests/combat/CommanderWeaponSwitching.test.ts',
+    'tests/equipment/CareerSquadEquipment.test.ts', 'tests/equipment/CareerTownEquipment.test.ts']
+  const shield = selectFiles([...inventory, ...shieldOwners.map(file => item(file))],
+    [{ status: 'A', file: 'public/models/weapons/t5/shield.glb' }, { status: 'M', file: 'public/models/weapons/t5/sources.json' }], consumers)
+  assert.equal(shield.mode, 'related')
+  assert.deepEqual(shield.selected, shieldOwners.sort())
 })
 test('high fan-out production owner stays Related instead of forcing repository Full', () => {
   const plan = select('src/Game.ts')
@@ -245,7 +249,7 @@ test('dangling relative imports fail closed while Vite query imports retain thei
   const sources = new Map([['src/raw.ts', 'export const value = 1'], ['tests/raw.test.ts', "import text from '../src/raw.ts?raw'; text"]])
   assert.deepEqual(dependencyConsumers([item('tests/raw.test.ts')], sources)['src/raw.ts'], ['tests/raw.test.ts'])
 })
-test('native candidates omit only proven relocation-only inputs, never dependency or config behavior edits', () => {
+test('native candidates omit only proven relocation or dependency placement, never installed graph or config behavior edits', () => {
   const changes = [{ status: 'R100', oldFile: 'scripts/old/run.cjs', file: 'checks/new/run.cjs' }]
   const base = new Set(['scripts/old/run.cjs']), head = new Set(['checks/new/run.cjs'])
   const before = '{"scripts":{"test":"node scripts/old/run.cjs --strict"},"dependencies":{"owner":"1"}}'
@@ -264,7 +268,51 @@ test('native candidates omit only proven relocation-only inputs, never dependenc
   const behavior = "defineConfig({test: {env: {APP_MODE: 'scripts/old/run.cjs'}}})"
   assert.equal(project(behavior, behavior.replace('scripts/old', 'checks/new'), head, 'vitest.config.ts'), false)
   assert.equal(project(before.replace('node scripts', 'node prefixscripts'), after.replace('node checks', 'node prefixchecks')), false)
-
+  const original = { name: 'fixture', scripts: { test: 'node tests/run.cjs' }, dependencies: { renderer: '1', browser: '2' }, devDependencies: { runner: '3' } }
+  const relocated = { ...original, dependencies: { renderer: '1' }, devDependencies: { runner: '3', browser: '2' } }
+  const lock = { lockfileVersion: 3, packages: {
+    '': { name: 'fixture', dependencies: original.dependencies, devDependencies: original.devDependencies },
+    'node_modules/renderer': { version: '1', resolved: 'registry/renderer', integrity: 'renderer' },
+    'node_modules/browser': { version: '2', resolved: 'registry/browser', integrity: 'browser', dependencies: { core: '2' } },
+    'node_modules/core': { version: '2', resolved: 'registry/core', integrity: 'core', optional: true },
+    'node_modules/runner': { version: '3', resolved: 'registry/runner', integrity: 'runner', dev: true },
+  } }
+  const placedLock = structuredClone(lock)
+  Object.assign(placedLock.packages[''], { dependencies: relocated.dependencies, devDependencies: relocated.devDependencies })
+  placedLock.packages['node_modules/browser'].dev = true
+  placedLock.packages['node_modules/core'].dev = true
+  const proof = (pkg = relocated, nextLock = placedLock, prior = original, priorLock = lock) =>
+    dependencyPlacementOnly(...[prior, pkg, priorLock, nextLock].map(value => JSON.stringify(value)))
+  assert.equal(proof(), true)
+  assert.equal(proof(original, lock), false)
+  assert.equal(proof(original, lock, relocated, placedLock), false)
+  for (const change of [
+    pkg => { pkg.devDependencies.browser = '2.1' },
+    pkg => { pkg.scripts.test += ' --changed' },
+    pkg => { pkg.dependencies.extra = '1' },
+    pkg => { delete pkg.devDependencies.runner },
+    pkg => { pkg.dependencies.browser = '2' },
+    pkg => { pkg.optionalDependencies = { browser: '2' } },
+  ]) {
+    const changed = structuredClone(relocated); change(changed)
+    assert.equal(proof(changed), false)
+  }
+  for (const change of [
+    data => { data.packages['node_modules/browser'].version = '2.1' },
+    data => { data.packages['node_modules/browser'].resolved += '/other' },
+    data => { data.packages['node_modules/browser'].integrity = 'other' },
+    data => { data.packages['node_modules/core'].optional = false },
+    data => { data.packages['node_modules/runner'].dev = false },
+    data => { data.packages['node_modules/extra'] = { version: '1' } },
+    data => { delete data.packages['node_modules/core'] },
+    data => { data.packages[''].devDependencies.browser = '2.1' },
+    data => { data.requires = true },
+  ]) {
+    const changed = structuredClone(placedLock); change(changed)
+    assert.equal(proof(relocated, changed), false)
+  }
+  assert.equal(dependencyPlacementOnly('{}', '{', '{}', '{}'), false)
+  assert.equal(dependencyPlacementOnly(JSON.stringify(original), JSON.stringify(relocated), JSON.stringify(lock), undefined), false)
 })
 
 test('behavior edits retain base ownership when its test is renamed', () => {

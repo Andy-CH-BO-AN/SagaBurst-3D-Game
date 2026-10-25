@@ -4,7 +4,7 @@ import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../
 import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import {
   bulkCareerEquipment, changeTownEquipment,
-  resolveTownActorEquipment,
+  resolveTownActorEquipment, townNativeItems,
   type TownEquipmentContext
 } from '../../src/career/CareerTownEquipment'
 import { sellTownNativeEquipment, sellTownNativeProducts, townNativeSaleStock, type TownNativeSaleContext } from '../../src/career/CareerTownNativeResale'
@@ -33,10 +33,13 @@ describe('Town equipment domain, canonical ownership and persisted native source
     const h = harness(), profile = h.read()
     const commander = resolveTownActorEquipment(profile, 'roman', 'commander')
     const recipient = resolveTownActorEquipment(profile, 'roman', 'cavalry-training:melee_cavalry:0')
+    expect(commander.loadout).toMatchObject({ meleeWeaponId: 'sword_t5', rangedWeaponId: 'bow_t5', shieldId: 'commander_shield_t5' })
+    expect(resolveTownActorEquipment(profile, 'roman', 'captain').loadout.shieldId).toBe('paladin_shield_t4')
+    expect(resolveTownActorEquipment(profile, 'roman', 'merchant').loadout.shieldId).toBe('paladin_shield_t4')
     h.buy('horse')
     profile.townEquipment = { roman: { version: 1, residentEquipmentVersion: 1,
       actors: {
-        commander: { ...commander.refs, mount: { itemId: 'horse', source: 'inventory' } },
+        commander: { ...commander.refs, shield: null, mount: { itemId: 'horse', source: 'inventory' } },
         'cavalry-training:melee_cavalry:0': { ...recipient.refs, mount: { itemId: 'corgi', source: 'native', nativeId: 'roman/commander/mount' } },
       }, nativeReserve: ['roman/cavalry-training:melee_cavalry:0/mount'] } }
     h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(profile))
@@ -45,9 +48,74 @@ describe('Town equipment domain, canonical ownership and persisted native source
     expect(resolveTownActorEquipment(loaded, 'roman', 'cavalry-training:melee_cavalry:0')).toMatchObject({ mountTier: 5,
       refs: { mount: { itemId: 'snow-leopard', source: 'native', nativeId: 'roman/commander/mount' } } })
     expect(resolveTownActorEquipment(loaded, 'roman', 'commander').loadout.mountId).toBe('horse')
+    expect(resolveTownActorEquipment(loaded, 'roman', 'commander').loadout.shieldId).toBeNull()
+    expect(loaded.townEquipment!.roman!.nativeReserve.filter(id => id === 'roman/commander/shield')).toHaveLength(1)
+    expect(loaded.townEquipment!.roman!.commanderShieldItemId).toBe('commander_shield_t5')
     expect(careerItemTotal(loaded, 'snow-leopard')).toBe(0)
     expect(loaded.inventory).toEqual(profile.inventory)
     expect(h.reload()).toEqual(loaded)
+  })
+
+  it('upgrades an untouched Commander default while preserving a transferred T4 token through reserve and resale', () => {
+    const h = harness(), profile = h.read(), token = 'roman/commander/shield'
+    const currentCatalogue = townNativeItems('roman')
+    const commander = resolveTownActorEquipment(profile, 'roman', 'commander')
+    const recipient = resolveTownActorEquipment(profile, 'roman', 'cavalry-training:melee_cavalry:0')
+    const untouched = resolveTownActorEquipment(profile, 'viking', 'commander')
+    expect(untouched.loadout).toMatchObject({ meleeWeaponId: 'axe_t5', rangedWeaponId: 'bow_t5', shieldId: 'commander_shield_t5' })
+    h.buy('paladin_shield_t4', 2)
+    profile.equipment = { ...profile.equipment, shield: 'paladin_shield_t4' }
+    profile.townEquipment = {
+      roman: { version: 1, residentEquipmentVersion: 1, actors: {
+        commander: { ...commander.refs, shield: { itemId: 'paladin_shield_t4', source: 'inventory' } },
+        'cavalry-training:melee_cavalry:0': { ...recipient.refs,
+          shield: { itemId: 'paladin_shield_t4', source: 'native', nativeId: token } },
+      }, nativeReserve: ['roman/cavalry-training:melee_cavalry:0/shield'] },
+      viking: { version: 1, residentEquipmentVersion: 1, actors: {
+        commander: { ...untouched.refs, shield: { itemId: 'paladin_shield_t4', source: 'native', nativeId: 'viking/commander/shield' } },
+      }, nativeReserve: [] },
+    }
+    const inventory = structuredClone(profile.inventory)
+    const durableBefore = JSON.stringify(profile)
+    h.storage.setItem(CAREER_STORAGE_KEY, durableBefore)
+    h.storage.failWrites = true
+    expect(h.store.loadChecked().profile).toBeNull()
+    expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(durableBefore)
+    h.storage.failWrites = false
+    const loaded = h.reload()
+    expect(loaded).not.toBeNull()
+    expect(loaded.townEquipment!.viking!.actors.commander.shield).toEqual({
+      itemId: 'commander_shield_t5', source: 'native', nativeId: 'viking/commander/shield',
+    })
+    expect(loaded.townEquipment!.roman!.commanderShieldItemId).toBe('paladin_shield_t4')
+    const legacyCatalogue = townNativeItems('roman', loaded.townEquipment!.roman)
+    expect(legacyCatalogue).not.toBe(currentCatalogue)
+    expect(legacyCatalogue.map(item => item.nativeId)).toEqual(currentCatalogue.map(item => item.nativeId))
+    expect(legacyCatalogue.every((item, index) => item.nativeId === token || item === currentCatalogue[index])).toBe(true)
+    expect(legacyCatalogue.find(item => item.nativeId === token)).toMatchObject({ itemId: 'paladin_shield_t4', tier: 4 })
+    expect(townNativeItems('roman')).toBe(currentCatalogue)
+    expect(currentCatalogue.find(item => item.nativeId === token)).toMatchObject({ itemId: 'commander_shield_t5', tier: 5 })
+    expect(townNativeItems('roman', loaded.townEquipment!.roman)).toBe(legacyCatalogue)
+    expect(resolveTownActorEquipment(loaded, 'roman', 'commander').refs.shield).toEqual({ itemId: 'paladin_shield_t4', source: 'inventory' })
+    expect(resolveTownActorEquipment(loaded, 'roman', 'cavalry-training:melee_cavalry:0').refs.shield).toEqual({
+      itemId: 'paladin_shield_t4', source: 'native', nativeId: token,
+    })
+    expect(loaded.equipment!.shield).toBe('paladin_shield_t4')
+    expect(loaded.inventory).toEqual(inventory)
+    expect(careerItemTotal(loaded, 'commander_shield_t5')).toBe(0)
+    expect(h.reload()).toEqual(loaded)
+    h.context.safeActorIds = new Set(['cavalry-training:melee_cavalry:0'])
+    expect(h.change('cavalry-training:melee_cavalry:0', 'shield', null).changed).toBe(true)
+    expect(townNativeSaleStock(h.read(), 'roman').find(item => item.nativeIds.includes(token))).toMatchObject({
+      product: { id: 'paladin_shield_t4' }, price: 1296,
+    })
+    const sale = sellTownNativeEquipment(h.read, () => ({ townFaction: 'roman', peaceful: true, playerAlive: true, merchantAvailable: true }), [token], h.save)
+    expect(sale).toMatchObject({ sold: true, soldCount: 1, earnedMerit: 1296 })
+    const sold = h.reload()
+    expect(sold.townEquipment!.roman!.soldNativeIds).toContain(token)
+    expect(sold.townEquipment!.roman!.nativeReserve).not.toContain(token)
+    expect(sold.inventory).toEqual(inventory)
+    expect(townNativeSaleStock(sold, 'roman').some(item => item.nativeIds.includes(token))).toBe(false)
   })
 
   it('retains a native weapon transferred within the old squad after its original owner moves to the west', () => {

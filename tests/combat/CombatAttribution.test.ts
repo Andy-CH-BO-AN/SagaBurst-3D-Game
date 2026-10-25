@@ -286,20 +286,58 @@ describe('Combat attribution foundation', () => {
     expect(shield.shieldImpactRemaining).toBe(remaining)
   })
 
-  it('consumes shield durability only for an authoritative shield contact', () => {
+  it('routes T5 shield impact and seventh-axe break overflow only at an authoritative contact', () => {
     const { events, stream } = eventHarness(), shield = new ShieldState()
-    shield.equip('round_shield_t1')
+    shield.equip('commander_shield_t5')
     const npc = mockNpc({ hp: 200, shield }), initial = shield.shieldImpactRemaining
     // Only the visibility scalar is needed; no scene or collision geometry is created.
-    const pivot: Pick<THREE.Object3D, 'visible'> = { visible: false }
-    npc.shieldCollider = new ShieldCollider(pivot as THREE.Object3D, shield, () => false)
-    const result = damageNpc(npc, 50, sourceContext(stream, { method: 'projectile', contact: { kind: 'shield', time: 0 } }))
-    expect(result.appliedDamage).toBe(0)
-    expect(result.blockedImpact).toBe(1)
-    expect(shield.shieldImpactRemaining).toBe(initial - 1)
+    const pivot: Pick<THREE.Object3D, 'visible'> = { visible: true }
+    npc.shieldCollider = new ShieldCollider(pivot as THREE.Object3D, shield)
+    const contact = sourceContext(stream, { weaponId: 'axe_t5', contact: { kind: 'shield', time: 0 } })
+    expect(initial).toBe(96)
+    for (let hit = 0; hit < 6; hit++) {
+      expect(damageNpc(npc, 50, contact)).toMatchObject({ appliedDamage: 0, blockedImpact: 15 })
+    }
+    expect(shield.shieldImpactRemaining).toBe(6)
     expect(shield.active).toBe(true)
+    expect(pivot.visible).toBe(true)
+    expect(damageNpc(npc, 50, contact)).toMatchObject({ appliedDamage: 30, blockedImpact: 6 })
+    expect(shield.shieldBroken).toBe(true)
     expect(pivot.visible).toBe(false)
-    expect(events.map(event => event.type)).toEqual(['hit_blocked'])
+    expect(events.filter(event => event.type === 'hit_blocked')).toHaveLength(7)
+    expect(npc.hp).toBe(170)
+    expect(damageNpc(npc, 50, contact)).toMatchObject({ appliedDamage: 50, blockedImpact: 0 })
+    shield.reset(); npc.shieldCollider.refreshVisibility()
+    expect(shield.shieldImpactRemaining).toBe(initial)
+    expect(pivot.visible).toBe(true)
+  })
+
+  it('keeps the T5 shield collider inside its tapered face as the hand moves and rotates', () => {
+    const shield = new ShieldState(); shield.equip('commander_shield_t5')
+    const matrixWorld = new THREE.Matrix4().makeRotationY(Math.PI / 2).setPosition(3, 2, -4)
+    const pivot: Pick<THREE.Object3D, 'visible' | 'matrixWorld' | 'updateWorldMatrix'> = {
+      visible: true, matrixWorld, updateWorldMatrix() {},
+    }
+    const collider = new ShieldCollider(pivot as THREE.Object3D, shield)
+    collider.setModel('commander_shield_t5')
+    const time = (x: number, y: number, front = 1, back = -1) => collider.time(
+      new THREE.Vector3(x, y, front).applyMatrix4(matrixWorld), new THREE.Vector3(x, y, back).applyMatrix4(matrixWorld))
+    expect(time(0, 0)).toBeCloseTo((1 - .109) / 2)
+    expect(time(.26, .3)).toBeLessThan(Infinity)
+    // Outside a side edge, the lower point, and the narrow crown: no invisible wings.
+    expect(time(.29, .3)).toBe(Infinity)
+    expect(time(.10, -.5)).toBe(Infinity)
+    expect(time(.10, .55)).toBe(Infinity)
+    // A sweep wholly behind the face (through the handle) never blocks.
+    expect(time(0, 0, -.061, -.15)).toBe(Infinity)
+    matrixWorld.makeRotationX(.7).setPosition(-2, 1, 5)
+    expect(time(0, 0)).toBeCloseTo((1 - .109) / 2)
+    shield.absorb(100, 96); collider.refreshVisibility()
+    expect(time(0, 0)).toBe(Infinity)
+    expect(pivot.visible).toBe(false)
+    shield.reset(); collider.refreshVisibility()
+    expect(time(0, 0)).toBeLessThan(Infinity)
+    expect(pivot.visible).toBe(true)
   })
 
 })
