@@ -12,6 +12,7 @@ import type { SpatialGrid } from '../world/SpatialGrid'
 import { findSafeCareerMountPosition } from './CareerMountController'
 import { createSweepRoster, sweepBanditPosition, sweepPlayerSpawn, SWEEP_CENTER, SWEEP_CAPTAIN_START, SWEEP_CHARGE_DISTANCE, SWEEP_DETECTION_RANGE, SWEEP_YAW } from './CavalrySweep'
 import { BattleStatsTracker, type BattleStatsSnapshot } from '../combat/BattleStatsTracker'
+import { combatAllegiancesHostile } from '../combat/CombatFaction'
 import { CombatEventStream, type CombatEvent } from '../combat/CombatAttribution'
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import type { Player } from '../player/Player'
@@ -685,6 +686,14 @@ export class BanditMissionController {
     return this.active?.kind === 'veteran-field'
       ? this.veteranTargetActorIds.has(npc.combatantId)
       : Boolean(this.active?.targetActorIds.includes(npc.combatantId))
+  }
+
+  /** Formal field combat borrows residents beyond their home station's pursuit leash. */
+  allowsMissionCombatTarget(npc: NPC, target: NPC): boolean {
+    const active = this.active
+    return Boolean(active && (active.kind ?? 'bandit') === 'bandit' && active.phase === 'ENGAGING'
+      && this.friendlies.includes(npc) && this.missionBandits.includes(target)
+      && this.isMissionTarget(target) && combatAllegiancesHostile(npc, target))
   }
 
   isAmbientTarget(npc: NPC): boolean { return this.camps.some(camp => camp.ambient.includes(npc)) }

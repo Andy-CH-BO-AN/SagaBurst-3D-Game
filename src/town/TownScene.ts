@@ -58,7 +58,7 @@ import { siegeMuster } from '../career/TownSiege'
 import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
 import { shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
-import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
+import { townAssaultObjectiveRoster, townRoster, townName, type TownActorSpec } from './TownRules'
 import { townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TownProjectileObstacles } from './TownProjectileObstacles'
@@ -698,6 +698,26 @@ export class TownScene {
     if (!this.spectator) this.orbit.update(this.input, 0.016, this.world?.obstacles ?? [])
     if (this.profile.activeMission?.result && this.profile.activeMission.phase !== 'RETURNING') this.openMissionResult(this.profile.activeMission.result, true)
   }
+  private residentCombatTargetAllowed(spec: TownActorSpec, npc: NPC, target: NPC | Player): boolean | 'defend' {
+    const active = this.defense?.active
+    const siege = active?.kind === 'town-defense' || active?.kind === 'commander-four-gate-defense' || active?.kind === 'enemy-town-assault'
+    if (this.retirementFinale?.active || this.event.hostile || this.duel?.isMissionActor(npc) || this.race?.owns(npc)
+      || npc.combatOwnership && (!siege || npc.combatOwnership !== 'mission-official')
+      || active?.officialSquad && officialCommandIsPlayerControlled(active.officialSquad, npc.combatantId)) return true
+    if (siege) {
+      if (target === this.player) return true
+      let roster = this.defenseTargetRosters.get(active!)
+      if (!roster) {
+        roster = new Set([...active!.targetActorIds, ...active!.friendlyActorIds, ...(active!.civilianActorIds ?? [])])
+        this.defenseTargetRosters.set(active!, roster)
+      }
+      if (target instanceof NPC && roster.has(target.combatantId)) return true
+    }
+    if (target instanceof NPC && this.mission?.allowsMissionCombatTarget(npc, target)) return true
+    const response = townDefenseThreatResponse(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc), this.navigation.townNav?.watchtower)
+    return response === 'pursue' ? true : response === 'defend' ? 'defend' : false
+  }
+
   private async initializeResidents(roster: ReturnType<typeof careerTownSceneRoster>,
     context: ReturnType<typeof resolveCareerTownSceneContext>, progress: (text: string) => void, additionalPopulation = false): Promise<void> {
     const created: Resident[] = []
@@ -733,24 +753,7 @@ export class TownScene {
         const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian || spec.role === 'commander' ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: defaultRangerMeleeWeaponId(residentArmyFaction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null, reversibleRangedSwitch: true } : military!.loadout)
         spec = townStationSpec(spec, Boolean(loadout.mountId), Boolean(loadout.rangedWeaponId))
         const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined, undefined, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : military!.level))
-        if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => {
-          const active = this.defense?.active
-          const siege = active?.kind === 'town-defense' || active?.kind === 'commander-four-gate-defense' || active?.kind === 'enemy-town-assault'
-          if (this.retirementFinale?.active || this.event.hostile || this.duel?.isMissionActor(npc) || this.race?.owns(npc)
-            || npc.combatOwnership && (!siege || npc.combatOwnership !== 'mission-official')
-            || active?.officialSquad && officialCommandIsPlayerControlled(active.officialSquad, npc.combatantId)) return true
-          if (siege) {
-            if (target === this.player) return true
-            let roster = this.defenseTargetRosters.get(active!)
-            if (!roster) {
-              roster = new Set([...active!.targetActorIds, ...active!.friendlyActorIds, ...(active!.civilianActorIds ?? [])])
-              this.defenseTargetRosters.set(active!, roster)
-            }
-            if (target instanceof NPC && roster.has(target.combatantId)) return true
-          }
-          const response = townDefenseThreatResponse(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc), this.navigation.townNav?.watchtower)
-          return response === 'pursue' ? true : response === 'defend' ? 'defend' : false
-        }
+        if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => this.residentCombatTargetAllowed(spec, npc, target)
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
         if (spec.y !== undefined) npc.group.position.y = spec.y

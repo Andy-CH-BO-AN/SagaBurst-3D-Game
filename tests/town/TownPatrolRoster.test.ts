@@ -3,11 +3,85 @@ import { Faction } from '../../src/combat/CombatFaction'
 import { TownWatchtowerNavigation } from '../../src/navigation/TownWatchtowerNavigation'
 import { getTownCommandWatchtowerLayout } from '../../src/town/TownCommandWatchtowerLayout'
 import { describe, expect, it } from 'vitest'
-import { selectMissionCavalryActorIds } from '../../src/career/BanditMissionController'
-import { townRoster } from '../../src/town/TownRules'
-import type { NPC } from '../../src/world/NPC'
+import { BanditMissionController, selectMissionCavalryActorIds } from '../../src/career/BanditMissionController'
+import type { ActiveCareerMission } from '../../src/career/CareerMissionState'
+import type { Player } from '../../src/player/Player'
+import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
+import { TownScene } from '../../src/town/TownScene'
+import { NPC, AIState } from '../../src/world/NPC'
 import { townDefenseThreatInRange, townDefenseThreatResponse } from '../../src/town/TownGarrison'
 import { Vector3 } from 'three'
+
+/** Only data and real methods cross this seam; no scene/model constructor runs. */
+function modelFreePrototype<T>(prototype: object, fields: Record<string, unknown>): T {
+  return Object.defineProperties(Object.create(prototype), Object.fromEntries(Object.entries(fields)
+    .map(([key, value]) => [key, { value, writable: true, configurable: true }]))) as T
+}
+
+function borrowedTownCombat(phase: ActiveCareerMission['phase']) {
+  const spec: TownActorSpec = { id: 'borrowed-soldier', role: 'melee_infantry', duty: 'training',
+    mounted: false, training: true, assaultObjective: false, tier: 2, index: 0, x: 0, z: 0 }
+  const actor = (id: string, faction = Faction.TOWN, x = 100): NPC => modelFreePrototype<NPC>(NPC.prototype, {
+    combatantId: id, faction, dead: false, mount: null, combatPosition: new Vector3(x, 0, 0),
+    characterFaction: 'roman', rangedActive: false, arrows: 0, state: AIState.IDLE, tacticalOrder: 'follow',
+    shield: { active: false, shieldRaised: false }, followNavigationGoal: new Vector3(),
+    _friendlyBypass: new Map(), _navigationPath: { clear() {} },
+  })
+  const captain = actor('captain'), soldier = actor(spec.id), bandit = actor('mission-bandit', Faction.BANDIT, 112)
+  const profile: { activeMission: ActiveCareerMission } = { activeMission: {
+    id: 'bandit-mission', templateId: 'recruit-bandits-01', kind: 'bandit', targetCampId: 0, phase,
+    targetActorIds: [bandit.combatantId], friendlyActorIds: [captain.combatantId, soldier.combatantId], acceptedAt: 0,
+  } }
+  const mission = modelFreePrototype<BanditMissionController>(BanditMissionController.prototype, {
+    readProfile: () => profile, friendlies: [captain, soldier], camps: [{ ambient: [], mission: [bandit] }],
+    routeIndex: 0, travelEncounter: { active: false },
+    checkpoint: { persist(next: () => ActiveCareerMission) { profile.activeMission = next(); return true } },
+  })
+  const scene = modelFreePrototype<TownScene>(TownScene.prototype, {
+    mission, event: { hostile: false }, navigation: {},
+  })
+  for (const npc of [captain, soldier]) npc.combatTargetAllowed = target => scene['residentCombatTargetAllowed'](spec, npc, target)
+  const player = modelFreePrototype<Player>(Object.prototype, { targetable: false, dead: false })
+  return { spec, actor, captain, soldier, bandit, profile, mission, scene, player }
+}
+
+describe('Borrowed Town mission target permission', () => {
+  it('acquires the formal bandit target for the Captain and borrowed soldier after engagement releases their home leash', () => {
+    const { spec, captain, soldier, bandit, mission, player } = borrowedTownCombat('MARCHING')
+    expect(townDefenseThreatResponse(spec, soldier, bandit.combatPosition, 20)).toBe('ignore')
+    mission.engageFormalMission()
+    expect(mission.phase).toBe('ENGAGING')
+    for (const friendly of [captain, soldier]) {
+      expect(friendly.tacticalOrder).toBe('charge')
+      expect(friendly['state']).toBe(AIState.CHASE)
+      expect(friendly.combatTargetAllowed?.(bandit)).toBe(true)
+      expect(friendly['_findTarget'](player, mission.combatPeersFor(friendly))?.npc).toBe(bandit)
+    }
+  })
+
+  it('keeps unrelated hostile actors outside a borrowed soldier\'s mission pursuit permission', () => {
+    const { actor, soldier, scene, spec, player } = borrowedTownCombat('ENGAGING')
+    const unrelated = actor('unrelated-bandit', Faction.BANDIT, 111)
+    expect(scene['residentCombatTargetAllowed'](spec, soldier, unrelated)).toBe(false)
+    expect(soldier['_findTarget'](player, [unrelated])).toBeNull()
+  })
+
+  it('retains the home leash for a resident outside the active friendly roster', () => {
+    const { actor, bandit, scene, spec, player } = borrowedTownCombat('ENGAGING')
+    const resident = actor('native-resident')
+    resident.combatTargetAllowed = target => scene['residentCombatTargetAllowed'](spec, resident, target)
+    expect(resident.combatTargetAllowed(bandit)).toBe(false)
+    expect(resident['_findTarget'](player, [bandit])).toBeNull()
+  })
+
+  it('does not release mission target pursuit or change the follow order while marching', () => {
+    const { soldier, bandit, mission, player } = borrowedTownCombat('MARCHING')
+    expect(soldier.combatTargetAllowed?.(bandit)).toBe(false)
+    expect(soldier['_findTarget'](player, mission.combatPeersFor(soldier))).toBeNull()
+    expect(soldier.tacticalOrder).toBe('follow')
+    expect(mission.phase).toBe('MARCHING')
+  })
+})
 
 describe('Town patrol roster contracts', () => {
   it('permits stationary close defense outside home while bounding pursuit to the home sector', () => {
