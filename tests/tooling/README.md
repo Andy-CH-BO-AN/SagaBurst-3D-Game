@@ -55,14 +55,20 @@ shared data remains one declaration owner: dynamic lookup, enumeration, aliases,
 destructuring and namespace escape are retained rather than guessed by item key.
 Comments and erased types do not widen another runtime edit in the same file.
 
-Related/dev deliberately does **not** follow module-to-module initialization
-edges. Imports still resolve runtime symbols and discover candidate files; an
-import alone is not a behavior owner. Each leaf retains its own module setup,
-registration inputs and scoped hooks, and follows actual function, method, class
-and value references, including initializer expressions reached through a value.
-Initialized data and reflective class shape remain their declaration/class owners,
-not blanket module owners. This applies consistently to Three.js and other imports;
-there is no package-name whitelist or fixed test exclusion list.
+Related/dev follows an actual import to executable module initialization, not to
+every function or class member in that module. A top-level value read or static
+block is a real initialization dependency and retains an explicit initialization
+trace; publishing a callable binding does not execute its body. Plain import
+closure alone is not an owner. Each leaf retains its module setup, registration
+inputs and scoped hooks, and follows actual function, method, class and value
+references. Initialized data and reflective class shape remain addressable
+owners, not blanket module owners. No package-name whitelist or fixed test
+exclusion list replaces this evidence.
+
+Canonical unshadowed CommonJS main guards distinguish imported modules from
+proved Node subprocess entry points. A real subprocess gets its own main entry
+and process context; parent test mocks do not suppress its runtime consumers.
+Mutated, escaped or otherwise unresolved guard/provider bindings retain uncertainty.
 
 Unresolved initialization effects, decorators and side-effect-only edits without
 an addressable runtime owner fail closed with their missing evidence. Full remains

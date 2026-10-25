@@ -62,20 +62,21 @@ function runtimeImports(sf) {
   }
   inspect(sf)
   const bindings = new Set(), modules = []
+  const preserveUnused = /\.[cm]?jsx?$/.test(sf.fileName)
   for (const statement of sf.statements) if (ts.isImportDeclaration(statement)) {
     const clause = statement.importClause
     if (clause?.isTypeOnly) continue
     const names = []
-    if (clause?.name && used.has(clause.name.text)) names.push(clause.name.text)
+    if (clause?.name && (preserveUnused || used.has(clause.name.text))) names.push(clause.name.text)
     if (clause?.namedBindings) {
       if (ts.isNamespaceImport(clause.namedBindings)) {
-        if (used.has(clause.namedBindings.name.text)) names.push(clause.namedBindings.name.text)
+        if (preserveUnused || used.has(clause.namedBindings.name.text)) names.push(clause.namedBindings.name.text)
       } else for (const binding of clause.namedBindings.elements) {
-        if (!binding.isTypeOnly && used.has(binding.name.text)) names.push(binding.name.text)
+        if (!binding.isTypeOnly && (preserveUnused || used.has(binding.name.text))) names.push(binding.name.text)
       }
     }
     names.forEach(name => bindings.add(name))
-    if (!clause || names.length) modules.push(statement.moduleSpecifier.getText(sf) + (statement.attributes?.getText(sf) ?? statement.assertClause?.getText(sf) ?? ''))
+    if (!clause || names.length || preserveUnused && ts.isNamedImports(clause.namedBindings ?? {}) && clause.namedBindings.elements.length === 0) modules.push(statement.moduleSpecifier.getText(sf) + (statement.attributes?.getText(sf) ?? statement.assertClause?.getText(sf) ?? ''))
   }
   return { bindings, modules }
 }

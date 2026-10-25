@@ -402,20 +402,20 @@ test('single', () => first())`],
   }
   const first = graph.explain(roots, reached, id('first'))
   assert.deepEqual([...first], [
-    { file: 'tests/owner.test.ts', behavior: '<callback>', line: 2, root: true },
-    { file: 'src/owner.ts', behavior: 'both', line: 3, evidence: 'callable provenance',
+    { file: 'tests/owner.test.ts', behavior: '<callback>', line: 2, processContext: 'test', root: true },
+    { file: 'src/owner.ts', behavior: 'both', line: 3, processContext: 'test', evidence: 'callable provenance',
       callsite: { file: 'tests/owner.test.ts', start: sources.get('tests/owner.test.ts').indexOf('both()') } },
-    { file: 'src/owner.ts', behavior: 'first', line: 1, evidence: 'callable provenance',
+    { file: 'src/owner.ts', behavior: 'first', line: 1, processContext: 'test', evidence: 'callable provenance',
       callsite: { file: 'src/owner.ts', start: sources.get('src/owner.ts').indexOf('first() +') } },
   ])
   assert.equal(first.conservative, false)
   const afterFirst = traversals
   assert.deepEqual([...graph.explain(roots, reached, id('second'))],
     [
-      { file: 'tests/owner.test.ts', behavior: '<callback>', line: 2, root: true },
-      { file: 'src/owner.ts', behavior: 'both', line: 3, evidence: 'callable provenance',
+      { file: 'tests/owner.test.ts', behavior: '<callback>', line: 2, processContext: 'test', root: true },
+      { file: 'src/owner.ts', behavior: 'both', line: 3, processContext: 'test', evidence: 'callable provenance',
       callsite: { file: 'tests/owner.test.ts', start: sources.get('tests/owner.test.ts').indexOf('both()') } },
-      { file: 'src/owner.ts', behavior: 'second', line: 2, evidence: 'callable provenance',
+      { file: 'src/owner.ts', behavior: 'second', line: 2, processContext: 'test', evidence: 'callable provenance',
         callsite: { file: 'src/owner.ts', start: sources.get('src/owner.ts').indexOf('second() }') } },
     ])
   assert.equal(traversals, afterFirst, 'sibling targets reuse the same shortest-path tree')

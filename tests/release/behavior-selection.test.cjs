@@ -5,8 +5,7 @@ const { dependencyConsumers } = require('../tooling/dependencies.cjs')
 const { declarationSnapshot, changedDeclarations } = require('../tooling/behavior-changes.cjs')
 const ts = require('typescript')
 
-function selection(before, after, body, other = [], ownerFile = 'src/owner.ts') {
-  const file = 'tests/owner.test.ts'
+function selection(before, after, body, other = [], ownerFile = 'src/owner.ts', file = 'tests/owner.test.ts') {
   const source = body.join('\n')
   const sources = new Map([[ownerFile, after], [file, source], ...other])
   const previousSources = new Map([[ownerFile, before], [file, source], ...other])
@@ -74,7 +73,7 @@ test('namespace dynamic reads and enumeration retain export owners while concret
   assert.deepEqual(indices(plan), [0, 1, 2])
 })
 
-test('eager initializer changes retain value consumers without selecting import-only siblings', () => {
+test('eager initializer changes retain their actual shared module initialization', () => {
   const before = 'export const value = 0; export function read() { return value }; export function unrelated() { return 0 }'
   const after = before.replace('value = 0', 'value = register()')
   const plan = selection(before, after, [
@@ -83,9 +82,10 @@ test('eager initializer changes retain value consumers without selecting import-
     "test('caller', () => read())",
     "test('import only', () => unrelated())",
   ])
-  assert.deepEqual(indices(plan), [0, 1])
+  assert.deepEqual(indices(plan), [0, 1, 2])
   assert.deepEqual(plan.changedBehaviors, ['src/owner.ts#value'])
-  assert.deepEqual(plan.details['tests/owner.test.ts'][0].initializationCases, [])
+  assert.ok(plan.details['tests/owner.test.ts'][0].initializationCases.includes(2))
+  assert.ok(plan.details['tests/owner.test.ts'][0].caseEvidence.some(evidence => evidence.index === 2 && evidence.path.some(step => step.evidence === 'actual module initialization')))
 })
 
 test('opaque import effects fail closed even alongside a covered value change', () => {
@@ -141,25 +141,25 @@ test('a covered initialization effect cannot hide a different unmapped callable 
 })
 
 
-test('unreferenced module assignments do not expand data changes to import-only leaves', () => {
+test('executed module assignments retain their actual shared initialization reads', () => {
   const before = 'export const TABLE = { value: 1 }; globalThis.saved = TABLE.value; export function unrelated() { return 0 }'
   const plan = selection(before, before.replace('value: 1', 'value: 2'), [
     "import { TABLE, unrelated } from '../src/owner'",
     "test('direct', () => TABLE.value)",
     "test('effect', () => { unrelated(); return globalThis.saved })",
   ])
-  assert.deepEqual(indices(plan), [0])
-  assert.deepEqual(plan.details['tests/owner.test.ts'][0].initializationCases, [])
+  assert.deepEqual(indices(plan), [0, 1])
+  assert.ok(plan.details['tests/owner.test.ts'][0].initializationCases.includes(1))
 })
 
-test('unreferenced static blocks do not expand data changes to every importer', () => {
+test('executed static blocks retain their actual shared initialization reads', () => {
   const before = 'export const TABLE = { value: 1 }; class Registrar { static { globalThis.saved = TABLE.value } }; export function other() { return 0 }'
   const plan = selection(before, before.replace('value: 1', 'value: 2'), [
     "import { TABLE, other } from '../src/owner'",
     "test('direct', () => TABLE.value)",
     "test('effect', () => { other(); return globalThis.saved })",
   ])
-  assert.deepEqual(indices(plan), [0])
+  assert.deepEqual(indices(plan), [0, 1])
 })
 
 test('class extends imports remain runtime bindings and retain possible definition-time effects', () => {
@@ -174,14 +174,14 @@ test('class extends imports remain runtime bindings and retain possible definiti
 })
 
 
-test('coercion initializers remain value owners instead of blanket import owners', () => {
+test('coercion initializers retain value owners and actual initialization roots', () => {
   const before = 'export const value = +{ valueOf() { globalThis.saved = 1; return 0 } }; export function other() { return 0 }'
   const plan = selection(before, before.replace('saved = 1', 'saved = 2'), [
     "import { value, other } from '../src/owner'",
     "test('direct', () => value)",
     "test('effect', () => { other(); return globalThis.saved })",
   ])
-  assert.deepEqual(indices(plan), [0])
+  assert.deepEqual(indices(plan), [0, 1])
   assert.deepEqual(plan.changedBehaviors, ['src/owner.ts#value'])
 })
 
@@ -321,12 +321,12 @@ test('CommonJS export identities preserve exact callers without module-wide cons
 test('actual input readers exclude full provider replacements but retain partial and restored reads', () => {
   const { selectBehaviors } = require('../tooling/behavior.cjs')
   const sources = new Map([
-    ['src/read.ts', "import { readFileSync } from 'node:fs'; export function read() { return readFileSync('config.json', 'utf8') }"],
+    ['src/read.ts', "import fs from 'node:fs'; export function read() { return fs.readFileSync('config.json', 'utf8') }"],
     ['tests/real.test.ts', "import { read } from '../src/read'\ntest('real', () => read())"],
-    ['tests/replaced.test.ts', "import { read } from '../src/read'\nvi.mock('node:fs', () => ({ readFileSync: () => 'fake' }))\ntest('replaced', () => read())"],
+    ['tests/replaced.test.ts', "import { read } from '../src/read'\nvi.mock('node:fs', () => ({ default: { readFileSync: () => 'fake' } }))\ntest('replaced', () => read())"],
     ['tests/partial.test.ts', "import { read } from '../src/read'\nvi.mock('node:fs', async importOriginal => ({ ...await importOriginal() }))\ntest('partial', () => read())"],
     ['tests/scoped.test.ts', [
-      "import * as fs from 'node:fs'; import { read } from '../src/read'",
+      "import fs from 'node:fs'; import { read } from '../src/read'",
       "afterEach(() => vi.restoreAllMocks())",
       "test('replaced', () => { const replacement = vi.spyOn(fs, 'readFileSync').mockReturnValue('fake'); return read() })",
       "test('restored', () => { const replacement = vi.spyOn(fs, 'readFileSync').mockReturnValue('fake'); replacement.mockRestore(); return read() })",
@@ -586,6 +586,66 @@ for (const scenario of [
   else assert.throws(plan,scenario.dynamicScope ? /Unsafe runtime dispatch:.*with dynamic scope/ : scenario.unverified ? /Unsafe runtime input/ : /Unsafe runtime input: ambiguous replacement/)
 })
 
+function mainEntrySelection({ condition = 'require.main === module', setup = '', processSetup = '', direct = false, ambient = false, importer = true } = {}) {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/entry.test.cjs', owner = 'src/entry.cjs'
+  const before = `function run() { return 1 }; exports.run = run; ${setup}; if (${condition}) { run() }`
+  const body = `const { test } = require('node:test'); const processIO = require('node:child_process');
+ test('${importer ? 'imported' : 'unrelated'}', () => { ${importer ? "require('../src/entry.cjs')" : ''} })
+ test('node entry', t => { ${processSetup}; processIO.execFileSync('node', ['src/entry.cjs']) })
+${direct ? "test('direct', () => require('../src/entry.cjs').run())" : ''}`
+  const sources = new Map([[owner, before.replace('return 1', 'return 2')], [file, body], ...(ambient ? [['ambient.d.ts', 'declare var require: { (id:string):any; main:any; cache:any }; declare var module:any;']] : [])])
+  const previousSources = new Map(sources); previousSources.set(owner, before)
+  const inventory = [{ file, names: [importer ? 'imported' : 'unrelated', 'node entry', ...(direct ? ['direct'] : [])], locations: [{ line: 2, column: 2 }, { line: 3, column: 2 }, ...(direct ? [{ line: 4, column: 1 }] : [])] }]
+  const files = new Set(sources.keys())
+  return selectBehaviors(inventory, [{ status: 'M', file: owner }], dependencyConsumers(inventory, sources, path => files.has(path), { files }), {
+    sources, previousSources, previousConsumers: dependencyConsumers(inventory, previousSources, path => files.has(path), { files }), ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  })
+}
+
+test('canonical CommonJS main guard distinguishes import from proven Node entry', () => {
+  const plan = mainEntrySelection()
+  assert.deepEqual(plan.selectedCases['tests/entry.test.cjs'], [1])
+  assert.ok(JSON.stringify(plan).includes('proven Node entry'))
+})
+
+test('canonical CommonJS non-main branch retains the actual importer', () => {
+  assert.deepEqual(mainEntrySelection({ condition: 'require.main !== module' }).selectedCases['tests/entry.test.cjs'], [0])
+})
+
+test('reassigned implicit module cannot establish canonical main identity', () => {
+  assert.deepEqual(mainEntrySelection({ setup: 'module = require.main' }).selectedCases['tests/entry.test.cjs'], [0, 1])
+})
+
+test('a nondelegating subprocess replacement cannot establish Node entry', () => {
+  const plan = mainEntrySelection({ processSetup: "t.mock.method(processIO, 'execFileSync', () => { throw 'blocked' })", direct: true })
+  assert.deepEqual(plan.selectedCases['tests/entry.test.cjs'], [2])
+})
+
+test('an opaque subprocess replacement cannot establish Node entry', () => {
+  assert.throws(() => mainEntrySelection({ processSetup: "t.mock.method(processIO, 'execFileSync', globalThis.delegate)", direct: true }), /Unsafe Node entry/)
+})
+
+test('written implicit require.main cannot establish canonical main identity', () => {
+  assert.deepEqual(mainEntrySelection({ setup: 'require.main = module' }).selectedCases['tests/entry.test.cjs'], [0, 1])
+})
+
+test('a real Node child does not inherit the parent module mock registry', () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/child.test.ts', owner = 'src/child-owner.mjs'
+  const before = 'export function run() { return 1 }'
+  const body = `import { test, vi } from 'vitest'; import { execFileSync } from 'node:child_process';
+vi.mock('../src/child-owner.mjs', () => ({ run: () => 0 }));
+test('child', () => execFileSync('node', ['src/child-entry.mjs']))`
+  const sources = new Map([[file, body], [owner, before.replace('return 1', 'return 2')], ['src/child-entry.mjs', "import { run } from './child-owner.mjs'; run()"]])
+  const previousSources = new Map(sources); previousSources.set(owner, before)
+  const inventory = [{ file, names: ['child'], locations: [{ line: 3, column: 1 }] }], files = new Set(sources.keys())
+  const plan = selectBehaviors(inventory, [{ status: 'M', file: owner }], dependencyConsumers(inventory, sources, path => files.has(path), { files }), {
+    sources, previousSources, previousConsumers: dependencyConsumers(inventory, previousSources, path => files.has(path), { files }), ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  })
+  assert.deepEqual(plan.selectedCases[file], [0])
+})
+
 test('ordinary recursive parameter provenance terminates without a mock boundary', () => {
   const { behaviorGraph } = require('../tooling/behavior.cjs')
   const file = 'src/walk.ts'
@@ -622,11 +682,15 @@ test('an unused cyclic mock helper does not poison an unrelated case root', () =
   assert.deepEqual(indices(plan), [0])
 })
 
-function ambientNativeSelection({ ambient = true, specifier = 'node:child_process', localSetup = '', pollution = "require.cache['child_process'] = { exports: {} }" } = {}) {
+function ambientNativeSelection({ namespaceTarget = false, readerSpecifier = 'node:child_process', vitestSpy = false, namespaceReader = false, namedReader = false, readerESM = false, ambient = true, specifier = 'node:child_process', localSetup = '', pollution = "require.cache['child_process'] = { exports: {} }" } = {}) {
   const { selectBehaviors } = require('../tooling/behavior.cjs')
-  const file = 'tests/ambient.test.cjs', owner = 'src/ambient.cjs'
-  const before = "const processIO = require('node:child_process'); function run() { processIO.spawnSync('node', [globalThis.script]); return 1 }; exports.run = run"
-  const body = `const { test } = require('node:test'); const { run } = require('../src/ambient.cjs');
+  const file = readerESM ? 'tests/ambient.test.mjs' : 'tests/ambient.test.cjs', owner = readerESM ? 'src/ambient.mjs' : 'src/ambient.cjs'
+  let before = readerESM ? namespaceReader ? "import * as processIO from 'node:child_process'; export function run() { processIO.spawnSync('node', [globalThis.script]); return 1 }" : namedReader ? "import { spawnSync } from 'node:child_process'; export function run() { spawnSync('node', [globalThis.script]); return 1 }" : "import processIO from 'node:child_process'; export function run() { processIO.spawnSync('node', [globalThis.script]); return 1 }" : "const processIO = require('node:child_process'); function run() { processIO.spawnSync('node', [globalThis.script]); return 1 }; exports.run = run"
+  if (readerESM) before = before.replace("'node:child_process'", JSON.stringify(readerSpecifier))
+  const body = readerESM
+    ? `${vitestSpy ? "import { vi } from 'vitest';" : ''} import { test } from 'node:test'; import ${namespaceTarget ? '* as processIO' : 'processIO'} from '${specifier}'; import { run } from '../src/ambient.mjs'; import '../src/cache.cjs';
+test('boundary', t => { ${vitestSpy ? "vi.spyOn(processIO, 'spawnSync').mockReturnValue({ status: 0 })" : "t.mock.method(processIO, 'spawnSync', () => { throw 'blocked' })"}; run() })`
+    : `const { test } = require('node:test'); const { run } = require('../src/ambient.cjs');
 test('boundary', t => { ${localSetup}; const processIO = require('${specifier}'); t.mock.method(processIO, 'spawnSync', () => { throw 'blocked' }); run() })`
   const sources = new Map([
     ...(ambient ? [['ambient.d.ts', 'declare var require: { (id: string): any; cache: { [id: string]: any } };']] : []),
@@ -640,11 +704,11 @@ test('boundary', t => { ${localSetup}; const processIO = require('${specifier}')
 }
 
 test('node-prefixed native providers bypass a mutated shared require cache', () => {
-  assert.deepEqual(ambientNativeSelection().selectedCases['tests/ambient.test.cjs'], [0])
+  assert.deepEqual(ambientNativeSelection({ readerESM: true }).selectedCases['tests/ambient.test.mjs'], [0])
 })
 
 test('bare native-provider specifiers do not bypass a mutated require cache', () => {
-  assert.throws(() => ambientNativeSelection({ specifier: 'child_process' }), /Unsafe runtime input/)
+  assert.throws(() => ambientNativeSelection({ specifier: 'child_process' }), /Unsafe (?:runtime input|module initialization)/)
 })
 
 test('an ambient require reassignment invalidates only its actual CommonJS source', () => {
@@ -652,18 +716,126 @@ test('an ambient require reassignment invalidates only its actual CommonJS sourc
 })
 
 test('a same-source ambient require reassignment cannot prove a builtin namespace', () => {
-  assert.throws(() => ambientNativeSelection({ localSetup: 'require = globalThis.fakeRequire' }), /Unsafe runtime input/)
+  assert.throws(() => ambientNativeSelection({ localSetup: 'require = globalThis.fakeRequire' }), /Unsafe (?:runtime input|module initialization)/)
 })
 
 test('an opaque escape of the source-local require callable remains uncertain', () => {
-  assert.throws(() => ambientNativeSelection({ localSetup: 'globalThis.mutate(require)' }), /Unsafe runtime input/)
+  assert.throws(() => ambientNativeSelection({ localSetup: 'globalThis.mutate(require)' }), /Unsafe (?:runtime input|module initialization)/)
 })
 
 test('replacing the source-local require with a Proxy cannot prove a builtin namespace', () => {
-  assert.throws(() => ambientNativeSelection({ localSetup: 'require = new Proxy(require, globalThis.handler)' }), /Unsafe runtime input/)
+  assert.throws(() => ambientNativeSelection({ localSetup: 'require = new Proxy(require, globalThis.handler)' }), /Unsafe (?:runtime input|module initialization)/)
 })
 
 
 test('a require expando declaration cannot hide direct callable reassignment', () => {
-  assert.throws(() => ambientNativeSelection({ ambient: false, localSetup: 'require.cache = {}; require = globalThis.fakeRequire' }), /Unsafe runtime input/)
+  assert.throws(() => ambientNativeSelection({ ambient: false, localSetup: 'require.cache = {}; require = globalThis.fakeRequire' }), /Unsafe (?:runtime input|module initialization)/)
+})
+
+
+test('ambient require cache writes do not change canonical main identity', () => {
+  assert.deepEqual(mainEntrySelection({ ambient: true, importer: false, setup: "require.cache['unrelated'] = { exports: {} }" }).selectedCases['tests/entry.test.cjs'], [1])
+})
+
+test('opaque require escape prevents canonical main-guard pruning', () => {
+  assert.deepEqual(mainEntrySelection({ setup: 'globalThis.mutate(require)' }).selectedCases['tests/entry.test.cjs'], [0, 1])
+})
+
+test('assigning module exports does not change CommonJS module identity', () => {
+  assert.deepEqual(mainEntrySelection({ setup: 'module.exports = { run }' }).selectedCases['tests/entry.test.cjs'], [1])
+})
+
+test('uncertain Node entry cannot silently omit a possible child input reader', () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/child-input.test.cjs'
+  const source = `const { test } = require('node:test'); const processIO = require('node:child_process'); const fs = require('node:fs');
+test('uncertain child', t => { t.mock.method(processIO, 'execFileSync', globalThis.delegate); processIO.execFileSync('node', ['src/read-input.cjs']) })
+test('real reader', () => fs.readFileSync('config.json'))`
+  const sources = new Map([[file, source], ['src/read-input.cjs', "require('node:fs').readFileSync('config.json')"]])
+  const files = new Set([...sources.keys(), 'config.json'])
+  const inventory = [{ file, names: ['uncertain child', 'real reader'], locations: [{ line: 2, column: 1 }, { line: 3, column: 1 }] }]
+  const consumers = dependencyConsumers(inventory, sources, path => files.has(path), { files })
+  assert.throws(() => selectBehaviors(inventory, [{ status: 'M', file: 'config.json' }], consumers, {
+    sources, previousSources: sources, previousConsumers: consumers, ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  }), /Unsafe Node entry/)
+})
+
+
+test('deleting require.main prevents canonical non-main pruning', () => {
+  assert.deepEqual(mainEntrySelection({ condition: 'require.main !== module', setup: 'delete require.main' }).selectedCases['tests/entry.test.cjs'], [0, 1])
+})
+
+
+test('an unproven literal loader cannot disappear behind another real initializer owner', () => {
+  const before = 'function run() { return 1 }; run(); exports.run = run'
+  assert.throws(() => selection(before, before.replace('return 1', 'return 2'), [
+    "test('unknown loader', () => { const require = globalThis.loader; require('../src/owner.cjs') })",
+    "test('real loader', () => require('../src/owner.cjs'))",
+  ], [], 'src/owner.cjs'), /Unsafe module initialization/)
+})
+
+
+test('an unresolved cache-sensitive relative reader remains a blocked native scenario', () => {
+  assert.throws(() => ambientNativeSelection({ readerESM: false }), /Unsafe module initialization/)
+})
+
+test('an unresolved cache-sensitive relative importer remains a blocked main scenario', () => {
+  assert.throws(() => mainEntrySelection({ ambient: true, setup: "require.cache['unrelated'] = { exports: {} }" }), /Unsafe module initialization/)
+})
+
+for (const binding of ['{ unused }', '{}']) test(`JavaScript ${binding} imports retain actual module initialization`, () => {
+  const before = 'export const TABLE = { value: 1 }; export const unused = 0; globalThis.saved = TABLE.value'
+  const plan = selection(before, before.replace('value: 1', 'value: 2'), [
+    `import ${binding} from '../src/owner.mjs'`,
+    "test('initialization', () => globalThis.saved)",
+  ], [], 'src/owner.mjs', 'tests/owner.test.mjs')
+  assert.deepEqual(plan.selectedCases['tests/owner.test.mjs'], [0])
+})
+
+
+test('native default-object replacement cannot suppress a captured builtin named export', () => {
+  assert.throws(() => ambientNativeSelection({ readerESM: true, namedReader: true }), /Unsafe runtime input: ambiguous replacement/)
+})
+
+
+test('native default-object replacement cannot suppress an unsynchronized builtin namespace', () => {
+  assert.throws(() => ambientNativeSelection({ readerESM: true, namespaceReader: true }), /Unsafe runtime input: ambiguous replacement/)
+})
+
+
+test('bare builtin named imports remain snapshots under native method replacement', () => {
+  assert.throws(() => ambientNativeSelection({ readerESM: true, namedReader: true, readerSpecifier: 'child_process' }), /Unsafe runtime input: ambiguous replacement/)
+})
+
+test('a builtin object spy cannot suppress an unsynchronized named export', () => {
+  assert.throws(() => ambientNativeSelection({ readerESM: true, namedReader: true, vitestSpy: true }), /Unsafe runtime input: ambiguous replacement/)
+})
+
+
+test('a resolved inert same-name helper is not an unknown module loader', () => {
+  const before = 'function run() { return 1 }; run(); exports.run = run'
+  const plan = selection(before, before.replace('return 1', 'return 2'), [
+    "test('local helper', () => { const require = name => 0; require('../src/owner.cjs') })",
+    "test('real loader', () => require('../src/owner.cjs'))",
+  ], [], 'src/owner.cjs')
+  assert.deepEqual(indices(plan), [1])
+})
+
+test('a native mock cannot prove mutation of an ESM namespace target', () => {
+  assert.throws(() => ambientNativeSelection({ readerESM: true, namespaceTarget: true }), /Unsafe runtime input: ambiguous replacement/)
+})
+
+
+test('a locally shadowed spy name cannot suppress a real default-object reader', () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const sources = new Map([
+    ['src/read.mjs', "import fs from 'node:fs'; export function read() { return fs.readFileSync('config.json') }"],
+    ['tests/fake.test.mjs', "import fs from 'node:fs'; import { read } from '../src/read.mjs';\ntest('fake spy', () => { const vi = { spyOn() { return { mockReturnValue() {} } } }; vi.spyOn(fs, 'readFileSync').mockReturnValue('fake'); read() })"],
+    ['tests/real.test.mjs', "import { read } from '../src/read.mjs';\ntest('real', () => read())"],
+  ])
+  const inventory = ['tests/fake.test.mjs', 'tests/real.test.mjs'].map(file => ({ file, names: ['reader'], locations: [{ line: 2, column: 1 }] }))
+  const files = new Set([...sources.keys(), 'config.json']), consumers = dependencyConsumers(inventory, sources, path => files.has(path), { files })
+  assert.throws(() => selectBehaviors(inventory, [{ status: 'M', file: 'config.json' }], consumers, {
+    sources, previousSources: sources, previousConsumers: consumers, ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  }), /Unsafe runtime input:.*ambiguous replacement/)
 })

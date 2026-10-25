@@ -1,5 +1,6 @@
 const ts = require('typescript')
 const { posix } = require('node:path')
+const { isBuiltin } = require('node:module')
 const { declarationSnapshot, changedDeclarations, runtimeImports, inertValue } = require('./behavior-changes.cjs')
 
 const callable = n => n && ts.isFunctionLike(n) && n.body
@@ -31,7 +32,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   })
   const program = ts.createProgram([...sources.keys()], options, host)
   const checker = program.getTypeChecker()
-  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), commonjsTargets = new Set(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set(), escapedBindings = new Set(), mutatedObjectBindings = new Set(), bindingAliases = new Map(), mutatedImplicitRequireFiles = new Set(), escapedImplicitRequireFiles = new Set()
+  const nodes = new Map(), byAst = new Map(), shapes = new Map(), files = new Map(), commonjs = new Map(), runtimeModules = new Map(), commonjsTargets = new Set(), mockCandidates = [], invokedSymbols = new Set(), parameterInputs = new Map(), mutatedReceivers = new Set(), delegatingMocks = new Set(), mutatedBindings = new Set(), escapedBindings = new Set(), mutatedObjectBindings = new Set(), bindingAliases = new Map(), mutatedImplicitRequireFiles = new Set(), escapedImplicitRequireFiles = new Set(), mutatedImplicitModuleFiles = new Set(), mutatedRequireMainFiles = new Set(), escapedExportFiles = new Set(), reconfiguredExportFiles = new Set()
   const activeProviders = new Set(), cyclicProviders = new Set()
   function connect(entry, id, guard = null) {
     entry.edges.add(id)
@@ -62,7 +63,8 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const declaration = bindingDeclaration(expression)
     if (!declaration || seen.has(declaration)) return false
     seen.add(declaration)
-    if (ts.isNamespaceImport(declaration) || ts.isImportClause(declaration)) return true
+    if (ts.isNamespaceImport(declaration)) return false
+    if (ts.isImportClause(declaration)) return ts.isImportDeclaration(declaration.parent) && isBuiltin(declaration.parent.moduleSpecifier.text)
     return ts.isVariableDeclaration(declaration) && declaration.initializer && nativeTarget(declaration.initializer, seen)
   }
   function controlledCall(expression) {
@@ -73,20 +75,33 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const provider = providerOf(expression.expression)
     return provider?.module === 'node:test' && stableBinding(expression.expression) && ['test', 'it', 'describe', 'before', 'after', 'beforeEach', 'afterEach'].includes(provider.export)
   }
-  function implicitRequire(identifier) {
-    return ts.isIdentifier(identifier) && identifier.text === 'require'
+  function implicitCommonJS(identifier, name) {
+    return ts.isIdentifier(identifier) && identifier.text === name
       && !(ts.isPropertyAccessExpression(identifier.parent) && identifier.parent.name === identifier)
       && !(ts.isPropertyAssignment(identifier.parent) && identifier.parent.name === identifier)
       && !(checker.getSymbolAtLocation(identifier)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName)
-        && !declaration.getSourceFile().isDeclarationFile && !ts.isIdentifier(declaration))
+        && !declaration.getSourceFile().isDeclarationFile && (ts.isVariableDeclaration(declaration) || ts.isParameter(declaration) || ts.isBindingElement(declaration)
+          || ts.isFunctionDeclaration(declaration) || ts.isFunctionExpression(declaration) || ts.isClassDeclaration(declaration) || ts.isClassExpression(declaration) || ts.isEnumDeclaration(declaration) || ts.isModuleDeclaration(declaration)
+          || ts.isImportSpecifier(declaration) || ts.isNamespaceImport(declaration) || ts.isImportClause(declaration) || ts.isImportEqualsDeclaration(declaration)))
+  }
+  const implicitRequire = identifier => implicitCommonJS(identifier, 'require')
+  function requireProperty(target) {
+    if (!ts.isPropertyAccessExpression(target) && !ts.isElementAccessExpression(target)) return null
+    let member = target
+    while (ts.isPropertyAccessExpression(member.expression) || ts.isElementAccessExpression(member.expression)) member = member.expression
+    if (!implicitRequire(member.expression)) return null
+    return { key: ts.isPropertyAccessExpression(member) ? member.name.text : ts.isStringLiteralLike(member.argumentExpression) ? member.argumentExpression.text : null }
   }
   function invalidateAssignment(target) {
     if (ts.isIdentifier(target)) {
       const declaration = bindingDeclaration(target)
       if (implicitRequire(target)) mutatedImplicitRequireFiles.add(target.getSourceFile().fileName)
+      else if (implicitCommonJS(target, 'module')) mutatedImplicitModuleFiles.add(target.getSourceFile().fileName)
       else if (declaration) mutatedBindings.add(declaration)
     } else if (ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target)) {
-      const declaration = baseBinding(target.expression); if (declaration) mutatedObjectBindings.add(declaration)
+      const property = requireProperty(target)
+      if (property && (property.key === null || property.key === 'main')) mutatedRequireMainFiles.add(target.getSourceFile().fileName)
+      if (property?.key !== 'main') { const declaration = baseBinding(target.expression); if (declaration) mutatedObjectBindings.add(declaration) }
     } else ts.forEachChild(target, invalidateAssignment)
   }
   function optionalReceiver(expression) {
@@ -166,6 +181,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
         invalidateAssignment(n.left ?? n.operand)
       }
       if (ts.isForOfStatement(n) || ts.isForInStatement(n)) invalidateAssignment(n.initializer)
+      if (ts.isDeleteExpression(n)) invalidateAssignment(n.expression)
       if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer && baseBinding(n.initializer)) bindingAliases.set(n, n.initializer)
       if (ts.isBindingElement(n)) {
         let owner = n.parent
@@ -177,6 +193,11 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
           if (typeOnly(node)) return
           if (ts.isIdentifier(node)) {
             if (implicitRequire(node)) return
+            if (implicitCommonJS(node, 'exports') && !((ts.isPropertyAccessExpression(node.parent) || ts.isElementAccessExpression(node.parent)) && node.parent.expression === node)) escapedExportFiles.add(node.getSourceFile().fileName)
+            if (implicitCommonJS(node, 'module')) {
+              const namespace = ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === 'exports' ? node.parent : node
+              if (!((ts.isPropertyAccessExpression(namespace.parent) || ts.isElementAccessExpression(namespace.parent)) && namespace.parent.expression === namespace)) escapedExportFiles.add(node.getSourceFile().fileName)
+            }
             const declaration = bindingDeclaration(node)
             // Unknown expressions may capture outer references, but their own
             // callback parameters/locals are not escaped caller bindings.
@@ -188,6 +209,8 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       }
       if (ts.isVariableDeclaration(n) && n.initializer && !bindingAliases.has(n) && !controlledCall(n.initializer)) escape(n.initializer)
       if (ts.isBinaryExpression(n) && n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && n.operatorToken.kind <= ts.SyntaxKind.LastAssignment) escape(n.right)
+      if (ts.isBinaryExpression(n) && n.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isPropertyAccessExpression(n.left) && n.left.name.text === 'exports' && implicitCommonJS(n.left.expression, 'module')
+        && (!ts.isObjectLiteralExpression(n.right) || n.right.properties.some(property => ts.isGetAccessor(property) || ts.isSetAccessor(property) || ts.isSpreadAssignment(property)))) reconfiguredExportFiles.add(n.getSourceFile().fileName)
       if (ts.isArrowFunction(n) && !ts.isBlock(n.body)) escape(n.body)
       if (ts.isPropertyDeclaration(n) && n.initializer) escape(n.initializer)
       if (ts.isCallExpression(n) || ts.isNewExpression(n)) {
@@ -202,7 +225,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
         && (ts.isPropertyAccessExpression(n.left) || ts.isElementAccessExpression(n.left))) {
         const symbol = receiverSymbol(origin(n.left.expression))
         if (symbol) mutatedReceivers.add(symbol)
-        const declaration = baseBinding(n.left.expression); if (declaration) mutatedObjectBindings.add(declaration)
+        const declaration = baseBinding(n.left.expression); if (declaration && requireProperty(n.left)?.key !== 'main') mutatedObjectBindings.add(declaration)
       }
       if (ts.isCallExpression(n) && /^(?:Object\.(?:assign|defineProperty|defineProperties)|Reflect\.set)$/.test(n.expression.getText()) && n.arguments[0]) {
         const symbol = receiverSymbol(origin(n.arguments[0]))
@@ -395,7 +418,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const symbol = checker.getSymbolAtLocation(expression)
     for (const declaration of symbol?.declarations ?? []) {
       for (let node = declaration; node; node = node.parent) if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
-        return { module: node.moduleSpecifier.text, export: ts.isNamespaceImport(declaration) ? '*' : declaration.propertyName?.text ?? declaration.name?.text ?? '*' }
+        return { module: node.moduleSpecifier.text, export: ts.isNamespaceImport(declaration) ? '*' : ts.isImportClause(declaration) ? isBuiltin(node.moduleSpecifier.text) ? '*' : 'default' : declaration.propertyName?.text ?? declaration.name?.text ?? '*' }
       }
       const variable = ts.isBindingElement(declaration) ? declaration.parent.parent : declaration
       const initializer = variable.initializer
@@ -408,7 +431,8 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (seen.has(expression)) return null
     seen.add(expression)
     if (!ts.isCallExpression(expression)) return null
-    if (expression.expression.getText() === 'vi.spyOn' && expression.arguments.length >= 2) {
+    if (expression.expression.getText() === 'vi.spyOn' && expression.arguments.length >= 2
+      && vitestReceiver(expression.expression.expression) && stableBinding(expression.expression.expression)) {
       const keys = literalKeys(expression.arguments[1]), provider = providerOf(expression.arguments[0])
       return provider && keys?.length === 1 ? { provider, method: keys[0] } : null
     }
@@ -471,7 +495,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       && callback.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)
     // inputStatus still requires a live property lookup: captured CJS function
     // values do not change when this provider object's method is replaced.
-    return { provider, method: keys?.length === 1 ? keys[0] : null, trackerProven, action: known ? 'replace' : 'uncertain' }
+    return { provider, method: keys?.length === 1 ? keys[0] : null, trackerProven, native: true, action: known ? 'replace' : 'uncertain' }
   }
   function replacementEvent(call, entry) {
     const name = call.expression.getText()
@@ -608,7 +632,41 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (ts.isPropertyAccessExpression(n)) symbolEdges(n.name, entry)
     resolveMember(n.expression, keys, entry, n)
   }
+  function importedModule(file, specifier) {
+    if (!specifier.startsWith('.')) return null
+    const stem = posix.normalize(posix.join(posix.dirname(file), specifier))
+    return [...(runtimeModules.get(file) ?? [])].find(target => target === stem || ['.ts', '.tsx', '.js', '.cjs', '.mjs', '/index.ts', '/index.js'].some(extension => target === stem + extension))
+  }
+  function mainCondition(expression) {
+    while (ts.isParenthesizedExpression(expression)) expression = expression.expression
+    if (!ts.isBinaryExpression(expression) || ![ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(expression.operatorToken.kind)) return null
+    let left = expression.left, right = expression.right
+    if (ts.isIdentifier(left) && left.text === 'module') [left, right] = [right, left]
+    if (!ts.isPropertyAccessExpression(left) || left.name.text !== 'main' || !ts.isIdentifier(left.expression) || left.expression.text !== 'require' || !ts.isIdentifier(right) || right.text !== 'module') return null
+    const file = expression.getSourceFile().fileName
+    if (mutatedImplicitRequireFiles.has(file) || escapedImplicitRequireFiles.has(file) || mutatedRequireMainFiles.has(file) || mutatedImplicitModuleFiles.has(file)) return null
+    if (!implicitRequire(left.expression) || !implicitCommonJS(right, 'module')) return null
+    return { file: local(file), isMain: expression.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken, expression: expression.getText() }
+  }
+  function inertLocalCall(expression) {
+    if (!stableBinding(expression)) return false
+    const targets = [...callableValues(expression)].map(id => nodes.get(id)?.ast)
+    return targets.length > 0 && targets.every(fn => callable(fn) && fn.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer && !parameter.dotDotDotToken)
+      && (ts.isBlock(fn.body) ? fn.body.statements.length === 1 && ts.isReturnStatement(fn.body.statements[0]) && inertValue(fn.body.statements[0].expression) : inertValue(fn.body)))
+  }
   function inspect(n, entry, root = false) {
+    if (ts.isIfStatement(n)) {
+      const condition = mainCondition(n.expression)
+      if (condition && !callable(n.thenStatement) && !callable(n.elseStatement)) {
+        for (const [branch, truth] of [[n.thenStatement, true], [n.elseStatement, false]]) if (branch) {
+          const id = add(branch, '<main entry guard>'), gate = nodes.get(id)
+          gate.mainGuard = { ...condition, isMain: truth ? condition.isMain : !condition.isMain }
+          connect(entry, id)
+          entry.edgeEvidence.set(id, { evidence: 'canonical CommonJS entry guard', ...gate.mainGuard })
+        }
+        return
+      }
+    }
     if (ts.isWithStatement(n)) entry.unsafe = 'with dynamic scope'
     if (typeOnly(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n) || ts.isImportSpecifier(n) || ts.isNamespaceImport(n) || ts.isImportClause(n)) return
     // Registration callbacks are separate roots. Suite hooks are applied below.
@@ -676,6 +734,15 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     if (ts.isShorthandPropertyAssignment(n)) providerEscape(n.name, entry, n)
     if (ts.isArrayLiteralExpression(n)) for (const element of n.elements) providerEscape(element, entry, n)
     if (ts.isCallExpression(n)) {
+      if ((ts.isIdentifier(n.expression) && n.expression.text === 'require' || n.expression.kind === ts.SyntaxKind.ImportKeyword) && ts.isStringLiteralLike(n.arguments[0])) {
+        const target = importedModule(entry.file, n.arguments[0].text)
+        if (files.has(target)) {
+          if (providerRequire(n) || n.expression.kind === ts.SyntaxKind.ImportKeyword) {
+            connect(entry, files.get(target).top); entry.conservativeEdges.add(files.get(target).top)
+            entry.edgeEvidence.set(files.get(target).top, { evidence: 'actual module initialization', expression: n.getText() })
+          } else if (!inertLocalCall(n.expression)) (entry.moduleEntryRisks ??= []).push({ target, expression: n.getText(), reason: 'CommonJS loader identity or cache provenance is unresolved' })
+        }
+      }
       replacementEvent(n, entry)
       if (!nativeReplacement(n) && !spy(n)) for (const argument of n.arguments) providerEscape(argument, entry, n)
       if (n.expression.getText() === 'eval') entry.unsafe = 'eval runtime dispatch'
@@ -718,11 +785,30 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     }
     ts.forEachChild(n, child => inspect(child, entry))
   }
+  function inertExportBinding(expression) {
+    if (inertValue(expression)) return true
+    if (ts.isIdentifier(expression)) return (checker.getSymbolAtLocation(expression)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName))
+    if (ts.isObjectLiteralExpression(expression)) return expression.properties.every(property => ts.isShorthandPropertyAssignment(property)
+      ? inertExportBinding(property.name) : ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name) && inertExportBinding(property.initializer))
+    return false
+  }
+  function inertCommonJSExport(statement) {
+    if (!ts.isExpressionStatement(statement) || !ts.isBinaryExpression(statement.expression) || statement.expression.operatorToken.kind !== ts.SyntaxKind.EqualsToken) return false
+    const assignment = statement.expression, left = assignment.left
+    if (!ts.isPropertyAccessExpression(left)) return false
+    let root = left
+    while (ts.isPropertyAccessExpression(root)) root = root.expression
+    const direct = implicitCommonJS(root, 'exports') ? /^exports\.[\w$]+$/.test(left.getText())
+      : implicitCommonJS(root, 'module') && /^module\.exports(?:\.[\w$]+)?$/.test(left.getText())
+    if (!direct || escapedExportFiles.has(statement.getSourceFile().fileName)) return false
+    if (left.getText() !== 'module.exports' && left.getText().startsWith('module.exports.') && reconfiguredExportFiles.has(statement.getSourceFile().fileName)) return false
+    return inertExportBinding(assignment.right)
+  }
   for (const entry of nodes.values()) {
     if (entry.shape) continue
     if (ts.isSourceFile(entry.ast) || entry.label === '<suite setup>') {
       function eager(n) {
-        if (typeOnly(n) || registration(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n) || callable(n)) return
+        if (typeOnly(n) || registration(n) || ts.isImportDeclaration(n) || ts.isExportDeclaration(n) || callable(n) || inertCommonJSExport(n)) return
         if (ts.isEnumDeclaration(n)) {
           for (const m of n.members) if (m.initializer && !inertValue(m.initializer)) inspect(m.initializer, entry)
           return
@@ -747,6 +833,17 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       eager(entry.ast)
     } else inspect(entry.ast, entry, true)
   }
+  for (const [file, info] of files) for (const statement of info.sf.statements) {
+    if ((!ts.isImportDeclaration(statement) && !ts.isExportDeclaration(statement)) || statement.isTypeOnly || !statement.moduleSpecifier || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue
+    if (ts.isImportDeclaration(statement) && (statement.importClause?.isTypeOnly || !statement.importClause?.name && ts.isNamedImports(statement.importClause?.namedBindings ?? {}) && statement.importClause.namedBindings.elements.length > 0 && statement.importClause.namedBindings.elements.every(element => element.isTypeOnly))) continue
+    if (ts.isExportDeclaration(statement) && statement.exportClause && ts.isNamedExports(statement.exportClause) && statement.exportClause.elements.length > 0 && statement.exportClause.elements.every(element => element.isTypeOnly)) continue
+    const target = importedModule(file, statement.moduleSpecifier.text)
+    if (files.has(target)) {
+      connect(nodes.get(info.top), files.get(target).top)
+      nodes.get(info.top).conservativeEdges.add(files.get(target).top)
+      nodes.get(info.top).edgeEvidence.set(files.get(target).top, { evidence: 'actual module initialization', expression: statement.getText() })
+    }
+  }
   function readerBinding(input) {
     const file = input.readerFile ?? input.from, info = files.get(file)
     const offset = input.readerStart ?? input.start
@@ -763,7 +860,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const unwrap = expression => ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isTypeAssertionExpression(expression) || ts.isNonNullExpression(expression) ? unwrap(expression.expression) : expression
     const imported = expression => {
       const declaration = checker.getSymbolAtLocation(expression)?.declarations?.find(declaration => ts.isImportSpecifier(declaration) || ts.isNamespaceImport(declaration) || ts.isImportClause(declaration))
-      return !!declaration
+      return declaration
     }
     const moduleKind = (expression, seen = new Set()) => {
       expression = unwrap(expression)
@@ -776,9 +873,23 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
       if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer && !mutatedBindings.has(declaration)) return moduleKind(declaration.initializer, seen)
       return null
     }
+    const nativeSnapshot = (expression, seen = new Set()) => {
+      expression = unwrap(expression)
+      if (seen.has(expression)) return true
+      seen.add(expression)
+      const binding = imported(expression)
+      if (binding) {
+        let statement = binding
+        while (statement && !ts.isImportDeclaration(statement)) statement = statement.parent
+        return (ts.isImportSpecifier(binding) || ts.isNamespaceImport(binding)) && !!statement?.moduleSpecifier?.text && isBuiltin(statement.moduleSpecifier.text)
+      }
+      const declaration = bindingDeclaration(expression)
+      return !!(declaration && ts.isVariableDeclaration(declaration) && declaration.initializer && nativeSnapshot(declaration.initializer, seen))
+    }
     const callee = unwrap(call.expression)
     if (ts.isIdentifier(callee)) {
-      if (imported(callee)) return { live: true, moduleKind: 'esm' }
+      const binding = imported(callee)
+      if (binding) return { live: true, moduleKind: 'esm', methodLive: !nativeSnapshot(callee) }
       if (input.provider?.global === callee.text && !(checker.getSymbolAtLocation(callee)?.declarations ?? []).some(declaration => sources.has(declaration.getSourceFile().fileName))) return { live: true, moduleKind: 'global' }
       // Destructuring or assigning a function captures its current value; a
       // later provider-object spy does not necessarily replace this call.
@@ -786,7 +897,7 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     }
     if (ts.isPropertyAccessExpression(callee) || ts.isElementAccessExpression(callee)) {
       const kind = moduleKind(callee.expression)
-      return { live: !!kind, moduleKind: kind }
+      return { live: !!kind, moduleKind: kind, methodLive: !nativeSnapshot(callee.expression) }
     }
     return { live: false }
   }
@@ -811,10 +922,14 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const id = `${readerFile}:${offset}:<input:${input.to}>`
     nodes.set(id, { id, ast, file: readerFile, provider: input.provider, readerBinding: readerBinding(input), changeKinds: input.changeKinds, inputSet: input.inputSet, readerMethod: input.kind === 'load' ? 'loadAsync' : input.provider?.export, label: `<input:${input.to}>`, edges: new Set(), conservativeEdges: new Set(), edgeEvidence: new Map() })
     connect(nodes.get(ownerId), id)
+    if (input.kind === 'import' && files.has(input.to)) { connect(nodes.get(id), files.get(input.to).top); nodes.get(id).conservativeEdges.add(files.get(input.to).top) }
+    if (input.kind === 'execute' && input.executionKind === 'node-entry' && files.has(input.to)) nodes.get(id).nodeEntry = { file: input.to, target: files.get(input.to).top }
     if (crossModule || input.conservative || input.inputSet && input.kind !== 'directory-membership') nodes.get(ownerId).conservativeEdges.add(id)
     nodes.get(ownerId).edgeEvidence.set(id, { input: input.to, expression: input.expression, evidence: input.kind, ...(input.inputSet ? { inputSet: input.inputSet, ...(input.resolution || input.kind !== 'directory-membership' ? { resolution: input.resolution ?? 'possible bounded directory input' } : {}) } : {}), ...(crossModule ? { callerContext: { file: input.from, line: input.line, column: input.column }, resolution: 'finite factory context' } : {}) })
-    if (!inputs.has(input.to)) inputs.set(input.to, new Set())
-    inputs.get(input.to).add(id)
+    if (!(files.has(input.to) && (input.kind === 'import' || input.executionKind === 'node-entry'))) {
+      if (!inputs.has(input.to)) inputs.set(input.to, new Set())
+      inputs.get(input.to).add(id)
+    }
   }
   // Listing operations remain observable even when their proven snapshot set is empty.
   // These are operation nodes, not invented file targets.
@@ -874,8 +989,8 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     }
   }
   function mockUncertainty(path, testFile, reached) {
-    for (const step of path) if (reached?.mockUncertainties?.has(step.file)) return reached.mockUncertainties.get(step.file)
-    for (const step of path) if (files.get(testFile)?.uncertainMocks.has(step.file)) return files.get(testFile).uncertainMocks.get(step.file)
+    for (const step of path) if (step.processContext === 'test' && reached?.mockUncertainties?.has(step.file)) return reached.mockUncertainties.get(step.file)
+    for (const step of path) if (step.processContext === 'test' && files.get(testFile)?.uncertainMocks.has(step.file)) return files.get(testFile).uncertainMocks.get(step.file)
     return null
   }
   function nullishValue(expression, environment, visited = new Set()) {
@@ -929,19 +1044,24 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
   function reachable(roots, testFile) {
     const blocked = new Set(files.get(testFile)?.blocked ?? []), pending = [], mockUncertainties = new Map()
     const seen = new Set(), states = new Map(), first = new Map(), queue = []
-    const enqueue = (id, environment, parent, evidence, conservative = false) => {
+    const enqueue = (id, environment, parent, evidence, conservative = false, mainFile = testFile, processContext = 'test') => {
       if (!nodes.has(id)) return
-      if (blocked.has(nodes.get(id).file)) { pending.push([id, environment, parent, evidence, conservative]); return }
-      const key = `${id}\0${contextKey(environment)}`
+      const gate = nodes.get(id).mainGuard
+      if (gate && (gate.file === mainFile) !== gate.isMain) return
+      if (processContext === 'test' && blocked.has(nodes.get(id).file)) { pending.push([id, environment, parent, evidence, conservative, mainFile, processContext]); return }
+      const key = `${id}\0${processContext}\0${mainFile}\0${contextKey(environment)}`
       if (states.has(key)) return
-      const state = { id, environment, parent, evidence, conservative }
+      const state = { id, environment, parent, evidence, conservative, mainFile, processContext }
       states.set(key, state); queue.push([key, state])
     }
     roots.forEach(id => enqueue(id, new Map(), null, null))
+    seen.trace = { states, first }
+    const executions = [], processedExecutions = new Set()
     for (let cursor = 0; cursor < queue.length; cursor++) {
       const [key, state] = queue[cursor], entry = nodes.get(state.id)
       seen.add(state.id); if (!first.has(state.id)) first.set(state.id, key)
-      for (const event of entry.providerEvents ?? []) if (event.action === 'uncertain') {
+      if (entry.nodeEntry) executions.push([key, state, entry])
+      for (const event of entry.providerEvents ?? []) if (state.processContext === 'test' && event.action === 'uncertain') {
         const target = providerTarget(event.provider, event.ast), replacement = files.get(testFile)?.replacementMocks.get(target)
         if (replacement && blocked.delete(target)) {
           mockUncertainties.set(target, { ...replacement, reason: 'Replacement exports are reconfigured or escape on this case path', reconfiguration: event.ast.getText() })
@@ -962,13 +1082,31 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
           const parameters = context && callable(target.ast) ? target.ast.parameters.filter(parameter => environment.has(parameter)).map(parameter => ({ name: parameter.name.getText(), value: environment.get(parameter) })) : []
           const evidence = { ...entry.edgeEvidence.get(next), ...(context ? { callsite: { file: entry.file, start: context.call.getStart() } } : {}),
             ...(parameters.length ? { parameters } : {}), ...(facts.length ? { optionalGuard: facts } : {}) }
-          enqueue(next, environment, key, evidence, entry.conservativeEdges.has(next) || facts.some(fact => fact.value === 'unknown'))
+          enqueue(next, environment, key, evidence, entry.conservativeEdges.has(next) || facts.some(fact => fact.value === 'unknown'), state.mainFile, state.processContext)
         }
+      }
+      if (cursor === queue.length - 1) for (const [executionKey, executionState, operation] of executions) {
+        if (processedExecutions.has(executionKey)) continue
+        processedExecutions.add(executionKey)
+        const status = inputStatus(operation.provider, operation.readerMethod, roots, seen, operation.id, testFile, undefined, executionKey)
+        if (status === 'replaced') continue
+        if (status === 'uncertain') {
+          seen.entryUncertainties ??= []
+          seen.entryUncertainties.push({ id: operation.id, file: operation.nodeEntry.file, reason: 'Node entry provider replacement or delegation is unresolved' })
+          continue
+        }
+        enqueue(operation.nodeEntry.target, new Map(), executionKey, { evidence: 'proven Node entry', mainFile: operation.nodeEntry.file }, false, operation.nodeEntry.file, `node:${operation.nodeEntry.file}`)
       }
     }
     seen.trace = { states, first }
     seen.mockUncertainties = mockUncertainties
     return seen
+  }
+  function entryMayAffect(file, target) {
+    if (runtimeReaches(file, target)) return true
+    if (inputEdges.some(input => input.to === target && runtimeReaches(file, input.readerFile ?? input.from))) return true
+    return [...inputRisks, ...inputPatterns].some(input => runtimeReaches(file, input.readerFile ?? input.from)
+      && (input.pattern ? new RegExp(input.pattern).test(target) : !input.candidates?.length || input.candidates.includes(target)))
   }
   function caseRoots(file, location) {
     const info = files.get(file)
@@ -1013,21 +1151,21 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     const { ids, moduleEffect } = changedDeclarations(snapshot(file), before)
     // An independently changed opaque initialization effect cannot be hidden
     // by a different covered callable/value in the same patch.
-    if (moduleEffect) ids.add(files.get(file).top)
+    if (moduleEffect) { ids.add(files.get(file).top); nodes.get(files.get(file).top).unmappedModuleEffect = true }
     // Source files may also be consumed as bytes, independently of executed declarations.
     for (const id of inputTargets) ids.add(id)
     return ids
   }
   const explanations = new WeakMap()
-  function explain(roots, reached, target) {
+  function explain(roots, reached, target, stateKey) {
     if (reached.trace) {
       const { states, first } = reached.trace
       if (!first.has(target)) return []
       const path = []
-      for (let key = first.get(target); key; key = states.get(key).parent) path.unshift(states.get(key))
+      for (let key = stateKey ?? first.get(target); key; key = states.get(key).parent) path.unshift(states.get(key))
       const result = path.map((state, index) => {
         const node = nodes.get(state.id)
-        return { file: node.file, behavior: node.label, line: node.ast.getSourceFile().getLineAndCharacterOfPosition(node.ast.getStart()).line + 1, ...(index ? state.evidence : { root: true }) }
+        return { file: node.file, behavior: node.label, line: node.ast.getSourceFile().getLineAndCharacterOfPosition(node.ast.getStart()).line + 1, processContext: state.processContext, ...(index ? state.evidence : { root: true }) }
       })
       result.rootId = path[0]?.id
       result.initialization = path.some(state => nodes.get(state.id).label === '<module>')
@@ -1056,19 +1194,39 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     behaviors.conservative = path.some((n, index) => n.conservativeEdges.has(path[index + 1]?.id))
     return behaviors
   }
-  function inputStatus(provider, method, roots, reached, target, testFile, inputProof) {
+  function inputStatus(provider, method, roots, reached, target, testFile, inputProof, stateKey) {
     if (!provider) return 'real'
+    if (!stateKey && reached.trace) {
+      const states = [...reached.trace.states].filter(([, state]) => state.id === target)
+      const results = states.map(([key]) => [key, inputStatus(provider, method, roots, reached, target, testFile, inputProof, key)])
+      if (results.some(([, status]) => status === 'uncertain')) return 'uncertain'
+      const real = results.find(([, status]) => status === 'real')
+      if (real) { reached.trace.first.set(target, real[0]); return 'real' }
+      return results.length ? 'replaced' : 'uncertain'
+    }
+    const processContext = reached.trace?.states.get(stateKey)?.processContext ?? 'test'
+    if (processContext !== 'test') {
+      // A real subprocess cannot inherit its parent's test mock registry. Local
+      // replacement machinery in that process is not modeled as a test scope.
+      for (const [, state] of reached.trace.states) if (state.processContext === processContext) {
+        const entry = nodes.get(state.id), info = files.get(entry.file)
+        if (info?.blockedProviders.has(providerName(provider)) || info?.uncertainProviders.has(providerName(provider))) return 'uncertain'
+        if ((entry.providerEvents ?? []).some(event => event.all || providerName(event.provider) === providerName(provider))) return 'uncertain'
+      }
+      return 'real'
+    }
     const key = providerName(provider)
     if (files.get(testFile)?.uncertainProviders.has(key)) return 'uncertain'
     const binding = inputProof ? readerBinding(inputProof) : nodes.get(target)?.readerBinding ?? { live: false }
     const initial = files.get(testFile)?.blockedProviders.has(key) ? binding.live && binding.moduleKind === 'esm' ? 'replaced' : 'uncertain' : 'real'
-    const inputPath = explain(roots, reached, target)
+    const inputPath = explain(roots, reached, target, stateKey)
     const rootAst = nodes.get(inputPath.rootId)?.ast
     if (!rootAst) return 'uncertain'
     const invocation = inputPath.find(step => step.callsite?.file === testFile && rootAst.getStart() <= step.callsite.start && step.callsite.start < rootAst.end)?.callsite.start
       ?? (nodes.get(target)?.file === testFile ? nodes.get(target).ast.getStart() : null)
     const events = []
     for (const id of reached) for (const event of nodes.get(id)?.providerEvents ?? []) {
+      if (reached.trace && ![...reached.trace.states.values()].some(state => state.id === id && state.processContext === processContext)) continue
       if (event.all && (event.boundary === 'global') !== !!provider.global) continue
       if (!event.all && (providerName(event.provider) !== key || event.provider.export && event.provider.export !== '*' && provider.export && event.provider.export !== provider.export || event.method && method && event.method !== method)) continue
       let scope = 'helper', conditional = false
@@ -1091,14 +1249,14 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
         const callsite = eventPath.find(step => step.callsite?.file === testFile && rootAst.getStart() <= step.callsite.start && step.callsite.start < rootAst.end)?.callsite.start
         if (callsite === undefined || invocation === null) { events.push({ action: 'uncertain', order: Infinity }); continue }
         if (callsite > invocation) continue
-        events.push({ action: conditional ? 'uncertain' : event.action, order: callsite })
-      } else events.push({ action: conditional || scope === 'body' && invocation === null ? 'uncertain' : event.action, order: scope === 'before' ? -1 : event.ast.getStart() })
+        events.push({ action: conditional ? 'uncertain' : event.action, native: event.native, order: callsite })
+      } else events.push({ action: conditional || scope === 'body' && invocation === null ? 'uncertain' : event.action, native: event.native, order: scope === 'before' ? -1 : event.ast.getStart() })
     }
     events.sort((a,b) => a.order - b.order)
     const action = events.at(-1)?.action
-    return action === 'replace' ? binding.live ? 'replaced' : 'uncertain' : action === 'uncertain' ? 'uncertain' : initial
+    return action === 'replace' ? binding.live && binding.methodLive !== false ? 'replaced' : 'uncertain' : action === 'uncertain' ? 'uncertain' : initial
   }
-  return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, mockUncertainty, runtimeReaches, hasFile: file => files.has(file) }
+  return { nodes, reachable, caseRoots, wholeFileRoots, changedNodes, snapshot, explain, inputStatus, mockUncertainty, runtimeReaches, entryMayAffect, hasFile: file => files.has(file) }
 }
 
 function selectBehaviors(inventory, changed, consumers, evidence) {
@@ -1137,6 +1295,11 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
           if (!roots) uncertain = true
           const actualRoots = roots || graphs[i].wholeFileRoots(graphFile)
           const reached = graphs[i].reachable(actualRoots, graphFile)
+          for (const entry of reached.entryUncertainties ?? []) if (graphs[i].entryMayAffect(entry.file, change.file)) {
+            const error = new Error(`Unsafe Node entry: ${entry.reason}; case ${file}#${suite.names[index]}; changed ${change.file}`)
+            error.diagnostics = { executable: false, changed: change.file, test: file, caseIndex: index, path: [...graphs[i].explain(actualRoots, reached, entry.id)], unresolved: entry }
+            throw error
+          }
           for (const id of reached) {
             const unresolved = graphs[i].nodes.get(id)
             const failRisk = (message, risk) => {
@@ -1145,6 +1308,7 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
               throw error
             }
             if (unresolved?.unsafe) failRisk(`Unsafe runtime dispatch: ${file}: ${unresolved.unsafe}`, { reason: unresolved.unsafe })
+            for (const risk of unresolved?.moduleEntryRisks ?? []) if (graphs[i].entryMayAffect(risk.target, change.file)) failRisk(`Unsafe module initialization: ${risk.reason}`, risk)
             if (unresolved?.directoryInput) {
               const listing = unresolved.directoryInput
               const status = graphs[i].inputStatus(listing.listingProvider, listing.listingProvider?.export, actualRoots, reached, id, graphFile)
@@ -1173,6 +1337,9 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
           }
           for (const id of targets[i]) if (reached.has(id)) {
             const target = graphs[i].nodes.get(id)
+            // Importing a module executes initialization, but does not prove a
+            // contract for an otherwise unaddressable changed module effect.
+            if (target.unmappedModuleEffect) continue
             const dependencyPath = graphs[i].explain(actualRoots, reached, id)
             const mock = graphs[i].mockUncertainty(dependencyPath, graphFile, reached)
             if (mock) {
@@ -1185,7 +1352,7 @@ function selectBehaviors(inventory, changed, consumers, evidence) {
             if (providerStatus === 'uncertain') { const error = new Error(`Unsafe runtime input: ${file}#${suite.names[index]}; ambiguous replacement/restore ordering for ${target.label}`); error.diagnostics = { executable: false, changed: change.file, test: file, caseIndex: index, path: [...graphs[i].explain(actualRoots, reached, id)] }; throw error }
             hit = true; covered[i].add(id)
             const path = graphs[i].explain(actualRoots, reached, id)
-            caseEvidence.push({ index, name: suite.names[index], snapshot: i === 0 ? 'after' : 'before', reason: uncertain ? 'necessary whole-owner fallback' : path.conservative ? 'finite receiver dependency' : 'exact symbol dependency', path: [...path] })
+            caseEvidence.push({ index, name: suite.names[index], snapshot: i === 0 ? 'after' : 'before', reason: uncertain ? 'necessary whole-owner fallback' : path.initialization ? 'necessary module initialization' : path.conservative ? 'finite receiver dependency' : 'exact symbol dependency', path: [...path] })
             if (path.initialization) initializationCases.add(index)
             else runtimeHit = true
             if (path.conservative) { conservativeCases.add(index); caller = true }
