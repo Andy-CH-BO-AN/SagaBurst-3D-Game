@@ -1,3 +1,4 @@
+import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import { gateBreachLane } from '../../src/navigation/GateBreachPortal'
 import { describe, expect, it, onTestFinished } from 'vitest'
@@ -297,7 +298,9 @@ describe('Siege deployment and shared rule ownership', () => {
   })
 
   it('admits only rostered ground attackers to convoy detours and clears excluded actors', () => {
-    const entrances = new AvailableBreachEntrances(), convoy = new SiegeConvoy()
+    const navigation = new NavigationWorld({ minX: -10, maxX: 10, minZ: -40, maxZ: 10, cellSize: 2 })
+    navigation.townNav = new TownLayeredNavigation(getTownRampartLayout())
+    const entrances = navigation.townNav.siegeEntrances, convoy = new SiegeConvoy()
     onTestFinished(() => convoy.dispose())
     const npc = { combatantId: 'east:flyer', dead: false, tacticalOrder: 'attack', hasFormationTarget: false,
       siegeTransport: null, siegeBypassTarget: null as Vector3 | null, combatPosition: new Vector3(0, 20, -5),
@@ -315,7 +318,7 @@ describe('Siege deployment and shared rule ownership', () => {
       prepared: true, disposed: false, pending: new Set(), ramps: new Map(), rampList: [ramp], convoy,
       observedRevision: entrances.revision, actorsById: new Map(), playerCommands: new Set(), departedActors: new Map(),
       attackerIds: new Set([npc.combatantId]),
-      options: { world: {}, grid: {}, navigation: { townNav: { siegeEntrances: entrances } },
+      options: { world: { obstacles: [] }, grid: {}, navigation,
         actors: () => [npc, defender, ambient, personal], acceptsOrders: () => true,
         attackerRole: undefined as (() => TownSiegeAttackerRole) | undefined },
     })
