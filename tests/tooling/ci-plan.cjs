@@ -60,7 +60,7 @@ function selectFiles(inventory, changed, consumers, evidence) {
   const renamed = new Map(changed.filter(item => item.status.startsWith('R')).map(item => [item.oldFile, item.file]))
   const surviving = file => renamed.get(file) ?? file
   const retiredFiles = []
-  const typeOnlyFiles = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && behaviorSource(item.file) && !all.includes(item.file) && evidence.sources.has(item.file) && evidence.previousSources.has(item.file)
+  const typeOnlyFiles = evidence ? changed.filter(item => ['A', 'M'].includes(item.status) && behaviorSource(item.file) && !all.includes(item.file) && !exactInputReader(item.file, consumers) && !exactInputReader(item.file, previous) && evidence.sources.has(item.file) && evidence.previousSources.has(item.file)
     && require('./dependencies.cjs').runtimeEquivalent(evidence.previousSources.get(item.file), evidence.sources.get(item.file), item.file)).map(item => item.file) : []
   const inputClassifications = evidence ? changed.filter(item => !behaviorSource(item.file) && !documentationOnly(item))
     .map(item => ({ file: item.file, ...require('./dependencies.cjs').classifyChangedInput(item.file, consumers),
@@ -191,6 +191,7 @@ function planShards(files, mode) {
   }]
 }
 function validateManifest(plan) {
+  if (plan?.executable === false || plan?.result === 'blocked' || plan?.schema === 'logic-plan-blocked/v1') throw new Error('Blocked diagnostics are not an executable test manifest')
   const all = plan.inventory.map(item => item.file)
   if (plan.mode === 'full' && plan.selectedCases) throw new Error('Full must not use behavior filters')
   if (plan.selectedCases) {
@@ -297,22 +298,28 @@ function analyzerIdentity() {
 }
 async function createPlan({ mode = 'full', base = '', head = '', event = 'local', repositoryRoot = root, 'repository-root': cliRoot } = {}) {
   repositoryRoot = resolve(cliRoot ?? repositoryRoot)
+  const planningContext = { requestedMode: mode, event, eventBaseSha: base, requestedHeadSha: head, repositoryRoot,
+    checkoutSha: null, comparison: null, analyzer: null, stage: 'initialization' }
+  try {
   const git = (...args) => execFileSync('git', args, { cwd: repositoryRoot, encoding: 'utf8' }).trim()
   const { comparison, changedFiles, diffRanges, assertCleanCheckout } = require('./git-snapshots.cjs')
   if (!['full', 'related'].includes(mode)) throw new Error(`Invalid test mode: ${mode}`)
   const analyzer = analyzerIdentity()
+  planningContext.analyzer = analyzer
   const verifiedAnalyzer = () => {
     if (JSON.stringify(analyzerIdentity()) !== JSON.stringify(analyzer)) throw new Error('Analyzer changed during planning; replay a stable analyzer snapshot')
     return analyzer
   }
   const checkoutSha = git('rev-parse', 'HEAD')
+  planningContext.checkoutSha = checkoutSha
   if (mode === 'full') {
     const executionSnapshot = event === 'local' ? undefined : { checkoutSha, kind: 'fixed-checkout' }
     if (executionSnapshot) {
       assertCleanCheckout(repositoryRoot, checkoutSha)
-      if (event === 'pull_request') executionSnapshot.comparison = comparison({ base, head, event, repositoryRoot })
+      if (event === 'pull_request') planningContext.comparison = executionSnapshot.comparison = comparison({ base, head, event, repositoryRoot })
       else if (!head || git('rev-parse', '--verify', `${head}^{commit}`) !== checkoutSha) throw new Error('Snapshot mismatch: Full checkout must equal requested head')
     }
+    planningContext.stage = 'discovery'
     const found = await discover({ repositoryRoot })
     if (executionSnapshot) assertCleanCheckout(repositoryRoot, checkoutSha)
     const selected = found.inventory.map(item => item.file)
@@ -323,13 +330,15 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
       shards: planShards(found.inventory, 'full'),
     })
   }
+  planningContext.stage = 'comparison'
   let changed, comparisonSnapshot
   try {
-    comparisonSnapshot = comparison({ base, head, event, repositoryRoot })
-    changed = changedFiles(comparisonSnapshot.beforeSha, comparisonSnapshot.afterSha, repositoryRoot)
+    planningContext.comparison = comparisonSnapshot = comparison({ base, head, event, repositoryRoot })
+    planningContext.changes = changed = changedFiles(comparisonSnapshot.beforeSha, comparisonSnapshot.afterSha, repositoryRoot)
     if (comparisonSnapshot.intent) comparisonSnapshot.intent.changes = changedFiles(comparisonSnapshot.intent.beforeSha, comparisonSnapshot.intent.afterSha, repositoryRoot)
   }
   catch (error) { throw new Error(`Related Git history unavailable: ${error.message}. Full is reserved for main/release.`) }
+  planningContext.stage = 'snapshots'
   const start = comparisonSnapshot.beforeSha
   const currentTree = snapshot(comparisonSnapshot.afterSha, repositoryRoot), baseTree = snapshot(start, repositoryRoot)
   // Vitest's watch-mode force-rerun triggers are not runtime edges. Omit only
@@ -343,10 +352,12 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     baseTree.texts.get('package.json'), currentTree.texts.get('package.json'),
     baseTree.texts.get('package-lock.json'), currentTree.texts.get('package-lock.json'))
     ? changed.filter(item => item.status === 'M' && ['package.json', 'package-lock.json'].includes(item.file)).map(item => item.file) : []
+  planningContext.stage = 'discovery'
   let found
   try { found = await discover({ repositoryRoot, relatedPaths: changed.filter(item => item.status !== 'D'
     && !relocatedInputs.includes(item.file) && !dependencyPlacementInputs.includes(item.file)).map(item => item.file) }) }
   catch (error) { throw new Error(`Related dependency selection unavailable: ${error.message}. Full is reserved for main/release.`) }
+  planningContext.stage = 'dependency-analysis'
   const consumers = dependencyConsumers(found.inventory, currentTree)
   const previousConsumers = dependencyConsumers([...baseTree.sources.keys()].filter(testFile).map(file => ({ file })), baseTree)
   const sources = currentTree.sources
@@ -358,6 +369,7 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     if (!ranges[item.file][0].length) relatedSelectionError(`Missing behavior diff: ${item.file}`)
   }
   assertCleanCheckout(repositoryRoot, checkoutSha)
+  planningContext.stage = 'selection'
   const selection = selectFiles(found.inventory, changed, consumers, { repositoryRoot, sources, previousSources, ranges, previousConsumers, previousFiles: baseTree.files, previousTexts: baseTree.texts, files: currentTree.files, texts: currentTree.texts })
   // Native related results are candidates only. An unexplained native-only edge
   // is unsafe; never silently exclude it or unconditionally union it into leaves.
@@ -368,11 +380,16 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   }
   const selectedInventory = found.inventory.filter(item => selection.selected.includes(item.file))
     .map(item => ({ ...item, names: selection.selectedCases[item.file].map(i => item.names[i]) }))
+  planningContext.stage = 'manifest-validation'
   return validateManifest({
     version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
     checkoutSha, comparison: comparisonSnapshot, analyzer: verifiedAnalyzer(), changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
     inventory: found.inventory, ...selection, relocatedInputs, dependencyPlacementInputs, shards: planShards(selectedInventory, 'related'),
   })
+  } catch (error) {
+    error.planningContext = planningContext
+    throw error
+  }
 }
 function options(args) {
   const result = {}
@@ -382,9 +399,36 @@ function options(args) {
   }
   return result
 }
+// Failure evidence is deliberately a different schema and file, never a partial
+// executable manifest. Keep structured case paths and missing provenance intact.
+function writeBlockedDiagnostics(error, { args = {}, argv = [] } = {}) {
+  const manifestPath = args.out ?? 'output/test-plan.json'
+  const file = resolve(manifestPath.replace(/\.json$/i, '') + '.blocked.json')
+  const context = error.planningContext ?? null
+  const diagnostic = {
+    schema: 'logic-plan-blocked/v1', version: 1, executable: false, result: 'blocked',
+    requested: { args, argv }, context,
+    unavailable: {
+      ...(!context?.checkoutSha ? { checkoutSha: 'Planning failed before the actual checkout SHA was established' } : {}),
+      ...(!context?.comparison ? { comparison: 'No verified comparison was established before failure' } : {}),
+      ...(!context?.analyzer ? { analyzer: 'Analyzer identity was not established before failure' } : {}),
+    },
+    error: { name: error.name ?? 'Error', message: error.message ?? String(error), stack: error.stack ?? null },
+    diagnostics: error.diagnostics ?? { missingEvidence: error.message ?? String(error) },
+  }
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, JSON.stringify(diagnostic, null, 2))
+  return { file, diagnostic }
+}
 if (require.main === module) (async () => {
-  const args = options(process.argv.slice(2))
-  const plan = await createPlan(args)
+  const argv = process.argv.slice(2)
+  let args, plan
+  try { args = options(argv); plan = await createPlan(args) }
+  catch (error) {
+    try { console.error(`Blocked planning diagnostics: ${writeBlockedDiagnostics(error, { args, argv }).file}`) }
+    catch (reportError) { console.error(`Could not persist blocked planning diagnostics: ${reportError.message}`) }
+    throw error
+  }
   const out = args.out ?? 'output/test-plan.json'
   mkdirSync(dirname(resolve(root, out)), { recursive: true })
   writeFileSync(out, JSON.stringify(plan, null, 2))
@@ -394,4 +438,4 @@ if (require.main === module) (async () => {
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT,
     `matrix=${JSON.stringify({ include: plan.shards.map(shard => ({ shard: shard.id })) })}\nhas-tests=${plan.shards.length > 0}\n`)
 })().catch(error => { console.error(error); process.exitCode = 1 })
-module.exports = { snapshot, createPlan, shardFiles, planShards, validateManifest, selectFiles, selectionSummary, changes, options, discover, discoverNode, dependencyConsumers, docsOnly, selectedNames }
+module.exports = { writeBlockedDiagnostics, snapshot, createPlan, shardFiles, planShards, validateManifest, selectFiles, selectionSummary, changes, options, discover, discoverNode, dependencyConsumers, docsOnly, selectedNames }

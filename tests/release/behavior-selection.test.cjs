@@ -366,3 +366,33 @@ export function loop(inventory: Inventory | null = null) { for (inventory of [ne
   assert.equal(mixed.path.find(step => step.behavior === 'make').parameters[0].value, 'present')
   assert.ok(mixed.path.some(step => step.optionalGuard?.some(guard => guard.value === 'present')))
 })
+
+
+test('source-byte readers remain input owners alongside executed declarations', () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const sourceFile = 'src/value.cjs', file = 'tests/bytes.test.cjs'
+  const before = 'exports.value = () => 1', after = 'exports.value = () => 2'
+  const testSource = [
+    "const { readFileSync } = require('node:fs'); const { value } = require('../src/value.cjs')",
+    "test('executes', () => value())",
+    "test('source bytes', () => readFileSync('src/value.cjs', 'utf8'))",
+    "test('unrelated bytes', () => readFileSync('src/other.cjs', 'utf8'))",
+  ].join('\n')
+  const sources = new Map([[sourceFile, after], ['src/other.cjs', 'exports.other = 0'], [file, testSource]])
+  const previousSources = new Map(sources); previousSources.set(sourceFile, before)
+  const inventory = [{ file, names: ['executes', 'source bytes', 'unrelated bytes'], locations: [2,3,4].map(line => ({ line, column: 1 })) }]
+  const files = new Set(sources.keys())
+  const consumers = dependencyConsumers(inventory, sources, path => files.has(path), { files })
+  const previousConsumers = dependencyConsumers(inventory, previousSources, path => files.has(path), { files })
+  const plan = selectBehaviors(inventory, [{ status: 'M', file: sourceFile }], consumers, {
+    sources, previousSources, previousConsumers, ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  })
+  assert.deepEqual(plan.selectedCases[file], [0, 1])
+  assert.ok(plan.details[file][0].caseEvidence.some(evidence => evidence.index === 1 && evidence.path.some(step => step.behavior === '<input:src/value.cjs>')))
+  const commentSources = new Map(previousSources); commentSources.set(sourceFile, `${before} // bytes changed`)
+  const bytesOnly = selectFiles(inventory, [{ status: 'M', file: sourceFile }], previousConsumers, {
+    sources: commentSources, previousSources, previousConsumers, ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  })
+  assert.deepEqual(bytesOnly.selectedCases[file], [1])
+  assert.deepEqual(bytesOnly.typeOnlyFiles, [])
+})

@@ -528,7 +528,10 @@ test('Git transport binds lineage, rename records and diff ranges to the same im
   }
 })
 
-test('planner collects both runners against fixed Git trees before issuing a documentation-only manifest', async t => {
+for (const { name, collectionFailure } of [
+  { name: 'planner collects both runners against fixed Git trees before issuing a documentation-only manifest', collectionFailure: false },
+  { name: 'planner preserves verified snapshot context and closes the collector when discovery fails', collectionFailure: true },
+]) test(name, async t => {
   const childProcess = require('node:child_process'), fs = require('node:fs')
   const { registerHooks } = require('node:module')
   const { resolve } = require('node:path')
@@ -612,6 +615,7 @@ test('planner collects both runners against fixed Git trees before issuing a doc
         getRelevantTestSpecifications: async () => [],
         collectTests: async specs => {
           assert.deepEqual(specs, [spec])
+          if (collectionFailure) return { unhandledErrors: [new Error('collector evidence unavailable')], testModules: [] }
           return { unhandledErrors: [], testModules: [{ moduleId, errors: () => [], children: {
             allSuites: () => [], allTests: () => [{ name: 'web leaf', fullName: 'web leaf', parent: { type: 'module' },
               location: { line: 1, column: 1 }, result: () => ({ state: 'pending' }) }],
@@ -629,6 +633,17 @@ test('planner collects both runners against fixed Git trees before issuing a doc
     for (const [path] of savedModules) delete require.cache[path]
     const { createPlan, snapshot } = require('../tooling/ci-plan.cjs')
     assert.throws(() => snapshot(), /Missing immutable snapshot ref/)
+    if (collectionFailure) {
+    await assert.rejects(createPlan({ mode: 'related', event: 'push', base: before, head: after, repositoryRoot: root }), error => {
+      assert.match(error.message, /collector evidence unavailable/)
+      assert.equal(error.planningContext.stage, 'discovery')
+      assert.equal(error.planningContext.checkoutSha, after)
+      assert.equal(error.planningContext.comparison.beforeSha, before)
+      assert.equal(error.planningContext.comparison.afterSha, after)
+      assert.equal(error.planningContext.analyzer.checkoutSha, analyzer)
+      return true
+    })
+    } else {
     const plan = await createPlan({ mode: 'related', event: 'push', base: before, head: after, repositoryRoot: root })
     assert.equal(plan.docsOnly, true)
     assert.deepEqual(plan.changedFiles, ['README.md'])
@@ -650,6 +665,9 @@ test('planner collects both runners against fixed Git trees before issuing a doc
     assert.deepEqual(factoryCalls[0][1].related, [resolve(root, 'README.md')])
     assert.equal(closed, 1)
     assert.equal(process.env.LOGIC_TEST_FILES, 'development-filter-must-not-affect-discovery')
+    }
+    assert.equal(closed, 1)
+    assert.equal(process.env.LOGIC_TEST_FILES, 'development-filter-must-not-affect-discovery')
   } finally {
     hooks?.deregister()
     transport.mock.restore()
@@ -660,5 +678,59 @@ test('planner collects both runners against fixed Git trees before issuing a doc
     else delete globalThis[key]
     if (existingFilter === undefined) delete process.env.LOGIC_TEST_FILES
     else process.env.LOGIC_TEST_FILES = existingFilter
+  }
+})
+
+test('blocked diagnostics preserve failure evidence separately and cannot execute or relax workflow gates', () => {
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = require('node:fs')
+  const { tmpdir } = require('node:os')
+  const { join, resolve } = require('node:path')
+  const { writeBlockedDiagnostics } = require('../tooling/ci-plan.cjs')
+  const { executeShard } = require('../tooling/ci-run.cjs')
+  const directory = mkdtempSync(join(tmpdir(), 'blocked-plan-'))
+  try {
+    const manifest = join(directory, 'plan.json')
+    writeFileSync(manifest, 'existing manifest must remain untouched')
+    const error = Object.assign(new Error('missing receiver provenance'), {
+      planningContext: { checkoutSha: 'tested', comparison: { beforeSha: 'target', afterSha: 'tested' }, analyzer: { sourceDigest: 'analyzer' }, stage: 'selection' },
+      diagnostics: { changed: 'src/owner.cjs', test: 'tests/owner.test.cjs', caseIndex: 0,
+        path: [{ file: 'tests/owner.test.cjs', behavior: 'contract', line: 3, root: true }],
+        unresolved: { expression: 'receiver[key]()', missingEvidence: 'receiver provenance', line: 4, column: 2 } },
+    })
+    const args = { mode: 'related', event: 'pull_request', base: 'event-base', head: 'requested-head', out: manifest }
+    const argv = ['--mode', 'related', '--base', 'event-base']
+    const written = writeBlockedDiagnostics(error, { args, argv })
+    assert.equal(written.file, join(directory, 'plan.blocked.json'))
+    const diagnostic = JSON.parse(readFileSync(written.file, 'utf8'))
+    assert.equal(readFileSync(manifest, 'utf8'), 'existing manifest must remain untouched')
+    assert.equal(diagnostic.schema, 'logic-plan-blocked/v1')
+    assert.equal(diagnostic.executable, false)
+    assert.equal(diagnostic.result, 'blocked')
+    assert.deepEqual(diagnostic.requested, { args, argv })
+    assert.deepEqual(diagnostic.context, error.planningContext)
+    assert.deepEqual(diagnostic.diagnostics, error.diagnostics)
+    assert.match(diagnostic.error.stack, /missing receiver provenance/)
+    assert.deepEqual(diagnostic.unavailable, {})
+    assert.throws(() => validateManifest(diagnostic), /not an executable test manifest/)
+    assert.throws(() => aggregate(diagnostic, []), /not an executable test manifest/)
+    assert.throws(() => executeShard(diagnostic, 'logic-related', join(directory, 'report.json')), /not an executable test manifest/)
+    const early = writeBlockedDiagnostics(new Error('Git history unavailable'), { args: { out: join(directory, 'early.json') } }).diagnostic
+    assert.equal(early.context, null)
+    assert.match(early.unavailable.checkoutSha, /before the actual checkout SHA was established/)
+    assert.equal(early.diagnostics.missingEvidence, 'Git history unavailable')
+
+    const workflow = require('js-yaml').load(readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8'))
+    const upload = workflow.jobs.plan.steps.find(step => step.with?.name === 'logic-plan-blocked')
+    assert.equal(upload.if, 'always()')
+    assert.equal(upload.with.path, 'output/test-plan.blocked.json')
+    assert.equal(upload.with['if-no-files-found'], 'ignore')
+    const executableUpload = workflow.jobs.plan.steps.find(step => step.with?.name === 'logic-plan')
+    assert.equal(executableUpload.if, undefined)
+    assert.equal(executableUpload.with.path, 'output/test-plan.json')
+    assert.equal(executableUpload.with['if-no-files-found'], 'error')
+    assert.equal(workflow.jobs.shard.needs, 'plan')
+    assert.match(workflow.jobs.aggregate.steps[0].run, /test "\$PLAN_RESULT" = success/)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
   }
 })

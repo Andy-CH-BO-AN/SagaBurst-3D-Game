@@ -719,6 +719,8 @@ function behaviorGraph(sources, importGraph, compilerOptions = {}, repositoryRoo
     // An independently changed opaque initialization effect cannot be hidden
     // by a different covered callable/value in the same patch.
     if (moduleEffect) ids.add(files.get(file).top)
+    // Source files may also be consumed as bytes, independently of executed declarations.
+    for (const id of inputs.get(file) ?? []) ids.add(id)
     return ids
   }
   const explanations = new WeakMap()
