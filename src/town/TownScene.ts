@@ -1812,7 +1812,7 @@ export class TownScene {
       details.textContent = template.kind === 'cavalry-sweep'
         ? `${template.briefing}\n2 支小隊 · 含玩家 60 人 · 玩家無指揮權`
         : template.kind === 'enemy-town-assault'
-        ? `${template.briefing}\n敵方 ${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')} · 軍事守軍 ${townAssaultObjectiveRoster(townRoster()).length} · 平民 ${TOWN_RULES.civilians} · 玩家無指揮權`
+        ? `${template.briefing}\n敵方 ${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')} · 全體參戰守軍 ${townAssaultObjectiveRoster(townRoster()).length} · 平民 ${TOWN_RULES.civilians} · 玩家無指揮權`
         : template.kind === 'town-defense'
         ? `${template.briefing}\n所屬 ${townName(this.profile.faction)}\n玩家 1 · AI 守軍 ${defenseForce.friendlySoldiers} · 友軍總數 ${defenseForce.friendlyCombatants}\n敵軍 ${template.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
         : template.kind === 'patrol'
@@ -2594,6 +2594,10 @@ export class TownScene {
   }
   private openMissionResult(result: CareerMissionResult, _reloaded: boolean): void {
     this.missionResultOpen = true
+    if (this.profile.activeMission?.kind === 'enemy-town-assault' && result.outcome === 'victory') {
+      if (this.defense instanceof TownDefenseController) this.defense.ceaseAssaultAirSupport()
+      this.clearMissionCombatShots()
+    }
     const complete = result.outcome === 'victory'
     const merit = result.merit
     const defenseText = result.defense ? `\n\nCivilians\nSurvived ${result.defense.civilianSurvived}\nDeaths ${result.defense.civilianDeaths}` : ''
@@ -3832,7 +3836,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'cavalry-sweep'
         ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.templateId === CAPTAIN_CAVALRY_COMMAND_ID ? '率領騎兵前往 Bandits 所在位置 · 接近後下令衝鋒' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain 出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
         : this.profile.activeMission.kind === 'enemy-town-assault'
-        ? `\nENEMY TOWN ASSAULT · ${this.defense.phase === 'PREPARING' ? '開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : '敵方軍事守軍 ' + this.defense.military.filter(npc => !npc.dead).length + '/' + this.defense.military.length}`
+        ? `\nENEMY TOWN ASSAULT${this.defense.phase === 'PREPARING' ? ' · 開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : ''}\n剩餘地面守軍：${this.defense instanceof TownDefenseController ? this.defense.remainingAssaultGroundDefenders : '—'}`
         : this.profile.activeMission.kind === 'commander-sky-raid'
         ? `\nSKY RAID\nEnemy Town Kills: ${this.profile.activeMission.deadTargetActorIds?.length ?? 0} / 100\nFriendly Rangers: ${this.defense.defenders.filter(npc => !npc.dead).length} / 50 · Friendly Eagles: ${this.defense.enemyMounts.filter(mount => !mount.dead).length} / 50`
         : this.profile.activeMission.kind === 'commander-decapitation'

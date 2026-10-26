@@ -42,6 +42,15 @@ export function townMissionMilitaryIds(roster: readonly TownActorSpec[], savedId
     && (!allowed || allowed.has(spec.id))).map(spec => spec.id))
 }
 
+/** Assault keeps its accepted combat roster, but native Eagle support never gates victory.
+ * Use authored pair identity so dismount, mount death and duty changes cannot reclassify a rider.
+ * Unknown identities remain required; the runtime registration guard must resolve them first.
+ */
+export function townAssaultRequiredActorIds(roster: readonly Pick<TownActorSpec, 'id' | 'eagle'>[], acceptedIds: readonly string[]): Set<string> {
+  const airSupport = new Set(roster.filter(spec => spec.eagle).map(spec => spec.id))
+  return new Set(acceptedIds.filter(id => !airSupport.has(id)))
+}
+
 /** Distinct finite circuits, well inside the map's turning envelope. Flight AI owns avoidance. */
 export const TOWN_EAGLE_PATROL_SECONDS = 180
 export const TOWN_EAGLE_REST_SECONDS = 12
