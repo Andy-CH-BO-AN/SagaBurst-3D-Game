@@ -73,7 +73,11 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     const loading = document.createElement('div'); loading.id = 'career-town-loading'; loading.textContent = profile.activeMission?.siege ? '正在部署攻守部隊與四門城防…' : '正在載入陣營小鎮、駐軍與居民…'; loading.style.cssText = 'position:fixed;inset:0;z-index:999;background:#191b1c;color:#eee;display:grid;place-items:center'; document.body.append(loading)
     const transition = (value: CareerProfile, proceed: (next: CareerProfile) => void, deathReturn = false): void => {
       const next = refitTownCommandForSceneChange(value)
-      if (deathReturn) delete next.playerAerialState
+      if (deathReturn) {
+        // Old race snapshots can also contain a later battle death; respawn owns recovery.
+        delete next.playerAerialState
+        delete next.racePlayerState
+      }
       if (store.save(next)) { proceed(next); return }
       loading.textContent = '無法保存城防整補，尚未轉場。'
       document.body.append(loading)
