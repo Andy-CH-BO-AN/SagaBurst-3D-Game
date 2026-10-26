@@ -46,7 +46,7 @@ export const CAPTAIN_MISSION_CATALOG: readonly CaptainMissionDefinition[] = [
   entry(CAPTAIN_CAVALRY_COMMAND_ID, 'cavalry-sweep', 'Captain II · Cavalry Command · 騎兵清剿', '60 騎兵（含玩家）對抗 40 Bandits；指揮第一支 29 人騎兵隊。', 60, 40),
   entry(CAPTAIN_GATE_DEFENSE_ID, 'town-defense', 'Captain III · Gate Defense · 城門防衛', '指揮北門全部既有步兵；定位後聽從玩家命令，其餘守軍守住各自城門。', townDefenseForceCounts().friendlyCombatants, 120),
   entry(CAPTAIN_FRONTLINE_COMMAND_ID, 'captain-outpost-defense', 'Captain IV · Frontline Commander · 前線指揮官', 'Campaign Stage IX 防線；90 名既有守軍加玩家，200 名 T3 與 2 名 T4 敵軍；120 秒後 50 名援軍。', 91, 202),
-  entry(CAPTAIN_SIEGE_COMMAND_ID, 'enemy-town-assault', 'Captain V · Siege Commander · 攻城隊長', '120 人四門進攻（含玩家）；指揮北門 29 人，其餘三門由 AI 指揮。', 120, 0),
+  entry(CAPTAIN_SIEGE_COMMAND_ID, 'enemy-town-assault', 'Captain V · Siege Commander · 攻城隊長', '120 人四門進攻（含玩家）；指揮北門 29 人，其餘三門由 AI 指揮。擊潰全部地面守軍，迫使殘存空軍撤離。', 120, 0),
   entry(CAPTAIN_EAGLE_BATTLE_ID, 'captain-eagle-battle', 'Captain VI · Eagle Battle · 巨鷹空戰', '30 對 30 巨鷹空戰（含玩家）；全部已招募私兵額外參戰。', 30, 30),
 ]
 export function getCaptainMissionDefinition(id: string): CaptainMissionDefinition | null {

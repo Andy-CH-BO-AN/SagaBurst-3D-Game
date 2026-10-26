@@ -29,7 +29,10 @@ interface MissionProfiles {
 interface MissionControllers {
   field: Pick<BanditMissionController, 'snapshot' | 'cleanupMission' | 'friendlies'>
   duel: Pick<CareerDuelController, 'snapshot' | 'cleanupMission' | 'actors'>
-  defense: Pick<TownDefenseController, 'active' | 'snapshot' | 'cleanupMission' | 'civilianSurvived' | 'civilianDeaths'> & { snapshotActiveMission?(): ActiveCareerMission | undefined }
+  defense: Pick<TownDefenseController, 'active' | 'snapshot' | 'cleanupMission' | 'civilianSurvived' | 'civilianDeaths'> & {
+    snapshotActiveMission?(): ActiveCareerMission | undefined
+    ceaseAssaultAirSupport?(): void
+  }
   patrol?: Pick<CaptainPatrolCommandController, 'statsSnapshot' | 'release' | 'actors'>
 }
 
@@ -108,6 +111,10 @@ export class TownMissionSettlement {
       }
     }
     if (!this.profiles.commit(claim.profile)) return { status: 'save-failed' }
+    if (active.kind === 'enemy-town-assault' && this.profiles.read().activeMission?.result?.outcome === 'victory') {
+      this.missions.defense.ceaseAssaultAirSupport?.()
+      this.town.clearCombatShots()
+    }
     return { status: 'saved', result: this.profiles.read().activeMission!.result! }
   }
 
