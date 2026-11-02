@@ -5,12 +5,20 @@ const { posix } = require('node:path')
 // Unknown terms survive as wildcards and diagnostics, never as proven edges.
 const UNKNOWN = '\u0000'
 const URL_VALUE = Symbol('resolved import-relative URL')
+const REGEX_VALUE = Symbol('finite regular expression')
+const VALUE_PROOF = Symbol('finite value operations')
+const copyEnvironment = env => { const result = new Map(env); result[VALUE_PROOF] = new Map(env[VALUE_PROOF] ?? []); return result }
 const choices = value => value && typeof value === 'object' && value.alternatives ? value.alternatives : [value]
 const union = values => { const all = [...new Set(values.flatMap(choices))]; return all.length === 1 ? all[0] : { alternatives: all } }
 const combine = (left, right, operation) => union(choices(left).flatMap(a => choices(right).map(b => operation(a, b))))
 const stringValue = value => ['string', 'number'].includes(typeof value) ? String(value) : UNKNOWN
 function inputDependencies(sources, exists, files = [...sources.keys()], texts = sources) {
   const units = new Map(), edges = [], risks = [], patterns = [], pathnamePatterns = new Map()
+  const yamlValues = new Map()
+  let valueProof = null
+  const proofOperation = (file, node, provider) => {
+    if (valueProof && provider) valueProof.set(file + ':' + node.getStart(), { readerFile: file, readerStart: node.getStart(), provider })
+  }
   const escapePattern = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   const unknownPath = value => value.includes(UNKNOWN) || /\x01\d+\x02/.test(value)
   const pathPattern = value => {
@@ -178,7 +186,7 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
   function effects(unit, declaration) {
     if (!declaration) return { written: false, escaped: false, escapedMembers: new Set() }
     if (bindingEffects.has(declaration)) return bindingEffects.get(declaration)
-    const result = { written: false, escaped: false, escapedMembers: new Set() }
+    const result = { written: false, escaped: false, escapedMembers: new Set(), escapedPaths: [] }
     const harmlessObjectCall = call => ts.isPropertyAccessExpression(call.expression) && ts.isIdentifier(call.expression.expression) && call.expression.expression.text === 'Object' && !binding(unit, 'Object', call) && !importOrigin(unit, call.expression.expression, call) && ['keys', 'values', 'entries'].includes(call.expression.name.text)
     function inspect(node) {
       if (ts.isIdentifier(node) && node !== declaration.name && binding(unit, node.text, node) === declaration) {
@@ -189,7 +197,18 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
           const access = node.parent
           const firstMember = ts.isPropertyAccessExpression(access) && access.expression === node ? access.name.text : ts.isElementAccessExpression(access) && access.expression === node && ts.isStringLiteralLike(access.argumentExpression) ? access.argumentExpression.text : null
           const receiverMethod = ts.isCallExpression(parent) && parent.expression === value && value === access
-          if (firstMember && !receiverMethod) result.escapedMembers.add(firstMember)
+          if (firstMember && !receiverMethod) {
+            result.escapedMembers.add(firstMember)
+            const path = []; let current = node
+            while (current !== value) {
+              const parent = current.parent
+              if (ts.isPropertyAccessExpression(parent) && parent.expression === current) path.push(parent.name.text)
+              else if (ts.isElementAccessExpression(parent) && parent.expression === current && (ts.isStringLiteralLike(parent.argumentExpression) || ts.isNumericLiteral(parent.argumentExpression))) path.push(parent.argumentExpression.text)
+              else { result.escaped = true; break }
+              current = parent
+            }
+            result.escapedPaths.push(path)
+          }
           else result.escaped = true
         }
         let initial = declaration.initializer
@@ -207,8 +226,8 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
             let initializer = declaration.initializer
             while (initializer && (ts.isAwaitExpression(initializer) || ts.isParenthesizedExpression(initializer))) initializer = initializer.expression
             const responseJson = method === 'json' && initializer && ts.isCallExpression(initializer) && ts.isIdentifier(initializer.expression) && initializer.expression.text === 'fetch'
-            if (!responseJson && !['map', 'forEach', 'includes', 'indexOf', 'slice', 'join'].includes(method)) escape()
-            if (['map', 'forEach'].includes(method)) {
+            if (!responseJson && !['map', 'forEach', 'filter', 'flatMap', 'find', 'includes', 'indexOf', 'slice', 'join'].includes(method)) escape()
+            if (['map', 'forEach', 'filter', 'flatMap', 'find'].includes(method)) {
               const callback = parent.arguments[0]
               if (!callback || !ts.isFunctionLike(callback) || callback.parameters[2] && (referenceIndex(unit).get(callback.parameters[2]) ?? []).length) escape()
             }
@@ -280,13 +299,20 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     const ev = value => evaluate(value, file, env, next)
     if (ts.isStringLiteralLike(node)) return node.text
     if (ts.isNumericLiteral(node)) return Number(node.text)
+    if (node.kind === ts.SyntaxKind.TrueKeyword) return true
+    if (node.kind === ts.SyntaxKind.FalseKeyword) return false
+    if (node.kind === ts.SyntaxKind.NullKeyword) return null
+    if (node.kind === ts.SyntaxKind.RegularExpressionLiteral) {
+      const match = /^\/(.*)\/([a-z]*)$/s.exec(node.getText(unit.ast))
+      return match ? { [REGEX_VALUE]: true, source: match[1], flags: match[2] } : UNKNOWN
+    }
     if (ts.isArrayLiteralExpression(node)) return node.elements.flatMap(item => ts.isSpreadElement(item) ? ev(item.expression) : [ev(item)])
     if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'Set' && !binding(unit, 'Set', node) && !importOrigin(unit, node.expression, node)) { const values = ev(node.arguments?.[0]); return Array.isArray(values) ? [...new Set(values)] : UNKNOWN }
     if (ts.isObjectLiteralExpression(node)) return node.properties.every(prop => ts.isPropertyAssignment(prop) && !ts.isComputedPropertyName(prop.name)) ? Object.fromEntries(node.properties.map(prop => [prop.name.text, ev(prop.initializer)])) : UNKNOWN
     if (ts.isConditionalExpression(node)) return union([ev(node.whenTrue), ev(node.whenFalse)])
     if (ts.isElementAccessExpression(node)) {
       const object = ev(node.expression), key = ev(node.argumentExpression)
-      if (object && typeof object === 'object' && !object.alternatives && !Array.isArray(object)) return key === UNKNOWN ? union(Object.values(object)) : union(choices(key).map(item => object[item] ?? UNKNOWN))
+      if (object && typeof object === 'object' && !object.alternatives) return key === UNKNOWN ? union(Object.values(object)) : union(choices(key).map(item => Object.hasOwn(object, item) ? object[item] : item in object ? UNKNOWN : undefined))
     }
     if (ts.isNewExpression(node) && node.expression.getText(unit.ast) === 'URL' && node.arguments?.length === 2 && node.arguments[1].getText(unit.ast) === 'import.meta.url' && provenReader(unit, node)) {
       return { [URL_VALUE]: true, href: union(choices(ev(node.arguments[0])).map(value => posix.normalize(posix.join(posix.dirname(file), stringValue(value))))) }
@@ -296,19 +322,88 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
       if (node.text === '__dirname') return posix.dirname(file)
       const decl = binding(unit, node.text, node), effect = effects(unit, decl)
       if (effect.written) return UNKNOWN
+      if (valueProof && env.has(node.text)) for (const proof of env[VALUE_PROOF]?.get(node.text) ?? []) valueProof.set(proof.readerFile + ':' + proof.readerStart, proof)
       const value = env.has(node.text) ? env.get(node.text) : decl?.initializer ? ev(decl.initializer) : directoryEntryPattern(decl, file, env, next)
-      return choices(value).some(item => item && typeof item === 'object' && (effect.escaped || [...effect.escapedMembers].some(member => item[member] === UNKNOWN || !['string', 'number', 'boolean'].includes(typeof item[member])))) ? UNKNOWN : value
+      return choices(value).some(item => item && typeof item === 'object' && (effect.escaped || effect.escapedPaths?.some(path => {
+        const observed = path.reduce((current, key) => ['string', 'number', 'boolean'].includes(typeof current) ? current : current && typeof current === 'object' ? current[key] : UNKNOWN, item)
+        return observed === UNKNOWN || !['string', 'number', 'boolean'].includes(typeof observed)
+      }))) ? UNKNOWN : value
     }
     if (ts.isTemplateExpression(node)) return node.templateSpans.reduce((prefix, span) => combine(prefix, ev(span.expression), (a, b) => stringValue(a) + stringValue(b) + span.literal.text), node.head.text)
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) return combine(ev(node.left), ev(node.right), (a, b) => ['string', 'number'].includes(typeof a) && ['string', 'number'].includes(typeof b) ? a + b : UNKNOWN)
+    if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(node.operatorToken.kind)) {
+      const left = ev(node.left), right = ev(node.right)
+      return left === UNKNOWN || right === UNKNOWN ? UNKNOWN : node.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken ? left === right : left !== right
+    }
     if (ts.isPropertyAccessExpression(node)) {
       if (node.getText(unit.ast) === 'import.meta.env.BASE_URL') return '/'
       const evaluatedOwner = ev(node.expression)
-      if (evaluatedOwner && typeof evaluatedOwner === 'object') return evaluatedOwner[node.name.text] ?? UNKNOWN
+      if (evaluatedOwner && typeof evaluatedOwner === 'object') return Object.hasOwn(evaluatedOwner, node.name.text) ? evaluatedOwner[node.name.text] : node.name.text in evaluatedOwner ? UNKNOWN : undefined
 
     }
     if (ts.isCallExpression(node)) {
       const name = ts.isIdentifier(node.expression) ? node.expression.text : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : ''
+      const owner = ts.isPropertyAccessExpression(node.expression) ? node.expression.expression : null
+      let observedOwner, ownerObserved = false
+      const ownerValue = () => { if (!ownerObserved) { observedOwner = owner ? ev(owner) : UNKNOWN; ownerObserved = true }; return observedOwner }
+      const provider = owner ? importOrigin(unit, owner, node) : importOrigin(unit, node.expression, node)
+      const global = identifier => ts.isIdentifier(identifier) && !binding(unit, identifier.text, node) && !importOrigin(unit, identifier, node)
+      if (['readFile', 'readFileSync'].includes(name) && provenReader(unit, node)) {
+        const input = ev(node.arguments[0]), encoding = ev(node.arguments[1])
+        if (typeof input === 'string' && !unknownPath(input) && typeof encoding === 'string' && encoding !== UNKNOWN) {
+          const path = posix.normalize(input).replace(/^\.\//, '')
+          if (texts.has(path)) { proofOperation(file, node, provenReader(unit, node)); return texts.get(path) }
+        }
+      }
+      if (provider?.module === 'js-yaml' && provider.imported === '*' && name === 'load' && node.arguments.length === 1) {
+        const text = ev(node.arguments[0])
+        if (typeof text === 'string' && !unknownPath(text)) {
+          try { if (!yamlValues.has(text)) yamlValues.set(text, require('js-yaml').load(text)); proofOperation(file, node, { module: provider.module, export: name }); return yamlValues.get(text) } catch {}
+        }
+        return UNKNOWN
+      }
+      if (owner && global(owner) && owner.text === 'JSON' && name === 'stringify') {
+        const value = ev(node.arguments[0])
+        if (node.arguments.length === 1) { proofOperation(file, node, { global: 'JSON', export: name }); return JSON.stringify(value) ?? UNKNOWN }
+      }
+      if (owner && ['trim', 'slice', 'substring', 'repeat', 'split', 'replace', 'replaceAll'].includes(name) && typeof ownerValue() === 'string') {
+        const value = ownerValue(), args = node.arguments.map(ev)
+        if (value === UNKNOWN || args.some(arg => arg === UNKNOWN)) return UNKNOWN
+        if (['trim', 'slice', 'substring', 'repeat', 'split', 'replace', 'replaceAll'].includes(name)) {
+          const allowed = args.every(arg => ['string', 'number'].includes(typeof arg) || arg?.[REGEX_VALUE])
+          if (allowed && !(name === 'repeat' && (!Number.isInteger(args[0]) || args[0] < 0 || args[0] * value.length > 1024 * 1024))) {
+            try { return value[name](...args.map(arg => arg?.[REGEX_VALUE] ? new RegExp(arg.source, arg.flags) : arg)) } catch {}
+          }
+        }
+      }
+      if (owner && Array.isArray(ownerValue())) {
+        const values = ownerValue(), args = node.arguments.map(ev)
+        if (name === 'join' && values.every(value => ['string', 'number'].includes(typeof value)) && args.every(value => ['string', 'number'].includes(typeof value))) return values.join(...args)
+        const callback = node.arguments[0]
+        if (['map', 'flatMap', 'find', 'filter'].includes(name) && callback && ts.isFunctionLike(callback)) {
+          const apply = (value, index) => {
+            const local = copyEnvironment(env)
+            callback.parameters.forEach((parameter, i) => {
+              const argument = [value, index, values][i]
+              if (ts.isIdentifier(parameter.name)) local.set(parameter.name.text, argument)
+              else if (ts.isArrayBindingPattern(parameter.name) && Array.isArray(argument)) parameter.name.elements.forEach((binding, j) => {
+                if (ts.isBindingElement(binding) && ts.isIdentifier(binding.name) && !binding.dotDotDotToken && !binding.initializer) local.set(binding.name.text, argument[j])
+              })
+            })
+            const expression = ts.isBlock(callback.body) ? ts.isReturnStatement(callback.body.statements.at(-1)) && callback.body.statements.at(-1).expression : callback.body
+            return expression ? evaluate(expression, file, local, next) : UNKNOWN
+          }
+          const results = values.map(apply)
+          if (name === 'map') return results
+          if (name === 'flatMap') return results.flat()
+          if (name === 'find') {
+            const index = results.findIndex(value => value === true)
+            if (results.some((value, i) => value === UNKNOWN && (index < 0 || i < index))) return UNKNOWN
+            return index < 0 ? UNKNOWN : values[index]
+          }
+          return results.some(value => value === UNKNOWN) ? UNKNOWN : values.filter((_, i) => results[i])
+        }
+      }
       if (['values', 'entries', 'keys'].includes(name) && ts.isPropertyAccessExpression(node.expression) && node.expression.expression.getText(unit.ast) === 'Object' && !binding(unit, 'Object', node) && !importOrigin(unit, node.expression.expression, node)) {
         const object = ev(node.arguments[0]); return object && typeof object === 'object' ? Object[name](object) : UNKNOWN
       }
@@ -336,7 +431,7 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
         const fn = decl?.initializer ?? decl
         if (decl && effects(units.get(targetFile), decl).written) return UNKNOWN
         if (fn && ts.isFunctionLike(fn)) {
-          const local = new Map(env)
+          const local = copyEnvironment(env)
           fn.parameters.forEach((p, i) => { if (ts.isIdentifier(p.name)) local.set(p.name.text, ev(node.arguments[i])) })
           if (ts.isBlock(fn.body)) {
             const returned = []
@@ -354,7 +449,7 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     }
     return UNKNOWN
   }
-  function record(file, node, operand, kind, env, origin, execution = null) {
+  function record(file, node, operand, kind, env, origin, execution = null, deferred = false) {
     const unit = units.get(file), evaluated = execution?.unresolved ? UNKNOWN : evaluate(operand, file, env)
     for (const alternative of choices(evaluated).flatMap(value => kind === 'read' && value?.[URL_VALUE] ? choices(value.href) : [value])) {
     const raw = typeof alternative === 'string' ? alternative : UNKNOWN
@@ -369,6 +464,7 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     const evidenceAst = evidenceNode.getSourceFile()
     const position = evidenceAst.getLineAndCharacterOfPosition(evidenceNode.getStart(evidenceAst))
     const proof = { from: evidenceAst.fileName, readerFile: file, readerStart: node.getStart(unit.ast), readerEnd: node.end, kind, line: position.line + 1, column: position.character + 1, start: evidenceNode.getStart(evidenceAst), end: evidenceNode.end, expression: evidenceNode.getText(evidenceAst), inputExpression: node.getText(unit.ast), contract: 'runtime-input' }
+    if (deferred) proof.deferredCallable = true
     if (execution?.executionKind) proof.executionKind = execution.executionKind
     if (execution?.pathOrigin) proof.pathOrigin = execution.pathOrigin
     const provider = kind === 'execute' ? execution?.provider : ['read', 'fetch', 'load', 'url'].includes(kind) ? provenReader(unit, node) : null
@@ -417,7 +513,7 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     function visit(node) {
       if (ts.isCallExpression(node)) {
         const name = ts.isIdentifier(node.expression) ? node.expression.text : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : ''
-        if (['fetch', 'readFile', 'readFileSync', 'loadAsync'].includes(name) || ['readFile', 'readFileSync'].includes(provenReader(units.get(fn.getSourceFile().fileName), node)?.export)) found = true
+        if (['fetch', 'readFile', 'readFileSync', 'loadAsync', ...processApis].includes(name) || ['readFile', 'readFileSync'].includes(provenReader(units.get(fn.getSourceFile().fileName), node)?.export)) found = true
       }
       if (!found) ts.forEachChild(node, visit)
     }
@@ -534,8 +630,19 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
     }
     return root.mayEmit
   }
-  function inspect(node, file, env = new Map(), active = new Set(), origin) {
+  function inspect(node, file, env = new Map(), active = new Set(), origin, deferred = false) {
       const unit = units.get(file)
+      // A nested closure is a value, not an invocation of the current wrapper.
+      // Its own reader nodes remain available for the behavior graph to enter
+      // when that exact callable is actually invoked.
+      if (ts.isFunctionLike(node) && !active.has(node)) {
+        const call = node.parent, callee = ts.isCallExpression(call) ? call.expression : null
+        const name = callee && ts.isIdentifier(callee) ? callee.text : null
+        const registrar = name && importOrigin(unit, callee, call)
+        const collectedRoot = name && /^(?:test|it|describe|suite|before|after|beforeEach|afterEach|beforeAll|afterAll)$/.test(name)
+          && (registrar && ['node:test', 'vitest'].includes(registrar.module) || !registrar && !binding(unit, name, call))
+        deferred = !collectedRoot
+      }
       // A closed local wrapper is analyzed at every invocation with its actual
       // arguments; its unbound declaration is not a runtime invocation. Escaped
       // or exported wrappers retain the unknown boundary.
@@ -543,16 +650,16 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
       const handled = new Set()
       if (ts.isCallExpression(node)) {
         const name = ts.isIdentifier(node.expression) ? node.expression.text : ts.isPropertyAccessExpression(node.expression) ? node.expression.name.text : ''
-        if ((name === 'require' || node.expression.kind === ts.SyntaxKind.ImportKeyword) && node.arguments.length === 1 && !ts.isStringLiteralLike(node.arguments[0])) record(file, node, node.arguments[0], 'import', env, origin)
+        if ((name === 'require' || node.expression.kind === ts.SyntaxKind.ImportKeyword) && node.arguments.length === 1 && !ts.isStringLiteralLike(node.arguments[0])) record(file, node, node.arguments[0], 'import', env, origin, null, deferred)
         if (['map', 'forEach'].includes(name) && ts.isPropertyAccessExpression(node.expression)) {
           const values = evaluate(node.expression.expression, file, env), fn = node.arguments[0]
           if (Array.isArray(values) && fn && ts.isFunctionLike(fn) && fn.body) {
             handled.add(fn)
             for (const value of values) {
-              const local = new Map(env), parameter = fn.parameters[0]?.name
+              const local = copyEnvironment(env), parameter = fn.parameters[0]?.name
               if (parameter && ts.isIdentifier(parameter)) local.set(parameter.text, value)
               if (parameter && ts.isArrayBindingPattern(parameter) && Array.isArray(value)) parameter.elements.forEach((item, i) => { if (item.name && ts.isIdentifier(item.name)) local.set(item.name.text, value[i]) })
-              inspect(fn.body, file, local, active, origin)
+              inspect(fn.body, file, local, active, origin, deferred)
             }
           }
         }
@@ -565,6 +672,40 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
           const executable = evaluate(command, file, env)
           const nodeExecutable = executable === 'node' || command && ts.isPropertyAccessExpression(command) && command.name.text === 'execPath' && ts.isIdentifier(command.expression) && command.expression.text === 'process' && !binding(unit, 'process', command) && !importOrigin(unit, command.expression, command)
           const unresolvedExecutable = !nodeExecutable && (typeof executable !== 'string' || unknownPath(executable)) && (provider || command && ts.isPropertyAccessExpression(command) && command.name.text === 'execPath')
+          const shellArgs = node.arguments[1], shellOptions = node.arguments[2]
+          if (provider && ['bash', 'sh'].includes(executable) && ['spawn', 'spawnSync', 'execFile', 'execFileSync'].includes(method)
+            && shellArgs && ts.isArrayLiteralExpression(shellArgs) && shellArgs.elements.length === 2 && evaluate(shellArgs.elements[0], file, env) === '-c') {
+            const previousProof = valueProof; valueProof = new Map()
+            const script = evaluate(shellArgs.elements[1], file, env)
+            const options = shellOptions ? evaluate(shellOptions, file, env) : {}
+            const launchEnv = options?.env && typeof options.env === 'object' && !Array.isArray(options.env) ? { ...options.env } : null
+            const envProperty = shellOptions && ts.isObjectLiteralExpression(shellOptions) && shellOptions.properties.find(property => ts.isPropertyAssignment(property) && property.name.text === 'env')
+            if (launchEnv && envProperty && ts.isObjectLiteralExpression(envProperty.initializer)) for (const property of envProperty.initializer.properties) {
+              if (!ts.isPropertyAssignment(property)) continue
+              const value = property.initializer
+              if (ts.isPropertyAccessExpression(value) && ts.isPropertyAccessExpression(value.expression) && value.expression.name.text === 'env'
+                && ts.isIdentifier(value.expression.expression) && value.expression.expression.text === 'process' && !binding(unit, 'process', value)) {
+                launchEnv[property.name.text] = process.env[value.name.text] ?? ''
+                proofOperation(file, value, { global: 'process', export: 'env' })
+              }
+            }
+            const operations = [...valueProof.values()]; valueProof = previousProof
+            const launchKnown = launchEnv && (!options.cwd || typeof options.cwd === 'string' && !unknownPath(options.cwd)) && (options.shell === undefined || options.shell === false)
+            const summary = typeof script === 'string' && !unknownPath(script) && launchKnown
+              ? require('./shell-effects.cjs').shellEffects(script, { env: launchEnv, cwd: options.cwd ?? '.' })
+              : { complete: false, inputs: [], frontiers: [{ reason: 'Script bytes, cwd or explicit launch environment are unresolved' }], commands: [] }
+            const evidenceNode = origin ?? node, evidenceAst = evidenceNode.getSourceFile(), position = evidenceAst.getLineAndCharacterOfPosition(evidenceNode.getStart())
+            const proof = { from: evidenceAst.fileName, readerFile: file, readerStart: node.getStart(unit.ast), readerEnd: node.end,
+              kind: 'execute', line: position.line + 1, column: position.character + 1, start: evidenceNode.getStart(), end: evidenceNode.end,
+              expression: evidenceNode.getText(), inputExpression: node.getText(), provider, contract: 'finite-shell-effects' }
+            if (deferred) proof.deferredCallable = true
+            if (summary.complete) {
+              risks.push({ ...proof, candidates: [], shellProof: { operations, commands: summary.commands }, reason: 'Finite shell effect proof requires original data providers' })
+              for (const input of summary.inputs) if (exists(input.file)) edges.push({ ...proof, kind: 'shell-input', to: input.file, shellEffect: input.kind })
+              else risks.push({ ...proof, pattern: '^' + escapePattern(input.file) + '$', candidates: [], reason: 'Finite shell input is absent from this snapshot', missingEvidence: input.file })
+            } else risks.push({ ...proof, pattern: '^.*$', candidates: [], reason: summary.frontiers[0].reason, shellFrontiers: summary.frontiers,
+              missingEvidence: typeof script === 'string' && !unknownPath(script) ? script.slice(0, 400) : shellArgs.elements[1].getText() })
+          } else
           if (nodeExecutable || unresolvedExecutable || ['bash', 'sh', 'python', 'python3'].includes(executable)) {
             const args = node.arguments[1], operand = args && ts.isArrayLiteralExpression(args) ? args.elements[0] : null
             const values = operand && !ts.isSpreadElement(operand) ? choices(evaluate(operand, file, env)) : [UNKNOWN]
@@ -576,22 +717,26 @@ function inputDependencies(sources, exists, files = [...sources.keys()], texts =
             const pathOrigin = anchor && ts.isIdentifier(anchor) && anchor.text === '__dirname' && !binding(unit, '__dirname', anchor) && !importOrigin(unit, anchor, anchor) ? 'module-directory' : undefined
             const safeOptions = !options || ts.isObjectLiteralExpression(options) && options.properties.every(property => ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name) && (property.name.text !== 'shell' || property.initializer.kind === ts.SyntaxKind.FalseKeyword) && (property.name.text !== 'cwd' || pathOrigin === 'module-directory' || ts.isStringLiteralLike(property.initializer) && property.initializer.text === '.'))
             const unresolved = !!unresolvedExecutable || !safeOptions || values.some(value => typeof value !== 'string' || unknownPath(value) || value.startsWith('-'))
-            record(file, node, operand ?? args ?? command, 'execute', env, origin, { provider, unresolved, pathOrigin, reason: unresolved ? 'Subprocess executable, script argument or launch options lack bounded entry evidence' : undefined, missingEvidence: unresolved ? node.getText(unit.ast) : undefined, executionKind: nodeExecutable ? 'node-entry' : unresolvedExecutable ? undefined : 'script-entry' })
+            record(file, node, operand ?? args ?? command, 'execute', env, origin, { provider, unresolved, pathOrigin, reason: unresolved ? 'Subprocess executable, script argument or launch options lack bounded entry evidence' : undefined, missingEvidence: unresolved ? node.getText(unit.ast) : undefined, executionKind: nodeExecutable ? 'node-entry' : unresolvedExecutable ? undefined : 'script-entry' }, deferred)
           }
         }
         const kind = readKind(unit, node)
-        if (kind) record(file, node, node.arguments[0], kind, env, origin)
+        if (kind) record(file, node, node.arguments[0], kind, env, origin, null, deferred)
         // Preserve caller environments/origins for every potentially emitting
         // body; arguments are still visited even when the body is emission-free.
         const target = inspectedTarget(file, node)
         if (target && !active.has(target.fn) && mayEmitInput(target)) {
-          const local = new Map(env)
-          target.fn.parameters.forEach((p, i) => { if (ts.isIdentifier(p.name)) local.set(p.name.text, evaluate(node.arguments[i], file, env)) })
-          inspect(target.fn.body, target.file, local, new Set(active).add(target.fn), origin ?? node)
+          const local = copyEnvironment(env)
+          target.fn.parameters.forEach((p, i) => { if (ts.isIdentifier(p.name)) {
+            const previousProof = valueProof; valueProof = new Map()
+            local.set(p.name.text, evaluate(node.arguments[i], file, env))
+            local[VALUE_PROOF].set(p.name.text, [...valueProof.values()]); valueProof = previousProof
+          } })
+          inspect(target.fn.body, target.file, local, new Set(active).add(target.fn), origin ?? node, deferred)
         }
       }
-      if (ts.isNewExpression(node) && node.expression.getText(unit.ast) === 'URL' && node.arguments?.length === 2 && node.arguments[1].getText(unit.ast) === 'import.meta.url') record(file, node, node.arguments[0], 'url', env, origin)
-      ts.forEachChild(node, child => { if (!handled.has(child)) inspect(child, file, env, active, origin) })
+      if (ts.isNewExpression(node) && node.expression.getText(unit.ast) === 'URL' && node.arguments?.length === 2 && node.arguments[1].getText(unit.ast) === 'import.meta.url') record(file, node, node.arguments[0], 'url', env, origin, null, deferred)
+      ts.forEachChild(node, child => { if (!handled.has(child)) inspect(child, file, env, active, origin, deferred) })
     }
   for (const [file, unit] of units) inspect(unit.ast, file)
   // HTML link rel=icon is an explicit browser presentation contract, unlike a

@@ -121,6 +121,46 @@ test('read', () => readFileSync('config/' + runtimeName, 'utf8'));`]])
     sources, previousSources: sources, previousConsumers: consumers, ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
   }), /Unsafe runtime input:.*runtimeName/)
 })
+
+test('finite workflow script fields retain shell input readers and exclude text-only siblings', () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/script.test.cjs'
+  const source = `const {test}=require('node:test'); const fs=require('node:fs'); const yaml=require('js-yaml'); const {spawnSync}=require('node:child_process');
+const read=name=>yaml.load(fs.readFileSync(name,'utf8')); function launch(script) { return spawnSync('bash',['-c',script],{env:{PATH:process.env.PATH}}) }
+test('reader',()=>launch(read('flow.yml').jobs.main.steps.find(step=>step.id==='gate').run.replaceAll('INPUT','config.json')))
+test('text',()=>launch(read('other.yml').run))`
+  const sources = new Map([[file, source]])
+  const texts = new Map([...sources, ['flow.yml', "jobs:\n  main:\n    steps:\n      - id: earlier\n        run: echo before\n      - id: gate\n        run: cat INPUT\n"], ['other.yml', 'run: echo config.json\n'], ['config.json', '{}']])
+  const files = new Set(texts.keys())
+  const inventory = [{ file, names: ['reader', 'text'], locations: [{ line: 3, column: 1 }, { line: 4, column: 1 }] }]
+  const graph = dependencyConsumers(inventory, sources, path => files.has(path), { files, texts })
+  assert.deepEqual(graph.inputEdges.filter(edge => edge.kind === 'shell-input').map(edge => edge.to), ['config.json'])
+  assert.ok(graph.inputRisks.filter(risk => risk.shellProof).every(risk => risk.shellProof.operations.some(proof => proof.provider?.module === 'js-yaml')))
+  const plan = selectBehaviors(inventory, [{ status: 'M', file: 'config.json' }], graph, {
+    sources, previousSources: sources, previousConsumers: graph, ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  })
+  assert.deepEqual(plan.selectedCases[file], [0])
+  assert.ok(JSON.stringify(plan.details[file]).includes('shell-input'))
+})
+
+for (const mockedBytes of [false, true]) test(`finite script provenance ${mockedBytes ? 'cannot stand in for a replaced data provider' : 'cannot prove an opaque execution effect'}`, () => {
+  const { selectBehaviors } = require('../tooling/behavior.cjs')
+  const file = 'tests/script-risk.test.cjs'
+  const sources = new Map([[file, `const {test}=require('node:test'); const fs=require('node:fs'); const yaml=require('js-yaml'); const {spawnSync}=require('node:child_process');
+test('boundary',t=>{ ${mockedBytes ? "t.mock.method(fs,'readFileSync',()=> 'run: cat config.json');" : ''} const script=yaml.load(fs.readFileSync('flow.yml','utf8')).run; spawnSync('bash',['-c',script],{env:{PATH:process.env.PATH}}) })`]])
+  const texts = new Map([...sources, ['flow.yml', mockedBytes ? 'run: echo unchanged\n' : 'run: eval "$RUNTIME"\n'], ['config.json', '{}']])
+  const files = new Set(texts.keys()), inventory = [{ file, names: ['boundary'], locations: [{ line: 2, column: 1 }] }]
+  const graph = dependencyConsumers(inventory, sources, path => files.has(path), { files, texts })
+  assert.throws(() => selectBehaviors(inventory, [{ status: 'M', file: 'config.json' }], graph, {
+    sources, previousSources: sources, previousConsumers: graph, ranges: {}, compilerOptions: { noLib: true, noResolve: true, types: [] },
+  }), error => {
+    assert.match(error.message, mockedBytes ? /Unsafe shell bytes: data provider is replaced or unresolved/ : /Shell command has no verified function or native effect contract/)
+    assert.equal(error.diagnostics.test, file)
+    assert.equal(error.diagnostics.caseIndex, 0)
+    return true
+  })
+})
+
 test('zero logic coverage requires an inert payload and an exclusive browser presentation contract', () => {
   const sources = new Map()
   const texts = new Map([
