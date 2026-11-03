@@ -156,6 +156,22 @@ test('unresolved dynamic imports fail Related planning instead of expanding to F
   assert.throws(() => selectFiles(inventory, [{ status: 'M', file: 'src/navigation/NavigationGrid.ts' }], { ...consumers, runtimeAmbiguities: ['src/runtime.ts'] }), /Unresolved runtime imports/)
 })
 test('aggregate accepts more than 500 total leaves only for independently valid Full shards', () => {
+  // Aggregate runs with artifact JSON and no npm-installed TypeScript. Clear
+  // only this bootstrap chain so earlier parser imports cannot hide eager loads.
+  const Module = require('node:module'), load = Module._load
+  const paths = ['ci-run.cjs', 'ci-plan.cjs', 'asset-owners.cjs', 'dependencies.cjs'].map(file => require.resolve(`../tooling/${file}`))
+  const cached = paths.map(file => require.cache[file])
+  try {
+    for (const file of paths) delete require.cache[file]
+    Module._load = function(id, ...args) {
+      if (id === 'typescript') throw Error('aggregate must not require TypeScript')
+      return load.call(this, id, ...args)
+    }
+    assert.doesNotThrow(() => require('../tooling/ci-run.cjs'))
+  } finally {
+    Module._load = load
+    paths.forEach((file, index) => { if (cached[index]) require.cache[file] = cached[index]; else delete require.cache[file] })
+  }
   const { createHash } = require('node:crypto')
   const files = [item('tests/a.test.ts', 500), item('tests/b.test.ts', 1)]
   const plan = { ...full(files), planId: 'aggregate-boundary' }

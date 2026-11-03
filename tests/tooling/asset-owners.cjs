@@ -1,5 +1,4 @@
 const { posix } = require('node:path')
-const { dependencyChain } = require('./dependencies.cjs')
 
 // Offline pixels/skin are audited in the builder/browser, not loaded by logic
 // tests. These are the existing production loader/action/collision contracts,
@@ -13,6 +12,9 @@ function assetOwnerTests(file, inventory, tree = {}, runtimeGraph = new Map()) {
   const available = new Set(inventory.map(item => item.file))
   const matched = new Set(families.filter(family => file.startsWith(family.root + '/')))
   if (file.startsWith('tools/') && tree.texts) {
+    // The artifact-only aggregate job imports the planner without npm ci.
+    // Load the TypeScript-backed graph implementation only during analysis.
+    const { dependencyChain } = require('./dependencies.cjs')
     const graph = new Map(runtimeGraph)
     const builders = []
     for (const [entry, source] of tree.texts) {
