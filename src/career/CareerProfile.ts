@@ -75,6 +75,8 @@ export interface CareerProfile {
   version: 1
   /** One-time ordinary-soldier HP migration receipt, independent of equipment migrations. */
   healthRulesVersion?: 1
+  /** Viking Commander 950→900 health conversion, independent of ordinary HP rules. */
+  commanderHealthVersion?: 1
   faction: CharacterFaction
   tutorial?: CareerTutorialState
 
@@ -201,6 +203,7 @@ export function createCareerProfile(faction: CharacterFaction): CareerProfile {
   return {
     version: 1,
     healthRulesVersion: 1,
+    commanderHealthVersion: 1,
     faction,
     tutorial: createCareerTutorialState(),
     totalMerit: 0,
