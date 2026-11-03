@@ -23,7 +23,7 @@ import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CorgiVisual } from './world/CorgiVisual'
-import { BlackCatVisual, type FelineMountVariant } from './world/BlackCatVisual'
+import { BlackCatVisual, FELINE_MOUNT_VARIANTS, type FelineMountVariant } from './world/BlackCatVisual'
 import { SnowLeopardVisual } from './world/SnowLeopardVisual'
 import { XongkoroVisual } from './world/XongkoroVisual'
 import { XONGKORO } from './movement/XongkoroConfig'
@@ -436,7 +436,7 @@ export class Game {
         || Boolean(savedInventory?.items?.some(item => item.id === T4_RANGER_BOW_RANGED_ID && item.quantity > 0))
       const ownsCareerT4Bow = personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false
       const usesPersonalT4Bow = personalMembers.some(member => member.type === 'ranger' || member.equipment?.ranged === T4_RANGER_BOW_RANGED_ID)
-      const felineVariants = new Set<FelineMountVariant>(['black-cat'])
+      const felineVariants = new Set<FelineMountVariant>(trainingGround ? FELINE_MOUNT_VARIANTS : ['black-cat'])
       const devModelFeline = felineVariantFromMountId(query.get('devmodels'))
       if (devModelFeline) felineVariants.add(devModelFeline)
       const queryMountFeline = felineVariantFromMountId(query.get('mount'))

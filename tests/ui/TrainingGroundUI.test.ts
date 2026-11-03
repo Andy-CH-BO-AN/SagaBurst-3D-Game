@@ -6,6 +6,9 @@ import { createCareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { startCareerTutorial } from '../../src/career/CareerTutorial'
 import { CAREER_TUTORIAL_OPERATIONS, recordCareerTutorialOperation } from '../../src/career/CareerTutorialState'
+import { createTrainingGroundPlan } from '../../src/training/TrainingGroundPlan'
+import { isFelineMountType, felineVariantForMountType } from '../../src/world/Mount'
+import { FELINE_MOUNT_VARIANTS } from '../../src/world/BlackCatVisual'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 /** Minimal DOM boundary; EventTarget retains real listener cancellation semantics. */
@@ -97,5 +100,15 @@ describe('Training pause, controls and listener ownership', () => {
     tutorial.update(frame, .016)
     await Promise.resolve()
     expect(returned).toHaveBeenCalledOnce()
+  })
+
+  it('includes all training ground feline variants in the feline mount preload catalog', () => {
+    const plan = createTrainingGroundPlan()
+    const trainingFelineMounts = plan.mounts.filter(m => isFelineMountType(m.type))
+    expect(trainingFelineMounts.length).toBeGreaterThanOrEqual(5)
+    for (const mount of trainingFelineMounts) {
+      const variant = felineVariantForMountType(mount.type)
+      expect(FELINE_MOUNT_VARIANTS).toContain(variant)
+    }
   })
 })
