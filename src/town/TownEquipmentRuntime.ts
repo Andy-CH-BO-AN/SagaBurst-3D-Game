@@ -15,9 +15,36 @@ export function findTownNativeMount(mounts: readonly Mount[], ref: TownEquipment
   return ref?.source === 'native' ? mounts.find(mount => nativeMountIds.get(mount) === ref.nativeId && !mount.disposed) : undefined
 }
 
+export interface TownEquipmentRuntimeOptions {
+  canPlaceMountedCivilian?: (point: { x: number; z: number }, actorId: string, reusedMount?: Mount | null, vacatingMounts?: readonly Mount[]) => boolean
+  onStatusChange?: (status: string) => void
+  onPreloadComplete?: (result: { success: boolean; status: string; actorIds: readonly string[]; error?: unknown }) => void
+  getCurrentProfile?: () => CareerProfile
+  isDisposed?: () => boolean
+}
+
+export let townEquipmentRuntimeStatus = ''
+export function getTownEquipmentRuntimeStatus(): string { return townEquipmentRuntimeStatus }
+export function resetTownEquipmentRuntimeState(): void {
+  townEquipmentRuntimeStatus = ''
+  pendingActorPreloadTokens.clear()
+}
+
+const pendingActorPreloadTokens = new Map<string, number>()
+let actorPreloadTokenSeq = 0
+
+type CivilianPlacementChecker = (point: { x: number; z: number }, actorId: string, reusedMount?: Mount | null, vacatingMounts?: readonly Mount[]) => boolean
+
 /** Applies a committed configuration. Existing physical mounts follow their ownership reference. */
 export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonly TownCombatResident[], mounts: Mount[],
-  previous: CareerProfile, current: CareerProfile, actorIds: readonly string[], canPlaceMountedCivilian?: (point: { x: number; z: number }, actorId: string, reusedMount?: Mount | null, vacatingMounts?: readonly Mount[]) => boolean): number {
+  previous: CareerProfile, current: CareerProfile, actorIds: readonly string[],
+  canPlaceMountedCivilianOrOptions?: CivilianPlacementChecker | TownEquipmentRuntimeOptions,
+  options?: TownEquipmentRuntimeOptions): number {
+  const resolvedOptions: TownEquipmentRuntimeOptions = typeof canPlaceMountedCivilianOrOptions === 'function'
+    ? { canPlaceMountedCivilian: canPlaceMountedCivilianOrOptions, ...options }
+    : (canPlaceMountedCivilianOrOptions ?? options ?? {})
+  const canPlaceMountedCivilian = resolvedOptions.canPlaceMountedCivilian
+
   const selected = new Set(actorIds)
   const plans = residents.filter(resident => selected.has(resident.spec.id)).map(resident => ({ resident,
     before: resolveTownActorEquipment(previous, previous.faction, resident.spec.id),
@@ -27,13 +54,47 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
   if (plans.some(({ resident, after }) => !resident.npc.canApplyCareerEquipment(after.loadout)
     || resident.npc.inCombat || resident.npc.mount?.isAirborne || resident.homeMount?.isAirborne
     || resident.homeMount?.riderPlayer || resident.homeMount?.riderNpc && resident.homeMount.riderNpc !== resident.npc)) return plans.length
-  // A not-yet-loaded feline cannot be constructed synchronously: load it now and defer to the next Town entry.
+  // A not-yet-loaded feline cannot be constructed synchronously: load it now and trigger continuation when ready.
   const unloaded = new Set<FelineMountVariant>()
   for (const { after } of plans) {
     const variant = felineVariantFromMountId(after.loadout.mountId)
     if (variant && !BlackCatVisual.isPreloaded(variant) && !findTownNativeMount(mounts, after.refs.mount)) unloaded.add(variant)
   }
-  if (unloaded.size) { void BlackCatVisual.preloadVariants(unloaded).catch(() => {}); return plans.length }
+  if (unloaded.size) {
+    const token = ++actorPreloadTokenSeq
+    for (const actorId of actorIds) pendingActorPreloadTokens.set(actorId, token)
+    void BlackCatVisual.preloadVariants(unloaded)
+      .then(() => {
+        if (resolvedOptions.isDisposed?.() || (scene as { disposed?: boolean })?.disposed) return
+        const latestProfile = resolvedOptions.getCurrentProfile ? resolvedOptions.getCurrentProfile() : current
+        const eligibleActorIds: string[] = []
+        for (const plan of plans) {
+          const actorId = plan.resident.spec.id
+          if (pendingActorPreloadTokens.get(actorId) !== token) continue
+          const currentPlanTarget = plan.after
+          const liveTarget = resolveTownActorEquipment(latestProfile, latestProfile.faction, actorId)
+          if (liveTarget.loadout.mountId !== currentPlanTarget.loadout.mountId
+            || JSON.stringify(liveTarget.refs.mount) !== JSON.stringify(currentPlanTarget.refs.mount)) {
+            continue
+          }
+          if (plan.resident.npc.dead || plan.resident.npc.inCombat) continue
+          eligibleActorIds.push(actorId)
+        }
+        if (eligibleActorIds.length > 0) {
+          applyTownEquipmentRuntime(scene, residents, mounts, previous, latestProfile, eligibleActorIds, resolvedOptions)
+        }
+        townEquipmentRuntimeStatus = '配置已套用。'
+        resolvedOptions.onStatusChange?.(townEquipmentRuntimeStatus)
+        resolvedOptions.onPreloadComplete?.({ success: true, status: townEquipmentRuntimeStatus, actorIds: eligibleActorIds })
+      })
+      .catch((error: unknown) => {
+        townEquipmentRuntimeStatus = '配置保存成功，坐騎資源載入失敗，可重試套用'
+        resolvedOptions.onStatusChange?.(townEquipmentRuntimeStatus)
+        resolvedOptions.onPreloadComplete?.({ success: false, status: townEquipmentRuntimeStatus, actorIds, error })
+      })
+    return plans.length
+  }
+  for (const actorId of actorIds) pendingActorPreloadTokens.delete(actorId)
   const selectedActors = new Set(plans.map(plan => plan.resident.npc))
   if (plans.some(({ after }) => {
     const physical = findTownNativeMount(mounts, after.refs.mount)

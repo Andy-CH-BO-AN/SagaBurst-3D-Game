@@ -1113,7 +1113,20 @@ export class TownScene {
       e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
       const adapters = createTownCareerEquipmentUI(() => this.profile, () => this.townEquipmentContext(),
         () => this.residents, next => this.commit(next),
-        (previous, current, actorIds) => applyTownEquipmentRuntime(this.scene, this.residents, this.mounts, previous, current, actorIds, (point, actorId, reusedMount, vacatingMounts) => this.canPlaceMountedCivilian(point, actorId, reusedMount, vacatingMounts)))
+        (previous, current, actorIds) => applyTownEquipmentRuntime(
+          this.scene,
+          this.residents,
+          this.mounts,
+          previous,
+          current,
+          actorIds,
+          (point, actorId, reusedMount, vacatingMounts) => this.canPlaceMountedCivilian(point, actorId, reusedMount, vacatingMounts),
+          {
+            getCurrentProfile: () => this.profile,
+            isDisposed: () => this.disposed,
+            onStatusChange: status => { if (this.careerMounts) this.careerMounts.statusText = status },
+          },
+        ))
       this.equipment.open(this.skills, this.inventory, () => this.input.clear(), this.careerMounts, adapters.personal, adapters.town)
       return
     }
