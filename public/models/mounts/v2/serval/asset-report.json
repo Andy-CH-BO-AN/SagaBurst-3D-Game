@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 2,
+  "id": "serval",
+  "sha256": "311f17ff311204010c25826fcb8faa11dcc8c2a479f9a9d76f39c7df7da82d7f",
+  "sourceSha256": "e213aefe3d6ade578cf0510b5a0a1fecd19fa84e378b4810e8234dfdcc82a9cf",
+  "sourceContract": {
+    "sourceTriangles": 31091,
+    "finalBodyTriangles": 31091,
+    "matchedSourceTriangles": 31091,
+    "saddleTriangles": 2285,
+    "windingPreserved": true
+  },
+  "sourceToAsset": [
+    0.9891705680669552,
+    0,
+    -1.0533596666239395,
+    0,
+    0,
+    1.445,
+    0,
+    0,
+    1.0533596666239395,
+    0,
+    0.9891705680669552,
+    0,
+    0.11704500000000001,
+    1.5432702987761005e-9,
+    0.028900000000000002,
+    1
+  ],
+  "sourceImages": [
+    {
+      "image": 0,
+      "bytes": 7397185,
+      "mimeType": "image/png",
+      "sha256": "7461a5240056a6279c5fe8521290ca4323d0f37942b1c63d02f0d2c73815ee33"
+    },
+    {
+      "image": 1,
+      "bytes": 8613080,
+      "mimeType": "image/png",
+      "sha256": "2ed89cdf5ae469b82569bacd8a0fb7eb60f2d4e4bda04c3c7eaff25baa1caac3"
+    }
+  ],
+  "metrics": {
+    "packageBytes": 20408096,
+    "joints": 47,
+    "materials": 2,
+    "storedPrimitives": 6,
+    "visibleDrawCalls": 2,
+    "lodTriangles": [
+      33376,
+      15344,
+      4312
+    ]
+  },
+  "skin": {
+    "method": "Continuous torso-unified belly/tail skin repair",
+    "geometricPoints": 15544,
+    "freePoints": 3515,
+    "iterations": 97,
+    "residual": 0.000009328168295352768,
+    "maxDroppedWeight": 0.10026393093912
+  },
+  "saddleFit": {
+    "seatCushionOnly": true,
+    "seatPos": [
+      0.03,
+      1.778,
+      0.08
+    ],
+    "cameraPos": [
+      0.03,
+      2.078,
+      0.08
+    ],
+    "pitchDeg": 1.5,
+    "scale": [
+      0.88,
+      1.12,
+      1.08
+    ],
+    "stirrupOutX": 0.024,
+    "stirrupBackZ": -0.08,
+    "chestReachZ": 0.62,
+    "chestDropY": 0.12,
+    "chestScaleX": 0.96,
+    "shoulderBulgeX": 0.02,
+    "girthBottomY": 1.025,
+    "girthScaleX": 0.96
+  },
+  "sockets": {
+    "socket_saddle_seat": [
+      0.03,
+      1.778,
+      0.08
+    ],
+    "socket_camera": [
+      0.03,
+      2.078,
+      0.08
+    ]
+  }
+}

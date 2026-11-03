@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "id": "caracal-v2",
+  "status": "ready",
+  "forward": "+Z",
+  "file": "caracal.glb",
+  "source": {
+    "title": "Rigged Caracal",
+    "author": "Meshy; user-provided model",
+    "url": "https://www.meshy.ai/",
+    "license": "User-owned; modified-asset redistribution authorized by the user",
+    "file": "Meshy_AI_Character_output (1)(1).glb",
+    "resolvedFile": "caracal.glb",
+    "sourceSha256": "c3e5a270da8381e6c9512f857faee7dbd03c58af2310e6cc282cd0977f9fe849"
+  },
+  "attribution": "User-provided Meshy model. Original LOD0 body geometry, UVs, normals and image bytes retained; real Black Cat saddle fitted; rig/weights and baked 60Hz animations adapted for SagaBurst.",
+  "modifications": [
+    "Every original LOD0 body triangle retained with unchanged source topology, UVs and image bytes",
+    "Original 34-bone skeleton retained with natural 4-foot grounded standing Idle pose",
+    "Real production Black Cat saddle fitted to back contour with rigid seat/stirrup and flexible chest-strap weights",
+    "Seven pinned production Black Cat donor clips retargeted offline at 60Hz with analytic limb IK",
+    "Independent LOD1/LOD2 simplification; lossless Meshopt compression without LOD0 quantization"
+  ],
+  "metrics": {
+    "triangles": {
+      "cat_body_lod0": 31201,
+      "cat_saddle_leather": 2285,
+      "cat_body_lod1": 14347,
+      "cat_equipment_lod1": 1051,
+      "cat_body_lod2": 4038,
+      "cat_equipment_lod2": 297
+    },
+    "visibleEquippedTriangles": [
+      33486,
+      15398,
+      4335
+    ],
+    "residentTrianglesByLod": [
+      33486,
+      15398,
+      4335
+    ],
+    "textureMaxSize": 2048,
+    "packageBytes": 19904912,
+    "saddleHeightM": 1.782,
+    "materials": 2,
+    "storedMeshPrimitives": 6,
+    "visiblePrimitives": {
+      "equipped": 2
+    },
+    "bones": 34
+  },
+  "lodNodes": [
+    "cat_body_lod0",
+    "cat_body_lod1",
+    "cat_body_lod2"
+  ],
+  "equipmentLodNodes": [
+    "cat_saddle_leather",
+    "cat_equipment_lod1",
+    "cat_equipment_lod2"
+  ],
+  "clips": [
+    "death",
+    "hit",
+    "idle",
+    "jump",
+    "land",
+    "run",
+    "walk"
+  ],
+  "sockets": [
+    "socket_saddle_seat",
+    "socket_camera"
+  ],
+  "sha256": "acf9ec6b17e91593e646a38d075411b62188a41beb14e30d0560f748c1af09ac",
+  "animationSource": "animation-source.json",
+  "validation": {
+    "structuralAudit": "passed: source body triangle/UV/normal/image preservation and fitted saddle checks",
+    "browserGameplay": "verified in browser studio, combat/town riding, and 6-stage Sprint racing",
+    "blenderPackedRoundtrip": "reviewed all 7 clips (idle, walk, run, jump, land, hit, death) in Blender"
+  }
+}

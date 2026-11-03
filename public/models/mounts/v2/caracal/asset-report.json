@@ -1,0 +1,104 @@
+{
+  "schemaVersion": 2,
+  "id": "caracal",
+  "sha256": "acf9ec6b17e91593e646a38d075411b62188a41beb14e30d0560f748c1af09ac",
+  "sourceSha256": "c3e5a270da8381e6c9512f857faee7dbd03c58af2310e6cc282cd0977f9fe849",
+  "sourceContract": {
+    "sourceTriangles": 31201,
+    "finalBodyTriangles": 31201,
+    "matchedSourceTriangles": 31201,
+    "saddleTriangles": 2285,
+    "windingPreserved": true
+  },
+  "sourceToAsset": [
+    1.435,
+    0,
+    0,
+    0,
+    0,
+    1.435,
+    0,
+    0,
+    0,
+    0,
+    1.435,
+    0,
+    -0.036276800000000005,
+    2.8170388841064486e-10,
+    -0.12915,
+    1
+  ],
+  "sourceImages": [
+    {
+      "image": 0,
+      "bytes": 7014188,
+      "mimeType": "image/png",
+      "sha256": "520b79d37919adc4ab7530ba43a849e9ac3f501afef6f930f200ee78422df461"
+    },
+    {
+      "image": 1,
+      "bytes": 8103866,
+      "mimeType": "image/png",
+      "sha256": "95839f4a2c33a59329c16ab6ba5614310dcc2662388b156659ad9199491bffaf"
+    }
+  ],
+  "metrics": {
+    "packageBytes": 19904912,
+    "joints": 34,
+    "materials": 2,
+    "storedPrimitives": 6,
+    "visibleDrawCalls": 2,
+    "lodTriangles": [
+      33486,
+      15398,
+      4335
+    ]
+  },
+  "skin": {
+    "method": "Continuous torso-unified belly/tail skin repair",
+    "geometricPoints": 15615,
+    "freePoints": 4898,
+    "iterations": 105,
+    "residual": 0.000009754869344069661,
+    "maxDroppedWeight": 0.051575887632080986
+  },
+  "saddleFit": {
+    "seatCushionOnly": true,
+    "seatPos": [
+      0,
+      1.782,
+      0.1
+    ],
+    "cameraPos": [
+      0,
+      2.082,
+      0.1
+    ],
+    "pitchDeg": 4.5,
+    "scale": [
+      0.95,
+      1.15,
+      1.15
+    ],
+    "stirrupOutX": 0.045,
+    "stirrupBackZ": -0.09,
+    "chestReachZ": 0.88,
+    "chestDropY": 0.06,
+    "chestScaleX": 1.08,
+    "shoulderBulgeX": 0.025,
+    "girthBottomY": 0.915,
+    "girthScaleX": 1.06
+  },
+  "sockets": {
+    "socket_saddle_seat": [
+      0,
+      1.782,
+      0.1
+    ],
+    "socket_camera": [
+      0,
+      2.082,
+      0.1
+    ]
+  }
+}
