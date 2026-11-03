@@ -134,7 +134,7 @@ export const VETERAN_TOWN_DEFENSE_TEMPLATE: RecruitTownDefenseMissionTemplate = 
  */
 export const RECRUIT_MISSION_CATALOG: readonly RecruitMissionTemplate[] = [
   { id: 'career-cavalry-sweep', kind: 'cavalry-sweep', name: 'Cavalry Sweep · 騎兵清剿', briefing: '軍營集結，跟隨騎兵出城清剿 · 60 騎兵 vs 40 Bandits', friendlyCombatants: 60, risk: '低', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'recruit' },
-  { id: 'career-enemy-town-assault', kind: 'enemy-town-assault', name: 'Enemy Town Assault · 進攻敵方家園', briefing: '120 人攻城軍 · 四門進攻 · 擊敗全部敵方軍事守軍', friendlyCombatants: 120, risk: '極高', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'soldier' },
+  { id: 'career-enemy-town-assault', kind: 'enemy-town-assault', name: 'Enemy Town Assault · 進攻敵方家園', briefing: '120 人攻城軍 · 四門進攻 · 擊潰全部地面守軍，迫使殘存空軍撤離。', friendlyCombatants: 120, risk: '極高', requiresEnlistmentMerit: 0, requiresCompletions: 0, storyOnce: false, minRank: 'soldier' },
   mission('recruit-bandits-01', '營火邊的三名盜匪', 5, 3, '低', 0),
   mission('recruit-bandits-02', '大隊剿匪', 20, 12, '中', 2, 0, 1),
 

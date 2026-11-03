@@ -3,6 +3,7 @@ const { readFileSync, writeFileSync, readdirSync, appendFileSync, mkdirSync, exi
 const { resolve, relative, dirname, join, posix } = require('node:path')
 const { randomUUID } = require('node:crypto')
 const { MAX_CASES_PER_SHARD } = require('./budget.cjs')
+const { assetOwnerTests } = require('./asset-owners.cjs')
 const root = resolve(__dirname, '../..')
 const slash = file => file.replaceAll('\\', '/')
 const local = file => slash(relative(root, resolve(root, file)))
@@ -193,7 +194,9 @@ function selectFiles(inventory, changed, consumers, evidence) {
     for (const [file, oldTest] of baseRuntime) if (!all.includes(file) && !changed.some(change => change.status === 'D' && change.file === oldTest)) {
       relatedSelectionError(`Base test owner is not in current discovery: ${oldTest} -> ${file}`)
     }
-    const policy = new Set([...policyConsumers(item.file, inventory), ...(historical ? policyConsumers(oldFile, inventory) : [])])
+    const policy = new Set([...policyConsumers(item.file, inventory), ...assetOwnerTests(item.file, inventory, evidence, consumers.graph),
+      ...(historical ? [...policyConsumers(oldFile, inventory), ...assetOwnerTests(oldFile, inventory,
+        { files: evidence.previousFiles, texts: evidence.previousTexts }, previous.graph)] : [])])
     const hits = new Set([...runtime, ...policy, ...baseRuntime.keys()].filter(file => all.includes(file)))
     if (!removed && all.includes(item.file)) hits.add(item.file)
     if (!hits.size) {
@@ -440,7 +443,8 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   // Native related results are candidates only. An unexplained native-only edge
   // is unsafe; never silently exclude it or unconditionally union it into leaves.
   for (const file of found.related) {
-    if (!changed.some(item => (consumers[item.file] ?? []).includes(file) || policyConsumers(item.file, found.inventory).has(file) || item.file === file)) {
+    if (!changed.some(item => (consumers[item.file] ?? []).includes(file) || policyConsumers(item.file, found.inventory).has(file)
+      || assetOwnerTests(item.file, found.inventory, currentTree, consumers.graph).has(file) || item.file === file)) {
       relatedSelectionError(`Native-only dependency requires mapping: ${file}`)
     }
   }

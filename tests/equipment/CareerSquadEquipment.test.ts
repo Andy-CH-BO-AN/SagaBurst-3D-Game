@@ -33,39 +33,70 @@ function balanced(profile: CareerProfile) {
   }
 }
 describe('Shared Career quantity inventory and personal equipment', () => {
-  it('lets a Recruit buy, equip, save and resell high-tier weapons and shields without duplicating allocated copies', () => {
+  it('allocates a purchased Roman officer shield to a private soldier and preserves its quantity after reload', () => {
+    const h = harness('captain', 'viking'), id = h.hire('soldier')
+    const bought = purchaseTownEquipment(h.read(), 'roman_officer_shield_t4')
+    expect(bought).toMatchObject({ purchased: true, spentMerit: 1440 })
+    expect(h.save(bought.profile)).toBe(true)
+    expect(h.change(id, 'shield', 'roman_officer_shield_t4').changed).toBe(true)
+    const loaded = h.store.load()!
+    expect(loaded.personalSquad!.members.find(member => member.id === id)!.equipment!.shield).toBe('roman_officer_shield_t4')
+    expect(careerItemTotal(loaded, 'roman_officer_shield_t4')).toBe(1)
+    expect(availableCareerItem(loaded, 'roman_officer_shield_t4')).toBe(0)
+    expect(sellTownProduct(loaded, 'roman_officer_shield_t4')).toMatchObject({ sold: false, reason: 'allocated' })
+    balanced(loaded)
+  })
+  it.each([
+    { shieldId: 'commander_shield_t5', name: '月桂聖壁 Laurelguard Aegis' },
+    { shieldId: 'viking_berserker_shield_t5', name: '戰貓怒嚎盾 Warcat Roarshield' },
+  ])('lets a Recruit trade $shieldId and transfer its remaining copy without duplicating allocations', ({ shieldId, name }) => {
     const h = harness('recruit'), before = cloneCareerProfile(h.read())
     const result = purchaseTownEquipment(h.read(), 'axe_t5', 2)
     expect(result).toMatchObject({ purchased: true, spentMerit: 5000 })
     expect(result.profile).toMatchObject({ rank: 'recruit', totalMerit: 60000, availableMerit: 55000 })
     expect(h.read()).toEqual(before)
     expect(h.save(result.profile)).toBe(true)
-    expect(careerItemTotal(h.read(), 'commander_shield_t5')).toBe(0)
-    const shields = purchaseTownEquipment(h.read(), 'commander_shield_t5', 2)
+    expect(careerItemTotal(h.read(), shieldId)).toBe(0)
+    const shields = purchaseTownEquipment(h.read(), shieldId, 2)
     expect(shields).toMatchObject({ purchased: true, spentMerit: 4500, profile: { availableMerit: 50500 } })
     expect(h.save(shields.profile)).toBe(true)
     const equipment = new TownEquipment(h.read, h.save)
     expect(equipment.inventoryStacks.find(stack => stack.item.id === 'axe_t5')).toMatchObject({ quantity: 2, item: { tier: 5 } })
-    expect(equipment.inventoryStacks.find(stack => stack.item.id === 'commander_shield_t5')).toMatchObject({
-      quantity: 2, item: { name: "指揮官戰盾 Commander's War Shield", tier: 5, shieldImpactMax: 96 },
+    expect(equipment.inventoryStacks.find(stack => stack.item.id === shieldId)).toMatchObject({
+      quantity: 2, item: { name, tier: 5, shieldImpactMax: 96 },
     })
     expect(equipment.canEquipWeapon('axe_t5')).toBe(true)
     expect(equipment.equipWeapon('axe_t5')).toBe(true)
-    expect(equipment.equipWeapon('commander_shield_t5')).toBe(true)
+    expect(equipment.equipWeapon(shieldId)).toBe(true)
     const loaded = h.store.load()!
-    expect(loaded).toMatchObject({ rank: 'recruit', equipment: { melee: 'axe_t5', shield: 'commander_shield_t5' } })
+    expect(loaded).toMatchObject({ rank: 'recruit', equipment: { melee: 'axe_t5', shield: shieldId } })
     expect(careerItemTotal(loaded, 'axe_t5')).toBe(2)
-    expect(careerItemTotal(loaded, 'commander_shield_t5')).toBe(2)
-    expect(careerItemAllocated(loaded, 'commander_shield_t5')).toBe(1)
-    expect(availableCareerItem(loaded, 'commander_shield_t5')).toBe(1)
-    const sold = sellTownProduct(loaded, 'commander_shield_t5')
+    expect(careerItemTotal(loaded, shieldId)).toBe(2)
+    expect(careerItemAllocated(loaded, shieldId)).toBe(1)
+    expect(availableCareerItem(loaded, shieldId)).toBe(1)
+    const sold = sellTownProduct(loaded, shieldId)
     expect(sold).toMatchObject({ sold: true, earnedMerit: 1125, profile: { availableMerit: 51625 } })
     expect(h.save(sold.profile)).toBe(true)
     const remaining = h.store.load()!
-    expect(careerItemTotal(remaining, 'commander_shield_t5')).toBe(1)
-    expect(remaining.equipment?.shield).toBe('commander_shield_t5')
-    expect(sellTownProduct(remaining, 'commander_shield_t5')).toMatchObject({ sold: false, reason: 'allocated' })
+    expect(careerItemTotal(remaining, shieldId)).toBe(1)
+    expect(remaining.equipment?.shield).toBe(shieldId)
+    expect(sellTownProduct(remaining, shieldId)).toMatchObject({ sold: false, reason: 'allocated' })
     balanced(remaining)
+    // Continue the same purchased-copy lifecycle with an eligible private soldier.
+    // Appointment eligibility is covered by its own owner; no new shield is granted.
+    h.set({ ...remaining, rank: 'captain' })
+    const member = h.hire('soldier')
+    const equipped = new TownEquipment(h.read, h.save)
+    equipped.unequipShield()
+    expect(h.change(member, 'shield', shieldId).changed).toBe(true)
+    const assigned = h.store.load()!
+    expect(assigned.equipment?.shield).toBeNull()
+    expect(assigned.personalSquad!.members.find(candidate => candidate.id === member)!.equipment!.shield).toBe(shieldId)
+    expect(careerItemTotal(assigned, shieldId)).toBe(1)
+    expect(careerItemAllocated(assigned, shieldId)).toBe(1)
+    expect(availableCareerItem(assigned, shieldId)).toBe(0)
+    expect(sellTownProduct(assigned, shieldId)).toMatchObject({ sold: false, reason: 'allocated' })
+    balanced(assigned)
   })
   it('lets a Recruit use a purchased snow leopard and preserves selection, allocation and wounded or dead mission saves', () => {
     const h = harness('recruit')

@@ -7,9 +7,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { Box3, Vector3 } from 'three'
 import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { addCareerItem } from '../../src/career/CareerInventory'
-import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
+import { CAREER_STORAGE_KEY, CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { createCareerDuelMission } from '../../src/career/CareerDuelState'
-import { canEnterRace, finalizeRaceDeployment, MOUNTED_RACES, RACE_PLAYER_CAN_SPRINT, advanceRaceClock, advanceRaceRider, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance,
+import { canEnterRace, finalizeRaceDeployment, MOUNTED_RACES, RACE_PLAYER_CAN_SPRINT, advanceRaceClock, advanceRaceRider, parseRaceSession, resolveRace, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceRider } from '../../src/career/CareerRaceState'
 import { RACE_START_SLOTS, RACE_LINES, lineCrossing, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, illegalTownCrossing, type RacePosition } from '../../src/career/CareerRaceRoute'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -75,6 +75,56 @@ describe('Mounted race policy and countdown', () => {
     const s = session(); s.player.position = pos(0, -120)
     advanceRaceClock(s, 9.99, true); expect(s.result).toBeUndefined()
     advanceRaceClock(s, .02, true); expect(s.result).toBe('loss')
+  })
+  it('continues after losing the owned mount and validates movement against the actual borrowed mount', () => {
+    const s = session(); s.phase = 'guiding'; s.guideFallback = 'Captain unavailable'
+    const point = new Vector3(-3, 0, -80)
+    const ownedMount = { group: { position: new Vector3(-3, 0, -100), rotation: { y: 0 } },
+      currentHp: 0, dead: true, isAirborne: false, baseSpeed: 1 }
+    const borrowedMount = { group: { position: point, rotation: { y: 0 } },
+      currentHp: 73, dead: false, isAirborne: false, baseSpeed: 8 }
+    let activeMount: typeof borrowedMount | null = null
+    const player = { get currentMount() { return activeMount }, combatPosition: point,
+      hp: 81, dead: false, staminaValue: 67, facingYaw: 0 }
+    const opponentPoint = new Vector3(3, 0, RACE_START_SLOTS[1].z)
+    const opponentMount = { group: { position: opponentPoint, rotation: { y: 0 } },
+      currentHp: 100, dead: false, isAirborne: false, baseSpeed: 10 }
+    const racer = { mount: opponentMount, combatPosition: opponentPoint, group: { rotation: { y: 0 } },
+      hp: 100, dead: false, staminaValue: 100 }
+    let current = profile()
+    const controller = Object.create(CareerRaceController.prototype) as CareerRaceController
+    Object.assign(controller, { session: s, racer, mount: opponentMount, batch: { ready: true },
+      mounts: { activeMount: ownedMount, activeMountId: 'horse' }, obstacles: [],
+      player: () => player, read: () => current, commit: (next: CareerProfile) => { current = next; return true },
+      saveElapsed: 0, stallSeconds: 0 })
+    // Real frame/snapshot calls cover all pre-race phases without constructing actors or scenes.
+    controller.beginFrame(.1, .1); controller.advance(.1)
+    expect(s.phase).toBe('guiding'); expect(s.player.dnf).toBeUndefined()
+    point.z = RACE_START_SLOTS[0].z
+    controller.beginFrame(.1, .1); controller.advance(.1)
+    expect(s.phase).toBe('countdown'); expect(s.player.dnf).toBeUndefined()
+    controller.beginFrame(10, .05); controller.advance(10)
+    expect(s.phase).toBe('racing'); expect(s.player.dnf).toBeUndefined()
+    point.z = RACE_LINES[0].center.z + 1
+    controller.beginFrame(.5, .5); controller.advance(.5)
+    expect(s.player.checkpoint).toBe(0); expect(s.player.dnf).toBeUndefined()
+    // Mounting within interaction distance can snap the rider farther than one walking frame.
+    activeMount = borrowedMount; point.z -= 2.9
+    controller.beginFrame(1 / 60, 1 / 60); controller.advance(1 / 60)
+    expect(s.player.checkpoint).toBe(1); expect(s.player.dnf).toBeUndefined()
+    expect(s.player.position.z).toBeCloseTo(RACE_LINES[0].center.z - 1.9)
+    borrowedMount.baseSpeed = 40; point.z -= 10
+    controller.beginFrame(.1, .1); controller.advance(.1)
+    expect(s.player).toMatchObject({ checkpoint: 1, hp: 81, stamina: 67, mountId: 'horse',
+      mounted: false, mountHp: 0, mountPosition: pos(-3, -100) })
+    expect(s.player.position.z).toBeCloseTo(RACE_LINES[0].center.z - 11.9)
+    expect(s.player.dnf).toBeUndefined(); expect(s.result).toBeUndefined()
+    // Using the dead owned mount's speed would reject the preceding legal 10 m segment.
+    borrowedMount.isAirborne = true; point.z -= 1
+    controller.beginFrame(.1, .1); controller.advance(.1)
+    expect(s.player.dnf).toBe('不合法路線或位移'); expect(s.result).toBe('loss')
+    expect(ownedMount.currentHp).toBe(0); expect(borrowedMount.currentHp).toBe(73)
+    expect(ownedMount.group.position).toEqual(new Vector3(-3, 0, -100))
   })
 })
 
@@ -186,12 +236,18 @@ describe('Mounted race outcome ownership', () => {
     expect(s.player.finishSeconds).toBeUndefined()
     expect(raceRecordProfile(profile(), s).raceRecords).toEqual([expect.objectContaining({ result: 'loss', opponentSeconds: 70 })])
   })
-  it('cannot win on foot and draws once neither mount can finish', () => {
-    const s = session(); s.player.checkpoint = 4; s.player.mountHp = 0; s.player.mounted = false
-    cross(s.player, pos(0, -120), pos(0, -110)); resolveRace(s)
-    expect(s.player.finishSeconds).toBeUndefined(); expect(s.result).toBeUndefined()
-    s.opponent.mounted = false; cross(s.opponent, pos(0, -110), pos(0, -120)); resolveRace(s)
-    expect(s.result).toBe('draw')
+  it('lets both riders finish on foot after mount deaths and awards the leading player the win', () => {
+    const s = session(); s.phase = 'racing'
+    for (const r of [s.player, s.opponent]) { r.checkpoint = 4; r.mountHp = 0; r.mounted = false }
+    cross(s.player, pos(0, -120), pos(0, -110), 80); resolveRace(s)
+    expect(s.player.finishSeconds).toBe(79.5); expect(s.player.dnf).toBeUndefined()
+    expect(s.result).toBe('win'); expect(s.phase).toBe('finishing')
+    cross(s.opponent, pos(0, -120), pos(0, -110), 85); resolveRace(s)
+    expect(s.opponent.finishSeconds).toBe(84.5); expect(s.opponent.dnf).toBeUndefined()
+    expect(s.result).toBe('win'); expect(s.phase).toBe('result')
+    expect(raceRecordProfile(profile(), s).raceRecords).toEqual([
+      expect.objectContaining({ result: 'win', legalFinish: true, playerSeconds: 79.5, opponentSeconds: 84.5 }),
+    ])
   })
 })
 
@@ -248,6 +304,34 @@ describe('Race persistence independent of hostility and Duel', () => {
     expect(parseCareerProfile({ ...loaded, activeRace: { ...s, scheduleVersion: undefined } })).toBeNull()
     expect(parseCareerProfile({ ...loaded, activeRace: { ...s, opponent: { ...s.opponent, mountId: 'black-cat' } } })).toBeNull()
     expect(parseCareerProfile(createCareerProfile('viking'))).not.toBeNull()
+  })
+  it('recovers only retired mount DNF reasons in unfinished saves without resetting progress or settled outcomes', () => {
+    const s = session(); s.phase = 'racing'; s.countdownSeconds = 0; s.elapsedSeconds = 44.9; s.gameSeconds = 54.9
+    s.player = { ...s.player, checkpoint: 1, position: pos(162.5, 44), routePosition: pos(-3, -106),
+      hp: 81, stamina: 67, mountHp: 0, mounted: false, dnf: '坐騎已死亡' }
+    s.opponent = { ...s.opponent, checkpoint: 1, position: pos(162.5, 42), routePosition: pos(-3, -106),
+      mounted: false, dnf: '已離開參賽坐騎' }
+    const recovered = parseRaceSession(s)!
+    expect(recovered).toEqual({ ...s,
+      player: { ...s.player, dnf: undefined, routePosition: s.player.position },
+      opponent: { ...s.opponent, dnf: undefined, routePosition: s.opponent.position },
+    })
+    expect(s.player.dnf).toBe('坐騎已死亡'); expect(s.opponent.dnf).toBe('已離開參賽坐騎')
+    s.player.dnf = '參賽坐騎已變更或不可用'; s.opponent.dnf = '不合法路線或位移'
+    const p = profile(); p.activeRace = s
+    const storage = new MemoryStorage({ initialValues: [[CAREER_STORAGE_KEY, JSON.stringify(p)]] })
+    const store = new CareerProfileStore(storage), loaded = store.load()!, resumed = loaded.activeRace!
+    expect(resumed.player).toEqual({ ...s.player, dnf: undefined, routePosition: s.player.position })
+    expect(resumed.opponent).toEqual(s.opponent)
+    expect(resumed.elapsedSeconds).toBe(44.9); expect(resumed.gameSeconds).toBe(54.9)
+    expect(loaded.raceRecords).toBeUndefined(); expect(loaded.availableMerit).toBe(p.availableMerit)
+    // The old DNF froze routePosition; resuming from that stale point would falsely detect a teleport.
+    resumed.player.position = pos(162.5, 46)
+    advanceRaceRider(resumed.player, pos(162.5, 44), 45, .1, true, 25)
+    expect(resumed.player.checkpoint).toBe(2); expect(resumed.player.dnf).toBeUndefined()
+    expect(store.save(loaded)).toBe(true); expect(store.load()!.activeRace).toEqual(resumed)
+    const settled = { ...s, phase: 'result' as const, result: 'draw' as const, reason: '雙方皆無法合法完賽' }
+    expect(parseRaceSession(settled)).toEqual(settled)
   })
   it('accepts the current snow-leopard sprint schedule and saves its reward once after reload', () => {
     const store = new CareerProfileStore(new MemoryStorage())
@@ -332,7 +416,10 @@ describe('Race return and deferred native Town outcomes', () => {
     expect(store.save(recorded)).toBe(true)
     let current = store.load()!
     const outside = new Vector3(-200, 0, 50), position = outside.clone()
-    const player = { dead: false, hp: 27, maxHp: 100, staminaValue: 70, facingYaw: 0, currentMount: null,
+    const borrowedMount = { group: { position: outside.clone(), rotation: { y: 0 } }, currentHp: 73 }
+    let activeMount: typeof borrowedMount | null = borrowedMount
+    const player = { dead: false, hp: 27, maxHp: 100, staminaValue: 70, facingYaw: 0,
+      get currentMount() { return activeMount }, dismountFromMount: vi.fn(() => { activeMount = null }),
       combatPosition: position, setPosition: vi.fn((x: number, y: number, z: number) => position.set(x, y, z)), faceDirection: vi.fn() }
     const race = Object.create(CareerRaceController.prototype) as CareerRaceController
     Object.assign(race, { session: current.activeRace, mounts: {}, residents: [], obstacles: [], commanded: new Map(),
@@ -356,9 +443,13 @@ describe('Race return and deferred native Town outcomes', () => {
     storage.failWrites = true; direct()
     expect(race.session).toBeDefined(); expect(store.load()!.activeRace).toBeDefined()
     expect(position).toEqual(outside); expect(player.setPosition).not.toHaveBeenCalled(); expect(closePanel).not.toHaveBeenCalled()
+    expect(player.dismountFromMount).not.toHaveBeenCalled(); expect(player.currentMount).toBe(borrowedMount)
     storage.failWrites = false; direct()
     expect(race.session).toBeUndefined(); expect(store.load()!.activeRace).toBeUndefined()
+    expect(player.dismountFromMount).toHaveBeenCalledOnce(); expect(player.currentMount).toBeNull()
+    expect(player.dismountFromMount.mock.invocationCallOrder[0]).toBeLessThan(player.setPosition.mock.invocationCallOrder[0])
     expect(player.setPosition).toHaveBeenCalledOnce(); expect(position).not.toEqual(outside)
+    expect(borrowedMount.group.position).toEqual(outside); expect(borrowedMount.currentHp).toBe(73)
     expect(position.x).toBeGreaterThan(-100); expect(position.x).toBeLessThan(100)
     expect(store.load()!.racePlayerState!.hp).toBe(27); expect(player.hp).toBe(27)
     expect(store.load()!.raceRecords).toEqual(recorded.raceRecords); expect(store.load()!.townEvent).toEqual(recorded.townEvent)

@@ -48,38 +48,38 @@ const T4_POLEARM: Omit<WeaponData, 'id' | 'name'> = {
 
 export const WEAPONS: Record<string, WeaponData> = {
   sword_t5: {
-    id: 'sword_t5', name: "指揮官長劍 Commander's Longsword", type: 'melee', tier: 5,
+    id: 'sword_t5', name: '帝國終誓 Imperial Oathblade', type: 'melee', tier: 5,
     combatKind: 'sword', animationKind: 'sword', damageMin: 80, damageMax: 80,
     speedOrCharge: .48, meleeCycleSeconds: .48, shieldImpact: 1, range: 1.8,
-    description: '指揮官長劍；命中盾面造成 1 點固定衝擊。',
+    description: '帝國終誓長劍；命中盾面造成 1 點固定衝擊。',
   },
   axe_t5: {
-    id: 'axe_t5', name: "指揮官雙刃戰斧 Commander's Double-Bitted Axe", type: 'melee', tier: 5,
+    id: 'axe_t5', name: '戰貓裂爪斧 Warcat Clawreaver', type: 'melee', tier: 5,
     combatKind: 'sword', animationKind: 'axe', damageMin: 80, damageMax: 80,
     speedOrCharge: .54, meleeCycleSeconds: .54, shieldImpact: 15, range: 1.8,
-    description: '指揮官雙刃戰斧；命中盾面造成 15 點固定衝擊，無護甲穿透。',
+    description: '貓咪圖騰的戰貓裂爪斧；命中盾面造成 15 點固定衝擊，無護甲穿透。',
   },
   spear_t5: {
-    id: 'spear_t5', name: "指揮官戰矛 Commander's War Spear", type: 'melee', tier: 5,
+    id: 'spear_t5', name: '破曉神槍 Dawnpiercer Spear', type: 'melee', tier: 5,
     combatKind: 'lance', animationKind: 'lance', damageMin: 95, damageMax: 95,
     speedOrCharge: .42, meleeCycleSeconds: .42, range: 3.9, isLance: true,
     description: '徒步反騎兵傷害 ×2，高速騎乘衝鋒 ×3；騎乘命中盾面造成 80 點衝擊。',
   },
-  spear_t4: { ...T4_POLEARM, id: 'spear_t4', name: "隊長戰矛 Captain's War Spear" },
+  spear_t4: { ...T4_POLEARM, id: 'spear_t4', name: '影鋼破軍槍 Shadowsteel Spear' },
   bow_t5: {
-    id: 'bow_t5', name: "指揮官戰弓 Commander's War Bow", type: 'ranged', tier: 5,
+    id: 'bow_t5', name: '逐星獵弓 Starhunter Bow', type: 'ranged', tier: 5,
     combatKind: 'bow', animationKind: 'bow', damageMin: 50, damageMax: 120,
     speedOrCharge: 1.8, arrowSpeedMin: 45, arrowSpeedMax: 120,
-    description: '指揮官長弓；1.8 秒滿蓄力，沿用既有箭矢與騎射。',
+    description: '逐星獵弓；1.8 秒滿蓄力，沿用既有箭矢與騎射。',
   },
   paladin_sword_t4: {
-    id: 'paladin_sword_t4', name: "隊長長劍 Captain's Longsword", type: 'melee', tier: 4,
+    id: 'paladin_sword_t4', name: '銀誓長劍 Silver Oathblade', type: 'melee', tier: 4,
     combatKind: 'sword', animationKind: 'sword', damageMin: 60, damageMax: 60,
     speedOrCharge: .48, meleeCycleSeconds: .48, shieldImpact: 1, range: 1.8,
     description: '羅馬與維京 T4 共用長劍；命中盾面造成 1 點固定衝擊。',
   },
   paladin_mace_t4: {
-    id: 'paladin_mace_t4', name: "隊長雙刃戰斧 Captain's Double-Bitted Axe", type: 'melee', tier: 4,
+    id: 'paladin_mace_t4', name: '破陣狂斧 Linebreaker Axe', type: 'melee', tier: 4,
     combatKind: 'sword', animationKind: 'axe', damageMin: 55, damageMax: 55,
     speedOrCharge: .54, meleeCycleSeconds: .54, shieldImpact: 12, range: 1.8,
     description: '羅馬與維京 T4 共用雙刃戰斧；可單手或雙手揮砍，命中盾面造成 12 點固定衝擊，無護甲穿透。',
@@ -234,7 +234,7 @@ export const WEAPONS: Record<string, WeaponData> = {
   },
   [T4_RANGER_BOW_RANGED_ID]: {
     id: T4_RANGER_BOW_RANGED_ID,
-    name: '遊俠戰弓 Ranger War Bow',
+    name: '夜影長弓 Nightshade Longbow',
     type: 'ranged',
     tier: 4,
     combatKind: 'bow',

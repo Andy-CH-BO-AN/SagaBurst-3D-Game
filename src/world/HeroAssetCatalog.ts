@@ -16,7 +16,7 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
   },
   'roman-hero-t4': {
     nameZh: '聖騎士', nameEn: 'Paladin',
-    descriptor: { assetId: 'roman-hero-t4', faction: 'roman', heightM: 1.95, maxShoulderWidthM: .50, neckLengthM: .10 },
+    descriptor: { assetId: 'roman-hero-t4', faction: 'roman', heightM: 1.95, maxShoulderWidthM: .50, neckLengthM: .0782356292 },
   },
   'maki-archer-t4': {
     nameZh: '遊俠', nameEn: 'Ranger',
@@ -29,7 +29,7 @@ export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; 
   },
   'viking-hero-t5': {
     nameZh: '維京指揮官', nameEn: 'Viking Commander',
-    descriptor: { assetId: 'viking-hero-t5', faction: 'viking', heightM: 2.1193006331863145, maxShoulderWidthM: .6645790819402477, neckLengthM: .10067855666644003 },
+    descriptor: { assetId: 'viking-hero-t5', faction: 'viking', heightM: 2.1193006331863145, maxShoulderWidthM: .6645790819402477, neckLengthM: .0877771550 },
   },
 }
 

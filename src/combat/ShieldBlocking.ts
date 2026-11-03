@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import { FACTION_SHIELD_BANDS } from './FactionShieldGeometry'
 import type { Mount } from '../world/Mount'
 
 export const SHIELD_CONFIG = {
@@ -131,6 +132,11 @@ const COMMANDER_BANDS = [
 ].map(([bottom, top, halfWidth, back, front]) => new THREE.Box3(
   new THREE.Vector3(-halfWidth, bottom, back), new THREE.Vector3(halfWidth, top, front)))
 
+const factionShieldBands = new Map(Object.entries(FACTION_SHIELD_BANDS).map(([id, slices]) => [id,
+  slices.map(([bottom, top, halfWidth, back, front]) => new THREE.Box3(
+    new THREE.Vector3(-halfWidth, bottom, back), new THREE.Vector3(halfWidth, top, front))),
+]))
+
 /** OBB in shield model space. Never reads triangles or traverses meshes. */
 export class ShieldCollider {
   private readonly inverse = new THREE.Matrix4()
@@ -141,6 +147,13 @@ export class ShieldCollider {
   constructor(private readonly pivot: THREE.Object3D, private readonly state: ShieldState,
     private readonly visibilityAllowed: () => boolean = () => true) {}
   setModel(id: string | null): void {
+    const factionBands = factionShieldBands.get(id ?? '')
+    if (factionBands) {
+      this.bands = factionBands
+      this.box.makeEmpty()
+      for (const band of factionBands) this.box.union(band)
+      return
+    }
     this.bands = id === 'commander_shield_t5' ? COMMANDER_BANDS : id === 'paladin_shield_t4' ? PALADIN_BANDS : undefined
     if (id === 'commander_shield_t5') this.box.set(this.a.set(-.288, -.6, -.102), this.b.set(.288, .6, .157))
     else if (id === 'paladin_shield_t4') this.box.set(this.a.set(-.334, -.55, .123), this.b.set(.334, .55, .301))

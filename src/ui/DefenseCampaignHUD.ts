@@ -10,6 +10,7 @@ export type DefenseCampaignResult = 'victory' | 'defeat'
 
 export interface DefenseCampaignHUDOptions {
   reinforcementsEnabled?: boolean
+  reinforcementArrivalTracked?: boolean
   returnToTown?: boolean
   relief?: boolean
   meritAwarded?: () => number
@@ -168,7 +169,7 @@ export class DefenseCampaignHUD {
       this.timerEl.textContent = this.options.reinforcementsEnabled === false
         ? `戰鬥時間：${Math.floor(snapshot.assaultElapsedSeconds)}s`
         : reinforcementSpawned
-        ? `戰鬥時間：${Math.floor(snapshot.assaultElapsedSeconds)}s · 援軍已全數抵達`
+        ? `戰鬥時間：${Math.floor(snapshot.assaultElapsedSeconds)}s · 援軍已全數${this.options.reinforcementArrivalTracked ? '抵達' : '進場'}`
         : snapshot.reinforcementTriggered
           ? '援軍進場中…'
           : `援軍：${Math.ceil(snapshot.reinforcementRemainingSeconds)}s`

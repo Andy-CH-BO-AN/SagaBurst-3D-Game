@@ -4,7 +4,7 @@ import { snapshotCommandActor, restoreCommandActor } from './CareerCommandActorC
 import { officialActorSquadId, officialCommandIsPlayerControlled } from './CareerCommandAuthority'
 import { officialFollowLocalOffset } from '../battle/FollowOrder'
 import { CAPTAIN_GATE_DEFENSE_ID, CAPTAIN_DEFENSE_GATE, CAPTAIN_DEFENSE_GATE_LABEL, captainGateDefenseActorIds } from './CaptainMissionCatalog'
-import { townMissionMilitaryIds } from '../town/TownEagleGarrison'
+import { townAssaultRequiredActorIds, townMissionMilitaryIds } from '../town/TownEagleGarrison'
 import { shouldSpawnTownCommander, TOWN_COMMANDER_ID } from '../town/TownCommander'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch, type NpcSpawnScheduler } from '../world/NpcSpawnScheduler'
 import * as THREE from 'three'
@@ -189,6 +189,14 @@ export class TownDefenseController {
     const ids = townMissionMilitaryIds(this.residents.map(r => r.spec), this.active ? this.assault ? this.active.targetActorIds : this.active.friendlyActorIds : undefined)
     if (this.active?.kind === 'town-defense' && shouldSpawnTownCommander(this.readProfile())) ids.add(TOWN_COMMANDER_ID)
     return this.residents.filter(r => ids.has(r.spec.id)).map(r => r.npc)
+  }
+  /** Same accepted, fixed-identity objective count used by the assault resolver and HUD. */
+  get remainingAssaultGroundDefenders(): number {
+    const active = this.active
+    if (active?.kind !== 'enemy-town-assault') return 0
+    const required = townAssaultRequiredActorIds(this.residents.map(r => r.spec), active.targetActorIds)
+    const actors = new Map(this.military.map(npc => [npc.combatantId, npc]))
+    return [...required].filter(id => !actors.get(id)?.dead).length
   }
   get playerEnemies(): NPC[] { return this.fieldNpcs.filter(npc => npc.faction === Faction.ENEMY) }
   get phase(): CareerMissionPhase | null { return this.active?.phase ?? null }
@@ -378,8 +386,17 @@ export class TownDefenseController {
     const active = this.active
     if (!active || active.result || active.phase === 'RESULT') return null
     if (this.assault) {
-      if (this.military.length !== active.targetActorIds.length || new Set([...this.enemies.map(npc => npc.combatantId), ...(active.deadFriendlyActorIds ?? [])]).size !== 119) return null
-      return resolveAssaultOutcome(playerDead, this.military.filter(npc => !npc.dead).length, this.enemies.filter(npc => !npc.dead).length + personalAlive)
+      // Saved casualties cannot stand in for this scene's completed restore/deployment.
+      if (!active.siege?.rosterCreated || this.startedMissionId !== active.id) return null
+      const targets = new Set(active.targetActorIds), military = this.military
+      const registered = new Set(military.map(npc => npc.combatantId))
+      const friendlies = new Set(active.friendlyActorIds)
+      const deployed = new Set([...this.enemies.map(npc => npc.combatantId), ...(active.deadFriendlyActorIds ?? [])])
+      if (!targets.size || targets.size !== active.targetActorIds.length || military.length !== targets.size
+        || registered.size !== targets.size || [...targets].some(id => !registered.has(id))
+        || !friendlies.size || friendlies.size !== active.friendlyActorIds.length || deployed.size !== friendlies.size
+        || [...friendlies].some(id => !deployed.has(id))) return null
+      return resolveAssaultOutcome(playerDead, this.remainingAssaultGroundDefenders, this.enemies.filter(npc => !npc.dead).length + personalAlive)
     }
     const expectedIds = new Set(active.targetActorIds)
     const accountedIds = new Set([
@@ -391,6 +408,26 @@ export class TownDefenseController {
     const combatDefendersAlive = [...this.defenders, this.captain, this.ranger, this.sergeant]
       .filter(npc => npc && friendlyIds.has(npc.combatantId) && !npc.dead).length
     return resolveTownDefenseOutcome(playerDead, this.civilianDeaths, registrationComplete, this.remainingEnemies, combatDefendersAlive + personalAlive)
+  }
+
+  /** Result-scoped ceasefire, including riders whose Eagle has died or been left behind.
+   * Return disposes this enemy-town scene; canonical allegiance, health and casualty lists stay intact.
+   */
+  ceaseAssaultAirSupport(): void {
+    const active = this.active
+    if (active?.kind !== 'enemy-town-assault' || active.result?.outcome !== 'victory') return
+    const accepted = new Set(active.targetActorIds)
+    for (const { spec, npc, homeMount } of this.residents) {
+      if (!spec.eagle || !accepted.has(spec.id)) continue
+      // A strike already started by the carrier is independent of the rider's target/animator.
+      npc.mount?.eagleAttack?.cancel()
+      if (homeMount !== npc.mount) homeMount?.eagleAttack?.cancel()
+      if (npc.dead) continue
+      npc.missionMovement = false
+      npc.assignSiegeObstacle(null)
+      npc.setTownPeaceful()
+      npc.setMissionCombatTarget(null)
+    }
   }
 
   snapshot(): BattleStatsSnapshot {
