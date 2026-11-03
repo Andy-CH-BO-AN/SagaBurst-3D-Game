@@ -7,8 +7,10 @@ export type HeroCombatProfileId = T4CombatProfileId | 'roman-commander' | 'vikin
 export interface HeroCombatProfile {
   maxHp: number
   damageMultiplier: number
+  meleeDamageMultiplier?: number
   damageTakenMultiplier: number
   attackSpeedMultiplier: number
+  meleeAttackSpeedMultiplier?: number
   moveSpeedMultiplier: number
   rangedAttackRangeMultiplier: number
 }
@@ -18,7 +20,7 @@ export const HERO_COMBAT_PROFILES: Record<HeroCombatProfileId, HeroCombatProfile
   praetorian: { maxHp: 500, damageMultiplier: 2, damageTakenMultiplier: .7, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1, rangedAttackRangeMultiplier: 1 },
   ranger: { maxHp: 300, damageMultiplier: 1.3, damageTakenMultiplier: 1, attackSpeedMultiplier: 1, moveSpeedMultiplier: 1.3, rangedAttackRangeMultiplier: 2 },
   'roman-commander': { maxHp: 850, damageMultiplier: 2.2, damageTakenMultiplier: .5, attackSpeedMultiplier: 1.15, moveSpeedMultiplier: 1.05, rangedAttackRangeMultiplier: 1 },
-  'viking-commander': { maxHp: 950, damageMultiplier: 2.2, damageTakenMultiplier: .65, attackSpeedMultiplier: 1.55, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 },
+  'viking-commander': { maxHp: 900, damageMultiplier: 2.2, meleeDamageMultiplier: 2.6, damageTakenMultiplier: .8, attackSpeedMultiplier: 1.55, meleeAttackSpeedMultiplier: 1.7, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 },
 }
 
 export const HERO_COMBAT_PROFILE_BY_ASSET: Record<HeroAssetId, HeroCombatProfileId> = {
@@ -35,6 +37,16 @@ export function getHeroCombatModifiers(id?: HeroCombatProfileId | null): HeroCom
 
 export function applyHeroOutgoingDamage(damage: number, id?: HeroCombatProfileId | null): number {
   return damage * (getHeroCombatModifiers(id)?.damageMultiplier ?? 1)
+}
+
+export function applyHeroMeleeDamage(damage: number, id?: HeroCombatProfileId | null): number {
+  const profile = getHeroCombatModifiers(id)
+  return damage * (profile?.meleeDamageMultiplier ?? profile?.damageMultiplier ?? 1)
+}
+
+export function heroMeleeAttackSpeed(id?: HeroCombatProfileId | null): number {
+  const profile = getHeroCombatModifiers(id)
+  return profile?.meleeAttackSpeedMultiplier ?? profile?.attackSpeedMultiplier ?? 1
 }
 
 export function applyHeroIncomingDamage(damage: number, id?: HeroCombatProfileId | null): number {

@@ -1,8 +1,36 @@
 import { describe, expect, it } from 'vitest'
 import { calculateLanceChargeDamage, getAntiCavalryMultiplier, getBerserkerModifiers } from '../../src/combat/CombatBalance'
+import { applyHeroIncomingDamage, applyHeroMeleeDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, heroMeleeAttackSpeed } from '../../src/battle/HeroCombatProfile'
+import { calculatePlayerMeleeDamage } from '../../src/combat/PlayerMeleeDamage'
+import { NPC } from '../../src/world/NPC'
+import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 
 
 describe('Combat damage eligibility', () => {
+  it('uses Viking Commander melee overrides once on Player and NPC while retaining ranged and unshielded eligibility', () => {
+    const input = { baseDamage: WEAPONS.axe_t5.damageMax, combatKind: WEAPONS.axe_t5.combatKind,
+      isLance: false, isMounted: false, mountSpeed: 0, oneHandedMultiplier: 1,
+      faction: 'viking' as const, hasShield: true, heroAssetId: 'viking-hero-t5' as const }
+    // Call the real scalar damage method without constructing an actor or model.
+    const npcDamage = (NPC.prototype as unknown as { _calcLanceDamage(damage: number, mounted: boolean): number })._calcLanceDamage
+    const npc = { meleeCombatKind: 'sword', hasActiveShield: true, characterFaction: 'viking',
+      isMounted: false, pendingLanceChargeSpeed: 0, combatProfileId: 'viking-commander' }
+    expect(calculatePlayerMeleeDamage(input).damage).toBe(208)
+    expect(npcDamage.call(npc, 80, false)).toBe(208)
+    expect(heroMeleeAttackSpeed('viking-commander')).toBe(1.7)
+    expect(getHeroCombatModifiers('viking-commander')).toMatchObject({ maxHp: 900, attackSpeedMultiplier: 1.55, moveSpeedMultiplier: 1.2, rangedAttackRangeMultiplier: 1 })
+    expect(applyHeroOutgoingDamage(80, 'viking-commander')).toBe(176)
+    expect(applyHeroIncomingDamage(100, 'viking-commander')).toBe(80)
+    input.hasShield = npc.hasActiveShield = false
+    expect(calculatePlayerMeleeDamage(input).damage).toBeCloseTo(249.6)
+    expect(npcDamage.call(npc, 80, false)).toBeCloseTo(249.6)
+    const berserker = getBerserkerModifiers('viking', false, 'sword', false)
+    expect(heroMeleeAttackSpeed('viking-commander') * berserker.meleeAttackRateMultiplier).toBe(2.04)
+    for (const [id, damage, speed] of [[null, 80, 1], ['varangian', 160, 1.5], ['praetorian', 160, 1], ['ranger', 104, 1], ['roman-commander', 176, 1.15]] as const) {
+      expect(applyHeroMeleeDamage(80, id)).toBe(damage)
+      expect(heroMeleeAttackSpeed(id)).toBe(speed)
+    }
+  })
   it.each([
     ['unmounted lance against cavalry', 'lance', false, true, 2],
     ['mounted lance against cavalry', 'lance', true, true, 1],

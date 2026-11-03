@@ -10,6 +10,8 @@ import { createCavalrySweepMission } from '../../src/career/CavalrySweep'
 import { migrateCareerHealth } from '../../src/career/CareerHealthMigration'
 import { acceptVeteranMission, createVeteranRoster, restoreVeteranTownCavalryReserveRoster, VETERAN_MISSION_IDS } from '../../src/career/VeteranMission'
 import { MemoryStorage } from '../helpers/memoryStorage'
+import { createCareerDuelMission } from '../../src/career/CareerDuelState'
+import { resolveCareerPlayerMaxHp } from '../../src/career/CareerPlayerProfile'
 
 function legacyCareer() {
   const profile = createCareerProfile('viking')
@@ -24,6 +26,38 @@ function legacyCareer() {
 }
 
 describe('Health persistence', () => {
+  it('durably converts Viking Commander wounds once with skill HP, duel home recovery and a dead mission player intact', () => {
+    const profile = createCareerProfile('viking')
+    profile.rank = 'commander'
+    profile.totalMerit = profile.availableMerit = 60000
+    profile.skills!.oneHanded.level = 4
+    delete profile.commanderHealthVersion
+    profile.duelHighestDefeatedTierByPreset = { viking_sword_cavalry: 4 }
+    profile.playerAerialState = { sceneKey: 'town-home', position: { x: 0, y: 2, z: 0, yaw: 0 }, hp: 477, dead: false }
+    profile.activeMission = { ...createCareerDuelMission(profile, 'viking_sword_cavalry', 5, 'commander', 'captain', 'commander-hp')!,
+      playerHp: 0, duelPlayerHp: 0, playerDead: true, duelOpponentHp: 475,
+      duelCommanderHome: { hp: 760, ammo: 7 }, actorHealth: {
+        commander: { hp: 475, mountHp: 123 }, captain: { hp: 500 },
+      } }
+    profile.townCommanderRecovery = { faction: 'viking', hp: 760, ammo: 7 }
+    const storage = new MemoryStorage(), original = JSON.stringify(profile)
+    storage.setItem(CAREER_STORAGE_KEY, original)
+    const store = new CareerProfileStore(storage)
+    storage.failWrites = true
+    expect(store.loadChecked()).toMatchObject({ profile: null, error: expect.any(String) })
+    expect(storage.getItem(CAREER_STORAGE_KEY)).toBe(original)
+    storage.failWrites = false
+    const migrated = store.loadChecked().profile!
+    expect(resolveCareerPlayerMaxHp(migrated)).toBe(904)
+    expect(migrated.playerAerialState?.hp).toBe(452)
+    expect(migrated.activeMission).toMatchObject({ playerHp: 0, duelPlayerHp: 0, playerDead: true,
+      duelOpponentHp: 450, duelCommanderHome: { hp: 720, ammo: 7 }, actorHealth: {
+        commander: { hp: 450, mountHp: 123 }, captain: { hp: 500 },
+      } })
+    expect(migrated.townCommanderRecovery).toEqual({ faction: 'viking', hp: 720, ammo: 7 })
+    expect(migrated.commanderHealthVersion).toBe(1)
+    expect(store.loadChecked().profile).toEqual(migrated)
+  })
   it('durably migrates ordinary Career wounds once without changing heroes, mounts or deaths', () => {
     const storage = new MemoryStorage()
     storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(legacyCareer()))
