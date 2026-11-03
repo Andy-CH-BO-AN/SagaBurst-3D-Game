@@ -486,6 +486,10 @@ export class TownScene {
         if (latest && latest.tutorial?.careerId === this.profile.tutorial?.careerId) this.profile = latest
         this.dispose(); return true
       }, duel: () => this.acceptTutorialDuel(),
+      closePanel: () => this.closePanel(),
+      openRecruitmentPanel: () => this.openRecruitmentPanel(),
+      openDeploymentPanel: () => this.talk('deployment'),
+      openPanel: (title, text) => this.openPanel(title, text),
     })
     this.personalCommands.onAccepted = event => this.tutorial?.commandAccepted(event)
     this.personalCommandUI.setEnabled(this.commandsEnabled())
@@ -1242,7 +1246,15 @@ export class TownScene {
   private button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement { const b = document.createElement('button'); b.textContent = label; b.className = 'town-button'; b.onclick = action; parent.append(b); return b }
   private talk(id: string, response?: string, shopPage: 'buy' | 'sell' = 'buy', shopCategory: EquipmentCategory = 'melee'): void {
     if (this.player.dead || !this.serviceAvailable(id)) return
-    if (id === 'hr-officer') { this.openRecruitmentPanel(response); return }
+    if (id === 'hr-officer') {
+      if (this.tutorial?.hasDialogue('hr-officer')) {
+        const panel = this.openPanel('HR Officer · 人力資源官', '')
+        panel.querySelector('.town-panel > button')?.remove()
+        this.tutorial.renderDialogue(panel, 'hr-officer')
+        return
+      }
+      this.openRecruitmentPanel(response); return
+    }
     const role = (id === 'eagle-trainer' ? 'ranger' : id) as DialogueRole, key = this.profile.faction + ':' + id
     const firstMeet = !this.profile.townDialogueSeen?.includes(key)
     const outpostKey = this.profile.faction + ':soldier-outpost'
@@ -1255,6 +1267,12 @@ export class TownScene {
     const p = this.profile, context: DialogueContext = { townFaction: p.faction, npcRole: role, playerRank: p.rank, firstMeet, promotionEligible: canAppointCareerRank(p, id) }
     const greeting = response ?? (id === 'eagle-trainer' ? 'xongkoro Eagle Training Ground · 老鷹訓練場\nCaptain / Commander 可用 10,000 軍功購買巨鷹英雄坐騎。請在開闊的起降區召喚；W 起飛，滑鼠轉向，S 減速降落。' : selectTownDialogue(context))
     if (id === 'captain' || id === 'commander') {
+      if (this.tutorial?.hasDialogue(id)) {
+        const panel = this.openPanel(id === 'captain' ? '騎兵隊長' : '指揮官', '')
+        panel.querySelector('.town-panel > button')?.remove()
+        this.tutorial.renderDialogue(panel, id)
+        return
+      }
       const next = CAREER_RANKS[CAREER_RANKS.indexOf(p.rank) + 1], eligible = canAppointCareerRank(p, id)
       const text = formatTownDialogue(selectTownDialogue({ ...context, nextRank: next, promotionEligible: eligible }, 'promotion'), { nextRank: next ?? '', required: next ? CAREER_RANK_THRESHOLDS[next] : 0 })
       const panel = this.openPanel(id === 'commander' ? `${p.faction === 'roman' ? '羅馬' : '維京'}指揮官 · 任命` : '騎兵隊長 · 任命', greeting + (response || greeting === text ? '' : '\n\n' + text))
@@ -1798,7 +1816,14 @@ export class TownScene {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
     const active = this.profile.activeMission
     if (active?.result) { this.openMissionResult(active.result, true); return }
-    const panel = this.openPanel('士官長', greeting)
+    if (this.tutorial?.hasDialogue('deployment')) {
+      const panel = this.openPanel('士官長', '')
+      panel.querySelector('.town-panel > button')?.remove()
+      this.tutorial.renderDialogue(panel, 'deployment')
+      return
+    }
+    const line = this.profile.tutorial?.town.step === 'weapon' ? '先去武器店挑一把趁手的武器，順著指標走就能找到店主。' : greeting
+    const panel = this.openPanel('士官長', line)
     this.tutorial?.appendPanel(panel, 'deployment')
     if (this.townCommand?.commandsEnabled) {
       this.button(panel, '城防部隊整補', () => this.openSquadRefitPanel())
@@ -2229,6 +2254,7 @@ export class TownScene {
     if (!this.duel.startActiveMission()) {
       // Technical deployment failure has no defeat settlement and no consolation reward.
       this.openPanel('新兵切磋部署失敗', '本場尚未結算；重新載入可重試相同切磋，或取消後稍後再來。')
+      this.button(this.panel!, '重試開始切磋', () => this.acceptTutorialDuel())
       this.button(this.panel!, '取消本次切磋', () => this.returnToTown('direct'))
       return
     }
