@@ -33,6 +33,7 @@ import { captureCareerAerialState, restoreCareerAerialState } from '../career/Ca
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { availableCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO } from '../career/CareerInventory'
 import { createTownCareerEquipmentUI } from './TownCareerEquipmentUI'
+import { updateTownEquipmentVisibleStatus } from './TownSquadEquipmentUI'
 import { applyTownEquipmentRuntime, registerTownNativeMount, findTownNativeMount } from './TownEquipmentRuntime'
 import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentContext } from '../career/CareerTownEquipment'
 import { officialCommandHudLabel } from '../career/CommanderTownSquadLabels'
@@ -1124,7 +1125,10 @@ export class TownScene {
           {
             getCurrentProfile: () => this.profile,
             isDisposed: () => this.disposed,
-            onStatusChange: status => { if (this.careerMounts) this.careerMounts.statusText = status },
+            onStatusChange: status => {
+              if (this.careerMounts) this.careerMounts.statusText = status
+              updateTownEquipmentVisibleStatus(status)
+            },
           },
         ))
       this.equipment.open(this.skills, this.inventory, () => this.input.clear(), this.careerMounts, adapters.personal, adapters.town)

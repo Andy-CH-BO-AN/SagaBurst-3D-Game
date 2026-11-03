@@ -9,6 +9,7 @@ import type { EquipmentSquadAdapter, EquipmentTownAdapter } from '../ui/Equipmen
 import type { BulkEquipmentCategory, TownEquipmentSquadId } from '../career/CareerTownEquipment'
 import type { PersonalSquadState } from './TownPersonalSquadController'
 import { personalUnitDisplayName } from '../ui/UnitDisplayName'
+import { getTownEquipmentRuntimeStatus } from './TownEquipmentRuntime'
 
 export function squadEquipmentUI(read: () => CareerProfile, state: () => PersonalSquadState,
   change: (memberId: string, slot: PersonalEquipmentSlot, id: string | null) => string, bulk?: EquipmentBulkAdapter, management?: () => { allowed: boolean; reason: string }): EquipmentSquadAdapter {
@@ -185,7 +186,7 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
       panel.append(heading)
       if (squad.id === 'personal') { bindings.personal.render(panel, refresh); return }
       const notice = document.createElement('p'); notice.className = 'inv-item-desc squad-equipment-summary'
-      notice.setAttribute('role', 'status'); notice.textContent = message || squad.reason || '全隊規劃，不降低任何成員的裝備 Tier；成功保存後套用。'
+      notice.setAttribute('role', 'status'); notice.textContent = message || getTownEquipmentRuntimeStatus() || squad.reason || '全隊規劃，不降低任何成員的裝備 Tier；成功保存後套用。'
       panel.append(notice)
       const currentSquad = () => bindings.read().squads.find(current => current.id === squad.id)
       const initiallyAllowed = view.allowed && Boolean(squad.refittable) && !squad.reason
@@ -235,6 +236,19 @@ export function townEquipmentUI(bindings: TownEquipmentUIBindings): EquipmentTow
       }
     },
   }
+}
+
+/** Updates visible town equipment status elements immediately without triggering full UI rebuilds. */
+export function updateTownEquipmentVisibleStatus(status: string): boolean {
+  if (typeof document === 'undefined') return false
+  const targets = document.querySelectorAll<HTMLElement>(
+    '#town-equipment-current [role="status"], #town-equipment-current .squad-equipment-summary, #character-modal [role="status"]'
+  )
+  if (!targets.length) return false
+  targets.forEach(target => {
+    target.textContent = status
+  })
+  return true
 }
 
 /** Shared wording for HR and Town results, including no-op and failed atomic saves. */

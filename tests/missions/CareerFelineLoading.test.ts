@@ -6,6 +6,7 @@ import { CareerRaceController } from '../../src/career/CareerRaceController'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { applyTownEquipmentRuntime, getTownEquipmentRuntimeStatus, resetTownEquipmentRuntimeState } from '../../src/town/TownEquipmentRuntime'
+import { updateTownEquipmentVisibleStatus } from '../../src/town/TownSquadEquipmentUI'
 import type { TownCombatResident } from '../../src/town/TownMissionCombat'
 import type { Mount } from '../../src/world/Mount'
 
@@ -187,12 +188,13 @@ describe('Town feline equipment asynchronous refit', () => {
     const previous = createCareerProfile('roman')
     previous.rank = 'commander'
     addCareerItem(previous, 'horse', 2)
+    addCareerItem(previous, 'paladin_sword_t4', 1)
     previous.townEquipment = {
       roman: {
         version: 1,
         nativeReserve: [],
         actors: {
-          [actorId]: { melee: null, ranged: null, shield: null, mount: { itemId: 'horse', source: 'inventory' } },
+          [actorId]: { melee: { itemId: 'paladin_sword_t4', source: 'inventory' }, ranged: null, shield: null, mount: { itemId: 'horse', source: 'inventory' } },
         },
       },
     }
@@ -201,12 +203,13 @@ describe('Town feline equipment asynchronous refit', () => {
     current.rank = 'commander'
     addCareerItem(current, 'horse', 1)
     addCareerItem(current, 'serval', 1)
+    addCareerItem(current, 'paladin_sword_t4', 1)
     current.townEquipment = {
       roman: {
         version: 1,
         nativeReserve: [],
         actors: {
-          [actorId]: { melee: null, ranged: null, shield: null, mount: { itemId: 'serval', source: 'inventory' } },
+          [actorId]: { melee: { itemId: 'paladin_sword_t4', source: 'inventory' }, ranged: null, shield: null, mount: { itemId: 'serval', source: 'inventory' } },
         },
       },
     }
@@ -250,7 +253,7 @@ describe('Town feline equipment asynchronous refit', () => {
         version: 1,
         nativeReserve: [],
         actors: {
-          [actorId]: { melee: null, ranged: null, shield: null, mount: { itemId: 'caracal', source: 'inventory' } },
+          [actorId]: { melee: { itemId: 'paladin_sword_t4', source: 'inventory' }, ranged: null, shield: null, mount: { itemId: 'caracal', source: 'inventory' } },
         },
       },
     }
@@ -296,5 +299,156 @@ describe('Town feline equipment asynchronous refit', () => {
     expect(mount.dispose).not.toHaveBeenCalled()
     expect(getTownEquipmentRuntimeStatus()).toBe('配置保存成功，坐騎資源載入失敗，可重試套用')
     expect(onStatusChange).toHaveBeenCalledWith('配置保存成功，坐騎資源載入失敗，可重試套用')
+  })
+
+  it('reconciles overlapping weapon refit during in-flight feline preload using physical mount baseline', async () => {
+    const actorId = 'cavalry-training:melee_cavalry:0'
+    const { resident, mount, mounts, scene, npc } = townResidentFixture(actorId)
+    const { previous, current } = profilesFixture(actorId)
+
+    // Call 1: Serval is selected, loading starts
+    let liveProfile = current
+    const pending1 = applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
+      getCurrentProfile: () => liveProfile,
+    })
+    expect(pending1).toBe(1)
+    expect(resident.homeMount).toBe(mount) // Still physical horse
+
+    // Call 2: While Serval is still loading, player equips T5 sword for same resident
+    const updatedWithWeapon = structuredClone(current)
+    addCareerItem(updatedWithWeapon, 'sword_t5', 1)
+    updatedWithWeapon.townEquipment!.roman!.actors[actorId]!.melee = { itemId: 'sword_t5', source: 'inventory' }
+    liveProfile = updatedWithWeapon
+
+    const pending2 = applyTownEquipmentRuntime(scene as any, [resident], mounts, current, updatedWithWeapon, [actorId], {
+      getCurrentProfile: () => liveProfile,
+    })
+    expect(pending2).toBe(1)
+    expect(resident.homeMount).toBe(mount) // Still physical horse
+
+    // When Serval finishes preloading:
+    gates.get('serval')!.resolve(); await flush()
+
+    // Both physical mount (Serval) and weapon (T5 sword) are applied!
+    expect(resident.homeMount).not.toBe(mount)
+    expect(resident.npc.mount).toBe(resident.homeMount)
+    expect(npc.applyCareerEquipment).toHaveBeenCalledWith(
+      expect.objectContaining({ meleeWeaponId: 'sword_t5', mountId: 'serval' }),
+      expect.any(Number),
+    )
+    expect(getTownEquipmentRuntimeStatus()).toBe('配置已套用。')
+  })
+
+  it('reports deferred status and leaves physical mount unchanged when resident enters combat during feline preload', async () => {
+    const actorId = 'cavalry-training:melee_cavalry:0'
+    const { resident, mount, mounts, scene, npc } = townResidentFixture(actorId)
+    const { previous, current } = profilesFixture(actorId)
+
+    const onStatusChange = vi.fn()
+    const onPreloadComplete = vi.fn()
+    applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
+      onStatusChange,
+      onPreloadComplete,
+    })
+
+    // Resident enters combat before preload completes
+    npc.inCombat = true
+
+    gates.get('serval')!.resolve(); await flush()
+    expect(resident.homeMount).toBe(mount)
+    expect(npc.dismountFromMount).not.toHaveBeenCalled()
+    expect(getTownEquipmentRuntimeStatus()).toBe('配置已保存，待下次回城套用。')
+    expect(onStatusChange).toHaveBeenCalledWith('配置已保存，待下次回城套用。')
+    expect(onPreloadComplete).toHaveBeenCalledWith({
+      success: false,
+      status: '配置已保存，待下次回城套用。',
+      actorIds: [],
+    })
+  })
+
+  it('reports cancelled status when resident target mount is changed before preload finishes', async () => {
+    const actorId = 'cavalry-training:melee_cavalry:0'
+    const { resident, mount, mounts, scene } = townResidentFixture(actorId)
+    const { previous, current } = profilesFixture(actorId)
+
+    const cancelled = structuredClone(current)
+    cancelled.townEquipment!.roman!.actors[actorId]!.mount = { itemId: 'caracal', source: 'inventory' }
+    let liveProfile = current
+
+    const onStatusChange = vi.fn()
+    const onPreloadComplete = vi.fn()
+    applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
+      getCurrentProfile: () => liveProfile,
+      onStatusChange,
+      onPreloadComplete,
+    })
+
+    liveProfile = cancelled
+
+    gates.get('serval')!.resolve(); await flush()
+    expect(resident.homeMount).toBe(mount)
+    expect(getTownEquipmentRuntimeStatus()).toBe('配置已取消。')
+    expect(onStatusChange).toHaveBeenCalledWith('配置已取消。')
+    expect(onPreloadComplete).toHaveBeenCalledWith({
+      success: false,
+      status: '配置已取消。',
+      actorIds: [],
+    })
+  })
+
+  it('ignores superseded preload completion without overwriting active request status', async () => {
+    const actorId = 'cavalry-training:melee_cavalry:0'
+    const { resident, mount, mounts, scene } = townResidentFixture(actorId)
+    const { previous, current } = profilesFixture(actorId)
+
+    const onStatusChange = vi.fn()
+    applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId], {
+      onStatusChange,
+    })
+
+    // Newer request arrives with caracal
+    const caracalProfile = structuredClone(current)
+    addCareerItem(caracalProfile, 'caracal', 1)
+    caracalProfile.townEquipment!.roman!.actors[actorId]!.mount = { itemId: 'caracal', source: 'inventory' }
+
+    let liveProfile = caracalProfile
+    applyTownEquipmentRuntime(scene as any, [resident], mounts, current, caracalProfile, [actorId], {
+      getCurrentProfile: () => liveProfile,
+      onStatusChange,
+    })
+
+    onStatusChange.mockClear()
+
+    // Serval finishes (superseded)
+    gates.get('serval')!.resolve(); await flush()
+    expect(onStatusChange).not.toHaveBeenCalled()
+    expect(resident.homeMount).toBe(mount)
+
+    // Caracal finishes (active)
+    gates.get('caracal')!.resolve(); await flush()
+    expect(onStatusChange).toHaveBeenCalledWith('配置已套用。')
+    expect(resident.homeMount).not.toBe(mount)
+  })
+
+  it('updates visible town equipment status elements directly without requiring full UI rebuild', () => {
+    const statusElem = { textContent: '舊狀態' }
+    const summaryElem = { textContent: '舊狀態' }
+    const modalStatusElem = { textContent: '舊狀態' }
+
+    const fakeDoc = {
+      querySelectorAll: vi.fn((selector: string) => {
+        if (selector.includes('#town-equipment-current [role="status"]')) {
+          return [statusElem, summaryElem, modalStatusElem] as any
+        }
+        return [] as any
+      }),
+    }
+    vi.stubGlobal('document', fakeDoc)
+
+    const updated = updateTownEquipmentVisibleStatus('配置已套用。')
+    expect(updated).toBe(true)
+    expect(statusElem.textContent).toBe('配置已套用。')
+    expect(summaryElem.textContent).toBe('配置已套用。')
+    expect(modalStatusElem.textContent).toBe('配置已套用。')
   })
 })

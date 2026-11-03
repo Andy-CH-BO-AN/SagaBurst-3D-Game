@@ -25,13 +25,16 @@ export interface TownEquipmentRuntimeOptions {
 
 export let townEquipmentRuntimeStatus = ''
 export function getTownEquipmentRuntimeStatus(): string { return townEquipmentRuntimeStatus }
-export function resetTownEquipmentRuntimeState(): void {
-  townEquipmentRuntimeStatus = ''
-  pendingActorPreloadTokens.clear()
-}
 
 const pendingActorPreloadTokens = new Map<string, number>()
 let actorPreloadTokenSeq = 0
+const residentPhysicalMountRefs = new Map<string, TownEquipmentRef | null>()
+
+export function resetTownEquipmentRuntimeState(): void {
+  townEquipmentRuntimeStatus = ''
+  pendingActorPreloadTokens.clear()
+  residentPhysicalMountRefs.clear()
+}
 
 type CivilianPlacementChecker = (point: { x: number; z: number }, actorId: string, reusedMount?: Mount | null, vacatingMounts?: readonly Mount[]) => boolean
 
@@ -46,10 +49,24 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
   const canPlaceMountedCivilian = resolvedOptions.canPlaceMountedCivilian
 
   const selected = new Set(actorIds)
-  const plans = residents.filter(resident => selected.has(resident.spec.id)).map(resident => ({ resident,
-    before: resolveTownActorEquipment(previous, previous.faction, resident.spec.id),
-    after: resolveTownActorEquipment(current, current.faction, resident.spec.id),
-  }))
+  const plans = residents.filter(resident => selected.has(resident.spec.id)).map(resident => {
+    if (!residentPhysicalMountRefs.has(resident.spec.id)) {
+      const initialBefore = resolveTownActorEquipment(previous, previous.faction, resident.spec.id)
+      residentPhysicalMountRefs.set(resident.spec.id, initialBefore.refs.mount)
+    }
+    const physicalMountRef = residentPhysicalMountRefs.get(resident.spec.id)!
+    const before = resolveTownActorEquipment(previous, previous.faction, resident.spec.id)
+    const after = resolveTownActorEquipment(current, current.faction, resident.spec.id)
+    return {
+      resident,
+      before: {
+        ...before,
+        refs: { ...before.refs, mount: physicalMountRef },
+        loadout: { ...before.loadout, mountId: physicalMountRef?.itemId ?? null },
+      },
+      after,
+    }
+  })
   // A late lifecycle change defers the whole committed batch without touching old physical equipment.
   if (plans.some(({ resident, after }) => !resident.npc.canApplyCareerEquipment(after.loadout)
     || resident.npc.inCombat || resident.npc.mount?.isAirborne || resident.homeMount?.isAirborne
@@ -67,27 +84,47 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
       .then(() => {
         if (resolvedOptions.isDisposed?.() || (scene as { disposed?: boolean })?.disposed) return
         const latestProfile = resolvedOptions.getCurrentProfile ? resolvedOptions.getCurrentProfile() : current
+
+        const validPlans = plans.filter(plan => pendingActorPreloadTokens.get(plan.resident.spec.id) === token)
+        if (validPlans.length === 0) return
+
         const eligibleActorIds: string[] = []
-        for (const plan of plans) {
+        let hasCancelled = false
+        for (const plan of validPlans) {
           const actorId = plan.resident.spec.id
-          if (pendingActorPreloadTokens.get(actorId) !== token) continue
           const currentPlanTarget = plan.after
           const liveTarget = resolveTownActorEquipment(latestProfile, latestProfile.faction, actorId)
           if (liveTarget.loadout.mountId !== currentPlanTarget.loadout.mountId
             || JSON.stringify(liveTarget.refs.mount) !== JSON.stringify(currentPlanTarget.refs.mount)) {
+            hasCancelled = true
             continue
           }
           if (plan.resident.npc.dead || plan.resident.npc.inCombat) continue
           eligibleActorIds.push(actorId)
         }
-        if (eligibleActorIds.length > 0) {
-          applyTownEquipmentRuntime(scene, residents, mounts, previous, latestProfile, eligibleActorIds, resolvedOptions)
+
+        if (eligibleActorIds.length === 0) {
+          const status = hasCancelled ? '配置已取消。' : '配置已保存，待下次回城套用。'
+          townEquipmentRuntimeStatus = status
+          resolvedOptions.onStatusChange?.(status)
+          resolvedOptions.onPreloadComplete?.({ success: false, status, actorIds: [] })
+          return
         }
-        townEquipmentRuntimeStatus = '配置已套用。'
-        resolvedOptions.onStatusChange?.(townEquipmentRuntimeStatus)
-        resolvedOptions.onPreloadComplete?.({ success: true, status: townEquipmentRuntimeStatus, actorIds: eligibleActorIds })
+
+        const pendingCount = applyTownEquipmentRuntime(scene, residents, mounts, previous, latestProfile, eligibleActorIds, resolvedOptions)
+        if (pendingCount > 0) {
+          townEquipmentRuntimeStatus = '配置已保存，待下次回城套用。'
+          resolvedOptions.onStatusChange?.(townEquipmentRuntimeStatus)
+          resolvedOptions.onPreloadComplete?.({ success: false, status: townEquipmentRuntimeStatus, actorIds: eligibleActorIds })
+        } else {
+          townEquipmentRuntimeStatus = '配置已套用。'
+          resolvedOptions.onStatusChange?.(townEquipmentRuntimeStatus)
+          resolvedOptions.onPreloadComplete?.({ success: true, status: townEquipmentRuntimeStatus, actorIds: eligibleActorIds })
+        }
       })
       .catch((error: unknown) => {
+        const isStillActive = actorIds.some(id => pendingActorPreloadTokens.get(id) === token)
+        if (!isStillActive) return
         townEquipmentRuntimeStatus = '配置保存成功，坐騎資源載入失敗，可重試套用'
         resolvedOptions.onStatusChange?.(townEquipmentRuntimeStatus)
         resolvedOptions.onPreloadComplete?.({ success: false, status: townEquipmentRuntimeStatus, actorIds, error })
@@ -151,19 +188,24 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
   let pending = 0
   for (const { resident, after } of plans) {
     if (!resident.npc.applyCareerEquipment(after.loadout, after.tier)) { pending++; continue }
-    if (mountChanges.some(plan => plan.resident === resident) && after.loadout.mountId) {
-      const key = JSON.stringify(after.refs.mount)
-      const reused = released.get(key)?.shift() ?? findTownNativeMount(mounts, after.refs.mount)
-      const point = mountPoints.get(resident) ?? resident.npc.combatPosition
-      const mount = reused ?? new Mount(scene, careerMountType(after.loadout.mountId as CareerMountId), point.x, point.z, undefined, horseVariantForStableKey(`town:${current.faction}:${resident.spec.id}`))
-      if (after.refs.mount?.source === 'native') registerTownNativeMount(mount, after.refs.mount.nativeId!)
-      mount.reservedForTown = true
-      mount.group.position.set(point.x, getTerrainHeight(point.x, point.z), point.z)
-      mount.group.rotation.y = resident.npc.group.rotation.y
-      if (!reused) mounts.push(mount)
-      resident.homeMount = mount
-      resident.npc.mountVehicle(mount)
-      if (resident.npc.mount !== mount) pending++
+    if (mountChanges.some(plan => plan.resident === resident)) {
+      if (after.loadout.mountId) {
+        const key = JSON.stringify(after.refs.mount)
+        const reused = released.get(key)?.shift() ?? findTownNativeMount(mounts, after.refs.mount)
+        const point = mountPoints.get(resident) ?? resident.npc.combatPosition
+        const mount = reused ?? new Mount(scene, careerMountType(after.loadout.mountId as CareerMountId), point.x, point.z, undefined, horseVariantForStableKey(`town:${current.faction}:${resident.spec.id}`))
+        if (after.refs.mount?.source === 'native') registerTownNativeMount(mount, after.refs.mount.nativeId!)
+        mount.reservedForTown = true
+        mount.group.position.set(point.x, getTerrainHeight(point.x, point.z), point.z)
+        mount.group.rotation.y = resident.npc.group.rotation.y
+        if (!reused) mounts.push(mount)
+        resident.homeMount = mount
+        resident.npc.mountVehicle(mount)
+        if (resident.npc.mount !== mount) pending++
+        residentPhysicalMountRefs.set(resident.spec.id, after.refs.mount)
+      } else {
+        residentPhysicalMountRefs.set(resident.spec.id, null)
+      }
     }
     resident.npc.setTownPeaceful()
   }
