@@ -35,7 +35,7 @@ beforeEach(() => {
     return new Promise<void>((resolve, reject) => gates.set(variant, { resolve: () => { loaded.add(variant); resolve() }, reject }))
   })
 })
-afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers() })
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
 const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0))
 
@@ -430,25 +430,57 @@ describe('Town feline equipment asynchronous refit', () => {
     expect(resident.homeMount).not.toBe(mount)
   })
 
-  it('updates visible town equipment status elements directly without requiring full UI rebuild', () => {
+  it('does not leak a resident physical mount baseline into a new Town scene with the same actor ID', () => {
+    const actorId = 'cavalry-training:melee_cavalry:0'
+    loaded.add('serval')
+    const { previous, current } = profilesFixture(actorId)
+    const first = townResidentFixture(actorId)
+    expect(applyTownEquipmentRuntime(first.scene as any, [first.resident], first.mounts, previous, current, [actorId])).toBe(0)
+    expect(first.resident.homeMount).not.toBe(first.mount)
+
+    // New scene reuses the actor ID, but this resident is still physically on Horse.
+    const second = townResidentFixture(actorId)
+    const changedWeapon = structuredClone(previous)
+    addCareerItem(changedWeapon, 'sword_t5', 1)
+    changedWeapon.townEquipment!.roman!.actors[actorId]!.melee = { itemId: 'sword_t5', source: 'inventory' }
+    expect(applyTownEquipmentRuntime(second.scene as any, [second.resident], second.mounts, previous, changedWeapon, [actorId])).toBe(0)
+    expect(second.resident.homeMount).toBe(second.mount)
+    expect(second.npc.dismountFromMount).not.toHaveBeenCalled()
+    expect(second.mount.dispose).not.toHaveBeenCalled()
+  })
+
+  it('does not mark an unsuccessful mountVehicle as physically applied, allowing a later refit to retry', () => {
+    const actorId = 'cavalry-training:melee_cavalry:0'
+    loaded.add('serval')
+    const { resident, mounts, scene, npc } = townResidentFixture(actorId)
+    const { previous, current } = profilesFixture(actorId)
+    npc.mountVehicle.mockImplementationOnce(() => {}) // First mount attempt fails.
+    expect(applyTownEquipmentRuntime(scene as any, [resident], mounts, previous, current, [actorId])).toBe(1)
+    expect(npc.mount).not.toBe(resident.homeMount)
+
+    const next = structuredClone(current)
+    addCareerItem(next, 'sword_t5', 1)
+    next.townEquipment!.roman!.actors[actorId]!.melee = { itemId: 'sword_t5', source: 'inventory' }
+    expect(applyTownEquipmentRuntime(scene as any, [resident], mounts, current, next, [actorId])).toBe(0)
+    expect(npc.mount).toBe(resident.homeMount)
+  })
+
+  it('updates only the dedicated Town refit status and preserves fixed-equipment descriptions', () => {
     const statusElem = { textContent: '舊狀態' }
-    const summaryElem = { textContent: '舊狀態' }
-    const modalStatusElem = { textContent: '舊狀態' }
+    const fixedEquipmentDescription = { textContent: '固定 T5 武器／T4 盾牌' }
+    const otherModalStatus = { textContent: '其他功能狀態' }
 
     const fakeDoc = {
       querySelectorAll: vi.fn((selector: string) => {
-        if (selector.includes('#town-equipment-current [role="status"]')) {
-          return [statusElem, summaryElem, modalStatusElem] as any
-        }
-        return [] as any
+        expect(selector).toBe('#town-equipment-current [data-town-equipment-status]')
+        return [statusElem] as any
       }),
     }
     vi.stubGlobal('document', fakeDoc)
 
-    const updated = updateTownEquipmentVisibleStatus('配置已套用。')
-    expect(updated).toBe(true)
+    expect(updateTownEquipmentVisibleStatus('配置已套用。')).toBe(true)
     expect(statusElem.textContent).toBe('配置已套用。')
-    expect(summaryElem.textContent).toBe('配置已套用。')
-    expect(modalStatusElem.textContent).toBe('配置已套用。')
+    expect(fixedEquipmentDescription.textContent).toBe('固定 T5 武器／T4 盾牌')
+    expect(otherModalStatus.textContent).toBe('其他功能狀態')
   })
 })

@@ -26,14 +26,16 @@ export interface TownEquipmentRuntimeOptions {
 export let townEquipmentRuntimeStatus = ''
 export function getTownEquipmentRuntimeStatus(): string { return townEquipmentRuntimeStatus }
 
-const pendingActorPreloadTokens = new Map<string, number>()
+// A resident object belongs to one Town scene. Never key async refits by actor ID:
+// a new scene may reuse the ID while owning a different physical mount.
+let pendingActorPreloadTokens = new WeakMap<TownCombatResident, number>()
 let actorPreloadTokenSeq = 0
-const residentPhysicalMountRefs = new Map<string, TownEquipmentRef | null>()
+let residentPhysicalMountRefs = new WeakMap<TownCombatResident, TownEquipmentRef | null>()
 
 export function resetTownEquipmentRuntimeState(): void {
   townEquipmentRuntimeStatus = ''
-  pendingActorPreloadTokens.clear()
-  residentPhysicalMountRefs.clear()
+  pendingActorPreloadTokens = new WeakMap()
+  residentPhysicalMountRefs = new WeakMap()
 }
 
 type CivilianPlacementChecker = (point: { x: number; z: number }, actorId: string, reusedMount?: Mount | null, vacatingMounts?: readonly Mount[]) => boolean
@@ -50,11 +52,11 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
 
   const selected = new Set(actorIds)
   const plans = residents.filter(resident => selected.has(resident.spec.id)).map(resident => {
-    if (!residentPhysicalMountRefs.has(resident.spec.id)) {
+    if (!residentPhysicalMountRefs.has(resident)) {
       const initialBefore = resolveTownActorEquipment(previous, previous.faction, resident.spec.id)
-      residentPhysicalMountRefs.set(resident.spec.id, initialBefore.refs.mount)
+      residentPhysicalMountRefs.set(resident, initialBefore.refs.mount)
     }
-    const physicalMountRef = residentPhysicalMountRefs.get(resident.spec.id)!
+    const physicalMountRef = residentPhysicalMountRefs.get(resident)!
     const before = resolveTownActorEquipment(previous, previous.faction, resident.spec.id)
     const after = resolveTownActorEquipment(current, current.faction, resident.spec.id)
     return {
@@ -79,13 +81,13 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
   }
   if (unloaded.size) {
     const token = ++actorPreloadTokenSeq
-    for (const actorId of actorIds) pendingActorPreloadTokens.set(actorId, token)
+    for (const plan of plans) pendingActorPreloadTokens.set(plan.resident, token)
     void BlackCatVisual.preloadVariants(unloaded)
       .then(() => {
         if (resolvedOptions.isDisposed?.() || (scene as { disposed?: boolean })?.disposed) return
         const latestProfile = resolvedOptions.getCurrentProfile ? resolvedOptions.getCurrentProfile() : current
 
-        const validPlans = plans.filter(plan => pendingActorPreloadTokens.get(plan.resident.spec.id) === token)
+        const validPlans = plans.filter(plan => pendingActorPreloadTokens.get(plan.resident) === token)
         if (validPlans.length === 0) return
 
         const eligibleActorIds: string[] = []
@@ -123,7 +125,8 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
         }
       })
       .catch((error: unknown) => {
-        const isStillActive = actorIds.some(id => pendingActorPreloadTokens.get(id) === token)
+        if (resolvedOptions.isDisposed?.() || (scene as { disposed?: boolean })?.disposed) return
+        const isStillActive = plans.some(plan => pendingActorPreloadTokens.get(plan.resident) === token)
         if (!isStillActive) return
         townEquipmentRuntimeStatus = '配置保存成功，坐騎資源載入失敗，可重試套用'
         resolvedOptions.onStatusChange?.(townEquipmentRuntimeStatus)
@@ -131,7 +134,7 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
       })
     return plans.length
   }
-  for (const actorId of actorIds) pendingActorPreloadTokens.delete(actorId)
+  for (const plan of plans) pendingActorPreloadTokens.delete(plan.resident)
   const selectedActors = new Set(plans.map(plan => plan.resident.npc))
   if (plans.some(({ after }) => {
     const physical = findTownNativeMount(mounts, after.refs.mount)
@@ -201,10 +204,10 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
         if (!reused) mounts.push(mount)
         resident.homeMount = mount
         resident.npc.mountVehicle(mount)
-        if (resident.npc.mount !== mount) pending++
-        residentPhysicalMountRefs.set(resident.spec.id, after.refs.mount)
+        if (resident.npc.mount === mount) residentPhysicalMountRefs.set(resident, after.refs.mount)
+        else pending++
       } else {
-        residentPhysicalMountRefs.set(resident.spec.id, null)
+        residentPhysicalMountRefs.set(resident, null)
       }
     }
     resident.npc.setTownPeaceful()
