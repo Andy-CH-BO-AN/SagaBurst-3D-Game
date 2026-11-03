@@ -57,7 +57,7 @@ export function resolveT4UnitLoadout(presetId: UnitPresetId): UnitLoadout {
         base[slot] = weapon.animationKind === 'axe' ? 'paladin_mace_t4' : 'paladin_sword_t4'
       }
     }
-    if (base.shieldId) base.shieldId = 'paladin_shield_t4'
+    if (base.shieldId) base.shieldId = profile.visualAssetId === 'roman-hero-t4' ? 'roman_officer_shield_t4' : 'paladin_shield_t4'
   }
   return { ...base, mountId: profile.mountOverride,
     ...(profile.specialCombatProfile === 'maki-ranger'

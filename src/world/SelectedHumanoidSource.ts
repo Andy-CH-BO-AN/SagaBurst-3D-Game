@@ -92,6 +92,8 @@ export function prepareSelectedHumanoidSource(gltf: GLTF, source: SelectedHumano
       sole_l: 'foot_l', sole_r: 'foot_r',
     }
     for (const [name, parentName] of Object.entries(sockets)) {
+      // Offline-normalized Mixamo deliveries already retain their calibrated sockets.
+      if (scene.getObjectByName(name)) continue
       const parent = scene.getObjectByName(parentName)
       if (!parent) throw new Error(`Selected source missing ${parentName}`)
       const socket = new THREE.Object3D()

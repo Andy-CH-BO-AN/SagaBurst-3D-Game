@@ -11,6 +11,8 @@ import { findEagleLandingPosition, type EagleLandingPoint } from '../world/Eagle
 import { syncCareerEaglePads, EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from './EaglePadReservations'
 import { getTerrainHeight, getScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
 
+export const CAREER_MOUNT_INTERACTION_DISTANCE = 3
+
 const MOUNTS: Readonly<Record<ReturnType<typeof canonicalCareerMountId>, Omit<EquipmentMountItem, 'active' | 'available'>>> = {
   horse: { id: 'horse', name: '軍用戰馬', tier: 1 },
   'black-cat': { id: 'black-cat', name: '黑貓英雄坐騎', tier: 4 },

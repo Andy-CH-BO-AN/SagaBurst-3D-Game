@@ -7,7 +7,7 @@ import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODContr
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
 import { createPaladinEquipment } from './PaladinEquipment'
-import { createT4Polearm, createT5BowBody, createT5Melee, createT5Shield } from './HighTierEquipment'
+import { createT4Polearm, createT5BowBody, createT5Melee, createT5Shield, createFactionShield } from './HighTierEquipment'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -674,9 +674,10 @@ export class WeaponMeshFactory {
     const bronze = proceduralMaterial({ kind: 'bronze', color: 0xa47b42, roughness: 0.43, metalness: 0.72 })
     const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
 
-    if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5') {
+    const factionShield = shieldId === 'roman_officer_shield_t4' || shieldId === 'viking_berserker_shield_t5'
+    if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5' || factionShield) {
       const commander = shieldId === 'commander_shield_t5'
-      pivot.add(commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'))
+      pivot.add(factionShield ? createFactionShield(shieldId) : commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'))
       // Laurelguard's front is +Z, but its central rear is near Z=0 rather than
       // Paladin's +.13. Keep the original GLB axes and move only its rear grip.
       const gripZ = commander ? -.085 : .085

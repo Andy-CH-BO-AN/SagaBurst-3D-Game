@@ -1,0 +1,24 @@
+{
+  "source": {
+    "title": "Viking Warrior",
+    "sourceFile": "Meshy_AI_viking_warrior_30k_All_Animations.glb",
+    "sourceSha256": "364e19160ba66ae344be73e3d4c8c5e5437b3caab7d339a979aabefd60cb46e2",
+    "license": "User-supplied Meshy asset; user confirmed use and GitHub redistribution rights, 2026-11-02",
+    "licenseEvidence": "attribution-evidence.json",
+    "filenameEvidence": {
+      "specificationFilename": "Meshy_AI_viking_warrior_30k_All_Animations(1).glb",
+      "suppliedAttachmentFilename": "Meshy_AI_viking_warrior_30k_All_Animations.glb",
+      "buildInputFilename": "Meshy_AI_viking_warrior_30k_All_Animations.glb",
+      "verifiedBuildInputSha256": "364e19160ba66ae344be73e3d4c8c5e5437b3caab7d339a979aabefd60cb46e2",
+      "renamedForBuild": false,
+      "comparisonFileAvailable": false,
+      "resolution": "The original conversation attachment and actual Downloads input both omit (1). The user clarified the reviewer filename was likely mistaken on 2026-11-03. Only this supplied file was used; no second (1) file was supplied or found, so byte equality with a differently named file is not asserted."
+    }
+  },
+  "rightsEvidence": "User explicitly confirmed generation/use and GitHub publication rights in this Codex conversation on 2026-11-02.",
+  "animationDonor": {
+    "revision": "7cb61c07f9daf41cccd35287a6cc842955c3f137",
+    "manifest": "animation-donor-manifest.json"
+  },
+  "sourceDistribution": "Original supplied downloads remain outside the shipped runtime bundle; normalized derivative GLBs only."
+}
