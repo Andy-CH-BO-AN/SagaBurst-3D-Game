@@ -1,9 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Vector3 } from 'three'
 import { BlackCatVisual, type FelineMountVariant } from '../../src/world/BlackCatVisual'
-import { CareerMountController } from '../../src/career/CareerMountController'
+import { CareerMountController, careerFelineVariants } from '../../src/career/CareerMountController'
 import { CareerRaceController } from '../../src/career/CareerRaceController'
-import { careerFelineVariants } from '../../src/career/CareerFelinePreload'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { addCareerItem } from '../../src/career/CareerInventory'
 
