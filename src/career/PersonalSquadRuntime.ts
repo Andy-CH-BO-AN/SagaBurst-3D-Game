@@ -6,12 +6,16 @@ import type { TacticalOrder } from '../battle/TacticalOrder'
 import * as THREE from 'three'
 import { PERSONAL_SQUAD_ID } from '../battle/CommandTarget'
 import { followLocalOffset } from '../battle/FollowOrder'
-import { T4_UNIT_PROFILES } from '../battle/T4HeroCatalog'
-import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
+import { resolveCharacterIdentity } from '../combat/CharacterIdentity'
+import { HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
+import { HERO_ASSETS } from '../world/HeroAssetCatalog'
+import { preloadMakiRangerBow } from '../world/MakiRangerEquipment'
+import { preloadHighTierEquipment } from '../world/HighTierEquipment'
+import { preloadPaladinEquipment } from '../world/PaladinEquipment'
 import type { UnitPresetId } from '../battle/UnitPresetCatalog'
 import type { CombatEventSink } from '../combat/CombatAttribution'
 import type { Player } from '../player/Player'
-import { WEAPONS } from '../rpg/WeaponDatabase'
+import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { Mount } from '../world/Mount'
 import { NPC, AIType, Faction } from '../world/NPC'
 import { getTerrainHeight } from '../world/Terrain'
@@ -28,31 +32,44 @@ import { snapshotPersonalMission, clonePersonalMission, preparePersonalMissionAc
 
 export type PersonalSquadSpawnSlot = PersonalActorPosition
 export function personalMemberLoadout(member: CareerPersonalSquadMember, faction: CareerProfile['faction']) {
-  const presetId = `${faction}_${member.type === 'soldier' ? faction === 'roman' ? 'heavy_infantry' : 'berserker' : member.type === 'ranger' ? 'horse_archer' : 'sword_cavalry'}` as UnitPresetId
-  const commanderAsset = `${faction}-hero-t5` as const
-  const hero = member.type === 'commander'
-    ? { visualAssetId: commanderAsset, combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[commanderAsset], specialCombatProfile: undefined }
-    : member.type === 'soldier' ? undefined : T4_UNIT_PROFILES[member.type === 'ranger' ? `${faction}_archer` as UnitPresetId : presetId]
+  const characterFaction = member.characterFaction ?? faction
+  const characterTier = member.characterTier ?? (member.type === 'soldier' ? 2 : member.type === 'commander' ? 5 : 4)
+  const identity = resolveCharacterIdentity({ characterFaction, characterTier,
+    heroArchetype: member.heroArchetype ?? (member.type === 'soldier' ? undefined : member.type) })
   if (member.type === 'ranger' && !member.equipment) throw new Error('Ranger equipment must be migrated and saved before deployment')
-  const equipment = member.equipment ?? legacyPersonalEquipment(member.type, faction)
-  // Ranged equipment is the initial primary weapon, matching NPC AI selection below.
-  // Reserve-only equipment changes resolve again on deployment; weapon tier never grants a hero profile.
+  const equipment = member.equipment ?? legacyPersonalEquipment(member.type, characterFaction)
   const primaryWeapon = WEAPONS[equipment.ranged ?? equipment.melee ?? '']
-  // Like the Town Commander, T5 uses the existing NPC hero tier with its explicit asset and full combat profile.
-  return { presetId, hero, characterTier: member.type === 'soldier' ? 2 as const : 4 as const, tier: member.type === 'soldier' ? Math.min(4, primaryWeapon?.tier ?? 1) as 1 | 2 | 3 | 4 : 4 as const,
+  // Select valid catalog metadata from actual equipment; the hero is always resolved from identity.
+  const presets = characterFaction === 'roman'
+    ? { melee: 'roman_heavy_infantry', spear: 'roman_spearman', ranged: 'roman_archer', mounted: 'roman_sword_cavalry', mountedRanged: 'roman_horse_archer' } as const
+    : { melee: 'viking_berserker', spear: 'viking_spearman', ranged: 'viking_archer', mounted: 'viking_sword_cavalry', mountedRanged: 'viking_horse_archer' } as const
+  const presetId: UnitPresetId = equipment.mount ? equipment.ranged ? presets.mountedRanged : presets.mounted
+    : equipment.ranged ? presets.ranged : primaryWeapon?.combatKind === 'lance' ? presets.spear : presets.melee
+  const hero = identity.heroArchetype ? { visualAssetId: identity.visualAssetId!, combatProfileId: identity.combatProfileId!,
+    specialCombatProfile: identity.specialCombatProfile } : undefined
+  return { presetId, identity, hero, characterTier: identity.characterTier,
+    tier: identity.characterTier <= 3 ? Math.min(4, primaryWeapon?.tier ?? 1) as 1 | 2 | 3 | 4 : 4 as const,
     mounted: Boolean(equipment.mount), loadout: { meleeWeaponId: equipment.melee, rangedWeaponId: equipment.ranged, shieldId: equipment.shield, mountId: equipment.mount,
-      ...(member.type === 'ranger' ? { reversibleRangedSwitch: true } : {}) } }
+      ...(identity.heroArchetype === 'ranger' ? { reversibleRangedSwitch: true } : {}) } }
+}
+
+/** New hires can deploy after entering Town: prepare their assets before enqueueing materialization. */
+export async function preloadPersonalSquadMember(member: CareerPersonalSquadMember, faction: CareerProfile['faction']): Promise<void> {
+  const spec = personalMemberLoadout(member, faction)
+  await Promise.all([HumanoidAssetRegistry.preload(), preloadHighTierEquipment(), preloadPaladinEquipment(),
+    ...(spec.hero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[spec.hero.visualAssetId].descriptor)] : []),
+    ...(spec.loadout.rangedWeaponId === T4_RANGER_BOW_RANGED_ID ? [preloadMakiRangerBow()] : [])])
 }
 
 export function spawnPersonalSquadActor(scene: THREE.Scene, member: CareerPersonalSquadMember,
   faction: CareerProfile['faction'], slot: PersonalSquadSpawnSlot, emit?: CombatEventSink, boardingPad?: PersonalSquadSpawnSlot): { npc: NPC; mount?: Mount } {
   assertNpcSpawnJob()
   const spec = personalMemberLoadout(member, faction)
-  const npc = trackNpcSpawn(new NPC(scene, slot.x, slot.z, Faction.PLAYER, faction, spec.loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE,
+  const npc = trackNpcSpawn(new NPC(scene, slot.x, slot.z, Faction.PLAYER, spec.identity.characterFaction, spec.loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE,
     member.type === 'soldier' ? 'Personal Soldier' : member.type === 'captain' ? 'Personal Captain' : member.type === 'commander' ? 'Personal Commander' : 'Personal Shadow Warden',
     spec.tier, spec.mounted, spec.loadout, spec.presetId, PERSONAL_SQUAD_ID, member.id, emit,
-    spec.hero?.visualAssetId, spec.hero?.combatProfileId, spec.hero?.specialCombatProfile, undefined, undefined, undefined, undefined, spec.characterTier))
-  registerPersonalCombatDisplayName(npc, member, faction)
+    spec.hero?.visualAssetId, spec.hero?.combatProfileId, spec.hero?.specialCombatProfile, undefined, undefined, undefined, undefined, spec.characterTier, spec.identity.heroArchetype))
+  registerPersonalCombatDisplayName(npc, member, spec.identity.characterFaction)
   npc.combatOwnership = 'player-personal'
   npc.respawnEnabled = false
   npc.group.rotation.y = slot.yaw
@@ -463,19 +480,28 @@ export class PersonalSquadRuntime {
     this.pending.set(member.id, batch); this.batches.push(batch)
     if (!restore && this.mission) this.mission.members[member.id] = { ...this.mission.members[member.id],
       status: 'reserve', position: { ...slot }, order: 'follow' }
-    batch.enqueue(member.id, () => {
-      const saved = this.mission?.members[member.id]
-      const boardAtHome = !returningHome && this.hasHR && (!restore || saved?.boarding || saved?.status === 'reserve' && !saved.mount)
-      const deployment = !this.hasHR && eaglePad && !restoreExistingEagle ? eaglePad : slot
-      const npc = this.spawnMember(member, deployment, boardAtHome ? eaglePad : undefined, index, returningHome ? eaglePad : undefined)
-      restore?.(npc)
-      if (!restore || revision !== this.commandRevision) this.applyCommand(npc, index)
-      this.holdDeadPlayerFollow(npc, index)
-      // Publish only fully restored actors; common combat sees a complete rider/mount pair.
-      this.options.onSpawn?.(npc, this.memberMounts.get(member.id))
-      this.pending.delete(member.id)
-    })
-    batch.seal()
+    const enqueue = () => {
+      if (batch.status !== 'pending') return
+      batch.enqueue(member.id, () => {
+        const saved = this.mission?.members[member.id]
+        const boardAtHome = !returningHome && this.hasHR && (!restore || saved?.boarding || saved?.status === 'reserve' && !saved.mount)
+        const deployment = !this.hasHR && eaglePad && !restoreExistingEagle ? eaglePad : slot
+        const npc = this.spawnMember(member, deployment, boardAtHome ? eaglePad : undefined, index, returningHome ? eaglePad : undefined)
+        restore?.(npc)
+        if (!restore || revision !== this.commandRevision) this.applyCommand(npc, index)
+        this.holdDeadPlayerFollow(npc, index)
+        // Publish only fully restored actors; common combat sees a complete rider/mount pair.
+        this.options.onSpawn?.(npc, this.memberMounts.get(member.id))
+        this.pending.delete(member.id)
+      })
+      batch.seal()
+    }
+    // A custom materialization factory owns its asset preparation; the built-in factory preloads before scheduling.
+    if (this.spawn === spawnPersonalSquadActor) {
+      void preloadPersonalSquadMember(member, this.read().faction).then(enqueue, error => {
+        if (batch.status === 'pending') batch.fail(undefined, error)
+      })
+    } else enqueue()
   }
 
   private holdDeadPlayerFollow(actor: NPC, index: number): void {

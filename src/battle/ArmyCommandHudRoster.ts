@@ -1,6 +1,7 @@
 import type { TacticalOrder } from './TacticalOrder'
 import { matchesArmyCommandTarget, type ArmyCommandTarget, type SquadIdentity } from './CommandTarget'
 import { UNIT_PRESETS, type UnitPresetId, type UnitLoadout } from './UnitPresetCatalog'
+import { WEAPONS } from '../rpg/WeaponDatabase'
 
 export const ARMY_HUD_UNIT_TYPES = {
   melee: { icon: '⚔️', label: '近戰步兵' }, spear: { icon: '🔱', label: '槍兵' },
@@ -15,10 +16,18 @@ export interface ArmyHudUnitSource { presetId?: UnitPresetId; loadout?: UnitLoad
 export function armyHudUnitType(source: ArmyHudUnitSource): ArmyHudUnitType | undefined {
   if (source.townCategory === 'civilian') return 'civilian'
   if (source.loadout?.mountId === 'xongkoro') return 'eagle'
+  if (source.loadout) {
+    const ranged = WEAPONS[source.loadout.rangedWeaponId ?? '']
+    const melee = WEAPONS[source.loadout.meleeWeaponId ?? '']
+    const mounted = Boolean(source.loadout.mountId)
+    if (ranged?.combatKind === 'bow') return mounted ? 'horseArcher' : 'archer'
+    if (ranged?.combatKind === 'javelin') return mounted ? 'cavalry' : 'javelin'
+    if (melee?.combatKind === 'lance') return mounted ? 'lancer' : 'spear'
+    return mounted ? 'cavalry' : 'melee'
+  }
   const preset = source.presetId && UNIT_PRESETS[source.presetId]
   if (!preset) return undefined
-  const mounted = source.loadout ? Boolean(source.loadout.mountId)
-    : /cavalry|lancer|horse_archer/.test(preset.id)
+  const mounted = /cavalry|lancer|horse_archer/.test(preset.id)
   if (mounted) return preset.traits.includes('bow_fire') ? 'horseArcher'
     : preset.traits.includes('lance_charge') || preset.traits.includes('lance_anti_cavalry') ? 'lancer' : 'cavalry'
   return preset.traits.includes('bow_fire') ? 'archer' : preset.traits.includes('javelin_throw') ? 'javelin'

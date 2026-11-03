@@ -5,6 +5,7 @@ import { UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { defaultRangerMeleeWeaponId, T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { PLAYER_MOUNT_IDS, type PlayerMountId } from '../battle/BattleConfig'
+import { defaultPersonalRecruitmentChoice, resolvePersonalRecruitment } from './CareerRecruitmentCatalog'
 
 /** Concurrent canonical ownership, including assigned, reserve and unavailable eagles. */
 export const MAX_PLAYER_OWNED_XONGKORO = 3
@@ -19,7 +20,7 @@ export function isTradableCareerItem(id: string): boolean {
   return Object.prototype.hasOwnProperty.call(WEAPONS, id) || Object.prototype.hasOwnProperty.call(ARMORS, id) || (PLAYER_MOUNT_IDS as readonly string[]).includes(id)
 }
 export function initialPersonalEquipment(type: PersonalSquadMemberType, faction: CareerProfile['faction']): PersonalEquipment {
-  return personalEquipmentAtTier(type, faction, type === 'soldier' ? 1 : 2)
+  return resolvePersonalRecruitment(faction, defaultPersonalRecruitmentChoice(type, faction))!.equipment
 }
 /** Pre-inventory hires had T2 Soldier and T3 Captain gear; migration must preserve that grant. */
 export function legacyPersonalEquipment(type: PersonalSquadMemberType, faction: CareerProfile['faction']): PersonalEquipment {
@@ -29,7 +30,7 @@ function personalEquipmentAtTier(type: PersonalSquadMemberType, faction: CareerP
   if (type === 'ranger') return { melee: defaultRangerMeleeWeaponId(faction), ranged: T4_RANGER_BOW_RANGED_ID, shield: null, mount: 'horse' }
   const presetId = `${faction}_${type === 'soldier' ? faction === 'roman' ? 'heavy_infantry' : 'berserker' : 'sword_cavalry'}` as UnitPresetId
   const loadouts = UNIT_PRESETS[presetId].tierLoadouts
-  // The starter rebalance changes weapons only; shields and mounts keep their historical defaults.
+  // Legacy grants keep their original shields and mounts.
   return { melee: loadouts[weaponTier].meleeWeaponId ?? null, ranged: null,
     shield: loadouts[type === 'soldier' ? 2 : 3].shieldId ?? null, mount: type === 'soldier' ? null : 'horse' }
 }
@@ -131,17 +132,18 @@ export function normalizeCareerInventory(profile: CareerProfile): void {
     if (profile.selectedMountId && !totals[profile.selectedMountId]) delete profile.selectedMountId
   }
   for (const member of profile.personalSquad?.members ?? []) {
+    const characterFaction = member.characterFaction ?? profile.faction
     if (!member.equipment) {
       if (!legacy) throw new Error('Missing member equipment')
-      member.equipment = legacyPersonalEquipment(member.type, profile.faction)
+      member.equipment = legacyPersonalEquipment(member.type, characterFaction)
       for (const id of Object.values(member.equipment)) if (id) grant(id)
     }
-    if (member.type === 'ranger' && member.rangerEquipmentVersion !== 1) {
+    if (member.type === 'ranger' && member.rangerEquipmentVersion !== 1 && member.initialEquipmentVersion !== 1) {
       // Old HR Rangers owned their mount but materialized both weapons only at runtime.
       // Grant missing default slots as real copies; preserve all legitimate saved choices.
       const equipment = { ...member.equipment }
       if (!equipment.melee) {
-        equipment.melee = defaultRangerMeleeWeaponId(profile.faction)
+        equipment.melee = defaultRangerMeleeWeaponId(characterFaction)
         grant(equipment.melee)
       }
       if (!equipment.ranged && !equipment.shield) {

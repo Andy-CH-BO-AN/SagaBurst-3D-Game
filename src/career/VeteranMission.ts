@@ -482,6 +482,8 @@ export function createVeteranSpawnSpec(unitSpec: VeteranRosterUnit, playerFactio
     aiType: ranged ? AIType.RANGED : AIType.MELEE,
     name: unitSpec.heroRole === 'captain' ? 'Captain' : unitSpec.heroRole === 'ranger' ? 'Shadow Warden / Mounted Ranger' : 'Veteran Cavalry',
     tier: unitSpec.tier,
+    characterTier: unitSpec.tier,
+    ...(unitSpec.tier === 4 ? { heroArchetype: unitSpec.heroRole ?? (hero?.combatProfileId === 'ranger' ? 'ranger' as const : 'captain' as const) } : {}),
     cavalry: unitSpec.mounted,
     respawnEnabled: false,
     presetId,

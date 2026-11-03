@@ -89,7 +89,8 @@ export function createTownSiegeCrewSlots(faction: CharacterFaction): TownSiegeCr
     return { gateId: gate.id, side, role: slot < 4 ? 'pusher' as const : 'assault' as const, spec: {
       actorId: `${townSiegeRampId(gate.id, side)}:crew:${slot}`, x: 0, z: 0, faction: Faction.ENEMY,
       characterFaction: faction, aiType: AIType.MELEE, name: `${gate.id} ${side < 0 ? 'left' : 'right'} ${t5 ? 'T5' : 'T4'}`,
-      tier: 4 as const, cavalry: false, respawnEnabled: false, presetId, loadout, visualAssetId,
+      tier: 4 as const, characterTier: t5 ? 5 as const : 4 as const, heroArchetype: t5 ? 'commander' as const : 'captain' as const,
+      cavalry: false, respawnEnabled: false, presetId, loadout, visualAssetId,
       combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[visualAssetId],
     } }
   })))

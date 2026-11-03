@@ -2390,6 +2390,8 @@ export class Game {
       undefined,
       undefined,
       spec.spawnY !== undefined ? { y: spec.spawnY } : undefined,
+      spec.characterTier,
+      spec.heroArchetype,
     ))
     npc.enableBattlefieldEngagement()
     if (spec.outpostRampartGarrison) npc.activateOutpostRampartGarrison()

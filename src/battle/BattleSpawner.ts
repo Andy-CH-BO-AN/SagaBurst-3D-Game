@@ -15,6 +15,7 @@ import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from './T4HeroCatalog'
 import type { HeroCombatProfileId } from './HeroCombatProfile'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
+import type { CharacterTier, HeroArchetype } from '../combat/CharacterIdentity'
 import { TERRAIN_TREE_POSITIONS } from '../world/Terrain'
 import {
   UNIT_PRESETS,
@@ -41,6 +42,9 @@ export interface NpcSpawnSpec {
   aiType: AIType
   name: string
   tier: UnitTier
+  /** Formal body/profile identity, independent of the loadout's item tiers. */
+  characterTier?: CharacterTier
+  heroArchetype?: HeroArchetype
   cavalry: boolean
   respawnEnabled: boolean
   presetId?: UnitPresetId
@@ -119,6 +123,7 @@ interface UnitInstance {
 }
 
 interface PendingNpc {
+  characterTier?: CharacterTier
   characterFaction: CharacterFaction
   faction: Faction
   aiType: AIType
@@ -245,6 +250,7 @@ export class BattleSpawner {
             aiType: u.aiType,
             name: `${prefix} T${u.tier} ${u.presetName} ${u.index}`,
             tier: u.tier,
+            characterTier: u.tier,
             cavalry: u.cavalry,
             respawnEnabled: respawn,
             presetId: u.presetId,
@@ -338,6 +344,7 @@ export class BattleSpawner {
         aiType: pending.aiType,
         name: pending.name,
         tier: pending.tier,
+        characterTier: pending.characterTier,
         cavalry: pending.cavalry,
         respawnEnabled: pending.respawnEnabled,
         presetId: pending.presetId,
@@ -482,6 +489,7 @@ export class BattleSpawner {
           aiType: u.aiType,
           name: `${prefix} T${u.tier} ${u.presetName} ${u.index}`,
           tier: u.tier,
+          characterTier: u.tier,
           cavalry: false,
           respawnEnabled,
           presetId: u.presetId,
@@ -520,6 +528,7 @@ export class BattleSpawner {
         aiType: u.aiType,
         name: `${prefix} T${u.tier} ${u.presetName} ${u.index}`,
         tier: u.tier,
+        characterTier: u.tier,
         cavalry: false,
         respawnEnabled,
         presetId: u.presetId,
@@ -572,6 +581,7 @@ export class BattleSpawner {
           aiType: u.aiType,
           name: `${prefix} T${u.tier} ${u.presetName} ${u.index}`,
           tier: u.tier,
+          characterTier: u.tier,
           cavalry: true,
           respawnEnabled,
           presetId: u.presetId,

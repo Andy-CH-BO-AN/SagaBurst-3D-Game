@@ -6,7 +6,9 @@ import { describe,expect,it,vi } from 'vitest'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
 import type { ActiveCareerMission } from '../../src/career/CareerMissionState'
 import { createTownDefenseMission } from '../../src/career/CareerMissionState'
-import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { captureBorrowedCharacterIdentities, resolveBorrowedCharacterIdentity } from '../../src/career/CareerBorrowedIdentity'
+import { siegeRoster } from '../../src/career/TownSiege'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { officialActorSquadId } from '../../src/career/CareerCommandAuthority'
 import { stageOfficialCommandOrder } from '../../src/career/CareerOfficialCommandOrder'
@@ -20,6 +22,56 @@ import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, creat
 import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, parseCommanderFourGateDefenseState, recordNativeTownGuardCombat } from '../../src/career/CommanderFourGateDefenseState'
 
 describe('siege checkpoint ownership', () => {
+  it('restores a native identity receipt independently of slot equipment and preserves wounds and deaths', () => {
+    const profile = createCareerProfile('roman')
+    const mission = profile.activeMission = createTownDefenseMission([], [], 'native-receipt')
+    const living = 'native-rider', fallen = 'native-casualty'
+    mission.siege!.rosterCreated = true
+    mission.siege!.attackerIds = [living, fallen]
+    mission.targetActorIds = [living, fallen]
+    mission.borrowedActorIdentities = captureBorrowedCharacterIdentities([
+      { combatantId: living, characterIdentity: { characterFaction: 'viking', characterTier: 1 } },
+      { combatantId: fallen, characterIdentity: { characterFaction: 'viking', characterTier: 2 } },
+    ], mission.siege!.attackerIds)
+    mission.actorHealth = { [living]: { hp: 37 }, [fallen]: { hp: 0 } }
+    mission.deadTargetActorIds = [fallen]
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const restored = store.load()!
+    expect(restored.activeMission!.borrowedActorIdentities).toEqual(mission.borrowedActorIdentities)
+    const missionIdentity = { characterFaction: 'viking', characterTier: 3 } as const
+    expect(resolveBorrowedCharacterIdentity(living, missionIdentity, restored.activeMission!.borrowedActorIdentities).characterTier).toBe(1)
+    expect(resolveBorrowedCharacterIdentity('new-slot', missionIdentity, restored.activeMission!.borrowedActorIdentities).characterTier).toBe(3)
+    expect(restored.activeMission!.actorHealth).toEqual({ [living]: { hp: 37 }, [fallen]: { hp: 0 } })
+    expect(restored.activeMission!.deadTargetActorIds).toEqual([fallen])
+    const staged = cloneCareerProfile(restored)
+    staged.activeMission!.borrowedActorIdentities![living].characterTier = 3
+    expect(restored.activeMission!.borrowedActorIdentities![living].characterTier).toBe(1)
+    expect(captureBorrowedCharacterIdentities([
+      { combatantId: living, characterIdentity: { characterFaction: 'viking', characterTier: 3 } },
+    ], [living], restored.activeMission!.borrowedActorIdentities)[living].characterTier).toBe(1)
+  })
+
+  it('adapts pre-receipt siege riders once while retaining the accepted roster and saved health', () => {
+    const profile = createCareerProfile('roman')
+    const mission = profile.activeMission = createTownDefenseMission([], [], 'legacy-identity')
+    const roster = siegeRoster('viking', false)
+    const borrowedSlot = roster.findIndex(({ spec }) => spec.tier === 3 && spec.presetId === 'viking_lancer')
+    const borrowedId = 'outskirts:cavalry:b:2:wave:4'
+    mission.siege!.attackerIds = roster.map((_, index) => index === borrowedSlot ? borrowedId : `legacy-identity:siege:${index}`)
+    mission.siege!.rosterCreated = true
+    mission.targetActorIds = [...mission.siege!.attackerIds]
+    mission.actorHealth = { [borrowedId]: { hp: 39, mountHp: 21 } }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const restored = store.load()!
+    expect(restored.activeMission!.borrowedActorIdentities).toEqual({ [borrowedId]: { characterFaction: 'viking', characterTier: 2 } })
+    expect(restored.activeMission!.targetActorIds).toEqual(mission.targetActorIds)
+    expect(restored.activeMission!.actorHealth).toEqual(mission.actorHealth)
+    expect(store.save(restored)).toBe(true)
+    expect(store.load()!.activeMission).toEqual(restored.activeMission)
+  })
+
   it('retires a legacy attacking eagle command receipt on reload and rejects it at native runtime restore', () => {
     const profile = createFourGateDefenseProfile('ATTACKING', { rosterVersion: 1 })
     const active = profile.activeMission!, state = active.fourGateDefense!

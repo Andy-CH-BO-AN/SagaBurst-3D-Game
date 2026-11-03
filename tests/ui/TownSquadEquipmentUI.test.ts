@@ -11,7 +11,9 @@ import { areOrdinaryTownServicesPeaceful } from '../../src/career/CareerRetireme
 import { createTownCareerEquipmentUI } from '../../src/town/TownCareerEquipmentUI'
 import { squadEquipmentUI,townEquipmentUI,type TownEquipmentMemberView,type TownEquipmentSquadView,type TownEquipmentUIBindings } from '../../src/town/TownSquadEquipmentUI'
 import { type EquipmentSquadAdapter } from '../../src/ui/EquipmentUI'
-import { combatUnitDisplayName,townUnitDisplayName } from '../../src/ui/UnitDisplayName'
+import { combatUnitDisplayName,personalUnitDisplayName,townUnitDisplayName } from '../../src/ui/UnitDisplayName'
+import { appendPersonalRecruitmentConfigurator, personalRecruitmentPresentation } from '../../src/town/TownRecruitmentPanel'
+import type { PersonalRecruitmentChoice } from '../../src/career/CareerRecruitmentCatalog'
 import { MemoryStorage } from '../helpers/memoryStorage'
 
 // DOM boundary only; profile, inventory and equipment changes use production code, with no actors.
@@ -114,10 +116,10 @@ describe('Town squad equipment availability and mission guidance', () => {
     expect(view.selects.every(select => !select.disabled)).toBe(true)
     const ranged = view.selects.find(select => select.attributes['aria-label'].endsWith(' ranged'))!
     const melee = view.selects.find(select => select.attributes['aria-label'].endsWith(' melee'))!
-    expect(ranged.options.some(option => option.value === 'maki-ranger-bow-ranged')).toBe(true)
+    expect(ranged.options.some(option => option.value === 'recurve_longbow')).toBe(true)
     melee.value = 'paladin_mace_t4'; melee.onchange!()
     expect(h.render().notice).toBe('裝備已更新。')
-    expect(h.store.load()!.personalSquad!.members[0].equipment).toMatchObject({ melee: 'paladin_mace_t4', ranged: 'maki-ranger-bow-ranged', shield: null })
+    expect(h.store.load()!.personalSquad!.members[0].equipment).toMatchObject({ melee: 'paladin_mace_t4', ranged: 'recurve_longbow', shield: null })
     h.set(acceptCareerOutpost(h.read(), 1, 'next-outpost')!)
     expect(h.render().notice).toContain('任務尚未結算')
   })
@@ -212,6 +214,14 @@ describe('Town-wide equipment panels', () => {
 
 describe('Unit display identity', () => {
 
+  it('keeps personal character tier and recruitment role stable after equipment changes', () => {
+    const member = { id: 'personal-one', type: 'soldier' as const, characterTier: 3 as const, recruitmentRole: 'spearman' as const,
+      equipment: { melee: 'hunting_spear', ranged: null, shield: null, mount: null } }
+    expect(personalUnitDisplayName(member, 'roman')).toBe('私兵・羅馬槍兵 · T3')
+    expect(personalUnitDisplayName({ ...member, equipment: { ...member.equipment, melee: 'paladin_sword_t4' } }, 'roman')).toBe('私兵・羅馬槍兵 · T3')
+    expect(personalUnitDisplayName({ id: 'legacy', type: 'soldier' }, 'viking')).toContain('T2')
+  })
+
   it('uses authored on-foot ranged identity rather than historical cavalry IDs for each faction', () => {
     const spec = townRoster().find(spec => spec.id === 'ranged_cavalry-0')!
     const before = structuredClone(spec)
@@ -226,4 +236,25 @@ describe('Unit display identity', () => {
     expect(spec).toEqual(before)
   })
 
+})
+
+it('updates recruitment choices and summary immediately and blocks a stale purchase when service closes', () => {
+  vi.stubGlobal('document', { createElement: (tag: string) => new Element(tag) })
+  const profile: CareerProfile = { ...createCareerProfile('roman'), rank: 'captain', availableMerit: 5000 }
+  let choice: PersonalRecruitmentChoice = { characterTier: 3, recruitmentRole: 'spearman' }, available = true
+  const recruit = vi.fn(), root = new Element('div')
+  appendPersonalRecruitmentConfigurator(root as unknown as HTMLElement, { readProfile: () => profile, serviceAvailable: () => available,
+    choice, onChoice: next => { choice = next }, recruit })
+  const nodes = root.descendants(), controls = nodes.filter(node => node.tag === 'select')
+  const summary = nodes.find(node => node.attributes['aria-live'] === 'polite')!, button = nodes.find(node => node.tag === 'button')!
+  expect(controls.map(node => node.children.length)).toEqual([5, 2, 5])
+  expect(controls[1].disabled).toBe(true)
+  expect(summary.textContent).toContain('人物 T3'); expect(summary.textContent).toContain('Max HP 200')
+  expect(summary.textContent).toContain('T1'); expect(summary.textContent).toContain('無坐騎')
+  controls[0].value = '4'; controls[0].onchange!(); controls[1].value = 'ranger'; controls[1].onchange!()
+  expect(choice).toEqual({ characterTier: 4, heroArchetype: 'ranger', recruitmentRole: 'spearman' })
+  expect(controls[1].disabled).toBe(false); expect(summary.textContent).toContain('Max HP 300')
+  button.onclick!(); expect(recruit).toHaveBeenCalledWith(choice); recruit.mockClear()
+  available = false; button.onclick!(); expect(recruit).not.toHaveBeenCalled(); expect(button.title).toContain('服務不可用')
+  expect(personalRecruitmentPresentation(profile, { characterTier: 5, heroArchetype: 'commander', recruitmentRole: 'archer' }, true).reason).toContain('Commander')
 })
