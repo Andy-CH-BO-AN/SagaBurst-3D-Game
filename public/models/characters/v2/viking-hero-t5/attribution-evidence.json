@@ -1,0 +1,15 @@
+{
+  "source": {
+    "title": "Viking Warrior",
+    "sourceFile": "Meshy_AI_viking_warrior_30k_All_Animations.glb",
+    "sourceSha256": "364e19160ba66ae344be73e3d4c8c5e5437b3caab7d339a979aabefd60cb46e2",
+    "license": "User-supplied Meshy asset; user confirmed use and GitHub redistribution rights, 2026-11-02",
+    "licenseEvidence": "attribution-evidence.json"
+  },
+  "rightsEvidence": "User explicitly confirmed generation/use and GitHub publication rights in this Codex conversation on 2026-11-02.",
+  "animationDonor": {
+    "revision": "7cb61c07f9daf41cccd35287a6cc842955c3f137",
+    "manifest": "animation-donor-manifest.json"
+  },
+  "sourceDistribution": "Original supplied downloads remain outside the shipped runtime bundle; normalized derivative GLBs only."
+}

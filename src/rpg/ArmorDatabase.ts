@@ -16,13 +16,23 @@ export interface ArmorData {
 }
 
 export const ARMORS: Record<string, ArmorData> = {
+  roman_officer_shield_t4: {
+    id: 'roman_officer_shield_t4', name: '星輝銀盾 Starlit Aegis', type: 'shield', tier: 4,
+    shieldImpactMax: 48,
+    description: '星輝銀木盾。48 衝擊耐久；依實際盾面輪廓格擋。',
+  },
+  viking_berserker_shield_t5: {
+    id: 'viking_berserker_shield_t5', name: '戰貓怒嚎盾 Warcat Roarshield', type: 'shield', tier: 5,
+    shieldImpactMax: 96,
+    description: '貓咪圖騰的戰貓圓盾。96 衝擊耐久；依實際圓盾輪廓格擋。',
+  },
   commander_shield_t5: {
-    id: 'commander_shield_t5', name: "指揮官戰盾 Commander's War Shield", type: 'shield', tier: 5,
+    id: 'commander_shield_t5', name: '月桂聖壁 Laurelguard Aegis', type: 'shield', tier: 5,
     shieldImpactMax: 96,
     description: '羅馬與維京 T5 共用實體盾牌。96 衝擊耐久；僅實際命中盾面才格擋。',
   },
   paladin_shield_t4: {
-    id: 'paladin_shield_t4', name: "隊長戰盾 Captain's War Shield", type: 'shield', tier: 4,
+    id: 'paladin_shield_t4', name: '誓約壁壘 Oathguard Shield', type: 'shield', tier: 4,
     shieldImpactMax: 48,
     description: '羅馬與維京 T4 共用實體盾牌。48 衝擊耐久；僅實際命中盾面才格擋。',
   },

@@ -4,7 +4,10 @@ geometrically disconnected. Loop UVs and material partitions remain authored.
 """
 import bpy, bmesh, json, sys
 from mathutils import Vector
-source, output = sys.argv[sys.argv.index('--') + 1:]
+source, output, *ratios = sys.argv[sys.argv.index('--') + 1:]
+lod_ratios = [float(r) for r in ratios] if ratios else [.4, .14 if 'Varangian' not in source else .12]
+if len(lod_ratios) != 2 or not all(0 < r < 1 for r in lod_ratios):
+ raise ValueError('Provide two LOD collapse ratios between 0 and 1')
 bpy.ops.object.select_all(action='SELECT'); bpy.ops.object.delete(use_global=False)
 bpy.ops.import_scene.gltf(filepath=source)
 result = {}
@@ -12,7 +15,7 @@ def xyz(v): return [v.x, v.z, -v.y]
 for original in list(bpy.data.objects):
  if original.type != 'MESH': continue
  result[original.name] = {}
- for level, ratio in [(1, .4), (2, .14 if 'Varangian' not in source else .12)]:
+ for level, ratio in enumerate(lod_ratios, 1):
   obj = original.copy(); obj.data = original.data.copy(); bpy.context.collection.objects.link(obj)
   for modifier in list(obj.modifiers): obj.modifiers.remove(modifier)
   bm = bmesh.new(); bm.from_mesh(obj.data)

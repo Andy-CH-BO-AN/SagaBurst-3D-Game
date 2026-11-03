@@ -1,0 +1,458 @@
+{
+  "schemaVersion": 1,
+  "id": "roman-hero-t4",
+  "status": "ready",
+  "source": {
+    "author": "DJMaesen (https://sketchfab.com/bumstrum)",
+    "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+    "source": "https://sketchfab.com/3d-models/paladin-4f1c320f2cec49dc9bf38c6aad2d8ea9",
+    "title": "Paladin",
+    "sourceSha256": "ea73c6eaea636f927197d400d9b8c4a778e9d4e6363efd500e250c6ed5bd7e63",
+    "sourceFile": "paladin.glb",
+    "bytes": 31441392
+  },
+  "attribution": "Paladin by DJMaesen, CC-BY-4.0. Adapted for SagaBurst; original source linked in ATTRIBUTION.md.",
+  "modifications": [
+    "Source skin retained; offline T-pose, metre normalization, LOD reduction and existing Roman T4 animation retarget",
+    "Both source swords and scabbards removed from body; actual bastard sword exported as shared equipment"
+  ],
+  "metrics": {
+    "heightM": 1.95,
+    "heightDefinition": "Overall armoured stature including helmet horns; enclosed anatomical crown unavailable",
+    "uniformScaleAppliedOffline": 0.009867640062940039,
+    "sourceBoundsZ": [
+      0.3360055387020111,
+      197.95164489746094
+    ],
+    "triangles": {
+      "lod0": 15398,
+      "lod1": 7798,
+      "lod2": 1899
+    },
+    "shoulderWidthM": 0.48849549742998566,
+    "shoulderWidthDefinition": "Anatomical shoulder joint span in normalized T-pose; pauldron silhouette extends beyond joints",
+    "overallHeightM": 1.95,
+    "neckLengthM": 0.10646904476240662,
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    }
+  },
+  "files": {
+    "lod0": "lod0.glb",
+    "lod1": "lod1.glb",
+    "lod2": "lod2.glb"
+  },
+  "skeleton": "project-humanoid-v1",
+  "boneMap": "bone-map.json",
+  "audit": "audit.json",
+  "handShapeMode": "authored",
+  "handGripFrames": {
+    "left": {
+      "palmContactCenter": [
+        -0.014181067225544746,
+        0.09749456251895003,
+        -0.023044190810380658
+      ],
+      "palmNormal": [
+        -5.316211876090433e-8,
+        -2.036188636993073e-7,
+        -0.9999999999999778
+      ],
+      "thumbDir": 1,
+      "thumbDirection": [
+        0.9999999999999255,
+        3.8211652202787307e-7,
+        -5.316219656703799e-8
+      ],
+      "fingerDirection": [
+        -3.8211653285269124e-7,
+        0.9999999999999062,
+        -2.0361884338516706e-7
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.06204198894917045,
+        0.03190733982993971,
+        0.007090504577870677
+      ],
+      "fingerBase": 0.09749457262999262
+    }
+  },
+  "swordGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        0,
+        0.115,
+        -0.065
+      ],
+      "gripAxisLocal": [
+        -0.999999999999913,
+        4.166355064542328e-7,
+        2.1060538271621752e-8
+      ],
+      "palmNormalLocal": [
+        -2.106064178013712e-8,
+        -2.484389958508035e-7,
+        -0.9999999999999689
+      ],
+      "fingerDirection": [
+        4.1663550122196047e-7,
+        0.9999999999998823,
+        -2.4843900462539365e-7
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        -0.062041987321484526,
+        0.03190734228936359,
+        0.007090507752706597
+      ],
+      "fingerBase": 0.09749457262999262,
+      "gripRadius": 0.03474352042814283
+    },
+    "lod1": {
+      "gripCenterLocal": [
+        0,
+        0.115,
+        -0.065
+      ],
+      "gripAxisLocal": [
+        -0.999999999999913,
+        4.166355064542328e-7,
+        2.1060538271621752e-8
+      ],
+      "palmNormalLocal": [
+        -2.106064178013712e-8,
+        -2.484389958508035e-7,
+        -0.9999999999999689
+      ],
+      "fingerDirection": [
+        4.1663550122196047e-7,
+        0.9999999999998823,
+        -2.4843900462539365e-7
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        -0.062041987321484526,
+        0.03190734228936359,
+        0.007090507752706597
+      ],
+      "fingerBase": 0.09749457262999262,
+      "gripRadius": 0.03474352042814283
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        0,
+        0.115,
+        -0.065
+      ],
+      "gripAxisLocal": [
+        -0.999999999999913,
+        4.166355064542328e-7,
+        2.1060538271621752e-8
+      ],
+      "palmNormalLocal": [
+        -2.106064178013712e-8,
+        -2.484389958508035e-7,
+        -0.9999999999999689
+      ],
+      "fingerDirection": [
+        4.1663550122196047e-7,
+        0.9999999999998823,
+        -2.4843900462539365e-7
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        -0.062041987321484526,
+        0.03190734228936359,
+        0.007090507752706597
+      ],
+      "fingerBase": 0.09749457262999262,
+      "gripRadius": 0.03474352042814283
+    }
+  },
+  "animations": {
+    "embedded": [
+      {
+        "clip": "idle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Idle01",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "walk",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Walk01_Forward",
+        "loop": true,
+        "duration": 0.8,
+        "nominalSpeed": 2
+      },
+      {
+        "clip": "run",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Run01_Forward",
+        "loop": true,
+        "duration": 0.6,
+        "nominalSpeed": 4
+      },
+      {
+        "clip": "bowLoad",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Load",
+        "loop": false,
+        "duration": 0.833333
+      },
+      {
+        "clip": "bowHold",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Hold",
+        "loop": true,
+        "duration": 1.333333
+      },
+      {
+        "clip": "bowRelease",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@BowShot01 - Release",
+        "loop": false,
+        "duration": 0.22,
+        "events": {
+          "projectileRelease": 0.04,
+          "actionComplete": 0.22
+        }
+      },
+      {
+        "clip": "swordSlash",
+        "source": "Quaternius",
+        "sourceClip": "Sword_Regular_A",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.252,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "pilumThrow",
+        "source": "Quaternius",
+        "sourceClip": "OverhandThrow",
+        "loop": false,
+        "duration": 1.5,
+        "events": {
+          "projectileRelease": 0.566667,
+          "actionComplete": 1.5
+        }
+      },
+      {
+        "clip": "mounted",
+        "source": "Kevin Iglesias",
+        "sourceClip": "Original idle upper body, existing runtime mounted legs",
+        "loop": true,
+        "duration": 2.7
+      },
+      {
+        "clip": "death",
+        "source": "SagaBurst",
+        "sourceClip": "Existing project death pitch/drop baked to hero rest frame and floor",
+        "loop": false,
+        "duration": 1
+      },
+      {
+        "clip": "axeAttack1H",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Attack1H01_R",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.13090909090909092,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "axeAttack2H",
+        "source": "Kevin Iglesias",
+        "sourceClip": "HumanM@Attack2H01",
+        "loop": false,
+        "duration": 0.48,
+        "events": {
+          "hit": 0.17,
+          "actionComplete": 0.48
+        }
+      },
+      {
+        "clip": "axeMountedIdle",
+        "source": "Viking authored idle",
+        "sourceClip": "idle",
+        "loop": true,
+        "duration": 2.700000047683716
+      }
+    ],
+    "runtimeGenerated": [
+      "idle",
+      "walk",
+      "run",
+      "bowLoad",
+      "bowHold",
+      "bowRelease",
+      "swordSlash",
+      "pilumThrow",
+      "daggerSlash",
+      "greatswordSlash",
+      "lanceThrust",
+      "mountedLance"
+    ],
+    "supplemental": [
+      {
+        "file": "foot-axe.glb",
+        "clip": "axeAttack1HFoot",
+        "duration": 0.48,
+        "lodClips": [
+          "axeAttack1HFoot_lod0",
+          "axeAttack1HFoot_lod1",
+          "axeAttack1HFoot_lod2"
+        ]
+      }
+    ]
+  },
+  "animationSources": [
+    {
+      "author": "Kevin Iglesias",
+      "package": "Human Archer Animations FREE",
+      "license": "Unity Asset Store EULA",
+      "sha256": "87565026f3a3b0aa8aeaadbcc155533ee58d927f5c443a6b2a11f396a461c904"
+    },
+    {
+      "author": "Quaternius",
+      "package": "Universal Animation Library 2",
+      "license": "CC0 1.0",
+      "sha256": "4008ea208a604773a2b2177d965f0f5d3195498b5bf838c3f5785d68e95f2a68"
+    }
+  ],
+  "animationRetarget": {
+    "source": "ae06476:public/models/characters/v2/roman-hero-t4/lod0.glb",
+    "sha256": "ca53302b7f871a599b0f63891dedb18be5c8afb59e3c95234f3fa14f79ef6b34"
+  },
+  "attachmentOffsets": {
+    "corgiPelvis": [
+      0,
+      0.09,
+      0
+    ]
+  },
+  "lodMeasurements": [
+    {
+      "lod": 0,
+      "triangles": 15398,
+      "drawCalls": 2,
+      "bytes": 4629500,
+      "sha256": "d044847b517f79e72b17c6ed89efb7928d50cbb8a01a36430fed62470cb0250a",
+      "joints": 31,
+      "textures": 6,
+      "animations": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "mounted",
+        "death",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeMountedIdle"
+      ]
+    },
+    {
+      "lod": 1,
+      "triangles": 7798,
+      "drawCalls": 2,
+      "bytes": 1725568,
+      "sha256": "a00a0480c8b814d263f57217b88db1ccece3398e3f462ed0b3642a75c2be1458",
+      "joints": 31,
+      "textures": 6,
+      "animations": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "mounted",
+        "death",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeMountedIdle"
+      ]
+    },
+    {
+      "lod": 2,
+      "triangles": 1899,
+      "drawCalls": 2,
+      "bytes": 819388,
+      "sha256": "cb6de6a5eb2205edcf7bc02d3ee66bd9e4bce31cffcfe9cc284041d1ea730284",
+      "joints": 31,
+      "textures": 6,
+      "animations": [
+        "bowHold",
+        "bowLoad",
+        "bowRelease",
+        "idle",
+        "pilumThrow",
+        "run",
+        "swordSlash",
+        "walk",
+        "mounted",
+        "death",
+        "axeAttack1H",
+        "axeAttack2H",
+        "axeMountedIdle"
+      ]
+    }
+  ],
+  "fileSha256": {
+    "lod0": "d044847b517f79e72b17c6ed89efb7928d50cbb8a01a36430fed62470cb0250a",
+    "lod1": "a00a0480c8b814d263f57217b88db1ccece3398e3f462ed0b3642a75c2be1458",
+    "lod2": "cb6de6a5eb2205edcf7bc02d3ee66bd9e4bce31cffcfe9cc284041d1ea730284"
+  },
+  "axeAttackBuild": {
+    "inputSha256": {
+      "lod0": "71c98002cff461c1af9851e168541a6746f1e5cdecba62c963f9d1e6ce41305b",
+      "lod1": "77f4d2785f7d92eaf6cf4ba953085b2db273a0fa04f795f8efe61890bdc1fef4",
+      "lod2": "b61b41ce6f3d21f25e6587fb19366907c74a97f65b86a071e6a5bba8ca78798a"
+    },
+    "sourceSha256": "bcd47d323e40419d4dda188d51bd5d91021e6ca42d8dc0c30f1e5053401244f5",
+    "license": "Standard Asset Store EULA",
+    "licenseEvidence": "Human Melee Animations 2.0 FREE.pdf",
+    "sourceUrl": "https://kevdev.itch.io/human-melee-animatons-free",
+    "sourceDistribution": "Retargeted rotation tracks only; source archive, FBX and meshes excluded from public/Git.",
+    "rootMotionRemoved": true,
+    "duration": 0.48,
+    "contactSourceFrames": {
+      "axeAttack1H": 10,
+      "axeAttack2H": 18
+    },
+    "contactMeasurement": "Actual blade edge passes character-forward during the first strike; source frame 1 maps to t=0."
+  },
+  "footAxeBake": "foot-axe-provenance.json"
+}
