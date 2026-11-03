@@ -29,12 +29,36 @@ function harness(faction: CareerProfile['faction'] = 'roman') {
   }
 }
 describe('Town equipment domain, canonical ownership and persisted native sources', () => {
+  it('pins a legacy captain shield after transfer and resale instead of minting its new faction replacement', () => {
+    const h = harness(), profile = h.read(), token = 'roman/captain/shield'
+    const recipient = resolveTownActorEquipment(profile, 'roman', 'cavalry-training:melee_cavalry:0')
+    profile.townEquipment = { roman: { version: 1, residentEquipmentVersion: 1, commanderShieldItemId: 'commander_shield_t5',
+      actors: {
+        captain: { ...resolveTownActorEquipment(profile, 'roman', 'captain').refs, shield: null },
+        'cavalry-training:melee_cavalry:0': { ...recipient.refs, shield: { itemId: 'paladin_shield_t4', source: 'native', nativeId: token } },
+      }, nativeReserve: ['roman/cavalry-training:melee_cavalry:0/shield'] } }
+    expect(h.save(profile)).toBe(true)
+    const loaded = h.reload()
+    expect(resolveTownActorEquipment(loaded, 'roman', 'captain').refs.shield).toBeNull()
+    expect(resolveTownActorEquipment(loaded, 'roman', 'cavalry-training:melee_cavalry:0').refs.shield).toEqual({
+      itemId: 'paladin_shield_t4', source: 'native', nativeId: token,
+    })
+    expect(careerItemTotal(loaded, 'roman_officer_shield_t4')).toBe(0)
+    h.context.safeActorIds = new Set(['cavalry-training:melee_cavalry:0'])
+    expect(h.change('cavalry-training:melee_cavalry:0', 'shield', null).changed).toBe(true)
+    const sale = sellTownNativeEquipment(h.read, () => ({ townFaction: 'roman', peaceful: true, playerAlive: true, merchantAvailable: true }), [token], h.save)
+    expect(sale).toMatchObject({ sold: true, earnedMerit: 1296 })
+    const sold = h.reload()
+    expect(sold.townEquipment!.roman!.soldNativeIds).toContain(token)
+    expect(townNativeSaleStock(sold, 'roman').some(item => item.nativeIds.includes(token))).toBe(false)
+    expect(resolveTownActorEquipment(sold, 'roman', 'captain').refs.shield).toBeNull()
+  })
   it('migrates a transferred Commander native mount without recreating it at its original owner', () => {
     const h = harness(), profile = h.read()
     const commander = resolveTownActorEquipment(profile, 'roman', 'commander')
     const recipient = resolveTownActorEquipment(profile, 'roman', 'cavalry-training:melee_cavalry:0')
     expect(commander.loadout).toMatchObject({ meleeWeaponId: 'sword_t5', rangedWeaponId: 'bow_t5', shieldId: 'commander_shield_t5' })
-    expect(resolveTownActorEquipment(profile, 'roman', 'captain').loadout.shieldId).toBe('paladin_shield_t4')
+    expect(resolveTownActorEquipment(profile, 'roman', 'captain').loadout.shieldId).toBe('roman_officer_shield_t4')
     expect(resolveTownActorEquipment(profile, 'roman', 'merchant').loadout.shieldId).toBe('paladin_shield_t4')
     h.buy('horse')
     profile.townEquipment = { roman: { version: 1, residentEquipmentVersion: 1,
@@ -62,7 +86,7 @@ describe('Town equipment domain, canonical ownership and persisted native source
     const commander = resolveTownActorEquipment(profile, 'roman', 'commander')
     const recipient = resolveTownActorEquipment(profile, 'roman', 'cavalry-training:melee_cavalry:0')
     const untouched = resolveTownActorEquipment(profile, 'viking', 'commander')
-    expect(untouched.loadout).toMatchObject({ meleeWeaponId: 'axe_t5', rangedWeaponId: 'bow_t5', shieldId: 'commander_shield_t5' })
+    expect(untouched.loadout).toMatchObject({ meleeWeaponId: 'axe_t5', rangedWeaponId: 'bow_t5', shieldId: 'viking_berserker_shield_t5' })
     h.buy('paladin_shield_t4', 2)
     profile.equipment = { ...profile.equipment, shield: 'paladin_shield_t4' }
     profile.townEquipment = {
@@ -91,7 +115,7 @@ describe('Town equipment domain, canonical ownership and persisted native source
     const legacyCatalogue = townNativeItems('roman', loaded.townEquipment!.roman)
     expect(legacyCatalogue).not.toBe(currentCatalogue)
     expect(legacyCatalogue.map(item => item.nativeId)).toEqual(currentCatalogue.map(item => item.nativeId))
-    expect(legacyCatalogue.every((item, index) => item.nativeId === token || item === currentCatalogue[index])).toBe(true)
+    expect(legacyCatalogue.filter(item => item.nativeId !== token).map(item => [item.nativeId, item.itemId])).toEqual(currentCatalogue.filter(item => item.nativeId !== token).map(item => [item.nativeId, item.itemId === 'roman_officer_shield_t4' ? 'paladin_shield_t4' : item.itemId]))
     expect(legacyCatalogue.find(item => item.nativeId === token)).toMatchObject({ itemId: 'paladin_shield_t4', tier: 4 })
     expect(townNativeItems('roman')).toBe(currentCatalogue)
     expect(currentCatalogue.find(item => item.nativeId === token)).toMatchObject({ itemId: 'commander_shield_t5', tier: 5 })

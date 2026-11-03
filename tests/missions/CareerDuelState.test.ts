@@ -222,7 +222,7 @@ describe('Career Duel settlement and safe storage', () => {
       { spec: { ...commander, id: 'captain', role: 'captain' }, npc: { dead: false } as NPC },
       { spec: commander, npc: { dead: false } as NPC },
     ], null as unknown as Mount, profile.activeMission!.duelPresetId!, 5)
-    expect(roster?.loadout).toMatchObject({ shieldId: 'commander_shield_t5', meleeWeaponId: 'paladin_mace_t4',
+    expect(roster?.loadout).toMatchObject({ shieldId: 'viking_berserker_shield_t5', meleeWeaponId: 'paladin_mace_t4',
       rangedWeaponId: null, mountId: 'black-cat' })
     Object.assign(profile.activeMission!, { phase: 'ENGAGING', duelCountdownElapsed: 5, duelCombatElapsed: 19.25,
       duelOpponentHp: 48, duelOpponentAmmo: 7, duelCommanderHome: { hp: 712, ammo: 13 },

@@ -482,7 +482,7 @@ describe('Reversible NPC weapon choice', () => {
     expect(h.actor.shield.active).toBe(true)
     expect(h.actor.shield.shieldImpactRemaining).toBe(initial - 2)
     expect(h.actor.arrows).toBe(12)
-    expect(h.actor.shieldId).toBe('commander_shield_t5')
+    expect(h.actor.shieldId).toBe('viking_berserker_shield_t5')
     h.actor.arrows = 0
     hostile.combatPosition.z = 12
     h.select([hostile])

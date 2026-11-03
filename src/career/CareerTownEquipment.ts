@@ -83,7 +83,7 @@ function writeRefs(profile: CareerProfile, context: TownEquipmentContext, target
   }
   profile.townEquipment ??= {}
   const state = profile.townEquipment[context.townFaction] ??= { version: 1, actors: {}, nativeReserve: [], residentEquipmentVersion: 1,
-    commanderShieldItemId: 'commander_shield_t5' }
+    factionShieldVersion: 1, commanderShieldItemId: context.townFaction === 'viking' ? 'viking_berserker_shield_t5' : 'commander_shield_t5' }
   state.actors[actorId] = refs
 }
 /** Persist every native token either at one holder or in the same authored Squad's reserve. */

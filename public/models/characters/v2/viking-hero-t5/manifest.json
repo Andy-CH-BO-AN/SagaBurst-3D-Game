@@ -3,19 +3,29 @@
   "id": "viking-hero-t5",
   "status": "ready",
   "skeleton": "project-humanoid-v1",
+  "bufferCompression": "EXT_meshopt_compression",
   "source": {
-    "title": "Steppe Iron Guard",
-    "sourceArchive": "Roman_Steppe_Selected_Complete.zip",
-    "sourceEntry": "Steppe/Steppe_Selected_11Clips_Candidate.glb",
-    "sourceSha256": "59cfd8bebeb1b87a4e97c99b6e476dd920a32fff3b6941669fc749fc37b3a931",
-    "license": "Meshy account/service/input terms; project animation sources retain their original terms",
-    "licenseEvidence": "source-readme.txt"
+    "title": "Viking Warrior",
+    "sourceFile": "Meshy_AI_viking_warrior_30k_All_Animations.glb",
+    "sourceSha256": "364e19160ba66ae344be73e3d4c8c5e5437b3caab7d339a979aabefd60cb46e2",
+    "license": "User-supplied Meshy asset; user confirmed use and GitHub redistribution rights, 2026-11-02",
+    "licenseEvidence": "attribution-evidence.json",
+    "filenameEvidence": {
+      "specificationFilename": "Meshy_AI_viking_warrior_30k_All_Animations(1).glb",
+      "suppliedAttachmentFilename": "Meshy_AI_viking_warrior_30k_All_Animations.glb",
+      "buildInputFilename": "Meshy_AI_viking_warrior_30k_All_Animations.glb",
+      "verifiedBuildInputSha256": "364e19160ba66ae344be73e3d4c8c5e5437b3caab7d339a979aabefd60cb46e2",
+      "renamedForBuild": false,
+      "comparisonFileAvailable": false,
+      "resolution": "The original conversation attachment and actual Downloads input both omit (1). The user clarified the reviewer filename was likely mistaken on 2026-11-03. Only this supplied file was used; no second (1) file was supplied or found, so byte equality with a differently named file is not asserted."
+    }
   },
-  "attribution": "Steppe Iron Guard: user-supplied Meshy model, textures and selected axe animations. Core clips: project-licensed Kevin Iglesias and Quaternius; see source-readme.txt.",
+  "attribution": "Viking Warrior: user-supplied Meshy model/textures. Existing SagaBurst animation-source terms retained in animation-donor-manifest.json.",
   "selectedSource": {
-    "rig": "steppe37",
-    "uniformScale": 1.1186500854923693
+    "rig": "mixamo66",
+    "uniformScale": 1
   },
+  "sharedLodPose": true,
   "handShapeMode": "authored",
   "preserveLodHandTopology": true,
   "files": {
@@ -23,38 +33,174 @@
     "lod1": "lod1.glb",
     "lod2": "lod2.glb"
   },
+  "fileSha256": {
+    "lod0": "33493f661ad1e6065f1b769e68063f34d5604358b1015d3bff64388ab9ec4377",
+    "lod1": "87aba7c2c75a4d3054235ed5544006f67ee6099c512caf85b6d76dc19184f442",
+    "lod2": "cd7f7719eb521b1a5d66556edefea474f402c1df8b3fc12cf81b8adeeb80c83d"
+  },
+  "boneMap": "bone-map.json",
+  "audit": "audit.json",
   "metrics": {
     "heightM": 2.1193006331863145,
-    "shoulderWidthM": 0.6645790819402477,
-    "neckLengthM": 0.10067855666644003,
+    "overallHeightM": 2.1193006331863145,
+    "shoulderWidthM": 0.5942906581916619,
+    "neckLengthM": 0.08777715504150227,
     "triangles": {
-      "lod0": 10389,
-      "lod1": 9517,
-      "lod2": 9181
+      "lod0": 31256,
+      "lod1": 10000,
+      "lod2": 3000
     },
     "textures": {
       "lod0": 2048,
       "lod1": 1024,
       "lod2": 512
     },
-    "uniformScale": 1.1186500854923693,
-    "bodyLandmarks": [
-      {
-        "name": "hips",
-        "source": 1.0299999713897705,
-        "reference": 1.0630946159362793
-      },
-      {
-        "name": "upper_arm_l",
-        "source": 1.4399998853056628,
-        "reference": 1.6427268470861613
-      },
-      {
-        "name": "upper_arm_r",
-        "source": 1.439999849241724,
-        "reference": 1.6427270426208738
-      }
+    "uniformScaleAppliedOffline": 1.059650387631952,
+    "runtimeScale": [
+      1,
+      1,
+      1
     ]
+  },
+  "handGripFrames": {
+    "left": {
+      "palmContactCenter": [
+        0.011035568416392503,
+        0.10907154539229887,
+        -0.0005434496696840683
+      ],
+      "palmNormal": [
+        0.8889442325487338,
+        0.02559374521377073,
+        0.4572998049685517
+      ],
+      "thumbDir": 1,
+      "thumbDirection": [
+        -0.45471072514518407,
+        0.16903876108852614,
+        0.8744507154137374
+      ],
+      "fingerDirection": [
+        0.054920923665609876,
+        0.9852770460411573,
+        -0.1619037821921634
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "fingerBase": 0.13866635925490314,
+      "thumbBaseCenter": [
+        -0.0045635513961315155,
+        0.04935256019234646,
+        0.0395129770040511
+      ]
+    }
+  },
+  "swordGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        -0.027778338628119376,
+        0.10618937935522456,
+        0.010773313604607766
+      ],
+      "gripAxisLocal": [
+        0.5062112999290254,
+        0.11506560128392777,
+        0.8546987932747621
+      ],
+      "palmNormalLocal": [
+        -0.8613028457282181,
+        0.017263267979590186,
+        0.5077985698277793
+      ],
+      "fingerDirection": [
+        -0.04367525345821743,
+        0.9932078770226467,
+        -0.10784519115624697
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.008936716243624908,
+        0.04220393672585487,
+        0.03327114880085002
+      ],
+      "fingerBase": 0.13528141531655286,
+      "gripRadius": 0.019
+    },
+    "lod1": {
+      "gripCenterLocal": [
+        -0.027778338628119376,
+        0.10618937935522456,
+        0.010773313604607766
+      ],
+      "gripAxisLocal": [
+        0.5062112999290254,
+        0.11506560128392777,
+        0.8546987932747621
+      ],
+      "palmNormalLocal": [
+        -0.8613028457282181,
+        0.017263267979590186,
+        0.5077985698277793
+      ],
+      "fingerDirection": [
+        -0.04367525345821743,
+        0.9932078770226467,
+        -0.10784519115624697
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.008936716243624908,
+        0.04220393672585487,
+        0.03327114880085002
+      ],
+      "fingerBase": 0.13528141531655286,
+      "gripRadius": 0.019
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        -0.027778338628119376,
+        0.10618937935522456,
+        0.010773313604607766
+      ],
+      "gripAxisLocal": [
+        0.5062112999290254,
+        0.11506560128392777,
+        0.8546987932747621
+      ],
+      "palmNormalLocal": [
+        -0.8613028457282181,
+        0.017263267979590186,
+        0.5077985698277793
+      ],
+      "fingerDirection": [
+        -0.04367525345821743,
+        0.9932078770226467,
+        -0.10784519115624697
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.008936716243624908,
+        0.04220393672585487,
+        0.03327114880085002
+      ],
+      "fingerBase": 0.13528141531655286,
+      "gripRadius": 0.019
+    }
   },
   "animations": {
     "embedded": [
@@ -182,216 +328,43 @@
           "actionComplete": 3
         },
         "meleeCycleSeconds": 0.48
+      },
+      {
+        "clip": "death",
+        "source": "SagaBurst",
+        "sourceClip": "Existing project death pitch/drop baked to hero rest frame and floor",
+        "loop": false,
+        "duration": 1
       }
     ],
     "runtimeGenerated": [
       "mounted",
-      "death",
       "daggerSlash",
       "greatswordSlash",
       "lanceThrust",
       "mountedLance"
     ]
   },
-  "handGripFrames": {
-    "left": {
-      "palmContactCenter": [
-        0.02410578793187804,
-        0.1,
-        -0.021021054171076175
-      ],
-      "palmNormal": [
-        0.047063793059050577,
-        0,
-        -0.9988918857328329
-      ],
-      "thumbDir": -1,
-      "thumbDirection": [
-        0.9988918857328329,
-        0,
-        0.047063793059050577
-      ],
-      "fingerDirection": [
-        0,
-        1,
-        0
-      ],
-      "wristCenter": [
-        0,
-        0,
-        0
-      ],
-      "fingerBase": 0.085,
-      "thumbBaseCenter": [
-        0,
-        0.025,
-        0
-      ]
+  "animationRetarget": {
+    "revision": "7cb61c07f9daf41cccd35287a6cc842955c3f137",
+    "deathDonor": {
+      "revision": "7cb61c07f9daf41cccd35287a6cc842955c3f137",
+      "asset": "public/models/characters/v2/roman-hero-t4/lod0.glb",
+      "sha256": "d044847b517f79e72b17c6ed89efb7928d50cbb8a01a36430fed62470cb0250a",
+      "attribution": "Paladin by DJMaesen, CC-BY-4.0. Adapted for SagaBurst; original source linked in ATTRIBUTION.md."
+    },
+    "donor": "public/models/characters/v2/viking-hero-t5/lod0.glb",
+    "sha256": "44e7b526947e6643c118fa7a7975c8198175f3806b8c7c41ffef08741b398036",
+    "method": "Existing bakeFactionClips physical-axis pipeline at 30Hz; finger-only Roman donor adaptation, in-place sole contact; original event metadata and action durations retained.",
+    "fingerDonor": {
+      "asset": "public/models/characters/v2/roman/lod0.glb",
+      "sha256": "142102c670dcbbffae0527d732d6f139db6f8aa61b83cbdfb2b76bba632c6b34",
+      "attribution": "Ordinary Roman Infantry: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt."
     }
   },
-  "swordGripFrames": {
-    "lod0": {
-      "gripCenterLocal": [
-        -0.025,
-        0.1,
-        -0.04
-      ],
-      "gripAxisLocal": [
-        -0.9988918791849442,
-        0,
-        0.047063932032614504
-      ],
-      "palmNormalLocal": [
-        -0.04706393203261452,
-        0,
-        -0.9988918791849444
-      ],
-      "fingerDirection": [
-        0,
-        1,
-        0
-      ],
-      "wristCenter": [
-        0,
-        0,
-        0
-      ],
-      "thumbBaseCenter": [
-        0,
-        0.025,
-        0
-      ],
-      "fingerBase": 0.085,
-      "gripRadius": 0.019
-    },
-    "lod1": {
-      "gripCenterLocal": [
-        -0.025,
-        0.1,
-        -0.04
-      ],
-      "gripAxisLocal": [
-        -0.9988918791849442,
-        0,
-        0.047063932032614504
-      ],
-      "palmNormalLocal": [
-        -0.04706393203261452,
-        0,
-        -0.9988918791849444
-      ],
-      "fingerDirection": [
-        0,
-        1,
-        0
-      ],
-      "wristCenter": [
-        0,
-        0,
-        0
-      ],
-      "thumbBaseCenter": [
-        0,
-        0.025,
-        0
-      ],
-      "fingerBase": 0.085,
-      "gripRadius": 0.019
-    },
-    "lod2": {
-      "gripCenterLocal": [
-        -0.025,
-        0.1,
-        -0.04
-      ],
-      "gripAxisLocal": [
-        -0.9988918791849442,
-        0,
-        0.047063932032614504
-      ],
-      "palmNormalLocal": [
-        -0.04706393203261452,
-        0,
-        -0.9988918791849444
-      ],
-      "fingerDirection": [
-        0,
-        1,
-        0
-      ],
-      "wristCenter": [
-        0,
-        0,
-        0
-      ],
-      "thumbBaseCenter": [
-        0,
-        0.025,
-        0
-      ],
-      "fingerBase": 0.085,
-      "gripRadius": 0.019
-    }
-  },
-  "fileSha256": {
-    "lod0": "44e7b526947e6643c118fa7a7975c8198175f3806b8c7c41ffef08741b398036",
-    "lod1": "f9a7a727ebe7b0328f743a42513921971985882181a19329c869c418a6f800d1",
-    "lod2": "36be64edd3e62a8dec5a858d4a3a60376d3d93dc82faea7aded5d399a111df1d"
-  },
-  "visualAcceptance": "Representative source/runtime, equipped action, front/side/back LOD comparison reviewed; performance acceptance recorded separately.",
+  "visualAcceptance": "Requires live game review; structural audit alone does not establish visual acceptance.",
   "knownLimitations": [
-    "Conservative UV-boundary LODs exceed the suggested triangle targets; aggressive collapse candidates failed appearance review.",
-    "No runtime cloth collision; extreme garment contact follows the source/helper rig."
-  ],
-  "banditFootAxe": {
-    "sourceAsset": "bandit/lod0.glb",
-    "sourceSha256": "76244820ef8c5e1304ef2ac2e3f246958c8d2f47b50ef0f7bcab72249e5f575c",
-    "sourceClip": "swordSlash",
-    "source": {
-      "title": "Fantasy Bandit",
-      "author": "tokeshi",
-      "url": "https://www.cgtrader.com/free-3d-models/character/man/fantasy-bandit",
-      "license": "CGTrader Royalty Free (no AI)",
-      "licenseUrl": "https://www.cgtrader.com/pages/terms-and-conditions",
-      "sourceSha256": "3260547fbbf5d24e4849933cedb5ae5b9156eab00ae01576680a9658d186e825",
-      "archives": {
-        "Bandit_animation_fbx.rar": "82c389524083106904818bb44ebe7acf04fa76c14fef058495e3d4c4d14034a7",
-        "Bandit_textures.rar": "1c1b840ef846deea2af9c7f30b1bff4fae57550c068dba65c9b30ec39a8b4660"
-      }
-    },
-    "retarget": "Anatomical limb axes and thumb/finger grasp; target idle pelvis and legs; original 1H event clock retained",
-    "rebuild": "node tools/retarget-bandit-foot-axe.mjs"
-  },
-  "axeAttack2HTrim": {
-    "version": 1,
-    "recipe": "tools/assets/axe-2h-trim.json",
-    "recipeSha256": "576bda48a75b66752fb86d3bb1096a6ab9eb789bd3da0ff7ef1abb57c2c4c0fc",
-    "sourceDuration": 2.8333333333333335,
-    "sourceRange": [
-      0.9666666666666667,
-      1.2
-    ],
-    "sourceEvents": {
-      "activeStart": 0.9666666666666667,
-      "hit": 1.0666666666666667,
-      "activeEnd": 1.2,
-      "actionComplete": 2.8333333333333335
-    },
-    "inputSha256": {
-      "lod0.glb": "3cf3f3fd2bc467a573d79d03170bd60fd210cd661c091c56ae341be408b4b0db",
-      "lod1.glb": "332699a8fae78760b680e2817a2411a54172199205c8a3a81a5ddcf94762f6d5",
-      "lod2.glb": "4be3c8ae1b3af885370bdfe1657ba3ee95bc1ec9ddf17e218791375a3b12a662"
-    },
-    "duration": 0.48,
-    "events": {
-      "activeStart": 0.145833333,
-      "hit": 0.229166667,
-      "activeEnd": 0.254166667,
-      "actionComplete": 0.48
-    },
-    "attackFadeInSeconds": 0.1,
-    "attackTransition": "inertial",
-    "preservation": "Only axeAttack2H channels and their referenced samples are replaced. Geometry, skin, textures, other animation payloads and runtime attack cycles are unchanged.",
-    "validation": "Animation/asset and production-controller trajectory checks; live browser gameplay, visual contact/clearance and mounted aesthetic acceptance remain unverified."
-  }
+    "No dynamic cloth collision. Thirty anatomical finger tracks are transferred from the existing Roman animation donor, with source-joint grasp fitted around the shaft; extreme hand/armour and mounted cloth contact requires visual review.",
+    "FPS A/B deliberately deferred by user, 2026-11-02."
+  ]
 }

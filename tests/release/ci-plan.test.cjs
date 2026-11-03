@@ -53,8 +53,33 @@ test('production module selects transitive consumers without unrelated equipment
     { status: 'A', file: 'public/models/characters/v2/viking-t2/manifest.json' },
     { status: 'A', file: 'tools/build-tiered-faction-soldiers.py' },
     { status: 'A', file: 'tools/retarget-tiered-faction-soldiers.mjs' },
+    { status: 'M', file: 'public/models/characters/v2/future-knight/ATTRIBUTION.md' },
+    { status: 'M', file: 'public/models/characters/v2/future-knight/lod0.glb' },
   ], consumers)
   assert.deepEqual(tiered.selected, humanoidOwners.sort())
+  const factionOwners = ['tests/combat/CombatAttribution.test.ts', 'tests/combat/CommanderWeaponSwitching.test.ts']
+  const factionEquipment = selectFiles([...inventory, ...factionOwners.map(file => item(file))], [
+    { status: 'A', file: 'public/models/weapons/future-shield/sources.json' },
+  ], consumers)
+  assert.deepEqual(factionEquipment.selected, factionOwners.sort())
+})
+test('offline asset outputs infer family owners through real imports and literal subprocess inputs, without tool-name policies', () => {
+  const { assetOwnerTests } = require('../tooling/asset-owners.cjs')
+  const owners = ['tests/assets/HumanoidAssetPreload.test.ts', 'tests/combat/CommanderWeaponSwitching.test.ts']
+  const sources = new Map([
+    ['tools/new-body.mjs', "import './lib/weights.mjs'; const output = `public/models/characters/v2/${id}`; exec('tools/reduce.py')"],
+    ['tools/lib/weights.mjs', 'export const weight = 1'],
+    ['tools/reduce.py', "Path(__file__).with_name('surface.py')"],
+    ['tools/surface.py', 'pass'],
+    ['tools/unrelated.py', 'pass'],
+  ])
+  const files = new Set(sources.keys()), inv = owners.map(file => item(file))
+  const graph = dependencyConsumers([], sources).graph
+  for (const file of ['tools/new-body.mjs', 'tools/lib/weights.mjs', 'tools/reduce.py', 'tools/surface.py']) {
+    assert.deepEqual([...assetOwnerTests(file, inv, { files, texts: sources }, graph)].sort(), [...owners].sort())
+  }
+  assert.equal(assetOwnerTests('tools/unrelated.py', inv, { files, texts: sources }, graph).size, 0)
+  assert.equal(assetOwnerTests('public/unknown/asset.glb', inv).size, 0)
 })
 test('high fan-out production owner stays Related instead of forcing repository Full', () => {
   const plan = select('src/Game.ts')
@@ -131,6 +156,22 @@ test('unresolved dynamic imports fail Related planning instead of expanding to F
   assert.throws(() => selectFiles(inventory, [{ status: 'M', file: 'src/navigation/NavigationGrid.ts' }], { ...consumers, runtimeAmbiguities: ['src/runtime.ts'] }), /Unresolved runtime imports/)
 })
 test('aggregate accepts more than 500 total leaves only for independently valid Full shards', () => {
+  // Aggregate runs with artifact JSON and no npm-installed TypeScript. Clear
+  // only this bootstrap chain so earlier parser imports cannot hide eager loads.
+  const Module = require('node:module'), load = Module._load
+  const paths = ['ci-run.cjs', 'ci-plan.cjs', 'asset-owners.cjs', 'dependencies.cjs'].map(file => require.resolve(`../tooling/${file}`))
+  const cached = paths.map(file => require.cache[file])
+  try {
+    for (const file of paths) delete require.cache[file]
+    Module._load = function(id, ...args) {
+      if (id === 'typescript') throw Error('aggregate must not require TypeScript')
+      return load.call(this, id, ...args)
+    }
+    assert.doesNotThrow(() => require('../tooling/ci-run.cjs'))
+  } finally {
+    Module._load = load
+    paths.forEach((file, index) => { if (cached[index]) require.cache[file] = cached[index]; else delete require.cache[file] })
+  }
   const { createHash } = require('node:crypto')
   const files = [item('tests/a.test.ts', 500), item('tests/b.test.ts', 1)]
   const plan = { ...full(files), planId: 'aggregate-boundary' }

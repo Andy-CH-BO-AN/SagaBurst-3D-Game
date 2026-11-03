@@ -41,9 +41,9 @@ export class HumanoidStudioPlayback {
   private equipped = true
   private started = false
 
-  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', public mountKind: MountedPoseKind = 'HORSE', assets?: { bow: MakiBowAsset }, private readonly equipment?: { swordId: string; axeId: string; shieldId: string }) {
+  constructor(readonly instance: HumanoidCharacterInstance, public state: HumanoidAnimationState, readonly faction: 'viking' | 'roman', public mountKind: MountedPoseKind = 'HORSE', assets?: { bow: MakiBowAsset }, private readonly equipment?: { swordId: string; axeId: string; shieldId: string; lanceId?: string; bowId?: string }) {
     this.lance.add(this.lanceModel)
-    WeaponMeshFactory.buildMelee('steel_lance', this.lanceModel)
+    WeaponMeshFactory.buildMelee(equipment?.lanceId ?? 'steel_lance', this.lanceModel)
     WeaponMeshFactory.buildShield(equipment?.shieldId ?? (faction === 'roman' ? 'scutum_t2' : 'round_shield_t2'), this.shield)
     instance.rig.right.handSocket.add(this.lance)
     instance.rig.left.handSocket.add(this.shield)
@@ -70,7 +70,7 @@ export class HumanoidStudioPlayback {
     instance.rig.left.handSocket.add(this.bow)
     this.bowVisual = new CharacterBowVisual(this.bow, bowGrip, instance.root)
     if (assets) this.bowVisual.rebuildFromAsset(assets.bow.model, assets.bow.profile, assets.bow.topTip, assets.bow.bottomTip)
-    else this.bowVisual.rebuild('recurve_longbow')
+    else this.bowVisual.rebuild(equipment?.bowId ?? 'recurve_longbow')
     this.animator = new CharacterCombatAnimator(instance.rig, this.sword, state === 'pilumThrow' ? this.pilum : this.bow)
     this.reset()
   }
@@ -177,7 +177,7 @@ export class HumanoidStudioPlayback {
     const profile = COMBAT_ANIMATION_PROFILES[action]
     const duration = this.instance.rig.animation?.getMeleeTiming?.(action)?.duration ?? profile.windup + profile.active + profile.recovery
     const id = this.equipmentLoadout === 'axe' ? (this.useSelectedAxe ? 'viking_axe_t3' : this.equipment?.axeId)
-      : this.equipmentLoadout === 'sword' ? this.equipment?.swordId : undefined
+      : this.equipmentLoadout === 'sword' ? this.equipment?.swordId : this.equipmentLoadout === 'lance' ? this.equipment?.lanceId : undefined
     return duration / meleeActionTimeScale(action, WEAPONS[id ?? ''])
   }
 
@@ -185,7 +185,7 @@ export class HumanoidStudioPlayback {
     if (this.equipmentLoadout === 'bow' || this.equipmentLoadout === 'none') return
     const action = this.equipmentAction(mounted)
     const id = this.equipmentLoadout === 'axe' ? (this.useSelectedAxe ? 'viking_axe_t3' : this.equipment?.axeId)
-      : this.equipmentLoadout === 'sword' ? this.equipment?.swordId : undefined
+      : this.equipmentLoadout === 'sword' ? this.equipment?.swordId : this.equipmentLoadout === 'lance' ? this.equipment?.lanceId : undefined
     this.animator.start(action, meleeActionTimeScale(action, WEAPONS[id ?? '']))
   }
 
