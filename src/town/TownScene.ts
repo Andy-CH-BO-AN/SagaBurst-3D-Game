@@ -11,7 +11,7 @@ import { ActiveMissionClock } from '../career/ActiveMissionClock'
 import { raceReturnAction } from '../career/CareerRaceReturn'
 import { CareerRaceHUD } from '../ui/CareerRaceHUD'
 import { CareerRaceController } from '../career/CareerRaceController'
-import { MOUNTED_RACES, raceDefinitionForSchedule, type RaceId } from '../career/CareerRaceState'
+import { MOUNTED_RACES, raceDefinitionForSchedule, raceStageOpponentLabel, type RaceId } from '../career/CareerRaceState'
 import { RACE_LINES } from '../career/CareerRaceRoute'
 import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
 import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
@@ -35,6 +35,7 @@ import { captureCareerAerialState, restoreCareerAerialState } from '../career/Ca
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { availableCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO } from '../career/CareerInventory'
 import { createTownCareerEquipmentUI } from './TownCareerEquipmentUI'
+import { updateTownEquipmentVisibleStatus } from './TownSquadEquipmentUI'
 import { applyTownEquipmentRuntime, registerTownNativeMount, findTownNativeMount } from './TownEquipmentRuntime'
 import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentContext } from '../career/CareerTownEquipment'
 import { officialCommandHudLabel } from '../career/CommanderTownSquadLabels'
@@ -76,7 +77,7 @@ import { ThirdPersonCamera } from '../camera/ThirdPersonCamera'
 import { CompassUI } from '../ui/CompassUI'
 import { SpectatorCameraController } from '../camera/SpectatorCameraController'
 import { NPC, AIType, Faction } from '../world/NPC'
-import { Mount, MountType } from '../world/Mount'
+import { Mount, MountType, felineVariantFromMountId } from '../world/Mount'
 import { XongkoroVisual } from '../world/XongkoroVisual'
 import { eagleLandingFootprint } from '../world/EagleLanding'
 import { isEagleLandingClearOfMounts } from '../world/EagleLandingOccupants'
@@ -87,6 +88,7 @@ import { XONGKORO } from '../movement/XongkoroConfig'
 import { CIVILIAN_HUMANOID_ASSETS, HumanoidAssetRegistry } from '../world/HumanoidAssetRegistry'
 import { HorseAssetRegistry } from '../world/HorseAssetRegistry'
 import { BlackCatVisual } from '../world/BlackCatVisual'
+import { careerFelineVariants } from '../career/CareerMountController'
 import { CorgiVisual } from '../world/CorgiVisual'
 import { SnowLeopardVisual } from '../world/SnowLeopardVisual'
 import { HERO_ASSETS } from '../world/HeroAssetCatalog'
@@ -333,7 +335,8 @@ export class TownScene {
         const hero = personalMemberLoadout(member, profile.faction).hero
         return hero ? [hero.visualAssetId] : []
       }))
-      await Promise.all([...siegeHeroes, preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), SnowLeopardVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
+      const felineVariants = careerFelineVariants(profile)
+      await Promise.all([...siegeHeroes, preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), CorgiVisual.preload(), SnowLeopardVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
       const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome, onTutorialLaunch)
@@ -1155,7 +1158,23 @@ export class TownScene {
       e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
       const adapters = createTownCareerEquipmentUI(() => this.profile, () => this.townEquipmentContext(),
         () => this.residents, next => this.commit(next),
-        (previous, current, actorIds) => applyTownEquipmentRuntime(this.scene, this.residents, this.mounts, previous, current, actorIds, (point, actorId, reusedMount, vacatingMounts) => this.canPlaceMountedCivilian(point, actorId, reusedMount, vacatingMounts)))
+        (previous, current, actorIds) => applyTownEquipmentRuntime(
+          this.scene,
+          this.residents,
+          this.mounts,
+          previous,
+          current,
+          actorIds,
+          (point, actorId, reusedMount, vacatingMounts) => this.canPlaceMountedCivilian(point, actorId, reusedMount, vacatingMounts),
+          {
+            getCurrentProfile: () => this.profile,
+            isDisposed: () => this.disposed,
+            onStatusChange: status => {
+              if (this.careerMounts) this.careerMounts.statusText = status
+              updateTownEquipmentVisibleStatus(status)
+            },
+          },
+        ))
       this.equipment.open(this.skills, this.inventory, () => this.input.clear(), this.careerMounts, adapters.personal, adapters.town)
       return
     }
@@ -1378,6 +1397,10 @@ export class TownScene {
               this.talk(id, message, 'buy', category); return
             }
             if (!this.commit(result.profile)) { this.talk(id, this.notice, 'buy', category); return }
+            if (mount) {
+              const boughtFeline = felineVariantFromMountId(item.id)
+              if (boughtFeline) void BlackCatVisual.preload(boughtFeline).catch(() => {})
+            }
             this.inventory.syncOwnership()
             this.careerMounts.syncOwnership()
             const message = `購買成功！\n${item.name} × ${Number(quantity.value)}\n花費：${result.spentMerit.toLocaleString()} 軍功\n剩餘軍功：${this.profile.availableMerit.toLocaleString()}`
@@ -2119,7 +2142,7 @@ export class TownScene {
     const racing = document.createElement('h3'); racing.textContent = 'Mounted Circuit Racing · 繞城賽馬'; panel.append(racing)
     for (const race of MOUNTED_RACES) {
       const row = document.createElement('article'); row.className = 'town-product'
-      const name = document.createElement('strong'); name.textContent = `${race.name} · 指揮官 · ${race.mount}`
+      const name = document.createElement('strong'); name.textContent = `${race.name} · 指揮官 · ${raceStageOpponentLabel(race)}`
       const details = document.createElement('small')
       details.textContent = `指揮官 ${race.sprint ? 'Sprint' : 'Normal（不衝刺）'} · 玩家可衝刺 · 勝利 ${race.merit} 軍功 · ${this.profile.completedRaceIds?.includes(race.id) ? '已完成' : '未完成'}`
       const accept = this.button(row, '接受賽馬', () => this.acceptRace(race.id))

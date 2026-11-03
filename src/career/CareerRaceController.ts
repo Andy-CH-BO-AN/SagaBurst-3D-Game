@@ -6,7 +6,8 @@ import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { HpBar } from '../ui/HpBar'
 import type { Player } from '../player/Player'
 import { AIType, Faction, NPC } from '../world/NPC'
-import { Mount, mountTypeFromId } from '../world/Mount'
+import { Mount, mountTypeFromId, felineVariantFromMountId } from '../world/Mount'
+import { BlackCatVisual } from '../world/BlackCatVisual'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { CareerProfile } from './CareerProfile'
@@ -14,12 +15,13 @@ import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
 import { CAREER_MOUNT_INTERACTION_DISTANCE, canUseCareerMount, type CareerMountController } from './CareerMountController'
-import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
+import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, pickRaceOpponentMount, RACE_SCHEDULE_VERSION, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
 import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
 
 interface RaceResident { npc: NPC; homeMount?: Mount; spec: { id: string; x: number; z: number; yaw?: number } }
 const commandId = -7400
+const RACE_DEPLOY_RETRY_MS = 3000
 function vector(p: RacePoint): THREE.Vector3 { return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z) }
 function position(p: THREE.Vector3, yaw: number): RacePosition { return { x: p.x, y: p.y, z: p.z, yaw } }
 
@@ -43,6 +45,7 @@ export class CareerRaceController {
   private stallSeconds = 0
   private lastOpponentPosition?: RacePosition
   private batch?: NpcSpawnBatch
+  private preloadInFlight = false
   error = ''
   saveFailed = false
 
@@ -97,13 +100,14 @@ export class CareerRaceController {
     })
     const spawn = commander.npc.combatPosition
     if (!this.legalSegment(spawn, spawn)) { this.error = '指揮官所在位置沒有足夠坐騎空間。'; return false }
-    const session: CareerRaceSession = { version: 1, scheduleVersion: 2, deployed: false, id: sessionId, raceId: id, phase: 'guiding', countdownSeconds: 10,
+    const opponentMount = pickRaceOpponentMount(definition)
+    const session: CareerRaceSession = { version: 1, scheduleVersion: RACE_SCHEDULE_VERSION, deployed: false, id: sessionId, raceId: id, phase: 'guiding', countdownSeconds: 10,
       elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
       referee: this.captureReferee(captain),
       opponentHome: this.captureReferee(commander), opponentAmmo: commander.npc.combatAmmo,
-      player: { ...makeRider('player', this.mounts.activeMountId as RaceMountId, origin, p.hp, mount.currentHp), stamina: p.staminaValue },
+      player: { ...makeRider('player', canonicalCareerMountId(this.mounts.activeMountId!) as RaceMountId, origin, p.hp, mount.currentHp), stamina: p.staminaValue },
       // The mount is race-owned; the actual native Commander and his equipment are borrowed intact.
-      opponent: { ...makeRider(TOWN_COMMANDER_ID, definition.mount, position(spawn, commander.npc.group.rotation.y), commander.npc.hp, 1), stamina: commander.npc.staminaValue } }
+      opponent: { ...makeRider(TOWN_COMMANDER_ID, opponentMount, position(spawn, commander.npc.group.rotation.y), commander.npc.hp, 1), stamina: commander.npc.staminaValue } }
     const next = cloneCareerProfile(fresh); next.activeRace = session
     if (!this.commit(next)) { this.error = '參賽狀態保存失敗，比賽尚未部署。請重試。'; return false }
     this.session = structuredClone(session); this.captain = captain; this.captainHp = captain.npc.hp
@@ -134,10 +138,48 @@ export class CareerRaceController {
     this.deploy(!saved.deployed, true)
   }
 
-  async waitForDeployment(): Promise<void> { if (this.batch) await gameplayNpcSpawns.wait(this.batch) }
+  private preloadPromise?: Promise<void>
+  /** Set when the opponent asset failed to load; the persisted session is kept and deployment is retried. */
+  private deployRetry?: { initial: boolean; restoring: boolean; sessionId: string; at: number }
+
+  async waitForDeployment(): Promise<void> {
+    if (this.preloadPromise) await this.preloadPromise
+    if (this.batch) await gameplayNpcSpawns.wait(this.batch)
+  }
+
+  /** True while a failed opponent asset load is waiting to be retried. */
+  get deploymentRetryPending(): boolean { return Boolean(this.deployRetry) }
 
   private deploy(initial: boolean, restoring = false): void {
     const s = this.session!
+    this.deployRetry = undefined
+    const feline = felineVariantFromMountId(s.opponent.mountId)
+    if (feline && !BlackCatVisual.isPreloaded(feline)) {
+      if (this.preloadInFlight) return
+      this.preloadInFlight = true
+      this.preloadPromise = BlackCatVisual.preload(feline).then(() => {
+        this.preloadInFlight = false
+        if (this.session?.id === s.id && !this.batch?.ready && !this.racer) this.enqueueDeployment(s, initial, restoring)
+      }).catch(() => {
+        this.preloadInFlight = false
+        if (this.session?.id !== s.id) return
+        this.error = '賽手坐騎資源載入失敗，正在重試；賽事與對手已保留。'
+        this.deployRetry = { initial, restoring, sessionId: s.id, at: Date.now() + RACE_DEPLOY_RETRY_MS }
+      })
+      return
+    }
+    this.enqueueDeployment(s, initial, restoring)
+  }
+
+  private retryDeploymentIfDue(): void {
+    const retry = this.deployRetry
+    if (!retry || Date.now() < retry.at) return
+    if (this.session?.id !== retry.sessionId || this.racer || this.batch?.status === 'pending') { this.deployRetry = undefined; return }
+    this.error = ''
+    this.deploy(retry.initial, retry.restoring)
+  }
+
+  private enqueueDeployment(s: CareerRaceSession, initial: boolean, restoring: boolean): void {
     this.batch = gameplayNpcSpawns.batch(() => { this.disposeRacer(); this.error = '賽手部署失敗；重新載入可重試同場賽事。' })
     this.batch.enqueue(s.opponent.actorId, () => {
       const presetId: UnitPresetId = this.read().faction === 'roman' ? 'roman_sword_cavalry' : 'viking_sword_cavalry'
@@ -209,6 +251,7 @@ export class CareerRaceController {
   }
 
   prepare(): void {
+    this.retryDeploymentIfDue()
     const s = this.session
     if (!s || !this.ready) {
       if (this.captainReturning && this.ownsCaptain && this.captain) {
@@ -238,14 +281,25 @@ export class CareerRaceController {
       return
     }
     let goal = this.waypoints[s.waypoint]
-    if (goal && Math.hypot(npc.combatPosition.x - goal.x, npc.combatPosition.z - goal.z) < 1.8) goal = this.waypoints[++s.waypoint]
-    if (goal) this.order(npc, goal, definition.sprint)
+    while (goal && s.waypoint < this.waypoints.length - 1 && Math.hypot(npc.combatPosition.x - goal.x, npc.combatPosition.z - goal.z) < 3.6) {
+      goal = this.waypoints[++s.waypoint]
+    }
+    if (goal && s.waypoint === this.waypoints.length - 1 && Math.hypot(npc.combatPosition.x - goal.x, npc.combatPosition.z - goal.z) < 1.8) {
+      goal = this.waypoints[++s.waypoint]
+    }
+    if (goal) {
+      const nextGoal = this.waypoints[s.waypoint + 1]
+      const facing = nextGoal
+        ? new THREE.Vector3(nextGoal.x - goal.x, 0, nextGoal.z - goal.z).normalize()
+        : new THREE.Vector3(0, 0, -1)
+      this.order(npc, goal, definition.sprint, undefined, facing)
+    }
   }
-  private order(npc: NPC, point: RacePoint, sprint: boolean, speed?: number): void {
+  private order(npc: NPC, point: RacePoint, sprint: boolean, speed?: number, facing = new THREE.Vector3(0, 0, -1)): void {
     const key = `${point.x}:${point.z}:${sprint}:${speed}`
     npc.missionMovement = sprint
     if (this.commanded.get(npc) === key && npc.formationCommandId === commandId) return
-    npc.assignFormationTarget(commandId, vector(point), new THREE.Vector3(0, 0, -1), speed)
+    npc.assignFormationTarget(commandId, vector(point), facing, speed)
     this.commanded.set(npc, key)
   }
 
@@ -405,6 +459,7 @@ export class CareerRaceController {
     return true
   }
   private disposeRacer(): void {
+    this.deployRetry = undefined
     if (this.player().currentMount === this.mount) this.player().dismountFromMount({ preserveWorldPosition: true })
     this.batch?.cancel()
     const borrowed = this.borrowedCommander, home = this.session?.opponentHome

@@ -1,5 +1,5 @@
 import type { CareerRaceSession, RaceRider } from '../career/CareerRaceState'
-import { raceDefinitionForSchedule } from '../career/CareerRaceState'
+import { RACE_MOUNT_NAMES, raceDefinitionForSchedule } from '../career/CareerRaceState'
 import { RACE_LINES, legalRaceStart } from '../career/CareerRaceRoute'
 
 interface RaceHUDOptions {
@@ -10,7 +10,6 @@ interface RaceHUDOptions {
   distance: number | null
 }
 
-const MOUNT_NAMES = { horse: '戰馬', corgi: '柯基', 'black-cat': '黑貓', 'snow-leopard': '重甲雪豹' } as const
 function setText(element: HTMLElement, value: string): void {
   if (element.textContent !== value) element.textContent = value
 }
@@ -97,7 +96,7 @@ export class CareerRaceHUD {
       : countdown ? '留在北門內側起跑區' : `下一站：${RACE_LINES[session.player.checkpoint]?.label ?? '完成'}`
     const distance = (!session.result || finishing) && !observing && options.distance !== null ? ` · ${Math.round(options.distance)} m` : ''
     setText(this.objective, target + distance)
-    setText(this.mode, `${session.opponent.actorId === 'commander' ? '指揮官' : '對手'}：${MOUNT_NAMES[definition.mount]} · ${definition.sprint ? '衝刺賽' : '一般速度'} · 玩家可 Shift 衝刺`)
+    setText(this.mode, `${session.opponent.actorId === 'commander' ? '指揮官' : '對手'}：${RACE_MOUNT_NAMES[session.opponent.mountId]} · ${definition.sprint ? '衝刺賽' : '一般速度'} · 勝利 ${definition.merit} 軍功 · 玩家可 Shift 衝刺`)
     this.updateRider(session.player, 0); this.updateRider(session.opponent, 1)
     const warning = options.saveFailed && !options.ready ? '部署保存失敗；請重新載入以重試同場賽事。'
       : options.saveFailed ? '保存失敗，將重試；結果保存成功後才公布。'

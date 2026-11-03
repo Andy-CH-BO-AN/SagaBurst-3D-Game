@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 2,
+  "id": "orange-cat",
+  "sha256": "d4f95540ba93825de247b00f7daacbcf2d94571d6db03f2caee6e0a04b3e84a6",
+  "sourceSha256": "f4f9060eb94225a115fcf796500afce3abeb116a120782da0e949a4edda894fb",
+  "sourceContract": {
+    "sourceTriangles": 31335,
+    "finalBodyTriangles": 31335,
+    "matchedSourceTriangles": 31335,
+    "saddleTriangles": 10348,
+    "windingPreserved": true
+  },
+  "sourceToAsset": [
+    0.918,
+    0,
+    0,
+    0,
+    0,
+    0.918,
+    0,
+    0,
+    0,
+    0,
+    0.918,
+    0,
+    0.012493980000000002,
+    -5.40806751700984e-8,
+    -0.25704000000000005,
+    1
+  ],
+  "sourceImages": [
+    {
+      "image": 0,
+      "bytes": 7049380,
+      "mimeType": "image/png",
+      "sha256": "84199392d19a419f28a94cb117c47832c10e33e4aab9ecd4c162a1254576d66b"
+    },
+    {
+      "image": 1,
+      "bytes": 9498142,
+      "mimeType": "image/png",
+      "sha256": "e78fd5b6dfdf50d07ed7f30e22383d7a50c3d4d4d0c23f62dcf04f13a2f305b4"
+    }
+  ],
+  "metrics": {
+    "packageBytes": 23024588,
+    "joints": 52,
+    "materials": 2,
+    "storedPrimitives": 6,
+    "visibleDrawCalls": 2,
+    "lodTriangles": [
+      41683,
+      19168,
+      5416
+    ]
+  },
+  "skin": {
+    "method": "Continuous torso-unified belly/tail skin repair",
+    "geometricPoints": 15692,
+    "freePoints": 6564,
+    "iterations": 103,
+    "residual": 0.000009402817504500227,
+    "maxDroppedWeight": 0.05962085754970459
+  },
+  "saddleFit": {
+    "seatPos": [
+      0,
+      1.266,
+      0.09
+    ],
+    "cameraPos": [
+      0,
+      1.566,
+      0.09
+    ],
+    "pitchDeg": 3.8,
+    "scale": [
+      1.06,
+      1,
+      0.96
+    ],
+    "chestReachZ": 0.63,
+    "chestDropY": -0.05,
+    "chestScaleX": 1.08,
+    "shoulderBulgeX": 0.055,
+    "girthBottomY": 0.43,
+    "girthScaleX": 1.05
+  },
+  "sockets": {
+    "socket_saddle_seat": [
+      0,
+      1.266,
+      0.09
+    ],
+    "socket_camera": [
+      0,
+      1.566,
+      0.09
+    ]
+  }
+}

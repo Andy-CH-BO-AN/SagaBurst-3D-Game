@@ -71,6 +71,12 @@ export interface CareerLifetimeStats {
   breaches: number
 }
 
+export interface LegacyRaceProgress {
+  readonly scheduleVersion: number
+  readonly completedRaceIds: import('./CareerRaceState').RaceId[]
+  readonly raceBestSeconds?: Partial<Record<import('./CareerRaceState').RaceId, number>>
+}
+
 export interface CareerProfile {
   version: 1
   /** One-time ordinary-soldier HP migration receipt, independent of equipment migrations. */
@@ -119,6 +125,8 @@ export interface CareerProfile {
   racePlayerState?: import('./CareerRaceState').RaceRider
   activeRace?: import('./CareerRaceState').CareerRaceSession
   raceRecords?: import('./CareerRaceState').CareerRaceRecord[]
+  legacyRaceProgress?: LegacyRaceProgress[]
+  raceScheduleVersion?: import('./CareerRaceState').RaceScheduleVersion
   completedRaceIds?: import('./CareerRaceState').RaceId[]
   raceBestSeconds?: Partial<Record<import('./CareerRaceState').RaceId, number>>
   activeMission?: ActiveCareerMission

@@ -11,7 +11,7 @@ import {
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 import { HorseLandingAnimation } from './HorseLandingAnimation'
 import type { NpcSubphaseCollector } from '../debug/NpcSubphaseProfiler'
-import { BlackCatVisual } from './BlackCatVisual'
+import { BlackCatVisual, type FelineMountVariant } from './BlackCatVisual'
 import { SnowLeopardVisual, SNOW_LEOPARD_HURTBOX } from './SnowLeopardVisual'
 import type { QuadrupedVisual } from './QuadrupedVisual'
 import { CorgiVisual } from './CorgiVisual'
@@ -34,10 +34,41 @@ let mountAimMaterial: THREE.MeshBasicMaterial | undefined
 
 export enum MountType {
   BLACK_CAT = 'BLACK_CAT',
+  WHITE_CAT = 'WHITE_CAT',
+  ORANGE_CAT = 'ORANGE_CAT',
+  SERVAL = 'SERVAL',
+  CARACAL = 'CARACAL',
   CORGI = 'CORGI',
   HORSE = 'HORSE',
   XONGKORO = 'xongkoro',
   SNOW_LEOPARD = 'SNOW_LEOPARD',
+}
+
+export function isFelineMountType(type: MountType): boolean {
+  return (
+    type === MountType.BLACK_CAT
+    || type === MountType.WHITE_CAT
+    || type === MountType.ORANGE_CAT
+    || type === MountType.SERVAL
+    || type === MountType.CARACAL
+  )
+}
+
+export function felineVariantForMountType(type: MountType): FelineMountVariant {
+  if (type === MountType.WHITE_CAT) return 'white-cat'
+  if (type === MountType.ORANGE_CAT) return 'orange-cat'
+  if (type === MountType.SERVAL) return 'serval'
+  if (type === MountType.CARACAL) return 'caracal'
+  return 'black-cat'
+}
+
+export function felineVariantFromMountId(value: string | null | undefined): FelineMountVariant | null {
+  if (value === 'black-cat') return 'black-cat'
+  if (value === 'white-cat') return 'white-cat'
+  if (value === 'orange-cat') return 'orange-cat'
+  if (value === 'serval') return 'serval'
+  if (value === 'caracal') return 'caracal'
+  return null
 }
 
 /** Shared physical footprint for live mounts and equipment preflight without materialization. */
@@ -64,16 +95,24 @@ export enum MountState {
 
 export function mountTypeFromSave(value: string): MountType {
   if (value === 'xongkoro') return MountType.XONGKORO
-  if (value === MountType.BLACK_CAT) return MountType.BLACK_CAT
+  if (value === MountType.BLACK_CAT || value === 'black-cat') return MountType.BLACK_CAT
+  if (value === MountType.WHITE_CAT || value === 'white-cat') return MountType.WHITE_CAT
+  if (value === MountType.ORANGE_CAT || value === 'orange-cat') return MountType.ORANGE_CAT
+  if (value === MountType.SERVAL || value === 'serval') return MountType.SERVAL
+  if (value === MountType.CARACAL || value === 'caracal') return MountType.CARACAL
   if (value === MountType.SNOW_LEOPARD || value === 'snow-leopard') return MountType.SNOW_LEOPARD
-  if (value === MountType.CORGI) return MountType.CORGI
-  if (value === MountType.HORSE) return MountType.HORSE
+  if (value === MountType.CORGI || value === 'corgi') return MountType.CORGI
+  if (value === MountType.HORSE || value === 'horse') return MountType.HORSE
   return DEFAULT_MOUNT_TYPE
 }
 
 export function mountTypeFromId(value: string | null | undefined): MountType {
   if (value === 'xongkoro') return MountType.XONGKORO
   if (value === 'black-cat') return MountType.BLACK_CAT
+  if (value === 'white-cat') return MountType.WHITE_CAT
+  if (value === 'orange-cat') return MountType.ORANGE_CAT
+  if (value === 'serval') return MountType.SERVAL
+  if (value === 'caracal') return MountType.CARACAL
   if (value === 'snow-leopard') return MountType.SNOW_LEOPARD
   if (value === 'corgi') return MountType.CORGI
   return DEFAULT_MOUNT_TYPE
@@ -153,8 +192,15 @@ export class Mount {
     this.appearanceVariant = type === MountType.HORSE ? horseVariantFromSave(appearanceVariant) : 0
     this.group = new THREE.Group()
     this.group.name = `mount_${type}`
-    this.baseSpeed = type === MountType.BLACK_CAT ? 13.2 : type === MountType.SNOW_LEOPARD ? 12.8 : 12
+    this.baseSpeed = (type === MountType.SERVAL || type === MountType.CARACAL)
+      ? 15
+      : (type === MountType.BLACK_CAT || type === MountType.WHITE_CAT)
+        ? 13.2
+        : type === MountType.SNOW_LEOPARD
+          ? 12.8
+          : 12
     if (type === MountType.SNOW_LEOPARD) this.maxHp = this.currentHp = 500
+    else if (type === MountType.ORANGE_CAT) this.maxHp = this.currentHp = 150
 
     if (type === MountType.XONGKORO) {
       this.horseVisual = null
@@ -176,8 +222,8 @@ export class Mount {
       this.ridePitch = 0
     } else {
       this.horseVisual = null
-      if (type === MountType.BLACK_CAT) {
-        this.catVisual = new BlackCatVisual()
+      if (isFelineMountType(type)) {
+        this.catVisual = new BlackCatVisual(felineVariantForMountType(type))
         this.group.add(this.catVisual.root)
         this.catVisual.root.updateWorldMatrix(true, true)
         this.rideHeightOffset = this.catVisual.root.worldToLocal(this.catVisual.saddleSeat.getWorldPosition(new THREE.Vector3())).y
@@ -210,6 +256,9 @@ export class Mount {
     if (this.type === MountType.SNOW_LEOPARD) {
       this.aimCollider.scale.set(SNOW_LEOPARD_HURTBOX.size[0] / 1.1, SNOW_LEOPARD_HURTBOX.size[1] / 1.65, SNOW_LEOPARD_HURTBOX.size[2] / 2.4)
       this.aimCollider.position.fromArray(SNOW_LEOPARD_HURTBOX.center)
+    } else if (this.type === MountType.SERVAL || this.type === MountType.CARACAL) {
+      this.aimCollider.scale.set(1.12 / 1.1, 2.04 / 1.65, 2.38 / 2.4)
+      this.aimCollider.position.set(0, 1.02, 0)
     }
     if (this.isFlyingMount) {
       this.aimCollider.scale.set(XONGKORO.torsoHurtSize[0] / 1.1, XONGKORO.torsoHurtSize[1] / 1.65, XONGKORO.torsoHurtSize[2] / 2.4)
@@ -254,6 +303,10 @@ export class Mount {
     if (this.isFlyingMount) return 'xongkoro'
     if (this.type === MountType.HORSE) return '戰馬'
     if (this.type === MountType.SNOW_LEOPARD) return '重甲雪豹'
+    if (this.type === MountType.WHITE_CAT) return '白貓'
+    if (this.type === MountType.ORANGE_CAT) return '橘貓'
+    if (this.type === MountType.SERVAL) return '藪貓'
+    if (this.type === MountType.CARACAL) return '獰貓'
     return this.type === MountType.BLACK_CAT ? '黑貓' : '柯基'
   }
   get mountDisplayName(): string { return `${this.displayName}坐騎` }

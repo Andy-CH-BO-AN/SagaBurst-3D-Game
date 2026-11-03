@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 2,
+  "animal": "caracal",
+  "sha256": "acf9ec6b17e91593e646a38d075411b62188a41beb14e30d0560f748c1af09ac",
+  "acceptedDonor": {
+    "commit": "ea18eff8ceab74e88afc738019127792ea03e311",
+    "path": "public/models/mounts/v2/black-cat/black-cat.glb",
+    "sha256": "37c23b7cc3042c8d3aa23f03ca1484ac8f65e07f5ed9b92c0c4214ee1439695b"
+  },
+  "geometrySource": {
+    "file": "Meshy_AI_Character_output (1)(1).glb",
+    "resolvedFile": "caracal.glb",
+    "sha256": "c3e5a270da8381e6c9512f857faee7dbd03c58af2310e6cc282cd0977f9fe849",
+    "originalBones": 34,
+    "originalClips": 0
+  },
+  "bake": {
+    "tool": "tools/blender/build_feline_mounts.mjs",
+    "fps": 60,
+    "forward": "+Z",
+    "sourceToAsset": [
+      1.435,
+      0,
+      0,
+      0,
+      0,
+      1.435,
+      0,
+      0,
+      0,
+      0,
+      1.435,
+      0,
+      -0.036276800000000005,
+      2.8170388841064486e-10,
+      -0.12915,
+      1
+    ],
+    "boneMapping": {
+      "Bone_000": "cat_torso",
+      "Bone_001": "cat_torso",
+      "Bone_004": "cat_torso",
+      "Bone_003": "cat_torso",
+      "Bone_002": "cat_chest",
+      "Bone_007": "cat_neck",
+      "Bone_006": "cat_head",
+      "Bone_005": "cat_head",
+      "Bone_012": "cat_front_upper_l",
+      "Bone_011": "cat_front_lower_l",
+      "Bone_010": "cat_front_lower_l",
+      "Bone_009": "cat_front_paw_l",
+      "Bone_008": "cat_front_paw_l",
+      "Bone_017": "cat_front_upper_r",
+      "Bone_016": "cat_front_lower_r",
+      "Bone_015": "cat_front_lower_r",
+      "Bone_014": "cat_front_paw_r",
+      "Bone_013": "cat_front_paw_r",
+      "Bone_022": "cat_rear_upper_l",
+      "Bone_021": "cat_rear_lower_l",
+      "Bone_020": "cat_rear_ankle_l",
+      "Bone_019": "cat_rear_paw_l",
+      "Bone_018": "cat_rear_paw_l",
+      "Bone_033": "cat_rear_upper_r",
+      "Bone_032": "cat_rear_lower_r",
+      "Bone_031": "cat_rear_ankle_r",
+      "Bone_030": "cat_rear_paw_r",
+      "Bone_029": "cat_rear_paw_r",
+      "Bone_028": "cat_tail_0",
+      "Bone_027": "cat_tail_0",
+      "Bone_026": "cat_tail_1",
+      "Bone_025": "cat_tail_2",
+      "Bone_024": "cat_tail_3",
+      "Bone_023": "cat_tail_4"
+    },
+    "clips": [
+      {
+        "name": "death",
+        "duration": 1.7999999523162842
+      },
+      {
+        "name": "hit",
+        "duration": 0.6333333253860474
+      },
+      {
+        "name": "idle",
+        "duration": 10
+      },
+      {
+        "name": "jump",
+        "duration": 0.7666666507720947
+      },
+      {
+        "name": "land",
+        "duration": 0.6333333253860474
+      },
+      {
+        "name": "run",
+        "duration": 0.800000011920929
+      },
+      {
+        "name": "walk",
+        "duration": 1.2000000476837158
+      }
+    ],
+    "clipAdaptation": {
+      "death": {
+        "samples": 109,
+        "maxGroundLift": 0
+      },
+      "hit": {
+        "samples": 39,
+        "maxGroundLift": 0
+      },
+      "idle": {
+        "samples": 601,
+        "maxGroundLift": 0
+      },
+      "jump": {
+        "samples": 47,
+        "maxGroundLift": 0.09542660421493003
+      },
+      "land": {
+        "samples": 39,
+        "maxGroundLift": 0.031810014350082405
+      },
+      "run": {
+        "samples": 49,
+        "maxGroundLift": 0.011333737178954204,
+        "trajectory": {
+          "adapter": "tools/blender/animal_trajectory.py",
+          "sourceHipSpan": 1.5792274756046711,
+          "targetStride": 1.2317974309716435,
+          "sourceBellyClearance": 0.603999730011434,
+          "targetLift": 0.403099730011434,
+          "nominalSpeed": 15,
+          "preservesDonorContactOrder": true
+        }
+      },
+      "walk": {
+        "samples": 73,
+        "maxGroundLift": 0,
+        "trajectory": {
+          "adapter": "tools/blender/animal_trajectory.py",
+          "sourceHipSpan": 1.5792274756046711,
+          "targetStride": 0.8527828368265225,
+          "sourceBellyClearance": 0.603999730011434,
+          "targetLift": 0.107625,
+          "nominalSpeed": 2,
+          "preservesDonorContactOrder": true
+        }
+      }
+    },
+    "horizontalRootMotion": "Removed; existing game physics owns world translation.",
+    "runtimeRetarget": false,
+    "channelsPerClip": 35
+  }
+}
