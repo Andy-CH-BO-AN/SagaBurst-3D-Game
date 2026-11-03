@@ -116,7 +116,11 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     const transition = (value: CareerProfile, proceed: (next: CareerProfile) => void, deathReturn = false): void => {
       if (!current()) return
       const next = refitTownCommandForSceneChange(value)
-      if (deathReturn) delete next.playerAerialState
+      if (deathReturn) {
+        // Old race snapshots can also contain a later battle death; respawn owns recovery.
+        delete next.playerAerialState
+        delete next.racePlayerState
+      }
       if (store.save(next)) { proceed(next); return }
       loading.textContent = '無法保存城防整補，尚未轉場。'
       document.body.append(loading)
