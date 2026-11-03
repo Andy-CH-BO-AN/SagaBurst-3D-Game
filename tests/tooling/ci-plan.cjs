@@ -319,11 +319,11 @@ function discoverNode() {
   return JSON.parse(execFileSync(process.execPath, ['tests/tooling/node-collect.cjs', ...files], { cwd: root, encoding: 'utf8' }))
 }
 async function discover({ relatedPaths = [] } = {}) {
-  // Public Vitest 4.1 API, matching `vitest related` and `vitest list --json`.
+  // Public Vitest API; keep the required planner on its existing static candidates.
   const { createVitest } = await import('vitest/node')
   const priorFiles = process.env.LOGIC_TEST_FILES
   delete process.env.LOGIC_TEST_FILES
-  const ctx = await createVitest('test', { root, watch: false, includeTaskLocation: true, reporters: [], related: relatedPaths.map(file => resolve(root, file)) })
+  const ctx = await createVitest('test', { root, watch: false, includeTaskLocation: true, reporters: [], experimental: { recordDependencies: false }, related: relatedPaths.map(file => resolve(root, file)) })
   try {
     const specs = await ctx.globTestSpecifications()
     const related = relatedPaths.length ? await ctx.getRelevantTestSpecifications() : []
@@ -337,7 +337,7 @@ async function discover({ relatedPaths = [] } = {}) {
       const nativeNames = tests.map(test => {
         const parts = [test.name]
         for (let parent = test.parent; parent.type !== 'module'; parent = parent.parent) parts.unshift(parent.name)
-        return parts.join(' ')
+        return parts.join(' > ')
       })
       if (!names.length) throw new Error(`Empty test file: ${module.moduleId}`)
       return { runner: 'vitest', file: local(module.moduleId), names, nativeNames, locations: tests.map(test => test.location) }

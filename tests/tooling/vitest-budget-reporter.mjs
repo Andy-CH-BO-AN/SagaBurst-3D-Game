@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs'
 import { hrtime } from 'node:process'
 import budget from './budget.cjs'
 
-// Vitest 4.1 runner's duration starts before beforeEach/aroundEach and ends
+// Vitest runner's duration starts before beforeEach/aroundEach and ends
 // after afterEach, fixture teardown and onTestFinished/onTestFailed. Its bound
 // performance.now is captured before fake timers. Do not replace it with the
 // test body timeout or reporter event arrival times.

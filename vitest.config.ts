@@ -2,7 +2,10 @@ import { configDefaults, defineConfig, mergeConfig } from 'vitest/config'
 import viteConfig from './vite.config'
 
 export default defineConfig(env => mergeConfig(viteConfig(env), {
+  cacheDir: 'output/vitest-cache',
   test: {
+    clearMocks: false, // Preserve Vitest 4 mock history semantics.
+    experimental: { recordDependencies: true },
     // CI manifest paths are exact globs; post-run completeness verifies the result.
     include: process.env.LOGIC_TEST_FILES
       ? JSON.parse(process.env.LOGIC_TEST_FILES)

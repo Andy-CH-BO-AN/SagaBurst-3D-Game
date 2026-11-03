@@ -164,3 +164,59 @@ pushes to dev also skip Desktop. Main Release packaging remains unchanged.
 Post-merge `push → dev` keeps
 logic, typecheck and build but skips browser installation and Web smoke. Main,
 manual Full and publication Web checks keep Web smoke and exact-SHA Full proof.
+
+## Vitest runtime dependency PoC (inspection only)
+
+Vitest 5.1 records runtime-loaded files in `output/vitest-cache` (ignored). Seed
+with `npm ci` then `npm test`; Full still uses sequential <=500-leaf shards and
+the unchanged 100ms reporter. `clearMocks: false` preserves Vitest 4 semantics;
+Vitest name filters now use the same ` > `-joined names as its reporter. Node
+filters keep their space-joined names. The required planner explicitly keeps
+static Vitest candidates, so a cold runtime cache cannot change its ownership.
+
+Inspect a Git comparison through the official CLI (config/package edits trigger
+all files, so commit the migration before measuring a narrow Git comparison):
+
+```sh
+npx vitest list --filesOnly --changed BASE_SHA
+npx vitest list --json --no-static-parse --changed BASE_SHA
+```
+
+`--no-static-parse` collects actual registrations, including dynamic/each leaves.
+CLI `list` has no `--related` input option in 5.1. For arbitrary changed-file lists,
+the small wrapper uses public `getRelevantTestSpecifications` + `collectTests`:
+
+```sh
+node tests/tooling/vitest-related-poc.mjs src/career/CareerDuelState.ts
+node tests/tooling/vitest-related-poc.mjs --changed BASE_SHA
+```
+
+It reports selected filenames/leaves, selection time, time through collection,
+and record-file presence. Presence alone does not prove full coverage or a
+per-file cache hit; verify a complete Full seed before calling a result warm.
+The wrapper never reads the dependency JSON schema, runs test bodies, guesses
+owners, or supplies a fallback map. Inspection counts can exceed 500 and are
+**not** a Related gate pass. Execute subsets through the budgeted runner.
+
+Selection is file-level, not leaf-level impact. A missing record conservatively
+selects the test. Runtime records include executed dynamic imports and mock
+factory imports, but omit unexecuted imports, replaced-module imports and files
+read directly through `fs`. An unloaded GLB may legitimately select zero unit
+tests; build, offline audit and browser/manual validation own asset quality.
+Node `.test.cjs` selection remains unchanged and is outside this PoC. Re-run
+changed tests after adding imports so later comparisons use current records.
+See [Vitest runtime recording](https://vitest.dev/config/experimental#experimental-recorddependencies)
+and [migration guide](https://vitest.dev/guide/migration/).
+
+Future rollout design (not wired into Actions here): an authoritative Full run
+on `dev` saves `output/vitest-cache` with `actions/cache@v4`; a future PR restores
+an exact/base cache and selects against its Git base SHA. Validate cache portability,
+version/config compatibility and freshness before rollout. GitHub permits restoring
+base-branch caches in PRs; merge-ref caches are scoped to that PR and cannot feed
+other PRs. See [cache access rules](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#restrictions-for-accessing-a-cache).
+Cold CI must either require the base cache and fail closed, or explicitly bootstrap
+Full. No mtime comparison is used for PR correctness. `--since-last-run` may be a
+future local convenience. Cache lifecycle and required selection stay for a later PR.
+
+One-off benchmark results and selected filename lists belong in the PR description
+and ignored `output/`, rather than a permanent generated mapping.
