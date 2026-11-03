@@ -32,7 +32,7 @@ export interface CareerDuelRoster {
 function duelLoadout(presetId: UnitPresetId, tier: CareerDuelTier): UnitLoadout {
   if (tier === 5) {
     const selected = resolveT4UnitLoadout(presetId)
-    return { ...selected, shieldId: selected.shieldId ? 'commander_shield_t5' : null,
+    return { ...selected, shieldId: selected.shieldId ? (UNIT_PRESETS[presetId].faction === 'viking' ? 'viking_berserker_shield_t5' : 'commander_shield_t5') : null,
       ...(UNIT_PRESETS[presetId].traits.includes('bow_fire') ? { rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null } : {}) }
   }
   const base = UNIT_PRESETS[presetId].tierLoadouts[tier === 4 ? 3 : tier]
