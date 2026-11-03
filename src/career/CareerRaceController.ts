@@ -21,6 +21,7 @@ import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMoveme
 
 interface RaceResident { npc: NPC; homeMount?: Mount; spec: { id: string; x: number; z: number; yaw?: number } }
 const commandId = -7400
+const RACE_DEPLOY_RETRY_MS = 3000
 function vector(p: RacePoint): THREE.Vector3 { return new THREE.Vector3(p.x, getTerrainHeight(p.x, p.z), p.z) }
 function position(p: THREE.Vector3, yaw: number): RacePosition { return { x: p.x, y: p.y, z: p.z, yaw } }
 
@@ -44,6 +45,7 @@ export class CareerRaceController {
   private stallSeconds = 0
   private lastOpponentPosition?: RacePosition
   private batch?: NpcSpawnBatch
+  private preloadInFlight = false
   error = ''
   saveFailed = false
 
@@ -137,24 +139,44 @@ export class CareerRaceController {
   }
 
   private preloadPromise?: Promise<void>
+  /** Set when the opponent asset failed to load; the persisted session is kept and deployment is retried. */
+  private deployRetry?: { initial: boolean; restoring: boolean; sessionId: string; at: number }
 
   async waitForDeployment(): Promise<void> {
     if (this.preloadPromise) await this.preloadPromise
     if (this.batch) await gameplayNpcSpawns.wait(this.batch)
   }
 
+  /** True while a failed opponent asset load is waiting to be retried. */
+  get deploymentRetryPending(): boolean { return Boolean(this.deployRetry) }
+
   private deploy(initial: boolean, restoring = false): void {
     const s = this.session!
+    this.deployRetry = undefined
     const feline = felineVariantFromMountId(s.opponent.mountId)
     if (feline && !BlackCatVisual.isPreloaded(feline)) {
+      if (this.preloadInFlight) return
+      this.preloadInFlight = true
       this.preloadPromise = BlackCatVisual.preload(feline).then(() => {
-        if (this.session?.id === s.id) this.enqueueDeployment(s, initial, restoring)
+        this.preloadInFlight = false
+        if (this.session?.id === s.id && !this.batch?.ready && !this.racer) this.enqueueDeployment(s, initial, restoring)
       }).catch(() => {
-        this.error = '賽手坐騎資源載入失敗，請重試。'
+        this.preloadInFlight = false
+        if (this.session?.id !== s.id) return
+        this.error = '賽手坐騎資源載入失敗，正在重試；賽事與對手已保留。'
+        this.deployRetry = { initial, restoring, sessionId: s.id, at: Date.now() + RACE_DEPLOY_RETRY_MS }
       })
       return
     }
     this.enqueueDeployment(s, initial, restoring)
+  }
+
+  private retryDeploymentIfDue(): void {
+    const retry = this.deployRetry
+    if (!retry || Date.now() < retry.at) return
+    if (this.session?.id !== retry.sessionId || this.racer || this.batch?.status === 'pending') { this.deployRetry = undefined; return }
+    this.error = ''
+    this.deploy(retry.initial, retry.restoring)
   }
 
   private enqueueDeployment(s: CareerRaceSession, initial: boolean, restoring: boolean): void {
@@ -229,6 +251,7 @@ export class CareerRaceController {
   }
 
   prepare(): void {
+    this.retryDeploymentIfDue()
     const s = this.session
     if (!s || !this.ready) {
       if (this.captainReturning && this.ownsCaptain && this.captain) {
@@ -436,6 +459,7 @@ export class CareerRaceController {
     return true
   }
   private disposeRacer(): void {
+    this.deployRetry = undefined
     if (this.player().currentMount === this.mount) this.player().dismountFromMount({ preserveWorldPosition: true })
     this.batch?.cancel()
     const borrowed = this.borrowedCommander, home = this.session?.opponentHome

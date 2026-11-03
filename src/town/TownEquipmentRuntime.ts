@@ -3,7 +3,8 @@ import type * as THREE from 'three'
 import type { CareerProfile, CareerMountId } from '../career/CareerProfile'
 import { careerMountType } from '../career/CareerMountController'
 import { resolveTownActorEquipment, type TownEquipmentRef } from '../career/CareerTownEquipment'
-import { Mount, mountCombatRadius } from '../world/Mount'
+import { Mount, mountCombatRadius, felineVariantFromMountId } from '../world/Mount'
+import { BlackCatVisual, type FelineMountVariant } from '../world/BlackCatVisual'
 import { townMountPlacementBatchClear } from './TownCivilianLife'
 import { getTerrainHeight } from '../world/Terrain'
 import type { TownCombatResident } from './TownMissionCombat'
@@ -26,6 +27,13 @@ export function applyTownEquipmentRuntime(scene: THREE.Scene, residents: readonl
   if (plans.some(({ resident, after }) => !resident.npc.canApplyCareerEquipment(after.loadout)
     || resident.npc.inCombat || resident.npc.mount?.isAirborne || resident.homeMount?.isAirborne
     || resident.homeMount?.riderPlayer || resident.homeMount?.riderNpc && resident.homeMount.riderNpc !== resident.npc)) return plans.length
+  // A not-yet-loaded feline cannot be constructed synchronously: load it now and defer to the next Town entry.
+  const unloaded = new Set<FelineMountVariant>()
+  for (const { after } of plans) {
+    const variant = felineVariantFromMountId(after.loadout.mountId)
+    if (variant && !BlackCatVisual.isPreloaded(variant) && !findTownNativeMount(mounts, after.refs.mount)) unloaded.add(variant)
+  }
+  if (unloaded.size) { void BlackCatVisual.preloadVariants(unloaded).catch(() => {}); return plans.length }
   const selectedActors = new Set(plans.map(plan => plan.resident.npc))
   if (plans.some(({ after }) => {
     const physical = findTownNativeMount(mounts, after.refs.mount)

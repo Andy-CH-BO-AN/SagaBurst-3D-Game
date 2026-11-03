@@ -96,6 +96,8 @@ export class CareerMountController implements EquipmentMountAdapter {
   private readonly hp = new Map<CareerMountId, number>()
   private readonly unavailable = new Set<CareerMountId>()
   statusText = ''
+  private requestSeq = 0
+  private pending: { id: CareerMountId; token: number } | null = null
 
   constructor(
     private readonly scene: THREE.Scene,
@@ -158,16 +160,22 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (this.unavailable.has(id)) return this.fail('這匹坐騎本次出城已倒下，回到和平小鎮休整後才能再用。')
     const feline = felineVariantFromMountId(id)
     if (feline && !BlackCatVisual.isPreloaded(feline)) {
-      this.statusText = '正在載入坐騎資源…'
+      // Repeated clicks on the same loading mount coalesce; any other request supersedes it.
+      if (this.pending?.id === id) return this.fail('正在載入坐騎資源…')
+      const token = ++this.requestSeq
+      this.pending = { id, token }
       void BlackCatVisual.preload(feline).then(() => {
-        if (!this.active || this.active.id !== id) {
-          this.activate(rawId)
-        }
+        if (this.pending?.token !== token) return
+        this.pending = null
+        this.activate(rawId)
       }).catch(() => {
-        this.statusText = '坐騎資源載入失敗。'
+        if (this.pending?.token !== token) return
+        this.pending = null
+        this.statusText = '坐騎資源載入失敗，請稍後重試。'
       })
-      return true
+      return this.fail('正在載入坐騎資源…')
     }
+    this.cancelPending()
     if (this.active?.id === id && !this.active.mount.dead) {
       if (!this.player().isMounted) this.player().mountVehicle(this.active.mount, id === 'xongkoro' ? this.active.mount.group.rotation.y : undefined)
       this.persistOutingState(id)
@@ -267,6 +275,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   dismiss(): boolean {
+    this.cancelPending()
     if (this.readProfile().activeRace) return this.fail('賽馬期間不能收起坐騎。')
     if (this.player().isFalling || this.active?.mount.isAirborne) return this.fail('請先安全降落，再收起坐騎。')
     if (!this.active) return false
@@ -284,6 +293,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   release(rawId: string): boolean {
+    this.cancelPending()
     if (this.readProfile().activeRace) return this.fail('賽馬期間不能解除坐騎分配。')
     if (this.player().isFalling || this.active?.mount.isAirborne) return this.fail('請先安全降落，再解除坐騎分配。')
     const id = canonicalCareerMountId(rawId as CareerMountId)
@@ -311,6 +321,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   restInTown(): void {
+    this.cancelPending()
     if (['final-stand', 'completed'].includes(this.readProfile().careerRetirement?.phase ?? '')) return
     if (this.active) this.removeMountVisual(this.active)
     this.active = null
@@ -325,6 +336,7 @@ export class CareerMountController implements EquipmentMountAdapter {
 
   /** Called after an ownership change has been saved; never writes another transaction. */
   syncOwnership(): void {
+    this.cancelPending()
     syncCareerEaglePads(this.options.eaglePads, this.readProfile(), this.sceneKey())
     const owned = new Set(ownedCareerMountIds(this.readProfile()))
     if (this.active && (!owned.has(this.active.id) || this.readProfile().selectedMountId !== this.active.id)) {
@@ -337,6 +349,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   dispose(): void {
+    this.cancelPending()
     this.options.eaglePads?.release(PLAYER_EAGLE_PAD_OWNER)
     if (this.active) {
       if (this.hp.get(this.active.id) !== this.active.mount.currentHp) {
@@ -386,6 +399,9 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (this.player().currentMount === entry.mount) this.player().dismountFromMount()
     entry.mount.dispose()
   }
+
+  /** Invalidates any in-flight asset-load activation so a stale completion can never materialize a mount. */
+  private cancelPending(): void { this.pending = null; this.requestSeq++ }
 
   private fail(message: string): false { this.statusText = message; return false }
 }
