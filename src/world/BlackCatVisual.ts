@@ -46,11 +46,20 @@ export class BlackCatVisual extends QuadrupedVisual {
     ),
   }
 
-  static async preload(variant?: FelineMountVariant): Promise<void> {
-    if (variant) {
-      await this.preloaders[variant]()
-      return
-    }
+  static isPreloaded(variant: FelineMountVariant = 'black-cat'): boolean {
+    return this.templates.has(variant)
+  }
+
+  static async preload(variant: FelineMountVariant = 'black-cat'): Promise<void> {
+    await this.preloaders[variant]()
+  }
+
+  static async preloadVariants(variants: Iterable<FelineMountVariant>): Promise<void> {
+    const list = Array.from(new Set(variants))
+    await Promise.all(list.map(v => this.preloaders[v]()))
+  }
+
+  static async preloadAll(): Promise<void> {
     await Promise.all(FELINE_MOUNT_VARIANTS.map(v => this.preloaders[v]()))
   }
 

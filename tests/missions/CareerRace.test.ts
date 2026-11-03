@@ -420,6 +420,75 @@ describe('Race persistence independent of hostility and Duel', () => {
     ])
     expect(final.availableMerit).toBe(p.availableMerit + 13600)
     expect(final.completedRaceIds).toEqual(['race-6']); expect(final.raceBestSeconds).toEqual({ 'race-6': 68 })
+    expect(final.legacyRaceProgress).toEqual([
+      expect.objectContaining({ scheduleVersion: 1, completedRaceIds: ['race-1', 'race-6'] }),
+      expect.objectContaining({ scheduleVersion: 2, completedRaceIds: ['race-6'], raceBestSeconds: { 'race-6': 80 } }),
+    ])
+  })
+  it('preserves legacy v2 and v1 racing progress into legacyRaceProgress across save and reload cycles without polluting v3 completions', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage), base = profile()
+    // Simulate a legacy profile from scheduleVersion 2 stored in localStorage
+    const legacyRaw = {
+      ...base,
+      raceScheduleVersion: 2,
+      completedRaceIds: ['race-1', 'race-2', 'race-3'],
+      raceBestSeconds: { 'race-1': 75.2, 'race-2': 88.0 },
+      availableMerit: 1400,
+      totalMerit: 1400,
+    }
+    storage.setItem('sagaburst_career_v1', JSON.stringify(legacyRaw))
+
+    // First load: migrates legacy progress into legacyRaceProgress, leaving v3 clean
+    const loaded = store.load()!
+    expect(loaded.raceScheduleVersion).toBeUndefined()
+    expect(loaded.completedRaceIds).toBeUndefined()
+    expect(loaded.raceBestSeconds).toBeUndefined()
+    expect(loaded.legacyRaceProgress).toEqual([
+      {
+        scheduleVersion: 2,
+        completedRaceIds: ['race-1', 'race-2', 'race-3'],
+        raceBestSeconds: { 'race-1': 75.2, 'race-2': 88.0 },
+      },
+    ])
+
+    // Save migrated profile without racing yet: legacy progress is persisted
+    expect(store.save(loaded)).toBe(true)
+    const reloaded = store.load()!
+    expect(reloaded.legacyRaceProgress).toEqual([
+      {
+        scheduleVersion: 2,
+        completedRaceIds: ['race-1', 'race-2', 'race-3'],
+        raceBestSeconds: { 'race-1': 75.2, 'race-2': 88.0 },
+      },
+    ])
+    expect(reloaded.completedRaceIds).toBeUndefined()
+
+    // Complete a new v3 race (Race I, sprint, 100 merit)
+    const v3Session = session()
+    v3Session.scheduleVersion = 3
+    v3Session.raceId = 'race-1'
+    v3Session.phase = 'racing'
+    v3Session.player.checkpoint = 5
+    v3Session.player.finishSeconds = 62.5
+    v3Session.opponent.dnf = 'mount lost'
+    resolveRace(v3Session)
+
+    const updated = raceRecordProfile(reloaded, v3Session)
+    expect(store.save(updated)).toBe(true)
+
+    // Verify v3 and legacy progress coexistence after reload
+    const final = store.load()!
+    expect(final.raceScheduleVersion).toBe(3)
+    expect(final.completedRaceIds).toEqual(['race-1'])
+    expect(final.raceBestSeconds).toEqual({ 'race-1': 62.5 })
+    expect(final.availableMerit).toBe(1500)
+    expect(final.legacyRaceProgress).toEqual([
+      {
+        scheduleVersion: 2,
+        completedRaceIds: ['race-1', 'race-2', 'race-3'],
+        raceBestSeconds: { 'race-1': 75.2, 'race-2': 88.0 },
+      },
+    ])
   })
   it('publishes a result only after successful storage and retries idempotently without clearing hostility', () => {
     const storage = new MemoryStorage(), store = new CareerProfileStore(storage), p = profile(), s = session()

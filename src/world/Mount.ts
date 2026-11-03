@@ -62,6 +62,15 @@ export function felineVariantForMountType(type: MountType): FelineMountVariant {
   return 'black-cat'
 }
 
+export function felineVariantFromMountId(value: string | null | undefined): FelineMountVariant | null {
+  if (value === 'black-cat') return 'black-cat'
+  if (value === 'white-cat') return 'white-cat'
+  if (value === 'orange-cat') return 'orange-cat'
+  if (value === 'serval') return 'serval'
+  if (value === 'caracal') return 'caracal'
+  return null
+}
+
 /** Shared physical footprint for live mounts and equipment preflight without materialization. */
 export function mountCombatRadius(type: MountType): number { return type === MountType.XONGKORO ? 7 : 2 }
 export const DEFAULT_MOUNT_TYPE = MountType.HORSE

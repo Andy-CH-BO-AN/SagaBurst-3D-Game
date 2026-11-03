@@ -6,7 +6,8 @@ import type { NavigationWorld } from '../navigation/NavigationWorld'
 import type { HpBar } from '../ui/HpBar'
 import type { Player } from '../player/Player'
 import { AIType, Faction, NPC } from '../world/NPC'
-import { Mount, mountTypeFromId } from '../world/Mount'
+import { Mount, mountTypeFromId, felineVariantFromMountId } from '../world/Mount'
+import { BlackCatVisual } from '../world/BlackCatVisual'
 import { gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch } from '../world/NpcSpawnScheduler'
 import { getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import type { CareerProfile } from './CareerProfile'
@@ -135,10 +136,28 @@ export class CareerRaceController {
     this.deploy(!saved.deployed, true)
   }
 
-  async waitForDeployment(): Promise<void> { if (this.batch) await gameplayNpcSpawns.wait(this.batch) }
+  private preloadPromise?: Promise<void>
+
+  async waitForDeployment(): Promise<void> {
+    if (this.preloadPromise) await this.preloadPromise
+    if (this.batch) await gameplayNpcSpawns.wait(this.batch)
+  }
 
   private deploy(initial: boolean, restoring = false): void {
     const s = this.session!
+    const feline = felineVariantFromMountId(s.opponent.mountId)
+    if (feline && !BlackCatVisual.isPreloaded(feline)) {
+      this.preloadPromise = BlackCatVisual.preload(feline).then(() => {
+        if (this.session?.id === s.id) this.enqueueDeployment(s, initial, restoring)
+      }).catch(() => {
+        this.error = '賽手坐騎資源載入失敗，請重試。'
+      })
+      return
+    }
+    this.enqueueDeployment(s, initial, restoring)
+  }
+
+  private enqueueDeployment(s: CareerRaceSession, initial: boolean, restoring: boolean): void {
     this.batch = gameplayNpcSpawns.batch(() => { this.disposeRacer(); this.error = '賽手部署失敗；重新載入可重試同場賽事。' })
     this.batch.enqueue(s.opponent.actorId, () => {
       const presetId: UnitPresetId = this.read().faction === 'roman' ? 'roman_sword_cavalry' : 'viking_sword_cavalry'

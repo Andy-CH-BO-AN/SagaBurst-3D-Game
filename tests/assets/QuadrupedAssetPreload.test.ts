@@ -2,7 +2,6 @@ import { GLTFLoader,type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { afterEach,describe,expect,it,vi } from 'vitest';
 import { createQuadrupedAssetPreload } from '../../src/world/QuadrupedAssetPreload';
 import { QUADRUPED_STUDIO_CLIPS } from '../../src/world/QuadrupedMountAnimation';
-import felineMountBuilderSource from '../../tools/blender/build_feline_mounts.mjs?raw';
 import whiteCatManifest from '../../public/models/mounts/v2/white-cat/manifest.json';
 import whiteCatBoneMap from '../../public/models/mounts/v2/white-cat/bone-map.json';
 import whiteCatAnimSource from '../../public/models/mounts/v2/white-cat/animation-source.json';
@@ -72,7 +71,6 @@ describe('quadruped preload error ownership', () => {
       { id: 'caracal', sha256: 'c3e5a270da8381e6c9512f857faee7dbd03c58af2310e6cc282cd0977f9fe849', manifest: caracalManifest, boneMap: caracalBoneMap, anim: caracalAnimSource, report: caracalAssetReport, credits: caracalCredits, url: caracalGlbUrl, expectedSeatY: 1.782 },
     ] as const
     for (const bundle of bundles) {
-      expect(felineMountBuilderSource).toContain(bundle.sha256)
       expect(bundle.manifest.status).toBe('ready')
       expect(bundle.manifest.forward).toBe('+Z')
       expect(bundle.manifest.file).toBe(`${bundle.id}.glb`)

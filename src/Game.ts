@@ -23,7 +23,7 @@ import { assertNpcSpawnJob, gameplayNpcSpawns, trackNpcSpawn, type NpcSpawnBatch
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CorgiVisual } from './world/CorgiVisual'
-import { BlackCatVisual } from './world/BlackCatVisual'
+import { BlackCatVisual, type FelineMountVariant } from './world/BlackCatVisual'
 import { SnowLeopardVisual } from './world/SnowLeopardVisual'
 import { XongkoroVisual } from './world/XongkoroVisual'
 import { XONGKORO } from './movement/XongkoroConfig'
@@ -153,7 +153,7 @@ import { BattleController } from './battle/BattleController'
 import { SpatialGrid } from './world/SpatialGrid'
 import { EntityCollisionBroadPhase } from './world/EntityCollisionBroadPhase'
 import { ArrowProjectile } from './world/ArrowProjectile'
-import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromId, mountTypeFromSave } from './world/Mount'
+import { DEFAULT_MOUNT_TYPE, Mount, MountState, MountType, mountTypeFromId, mountTypeFromSave, felineVariantFromMountId } from './world/Mount'
 import { AimTargetRegistry, AIM_RAYCAST_LAYER } from './world/AimTargetRegistry'
 import { CombatRenderWarmup } from './world/CombatRenderWarmup'
 import { DamageNumbers } from './ui/DamageNumbers'
@@ -433,10 +433,25 @@ export class Game {
         || Boolean(savedInventory?.items?.some(item => item.id === T4_RANGER_BOW_RANGED_ID && item.quantity > 0))
       const ownsCareerT4Bow = personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false
       const usesPersonalT4Bow = personalMembers.some(member => member.type === 'ranger' || member.equipment?.ranged === T4_RANGER_BOW_RANGED_ID)
+      const felineVariants = new Set<FelineMountVariant>(['black-cat'])
+      const devModelFeline = felineVariantFromMountId(query.get('devmodels'))
+      if (devModelFeline) felineVariants.add(devModelFeline)
+      const queryMountFeline = felineVariantFromMountId(query.get('mount'))
+      if (queryMountFeline) felineVariants.add(queryMountFeline)
+      const battleMountFeline = felineVariantFromMountId(battleConfig?.playerLoadout?.mountId)
+      if (battleMountFeline) felineVariants.add(battleMountFeline)
+      const campaignMountFeline = felineVariantFromMountId(campaignConfig?.playerLoadout?.mountId)
+      if (campaignMountFeline) felineVariants.add(campaignMountFeline)
+      const personalSelectedFeline = felineVariantFromMountId(personalProfile?.selectedMountId)
+      if (personalSelectedFeline) felineVariants.add(personalSelectedFeline)
+      for (const member of personalMembers) {
+        const memberFeline = felineVariantFromMountId(member.equipment?.mount)
+        if (memberFeline) felineVariants.add(memberFeline)
+      }
       if (legacyQa) {
         await Promise.all([
           HorseAssetRegistry.preload(renderer),
-          BlackCatVisual.preload(),
+          BlackCatVisual.preloadVariants(felineVariants),
           SnowLeopardVisual.preload(),
           CorgiVisual.preload(),
           ...(usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
@@ -447,7 +462,7 @@ export class Game {
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
-      await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
+      await Promise.all([preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), HorseAssetRegistry.preload(renderer), BlackCatVisual.preloadVariants(felineVariants), SnowLeopardVisual.preload(), CorgiVisual.preload(), XongkoroVisual.preload()])
       const heroAssets = new Set<HeroAssetId>()
       if (trainingGround) heroAssets.add('maki-archer-t4')
       const validationHero = import.meta.env.DEV && trainingGround ? commanderValidationHero(query) : undefined

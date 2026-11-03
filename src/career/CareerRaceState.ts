@@ -1,4 +1,4 @@
-import type { CareerProfile, CareerMountId } from './CareerProfile'
+import type { CareerProfile, CareerMountId, LegacyRaceProgress } from './CareerProfile'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
 import { canAllocateCareerItemToPlayer } from './CareerInventory'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
@@ -191,6 +191,25 @@ export function raceRecordProfile(profile: CareerProfile, session: CareerRaceSes
     if (record.playerSeconds !== undefined) next.raceBestSeconds = { ...next.raceBestSeconds,
       [record.raceId]: Math.min(next.raceBestSeconds?.[record.raceId] ?? Infinity, record.playerSeconds) }
     if (record.result === 'win') next.completedRaceIds = [...new Set([...(next.completedRaceIds ?? []), record.raceId])]
+  } else {
+    const legacyVersion = session.scheduleVersion ?? 1
+    const entries = [...(next.legacyRaceProgress ?? [])]
+    const idx = entries.findIndex(e => e.scheduleVersion === legacyVersion)
+    const existing = idx >= 0 ? entries[idx] : { scheduleVersion: legacyVersion, completedRaceIds: [] }
+    const updatedCompleted = record.result === 'win'
+      ? [...new Set([...existing.completedRaceIds, record.raceId])]
+      : existing.completedRaceIds
+    const updatedBest = record.playerSeconds !== undefined
+      ? { ...(existing.raceBestSeconds ?? {}), [record.raceId]: Math.min(existing.raceBestSeconds?.[record.raceId] ?? Infinity, record.playerSeconds) }
+      : existing.raceBestSeconds
+    const updatedEntry: LegacyRaceProgress = {
+      scheduleVersion: legacyVersion,
+      completedRaceIds: updatedCompleted,
+      ...(updatedBest ? { raceBestSeconds: updatedBest } : {}),
+    }
+    if (idx >= 0) entries[idx] = updatedEntry
+    else entries.push(updatedEntry)
+    next.legacyRaceProgress = entries
   }
   return next
 }

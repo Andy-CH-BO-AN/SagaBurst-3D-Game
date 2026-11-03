@@ -43,6 +43,7 @@ import {
   type CareerLifetimeStats,
   type CareerMountId,
   type CareerProfile,
+  type LegacyRaceProgress,
 } from './CareerProfile'
 import { getCareerMissionTemplate } from './CareerMissionCatalog'
 import { BRIDGEHEAD_PREPARATION_SECONDS, type ActiveCareerMission, type CareerMissionPhase, type CommanderMissionState, type VeteranOutpostBattleState } from './CareerMissionState'
@@ -565,6 +566,33 @@ function parseOutpostRecord(value: unknown): CareerOutpostRecord | undefined {
   }
 }
 
+function parseLegacyRaceProgress(value: unknown): LegacyRaceProgress[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const result: LegacyRaceProgress[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const raw = item as Record<string, unknown>
+    const scheduleVersion = typeof raw.scheduleVersion === 'number' && Number.isInteger(raw.scheduleVersion) && raw.scheduleVersion > 0
+      ? raw.scheduleVersion
+      : undefined
+    if (!scheduleVersion) continue
+    const completedRaceIds = Array.isArray(raw.completedRaceIds)
+      ? (uniqueStrings(raw.completedRaceIds) as RaceId[])
+      : []
+    const raceBestSeconds = raw.raceBestSeconds && typeof raw.raceBestSeconds === 'object'
+      ? Object.fromEntries(Object.entries(raw.raceBestSeconds).flatMap(([k, v]) => {
+          return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? [[k as RaceId, v]] : []
+        }))
+      : undefined
+    result.push({
+      scheduleVersion,
+      completedRaceIds,
+      ...(raceBestSeconds && Object.keys(raceBestSeconds).length > 0 ? { raceBestSeconds } : {}),
+    })
+  }
+  return result.length > 0 ? result : undefined
+}
+
 export function parseCareerProfile(value: unknown): CareerProfile | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Record<string, unknown>
@@ -688,6 +716,42 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(isRaceRider(raw.racePlayerState) ? { racePlayerState: structuredClone(raw.racePlayerState) } : {}),
     ...(activeRace ? { activeRace } : {}),
     ...(raceRecords ? { raceRecords } : {}),
+    ...(() => {
+      const existingLegacy = raw.legacyRaceProgress ? parseLegacyRaceProgress(raw.legacyRaceProgress) ?? [] : []
+      const legacyEntries = [...existingLegacy]
+      if (raw.raceScheduleVersion !== RACE_SCHEDULE_VERSION) {
+        const legacyVersion = typeof raw.raceScheduleVersion === 'number' && Number.isInteger(raw.raceScheduleVersion) && raw.raceScheduleVersion > 0
+          ? raw.raceScheduleVersion
+          : 1
+        const legacyCompleted = Array.isArray(raw.completedRaceIds)
+          ? (uniqueStrings(raw.completedRaceIds) as RaceId[])
+          : []
+        const legacyBest = raw.raceBestSeconds && typeof raw.raceBestSeconds === 'object'
+          ? Object.fromEntries(Object.entries(raw.raceBestSeconds).flatMap(([k, v]) => {
+              return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? [[k as RaceId, v]] : []
+            }))
+          : {}
+        if (legacyCompleted.length > 0 || Object.keys(legacyBest).length > 0) {
+          const idx = legacyEntries.findIndex(e => e.scheduleVersion === legacyVersion)
+          if (idx >= 0) {
+            const mergedCompleted = [...new Set([...legacyEntries[idx].completedRaceIds, ...legacyCompleted])]
+            const mergedBest = { ...(legacyEntries[idx].raceBestSeconds ?? {}), ...legacyBest }
+            legacyEntries[idx] = {
+              scheduleVersion: legacyVersion,
+              completedRaceIds: mergedCompleted,
+              ...(Object.keys(mergedBest).length > 0 ? { raceBestSeconds: mergedBest } : {}),
+            }
+          } else {
+            legacyEntries.push({
+              scheduleVersion: legacyVersion,
+              completedRaceIds: legacyCompleted,
+              ...(Object.keys(legacyBest).length > 0 ? { raceBestSeconds: legacyBest } : {}),
+            })
+          }
+        }
+      }
+      return legacyEntries.length > 0 ? { legacyRaceProgress: legacyEntries } : {}
+    })(),
     ...(raw.raceScheduleVersion === RACE_SCHEDULE_VERSION ? { raceScheduleVersion: RACE_SCHEDULE_VERSION } : {}),
     ...(raw.raceScheduleVersion === RACE_SCHEDULE_VERSION && Array.isArray(raw.completedRaceIds)
       ? { completedRaceIds: MOUNTED_RACES.filter(r => (raw.completedRaceIds as unknown[]).includes(r.id)).map(r => r.id) }

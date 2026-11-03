@@ -6,7 +6,8 @@ import { getCareerPurchaseTier, cloneCareerProfile, canonicalCareerMountId, owns
 import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentUI'
 import type { Player } from '../player/Player'
 import { horseVariantFromSave, type HorseAppearanceVariant } from '../world/HorseAssetRegistry'
-import { Mount, MountType } from '../world/Mount'
+import { Mount, MountType, felineVariantFromMountId } from '../world/Mount'
+import { BlackCatVisual } from '../world/BlackCatVisual'
 import { findEagleLandingPosition, type EagleLandingPoint } from '../world/EagleLanding'
 import { syncCareerEaglePads, EaglePadReservations, PLAYER_EAGLE_PAD_OWNER } from './EaglePadReservations'
 import { getTerrainHeight, getScenePlayableWorldBound, type ObstacleData } from '../world/Terrain'
@@ -155,6 +156,18 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (!config || !ownedCareerMountIds(profile).includes(id)) return this.fail('尚未擁有這匹坐騎。')
     if (!canUseCareerMount(profile, id)) return this.fail(!isCareerShopItemUseUnlocked(profile, id) ? '巨鷹訓練需 Captain / Commander 軍階。' : '這匹坐騎已分配給其他單位。')
     if (this.unavailable.has(id)) return this.fail('這匹坐騎本次出城已倒下，回到和平小鎮休整後才能再用。')
+    const feline = felineVariantFromMountId(id)
+    if (feline && !BlackCatVisual.isPreloaded(feline)) {
+      this.statusText = '正在載入坐騎資源…'
+      void BlackCatVisual.preload(feline).then(() => {
+        if (!this.active || this.active.id !== id) {
+          this.activate(rawId)
+        }
+      }).catch(() => {
+        this.statusText = '坐騎資源載入失敗。'
+      })
+      return true
+    }
     if (this.active?.id === id && !this.active.mount.dead) {
       if (!this.player().isMounted) this.player().mountVehicle(this.active.mount, id === 'xongkoro' ? this.active.mount.group.rotation.y : undefined)
       this.persistOutingState(id)
