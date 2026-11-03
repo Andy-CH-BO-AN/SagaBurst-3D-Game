@@ -648,6 +648,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(raw.inventory ? { inventory: raw.inventory as CareerInventory } : {}),
     version: 1,
     ...(raw.healthRulesVersion === 1 ? { healthRulesVersion: 1 as const } : {}),
+    ...(raw.commanderHealthVersion === 1 ? { commanderHealthVersion: 1 as const } : {}),
     faction: raw.faction,
     tutorial,
     totalMerit,
@@ -784,7 +785,7 @@ export class CareerProfileStore {
       const commanderShieldMigration = profile && (['roman', 'viking'] as const).some(faction =>
         profile.townEquipment?.[faction]?.commanderShieldItemId !== undefined
         && previous.townEquipment?.[faction]?.commanderShieldItemId === undefined)
-      if (profile && (previous.tutorial === undefined || profile.healthRulesVersion !== previous.healthRulesVersion || residentMigration || rangerMigration || commanderShieldMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true)
+      if (profile && (previous.tutorial === undefined || profile.healthRulesVersion !== previous.healthRulesVersion || profile.commanderHealthVersion !== previous.commanderHealthVersion || residentMigration || rangerMigration || commanderShieldMigration || profile.commanderMeleeGranted && previous.commanderMeleeGranted !== true)
         && !this.save(profile)) return { profile: null, error: '生涯資料升級無法儲存；原資料已保留，請重試。' }
       return profile ? { profile } : { profile: null, error: '生涯存檔損壞或版本不支援；原資料已保留。' }
     } catch { return { profile: null, error: '無法讀取生涯存檔；原資料已保留。' } }
