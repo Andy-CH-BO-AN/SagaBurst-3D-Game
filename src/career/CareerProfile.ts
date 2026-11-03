@@ -117,6 +117,7 @@ export interface CareerProfile {
   racePlayerState?: import('./CareerRaceState').RaceRider
   activeRace?: import('./CareerRaceState').CareerRaceSession
   raceRecords?: import('./CareerRaceState').CareerRaceRecord[]
+  raceScheduleVersion?: import('./CareerRaceState').RaceScheduleVersion
   completedRaceIds?: import('./CareerRaceState').RaceId[]
   raceBestSeconds?: Partial<Record<import('./CareerRaceState').RaceId, number>>
   activeMission?: ActiveCareerMission

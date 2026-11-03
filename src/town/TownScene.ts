@@ -9,7 +9,7 @@ import { ActiveMissionClock } from '../career/ActiveMissionClock'
 import { raceReturnAction } from '../career/CareerRaceReturn'
 import { CareerRaceHUD } from '../ui/CareerRaceHUD'
 import { CareerRaceController } from '../career/CareerRaceController'
-import { MOUNTED_RACES, raceDefinitionForSchedule, type RaceId } from '../career/CareerRaceState'
+import { MOUNTED_RACES, raceDefinitionForSchedule, raceStageOpponentLabel, type RaceId } from '../career/CareerRaceState'
 import { RACE_LINES } from '../career/CareerRaceRoute'
 import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
 import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
@@ -2068,7 +2068,7 @@ export class TownScene {
     const racing = document.createElement('h3'); racing.textContent = 'Mounted Circuit Racing · 繞城賽馬'; panel.append(racing)
     for (const race of MOUNTED_RACES) {
       const row = document.createElement('article'); row.className = 'town-product'
-      const name = document.createElement('strong'); name.textContent = `${race.name} · 指揮官 · ${race.mount}`
+      const name = document.createElement('strong'); name.textContent = `${race.name} · 指揮官 · ${raceStageOpponentLabel(race)}`
       const details = document.createElement('small')
       details.textContent = `指揮官 ${race.sprint ? 'Sprint' : 'Normal（不衝刺）'} · 玩家可衝刺 · 勝利 ${race.merit} 軍功 · ${this.profile.completedRaceIds?.includes(race.id) ? '已完成' : '未完成'}`
       const accept = this.button(row, '接受賽馬', () => this.acceptRace(race.id))

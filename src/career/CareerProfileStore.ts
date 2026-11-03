@@ -9,7 +9,7 @@ import { commanderGateDefenseSlots, commanderTownCommandMembership } from './Com
 import { COMMANDER_FOUR_GATE_DEFENSE_ID, commanderFourGateDefenseActorIds } from './CommanderFourGateDefenseRoster'
 import { parseCommanderFourGateDefenseState } from './CommanderFourGateDefenseState'
 import { townRoster } from '../town/TownRules'
-import { MOUNTED_RACES, isRaceRider, parseRaceSession, parseRaceRecords, type RaceId } from './CareerRaceState'
+import { MOUNTED_RACES, RACE_SCHEDULE_VERSION, isRaceRider, parseRaceSession, parseRaceRecords, type RaceId } from './CareerRaceState'
 import { grantCommanderMelee } from './CareerCommanderEquipment'
 import { parseCampaignSiegeCheckpoint } from '../campaign/CampaignSiegeCheckpoint'
 import { parseTownEquipment } from './CareerTownEquipmentState'
@@ -96,7 +96,7 @@ function parseMissionPlayerStats(value: unknown): ActiveCareerMission['playerSta
 }
 
 const MISSION_PHASES: CareerMissionPhase[] = ['DEPLOYING', 'ASSEMBLING', 'MARCHING', 'ENGAGING', 'RETURNING', 'PREPARING', 'SPAWNING', 'ATTACKING', 'VICTORY_LOCKED', 'FAILURE_LOCKED', 'RESET', 'RESULT']
-const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'corgi', 'snow-leopard', 'xongkoro']
+const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'corgi', 'snow-leopard', 'xongkoro']
 
 function parseMissionMountState(value: unknown): ActiveCareerMission['mountState'] {
   if (!value || typeof value !== 'object') return undefined
@@ -688,11 +688,16 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     ...(isRaceRider(raw.racePlayerState) ? { racePlayerState: structuredClone(raw.racePlayerState) } : {}),
     ...(activeRace ? { activeRace } : {}),
     ...(raceRecords ? { raceRecords } : {}),
-    ...(Array.isArray(raw.completedRaceIds) ? { completedRaceIds: MOUNTED_RACES.filter(r => (raw.completedRaceIds as unknown[]).includes(r.id)).map(r => r.id) } : {}),
-    ...(raw.raceBestSeconds && typeof raw.raceBestSeconds === 'object' ? { raceBestSeconds: Object.fromEntries(MOUNTED_RACES.flatMap(r => {
-      const seconds = (raw.raceBestSeconds as Record<RaceId, unknown>)[r.id]
-      return typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0 ? [[r.id, seconds]] : []
-    })) } : {}),
+    ...(raw.raceScheduleVersion === RACE_SCHEDULE_VERSION ? { raceScheduleVersion: RACE_SCHEDULE_VERSION } : {}),
+    ...(raw.raceScheduleVersion === RACE_SCHEDULE_VERSION && Array.isArray(raw.completedRaceIds)
+      ? { completedRaceIds: MOUNTED_RACES.filter(r => (raw.completedRaceIds as unknown[]).includes(r.id)).map(r => r.id) }
+      : {}),
+    ...(raw.raceScheduleVersion === RACE_SCHEDULE_VERSION && raw.raceBestSeconds && typeof raw.raceBestSeconds === 'object'
+      ? { raceBestSeconds: Object.fromEntries(MOUNTED_RACES.flatMap(r => {
+        const seconds = (raw.raceBestSeconds as Record<RaceId, unknown>)[r.id]
+        return typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0 ? [[r.id, seconds]] : []
+      })) }
+      : {}),
     ...(activeMission ? { activeMission } : {}),
     ...(activeOutpostMission ? { activeOutpostMission } : {}),
     ...(Array.isArray(raw.completedOutpostStages) ? { completedOutpostStages: [...new Set(raw.completedOutpostStages.filter(isCareerOutpostStageId))] } : {}),

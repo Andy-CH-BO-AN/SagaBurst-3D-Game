@@ -14,7 +14,7 @@ import { townPlayerEntryPoint } from '../town/TownRules'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { cloneCareerProfile, canonicalCareerMountId } from './CareerProfile'
 import { CAREER_MOUNT_INTERACTION_DISTANCE, canUseCareerMount, type CareerMountController } from './CareerMountController'
-import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
+import { advanceRaceClock, advanceRaceRider, canEnterRace, finalizeRaceDeployment, lockRace, MOUNTED_RACES, pickRaceOpponentMount, RACE_SCHEDULE_VERSION, raceDefinitionForSchedule, raceRecordProfile, raceIsRunning, raceRiderDone, resolveRace, selectRaceCommander, updateRaceGuidance,
   type CareerRaceSession, type RaceId, type RaceRider, type RaceReferee, type RaceMountId } from './CareerRaceState'
 import { legalRaceStart, RACE_START, RACE_START_SLOTS, raceWaypoints, raceMovementIsLegal, raceCheckpointTarget, type RacePoint, type RacePosition } from './CareerRaceRoute'
 
@@ -97,13 +97,14 @@ export class CareerRaceController {
     })
     const spawn = commander.npc.combatPosition
     if (!this.legalSegment(spawn, spawn)) { this.error = '指揮官所在位置沒有足夠坐騎空間。'; return false }
-    const session: CareerRaceSession = { version: 1, scheduleVersion: 2, deployed: false, id: sessionId, raceId: id, phase: 'guiding', countdownSeconds: 10,
+    const opponentMount = pickRaceOpponentMount(definition)
+    const session: CareerRaceSession = { version: 1, scheduleVersion: RACE_SCHEDULE_VERSION, deployed: false, id: sessionId, raceId: id, phase: 'guiding', countdownSeconds: 10,
       elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
       referee: this.captureReferee(captain),
       opponentHome: this.captureReferee(commander), opponentAmmo: commander.npc.combatAmmo,
-      player: { ...makeRider('player', this.mounts.activeMountId as RaceMountId, origin, p.hp, mount.currentHp), stamina: p.staminaValue },
+      player: { ...makeRider('player', canonicalCareerMountId(this.mounts.activeMountId!) as RaceMountId, origin, p.hp, mount.currentHp), stamina: p.staminaValue },
       // The mount is race-owned; the actual native Commander and his equipment are borrowed intact.
-      opponent: { ...makeRider(TOWN_COMMANDER_ID, definition.mount, position(spawn, commander.npc.group.rotation.y), commander.npc.hp, 1), stamina: commander.npc.staminaValue } }
+      opponent: { ...makeRider(TOWN_COMMANDER_ID, opponentMount, position(spawn, commander.npc.group.rotation.y), commander.npc.hp, 1), stamina: commander.npc.staminaValue } }
     const next = cloneCareerProfile(fresh); next.activeRace = session
     if (!this.commit(next)) { this.error = '參賽狀態保存失敗，比賽尚未部署。請重試。'; return false }
     this.session = structuredClone(session); this.captain = captain; this.captainHp = captain.npc.hp
@@ -238,14 +239,25 @@ export class CareerRaceController {
       return
     }
     let goal = this.waypoints[s.waypoint]
-    if (goal && Math.hypot(npc.combatPosition.x - goal.x, npc.combatPosition.z - goal.z) < 1.8) goal = this.waypoints[++s.waypoint]
-    if (goal) this.order(npc, goal, definition.sprint)
+    while (goal && s.waypoint < this.waypoints.length - 1 && Math.hypot(npc.combatPosition.x - goal.x, npc.combatPosition.z - goal.z) < 3.6) {
+      goal = this.waypoints[++s.waypoint]
+    }
+    if (goal && s.waypoint === this.waypoints.length - 1 && Math.hypot(npc.combatPosition.x - goal.x, npc.combatPosition.z - goal.z) < 1.8) {
+      goal = this.waypoints[++s.waypoint]
+    }
+    if (goal) {
+      const nextGoal = this.waypoints[s.waypoint + 1]
+      const facing = nextGoal
+        ? new THREE.Vector3(nextGoal.x - goal.x, 0, nextGoal.z - goal.z).normalize()
+        : new THREE.Vector3(0, 0, -1)
+      this.order(npc, goal, definition.sprint, undefined, facing)
+    }
   }
-  private order(npc: NPC, point: RacePoint, sprint: boolean, speed?: number): void {
+  private order(npc: NPC, point: RacePoint, sprint: boolean, speed?: number, facing = new THREE.Vector3(0, 0, -1)): void {
     const key = `${point.x}:${point.z}:${sprint}:${speed}`
     npc.missionMovement = sprint
     if (this.commanded.get(npc) === key && npc.formationCommandId === commandId) return
-    npc.assignFormationTarget(commandId, vector(point), new THREE.Vector3(0, 0, -1), speed)
+    npc.assignFormationTarget(commandId, vector(point), facing, speed)
     this.commanded.set(npc, key)
   }
 
