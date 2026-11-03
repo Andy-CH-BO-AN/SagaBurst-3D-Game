@@ -236,6 +236,12 @@ for(const def of definitions) {
     animations:{embedded:bindings,runtimeGenerated:old.animations.runtimeGenerated.filter(name=>!bindings.some(b=>b.clip===name))},animationSources:old.animationSources,
     animationRetarget:{revision,...(deathDonor?{deathDonor}:{}),donor:`${directory}/lod0.glb`,sha256:hash(donorBytes),method:'Existing bakeFactionClips physical-axis pipeline at 30Hz; finger-only Roman donor adaptation, in-place sole contact; original event metadata and action durations retained.',fingerDonor:{asset:fingerPath,sha256:hash(fs.readFileSync(fingerPath)),attribution:fingerMetadata.attribution}},
     visualAcceptance:'Requires live game review; structural audit alone does not establish visual acceptance.',knownLimitations:['No dynamic cloth collision. Thirty anatomical finger tracks are transferred from the existing Roman animation donor, with source-joint grasp fitted around the shaft; extreme hand/armour and mounted cloth contact requires visual review.','FPS A/B deliberately deferred by user, 2026-11-02.']}
+  if(def.id==='viking-hero-t5') manifest.source.filenameEvidence={
+    specificationFilename:'Meshy_AI_viking_warrior_30k_All_Animations(1).glb',
+    suppliedAttachmentFilename:def.file,buildInputFilename:def.file,verifiedBuildInputSha256:hash(raw),
+    renamedForBuild:false,comparisonFileAvailable:false,
+    resolution:'The original conversation attachment and actual Downloads input both omit (1). The user clarified the reviewer filename was likely mistaken on 2026-11-03. Only this supplied file was used; no second (1) file was supplied or found, so byte equality with a differently named file is not asserted.',
+  }
   fs.writeFileSync(`${directory}/manifest.json`,JSON.stringify(manifest,null,2)+'\n')
   fs.writeFileSync(`${directory}/animation-donor-manifest.json`,JSON.stringify(old,null,2)+'\n')
   fs.writeFileSync(`${directory}/bone-map.json`,JSON.stringify({skeleton:'project-humanoid-v1',sourceToProject:mapping,skinJointCount:66,sockets,normalization:{scale,ground},sourceInverseBindSha256:hash(payload(source,source.document.skins[0].inverseBindMatrices))},null,2)+'\n')

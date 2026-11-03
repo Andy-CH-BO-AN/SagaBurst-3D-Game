@@ -5,6 +5,16 @@ redistribution rights in the task conversation. Original downloads remain outsid
 the runtime bundle. Source filenames and SHA-256 values are recorded beside the
 published assets; existing animation-source terms remain applicable.
 
+Viking filename reconciliation (2026-11-03): the pasted specification says
+`Meshy_AI_viking_warrior_30k_All_Animations(1).glb`, while the actual conversation
+attachment and build input both say `Meshy_AI_viking_warrior_30k_All_Animations.glb`.
+The latter was rehashed as
+`364e19160ba66ae344be73e3d4c8c5e5437b3caab7d339a979aabefd60cb46e2`, matching
+the recorded build source. The user clarified that the reviewer filename was
+likely mistaken. No build-time rename or substitute model was used. No separate
+`(1)` file was supplied or found, so equality with such a second file is not
+claimed. `source.filenameEvidence` records this distinction explicitly.
+
 ## Published assets
 
 | Identity | Source | Published location |

@@ -3,6 +3,7 @@ const { readFileSync, writeFileSync, readdirSync, appendFileSync, mkdirSync, exi
 const { resolve, relative, dirname, join, posix } = require('node:path')
 const { randomUUID } = require('node:crypto')
 const { MAX_CASES_PER_SHARD } = require('./budget.cjs')
+const { assetOwnerTests } = require('./asset-owners.cjs')
 const root = resolve(__dirname, '../..')
 const slash = file => file.replaceAll('\\', '/')
 const local = file => slash(relative(root, resolve(root, file)))
@@ -135,25 +136,6 @@ function policyConsumers(file, inventory) {
     add('tests/assets/HumanoidAssetPreload.test.ts')
     add('tests/combat/CommanderWeaponSwitching.test.ts')
   }
-  // Meshy hero delivery metadata and offline authoring feed the existing loader
-  // and equipment animation owners. Geometry/skin appearance is audited in the
-  // asset builder and browser, never reconstructed as a unit-test scene.
-  if (/^public\/models\/characters\/v2\/(?:roman-hero-t4|viking-hero-t5)\//.test(file)
-    || ['tools/build-meshy-faction-heroes.mjs', 'tools/lib/meshy-finger-grasp.mjs',
-      'tools/lib/meshy-waist-skin.mjs', 'tools/lib/humanoid-glb.mjs',
-      'tools/simplify-replacement-humanoids.py'].includes(file)) {
-    add('tests/assets/HumanoidAssetPreload.test.ts')
-    add('tests/combat/CommanderWeaponSwitching.test.ts')
-  }
-  // Both new shield species and the two replacement weapons use the same
-  // equip, physical-hit, paid inventory and native-token ownership boundaries.
-  if (file.startsWith('public/models/weapons/faction-shields/')
-    || ['public/models/weapons/high-tier/spear.glb', 'public/models/weapons/t5/axe.glb',
-      'tools/build-faction-meshy-equipment.py'].includes(file)) {
-    for (const owner of ['tests/combat/CombatAttribution.test.ts', 'tests/combat/CommanderWeaponSwitching.test.ts',
-      'tests/equipment/WeaponWheel.test.ts', 'tests/equipment/CareerSquadEquipment.test.ts',
-      'tests/equipment/CareerTownEquipment.test.ts']) add(owner)
-  }
   // The offline eagle envelope and fetched metadata share the runtime's pure
   // validity/fallback contract; exercising it requires no GLB or render scene.
   if (file === 'tools/build-xongkoro-bounds.mjs'
@@ -212,7 +194,9 @@ function selectFiles(inventory, changed, consumers, evidence) {
     for (const [file, oldTest] of baseRuntime) if (!all.includes(file) && !changed.some(change => change.status === 'D' && change.file === oldTest)) {
       relatedSelectionError(`Base test owner is not in current discovery: ${oldTest} -> ${file}`)
     }
-    const policy = new Set([...policyConsumers(item.file, inventory), ...(historical ? policyConsumers(oldFile, inventory) : [])])
+    const policy = new Set([...policyConsumers(item.file, inventory), ...assetOwnerTests(item.file, inventory, evidence, consumers.graph),
+      ...(historical ? [...policyConsumers(oldFile, inventory), ...assetOwnerTests(oldFile, inventory,
+        { files: evidence.previousFiles, texts: evidence.previousTexts }, previous.graph)] : [])])
     const hits = new Set([...runtime, ...policy, ...baseRuntime.keys()].filter(file => all.includes(file)))
     if (!removed && all.includes(item.file)) hits.add(item.file)
     if (!hits.size) {
@@ -459,7 +443,8 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   // Native related results are candidates only. An unexplained native-only edge
   // is unsafe; never silently exclude it or unconditionally union it into leaves.
   for (const file of found.related) {
-    if (!changed.some(item => (consumers[item.file] ?? []).includes(file) || policyConsumers(item.file, found.inventory).has(file) || item.file === file)) {
+    if (!changed.some(item => (consumers[item.file] ?? []).includes(file) || policyConsumers(item.file, found.inventory).has(file)
+      || assetOwnerTests(item.file, found.inventory, currentTree, consumers.graph).has(file) || item.file === file)) {
       relatedSelectionError(`Native-only dependency requires mapping: ${file}`)
     }
   }
