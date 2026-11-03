@@ -1,3 +1,5 @@
+import { TownTutorialController } from './TownTutorialController'
+import { canStartCareerTutorial } from '../career/CareerTutorial'
 import { commitTownProfile, type TownProfileChange } from './TownProfileCommit'
 import { TownRetirementFinaleController } from './TownRetirementFinaleController'
 import { appendCommanderRetirementOption } from './TownRetirementUI'
@@ -38,7 +40,7 @@ import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentConte
 import { officialCommandHudLabel } from '../career/CommanderTownSquadLabels'
 import { townDefaultActorLoadout } from '../career/CareerTownEquipmentState'
 import { townMerchantLoadout } from './TownMerchantEquipment'
-import { careerMountType } from '../career/CareerMountController'
+import { CAREER_MOUNT_INTERACTION_DISTANCE, careerMountType } from '../career/CareerMountController'
 import { personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
 import { appendTownSaleDropdown } from './TownSaleUI'
 import { sellTownNativeProducts, townNativeSaleGate, townNativeSaleStock, type TownNativeSaleContext, type TownNativeSaleRequest } from '../career/CareerTownNativeResale'
@@ -251,6 +253,7 @@ export class TownScene {
   private hasPreviousTip = false
   private notice = ''
   private readonly store = new CareerProfileStore()
+  private tutorial?: TownTutorialController
   private careerSkillsDirty = false
   private careerSkillSaveTimer: number | null = null
   private mission!: BanditMissionController
@@ -312,7 +315,7 @@ export class TownScene {
       .some(batch => batch.status === 'failed') || Boolean(this.personalSquad?.error)
   }
 
-  static async create(container: HTMLElement, profile: CareerProfile, onCampaign: (config?: CareerCombatLaunch) => void, onRestart: (p: CareerProfile, reason?: 'death-return') => void, onHome: () => void, progress: (text: string) => void = () => {}): Promise<TownScene> {
+  static async create(container: HTMLElement, profile: CareerProfile, onCampaign: (config?: CareerCombatLaunch) => void, onRestart: (p: CareerProfile, reason?: 'death-return') => void, onHome: () => void, progress: (text: string) => void = () => {}, onTutorialLaunch?: (stage: 'recruit' | 'captain', replay?: boolean) => boolean): Promise<TownScene> {
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     try {
       progress('載入人物、坐騎與動畫…')
@@ -333,11 +336,11 @@ export class TownScene {
       await Promise.all([...siegeHeroes, preloadPaladinEquipment(), preloadHighTierEquipment(), HumanoidAssetRegistry.preload(), ...[...civilianFactions].map(faction => HumanoidAssetRegistry.preloadAsset(CIVILIAN_HUMANOID_ASSETS[faction])), HorseAssetRegistry.preload(renderer), BlackCatVisual.preload(), CorgiVisual.preload(), SnowLeopardVisual.preload(), XongkoroVisual.preload(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[townCaptainProfile(sceneContext.residentFaction).visualAssetId].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['maki-archer-t4'].descriptor), preloadMakiRangerBow(), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['viking-hero-t4'].descriptor), HumanoidAssetRegistry.preloadAsset(HERO_ASSETS['roman-hero-t4'].descriptor), ...(commanderHero && commanderHero !== playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[commanderHero].descriptor)] : []), ...(formerCommanderHero && formerCommanderHero !== playerHero && formerCommanderHero !== commanderHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[formerCommanderHero].descriptor)] : []), ...(playerHero ? [HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[playerHero].descriptor)] : []), ...[...personalHeroes].filter(id => id !== playerHero && id !== commanderHero && id !== formerCommanderHero).map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor))])
       progress('建立村莊與營地…')
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
-      const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome)
+      const town = new TownScene(container, renderer, profile, onCampaign, onRestart, onHome, onTutorialLaunch)
       try { await town.initialize(progress); return town } catch (error) { town.dispose(); throw error }
     } catch (error) { renderer.dispose(); throw error }
   }
-  private constructor(container: HTMLElement, renderer: THREE.WebGLRenderer, public profile: CareerProfile, private readonly onCampaign: (config?: CareerCombatLaunch) => void, private readonly onRestart: (p: CareerProfile, reason?: 'death-return') => void, private readonly onHome: () => void) {
+  private constructor(container: HTMLElement, renderer: THREE.WebGLRenderer, public profile: CareerProfile, private readonly onCampaign: (config?: CareerCombatLaunch) => void, private readonly onRestart: (p: CareerProfile, reason?: 'death-return') => void, private readonly onHome: () => void, private readonly onTutorialLaunch?: (stage: 'recruit' | 'captain', replay?: boolean) => boolean) {
     installTownStyles()
     sound ??= new SoundManager()
     sound.cancelCareerAudio()
@@ -462,6 +465,26 @@ export class TownScene {
         beforeIssue: (order, target, participants, assignments) => this.preparePlayerCommand(order, target, participants, assignments),
         issue: (order, target) => this.issuePartyOrder(order, target) },
       () => this.commandHudRoster())
+    this.tutorial = new TownTutorialController({
+      profile: () => this.profile, commit: next => this.commit(next),
+      peaceful: () => !this.disposed && !this.player.dead && !this.event.hostile
+        && canStartCareerTutorial(this.profile) && this.world.faction === this.profile.faction,
+      blocked: () => Boolean(this.panel || this.equipment.visible || this.result || this.spectator || this.spawnErrorShown),
+      playerPosition: () => this.player.combatPosition,
+      playerHorse: () => this.player.currentMount?.type === MountType.HORSE,
+      cameraYaw: () => this.orbit.cameraYaw,
+      npcPosition: id => { const npc = this.residents.find(resident => resident.spec.id === id)?.npc; return npc && !npc.dead ? npc.combatPosition : null },
+      tower: this.world.commandWatchtower, roster: () => this.commandHudRoster(),
+      launch: (stage, replay) => {
+        if (!canStartCareerTutorial(this.profile) || !this.flushCareerSkillProgression()
+          || !this.onTutorialLaunch?.(stage, replay)) return false
+        // The route owner just saved a session against the latest profile. Disposal must retain it.
+        const latest = this.store.loadChecked().profile
+        if (latest && latest.tutorial?.careerId === this.profile.tutorial?.careerId) this.profile = latest
+        this.dispose(); return true
+      }, duel: () => this.acceptTutorialDuel(),
+    })
+    this.personalCommands.onAccepted = event => this.tutorial?.commandAccepted(event)
     this.personalCommandUI.setEnabled(this.commandsEnabled())
     // Enemy-territory field missions may reserve a Patrol officer instead of the
     // service Captain, or use only temporary officers. Recruit-party captain access
@@ -715,7 +738,7 @@ export class TownScene {
       }
       if (target instanceof NPC && roster.has(target.combatantId)) return true
     }
-    if (target instanceof NPC && this.mission?.allowsMissionCombatTarget(npc, target)) return true
+    if (target instanceof NPC && this.missionCombat?.allowsFieldMissionCombatTarget(npc, target)) return true
     const response = townDefenseThreatResponse(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc), this.navigation.townNav?.watchtower)
     return response === 'pursue' ? true : response === 'defend' ? 'defend' : false
   }
@@ -948,6 +971,24 @@ export class TownScene {
   }
 
   private commit(profile: CareerProfile, change: TownProfileChange = 'ordinary'): boolean {
+    const latest = this.store.loadChecked()
+    if (latest.error || !latest.profile || latest.profile.tutorial?.careerId !== this.profile.tutorial?.careerId
+      || profile.tutorial?.careerId !== this.profile.tutorial?.careerId) {
+      this.notice = '角色存檔已更新，尚未保存這次操作，請重新載入。'; return false
+    }
+    const ownership = (value: CareerProfile) => JSON.stringify([
+      value.activeMission?.id, value.activeOutpostMission?.id, value.activeRace?.id,
+      value.careerRetirement?.acceptedAt, value.careerRetirement?.phase,
+      value.townEvent?.id, value.townEvent?.state,
+    ])
+    if (ownership(latest.profile) !== ownership(this.profile)) {
+      this.notice = '生涯活動已在其他畫面更新，請重新載入後再操作。'; return false
+    }
+    // Reject a concurrent tutorial commit as a whole: merging only its receipt into an old
+    // balance would retain the receipt while erasing the associated merit award.
+    if (JSON.stringify(latest.profile.tutorial) !== JSON.stringify(this.profile.tutorial)) {
+      this.notice = '教學紀錄已更新，請重新載入後再操作。'; return false
+    }
     const scene = this
     return commitTownProfile({
       applyRetirementDeparture: () => scene.applyRetirementDeparture(),
@@ -1032,7 +1073,7 @@ export class TownScene {
       spectatorOnly: this.player.spectatorOnly,
       observer: Boolean(this.spectator),
     })) return
-    if (appliedDamage <= 0) return
+    if (appliedDamage <= 0 || this.profile.activeMission?.duelTutorialCareerId) return
     const skill = skillOverride ?? resolveCombatSkill(
       method,
       this.inventory.equippedMelee,
@@ -1133,6 +1174,9 @@ export class TownScene {
     const panel = this.openPanel('生涯模式 · 暫停', message)
     const resume = panel.querySelector('button')
     if (resume) resume.textContent = '繼續遊戲'
+    if (this.profile.activeMission?.duelTutorialCareerId && !this.profile.activeMission.result) {
+      this.button(panel, '取消新兵切磋 · 不結算獎勵', () => this.returnToTown('direct'))
+    }
     const race = this.race
     if (race && raceReturnAction(race.session?.phase, race.canWalkBack, race.returnComplete, true)) {
       this.button(panel, '改為直接返回小鎮', () => this.leaveRace(true))
@@ -1209,6 +1253,7 @@ export class TownScene {
           }
         })
       }
+      this.tutorial?.appendPanel(panel, id)
       if (id === 'commander') appendCommanderRetirementOption(panel, this.profile, {
         available: () => !this.player.dead && this.serviceAvailable('commander'),
         openPanel: (title, text) => this.openPanel(title, text),
@@ -1518,7 +1563,14 @@ export class TownScene {
       || participants.some(npc => this.civilianCommand?.owns(npc) || this.townAirCommand?.actors.includes(npc)
         || this.townCommand?.owns(npc))
       || order === 'dismiss' && townCommandedBefore
-    if (target === 'all' || target === 'squad:personal') accepted = ((order === 'follow' ? this.personalSquad?.follow() : this.personalSquad?.dismiss()) ?? false) || accepted
+    if (target === 'all' || target === 'squad:personal') {
+      const personalAccepted = (order === 'follow' ? this.personalSquad?.follow() : this.personalSquad?.dismiss()) ?? false
+      accepted = personalAccepted || accepted
+      // Follow can be accepted by the reserve roster before its asynchronous actors exist.
+      if (personalAccepted && order === 'follow' && target === 'squad:personal') this.tutorial?.commandAccepted({
+        order, target, participantCount: this.profile.personalSquad?.members.length ?? 0,
+      })
+    }
     const ids = new Set(this.profile.activeMission?.officialSquad?.actorIds ?? [])
     const actors = participants.filter(npc => ids.has(npc.combatantId))
     for (const npc of actors) {
@@ -1724,6 +1776,7 @@ export class TownScene {
     const active = this.profile.activeMission
     if (active?.result) { this.openMissionResult(active.result, true); return }
     const panel = this.openPanel('士官長', greeting)
+    this.tutorial?.appendPanel(panel, 'deployment')
     if (this.townCommand?.commandsEnabled) {
       this.button(panel, '城防部隊整補', () => this.openSquadRefitPanel())
     }
@@ -1810,7 +1863,7 @@ export class TownScene {
       details.textContent = template.kind === 'cavalry-sweep'
         ? `${template.briefing}\n2 支小隊 · 含玩家 60 人 · 玩家無指揮權`
         : template.kind === 'enemy-town-assault'
-        ? `${template.briefing}\n敵方 ${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')} · 軍事守軍 ${townAssaultObjectiveRoster(townRoster()).length} · 平民 ${TOWN_RULES.civilians} · 玩家無指揮權`
+        ? `${template.briefing}\n敵方 ${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')} · 全體參戰守軍 ${townAssaultObjectiveRoster(townRoster()).length} · 平民 ${TOWN_RULES.civilians} · 玩家無指揮權`
         : template.kind === 'town-defense'
         ? `${template.briefing}\n所屬 ${townName(this.profile.faction)}\n玩家 1 · AI 守軍 ${defenseForce.friendlySoldiers} · 友軍總數 ${defenseForce.friendlyCombatants}\n敵軍 ${template.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
         : template.kind === 'patrol'
@@ -2119,7 +2172,10 @@ export class TownScene {
         mount.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
         mount.group.rotation.y = saved.mountPosition.yaw
         this.player.syncMountTransform()
-      } else this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
+      } else {
+        if (mount) this.player.dismountFromMount({ preserveWorldPosition: true })
+        this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
+      }
     }
     if (direct || dead) this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
     this.closePanel(); this.notice = '賽事已結束，已返回小鎮。'
@@ -2135,6 +2191,27 @@ export class TownScene {
     this.raceGuide.updateRace(this.player.combatPosition, this.orbit.cameraYaw, target,
       session.phase === 'racing' || session.phase === 'finishing' ? `下一站：${RACE_LINES[session.player.checkpoint]?.label ?? '完成'}`
         : session.phase === 'returning' ? '返回小鎮' : '北門起跑區')
+  }
+  private acceptTutorialDuel(): void {
+    if (this.player.dead || !this.serviceAvailable('captain') || !canStartCareerTutorial(this.profile)) return
+    const fresh = this.store.loadChecked().profile
+    if (!fresh || fresh.tutorial?.careerId !== this.profile.tutorial?.careerId || !canStartCareerTutorial(fresh)
+      || fresh.tutorial?.town.step !== 'duel') {
+      this.openPanel('無法開始新兵切磋', '請先完成士官長的購買武器引導，並結束其他活動。'); return
+    }
+    const mission = this.duel.createTutorialMission()
+    if (!mission) { this.openPanel('無法開始新兵切磋', '隊長或裁判暫時無法出場，請稍後再來。'); return }
+    const next = cloneCareerProfile(fresh); next.activeMission = mission
+    if (!this.commit(next)) { this.openPanel('切磋尚未開始', '保存失敗，請重試。'); return }
+    if (!this.duel.startActiveMission()) {
+      // Technical deployment failure has no defeat settlement and no consolation reward.
+      this.openPanel('新兵切磋部署失敗', '本場尚未結算；重新載入可重試相同切磋，或取消後稍後再來。')
+      this.button(this.panel!, '取消本次切磋', () => this.returnToTown('direct'))
+      return
+    }
+    this.inventory.prepareForCombat()
+    this.notice = '跟隨實際隊長前往單挑場地；新兵切磋使用步戰，30 秒超時判負。'
+    this.closePanel()
   }
   private acceptDuel(presetId: UnitPresetId, tier: CareerDuelTier): void {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
@@ -2589,6 +2666,10 @@ export class TownScene {
   }
   private openMissionResult(result: CareerMissionResult, _reloaded: boolean): void {
     this.missionResultOpen = true
+    if (this.profile.activeMission?.kind === 'enemy-town-assault' && result.outcome === 'victory') {
+      if (this.defense instanceof TownDefenseController) this.defense.ceaseAssaultAirSupport()
+      this.clearMissionCombatShots()
+    }
     const complete = result.outcome === 'victory'
     const merit = result.merit
     const defenseText = result.defense ? `\n\nCivilians\nSurvived ${result.defense.civilianSurvived}\nDeaths ${result.defense.civilianDeaths}` : ''
@@ -2596,6 +2677,12 @@ export class TownScene {
     const zeroMeritReason = merit.total !== 0 ? '' : (result.meritStats ?? result.stats).damageDealt > 0
       ? `\n\n有效傷害未達 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點軍功門檻；本次軍功為 0。`
       : '\n\n本次未對任務目標造成有效貢獻。個人軍功：0'
+    if (this.profile.activeMission?.duelTutorialCareerId) {
+      const panel = this.openPanel(complete ? '新兵切磋 · 勝利' : '新兵切磋 · 練習結束',
+        `本次已保存獎勵 ${merit.total} 軍功。教學獎勵每個角色只領一次。\n之後可找士官長 → 1v1，選擇兵種並依序挑戰 T1–T5。\n接下來向士官長了解目前軍階的正式戰鬥任務。`)
+      this.button(panel, `返回 ${townName(this.profile.faction)}`, () => this.returnToTown('direct'))
+      return
+    }
     const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}${combined}\n\nMilitary Merit\n每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}`)
     this.button(panel, this.profile?.activeMission?.kind === 'captain-patrol-command' ? '直接返回城鎮' : `返回 ${townName(this.profile.faction)}`, () => this.returnToTown('direct'))
     if (this.profile?.activeMission?.kind === 'captain-patrol-command') {
@@ -3533,7 +3620,7 @@ export class TownScene {
     this.nearbyTemporaryMount = null
     const playerPosition = this.player.currentMount?.group.position ?? this.player.combatPosition
     if (!this.player.isMounted && !this.player.isFalling) {
-      let mountDistance = 3
+      let mountDistance = CAREER_MOUNT_INTERACTION_DISTANCE
       const mounts = new Set([this.careerMounts?.activeMount, ...this.temporaryMounts.all, ...(this.outskirts?.mounts ?? [])])
       for (const mount of mounts) {
         if (!mount?.availableForPlayer || mount.isAirborne || Math.abs(mount.group.position.y - playerPosition.y) > 3) continue
@@ -3814,6 +3901,7 @@ export class TownScene {
       ? new THREE.Vector3(retirementPoint.x, getTerrainHeight(retirementPoint.x, retirementPoint.z), retirementPoint.z) : null
     this.retirementGuide.updateRetirement(this.player.combatPosition, this.orbit.cameraYaw, retirementTarget)
     this.updateRaceHud()
+    this.tutorial?.update()
     for (const [id, marker] of this.serviceMarkers) marker.visible = !this.defense.active && this.serviceAvailable(id)
     const missionHud = this.profile.activeMission
       ? this.mission?.travelEncounter?.active
@@ -3827,7 +3915,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'cavalry-sweep'
         ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.templateId === CAPTAIN_CAVALRY_COMMAND_ID ? '率領騎兵前往 Bandits 所在位置 · 接近後下令衝鋒' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain 出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
         : this.profile.activeMission.kind === 'enemy-town-assault'
-        ? `\nENEMY TOWN ASSAULT · ${this.defense.phase === 'PREPARING' ? '開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : '敵方軍事守軍 ' + this.defense.military.filter(npc => !npc.dead).length + '/' + this.defense.military.length}`
+        ? `\nENEMY TOWN ASSAULT${this.defense.phase === 'PREPARING' ? ' · 開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : ''}\n剩餘地面守軍：${this.defense instanceof TownDefenseController ? this.defense.remainingAssaultGroundDefenders : '—'}`
         : this.profile.activeMission.kind === 'commander-sky-raid'
         ? `\nSKY RAID\nEnemy Town Kills: ${this.profile.activeMission.deadTargetActorIds?.length ?? 0} / 100\nFriendly Rangers: ${this.defense.defenders.filter(npc => !npc.dead).length} / 50 · Friendly Eagles: ${this.defense.enemyMounts.filter(mount => !mount.dead).length} / 50`
         : this.profile.activeMission.kind === 'commander-decapitation'
@@ -3885,6 +3973,7 @@ export class TownScene {
     this.enemyEaglePatrol?.dispose()
     this.outskirts?.dispose()
     this.weaponWheelUI?.dispose()
+    this.tutorial?.dispose()
     this.duelHud?.dispose()
     this.duelGuide?.dispose()
     sound?.cancelCareerAudio()
