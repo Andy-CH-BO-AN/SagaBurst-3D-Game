@@ -39,7 +39,9 @@ describe('Ordinary character health identity', () => {
     expect(resolveCareerPlayerMaxHp(profile)).toBe(504)
     profile.rank = 'commander'
     expect(resolveCareerCharacterTier(profile)).toBe(5)
-    expect(resolveCareerPlayerMaxHp(profile)).toBe(954)
+    expect(resolveCareerPlayerMaxHp(profile)).toBe(904)
+    profile.faction = 'roman'
+    expect(resolveCareerPlayerMaxHp(profile)).toBe(854)
     expect(resolveOrdinarySoldierTier()).toBe(2)
   })
 })
