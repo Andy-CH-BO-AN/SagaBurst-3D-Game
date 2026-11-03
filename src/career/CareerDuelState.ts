@@ -105,6 +105,24 @@ export function createCareerDuelMission(
   }
 }
 
+/** An explicit practice challenge borrows the real service Captain without unlocking formal tiers. */
+export function createCareerTutorialDuelMission(profile: CareerProfile, presetId: UnitPresetId,
+  captainActorId: string, refereeActorId: string): ActiveCareerMission | null {
+  if (!profile.tutorial || profile.activeMission || profile.activeOutpostMission || profile.activeRace
+    || profile.careerRetirement || profile.townEvent?.state === 'hostile'
+    || captainActorId !== 'captain' || !refereeActorId || refereeActorId === captainActorId
+    || !isCareerDuelPresetId(presetId) || UNIT_PRESETS[presetId].faction !== profile.faction
+    || UNIT_PRESETS[presetId].traits.includes('bow_fire')) return null
+  return {
+    id: createCareerMissionId(CAREER_DUEL_TEMPLATE_ID), templateId: CAREER_DUEL_TEMPLATE_ID,
+    kind: 'duel', targetCampId: -1, phase: 'ASSEMBLING', targetActorIds: [captainActorId],
+    friendlyActorIds: [refereeActorId], duelTier: 4, duelPresetId: presetId,
+    duelOpponentActorId: captainActorId, duelCaptainActorId: captainActorId,
+    duelRefereeActorId: refereeActorId, duelTutorialCareerId: profile.tutorial.careerId,
+    duelCountdownElapsed: 0, duelCombatElapsed: 0, duelOpponentDead: false, acceptedAt: Date.now(),
+  }
+}
+
 /** Duel has no allied victory after player death; a simultaneous death is a failure. */
 export function resolveCareerDuelOutcome(
   playerDead: boolean,

@@ -21,6 +21,7 @@ describe('mission merit ownership', () => {
     const profile = createCareerProfile('roman')
     profile.activeMission = { ...createActiveCareerMission('assault-merit', 0, 1, 0, 'assault-merit'), kind: 'enemy-town-assault' }
     const result = claimCareerMission(profile, 'assault-merit', 'victory', { ...stats(40), structureDamage: 40 })
+    expect(result.profile.tutorial?.settledMissionIds).toEqual(['assault-merit'])
     expect(result.profile.activeMission?.result?.merit).toEqual({ damage: 4, kills: 0, contribution: 80, total: 84 })
     const store = new CareerProfileStore(new MemoryStorage())
     expect(store.save(result.profile)).toBe(true)
@@ -33,8 +34,11 @@ describe('mission merit ownership', () => {
     const battle = { player: stats(40), squads: [] }
     const claim = claimCareerOutpost(profile, 'outpost-merit', 'victory', battle)
     expect(claim.meritBreakdown).toMatchObject({ characterDamage: 2, victory: 80, survival: 0, total: 82 })
+    expect(claim.profile.tutorial?.settledMissionIds).toEqual(['outpost-merit'])
     expect(claim.profile.lifetimeStats).toMatchObject({ battles: 1, victories: 1, deaths: 1 })
-    expect(claimCareerOutpost(claim.profile, 'outpost-merit', 'victory', battle).alreadyClaimed).toBe(true)
+    const duplicate = claimCareerOutpost(claim.profile, 'outpost-merit', 'victory', battle)
+    expect(duplicate.alreadyClaimed).toBe(true)
+    expect(duplicate.profile.tutorial?.settledMissionIds).toEqual(['outpost-merit'])
   })
 
   it('preserves recruit victory contribution after death while an uninvolved spectator earns none', () => {

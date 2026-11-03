@@ -17,6 +17,8 @@ import { townRoster } from './town/TownRules'
 import { createCareerVeteranOutpostLaunch, isCareerVeteranOutpostMission, shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
 import { createCareerCommanderOutpostLaunch, isCareerCommanderOutpostMission } from './career/CommanderOutpost'
 import { CareerProfileStore } from './career/CareerProfileStore'
+import { commitCareerTutorial, deferCareerTutorial } from './career/CareerTutorial'
+import { createCareerCaptainTutorialConfig, type CareerTutorialLaunch } from './career/CareerTutorialLaunch'
 import { recoverFailedCareerMission, CAREER_RECOVERY_NOTICE_KEY } from './career/CareerMissionRecovery'
 import { BattleConfig, validateBattleConfig } from './battle/BattleConfig'
 import { BattleSetupUI } from './ui/BattleSetupUI'
@@ -41,6 +43,27 @@ if (import.meta.env.DEV) void import('./debug/ShadowPassCensus')
 
 let currentCareerMissionId: string | undefined
 let recoveringCareerMission = false
+let currentCareerTutorial: CareerTutorialLaunch | undefined
+let recoveringCareerTutorial = false
+
+function handleCareerTutorialError(context: CareerTutorialLaunch, error: unknown): void {
+  if (recoveringCareerTutorial) return
+  const store = new CareerProfileStore(), loaded = store.loadChecked()
+  if (loaded.profile?.tutorial?.careerId !== context.careerId || loaded.profile.tutorial.session?.id !== context.sessionId) return
+  recoveringCareerTutorial = true
+  const game = (window as unknown as { game?: unknown }).game
+  if (game instanceof Game) game.abortCareerDeployment()
+  console.error('[Career tutorial] Scene failure; saved progress retained', error)
+  showCareerRecoveryError('教學載入或執行失敗；已保存的操作與獎勵紀錄保留，這次不會被當作戰敗。', () => window.location.reload(), '重試教學')
+  const back = document.createElement('button'); back.textContent = '稍後繼續，返回城鎮'
+  back.onclick = () => {
+    const result = commitCareerTutorial(store, context.careerId, next => deferCareerTutorial(next, context.stage), context.sessionId)
+    if (!result.ok) { back.textContent = '保存失敗，點擊重試返回'; return }
+    sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+    window.location.assign(window.location.pathname)
+  }
+  document.getElementById('career-recovery-error')?.append(back)
+}
 
 function showCareerRecoveryError(message: string, retry: () => void, label = '重試返回城鎮'): void {
   document.getElementById('asset-loading-status')?.remove()
@@ -99,6 +122,7 @@ function handleCareerMissionError(missionId: string, error: unknown): void {
 }
 
 window.addEventListener('error', e => {
+  if (currentCareerTutorial) { e.preventDefault(); handleCareerTutorialError(currentCareerTutorial, e.error ?? new Error(e.message)); return }
   if (currentCareerMissionId && !recoveringCareerMission) {
     e.preventDefault()
     handleCareerMissionError(currentCareerMissionId, e.error ?? new Error(e.message))
@@ -111,6 +135,7 @@ window.addEventListener('error', e => {
 })
 
 window.addEventListener('unhandledrejection', e => {
+  if (currentCareerTutorial) { e.preventDefault(); handleCareerTutorialError(currentCareerTutorial, e.reason); return }
   if (!currentCareerMissionId || recoveringCareerMission) return
   e.preventDefault()
   handleCareerMissionError(currentCareerMissionId, e.reason)
@@ -124,9 +149,12 @@ async function launchGame(
   campaignConfig?: DefenseCampaignLaunchConfig,
   trainingGround = false,
   bridgeLaunch?: CareerBridgeBattleLaunch,
+  tutorialLaunch?: CareerTutorialLaunch,
 ): Promise<void> {
   const missionId = bridgeLaunch?.careerMissionId ?? campaignConfig?.careerMissionId ?? battleConfig?.careerEagleMissionId
   currentCareerMissionId = missionId
+  currentCareerTutorial = tutorialLaunch
+  recoveringCareerTutorial = false
   const loading = document.createElement('div')
   loading.id = 'asset-loading-status'
   loading.style.cssText = 'position:fixed;inset:0;display:grid;place-items:center;color:#eee;background:#171411;z-index:9998;font:16px system-ui'
@@ -137,13 +165,14 @@ async function launchGame(
   try {
     // Let the overlay paint before cached assets lead into synchronous scene creation.
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    const game = await Game.create(container!, battleConfig, campaignConfig, text => { loading.textContent = text }, trainingGround, bridgeLaunch)
+    const game = await Game.create(container!, battleConfig, campaignConfig, text => { loading.textContent = text }, trainingGround, bridgeLaunch, tutorialLaunch)
     ;(window as unknown as { game: unknown }).game = game
     if (missionId && game instanceof Game) game.onCareerDeploymentError = error => handleCareerMissionError(missionId, error)
     loading.remove()
   } catch (error: unknown) {
     const e = error instanceof Error ? error : new Error(String(error))
     loading.remove()
+    if (tutorialLaunch) { handleCareerTutorialError(tutorialLaunch, e); return }
     if (missionId) { handleCareerMissionError(missionId, e); return }
     const errDiv = document.createElement('div')
     errDiv.style.position = 'absolute'
@@ -156,6 +185,18 @@ async function launchGame(
     errDiv.textContent = `寫實資產載入失敗：${e.message}`
     document.body.appendChild(errDiv)
   }
+}
+
+async function launchCareerTutorial(context: CareerTutorialLaunch): Promise<void> {
+  const loaded = new CareerProfileStore().loadChecked(), profile = loaded.profile
+  if (!profile || profile.tutorial?.careerId !== context.careerId || profile.tutorial.session?.id !== context.sessionId) {
+    showCareerRecoveryError('教學所屬的角色或存檔已變更，請重新進入生涯。', () => window.location.reload(), '重新載入')
+    return
+  }
+  try {
+    await launchGame(context.stage === 'captain' ? createCareerCaptainTutorialConfig(profile) : undefined,
+      undefined, context.stage === 'recruit', undefined, context)
+  } catch (error) { handleCareerTutorialError(context, error) }
 }
 
 function launchCareerCombat(config: CareerCombatLaunch): Promise<void> {
@@ -229,6 +270,13 @@ async function bootstrap(): Promise<void> {
   // A saved ending wins over stale mission fields without rewriting the Career save.
   const completedCareer = outpostProfile?.careerRetirement?.phase === 'completed'
   const activeCareerMission = completedCareer ? undefined : outpostProfile?.activeMission
+  const tutorialSession = !completedCareer && !activeCareerMission && !outpostProfile?.activeOutpostMission
+    && !outpostProfile?.activeRace && !outpostProfile?.careerRetirement && outpostProfile?.townEvent?.state !== 'hostile'
+    ? outpostProfile?.tutorial?.session : undefined
+  if (tutorialSession) {
+    await launchCareerTutorial({ careerId: tutorialSession.careerId, sessionId: tutorialSession.id, stage: tutorialSession.stage })
+    return
+  }
   const captainStandalone = activeCareerMission?.templateId === CAPTAIN_FRONTLINE_COMMAND_ID && activeCareerMission.kind === 'captain-outpost-defense'
     || activeCareerMission?.templateId === CAPTAIN_EAGLE_BATTLE_ID && activeCareerMission.kind === 'captain-eagle-battle'
   if (outpostProfile && activeCareerMission && captainStandalone) {
@@ -427,7 +475,7 @@ async function bootstrap(): Promise<void> {
     const menu = new MainMenuUI()
     menu.mount(document.body, {
       onTrainingGround: () => { menu.destroy(); void launchGame(undefined, undefined, true) },
-      onCareer: () => { menu.destroy(); enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError) },
+      onCareer: () => { menu.destroy(); enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError, launchCareerTutorial) },
       onCustomBattle: () => {
         menu.destroy()
         showCustomBattle()
@@ -448,7 +496,7 @@ async function bootstrap(): Promise<void> {
   }
 
   if (careerResume) {
-    enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError)
+    enterCareerTown(container!, launchCareerCombat, showHome, handleCareerMissionError, launchCareerTutorial)
   } else if (savedConfig && needsPlayerHpConfirmation(savedConfig)) {
     showCustomBattle(savedConfig)
   } else if (requestedCampaignSetup) {
