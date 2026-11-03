@@ -135,6 +135,25 @@ function policyConsumers(file, inventory) {
     add('tests/assets/HumanoidAssetPreload.test.ts')
     add('tests/combat/CommanderWeaponSwitching.test.ts')
   }
+  // Meshy hero delivery metadata and offline authoring feed the existing loader
+  // and equipment animation owners. Geometry/skin appearance is audited in the
+  // asset builder and browser, never reconstructed as a unit-test scene.
+  if (/^public\/models\/characters\/v2\/(?:roman-hero-t4|viking-hero-t5)\//.test(file)
+    || ['tools/build-meshy-faction-heroes.mjs', 'tools/lib/meshy-finger-grasp.mjs',
+      'tools/lib/meshy-waist-skin.mjs', 'tools/lib/humanoid-glb.mjs',
+      'tools/simplify-replacement-humanoids.py'].includes(file)) {
+    add('tests/assets/HumanoidAssetPreload.test.ts')
+    add('tests/combat/CommanderWeaponSwitching.test.ts')
+  }
+  // Both new shield species and the two replacement weapons use the same
+  // equip, physical-hit, paid inventory and native-token ownership boundaries.
+  if (file.startsWith('public/models/weapons/faction-shields/')
+    || ['public/models/weapons/high-tier/spear.glb', 'public/models/weapons/t5/axe.glb',
+      'tools/build-faction-meshy-equipment.py'].includes(file)) {
+    for (const owner of ['tests/combat/CombatAttribution.test.ts', 'tests/combat/CommanderWeaponSwitching.test.ts',
+      'tests/equipment/WeaponWheel.test.ts', 'tests/equipment/CareerSquadEquipment.test.ts',
+      'tests/equipment/CareerTownEquipment.test.ts']) add(owner)
+  }
   // The offline eagle envelope and fetched metadata share the runtime's pure
   // validity/fallback contract; exercising it requires no GLB or render scene.
   if (file === 'tools/build-xongkoro-bounds.mjs'

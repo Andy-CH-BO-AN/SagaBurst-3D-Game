@@ -53,8 +53,20 @@ test('production module selects transitive consumers without unrelated equipment
     { status: 'A', file: 'public/models/characters/v2/viking-t2/manifest.json' },
     { status: 'A', file: 'tools/build-tiered-faction-soldiers.py' },
     { status: 'A', file: 'tools/retarget-tiered-faction-soldiers.mjs' },
+    { status: 'M', file: 'public/models/characters/v2/roman-hero-t4/ATTRIBUTION.md' },
+    { status: 'M', file: 'public/models/characters/v2/viking-hero-t5/lod0.glb' },
+    { status: 'A', file: 'tools/build-meshy-faction-heroes.mjs' },
+    { status: 'A', file: 'tools/lib/meshy-waist-skin.mjs' },
   ], consumers)
   assert.deepEqual(tiered.selected, humanoidOwners.sort())
+  const factionOwners = [...shieldOwners, 'tests/equipment/WeaponWheel.test.ts']
+  const factionEquipment = selectFiles([...inventory, ...factionOwners.map(file => item(file))], [
+    { status: 'A', file: 'public/models/weapons/faction-shields/sources.json' },
+    { status: 'M', file: 'public/models/weapons/high-tier/spear.glb' },
+    { status: 'M', file: 'public/models/weapons/t5/axe.glb' },
+    { status: 'A', file: 'tools/build-faction-meshy-equipment.py' },
+  ], consumers)
+  assert.deepEqual(factionEquipment.selected, factionOwners.sort())
 })
 test('high fan-out production owner stays Related instead of forcing repository Full', () => {
   const plan = select('src/Game.ts')
