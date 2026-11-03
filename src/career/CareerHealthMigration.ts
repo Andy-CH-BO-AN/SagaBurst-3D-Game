@@ -16,21 +16,17 @@ import { createCareerReliefSpawnPlan } from './CareerOutpostRelief'
 import { createCaptainFrontlineLaunch } from './CaptainBattleLaunch'
 import { createSweepRoster } from './CavalrySweep'
 import { resolveCareerPlayerMaxHp } from './CareerPlayerProfile'
-import { HERO_COMBAT_PROFILES } from '../battle/HeroCombatProfile'
-import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import type { CareerProfile } from './CareerProfile'
 
 type Culture = CareerProfile['faction']
-type HealthIdentity = { faction: Culture; tier: 1 | 2 | 3 | 'commander' }
+type OrdinaryIdentity = { faction: Culture; tier: 1 | 2 | 3 }
 type HealthRecord = { hp?: number; dead?: boolean; status?: string }
 const opposite = (faction: Culture): Culture => faction === 'roman' ? 'viking' : 'roman'
 
-/** Convert identified human wounds once; mounts and gates retain their own health.
- * Ordinary saves used a 200 base; Viking Commander saves used a 950 base. */
+/** A versioned, parsed Career save has a known legacy 200 ordinary base.
+ * Only identified ordinary people migrate; mounts, gates and heroes are never traversed. */
 export function migrateCareerHealth(profile: CareerProfile): void {
-  const ordinaryMigration = profile.healthRulesVersion !== 1
-  const commanderMigration = profile.commanderHealthVersion !== 1
-  if (!ordinaryMigration && !commanderMigration) return
+  if (profile.healthRulesVersion === 1) return
   const visited = new WeakSet<object>()
   const convert = (record: HealthRecord | undefined, oldMax: number, newMax: number) => {
     if (!record || visited.has(record)) return
@@ -39,44 +35,32 @@ export function migrateCareerHealth(profile: CareerProfile): void {
     record.hp = record.dead || record.status === 'dead' ? 0
       : Math.min(newMax, Math.max(0, record.hp / oldMax * newMax))
   }
-  const commanderPlayer = profile.faction === 'viking' && profile.rank === 'commander'
-  const oldPlayerMax = resolveSkillAdjustedMaxHp(commanderPlayer ? 950 : COMBAT_BALANCE.hp.playerDefault, profile.skills)
+  const oldPlayerMax = resolveSkillAdjustedMaxHp(COMBAT_BALANCE.hp.playerDefault, profile.skills)
   const newPlayerMax = resolveCareerPlayerMaxHp(profile, COMBAT_BALANCE.hp.playerDefault)
   const ordinaryPlayer = profile.rank === 'recruit' || profile.rank === 'soldier' || profile.rank === 'veteran'
-  const migratePlayer = ordinaryPlayer && ordinaryMigration || commanderPlayer && commanderMigration
-  const player = (record: HealthRecord | undefined) => { if (migratePlayer) convert(record, oldPlayerMax, newPlayerMax) }
-  const identities = new Map<string, HealthIdentity>()
-  const add = (id: string, faction: Culture, tier: number | 'commander') => {
-    if (tier === 1 || tier === 2 || tier === 3 || tier === 'commander') identities.set(id, { faction, tier })
+  const player = (record: HealthRecord | undefined) => { if (ordinaryPlayer) convert(record, oldPlayerMax, newPlayerMax) }
+  const identities = new Map<string, OrdinaryIdentity>()
+  const add = (id: string, faction: Culture, tier: number) => {
+    if (tier === 1 || tier === 2 || tier === 3) identities.set(id, { faction, tier })
     else identities.delete(id)
   }
   const addSpec = (spec: NpcSpawnSpec, id = spec.actorId) => {
     if (!id) return
-    if (spec.combatProfileId === 'viking-commander' || spec.combatProfileId === 'roman-commander') add(id, spec.characterFaction, 'commander')
-    else if (spec.faction === Faction.BANDIT || spec.combatProfileId || spec.specialCombatProfile || spec.visualAssetId) identities.delete(id)
+    if (spec.faction === Faction.BANDIT || spec.combatProfileId || spec.specialCombatProfile || spec.visualAssetId) identities.delete(id)
     else add(id, spec.characterFaction, spec.tier)
   }
   const addTown = (faction: Culture, prefix = '') => {
     for (const spec of townRoster()) {
-      if (spec.role === 'commander') { add(`${prefix}${spec.id}`, faction, 'commander'); continue }
       if (isCivilian(spec.role) || spec.role === 'cat' || spec.role === 'ranger' || spec.role === 'eagle-trainer' || townActorHeroProfile(faction, spec)) continue
       add(`${prefix}${spec.id}`, faction, townMilitaryEquipment(faction, spec).level)
     }
-    // The Commander is conditionally spawned outside townRoster's authored residents.
-    add(`${prefix}${TOWN_COMMANDER_ID}`, faction, 'commander')
   }
   addTown(profile.faction)
   addTown(opposite(profile.faction), 'enemy-town:')
   const townIdentities = new Map(identities)
-  for (const member of profile.personalSquad?.members ?? []) {
-    if (member.type === 'soldier') add(member.id, profile.faction, 2)
-    if (member.type === 'commander') add(member.id, profile.faction, 'commander')
-  }
+  for (const member of profile.personalSquad?.members ?? []) if (member.type === 'soldier') add(member.id, profile.faction, 2)
   const actor = (id: string, record: HealthRecord | undefined, identity = identities.get(id)) => {
-    if (!identity) return
-    if (identity.tier === 'commander') {
-      if (commanderMigration && identity.faction === 'viking') convert(record, 950, HERO_COMBAT_PROFILES['viking-commander'].maxHp)
-    } else if (ordinaryMigration) convert(record, COMBAT_BALANCE.hp.npcDefault, getOrdinarySoldierHp(identity.faction, identity.tier))
+    if (identity) convert(record, COMBAT_BALANCE.hp.npcDefault, getOrdinarySoldierHp(identity.faction, identity.tier))
   }
   const actors = (records: Record<string, HealthRecord> | undefined) => {
     for (const [id, record] of Object.entries(records ?? {})) actor(id, record)
@@ -161,15 +145,9 @@ export function migrateCareerHealth(profile: CareerProfile): void {
   player(profile.playerAerialState)
   player(profile.racePlayerState)
   player(profile.activeRace?.player)
-  if (profile.activeRace?.opponent.actorId === 'commander') {
-    actor('commander', profile.activeRace.opponent)
-    actor('commander', profile.activeRace.opponentHome)
-  }
   if (profile.activeRace && profile.activeRace.opponent.actorId === `race:${profile.activeRace.id}`)
-    if (ordinaryMigration) convert(profile.activeRace.opponent, COMBAT_BALANCE.hp.npcDefault, getOrdinarySoldierHp(profile.faction, 1))
+    convert(profile.activeRace.opponent, COMBAT_BALANCE.hp.npcDefault, getOrdinarySoldierHp(profile.faction, 1))
   player(profile.retirementRuntime?.player)
-  if (profile.townCommanderRecovery) actor('commander', profile.townCommanderRecovery,
-    { faction: profile.townCommanderRecovery.faction, tier: 'commander' })
   actors(profile.personalSquadRuntime?.members)
   const nativeActors = (records: Record<string, HealthRecord> | undefined, faction: Culture) => {
     for (const [id, record] of Object.entries(records ?? {})) {
@@ -181,9 +159,9 @@ export function migrateCareerHealth(profile: CareerProfile): void {
   nativeActors(profile.retirementTowerGuards, profile.faction)
   for (const faction of ['roman', 'viking'] as const) {
     // Rider HP is separate from the eagle mount checkpoint in both owners.
-    for (const pair of ordinaryMigration ? profile.enemyEaglePatrols?.[faction]?.pairs ?? [] : [])
+    for (const pair of profile.enemyEaglePatrols?.[faction]?.pairs ?? [])
       convert(pair.member, COMBAT_BALANCE.hp.npcDefault, getOrdinarySoldierHp(opposite(faction), 3))
-    for (const pair of ordinaryMigration ? profile.townEagleGarrisons?.[faction]?.pairs ?? [] : [])
+    for (const pair of profile.townEagleGarrisons?.[faction]?.pairs ?? [])
       convert(pair, COMBAT_BALANCE.hp.npcDefault, getOrdinarySoldierHp(faction, 3))
     outskirts(profile.townOutskirts?.[faction], faction)
     for (const squad of profile.townPatrols?.[faction]?.squads ?? []) {
@@ -203,14 +181,13 @@ export function migrateCareerHealth(profile: CareerProfile): void {
   actors(outpost?.officialSquad?.members)
   actors(outpost?.personalSquad?.members)
   if (mission) {
-    if (migratePlayer) {
+    if (ordinaryPlayer) {
       if (mission.playerHp !== undefined) { const saved = { hp: mission.playerHp, dead: mission.playerDead }; player(saved); mission.playerHp = saved.hp }
       if (mission.duelPlayerHp !== undefined) { const saved = { hp: mission.duelPlayerHp, dead: mission.playerDead }; player(saved); mission.duelPlayerHp = saved.hp }
     }
     if (mission.duelOpponentHp !== undefined && mission.duelOpponentActorId && mission.duelOpponentMaxHp === undefined) {
       const saved = { hp: mission.duelOpponentHp, dead: mission.duelOpponentDead }; actor(mission.duelOpponentActorId, saved); mission.duelOpponentHp = saved.hp
     }
-    if (mission.duelTier === 5 && mission.duelOpponentActorId) actor(mission.duelOpponentActorId, mission.duelCommanderHome)
     actors(mission.actorHealth)
     actors(mission.officialSquad?.members)
     actors(mission.patrolAmbient?.members)
@@ -224,5 +201,4 @@ export function migrateCareerHealth(profile: CareerProfile): void {
     }
   }
   profile.healthRulesVersion = 1
-  profile.commanderHealthVersion = 1
 }

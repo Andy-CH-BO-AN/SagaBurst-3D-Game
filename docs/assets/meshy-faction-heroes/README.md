@@ -120,23 +120,10 @@ claimed. The PR records current-head CI and any remaining gameplay validation.
 
 Viking T5 uses the existing 1.1m Viking hero first-person clearance, avoiding shoulder fur and draw-hand obstruction. Projectile direction and camera obstacle collision still use their existing owners.
 
-## Equipment names and Viking Commander balance
+## Equipment names
 
 T4/T5 display names come from the weapon and armour databases. The supplied files
 retain their original provenance filenames; the axe and Viking shield's in-game
 names are Warcat Clawreaver and Warcat Roarshield, describing their cat motifs.
 IDs, prices and item combat statistics are unchanged by the naming update.
 
-Viking Commander now has 900 base HP and takes ×0.8 damage. Player and NPC melee
-use optional profile overrides (×2.6 damage, ×1.7 speed), falling back to the
-existing general multipliers for every other hero. Ranged damage/speed remain
-×2.2/×1.55. The existing eligible unshielded foot berserker modifiers remain in
-their original owners, applied once.
-
-The independent `commanderHealthVersion: 1` receipt converts old Viking Commander
-checkpoint wounds from 950 to 900 once, including the player's skill HP bonus.
-The existing identity-aware health migration covers Town/personal soldiers,
-mission rosters, nested battle snapshots, races and Duel home recovery. Deaths
-remain zero; other heroes, ordinary units, mounts and gates are unaffected by
-this conversion. The receipt and converted state must be durably saved before
-the loader exposes them. Equipment renaming needs no save migration.

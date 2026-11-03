@@ -4,7 +4,6 @@ import { applyEquipmentAttachment } from '../world/EquipmentAttachmentContract'
 import { VIKING_PLAYER_SPAWN } from '../battle/BattleSpawner'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import { HERO_COMBAT_PROFILE_BY_ASSET, applyHeroIncomingDamage, applyHeroOutgoingDamage, getT4HeroCombatModifiers } from '../battle/T4HeroCatalog'
-import { heroMeleeAttackSpeed } from '../battle/HeroCombatProfile'
 /**
  * Player.ts
  * The player character (capsule geometry).
@@ -523,7 +522,7 @@ export class Player {
       return false
     }
     const action = this._meleeAction(equippedMelee)
-    if (this.animator.start(action, meleeActionTimeScale(action, equippedMelee, heroMeleeAttackSpeed(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)))) {
+    if (this.animator.start(action, meleeActionTimeScale(action, equippedMelee, getT4HeroCombatModifiers(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)?.attackSpeedMultiplier ?? 1))) {
       this.isSwinging = true
       this.attackHitProcessed = false
       this.hitEventPending = false

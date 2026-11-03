@@ -1,4 +1,4 @@
-import { HERO_COMBAT_PROFILE_BY_ASSET, applyHeroMeleeDamage } from '../battle/HeroCombatProfile'
+import { HERO_COMBAT_PROFILE_BY_ASSET, applyHeroOutgoingDamage } from '../battle/HeroCombatProfile'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { WeaponCombatKind } from '../rpg/WeaponDatabase'
@@ -27,7 +27,7 @@ export function calculatePlayerMeleeDamage(input: PlayerMeleeDamageInput): { dam
   const berserker = getBerserkerModifiers(input.faction, input.isMounted, input.combatKind, input.hasShield)
   const profile = input.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[input.heroAssetId] : null
   return {
-    damage: applyHeroMeleeDamage(Math.round(charge.damage * input.oneHandedMultiplier * berserker.meleeDamageMultiplier), profile),
+    damage: applyHeroOutgoingDamage(Math.round(charge.damage * input.oneHandedMultiplier * berserker.meleeDamageMultiplier), profile),
     isCharge: charge.skipImpact,
   }
 }

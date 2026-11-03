@@ -38,7 +38,7 @@ import type { CharacterRig, MountedPoseKind, CharacterFaction } from './Characte
 import { HumanoidAssetRegistry, disposeHumanoidInstanceSkeletons } from './HumanoidAssetRegistry'
 import type { HeroAssetId } from './HeroAssetCatalog'
 import { resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
-import { applyHeroIncomingDamage, applyHeroOutgoingDamage, applyHeroMeleeDamage, heroMeleeAttackSpeed, getHeroCombatModifiers, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
+import { applyHeroIncomingDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, type HeroCombatProfileId } from '../battle/HeroCombatProfile'
 import { AIM_RAYCAST_LAYER } from './AimTargetRegistry'
 
 let npcAimGeometry: THREE.CylinderGeometry | undefined
@@ -3308,14 +3308,14 @@ export class NPC {
             this.hasActiveShield,
           )
           if (!this.animator.busy && this.attackTimer <= 0) {
-            this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], heroMeleeAttackSpeed(this.combatProfileId)))
+            this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1))
             this.attackHitProcessed = false
           }
 
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
           if (import.meta.env.DEV && _collector) { _collector.endPhase('combatLogic', _tCombat!) }
           if (import.meta.env.DEV && _collector) { var _tAnimMelee = performance.now() }
-          const attackSpeed = heroMeleeAttackSpeed(this.combatProfileId)
+          const attackSpeed = getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1
           this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getWeaponTipPosition())
           const meleeEvents = this.animator.update(
             dt * berserker.meleeAttackRateMultiplier,
@@ -3329,7 +3329,7 @@ export class NPC {
             if (siegeObstacle) {
               if (this._isObstacleInMeleeRange(siegeObstacle, 0.4)) {
                 this.attackHitProcessed = true
-                const finalDamage = applyHeroMeleeDamage(
+                const finalDamage = applyHeroOutgoingDamage(
                   Math.round(this.meleeDamage * berserker.meleeDamageMultiplier),
                   this.combatProfileId,
                 )
@@ -4095,7 +4095,7 @@ export class NPC {
     const antiCav = getAntiCavalryMultiplier(combatKind, this.isMounted, targetIsMounted)
     dmg *= antiCav
 
-    return applyHeroMeleeDamage(Math.round(dmg), this.combatProfileId)
+    return applyHeroOutgoingDamage(Math.round(dmg), this.combatProfileId)
   }
 
   private _hasOutpostMeleeConnection(targetPos: THREE.Vector3, targetBodyBaseOffset = 0): boolean {
