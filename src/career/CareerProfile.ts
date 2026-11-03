@@ -1,3 +1,4 @@
+import { createCareerTutorialState, recordCareerTutorialPurchase, recordCareerTutorialMissionSettlement, recordCareerTutorialAppointment, claimCareerTutorialReward, recordCareerTutorialOperation, type CareerTutorialState } from './CareerTutorialState'
 import { careerShopProduct } from './CareerShopCatalog'
 import type { CareerRetirementRuntime, CareerRetirementState } from './CareerRetirementState'
 import { grantCommanderMelee } from './CareerCommanderEquipment'
@@ -74,7 +75,10 @@ export interface CareerProfile {
   version: 1
   /** One-time ordinary-soldier HP migration receipt, independent of equipment migrations. */
   healthRulesVersion?: 1
+  /** Viking Commander 950→900 health conversion, independent of ordinary HP rules. */
+  commanderHealthVersion?: 1
   faction: CharacterFaction
+  tutorial?: CareerTutorialState
 
   /** Lifetime earned merit. Never decreases; appointments use merit earned during this enlistment. */
   totalMerit: number
@@ -199,7 +203,9 @@ export function createCareerProfile(faction: CharacterFaction): CareerProfile {
   return {
     version: 1,
     healthRulesVersion: 1,
+    commanderHealthVersion: 1,
     faction,
+    tutorial: createCareerTutorialState(),
     totalMerit: 0,
     availableMerit: 0,
     rank: 'recruit',
@@ -283,6 +289,7 @@ export function claimCareerBattle(
   profile.availableMerit = availableMerit
   profile.rank = newRank
   profile.claimedBattleIds.push(battleId)
+  if (current.activeOutpostMission?.id === battleId) recordCareerTutorialMissionSettlement(profile, battleId)
   profile.lifetimeStats.battles += 1
   if (result.outcome === 'victory') profile.lifetimeStats.victories += 1
   if (!result.stats.player.survived) profile.lifetimeStats.deaths += 1
@@ -316,6 +323,21 @@ export function claimCareerMission(
     return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: true }
   }
 
+  if (active.duelTutorialCareerId) {
+    if (active.duelTutorialCareerId !== current.tutorial?.careerId || active.kind !== 'duel') {
+      return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: false }
+    }
+    const profile = cloneCareerProfile(current)
+    if (!profile.tutorial!.duelOutcome) profile.tutorial!.duelOutcome = outcome === 'victory' ? 'victory' : 'defeat'
+    const meritAwarded = claimCareerTutorialReward(profile, 'duel')
+    recordCareerTutorialOperation(profile, 'town', 'duel')
+    profile.claimedBattleIds.push(missionId)
+    profile.activeMission = { ...profile.activeMission!, phase: 'RESULT', result: {
+      outcome, stats: { ...stats }, merit: { damage: 0, kills: 0, contribution: meritAwarded, total: meritAwarded }, claimed: true,
+    } }
+    return { profile, meritAwarded, alreadyClaimed: false }
+  }
+
   const contribution = { ...meritStats, damageTaken: stats.damageTaken, survived: stats.survived }
   const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault' || active.kind === 'captain-eagle-battle'
     || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
@@ -329,6 +351,7 @@ export function claimCareerMission(
   profile.totalMerit += merit.total
   profile.availableMerit += merit.total
   profile.claimedBattleIds.push(missionId)
+  if (active.kind !== 'duel') recordCareerTutorialMissionSettlement(profile, missionId)
   profile.lifetimeStats.battles += 1
   if (outcome === 'victory') {
     profile.lifetimeStats.victories += 1
@@ -492,6 +515,7 @@ export function purchaseCareerContent(
   profile.availableMerit -= totalCost
   if (request.kind === 'hero') target.push(id)
   else { normalizeCareerInventory(profile); addCareerItem(profile, id, quantity) }
+  recordCareerTutorialPurchase(profile, request.kind, id)
 
   return {
     profile,
@@ -503,6 +527,7 @@ export function purchaseCareerContent(
 export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
   return {
     ...profile,
+    ...(profile.tutorial ? { tutorial: structuredClone(profile.tutorial) } : {}),
     ...(profile.retirementTowerGuards ? { retirementTowerGuards: structuredClone(profile.retirementTowerGuards) } : {}),
     ...(profile.retirementRuntime ? { retirementRuntime: structuredClone(profile.retirementRuntime) } : {}),
     ...(profile.careerRetirement ? { careerRetirement: { ...profile.careerRetirement, ...(profile.careerRetirement.mobilization ? { mobilization: { ...profile.careerRetirement.mobilization } } : {}) } } : {}),
@@ -622,6 +647,7 @@ export function promoteCareer(profile: CareerProfile): CareerProfile | null {
   const next = CAREER_RANKS[CAREER_RANKS.indexOf(profile.rank) + 1]
   if (!next || enlistmentMerit(profile) < CAREER_RANK_THRESHOLDS[next]) return null
   const promoted = { ...cloneCareerProfile(profile), rank: next }
+  recordCareerTutorialAppointment(promoted, next)
   grantCommanderMelee(promoted)
   return promoted
 }
