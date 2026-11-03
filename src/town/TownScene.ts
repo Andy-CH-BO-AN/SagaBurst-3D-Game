@@ -40,7 +40,7 @@ import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentConte
 import { officialCommandHudLabel } from '../career/CommanderTownSquadLabels'
 import { townDefaultActorLoadout } from '../career/CareerTownEquipmentState'
 import { townMerchantLoadout } from './TownMerchantEquipment'
-import { careerMountType } from '../career/CareerMountController'
+import { CAREER_MOUNT_INTERACTION_DISTANCE, careerMountType } from '../career/CareerMountController'
 import { personalMemberRefund, sellPersonalSquadMembers } from '../career/CareerPersonalSquad'
 import { appendTownSaleDropdown } from './TownSaleUI'
 import { sellTownNativeProducts, townNativeSaleGate, townNativeSaleStock, type TownNativeSaleContext, type TownNativeSaleRequest } from '../career/CareerTownNativeResale'
@@ -60,7 +60,7 @@ import { siegeMuster } from '../career/TownSiege'
 import { personalTownDeployment, personalTownEagleDeployment } from '../career/PersonalSquadDeployment'
 import { shouldSpawnTownCommander, townCommanderHeroAsset, resolveTownCommanderPosition, townCommanderSpec } from './TownCommander'
 import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
-import { townAssaultObjectiveRoster, townRoster, townName } from './TownRules'
+import { townAssaultObjectiveRoster, townRoster, townName, type TownActorSpec } from './TownRules'
 import { townDefenseForceCountsForProfile } from '../career/TownDefenseRoster'
 import { obstacleTopologyRevision } from '../world/ObstacleTopology'
 import { TownProjectileObstacles } from './TownProjectileObstacles'
@@ -721,6 +721,26 @@ export class TownScene {
     if (!this.spectator) this.orbit.update(this.input, 0.016, this.world?.obstacles ?? [])
     if (this.profile.activeMission?.result && this.profile.activeMission.phase !== 'RETURNING') this.openMissionResult(this.profile.activeMission.result, true)
   }
+  private residentCombatTargetAllowed(spec: TownActorSpec, npc: NPC, target: NPC | Player): boolean | 'defend' {
+    const active = this.defense?.active
+    const siege = active?.kind === 'town-defense' || active?.kind === 'commander-four-gate-defense' || active?.kind === 'enemy-town-assault'
+    if (this.retirementFinale?.active || this.event.hostile || this.duel?.isMissionActor(npc) || this.race?.owns(npc)
+      || npc.combatOwnership && (!siege || npc.combatOwnership !== 'mission-official')
+      || active?.officialSquad && officialCommandIsPlayerControlled(active.officialSquad, npc.combatantId)) return true
+    if (siege) {
+      if (target === this.player) return true
+      let roster = this.defenseTargetRosters.get(active!)
+      if (!roster) {
+        roster = new Set([...active!.targetActorIds, ...active!.friendlyActorIds, ...(active!.civilianActorIds ?? [])])
+        this.defenseTargetRosters.set(active!, roster)
+      }
+      if (target instanceof NPC && roster.has(target.combatantId)) return true
+    }
+    if (target instanceof NPC && this.missionCombat?.allowsFieldMissionCombatTarget(npc, target)) return true
+    const response = townDefenseThreatResponse(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc), this.navigation.townNav?.watchtower)
+    return response === 'pursue' ? true : response === 'defend' ? 'defend' : false
+  }
+
   private async initializeResidents(roster: ReturnType<typeof careerTownSceneRoster>,
     context: ReturnType<typeof resolveCareerTownSceneContext>, progress: (text: string) => void, additionalPopulation = false): Promise<void> {
     const created: Resident[] = []
@@ -756,24 +776,7 @@ export class TownScene {
         const loadout = careerEquipment?.loadout ?? (spec.role === 'merchant' ? townMerchantLoadout() : civilian || spec.role === 'commander' ? townDefaultActorLoadout(residentArmyFaction, spec) : ranger ? { meleeWeaponId: defaultRangerMeleeWeaponId(residentArmyFaction), rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, mountId: null, reversibleRangedSwitch: true } : military!.loadout)
         spec = townStationSpec(spec, Boolean(loadout.mountId), Boolean(loadout.rangedWeaponId))
         const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, ranger ? 'maki-archer-t4' : heroAsset, ranger ? 'ranger' : combatProfile, ranger ? 'maki-ranger' : undefined, civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined, undefined, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : military!.level))
-        if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => {
-          const active = this.defense?.active
-          const siege = active?.kind === 'town-defense' || active?.kind === 'commander-four-gate-defense' || active?.kind === 'enemy-town-assault'
-          if (this.retirementFinale?.active || this.event.hostile || this.duel?.isMissionActor(npc) || this.race?.owns(npc)
-            || npc.combatOwnership && (!siege || npc.combatOwnership !== 'mission-official')
-            || active?.officialSquad && officialCommandIsPlayerControlled(active.officialSquad, npc.combatantId)) return true
-          if (siege) {
-            if (target === this.player) return true
-            let roster = this.defenseTargetRosters.get(active!)
-            if (!roster) {
-              roster = new Set([...active!.targetActorIds, ...active!.friendlyActorIds, ...(active!.civilianActorIds ?? [])])
-              this.defenseTargetRosters.set(active!, roster)
-            }
-            if (target instanceof NPC && roster.has(target.combatantId)) return true
-          }
-          const response = townDefenseThreatResponse(spec, npc, target.combatPosition, townExternalThreatAlertRange(false, npc), this.navigation.townNav?.watchtower)
-          return response === 'pursue' ? true : response === 'defend' ? 'defend' : false
-        }
+        if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => this.residentCombatTargetAllowed(spec, npc, target)
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
         if (spec.y !== undefined) npc.group.position.y = spec.y
@@ -1862,7 +1865,7 @@ export class TownScene {
       details.textContent = template.kind === 'cavalry-sweep'
         ? `${template.briefing}\n2 支小隊 · 含玩家 60 人 · 玩家無指揮權`
         : template.kind === 'enemy-town-assault'
-        ? `${template.briefing}\n敵方 ${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')} · 軍事守軍 ${townAssaultObjectiveRoster(townRoster()).length} · 平民 ${TOWN_RULES.civilians} · 玩家無指揮權`
+        ? `${template.briefing}\n敵方 ${townName(this.profile.faction === 'roman' ? 'viking' : 'roman')} · 全體參戰守軍 ${townAssaultObjectiveRoster(townRoster()).length} · 平民 ${TOWN_RULES.civilians} · 玩家無指揮權`
         : template.kind === 'town-defense'
         ? `${template.briefing}\n所屬 ${townName(this.profile.faction)}\n玩家 1 · AI 守軍 ${defenseForce.friendlySoldiers} · 友軍總數 ${defenseForce.friendlyCombatants}\n敵軍 ${template.enemyCount} 人（T3 騎兵、4 名 T4 隊長） · 平民傷亡上限 ${template.maxCivilianDeaths} · 風險 ${template.risk}`
         : template.kind === 'patrol'
@@ -2171,7 +2174,10 @@ export class TownScene {
         mount.group.position.set(saved.mountPosition.x, saved.mountPosition.y, saved.mountPosition.z)
         mount.group.rotation.y = saved.mountPosition.yaw
         this.player.syncMountTransform()
-      } else this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
+      } else {
+        if (mount) this.player.dismountFromMount({ preserveWorldPosition: true })
+        this.player.setPosition(saved.position.x, saved.position.y, saved.position.z)
+      }
     }
     if (direct || dead) this.player.faceDirection(Math.sin(saved.position.yaw), Math.cos(saved.position.yaw))
     this.closePanel(); this.notice = '賽事已結束，已返回小鎮。'
@@ -2662,6 +2668,10 @@ export class TownScene {
   }
   private openMissionResult(result: CareerMissionResult, _reloaded: boolean): void {
     this.missionResultOpen = true
+    if (this.profile.activeMission?.kind === 'enemy-town-assault' && result.outcome === 'victory') {
+      if (this.defense instanceof TownDefenseController) this.defense.ceaseAssaultAirSupport()
+      this.clearMissionCombatShots()
+    }
     const complete = result.outcome === 'victory'
     const merit = result.merit
     const defenseText = result.defense ? `\n\nCivilians\nSurvived ${result.defense.civilianSurvived}\nDeaths ${result.defense.civilianDeaths}` : ''
@@ -3612,7 +3622,7 @@ export class TownScene {
     this.nearbyTemporaryMount = null
     const playerPosition = this.player.currentMount?.group.position ?? this.player.combatPosition
     if (!this.player.isMounted && !this.player.isFalling) {
-      let mountDistance = 3
+      let mountDistance = CAREER_MOUNT_INTERACTION_DISTANCE
       const mounts = new Set([this.careerMounts?.activeMount, ...this.temporaryMounts.all, ...(this.outskirts?.mounts ?? [])])
       for (const mount of mounts) {
         if (!mount?.availableForPlayer || mount.isAirborne || Math.abs(mount.group.position.y - playerPosition.y) > 3) continue
@@ -3907,7 +3917,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'cavalry-sweep'
         ? `\nCAVALRY SWEEP · 剩餘 Bandits ${this.mission.remainingEnemies}/40\n${this.profile.activeMission.phase === 'RETURNING' ? '跟隨部隊返回軍營' : this.profile.activeMission.templateId === CAPTAIN_CAVALRY_COMMAND_ID ? '率領騎兵前往 Bandits 所在位置 · 接近後下令衝鋒' : this.profile.activeMission.phase === 'ASSEMBLING' ? '前往軍營集合 · 與騎兵一起出城' : this.profile.activeMission.phase === 'MARCHING' ? '跟隨 Captain 出城 · 接近敵軍後一起衝鋒' : '衝鋒 · 穿過敵陣後拉開距離，再次衝鋒'}`
         : this.profile.activeMission.kind === 'enemy-town-assault'
-        ? `\nENEMY TOWN ASSAULT · ${this.defense.phase === 'PREPARING' ? '開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : '敵方軍事守軍 ' + this.defense.military.filter(npc => !npc.dead).length + '/' + this.defense.military.length}`
+        ? `\nENEMY TOWN ASSAULT${this.defense.phase === 'PREPARING' ? ' · 開戰倒數 ' + Math.ceil(this.defense.preparationRemaining) + ' 秒' : ''}\n剩餘地面守軍：${this.defense instanceof TownDefenseController ? this.defense.remainingAssaultGroundDefenders : '—'}`
         : this.profile.activeMission.kind === 'commander-sky-raid'
         ? `\nSKY RAID\nEnemy Town Kills: ${this.profile.activeMission.deadTargetActorIds?.length ?? 0} / 100\nFriendly Rangers: ${this.defense.defenders.filter(npc => !npc.dead).length} / 50 · Friendly Eagles: ${this.defense.enemyMounts.filter(mount => !mount.dead).length} / 50`
         : this.profile.activeMission.kind === 'commander-decapitation'
