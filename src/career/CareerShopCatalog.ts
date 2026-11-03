@@ -10,7 +10,11 @@ export const CAREER_SHOP_PRODUCTS: readonly Readonly<CareerShopProduct>[] = Obje
   ...Object.values(ARMORS).map(a => ({ id: a.id, category: 'armor' as const, name: a.name, tier: a.tier, price: a.tier * a.tier * 90 })),
   { id: 'horse', category: 'mount' as const, name: '軍用戰馬', tier: 1 as const, price: 200 },
   { id: 'black-cat', category: 'mount' as const, name: '黑貓英雄坐騎', tier: 4 as const, price: 4000 },
+  { id: 'white-cat', category: 'mount' as const, name: '白貓英雄坐騎', tier: 4 as const, price: 4000 },
+  { id: 'orange-cat', category: 'mount' as const, name: '橘貓英雄坐騎', tier: 4 as const, price: 4000 },
   { id: 'corgi', category: 'mount' as const, name: '柯基英雄坐騎', tier: 4 as const, price: 4000 },
+  { id: 'serval', category: 'mount' as const, name: '藪貓英雄坐騎', tier: 5 as const, price: 6000 },
+  { id: 'caracal', category: 'mount' as const, name: '獰貓英雄坐騎', tier: 5 as const, price: 6000 },
   { id: 'snow-leopard', category: 'mount' as const, name: '重甲雪豹', tier: 5 as const, price: 9000 },
   XONGKORO_PRODUCT,
 ].map(item => Object.freeze(item)))

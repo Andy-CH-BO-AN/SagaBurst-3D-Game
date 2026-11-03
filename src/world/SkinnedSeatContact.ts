@@ -52,8 +52,9 @@ export class SkinnedSeatContact {
     const center = mount.worldToLocal(seat.getWorldPosition(new THREE.Vector3()))
     const down = new THREE.Vector3(0, -1, 0).transformDirection(mount.matrixWorld)
     for (const x of [-.1, .1]) {
-      const origin = mount.localToWorld(new THREE.Vector3(x, center.y + .3, center.z - .03))
+      const origin = mount.localToWorld(new THREE.Vector3(center.x + x, center.y + .3, center.z - .03))
       const hit = new THREE.Raycaster(origin, down, 0, .6).intersectObject(saddle, false)[0]
+        ?? new THREE.Raycaster(mount.localToWorld(new THREE.Vector3(center.x + x * .5, center.y + .3, center.z)), down, 0, .6).intersectObject(saddle, false)[0]
       if (!hit?.face) throw new Error('Missing saddle bearing surface')
       const ids = [hit.face.a, hit.face.b, hit.face.c]
       const vertices = ids.map(id => saddle.getVertexPosition(id, new THREE.Vector3()))

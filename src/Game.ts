@@ -991,7 +991,7 @@ export class Game {
     this.activeRenderProbe = getActiveRenderProbe(query)
     const devModelsMode = this.isTrainingGround ? null : query.get('devmodels')
     this.isHumanoidStudio = devModelsMode === 'humans'
-    this.isMountStudio = devModelsMode === 'mounts' || devModelsMode === 'black-cat' || devModelsMode === 'corgi' || devModelsMode === 'snow-leopard'
+    this.isMountStudio = devModelsMode === 'mounts' || devModelsMode === 'black-cat' || devModelsMode === 'white-cat' || devModelsMode === 'orange-cat' || devModelsMode === 'serval' || devModelsMode === 'caracal' || devModelsMode === 'corgi' || devModelsMode === 'snow-leopard'
     this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
 
     // DEV-only: NPC subphase profiling (?npcsubphase=1 requires ?devcombat to be present)
@@ -1848,11 +1848,11 @@ export class Game {
     this.scene.add(grid)
 
     const model = new URLSearchParams(window.location.search).get('devmodels')
-    const isCat = model === 'black-cat'
+    const isCat = model === 'black-cat' || model === 'white-cat' || model === 'orange-cat' || model === 'serval' || model === 'caracal'
     const isCorgi = model === 'corgi'
     const isSnowLeopard = model === 'snow-leopard'
     const isProcedural = isCat || isCorgi || isSnowLeopard
-    const mount = new Mount(this.scene, isSnowLeopard ? MountType.SNOW_LEOPARD : isCat ? MountType.BLACK_CAT : isCorgi ? MountType.CORGI : DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
+    const mount = new Mount(this.scene, isSnowLeopard ? MountType.SNOW_LEOPARD : isCat ? mountTypeFromId(model) : isCorgi ? MountType.CORGI : DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
     const studioClips = isProcedural ? QUADRUPED_STUDIO_CLIPS : HORSE_STUDIO_CLIPS
     if (isProcedural) {
       this.camera.position.set(isCorgi ? 6.4 : 4.4, HUMANOID_STUDIO_FLOOR_Y + (isCorgi ? 2.8 : 2.6), isCorgi ? 6.8 : 4.0)
@@ -1973,6 +1973,10 @@ export class Game {
       toolbar.innerHTML = '<div style="margin-right:auto"><div style="letter-spacing:4px;font-size:11px;color:#b99a66">SAGABURST / MOUNTS</div><h1 style="font:28px Georgia,serif;margin:8px 0">月影旅者 · 黑貓坐騎</h1></div>'
       if (isCorgi) toolbar.querySelector('h1')!.textContent = '赤金衛士 · 柯基坐騎'
       if (isSnowLeopard) toolbar.querySelector('h1')!.textContent = '重甲雪豹 · T5 指揮官坐騎'
+      if (model === 'white-cat') toolbar.querySelector('h1')!.textContent = '白貓英雄坐騎 · T4 坐騎'
+      if (model === 'orange-cat') toolbar.querySelector('h1')!.textContent = '橘貓英雄坐騎 · T4 坐騎'
+      if (model === 'serval') toolbar.querySelector('h1')!.textContent = '藪貓英雄坐騎 · T5 大型坐騎'
+      if (model === 'caracal') toolbar.querySelector('h1')!.textContent = '獰貓英雄坐騎 · T5 大型坐騎'
       const poses: [string, number, number, number][] = isCorgi
         ? [['正面', 0, 1.4, 8], ['側面', -7.8, 1.4, 0], ['背面', 0, 1.4, -8], ['三分之四', -6.4, 2.8, 6.8]]
         : [['正面', 0, 2.1, 6], ['側面', 6, 2.0, 0], ['背面', 0, 2.2, -6], ['三分之四', 4.4, 2.6, 4]]
@@ -2011,7 +2015,7 @@ export class Game {
         const select = document.createElement('select')
         select.setAttribute('aria-label', isSnowLeopard ? '雪豹騎士' : isCorgi ? '柯基騎士' : '黑貓騎士')
         select.style.cssText = 'background:#282522;color:#e6d7bb;border:0;font:inherit;padding:4px'
-        for (const [value, label] of (isSnowLeopard ? [['viking-t2', '一般維京人'], ['viking-t5', 'T5 維京指揮官'], ['roman-t5', 'T5 羅馬指揮官']] : isCorgi ? [['roman-t2', '一般羅馬人'], ['roman-t4', 'T4 羅馬禁衛軍'], ['maki-t4', 'T4 遊俠 Shadow Warden']] : [['viking-t2', '一般維京人'], ['viking-t4', 'T4 維京英雄'], ['maki-t4', 'T4 遊俠 Shadow Warden']])) {
+        for (const [value, label] of (isSnowLeopard ? [['viking-t2', '一般維京人'], ['viking-t5', 'T5 維京指揮官'], ['roman-t5', 'T5 羅馬指揮官']] : isCorgi ? [['roman-t2', '一般羅馬人'], ['roman-t4', 'T4 羅馬禁衛軍'], ['maki-t4', 'T4 遊俠 Shadow Warden']] : [['viking-t2', '一般維京人'], ['viking-t4', 'T4 維京英雄'], ['maki-t4', 'T4 遊俠 Shadow Warden'], ['viking-t5', 'T5 維京指揮官'], ['roman-t5', 'T5 羅馬指揮官']])) {
           select.add(new Option(label, value))
         }
         const feedback = document.createElement('span')
@@ -2112,7 +2116,11 @@ export class Game {
         seat.y - this.mountStudioRiderPelvisHeight,
         seat.z,
       )
-      this.mountStudioSeatContacts.get(this.mountStudioRider)?.align()
+      if (this.mountStudioSeatContacts.has(this.mountStudioRider)) {
+        this.mountStudioSeatContacts.get(this.mountStudioRider)?.align()
+      } else {
+        this.mountStudioHorse.catVisual?.fitRider(this.mountStudioRider.root)
+      }
       this.mountStudioHorse.corgiVisual?.fitRider(this.mountStudioRider.root)
       this.mountStudioHorse.snowLeopardVisual?.fitRider(this.mountStudioRider.root)
     }

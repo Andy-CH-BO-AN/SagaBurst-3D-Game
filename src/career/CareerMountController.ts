@@ -16,7 +16,11 @@ export const CAREER_MOUNT_INTERACTION_DISTANCE = 3
 const MOUNTS: Readonly<Record<ReturnType<typeof canonicalCareerMountId>, Omit<EquipmentMountItem, 'active' | 'available'>>> = {
   horse: { id: 'horse', name: '軍用戰馬', tier: 1 },
   'black-cat': { id: 'black-cat', name: '黑貓英雄坐騎', tier: 4 },
+  'white-cat': { id: 'white-cat', name: '白貓英雄坐騎', tier: 4 },
+  'orange-cat': { id: 'orange-cat', name: '橘貓英雄坐騎', tier: 4 },
   corgi: { id: 'corgi', name: '柯基英雄坐騎', tier: 4 },
+  serval: { id: 'serval', name: '藪貓英雄坐騎', tier: 5 },
+  caracal: { id: 'caracal', name: '獰貓英雄坐騎', tier: 5 },
   'snow-leopard': { id: 'snow-leopard', name: '重甲雪豹', tier: 5 },
   xongkoro: { id: 'xongkoro', name: 'xongkoro · 巨鷹英雄坐騎', tier: 4 },
 }
@@ -24,7 +28,11 @@ const MOUNTS: Readonly<Record<ReturnType<typeof canonicalCareerMountId>, Omit<Eq
 export function ownedCareerMountIds(profile: Pick<CareerProfile, 'ownedMounts' | 'ownedHorseTiers'>): CareerMountId[] {
   const result: CareerMountId[] = ownsCareerHorse(profile) ? ['horse'] : []
   if (profile.ownedMounts.includes('black-cat')) result.push('black-cat')
+  if (profile.ownedMounts.includes('white-cat')) result.push('white-cat')
+  if (profile.ownedMounts.includes('orange-cat')) result.push('orange-cat')
   if (profile.ownedMounts.includes('corgi')) result.push('corgi')
+  if (profile.ownedMounts.includes('serval')) result.push('serval')
+  if (profile.ownedMounts.includes('caracal')) result.push('caracal')
   if (profile.ownedMounts.includes('snow-leopard')) result.push('snow-leopard')
   if (profile.ownedMounts.includes('xongkoro')) result.push('xongkoro')
   return result
@@ -32,6 +40,10 @@ export function ownedCareerMountIds(profile: Pick<CareerProfile, 'ownedMounts' |
 
 export function careerMountType(id: CareerMountId): MountType {
   if (id === 'black-cat') return MountType.BLACK_CAT
+  if (id === 'white-cat') return MountType.WHITE_CAT
+  if (id === 'orange-cat') return MountType.ORANGE_CAT
+  if (id === 'serval') return MountType.SERVAL
+  if (id === 'caracal') return MountType.CARACAL
   if (id === 'corgi') return MountType.CORGI
   if (id === 'snow-leopard') return MountType.SNOW_LEOPARD
   if (id === 'xongkoro') return MountType.XONGKORO

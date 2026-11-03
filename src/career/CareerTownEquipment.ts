@@ -34,7 +34,7 @@ export function townEquipmentSquads(profile: CareerProfile): TownEquipmentSquad[
     { id: 'civilian' as const, name: commanderTownSquadLabel('civilian')!, actorIds: [...Array.from({ length: 20 }, (_, i) => `civilian-${i}`), 'merchant'] }]
 }
 export function careerEquipmentCategory(itemId: string): BulkEquipmentCategory | undefined {
-  if (['horse', 'corgi', 'black-cat', 'snow-leopard'].includes(itemId)) return 'mount'
+  if (['horse', 'corgi', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'snow-leopard'].includes(itemId)) return 'mount'
   const item = WEAPONS[itemId]
   if (!item) return undefined
   if (item.type === 'ranged') return item.combatKind === 'bow' ? 'bow' : undefined
