@@ -1291,7 +1291,7 @@ export class TownScene {
           }
         })
       }
-      this.tutorial?.appendPanel(panel, id)
+      this.tutorial?.appendPanel(panel, id, this.tutorialBypass)
       if (id === 'commander') appendCommanderRetirementOption(panel, this.profile, {
         available: () => !this.player.dead && this.serviceAvailable('commander'),
         openPanel: (title, text) => this.openPanel(title, text),
@@ -1825,7 +1825,7 @@ export class TownScene {
     }
     const line = this.profile.tutorial?.town.step === 'weapon' ? '先去武器店挑一把趁手的武器，順著指標走就能找到店主。' : greeting
     const panel = this.openPanel('士官長', line)
-    this.tutorial?.appendPanel(panel, 'deployment')
+    this.tutorial?.appendPanel(panel, 'deployment', this.tutorialBypass)
     if (this.townCommand?.commandsEnabled) {
       this.button(panel, '城防部隊整補', () => this.openSquadRefitPanel())
     }

@@ -244,15 +244,7 @@ export class TownTutorialController {
     if (!t || !h.peaceful()) return false
     if (serviceId === 'deployment') {
       // Deferred (including legacy) tutorials never intercept the Sergeant; see appendPanel's resume buttons.
-      if (t.town.status === 'available' || t.town.status === 'active') {
-        const step = t.town.step
-        if (step === 'report' || step === 'duel-intro' || step === 'missions') return true
-        if (step === 'horse-intro') {
-          const affordable = h.profile().availableMerit >= careerShopProduct('horse')!.price
-          const hasHorse = hasCareerTutorialHorse(h.profile())
-          if (t.settledMissionIds.length >= 2 && (affordable || hasHorse)) return true
-        }
-      }
+      if ((t.town.status === 'available' || t.town.status === 'active') && this.townDialogueReady()) return true
       if (t.captain.status === 'available') return true
       if (t.commander.status === 'available') return true
       return false
@@ -267,6 +259,17 @@ export class TownTutorialController {
       return t.commander.status === 'available' || t.commander.status === 'deferred'
     }
     return false
+  }
+
+  /** True when the current Town step is one the Sergeant explains in person (and its conditions are met). */
+  private townDialogueReady(): boolean {
+    const h = this.host, t = h.profile().tutorial
+    if (!t) return false
+    const step = t.town.step
+    if (step === 'report' || step === 'duel-intro' || step === 'missions') return true
+    if (step !== 'horse-intro') return false
+    const affordable = h.profile().availableMerit >= careerShopProduct('horse')!.price
+    return t.settledMissionIds.length >= 2 && (affordable || hasCareerTutorialHorse(h.profile()))
   }
 
   private servicesButton(panel: HTMLElement, serviceId: string): void {
@@ -511,8 +514,9 @@ export class TownTutorialController {
     })
   }
 
-  appendPanel(panel: HTMLElement, serviceId: string): void {
-    if (this.hasDialogue(serviceId)) {
+  /** `bypass` is set while the player explicitly opened the regular service panel; tutorial dialogue must not clear it. */
+  appendPanel(panel: HTMLElement, serviceId: string, bypass = false): void {
+    if (!bypass && this.hasDialogue(serviceId)) {
       this.renderDialogue(panel, serviceId)
       return
     }
@@ -523,7 +527,16 @@ export class TownTutorialController {
         const next = this.host.openPanel?.('士官長', '')
         if (next) this.renderDialogue(next, 'deployment', stage)
       })
-      if (t.town.status === 'deferred' && ['report', 'duel-intro', 'missions', 'horse-intro'].includes(t.town.step)) resume('繼續新兵訓練', 'town')
+      if (t.town.status === 'deferred') {
+        if (this.townDialogueReady()) resume('繼續新兵訓練', 'town')
+        else {
+          // Navigation-only steps (or horse-intro before its conditions): reactivate in place, keeping step/operations.
+          const b = this.button(panel, '繼續新兵訓練', () => this.saveAndClose(b, panel, p => {
+            startCareerTutorial(p, 'town')
+            return p.tutorial?.town.status === 'active'
+          }))
+        }
+      }
       if (t.captain.status === 'deferred') resume('繼續 30 人指揮演練', 'captain')
       if (t.commander.status === 'deferred') resume('繼續指揮塔訓練', 'commander')
     }

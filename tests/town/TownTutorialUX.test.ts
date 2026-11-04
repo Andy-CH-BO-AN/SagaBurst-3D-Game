@@ -559,4 +559,46 @@ describe('TownTutorialUX', () => {
 
     ctrl.dispose()
   })
+
+  it('deferred navigation-only Town steps resume in place, and bypass keeps native service buttons', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+    t.town.status = 'deferred'
+    t.town.step = 'weapon'
+    t.town.operations = ['report']
+
+    const side = dialoguePanel()
+    ctrl.appendPanel(side.panel, 'deployment')
+    expect(side.buttons().map(b => b.textContent)).toEqual(['繼續新兵訓練', '回顧訓練'])
+    side.buttons()[0].onclick!()
+    const resumed = harness.getProfile().tutorial!.town
+    expect(harness.getClosedCount()).toBe(1)
+    expect([resumed.status, resumed.step, resumed.operations]).toEqual(['active', 'weapon', ['report']])
+    ctrl.update()
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toContain('前往武器店')
+
+    // horse-intro without the purchase prerequisites: resume shows the current goal, never an empty panel.
+    const later = harness.getProfile().tutorial!
+    later.town.status = 'deferred'; later.town.step = 'horse-intro'; later.settledMissionIds = ['m1']
+    const horse = dialoguePanel()
+    ctrl.appendPanel(horse.panel, 'deployment')
+    horse.buttons()[0].onclick!()
+    expect(harness.getProfile().tutorial!.town.status).toBe('active')
+    ctrl.update()
+    expect(dom.elements.find(el => el.id === 'career-tutorial-hint')!.textContent).toContain('完成正式戰鬥任務')
+
+    // Explicit regular-service open must not be cleared by tutorial dialogue (native appointment button stays).
+    harness.getProfile().tutorial!.town.status = 'active'
+    harness.getProfile().tutorial!.town.step = 'duel'
+    const captain = dialoguePanel()
+    ;(captain.panel as unknown as MockElement).append(Object.assign(new MockElement('button'), { textContent: '接受任命' }))
+    expect(ctrl.hasDialogue('captain')).toBe(true)
+    ctrl.appendPanel(captain.panel, 'captain', true)
+    expect(captain.buttons().map(b => b.textContent)).toEqual(['接受任命'])
+    ctrl.appendPanel(captain.panel, 'captain')
+    expect(captain.buttons().map(b => b.textContent)).not.toContain('接受任命')
+
+    ctrl.dispose()
+  })
 })
