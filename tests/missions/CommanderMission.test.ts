@@ -1,10 +1,10 @@
-import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult, recoverClaimedCareerBridgeBattle } from '../../src/career/CareerBridgeBattle'
+import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult, createCareerFelineBattleLaunch, isCareerFelineBattle, recoverClaimedCareerBridgeBattle, careerFelineHeroAssetIds, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, markFelineVanguardCharge, shouldTriggerFelineVanguardCharge } from '../../src/career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID, createBridgeheadRoster } from '../../src/career/CommanderMissionCatalog'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
-import { claimCareerMission, clearCareerMission, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
+import { claimCareerMission, clearCareerMission, cloneCareerProfile, createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
-import { acceptCommanderMission, availableCommanderMissions, COMMANDER_DECAPITATION_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_LAST_STAND_ID, COMMANDER_SKY_RAID_ID, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
+import { acceptCommanderMission, availableCommanderMissions, COMMANDER_DECAPITATION_ID, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FORMER_COMMANDER_SLOT, COMMANDER_LAST_STAND_ID, COMMANDER_SKY_RAID_ID, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_TOTAL, FELINE_FRIENDLY_SQUAD_SIZES, FELINE_T4_MOUNTS, FELINE_T5_MOUNTS, FELINE_VANGUARD_ADVANCE_METERS, recordCommanderObjectiveDeath } from '../../src/career/CommanderMissionCatalog'
 import { remainingCommanderAttackers } from '../../src/career/CommanderOutpost'
 import { CombatEventStream, type CombatActorRef, type CombatEvent } from '../../src/combat/CombatAttribution'
 import { CommanderTownMissionController } from '../../src/career/CommanderTownMissionController'
@@ -23,6 +23,8 @@ import { needsDecapitationDeployment, planDecapitationDeployment } from '../../s
 import { eagleLandingFootprint, isEagleLandingClear } from '../../src/world/EagleLanding'
 import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, advanceCommanderFourGateDefenseCombat, advanceCommanderFourGateDefensePreparation, createCommanderFourGateDefenseState } from '../../src/career/CommanderFourGateDefenseState'
 import { ActiveMissionClock } from '../../src/career/ActiveMissionClock'
+import { CareerMissionCheckpoint } from '../../src/career/CareerMissionCheckpoint'
+import type { CaptainEagleCheckpoint } from '../../src/career/CaptainEagleCheckpoint'
 
 function commander(faction: 'roman' | 'viking' = 'roman'): CareerProfile {
   const profile = createCareerProfile(faction)
@@ -69,7 +71,7 @@ describe('Commander mission board policy', () => {
     expect(claimCareerMission(first.profile, missionId, 'victory', { ...stats, damageDealt: 999 }).alreadyClaimed).toBe(true)
 
     const returned = clearCareerMission(first.profile, missionId)
-    expect(availableCommanderMissions(returned)).toHaveLength(5)
+    expect(availableCommanderMissions(returned)).toHaveLength(6)
   })
 
   it('holds the full preparation time until native deployment is ready and records spawn intent once before creating enemies', () => {
@@ -541,6 +543,214 @@ describe('Bridgehead official field battle', () => {
       return store.save(loaded)
     })).toBe(true)
     expect(store.load()!.activeMission!.bridgeDeployment).toEqual({ phase: 'assault', preparationRemainingSeconds: 0 })
+  })
+})
+
+describe('Commander VI Six Feline Cavalry', () => {
+  const effectiveDamage = (targetId: string, appliedDamage = 25): CombatEvent => ({
+    type: 'damage_applied',
+    source: source(),
+    target: { targetId, targetType: 'npc', name: targetId, allegiance: Faction.ENEMY, characterFaction: 'viking' },
+    method: 'projectile',
+    requestedDamage: appliedDamage,
+    appliedDamage,
+  })
+
+  it('derives the exact 200-vs-300 roster from production formation slots and keeps all six feline mounts commandable', () => {
+    const profile = accepted(COMMANDER_FELINE_CAVALRY_ID), mission = profile.activeMission!
+    profile.ownedMounts.push('serval')
+    profile.selectedMountId = 'serval'
+    const launch = createCareerFelineBattleLaunch(profile)
+    expect(isCareerFelineBattle(mission)).toBe(true)
+    expect(launch).toMatchObject({ type: 'career-feline-battle', careerMissionId: mission.id,
+      battle: { careerFelineMissionId: mission.id, playerFaction: profile.faction,
+        playerLoadout: { mountId: profile.selectedMountId } } })
+    const plan = createCareerFelineSpawnPlan(profile)
+    const friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
+    const enemy = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
+    const preloadedHeroes = new Set(careerFelineHeroAssetIds(profile))
+    expect(plan.npcSpecs.every(spec => !spec.visualAssetId || preloadedHeroes.has(spec.visualAssetId))).toBe(true)
+
+    expect(friendly).toHaveLength(FELINE_FRIENDLY_TOTAL)
+    expect(enemy).toHaveLength(FELINE_ENEMY_TOTAL)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':melee:'))).toHaveLength(60)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':lancer:'))).toHaveLength(60)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':horse_archer:'))).toHaveLength(60)
+    expect(friendly.filter(spec => spec.characterTier === 5 && spec.actorId?.includes(':lancer:'))).toHaveLength(20)
+    expect(enemy.filter(spec => spec.characterTier === 4)).toHaveLength(210)
+    expect(enemy.filter(spec => spec.characterTier === 5)).toHaveLength(90)
+    for (const role of ['melee', 'lancer', 'horse_archer']) {
+      expect(enemy.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(`:${role}:`))).toHaveLength(70)
+      expect(enemy.filter(spec => spec.characterTier === 5 && spec.actorId?.includes(`:${role}:`))).toHaveLength(30)
+    }
+
+    const friendlyMounts = friendly.map(spec => spec.loadout?.mountId)
+    for (const mount of [...FELINE_T4_MOUNTS, ...FELINE_T5_MOUNTS]) expect(friendlyMounts).toContain(mount)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.mountId === 'black-cat')).toHaveLength(60)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.mountId === 'white-cat')).toHaveLength(60)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.mountId === 'orange-cat')).toHaveLength(60)
+    expect(enemy.every(spec => spec.loadout?.mountId === 'horse')).toBe(true)
+
+    // Formation is made of physically separate units rather than two cavalry wings.
+    const center = (specs: typeof friendly) => ({
+      x: specs.reduce((sum, spec) => sum + spec.x, 0) / specs.length,
+      z: specs.reduce((sum, spec) => sum + spec.z, 0) / specs.length,
+    })
+    const verifySeparatedBlocks = (blocks: (typeof friendly)[]) => {
+      const centers = blocks.map(center)
+      for (let i = 0; i < blocks.length; i++) {
+        const xs = blocks[i].map(spec => spec.x), zs = blocks[i].map(spec => spec.z)
+        expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(20)
+        expect(Math.max(...zs) - Math.min(...zs)).toBeLessThan(21)
+        for (let j = i + 1; j < blocks.length; j++) {
+          expect(Math.hypot(centers[i].x - centers[j].x, centers[i].z - centers[j].z)).toBeGreaterThan(20)
+        }
+      }
+    }
+    const friendlyBlocks = mission.officialSquad!.squads!.map(squad =>
+      friendly.filter(spec => squad.actorIds.includes(spec.actorId!)))
+    expect(friendlyBlocks.map(block => block.length)).toEqual([...FELINE_FRIENDLY_SQUAD_SIZES])
+    verifySeparatedBlocks(friendlyBlocks)
+    const enemyBlocks = Array.from({ length: FELINE_ENEMY_TOTAL / 30 }, (_, i) =>
+      enemy.slice(i * 30, (i + 1) * 30).filter(spec => spec.actorId !== mission.commanderMission!.felineVanguardActorId))
+    expect(enemyBlocks).toHaveLength(10)
+    verifySeparatedBlocks(enemyBlocks)
+    const playerPoint = plan.playerSpawn
+    expect(Math.min(...friendly.map(spec => Math.hypot(spec.x - playerPoint.x, spec.z - playerPoint.z)))).toBeGreaterThan(2)
+    expect(createCareerFelineSpawnPlan(profile).npcSpecs.map(spec => [spec.actorId, spec.x, spec.z]))
+      .toEqual(plan.npcSpecs.map(spec => [spec.actorId, spec.x, spec.z]))
+
+    const vanguardId = mission.commanderMission!.felineVanguardActorId!
+    const vanguard = enemy.filter(spec => spec.actorId === vanguardId)
+    expect(vanguard).toHaveLength(1)
+    expect(vanguard[0]).toMatchObject({ characterTier: 5, presetId: 'viking_lancer' })
+    expect(mission.targetActorIds).toContain(vanguardId)
+    const enemyMain = enemy.filter(spec => spec.actorId !== vanguardId)
+    const mainFrontAbsZ = Math.min(...enemyMain.map(spec => Math.abs(spec.z)))
+    expect(mainFrontAbsZ - Math.abs(vanguard[0].z)).toBeCloseTo(FELINE_VANGUARD_ADVANCE_METERS, 5)
+    expect(vanguard[0].x).toBeCloseTo(enemyMain.reduce((sum, spec) => sum + spec.x, 0) / enemyMain.length, 2)
+    expect(new Set(plan.npcSpecs.map(spec => spec.actorId)).size).toBe(FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
+    expect(mission.officialSquad?.commandedSquadIds).toEqual([1, 2, 3, 4, 5, 6, 7])
+    expect(mission.officialSquad?.actorIds).toEqual(mission.friendlyActorIds)
+    for (const squad of mission.officialSquad!.squads!) {
+      const combatantId = squad.actorIds[0]
+      expect(officialCommandAcceptsActor(mission.officialSquad!, {
+        combatantId, squadId: officialActorSquadId(mission.officialSquad!, combatantId),
+        faction: Faction.PLAYER, combatOwnership: 'mission-official', dead: false,
+      })).toBe(true)
+    }
+    expect(felineInitialTacticalOrder(Faction.PLAYER, false)).toBe('defend')
+    expect(felineInitialTacticalOrder(Faction.ENEMY, false)).toBe('attack')
+    expect(felineInitialTacticalOrder(Faction.ENEMY, true)).toBe('charge')
+
+    const withPrivateRoster = accepted(COMMANDER_FELINE_CAVALRY_ID, 'roman', true)
+    expect(withPrivateRoster.personalSquad?.members).toHaveLength(1)
+    expect(withPrivateRoster.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+    expect(withPrivateRoster.activeMission?.officialSquad?.actorIds).toHaveLength(FELINE_FRIENDLY_TOTAL)
+    const privateStore = new CareerProfileStore(new MemoryStorage())
+    expect(privateStore.save(withPrivateRoster)).toBe(true)
+    expect(privateStore.load()!.activeMission?.personalSquad?.memberIds).toEqual(['personal:hr-1'])
+    expect(createCareerFelineSpawnPlan(withPrivateRoster).npcSpecs).toHaveLength(FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
+  })
+
+  it('dispatches the lethal-hit charge despite rejected storage, then saves the pending mark without replaying audio', () => {
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    const profile = accepted(COMMANDER_FELINE_CAVALRY_ID)
+    expect(store.save(profile)).toBe(true)
+    const live = cloneCareerProfile(profile), id = live.activeMission!.commanderMission!.felineVanguardActorId!
+    const issue = vi.fn()
+    storage.failWrites = true
+    expect(dispatchFelineVanguardCharge(live.activeMission!, effectiveDamage(id, 9999), issue)).toBe(true)
+    expect(issue).toHaveBeenCalledOnce()
+    expect(store.save(live)).toBe(false)
+    expect(store.load()!.activeMission?.commanderMission?.felineChargeTriggered).toBe(false)
+    expect(dispatchFelineVanguardCharge(live.activeMission!, effectiveDamage(id, 20), issue)).toBe(false)
+    const checkpoint = new CareerMissionCheckpoint(() => store.load()!, next => store.save(next))
+    expect(checkpoint.persist(() => live.activeMission!, { immediate: true })).toBe(false)
+    storage.failWrites = false
+    expect(checkpoint.persist(() => live.activeMission!, { immediate: true })).toBe(true)
+    const restored = store.load()!.activeMission!
+    expect(restored.commanderMission?.felineChargeTriggered).toBe(true)
+    expect(dispatchFelineVanguardCharge(restored, effectiveDamage(id, 20), issue)).toBe(false)
+    expect(issue).toHaveBeenCalledOnce()
+  })
+
+  it('persists orphaned official White Cat and enemy vanguard Horse mounts and a borrowed player mount', () => {
+    const profile = accepted(COMMANDER_FELINE_CAVALRY_ID), mission = profile.activeMission!
+    const specs = createCareerFelineSpawnPlan(profile).npcSpecs
+    const white = specs.find(spec => spec.faction === Faction.PLAYER && spec.loadout?.mountId === 'white-cat')!
+    const vanguardId = mission.commanderMission!.felineVanguardActorId!
+    const vanguard = specs.find(spec => spec.actorId === vanguardId)!
+    const cat = { hp: 74, mounted: false, position: { x: white.x + 2, y: 3, z: white.z + 1, yaw: .4 } }
+    const horse = { hp: 65, mounted: false, position: { x: vanguard.x - 4, y: 2, z: vanguard.z, yaw: 1.4 } }
+    const stats = { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }
+    const actors: CaptainEagleCheckpoint['actors'] = Object.fromEntries(
+      [...mission.friendlyActorIds, ...mission.targetActorIds].map(id => [id, { status: 'reserve' as const }]))
+    actors[white.actorId!] = { status: 'dead', hp: 0, mount: cat }
+    actors[vanguardId] = { status: 'dead', hp: 0, mount: horse }
+    mission.felineBattle = { ready: true, actors, playerStats: stats, player: {
+      hp: 99, stamina: 81, dead: false,
+      position: { x: white.x + 2, y: 4, z: white.z + 1, yaw: 1.2 }, ammo: 16, shieldImpact: 12,
+      mountActorId: white.actorId!, mountHp: cat.hp, mount: { ...cat, mounted: true },
+      homeMount: { hp: 220, mounted: false, position: { x: 0, y: 1, z: -145, yaw: 0 } },
+    } }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const restored = store.load()!, field = restored.activeMission!.felineBattle!
+    expect(field.player).toMatchObject({ mountActorId: white.actorId, mountHp: 74,
+      mount: { hp: 74, mounted: true, position: cat.position }, homeMount: { hp: 220 } })
+    expect(field.actors[white.actorId!]).toMatchObject({ status: 'dead', mount: cat })
+    expect(field.actors[vanguardId]).toMatchObject({ status: 'dead', mount: horse })
+    const orphans = createCareerFelineOrphanMountPlan(restored)
+    expect(orphans).toHaveLength(2)
+    expect(orphans.find(item => item.actorId === white.actorId)).toMatchObject({
+      mountId: 'white-cat', stableKey: white.actorId, saved: cat })
+    expect(orphans.find(item => item.actorId === vanguardId)).toMatchObject({
+      mountId: 'horse', stableKey: vanguardId, saved: horse })
+    field.player.mountActorId = undefined
+    field.player.mount = { ...cat, mounted: false }
+    expect(store.save(restored)).toBe(true)
+    expect(store.load()!.activeMission!.felineBattle!.player.mount?.mounted).toBe(false)
+    expect(createCareerFelineOrphanMountPlan(store.load()!)).toHaveLength(2)
+  })
+
+  it('charges once only on effective vanguard damage and preserves vanguard/charge state through save-load without audio-side replay state', () => {
+    const profile = accepted(COMMANDER_FELINE_CAVALRY_ID), mission = profile.activeMission!
+    const vanguardId = mission.commanderMission!.felineVanguardActorId!
+    const otherEnemy = mission.targetActorIds.find(id => id !== vanguardId)!
+
+    expect(shouldTriggerFelineVanguardCharge(mission, effectiveDamage(otherEnemy))).toBe(false)
+    expect(shouldTriggerFelineVanguardCharge(mission, effectiveDamage(vanguardId, 0))).toBe(false)
+    const lethal = effectiveDamage(vanguardId, 9_999)
+    expect(shouldTriggerFelineVanguardCharge(mission, lethal)).toBe(true)
+    expect(markFelineVanguardCharge(mission, lethal)).toBe(true)
+    expect(mission.commanderMission!.felineChargeTriggered).toBe(true)
+    expect(markFelineVanguardCharge(mission, effectiveDamage(vanguardId, 1))).toBe(false)
+
+    const zeroStats = { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }
+    mission.felineBattle = {
+      ready: true,
+      player: { hp: 100, stamina: 100, dead: false, position: { x: 0, z: -150, yaw: 0 }, ammo: 20, shieldImpact: 0 },
+      playerStats: zeroStats,
+      actors: Object.fromEntries([...mission.friendlyActorIds, ...mission.targetActorIds].map(id => [id, { status: 'reserve' }])),
+    }
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const loaded = store.load()!, restored = loaded.activeMission!
+    expect(restored.commanderMission?.felineVanguardActorId).toBe(vanguardId)
+    expect(restored.commanderMission?.felineChargeTriggered).toBe(true)
+    expect(restored.felineBattle?.ready).toBe(true)
+    expect(Object.keys(restored.felineBattle!.actors)).toHaveLength(FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
+    expect(createCareerFelineSpawnPlan(loaded).npcSpecs).toHaveLength(FELINE_FRIENDLY_TOTAL + FELINE_ENEMY_TOTAL)
+    expect(felineInitialTacticalOrder(Faction.ENEMY, restored.commanderMission?.felineChargeTriggered === true)).toBe('charge')
+    expect(shouldTriggerFelineVanguardCharge(restored, effectiveDamage(vanguardId, 50))).toBe(false)
+
+    const victoryStats = { ...zeroStats, survived: true }
+    const victory = claimCareerMission(loaded, restored.id, 'victory', victoryStats)
+    expect(victory.profile.activeMission?.result?.outcome).toBe('victory')
+    expect(clearCareerMission(victory.profile, restored.id).activeMission).toBeUndefined()
+    const failure = claimCareerMission(loaded, restored.id, 'failure', { ...zeroStats, survived: false })
+    expect(failure.profile.activeMission?.result?.outcome).toBe('failure')
   })
 })
 

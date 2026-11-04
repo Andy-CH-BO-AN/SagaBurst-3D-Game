@@ -1,6 +1,6 @@
 import { stageMissionReturnRebuild } from '../career/CareerMissionReturnRecovery'
 import { townRoster } from './TownRules'
-import { createCareerBridgeBattleLaunch, isCareerBridgeBattle } from '../career/CareerBridgeBattle'
+import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch, isCareerBridgeBattle, isCareerFelineBattle } from '../career/CareerBridgeBattle'
 import { installTownStyles } from './TownUI'
 import { FactionSelectionUI } from './FactionSelectionUI'
 import type { CareerProfile } from '../career/CareerProfile'
@@ -81,6 +81,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
       ? () => createCaptainFrontlineLaunch(profile)
       : active?.templateId === CAPTAIN_EAGLE_BATTLE_ID && active.kind === 'captain-eagle-battle' ? () => createCaptainEagleLaunch(profile)
       : isCareerBridgeBattle(active) ? () => createCareerBridgeBattleLaunch(profile)
+      : isCareerFelineBattle(active) ? () => createCareerFelineBattleLaunch(profile)
       : active?.templateId === COMMANDER_LAST_STAND_ID && active.kind === 'commander-outpost-last-stand' ? () => createCareerCommanderOutpostLaunch(profile) : null
     if (active && captainLaunch) {
       if (profile.claimedBattleIds.includes(active.id)) {

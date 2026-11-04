@@ -14,8 +14,8 @@ import { CareerRaceController } from '../career/CareerRaceController'
 import { MOUNTED_RACES, raceDefinitionForSchedule, raceStageOpponentLabel, type RaceId } from '../career/CareerRaceState'
 import { RACE_LINES } from '../career/CareerRaceRoute'
 import { CareerCommandHudTypes } from '../career/CareerCommandHudTypes'
-import { createCareerBridgeBattleLaunch } from '../career/CareerBridgeBattle'
-import { COMMANDER_BRIDGEHEAD_ID } from '../career/CommanderMissionCatalog'
+import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch } from '../career/CareerBridgeBattle'
+import { COMMANDER_BRIDGEHEAD_ID, COMMANDER_FELINE_CAVALRY_ID } from '../career/CommanderMissionCatalog'
 import { equipmentSections, EQUIPMENT_CATEGORIES, type EquipmentCategory } from '../rpg/EquipmentCatalog'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
@@ -1999,6 +1999,7 @@ export class TownScene {
           ? '正式兵力：玩家 1 人 + 前任 T5 Commander + 10 T4 Lancer + 10 T4 Sword/Axe Cavalry + 9 T4 Horse Archer（全員騎乘）；敵方：敵城全體，斬首目標為 T5 Commander 1 人。'
           : definition.id === 'commander-four-gate-defense' ? '守衛所屬城鎮：原生八隊城防部隊與最多30名 HR 私兵。敵軍230人、八台攻城車、30隻巨鷹；守方準備180秒後，敵軍才從邊境抵達，四門同時進攻。'
           : definition.id === COMMANDER_BRIDGEHEAD_ID ? '正式兵力：玩家1人 + 八隊各25名步兵；敵方八隊各25名騎兵。雙方各192 T3 + 8 T4。現有 HR 私兵最多額外30人，沿用原裝備與坐騎。'
+          : definition.id === COMMANDER_FELINE_CAVALRY_ID ? '正式兵力：玩家1人 + 200名六貓騎兵（T4 180 + T5 20）；敵軍300名戰馬騎兵（T4 210 + T5 90）。可額外攜帶最多30名HR私兵，保留自有裝備與坐騎。'
           : '正式兵力：玩家 1 人 + 4 支 30 人步兵隊；敵軍：48 T3 + 2 T4 Lancer、24 T3 + 1 T4 Sword/Axe Cavalry、24 T3 + 1 T4 Horse Archer。60 秒部署。'
       const survival = '玩家戰死後可觀戰；官方部隊或已部署私兵存活時戰鬥繼續。'
       details.textContent = `${definition.briefing}\n${force}\n${survival}`
@@ -2019,6 +2020,10 @@ export class TownScene {
     if (!next || !this.commit(next)) { this.openPanel('任務保存失敗', '任務尚未開始，請重試。'); return }
     if (templateId === COMMANDER_BRIDGEHEAD_ID) {
       const launch = createCareerBridgeBattleLaunch(this.profile)
+      this.dispose(true); this.onCampaign(launch); return
+    }
+    if (templateId === COMMANDER_FELINE_CAVALRY_ID) {
+      const launch = createCareerFelineBattleLaunch(this.profile)
       this.dispose(true); this.onCampaign(launch); return
     }
     if (templateId === COMMANDER_LAST_STAND_ID) {

@@ -1,7 +1,22 @@
 import { BRIDGEHEAD_FRIENDLIES, isBridgeheadEnemyCount } from '../battle/BridgeheadRosterConfig'
-import type { BattleConfig } from '../battle/BattleConfig'
-import type { BattleSpawnPlan } from '../battle/BattleSpawner'
-import { COMMANDER_BRIDGEHEAD_ID, createBridgeheadRoster } from './CommanderMissionCatalog'
+import { createEmptyRomanArmyConfig, createEmptyVikingArmyConfig, type BattleConfig, type RomanArmyConfig, type VikingArmyConfig } from '../battle/BattleConfig'
+import { BATTLE_FRONTLINE_Z, BattleSpawner, type BattleSpawnPlan, type NpcSpawnSpec } from '../battle/BattleSpawner'
+import { MAX_COMMAND_SQUAD_SIZE } from '../battle/CommandTarget'
+import {
+  COMMANDER_BRIDGEHEAD_ID,
+  COMMANDER_FELINE_CAVALRY_ID,
+  COMMANDER_FELINE_CAVALRY_KIND,
+  FELINE_ENEMY_GROUPS,
+  FELINE_ENEMY_TOTAL,
+  FELINE_FRIENDLY_GROUPS,
+  FELINE_FRIENDLY_TOTAL,
+  FELINE_FRIENDLY_SQUAD_SIZES,
+  FELINE_T4_MOUNTS,
+  FELINE_T5_MOUNTS,
+  FELINE_VANGUARD_ADVANCE_METERS,
+  createBridgeheadRoster,
+  type FelineCavalryRole,
+} from './CommanderMissionCatalog'
 import { careerCombatPlayerLoadout } from './CaptainBattleLaunch'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import { claimCareerMission, clearCareerMission, type CareerProfile } from './CareerProfile'
@@ -12,6 +27,15 @@ import { commanderActorConfirmedDead } from './CommanderOutpost'
 import { stageMissionReturnRebuild } from './CareerMissionReturnRecovery'
 import { townRoster } from '../town/TownRules'
 import { legacyPersonalEquipment } from './CareerInventory'
+import { AIType, Faction } from '../world/NPC'
+import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from '../battle/T4HeroCatalog'
+import { HERO_COMBAT_PROFILE_BY_ASSET } from '../battle/HeroCombatProfile'
+import type { HeroAssetId } from '../world/HeroAssetCatalog'
+import type { UnitLoadout, UnitPresetId } from '../battle/UnitPresetCatalog'
+import type { CombatEvent } from '../combat/CombatAttribution'
+import type { TacticalOrder } from '../battle/TacticalOrder'
+import { careerCommanderLoadout } from './CareerCommanderEquipment'
+import { townCommanderHeroAsset } from '../town/TownCommander'
 
 /** A trusted Career launch, separate from Campaign stages and untrusted free battle config. */
 export interface CareerBridgeBattleLaunch {
@@ -20,8 +44,12 @@ export interface CareerBridgeBattleLaunch {
   battle: BattleConfig
 }
 
+function careerFieldMissionMatches(mission: ActiveCareerMission | undefined, templateId: string, kind: ActiveCareerMission['kind']): boolean {
+  return mission?.templateId === templateId && mission.kind === kind
+}
+
 export function isCareerBridgeBattle(mission: ActiveCareerMission | undefined): boolean {
-  return mission?.templateId === COMMANDER_BRIDGEHEAD_ID && mission.kind === 'commander-bridgehead-battle'
+  return careerFieldMissionMatches(mission, COMMANDER_BRIDGEHEAD_ID, 'commander-bridgehead-battle')
 }
 
 /** Only a durably claimed mission can leave the battlefield on reload. */
@@ -85,14 +113,38 @@ export function createCareerBridgeOrphanMountPlan(profile: CareerProfile) {
     return actor?.mount && actor.mount.hp > 0 && (commanderActorConfirmedDead(mission, spec.actorId!) || actor.status === 'dead' || actor.hp === 0)
       ? [{ actorId: spec.actorId!, mountId: spec.loadout!.mountId!, stableKey: spec.actorId!, saved: actor.mount }] : []
   })
-  const personal = (profile.personalSquad?.members ?? []).flatMap(member => {
+  return [...enemy, ...createCareerFieldPersonalOrphanMountPlan(profile)]
+}
+
+/** Personal mounts outlive fallen riders in either Commander field mission. */
+export function createCareerFieldPersonalOrphanMountPlan(profile: CareerProfile) {
+  const mission = profile.activeMission
+  if (!mission) return []
+  return (profile.personalSquad?.members ?? []).flatMap(member => {
     if (!mission.personalSquad?.memberIds.includes(member.id)) return []
     const actor = mission.personalSquad.members[member.id]
     const mountId = (member.equipment ?? legacyPersonalEquipment(member.type, profile.faction)).mount
     return mountId && actor?.status === 'dead' && actor.mount && actor.mount.hp > 0
       ? [{ actorId: member.id, mountId, stableKey: `personal:${member.id}`, saved: actor.mount }] : []
   })
-  return [...enemy, ...personal]
+}
+
+/** Restore surviving orphan mounts from both Commander VI armies, without respawning
+ * their deceased riders. The personal squad remains a separately owned roster. */
+export function createCareerFelineOrphanMountPlan(profile: CareerProfile) {
+  const mission = profile.activeMission
+  if (!isCareerFelineBattle(mission) || !mission.felineBattle) return createCareerFieldPersonalOrphanMountPlan(profile)
+  const riders = createCareerFelineSpawnPlan(profile).npcSpecs.flatMap(spec => {
+    const actorId = spec.actorId!
+    const official = mission.officialSquad?.members?.[actorId]
+    const field = mission.felineBattle?.actors[actorId]
+    const actor = official?.status !== 'reserve' ? official ?? field : field ?? official
+    const mount = actor?.mount ?? field?.mount ?? official?.mount
+    const dead = actor?.status === 'dead' || actor?.hp === 0 || commanderActorConfirmedDead(mission, actorId)
+    if (!dead || !mount || mount.hp <= 0 || !spec.loadout?.mountId) return []
+    return [{ actorId, mountId: spec.loadout.mountId, stableKey: actorId, saved: mount }]
+  })
+  return [...riders, ...createCareerFieldPersonalOrphanMountPlan(profile)]
 }
 
 /** Stable objective accounting. Missing/queued actors remain alive; mount IDs never enter these sets. */
@@ -181,4 +233,254 @@ export function commitCareerBridgeBattleResult(store: Pick<CareerProfileStore, '
   if (!outcome) return null
   const claim = claimCareerMission(profile, missionId, outcome, stats.player, stats.meritPlayer)
   return store.save(claim.profile) ? claim : null
+}
+
+
+/** Trusted Commander VI launch using the existing open formation battlefield. */
+export interface CareerFelineBattleLaunch {
+  type: 'career-feline-battle'
+  careerMissionId: string
+  battle: BattleConfig
+}
+
+function felineRolePreset(faction: CareerProfile['faction'], role: FelineCavalryRole): UnitPresetId {
+  return `${faction}_${role === 'melee' ? 'sword_cavalry' : role}` as UnitPresetId
+}
+
+function felineFormationRoleCount(groups: readonly { role: FelineCavalryRole; count: number }[], role: FelineCavalryRole): number {
+  return groups.filter(group => group.role === role).reduce((sum, group) => sum + group.count, 0)
+}
+
+function setFelineFormationCount(
+  roman: RomanArmyConfig,
+  viking: VikingArmyConfig,
+  faction: CareerProfile['faction'],
+  role: FelineCavalryRole,
+  count: number,
+): void {
+  if (faction === 'roman') {
+    const bucket = role === 'melee' ? roman.roman_sword_cavalry
+      : role === 'lancer' ? roman.roman_lancer : roman.roman_horse_archer
+    if (!bucket) throw new Error(`Missing Roman formation bucket for ${role}`)
+    bucket[3] = count
+    return
+  }
+  const bucket = role === 'melee' ? viking.viking_sword_cavalry
+    : role === 'lancer' ? viking.viking_lancer : viking.viking_horse_archer
+  if (!bucket) throw new Error(`Missing Viking formation bucket for ${role}`)
+  bucket[3] = count
+}
+
+export function careerFelineHeroAssetIds(profile: Pick<CareerProfile, 'faction'>): HeroAssetId[] {
+  const enemyFaction: CareerProfile['faction'] = profile.faction === 'roman' ? 'viking' : 'roman'
+  const assets = new Set<HeroAssetId>()
+  for (const faction of [profile.faction, enemyFaction] as const) {
+    for (const role of ['melee', 'lancer', 'horse_archer'] as const) {
+      assets.add(T4_UNIT_PROFILES[felineRolePreset(faction, role)].visualAssetId)
+    }
+    assets.add(townCommanderHeroAsset(faction))
+  }
+  return [...assets]
+}
+
+function createFelineFormationPlan(faction: CareerProfile['faction']): BattleSpawnPlan {
+  const enemyFaction = faction === 'roman' ? 'viking' : 'roman'
+  const roman = createEmptyRomanArmyConfig()
+  const viking = createEmptyVikingArmyConfig()
+  for (const role of ['melee', 'lancer', 'horse_archer'] as const) {
+    setFelineFormationCount(roman, viking, faction, role, felineFormationRoleCount(FELINE_FRIENDLY_GROUPS, role))
+    setFelineFormationCount(roman, viking, enemyFaction, role, felineFormationRoleCount(FELINE_ENEMY_GROUPS, role))
+  }
+  return BattleSpawner.createSpawnPlan({
+    mode: 'formation', commandGrouping: 'squad', playerFaction: faction,
+    viking, roman, rules: { respawnEnabled: false, includeCamps: false },
+  })
+}
+
+function felineGroupSlots(plan: BattleSpawnPlan, faction: CareerProfile['faction'], role: FelineCavalryRole): NpcSpawnSpec[] {
+  const presetId = felineRolePreset(faction, role)
+  return plan.npcSpecs.filter(spec => spec.characterFaction === faction && spec.presetId === presetId)
+}
+
+function felineT4Spec(template: NpcSpawnSpec, actorId: string, faction: CareerProfile['faction'],
+  allegiance: Faction, role: FelineCavalryRole, mountId: string, squadId?: NpcSpawnSpec['squadId']): NpcSpawnSpec {
+  const presetId = felineRolePreset(faction, role)
+  const hero = T4_UNIT_PROFILES[presetId]
+  const loadout: UnitLoadout = { ...resolveT4UnitLoadout(presetId), mountId }
+  return {
+    ...template, actorId, faction: allegiance, characterFaction: faction, name: `T4 ${role}`,
+    tier: 4, characterTier: 4, heroArchetype: hero.combatProfileId === 'ranger' ? 'ranger' : 'captain',
+    aiType: loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, cavalry: true, respawnEnabled: false,
+    presetId, loadout, visualAssetId: hero.visualAssetId, combatProfileId: hero.combatProfileId,
+    ...(hero.specialCombatProfile ? { specialCombatProfile: hero.specialCombatProfile } : {}),
+    ...(squadId ? { squadId } : {}),
+  }
+}
+
+function felineT5Spec(template: NpcSpawnSpec, actorId: string, faction: CareerProfile['faction'],
+  allegiance: Faction, role: FelineCavalryRole, mountId: string, squadId?: NpcSpawnSpec['squadId']): NpcSpawnSpec {
+  const asset = townCommanderHeroAsset(faction)
+  const commander = careerCommanderLoadout(faction)
+  const loadout: UnitLoadout = role === 'lancer'
+    ? { ...commander, meleeWeaponId: 'spear_t5', rangedWeaponId: null, mountId }
+    : role === 'horse_archer' ? { ...commander, mountId } : { ...commander, rangedWeaponId: null, mountId }
+  return {
+    ...template, actorId, faction: allegiance, characterFaction: faction, name: `T5 ${role}`,
+    tier: 4, characterTier: 5, heroArchetype: 'commander',
+    aiType: role === 'horse_archer' ? AIType.RANGED : AIType.MELEE, cavalry: true, respawnEnabled: false,
+    presetId: felineRolePreset(faction, role), loadout, visualAssetId: asset,
+    combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[asset],
+    ...(squadId ? { squadId } : {}),
+  }
+}
+
+function expandFelineSide(
+  mission: ActiveCareerMission,
+  plan: BattleSpawnPlan,
+  faction: CareerProfile['faction'],
+  friendly: boolean,
+): NpcSpawnSpec[] {
+  const groups = friendly ? FELINE_FRIENDLY_GROUPS : FELINE_ENEMY_GROUPS
+  const ids = friendly ? mission.friendlyActorIds : mission.targetActorIds
+  const allegiance = friendly ? Faction.PLAYER : Faction.ENEMY
+  const slots = new Map<FelineCavalryRole, NpcSpawnSpec[]>([
+    ['melee', felineGroupSlots(plan, faction, 'melee')],
+    ['lancer', felineGroupSlots(plan, faction, 'lancer')],
+    ['horse_archer', felineGroupSlots(plan, faction, 'horse_archer')],
+  ])
+  const cursors: Record<FelineCavalryRole, number> = { melee: 0, lancer: 0, horse_archer: 0 }
+  let actorOffset = 0, t4Mount = 0, t5Mount = 0, friendlySquad = 1, friendlySquadFill = 0
+  const result: NpcSpawnSpec[] = []
+  for (const group of groups) for (let i = 0; i < group.count; i++) {
+    const template = slots.get(group.role)![cursors[group.role]++]
+    if (!template) throw new Error(`Missing formation slot for ${faction} ${group.role}`)
+    const actorId = ids[actorOffset++]
+    if (!actorId) throw new Error('Feline cavalry roster identity mismatch')
+    let squadId: NpcSpawnSpec['squadId']
+    if (friendly) {
+      squadId = friendlySquad as NpcSpawnSpec['squadId']
+      if (++friendlySquadFill === FELINE_FRIENDLY_SQUAD_SIZES[friendlySquad - 1]) {
+        friendlySquad++; friendlySquadFill = 0
+      }
+    }
+    const mountId = friendly
+      ? group.tier === 4 ? FELINE_T4_MOUNTS[t4Mount++ % FELINE_T4_MOUNTS.length]
+        : FELINE_T5_MOUNTS[t5Mount++ % FELINE_T5_MOUNTS.length]
+      : 'horse'
+    result.push(group.tier === 4
+      ? felineT4Spec(template, actorId, faction, allegiance, group.role, mountId, squadId)
+      : felineT5Spec(template, actorId, faction, allegiance, group.role, mountId, squadId))
+  }
+  return result
+}
+
+/**
+ * Commander VI has independent mounted units, not two elongated cavalry wings.
+ * Preserve the formal squad/actor order; only rearrange deterministic spawn positions.
+ * Each squad has its own five-abreast block with clear lateral and rear lanes.
+ */
+function positionFelineSquadBlocks(specs: NpcSpawnSpec[], squadSizes: readonly number[], faction: CareerProfile['faction']): void {
+  if (squadSizes.reduce((total, size) => total + size, 0) !== specs.length
+    || squadSizes.some(size => size < 1 || size > MAX_COMMAND_SQUAD_SIZE)) {
+    throw new Error('Invalid Six Feline Cavalry formation groups')
+  }
+  const columnsPerBlock = 5
+  const mountedColumnGap = 3.6
+  const mountedRankGap = 3.8
+  const blockGap = 10
+  const blockPitchX = (columnsPerBlock - 1) * mountedColumnGap + blockGap
+  const blockPitchZ = (Math.ceil(MAX_COMMAND_SQUAD_SIZE / columnsPerBlock) - 1) * mountedRankGap + blockGap
+  const frontAbsZ = BATTLE_FRONTLINE_Z - blockGap
+  const zSign = faction === 'viking' ? 1 : -1
+  const firstRankBlocks = Math.floor(squadSizes.length / 2)
+  let offset = 0
+  for (const [squadIndex, squadSize] of squadSizes.entries()) {
+    const secondRank = squadIndex >= firstRankBlocks
+    const blocksInRank = secondRank ? squadSizes.length - firstRankBlocks : firstRankBlocks
+    const column = secondRank ? squadIndex - firstRankBlocks : squadIndex
+    const centerX = (column - (blocksInRank - 1) / 2) * blockPitchX
+    for (let index = 0; index < squadSize; index++) {
+      const spec = specs[offset++]
+      const row = Math.floor(index / columnsPerBlock)
+      const countInRow = Math.min(columnsPerBlock, squadSize - row * columnsPerBlock)
+      const col = index % columnsPerBlock
+      spec.x = Math.round((centerX + (col - (countInRow - 1) / 2) * mountedColumnGap) * 100) / 100
+      spec.z = Math.round((frontAbsZ + Number(secondRank) * blockPitchZ + row * mountedRankGap) * zSign * 100) / 100
+    }
+  }
+}
+
+export function isCareerFelineBattle(mission: ActiveCareerMission | undefined): mission is ActiveCareerMission & {
+  templateId: typeof COMMANDER_FELINE_CAVALRY_ID
+  kind: typeof COMMANDER_FELINE_CAVALRY_KIND
+} {
+  return careerFieldMissionMatches(mission, COMMANDER_FELINE_CAVALRY_ID, COMMANDER_FELINE_CAVALRY_KIND)
+}
+
+export function createCareerFelineBattleLaunch(profile: CareerProfile): CareerFelineBattleLaunch {
+  const mission = profile.activeMission
+  if (!isCareerFelineBattle(mission) || profile.rank !== 'commander'
+    || mission.friendlyActorIds.length !== FELINE_FRIENDLY_TOTAL || mission.targetActorIds.length !== FELINE_ENEMY_TOTAL
+    || mission.officialSquad?.commandRank !== 'commander' || mission.officialSquad.missionId !== mission.id) {
+    throw new Error('Expected saved Six Feline Cavalry mission')
+  }
+  return { type: 'career-feline-battle', careerMissionId: mission.id, battle: {
+    careerFelineMissionId: mission.id,
+    mode: 'formation', commandGrouping: 'squad', playerFaction: profile.faction,
+    playerHeroId: resolveCareerHeroAsset(profile), playerLoadout: careerCombatPlayerLoadout(profile),
+    roman: {}, viking: {}, rules: { respawnEnabled: false, includeCamps: false },
+  } }
+}
+
+export function createCareerFelineSpawnPlan(profile: CareerProfile): BattleSpawnPlan {
+  createCareerFelineBattleLaunch(profile)
+  const mission = profile.activeMission!
+  const enemyFaction = profile.faction === 'roman' ? 'viking' : 'roman'
+  const template = createFelineFormationPlan(profile.faction)
+  const friendly = expandFelineSide(mission, template, profile.faction, true)
+  const enemy = expandFelineSide(mission, template, enemyFaction, false)
+  // Group by actual saved official squads (7) and fixed 30-rider enemy units (10).
+  // The shared free-battle formation planner groups all cavalry into only two wings.
+  positionFelineSquadBlocks(friendly, FELINE_FRIENDLY_SQUAD_SIZES, profile.faction)
+  const enemySquadSizes = Array.from({ length: Math.ceil(enemy.length / MAX_COMMAND_SQUAD_SIZE) },
+    (_, index) => Math.min(MAX_COMMAND_SQUAD_SIZE, enemy.length - index * MAX_COMMAND_SQUAD_SIZE))
+  positionFelineSquadBlocks(enemy, enemySquadSizes, enemyFaction)
+  const vanguard = enemy.find(spec => spec.actorId === mission.commanderMission?.felineVanguardActorId)
+  if (!vanguard || vanguard.characterTier !== 5 || !vanguard.presetId?.endsWith('_lancer')) {
+    throw new Error('Six Feline Cavalry vanguard identity is invalid')
+  }
+  const mainEnemy = enemy.filter(spec => spec !== vanguard)
+  const front = mainEnemy.reduce((best, spec) => Math.abs(spec.z) < Math.abs(best.z) ? spec : best)
+  const formationCenterX = mainEnemy.reduce((sum, spec) => sum + spec.x, 0) / mainEnemy.length
+  const forwardSign = Math.sign(-front.z) || 1
+  vanguard.x = Math.round(formationCenterX * 100) / 100
+  vanguard.z = Math.round((front.z + forwardSign * FELINE_VANGUARD_ADVANCE_METERS) * 100) / 100
+  return { playerSpawn: template.playerSpawn, pickupSpecs: [], horseSpecs: [], npcSpecs: [...friendly, ...enemy] }
+}
+
+export function felineInitialTacticalOrder(faction: Faction, chargeTriggered: boolean): TacticalOrder {
+  return faction === Faction.PLAYER ? 'defend' : chargeTriggered ? 'charge' : 'attack'
+}
+
+export function shouldTriggerFelineVanguardCharge(mission: ActiveCareerMission, event: CombatEvent): boolean {
+  return isCareerFelineBattle(mission)
+    && mission.commanderMission?.felineChargeTriggered !== true
+    && event.type === 'damage_applied' && event.appliedDamage > 0
+    && event.target.targetType === 'npc'
+    && event.target.targetId === mission.commanderMission?.felineVanguardActorId
+}
+
+/** Issue the one-shot in-memory attack before attempting any durable write.
+ * A failed write leaves the live mission marked for the normal field checkpoint retry. */
+export function dispatchFelineVanguardCharge(mission: ActiveCareerMission, event: CombatEvent,
+  issueCharge: () => void): boolean {
+  if (!markFelineVanguardCharge(mission, event)) return false
+  issueCharge()
+  return true
+}
+
+export function markFelineVanguardCharge(mission: ActiveCareerMission, event: CombatEvent): boolean {
+  if (!shouldTriggerFelineVanguardCharge(mission, event) || !mission.commanderMission) return false
+  mission.commanderMission.felineChargeTriggered = true
+  return true
 }

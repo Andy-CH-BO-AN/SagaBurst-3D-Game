@@ -447,7 +447,9 @@ describe('Resident native equipment and military horse ownership', () => {
     expect(state.actors['civilian-2'].melee).toBeNull()
     expect(state.actors['gate:north:0']).toEqual(guard)
     expect(loaded.inventory).toEqual(original.inventory)
-    expect(loaded.personalSquad).toEqual(original.personalSquad)
+    expect(loaded.personalSquad).toEqual(parseCareerProfile(original)!.personalSquad)
+    expect(loaded.personalSquad!.members[0]).toMatchObject({ ...original.personalSquad!.members[0],
+      characterFaction: 'roman', characterTier: 4, heroArchetype: 'ranger', recruitmentRole: 'spearman' })
     expect(original.townEquipment!.roman!.actors.merchant.melee?.itemId).toBe('paladin_sword_t4')
     expect(JSON.parse(h.storage.getItem(CAREER_STORAGE_KEY)!)).toEqual(loaded)
     h.storage.failWrites = true

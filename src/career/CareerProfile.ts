@@ -348,7 +348,7 @@ export function claimCareerMission(
 
   const contribution = { ...meritStats, damageTaken: stats.damageTaken, survived: stats.survived }
   const offense = active.kind === 'enemy-town-assault' || active.kind === 'cavalry-sweep' || active.kind === 'veteran-outpost-assault' || active.kind === 'captain-eagle-battle'
-    || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation'
+    || active.kind === 'commander-sky-raid' || active.kind === 'commander-decapitation' || active.kind === 'commander-six-feline-cavalry'
     ? calculateMerit({ player: contribution, squads: [] }, outcome === 'victory' ? 'victory' : 'defeat', 'offense', 'mission') : null
   const defense = active.kind === 'captain-outpost-defense' || active.kind === 'commander-outpost-last-stand' || active.kind === 'commander-bridgehead-battle'
     || active.kind === 'commander-four-gate-defense'
@@ -585,6 +585,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.fourGateDefense ? { fourGateDefense: structuredClone(profile.activeMission.fourGateDefense) } : {}),
       ...(profile.activeMission.bridgeBattle ? { bridgeBattle: structuredClone(profile.activeMission.bridgeBattle) } : {}),
       ...(profile.activeMission.bridgeDeployment ? { bridgeDeployment: { ...profile.activeMission.bridgeDeployment } } : {}),
+      ...(profile.activeMission.felineBattle ? { felineBattle: structuredClone(profile.activeMission.felineBattle) } : {}),
       ...(profile.activeMission.eagleBattle ? { eagleBattle: structuredClone(profile.activeMission.eagleBattle) } : {}),
       ...(profile.activeMission.personalSquad ? { personalSquad: clonePersonalMission(profile.activeMission.personalSquad) } : {}),
       ...(profile.activeMission.siege ? { siege: {

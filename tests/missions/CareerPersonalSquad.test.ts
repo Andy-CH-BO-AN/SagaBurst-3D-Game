@@ -44,7 +44,7 @@ describe('Personal Squad recruitment and durable identity', () => {
       { characterTier: 3, price: 300, hp: faction === 'roman' ? 200 : 180 },
       { characterTier: 4, heroArchetype: 'captain', price: 500, hp: 500 },
       { characterTier: 4, heroArchetype: 'ranger', price: 500, hp: 300 },
-      { characterTier: 5, heroArchetype: 'commander', price: 2000, hp: faction === 'roman' ? 850 : 950 },
+      { characterTier: 5, heroArchetype: 'commander', price: 2000, hp: faction === 'roman' ? 850 : 900 },
     ] as const
     const swordIds = faction === 'roman' ? ['gladius_rusty', 'gladius_standard'] : ['rusty_dagger', 'steel_sword']
     const products = identities.flatMap(identity => PERSONAL_RECRUITMENT_ROLES.map(recruitmentRole => {

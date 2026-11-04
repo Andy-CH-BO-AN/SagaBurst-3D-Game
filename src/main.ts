@@ -1,5 +1,5 @@
 import { needsPlayerHpConfirmation } from './combat/OrdinarySoldierProfile'
-import { createCareerBridgeBattleLaunch, isCareerBridgeBattle, recoverClaimedCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
+import { createCareerBridgeBattleLaunch, createCareerFelineBattleLaunch, isCareerBridgeBattle, isCareerFelineBattle, recoverClaimedCareerBridgeBattle, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { createCaptainEagleLaunch, createCaptainFrontlineLaunch, type CareerCombatLaunch } from './career/CaptainBattleLaunch'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './career/CaptainMissionCatalog'
 /**
@@ -151,7 +151,7 @@ async function launchGame(
   bridgeLaunch?: CareerBridgeBattleLaunch,
   tutorialLaunch?: CareerTutorialLaunch,
 ): Promise<void> {
-  const missionId = bridgeLaunch?.careerMissionId ?? campaignConfig?.careerMissionId ?? battleConfig?.careerEagleMissionId
+  const missionId = bridgeLaunch?.careerMissionId ?? campaignConfig?.careerMissionId ?? battleConfig?.careerEagleMissionId ?? battleConfig?.careerFelineMissionId
   currentCareerMissionId = missionId
   currentCareerTutorial = tutorialLaunch
   recoveringCareerTutorial = false
@@ -159,7 +159,7 @@ async function launchGame(
   loading.id = 'asset-loading-status'
   loading.style.cssText = 'position:fixed;inset:0;display:grid;place-items:center;color:#eee;background:#171411;z-index:9998;font:16px system-ui'
   loading.setAttribute('role', 'status')
-  loading.textContent = bridgeLaunch ? '正在部署橋頭決戰部隊…' : battleConfig?.careerEagleMissionId ? '正在部署巨鷹空戰部隊…' : campaignConfig?.careerMissionId ? '正在載入 Outpost 任務、駐軍與敵軍…' : '正在載入寫實人物與戰馬資產…'
+  loading.textContent = bridgeLaunch ? '正在部署橋頭決戰部隊…' : battleConfig?.careerFelineMissionId ? '正在部署六貓騎兵團…' : battleConfig?.careerEagleMissionId ? '正在部署巨鷹空戰部隊…' : campaignConfig?.careerMissionId ? '正在載入 Outpost 任務、駐軍與敵軍…' : '正在載入寫實人物與戰馬資產…'
   document.body.appendChild(loading)
 
   try {
@@ -201,7 +201,7 @@ async function launchCareerTutorial(context: CareerTutorialLaunch): Promise<void
 
 function launchCareerCombat(config: CareerCombatLaunch): Promise<void> {
   if (config.type === 'career-bridge-battle') return launchGame(config.battle, undefined, false, config)
-  return config.type === 'captain-eagle' ? launchGame(config.battle) : launchGame(undefined, config)
+  return config.type === 'captain-eagle' || config.type === 'career-feline-battle' ? launchGame(config.battle) : launchGame(undefined, config)
 }
 
 /** Catch errors in launch builders too, before launchGame gets a config. */
@@ -320,6 +320,18 @@ async function bootstrap(): Promise<void> {
       return
     }
   }
+  if (outpostProfile && activeCareerMission && isCareerFelineBattle(activeCareerMission)) {
+    if (outpostProfile.claimedBattleIds.includes(activeCareerMission.id)) {
+      const returned = stageMissionReturnRebuild(clearCareerMission(outpostProfile, activeCareerMission.id),
+        townRoster().map(spec => ({ spec })), activeCareerMission.personalSquad)
+      if (!careerStore.save(returned)) throw new Error('無法保存六貓騎兵任務返回狀態')
+      sessionStorage.removeItem(CAREER_OUTPOST_SESSION_KEY)
+      sessionStorage.setItem(TOWN_ENTRY_KEY, '1')
+    } else {
+      await resumeStoredCareerMission(activeCareerMission.id, () => createCareerFelineBattleLaunch(outpostProfile))
+      return
+    }
+  }
   if (outpostProfile && activeCareerMission && isCareerBridgeBattle(activeCareerMission)) {
     const recovery = recoverClaimedCareerBridgeBattle(outpostProfile, careerStore)
     if (recovery === 'save-failed') {
@@ -390,7 +402,7 @@ async function bootstrap(): Promise<void> {
     if (raw) {
       const parsed = JSON.parse(raw)
       const validation = validateBattleConfig(parsed)
-      if (validation.valid && !parsed.careerEagleMissionId) {
+      if (validation.valid && !parsed.careerEagleMissionId && !parsed.careerFelineMissionId) {
         savedConfig = parsed
       } else {
         console.warn('Invalid sessionStorage battle config, clearing:', validation.errors)

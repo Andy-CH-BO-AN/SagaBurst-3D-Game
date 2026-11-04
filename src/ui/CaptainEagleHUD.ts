@@ -7,9 +7,9 @@ export class CaptainEagleHUD {
   private readonly root = document.createElement('div')
   private result?: HTMLElement
 
-  constructor(private readonly variant: 'eagle' | 'bridgehead' = 'eagle') {
-    this.root.id = variant === 'bridgehead' ? 'bridgehead-battle-hud' : 'captain-eagle-hud'
-    if (variant === 'eagle') this.root.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);padding:10px 20px;background:rgba(14,12,10,.85);border:1px solid #8e7b65;color:#e5d8c3;z-index:100;pointer-events:none;text-align:center'
+  constructor(private readonly variant: 'eagle' | 'bridgehead' | 'feline' = 'eagle') {
+    this.root.id = variant === 'bridgehead' ? 'bridgehead-battle-hud' : variant === 'feline' ? 'feline-cavalry-hud' : 'captain-eagle-hud'
+    if (variant !== 'bridgehead') this.root.style.cssText = 'position:fixed;top:18px;left:50%;transform:translateX(-50%);padding:10px 20px;background:rgba(14,12,10,.85);border:1px solid #8e7b65;color:#e5d8c3;z-index:100;pointer-events:none;text-align:center'
     document.body.append(this.root)
   }
 
@@ -21,7 +21,9 @@ export class CaptainEagleHUD {
     const personal = counts
       ? `${counts.personal.alive}/${counts.personal.total}${counts.personal.pending ? `（待生成 ${counts.personal.pending}）` : ''}`
       : String(privateAlive)
-    this.root.textContent = `Eagle Battle · 巨鷹空戰｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式隊 ${official} · 私兵 ${personal}｜敵軍 ${enemyAlive}`
+    this.root.textContent = this.variant === 'feline'
+      ? `COMMANDER VI · 六貓騎兵團｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式六貓騎兵 ${official} · HR 私兵 ${personal}｜敵軍 ${enemyAlive}`
+      : `Eagle Battle · 巨鷹空戰｜${ready ? '交戰中' : `部署中 ${pending} 人`}｜正式隊 ${official} · 私兵 ${personal}｜敵軍 ${enemyAlive}`
   }
 
   updateBridgehead(enemyAlive: number, deployment: Readonly<BridgeBattleDeployment>): void {
@@ -46,7 +48,7 @@ export class CaptainEagleHUD {
     if (document.pointerLockElement) document.exitPointerLock()
     this.result?.remove()
     const modal = document.createElement('div')
-    modal.id = this.variant === 'bridgehead' ? 'bridgehead-battle-result' : 'captain-eagle-result'
+    modal.id = this.variant === 'bridgehead' ? 'bridgehead-battle-result' : this.variant === 'feline' ? 'feline-cavalry-result' : 'captain-eagle-result'
     modal.className = 'campaign-result-modal'
     modal.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,8,6,.85);z-index:99999;color:#ede0cd'
     modal.innerHTML = `<div class="campaign-result-card"><h1>${title}</h1><p>${message}</p>${renderBattleStats(stats, true)}<div class="campaign-result-actions"><button type="button">${action}</button></div></div>`

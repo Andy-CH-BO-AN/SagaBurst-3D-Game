@@ -8,7 +8,7 @@ import { describe,expect,it,vi } from 'vitest'
 import { CAPTAIN_SIEGE_COMMAND_ID, createCaptainPatrolCommandMission } from '../../src/career/CaptainMissionCatalog'
 import { createActiveCareerMission,createTownDefenseMission,type ActiveCareerMission } from '../../src/career/CareerMissionState'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
-import { claimCareerMission,createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
+import { claimCareerMission,cloneCareerProfile,createCareerProfile,type CareerProfile } from '../../src/career/CareerProfile'
 import { CAREER_STORAGE_KEY, CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { TownMissionSettlement } from '../../src/town/TownMissionSettlement'
 import { NPC } from '../../src/world/NPC'
@@ -21,6 +21,7 @@ import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { resolveTownActorEquipment } from '../../src/career/CareerTownEquipmentState'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
+import { acceptCommanderMission, COMMANDER_FELINE_CAVALRY_ID, FELINE_ENEMY_TOTAL, FELINE_FRIENDLY_TOTAL } from '../../src/career/CommanderMissionCatalog'
 import { acceptCaptainSiegeCommand, acceptEnemyTownAssault, ENEMY_TOWN_ASSAULT_ID } from '../../src/career/EnemyTownAssault'
 import { townAssaultRuntime } from '../helpers/townAssaultRuntime'
 
@@ -107,9 +108,38 @@ function raceHealth(hp: number): NonNullable<CareerProfile['racePlayerState']> {
 }
 
 describe('Town mission settlement transactions', () => {
+  it('accepts Commander VI through the real town save with thirty private HR soldiers joining the mission', () => {
+    const h = fixture()
+    Object.assign(h.player.shield, { reset: vi.fn() })
+    const peaceful = cloneCareerProfile(h.read())
+    delete peaceful.activeMission
+    peaceful.rank = 'commander'
+    peaceful.totalMerit = 20_000
+    peaceful.availableMerit = 20_000
+    peaceful.personalSquad = { members: Array.from({ length: 30 }, (_, index) => ({
+      id: `personal:hr-${index + 1}`, type: 'soldier' as const,
+    })) }
+    expect(h.store.save(peaceful)).toBe(true)
+    h.publish(peaceful)
+
+    const next = acceptCommanderMission(peaceful, COMMANDER_FELINE_CAVALRY_ID, 'test:town-feline')!
+    expect(next.activeMission?.personalSquad?.memberIds).toHaveLength(30)
+    expect(h.commit(next)).toBe(true)
+
+    const stored = h.store.loadChecked().profile!
+    expect(stored.activeMission?.templateId).toBe(COMMANDER_FELINE_CAVALRY_ID)
+    expect(stored.activeMission?.friendlyActorIds).toHaveLength(FELINE_FRIENDLY_TOTAL)
+    expect(stored.activeMission?.targetActorIds).toHaveLength(FELINE_ENEMY_TOTAL)
+    expect(stored.activeMission?.personalSquad?.memberIds).toEqual(peaceful.personalSquad.members.map(member => member.id))
+    expect(stored.activeMission?.personalSquad?.sceneKey).toBe('town-home')
+    expect(stored.personalSquad?.members.map(member => member.id)).toEqual(peaceful.personalSquad.members.map(member => member.id))
+    expect(stored.personalSquad?.members).toHaveLength(30)
+  })
+
   it('saves the accepted native body before a field transition and publishes nothing on a rejected write', () => {
     const h = fixture()
-    const peaceful = createCareerProfile('roman'); h.publish(peaceful)
+    const peaceful = cloneCareerProfile(h.read()); delete peaceful.activeMission
+    expect(h.store.save(peaceful)).toBe(true); h.publish(peaceful)
     Object.assign(h.player.shield, { reset: vi.fn() })
     Object.assign(h.residentState, { dead: false, hp: 37, characterIdentity: { characterFaction: 'roman', characterTier: 2 } })
     const next = { ...peaceful, activeMission: { ...createActiveCareerMission('recruit-bandits-01', 0, 1, 0, 'accept-native'),
