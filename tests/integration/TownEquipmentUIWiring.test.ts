@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
-import { CareerProfileStore } from '../../src/career/CareerProfileStore'
+import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import type { TownEquipmentContext } from '../../src/career/CareerTownEquipment'
 import { createTownCareerEquipmentUI } from '../../src/town/TownCareerEquipmentUI'
 import type { TownEquipmentUIBindings } from '../../src/town/TownSquadEquipmentUI'
@@ -31,7 +31,7 @@ function fixture() {
   const context: TownEquipmentContext = { townFaction: 'roman', peaceful: true, personalState: 'RESERVE', safeActorIds: new Set(['personal:ui-soldier']) }
   const apply = vi.fn((_before: CareerProfile, current: CareerProfile, _ids: readonly string[]) => {
     events.push('apply')
-    expect(store.load()!.personalSquad).toEqual(current.personalSquad)
+    expect(store.load()!.personalSquad).toEqual(parseCareerProfile(current)!.personalSquad)
     return 0
   })
   createTownCareerEquipmentUI(() => profile, () => context, () => [], save, apply)

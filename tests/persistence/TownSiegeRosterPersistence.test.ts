@@ -137,6 +137,7 @@ describe('siege checkpoint ownership', () => {
     expect(restored.fourGateDefense).toMatchObject({ rosterVersion: 1, combatElapsedSeconds: 143.5,
       actors: { 'gate:west:0': { status: 'dead', hp: 0 } } })
     const next = createFourGateDefenseProfile('PREPARING'), current = next.activeMission!
+    next.tutorial = structuredClone(profile.tutorial) // same Career, not an unrelated ID
     const archerId = 'watchtower-archer:3'
     Object.assign(current.fourGateDefense!.actors[archerId], { status: 'dead', hp: 0 })
     const nativeStats = current.fourGateDefense!.nativeCombatStats = { damageDealt: 0, damageTaken: 0, kills: 0 }

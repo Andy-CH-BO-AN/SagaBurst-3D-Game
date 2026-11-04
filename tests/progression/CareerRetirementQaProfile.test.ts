@@ -20,6 +20,7 @@ it('builds a legal ready Commander preset whose exact ten Tier 5 wins and spenda
   expect(profile.completedCareerMissionTemplateIds).toEqual([
     'commander-sky-raid', 'commander-operation-decapitation', 'commander-outpost-last-stand',
     'commander-bridgehead-battle', 'commander-four-gate-defense',
+    'commander-six-feline-cavalry',
   ])
   expect(commanderRetirementEligibility(profile).eligible).toBe(true)
   expect(profile.personalSquad?.members).toHaveLength(30)

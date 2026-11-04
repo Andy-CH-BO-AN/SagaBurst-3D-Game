@@ -223,7 +223,7 @@ export function migrateCareerHealth(profile: CareerProfile): void {
     outskirts(mission.patrolOutskirts, profile.faction)
     battle(mission.battle)
     actors(mission.fourGateDefense?.siege?.actors)
-    for (const checkpoint of [mission.eagleBattle, mission.bridgeBattle, mission.fourGateDefense]) {
+    for (const checkpoint of [mission.eagleBattle, mission.bridgeBattle, mission.felineBattle, mission.fourGateDefense]) {
       player(checkpoint?.player)
       actors(checkpoint?.actors)
     }

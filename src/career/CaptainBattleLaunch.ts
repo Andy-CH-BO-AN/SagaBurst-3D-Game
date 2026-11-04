@@ -14,7 +14,7 @@ import { getCampaignOutpostPlacement } from '../campaign/CampaignOutpost'
 import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './CaptainMissionCatalog'
 
 export interface CaptainEagleLaunchConfig { type: 'captain-eagle'; careerMissionId: string; battle: BattleConfig }
-export type CareerCombatLaunch = DefenseCampaignLaunchConfig | CaptainEagleLaunchConfig | import('./CareerBridgeBattle').CareerBridgeBattleLaunch
+export type CareerCombatLaunch = DefenseCampaignLaunchConfig | CaptainEagleLaunchConfig | import('./CareerBridgeBattle').CareerBridgeBattleLaunch | import('./CareerBridgeBattle').CareerFelineBattleLaunch
 
 function captainAvailable(profile: CareerProfile): boolean {
   return (profile.rank === 'captain' || profile.rank === 'commander') && !profile.activeMission && !profile.activeOutpostMission && profile.townEvent?.state !== 'hostile'
