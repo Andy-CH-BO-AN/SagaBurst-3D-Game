@@ -359,6 +359,7 @@ export class CharacterEquipmentPose {
 
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
   private readonly articulatedFingers: Array<{ node: THREE.Object3D, left: boolean, relaxed: THREE.Quaternion, grip: THREE.Quaternion, sword?: THREE.Quaternion, mountedSword?: THREE.Quaternion, axe?: THREE.Quaternion, shield?: THREE.Quaternion }> = []
+  private readonly articulatedAxeNeutralWrist: THREE.Quaternion
   private readonly articulatedAxeProfile?: string
   private readonly articulatedAxeFrame?: EquipmentGripFrame
   private readonly articulatedShieldFrame?: EquipmentGripFrame
@@ -368,6 +369,7 @@ export class CharacterEquipmentPose {
   private readonly articulatedSwordArm?: ArmSolver
 
   constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource, clothRig?: FittedHumanoidClothRig, private readonly relaxedLeftThumbForward: boolean | 'including-lance' = false, private readonly swordCarryGrips?: readonly SwordCarryGripProfile[], private readonly alignAuthoredCarryGrip = false, fingerPoses?: ArticulatedFingerPoses) {
+    this.articulatedAxeNeutralWrist = rig.right.wrist.quaternion.clone()
     if (fingerPoses) for (const [name, natural] of Object.entries(fingerPoses.relaxed)) {
       const node = root.getObjectByName(name), contact = fingerPoses.grip[name]
       if (!node || !contact || !/^(thumb|index|middle|ring|pinky)_0[123]_[lr]$/.test(name)) throw new Error(`Invalid articulated finger pose: ${name}`)
@@ -672,9 +674,11 @@ export class CharacterEquipmentPose {
     // Shared sword/axe foot carry: +Y shaft points toward gameplay +Z and the axe's
     // +X cutting edge points down. Solve the arm around its existing palm,
     // preserving the fixed weapon attachment and source finger animation.
+    const fittedAxe = state.carryWeapon === 'axe' && state.action !== 'axeAttack2H' && state.axeGripProfile === this.articulatedAxeProfile && !!this.articulatedAxeFrame
+    const naturalAxeCarry = live && !state.mounted && state.shield && !state.sampledBowPose && fittedAxe
     const carryBlend = state.action === 'idle' ? 1 : authoredRecovery > 0 ? authoredRecovery : state.action === 'axeAttack1H' || state.action === 'swordSlash'
       ? 1 - smooth(state.elapsed / .08) + smooth((state.elapsed - .42) / .06) : 0
-    if (live && !state.mounted && !state.lance && !state.sampledBowPose && carryBlend > 0
+    if (live && !naturalAxeCarry && !state.mounted && !state.lance && !state.sampledBowPose && carryBlend > 0
       && state.carryWeapon && (this.selectedSource?.rig === 'roman54' || state.carryWeapon === 'axe')) {
       // localToWorld below refreshes the wrist's ancestor chain. No other
       // subtree is read before the arm solve and the final pose refresh.
@@ -1056,27 +1060,57 @@ export class CharacterEquipmentPose {
     // tubular hands. Keep each equipment world transform while moving only
     // the hand to the measured handle; the next sample restores both arms.
     const contact = fingerContactOwnership(state)
-    const fittedAxe = state.carryWeapon === 'axe' && state.action !== 'axeAttack2H' && state.axeGripProfile === this.articulatedAxeProfile && !!this.articulatedAxeFrame
     if (contact && fittedAxe && contact.right && this.articulatedAxeFrame && this.articulatedSwordArm) {
       this.root.updateWorldMatrix(true, true)
       this.swordEquipmentCorrection.copy(this.rig.right.wrist.matrixWorld)
-      this.root.getWorldQuaternion(this.rootWorld).invert()
-      this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
-      if (state.axeHandFrame) this.attackRotation.copy(state.axeHandFrame.rotation)
-      else this.attackRotation.setFromRotationMatrix(this.axeGripInHand)
-      // Preserve the sampled palm roll and use the shortest shaft swing.
-      // Forcing the cutting edge's roll onto the wrist can put an otherwise
-      // valid running/mounted grasp outside the shoulder girdle's reach.
-      this.attackAxis.fromArray(this.articulatedAxeFrame.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
-      this.axeReach.set(0, 1, 0).applyQuaternion(this.attackRotation).applyQuaternion(this.handWorld).normalize()
-      this.handWorld.premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.axeReach))
-      if (state.axeHandFrame) this.target.copy(state.axeHandFrame.center)
-      else this.target.fromArray(this.frames.lanceRight.gripCenterLocal)
-      this.target.applyMatrix4(this.swordEquipmentCorrection)
-      this.root.worldToLocal(this.target)
-      this.solveHandContact(this.articulatedSwordArm, this.rig.right, this.articulatedAxeFrame)
+      const naturalCarryWeight = naturalAxeCarry ? carryBlend : 0
+      if (naturalCarryWeight < 1) {
+        if (naturalCarryWeight > 0) {
+          for (let index = 0; index < 2; index++) this.carrySaved[index].copy(this.carryBones[index].quaternion)
+          if (this.carryClavicle) this.axeRightRotation.copy(this.carryClavicle.quaternion)
+        }
+        this.root.getWorldQuaternion(this.rootWorld).invert()
+        this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
+        if (state.axeHandFrame) this.attackRotation.copy(state.axeHandFrame.rotation)
+        else this.attackRotation.setFromRotationMatrix(this.axeGripInHand)
+        // Preserve the sampled palm roll and use the shortest shaft swing.
+        // Forcing the cutting edge's roll onto the wrist can put an otherwise
+        // valid running/mounted grasp outside the shoulder girdle's reach.
+        this.attackAxis.fromArray(this.articulatedAxeFrame.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
+        this.axeReach.set(0, 1, 0).applyQuaternion(this.attackRotation).applyQuaternion(this.handWorld).normalize()
+        this.handWorld.premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.axeReach))
+        if (state.axeHandFrame) this.target.copy(state.axeHandFrame.center)
+        else this.target.fromArray(this.frames.lanceRight.gripCenterLocal)
+        this.target.applyMatrix4(this.swordEquipmentCorrection)
+        this.root.worldToLocal(this.target)
+        this.solveHandContact(this.articulatedSwordArm, this.rig.right, this.articulatedAxeFrame)
+        if (naturalCarryWeight > 0) {
+          for (let index = 0; index < 2; index++) this.carryBones[index].quaternion.slerp(this.carrySaved[index], naturalCarryWeight)
+          if (this.carryClavicle) this.carryClavicle.quaternion.slerp(this.axeRightRotation, naturalCarryWeight)
+        }
+      }
+      if (naturalCarryWeight > 0) {
+        // Carry belongs to the relaxed arm. Keep the anatomical wrist bind
+        // relative to its forearm instead of bending it to the legacy shaft.
+        this.rig.right.wrist.quaternion.slerp(this.articulatedAxeNeutralWrist, naturalCarryWeight)
+        this.rig.right.wrist.updateWorldMatrix(true, true)
+      }
       this.axeMatrix.copy(this.rig.right.wrist.matrixWorld).invert()
       this.swordEquipmentCorrection.premultiply(this.axeMatrix)
+      if (naturalCarryWeight > 0 && state.axeHandFrame) {
+        // Carry-only attachment: put the measured handle in the natural palm.
+        // Blend back to the original weapon transform before active contact;
+        // hit/release clocks and the active swing remain source-owned.
+        this.axeInverseRoot.compose(state.axeHandFrame.center, state.axeHandFrame.rotation, this.carryWristAxis.set(1, 1, 1)).invert()
+        this.axeMatrix.copy(swordHandMatrix(this.articulatedAxeFrame)).multiply(this.axeInverseRoot)
+        this.swordEquipmentCorrection.decompose(this.target, this.handWorld, this.swordCarryCenter)
+        this.axeMatrix.decompose(this.axeReach, this.attackRotation, this.carryWristAxis)
+        this.handWorld.slerp(this.attackRotation, naturalCarryWeight)
+        this.swordCarryCenter.lerp(this.carryWristAxis, naturalCarryWeight)
+        this.axeReach.copy(state.axeHandFrame.center).multiply(this.swordCarryCenter).applyQuaternion(this.handWorld)
+        this.target.fromArray(this.articulatedAxeFrame.gripCenterLocal).sub(this.axeReach)
+        this.swordEquipmentCorrection.compose(this.target, this.handWorld, this.swordCarryCenter)
+      }
       this.hasSwordEquipmentCorrection = true
     }
     if (contact?.left && state.shield && this.articulatedShieldFrame && this.articulatedShieldArm) {

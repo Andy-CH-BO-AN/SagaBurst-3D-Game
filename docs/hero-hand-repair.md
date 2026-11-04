@@ -79,6 +79,13 @@ installed executable. The builder invokes the same extraction step. Blender
   shoulder-girdle reach solve keeps the fixed contact reachable without bone
   stretch. Left shield contact gets the same socket compensation as the right
   weapon. Two-handed axe support retains its existing owner.
+- On-foot, shielded axe carry preserves the sampled arm and anatomical wrist
+  bind rotation; the weapon follows the measured palm contact. The previous
+  forward-shaft carry forced the wrist to bend sharply despite valid fingertip
+  contact. Wind-up/recovery use the existing carry window to blend the arm,
+  wrist and attachment about the palm; the active swing and mounted contacts
+  keep their original weapon world transforms. Grip translation is recomputed
+  after rotation blending so the fingers do not slide off during the transition.
 - Separate hand meshes carry a conservative wrist-local skin bound derived
   from finger-chain lengths and weighted bind points. The pose callback moves
   that small sphere with the wrist. A cached idle sphere previously culled a
