@@ -3,7 +3,7 @@ import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
 import { townRoster } from './town/TownRules'
-import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
+import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { preloadHighTierEquipment } from './world/HighTierEquipment'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
@@ -465,6 +465,7 @@ export class Game {
         game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch, tutorialLaunch)
         await game.initialization
         CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
+        game.prepareInitialFrame()
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
@@ -525,6 +526,7 @@ export class Game {
       game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch, tutorialLaunch)
       await game.initialization
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
+      game.prepareInitialFrame()
       game.clock.start(); requestAnimationFrame(game._loop)
       return game
     } catch (error) {
@@ -1574,9 +1576,11 @@ export class Game {
     }
     if (this.felineMissionId) {
       const mission = this.careerProfile!.activeMission!
-      if (!this.captainEagleSpawnBatch?.ready || !mission.felineBattle?.ready || (this.personalSquad && !this.personalSquad.ready)) {
-        throw new Error('Six Feline Cavalry deployment did not complete')
-      }
+      validateFelineDeploymentReadiness({
+        spawnBatchReady: Boolean(this.captainEagleSpawnBatch?.ready),
+        battleReady: Boolean(mission.felineBattle?.ready),
+        personalSquadReady: this.personalSquad ? Boolean(this.personalSquad.ready) : undefined,
+      })
       this.player.group.visible = true
     }
     if (isInitialSpectator) this._enterSpectatorMode('initial')
@@ -1626,11 +1630,29 @@ export class Game {
     }
     if (!this.isModelStudio) this.compass = new CompassUI(this.camera,
       document.getElementById('defense-campaign-hud') ?? document.getElementById('bridgehead-battle-hud') ?? document.getElementById('captain-eagle-hud'))
+  }
 
-    this.player.fitMountedSeat()
-    for (const npc of this.npcs) npc.fitMountedSeat()
+  /**
+   * Prepares the initial rendered frame after scene construction and GPU warmup,
+   * ensuring all mounted actors evaluate their riding poses before the loading overlay is dismissed.
+   */
+  prepareInitialFrame(): void {
+    if (this.player.isMounted) {
+      this.player.prepareInitialMountedVisual()
+    }
+    for (const npc of this.npcs) {
+      if (npc.isMounted) npc.fitMountedSeat()
+    }
     this.scene.updateMatrixWorld(true)
-    this.thirdPersonCamera.update(this.input, 0, this.obstacles)
+
+    if (this.studioControls) {
+      this.studioControls.update()
+    } else if (this.controlMode === 'spectator') {
+      this.spectatorController.update(this.input, 0)
+    } else if (!this.isModelStudio) {
+      this.thirdPersonCamera.update(this.input, 0, this.obstacles)
+    }
+
     if (this.renderer && this.scene && this.camera) {
       try {
         this.renderer.render(this.scene, this.camera)

@@ -127,8 +127,17 @@ export function createCareerFieldPersonalOrphanMountPlan(profile: CareerProfile)
   })
 }
 
-/** Restore surviving orphan mounts from both Commander VI armies, without respawning
- * their deceased riders. The personal squad remains a separately owned roster. */
+/**
+ * Restore surviving orphan mounts from both Commander VI armies, without respawning
+ * their deceased riders. The personal squad remains a separately owned roster.
+ *
+ * Migration Note: Prior check-pointed saves serialized physical mount status (hp, position,
+ * yaw/pitch) under actor records without persisting redundant species strings. Surviving
+ * orphan mounts reconstruct their species deterministically from createCareerFelineSpawnPlan(profile).
+ * As a result, older in-flight saves safely migrate to the refined role-to-mount assignment
+ * (e.g. deceased T4 melee rider mount migrating from earlier white-cat to caracal) while
+ * preserving health points, coordinates, orientation, living status, and player mount borrowing.
+ */
 export function createCareerFelineOrphanMountPlan(profile: CareerProfile) {
   const mission = profile.activeMission
   if (!isCareerFelineBattle(mission) || !mission.felineBattle) return createCareerFieldPersonalOrphanMountPlan(profile)
@@ -549,4 +558,21 @@ export function markFelineVanguardCharge(mission: ActiveCareerMission, event: Co
   if (!shouldTriggerFelineVanguardCharge(mission, event) || !mission.commanderMission) return false
   mission.commanderMission.felineChargeTriggered = true
   return true
+}
+
+export interface FelineDeploymentReadinessInput {
+  spawnBatchReady: boolean
+  battleReady: boolean
+  personalSquadReady?: boolean
+}
+
+/**
+ * Validates that all three required production subsystems (cavalry spawn batch,
+ * mission feline battle state, and any active personal squad) have completely
+ * finalized deployment before the loading overlay is dismissed.
+ */
+export function validateFelineDeploymentReadiness(input: FelineDeploymentReadinessInput): void {
+  if (!input.spawnBatchReady || !input.battleReady || (input.personalSquadReady !== undefined && !input.personalSquadReady)) {
+    throw new Error('Six Feline Cavalry deployment did not complete')
+  }
 }

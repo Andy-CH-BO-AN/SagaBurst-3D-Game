@@ -1,4 +1,4 @@
-import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult, createCareerFelineBattleLaunch, isCareerFelineBattle, recoverClaimedCareerBridgeBattle, careerFelineHeroAssetIds, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, felineFriendlyMountId, markFelineVanguardCharge, shouldTriggerFelineVanguardCharge } from '../../src/career/CareerBridgeBattle'
+import { CareerBridgeBattleRuntime, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, commitCareerBridgeBattleResult, createCareerFelineBattleLaunch, isCareerFelineBattle, recoverClaimedCareerBridgeBattle, careerFelineHeroAssetIds, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, felineFriendlyMountId, markFelineVanguardCharge, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness } from '../../src/career/CareerBridgeBattle'
 import { COMMANDER_BRIDGEHEAD_ID, createBridgeheadRoster } from '../../src/career/CommanderMissionCatalog'
 import { describe, expect, it, vi, onTestFinished } from 'vitest'
 import { officialActorSquadId, officialCommandAcceptsActor } from '../../src/career/CareerCommandAuthority'
@@ -779,8 +779,7 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(failure.profile.activeMission?.result?.outcome).toBe('failure')
   })
 
-  it('enforces tactical formation layout, exact role-mount pairing and readiness contracts', () => {
-    // 1. Verify felineFriendlyMountId deterministic mapping
+  it('maps friendly cavalry roles and tiers deterministically to six feline mounts and enemy to horse', () => {
     expect(felineFriendlyMountId('melee', 4, 0)).toBe('caracal')
     expect(felineFriendlyMountId('melee', 4, 59)).toBe('caracal')
     expect(felineFriendlyMountId('lancer', 4, 0)).toBe('serval')
@@ -793,14 +792,15 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(felineFriendlyMountId('horse_archer', 4, 59)).toBe('orange-cat')
     expect(felineFriendlyMountId('lancer', 5, 0)).toBe('snow-leopard')
     expect(felineFriendlyMountId('lancer', 5, 19)).toBe('snow-leopard')
+  })
 
-    // 2. Tactical formation geometry & clearances
+  it('arranges friendly feline cavalry into a seven-squad tactical formation with corridors and bounds', () => {
     const profile = accepted(COMMANDER_FELINE_CAVALRY_ID)
     const plan = createCareerFelineSpawnPlan(profile)
     const friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
     const squads = [1, 2, 3, 4, 5, 6, 7].map(id => friendly.filter(spec => spec.squadId === id))
 
-    // Squad sizes
+    // Squad sizes: S1-S6: 30, S7: 20
     expect(squads.map(s => s.length)).toEqual([30, 30, 30, 30, 30, 30, 20])
 
     // S5 and S6 corridor: min distance between S5 and S6 X coordinates
@@ -823,19 +823,38 @@ describe('Commander VI Six Feline Cavalry', () => {
     for (const spec of friendly) {
       expect(Math.abs(spec.z)).toBeLessThanOrEqual(140)
     }
+  })
 
-    // 3. Deployment readiness contract:
-    // A deployment is only ready when spawn batch, mission field checkpoint and personal squad are all ready.
-    const checkReadiness = (batchReady: boolean, fieldReady: boolean, personalReady: boolean) => {
-      if (!batchReady || !fieldReady || !personalReady) {
-        throw new Error('Six Feline Cavalry deployment did not complete')
-      }
-      return true
-    }
-    expect(checkReadiness(true, true, true)).toBe(true)
-    expect(() => checkReadiness(false, true, true)).toThrow('Six Feline Cavalry deployment did not complete')
-    expect(() => checkReadiness(true, false, true)).toThrow('Six Feline Cavalry deployment did not complete')
-    expect(() => checkReadiness(true, true, false)).toThrow('Six Feline Cavalry deployment did not complete')
+  it('validates feline deployment readiness contracts before dismissing loading', () => {
+    // Calling production validateFelineDeploymentReadiness directly
+    expect(() => validateFelineDeploymentReadiness({ spawnBatchReady: false, battleReady: true, personalSquadReady: true })).toThrow('Six Feline Cavalry deployment did not complete')
+    expect(() => validateFelineDeploymentReadiness({ spawnBatchReady: true, battleReady: false, personalSquadReady: true })).toThrow('Six Feline Cavalry deployment did not complete')
+    expect(() => validateFelineDeploymentReadiness({ spawnBatchReady: true, battleReady: true, personalSquadReady: false })).toThrow('Six Feline Cavalry deployment did not complete')
+    expect(() => validateFelineDeploymentReadiness({ spawnBatchReady: true, battleReady: true })).not.toThrow()
+    expect(() => validateFelineDeploymentReadiness({ spawnBatchReady: true, battleReady: true, personalSquadReady: true })).not.toThrow()
+  })
+
+  it('migrates orphan mount species deterministically while preserving saved physical status', () => {
+    const profile = accepted(COMMANDER_FELINE_CAVALRY_ID)
+    const mission = profile.activeMission!
+    const plan = createCareerFelineSpawnPlan(profile)
+    const firstMeleeSpec = plan.npcSpecs.find(spec => spec.faction === Faction.PLAYER && spec.loadout?.mountId === 'caracal')!
+    const actorId = firstMeleeSpec.actorId!
+    const cat = { hp: 215, mounted: false, position: { x: 12.5, y: 0.5, z: -110, yaw: 1.2 } }
+    const actors: CaptainEagleCheckpoint['actors'] = Object.fromEntries(
+      [...mission.friendlyActorIds, ...mission.targetActorIds].map(id => [id, { status: 'reserve' as const }]))
+    actors[actorId] = { status: 'dead', hp: 0, mount: cat }
+    mission.felineBattle = { ready: true, actors, playerStats: { damageDealt: 0, damageTaken: 0, kills: 0, structureDamage: 0, structuresDestroyed: 0, gateBreaches: 0 }, player: {
+      hp: 100, stamina: 100, dead: false, position: { x: 0, y: 0, z: -145, yaw: 0 }, ammo: 20, shieldImpact: 0,
+    } }
+
+    const orphanPlan = createCareerFelineOrphanMountPlan(profile)
+    const restored = orphanPlan.find(m => m.actorId === actorId)
+    expect(restored).toBeDefined()
+    expect(restored!.mountId).toBe('caracal')
+    expect(restored!.saved.hp).toBe(215)
+    expect(restored!.saved.position.x).toBe(12.5)
+    expect(restored!.saved.position.z).toBe(-110)
   })
 })
 

@@ -813,6 +813,14 @@ export class MixerController implements HumanoidAnimationController {
     return true
   }
 
+  sampleInitialPose(): void {
+    this.restoreEquipment(true)
+    for (const transition of this.inertialTransitions) transition.clear()
+    this.relaxedHandTransitionStart = undefined
+    for (const mixer of this.mixers) mixer.update(0)
+    this.finishPose(true)
+  }
+
   update(dt: number, cameraDistance = 0): void {
     if (!Number.isFinite(dt) || dt < 0) return
     if (dt === 0) { this.restoreEquipment(); this.finishPose(); return }
