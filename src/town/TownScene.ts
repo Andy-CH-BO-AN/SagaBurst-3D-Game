@@ -292,7 +292,7 @@ export class TownScene {
   private outskirts?: TownOutskirtsWarfareController
   private missionResultOpen = false
   private deploymentPage?: CareerMissionPage | 'duel'
-  private duelActivity: 'duel' | 'race' = 'duel'
+  private duelActivity: 'duel' | 'race' | 'review' = 'duel'
   private duelPresetId?: UnitPresetId
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
@@ -2104,7 +2104,7 @@ export class TownScene {
     this.closePanel()
   }
   private openDuelPage(panel: HTMLElement): void {
-    const activities = [['duel', '單挑 Duel'], ['race', '繞城賽馬 Racing']] as const
+    const activities = [['duel', '單挑 Duel'], ['race', '繞城賽馬 Racing'], ['review', '重溫入伍旅程']] as const
     const tabs = document.createElement('nav'); tabs.className = 'town-mission-tabs'; tabs.style.position = 'static'
     tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '1 v 1 對決種類')
     const content = document.createElement('section'); content.id = 'town-one-v-one-content'
@@ -2132,6 +2132,15 @@ export class TownScene {
       })
       content.replaceChildren()
       if (this.duelActivity === 'race') this.openRacePage(content)
+      else if (this.duelActivity === 'review') {
+        if (this.tutorial) this.tutorial.renderReviewContent(content)
+        else {
+          const heading = document.createElement('h3'); heading.textContent = '重溫入伍旅程'; content.append(heading)
+          const desc = document.createElement('p'); desc.className = 'town-summary'
+          desc.textContent = '目前尚無已完成的訓練課程可供重溫。'
+          content.append(desc)
+        }
+      }
       else this.openDuelSelection(content)
     }
     panel.append(tabs, content); render()

@@ -477,7 +477,7 @@ describe('TownTutorialUX', () => {
     expect(ctrl.hasDialogue('deployment')).toBe(false)
     const side = dialoguePanel()
     ctrl.appendPanel(side.panel, 'deployment')
-    expect(side.buttons().map(b => b.textContent)).toEqual(['繼續新兵訓練', '繼續 30 人指揮演練', '繼續指揮塔訓練', '回顧訓練'])
+    expect(side.buttons().map(b => b.textContent)).toEqual(['繼續新兵訓練', '繼續 30 人指揮演練', '繼續指揮塔訓練'])
 
     // Captain/commander resume: tutorial NPC dialogue offers acceptance for deferred as well.
     const commander = dialoguePanel()
@@ -545,7 +545,7 @@ describe('TownTutorialUX', () => {
     harness.host.openPanel = (title, text) => (reviewPanel = openPanel(title, text))
 
     ctrl.openReviewPanel()
-    const replay = (reviewPanel as unknown as MockElement).querySelectorAll('button').find(b => b.textContent === '重播城鎮新兵引導')!
+    const replay = (reviewPanel as unknown as MockElement).querySelectorAll('button').find(b => b.textContent === '重播城鎮訓練')!
     harness.setFailCommit(true)
     replay.onclick!()
     expect(harness.getClosedCount()).toBe(0)
@@ -570,7 +570,7 @@ describe('TownTutorialUX', () => {
 
     const side = dialoguePanel()
     ctrl.appendPanel(side.panel, 'deployment')
-    expect(side.buttons().map(b => b.textContent)).toEqual(['繼續新兵訓練', '回顧訓練'])
+    expect(side.buttons().map(b => b.textContent)).toEqual(['繼續新兵訓練'])
     side.buttons()[0].onclick!()
     const resumed = harness.getProfile().tutorial!.town
     expect(harness.getClosedCount()).toBe(1)
@@ -598,6 +598,48 @@ describe('TownTutorialUX', () => {
     expect(captain.buttons().map(b => b.textContent)).toEqual(['接受任命'])
     ctrl.appendPanel(captain.panel, 'captain')
     expect(captain.buttons().map(b => b.textContent)).not.toContain('接受任命')
+
+    ctrl.dispose()
+  })
+
+  it('horse-intro explains insufficient merit after 2 missions, and review tab renders completed only', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+
+    // 1. horse-intro with 2 missions completed but insufficient merit
+    t.town.status = 'active'
+    t.town.step = 'horse-intro'
+    t.settledMissionIds = ['m1', 'm2']
+    harness.getProfile().availableMerit = 10
+    harness.getProfile().ownedMounts = []
+    ctrl.update()
+    const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')!
+    expect(hint.textContent).toContain('已完成 2/2 次實戰，目前軍功不足，請繼續完成任務累積購馬軍功')
+    expect(hint.textContent).not.toContain('完成正式戰鬥任務\n找士官長接受正式任務（已完成 2 / 2 次）')
+
+    // 2. 1 v 1 third tab content: only completed tutorials appear as replay options
+    const reviewContent = new MockElement('section') as unknown as HTMLElement
+    t.recruit.status = 'completed'
+    t.town.status = 'completed'
+    t.captain.status = 'available' // not completed
+    t.hr.status = 'locked'
+    t.commander.status = 'locked'
+
+    ctrl.renderReviewContent(reviewContent)
+    const renderedButtons = (reviewContent as unknown as MockElement).querySelectorAll('button')
+    const buttonTexts = renderedButtons.map(b => b.textContent)
+    expect(buttonTexts).toEqual(['重播操作練習', '重播城鎮訓練'])
+    expect(buttonTexts).not.toContain('重播隊長指揮演練')
+    expect((reviewContent as unknown as MockElement).querySelector('h3')?.textContent).toBe('重溫入伍旅程')
+
+    // Empty review content when no tutorials are completed
+    t.recruit.status = 'active'
+    t.town.status = 'active'
+    const emptyReviewContent = new MockElement('section') as unknown as HTMLElement
+    ctrl.renderReviewContent(emptyReviewContent)
+    expect((emptyReviewContent as unknown as MockElement).querySelector('.town-summary')?.textContent).toContain('目前尚無已完成的訓練課程可供重溫。')
+    expect((emptyReviewContent as unknown as MockElement).querySelectorAll('button').length).toBe(0)
 
     ctrl.dispose()
   })

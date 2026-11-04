@@ -144,11 +144,15 @@ export class TownTutorialController {
         text = '購買第一匹戰馬\n按 Tab → 坐騎 召喚並騎乘；可隨時找士官長參加賽馬'
         interact = false
       } else if (step === 'horse-intro') {
-        const affordable = h.profile().availableMerit >= careerShopProduct('horse')!.price
+        const horsePrice = careerShopProduct('horse')!.price
+        const affordable = h.profile().availableMerit >= horsePrice
         const hasHorse = hasCareerTutorialHorse(h.profile())
         if (t.settledMissionIds.length >= 2 && (affordable || hasHorse)) {
           npc('deployment', '士官長')
           text = hasHorse ? '返回士官長\n已完成兩次實戰，回士官長了解戰馬與賽馬' : '返回士官長\n已完成兩次實戰，回士官長了解購買戰馬'
+        } else if (t.settledMissionIds.length >= 2) {
+          text = `累積購馬軍功\n已完成 2/2 次實戰，目前軍功不足，請繼續完成任務累積購馬軍功（普通馬需 ${horsePrice} 軍功）`
+          interact = false
         } else {
           text = `完成正式戰鬥任務\n找士官長接受正式任務（已完成 ${Math.min(2, t.settledMissionIds.length)} / 2 次）`
           interact = false
@@ -489,11 +493,16 @@ export class TownTutorialController {
       || t.commander.status === 'completed'
   }
 
-  openReviewPanel(): void {
+  renderReviewContent(panel: HTMLElement): void {
     const h = this.host, t = h.profile().tutorial
+    const heading = document.createElement('h3'); heading.textContent = '重溫入伍旅程'; panel.append(heading)
+    const desc = document.createElement('p'); desc.className = 'town-summary'
+    desc.textContent = (!t || !this.hasReviewOptions())
+      ? '目前尚無已完成的訓練課程可供重溫。'
+      : '重溫過去的訓練課程。重播不重複發放軍功獎勵。'
+    panel.append(desc)
     if (!t || !this.hasReviewOptions()) return
-    const panel = this.host.openPanel?.('回顧訓練', '重溫過去的訓練課程。重播不重複發放軍功獎勵。')
-    if (!panel) return
+
     if (t.recruit.status === 'completed') {
       this.button(panel, '重播操作練習', () => h.launch('recruit', true))
     }
@@ -503,12 +512,20 @@ export class TownTutorialController {
         return p.tutorial?.[stage].status === 'active'
       }, () => { if (stage === 'commander') this.towerRouteIndex = null }))
     }
-    if (t.town.status === 'completed') replay('重播城鎮新兵引導', 'town')
+    if (t.town.status === 'completed') replay('重播城鎮訓練', 'town')
     if (t.captain.status === 'completed') {
-      this.button(panel, '重播隊長指揮訓練', () => h.launch('captain', true))
+      this.button(panel, '重播隊長指揮演練', () => h.launch('captain', true))
     }
     if (t.hr.status === 'completed') replay('重播 HR 私人小隊引導', 'hr')
     if (t.commander.status === 'completed') replay('重播指揮塔引導', 'commander')
+  }
+
+  openReviewPanel(): void {
+    const h = this.host, t = h.profile().tutorial
+    if (!t || !this.hasReviewOptions()) return
+    const panel = this.host.openPanel?.('重溫入伍旅程', '')
+    if (!panel) return
+    this.renderReviewContent(panel)
     this.button(panel, '返回', () => {
       this.host.openServices?.('deployment')
     })
@@ -540,7 +557,6 @@ export class TownTutorialController {
       if (t.captain.status === 'deferred') resume('繼續 30 人指揮演練', 'captain')
       if (t.commander.status === 'deferred') resume('繼續指揮塔訓練', 'commander')
     }
-    if (this.hasReviewOptions()) this.button(panel, '回顧訓練', () => this.openReviewPanel())
   }
 
   dispose(): void {
