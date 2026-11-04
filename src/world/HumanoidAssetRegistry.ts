@@ -1,5 +1,5 @@
 import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
-import type { ArticulatedFingerPoses } from './ArticulatedFingerPose'
+import type { ArticulatedFingerPoses } from './FingerContactPolicy'
 import { getOrdinarySoldierAssetId } from '../combat/OrdinarySoldierProfile'
 import { prepareSeatSupport } from './SkinnedSeatContact'
 import type { FittedHumanoidClothRig } from './FittedHumanoidCloth'

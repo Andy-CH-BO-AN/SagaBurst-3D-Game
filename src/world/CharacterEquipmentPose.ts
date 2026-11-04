@@ -1,5 +1,5 @@
 import { minimumReachableShoulderSwing } from './AuthoredCarryGrip'
-import { ArticulatedFingerPose, type ArticulatedFingerPoses } from './ArticulatedFingerPose'
+import { fingerContactOwnership, type ArticulatedFingerPoses } from './FingerContactPolicy'
 import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import * as THREE from 'three'
 import type { ArmRig, CharacterRig, MountedPoseKind } from './CharacterVisuals'
@@ -336,10 +336,14 @@ export class CharacterEquipmentPose {
   }
 
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
-  private readonly articulatedFingers?: ArticulatedFingerPose
+  private readonly articulatedFingers: Array<{ node: THREE.Object3D, left: boolean, relaxed: THREE.Quaternion, grip: THREE.Quaternion }> = []
 
   constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource, clothRig?: FittedHumanoidClothRig, private readonly relaxedLeftThumbForward: boolean | 'including-lance' = false, private readonly swordCarryGrips?: readonly SwordCarryGripProfile[], private readonly alignAuthoredCarryGrip = false, fingerPoses?: ArticulatedFingerPoses) {
-    if (fingerPoses) this.articulatedFingers = new ArticulatedFingerPose(root, fingerPoses)
+    if (fingerPoses) for (const [name, natural] of Object.entries(fingerPoses.relaxed)) {
+      const node = root.getObjectByName(name), contact = fingerPoses.grip[name]
+      if (!node || !contact || !/^(thumb|index|middle|ring|pinky)_0[123]_[lr]$/.test(name)) throw new Error(`Invalid articulated finger pose: ${name}`)
+      this.articulatedFingers.push({ node, left: name.endsWith('_l'), relaxed: new THREE.Quaternion(natural[0], natural[1], natural[2], natural[3]), grip: new THREE.Quaternion(contact[0], contact[1], contact[2], contact[3]) })
+    }
     if (alignAuthoredCarryGrip) {
       if (rig.right.shoulder.parent?.name !== 'clavicle_r') throw new Error('Authored carry alignment requires the canonical right clavicle')
       this.carryClavicle = rig.right.shoulder.parent
@@ -393,7 +397,7 @@ export class CharacterEquipmentPose {
     nodes.push(this.seatedHips)
     if (this.carryClavicle) nodes.push(this.carryClavicle)
     nodes.push(...this.swordCarryDigits.map(digit => digit.node))
-    if (this.articulatedFingers) nodes.push(...this.articulatedFingers.nodes)
+    nodes.push(...this.articulatedFingers.map(entry => entry.node))
     if (this.mountedSkirt) nodes.push(...this.mountedSkirt.nodes)
     if (this.fittedCloth) nodes.push(...this.fittedCloth.nodes)
     if (this.seatedSpine) nodes.push(this.seatedSpine)
@@ -972,7 +976,10 @@ export class CharacterEquipmentPose {
       if (morph.left !== undefined) values[morph.left] = twoHandedAxe ? smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .42) / .06)) : 0
       if (morph.shield !== undefined) values[morph.shield] = Number(live && state.shield)
     }
-    this.articulatedFingers?.apply(state)
+    const fingerContact = fingerContactOwnership(state)
+    if (fingerContact) for (const entry of this.articulatedFingers) {
+      entry.node.quaternion.copy(fingerContact[entry.left ? 'left' : 'right'] ? entry.grip : entry.relaxed)
+    }
     if (live && state.mounted) this.fittedCloth?.applyMounted()
     this.root.updateWorldMatrix(true, true)
   }

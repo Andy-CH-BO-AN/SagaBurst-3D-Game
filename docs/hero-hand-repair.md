@@ -46,7 +46,7 @@ installed executable. The builder invokes the same extraction step. Blender
   MCP/PIP/DIP flexion, coupled distal flexion and thumb opposition. It replaces
   the Roman finger donor plus additive grasp. Natural and contact shapes are
   separate; no new character-specific angle table is applied at runtime.
-- `ArticulatedFingerPose` applies contact from actual equipment ownership and
+- `FingerContactPolicy` selects contact from actual equipment ownership and
   restores free hands on unequip. Bow samples keep ownership through the
   return-to-idle fade. The existing pose layer restores prior samples before
   the next mixer evaluation; rotations do not accumulate.

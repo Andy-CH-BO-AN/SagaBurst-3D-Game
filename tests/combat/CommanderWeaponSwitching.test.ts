@@ -1,5 +1,5 @@
 import { minimumReachableShoulderSwing } from '../../src/world/AuthoredCarryGrip'
-import { fingerContactOwnership } from '../../src/world/ArticulatedFingerPose'
+import { fingerContactOwnership } from '../../src/world/FingerContactPolicy'
 import { Box3, Quaternion, Vector3, type Object3D } from 'three'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { ShieldState } from '../../src/combat/ShieldBlocking'

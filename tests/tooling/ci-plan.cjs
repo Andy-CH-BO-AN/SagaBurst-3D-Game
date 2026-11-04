@@ -71,15 +71,6 @@ function policyConsumers(file, inventory) {
     if (file === 'src/ui/CampaignSetupUI.ts') add('tests/progression/CampaignProgress.test.ts')
   }
   // Weapon source geometry and grip/string appearance require real-browser QA.
-  // The opt-in finger adapter constructs render nodes/quaternions, which the
-  // logic-test contract forbids exercising as a synthetic rig. Its equipment
-  // ownership policy and manifest loader boundary have these real owners;
-  // the resulting skin/contact appearance is reviewed in Blender/Chrome.
-  if (file === 'src/world/ArticulatedFingerPose.ts') {
-    add('tests/combat/CommanderWeaponSwitching.test.ts')
-    add('tests/assets/HumanoidAssetPreload.test.ts')
-  }
-  // Weapon source geometry and grip/string appearance require real-browser QA.
   // Existing owners protect equip/re-equip, lance/bow switching, projectile
   // collision and Career ownership without importing a model or fake scene.
   if (['tools/build-meshy-weapons.py',
