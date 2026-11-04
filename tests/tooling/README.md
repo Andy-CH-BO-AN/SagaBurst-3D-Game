@@ -96,8 +96,11 @@ executed. Missing owners or dangling dependencies fail closed. An orphan deletio
 is retired only when no surviving source dependency or runtime/config reference
 remains, and the manifest records that evidence explicitly.
 
-Vitest's watch-mode force-rerun triggers remain enabled. The native-related query
-omits only inputs proven byte-identical to base after simultaneous, boundary-aware
+The planner's native candidate query disables Vitest watch-mode force-rerun
+triggers and omits Vite-resolved config dependencies: config/package changes
+still select their existing explicit policy
+owners, while native-only validation checks actual module edges. The query also
+omits inputs proven byte-identical to base after simultaneous, boundary-aware
 Git-derived replacements in known path-bearing fields (Node script entry operands
 and Vitest include/exclude/setupFiles/reporters). Arbitrary env/name/data strings
 never qualify. Directory/glob replacements additionally require an
@@ -109,7 +112,7 @@ optional flags and all other metadata must match, except the corresponding place
 and lock dev flags. Such inputs still select publication/CI owners because production
 packaging changes; the proof only removes Vitest's global watch-trigger candidates.
 Dependency version, argument or config behavior edits do not qualify and retain
-normal conservative candidate validation.
+normal dependency-edge validation and existing explicit owner policies.
 
 The static graph includes `.github/scripts/` and scans release helpers for computed
 imports. `tests/tooling/` remains inside dependency validation: only the collector's
@@ -172,7 +175,9 @@ with `npm ci` then `npm test`; Full still uses sequential <=500-leaf shards and
 the unchanged 100ms reporter. `clearMocks: false` preserves Vitest 4 semantics;
 Vitest name filters now use the same ` > `-joined names as its reporter. Node
 filters keep their space-joined names. The required planner explicitly keeps
-static Vitest candidates, so a cold runtime cache cannot change its ownership.
+static Vitest candidates without watch-wide rerun triggers, so a cold runtime
+cache cannot change its ownership. Config/package inputs retain their existing
+CI/publication owner policies rather than treating all tests as unmapped edges.
 
 Inspect a Git comparison through the official CLI (config/package edits trigger
 all files, so commit the migration before measuring a narrow Git comparison):

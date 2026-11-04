@@ -319,12 +319,17 @@ function discoverNode() {
   return JSON.parse(execFileSync(process.execPath, ['tests/tooling/node-collect.cjs', ...files], { cwd: root, encoding: 'utf8' }))
 }
 async function discover({ relatedPaths = [] } = {}) {
-  // Public Vitest API; keep the required planner on its existing static candidates.
+  // Keep static candidates for the required planner. Watch-wide config/package
+  // triggers are not dependency edges; existing owner policies handle those inputs.
   const { createVitest } = await import('vitest/node')
   const priorFiles = process.env.LOGIC_TEST_FILES
   delete process.env.LOGIC_TEST_FILES
-  const ctx = await createVitest('test', { root, watch: false, includeTaskLocation: true, reporters: [], experimental: { recordDependencies: false }, related: relatedPaths.map(file => resolve(root, file)) })
+  const ctx = await createVitest('test', { root, watch: false, includeTaskLocation: true, reporters: [], forceRerunTriggers: [], experimental: { recordDependencies: false }, related: relatedPaths.map(file => resolve(root, file)) })
   try {
+    // Vite exposes the resolved config imports; they are global rerun inputs,
+    // not module edges. Existing config owner policies still process them.
+    const configInputs = new Set(ctx.vite.config.configFileDependencies)
+    ctx.config.related = ctx.config.related.filter(file => !configInputs.has(file))
     const specs = await ctx.globTestSpecifications()
     const related = relatedPaths.length ? await ctx.getRelevantTestSpecifications() : []
     const { testModules, unhandledErrors } = await ctx.collectTests(specs)
