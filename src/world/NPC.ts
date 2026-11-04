@@ -1150,11 +1150,11 @@ export class NPC {
     this.mount = mount
     this.mount.setNpcRider(this, this.faction)
     this._alignExternalVisualToMount(true)
-    this.animator.setEquipment(this.isUsingLance, this.shield.active, this.mount.type as MountedPoseKind, true)
-    this.animator.setLocomotion(0, true, false, { fadeSeconds: 0 })
-    this.animator.sampleInitialPose()
+    this.animator?.setEquipment?.(this.isUsingLance, this.shield?.active, this.mount.type as MountedPoseKind, true)
+    this.animator?.setLocomotion?.(0, true, false, { fadeSeconds: 0 })
+    this.animator?.sampleInitialPose?.()
     this._syncToMount()
-    this.fitMountedSeat()
+    this.fitMountedSeat?.()
   }
 
   /**
