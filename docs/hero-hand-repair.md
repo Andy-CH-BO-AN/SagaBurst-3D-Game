@@ -61,6 +61,11 @@ installed executable. The builder invokes the same extraction step. Blender
   world transform. Root-space bone lengths and hand-offset scale are measured
   for this opt-in solve; asset normalization above the arm must not be omitted.
   Body clip data and original socket/weapon metadata remain unchanged.
+- Mounted contact is fitted against the existing mounted attachment roll,
+  using the production idle calibration and upper-body filter through Vite's
+  offline module loader. The arm uses the shortest shaft alignment instead of
+  forcing foot palm roll onto the rider. Its own finger/palm contact solution
+  avoids making the mounted wrist unreachable while keeping the blade fixed.
 
 LOD0's total triangle count must remain exact. Additional visible resolution
 subdivides the local reference hand faces; no hidden or zero-area filler is

@@ -4,6 +4,8 @@ export interface ArticulatedFingerPoses {
   sword?: Record<string, readonly number[]>
   /** Hand-only grasp station; the weapon keeps its original attachment. */
   swordGripCenterLocal?: [number, number, number]
+  mountedSword?: Record<string, readonly number[]>
+  mountedSwordGripCenterLocal?: [number, number, number]
 }
 interface ContactState {
   alive: boolean

@@ -24,6 +24,33 @@ if(referencePath.toLowerCase().endsWith('.fbx')) {
  execFileSync(process.env.BLENDER??'blender',['-b','--python','tools/prepare-hand-reference.py','--',referencePath,preparedReference],{stdio:'inherit'})
 }
 const reference=JSON.parse(fs.readFileSync(preparedReference)),hash=b=>createHash('sha256').update(b).digest('hex')
+// Reuse production calibration, including its mounted upper-body clip filter.
+// A separate Vite module graph keeps the offline process out of the game UI.
+const {createServer}=await import('vite')
+const calibrationServer=await createServer({configFile:false,cacheDir:'output/finger-anatomy/build-cache',server:{middlewareMode:true}})
+let calibrateLanceIdleAttachment,createMountedIdleClip
+try {
+ ;({calibrateLanceIdleAttachment}=await calibrationServer.ssrLoadModule('/src/world/EquipmentAttachmentContract.ts'))
+ ;({createMountedIdleClip}=await calibrationServer.ssrLoadModule('/src/world/HumanoidAssetRegistry.ts'))
+} finally {await calibrationServer.close()}
+async function fitSwordContact(rig,right,swordFile,frames,tips,repairPalm) {
+ let target=await measureSwordGripTarget(swordFile,right),contact
+ if(repairPalm){contact=anatomicalSwordContact(rig,right,target);target=await measureSwordGripTarget(swordFile,{...right,gripCenterLocal:contact.gripCenterLocal})}
+ let grip=buildAnatomicalFingerPoses(rig,{...frames,r:target},tips).grip
+ if(contact)for(let pass=0;pass<4;pass++){
+  const saved=Object.keys(grip).map(name=>[rig.scene.getObjectByName(name),rig.scene.getObjectByName(name).quaternion.clone()])
+  for(const [b]of saved)if(b.name.endsWith('_r'))b.quaternion.fromArray(grip[b.name])
+  const palm=swordPalmClearance(rig,target)
+  for(const [b,q]of saved)b.quaternion.copy(q);rig.scene.updateMatrixWorld(true)
+  contact.palmSurface=palm
+  if(new T.Vector3(...palm.offsetM).length()<1e-7)break
+  if(pass===3)throw Error('Sword palm contact did not converge')
+  for(let i=0;i<3;i++){contact.gripCenterLocal[i]+=palm.offsetM[i];contact.offsetM[i]+=palm.offsetM[i]}
+  target=await measureSwordGripTarget(swordFile,{...right,gripCenterLocal:contact.gripCenterLocal})
+  grip=buildAnatomicalFingerPoses(rig,{...frames,r:target},tips).grip
+ }
+ return {target,contact,grip}
+}
 const triangleCount=doc=>doc.meshes.reduce((s,m)=>s+m.primitives.reduce((s,p)=>s+doc.accessors[p.indices].count/3,0),0)
 function accessorBytes(asset,index) {
  const a=asset.document.accessors[index],view=asset.document.bufferViews[a.bufferView],width=({5121:1,5123:2,5125:4,5126:4}[a.componentType])*({SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT4:16}[a.type]),rows=[]
@@ -47,7 +74,7 @@ function preservedRestDigest(doc) {
 for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-t4']) {
  const sourceDir=path.join(inputRoot,id),destination=path.join(outputRoot,id),manifest=JSON.parse(fs.readFileSync(path.join(sourceDir,'manifest.json')))
  if(manifest.fingerAnatomyBuild)throw Error(`Use original inputs, not repaired ${id}`)
- fs.mkdirSync(destination,{recursive:true});const reports=[];let poses,boneMap,swordTarget,swordContact
+ fs.mkdirSync(destination,{recursive:true});const reports=[];let poses,boneMap,swordTarget,swordContact,mountedSwordContact,mountedSwordTarget
  const meshSource=['viking-hero-t5','roman-hero-t4'].includes(id)?await loadRig(await decodeMeshoptGlb(readGlb(path.join(sourceDir,manifest.files.lod0)))):null
  for(const lod of [0,1,2]) {
   const key=`lod${lod}`,filename=manifest.files[key],bytes=fs.readFileSync(path.join(sourceDir,filename))
@@ -70,20 +97,15 @@ for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-
    const frames={r:right,l:{gripCenterLocal:left.palmContactCenter.map((v,i)=>v+left.palmNormal[i]*(right.gripRadius??.022)),gripAxisLocal:left.thumbDirection,gripRadius:right.gripRadius}}
    poses=buildAnatomicalFingerPoses(rig,frames,surface?.tips)
    const swordFile=id==='viking-hero-t5'?'public/models/weapons/t5/sword.glb':'public/models/weapons/paladin/sword.glb'
-   swordTarget=await measureSwordGripTarget(swordFile,right)
-   if(surface?.boneRecords.length){swordContact=anatomicalSwordContact(rig,right,swordTarget);swordTarget=await measureSwordGripTarget(swordFile,{...right,gripCenterLocal:swordContact.gripCenterLocal})}
-   poses.sword=buildAnatomicalFingerPoses(rig,{...frames,r:swordTarget},surface?.tips).grip
-   if(swordContact)for(let pass=0;pass<4;pass++){
-    const saved=Object.keys(poses.sword).map(name=>[rig.scene.getObjectByName(name),rig.scene.getObjectByName(name).quaternion.clone()])
-    for(const [b]of saved)if(b.name.endsWith('_r'))b.quaternion.fromArray(poses.sword[b.name])
-    const palm=swordPalmClearance(rig,swordTarget)
-    for(const [b,q]of saved)b.quaternion.copy(q);rig.scene.updateMatrixWorld(true)
-    swordContact.palmSurface=palm
-    if(new T.Vector3(...palm.offsetM).length()<1e-7)break
-    if(pass===3)throw Error(`Palm contact did not converge: ${id}`)
-    for(let i=0;i<3;i++){swordContact.gripCenterLocal[i]+=palm.offsetM[i];swordContact.offsetM[i]+=palm.offsetM[i]}
-    swordTarget=await measureSwordGripTarget(swordFile,{...right,gripCenterLocal:swordContact.gripCenterLocal})
-    poses.sword=buildAnatomicalFingerPoses(rig,{...frames,r:swordTarget},surface?.tips).grip
+   const foot=await fitSwordContact(rig,right,swordFile,frames,surface?.tips,!!surface?.boneRecords.length)
+   swordTarget=foot.target;swordContact=foot.contact;poses.sword=foot.grip
+   if(swordContact){
+    const calibrated={...right},idle=rig.animations.find(c=>c.name==='idle')
+    calibrateLanceIdleAttachment(rig.scene,['ordinary22','roman54','varangian63'].includes(manifest.selectedSource?.rig??'')?createMountedIdleClip(idle):idle,calibrated)
+    const mountedQ=new T.Quaternion().fromArray(calibrated.modelRotationLocal),shaft=new T.Vector3(...right.gripAxisLocal).normalize(),swing=new T.Quaternion().setFromUnitVectors(shaft,new T.Vector3(0,1,0).applyQuaternion(mountedQ))
+    const modelInHand=swing.invert().multiply(mountedQ),mountedFrame={...right,palmNormalLocal:new T.Vector3(0,0,-1).applyQuaternion(modelInHand).toArray()}
+    const mounted=await fitSwordContact(rig,mountedFrame,swordFile,frames,surface.tips,true)
+    mountedSwordTarget=mounted.target;mountedSwordContact=mounted.contact;poses.mountedSword=mounted.grip
    }
   }
   const clips=bakeAnatomicalFingerClips(rig,poses,manifest.animations.embedded),chunks=[asset.binary];let offset=asset.binary.length
@@ -131,7 +153,7 @@ for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-
   fs.writeFileSync(path.join(destination,filename),output);manifest.fileSha256[key]=hash(output);manifest.metrics.triangles[key]=after
   reports.push({lod,before,after,originalSha256:hash(bytes),outputSha256:hash(output),preservedNonFingerChannels:preservedChannels,bodyAnimationSha256:animationAfter,bodyRestAndSocketsSha256:restAfter,localSurfaceRepair:surface?.report??null})
  }
- manifest.articulatedFingerPoses={relaxed:poses.relaxed,grip:poses.grip,sword:poses.sword,...(swordContact?{swordGripCenterLocal:swordContact.gripCenterLocal}:{})}
+ manifest.articulatedFingerPoses={relaxed:poses.relaxed,grip:poses.grip,sword:poses.sword,...(swordContact?{swordGripCenterLocal:swordContact.gripCenterLocal}:{}),...(mountedSwordContact?{mountedSword:poses.mountedSword,mountedSwordGripCenterLocal:mountedSwordContact.gripCenterLocal}:{})}
  if(manifest.animationRetarget?.fingerDonor){delete manifest.animationRetarget.fingerDonor;manifest.animationRetarget.method='Existing body retarget unchanged. Finger-only target-bind poses replace the former Roman donor plus additive grasp; source events and durations retained.'}
  manifest.knownLimitations=(manifest.knownLimitations??[]).map(item=>item.includes('Thirty anatomical finger tracks')?'Finger contact uses the measured asset handle radius; unusually thick replacement handles still require visual review.':item)
  manifest.fingerAnatomyBuild={tool:'tools/repair-hero-fingers.mjs',version:1,sourceManifestSha256:hash(fs.readFileSync(path.join(sourceDir,'manifest.json'))),handReference:{source:reference.source,sourceSha256:reference.sourceSha256,author:reference.author,license:reference.license},lods:reports}
@@ -139,6 +161,7 @@ for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-
  const {sections,...sourceSurface}=swordTarget.sourceSurface
  manifest.fingerAnatomyBuild.swordContactTarget={...swordTarget,sourceSurface:{...sourceSurface,sectionCount:sections.length}}
  if(swordContact)manifest.fingerAnatomyBuild.swordHandContact=swordContact
+ if(mountedSwordContact){const {sections,...sourceSurface}=mountedSwordTarget.sourceSurface;manifest.fingerAnatomyBuild.mountedSwordContactTarget={...mountedSwordTarget,sourceSurface:{...sourceSurface,sectionCount:sections.length}};manifest.fingerAnatomyBuild.mountedSwordHandContact=mountedSwordContact}
  manifest.audit='finger-anatomy-audit.json'
  manifest.modifications=[...(manifest.modifications??[]),'Local hand anatomy repair; target-bind absolute finger poses distinguish natural hand shape from equipment contact. Body animation samples, wrist/socket transforms and action/event clocks retained.']
  manifest.visualAcceptance='Pending current browser review; numeric/structural checks do not establish appearance.'

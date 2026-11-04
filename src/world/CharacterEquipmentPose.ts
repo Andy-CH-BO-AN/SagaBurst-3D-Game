@@ -349,30 +349,30 @@ export class CharacterEquipmentPose {
   }
 
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
-  private readonly articulatedFingers: Array<{ node: THREE.Object3D, left: boolean, relaxed: THREE.Quaternion, grip: THREE.Quaternion, sword?: THREE.Quaternion }> = []
+  private readonly articulatedFingers: Array<{ node: THREE.Object3D, left: boolean, relaxed: THREE.Quaternion, grip: THREE.Quaternion, sword?: THREE.Quaternion, mountedSword?: THREE.Quaternion }> = []
   private readonly articulatedSwordFrame?: EquipmentGripFrame
+  private readonly articulatedMountedSwordFrame?: EquipmentGripFrame
   private readonly articulatedSwordArm?: ArmSolver
-  private readonly mountedSwordContactRotation?: THREE.Quaternion
 
   constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource, clothRig?: FittedHumanoidClothRig, private readonly relaxedLeftThumbForward: boolean | 'including-lance' = false, private readonly swordCarryGrips?: readonly SwordCarryGripProfile[], private readonly alignAuthoredCarryGrip = false, fingerPoses?: ArticulatedFingerPoses) {
     if (fingerPoses) for (const [name, natural] of Object.entries(fingerPoses.relaxed)) {
       const node = root.getObjectByName(name), contact = fingerPoses.grip[name]
       if (!node || !contact || !/^(thumb|index|middle|ring|pinky)_0[123]_[lr]$/.test(name)) throw new Error(`Invalid articulated finger pose: ${name}`)
       const sword = fingerPoses.sword?.[name]
-      this.articulatedFingers.push({ node, left: name.endsWith('_l'), relaxed: new THREE.Quaternion(natural[0], natural[1], natural[2], natural[3]), grip: new THREE.Quaternion(contact[0], contact[1], contact[2], contact[3]), sword: sword ? new THREE.Quaternion(sword[0], sword[1], sword[2], sword[3]) : undefined })
+      const mountedSword = fingerPoses.mountedSword?.[name]
+      this.articulatedFingers.push({ node, left: name.endsWith('_l'), relaxed: new THREE.Quaternion(natural[0], natural[1], natural[2], natural[3]), grip: new THREE.Quaternion(contact[0], contact[1], contact[2], contact[3]), sword: sword ? new THREE.Quaternion(sword[0], sword[1], sword[2], sword[3]) : undefined, mountedSword: mountedSword ? new THREE.Quaternion(mountedSword[0], mountedSword[1], mountedSword[2], mountedSword[3]) : undefined })
     }
     if (fingerPoses?.swordGripCenterLocal && rig.swordGripFrame) {
       const center = fingerPoses.swordGripCenterLocal
       this.articulatedSwordFrame = { ...frames.lanceRight, ...rig.swordGripFrame, gripCenterLocal: [center[0], center[1], center[2]] }
       this.articulatedSwordArm = new ArmSolver(root, rig.right, 1, true)
-      if (frames.lanceRight.modelRotationLocal) this.mountedSwordContactRotation = new THREE.Quaternion().fromArray(frames.lanceRight.modelRotationLocal)
-        .multiply(new THREE.Quaternion().setFromRotationMatrix(swordHandMatrix(rig.swordGripFrame)).invert())
+      if (fingerPoses.mountedSwordGripCenterLocal) this.articulatedMountedSwordFrame = { ...this.articulatedSwordFrame, gripCenterLocal: [...fingerPoses.mountedSwordGripCenterLocal] }
     }
     if (alignAuthoredCarryGrip || this.articulatedSwordFrame) {
       if (rig.right.shoulder.parent?.name !== 'clavicle_r') throw new Error('Authored carry alignment requires the canonical right clavicle')
       this.carryClavicle = rig.right.shoulder.parent
     }
-    if ((swordCarryGrips?.length || alignAuthoredCarryGrip) && frames.lanceRight.modelRotationLocal) this.mountedSwordShaftLocal = new THREE.Vector3(0, 1, 0)
+    if ((swordCarryGrips?.length || alignAuthoredCarryGrip || this.articulatedSwordFrame) && frames.lanceRight.modelRotationLocal) this.mountedSwordShaftLocal = new THREE.Vector3(0, 1, 0)
       .applyQuaternion(new THREE.Quaternion().fromArray(frames.lanceRight.modelRotationLocal))
     if (swordCarryGrips?.length && rig.swordGripFrame) {
       this.swordCarryFrame = { ...frames.lanceRight, ...rig.swordGripFrame, gripCenterLocal: [...rig.swordGripFrame.gripCenterLocal] }
@@ -905,14 +905,20 @@ export class CharacterEquipmentPose {
       && (state.lance || state.mounted && state.actualSword) && !state.sampledBowPose
       && !['pilumThrow', 'axeAttack2H', 'greatswordSlash'].includes(state.action))) {
       const sourceFrame = this.rig.swordGripFrame
-      const frame = fittedSwordContact ? this.articulatedSwordFrame! : sourceFrame
+      const frame = fittedSwordContact
+        ? (state.mounted ? this.articulatedMountedSwordFrame : undefined) ?? this.articulatedSwordFrame!
+        : sourceFrame
       const solver = fittedSwordContact ? this.articulatedSwordArm! : this.axeRight
       this.root.updateWorldMatrix(true, true)
       this.swordEquipmentCorrection.copy(this.rig.right.wrist.matrixWorld)
       this.root.getWorldQuaternion(this.rootWorld).invert()
       this.rig.right.wrist.getWorldQuaternion(this.handWorld).premultiply(this.rootWorld)
       if (fittedSwordContact) {
-        if (state.mounted && this.mountedSwordContactRotation) this.handWorld.multiply(this.mountedSwordContactRotation)
+        if (state.mounted && this.mountedSwordShaftLocal) {
+          this.attackAxis.fromArray(sourceFrame.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
+          this.axeReach.copy(this.mountedSwordShaftLocal).applyQuaternion(this.handWorld).normalize()
+          this.handWorld.premultiply(this.attackRotation.setFromUnitVectors(this.attackAxis, this.axeReach))
+        }
       } else {
         this.attackAxis.fromArray(frame.gripAxisLocal).applyQuaternion(this.handWorld).normalize()
         this.axeReach.copy(this.mountedSwordShaftLocal!).applyQuaternion(this.handWorld).normalize()
@@ -1009,7 +1015,10 @@ export class CharacterEquipmentPose {
     }
     const fingerContact = fingerContactOwnership(state)
     if (fingerContact) for (const entry of this.articulatedFingers) {
-      entry.node.quaternion.copy(fingerContact[entry.left ? 'left' : 'right'] ? !entry.left && state.actualSword && entry.sword ? entry.sword : entry.grip : entry.relaxed)
+      const weaponGrip = !entry.left && state.actualSword
+        ? (state.mounted ? entry.mountedSword : undefined) ?? entry.sword ?? entry.grip
+        : entry.grip
+      entry.node.quaternion.copy(fingerContact[entry.left ? 'left' : 'right'] ? weaponGrip : entry.relaxed)
     }
     if (live && state.mounted) this.fittedCloth?.applyMounted()
     this.root.updateWorldMatrix(true, true)
