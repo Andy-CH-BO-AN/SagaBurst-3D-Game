@@ -488,7 +488,7 @@ export class TownScene {
       }, duel: () => this.acceptTutorialDuel(),
       closePanel: () => this.closePanel(),
       openRecruitmentPanel: () => this.openRecruitmentPanel(),
-      openDeploymentPanel: () => this.talk('deployment'),
+      openServices: id => { this.tutorialBypass = true; try { this.talk(id) } finally { this.tutorialBypass = false } },
       openPanel: (title, text) => this.openPanel(title, text),
     })
     this.personalCommands.onAccepted = event => this.tutorial?.commandAccepted(event)
@@ -1244,10 +1244,11 @@ export class TownScene {
     document.body.append(panel); this.panel = panel; return panel
   }
   private button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement { const b = document.createElement('button'); b.textContent = label; b.className = 'town-button'; b.onclick = action; parent.append(b); return b }
+  private tutorialBypass = false
   private talk(id: string, response?: string, shopPage: 'buy' | 'sell' = 'buy', shopCategory: EquipmentCategory = 'melee'): void {
     if (this.player.dead || !this.serviceAvailable(id)) return
     if (id === 'hr-officer') {
-      if (this.tutorial?.hasDialogue('hr-officer')) {
+      if (!this.tutorialBypass && this.tutorial?.hasDialogue('hr-officer')) {
         const panel = this.openPanel('HR Officer · 人力資源官', '')
         panel.querySelector('.town-panel > button')?.remove()
         this.tutorial.renderDialogue(panel, 'hr-officer')
@@ -1267,7 +1268,7 @@ export class TownScene {
     const p = this.profile, context: DialogueContext = { townFaction: p.faction, npcRole: role, playerRank: p.rank, firstMeet, promotionEligible: canAppointCareerRank(p, id) }
     const greeting = response ?? (id === 'eagle-trainer' ? 'xongkoro Eagle Training Ground · 老鷹訓練場\nCaptain / Commander 可用 10,000 軍功購買巨鷹英雄坐騎。請在開闊的起降區召喚；W 起飛，滑鼠轉向，S 減速降落。' : selectTownDialogue(context))
     if (id === 'captain' || id === 'commander') {
-      if (this.tutorial?.hasDialogue(id)) {
+      if (!this.tutorialBypass && this.tutorial?.hasDialogue(id)) {
         const panel = this.openPanel(id === 'captain' ? '騎兵隊長' : '指揮官', '')
         panel.querySelector('.town-panel > button')?.remove()
         this.tutorial.renderDialogue(panel, id)
@@ -1816,7 +1817,7 @@ export class TownScene {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
     const active = this.profile.activeMission
     if (active?.result) { this.openMissionResult(active.result, true); return }
-    if (this.tutorial?.hasDialogue('deployment')) {
+    if (!this.tutorialBypass && this.tutorial?.hasDialogue('deployment')) {
       const panel = this.openPanel('士官長', '')
       panel.querySelector('.town-panel > button')?.remove()
       this.tutorial.renderDialogue(panel, 'deployment')
@@ -2251,10 +2252,15 @@ export class TownScene {
     if (!mission) { this.openPanel('無法開始新兵切磋', '隊長或裁判暫時無法出場，請稍後再來。'); return }
     const next = cloneCareerProfile(fresh); next.activeMission = mission
     if (!this.commit(next)) { this.openPanel('切磋尚未開始', '保存失敗，請重試。'); return }
+    this.deployTutorialDuel()
+  }
+  /** Deploys the already-saved tutorial duel; retry reuses that mission and never creates or rewards a new one. */
+  private deployTutorialDuel(): void {
+    if (!this.profile.activeMission) return
     if (!this.duel.startActiveMission()) {
       // Technical deployment failure has no defeat settlement and no consolation reward.
       this.openPanel('新兵切磋部署失敗', '本場尚未結算；重新載入可重試相同切磋，或取消後稍後再來。')
-      this.button(this.panel!, '重試開始切磋', () => this.acceptTutorialDuel())
+      this.button(this.panel!, '重試開始切磋', () => this.deployTutorialDuel())
       this.button(this.panel!, '取消本次切磋', () => this.returnToTown('direct'))
       return
     }

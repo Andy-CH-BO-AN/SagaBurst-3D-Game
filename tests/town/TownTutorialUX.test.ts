@@ -89,7 +89,7 @@ function createHostHarness(initialProfile?: CareerProfile) {
 
   let closedCount = 0
   let recruitmentOpened = 0
-  let deploymentOpened = 0
+  const servicesOpened: string[] = []
   let duelCount = 0
   const launches: { stage: string; replay: boolean }[] = []
   let failCommit = false
@@ -123,7 +123,7 @@ function createHostHarness(initialProfile?: CareerProfile) {
     duel: () => { duelCount++ },
     closePanel: () => { closedCount++ },
     openRecruitmentPanel: () => { recruitmentOpened++ },
-    openDeploymentPanel: () => { deploymentOpened++ },
+    openServices: id => { servicesOpened.push(id) },
     openPanel: (title, text) => {
       const p = new MockElement('div') as unknown as HTMLDivElement
       const h2 = new MockElement('h2')
@@ -141,7 +141,7 @@ function createHostHarness(initialProfile?: CareerProfile) {
     setProfile: (p: CareerProfile) => { profile = p },
     getClosedCount: () => closedCount,
     getRecruitmentOpened: () => recruitmentOpened,
-    getDeploymentOpened: () => deploymentOpened,
+    getServicesOpened: () => servicesOpened,
     getDuelCount: () => duelCount,
     getLaunches: () => launches,
     setFailCommit: (fail: boolean) => { failCommit = fail },
@@ -175,9 +175,12 @@ describe('TownTutorialUX', () => {
     expect(p.textContent).toContain('新兵，歡迎加入軍團！')
 
     const buttons = (panel as unknown as MockElement).querySelectorAll('button')
-    expect(buttons.length).toBe(2)
-    expect(buttons[0].textContent).toBe('好，我這就去')
-    expect(buttons[1].textContent).toBe('我晚點再去')
+    expect(buttons.map(b => b.textContent)).toEqual(['好，我這就去', '我晚點再去', '查看任務與其他服務'])
+
+    // Escape hatch reaches the original Sergeant panel without advancing the tutorial
+    buttons[2].onclick!()
+    expect(harness.getServicesOpened()).toEqual(['deployment'])
+    expect(harness.getProfile().tutorial?.town.step).toBe('report')
 
     // Click accept
     buttons[0].onclick!()
@@ -452,6 +455,107 @@ describe('TownTutorialUX', () => {
     harness.getProfile().tutorial!.town.status = 'completed'
     startCareerTutorial(harness.getProfile(), 'town', true)
     expect(harness.getProfile().tutorial?.town.replay).toBe(true)
+
+    ctrl.dispose()
+  })
+
+  const dialoguePanel = () => {
+    const panel = new MockElement('div')
+    const body = new MockElement('p')
+    panel.append(new MockElement('h2'), body)
+    return { panel: panel as unknown as HTMLElement, buttons: () => panel.querySelectorAll('button') }
+  }
+
+  it('deferred or legacy tutorials never intercept the Sergeant and can be resumed explicitly', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+    t.town.status = 'deferred'
+    t.captain.status = 'deferred'
+    t.commander.status = 'deferred'
+
+    expect(ctrl.hasDialogue('deployment')).toBe(false)
+    const side = dialoguePanel()
+    ctrl.appendPanel(side.panel, 'deployment')
+    expect(side.buttons().map(b => b.textContent)).toEqual(['繼續新兵訓練', '繼續 30 人指揮演練', '繼續指揮塔訓練', '回顧訓練'])
+
+    // Captain/commander resume: tutorial NPC dialogue offers acceptance for deferred as well.
+    const commander = dialoguePanel()
+    expect(ctrl.hasDialogue('commander')).toBe(true)
+    ctrl.renderDialogue(commander.panel, 'commander')
+    commander.buttons()[0].onclick!()
+    expect(harness.getProfile().tutorial?.commander.status).toBe('active')
+
+    // Failed save keeps the status unchanged.
+    harness.getProfile().tutorial!.hr.status = 'deferred'
+    const hr = dialoguePanel()
+    harness.setFailCommit(true)
+    ctrl.renderDialogue(hr.panel, 'hr-officer')
+    hr.buttons()[0].onclick!()
+    expect(harness.getProfile().tutorial?.hr.status).toBe('deferred')
+
+    ctrl.dispose()
+  })
+
+  it('captain duel dialogue keeps the regular promotion/services entry', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+    t.town.status = 'active'
+    t.town.step = 'duel'
+
+    const captain = dialoguePanel()
+    expect(ctrl.hasDialogue('captain')).toBe(true)
+    ctrl.renderDialogue(captain.panel, 'captain')
+    const buttons = captain.buttons()
+    expect(buttons.map(b => b.textContent)).toEqual(['開始切磋', '還沒準備好', '任命／其他服務'])
+    buttons[2].onclick!()
+    expect(harness.getServicesOpened()).toEqual(['captain'])
+    expect(harness.getDuelCount()).toBe(0)
+
+    ctrl.dispose()
+  })
+
+  it('reward notices report the actual grant, including legacy horse without reward', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    const t = harness.getProfile().tutorial!
+    t.legacy = true
+    t.town.status = 'active'
+    t.town.step = 'horse'
+    t.rewards.horse = undefined
+    harness.getProfile().ownedMounts = ['horse']
+    const merit = harness.getProfile().availableMerit
+
+    ctrl.update()
+    const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')!
+    expect(harness.getProfile().availableMerit).toBe(merit)
+    expect(hint.textContent).not.toContain('獲得 50 軍功')
+    expect(hint.textContent).toContain('不補發軍功')
+
+    ctrl.dispose()
+  })
+
+  it('review replay stays open and shows an error when saving fails', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    harness.getProfile().tutorial!.town.status = 'completed'
+    let reviewPanel: HTMLElement | undefined
+    const openPanel = harness.host.openPanel!
+    harness.host.openPanel = (title, text) => (reviewPanel = openPanel(title, text))
+
+    ctrl.openReviewPanel()
+    const replay = (reviewPanel as unknown as MockElement).querySelectorAll('button').find(b => b.textContent === '重播城鎮新兵引導')!
+    harness.setFailCommit(true)
+    replay.onclick!()
+    expect(harness.getClosedCount()).toBe(0)
+    expect((reviewPanel as unknown as MockElement).querySelector('.town-save-error')).not.toBeNull()
+    expect(harness.getProfile().tutorial?.town.status).toBe('completed')
+
+    harness.setFailCommit(false)
+    replay.onclick!()
+    expect(harness.getClosedCount()).toBe(1)
+    expect(harness.getProfile().tutorial?.town.status).toBe('active')
 
     ctrl.dispose()
   })
