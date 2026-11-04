@@ -167,6 +167,7 @@ export class WeaponMeshFactory {
   static buildMelee(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
     const tipLocal = new THREE.Vector3(0, 1.2, 0)
     pivot.userData.gripCenterLocal = [0, 0.15, 0]
+    pivot.userData.meleeWeaponId = weaponId
     if (WEAPONS[weaponId]?.combatKind === 'sword') pivot.userData.meleeAnimationKind = WEAPONS[weaponId].animationKind
     else delete pivot.userData.meleeAnimationKind
 

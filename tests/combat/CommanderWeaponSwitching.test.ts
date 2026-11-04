@@ -1,4 +1,5 @@
 import { minimumReachableShoulderSwing } from '../../src/world/AuthoredCarryGrip'
+import { fingerContactOwnership } from '../../src/world/FingerContactPolicy'
 import { Box3, Quaternion, Vector3, type Object3D } from 'three'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { ShieldState } from '../../src/combat/ShieldBlocking'
@@ -67,6 +68,20 @@ function trimmedAxeAnimator(attackFadeInSeconds?: number) {
 }
 
 describe('Combat animator imported melee clock', () => {
+  it('releases both finger contacts when weapon and shield are removed during locomotion', () => {
+    const state: EquipmentPoseState = { alive: true, action: 'run', elapsed: .3, mounted: false, mountKind: 'HORSE', lance: false, carryWeapon: 'sword', shield: true }
+    expect(fingerContactOwnership(state)).toEqual({ left: true, right: true })
+    state.carryWeapon = undefined
+    state.shield = false
+    expect(fingerContactOwnership(state)).toEqual({ left: false, right: false })
+  })
+
+  it('keeps finger ownership with the bow samples through the return-to-idle fade', () => {
+    const state: EquipmentPoseState = { alive: true, action: 'idle', elapsed: .1, mounted: false, mountKind: 'HORSE', lance: false, carryWeapon: 'sword', shield: false, sampledBowPose: true }
+    expect(fingerContactOwnership(state)).toBeNull()
+    state.sampledBowPose = false
+    expect(fingerContactOwnership(state)).toEqual({ left: false, right: true })
+  })
   it('decays one fixed rotation offset continuously across a target hemisphere change without accumulating on repeated samples', () => {
     const axis = new Vector3(0, 1, 0)
     const target = { position: new Vector3(4, 2, 1), quaternion: new Quaternion(), scale: new Vector3(2, 3, 4) }

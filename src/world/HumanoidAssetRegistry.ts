@@ -1,4 +1,5 @@
 import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
+import type { ArticulatedFingerPoses } from './FingerContactPolicy'
 import { getOrdinarySoldierAssetId } from '../combat/OrdinarySoldierProfile'
 import { prepareSeatSupport } from './SkinnedSeatContact'
 import type { FittedHumanoidClothRig } from './FittedHumanoidCloth'
@@ -91,6 +92,8 @@ export interface HumanoidAssetManifest {
   sharedLodPose?: boolean
   /** Preserve authored canonical finger channels when deriving mounted upper-body idle. */
   preserveMountedFingerTracks?: boolean
+  /** Absolute target-bind finger poses; free hands and contact have separate owners. */
+  articulatedFingerPoses?: ArticulatedFingerPoses
   /** Keep the equipped axe carry forward without changing the authored wrist. */
   forwardAxeCarry?: boolean
   clothRig?: FittedHumanoidClothRig
@@ -540,6 +543,13 @@ export class MixerController implements HumanoidAnimationController {
       const blend = this.inertialTransitions[0]?.blend ?? 1
       this.equipmentState.relaxedHandWeight = THREE.MathUtils.lerp(this.relaxedHandTransitionStart, this.equipmentState.relaxedHandWeight, blend)
       if (blend === 1) this.relaxedHandTransitionStart = undefined
+    }
+    if (this.equipmentState.carryWeapon === 'axe' && this.equipmentState.prepareAxeAttachment) {
+      // Evaluate the weapon against the newly sampled source hand, before any
+      // contact overlay moves it. The final callback then counter-transforms
+      // the equipment proxy once; no late attachment owner can move it again.
+      this.onPoseEvaluated?.()
+      this.equipmentState.prepareAxeAttachment(this.equipmentState)
     }
     Object.assign(this.evaluatedEquipmentState, this.equipmentState)
     this.equipmentLayers.forEach((layer, index) => {
@@ -1254,10 +1264,31 @@ export class HumanoidAssetRegistry {
       if (frames) {
         const layerRig = createHumanoidRigAdapter(level.object, animation)
         layerRig.swordGripFrame = template.manifest.swordGripFrames?.[(['lod0', 'lod1', 'lod2'] as const)[index]]
-        animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips, template.manifest.alignAuthoredCarryGrip)
+        animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips, template.manifest.alignAuthoredCarryGrip, template.manifest.articulatedFingerPoses)
       }
     }
-    animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined)
+    rig.right.handSocket.userData.articulatedAxeContact = !!template.manifest.articulatedFingerPoses?.axeGripProfile
+    const updateEquipmentSockets = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip || template.manifest.articulatedFingerPoses?.swordGripCenterLocal) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined, template.manifest.articulatedFingerPoses?.shieldGripCenterLocal ? () => animation.equipmentLayers[0]?.leftEquipmentHandCorrection : undefined)
+    const handBounds: Array<{ mesh: THREE.SkinnedMesh, wrist: THREE.Bone, radius: number }> = []
+    root.traverse(node => {
+      if (!(node instanceof THREE.SkinnedMesh)) return
+      const bound = node.userData.animatedHandBound as { bone: string, radius: number } | undefined
+      if (!bound) return
+      const wrist = node.skeleton.bones.find(bone => bone.name === bound.bone)
+      if (!wrist || !Number.isFinite(bound.radius) || bound.radius <= 0) throw new Error('Invalid animated hand bound')
+      node.boundingSphere = new THREE.Sphere()
+      handBounds.push({ mesh: node, wrist, radius: bound.radius })
+    })
+    const handBoundTransform = new THREE.Matrix4()
+    animation.onPoseEvaluated = () => {
+      updateEquipmentSockets()
+      for (const { mesh, wrist, radius } of handBounds) {
+        mesh.updateWorldMatrix(true, false)
+        handBoundTransform.copy(mesh.matrixWorld).invert().multiply(wrist.matrixWorld)
+        mesh.boundingSphere!.center.setFromMatrixPosition(handBoundTransform)
+        mesh.boundingSphere!.radius = radius * handBoundTransform.getMaxScaleOnAxis()
+      }
+    }
     if (template.manifest.swordCarryGrips && rig.right.handSocket) rig.right.handSocket.userData.anatomicalSwordCarry = true
     animation.onPoseEvaluated()
     animation.play('idle')
