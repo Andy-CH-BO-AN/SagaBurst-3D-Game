@@ -2,8 +2,9 @@
 
 `tools/repair-hero-fingers.mjs` is a post-process for the four existing hero
 deliveries. It consumes original GLBs/manifests, verifies their hashes, and
-changes only local hand surfaces, finger rest/bind data and finger rotation
-channels. The original character source files remain the reconstruction source.
+changes only local hand surfaces, finger rest/bind data, finger rotation
+channels and local hand-bound metadata. The original character source files
+remain the reconstruction source.
 
 ## Inputs and reproduction
 
@@ -66,6 +67,11 @@ installed executable. The builder invokes the same extraction step. Blender
   offline module loader. The arm uses the shortest shaft alignment instead of
   forcing foot palm roll onto the rider. Its own finger/palm contact solution
   avoids making the mounted wrist unreachable while keeping the blade fixed.
+- Separate hand meshes carry a conservative wrist-local skin bound derived
+  from finger-chain lengths and weighted bind points. The pose callback moves
+  that small sphere with the wrist. A cached idle sphere previously culled a
+  valid attacking hand in close views; this keeps culling enabled without a
+  per-frame vertex scan or a whole-character oversized bound.
 
 LOD0's total triangle count must remain exact. Additional visible resolution
 subdivides the local reference hand faces; no hidden or zero-area filler is

@@ -82,6 +82,19 @@ export function repairReferenceHands(rig, document, id, lod, reference) {
         budget+=other.geometry.index.count/3;removePrimitives.push(rig.parser.associations.get(other));other.visible=false
       }
       const variant=`${captain?'captain':'ranger'}${lod}`,surface=refine(source.surfaces[variant],lod===0?budget:source.surfaces[variant].triangles.length)
+      if(captain){
+        // Each weighted bind point remains inside this wrist-centred sphere
+        // for any finger rotation: chain lengths + bone-local point distance.
+        // Updating only its centre at runtime avoids stale SkinnedMesh bounds
+        // without rescanning vertices or disabling camera culling.
+        let radius=0
+        for(let v=0;v<surface.positions.length;v++)for(const [name,w]of surface.weights[v])if(w>0){
+          const bone=rig.scene.getObjectByName(name),head=local(bone);let chain=0
+          for(let b=bone;b!==hand;b=b.parent)chain+=local(b).distanceTo(local(b.parent))
+          radius=Math.max(radius,chain+map(surface.positions[v]).distanceTo(head))
+        }
+        mesh.userData.animatedHandBound={bone:hand.name,radius}
+      }
       const arrays={position:[],normal:[],uv:[],skinIndex:[],skinWeight:[]}
       // Retain original vertex payloads for all surviving body/sleeve faces.
       if(!captain)for(const key of Object.keys(arrays))arrays[key]=Array.from(original.attributes[key].array)

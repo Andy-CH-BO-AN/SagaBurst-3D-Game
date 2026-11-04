@@ -121,6 +121,7 @@ for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-
   }
   if(surface) {
    for(const mesh of surface.meshes){const association=rig.parser.associations.get(mesh),primitive=doc.meshes[association.meshes].primitives[association.primitives],g=mesh.geometry
+    if(mesh.userData.animatedHandBound)doc.meshes[association.meshes].extras={...doc.meshes[association.meshes].extras,animatedHandBound:mesh.userData.animatedHandBound}
     primitive.attributes={}
     for(const [key,semantic,type]of [['position','POSITION','VEC3'],['normal','NORMAL','VEC3'],['uv','TEXCOORD_0','VEC2'],['skinIndex','JOINTS_0','VEC4'],['skinWeight','WEIGHTS_0','VEC4']])primitive.attributes[semantic]=append(g.attributes[key].array,type,key==='skinIndex'?5123:5126,34962)
     primitive.indices=append(new Uint32Array(g.index.array),'SCALAR',5125,34963)

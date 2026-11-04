@@ -1260,7 +1260,27 @@ export class HumanoidAssetRegistry {
         animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips, template.manifest.alignAuthoredCarryGrip, template.manifest.articulatedFingerPoses)
       }
     }
-    animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip || template.manifest.articulatedFingerPoses?.swordGripCenterLocal) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined)
+    const updateEquipmentSockets = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip || template.manifest.articulatedFingerPoses?.swordGripCenterLocal) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined)
+    const handBounds: Array<{ mesh: THREE.SkinnedMesh, wrist: THREE.Bone, radius: number }> = []
+    root.traverse(node => {
+      if (!(node instanceof THREE.SkinnedMesh)) return
+      const bound = node.userData.animatedHandBound as { bone: string, radius: number } | undefined
+      if (!bound) return
+      const wrist = node.skeleton.bones.find(bone => bone.name === bound.bone)
+      if (!wrist || !Number.isFinite(bound.radius) || bound.radius <= 0) throw new Error('Invalid animated hand bound')
+      node.boundingSphere = new THREE.Sphere()
+      handBounds.push({ mesh: node, wrist, radius: bound.radius })
+    })
+    const handBoundTransform = new THREE.Matrix4()
+    animation.onPoseEvaluated = () => {
+      updateEquipmentSockets()
+      for (const { mesh, wrist, radius } of handBounds) {
+        mesh.updateWorldMatrix(true, false)
+        handBoundTransform.copy(mesh.matrixWorld).invert().multiply(wrist.matrixWorld)
+        mesh.boundingSphere!.center.setFromMatrixPosition(handBoundTransform)
+        mesh.boundingSphere!.radius = radius * handBoundTransform.getMaxScaleOnAxis()
+      }
+    }
     if (template.manifest.swordCarryGrips && rig.right.handSocket) rig.right.handSocket.userData.anatomicalSwordCarry = true
     animation.onPoseEvaluated()
     animation.play('idle')

@@ -195,9 +195,9 @@
     ]
   },
   "fileSha256": {
-    "lod0": "f7cfedb52ce9ad85390b864e51779d74dff913299dd9137141624ca02ccb5af2",
-    "lod1": "5490a30b584308fee735c51854977fa81ab29a3fce471c2183b2502056cefb1c",
-    "lod2": "9b65cfd1277536ae46aa62e323e743d685efe62d4f6a66663d51ab2e4de2ac29"
+    "lod0": "92931f8a657546fde36e42b778dc2f237128a5a56f19d4d90880d7008b2fc50c",
+    "lod1": "3f7f3e51b473e7a790d10cc530f039ca67162eea42d74ca5d533b4edba0459b5",
+    "lod2": "89d396361f28725013a049b906462ca58c11f81a4dc9699c12753a08767866d4"
   },
   "visualAcceptance": "Pending current browser review; numeric/structural checks do not establish appearance.",
   "knownLimitations": [
@@ -1262,7 +1262,7 @@
         "before": 21972,
         "after": 21972,
         "originalSha256": "5831cf7d8b612294bbec1e1762977d3772347dc7b9c63db40967d35168daf217",
-        "outputSha256": "f7cfedb52ce9ad85390b864e51779d74dff913299dd9137141624ca02ccb5af2",
+        "outputSha256": "92931f8a657546fde36e42b778dc2f237128a5a56f19d4d90880d7008b2fc50c",
         "preservedNonFingerChannels": 1188,
         "bodyAnimationSha256": "00c1566f769521257e6b364c4c4dd358a1163d95f9115b10a7d7cbaa3170cc65",
         "bodyRestAndSocketsSha256": "3d8261df63fc74b5007edd3f890e914c1b5101dc87bdeb5c5e216d3d75854c9c",
@@ -1288,7 +1288,7 @@
         "before": 8797,
         "after": 7436,
         "originalSha256": "dd3080f88630e5f02b8e32b248f47209475f8638ff565bfe0894db8920d0bffc",
-        "outputSha256": "5490a30b584308fee735c51854977fa81ab29a3fce471c2183b2502056cefb1c",
+        "outputSha256": "3f7f3e51b473e7a790d10cc530f039ca67162eea42d74ca5d533b4edba0459b5",
         "preservedNonFingerChannels": 1188,
         "bodyAnimationSha256": "00c1566f769521257e6b364c4c4dd358a1163d95f9115b10a7d7cbaa3170cc65",
         "bodyRestAndSocketsSha256": "3d8261df63fc74b5007edd3f890e914c1b5101dc87bdeb5c5e216d3d75854c9c",
@@ -1314,7 +1314,7 @@
         "before": 2642,
         "after": 2754,
         "originalSha256": "474c83d6bef11e571d6b8c24b523e59a466d5cb6674ac4a013945a7954d4c361",
-        "outputSha256": "9b65cfd1277536ae46aa62e323e743d685efe62d4f6a66663d51ab2e4de2ac29",
+        "outputSha256": "89d396361f28725013a049b906462ca58c11f81a4dc9699c12753a08767866d4",
         "preservedNonFingerChannels": 1188,
         "bodyAnimationSha256": "00c1566f769521257e6b364c4c4dd358a1163d95f9115b10a7d7cbaa3170cc65",
         "bodyRestAndSocketsSha256": "3d8261df63fc74b5007edd3f890e914c1b5101dc87bdeb5c5e216d3d75854c9c",
