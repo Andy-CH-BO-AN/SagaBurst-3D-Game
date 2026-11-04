@@ -11,8 +11,6 @@ import {
   FELINE_FRIENDLY_GROUPS,
   FELINE_FRIENDLY_TOTAL,
   FELINE_FRIENDLY_SQUAD_SIZES,
-  FELINE_T4_MOUNTS,
-  FELINE_T5_MOUNTS,
   FELINE_VANGUARD_ADVANCE_METERS,
   createBridgeheadRoster,
   type FelineCavalryRole,
@@ -334,6 +332,15 @@ function felineT5Spec(template: NpcSpawnSpec, actorId: string, faction: CareerPr
   }
 }
 
+export function felineFriendlyMountId(role: FelineCavalryRole, tier: 4 | 5, indexInGroup: number): string {
+  if (tier === 5) return 'snow-leopard'
+  if (role === 'melee') return 'caracal'
+  if (role === 'lancer') return 'serval'
+  if (indexInGroup < 20) return 'black-cat'
+  if (indexInGroup < 40) return 'white-cat'
+  return 'orange-cat'
+}
+
 function expandFelineSide(
   mission: ActiveCareerMission,
   plan: BattleSpawnPlan,
@@ -349,7 +356,7 @@ function expandFelineSide(
     ['horse_archer', felineGroupSlots(plan, faction, 'horse_archer')],
   ])
   const cursors: Record<FelineCavalryRole, number> = { melee: 0, lancer: 0, horse_archer: 0 }
-  let actorOffset = 0, t4Mount = 0, t5Mount = 0, friendlySquad = 1, friendlySquadFill = 0
+  let actorOffset = 0, friendlySquad = 1, friendlySquadFill = 0
   const result: NpcSpawnSpec[] = []
   for (const group of groups) for (let i = 0; i < group.count; i++) {
     const template = slots.get(group.role)![cursors[group.role]++]
@@ -364,14 +371,74 @@ function expandFelineSide(
       }
     }
     const mountId = friendly
-      ? group.tier === 4 ? FELINE_T4_MOUNTS[t4Mount++ % FELINE_T4_MOUNTS.length]
-        : FELINE_T5_MOUNTS[t5Mount++ % FELINE_T5_MOUNTS.length]
+      ? felineFriendlyMountId(group.role, group.tier, i)
       : 'horse'
     result.push(group.tier === 4
       ? felineT4Spec(template, actorId, faction, allegiance, group.role, mountId, squadId)
       : felineT5Spec(template, actorId, faction, allegiance, group.role, mountId, squadId))
   }
   return result
+}
+
+/**
+ * Places the seven friendly Commander VI squads in a deliberate tactical formation:
+ * Front rank:
+ *   - S1 (T4 Melee, 30): Front Left Wing (relativeX = -24)
+ *   - S7 (T5 Lancer, 20): Front Center Assault Core (relativeX = 0)
+ *   - S2 (T4 Melee, 30): Front Right Wing (relativeX = +24)
+ * Rear rank:
+ *   - S3 (T4 Lancer, 30): Rear Left Wing (relativeX = -36)
+ *   - S5 (T4 Horse Archer, 30): Rear Center-Left (relativeX = -12)
+ *   - S6 (T4 Horse Archer, 30): Rear Center-Right (relativeX = +12)
+ *   - S4 (T4 Lancer, 30): Rear Right Wing (relativeX = +36)
+ *
+ * S5 and S6 flank the center, preserving a 9.6m central advance lane behind S7.
+ * All squads are placed in front of player spawn (|Z| = 145), leaving a safe buffer.
+ */
+export function positionFelineFriendlyTacticalFormation(
+  specs: NpcSpawnSpec[],
+  faction: CareerProfile['faction'],
+): void {
+  if (specs.length !== FELINE_FRIENDLY_TOTAL) {
+    throw new Error('Invalid Six Feline Cavalry friendly count')
+  }
+
+  const columnsPerBlock = 5
+  const mountedColumnGap = 3.6
+  const mountedRankGap = 3.8
+  const maxRankDepth = (Math.ceil(MAX_COMMAND_SQUAD_SIZE / columnsPerBlock) - 1) * mountedRankGap
+  const rankGap = 6.2
+  const rearRankEndAbsZ = 140
+  const rearRankStartAbsZ = rearRankEndAbsZ - maxRankDepth
+  const frontRankEndAbsZ = rearRankStartAbsZ - rankGap
+  const frontRankStartAbsZ = frontRankEndAbsZ - maxRankDepth
+
+  const zSign = faction === 'viking' ? 1 : -1
+  const xSign = faction === 'viking' ? -1 : 1
+
+  const layouts: Array<{ squadId: number; size: number; centerX: number; startAbsZ: number }> = [
+    { squadId: 1, size: 30, centerX: -24, startAbsZ: frontRankStartAbsZ },
+    { squadId: 2, size: 30, centerX: 24, startAbsZ: frontRankStartAbsZ },
+    { squadId: 3, size: 30, centerX: -36, startAbsZ: rearRankStartAbsZ },
+    { squadId: 4, size: 30, centerX: 36, startAbsZ: rearRankStartAbsZ },
+    { squadId: 5, size: 30, centerX: -12, startAbsZ: rearRankStartAbsZ },
+    { squadId: 6, size: 30, centerX: 12, startAbsZ: rearRankStartAbsZ },
+    { squadId: 7, size: 20, centerX: 0, startAbsZ: frontRankStartAbsZ },
+  ]
+
+  let offset = 0
+  for (const layout of layouts) {
+    for (let index = 0; index < layout.size; index++) {
+      const spec = specs[offset++]
+      const row = Math.floor(index / columnsPerBlock)
+      const countInRow = Math.min(columnsPerBlock, layout.size - row * columnsPerBlock)
+      const col = index % columnsPerBlock
+      const unitRelX = layout.centerX + (col - (countInRow - 1) / 2) * mountedColumnGap
+      const unitAbsZ = layout.startAbsZ + row * mountedRankGap
+      spec.x = Math.round(unitRelX * xSign * 100) / 100
+      spec.z = Math.round(unitAbsZ * zSign * 100) / 100
+    }
+  }
 }
 
 /**
@@ -439,9 +506,8 @@ export function createCareerFelineSpawnPlan(profile: CareerProfile): BattleSpawn
   const template = createFelineFormationPlan(profile.faction)
   const friendly = expandFelineSide(mission, template, profile.faction, true)
   const enemy = expandFelineSide(mission, template, enemyFaction, false)
-  // Group by actual saved official squads (7) and fixed 30-rider enemy units (10).
-  // The shared free-battle formation planner groups all cavalry into only two wings.
-  positionFelineSquadBlocks(friendly, FELINE_FRIENDLY_SQUAD_SIZES, profile.faction)
+  // Friendly units deploy in tactical order; enemy units retain existing blocks and vanguard.
+  positionFelineFriendlyTacticalFormation(friendly, profile.faction)
   const enemySquadSizes = Array.from({ length: Math.ceil(enemy.length / MAX_COMMAND_SQUAD_SIZE) },
     (_, index) => Math.min(MAX_COMMAND_SQUAD_SIZE, enemy.length - index * MAX_COMMAND_SQUAD_SIZE))
   positionFelineSquadBlocks(enemy, enemySquadSizes, enemyFaction)

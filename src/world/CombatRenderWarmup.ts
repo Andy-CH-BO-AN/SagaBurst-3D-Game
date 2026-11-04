@@ -7,9 +7,10 @@ import { WeaponMeshFactory } from './WeaponMeshFactory'
 
 export class CombatRenderWarmup {
   private static warmed = false
+  private static warmedRenderers = new WeakSet<THREE.WebGLRenderer>()
 
-  static isWarmed(): boolean {
-    return this.warmed
+  static isWarmed(renderer?: THREE.WebGLRenderer): boolean {
+    return renderer ? this.warmedRenderers.has(renderer) : this.warmed
   }
 
   /**
@@ -17,6 +18,7 @@ export class CombatRenderWarmup {
    */
   static _resetForTesting(): void {
     this.warmed = false
+    this.warmedRenderers = new WeakSet<THREE.WebGLRenderer>()
   }
 
   /**
@@ -28,7 +30,7 @@ export class CombatRenderWarmup {
    * - Arrow and Pilum projectile visuals & procedural materials
    */
   static warmup(renderer: THREE.WebGLRenderer, _gameCamera: THREE.Camera, gameScene: THREE.Scene): void {
-    if (this.warmed) return
+    if (renderer && this.warmedRenderers.has(renderer)) return
 
     // 1. Ensure CPU projectile visuals are prewarmed
     prewarmProjectileVisuals()
@@ -70,6 +72,8 @@ export class CombatRenderWarmup {
       const weaponGroup = new THREE.Group()
       WeaponMeshFactory.buildNpcMelee('roman', 2, false, weaponGroup)
       WeaponMeshFactory.buildNpcMelee('viking', 2, false, weaponGroup)
+      WeaponMeshFactory.buildNpcMelee('roman', 4, true, weaponGroup, 'spear_t5')
+      WeaponMeshFactory.buildNpcMelee('viking', 4, true, weaponGroup, 'spear_t5')
       WeaponMeshFactory.buildShield('shield_round_iron', weaponGroup)
       WeaponMeshFactory.buildShield('shield_scutum_iron', weaponGroup)
       warmupScene.add(weaponGroup)
@@ -107,8 +111,18 @@ export class CombatRenderWarmup {
       renderer.setRenderTarget(renderTarget)
       renderer.render(warmupScene, warmupCam)
 
+      // Step C: Compile full game scene if available to prepare live shaders and shadow passes
+      if (gameScene && _gameCamera && gameScene.children.length > 0) {
+        try {
+          renderer.compile(gameScene, _gameCamera)
+        } catch {
+          // Ignore compile errors on empty or headless scenes
+        }
+      }
+
       // 4. Mark warmed ONLY upon successful completion of compile + render pass
       this.warmed = true
+      if (renderer) this.warmedRenderers.add(renderer)
     } catch (error) {
       if (import.meta.env?.DEV) {
         console.warn('CombatRenderWarmup failed:', error)

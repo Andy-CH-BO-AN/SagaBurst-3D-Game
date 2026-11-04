@@ -3,7 +3,7 @@ import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
 import { townRoster } from './town/TownRules'
-import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFieldPersonalOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
+import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { preloadHighTierEquipment } from './world/HighTierEquipment'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
@@ -1572,6 +1572,13 @@ export class Game {
         if (!npc.dead && this.bridgeRuntime!.targetIds.has(npc.combatantId) && !this.fieldCheckpoint?.actors[npc.combatantId]?.order) npc.setTacticalOrder('charge')
       }
     }
+    if (this.felineMissionId) {
+      const mission = this.careerProfile!.activeMission!
+      if (!this.captainEagleSpawnBatch?.ready || !mission.felineBattle?.ready || (this.personalSquad && !this.personalSquad.ready)) {
+        throw new Error('Six Feline Cavalry deployment did not complete')
+      }
+      this.player.group.visible = true
+    }
     if (isInitialSpectator) this._enterSpectatorMode('initial')
 
     this._setupPointerLock()
@@ -1619,6 +1626,18 @@ export class Game {
     }
     if (!this.isModelStudio) this.compass = new CompassUI(this.camera,
       document.getElementById('defense-campaign-hud') ?? document.getElementById('bridgehead-battle-hud') ?? document.getElementById('captain-eagle-hud'))
+
+    this.player.fitMountedSeat()
+    for (const npc of this.npcs) npc.fitMountedSeat()
+    this.scene.updateMatrixWorld(true)
+    this.thirdPersonCamera.update(this.input, 0, this.obstacles)
+    if (this.renderer && this.scene && this.camera) {
+      try {
+        this.renderer.render(this.scene, this.camera)
+      } catch (error) {
+        if (import.meta.env?.DEV) console.warn('Initial pre-render pass skipped:', error)
+      }
+    }
   }
 
   private _bindPlayerCombatCallbacks(campaignConfig?: DefenseCampaignLaunchConfig): void {
@@ -3146,10 +3165,16 @@ export class Game {
     const officialPositions = this.bridgeLaunch
       ? createBridgeheadRoster(this.careerProfile.activeMission!, this.careerProfile.faction).friendly
       : this.felineMissionId
-        ? (this.careerProfile.activeMission?.friendlyActorIds ?? []).flatMap(id => {
-          const point = this.fieldCheckpoint?.actors[id]?.position
-          return point ? [{ x: point.x, z: point.z }] : []
-        })
+        ? (() => {
+          const checkpointPoints = (this.careerProfile.activeMission?.friendlyActorIds ?? []).flatMap(id => {
+            const point = this.fieldCheckpoint?.actors[id]?.position
+            return point ? [{ x: point.x, z: point.z }] : []
+          })
+          if (checkpointPoints.length > 0) return checkpointPoints
+          return createCareerFelineSpawnPlan(this.careerProfile!).npcSpecs
+            .filter(spec => spec.faction === Faction.PLAYER)
+            .map(spec => ({ x: spec.x, z: spec.z }))
+        })()
         : this.npcs.filter(npc => !npc.dead && npc.faction === Faction.PLAYER).map(npc => npc.combatPosition)
     // Do not anchor ground deployment to the Player's relocated eagle touchdown.
     // Stage IX defenders have a bounded interior; that bounds is authoritative.
