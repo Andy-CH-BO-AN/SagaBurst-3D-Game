@@ -6,7 +6,7 @@
       "before": 31256,
       "after": 31256,
       "originalSha256": "33493f661ad1e6065f1b769e68063f34d5604358b1015d3bff64388ab9ec4377",
-      "outputSha256": "50827d27b8c410b38ce98a0ab60b8fe34ab80aee8cf5635e581b8b937d955c72",
+      "outputSha256": "d5e24b409bf5d9e793e5f82b0468071ce94839d72a1aa5771593568f4f923c5f",
       "preservedNonFingerChannels": 481,
       "bodyAnimationSha256": "688dbecfc4abbde4698ddd24cc13a0c674f15b442b99820c9d250ca3b59d1055",
       "bodyRestAndSocketsSha256": "fe67c8527d02559fb3837d0e9163f69825ce8fe53fc64e6bf35738aeb92350cf",
@@ -17,7 +17,7 @@
       "before": 10000,
       "after": 10807,
       "originalSha256": "87aba7c2c75a4d3054235ed5544006f67ee6099c512caf85b6d76dc19184f442",
-      "outputSha256": "829d95e90b2eefa38f144f1ae81ee2837d71764f0bf67bb5340ba61aca9b6414",
+      "outputSha256": "f873a8b71e57793dcfb233d826587558a585e5137a4372cc05660093127789f3",
       "preservedNonFingerChannels": 481,
       "bodyAnimationSha256": "688dbecfc4abbde4698ddd24cc13a0c674f15b442b99820c9d250ca3b59d1055",
       "bodyRestAndSocketsSha256": "fe67c8527d02559fb3837d0e9163f69825ce8fe53fc64e6bf35738aeb92350cf",
@@ -41,7 +41,7 @@
       "before": 3000,
       "after": 4062,
       "originalSha256": "cd7f7719eb521b1a5d66556edefea474f402c1df8b3fc12cf81b8adeeb80c83d",
-      "outputSha256": "fd0f2e18e9d009945373228bba3575cf8d398edbb073c7f48b312a7dab765456",
+      "outputSha256": "d43d5799012b79e6172a51ca9937c0ad07d03a4df0a85eba8d1f77225b229348",
       "preservedNonFingerChannels": 481,
       "bodyAnimationSha256": "688dbecfc4abbde4698ddd24cc13a0c674f15b442b99820c9d250ca3b59d1055",
       "bodyRestAndSocketsSha256": "fe67c8527d02559fb3837d0e9163f69825ce8fe53fc64e6bf35738aeb92350cf",
@@ -67,102 +67,102 @@
       "digit": "thumb",
       "flexionRadians": [
         0,
-        0.42500000000000004,
         0,
-        -0.42499999999999993
+        0.15,
+        0.42500000000000004
       ],
-      "tipToTargetM": 0.01621822643164891
+      "tipToTargetM": 0.06109557125397325
     },
     {
       "side": "l",
       "digit": "index",
       "flexionRadians": [
-        1,
-        1.75,
-        1.2
+        0.9249999999999999,
+        1.1,
+        0.4749999999999999
       ],
-      "tipToTargetM": 0.02448178033320766
+      "tipToTargetM": 0.00993017622740073
     },
     {
       "side": "l",
       "digit": "middle",
       "flexionRadians": [
-        1.2999999999999998,
-        1.0000000000000002,
-        0.7749999999999999
+        0.7,
+        1.4,
+        0.625
       ],
-      "tipToTargetM": 0.03998964308100457
+      "tipToTargetM": 0.005539183796727282
     },
     {
       "side": "l",
       "digit": "ring",
       "flexionRadians": [
-        1.4999999999999998,
-        1.75,
-        0.5750000000000001
+        1.025,
+        1.1,
+        0.39999999999999997
       ],
-      "tipToTargetM": 0.019998065975653612
+      "tipToTargetM": 0.00752526998929341
     },
     {
       "side": "l",
       "digit": "pinky",
       "flexionRadians": [
-        1.5,
-        1.75,
-        0.7000000000000001
+        0.975,
+        1.125,
+        0.5499999999999999
       ],
-      "tipToTargetM": 0.01563837413460015
+      "tipToTargetM": 0.004436776925667011
     },
     {
       "side": "r",
       "digit": "thumb",
       "flexionRadians": [
         0,
-        0.42500000000000004,
-        0.024999999999999994,
-        0.44999999999999996
+        0.1,
+        0.35000000000000003,
+        0.12499999999999997
       ],
-      "tipToTargetM": 0.012230975601444722
+      "tipToTargetM": 0.04354617688562535
     },
     {
       "side": "r",
       "digit": "index",
       "flexionRadians": [
-        0.9500000000000001,
-        1.75,
-        1.2
+        0.8999999999999999,
+        1.2,
+        0.39999999999999997
       ],
-      "tipToTargetM": 0.02688527314314094
+      "tipToTargetM": 0.002481338663784619
     },
     {
       "side": "r",
       "digit": "middle",
       "flexionRadians": [
-        1,
-        1.75,
-        1.2
+        0.9499999999999998,
+        1.1,
+        0.7
       ],
-      "tipToTargetM": 0.023863537824872164
+      "tipToTargetM": 0.007149487740334357
     },
     {
       "side": "r",
       "digit": "ring",
       "flexionRadians": [
-        1.5,
-        1.75,
-        0.4750000000000002
+        1.175,
+        1.125,
+        0.475
       ],
-      "tipToTargetM": 0.01734635162138412
+      "tipToTargetM": 0.007628116342080949
     },
     {
       "side": "r",
       "digit": "pinky",
       "flexionRadians": [
-        1.5,
-        1.75,
-        0.47499999999999987
+        1.15,
+        0.9500000000000001,
+        0
       ],
-      "tipToTargetM": 0.013963489675482619
+      "tipToTargetM": 0.0033660176253971987
     }
   ],
   "visualAcceptance": "Pending current browser review; numeric/structural checks do not establish appearance."

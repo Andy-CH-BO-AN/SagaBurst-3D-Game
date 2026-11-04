@@ -50,6 +50,17 @@ installed executable. The builder invokes the same extraction step. Blender
   restores free hands on unequip. Bow samples keep ownership through the
   return-to-idle fade. The existing pose layer restores prior samples before
   the next mixer evaluation; rotations do not accumulate.
+- Sword contact uses the actual weapon's cross-sections, including its child
+  transforms and asymmetric outline, rather than a round radius proxy. The
+  offline solve checks weighted finger skin and the posed palm/thumb web.
+  Palm clearance is fitted separately: fingertip contact alone can leave the
+  distal palm penetrating the handle and protruding as a skin-coloured sheet.
+- The repaired hand's contact station is separate from the original weapon
+  attachment. The existing equipment pose owner solves the arm to that station
+  and counter-transforms its equipment proxy, preserving the sampled blade
+  world transform. Root-space bone lengths and hand-offset scale are measured
+  for this opt-in solve; asset normalization above the arm must not be omitted.
+  Body clip data and original socket/weapon metadata remain unchanged.
 
 LOD0's total triangle count must remain exact. Additional visible resolution
 subdivides the local reference hand faces; no hidden or zero-area filler is

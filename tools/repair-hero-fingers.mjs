@@ -14,6 +14,7 @@ import {packGlbResources} from './lib/pack-glb-resources.mjs'
 import {packFactionHumanoidBuffers} from './pack-faction-humanoid-buffers.mjs'
 import {repairReferenceHands} from './lib/reference-hand-surface.mjs'
 import {preserveHandLodSurface} from './lib/hand-lod-surface.mjs'
+import {measureSwordGripTarget,anatomicalSwordContact,swordPalmClearance} from './lib/weapon-grip-section.mjs'
 import {buildAnatomicalFingerPoses,bakeAnatomicalFingerClips,fingerPattern} from './lib/anatomical-finger-pose.mjs'
 const [inputRoot,referencePath,outputRoot='public/models/characters/v2']=process.argv.slice(2)
 if(!inputRoot||!referencePath)throw Error('Usage: node tools/repair-hero-fingers.mjs ORIGINAL_ASSET_ROOT REFERENCE_JSON [OUTPUT_ROOT]')
@@ -46,7 +47,7 @@ function preservedRestDigest(doc) {
 for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-t4']) {
  const sourceDir=path.join(inputRoot,id),destination=path.join(outputRoot,id),manifest=JSON.parse(fs.readFileSync(path.join(sourceDir,'manifest.json')))
  if(manifest.fingerAnatomyBuild)throw Error(`Use original inputs, not repaired ${id}`)
- fs.mkdirSync(destination,{recursive:true});const reports=[];let poses,boneMap
+ fs.mkdirSync(destination,{recursive:true});const reports=[];let poses,boneMap,swordTarget,swordContact
  const meshSource=['viking-hero-t5','roman-hero-t4'].includes(id)?await loadRig(await decodeMeshoptGlb(readGlb(path.join(sourceDir,manifest.files.lod0)))):null
  for(const lod of [0,1,2]) {
   const key=`lod${lod}`,filename=manifest.files[key],bytes=fs.readFileSync(path.join(sourceDir,filename))
@@ -65,7 +66,26 @@ for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-
    boneMap.fingerAnatomyRepair={tool:'tools/repair-hero-fingers.mjs',referenceSha256:reference.sourceSha256,scope:'Only finger rest transforms; body hierarchy, wrist and sockets retained'}
   }
   const left=manifest.handGripFrames.left,right=manifest.swordGripFrames[key]
-  if(!poses)poses=buildAnatomicalFingerPoses(rig,{r:right,l:{gripCenterLocal:left.palmContactCenter.map((v,i)=>v+left.palmNormal[i]*(right.gripRadius??.022)),gripAxisLocal:left.thumbDirection,gripRadius:right.gripRadius}},surface?.tips)
+  if(!poses){
+   const frames={r:right,l:{gripCenterLocal:left.palmContactCenter.map((v,i)=>v+left.palmNormal[i]*(right.gripRadius??.022)),gripAxisLocal:left.thumbDirection,gripRadius:right.gripRadius}}
+   poses=buildAnatomicalFingerPoses(rig,frames,surface?.tips)
+   const swordFile=id==='viking-hero-t5'?'public/models/weapons/t5/sword.glb':'public/models/weapons/paladin/sword.glb'
+   swordTarget=await measureSwordGripTarget(swordFile,right)
+   if(surface?.boneRecords.length){swordContact=anatomicalSwordContact(rig,right,swordTarget);swordTarget=await measureSwordGripTarget(swordFile,{...right,gripCenterLocal:swordContact.gripCenterLocal})}
+   poses.sword=buildAnatomicalFingerPoses(rig,{...frames,r:swordTarget},surface?.tips).grip
+   if(swordContact)for(let pass=0;pass<4;pass++){
+    const saved=Object.keys(poses.sword).map(name=>[rig.scene.getObjectByName(name),rig.scene.getObjectByName(name).quaternion.clone()])
+    for(const [b]of saved)if(b.name.endsWith('_r'))b.quaternion.fromArray(poses.sword[b.name])
+    const palm=swordPalmClearance(rig,swordTarget)
+    for(const [b,q]of saved)b.quaternion.copy(q);rig.scene.updateMatrixWorld(true)
+    swordContact.palmSurface=palm
+    if(new T.Vector3(...palm.offsetM).length()<1e-7)break
+    if(pass===3)throw Error(`Palm contact did not converge: ${id}`)
+    for(let i=0;i<3;i++){swordContact.gripCenterLocal[i]+=palm.offsetM[i];swordContact.offsetM[i]+=palm.offsetM[i]}
+    swordTarget=await measureSwordGripTarget(swordFile,{...right,gripCenterLocal:swordContact.gripCenterLocal})
+    poses.sword=buildAnatomicalFingerPoses(rig,{...frames,r:swordTarget},surface?.tips).grip
+   }
+  }
   const clips=bakeAnatomicalFingerClips(rig,poses,manifest.animations.embedded),chunks=[asset.binary];let offset=asset.binary.length
   const append=(values,type,componentType=5126,target)=>{
    const size={SCALAR:1,VEC2:2,VEC3:3,VEC4:4,MAT4:16}[type],padding=(4-offset%4)%4
@@ -111,11 +131,14 @@ for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-
   fs.writeFileSync(path.join(destination,filename),output);manifest.fileSha256[key]=hash(output);manifest.metrics.triangles[key]=after
   reports.push({lod,before,after,originalSha256:hash(bytes),outputSha256:hash(output),preservedNonFingerChannels:preservedChannels,bodyAnimationSha256:animationAfter,bodyRestAndSocketsSha256:restAfter,localSurfaceRepair:surface?.report??null})
  }
- manifest.articulatedFingerPoses={relaxed:poses.relaxed,grip:poses.grip}
+ manifest.articulatedFingerPoses={relaxed:poses.relaxed,grip:poses.grip,sword:poses.sword,...(swordContact?{swordGripCenterLocal:swordContact.gripCenterLocal}:{})}
  if(manifest.animationRetarget?.fingerDonor){delete manifest.animationRetarget.fingerDonor;manifest.animationRetarget.method='Existing body retarget unchanged. Finger-only target-bind poses replace the former Roman donor plus additive grasp; source events and durations retained.'}
  manifest.knownLimitations=(manifest.knownLimitations??[]).map(item=>item.includes('Thirty anatomical finger tracks')?'Finger contact uses the measured asset handle radius; unusually thick replacement handles still require visual review.':item)
  manifest.fingerAnatomyBuild={tool:'tools/repair-hero-fingers.mjs',version:1,sourceManifestSha256:hash(fs.readFileSync(path.join(sourceDir,'manifest.json'))),handReference:{source:reference.source,sourceSha256:reference.sourceSha256,author:reference.author,license:reference.license},lods:reports}
  manifest.fingerAnatomyBuild.sourceStageAudit=manifest.audit??'lod-audit.json'
+ const {sections,...sourceSurface}=swordTarget.sourceSurface
+ manifest.fingerAnatomyBuild.swordContactTarget={...swordTarget,sourceSurface:{...sourceSurface,sectionCount:sections.length}}
+ if(swordContact)manifest.fingerAnatomyBuild.swordHandContact=swordContact
  manifest.audit='finger-anatomy-audit.json'
  manifest.modifications=[...(manifest.modifications??[]),'Local hand anatomy repair; target-bind absolute finger poses distinguish natural hand shape from equipment contact. Body animation samples, wrist/socket transforms and action/event clocks retained.']
  manifest.visualAcceptance='Pending current browser review; numeric/structural checks do not establish appearance.'

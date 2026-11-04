@@ -1260,7 +1260,7 @@ export class HumanoidAssetRegistry {
         animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips, template.manifest.alignAuthoredCarryGrip, template.manifest.articulatedFingerPoses)
       }
     }
-    animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined)
+    animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip || template.manifest.articulatedFingerPoses?.swordGripCenterLocal) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined)
     if (template.manifest.swordCarryGrips && rig.right.handSocket) rig.right.handSocket.userData.anatomicalSwordCarry = true
     animation.onPoseEvaluated()
     animation.play('idle')
