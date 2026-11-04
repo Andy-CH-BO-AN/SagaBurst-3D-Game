@@ -94,7 +94,7 @@ describe('hostile save migration and settlement retries', () => {
     town.profile.skills = { ...createDefaultSkillState(), ...town.profile.skills, ranged: { level: 4, xp: 20 } }
     town.profile.claimedBattleIds = ['historical-battle']
     town.profile = parseCareerProfile(town.profile)!
-    town.skills.skillState = town.profile.skills
+    town.skills.skillState = town.profile.skills; store.save(town.profile)
     const before = JSON.stringify(town.profile), original = JSON.parse(before), restartButtons: Array<() => void> = []
     town.openPanel = vi.fn(() => ({}))
     town.button = vi.fn((_panel: unknown, _label: string, callback: () => void) => restartButtons.push(callback))

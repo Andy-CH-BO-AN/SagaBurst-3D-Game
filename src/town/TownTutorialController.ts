@@ -5,15 +5,13 @@ import { claimCareerTutorialReward, deferCareerTutorial, hasCareerTutorialHorse,
 import type { CareerTutorialStageId } from '../career/CareerTutorialState'
 import { MissionGuide } from '../career/MissionGuide'
 import { careerShopProduct } from '../career/CareerShopCatalog'
-import { PERSONAL_SQUAD_LIMIT, PERSONAL_SQUAD_PRODUCTS } from '../career/CareerPersonalSquad'
 import type { CommandWatchtowerLayout } from './TownCommandWatchtowerLayout'
 import type { ArmyCommandTarget } from '../battle/CommandTarget'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import type { ArmyHudRoster } from '../battle/ArmyCommandHudRoster'
-import { commanderTownSquadLabel } from '../career/CommanderTownSquadLabels'
 import { townShopProducts } from './TownRules'
 
-interface TownTutorialHost {
+export interface TownTutorialHost {
   profile(): CareerProfile
   commit(profile: CareerProfile): boolean
   peaceful(): boolean
@@ -26,6 +24,11 @@ interface TownTutorialHost {
   roster(): ArmyHudRoster
   launch(stage: 'recruit' | 'captain', replay: boolean): boolean
   duel(): void
+  closePanel(): void
+  openRecruitmentPanel?(): void
+  /** Opens a service's original panel, bypassing the optional tutorial dialogue. */
+  openServices?(serviceId: string): void
+  openPanel?(title: string, text: string): HTMLDivElement
 }
 
 /** A small scene adapter owns presentation; the Career model owns progress and rewards. */
@@ -37,6 +40,9 @@ export class TownTutorialController {
   private readonly towerRoute: Vector3[]
   private saveError = ''
   private retryAfter = 0
+  private notification = ''
+  private notificationUntil = 0
+  private busy = false
 
   constructor(private readonly host: TownTutorialHost) {
     this.careerId = host.profile().tutorial?.careerId
@@ -61,14 +67,16 @@ export class TownTutorialController {
     const next = cloneCareerProfile(profile)
     if (mutate(next) === false) return false
     const saved = this.host.commit(next)
-    this.saveError = saved ? '' : '教學進度保存失敗，尚未完成／領獎；請留在此處，將稍後重試。'
+    this.saveError = saved ? '' : '進度保存失敗，尚未完成；請留在此處，稍後點擊重試。'
     this.retryAfter = saved ? 0 : performance.now() + 1500
     if (!saved) { this.hint.hidden = false; this.hint.textContent = this.saveError }
     return saved
   }
+
   private record(stage: CareerTutorialStageId, operation: string): boolean {
     return this.change(profile => recordCareerTutorialOperation(profile, stage, operation))
   }
+
   private activeStage(): CareerTutorialStageId | null {
     const t = this.host.profile().tutorial
     if (!t) return null
@@ -86,51 +94,102 @@ export class TownTutorialController {
     const stage = this.activeStage()
     let target: Vector3 | null = null, label = '', interact = true, text = ''
     const npc = (id: string, name: string) => { target = h.npcPosition(id); label = name }
+
     if (stage === 'town') {
-      const step = t.town.step
-      if (step === 'weapon' && t.purchases.weaponIds.length) {
-        this.change(profile => { recordCareerTutorialOperation(profile, 'town', 'weapon'); claimCareerTutorialReward(profile, 'weapon') })
-        return
+      let step = t.town.step
+      if (step === 'weapon' && h.profile().tutorial?.purchases.weaponIds.length) {
+        let granted = 0
+        const ok = this.change(profile => {
+          recordCareerTutorialOperation(profile, 'town', 'weapon')
+          granted = claimCareerTutorialReward(profile, 'weapon')
+        })
+        if (ok) {
+          this.notification = granted > 0 ? `武器購買完成！獲得 ${granted} 軍功。` : '武器購買完成！'
+          this.notificationUntil = performance.now() + 8000
+        }
+        step = h.profile().tutorial?.town.step ?? step
       }
-      if (step === 'duel' && t.duelOutcome && !t.town.replay) { this.record('town', 'duel'); return }
+      if (step === 'duel' && h.profile().tutorial?.duelOutcome && !h.profile().tutorial?.town.replay) {
+        this.record('town', 'duel')
+        step = h.profile().tutorial?.town.step ?? step
+      }
       if (step === 'horse' && hasCareerTutorialHorse(h.profile())) {
-        this.change(profile => { recordCareerTutorialOperation(profile, 'town', 'horse'); claimCareerTutorialReward(profile, 'horse') })
-        return
+        let granted = 0
+        const ok = this.change(profile => {
+          recordCareerTutorialOperation(profile, 'town', 'horse')
+          granted = claimCareerTutorialReward(profile, 'horse')
+        })
+        if (ok) {
+          this.notification = granted > 0 ? `戰馬購買完成！獲得 ${granted} 軍功。` : '已確認你擁有戰馬，不補發軍功。'
+          this.notificationUntil = performance.now() + 8000
+        }
+        step = h.profile().tutorial?.town.step ?? step
       }
-      if (step === 'horse-use' && h.playerHorse()) { this.record('town', 'horse-use'); return }
+      if (step === 'horse-use' && h.playerHorse()) {
+        this.record('town', 'horse-use')
+        step = h.profile().tutorial?.town.step ?? step
+      }
+
       if (step === 'weapon') {
         npc('merchant', '武器店主')
-        text = t.legacy
-          ? '完成一筆武器店交易\n既有裝備會保留；起始配發不算購買。此步驟只承認已保存的商店購買紀錄，成功交易後獎勵 20 軍功。'
-          : '購買第一把正式武器\n可使用操作練習獲得的 100 軍功。交易保存後獎勵 20 軍功；按 Tab 查看／裝備購買的武器。'
-      }
-      else if (step === 'duel') { npc('captain', '騎兵隊長'); text = '新兵切磋\n靠近隊長按 E，選「新兵切磋」。不需要坐騎；勝負皆可繼續。' }
-      else if (step === 'horse') {
+        text = '前往武器店\n在武器店挑選並購買第一把正式武器'
+      } else if (step === 'duel') {
+        npc('captain', '騎兵隊長')
+        text = '挑戰騎兵隊長\n靠近騎兵隊長開始新兵切磋'
+      } else if (step === 'horse') {
         const vendor = ['ranger', 'cat', 'eagle-trainer'].find(id => townShopProducts(id).some(item => item.id === 'horse'))
         if (vendor) npc(vendor, '軍用戰馬商人')
-        const price = careerShopProduct('horse')!.price
-        text = `購買第一匹普通馬 · ${price} 軍功\n${h.profile().availableMerit < price ? '目前可用軍功不足，可先做任務再回來。' : '成功購買並保存後獎勵 50 軍功。'}`
+        text = '購買第一匹戰馬\n順著指標前往馬店購買普通馬'
       } else if (step === 'horse-use') {
-        text = `${t.legacy && !t.purchases.horse ? '已承認既有普通馬，不需重新購買；未補發購馬獎勵。' : '第一匹馬已登記'}\n按 Tab → 坐騎 → 騎乘。E 可下馬，之後靠近普通馬再按 E 上馬。\n可參加：士官長 → 1v1 → Racing／繞城賽馬。比賽可稍後再玩。`
+        text = '購買第一匹戰馬\n按 Tab → 坐騎 召喚並騎乘；可隨時找士官長參加賽馬'
         interact = false
       } else if (step === 'horse-intro') {
-        const affordable = h.profile().availableMerit >= careerShopProduct('horse')!.price
+        const horsePrice = careerShopProduct('horse')!.price
+        const affordable = h.profile().availableMerit >= horsePrice
         const hasHorse = hasCareerTutorialHorse(h.profile())
         if (t.settledMissionIds.length >= 2 && (affordable || hasHorse)) {
-          npc('deployment', '士官長'); text = hasHorse ? '已完成兩次正式實戰，回士官長了解普通馬的騎乘與賽馬。' : '已完成兩次正式實戰，回士官長了解第一匹馬。'
-        } else text = `正式實戰 ${Math.min(2, t.settledMissionIds.length)} / 2\n找士官長接受目前軍階的戰鬥任務，勝負皆計入。${!affordable && !hasHorse ? '\n先累積足夠的可用軍功，再向士官長了解買馬。' : ''}`
-      } else { npc('deployment', '士官長'); text = step === 'report' ? '城鎮報到\n找士官長開始新兵引導。' : step === 'duel-intro' ? '武器購買已保存 · 獎勵只領一次\n回士官長了解與隊長切磋。' : '切磋已結束\n回士官長了解正式戰鬥任務。' }
-    } else if (stage === 'captain') { npc('deployment', '士官長'); text = '你現在可以指揮部隊\n找士官長開始「隊長指揮訓練」：30 名 AI，玩家額外計算。' }
-    else if (stage === 'hr') {
+          npc('deployment', '士官長')
+          text = hasHorse ? '返回士官長\n已完成兩次實戰，回士官長了解戰馬與賽馬' : '返回士官長\n已完成兩次實戰，回士官長了解購買戰馬'
+        } else if (t.settledMissionIds.length >= 2) {
+          text = `累積購馬軍功\n已完成 2/2 次實戰，目前軍功不足，請繼續完成任務累積購馬軍功（普通馬需 ${horsePrice} 軍功）`
+          interact = false
+        } else {
+          text = `完成正式戰鬥任務\n找士官長接受正式任務（已完成 ${Math.min(2, t.settledMissionIds.length)} / 2 次）`
+          interact = false
+        }
+      } else if (step === 'report') {
+        npc('deployment', '士官長')
+        text = '向士官長報到\n按 E 與士官長交談'
+      } else if (step === 'duel-intro') {
+        npc('deployment', '士官長')
+        text = '返回士官長\n武器購買已完成，回士官長回報'
+      } else if (step === 'missions') {
+        npc('deployment', '士官長')
+        text = '返回士官長\n切磋已結束，向士官長回報'
+      } else {
+        npc('deployment', '士官長')
+        text = '向士官長報到'
+      }
+    } else if (stage === 'captain') {
+      npc('deployment', '士官長')
+      text = '率領 30 人完成指揮演練\n找士官長開始隊長指揮訓練'
+    } else if (stage === 'hr') {
       if (t.hr.step === 'recruited' && h.profile().personalSquad?.members.length) { this.record('hr', 'recruited'); return }
       if (t.hr.step === 'recruited') {
-        npc('hr-officer', '人力資源官 HR Officer')
-        text = `建立自己的私人小隊\nHR 私兵與正式城防隊不同，上限 ${PERSONAL_SQUAD_LIMIT} 人。\n第一位可選普通士兵：${PERSONAL_SQUAD_PRODUCTS[0].price} 軍功。\n${h.profile().availableMerit < PERSONAL_SQUAD_PRODUCTS[0].price ? '軍功不足，可先做任務，再回來招募。' : '也可招募目前合法的其他類型。'}`
-      } else { text = '選擇 Personal Squad → Follow me\n選目標與下命令是兩層操作。讓你招募的私兵實際出發。\nDismiss 讓他們回 HR；Tab 可管理已解鎖的私人小隊裝備。'; interact = false }
+        npc('hr-officer', '人力資源官')
+        text = '招募第一位戰友\n前往 HR Center 挑選戰友'
+      } else {
+        text = '對戰友下達隨行命令\n按 Q 進入指揮 → 選擇 Personal Squad → Follow me'
+        interact = false
+      }
     } else if (stage === 'commander') {
       const step = t.commander.step
       interact = false
-      if (step.startsWith('tower-')) {
+      if (t.commander.status === 'available') {
+        npc('deployment', '士官長')
+        interact = true
+        text = '登上指揮塔，號令全軍\n向士官長了解指揮塔'
+      } else if (step.startsWith('tower-')) {
         if (this.towerRouteIndex === null) {
           this.towerRouteIndex = 0
           if (step !== 'tower-entrance') {
@@ -149,17 +208,17 @@ export class TownTutorialController {
             if (!this.record('commander', 'tower-top')) return
           }
         }
-        text = '前往指揮塔\n沿指標走入口、坡道與平台，抵達塔頂可站立區域。先讓部隊留在地面。'
+        text = '登上指揮塔，號令全軍\n沿入口與坡道前往塔頂'
       } else {
-        const roster = h.roster()
-        const squads = [...new Set(roster.members.map(member => member.squadId).filter(id => typeof id === 'number'))]
-        const summary = squads.map(id => `${commanderTownSquadLabel(id)} ${roster.members.filter(m => m.squadId === id && ['deployed', 'training'].includes(m.state)).length}/${roster.members.filter(m => m.squadId === id).length}`).join(' · ')
-        text = `四門八支正式地面小隊\n${summary}\n` + (step === 'all' || step === 'defend' ? '按 Q 進入指揮 → 選 ALL 全軍 → 下達 Defend。只會控制目前合法授權且可接受命令的對象。' : '選其中一支正式小隊 → Formation，在塔外合法地面空地放置預覽並確認。\nQ 返回選目標，可切回 ALL。')
-          + '\nFollow 讓部隊隨行；Dismiss 由原流程讓正式部隊回崗、私兵回 HR。離塔後仍有原本指揮權。'
+        text = (step === 'all' || step === 'defend')
+          ? '登上指揮塔，號令全軍\n按 Q 進入指揮 → 選 ALL 全軍 → 下達 Defend'
+          : '登上指揮塔，號令全軍\n選取任一小隊 → Formation 列陣'
       }
     }
-    this.hint.textContent = text + (this.saveError ? '\n' + this.saveError : '')
-    this.hint.hidden = !text && !this.saveError
+
+    const notice = (this.notification && performance.now() < this.notificationUntil) ? `【${this.notification}】\n\n` : ''
+    this.hint.textContent = notice + text + (this.saveError ? '\n' + this.saveError : '')
+    this.hint.hidden = !text && !this.saveError && !notice
     this.guide.updateTutorial(h.playerPosition(), h.cameraYaw(), target, label, interact)
   }
 
@@ -184,51 +243,324 @@ export class TownTutorialController {
     }
   }
 
-  appendPanel(panel: HTMLElement, serviceId: string): void {
+  hasDialogue(serviceId: string): boolean {
     const h = this.host, t = h.profile().tutorial
-    if (!t || !h.peaceful()) return
-    const addText = (text: string) => { const p = document.createElement('p'); p.className = 'town-summary'; p.style.whiteSpace = 'pre-line'; p.textContent = text; panel.append(p) }
-    const button = (label: string, action: () => void) => { const b = document.createElement('button'); b.className = 'town-button'; b.textContent = label; b.onclick = action; panel.append(b) }
-    const activate = (stage: CareerTutorialStageId) => this.change(profile => { startCareerTutorial(profile, stage); return true })
-    if (serviceId === 'captain' && t.town.step === 'duel' && ['active', 'available'].includes(t.town.status)) {
-      addText('新兵切磋 · 由真正的騎兵隊長使用步戰近戰裝備陪練。勝利 500 軍功；正常失敗 20 軍功。取消與載入失敗不結算；不影響正式 T1–T5 解鎖。')
-      button('新兵切磋 · 開始', () => h.duel())
+    if (!t || !h.peaceful()) return false
+    if (serviceId === 'deployment') {
+      // Deferred (including legacy) tutorials never intercept the Sergeant; see appendPanel's resume buttons.
+      if ((t.town.status === 'available' || t.town.status === 'active') && this.townDialogueReady()) return true
+      if (t.captain.status === 'available') return true
+      if (t.commander.status === 'available') return true
+      return false
     }
-    if (serviceId !== 'deployment') return
-    const status = (value: string) => ({ locked: '尚未開放', available: '可開始', active: '進行中', deferred: '稍後繼續', completed: '已完成' }[value] ?? value)
-    const steps: Record<string, string> = { report: '向士官長報到', weapon: '購買武器', 'duel-intro': '了解隊長切磋', duel: '與隊長切磋', missions: '認識正式任務', 'horse-intro': '兩次正式實戰與馬店介紹', horse: '購買普通馬', 'horse-use': '召喚與騎乘普通馬', recruited: '招募至少一名私兵', follow: '對私人小隊下達 Follow me', 'tower-entrance': '前往指揮塔入口', 'tower-ramp': '沿坡道上塔', 'tower-top': '抵達塔頂', all: '打開 ALL 全軍命令', defend: '全軍 Defend', squad: '選擇正式小隊', formation: '在合法地面列陣', complete: '已完成' }
-    addText(`生涯教學 · 新兵 ${status(t.recruit.status)} · 隊長 ${status(t.captain.status)} · 指揮官 ${status(t.commander.status)}\nHP 是生命；體力用於攻擊、格擋與奔跑。累積軍功決定升階資格，可用軍功用於交易。達門檻後仍需找 NPC 正式接受任命。`)
-    if (t.town.status !== 'locked' && t.town.status !== 'completed' && t.town.status !== 'deferred') {
-      if (t.town.step === 'report') {
-        addText('歡迎報到。操作練習使用的是借用品，不會帶進城鎮。請到武器店，用練習獎勵購買第一把正式武器；成功購買後按 Tab 查看與裝備。舊角色先前已保存的購買紀錄也會承認。')
-        this.record('town', 'report')
-      } else if (t.town.step === 'duel-intro') {
-        addText('接著找騎兵隊長，選「新兵切磋」。這場不用馬，勝負皆可繼續；每次角色生涯只發一次教學獎勵。')
-        this.record('town', 'duel-intro')
-      } else if (t.town.step === 'missions') {
-        addText('之後可找士官長 → 1v1，選擇兵種並依序挑戰 T1–T5。\n現在可從下方目前軍階任務頁接受正式戰鬥；正常結算兩次後，我再介紹馬店。')
-        this.record('town', 'missions')
-      } else if (t.town.step === 'horse-intro' && t.settledMissionIds.length >= 2 && (hasCareerTutorialHorse(h.profile()) || h.profile().availableMerit >= careerShopProduct('horse')!.price)) {
-        addText(t.legacy && !t.purchases.horse && hasCareerTutorialHorse(h.profile())
-          ? '你已完成兩次實戰，也已持有普通馬，不需重新購買。按 Tab → 坐騎 → 騎乘，也能參加士官長 → 1v1 → Racing／繞城賽馬。既有馬匹不會被當作新購買，不補發 50 軍功。'
-          : `你已完成兩次實戰。普通馬售價 ${careerShopProduct('horse')!.price} 可用軍功；擁有後可召喚、騎乘，也能參加士官長 → 1v1 → Racing／繞城賽馬。成功買馬後另有一次性 50 軍功獎勵。`)
-        this.record('town', 'horse-intro')
-      }
+    if (serviceId === 'captain') {
+      return t.town.step === 'duel' && ['active', 'available'].includes(t.town.status)
     }
-    for (const [stage, label] of [['recruit', '操作練習'], ['captain', '隊長指揮訓練']] as const) {
-      if (t[stage].status === 'locked') continue
-      const replay = t[stage].status === 'completed'
-      button(`${replay ? '重播' : '繼續'}${label}${replay ? ' · 不重複發獎' : ''}`, () => h.launch(stage, replay))
+    if (serviceId === 'hr-officer') {
+      return t.hr.status === 'available' || t.hr.status === 'deferred'
     }
-    for (const [stage, label] of [['town', '城鎮新兵引導'], ['hr', 'HR 私人小隊引導'], ['commander', '指揮塔與全軍指揮']] as const) {
-      if (t[stage].status === 'locked') continue
-      addText(`${label}：${t[stage].status === 'completed' ? '已完成' : steps[t[stage].step] ?? status(t[stage].status)}`)
-      if (t[stage].status !== 'completed') {
-        if (t[stage].status === 'deferred' || t[stage].status === 'available') button(`開始／繼續${label}`, () => { activate(stage); this.appendStatus(panel, `${label}已繼續，關閉面板後依指標操作。`) })
-        else button(`${label} · 稍後繼續`, () => { this.change(profile => { deferCareerTutorial(profile, stage) }); this.appendStatus(panel, '教學已暫停，可繼續一般生涯任務，之後再找士官長。') })
-      } else button(`重播${label} · 不重複發獎`, () => { this.change(profile => { startCareerTutorial(profile, stage, true) }); this.towerRouteIndex = null; this.appendStatus(panel, '已開始重播，已領獎勵不會重複發放。') })
+    if (serviceId === 'commander') {
+      return t.commander.status === 'available' || t.commander.status === 'deferred'
+    }
+    return false
+  }
+
+  /** True when the current Town step is one the Sergeant explains in person (and its conditions are met). */
+  private townDialogueReady(): boolean {
+    const h = this.host, t = h.profile().tutorial
+    if (!t) return false
+    const step = t.town.step
+    if (step === 'report' || step === 'duel-intro' || step === 'missions') return true
+    if (step !== 'horse-intro') return false
+    const affordable = h.profile().availableMerit >= careerShopProduct('horse')!.price
+    return t.settledMissionIds.length >= 2 && (affordable || hasCareerTutorialHorse(h.profile()))
+  }
+
+  private servicesButton(panel: HTMLElement, serviceId: string): void {
+    const label = serviceId === 'deployment' ? '查看任務與其他服務' : serviceId === 'hr-officer' ? '其他服務' : '任命／其他服務'
+    this.button(panel, label, () => this.host.openServices?.(serviceId))
+  }
+
+  private resumable(status: string): boolean {
+    return status === 'available' || status === 'deferred'
+  }
+
+  private saveAndClose(
+    button: HTMLButtonElement,
+    panel: HTMLElement,
+    mutate: (profile: CareerProfile) => boolean | void,
+    onSuccess?: () => void,
+    retryLabel = '重試'
+  ): void {
+    if (this.busy) return
+    this.busy = true
+    this.retryAfter = 0
+    button.disabled = true
+    const saved = this.change(mutate)
+    if (saved) {
+      this.busy = false
+      this.host.closePanel()
+      onSuccess?.()
+    } else {
+      this.busy = false
+      button.disabled = false
+      button.textContent = retryLabel
+      this.showError(panel, this.saveError || '進度保存失敗，請點擊重試。')
     }
   }
-  private appendStatus(panel: HTMLElement, text: string): void { const p = document.createElement('p'); p.textContent = this.saveError || text; panel.append(p) }
-  dispose(): void { this.guide.dispose(); this.hint.remove() }
+
+  private button(parent: HTMLElement, label: string, action: () => void): HTMLButtonElement {
+    const b = document.createElement('button')
+    b.className = 'town-button'
+    b.textContent = label
+    b.onclick = action
+    parent.append(b)
+    return b
+  }
+
+  private showError(panel: HTMLElement, text: string): void {
+    let err = panel.querySelector<HTMLElement>('.town-save-error')
+    if (!err) {
+      err = document.createElement('p')
+      err.className = 'town-summary town-save-error'
+      err.style.color = '#ff8888'
+      panel.append(err)
+    }
+    err.textContent = text
+  }
+
+  renderDialogue(panel: HTMLElement, serviceId: string, only?: CareerTutorialStageId): boolean {
+    const h = this.host, t = h.profile().tutorial
+    if (!t || !h.peaceful()) return false
+
+    // Clean placeholder elements
+    panel.querySelectorAll('button, nav, article, .town-mission-tabs, .town-products, .town-shop-tabs, .town-shop-categories').forEach(el => el.remove())
+    const titleEl = panel.querySelector('h2')
+    const bodyEl = panel.querySelector('p')
+
+    if (serviceId === 'deployment') {
+      if (titleEl) titleEl.textContent = '士官長'
+      if ((!only || only === 'town') && t.town.status !== 'locked' && t.town.status !== 'completed') {
+        const step = t.town.step
+        if (step === 'report') {
+          if (bodyEl) {
+            bodyEl.textContent = '「新兵，歡迎加入軍團！你已經完成基本訓練，但光靠練習場的裝備可沒辦法上戰場。\n\n先去武器店挑一把趁手的武器，順著指標走就能找到店主。準備好了嗎？」'
+          }
+          const accept = this.button(panel, '好，我這就去', () => {
+            this.saveAndClose(accept, panel, p => recordCareerTutorialOperation(p, 'town', 'report'))
+          })
+          this.button(panel, '我晚點再去', () => this.host.closePanel())
+          this.servicesButton(panel, 'deployment')
+          return true
+        }
+        if (step === 'duel-intro') {
+          if (bodyEl) {
+            bodyEl.textContent = '「武器買好了？很好！不過裝備再好，也得有本事使用。\n\n我替你安排了一場與騎兵隊長的切磋。別擔心，輸了也有 20 軍功，贏了可是有 500 軍功。\n\n敢不敢接受挑戰？」'
+          }
+          const accept = this.button(panel, '當然，帶路吧！', () => {
+            this.saveAndClose(accept, panel, p => recordCareerTutorialOperation(p, 'town', 'duel-intro'))
+          })
+          this.button(panel, '稍後再挑戰', () => this.host.closePanel())
+          this.servicesButton(panel, 'deployment')
+          return true
+        }
+        if (step === 'missions') {
+          if (bodyEl) {
+            bodyEl.textContent = '「不錯，至少你已經知道真正的戰鬥是怎麼回事了。\n\n接下來去接幾個正式任務，累積軍功。等你有能力買馬，再回來找我。\n\n另外，想繼續切磋，也可以隨時找我安排。」'
+          }
+          const accept = this.button(panel, '明白，我去接任務', () => {
+            this.saveAndClose(accept, panel, p => recordCareerTutorialOperation(p, 'town', 'missions'))
+          })
+          this.button(panel, '稍後再說', () => this.host.closePanel())
+          this.servicesButton(panel, 'deployment')
+          return true
+        }
+        if (step === 'horse-intro') {
+          const affordable = h.profile().availableMerit >= careerShopProduct('horse')!.price
+          const hasHorse = hasCareerTutorialHorse(h.profile())
+          if (t.settledMissionIds.length >= 2 && (affordable || hasHorse)) {
+            if (bodyEl) {
+              bodyEl.textContent = hasHorse
+                ? '「你已經完成兩次實戰，也已經擁有了戰馬！按 Tab 查看坐騎，召喚後即可騎乘。隨時可以找我參加繞城賽馬。」'
+                : '「你已經完成兩次實戰，累積了足夠的軍功。\n\n是時候給自己配備一匹真正的戰馬了！順著指標前往馬店挑選一匹普通馬，買下後我會額外發放 50 軍功作為裝備補助。」'
+            }
+            const accept = this.button(panel, hasHorse ? '明白了' : '好，我去挑選戰馬', () => {
+              this.saveAndClose(accept, panel, p => recordCareerTutorialOperation(p, 'town', 'horse-intro'))
+            })
+            this.button(panel, '稍後再去', () => this.host.closePanel())
+            this.servicesButton(panel, 'deployment')
+            return true
+          }
+        }
+      }
+      if ((!only || only === 'captain') && this.resumable(t.captain.status)) {
+        if (bodyEl) {
+          bodyEl.textContent = '「恭喜你晉升為騎兵隊長！從現在開始，你將擁有指揮三十名士兵的權限。\n\n我為你準備了一場指揮演練，熟悉如何帶領部隊變換隊形與發動衝鋒。準備好了嗎？」'
+        }
+        const launchBtn = this.button(panel, '開始 30 人指揮演練', () => {
+          if (this.busy) return
+          this.busy = true
+          launchBtn.disabled = true
+          const ok = h.launch('captain', false)
+          this.busy = false
+          if (!ok) {
+            launchBtn.disabled = false
+            this.showError(panel, '演練轉場失敗，請稍後重試。')
+          }
+        })
+        this.button(panel, '稍後再訓練', () => {
+          this.change(p => { deferCareerTutorial(p, 'captain') })
+          this.host.closePanel()
+        })
+        this.servicesButton(panel, 'deployment')
+        return true
+      }
+      if ((!only || only === 'commander') && this.resumable(t.commander.status)) {
+        if (bodyEl) {
+          bodyEl.textContent = '「指揮官，全軍現在聽候你的調遣！登上指揮塔頂，你將俯瞰整個城鎮的四門防線，號令所有城防小隊。\n\n準備好登上指揮塔號令全軍了嗎？」'
+        }
+        const accept = this.button(panel, '前往指揮塔', () => {
+          this.saveAndClose(accept, panel, p => {
+            startCareerTutorial(p, 'commander')
+            return p.tutorial?.commander.status === 'active'
+          })
+        })
+        this.button(panel, '稍後再說', () => {
+          this.change(p => { deferCareerTutorial(p, 'commander') })
+          this.host.closePanel()
+        })
+        this.servicesButton(panel, 'deployment')
+        return true
+      }
+    }
+
+    if (serviceId === 'captain' && t.town.step === 'duel' && ['active', 'available'].includes(t.town.status)) {
+      if (titleEl) titleEl.textContent = '騎兵隊長'
+      if (bodyEl) {
+        bodyEl.textContent = '「聽說士官長派你來接受訓練？很好，讓我看看你的實力。準備好了嗎？」'
+      }
+      this.button(panel, '開始切磋', () => h.duel())
+      this.button(panel, '還沒準備好', () => this.host.closePanel())
+      this.servicesButton(panel, 'captain')
+      return true
+    }
+
+    if (serviceId === 'hr-officer' && this.resumable(t.hr.status)) {
+      if (titleEl) titleEl.textContent = 'HR Officer · 人力資源官'
+      if (bodyEl) {
+        bodyEl.textContent = '「隊長，恭喜你組建自己的部隊！在 HR Center，你可以招募專屬於你的私人戰友，上限 30 人。\n\n挑選第一位戰友加入你的隊伍吧！」'
+      }
+      const accept = this.button(panel, '開始招募戰友', () => {
+        this.saveAndClose(accept, panel, p => {
+          startCareerTutorial(p, 'hr')
+          return p.tutorial?.hr.status === 'active'
+        }, () => this.host.openRecruitmentPanel?.())
+      })
+      this.button(panel, '稍後再招募', () => this.host.closePanel())
+      this.servicesButton(panel, 'hr-officer')
+      return true
+    }
+
+    if (serviceId === 'commander' && this.resumable(t.commander.status)) {
+      if (titleEl) titleEl.textContent = h.profile().faction === 'roman' ? '羅馬指揮官' : '維京指揮官'
+      if (bodyEl) {
+        bodyEl.textContent = '「指揮官，全軍現在聽候你的調遣！登上指揮塔頂，你將俯瞰整個城鎮的四門防線，號令所有城防小隊。\n\n準備好登上指揮塔號令全軍了嗎？」'
+      }
+      const accept = this.button(panel, '前往指揮塔', () => {
+        this.saveAndClose(accept, panel, p => {
+          startCareerTutorial(p, 'commander')
+          return p.tutorial?.commander.status === 'active'
+        })
+      })
+      this.button(panel, '稍後再說', () => {
+        this.change(p => { deferCareerTutorial(p, 'commander') })
+        this.host.closePanel()
+      })
+      this.servicesButton(panel, 'commander')
+      return true
+    }
+
+    return false
+  }
+
+  hasReviewOptions(): boolean {
+    const t = this.host.profile().tutorial
+    if (!t) return false
+    return t.recruit.status === 'completed'
+      || t.town.status === 'completed'
+      || t.captain.status === 'completed'
+      || t.hr.status === 'completed'
+      || t.commander.status === 'completed'
+  }
+
+  renderReviewContent(panel: HTMLElement): void {
+    const h = this.host, t = h.profile().tutorial
+    const heading = document.createElement('h3'); heading.textContent = '重溫入伍旅程'; panel.append(heading)
+    const desc = document.createElement('p'); desc.className = 'town-summary'
+    desc.textContent = (!t || !this.hasReviewOptions())
+      ? '目前尚無已完成的訓練課程可供重溫。'
+      : '重溫過去的訓練課程。重播不重複發放軍功獎勵。'
+    panel.append(desc)
+    if (!t || !this.hasReviewOptions()) return
+
+    if (t.recruit.status === 'completed') {
+      this.button(panel, '重播操作練習', () => h.launch('recruit', true))
+    }
+    const replay = (label: string, stage: 'town' | 'hr' | 'commander') => {
+      const b = this.button(panel, label, () => this.saveAndClose(b, panel, p => {
+        startCareerTutorial(p, stage, true)
+        return p.tutorial?.[stage].status === 'active'
+      }, () => { if (stage === 'commander') this.towerRouteIndex = null }))
+    }
+    if (t.town.status === 'completed') replay('重播城鎮訓練', 'town')
+    if (t.captain.status === 'completed') {
+      this.button(panel, '重播隊長指揮演練', () => h.launch('captain', true))
+    }
+    if (t.hr.status === 'completed') replay('重播 HR 私人小隊引導', 'hr')
+    if (t.commander.status === 'completed') replay('重播指揮塔引導', 'commander')
+  }
+
+  openReviewPanel(): void {
+    const h = this.host, t = h.profile().tutorial
+    if (!t || !this.hasReviewOptions()) return
+    const panel = this.host.openPanel?.('重溫入伍旅程', '')
+    if (!panel) return
+    this.renderReviewContent(panel)
+    this.button(panel, '返回', () => {
+      this.host.openServices?.('deployment')
+    })
+  }
+
+  /** `bypass` is set while the player explicitly opened the regular service panel; tutorial dialogue must not clear it. */
+  appendPanel(panel: HTMLElement, serviceId: string, bypass = false): void {
+    if (!bypass && this.hasDialogue(serviceId)) {
+      this.renderDialogue(panel, serviceId)
+      return
+    }
+    if (serviceId !== 'deployment') return
+    const t = this.host.profile().tutorial
+    if (t && this.host.peaceful()) {
+      const resume = (label: string, stage: 'town' | 'captain' | 'commander') => this.button(panel, label, () => {
+        const next = this.host.openPanel?.('士官長', '')
+        if (next) this.renderDialogue(next, 'deployment', stage)
+      })
+      if (t.town.status === 'deferred') {
+        if (this.townDialogueReady()) resume('繼續新兵訓練', 'town')
+        else {
+          // Navigation-only steps (or horse-intro before its conditions): reactivate in place, keeping step/operations.
+          const b = this.button(panel, '繼續新兵訓練', () => this.saveAndClose(b, panel, p => {
+            startCareerTutorial(p, 'town')
+            return p.tutorial?.town.status === 'active'
+          }))
+        }
+      }
+      if (t.captain.status === 'deferred') resume('繼續 30 人指揮演練', 'captain')
+      if (t.commander.status === 'deferred') resume('繼續指揮塔訓練', 'commander')
+    }
+  }
+
+  dispose(): void {
+    this.guide.dispose()
+    this.hint.remove()
+  }
 }
