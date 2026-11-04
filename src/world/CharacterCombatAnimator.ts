@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { CharacterRig, HumanoidAnimationState, MountedPoseKind } from './CharacterVisuals'
 import { setRigRotation } from './CharacterVisuals'
 import { axeCarryWeight, axeRecoveryWeight, setSwordMountedAttachment } from './SwordAttachmentContract'
+import type { EquipmentPoseState } from './CharacterEquipmentPose'
 import type { WeaponData } from '../rpg/WeaponDatabase'
 
 export type CombatAction =
@@ -92,6 +93,8 @@ export class CharacterCombatAnimator {
     private readonly meleePivot: THREE.Group,
     private readonly bowPivot: THREE.Group,
   ) {
+    this.ownsAxeContact = !!rig.right.handSocket.userData.articulatedAxeContact
+    if (this.ownsAxeContact) rig.animation?.setEquipmentState?.({ prepareAxeAttachment: this.prepareAxeAttachment })
     this.poseIdle()
   }
 
@@ -112,6 +115,32 @@ export class CharacterCombatAnimator {
   }
   get currentOwnership(): 'clip' | 'procedural' { return this.ownership }
   get busy(): boolean { return this.action !== 'idle' && this.action !== 'bowAim' }
+  private readonly ownsAxeContact: boolean
+  private readonly axeHandMatrix = new THREE.Matrix4()
+  private readonly axeHandFrame = { center: new THREE.Vector3(), rotation: new THREE.Quaternion() }
+
+  private readonly prepareAxeAttachment = (state: EquipmentPoseState): void => {
+    setSwordMountedAttachment(this.meleePivot, state.mounted, state.mounted ? axeCarryWeight(state.action, state.elapsed) : 0,
+      this.usesTwoHandedAxeCarry, state.action, axeCarryWeight(state.action, state.elapsed), !!state.continuousAxeAction,
+      axeRecoveryWeight(state.action, state.elapsed, !!state.continuousAxeAction))
+    const axeVisual = (this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual : undefined) as THREE.Object3D | undefined
+    if (axeVisual) {
+      // Read the actual attachment after carry selection, rather than assuming
+      // the foot axe rotation also describes mounted carry and other weapons.
+      this.axeHandMatrix.identity()
+      for (let node: THREE.Object3D | null = axeVisual; node && node !== this.rig.right.handSocket; node = node.parent) {
+        node.updateMatrix()
+        this.axeHandMatrix.premultiply(node.matrix)
+      }
+      this.rig.right.handSocket.updateMatrix()
+      this.axeHandMatrix.premultiply(this.rig.right.handSocket.matrix)
+      this.axeHandFrame.rotation.setFromRotationMatrix(this.axeHandMatrix)
+      this.axeHandFrame.center.setFromMatrixPosition(this.axeHandMatrix)
+    }
+    state.axeHandFrame = axeVisual ? this.axeHandFrame : undefined
+    state.axeGripProfile = axeVisual?.parent?.userData.meleeWeaponId
+  }
+
   get isLanceThrustActive(): boolean {
     if (this.action !== 'lanceThrust' && this.action !== 'mountedLance') return false
     const profile = COMBAT_ANIMATION_PROFILES[this.action]
@@ -251,7 +280,7 @@ export class CharacterCombatAnimator {
     this.rig.animation?.update(dt, this.isMeleeAction || canceledPose ? 0 : cameraDistance)
     // Animated sockets and forward axe carry follow the evaluated pose and
     // LOD proxy, before this tick's hit/contact evaluation.
-    if (this.meleePivot.userData.authoredAxeSocket || this.meleePivot.userData.authoredAxe1Socket || this.meleePivot.userData.forwardAxeCarryRoot) setSwordMountedAttachment(this.meleePivot, mounted,
+    if (!(this.ownsAxeContact && this.meleePivot.userData.axeVisual) && (this.meleePivot.userData.authoredAxeSocket || this.meleePivot.userData.authoredAxe1Socket || this.meleePivot.userData.forwardAxeCarryRoot)) setSwordMountedAttachment(this.meleePivot, mounted,
       mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
     if (canceledPose && this.canceledAxePose >= .48) {
       this.clearCanceledAxePose()

@@ -544,6 +544,13 @@ export class MixerController implements HumanoidAnimationController {
       this.equipmentState.relaxedHandWeight = THREE.MathUtils.lerp(this.relaxedHandTransitionStart, this.equipmentState.relaxedHandWeight, blend)
       if (blend === 1) this.relaxedHandTransitionStart = undefined
     }
+    if (this.equipmentState.carryWeapon === 'axe' && this.equipmentState.prepareAxeAttachment) {
+      // Evaluate the weapon against the newly sampled source hand, before any
+      // contact overlay moves it. The final callback then counter-transforms
+      // the equipment proxy once; no late attachment owner can move it again.
+      this.onPoseEvaluated?.()
+      this.equipmentState.prepareAxeAttachment(this.equipmentState)
+    }
     Object.assign(this.evaluatedEquipmentState, this.equipmentState)
     this.equipmentLayers.forEach((layer, index) => {
       if (all || this.needsLevel(index)) {
@@ -1260,7 +1267,8 @@ export class HumanoidAssetRegistry {
         animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips, template.manifest.alignAuthoredCarryGrip, template.manifest.articulatedFingerPoses)
       }
     }
-    const updateEquipmentSockets = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip || template.manifest.articulatedFingerPoses?.swordGripCenterLocal) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined)
+    rig.right.handSocket.userData.articulatedAxeContact = !!template.manifest.articulatedFingerPoses?.axeGripProfile
+    const updateEquipmentSockets = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip || template.manifest.articulatedFingerPoses?.swordGripCenterLocal) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined, template.manifest.articulatedFingerPoses?.shieldGripCenterLocal ? () => animation.equipmentLayers[0]?.leftEquipmentHandCorrection : undefined)
     const handBounds: Array<{ mesh: THREE.SkinnedMesh, wrist: THREE.Bone, radius: number }> = []
     root.traverse(node => {
       if (!(node instanceof THREE.SkinnedMesh)) return

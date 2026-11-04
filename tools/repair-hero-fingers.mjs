@@ -33,7 +33,8 @@ try {
  ;({calibrateLanceIdleAttachment}=await calibrationServer.ssrLoadModule('/src/world/EquipmentAttachmentContract.ts'))
  ;({createMountedIdleClip}=await calibrationServer.ssrLoadModule('/src/world/HumanoidAssetRegistry.ts'))
 } finally {await calibrationServer.close()}
-async function fitSwordContact(rig,right,swordFile,frames,tips,repairPalm) {
+async function fitSwordContact(rig,right,swordFile,frames,tips,repairPalm,wrapContact=false) {
+ right={...right,...(wrapContact?{wrapContact:true}:{})}
  let target=await measureSwordGripTarget(swordFile,right),contact
  if(repairPalm){contact=anatomicalSwordContact(rig,right,target);target=await measureSwordGripTarget(swordFile,{...right,gripCenterLocal:contact.gripCenterLocal})}
  let grip=buildAnatomicalFingerPoses(rig,{...frames,r:target},tips).grip
@@ -74,7 +75,7 @@ function preservedRestDigest(doc) {
 for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-t4']) {
  const sourceDir=path.join(inputRoot,id),destination=path.join(outputRoot,id),manifest=JSON.parse(fs.readFileSync(path.join(sourceDir,'manifest.json')))
  if(manifest.fingerAnatomyBuild)throw Error(`Use original inputs, not repaired ${id}`)
- fs.mkdirSync(destination,{recursive:true});const reports=[];let poses,boneMap,swordTarget,swordContact,mountedSwordContact,mountedSwordTarget
+ fs.mkdirSync(destination,{recursive:true});const reports=[];let poses,boneMap,swordTarget,swordContact,mountedSwordContact,mountedSwordTarget,axeContact,shieldContact
  const meshSource=['viking-hero-t5','roman-hero-t4'].includes(id)?await loadRig(await decodeMeshoptGlb(readGlb(path.join(sourceDir,manifest.files.lod0)))):null
  for(const lod of [0,1,2]) {
   const key=`lod${lod}`,filename=manifest.files[key],bytes=fs.readFileSync(path.join(sourceDir,filename))
@@ -99,6 +100,16 @@ for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-
    const swordFile=id==='viking-hero-t5'?'public/models/weapons/t5/sword.glb':'public/models/weapons/paladin/sword.glb'
    const foot=await fitSwordContact(rig,right,swordFile,frames,surface?.tips,!!surface?.boneRecords.length)
    swordTarget=foot.target;swordContact=foot.contact;poses.sword=foot.grip
+   if(surface?.boneRecords.length){
+    // Weapon surfaces keep their original attachment. Fit a separate hand
+    // station after replacing the old tubular palm; the old station lies at
+    // the new fingertips and otherwise optimizes to an almost open hand.
+    const axe=await fitSwordContact(rig,right,'public/models/weapons/paladin/axe.glb',frames,surface.tips,true,true)
+    axeContact={...axe.contact,sourceSurface:{file:axe.target.sourceSurface.file,sha256:axe.target.sourceSurface.sha256,bounds:axe.target.sourceSurface.bounds}};poses.axe=Object.fromEntries(Object.entries(axe.grip).filter(([name])=>name.endsWith('_r')))
+    const shieldFrame={...frames.l,gripRadius:.024,wrapContact:true}
+    shieldContact=anatomicalSwordContact(rig,shieldFrame,shieldFrame,'l')
+    poses.shield=Object.fromEntries(Object.entries(buildAnatomicalFingerPoses(rig,{...frames,l:{...shieldFrame,gripCenterLocal:shieldContact.gripCenterLocal}},surface.tips).grip).filter(([name])=>name.endsWith('_l')))
+   }
    if(swordContact){
     const calibrated={...right},idle=rig.animations.find(c=>c.name==='idle')
     calibrateLanceIdleAttachment(rig.scene,['ordinary22','roman54','varangian63'].includes(manifest.selectedSource?.rig??'')?createMountedIdleClip(idle):idle,calibrated)
@@ -154,7 +165,7 @@ for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-
   fs.writeFileSync(path.join(destination,filename),output);manifest.fileSha256[key]=hash(output);manifest.metrics.triangles[key]=after
   reports.push({lod,before,after,originalSha256:hash(bytes),outputSha256:hash(output),preservedNonFingerChannels:preservedChannels,bodyAnimationSha256:animationAfter,bodyRestAndSocketsSha256:restAfter,localSurfaceRepair:surface?.report??null})
  }
- manifest.articulatedFingerPoses={relaxed:poses.relaxed,grip:poses.grip,sword:poses.sword,...(swordContact?{swordGripCenterLocal:swordContact.gripCenterLocal}:{}),...(mountedSwordContact?{mountedSword:poses.mountedSword,mountedSwordGripCenterLocal:mountedSwordContact.gripCenterLocal}:{})}
+ manifest.articulatedFingerPoses={relaxed:poses.relaxed,grip:poses.grip,sword:poses.sword,...(axeContact?{axeGripProfile:'paladin_mace_t4',axe:poses.axe,axeGripCenterLocal:axeContact.gripCenterLocal}:{}),...(shieldContact?{shield:poses.shield,shieldGripCenterLocal:shieldContact.gripCenterLocal}:{}),...(swordContact?{swordGripCenterLocal:swordContact.gripCenterLocal}:{}),...(mountedSwordContact?{mountedSword:poses.mountedSword,mountedSwordGripCenterLocal:mountedSwordContact.gripCenterLocal}:{})}
  if(manifest.animationRetarget?.fingerDonor){delete manifest.animationRetarget.fingerDonor;manifest.animationRetarget.method='Existing body retarget unchanged. Finger-only target-bind poses replace the former Roman donor plus additive grasp; source events and durations retained.'}
  manifest.knownLimitations=(manifest.knownLimitations??[]).map(item=>item.includes('Thirty anatomical finger tracks')?'Finger contact uses the measured asset handle radius; unusually thick replacement handles still require visual review.':item)
  manifest.fingerAnatomyBuild={tool:'tools/repair-hero-fingers.mjs',version:1,sourceManifestSha256:hash(fs.readFileSync(path.join(sourceDir,'manifest.json'))),handReference:{source:reference.source,sourceSha256:reference.sourceSha256,author:reference.author,license:reference.license},lods:reports}
@@ -162,6 +173,8 @@ for(const id of ['viking-hero-t4','viking-hero-t5','roman-hero-t4','maki-archer-
  const {sections,...sourceSurface}=swordTarget.sourceSurface
  manifest.fingerAnatomyBuild.swordContactTarget={...swordTarget,sourceSurface:{...sourceSurface,sectionCount:sections.length}}
  if(swordContact)manifest.fingerAnatomyBuild.swordHandContact=swordContact
+ if(axeContact)manifest.fingerAnatomyBuild.axeHandContact=axeContact
+ if(shieldContact)manifest.fingerAnatomyBuild.shieldHandContact=shieldContact
  if(mountedSwordContact){const {sections,...sourceSurface}=mountedSwordTarget.sourceSurface;manifest.fingerAnatomyBuild.mountedSwordContactTarget={...mountedSwordTarget,sourceSurface:{...sourceSurface,sectionCount:sections.length}};manifest.fingerAnatomyBuild.mountedSwordHandContact=mountedSwordContact}
  manifest.audit='finger-anatomy-audit.json'
  manifest.modifications=[...(manifest.modifications??[]),'Local hand anatomy repair; target-bind absolute finger poses distinguish natural hand shape from equipment contact. Body animation samples, wrist/socket transforms and action/event clocks retained.']

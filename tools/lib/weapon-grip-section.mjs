@@ -30,15 +30,17 @@ export function gripSurfaceDistance(point,surface,shaft) {
 /** Rebuilt hands use their measured MCP plane as the grasp station. This is
  * a hand-contact frame, not a replacement weapon attachment: runtime moves the
  * arm to it and counter-transforms the existing equipment socket. */
-export function anatomicalSwordContact(rig,frame,measured) {
+export function anatomicalSwordContact(rig,frame,measured,side='r') {
  rig.scene.updateMatrixWorld(true)
- const hand=rig.scene.getObjectByName('hand_r'),point=o=>hand.worldToLocal(o.getWorldPosition(new T.Vector3())),base=d=>point(rig.scene.getObjectByName(`${d}_01_r`))
+ const hand=rig.scene.getObjectByName(`hand_${side}`),point=o=>hand.worldToLocal(o.getWorldPosition(new T.Vector3())),base=d=>point(rig.scene.getObjectByName(`${d}_01_${side}`))
  const across=base('index').sub(base('pinky')).normalize(),along=base('middle').normalize();along.addScaledVector(across,-along.dot(across)).normalize()
- const normal=across.clone().cross(along).normalize();if(point(rig.scene.getObjectByName('thumb_02_r')).dot(normal)<0)normal.negate()
+ const normal=across.clone().cross(along).normalize();if(point(rig.scene.getObjectByName(`thumb_02_${side}`)).dot(normal)<0)normal.negate()
  const mcp=['index','middle','ring','pinky'].reduce((p,d)=>p.addScaledVector(base(d),.25),new T.Vector3())
- const length=Math.max(...['index','middle','ring','pinky'].map(d=>{const b=rig.scene.getObjectByName(`${d}_03_r`);return point(b).length()+b.position.length()*.75}))
+ const length=Math.max(...['index','middle','ring','pinky'].map(d=>{const b=rig.scene.getObjectByName(`${d}_03_${side}`);return point(b).length()+b.position.length()*.75}))
  const pad=length*.05,radius=measured.gripRadius,actual=new T.Vector3(...measured.gripCenterLocal)
- const offset=along.clone().multiplyScalar(mcp.dot(along)+radius*.6-actual.dot(along)).addScaledVector(normal,mcp.dot(normal)+radius+pad-actual.dot(normal))
+ // An encircling grip seats the shaft inside the palm, proximal to MCP.
+ // Placing it past the knuckles only allows an extended fingertip contact.
+ const offset=along.clone().multiplyScalar(mcp.dot(along)+radius*(frame.wrapContact?-.6:.6)-actual.dot(along)).addScaledVector(normal,mcp.dot(normal)+radius+pad-actual.dot(normal))
  return {gripCenterLocal:new T.Vector3(...frame.gripCenterLocal).add(offset).toArray(),offsetM:offset.toArray(),skinPadM:pad,method:'MCP plane and measured handle surface; weapon world transform retained by runtime socket compensation'}
 }
 

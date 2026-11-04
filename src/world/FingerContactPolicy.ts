@@ -4,6 +4,12 @@ export interface ArticulatedFingerPoses {
   sword?: Record<string, readonly number[]>
   /** Hand-only grasp station; the weapon keeps its original attachment. */
   swordGripCenterLocal?: [number, number, number]
+  /** Measured weapon geometry owns this pose, not every axe-shaped attachment. */
+  axeGripProfile?: string
+  axe?: Record<string, readonly number[]>
+  axeGripCenterLocal?: [number, number, number]
+  shield?: Record<string, readonly number[]>
+  shieldGripCenterLocal?: [number, number, number]
   mountedSword?: Record<string, readonly number[]>
   mountedSwordGripCenterLocal?: [number, number, number]
 }

@@ -67,6 +67,18 @@ installed executable. The builder invokes the same extraction step. Blender
   offline module loader. The arm uses the shortest shaft alignment instead of
   forcing foot palm roll onto the rider. Its own finger/palm contact solution
   avoids making the mounted wrist unreachable while keeping the blade fixed.
+- Warcat axe and shield contact use separate palm stations and bounded wrap
+  poses. A shaft ahead of the MCP plane only permits fingertips to touch;
+  an encircling grip seats the shaft inside the palm, proximal to the knuckles.
+  The Warcat pose is selected by its measured weapon profile, not applied to
+  other axe geometry. The procedural shield uses its existing 24 mm handle.
+- Axe attachment selection runs after the source mixer sample and before hand
+  contact. The final socket callback preserves that sampled weapon transform;
+  an authored axe socket must not be evaluated again from the corrected wrist.
+  Shortest shaft alignment retains sampled palm roll, while the existing
+  shoulder-girdle reach solve keeps the fixed contact reachable without bone
+  stretch. Left shield contact gets the same socket compensation as the right
+  weapon. Two-handed axe support retains its existing owner.
 - Separate hand meshes carry a conservative wrist-local skin bound derived
   from finger-chain lengths and weighted bind points. The pose callback moves
   that small sphere with the wrist. A cached idle sphere previously culled a

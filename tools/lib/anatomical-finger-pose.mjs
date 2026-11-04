@@ -55,7 +55,7 @@ export function buildAnatomicalFingerPoses(rig, frames, tips={}) {
       // MCP starts on the palm side. The pad closes on the opposite face of
       // the handle after PIP/DIP wrap around its distal edge. Returning the
       // target to the palm side asks for an impossible extra half revolution.
-      const desired=center.clone().addScaledVector(shaft,station).addScaledVector(normal,(radius+.007)*.7).addScaledVector(along,(radius+.007)*.5)
+      const desired=center.clone().addScaledVector(shaft,station).addScaledVector(normal,(radius+.007)*.7).addScaledVector(along,(radius+.007)*(frame.wrapContact?-.5:.5))
       const distalContact=center.clone().sub(base(digit)).dot(along)>radius*.4
       if(digit==='thumb'){
         const radial=base('thumb').sub(center);radial.addScaledVector(shaft,-radial.dot(shaft)).normalize()
