@@ -1,4 +1,5 @@
 import { CHARACTER_LOD_DISTANCES } from './CharacterLODPolicy'
+import type { ArticulatedFingerPoses } from './ArticulatedFingerPose'
 import { getOrdinarySoldierAssetId } from '../combat/OrdinarySoldierProfile'
 import { prepareSeatSupport } from './SkinnedSeatContact'
 import type { FittedHumanoidClothRig } from './FittedHumanoidCloth'
@@ -91,6 +92,8 @@ export interface HumanoidAssetManifest {
   sharedLodPose?: boolean
   /** Preserve authored canonical finger channels when deriving mounted upper-body idle. */
   preserveMountedFingerTracks?: boolean
+  /** Absolute target-bind finger poses; free hands and contact have separate owners. */
+  articulatedFingerPoses?: ArticulatedFingerPoses
   /** Keep the equipped axe carry forward without changing the authored wrist. */
   forwardAxeCarry?: boolean
   clothRig?: FittedHumanoidClothRig
@@ -1254,7 +1257,7 @@ export class HumanoidAssetRegistry {
       if (frames) {
         const layerRig = createHumanoidRigAdapter(level.object, animation)
         layerRig.swordGripFrame = template.manifest.swordGripFrames?.[(['lod0', 'lod1', 'lod2'] as const)[index]]
-        animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips, template.manifest.alignAuthoredCarryGrip)
+        animation.equipmentLayers[index] = new CharacterEquipmentPose(level.object, layerRig, frames, template.manifest.bakedEquipmentActions, template.manifest.bowFullBodyStance, template.manifest.selectedSource, template.manifest.clothRig, template.manifest.relaxedLeftThumbForward, template.manifest.swordCarryGrips, template.manifest.alignAuthoredCarryGrip, template.manifest.articulatedFingerPoses)
       }
     }
     animation.onPoseEvaluated = createEquipmentSocketProxies(root, rig, (template.manifest.swordCarryGrips || template.manifest.alignAuthoredCarryGrip) ? () => animation.equipmentLayers[0]?.rightEquipmentHandCorrection : undefined)

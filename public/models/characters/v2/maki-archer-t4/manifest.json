@@ -14,7 +14,7 @@
     "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
     "licenseEvidence": "attribution-evidence.json"
   },
-  "attribution": "Shadow Warden generated with Meshy; user-supplied free-plan asset under CC BY 4.0. Modified for SagaBurst: uniform normalization, fitted humanoid skinning, cloth helper rig, offline LODs and texture resizing. Animation credits recorded separately.",
+  "attribution": "Shadow Warden generated with Meshy; user-supplied free-plan asset under CC BY 4.0. Modified for SagaBurst: uniform normalization, fitted humanoid skinning, cloth helper rig, offline LODs and texture resizing. Animation credits recorded separately. Local hand surface derivative: Kevin Iglesias, Human Melee Animations FREE (Unity Asset Store EULA); complete source model excluded.",
   "files": {
     "lod0": "lod0.glb",
     "lod1": "lod1.glb",
@@ -26,8 +26,8 @@
     "neckLengthM": 0.09055376510723556,
     "triangles": {
       "lod0": 10933,
-      "lod1": 4495,
-      "lod2": 1792
+      "lod1": 5001,
+      "lod2": 2325
     },
     "textures": {
       "lod0": 2048,
@@ -36,7 +36,7 @@
     }
   },
   "boneMap": "bone-map.json",
-  "audit": "audit.json",
+  "audit": "finger-anatomy-audit.json",
   "handGripFrames": {
     "left": {
       "palmContactCenter": [
@@ -2151,7 +2151,7 @@
       ]
     ]
   },
-  "visualAcceptance": "Focused offline production-runtime poses were visually reviewed for source appearance, locomotion, weapon grips, mounted composition and death. This is not browser/GPU/manual play acceptance or a claim of continuous collision-free cloth; final real-LOD matrix evidence is recorded separately.",
+  "visualAcceptance": "Pending current browser review; numeric/structural checks do not establish appearance.",
   "knownLimitations": [
     "Cloth uses fitted helper bones and baked poses; no dynamic cloth collision.",
     "Anatomical scalp is concealed by the Shadow Warden hood; measured height is the source envelope.",
@@ -2164,9 +2164,9 @@
     "Coarse LOD2 final death contact can retain about 3.7–7.5 mm of surface-floor penetration under the shared identical animation."
   ],
   "fileSha256": {
-    "lod0": "0db7823a7a45a39a55fa26265b20f3d1c72c24da413550642f77990a819af519",
-    "lod1": "86989b50605409c8ed49c7a69ad2338248e9ebb009be388a5b1befa44f2a5ba3",
-    "lod2": "f4745d2f087a1c37a740912798732bca19a02a5e7fafa8a5b72b7de3a8b3c37a"
+    "lod0": "d8296ff7a3495e775a00d8bfee5ae9cf18a7bdd0485463bca25d2a9aa0b06163",
+    "lod1": "96b4414fe7ba20222353201f04deda16477f9c38036e49a1a475635daf922610",
+    "lod2": "b732eae83711e81a4ec050d1d2bbfbfa6ceec9885498b2dd246d4b0c2a65f313"
   },
   "animations": {
     "embedded": [
@@ -2366,5 +2366,466 @@
     "attackTransition": "inertial",
     "preservation": "Only axeAttack2H channels and their referenced samples are replaced. Geometry, skin, textures, other animation payloads and runtime attack cycles are unchanged.",
     "validation": "Animation/asset and production-controller trajectory checks; live browser gameplay, visual contact/clearance and mounted aesthetic acceptance remain unverified."
-  }
+  },
+  "articulatedFingerPoses": {
+    "relaxed": {
+      "thumb_01_l": [
+        -0.3188136453564789,
+        0.02634213665967839,
+        0.2230499330588319,
+        0.9208217410189482
+      ],
+      "thumb_02_l": [
+        0.03528557735076026,
+        0.0019144294229559728,
+        0.01955976349905358,
+        0.9991840063986559
+      ],
+      "thumb_03_l": [
+        -0.05878678917103558,
+        0.014944999503128274,
+        0.03237027197893666,
+        0.9976336631754271
+      ],
+      "index_01_l": [
+        0.008299104597416852,
+        0.704152460265613,
+        -0.14293573837601833,
+        -0.695463738996986
+      ],
+      "index_02_l": [
+        -0.11939999963644375,
+        -0.02838595714668664,
+        0.005365290244414803,
+        -0.9924258618074586
+      ],
+      "index_03_l": [
+        0.03374623276391364,
+        0.003589199706805808,
+        -0.01017648081178699,
+        0.9993721772482942
+      ],
+      "middle_01_l": [
+        0.0032024309656675824,
+        0.7008833274015708,
+        -0.10322175206060426,
+        -0.7057602820419633
+      ],
+      "middle_02_l": [
+        -0.14547177249325202,
+        -0.04566200151939068,
+        -0.00933881502371283,
+        -0.9882639989187442
+      ],
+      "middle_03_l": [
+        0.044912040556782315,
+        -0.02146892326795489,
+        -0.004235324000702173,
+        0.9987512482982687
+      ],
+      "ring_01_l": [
+        -0.01879746916124019,
+        0.6991252965666273,
+        -0.0771669685378516,
+        -0.7105742282270276
+      ],
+      "ring_02_l": [
+        -0.1338989148590348,
+        0.0005522268086993048,
+        -0.021949844725510727,
+        -0.9907517246826527
+      ],
+      "ring_03_l": [
+        -0.06082096400769728,
+        0.041174785632003164,
+        0.017767654014378662,
+        -0.9971407913811159
+      ],
+      "pinky_01_l": [
+        -0.030535462159975282,
+        0.7127236374058157,
+        -0.06406295355982856,
+        -0.6978456421121303
+      ],
+      "pinky_02_l": [
+        0.1337867628279968,
+        0.012293450942426577,
+        0.014175372399049523,
+        0.9908324944072433
+      ],
+      "pinky_03_l": [
+        -0.06200808263454999,
+        0.02137069891805599,
+        -0.007256344156745052,
+        -0.9978204429581604
+      ],
+      "thumb_01_r": [
+        -0.318813991355878,
+        -0.02634806796393335,
+        -0.2230532569556047,
+        0.9208206463757201
+      ],
+      "thumb_02_r": [
+        0.035287425412442536,
+        -0.0019129152605582662,
+        -0.019559524017216376,
+        0.9991839487217493
+      ],
+      "thumb_03_r": [
+        -0.05878805767914408,
+        -0.014946925716117028,
+        -0.03236872515276217,
+        0.997633609757578
+      ],
+      "index_01_r": [
+        -0.008297599628451875,
+        0.7041483897014289,
+        -0.14293701271987522,
+        0.6954676164394776
+      ],
+      "index_02_r": [
+        0.11939835731614439,
+        -0.028386674565231088,
+        0.005364107484873301,
+        0.9924260452689787
+      ],
+      "index_03_r": [
+        0.03374622429511002,
+        -0.003589128895644629,
+        0.01017603512927438,
+        0.9993721823268057
+      ],
+      "middle_01_r": [
+        -0.0032028032041784608,
+        0.7008780431544192,
+        -0.10322235736866005,
+        0.7057654395157956
+      ],
+      "middle_02_r": [
+        0.14547415769520836,
+        -0.04565929288924432,
+        -0.009339651463734468,
+        0.988263765057821
+      ],
+      "middle_03_r": [
+        0.044911930008754264,
+        0.021468944398985907,
+        0.004234850376076769,
+        0.9987512548235292
+      ],
+      "ring_01_r": [
+        0.018796891560679114,
+        0.6991203060911485,
+        -0.07716740879857917,
+        0.7105791057285515
+      ],
+      "ring_02_r": [
+        0.13390036533776883,
+        0.000553379619889591,
+        -0.02195071751022178,
+        0.9907515086711677
+      ],
+      "ring_03_r": [
+        0.06082088398213414,
+        0.04117403469959344,
+        0.017766953929717257,
+        0.9971408397444403
+      ],
+      "pinky_01_r": [
+        0.03053640959921838,
+        0.7127197629658952,
+        -0.06406464808995903,
+        0.697849402114623
+      ],
+      "pinky_02_r": [
+        0.13376903269896187,
+        -0.012309447239315022,
+        -0.014177570385327722,
+        0.9908346582035852
+      ],
+      "pinky_03_r": [
+        0.06202303225778946,
+        0.02138527715661521,
+        -0.007258385258380612,
+        0.9978191866435145
+      ]
+    },
+    "grip": {
+      "thumb_01_l": [
+        -0.14125682857006824,
+        -0.009601226078612381,
+        0.2076050431512015,
+        0.9679124293541754
+      ],
+      "thumb_02_l": [
+        0.01967200323898114,
+        -0.057658423408674636,
+        0.16361126130070885,
+        0.984642002798064
+      ],
+      "thumb_03_l": [
+        -0.012729430472405812,
+        0.024634757101539312,
+        0.5898519360659407,
+        0.8070351813035525
+      ],
+      "index_01_l": [
+        -0.46889741991742234,
+        0.4412064313061587,
+        -0.5447116963963797,
+        -0.5373651108676917
+      ],
+      "index_02_l": [
+        -0.8012937409513313,
+        -0.014855651048916936,
+        0.017251596465989668,
+        -0.5978377980384881
+      ],
+      "index_03_l": [
+        0.09360170191219529,
+        0.0029274401414989635,
+        -0.009033465690075,
+        0.9955644368854206
+      ],
+      "middle_01_l": [
+        -0.4664853114461528,
+        0.4642885932912123,
+        -0.5260236333755788,
+        -0.5386340998071026
+      ],
+      "middle_02_l": [
+        -0.7944533987986797,
+        -0.03207245727739675,
+        -0.023373420404006605,
+        -0.60602709332177
+      ],
+      "middle_03_l": [
+        0.05488573818942463,
+        -0.021524063048876104,
+        -0.0037119133958300687,
+        0.9982537213315119
+      ],
+      "ring_01_l": [
+        -0.4798324341438277,
+        0.47982094608644205,
+        -0.5117804344892793,
+        -0.5268903887093458
+      ],
+      "ring_02_l": [
+        -0.8024440805737408,
+        -0.016789147659167905,
+        -0.0047990706515821675,
+        -0.5964717855807794
+      ],
+      "ring_03_l": [
+        -0.03338975212145766,
+        0.040823581261712455,
+        0.01641423892709079,
+        -0.9984734009610272
+      ],
+      "pinky_01_l": [
+        -0.4963956386389963,
+        0.49797559764699745,
+        -0.4944443700216401,
+        -0.5110151064716211
+      ],
+      "pinky_02_l": [
+        0.7469733918218077,
+        0.020512606651954066,
+        -0.011788825840770022,
+        0.6644328472192372
+      ],
+      "pinky_03_l": [
+        -0.1833517427225011,
+        0.01979200004028965,
+        -0.0012128371547166477,
+        -0.9828473656682727
+      ],
+      "thumb_01_r": [
+        -0.14125728241694252,
+        0.009596088547553715,
+        -0.2076094092478412,
+        0.9679114775848721
+      ],
+      "thumb_02_r": [
+        0.019672761472330685,
+        0.05765801002702734,
+        -0.16361170099964112,
+        0.9846419387938846
+      ],
+      "thumb_03_r": [
+        -0.012735445897446955,
+        -0.024635411465876344,
+        -0.5898510153126599,
+        0.8070357393909668
+      ],
+      "index_01_r": [
+        0.46889628813670625,
+        0.4412018201052943,
+        -0.5447148432231737,
+        0.5373666946134156
+      ],
+      "index_02_r": [
+        0.7860951764093466,
+        -0.015477287018462137,
+        0.0170119515664321,
+        0.6176774406730489
+      ],
+      "index_03_r": [
+        0.16792214305241365,
+        -0.0020856528975152504,
+        0.007557399496968594,
+        0.9857690853529131
+      ],
+      "middle_01_r": [
+        0.4664817479550647,
+        0.46428410045916446,
+        -0.5260274612089715,
+        0.5386373204111059
+      ],
+      "middle_02_r": [
+        0.7944546442742524,
+        -0.032069281943534964,
+        -0.023382670489779097,
+        0.6060252718059401
+      ],
+      "middle_03_r": [
+        0.07979366068808715,
+        0.021652492787644535,
+        0.002401065194109472,
+        0.9965733169998126
+      ],
+      "ring_01_r": [
+        0.4798288948102023,
+        0.4798169490764677,
+        -0.5117839248387598,
+        0.5268938615706251
+      ],
+      "ring_02_r": [
+        0.794930834976516,
+        -0.016571228121433617,
+        -0.005133289667221323,
+        0.6064519860131379
+      ],
+      "ring_03_r": [
+        0.07078556337036121,
+        0.041294038694005324,
+        0.018255700645776023,
+        0.9964692347386397
+      ],
+      "pinky_01_r": [
+        0.4963939889662288,
+        0.49797162235307474,
+        -0.4944480335044353,
+        0.5110170380846799
+      ],
+      "pinky_02_r": [
+        0.7869652429227405,
+        -0.02079435708140801,
+        0.013960050763279542,
+        0.6164887818345194
+      ],
+      "pinky_03_r": [
+        0.07198822002600382,
+        0.021268097496167974,
+        -0.006768188033871734,
+        0.9971557329911507
+      ]
+    }
+  },
+  "fingerAnatomyBuild": {
+    "tool": "tools/repair-hero-fingers.mjs",
+    "version": 1,
+    "sourceManifestSha256": "ee341d239a306490af8b2f3b4399391cc8883fa9049e98168d3e70d2dc070590",
+    "handReference": {
+      "source": "Human Melee Animations FREE/Models/HumanM_Model.fbx",
+      "sourceSha256": "88fd0684f0b3331cc4056b2ddafebf506d52c21c32e18884fd28214c0a8d75cb",
+      "author": "Kevin Iglesias",
+      "license": "Unity Asset Store EULA; embedded character derivative only"
+    },
+    "lods": [
+      {
+        "lod": 0,
+        "before": 10933,
+        "after": 10933,
+        "originalSha256": "0db7823a7a45a39a55fa26265b20f3d1c72c24da413550642f77990a819af519",
+        "outputSha256": "d8296ff7a3495e775a00d8bfee5ae9cf18a7bdd0485463bca25d2a9aa0b06163",
+        "preservedNonFingerChannels": 455,
+        "bodyAnimationSha256": "cebb806572015d1a99ef175fc8401d6be60a10deb3fe662f49520b5a3942cd79",
+        "bodyRestAndSocketsSha256": "139fcfd713e2724690897ebd49be02a3de59692e3cdf447fe861df3e701cc54b",
+        "localSurfaceRepair": [
+          {
+            "side": "l",
+            "mesh": "FactionHumanoid_Surface",
+            "removedTriangles": 231,
+            "newHandTriangles": 231,
+            "lengthM": 0.184
+          },
+          {
+            "side": "r",
+            "mesh": "FactionHumanoid_Surface",
+            "removedTriangles": 216,
+            "newHandTriangles": 216,
+            "lengthM": 0.184
+          }
+        ]
+      },
+      {
+        "lod": 1,
+        "before": 4495,
+        "after": 5001,
+        "originalSha256": "86989b50605409c8ed49c7a69ad2338248e9ebb009be388a5b1befa44f2a5ba3",
+        "outputSha256": "96b4414fe7ba20222353201f04deda16477f9c38036e49a1a475635daf922610",
+        "preservedNonFingerChannels": 455,
+        "bodyAnimationSha256": "cebb806572015d1a99ef175fc8401d6be60a10deb3fe662f49520b5a3942cd79",
+        "bodyRestAndSocketsSha256": "139fcfd713e2724690897ebd49be02a3de59692e3cdf447fe861df3e701cc54b",
+        "localSurfaceRepair": [
+          {
+            "side": "l",
+            "mesh": "FactionHumanoid_Surface",
+            "removedTriangles": 97,
+            "newHandTriangles": 349,
+            "lengthM": 0.184
+          },
+          {
+            "side": "r",
+            "mesh": "FactionHumanoid_Surface",
+            "removedTriangles": 95,
+            "newHandTriangles": 349,
+            "lengthM": 0.184
+          }
+        ]
+      },
+      {
+        "lod": 2,
+        "before": 1792,
+        "after": 2325,
+        "originalSha256": "f4745d2f087a1c37a740912798732bca19a02a5e7fafa8a5b72b7de3a8b3c37a",
+        "outputSha256": "b732eae83711e81a4ec050d1d2bbfbfa6ceec9885498b2dd246d4b0c2a65f313",
+        "preservedNonFingerChannels": 455,
+        "bodyAnimationSha256": "cebb806572015d1a99ef175fc8401d6be60a10deb3fe662f49520b5a3942cd79",
+        "bodyRestAndSocketsSha256": "139fcfd713e2724690897ebd49be02a3de59692e3cdf447fe861df3e701cc54b",
+        "localSurfaceRepair": [
+          {
+            "side": "l",
+            "mesh": "FactionHumanoid_Surface",
+            "removedTriangles": 33,
+            "newHandTriangles": 299,
+            "lengthM": 0.184
+          },
+          {
+            "side": "r",
+            "mesh": "FactionHumanoid_Surface",
+            "removedTriangles": 32,
+            "newHandTriangles": 299,
+            "lengthM": 0.184
+          }
+        ]
+      }
+    ],
+    "sourceStageAudit": "audit.json"
+  },
+  "modifications": [
+    "Local hand anatomy repair; target-bind absolute finger poses distinguish natural hand shape from equipment contact. Body animation samples, wrist/socket transforms and action/event clocks retained."
+  ]
 }

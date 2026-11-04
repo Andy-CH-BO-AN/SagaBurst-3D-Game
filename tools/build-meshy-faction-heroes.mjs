@@ -11,7 +11,7 @@ import * as T from 'three'
 import { readGlb, encodeGlb, loadRig } from './lib/humanoid-glb.mjs'
 import { decodeMeshoptGlb } from './lib/meshopt-glb.mjs'
 import { packFactionHumanoidBuffers } from './pack-faction-humanoid-buffers.mjs'
-import { fitMeshyFingerGrasp } from './lib/meshy-finger-grasp.mjs'
+import { buildAnatomicalFingerPoses, bakeAnatomicalFingerClips } from './lib/anatomical-finger-pose.mjs'
 import { createMeshyWaistSkinRepair } from './lib/meshy-waist-skin.mjs'
 import { packGlbResources } from './lib/pack-glb-resources.mjs'
 import { bakeFactionClips, collapseConstantTracks } from './lib/faction-humanoid-animation.mjs'
@@ -137,27 +137,10 @@ for(const def of definitions) {
     deathDonor={revision,asset:`${deathDirectory}/lod0.glb`,sha256:hash(fs.readFileSync(deathPath)),attribution:deathMetadata.attribution}
   }
   reset(target.scene,rest)
-  // Use the production Roman finger donor through the same established
-  // finger-only adaptation used for the source-fitted infantry.
-  const fingerDirectory='public/models/characters/v2/roman'
-  const fingerMetadata=JSON.parse(fs.readFileSync(`${fingerDirectory}/manifest.json`))
-  const fingerPath=`${fingerDirectory}/${fingerMetadata.files.lod0}`
-  const fingerAsset=await decodeMeshoptGlb(readGlb(fingerPath)),fingerSource=await loadRig(fingerAsset)
-  const fingerBake=bakeFactionClips({source:fingerSource,target,sourceDocument:fingerAsset.document,targetDocument:doc,sourceMetadata:fingerMetadata,targetMetadata:{...targetMetadata,animationRetarget:{groundContact:{mode:'none'}}},fps:30})
-  const fingerGrasp=fitMeshyFingerGrasp(target.scene,frames)
-  const fingerPattern=/^(thumb|index|middle|ring|pinky)_0[123]_[lr]\.quaternion$/
-  for(const clip of clips) {
-    const reference=fingerBake.clips.find(c=>c.name===clip.name)??fingerBake.clips.find(c=>c.name==='idle')
-    const tracks=reference.tracks.filter(t=>fingerPattern.test(t.name))
-    if(tracks.length!==30)throw Error('Missing anatomical finger channels')
-    clip.tracks=clip.tracks.filter(t=>!fingerPattern.test(t.name))
-    for(const track of tracks) {
-      const sample=track.createInterpolant(),count=Math.max(1,Math.ceil(clip.duration*30)),times=Array.from({length:count+1},(_,i)=>i*clip.duration/count)
-      const bone=track.name.slice(0,track.name.lastIndexOf('.')),correction=fingerGrasp.corrections[bone]
-      const values=times.flatMap(t=>{const q=new T.Quaternion().fromArray(sample.evaluate(t/clip.duration*reference.duration));if(correction)q.multiply(correction).normalize();return q.toArray()})
-      clip.tracks.push(new T.QuaternionKeyframeTrack(track.name,times,values))
-    }
-  }
+  // Natural hands and equipment contact are absolute poses in THIS bind frame.
+  // A donor's already-flexed fingers must not receive another grasp rotation.
+  const fingerPoses=buildAnatomicalFingerPoses(target,frames)
+  clips.splice(0,clips.length,...bakeAnatomicalFingerClips({...target,animations:clips},fingerPoses,bindings))
   reset(target.scene,rest)
   const meshes=[];target.scene.traverse(o=>{if(o.isSkinnedMesh)meshes.push(o)})
   const contact=meshes.map(mesh=>({mesh,indices:Array.from({length:mesh.geometry.attributes.position.count},(_,i)=>i).filter(i=>{const p=new T.Vector3();mesh.getVertexPosition(i,p);return p.applyMatrix4(mesh.matrixWorld).y<.2})}))
@@ -232,10 +215,10 @@ for(const def of definitions) {
     selectedSource:{rig:'mixamo66',uniformScale:1},sharedLodPose:true,handShapeMode:'authored',preserveLodHandTopology:true,
     files:{lod0:'lod0.glb',lod1:'lod1.glb',lod2:'lod2.glb'},fileSha256:files,boneMap:'bone-map.json',audit:'audit.json',
     metrics:{heightM:def.height,overallHeightM:def.height,shoulderWidthM:position(target.scene.getObjectByName('upper_arm_l')).distanceTo(position(target.scene.getObjectByName('upper_arm_r')))*scale,neckLengthM:position(target.scene.getObjectByName('neck')).distanceTo(position(target.scene.getObjectByName('head')))*scale,triangles,textures:{lod0:2048,lod1:1024,lod2:512},uniformScaleAppliedOffline:scale,runtimeScale:[1,1,1]},
-    handGripFrames:{left:{palmContactCenter:left.palmContactCenter,palmNormal:left.palmNormalLocal,thumbDir:1,thumbDirection:left.gripAxisLocal,fingerDirection:left.fingerDirection,wristCenter:left.wristCenter,fingerBase:left.fingerBase,thumbBaseCenter:left.thumbBaseCenter}},swordGripFrames:{lod0:right,lod1:right,lod2:right},
+    articulatedFingerPoses:{relaxed:fingerPoses.relaxed,grip:fingerPoses.grip},handGripFrames:{left:{palmContactCenter:left.palmContactCenter,palmNormal:left.palmNormalLocal,thumbDir:1,thumbDirection:left.gripAxisLocal,fingerDirection:left.fingerDirection,wristCenter:left.wristCenter,fingerBase:left.fingerBase,thumbBaseCenter:left.thumbBaseCenter}},swordGripFrames:{lod0:right,lod1:right,lod2:right},
     animations:{embedded:bindings,runtimeGenerated:old.animations.runtimeGenerated.filter(name=>!bindings.some(b=>b.clip===name))},animationSources:old.animationSources,
-    animationRetarget:{revision,...(deathDonor?{deathDonor}:{}),donor:`${directory}/lod0.glb`,sha256:hash(donorBytes),method:'Existing bakeFactionClips physical-axis pipeline at 30Hz; finger-only Roman donor adaptation, in-place sole contact; original event metadata and action durations retained.',fingerDonor:{asset:fingerPath,sha256:hash(fs.readFileSync(fingerPath)),attribution:fingerMetadata.attribution}},
-    visualAcceptance:'Requires live game review; structural audit alone does not establish visual acceptance.',knownLimitations:['No dynamic cloth collision. Thirty anatomical finger tracks are transferred from the existing Roman animation donor, with source-joint grasp fitted around the shaft; extreme hand/armour and mounted cloth contact requires visual review.','FPS A/B deliberately deferred by user, 2026-11-02.']}
+    animationRetarget:{revision,...(deathDonor?{deathDonor}:{}),donor:`${directory}/lod0.glb`,sha256:hash(donorBytes),method:'Existing bakeFactionClips physical-axis pipeline at 30Hz; target-bind absolute finger poses, in-place sole contact; original event metadata and action durations retained.'},
+    visualAcceptance:'Requires live game review; structural audit alone does not establish visual acceptance.',knownLimitations:['No dynamic cloth collision. Thirty target-bind finger tracks keep natural and equipment contact poses separate; extreme hand/armour and mounted cloth contact requires visual review.','FPS A/B deliberately deferred by user, 2026-11-02.']}
   if(def.id==='viking-hero-t5') manifest.source.filenameEvidence={
     specificationFilename:'Meshy_AI_viking_warrior_30k_All_Animations(1).glb',
     suppliedAttachmentFilename:def.file,buildInputFilename:def.file,verifiedBuildInputSha256:hash(raw),
@@ -245,7 +228,7 @@ for(const def of definitions) {
   fs.writeFileSync(`${directory}/manifest.json`,JSON.stringify(manifest,null,2)+'\n')
   fs.writeFileSync(`${directory}/animation-donor-manifest.json`,JSON.stringify(old,null,2)+'\n')
   fs.writeFileSync(`${directory}/bone-map.json`,JSON.stringify({skeleton:'project-humanoid-v1',sourceToProject:mapping,skinJointCount:66,sockets,normalization:{scale,ground},sourceInverseBindSha256:hash(payload(source,source.document.skins[0].inverseBindMatrices))},null,2)+'\n')
-  fs.writeFileSync(`${directory}/audit.json`,JSON.stringify({builder:'tools/build-meshy-faction-heroes.mjs',sourceSha256:def.sha,sourceTriangles:def.triangles,waistSkinRepairs:skinRepairs,constantTrackAudit,fingerGrasp: fingerGrasp.diagnostics,lod0Policy:'Original vertex, index, normal and UV accessor bytes preserved. Waist leg influences transferred to the existing pelvis; source inverse binds retained. No decimation, remeshing, added/degenerate or hidden triangles.',lods,animationContractPreserved:old.animations.embedded.every(b=>JSON.stringify(manifest.animations.embedded.find(a=>a.clip===b.clip))===JSON.stringify(b)),fps:'Deferred by user; no measurements or performance claim.'},null,2)+'\n')
+  fs.writeFileSync(`${directory}/audit.json`,JSON.stringify({builder:'tools/build-meshy-faction-heroes.mjs',sourceSha256:def.sha,sourceTriangles:def.triangles,waistSkinRepairs:skinRepairs,constantTrackAudit,fingerPoseFit: fingerPoses.diagnostics,lod0Policy:'Original vertex, index, normal and UV accessor bytes preserved. Waist leg influences transferred to the existing pelvis; source inverse binds retained. No decimation, remeshing, added/degenerate or hidden triangles.',lods,animationContractPreserved:old.animations.embedded.every(b=>JSON.stringify(manifest.animations.embedded.find(a=>a.clip===b.clip))===JSON.stringify(b)),fps:'Deferred by user; no measurements or performance claim.'},null,2)+'\n')
   fs.writeFileSync(`${directory}/attribution-evidence.json`,JSON.stringify({source:manifest.source,rightsEvidence:'User explicitly confirmed generation/use and GitHub publication rights in this Codex conversation on 2026-11-02.',animationDonor:{revision,manifest:'animation-donor-manifest.json'},sourceDistribution:'Original supplied downloads remain outside the shipped runtime bundle; normalized derivative GLBs only.'},null,2)+'\n')
   fs.writeFileSync(`${directory}/ATTRIBUTION.md`,`# ${def.title}\n\n${manifest.attribution}\n\nUser confirmed use and GitHub redistribution rights on 2026-11-02. This records supplied permission and does not assert CC0 or grant unrelated rights. See attribution-evidence.json, animation-donor-manifest.json and audit.json. Rebuild from the exact user source using tools/build-meshy-faction-heroes.mjs; donor revision ${revision}.\n`)
   console.log(def.id,JSON.stringify({metrics:manifest.metrics,lods:lods.map(({sourceAccessorBytesPreserved,...r})=>r)}))

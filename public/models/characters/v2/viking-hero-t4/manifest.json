@@ -11,7 +11,7 @@
     "license": "User-supplied Meshy model and derived animation; mixed animation-source licenses retained in source-readme.txt",
     "licenseEvidence": "source-readme.txt"
   },
-  "attribution": "Blue-Cloaked Varangian Captain: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt.",
+  "attribution": "Blue-Cloaked Varangian Captain: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt. Local hand surface derivative: Kevin Iglesias, Human Melee Animations FREE (Unity Asset Store EULA); complete source model excluded.",
   "selectedSource": {
     "rig": "varangian63",
     "uniformScale": 1,
@@ -47,8 +47,8 @@
     "neckLengthM": 0.11654129307953798,
     "triangles": {
       "lod0": 21972,
-      "lod1": 8797,
-      "lod2": 2642
+      "lod1": 7436,
+      "lod2": 2754
     },
     "textures": {
       "lod0": 2048,
@@ -195,11 +195,11 @@
     ]
   },
   "fileSha256": {
-    "lod0": "5831cf7d8b612294bbec1e1762977d3772347dc7b9c63db40967d35168daf217",
-    "lod1": "dd3080f88630e5f02b8e32b248f47209475f8638ff565bfe0894db8920d0bffc",
-    "lod2": "474c83d6bef11e571d6b8c24b523e59a466d5cb6674ac4a013945a7954d4c361"
+    "lod0": "bc50dc9c25f09b131a42eaecc1c5a5903d8bae4d2049ec467a3349f5d0d704fe",
+    "lod1": "fbdd7f6afa0714a077813dea3be2e0dec3226655f08dfa92328743056749b1c6",
+    "lod2": "2e564f70251ec58589a89bba2afe777a397a8e206ec5b0d1353b4807b15760c1"
   },
-  "visualAcceptance": "Runtime visual integration pending; structural LOD generation is not gameplay acceptance.",
+  "visualAcceptance": "Pending current browser review; numeric/structural checks do not establish appearance.",
   "knownLimitations": [
     "Lower LODs use surface collapse with interpolated weights; game visual acceptance remains pending.",
     "Source review candidate retains angular inner-skirt folds/gaps under extreme knee flexion."
@@ -449,7 +449,8 @@
     }
   },
   "modifications": [
-    "Posterior cape backing and tapered 10 cm rear clearance; three LOD2 central-fold UV triangles reprojected; source joints, weights and eleven clips preserved."
+    "Posterior cape backing and tapered 10 cm rear clearance; three LOD2 central-fold UV triangles reprojected; source joints, weights and eleven clips preserved.",
+    "Local hand anatomy repair; target-bind absolute finger poses distinguish natural hand shape from equipment contact. Body animation samples, wrist/socket transforms and action/event clocks retained."
   ],
   "banditFootAxe": {
     "sourceAsset": "bandit/lod0.glb",
@@ -504,5 +505,464 @@
     ],
     "preservation": "Only axeAttack2H channels and their referenced samples are replaced. Geometry, skin, textures, other animation payloads and runtime attack cycles are unchanged.",
     "validation": "Animation/asset and production-controller trajectory checks; live browser gameplay, visual contact/clearance and mounted aesthetic acceptance remain unverified."
-  }
+  },
+  "articulatedFingerPoses": {
+    "relaxed": {
+      "thumb_01_l": [
+        -0.29372193537792446,
+        -0.7506954710000383,
+        0.06564034550115348,
+        0.5881114516317181
+      ],
+      "thumb_02_l": [
+        0.04048956676158067,
+        0.013785384410890077,
+        0.021860380450551376,
+        0.9988456747299157
+      ],
+      "thumb_03_l": [
+        -0.05830712972063133,
+        0.016090513357333552,
+        0.032284078550450984,
+        0.9976467873329653
+      ],
+      "index_01_l": [
+        -0.07115493195252548,
+        0.9787334911123476,
+        -0.14712678376142957,
+        0.12398160562714648
+      ],
+      "index_02_l": [
+        -0.1193999580375503,
+        -0.028385912072078624,
+        0.005365327121846984,
+        -0.9924258679021537
+      ],
+      "index_03_l": [
+        -0.033746244816622396,
+        -0.0035891933353177446,
+        0.01017636526675327,
+        -0.9993721780407617
+      ],
+      "middle_01_l": [
+        -0.1046690014613106,
+        0.9802112780727672,
+        -0.12833808895200105,
+        0.10844162206548011
+      ],
+      "middle_02_l": [
+        -0.14547172112989423,
+        -0.04566195305694118,
+        -0.00933878688772641,
+        -0.9882640089844402
+      ],
+      "middle_03_l": [
+        0.044912120709786535,
+        -0.02146892042930545,
+        -0.004235227466305128,
+        0.9987512451643095
+      ],
+      "ring_01_l": [
+        -0.13819079227609704,
+        0.9766273621175912,
+        -0.1297476938792026,
+        0.10133033319973178
+      ],
+      "ring_02_l": [
+        0.13389889092256238,
+        -0.000552255274624422,
+        0.021949886716878024,
+        0.9907517269714627
+      ],
+      "ring_03_l": [
+        0.060820964899570854,
+        -0.04117481125429892,
+        -0.017767615792774267,
+        0.9971407909497527
+      ],
+      "pinky_01_l": [
+        -0.15676783229631086,
+        0.9722710855491795,
+        -0.12703791681063623,
+        0.11821231177229162
+      ],
+      "pinky_02_l": [
+        0.13378668973676472,
+        0.01229343830035326,
+        0.01417534232114941,
+        0.9908325048635173
+      ],
+      "pinky_03_l": [
+        0.06200813003461495,
+        -0.02137070556336416,
+        0.007256425444417764,
+        0.9978204392790839
+      ],
+      "thumb_01_r": [
+        -0.22961871174245635,
+        0.736319419813811,
+        -0.01922325584899746,
+        0.6361913435888228
+      ],
+      "thumb_02_r": [
+        -0.04060525286686653,
+        0.014054246533092703,
+        0.021845302499497475,
+        -0.998837561544774
+      ],
+      "thumb_03_r": [
+        0.05829531616789624,
+        0.016123757458112894,
+        0.032279303915802596,
+        -0.9976470954686473
+      ],
+      "index_01_r": [
+        0.07852167586833282,
+        0.9904275912987812,
+        -0.05849142421209868,
+        -0.09729484110970864
+      ],
+      "index_02_r": [
+        -0.11939827671100159,
+        0.028386633006849685,
+        -0.005364175005794353,
+        -0.9924260557902965
+      ],
+      "index_03_r": [
+        -0.03374624949348019,
+        0.00358913276075217,
+        -0.010175910153795382,
+        -0.9993721827345864
+      ],
+      "middle_01_r": [
+        0.11258261331723723,
+        0.9892960385895961,
+        -0.03869434726610953,
+        -0.08438750321726161
+      ],
+      "middle_02_r": [
+        -0.14547407264660872,
+        0.045659312774780615,
+        0.00933957713795038,
+        -0.9882637773607955
+      ],
+      "middle_03_r": [
+        -0.04491204966125031,
+        -0.021468928428401066,
+        -0.00423475936495208,
+        -0.998751250172175
+      ],
+      "ring_01_r": [
+        0.14656782539048965,
+        0.9851493786480703,
+        -0.03932828342887144,
+        -0.08032347373067321
+      ],
+      "ring_02_r": [
+        -0.13390032996450818,
+        -0.0005534363038705766,
+        0.021950727512055842,
+        -0.9907515131986148
+      ],
+      "ring_03_r": [
+        -0.06082087720263254,
+        -0.041174053260446104,
+        -0.017766918548504474,
+        -0.9971408400219596
+      ],
+      "pinky_01_r": [
+        0.1634640770079609,
+        0.9809203472860396,
+        -0.03612889083585886,
+        -0.09884063463546594
+      ],
+      "pinky_02_r": [
+        -0.133768965840478,
+        0.01230940248983716,
+        0.01417751285423162,
+        -0.990834668609037
+      ],
+      "pinky_03_r": [
+        -0.0620230550261088,
+        -0.021385284556894944,
+        0.007258506470938068,
+        -0.997819184187927
+      ]
+    },
+    "grip": {
+      "thumb_01_l": [
+        -0.07486269061329197,
+        -0.776254720039026,
+        0.29946628928574737,
+        0.5496763854784897
+      ],
+      "thumb_02_l": [
+        0.042958975619783804,
+        0.014295549067932335,
+        0.054233078325839075,
+        0.997501346819065
+      ],
+      "thumb_03_l": [
+        -0.05933463111698812,
+        0.015244343337056694,
+        0.01985832867087684,
+        0.9979241746389512
+      ],
+      "index_01_l": [
+        -0.021161425162049826,
+        0.7573664969025544,
+        -0.6376480599495955,
+        0.13911554585013655
+      ],
+      "index_02_l": [
+        -0.8012937068916306,
+        -0.014855810873567575,
+        0.017251581141833727,
+        -0.5978378401600767
+      ],
+      "index_03_l": [
+        -0.5593543150790146,
+        0.002763866947734305,
+        -0.001341084957080442,
+        -0.8289229835956532
+      ],
+      "middle_01_l": [
+        -0.03136182955365977,
+        0.7118101426062827,
+        -0.6859116246514197,
+        0.14787832734353157
+      ],
+      "middle_02_l": [
+        -0.8166438298617233,
+        -0.030831054993602957,
+        -0.023754534546707975,
+        -0.5758281195680071
+      ],
+      "middle_03_l": [
+        0.5679691704843484,
+        -0.021175548741732893,
+        0.024203729594345,
+        0.8224213013951741
+      ],
+      "ring_01_l": [
+        -0.05420751290687022,
+        0.708860248438693,
+        -0.6840799806685198,
+        0.16313575260022997
+      ],
+      "ring_02_l": [
+        0.8098329530321242,
+        0.01700246208264406,
+        0.0044739227640933,
+        0.5863970399665218
+      ],
+      "ring_03_l": [
+        0.5810109245197147,
+        -0.0413695235736804,
+        -0.041069586765022134,
+        0.8118054921906992
+      ],
+      "pinky_01_l": [
+        -0.06744417040931013,
+        0.6504734569366883,
+        -0.7326910412150458,
+        0.18841285471497526
+      ],
+      "pinky_02_l": [
+        0.8095113309758495,
+        0.020909991372698042,
+        -0.015270260303874301,
+        0.5865330309818487
+      ],
+      "pinky_03_l": [
+        0.5820470359558673,
+        -0.011939887383868671,
+        -0.019887168145786963,
+        0.8128242045900153
+      ],
+      "thumb_01_r": [
+        -0.04339465125207797,
+        0.7631279853247172,
+        -0.2501821662511532,
+        0.5942738980864203
+      ],
+      "thumb_02_r": [
+        -0.04900152806705953,
+        0.01664939100183158,
+        0.12859632967645498,
+        -0.9903457133850309
+      ],
+      "thumb_03_r": [
+        0.05932924780473035,
+        0.015261949799609719,
+        0.019855157901135807,
+        -0.9979242886852489
+      ],
+      "index_01_r": [
+        0.03316648096290001,
+        0.7524083912670435,
+        -0.6462251126748194,
+        -0.123185636499935
+      ],
+      "index_02_r": [
+        -0.8012928532662611,
+        0.014855943570660243,
+        -0.017242538655372057,
+        -0.5978392418583424
+      ],
+      "index_03_r": [
+        -0.5593542001628673,
+        -0.002763822723153579,
+        0.0013478988595404782,
+        -0.8289230502361354
+      ],
+      "middle_01_r": [
+        0.04302645288823913,
+        0.7235886358162087,
+        -0.6751563079718189,
+        -0.1368655189423423
+      ],
+      "middle_02_r": [
+        -0.8166449834202429,
+        0.03082795454875495,
+        0.023764002292450324,
+        -0.5758262589253248
+      ],
+      "middle_03_r": [
+        -0.5679688430295974,
+        -0.021175381145086644,
+        0.024209269602027225,
+        -0.8224213687923709
+      ],
+      "ring_01_r": [
+        0.06217837161325868,
+        0.7209616933157253,
+        -0.6722467572398048,
+        -0.15630861862166373
+      ],
+      "ring_02_r": [
+        -0.8098339463035458,
+        0.017000307885129046,
+        0.004483860797706591,
+        -0.5863956547746437
+      ],
+      "ring_03_r": [
+        -0.5810111862275262,
+        -0.04136885994324405,
+        -0.04106228757484507,
+        -0.8118057079403912
+      ],
+      "pinky_01_r": [
+        0.09465346110628532,
+        0.7566274601791202,
+        -0.622423935515569,
+        -0.17647677836136452
+      ],
+      "pinky_02_r": [
+        -0.8095015021102742,
+        0.020918684401740554,
+        -0.015248876960191221,
+        -0.5865468425245876
+      ],
+      "pinky_03_r": [
+        -0.5820599377601267,
+        -0.011951060426972894,
+        -0.019869952487298212,
+        -0.8128152225429227
+      ]
+    }
+  },
+  "fingerAnatomyBuild": {
+    "tool": "tools/repair-hero-fingers.mjs",
+    "version": 1,
+    "sourceManifestSha256": "47ae1d716a917e3f11abe48600cc372039fadcb4bf289ceb3134d05274670288",
+    "handReference": {
+      "source": "Human Melee Animations FREE/Models/HumanM_Model.fbx",
+      "sourceSha256": "88fd0684f0b3331cc4056b2ddafebf506d52c21c32e18884fd28214c0a8d75cb",
+      "author": "Kevin Iglesias",
+      "license": "Unity Asset Store EULA; embedded character derivative only"
+    },
+    "lods": [
+      {
+        "lod": 0,
+        "before": 21972,
+        "after": 21972,
+        "originalSha256": "5831cf7d8b612294bbec1e1762977d3772347dc7b9c63db40967d35168daf217",
+        "outputSha256": "bc50dc9c25f09b131a42eaecc1c5a5903d8bae4d2049ec467a3349f5d0d704fe",
+        "preservedNonFingerChannels": 1188,
+        "bodyAnimationSha256": "00c1566f769521257e6b364c4c4dd358a1163d95f9115b10a7d7cbaa3170cc65",
+        "bodyRestAndSocketsSha256": "3d8261df63fc74b5007edd3f890e914c1b5101dc87bdeb5c5e216d3d75854c9c",
+        "localSurfaceRepair": [
+          {
+            "side": "l",
+            "mesh": "Rebuilt_UpperPalm_l001",
+            "removedTriangles": 3428,
+            "newHandTriangles": 3703,
+            "lengthM": 0.1609626844535863
+          },
+          {
+            "side": "r",
+            "mesh": "Rebuilt_UpperPalm_r001",
+            "removedTriangles": 3422,
+            "newHandTriangles": 3702,
+            "lengthM": 0.16005644026364285
+          }
+        ]
+      },
+      {
+        "lod": 1,
+        "before": 8797,
+        "after": 7436,
+        "originalSha256": "dd3080f88630e5f02b8e32b248f47209475f8638ff565bfe0894db8920d0bffc",
+        "outputSha256": "fbdd7f6afa0714a077813dea3be2e0dec3226655f08dfa92328743056749b1c6",
+        "preservedNonFingerChannels": 1188,
+        "bodyAnimationSha256": "00c1566f769521257e6b364c4c4dd358a1163d95f9115b10a7d7cbaa3170cc65",
+        "bodyRestAndSocketsSha256": "3d8261df63fc74b5007edd3f890e914c1b5101dc87bdeb5c5e216d3d75854c9c",
+        "localSurfaceRepair": [
+          {
+            "side": "l",
+            "mesh": "Rebuilt_UpperPalm_l001",
+            "removedTriangles": 739,
+            "newHandTriangles": 799,
+            "lengthM": 0.1609626844535863
+          },
+          {
+            "side": "r",
+            "mesh": "Rebuilt_UpperPalm_r001",
+            "removedTriangles": 740,
+            "newHandTriangles": 799,
+            "lengthM": 0.16005644026364285
+          }
+        ]
+      },
+      {
+        "lod": 2,
+        "before": 2642,
+        "after": 2754,
+        "originalSha256": "474c83d6bef11e571d6b8c24b523e59a466d5cb6674ac4a013945a7954d4c361",
+        "outputSha256": "2e564f70251ec58589a89bba2afe777a397a8e206ec5b0d1353b4807b15760c1",
+        "preservedNonFingerChannels": 1188,
+        "bodyAnimationSha256": "00c1566f769521257e6b364c4c4dd358a1163d95f9115b10a7d7cbaa3170cc65",
+        "bodyRestAndSocketsSha256": "3d8261df63fc74b5007edd3f890e914c1b5101dc87bdeb5c5e216d3d75854c9c",
+        "localSurfaceRepair": [
+          {
+            "side": "l",
+            "mesh": "Rebuilt_UpperPalm_l001",
+            "removedTriangles": 221,
+            "newHandTriangles": 499,
+            "lengthM": 0.1609626844535863
+          },
+          {
+            "side": "r",
+            "mesh": "Rebuilt_UpperPalm_r001",
+            "removedTriangles": 221,
+            "newHandTriangles": 499,
+            "lengthM": 0.16005644026364285
+          }
+        ]
+      }
+    ],
+    "sourceStageAudit": "lod-audit.json"
+  },
+  "audit": "finger-anatomy-audit.json"
 }

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import * as THREE from 'three'
 import { readGlb, loadRig, encodeGlb } from './lib/humanoid-glb.mjs'
 const dir='public/models/characters/v2/viking-hero-t4', sourceDir='public/models/characters/v2/viking'
+if(JSON.parse(fs.readFileSync(`${dir}/manifest.json`)).selectedSource?.rig==='varangian63')throw Error('This retired same-name retargeter is incompatible with Varangian63. Preserve its source clips; use tools/repair-hero-fingers.mjs for local finger repair.')
 const original=JSON.parse(fs.readFileSync(`${sourceDir}/manifest.json`)), measured=JSON.parse(fs.readFileSync(`${dir}/blender-measurements.json`))
 const sourceAsset=readGlb(`${sourceDir}/lod0.glb`), source=await loadRig(sourceAsset)
 source.scene.updateMatrixWorld(true)

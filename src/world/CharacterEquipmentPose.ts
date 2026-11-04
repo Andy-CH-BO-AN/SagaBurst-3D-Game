@@ -1,4 +1,5 @@
 import { minimumReachableShoulderSwing } from './AuthoredCarryGrip'
+import { ArticulatedFingerPose, type ArticulatedFingerPoses } from './ArticulatedFingerPose'
 import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import * as THREE from 'three'
 import type { ArmRig, CharacterRig, MountedPoseKind } from './CharacterVisuals'
@@ -335,8 +336,10 @@ export class CharacterEquipmentPose {
   }
 
   private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
+  private readonly articulatedFingers?: ArticulatedFingerPose
 
-  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource, clothRig?: FittedHumanoidClothRig, private readonly relaxedLeftThumbForward: boolean | 'including-lance' = false, private readonly swordCarryGrips?: readonly SwordCarryGripProfile[], private readonly alignAuthoredCarryGrip = false) {
+  constructor(private readonly root: THREE.Object3D, private readonly rig: CharacterRig, private readonly frames: EquipmentGripFrames, private readonly bakedActions: readonly string[] = [], private readonly bowFullBodyStance = false, private readonly selectedSource?: SelectedHumanoidSource, clothRig?: FittedHumanoidClothRig, private readonly relaxedLeftThumbForward: boolean | 'including-lance' = false, private readonly swordCarryGrips?: readonly SwordCarryGripProfile[], private readonly alignAuthoredCarryGrip = false, fingerPoses?: ArticulatedFingerPoses) {
+    if (fingerPoses) this.articulatedFingers = new ArticulatedFingerPose(root, fingerPoses)
     if (alignAuthoredCarryGrip) {
       if (rig.right.shoulder.parent?.name !== 'clavicle_r') throw new Error('Authored carry alignment requires the canonical right clavicle')
       this.carryClavicle = rig.right.shoulder.parent
@@ -390,6 +393,7 @@ export class CharacterEquipmentPose {
     nodes.push(this.seatedHips)
     if (this.carryClavicle) nodes.push(this.carryClavicle)
     nodes.push(...this.swordCarryDigits.map(digit => digit.node))
+    if (this.articulatedFingers) nodes.push(...this.articulatedFingers.nodes)
     if (this.mountedSkirt) nodes.push(...this.mountedSkirt.nodes)
     if (this.fittedCloth) nodes.push(...this.fittedCloth.nodes)
     if (this.seatedSpine) nodes.push(this.seatedSpine)
@@ -968,6 +972,7 @@ export class CharacterEquipmentPose {
       if (morph.left !== undefined) values[morph.left] = twoHandedAxe ? smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .42) / .06)) : 0
       if (morph.shield !== undefined) values[morph.shield] = Number(live && state.shield)
     }
+    this.articulatedFingers?.apply(state)
     if (live && state.mounted) this.fittedCloth?.applyMounted()
     this.root.updateWorldMatrix(true, true)
   }

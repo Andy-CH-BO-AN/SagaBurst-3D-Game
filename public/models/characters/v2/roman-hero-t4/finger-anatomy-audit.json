@@ -1,0 +1,169 @@
+{
+  "builder": "tools/repair-hero-fingers.mjs",
+  "lods": [
+    {
+      "lod": 0,
+      "before": 31105,
+      "after": 31105,
+      "originalSha256": "0abec97ae6d2272e262e86aba1215ac58d8398e33b360d49952b1719d11b9ca7",
+      "outputSha256": "2fe80f686830e39fd2bc864133f3f5644e744f35dbd35a117c61ed2bf1ce4ade",
+      "preservedNonFingerChannels": 518,
+      "bodyAnimationSha256": "5fdf523f04ab9de94712039da1ffc8712670725020a83fcd84a2d13e642a907d",
+      "bodyRestAndSocketsSha256": "a56fc582a683499237e3639f841452778fee63aa3d2d45d1d756fb04dee3cc11",
+      "localSurfaceRepair": null
+    },
+    {
+      "lod": 1,
+      "before": 9999,
+      "after": 10822,
+      "originalSha256": "b75f7c4830c4abccde3b719416461280d18d1e679257ff714942cf1d0f7eaac1",
+      "outputSha256": "6ef28b3e2b287f1ee85dfc861fc087ee5057dfa4b1ad94be7f470556e19879b3",
+      "preservedNonFingerChannels": 518,
+      "bodyAnimationSha256": "5fdf523f04ab9de94712039da1ffc8712670725020a83fcd84a2d13e642a907d",
+      "bodyRestAndSocketsSha256": "a56fc582a683499237e3639f841452778fee63aa3d2d45d1d756fb04dee3cc11",
+      "localSurfaceRepair": [
+        {
+          "side": "l",
+          "removedTriangles": 239,
+          "newHandTriangles": 660,
+          "source": "Original LOD0 hand topology/UV/weights"
+        },
+        {
+          "side": "r",
+          "removedTriangles": 242,
+          "newHandTriangles": 644,
+          "source": "Original LOD0 hand topology/UV/weights"
+        }
+      ]
+    },
+    {
+      "lod": 2,
+      "before": 3000,
+      "after": 4160,
+      "originalSha256": "ff46ed6cd568788f9ed94c3bf6cc353de3289075a5351960dd5a9bf40d3525f7",
+      "outputSha256": "27139a048c4ff2b8855fcee08c922faa2b6aedcaaee7f0c2a2a1f15f6094c97c",
+      "preservedNonFingerChannels": 518,
+      "bodyAnimationSha256": "5fdf523f04ab9de94712039da1ffc8712670725020a83fcd84a2d13e642a907d",
+      "bodyRestAndSocketsSha256": "a56fc582a683499237e3639f841452778fee63aa3d2d45d1d756fb04dee3cc11",
+      "localSurfaceRepair": [
+        {
+          "side": "l",
+          "removedTriangles": 74,
+          "newHandTriangles": 660,
+          "source": "Original LOD0 hand topology/UV/weights"
+        },
+        {
+          "side": "r",
+          "removedTriangles": 70,
+          "newHandTriangles": 644,
+          "source": "Original LOD0 hand topology/UV/weights"
+        }
+      ]
+    }
+  ],
+  "poseFit": [
+    {
+      "side": "l",
+      "digit": "thumb",
+      "flexionRadians": [
+        0,
+        0.07500000000000004,
+        0,
+        -0.37499999999999994
+      ],
+      "tipToTargetM": 0.02067344277723715
+    },
+    {
+      "side": "l",
+      "digit": "index",
+      "flexionRadians": [
+        0.9999999999999999,
+        0.775,
+        0.8
+      ],
+      "tipToTargetM": 0.040136546696613574
+    },
+    {
+      "side": "l",
+      "digit": "middle",
+      "flexionRadians": [
+        1.4249999999999996,
+        1.725,
+        0
+      ],
+      "tipToTargetM": 0.014189391720623981
+    },
+    {
+      "side": "l",
+      "digit": "ring",
+      "flexionRadians": [
+        1.5,
+        1.525,
+        0.2749999999999998
+      ],
+      "tipToTargetM": 0.014999164942244635
+    },
+    {
+      "side": "l",
+      "digit": "pinky",
+      "flexionRadians": [
+        1.5,
+        1.75,
+        0.32499999999999996
+      ],
+      "tipToTargetM": 0.023280145482334983
+    },
+    {
+      "side": "r",
+      "digit": "thumb",
+      "flexionRadians": [
+        0.05,
+        3.469446951953614e-17,
+        0,
+        0.37499999999999994
+      ],
+      "tipToTargetM": 0.019215505975593006
+    },
+    {
+      "side": "r",
+      "digit": "index",
+      "flexionRadians": [
+        1.025,
+        0.725,
+        0.9
+      ],
+      "tipToTargetM": 0.03875360610626498
+    },
+    {
+      "side": "r",
+      "digit": "middle",
+      "flexionRadians": [
+        1.4749999999999996,
+        1.75,
+        0
+      ],
+      "tipToTargetM": 0.012478714781465894
+    },
+    {
+      "side": "r",
+      "digit": "ring",
+      "flexionRadians": [
+        1.4749999999999999,
+        1.75,
+        0
+      ],
+      "tipToTargetM": 0.010782141384051813
+    },
+    {
+      "side": "r",
+      "digit": "pinky",
+      "flexionRadians": [
+        1.5,
+        1.75,
+        0.4000000000000002
+      ],
+      "tipToTargetM": 0.022303756508385723
+    }
+  ],
+  "visualAcceptance": "Pending current browser review; numeric/structural checks do not establish appearance."
+}

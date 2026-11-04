@@ -25,12 +25,12 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "0abec97ae6d2272e262e86aba1215ac58d8398e33b360d49952b1719d11b9ca7",
-    "lod1": "b75f7c4830c4abccde3b719416461280d18d1e679257ff714942cf1d0f7eaac1",
-    "lod2": "ff46ed6cd568788f9ed94c3bf6cc353de3289075a5351960dd5a9bf40d3525f7"
+    "lod0": "2fe80f686830e39fd2bc864133f3f5644e744f35dbd35a117c61ed2bf1ce4ade",
+    "lod1": "6ef28b3e2b287f1ee85dfc861fc087ee5057dfa4b1ad94be7f470556e19879b3",
+    "lod2": "27139a048c4ff2b8855fcee08c922faa2b6aedcaaee7f0c2a2a1f15f6094c97c"
   },
   "boneMap": "bone-map.json",
-  "audit": "audit.json",
+  "audit": "finger-anatomy-audit.json",
   "metrics": {
     "heightM": 1.95,
     "overallHeightM": 1.95,
@@ -38,8 +38,8 @@
     "neckLengthM": 0.07823562915396685,
     "triangles": {
       "lod0": 31105,
-      "lod1": 9999,
-      "lod2": 3000
+      "lod1": 10822,
+      "lod2": 4160
     },
     "textures": {
       "lod0": 2048,
@@ -345,16 +345,453 @@
     "revision": "7cb61c07f9daf41cccd35287a6cc842955c3f137",
     "donor": "public/models/characters/v2/roman-hero-t4/lod0.glb",
     "sha256": "d044847b517f79e72b17c6ed89efb7928d50cbb8a01a36430fed62470cb0250a",
-    "method": "Existing bakeFactionClips physical-axis pipeline at 30Hz; finger-only Roman donor adaptation, in-place sole contact; original event metadata and action durations retained.",
-    "fingerDonor": {
-      "asset": "public/models/characters/v2/roman/lod0.glb",
-      "sha256": "142102c670dcbbffae0527d732d6f139db6f8aa61b83cbdfb2b76bba632c6b34",
-      "attribution": "Ordinary Roman Infantry: user-provided Meshy model/derivative. Core animations: Kevin Iglesias (Unity Asset Store EULA), Quaternius (CC0); axe attacks: user-provided Meshy source. See source-readme.txt."
+    "method": "Existing body retarget unchanged. Finger-only target-bind poses replace the former Roman donor plus additive grasp; source events and durations retained."
+  },
+  "visualAcceptance": "Pending current browser review; numeric/structural checks do not establish appearance.",
+  "knownLimitations": [
+    "Finger contact uses the measured asset handle radius; unusually thick replacement handles still require visual review.",
+    "FPS A/B deliberately deferred by user, 2026-11-02."
+  ],
+  "articulatedFingerPoses": {
+    "relaxed": {
+      "thumb_01_l": [
+        0.29833822414372496,
+        0.4369112058464264,
+        -0.018720883526968057,
+        0.8483822432963574
+      ],
+      "thumb_02_l": [
+        -0.0005550307862323561,
+        0.0006985025230406632,
+        0.0043601586156397365,
+        0.9999900964769091
+      ],
+      "thumb_03_l": [
+        -0.027672172885649243,
+        0.0001507406759489903,
+        0.009701396645527034,
+        0.9995699630481909
+      ],
+      "index_01_l": [
+        0.170762875758715,
+        0.5025300457311045,
+        -0.04944180319619254,
+        0.8460845711256155
+      ],
+      "index_02_l": [
+        0.10135354480561072,
+        -0.014476655956598878,
+        -0.020002290826389237,
+        0.9945440129774791
+      ],
+      "index_03_l": [
+        0.07670540592018801,
+        -0.034076486863448795,
+        -0.05412665377411622,
+        0.9950001905009273
+      ],
+      "middle_01_l": [
+        0.06721070981364095,
+        0.4867122990622521,
+        -0.1008056811153416,
+        0.8651196871432043
+      ],
+      "middle_02_l": [
+        0.1262371616916059,
+        -0.00041696601295905734,
+        0.006727738568753351,
+        0.9919771885891036
+      ],
+      "middle_03_l": [
+        0.08706767827866496,
+        -0.00020351323613041535,
+        0.0042875230576181105,
+        0.9961931515160883
+      ],
+      "ring_01_l": [
+        0.06721093125794005,
+        0.486712414121754,
+        -0.10080583324567216,
+        0.8651195874807487
+      ],
+      "ring_02_l": [
+        0.0646244248432629,
+        1.6432990209710969e-7,
+        0.006544817650869274,
+        0.9978881946769224
+      ],
+      "ring_03_l": [
+        0.03978511658390127,
+        2.6066216279249505e-7,
+        0.00402934146433015,
+        0.9992001345604902
+      ],
+      "pinky_01_l": [
+        -0.08808850155367956,
+        0.4831143608663079,
+        -0.1257452154652824,
+        0.8619913404474293
+      ],
+      "pinky_02_l": [
+        0.06472592653567473,
+        -0.0000012120345938353623,
+        0.0054418764911391875,
+        0.9978882404422275
+      ],
+      "pinky_03_l": [
+        0.14437406720961024,
+        0.0056758498057138465,
+        0.0450900705838158,
+        0.9884790331519856
+      ],
+      "thumb_01_r": [
+        0.28261666933941515,
+        -0.4323303719362405,
+        0.04264766503597972,
+        0.8552189452882499
+      ],
+      "thumb_02_r": [
+        -0.000550061978022136,
+        -0.0006985936505935315,
+        -0.004398579123533101,
+        0.9999899308995195
+      ],
+      "thumb_03_r": [
+        -0.027671300431838637,
+        -0.00014995444100212725,
+        -0.00973717656042142,
+        0.999569639414237
+      ],
+      "index_01_r": [
+        0.15609746330872065,
+        -0.499008461160049,
+        0.07493763376815533,
+        0.8491221871347445
+      ],
+      "index_02_r": [
+        0.10403182571802198,
+        0.015658427730740575,
+        0.022061071531470845,
+        0.9942059655834194
+      ],
+      "index_03_r": [
+        0.06894499504913171,
+        0.007448825975948555,
+        0.007995341019194363,
+        0.9975606132818405
+      ],
+      "middle_01_r": [
+        0.031253306788245026,
+        -0.4864419090730212,
+        0.1145911082550843,
+        0.865601743194332
+      ],
+      "middle_02_r": [
+        0.14850171901314668,
+        0.000567122853770306,
+        -0.006703854207893385,
+        0.9888892638514023
+      ],
+      "middle_03_r": [
+        0.10709395158403648,
+        0.026259974704959377,
+        0.04678063984378528,
+        0.9928005192375843
+      ],
+      "ring_01_r": [
+        0.05183008707872135,
+        -0.48341324545189673,
+        0.1261047766989482,
+        0.8647096978112276
+      ],
+      "ring_02_r": [
+        0.06462381625164083,
+        -1.826035825219095e-7,
+        -0.006539949557315947,
+        0.9978882660061842
+      ],
+      "ring_03_r": [
+        0.05105595050392814,
+        0.0071836348418014805,
+        0.01952394141736206,
+        0.9984790939324326
+      ],
+      "pinky_01_r": [
+        -0.1033933236994784,
+        -0.48145637999355423,
+        0.15082082476076963,
+        0.8571829755637699
+      ],
+      "pinky_02_r": [
+        0.06472877683703479,
+        -2.145676462083453e-8,
+        -0.00540608919998378,
+        0.9978882500805101
+      ],
+      "pinky_03_r": [
+        0.18747816256497996,
+        -0.010768348498936639,
+        -0.06308401581082042,
+        0.9801818138391696
+      ]
+    },
+    "grip": {
+      "thumb_01_l": [
+        0.20041164073791112,
+        0.3886782687695795,
+        -0.16744549302725587,
+        0.8835872251837282
+      ],
+      "thumb_02_l": [
+        0.006915517301215341,
+        0.0007307213406417188,
+        0.003697461969844908,
+        0.999968984739907
+      ],
+      "thumb_03_l": [
+        -0.05253752861484631,
+        -0.000025262998786620446,
+        0.01206827954893378,
+        0.9985460250171515
+      ],
+      "index_01_l": [
+        0.5521901364448141,
+        0.41960926389451825,
+        -0.2218362324657683,
+        0.685421625594314
+      ],
+      "index_02_l": [
+        0.4086532369522589,
+        -0.023771877443291827,
+        0.02233596195536451,
+        0.9121066464919497
+      ],
+      "index_03_l": [
+        0.4188442086824719,
+        -0.05382056855888059,
+        -0.00010304348086665555,
+        0.9064617281690353
+      ],
+      "middle_01_l": [
+        0.6193045664315305,
+        0.3140438188097944,
+        -0.32620677183200497,
+        0.6414261265924216
+      ],
+      "middle_02_l": [
+        0.7941835398382447,
+        -0.004876971205155689,
+        0.07866354101064904,
+        0.6025452410545826
+      ],
+      "middle_03_l": [
+        0.04739195655153066,
+        -1.0445943516696025e-7,
+        7.156132616414329e-10,
+        0.9988763699548644
+      ],
+      "ring_01_l": [
+        0.6439812165200625,
+        0.29931571143927993,
+        -0.33526831756446623,
+        0.6191069801677498
+      ],
+      "ring_02_l": [
+        0.6872166771477616,
+        5.686970381961568e-7,
+        0.06959815262703138,
+        0.7231108737950015
+      ],
+      "ring_03_l": [
+        0.13636888906057978,
+        3.3120087645448384e-7,
+        0.013810940467040067,
+        0.9905618526975939
+      ],
+      "pinky_01_l": [
+        0.519481389354364,
+        0.28950966022047225,
+        -0.36208619249479435,
+        0.7177860628057002
+      ],
+      "pinky_02_l": [
+        0.7648447517500774,
+        -0.000001306698150541467,
+        0.06430807886360401,
+        0.6409968617017775
+      ],
+      "pinky_03_l": [
+        0.26363659616498636,
+        0.009508386307107281,
+        0.05509491537077256,
+        0.9630004600480012
+      ],
+      "thumb_01_r": [
+        0.2020467625958584,
+        -0.38580465101353456,
+        0.2039893775757785,
+        0.876766907916297
+      ],
+      "thumb_02_r": [
+        -0.030431013404109388,
+        -0.00056823825881629,
+        -0.0070093092162593655,
+        0.9995121310483385
+      ],
+      "thumb_03_r": [
+        -0.05253952150809766,
+        0.000027795695948249412,
+        -0.012073681112933948,
+        0.998545854796605
+      ],
+      "index_01_r": [
+        0.5494775189820676,
+        -0.40210704387498253,
+        0.24678806201257295,
+        0.689550602818613
+      ],
+      "index_02_r": [
+        0.38836513801138106,
+        0.024953828801363456,
+        -0.01749474269560485,
+        0.9210014983611958
+      ],
+      "index_03_r": [
+        0.4577564509133525,
+        0.01322983840548993,
+        -0.04240221342196533,
+        0.8879673728915348
+      ],
+      "middle_01_r": [
+        0.6083869190460564,
+        -0.29759288947144014,
+        0.3431162639844293,
+        0.6508264425014197
+      ],
+      "middle_02_r": [
+        0.8147365747800753,
+        0.006702476086413497,
+        -0.07921751404123986,
+        0.5743552698453004
+      ],
+      "middle_03_r": [
+        0.0676037985296421,
+        0.023955152079774097,
+        0.051702348036346685,
+        0.9960837034711124
+      ],
+      "ring_01_r": [
+        0.6235716889402708,
+        -0.28657416156968774,
+        0.34965157051957474,
+        0.6377910142875985
+      ],
+      "ring_02_r": [
+        0.7636427984925265,
+        2.296794285277153e-9,
+        -0.07728099581991285,
+        0.6409971325954472
+      ],
+      "ring_03_r": [
+        0.011303692102189719,
+        0.006202355480462561,
+        0.023676305961967452,
+        0.999636528878046
+      ],
+      "pinky_01_r": [
+        0.5045128207585174,
+        -0.272758320522796,
+        0.38061295538803436,
+        0.7253988492316858
+      ],
+      "pinky_02_r": [
+        0.764880292910245,
+        -1.8584319761984045e-7,
+        -0.06388319369707747,
+        0.6409969384330672
+      ],
+      "pinky_03_r": [
+        0.3406940275102259,
+        -0.017781714113212086,
+        -0.07548901532483561,
+        0.9369700095666587
+      ]
     }
   },
-  "visualAcceptance": "Requires live game review; structural audit alone does not establish visual acceptance.",
-  "knownLimitations": [
-    "No dynamic cloth collision. Thirty anatomical finger tracks are transferred from the existing Roman animation donor, with source-joint grasp fitted around the shaft; extreme hand/armour and mounted cloth contact requires visual review.",
-    "FPS A/B deliberately deferred by user, 2026-11-02."
+  "fingerAnatomyBuild": {
+    "tool": "tools/repair-hero-fingers.mjs",
+    "version": 1,
+    "sourceManifestSha256": "a2d2cc5a627adf99af1b47efda048b8895ce848aebc4a5987ca0181df7fe1b3a",
+    "handReference": {
+      "source": "Human Melee Animations FREE/Models/HumanM_Model.fbx",
+      "sourceSha256": "88fd0684f0b3331cc4056b2ddafebf506d52c21c32e18884fd28214c0a8d75cb",
+      "author": "Kevin Iglesias",
+      "license": "Unity Asset Store EULA; embedded character derivative only"
+    },
+    "lods": [
+      {
+        "lod": 0,
+        "before": 31105,
+        "after": 31105,
+        "originalSha256": "0abec97ae6d2272e262e86aba1215ac58d8398e33b360d49952b1719d11b9ca7",
+        "outputSha256": "2fe80f686830e39fd2bc864133f3f5644e744f35dbd35a117c61ed2bf1ce4ade",
+        "preservedNonFingerChannels": 518,
+        "bodyAnimationSha256": "5fdf523f04ab9de94712039da1ffc8712670725020a83fcd84a2d13e642a907d",
+        "bodyRestAndSocketsSha256": "a56fc582a683499237e3639f841452778fee63aa3d2d45d1d756fb04dee3cc11",
+        "localSurfaceRepair": null
+      },
+      {
+        "lod": 1,
+        "before": 9999,
+        "after": 10822,
+        "originalSha256": "b75f7c4830c4abccde3b719416461280d18d1e679257ff714942cf1d0f7eaac1",
+        "outputSha256": "6ef28b3e2b287f1ee85dfc861fc087ee5057dfa4b1ad94be7f470556e19879b3",
+        "preservedNonFingerChannels": 518,
+        "bodyAnimationSha256": "5fdf523f04ab9de94712039da1ffc8712670725020a83fcd84a2d13e642a907d",
+        "bodyRestAndSocketsSha256": "a56fc582a683499237e3639f841452778fee63aa3d2d45d1d756fb04dee3cc11",
+        "localSurfaceRepair": [
+          {
+            "side": "l",
+            "removedTriangles": 239,
+            "newHandTriangles": 660,
+            "source": "Original LOD0 hand topology/UV/weights"
+          },
+          {
+            "side": "r",
+            "removedTriangles": 242,
+            "newHandTriangles": 644,
+            "source": "Original LOD0 hand topology/UV/weights"
+          }
+        ]
+      },
+      {
+        "lod": 2,
+        "before": 3000,
+        "after": 4160,
+        "originalSha256": "ff46ed6cd568788f9ed94c3bf6cc353de3289075a5351960dd5a9bf40d3525f7",
+        "outputSha256": "27139a048c4ff2b8855fcee08c922faa2b6aedcaaee7f0c2a2a1f15f6094c97c",
+        "preservedNonFingerChannels": 518,
+        "bodyAnimationSha256": "5fdf523f04ab9de94712039da1ffc8712670725020a83fcd84a2d13e642a907d",
+        "bodyRestAndSocketsSha256": "a56fc582a683499237e3639f841452778fee63aa3d2d45d1d756fb04dee3cc11",
+        "localSurfaceRepair": [
+          {
+            "side": "l",
+            "removedTriangles": 74,
+            "newHandTriangles": 660,
+            "source": "Original LOD0 hand topology/UV/weights"
+          },
+          {
+            "side": "r",
+            "removedTriangles": 70,
+            "newHandTriangles": 644,
+            "source": "Original LOD0 hand topology/UV/weights"
+          }
+        ]
+      }
+    ],
+    "sourceStageAudit": "audit.json"
+  },
+  "modifications": [
+    "Local hand anatomy repair; target-bind absolute finger poses distinguish natural hand shape from equipment contact. Body animation samples, wrist/socket transforms and action/event clocks retained."
   ]
 }

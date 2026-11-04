@@ -1,0 +1,169 @@
+{
+  "builder": "tools/repair-hero-fingers.mjs",
+  "lods": [
+    {
+      "lod": 0,
+      "before": 31256,
+      "after": 31256,
+      "originalSha256": "33493f661ad1e6065f1b769e68063f34d5604358b1015d3bff64388ab9ec4377",
+      "outputSha256": "50827d27b8c410b38ce98a0ab60b8fe34ab80aee8cf5635e581b8b937d955c72",
+      "preservedNonFingerChannels": 481,
+      "bodyAnimationSha256": "688dbecfc4abbde4698ddd24cc13a0c674f15b442b99820c9d250ca3b59d1055",
+      "bodyRestAndSocketsSha256": "fe67c8527d02559fb3837d0e9163f69825ce8fe53fc64e6bf35738aeb92350cf",
+      "localSurfaceRepair": null
+    },
+    {
+      "lod": 1,
+      "before": 10000,
+      "after": 10807,
+      "originalSha256": "87aba7c2c75a4d3054235ed5544006f67ee6099c512caf85b6d76dc19184f442",
+      "outputSha256": "829d95e90b2eefa38f144f1ae81ee2837d71764f0bf67bb5340ba61aca9b6414",
+      "preservedNonFingerChannels": 481,
+      "bodyAnimationSha256": "688dbecfc4abbde4698ddd24cc13a0c674f15b442b99820c9d250ca3b59d1055",
+      "bodyRestAndSocketsSha256": "fe67c8527d02559fb3837d0e9163f69825ce8fe53fc64e6bf35738aeb92350cf",
+      "localSurfaceRepair": [
+        {
+          "side": "l",
+          "removedTriangles": 162,
+          "newHandTriangles": 569,
+          "source": "Original LOD0 hand topology/UV/weights"
+        },
+        {
+          "side": "r",
+          "removedTriangles": 165,
+          "newHandTriangles": 565,
+          "source": "Original LOD0 hand topology/UV/weights"
+        }
+      ]
+    },
+    {
+      "lod": 2,
+      "before": 3000,
+      "after": 4062,
+      "originalSha256": "cd7f7719eb521b1a5d66556edefea474f402c1df8b3fc12cf81b8adeeb80c83d",
+      "outputSha256": "fd0f2e18e9d009945373228bba3575cf8d398edbb073c7f48b312a7dab765456",
+      "preservedNonFingerChannels": 481,
+      "bodyAnimationSha256": "688dbecfc4abbde4698ddd24cc13a0c674f15b442b99820c9d250ca3b59d1055",
+      "bodyRestAndSocketsSha256": "fe67c8527d02559fb3837d0e9163f69825ce8fe53fc64e6bf35738aeb92350cf",
+      "localSurfaceRepair": [
+        {
+          "side": "l",
+          "removedTriangles": 38,
+          "newHandTriangles": 569,
+          "source": "Original LOD0 hand topology/UV/weights"
+        },
+        {
+          "side": "r",
+          "removedTriangles": 34,
+          "newHandTriangles": 565,
+          "source": "Original LOD0 hand topology/UV/weights"
+        }
+      ]
+    }
+  ],
+  "poseFit": [
+    {
+      "side": "l",
+      "digit": "thumb",
+      "flexionRadians": [
+        0,
+        0.42500000000000004,
+        0,
+        -0.42499999999999993
+      ],
+      "tipToTargetM": 0.01621822643164891
+    },
+    {
+      "side": "l",
+      "digit": "index",
+      "flexionRadians": [
+        1,
+        1.75,
+        1.2
+      ],
+      "tipToTargetM": 0.02448178033320766
+    },
+    {
+      "side": "l",
+      "digit": "middle",
+      "flexionRadians": [
+        1.2999999999999998,
+        1.0000000000000002,
+        0.7749999999999999
+      ],
+      "tipToTargetM": 0.03998964308100457
+    },
+    {
+      "side": "l",
+      "digit": "ring",
+      "flexionRadians": [
+        1.4999999999999998,
+        1.75,
+        0.5750000000000001
+      ],
+      "tipToTargetM": 0.019998065975653612
+    },
+    {
+      "side": "l",
+      "digit": "pinky",
+      "flexionRadians": [
+        1.5,
+        1.75,
+        0.7000000000000001
+      ],
+      "tipToTargetM": 0.01563837413460015
+    },
+    {
+      "side": "r",
+      "digit": "thumb",
+      "flexionRadians": [
+        0,
+        0.42500000000000004,
+        0.024999999999999994,
+        0.44999999999999996
+      ],
+      "tipToTargetM": 0.012230975601444722
+    },
+    {
+      "side": "r",
+      "digit": "index",
+      "flexionRadians": [
+        0.9500000000000001,
+        1.75,
+        1.2
+      ],
+      "tipToTargetM": 0.02688527314314094
+    },
+    {
+      "side": "r",
+      "digit": "middle",
+      "flexionRadians": [
+        1,
+        1.75,
+        1.2
+      ],
+      "tipToTargetM": 0.023863537824872164
+    },
+    {
+      "side": "r",
+      "digit": "ring",
+      "flexionRadians": [
+        1.5,
+        1.75,
+        0.4750000000000002
+      ],
+      "tipToTargetM": 0.01734635162138412
+    },
+    {
+      "side": "r",
+      "digit": "pinky",
+      "flexionRadians": [
+        1.5,
+        1.75,
+        0.47499999999999987
+      ],
+      "tipToTargetM": 0.013963489675482619
+    }
+  ],
+  "visualAcceptance": "Pending current browser review; numeric/structural checks do not establish appearance."
+}
