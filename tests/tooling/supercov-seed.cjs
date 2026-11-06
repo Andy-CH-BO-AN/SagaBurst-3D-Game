@@ -14,7 +14,7 @@ if (!/^run_[a-z0-9]+$/i.test(runId) || !existsSync(resolve(root, '.supercov/runs
 const response = JSON.parse(execFileSync('npx', ['--yes', 'supercov@' + version, 'runs', runId, '--json'],
   { cwd: root, encoding: 'utf8', maxBuffer: 1024 * 1024 }))
 if (response.schemaVersion !== 1 || response.ok !== true || response.data?.valid !== true ||
-    response.data?.complete !== true) {
+    response.data?.complete !== true || response.data?.testExitCode !== 0) {
   throw new Error('Supercov Full evidence is not valid and complete; refusing to publish the seed')
 }
 const sha = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim()

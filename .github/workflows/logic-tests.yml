@@ -44,9 +44,12 @@ jobs:
           path: |
             .supercov/runs
             output/supercov-seed.json
-          key: supercov-seed-${{ github.sha }}
+          key: supercov-evidence-dev-${{ inputs.base }}
           restore-keys: |
-            supercov-seed-
+            supercov-evidence-dev-
+            supercov-evidence-main-
+      - name: Verify native selector contracts without gameplay
+        run: node --test tests/release/ci-plan.test.cjs tests/release/supercov-related.test.cjs
       - name: Plan exact Supercov Related leaves
         id: plan
         env:
@@ -135,13 +138,12 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-  # Only an approved Full run may create a baseline. Ordinary dev PR/push
-  # paths never generate a hidden Full suite to refresh Related selection.
-  supercov-seed:
+  # Full bootstrap only on main or explicitly dispatched manual Full.
+  supercov-full-seed:
     needs: aggregate
     if: ${{ inputs.mode == 'full' && needs.aggregate.result == 'success' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
         with:
@@ -151,7 +153,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Record Supercov Full coverage seed (instrumentation is not the 100ms gate)
+      - name: Record authoritative instrumented Full evidence
         env:
           SUPERCOV_RUN_ID_FILE: output/supercov-run.id
           SUPERCOV_SOURCE_ROOTS: src,tests/helpers
@@ -159,9 +161,53 @@ jobs:
           mkdir -p output
           npx --yes supercov@4.24.2 -- node node_modules/vitest/vitest.mjs run --reporter=default
           node tests/tooling/supercov-seed.cjs
-      - uses: actions/cache/save@v4
+      - name: Publish Full evidence for future Related selection
+        uses: actions/cache/save@v4
         with:
           path: |
             .supercov/runs
             output/supercov-seed.json
-          key: supercov-seed-${{ github.sha }}
+          key: supercov-evidence-main-${{ github.sha }}
+
+  # push -> dev is Related too: selected leaves only, no hidden Full.
+  supercov-dev-refresh:
+    needs: [plan, aggregate]
+    if: ${{ inputs.mode == 'related' && github.event_name == 'push' && github.ref == 'refs/heads/dev' && needs.aggregate.result == 'success' && needs.plan.outputs.has-tests == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Restore exact dev or latest main baseline seed
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .supercov/runs
+            output/supercov-seed.json
+          key: supercov-evidence-dev-${{ inputs.base }}
+          restore-keys: |
+            supercov-evidence-dev-
+            supercov-evidence-main-
+      - uses: actions/download-artifact@v4
+        with:
+          name: logic-plan
+          path: output
+      - uses: actions/download-artifact@v4
+        with:
+          name: logic-aggregate
+          path: output
+      - name: Refresh selected Vitest evidence through Supercov public merge
+        run: node tests/tooling/supercov-refresh.cjs output/test-plan.json output/aggregate.json output/supercov-seed.json
+      - name: Publish next immutable dev evidence
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .supercov/runs
+            output/supercov-seed.json
+          key: supercov-evidence-dev-${{ github.sha }}
