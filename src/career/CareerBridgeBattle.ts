@@ -313,7 +313,27 @@ function felineT4Spec(template: NpcSpawnSpec, actorId: string, faction: CareerPr
   allegiance: Faction, role: FelineCavalryRole, mountId: string, squadId?: NpcSpawnSpec['squadId']): NpcSpawnSpec {
   const presetId = felineRolePreset(faction, role)
   const hero = T4_UNIT_PROFILES[presetId]
-  const loadout: UnitLoadout = { ...resolveT4UnitLoadout(presetId), mountId }
+  const baseLoadout = resolveT4UnitLoadout(presetId)
+  let loadout: UnitLoadout
+  if (allegiance === Faction.PLAYER) {
+    if (role === 'horse_archer') {
+      loadout = {
+        ...baseLoadout,
+        meleeWeaponId: 'spear_t4',
+        rangedWeaponId: 'maki-ranger-bow-ranged',
+        shieldId: 'paladin_shield_t4',
+        mountId,
+      }
+    } else {
+      loadout = {
+        ...baseLoadout,
+        rangedWeaponId: 'maki-ranger-bow-ranged',
+        mountId,
+      }
+    }
+  } else {
+    loadout = { ...baseLoadout, mountId }
+  }
   return {
     ...template, actorId, faction: allegiance, characterFaction: faction, name: `T4 ${role}`,
     tier: 4, characterTier: 4, heroArchetype: hero.combatProfileId === 'ranger' ? 'ranger' : 'captain',
@@ -328,13 +348,17 @@ function felineT5Spec(template: NpcSpawnSpec, actorId: string, faction: CareerPr
   allegiance: Faction, role: FelineCavalryRole, mountId: string, squadId?: NpcSpawnSpec['squadId']): NpcSpawnSpec {
   const asset = townCommanderHeroAsset(faction)
   const commander = careerCommanderLoadout(faction)
-  const loadout: UnitLoadout = role === 'lancer'
-    ? { ...commander, meleeWeaponId: 'spear_t5', rangedWeaponId: null, mountId }
-    : role === 'horse_archer' ? { ...commander, mountId } : { ...commander, rangedWeaponId: null, mountId }
+  const loadout: UnitLoadout = allegiance === Faction.PLAYER
+    ? (role === 'lancer'
+        ? { ...commander, meleeWeaponId: 'spear_t5', rangedWeaponId: 'bow_t5', mountId }
+        : { ...commander, rangedWeaponId: 'bow_t5', mountId })
+    : (role === 'lancer'
+        ? { ...commander, meleeWeaponId: 'spear_t5', rangedWeaponId: null, mountId }
+        : role === 'horse_archer' ? { ...commander, mountId } : { ...commander, rangedWeaponId: null, mountId })
   return {
     ...template, actorId, faction: allegiance, characterFaction: faction, name: `T5 ${role}`,
     tier: 4, characterTier: 5, heroArchetype: 'commander',
-    aiType: role === 'horse_archer' ? AIType.RANGED : AIType.MELEE, cavalry: true, respawnEnabled: false,
+    aiType: loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, cavalry: true, respawnEnabled: false,
     presetId: felineRolePreset(faction, role), loadout, visualAssetId: asset,
     combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[asset],
     ...(squadId ? { squadId } : {}),

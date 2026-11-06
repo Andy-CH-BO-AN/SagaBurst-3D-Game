@@ -438,6 +438,7 @@ export class Game {
         || Boolean(savedInventory?.items?.some(item => item.id === T4_RANGER_BOW_RANGED_ID && item.quantity > 0))
       const ownsCareerT4Bow = personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false
       const usesPersonalT4Bow = personalMembers.some(member => member.type === 'ranger' || member.equipment?.ranged === T4_RANGER_BOW_RANGED_ID)
+      const isFelineLaunch = Boolean(battleConfig?.careerFelineMissionId)
       const felineVariants = new Set<FelineMountVariant>(trainingGround ? FELINE_MOUNT_VARIANTS : ['black-cat'])
       if (battleConfig?.careerFelineMissionId) for (const variant of ['white-cat', 'orange-cat', 'serval', 'caracal'] as const) felineVariants.add(variant)
       const devModelFeline = felineVariantFromMountId(query.get('devmodels'))
@@ -460,7 +461,8 @@ export class Game {
           BlackCatVisual.preloadVariants(felineVariants),
           SnowLeopardVisual.preload(),
           CorgiVisual.preload(),
-          ...(usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
+          ...(isFelineLaunch ? [preloadPaladinEquipment(), preloadHighTierEquipment()] : []),
+          ...(isFelineLaunch || usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
         ])
         game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch, tutorialLaunch)
         await game.initialization
@@ -521,7 +523,7 @@ export class Game {
       }
       await Promise.all([
         ...[...heroAssets].map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor)),
-        ...(heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
+        ...(isFelineLaunch || heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
       ])
       game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch, tutorialLaunch)
       await game.initialization

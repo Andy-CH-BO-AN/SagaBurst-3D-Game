@@ -68,6 +68,24 @@ export class CombatRenderWarmup {
       elvenBowVisual.rebuild('elven_runebow')
       warmupScene.add(elvenBowGroup)
 
+      try {
+        const makiBowGroup = new THREE.Group()
+        const makiBowVisual = new CharacterBowVisual(makiBowGroup, makiBowGroup, makiBowGroup)
+        makiBowVisual.rebuild('maki-ranger-bow-ranged')
+        warmupScene.add(makiBowGroup)
+      } catch {
+        // Ignored if Maki ranger bow asset is not preloaded in current environment
+      }
+
+      try {
+        const t5BowGroup = new THREE.Group()
+        const t5BowVisual = new CharacterBowVisual(t5BowGroup, t5BowGroup, t5BowGroup)
+        t5BowVisual.rebuild('bow_t5')
+        warmupScene.add(t5BowGroup)
+      } catch {
+        // Ignored if T5 bow asset is not preloaded in current environment
+      }
+
       // Representative melee weapons & shields
       const weaponGroup = new THREE.Group()
       WeaponMeshFactory.buildNpcMelee('roman', 2, false, weaponGroup)

@@ -12,7 +12,7 @@ import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from '../../src/career/CareerMissionState'
 import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
-import type { NPC } from '../../src/world/NPC'
+import { AIType, type NPC } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
 import type { Scene } from 'three'
 import { Faction } from '../../src/combat/CombatFaction'
@@ -594,6 +594,38 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(friendly.filter(spec => spec.characterTier === 5 && spec.loadout?.mountId === 'snow-leopard')).toHaveLength(20)
     expect(enemy.every(spec => spec.loadout?.mountId === 'horse')).toBe(true)
 
+    // All friendly cavalry are equipped with bows matching their tier:
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.rangedWeaponId === 'maki-ranger-bow-ranged')).toHaveLength(180)
+    expect(friendly.filter(spec => spec.characterTier === 5 && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(20)
+    // Original horse archers gain spear_t4 and paladin_shield_t4:
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_horse_archer')
+      && spec.loadout?.meleeWeaponId === 'spear_t4'
+      && spec.loadout?.shieldId === 'paladin_shield_t4'
+      && spec.loadout?.rangedWeaponId === 'maki-ranger-bow-ranged')).toHaveLength(60)
+    // Other 140 cavalry retain their original melee weapons and shields:
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_sword_cavalry')
+      && spec.loadout?.meleeWeaponId === (profile.faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4')
+      && spec.loadout?.shieldId === (profile.faction === 'roman' ? 'roman_officer_shield_t4' : 'paladin_shield_t4')
+      && spec.loadout?.rangedWeaponId === 'maki-ranger-bow-ranged')).toHaveLength(60)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_lancer')
+      && spec.loadout?.meleeWeaponId === 'spear_t4'
+      && spec.loadout?.rangedWeaponId === 'maki-ranger-bow-ranged')).toHaveLength(60)
+    expect(friendly.filter(spec => spec.characterTier === 5 && spec.presetId?.endsWith('_lancer')
+      && spec.loadout?.meleeWeaponId === 'spear_t5'
+      && spec.loadout?.shieldId === (profile.faction === 'roman' ? 'commander_shield_t5' : 'viking_berserker_shield_t5')
+      && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(20)
+    expect(friendly.every(spec => spec.aiType === AIType.RANGED)).toBe(true)
+
+    // Enemy equipment remains untouched:
+    expect(enemy.filter(spec => spec.characterTier === 5 && !spec.presetId?.endsWith('_horse_archer')
+      && spec.loadout?.rangedWeaponId === null)).toHaveLength(60)
+    expect(enemy.filter(spec => spec.characterTier === 5 && spec.presetId?.endsWith('_horse_archer')
+      && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(30)
+    expect(enemy.filter(spec => spec.characterTier === 4 && !spec.presetId?.endsWith('_horse_archer')
+      && (spec.loadout?.rangedWeaponId === null || spec.loadout?.rangedWeaponId === undefined))).toHaveLength(140)
+    expect(enemy.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_horse_archer')
+      && spec.loadout?.rangedWeaponId === 'elven_runebow')).toHaveLength(70)
+
     // Formation is made of physically separate units rather than two cavalry wings.
     const center = (specs: typeof friendly) => ({
       x: specs.reduce((sum, spec) => sum + spec.x, 0) / specs.length,
@@ -637,6 +669,18 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(center(vikingS7).x).toBeCloseTo(0, 1)
     expect(center(vikingS1).x).toBeCloseTo(24, 1)
     expect(center(vikingS2).x).toBeCloseTo(-24, 1)
+    expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.loadout?.rangedWeaponId === 'maki-ranger-bow-ranged')).toHaveLength(180)
+    expect(vikingFriendly.filter(spec => spec.characterTier === 5 && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(20)
+    expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_horse_archer')
+      && spec.loadout?.meleeWeaponId === 'spear_t4'
+      && spec.loadout?.shieldId === 'paladin_shield_t4')).toHaveLength(60)
+    expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_sword_cavalry')
+      && spec.loadout?.meleeWeaponId === 'paladin_mace_t4'
+      && spec.loadout?.shieldId === 'paladin_shield_t4')).toHaveLength(60)
+    expect(vikingFriendly.filter(spec => spec.characterTier === 5 && spec.presetId?.endsWith('_lancer')
+      && spec.loadout?.meleeWeaponId === 'spear_t5'
+      && spec.loadout?.shieldId === 'viking_berserker_shield_t5')).toHaveLength(20)
+    expect(vikingFriendly.every(spec => spec.aiType === AIType.RANGED)).toBe(true)
     const enemyBlocks = Array.from({ length: FELINE_ENEMY_TOTAL / 30 }, (_, i) =>
       enemy.slice(i * 30, (i + 1) * 30).filter(spec => spec.actorId !== mission.commanderMission!.felineVanguardActorId))
     expect(enemyBlocks).toHaveLength(10)
