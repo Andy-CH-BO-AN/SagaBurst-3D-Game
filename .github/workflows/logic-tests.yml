@@ -19,9 +19,7 @@ on:
       # was planned and checked out at exactly the requested head SHA.
       verified-sha:
         value: ${{ jobs.aggregate.outputs.verified-sha }}
-permissions:
-  contents: read
-  actions: read
+# Read-only token permissions are inherited from caller CI workflow.
 jobs:
   plan:
     runs-on: ubuntu-latest
@@ -46,9 +44,11 @@ jobs:
             .supercov/runs
             output/supercov-seed.json
           key: supercov-evidence-dev-${{ inputs.base }}
-          restore-keys: |
-            supercov-evidence-dev-
-            supercov-evidence-main-
+      - name: Restore ancestor evidence from cross-run artifact
+        if: inputs.mode == 'related'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tests/tooling/supercov-evidence.cjs restore
       - name: Verify native selector contracts without gameplay
         run: node --test tests/release/ci-plan.test.cjs tests/release/supercov-related.test.cjs
       - name: Plan exact Supercov Related leaves
@@ -171,6 +171,14 @@ jobs:
             .supercov/runs
             output/supercov-seed.json
           key: supercov-evidence-main-${{ github.sha }}
+      - name: Create repository-wide evidence artifact
+        run: tar -czf output/supercov-evidence.tar.gz .supercov/runs output/supercov-seed.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: supercov-seed-${{ github.sha }}
+          path: output/supercov-evidence.tar.gz
+          if-no-files-found: error
+          retention-days: 90
 
   # push -> dev is Related too: selected leaves only, no hidden Full.
   supercov-dev-refresh:
@@ -194,9 +202,10 @@ jobs:
             .supercov/runs
             output/supercov-seed.json
           key: supercov-evidence-dev-${{ inputs.base }}
-          restore-keys: |
-            supercov-evidence-dev-
-            supercov-evidence-main-
+      - name: Restore same ancestor seed including cross-run artifact fallback
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node tests/tooling/supercov-evidence.cjs restore
       - uses: actions/download-artifact@v4
         with:
           name: logic-plan
@@ -214,3 +223,11 @@ jobs:
             .supercov/runs
             output/supercov-seed.json
           key: supercov-evidence-dev-${{ github.sha }}
+      - name: Create repository-wide Related evidence artifact
+        run: tar -czf output/supercov-evidence.tar.gz .supercov/runs output/supercov-seed.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: supercov-seed-${{ github.sha }}
+          path: output/supercov-evidence.tar.gz
+          if-no-files-found: error
+          retention-days: 90
