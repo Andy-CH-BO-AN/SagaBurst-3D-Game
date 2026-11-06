@@ -125,7 +125,10 @@ test('push to main shares one Full gate with Pages and Release, bound to the exa
   assert.throws(() => verifiedFullSha({ ...full, shards: [] }), /Missing|Invalid|Empty/)
 })
 
-test('Release and Pages gate scripts enforce exact-SHA Full proof, tag fallback, and out-of-order stale deploy skip', () => {
+// Every Bash gate scenario executes in a real test body, not at module load.
+// Separate independent acceptance and denial groups to retain the hard 100ms
+// per-leaf budget (including hooks), without deleting any of the 17 scenarios.
+function buildGateScenarios() {
   const pages = loadWorkflow('deploy-pages.yml')
   const release = loadWorkflow('release.yml')
   const pagesBuildGateScript = pages.jobs.build.steps[0].run
@@ -136,7 +139,7 @@ test('Release and Pages gate scripts enforce exact-SHA Full proof, tag fallback,
   const shaB = 'b'.repeat(40)
   const withStubRemote = (remoteSha, script) => `git() { printf '%s\\trefs/heads/main\\n' '${remoteSha}'; } && ${script}`
 
-  const results = runBatchScenarios([
+  return [
     // 0: Release valid same-run main push reuse
     { script: releaseGateScript, env: { VERIFIED_SHA: shaA, LOGIC_RESULT: 'skipped', GITHUB_SHA: shaA, GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' } },
     // 1: Release manual tag fallback with passing Full logic
@@ -163,19 +166,49 @@ test('Release and Pages gate scripts enforce exact-SHA Full proof, tag fallback,
     { script: withStubRemote(shaB, pagesDeployCheckScript), env: { VERIFIED_SHA: shaA, GITHUB_SHA: shaA, GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' } },
     // 16: Out-of-order older main push at build artifact upload check -> skips upload cleanly
     { script: withStubRemote(shaB, pagesBuildHeadScript), env: { GITHUB_SHA: shaA } },
-  ])
+  ]
+}
 
+test('Release gate accepts verified main SHA and successful manual tag Full', () => {
+  const results = runBatchScenarios(buildGateScenarios().slice(0, 2))
+  assert.equal(results.length, 2)
   assert.equal(results[0].status, 0)
   assert.equal(results[1].status, 0)
-  for (const idx of [2, 3, 4, 5, 6, 7, 8]) assert.notEqual(results[idx].status, 0, `scenario ${idx} should fail`)
-  assert.equal(results[9].status, 0)
-  for (const idx of [10, 11, 12, 13]) assert.notEqual(results[idx].status, 0, `scenario ${idx} should fail`)
-  assert.equal(results[14].status, 0)
-  assert.match(results[14].output, /is-latest=true/)
-  assert.equal(results[15].status, 0)
-  assert.match(results[15].output, /is-latest=false/)
-  assert.match(results[15].output, /Skipping stale Pages deploy/)
-  assert.equal(results[16].status, 0)
-  assert.match(results[16].output, /is-latest=false/)
-  assert.match(results[16].output, /Skipping stale Pages artifact upload/)
+})
+
+test('Release gate rejects failed, cancelled or skipped tag Full', () => {
+  const results = runBatchScenarios(buildGateScenarios().slice(2, 5))
+  assert.equal(results.length, 3)
+  for (const [index, result] of results.entries()) assert.notEqual(result.status, 0, 'scenario ' + (index + 2))
+})
+
+test('Release gate rejects mismatched SHA, event, ref and non-skipped logic', () => {
+  const results = runBatchScenarios(buildGateScenarios().slice(5, 9))
+  assert.equal(results.length, 4)
+  for (const [index, result] of results.entries()) assert.notEqual(result.status, 0, 'scenario ' + (index + 5))
+})
+
+test('Pages build requires exact verified Full SHA on main push', () => {
+  const results = runBatchScenarios(buildGateScenarios().slice(9, 14))
+  assert.equal(results.length, 5)
+  assert.equal(results[0].status, 0)
+  for (const [index, result] of results.slice(1).entries()) assert.notEqual(result.status, 0, 'scenario ' + (index + 10))
+})
+
+test('Pages deployment rejects stale main while accepting current', () => {
+  const results = runBatchScenarios(buildGateScenarios().slice(14, 16))
+  assert.equal(results.length, 2)
+  assert.equal(results[0].status, 0)
+  assert.match(results[0].output, /is-latest=true/)
+  assert.equal(results[1].status, 0)
+  assert.match(results[1].output, /is-latest=false/)
+  assert.match(results[1].output, /Skipping stale Pages deploy/)
+})
+
+test('Pages build skips stale main artifact upload', () => {
+  const results = runBatchScenarios(buildGateScenarios().slice(16, 17))
+  assert.equal(results.length, 1)
+  assert.equal(results[0].status, 0)
+  assert.match(results[0].output, /is-latest=false/)
+  assert.match(results[0].output, /Skipping stale Pages artifact upload/)
 })
