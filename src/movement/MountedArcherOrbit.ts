@@ -4,10 +4,9 @@ export type OrbitSide = -1 | 1
 export interface OrbitPoint { x: number; z: number }
 export const ORBIT_MAX_TURN_RATE = 0.9
 const LATERAL_ACCELERATION = 6
-export const MOUNTED_BOW_MAX_YAW = Math.PI * 0.61
+// Target-relative aim supports the full 360° around the forward-moving mount.
+// No yaw or physical shaft gate may block a valid ballistic shot.
 export const MOUNTED_BOW_MAX_PITCH = Math.PI / 6
-/** Maximum permitted impact-plane separation of the visible shaft from ballistic aim. */
-export const MOUNTED_BOW_MAX_SHAFT_OFFSET = 0.3
 /** Maximum weapon range is unchanged; only the entry into circling is closer. */
 export const MOUNTED_BOW_ORBIT_ENTRY_RATIO = 0.9
 
@@ -15,7 +14,6 @@ export function isWithinMountedBowOrbitRange(distanceSquared: number, maxRange: 
   const entry = maxRange * MOUNTED_BOW_ORBIT_ENTRY_RATIO
   return distanceSquared <= entry * entry
 }
-export const MOUNTED_BOW_MAX_TORSO_YAW = Math.PI * 5 / 9
 
 export const angleDifference = (to: number, from: number): number => Math.atan2(Math.sin(to - from), Math.cos(to - from))
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value))
@@ -66,20 +64,10 @@ export function steerOrbitForward(out: OrbitPoint, yaw: number, desiredYaw: numb
   return heading
 }
 
-export function canAimMountedBow(yaw: number, pitch: number): boolean {
-  return Math.abs(yaw) <= MOUNTED_BOW_MAX_YAW && Math.abs(pitch) <= MOUNTED_BOW_MAX_PITCH
-}
-
-/** The authored bow already turns the chest; limit the total, not just the added yaw. */
+/** Turn the rider's torso toward the target, including rearward bearings.
+ * The pelvis and mount retain their forward travel heading.
+ * Use the shortest rotation to avoid a 360° spin when crossing ±π.
+ */
 export function mountedBowTorsoTurn(chestYaw: number, aimCorrection: number): number {
-  return clamp(chestYaw + aimCorrection, -MOUNTED_BOW_MAX_TORSO_YAW, MOUNTED_BOW_MAX_TORSO_YAW) - chestYaw
-}
-
-/** The event may release only when both the body arc and the real shaft agree. */
-export function canReleaseMountedBow(yaw: number, pitch: number, shaftDot: number, targetDistance: number): boolean {
-  // Angular tolerance alone grows into metres of miss at normal bow ranges.
-  // Bound the shaft-versus-ballistic difference at the target plane instead.
-  const ratio = MOUNTED_BOW_MAX_SHAFT_OFFSET / Math.max(1, targetDistance)
-  const minDot = 1 / Math.sqrt(1 + ratio * ratio)
-  return canAimMountedBow(yaw, pitch) && Number.isFinite(targetDistance) && shaftDot >= minDot
+  return angleDifference(chestYaw + aimCorrection, chestYaw)
 }

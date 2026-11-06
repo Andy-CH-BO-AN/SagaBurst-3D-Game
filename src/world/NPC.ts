@@ -100,7 +100,7 @@ import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../comba
 import { XONGKORO } from '../movement/XongkoroConfig'
 import type { PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import { fitStandingRider } from './StandingRider'
-import { angleDifference, steerOrbitForward, orbitRadius, writeOrbitDirection, canUseMountedBowOrbit, isWithinMountedBowOrbitRange, canAimMountedBow, canReleaseMountedBow, MOUNTED_BOW_MAX_YAW, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
+import { angleDifference, steerOrbitForward, orbitRadius, writeOrbitDirection, canUseMountedBowOrbit, isWithinMountedBowOrbitRange, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -3263,19 +3263,6 @@ export class NPC {
           const isBow = rangedKind === 'bow'
           const windup = isBow ? 0.04 : (this.rig.animation?.getDuration('pilumThrow') ?? 0.45)
 
-          if (mountedBowForward && !this._canAimOrbitBow(attackTargetPosition)
-            && this.animator.currentAction !== 'bowRelease') {
-            // Keep a charged bow ready until the target enters the rider's arc.
-            // Canceling the animation here repeatedly restarts the release clip.
-            this.attackTimer = Math.min(cooldown, this.attackTimer + dt)
-            this.animator.poseBow(Math.min(1, this.attackTimer / cooldown), 1)
-            this.animator.update(dt, cameraDistance)
-            animationAdvanced = true
-            this._updateBowVisual(Math.min(1, this.attackTimer / cooldown), attackTargetPosition)
-            this.bowVisual?.hideArrow()
-            break
-          }
-
           this.attackTimer += dt
           const progress = Math.min(1, this.attackTimer / cooldown)
 
@@ -3284,8 +3271,9 @@ export class NPC {
               this.bowArrowReleased = false
               this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
             }
-            if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim'
-              && (!mountedBowForward || this._canPreReleaseMountedBow(attackTargetPosition))) {
+            if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim') {
+              // A moving rider can fire forward, to either side, or behind.
+              // The ballistic target/LoS remains authoritative, not a shaft pose.
               this.animator.start('bowRelease', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
             }
           } else {
@@ -3312,14 +3300,11 @@ export class NPC {
               origin.copy(this.bowGripPivot.getWorldPosition(origin))
               dir.copy(aimPoint).sub(origin).normalize()
             }
-            const blockedRelease = mountedBowForward
-              && (!this.bowVisual || !this._canReleaseOrbitBow(aimPoint, origin, dir))
-            if (!blockedRelease) {
-              const accepted = onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
-              this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
-            }
-            // Even a rejected release finishes its authored recovery and resets
-            // the ordinary cooldown; no instant re-release or lost ammunition.
+            // Do not suppress the projectile for a rider's relative yaw or
+            // imperfect imported bow-pose contacts. The actual ballistic aim,
+            // range and line-of-sight checks still own legitimate fire validity.
+            const accepted = onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
+            this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
             this.bowVisual?.hideArrow()
             this.attackTimer = 0
             if (!isBow) this.bowPivot.visible = false
@@ -4081,35 +4066,12 @@ export class NPC {
     const yaw = angleDifference(Math.atan2(aim.x - origin.x, aim.z - origin.z), mount.group.rotation.y)
     const pitch = Math.atan2(aim.y - origin.y, Math.hypot(aim.x - origin.x, aim.z - origin.z))
     const aimStep = 3 * Math.min(.1, Math.max(0, dt))
-    this.mountedBowAim.yaw += THREE.MathUtils.clamp(angleDifference(THREE.MathUtils.clamp(yaw, -MOUNTED_BOW_MAX_YAW, MOUNTED_BOW_MAX_YAW), this.mountedBowAim.yaw), -aimStep, aimStep)
+    // Full target-relative yaw, including rearward targets. Only the rider's
+    // upper body aims; mount movement and directional speed policy are unchanged.
+    this.mountedBowAim.yaw += THREE.MathUtils.clamp(angleDifference(yaw, this.mountedBowAim.yaw), -aimStep, aimStep)
     this.mountedBowAim.pitch += THREE.MathUtils.clamp(THREE.MathUtils.clamp(pitch, -MOUNTED_BOW_MAX_PITCH, MOUNTED_BOW_MAX_PITCH) - this.mountedBowAim.pitch, -aimStep, aimStep)
     this.rig.animation?.setEquipmentState?.({ mountedBowAim: this.mountedBowAim })
     return true
-  }
-
-  private _canAimOrbitBow(target: THREE.Vector3): boolean {
-    const aim = this._getElevatedRangedAimPoint(target)
-    const dx = aim.x - this.group.position.x, dz = aim.z - this.group.position.z
-    return canAimMountedBow(angleDifference(Math.atan2(dx, dz), this.group.rotation.y),
-      Math.atan2(aim.y - this.group.position.y - RANGED_AI_LAUNCH_HEIGHT, Math.hypot(dx, dz)))
-  }
-
-  private _canPreReleaseMountedBow(target: THREE.Vector3): boolean {
-    const aim = this._getElevatedRangedAimPoint(target)
-    const origin = this._tmpRangedOrigin
-    const direction = this._tmpRangedDirection.copy(aim).sub(origin).normalize()
-    return this._canReleaseOrbitBow(aim, origin, direction)
-  }
-
-  private _canReleaseOrbitBow(aim: THREE.Vector3, origin: THREE.Vector3, direction: THREE.Vector3): boolean {
-    const shaft = this._tmpFacing
-    if (!this.bowVisual?.writeShaftDirection(shaft)) return false
-    const yaw = angleDifference(Math.atan2(direction.x, direction.z), this.group.rotation.y)
-    const pitch = Math.atan2(direction.y, Math.hypot(direction.x, direction.z))
-    // Compare the actual hand-to-bow shaft to the ballistic direction, but keep
-    // the existing projectile aim: shifting 5 degrees would miss infantry.
-    return canReleaseMountedBow(yaw, pitch, shaft.dot(direction), origin.distanceTo(aim))
-      && Number.isFinite(origin.x + origin.y + origin.z + aim.y)
   }
 
   private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false, maxDistance = Infinity): void {

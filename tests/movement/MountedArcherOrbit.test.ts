@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { angleDifference, canUseMountedBowOrbit, canReleaseMountedBow, mountedBowTorsoTurn, MOUNTED_BOW_MAX_TORSO_YAW, orbitHeading, steerOrbitForward, orbitRadius, orbitTurnRate, writeOrbitDirection, isWithinMountedBowOrbitRange } from '../../src/movement/MountedArcherOrbit'
+import { angleDifference, canUseMountedBowOrbit, mountedBowTorsoTurn, orbitHeading, steerOrbitForward, orbitRadius, orbitTurnRate, writeOrbitDirection, isWithinMountedBowOrbitRange } from '../../src/movement/MountedArcherOrbit'
 
 describe('Ground mounted archer steering', () => {
   it('uses forward orbit after charge reaches combat while preserving held positions and other units', () => {
@@ -88,15 +88,18 @@ describe('Ground mounted archer steering', () => {
     // Turn geometry does not replace the existing directional speed policy.
   })
 
-  it('requires an attainable body arc and an aligned physical shaft at release', () => {
-    expect(canReleaseMountedBow(Math.PI / 2, .1, 1, 20)).toBe(true)
-    expect(canReleaseMountedBow(-Math.PI / 2, .1, 1, 20)).toBe(true)
-    expect(canReleaseMountedBow(Math.PI, 0, 1, 20)).toBe(false)
-    expect(canReleaseMountedBow(Math.PI / 2, .8, 1, 20)).toBe(false)
-    expect(canReleaseMountedBow(Math.PI / 2, 0, .9, 20)).toBe(false)
-    expect(canReleaseMountedBow(0, 0, NaN, 20)).toBe(false)
-    expect(canReleaseMountedBow(0, 0, Math.cos(Math.PI / 36), 20)).toBe(false)
-    expect(canReleaseMountedBow(0, 0, Math.cos(.008), 20)).toBe(true)
+  it.each([0, Math.PI / 2, -Math.PI / 2, 3 * Math.PI / 4, -3 * Math.PI / 4, Math.PI])(
+    'retains target-relative yaw %s even past the former 90 degree firing arc', yaw => {
+      const sourceYaw = -Math.PI / 2
+      const correction = angleDifference(yaw, sourceYaw)
+      const actualTurn = mountedBowTorsoTurn(sourceYaw, correction)
+      expect(angleDifference(sourceYaw + actualTurn, yaw)).toBeCloseTo(0)
+    },
+  )
+  it('takes the short turn across the rear-facing ±180 degree seam', () => {
+    const from = 179 * Math.PI / 180
+    const to = -179 * Math.PI / 180
+    expect(angleDifference(to, from)).toBeCloseTo(2 * Math.PI / 180)
   })
 
   it('enters circling at 90% while the ranged attack limit stays unchanged', () => {
@@ -107,9 +110,9 @@ describe('Ground mounted archer steering', () => {
     expect(isWithinMountedBowOrbitRange(36.1 * 36.1, 40)).toBe(false)
   })
 
-  it('limits total chest twist including the authored side-on bow stance', () => {
+  it('corrects the authored sideways bow stance toward forward and rear targets', () => {
     const sourceYaw = -Math.PI / 2
-    expect(sourceYaw + mountedBowTorsoTurn(sourceYaw, -Math.PI / 2)).toBeCloseTo(-MOUNTED_BOW_MAX_TORSO_YAW)
-    expect(sourceYaw + mountedBowTorsoTurn(sourceYaw, Math.PI / 2)).toBeCloseTo(0)
+    expect(angleDifference(sourceYaw + mountedBowTorsoTurn(sourceYaw, Math.PI / 2), 0)).toBeCloseTo(0)
+    expect(Math.abs(angleDifference(sourceYaw + mountedBowTorsoTurn(sourceYaw, -Math.PI / 2), Math.PI))).toBeCloseTo(0)
   })
 })
