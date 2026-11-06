@@ -73,9 +73,12 @@ test('push to main shares one Full gate with Pages and Release, bound to the exa
   assert.equal(release.jobs.desktop.if, undefined)
   assert.equal(release.jobs.desktop.needs, 'validate')
 
-  // Concurrency: main pushes are isolated per-SHA and never cancelled; other refs cancel in-progress runs.
-  assert.match(ci.concurrency.group, /github\.event_name == 'push' && github\.ref == 'refs\/heads\/main' && github\.sha \|\| github\.ref/)
-  assert.match(ci.concurrency['cancel-in-progress'], /!\(github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'\)/)
+  // Both dev and main publish commit-bound immutable Full seeds. Newer pushes
+  // must not cancel the previous SHA's Full gate/seed publication.
+  assert.equal(ci.concurrency.group,
+    "ci-${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.sha || github.ref }}")
+  assert.equal(ci.concurrency['cancel-in-progress'],
+    "${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) }}")
 
   // ci.yml orchestrates the single Full gate and passes verified-sha to both Pages and Release.
   assert.equal(ci.jobs.logic.uses, './.github/workflows/logic-tests.yml')
