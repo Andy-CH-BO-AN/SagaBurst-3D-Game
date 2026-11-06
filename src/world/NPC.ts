@@ -198,6 +198,7 @@ interface CombatEquipmentSnapshot {
 
 export class NPC {
   private mountedOrbitActive = false
+  private mountedBowCircling = false
   private readonly mountedBowAim = { yaw: 0, pitch: 0 }
   readonly pendingFall = new FallingRider()
   private fallContext: CombatDamageContext | undefined
@@ -2548,6 +2549,9 @@ export class NPC {
     this._activeNavigationWorld = navigationWorld
     const wasOrbiting = this.mountedOrbitActive
     this.mountedOrbitActive = false
+    // Crossing back out toward full weapon range should not oscillate the
+    // orbit steering mode; CHASE/disengagement resets the 90% entry latch.
+    if (this.state !== AIState.ATTACK || this.tacticalOrder === 'defend') this.mountedBowCircling = false
     this.rig.animation?.setEquipmentState?.({ mountedBowAim: undefined })
     if (!wasOrbiting) {
       this.mountedBowAim.yaw = this.mountedBowAim.pitch = 0
@@ -4027,6 +4031,9 @@ export class NPC {
     const radius = orbitRadius(this.maxRangedAttackDistance, speed, (phase * 2) % 1)
     const direction = this._tmpMoveDir.set(0, 0, 0)
     if (isWithinMountedBowOrbitRange(this.combatPosition.distanceToSquared(target), this.maxRangedAttackDistance)) {
+      this.mountedBowCircling = true
+    }
+    if (this.mountedBowCircling) {
       writeOrbitDirection(direction, mount.group.position, target, side, radius)
     } else {
       direction.copy(target).sub(mount.group.position).setY(0)
@@ -4055,7 +4062,8 @@ export class NPC {
       }
     }
     const desiredYaw = Math.atan2(direction.x, direction.z)
-    mount.group.rotation.y = steerOrbitForward(direction, mount.group.rotation.y, desiredYaw, Math.max(speed, mount.movementSpeed), dt)
+    mount.group.rotation.y = steerOrbitForward(direction, mount.group.rotation.y, desiredYaw, Math.max(speed, mount.movementSpeed), dt,
+      this.mountedBowCircling ? radius : Infinity)
     this.group.rotation.y = mount.group.rotation.y
     const endpoint = this._tmpNavigationTarget.copy(mount.group.position).addScaledVector(direction, speed * (Math.max(0, dt) + .15))
     // Check the bounded heading too: an avoidance goal is not instantly reachable.

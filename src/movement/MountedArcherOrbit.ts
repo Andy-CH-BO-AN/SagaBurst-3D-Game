@@ -25,8 +25,11 @@ export function canUseMountedBowOrbit(order: TacticalOrder, groundBow: boolean, 
   return groundBow && !holdingPosition && order !== 'defend'
 }
 
-export function orbitTurnRate(speed: number): number {
-  return Math.min(ORBIT_MAX_TURN_RATE, LATERAL_ACCELERATION / Math.max(1, speed))
+export function orbitTurnRate(speed: number, radius = Infinity): number {
+  // Tight enough to hold a fast mount's selected forward curve at full
+  // existing travel speed; this changes heading only, never speed multipliers.
+  const geometryRate = speed / Math.max(1, radius)
+  return Math.min(ORBIT_MAX_TURN_RATE, Math.max(LATERAL_ACCELERATION / Math.max(1, speed), geometryRate))
 }
 
 export function orbitRadius(range: number, speed: number, phase: number): number {
@@ -50,14 +53,14 @@ export function writeOrbitDirection(
 }
 
 /** Avoidance supplies a desired bearing, never a lateral displacement. */
-export function orbitHeading(yaw: number, desiredYaw: number, speed: number, dt: number): number {
-  const step = orbitTurnRate(speed) * clamp(dt, 0, .1)
+export function orbitHeading(yaw: number, desiredYaw: number, speed: number, dt: number, radius = Infinity): number {
+  const step = orbitTurnRate(speed, radius) * clamp(dt, 0, .1)
   return yaw + clamp(angleDifference(desiredYaw, yaw), -step, step)
 }
 
 /** The same bounded heading owns both the visible facing and actual travel. */
-export function steerOrbitForward(out: OrbitPoint, yaw: number, desiredYaw: number, speed: number, dt: number): number {
-  const heading = orbitHeading(yaw, desiredYaw, speed, dt)
+export function steerOrbitForward(out: OrbitPoint, yaw: number, desiredYaw: number, speed: number, dt: number, radius = Infinity): number {
+  const heading = orbitHeading(yaw, desiredYaw, speed, dt, radius)
   out.x = Math.sin(heading)
   out.z = Math.cos(heading)
   return heading

@@ -18,7 +18,7 @@ describe('Ground mounted archer steering', () => {
     for (let frame = 0; frame < 900; frame++) {
       writeOrbitDirection(direction, p, target, side, radius)
       const previousYaw = yaw
-      yaw = steerOrbitForward(direction, yaw, Math.atan2(direction.x, direction.z), speed, dt)
+      yaw = steerOrbitForward(direction, yaw, Math.atan2(direction.x, direction.z), speed, dt, radius)
       maxTurn = Math.max(maxTurn, Math.abs(angleDifference(yaw, previousYaw)))
       const dx = direction.x * speed * dt, dz = direction.z * speed * dt
       // Actual displacement is parallel to the model's +Z, never a strafe/backstep.
@@ -26,13 +26,28 @@ describe('Ground mounted archer steering', () => {
       maxLateral = Math.max(maxLateral, Math.abs(dx * Math.cos(yaw) - dz * Math.sin(yaw)))
       p.x += dx; p.z += dz
     }
-    expect(maxTurn).toBeLessThanOrEqual(orbitTurnRate(speed) * dt + 1e-10)
+    expect(maxTurn).toBeLessThanOrEqual(orbitTurnRate(speed, radius) * dt + 1e-10)
     expect(maxForwardError).toBeLessThan(1e-10)
     expect(maxLateral).toBeLessThan(1e-10)
     expect(Math.hypot(p.x, p.z)).toBeCloseTo(radius, 0)
     const targetBearing = angleDifference(Math.atan2(-p.x, -p.z), yaw)
     expect(targetBearing * side).toBeGreaterThan(1.3)
     expect(Math.abs(targetBearing)).toBeLessThan(1.8)
+  })
+
+  it('keeps the faster cat mounts on the circle without a speed multiplier', () => {
+    const speed = 15, radius = orbitRadius(30, speed, .3), p = { x: radius, z: 0 }
+    const target = { x: 0, z: 0 }, direction = { x: 0, z: 0 }
+    let yaw = Math.PI, maxDistance = 0
+    for (let frame = 0; frame < 900; frame++) {
+      writeOrbitDirection(direction, p, target, 1, radius)
+      yaw = steerOrbitForward(direction, yaw, Math.atan2(direction.x, direction.z), speed, 1 / 60, radius)
+      p.x += direction.x * speed / 60
+      p.z += direction.z * speed / 60
+      maxDistance = Math.max(maxDistance, Math.hypot(p.x, p.z))
+    }
+    expect(maxDistance).toBeLessThan(30)
+    expect(Math.abs(Math.hypot(p.x, p.z) - radius)).toBeLessThan(1)
   })
 
   it.each([.65, 1.3])('recovers the firing radius from initial distance factor %s', factor => {
