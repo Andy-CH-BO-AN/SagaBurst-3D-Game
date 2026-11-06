@@ -327,3 +327,45 @@ test('affected setup lifecycle record widens to all leaves of its own file, not 
   ] })
   assert.throws(() => decodeAffected(unknown, inventory, source, run), /unsafe/)
 })
+
+test('real 873 affected records cannot bypass the strict 500 runnable-leaf gate', () => {
+  const wide = answer({
+    affected: Array.from({ length: 54 }, (_, i) => ({
+      file: 'tests/example.test.ts', name: 'preview ' + i,
+    })),
+    undetermined: [], unaffected: [],
+    overrides: {
+      affectedCount: 873, unaffectedCount: 0,
+      summary: { tests: 873, affected: 873, undetermined: 0,
+        unaffected: 0, changedFiles: 12 },
+      truncated: ['unaffected tests are counted, not listed',
+        'each test keeps its first three reasons',
+        'the lists keep their first, highest-ranked tests; `--names` lists every one'],
+    },
+  })
+  assert.throws(
+    () => decodeAffected(wide, inventory, source, run, { tests: 763, setups: 110 }),
+    /500-leaf limit exceeded: at least 763 runnable Vitest leaves/)
+  assert.throws(
+    () => decodeAffected(wide, inventory, source, run, { tests: 763, setups: 0 }),
+    /500-leaf limit exceeded/)
+  const adapter = readFileSync(resolve(__dirname, '../tooling/supercov-related.cjs'), 'utf8')
+  assert.match(adapter, /'--limit', String\(seed\.tests \+ seed\.setups\)/)
+})
+
+test('non-lossy native affected identity list accepts reasons-only truncation, rejects count-only selections', () => {
+  const complete = answer({ overrides: {
+    affectedCount: 1, undeterminedCount: 1, unaffectedCount: 1,
+    truncated: ['each test keeps its first three reasons',
+      'the lists keep their first, highest-ranked tests; `--names` lists every one'],
+  } })
+  assert.deepEqual(
+    decodeAffected(complete, inventory, source, run).selectedCases['tests/example.test.ts'],
+    [0, 1])
+  const truncated = structuredClone(complete)
+  truncated.data.affected = []
+  assert.throws(() => decodeAffected(truncated, inventory, source, run), /unsafe/)
+  const omitted = structuredClone(complete)
+  omitted.data.truncated.push('affected names omitted')
+  assert.throws(() => decodeAffected(omitted, inventory, source, run), /unsafe/)
+})

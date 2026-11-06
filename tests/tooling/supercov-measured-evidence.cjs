@@ -80,6 +80,8 @@ function validSeedMetadata(s) {
 // count-only (truncated) in the public --json response, even on a pristine
 // checkout. Never require all unaffected objects to be materialized.
 const UNAFFECTED_TRUNCATION = 'unaffected tests are counted, not listed'
+const REASONS_TRUNCATION = 'each test keeps its first three reasons'
+const LISTS_TRUNCATION = 'the lists keep their first, highest-ranked tests; `--names` lists every one'
 
 function validateAffectedQuery(result, runId, { tests, setups, pristine = false } = {}) {
   if (result?.schemaVersion !== 1 || result.ok !== true ||
@@ -117,7 +119,9 @@ function validateAffectedQuery(result, runId, { tests, setups, pristine = false 
       d.affected.length !== counts.affected ||
       d.undetermined.length !== counts.undetermined ||
       !Array.isArray(d.truncated ?? []) ||
-      (d.truncated ?? []).some(reason => reason !== UNAFFECTED_TRUNCATION)) {
+      (d.truncated ?? []).some(reason => ![
+        UNAFFECTED_TRUNCATION, REASONS_TRUNCATION, LISTS_TRUNCATION,
+      ].includes(reason))) {
     // Public CLI versions may use different list-summary conventions. Log
     // shape only (never silently select an incomplete list) so the exact
     // rejected condition is visible in the GitHub Actions job.

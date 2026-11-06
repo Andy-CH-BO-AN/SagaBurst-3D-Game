@@ -17,6 +17,25 @@ function decodeAffected(response, inventory, changes, expectedRun, baseline = {}
   if (response?.schemaVersion !== 1 || response.ok !== true || response.command !== 'runs.tests.affected') {
     fail('Missing or failed public CLI JSON contract')
   }
+  // Supercov's JSON is a ranked preview by default. Its summary remains
+  // authoritative even when arrays are truncated. A conservative lower
+  // bound already above the 500 runnable-leaf cap must fail before trying
+  // to expand or select anything: every recorded setup may be affected,
+  // so subtract ALL seed setups to avoid overcounting them as cases.
+  const nativeCounts = response?.data?.summary
+  if (Number.isSafeInteger(baseline.setups) && baseline.setups >= 0 &&
+      Number.isSafeInteger(nativeCounts?.affected) && nativeCounts.affected >= 0 &&
+      Number.isSafeInteger(nativeCounts?.undetermined) && nativeCounts.undetermined >= 0) {
+    const lowerBound = Math.max(0,
+      nativeCounts.affected + nativeCounts.undetermined - baseline.setups)
+    if (lowerBound > 500) {
+      fail('Native Related aggregate 500-leaf limit exceeded: at least ' +
+        lowerBound + ' runnable Vitest leaves affected (native affected=' +
+        nativeCounts.affected + ', undetermined=' + nativeCounts.undetermined +
+        ', total seed setups=' + baseline.setups +
+        '); split the change or seek explicit migration review. No Full fallback')
+    }
+  }
   const { counts: summary, workingTree, affected, undetermined } =
     validateAffectedQuery(response, expectedRun, baseline)
   // Only the affected and undetermined identities matter. Supercov's public
@@ -116,8 +135,9 @@ function nativeSelection(inventory, changed, { base } = {}) {
   }
   let output
   try {
-    output = execFileSync('npx', ['--yes', 'supercov@' + VERSION, 'runs', seed.runId, 'tests', 'affected', '--json'],
-      { cwd: ROOT, encoding: 'utf8', maxBuffer: 2 * 1024 * 1024 })
+    output = execFileSync('npx', ['--yes', 'supercov@' + VERSION, 'runs', seed.runId, 'tests', 'affected', '--json',
+        '--limit', String(seed.tests + seed.setups)],
+      { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
   } catch (error) { fail('Native query failed: ' + (error.stderr?.toString() || error.message)) }
   let data
   try { data = JSON.parse(output) } catch { fail('Invalid native Supercov JSON') }
