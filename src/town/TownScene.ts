@@ -3658,9 +3658,10 @@ export class TownScene {
       const warfare = Boolean(this.outskirts?.actors.length || this.enemyEaglePatrol?.actors.length || this.personalSquad?.actors.length || this.townCommand?.authorizedActorIds.length)
       r.npc.update(dt, this.player, warfare ? this.missionCombat.runtimeParticipants : [],
         this.grid.getNearbyInto(r.npc.combatPosition, 2, this.neighbors), r.npc.mount?.isFlyingMount ? this.world.airspaceObstacles : this.npcObstacles, this.hp,
-        (damage, isPlayer, targetNpc) => {
+        (damage, isPlayer, targetNpc, targetMount) => {
           if (isPlayer) this.damagePlayerFromNpc(r.npc, damage, 'melee')
           else if (targetNpc) this.hitFieldNpc(targetNpc, damage, 'melee', r.npc)
+          else if (targetMount) this.hitBattlefieldMount(targetMount, damage, 'melee', r.npc, r.npc.weaponSweep.contact)
         }, (origin, direction, kind, lifecycle) => this.fire(origin, direction, r.npc.rangedProjectileSpeed, r.npc.rangedDamage, false, false, kind, r.npc, lifecycle), false,
         r.npc.group.position.distanceTo(this.camera.position), null, warfare ? this.missionCombat.runtimeGrid : null, this.navigation)
     }

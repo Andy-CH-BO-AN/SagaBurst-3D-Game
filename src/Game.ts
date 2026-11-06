@@ -241,6 +241,7 @@ import { SoundManager, type HorseGallopCandidate } from './audio/SoundManager'
 import { updateEagleWingbeatAudio } from './audio/EagleWingbeatAudio'
 import { InventoryManager } from './rpg/InventoryManager'
 import {
+  COMBAT_BALANCE,
   getAntiCavalryMultiplier,
 } from './combat/CombatBalance'
 import { calculatePlayerMeleeDamage } from './combat/PlayerMeleeDamage'
@@ -4894,17 +4895,20 @@ export class Game {
         height: 2.3,
         bottomOffset: 0,
         walkSurfaces: true,
+        pushWeight: 1.0,
       })
     }
 
     for (const mount of this.mounts) {
       if (mount === controlledMount || mount.isFlyingMount) continue
+      const isCharging = mount.movementSpeed > COMBAT_BALANCE.mountImpact.minSpeed
       bodies.push({
         position: mount.group.position,
         mountedSurfaces: true,
         radius: 1.0,
         height: 2.6,
         bottomOffset: 0,
+        pushWeight: isCharging ? 4.0 : 2.0,
       })
     }
 
@@ -5188,7 +5192,7 @@ export class Game {
         nearbyNPCs,
         this.obstacles,
         this.hpBar, 
-        (damage, isPlayer, targetNpc) => {
+        (damage, isPlayer, targetNpc, targetMount) => {
           // Melee Hit Callback
           if (isPlayer) {
             if (!this.player.targetable) return
@@ -5212,6 +5216,18 @@ export class Game {
             }
           } else if (targetNpc) {
             const result = damageNpc(targetNpc, damage, {
+              contact: npc.weaponSweep.contact,
+              source: createNpcCombatActorRef(npc),
+              method: 'melee',
+              weaponId: npc.meleeWeaponId ?? undefined,
+              emit: this.combatEvents.emit,
+            })
+            if (result.hitSuccess) {
+              if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, false)
+              else this.soundManager.playSwordHit(npc.currentLod, false)
+            }
+          } else if (targetMount) {
+            const result = damageMount(targetMount, damage, {
               contact: npc.weaponSweep.contact,
               source: createNpcCombatActorRef(npc),
               method: 'melee',
@@ -5279,13 +5295,24 @@ export class Game {
     this._updateInteractions(dt)
     const mountInteractionMs = profile ? performance.now() - t0 : 0
 
-    // 4. Entity Collision
+    // 4. Impact / Damage (evaluated immediately after mount movement before physical separation)
+    if (profile) t0 = performance.now()
+    if (!this._commanderOutpostCombatLocked()) this._updateImpactDamage(this.clock.elapsedTime)
+    this._persistPersonalOutpost(false, dt)
+    const impactMs = profile ? performance.now() - t0 : 0
+
+    // Reset impact flag after impact checks complete for this frame
+    for (const mount of this.mounts) {
+      mount.skipImpactThisFrame = false
+    }
+
+    // 5. Entity Collision
     if (profile) t0 = performance.now()
     this._resolveEntityCollisions()
     settleRiverCrossingDrowning(this.player, this.npcs, this.mounts, this.hpBar)
     const collisionMs = profile ? performance.now() - t0 : 0
 
-    // 5. Arrow / Projectile
+    // 6. Arrow / Projectile
     if (profile) t0 = performance.now()
     for (let i = this.arrows.length - 1; i >= 0; i--) {
       const arrow = this.arrows[i]
@@ -5342,17 +5369,6 @@ export class Game {
       }
     }
     const arrowMs = profile ? performance.now() - t0 : 0
-
-    // 6. Impact / Damage
-    if (profile) t0 = performance.now()
-    if (!this._commanderOutpostCombatLocked()) this._updateImpactDamage(this.clock.elapsedTime)
-    this._persistPersonalOutpost(false, dt)
-    const impactMs = profile ? performance.now() - t0 : 0
-
-    // Reset impact flag after impact checks complete for this frame
-    for (const mount of this.mounts) {
-      mount.skipImpactThisFrame = false
-    }
 
     // Update Floating Damage numbers
     this._updateMountHud()

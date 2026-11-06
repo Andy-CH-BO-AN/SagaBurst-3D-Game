@@ -101,6 +101,14 @@ import { XONGKORO } from '../movement/XongkoroConfig'
 import type { PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import { fitStandingRider } from './StandingRider'
 import { angleDifference, steerOrbitForward, orbitRadius, writeOrbitDirection, canUseMountedBowOrbit, isWithinMountedBowOrbitRange, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
+import {
+  isEligibleMeleeCavalry,
+  cavalryTurnRate,
+  steerCavalryHeading,
+  isTargetInForwardCone,
+  findCavalryChargeTarget,
+  CAVALRY_PASSTHROUGH_DURATION,
+} from '../movement/ContinuousCavalryCharge'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -122,6 +130,49 @@ export type NpcEagleFlightOrder = { kind: 'return'; target: THREE.Vector3; cruis
   | { kind: 'hold'; cruiseAltitude?: number }
 
 export type BanditAggroState = 'idle' | 'alerted' | 'provoked' | 'returning'
+
+/**
+ * Evaluates whether a candidate mount is a valid hostile target for an attacking NPC's melee weapon sweep.
+ * Fail-closed policy:
+ * - Own mount, dead, or disposed mounts are excluded.
+ * - Mount with NPC rider: hostile via combatAllegiancesHostile and combatTargetAllowed.
+ * - Mount with Player rider: requires attacker hostileToPlayer, player targetable/alive, and combatTargetAllowed.
+ * - Riderless mount: requires verifiable combatOwner:
+ *   - Player-owned: requires attacker hostileToPlayer, player targetable/alive, and combatTargetAllowed.
+ *   - Evaluated via combatAllegiancesHostile against owner's faction and combatOwnership.
+ * - Truly unowned/neutral scene mounts (no rider and no combatOwner) are strictly excluded.
+ */
+export function isHostileCombatMount(attacker: NPC, mount: Mount, player?: Player): boolean {
+  if (!mount || mount.dead || mount.disposed || mount === attacker.mount) return false
+
+  if (mount.riderNpc) {
+    if (mount.riderNpc === attacker) return false
+    if (!combatAllegiancesHostile(attacker, mount.riderNpc)) return false
+    if (attacker.combatTargetAllowed?.(mount.riderNpc) === false) return false
+    return true
+  }
+
+  if (mount.riderPlayer) {
+    if (!attacker.hostileToPlayer) return false
+    if (player && (!player.targetable || player.dead)) return false
+    if (player && attacker.combatTargetAllowed?.(player) === false) return false
+    return true
+  }
+
+  if (mount.combatOwner) {
+    if (mount.combatOwner.actorType === 'player') {
+      if (!attacker.hostileToPlayer) return false
+      if (player && (!player.targetable || player.dead)) return false
+      if (player && attacker.combatTargetAllowed?.(player) === false) return false
+    }
+    return combatAllegiancesHostile(attacker, {
+      faction: mount.combatOwner.allegiance,
+      combatOwnership: mount.combatOwner.ownership,
+    })
+  }
+
+  return false
+}
 
 const DETECTION_RADIUS = 300.0
 const RANGED_ATTACK_MIN = 6.0
@@ -200,6 +251,11 @@ export class NPC {
   private mountedOrbitActive = false
   private mountedBowCircling = false
   private readonly mountedBowAim = { yaw: 0, pitch: 0 }
+  private cavalryPassthroughTimer = 0
+  private readonly cavalryContactPoint = new THREE.Vector3()
+  private static readonly _cavalryCandidates: NPC[] = []
+  private static readonly _cavalrySweepTargets: PhysicalCombatTarget[] = []
+  private static readonly _cavalryHostileMounts: Mount[] = []
   readonly pendingFall = new FallingRider()
   private fallContext: CombatDamageContext | undefined
   private readonly eaglePilot = new EagleFlightAI()
@@ -1192,6 +1248,7 @@ export class NPC {
   /** Releases this NPC from its mount and returns it to a normal walking body. */
   dismountFromMount({ forceFall = false }: { forceFall?: boolean } = {}): void {
     this.pendingLanceChargeSpeed = 0
+    this.cavalryPassthroughTimer = 0
     if (!this.mount) return
     const oldMount = this.mount
     // HP reaches zero before this actor's normal death state/callback transition.
@@ -2295,6 +2352,22 @@ export class NPC {
       const position = this._cachedTargetIsPlayer ? this._getPlayerPosition(player, this._tmpTargetPosition) : this._cachedTargetNpc?.combatPosition
       if (position && !this._isEagleTargetInBounds(position)) return false
     }
+    if (this.cavalryPassthroughTimer > 0 && isEligibleMeleeCavalry(
+      this.isMounted,
+      this.mount,
+      this.hasActiveRangedWeapon,
+      this.tacticalOrder,
+      this.hasSiegeObstacle,
+      this.holdsRampartPosition,
+    )) {
+      const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+      const targetPos = this._cachedTargetIsPlayer
+        ? this._getPlayerPosition(player, this._tmpTargetPosition)
+        : this._cachedTargetNpc?.combatPosition
+      if (targetPos && !isTargetInForwardCone(this.combatPosition, currentYaw, targetPos)) {
+        return false
+      }
+    }
     if (this._cachedTargetIsPlayer) {
       return this.targetsPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false
     }
@@ -2492,6 +2565,28 @@ export class NPC {
       return nearest
     }
     const preferGroundTargets = !this.hasActiveRangedWeapon
+    const eligibleCavalry = isEligibleMeleeCavalry(
+      this.isMounted,
+      this.mount,
+      this.hasActiveRangedWeapon,
+      this.tacticalOrder,
+      this.hasSiegeObstacle,
+      this.holdsRampartPosition,
+    )
+    if (eligibleCavalry) {
+      const chargeTarget = findCavalryChargeTarget(
+        this,
+        player,
+        hostileNpcGrid,
+        chaseTargetCoordinator,
+        NPC._cavalryCandidates,
+        this.cavalryPassthroughTimer > 0,
+        combatAllegiancesHostile,
+        allNPCs,
+      )
+      if (chargeTarget !== null) return chargeTarget
+      if (this.cavalryPassthroughTimer > 0) return null
+    }
     const findNearest = (groundOnly: boolean) => {
       let closestTarget: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
       let closestDistSq = Infinity
@@ -2539,7 +2634,7 @@ export class NPC {
     nearbyNPCs: NPC[],
     obstacles: ObstacleData[],
     _playerHpBar: Pick<HpBar, 'setFill'>,
-    onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
+    onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC, targetMount?: Mount) => void,
     onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => ProjectileLaunchResult,
     skipBoidsAndObstacles: boolean = false,
     cameraDistance: number = 0,
@@ -2549,6 +2644,9 @@ export class NPC {
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): void {
     this._activeNavigationWorld = navigationWorld
+    if (this.cavalryPassthroughTimer > 0) {
+      this.cavalryPassthroughTimer = Math.max(0, this.cavalryPassthroughTimer - dt)
+    }
     const wasOrbiting = this.mountedOrbitActive
     this.mountedOrbitActive = false
     // Crossing back out toward full weapon range should not oscillate the
@@ -2868,7 +2966,39 @@ export class NPC {
       case AIState.CHASE: {
         this.alertSprite.visible = false
         if (!this.hasActiveRangedWeapon) this.attackTimer = Math.max(0, this.attackTimer - dt)
+        const eligibleCharge = isEligibleMeleeCavalry(
+          this.isMounted,
+          this.mount,
+          this.hasActiveRangedWeapon,
+          this.tacticalOrder,
+          this.hasSiegeObstacle,
+          this.holdsRampartPosition,
+        )
+        if (targetInfo && !targetInfo.isDead && eligibleCharge && this.cavalryPassthroughTimer > 0) {
+          const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+          if (!isTargetInForwardCone(this.combatPosition, currentYaw, targetInfo.position)) {
+            targetInfo = null
+            this._cachedTargetNpc = null
+            this._cachedTargetIsPlayer = false
+          }
+        }
         if (!targetInfo || targetInfo.isDead) {
+          if (eligibleCharge && this.cavalryPassthroughTimer > 0) {
+            const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+            const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+            const moveDir = this._tmpMoveDir.set(Math.sin(currentYaw), 0, Math.cos(currentYaw))
+            const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(moveDir, speed * (dt + 0.15))
+            if (!findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
+              this._moveByDirection(
+                moveDir,
+                speed,
+                dt,
+                this.tacticalOrder === 'charge',
+              )
+              break
+            }
+            this.cavalryPassthroughTimer = 0
+          }
           this._clearObstacleDetour()
           this._clearNavigationPath()
           this._clearSiegeFallback()
@@ -3052,14 +3182,21 @@ export class NPC {
             navigationRoute === 'direct'
             && this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
           ) {
-            this._clearObstacleDetour()
-            this._clearSiegeFallback()
-            this.state = AIState.ATTACK
-            this.attackHitProcessed = false
-            if (this.isMounted && this.isUsingLance) {
-              this.pendingLanceChargeSpeed = previousMountSpeed
+            const targetInFront = !eligibleCharge || isTargetInForwardCone(
+              this.combatPosition,
+              this.mount ? this.mount.group.rotation.y : this.group.rotation.y,
+              targetInfo.position,
+            )
+            if (targetInFront) {
+              this._clearObstacleDetour()
+              this._clearSiegeFallback()
+              this.state = AIState.ATTACK
+              this.attackHitProcessed = false
+              if (this.isMounted && this.isUsingLance) {
+                this.pendingLanceChargeSpeed = previousMountSpeed
+              }
+              break
             }
-            break
           }
           moveDir.copy(movementTarget).sub(this.combatPosition)
         }
@@ -3143,15 +3280,44 @@ export class NPC {
             const endpoint = this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15))
             if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) moveDir.set(0, 0, 0)
           }
-        } else this._faceTarget(movementTarget)
-        this._moveByDirection(
-          moveDir,
-          this.mount ? this.mount.baseSpeed : CHASE_SPEED,
-          dt,
-          this.tacticalOrder === 'charge' && !siegeObstacle,
-          layeredStep?.tower
-            ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z) : Infinity,
-        )
+        } else if (eligibleCharge && !siegeObstacle && !this.siegeBypassTarget) {
+          const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+          const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+          const maxDist = layeredStep?.tower
+            ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z)
+            : Infinity
+
+          if (moveDir.lengthSq() > 0.0001) {
+            const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
+            const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
+            this.group.rotation.y = newYaw
+            if (this.mount) this.mount.group.rotation.y = newYaw
+            moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
+
+            const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(moveDir, speed * (dt + 0.15))
+            if (findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
+              moveDir.set(0, 0, 0)
+            }
+          }
+
+          this._moveByDirection(
+            moveDir,
+            speed,
+            dt,
+            this.tacticalOrder === 'charge',
+            maxDist,
+          )
+        } else {
+          this._faceTarget(movementTarget)
+          this._moveByDirection(
+            moveDir,
+            this.mount ? this.mount.baseSpeed : CHASE_SPEED,
+            dt,
+            this.tacticalOrder === 'charge' && !siegeObstacle,
+            layeredStep?.tower
+              ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z) : Infinity,
+          )
+        }
         if (layeredNav && isStairLayer(npcLayer)) {
           const stair = layeredNav.getStair(layerSide(npcLayer)!)
           if (stair) {
@@ -3165,10 +3331,33 @@ export class NPC {
       }
 
       case AIState.ATTACK: {
+        const eligibleCharge = isEligibleMeleeCavalry(
+          this.isMounted,
+          this.mount,
+          this.hasActiveRangedWeapon,
+          this.tacticalOrder,
+          this.hasSiegeObstacle,
+          this.holdsRampartPosition,
+        )
+        if (targetInfo && !targetInfo.isDead && eligibleCharge && this.cavalryPassthroughTimer > 0) {
+          const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+          if (!isTargetInForwardCone(this.combatPosition, currentYaw, targetInfo.position)) {
+            targetInfo = null
+            this._cachedTargetNpc = null
+            this._cachedTargetIsPlayer = false
+          }
+        }
+
         if (!targetInfo || targetInfo.isDead) {
           this._clearSiegeFallback()
           this.state = AIState.CHASE
           this.pendingLanceChargeSpeed = 0
+          if (eligibleCharge) {
+            this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
+            this._cachedTargetNpc = null
+            this._cachedTargetIsPlayer = false
+            this._targetReacquireFramesRemaining = 0
+          }
           break
         }
 
@@ -3242,18 +3431,48 @@ export class NPC {
         const mountedBowForward = !siegeObstacle && this._updateMountedBowForwardCombat(
           attackTargetPosition, dt, nearbyNPCs, obstacles, skipBoidsAndObstacles,
         )
-        if (!mountedBowForward) this._faceTarget(attackTargetPosition)
+        if (!mountedBowForward && !eligibleCharge) this._faceTarget(attackTargetPosition)
+        const initialYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+        const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+        const maxTurnBudget = cavalryTurnRate(speed) * dt
+
+        if (eligibleCharge && !siegeObstacle) {
+          const inFront = this.cavalryPassthroughTimer <= 0
+            && isTargetInForwardCone(this.combatPosition, initialYaw, attackTargetPosition)
+          const targetDirX = attackTargetPosition.x - this.combatPosition.x
+          const targetDirZ = attackTargetPosition.z - this.combatPosition.z
+          const desiredYaw = (inFront && targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
+            ? Math.atan2(targetDirX, targetDirZ)
+            : initialYaw
+          const newYaw = steerCavalryHeading(initialYaw, desiredYaw, speed, dt)
+          this.group.rotation.y = newYaw
+          if (this.mount) this.mount.group.rotation.y = newYaw
+        }
         if (!siegeObstacle && !this.hasActiveRangedWeapon && this.isUsingLance) {
           // The authored spear is held beside the torso. Aim its actual forward
           // tip at the opponent rather than sending a parallel thrust past them.
-          const tip = this.getWeaponTipPosition()
-          const yaw = this.group.rotation.y
-          const dx = tip.x - this.group.position.x, dz = tip.z - this.group.position.z
-          const localX = dx * Math.cos(yaw) - dz * Math.sin(yaw)
-          const localZ = dx * Math.sin(yaw) + dz * Math.cos(yaw)
-          if (localZ > 0.1) {
-            this.group.rotation.y -= Math.atan2(localX, localZ)
-            if (this.mount) this.mount.group.rotation.y = this.group.rotation.y
+          const currentYaw = this.group.rotation.y
+          const inFront = !eligibleCharge || (this.cavalryPassthroughTimer <= 0
+            && isTargetInForwardCone(this.combatPosition, currentYaw, attackTargetPosition))
+          if (inFront) {
+            const tip = this.getWeaponTipPosition()
+            const dx = tip.x - this.group.position.x, dz = tip.z - this.group.position.z
+            const localX = dx * Math.cos(currentYaw) - dz * Math.sin(currentYaw)
+            const localZ = dx * Math.sin(currentYaw) + dz * Math.cos(currentYaw)
+            if (localZ > 0.1) {
+              const tipYawOffset = Math.atan2(localX, localZ)
+              if (eligibleCharge) {
+                // Share the single-frame turn budget with heading steering:
+                // The net difference between initialYaw and final yaw must not exceed maxTurnBudget.
+                const unconstrainedYaw = this.group.rotation.y - tipYawOffset
+                const totalDiff = angleDifference(unconstrainedYaw, initialYaw)
+                const clampedDiff = Math.max(-maxTurnBudget, Math.min(maxTurnBudget, totalDiff))
+                this.group.rotation.y = initialYaw + clampedDiff
+              } else {
+                this.group.rotation.y -= tipYawOffset
+              }
+              if (this.mount) this.mount.group.rotation.y = this.group.rotation.y
+            }
           }
         }
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
@@ -3340,7 +3559,7 @@ export class NPC {
         } else {
           // A target can leave physical reach during recovery. Recheck before
           // starting the next swing rather than attacking at the old data range.
-          if (!siegeObstacle && !this.animator.busy && !this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
+          if (!eligibleCharge && !siegeObstacle && !this.animator.busy && !this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
             this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
             this.pendingLanceChargeSpeed = 0
             break
@@ -3354,6 +3573,25 @@ export class NPC {
           if (!this.animator.busy && this.attackTimer <= 0) {
             this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], heroMeleeAttackSpeed(this.combatProfileId)))
             this.attackHitProcessed = false
+          }
+
+          if (eligibleCharge && !siegeObstacle) {
+            const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+            const chargeDir = this._tmpMoveDir.set(Math.sin(currentYaw), 0, Math.cos(currentYaw))
+            const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+            const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(chargeDir, speed * (dt + 0.15))
+            if (!findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
+              this._moveByDirection(
+                chargeDir,
+                speed,
+                dt,
+                this.tacticalOrder === 'charge',
+              )
+              if (this.isMounted) {
+                this._syncToMount(_collector)
+                this.group.updateMatrixWorld(true)
+              }
+            }
           }
 
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
@@ -3389,17 +3627,120 @@ export class NPC {
                   this.pendingLanceChargeSpeed = 0
                 }
               }
-            } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
-              const targetIsMounted = targetInfo.isPlayer
-                ? Boolean(player?.isMounted)
-                : Boolean(targetInfo.npc?.isMounted)
-              const physicalTarget = targetInfo.isPlayer ? player : targetInfo.npc
-              const mounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
-              const contact = physicalTarget && this.weaponSweep.traceFirst([physicalTarget], mounts, this.mount)
+            } else if (eligibleCharge) {
+              const rawMounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
+              NPC._cavalryHostileMounts.length = 0
+              for (let i = 0; i < rawMounts.length; i++) {
+                const m = rawMounts[i]
+                if (isHostileCombatMount(this, m, player)) {
+                  NPC._cavalryHostileMounts.push(m)
+                }
+              }
+
+              NPC._cavalrySweepTargets.length = 0
+              if (targetInfo.isPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false) {
+                NPC._cavalrySweepTargets.push(player)
+              } else if (targetInfo.npc && !targetInfo.npc.dead && this.combatTargetAllowed?.(targetInfo.npc) !== false) {
+                NPC._cavalrySweepTargets.push(targetInfo.npc)
+              }
+              if (hostileNpcGrid) {
+                hostileNpcGrid.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 3, NPC._cavalryCandidates)
+                for (let i = 0; i < NPC._cavalryCandidates.length; i++) {
+                  const candidate = NPC._cavalryCandidates[i]
+                  if (candidate.dead || candidate === this || !combatAllegiancesHostile(this, candidate)
+                    || candidate.mount?.isFlyingMount || this.combatTargetAllowed?.(candidate) === false) continue
+                  if (!NPC._cavalrySweepTargets.includes(candidate)) {
+                    NPC._cavalrySweepTargets.push(candidate)
+                  }
+                }
+              } else if (nearbyNPCs) {
+                for (let i = 0; i < nearbyNPCs.length; i++) {
+                  const candidate = nearbyNPCs[i]
+                  if (candidate.dead || candidate === this || !combatAllegiancesHostile(this, candidate)
+                    || candidate.mount?.isFlyingMount || this.combatTargetAllowed?.(candidate) === false) continue
+                  if (!NPC._cavalrySweepTargets.includes(candidate)) {
+                    NPC._cavalrySweepTargets.push(candidate)
+                  }
+                }
+              }
+              if (this.targetsPlayer && player.targetable && !player.dead
+                && !player.currentMount?.isFlyingMount && this.combatTargetAllowed?.(player) !== false
+                && !NPC._cavalrySweepTargets.includes(player)) {
+                NPC._cavalrySweepTargets.push(player)
+              }
+
+              const contact = (NPC._cavalrySweepTargets.length > 0 || NPC._cavalryHostileMounts.length > 0)
+                ? this.weaponSweep.traceFirst(NPC._cavalrySweepTargets, NPC._cavalryHostileMounts, this.mount)
+                : undefined
+
               if (contact) {
-                const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
-                this.attackHitProcessed = true
-                onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
+                let hitIsPlayer = false
+                let hitNpc: NPC | undefined = undefined
+                let hitMount: Mount | undefined = undefined
+
+                if (contact.kind === 'body' || contact.kind === 'shield') {
+                  if (contact.target === player) {
+                    hitIsPlayer = true
+                  } else if (contact.target instanceof NPC) {
+                    hitNpc = contact.target
+                  }
+                } else if (contact.kind === 'mount') {
+                  hitMount = contact.mount
+                  if (contact.mount?.riderNpc) {
+                    hitNpc = contact.mount.riderNpc
+                  } else if (contact.mount?.riderPlayer) {
+                    hitIsPlayer = true
+                  }
+                }
+
+                if (hitIsPlayer || hitNpc || hitMount) {
+                  const targetIsMounted = hitIsPlayer
+                    ? Boolean(player?.isMounted)
+                    : hitNpc
+                      ? Boolean(hitNpc.isMounted)
+                      : Boolean(hitMount)
+
+                  const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
+                  this.attackHitProcessed = true
+                  onHitEntity(finalDamage, hitIsPlayer, hitNpc, hitMount)
+                  this.cavalryPassthroughTimer = CAVALRY_PASSTHROUGH_DURATION
+                  this.cavalryContactPoint.copy(this.combatPosition)
+                  this._cachedTargetNpc = null
+                  this._cachedTargetIsPlayer = false
+                  this._targetReacquireFramesRemaining = 0
+                }
+              }
+            } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
+              const physicalTarget = targetInfo.isPlayer ? player : targetInfo.npc
+              const rawMounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
+              NPC._cavalryHostileMounts.length = 0
+              for (let i = 0; i < rawMounts.length; i++) {
+                const m = rawMounts[i]
+                if (isHostileCombatMount(this, m, player)) {
+                  NPC._cavalryHostileMounts.push(m)
+                }
+              }
+              const contact = physicalTarget && this.weaponSweep.traceFirst([physicalTarget], NPC._cavalryHostileMounts, this.mount)
+              if (contact) {
+                let hitIsPlayer = false
+                let hitNpc: NPC | undefined = undefined
+                let hitMount: Mount | undefined = undefined
+
+                if (contact.kind === 'body' || contact.kind === 'shield') {
+                  if (contact.target === player) hitIsPlayer = true
+                  else if (contact.target instanceof NPC) hitNpc = contact.target
+                } else if (contact.kind === 'mount') {
+                  hitMount = contact.mount
+                  if (contact.mount?.riderNpc) hitNpc = contact.mount.riderNpc
+                  else if (contact.mount?.riderPlayer) hitIsPlayer = true
+                }
+
+                if (hitIsPlayer || hitNpc || hitMount) {
+                  const targetIsMounted = hitIsPlayer ? Boolean(player?.isMounted) : hitNpc ? Boolean(hitNpc.isMounted) : Boolean(hitMount)
+                  const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
+                  this.attackHitProcessed = true
+                  onHitEntity(finalDamage, hitIsPlayer, hitNpc, hitMount)
+                }
               }
             }
           }
@@ -3407,7 +3748,13 @@ export class NPC {
           if (meleeEvents.actionCompleted) {
             this.attackTimer = AI_ATTACK_GAP / (berserker.meleeAttackRateMultiplier * attackSpeed)
             this.pendingLanceChargeSpeed = 0
-            if (!siegeObstacle && !this.attackHitProcessed) {
+            if (eligibleCharge) {
+              this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
+              this._cachedTargetNpc = null
+              this._cachedTargetIsPlayer = false
+              this._targetReacquireFramesRemaining = 0
+              this.state = AIState.CHASE
+            } else if (!siegeObstacle && !this.attackHitProcessed) {
               // Weapon length is only an initial estimate: actual arcs, shields
               // and hand offsets can require a closer position. A complete miss
               // must make progress instead of repeating the same stationary swing.
@@ -3426,12 +3773,16 @@ export class NPC {
 
           if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
             this.attackTimer -= dt
-            const stillInRange = siegeObstacle
-              ? this._isObstacleInMeleeRange(siegeObstacle)
-              : this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
-            if (this.attackTimer <= 0 && !stillInRange) {
+            if (eligibleCharge) {
               this.state = AIState.CHASE
-              this.pendingLanceChargeSpeed = 0
+            } else {
+              const stillInRange = siegeObstacle
+                ? this._isObstacleInMeleeRange(siegeObstacle)
+                : this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
+              if (this.attackTimer <= 0 && !stillInRange) {
+                this.state = AIState.CHASE
+                this.pendingLanceChargeSpeed = 0
+              }
             }
           }
         }
@@ -3581,7 +3932,7 @@ export class NPC {
   }
 
   private _updateEagleCombat(dt: number, player: Player, allNPCs: NPC[], nearby: NPC[], obstacles: ObstacleData[],
-    onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
+    onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC, targetMount?: Mount) => void,
     onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => ProjectileLaunchResult,
     cameraDistance: number, grid: SpatialGrid<NPC> | null): void {
     const mount = this.mount!

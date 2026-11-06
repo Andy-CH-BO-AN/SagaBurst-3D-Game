@@ -310,6 +310,7 @@ export interface EntityCollisionBody {
   bottomOffset: number
   anchored?: boolean
   walkSurfaces?: boolean
+  pushWeight?: number
 }
 
 export type ObstacleDetourSide = -1 | 1
@@ -762,7 +763,11 @@ export function resolveEntityCollision(
   const normalX = distance > 0.0001 ? dx / distance : 1
   const normalZ = distance > 0.0001 ? dz / distance : 0
   const pushDistance = minDistance - distance
-  const halfPush = pushDistance * 0.5
+  const firstWeight = Math.max(0.01, first.pushWeight ?? 1)
+  const secondWeight = Math.max(0.01, second.pushWeight ?? 1)
+  const totalWeight = firstWeight + secondWeight
+  const firstPush = pushDistance * (secondWeight / totalWeight)
+  const secondPush = pushDistance * (firstWeight / totalWeight)
 
   const overlapsObstacle = (pos: THREE.Vector3, offsetX: number, offsetZ: number, radius: number, bottomOffset: number, height: number, walkSurfaces?: boolean, mountedSurfaces?: boolean): boolean => {
     const targetX = pos.x + offsetX
@@ -801,8 +806,8 @@ export function resolveEntityCollision(
 
   // Direction B: Predictive Obstacle Check
   // If pushed into a wall, treat the entity as temporarily anchored
-  const firstAnchored = first.anchored || overlapsObstacle(first.position, normalX * halfPush, normalZ * halfPush, first.radius, first.bottomOffset, first.height, first.walkSurfaces, first.mountedSurfaces)
-  const secondAnchored = second.anchored || overlapsObstacle(second.position, -normalX * halfPush, -normalZ * halfPush, second.radius, second.bottomOffset, second.height, second.walkSurfaces, second.mountedSurfaces)
+  const firstAnchored = first.anchored || overlapsObstacle(first.position, normalX * firstPush, normalZ * firstPush, first.radius, first.bottomOffset, first.height, first.walkSurfaces, first.mountedSurfaces)
+  const secondAnchored = second.anchored || overlapsObstacle(second.position, -normalX * secondPush, -normalZ * secondPush, second.radius, second.bottomOffset, second.height, second.walkSurfaces, second.mountedSurfaces)
 
   if (firstAnchored && secondAnchored) return
   if (firstAnchored) {
@@ -816,10 +821,10 @@ export function resolveEntityCollision(
       first.position.z += normalZ * pushDistance
     }
   } else {
-    first.position.x += normalX * halfPush
-    first.position.z += normalZ * halfPush
-    second.position.x -= normalX * halfPush
-    second.position.z -= normalZ * halfPush
+    first.position.x += normalX * firstPush
+    first.position.z += normalZ * firstPush
+    second.position.x -= normalX * secondPush
+    second.position.z -= normalZ * secondPush
   }
 }
 
