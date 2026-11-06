@@ -53,7 +53,8 @@ export function unrelated() { return 0 }`
 // TypeScript graph analysis was exceeding the strict 100ms per-leaf budget
 // under CI contention; preserve every assertion without ignoring timing.
 test('shared data dynamic keys select the consumer but not sibling imports', () => {
-  const before = 'export const TABLE = { nested: { values: [1] } }; export function unrelated() { return 0 }'
+  const before = `export const TABLE = { nested: { values: [1] } }
+export function unrelated() { return 0 }`
   const plan = selection(before, before.replace('[1]', '[2]'), [
     "import { TABLE, unrelated } from '../src/owner'",
     "test('dynamic', () => { const key = globalThis.key; return TABLE[key] })",
