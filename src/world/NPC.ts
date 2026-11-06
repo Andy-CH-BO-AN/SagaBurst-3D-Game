@@ -2519,6 +2519,7 @@ export class NPC {
         chaseTargetCoordinator,
         NPC._cavalryCandidates,
         this.cavalryPassthroughTimer > 0,
+        combatAllegiancesHostile,
       )
       if (chargeTarget !== null) return chargeTarget
       if (this.cavalryPassthroughTimer > 0) return null

@@ -6,12 +6,18 @@ import {
   steerCavalryHeading,
   isTargetInForwardCone,
   scoreCavalryTarget,
+  findCavalryChargeTarget,
   CAVALRY_MAX_TURN_RATE,
+  CAVALRY_PASSTHROUGH_DURATION,
+  CAVALRY_FORWARD_CONE_COS,
 } from '../../src/movement/ContinuousCavalryCharge'
 import { angleDifference } from '../../src/movement/MountedArcherOrbit'
 
 describe('Continuous Melee Cavalry Charge', () => {
   it('identifies eligible ground melee cavalry while excluding ranged, flying, defense, and siege units', () => {
+    expect(CAVALRY_PASSTHROUGH_DURATION).toBe(1.0)
+    expect(CAVALRY_FORWARD_CONE_COS).toBe(0.2)
+
     // Eligible: ground mount, melee, attack/charge
     expect(isEligibleMeleeCavalry(true, { isFlyingMount: false }, false, 'attack', false, false)).toBe(true)
     expect(isEligibleMeleeCavalry(true, { isFlyingMount: false }, false, 'charge', false, false)).toBe(true)
@@ -187,5 +193,69 @@ describe('Continuous Melee Cavalry Charge', () => {
     // Must hit enemies in sequence 1, 2, 3 without stalling
     expect(hitSequence).toEqual([1, 2, 3])
     expect(z).toBeGreaterThan(30)
+  })
+
+  it('finds best forward target using findCavalryChargeTarget', () => {
+    const cavalry = {
+      combatPosition: new THREE.Vector3(0, 0, 0),
+      group: { rotation: { y: 0 } },
+      mount: { group: { rotation: { y: 0 } } },
+      faction: 'roman',
+      isFriendly: true,
+      combatTargetAllowed: undefined,
+    } as any
+
+    const player = {
+      position: new THREE.Vector3(0, 0, 15),
+      targetable: true,
+      dead: false,
+      isFriendly: false,
+      faction: 'bandit',
+    } as any
+
+    const enemyAhead = {
+      combatPosition: new THREE.Vector3(0, 0, 10),
+      dead: false,
+      faction: 'bandit',
+      isFriendly: false,
+      mount: null,
+    } as any
+
+    const enemyBehind = {
+      combatPosition: new THREE.Vector3(0, 0, -5),
+      dead: false,
+      faction: 'bandit',
+      isFriendly: false,
+      mount: null,
+    } as any
+
+    const candidateBuffer: any[] = []
+    const grid = {
+      getNearbyInto: (_pos: any, _range: any, out: any[]) => {
+        out.push(enemyAhead, enemyBehind)
+      },
+      findNearest: () => enemyAhead,
+    } as any
+
+    // Normal charge: chooses nearest forward enemy ahead
+    const target = findCavalryChargeTarget(cavalry, player, grid, null, candidateBuffer, false)
+    expect(target).not.toBeNull()
+    expect(target?.position).toBe(enemyAhead.combatPosition)
+
+    // Passthrough charge: strictly ignores enemy behind and picks enemy ahead
+    const ptTarget = findCavalryChargeTarget(cavalry, player, grid, null, candidateBuffer, true)
+    expect(ptTarget).not.toBeNull()
+    expect(ptTarget?.position).toBe(enemyAhead.combatPosition)
+
+    // When only enemy behind exists, passthrough returns null instead of turning 180°
+    const gridBehindOnly = {
+      getNearbyInto: (_pos: any, _range: any, out: any[]) => {
+        out.push(enemyBehind)
+      },
+      findNearest: () => enemyBehind,
+    } as any
+    const deadPlayer = { ...player, dead: true } as any
+    const nullTarget = findCavalryChargeTarget(cavalry, deadPlayer, gridBehindOnly, null, candidateBuffer, true)
+    expect(nullTarget).toBeNull()
   })
 })
