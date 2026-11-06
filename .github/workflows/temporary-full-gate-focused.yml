@@ -1,0 +1,49 @@
+name: Temporary post-Supercov Full-gate focused acceptance
+on:
+  pull_request:
+    branches: [dev]
+permissions:
+  contents: read
+jobs:
+  focused:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'fix/full-dev-seed-gate-recovery' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify workflow contract in real Node budget runner
+        run: |
+          mkdir -p output/test-budget
+          LOGIC_TEST_RUN_ID=focused-node LOGIC_TEST_TARGETED=0 \
+            LOGIC_TEST_NODE_REPORT=output/test-budget/node.json \
+            node --test --test-concurrency=1 \
+              --test-reporter=./tests/tooling/node-budget-reporter.cjs \
+              tests/release/workflow-contract.test.cjs
+      - name: Repeat exact affected feline suite with original 100ms budget
+        run: |
+          mkdir -p output/test-budget
+          for round in 1 2 3 4 5; do
+            echo "=== Focused feline test iteration $round / 5 ==="
+            LOGIC_TEST_RUN_ID="focused-vitest-$round" \
+              LOGIC_TEST_VITEST_REPORT="output/test-budget/feline-$round.json" \
+              LOGIC_TEST_FILES='["tests/missions/CareerFelineLoading.test.ts"]' \
+              LOGIC_TEST_TARGETED=0 \
+              node node_modules/vitest/vitest.mjs run
+          done
+      - name: Verify test TypeScript
+        run: npm run typecheck:test
+      - name: Preserve focused reports on success and failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-gate-focused-${{ github.sha }}
+          path: output/test-budget/*.json
+          if-no-files-found: warn
+          retention-days: 14
