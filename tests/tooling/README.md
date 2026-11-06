@@ -115,11 +115,14 @@ deliberately **count-only**, returned as `unaffectedCount: 873` with
 checkout. The adapter accepts this *specific* unaffected-only truncation
 while requiring untruncated exact `affected` and `undetermined` identities,
 correct sums, and an inventory matching `seed.tests + seed.setups`.
-Supercov JSON normally previews only a ranked subset of identities. The
-native query explicitly requests `--limit (seed.tests + seed.setups)` and
-demands that all affected and undetermined identities are materialized.
-Truncating display-only reasons is acceptable; losing an affected identity
-is never acceptable. If the native summary already proves that the
+Supercov's public `tests affected --json` gives ranked preview arrays
+and authoritative summary counts; the pinned 4.24.2 command did not accept
+a generic `--limit` parameter in real CI. The adapter therefore **never
+guesses missing affected/undetermined identities**. A genuinely incomplete
+preview with potentially runnable leaves fails closed. A future verified
+public identity pagination/export protocol can improve smaller Related
+plans without changing this invariant. Reason-only truncation is harmless
+when every affected/undetermined identity is present. If the native summary already proves that the
 minimum impacted runnable tests, `affected + undetermined - seed.setups`,
 exceeds 500, selection fails **before** trying to use a preview list;
 full reruns and shard bypass are not permitted. This caught #430's

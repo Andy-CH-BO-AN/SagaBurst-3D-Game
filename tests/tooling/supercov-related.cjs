@@ -135,8 +135,7 @@ function nativeSelection(inventory, changed, { base } = {}) {
   }
   let output
   try {
-    output = execFileSync('npx', ['--yes', 'supercov@' + VERSION, 'runs', seed.runId, 'tests', 'affected', '--json',
-        '--limit', String(seed.tests + seed.setups)],
+    output = execFileSync('npx', ['--yes', 'supercov@' + VERSION, 'runs', seed.runId, 'tests', 'affected', '--json'],
       { cwd: ROOT, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
   } catch (error) { fail('Native query failed: ' + (error.stderr?.toString() || error.message)) }
   let data

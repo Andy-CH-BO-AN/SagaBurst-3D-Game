@@ -350,7 +350,8 @@ test('real 873 affected records cannot bypass the strict 500 runnable-leaf gate'
     () => decodeAffected(wide, inventory, source, run, { tests: 763, setups: 0 }),
     /500-leaf limit exceeded/)
   const adapter = readFileSync(resolve(__dirname, '../tooling/supercov-related.cjs'), 'utf8')
-  assert.match(adapter, /'--limit', String\(seed\.tests \+ seed\.setups\)/)
+  assert.match(adapter, /Native Related aggregate 500-leaf limit exceeded/)
+  assert.doesNotMatch(adapter, /'--limit'/)
 })
 
 test('non-lossy native affected identity list accepts reasons-only truncation, rejects count-only selections', () => {
