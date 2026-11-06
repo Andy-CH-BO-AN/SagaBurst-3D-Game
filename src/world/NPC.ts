@@ -101,6 +101,13 @@ import { XONGKORO } from '../movement/XongkoroConfig'
 import type { PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import { fitStandingRider } from './StandingRider'
 import { angleDifference, steerOrbitForward, orbitRadius, writeOrbitDirection, canUseMountedBowOrbit, isWithinMountedBowOrbitRange, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
+import {
+  isEligibleMeleeCavalry,
+  steerCavalryHeading,
+  isTargetInForwardCone,
+  findCavalryChargeTarget,
+  CAVALRY_PASSTHROUGH_DURATION,
+} from '../movement/ContinuousCavalryCharge'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -200,6 +207,9 @@ export class NPC {
   private mountedOrbitActive = false
   private mountedBowCircling = false
   private readonly mountedBowAim = { yaw: 0, pitch: 0 }
+  private cavalryPassthroughTimer = 0
+  private readonly cavalryContactPoint = new THREE.Vector3()
+  private static readonly _cavalryCandidates: NPC[] = []
   readonly pendingFall = new FallingRider()
   private fallContext: CombatDamageContext | undefined
   private readonly eaglePilot = new EagleFlightAI()
@@ -1192,6 +1202,7 @@ export class NPC {
   /** Releases this NPC from its mount and returns it to a normal walking body. */
   dismountFromMount({ forceFall = false }: { forceFall?: boolean } = {}): void {
     this.pendingLanceChargeSpeed = 0
+    this.cavalryPassthroughTimer = 0
     if (!this.mount) return
     const oldMount = this.mount
     // HP reaches zero before this actor's normal death state/callback transition.
@@ -2492,6 +2503,26 @@ export class NPC {
       return nearest
     }
     const preferGroundTargets = !this.hasActiveRangedWeapon
+    const eligibleCavalry = isEligibleMeleeCavalry(
+      this.isMounted,
+      this.mount,
+      this.hasActiveRangedWeapon,
+      this.tacticalOrder,
+      this.hasSiegeObstacle,
+      this.holdsRampartPosition,
+    )
+    if (eligibleCavalry) {
+      const chargeTarget = findCavalryChargeTarget(
+        this,
+        player,
+        hostileNpcGrid,
+        chaseTargetCoordinator,
+        NPC._cavalryCandidates,
+        this.cavalryPassthroughTimer > 0,
+      )
+      if (chargeTarget !== null) return chargeTarget
+      if (this.cavalryPassthroughTimer > 0) return null
+    }
     const findNearest = (groundOnly: boolean) => {
       let closestTarget: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
       let closestDistSq = Infinity
@@ -2549,6 +2580,9 @@ export class NPC {
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): void {
     this._activeNavigationWorld = navigationWorld
+    if (this.cavalryPassthroughTimer > 0) {
+      this.cavalryPassthroughTimer = Math.max(0, this.cavalryPassthroughTimer - dt)
+    }
     const wasOrbiting = this.mountedOrbitActive
     this.mountedOrbitActive = false
     // Crossing back out toward full weapon range should not oscillate the
@@ -2868,7 +2902,26 @@ export class NPC {
       case AIState.CHASE: {
         this.alertSprite.visible = false
         if (!this.hasActiveRangedWeapon) this.attackTimer = Math.max(0, this.attackTimer - dt)
+        const eligibleCharge = isEligibleMeleeCavalry(
+          this.isMounted,
+          this.mount,
+          this.hasActiveRangedWeapon,
+          this.tacticalOrder,
+          this.hasSiegeObstacle,
+          this.holdsRampartPosition,
+        )
         if (!targetInfo || targetInfo.isDead) {
+          if (eligibleCharge && this.cavalryPassthroughTimer > 0) {
+            const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+            const moveDir = this._tmpMoveDir.set(Math.sin(currentYaw), 0, Math.cos(currentYaw))
+            this._moveByDirection(
+              moveDir,
+              this.mount ? this.mount.baseSpeed : CHASE_SPEED,
+              dt,
+              this.tacticalOrder === 'charge',
+            )
+            break
+          }
           this._clearObstacleDetour()
           this._clearNavigationPath()
           this._clearSiegeFallback()
@@ -3052,14 +3105,21 @@ export class NPC {
             navigationRoute === 'direct'
             && this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
           ) {
-            this._clearObstacleDetour()
-            this._clearSiegeFallback()
-            this.state = AIState.ATTACK
-            this.attackHitProcessed = false
-            if (this.isMounted && this.isUsingLance) {
-              this.pendingLanceChargeSpeed = previousMountSpeed
+            const targetInFront = !eligibleCharge || isTargetInForwardCone(
+              this.combatPosition,
+              this.mount ? this.mount.group.rotation.y : this.group.rotation.y,
+              targetInfo.position,
+            )
+            if (targetInFront) {
+              this._clearObstacleDetour()
+              this._clearSiegeFallback()
+              this.state = AIState.ATTACK
+              this.attackHitProcessed = false
+              if (this.isMounted && this.isUsingLance) {
+                this.pendingLanceChargeSpeed = previousMountSpeed
+              }
+              break
             }
-            break
           }
           moveDir.copy(movementTarget).sub(this.combatPosition)
         }
@@ -3143,15 +3203,31 @@ export class NPC {
             const endpoint = this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15))
             if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) moveDir.set(0, 0, 0)
           }
-        } else this._faceTarget(movementTarget)
-        this._moveByDirection(
-          moveDir,
-          this.mount ? this.mount.baseSpeed : CHASE_SPEED,
-          dt,
-          this.tacticalOrder === 'charge' && !siegeObstacle,
-          layeredStep?.tower
-            ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z) : Infinity,
-        )
+        } else if (eligibleCharge && !siegeObstacle && !this.siegeBypassTarget) {
+          const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+          const desiredYaw = moveDir.lengthSq() > 0.0001 ? Math.atan2(moveDir.x, moveDir.z) : currentYaw
+          const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+          const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
+          this.group.rotation.y = newYaw
+          if (this.mount) this.mount.group.rotation.y = newYaw
+          moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
+          this._moveByDirection(
+            moveDir,
+            speed,
+            dt,
+            this.tacticalOrder === 'charge',
+          )
+        } else {
+          this._faceTarget(movementTarget)
+          this._moveByDirection(
+            moveDir,
+            this.mount ? this.mount.baseSpeed : CHASE_SPEED,
+            dt,
+            this.tacticalOrder === 'charge' && !siegeObstacle,
+            layeredStep?.tower
+              ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z) : Infinity,
+          )
+        }
         if (layeredNav && isStairLayer(npcLayer)) {
           const stair = layeredNav.getStair(layerSide(npcLayer)!)
           if (stair) {
@@ -3165,10 +3241,22 @@ export class NPC {
       }
 
       case AIState.ATTACK: {
+        const eligibleCharge = isEligibleMeleeCavalry(
+          this.isMounted,
+          this.mount,
+          this.hasActiveRangedWeapon,
+          this.tacticalOrder,
+          this.hasSiegeObstacle,
+          this.holdsRampartPosition,
+        )
+
         if (!targetInfo || targetInfo.isDead) {
           this._clearSiegeFallback()
           this.state = AIState.CHASE
           this.pendingLanceChargeSpeed = 0
+          if (eligibleCharge) {
+            this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
+          }
           break
         }
 
@@ -3242,7 +3330,19 @@ export class NPC {
         const mountedBowForward = !siegeObstacle && this._updateMountedBowForwardCombat(
           attackTargetPosition, dt, nearbyNPCs, obstacles, skipBoidsAndObstacles,
         )
-        if (!mountedBowForward) this._faceTarget(attackTargetPosition)
+        if (!mountedBowForward && !eligibleCharge) this._faceTarget(attackTargetPosition)
+        if (eligibleCharge && !siegeObstacle) {
+          const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+          const targetDirX = attackTargetPosition.x - this.combatPosition.x
+          const targetDirZ = attackTargetPosition.z - this.combatPosition.z
+          const desiredYaw = (targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
+            ? Math.atan2(targetDirX, targetDirZ)
+            : currentYaw
+          const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+          const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
+          this.group.rotation.y = newYaw
+          if (this.mount) this.mount.group.rotation.y = newYaw
+        }
         if (!siegeObstacle && !this.hasActiveRangedWeapon && this.isUsingLance) {
           // The authored spear is held beside the torso. Aim its actual forward
           // tip at the opponent rather than sending a parallel thrust past them.
@@ -3340,7 +3440,7 @@ export class NPC {
         } else {
           // A target can leave physical reach during recovery. Recheck before
           // starting the next swing rather than attacking at the old data range.
-          if (!siegeObstacle && !this.animator.busy && !this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
+          if (!eligibleCharge && !siegeObstacle && !this.animator.busy && !this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
             this.state = this.tacticalOrder === 'defend' ? AIState.ALERT : AIState.CHASE
             this.pendingLanceChargeSpeed = 0
             break
@@ -3354,6 +3454,17 @@ export class NPC {
           if (!this.animator.busy && this.attackTimer <= 0) {
             this.animator.start(this._meleeAction(), meleeActionTimeScale(this._meleeAction(), WEAPONS[this.meleeWeaponId ?? ''], heroMeleeAttackSpeed(this.combatProfileId)))
             this.attackHitProcessed = false
+          }
+
+          if (eligibleCharge && !siegeObstacle) {
+            const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+            const chargeDir = this._tmpMoveDir.set(Math.sin(currentYaw), 0, Math.cos(currentYaw))
+            this._moveByDirection(
+              chargeDir,
+              this.mount ? this.mount.baseSpeed : CHASE_SPEED,
+              dt,
+              this.tacticalOrder === 'charge',
+            )
           }
 
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)
@@ -3400,6 +3511,10 @@ export class NPC {
                 const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
                 this.attackHitProcessed = true
                 onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
+                if (eligibleCharge) {
+                  this.cavalryPassthroughTimer = CAVALRY_PASSTHROUGH_DURATION
+                  this.cavalryContactPoint.copy(this.combatPosition)
+                }
               }
             }
           }
@@ -3407,7 +3522,10 @@ export class NPC {
           if (meleeEvents.actionCompleted) {
             this.attackTimer = AI_ATTACK_GAP / (berserker.meleeAttackRateMultiplier * attackSpeed)
             this.pendingLanceChargeSpeed = 0
-            if (!siegeObstacle && !this.attackHitProcessed) {
+            if (eligibleCharge) {
+              this.cavalryPassthroughTimer = Math.max(this.cavalryPassthroughTimer, CAVALRY_PASSTHROUGH_DURATION)
+              this.state = AIState.CHASE
+            } else if (!siegeObstacle && !this.attackHitProcessed) {
               // Weapon length is only an initial estimate: actual arcs, shields
               // and hand offsets can require a closer position. A complete miss
               // must make progress instead of repeating the same stationary swing.
@@ -3426,12 +3544,16 @@ export class NPC {
 
           if (!meleeEvents.actionCompleted && !this.animator.busy && this.attackTimer > 0) {
             this.attackTimer -= dt
-            const stillInRange = siegeObstacle
-              ? this._isObstacleInMeleeRange(siegeObstacle)
-              : this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
-            if (this.attackTimer <= 0 && !stillInRange) {
+            if (eligibleCharge) {
               this.state = AIState.CHASE
-              this.pendingLanceChargeSpeed = 0
+            } else {
+              const stillInRange = siegeObstacle
+                ? this._isObstacleInMeleeRange(siegeObstacle)
+                : this._isTargetInMeleeApproachRange(targetInfo.position, targetInfo.isPlayer ? playerBodyBaseOffset : 0)
+              if (this.attackTimer <= 0 && !stillInRange) {
+                this.state = AIState.CHASE
+                this.pendingLanceChargeSpeed = 0
+              }
             }
           }
         }
