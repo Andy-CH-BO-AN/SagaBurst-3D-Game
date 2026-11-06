@@ -118,7 +118,19 @@ function validateAffectedQuery(result, runId, { tests, setups, pristine = false 
       d.undetermined.length !== counts.undetermined ||
       !Array.isArray(d.truncated ?? []) ||
       (d.truncated ?? []).some(reason => reason !== UNAFFECTED_TRUNCATION)) {
-    fail('Affected/undetermined test identities truncated or unavailable')
+    // Public CLI versions may use different list-summary conventions. Log
+    // shape only (never silently select an incomplete list) so the exact
+    // rejected condition is visible in the GitHub Actions job.
+    fail('Affected/undetermined test identities truncated or unavailable: ' +
+      JSON.stringify({
+        affected: Array.isArray(d.affected) ? d.affected.length : typeof d.affected,
+        undetermined: Array.isArray(d.undetermined) ? d.undetermined.length : typeof d.undetermined,
+        unaffected: Array.isArray(d.unaffected) ? d.unaffected.length : typeof d.unaffected,
+        affectedCount: d.affectedCount, undeterminedCount: d.undeterminedCount,
+        unaffectedCount: d.unaffectedCount,
+        summary: counts,
+        truncated: d.truncated,
+      }))
   }
   const truncated = (d.truncated ?? []).includes(UNAFFECTED_TRUNCATION)
   if (truncated) {
