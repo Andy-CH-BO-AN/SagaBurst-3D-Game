@@ -164,7 +164,8 @@ test('evidence limits remain but incremental refresh/generation lineage are dele
   assert.equal(MAX_UNPACKED_BYTES, 1024 * 1024 * 1024)
   assert.match(policy, /validateArchive/)
   assert.doesNotMatch(policy, /MAX_REFRESH_GENERATIONS|requireRefreshAllowed|function generation/)
-  assert.doesNotMatch(full, /generation/)
+  // The word appears only to reject old schema-v2 lineage metadata.
+  assert.match(full, /!Object\.hasOwn\(s, 'generation'\)/)
   assert.doesNotMatch(workflow, /supercov-dev-refresh:/)
   assert.match(workflow, /node tests\/tooling\/supercov-evidence-policy\.cjs/)
   assert.match(workflow, /retention-days: 45/)
