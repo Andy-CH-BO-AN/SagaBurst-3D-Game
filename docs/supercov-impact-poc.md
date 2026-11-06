@@ -2,7 +2,7 @@
 
 量測日期：2026-11-06（Asia/Taipei）。來源 baseline：`e927b699110d442827f32c71a30b34cba959bad0`，為開始實驗時最新的 `origin/dev`。
 
-**Decision: GO — worth a production-design PR.** Supercov 在這個 repo 確實提供 individual-test execution provenance。代表性 #408／#409 changed-line diagnostics 分別為 **12／194 leaves**；即使加回歷史輸入中直接修改的測試，也只有 **14／196**。這兩組沒有 changed-line setup attribution，符合至少 2/3 <200 的 Strong GO 數值條件。這是設計下一個 prototype 的依據，並非現有 CI 或任意變更已能安全選到 200 以下的證明。
+**Decision: GO — worth a native affected-selection PoC before production design.** Supercov 在這個 repo 確實提供 individual-test execution provenance。代表性 #408／#409 changed-line diagnostics 分別為 **12／194 leaves**；即使加回歷史輸入中直接修改的測試，也只有 **14／196**。這兩組沒有 changed-line setup attribution，符合至少 2/3 <200 的 Strong GO 數值條件。這是設計下一個 prototype 的依據，並非現有 CI 或任意變更已能安全選到 200 以下的證明。
 
 #407 的 92 leaves 另有 **74 個 setup identities**，不能把 setup 當作零影響，更不能將 92 當成完整、安全的 selection。這組不作為 Strong GO 的安全證據。Shared helper 仍有 168 leaves；工具也未解決 setup/init consumer policy、未執行程式碼或資產問題。
 
@@ -192,4 +192,14 @@ Town A 的 assertion 通過，但 149.534ms 觸發原本 100ms gate，因此 chi
 
 **GO**，因為 exact identities 完整、A/B source execution 方向通過抽查，且 #408/#409 的 representative changed-lines 在保留直接修改測試後仍 <200。這回答的是 engine 能否提供有用的 individual-test evidence。
 
-仍需另開 production-design PR 決定可信 dev Full evidence、cache/artifact persistence、Git base association、setup/init consumers、changed-line lookup、未覆蓋/新增/刪除/搬移程式碼、assets/config、Node tests、completeness guard 與 stale evidence detection。這次沒有建立任何 production selector，沒有改 CI workflows、Related ownership、500/100ms gates 或 #429，也沒有 merge。當前 baseline/run 不是 all-green；GO 不授權直接接 required CI。
+依 [review](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/pull/430#issuecomment-6680553371)，下一支先做 **Supercov 原生 `tests affected` 驗證 PoC**，將 native affected 結果與本報告的 manual changed-line union 對照。78-line temporary glue 僅供診斷，不演變成 production selector；setup 的影響範圍先觀察 native semantics，不自行發明 `setup -> whole test file` mapping。
+
+後續工作順序與驗收範圍：
+
+1. 另行修復 dev 的既有 assertion/typecheck 問題，並透過保留原有 500/100ms gates 的完整執行流程產生成功、可信的 Full evidence。這次直接全量 Vitest 也因 740 >500 與 slow leaves 失敗，不能以只修 CombatAttribution／unused import 就宣稱 baseline 已有效。
+2. 以成功 evidence 驗證 native `tests affected`：直接修改 test file、新增／刪除／搬移 source、config／dependency／toolchain 的保守處理，以及 failed-test 強制保留。Failed-test 規則另以明確標示的失敗診斷 run 驗證，不將該 run 當作 authoritative base。
+3. 優先查明 setup/module-init changed lines 最後選出哪些 individual tests，尤其是 #407 的 74 個 setup identities。回傳的身份、原因、run status 與完整性都需保存，不能只比 leaf 數字。
+4. 沿用本報告的 current-code representative source/test inputs，比較 native affected 與 manual union；初步期望 #408 <100、#409 <250，且 setup/init/new-source safety 合理。Comment-only diff 會被 native 忽略，需使用可還原的 runtime-token edits；這些 edits 只供 selection 查詢，不執行修改後的 gameplay/tests，也不宣稱 exact historical replay。
+5. 若 native 能提供可用的安全選測，優先使用其公開能力，再設計可信 dev Full evidence、cache/artifact persistence、Git base association、assets/config、Node tests、completeness guard 與 stale evidence detection。
+
+#430 的 `run_22d5014a73318b1e` 只證明 engine capability，不能作 required-CI authoritative base。本 PR 維持純 PoC，未修改 production selector、CI workflows、Related ownership、500/100ms gates 或 #429，也不 merge。GO 代表值得繼續驗證原生選測能力，不能直接接 required CI。
