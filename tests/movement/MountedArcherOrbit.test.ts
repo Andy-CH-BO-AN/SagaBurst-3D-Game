@@ -1,0 +1,90 @@
+import { describe, expect, it } from 'vitest'
+import { angleDifference, canUseMountedBowOrbit, canReleaseMountedBow, mountedBowTorsoTurn, MOUNTED_BOW_MAX_TORSO_YAW, orbitHeading, steerOrbitForward, orbitRadius, orbitSpeed, orbitTurnRate, writeOrbitDirection } from '../../src/movement/MountedArcherOrbit'
+
+describe('Ground mounted archer steering', () => {
+  it('uses forward orbit after charge reaches combat while preserving held positions and other units', () => {
+    expect(canUseMountedBowOrbit('charge', true, false)).toBe(true)
+    expect(canUseMountedBowOrbit('attack', true, false)).toBe(true)
+    expect(canUseMountedBowOrbit('defend', true, false)).toBe(false)
+    expect(canUseMountedBowOrbit('charge', true, true)).toBe(false)
+    expect(canUseMountedBowOrbit('charge', false, false)).toBe(false)
+  })
+  it.each([-1, 1] as const)('runs forward around a stationary centre with side %s', side => {
+    const speed = orbitSpeed(12, 30, 0), radius = orbitRadius(30, speed, .3)
+    const p = { x: radius, z: 0 }, target = { x: 0, z: 0 }, direction = { x: 0, z: 0 }
+    let yaw = side === 1 ? Math.PI : 0
+    const dt = 1 / 60
+    let maxTurn = 0, maxForwardError = 0, maxLateral = 0
+    for (let frame = 0; frame < 900; frame++) {
+      writeOrbitDirection(direction, p, target, side, radius)
+      const previousYaw = yaw
+      yaw = steerOrbitForward(direction, yaw, Math.atan2(direction.x, direction.z), speed, dt)
+      maxTurn = Math.max(maxTurn, Math.abs(angleDifference(yaw, previousYaw)))
+      const dx = direction.x * speed * dt, dz = direction.z * speed * dt
+      // Actual displacement is parallel to the model's +Z, never a strafe/backstep.
+      maxForwardError = Math.max(maxForwardError, Math.abs(dx * Math.sin(yaw) + dz * Math.cos(yaw) - speed * dt))
+      maxLateral = Math.max(maxLateral, Math.abs(dx * Math.cos(yaw) - dz * Math.sin(yaw)))
+      p.x += dx; p.z += dz
+    }
+    expect(maxTurn).toBeLessThanOrEqual(orbitTurnRate(speed) * dt + 1e-10)
+    expect(maxForwardError).toBeLessThan(1e-10)
+    expect(maxLateral).toBeLessThan(1e-10)
+    expect(Math.hypot(p.x, p.z)).toBeCloseTo(radius, 0)
+    const targetBearing = angleDifference(Math.atan2(-p.x, -p.z), yaw)
+    expect(targetBearing * side).toBeGreaterThan(1.3)
+    expect(Math.abs(targetBearing)).toBeLessThan(1.8)
+  })
+
+  it.each([.65, 1.3])('recovers the firing radius from initial distance factor %s', factor => {
+    const speed = orbitSpeed(15, 30, 0), radius = orbitRadius(30, speed, .8)
+    const p = { x: radius * factor, z: 0 }, direction = { x: 0, z: 0 }
+    let yaw = Math.PI
+    for (let frame = 0; frame < 1200; frame++) {
+      writeOrbitDirection(direction, p, { x: 0, z: 0 }, 1, radius)
+      const desired = Math.atan2(direction.x, direction.z)
+      yaw = orbitHeading(yaw, desired, speed, 1 / 60)
+      const step = orbitSpeed(15, 30, angleDifference(desired, yaw)) / 60
+      p.x += Math.sin(yaw) * step; p.z += Math.cos(yaw) * step
+    }
+    expect(Math.abs(Math.hypot(p.x, p.z) - radius)).toBeLessThan(1)
+    expect(radius).toBeLessThan(30 * .8)
+  })
+
+  it('bounds steering through moving-centre acquisition and a target switch', () => {
+    const p = { x: 30, z: 0 }, target = { x: 0, z: 0 }, direction = { x: 0, z: 0 }
+    let yaw = Math.PI
+    for (let frame = 0; frame < 180; frame++) {
+      target.x += .08
+      if (frame === 90) target.z = -40
+      writeOrbitDirection(direction, p, target, 1, 30)
+      const before = yaw
+      yaw = orbitHeading(yaw, Math.atan2(direction.x, direction.z), 12, 1 / 30)
+      expect(Math.abs(angleDifference(yaw, before))).toBeLessThanOrEqual(.5 / 30 + 1e-10)
+      p.x += Math.sin(yaw) * .4; p.z += Math.cos(yaw) * .4
+    }
+    expect(Number.isFinite(yaw + p.x + p.z)).toBe(true)
+  })
+
+  it('turns gradually toward an avoidance reversal, including a long frame', () => {
+    expect(orbitHeading(0, Math.PI, 12, 1 / 60)).toBeCloseTo(.5 / 60)
+    expect(orbitHeading(0, Math.PI, 15, .1)).toBeCloseTo(.04)
+    expect(orbitHeading(0, Math.PI, 15, 2)).toBeCloseTo(.04)
+    expect(orbitHeading(0, Math.PI, 15, 0)).toBe(0)
+    expect(orbitSpeed(12, 50, Math.PI)).toBeGreaterThan(0)
+  })
+
+  it('requires an attainable body arc and an aligned physical shaft at release', () => {
+    expect(canReleaseMountedBow(Math.PI / 2, .1, 1)).toBe(true)
+    expect(canReleaseMountedBow(-Math.PI / 2, .1, 1)).toBe(true)
+    expect(canReleaseMountedBow(Math.PI, 0, 1)).toBe(false)
+    expect(canReleaseMountedBow(Math.PI / 2, .8, 1)).toBe(false)
+    expect(canReleaseMountedBow(Math.PI / 2, 0, .9)).toBe(false)
+    expect(canReleaseMountedBow(0, 0, NaN)).toBe(false)
+  })
+
+  it('limits total chest twist including the authored side-on bow stance', () => {
+    const sourceYaw = -Math.PI / 2
+    expect(sourceYaw + mountedBowTorsoTurn(sourceYaw, -Math.PI / 2)).toBeCloseTo(-MOUNTED_BOW_MAX_TORSO_YAW)
+    expect(sourceYaw + mountedBowTorsoTurn(sourceYaw, Math.PI / 2)).toBeCloseTo(0)
+  })
+})

@@ -100,6 +100,7 @@ import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../comba
 import { XONGKORO } from '../movement/XongkoroConfig'
 import type { PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import { fitStandingRider } from './StandingRider'
+import { angleDifference, steerOrbitForward, orbitRadius, orbitSpeed, writeOrbitDirection, canUseMountedBowOrbit, canAimMountedBow, canReleaseMountedBow, MOUNTED_BOW_MAX_YAW, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -196,6 +197,8 @@ interface CombatEquipmentSnapshot {
 }
 
 export class NPC {
+  private mountedOrbitActive = false
+  private readonly mountedBowAim = { yaw: 0, pitch: 0 }
   readonly pendingFall = new FallingRider()
   private fallContext: CombatDamageContext | undefined
   private readonly eaglePilot = new EagleFlightAI()
@@ -634,8 +637,6 @@ export class NPC {
   private readonly _rangedPathObstacles: ObstacleData[] = []
   private readonly _rangedTargetCandidates: NPC[] = []
   private _rangedVisibleTargetHoldFrames = 0
-
-  private static readonly _UP = new THREE.Vector3(0, 1, 0)
 
   get hp(): number { return this.currentHp }
   get hpRatio(): number { return Math.max(0, this.currentHp / this.maxHp) }
@@ -1747,7 +1748,8 @@ export class NPC {
   }
 
   private _updateBowVisual(drawRatio: number, targetWorld: THREE.Vector3): void {
-    this.bowVisual?.update(drawRatio, this._getElevatedRangedAimPoint(targetWorld), this.hasActiveRangedWeapon && !this.bowArrowReleased)
+    const aim = this._getElevatedRangedAimPoint(targetWorld)
+    this.bowVisual?.update(drawRatio, aim, this.hasActiveRangedWeapon && !this.bowArrowReleased)
   }
 
   private _createAlertSprite(): THREE.Sprite {
@@ -2544,6 +2546,12 @@ export class NPC {
     chaseTargetCoordinator: ChaseTargetCoordinator | null = null,
   ): void {
     this._activeNavigationWorld = navigationWorld
+    const wasOrbiting = this.mountedOrbitActive
+    this.mountedOrbitActive = false
+    this.rig.animation?.setEquipmentState?.({ mountedBowAim: undefined })
+    if (!wasOrbiting) {
+      this.mountedBowAim.yaw = this.mountedBowAim.pitch = 0
+    }
     if (this.campaignEntranceId && navigationWorld?.townNav?.siegeActive) {
       if (navigationWorld.townNav.hasClearedSiegeGate(this.combatPosition, this.campaignEntranceId, this.isMounted)) {
         this.campaignBreachCompleted = true
@@ -2776,6 +2784,9 @@ export class NPC {
       // Releasing the projectile does not end the imported release clip. Keep its
       // recovery, even if this was the last arrow or the target disappears.
       if (recoveringBow) {
+      if (targetInfo && this.state === AIState.ATTACK && !this._siegeTargetObstacle) {
+        this._updateMountedBowOrbit(targetInfo.position, dt, nearbyNPCs, obstacles, skipBoidsAndObstacles)
+      }
       if (import.meta.env.DEV && _collector) { var _tAnimBowRec = performance.now() }
       const events = this.animator.update(dt, cameraDistance)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimBowRec!) }
@@ -2784,7 +2795,7 @@ export class NPC {
       else this.bowVisual?.update(0, undefined, false)
       if (events.actionCompleted) {
         if (this.arrows === 0) this._switchToMelee()
-        this.state = AIState.CHASE
+        if (!this.mountedOrbitActive) this.state = AIState.CHASE
       }
     } else if (recoveringPilum) {
       const events = this.animator.update(dt, cameraDistance)
@@ -3114,7 +3125,19 @@ export class NPC {
         }
 
         if (import.meta.env.DEV && _collector) { var _tMvF = performance.now() }
-        this._faceTarget(movementTarget)
+        if (wasOrbiting && this.mount && !this.mount.isFlyingMount && this.hasActiveRangedWeapon
+          && this.rangedCombatKind === 'bow' && !siegeObstacle && !this.siegeBypassTarget) {
+          // A moving/switched target may leave range. Acquire it through a
+          // forward turn, preserving the orbit's heading across CHASE frames.
+          this.mountedOrbitActive = true
+          if (moveDir.lengthSq() > .0001) {
+            moveDir.y = 0
+            this.mount.group.rotation.y = steerOrbitForward(moveDir, this.mount.group.rotation.y, Math.atan2(moveDir.x, moveDir.z), this.mount.baseSpeed, dt)
+            this.group.rotation.y = this.mount.group.rotation.y
+            const endpoint = this._tmpFaceDir.copy(this.mount.group.position).addScaledVector(moveDir, this.mount.baseSpeed * (dt + .15))
+            if (findBlockingObstacleAlongPath(this.mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) moveDir.set(0, 0, 0)
+          }
+        } else this._faceTarget(movementTarget)
         this._moveByDirection(
           moveDir,
           this.mount ? this.mount.baseSpeed : CHASE_SPEED,
@@ -3208,7 +3231,10 @@ export class NPC {
         }
 
         if (import.meta.env.DEV && _collector) { var _tFaceAtk = performance.now() }
-        this._faceTarget(attackTargetPosition)
+        const forwardOrbit = !siegeObstacle && this._updateMountedBowOrbit(
+          attackTargetPosition, dt, nearbyNPCs, obstacles, skipBoidsAndObstacles,
+        )
+        if (!forwardOrbit) this._faceTarget(attackTargetPosition)
         if (!siegeObstacle && !this.hasActiveRangedWeapon && this.isUsingLance) {
           // The authored spear is held beside the torso. Aim its actual forward
           // tip at the opponent rather than sending a parallel thrust past them.
@@ -3224,44 +3250,18 @@ export class NPC {
         }
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
 
-        // Mounted ranged units orbit humans, but hold position while deliberately
-        // attacking a structure fallback or retaining a mission-owned wall station.
-        if (
-          !siegeObstacle
-          && this.isMounted
-          && this.hasActiveRangedWeapon
-          && this.tacticalOrder !== 'defend'
-          && !this.holdsRampartPosition
-        ) {
-          const moveDir = this._tmpMoveDir
-          moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
-          moveDir.y = 0
-          if (moveDir.lengthSq() > 0.001) {
-            moveDir.normalize()
-            if (!skipBoidsAndObstacles) {
-              if (import.meta.env.DEV && _collector) { var _tObsOrbit = performance.now() }
-              moveDir.copy(getObstacleAvoidanceDirection(
-                this.combatPosition,
-                moveDir,
-                this._movementObstacleRadius(),
-                this._movementObstacleHeight(),
-                0,
-                obstacles,
-              ))
-              if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObsOrbit!) }
-            }
-            if (import.meta.env.DEV && _collector) { var _tOrbitMove = performance.now() }
-            this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
-            if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tOrbitMove!) }
-          }
-        }
-
         if (import.meta.env.DEV && _collector) { var _tCombat = performance.now() }
         if (this.hasActiveRangedWeapon) {
           const rangedKind = this.rangedCombatKind ?? 'bow'
           const cooldown = getRangedCooldown(rangedKind) / (getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
           const isBow = rangedKind === 'bow'
           const windup = isBow ? 0.04 : (this.rig.animation?.getDuration('pilumThrow') ?? 0.45)
+
+          if (forwardOrbit && !this._canAimOrbitBow(attackTargetPosition)) {
+            this.animator.cancel()
+            this.bowVisual?.hideArrow()
+            break
+          }
 
           this.attackTimer += dt
           const progress = Math.min(1, this.attackTimer / cooldown)
@@ -3297,6 +3297,11 @@ export class NPC {
             } else {
               origin.copy(this.bowGripPivot.getWorldPosition(origin))
               dir.copy(aimPoint).sub(origin).normalize()
+            }
+            if (forwardOrbit && (!this.bowVisual || !this._canReleaseOrbitBow(aimPoint, origin, dir))) {
+              this.animator.cancel()
+              this.bowVisual?.hideArrow()
+              break
             }
             const accepted = onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
             this.bowVisual?.hideArrow()
@@ -3417,6 +3422,12 @@ export class NPC {
 
     if (defensiveTargetOrder) this.tacticalOrder = defensiveTargetOrder
     if (missionOrder) this.tacticalOrder = missionOrder
+    // Range/LoS/target loss can leave ATTACK before its movement branch runs.
+    // Carry the bounded heading into acquisition without retaining a bow pose.
+    if (wasOrbiting && this.state === AIState.CHASE && this.mount && !this._siegeTargetObstacle
+      && canUseMountedBowOrbit(this.tacticalOrder,
+        !this.mount.isFlyingMount && this.hasActiveRangedWeapon && this.rangedCombatKind === 'bow',
+        this.holdsRampartPosition || !!this.siegeBypassTarget)) this.mountedOrbitActive = true
     this._updateMovementStamina(dt)
 
     this.rig.animation?.setSwordHandShape?.(this.swordPivot.visible && (this.swordPivot.userData.swordAttachmentOwned === true || this.swordPivot.userData.equipmentAttachmentOwned === 'lance'))
@@ -3991,6 +4002,83 @@ export class NPC {
     }
     this.fallObstacles = obstacles
     return this._friendlyBypass.steer(dt, this, goal, direction, nearby, this._bypassSegmentClear)
+  }
+
+  /** Ground bows only. Steering may change the goal; translation always uses +Z. */
+  private _updateMountedBowOrbit(target: THREE.Vector3, dt: number, nearby: NPC[], obstacles: ObstacleData[], skipAvoidance: boolean): boolean {
+    const mount = this.mount
+    if (!mount || !canUseMountedBowOrbit(this.tacticalOrder,
+      !mount.isFlyingMount && this.hasActiveRangedWeapon && this.rangedCombatKind === 'bow',
+      this.holdsRampartPosition || !!this.siegeBypassTarget)) return false
+    this.mountedOrbitActive = true
+    const phase = this._initialStaggerPhase
+    const side = phase < .5 ? -1 : 1
+    const speed = orbitSpeed(mount.baseSpeed, this.maxRangedAttackDistance, 0)
+    const radius = orbitRadius(this.maxRangedAttackDistance, speed, (phase * 2) % 1)
+    const direction = this._tmpMoveDir.set(0, 0, 0)
+    writeOrbitDirection(direction, mount.group.position, target, side, radius)
+    const boundaryMargin = Math.max(3, speed * .6)
+    if (Math.abs(mount.group.position.x) > this.playableWorldBound - boundaryMargin && direction.x * mount.group.position.x > 0) direction.x = -direction.x
+    if (Math.abs(mount.group.position.z) > this.playableWorldBound - boundaryMargin && direction.z * mount.group.position.z > 0) direction.z = -direction.z
+    if (!skipAvoidance) {
+      // Neighbours change the steering goal only; no extra lateral translation.
+      for (const other of nearby) {
+        if (other === this || other.dead) continue
+        const dx = mount.group.position.x - other.combatPosition.x
+        const dz = mount.group.position.z - other.combatPosition.z
+        const d2 = dx * dx + dz * dz
+        if (d2 > .01 && d2 < 16) {
+          direction.x += dx / d2 * .35
+          direction.z += dz / d2 * .35
+        }
+      }
+      direction.normalize()
+      const lookAhead = this._tmpNavigationTarget.copy(mount.group.position).addScaledVector(direction, Math.max(3, speed * .6))
+      if (findBlockingObstacleAlongPath(mount.group.position, lookAhead, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) {
+        direction.copy(getObstacleAvoidanceDirection(mount.group.position, direction,
+          NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles))
+      }
+    }
+    const desiredYaw = Math.atan2(direction.x, direction.z)
+    mount.group.rotation.y = steerOrbitForward(direction, mount.group.rotation.y, desiredYaw, Math.max(speed, mount.movementSpeed), dt)
+    this.group.rotation.y = mount.group.rotation.y
+    const travelSpeed = orbitSpeed(mount.baseSpeed, this.maxRangedAttackDistance, angleDifference(desiredYaw, mount.group.rotation.y))
+    const endpoint = this._tmpNavigationTarget.copy(mount.group.position).addScaledVector(direction, travelSpeed * (Math.max(0, dt) + .15))
+    // Check the bounded heading too: an avoidance goal is not instantly reachable.
+    // Stop and keep turning when blocked, retaining the ordinary collision owner.
+    if (Math.abs(endpoint.x) < this.playableWorldBound - 1 && Math.abs(endpoint.z) < this.playableWorldBound - 1
+      && !findBlockingObstacleAlongPath(mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) {
+      this._moveByDirection(direction, travelSpeed, dt)
+    }
+    this._syncToMount()
+    const aim = this._getElevatedRangedAimPoint(target)
+    const origin = this._tmpRangedOrigin // populated from the actual nock by the ballistic aim helper
+    const yaw = angleDifference(Math.atan2(aim.x - origin.x, aim.z - origin.z), mount.group.rotation.y)
+    const pitch = Math.atan2(aim.y - origin.y, Math.hypot(aim.x - origin.x, aim.z - origin.z))
+    const aimStep = 3 * Math.min(.1, Math.max(0, dt))
+    this.mountedBowAim.yaw += THREE.MathUtils.clamp(angleDifference(THREE.MathUtils.clamp(yaw, -MOUNTED_BOW_MAX_YAW, MOUNTED_BOW_MAX_YAW), this.mountedBowAim.yaw), -aimStep, aimStep)
+    this.mountedBowAim.pitch += THREE.MathUtils.clamp(THREE.MathUtils.clamp(pitch, -MOUNTED_BOW_MAX_PITCH, MOUNTED_BOW_MAX_PITCH) - this.mountedBowAim.pitch, -aimStep, aimStep)
+    this.rig.animation?.setEquipmentState?.({ mountedBowAim: this.mountedBowAim })
+    return true
+  }
+
+  private _canAimOrbitBow(target: THREE.Vector3): boolean {
+    const aim = this._getElevatedRangedAimPoint(target)
+    const dx = aim.x - this.group.position.x, dz = aim.z - this.group.position.z
+    return canAimMountedBow(angleDifference(Math.atan2(dx, dz), this.group.rotation.y),
+      Math.atan2(aim.y - this.group.position.y - RANGED_AI_LAUNCH_HEIGHT, Math.hypot(dx, dz)))
+  }
+
+  private _canReleaseOrbitBow(aim: THREE.Vector3, origin: THREE.Vector3, direction: THREE.Vector3): boolean {
+    const shaft = this._tmpFacing
+    if (!this.bowVisual?.writeShaftDirection(shaft)) return false
+    const yaw = angleDifference(Math.atan2(direction.x, direction.z), this.group.rotation.y)
+    const pitch = Math.atan2(direction.y, Math.hypot(direction.x, direction.z))
+    if (!canReleaseMountedBow(yaw, pitch, shaft.dot(direction))) return false
+    // Launch along the actual nocked shaft. The low ballistic aim above remains
+    // authoritative, with a small tolerance for the physical hand/rest offset.
+    direction.copy(shaft)
+    return Number.isFinite(origin.x + origin.y + origin.z + aim.y)
   }
 
   private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false, maxDistance = Infinity): void {
