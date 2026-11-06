@@ -265,6 +265,10 @@ test('real merged Supercov public JSON counts setup records and truncates only u
       workingTree: { stale: false, reasons: [], runWide: [], sourceSetChanged: false },
     },
   }
+  // Supercov also emits redundant affectedCount and undeterminedCount
+  // even when both identity arrays are present and exact.
+  pristine.data.affectedCount = 0
+  pristine.data.undeterminedCount = 0
   const sourceRun = pristine.data.run
   const clean = validateAffectedQuery(pristine, sourceRun,
     { tests: 763, setups: 110, pristine: true })
@@ -282,6 +286,14 @@ test('real merged Supercov public JSON counts setup records and truncates only u
   unreadable.data.unaffectedCount = 872
   assert.throws(() => validateAffectedQuery(unreadable, sourceRun,
     { tests: 763, setups: 110, pristine: true }), /unsafe/)
+  const mismatchAffectedCounter = structuredClone(pristine)
+  mismatchAffectedCounter.data.affectedCount = 1
+  assert.throws(() => validateAffectedQuery(mismatchAffectedCounter, sourceRun,
+    { tests: 763, setups: 110 }), /unsafe/)
+  const mismatchUndeterminedCounter = structuredClone(pristine)
+  mismatchUndeterminedCounter.data.undeterminedCount = 1
+  assert.throws(() => validateAffectedQuery(mismatchUndeterminedCounter, sourceRun,
+    { tests: 763, setups: 110 }), /unsafe/)
   const truncatedAffected = structuredClone(pristine)
   truncatedAffected.data.summary.affected = 1
   truncatedAffected.data.summary.unaffected = 872

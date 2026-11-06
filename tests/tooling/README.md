@@ -115,6 +115,9 @@ deliberately **count-only**, returned as `unaffectedCount: 873` with
 checkout. The adapter accepts this *specific* unaffected-only truncation
 while requiring untruncated exact `affected` and `undetermined` identities,
 correct sums, and an inventory matching `seed.tests + seed.setups`.
+Optional `affectedCount` and `undeterminedCount` are accepted only
+when each equals its corresponding **complete** identity array length and
+summary count; they never authorize count-only affected selection.
 Unknown affected setup lifecycle names within a recognized test file
 conservatively select **every leaf in that file**, still subject to the 500
 aggregate gate; unknown source files or inconsistent counts fail closed.

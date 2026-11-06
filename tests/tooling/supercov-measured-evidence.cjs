@@ -99,8 +99,18 @@ function validateAffectedQuery(result, runId, { tests, setups, pristine = false 
       fail('Affected inventory count must equal exact Vitest leaves plus setup records')
     }
   }
-  if (d.affectedCount !== undefined || d.undeterminedCount !== undefined) {
-    fail('Affected and undetermined identities must not be count-only')
+  // Supercov may emit affectedCount/undeterminedCount alongside complete
+  // identity arrays. These are *redundant counters*, not truncation markers:
+  // exact identity arrays and the summary must independently agree.
+  if (d.affectedCount !== undefined &&
+      (!Number.isSafeInteger(d.affectedCount) ||
+       d.affectedCount !== counts.affected)) {
+    fail('Affected count does not agree with complete affected identities')
+  }
+  if (d.undeterminedCount !== undefined &&
+      (!Number.isSafeInteger(d.undeterminedCount) ||
+       d.undeterminedCount !== counts.undetermined)) {
+    fail('Undetermined count does not agree with complete undetermined identities')
   }
   if (!Array.isArray(d.affected) || !Array.isArray(d.undetermined) ||
       !Array.isArray(d.unaffected) ||
