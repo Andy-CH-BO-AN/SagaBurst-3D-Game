@@ -37,6 +37,8 @@ function mockNpc(options: {
     faction: options.faction ?? Faction.ENEMY,
     characterFaction: options.characterFaction ?? 'roman',
     presetId: options.presetId ?? 'roman_heavy_infantry',
+    // Combat display labels derive their rank from the canonical characterTier.
+    characterTier: options.tier,
     tier: options.tier,
     generatedAsCavalry: false,
     squadId: options.squadId,
