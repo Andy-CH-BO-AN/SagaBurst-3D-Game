@@ -16,8 +16,8 @@ export const COMBAT_BALANCE = {
   bow: {
     damageMultiplier: 0.7,
     attackRateMultiplier: 1.3,
-    footAttackRange: 50,
-    mountedAttackRange: 30,
+    footAttackRange: 100,
+    mountedAttackRange: 60,
     baseCooldown: 1.5,
   },
   javelin: {

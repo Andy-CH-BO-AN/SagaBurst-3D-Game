@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateLanceChargeDamage, getAntiCavalryMultiplier, getBerserkerModifiers } from '../../src/combat/CombatBalance'
+import { calculateLanceChargeDamage, getAntiCavalryMultiplier, getBerserkerModifiers, getNpcRangedAttackRange } from '../../src/combat/CombatBalance'
 import { applyHeroIncomingDamage, applyHeroMeleeDamage, applyHeroOutgoingDamage, getHeroCombatModifiers, heroMeleeAttackSpeed } from '../../src/battle/HeroCombatProfile'
 import { calculatePlayerMeleeDamage } from '../../src/combat/PlayerMeleeDamage'
 import { NPC } from '../../src/world/NPC'
@@ -7,6 +7,16 @@ import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 
 
 describe('Combat damage eligibility', () => {
+  it('doubles ground bow engagement only, retaining ranger and javelin rules', () => {
+    expect(getNpcRangedAttackRange('bow', false)).toBe(100)
+    expect(getNpcRangedAttackRange('bow', true)).toBe(60)
+    const rangerRange = getHeroCombatModifiers('ranger')!.rangedAttackRangeMultiplier
+    expect(getNpcRangedAttackRange('bow', false) * rangerRange).toBe(200)
+    expect(getNpcRangedAttackRange('bow', true) * rangerRange).toBe(120)
+    expect(getNpcRangedAttackRange('javelin', false)).toBe(30)
+    expect(getNpcRangedAttackRange('javelin', true)).toBe(15)
+  })
+
   it('uses Viking Commander melee overrides once on Player and NPC while retaining ranged and unshielded eligibility', () => {
     const input = { baseDamage: WEAPONS.axe_t5.damageMax, combatKind: WEAPONS.axe_t5.combatKind,
       isLance: false, isMounted: false, mountSpeed: 0, oneHandedMultiplier: 1,
