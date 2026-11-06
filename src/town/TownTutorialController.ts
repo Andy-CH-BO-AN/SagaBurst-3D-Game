@@ -10,6 +10,7 @@ import type { ArmyCommandTarget } from '../battle/CommandTarget'
 import type { TacticalOrder } from '../battle/TacticalOrder'
 import type { ArmyHudRoster } from '../battle/ArmyCommandHudRoster'
 import { townShopProducts } from './TownRules'
+import { TownTutorialHUD } from './TownUI'
 
 export interface TownTutorialHost {
   profile(): CareerProfile
@@ -34,7 +35,7 @@ export interface TownTutorialHost {
 /** A small scene adapter owns presentation; the Career model owns progress and rewards. */
 export class TownTutorialController {
   private readonly guide = new MissionGuide('career-tutorial-guide')
-  private readonly hint = document.createElement('div')
+  private readonly hud = new TownTutorialHUD()
   private readonly careerId: string | undefined
   private towerRouteIndex: number | null = null
   private readonly towerRoute: Vector3[]
@@ -46,9 +47,6 @@ export class TownTutorialController {
 
   constructor(private readonly host: TownTutorialHost) {
     this.careerId = host.profile().tutorial?.careerId
-    this.hint.id = 'career-tutorial-hint'
-    this.hint.style.cssText = 'position:fixed;right:16px;top:110px;max-width:330px;padding:12px;background:#141b1ccc;color:#fff4d7;border:1px solid #c4ab7666;border-radius:6px;font:14px/1.5 system-ui;white-space:pre-line;pointer-events:none;z-index:93'
-    document.body.append(this.hint)
     const tower = host.tower
     const center = (surface: CommandWatchtowerLayout['entrance']) => new Vector3(
       surface.startX + surface.dirX * surface.length / 2, (surface.startY + surface.topY) / 2 + .9,
@@ -67,9 +65,9 @@ export class TownTutorialController {
     const next = cloneCareerProfile(profile)
     if (mutate(next) === false) return false
     const saved = this.host.commit(next)
-    this.saveError = saved ? '' : '進度保存失敗，尚未完成；請留在此處，稍後點擊重試。'
+    this.saveError = saved ? '' : '教學進度保存失敗，尚未完成。購買／導航會自動重試；對話按「重試」，軍令請再次下達。'
     this.retryAfter = saved ? 0 : performance.now() + 1500
-    if (!saved) { this.hint.hidden = false; this.hint.textContent = this.saveError }
+    if (!saved) this.hud.render('', '', this.saveError, this.host.blocked())
     return saved
   }
 
@@ -89,8 +87,11 @@ export class TownTutorialController {
 
   update(): void {
     const h = this.host, t = h.profile().tutorial
-    if (!t || !h.peaceful() || h.blocked()) { this.guide.hide(); this.hint.hidden = true; return }
-    this.hint.hidden = false
+    if (!t || t.careerId !== this.careerId || !h.peaceful()) {
+      this.notification = ''; this.notificationUntil = 0
+      this.guide.hide(); this.hud.render('', '', '', true); return
+    }
+    if (h.blocked()) { this.guide.hide(); this.hud.render('', '', this.saveError, true); return }
     const stage = this.activeStage()
     let target: Vector3 | null = null, label = '', interact = true, text = ''
     const npc = (id: string, name: string) => { target = h.npcPosition(id); label = name }
@@ -105,7 +106,7 @@ export class TownTutorialController {
         })
         if (ok) {
           this.notification = granted > 0 ? `武器購買完成！獲得 ${granted} 軍功。` : '武器購買完成！'
-          this.notificationUntil = performance.now() + 8000
+          this.notificationUntil = performance.now() + 3500
         }
         step = h.profile().tutorial?.town.step ?? step
       }
@@ -121,7 +122,7 @@ export class TownTutorialController {
         })
         if (ok) {
           this.notification = granted > 0 ? `戰馬購買完成！獲得 ${granted} 軍功。` : '已確認你擁有戰馬，不補發軍功。'
-          this.notificationUntil = performance.now() + 8000
+          this.notificationUntil = performance.now() + 3500
         }
         step = h.profile().tutorial?.town.step ?? step
       }
@@ -132,16 +133,16 @@ export class TownTutorialController {
 
       if (step === 'weapon') {
         npc('merchant', '武器店主')
-        text = '前往武器店\n在武器店挑選並購買第一把正式武器'
+        text = '前往武器店\n購買第一把正式武器。'
       } else if (step === 'duel') {
         npc('captain', '騎兵隊長')
-        text = '挑戰騎兵隊長\n靠近騎兵隊長開始新兵切磋'
+        text = '挑戰騎兵隊長\n靠近隊長按 E 開始切磋。'
       } else if (step === 'horse') {
         const vendor = ['ranger', 'cat', 'eagle-trainer'].find(id => townShopProducts(id).some(item => item.id === 'horse'))
         if (vendor) npc(vendor, '軍用戰馬商人')
         text = '購買第一匹戰馬\n順著指標前往馬店購買普通馬'
       } else if (step === 'horse-use') {
-        text = '購買第一匹戰馬\n按 Tab → 坐騎 召喚並騎乘；可隨時找士官長參加賽馬'
+        text = '購買第一匹戰馬\n按 Tab → 坐騎，召喚並騎乘。'
         interact = false
       } else if (step === 'horse-intro') {
         const horsePrice = careerShopProduct('horse')!.price
@@ -151,7 +152,7 @@ export class TownTutorialController {
           npc('deployment', '士官長')
           text = hasHorse ? '返回士官長\n已完成兩次實戰，回士官長了解戰馬與賽馬' : '返回士官長\n已完成兩次實戰，回士官長了解購買戰馬'
         } else if (t.settledMissionIds.length >= 2) {
-          text = `累積購馬軍功\n已完成 2/2 次實戰，目前軍功不足，請繼續完成任務累積購馬軍功（普通馬需 ${horsePrice} 軍功）`
+          text = `累積購馬軍功\n已完成 2/2 次實戰，目前軍功不足（戰馬需 ${horsePrice} 軍功）。`
           interact = false
         } else {
           text = `完成正式戰鬥任務\n找士官長接受正式任務（已完成 ${Math.min(2, t.settledMissionIds.length)} / 2 次）`
@@ -216,9 +217,8 @@ export class TownTutorialController {
       }
     }
 
-    const notice = (this.notification && performance.now() < this.notificationUntil) ? `【${this.notification}】\n\n` : ''
-    this.hint.textContent = notice + text + (this.saveError ? '\n' + this.saveError : '')
-    this.hint.hidden = !text && !this.saveError && !notice
+    const notice = performance.now() < this.notificationUntil ? this.notification : ''
+    this.hud.render(text, notice, this.saveError, false)
     this.guide.updateTutorial(h.playerPosition(), h.cameraYaw(), target, label, interact)
   }
 
@@ -561,6 +561,6 @@ export class TownTutorialController {
 
   dispose(): void {
     this.guide.dispose()
-    this.hint.remove()
+    this.hud.dispose()
   }
 }

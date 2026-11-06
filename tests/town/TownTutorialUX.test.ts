@@ -10,7 +10,9 @@ import { townAuthoredRoster } from '../../src/town/TownRules'
 class MockElement {
   id = ''
   className = ''
-  textContent = ''
+  private ownText = ''
+  get textContent(): string { return this.ownText + this.children.map(child => child.textContent).join('') }
+  set textContent(value: string) { this.ownText = value; this.children = [] }
   hidden = false
   disabled = false
   style: Record<string, string> = {}
@@ -19,6 +21,11 @@ class MockElement {
   onclick: (() => void) | null = null
 
   constructor(readonly tagName: string) {}
+
+  setAttribute(): void {}
+  getAttribute(): string | null { return null }
+  get parentElement(): MockElement | null { return this.parent }
+  getBoundingClientRect() { return { left:433, right:933, top:246, bottom:326, width:500, height:80 } }
 
   append(...children: MockElement[]): void {
     for (const child of children) {
@@ -67,6 +74,7 @@ function setupMockDOM() {
   const body = new MockElement('body')
   const doc = {
     body,
+    querySelectorAll: () => [],
     createElement: (tag: string) => {
       const el = new MockElement(tag)
       elements.push(el)
@@ -74,7 +82,12 @@ function setupMockDOM() {
     },
   }
   vi.stubGlobal('document', doc)
-  return { body, elements }
+  const addEventListener = vi.fn(), removeEventListener = vi.fn()
+  const disconnectResize = vi.fn(), disconnectState = vi.fn()
+  vi.stubGlobal('window', { innerWidth:1366, innerHeight:768, addEventListener, removeEventListener })
+  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect = disconnectResize })
+  vi.stubGlobal('MutationObserver', class { observe() {} disconnect = disconnectState })
+  return { body, elements, addEventListener, removeEventListener, disconnectResize, disconnectState }
 }
 
 function createHostHarness(initialProfile?: CareerProfile) {
@@ -157,6 +170,7 @@ describe('TownTutorialUX', () => {
 
   afterEach(() => {
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('first talk to deployment presents recruit dialogue, accepting closes panel and guides to merchant', () => {
@@ -219,6 +233,8 @@ describe('TownTutorialUX', () => {
   })
 
   it('weapon purchase awards 20 merit once and updates guide to return to deployment', () => {
+    let now = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
     const harness = createHostHarness()
     const ctrl = new TownTutorialController(harness.host)
 
@@ -236,11 +252,21 @@ describe('TownTutorialUX', () => {
     expect(harness.getProfile().availableMerit).toBe(initialMerit + 20)
 
     const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')
-    expect(hint?.textContent).toContain('武器購買完成！獲得 20 軍功。')
+    const notice = dom.elements.find(el => el.id === 'career-tutorial-notification')!
+    expect(notice.textContent).toBe('武器購買完成！獲得 20 軍功。')
+    expect(notice.hidden).toBe(false)
+    expect(hint?.textContent).not.toContain('武器購買完成')
     expect(hint?.textContent).toContain('返回士官長')
 
-    // Repeating update does not re-award merit
+    // Repeating update neither re-awards merit nor restarts the notification.
+    now = 3499
     ctrl.update()
+    expect(notice.hidden).toBe(false)
+    now = 3500
+    ctrl.update()
+    expect(notice.hidden).toBe(true)
+    expect(hint?.hidden).toBe(false)
+    expect(hint?.textContent).toContain('返回士官長')
     expect(harness.getProfile().availableMerit).toBe(initialMerit + 20)
 
     ctrl.dispose()
@@ -394,6 +420,7 @@ describe('TownTutorialUX', () => {
     ctrl.update()
     expect(harness.getProfile().availableMerit).toBe(meritBefore + 50)
     expect(harness.getProfile().tutorial?.town.step).toBe('horse-use')
+    expect(dom.elements.find(el => el.id === 'career-tutorial-notification')?.textContent).toBe('戰馬購買完成！獲得 50 軍功。')
 
     ctrl.dispose()
   })
@@ -528,10 +555,11 @@ describe('TownTutorialUX', () => {
     const merit = harness.getProfile().availableMerit
 
     ctrl.update()
-    const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')!
+    const notice = dom.elements.find(el => el.id === 'career-tutorial-notification')!
     expect(harness.getProfile().availableMerit).toBe(merit)
-    expect(hint.textContent).not.toContain('獲得 50 軍功')
-    expect(hint.textContent).toContain('不補發軍功')
+    expect(notice.textContent).not.toContain('獲得 50 軍功')
+    expect(notice.textContent).toContain('不補發軍功')
+    expect(notice.hidden).toBe(false)
 
     ctrl.dispose()
   })
@@ -615,7 +643,7 @@ describe('TownTutorialUX', () => {
     harness.getProfile().ownedMounts = []
     ctrl.update()
     const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')!
-    expect(hint.textContent).toContain('已完成 2/2 次實戰，目前軍功不足，請繼續完成任務累積購馬軍功')
+    expect(hint.textContent).toContain('已完成 2/2 次實戰，目前軍功不足')
     expect(hint.textContent).not.toContain('完成正式戰鬥任務\n找士官長接受正式任務（已完成 2 / 2 次）')
 
     // 2. 1 v 1 third tab content: only completed tutorials appear as replay options
@@ -643,4 +671,83 @@ describe('TownTutorialUX', () => {
 
     ctrl.dispose()
   })
+
+  it('restores the same objective after panels and clears notices on leaving peaceful town; disposal releases HUD resources', () => {
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    ctrl.update()
+    const hint = dom.elements.find(el => el.id === 'career-tutorial-hint')!
+    const root = hint.parent!
+    const count = dom.elements.length
+    harness.host.blocked = () => true
+    ctrl.update()
+    expect(root.hidden).toBe(true)
+    harness.host.blocked = () => false
+    ctrl.update()
+    expect(root.hidden).toBe(false)
+    expect(hint.textContent).toContain('向士官長報到')
+    expect(dom.elements.length).toBe(count)
+
+    recordCareerTutorialOperation(harness.getProfile(), 'town', 'report')
+    recordCareerTutorialPurchase(harness.getProfile(), 'weapon', 'roman_sword_t1')
+    ctrl.update()
+    const notice = dom.elements.find(el => el.id === 'career-tutorial-notification')!
+    expect(notice.hidden).toBe(false)
+    // The host uses this same eligibility gate for official missions, duels and races.
+    harness.host.peaceful = () => false
+    ctrl.update()
+    expect(root.hidden).toBe(true)
+    harness.host.peaceful = () => true
+    ctrl.update()
+    expect(notice.hidden).toBe(true)
+    expect(root.hidden).toBe(false)
+    ctrl.dispose()
+    expect(dom.body.children).toHaveLength(0)
+    expect(dom.removeEventListener).toHaveBeenCalledWith('resize', dom.addEventListener.mock.calls[0][1])
+    expect(dom.disconnectResize).toHaveBeenCalledOnce()
+    expect(dom.disconnectState).toHaveBeenCalledOnce()
+    const reentry = new TownTutorialController(harness.host)
+    reentry.update()
+    expect(dom.body.children).toHaveLength(2) // One HUD, one existing MissionGuide.
+    reentry.dispose()
+    expect(dom.body.children).toHaveLength(0)
+  })
+
+  it('keeps failed purchase progress visible through notification expiry and retries without duplicating rewards', () => {
+    let now = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    const harness = createHostHarness()
+    const ctrl = new TownTutorialController(harness.host)
+    recordCareerTutorialOperation(harness.getProfile(), 'town', 'report')
+    recordCareerTutorialPurchase(harness.getProfile(), 'weapon', 'roman_sword_t1')
+    ctrl.update() // A previous success notice is still pending when the next write fails.
+    const merit = harness.getProfile().availableMerit
+    for (const op of ['duel-intro', 'duel', 'missions', 'horse-intro']) recordCareerTutorialOperation(harness.getProfile(), 'town', op)
+    recordCareerTutorialPurchase(harness.getProfile(), 'mount', 'horse')
+    harness.setFailCommit(true)
+    ctrl.update()
+    const error = dom.elements.find(el => el.id === 'career-tutorial-error')!
+    const notice = dom.elements.find(el => el.id === 'career-tutorial-notification')!
+    expect(error.hidden).toBe(false)
+    expect(error.textContent).toContain('自動重試')
+    expect(notice.hidden).toBe(true)
+    expect(harness.getProfile().availableMerit).toBe(merit)
+    now = 5000
+    ctrl.update()
+    expect(error.hidden).toBe(false)
+    expect(harness.getProfile().tutorial!.town.step).toBe('horse')
+    now = 6500
+    harness.setFailCommit(false)
+    ctrl.update()
+    expect(error.hidden).toBe(true)
+    expect(notice.hidden).toBe(false)
+    expect(notice.textContent).toBe('戰馬購買完成！獲得 50 軍功。')
+    expect(harness.getProfile().availableMerit).toBe(merit + 50)
+    now = 10000
+    ctrl.update()
+    expect(notice.hidden).toBe(true)
+    expect(harness.getProfile().availableMerit).toBe(merit + 50)
+    ctrl.dispose()
+  })
+
 })

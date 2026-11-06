@@ -39,6 +39,130 @@ export function installTownStyles(): void {
     .duel-countdown-value { font-size:clamp(48px,7vw,80px); font-weight:800; line-height:1.15; font-variant-numeric:tabular-nums }
     #career-entry { position:fixed; inset:0; overflow:auto; z-index:1000; padding:clamp(20px,5vh,60px) clamp(20px,6vw,100px); box-sizing:border-box; background:radial-gradient(ellipse at 30% 0,#473a28,#171b1f 65%); color:#ead8b8; font:16px/1.6 system-ui }
     #career-entry h1 { margin:5px 0; font:700 34px Georgia,serif }
+    .career-tutorial-hud { position:fixed; left:50%; top:32vh; transform:translateX(-50%); width:min(500px,calc(100vw - 32px)); box-sizing:border-box; display:grid; gap:10px; pointer-events:none; z-index:93; color:#fff4d7; font:16px/1.45 system-ui; text-align:center; overflow-wrap:anywhere }
+    .career-tutorial-hud[hidden], .career-tutorial-hud [hidden] { display:none }
+    .career-tutorial-card { padding:12px 18px; border:1px solid #c4ab7666; border-radius:8px; background:rgb(20 27 28 / 70%); box-shadow:0 4px 18px #0003 }
+    .career-tutorial-title { display:block; font-size:18px; font-weight:600 }
+    .career-tutorial-detail { display:block; margin-top:4px }
+    .career-tutorial-notification { color:#ffe2a0; border-color:#d6b369; background:rgb(39 32 18 / 75%); font-weight:600 }
+    .career-tutorial-error { color:#ffd5cc; border-color:#e79583; background:rgb(54 22 19 / 90%); font-size:15px }
+    @media (min-width:1200px) {
+      /* Keep the existing town command panels in their right-hand lane on desktop. */
+      body:has(.career-tutorial-hud:not([hidden])) #army-command-hud[data-layout="town"] :is(.army-command-targets,.army-command-commands) { width:min(640px,calc(50vw - 280px)) }
+    }
+    @media (max-height:700px), (max-width:600px) {
+      .career-tutorial-hud { gap:6px; font-size:15px; line-height:1.3 }
+      .career-tutorial-card { padding:7px 12px }
+      .career-tutorial-detail { margin-top:2px }
+    }
+    @media (max-height:560px) {
+      .career-tutorial-hud { gap:4px }
+      .career-tutorial-card { padding:4px 10px }
+      .career-tutorial-hud:has(.career-tutorial-notification:not([hidden])) .career-tutorial-detail { display:none }
+    }
   `
   document.head.append(style)
+}
+
+/** Presentation only: progress/reward receipts remain owned by the tutorial controller. */
+export class TownTutorialHUD {
+  private readonly root = document.createElement('div')
+  private readonly objective = document.createElement('div')
+  private readonly title = document.createElement('strong')
+  private readonly detail = document.createElement('span')
+  private readonly notification = document.createElement('div')
+  private readonly error = document.createElement('div')
+  private resizeObserver?: ResizeObserver
+  private stateObserver?: MutationObserver
+  private blockers: HTMLElement[] = []
+  private layoutState = ''
+  private disposed = false
+
+  constructor() {
+    this.root.className = 'career-tutorial-hud'
+    this.root.hidden = true
+    this.objective.id = 'career-tutorial-hint'
+    this.objective.className = 'career-tutorial-card'
+    this.title.className = 'career-tutorial-title'
+    this.detail.className = 'career-tutorial-detail'
+    this.objective.append(this.title, this.detail)
+    this.notification.id = 'career-tutorial-notification'
+    this.notification.className = 'career-tutorial-card career-tutorial-notification'
+    this.notification.setAttribute('role', 'status')
+    this.error.id = 'career-tutorial-error'
+    this.error.className = 'career-tutorial-card career-tutorial-error'
+    this.error.setAttribute('role', 'alert')
+    this.root.append(this.objective, this.notification, this.error)
+    document.body.append(this.root)
+    window.addEventListener('resize', this.layout)
+  }
+
+  render(objective: string, notification: string, error: string, blocked: boolean): void {
+    const state = JSON.stringify([objective, notification, error, blocked])
+    if (state === this.layoutState) return
+    this.layoutState = state
+    const [title, ...details] = objective.split('\n')
+    if (this.title.textContent !== title) this.title.textContent = title
+    const detail = details.join(' ')
+    if (this.detail.textContent !== detail) this.detail.textContent = detail
+    this.detail.hidden = !detail
+    this.objective.hidden = !objective
+    if (this.notification.textContent !== notification) this.notification.textContent = notification
+    this.notification.hidden = !notification || Boolean(error)
+    if (this.error.textContent !== error) this.error.textContent = error
+    this.error.hidden = !error
+    this.root.hidden = blocked || !(objective || notification || error)
+    // Town creates some HUD elements after the controller; bind once on the first update.
+    if (!this.resizeObserver) this.observeHUD()
+    this.layout()
+  }
+
+  private observeHUD(): void {
+    this.blockers = Array.from(document.querySelectorAll<HTMLElement>(
+      '#town-hud, #army-command-hud .army-command-targets, #army-command-hud .army-command-commands, #army-command-hud .army-command-feedback, #compass-container, #enemy-hud, #career-duel-hud, #career-race-hud'))
+    this.resizeObserver = new ResizeObserver(this.layout)
+    this.resizeObserver.observe(this.root)
+    this.blockers.forEach(el => this.resizeObserver!.observe(el))
+    // Compare attributes first: ArmyCommandUI can write the same state every frame.
+    let previous = ''
+    this.stateObserver = new MutationObserver(() => {
+      const state = this.blockers.map(el => [el.hidden, el.className, el.getAttribute('style'), el.parentElement?.getAttribute('style'), el.parentElement?.hidden].join('|')).join(';')
+      if (state !== previous) { previous = state; this.layout() }
+    })
+    for (const el of new Set(this.blockers.flatMap(el => [el, el.parentElement]).filter((el): el is HTMLElement => Boolean(el)))) {
+      this.stateObserver.observe(el, { attributes: true, attributeFilter: ['class', 'style', 'hidden'] })
+    }
+  }
+
+  private readonly layout = (): void => {
+    if (this.disposed || this.root.hidden) return
+    const height = window.innerHeight
+    const rect = this.root.getBoundingClientRect()
+    const visible = (el: HTMLElement) => !el.closest('[hidden]') && getComputedStyle(el).display !== 'none'
+      && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0'
+    const blockers = this.blockers.filter(visible).map(el => el.getBoundingClientRect())
+      .filter(r => r.width > 0 && r.height > 0 && r.left < rect.right + 12 && r.right > rect.left - 12)
+    const limit = height / 2 - 28 // Keep both cards above the aiming area, even without a visible crosshair.
+    const preferred = Math.min(height * .32, limit - rect.height)
+    const candidates = [preferred, 12, ...blockers.flatMap(r => [r.bottom + 12, r.top - rect.height - 12])]
+    const top = candidates.filter(y => y >= 12 && y + rect.height <= limit
+      && blockers.every(r => y + rect.height + 12 <= r.top || y >= r.bottom + 12))
+      .sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred))[0]
+    // A crowded command menu has priority; restore immediately when space becomes available.
+    this.root.style.visibility = top === undefined ? 'hidden' : ''
+    this.root.style.top = `${top ?? 12}px`
+    // A save error must stay readable even if the upper HUD has no free slot.
+    if (top === undefined && !this.error.hidden) {
+      this.root.style.visibility = ''
+      this.root.style.top = `${Math.max(12, height - rect.height - 16)}px`
+    }
+  }
+
+  dispose(): void {
+    this.disposed = true
+    window.removeEventListener('resize', this.layout)
+    this.resizeObserver?.disconnect()
+    this.stateObserver?.disconnect()
+    this.root.remove()
+  }
 }
