@@ -212,6 +212,7 @@ export class NPC {
   private readonly cavalryContactPoint = new THREE.Vector3()
   private static readonly _cavalryCandidates: NPC[] = []
   private static readonly _cavalrySweepTargets: PhysicalCombatTarget[] = []
+  private static readonly _cavalryHostileMounts: Mount[] = []
   readonly pendingFall = new FallingRider()
   private fallContext: CombatDamageContext | undefined
   private readonly eaglePilot = new EagleFlightAI()
@@ -2590,7 +2591,7 @@ export class NPC {
     nearbyNPCs: NPC[],
     obstacles: ObstacleData[],
     _playerHpBar: Pick<HpBar, 'setFill'>,
-    onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
+    onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC, targetMount?: Mount) => void,
     onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => ProjectileLaunchResult,
     skipBoidsAndObstacles: boolean = false,
     cameraDistance: number = 0,
@@ -3584,7 +3585,21 @@ export class NPC {
                 }
               }
             } else if (eligibleCharge) {
-              const mounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
+              const rawMounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
+              NPC._cavalryHostileMounts.length = 0
+              for (let i = 0; i < rawMounts.length; i++) {
+                const m = rawMounts[i]
+                if (m.dead || m.disposed || m === this.mount) continue
+                if (m.riderNpc) {
+                  if (m.riderNpc === this || !combatAllegiancesHostile(this, m.riderNpc) || this.combatTargetAllowed?.(m.riderNpc) === false) continue
+                } else if (m.riderPlayer) {
+                  if (!this.hostileToPlayer || !player.targetable || player.dead || this.combatTargetAllowed?.(player) === false) continue
+                } else if (m.combatOwner) {
+                  if (!combatAllegiancesHostile(this, { faction: m.combatOwner.allegiance })) continue
+                }
+                NPC._cavalryHostileMounts.push(m)
+              }
+
               NPC._cavalrySweepTargets.length = 0
               if (targetInfo.isPlayer && player.targetable && !player.dead && this.combatTargetAllowed?.(player) !== false) {
                 NPC._cavalrySweepTargets.push(player)
@@ -3617,36 +3632,84 @@ export class NPC {
                 NPC._cavalrySweepTargets.push(player)
               }
 
-              const contact = NPC._cavalrySweepTargets.length > 0
-                ? this.weaponSweep.traceFirst(NPC._cavalrySweepTargets, mounts, this.mount)
+              const contact = (NPC._cavalrySweepTargets.length > 0 || NPC._cavalryHostileMounts.length > 0)
+                ? this.weaponSweep.traceFirst(NPC._cavalrySweepTargets, NPC._cavalryHostileMounts, this.mount)
                 : undefined
 
               if (contact) {
-                const hitEntity = contact.target ?? (contact.kind === 'mount' && contact.mount ? (contact.mount.riderNpc ?? contact.mount.riderPlayer) : null)
-                const hitIsPlayer = hitEntity === player || (contact.kind === 'mount' && contact.mount?.riderPlayer === player)
-                const hitNpc = (!hitIsPlayer && hitEntity instanceof NPC) ? hitEntity : (!hitIsPlayer && contact.kind === 'mount' && contact.mount?.riderNpc) ? contact.mount.riderNpc : targetInfo.npc
-                const targetIsMounted = hitIsPlayer ? Boolean(player?.isMounted) : Boolean(hitNpc?.isMounted)
+                let hitIsPlayer = false
+                let hitNpc: NPC | undefined = undefined
+                let hitMount: Mount | undefined = undefined
 
-                const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
-                this.attackHitProcessed = true
-                onHitEntity(finalDamage, hitIsPlayer, hitNpc)
-                this.cavalryPassthroughTimer = CAVALRY_PASSTHROUGH_DURATION
-                this.cavalryContactPoint.copy(this.combatPosition)
-                this._cachedTargetNpc = null
-                this._cachedTargetIsPlayer = false
-                this._targetReacquireFramesRemaining = 0
+                if (contact.kind === 'body' || contact.kind === 'shield') {
+                  if (contact.target === player) {
+                    hitIsPlayer = true
+                  } else if (contact.target instanceof NPC) {
+                    hitNpc = contact.target
+                  }
+                } else if (contact.kind === 'mount') {
+                  hitMount = contact.mount
+                  if (contact.mount?.riderNpc) {
+                    hitNpc = contact.mount.riderNpc
+                  } else if (contact.mount?.riderPlayer) {
+                    hitIsPlayer = true
+                  }
+                }
+
+                if (hitIsPlayer || hitNpc || hitMount) {
+                  const targetIsMounted = hitIsPlayer
+                    ? Boolean(player?.isMounted)
+                    : hitNpc
+                      ? Boolean(hitNpc.isMounted)
+                      : Boolean(hitMount)
+
+                  const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
+                  this.attackHitProcessed = true
+                  onHitEntity(finalDamage, hitIsPlayer, hitNpc, hitMount)
+                  this.cavalryPassthroughTimer = CAVALRY_PASSTHROUGH_DURATION
+                  this.cavalryContactPoint.copy(this.combatPosition)
+                  this._cachedTargetNpc = null
+                  this._cachedTargetIsPlayer = false
+                  this._targetReacquireFramesRemaining = 0
+                }
               }
             } else if (this._isTargetInMeleeRange(targetInfo.position, 0.4, targetInfo.isPlayer ? playerBodyBaseOffset : 0)) {
-              const targetIsMounted = targetInfo.isPlayer
-                ? Boolean(player?.isMounted)
-                : Boolean(targetInfo.npc?.isMounted)
               const physicalTarget = targetInfo.isPlayer ? player : targetInfo.npc
-              const mounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
-              const contact = physicalTarget && this.weaponSweep.traceFirst([physicalTarget], mounts, this.mount)
+              const rawMounts = this.combatMountGrid?.getNearbyInto(this.combatPosition, this.meleeAttackRadius + 4, this.combatMountCandidates) ?? []
+              NPC._cavalryHostileMounts.length = 0
+              for (let i = 0; i < rawMounts.length; i++) {
+                const m = rawMounts[i]
+                if (m.dead || m.disposed || m === this.mount) continue
+                if (m.riderNpc) {
+                  if (m.riderNpc === this || !combatAllegiancesHostile(this, m.riderNpc) || this.combatTargetAllowed?.(m.riderNpc) === false) continue
+                } else if (m.riderPlayer) {
+                  if (!this.hostileToPlayer || !player.targetable || player.dead || this.combatTargetAllowed?.(player) === false) continue
+                } else if (m.combatOwner) {
+                  if (!combatAllegiancesHostile(this, { faction: m.combatOwner.allegiance })) continue
+                }
+                NPC._cavalryHostileMounts.push(m)
+              }
+              const contact = physicalTarget && this.weaponSweep.traceFirst([physicalTarget], NPC._cavalryHostileMounts, this.mount)
               if (contact) {
-                const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
-                this.attackHitProcessed = true
-                onHitEntity(finalDamage, targetInfo.isPlayer, targetInfo.npc)
+                let hitIsPlayer = false
+                let hitNpc: NPC | undefined = undefined
+                let hitMount: Mount | undefined = undefined
+
+                if (contact.kind === 'body' || contact.kind === 'shield') {
+                  if (contact.target === player) hitIsPlayer = true
+                  else if (contact.target instanceof NPC) hitNpc = contact.target
+                } else if (contact.kind === 'mount') {
+                  hitMount = contact.mount
+                  if (contact.mount?.riderNpc) hitNpc = contact.mount.riderNpc
+                  else if (contact.mount?.riderPlayer) hitIsPlayer = true
+                }
+
+                if (hitIsPlayer || hitNpc || hitMount) {
+                  const targetIsMounted = hitIsPlayer ? Boolean(player?.isMounted) : hitNpc ? Boolean(hitNpc.isMounted) : Boolean(hitMount)
+                  const finalDamage = this._calcLanceDamage(this.meleeDamage, targetIsMounted || contact.kind === 'mount')
+                  this.attackHitProcessed = true
+                  onHitEntity(finalDamage, hitIsPlayer, hitNpc, hitMount)
+                }
               }
             }
           }
@@ -3838,7 +3901,7 @@ export class NPC {
   }
 
   private _updateEagleCombat(dt: number, player: Player, allNPCs: NPC[], nearby: NPC[], obstacles: ObstacleData[],
-    onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC) => void,
+    onHitEntity: (damage: number, isPlayer: boolean, targetNpc?: NPC, targetMount?: Mount) => void,
     onFireArrow: (origin: THREE.Vector3, direction: THREE.Vector3, visualKind: 'arrow' | 'pilum', flightBudget?: ProjectileFlightBudget) => ProjectileLaunchResult,
     cameraDistance: number, grid: SpatialGrid<NPC> | null): void {
     const mount = this.mount!

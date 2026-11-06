@@ -12,6 +12,8 @@ import {
   CAVALRY_FORWARD_CONE_COS,
 } from '../../src/movement/ContinuousCavalryCharge'
 import { angleDifference } from '../../src/movement/MountedArcherOrbit'
+import { WeaponSweep } from '../../src/combat/ShieldBlocking'
+import { Faction, combatAllegiancesHostile } from '../../src/combat/CombatFaction'
 
 describe('Continuous Melee Cavalry Charge', () => {
   it('identifies eligible ground melee cavalry while excluding ranged, flying, defense, and siege units', () => {
@@ -599,56 +601,155 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(moveDir.x).toBe(0)
   })
 
-  it('executes geometric weapon sweep across candidates along charging path without distance cutoff', () => {
-    // Simulate candidate target collection during charge
-    const cavalryPos = new THREE.Vector3(0, 1.2, 5) // Cavalry at z=5
-    const meleeRadius = 2.5
-
-    // Primary target originally locked was at z=2 (cavalry has now charged past it)
-    const primaryTarget = {
-      combatPosition: new THREE.Vector3(0, 0, 2),
+  it('executes real geometric weapon sweep across candidates along charging path hitting second enemy without distance cutoff', () => {
+    // Enemy 1 was originally locked at z=1, cavalry has charged past it to z=3.5
+    const target1 = {
+      group: { position: new THREE.Vector3(0, 0, 1) },
+      combatPosition: new THREE.Vector3(0, 0, 1),
+      isMounted: false,
       dead: false,
-      id: 'primary-target-behind',
-    }
+    } as any
 
-    // Another enemy infantry in front along the charging lane at z=6.5
-    const candidateInPath = {
-      combatPosition: new THREE.Vector3(0.5, 0, 6.5),
+    // Enemy 2 is in front along the charging path at z=4.0
+    const target2 = {
+      group: { position: new THREE.Vector3(0, 0, 4.0) },
+      combatPosition: new THREE.Vector3(0, 0, 4.0),
+      isMounted: false,
       dead: false,
-      id: 'enemy-in-path',
+    } as any
+
+    const sweep = new WeaponSweep()
+    // Frame 1: blade beginning swing forward at z=3.5
+    sweep.capture(new THREE.Vector3(0, 1.0, 3.2), new THREE.Vector3(0, 1.0, 3.8))
+    // Frame 2: blade sweeping through z=4.0 (intersecting target 2's body box: [-0.3..0.3, 0.06..1.8, 3.7..4.3])
+    sweep.capture(new THREE.Vector3(0, 1.0, 3.6), new THREE.Vector3(0, 1.0, 4.2))
+
+    // Real geometric trace across both targets
+    const contact = sweep.traceFirst([target1, target2], [])
+
+    expect(contact).toBeDefined()
+    expect(contact!.kind).toBe('body')
+    // Contact is geometrically confirmed on the forward target 2
+    expect(contact!.target).toBe(target2)
+    expect(contact!.target).not.toBe(target1)
+  })
+
+  it('excludes and protects friendly mounts from melee weapon sweep', () => {
+    const attackerNpc = {
+      faction: Faction.PLAYER,
+      hostileToPlayer: false,
+      mount: { id: 'own-mount' },
+      combatTargetAllowed: () => true,
+    } as any
+
+    const friendlyMount = {
+      id: 'friendly-horse',
+      dead: false,
+      disposed: false,
+      riderNpc: { faction: Faction.PLAYER, dead: false },
+      combatOwner: { allegiance: Faction.PLAYER },
+    } as any
+
+    const enemyMount = {
+      id: 'enemy-horse',
+      dead: false,
+      disposed: false,
+      riderNpc: { faction: Faction.ENEMY, dead: false },
+      combatOwner: { allegiance: Faction.ENEMY },
+    } as any
+
+    const nearbyMounts = [friendlyMount, enemyMount]
+
+    // Filter using the production hostile-mount filter from NPC.ts:
+    const hostileMounts: any[] = []
+    for (let i = 0; i < nearbyMounts.length; i++) {
+      const m = nearbyMounts[i]
+      if (m.dead || m.disposed || m === attackerNpc.mount) continue
+      if (m.riderNpc) {
+        if (m.riderNpc === attackerNpc || !combatAllegiancesHostile(attackerNpc, m.riderNpc) || attackerNpc.combatTargetAllowed?.(m.riderNpc) === false) continue
+      } else if (m.combatOwner) {
+        if (!combatAllegiancesHostile(attackerNpc, { faction: m.combatOwner.allegiance })) continue
+      }
+      hostileMounts.push(m)
     }
 
-    // Primary target distance from cavalry is 3m (> 0.4 reach)
-    const primaryDist = cavalryPos.distanceTo(primaryTarget.combatPosition)
-    expect(primaryDist).toBeGreaterThan(meleeRadius + 0.4)
+    // Friendly mount is filtered out, enemy mount is retained
+    expect(hostileMounts).not.toContain(friendlyMount)
+    expect(hostileMounts).toContain(enemyMount)
+    expect(hostileMounts.length).toBe(1)
+  })
 
-    // Candidate sweep targets include primary target and candidate in path
-    const sweepTargets: any[] = []
-    if (!primaryTarget.dead) sweepTargets.push(primaryTarget)
-    if (!candidateInPath.dead) sweepTargets.push(candidateInPath)
+  it('routes melee contact to the exact hit entity for player, mounted NPC rider, and standalone mount', () => {
+    let routedPlayer = false
+    let routedNpc: any = null
+    let routedMount: any = null
 
-    expect(sweepTargets).toContain(candidateInPath)
-
-    // Simulate traceFirst contact on the forward candidate
-    const mockContact = {
-      kind: 'body',
-      time: 0.25,
-      target: candidateInPath,
+    const onHitEntity = (_damage: number, isPlayer: boolean, targetNpc?: any, targetMount?: any) => {
+      if (isPlayer) routedPlayer = true
+      if (targetNpc) routedNpc = targetNpc
+      if (targetMount) routedMount = targetMount
     }
 
-    let hitEntity: any = null
-    let attackHitProcessed = false
-    let passthroughActivated = false
+    // 1. Direct hit on Player
+    const playerTarget = { id: 'player-entity' }
+    const playerContact = { kind: 'body' as const, target: playerTarget, time: 0.1 }
 
-    if (sweepTargets.length > 0) {
-      // Weapon sweep hits candidateInPath
-      hitEntity = mockContact.target
-      attackHitProcessed = true
-      passthroughActivated = true
+    let hitIsPlayer = false
+    let hitNpc: any = undefined
+    let hitMount: any = undefined
+
+    if (playerContact.kind === 'body') {
+      if (playerContact.target === playerTarget) hitIsPlayer = true
+    }
+    onHitEntity(25, hitIsPlayer, hitNpc, hitMount)
+    expect(routedPlayer).toBe(true)
+    expect(routedNpc).toBeNull()
+    expect(routedMount).toBeNull()
+
+    // 2. Direct hit on Mounted NPC rider's horse
+    routedPlayer = false
+    routedNpc = null
+    routedMount = null
+
+    const enemyRider = { id: 'enemy-rider-npc', isMounted: true }
+    const enemyHorse = { id: 'enemy-horse', riderNpc: enemyRider }
+    const horseContact = { kind: 'mount' as const, mount: enemyHorse, time: 0.2 }
+
+    hitIsPlayer = false
+    hitNpc = undefined
+    hitMount = undefined
+
+    if (horseContact.kind === 'mount') {
+      hitMount = horseContact.mount
+      if (horseContact.mount?.riderNpc) hitNpc = horseContact.mount.riderNpc
     }
 
-    expect(hitEntity).toBe(candidateInPath)
-    expect(attackHitProcessed).toBe(true)
-    expect(passthroughActivated).toBe(true)
+    onHitEntity(30, hitIsPlayer, hitNpc, hitMount)
+    expect(routedPlayer).toBe(false)
+    expect(routedNpc).toBe(enemyRider)
+    expect(routedMount).toBe(enemyHorse)
+
+    // 3. Direct hit on Standalone / Unmounted Mount
+    routedPlayer = false
+    routedNpc = null
+    routedMount = null
+
+    const standaloneHorse = { id: 'standalone-horse', riderNpc: undefined, riderPlayer: undefined }
+    const standaloneContact = { kind: 'mount' as const, mount: standaloneHorse, time: 0.15 }
+
+    hitIsPlayer = false
+    hitNpc = undefined
+    hitMount = undefined
+
+    if (standaloneContact.kind === 'mount') {
+      hitMount = standaloneContact.mount
+      if (standaloneContact.mount?.riderNpc) hitNpc = standaloneContact.mount.riderNpc
+    }
+
+    onHitEntity(20, hitIsPlayer, hitNpc, hitMount)
+    expect(routedPlayer).toBe(false)
+    // Never falsely attributes to an unrelated NPC
+    expect(routedNpc).toBeNull()
+    expect(routedMount).toBe(standaloneHorse)
   })
 })

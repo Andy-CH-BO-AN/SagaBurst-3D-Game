@@ -5192,7 +5192,7 @@ export class Game {
         nearbyNPCs,
         this.obstacles,
         this.hpBar, 
-        (damage, isPlayer, targetNpc) => {
+        (damage, isPlayer, targetNpc, targetMount) => {
           // Melee Hit Callback
           if (isPlayer) {
             if (!this.player.targetable) return
@@ -5216,6 +5216,18 @@ export class Game {
             }
           } else if (targetNpc) {
             const result = damageNpc(targetNpc, damage, {
+              contact: npc.weaponSweep.contact,
+              source: createNpcCombatActorRef(npc),
+              method: 'melee',
+              weaponId: npc.meleeWeaponId ?? undefined,
+              emit: this.combatEvents.emit,
+            })
+            if (result.hitSuccess) {
+              if (npc.meleeCombatKind === 'lance') this.soundManager.playLanceImpact(npc.currentLod, false)
+              else this.soundManager.playSwordHit(npc.currentLod, false)
+            }
+          } else if (targetMount) {
+            const result = damageMount(targetMount, damage, {
               contact: npc.weaponSweep.contact,
               source: createNpcCombatActorRef(npc),
               method: 'melee',
