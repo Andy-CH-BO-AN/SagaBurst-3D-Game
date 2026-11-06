@@ -193,7 +193,7 @@ export class CharacterCombatAnimator {
     return this.locomotion === 'mounted' && this.usesTwoHandedAxeCarry ? 'axeMountedIdle' : this.locomotion
   }
 
-  setLocomotion(speed: number, mounted = false, sprinting = false): void {
+  setLocomotion(speed: number, mounted = false, sprinting = false, options?: { fadeSeconds?: number }): void {
     const poseAction = this.hasCanceledAxePose ? 'axeAttack2H' : this.action
     const poseElapsed = this.hasCanceledAxePose ? this.canceledAxePose : this.poseTime(this.elapsed)
     const continuous = this.hasCanceledAxePose || this.usesContinuousAxeCarry
@@ -212,7 +212,12 @@ export class CharacterCombatAnimator {
       this.rig.animation?.setBowLocomotion?.(state === 'mounted' ? 'idle' : state, timeScale)
       return
     }
-    this.rig.animation?.play(this.locomotionClip, { fadeSeconds: 0.14, loop: true, timeScale })
+    const fadeSeconds = options?.fadeSeconds ?? 0.14
+    this.rig.animation?.play(this.locomotionClip, { fadeSeconds, loop: true, timeScale })
+  }
+
+  sampleInitialPose(): void {
+    this.rig.animation?.sampleInitialPose?.()
   }
 
   start(action: Exclude<CombatAction, 'idle' | 'bowAim'>, timeScale = 1): boolean {
