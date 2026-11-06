@@ -115,7 +115,25 @@ or unverified count-only selection is accepted.
 If `affected + undetermined - seed.setups >500`, reject immediately before
 per-file expansion; Full fallback or partitioning a >500 Related set
 remains forbidden. Unaffected-only count truncation and display-only
-reason truncation are safe only under their independently verified counts. If the native summary already proves that the
+reason truncation are safe only under their independently verified counts.
+
+**Real CLI acceptance (2026-11-06):** [isolated run #42268305160](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42268305160)
+used the historical SHA-bound canonical-source Full seed
+`run_d06066084020ac43`, made one behavior-preserving executable edit
+to `src/rpg/WeaponDatabase.ts`, and obtained **92 actual native affected
+identities across 27 test files**. Full native `--json` materialized all
+92; for explicit preview-fallback validation the acceptance harness
+reduced only its **test input** to a 54-row snapshot, then ran **110
+real Supercov 4.24.2 --test-file --json CLI queries** over every
+discovered Vitest file. Filtered global totals (873 records including
+110 setups) reconciled and the 92 reconstructed structured identities
+matched the original untruncated CLI output exactly. **Normal Vitest
+ran precisely these 92 leaves: 92/92 PASS, max recorded duration
+52.181ms**, no unexpected cases, none over 100ms. Evidence retained:
+[artifact 13528751301](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42268305160/artifacts/13528751301).
+The temporary isolated acceptance workflow was removed afterwards;
+production keeps only the tested public-filter recovery implementation
+and negative contract cases. If the native summary already proves that the
 minimum impacted runnable tests, `affected + undetermined - seed.setups`,
 exceeds 500, selection fails **before** trying to use a preview list;
 full reruns and shard bypass are not permitted. This caught #430's
