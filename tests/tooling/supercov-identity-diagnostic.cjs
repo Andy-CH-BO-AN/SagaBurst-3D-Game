@@ -36,11 +36,20 @@ function modify([name,from,to]){
 const seed=JSON.parse(fs.readFileSync(path.join(root,'output/supercov-seed.json'),'utf8'))
 if(seed.sha!=='3966b984204fb3d96ecb500d4bfc6cdd634f0d51'||seed.runId!==runId)throw Error('Wrong source/seed')
 command(['runs',runId,'tests','affected','--help'],'help')
-for(let i=0;i<cases.length;i++){
+for(let i=0;i<1;i++){
  modify(cases[i]);const label='scenario'+(i+1)
  const preview=command(['runs',runId,'tests','affected','--json'],label+'-json')
  const namesJson=command(['runs',runId,'tests','affected','--names','--json'],label+'-names-json')
  const names=command(['runs',runId,'tests','affected','--names'],label+'-names')
+ const rows=preview.data?.data?.affected || []
+ const files=[...new Set(rows.map(x=>x.file))].sort()
+ for(const [n,file] of files.slice(0,8).entries()){
+   command(['runs',runId,'tests','affected','--test-file',file,'--json'],
+     label+'-filtered-'+n)
+ }
+ command(['runs',runId,'tests','affected','--test-file',
+   'tests/combat/CommanderWeaponSwitching.test.ts','--names'],
+   label+'-one-file-names')
  result.scenarios.push({label,changes:cases.slice(0,i+1).map(x=>x[0]),
   total:preview.data?.data?.summary,previewLength:preview.data?.data?.affected?.length,
   namesJson: namesJson.summary.json, nameLines:names.stdout.trim().split('\n').length})
