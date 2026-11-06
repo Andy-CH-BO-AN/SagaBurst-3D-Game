@@ -4,7 +4,7 @@ const { readFileSync, writeFileSync, existsSync, mkdirSync } = require('node:fs'
 const { resolve, dirname } = require('node:path')
 const { validateManifest, selectedNames } = require('./ci-plan.cjs')
 const { requireBaseAncestor, isGitAncestor, requireRefreshAllowed } = require('./supercov-evidence-policy.cjs')
-const { validateRunSummary, buildSeed, validSeedMetadata } = require('./supercov-measured-evidence.cjs')
+const { validateRunSummary, buildSeed, validSeedMetadata, validateAffectedQuery } = require('./supercov-measured-evidence.cjs')
 const root = resolve(__dirname, '../..')
 const version = '4.24.2'
 const fail = message => { throw new Error('Supercov incremental Related evidence unsafe: ' + message) }
@@ -79,8 +79,9 @@ const vitestCount = plan.inventory.filter(item => item.runner === 'vitest')
 const measured = validateRunSummary(query, vitestCount)
 if (measured.runId !== newId) fail('Strict merge run identity mismatch')
 const affected = JSON.parse(sc('runs', newId, 'tests', 'affected', '--json'))
-if (affected.schemaVersion !== 1 || !affected.ok || affected.data?.workingTree?.sourceSetChanged ||
-    affected.data?.workingTree?.runWide?.length) fail('Merged seed does not match current dev checkout')
+validateAffectedQuery(affected, newId, {
+  tests: measured.tests, setups: measured.setups, pristine: true,
+})
 writeFileSync(path('output/supercov-seed.json'),
   JSON.stringify(buildSeed({ sha, ...measured }, nextGeneration), null, 2) + '\n')
 console.log('Supercov native Related evidence advanced to ' + newId + ' @ ' + sha)

@@ -5,7 +5,7 @@
 const { execFileSync, spawnSync } = require('node:child_process')
 const { readFileSync, writeFileSync, existsSync, mkdirSync } = require('node:fs')
 const { resolve, join } = require('node:path')
-const { validateRunSummary, buildSeed } = require('./supercov-measured-evidence.cjs')
+const { validateRunSummary, buildSeed, validateAffectedQuery } = require('./supercov-measured-evidence.cjs')
 const sourceRoot = resolve(process.argv[2] || 'source')
 const version = '4.24.2'
 const die = msg => { throw new Error('Explicit dev Supercov seed bootstrap failed: ' + msg) }
@@ -81,12 +81,9 @@ const measured = validateRunSummary(summary, vitest)
 if (measured.runId !== runId) die('Merged Full run identity mismatch')
 const affected = JSON.parse(exec('npx', ['--yes', 'supercov@' + version,
   'runs', runId, 'tests', 'affected', '--json']))
-if (affected.schemaVersion !== 1 || affected.ok !== true ||
-  affected.data?.summary?.tests !== vitest ||
-  affected.data?.workingTree?.sourceSetChanged ||
-  affected.data?.workingTree?.runWide?.length) {
-  die('Full seed lacks an exact, clean Vitest test inventory')
-}
+validateAffectedQuery(affected, runId, {
+  tests: measured.tests, setups: measured.setups, pristine: true,
+})
 writeFileSync(join(sourceRoot, 'output/supercov-seed.json'),
   JSON.stringify(buildSeed({ sha, ...measured }, 0), null, 2) + '\n')
 console.log('Explicit Full dev seed established: ' + runId + ' @ ' + sha +

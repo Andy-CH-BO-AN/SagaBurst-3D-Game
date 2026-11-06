@@ -3,7 +3,7 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync } = require('node:fs')
 const { resolve, dirname } = require('node:path')
 const { validateManifest } = require('./ci-plan.cjs')
-const { validateRunSummary, buildSeed } = require('./supercov-measured-evidence.cjs')
+const { validateRunSummary, buildSeed, validateAffectedQuery } = require('./supercov-measured-evidence.cjs')
 
 const root = resolve(__dirname, '../..')
 const version = '4.24.2'
@@ -68,12 +68,9 @@ const summary = JSON.parse(run(['runs', id, '--json']))
 const measured = validateRunSummary(summary, vitestCount)
 if (measured.runId !== id) fail('Merged Full evidence identity mismatch')
 const affected = JSON.parse(run(['runs', id, 'tests', 'affected', '--json']))
-if (affected.schemaVersion !== 1 || affected.ok !== true ||
-    affected.data?.summary?.tests !== vitestCount ||
-    affected.data?.workingTree?.sourceSetChanged ||
-    affected.data?.workingTree?.runWide?.length) {
-  fail('Supercov Full evidence does not match all discovered Vitest leaves and current source')
-}
+validateAffectedQuery(affected, id, {
+  tests: measured.tests, setups: measured.setups, pristine: true,
+})
 writeFileSync(path('output/supercov-seed.json'),
   JSON.stringify(buildSeed({ sha, ...measured }, 0), null, 2) + '\n')
 console.log('Valid strict Supercov Full seed ' + id + ': ' + vitestCount + ' Vitest leaves @ ' + sha)

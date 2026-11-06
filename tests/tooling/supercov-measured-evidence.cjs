@@ -27,7 +27,8 @@ function validateRunSummary(result, expectedTests) {
     fail('Incomplete measured denominator or corrupt/unmeasured evidence')
   }
   const t = d.testOutcomes
-  if (d.tests !== expectedTests || t?.passed !== expectedTests ||
+  if (!Number.isSafeInteger(d.setups) || d.setups < 0 ||
+      d.tests !== expectedTests || t?.passed !== expectedTests ||
       ['failed', 'flaky', 'skipped', 'timedOut', 'interrupted', 'unknown',
         'unstarted', 'todo'].some(field => t[field] !== 0)) {
     fail('Incomplete/failed instrumented test roster; expected ' + expectedTests)
@@ -46,16 +47,18 @@ function validateRunSummary(result, expectedTests) {
   if (d.coverage?.coverageComplete !== true && d.coverage?.coverageComplete !== false) {
     fail('Missing true coverage-completeness marker')
   }
-  return { runId: d.run, tests: expectedTests, coverageComplete: d.coverage.coverageComplete }
+  return { runId: d.run, tests: expectedTests, setups: d.setups,
+    coverageComplete: d.coverage.coverageComplete }
 }
 
-function buildSeed({ sha, runId, tests, coverageComplete }, generation = 0) {
+function buildSeed({ sha, runId, tests, setups, coverageComplete }, generation = 0) {
   if (!SHA.test(sha || '') || !RUN.test(runId || '') ||
       !Number.isSafeInteger(tests) || tests < 1 ||
+      !Number.isSafeInteger(setups) || setups < 0 ||
       !Number.isSafeInteger(generation) || generation < 0 ||
       typeof coverageComplete !== 'boolean') fail('Invalid seed provenance')
   return { schemaVersion: SEED_SCHEMA, version: VERSION, sha, runId, generation,
-    tests, valid: true, measurementComplete: true, executionComplete: true,
+    tests, setups, valid: true, measurementComplete: true, executionComplete: true,
     attributionComplete: true, coverageComplete }
 }
 
@@ -66,8 +69,71 @@ function validSeedMetadata(s) {
     s.executionComplete === true && s.attributionComplete === true &&
     typeof s.coverageComplete === 'boolean' &&
     Number.isSafeInteger(s.tests) && s.tests > 0 &&
+    Number.isSafeInteger(s.setups) && s.setups >= 0 &&
     Number.isSafeInteger(s.generation) && s.generation >= 0 &&
     s.generation <= 16
 }
 
-module.exports = { validateRunSummary, buildSeed, validSeedMetadata }
+
+// Supercov's tests affected summary counts suite setup lifecycle records as
+// well as executed test leaves. Unaffected identities are intentionally
+// count-only (truncated) in the public --json response, even on a pristine
+// checkout. Never require all unaffected objects to be materialized.
+const UNAFFECTED_TRUNCATION = 'unaffected tests are counted, not listed'
+
+function validateAffectedQuery(result, runId, { tests, setups, pristine = false } = {}) {
+  if (result?.schemaVersion !== 1 || result.ok !== true ||
+      result.command !== 'runs.tests.affected' || result.data?.run !== runId) {
+    fail('Affected query CLI envelope or source run does not match')
+  }
+  const d = result.data
+  const counts = d.summary
+  if (!counts || !['tests', 'affected', 'undetermined', 'unaffected']
+      .every(k => Number.isSafeInteger(counts[k]) && counts[k] >= 0) ||
+      counts.tests !== counts.affected + counts.undetermined + counts.unaffected ||
+      !counts.tests) fail('Invalid or partial affected inventory counts')
+  if (tests !== undefined || setups !== undefined) {
+    if (!Number.isSafeInteger(tests) || tests < 1 ||
+        !Number.isSafeInteger(setups) || setups < 0 ||
+        counts.tests !== tests + setups) {
+      fail('Affected inventory count must equal exact Vitest leaves plus setup records')
+    }
+  }
+  if (d.affectedCount !== undefined || d.undeterminedCount !== undefined) {
+    fail('Affected and undetermined identities must not be count-only')
+  }
+  if (!Array.isArray(d.affected) || !Array.isArray(d.undetermined) ||
+      !Array.isArray(d.unaffected) ||
+      d.affected.length !== counts.affected ||
+      d.undetermined.length !== counts.undetermined ||
+      !Array.isArray(d.truncated ?? []) ||
+      (d.truncated ?? []).some(reason => reason !== UNAFFECTED_TRUNCATION)) {
+    fail('Affected/undetermined test identities truncated or unavailable')
+  }
+  const truncated = (d.truncated ?? []).includes(UNAFFECTED_TRUNCATION)
+  if (truncated) {
+    if (d.unaffected.length !== 0 || d.unaffectedCount !== counts.unaffected) {
+      fail('Count-only unaffected identities are incomplete or inconsistent')
+    }
+  } else if (d.unaffected.length !== counts.unaffected ||
+      (d.unaffectedCount !== undefined && d.unaffectedCount !== counts.unaffected)) {
+    fail('Untruncated unaffected identities incomplete')
+  }
+  const w = d.workingTree
+  if (!w || !Array.isArray(w.reasons) || !Array.isArray(w.runWide) ||
+      typeof w.sourceSetChanged !== 'boolean' || typeof w.stale !== 'boolean') {
+    fail('Missing Supercov working-tree integrity metadata')
+  }
+  if (pristine && (w.stale || w.sourceSetChanged || w.reasons.length ||
+      w.runWide.length || counts.affected !== 0 ||
+      counts.undetermined !== 0 || counts.changedFiles !== 0 ||
+      !Array.isArray(d.changedFiles) || d.changedFiles.length !== 0)) {
+    fail('Full baseline is not pristine against its own measured SHA')
+  }
+  return { counts, workingTree: w, affected: d.affected,
+    undetermined: d.undetermined, unaffected: d.unaffected,
+    truncatedUnaffected: truncated }
+}
+
+module.exports = { validateRunSummary, buildSeed, validSeedMetadata,
+  validateAffectedQuery }

@@ -3,7 +3,7 @@ const { execFileSync } = require('node:child_process')
 const { existsSync, readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { requireBaseAncestor, isGitAncestor } = require('./supercov-evidence-policy.cjs')
-const { validSeedMetadata } = require('./supercov-measured-evidence.cjs')
+const { validSeedMetadata, validateAffectedQuery } = require('./supercov-measured-evidence.cjs')
 const ROOT = resolve(__dirname, '../..')
 const VERSION = '4.24.2'
 const fail = message => { throw new Error('Supercov Related selection unsafe: ' + message) }
@@ -13,23 +13,16 @@ const isSupported = path => isRuntime(path) || isTest(path) ||
   /^(tests\/(?:tooling|helpers|release)\/|\.github\/workflows\/)/.test(path) ||
   /^(package(?:-lock)?\.json|tsconfig(?:\.[-\w]+)?\.json|vite\.config\.[cm]?[jt]s|vitest\.config\.[cm]?[jt]s)$/.test(path)
 
-function decodeAffected(response, inventory, changes, expectedRun) {
+function decodeAffected(response, inventory, changes, expectedRun, baseline = {}) {
   if (response?.schemaVersion !== 1 || response.ok !== true || response.command !== 'runs.tests.affected') {
     fail('Missing or failed public CLI JSON contract')
   }
-  const d = response.data
-  if (!d || d.run !== expectedRun || !d.summary || !d.workingTree) fail('Unbound or incomplete native run')
-  const { summary, workingTree } = d
-  if (!Array.isArray(workingTree.reasons) || !Array.isArray(workingTree.runWide)) fail('Missing working-tree integrity reasons')
-  const names = ['affected', 'undetermined', 'unaffected']
-  if (!names.every(name => Array.isArray(d[name]) && Number.isInteger(summary[name]) &&
-      summary[name] === d[name].length && d[name + 'Count'] === undefined)) {
-    fail('Native JSON truncated or missing exact test lists; --json is not safe for this run')
-  }
-  const total = names.reduce((sum, name) => sum + summary[name], 0)
-  if (!Number.isInteger(summary.tests) || summary.tests !== total || !total) {
-    fail('Invalid total historical test identities')
-  }
+  const { counts: summary, workingTree, affected, undetermined } =
+    validateAffectedQuery(response, expectedRun, baseline)
+  // Only the affected and undetermined identities matter. Supercov's public
+  // contract omits all 873 unaffected identities at pristine dev, and counts
+  // lifecycle setup records as historical identities (763 leaves + 110 setup).
+  const total = summary.tests
   if (changes.some(change => !/^(A|M)$/.test(change.status))) fail('Removed/moved source or test has no confirmed native lifecycle policy')
   if (changes.some(change => !isSupported(change.file) && !/\.md$/.test(change.file))) {
     fail('Unsupported asset/offline input: ' + changes.filter(change => !isSupported(change.file)).map(x => x.file).join(', '))
@@ -47,8 +40,8 @@ function decodeAffected(response, inventory, changes, expectedRun) {
     ;(selectedCases[item.file] ??= []).push(index)
     ;(reasons[item.file] ??= []).push(why)
   }
-  for (const bucket of names) {
-    for (const t of d[bucket]) {
+  for (const [bucket, identities] of [['affected', affected], ['undetermined', undetermined]]) {
+    for (const t of identities) {
       if (typeof t?.file !== 'string' || typeof t?.name !== 'string' || !t.file || !t.name) {
         fail('Missing test file or full name')
       }
@@ -62,11 +55,16 @@ function decodeAffected(response, inventory, changes, expectedRun) {
       }
       const indices = item.names.flatMap((name, index) => name === t.name ? [index] : [])
       if (indices.length !== 1) {
-        // Safe only if this entire test file is directly changed and re-run.
-        if (modifiedTestFiles.has(t.file) && indices.length === 0) continue
-        fail('Ambiguous or missing leaf in Vitest discovery: ' + id)
+        if (indices.length > 1) fail('Ambiguous duplicate current Vitest leaf: ' + id)
+        // Supercov also reports setup lifecycle records that don't correspond
+        // to runnable Vitest leaves. If the source file is recognized, run
+        // every leaf in that file, including any module-init affected cases.
+        // An unknown file is already rejected above (no unsafe global guess).
+        selectedCases[item.file] = item.names.map((_, index) => index)
+        reasons[item.file] = ['Supercov ' + bucket + ' setup/non-leaf identity']
+        continue
       }
-      if (bucket !== 'unaffected') add(item, indices[0], 'Supercov native ' + bucket)
+      add(item, indices[0], 'Supercov native ' + bucket)
     }
   }
   // If a test file changed, run every case, including new or renamed registrations.
@@ -88,7 +86,7 @@ function decodeAffected(response, inventory, changes, expectedRun) {
   // Directly changed test files are explicitly re-run above and are the only
   // allowed non-doc input with a zero historical affected count.
   const unproven = changes.filter(change => isSupported(change.file) && !isTest(change.file))
-  if (!d.affected.length && !d.undetermined.length && unproven.length) {
+  if (!affected.length && !undetermined.length && unproven.length) {
     fail('Native query returned zero for executable/test-impact input: ' +
       unproven.map(change => change.file).join(', '))
   }
@@ -123,6 +121,7 @@ function nativeSelection(inventory, changed, { base } = {}) {
   } catch (error) { fail('Native query failed: ' + (error.stderr?.toString() || error.message)) }
   let data
   try { data = JSON.parse(output) } catch { fail('Invalid native Supercov JSON') }
-  return decodeAffected(data, inventory, changed, seed.runId)
+  return decodeAffected(data, inventory, changed, seed.runId,
+    { tests: seed.tests, setups: seed.setups })
 }
 module.exports = { decodeAffected, nativeSelection }

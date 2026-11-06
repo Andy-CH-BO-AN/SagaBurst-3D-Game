@@ -105,9 +105,21 @@ changes are handled by the planner and need no seed.
 ## Test identity and governance
 
 The thin adapter validates the public JSON envelope, run identity, full
-(file, test name) identity, count, uniqueness and truncation. It includes both
-affected and undetermined individual tests. Directly changed tests include
-every discovered current leaf, including newly added or renamed rows.
+(file, test name) identity, counts, uniqueness and truncation. Supercov
+`coverage.summary` distinguishes **763 runnable Vitest leaves** from **110
+setup lifecycle records** in the confirmed canonical baseline. Its native
+`runs tests affected --json` inventory correctly counts **873 historical
+records**. This is not 873 executable Vitest testcases. `unaffected` is
+deliberately **count-only**, returned as `unaffectedCount: 873` with
+`truncated: ["unaffected tests are counted, not listed"]` on an unchanged
+checkout. The adapter accepts this *specific* unaffected-only truncation
+while requiring untruncated exact `affected` and `undetermined` identities,
+correct sums, and an inventory matching `seed.tests + seed.setups`.
+Unknown affected setup lifecycle names within a recognized test file
+conservatively select **every leaf in that file**, still subject to the 500
+aggregate gate; unknown source files or inconsistent counts fail closed.
+Directly changed tests include every discovered current leaf, including
+newly added or renamed rows.
 A small fixed Node tooling/release suite runs without a second selector.
 
 Related aggregate counts are validated **before** any sharding:
@@ -158,7 +170,8 @@ Related limit and must be handled through an explicit maintenance workflow.
 1. Complete the [#433 fixture fix](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/pull/433)
    through normal review into dev, then explicitly dispatch a **canonical dev
    Full bootstrap** and verify successful normal Full, exact Supercov identities,
-   `valid=true` / `complete=true`, and a SHA-bound seed artifact.
+   `valid=true`, `measurement.complete=true`, complete test outcomes and
+   attribution (not necessarily 100% branch coverage), and a SHA-bound seed artifact.
 2. On #430, restore that seed with **PR-base ancestry enforced**, run the
    actual Supercov native affected query, ensure per-leaf selection respects
    the aggregate 500 cap (501+ fails), run the selected cases with normal

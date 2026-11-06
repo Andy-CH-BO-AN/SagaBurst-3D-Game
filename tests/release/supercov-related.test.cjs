@@ -5,7 +5,7 @@ const { decodeAffected } = require('../tooling/supercov-related.cjs')
 const { planShards } = require('../tooling/ci-plan.cjs')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
-const { validateRunSummary, buildSeed, validSeedMetadata } = require('../tooling/supercov-measured-evidence.cjs')
+const { validateRunSummary, buildSeed, validSeedMetadata, validateAffectedQuery } = require('../tooling/supercov-measured-evidence.cjs')
 const { requireBaseAncestor, trustedPublication, requireRefreshAllowed,
   MAX_REFRESH_GENERATIONS, generation } = require('../tooling/supercov-evidence-policy.cjs')
 const run = 'run_abcdef0123'
@@ -45,7 +45,7 @@ test('renamed direct-test identity uses newly collected names, no guesswork', ()
 })
 test('missing, duplicate, corrupt or truncated CLI JSON fails closed', () => {
   const cases = [
-    answer({ affected: [leaf('suite > absent')] }),
+    answer({ affected: [{ file: 'tests/missing.test.ts', name: 'unowned setup' }] }),
     answer({ affected: [leaf('suite > A'), leaf('suite > A')], unaffected: [] }),
     answer({ overrides: { affectedCount: 3 } }),
     answer({ overrides: { summary: { tests: 999, affected: 1, undetermined: 1, unaffected: 1 } } }),
@@ -192,7 +192,7 @@ test('fully measured 763-leaf baseline permits honest uncovered branches, not in
     data: {
       run: 'run_f772560eaadcc58c', valid: true, testExitCode: 0,
       stale: false, staleReasons: [], complete: false,
-      structurallyComplete: false, tests: 763,
+      structurallyComplete: false, tests: 763, setups: 110,
       coverage: { coverageComplete: false },
       measurement: { complete: true, limitations: 0, evidenceCorruptions: 0,
         blocking: 0, declared: 0 },
@@ -208,6 +208,7 @@ test('fully measured 763-leaf baseline permits honest uncovered branches, not in
   assert.equal(measured.coverageComplete, false)
   const seed = buildSeed({ sha: 'a'.repeat(40), ...measured }, 0)
   assert.equal(seed.tests, 763)
+  assert.equal(seed.setups, 110)
   assert.equal(seed.coverageComplete, false)
   assert.equal(seed.executionComplete, true)
   assert.equal(seed.measurementComplete, true)
@@ -247,4 +248,70 @@ test('Full and Related seed publishers validate actual measurement, not 100-perc
     const script = readFileSync(resolve(__dirname, '../tooling/' + name), 'utf8')
     assert.match(script, /validSeedMetadata\(/)
   }
+})
+
+test('real merged Supercov public JSON counts setup records and truncates only unaffected names', () => {
+  const pristine = {
+    schemaVersion: 1, ok: true, command: 'runs.tests.affected',
+    data: {
+      run: 'run_832c98c5b3149714',
+      mergedFrom: ['run_71bc72c34894e3bd', 'run_c4bdf9344075322b'],
+      summary: { tests: 873, affected: 0, undetermined: 0, unaffected: 873,
+        changedFiles: 0 },
+      affected: [], undetermined: [], unaffected: [],
+      unaffectedCount: 873,
+      truncated: ['unaffected tests are counted, not listed'],
+      changedFiles: [],
+      workingTree: { stale: false, reasons: [], runWide: [], sourceSetChanged: false },
+    },
+  }
+  const sourceRun = pristine.data.run
+  const clean = validateAffectedQuery(pristine, sourceRun,
+    { tests: 763, setups: 110, pristine: true })
+  assert.equal(clean.counts.tests, 873)
+  assert.equal(clean.truncatedUnaffected, true)
+  assert.equal(clean.affected.length, 0)
+  const selected = decodeAffected(pristine, inventory, [], sourceRun,
+    { tests: 763, setups: 110 })
+  assert.deepEqual(selected.selectedCases['tests/release/gate.test.cjs'], [0])
+  assert.equal(selected.native.total, 873)
+  // Never mistake 873 historical records for 873 runnable Vitest leaves.
+  assert.throws(() => validateAffectedQuery(pristine, sourceRun,
+    { tests: 763, setups: 0, pristine: true }), /unsafe/)
+  const unreadable = structuredClone(pristine)
+  unreadable.data.unaffectedCount = 872
+  assert.throws(() => validateAffectedQuery(unreadable, sourceRun,
+    { tests: 763, setups: 110, pristine: true }), /unsafe/)
+  const truncatedAffected = structuredClone(pristine)
+  truncatedAffected.data.summary.affected = 1
+  truncatedAffected.data.summary.unaffected = 872
+  truncatedAffected.data.unaffectedCount = 872
+  assert.throws(() => validateAffectedQuery(truncatedAffected, sourceRun,
+    { tests: 763, setups: 110 }), /unsafe/)
+  const stale = structuredClone(pristine)
+  stale.data.workingTree.stale = true
+  assert.throws(() => validateAffectedQuery(stale, sourceRun,
+    { tests: 763, setups: 110, pristine: true }), /unsafe/)
+  const hiddenUnknown = structuredClone(pristine)
+  hiddenUnknown.data.truncated.push('affected test names omitted')
+  assert.throws(() => validateAffectedQuery(hiddenUnknown, sourceRun,
+    { tests: 763, setups: 110 }), /unsafe/)
+})
+
+test('affected setup lifecycle record widens to all leaves of its own file, not a skipped pseudo-test', () => {
+  const result = answer({
+    affected: [
+      leaf('suite > A'),
+      { file: 'tests/example.test.ts', name: 'beforeEach: suite setup' },
+    ],
+    unaffected: [leaf('suite > C')],
+  })
+  const selection = decodeAffected(result, inventory, source, run)
+  assert.deepEqual(selection.selectedCases['tests/example.test.ts'], [0, 1, 2])
+  assert.deepEqual(selection.selectedCases['tests/release/gate.test.cjs'], [0])
+  assert.match(selection.reasons['tests/example.test.ts'].join(' '), /setup\/non-leaf/)
+  const unknown = answer({ affected: [
+    { file: 'tests/foreign-setup.ts', name: 'setup' },
+  ] })
+  assert.throws(() => decodeAffected(unknown, inventory, source, run), /unsafe/)
 })
