@@ -153,14 +153,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Record authoritative instrumented Full evidence
-        env:
-          SUPERCOV_RUN_ID_FILE: output/supercov-run.id
-          SUPERCOV_SOURCE_ROOTS: src,tests/helpers
-        run: |
-          mkdir -p output
-          npx --yes supercov@4.24.2 -- node node_modules/vitest/vitest.mjs run --reporter=default
-          node tests/tooling/supercov-seed.cjs
+      - uses: actions/download-artifact@v4
+        with:
+          name: logic-plan
+          path: output
+      - uses: actions/download-artifact@v4
+        with:
+          name: logic-aggregate
+          path: output
+      - name: Record strict Full seed from already-verified Full shards
+        run: node tests/tooling/supercov-seed.cjs output/test-plan.json output/aggregate.json
       - name: Publish Full evidence for future Related selection
         uses: actions/cache/save@v4
         with:

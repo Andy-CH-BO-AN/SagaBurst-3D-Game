@@ -86,3 +86,15 @@ test('incremental refresh calls only strict public Supercov merge (no unsafe ove
   assert.match(script, /valid !== true/)
   assert.match(script, /complete !== true/)
 })
+
+test('Full seed instruments verified manifest shards, never a hidden unsharded 500+ run', () => {
+  const script = readFileSync(resolve(__dirname, '../tooling/supercov-seed.cjs'), 'utf8')
+  const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
+  assert.match(script, /aggregate\.result !== 'passed'/)
+  assert.match(script, /shard\.vitestFiles/)
+  assert.match(script, /LOGIC_TEST_FILES: JSON\.stringify\(shard\.vitestFiles\)/)
+  assert.match(script, /run\(\['merge', \.\.\.runs\]\)/)
+  assert.doesNotMatch(script, /run\(\['merge', '--allow-changed'/)
+  assert.match(workflow, /Record strict Full seed from already-verified Full shards/)
+  assert.match(workflow, /name: logic-aggregate/)
+})

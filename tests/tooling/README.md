@@ -24,8 +24,13 @@ fails the plan instead of bypassing governance.
 
 Main Full or explicitly dispatched manual Full bootstraps a valid, complete
 Supercov Full seed. Normal uninstrumented Full must first pass its original
-100ms gate. The separate instrumented evidence run does not change timing
-requirements. A successful seed is stored in an immutable cache keyed by SHA.
+100ms gate. Supercov then records the **same Full manifest's bounded Vitest
+file shards**, without using instrumentation timing for the 100ms gate.
+All instrumented shards are combined by **strict** native Supercov merge,
+with no unsafe override. This avoids trying to push all 740+ tests through
+a single 500-leaf reporting process. The resulting seed must include all
+discovered Vitest leaves and be valid/complete/passed before it is saved
+under an immutable SHA-keyed cache.
 
 Every PR → dev and push → dev restores ancestor evidence, queries native
 tests affected, then runs the exact selected tests using ordinary Vitest.
