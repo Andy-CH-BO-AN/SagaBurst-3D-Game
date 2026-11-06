@@ -11,10 +11,6 @@ on:
         type: choice
         options: [full]
         default: full
-      bootstrap_dev_seed:
-        description: One-time maintenance Full from exact origin/dev
-        type: boolean
-        default: false
 permissions:
   contents: read
   actions: read
@@ -25,7 +21,7 @@ concurrency:
   cancel-in-progress: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 jobs:
   logic:
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.bootstrap_dev_seed == true || github.ref == 'refs/heads/ci/supercov-per-test-impact-poc')) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/supercov-per-test-impact-poc') }}
     uses: ./.github/workflows/logic-tests.yml
     with:
       mode: ${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || github.ref == 'refs/heads/main' && 'full' || 'related' }}
@@ -35,7 +31,7 @@ jobs:
   web:
     needs: logic
     # Preserve the existing required check: failed logic must fail web, not skip it.
-    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.bootstrap_dev_seed == true || github.ref == 'refs/heads/ci/supercov-per-test-impact-poc')) }}
+    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/supercov-per-test-impact-poc') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -130,11 +126,11 @@ jobs:
       logic-verified-sha: ${{ needs.logic.outputs.verified-sha }}
 
   # Explicit maintenance only: on the #430 feature branch, the already-existing
-  # Run workflow / mode=full action bootstraps dev even if the default-branch
-  # workflow UI does not yet expose bootstrap_dev_seed. On other branches the
-  # boolean input is opt-in. Cross-ref data uses repository-wide artifacts.
+  # Run workflow / mode=full action bootstraps dev with no new dispatch
+  # inputs required on default branch. Other branches retain ordinary Full.
+  # Cross-ref evidence uses repository-wide artifacts.
   bootstrap-dev-seed:
-    if: ${{ github.event_name == 'workflow_dispatch' && (inputs.bootstrap_dev_seed == true || github.ref == 'refs/heads/ci/supercov-per-test-impact-poc') }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/supercov-per-test-impact-poc' }}
     runs-on: ubuntu-latest
     timeout-minutes: 70
     steps:

@@ -45,9 +45,8 @@ merged seed is published for the next dev PR; never hand-edit a private DB.
 GitHub Actions **CI → Run workflow** and select the
 `ci/supercov-per-test-impact-poc` branch with the existing `mode=full`
 option. This feature-branch-only manual dispatch activates the dev bootstrap,
-**even if the default branch's workflow form does not yet expose the new
-`bootstrap_dev_seed` boolean**. On other branches an explicit
-`bootstrap_dev_seed=true` is required.
+using the **existing default-branch workflow input**. Other branches retain
+their normal manual Full behavior.
 The dedicated job checks out the **current origin/dev** in a separate source
 directory, then executes the **existing dev Full planner/runner**, including
 100ms, Full-shard 500 and complete normal-Vitest aggregation. It separately

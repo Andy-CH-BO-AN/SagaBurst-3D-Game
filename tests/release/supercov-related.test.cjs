@@ -104,7 +104,7 @@ test('manual dev bootstrap has an explicit opt-in and repository-wide artifact t
   const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
   const bootstrap = readFileSync(resolve(__dirname, '../tooling/supercov-bootstrap-dev.cjs'), 'utf8')
   const artifact = readFileSync(resolve(__dirname, '../tooling/supercov-evidence.cjs'), 'utf8')
-  assert.match(ci, /bootstrap_dev_seed:/)
+  assert.match(ci, /github\.ref == 'refs\/heads\/ci\/supercov-per-test-impact-poc'/)
   assert.match(ci, /bootstrap-dev-seed:/)
   assert.match(ci, /ref: dev/)
   assert.match(ci, /supercov-bootstrap-dev\.cjs source/)
