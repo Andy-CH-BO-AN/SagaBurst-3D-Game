@@ -142,11 +142,46 @@ and corrupted evidence fail Related until native safety is demonstrated.
 Config/dependency changes may select all leaves, which will exceed the 500
 Related limit and must be handled through an explicit maintenance workflow.
 
-PR #430 still requires **a real successful workflow_dispatch bootstrap artifact and a PR restore**; native affected
-benchmarks for CareerDuelState, #407, #408, #409; module initialization and
-setup impacts; changed tests; exact runner execution; and two consecutive
-dev incremental-refresh scenarios. Do not claim production acceptance without
-the matching successful GitHub CI evidence.
+### Pre-merge acceptance (PR #430, without writing to dev)
+
+1. Complete the [#433 fixture fix](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/pull/433)
+   through normal review into dev, then explicitly dispatch a **canonical dev
+   Full bootstrap** and verify successful normal Full, exact Supercov identities,
+   `valid=true` / `complete=true`, and a SHA-bound seed artifact.
+2. On #430, restore that seed with **PR-base ancestry enforced**, run the
+   actual Supercov native affected query, ensure per-leaf selection respects
+   the aggregate 500 cap (501+ fails), run the selected cases with normal
+   Vitest, and verify a complete passing aggregate with the 100ms gate intact.
+3. Verify at least **one strict merge and subsequent native selection**
+   against the resulting evidence using an **isolated worktree/acceptance
+   harness** with real runtime edits and genuine public Supercov CLI data.
+   Preserve command lines, Git SHAs, run IDs, source snapshots, exit statuses
+   and exact selected testcase identities. If this cannot be demonstrated
+   safely before merge, **block merge** rather than treating contract-only
+   tests or unexecuted scenarios as evidence.
+4. Review setup/module-init changes, changed tests, unsupported inputs and
+   representative CareerDuelState/#407/#408/#409 scenarios against the native
+   CLI. Preserve the current branch's conservative guards. Do not claim the
+   historical manual-union diagnostics as native production results.
+
+### Post-merge rollout confirmation (only after all pre-merge gates pass)
+
+The `supercov-refresh.cjs` production guard **must remain** restricted to
+`GITHUB_EVENT_NAME=push` and `GITHUB_REF=refs/heads/dev`.
+After #430 is merged, monitor **two consecutive actual push→dev Related
+refreshes**, both with exact normal-Vitest aggregate PASS, native affected,
+strict public merge, valid next-generation seed/artifact, and successful
+next-change native selection. A failure halts rollout and requires an
+explicit corrective PR or maintenance/bootstrap action, **never** silently
+falls back to Full, restores the old selector, or disables 100ms/500 limits.
+
+**Do not demand real push→dev production refreshes before merging #430**:
+that would be a circular requirement because the workflow is not yet deployed
+on dev. Likewise, a pre-merge rehearsal cannot be misreported as a successful
+production push→dev refresh.
+
+Until the pre-merge acceptance actually passes, the production migration
+is blocked and #430 should remain open.
 
 ## Main publication
 

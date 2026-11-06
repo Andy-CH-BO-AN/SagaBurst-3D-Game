@@ -118,7 +118,7 @@ test('manual dev bootstrap has an explicit opt-in and repository-wide artifact t
   assert.match(workflow, /GH_TOKEN:/)
   assert.match(workflow, /supercov-evidence\.cjs restore/)
   assert.match(workflow, /name: supercov-seed-/)
-  assert.match(artifact, /merge-base', '--is-ancestor'/)
+  // Git ancestry is enforced behaviorally by the P1 test below, not by matching an implementation string.
   assert.match(artifact, /workflow\.conclusion !== 'success'/)
   assert.match(artifact, /No PR\/dev TEST_BASE ancestor Full\/strict-Related seed artifact/)
 })
@@ -172,4 +172,15 @@ test('P2 bounded evidence lineage requires explicit clean Full after threshold',
   assert.match(script, /requireRefreshAllowed\(seed\)/)
   assert.match(workflow, /node tests\/tooling\/supercov-evidence-policy\.cjs/)
   assert.match(workflow, /retention-days: 45/)
+})
+
+test('rollout keeps true dev-push-only production refresh and distinct pre/post-merge acceptance', () => {
+  const refresh = readFileSync(resolve(__dirname, '../tooling/supercov-refresh.cjs'), 'utf8')
+  const docs = readFileSync(resolve(__dirname, '../tooling/README.md'), 'utf8')
+  assert.match(refresh, /GITHUB_EVENT_NAME !== 'push'/)
+  assert.match(refresh, /GITHUB_REF !== 'refs\/heads\/dev'/)
+  assert.match(docs, /Pre-merge acceptance/)
+  assert.match(docs, /Post-merge rollout confirmation/)
+  assert.match(docs, /isolated worktree\/acceptance/)
+  assert.match(docs, /two consecutive actual push→dev/)
 })
