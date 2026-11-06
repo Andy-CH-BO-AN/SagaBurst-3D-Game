@@ -1,0 +1,66 @@
+name: Supercov isolated migration acceptance (temporary #430)
+
+on:
+  pull_request:
+    branches: [dev]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: supercov-isolated-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  isolated:
+    if: ${{ github.event.pull_request.head.ref == 'ci/supercov-per-test-impact-poc' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout migration controller (read-only)
+        uses: actions/checkout@v4
+        with:
+          path: controller
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Checkout exact historical canonical dev source
+        uses: actions/checkout@v4
+        with:
+          path: source
+          ref: 3966b984204fb3d96ecb500d4bfc6cdd634f0d51
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - name: Install exact historical dev dependencies
+        run: npm ci
+        working-directory: source
+      - name: Retrieve historical Full evidence ONLY for isolated acceptance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p acceptance-evidence source/output
+          gh run download 42252456644 \
+            --repo "$REPO" \
+            --name supercov-seed-3966b984204fb3d96ecb500d4bfc6cdd634f0d51 \
+            --dir acceptance-evidence
+          tar -tzf acceptance-evidence/supercov-evidence.tar.gz | sed -n '1,12p'
+          tar -xzf acceptance-evidence/supercov-evidence.tar.gz -C source
+          test -f source/output/supercov-seed.json
+          test -d source/.supercov/runs/run_d06066084020ac43
+      - name: Run two isolated actual runtime edits, native selection, exact Vitest and strict merges
+        run: node controller/tests/tooling/supercov-isolated-acceptance.cjs source
+      - name: Preserve reproducible acceptance evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supercov-isolated-acceptance-${{ github.sha }}
+          path: |
+            acceptance-evidence/*.log
+            acceptance-evidence/*.json
+          if-no-files-found: warn
+          retention-days: 45
