@@ -21,6 +21,7 @@ on:
         value: ${{ jobs.aggregate.outputs.verified-sha }}
 permissions:
   contents: read
+  actions: read
 jobs:
   plan:
     runs-on: ubuntu-latest
