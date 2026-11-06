@@ -1,5 +1,7 @@
 # testpick 0.1.1 coverage impact PoC — NO-GO
 
+## Round 1 — default setup
+
 Measured 2026-11-05 (Asia/Taipei), from clean `origin/dev`
 `e927b699110d442827f32c71a30b34cba959bad0`.
 
@@ -150,3 +152,81 @@ policy, or Datadog integration is included. The report is the only permanent
 change, so the code/config-change regression condition does not apply; full
 `npm test`, test typecheck, web build and desktop build were not run locally for
 this documentation-only branch. PR CI status is tracked in the PR description.
+
+## Round 2 — with matching @vitest/coverage-v8
+
+Measured 2026-11-06 (Asia/Taipei), same latest origin/dev `e927b699110d442827f32c71a30b34cba959bad0`; dev did not advance. Round 1 is retained above. Only the exact devDependency `@vitest/coverage-v8: 4.1.10` and its lockfile entries were added. `npm ls` confirms Vitest and the provider both resolve to 4.1.10. All original locked package versions, including Vite/Vitest, are unchanged. No testpick, Vitest config, reporter, workflow or gameplay change.
+
+**Final recommendation: NO-GO — move next to Datadog Test Impact Analysis.** Installing the matching provider makes native fallback attribution work, but the source-only results remain too broad and the map silently omits tests which execute mapped sources. This supersedes Round 1's integration-only inference; it is not evidence that coverage-based TIA in general cannot work.
+
+### Attribution gate
+
+Round 1 scratch output was archived locally before creating a clean `output/testpick-poc/`; `.testpick` was absent before rebuilding. `npm ci` passed. The unmodified `npx --yes testpick@0.1.1 map --full` exited 0 in **66.480s** (user CPU 290.543s, system CPU 50.695s; same M1 Pro / 8 jobs). Its complete visible stdout/stderr was saved locally. The original callback config still prevents single-pass attribution: **0/116 single-pass, 116 per-file fallbacks**. No tool or config patch was applied.
+
+| Metric | Round 1 | Round 2 |
+|---|---:|---:|
+| Listed test files | 116 | 116 |
+| Normal Vitest inventory | 109 / 740 leaves | 109 / 740 leaves |
+| Attributed Vitest files | 0 | **105 / 109** |
+| Mapped source files (all map keys, including helpers) | 0 | **322** |
+| Coverage edges | 0 | **10,385** |
+| Map bytes | 16,719 | **582,549** |
+| Fallbacks with zero source results | 116 | **11** (4 Vitest + 7 excluded Node files) |
+
+The numerical attribution gate passes. This is not a clean mapping run. Missing Vitest attribution:
+
+- `tests/combat/CombatAttribution.test.ts`
+- `tests/equipment/CareerTownEquipment.test.ts`
+- `tests/missions/CommanderMission.test.ts`
+- `tests/movement/NavigationWorld.test.ts`
+
+Seven `.test.cjs` files remain outside Vitest, as in Round 1. The mapper suppresses child stdout/stderr and ignores child exit statuses, so its full-run child-failure count is **not observable from native output**, not zero. All 8 single-pass shards encounter the unchanged callback merge blocker. Four isolated diagnostic invocations of the exact fallback command were therefore logged separately, without replacing or repairing the measured map:
+
+- CombatAttribution: exit 1, 8 passed / 1 failed; existing expected label `敵方巨鷹弓兵 · T3` differs from actual `敵方巨鷹弓兵`. Budget reporter also rejects the failed run.
+- CareerTownEquipment, CommanderMission and NavigationWorld: exit 0 when diagnosed separately; actual `coverage-final.json` files were generated. Their original zero-source outcomes are retained as missing attribution, rather than replaced by these subsequent successful measurements. The cause of those original outcomes cannot be established from testpick's suppressed diagnostics.
+
+### Precision
+
+| Scenario | #427 Vitest files/leaves | Round 2 testpick files/leaves |
+|---|---:|---:|
+| CareerDuelState | 38 / 347 | 37 / 333 |
+| Game | 3 / 21 | 3 / 21 |
+| TownScene | 7 / 77 | 6 / 71 |
+| memoryStorage | 35 / 310 | 34 / 296 |
+| PR #407 full | 80 / 593 | 116 listed / 740 Vitest leaves (Full; +7 Node files) |
+| PR #407 source-only | 80 / 593 reference | 116 listed / 740 Vitest leaves (Full; +7 Node files) |
+| PR #408 full | 71 / 543 | 116 listed / 740 Vitest leaves (Full; +7 Node files) |
+| PR #408 source-only | 71 / 543 reference | 70 / 542 |
+| PR #409 full | 70 / 539 | 116 listed / 740 Vitest leaves (Full; +7 Node files) |
+| PR #409 source-only | 70 / 539 reference | 69 / 538 |
+
+These are the original map's native `explain` selections, not repaired estimates. Full includes 109 Vitest files / 740 leaves and 7 Node files not counted in that Vitest leaf inventory. Current leaves were collected via unchanged Vitest public API; there were no skipped registrations. #427 used its own migrated 107/663 inventory, so its reference rows are not a controlled apples-to-apples precision comparison.
+
+The exact historical input lists from Round 1 were reused: every still-existing input in the full replay (12/19/10 inputs), and exactly the prescribed source-only filter (4/5/8 inputs). No input list was handwritten or altered. The detached replay ran only explain against reversible byte/comment edits; it was restored and removed.
+
+Narrow sources use `coverage-map` reasons; `memoryStorage` selects 34 files / 296 leaves. PR #407 source-only falls back because `src/world/WeaponMeshFactory.ts` is unmapped, even without assets. PR #408/#409 source-only return 542/538 leaves. Full-input replays remain Full due to unmapped assets/tools/config/docs. **0/3 source-only scenarios are below 300 leaves.**
+
+### Safety and incremental behavior
+
+The missing attribution is a concrete safety problem: separate successful fallback coverage reports for CareerTownEquipment and CommanderMission contain positive statement hits for `src/career/CareerDuelState.ts` (4 each) and `tests/helpers/memoryStorage.ts` (234/153). Neither test is in the original map's selected sets for those changed files. An apparently smaller selection therefore excludes tests that actually execute the changed source. These files also execute `src/world/NPC.ts` (173 statement hits each); NavigationWorld does too (173). Diagnostics establish executed-file coverage, not a claim that every function in that file executed.
+
+No new imported-but-unexecuted or dynamic-import fixture was added after the explicit NO-GO threshold was met. Those precision proofs remain **unvalidated**, and no claimed improvement is attributed to excluding import-only tests. New source, config, asset and unrelated preview probes all conservatively select Full in this round too.
+
+| Refresh | Wall | Attributed Vitest files | Sources | Edges |
+|---|---:|---:|---:|---:|
+| Full | 66.480s | 105 | 322 | 10,385 |
+| No-op | 1.009s | 105 | 322 | 10,385 |
+| One comment-edited CareerDuelState test | 3.693s | 105 | 322 | 10,385 |
+
+The one-test refresh reuses 115 hashes and remeasures only that file. The original test bytes and full-map snapshot were restored. Hash-based refresh functions mechanically, but no-op also reuses the four missing Vitest attributions; successful timing alone is not evidence of safe completeness or reproducibility. No second full-map repair/retry was used to improve results after NO-GO.
+
+### Required local regression
+
+All requested commands ran; no gate or baseline was relaxed:
+
+- `npm ci`: passed.
+- `npm test`: failed; the first shard executed 483 leaves (482 passed / 1 failed), then stopped. CombatAttribution has the same label assertion failure as the coverage diagnostic. This is not a Full pass; later shards did not run. Observed first-shard maximum was 38.616ms including hooks/cleanup.
+- `npm run typecheck:test`: failed with existing `src/Game.ts:6:184` TS6133 for unused `createCareerFieldPersonalOrphanMountPlan`.
+- `npm run build` and `npm run build:desktop`: both failed at that same TypeScript error, before Vite bundling.
+
+`src/Game.ts`, `tests/combat/CombatAttribution.test.ts`, and all gameplay/test source blobs are identical to origin/dev; the only branch changes are this report, package.json and package-lock.json. Thus these are pre-existing source/assertion problems on this baseline, not silently fixed by the PoC. The earlier Round 1 CI also recorded the same Game.ts diagnostic. Node integration, required CI, hybrid rules, caches, 100ms/500-leaf gates and Datadog integration remain outside this change. Latest-head CI is reported in the PR description.
