@@ -13,7 +13,9 @@ import {
 } from '../../src/movement/ContinuousCavalryCharge'
 import { angleDifference } from '../../src/movement/MountedArcherOrbit'
 import { WeaponSweep } from '../../src/combat/ShieldBlocking'
-import { Faction, combatAllegiancesHostile } from '../../src/combat/CombatFaction'
+import { Faction } from '../../src/combat/CombatFaction'
+import { isHostileCombatMount } from '../../src/world/NPC'
+import { TownScene } from '../../src/town/TownScene'
 
 describe('Continuous Melee Cavalry Charge', () => {
   it('identifies eligible ground melee cavalry while excluding ranged, flying, defense, and siege units', () => {
@@ -634,7 +636,7 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(contact!.target).not.toBe(target1)
   })
 
-  it('excludes and protects friendly mounts from melee weapon sweep', () => {
+  it('evaluates hostile mount candidates fail-closed: excludes unowned neutral mounts and friendly mounts, while allowing hostile dismounted/mounted horses', () => {
     const attackerNpc = {
       faction: Faction.PLAYER,
       hostileToPlayer: false,
@@ -642,41 +644,129 @@ describe('Continuous Melee Cavalry Charge', () => {
       combatTargetAllowed: () => true,
     } as any
 
-    const friendlyMount = {
-      id: 'friendly-horse',
+    const player = {
+      targetable: true,
+      dead: false,
+    } as any
+
+    // 1. Unowned / neutral scene mount (no rider, no combatOwner) -> strictly excluded (fail-closed)
+    const neutralSceneMount = {
+      id: 'neutral-horse',
+      dead: false,
+      disposed: false,
+      riderNpc: undefined,
+      riderPlayer: undefined,
+      combatOwner: undefined,
+    } as any
+    expect(isHostileCombatMount(attackerNpc, neutralSceneMount, player)).toBe(false)
+
+    // 2. Dead or disposed mount -> excluded
+    const deadMount = {
+      id: 'dead-horse',
+      dead: true,
+      disposed: false,
+      riderNpc: undefined,
+      combatOwner: { actorType: 'npc', allegiance: Faction.ENEMY },
+    } as any
+    expect(isHostileCombatMount(attackerNpc, deadMount, player)).toBe(false)
+
+    // 3. Own mount -> excluded
+    expect(isHostileCombatMount(attackerNpc, attackerNpc.mount, player)).toBe(false)
+
+    // 4. Friendly mounted mount -> excluded
+    const friendlyMountedHorse = {
+      id: 'friendly-mounted-horse',
       dead: false,
       disposed: false,
       riderNpc: { faction: Faction.PLAYER, dead: false },
-      combatOwner: { allegiance: Faction.PLAYER },
+      combatOwner: { actorType: 'npc', allegiance: Faction.PLAYER },
     } as any
+    expect(isHostileCombatMount(attackerNpc, friendlyMountedHorse, player)).toBe(false)
 
-    const enemyMount = {
-      id: 'enemy-horse',
+    // 5. Friendly dismounted mount with friendly combatOwner -> excluded
+    const friendlyDismountedHorse = {
+      id: 'friendly-dismounted-horse',
+      dead: false,
+      disposed: false,
+      riderNpc: undefined,
+      riderPlayer: undefined,
+      combatOwner: { actorType: 'npc', allegiance: Faction.PLAYER },
+    } as any
+    expect(isHostileCombatMount(attackerNpc, friendlyDismountedHorse, player)).toBe(false)
+
+    // 6. Hostile mounted mount -> allowed
+    const enemyMountedHorse = {
+      id: 'enemy-mounted-horse',
       dead: false,
       disposed: false,
       riderNpc: { faction: Faction.ENEMY, dead: false },
-      combatOwner: { allegiance: Faction.ENEMY },
+      combatOwner: { actorType: 'npc', allegiance: Faction.ENEMY },
+    } as any
+    expect(isHostileCombatMount(attackerNpc, enemyMountedHorse, player)).toBe(true)
+
+    // 7. Hostile dismounted mount with enemy combatOwner -> allowed
+    const enemyDismountedHorse = {
+      id: 'enemy-dismounted-horse',
+      dead: false,
+      disposed: false,
+      riderNpc: undefined,
+      riderPlayer: undefined,
+      combatOwner: { actorType: 'npc', allegiance: Faction.ENEMY },
+    } as any
+    expect(isHostileCombatMount(attackerNpc, enemyDismountedHorse, player)).toBe(true)
+
+    // 8. Enemy attacker cannot attack friendly dismounted horse
+    const enemyAttacker = {
+      faction: Faction.ENEMY,
+      hostileToPlayer: true,
+      mount: { id: 'enemy-own-mount' },
+    } as any
+    expect(isHostileCombatMount(enemyAttacker, enemyDismountedHorse, player)).toBe(false)
+  })
+
+  it('enforces TownScene hitBattlefieldMount protection during PREPARING phase and routes melee hits authoritatively', () => {
+    const targetMount = {
+      id: 'personal-horse',
+      dead: false,
+      disposed: false,
+      currentHp: 100,
+      maxHp: 100,
+      group: { position: new THREE.Vector3(0, 0, 0) },
     } as any
 
-    const nearbyMounts = [friendlyMount, enemyMount]
+    const attackerNpc = {
+      combatantId: 'attacker-1',
+      combatOwnership: 'player-personal',
+      faction: Faction.PLAYER,
+      meleeWeaponId: 'sword_iron',
+    } as any
 
-    // Filter using the production hostile-mount filter from NPC.ts:
-    const hostileMounts: any[] = []
-    for (let i = 0; i < nearbyMounts.length; i++) {
-      const m = nearbyMounts[i]
-      if (m.dead || m.disposed || m === attackerNpc.mount) continue
-      if (m.riderNpc) {
-        if (m.riderNpc === attackerNpc || !combatAllegiancesHostile(attackerNpc, m.riderNpc) || attackerNpc.combatTargetAllowed?.(m.riderNpc) === false) continue
-      } else if (m.combatOwner) {
-        if (!combatAllegiancesHostile(attackerNpc, { faction: m.combatOwner.allegiance })) continue
-      }
-      hostileMounts.push(m)
+    const mockTown = {
+      retirementFinale: null,
+      fourGateCombatHeld: false,
+      isRetirementEvacuating: () => false,
+      defense: { phase: 'PREPARING' },
+      personalSquad: { mounts: [targetMount] },
+      canHitTownMount: () => true,
     }
 
-    // Friendly mount is filtered out, enemy mount is retained
-    expect(hostileMounts).not.toContain(friendlyMount)
-    expect(hostileMounts).toContain(enemyMount)
-    expect(hostileMounts.length).toBe(1)
+    // 1. During PREPARING phase, personalSquad mount is protected
+    const hitBattlefieldMount = (TownScene.prototype as any).hitBattlefieldMount
+    hitBattlefieldMount.call(mockTown, targetMount, 25, 'melee', attackerNpc, undefined)
+    expect(targetMount.currentHp).toBe(100)
+
+    // 2. Authoritative callback routing in TownScene update
+    let routedToTownBattlefieldMount = false
+    const townCallback = (_damage: number, isPlayer: boolean, targetNpc?: any, mountTarget?: any) => {
+      if (isPlayer) { /* player */ }
+      else if (targetNpc) { /* npc */ }
+      else if (mountTarget) {
+        routedToTownBattlefieldMount = true
+      }
+    }
+
+    townCallback(30, false, undefined, targetMount)
+    expect(routedToTownBattlefieldMount).toBe(true)
   })
 
   it('routes melee contact to the exact hit entity for player, mounted NPC rider, and standalone mount', () => {

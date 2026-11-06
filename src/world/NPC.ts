@@ -131,6 +131,49 @@ export type NpcEagleFlightOrder = { kind: 'return'; target: THREE.Vector3; cruis
 
 export type BanditAggroState = 'idle' | 'alerted' | 'provoked' | 'returning'
 
+/**
+ * Evaluates whether a candidate mount is a valid hostile target for an attacking NPC's melee weapon sweep.
+ * Fail-closed policy:
+ * - Own mount, dead, or disposed mounts are excluded.
+ * - Mount with NPC rider: hostile via combatAllegiancesHostile and combatTargetAllowed.
+ * - Mount with Player rider: requires attacker hostileToPlayer, player targetable/alive, and combatTargetAllowed.
+ * - Riderless mount: requires verifiable combatOwner:
+ *   - Player-owned: requires attacker hostileToPlayer, player targetable/alive, and combatTargetAllowed.
+ *   - Evaluated via combatAllegiancesHostile against owner's faction and combatOwnership.
+ * - Truly unowned/neutral scene mounts (no rider and no combatOwner) are strictly excluded.
+ */
+export function isHostileCombatMount(attacker: NPC, mount: Mount, player?: Player): boolean {
+  if (!mount || mount.dead || mount.disposed || mount === attacker.mount) return false
+
+  if (mount.riderNpc) {
+    if (mount.riderNpc === attacker) return false
+    if (!combatAllegiancesHostile(attacker, mount.riderNpc)) return false
+    if (attacker.combatTargetAllowed?.(mount.riderNpc) === false) return false
+    return true
+  }
+
+  if (mount.riderPlayer) {
+    if (!attacker.hostileToPlayer) return false
+    if (player && (!player.targetable || player.dead)) return false
+    if (player && attacker.combatTargetAllowed?.(player) === false) return false
+    return true
+  }
+
+  if (mount.combatOwner) {
+    if (mount.combatOwner.actorType === 'player') {
+      if (!attacker.hostileToPlayer) return false
+      if (player && (!player.targetable || player.dead)) return false
+      if (player && attacker.combatTargetAllowed?.(player) === false) return false
+    }
+    return combatAllegiancesHostile(attacker, {
+      faction: mount.combatOwner.allegiance,
+      combatOwnership: mount.combatOwner.ownership,
+    })
+  }
+
+  return false
+}
+
 const DETECTION_RADIUS = 300.0
 const RANGED_ATTACK_MIN = 6.0
 const RANGED_REEQUIP_MIN = RANGED_ATTACK_MIN + 3
@@ -3589,15 +3632,9 @@ export class NPC {
               NPC._cavalryHostileMounts.length = 0
               for (let i = 0; i < rawMounts.length; i++) {
                 const m = rawMounts[i]
-                if (m.dead || m.disposed || m === this.mount) continue
-                if (m.riderNpc) {
-                  if (m.riderNpc === this || !combatAllegiancesHostile(this, m.riderNpc) || this.combatTargetAllowed?.(m.riderNpc) === false) continue
-                } else if (m.riderPlayer) {
-                  if (!this.hostileToPlayer || !player.targetable || player.dead || this.combatTargetAllowed?.(player) === false) continue
-                } else if (m.combatOwner) {
-                  if (!combatAllegiancesHostile(this, { faction: m.combatOwner.allegiance })) continue
+                if (isHostileCombatMount(this, m, player)) {
+                  NPC._cavalryHostileMounts.push(m)
                 }
-                NPC._cavalryHostileMounts.push(m)
               }
 
               NPC._cavalrySweepTargets.length = 0
@@ -3679,15 +3716,9 @@ export class NPC {
               NPC._cavalryHostileMounts.length = 0
               for (let i = 0; i < rawMounts.length; i++) {
                 const m = rawMounts[i]
-                if (m.dead || m.disposed || m === this.mount) continue
-                if (m.riderNpc) {
-                  if (m.riderNpc === this || !combatAllegiancesHostile(this, m.riderNpc) || this.combatTargetAllowed?.(m.riderNpc) === false) continue
-                } else if (m.riderPlayer) {
-                  if (!this.hostileToPlayer || !player.targetable || player.dead || this.combatTargetAllowed?.(player) === false) continue
-                } else if (m.combatOwner) {
-                  if (!combatAllegiancesHostile(this, { faction: m.combatOwner.allegiance })) continue
+                if (isHostileCombatMount(this, m, player)) {
+                  NPC._cavalryHostileMounts.push(m)
                 }
-                NPC._cavalryHostileMounts.push(m)
               }
               const contact = physicalTarget && this.weaponSweep.traceFirst([physicalTarget], NPC._cavalryHostileMounts, this.mount)
               if (contact) {
