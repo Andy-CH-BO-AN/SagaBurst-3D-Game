@@ -177,6 +177,8 @@ export class TownTutorialHUD {
         ...blockers.flatMap(r => [r.bottom + 12, r.top - cardHeight - 12])]
       for (const y of ys) for (const x of xs) {
         if (x < 12 || y < 12 || x + cardWidth > width - 12 || y + cardHeight > height - 12) continue
+        // The aiming area is always protected, including the last-resort occupied-slot choice.
+        if (!this.fits(x, y, cardWidth, cardHeight, [blockers[blockers.length - 1]])) continue
         if (this.fits(x, y, cardWidth, cardHeight, blockers)) {
           this.root.style.left = `${x}px`; this.root.style.top = `${y}px`
           return
