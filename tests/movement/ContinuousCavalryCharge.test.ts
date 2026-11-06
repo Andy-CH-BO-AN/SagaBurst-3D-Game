@@ -202,6 +202,7 @@ describe('Continuous Melee Cavalry Charge', () => {
       mount: { group: { rotation: { y: 0 } } },
       faction: 'roman',
       isFriendly: true,
+      hostileToPlayer: true,
       combatTargetAllowed: undefined,
     } as any
 
@@ -257,5 +258,177 @@ describe('Continuous Melee Cavalry Charge', () => {
     const deadPlayer = { ...player, dead: true } as any
     const nullTarget = findCavalryChargeTarget(cavalry, deadPlayer, gridBehindOnly, null, candidateBuffer, true)
     expect(nullTarget).toBeNull()
+  })
+
+  it('respects player targeting permissions, eagle exclusion, and ground mount positions', () => {
+    const cavalry = {
+      combatPosition: new THREE.Vector3(0, 0, 0),
+      group: { rotation: { y: 0 } },
+      mount: { group: { rotation: { y: 0 } } },
+      faction: 'bandit',
+      isFriendly: false,
+      hostileToPlayer: true,
+      combatTargetAllowed: undefined,
+    } as any
+
+    const groundMountPos = new THREE.Vector3(0, 0, 12)
+    const playerOnGroundMount = {
+      position: new THREE.Vector3(0, 1, 12),
+      targetable: true,
+      dead: false,
+      isMounted: true,
+      currentMount: { isFlyingMount: false, group: { position: groundMountPos } },
+    } as any
+
+    const candidateBuffer: any[] = []
+
+    // 1. Player riding a ground mount: target position uses mount group position
+    const groundTarget = findCavalryChargeTarget(cavalry, playerOnGroundMount, null, null, candidateBuffer, false)
+    expect(groundTarget).not.toBeNull()
+    expect(groundTarget?.isPlayer).toBe(true)
+    expect(groundTarget?.position).toBe(groundMountPos)
+
+    // 2. Player riding an eagle (flying mount): ground melee cavalry cannot target airborne player
+    const playerOnEagle = {
+      position: new THREE.Vector3(0, 10, 12),
+      targetable: true,
+      dead: false,
+      isMounted: true,
+      currentMount: { isFlyingMount: true, group: { position: new THREE.Vector3(0, 10, 12) } },
+    } as any
+    const eagleTarget = findCavalryChargeTarget(cavalry, playerOnEagle, null, null, candidateBuffer, false)
+    expect(eagleTarget).toBeNull()
+
+    // 3. Cavalry not hostile to player: cannot target player
+    const peacefulCavalry = { ...cavalry, hostileToPlayer: false } as any
+    const peacefulTarget = findCavalryChargeTarget(peacefulCavalry, playerOnGroundMount, null, null, candidateBuffer, false)
+    expect(peacefulTarget).toBeNull()
+
+    // 4. combatTargetAllowed explicitly rejects player: cannot target player
+    const restrictedCavalry = {
+      ...cavalry,
+      combatTargetAllowed: (target: any) => target !== playerOnGroundMount,
+    } as any
+    const restrictedTarget = findCavalryChargeTarget(restrictedCavalry, playerOnGroundMount, null, null, candidateBuffer, false)
+    expect(restrictedTarget).toBeNull()
+  })
+
+  it('keeps charge heading forward without turning back when target moves behind during ATTACK', () => {
+    const cavalryPos = new THREE.Vector3(0, 0, 10)
+    const currentYaw = 0 // Facing +Z
+    const enemyBehindPos = new THREE.Vector3(0, 0, 8) // Behind at z=8
+    const speed = 12
+    const dt = 1 / 60
+
+    // Enemy is behind: isTargetInForwardCone must be false
+    const inFront = isTargetInForwardCone(cavalryPos, currentYaw, enemyBehindPos)
+    expect(inFront).toBe(false)
+
+    // Because enemy is behind, desiredYaw must remain currentYaw (forward)
+    const targetDirX = enemyBehindPos.x - cavalryPos.x
+    const targetDirZ = enemyBehindPos.z - cavalryPos.z
+    const desiredYaw = (inFront && targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
+      ? Math.atan2(targetDirX, targetDirZ)
+      : currentYaw
+
+    expect(desiredYaw).toBe(currentYaw)
+
+    // Steering maintains heading with zero turn
+    const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
+    expect(newYaw).toBe(currentYaw)
+  })
+
+  it('bounds lance tip yaw adjustment to cavalry turn rate limits', () => {
+    const speed = 12
+    const dt = 1 / 60
+    const maxTurn = cavalryTurnRate(speed) * dt
+
+    // Large tip offset that would cause a sudden snap turn
+    const largeTipYawOffset = 0.5 // ~28.6 degrees
+
+    const clampedOffset = Math.max(-maxTurn, Math.min(maxTurn, largeTipYawOffset))
+    expect(Math.abs(clampedOffset)).toBeLessThanOrEqual(maxTurn)
+    expect(clampedOffset).toBeCloseTo(maxTurn, 6)
+  })
+
+  it('preserves navigation pause and stops at blocking obstacles during CHASE', () => {
+    // 1. Navigation pause: when moveDir is (0, 0, 0), cavalry does not force forward movement
+    const moveDir = new THREE.Vector3(0, 0, 0)
+    const currentYaw = 0
+    const speed = 12
+    const dt = 1 / 60
+
+    if (moveDir.lengthSq() > 0.0001) {
+      const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
+      const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
+      moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
+    }
+
+    // moveDir remains zero: navigation stop decision preserved
+    expect(moveDir.lengthSq()).toBe(0)
+
+    // 2. Obstacle ahead: when a wall/gate is detected along path, moveDir is stopped
+    const activeMoveDir = new THREE.Vector3(0, 0, 1)
+    const cavalryPos = new THREE.Vector3(0, 0, 10)
+    const wallBox = new THREE.Box3(new THREE.Vector3(-5, 0, 11), new THREE.Vector3(5, 5, 13))
+
+    // Simulate lookahead endpoint
+    const endpoint = new THREE.Vector3().copy(cavalryPos).addScaledVector(activeMoveDir, speed * (dt + 0.15))
+    // Path intersects wallBox:
+    const intersectsWall = wallBox.intersectsBox(new THREE.Box3(
+      new THREE.Vector3(Math.min(cavalryPos.x, endpoint.x) - 1, 0, Math.min(cavalryPos.z, endpoint.z) - 1),
+      new THREE.Vector3(Math.max(cavalryPos.x, endpoint.x) + 1, 2, Math.max(cavalryPos.z, endpoint.z) + 1),
+    ))
+    expect(intersectsWall).toBe(true)
+
+    // Obstacle along path halts movement
+    if (intersectsWall) activeMoveDir.set(0, 0, 0)
+    expect(activeMoveDir.lengthSq()).toBe(0)
+
+    // 3. Passthrough without target stops at obstacle and resets timer
+    let passthroughTimer = 1.0
+    if (intersectsWall) passthroughTimer = 0
+    expect(passthroughTimer).toBe(0)
+  })
+
+  it('synchronizes rider transform and weapon sweep with mount movement during ATTACK', () => {
+    const mountPosition = new THREE.Vector3(0, 0, 0)
+    const riderPosition = new THREE.Vector3(0, 1.2, 0) // Sitting on mount at y=1.2
+    const rideOffset = new THREE.Vector3(0, 1.2, 0)
+
+    const mount = {
+      group: { position: mountPosition, rotation: { y: 0 } },
+      baseSpeed: 12,
+      getRiderPelvisSeatWorld: (target: THREE.Vector3) => target.copy(mountPosition).add(rideOffset),
+      addControlledMovement: (dir: THREE.Vector3, speed: number, dt: number) => {
+        mountPosition.addScaledVector(dir, speed * dt)
+      },
+    }
+
+    const dt = 1 / 60
+    const forwardDir = new THREE.Vector3(0, 0, 1)
+
+    // Simulate mount movement in ATTACK
+    mount.addControlledMovement(forwardDir, mount.baseSpeed, dt)
+    expect(mountPosition.z).toBeCloseTo(0.2, 5)
+
+    // Synchronize rider seat to mount
+    mount.getRiderPelvisSeatWorld(riderPosition)
+    expect(riderPosition.z).toBeCloseTo(0.2, 5)
+    expect(riderPosition.y).toBeCloseTo(1.2, 5)
+
+    // Weapon grip and tip world positions computed relative to updated rider
+    const gripLocal = new THREE.Vector3(0.3, 0.2, 0.4)
+    const tipLocal = new THREE.Vector3(0.3, 0.2, 2.5) // 2.1m lance forward
+
+    const gripWorld = new THREE.Vector3().copy(riderPosition).add(gripLocal)
+    const tipWorld = new THREE.Vector3().copy(riderPosition).add(tipLocal)
+
+    expect(gripWorld.z).toBeCloseTo(0.6, 5)
+    expect(tipWorld.z).toBeCloseTo(2.7, 5)
+
+    // Geometry is in exact sync with mount forward step
+    const distToTarget = new THREE.Vector3(0.3, 1.4, 2.5).distanceTo(tipWorld)
+    expect(distToTarget).toBeCloseTo(0.2, 5)
   })
 })

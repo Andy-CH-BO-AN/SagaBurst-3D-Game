@@ -103,6 +103,7 @@ import { fitStandingRider } from './StandingRider'
 import { angleDifference, steerOrbitForward, orbitRadius, writeOrbitDirection, canUseMountedBowOrbit, isWithinMountedBowOrbitRange, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
 import {
   isEligibleMeleeCavalry,
+  cavalryTurnRate,
   steerCavalryHeading,
   isTargetInForwardCone,
   findCavalryChargeTarget,
@@ -2520,6 +2521,7 @@ export class NPC {
         NPC._cavalryCandidates,
         this.cavalryPassthroughTimer > 0,
         combatAllegiancesHostile,
+        allNPCs,
       )
       if (chargeTarget !== null) return chargeTarget
       if (this.cavalryPassthroughTimer > 0) return null
@@ -2914,14 +2916,19 @@ export class NPC {
         if (!targetInfo || targetInfo.isDead) {
           if (eligibleCharge && this.cavalryPassthroughTimer > 0) {
             const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+            const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
             const moveDir = this._tmpMoveDir.set(Math.sin(currentYaw), 0, Math.cos(currentYaw))
-            this._moveByDirection(
-              moveDir,
-              this.mount ? this.mount.baseSpeed : CHASE_SPEED,
-              dt,
-              this.tacticalOrder === 'charge',
-            )
-            break
+            const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(moveDir, speed * (dt + 0.15))
+            if (!findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
+              this._moveByDirection(
+                moveDir,
+                speed,
+                dt,
+                this.tacticalOrder === 'charge',
+              )
+              break
+            }
+            this.cavalryPassthroughTimer = 0
           }
           this._clearObstacleDetour()
           this._clearNavigationPath()
@@ -3206,17 +3213,30 @@ export class NPC {
           }
         } else if (eligibleCharge && !siegeObstacle && !this.siegeBypassTarget) {
           const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
-          const desiredYaw = moveDir.lengthSq() > 0.0001 ? Math.atan2(moveDir.x, moveDir.z) : currentYaw
           const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
-          const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
-          this.group.rotation.y = newYaw
-          if (this.mount) this.mount.group.rotation.y = newYaw
-          moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
+          const maxDist = layeredStep?.tower
+            ? Math.hypot(movementTarget.x - this.combatPosition.x, movementTarget.z - this.combatPosition.z)
+            : Infinity
+
+          if (moveDir.lengthSq() > 0.0001) {
+            const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
+            const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
+            this.group.rotation.y = newYaw
+            if (this.mount) this.mount.group.rotation.y = newYaw
+            moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
+
+            const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(moveDir, speed * (dt + 0.15))
+            if (findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
+              moveDir.set(0, 0, 0)
+            }
+          }
+
           this._moveByDirection(
             moveDir,
             speed,
             dt,
             this.tacticalOrder === 'charge',
+            maxDist,
           )
         } else {
           this._faceTarget(movementTarget)
@@ -3334,9 +3354,11 @@ export class NPC {
         if (!mountedBowForward && !eligibleCharge) this._faceTarget(attackTargetPosition)
         if (eligibleCharge && !siegeObstacle) {
           const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
+          const inFront = this.cavalryPassthroughTimer <= 0
+            && isTargetInForwardCone(this.combatPosition, currentYaw, attackTargetPosition)
           const targetDirX = attackTargetPosition.x - this.combatPosition.x
           const targetDirZ = attackTargetPosition.z - this.combatPosition.z
-          const desiredYaw = (targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
+          const desiredYaw = (inFront && targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
             ? Math.atan2(targetDirX, targetDirZ)
             : currentYaw
           const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
@@ -3347,14 +3369,26 @@ export class NPC {
         if (!siegeObstacle && !this.hasActiveRangedWeapon && this.isUsingLance) {
           // The authored spear is held beside the torso. Aim its actual forward
           // tip at the opponent rather than sending a parallel thrust past them.
-          const tip = this.getWeaponTipPosition()
-          const yaw = this.group.rotation.y
-          const dx = tip.x - this.group.position.x, dz = tip.z - this.group.position.z
-          const localX = dx * Math.cos(yaw) - dz * Math.sin(yaw)
-          const localZ = dx * Math.sin(yaw) + dz * Math.cos(yaw)
-          if (localZ > 0.1) {
-            this.group.rotation.y -= Math.atan2(localX, localZ)
-            if (this.mount) this.mount.group.rotation.y = this.group.rotation.y
+          const currentYaw = this.group.rotation.y
+          const inFront = !eligibleCharge || (this.cavalryPassthroughTimer <= 0
+            && isTargetInForwardCone(this.combatPosition, currentYaw, attackTargetPosition))
+          if (inFront) {
+            const tip = this.getWeaponTipPosition()
+            const dx = tip.x - this.group.position.x, dz = tip.z - this.group.position.z
+            const localX = dx * Math.cos(currentYaw) - dz * Math.sin(currentYaw)
+            const localZ = dx * Math.sin(currentYaw) + dz * Math.cos(currentYaw)
+            if (localZ > 0.1) {
+              const tipYawOffset = Math.atan2(localX, localZ)
+              if (eligibleCharge) {
+                const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+                const maxTurn = cavalryTurnRate(speed) * dt
+                const clampedOffset = Math.max(-maxTurn, Math.min(maxTurn, tipYawOffset))
+                this.group.rotation.y -= clampedOffset
+              } else {
+                this.group.rotation.y -= tipYawOffset
+              }
+              if (this.mount) this.mount.group.rotation.y = this.group.rotation.y
+            }
           }
         }
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
@@ -3460,12 +3494,20 @@ export class NPC {
           if (eligibleCharge && !siegeObstacle) {
             const currentYaw = this.mount ? this.mount.group.rotation.y : this.group.rotation.y
             const chargeDir = this._tmpMoveDir.set(Math.sin(currentYaw), 0, Math.cos(currentYaw))
-            this._moveByDirection(
-              chargeDir,
-              this.mount ? this.mount.baseSpeed : CHASE_SPEED,
-              dt,
-              this.tacticalOrder === 'charge',
-            )
+            const speed = this.mount ? this.mount.baseSpeed : CHASE_SPEED
+            const endpoint = this._tmpFaceDir.copy(this.combatPosition).addScaledVector(chargeDir, speed * (dt + 0.15))
+            if (!findBlockingObstacleAlongPath(this.combatPosition, endpoint, this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles)) {
+              this._moveByDirection(
+                chargeDir,
+                speed,
+                dt,
+                this.tacticalOrder === 'charge',
+              )
+              if (this.isMounted) {
+                this._syncToMount(_collector)
+                this.group.updateMatrixWorld(true)
+              }
+            }
           }
 
           this.animator.setLocomotion(this.visualMovementSpeed, this.isMounted, this.isSprinting)

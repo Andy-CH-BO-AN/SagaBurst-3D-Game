@@ -127,6 +127,7 @@ export function findCavalryChargeTarget(
   candidateBuffer: NPC[],
   isPassthrough: boolean,
   isHostile?: (a: any, b: any) => boolean,
+  allNPCs?: NPC[],
 ): { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null {
   const checkHostile = isHostile ?? ((a: any, b: any) => a?.faction !== b?.faction || a?.isFriendly !== b?.isFriendly)
   const cx = cavalry.combatPosition.x
@@ -137,11 +138,25 @@ export function findCavalryChargeTarget(
   let bestTarget: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
 
   // Check player
-  if (player.targetable && !player.dead && checkHostile(cavalry, player)) {
-    const pScore = scoreCavalryTarget(cx, cz, yaw, player.position.x, player.position.z, isPassthrough)
+  // Must respect cavalry.hostileToPlayer (targetsPlayer) and combatTargetAllowed.
+  // Ground melee cavalry must exclude airborne eagle riders (!player.currentMount?.isFlyingMount).
+  const canTargetPlayer = Boolean(
+    cavalry.hostileToPlayer
+    && player.targetable
+    && !player.dead
+    && cavalry.combatTargetAllowed?.(player) !== false
+    && !player.currentMount?.isFlyingMount,
+  )
+
+  if (canTargetPlayer) {
+    const playerPos = player.isMounted && player.currentMount && !player.currentMount.isFlyingMount
+      ? player.currentMount.group.position
+      : (player.group?.position ?? player.position)
+
+    const pScore = scoreCavalryTarget(cx, cz, yaw, playerPos.x, playerPos.z, isPassthrough)
     if (pScore < bestScore) {
       bestScore = pScore
-      bestTarget = { position: player.position, isDead: false, isPlayer: true }
+      bestTarget = { position: playerPos, isDead: false, isPlayer: true }
     }
   }
 
@@ -153,6 +168,32 @@ export function findCavalryChargeTarget(
     for (let i = 0; i < candidateBuffer.length; i++) {
       const candidate = candidateBuffer[i]
       if (candidate.dead) continue
+      if (!checkHostile(cavalry, candidate)) continue
+      if (candidate.mount?.isFlyingMount) continue
+      if (cavalry.combatTargetAllowed && cavalry.combatTargetAllowed(candidate) === false) continue
+
+      const score = scoreCavalryTarget(
+        cx,
+        cz,
+        yaw,
+        candidate.combatPosition.x,
+        candidate.combatPosition.z,
+        isPassthrough,
+      )
+      if (score < bestScore) {
+        bestScore = score
+        bestTarget = {
+          position: candidate.combatPosition,
+          isDead: false,
+          isPlayer: false,
+          npc: candidate,
+        }
+      }
+    }
+  } else if (allNPCs) {
+    for (let i = 0; i < allNPCs.length; i++) {
+      const candidate = allNPCs[i]
+      if (candidate === cavalry || candidate.dead) continue
       if (!checkHostile(cavalry, candidate)) continue
       if (candidate.mount?.isFlyingMount) continue
       if (cavalry.combatTargetAllowed && cavalry.combatTargetAllowed(candidate) === false) continue
