@@ -1,166 +1,235 @@
-# Logic test tooling
+# Logic CI — Supercov Native Related
 
-Local npm tests and CI share this runner/planner; release publication helpers live
-under `.github/scripts/release/`. `typecheck.cjs` owns the test diagnostic ratchet.
+Production Vitest Related selection has one source of truth: **Supercov 4.24.2**
+public CLI: supercov runs RUN_ID tests affected --json. There is **no custom
+dependency graph, AST/behavior selector, module initialization owner graph,
+or gameplay source-to-test mapping**. The previous implementation and its
+obsolete selector-only tests were removed in PR #430.
 
-`ci-plan.cjs` collects leaves without running their bodies and produces a JSON
-manifest. Related and Full deliberately have different budgets:
+## Trigger semantics — exact PR-base Full evidence
 
-- **Related** (`PR/push → dev`) selects behavior owners/caller contracts and must fit in one
-  aggregate set of at most 500 leaves. It never opens a second shard to bypass the
-  limit. If selection is unsafe, unmapped, or exceeds 500, planning
-  fails with an actionable error instead of silently running repository Full.
-- **Full** (`PR/push → main`, Pages, Release, manual Full) runs the complete
-  repository and may split sorted whole files into deterministic shards of at most
-  500 leaves each. Aggregate may exceed 500 only in Full mode.
+| GitHub event | Logic mode | Evidence |
+| --- | --- | --- |
+| Pull request → dev | **Related** | Requires an immutable Full seed whose `seed.sha === PR base SHA` |
+| Push → dev | **Full** | Normal Full PASS, then publish a NEW Full seed bound to this dev commit SHA |
+| Pull request → main | **Full** | Complete logic suite |
+| Push → main | **Full** | Complete logic suite + immutable same-SHA Full seed for Pages/Release |
+| Release / explicit manual Full | **Full** | Complete logic suite; only canonical dev/main dispatch may publish a seed |
 
-The 100ms limit includes each leaf's hooks and cleanup. A single file larger than
-500 leaves fails planning: split independent capability suites rather than hiding
-or filtering leaves.
+**No automatic Full fallback on PRs**, and no Related shard bypass. Every
+PR→dev Related aggregate must be ≤500 individual cases, and 501+ fails.
+Each leaf of normal Vitest/Node execution must be ≤100ms, including hooks
+and cleanup. Full can shard normally with ≤500 cases **per Full shard**;
+it never uses a 500-case aggregate cap.
 
-```sh
-node tests/tooling/ci-plan.cjs --mode related --base BASE_SHA --head HEAD_SHA --event pull_request --out output/test-plan.json
-npm test -- --manifest output/test-plan.json --shard logic-related --out output/shard-reports/logic-related.json
-node tests/tooling/ci-run.cjs --manifest output/test-plan.json --reports output/shard-reports
+### Production flow
+
+```text
+push dev A → Full(normal 100ms gate) → strict same-source Full merge → seed A
+PR B (base=A) → restore verified exact seed A → native Related → normal Vitest
+merge PR B
+push dev B → Full(normal 100ms gate) → strict same-source Full merge → seed B
+PR C (base=B) → restore verified exact seed B → native Related → normal Vitest
 ```
 
-Use `--mode full` for the complete repository. `npm test` uses the same Full planner
-and runs all Full shards locally. `npm run test:release` is a Node component run,
-never repository Full evidence. Explicit `.test.ts` and `.test.cjs` development file
-lists can be combined in `npm test -- ...`; they remain subset evidence.
+If a new dev commit is present but its Full job has not successfully
+published the **exact** matching seed yet, PR planning fails closed with
+`exact dev baseline seed pending`. Re-run PR CI only after that Full
+publication. An older canonical seed is NOT accepted, even when it is an
+ancestor of PR base: accepting it would over-select A→B + B→C and
+potentially produce an incorrect >500 result.
 
-PR comparison uses merge-base; push comparison uses exactly before..after. The CI
-checkout is the tested merge commit for PRs; the manifest separately records the
-PR head/base and binds shard execution to the checkout SHA and unique plan digest.
+The restored seed must have complete normal Full execution evidence,
+complete Supercov attribution, `valid=true`, no corruption, and immutable
+recorded source SHA. Artifacts come from successful canonical dev/main
+`CI` push/manual workflows with `workflow.head_sha === seed.sha`;
+feature-branch seeds, stale branches and unverified caches are rejected.
+Only repository-wide GitHub Actions artifacts are used for PR restore:
+the filename, extracted metadata and commit are all checked. The seed's
+SHA must equal the provided exact `TEST_BASE`; that base must also be in
+the PR checkout's ancestry. Missing or mismatched evidence fails closed.
 
-Related uses Git base/checkout snapshots and the TypeScript Compiler API to compare
-runtime declarations, class members and import bindings, not textual hunk envelopes. Runtime imports (including
-Vitest related results) supply candidates, not the final union. Test callbacks,
-scoped hooks, helpers, symbol references, structural caller signatures, constructor
-and prototype provenance determine which collected leaves can reach the behavior.
-Type erasure plus identical JavaScript token streams proves type-only edits; those
-require typecheck without automatically selecting runtime logic tests.
+### Full publication and retention
 
-Direct Owners exercise the changed behavior. Caller Contracts reach it through
-production callers. Import-only candidates have no such runtime path and are
-excluded. Hoisted replacement module mocks are boundaries only when their factory
-cannot reach the real module; partial/original imports stay conservative. Literal
-shared data remains one declaration owner: dynamic lookup, enumeration, aliases,
-destructuring and namespace escape are retained rather than guessed by item key.
-Comments and erased types do not widen another runtime edit in the same file.
+The **normal** Full run first passes the same 100ms test gate and exact
+aggregate. `supercov-seed.cjs` then instruments only the **same bounded
+Full Vitest shards**, strict-merges runs measured against the **same
+source snapshot**, and validates every collected Vitest leaf plus setup
+attribution. This strict merge is only among current-SHA Full shards;
+it never combines old source versions with new Related runs.
 
-Related/dev deliberately does **not** follow module-to-module initialization
-edges. Imports still resolve runtime symbols and discover candidate files; an
-import alone is not a behavior owner. Each leaf retains its own module setup,
-registration inputs and scoped hooks, and follows actual function, method, class
-and value references, including initializer expressions reached through a value.
-Initialized data and reflective class shape remain their declaration/class owners,
-not blanket module owners. This applies consistently to Three.js and other imports;
-there is no package-name whitelist or fixed test exclusion list.
+Supercov top-level `complete` can be false when some source branches
+remain uncovered. Actual Full-seed admission requires
+`valid=true`, `testExitCode=0`, `stale=false`,
+`measurement.complete=true` with no limitations or corrupt data,
+`testAttribution.exact` equal to all collected Vitest leaves, and
+all `testOutcomes` passed (no skips, failures or uncertain identities).
+Seed schema v3 records `sha`, `runId`, `tests`, `setups`, three
+execution/measurement/attribution completeness flags, and honest
+`coverageComplete` separately. No generation counter is needed.
 
-This is a pragmatic dev risk tradeoff, not a proof that initialization is pure.
-Hidden global/prototype mutations, decorators or static effects observed only via
-module loading can be missed by Related. Main/release Full remains the backstop
-and executes every discovered leaf. Side-effect-only edits with no addressable
-behavior owner still fail closed rather than silently produce an empty code plan.
-Directly changed tests still select their whole owner; real symbol dependencies,
-unknown dispatch, missing owners/history and unexplained native-only edges retain
-their existing guards. No runtime LLM or remote API is involved.
+A successful canonical Full publishes
+`supercov-seed-<dev-or-main-commit-SHA>` as an immutable repository-scoped
+Actions artifact, retaining it for 45 days. Archive limits stay at
+**500 MiB packed / 1 GiB unpacked** and fail before publication when
+exceeded. Dev pushes use SHA-specific concurrency groups so a later push
+does not cancel an in-flight Full seed job.
 
-Each manifest retains the complete discovery inventory and identifies Related
-leaves by exact file, full runner name and collection ordinal (`selectedCases`).
-`each` rows are collected separately. Duplicate/ambiguous names, unknown body
-locations and dynamic registration wrappers expand to the complete owner file.
-Both runners also record their native ancestor-separated filter names. Partial execution uses
-anchored, escaped names in isolated per-file runner invocations; whole files remain
-batched. Node file workers run serially so compiler and workflow-fixture startup
-cannot compete with another file inside a 100ms leaf budget. Only manifest-unselected leaves may be omitted from execution reports.
-Selected skips, extras, missing leaves, duplicates and stale reports fail aggregate.
-Full prohibits case filters and still runs every discovered leaf exactly once.
+No `supercov-dev-refresh`, cross-revision strict merge, incremental
+Related artifact publisher, generation 0..16 lineage, `--allow-changed`,
+legacy selector, or automatic Full fallback is part of production.
 
-Test tooling, workflow and package changes select dedicated CI/budget contract
-tests through explicit owner policy rather than repository Full. Release/Electron
-inputs select the Node publication contracts in the same Related logic shard.
-Unresolved computed or relative imports/globs, unavailable Git history,
-unmapped non-document inputs, an unexplained empty code selection, or a Related selection above
-500 fail closed and require an explicit dependency/owner mapping or a smaller
-change. They do not convert a dev PR into Full. Empty success requires strictly allowlisted docs, proven type-only edits, or explicit retirement evidence; release notes are publication inputs and are excluded from
-that exception.
+## Test identity and governance
 
-Renames/deletions use independent complete base and checkout source snapshots,
-including non-source dependency existence. Base test consumers map to current
-discovery by identity or Git rename lineage, never a fixed migration table. Both
-old/new runtime consumers and policy owners select surviving whole owner suites;
-ordinary production edits retain behavior-level filtering. Removed tests are not
-executed. Missing owners or dangling dependencies fail closed. An orphan deletion
-is retired only when no surviving source dependency or runtime/config reference
-remains, and the manifest records that evidence explicitly.
+The thin adapter validates the public JSON envelope, run identity, full
+(file, test name) identity, counts, uniqueness and truncation. Supercov
+`coverage.summary` distinguishes **763 runnable Vitest leaves** from **110
+setup lifecycle records** in the confirmed canonical baseline. Its native
+`runs tests affected --json` inventory correctly counts **873 historical
+records**. This is not 873 executable Vitest testcases. `unaffected` is
+deliberately **count-only**, returned as `unaffectedCount: 873` with
+`truncated: ["unaffected tests are counted, not listed"]` on an unchanged
+checkout. The adapter accepts this *specific* unaffected-only truncation
+while requiring untruncated exact `affected` and `undetermined` identities,
+correct sums, and an inventory matching `seed.tests + seed.setups`.
+Supercov's public `tests affected --json` may return a **ranked
+preview** of affected identities, while summary counts remain authoritative.
+The pinned Supercov 4.24.2 explicitly rejects combining `--names --json`
+(`INVALID_ARGUMENT`); `--names` alone is text without reliable file
+identity. A generic `--limit` was also rejected in real CI.
 
-Vitest's watch-mode force-rerun triggers remain enabled. The native-related query
-omits only inputs proven byte-identical to base after simultaneous, boundary-aware
-Git-derived replacements in known path-bearing fields (Node script entry operands
-and Vitest include/exclude/setupFiles/reporters). Arbitrary env/name/data strings
-never qualify. Directory/glob replacements additionally require an
-exact two-sided descendant mapping with no extra destination or old-path occupants.
-Explicit owner policy still selects those inputs. A complete package/lock pair can
-also prove an unchanged test-installed graph when identical dependencies move only
-from production to development: package lists, versions, resolved URLs, integrity,
-optional flags and all other metadata must match, except the corresponding placement
-and lock dev flags. Such inputs still select publication/CI owners because production
-packaging changes; the proof only removes Vitest's global watch-trigger candidates.
-Dependency version, argument or config behavior edits do not qualify and retain
-normal conservative candidate validation.
+**Exact filtered expansion for ≤500 candidates:** when the global
+`affected` / `undetermined` array is shorter than its native summary and
+Supercov supplies its documented ranked-preview marker, production invokes
+`runs <id> tests affected --test-file <Vitest file> --json` for **every**
+discovered Vitest test file (bounded concurrency). Each public filtered
+response must identify its exact filter, run, source scope, and fully
+materialized file/name identities. The total historical
+`tests`, `affected`, `undetermined`, and `unaffected` counts **across all
+filtered files must equal the original global counts**, including setup
+lifecycle records. Duplicate, missing, truncated, mismatched-file or
+foreign-run data fails closed. Only exact structured names are passed to
+normal Vitest; no guessed test→file mapping, filename-less text parsing,
+or unverified count-only selection is accepted.
 
-The static graph includes `.github/scripts/` and scans release helpers for computed
-imports. `tests/tooling/` remains inside dependency validation: only the collector's
-specific `require(resolve(file))` crosses the explicit tooling owner boundary,
-because it loads the discovered Node test list in an isolated process. Computed
-loads elsewhere (including other tooling and ordinary tests) still fail closed.
+If `affected + undetermined - seed.setups >500`, reject immediately before
+per-file expansion; Full fallback or partitioning a >500 Related set
+remains forbidden. Unaffected-only count truncation and display-only
+reason truncation are safe only under their independently verified counts.
 
-Node `.test.cjs` files under `tests/` are owned by the Node runner, not Vitest.
-`node-collect.cjs` collects actual synchronous registrations in a separate process
-without invoking test bodies. It supports generated registrations and synchronous
-suites. Async suites fail collection; leaf bodies which create additional subtests
-fail post-run completeness. Both runners' actual file/leaf inventories and fresh
-reports must match the manifest before aggregate succeeds.
+**Real CLI acceptance (2026-11-06):** [isolated run #42268305160](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42268305160)
+used the historical SHA-bound canonical-source Full seed
+`run_d06066084020ac43`, made one behavior-preserving executable edit
+to `src/rpg/WeaponDatabase.ts`, and obtained **92 actual native affected
+identities across 27 test files**. Full native `--json` materialized all
+92; for explicit preview-fallback validation the acceptance harness
+reduced only its **test input** to a 54-row snapshot, then ran **110
+real Supercov 4.24.2 --test-file --json CLI queries** over every
+discovered Vitest file. Filtered global totals (873 records including
+110 setups) reconciled and the 92 reconstructed structured identities
+matched the original untruncated CLI output exactly. **Normal Vitest
+ran precisely these 92 leaves: 92/92 PASS, max recorded duration
+52.181ms**, no unexpected cases, none over 100ms. Evidence retained:
+[artifact 13528751301](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42268305160/artifacts/13528751301).
+The temporary isolated acceptance workflow was removed afterwards;
+production keeps only the tested public-filter recovery implementation
+and negative contract cases. If the native summary already proves that the
+minimum impacted runnable tests, `affected + undetermined - seed.setups`,
+exceeds 500, selection fails **before** trying to use a preview list;
+full reruns and shard bypass are not permitted. This caught #430's
+real 873/873 affected historical records (at least **763 runnable cases**),
+which is a governance blocker rather than a malformed seed.
+Optional `affectedCount` and `undeterminedCount` are accepted only
+when each equals its corresponding **complete** identity array length and
+summary count; they never authorize count-only affected selection.
+Unknown affected setup lifecycle names within a recognized test file
+conservatively select **every leaf in that file**, still subject to the 500
+aggregate gate; unknown source files or inconsistent counts fail closed.
+Directly changed tests include every discovered current leaf, including
+newly added or renamed rows.
+A small fixed Node tooling/release suite runs without a second selector.
 
-The reusable Actions workflow emits plan, shard and aggregate artifacts plus
-selection reasons and the Top 10 slow leaves. A PR executes each selected logic case
-once in the logic gate; Desktop PR jobs validate packaging and smoke only, so they
-cannot duplicate cases past the Related 500 limit. Formal Release jobs retain the
-Windows/macOS Node component checks before publication. Build, typecheck, and
-Web/Desktop packaging/smoke retain their checks.
+Related aggregate counts are validated **before** any sharding:
+- 0–100: Excellent
+- 101–200: Normal
+- 201–300: Broad
+- 301–500: Very broad
+- 501+: FAIL; split or reduce coupling, never auto Full/shard bypass
 
-## Main Full gate sharing
+Full may use multiple <=500-leaf shards. The existing ordinary Vitest
+100ms cap includes hooks and cleanup and remains unchanged. Reports must
+exactly match selected leaf identities. Missing/extra/duplicate leaves,
+skips, retries, timeouts and failures block the aggregate.
 
-`ci.yml` is the only workflow that runs on `push → main`. It runs one Full logic gate
-(plan, shards, aggregate integrity, missing/duplicate checks), then `web`, then calls
-`deploy-pages.yml` and `release.yml` as reusable workflows in the same run with
-`needs: [logic, web]`. Pages and Release therefore never start without a successful
-Full gate for the same SHA and never run Full again.
+The plan reports total suite leaves, selected leaves, percentage, health tier,
+run ID and native affected/undetermined counts.
 
-The aggregate job emits `verified-sha` only for a Full manifest whose checked-out
-commit equals the requested head (`ci-run.cjs --verified-sha`). `ci.yml` hands it to
-both `deploy-pages.yml` and `release.yml`. Pages requires a non-empty `verified-sha`
-equal to `GITHUB_SHA` on a `push` to `refs/heads/main`, and checks under the
-`production-pages` concurrency lock that `GITHUB_SHA` is still the current
-`origin/main` head (skipping stale out-of-order commits instead of overwriting a
-newer deployment). Release's `gate` job accepts `verified-sha` only if it equals
-`GITHUB_SHA`, the event is a `push` to `refs/heads/main`, and its own `logic` job was
-skipped. An empty or mismatching value makes Release run its own Full gate. A
-manually pushed `v*` tag has no same-run proof and always runs Full. Tags created by
-Release with `GITHUB_TOKEN` do not trigger another workflow run. Failed, cancelled,
-stale or incomplete gates never publish; cross-run artifacts are not reused.
+## Scripts
 
-## Reading the selection summary
+- tests/tooling/ci-plan.cjs: discovery, manifest and 500 aggregate gate
+- tests/tooling/supercov-related.cjs: native public JSON adapter and preview detection
+- tests/tooling/supercov-affected-expand.cjs: bounded public --test-file JSON worker
+- tests/tooling/supercov-measured-evidence.cjs: full identity and filtered-count reconciliation
+- tests/tooling/ci-run.cjs: normal Vitest / Node execution and exact aggregate
+- tests/tooling/supercov-seed.cjs: Full-only authoritative seed validation
+- tests/tooling/supercov-evidence.cjs: cross-ref Actions artifact restore
+- tests/tooling/supercov-evidence-policy.cjs: exact baseline trust and immutable Full artifact size caps
+- .github/workflows/logic-tests.yml: reusable workflow
 
-The summary prints mode, base/head, changed behaviors, selected files/cases, owners,
-import-only candidate count, unsafe count and the actual budget. The manifest and
-fresh runner reports retain detailed evidence under ignored `output/`; summary
-does not print hundreds of import chains. Aggregate retains the Top 10 slow leaves.
+Run normal Related locally with:
 
-PRs retain Web smoke. Desktop previews run only for PRs into main, not dev;
-pushes to dev also skip Desktop. Main Release packaging remains unchanged.
-Post-merge `push → dev` keeps
-logic, typecheck and build but skips browser installation and Web smoke. Main,
-manual Full and publication Web checks keep Web smoke and exact-SHA Full proof.
+    node tests/tooling/ci-plan.cjs --mode related --base BASE --head HEAD --event pull_request --out output/test-plan.json
+    node tests/tooling/ci-run.cjs --manifest output/test-plan.json --shard logic-related --out output/shard-reports/logic-related.json
+    node tests/tooling/ci-run.cjs --manifest output/test-plan.json --reports output/shard-reports
+
+Plain npm test still runs Full with normal Vitest. Supercov version is
+strictly pinned to 4.24.2; the migration does not upgrade Vitest/Vite/Node.
+
+## Unsupported inputs and rollout acceptance
+
+Unmeasured, new, deleted, renamed or moved runtime sources, assets,
+unknown global inputs and corrupted evidence fail Related until native
+safety can be established. Config/dependency changes may select all
+leaves and therefore correctly fail the 500 Related aggregate cap.
+
+### #430 migration review and pre-merge evidence
+
+- [Canonical-source bootstrap #42252456644](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42252456644)
+  previously measured a real historical dev checkout: 763 exact Vitest
+  leaves + 110 setup records. Its **feature-branch publication is not**
+  trusted for production and cannot substitute for a current-SHA
+  canonical seed.
+- [Actual #430 native gate #42256174278](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42256174278)
+  found 873 affected historical identities, so at least 763 runnable
+  leaves. The >500 fail is **intentional**, and Owner will review a
+  one-time manual force merge of this CI infrastructure migration.
+- [Isolated incremental experiment #42260462775](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42260462775)
+  confirmed that small-source-change Related tests passed, but merging
+  their runs into a different-source Full run failed strict with
+  `differing domains: source, recorded files`. This **motivated the
+  replacement architecture**, which does not require incremental merge.
+- Before merge, check new Full/Related workflow routing and exact
+  base-match contract, ensure 501+ still fails, verify seed trust,
+  no cache/provenance bypass, normal 100ms gate, and unchanged main/release
+  behavior. **A full production push→dev seed rollout can only be
+  observed once the new workflow is deployed on dev**.
+
+### Post-merge confirmation
+
+After Owner's reviewed force merge, the **first push→dev now runs Full**
+and publishes its own same-SHA seed (no separate feature bootstrap).
+Check actual Full test outcomes, strict same-source merge, seed SHA,
+artifact provenance, and presence of that exact artifact.
+A PR targeting that dev base should then restore the **exact** seed,
+run native Related and pass ≤500 cases using normal Vitest.
+When dev advances, PR CI for the new base must **fail closed until**
+the next Full seed is published. Validate the cycle on two consecutive
+dev pushes; report any failure instead of using a previous seed or
+automatic Full fallback.
+
+## Main publication
+
+The main push gate emits a verified Full SHA for the same checkout, shared
+with Pages/Release. Failed, stale or missing SHA cannot publish. Manual
+release tags without matching evidence run Full. Dev PRs skip Desktop and
+browser smoke, while regular build/typecheck remain.

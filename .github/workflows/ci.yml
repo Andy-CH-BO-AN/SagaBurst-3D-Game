@@ -13,16 +13,18 @@ on:
         default: full
 permissions:
   contents: read
+  actions: read
 concurrency:
-  # A main commit owns publication, so each main push gets its own group and is
-  # never cancelled by a later push; every other ref still supersedes older runs.
-  group: ci-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.sha || github.ref }}
-  cancel-in-progress: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+  # Both canonical branch pushes publish exact immutable Full seeds.
+  # Never cancel a dev Full run because a later push arrived: each SHA
+  # must finish its own Full gate and seed publication.
+  group: ci-${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && github.sha || github.ref }}
+  cancel-in-progress: ${{ !(github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) }}
 jobs:
   logic:
     uses: ./.github/workflows/logic-tests.yml
     with:
-      mode: ${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || github.ref == 'refs/heads/main' && 'full' || 'related' }}
+      mode: ${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || (github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')) && 'full' || 'related' }}
       base: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before || '' }}
       head: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       event: ${{ github.event_name }}
