@@ -41,14 +41,44 @@ prior authoritative seed. No permissive merge flag is used: strict merge must re
 attribution or missing re-measurement. Only an accepted, valid, complete
 merged seed is published for the next dev PR; never hand-edit a private DB.
 
-Restore order: exact prior dev SHA, previous dev evidence, then main Full
-evidence. Each seed must be an ancestor of the tested checkout. A cache miss,
-a stale branch, incompatibility or rejected merge is a **fail-closed blocker**,
-not a request to automatically run Full.
+**First-seed bootstrap (explicit maintenance only):** Run the existing
+GitHub Actions **CI → Run workflow** and select the
+`ci/supercov-per-test-impact-poc` branch with the existing `mode=full`
+option. This feature-branch-only manual dispatch activates the dev bootstrap,
+**even if the default branch's workflow form does not yet expose the new
+`bootstrap_dev_seed` boolean**. On other branches an explicit
+`bootstrap_dev_seed=true` is required.
+The dedicated job checks out the **current origin/dev** in a separate source
+directory, then executes the **existing dev Full planner/runner**, including
+100ms, Full-shard 500 and complete normal-Vitest aggregation. It separately
+collects complete Supercov attribution from the passing Full manifest and
+strict-merges these runs. This one-off job does **not** execute on ordinary
+PRs or pushes; it does not change the logic gate to Full. The job uploads
+`supercov-seed-<dev SHA>` as a **repository-scoped GitHub Actions artifact**,
+not a PR-scoped Actions cache.
 
-The first seed cannot be produced by an ordinary Related PR. A maintainer
-must explicitly bootstrap Full in a suitable cache scope. The historical
-Supercov PoC did not produce a passing Full seed.
+PR→dev and push→dev first try a cache keyed to the exact Git comparison base.
+On a miss or non-ancestor cache, the planner reads trusted repository-scoped
+seed artifacts (with read-only `GH_TOKEN`) and restores the newest one whose
+**recorded SHA is an ancestor of the tested checkout**. It checks the upload
+workflow's success, seed metadata, Supercov run directory and archive paths.
+A later successful push→dev strict refresh also publishes its next seed as
+an artifact; therefore the next PR can restore it **even when its GitHub
+cache scope is different**. The artifact does not expire earlier than 90 days
+unless GitHub retention/policy deletes it. If none is safe, Related fails
+closed; there is still **no automatic Full**.
+
+A PR's own Full seed is not silently treated as a dev seed. The bootstrap
+measures the actual `origin/dev` Git SHA, preventing ancestor or branch-scope
+confusion. Full bootstrap is needed once (or by explicit maintenance action
+after expiration/unsafe structural changes), not per PR.
+
+**Zero-native-impact guard:** an empty native affected+undetermined set fails
+if any executable/test-impact input changed, including `src/**`,
+`tests/helpers/**`, setup/runtime tooling, dependencies, configuration,
+and workflow inputs. A directly changed test file may select its own entire
+discovered suite with zero historical affected tests. Documentation-only
+changes are handled by the planner and need no seed.
 
 ## Test identity and governance
 
@@ -79,6 +109,8 @@ run ID and native affected/undetermined counts.
 - tests/tooling/supercov-related.cjs: native public JSON adapter
 - tests/tooling/ci-run.cjs: normal Vitest / Node execution and exact aggregate
 - tests/tooling/supercov-seed.cjs: Full-only authoritative seed validation
+- tests/tooling/supercov-bootstrap-dev.cjs: explicit dev-source maintenance bootstrap
+- tests/tooling/supercov-evidence.cjs: cross-ref Actions artifact restore
 - tests/tooling/supercov-refresh.cjs: push-dev Related-only evidence refresh
 - .github/workflows/logic-tests.yml: reusable workflow
 
@@ -98,7 +130,7 @@ and corrupted evidence fail Related until native safety is demonstrated.
 Config/dependency changes may select all leaves, which will exceed the 500
 Related limit and must be handled through an explicit maintenance workflow.
 
-PR #430 still requires proof with a valid Full bootstrap; native affected
+PR #430 still requires **a real successful workflow_dispatch bootstrap artifact and a PR restore**; native affected
 benchmarks for CareerDuelState, #407, #408, #409; module initialization and
 setup impacts; changed tests; exact runner execution; and two consecutive
 dev incremental-refresh scenarios. Do not claim production acceptance without

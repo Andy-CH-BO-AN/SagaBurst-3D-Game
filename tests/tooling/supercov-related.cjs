@@ -79,8 +79,16 @@ function decodeAffected(response, inventory, changes, expectedRun) {
     selectedCases[item.file] = item.names.map((_, index) => index)
     reasons[item.file] = ['Fixed Node tooling/release contracts']
   }
-  if (!d.affected.length && !d.undetermined.length && changes.some(change => isRuntime(change.file))) {
-    fail('Native query returned zero for a runtime change; no proof it is safe')
+  // A zero native result is not proof of no impact for any executable input:
+  // shared helpers, setupFiles, CI/runtime tooling, config and dependency
+  // inputs can fan out far beyond src/**. Node's fixed contract suite must
+  // never disguise the absence of trustworthy Vitest native attribution.
+  // Directly changed test files are explicitly re-run above and are the only
+  // allowed non-doc input with a zero historical affected count.
+  const unproven = changes.filter(change => isSupported(change.file) && !isTest(change.file))
+  if (!d.affected.length && !d.undetermined.length && unproven.length) {
+    fail('Native query returned zero for executable/test-impact input: ' +
+      unproven.map(change => change.file).join(', '))
   }
   const selected = Object.keys(selectedCases).sort()
   if (!selected.length) fail('Unexpected empty code selection')
