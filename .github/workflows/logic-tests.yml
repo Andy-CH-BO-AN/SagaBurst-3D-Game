@@ -37,7 +37,17 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Plan dependency-aware logic shards
+      - name: Restore immutable Supercov Full evidence for Related
+        if: inputs.mode == 'related'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .supercov/runs
+            output/supercov-seed.json
+          key: supercov-seed-${{ github.sha }}
+          restore-keys: |
+            supercov-seed-
+      - name: Plan exact Supercov Related leaves
         id: plan
         env:
           TEST_MODE: ${{ inputs.mode }}
@@ -124,3 +134,34 @@ jobs:
           path: output/aggregate.json
           if-no-files-found: error
           overwrite: true
+
+  # Only an approved Full run may create a baseline. Ordinary dev PR/push
+  # paths never generate a hidden Full suite to refresh Related selection.
+  supercov-seed:
+    needs: aggregate
+    if: ${{ inputs.mode == 'full' && needs.aggregate.result == 'success' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Record Supercov Full coverage seed (instrumentation is not the 100ms gate)
+        env:
+          SUPERCOV_RUN_ID_FILE: output/supercov-run.id
+          SUPERCOV_SOURCE_ROOTS: src,tests/helpers
+        run: |
+          mkdir -p output
+          npx --yes supercov@4.24.2 -- node node_modules/vitest/vitest.mjs run --reporter=default
+          node tests/tooling/supercov-seed.cjs
+      - uses: actions/cache/save@v4
+        with:
+          path: |
+            .supercov/runs
+            output/supercov-seed.json
+          key: supercov-seed-${{ github.sha }}

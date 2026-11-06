@@ -33,7 +33,27 @@ PR comparison uses merge-base; push comparison uses exactly before..after. The C
 checkout is the tested merge commit for PRs; the manifest separately records the
 PR head/base and binds shard execution to the checkout SHA and unique plan digest.
 
-Related uses Git base/checkout snapshots and the TypeScript Compiler API to compare
+Production Related now consumes `supercov@4.24.2 runs <run-id> tests affected --json`
+from a valid, complete Full seed. The seed is created only by main Full or
+an explicitly dispatched manual Full run, stored in Actions cache, and restored
+by each Related plan. PRs to dev and pushes to dev never bootstrap an
+instrumented Full run. Missing, invalid, non-ancestor, or truncated evidence
+fails planning. New/moved/deleted source and unsupported assets fail closed
+until native lifecycle support is demonstrated; approved manual Full is separate.
+The adapter includes affected **and undetermined** exact identities, directly
+modified/new test cases, and a small fixed Node suite. Normal Vitest executes
+the plan and retains the existing 100ms/500-leaf aggregate gates. A 501+
+Related plan never becomes Full or multiple Related shards.
+
+**Seed freshness limitation:** the immutable seed does not automatically
+advance through a chain of dev-only Related merges. The native query measures
+all changes since its Full seed, so long-running dev drift may eventually exceed
+500. Until a public safe incremental evidence-refresh contract is verified,
+maintainers may explicitly bootstrap a new Full seed using manual Full; there
+is no hidden Full fallback. Do not merge PR #430 without acceptance on a
+fresh baseline and this lifecycle reviewed.
+
+Legacy selector implementation (kept for offline regression comparison only) used Git base/checkout snapshots and the TypeScript Compiler API to compare
 runtime declarations, class members and import bindings, not textual hunk envelopes. Runtime imports (including
 Vitest related results) supply candidates, not the final union. Test callbacks,
 scoped hooks, helpers, symbol references, structural caller signatures, constructor

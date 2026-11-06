@@ -240,6 +240,8 @@ function selectionSummary(plan) {
     `Base SHA: ${plan.baseSha || '-'}; Head SHA: ${plan.headSha || '-'}`,
     `Changed Behavior: ${(plan.changedBehaviors ?? plan.changedFiles).slice(0, 8).join(', ') || (plan.typeOnlyFiles?.length ? 'Typecheck only (identical runtime)' : '-')}${(plan.changedBehaviors?.length ?? 0) > 8 ? ` (${plan.changedBehaviors.length} total)` : ''}`,
     `Selected: ${selected.length} files / ${total} cases`,
+    `Total suite: ${plan.inventory.reduce((sum, item) => sum + item.names.length, 0)} leaves; selected impact: ${plan.inventory.length ? (100 * total / plan.inventory.reduce((sum, item) => sum + item.names.length, 0)).toFixed(1) : '0'}%`,
+    ...(plan.native ? [`Supercov run ${plan.supercovRun}: affected ${plan.native.affected}, undetermined ${plan.native.undetermined}, run-wide: ${plan.native.runWide.join(', ') || 'none'}`] : []),
     'Owners:', ...[...new Set(Object.values(plan.details ?? {}).flatMap(entries => entries.flatMap(entry => entry.owners ?? [])))].map(owner => `  ${owner}`),
     ...(plan.changedBehaviors?.length ? [] : selected.map(file => `  ${file}: ${selectedNames(plan, file).length} cases`)),
     `Excluded: ${plan.excludedCandidates?.length ?? 0} import-only candidate files`,
@@ -404,56 +406,16 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed, inventory: [],
     ...selectFiles([], changed, {}), shards: [],
   })
-  const start = event === 'pull_request' ? git('merge-base', base, head) : base
-  const currentTree = snapshot(), baseTree = snapshot(start)
-  // Vitest's watch-mode force-rerun triggers are not runtime edges. Omit only
-  // inputs proved byte-identical after Git-derived relocations from that query;
-  // normal owner selection still processes them, and real config changes remain.
-  const relocatedInputs = changed.filter(item => item.status === 'M' && require('./dependencies.cjs').relocationOnly(
-    baseTree.texts.get(item.file), currentTree.texts.get(item.file), changed, baseTree.files, currentTree.files, item.file)).map(item => item.file)
-  // Dependency placement still selects publication/CI owners below. Only its
-  // proven unchanged test-installed graph avoids Vitest's global watch trigger.
-  const dependencyPlacementInputs = require('./dependencies.cjs').dependencyPlacementOnly(
-    baseTree.texts.get('package.json'), currentTree.texts.get('package.json'),
-    baseTree.texts.get('package-lock.json'), currentTree.texts.get('package-lock.json'))
-    ? changed.filter(item => item.status === 'M' && ['package.json', 'package-lock.json'].includes(item.file)).map(item => item.file) : []
-  let found
-  try { found = await discover({ relatedPaths: changed.filter(item => item.status !== 'D'
-    && !relocatedInputs.includes(item.file) && !dependencyPlacementInputs.includes(item.file)).map(item => item.file) }) }
-  catch (error) { throw new Error(`Related dependency selection unavailable: ${error.message}. Full is reserved for main/release.`) }
-  const consumers = dependencyConsumers(found.inventory, currentTree)
-  const previousConsumers = dependencyConsumers([...baseTree.sources.keys()].filter(testFile).map(file => ({ file })), baseTree)
-  const sources = currentTree.sources
-  const previousSources = baseTree.sources
-  const ranges = {}
-  for (const item of changed.filter(item => ['A', 'M'].includes(item.status) && item.file.startsWith('src/') && /\.tsx?$/.test(item.file))) {
-    const old = item.status === 'A' ? '' : execFileSync('git', ['show', `${start}:${item.file}`], { cwd: root, encoding: 'utf8' })
-    previousSources.set(item.file, old)
-    // Compare the tested checkout (PR merge ref) with the actual base source.
-    // This also covers merge-ref edits and uncommitted representative probes.
-    const diff = execFileSync('git', ['diff', '--no-ext-diff', '--unified=0', start, '--', item.file], { cwd: root, encoding: 'utf8' })
-    ranges[item.file] = [[], []]
-    for (const match of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
-      ranges[item.file][0].push([+match[3], match[4] === undefined ? 1 : +match[4]])
-      ranges[item.file][1].push([+match[1], match[2] === undefined ? 1 : +match[2]])
-    }
-    if (!ranges[item.file][0].length) relatedSelectionError(`Missing behavior diff: ${item.file}`)
-  }
-  const selection = selectFiles(found.inventory, changed, consumers, { sources, previousSources, ranges, previousConsumers, previousFiles: baseTree.files, previousTexts: baseTree.texts, files: currentTree.files, texts: currentTree.texts })
-  // Native related results are candidates only. An unexplained native-only edge
-  // is unsafe; never silently exclude it or unconditionally union it into leaves.
-  for (const file of found.related) {
-    if (!changed.some(item => (consumers[item.file] ?? []).includes(file) || policyConsumers(item.file, found.inventory).has(file)
-      || assetOwnerTests(item.file, found.inventory, currentTree, consumers.graph).has(file) || item.file === file)) {
-      relatedSelectionError(`Native-only dependency requires mapping: ${file}`)
-    }
-  }
+  // Supercov native CLI is the only production Vitest Related source of truth.
+  // Keep the old helpers exported for legacy offline tests; they are not called by CI.
+  const found = await discover()
+  const selection = require('./supercov-related.cjs').nativeSelection(found.inventory, changed)
   const selectedInventory = found.inventory.filter(item => selection.selected.includes(item.file))
     .map(item => ({ ...item, names: selection.selectedCases[item.file].map(i => item.names[i]) }))
   return validateManifest({
     version: 1, planId: randomUUID(), requestedMode: mode, event, baseSha: base, headSha: head,
-    checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(), changes: changed,
-    inventory: found.inventory, ...selection, relocatedInputs, dependencyPlacementInputs, shards: planShards(selectedInventory, 'related'),
+    checkoutSha, changedFiles: [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort(),
+    changes: changed, inventory: found.inventory, ...selection, shards: planShards(selectedInventory, 'related'),
   })
 }
 function options(args) {
