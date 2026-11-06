@@ -64,10 +64,10 @@ export function steerOrbitForward(out: OrbitPoint, yaw: number, desiredYaw: numb
   return heading
 }
 
-/** Turn the rider's torso toward the target, including rearward bearings.
- * The pelvis and mount retain their forward travel heading.
- * Use the shortest rotation to avoid a 360° spin when crossing ±π.
+/** Pose budget only: arms absorb the remaining aim, including rearward shots.
+ * This must never be used as a projectile-release eligibility check.
  */
 export function mountedBowTorsoTurn(chestYaw: number, aimCorrection: number): number {
-  return angleDifference(chestYaw + aimCorrection, chestYaw)
+  const maxTwist = Math.PI * 5 / 9
+  return clamp(chestYaw + aimCorrection, -maxTwist, maxTwist) - chestYaw
 }

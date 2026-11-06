@@ -67,16 +67,17 @@ describe('Ground mounted archer steering', () => {
 
   it('bounds steering through moving-centre acquisition and a target switch', () => {
     const p = { x: 30, z: 0 }, target = { x: 0, z: 0 }, direction = { x: 0, z: 0 }
-    let yaw = Math.PI
+    let yaw = Math.PI, maxTurn = 0
     for (let frame = 0; frame < 180; frame++) {
       target.x += .08
       if (frame === 90) target.z = -40
       writeOrbitDirection(direction, p, target, 1, 30)
       const before = yaw
       yaw = orbitHeading(yaw, Math.atan2(direction.x, direction.z), 12, 1 / 30)
-      expect(Math.abs(angleDifference(yaw, before))).toBeLessThanOrEqual(.5 / 30 + 1e-10)
+      maxTurn = Math.max(maxTurn, Math.abs(angleDifference(yaw, before)))
       p.x += Math.sin(yaw) * .4; p.z += Math.cos(yaw) * .4
     }
+    expect(maxTurn).toBeLessThanOrEqual(.5 / 30 + 1e-10)
     expect(Number.isFinite(yaw + p.x + p.z)).toBe(true)
   })
 
@@ -88,12 +89,13 @@ describe('Ground mounted archer steering', () => {
     // Turn geometry does not replace the existing directional speed policy.
   })
 
-  it.each([0, Math.PI / 2, -Math.PI / 2, 3 * Math.PI / 4, -3 * Math.PI / 4, Math.PI])(
-    'retains target-relative yaw %s even past the former 90 degree firing arc', yaw => {
-      const sourceYaw = -Math.PI / 2
-      const correction = angleDifference(yaw, sourceYaw)
+  it.each([-1, 1])(
+    'keeps rearward torso twist anatomical on side %s, leaving the remainder to arms', side => {
+      const sourceYaw = side * Math.PI / 2
+      const correction = side * Math.PI / 2
       const actualTurn = mountedBowTorsoTurn(sourceYaw, correction)
-      expect(angleDifference(sourceYaw + actualTurn, yaw)).toBeCloseTo(0)
+      expect(sourceYaw + actualTurn).toBeCloseTo(side * 100 * Math.PI / 180)
+      expect(Math.abs(correction - actualTurn)).toBeGreaterThan(1)
     },
   )
   it('takes the short turn across the rear-facing ±180 degree seam', () => {
@@ -110,9 +112,8 @@ describe('Ground mounted archer steering', () => {
     expect(isWithinMountedBowOrbitRange(36.1 * 36.1, 40)).toBe(false)
   })
 
-  it('corrects the authored sideways bow stance toward forward and rear targets', () => {
+  it('corrects the authored sideways stance toward a forward target', () => {
     const sourceYaw = -Math.PI / 2
     expect(angleDifference(sourceYaw + mountedBowTorsoTurn(sourceYaw, Math.PI / 2), 0)).toBeCloseTo(0)
-    expect(Math.abs(angleDifference(sourceYaw + mountedBowTorsoTurn(sourceYaw, -Math.PI / 2), Math.PI))).toBeCloseTo(0)
   })
 })

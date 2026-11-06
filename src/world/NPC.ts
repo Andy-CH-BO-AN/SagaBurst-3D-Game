@@ -639,6 +639,8 @@ export class NPC {
   private readonly _rangedTargetCandidates: NPC[] = []
   private _rangedVisibleTargetHoldFrames = 0
 
+  private static readonly _UP = new THREE.Vector3(0, 1, 0)
+
   get hp(): number { return this.currentHp }
   get hpRatio(): number { return Math.max(0, this.currentHp / this.maxHp) }
   get currentState(): AIState { return this.state }
@@ -3255,6 +3257,27 @@ export class NPC {
           }
         }
         if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tFaceAtk!) }
+
+        // Forward Orbit only replaces ground bows. Keep the existing mounted
+        // javelin movement; its combat and directional speed policies are unchanged.
+        if (!siegeObstacle && this.isMounted && this.hasActiveRangedWeapon
+          && this.rangedCombatKind !== 'bow' && this.tacticalOrder !== 'defend' && !this.holdsRampartPosition) {
+          const moveDir = this._tmpMoveDir
+          moveDir.copy(targetInfo.position).sub(this.group.position).cross(NPC._UP)
+          moveDir.y = 0
+          if (moveDir.lengthSq() > .001) {
+            moveDir.normalize()
+            if (!skipBoidsAndObstacles) {
+              if (import.meta.env.DEV && _collector) { var _tObsOrbit = performance.now() }
+              moveDir.copy(getObstacleAvoidanceDirection(this.combatPosition, moveDir,
+                this._movementObstacleRadius(), this._movementObstacleHeight(), 0, obstacles))
+              if (import.meta.env.DEV && _collector) { _collector.endPhase('obstacleAvoid', _tObsOrbit!) }
+            }
+            if (import.meta.env.DEV && _collector) { var _tOrbitMove = performance.now() }
+            this._moveByDirection(moveDir, this.mount ? this.mount.baseSpeed : CHASE_SPEED, dt)
+            if (import.meta.env.DEV && _collector) { _collector.endPhase('moveFace', _tOrbitMove!) }
+          }
+        }
 
         if (import.meta.env.DEV && _collector) { var _tCombat = performance.now() }
         if (this.hasActiveRangedWeapon) {
