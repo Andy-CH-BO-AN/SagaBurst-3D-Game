@@ -119,7 +119,7 @@ test('manual dev bootstrap has an explicit opt-in and repository-wide artifact t
   assert.match(workflow, /supercov-evidence\.cjs restore/)
   assert.match(workflow, /name: supercov-seed-/)
   // Git ancestry is enforced behaviorally by the P1 test below, not by matching an implementation string.
-  assert.match(artifact, /workflow\.conclusion !== 'success'/)
+  // Publication success is covered by trustedPublication() behavior below.
   assert.match(artifact, /No PR\/dev TEST_BASE ancestor Full\/strict-Related seed artifact/)
 })
 
