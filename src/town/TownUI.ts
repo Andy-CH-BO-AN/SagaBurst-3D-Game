@@ -1,3 +1,5 @@
+type TutorialHUDRect = Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'>
+
 export function installTownStyles(): void {
   if (document.getElementById('town-styles')) return
   const style = document.createElement('style'); style.id = 'town-styles'
@@ -46,10 +48,7 @@ export function installTownStyles(): void {
     .career-tutorial-detail { display:block; margin-top:4px }
     .career-tutorial-notification { color:#ffe2a0; border-color:#d6b369; background:rgb(39 32 18 / 75%); font-weight:600 }
     .career-tutorial-error { color:#ffd5cc; border-color:#e79583; background:rgb(54 22 19 / 90%); font-size:15px }
-    @media (min-width:1200px) {
-      /* Keep the existing town command panels in their right-hand lane on desktop. */
-      body:has(.career-tutorial-hud:not([hidden])) #army-command-hud[data-layout="town"] :is(.army-command-targets,.army-command-commands) { width:min(640px,calc(50vw - 280px)) }
-    }
+    .career-tutorial-critical { transform:none; text-align:left; z-index:936 }
     @media (max-height:700px), (max-width:600px) {
       .career-tutorial-hud { gap:6px; font-size:15px; line-height:1.3 }
       .career-tutorial-card { padding:7px 12px }
@@ -106,11 +105,12 @@ export class TownTutorialHUD {
     const detail = details.join(' ')
     if (this.detail.textContent !== detail) this.detail.textContent = detail
     this.detail.hidden = !detail
-    this.objective.hidden = !objective
+    this.objective.hidden = !objective || Boolean(error)
     if (this.notification.textContent !== notification) this.notification.textContent = notification
     this.notification.hidden = !notification || Boolean(error)
     if (this.error.textContent !== error) this.error.textContent = error
     this.error.hidden = !error
+    this.root.className = `career-tutorial-hud${error ? ' career-tutorial-critical' : ''}`
     this.root.hidden = blocked || !(objective || notification || error)
     // Town creates some HUD elements after the controller; bind once on the first update.
     if (!this.resizeObserver) this.observeHUD()
@@ -119,7 +119,7 @@ export class TownTutorialHUD {
 
   private observeHUD(): void {
     this.blockers = Array.from(document.querySelectorAll<HTMLElement>(
-      '#town-hud, #army-command-hud .army-command-targets, #army-command-hud .army-command-commands, #army-command-hud .army-command-feedback, #compass-container, #enemy-hud, #career-duel-hud, #career-race-hud'))
+      '#town-hud, #army-command-hud .army-command-targets, #army-command-hud .army-command-commands, #army-command-hud .army-command-feedback, #compass-container, #enemy-hud, #career-duel-hud, #career-race-hud, #town-hint, #controls-hint, .career-mission-guide, #town-pointer-prompt, #combat-equipment-hud'))
     this.resizeObserver = new ResizeObserver(this.layout)
     this.resizeObserver.observe(this.root)
     this.blockers.forEach(el => this.resizeObserver!.observe(el))
@@ -136,26 +136,59 @@ export class TownTutorialHUD {
 
   private readonly layout = (): void => {
     if (this.disposed || this.root.hidden) return
-    const height = window.innerHeight
+    const width = window.innerWidth, height = window.innerHeight
+    const blockers: TutorialHUDRect[] = this.blockers.filter(el => !el.closest('[hidden]') && getComputedStyle(el).display !== 'none'
+      && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0')
+      .map(el => el.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0)
+    // Reserve the aiming area even when the crosshair itself is hidden.
+    blockers.push({ left:width / 2 - 28, right:width / 2 + 28, top:height / 2 - 28, bottom:height / 2 + 28, width:56, height:56 })
+    if (!this.error.hidden) { this.placeError(blockers, width, height); return }
+    this.root.style.left = ''; this.root.style.width = ''
     const rect = this.root.getBoundingClientRect()
-    const visible = (el: HTMLElement) => !el.closest('[hidden]') && getComputedStyle(el).display !== 'none'
-      && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0'
-    const blockers = this.blockers.filter(visible).map(el => el.getBoundingClientRect())
-      .filter(r => r.width > 0 && r.height > 0 && r.left < rect.right + 12 && r.right > rect.left - 12)
-    const limit = height / 2 - 28 // Keep both cards above the aiming area, even without a visible crosshair.
+    const limit = height / 2 - 28
     const preferred = Math.min(height * .32, limit - rect.height)
     const candidates = [preferred, 12, ...blockers.flatMap(r => [r.bottom + 12, r.top - rect.height - 12])]
     const top = candidates.filter(y => y >= 12 && y + rect.height <= limit
-      && blockers.every(r => y + rect.height + 12 <= r.top || y >= r.bottom + 12))
+      && this.fits(rect.left, y, rect.width, rect.height, blockers))
       .sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred))[0]
-    // A crowded command menu has priority; restore immediately when space becomes available.
+    // Only noncritical guidance yields to a crowded command menu; its native width is untouched.
     this.root.style.visibility = top === undefined ? 'hidden' : ''
     this.root.style.top = `${top ?? 12}px`
-    // A save error must stay readable even if the upper HUD has no free slot.
-    if (top === undefined && !this.error.hidden) {
-      this.root.style.visibility = ''
-      this.root.style.top = `${Math.max(12, height - rect.height - 16)}px`
+  }
+
+  private fits(x: number, y: number, width: number, height: number, blockers: TutorialHUDRect[]): boolean {
+    return blockers.every(r => x + width + 12 <= r.left || x >= r.right + 12
+      || y + height + 12 <= r.top || y >= r.bottom + 12)
+  }
+
+  /** Errors stand alone and may use a side gap; they never share the crowded objective stack. */
+  private placeError(blockers: TutorialHUDRect[], width: number, height: number): void {
+    const widths = [...new Set([Math.min(500, width - 24),
+      ...blockers.flatMap(r => [Math.min(500, r.left - 24), Math.min(500, width - r.right - 24)]),
+      Math.min(180, width - 24)])].filter(w => w >= Math.min(180, width - 24)).sort((a, b) => b - a)
+    this.root.style.visibility = ''
+    let fallback = { x:12, y:12, width:widths[0], overlap:Infinity }
+    for (const cardWidth of widths) {
+      this.root.style.width = `${cardWidth}px`
+      const cardHeight = this.root.getBoundingClientRect().height
+      const xs = [(width - cardWidth) / 2, 12, width - cardWidth - 12,
+        ...blockers.flatMap(r => [r.right + 12, r.left - cardWidth - 12])]
+      const ys = [Math.min(height * .32, height - cardHeight - 12), 12, height - cardHeight - 12,
+        ...blockers.flatMap(r => [r.bottom + 12, r.top - cardHeight - 12])]
+      for (const y of ys) for (const x of xs) {
+        if (x < 12 || y < 12 || x + cardWidth > width - 12 || y + cardHeight > height - 12) continue
+        if (this.fits(x, y, cardWidth, cardHeight, blockers)) {
+          this.root.style.left = `${x}px`; this.root.style.top = `${y}px`
+          return
+        }
+        // Even a completely occupied viewport must not silently discard a failed save.
+        const overlap = blockers.reduce((sum, r) => sum + Math.max(0, Math.min(x + cardWidth, r.right) - Math.max(x, r.left))
+          * Math.max(0, Math.min(y + cardHeight, r.bottom) - Math.max(y, r.top)), 0)
+        if (overlap < fallback.overlap) fallback = { x, y, width:cardWidth, overlap }
+      }
     }
+    this.root.style.width = `${fallback.width}px`
+    this.root.style.left = `${fallback.x}px`; this.root.style.top = `${fallback.y}px`
   }
 
   dispose(): void {
