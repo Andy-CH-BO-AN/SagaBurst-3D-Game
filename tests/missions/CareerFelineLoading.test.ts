@@ -37,7 +37,13 @@ beforeEach(() => {
 })
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals() })
 
-const flush = () => new Promise<void>(resolve => setTimeout(resolve, 0))
+// The mocked asset preload is an already-controlled Promise. Production
+// continuations only enqueue microtasks (preloadVariants/Promise.all/then),
+// so drain those directly instead of scheduling a real zero-delay timer.
+// A timer injects runner-load latency into the strict <=100ms leaf budget.
+async function flush() {
+  for (let turn = 0; turn < 6; turn++) await Promise.resolve()
+}
 
 function mountOwner() {
   let current = createCareerProfile('roman')
