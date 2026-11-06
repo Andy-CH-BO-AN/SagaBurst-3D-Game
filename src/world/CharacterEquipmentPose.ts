@@ -9,6 +9,8 @@ import { axeRecoveryWeight, naturalAxeHandMatrix, swordHandMatrix, type WeaponGr
 import { equipmentWeaponFrame, type EquipmentGripFrame, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { XONGKORO_VISUAL } from '../movement/XongkoroConfig'
 import { SelectedMountedSkirt, type SelectedHumanoidSource } from './SelectedHumanoidSource'
+import { BOW_ARROW_REST, BOW_STRING_CONTACT } from './BowDrawHand'
+import { angleDifference, mountedBowTorsoTurn, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
 const smooth = (x: number): number => { const t = THREE.MathUtils.clamp(x, 0, 1); return t * t * (3 - 2 * t) }
 const SHIELD_POSE = { side: 0.36, height: 0.12, forward: 0.26 }
 
@@ -26,6 +28,8 @@ export interface EquipmentPoseState {
   shieldRaised?: boolean
   lance: boolean
   mounted: boolean
+  /** Ground Orbit aim relative to saddle heading; pelvis and legs keep +Z. */
+  mountedBowAim?: Readonly<{ yaw: number; pitch: number }>
   moving?: boolean
   flightLean?: number
   /** Mixer-owned: a bow clip still contributes, including its return-to-idle fade. */
@@ -84,6 +88,7 @@ class ArmSolver {
   private readonly x = new THREE.Vector3()
   private readonly y = new THREE.Vector3()
   private readonly sampledElbow = new THREE.Vector3()
+  private readonly sampledShoulder = new THREE.Vector3()
   private readonly sampledWrist = new THREE.Vector3()
   private readonly sampledUpper = new THREE.Quaternion()
   private readonly sampledLower = new THREE.Quaternion()
@@ -114,7 +119,7 @@ class ArmSolver {
     }
   }
 
-  solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame, bodyRotation?: THREE.Quaternion, followSampledPose = false, alignForearmRoll = false, continuity?: ArmBendContinuity): void {
+  solve(gripTarget: THREE.Vector3, handRotation: THREE.Quaternion, frame: EquipmentGripFrame, bodyRotation?: THREE.Quaternion, followSampledPose = false, alignForearmRoll = false, continuity?: ArmBendContinuity, sampledFrame?: { rotation: THREE.Quaternion; pivot: THREE.Vector3 }): void {
     // Refresh root before reading matrixWorld; bone getters refresh their own
     // ancestor paths. Keep the solved arm subtree updates below for callers.
     this.root.updateWorldMatrix(true, false)
@@ -122,11 +127,19 @@ class ArmSolver {
     this.root.getWorldQuaternion(this.rootQ)
     this.arm.shoulder.getWorldPosition(this.shoulder).applyMatrix4(this.inverseRoot)
     if (followSampledPose) {
+      this.sampledShoulder.copy(this.shoulder)
       this.arm.elbow.getWorldPosition(this.sampledElbow).applyMatrix4(this.inverseRoot)
       this.arm.wrist.getWorldPosition(this.sampledWrist).applyMatrix4(this.inverseRoot)
       this.parentQ.copy(this.rootQ).invert()
       this.arm.shoulder.getWorldQuaternion(this.sampledUpper).premultiply(this.parentQ)
       this.arm.elbow.getWorldQuaternion(this.sampledLower).premultiply(this.parentQ)
+      if (sampledFrame) {
+        this.sampledShoulder.sub(sampledFrame.pivot).applyQuaternion(sampledFrame.rotation).add(sampledFrame.pivot)
+        this.sampledElbow.sub(sampledFrame.pivot).applyQuaternion(sampledFrame.rotation).add(sampledFrame.pivot)
+        this.sampledWrist.sub(sampledFrame.pivot).applyQuaternion(sampledFrame.rotation).add(sampledFrame.pivot)
+        this.sampledUpper.premultiply(sampledFrame.rotation)
+        this.sampledLower.premultiply(sampledFrame.rotation)
+      }
     }
     this.wrist.fromArray(frame.gripCenterLocal).multiply(this.gripScale).applyQuaternion(handRotation).negate().add(gripTarget)
     this.axis.subVectors(this.wrist, this.shoulder)
@@ -181,7 +194,7 @@ class ArmSolver {
         this.x.copy(this.lowerAxis).applyQuaternion(this.lowerRotation)
         this.lowerRotation.premultiply(this.swing.setFromUnitVectors(this.x, this.y))
       }
-      this.x.subVectors(this.sampledElbow, this.shoulder).normalize()
+      this.x.subVectors(this.sampledElbow, this.sampledShoulder).normalize()
       this.y.subVectors(this.elbow, this.shoulder).normalize()
       this.swing.setFromUnitVectors(this.x, this.y)
       if (continuity) {
@@ -333,6 +346,21 @@ export class CharacterEquipmentPose {
   private readonly bowSpineWorld = new THREE.Quaternion()
   private readonly bowChestWorld = new THREE.Quaternion()
   private readonly bowHalfTurnInverse = new THREE.Quaternion()
+  private readonly orbitTorso: THREE.Object3D[]
+  private readonly orbitNock?: THREE.Object3D
+  private readonly orbitRest?: THREE.Object3D
+  private readonly orbitDirection = new THREE.Vector3()
+  private readonly orbitNockPosition = new THREE.Vector3()
+  private readonly orbitChestBindInverse = new THREE.Quaternion()
+  private readonly orbitAimRotation = new THREE.Quaternion()
+  private readonly orbitPivot = new THREE.Vector3()
+  private readonly orbitHandTargets = [new THREE.Vector3(), new THREE.Vector3()]
+  private readonly orbitHandRotations = [new THREE.Quaternion(), new THREE.Quaternion()]
+  private readonly orbitSampleFrame = { rotation: new THREE.Quaternion(), pivot: new THREE.Vector3() }
+  private readonly orbitArms?: [ArmSolver, ArmSolver]
+  private readonly orbitWristFrame: EquipmentGripFrame
+  private readonly orbitNeck?: THREE.Object3D
+  private readonly orbitNeckTarget = new THREE.Quaternion()
 
   private readonly carryClavicle?: THREE.Object3D
   private readonly carryClavicleAnchor = new THREE.Vector3()
@@ -437,6 +465,23 @@ export class CharacterEquipmentPose {
       ? ['spine', 'chest', 'upper_chest'].map(name => root.getObjectByName(name)).filter((node): node is THREE.Object3D => !!node)
       : []
     this.bowSpine = root.getObjectByName('spine')
+    this.orbitTorso = ['spine', 'chest', 'upper_chest'].map(name => root.getObjectByName(name)).filter((node): node is THREE.Object3D => !!node)
+    this.orbitNock = root.getObjectByName(BOW_STRING_CONTACT)
+    this.orbitRest = root.getObjectByName(BOW_ARROW_REST)
+    this.orbitWristFrame = { ...frames.lanceLeft, gripCenterLocal: [0, 0, 0] }
+    this.orbitNeck = root.getObjectByName('neck') ?? root.getObjectByName('head')
+    if (this.orbitTorso.length && this.orbitNock && this.orbitRest) {
+      this.orbitArms = [new ArmSolver(root, rig.left, 1, true), new ArmSolver(root, rig.right, -1, true)]
+      // Selected assets can arrive in an authored stance. Their canonical rest
+      // metadata, rather than the initial displayed pose, defines anatomical yaw.
+      const chain: THREE.Object3D[] = []
+      for (let node: THREE.Object3D | null = this.orbitTorso[this.orbitTorso.length - 1]; node && node !== root; node = node.parent) chain.unshift(node)
+      for (const node of chain) {
+        const rest = node.userData.humanoidRestQuaternion as [number, number, number, number] | undefined
+        this.orbitChestBindInverse.multiply(rest ? this.boneWorld.fromArray(rest) : node.quaternion)
+      }
+      this.orbitChestBindInverse.invert()
+    }
     this.hipsBindPosition = this.seatedHips.position.clone()
     const nodes = [rig.right.shoulder, rig.right.elbow, rig.right.wrist, rig.left.shoulder, rig.left.elbow, rig.left.wrist,
       rig.leftLeg.hip, rig.leftLeg.knee, rig.leftLeg.ankle, rig.rightLeg.hip, rig.rightLeg.knee, rig.rightLeg.ankle]
@@ -449,6 +494,8 @@ export class CharacterEquipmentPose {
     if (this.fittedCloth) nodes.push(...this.fittedCloth.nodes)
     if (this.seatedSpine) nodes.push(this.seatedSpine)
     nodes.push(...this.seatedTorso.filter(node => node !== this.seatedSpine))
+    nodes.push(...this.orbitTorso.filter(node => !nodes.includes(node)))
+    if (this.orbitNeck && !nodes.includes(this.orbitNeck)) nodes.push(this.orbitNeck)
     if (this.bowFullBodyStance && this.bowSpine && this.bowSpine !== this.seatedSpine) nodes.push(this.bowSpine)
     for (const node of nodes) this.saved.push({ node, q: node.quaternion.clone() })
     root.traverse(o => { if (o instanceof THREE.SkinnedMesh) this.morphs.push({ mesh: o, right: o.morphTargetDictionary?.lanceRight, left: o.morphTargetDictionary?.lanceLeft, shield: o.morphTargetDictionary?.shieldLeft }) })
@@ -501,12 +548,12 @@ export class CharacterEquipmentPose {
     blendContinuousLocalQuaternion(saved, target, weight, prevDelta, this.boneWorld, this.attackAxis)
   }
 
-  private rotateArm(node: THREE.Object3D, angle: number): void {
+  private rotateArm(node: THREE.Object3D, angle: number, updateSubtree = true): void {
     node.getWorldQuaternion(this.boneWorld)
     node.parent!.getWorldQuaternion(this.parentInverse).invert()
     this.attackRotation.setFromAxisAngle(this.attackAxis, angle)
     node.quaternion.copy(this.parentInverse).multiply(this.attackRotation).multiply(this.boneWorld)
-    node.updateWorldMatrix(false, true)
+    if (updateSubtree) node.updateWorldMatrix(false, true)
   }
 
   /** Borrowed root-space physical palm frame, shared by the authority's LODs. */
@@ -1137,6 +1184,64 @@ export class CharacterEquipmentPose {
         ? (state.mounted ? entry.mountedSword : undefined) ?? entry.sword ?? entry.grip
         : entry.left && state.shield ? entry.shield ?? entry.grip : !entry.left && fittedAxe ? entry.axe ?? entry.grip : entry.grip
       entry.node.quaternion.copy(fingerContact[entry.left ? 'left' : 'right'] ? weaponGrip : entry.relaxed)
+    }
+    if (live && state.mounted && state.mountKind !== 'xongkoro' && state.mountedBowAim
+      && (state.action === 'bowAim' || state.action === 'bowRelease' || state.sampledBowPose)
+      && this.orbitNock && this.orbitRest && this.orbitArms && this.orbitTorso.length) {
+      // The source stance is already side-on. Cap its total chest twist, then
+      // use the existing two-bone solves only for the remaining arm reach.
+      // Wrist targets rotate together, retaining the source finger/weapon frame.
+      this.orbitNock.getWorldPosition(this.orbitNockPosition)
+      this.orbitRest.getWorldPosition(this.orbitDirection).sub(this.orbitNockPosition)
+      this.root.getWorldQuaternion(this.rootWorld)
+      this.orbitDirection.applyQuaternion(this.parentInverse.copy(this.rootWorld).invert()).normalize()
+      const yaw = angleDifference(state.mountedBowAim.yaw, Math.atan2(this.orbitDirection.x, this.orbitDirection.z))
+      const pitch = THREE.MathUtils.clamp(state.mountedBowAim.pitch - Math.atan2(this.orbitDirection.y, Math.hypot(this.orbitDirection.x, this.orbitDirection.z)), -MOUNTED_BOW_MAX_PITCH, MOUNTED_BOW_MAX_PITCH)
+      const chest = this.orbitTorso[this.orbitTorso.length - 1]
+      chest.getWorldQuaternion(this.bowChestWorld).premultiply(this.parentInverse).multiply(this.orbitChestBindInverse)
+      this.orbitDirection.set(0, 0, 1).applyQuaternion(this.bowChestWorld)
+      const torsoYaw = mountedBowTorsoTurn(Math.atan2(this.orbitDirection.x, this.orbitDirection.z), yaw)
+      const solveArms = Math.abs(torsoYaw - yaw) > .001
+      if (solveArms) {
+        this.orbitAimRotation.setFromAxisAngle(this.attackAxis.set(0, 1, 0), yaw)
+        this.attackRotation.setFromAxisAngle(this.attackAxis.set(Math.cos(state.mountedBowAim.yaw), 0, -Math.sin(state.mountedBowAim.yaw)), -pitch)
+        this.orbitAimRotation.premultiply(this.attackRotation)
+        chest.getWorldPosition(this.orbitPivot); this.root.worldToLocal(this.orbitPivot)
+        for (let i = 0; i < 2; i++) {
+          const arm = i === 0 ? this.rig.left : this.rig.right
+          arm.wrist.getWorldPosition(this.orbitHandTargets[i]); this.root.worldToLocal(this.orbitHandTargets[i])
+          this.orbitHandTargets[i].sub(this.orbitPivot).applyQuaternion(this.orbitAimRotation).add(this.orbitPivot)
+          arm.wrist.getWorldQuaternion(this.orbitHandRotations[i]).premultiply(this.parentInverse).premultiply(this.orbitAimRotation)
+        }
+        this.orbitNeck?.getWorldQuaternion(this.orbitNeckTarget)
+        this.orbitNeckTarget.premultiply(this.parentInverse).premultiply(this.orbitAimRotation).premultiply(this.rootWorld)
+      }
+      this.attackAxis.set(0, 1, 0).applyQuaternion(this.rootWorld)
+      for (const joint of this.orbitTorso) this.rotateArm(joint, torsoYaw / this.orbitTorso.length, false)
+      this.attackAxis.set(Math.cos(state.mountedBowAim.yaw), 0, -Math.sin(state.mountedBowAim.yaw)).applyQuaternion(this.rootWorld)
+      for (const joint of this.orbitTorso) this.rotateArm(joint, -pitch / this.orbitTorso.length, false)
+      if (solveArms) {
+        // Transport the sampled elbow planes from the torso turn to the full aim.
+        // Translate both contacts together if a shortened cross-body reach is
+        // needed. Never clamp each hand independently and bend the arrow line.
+        for (let i = 0; i < 2; i++) {
+          const arm = i === 0 ? this.rig.left : this.rig.right
+          arm.shoulder.getWorldPosition(this.target); this.root.worldToLocal(this.target)
+          this.axeReach.subVectors(this.orbitHandTargets[i], this.target)
+          const reach = this.axeReach.length(), maxReach = this.orbitArms[i].maxReach - .01
+          if (reach > maxReach) {
+            this.axeReach.multiplyScalar((maxReach - reach) / reach)
+            for (const hand of this.orbitHandTargets) hand.add(this.axeReach)
+          }
+        }
+        this.orbitSampleFrame.pivot.copy(this.orbitPivot)
+        this.orbitSampleFrame.rotation.setFromAxisAngle(this.attackAxis.set(0, 1, 0), yaw - torsoYaw)
+        for (let i = 0; i < 2; i++) this.orbitArms[i].solve(this.orbitHandTargets[i], this.orbitHandRotations[i], this.orbitWristFrame, undefined, true, false, undefined, this.orbitSampleFrame)
+        if (this.orbitNeck) {
+          this.orbitNeck.parent!.getWorldQuaternion(this.parentInverse).invert()
+          this.orbitNeck.quaternion.copy(this.parentInverse).multiply(this.orbitNeckTarget)
+        }
+      }
     }
     if (live && state.mounted) this.fittedCloth?.applyMounted()
     this.root.updateWorldMatrix(true, true)

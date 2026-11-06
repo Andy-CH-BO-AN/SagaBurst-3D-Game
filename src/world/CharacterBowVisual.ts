@@ -202,6 +202,17 @@ export class CharacterBowVisual {
     if (this.nockedArrow) this.nockedArrow.visible = false
   }
 
+  /** Physical nock-to-rest bearing, also used by the visible shaft. */
+  writeShaftDirection(target: THREE.Vector3): boolean {
+    if (!this.arrowRest || !this.drawContact) return false
+    this.arrowRest.getWorldPosition(target)
+    this.getNockPosition(this.tmpWorldNock)
+    target.sub(this.tmpWorldNock)
+    if (target.lengthSq() < 1e-8) return false
+    target.normalize()
+    return Number.isFinite(target.x + target.y + target.z)
+  }
+
   dispose(): void {
     this.animatedAsset?.dispose()
     this.animatedAsset = undefined
