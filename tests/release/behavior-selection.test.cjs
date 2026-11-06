@@ -52,14 +52,9 @@ export function unrelated() { return 0 }`
 // Each independent dependency behavior is a separate leaf. One combined
 // TypeScript graph analysis was exceeding the strict 100ms per-leaf budget
 // under CI contention; preserve every assertion without ignoring timing.
-const sharedDataBefore = `export const TABLE = { nested: { values: [1] } }
-export function read() { const { nested: { values: [first] } } = TABLE; return first }
-export function wrapped() { return { TABLE } }
-export function unrelated() { return 0 }`
-const sharedDataAfter = sharedDataBefore.replace('[1]', '[2]')
-
 test('shared data dynamic keys select the consumer but not sibling imports', () => {
-  const plan = selection(sharedDataBefore, sharedDataAfter, [
+  const before = 'export const TABLE = { nested: { values: [1] } }; export function unrelated() { return 0 }'
+  const plan = selection(before, before.replace('[1]', '[2]'), [
     "import { TABLE, unrelated } from '../src/owner'",
     "test('dynamic', () => { const key = globalThis.key; return TABLE[key] })",
     "test('unrelated', () => unrelated())",
@@ -68,7 +63,10 @@ test('shared data dynamic keys select the consumer but not sibling imports', () 
 })
 
 test('nested destructuring aliases select readers but not sibling imports', () => {
-  const plan = selection(sharedDataBefore, sharedDataAfter, [
+  const before = `export const TABLE = { nested: { values: [1] } }
+export function read() { const { nested: { values: [first] } } = TABLE; return first }
+export function unrelated() { return 0 }`
+  const plan = selection(before, before.replace('[1]', '[2]'), [
     "import { read, unrelated } from '../src/owner'",
     "test('alias', () => read())",
     "test('unrelated', () => unrelated())",
@@ -77,7 +75,10 @@ test('nested destructuring aliases select readers but not sibling imports', () =
 })
 
 test('shared data shorthand exports select wrappers but not sibling imports', () => {
-  const plan = selection(sharedDataBefore, sharedDataAfter, [
+  const before = `export const TABLE = { nested: { values: [1] } }
+export function wrapped() { return { TABLE } }
+export function unrelated() { return 0 }`
+  const plan = selection(before, before.replace('[1]', '[2]'), [
     "import { wrapped, unrelated } from '../src/owner'",
     "test('shorthand', () => wrapped())",
     "test('unrelated', () => unrelated())",
