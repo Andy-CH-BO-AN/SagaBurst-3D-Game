@@ -21,6 +21,7 @@ concurrency:
   cancel-in-progress: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 jobs:
   logic:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/supercov-per-test-impact-poc') }}
     uses: ./.github/workflows/logic-tests.yml
     with:
       mode: ${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || github.ref == 'refs/heads/main' && 'full' || 'related' }}
@@ -30,7 +31,7 @@ jobs:
   web:
     needs: logic
     # Preserve the existing required check: failed logic must fail web, not skip it.
-    if: always()
+    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/supercov-per-test-impact-poc') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -123,3 +124,44 @@ jobs:
       # Empty unless the aggregate verified a Full run for exactly this SHA; an
       # empty value makes Release run its own Full gate (fail closed).
       logic-verified-sha: ${{ needs.logic.outputs.verified-sha }}
+
+  # Explicit maintenance only: on the #430 feature branch, the already-existing
+  # Run workflow / mode=full action bootstraps dev with no new dispatch
+  # inputs required on default branch. Other branches retain ordinary Full.
+  # Cross-ref evidence uses repository-wide artifacts.
+  bootstrap-dev-seed:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ci/supercov-per-test-impact-poc' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Checkout controller from selected workflow branch
+        uses: actions/checkout@v4
+        with:
+          path: controller
+          fetch-depth: 0
+      - name: Checkout actual dev code (never PR HEAD)
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          path: source
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - run: npm ci
+        working-directory: source
+      - name: Normal Full gate then strict Supercov Full seed on dev
+        run: node controller/tests/tooling/supercov-bootstrap-dev.cjs source
+      - name: Archive dev seed with exact source SHA
+        id: dev
+        run: |
+          echo "sha=$(git -C source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          tar -czf controller/supercov-evidence.tar.gz -C source .supercov/runs output/supercov-seed.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: supercov-seed-${{ steps.dev.outputs.sha }}
+          path: controller/supercov-evidence.tar.gz
+          if-no-files-found: error
+          retention-days: 90
