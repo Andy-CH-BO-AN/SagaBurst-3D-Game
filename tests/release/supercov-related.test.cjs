@@ -174,10 +174,10 @@ test('rollout keeps true dev-push-only production refresh and distinct pre/post-
   const docs = readFileSync(resolve(__dirname, '../tooling/README.md'), 'utf8')
   assert.match(refresh, /GITHUB_EVENT_NAME !== 'push'/)
   assert.match(refresh, /GITHUB_REF !== 'refs\/heads\/dev'/)
-  assert.match(docs, /Pre-merge acceptance/)
+  assert.match(docs, /#430 migration acceptance/)
   assert.match(docs, /Post-merge rollout confirmation/)
-  assert.match(docs, /isolated worktree\/acceptance/)
-  assert.match(docs, /two consecutive actual push→dev/)
+  assert.match(docs, /isolated[\s\S]*worktree\/acceptance/)
+  assert.match(docs, /two consecutive real push→dev/)
 })
 
 test('fully measured 763-leaf baseline permits honest uncovered branches, not invalid evidence', () => {
@@ -232,7 +232,7 @@ test('fully measured 763-leaf baseline permits honest uncovered branches, not in
 })
 
 test('Full and Related seed publishers validate actual measurement, not 100-percent coverage', () => {
-  for (const name of ['supercov-seed.cjs', 'supercov-bootstrap-dev.cjs', 'supercov-refresh.cjs']) {
+  for (const name of ['supercov-seed.cjs', 'supercov-refresh.cjs']) {
     const script = readFileSync(resolve(__dirname, '../tooling/' + name), 'utf8')
     assert.match(script, /validateRunSummary\(/)
     assert.match(script, /buildSeed\(/)

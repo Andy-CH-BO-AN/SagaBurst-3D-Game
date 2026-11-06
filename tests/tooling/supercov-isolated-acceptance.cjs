@@ -26,10 +26,13 @@ function exec(cmd,args,cwd,phase,env={}){
  return stdout.trim()
 }
 const git=(dir,args,label)=>exec('git',args,dir,label)
-function checkout(dir,branch,sha,phase){
+function checkout(dir,branch,sha,phase,evidenceFrom=source){
  git(source,['worktree','add','-b',branch,dir,sha],phase+'-worktree')
  fs.symlinkSync(path.relative(dir,path.join(source,'node_modules')),path.join(dir,'node_modules'),'dir')
- fs.symlinkSync(path.relative(dir,path.join(source,'.supercov')),path.join(dir,'.supercov'),'dir')
+ // Supercov forbids symlinked storage paths; each isolated worktree owns a
+ // real copy. Historical source evidence remains untouched and read-only.
+ exec('cp',['-R',path.join(evidenceFrom,'.supercov'),path.join(dir,'.supercov')],
+   process.cwd(),phase+'-copy-evidence')
  fs.mkdirSync(path.join(dir,'output'),{recursive:true})
 }
 function change(dir,original,updated,phase){
@@ -99,7 +102,7 @@ function execute(dir,files,phase){
     })
   if(!fs.existsSync(idFile))die(phase+' missing instrumented ID')
   const id=fs.readFileSync(idFile,'utf8').trim()
-  if(!/^run_[a-z0-9]+$/i.test(id)||!fs.existsSync(path.join(source,'.supercov/runs',id)))
+  if(!/^run_[a-z0-9]+$/i.test(id)||!fs.existsSync(path.join(dir,'.supercov/runs',id)))
     die(phase+' invalid instrumented run '+id)
   runs.push(id);index++
  }
@@ -138,7 +141,7 @@ function main(){
   'tests','affected','--json'],aDir,'A-pristine-next-query'))
  if(fresh.data?.summary?.affected!==0||fresh.data?.summary?.undetermined!==0)
   die('A strict merged seed is stale on its own checkout')
- checkout(bDir,'acceptance-B',aSha,'B')
+ checkout(bDir,'acceptance-B',aSha,'B',aDir)
  const bSha=change(bDir,".padStart(2, '0')",'.padStart(2, String(0))','B')
  const bFiles=query(bDir,aMerge,'B',seed.setups)
  const bRuns=execute(bDir,bFiles,'B')
