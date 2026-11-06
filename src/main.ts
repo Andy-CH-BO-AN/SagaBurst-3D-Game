@@ -17,6 +17,7 @@ import { townRoster } from './town/TownRules'
 import { createCareerVeteranOutpostLaunch, isCareerVeteranOutpostMission, shouldResumeCareerVeteranOutpost } from './career/CareerVeteranOutpost'
 import { createCareerCommanderOutpostLaunch, isCareerCommanderOutpostMission } from './career/CommanderOutpost'
 import { CareerProfileStore } from './career/CareerProfileStore'
+import { shouldResumeCareerTown } from './career/CareerResumeRouting'
 import { commitCareerTutorial, deferCareerTutorial } from './career/CareerTutorial'
 import { createCareerCaptainTutorialConfig, type CareerTutorialLaunch } from './career/CareerTutorialLaunch'
 import { recoverFailedCareerMission, CAREER_RECOVERY_NOTICE_KEY } from './career/CareerMissionRecovery'
@@ -390,7 +391,7 @@ async function bootstrap(): Promise<void> {
     sessionStorage.removeItem('sagaburst_campaign_config')
   }
 
-  const careerResume = !menuOnly && (Boolean(outpostProfile?.careerRetirement) || outpostProfile?.townEvent?.state === 'hostile' || sessionStorage.getItem(TOWN_ENTRY_KEY) === '1')
+  const careerResume = !menuOnly && shouldResumeCareerTown(outpostProfile, sessionStorage.getItem(TOWN_ENTRY_KEY) === '1')
   if (savedCampaign && !careerResume) {
     await launchGame(undefined, savedCampaign)
     return
@@ -484,6 +485,7 @@ async function bootstrap(): Promise<void> {
   }
 
   showHome = (): void => {
+    sessionStorage.removeItem(TOWN_ENTRY_KEY)
     const menu = new MainMenuUI()
     menu.mount(document.body, {
       onTrainingGround: () => { menu.destroy(); void launchGame(undefined, undefined, true) },

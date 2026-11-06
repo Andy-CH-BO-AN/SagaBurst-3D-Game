@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { shouldResumeCareerTown } from '../../src/career/CareerResumeRouting'
 import { Game } from '../../src/Game'
 import { getDefenseCampaignUnlockedStage } from '../../src/campaign/CampaignProgress'
 import { DefenseCampaignRuntime } from '../../src/campaign/DefenseCampaignRuntime'
@@ -59,6 +60,11 @@ describe('Game routes Campaign and Career separately', () => {
   })
   it('keeps formal Campaign progress and Next Stage behavior and leaves Career untouched', () => {
     const { game, store, storage } = harness(false)
+    const completed = store.load()!
+    completed.rank = 'commander'; completed.totalMerit = completed.availableMerit = 20000
+    delete completed.activeOutpostMission
+    completed.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 123, combatElapsedSeconds: 42, outcome: 'escaped' }
+    expect(store.save(completed)).toBe(true)
     const careerBefore = store.load()
     game._updateDefenseCampaign(1)
     expect(getDefenseCampaignUnlockedStage('roman', storage)).toBe(2)
@@ -80,5 +86,31 @@ describe('Game routes Campaign and Career separately', () => {
     expect(returned).toMatchObject({ faction: 'roman', totalMerit: merit, completedOutpostStages: [1] })
     expect(returned.activeOutpostMission).toBeUndefined()
     expect(returned.claimedBattleIds).toEqual(['battle'])
+  })
+})
+
+describe('Career reload routing', () => {
+  it('keeps a completed ending out of automatic recovery even with stale town intent and hostility', () => {
+    const profile = createCareerProfile('roman')
+    profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 1, combatElapsedSeconds: 42, outcome: 'escaped' }
+    profile.townEvent = { id: 'stale', state: 'hostile', penalty: 0 }
+    const saved = JSON.stringify(profile)
+    // Both clean home and stale town flags leave free-mode sessions eligible.
+    expect(shouldResumeCareerTown(profile, false)).toBe(false)
+    expect(shouldResumeCareerTown(profile, true)).toBe(false)
+    expect(JSON.stringify(profile)).toBe(saved)
+  })
+
+  it.each(['departing', 'mobilizing', 'final-stand'] as const)('preserves %s recovery priority without a town flag', phase => {
+    const profile = createCareerProfile('viking')
+    profile.rank = 'commander'; profile.totalMerit = profile.availableMerit = 20000
+    profile.careerRetirement = { version: 1, phase, acceptedAt: 1, combatElapsedSeconds: phase === 'final-stand' ? 42 : 0 }
+    const saved = JSON.stringify(profile)
+    const store = new CareerProfileStore(new MemoryStorage())
+    expect(store.save(profile)).toBe(true)
+    const restored = store.loadChecked().profile!
+    expect(restored.careerRetirement).toEqual(profile.careerRetirement)
+    expect(shouldResumeCareerTown(restored, false)).toBe(true)
+    expect(JSON.stringify(profile)).toBe(saved)
   })
 })
