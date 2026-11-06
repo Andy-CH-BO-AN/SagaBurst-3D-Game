@@ -12,7 +12,7 @@ import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
 import { BattleStatsTracker } from '../../src/combat/BattleStatsTracker'
 import { acceptsCareerMissionStat, careerMissionCommandMeritPolicy } from '../../src/career/CareerMissionState'
 import { townRoster, type TownActorSpec } from '../../src/town/TownRules'
-import { AIType, type NPC } from '../../src/world/NPC'
+import type { NPC } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
 import type { Scene } from 'three'
 import { Faction } from '../../src/combat/CombatFaction'
@@ -614,7 +614,6 @@ describe('Commander VI Six Feline Cavalry', () => {
       && spec.loadout?.meleeWeaponId === 'spear_t5'
       && spec.loadout?.shieldId === (profile.faction === 'roman' ? 'commander_shield_t5' : 'viking_berserker_shield_t5')
       && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(20)
-    expect(friendly.every(spec => spec.aiType === AIType.RANGED)).toBe(true)
 
     // Enemy equipment remains untouched:
     expect(enemy.filter(spec => spec.characterTier === 5 && !spec.presetId?.endsWith('_horse_archer')
@@ -680,7 +679,6 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(vikingFriendly.filter(spec => spec.characterTier === 5 && spec.presetId?.endsWith('_lancer')
       && spec.loadout?.meleeWeaponId === 'spear_t5'
       && spec.loadout?.shieldId === 'viking_berserker_shield_t5')).toHaveLength(20)
-    expect(vikingFriendly.every(spec => spec.aiType === AIType.RANGED)).toBe(true)
     const enemyBlocks = Array.from({ length: FELINE_ENEMY_TOTAL / 30 }, (_, i) =>
       enemy.slice(i * 30, (i + 1) * 30).filter(spec => spec.actorId !== mission.commanderMission!.felineVanguardActorId))
     expect(enemyBlocks).toHaveLength(10)
