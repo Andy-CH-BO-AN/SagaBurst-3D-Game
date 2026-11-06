@@ -102,26 +102,20 @@ test('Full seed instruments verified manifest shards, never a hidden unsharded 5
   assert.match(workflow, /name: logic-aggregate/)
 })
 
-test('manual dev bootstrap has an explicit opt-in and repository-wide artifact transport', () => {
+test('only canonical dev/main Full workflow can publish reusable evidence', () => {
   const ci = readFileSync(resolve(__dirname, '../../.github/workflows/ci.yml'), 'utf8')
   const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
-  const bootstrap = readFileSync(resolve(__dirname, '../tooling/supercov-bootstrap-dev.cjs'), 'utf8')
   const artifact = readFileSync(resolve(__dirname, '../tooling/supercov-evidence.cjs'), 'utf8')
-  assert.match(ci, /github\.ref == 'refs\/heads\/ci\/supercov-per-test-impact-poc'/)
-  assert.match(ci, /bootstrap-dev-seed:/)
-  assert.match(ci, /ref: dev/)
-  assert.match(ci, /supercov-bootstrap-dev\.cjs source/)
-  assert.match(ci, /supercov-seed-.*steps\.dev\.outputs\.sha/)
-  assert.match(bootstrap, /refs\/remotes\/origin\/dev/)
-  assert.match(bootstrap, /--mode', 'full'/)
-  assert.match(bootstrap, /'merge', \.\.\.runs/)
-  assert.doesNotMatch(bootstrap, /'merge', '--allow-changed'/)
+  assert.doesNotMatch(ci, /bootstrap-dev-seed:|refs\/heads\/ci\/supercov-per-test-impact-poc/)
+  assert.match(workflow, /supercov-full-seed:/)
+  assert.match(workflow, /github\.event_name == 'workflow_dispatch'/)
+  assert.match(workflow, /refs\/heads\/dev/)
+  assert.match(workflow, /refs\/heads\/main/)
+  assert.match(workflow, /name: supercov-seed-/)
   assert.match(workflow, /GH_TOKEN:/)
   assert.match(workflow, /supercov-evidence\.cjs restore/)
-  assert.match(workflow, /name: supercov-seed-/)
-  // Git ancestry is enforced behaviorally by the P1 test below, not by matching an implementation string.
-  // Publication success is covered by trustedPublication() behavior below.
   assert.match(artifact, /No PR\/dev TEST_BASE ancestor Full\/strict-Related seed artifact/)
+  assert.match(ci, /github\.event_name == 'workflow_dispatch' && 'full'/)
 })
 
 test('P1 feature Full seed cannot bypass PR base even when ancestor of feature HEAD', () => {
@@ -150,7 +144,7 @@ test('P1 published seeds cannot originate from arbitrary feature manual Full', (
   assert.equal(trustedPublication({ ...valid, event: 'push', head_branch: 'dev' }, sha), true)
   assert.equal(trustedPublication({ ...valid, event: 'workflow_dispatch', head_branch: 'main' }, sha), true)
   assert.equal(trustedPublication({ ...valid, event: 'workflow_dispatch',
-    head_branch: 'ci/supercov-per-test-impact-poc' }, sha), true)
+    head_branch: 'ci/supercov-per-test-impact-poc' }, sha), false)
   assert.equal(trustedPublication({ ...valid, event: 'workflow_dispatch',
     head_branch: 'feature/manual-full' }, sha), false)
   assert.equal(trustedPublication({ ...valid, event: 'pull_request', head_branch: 'dev' }, sha), false)

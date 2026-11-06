@@ -27,10 +27,11 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
   const store = new CareerProfileStore(), loaded = store.loadChecked()
   let open = true, routeGeneration = 0, selectionGeneration = 0
   let selection: FactionSelectionUI | undefined
+  let closeEnding: (() => void) | undefined
   const closeSelection = (): void => { selectionGeneration++; selection?.dispose(); selection = undefined }
   const leave = (): void => {
     if (!open) return
-    open = false; routeGeneration++; closeSelection(); form.remove(); home()
+    open = false; routeGeneration++; closeEnding?.(); closeSelection(); form.remove(); home()
   }
   const form = document.createElement('div'); form.id = 'career-entry'; form.className = 'town-entry'
   const heading = document.createElement('h1'); heading.textContent = '生涯模式 CAREER'; form.append(heading)
@@ -44,7 +45,8 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     const current = () => open && generation === routeGeneration
     if (profile.careerRetirement?.phase === 'completed') {
       form.remove()
-      showCommanderRetirementEnding(profile, {
+      sessionStorage.removeItem(TOWN_ENTRY_KEY)
+      closeEnding = showCommanderRetirementEnding(profile, {
         home: () => { if (current()) { sessionStorage.removeItem(TOWN_ENTRY_KEY); leave() } },
         newCareer: () => { if (current()) showCreator(profile) },
       })
@@ -201,7 +203,7 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
   }
   const showCreator = (replacement?: CareerProfile): void => {
     if (!open) return
-    routeGeneration++; closeSelection(); form.remove()
+    routeGeneration++; closeEnding?.(); closeSelection(); form.remove()
     const token = selectionGeneration
     const current = () => open && token === selectionGeneration
     let starting = false, savedCareerId: string | undefined

@@ -6,6 +6,7 @@ import { createCareerProfile, type CareerProfile } from '../../src/career/Career
 import { CareerProfileStore } from '../../src/career/CareerProfileStore'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { enterCareerTown, TOWN_ENTRY_KEY } from '../../src/town/CareerTownEntry'
+import { showCommanderRetirementEnding } from '../../src/town/TownRetirementUI'
 import { TownScene } from '../../src/town/TownScene'
 import { CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
@@ -28,17 +29,19 @@ vi.mock('../../src/town/FactionSelectionUI', () => ({ FactionSelectionUI: class 
 
 interface EntryElement {
   textContent: string; style: Record<string, string>; children: EntryElement[]; tag: string; removed: boolean
+  tabIndex?: number; hidden?: boolean
+  onanimationend: null | ((event: { target: EntryElement; animationName: string }) => void)
   onclick: null | (() => void); append(...children: EntryElement[]): void; remove: ReturnType<typeof vi.fn>
   replaceChildren(...children: EntryElement[]): void; querySelectorAll(selector: string): EntryElement[]
-  setAttribute(name: string, value: string): void
+  focus: ReturnType<typeof vi.fn>; setAttribute(name: string, value: string): void
 }
 function element(tag = 'div'): EntryElement {
   const value: EntryElement = {
-    textContent: '', style: {}, children: [], onclick: null, tag, removed: false,
+    textContent: '', style: {}, children: [], onclick: null, onanimationend: null, tag, removed: false,
     append(...children) { this.children.push(...children) },
     replaceChildren(...children) { this.children = children; this.removed = false },
     querySelectorAll(selector) { return this.children.flatMap(child => [...(child.tag === selector ? [child] : []), ...child.querySelectorAll(selector)]) },
-    setAttribute: vi.fn(),
+    focus: vi.fn(), setAttribute: vi.fn(),
     remove: vi.fn(() => { value.removed = true }),
   }
   return value
@@ -88,12 +91,12 @@ describe('Town load failure recovery', () => {
     })
     enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home, undefined, training)
     expect(TownScene.create).not.toHaveBeenCalled()
-    expect(findText(body, '退休結局：光榮退役')).toBeDefined()
-    findText(body, '開始新的 Career')!.onclick!()
+    expect(findText(body, '光榮退役')).toBeDefined()
+    findText(body, '開啟新生涯')!.onclick!()
     findText(body, '取消')!.onclick!()
     expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
-    findText(body, '開始新的 Career')!.onclick!()
-    findText(body, '開始新生涯')!.onclick!()
+    findText(body, '開啟新生涯')!.onclick!()
+    findText(body, '確認，選擇陣營')!.onclick!()
     // Cancelling faction selection is still non-destructive.
     const cancelledView = factionViews.at(-1)!
     cancelledView.options.onBack()
@@ -101,8 +104,8 @@ describe('Town load failure recovery', () => {
     expect(training).not.toHaveBeenCalled()
     expect(cancelledView.dispose).toHaveBeenCalledOnce()
     expect(local.getItem(CAREER_STORAGE_KEY)).toBe(original)
-    findText(body, '開始新的 Career')!.onclick!()
-    findText(body, '開始新生涯')!.onclick!()
+    findText(body, '開啟新生涯')!.onclick!()
+    findText(body, '確認，選擇陣營')!.onclick!()
     const view = factionViews.at(-1)!
     local.failWrites = true
     await view.options.onStart('viking')
@@ -202,8 +205,8 @@ describe('Town load failure recovery', () => {
     const store = new CareerProfileStore(local)
     expect(store.save(previous)).toBe(true)
     enterCareerTown(element() as unknown as HTMLElement, vi.fn(), home, undefined, training)
-    findText(body, '開始新的 Career')!.onclick!()
-    findText(body, '開始新生涯')!.onclick!()
+    findText(body, '開啟新生涯')!.onclick!()
+    findText(body, '確認，選擇陣營')!.onclick!()
     const view = factionViews[0]
     await view.options.onStart('viking')
     const saved = local.getItem(CAREER_STORAGE_KEY)
@@ -215,7 +218,7 @@ describe('Town load failure recovery', () => {
     expect(view.dispose).toHaveBeenCalledOnce()
     expect(local.getItem(CAREER_STORAGE_KEY)).toBe(saved)
     expect(training).toHaveBeenCalledOnce()
-    expect(findText(body, '退休結局：光榮退役')).toBeUndefined()
+    expect(findText(body, '光榮退役')).toBeUndefined()
     expect(TownScene.create).not.toHaveBeenCalled()
   })
 
@@ -365,5 +368,63 @@ describe('Captain battlefield Career entry routing', () => {
       : { type: 'defense', careerMissionId: 'resume-frontline', careerMissionKind: 'captain-outpost-defense', stageId: 9 })
     expect(session.getItem(CAREER_OUTPOST_SESSION_KEY)).toBe(accepted.activeMission!.id)
     expect(session.getItem(TOWN_ENTRY_KEY)).toBeNull()
+  })
+})
+
+
+describe('Retirement ending lifecycle', () => {
+  it('disposes replaced and departed overlays and rejects callbacks retained by detached buttons', () => {
+    const body = element(), home = vi.fn(), newCareer = vi.fn()
+    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
+    const profile = createCareerProfile('roman')
+    profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 1, combatElapsedSeconds: 0, outcome: 'escaped' }
+    const show = () => showCommanderRetirementEnding(profile, { home, newCareer })
+    const closeFirst = show()
+    const title = findText(body, '帶旗離城')!
+    expect(title.tabIndex).toBe(-1)
+    expect(title.focus).toHaveBeenCalledExactlyOnceWith({ preventScroll: true })
+    expect(findText(body, '開啟新生涯')!.focus).not.toHaveBeenCalled()
+    const firstHome = findText(body, '返回主選單')!
+    const staleHome = firstHome.onclick!
+    const closeSecond = show()
+    expect(body.children.filter(child => !child.removed)).toHaveLength(1)
+    expect(firstHome.onclick).toBeNull()
+    closeFirst(); staleHome()
+    expect(home).not.toHaveBeenCalled()
+    findText(body, '返回主選單')!.onclick!()
+    expect(home).toHaveBeenCalledOnce()
+    expect(body.children.filter(child => !child.removed)).toHaveLength(0)
+    closeSecond()
+    const closeThird = show()
+    findText(body, '開啟新生涯')!.onclick!()
+    findText(body, '取消')!.onclick!()
+    expect(body.children.filter(child => !child.removed)).toHaveLength(1)
+    expect(newCareer).not.toHaveBeenCalled()
+    closeThird(); closeThird()
+    expect(body.children.filter(child => !child.removed)).toHaveLength(0)
+    expect(home).toHaveBeenCalledOnce()
+  })
+
+  it('hides Skip only after the copy animation completes and clears its completion handler on dispose', () => {
+    const body = element()
+    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
+    const profile = createCareerProfile('roman')
+    profile.careerRetirement = { version: 1, phase: 'completed', acceptedAt: 1, combatElapsedSeconds: 0, outcome: 'escaped' }
+    const close = showCommanderRetirementEnding(profile, { home: vi.fn(), newCareer: vi.fn() })
+    const title = findText(body, '帶旗離城')!, skip = findText(body, '略過動畫')!
+    const copy = body.querySelectorAll('div').find(node => node.children.includes(title))!
+    const finish = copy.onanimationend!
+    expect(skip.hidden).not.toBe(true)
+    finish({ target: title, animationName: 'retirement-copy' })
+    finish({ target: copy, animationName: 'retirement-fade' })
+    expect(skip.hidden).not.toBe(true)
+    finish({ target: copy, animationName: 'retirement-copy' })
+    expect(skip.hidden).toBe(true)
+    close()
+    expect(copy.onanimationend).toBeNull()
+    // A retained completion callback may not touch a disposed view.
+    skip.hidden = false
+    finish({ target: copy, animationName: 'retirement-copy' })
+    expect(skip.hidden).toBe(false)
   })
 })

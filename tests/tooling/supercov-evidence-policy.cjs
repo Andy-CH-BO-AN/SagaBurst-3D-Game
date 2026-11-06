@@ -35,14 +35,11 @@ function requireBaseAncestor(seedSha, comparisonBase, checker = isGitAncestor) {
 function trustedPublication(workflow, seedSha) {
   if (workflow?.status !== 'completed' || workflow.conclusion !== 'success' ||
       workflow.path !== '.github/workflows/ci.yml' || !SHA.test(seedSha || '')) return false
-  const canonical = ['dev', 'main'].includes(workflow.head_branch)
-  if (canonical && workflow.head_sha === seedSha &&
-      (workflow.event === 'push' || workflow.event === 'workflow_dispatch')) return true
-  // This one special branch dispatch is a controller only. Its workflow
-  // checks out origin/dev and binds the artifact name/metadata to THAT SHA.
-  // No arbitrary feature-branch manual Full may enter the Related lineage.
-  return workflow.event === 'workflow_dispatch' &&
-    workflow.head_branch === 'ci/supercov-per-test-impact-poc'
+  // Only a successful run tied to its own actual canonical branch commit
+  // may publish authoritative evidence. No feature-branch exception.
+  return ['dev', 'main'].includes(workflow.head_branch) &&
+    workflow.head_sha === seedSha &&
+    (workflow.event === 'push' || workflow.event === 'workflow_dispatch')
 }
 
 function generation(seed) {
