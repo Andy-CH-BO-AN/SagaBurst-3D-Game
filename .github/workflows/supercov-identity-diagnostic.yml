@@ -1,0 +1,55 @@
+name: Supercov identity CLI diagnostic (temporary PR430)
+on:
+  pull_request:
+    branches: [dev]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  identity-diagnostic:
+    if: ${{ github.event.pull_request.head.ref == 'ci/supercov-per-test-impact-poc' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: controller
+      - uses: actions/checkout@v4
+        with:
+          ref: 3966b984204fb3d96ecb500d4bfc6cdd634f0d51
+          path: source
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - run: npm ci
+        working-directory: source
+      - name: Restore historical Full solely for isolated CLI research
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p identity-diagnostics source/output
+          gh run download 42252456644 \
+            --repo "$REPO" \
+            --name supercov-seed-3966b984204fb3d96ecb500d4bfc6cdd634f0d51 \
+            --dir identity-diagnostics
+          tar -xzf identity-diagnostics/supercov-evidence.tar.gz -C source
+          test -f source/output/supercov-seed.json
+          test -d source/.supercov/runs/run_d06066084020ac43
+      - name: Exercise --names, --json, and mixed outputs on real runtime edits
+        run: node controller/tests/tooling/supercov-identity-diagnostic.cjs source
+      - name: Upload diagnostic evidence even if CLI rejects a flag
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supercov-identity-research-${{ github.sha }}
+          path: |
+            identity-diagnostics/summary.json
+            identity-diagnostics/*.stdout
+            identity-diagnostics/*.stderr
+          if-no-files-found: warn
+          retention-days: 30
