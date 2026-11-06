@@ -49,19 +49,40 @@ export function unrelated() { return 0 }`
   assert.equal(backward.moduleEffect, false)
 })
 
-test('shared data follows dynamic keys and nested destructuring aliases without selecting sibling imports', () => {
-  const before = `export const TABLE = { nested: { values: [1] } }
+// Each independent dependency behavior is a separate leaf. One combined
+// TypeScript graph analysis was exceeding the strict 100ms per-leaf budget
+// under CI contention; preserve every assertion without ignoring timing.
+const sharedDataBefore = `export const TABLE = { nested: { values: [1] } }
 export function read() { const { nested: { values: [first] } } = TABLE; return first }
 export function wrapped() { return { TABLE } }
 export function unrelated() { return 0 }`
-  const plan = selection(before, before.replace('[1]', '[2]'), [
-    "import { TABLE, read, wrapped, unrelated } from '../src/owner'",
+const sharedDataAfter = sharedDataBefore.replace('[1]', '[2]')
+
+test('shared data dynamic keys select the consumer but not sibling imports', () => {
+  const plan = selection(sharedDataBefore, sharedDataAfter, [
+    "import { TABLE, unrelated } from '../src/owner'",
     "test('dynamic', () => { const key = globalThis.key; return TABLE[key] })",
+    "test('unrelated', () => unrelated())",
+  ])
+  assert.deepEqual(indices(plan), [0])
+})
+
+test('nested destructuring aliases select readers but not sibling imports', () => {
+  const plan = selection(sharedDataBefore, sharedDataAfter, [
+    "import { read, unrelated } from '../src/owner'",
     "test('alias', () => read())",
+    "test('unrelated', () => unrelated())",
+  ])
+  assert.deepEqual(indices(plan), [0])
+})
+
+test('shared data shorthand exports select wrappers but not sibling imports', () => {
+  const plan = selection(sharedDataBefore, sharedDataAfter, [
+    "import { wrapped, unrelated } from '../src/owner'",
     "test('shorthand', () => wrapped())",
     "test('unrelated', () => unrelated())",
   ])
-  assert.deepEqual(indices(plan), [0, 1, 2])
+  assert.deepEqual(indices(plan), [0])
 })
 
 test('namespace dynamic reads and enumeration retain export owners while concrete siblings stay separate', () => {
