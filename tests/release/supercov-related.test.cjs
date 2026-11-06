@@ -120,7 +120,7 @@ test('manual dev bootstrap has an explicit opt-in and repository-wide artifact t
   assert.match(workflow, /name: supercov-seed-/)
   assert.match(artifact, /merge-base', '--is-ancestor'/)
   assert.match(artifact, /workflow\.conclusion !== 'success'/)
-  assert.match(artifact, /No ancestor Full\/strict-Related seed artifact/)
+  assert.match(artifact, /No PR\/dev TEST_BASE ancestor Full\/strict-Related seed artifact/)
 })
 
 test('P1 feature Full seed cannot bypass PR base even when ancestor of feature HEAD', () => {
