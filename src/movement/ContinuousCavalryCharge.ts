@@ -137,9 +137,7 @@ export function findCavalryChargeTarget(
   let bestScore = Infinity
   let bestTarget: { position: THREE.Vector3; isDead: boolean; isPlayer: boolean; npc?: NPC } | null = null
 
-  // Check player
-  // Must respect cavalry.hostileToPlayer (targetsPlayer) and combatTargetAllowed.
-  // Ground melee cavalry must exclude airborne eagle riders (!player.currentMount?.isFlyingMount).
+  // Check player eligibility and position
   const canTargetPlayer = Boolean(
     cavalry.hostileToPlayer
     && player.targetable
@@ -148,22 +146,22 @@ export function findCavalryChargeTarget(
     && !player.currentMount?.isFlyingMount,
   )
 
-  if (canTargetPlayer) {
-    const playerPos = player.isMounted && player.currentMount && !player.currentMount.isFlyingMount
+  const playerPos = canTargetPlayer
+    ? (player.isMounted && player.currentMount && !player.currentMount.isFlyingMount
       ? player.currentMount.group.position
-      : (player.group?.position ?? player.position)
+      : (player.group?.position ?? player.position))
+    : null
 
-    const pScore = scoreCavalryTarget(cx, cz, yaw, playerPos.x, playerPos.z, isPassthrough)
-    if (pScore < bestScore) {
-      bestScore = pScore
-      bestTarget = { position: playerPos, isDead: false, isPlayer: true }
-    }
-  }
+  const playerDist = playerPos ? Math.hypot(playerPos.x - cx, playerPos.z - cz) : Infinity
+
+  // Candidate search radius: ensures player and nearby NPCs compete within a consistent, fair range.
+  // When player is eligible, candidate range expands to cover the player (up to 120m) so NPCs closer than the player are not overlooked.
+  const searchRadius = Math.max(64, Math.min(120, canTargetPlayer ? playerDist + 10 : 64))
 
   // Query nearby candidates from spatial grid
   if (hostileNpcGrid) {
     candidateBuffer.length = 0
-    hostileNpcGrid.getNearbyInto(cavalry.combatPosition, 32, candidateBuffer)
+    hostileNpcGrid.getNearbyInto(cavalry.combatPosition, searchRadius, candidateBuffer)
 
     for (let i = 0; i < candidateBuffer.length; i++) {
       const candidate = candidateBuffer[i]
@@ -218,12 +216,21 @@ export function findCavalryChargeTarget(
     }
   }
 
+  // Score player against candidate NPCs within the unified search range
+  if (canTargetPlayer && playerPos && playerDist <= searchRadius) {
+    const pScore = scoreCavalryTarget(cx, cz, yaw, playerPos.x, playerPos.z, isPassthrough)
+    if (pScore < bestScore) {
+      bestScore = pScore
+      bestTarget = { position: playerPos, isDead: false, isPlayer: true }
+    }
+  }
+
   if (bestTarget !== null) return bestTarget
 
-  // If in passthrough and no forward targets found in 32m, do not snap back
+  // If in passthrough and no forward targets found, do not snap back
   if (isPassthrough) return null
 
-  // Fallback to group coordinator or nearest if nothing scored in local buffer
+  // Fallback to group coordinator or nearest if nothing scored in forward cone
   if (hostileNpcGrid) {
     const fallbackNpc = chaseTargetCoordinator && !cavalry.combatTargetAllowed
       ? chaseTargetCoordinator.findGroupTarget(cavalry, hostileNpcGrid, true)
@@ -237,6 +244,29 @@ export function findCavalryChargeTarget(
         isDead: false,
         isPlayer: false,
         npc: fallbackNpc,
+      }
+    }
+  } else if (allNPCs) {
+    let nearestCandidate: NPC | null = null
+    let nearestDistSq = Infinity
+    for (let i = 0; i < allNPCs.length; i++) {
+      const candidate = allNPCs[i]
+      if (candidate === cavalry || candidate.dead) continue
+      if (!checkHostile(cavalry, candidate)) continue
+      if (candidate.mount?.isFlyingMount) continue
+      if (cavalry.combatTargetAllowed && cavalry.combatTargetAllowed(candidate) === false) continue
+      const distSq = (candidate.combatPosition.x - cx) ** 2 + (candidate.combatPosition.z - cz) ** 2
+      if (distSq < nearestDistSq) {
+        nearestDistSq = distSq
+        nearestCandidate = candidate
+      }
+    }
+    if (nearestCandidate) {
+      return {
+        position: nearestCandidate.combatPosition,
+        isDead: false,
+        isPlayer: false,
+        npc: nearestCandidate,
       }
     }
   }

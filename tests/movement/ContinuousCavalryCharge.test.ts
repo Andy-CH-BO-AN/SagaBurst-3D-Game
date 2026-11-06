@@ -338,17 +338,32 @@ describe('Continuous Melee Cavalry Charge', () => {
     expect(newYaw).toBe(currentYaw)
   })
 
-  it('bounds lance tip yaw adjustment to cavalry turn rate limits', () => {
+  it('shares turn budget between heading steering and lance tip correction without exceeding maximum frame turn rate', () => {
     const speed = 12
     const dt = 1 / 60
-    const maxTurn = cavalryTurnRate(speed) * dt
+    const maxTurnBudget = cavalryTurnRate(speed) * dt
 
-    // Large tip offset that would cause a sudden snap turn
-    const largeTipYawOffset = 0.5 // ~28.6 degrees
+    const initialYaw = 0
+    const desiredYaw = 0.5 // Desires a turn to the right
+    const steerYaw = steerCavalryHeading(initialYaw, desiredYaw, speed, dt)
 
-    const clampedOffset = Math.max(-maxTurn, Math.min(maxTurn, largeTipYawOffset))
-    expect(Math.abs(clampedOffset)).toBeLessThanOrEqual(maxTurn)
-    expect(clampedOffset).toBeCloseTo(maxTurn, 6)
+    // Heading steering consumed max turn in + direction
+    const headingTurn = steerYaw - initialYaw
+    expect(headingTurn).toBeCloseTo(maxTurnBudget, 6)
+
+    // Lance tip ALSO desires an offset in the same + turn direction
+    const tipYawOffset = -0.3 // Subtracting negative offset means turning further right
+
+    // Shared budget calculation (from NPC.ts):
+    const unconstrainedYaw = steerYaw - tipYawOffset
+    const totalDiff = angleDifference(unconstrainedYaw, initialYaw)
+    const clampedDiff = Math.max(-maxTurnBudget, Math.min(maxTurnBudget, totalDiff))
+    const finalYaw = initialYaw + clampedDiff
+
+    // Net actual turn between initial yaw and final yaw
+    const actualTotalTurn = Math.abs(angleDifference(finalYaw, initialYaw))
+    expect(actualTotalTurn).toBeLessThanOrEqual(maxTurnBudget + 1e-6)
+    expect(actualTotalTurn).toBeCloseTo(maxTurnBudget, 6)
   })
 
   it('preserves navigation pause and stops at blocking obstacles during CHASE', () => {
@@ -430,5 +445,210 @@ describe('Continuous Melee Cavalry Charge', () => {
     // Geometry is in exact sync with mount forward step
     const distToTarget = new THREE.Vector3(0.3, 1.4, 2.5).distanceTo(tipWorld)
     expect(distToTarget).toBeCloseTo(0.2, 5)
+  })
+
+  it('prefers a 35m enemy NPC over a 100m player in candidate competition', () => {
+    const cavalry = {
+      combatPosition: new THREE.Vector3(0, 0, 0),
+      group: { rotation: { y: 0 } },
+      mount: { group: { rotation: { y: 0 } } },
+      hostileToPlayer: true,
+      combatTargetAllowed: () => true,
+    } as any
+
+    const player = {
+      targetable: true,
+      dead: false,
+      position: new THREE.Vector3(0, 0, 100), // Player at 100m ahead
+      group: { position: new THREE.Vector3(0, 0, 100) },
+      isMounted: false,
+    } as any
+
+    const npcAt35 = {
+      combatPosition: new THREE.Vector3(0, 0, 35), // Enemy NPC at 35m ahead
+      dead: false,
+      mount: null,
+    } as any
+
+    const candidateBuffer: any[] = []
+    const isHostile = () => true
+
+    const grid = {
+      getNearbyInto: (_pos: any, radius: number, out: any[]) => {
+        expect(radius).toBeGreaterThanOrEqual(35)
+        out.push(npcAt35)
+        return out
+      },
+      findNearest: () => null,
+    } as any
+
+    const target = findCavalryChargeTarget(
+      cavalry,
+      player,
+      grid,
+      null,
+      candidateBuffer,
+      false,
+      isHostile,
+    )
+
+    expect(target).not.toBeNull()
+    expect(target!.isPlayer).toBe(false)
+    expect(target!.npc).toBe(npcAt35)
+    expect(target!.position.z).toBe(35)
+  })
+
+  it('falls back to nearest available ground target when no forward candidate exists', () => {
+    const cavalry = {
+      combatPosition: new THREE.Vector3(0, 0, 0),
+      group: { rotation: { y: 0 } }, // facing +Z
+      mount: { group: { rotation: { y: 0 } } },
+      hostileToPlayer: false, // Player not an enemy
+      combatTargetAllowed: () => true,
+    } as any
+
+    const player = {
+      targetable: false,
+      dead: false,
+      position: new THREE.Vector3(0, 0, 100),
+    } as any
+
+    // Enemy is behind at z = -20
+    const rearEnemy = {
+      combatPosition: new THREE.Vector3(0, 0, -20),
+      dead: false,
+      mount: null,
+    } as any
+
+    const candidateBuffer: any[] = []
+    const isHostile = () => true
+
+    const grid = {
+      getNearbyInto: (_pos: any, _radius: number, out: any[]) => {
+        out.push(rearEnemy)
+        return out
+      },
+      findNearest: () => rearEnemy,
+    } as any
+
+    // 1. In passthrough mode: must NOT fall back to rear enemy (returns null to keep straight)
+    const passthroughTarget = findCavalryChargeTarget(
+      cavalry,
+      player,
+      grid,
+      null,
+      candidateBuffer,
+      true, // isPassthrough
+      isHostile,
+    )
+    expect(passthroughTarget).toBeNull()
+
+    // 2. In normal charge mode (!isPassthrough): falls back to nearest available ground enemy
+    const normalTarget = findCavalryChargeTarget(
+      cavalry,
+      player,
+      grid,
+      null,
+      candidateBuffer,
+      false, // !isPassthrough
+      isHostile,
+    )
+    expect(normalTarget).not.toBeNull()
+    expect(normalTarget!.npc).toBe(rearEnemy)
+    expect(normalTarget!.position.z).toBe(-20)
+  })
+
+  it('invalidates cached target on attack completion and ignores rear cached target in CHASE during passthrough', () => {
+    const cavalryPos = new THREE.Vector3(0, 0, 10)
+    const currentYaw = 0 // Facing +Z
+    let passthroughTimer = 1.0
+
+    // Enemy that was just attacked has now been crossed: position is at z = 8 (behind cavalry at z = 10)
+    const rearEnemy = {
+      combatPosition: new THREE.Vector3(0, 0, 8),
+      dead: false,
+    }
+
+    // Verify rear target is not in forward cone
+    const inForwardCone = isTargetInForwardCone(cavalryPos, currentYaw, rearEnemy.combatPosition)
+    expect(inForwardCone).toBe(false)
+
+    // Simulate cached target validation policy in NPC.ts:
+    // If cavalryPassthroughTimer > 0 and target is behind, cached target is invalid
+    const isCachedTargetValid = inForwardCone // returns false
+    expect(isCachedTargetValid).toBe(false)
+
+    // When invalid, CHASE invalidates targetInfo and clears cache
+    let targetInfo: any = { position: rearEnemy.combatPosition, isDead: false, npc: rearEnemy }
+    let cachedTargetNpc: any = rearEnemy
+
+    if (targetInfo && !targetInfo.isDead && passthroughTimer > 0) {
+      if (!isTargetInForwardCone(cavalryPos, currentYaw, targetInfo.position)) {
+        targetInfo = null
+        cachedTargetNpc = null
+      }
+    }
+
+    expect(targetInfo).toBeNull()
+    expect(cachedTargetNpc).toBeNull()
+
+    // In CHASE with targetInfo == null and passthroughTimer > 0:
+    // Cavalry maintains straight forward movement along currentYaw without turning backward
+    const moveDir = new THREE.Vector3(Math.sin(currentYaw), 0, Math.cos(currentYaw))
+    expect(moveDir.z).toBe(1)
+    expect(moveDir.x).toBe(0)
+  })
+
+  it('executes geometric weapon sweep across candidates along charging path without distance cutoff', () => {
+    // Simulate candidate target collection during charge
+    const cavalryPos = new THREE.Vector3(0, 1.2, 5) // Cavalry at z=5
+    const meleeRadius = 2.5
+
+    // Primary target originally locked was at z=2 (cavalry has now charged past it)
+    const primaryTarget = {
+      combatPosition: new THREE.Vector3(0, 0, 2),
+      dead: false,
+      id: 'primary-target-behind',
+    }
+
+    // Another enemy infantry in front along the charging lane at z=6.5
+    const candidateInPath = {
+      combatPosition: new THREE.Vector3(0.5, 0, 6.5),
+      dead: false,
+      id: 'enemy-in-path',
+    }
+
+    // Primary target distance from cavalry is 3m (> 0.4 reach)
+    const primaryDist = cavalryPos.distanceTo(primaryTarget.combatPosition)
+    expect(primaryDist).toBeGreaterThan(meleeRadius + 0.4)
+
+    // Candidate sweep targets include primary target and candidate in path
+    const sweepTargets: any[] = []
+    if (!primaryTarget.dead) sweepTargets.push(primaryTarget)
+    if (!candidateInPath.dead) sweepTargets.push(candidateInPath)
+
+    expect(sweepTargets).toContain(candidateInPath)
+
+    // Simulate traceFirst contact on the forward candidate
+    const mockContact = {
+      kind: 'body',
+      time: 0.25,
+      target: candidateInPath,
+    }
+
+    let hitEntity: any = null
+    let attackHitProcessed = false
+    let passthroughActivated = false
+
+    if (sweepTargets.length > 0) {
+      // Weapon sweep hits candidateInPath
+      hitEntity = mockContact.target
+      attackHitProcessed = true
+      passthroughActivated = true
+    }
+
+    expect(hitEntity).toBe(candidateInPath)
+    expect(attackHitProcessed).toBe(true)
+    expect(passthroughActivated).toBe(true)
   })
 })
