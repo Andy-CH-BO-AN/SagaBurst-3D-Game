@@ -6,6 +6,7 @@
 const { spawnSync } = require('node:child_process')
 const { readFileSync, statSync, readdirSync } = require('node:fs')
 const { resolve, join } = require('node:path')
+const { validSeedMetadata } = require('./supercov-measured-evidence.cjs')
 
 const SHA = /^[a-f0-9]{40}$/
 const MAX_REFRESH_GENERATIONS = 16
@@ -75,8 +76,8 @@ function directoryBytes(dir) {
 function validateArchive(root, archive) {
   const seed = JSON.parse(readFileSync(join(root, 'output/supercov-seed.json'), 'utf8'))
   const depth = generation(seed)
-  if (seed.valid !== true || seed.complete !== true || !SHA.test(seed.sha || '')) {
-    fail('Only complete, valid SHA-bound evidence may be published')
+  if (!validSeedMetadata(seed) || !SHA.test(seed.sha || '')) {
+    fail('Only fully measured, valid and SHA-bound evidence may be published')
   }
   const archiveBytes = statSync(archive).size
   const rawBytes = directoryBytes(join(root, '.supercov/runs'))

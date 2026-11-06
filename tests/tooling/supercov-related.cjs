@@ -3,6 +3,7 @@ const { execFileSync } = require('node:child_process')
 const { existsSync, readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { requireBaseAncestor, isGitAncestor } = require('./supercov-evidence-policy.cjs')
+const { validSeedMetadata } = require('./supercov-measured-evidence.cjs')
 const ROOT = resolve(__dirname, '../..')
 const VERSION = '4.24.2'
 const fail = message => { throw new Error('Supercov Related selection unsafe: ' + message) }
@@ -104,8 +105,7 @@ function nativeSelection(inventory, changed, { base } = {}) {
   if (!existsSync(path)) fail('No authoritative evidence seed: bootstrap explicitly through Full on main/manual')
   let seed
   try { seed = JSON.parse(readFileSync(path, 'utf8')) } catch { fail('Corrupt seed metadata') }
-  if (seed.version !== VERSION || seed.valid !== true || seed.complete !== true ||
-      !/^run_[a-z0-9]+$/i.test(seed.runId || '') || !/^[a-f0-9]{40}$/.test(seed.sha || '')) {
+  if (!validSeedMetadata(seed)) {
     fail('Untrusted or invalid seed metadata')
   }
   if (!existsSync(resolve(ROOT, '.supercov/runs', seed.runId))) fail('Seed run data is missing')

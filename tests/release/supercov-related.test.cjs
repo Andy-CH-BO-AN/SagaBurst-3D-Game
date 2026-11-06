@@ -5,6 +5,7 @@ const { decodeAffected } = require('../tooling/supercov-related.cjs')
 const { planShards } = require('../tooling/ci-plan.cjs')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
+const { validateRunSummary, buildSeed, validSeedMetadata } = require('../tooling/supercov-measured-evidence.cjs')
 const { requireBaseAncestor, trustedPublication, requireRefreshAllowed,
   MAX_REFRESH_GENERATIONS, generation } = require('../tooling/supercov-evidence-policy.cjs')
 const run = 'run_abcdef0123'
@@ -85,8 +86,8 @@ test('incremental refresh calls only strict public Supercov merge (no unsafe ove
   // Check the executable args, not comments explaining why overrides are unsafe.
   assert.doesNotMatch(script, /sc\('merge',\s*'--allow-changed'/)
   assert.match(script, /const newId = matches\[0\]\[1\]/)
-  assert.match(script, /valid !== true/)
-  assert.match(script, /complete !== true/)
+  assert.match(script, /validSeedMetadata\(seed\)/)
+  assert.match(script, /validateRunSummary\(query, vitestCount\)/)
 })
 
 test('Full seed instruments verified manifest shards, never a hidden unsharded 500+ run', () => {
@@ -183,4 +184,67 @@ test('rollout keeps true dev-push-only production refresh and distinct pre/post-
   assert.match(docs, /Post-merge rollout confirmation/)
   assert.match(docs, /isolated worktree\/acceptance/)
   assert.match(docs, /two consecutive actual push→dev/)
+})
+
+test('fully measured 763-leaf baseline permits honest uncovered branches, not invalid evidence', () => {
+  const summary = {
+    schemaVersion: 1, ok: true, command: 'coverage.summary',
+    data: {
+      run: 'run_f772560eaadcc58c', valid: true, testExitCode: 0,
+      stale: false, staleReasons: [], complete: false,
+      structurallyComplete: false, tests: 763,
+      coverage: { coverageComplete: false },
+      measurement: { complete: true, limitations: 0, evidenceCorruptions: 0,
+        blocking: 0, declared: 0 },
+      filesWithMeasurementLimitations: 0,
+      transport: { corruptFiles: 0, corruptRecords: 0 },
+      testAttribution: { exact: 763, byTime: 0, partial: 0, runWide: 0 },
+      testOutcomes: { passed: 763, failed: 0, flaky: 0, skipped: 0,
+        timedOut: 0, interrupted: 0, unknown: 0, unstarted: 0, todo: 0 },
+      sourceScope: { mode: 'explicit', roots: ['src', 'tests/helpers'], ambiguous: 0 },
+    },
+  }
+  const measured = validateRunSummary(summary, 763)
+  assert.equal(measured.coverageComplete, false)
+  const seed = buildSeed({ sha: 'a'.repeat(40), ...measured }, 0)
+  assert.equal(seed.tests, 763)
+  assert.equal(seed.coverageComplete, false)
+  assert.equal(seed.executionComplete, true)
+  assert.equal(seed.measurementComplete, true)
+  assert.equal(seed.attributionComplete, true)
+  assert.equal(validSeedMetadata(seed), true)
+  assert.equal(Object.hasOwn(seed, 'complete'), false)
+  for (const [key, value] of [
+    ['valid', false], ['testExitCode', 1], ['stale', true], ['tests', 762],
+    ['filesWithMeasurementLimitations', 1],
+  ]) {
+    const bad = structuredClone(summary); bad.data[key] = value
+    assert.throws(() => validateRunSummary(bad, 763), /unsafe/, key)
+  }
+  const failed = structuredClone(summary); failed.data.testOutcomes.failed = 1
+  assert.throws(() => validateRunSummary(failed, 763), /unsafe/)
+  const partial = structuredClone(summary); partial.data.testAttribution.exact = 762
+  assert.throws(() => validateRunSummary(partial, 763), /unsafe/)
+  const incomplete = structuredClone(summary); incomplete.data.measurement.complete = false
+  assert.throws(() => validateRunSummary(incomplete, 763), /unsafe/)
+  const corrupt = structuredClone(summary); corrupt.data.transport.corruptFiles = 1
+  assert.throws(() => validateRunSummary(corrupt, 763), /unsafe/)
+  const scope = structuredClone(summary); scope.data.sourceScope.roots = ['src']
+  assert.throws(() => validateRunSummary(scope, 763), /unsafe/)
+  assert.equal(validSeedMetadata({ ...seed, measurementComplete: false }), false)
+  assert.equal(validSeedMetadata({ ...seed, attributionComplete: false }), false)
+  assert.equal(validSeedMetadata({ ...seed, schemaVersion: 1 }), false)
+})
+
+test('Full and Related seed publishers validate actual measurement, not 100-percent coverage', () => {
+  for (const name of ['supercov-seed.cjs', 'supercov-bootstrap-dev.cjs', 'supercov-refresh.cjs']) {
+    const script = readFileSync(resolve(__dirname, '../tooling/' + name), 'utf8')
+    assert.match(script, /validateRunSummary\(/)
+    assert.match(script, /buildSeed\(/)
+    assert.doesNotMatch(script, /\.data\?\.complete !== true/)
+  }
+  for (const name of ['supercov-evidence.cjs', 'supercov-related.cjs', 'supercov-evidence-policy.cjs']) {
+    const script = readFileSync(resolve(__dirname, '../tooling/' + name), 'utf8')
+    assert.match(script, /validSeedMetadata\(/)
+  }
 })

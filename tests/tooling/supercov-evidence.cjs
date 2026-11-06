@@ -5,6 +5,7 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const { existsSync, readFileSync, mkdirSync, rmSync } = require('node:fs')
 const { resolve, join } = require('node:path')
 const { isGitAncestor, requireBaseAncestor, trustedPublication, generation } = require('./supercov-evidence-policy.cjs')
+const { validSeedMetadata } = require('./supercov-measured-evidence.cjs')
 const root = resolve(__dirname, '../..')
 const fail = message => { throw new Error('Supercov evidence artifact unsafe: ' + message) }
 if (process.argv[2] !== 'restore' || process.env.GITHUB_ACTIONS !== 'true' ||
@@ -27,8 +28,7 @@ function seedOk(expectedSha) {
   if (!existsSync(resolve(root, seedFile))) return false
   try {
     const seed = read(seedFile)
-    return seed.version === '4.24.2' && seed.valid === true &&
-      seed.complete === true && seed.sha === expectedSha &&
+    return validSeedMetadata(seed) && seed.sha === expectedSha &&
       ancestor(seed.sha) && /^run_[a-z0-9]+$/i.test(seed.runId) &&
       existsSync(resolve(root, '.supercov/runs', seed.runId)) &&
       generation(seed) <= 16

@@ -4,6 +4,7 @@ const { readFileSync, writeFileSync, existsSync, mkdirSync } = require('node:fs'
 const { resolve, dirname } = require('node:path')
 const { validateManifest, selectedNames } = require('./ci-plan.cjs')
 const { requireBaseAncestor, isGitAncestor, requireRefreshAllowed } = require('./supercov-evidence-policy.cjs')
+const { validateRunSummary, buildSeed, validSeedMetadata } = require('./supercov-measured-evidence.cjs')
 const root = resolve(__dirname, '../..')
 const version = '4.24.2'
 const fail = message => { throw new Error('Supercov incremental Related evidence unsafe: ' + message) }
@@ -31,9 +32,8 @@ if (aggregate.planId !== plan.planId || aggregate.mode !== 'related' ||
     aggregate.result !== 'passed' || aggregate.count !== expected || expected > 500) {
   fail('Normal Vitest Related aggregate has not passed with exact selected leaves')
 }
-if (seed.version !== version || seed.valid !== true || seed.complete !== true ||
-    !/^run_[a-z0-9]+$/i.test(seed.runId) || !existsSync(path('.supercov/runs/' + seed.runId))) {
-  fail('Missing valid/complete pre-merge seed')
+if (!validSeedMetadata(seed) || !existsSync(path('.supercov/runs/' + seed.runId))) {
+  fail('Missing valid, fully measured pre-merge seed')
 }
 if (!plan.native || plan.supercovRun !== seed.runId) fail('Seed is not the plan native source')
 requireBaseAncestor(seed.sha, plan.baseSha, (s, b) => isGitAncestor(s, b, root))
@@ -74,14 +74,13 @@ if (matches.length !== 1) fail('Cannot verify exact Supercov merged-run identity
 const newId = matches[0][1]
 if (!existsSync(path('.supercov/runs/' + newId))) fail('Merged run does not exist')
 const query = JSON.parse(sc('runs', newId, '--json'))
-if (query.schemaVersion !== 1 || query.ok !== true ||
-    query.data?.valid !== true || query.data?.complete !== true ||
-    query.data?.testExitCode !== 0) {
-  fail('Merged run is not complete, valid and passed')
-}
+const vitestCount = plan.inventory.filter(item => item.runner === 'vitest')
+  .reduce((total, item) => total + item.names.length, 0)
+const measured = validateRunSummary(query, vitestCount)
+if (measured.runId !== newId) fail('Strict merge run identity mismatch')
 const affected = JSON.parse(sc('runs', newId, 'tests', 'affected', '--json'))
 if (affected.schemaVersion !== 1 || !affected.ok || affected.data?.workingTree?.sourceSetChanged ||
     affected.data?.workingTree?.runWide?.length) fail('Merged seed does not match current dev checkout')
 writeFileSync(path('output/supercov-seed.json'),
-  JSON.stringify({ version, sha, runId: newId, generation: nextGeneration, valid: true, complete: true }, null, 2) + '\n')
+  JSON.stringify(buildSeed({ sha, ...measured }, nextGeneration), null, 2) + '\n')
 console.log('Supercov native Related evidence advanced to ' + newId + ' @ ' + sha)
