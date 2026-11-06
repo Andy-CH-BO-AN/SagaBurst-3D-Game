@@ -557,7 +557,24 @@ export class Player {
     // A rider approaching from its side must not rotate its wings into a wall.
     const targetHeading = heading ?? (mount.isFlyingMount ? mount.group.rotation.y : this.facingYaw)
     this.setMountedHeading(targetHeading)
-    this.syncMountTransform()
+    this.prepareInitialMountedVisual?.()
+  }
+
+  /**
+   * Prepares initial visual posture and samples the animation mixer before the first gameplay frame.
+   * Ensures that riders do not render in bind pose (T-pose) or jump into the saddle on entry.
+   */
+  prepareInitialMountedVisual(): void {
+    if (!this.isMounted || !this.currentMount) return
+    const equippedMelee = this.currentMeleeId ? WEAPONS[this.currentMeleeId] : null
+    this.animator?.setEquipment(equippedMelee?.combatKind === 'lance', this.hasShield, this.currentMount.type as MountedPoseKind)
+    if (equippedMelee?.combatKind === 'lance') this.animator?.poseLanceReady(true)
+    this.animator?.setLocomotion(0, true, false, { fadeSeconds: 0 })
+    this.animator?.sampleInitialPose?.()
+    this.currentMount.group?.updateMatrixWorld?.(true)
+    this.syncMountTransform?.()
+    this.fitMountedSeat?.()
+    this.group?.updateMatrixWorld?.(true)
   }
 
   syncMountTransform(): void {

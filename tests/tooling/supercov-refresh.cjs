@@ -64,7 +64,9 @@ if (!candidateRuns.length) {
   console.log('Node-only Related: preserving existing Supercov seed')
   process.exit(0)
 }
-const mergedText = sc('merge', '--allow-changed', seed.runId, ...candidateRuns)
+const mergedText = // Strict mode: Supercov must reject changed/outdated evidence unless every
+// affected historical test was actually re-measured. Never use --allow-changed.
+sc('merge', seed.runId, ...candidateRuns)
 const matches = [...mergedText.matchAll(/\[supercov\] merged run (run_[a-z0-9]+)/ig)]
 if (matches.length !== 1) fail('Cannot verify exact Supercov merged-run identity')
 const newId = matches[0][1]

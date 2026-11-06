@@ -3,7 +3,7 @@ import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
 import { officialCommandHudLabel } from './career/CommanderTownSquadLabels'
 import { stageMissionReturnRebuild } from './career/CareerMissionReturnRecovery'
 import { townRoster } from './town/TownRules'
-import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFieldPersonalOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
+import { CareerBridgeBattleRuntime, careerFelineHeroAssetIds, clearCareerBridgeBattle, commitCareerBridgeBattleResult, createCareerBridgeSpawnPlan, createCareerBridgeOrphanMountPlan, createCareerFelineSpawnPlan, createCareerFelineOrphanMountPlan, dispatchFelineVanguardCharge, felineInitialTacticalOrder, isCareerBridgeBattle, isCareerFelineBattle, shouldTriggerFelineVanguardCharge, validateFelineDeploymentReadiness, type CareerBridgeBattleLaunch } from './career/CareerBridgeBattle'
 import { preloadHighTierEquipment } from './world/HighTierEquipment'
 import { outpostCheckpointHeight } from './campaign/OutpostRampartGarrison'
 import { CampaignSiegeAssault } from './campaign/CampaignSiegeAssault'
@@ -438,6 +438,7 @@ export class Game {
         || Boolean(savedInventory?.items?.some(item => item.id === T4_RANGER_BOW_RANGED_ID && item.quantity > 0))
       const ownsCareerT4Bow = personalProfile?.ownedWeapons.includes(T4_RANGER_BOW_RANGED_ID) ?? false
       const usesPersonalT4Bow = personalMembers.some(member => member.type === 'ranger' || member.equipment?.ranged === T4_RANGER_BOW_RANGED_ID)
+      const isFelineLaunch = Boolean(battleConfig?.careerFelineMissionId)
       const felineVariants = new Set<FelineMountVariant>(trainingGround ? FELINE_MOUNT_VARIANTS : ['black-cat'])
       if (battleConfig?.careerFelineMissionId) for (const variant of ['white-cat', 'orange-cat', 'serval', 'caracal'] as const) felineVariants.add(variant)
       const devModelFeline = felineVariantFromMountId(query.get('devmodels'))
@@ -460,11 +461,13 @@ export class Game {
           BlackCatVisual.preloadVariants(felineVariants),
           SnowLeopardVisual.preload(),
           CorgiVisual.preload(),
-          ...(usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
+          ...(isFelineLaunch ? [preloadPaladinEquipment(), preloadHighTierEquipment()] : []),
+          ...(isFelineLaunch || usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
         ])
         game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch, tutorialLaunch)
         await game.initialization
         CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
+        game.prepareInitialFrame()
         game.clock.start(); requestAnimationFrame(game._loop)
         return game
       }
@@ -520,11 +523,12 @@ export class Game {
       }
       await Promise.all([
         ...[...heroAssets].map(id => HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[id].descriptor)),
-        ...(heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
+        ...(isFelineLaunch || heroAssets.has('maki-archer-t4') || usesPlayerT4Bow || savedPlayerT4Bow || ownsCareerT4Bow || usesPersonalT4Bow ? [preloadMakiRangerBow()] : []),
       ])
       game = new Game(renderer, battleConfig, campaignConfig, progress, trainingGround, bridgeLaunch, tutorialLaunch)
       await game.initialization
       CombatRenderWarmup.warmup(renderer, game.camera, game.scene)
+      game.prepareInitialFrame()
       game.clock.start(); requestAnimationFrame(game._loop)
       return game
     } catch (error) {
@@ -1572,6 +1576,15 @@ export class Game {
         if (!npc.dead && this.bridgeRuntime!.targetIds.has(npc.combatantId) && !this.fieldCheckpoint?.actors[npc.combatantId]?.order) npc.setTacticalOrder('charge')
       }
     }
+    if (this.felineMissionId) {
+      const mission = this.careerProfile!.activeMission!
+      validateFelineDeploymentReadiness({
+        spawnBatchReady: Boolean(this.captainEagleSpawnBatch?.ready),
+        battleReady: Boolean(mission.felineBattle?.ready),
+        personalSquadReady: this.personalSquad ? Boolean(this.personalSquad.ready) : undefined,
+      })
+      this.player.group.visible = true
+    }
     if (isInitialSpectator) this._enterSpectatorMode('initial')
 
     this._setupPointerLock()
@@ -1619,6 +1632,36 @@ export class Game {
     }
     if (!this.isModelStudio) this.compass = new CompassUI(this.camera,
       document.getElementById('defense-campaign-hud') ?? document.getElementById('bridgehead-battle-hud') ?? document.getElementById('captain-eagle-hud'))
+  }
+
+  /**
+   * Prepares the initial rendered frame after scene construction and GPU warmup,
+   * ensuring all mounted actors evaluate their riding poses before the loading overlay is dismissed.
+   */
+  prepareInitialFrame(): void {
+    if (this.player.isMounted) {
+      this.player.prepareInitialMountedVisual()
+    }
+    for (const npc of this.npcs) {
+      if (npc.isMounted) npc.fitMountedSeat()
+    }
+    this.scene.updateMatrixWorld(true)
+
+    if (this.studioControls) {
+      this.studioControls.update()
+    } else if (this.controlMode === 'spectator') {
+      this.spectatorController.update(this.input, 0)
+    } else if (!this.isModelStudio) {
+      this.thirdPersonCamera.update(this.input, 0, this.obstacles)
+    }
+
+    if (this.renderer && this.scene && this.camera) {
+      try {
+        this.renderer.render(this.scene, this.camera)
+      } catch (error) {
+        if (import.meta.env?.DEV) console.warn('Initial pre-render pass skipped:', error)
+      }
+    }
   }
 
   private _bindPlayerCombatCallbacks(campaignConfig?: DefenseCampaignLaunchConfig): void {
@@ -3146,10 +3189,16 @@ export class Game {
     const officialPositions = this.bridgeLaunch
       ? createBridgeheadRoster(this.careerProfile.activeMission!, this.careerProfile.faction).friendly
       : this.felineMissionId
-        ? (this.careerProfile.activeMission?.friendlyActorIds ?? []).flatMap(id => {
-          const point = this.fieldCheckpoint?.actors[id]?.position
-          return point ? [{ x: point.x, z: point.z }] : []
-        })
+        ? (() => {
+          const checkpointPoints = (this.careerProfile.activeMission?.friendlyActorIds ?? []).flatMap(id => {
+            const point = this.fieldCheckpoint?.actors[id]?.position
+            return point ? [{ x: point.x, z: point.z }] : []
+          })
+          if (checkpointPoints.length > 0) return checkpointPoints
+          return createCareerFelineSpawnPlan(this.careerProfile!).npcSpecs
+            .filter(spec => spec.faction === Faction.PLAYER)
+            .map(spec => ({ x: spec.x, z: spec.z }))
+        })()
         : this.npcs.filter(npc => !npc.dead && npc.faction === Faction.PLAYER).map(npc => npc.combatPosition)
     // Do not anchor ground deployment to the Player's relocated eagle touchdown.
     // Stage IX defenders have a bounded interior; that bounds is authoritative.

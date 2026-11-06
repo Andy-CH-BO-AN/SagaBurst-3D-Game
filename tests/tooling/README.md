@@ -31,8 +31,8 @@ Every PR → dev and push → dev restores ancestor evidence, queries native
 tests affected, then runs the exact selected tests using ordinary Vitest.
 
 Successful push → dev additionally instruments **only Related Vitest leaves**
-and asks Supercov's public merge --allow-changed to combine that run with the
-prior authoritative seed. The official merge is expected to reject stale
+and asks Supercov's public **strict** merge to combine that run with the
+prior authoritative seed. No permissive merge flag is used: strict merge must reject stale
 attribution or missing re-measurement. Only an accepted, valid, complete
 merged seed is published for the next dev PR; never hand-edit a private DB.
 

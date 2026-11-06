@@ -3,6 +3,8 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { decodeAffected } = require('../tooling/supercov-related.cjs')
 const { planShards } = require('../tooling/ci-plan.cjs')
+const { readFileSync } = require('node:fs')
+const { resolve } = require('node:path')
 const run = 'run_abcdef0123'
 const inventory = [
   { runner: 'vitest', file: 'tests/example.test.ts', names: ['suite > A', 'suite > B', 'suite > C'],
@@ -73,4 +75,14 @@ test('500 aggregate leaves passes, 501 fails without Full fallback or shard bypa
   assert.equal(planShards(files(500), 'related')[0].expectedCount, 500)
   assert.throws(() => planShards(files(501), 'related'), /500-leaf limit: 501/)
   assert.throws(() => planShards(files(501), 'full'), /File exceeds 500/)
+})
+
+test('incremental refresh calls only strict public Supercov merge (no unsafe override)', () => {
+  const script = readFileSync(resolve(__dirname, '../tooling/supercov-refresh.cjs'), 'utf8')
+  assert.match(script, /sc\('merge', seed\.runId, \.\.\.candidateRuns\)/)
+  // Check the executable args, not comments explaining why overrides are unsafe.
+  assert.doesNotMatch(script, /sc\('merge',\s*'--allow-changed'/)
+  assert.match(script, /const newId = matches\[0\]\[1\]/)
+  assert.match(script, /valid !== true/)
+  assert.match(script, /complete !== true/)
 })

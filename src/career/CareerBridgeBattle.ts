@@ -11,8 +11,6 @@ import {
   FELINE_FRIENDLY_GROUPS,
   FELINE_FRIENDLY_TOTAL,
   FELINE_FRIENDLY_SQUAD_SIZES,
-  FELINE_T4_MOUNTS,
-  FELINE_T5_MOUNTS,
   FELINE_VANGUARD_ADVANCE_METERS,
   createBridgeheadRoster,
   type FelineCavalryRole,
@@ -129,8 +127,17 @@ export function createCareerFieldPersonalOrphanMountPlan(profile: CareerProfile)
   })
 }
 
-/** Restore surviving orphan mounts from both Commander VI armies, without respawning
- * their deceased riders. The personal squad remains a separately owned roster. */
+/**
+ * Restore surviving orphan mounts from both Commander VI armies, without respawning
+ * their deceased riders. The personal squad remains a separately owned roster.
+ *
+ * Migration Note: Prior check-pointed saves serialized physical mount status (hp, position,
+ * yaw/pitch) under actor records without persisting redundant species strings. Surviving
+ * orphan mounts reconstruct their species deterministically from createCareerFelineSpawnPlan(profile).
+ * As a result, older in-flight saves safely migrate to the refined role-to-mount assignment
+ * (e.g. deceased T4 melee rider mount migrating from earlier white-cat to caracal) while
+ * preserving health points, coordinates, orientation, living status, and player mount borrowing.
+ */
 export function createCareerFelineOrphanMountPlan(profile: CareerProfile) {
   const mission = profile.activeMission
   if (!isCareerFelineBattle(mission) || !mission.felineBattle) return createCareerFieldPersonalOrphanMountPlan(profile)
@@ -306,7 +313,27 @@ function felineT4Spec(template: NpcSpawnSpec, actorId: string, faction: CareerPr
   allegiance: Faction, role: FelineCavalryRole, mountId: string, squadId?: NpcSpawnSpec['squadId']): NpcSpawnSpec {
   const presetId = felineRolePreset(faction, role)
   const hero = T4_UNIT_PROFILES[presetId]
-  const loadout: UnitLoadout = { ...resolveT4UnitLoadout(presetId), mountId }
+  const baseLoadout = resolveT4UnitLoadout(presetId)
+  let loadout: UnitLoadout
+  if (allegiance === Faction.PLAYER) {
+    if (role === 'horse_archer') {
+      loadout = {
+        ...baseLoadout,
+        meleeWeaponId: 'spear_t4',
+        rangedWeaponId: 'maki-ranger-bow-ranged',
+        shieldId: 'paladin_shield_t4',
+        mountId,
+      }
+    } else {
+      loadout = {
+        ...baseLoadout,
+        rangedWeaponId: 'maki-ranger-bow-ranged',
+        mountId,
+      }
+    }
+  } else {
+    loadout = { ...baseLoadout, mountId }
+  }
   return {
     ...template, actorId, faction: allegiance, characterFaction: faction, name: `T4 ${role}`,
     tier: 4, characterTier: 4, heroArchetype: hero.combatProfileId === 'ranger' ? 'ranger' : 'captain',
@@ -321,17 +348,30 @@ function felineT5Spec(template: NpcSpawnSpec, actorId: string, faction: CareerPr
   allegiance: Faction, role: FelineCavalryRole, mountId: string, squadId?: NpcSpawnSpec['squadId']): NpcSpawnSpec {
   const asset = townCommanderHeroAsset(faction)
   const commander = careerCommanderLoadout(faction)
-  const loadout: UnitLoadout = role === 'lancer'
-    ? { ...commander, meleeWeaponId: 'spear_t5', rangedWeaponId: null, mountId }
-    : role === 'horse_archer' ? { ...commander, mountId } : { ...commander, rangedWeaponId: null, mountId }
+  const loadout: UnitLoadout = allegiance === Faction.PLAYER
+    ? (role === 'lancer'
+        ? { ...commander, meleeWeaponId: 'spear_t5', rangedWeaponId: 'bow_t5', mountId }
+        : { ...commander, rangedWeaponId: 'bow_t5', mountId })
+    : (role === 'lancer'
+        ? { ...commander, meleeWeaponId: 'spear_t5', rangedWeaponId: null, mountId }
+        : role === 'horse_archer' ? { ...commander, mountId } : { ...commander, rangedWeaponId: null, mountId })
   return {
     ...template, actorId, faction: allegiance, characterFaction: faction, name: `T5 ${role}`,
     tier: 4, characterTier: 5, heroArchetype: 'commander',
-    aiType: role === 'horse_archer' ? AIType.RANGED : AIType.MELEE, cavalry: true, respawnEnabled: false,
+    aiType: loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, cavalry: true, respawnEnabled: false,
     presetId: felineRolePreset(faction, role), loadout, visualAssetId: asset,
     combatProfileId: HERO_COMBAT_PROFILE_BY_ASSET[asset],
     ...(squadId ? { squadId } : {}),
   }
+}
+
+export function felineFriendlyMountId(role: FelineCavalryRole, tier: 4 | 5, indexInGroup: number): string {
+  if (tier === 5) return 'snow-leopard'
+  if (role === 'melee') return 'caracal'
+  if (role === 'lancer') return 'serval'
+  if (indexInGroup < 20) return 'black-cat'
+  if (indexInGroup < 40) return 'white-cat'
+  return 'orange-cat'
 }
 
 function expandFelineSide(
@@ -349,7 +389,7 @@ function expandFelineSide(
     ['horse_archer', felineGroupSlots(plan, faction, 'horse_archer')],
   ])
   const cursors: Record<FelineCavalryRole, number> = { melee: 0, lancer: 0, horse_archer: 0 }
-  let actorOffset = 0, t4Mount = 0, t5Mount = 0, friendlySquad = 1, friendlySquadFill = 0
+  let actorOffset = 0, friendlySquad = 1, friendlySquadFill = 0
   const result: NpcSpawnSpec[] = []
   for (const group of groups) for (let i = 0; i < group.count; i++) {
     const template = slots.get(group.role)![cursors[group.role]++]
@@ -364,14 +404,74 @@ function expandFelineSide(
       }
     }
     const mountId = friendly
-      ? group.tier === 4 ? FELINE_T4_MOUNTS[t4Mount++ % FELINE_T4_MOUNTS.length]
-        : FELINE_T5_MOUNTS[t5Mount++ % FELINE_T5_MOUNTS.length]
+      ? felineFriendlyMountId(group.role, group.tier, i)
       : 'horse'
     result.push(group.tier === 4
       ? felineT4Spec(template, actorId, faction, allegiance, group.role, mountId, squadId)
       : felineT5Spec(template, actorId, faction, allegiance, group.role, mountId, squadId))
   }
   return result
+}
+
+/**
+ * Places the seven friendly Commander VI squads in a deliberate tactical formation:
+ * Front rank:
+ *   - S1 (T4 Melee, 30): Front Left Wing (relativeX = -24)
+ *   - S7 (T5 Lancer, 20): Front Center Assault Core (relativeX = 0)
+ *   - S2 (T4 Melee, 30): Front Right Wing (relativeX = +24)
+ * Rear rank:
+ *   - S3 (T4 Lancer, 30): Rear Left Wing (relativeX = -36)
+ *   - S5 (T4 Horse Archer, 30): Rear Center-Left (relativeX = -12)
+ *   - S6 (T4 Horse Archer, 30): Rear Center-Right (relativeX = +12)
+ *   - S4 (T4 Lancer, 30): Rear Right Wing (relativeX = +36)
+ *
+ * S5 and S6 flank the center, preserving a 9.6m central advance lane behind S7.
+ * All squads are placed in front of player spawn (|Z| = 145), leaving a safe buffer.
+ */
+export function positionFelineFriendlyTacticalFormation(
+  specs: NpcSpawnSpec[],
+  faction: CareerProfile['faction'],
+): void {
+  if (specs.length !== FELINE_FRIENDLY_TOTAL) {
+    throw new Error('Invalid Six Feline Cavalry friendly count')
+  }
+
+  const columnsPerBlock = 5
+  const mountedColumnGap = 3.6
+  const mountedRankGap = 3.8
+  const maxRankDepth = (Math.ceil(MAX_COMMAND_SQUAD_SIZE / columnsPerBlock) - 1) * mountedRankGap
+  const rankGap = 6.2
+  const rearRankEndAbsZ = 140
+  const rearRankStartAbsZ = rearRankEndAbsZ - maxRankDepth
+  const frontRankEndAbsZ = rearRankStartAbsZ - rankGap
+  const frontRankStartAbsZ = frontRankEndAbsZ - maxRankDepth
+
+  const zSign = faction === 'viking' ? 1 : -1
+  const xSign = faction === 'viking' ? -1 : 1
+
+  const layouts: Array<{ squadId: number; size: number; centerX: number; startAbsZ: number }> = [
+    { squadId: 1, size: 30, centerX: -24, startAbsZ: frontRankStartAbsZ },
+    { squadId: 2, size: 30, centerX: 24, startAbsZ: frontRankStartAbsZ },
+    { squadId: 3, size: 30, centerX: -36, startAbsZ: rearRankStartAbsZ },
+    { squadId: 4, size: 30, centerX: 36, startAbsZ: rearRankStartAbsZ },
+    { squadId: 5, size: 30, centerX: -12, startAbsZ: rearRankStartAbsZ },
+    { squadId: 6, size: 30, centerX: 12, startAbsZ: rearRankStartAbsZ },
+    { squadId: 7, size: 20, centerX: 0, startAbsZ: frontRankStartAbsZ },
+  ]
+
+  let offset = 0
+  for (const layout of layouts) {
+    for (let index = 0; index < layout.size; index++) {
+      const spec = specs[offset++]
+      const row = Math.floor(index / columnsPerBlock)
+      const countInRow = Math.min(columnsPerBlock, layout.size - row * columnsPerBlock)
+      const col = index % columnsPerBlock
+      const unitRelX = layout.centerX + (col - (countInRow - 1) / 2) * mountedColumnGap
+      const unitAbsZ = layout.startAbsZ + row * mountedRankGap
+      spec.x = Math.round(unitRelX * xSign * 100) / 100
+      spec.z = Math.round(unitAbsZ * zSign * 100) / 100
+    }
+  }
 }
 
 /**
@@ -439,9 +539,8 @@ export function createCareerFelineSpawnPlan(profile: CareerProfile): BattleSpawn
   const template = createFelineFormationPlan(profile.faction)
   const friendly = expandFelineSide(mission, template, profile.faction, true)
   const enemy = expandFelineSide(mission, template, enemyFaction, false)
-  // Group by actual saved official squads (7) and fixed 30-rider enemy units (10).
-  // The shared free-battle formation planner groups all cavalry into only two wings.
-  positionFelineSquadBlocks(friendly, FELINE_FRIENDLY_SQUAD_SIZES, profile.faction)
+  // Friendly units deploy in tactical order; enemy units retain existing blocks and vanguard.
+  positionFelineFriendlyTacticalFormation(friendly, profile.faction)
   const enemySquadSizes = Array.from({ length: Math.ceil(enemy.length / MAX_COMMAND_SQUAD_SIZE) },
     (_, index) => Math.min(MAX_COMMAND_SQUAD_SIZE, enemy.length - index * MAX_COMMAND_SQUAD_SIZE))
   positionFelineSquadBlocks(enemy, enemySquadSizes, enemyFaction)
@@ -483,4 +582,21 @@ export function markFelineVanguardCharge(mission: ActiveCareerMission, event: Co
   if (!shouldTriggerFelineVanguardCharge(mission, event) || !mission.commanderMission) return false
   mission.commanderMission.felineChargeTriggered = true
   return true
+}
+
+export interface FelineDeploymentReadinessInput {
+  spawnBatchReady: boolean
+  battleReady: boolean
+  personalSquadReady?: boolean
+}
+
+/**
+ * Validates that all three required production subsystems (cavalry spawn batch,
+ * mission feline battle state, and any active personal squad) have completely
+ * finalized deployment before the loading overlay is dismissed.
+ */
+export function validateFelineDeploymentReadiness(input: FelineDeploymentReadinessInput): void {
+  if (!input.spawnBatchReady || !input.battleReady || (input.personalSquadReady !== undefined && !input.personalSquadReady)) {
+    throw new Error('Six Feline Cavalry deployment did not complete')
+  }
 }
