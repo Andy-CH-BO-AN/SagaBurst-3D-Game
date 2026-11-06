@@ -36,6 +36,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Verify native selector contracts without gameplay
+        run: node --test tests/release/ci-plan.test.cjs tests/release/supercov-related.test.cjs
       - name: Restore immutable Supercov Full evidence for Related
         if: inputs.mode == 'related'
         uses: actions/cache/restore@v4
@@ -49,8 +51,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node tests/tooling/supercov-evidence.cjs restore
-      - name: Verify native selector contracts without gameplay
-        run: node --test tests/release/ci-plan.test.cjs tests/release/supercov-related.test.cjs
       - name: Plan exact Supercov Related leaves
         id: plan
         env:
