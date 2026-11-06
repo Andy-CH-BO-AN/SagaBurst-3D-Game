@@ -3,6 +3,7 @@ const { execFileSync, spawnSync } = require('node:child_process')
 const { readFileSync, writeFileSync, existsSync, mkdirSync } = require('node:fs')
 const { resolve, dirname } = require('node:path')
 const { validateManifest, selectedNames } = require('./ci-plan.cjs')
+const { requireBaseAncestor, isGitAncestor, requireRefreshAllowed } = require('./supercov-evidence-policy.cjs')
 const root = resolve(__dirname, '../..')
 const version = '4.24.2'
 const fail = message => { throw new Error('Supercov incremental Related evidence unsafe: ' + message) }
@@ -35,6 +36,8 @@ if (seed.version !== version || seed.valid !== true || seed.complete !== true ||
   fail('Missing valid/complete pre-merge seed')
 }
 if (!plan.native || plan.supercovRun !== seed.runId) fail('Seed is not the plan native source')
+requireBaseAncestor(seed.sha, plan.baseSha, (s, b) => isGitAncestor(s, b, root))
+const nextGeneration = requireRefreshAllowed(seed)
 const escape = name => [...name].map(ch => '\\.^$*+?()[]{}|'.includes(ch) ? '\\' + ch : ch).join('')
 const candidateRuns = []
 const files = plan.selected.filter(file => plan.inventory.find(item => item.file === file)?.runner === 'vitest')
@@ -64,9 +67,8 @@ if (!candidateRuns.length) {
   console.log('Node-only Related: preserving existing Supercov seed')
   process.exit(0)
 }
-const mergedText = // Strict mode: Supercov must reject changed/outdated evidence unless every
-// affected historical test was actually re-measured. Never use --allow-changed.
-sc('merge', seed.runId, ...candidateRuns)
+// Strict mode rejects changed or stale attribution. No permissive flags.
+const mergedText = sc('merge', seed.runId, ...candidateRuns)
 const matches = [...mergedText.matchAll(/\[supercov\] merged run (run_[a-z0-9]+)/ig)]
 if (matches.length !== 1) fail('Cannot verify exact Supercov merged-run identity')
 const newId = matches[0][1]
@@ -81,5 +83,5 @@ const affected = JSON.parse(sc('runs', newId, 'tests', 'affected', '--json'))
 if (affected.schemaVersion !== 1 || !affected.ok || affected.data?.workingTree?.sourceSetChanged ||
     affected.data?.workingTree?.runWide?.length) fail('Merged seed does not match current dev checkout')
 writeFileSync(path('output/supercov-seed.json'),
-  JSON.stringify({ version, sha, runId: newId, valid: true, complete: true }, null, 2) + '\n')
+  JSON.stringify({ version, sha, runId: newId, generation: nextGeneration, valid: true, complete: true }, null, 2) + '\n')
 console.log('Supercov native Related evidence advanced to ' + newId + ' @ ' + sha)

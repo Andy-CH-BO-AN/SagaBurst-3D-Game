@@ -4,6 +4,7 @@
 const { execFileSync, spawnSync } = require('node:child_process')
 const { existsSync, readFileSync, mkdirSync, rmSync } = require('node:fs')
 const { resolve, join } = require('node:path')
+const { isGitAncestor, requireBaseAncestor, trustedPublication, generation } = require('./supercov-evidence-policy.cjs')
 const root = resolve(__dirname, '../..')
 const fail = message => { throw new Error('Supercov evidence artifact unsafe: ' + message) }
 if (process.argv[2] !== 'restore' || process.env.GITHUB_ACTIONS !== 'true' ||
@@ -14,12 +15,14 @@ const repo = process.env.GITHUB_REPOSITORY
 const read = file => JSON.parse(readFileSync(resolve(root, file), 'utf8'))
 const sha = /^[0-9a-f]{40}$/
 const seedFile = 'output/supercov-seed.json'
-const ancestor = candidate => {
-  if (!sha.test(candidate || '')) return false
-  const check = spawnSync('git', ['merge-base', '--is-ancestor', candidate, 'HEAD'], {
-    cwd: root, encoding: 'utf8' })
-  return check.status === 0
+const comparisonBase = process.env.SUPERCOV_EVIDENCE_BASE
+const checkoutHead = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' })
+if (!sha.test(comparisonBase || '') || checkoutHead.status !== 0) {
+  fail('Missing verified PR/dev TEST_BASE; refusing feature-branch evidence')
 }
+const headSha = checkoutHead.stdout.trim()
+const ancestor = candidate => isGitAncestor(candidate, comparisonBase, root) &&
+  isGitAncestor(candidate, headSha, root)
 function seedOk(expectedSha) {
   if (!existsSync(resolve(root, seedFile))) return false
   try {
@@ -27,7 +30,8 @@ function seedOk(expectedSha) {
     return seed.version === '4.24.2' && seed.valid === true &&
       seed.complete === true && seed.sha === expectedSha &&
       ancestor(seed.sha) && /^run_[a-z0-9]+$/i.test(seed.runId) &&
-      existsSync(resolve(root, '.supercov/runs', seed.runId))
+      existsSync(resolve(root, '.supercov/runs', seed.runId)) &&
+      generation(seed) <= 16
   } catch { return false }
 }
 if (existsSync(resolve(root, seedFile))) {
@@ -66,9 +70,7 @@ candidates.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
 for (const candidate of candidates) {
   const workflow = JSON.parse(gh(['api', 'repos/' + repo +
     '/actions/runs/' + candidate.runId]))
-  if (workflow.status !== 'completed' || workflow.conclusion !== 'success' ||
-      !(workflow.event === 'workflow_dispatch' ||
-        (workflow.event === 'push' && ['dev', 'main'].includes(workflow.head_branch)))) continue
+  if (!trustedPublication(workflow, candidate.sha)) continue
   const target = resolve(root, 'output/supercov-artifact-restore')
   rmSync(target, { recursive: true, force: true })
   mkdirSync(target, { recursive: true })
@@ -88,10 +90,13 @@ for (const candidate of candidates) {
   rmSync(resolve(root, '.supercov/runs'), { recursive: true, force: true })
   rmSync(resolve(root, seedFile), { force: true })
   execFileSync('tar', ['-xzf', archive, '-C', root], { cwd: root })
-  if (!seedOk(candidate.sha)) fail('Downloaded seed is untrusted or does not match ancestor SHA')
+  // Repeat the base check after extraction: don't trust artifact filenames.
+  requireBaseAncestor(candidate.sha, comparisonBase,
+    (seedSha, baseSha) => isGitAncestor(seedSha, baseSha, root))
+  if (!seedOk(candidate.sha)) fail('Downloaded seed is untrusted or not based on PR/dev TEST_BASE')
   const seed = read(seedFile)
   console.log('Restored repository-scoped Supercov seed ' + seed.runId +
     ' @ ' + seed.sha + ' from Actions run ' + candidate.runId)
   process.exit(0)
 }
-fail('No ancestor Full/strict-Related seed artifact was found. Use explicit dev bootstrap; never fall back to Full in PR or push-dev.')
+fail('No PR/dev TEST_BASE ancestor Full/strict-Related seed artifact was found. Use explicit dev bootstrap; never fall back to Full in PR or push-dev.')

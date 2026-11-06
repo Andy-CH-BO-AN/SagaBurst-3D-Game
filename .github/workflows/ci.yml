@@ -159,9 +159,10 @@ jobs:
         run: |
           echo "sha=$(git -C source rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           tar -czf controller/supercov-evidence.tar.gz -C source .supercov/runs output/supercov-seed.json
+          node controller/tests/tooling/supercov-evidence-policy.cjs source controller/supercov-evidence.tar.gz
       - uses: actions/upload-artifact@v4
         with:
           name: supercov-seed-${{ steps.dev.outputs.sha }}
           path: controller/supercov-evidence.tar.gz
           if-no-files-found: error
-          retention-days: 90
+          retention-days: 45

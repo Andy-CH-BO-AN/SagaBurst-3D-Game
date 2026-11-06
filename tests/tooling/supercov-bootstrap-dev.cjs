@@ -88,6 +88,6 @@ if (affected.schemaVersion !== 1 || affected.ok !== true ||
   die('Full seed lacks an exact, clean Vitest test inventory')
 }
 writeFileSync(join(sourceRoot, 'output/supercov-seed.json'),
-  JSON.stringify({ version, sha, runId, valid: true, complete: true }, null, 2) + '\n')
+  JSON.stringify({ version, sha, runId, generation: 0, valid: true, complete: true }, null, 2) + '\n')
 console.log('Explicit Full dev seed established: ' + runId + ' @ ' + sha +
   ', exact Vitest leaves ' + vitest)

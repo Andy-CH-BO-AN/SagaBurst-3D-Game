@@ -2,6 +2,7 @@
 const { execFileSync } = require('node:child_process')
 const { existsSync, readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
+const { requireBaseAncestor, isGitAncestor } = require('./supercov-evidence-policy.cjs')
 const ROOT = resolve(__dirname, '../..')
 const VERSION = '4.24.2'
 const fail = message => { throw new Error('Supercov Related selection unsafe: ' + message) }
@@ -98,7 +99,7 @@ function decodeAffected(response, inventory, changes, expectedRun) {
     native: { affected: summary.affected, undetermined: summary.undetermined,
       unaffected: summary.unaffected, total, runWide: workingTree.runWide } }
 }
-function nativeSelection(inventory, changed) {
+function nativeSelection(inventory, changed, { base } = {}) {
   const path = resolve(ROOT, process.env.SUPERCOV_SEED_FILE || 'output/supercov-seed.json')
   if (!existsSync(path)) fail('No authoritative evidence seed: bootstrap explicitly through Full on main/manual')
   let seed
@@ -108,9 +109,13 @@ function nativeSelection(inventory, changed) {
     fail('Untrusted or invalid seed metadata')
   }
   if (!existsSync(resolve(ROOT, '.supercov/runs', seed.runId))) fail('Seed run data is missing')
-  try {
-    execFileSync('git', ['merge-base', '--is-ancestor', seed.sha, 'HEAD'], { cwd: ROOT, stdio: 'pipe' })
-  } catch { fail('Seed SHA is not in checkout ancestry; cannot mix branches or stale future evidence') }
+  // Both conditions matter: HEAD ancestry alone lets a feature-branch Full
+  // rebase away the original PR scope and evade the 500-leaf aggregate gate.
+  requireBaseAncestor(seed.sha, base, (seedSha, baseSha) => isGitAncestor(seedSha, baseSha, ROOT))
+  const checkout = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim()
+  if (!isGitAncestor(seed.sha, checkout, ROOT)) {
+    fail('Seed SHA is not in checkout ancestry; native query would mix source histories')
+  }
   let output
   try {
     output = execFileSync('npx', ['--yes', 'supercov@' + VERSION, 'runs', seed.runId, 'tests', 'affected', '--json'],

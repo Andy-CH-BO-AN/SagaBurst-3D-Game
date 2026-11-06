@@ -5,6 +5,8 @@ const { decodeAffected } = require('../tooling/supercov-related.cjs')
 const { planShards } = require('../tooling/ci-plan.cjs')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
+const { requireBaseAncestor, trustedPublication, requireRefreshAllowed,
+  MAX_REFRESH_GENERATIONS, generation } = require('../tooling/supercov-evidence-policy.cjs')
 const run = 'run_abcdef0123'
 const inventory = [
   { runner: 'vitest', file: 'tests/example.test.ts', names: ['suite > A', 'suite > B', 'suite > C'],
@@ -119,4 +121,55 @@ test('manual dev bootstrap has an explicit opt-in and repository-wide artifact t
   assert.match(artifact, /merge-base', '--is-ancestor'/)
   assert.match(artifact, /workflow\.conclusion !== 'success'/)
   assert.match(artifact, /No ancestor Full\/strict-Related seed artifact/)
+})
+
+test('P1 feature Full seed cannot bypass PR base even when ancestor of feature HEAD', () => {
+  const base = 'a'.repeat(40), feature = 'b'.repeat(40)
+  assert.doesNotThrow(() => requireBaseAncestor(base, base, (candidate, target) =>
+    candidate === base && target === base))
+  assert.throws(() => requireBaseAncestor(feature, base, (candidate, target) =>
+    candidate === feature && target === feature),
+    /TEST_BASE: feature-seed bypass forbidden/)
+  assert.throws(() => requireBaseAncestor(feature, '', () => true), /TEST_BASE SHA/)
+  const adapter = readFileSync(resolve(__dirname, '../tooling/supercov-related.cjs'), 'utf8')
+  const plan = readFileSync(resolve(__dirname, '../tooling/ci-plan.cjs'), 'utf8')
+  const restore = readFileSync(resolve(__dirname, '../tooling/supercov-evidence.cjs'), 'utf8')
+  const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
+  assert.match(adapter, /requireBaseAncestor\(seed\.sha, base/)
+  assert.match(plan, /nativeSelection\(inventory, changed, \{ base, event \}\)/)
+  assert.match(restore, /SUPERCOV_EVIDENCE_BASE/)
+  assert.match(restore, /ancestor\(seed\.sha\)/)
+  assert.match(workflow, /SUPERCOV_EVIDENCE_BASE: \$\{\{ inputs\.base \}\}/)
+})
+
+test('P1 published seeds cannot originate from arbitrary feature manual Full', () => {
+  const sha = 'a'.repeat(40)
+  const valid = { status: 'completed', conclusion: 'success',
+    path: '.github/workflows/ci.yml', head_sha: sha }
+  assert.equal(trustedPublication({ ...valid, event: 'push', head_branch: 'dev' }, sha), true)
+  assert.equal(trustedPublication({ ...valid, event: 'workflow_dispatch', head_branch: 'main' }, sha), true)
+  assert.equal(trustedPublication({ ...valid, event: 'workflow_dispatch',
+    head_branch: 'ci/supercov-per-test-impact-poc' }, sha), true)
+  assert.equal(trustedPublication({ ...valid, event: 'workflow_dispatch',
+    head_branch: 'feature/manual-full' }, sha), false)
+  assert.equal(trustedPublication({ ...valid, event: 'pull_request', head_branch: 'dev' }, sha), false)
+  assert.equal(trustedPublication({ ...valid, event: 'push', head_branch: 'dev',
+    head_sha: 'b'.repeat(40) }, sha), false)
+  assert.equal(trustedPublication({ ...valid, event: 'workflow_dispatch',
+    head_branch: 'dev', conclusion: 'failure' }, sha), false)
+})
+
+test('P2 bounded evidence lineage requires explicit clean Full after threshold', () => {
+  assert.equal(generation({ generation: 0 }), 0)
+  assert.equal(requireRefreshAllowed({ generation: 0 }), 1)
+  assert.equal(requireRefreshAllowed({ generation: MAX_REFRESH_GENERATIONS - 1 }),
+    MAX_REFRESH_GENERATIONS)
+  assert.throws(() => requireRefreshAllowed({ generation: MAX_REFRESH_GENERATIONS }),
+    /explicitly bootstrap/)
+  assert.throws(() => generation({ generation: -1 }), /Invalid evidence/)
+  const script = readFileSync(resolve(__dirname, '../tooling/supercov-refresh.cjs'), 'utf8')
+  const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
+  assert.match(script, /requireRefreshAllowed\(seed\)/)
+  assert.match(workflow, /node tests\/tooling\/supercov-evidence-policy\.cjs/)
+  assert.match(workflow, /retention-days: 45/)
 })

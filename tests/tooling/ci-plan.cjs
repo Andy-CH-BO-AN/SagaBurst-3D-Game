@@ -198,7 +198,7 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
     })
   }
   const inventory = await discover()
-  const selection = require('./supercov-related.cjs').nativeSelection(inventory, changed)
+  const selection = require('./supercov-related.cjs').nativeSelection(inventory, changed, { base, event })
   const selectedInventory = inventory.filter(item => selection.selected.includes(item.file))
     .map(item => ({ ...item, names: selection.selectedCases[item.file].map(i => item.names[i]) }))
   return validateManifest({

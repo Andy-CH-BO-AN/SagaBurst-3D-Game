@@ -59,18 +59,30 @@ not a PR-scoped Actions cache.
 PR→dev and push→dev first try a cache keyed to the exact Git comparison base.
 On a miss or non-ancestor cache, the planner reads trusted repository-scoped
 seed artifacts (with read-only `GH_TOKEN`) and restores the newest one whose
-**recorded SHA is an ancestor of the tested checkout**. It checks the upload
-workflow's success, seed metadata, Supercov run directory and archive paths.
+**recorded SHA is an ancestor of both PR/dev TEST_BASE and the tested checkout**.
+It rejects feature-branch Full seeds even if they are a HEAD ancestor. Accepted
+artifact provenance is restricted to successful canonical dev/main push or
+manual Full runs, plus the explicit #430 dev-source bootstrap. It checks the
+upload workflow's success, seed metadata, Supercov run directory and archive paths.
 A later successful push→dev strict refresh also publishes its next seed as
 an artifact; therefore the next PR can restore it **even when its GitHub
-cache scope is different**. The artifact does not expire earlier than 90 days
-unless GitHub retention/policy deletes it. If none is safe, Related fails
+cache scope is different**. Artifacts retain evidence for **45 days** (or less if repository policy
+restricts it); the latest successful canonical dev artifact is preferred. If none is safe, Related fails
 closed; there is still **no automatic Full**.
 
 A PR's own Full seed is not silently treated as a dev seed. The bootstrap
 measures the actual `origin/dev` Git SHA, preventing ancestor or branch-scope
 confusion. Full bootstrap is needed once (or by explicit maintenance action
 after expiration/unsafe structural changes), not per PR.
+
+**Evidence compaction policy:** Bootstrap starts at generation 0. Every
+successful dev push→dev strict Related refresh increments the generation.
+At **16 refreshes**, or if the evidence reaches **500 MiB compressed** or
+**1 GiB unpacked run data**, publication fails closed and a maintainer must
+explicitly run a fresh Full dev bootstrap to begin a new lineage. There is
+no automatic Full on PRs or dev pushes; cap checks run **before** caches and
+artifacts are published. Artifact retention is 45 days. These thresholds
+bound lineage growth while leaving a useful window for active PRs.
 
 **Zero-native-impact guard:** an empty native affected+undetermined set fails
 if any executable/test-impact input changed, including `src/**`,
@@ -110,6 +122,7 @@ run ID and native affected/undetermined counts.
 - tests/tooling/supercov-seed.cjs: Full-only authoritative seed validation
 - tests/tooling/supercov-bootstrap-dev.cjs: explicit dev-source maintenance bootstrap
 - tests/tooling/supercov-evidence.cjs: cross-ref Actions artifact restore
+- tests/tooling/supercov-evidence-policy.cjs: canonical seed trust and bounded evidence generations
 - tests/tooling/supercov-refresh.cjs: push-dev Related-only evidence refresh
 - .github/workflows/logic-tests.yml: reusable workflow
 

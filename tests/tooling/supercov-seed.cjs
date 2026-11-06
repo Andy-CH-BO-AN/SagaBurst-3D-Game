@@ -77,5 +77,5 @@ if (affected.schemaVersion !== 1 || affected.ok !== true ||
   fail('Supercov Full evidence does not match all discovered Vitest leaves and current source')
 }
 writeFileSync(path('output/supercov-seed.json'),
-  JSON.stringify({ version, sha, runId: id, valid: true, complete: true }, null, 2) + '\n')
+  JSON.stringify({ version, sha, runId: id, generation: 0, valid: true, complete: true }, null, 2) + '\n')
 console.log('Valid strict Supercov Full seed ' + id + ': ' + vitestCount + ' Vitest leaves @ ' + sha)
