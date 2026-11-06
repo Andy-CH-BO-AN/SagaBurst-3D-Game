@@ -6,7 +6,15 @@ export const ORBIT_MAX_TURN_RATE = 0.9
 const LATERAL_ACCELERATION = 6
 export const MOUNTED_BOW_MAX_YAW = Math.PI * 0.61
 export const MOUNTED_BOW_MAX_PITCH = Math.PI / 6
-export const BOW_ALIGNMENT_COS = Math.cos(Math.PI / 36)
+/** Maximum permitted impact-plane separation of the visible shaft from ballistic aim. */
+export const MOUNTED_BOW_MAX_SHAFT_OFFSET = 0.3
+/** Maximum weapon range is unchanged; only the entry into circling is closer. */
+export const MOUNTED_BOW_ORBIT_ENTRY_RATIO = 0.9
+
+export function isWithinMountedBowOrbitRange(distanceSquared: number, maxRange: number): boolean {
+  const entry = maxRange * MOUNTED_BOW_ORBIT_ENTRY_RATIO
+  return distanceSquared <= entry * entry
+}
 export const MOUNTED_BOW_MAX_TORSO_YAW = Math.PI * 5 / 9
 
 export const angleDifference = (to: number, from: number): number => Math.atan2(Math.sin(to - from), Math.cos(to - from))
@@ -55,12 +63,6 @@ export function steerOrbitForward(out: OrbitPoint, yaw: number, desiredYaw: numb
   return heading
 }
 
-/** Keep moving during acquisition, but slow a tight turn to its feasible radius. */
-export function orbitSpeed(baseSpeed: number, range: number, yawError: number): number {
-  return Math.min(baseSpeed, Math.sqrt(LATERAL_ACCELERATION * range * .62))
-    * (.45 + .55 * Math.max(0, Math.cos(yawError)))
-}
-
 export function canAimMountedBow(yaw: number, pitch: number): boolean {
   return Math.abs(yaw) <= MOUNTED_BOW_MAX_YAW && Math.abs(pitch) <= MOUNTED_BOW_MAX_PITCH
 }
@@ -71,6 +73,10 @@ export function mountedBowTorsoTurn(chestYaw: number, aimCorrection: number): nu
 }
 
 /** The event may release only when both the body arc and the real shaft agree. */
-export function canReleaseMountedBow(yaw: number, pitch: number, shaftDot: number): boolean {
-  return canAimMountedBow(yaw, pitch) && shaftDot >= BOW_ALIGNMENT_COS
+export function canReleaseMountedBow(yaw: number, pitch: number, shaftDot: number, targetDistance: number): boolean {
+  // Angular tolerance alone grows into metres of miss at normal bow ranges.
+  // Bound the shaft-versus-ballistic difference at the target plane instead.
+  const ratio = MOUNTED_BOW_MAX_SHAFT_OFFSET / Math.max(1, targetDistance)
+  const minDot = 1 / Math.sqrt(1 + ratio * ratio)
+  return canAimMountedBow(yaw, pitch) && Number.isFinite(targetDistance) && shaftDot >= minDot
 }

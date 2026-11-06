@@ -100,7 +100,7 @@ import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../comba
 import { XONGKORO } from '../movement/XongkoroConfig'
 import type { PhysicalCombatTarget } from '../combat/ShieldBlocking'
 import { fitStandingRider } from './StandingRider'
-import { angleDifference, steerOrbitForward, orbitRadius, orbitSpeed, writeOrbitDirection, canUseMountedBowOrbit, canAimMountedBow, canReleaseMountedBow, MOUNTED_BOW_MAX_YAW, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
+import { angleDifference, steerOrbitForward, orbitRadius, writeOrbitDirection, canUseMountedBowOrbit, isWithinMountedBowOrbitRange, canAimMountedBow, canReleaseMountedBow, MOUNTED_BOW_MAX_YAW, MOUNTED_BOW_MAX_PITCH } from '../movement/MountedArcherOrbit'
 
 export enum AIState {
   IDLE = 'IDLE',
@@ -2784,9 +2784,9 @@ export class NPC {
       // Releasing the projectile does not end the imported release clip. Keep its
       // recovery, even if this was the last arrow or the target disappears.
       if (recoveringBow) {
-      if (targetInfo && this.state === AIState.ATTACK && !this._siegeTargetObstacle) {
-        this._updateMountedBowOrbit(targetInfo.position, dt, nearbyNPCs, obstacles, skipBoidsAndObstacles)
-      }
+        if (targetInfo && this.state === AIState.ATTACK && !this._siegeTargetObstacle) {
+          this._updateMountedBowForwardCombat(targetInfo.position, dt, nearbyNPCs, obstacles, skipBoidsAndObstacles)
+        }
       if (import.meta.env.DEV && _collector) { var _tAnimBowRec = performance.now() }
       const events = this.animator.update(dt, cameraDistance)
       if (import.meta.env.DEV && _collector) { _collector.endPhase('humanoidAnim', _tAnimBowRec!) }
@@ -3231,10 +3231,12 @@ export class NPC {
         }
 
         if (import.meta.env.DEV && _collector) { var _tFaceAtk = performance.now() }
-        const forwardOrbit = !siegeObstacle && this._updateMountedBowOrbit(
+        // Keep attacking at full weapon range; start circling only inside 90%.
+        // At 90–100% the mounted bow continues a forward approach while shooting.
+        const mountedBowForward = !siegeObstacle && this._updateMountedBowForwardCombat(
           attackTargetPosition, dt, nearbyNPCs, obstacles, skipBoidsAndObstacles,
         )
-        if (!forwardOrbit) this._faceTarget(attackTargetPosition)
+        if (!mountedBowForward) this._faceTarget(attackTargetPosition)
         if (!siegeObstacle && !this.hasActiveRangedWeapon && this.isUsingLance) {
           // The authored spear is held beside the torso. Aim its actual forward
           // tip at the opponent rather than sending a parallel thrust past them.
@@ -3257,8 +3259,15 @@ export class NPC {
           const isBow = rangedKind === 'bow'
           const windup = isBow ? 0.04 : (this.rig.animation?.getDuration('pilumThrow') ?? 0.45)
 
-          if (forwardOrbit && !this._canAimOrbitBow(attackTargetPosition)) {
-            this.animator.cancel()
+          if (mountedBowForward && !this._canAimOrbitBow(attackTargetPosition)
+            && this.animator.currentAction !== 'bowRelease') {
+            // Keep a charged bow ready until the target enters the rider's arc.
+            // Canceling the animation here repeatedly restarts the release clip.
+            this.attackTimer = Math.min(cooldown, this.attackTimer + dt)
+            this.animator.poseBow(Math.min(1, this.attackTimer / cooldown), 1)
+            this.animator.update(dt, cameraDistance)
+            animationAdvanced = true
+            this._updateBowVisual(Math.min(1, this.attackTimer / cooldown), attackTargetPosition)
             this.bowVisual?.hideArrow()
             break
           }
@@ -3271,7 +3280,8 @@ export class NPC {
               this.bowArrowReleased = false
               this.animator.poseBow(progress, Math.min(1, this.attackTimer / 0.18))
             }
-            if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim') {
+            if (this.attackTimer >= cooldown - windup && this.animator.currentAction === 'bowAim'
+              && (!mountedBowForward || this._canPreReleaseMountedBow(attackTargetPosition))) {
               this.animator.start('bowRelease', getHeroCombatModifiers(this.combatProfileId)?.attackSpeedMultiplier ?? 1)
             }
           } else {
@@ -3298,20 +3308,18 @@ export class NPC {
               origin.copy(this.bowGripPivot.getWorldPosition(origin))
               dir.copy(aimPoint).sub(origin).normalize()
             }
-            if (forwardOrbit && (!this.bowVisual || !this._canReleaseOrbitBow(aimPoint, origin, dir))) {
-              this.animator.cancel()
-              this.bowVisual?.hideArrow()
-              break
+            const blockedRelease = mountedBowForward
+              && (!this.bowVisual || !this._canReleaseOrbitBow(aimPoint, origin, dir))
+            if (!blockedRelease) {
+              const accepted = onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
+              this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
             }
-            const accepted = onFireArrow(origin, dir, isBow ? 'arrow' : 'pilum')
+            // Even a rejected release finishes its authored recovery and resets
+            // the ordinary cooldown; no instant re-release or lost ammunition.
             this.bowVisual?.hideArrow()
-
-            this.arrows = projectileAmmoAfterLaunch(this.arrows, accepted)
             this.attackTimer = 0
             if (!isBow) this.bowPivot.visible = false
-            if (isBow && !rangedEvents.actionCompleted) {
-              this.bowArrowReleased = true
-            }
+            if (isBow && !rangedEvents.actionCompleted) this.bowArrowReleased = true
           }
           if (!isBow && rangedEvents.actionCompleted) {
             if (this.arrows === 0) this._switchToMelee()
@@ -4004,8 +4012,8 @@ export class NPC {
     return this._friendlyBypass.steer(dt, this, goal, direction, nearby, this._bypassSegmentClear)
   }
 
-  /** Ground bows only. Steering may change the goal; translation always uses +Z. */
-  private _updateMountedBowOrbit(target: THREE.Vector3, dt: number, nearby: NPC[], obstacles: ObstacleData[], skipAvoidance: boolean): boolean {
+  /** Shoot while closing from max range, then start a forward circle at 90%. */
+  private _updateMountedBowForwardCombat(target: THREE.Vector3, dt: number, nearby: NPC[], obstacles: ObstacleData[], skipAvoidance: boolean): boolean {
     const mount = this.mount
     if (!mount || !canUseMountedBowOrbit(this.tacticalOrder,
       !mount.isFlyingMount && this.hasActiveRangedWeapon && this.rangedCombatKind === 'bow',
@@ -4013,10 +4021,17 @@ export class NPC {
     this.mountedOrbitActive = true
     const phase = this._initialStaggerPhase
     const side = phase < .5 ? -1 : 1
-    const speed = orbitSpeed(mount.baseSpeed, this.maxRangedAttackDistance, 0)
+    // This PR does not define speed. The existing _moveByDirection policy
+    // continues to own mounted forward/side/backward rates and modifiers.
+    const speed = mount.baseSpeed
     const radius = orbitRadius(this.maxRangedAttackDistance, speed, (phase * 2) % 1)
     const direction = this._tmpMoveDir.set(0, 0, 0)
-    writeOrbitDirection(direction, mount.group.position, target, side, radius)
+    if (isWithinMountedBowOrbitRange(this.combatPosition.distanceToSquared(target), this.maxRangedAttackDistance)) {
+      writeOrbitDirection(direction, mount.group.position, target, side, radius)
+    } else {
+      direction.copy(target).sub(mount.group.position).setY(0)
+      if (direction.lengthSq() > .0001) direction.normalize()
+    }
     const boundaryMargin = Math.max(3, speed * .6)
     if (Math.abs(mount.group.position.x) > this.playableWorldBound - boundaryMargin && direction.x * mount.group.position.x > 0) direction.x = -direction.x
     if (Math.abs(mount.group.position.z) > this.playableWorldBound - boundaryMargin && direction.z * mount.group.position.z > 0) direction.z = -direction.z
@@ -4042,15 +4057,17 @@ export class NPC {
     const desiredYaw = Math.atan2(direction.x, direction.z)
     mount.group.rotation.y = steerOrbitForward(direction, mount.group.rotation.y, desiredYaw, Math.max(speed, mount.movementSpeed), dt)
     this.group.rotation.y = mount.group.rotation.y
-    const travelSpeed = orbitSpeed(mount.baseSpeed, this.maxRangedAttackDistance, angleDifference(desiredYaw, mount.group.rotation.y))
-    const endpoint = this._tmpNavigationTarget.copy(mount.group.position).addScaledVector(direction, travelSpeed * (Math.max(0, dt) + .15))
+    const endpoint = this._tmpNavigationTarget.copy(mount.group.position).addScaledVector(direction, speed * (Math.max(0, dt) + .15))
     // Check the bounded heading too: an avoidance goal is not instantly reachable.
     // Stop and keep turning when blocked, retaining the ordinary collision owner.
     if (Math.abs(endpoint.x) < this.playableWorldBound - 1 && Math.abs(endpoint.z) < this.playableWorldBound - 1
       && !findBlockingObstacleAlongPath(mount.group.position, endpoint, NPC_MOUNTED_OBSTACLE_RADIUS, NPC_MOUNTED_OBSTACLE_HEIGHT, 0, obstacles)) {
-      this._moveByDirection(direction, travelSpeed, dt)
+      this._moveByDirection(direction, speed, dt)
     }
-    this._syncToMount()
+    // Aim needs the current saddle location; the full mount sync still occurs
+    // once at the end of NPC.update after collision resolution.
+    mount.getRiderPelvisSeatWorld(this.group.position)
+    this.group.rotation.x = mount.ridePitch
     const aim = this._getElevatedRangedAimPoint(target)
     const origin = this._tmpRangedOrigin // populated from the actual nock by the ballistic aim helper
     const yaw = angleDifference(Math.atan2(aim.x - origin.x, aim.z - origin.z), mount.group.rotation.y)
@@ -4069,16 +4086,22 @@ export class NPC {
       Math.atan2(aim.y - this.group.position.y - RANGED_AI_LAUNCH_HEIGHT, Math.hypot(dx, dz)))
   }
 
+  private _canPreReleaseMountedBow(target: THREE.Vector3): boolean {
+    const aim = this._getElevatedRangedAimPoint(target)
+    const origin = this._tmpRangedOrigin
+    const direction = this._tmpRangedDirection.copy(aim).sub(origin).normalize()
+    return this._canReleaseOrbitBow(aim, origin, direction)
+  }
+
   private _canReleaseOrbitBow(aim: THREE.Vector3, origin: THREE.Vector3, direction: THREE.Vector3): boolean {
     const shaft = this._tmpFacing
     if (!this.bowVisual?.writeShaftDirection(shaft)) return false
     const yaw = angleDifference(Math.atan2(direction.x, direction.z), this.group.rotation.y)
     const pitch = Math.atan2(direction.y, Math.hypot(direction.x, direction.z))
-    if (!canReleaseMountedBow(yaw, pitch, shaft.dot(direction))) return false
-    // Launch along the actual nocked shaft. The low ballistic aim above remains
-    // authoritative, with a small tolerance for the physical hand/rest offset.
-    direction.copy(shaft)
-    return Number.isFinite(origin.x + origin.y + origin.z + aim.y)
+    // Compare the actual hand-to-bow shaft to the ballistic direction, but keep
+    // the existing projectile aim: shifting 5 degrees would miss infantry.
+    return canReleaseMountedBow(yaw, pitch, shaft.dot(direction), origin.distanceTo(aim))
+      && Number.isFinite(origin.x + origin.y + origin.z + aim.y)
   }
 
   private _moveByDirection(direction: THREE.Vector3, baseSpeed: number, dt: number, allowSprint = false, maxDistance = Infinity): void {

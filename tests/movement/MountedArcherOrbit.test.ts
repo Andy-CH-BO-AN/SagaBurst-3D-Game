@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { angleDifference, canUseMountedBowOrbit, canReleaseMountedBow, mountedBowTorsoTurn, MOUNTED_BOW_MAX_TORSO_YAW, orbitHeading, steerOrbitForward, orbitRadius, orbitSpeed, orbitTurnRate, writeOrbitDirection } from '../../src/movement/MountedArcherOrbit'
+import { angleDifference, canUseMountedBowOrbit, canReleaseMountedBow, mountedBowTorsoTurn, MOUNTED_BOW_MAX_TORSO_YAW, orbitHeading, steerOrbitForward, orbitRadius, orbitTurnRate, writeOrbitDirection, isWithinMountedBowOrbitRange } from '../../src/movement/MountedArcherOrbit'
 
 describe('Ground mounted archer steering', () => {
   it('uses forward orbit after charge reaches combat while preserving held positions and other units', () => {
@@ -10,7 +10,7 @@ describe('Ground mounted archer steering', () => {
     expect(canUseMountedBowOrbit('charge', false, false)).toBe(false)
   })
   it.each([-1, 1] as const)('runs forward around a stationary centre with side %s', side => {
-    const speed = orbitSpeed(12, 30, 0), radius = orbitRadius(30, speed, .3)
+    const speed = 12, radius = orbitRadius(30, speed, .3)
     const p = { x: radius, z: 0 }, target = { x: 0, z: 0 }, direction = { x: 0, z: 0 }
     let yaw = side === 1 ? Math.PI : 0
     const dt = 1 / 60
@@ -36,14 +36,14 @@ describe('Ground mounted archer steering', () => {
   })
 
   it.each([.65, 1.3])('recovers the firing radius from initial distance factor %s', factor => {
-    const speed = orbitSpeed(15, 30, 0), radius = orbitRadius(30, speed, .8)
+    const speed = 10, radius = orbitRadius(30, speed, .8)
     const p = { x: radius * factor, z: 0 }, direction = { x: 0, z: 0 }
     let yaw = Math.PI
     for (let frame = 0; frame < 1200; frame++) {
       writeOrbitDirection(direction, p, { x: 0, z: 0 }, 1, radius)
       const desired = Math.atan2(direction.x, direction.z)
       yaw = orbitHeading(yaw, desired, speed, 1 / 60)
-      const step = orbitSpeed(15, 30, angleDifference(desired, yaw)) / 60
+      const step = speed / 60
       p.x += Math.sin(yaw) * step; p.z += Math.cos(yaw) * step
     }
     expect(Math.abs(Math.hypot(p.x, p.z) - radius)).toBeLessThan(1)
@@ -70,16 +70,26 @@ describe('Ground mounted archer steering', () => {
     expect(orbitHeading(0, Math.PI, 15, .1)).toBeCloseTo(.04)
     expect(orbitHeading(0, Math.PI, 15, 2)).toBeCloseTo(.04)
     expect(orbitHeading(0, Math.PI, 15, 0)).toBe(0)
-    expect(orbitSpeed(12, 50, Math.PI)).toBeGreaterThan(0)
+    // Turn geometry does not replace the existing directional speed policy.
   })
 
   it('requires an attainable body arc and an aligned physical shaft at release', () => {
-    expect(canReleaseMountedBow(Math.PI / 2, .1, 1)).toBe(true)
-    expect(canReleaseMountedBow(-Math.PI / 2, .1, 1)).toBe(true)
-    expect(canReleaseMountedBow(Math.PI, 0, 1)).toBe(false)
-    expect(canReleaseMountedBow(Math.PI / 2, .8, 1)).toBe(false)
-    expect(canReleaseMountedBow(Math.PI / 2, 0, .9)).toBe(false)
-    expect(canReleaseMountedBow(0, 0, NaN)).toBe(false)
+    expect(canReleaseMountedBow(Math.PI / 2, .1, 1, 20)).toBe(true)
+    expect(canReleaseMountedBow(-Math.PI / 2, .1, 1, 20)).toBe(true)
+    expect(canReleaseMountedBow(Math.PI, 0, 1, 20)).toBe(false)
+    expect(canReleaseMountedBow(Math.PI / 2, .8, 1, 20)).toBe(false)
+    expect(canReleaseMountedBow(Math.PI / 2, 0, .9, 20)).toBe(false)
+    expect(canReleaseMountedBow(0, 0, NaN, 20)).toBe(false)
+    expect(canReleaseMountedBow(0, 0, Math.cos(Math.PI / 36), 20)).toBe(false)
+    expect(canReleaseMountedBow(0, 0, Math.cos(.008), 20)).toBe(true)
+  })
+
+  it('enters circling at 90% while the ranged attack limit stays unchanged', () => {
+    expect(isWithinMountedBowOrbitRange(27 * 27, 30)).toBe(true)
+    expect(isWithinMountedBowOrbitRange(27.1 * 27.1, 30)).toBe(false)
+    expect(isWithinMountedBowOrbitRange(30 * 30, 30)).toBe(false)
+    expect(isWithinMountedBowOrbitRange(36 * 36, 40)).toBe(true)
+    expect(isWithinMountedBowOrbitRange(36.1 * 36.1, 40)).toBe(false)
   })
 
   it('limits total chest twist including the authored side-on bow stance', () => {
