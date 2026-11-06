@@ -3,7 +3,8 @@ const { execFileSync } = require('node:child_process')
 const { existsSync, readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { requireExactBaseSeed, isGitAncestor } = require('./supercov-evidence-policy.cjs')
-const { validSeedMetadata, validateAffectedQuery } = require('./supercov-measured-evidence.cjs')
+const { validSeedMetadata, validateAffectedQuery,
+  reconcileAffectedFiles } = require('./supercov-measured-evidence.cjs')
 const ROOT = resolve(__dirname, '../..')
 const VERSION = '4.24.2'
 const fail = message => { throw new Error('Supercov Related selection unsafe: ' + message) }
@@ -140,6 +141,46 @@ function nativeSelection(inventory, changed, { base } = {}) {
   } catch (error) { fail('Native query failed: ' + (error.stderr?.toString() || error.message)) }
   let data
   try { data = JSON.parse(output) } catch { fail('Invalid native Supercov JSON') }
+  const counts = data?.data?.summary
+  const affected = data?.data?.affected
+  const undetermined = data?.data?.undetermined
+  // Do not pay for any identity expansion if the native summary already
+  // proves >500 runnable leaves. Never split those cases into shards.
+  const minimumLeaves = Math.max(0,
+    (counts?.affected ?? 0) + (counts?.undetermined ?? 0) - seed.setups)
+  if (Number.isSafeInteger(counts?.affected) &&
+      Number.isSafeInteger(counts?.undetermined) && minimumLeaves <= 500 &&
+      Array.isArray(affected) && Array.isArray(undetermined) &&
+      (affected.length < counts.affected ||
+       undetermined.length < counts.undetermined)) {
+    // Supercov's default JSON output is a ranked preview for large results.
+    // The public --names mode cannot combine with --json and lacks file
+    // identities. Recover exact (file,name) rows only from its documented
+    // --test-file <path> --json filter; reconcile every historic record.
+    const listTruncated = (data?.data?.truncated || []).some(reason =>
+      reason === 'the lists keep their first, highest-ranked tests; `--names` lists every one')
+    if (!listTruncated) fail('Native affected identity list incomplete without a documented preview marker')
+    const files = inventory.filter(item => item.runner === 'vitest')
+      .map(item => item.file).sort()
+    let raw
+    try {
+      raw = execFileSync('node', ['tests/tooling/supercov-affected-expand.cjs'],
+        { cwd: ROOT, input: JSON.stringify({ runId: seed.runId, files }),
+          encoding: 'utf8', maxBuffer: 48 * 1024 * 1024, timeout: 10 * 60_000 })
+    } catch (error) {
+      fail('Native per-file identity expansion failed: ' +
+        (error.stderr?.toString() || error.message))
+    }
+    let parts
+    try { parts = JSON.parse(raw) }
+    catch { fail('Native per-file expansion returned invalid JSON') }
+    data = reconcileAffectedFiles(data, parts, files, seed.runId,
+      { tests: seed.tests, setups: seed.setups })
+    console.log('Supercov reconstructed ' + data.data.affected.length +
+      ' affected and ' + data.data.undetermined.length +
+      ' undetermined exact identities from ' + files.length +
+      ' verified test-file filters')
+  }
   return decodeAffected(data, inventory, changed, seed.runId,
     { tests: seed.tests, setups: seed.setups })
 }

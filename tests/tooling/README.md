@@ -92,14 +92,30 @@ deliberately **count-only**, returned as `unaffectedCount: 873` with
 checkout. The adapter accepts this *specific* unaffected-only truncation
 while requiring untruncated exact `affected` and `undetermined` identities,
 correct sums, and an inventory matching `seed.tests + seed.setups`.
-Supercov's public `tests affected --json` gives ranked preview arrays
-and authoritative summary counts; the pinned 4.24.2 command did not accept
-a generic `--limit` parameter in real CI. The adapter therefore **never
-guesses missing affected/undetermined identities**. A genuinely incomplete
-preview with potentially runnable leaves fails closed. A future verified
-public identity pagination/export protocol can improve smaller Related
-plans without changing this invariant. Reason-only truncation is harmless
-when every affected/undetermined identity is present. If the native summary already proves that the
+Supercov's public `tests affected --json` may return a **ranked
+preview** of affected identities, while summary counts remain authoritative.
+The pinned Supercov 4.24.2 explicitly rejects combining `--names --json`
+(`INVALID_ARGUMENT`); `--names` alone is text without reliable file
+identity. A generic `--limit` was also rejected in real CI.
+
+**Exact filtered expansion for ≤500 candidates:** when the global
+`affected` / `undetermined` array is shorter than its native summary and
+Supercov supplies its documented ranked-preview marker, production invokes
+`runs <id> tests affected --test-file <Vitest file> --json` for **every**
+discovered Vitest test file (bounded concurrency). Each public filtered
+response must identify its exact filter, run, source scope, and fully
+materialized file/name identities. The total historical
+`tests`, `affected`, `undetermined`, and `unaffected` counts **across all
+filtered files must equal the original global counts**, including setup
+lifecycle records. Duplicate, missing, truncated, mismatched-file or
+foreign-run data fails closed. Only exact structured names are passed to
+normal Vitest; no guessed test→file mapping, filename-less text parsing,
+or unverified count-only selection is accepted.
+
+If `affected + undetermined - seed.setups >500`, reject immediately before
+per-file expansion; Full fallback or partitioning a >500 Related set
+remains forbidden. Unaffected-only count truncation and display-only
+reason truncation are safe only under their independently verified counts. If the native summary already proves that the
 minimum impacted runnable tests, `affected + undetermined - seed.setups`,
 exceeds 500, selection fails **before** trying to use a preview list;
 full reruns and shard bypass are not permitted. This caught #430's
@@ -133,7 +149,9 @@ run ID and native affected/undetermined counts.
 ## Scripts
 
 - tests/tooling/ci-plan.cjs: discovery, manifest and 500 aggregate gate
-- tests/tooling/supercov-related.cjs: native public JSON adapter
+- tests/tooling/supercov-related.cjs: native public JSON adapter and preview detection
+- tests/tooling/supercov-affected-expand.cjs: bounded public --test-file JSON worker
+- tests/tooling/supercov-measured-evidence.cjs: full identity and filtered-count reconciliation
 - tests/tooling/ci-run.cjs: normal Vitest / Node execution and exact aggregate
 - tests/tooling/supercov-seed.cjs: Full-only authoritative seed validation
 - tests/tooling/supercov-evidence.cjs: cross-ref Actions artifact restore

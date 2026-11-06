@@ -5,7 +5,8 @@ const { decodeAffected } = require('../tooling/supercov-related.cjs')
 const { planShards } = require('../tooling/ci-plan.cjs')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
-const { validateRunSummary, buildSeed, validSeedMetadata, validateAffectedQuery } = require('../tooling/supercov-measured-evidence.cjs')
+const { validateRunSummary, buildSeed, validSeedMetadata, validateAffectedQuery,
+  reconcileAffectedFiles } = require('../tooling/supercov-measured-evidence.cjs')
 const { requireExactBaseSeed, trustedPublication,
   MAX_UNPACKED_BYTES, MAX_ARCHIVE_BYTES } = require('../tooling/supercov-evidence-policy.cjs')
 const run = 'run_abcdef0123'
@@ -359,4 +360,80 @@ test('non-lossy native affected identity list accepts reasons-only truncation, r
   const omitted = structuredClone(complete)
   omitted.data.truncated.push('affected names omitted')
   assert.throws(() => decodeAffected(omitted, inventory, source, run), /unsafe/)
+})
+
+
+test('public --test-file --json reconstructs a truncated 3-leaf preview with exact identities', () => {
+  const id = 'run_abcdef0123'
+  const files = ['tests/a.test.ts', 'tests/b.test.ts']
+  const workingTree = { stale: true, reasons: ['instrumented source changed'],
+    runWide: [], sourceSetChanged: false }
+  const global = { schemaVersion: 1, ok: true, command: 'runs.tests.affected',
+    data: { run: id, summary: { tests: 4, affected: 3, undetermined: 0,
+      unaffected: 1, changedFiles: 1 },
+      affected: [{ file: files[0], name: 'suite > one' }],
+      affectedCount: 3, undetermined: [], undeterminedCount: 0,
+      unaffected: [], unaffectedCount: 1,
+      truncated: ['unaffected tests are counted, not listed',
+        'the lists keep their first, highest-ranked tests; `--names` lists every one'],
+      workingTree } }
+  const mk = (file, names, unaffected = []) => ({ schemaVersion: 1, ok: true,
+    command: 'runs.tests.affected', data: {
+      run: id, filter: '--test-file ' + file,
+      summary: { tests: names.length + unaffected.length,
+        affected: names.length, undetermined: 0, unaffected: unaffected.length,
+        changedFiles: 1 },
+      affected: names.map(name => ({file, name})), undetermined: [],
+      unaffected: unaffected.map(name => ({file, name})),
+      workingTree, truncated: [] } })
+  const parts = [
+    mk(files[0], ['suite > one', 'suite > two']),
+    mk(files[1], ['suite > three'], ['suite > four']),
+  ]
+  const complete = reconcileAffectedFiles(global, parts, files, id,
+    { tests: 4, setups: 0 })
+  assert.equal(complete.data.affected.length, 3)
+  assert.deepEqual(complete.data.affected.map(x => [x.file,x.name]), [
+    [files[0], 'suite > one'], [files[0], 'suite > two'],
+    [files[1], 'suite > three']])
+  const badFilter = structuredClone(parts)
+  badFilter[1].data.filter = '--test-file tests/other.test.ts'
+  assert.throws(() => reconcileAffectedFiles(global, badFilter, files, id,
+    { tests: 4, setups: 0 }), /unsafe/)
+  const crossFile = structuredClone(parts)
+  crossFile[1].data.affected[0].file = files[0]
+  assert.throws(() => reconcileAffectedFiles(global, crossFile, files, id,
+    { tests: 4, setups: 0 }), /unsafe/)
+  const missing = parts.slice(0, 1)
+  assert.throws(() => reconcileAffectedFiles(global, missing, files, id,
+    { tests: 4, setups: 0 }), /unsafe/)
+  const understated = structuredClone(parts)
+  understated[0].data.summary.affected = 1
+  assert.throws(() => reconcileAffectedFiles(global, understated, files, id,
+    { tests: 4, setups: 0 }), /unsafe/)
+  const hidden = structuredClone(parts)
+  hidden[0].data.affected.splice(0, 1)
+  assert.throws(() => reconcileAffectedFiles(global, hidden, files, id,
+    { tests: 4, setups: 0 }), /unsafe/)
+  const stale = structuredClone(parts)
+  stale[1].data.workingTree.sourceSetChanged = true
+  assert.throws(() => reconcileAffectedFiles(global, stale, files, id,
+    { tests: 4, setups: 0 }), /unsafe/)
+  const wrongRun = structuredClone(parts)
+  wrongRun[0].data.run = 'run_invalid'
+  assert.throws(() => reconcileAffectedFiles(global, wrongRun, files, id,
+    { tests: 4, setups: 0 }), /unsafe/)
+})
+
+test('fallback only for documented native preview; real per-file source mapping and all counters mandatory', () => {
+  const adapter = readFileSync(resolve(__dirname, '../tooling/supercov-related.cjs'), 'utf8')
+  const worker = readFileSync(resolve(__dirname, '../tooling/supercov-affected-expand.cjs'), 'utf8')
+  assert.match(adapter, /reconcileAffectedFiles\(data, parts, files, seed\.runId/)
+  assert.match(adapter, /minimumLeaves <= 500/)
+  assert.match(adapter, /Supercov reconstructed/)
+  assert.match(adapter, /--test-file <path>/)
+  assert.doesNotMatch(adapter, /'--names', '--json'/)
+  assert.match(worker, /'--test-file', file, '--json'/)
+  assert.match(worker, /Math\.min\(6, files\.length\)/)
+  assert.doesNotMatch(worker, /--allow-changed/)
 })

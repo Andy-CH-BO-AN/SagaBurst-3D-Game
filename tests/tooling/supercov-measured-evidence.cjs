@@ -159,5 +159,93 @@ function validateAffectedQuery(result, runId, { tests, setups, pristine = false 
     truncatedUnaffected: truncated }
 }
 
+
+/**
+ * Rebuild complete structured identities using Supercov's own documented
+ * --test-file <path> --json API. Never infer a file from a test title.
+ * Every historical test and setup record must reconcile with the global
+ * unfiltered counts. On disagreement we fail rather than under-select.
+ */
+function reconcileAffectedFiles(global, fileResults, expectedFiles, runId, baseline = {}) {
+  const d = global?.data
+  const counts = d?.summary
+  if (global?.schemaVersion !== 1 || global.ok !== true ||
+      global.command !== 'runs.tests.affected' || d?.run !== runId ||
+      !counts || !['tests', 'affected', 'undetermined', 'unaffected']
+        .every(key => Number.isSafeInteger(counts[key]) && counts[key] >= 0) ||
+      counts.tests !== counts.affected + counts.undetermined + counts.unaffected) {
+    fail('Cannot expand unsafe global native affected summary')
+  }
+  if (!Array.isArray(expectedFiles) || !expectedFiles.length ||
+      !Array.isArray(fileResults) || fileResults.length !== expectedFiles.length ||
+      new Set(expectedFiles).size !== expectedFiles.length ||
+      expectedFiles.some(file => !/^tests\/.*\.(test|spec)\.[cm]?[jt]sx?$/.test(file))) {
+    fail('Missing or duplicate Vitest files for exact Supercov expansion')
+  }
+  const added = { tests: 0, affected: 0, undetermined: 0, unaffected: 0 }
+  const affected = [], undetermined = [], seen = new Set()
+  for (let index = 0; index < expectedFiles.length; index++) {
+    const file = expectedFiles[index]
+    const part = fileResults[index]
+    const p = part?.data
+    const c = p?.summary
+    if (part?.schemaVersion !== 1 || part.ok !== true ||
+        part.command !== 'runs.tests.affected' || p?.run !== runId ||
+        p.filter !== '--test-file ' + file ||
+        !c || !['tests', 'affected', 'undetermined', 'unaffected']
+          .every(k => Number.isSafeInteger(c[k]) && c[k] >= 0) ||
+        c.tests !== c.affected + c.undetermined + c.unaffected ||
+        !Array.isArray(p.affected) || !Array.isArray(p.undetermined) ||
+        !Array.isArray(p.unaffected) ||
+        p.affected.length !== c.affected ||
+        p.undetermined.length !== c.undetermined ||
+        !Array.isArray(p.truncated ?? []) ||
+        (p.truncated ?? []).some(reason => ![
+          UNAFFECTED_TRUNCATION, REASONS_TRUNCATION, LISTS_TRUNCATION,
+        ].includes(reason)) ||
+        p.workingTree?.sourceSetChanged !== d.workingTree?.sourceSetChanged ||
+        p.workingTree?.stale !== d.workingTree?.stale ||
+        JSON.stringify(p.workingTree?.runWide) !== JSON.stringify(d.workingTree?.runWide)) {
+      fail('Filtered Supercov identities incomplete, truncated or foreign: ' + file)
+    }
+    if (p.affectedCount !== undefined && p.affectedCount !== c.affected ||
+        p.undeterminedCount !== undefined && p.undeterminedCount !== c.undetermined) {
+      fail('Filtered Supercov affected counts disagree: ' + file)
+    }
+    const unaffectedTruncated = (p.truncated ?? []).includes(UNAFFECTED_TRUNCATION)
+    if (unaffectedTruncated
+      ? p.unaffected.length !== 0 || p.unaffectedCount !== c.unaffected
+      : p.unaffected.length !== c.unaffected ||
+        p.unaffectedCount !== undefined && p.unaffectedCount !== c.unaffected) {
+      fail('Filtered unaffected denominator missing: ' + file)
+    }
+    for (const bucket of ['affected','undetermined','unaffected']) {
+      for (const row of p[bucket]) {
+        if (!row || row.file !== file ||
+            typeof row.name !== 'string' || !row.name) {
+          fail('Filtered identity attributed to unknown test file: ' + file)
+        }
+        const id = JSON.stringify([row.file, row.name])
+        if (seen.has(id)) fail('Duplicate Supercov identity across file filters: ' + id)
+        seen.add(id)
+        if (bucket === 'affected') affected.push(row)
+        if (bucket === 'undetermined') undetermined.push(row)
+      }
+    }
+    for (const key of Object.keys(added)) added[key] += c[key]
+  }
+  for (const key of Object.keys(added)) {
+    if (added[key] !== counts[key]) {
+      fail('Filtered Supercov ' + key + ' does not reconcile with global count: ' +
+        added[key] + ' vs ' + counts[key])
+    }
+  }
+  const expanded = { ...global, data: { ...d, affected, undetermined } }
+  // Reuse the exact same fail-closed full-inventory validation as the
+  // direct response. A reason-only truncation is allowed, names are not.
+  validateAffectedQuery(expanded, runId, baseline)
+  return expanded
+}
+
 module.exports = { validateRunSummary, buildSeed, validSeedMetadata,
-  validateAffectedQuery }
+  validateAffectedQuery, reconcileAffectedFiles }
