@@ -196,24 +196,42 @@ Related limit and must be handled through an explicit maintenance workflow.
    force merge this one-time CI infrastructure migration after review.
    Do not make this PR green by sharding, automatic Full fallback, or
    suppressing affected tests.
-3. **Still required before force merge:** reproduce with an **isolated
-   worktree/acceptance harness** and real Supercov 4.24.2 CLI:
-   `valid Full seed → small runtime edit A → native affected →
-   exact normal Vitest PASS → strict merge → small runtime edit B →
-   next native affected → exact normal Vitest PASS`.
-   Preserve actual SHAs, native response, selected identities,
-   run IDs, normal Vitest reports, public strict merge output and exit
-   statuses. No `--allow-changed`. An unexecuted plan is not proof.
-4. Verify setup/module-init changes, changed tests, unsupported inputs,
-   and representative earlier CareerDuelState/#407/#408/#409
-   scenarios. The previous selector and Full fallback stay removed.
+3. **Actual isolated worktree/acceptance harness attempted and blocked.**
+   [Actions #42260462775](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42260462775)
+   replayed the original Full seed in an isolated checkout and committed
+   behavior-preserving runtime change A `f151cd2` in `src/ui/UnitDisplayName.ts`.
+   Native Supercov 4.24.2 correctly returned **7 affected identities in
+   3 Vitest files**; exact normal Vitest **7/7 passed** and three distinct
+   Supercov instrumented runs passed:
+   `run_a6f27da2be17c4ec`, `run_b5272484b6b501aa`,
+   `run_b8fd0a7884a29ca7`. But strict
+   `supercov merge run_d06066084020ac43 <A runs>` exited **2**:
+   `Cannot merge incompatible run ...: differing domains: source, recorded files`.
+   This is the expected source-snapshot compatibility check, NOT an
+   isolated runner/selection error and NOT two-generation success.
+   Runtime change B could not be reached; reproducible evidence is the
+   [Actions artifact 13523799186](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42260462775/artifacts/13523799186).
+4. **NO-GO until architecture changes:** Supercov strict merge requires
+   identical source and recorded-file domains across input runs; a
+   Related-only run of a *different code revision* cannot be merged with
+   the old Full seed through that public CLI. Changing the 500 gate,
+   splitting jobs or claiming `--allow-changed` is strict does not
+   solve this. A separately reviewed, safe, reproducible evidence
+   migration design (e.g. a supported source-aware incremental API)
+   must succeed on A and B **before** Owner's force merge. Keep the
+   standard PR/push→dev Related, 100ms, 500, main Full rules.
+5. Review setup/module-init, changed tests and unsupported inputs and
+   representative CareerDuelState/#407/#408/#409 scenarios after that
+   design is demonstrably feasible. The old selector remains removed.
 
 ### Post-merge rollout confirmation
 
 Production `supercov-refresh.cjs` remains gated strictly to
 `GITHUB_EVENT_NAME=push` + `GITHUB_REF=refs/heads/dev`.
-**First perform explicit canonical dev Full bootstrap after merge** so
-the replacement artifact has allowed publisher provenance. Then verify
+**Only after the strict-incremental architecture is proven** may Owner
+force merge. First perform explicit canonical dev Full bootstrap after
+merge so the replacement artifact has allowed publisher provenance.
+Then verify
 two consecutive real push→dev Related refreshes with exact normal Vitest
 PASS, native selection, strict merge, valid next-generation artifacts
 and next-change native selection. If a change exceeds 500 or evidence
