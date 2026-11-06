@@ -82,7 +82,8 @@ test('push to main shares one Full gate with Pages and Release, bound to the exa
 
   // ci.yml orchestrates the single Full gate and passes verified-sha to both Pages and Release.
   assert.equal(ci.jobs.logic.uses, './.github/workflows/logic-tests.yml')
-  assert.match(ci.jobs.logic.with.mode, /github\.ref == 'refs\/heads\/main' && 'full'/)
+  assert.equal(ci.jobs.logic.with.mode,
+    "${{ github.event_name == 'workflow_dispatch' && 'full' || github.base_ref == 'main' && 'full' || (github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')) && 'full' || 'related' }}")
   assert.equal(logicTests.on.workflow_call.outputs['verified-sha'].value, '${{ jobs.aggregate.outputs.verified-sha }}')
 
   for (const id of ['pages', 'release']) {
