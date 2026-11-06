@@ -1,7 +1,7 @@
 'use strict'
 /**
  * Evidence provenance and storage policy. No test ownership/selector logic.
- * The one-time bootstrap is always explicit; hitting a limit never runs Full.
+ * Each successful canonical dev/main push may publish a new immutable Full seed.
  */
 const { spawnSync } = require('node:child_process')
 const { readFileSync, statSync, readdirSync } = require('node:fs')
@@ -9,7 +9,6 @@ const { resolve, join } = require('node:path')
 const { validSeedMetadata } = require('./supercov-measured-evidence.cjs')
 
 const SHA = /^[a-f0-9]{40}$/
-const MAX_REFRESH_GENERATIONS = 16
 const MAX_UNPACKED_BYTES = 1024 * 1024 * 1024 // 1 GiB
 const MAX_ARCHIVE_BYTES = 500 * 1024 * 1024 // 500 MiB
 const fail = message => { throw new Error('Supercov evidence policy unsafe: ' + message) }
@@ -21,14 +20,14 @@ function isGitAncestor(candidate, target, cwd = process.cwd()) {
   return !result.error && result.status === 0
 }
 
-function requireBaseAncestor(seedSha, comparisonBase, checker = isGitAncestor) {
+function requireExactBaseSeed(seedSha, comparisonBase) {
   if (!SHA.test(seedSha || '') || !SHA.test(comparisonBase || '')) {
-    fail('Missing valid seed or PR/dev TEST_BASE SHA')
+    fail('Missing valid exact PR base SHA or authoritative seed SHA')
   }
-  // Never use HEAD ancestry alone. The PR base is the canonical governance
-  // boundary, even if a feature branch deliberately creates its own Full run.
-  if (!checker(seedSha, comparisonBase)) {
-    fail('Seed SHA is not an ancestor of PR/dev TEST_BASE: feature-seed bypass forbidden')
+  // A previous canonical Full seed is NEVER allowed as a substitute for the
+  // current PR base. If push-dev Full is still publishing, fail closed.
+  if (seedSha !== comparisonBase) {
+    fail('exact dev baseline seed pending: seed SHA must equal PR base SHA')
   }
 }
 
@@ -40,22 +39,6 @@ function trustedPublication(workflow, seedSha) {
   return ['dev', 'main'].includes(workflow.head_branch) &&
     workflow.head_sha === seedSha &&
     (workflow.event === 'push' || workflow.event === 'workflow_dispatch')
-}
-
-function generation(seed) {
-  const value = seed?.generation ?? 0
-  if (!Number.isSafeInteger(value) || value < 0 || value > MAX_REFRESH_GENERATIONS) {
-    fail('Invalid evidence refresh generation')
-  }
-  return value
-}
-
-function requireRefreshAllowed(seed) {
-  const current = generation(seed)
-  if (current >= MAX_REFRESH_GENERATIONS) {
-    fail('16 dev Related refreshes reached: explicitly bootstrap a fresh Full dev seed; no automatic Full')
-  }
-  return current + 1
 }
 
 function directoryBytes(dir) {
@@ -72,7 +55,6 @@ function directoryBytes(dir) {
 
 function validateArchive(root, archive) {
   const seed = JSON.parse(readFileSync(join(root, 'output/supercov-seed.json'), 'utf8'))
-  const depth = generation(seed)
   if (!validSeedMetadata(seed) || !SHA.test(seed.sha || '')) {
     fail('Only fully measured, valid and SHA-bound evidence may be published')
   }
@@ -81,10 +63,10 @@ function validateArchive(root, archive) {
   if (archiveBytes > MAX_ARCHIVE_BYTES || rawBytes > MAX_UNPACKED_BYTES) {
     fail('Evidence exceeds 500 MiB packed or 1 GiB unpacked: explicit clean Full dev bootstrap required')
   }
-  console.log('Supercov artifact budget: generation ' + depth + '/' + MAX_REFRESH_GENERATIONS +
-    ', packed ' + archiveBytes + '/' + MAX_ARCHIVE_BYTES +
-    ', runs ' + rawBytes + '/' + MAX_UNPACKED_BYTES + ' bytes')
-  return { generation: depth, archiveBytes, rawBytes }
+  console.log('Supercov immutable Full artifact budget: packed ' +
+    archiveBytes + '/' + MAX_ARCHIVE_BYTES + ', runs ' + rawBytes +
+    '/' + MAX_UNPACKED_BYTES + ' bytes')
+  return { archiveBytes, rawBytes }
 }
 
 if (require.main === module) {
@@ -97,6 +79,5 @@ if (require.main === module) {
     process.exitCode = 1
   }
 }
-module.exports = { isGitAncestor, requireBaseAncestor, trustedPublication,
-  generation, requireRefreshAllowed, validateArchive,
-  MAX_REFRESH_GENERATIONS, MAX_UNPACKED_BYTES, MAX_ARCHIVE_BYTES }
+module.exports = { isGitAncestor, requireExactBaseSeed, trustedPublication,
+  validateArchive, MAX_UNPACKED_BYTES, MAX_ARCHIVE_BYTES }

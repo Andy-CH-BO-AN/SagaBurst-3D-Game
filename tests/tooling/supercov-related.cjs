@@ -2,7 +2,7 @@
 const { execFileSync } = require('node:child_process')
 const { existsSync, readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
-const { requireBaseAncestor, isGitAncestor } = require('./supercov-evidence-policy.cjs')
+const { requireExactBaseSeed, isGitAncestor } = require('./supercov-evidence-policy.cjs')
 const { validSeedMetadata, validateAffectedQuery } = require('./supercov-measured-evidence.cjs')
 const ROOT = resolve(__dirname, '../..')
 const VERSION = '4.24.2'
@@ -119,19 +119,19 @@ function decodeAffected(response, inventory, changes, expectedRun, baseline = {}
 }
 function nativeSelection(inventory, changed, { base } = {}) {
   const path = resolve(ROOT, process.env.SUPERCOV_SEED_FILE || 'output/supercov-seed.json')
-  if (!existsSync(path)) fail('No authoritative evidence seed: bootstrap explicitly through Full on main/manual')
+  if (!existsSync(path)) fail('exact dev baseline seed pending: no Full seed for PR base SHA')
   let seed
   try { seed = JSON.parse(readFileSync(path, 'utf8')) } catch { fail('Corrupt seed metadata') }
   if (!validSeedMetadata(seed)) {
     fail('Untrusted or invalid seed metadata')
   }
   if (!existsSync(resolve(ROOT, '.supercov/runs', seed.runId))) fail('Seed run data is missing')
-  // Both conditions matter: HEAD ancestry alone lets a feature-branch Full
-  // rebase away the original PR scope and evade the 500-leaf aggregate gate.
-  requireBaseAncestor(seed.sha, base, (seedSha, baseSha) => isGitAncestor(seedSha, baseSha, ROOT))
+  // Never use any earlier ancestor as the PR base's evidence.
+  // An in-progress push-dev Full publication must fail closed here.
+  requireExactBaseSeed(seed.sha, base)
   const checkout = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim()
   if (!isGitAncestor(seed.sha, checkout, ROOT)) {
-    fail('Seed SHA is not in checkout ancestry; native query would mix source histories')
+    fail('Exact PR-base SHA is not in checkout ancestry; refusing unrelated source history')
   }
   let output
   try {

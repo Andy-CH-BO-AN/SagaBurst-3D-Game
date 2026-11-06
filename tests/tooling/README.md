@@ -6,104 +6,78 @@ dependency graph, AST/behavior selector, module initialization owner graph,
 or gameplay source-to-test mapping**. The previous implementation and its
 obsolete selector-only tests were removed in PR #430.
 
-## Trigger semantics
+## Trigger semantics — exact PR-base Full evidence
 
-| GitHub event | Logic mode | Test execution |
+| GitHub event | Logic mode | Evidence |
 | --- | --- | --- |
-| Pull request → dev | Related | Exact Supercov-selected leaves with normal Vitest |
-| Push → dev | Related | Exact Supercov-selected leaves with normal Vitest |
-| Pull request → main | Full | Complete logic suite |
-| Push → main | Full | Complete logic suite, verified for Pages/Release |
-| Release / approved manual Full | Full | Complete logic suite |
+| Pull request → dev | **Related** | Requires an immutable Full seed whose `seed.sha === PR base SHA` |
+| Push → dev | **Full** | Normal Full PASS, then publish a NEW Full seed bound to this dev commit SHA |
+| Pull request → main | **Full** | Complete logic suite |
+| Push → main | **Full** | Complete logic suite + immutable same-SHA Full seed for Pages/Release |
+| Release / explicit manual Full | **Full** | Complete logic suite; only canonical dev/main dispatch may publish a seed |
 
-Related **never automatically becomes Full**. An invalid or missing seed,
-unsafe input, invalid identities, failed native query or 501+ selected leaves
-fails the plan instead of bypassing governance.
+**No automatic Full fallback on PRs**, and no Related shard bypass. Every
+PR→dev Related aggregate must be ≤500 individual cases, and 501+ fails.
+Each leaf of normal Vitest/Node execution must be ≤100ms, including hooks
+and cleanup. Full can shard normally with ≤500 cases **per Full shard**;
+it never uses a 500-case aggregate cap.
 
-## Evidence bootstrap and incremental updates
+### Production flow
 
-Main Full or explicitly dispatched manual Full bootstraps a valid, fully
-**measured and executed** Supercov Full seed. Normal uninstrumented Full
-must first pass its original 100ms gate. Supercov then records the **same Full manifest's bounded Vitest
-file shards**, without using instrumentation timing for the 100ms gate.
-All instrumented shards are combined by **strict** native Supercov merge,
-with no unsafe override. This avoids trying to push all 740+ tests through
-a single 500-leaf reporting process. The resulting seed must include all
-discovered Vitest leaves and pass the **public measured evidence contract**
-before it is saved under an immutable SHA-keyed cache. Supercov's top-level
-`complete` in `coverage.summary` also depends on *code coverage*: it may be
-false when application branches remain uncovered, even if every test passes.
-Seed admission instead requires `valid=true`, `testExitCode=0`, `stale=false`,
-`measurement.complete=true` with zero limitations/corrupt data,
-`testAttribution.exact` matching **every** discovered Vitest leaf, and
-`testOutcomes.passed` equal to that count, with no failed, skipped, unknown
-or partial cases. Missing measured evidence or source-scope integrity still
-fails closed. The real `coverage.coverageComplete` is recorded separately
-and is **not** falsely relabeled as full coverage. Schema v2 seed metadata
-keeps `measurementComplete`, `executionComplete`, and `attributionComplete`
-distinct from coverage completion; strict merge and PR-base trust are intact.
+```text
+push dev A → Full(normal 100ms gate) → strict same-source Full merge → seed A
+PR B (base=A) → restore verified exact seed A → native Related → normal Vitest
+merge PR B
+push dev B → Full(normal 100ms gate) → strict same-source Full merge → seed B
+PR C (base=B) → restore verified exact seed B → native Related → normal Vitest
+```
 
-Every PR → dev and push → dev restores ancestor evidence, queries native
-tests affected, then runs the exact selected tests using ordinary Vitest.
+If a new dev commit is present but its Full job has not successfully
+published the **exact** matching seed yet, PR planning fails closed with
+`exact dev baseline seed pending`. Re-run PR CI only after that Full
+publication. An older canonical seed is NOT accepted, even when it is an
+ancestor of PR base: accepting it would over-select A→B + B→C and
+potentially produce an incorrect >500 result.
 
-Successful push → dev additionally instruments **only Related Vitest leaves**
-and asks Supercov's public **strict** merge to combine that run with the
-prior authoritative seed. No permissive merge flag is used: strict merge must reject stale
-attribution or missing re-measurement. Only an accepted, valid, complete
-merged seed is published for the next dev PR; never hand-edit a private DB.
+The restored seed must have complete normal Full execution evidence,
+complete Supercov attribution, `valid=true`, no corruption, and immutable
+recorded source SHA. Artifacts come from successful canonical dev/main
+`CI` push/manual workflows with `workflow.head_sha === seed.sha`;
+feature-branch seeds, stale branches and unverified caches are rejected.
+Only repository-wide GitHub Actions artifacts are used for PR restore:
+the filename, extracted metadata and commit are all checked. The seed's
+SHA must equal the provided exact `TEST_BASE`; that base must also be in
+the PR checkout's ancestry. Missing or mismatched evidence fails closed.
 
-**Canonical maintenance bootstrap:** Once the Supercov workflow is deployed
-to `dev`, a maintainer may explicitly run **CI → Run workflow → dev →
-mode=full**. The normal Full planner, 100ms gate, 500-per-Full-shard
-limits, instrumented Vitest and strict native merge run on the same
-canonical dev SHA. Successful dev/main Full publications create a SHA-bound
-repository-scoped seed artifact. Ordinary PR/push to dev **never auto-Full**.
+### Full publication and retention
 
-The #430 temporary feature-branch bootstrap produced the historical
-`dev 3966b98` measurement and demonstrated archive handling **before
-deployment**. Its feature-branch workflow provenance is no longer trusted
-by production restoration; this historical artifact is usable only as
-read-only evidence for isolated pre-merge acceptance, never as an
-automatically accepted production seed. After Owner's force merge, perform
-an **explicit canonical dev Full bootstrap** before expecting ordinary
-push→dev Related refresh to succeed. A push that arrives before that
-canonical publication must fail closed, not silently reuse the feature seed.
+The **normal** Full run first passes the same 100ms test gate and exact
+aggregate. `supercov-seed.cjs` then instruments only the **same bounded
+Full Vitest shards**, strict-merges runs measured against the **same
+source snapshot**, and validates every collected Vitest leaf plus setup
+attribution. This strict merge is only among current-SHA Full shards;
+it never combines old source versions with new Related runs.
 
-PR→dev and push→dev first try a cache keyed to the exact Git comparison base.
-On a miss or non-ancestor cache, the planner reads trusted repository-scoped
-seed artifacts (with read-only `GH_TOKEN`) and restores the newest one whose
-**recorded SHA is an ancestor of both PR/dev TEST_BASE and the tested checkout**.
-It rejects feature-branch Full seeds even if they are a HEAD ancestor. Accepted
-artifact provenance is restricted to successful canonical dev/main push or
-manual Full runs **whose recorded workflow HEAD is exactly the seed SHA**.
-It checks the
-upload workflow's success, seed metadata, Supercov run directory and archive paths.
-A later successful push→dev strict refresh also publishes its next seed as
-an artifact; therefore the next PR can restore it **even when its GitHub
-cache scope is different**. Artifacts retain evidence for **45 days** (or less if repository policy
-restricts it); the latest successful canonical dev artifact is preferred. If none is safe, Related fails
-closed; there is still **no automatic Full**.
+Supercov top-level `complete` can be false when some source branches
+remain uncovered. Actual Full-seed admission requires
+`valid=true`, `testExitCode=0`, `stale=false`,
+`measurement.complete=true` with no limitations or corrupt data,
+`testAttribution.exact` equal to all collected Vitest leaves, and
+all `testOutcomes` passed (no skips, failures or uncertain identities).
+Seed schema v3 records `sha`, `runId`, `tests`, `setups`, three
+execution/measurement/attribution completeness flags, and honest
+`coverageComplete` separately. No generation counter is needed.
 
-A PR's own Full seed is never silently treated as canonical dev evidence.
-A trusted Full bootstrap is required on dev/main once (or on explicit
-maintenance after expiry, lineage cap or unsafe structural changes), not
-per PR.
+A successful canonical Full publishes
+`supercov-seed-<dev-or-main-commit-SHA>` as an immutable repository-scoped
+Actions artifact, retaining it for 45 days. Archive limits stay at
+**500 MiB packed / 1 GiB unpacked** and fail before publication when
+exceeded. Dev pushes use SHA-specific concurrency groups so a later push
+does not cancel an in-flight Full seed job.
 
-**Evidence compaction policy:** Bootstrap starts at generation 0. Every
-successful dev push→dev strict Related refresh increments the generation.
-At **16 refreshes**, or if the evidence reaches **500 MiB compressed** or
-**1 GiB unpacked run data**, publication fails closed and a maintainer must
-explicitly run a fresh Full dev bootstrap to begin a new lineage. There is
-no automatic Full on PRs or dev pushes; cap checks run **before** caches and
-artifacts are published. Artifact retention is 45 days. These thresholds
-bound lineage growth while leaving a useful window for active PRs.
-
-**Zero-native-impact guard:** an empty native affected+undetermined set fails
-if any executable/test-impact input changed, including `src/**`,
-`tests/helpers/**`, setup/runtime tooling, dependencies, configuration,
-and workflow inputs. A directly changed test file may select its own entire
-discovered suite with zero historical affected tests. Documentation-only
-changes are handled by the planner and need no seed.
+No `supercov-dev-refresh`, cross-revision strict merge, incremental
+Related artifact publisher, generation 0..16 lineage, `--allow-changed`,
+legacy selector, or automatic Full fallback is part of production.
 
 ## Test identity and governance
 
@@ -163,8 +137,7 @@ run ID and native affected/undetermined counts.
 - tests/tooling/ci-run.cjs: normal Vitest / Node execution and exact aggregate
 - tests/tooling/supercov-seed.cjs: Full-only authoritative seed validation
 - tests/tooling/supercov-evidence.cjs: cross-ref Actions artifact restore
-- tests/tooling/supercov-evidence-policy.cjs: canonical seed trust and bounded evidence generations
-- tests/tooling/supercov-refresh.cjs: push-dev Related-only evidence refresh
+- tests/tooling/supercov-evidence-policy.cjs: exact baseline trust and immutable Full artifact size caps
 - .github/workflows/logic-tests.yml: reusable workflow
 
 Run normal Related locally with:
@@ -178,67 +151,45 @@ strictly pinned to 4.24.2; the migration does not upgrade Vitest/Vite/Node.
 
 ## Unsupported inputs and rollout acceptance
 
-Unmeasured/new/deleted/renamed/moved source, assets, unknown global inputs
-and corrupted evidence fail Related until native safety is demonstrated.
-Config/dependency changes may select all leaves, which will exceed the 500
-Related limit and must be handled through an explicit maintenance workflow.
+Unmeasured, new, deleted, renamed or moved runtime sources, assets,
+unknown global inputs and corrupted evidence fail Related until native
+safety can be established. Config/dependency changes may select all
+leaves and therefore correctly fail the 500 Related aggregate cap.
 
-### #430 migration acceptance (before Owner force merge)
+### #430 migration review and pre-merge evidence
 
-1. **Historical canonical-source Full proof achieved:** the special
-   bootstrap job checked out real dev SHA `3966b98` and published
-   `supercov-seed-3966b98...`, containing 763 exact test leaves plus
-   110 setup records. This is a measurement proof, **not trusted
-   production artifact provenance** after feature trust removal.
-2. **Expected #430 policy failure:** real native Supercov on #430
-   identified 873 affected records, so at least 763 runnable leaves.
-   The normal PR→dev **500 hard limit must fail**, and Owner will later
-   force merge this one-time CI infrastructure migration after review.
-   Do not make this PR green by sharding, automatic Full fallback, or
-   suppressing affected tests.
-3. **Actual isolated worktree/acceptance harness attempted and blocked.**
-   [Actions #42260462775](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42260462775)
-   replayed the original Full seed in an isolated checkout and committed
-   behavior-preserving runtime change A `f151cd2` in `src/ui/UnitDisplayName.ts`.
-   Native Supercov 4.24.2 correctly returned **7 affected identities in
-   3 Vitest files**; exact normal Vitest **7/7 passed** and three distinct
-   Supercov instrumented runs passed:
-   `run_a6f27da2be17c4ec`, `run_b5272484b6b501aa`,
-   `run_b8fd0a7884a29ca7`. But strict
-   `supercov merge run_d06066084020ac43 <A runs>` exited **2**:
-   `Cannot merge incompatible run ...: differing domains: source, recorded files`.
-   This is the expected source-snapshot compatibility check, NOT an
-   isolated runner/selection error and NOT two-generation success.
-   Runtime change B could not be reached; reproducible evidence is the
-   [Actions artifact 13523799186](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42260462775/artifacts/13523799186).
-4. **NO-GO until architecture changes:** Supercov strict merge requires
-   identical source and recorded-file domains across input runs; a
-   Related-only run of a *different code revision* cannot be merged with
-   the old Full seed through that public CLI. Changing the 500 gate,
-   splitting jobs or claiming `--allow-changed` is strict does not
-   solve this. A separately reviewed, safe, reproducible evidence
-   migration design (e.g. a supported source-aware incremental API)
-   must succeed on A and B **before** Owner's force merge. Keep the
-   standard PR/push→dev Related, 100ms, 500, main Full rules.
-5. Review setup/module-init, changed tests and unsupported inputs and
-   representative CareerDuelState/#407/#408/#409 scenarios after that
-   design is demonstrably feasible. The old selector remains removed.
+- [Canonical-source bootstrap #42252456644](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42252456644)
+  previously measured a real historical dev checkout: 763 exact Vitest
+  leaves + 110 setup records. Its **feature-branch publication is not**
+  trusted for production and cannot substitute for a current-SHA
+  canonical seed.
+- [Actual #430 native gate #42256174278](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42256174278)
+  found 873 affected historical identities, so at least 763 runnable
+  leaves. The >500 fail is **intentional**, and Owner will review a
+  one-time manual force merge of this CI infrastructure migration.
+- [Isolated incremental experiment #42260462775](https://github.com/Andy-CH-BO-AN/SagaBurst-3D-Game/actions/runs/42260462775)
+  confirmed that small-source-change Related tests passed, but merging
+  their runs into a different-source Full run failed strict with
+  `differing domains: source, recorded files`. This **motivated the
+  replacement architecture**, which does not require incremental merge.
+- Before merge, check new Full/Related workflow routing and exact
+  base-match contract, ensure 501+ still fails, verify seed trust,
+  no cache/provenance bypass, normal 100ms gate, and unchanged main/release
+  behavior. **A full production push→dev seed rollout can only be
+  observed once the new workflow is deployed on dev**.
 
-### Post-merge rollout confirmation
+### Post-merge confirmation
 
-Production `supercov-refresh.cjs` remains gated strictly to
-`GITHUB_EVENT_NAME=push` + `GITHUB_REF=refs/heads/dev`.
-**Only after the strict-incremental architecture is proven** may Owner
-force merge. First perform explicit canonical dev Full bootstrap after
-merge so the replacement artifact has allowed publisher provenance.
-Then verify
-two consecutive real push→dev Related refreshes with exact normal Vitest
-PASS, native selection, strict merge, valid next-generation artifacts
-and next-change native selection. If a change exceeds 500 or evidence
-is missing, fail and require a separate corrective/maintenance action;
-never auto-switch to Full, disable the 100ms/500 limits or reuse a
-feature-branch seed. No pre-merge harness output may be described as a
-real post-merge push→dev acceptance.
+After Owner's reviewed force merge, the **first push→dev now runs Full**
+and publishes its own same-SHA seed (no separate feature bootstrap).
+Check actual Full test outcomes, strict same-source merge, seed SHA,
+artifact provenance, and presence of that exact artifact.
+A PR targeting that dev base should then restore the **exact** seed,
+run native Related and pass ≤500 cases using normal Vitest.
+When dev advances, PR CI for the new base must **fail closed until**
+the next Full seed is published. Validate the cycle on two consecutive
+dev pushes; report any failure instead of using a previous seed or
+automatic Full fallback.
 
 ## Main publication
 

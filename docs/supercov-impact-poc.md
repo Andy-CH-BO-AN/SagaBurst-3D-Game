@@ -1,5 +1,20 @@
 # Supercov exact per-test impact PoC
 
+## Production design decision update (2026-11-06)
+
+The historical PoC measurements below remain diagnostic, not deployment acceptance.
+Owner's final #430 policy: **PR→dev = native Supercov Related using only an exact
+`seed.sha === PR base SHA` Full seed, aggregate ≤500; push→dev = Full +
+new immutable same-SHA seed; main/release = Full**. A pending dev Full
+seed makes PR CI fail closed until the exact artifact is published.
+The earlier plan to strict-merge changed-source Related runs into an older
+Full seed was rejected by real CLI evidence (`differing domains: source,
+recorded files`, isolated Actions #42260462775). It is **not** used
+in the final production design. Source-snapshot strict merge remains
+only among the compatible Full shards of the same commit. This supersedes
+any earlier architecture or rollout description in this PoC.
+
+
 量測日期：2026-11-06（Asia/Taipei）。來源 baseline：`e927b699110d442827f32c71a30b34cba959bad0`，為開始實驗時最新的 `origin/dev`。
 
 **Decision: GO — worth a native affected-selection PoC before production design.** Supercov 在這個 repo 確實提供 individual-test execution provenance。代表性 #408／#409 changed-line diagnostics 分別為 **12／194 leaves**；即使加回歷史輸入中直接修改的測試，也只有 **14／196**。這兩組沒有 changed-line setup attribution，符合至少 2/3 <200 的 Strong GO 數值條件。這是設計下一個 prototype 的依據，並非現有 CI 或任意變更已能安全選到 200 以下的證明。

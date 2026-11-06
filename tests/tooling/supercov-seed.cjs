@@ -72,5 +72,5 @@ validateAffectedQuery(affected, id, {
   tests: measured.tests, setups: measured.setups, pristine: true,
 })
 writeFileSync(path('output/supercov-seed.json'),
-  JSON.stringify(buildSeed({ sha, ...measured }, 0), null, 2) + '\n')
+  JSON.stringify(buildSeed({ sha, ...measured }), null, 2) + '\n')
 console.log('Valid strict Supercov Full seed ' + id + ': ' + vitestCount + ' Vitest leaves @ ' + sha)

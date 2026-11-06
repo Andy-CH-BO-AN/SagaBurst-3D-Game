@@ -38,15 +38,9 @@ jobs:
       - run: npm ci
       - name: Verify native selector contracts without gameplay
         run: node --test tests/release/ci-plan.test.cjs tests/release/supercov-related.test.cjs
-      - name: Restore immutable Supercov Full evidence for Related
-        if: inputs.mode == 'related'
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            .supercov/runs
-            output/supercov-seed.json
-          key: supercov-evidence-dev-${{ inputs.base }}
-      - name: Restore ancestor evidence from cross-run artifact
+      # No unverified branch-scoped cache: restore a canonical publisher's
+      # repository-scoped exact-base artifact, then verify the seed SHA.
+      - name: Restore exact PR-base Full evidence from cross-run artifact
         if: inputs.mode == 'related'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -140,10 +134,11 @@ jobs:
           if-no-files-found: error
           overwrite: true
 
-  # Full bootstrap only on main or explicitly dispatched manual Full.
+  # Each canonical dev/main push produces a new SHA-exact immutable Full
+  # seed only after the normal Full aggregate has passed (100ms gate).
   supercov-full-seed:
     needs: aggregate
-    if: ${{ inputs.mode == 'full' && needs.aggregate.result == 'success' && ((github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')) || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
+    if: ${{ inputs.mode == 'full' && needs.aggregate.result == 'success' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -169,68 +164,8 @@ jobs:
         run: |
           tar -czf output/supercov-evidence.tar.gz .supercov/runs output/supercov-seed.json
           node tests/tooling/supercov-evidence-policy.cjs . output/supercov-evidence.tar.gz
-      - name: Publish Full evidence for future Related selection
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            .supercov/runs
-            output/supercov-seed.json
-          key: supercov-evidence-main-${{ github.sha }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: supercov-seed-${{ github.sha }}
-          path: output/supercov-evidence.tar.gz
-          if-no-files-found: error
-          retention-days: 45
-
-  # push -> dev is Related too: selected leaves only, no hidden Full.
-  supercov-dev-refresh:
-    needs: [plan, aggregate]
-    if: ${{ inputs.mode == 'related' && github.event_name == 'push' && github.ref == 'refs/heads/dev' && needs.aggregate.result == 'success' && needs.plan.outputs.has-tests == 'true' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - name: Restore exact dev or latest main baseline seed
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            .supercov/runs
-            output/supercov-seed.json
-          key: supercov-evidence-dev-${{ inputs.base }}
-      - name: Restore same ancestor seed including cross-run artifact fallback
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SUPERCOV_EVIDENCE_BASE: ${{ inputs.base }}
-        run: node tests/tooling/supercov-evidence.cjs restore
-      - uses: actions/download-artifact@v4
-        with:
-          name: logic-plan
-          path: output
-      - uses: actions/download-artifact@v4
-        with:
-          name: logic-aggregate
-          path: output
-      - name: Refresh selected Vitest evidence through Supercov public merge
-        run: node tests/tooling/supercov-refresh.cjs output/test-plan.json output/aggregate.json output/supercov-seed.json
-      - name: Package size-bounded strict Related evidence
-        run: |
-          tar -czf output/supercov-evidence.tar.gz .supercov/runs output/supercov-seed.json
-          node tests/tooling/supercov-evidence-policy.cjs . output/supercov-evidence.tar.gz
-      - name: Publish next immutable dev evidence
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            .supercov/runs
-            output/supercov-seed.json
-          key: supercov-evidence-dev-${{ github.sha }}
+      # Repository-scoped artifact is immutable, bound to this exact SHA,
+      # and independently provenance-checked by Related restore.
       - uses: actions/upload-artifact@v4
         with:
           name: supercov-seed-${{ github.sha }}

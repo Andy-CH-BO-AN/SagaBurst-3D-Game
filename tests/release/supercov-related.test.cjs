@@ -6,8 +6,8 @@ const { planShards } = require('../tooling/ci-plan.cjs')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { validateRunSummary, buildSeed, validSeedMetadata, validateAffectedQuery } = require('../tooling/supercov-measured-evidence.cjs')
-const { requireBaseAncestor, trustedPublication, requireRefreshAllowed,
-  MAX_REFRESH_GENERATIONS, generation } = require('../tooling/supercov-evidence-policy.cjs')
+const { requireExactBaseSeed, trustedPublication,
+  MAX_UNPACKED_BYTES, MAX_ARCHIVE_BYTES } = require('../tooling/supercov-evidence-policy.cjs')
 const run = 'run_abcdef0123'
 const inventory = [
   { runner: 'vitest', file: 'tests/example.test.ts', names: ['suite > A', 'suite > B', 'suite > C'],
@@ -80,14 +80,21 @@ test('500 aggregate leaves passes, 501 fails without Full fallback or shard bypa
   assert.throws(() => planShards(files(501), 'full'), /File exceeds 500/)
 })
 
-test('incremental refresh calls only strict public Supercov merge (no unsafe override)', () => {
-  const script = readFileSync(resolve(__dirname, '../tooling/supercov-refresh.cjs'), 'utf8')
-  assert.match(script, /sc\('merge', seed\.runId, \.\.\.candidateRuns\)/)
-  // Check the executable args, not comments explaining why overrides are unsafe.
-  assert.doesNotMatch(script, /sc\('merge',\s*'--allow-changed'/)
-  assert.match(script, /const newId = matches\[0\]\[1\]/)
-  assert.match(script, /validSeedMetadata\(seed\)/)
-  assert.match(script, /validateRunSummary\(query, vitestCount\)/)
+test('production uses fresh immutable SHA-exact Full on every dev push, never old Related strict refresh', () => {
+  const ci = readFileSync(resolve(__dirname, '../../.github/workflows/ci.yml'), 'utf8')
+  const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
+  const seed = readFileSync(resolve(__dirname, '../tooling/supercov-seed.cjs'), 'utf8')
+  assert.match(ci, /github\.event_name == 'push' && \(github\.ref == 'refs\/heads\/dev' \|\| github\.ref == 'refs\/heads\/main'\)\) && 'full'/)
+  assert.match(ci, /github\.event_name == 'pull_request' && github\.event\.pull_request\.base\.sha/)
+  assert.match(ci, /github\.sha \|\| github\.ref/)
+  assert.match(workflow, /supercov-full-seed:/)
+  assert.match(workflow, /github\.event_name == 'push' \|\| github\.event_name == 'workflow_dispatch'/)
+  assert.match(workflow, /name: supercov-seed-\$\{\{ github\.sha \}\}/)
+  assert.doesNotMatch(workflow, /supercov-dev-refresh:|supercov-refresh\.cjs|supercov-evidence-dev-|actions\/cache\/(?:restore|save)/)
+  assert.match(seed, /aggregate\.result !== 'passed'/)
+  assert.match(seed, /plan\.headSha !== sha/)
+  assert.match(seed, /buildSeed\(\{ sha, \.\.\.measured \}\)/)
+  assert.doesNotMatch(seed, /'merge', '--allow-changed'/)
 })
 
 test('Full seed instruments verified manifest shards, never a hidden unsharded 500+ run', () => {
@@ -102,39 +109,34 @@ test('Full seed instruments verified manifest shards, never a hidden unsharded 5
   assert.match(workflow, /name: logic-aggregate/)
 })
 
-test('only canonical dev/main Full workflow can publish reusable evidence', () => {
+test('canonical dev/main publisher and artifact-only exact PR-base restore', () => {
   const ci = readFileSync(resolve(__dirname, '../../.github/workflows/ci.yml'), 'utf8')
   const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
-  const artifact = readFileSync(resolve(__dirname, '../tooling/supercov-evidence.cjs'), 'utf8')
+  const restore = readFileSync(resolve(__dirname, '../tooling/supercov-evidence.cjs'), 'utf8')
+  const adapter = readFileSync(resolve(__dirname, '../tooling/supercov-related.cjs'), 'utf8')
+  const plan = readFileSync(resolve(__dirname, '../tooling/ci-plan.cjs'), 'utf8')
   assert.doesNotMatch(ci, /bootstrap-dev-seed:|refs\/heads\/ci\/supercov-per-test-impact-poc/)
   assert.match(workflow, /supercov-full-seed:/)
-  assert.match(workflow, /github\.event_name == 'workflow_dispatch'/)
-  assert.match(workflow, /refs\/heads\/dev/)
-  assert.match(workflow, /refs\/heads\/main/)
-  assert.match(workflow, /name: supercov-seed-/)
   assert.match(workflow, /GH_TOKEN:/)
+  assert.match(workflow, /SUPERCOV_EVIDENCE_BASE: \$\{\{ inputs\.base \}\}/)
   assert.match(workflow, /supercov-evidence\.cjs restore/)
-  assert.match(artifact, /No PR\/dev TEST_BASE ancestor Full\/strict-Related seed artifact/)
+  assert.match(restore, /requireExactBaseSeed\(extracted\.sha, comparisonBase\)/)
+  assert.match(restore, /candidate === comparisonBase/)
+  assert.match(restore, /trustedPublication\(workflow, candidate\.sha\)/)
+  assert.match(restore, /exact dev baseline seed pending/)
+  assert.doesNotMatch(workflow, /actions\/cache\/restore@|supercov-dev-refresh:/)
+  assert.match(adapter, /requireExactBaseSeed\(seed\.sha, base\)/)
+  assert.match(plan, /nativeSelection\(inventory, changed, \{ base, event \}\)/)
   assert.match(ci, /github\.event_name == 'workflow_dispatch' && 'full'/)
 })
 
-test('P1 feature Full seed cannot bypass PR base even when ancestor of feature HEAD', () => {
-  const base = 'a'.repeat(40), feature = 'b'.repeat(40)
-  assert.doesNotThrow(() => requireBaseAncestor(base, base, (candidate, target) =>
-    candidate === base && target === base))
-  assert.throws(() => requireBaseAncestor(feature, base, (candidate, target) =>
-    candidate === feature && target === feature),
-    /TEST_BASE: feature-seed bypass forbidden/)
-  assert.throws(() => requireBaseAncestor(feature, '', () => true), /TEST_BASE SHA/)
-  const adapter = readFileSync(resolve(__dirname, '../tooling/supercov-related.cjs'), 'utf8')
-  const plan = readFileSync(resolve(__dirname, '../tooling/ci-plan.cjs'), 'utf8')
-  const restore = readFileSync(resolve(__dirname, '../tooling/supercov-evidence.cjs'), 'utf8')
-  const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
-  assert.match(adapter, /requireBaseAncestor\(seed\.sha, base/)
-  assert.match(plan, /nativeSelection\(inventory, changed, \{ base, event \}\)/)
-  assert.match(restore, /SUPERCOV_EVIDENCE_BASE/)
-  assert.match(restore, /ancestor\(seed\.sha\)/)
-  assert.match(workflow, /SUPERCOV_EVIDENCE_BASE: \$\{\{ inputs\.base \}\}/)
+test('P1 exact base SHA rejects older ancestor seed or feature-created Full seed', () => {
+  const devA = 'a'.repeat(40), devB = 'b'.repeat(40)
+  assert.doesNotThrow(() => requireExactBaseSeed(devB, devB))
+  assert.throws(() => requireExactBaseSeed(devA, devB), /exact dev baseline seed pending/)
+  assert.throws(() => requireExactBaseSeed(devB, devA), /exact dev baseline seed pending/)
+  assert.throws(() => requireExactBaseSeed('', devB), /exact PR base SHA/)
+  assert.throws(() => requireExactBaseSeed(devB, ''), /exact PR base SHA/)
 })
 
 test('P1 published seeds cannot originate from arbitrary feature manual Full', () => {
@@ -154,30 +156,19 @@ test('P1 published seeds cannot originate from arbitrary feature manual Full', (
     head_branch: 'dev', conclusion: 'failure' }, sha), false)
 })
 
-test('P2 bounded evidence lineage requires explicit clean Full after threshold', () => {
-  assert.equal(generation({ generation: 0 }), 0)
-  assert.equal(requireRefreshAllowed({ generation: 0 }), 1)
-  assert.equal(requireRefreshAllowed({ generation: MAX_REFRESH_GENERATIONS - 1 }),
-    MAX_REFRESH_GENERATIONS)
-  assert.throws(() => requireRefreshAllowed({ generation: MAX_REFRESH_GENERATIONS }),
-    /explicitly bootstrap/)
-  assert.throws(() => generation({ generation: -1 }), /Invalid evidence/)
-  const script = readFileSync(resolve(__dirname, '../tooling/supercov-refresh.cjs'), 'utf8')
+test('evidence limits remain but incremental refresh/generation lineage are deleted', () => {
+  const policy = readFileSync(resolve(__dirname, '../tooling/supercov-evidence-policy.cjs'), 'utf8')
+  const full = readFileSync(resolve(__dirname, '../tooling/supercov-measured-evidence.cjs'), 'utf8')
   const workflow = readFileSync(resolve(__dirname, '../../.github/workflows/logic-tests.yml'), 'utf8')
-  assert.match(script, /requireRefreshAllowed\(seed\)/)
+  assert.equal(MAX_ARCHIVE_BYTES, 500 * 1024 * 1024)
+  assert.equal(MAX_UNPACKED_BYTES, 1024 * 1024 * 1024)
+  assert.match(policy, /validateArchive/)
+  assert.doesNotMatch(policy, /MAX_REFRESH_GENERATIONS|requireRefreshAllowed|function generation/)
+  assert.doesNotMatch(full, /generation/)
+  assert.doesNotMatch(workflow, /supercov-dev-refresh:/)
   assert.match(workflow, /node tests\/tooling\/supercov-evidence-policy\.cjs/)
   assert.match(workflow, /retention-days: 45/)
-})
-
-test('rollout keeps true dev-push-only production refresh and distinct pre/post-merge acceptance', () => {
-  const refresh = readFileSync(resolve(__dirname, '../tooling/supercov-refresh.cjs'), 'utf8')
-  const docs = readFileSync(resolve(__dirname, '../tooling/README.md'), 'utf8')
-  assert.match(refresh, /GITHUB_EVENT_NAME !== 'push'/)
-  assert.match(refresh, /GITHUB_REF !== 'refs\/heads\/dev'/)
-  assert.match(docs, /#430 migration acceptance/)
-  assert.match(docs, /Post-merge rollout confirmation/)
-  assert.match(docs, /isolated[\s\S]*worktree\/acceptance/)
-  assert.match(docs, /two consecutive real push→dev/)
+  assert.equal(validSeedMetadata({ schemaVersion: 2 }), false)
 })
 
 test('fully measured 763-leaf baseline permits honest uncovered branches, not invalid evidence', () => {
@@ -200,9 +191,11 @@ test('fully measured 763-leaf baseline permits honest uncovered branches, not in
   }
   const measured = validateRunSummary(summary, 763)
   assert.equal(measured.coverageComplete, false)
-  const seed = buildSeed({ sha: 'a'.repeat(40), ...measured }, 0)
+  const seed = buildSeed({ sha: 'a'.repeat(40), ...measured })
+  assert.equal(seed.schemaVersion, 3)
   assert.equal(seed.tests, 763)
   assert.equal(seed.setups, 110)
+  assert.equal(Object.hasOwn(seed, 'generation'), false)
   assert.equal(seed.coverageComplete, false)
   assert.equal(seed.executionComplete, true)
   assert.equal(seed.measurementComplete, true)
@@ -229,10 +222,12 @@ test('fully measured 763-leaf baseline permits honest uncovered branches, not in
   assert.equal(validSeedMetadata({ ...seed, measurementComplete: false }), false)
   assert.equal(validSeedMetadata({ ...seed, attributionComplete: false }), false)
   assert.equal(validSeedMetadata({ ...seed, schemaVersion: 1 }), false)
+  assert.equal(validSeedMetadata({ ...seed, schemaVersion: 2 }), false)
+  assert.equal(validSeedMetadata({ ...seed, generation: 0 }), false)
 })
 
-test('Full and Related seed publishers validate actual measurement, not 100-percent coverage', () => {
-  for (const name of ['supercov-seed.cjs', 'supercov-refresh.cjs']) {
+test('Full-only seed publisher validates actual measurement, not 100-percent coverage', () => {
+  for (const name of ['supercov-seed.cjs']) {
     const script = readFileSync(resolve(__dirname, '../tooling/' + name), 'utf8')
     assert.match(script, /validateRunSummary\(/)
     assert.match(script, /buildSeed\(/)

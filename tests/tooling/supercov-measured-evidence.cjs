@@ -5,7 +5,7 @@ const fail = m => { throw new Error('Supercov measured evidence unsafe: ' + m) }
 const RUN = /^run_[a-z0-9]+$/i
 const SHA = /^[a-f0-9]{40}$/
 const VERSION = '4.24.2'
-const SEED_SCHEMA = 2
+const SEED_SCHEMA = 3
 
 function validateRunSummary(result, expectedTests) {
   if (!Number.isSafeInteger(expectedTests) || expectedTests < 1 ||
@@ -51,13 +51,12 @@ function validateRunSummary(result, expectedTests) {
     coverageComplete: d.coverage.coverageComplete }
 }
 
-function buildSeed({ sha, runId, tests, setups, coverageComplete }, generation = 0) {
+function buildSeed({ sha, runId, tests, setups, coverageComplete }) {
   if (!SHA.test(sha || '') || !RUN.test(runId || '') ||
       !Number.isSafeInteger(tests) || tests < 1 ||
       !Number.isSafeInteger(setups) || setups < 0 ||
-      !Number.isSafeInteger(generation) || generation < 0 ||
       typeof coverageComplete !== 'boolean') fail('Invalid seed provenance')
-  return { schemaVersion: SEED_SCHEMA, version: VERSION, sha, runId, generation,
+  return { schemaVersion: SEED_SCHEMA, version: VERSION, sha, runId,
     tests, setups, valid: true, measurementComplete: true, executionComplete: true,
     attributionComplete: true, coverageComplete }
 }
@@ -70,8 +69,7 @@ function validSeedMetadata(s) {
     typeof s.coverageComplete === 'boolean' &&
     Number.isSafeInteger(s.tests) && s.tests > 0 &&
     Number.isSafeInteger(s.setups) && s.setups >= 0 &&
-    Number.isSafeInteger(s.generation) && s.generation >= 0 &&
-    s.generation <= 16
+    !Object.hasOwn(s, 'generation')
 }
 
 
