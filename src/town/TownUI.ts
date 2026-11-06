@@ -1,3 +1,5 @@
+type TutorialHUDRect = Pick<DOMRect, 'left' | 'right' | 'top' | 'bottom' | 'width' | 'height'>
+
 export function installTownStyles(): void {
   if (document.getElementById('town-styles')) return
   const style = document.createElement('style'); style.id = 'town-styles'
@@ -39,6 +41,163 @@ export function installTownStyles(): void {
     .duel-countdown-value { font-size:clamp(48px,7vw,80px); font-weight:800; line-height:1.15; font-variant-numeric:tabular-nums }
     #career-entry { position:fixed; inset:0; overflow:auto; z-index:1000; padding:clamp(20px,5vh,60px) clamp(20px,6vw,100px); box-sizing:border-box; background:radial-gradient(ellipse at 30% 0,#473a28,#171b1f 65%); color:#ead8b8; font:16px/1.6 system-ui }
     #career-entry h1 { margin:5px 0; font:700 34px Georgia,serif }
+    .career-tutorial-hud { position:fixed; left:50%; top:32vh; transform:translateX(-50%); width:min(500px,calc(100vw - 32px)); box-sizing:border-box; display:grid; gap:10px; pointer-events:none; z-index:93; color:#fff4d7; font:16px/1.45 system-ui; text-align:center; overflow-wrap:anywhere }
+    .career-tutorial-hud[hidden], .career-tutorial-hud [hidden] { display:none }
+    .career-tutorial-card { padding:12px 18px; border:1px solid #c4ab7666; border-radius:8px; background:rgb(20 27 28 / 70%); box-shadow:0 4px 18px #0003 }
+    .career-tutorial-title { display:block; font-size:18px; font-weight:600 }
+    .career-tutorial-detail { display:block; margin-top:4px }
+    .career-tutorial-notification { color:#ffe2a0; border-color:#d6b369; background:rgb(39 32 18 / 75%); font-weight:600 }
+    .career-tutorial-error { color:#ffd5cc; border-color:#e79583; background:rgb(54 22 19 / 90%); font-size:15px }
+    .career-tutorial-critical { transform:none; text-align:left; z-index:936 }
+    @media (max-height:700px), (max-width:600px) {
+      .career-tutorial-hud { gap:6px; font-size:15px; line-height:1.3 }
+      .career-tutorial-card { padding:7px 12px }
+      .career-tutorial-detail { margin-top:2px }
+    }
+    @media (max-height:560px) {
+      .career-tutorial-hud { gap:4px }
+      .career-tutorial-card { padding:4px 10px }
+      .career-tutorial-hud:has(.career-tutorial-notification:not([hidden])) .career-tutorial-detail { display:none }
+    }
   `
   document.head.append(style)
+}
+
+/** Presentation only: progress/reward receipts remain owned by the tutorial controller. */
+export class TownTutorialHUD {
+  private readonly root = document.createElement('div')
+  private readonly objective = document.createElement('div')
+  private readonly title = document.createElement('strong')
+  private readonly detail = document.createElement('span')
+  private readonly notification = document.createElement('div')
+  private readonly error = document.createElement('div')
+  private resizeObserver?: ResizeObserver
+  private stateObserver?: MutationObserver
+  private blockers: HTMLElement[] = []
+  private layoutState = ''
+  private disposed = false
+
+  constructor() {
+    this.root.className = 'career-tutorial-hud'
+    this.root.hidden = true
+    this.objective.id = 'career-tutorial-hint'
+    this.objective.className = 'career-tutorial-card'
+    this.title.className = 'career-tutorial-title'
+    this.detail.className = 'career-tutorial-detail'
+    this.objective.append(this.title, this.detail)
+    this.notification.id = 'career-tutorial-notification'
+    this.notification.className = 'career-tutorial-card career-tutorial-notification'
+    this.notification.setAttribute('role', 'status')
+    this.error.id = 'career-tutorial-error'
+    this.error.className = 'career-tutorial-card career-tutorial-error'
+    this.error.setAttribute('role', 'alert')
+    this.root.append(this.objective, this.notification, this.error)
+    document.body.append(this.root)
+    window.addEventListener('resize', this.layout)
+  }
+
+  render(objective: string, notification: string, error: string, blocked: boolean): void {
+    const state = JSON.stringify([objective, notification, error, blocked])
+    if (state === this.layoutState) return
+    this.layoutState = state
+    const [title, ...details] = objective.split('\n')
+    if (this.title.textContent !== title) this.title.textContent = title
+    const detail = details.join(' ')
+    if (this.detail.textContent !== detail) this.detail.textContent = detail
+    this.detail.hidden = !detail
+    this.objective.hidden = !objective || Boolean(error)
+    if (this.notification.textContent !== notification) this.notification.textContent = notification
+    this.notification.hidden = !notification || Boolean(error)
+    if (this.error.textContent !== error) this.error.textContent = error
+    this.error.hidden = !error
+    this.root.className = `career-tutorial-hud${error ? ' career-tutorial-critical' : ''}`
+    this.root.hidden = blocked || !(objective || notification || error)
+    // Town creates some HUD elements after the controller; bind once on the first update.
+    if (!this.resizeObserver) this.observeHUD()
+    this.layout()
+  }
+
+  private observeHUD(): void {
+    this.blockers = Array.from(document.querySelectorAll<HTMLElement>(
+      '#town-hud, #army-command-hud .army-command-targets, #army-command-hud .army-command-commands, #army-command-hud .army-command-feedback, #compass-container, #enemy-hud, #career-duel-hud, #career-race-hud, #town-hint, #controls-hint, .career-mission-guide, #town-pointer-prompt, #combat-equipment-hud'))
+    this.resizeObserver = new ResizeObserver(this.layout)
+    this.resizeObserver.observe(this.root)
+    this.blockers.forEach(el => this.resizeObserver!.observe(el))
+    // Compare attributes first: ArmyCommandUI can write the same state every frame.
+    let previous = ''
+    this.stateObserver = new MutationObserver(() => {
+      const state = this.blockers.map(el => [el.hidden, el.className, el.getAttribute('style'), el.parentElement?.getAttribute('style'), el.parentElement?.hidden].join('|')).join(';')
+      if (state !== previous) { previous = state; this.layout() }
+    })
+    for (const el of new Set(this.blockers.flatMap(el => [el, el.parentElement]).filter((el): el is HTMLElement => Boolean(el)))) {
+      this.stateObserver.observe(el, { attributes: true, attributeFilter: ['class', 'style', 'hidden'] })
+    }
+  }
+
+  private readonly layout = (): void => {
+    if (this.disposed || this.root.hidden) return
+    const width = window.innerWidth, height = window.innerHeight
+    const blockers: TutorialHUDRect[] = this.blockers.filter(el => !el.closest('[hidden]') && getComputedStyle(el).display !== 'none'
+      && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0')
+      .map(el => el.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0)
+    // Reserve the aiming area even when the crosshair itself is hidden.
+    blockers.push({ left:width / 2 - 28, right:width / 2 + 28, top:height / 2 - 28, bottom:height / 2 + 28, width:56, height:56 })
+    if (!this.error.hidden) { this.placeError(blockers, width, height); return }
+    this.root.style.left = ''; this.root.style.width = ''
+    const rect = this.root.getBoundingClientRect()
+    const limit = height / 2 - 28
+    const preferred = Math.min(height * .32, limit - rect.height)
+    const candidates = [preferred, 12, ...blockers.flatMap(r => [r.bottom + 12, r.top - rect.height - 12])]
+    const top = candidates.filter(y => y >= 12 && y + rect.height <= limit
+      && this.fits(rect.left, y, rect.width, rect.height, blockers))
+      .sort((a, b) => Math.abs(a - preferred) - Math.abs(b - preferred))[0]
+    // Only noncritical guidance yields to a crowded command menu; its native width is untouched.
+    this.root.style.visibility = top === undefined ? 'hidden' : ''
+    this.root.style.top = `${top ?? 12}px`
+  }
+
+  private fits(x: number, y: number, width: number, height: number, blockers: TutorialHUDRect[]): boolean {
+    return blockers.every(r => x + width + 12 <= r.left || x >= r.right + 12
+      || y + height + 12 <= r.top || y >= r.bottom + 12)
+  }
+
+  /** Errors stand alone and may use a side gap; they never share the crowded objective stack. */
+  private placeError(blockers: TutorialHUDRect[], width: number, height: number): void {
+    const widths = [...new Set([Math.min(500, width - 24),
+      ...blockers.flatMap(r => [Math.min(500, r.left - 24), Math.min(500, width - r.right - 24)]),
+      Math.min(180, width - 24)])].filter(w => w >= Math.min(180, width - 24)).sort((a, b) => b - a)
+    this.root.style.visibility = ''
+    let fallback = { x:12, y:12, width:widths[0], overlap:Infinity }
+    for (const cardWidth of widths) {
+      this.root.style.width = `${cardWidth}px`
+      const cardHeight = this.root.getBoundingClientRect().height
+      const xs = [(width - cardWidth) / 2, 12, width - cardWidth - 12,
+        ...blockers.flatMap(r => [r.right + 12, r.left - cardWidth - 12])]
+      const ys = [Math.min(height * .32, height - cardHeight - 12), 12, height - cardHeight - 12,
+        ...blockers.flatMap(r => [r.bottom + 12, r.top - cardHeight - 12])]
+      for (const y of ys) for (const x of xs) {
+        if (x < 12 || y < 12 || x + cardWidth > width - 12 || y + cardHeight > height - 12) continue
+        // The aiming area is always protected, including the last-resort occupied-slot choice.
+        if (!this.fits(x, y, cardWidth, cardHeight, [blockers[blockers.length - 1]])) continue
+        if (this.fits(x, y, cardWidth, cardHeight, blockers)) {
+          this.root.style.left = `${x}px`; this.root.style.top = `${y}px`
+          return
+        }
+        // Even a completely occupied viewport must not silently discard a failed save.
+        const overlap = blockers.reduce((sum, r) => sum + Math.max(0, Math.min(x + cardWidth, r.right) - Math.max(x, r.left))
+          * Math.max(0, Math.min(y + cardHeight, r.bottom) - Math.max(y, r.top)), 0)
+        if (overlap < fallback.overlap) fallback = { x, y, width:cardWidth, overlap }
+      }
+    }
+    this.root.style.width = `${fallback.width}px`
+    this.root.style.left = `${fallback.x}px`; this.root.style.top = `${fallback.y}px`
+  }
+
+  dispose(): void {
+    this.disposed = true
+    window.removeEventListener('resize', this.layout)
+    this.resizeObserver?.disconnect()
+    this.stateObserver?.disconnect()
+    this.root.remove()
+  }
 }
