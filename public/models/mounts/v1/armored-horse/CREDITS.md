@@ -2,7 +2,7 @@
 
 The repository owner generated and supplied the Meshy asset (SHA-256 cd3e443eec8d404c4cc4b1b8f800ade5c6679533de1847a78ac1d7a3e4b36ad2) for this feature. Meshy account plan / public asset page were not supplied; no third-party license is asserted. Preserve the applicable generation terms.
 
-All original source surfaces and texture content are retained with a uniform 1.27 scale and -X → +Z rotation. Fused fur/barding contacts are separated, concealed leg collars and seam caps are added, and new collar UVs sample a reviewed fur patch in the original atlas. Original visible surface UVs remain intact. New skin weights, three LODs and saddle/stirrup/camera sockets were authored for the existing 70-joint horse rig; all nine horse clips are reused unchanged. Textures are resized to 2048 and Basis-compressed.
+All original source surfaces and texture content are retained with a uniform 1.27 scale and -X → +Z rotation. Fused fur/barding contacts are separated, concealed leg collars and seam caps are added, and new collar UVs sample a reviewed fur patch in the original atlas. Original visible LOD0 surface UVs remain intact; simplified LODs bake the original PBR surfaces onto new UV atlases. New skin weights, three LODs and saddle/stirrup/camera sockets were authored for the existing 70-joint horse rig; all nine horse clips are reused unchanged. Textures are resized to 2048 and Basis-compressed.
 
 Rig and animation attribution:
 

@@ -3011,7 +3011,7 @@ export class TownScene {
     const hud = document.getElementById('mount-hud'), label = document.getElementById('mount-name'), fill = document.getElementById('mount-hp-fill')
     hud?.classList?.toggle('visible', Boolean(mount && !mount.dead && !this.player.dead))
     if (mount) {
-      if (label) label.textContent = `坐騎：${mount.displayName}`
+      if (label) label.textContent = `坐騎：${mount.displayName}${mount.armorImpactMax > 0 ? ` · 護甲 ${Math.ceil(mount.armorImpactRemaining)}/${mount.armorImpactMax}` : ''}`
       if (fill) fill.style.width = `${Math.max(0, mount.currentHp / mount.maxHp * 100)}%`
     }
   }
