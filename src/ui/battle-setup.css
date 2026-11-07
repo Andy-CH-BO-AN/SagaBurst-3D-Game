@@ -1594,10 +1594,13 @@
   user-select: none;
 }
 
-#battle-setup-container .summary-slot-card:hover {
-  border-color: #9a7b50;
+#battle-setup-container .summary-slot-card:hover,
+#battle-setup-container .summary-slot-card:focus-visible {
+  border-color: #d4af37;
   background: rgba(45, 34, 25, 0.96);
   transform: translateX(3px);
+  outline: none;
+  box-shadow: 0 0 12px rgba(212, 175, 55, 0.35);
 }
 
 #battle-setup-container .summary-slot-icon {
@@ -1672,7 +1675,8 @@
   transition: all 0.2s ease;
 }
 
-#battle-setup-container .summary-slot-card:hover .summary-slot-action {
+#battle-setup-container .summary-slot-card:hover .summary-slot-action,
+#battle-setup-container .summary-slot-card:focus-visible .summary-slot-action {
   background: #d4af37;
   color: #120e0a;
 }

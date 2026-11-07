@@ -1082,10 +1082,9 @@ export class BattleSetupUI {
       this._refreshView()
     })
 
-    // Quick jump to loadout
+    // Quick jump to loadout (P2-1)
     this.container.querySelector('#btn-goto-loadout')?.addEventListener('click', () => {
-      this.activeTab = 'loadout'
-      this._refreshView()
+      this._switchMainTab('loadout', true)
     })
 
     document.getElementById('command-grouping-preset')?.addEventListener('click', () => {
@@ -1098,13 +1097,12 @@ export class BattleSetupUI {
       this._refreshView()
     })
 
+    // Main tabs switching (P2-1)
     document.getElementById('setup-tab-army')?.addEventListener('click', () => {
-      this.activeTab = 'army'
-      this._refreshView()
+      this._switchMainTab('army')
     })
     document.getElementById('setup-tab-loadout')?.addEventListener('click', () => {
-      this.activeTab = 'loadout'
-      this._refreshView()
+      this._switchMainTab('loadout')
     })
 
     document.getElementById('player-hp-source')?.addEventListener('change', event => {
@@ -1141,13 +1139,38 @@ export class BattleSetupUI {
       })
     })
 
-    // Summary slot jump clicks
+    // Summary slot jump clicks & keyboard navigation (P2-2)
+    const jumpToCategory = (cat: 'melee' | 'ranged' | 'shield' | 'mount') => {
+      this.activeLoadoutCategory = cat
+      this._refreshView()
+
+      // In narrow viewports (<= 1024px) where summary panel and editor panel are stacked vertically,
+      // scroll the editor panel into view so the user can immediately see and interact with category items
+      if (typeof window !== 'undefined' && window.innerWidth <= 1024) {
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => {
+            const editorPanel = this.container?.querySelector('.loadout-editor-panel') as HTMLElement | null
+            if (editorPanel && typeof editorPanel.scrollIntoView === 'function') {
+              editorPanel.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }
+          })
+        }
+      }
+    }
+
     this.container.querySelectorAll('[data-jump-cat]').forEach(card => {
-      card.addEventListener('click', () => {
-        const cat = (card as HTMLElement).dataset.jumpCat as any
-        if (cat) {
-          this.activeLoadoutCategory = cat
-          this._refreshView()
+      const el = card as HTMLElement
+      const cat = el.dataset.jumpCat as 'melee' | 'ranged' | 'shield' | 'mount' | undefined
+      if (!cat) return
+
+      el.addEventListener('click', () => {
+        jumpToCategory(cat)
+      })
+
+      el.addEventListener('keydown', (e: KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+          e.preventDefault()
+          jumpToCategory(cat)
         }
       })
     })
@@ -1945,6 +1968,38 @@ export class BattleSetupUI {
       if (deployBadgeEl) deployBadgeEl.textContent = 'DEPLOY'
       if (deployTextEl) deployTextEl.textContent = loadout.startMounted ? '騎乘出征 (MOUNTED)' : '徒步步戰 (ON FOOT)'
       if (deployDescEl) deployDescEl.textContent = loadout.startMounted ? '開局騎乘於戰鬥坐騎上' : '開局以步兵近戰姿態迎敵'
+    }
+  }
+
+  private _switchMainTab(newTab: 'army' | 'loadout', fromBottomBtn: boolean = false): void {
+    this.activeTab = newTab
+    this._refreshView()
+
+    // Smoothly adjust scroll position so user immediately sees relevant content (P2-1)
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        const container = this.container
+        if (!container) return
+        if (newTab === 'loadout') {
+          const tabsEl = container.querySelector('.setup-tabs') as HTMLElement | null
+          if (fromBottomBtn || (tabsEl && container.scrollTop > tabsEl.offsetTop)) {
+            if (tabsEl && typeof tabsEl.scrollIntoView === 'function') {
+              tabsEl.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            } else if (typeof container.scrollTo === 'function') {
+              container.scrollTo({ top: 0, behavior: 'smooth' })
+            } else {
+              container.scrollTop = 0
+            }
+          }
+        } else {
+          // Switch to army: scroll container to top so header, battle mode & army overview cards are visible
+          if (typeof container.scrollTo === 'function') {
+            container.scrollTo({ top: 0, behavior: 'smooth' })
+          } else {
+            container.scrollTop = 0
+          }
+        }
+      })
     }
   }
 }
