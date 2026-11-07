@@ -293,7 +293,6 @@ export class TownScene {
   private missionResultOpen = false
   private deploymentPage?: CareerMissionPage | 'duel'
   private duelActivity: 'duel' | 'race' | 'review' = 'duel'
-  private duelPresetId?: UnitPresetId
   private careerCommandCue: AudioCommand | null = null
   private ambientDefeatShown = false
   private townRefitOnReturn = false
@@ -2147,27 +2146,34 @@ export class TownScene {
         }
       }
       else this.openDuelSelection(content)
+      panel.scrollTop = 0
+      content.scrollTop = 0
     }
     panel.append(tabs, content); render()
   }
-  private openDuelSelection(panel: HTMLElement): void {
+  private openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId): void {
     const presets = getUnitPresetsForFaction(this.profile.faction)
-    const selected = presets.find(preset => preset.id === this.duelPresetId) ?? presets[0]
-    this.duelPresetId = selected.id
-    const heading = document.createElement('h3'); heading.textContent = 'Unit Type · 兵種'; panel.append(heading)
-    const units = document.createElement('div'); units.className = 'town-products'; panel.append(units)
-    for (const preset of presets) {
+    const selected = presets.find(preset => preset.id === presetId)
+    panel.replaceChildren()
+    const navigate = (id?: UnitPresetId) => {
+      this.openDuelSelection(panel, id)
+      panel.querySelector('h3')?.focus({ preventScroll: true })
+    }
+    if (selected) this.button(panel, '← 返回兵種列表', () => navigate())
+    const heading = document.createElement('h3'); heading.tabIndex = -1
+    heading.textContent = selected ? `Tier · ${selected.nameEn} · ${selected.nameZh}` : 'Unit Type · 兵種'
+    panel.append(heading)
+    const products = document.createElement('div'); products.className = 'town-products'; panel.append(products)
+    if (!selected) for (const preset of presets) {
       const row = document.createElement('article'); row.className = 'town-product'
       const button = document.createElement('button'); button.className = 'town-button'
       button.textContent = `${preset.nameEn} · ${preset.nameZh}`
-      button.setAttribute('aria-pressed', String(preset.id === selected.id))
       const progress = document.createElement('small')
       progress.textContent = CAREER_DUEL_TIERS.map(tier => `T${tier} ${isCareerDuelUnlocked(this.profile, preset.id, tier) ? '已解鎖' : 'Locked'}`).join(' · ')
-      button.onclick = () => { this.duelPresetId = preset.id; this.talk('deployment') }
-      row.append(button, progress); units.append(row)
+      button.onclick = () => navigate(preset.id)
+      row.append(button, progress); products.append(row)
     }
-    const tiers = document.createElement('h3'); tiers.textContent = `Tier · ${selected.nameEn}`; panel.append(tiers)
-    for (const tier of CAREER_DUEL_TIERS) {
+    else for (const tier of CAREER_DUEL_TIERS) {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = `T${tier} ${selected.nameEn}`
       const details = document.createElement('small')
@@ -2175,8 +2181,10 @@ export class TownScene {
       details.textContent = unlocked ? `5 秒準備 · 30 秒內擊敗對手${tier === 5 ? ' · Commander 出戰，Captain 裁判' : tier === 4 ? selected.traits.includes('bow_fire') ? ' · Shadow Warden 出戰' : ' · Captain 出戰，Shadow Warden 裁判' : ''}` : `先擊敗 T${tier - 1} ${selected.nameEn}`
       const accept = document.createElement('button'); accept.className = 'town-button'; accept.textContent = unlocked ? '接受單挑' : 'Locked'; accept.disabled = !unlocked
       accept.onclick = () => this.acceptDuel(selected.id, tier)
-      row.append(title, details, accept); panel.append(row)
+      row.append(title, details, accept); products.append(row)
     }
+    panel.scrollTop = 0
+    if (this.panel) this.panel.scrollTop = 0
   }
   private openRacePage(panel: HTMLElement): void {
     const racing = document.createElement('h3'); racing.textContent = 'Mounted Circuit Racing · 繞城賽馬'; panel.append(racing)
