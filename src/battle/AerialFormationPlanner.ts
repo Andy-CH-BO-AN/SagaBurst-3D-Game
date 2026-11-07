@@ -7,8 +7,9 @@
  * 2. All participants mounted on giant eagles (xongkoro).
  * 3. Elevated safe takeoff altitude (spawnY in 35..55m range) with squad-level altitude offsets.
  * 4. Squad-based layout: <= 5 squads in rear rank; > 5 squads in front (1-5) and rear (6-10).
- * 5. Deterministic placement at opposite map edges (Viking South +Z, Roman North -Z).
+ * 5. Bounded map edge deployment (strictly within playable bounds |Z| <= 270, |X| <= 220).
  * 6. True T1..T5 stats, models, profiles, weapons.
+ * 7. Only archer units are permitted in aerial combat.
  */
 import { AIType } from '../world/NPC'
 import {
@@ -16,7 +17,7 @@ import {
   CUSTOM_BATTLE_UNIT_TIERS,
   ArmyConfig,
   normalizeArmyConfig,
-  MAX_AERIAL_CUSTOM_ARMY_SIZE,
+  UnitTier,
 } from './BattleConfig'
 import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from './T4HeroCatalog'
 import { getT5ProfileForFaction, resolveT5UnitLoadout } from './T5HeroCatalog'
@@ -40,65 +41,99 @@ import {
   BattleSpawnPlan,
   allegianceFor,
 } from './BattleSpawner'
-import {
-  createMulberry32,
-  partitionSquadRanks,
-  type PlannedUnitInstance,
-  type SquadGroup,
-} from './SquadFormationPlanner'
-
-export const AERIAL_VIKING_REAR_Z = 160
-export const AERIAL_VIKING_FRONT_Z = 120
-export const AERIAL_VIKING_PLAYER_Z = 185
-
-export const AERIAL_ROMAN_REAR_Z = -160
-export const AERIAL_ROMAN_FRONT_Z = -120
-export const AERIAL_ROMAN_PLAYER_Z = -185
 
 export const AERIAL_BASE_ALTITUDE = 35
-export const AERIAL_ALTITUDE_STEP = 8
+export const AERIAL_ALTITUDE_STEP = 10
+export const AERIAL_MAP_EDGE_Z = 250
+export const AERIAL_PLAYER_OFFSET_Z = 15
+export const AERIAL_RANK_GAP = 25
+
+export interface PlannedUnitInstance {
+  presetId: UnitPresetId
+  presetName: string
+  tier: UnitTier
+  cavalry: boolean
+  aiType: AIType
+  loadout: UnitLoadout
+  characterTier?: CharacterTier
+  heroArchetype?: 'commander' | 'captain' | 'ranger'
+  visualAssetId?: import('../world/HeroAssetCatalog').HeroAssetId
+  combatProfileId?: import('./HeroCombatProfile').HeroCombatProfileId
+  specialCombatProfile?: 'maki-ranger'
+  squadId: SquadId
+}
+
+export interface SquadGroup {
+  squadId: SquadId
+  units: PlannedUnitInstance[]
+}
+
+export interface SquadRankPartition {
+  frontRank: SquadGroup[]
+  rearRank: SquadGroup[]
+}
+
+export function partitionSquadRanks(activeSquads: SquadGroup[]): SquadRankPartition {
+  const sorted = [...activeSquads].sort((a, b) => a.squadId - b.squadId)
+  if (sorted.length <= 5) {
+    return {
+      frontRank: [],
+      rearRank: sorted,
+    }
+  }
+  return {
+    frontRank: sorted.filter(s => s.squadId <= 5),
+    rearRank: sorted.filter(s => s.squadId > 5),
+  }
+}
 
 export class AerialFormationPlanner {
+  /**
+   * Plans an aerial battle deployment where all units fly on giant eagles (xongkoro).
+   */
   static planAerialBattle(config: BattleConfig): BattleSpawnPlan {
-    const seed = config.seed ?? 0x5a6ab7
-    createMulberry32(seed)
-
-    const playerFaction = config.playerFaction ?? 'viking'
+    const respawn = config.rules.respawnEnabled ?? false
+    const playerFaction: CharacterFaction = config.playerFaction ?? 'viking'
     const isVikingPlayer = playerFaction === 'viking'
-    const isSpectator = Boolean(config.spectator)
 
-    // Player takes 1 slot on friendly side if participating
-    const maxVikingAi = !isSpectator && isVikingPlayer ? MAX_AERIAL_CUSTOM_ARMY_SIZE - 1 : MAX_AERIAL_CUSTOM_ARMY_SIZE
-    const maxRomanAi = !isSpectator && !isVikingPlayer ? MAX_AERIAL_CUSTOM_ARMY_SIZE - 1 : MAX_AERIAL_CUSTOM_ARMY_SIZE
+    // 1. Expand units (archers only) and assign squad IDs (1..10)
+    const vikingUnits = this._expandFactionUnits(config.viking, 'viking', config.squadAssignments)
+    const romanUnits = this._expandFactionUnits(config.roman, 'roman', undefined)
 
-    // 1. Expand Viking units
-    const vikingUnits = this._expandAerialUnits(
-      config.viking,
-      'viking',
-      maxVikingAi,
-      isVikingPlayer ? config.squadAssignments : undefined,
-    )
+    // 2. Group into squads and partition into front/rear ranks
     const vikingSquads = this._groupIntoSquads(vikingUnits)
-    const vikingPartition = partitionSquadRanks(vikingSquads)
-
-    // 2. Expand Roman units
-    const romanUnits = this._expandAerialUnits(
-      config.roman,
-      'roman',
-      maxRomanAi,
-      !isVikingPlayer ? config.squadAssignments : undefined,
-    )
     const romanSquads = this._groupIntoSquads(romanUnits)
+
+    const vikingPartition = partitionSquadRanks(vikingSquads)
     const romanPartition = partitionSquadRanks(romanSquads)
 
-    // 3. Deploy
     const npcSpecs: NpcSpawnSpec[] = []
-    const respawn = config.rules.respawnEnabled ?? false
 
-    // Deploy Viking
+    // 3. Compute dynamic rank depths for each faction
+    const vikingRearDepth = this._calculateRankDepth(vikingPartition.rearRank)
+    const vikingFrontDepth = this._calculateRankDepth(vikingPartition.frontRank)
+
+    const romanRearDepth = this._calculateRankDepth(romanPartition.rearRank)
+    const romanFrontDepth = this._calculateRankDepth(romanPartition.frontRank)
+
+    // 4. Calculate Viking rank base Z (South edge: Z > 0, facing -Z)
+    // Row 0 has smaller Z; rear row has largest Z (up to AERIAL_MAP_EDGE_Z)
+    const vikingRearBaseZ = AERIAL_MAP_EDGE_Z - vikingRearDepth
+    const vikingFrontBaseZ = vikingPartition.frontRank.length > 0
+      ? vikingRearBaseZ - AERIAL_RANK_GAP - vikingFrontDepth
+      : vikingRearBaseZ
+
+    // 5. Calculate Roman rank base Z (North edge: Z < 0, facing +Z)
+    // Row 0 has larger Z (closest to center); rear row has most negative Z (down to -AERIAL_MAP_EDGE_Z)
+    const romanRearBaseZ = -(AERIAL_MAP_EDGE_Z - romanRearDepth)
+    const romanFrontBaseZ = romanPartition.frontRank.length > 0
+      ? romanRearBaseZ + AERIAL_RANK_GAP + romanFrontDepth
+      : romanRearBaseZ
+
+    // 6. Deploy Viking aerial ranks
     this._deployAerialRank(
       vikingPartition.frontRank,
-      AERIAL_VIKING_FRONT_Z,
+      vikingFrontBaseZ,
       'viking',
       config,
       npcSpecs,
@@ -107,7 +142,7 @@ export class AerialFormationPlanner {
     )
     this._deployAerialRank(
       vikingPartition.rearRank,
-      AERIAL_VIKING_REAR_Z,
+      vikingRearBaseZ,
       'viking',
       config,
       npcSpecs,
@@ -115,10 +150,10 @@ export class AerialFormationPlanner {
       1,
     )
 
-    // Deploy Roman
+    // 7. Deploy Roman aerial ranks
     this._deployAerialRank(
       romanPartition.frontRank,
-      AERIAL_ROMAN_FRONT_Z,
+      romanFrontBaseZ,
       'roman',
       config,
       npcSpecs,
@@ -127,7 +162,7 @@ export class AerialFormationPlanner {
     )
     this._deployAerialRank(
       romanPartition.rearRank,
-      AERIAL_ROMAN_REAR_Z,
+      romanRearBaseZ,
       'roman',
       config,
       npcSpecs,
@@ -135,9 +170,15 @@ export class AerialFormationPlanner {
       1,
     )
 
+    // 8. Player spawn: behind the friendly rear rank at altitude 35
+    const playerZ = isVikingPlayer
+      ? AERIAL_MAP_EDGE_Z + AERIAL_PLAYER_OFFSET_Z
+      : -(AERIAL_MAP_EDGE_Z + AERIAL_PLAYER_OFFSET_Z)
+
     const playerSpawn = {
       x: 0,
-      z: isVikingPlayer ? AERIAL_VIKING_PLAYER_Z : AERIAL_ROMAN_PLAYER_Z,
+      y: AERIAL_BASE_ALTITUDE,
+      z: playerZ,
     }
 
     return {
@@ -148,18 +189,21 @@ export class AerialFormationPlanner {
     }
   }
 
-  private static _expandAerialUnits(
+  private static _expandFactionUnits(
     army: ArmyConfig,
     faction: CharacterFaction,
-    maxAiTotal: number,
     manualAssignments?: readonly SquadAssignment[],
   ): PlannedUnitInstance[] {
     const normalized = normalizeArmyConfig(army, faction)
     const rawUnits: Array<Omit<PlannedUnitInstance, 'squadId'>> = []
-    let totalAdded = 0
 
     for (const [presetKey, tierCounts] of Object.entries(normalized)) {
       const presetId = presetKey as UnitPresetId
+      // In Aerial battle, only archer presets are permitted
+      if (!presetId.endsWith('_archer') && presetKey !== 'archer') {
+        continue
+      }
+
       const preset = UNIT_PRESETS[presetId]
       const presetName = preset?.nameEn ?? presetKey
 
@@ -190,9 +234,6 @@ export class AerialFormationPlanner {
         const aiType = hasRanged ? AIType.RANGED : AIType.MELEE
 
         for (let i = 0; i < count; i++) {
-          if (totalAdded >= maxAiTotal) break
-          totalAdded++
-
           rawUnits.push({
             presetId,
             presetName,
@@ -207,9 +248,7 @@ export class AerialFormationPlanner {
             specialCombatProfile: profile?.specialCombatProfile,
           })
         }
-        if (totalAdded >= maxAiTotal) break
       }
-      if (totalAdded >= maxAiTotal) break
     }
 
     return this._assignSquadIds(rawUnits, manualAssignments)
@@ -259,7 +298,10 @@ export class AerialFormationPlanner {
 
       let currentSquadId: SquadId = 1
       for (const u of unassigned) {
-        while (currentSquadId <= MAX_CUSTOM_BATTLE_COMMAND_SQUADS && (squadCounts.get(currentSquadId) ?? 0) >= MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE) {
+        while (
+          currentSquadId <= MAX_CUSTOM_BATTLE_COMMAND_SQUADS &&
+          (squadCounts.get(currentSquadId) ?? 0) >= MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE
+        ) {
           currentSquadId = (currentSquadId + 1) as SquadId
         }
         if (currentSquadId > MAX_CUSTOM_BATTLE_COMMAND_SQUADS) {
@@ -299,9 +341,24 @@ export class AerialFormationPlanner {
     return groups.sort((a, b) => a.squadId - b.squadId)
   }
 
+  private static _calculateRankDepth(squads: SquadGroup[]): number {
+    if (squads.length === 0) return 0
+    let maxDepth = 0
+    const eagleSpacingZ = 16
+    for (const squad of squads) {
+      const unitCount = squad.units.length
+      if (unitCount === 0) continue
+      const columns = Math.min(10, Math.max(5, Math.ceil(Math.sqrt(unitCount * 2.0))))
+      const rows = Math.ceil(unitCount / columns)
+      const depth = Math.max(0, (rows - 1) * eagleSpacingZ)
+      if (depth > maxDepth) maxDepth = depth
+    }
+    return maxDepth
+  }
+
   private static _deployAerialRank(
     squads: SquadGroup[],
-    rankZ: number,
+    rankBaseZ: number,
     characterFaction: CharacterFaction,
     config: BattleConfig,
     npcSpecs: NpcSpawnSpec[],
@@ -315,19 +372,33 @@ export class AerialFormationPlanner {
     const isViking = characterFaction === 'viking'
 
     const squadCount = Math.min(5, squads.length)
-    const squadSpacingX = 48
-    const eagleSpacingX = 18
-    const eagleSpacingZ = 20
+    const eagleSpacingX = 14
+    const eagleSpacingZ = 16
+    const squadGap = 16
+
+    // Compute width for each squad
+    const squadWidths: number[] = []
+    for (let i = 0; i < squadCount; i++) {
+      const unitCount = squads[i].units.length
+      const columns = Math.min(10, Math.max(5, Math.ceil(Math.sqrt(unitCount * 2.0))))
+      squadWidths.push(Math.max(1, (columns - 1) * eagleSpacingX))
+    }
+
+    const totalWidth = squadWidths.reduce((sum, w) => sum + w, 0) + (squadCount - 1) * squadGap
+    let currentX = -totalWidth / 2
 
     for (let i = 0; i < squadCount; i++) {
       const squad = squads[i]
-      const squadCenterX = (i - (squadCount - 1) / 2) * squadSpacingX
       const units = squad.units
       const unitCount = units.length
       if (unitCount === 0) continue
 
-      const columns = Math.min(4, unitCount)
+      const columns = Math.min(10, Math.max(5, Math.ceil(Math.sqrt(unitCount * 2.0))))
       const altitude = AERIAL_BASE_ALTITUDE + ((i + rankIndex) % 3) * AERIAL_ALTITUDE_STEP
+
+      const sWidth = squadWidths[i]
+      const squadCenterX = currentX + sWidth / 2
+      currentX += sWidth + squadGap
 
       for (let uIdx = 0; uIdx < unitCount; uIdx++) {
         const unit = units[uIdx]
@@ -335,10 +406,12 @@ export class AerialFormationPlanner {
         const row = Math.floor(uIdx / columns)
 
         const offsetX = (col - (columns - 1) / 2) * eagleSpacingX
+        // Viking faces North (-Z), row offset pushes further South (+Z)
+        // Roman faces South (+Z), row offset pushes further North (-Z)
         const rowOffsetZ = isViking ? row * eagleSpacingZ : -row * eagleSpacingZ
 
         const x = squadCenterX + offsetX
-        const z = rankZ + rowOffsetZ
+        const z = rankBaseZ + rowOffsetZ
 
         const name = `${characterFaction}_aerial_${unit.presetName}_t${unit.tier}_s${unit.squadId}_${uIdx + 1}`
 

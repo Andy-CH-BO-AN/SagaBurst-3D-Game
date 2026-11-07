@@ -107,7 +107,7 @@ function createMulberry32(seed: number = SCATTER_BASE_SEED) {
 }
 
 export interface BattleSpawnPlan {
-  playerSpawn: { x: number; z: number }
+  playerSpawn: { x: number; z: number; y?: number }
   npcSpecs: NpcSpawnSpec[]
   pickupSpecs: CampPickupSpec[]
   horseSpecs: CampHorseSpec[]
@@ -219,10 +219,10 @@ export class BattleSpawner {
     const horseSpecs: CampHorseSpec[] = []
 
     if (config.rules.includeCamps) {
-      pickupSpecs.push(...this._generateCampPickups('viking'))
-      pickupSpecs.push(...this._generateCampPickups('roman'))
-      horseSpecs.push(...this._generateCampHorses('viking'))
-      horseSpecs.push(...this._generateCampHorses('roman'))
+      pickupSpecs.push(...this.generateCampPickups('viking'))
+      pickupSpecs.push(...this.generateCampPickups('roman'))
+      horseSpecs.push(...this.generateCampHorses('viking'))
+      horseSpecs.push(...this.generateCampHorses('roman'))
     }
 
     const playerSpawn = playerFaction === 'roman' ? ROMAN_PLAYER_SPAWN : VIKING_PLAYER_SPAWN
@@ -369,10 +369,10 @@ export class BattleSpawner {
     const horseSpecs: CampHorseSpec[] = []
 
     if (config.rules.includeCamps) {
-      pickupSpecs.push(...this._generateCampPickups('viking'))
-      pickupSpecs.push(...this._generateCampPickups('roman'))
-      horseSpecs.push(...this._generateCampHorses('viking'))
-      horseSpecs.push(...this._generateCampHorses('roman'))
+      pickupSpecs.push(...this.generateCampPickups('viking'))
+      pickupSpecs.push(...this.generateCampPickups('roman'))
+      horseSpecs.push(...this.generateCampHorses('viking'))
+      horseSpecs.push(...this.generateCampHorses('roman'))
     }
 
     return {
@@ -649,7 +649,7 @@ export class BattleSpawner {
     return specs
   }
 
-  private static _generateCampPickups(characterFaction: CharacterFaction): CampPickupSpec[] {
+  static generateCampPickups(characterFaction: CharacterFaction): CampPickupSpec[] {
     const isViking = characterFaction === 'viking'
     const z = (isViking ? CAMP_PICKUP_Z : -CAMP_PICKUP_Z)
     const pickups: CampPickupSpec[] = []
@@ -710,7 +710,7 @@ export class BattleSpawner {
     return pickups
   }
 
-  private static _generateCampHorses(characterFaction: CharacterFaction): CampHorseSpec[] {
+  static generateCampHorses(characterFaction: CharacterFaction): CampHorseSpec[] {
     const isViking = characterFaction === 'viking'
     const z = (isViking ? CAMP_HORSE_Z : -CAMP_HORSE_Z)
     const prefix = isViking ? 'viking' : 'roman'

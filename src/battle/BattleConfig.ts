@@ -176,7 +176,7 @@ export function attachArmyAliases(army: any, faction: CharacterFaction): any {
   if (!army || typeof army !== 'object') return army
   const isViking = faction === 'viking'
   const infKey = isViking ? 'viking_berserker' : 'roman_heavy_infantry'
-  const archKey = isViking ? 'viking_archer' : (army.roman_javelin_infantry ? 'roman_javelin_infantry' : 'roman_archer')
+  const archKey = isViking ? 'viking_archer' : (army.roman_archer ? 'roman_archer' : (army.roman_javelin_infantry ? 'roman_javelin_infantry' : 'roman_archer'))
   const cavKey = isViking ? 'viking_lancer' : 'roman_lancer'
   const haKey = isViking ? 'viking_horse_archer' : 'roman_horse_archer'
 
@@ -293,7 +293,7 @@ export function normalizeArmyConfig(army: any, faction: CharacterFaction): Recor
       } else {
         switch (key) {
           case 'infantry': mappedPresetId = 'roman_heavy_infantry'; break
-          case 'archer': mappedPresetId = 'roman_javelin_infantry'; break
+          case 'archer': mappedPresetId = (army.roman_javelin_infantry && !army.roman_archer) ? 'roman_javelin_infantry' : 'roman_archer'; break
           case 'cavalry': mappedPresetId = 'roman_lancer'; break
           case 'horseArcher': mappedPresetId = 'roman_horse_archer'; break
           default: mappedPresetId = key
@@ -457,6 +457,10 @@ function validateBattleConfigWithArmyLimit(
     }
   }
 
+  const isAerial = c.battleType === 'aerial'
+  const isSpectator = Boolean(c.spectator)
+  const playerFaction = c.playerFaction ?? 'viking'
+
   const checkArmy = (army: any, faction: CharacterFaction, sideName: string): number => {
     let sideTotal = 0
     let heroTotal = 0
@@ -502,6 +506,9 @@ function validateBattleConfigWithArmyLimit(
         } else if (val > maxArmySize) {
           errors.push(`${sideName} ${presetId} T${tier} exceeds maximum ${maxArmySize}`)
         } else {
+          if (isAerial && val > 0 && !presetId.endsWith('_archer') && presetId !== 'archer') {
+            errors.push(`${sideName} army in aerial battle cannot contain non-archer unit ${presetId} T${tier}`)
+          }
           sideTotal += val
           if (tier === 4) heroTotal += val
         }
@@ -509,10 +516,6 @@ function validateBattleConfigWithArmyLimit(
     }
     return sideTotal
   }
-
-  const isAerial = c.battleType === 'aerial'
-  const isSpectator = Boolean(c.spectator)
-  const playerFaction = c.playerFaction ?? 'viking'
 
   const vikingMax = isAerial ? (!isSpectator && playerFaction === 'viking' ? 49 : 50) : maxArmySize
   const romanMax = isAerial ? (!isSpectator && playerFaction === 'roman' ? 49 : 50) : maxArmySize
