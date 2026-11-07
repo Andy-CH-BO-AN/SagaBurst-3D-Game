@@ -158,8 +158,6 @@ export class Mount {
   get armorImpactRemaining(): number { return this.armor.remaining }
   restoreArmor(value?: number): void { this.armor.restore(value) }
   get impactMultiplier(): number { return mountImpactMultiplier(this.type) }
-  private controlledSpeed = 0
-  private controlledFrameYaw = 0
   public maxHp = 100
   public currentHp = 100
   public baseSpeed = 12
@@ -529,7 +527,6 @@ export class Mount {
     this.riderFaction = null
     this.currentHp = this.maxHp
     this.armor.reset()
-    this.controlledSpeed = 0
     this.state = MountState.IDLE
     this.deathTimer = 3
     // Completed eagle corpses retain their logical actor, but their hidden rig
@@ -590,16 +587,7 @@ export class Mount {
     return true
   }
 
-  steerHeading(desired: number, dt: number): number {
-    if (this.type !== MountType.ARMORED_HORSE) return desired
-    const yaw = this.controlledFrameYaw
-    const delta = Math.atan2(Math.sin(desired - yaw), Math.cos(desired - yaw))
-    const step = 1.25 * Math.max(0, Math.min(dt, .1))
-    return yaw + Math.max(-step, Math.min(step, delta))
-  }
-
   beginControlledFrame(): void {
-    this.controlledFrameYaw = this.group.rotation.y
     this.previousPosition.copy(this.group.position)
     this.movementSpeed = 0
   }
@@ -609,17 +597,7 @@ export class Mount {
       this.flight.setIntent({ yaw: Math.atan2(direction.x, direction.z), pitch: Math.atan2(direction.y, Math.hypot(direction.x, direction.z)), takeoff: true })
       return
     }
-    if (this.dead || direction.lengthSq() === 0) { this.controlledSpeed = 0; return }
-    if (this.type === MountType.ARMORED_HORSE) {
-      const delta = Math.max(0, speed) - this.controlledSpeed
-      this.controlledSpeed += Math.sign(delta) * Math.min(Math.abs(delta), (delta > 0 ? 5 : 18) * Math.max(0, dt))
-      speed = this.controlledSpeed
-      const yaw = this.steerHeading(Math.atan2(direction.x, direction.z), dt)
-      this.group.rotation.y = yaw
-      this.group.position.x += Math.sin(yaw) * speed * dt
-      this.group.position.z += Math.cos(yaw) * speed * dt
-      return
-    }
+    if (this.dead || direction.lengthSq() === 0) return
     this.group.position.addScaledVector(direction, speed * dt)
   }
 
@@ -646,7 +624,6 @@ export class Mount {
       return
     }
     if (import.meta.env.DEV && collector) { var _tPhysics = performance.now() }
-    if (this.group.position.distanceToSquared(this.previousPosition) < 1e-10) this.controlledSpeed = 0
     const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
     this.velY += -22 * dt
     this.group.position.y += this.velY * dt

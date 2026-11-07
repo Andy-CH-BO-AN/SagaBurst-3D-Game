@@ -25,7 +25,7 @@ import type { InventoryManager } from '../rpg/InventoryManager'
 import { WEAPONS, type WeaponData } from '../rpg/WeaponDatabase'
 import { getScenePlayableWorldBound, clampToPlayableWorld, getTerrainHeight, ObstacleData, resolveObstacleCollision } from '../world/Terrain'
 import { WeaponMeshFactory } from '../world/WeaponMeshFactory'
-import { Mount, MountType } from '../world/Mount'
+import { Mount } from '../world/Mount'
 import { FallingRider, riderFallDamage, type FallingRiderSnapshot } from '../movement/FallingRider'
 import { damagePlayer } from '../combat/DamageRouter'
 import { projectileAmmoAfterLaunch, type ProjectileLaunchResult } from '../combat/ProjectileAdmission'
@@ -1132,9 +1132,9 @@ export class Player {
       // Rotation: resolve final heading before syncing mount transform
       if (isMoving) {
         const mountAngle = Math.atan2(moveDir.x, moveDir.z)
-        this.setMountedHeading(this.currentMount.type === MountType.ARMORED_HORSE ? this.currentMount.group.rotation.y : mountAngle)
+        this.setMountedHeading(mountAngle)
       } else if (this.aiming || this.isSwinging) {
-        this.setMountedHeading(this.currentMount.steerHeading(cameraYaw + Math.PI, dt))
+        this.setMountedHeading(cameraYaw + Math.PI)
       }
 
       // Sync player to mount (runs after rotation so saddle seat world matrix reflects current frame heading)

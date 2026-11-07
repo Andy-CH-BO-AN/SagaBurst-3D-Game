@@ -49,7 +49,7 @@ import { CharacterBowVisual } from './CharacterBowVisual'
 import { applyAttachmentContract } from './HumanoidAttachmentContract'
 import { applySwordAttachment, weaponGripWorld, weaponTipWorld } from './SwordAttachmentContract'
 import { applyBowAttachment } from './BowAttachmentContract'
-import { Mount, MountType } from './Mount'
+import { Mount } from './Mount'
 import { EquipmentVisualLODController } from './EquipmentVisualLODController'
 import { WeaponMeshFactory } from './WeaponMeshFactory'
 import { getUnitCombatProfile, BattleUnitType } from '../battle/BattleConfig'
@@ -3289,7 +3289,7 @@ export class NPC {
 
           if (moveDir.lengthSq() > 0.0001) {
             const desiredYaw = Math.atan2(moveDir.x, moveDir.z)
-            const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, this.mount?.type === MountType.ARMORED_HORSE ? dt * .65 : dt)
+            const newYaw = steerCavalryHeading(currentYaw, desiredYaw, speed, dt)
             this.group.rotation.y = newYaw
             if (this.mount) this.mount.group.rotation.y = newYaw
             moveDir.set(Math.sin(newYaw), 0, Math.cos(newYaw))
@@ -3444,7 +3444,7 @@ export class NPC {
           const desiredYaw = (inFront && targetDirX * targetDirX + targetDirZ * targetDirZ > 0.001)
             ? Math.atan2(targetDirX, targetDirZ)
             : initialYaw
-          const newYaw = steerCavalryHeading(initialYaw, desiredYaw, speed, this.mount?.type === MountType.ARMORED_HORSE ? dt * .65 : dt)
+          const newYaw = steerCavalryHeading(initialYaw, desiredYaw, speed, dt)
           this.group.rotation.y = newYaw
           if (this.mount) this.mount.group.rotation.y = newYaw
         }
