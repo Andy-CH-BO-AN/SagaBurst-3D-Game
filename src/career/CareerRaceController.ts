@@ -105,7 +105,7 @@ export class CareerRaceController {
       elapsedSeconds: 0, gameSeconds: 0, phaseSeconds: 0, waypoint: 0,
       referee: this.captureReferee(captain),
       opponentHome: this.captureReferee(commander), opponentAmmo: commander.npc.combatAmmo,
-      player: { ...makeRider('player', canonicalCareerMountId(this.mounts.activeMountId!) as RaceMountId, origin, p.hp, mount.currentHp), stamina: p.staminaValue },
+      player: { ...makeRider('player', canonicalCareerMountId(this.mounts.activeMountId!) as RaceMountId, origin, p.hp, mount.currentHp), mountArmorImpact: mount.armorImpactRemaining, stamina: p.staminaValue },
       // The mount is race-owned; the actual native Commander and his equipment are borrowed intact.
       opponent: { ...makeRider(TOWN_COMMANDER_ID, opponentMount, position(spawn, commander.npc.group.rotation.y), commander.npc.hp, 1), stamina: commander.npc.staminaValue } }
     const next = cloneCareerProfile(fresh); next.activeRace = session
@@ -126,6 +126,7 @@ export class CareerRaceController {
       const r = saved.referee, npc = this.captain.npc, mount = this.captain.homeMount ?? npc.mount
       npc.restoreCombatHealth(r.hp)
       if (mount && r.mountPosition) {
+        mount.restoreArmor(r.mountArmorImpact)
         mount.currentHp = Math.min(mount.maxHp, r.mountHp ?? mount.currentHp)
         if (r.mountHp === 0) mount.takeDamage(mount.maxHp * 100)
         mount.group.position.set(r.mountPosition.x, r.mountPosition.y, r.mountPosition.z); mount.group.rotation.y = r.mountPosition.yaw
@@ -196,6 +197,7 @@ export class CareerRaceController {
           if (restoring) {
             const point = s.opponentHome.mountPosition
             home.group.position.set(point.x, point.y, point.z); home.group.rotation.y = point.yaw
+            home.restoreArmor(s.opponentHome.mountArmorImpact)
             home.currentHp = Math.min(home.maxHp, s.opponentHome.mountHp ?? home.currentHp)
             if (home.currentHp === 0) home.takeDamage(home.maxHp * 100)
           }
@@ -211,11 +213,12 @@ export class CareerRaceController {
           npc.restoreCombatHealth(s.opponent.hp); npc.restoreCombatStamina(s.opponent.stamina)
           if (s.opponentAmmo !== undefined) npc.restoreCombatAmmo(s.opponentAmmo)
         }
-        s.opponent.hp = npc.hp; s.opponent.mountHp = mount.currentHp; s.opponent.stamina = npc.staminaValue
+        s.opponent.hp = npc.hp; s.opponent.mountArmorImpact = mount.armorImpactRemaining; s.opponent.mountHp = mount.currentHp; s.opponent.stamina = npc.staminaValue
       }
       else {
         mount.group.position.set(s.opponent.mountPosition.x, s.opponent.mountPosition.y, s.opponent.mountPosition.z)
         mount.group.rotation.y = s.opponent.mountPosition.yaw
+        mount.restoreArmor(s.opponent.mountArmorImpact)
         mount.currentHp = Math.min(mount.maxHp, s.opponent.mountHp)
         if (s.opponent.mountHp === 0) mount.takeDamage(mount.maxHp * 100)
         if (!s.opponent.mounted || mount.dead) npc.dismountFromMount()
@@ -365,7 +368,7 @@ export class CareerRaceController {
   private captureReferee(resident: RaceResident): RaceReferee {
     const npc = resident.npc, mount = resident.homeMount ?? npc.mount
     return { position: position(npc.combatPosition, npc.group.rotation.y), hp: npc.hp, mounted: Boolean(npc.mount),
-      ...(mount ? { mountHp: mount.currentHp, mountPosition: position(mount.group.position, mount.group.rotation.y) } : {}) }
+      ...(mount ? { mountHp: mount.currentHp, mountArmorImpact: mount.armorImpactRemaining, mountPosition: position(mount.group.position, mount.group.rotation.y) } : {}) }
   }
   snapshot(): void {
     const s = this.session
@@ -385,7 +388,7 @@ export class CareerRaceController {
       rider.mounted = Boolean(mount && active === mount && !mount.dead)
       const point = active === mount && mount ? mount.group.position : actor.combatPosition
       rider.position = position(point, side === 'player' ? p.facingYaw : this.racer.group.rotation.y)
-      if (mount) { rider.mountHp = mount.currentHp; rider.mountPosition = position(mount.group.position, mount.group.rotation.y) }
+      if (mount) { rider.mountArmorImpact = mount.armorImpactRemaining; rider.mountHp = mount.currentHp; rider.mountPosition = position(mount.group.position, mount.group.rotation.y) }
     }
   }
   persist(): boolean {
@@ -411,7 +414,7 @@ export class CareerRaceController {
     return { ...structuredClone(saved), ...(!this.session && id && id !== 'xongkoro' ? { mountId: id } : {}), hp: p.hp, dead: p.dead, stamina: p.staminaValue,
       mounted: Boolean(mount && mount === active && !mount.dead),
       position: position(active === mount && mount ? mount.group.position : p.combatPosition, p.facingYaw),
-      ...(mount ? { mountHp: mount.currentHp, mountPosition: position(mount.group.position, mount.group.rotation.y) } : {}) }
+      ...(mount ? { mountHp: mount.currentHp, mountArmorImpact: mount.armorImpactRemaining, mountPosition: position(mount.group.position, mount.group.rotation.y) } : {}) }
   }
   clear(direct = true): boolean {
     if (!this.session || !this.resultSaved) return false

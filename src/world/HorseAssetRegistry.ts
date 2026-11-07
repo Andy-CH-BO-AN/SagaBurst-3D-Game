@@ -82,6 +82,7 @@ export interface HorseTemplate {
   manifest: HorseAssetManifest
   gltf: GLTF
   bodyMaterials: THREE.MeshStandardMaterial[]
+  lodMaterials?: THREE.Material[]
 }
 
 export interface HorseDebugState {
@@ -451,7 +452,7 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
   const bodyMeshes = template.manifest.bodyMeshNames.map((name) => requireMesh(root, name))
   const applyVariant = (variant: HorseAppearanceVariant): void => {
     appearanceVariant = variant
-    for (const mesh of bodyMeshes) mesh.material = template.bodyMaterials[variant]
+    bodyMeshes.forEach((mesh, i) => { mesh.material = template.lodMaterials?.[i] ?? template.bodyMaterials[variant] })
   }
   applyVariant(initialVariant)
   const animation = new HorseAnimationController(
@@ -499,6 +500,7 @@ function textureUrl(base: string, path: string): string {
 export class HorseAssetRegistry {
   private static template: HorseTemplate | null = null
   private static preloadPromise: Promise<void> | null = null
+  private static armoredTemplate: HorseTemplate | null = null
 
   static get ready(): boolean {
     return this.template !== null
@@ -506,7 +508,7 @@ export class HorseAssetRegistry {
 
   static preload(renderer: THREE.WebGLRenderer): Promise<void> {
     if (!this.preloadPromise) {
-      this.preloadPromise = this.load(renderer).catch((error) => {
+      this.preloadPromise = Promise.all([this.load(renderer), this.loadArmored(renderer)]).then(() => {}).catch((error) => {
         this.preloadPromise = null
         throw error
       })
@@ -601,8 +603,29 @@ export class HorseAssetRegistry {
     }
   }
 
-  static createInstance(config: { variant?: HorseAppearanceVariant } = {}): HorseInstance {
+  private static async loadArmored(renderer: THREE.WebGLRenderer): Promise<void> {
+    const base = publicAssetUrl('models/mounts/v1/armored-horse')
+    const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
+    if (!response.ok) throw new Error(`Cannot load armored horse manifest (${response.status})`)
+    const manifest = await response.json() as HorseAssetManifest
+    validateHorseManifest(manifest)
+    const ktx = new KTX2Loader().setTranscoderPath(textureUrl(publicAssetUrl('models/mounts/v1/horse'), 'basis/')).detectSupport(renderer)
+    try {
+      const gltf = await new GLTFLoader().setKTX2Loader(ktx).setMeshoptDecoder(MeshoptDecoder).loadAsync(textureUrl(base, manifest.file!))
+      firstSkinnedMesh(gltf.scene)
+      normalizedClips(gltf)
+      for (const name of [...REQUIRED_SOCKETS, ...Object.values(manifest.lodNodes)]) requireObject(gltf.scene, name)
+      const material = requireMesh(gltf.scene, manifest.bodyMeshNames[0]).material
+      if (!(material instanceof THREE.MeshStandardMaterial)) throw new Error('Armored horse material is unsupported')
+      this.armoredTemplate = { manifest, gltf, bodyMaterials: [material, material, material],
+        lodMaterials: manifest.bodyMeshNames.map(name => requireMesh(gltf.scene, name).material as THREE.Material) }
+    } finally { ktx.dispose() }
+  }
+
+  static createInstance(config: { variant?: HorseAppearanceVariant; armored?: boolean } = {}): HorseInstance {
     if (!this.template) throw new Error('HorseAssetRegistry is not preloaded')
-    return createHorseInstance(this.template, config.variant ?? 0)
+    const template = config.armored ? this.armoredTemplate : this.template
+    if (!template) throw new Error('Armored horse assets were not preloaded')
+    return createHorseInstance(template, config.armored ? 0 : config.variant ?? 0)
   }
 }

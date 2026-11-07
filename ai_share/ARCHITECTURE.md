@@ -65,6 +65,10 @@ Career 教學由 `CareerTutorialState` 擁有角色識別、步驟、交易／�
 
 - `Mount` 是 HP、移動、碰撞、跳躍、衝撞、死亡／下馬與存檔的權威；`HorseAssetRegistry`、`BlackCatVisual`、`SnowLeopardVisual`、`CorgiVisual`、`XongkoroVisual` 負責資產與動畫，保留原 save IDs。
 - `QuadrupedAssetPreload` 集中 Black Cat／Snow Leopard／Corgi 的 manifest／GLB 驗證、並行預載共用與失敗重試；各 Visual 提供路徑、body 前綴與模板發布。全部必要 clips／LOD／seat 通過後才發布模板，失敗後下次預載重新讀取，Black Cat 與 Snow Leopard 的實例、LOD 及動畫共用 `QuadrupedVisual`；Snow Leopard 必須具備完整七段 baked clips。
+- `ARMORED_HORSE`／Career ID `armored-horse` 是獨立重甲戰馬，使用 `HorseAssetRegistry` 的獨立模板、原戰馬 70 骨架／九動畫與三層 LOD；不替換普通馬。10.5 m/s、HP 600、售價 8,000 軍功，重甲馬的加速／轉向限制在既有 `Mount` controlled movement owner 處理，Player／NPC 共用。
+- `MountArmor` 以獨立 `ShieldState` 重用 `absorb()` 和 `weaponShieldImpact()`：重甲馬／雪豹 50 Impact，其餘 0。`DamageRouter.damageMount` 只對武器 melee／projectile 消耗護甲；自然鷹擊、墜落、地形與 mount-impact 沿原 HP 路徑。騎士 body／盾接觸不消耗馬甲，也不受馬甲保護。Game 與 Town 所有武器命中坐騎的 caller 都須保留武器 ID／攻擊者騎乘狀態。
+- 玩家馬甲耐久在 `CareerProfile.mountArmor`、任務 `mountState.armorImpact` 與 mounted RPG save 保存；NPC／借用角色在既有 mount resource checkpoint 保存 `armorImpactRemaining`，決鬥、賽馬的既有資源快照亦保留。缺值的舊雪豹以 50 初始化，已存 0 必須保留；只有 respawn／正式 refit／rest 重設。純護甲受擊也須觸發資源 checkpoint。
+- `calculateMountImpactDamage` 先保留原四捨五入的基礎公式，再套重甲馬／雪豹 2.5、其他 1；Player 的 Mounted Impact skill 再由原 caller 加成。`skipImpact` 與冷卻不改；Game／Town 成功撞擊步兵後共用短距 swept obstacle／地形／world-bound 檢查的擊退，不對騎士／坐騎重複結算。
 - 坐騎實例共享 render resources、各自持有 skeleton／mixer。Horse LOD 與遠距動畫節流由 registry 維護；不改變 gameplay timer。
 - Black Cat／Corgi 使用 `idle`、`walk`、`run`、`death`，保留遊戲會呼叫的 `jump`／`land`／`hit`；`QuadrupedMountAnimation` 定義種類與速度遲滯，Horse 保留原步態。各實例的全部 LOD 共用一套 skeleton／mixer，死亡單次播放後停在末幀；一次性受擊／落地結束後恢復最新請求的步態與播放速度。
 - 騎士骨盆對準解剖 seat socket，腿姿遵循各 rig 的 `forwardBendSign`。Black Cat／Snow Leopard／Corgi 的座面接觸由 `RiderSeatContactCache` 依騎手 visual child 身分快取；換裝重建模型時失效，不能沿用已脫離 mesh 的世界高度。Corgi 的 `CorgiSeatContact` 修正座面貼合；DEV 校準是否適用正式 Player/NPC 必須依實際呼叫端確認。

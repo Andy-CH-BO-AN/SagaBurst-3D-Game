@@ -667,7 +667,7 @@ export class TownDefenseController {
       const npc = borrowed.get(id)
       if (!npc || npc.dead) dead.add(id)
       if (npc) {
-        mission.actorHealth = { ...mission.actorHealth, [id]: { hp: npc.hp, mountHp: npc.mount?.currentHp ?? 0 } }
+        mission.actorHealth = { ...mission.actorHealth, [id]: { hp: npc.hp, mountHp: npc.mount?.currentHp ?? 0, mountArmorImpact: npc.mount?.armorImpactRemaining } }
       } else {
         mission.actorHealth = { ...mission.actorHealth, [id]: { ...mission.actorHealth?.[id], hp: 0 } }
       }
@@ -760,6 +760,7 @@ export class TownDefenseController {
     if (health && !npc.dead) npc.restoreCombatHealth(Math.min(npc.maxHp, health.hp))
     const savedMount = npc.mount ?? this.actorMounts.get(npc)
     if (savedMount && health?.mountHp !== undefined) {
+      savedMount.restoreArmor(health.mountArmorImpact)
       const mount = savedMount
       this.actorMounts.set(npc, mount)
       if (health.mountHp <= 0) { mount.takeDamage(mount.currentHp + 1); npc.dismountFromMount() }
@@ -788,7 +789,7 @@ export class TownDefenseController {
         for (const { npc, homeMount } of this.residents) {
           const mount = npc.mount ?? homeMount, position = npc.combatPosition
           actorPositions[npc.combatantId] = { x: position.x, y: position.y, z: position.z, yaw: npc.group.rotation.y, townRampartGarrison: npc.isTownRampartGarrisonActive }
-          actorHealth[npc.combatantId] = { hp: npc.hp, ...(mount ? { mountHp: mount.currentHp } : {}) }
+          actorHealth[npc.combatantId] = { hp: npc.hp, ...(mount ? { mountArmorImpact: mount.armorImpactRemaining, mountHp: mount.currentHp } : {}) }
         }
         this.checkpoint.persist(() => ({ ...active, actorPositions, actorHealth,
           siege: { ...active.siege!, playerPosition: { x: position.x, y: position.y, z: position.z, yaw: player.group.rotation.y } },
@@ -838,7 +839,7 @@ export class TownDefenseController {
     for (const npc of this.fieldNpcs) {
       const mount = npc.mount ?? this.actorMounts.get(npc)
       const mountHp = mount?.currentHp ?? this.active?.actorHealth?.[npc.combatantId]?.mountHp ?? (this.enemies.includes(npc) ? 0 : undefined)
-      actorHealth[npc.combatantId] = { hp: npc.hp, ...(mountHp !== undefined ? { mountHp } : {}) }
+      actorHealth[npc.combatantId] = { hp: npc.hp, ...(mountHp !== undefined ? { mountHp, mountArmorImpact: mount?.armorImpactRemaining ?? this.active?.actorHealth?.[npc.combatantId]?.mountArmorImpact } : {}) }
       actorPositions[npc.combatantId] = { x: npc.combatPosition.x, y: npc.combatPosition.y, z: npc.combatPosition.z, yaw: npc.group.rotation.y, townRampartGarrison: npc.isTownRampartGarrisonActive }
     }
     const player = this.player()

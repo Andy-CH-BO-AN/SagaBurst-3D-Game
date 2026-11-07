@@ -38,3 +38,41 @@ The intermediate GLB uses PNG/JPEG textures for Blender inspection. The final
 Meshopt/KTX2 package must additionally be inspected in a fresh browser instance.
 Build output, screenshots, contact samples and benchmark data belong under ignored
 `output/`; unit tests must not load or construct models.
+
+## Armored warhorse
+
+The independent package is `public/models/mounts/v1/armored-horse/`. Its source is
+the repository owner's Meshy GLB, SHA-256
+`cd3e443eec8d404c4cc4b1b8f800ade5c6679533de1847a78ac1d7a3e4b36ad2`.
+It keeps the original texture content, normal/UV corners and horse/barding silhouette,
+with one uniform scale and -X → +Z rotation. The existing horse's 70 joints and nine
+clips are reused; the ordinary horse package is untouched.
+
+```sh
+rtk proxy node tools/horse/build-armored-horse.mjs /path/source.glb /path/toktx
+```
+
+This stages `output/armored-warhorse/roundtrip.glb`. Through the dedicated Blender
+MCP scene, set `ARMORED_HORSE_STAGE` to that absolute staging directory and execute
+`tools/horse/simplify-armored-horse.py`. Then repeat the Node command to package
+the reviewed Blender LODs. A first-pass package without reviewed LOD data remains
+blocked. Texture compression is cached in staging; remove staging textures when
+changing the source/compression recipe. KTX-Software 4.4.2 is used.
+
+`armored-horse-regions.json` pins source triangle ownership. The scan welds leg fur
+into the barding and tail, and contains intentionally open hair cards. The builder
+retains those cards, splits the hidden lower-leg collars without changing their
+rest surface/UVs, closes new boundaries and connects the four flexible legs to the
+actual shoulder/hip pivots inside the barding. New collar geometry uses a separate
+fur UV patch; it must not interpolate across unrelated atlas islands. Complete
+barding follows torso/neck supports; tail ownership never includes leg bones.
+Blender simplification only welds vertices with identical skin ownership so distant
+LODs cannot reconnect the separated surfaces. It reads numeric bind-space attributes
+rather than importer-rebased mesh coordinates, then bakes the original PBR surfaces
+onto new UVs for each simplified LOD. The registry retains each LOD material.
+
+Review fresh roundtrip playback, all nine clips and all LODs through the actual
+registry/Game before copying `output/armored-warhorse/package/.` to the public
+armored-horse directory. Clip extrema, rear/front views, rider contacts and moving
+Player/NPC instances require visual inspection; unit tests must not load the model.
+Source license/owner statements remain in the package credits.

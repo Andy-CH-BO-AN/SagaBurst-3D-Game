@@ -7,6 +7,7 @@
  *  3. NPC-owned mount -> Hostile NPCs (no floating damage numbers, friendly fire strictly prohibited)
  */
 import * as THREE from 'three'
+import { clampToPlayableWorld, findBlockingObstacleAlongPath, getTerrainHeight, type ObstacleData } from '../world/Terrain'
 import { Mount, MountState } from '../world/Mount'
 import { Faction, type NPC } from '../world/NPC'
 import type { Player } from '../player/Player'
@@ -49,7 +50,7 @@ export function applyMountImpactDamage(
   if (mount.isFlyingMount) return false
   if (Math.abs(mount.group.position.y - targetPos.y) > 2.0) return false
   if (mount.movementSpeed > COMBAT_BALANCE.mountImpact.minSpeed && mount.canImpact(target, now)) {
-    const damage = calculateMountImpactDamage(mount.movementSpeed, mount.isSprinting)
+    const damage = calculateMountImpactDamage(mount.movementSpeed, mount.isSprinting, mount.impactMultiplier)
     if (damage > 0) {
       onHit(damage)
       return true
@@ -58,7 +59,30 @@ export function applyMountImpactDamage(
   return false
 }
 
+const pushStart = new THREE.Vector3(), pushEnd = new THREE.Vector3()
+/** Short swept steps stop at walls, abrupt terrain and the same playable boundary as normal movement. */
+export function applyMountImpactKnockback(mount: Mount, target: NPC | Player, options: Pick<MountImpactOptions, 'obstacles' | 'worldBound'>, bottom = 0): void {
+  if (mount.impactMultiplier <= 1 || target.dead || target.isMounted) return
+  const position = target.group.position
+  const dx = mount.group.position.x - mount.previousPosition.x, dz = mount.group.position.z - mount.previousPosition.z
+  const length = Math.hypot(dx, dz)
+  if (length < .0001 || !options.obstacles || options.worldBound === undefined) return
+  const distance = Math.min(1.3, mount.movementSpeed * .06)
+  for (let travelled = 0; travelled < distance; travelled += .1) {
+    pushStart.copy(position); pushEnd.copy(position)
+    const step = Math.min(.1, distance - travelled)
+    pushEnd.x += dx / length * step; pushEnd.z += dz / length * step
+    clampToPlayableWorld(pushEnd, options.worldBound)
+    const ground = getTerrainHeight(pushEnd.x, pushEnd.z), oldGround = getTerrainHeight(position.x, position.z)
+    if (Math.abs(ground - oldGround) > .25 || findBlockingObstacleAlongPath(pushStart, pushEnd, .4, 1.8, bottom, options.obstacles)) break
+    pushEnd.y = position.y + ground - oldGround
+    position.copy(pushEnd)
+  }
+}
+
 export interface MountImpactOptions {
+  obstacles?: ObstacleData[]
+  worldBound?: number
   receivers?: readonly DamageReceiver[]
   onPlayerMountHitReceiver?: (target: DamageReceiver, result: DamageResult) => void
   /** Optional spatial grid for bounding nearby candidate queries to avoid O(M x N) scans. */
@@ -125,6 +149,7 @@ export function resolveMountImpacts(
               emit: options.combatEvents,
             })
             if (result.hitSuccess) {
+              if (!result.isMountHit) applyMountImpactKnockback(mount, targetNpc, options)
               options.onPlayerMountHitNpc?.(scaledDamage, targetNpc, result)
               options.onPlayerMountHitNpcAudio?.(scaledDamage, mount, targetNpc, result)
             }
@@ -159,6 +184,7 @@ export function resolveMountImpacts(
           } : { source: { actorId: 'unattributed-mount-impact', actorType: 'npc', allegiance: riderFaction, characterFaction: player.characterFaction }, method: 'mount-impact' }
           const result = options.onDamagePlayer(damage, context)
           if (result.hitSuccess) {
+            if (!result.isMountHit) applyMountImpactKnockback(mount, player, options, .95)
             options.onEnemyMountHitPlayer?.(damage, result)
             options.onEnemyMountHitPlayerAudio?.(damage, mount, result)
           }
@@ -190,6 +216,7 @@ export function resolveMountImpacts(
             emit: options.combatEvents,
           } : { source: { actorId: 'unattributed-mount-impact', actorType: 'npc', allegiance: riderFaction, characterFaction: player.characterFaction }, method: 'mount-impact' })
           if (result.hitSuccess) {
+            if (!result.isMountHit) applyMountImpactKnockback(mount, targetNpc, options)
             // NPC -> NPC: does NOT spawn floating damage numbers or change player HUD
             options.onNpcMountHitNpc?.(damage, mount, targetNpc, result)
           }

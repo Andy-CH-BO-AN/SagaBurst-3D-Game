@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 2,
+  "id": "armored-warhorse",
+  "status": "ready",
+  "file": "armored-horse.glb",
+  "basisPath": "basis/",
+  "forward": "+Z",
+  "lodNodes": {
+    "lod0": "armored_horse_lod0",
+    "lod1": "armored_horse_lod1",
+    "lod2": "armored_horse_lod2"
+  },
+  "bodyMeshNames": [
+    "armored_horse_body_lod0",
+    "armored_horse_body_lod1",
+    "armored_horse_body_lod2"
+  ],
+  "variants": [
+    {
+      "id": "source-0",
+      "label": "Original armored warhorse",
+      "baseColor": "textures/base-color.ktx2"
+    },
+    {
+      "id": "source-1",
+      "label": "Original armored warhorse",
+      "baseColor": "textures/base-color.ktx2"
+    },
+    {
+      "id": "source-2",
+      "label": "Original armored warhorse",
+      "baseColor": "textures/base-color.ktx2"
+    }
+  ],
+  "sharedBodyMaps": {
+    "normal": "textures/normal.ktx2",
+    "roughness": "textures/metallic-roughness.ktx2"
+  },
+  "sharedElements": [
+    "source horse and barding"
+  ],
+  "clips": [
+    "idle",
+    "walk",
+    "trot",
+    "canter",
+    "gallop",
+    "jump",
+    "land",
+    "hit",
+    "death"
+  ],
+  "sockets": [
+    "socket_saddle_seat",
+    "socket_stirrup_l",
+    "socket_stirrup_r",
+    "socket_camera"
+  ],
+  "compression": {
+    "geometry": "EXT_meshopt_compression",
+    "textures": "KHR_texture_basisu"
+  },
+  "metrics": {
+    "shoulderHeightM": 1.65,
+    "overallHeightM": 2.43980974316597,
+    "saddleHeightM": 1.91,
+    "widthM": 1.007,
+    "lengthM": 2.54,
+    "triangles": {
+      "lod0": 31807,
+      "lod1": 12085,
+      "lod2": 4134
+    },
+    "joints": 70,
+    "materials": 3,
+    "textureMaxSize": 2048,
+    "packageBytes": 8779432
+  },
+  "attribution": "Meshy armored warhorse generated and provided by repository owner; animation rig and nine clips reused from the credited SagaBurst horse.",
+  "sources": [
+    {
+      "author": "Repository owner (Meshy generation)",
+      "url": "https://www.meshy.ai/",
+      "license": "User-generated asset provided by owner for SagaBurst; plan-specific Meshy terms apply",
+      "sha256": "cd3e443eec8d404c4cc4b1b8f800ade5c6679533de1847a78ac1d7a3e4b36ad2"
+    },
+    {
+      "author": "MAXDESIGN-3D",
+      "url": "https://sketchfab.com/3d-models/horse-d9af6902210645d995e37ba4319957b6",
+      "license": "CC BY 4.0",
+      "sha256": "1af80d4517beb4c79781b15e50285ebbdf7a4fd3a8f8d08f3c1d54f1e1b60712"
+    },
+    {
+      "author": "fdoss001",
+      "url": "https://blendswap.com/blend/28627",
+      "license": "CC0 page declaration; underlying Tarnyloo mesh remains attributed",
+      "sha256": "b848037332fe62064989f250a94faa04c75e3fb21ae93f6a100f19079c1b21aa"
+    },
+    {
+      "author": "Tarnyloo",
+      "url": "https://blendswap.com/blend/17172",
+      "license": "CC BY 3.0",
+      "sha256": "3372b6dea03939798cf2c4c7fa4a63a43933d4760b9b283e9e28e66fd5fe5f31"
+    },
+    {
+      "author": "Quaternius",
+      "url": "https://quaternius.com/packs/ultimateanimatedanimals.html",
+      "license": "CC0",
+      "sha256": "56cb97026a6f4dbd9024e94cc58784e94e635042e4686b4c2344bf1eba715e01"
+    }
+  ],
+  "gaitReferenceSpeeds": {
+    "walk": 2.7622,
+    "trot": 2.1741,
+    "canter": 3.7392,
+    "gallop": 12.1285
+  },
+  "revision": "meshy-armored-horse-v1",
+  "sha256": "1bcc6e2f48792764f34bae6694072ab412fa7865ce3b91fc86c7ea97c7ebc8ef"
+}

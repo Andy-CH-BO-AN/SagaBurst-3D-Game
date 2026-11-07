@@ -4,7 +4,7 @@ import { canAllocateCareerItemToPlayer } from './CareerInventory'
 import { TOWN_COMMANDER_ID } from '../town/TownCommanderIdentity'
 import { insideRaceTown, illegalTownCrossing, legalRaceStart, lineCrossing, RACE_LINES, type RacePosition } from './CareerRaceRoute'
 
-export type RaceMountId = 'horse' | 'corgi' | 'black-cat' | 'white-cat' | 'orange-cat' | 'serval' | 'caracal' | 'snow-leopard'
+export type RaceMountId = 'horse' | 'armored-horse' | 'corgi' | 'black-cat' | 'white-cat' | 'orange-cat' | 'serval' | 'caracal' | 'snow-leopard'
 export type RaceId = 'race-1' | 'race-2' | 'race-3' | 'race-4' | 'race-5' | 'race-6' | 'race-7' | 'race-8'
 export type RaceScheduleVersion = 2 | 3
 export const RACE_SCHEDULE_VERSION = 3 as const
@@ -13,6 +13,7 @@ export const RACE_PLAYER_CAN_SPRINT = true
 
 export const RACE_MOUNT_NAMES: Readonly<Record<RaceMountId, string>> = {
   horse: '戰馬',
+  'armored-horse': '重甲戰馬',
   corgi: '柯基',
   'black-cat': '黑貓',
   'white-cat': '白貓',
@@ -86,6 +87,7 @@ export interface RaceRider {
   position: RacePosition
   mountPosition: RacePosition
   hp: number
+  mountArmorImpact?: number
   mountHp: number
   stamina: number
   mounted: boolean
@@ -99,6 +101,7 @@ export interface RaceRider {
 export interface RaceReferee {
   position: RacePosition
   hp: number
+  mountArmorImpact?: number
   mountHp?: number
   mountPosition?: RacePosition
   mounted: boolean
@@ -277,7 +280,7 @@ function object(value: unknown): Record<string, unknown> | null { return value !
 const finite = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n)
 const nonnegative = (n: unknown): n is number => finite(n) && n >= 0
 const mountId = (id: unknown): id is RaceMountId => [
-  'horse', 'corgi', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'snow-leopard',
+  'horse', 'armored-horse', 'corgi', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'snow-leopard',
 ].includes(id as string)
 const outcome = (value: unknown): value is RaceOutcome => ['win', 'loss', 'draw'].includes(value as string)
 function position(value: unknown): value is RacePosition {

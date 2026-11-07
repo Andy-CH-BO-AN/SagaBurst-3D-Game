@@ -1,11 +1,13 @@
 import * as THREE from 'three'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
-import { damageNpc, damageObstacle, damagePlayer } from '../../src/combat/DamageRouter'
+import { damageNpc, damageObstacle, damagePlayer, damageMount } from '../../src/combat/DamageRouter'
 import { ShieldCollider, ShieldState } from '../../src/combat/ShieldBlocking'
 import type { Player } from '../../src/player/Player'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { Faction, NPC } from '../../src/world/NPC'
+import { MountArmor } from '../../src/combat/MountArmor'
+import type { Mount } from '../../src/world/Mount'
 import { MountType } from '../../src/world/Mount'
 import { createCombatEventRecorder } from '../helpers/combatEventRecorder'
 import { registerTownCombatDisplayName } from '../../src/ui/CombatTargetDisplayName'
@@ -236,6 +238,43 @@ describe('Combat attribution foundation', () => {
       },
       appliedDamage: 5,
     })
+  })
+
+  it('routes weapon overflow to mount HP using Impact and leaves the rider shield independent', () => {
+    const { stream } = eventHarness(), shield = new ShieldState()
+    shield.equip('round_shield_t1')
+    const npc = mockNpc({ shield }), armor = new MountArmor('ARMORED_HORSE')
+    const mount = {
+      armor, currentHp: 600, maxHp: 600, dead: false, disposed: false,
+      displayName: '重甲戰馬', group: { uuid: 'armored-target' },
+      takeDamage(this: { currentHp: number; dead: boolean }, amount: number) { this.currentHp = Math.max(0, this.currentHp - amount); this.dead = this.currentHp === 0; return true },
+    } as unknown as Mount
+    npc.mount = mount
+    const context = sourceContext(stream, { weaponId: 'heavy_lance', source: {
+      actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'viking', isMounted: true,
+    }, contact: { kind: 'mount', mount, time: 0 } })
+    expect(damageNpc(npc, 80, context)).toMatchObject({ appliedDamage: 0, blockedImpact: 40, isMountHit: true })
+    expect(armor.remaining).toBe(10)
+    expect(damageNpc(npc, 80, context)).toMatchObject({ appliedDamage: 60, blockedImpact: 10 })
+    expect(armor.remaining).toBe(0)
+    expect(damageMount(mount, 80, context)).toMatchObject({ appliedDamage: 80, blockedImpact: 0 })
+    expect(npc.hp).toBe(200)
+    expect(shield.shieldImpactRemaining).toBe(shield.shieldImpactMax)
+  })
+
+  it('protects the player mount from NPC projectiles without protecting a rider body hit', () => {
+    const { stream } = eventHarness(), player = mockPlayer(), armor = new MountArmor('SNOW_LEOPARD')
+    const mount = { armor, currentHp: 500, maxHp: 500, dead: false,
+      displayName: '重甲雪豹', group: { uuid: 'leopard-target' },
+      takeDamage(this: { currentHp: number; dead: boolean }, amount: number) { this.currentHp -= amount; return true },
+    } as unknown as Mount
+    player.currentMount = mount
+    const context = sourceContext(stream, { method: 'projectile', weaponId: 'bow_t5', contact: { kind: 'mount', mount, time: 0 } })
+    expect(damagePlayer(player, 90, { setFill: vi.fn() }, null, context)).toMatchObject({ appliedDamage: 0, blockedImpact: 1, isMountHit: true })
+    expect(armor.remaining).toBe(49)
+    expect(damagePlayer(player, 90, { setFill: vi.fn() }, null, { ...context, contact: { kind: 'body', time: 0 } })).toMatchObject({ appliedDamage: 90, blockedImpact: 0, isMountHit: false })
+    expect(armor.remaining).toBe(49)
+    expect(mount.currentHp).toBe(500)
   })
 
   it('emits structure damage and destruction exactly once using applied damage', () => {

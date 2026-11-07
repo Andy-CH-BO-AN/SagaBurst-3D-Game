@@ -241,9 +241,9 @@ export function calculateLanceChargeDamage(
  * movementSpeed <= 4 => 0
  * movementSpeed > 4 => Math.round(8 + movementSpeed * 1.5 * (isSprinting ? 1.5 : 1.0))
  */
-export function calculateMountImpactDamage(movementSpeed: number, isSprinting: boolean): number {
+export function calculateMountImpactDamage(movementSpeed: number, isSprinting: boolean, mountMultiplier = 1): number {
   const cfg = COMBAT_BALANCE.mountImpact
   if (movementSpeed <= cfg.minSpeed) return 0
   const sprintMult = isSprinting ? cfg.sprintDamageMultiplier : 1.0
-  return Math.round(cfg.baseDamage + movementSpeed * cfg.speedDamageMultiplier * sprintMult)
+  return Math.round(Math.round(cfg.baseDamage + movementSpeed * cfg.speedDamageMultiplier * sprintMult) * mountMultiplier)
 }

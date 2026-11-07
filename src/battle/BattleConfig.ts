@@ -87,7 +87,7 @@ export type PlayerShieldId =
   | 'scutum_t1' | 'scutum_t2' | 'scutum_t3'
   | 'paladin_shield_t4' | 'commander_shield_t5'
   | 'roman_officer_shield_t4' | 'viking_berserker_shield_t5'
-export const PLAYER_MOUNT_IDS = ['horse', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'corgi', 'snow-leopard', 'xongkoro'] as const
+export const PLAYER_MOUNT_IDS = ['horse', 'armored-horse', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'corgi', 'snow-leopard', 'xongkoro'] as const
 export type PlayerMountId = typeof PLAYER_MOUNT_IDS[number]
 
 export interface PlayerLoadoutConfig {

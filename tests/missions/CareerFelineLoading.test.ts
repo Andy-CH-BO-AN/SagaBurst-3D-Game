@@ -14,6 +14,7 @@ import type { Mount } from '../../src/world/Mount'
 vi.mock('../../src/world/Mount', async importOriginal => {
   const original = await importOriginal<typeof import('../../src/world/Mount')>()
   class StubMount {
+    armorImpactRemaining = 0; armorImpactMax = 0; restoreArmor() {}
     currentHp = 100; maxHp = 100; onDeathCallbacks: Array<() => void> = []
     group = { position: new Vector3(), rotation: { y: 0 } }; isAirborne = false; dead = false
     constructor(public scene: unknown, public type: string) {}
@@ -54,7 +55,7 @@ function mountOwner() {
   Object.assign(owner as unknown as object, {
     scene: {}, player: () => player, readProfile: () => current, commit: (next: CareerProfile) => { current = next; return true },
     obstacles: () => [], occupied: () => [], sceneKey: () => 'town-home', options: {},
-    hp: new Map(), unavailable: new Set(), active: null, requestSeq: 0, pending: null, statusText: '',
+    hp: new Map(), armorImpact: new Map(), unavailable: new Set(), active: null, requestSeq: 0, pending: null, statusText: '',
   })
   return { owner, player, profile: () => current }
 }

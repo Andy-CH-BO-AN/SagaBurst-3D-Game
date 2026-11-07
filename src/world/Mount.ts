@@ -16,6 +16,7 @@ import { SnowLeopardVisual, SNOW_LEOPARD_HURTBOX } from './SnowLeopardVisual'
 import type { QuadrupedVisual } from './QuadrupedVisual'
 import { CorgiVisual } from './CorgiVisual'
 import { isQuadrupedAnimationState, type MountAnimationState } from './QuadrupedMountAnimation'
+import { MountArmor, mountImpactMultiplier } from '../combat/MountArmor'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { LocalBoxCollider } from '../combat/ShieldBlocking'
 import { CompoundLocalBoxCollider } from '../combat/CompoundLocalBoxCollider'
@@ -40,6 +41,7 @@ export enum MountType {
   CARACAL = 'CARACAL',
   CORGI = 'CORGI',
   HORSE = 'HORSE',
+  ARMORED_HORSE = 'ARMORED_HORSE',
   XONGKORO = 'xongkoro',
   SNOW_LEOPARD = 'SNOW_LEOPARD',
 }
@@ -94,6 +96,7 @@ export enum MountState {
 }
 
 export function mountTypeFromSave(value: string): MountType {
+  if (value === 'armored-horse' || value === 'ARMORED_HORSE') return MountType.ARMORED_HORSE
   if (value === 'xongkoro') return MountType.XONGKORO
   if (value === MountType.BLACK_CAT || value === 'black-cat') return MountType.BLACK_CAT
   if (value === MountType.WHITE_CAT || value === 'white-cat') return MountType.WHITE_CAT
@@ -107,6 +110,7 @@ export function mountTypeFromSave(value: string): MountType {
 }
 
 export function mountTypeFromId(value: string | null | undefined): MountType {
+  if (value === 'armored-horse' || value === 'ARMORED_HORSE') return MountType.ARMORED_HORSE
   if (value === 'xongkoro') return MountType.XONGKORO
   if (value === 'black-cat') return MountType.BLACK_CAT
   if (value === 'white-cat') return MountType.WHITE_CAT
@@ -149,6 +153,13 @@ export class Mount {
   public readonly onDeathCallbacks: Array<(mount: Mount) => void> = []
 
   public reservedForTown = false
+  readonly armor: MountArmor
+  get armorImpactMax(): number { return this.armor.max }
+  get armorImpactRemaining(): number { return this.armor.remaining }
+  restoreArmor(value?: number): void { this.armor.restore(value) }
+  get impactMultiplier(): number { return mountImpactMultiplier(this.type) }
+  private controlledSpeed = 0
+  private controlledFrameYaw = 0
   public maxHp = 100
   public currentHp = 100
   public baseSpeed = 12
@@ -189,6 +200,7 @@ export class Mount {
   ) {
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.type = type
+    this.armor = new MountArmor(type)
     this.appearanceVariant = type === MountType.HORSE ? horseVariantFromSave(appearanceVariant) : 0
     this.group = new THREE.Group()
     this.group.name = `mount_${type}`
@@ -199,6 +211,7 @@ export class Mount {
         : type === MountType.SNOW_LEOPARD
           ? 12.8
           : 12
+    if (type === MountType.ARMORED_HORSE) { this.baseSpeed = 10.5; this.maxHp = this.currentHp = 600 }
     if (type === MountType.SNOW_LEOPARD) this.maxHp = this.currentHp = 500
     else if (type === MountType.ORANGE_CAT) this.maxHp = this.currentHp = 150
 
@@ -212,9 +225,9 @@ export class Mount {
       this.maxHp = this.currentHp = XONGKORO.maxHp
       this.baseSpeed = XONGKORO.cruiseSpeed
       this.ridePitch = 0
-    } else if (type === MountType.HORSE) {
+    } else if (type === MountType.HORSE || type === MountType.ARMORED_HORSE) {
       if (!HorseAssetRegistry.ready) throw new Error('Horse assets were not preloaded')
-      this.horseVisual = HorseAssetRegistry.createInstance({ variant: this.appearanceVariant })
+      this.horseVisual = HorseAssetRegistry.createInstance({ variant: this.appearanceVariant, armored: type === MountType.ARMORED_HORSE })
       this.group.add(this.horseVisual.root)
       this.horseVisual.root.updateWorldMatrix(true, true)
       const saddleWorld = this.horseVisual.saddleSeat.getWorldPosition(new THREE.Vector3())
@@ -301,6 +314,7 @@ export class Mount {
   }
   get displayName(): string {
     if (this.isFlyingMount) return 'xongkoro'
+    if (this.type === MountType.ARMORED_HORSE) return '重甲戰馬'
     if (this.type === MountType.HORSE) return '戰馬'
     if (this.type === MountType.SNOW_LEOPARD) return '重甲雪豹'
     if (this.type === MountType.WHITE_CAT) return '白貓'
@@ -514,6 +528,8 @@ export class Mount {
     this.riderNpc = null
     this.riderFaction = null
     this.currentHp = this.maxHp
+    this.armor.reset()
+    this.controlledSpeed = 0
     this.state = MountState.IDLE
     this.deathTimer = 3
     // Completed eagle corpses retain their logical actor, but their hidden rig
@@ -574,7 +590,16 @@ export class Mount {
     return true
   }
 
+  steerHeading(desired: number, dt: number): number {
+    if (this.type !== MountType.ARMORED_HORSE) return desired
+    const yaw = this.controlledFrameYaw
+    const delta = Math.atan2(Math.sin(desired - yaw), Math.cos(desired - yaw))
+    const step = 1.25 * Math.max(0, Math.min(dt, .1))
+    return yaw + Math.max(-step, Math.min(step, delta))
+  }
+
   beginControlledFrame(): void {
+    this.controlledFrameYaw = this.group.rotation.y
     this.previousPosition.copy(this.group.position)
     this.movementSpeed = 0
   }
@@ -584,7 +609,17 @@ export class Mount {
       this.flight.setIntent({ yaw: Math.atan2(direction.x, direction.z), pitch: Math.atan2(direction.y, Math.hypot(direction.x, direction.z)), takeoff: true })
       return
     }
-    if (this.dead || direction.lengthSq() === 0) return
+    if (this.dead || direction.lengthSq() === 0) { this.controlledSpeed = 0; return }
+    if (this.type === MountType.ARMORED_HORSE) {
+      const delta = Math.max(0, speed) - this.controlledSpeed
+      this.controlledSpeed += Math.sign(delta) * Math.min(Math.abs(delta), (delta > 0 ? 5 : 18) * Math.max(0, dt))
+      speed = this.controlledSpeed
+      const yaw = this.steerHeading(Math.atan2(direction.x, direction.z), dt)
+      this.group.rotation.y = yaw
+      this.group.position.x += Math.sin(yaw) * speed * dt
+      this.group.position.z += Math.cos(yaw) * speed * dt
+      return
+    }
     this.group.position.addScaledVector(direction, speed * dt)
   }
 
@@ -611,6 +646,7 @@ export class Mount {
       return
     }
     if (import.meta.env.DEV && collector) { var _tPhysics = performance.now() }
+    if (this.group.position.distanceToSquared(this.previousPosition) < 1e-10) this.controlledSpeed = 0
     const terrainY = getTerrainHeight(this.group.position.x, this.group.position.z)
     this.velY += -22 * dt
     this.group.position.y += this.velY * dt

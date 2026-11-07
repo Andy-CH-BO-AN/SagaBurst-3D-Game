@@ -420,7 +420,7 @@ export class PersonalSquadRuntime {
         ...(this.boarding.has(actor) ? { boarding: true } : {}),
         ...(this.eaglePads.get(actor.combatantId) ? { eaglePadId: this.eaglePads.get(actor.combatantId)!.id } : {}),
         ...(actor.isFalling ? { fall: actor.fallSnapshot } : {}),
-        ...(mount ? { mount: { hp: mount.dead ? 0 : mount.currentHp, mounted: actor.mount === mount,
+        ...(mount ? { mount: { armorImpactRemaining: mount.armorImpactRemaining, hp: mount.dead ? 0 : mount.currentHp, mounted: actor.mount === mount,
           position: this.position(mount.group.position, mount.group.rotation.y),
           ...(mount.flight ? { flight: mount.flight.snapshot() } : {}) } } : {}),
         ...(actor.combatFormationCheckpoint ? { formation: actor.combatFormationCheckpoint } : {}),
@@ -684,6 +684,7 @@ export class PersonalSquadRuntime {
     if (saved.shieldImpact !== undefined) npc.shield.shieldImpactRemaining = Math.min(npc.shield.shieldImpactMax, saved.shieldImpact)
     const mount = this.memberMounts.get(npc.combatantId)
     if (mount && saved.mount) {
+      mount.restoreArmor(saved.mount.armorImpactRemaining)
       if (saved.mount.hp <= 0) { mount.takeDamage(mount.maxHp + 1); if (npc.mount) npc.dismountFromMount() }
       else {
         mount.currentHp = Math.min(mount.maxHp, saved.mount.hp)

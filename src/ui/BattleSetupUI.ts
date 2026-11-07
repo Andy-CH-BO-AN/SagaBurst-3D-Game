@@ -369,6 +369,7 @@ export class BattleSetupUI {
             { id: 'snow-leopard', zh: '重甲雪豹', en: 'ARMORED SNOW LEOPARD' },
             { id: 'corgi', zh: '柯基', en: 'CORGI' },
             { id: 'xongkoro', zh: '巨鷹英雄坐騎', en: 'xongkoro' },
+            { id: 'armored-horse', zh: '重甲戰馬', en: 'ARMORED WARHORSE' },
             { id: 'horse', zh: '馬', en: 'HORSE' },
           ], 'mount')}
         </section>

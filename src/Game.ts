@@ -34,7 +34,7 @@ import {
   resolveShadowMapSize,
   setDirectionalShadowMapSize,
 } from './world/Sky'
-import { createTerrain, getTerrainHeight, resetTerrainScenePolicy, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveObstacleCollision } from './world/Terrain'
+import { createTerrain, getScenePlayableWorldBound, getTerrainHeight, resetTerrainScenePolicy, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveObstacleCollision } from './world/Terrain'
 import { DamageableObstacle } from './world/DamageableObstacle'
 import { TownWorld } from './town/TownWorld'
 import {
@@ -845,6 +845,7 @@ export class Game {
           () => this.careerStore.loadChecked().profile ?? this.careerProfile!,
           profile => {
             if (this.player) profile.playerAerialState = captureCareerAerialState(this.player, `outpost:${campaignConfig.careerMissionId}`)
+            this._captureOwnedMountArmor(profile)
             const saved = this.careerStore.save(profile)
             if (saved) this.careerProfile = profile
             return saved
@@ -1074,7 +1075,7 @@ export class Game {
     this.activeRenderProbe = getActiveRenderProbe(query)
     const devModelsMode = this.isTrainingGround ? null : query.get('devmodels')
     this.isHumanoidStudio = devModelsMode === 'humans'
-    this.isMountStudio = devModelsMode === 'mounts' || devModelsMode === 'black-cat' || devModelsMode === 'white-cat' || devModelsMode === 'orange-cat' || devModelsMode === 'serval' || devModelsMode === 'caracal' || devModelsMode === 'corgi' || devModelsMode === 'snow-leopard'
+    this.isMountStudio = devModelsMode === 'armored-horse' || devModelsMode === 'mounts' || devModelsMode === 'black-cat' || devModelsMode === 'white-cat' || devModelsMode === 'orange-cat' || devModelsMode === 'serval' || devModelsMode === 'caracal' || devModelsMode === 'corgi' || devModelsMode === 'snow-leopard'
     this.isModelStudio = this.isHumanoidStudio || this.isMountStudio
 
     // DEV-only: NPC subphase profiling (?npcsubphase=1 requires ?devcombat to be present)
@@ -1417,6 +1418,8 @@ export class Game {
         this.careerProfile ? horseVariantFromSave(this.careerProfile.horseAppearanceVariant) : campaignConfig?.playerMountAppearanceVariant ?? 0,
       )
       this.startingHorse = startingHorse
+      const ownedMountId = activeBattleConfig?.playerLoadout?.mountId
+      if (this.careerProfile && ownedMountId) startingHorse.restoreArmor(this.careerProfile.activeMission?.mountState?.armorImpact?.[ownedMountId] ?? this.careerProfile.mountArmor?.[ownedMountId])
       const reliefHeading = isBridgePreview || this.bridgeLaunch ? 0 : campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
       const mountHeading = reliefHeading ?? (isRoman ? 0 : Math.PI)
       if (startingHorse.isFlyingMount) {
@@ -1843,7 +1846,7 @@ export class Game {
     this.input.clear(); this.player.clearTownAction()
     this.player.refillCombatSupplies()
     const mount = this.player.currentMount
-    if (mount && !mount.dead) mount.currentHp = mount.maxHp
+    if (mount && !mount.dead) { mount.currentHp = mount.maxHp; mount.armor.reset() }
     this.hpBar.setFill(this.player.hpRatio)
     this.staminaBar.setFill(this.player.staminaRatio)
     this.quiverUI.setArrowCount(this.player.arrowCount)
@@ -2063,7 +2066,7 @@ export class Game {
     const isCorgi = model === 'corgi'
     const isSnowLeopard = model === 'snow-leopard'
     const isProcedural = isCat || isCorgi || isSnowLeopard
-    const mount = new Mount(this.scene, isSnowLeopard ? MountType.SNOW_LEOPARD : isCat ? mountTypeFromId(model) : isCorgi ? MountType.CORGI : DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
+    const mount = new Mount(this.scene, model === 'armored-horse' ? MountType.ARMORED_HORSE : isSnowLeopard ? MountType.SNOW_LEOPARD : isCat ? mountTypeFromId(model) : isCorgi ? MountType.CORGI : DEFAULT_MOUNT_TYPE, 0, 0, HUMANOID_STUDIO_FLOOR_Y)
     const studioClips = isProcedural ? QUADRUPED_STUDIO_CLIPS : HORSE_STUDIO_CLIPS
     if (isProcedural) {
       this.camera.position.set(isCorgi ? 6.4 : 4.4, HUMANOID_STUDIO_FLOOR_Y + (isCorgi ? 2.8 : 2.6), isCorgi ? 6.8 : 4.0)
@@ -2103,7 +2106,7 @@ export class Game {
     // rider legs, gait, jump and dismount can be inspected
     // without depending on repeated single-frame keypresses.
     this.player.mountVehicle(mount, mount.group.rotation.y)
-    this.mountNameEl.textContent = `坐騎：${mount.displayName}`
+    this.mountNameEl.textContent = `坐騎：${mount.displayName}${mount.armorImpactMax > 0 ? ` · 護甲 ${Math.ceil(mount.armorImpactRemaining)}/${mount.armorImpactMax}` : ''}`
     this.mountHpFill.style.width = '100%'
     this.mountHud.classList.add('visible')
 
@@ -2872,6 +2875,7 @@ export class Game {
     if (mount) {
       const id = this.captainEagleMissionId ? 'xongkoro' : this.felineMissionId ? this.careerProfile?.selectedMountId : this.bridgeLaunch?.battle.playerLoadout?.mountId ?? this.defenseCampaignConfig?.playerLoadout.mountId
       if (id) mission.mountState = { ...mission.mountState, hp: { ...mission.mountState?.hp, [id]: mount.dead ? 0 : mount.currentHp },
+        armorImpact: { ...mission.mountState?.armorImpact, [id]: mount.armorImpactRemaining },
         unavailable: [...new Set([...(mission.mountState?.unavailable ?? []), ...(mount.dead ? [id] : [])])],
         ...(this.player.currentMount === mount ? { activeMountId: id } : {}) }
     }
@@ -2884,7 +2888,7 @@ export class Game {
       if (this.bridgeLaunch || this.felineMissionId) for (const [id, homeMount] of this.careerVeteranActorMounts) {
         const saved = actors[id] ?? mission.personalSquad?.members[id]
         if (homeMount && saved?.status === 'dead') saved.mount = {
-          hp: homeMount.dead ? 0 : homeMount.currentHp, mounted: false,
+          hp: homeMount.dead ? 0 : homeMount.currentHp, armorImpactRemaining: homeMount.armorImpactRemaining, mounted: false,
           position: { x: homeMount.group.position.x, y: homeMount.group.position.y, z: homeMount.group.position.z, yaw: homeMount.group.rotation.y },
           ...(homeMount.flight ? { flight: homeMount.flight.snapshot() } : {}),
         }
@@ -2901,12 +2905,12 @@ export class Game {
         ...(this.player.isFalling ? { fall: this.player.fallSnapshot } : {}),
         ...(mountActorId ? { mountActorId } : {}),
         ...((this.bridgeLaunch || this.felineMissionId) && mount && playerMount !== mount ? { homeMount: {
-          hp: mount.dead ? 0 : mount.currentHp, mounted: false,
+          hp: mount.dead ? 0 : mount.currentHp, armorImpactRemaining: mount.armorImpactRemaining, mounted: false,
           position: { x: mount.group.position.x, y: mount.group.position.y, z: mount.group.position.z, yaw: mount.group.rotation.y },
           ...(mount.flight ? { flight: mount.flight.snapshot() } : {}),
         } } : {}),
         ...(playerMount ? { mountHp: playerMount.dead ? 0 : playerMount.currentHp, mount: {
-          hp: playerMount.dead ? 0 : playerMount.currentHp, mounted: this.player.currentMount === playerMount,
+          hp: playerMount.dead ? 0 : playerMount.currentHp, armorImpactRemaining: playerMount.armorImpactRemaining, mounted: this.player.currentMount === playerMount,
           position: { x: playerMount.group.position.x, y: playerMount.group.position.y, z: playerMount.group.position.z, yaw: playerMount.group.rotation.y },
           ...(playerMount.flight ? { flight: playerMount.flight.snapshot() } : {}),
         } } : {}),
@@ -2937,7 +2941,7 @@ export class Game {
         hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
         x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.currentMount?.group.rotation.y ?? this.player.group.rotation.y,
         ammo: this.player.arrowCount, shieldImpact: this.player.shield.shieldImpactRemaining,
-        ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp, mounted: this.player.currentMount === mount,
+        ...(mount ? { mountArmorImpact: mount.armorImpactRemaining, mountHp: mount.dead ? 0 : mount.currentHp, mounted: this.player.currentMount === mount,
           mountPosition: { x: mount.group.position.x, y: mount.group.position.y, z: mount.group.position.z, yaw: mount.group.rotation.y } } : {}),
       }, playerStats: mission.playerStats, wave: this.campaignSpawnWave, waveIndex: this.campaignSpawnQueueIndex,
       attackersStarted: this.campaignAttackersStarted, reinforcementsSpawned: this.campaignReinforcementSpawned,
@@ -2948,7 +2952,13 @@ export class Game {
     return mission
   }
 
+  private _captureOwnedMountArmor(profile: CareerProfile): void {
+    const id = this.defenseCampaignConfig?.playerLoadout.mountId ?? this.bridgeLaunch?.battle.playerLoadout?.mountId ?? profile.selectedMountId
+    if (id && this.startingHorse?.armorImpactMax) profile.mountArmor = { ...profile.mountArmor, [id]: this.startingHorse.armorImpactRemaining }
+  }
+
   private _commitCaptainMissionCheckpoint(profile: CareerProfile): boolean {
+    this._captureOwnedMountArmor(profile)
     if (!this.fieldMissionId && this.player) {
       profile.playerAerialState = captureCareerAerialState(this.player, `outpost:${this.defenseCampaignConfig?.careerMissionId}`)
     }
@@ -2982,6 +2992,7 @@ export class Game {
     if (saved.mountActorId && !mount) throw new Error('Saved borrowed Career mount missing after field roster deployment')
     if (saved.mountActorId && this.startingHorse) {
       const id = this.bridgeLaunch?.battle.playerLoadout?.mountId ?? (this.felineMissionId ? this.careerProfile?.selectedMountId : undefined)
+      this.startingHorse.restoreArmor(saved.homeMount?.armorImpactRemaining ?? (id ? this.careerProfile?.activeMission?.mountState?.armorImpact?.[id] : undefined) ?? this.startingHorse.armorImpactRemaining)
       const hp = saved.homeMount?.hp ?? (id && this.careerProfile?.activeMission?.mountState?.hp[id])
       if (typeof hp === 'number') {
         if (hp <= 0) { this.startingHorse.takeDamage(this.startingHorse.maxHp + 1); this.player.dismountFromMount() }
@@ -2998,6 +3009,7 @@ export class Game {
       this.player.dismountFromMount({ preserveWorldPosition: true })
     }
     if (mount) {
+      mount.restoreArmor(saved.mount?.armorImpactRemaining ?? mount.armorImpactRemaining)
       const hp = saved.mount?.hp ?? saved.mountHp ?? this.careerProfile?.activeMission?.mountState?.hp.xongkoro
       if (hp !== undefined) {
         if (hp <= 0) { mount.takeDamage(mount.maxHp + 1); this.player.dismountFromMount() }
@@ -3151,7 +3163,7 @@ export class Game {
       mount.group.position.set(saved.x, outpostCheckpointHeight(saved.x, saved.z, saved.y, saved.outpostRampartGarrison, this.defenseCampaignConfig!.defenderFaction), saved.z)
       mount.group.rotation.y = saved.yaw
       if (saved.mountHp === 0) { mount.takeDamage(mount.maxHp + 1); if (npc.mount) npc.dismountFromMount() }
-      else if (saved.mountHp !== undefined) mount.currentHp = Math.min(mount.maxHp, saved.mountHp)
+      else if (saved.mountHp !== undefined) { mount.restoreArmor(saved.mountArmorImpact); mount.currentHp = Math.min(mount.maxHp, saved.mountHp) }
     }
     npc.group.position.set(saved.x, outpostCheckpointHeight(saved.x, saved.z, saved.y, saved.outpostRampartGarrison, this.defenseCampaignConfig!.defenderFaction), saved.z)
     npc.group.rotation.y = saved.yaw
@@ -3317,7 +3329,7 @@ export class Game {
       mount.group.rotation.y = parked?.yaw ?? saved.yaw
       if (saved.mountHp === 0) { mount.takeDamage(mount.maxHp + 1); this.player.dismountFromMount() }
       else {
-        if (saved.mountHp !== undefined) mount.currentHp = Math.min(mount.maxHp, saved.mountHp)
+        if (saved.mountHp !== undefined) { mount.restoreArmor(saved.mountArmorImpact); mount.currentHp = Math.min(mount.maxHp, saved.mountHp) }
         if (saved.mounted === false && this.player.currentMount === mount) this.player.dismountFromMount()
         else if (saved.mounted === true && !saved.dead && !mount.dead && this.player.currentMount !== mount) this.player.mountVehicle(mount)
       }
@@ -3360,12 +3372,12 @@ export class Game {
           yaw: npc.mount?.group.rotation.y ?? npc.group.rotation.y,
           ...(npc.isOutpostRampartGarrisonActive ? { outpostRampartGarrison: true } : {}),
           checkpoint: snapshotCommandActor(npc, mount ?? undefined),
-          ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }]
+          ...(mount ? { mountArmorImpact: mount.armorImpactRemaining, mountHp: mount.dead ? 0 : mount.currentHp } : {}) }]
       })) },
       player: { hp: this.player.hp, stamina: this.player.staminaValue, dead: this.player.dead,
         x: this.player.combatPosition.x, z: this.player.combatPosition.z, yaw: this.player.currentMount?.group.rotation.y ?? this.player.group.rotation.y,
         ammo: this.player.arrowCount, shieldImpact: this.player.shield.shieldImpactRemaining,
-        ...(this.startingHorse ? { mountHp: this.startingHorse.dead ? 0 : this.startingHorse.currentHp } : {}) },
+        ...(this.startingHorse ? { mountArmorImpact: this.startingHorse.armorImpactRemaining, mountHp: this.startingHorse.dead ? 0 : this.startingHorse.currentHp } : {}) },
       playerStats: this.battleStats.checkpoint(), wave: this.campaignSpawnWave, waveIndex: this.campaignSpawnQueueIndex,
       attackersStarted: this.campaignAttackersStarted, reinforcementsSpawned: this.campaignReinforcementSpawned,
       ...(this.previewCampaignGate ? { gate: { hp: this.previewCampaignGate.damageable.currentHp, state: this.previewCampaignGate.state } } : {}),
@@ -3445,6 +3457,7 @@ export class Game {
       }
     }
     if (saved?.mountHp !== undefined && mount) {
+      mount.restoreArmor(saved.mountArmorImpact)
       if (saved.mountHp <= 0) {
         if (!mount.dead) mount.takeDamage(mount.maxHp * 100)
       } else if (!mount.dead) {
@@ -3617,7 +3630,7 @@ export class Game {
       const mount = this.careerVeteranActorMounts.has(id)
         ? this.careerVeteranActorMounts.get(id) ?? null
         : npc.mount
-      if (mount) actorHealth[id] = { ...actorHealth[id], mountHp: mount.dead ? 0 : mount.currentHp }
+      if (mount) actorHealth[id] = { ...actorHealth[id], mountArmorImpact: mount.armorImpactRemaining, mountHp: mount.dead ? 0 : mount.currentHp }
     }
     const previousState = active.outpostBattleState ?? data.runtimeState
     const gateHealth = this.previewCampaignGate?.damageable.currentHp ?? previousState.gateHealth
@@ -3639,8 +3652,9 @@ export class Game {
     const mountId = campaign.playerLoadout.mountId
     const mountState = active.mountState
       ? { ...active.mountState, hp: { ...active.mountState.hp }, unavailable: [...active.mountState.unavailable] }
-      : { hp: {}, unavailable: [] as NonNullable<ActiveCareerMission['mountState']>['unavailable'] }
+      : { hp: {}, armorImpact: {}, unavailable: [] as NonNullable<ActiveCareerMission['mountState']>['unavailable'] }
     if (mountId && this.startingHorse) {
+      ;mountState.armorImpact = { ...active.mountState?.armorImpact, [mountId]: this.startingHorse.armorImpactRemaining }
       ;(mountState.hp as Record<string, number>)[mountId] = this.startingHorse.dead ? 0 : this.startingHorse.currentHp
       if (this.startingHorse.dead && !mountState.unavailable.includes(mountId as never)) mountState.unavailable.push(mountId as never)
     }
@@ -3686,6 +3700,7 @@ export class Game {
       if (this.player.currentMount) this.player.syncMountTransform()
     }
     const savedMountHp = mission.mountState?.hp[campaign.playerLoadout.mountId as keyof NonNullable<ActiveCareerMission['mountState']>['hp']]
+    this.player.currentMount?.restoreArmor(mission.mountState?.armorImpact?.[campaign.playerLoadout.mountId!] ?? this.careerProfile?.mountArmor?.[campaign.playerLoadout.mountId!])
     if (this.player.currentMount && savedMountHp !== undefined) {
       if (savedMountHp <= 0) {
         this.player.currentMount.takeDamage(this.player.currentMount.maxHp * 100)
@@ -4453,6 +4468,7 @@ export class Game {
         isMounted: true,
         type: this.player.currentMount.type,
         hp: this.player.currentMount.currentHp,
+        armorImpactRemaining: this.player.currentMount.armorImpactRemaining,
         flight: this.player.currentMount.flight?.snapshot(),
         appearanceVariant: this.player.currentMount.type === MountType.HORSE
           ? this.player.currentMount.appearanceVariant
@@ -4532,6 +4548,7 @@ export class Game {
 
     if (newMountToLoad) {
       this._mountPlayer(newMountToLoad)
+      newMountToLoad.restoreArmor(data.mountData?.armorImpactRemaining)
       if (data.mountData?.hp !== undefined) newMountToLoad.currentHp = Math.max(0, Math.min(newMountToLoad.maxHp, data.mountData.hp))
       if (data.mountData?.flight && newMountToLoad.flight) {
         newMountToLoad.flight.restore(data.mountData.flight)
@@ -4554,7 +4571,7 @@ export class Game {
     this._aimTargetRegistry.unregisterMount(mount)
     if (mount.isFlyingMount && this.controlsHint) this.controlsHint.textContent = 'xongkoro · 滑鼠轉向 · W 起飛 · S 減速／低空降落 · A/D 側傾轉彎 · Shift 衝刺 · 左鍵鷹擊 · 右鍵遠程瞄準 · E 卸乘'
 
-    this.mountNameEl.textContent = `坐騎：${mount.displayName}`
+    this.mountNameEl.textContent = `坐騎：${mount.displayName}${mount.armorImpactMax > 0 ? ` · 護甲 ${Math.ceil(mount.armorImpactRemaining)}/${mount.armorImpactMax}` : ''}`
     this.mountHpFill.style.width = `${Math.max(0, (mount.currentHp / mount.maxHp) * 100)}%`
     this.mountHud.classList.add('visible')
   }
@@ -4564,7 +4581,7 @@ export class Game {
     const visible = Boolean(mount && !mount.dead && !this.player.dead && this.controlMode === 'player')
     this.mountHud.classList.toggle('visible', visible)
     if (visible && mount) {
-      this.mountNameEl.textContent = `坐騎：${mount.displayName}`
+      this.mountNameEl.textContent = `坐騎：${mount.displayName}${mount.armorImpactMax > 0 ? ` · 護甲 ${Math.ceil(mount.armorImpactRemaining)}/${mount.armorImpactMax}` : ''}`
       this.mountHpFill.style.width = `${Math.max(0, mount.currentHp / mount.maxHp * 100)}%`
     }
   }
@@ -4969,6 +4986,8 @@ export class Game {
       this.npcs,
       now,
       {
+        obstacles: this.obstacles,
+        worldBound: getScenePlayableWorldBound(this.scene),
         receivers: this.trainingGround?.dummies,
         onPlayerMountHitReceiver: (target, result) => {
           this.damageNumbers.spawn(result.appliedDamage, target.combatPosition)

@@ -114,6 +114,7 @@ export interface CareerProfile {
   ownedHorseTiers?: (1 | 2 | 3)[]
   /** Cosmetic only; missing legacy values use the original grey coat. */
   horseAppearanceVariant?: import('../world/HorseAssetRegistry').HorseAppearanceVariant
+  mountArmor?: Partial<Record<CareerMountId, number>>
   selectedMountId?: CareerMountId
   playerAerialState?: CareerAerialState
   /** Minimal roaming deployment state survives mission cleanup independently in each Town. */
@@ -609,6 +610,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
       ...(profile.activeMission.mountState ? { mountState: {
         ...profile.activeMission.mountState,
         hp: { ...profile.activeMission.mountState.hp },
+        ...(profile.activeMission.mountState.armorImpact ? { armorImpact: { ...profile.activeMission.mountState.armorImpact } } : {}),
         unavailable: [...profile.activeMission.mountState.unavailable],
       } } : {}),
       ...(profile.activeMission.result ? { result: {
@@ -639,6 +641,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ownedWeapons: [...profile.ownedWeapons],
     ownedArmors: [...profile.ownedArmors],
     ownedMounts: [...profile.ownedMounts],
+    ...(profile.mountArmor ? { mountArmor: { ...profile.mountArmor } } : {}),
     ownedHeroes: [...profile.ownedHeroes],
     lifetimeStats: { ...profile.lifetimeStats },
     claimedBattleIds: [...profile.claimedBattleIds],

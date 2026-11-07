@@ -101,7 +101,17 @@ function parseMissionPlayerStats(value: unknown): ActiveCareerMission['playerSta
 }
 
 const MISSION_PHASES: CareerMissionPhase[] = ['DEPLOYING', 'ASSEMBLING', 'MARCHING', 'ENGAGING', 'RETURNING', 'PREPARING', 'SPAWNING', 'ATTACKING', 'VICTORY_LOCKED', 'FAILURE_LOCKED', 'RESET', 'RESULT']
-const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'corgi', 'snow-leopard', 'xongkoro']
+const CAREER_MOUNT_IDS: CareerMountId[] = ['horse', 'armored-horse', 'horse-t1', 'horse-t2', 'horse-t3', 'black-cat', 'white-cat', 'orange-cat', 'serval', 'caracal', 'corgi', 'snow-leopard', 'xongkoro']
+
+function parseMountArmor(value: unknown): Partial<Record<CareerMountId, number>> {
+  const result: Partial<Record<CareerMountId, number>> = {}
+  if (!value || typeof value !== 'object') return result
+  for (const id of ['armored-horse', 'snow-leopard'] as const) {
+    const remaining = (value as Record<string, unknown>)[id]
+    if (typeof remaining === 'number') result[id] = Number.isFinite(remaining) ? Math.max(0, Math.min(50, remaining)) : 0
+  }
+  return result
+}
 
 function parseMissionMountState(value: unknown): ActiveCareerMission['mountState'] {
   if (!value || typeof value !== 'object') return undefined
@@ -120,7 +130,7 @@ function parseMissionMountState(value: unknown): ActiveCareerMission['mountState
     .filter((id): id is CareerMountId => CAREER_MOUNT_IDS.includes(id as CareerMountId))
     .map(canonicalCareerMountId))]
   if (!activeMountId && Object.keys(hp).length === 0 && unavailable.length === 0) return undefined
-  return { ...(activeMountId ? { activeMountId } : {}), hp, unavailable }
+  return { ...(activeMountId ? { activeMountId } : {}), hp, ...(Object.keys(parseMountArmor(raw.armorImpact)).length ? { armorImpact: parseMountArmor(raw.armorImpact) } : {}), unavailable }
 }
 
 /** Retirement has no mission respawn. Missing/corrupt resource data must not heal it. */
@@ -153,7 +163,7 @@ function parseRetirementRuntime(value: unknown): CareerRetirementRuntime | undef
     if (!saved || !validPosition(saved.position) || !resource(saved.hp)) return undefined
     const flight = saved.flight === undefined ? undefined : parseEagleFlightSnapshot(saved.flight)
     if (saved.flight !== undefined && !flight) return undefined
-    mount = { position: { ...saved.position }, hp: saved.hp, ...(flight ? { flight } : {}) }
+    mount = { position: { ...saved.position }, hp: saved.hp, armorImpactRemaining: saved.armorImpactRemaining, ...(flight ? { flight } : {}) }
   }
   if (player.mounted && !mount) return undefined
   let stats: CareerRetirementRuntime['stats']
@@ -211,6 +221,7 @@ function parseActorHealth(value: unknown, knownActorIds: ReadonlySet<string>): A
     if (typeof health.hp !== 'number' || !Number.isFinite(health.hp) || health.hp < 0) continue
     result[actorId] = {
       hp: health.hp,
+      ...(typeof health.mountArmorImpact === 'number' && Number.isFinite(health.mountArmorImpact) ? { mountArmorImpact: Math.max(0, Math.min(50, health.mountArmorImpact)) } : {}),
       ...(typeof health.mountHp === 'number' && Number.isFinite(health.mountHp) && health.mountHp >= 0 ? { mountHp: health.mountHp } : {}),
     }
   }
@@ -470,6 +481,7 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
       duelOpponentDead: raw.duelOpponentDead === true || uniqueStrings(raw.deadTargetActorIds).includes(duelOpponentActorId),
       ...(typeof raw.duelOpponentMaxHp === 'number' && Number.isFinite(raw.duelOpponentMaxHp) && raw.duelOpponentMaxHp > 0 ? { duelOpponentMaxHp: raw.duelOpponentMaxHp } : {}),
       ...(typeof raw.duelOpponentHp === 'number' && Number.isFinite(raw.duelOpponentHp) && raw.duelOpponentHp >= 0 ? { duelOpponentHp: raw.duelOpponentHp } : {}),
+      ...(typeof raw.duelOpponentMountArmorImpact === 'number' && Number.isFinite(raw.duelOpponentMountArmorImpact) ? { duelOpponentMountArmorImpact: Math.max(0, Math.min(50, raw.duelOpponentMountArmorImpact)) } : {}),
       ...(typeof raw.duelOpponentMountHp === 'number' && Number.isFinite(raw.duelOpponentMountHp) && raw.duelOpponentMountHp >= 0 ? { duelOpponentMountHp: raw.duelOpponentMountHp } : {}),
       ...(typeof raw.duelPlayerHp === 'number' && Number.isFinite(raw.duelPlayerHp) && raw.duelPlayerHp >= 0 ? { duelPlayerHp: raw.duelPlayerHp } : {}),
       ...(typeof raw.duelPlayerStamina === 'number' && Number.isFinite(raw.duelPlayerStamina) && raw.duelPlayerStamina >= 0 ? { duelPlayerStamina: raw.duelPlayerStamina } : {}),
@@ -769,6 +781,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
       })) } : {}),
     ...(Array.isArray(raw.townDialogueSeen) ? { townDialogueSeen: uniqueStrings(raw.townDialogueSeen).filter(key => /^(roman|viking):(merchant|ranger|eagle-trainer|cat|captain|deployment|soldier-outpost|hr-unlocked|hr-recruit-soldier|hr-recruit-captain|hr-recruit-ranger|hr-recruit-commander)$/.test(key)) } : {}),
     ...(Array.isArray(raw.ownedHorseTiers) ? { ownedHorseTiers: [...new Set(raw.ownedHorseTiers.filter((tier): tier is 1 | 2 | 3 => [1, 2, 3].includes(tier)))] } : {}),
+    ...(Object.keys(parseMountArmor(raw.mountArmor)).length ? { mountArmor: parseMountArmor(raw.mountArmor) } : {}),
     horseAppearanceVariant: horseVariantFromSave(raw.horseAppearanceVariant),
     ...(selectedMountId ? { selectedMountId } : {}),
     ...(isRaceRider(raw.racePlayerState) ? { racePlayerState: structuredClone(raw.racePlayerState) } : {}),

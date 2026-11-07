@@ -80,7 +80,7 @@ export function parseCommandActorCheckpoint(value: unknown): PersonalActorCheckp
     ...(raw.outpostRampartGarrison === true ? { outpostRampartGarrison: true } : {}),
     ...(raw.townRampartGarrison === true ? { townRampartGarrison: true } : {}),
     ...(raw.townRampartGarrison === true && raw.townRampartMounted === true ? { townRampartMounted: true } : {}),
-    ...(mountPoint && finite(raw.mount?.hp) ? { mount: { hp: nonnegative(raw.mount.hp), mounted: raw.mount.mounted === true,
+    ...(mountPoint && finite(raw.mount?.hp) ? { mount: { armorImpactRemaining: finite(raw.mount.armorImpactRemaining) ? Math.min(50, nonnegative(raw.mount.armorImpactRemaining)) : undefined, hp: nonnegative(raw.mount.hp), mounted: raw.mount.mounted === true,
       position: mountPoint, ...(flight ? { flight } : {}) } } : {}),
     ...(formationPoint && finite(raw.formation?.commandId) ? { formation: {
       commandId: raw.formation.commandId, position: formationPoint, reached: raw.formation.reached === true,

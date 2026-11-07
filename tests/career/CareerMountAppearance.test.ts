@@ -3,6 +3,7 @@ import { CareerMountController, careerMountAppearanceVariant } from '../../src/c
 import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { addCareerItem } from '../../src/career/CareerInventory'
+import { MountArmor } from '../../src/combat/MountArmor'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import type { HorseAppearanceVariant } from '../../src/world/HorseAssetRegistry'
 
@@ -19,6 +20,22 @@ function profile(): CareerProfile {
 }
 
 describe('Career horse appearance transactions', () => {
+  it('roundtrips depleted owned mount armor and migrates an old snow leopard without repairing a saved zero', () => {
+    const store = new CareerProfileStore(new MemoryStorage()), current = profile()
+    addCareerItem(current, 'armored-horse', 1); addCareerItem(current, 'snow-leopard', 1)
+    current.selectedMountId = 'armored-horse'; current.mountArmor = { 'armored-horse': 0, 'snow-leopard': 17 }
+    expect(store.save(cloneCareerProfile(current))).toBe(true)
+    const loaded = store.load()!
+    expect(loaded.selectedMountId).toBe('armored-horse')
+    expect(loaded.mountArmor).toEqual({ 'armored-horse': 0, 'snow-leopard': 17 })
+    const restored = new MountArmor('ARMORED_HORSE'); restored.restore(loaded.mountArmor!['armored-horse'])
+    expect(restored.remaining).toBe(0)
+    delete current.mountArmor
+    const legacy = parseCareerProfile(current)!
+    const leopard = new MountArmor('SNOW_LEOPARD'); leopard.restore(legacy.mountArmor?.['snow-leopard'])
+    expect(leopard.remaining).toBe(50)
+  })
+
   it.each([0, 1, 2] as const)('commits coat %i before updating the live horse and survives clone/save/reload', variant => {
     const store = new CareerProfileStore(new MemoryStorage())
     let current = profile()

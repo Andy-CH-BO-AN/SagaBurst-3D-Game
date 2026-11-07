@@ -38,7 +38,7 @@ export function createCareerOutpostLaunch(profile: CareerProfile): DefenseCampai
       rangedWeaponId: legal(profile.equipment?.ranged, 'ranged') ?? 'wooden_shortbow',
       shieldId: legal(profile.equipment?.shield, 'shield') ?? null,
       startMounted: Boolean(mount && canUseCareerMount(profile, mount)),
-      mountId: mount === 'black-cat' || mount === 'white-cat' || mount === 'orange-cat' || mount === 'serval' || mount === 'caracal' || mount === 'corgi' || mount === 'snow-leopard' || mount === 'xongkoro' ? mount : 'horse',
+      mountId: mount === 'armored-horse' || mount === 'black-cat' || mount === 'white-cat' || mount === 'orange-cat' || mount === 'serval' || mount === 'caracal' || mount === 'corgi' || mount === 'snow-leopard' || mount === 'xongkoro' ? mount : 'horse',
     } as PlayerLoadoutConfig,
   }
 }
