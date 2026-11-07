@@ -375,7 +375,8 @@ describe('obstacle walk-surface collision', () => {
     expect(findBlockingProjectileObstacleAlongPath(new THREE.Vector3(-10.2, -1.0, -5), new THREE.Vector3(-10.2, -1.0, 5), obstacles)).not.toBeNull()
     expect(findBlockingProjectileObstacleAlongPath(new THREE.Vector3(10.2, -1.0, -19), new THREE.Vector3(10.2, -1.0, -9), obstacles)).not.toBeNull()
     expect(resolveCameraDistance(new THREE.Vector3(-14, -1.0, 0), new THREE.Vector3(1, 0, 0), 8, obstacles)).toBeLessThan(4)
-    expect(findBlockingProjectileObstacleAlongPath(new THREE.Vector3(-25, 0.8, -56), new THREE.Vector3(-25, 0.8, -64), obstacles)).not.toBeNull()
+    // North defense obstacles removed: path across former wall line is unobstructed
+    expect(findBlockingProjectileObstacleAlongPath(new THREE.Vector3(-25, 0.8, -56), new THREE.Vector3(-25, 0.8, -64), obstacles)).toBeNull()
   })
 
   it('isolates river crossing terrain height policy, carves under-bridge mesh riverbed, and drowns units entering the river immediately', () => {

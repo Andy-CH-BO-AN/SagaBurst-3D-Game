@@ -35,6 +35,8 @@ import {
   setDirectionalShadowMapSize,
 } from './world/Sky'
 import { createTerrain, getTerrainHeight, resetTerrainScenePolicy, TERRAIN_TREE_POSITIONS, EntityCollisionBody, ObstacleData, resolveObstacleCollision } from './world/Terrain'
+import { DamageableObstacle } from './world/DamageableObstacle'
+import { TownWorld } from './town/TownWorld'
 import {
   createBridgePreviewSpawnPlan,
   createRiverCrossingBattlefield,
@@ -456,6 +458,9 @@ export class Game {
         const memberFeline = felineVariantFromMountId(member.equipment?.mount)
         if (memberFeline) felineVariants.add(memberFeline)
       }
+      if (!campaignConfig && battleConfig) {
+        felineVariants.add('black-cat').add('white-cat').add('orange-cat').add('serval').add('caracal')
+      }
       if (legacyQa) {
         await Promise.all([
           HorseAssetRegistry.preload(renderer),
@@ -519,6 +524,7 @@ export class Game {
         for (const faction of ['viking', 'roman'] as const) {
           for (const [presetId, counts] of Object.entries(normalizeArmyConfig(config[faction], faction))) {
             if ((counts[4] ?? 0) > 0) heroAssets.add(T4_UNIT_PROFILES[presetId as keyof typeof T4_UNIT_PROFILES].visualAssetId)
+            if ((counts[5] ?? 0) > 0) heroAssets.add(faction === 'roman' ? 'roman-hero-t5' : 'viking-hero-t5')
           }
         }
       }
@@ -937,20 +943,41 @@ export class Game {
         siegeTreeClearances = getSiegeApproachClearances(layout, stagingZ)
       }
     }
-    createSky(this.scene, resolveShadowMapSize(startupQuery), previewOutpostFaction === 'viking')
-    const {
-      terrainMesh,
-      obstacles,
-      obstacleMeshes,
-      damageableObstacles,
-    } = createTerrain(this.scene, {
-      fortifiedCampFaction: previewOutpostFaction,
-      riverCrossing: isBridgePreview || Boolean(this.bridgeLaunch),
-      treeClearances: isBridgePreview || this.bridgeLaunch ? getRiverCrossingTreeClearances(Boolean(this.bridgeLaunch)) : siegeTreeClearances,
-    })
+    const isCustomBattle = Boolean(battleConfig && !campaignConfig && !this.bridgeLaunch && !this.captainEagleMissionId && !this.felineMissionId)
+    const isCustomAerial = isCustomBattle && battleConfig?.battleType === 'aerial'
+    const customMapId = isCustomBattle ? (isCustomAerial ? 'original' : (battleConfig?.mapId ?? 'original')) : undefined
+    const isBridgeBattle = isBridgePreview || Boolean(this.bridgeLaunch) || customMapId === 'bridge'
+    const isSnowBattle = customMapId === 'snow'
+    const isRomanTownBattle = customMapId === 'roman_town'
+    const isVikingTownBattle = customMapId === 'viking_town'
 
-    if (isBridgePreview || this.bridgeLaunch) {
-      createRiverCrossingBattlefield(this.scene, { obstacles, obstacleMeshes })
+    let terrainMesh: THREE.Mesh
+    let obstacles: ObstacleData[]
+    let obstacleMeshes: THREE.Object3D[]
+    let damageableObstacles: DamageableObstacle[]
+
+    if (isRomanTownBattle || isVikingTownBattle) {
+      const townFaction = isRomanTownBattle ? 'roman' : 'viking'
+      const townWorld = new TownWorld(townFaction, this.scene, Faction.TOWN)
+      terrainMesh = townWorld.terrainMesh
+      obstacles = townWorld.obstacles
+      obstacleMeshes = [townWorld.terrainMesh, townWorld.fortifications.root]
+      damageableObstacles = []
+    } else {
+      createSky(this.scene, resolveShadowMapSize(startupQuery), previewOutpostFaction === 'viking' || isSnowBattle)
+      const terrain = createTerrain(this.scene, {
+        fortifiedCampFaction: isSnowBattle ? 'viking' : previewOutpostFaction,
+        riverCrossing: isBridgeBattle,
+        treeClearances: isBridgeBattle ? getRiverCrossingTreeClearances(Boolean(this.bridgeLaunch)) : siegeTreeClearances,
+      })
+      terrainMesh = terrain.terrainMesh
+      obstacles = terrain.obstacles
+      obstacleMeshes = terrain.obstacleMeshes
+      damageableObstacles = terrain.damageableObstacles
+
+      if (isBridgeBattle) {
+        createRiverCrossingBattlefield(this.scene, { obstacles, obstacleMeshes })
+      }
     }
 
     // Defense Campaign owns the same faction-neutral outpost used by DEV preview.
@@ -1123,7 +1150,7 @@ export class Game {
       activeBattleConfig = scenarioConfig
       battlePlan = BattleSpawner.createSpawnPlan(scenarioConfig)
     } else if (battleConfig) {
-      battlePlan = BattleSpawner.createSpawnPlan(battleConfig)
+      battlePlan = BattleSpawner.createSpawnPlan(battleConfig, obstacles)
     }
 
     const initialPlayerHp = playerHeroId
@@ -1371,7 +1398,7 @@ export class Game {
         () => this.battleStats.snapshot(this.npcs, this.player),
         battleConfig.commandGrouping === 'squad',
       )
-      this.battleController?.initCounts(this.npcs)
+      this.battleController?.initCounts(this.npcs, this.player)
     }
 
     if (
@@ -1393,9 +1420,13 @@ export class Game {
       const reliefHeading = isBridgePreview || this.bridgeLaunch ? 0 : campaignConfig?.careerMissionKind === 'outpost-relief' ? (isRoman ? Math.PI : 0) : undefined
       const mountHeading = reliefHeading ?? (isRoman ? 0 : Math.PI)
       if (startingHorse.isFlyingMount) {
-        const landing = findEagleLandingPosition({ ...playerSpawn, yaw: mountHeading }, this.obstacles, [], 300, 140)
-        if (!landing) { startingHorse.dispose(); throw new Error('找不到 xongkoro 可安全起降的出生位置') }
-        startingHorse.group.position.copy(landing)
+        if (activeBattleConfig?.battleType === 'aerial') {
+          startingHorse.group.position.set(playerSpawn.x, 35, playerSpawn.z)
+        } else {
+          const landing = findEagleLandingPosition({ ...playerSpawn, yaw: mountHeading }, this.obstacles, [], 300, 140)
+          if (!landing) { startingHorse.dispose(); throw new Error('找不到 xongkoro 可安全起降的出生位置') }
+          startingHorse.group.position.copy(landing)
+        }
       }
       this.mounts.push(startingHorse)
       this.player.faceDirection(0, isBridgePreview || this.bridgeLaunch ? 1 : (isRoman ? 1 : -1))
@@ -2485,7 +2516,7 @@ export class Game {
     if (spec.cavalry || Boolean(spec.loadout?.mountId)) {
       const stableKey = spec.actorId ?? `${spec.characterFaction}:${spec.presetId ?? spec.name}:${spec.x}:${spec.z}`
       const variant = horseVariantForStableKey(stableKey)
-      const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout?.mountId), spec.x, spec.z, undefined, variant))
+      const mount = trackNpcSpawn(new Mount(this.scene, mountTypeFromId(spec.loadout?.mountId), spec.x, spec.z, spec.spawnY, variant))
       npc.mountVehicle(mount)
       this.mounts.push(mount)
       this._aimTargetRegistry.registerMount(mount)
@@ -5092,7 +5123,7 @@ export class Game {
     this.personalSquad?.updateLifecycle()
     this._updateDefenseCampaign(dt)
     this._updateCaptainBattle(dt)
-    this.battleController?.update(this.npcs)
+    this.battleController?.update(this.npcs, this.player)
 
     // Keep A* topology in sync with destroyed/opened/closed world obstacles.
     // This is O(1) on stable frames and rebuilds only when the shared obstacle

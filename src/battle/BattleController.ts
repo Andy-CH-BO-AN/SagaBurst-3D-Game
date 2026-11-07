@@ -31,16 +31,24 @@ export class BattleController {
     this._createHud()
   }
 
-  initCounts(npcs: NPC[]): void {
-    this.initialVikingCount = npcs.filter(n => n.characterFaction === 'viking').length
-    this.initialRomanCount = npcs.filter(n => n.characterFaction === 'roman').length
+  initCounts(npcs: NPC[], player?: { dead: boolean } | null): void {
+    let vikingInitial = npcs.filter(n => n.characterFaction === 'viking').length
+    let romanInitial = npcs.filter(n => n.characterFaction === 'roman').length
+    if (!this.config.spectator && player) {
+      if (this.config.playerFaction === 'viking') {
+        vikingInitial++
+      } else {
+        romanInitial++
+      }
+    }
+    this.initialVikingCount = vikingInitial
+    this.initialRomanCount = romanInitial
     this._updateHud(this.initialVikingCount, this.initialRomanCount)
   }
 
-  update(npcs: NPC[]): void {
+  update(npcs: NPC[], player?: { dead: boolean } | null): void {
     if (this.battleEnded) return
 
-    // Count living AI NPCs only (Player character is intentionally excluded)
     let vikingAlive = 0
     let romanAlive = 0
 
@@ -51,16 +59,24 @@ export class BattleController {
       }
     }
 
+    if (!this.config.spectator && player && !player.dead) {
+      if (this.config.playerFaction === 'viking') {
+        vikingAlive++
+      } else {
+        romanAlive++
+      }
+    }
+
     this._updateHud(vikingAlive, romanAlive)
 
     // Check victory conditions (Both sides must have initialized with > 0)
     if (this.initialVikingCount > 0 && this.initialRomanCount > 0 && vikingAlive === 0 && romanAlive === 0) {
       this.result = "DRAW"
       this._endBattle("DRAW", "#f39c12", "雙方同歸於盡！平局！")
-    } else if (this.initialRomanCount > 0 && romanAlive === 0) {
+    } else if (this.initialRomanCount > 0 && romanAlive === 0 && vikingAlive > 0) {
       this.result = "VIKING_VICTORY"
       this._endBattle("VIKING VICTORY", "#3498db", "維京軍團獲勝！")
-    } else if (this.initialVikingCount > 0 && vikingAlive === 0) {
+    } else if (this.initialVikingCount > 0 && vikingAlive === 0 && romanAlive > 0) {
       this.result = "ROMAN_VICTORY"
       this._endBattle("ROMAN VICTORY", "#e74c3c", "羅馬軍團獲勝！")
     }

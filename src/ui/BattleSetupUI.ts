@@ -13,8 +13,12 @@ import {
   PlayerMountId,
   UnitTier,
   UnitTierCounts,
+  ArmyConfig,
+  createEmptyArmyConfig,
   MAX_CUSTOM_ARMY_SIZE,
-  MAX_CUSTOM_T4_PER_SIDE,
+  MAX_GROUND_CUSTOM_ARMY_SIZE,
+  MAX_AERIAL_CUSTOM_ARMY_SIZE,
+  CustomBattleMapId,
   CUSTOM_BATTLE_UNIT_TIERS,
   PRESET_10V10,
   PRESET_25V25,
@@ -41,8 +45,8 @@ import {
 import { SETUP_PLAYER_HERO_IDS, HERO_ASSETS, isSetupPlayerHeroId } from '../world/HeroAssetCatalog'
 import { HERO_COMBAT_PROFILE_BY_ASSET, getT4HeroCombatModifiers } from '../battle/T4HeroCatalog'
 import {
-  MAX_COMMAND_SQUAD_SIZE,
-  MAX_COMMAND_SQUADS,
+  MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE,
+  MAX_CUSTOM_BATTLE_COMMAND_SQUADS,
   type SquadAssignment,
   type SquadId,
 } from '../battle/CommandTarget'
@@ -54,6 +58,11 @@ export class BattleSetupUI {
   private container: HTMLElement | null = null
   private onStartCallback: ((config: BattleConfig) => void) | null = null
   private onBackCallback: (() => void) | null = null
+  private _savedGroundViking?: ArmyConfig
+  private _savedGroundRoman?: ArmyConfig
+  private _savedAerialViking?: ArmyConfig
+  private _savedAerialRoman?: ArmyConfig
+  private _savedGroundMapId?: CustomBattleMapId
 
   constructor(initialConfig?: BattleConfig) {
     this.config = initialConfig
@@ -61,6 +70,12 @@ export class BattleSetupUI {
       : getDefaultBattleConfig()
     attachArmyAliases(this.config.viking, 'viking')
     attachArmyAliases(this.config.roman, 'roman')
+    if (this.config.battleType === 'aerial') {
+      this._savedGroundMapId = this.config.mapId ?? 'original'
+      this.config.mapId = 'original'
+    } else {
+      this._savedGroundMapId = this.config.mapId ?? 'original'
+    }
     if (!this.config.mode) {
       this.config.mode = 'formation'
     }
@@ -102,6 +117,93 @@ export class BattleSetupUI {
     this.container = null
   }
 
+  getConfig(): BattleConfig {
+    return this.config
+  }
+
+  switchBattleType(type: 'ground' | 'aerial'): void {
+    if (type === 'ground') {
+      if (this.config.battleType === 'ground') return
+      this._savedAerialViking = JSON.parse(JSON.stringify(this.config.viking))
+      this._savedAerialRoman = JSON.parse(JSON.stringify(this.config.roman))
+      this.config.battleType = 'ground'
+      if (this._savedGroundViking && this._savedGroundRoman) {
+        this.config.viking = JSON.parse(JSON.stringify(this._savedGroundViking))
+        this.config.roman = JSON.parse(JSON.stringify(this._savedGroundRoman))
+      }
+      this.config.mapId = this._savedGroundMapId ?? 'original'
+      attachArmyAliases(this.config.viking, 'viking')
+      attachArmyAliases(this.config.roman, 'roman')
+      this.config.squadAssignments = undefined
+      this._renderSetup()
+    } else {
+      if (this.config.battleType === 'aerial') return
+      this._savedGroundViking = JSON.parse(JSON.stringify(this.config.viking))
+      this._savedGroundRoman = JSON.parse(JSON.stringify(this.config.roman))
+      this._savedGroundMapId = this.config.mapId ?? 'original'
+      this.config.battleType = 'aerial'
+      this.config.mapId = 'original'
+      if (this._savedAerialViking && this._savedAerialRoman) {
+        this.config.viking = JSON.parse(JSON.stringify(this._savedAerialViking))
+        this.config.roman = JSON.parse(JSON.stringify(this._savedAerialRoman))
+      } else {
+        const vArmy = createEmptyArmyConfig()
+        const rArmy = createEmptyArmyConfig()
+        const vMax = this._getMaxArmyForFaction('viking')
+        const rMax = this._getMaxArmyForFaction('roman')
+        for (const t of CUSTOM_BATTLE_UNIT_TIERS) {
+          vArmy.archer[t] = Math.min(vMax, (this.config.viking as any).archer?.[t] ?? 0)
+          rArmy.archer[t] = Math.min(rMax, (this.config.roman as any).archer?.[t] ?? 0)
+        }
+        if (calculateArmyTotal(vArmy) === 0) vArmy.archer[3] = Math.min(10, vMax)
+        if (calculateArmyTotal(rArmy) === 0) rArmy.archer[3] = Math.min(10, rMax)
+        this.config.viking = vArmy
+        this.config.roman = rArmy
+      }
+      attachArmyAliases(this.config.viking, 'viking')
+      attachArmyAliases(this.config.roman, 'roman')
+      this._clampAerialArmies()
+      this.config.squadAssignments = undefined
+      this._renderSetup()
+    }
+  }
+
+  selectMap(mapId: CustomBattleMapId): void {
+    this.config.mapId = mapId
+    this._savedGroundMapId = mapId
+    this._refreshView()
+  }
+
+  private _getMaxArmyForFaction(faction: 'viking' | 'roman'): number {
+    if (this.config.battleType === 'aerial') {
+      const isPlayer = (this.config.playerFaction ?? 'viking') === faction
+      return (!this.config.spectator && isPlayer) ? 49 : 50
+    }
+    return MAX_GROUND_CUSTOM_ARMY_SIZE
+  }
+
+  private _clampAerialArmies(): void {
+    if (this.config.battleType !== 'aerial') return
+    for (const faction of ['viking', 'roman'] as const) {
+      const maxAllowed = this._getMaxArmyForFaction(faction)
+      const army = this.config[faction] as Record<string, UnitTierCounts | undefined>
+      let total = calculateArmyTotal(army)
+      if (total > maxAllowed) {
+        const archerKey = `${faction}_archer`
+        const counts = army[archerKey]
+        if (counts) {
+          for (const t of [5, 4, 3, 2, 1] as const) {
+            while ((counts[t] ?? 0) > 0 && total > maxAllowed) {
+              counts[t] = (counts[t] ?? 0) - 1
+              total--
+            }
+          }
+        }
+        this.config.squadAssignments = undefined
+      }
+    }
+  }
+
   private _renderSetup(): void {
     if (!this.container) return
     this.container.innerHTML = this._generateHtml()
@@ -110,7 +212,12 @@ export class BattleSetupUI {
   }
   private _generateHtml(): string {
     const renderTable = (faction: 'viking' | 'roman') => {
-      const presets = getUnitPresetsForFaction(faction)
+      const allPresets = getUnitPresetsForFaction(faction)
+      const isAerial = this.config.battleType === 'aerial'
+      const presets = isAerial
+        ? allPresets.filter(p => p.id === `${faction}_archer`)
+        : allPresets
+      const maxArmy = this._getMaxArmyForFaction(faction)
 
       return `
         <table class="unit-table">
@@ -120,20 +227,21 @@ export class BattleSetupUI {
               <th>T1</th>
               <th>T2</th>
               <th>T3</th>
-              <th>T4 HERO</th>
+              <th>T4</th>
+              <th>T5</th>
             </tr>
           </thead>
           <tbody>
             ${presets.map(p => `
               <tr class="unit-row" data-faction="${faction}" data-preset="${p.id}">
                 <td class="unit-label" title="${p.description}">
-                  ${p.nameEn} <span class="unit-zh">${p.nameZh}</span>
+                  ${isAerial ? 'Eagle Rider' : p.nameEn} <span class="unit-zh">${isAerial ? '鷹騎兵 (xongkoro)' : p.nameZh}</span>
                 </td>
                 ${CUSTOM_BATTLE_UNIT_TIERS.map(t => `
                   <td>
                     <div class="stepper">
                       <button type="button" class="step-btn btn-dec" data-faction="${faction}" data-preset="${p.id}" data-tier="${t}">-</button>
-                      <input type="number" min="0" max="${MAX_CUSTOM_ARMY_SIZE}" class="step-input" id="val-${faction}-${p.id}-${t}" data-faction="${faction}" data-preset="${p.id}" data-tier="${t}" value="0" />
+                      <input type="number" min="0" max="${maxArmy}" class="step-input" id="val-${faction}-${p.id}-${t}" data-faction="${faction}" data-preset="${p.id}" data-tier="${t}" value="0" />
                       <button type="button" class="step-btn btn-inc" data-faction="${faction}" data-preset="${p.id}" data-tier="${t}">+</button>
                     </div>
                   </td>
@@ -275,7 +383,47 @@ export class BattleSetupUI {
       </div>
 
       <div class="setup-mode-section">
-        <div class="mode-section-label">BATTLE MODE</div>
+        <div class="mode-section-label">戰鬥模式 <small>BATTLE TYPE</small></div>
+        <div class="mode-btn-group">
+          <button type="button" class="mode-btn ${this.config.battleType !== 'aerial' ? 'active' : ''}" id="battle-type-ground" data-battle-type="ground">
+            <span class="mode-btn-title">地面戰鬥</span>
+            <span class="mode-btn-desc">GROUND BATTLE (300 VS 300)</span>
+          </button>
+          <button type="button" class="mode-btn ${this.config.battleType === 'aerial' ? 'active' : ''}" id="battle-type-aerial" data-battle-type="aerial">
+            <span class="mode-btn-title">空中戰鬥</span>
+            <span class="mode-btn-desc">AERIAL BATTLE (50 VS 50)</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="setup-mode-section" id="setup-map-section" style="${this.config.battleType === 'aerial' ? 'display: none;' : ''}">
+        <div class="mode-section-label">地圖選擇 <small>MAP SELECTION</small></div>
+        <div class="mode-btn-group">
+          <button type="button" class="mode-btn ${(!this.config.mapId || this.config.mapId === 'original') ? 'active' : ''}" data-map-id="original">
+            <span class="mode-btn-title">原版戰場</span>
+            <span class="mode-btn-desc">ORIGINAL</span>
+          </button>
+          <button type="button" class="mode-btn ${this.config.mapId === 'bridge' ? 'active' : ''}" data-map-id="bridge">
+            <span class="mode-btn-title">橋頭戰場</span>
+            <span class="mode-btn-desc">BRIDGE</span>
+          </button>
+          <button type="button" class="mode-btn ${this.config.mapId === 'roman_town' ? 'active' : ''}" data-map-id="roman_town">
+            <span class="mode-btn-title">羅馬城鎮</span>
+            <span class="mode-btn-desc">ROMAN TOWN</span>
+          </button>
+          <button type="button" class="mode-btn ${this.config.mapId === 'snow' ? 'active' : ''}" data-map-id="snow">
+            <span class="mode-btn-title">雪地戰場</span>
+            <span class="mode-btn-desc">SNOW FIELD</span>
+          </button>
+          <button type="button" class="mode-btn ${this.config.mapId === 'viking_town' ? 'active' : ''}" data-map-id="viking_town">
+            <span class="mode-btn-title">維京城鎮</span>
+            <span class="mode-btn-desc">VIKING TOWN</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="setup-mode-section" id="setup-formation-section" style="${this.config.battleType === 'aerial' ? 'display: none;' : ''}">
+        <div class="mode-section-label">陣型部署 <small>DEPLOYMENT MODE</small></div>
         <div class="mode-btn-group">
           <button type="button" class="mode-btn" id="mode-btn-formation" data-mode="formation">
             <span class="mode-btn-title">陣型戰</span>
@@ -311,7 +459,7 @@ export class BattleSetupUI {
           </button>
           <button type="button" class="mode-btn" id="command-grouping-squad" data-command-grouping="squad">
             <span class="mode-btn-title">小隊</span>
-            <span class="mode-btn-desc">SQUADS · UP TO 8</span>
+            <span class="mode-btn-desc">SQUADS · UP TO 10</span>
           </button>
         </div>
       </div>
@@ -328,8 +476,7 @@ export class BattleSetupUI {
           <div class="faction-header">
             <span class="faction-name">VIKING CLANS</span>
             <span class="faction-total-badge">
-              Total: <span id="viking-total" class="total-num">0</span> / ${MAX_CUSTOM_ARMY_SIZE}
-              · T4: <span id="viking-t4-total">0</span> / ${MAX_CUSTOM_T4_PER_SIDE}
+              Total: <span id="viking-total" class="total-num">0</span> / ${this.config.battleType === 'aerial' ? MAX_AERIAL_CUSTOM_ARMY_SIZE : MAX_GROUND_CUSTOM_ARMY_SIZE}
             </span>
           </div>
           ${renderTable('viking')}
@@ -340,8 +487,7 @@ export class BattleSetupUI {
           <div class="faction-header">
             <span class="faction-name">ROMAN LEGION</span>
             <span class="faction-total-badge">
-              Total: <span id="roman-total" class="total-num">0</span> / ${MAX_CUSTOM_ARMY_SIZE}
-              · T4: <span id="roman-t4-total">0</span> / ${MAX_CUSTOM_T4_PER_SIDE}
+              Total: <span id="roman-total" class="total-num">0</span> / ${this.config.battleType === 'aerial' ? MAX_AERIAL_CUSTOM_ARMY_SIZE : MAX_GROUND_CUSTOM_ARMY_SIZE}
             </span>
           </div>
           ${renderTable('roman')}
@@ -446,6 +592,24 @@ export class BattleSetupUI {
       })
     })
 
+    // Battle Type buttons
+    document.getElementById('battle-type-ground')?.addEventListener('click', () => {
+      this.switchBattleType('ground')
+    })
+    document.getElementById('battle-type-aerial')?.addEventListener('click', () => {
+      this.switchBattleType('aerial')
+    })
+
+    // Map selection buttons
+    this.container.querySelectorAll('[data-map-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mapId = (btn as HTMLElement).dataset.mapId as CustomBattleMapId
+        if (mapId) {
+          this.selectMap(mapId)
+        }
+      })
+    })
+
     // Mode buttons
     document.getElementById('mode-btn-formation')?.addEventListener('click', () => {
       this.config.mode = 'formation'
@@ -460,11 +624,13 @@ export class BattleSetupUI {
     document.getElementById('faction-btn-viking')?.addEventListener('click', () => {
       this.config.playerFaction = 'viking'
       this.config.squadAssignments = undefined
+      this._clampAerialArmies()
       this._refreshView()
     })
     document.getElementById('faction-btn-roman')?.addEventListener('click', () => {
       this.config.playerFaction = 'roman'
       this.config.squadAssignments = undefined
+      this._clampAerialArmies()
       this._refreshView()
     })
 
@@ -530,7 +696,7 @@ export class BattleSetupUI {
       })
     })
 
-    // Presets change army composition only; preserve battle mode, command grouping, spectator, faction, HP, and loadout.
+    // Presets change army composition only; preserve battle mode, command grouping, spectator, faction, HP, loadout, battleType, mapId, and seed.
     const applyPreset = (preset: BattleConfig) => {
       const currentMode = this.config.mode ?? 'formation'
       const currentCommandGrouping = this.config.commandGrouping ?? 'preset'
@@ -541,7 +707,27 @@ export class BattleSetupUI {
       const currentLoadout = this.config.playerLoadout
       const currentHero = this.config.playerHeroId
       const currentVisualTier = this.config.playerVisualTier
-      this.config = JSON.parse(JSON.stringify(preset))
+      const currentBattleType = this.config.battleType ?? 'ground'
+      const currentMapId = currentBattleType === 'aerial' ? (this._savedGroundMapId ?? 'original') : (this.config.mapId ?? 'original')
+      const currentSeed = this.config.seed
+
+      if (currentBattleType === 'aerial') {
+        const vMax = (!currentSpectator && currentFaction === 'viking') ? 49 : 50
+        const rMax = (!currentSpectator && currentFaction === 'roman') ? 49 : 50
+        const presetTotal = calculateArmyTotal(preset.viking)
+        const vCount = Math.min(vMax, presetTotal)
+        const rCount = Math.min(rMax, presetTotal)
+
+        const vArmy = createEmptyArmyConfig()
+        const rArmy = createEmptyArmyConfig()
+        vArmy.archer[3] = vCount
+        rArmy.archer[3] = rCount
+        this.config.viking = vArmy
+        this.config.roman = rArmy
+      } else {
+        this.config = JSON.parse(JSON.stringify(preset))
+      }
+
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
       this.config.mode = currentMode
@@ -553,8 +739,13 @@ export class BattleSetupUI {
       this.config.playerLoadout = currentLoadout
       this.config.playerHeroId = currentHero
       this.config.playerVisualTier = currentVisualTier
+      this.config.battleType = currentBattleType
+      this.config.mapId = currentBattleType === 'aerial' ? 'original' : currentMapId
+      this._savedGroundMapId = currentMapId
+      this.config.seed = currentSeed
       this.config.squadAssignments = undefined
-      this._refreshView()
+      this._clampAerialArmies()
+      this._renderSetup()
     }
 
     document.getElementById('preset-10')?.addEventListener('click', () => applyPreset(PRESET_10V10))
@@ -572,6 +763,9 @@ export class BattleSetupUI {
       const currentLoadout = this.config.playerLoadout
       const currentHero = this.config.playerHeroId
       const currentVisualTier = this.config.playerVisualTier
+      const currentBattleType = this.config.battleType ?? 'ground'
+      const currentMapId = currentBattleType === 'aerial' ? (this._savedGroundMapId ?? 'original') : (this.config.mapId ?? 'original')
+      const currentSeed = this.config.seed
       this.config = createEmptyBattleConfig()
       attachArmyAliases(this.config.viking, 'viking')
       attachArmyAliases(this.config.roman, 'roman')
@@ -584,14 +778,20 @@ export class BattleSetupUI {
       this.config.playerLoadout = currentLoadout
       this.config.playerHeroId = currentHero
       this.config.playerVisualTier = currentVisualTier
+      this.config.battleType = currentBattleType
+      this.config.mapId = currentBattleType === 'aerial' ? 'original' : currentMapId
+      this._savedGroundMapId = currentMapId
+      this.config.seed = currentSeed
       this.config.squadAssignments = undefined
-      this._refreshView()
+      this._renderSetup()
     })
 
     // Spectator checkbox
     const spectatorCheckbox = document.getElementById('spectator-checkbox') as HTMLInputElement | null
     spectatorCheckbox?.addEventListener('change', (e) => {
       this.config.spectator = (e.target as HTMLInputElement).checked
+      this._clampAerialArmies()
+      this._refreshView()
     })
 
     // Start battle button
@@ -637,7 +837,7 @@ export class BattleSetupUI {
     const selectedTotal = this._squadTotal(this.selectedSquadId)
     const factionLabel = playerFaction === 'viking' ? '維京' : '羅馬'
 
-    const squadButtons = Array.from({ length: MAX_COMMAND_SQUADS }, (_, index) => {
+    const squadButtons = Array.from({ length: MAX_CUSTOM_BATTLE_COMMAND_SQUADS }, (_, index) => {
       const squadId = (index + 1) as SquadId
       const total = this._squadTotal(squadId)
       return `
@@ -645,7 +845,7 @@ export class BattleSetupUI {
           class="campaign-squad-card ${squadId === this.selectedSquadId ? 'active' : ''}"
           data-command-squad="${squadId}">
           <b>第 ${squadId} 隊</b>
-          <span>${total} / ${MAX_COMMAND_SQUAD_SIZE}</span>
+          <span>${total} / ${MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE}</span>
         </button>
       `
     }).join('')
@@ -654,10 +854,10 @@ export class BattleSetupUI {
       const assignedHere = this._squadAssignmentCount(row.presetId, row.tier, this.selectedSquadId)
       const assignedEverywhere = this._squadAssignedUnitTotal(row.presetId, row.tier)
       const remaining = Math.max(0, row.count - assignedEverywhere)
-      const canIncrease = remaining > 0 && selectedTotal < MAX_COMMAND_SQUAD_SIZE
+      const canIncrease = remaining > 0 && selectedTotal < MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE
       const maxDirectValue = Math.min(
         row.count - (assignedEverywhere - assignedHere),
-        MAX_COMMAND_SQUAD_SIZE - (selectedTotal - assignedHere),
+        MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE - (selectedTotal - assignedHere),
       )
       return `
         <div class="campaign-squad-unit-row">
@@ -696,17 +896,23 @@ export class BattleSetupUI {
         <div class="setup-subtitle">CUSTOM BATTLE · SQUAD ASSIGNMENT</div>
       </div>
       <div class="campaign-section-title">${factionLabel}小隊編組 <small>${playerFaction.toUpperCase()} PLAYER SQUADS</small></div>
+      <div class="campaign-squad-hint" style="padding: 10px 16px; margin: 12px 0; background: rgba(255,255,255,0.06); border: 1px solid rgba(212,175,55,0.3); border-radius: 6px; font-size: 13px; color: #dcd0bc; line-height: 1.6;">
+        <b>全新小隊部署規則：</b><br/>
+        • 總小隊數 ≤ 5 隊：全部部署於己方邊緣後排<br/>
+        • 總小隊數 > 5 隊：小隊 1–5 部署於前排，小隊 6–10 部署於後排<br/>
+        • 每排最多 5 個獨立小隊區塊，依隊數橫向置中。每隊最多 50 人。
+      </div>
       <div class="campaign-squad-summary">
         <div><small>玩家陣營兵力</small><b>${totalArmy}</b></div>
         <div><small>已分配</small><b>${totalAssigned}</b></div>
         <div class="${unassigned > 0 ? 'warning' : ''}"><small>未分配</small><b>${unassigned}</b></div>
-        <div><small>單隊上限</small><b>${MAX_COMMAND_SQUAD_SIZE}</b></div>
+        <div><small>單隊上限</small><b>${MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE}</b></div>
       </div>
       <div class="campaign-squad-tabs">${squadButtons}</div>
       <section class="campaign-squad-editor">
         <div class="campaign-squad-editor-heading">
           <div><h2>第 ${this.selectedSquadId} 隊</h2><small>SQUAD ${this.selectedSquadId}</small></div>
-          <strong>${selectedTotal} / ${MAX_COMMAND_SQUAD_SIZE}</strong>
+          <strong>${selectedTotal} / ${MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE}</strong>
         </div>
         <div class="campaign-squad-unit-list">${allocationRows}</div>
       </section>
@@ -722,7 +928,7 @@ export class BattleSetupUI {
     this.container.querySelectorAll<HTMLElement>('[data-command-squad]').forEach(button => {
       button.addEventListener('click', () => {
         const value = Number(button.dataset.commandSquad)
-        if (value < 1 || value > MAX_COMMAND_SQUADS) return
+        if (value < 1 || value > MAX_CUSTOM_BATTLE_COMMAND_SQUADS) return
         this.selectedSquadId = value as SquadId
         this._renderSquadSetup()
       })
@@ -801,7 +1007,7 @@ export class BattleSetupUI {
     const otherUnitsInSquad = this._squadTotal(this.selectedSquadId) - current
     const maxAllowed = Math.max(0, Math.min(
       deployed - assignedOtherSquads,
-      MAX_COMMAND_SQUAD_SIZE - otherUnitsInSquad,
+      MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE - otherUnitsInSquad,
     ))
     const next = Math.max(0, Math.min(maxAllowed, Math.floor(value)))
     const assignments = this.config.squadAssignments ??= []
@@ -829,6 +1035,13 @@ export class BattleSetupUI {
 
   private _launchBattle(config: BattleConfig): void {
     if (!this.onStartCallback || needsPlayerHpConfirmation(this.config)) return
+    config.battleType ??= 'ground'
+    config.mapId ??= 'original'
+    config.seed ??= Math.floor(Math.random() * 0x7fffffff)
+    if (config.battleType === 'aerial' && !config.spectator && config.playerLoadout) {
+      config.playerLoadout.mountId = 'xongkoro'
+      config.playerLoadout.startMounted = true
+    }
     if (typeof window !== 'undefined' && !window.location.search.includes('nolock')) {
       try {
         const canvasContainer = document.getElementById('canvas-container')
@@ -852,12 +1065,12 @@ export class BattleSetupUI {
   ): void {
     const army = this.config[faction] as Record<string, UnitTierCounts | undefined>
     if (!army[preset]) {
-      army[preset] = { 1: 0, 2: 0, 3: 0 }
+      army[preset] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
     }
+    const maxArmy = this._getMaxArmyForFaction(faction)
     const oldVal = army[preset]![tier] || 0
     const otherTotal = calculateArmyTotal(army) - oldVal
-    const t4Remaining = MAX_CUSTOM_T4_PER_SIDE - this._t4Total(faction) + oldVal
-    const maxAllowed = Math.max(0, Math.min(MAX_CUSTOM_ARMY_SIZE - otherTotal, tier === 4 ? t4Remaining : MAX_CUSTOM_ARMY_SIZE))
+    const maxAllowed = Math.max(0, maxArmy - otherTotal)
     const clamped = Math.max(0, Math.min(value, maxAllowed))
 
     if (army[preset]![tier] !== clamped) this.config.squadAssignments = undefined
@@ -873,13 +1086,14 @@ export class BattleSetupUI {
   ): void {
     const army = this.config[faction] as Record<string, UnitTierCounts | undefined>
     if (!army[preset]) {
-      army[preset] = { 1: 0, 2: 0, 3: 0 }
+      army[preset] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
     }
     const currentVal = army[preset]![tier] || 0
     const currentTotal = calculateArmyTotal(army)
+    const maxArmy = this._getMaxArmyForFaction(faction)
 
     if (delta > 0) {
-      if (currentTotal >= MAX_CUSTOM_ARMY_SIZE || currentVal >= MAX_CUSTOM_ARMY_SIZE || (tier === 4 && this._t4Total(faction) >= MAX_CUSTOM_T4_PER_SIDE)) return
+      if (currentTotal >= maxArmy || currentVal >= maxArmy) return
       army[preset]![tier] = currentVal + 1
       this.config.squadAssignments = undefined
     } else if (delta < 0) {
@@ -894,20 +1108,24 @@ export class BattleSetupUI {
   private _refreshView(): void {
     if (!this.container) return
 
+    const isAerial = this.config.battleType === 'aerial'
+    const vMax = this._getMaxArmyForFaction('viking')
+    const rMax = this._getMaxArmyForFaction('roman')
+
     for (const faction of ['viking', 'roman'] as const) {
       const army = this.config[faction] as Record<string, UnitTierCounts | undefined>
-      const presets = getUnitPresetsForFaction(faction)
+      const allPresets = getUnitPresetsForFaction(faction)
+      const presets = isAerial ? allPresets.filter(p => p.id === `${faction}_archer`) : allPresets
       for (const p of presets) {
         for (const t of CUSTOM_BATTLE_UNIT_TIERS) {
           const el = document.getElementById(`val-${faction}-${p.id}-${t}`) as HTMLInputElement | null
           if (el) el.value = String(army[p.id]?.[t] ?? 0)
         }
       }
-      const t4Total = this._t4Total(faction)
-      const t4El = document.getElementById(`${faction}-t4-total`)
-      if (t4El) t4El.textContent = String(t4Total)
-      this.container.querySelectorAll<HTMLButtonElement>(`.btn-inc[data-faction="${faction}"][data-tier="4"]`).forEach(button => {
-        button.disabled = t4Total >= MAX_CUSTOM_T4_PER_SIDE || calculateArmyTotal(army) >= MAX_CUSTOM_ARMY_SIZE
+      const sideTotal = calculateArmyTotal(army)
+      const maxForSide = this._getMaxArmyForFaction(faction)
+      this.container.querySelectorAll<HTMLButtonElement>(`.btn-inc[data-faction="${faction}"]`).forEach(button => {
+        button.disabled = sideTotal >= maxForSide
       })
     }
 
@@ -917,13 +1135,29 @@ export class BattleSetupUI {
     const vTotalEl = document.getElementById('viking-total')
     const rTotalEl = document.getElementById('roman-total')
     if (vTotalEl) {
-      vTotalEl.textContent = String(vTotal)
-      vTotalEl.classList.toggle('error', vTotal > MAX_CUSTOM_ARMY_SIZE || vTotal < 1)
+      vTotalEl.textContent = `${vTotal} / ${vMax}`
+      vTotalEl.classList.toggle('error', vTotal > vMax || vTotal < 1)
     }
     if (rTotalEl) {
-      rTotalEl.textContent = String(rTotal)
-      rTotalEl.classList.toggle('error', rTotal > MAX_CUSTOM_ARMY_SIZE || rTotal < 1)
+      rTotalEl.textContent = `${rTotal} / ${rMax}`
+      rTotalEl.classList.toggle('error', rTotal > rMax || rTotal < 1)
     }
+
+    // Update Battle Type buttons
+    document.getElementById('battle-type-ground')?.classList.toggle('active', !isAerial)
+    document.getElementById('battle-type-aerial')?.classList.toggle('active', isAerial)
+
+    // Hide/show Map & Formation sections in Aerial mode
+    const mapSection = document.getElementById('setup-map-section')
+    if (mapSection) mapSection.style.display = isAerial ? 'none' : ''
+    const formationSection = document.getElementById('setup-formation-section')
+    if (formationSection) formationSection.style.display = isAerial ? 'none' : ''
+
+    // Update Map buttons active state
+    const currentMap = this.config.mapId ?? 'original'
+    this.container.querySelectorAll<HTMLElement>('[data-map-id]').forEach(btn => {
+      btn.classList.toggle('active', btn.dataset.mapId === currentMap)
+    })
 
     const validation = validateBattleConfig(this.config)
     const msgEl = document.getElementById('validation-msg')
@@ -1018,10 +1252,4 @@ export class BattleSetupUI {
       })
     }
   }
-
-  private _t4Total(faction: 'viking' | 'roman'): number {
-    return Object.values(this.config[faction]).reduce((sum: number, counts) => sum + (counts?.[4] ?? 0), 0)
-  }
-
-
 }

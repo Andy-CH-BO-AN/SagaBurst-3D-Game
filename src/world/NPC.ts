@@ -65,7 +65,7 @@ import {
   getBerserkerModifiers,
   calculateLanceChargeDamage,
 } from '../combat/CombatBalance'
-import type { UnitLoadout, UnitPresetId } from '../battle/UnitPresetCatalog'
+import type { BaseUnitTier, UnitLoadout, UnitPresetId, UnitTier } from '../battle/UnitPresetCatalog'
 import type { SquadIdentity as SquadId } from '../battle/CommandTarget'
 import { DEFAULT_TACTICAL_ORDER, type TacticalOrder } from '../battle/TacticalOrder'
 import { FOLLOW_THRESHOLDS, followLocalOffset, followSlotWorldPosition } from '../battle/FollowOrder'
@@ -235,7 +235,7 @@ export function computeDeterministicPhase(spawnX: number, spawnZ: number, name: 
 }
 
 interface CombatEquipmentSnapshot {
-  tier: 1 | 2 | 3 | 4
+  tier: UnitTier
   squadId?: SquadId
   presetId?: UnitPresetId
   meleeWeaponId: string | null
@@ -306,8 +306,8 @@ export class NPC {
   private _aiType: AIType
   get aiType(): AIType { return this._aiType }
   readonly name: string
-  private _tier: 1 | 2 | 3 | 4
-  get tier(): 1 | 2 | 3 | 4 { return this._tier }
+  private _tier: UnitTier
+  get tier(): UnitTier { return this._tier }
   readonly visualAssetId?: HeroAssetId
   readonly combatProfileId?: HeroCombatProfileId
   readonly specialCombatProfile?: 'maki-ranger'
@@ -834,7 +834,7 @@ export class NPC {
     characterFaction: CharacterFaction,
     aiType: AIType,
     name: string,
-    tier: 1 | 2 | 3 | 4,
+    tier: UnitTier,
     cavalry?: boolean,
     loadout?: UnitLoadout,
     presetId?: UnitPresetId,
@@ -900,7 +900,7 @@ export class NPC {
       const unitType: BattleUnitType = this.generatedAsCavalry
         ? (this.aiType === AIType.RANGED ? 'horseArcher' : 'cavalry')
         : (this.aiType === AIType.RANGED ? 'archer' : 'infantry')
-      const combatProfile = getUnitCombatProfile(this.characterFaction, unitType, this.tier === 4 ? 3 : this.tier)
+      const combatProfile = getUnitCombatProfile(this.characterFaction, unitType, (this.tier >= 4 ? 3 : this.tier) as BaseUnitTier)
 
       this.meleeWeaponId = combatProfile.meleeWeaponId
       this.rangedWeaponId = combatProfile.rangedWeaponId
@@ -1500,7 +1500,7 @@ export class NPC {
   }
 
   /** Synchronizes combat values and visuals without replacing the Town loadout. Mounts are owned by the caller. */
-  applyTemporaryCombatLoadout(loadout: UnitLoadout, tier?: 1 | 2 | 3 | 4, squadId?: SquadId, presetId?: UnitPresetId): void {
+  applyTemporaryCombatLoadout(loadout: UnitLoadout, tier?: UnitTier, squadId?: SquadId, presetId?: UnitPresetId): void {
     if (!this.originalCombatEquipment) {
       this.originalCombatEquipment = {
         tier: this.tier,

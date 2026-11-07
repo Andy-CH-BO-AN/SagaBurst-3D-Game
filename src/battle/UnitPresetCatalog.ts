@@ -9,7 +9,7 @@ import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { ARMORS } from '../rpg/ArmorDatabase'
 
 export const BASE_UNIT_TIERS = [1, 2, 3] as const
-export const CUSTOM_BATTLE_UNIT_TIERS = [1, 2, 3, 4] as const
+export const CUSTOM_BATTLE_UNIT_TIERS = [1, 2, 3, 4, 5] as const
 export type BaseUnitTier = typeof BASE_UNIT_TIERS[number]
 export type UnitTier = typeof CUSTOM_BATTLE_UNIT_TIERS[number]
 
