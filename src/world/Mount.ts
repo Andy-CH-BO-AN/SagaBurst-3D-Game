@@ -224,7 +224,10 @@ export class Mount {
       this.baseSpeed = XONGKORO.cruiseSpeed
       this.ridePitch = 0
     } else if (type === MountType.HORSE || type === MountType.ARMORED_HORSE) {
-      if (!HorseAssetRegistry.ready) throw new Error('Horse assets were not preloaded')
+      if (type === MountType.ARMORED_HORSE ? !HorseAssetRegistry.armoredReady : !HorseAssetRegistry.ready) {
+        throw (type === MountType.ARMORED_HORSE ? HorseAssetRegistry.armoredError : null)
+          ?? new Error(type === MountType.ARMORED_HORSE ? 'Armored horse assets were not preloaded' : 'Horse assets were not preloaded')
+      }
       this.horseVisual = HorseAssetRegistry.createInstance({ variant: this.appearanceVariant, armored: type === MountType.ARMORED_HORSE })
       this.group.add(this.horseVisual.root)
       this.horseVisual.root.updateWorldMatrix(true, true)

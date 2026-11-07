@@ -66,34 +66,76 @@ for(let f=0;f<indices.length/3;f++){
 }
 indices=new Uint32Array(cutIndices);regions.faceRegions=cutRegions;
 const positions=[],normalValues=[],joints=[],weights=[],runtimeUv=[],runtimeIndices=[],owned=new Map();
-const scale=1.27,zOffset=.05;
-const sourcePoint=id=>new T.Vector3(original[id*3+2]*scale,(original[id*3+1]+.9605550169944763)*scale,-original[id*3]*scale+zOffset);
-function weightFor(p,region) {
- let w;
- if(region===1)w=new Map([[joint('horse_043'),1]]);
- else if(region>=2) {
+const scale=1.27,zOffset=.05,headPivot=new T.Vector3(0,2.05,.50),maxYaw=-26*Math.PI/180,maxRoll=-4.5*Math.PI/180;
+const smootherstep=t=>{const x=T.MathUtils.clamp(t,0,1);return x*x*x*(x*(x*6-15)+10);};
+const rawPoint=id=>new T.Vector3(original[id*3+2]*scale,(original[id*3+1]+.9605550169944763)*scale,-original[id*3]*scale+zOffset);
+function headUnbendFactor(p) {
+ if(p.y<1.30 || p.z<.30)return 0;
+ const uForward=p.y>=1.32?smootherstep((p.z-.87)/.12):0;
+ const yBase=1.54+.22*T.MathUtils.clamp(p.z-.35,0,.55);
+ return Math.max(uForward,smootherstep((p.z-.32)/.22)*smootherstep((p.y-yBase)/.66));
+}
+function sourcePoint(id) {
+ const p=rawPoint(id),u=headUnbendFactor(p);if(u<=0)return p;
+ return p.sub(headPivot).applyQuaternion(new T.Quaternion().setFromEuler(new T.Euler(0,maxYaw*u,maxRoll*u,'YXZ'))).add(headPivot);
+}
+function sourceNormal(id) {
+ const p=rawPoint(id),n=new T.Vector3(normals[id*3+2],normals[id*3+1],-normals[id*3]),u=headUnbendFactor(p);
+ if(u>0)n.applyQuaternion(new T.Quaternion().setFromEuler(new T.Euler(0,maxYaw*u,maxRoll*u,'YXZ'))).normalize();
+ return n.toArray();
+}
+const canonical=new Map(),pointIds=[];
+for(let id=0;id<original.length/3;id++){const key=sourcePoint(id).toArray().map(x=>Math.round(x*1e5)).join(',');if(!canonical.has(key))canonical.set(key,id);pointIds.push(canonical.get(key));}
+const pointRegions=new Map();
+for(let f=0;f<indices.length/3;f++){
+ const r=regions.faceRegions[f];
+ for(let k=0;k<3;k++){const cid=pointIds[indices[f*3+k]];if(!pointRegions.has(cid))pointRegions.set(cid,new Set());pointRegions.get(cid).add(r);}
+}
+const tailSeamPoints=[];
+for(const [cid,rSet]of pointRegions)if(rSet.has(1)&&rSet.has(0))tailSeamPoints.push(sourcePoint(cid));
+function tailSeamDistance(p,cid) {
+ const rSet=pointRegions.get(cid);if(!rSet||!rSet.has(1)||rSet.has(0))return 0;
+ let best=Infinity;for(const sp of tailSeamPoints){const d=p.distanceTo(sp);if(d<best)best=d;}
+ return best;
+}
+function weightFor(p,region,cid) {
+ if(region>=2) {
   const chain={2:['horse_020','horse_019','horse_018','horse_017'],3:['horse_025','horse_024','horse_023','horse_022'],4:['horse_041','horse_040','horse_039','horse_038'],5:['horse_036','horse_035','horse_034','horse_033']}[region];
   const boundaries=region<4?[.32,.67,.99]:[.35,.83,1.11];let k=0;
   while(k<3 && p.y>boundaries[k]+.07)k++;
-  if(k<3 && p.y>boundaries[k]-.07){const u=(p.y-boundaries[k]+.07)/.14;w=new Map([[joint(chain[k]),1-u],[joint(chain[k+1]),u]]);}
-  else w=new Map([[joint(chain[k]),1]]);
- } else if(p.y>1.52 && p.z>.38) {
-  const u=T.MathUtils.clamp(((p.y-1.52)+.6*(p.z-.48))/.18,0,1);w=new Map([[joint('horse_01'),1-u],[joint('horse_02'),u]]);
- } else w=new Map([[joint('horse_01'),1]]);
- return w;
+  if(k<3 && p.y>boundaries[k]-.07){const u=(p.y-boundaries[k]+.07)/.14;return new Map([[joint(chain[k]),1-u],[joint(chain[k+1]),u]]);}
+  return new Map([[joint(chain[k]),1]]);
+ }
+ if(p.y>1.48 && p.z>.34) {
+  const w02Total=smootherstep(((p.y-1.50)+.65*(p.z-.44))/.22);
+  if(w02Total>0) {
+   const w03Total=smootherstep(((p.y-1.82)+.75*(p.z-.62))/.24),w04Total=p.y>1.38?smootherstep(((p.z-.84)+.35*(p.y-1.95))/.18):0;
+   const w01=1-w02Total,w04=w02Total*w04Total,rem=w02Total*(1-w04Total);
+   return new Map([[joint('horse_01'),w01],[joint('horse_02'),rem*(1-w03Total)],[joint('horse_03'),rem*w03Total],[joint('horse_04'),w04]]);
+  }
+ }
+ const wRear=smootherstep((.18-p.z)/.62),wPelvis=smootherstep((-.05-p.z)/.45);
+ const w01=1-wRear,w31=wRear*(1-wPelvis);let w32=wRear*wPelvis;
+ const seamDist=cid!==undefined?tailSeamDistance(p,cid):0;
+ if(seamDist>0) {
+  const uTail=smootherstep(seamDist/.16);
+  const uMid=uTail*smootherstep((seamDist-.04)/.16)*smootherstep((.88-p.y)/.45)*.08;
+  const w44=w32*uMid,w43=w32*Math.max(0,uTail-uMid);w32*=1-uTail;
+  return new Map([[joint('horse_01'),w01],[joint('horse_031'),w31],[joint('horse_032'),w32],[joint('horse_043'),w43],[joint('horse_044'),w44]]);
+ }
+ return new Map([[joint('horse_01'),w01],[joint('horse_031'),w31],[joint('horse_032'),w32]]);
 }
-function vertex(p,n,tex,region,key) {
+const surfaceGroup=region=>region<=1?0:region;
+function vertex(p,n,tex,region,key,cid) {
  if(owned.has(key))return owned.get(key);const out=positions.length/3;owned.set(key,out);
  positions.push(...p.toArray());normalValues.push(...n);runtimeUv.push(...tex);
- const entries=[...weightFor(p,region)].filter(([,w])=>w>1e-7).sort((a,b)=>b[1]-a[1]).slice(0,4),sum=entries.reduce((n,e)=>n+e[1],0);
+ const entries=[...weightFor(p,region,cid)].filter(([,w])=>w>1e-7).sort((a,b)=>b[1]-a[1]).slice(0,4),sum=entries.reduce((n,e)=>n+e[1],0);
  for(let k=0;k<4;k++){joints.push(entries[k]?.[0]??0);weights.push((entries[k]?.[1]??0)/sum);}return out;
 }
-const sourceVertex=(id,region)=>vertex(sourcePoint(id),[normals[id*3+2],normals[id*3+1],-normals[id*3]],[uv[id*2],uv[id*2+1]],region,id+':'+region);
-const canonical=new Map(),pointIds=[];
-for(let id=0;id<original.length/3;id++){const key=sourcePoint(id).toArray().map(x=>Math.round(x*1e5)).join(',');if(!canonical.has(key))canonical.set(key,id);pointIds.push(canonical.get(key));}
+const sourceVertex=(id,region)=>{const g=surfaceGroup(region);return vertex(sourcePoint(id),sourceNormal(id),[uv[id*2],uv[id*2+1]],g,id+':'+g,pointIds[id]);};
 const edges=new Map();
 for(let f=0;f<indices.length/3;f++) {
- const region=regions.faceRegions[f],ids=[0,1,2].map(c=>indices[f*3+c]);
+ const region=surfaceGroup(regions.faceRegions[f]),ids=[0,1,2].map(c=>indices[f*3+c]);
  runtimeIndices.push(...ids.map(id=>sourceVertex(id,region)));
  for(let k=0;k<3;k++){
   const a=ids[k],b=ids[(k+1)%3],ca=pointIds[a],cb=pointIds[b],key=[ca,cb].sort((a,b)=>a-b).join(',');
@@ -129,18 +171,18 @@ for(const [region,allEdges]of boundaries) {
   if(region>=2 && chain.every(onCollar) && chain.length>=3) {
    // Complete the scanned leg under the rigid barding, up to the real shoulder/
    // hip pivot. The scanned lower leg and all its texture corners stay exact.
-   const hipName={2:'horse_017',3:'horse_022',4:'horse_038',5:'horse_033'}[region],hip=bones[joint(hipName)].getWorldPosition(new T.Vector3());
+   const hipName={2:'horse_017',3:'horse_022',4:'horse_038',5:'horse_033'}[region],hip=bones[joint(hipName)].getWorldPosition(new T.Vector3()),collarTop=center.clone().lerp(hip,.16);
    const ring=chain.map(e=>e.a);if(current!==start)ring.push(chain.at(-1).b);
    let previous=ring.map((id,k)=>vertex(sourcePoint(id),[normals[id*3+2],normals[id*3+1],-normals[id*3]],[.308+.020*k/ring.length,.425],region,'collar-root:'+region+':'+limbCollars+':'+k));
    for(let row=1;row<=5;row++){
-    const t=row/5,c=center.clone().lerp(hip,t),next=ring.map((id,k)=>{
-     const source=sourcePoint(id),radial=new T.Vector3(source.x-center.x,0,source.z-center.z),p=c.clone().addScaledVector(radial,1-.20*t);
+    const t=row/5,c=center.clone().lerp(collarTop,t),next=ring.map((id,k)=>{
+     const source=sourcePoint(id),radial=new T.Vector3(source.x-center.x,0,source.z-center.z),p=c.clone().addScaledVector(radial,1-.65*t);
      return vertex(p,radial.clone().normalize().toArray(),[.308+.020*k/ring.length,.425+.030*t],region,'collar:'+region+':'+limbCollars+':'+row+':'+k);
     });
     for(let k=0;k<ring.length;k++){const n=(k+1)%ring.length;runtimeIndices.push(previous[n],previous[k],next[k],previous[n],next[k],next[n]);capTriangles+=2;}
     previous=next;
    }
-   const top=vertex(hip,[0,1,0],tex,region,'collar-top:'+region+':'+limbCollars);
+   const top=vertex(collarTop,[0,1,0],tex,region,'collar-top:'+region+':'+limbCollars);
    for(let k=0;k<ring.length;k++){runtimeIndices.push(previous[(k+1)%ring.length],previous[k],top);capTriangles++;}
    limbCollars++;continue;
   }
@@ -180,7 +222,7 @@ const inverse=bones.flatMap(b=>b.matrixWorld.clone().invert().elements);
 d.skins=[{...skin,inverseBindMatrices:append(new Float32Array(inverse),'MAT4',5126)}];
 const lodNodes={},bodyMeshNames=[],counts=[];
 const lodPath=work+'/simplified-lods.json', lodData=fs.existsSync(lodPath)?JSON.parse(fs.readFileSync(lodPath)):null;
-if(lodData && (lodData.sourceSha256!==hash || lodData.skinRevision!=='reviewed-baked-lods-v14')) throw Error('Stale Blender LOD data; rebuild through simplify-armored-horse.py');
+if(lodData && (lodData.sourceSha256!==hash || lodData.skinRevision!=='reviewed-baked-lods-v17')) throw Error('Stale Blender LOD data; rebuild through simplify-armored-horse.py');
 await MeshoptSimplifier.ready;
 for(let lod=0;lod<3;lod++) {
  // Weld only identical position/UV corners for distant simplification. LOD0 remains exact.

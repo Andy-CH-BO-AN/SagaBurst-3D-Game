@@ -94,10 +94,10 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       CARACAL: new BlackCatVisual('caracal'),
       SNOW_LEOPARD: new SnowLeopardVisual(),
       HORSE: HorseAssetRegistry.createInstance(),
-      ARMORED_HORSE: HorseAssetRegistry.createInstance({ armored: true }),
+      ...(HorseAssetRegistry.armoredReady ? { ARMORED_HORSE: HorseAssetRegistry.createInstance({ armored: true }) } : {}),
       xongkoro: new XongkoroVisual(),
-    }
-    for (const mount of Object.values(mounts)) { mount.root.visible = false; scene.add(mount.root) }
+    } as Partial<Record<MountedPoseKind, { root: THREE.Object3D; saddleSeat?: THREE.Object3D }>>
+    for (const mount of Object.values(mounts)) if (mount) { mount.root.visible = false; scene.add(mount.root) }
     let mountKind: MountedPoseKind = commander ? 'SNOW_LEOPARD' : roman ? 'CORGI' : 'BLACK_CAT'
     playback.mountKind = mountKind
     // DEV-only inspection of the actual rendered instance, selected mixers and equipment.
@@ -118,17 +118,17 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       normal.root.visible = compare && !riding
       normal.root.position.set(-.85, 0, 0)
       hero.root.position.set(compare && !riding ? .65 : 0, 0, 0)
-      for (const [kind, mount] of Object.entries(mounts)) mount.root.visible = riding && kind === mountKind
+      for (const [kind, mount] of Object.entries(mounts)) if (mount) mount.root.visible = riding && kind === mountKind
       const mount = mounts[mountKind]
       if (riding && mount instanceof XongkoroVisual) {
         mount.update(0, { flying: true, sprinting: false, attackWeight: 0, dead: false })
         fitStandingRider(hero.root, hero.rig, mount.standingSocket)
-      } else if (riding && 'saddleSeat' in mount) {
+      } else if (riding && mount?.saddleSeat) {
         hero.root.updateMatrixWorld(true)
         const pelvis = hero.rig.pelvis!.getWorldPosition(new THREE.Vector3())
         // Match Mount.getRiderPelvisSeatWorld, including the fitted horse seat
         // and Corgi contact clearance used by real Player and NPC riders.
-        const seat = (mount instanceof CorgiVisual ? mount.riderPelvisSeat : mount.saddleSeat).getWorldPosition(new THREE.Vector3())
+        const seat = (mount instanceof CorgiVisual ? mount.riderPelvisSeat : mount.saddleSeat!).getWorldPosition(new THREE.Vector3())
         if (mountKind === 'HORSE') seat.add(new THREE.Vector3(0, 0, HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET).applyQuaternion(mount.root.getWorldQuaternion(new THREE.Quaternion())))
         hero.root.position.add(seat.sub(pelvis))
       }

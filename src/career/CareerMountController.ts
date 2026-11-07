@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { getCareerPurchaseTier, cloneCareerProfile, canonicalCareerMountId, ownsCareerHorse, type CareerMountId, type CareerProfile } from './CareerProfile'
 import type { EquipmentMountAdapter, EquipmentMountItem } from '../ui/EquipmentUI'
 import type { Player } from '../player/Player'
-import { horseVariantFromSave, type HorseAppearanceVariant } from '../world/HorseAssetRegistry'
+import { HorseAssetRegistry, horseVariantFromSave, type HorseAppearanceVariant } from '../world/HorseAssetRegistry'
 import { Mount, MountType, felineVariantFromMountId } from '../world/Mount'
 import { BlackCatVisual, type FelineMountVariant } from '../world/BlackCatVisual'
 import { findEagleLandingPosition, type EagleLandingPoint } from '../world/EagleLanding'
@@ -192,6 +192,21 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (!config || !ownedCareerMountIds(profile).includes(id)) return this.fail('尚未擁有這匹坐騎。')
     if (!canUseCareerMount(profile, id)) return this.fail(!isCareerShopItemUseUnlocked(profile, id) ? '巨鷹訓練需 Captain / Commander 軍階。' : '這匹坐騎已分配給其他單位。')
     if (this.unavailable.has(id)) return this.fail('這匹坐騎本次出城已倒下，回到和平小鎮休整後才能再用。')
+    if (id === 'armored-horse' && !HorseAssetRegistry.armoredReady) {
+      if (this.pending?.id === id) return this.fail('正在載入坐騎資源…')
+      const token = ++this.requestSeq
+      this.pending = { id, token }
+      void HorseAssetRegistry.preloadArmored().then(() => {
+        if (this.pending?.token !== token) return
+        this.pending = null
+        this.activate(rawId)
+      }).catch(() => {
+        if (this.pending?.token !== token) return
+        this.pending = null
+        this.statusText = '重甲戰馬資源載入失敗，請稍後重試。'
+      })
+      return this.fail('正在載入坐騎資源…')
+    }
     const feline = felineVariantFromMountId(id)
     if (feline && !BlackCatVisual.isPreloaded(feline)) {
       // Repeated clicks on the same loading mount coalesce; any other request supersedes it.
@@ -266,7 +281,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   restoreRaceMount(saved: RaceRider): boolean {
     if (this.active) return false
     const profile = this.readProfile(), id = saved.mountId
-    if (!canUseCareerMount(profile, id)) return false
+    if (!canUseCareerMount(profile, id) || (id === 'armored-horse' && !HorseAssetRegistry.armoredReady)) return false
     const p = saved.mountPosition
     const mount = new Mount(this.scene, careerMountType(id), p.x, p.z, p.y, careerMountAppearanceVariant(profile))
     mount.restoreArmor(saved.mountArmorImpact ?? this.armorImpact.get(id))
@@ -287,6 +302,10 @@ export class CareerMountController implements EquipmentMountAdapter {
     const savedId = profile.activeMission?.mountState?.activeMountId ?? profile.retirementRuntime?.mountState?.activeMountId ?? (aerial?.mount ? 'xongkoro' : undefined)
     const id = savedId ? canonicalCareerMountId(savedId) : undefined
     if (!id || !MOUNTS[id] || !canUseCareerMount(profile, id) || this.unavailable.has(id) || (this.hp.get(id) ?? 1) <= 0) return false
+    if (id === 'armored-horse' && !HorseAssetRegistry.armoredReady) {
+      this.statusText = '重甲戰馬資源載入失敗，請稍後重試。'
+      return false
+    }
     syncCareerEaglePads(this.options.eaglePads, profile, this.sceneKey())
     const pad = id === 'xongkoro' ? this.options.eaglePads?.reserve(PLAYER_EAGLE_PAD_OWNER) : undefined
     // A legacy fourth Player eagle already in flight keeps its saved runtime, even while all home pads are reserved.

@@ -501,19 +501,69 @@ export class HorseAssetRegistry {
   private static template: HorseTemplate | null = null
   private static preloadPromise: Promise<void> | null = null
   private static armoredTemplate: HorseTemplate | null = null
+  private static armoredPreloadPromise: Promise<void> | null = null
+  private static armoredPreloadError: Error | null = null
+  private static lastRenderer: THREE.WebGLRenderer | null = null
 
   static get ready(): boolean {
     return this.template !== null
   }
 
+  static get armoredReady(): boolean {
+    return this.armoredTemplate !== null
+  }
+
+  static get armoredError(): Error | null {
+    return this.armoredPreloadError
+  }
+
+  static resetForTesting(): void {
+    this.template = null
+    this.preloadPromise = null
+    this.armoredTemplate = null
+    this.armoredPreloadPromise = null
+    this.armoredPreloadError = null
+    this.lastRenderer = null
+  }
+
   static preload(renderer: THREE.WebGLRenderer): Promise<void> {
+    this.lastRenderer = renderer
     if (!this.preloadPromise) {
-      this.preloadPromise = Promise.all([this.load(renderer), this.loadArmored(renderer)]).then(() => {}).catch((error) => {
-        this.preloadPromise = null
-        throw error
+      const ordinary = this.template
+        ? Promise.resolve()
+        : this.load(renderer).catch((error) => {
+            this.preloadPromise = null
+            throw error
+          })
+      this.preloadPromise = Promise.all([
+        ordinary,
+        this.preloadArmored(renderer).catch(() => {}),
+      ]).then(() => {
+        if (!this.armoredTemplate) this.preloadPromise = null
       })
     }
     return this.preloadPromise
+  }
+
+  static preloadArmored(renderer?: THREE.WebGLRenderer): Promise<void> {
+    const activeRenderer = renderer ?? this.lastRenderer
+    if (renderer) this.lastRenderer = renderer
+    if (this.armoredTemplate) return Promise.resolve()
+    if (!this.armoredPreloadPromise) {
+      if (!activeRenderer) {
+        const error = new Error('Renderer is required to preload armored horse assets')
+        this.armoredPreloadError = error
+        return Promise.reject(error)
+      }
+      this.armoredPreloadPromise = this.loadArmored(activeRenderer).then(() => {
+        this.armoredPreloadError = null
+      }).catch((error) => {
+        this.armoredPreloadPromise = null
+        this.armoredPreloadError = error instanceof Error ? error : new Error(String(error))
+        throw error
+      })
+    }
+    return this.armoredPreloadPromise
   }
 
   private static async load(renderer: THREE.WebGLRenderer): Promise<void> {
@@ -615,6 +665,23 @@ export class HorseAssetRegistry {
       firstSkinnedMesh(gltf.scene)
       normalizedClips(gltf)
       for (const name of [...REQUIRED_SOCKETS, ...Object.values(manifest.lodNodes)]) requireObject(gltf.scene, name)
+      const textures = new Map<string, Promise<THREE.Texture>>()
+      for (const [index, texture] of (gltf.parser?.json?.textures ?? []).entries()) {
+        const imageIndex = texture.extensions?.KHR_texture_basisu?.source ?? texture.source
+        const uri = gltf.parser?.json?.images?.[imageIndex]?.uri
+        if (uri) textures.set(textureUrl(base, uri), gltf.parser.getDependency('texture', index))
+      }
+      const loadTexture = (path: string): Promise<THREE.Texture> => {
+        const url = textureUrl(base, path)
+        if (!textures.has(url)) textures.set(url, ktx.loadAsync(url))
+        return textures.get(url)!
+      }
+      await Promise.all([
+        loadTexture(manifest.sharedBodyMaps.normal),
+        loadTexture(manifest.sharedBodyMaps.roughness),
+        ...(manifest.sharedBodyMaps.ao ? [loadTexture(manifest.sharedBodyMaps.ao)] : []),
+        ...manifest.variants.map(variant => loadTexture(variant.baseColor)),
+      ])
       const material = requireMesh(gltf.scene, manifest.bodyMeshNames[0]).material
       if (!(material instanceof THREE.MeshStandardMaterial)) throw new Error('Armored horse material is unsupported')
       this.armoredTemplate = { manifest, gltf, bodyMaterials: [material, material, material],
@@ -622,10 +689,19 @@ export class HorseAssetRegistry {
     } finally { ktx.dispose() }
   }
 
-  static createInstance(config: { variant?: HorseAppearanceVariant; armored?: boolean } = {}): HorseInstance {
+  static resolveTemplate(config: { variant?: HorseAppearanceVariant; armored?: boolean } = {}): HorseTemplate {
+    if (config.armored) {
+      if (!this.armoredTemplate) {
+        throw this.armoredPreloadError ?? new Error('Armored horse assets were not preloaded')
+      }
+      return this.armoredTemplate
+    }
     if (!this.template) throw new Error('HorseAssetRegistry is not preloaded')
-    const template = config.armored ? this.armoredTemplate : this.template
-    if (!template) throw new Error('Armored horse assets were not preloaded')
+    return this.template
+  }
+
+  static createInstance(config: { variant?: HorseAppearanceVariant; armored?: boolean } = {}): HorseInstance {
+    const template = this.resolveTemplate(config)
     return createHorseInstance(template, config.armored ? 0 : config.variant ?? 0)
   }
 }

@@ -5,7 +5,7 @@ import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerP
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { MountArmor } from '../../src/combat/MountArmor'
 import { MemoryStorage } from '../helpers/memoryStorage'
-import type { HorseAppearanceVariant } from '../../src/world/HorseAssetRegistry'
+import { HorseAssetRegistry, type HorseAppearanceVariant } from '../../src/world/HorseAssetRegistry'
 
 // Exercise the transaction owner without a scene, Player or Mount constructor.
 interface AppearanceEntry { setAppearanceVariant(variant: HorseAppearanceVariant): boolean }
@@ -74,5 +74,36 @@ describe('Career horse appearance transactions', () => {
     const loaded = parseCareerProfile(JSON.parse(JSON.stringify(p)))!
     expect(loaded.selectedMountId).toBe('horse')
     expect(careerMountAppearanceVariant(loaded)).toBe(0)
+  })
+
+  it('reports explicit error and preserves save state without substituting an ordinary horse when armored warhorse asset is unavailable', async () => {
+    HorseAssetRegistry.resetForTesting()
+    const current = profile(); addCareerItem(current, 'armored-horse', 1)
+    current.rank = 'commander'; current.selectedMountId = 'armored-horse'
+    current.activeMission = { kind: 'outpost-relief', mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 600 }, unavailable: [] } } as unknown as CareerProfile['activeMission']
+    const preloadSpy = vi.spyOn(HorseAssetRegistry, 'preloadArmored').mockRejectedValue(new Error('GLB 404'))
+    const controller = Object.create(CareerMountController.prototype) as CareerMountController
+    Object.assign(controller as unknown as object, {
+      scene: {}, player: () => ({ isFalling: false, currentMount: null }), readProfile: () => current,
+      commit: vi.fn(() => true), obstacles: () => [], occupied: () => [], sceneKey: () => 'town-home', options: {},
+      hp: new Map([['armored-horse', 600]]), armorImpact: new Map([['armored-horse', 50]]), unavailable: new Set(),
+      active: null, requestSeq: 0, pending: null, statusText: '',
+    })
+
+    // Restoring active mount when armored horse is unavailable fails cleanly without mutating selectedMountId
+    expect(controller.restoreActiveMount()).toBe(false)
+    expect(controller.activeMountId).toBeNull()
+    expect(current.selectedMountId).toBe('armored-horse')
+    expect(controller.statusText).toContain('重甲戰馬資源載入失敗')
+
+    // Explicit activation triggers preloadArmored, coalesces duplicate clicks, and reports failure
+    expect(controller.activate('armored-horse')).toBe(false)
+    expect(controller.activate('armored-horse')).toBe(false)
+    expect(preloadSpy).toHaveBeenCalledTimes(1)
+    for (let i = 0; i < 4; i++) await Promise.resolve()
+    expect(controller.activeMountId).toBeNull()
+    expect(current.selectedMountId).toBe('armored-horse')
+    expect(controller.statusText).toContain('重甲戰馬資源載入失敗')
+    preloadSpy.mockRestore()
   })
 })

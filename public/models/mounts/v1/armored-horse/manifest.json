@@ -62,19 +62,19 @@
   },
   "metrics": {
     "shoulderHeightM": 1.65,
-    "overallHeightM": 2.43980974316597,
+    "overallHeightM": 2.4226867240596954,
     "saddleHeightM": 1.91,
     "widthM": 1.007,
     "lengthM": 2.54,
     "triangles": {
-      "lod0": 31807,
-      "lod1": 12085,
-      "lod2": 4134
+      "lod0": 31010,
+      "lod1": 11783,
+      "lod2": 4031
     },
     "joints": 70,
     "materials": 3,
     "textureMaxSize": 2048,
-    "packageBytes": 8779432
+    "packageBytes": 9262372
   },
   "attribution": "Meshy armored warhorse generated and provided by repository owner; animation rig and nine clips reused from the credited SagaBurst horse.",
   "sources": [
@@ -116,5 +116,5 @@
     "gallop": 12.1285
   },
   "revision": "meshy-armored-horse-v1",
-  "sha256": "1bcc6e2f48792764f34bae6694072ab412fa7865ce3b91fc86c7ea97c7ebc8ef"
+  "sha256": "2f21535d07fe314be023301959e78af9ee14b5597668e378f2b44c1edd99f480"
 }

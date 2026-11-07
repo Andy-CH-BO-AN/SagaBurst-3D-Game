@@ -106,6 +106,6 @@ for lod, ratio in [(1, 0.38), (2, 0.13)]:
             indices.append(len(indices))
     results[str(lod)] = dict(positions=positions, normals=normals, uv=uvs, weights=weights, jointNames=names, indices=indices, triangles=len(indices)//3)
     print('ARMORED_LOD', lod, len(indices)//3)
-(stage/'simplified-lods.json').write_text(json.dumps(dict(skinRevision='reviewed-baked-lods-v14', sourceSha256='cd3e443eec8d404c4cc4b1b8f800ade5c6679533de1847a78ac1d7a3e4b36ad2', lods=results)))
+(stage/'simplified-lods.json').write_text(json.dumps(dict(skinRevision='reviewed-baked-lods-v17', sourceSha256='cd3e443eec8d404c4cc4b1b8f800ade5c6679533de1847a78ac1d7a3e4b36ad2', lods=results)))
 for o in owned: bpy.data.objects.remove(o, do_unlink=True)
 scene.render.engine = original_engine
