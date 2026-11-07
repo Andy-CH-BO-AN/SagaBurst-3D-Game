@@ -82,7 +82,7 @@ export function getMapDeploymentZones(mapId: CustomBattleMapId = 'original'): Ma
       // South Bank (Viking) extends to +250; North Bank (Roman) extends to -250.
       return {
         edgeZ: 220,
-        boundsX: 85,
+        boundsX: 130,
         rankGap: 20,
         playerOffset: 12,
       }
@@ -92,7 +92,7 @@ export function getMapDeploymentZones(mapId: CustomBattleMapId = 'original'): Ma
       // Outside south wall is Z in [140, 250]; outside north wall is Z in [-250, -140].
       return {
         edgeZ: 225,
-        boundsX: 110,
+        boundsX: 140,
         rankGap: 20,
         playerOffset: 12,
       }
@@ -174,8 +174,12 @@ export class SquadFormationPlanner {
     const isVikingPlayer = playerFaction === 'viking'
 
     // 1. Expand all units and assign squad IDs (1..10)
-    const vikingUnits = this._expandFactionUnits(config.viking, 'viking', prng, config.squadAssignments)
-    const romanUnits = this._expandFactionUnits(config.roman, 'roman', prng, undefined)
+    // Custom Battle squad assignments apply to the player's faction; the enemy faction uses automatic grouping.
+    const vikingAssignments = isVikingPlayer ? config.squadAssignments : undefined
+    const romanAssignments = !isVikingPlayer ? config.squadAssignments : undefined
+
+    const vikingUnits = this._expandFactionUnits(config.viking, 'viking', prng, vikingAssignments)
+    const romanUnits = this._expandFactionUnits(config.roman, 'roman', prng, romanAssignments)
 
     // 2. Group into squads and partition into front/rear ranks
     const vikingSquads = this._groupIntoSquads(vikingUnits)
@@ -208,6 +212,19 @@ export class SquadFormationPlanner {
       ? romanRearBaseZ + zones.rankGap + romanFrontDepth
       : romanRearBaseZ
 
+    // Corridors ensuring ranks and player never overlap
+    const hasVikingFront = vikingPartition.frontRank.length > 0
+    const vikingFrontMinZ = vikingFrontBaseZ - 10
+    const vikingFrontMaxZ = vikingRearBaseZ - 6
+    const vikingRearMinZ = hasVikingFront ? vikingRearBaseZ - 4 : vikingRearBaseZ - 20
+    const vikingRearMaxZ = zones.edgeZ + 4
+
+    const hasRomanFront = romanPartition.frontRank.length > 0
+    const romanFrontMinZ = romanRearBaseZ + 6
+    const romanFrontMaxZ = romanFrontBaseZ + 10
+    const romanRearMinZ = -(zones.edgeZ + 4)
+    const romanRearMaxZ = hasRomanFront ? romanRearBaseZ + 4 : romanRearBaseZ + 20
+
     // 6. Deploy Viking ranks (Front first, then Rear)
     this._deployFactionRank(
       vikingPartition.frontRank,
@@ -220,6 +237,8 @@ export class SquadFormationPlanner {
       obstacles,
       occupied,
       zones.boundsX,
+      vikingFrontMinZ,
+      vikingFrontMaxZ,
     )
     this._deployFactionRank(
       vikingPartition.rearRank,
@@ -232,6 +251,8 @@ export class SquadFormationPlanner {
       obstacles,
       occupied,
       zones.boundsX,
+      vikingRearMinZ,
+      vikingRearMaxZ,
     )
 
     // 7. Deploy Roman ranks (Front first, then Rear)
@@ -246,6 +267,8 @@ export class SquadFormationPlanner {
       obstacles,
       occupied,
       zones.boundsX,
+      romanFrontMinZ,
+      romanFrontMaxZ,
     )
     this._deployFactionRank(
       romanPartition.rearRank,
@@ -258,13 +281,28 @@ export class SquadFormationPlanner {
       obstacles,
       occupied,
       zones.boundsX,
+      romanRearMinZ,
+      romanRearMaxZ,
     )
 
     // 8. Player spawn: safely behind their army's rear rank, at map edge
     const playerTargetZ = isVikingPlayer
       ? zones.edgeZ + zones.playerOffset
       : -(zones.edgeZ + zones.playerOffset)
-    const playerPos = this._findClearPosition(0, playerTargetZ, obstacles, occupied, 1.0, zones.boundsX)
+    const playerMinZ = isVikingPlayer ? zones.edgeZ + 4 : -(zones.edgeZ + zones.playerOffset + 15)
+    const playerMaxZ = isVikingPlayer ? zones.edgeZ + zones.playerOffset + 15 : -(zones.edgeZ + 4)
+    const playerPos = this._findClearPosition(
+      0,
+      playerTargetZ,
+      obstacles,
+      occupied,
+      1.0,
+      zones.boundsX,
+      playerMinZ,
+      playerMaxZ,
+      'player',
+    )
+    occupied.push({ x: playerPos.x, z: playerPos.z, radius: 1.0 })
     const playerSpawn = {
       x: playerPos.x,
       z: playerPos.z,
@@ -464,6 +502,8 @@ export class SquadFormationPlanner {
     obstacles: ObstacleData[] | undefined,
     occupied: OccupiedFootprint[],
     boundsX: number,
+    minZ: number,
+    maxZ: number,
   ): void {
     if (squads.length === 0) return
 
@@ -516,15 +556,24 @@ export class SquadFormationPlanner {
 
         let x = squadCenterX + offsetX
         let z = rankBaseZ + rowOffsetZ
+        const name = `${characterFaction}_${unit.presetName}_t${unit.tier}_s${unit.squadId}_${uIdx + 1}`
 
         // Find clear non-overlapping position
-        const clearPos = this._findClearPosition(x, z, obstacles, occupied, footRadius, boundsX)
+        const clearPos = this._findClearPosition(
+          x,
+          z,
+          obstacles,
+          occupied,
+          footRadius,
+          boundsX,
+          minZ,
+          maxZ,
+          name,
+        )
         x = clearPos.x
         z = clearPos.z
 
         occupied.push({ x, z, radius: footRadius })
-
-        const name = `${characterFaction}_${unit.presetName}_t${unit.tier}_s${unit.squadId}_${uIdx + 1}`
 
         npcSpecs.push({
           x,
@@ -556,40 +605,59 @@ export class SquadFormationPlanner {
     occupied: OccupiedFootprint[],
     radius: number,
     boundsX: number,
+    minZ: number,
+    maxZ: number,
+    unitName: string,
   ): { x: number; z: number } {
-    let clampedX = Math.max(-boundsX + 5, Math.min(boundsX - 5, startX))
-    if (!this._isBlocked(clampedX, startZ, obstacles, occupied, radius)) {
-      return { x: clampedX, z: startZ }
+    const xMin = -boundsX + 5
+    const xMax = boundsX - 5
+    const clampedX = Math.max(xMin, Math.min(xMax, startX))
+    const clampedZ = Math.max(minZ, Math.min(maxZ, startZ))
+
+    if (!this._isBlocked(clampedX, clampedZ, obstacles, occupied, radius)) {
+      return { x: clampedX, z: clampedZ }
     }
 
-    // Search outward spiral with adequate step to avoid overlapping occupied footprints
-    const step = Math.max(2.2, radius * 1.5)
-    for (let r = 1; r <= 15; r++) {
+    const step = Math.max(2.0, radius * 1.5)
+
+    // 1. Outward spiral search around (clampedX, clampedZ)
+    for (let r = 1; r <= 35; r++) {
       const ringDeltas = [
         [0, r], [r, 0], [0, -r], [-r, 0],
         [r, r], [-r, r], [r, -r], [-r, -r],
         [r * 0.5, r], [-r * 0.5, r], [r * 0.5, -r], [-r * 0.5, -r],
+        [r, r * 0.5], [-r, r * 0.5], [r, -r * 0.5], [-r, -r * 0.5],
       ]
       for (const [dx, dz] of ringDeltas) {
-        const testX = Math.max(-boundsX + 5, Math.min(boundsX - 5, startX + dx * step))
-        const testZ = startZ + dz * step
-        if (!this._isBlocked(testX, testZ, obstacles, occupied, radius)) {
-          return { x: testX, z: testZ }
+        const testX = clampedX + dx * step
+        const testZ = clampedZ + dz * step
+        if (testX >= xMin && testX <= xMax && testZ >= minZ && testZ <= maxZ) {
+          if (!this._isBlocked(testX, testZ, obstacles, occupied, radius)) {
+            return { x: testX, z: testZ }
+          }
         }
       }
     }
 
-    // Extended horizontal search fallback: never return a blocked spot
-    for (let offset = step * 16; offset <= step * 30; offset += step) {
+    // 2. Systematic corridor grid scan within [xMin, xMax] x [minZ, maxZ]
+    const zSpan = Math.max(maxZ - clampedZ, clampedZ - minZ)
+    for (let deltaZ = 0; deltaZ <= zSpan; deltaZ += step) {
       for (const sign of [1, -1]) {
-        const testX = Math.max(-boundsX + 5, Math.min(boundsX - 5, startX + sign * offset))
-        if (!this._isBlocked(testX, startZ, obstacles, occupied, radius)) {
-          return { x: testX, z: startZ }
+        const testZ = clampedZ + sign * deltaZ
+        if (testZ < minZ || testZ > maxZ) continue
+        for (let testX = xMin; testX <= xMax; testX += step) {
+          if (!this._isBlocked(testX, testZ, obstacles, occupied, radius)) {
+            return { x: testX, z: testZ }
+          }
         }
       }
     }
 
-    return { x: clampedX, z: startZ }
+    // 3. Fail-closed: Never return a blocked or unverified coordinate
+    throw new Error(
+      `Unable to find safe non-overlapping deployment position for ${unitName} within deployment zone bounds ` +
+      `(x in [${xMin}, ${xMax}], z in [${minZ}, ${maxZ}]). All candidate positions are blocked or occupied.`
+    )
   }
 
   private static _isBlocked(

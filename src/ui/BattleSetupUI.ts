@@ -62,6 +62,7 @@ export class BattleSetupUI {
   private _savedGroundRoman?: ArmyConfig
   private _savedAerialViking?: ArmyConfig
   private _savedAerialRoman?: ArmyConfig
+  private _savedGroundMapId?: CustomBattleMapId
 
   constructor(initialConfig?: BattleConfig) {
     this.config = initialConfig
@@ -69,6 +70,12 @@ export class BattleSetupUI {
       : getDefaultBattleConfig()
     attachArmyAliases(this.config.viking, 'viking')
     attachArmyAliases(this.config.roman, 'roman')
+    if (this.config.battleType === 'aerial') {
+      this._savedGroundMapId = this.config.mapId ?? 'original'
+      this.config.mapId = 'original'
+    } else {
+      this._savedGroundMapId = this.config.mapId ?? 'original'
+    }
     if (!this.config.mode) {
       this.config.mode = 'formation'
     }
@@ -108,6 +115,63 @@ export class BattleSetupUI {
       this.container.parentNode.removeChild(this.container)
     }
     this.container = null
+  }
+
+  getConfig(): BattleConfig {
+    return this.config
+  }
+
+  switchBattleType(type: 'ground' | 'aerial'): void {
+    if (type === 'ground') {
+      if (this.config.battleType === 'ground') return
+      this._savedAerialViking = JSON.parse(JSON.stringify(this.config.viking))
+      this._savedAerialRoman = JSON.parse(JSON.stringify(this.config.roman))
+      this.config.battleType = 'ground'
+      if (this._savedGroundViking && this._savedGroundRoman) {
+        this.config.viking = JSON.parse(JSON.stringify(this._savedGroundViking))
+        this.config.roman = JSON.parse(JSON.stringify(this._savedGroundRoman))
+      }
+      this.config.mapId = this._savedGroundMapId ?? 'original'
+      attachArmyAliases(this.config.viking, 'viking')
+      attachArmyAliases(this.config.roman, 'roman')
+      this.config.squadAssignments = undefined
+      this._renderSetup()
+    } else {
+      if (this.config.battleType === 'aerial') return
+      this._savedGroundViking = JSON.parse(JSON.stringify(this.config.viking))
+      this._savedGroundRoman = JSON.parse(JSON.stringify(this.config.roman))
+      this._savedGroundMapId = this.config.mapId ?? 'original'
+      this.config.battleType = 'aerial'
+      this.config.mapId = 'original'
+      if (this._savedAerialViking && this._savedAerialRoman) {
+        this.config.viking = JSON.parse(JSON.stringify(this._savedAerialViking))
+        this.config.roman = JSON.parse(JSON.stringify(this._savedAerialRoman))
+      } else {
+        const vArmy = createEmptyArmyConfig()
+        const rArmy = createEmptyArmyConfig()
+        const vMax = this._getMaxArmyForFaction('viking')
+        const rMax = this._getMaxArmyForFaction('roman')
+        for (const t of CUSTOM_BATTLE_UNIT_TIERS) {
+          vArmy.archer[t] = Math.min(vMax, (this.config.viking as any).archer?.[t] ?? 0)
+          rArmy.archer[t] = Math.min(rMax, (this.config.roman as any).archer?.[t] ?? 0)
+        }
+        if (calculateArmyTotal(vArmy) === 0) vArmy.archer[3] = Math.min(10, vMax)
+        if (calculateArmyTotal(rArmy) === 0) rArmy.archer[3] = Math.min(10, rMax)
+        this.config.viking = vArmy
+        this.config.roman = rArmy
+      }
+      attachArmyAliases(this.config.viking, 'viking')
+      attachArmyAliases(this.config.roman, 'roman')
+      this._clampAerialArmies()
+      this.config.squadAssignments = undefined
+      this._renderSetup()
+    }
+  }
+
+  selectMap(mapId: CustomBattleMapId): void {
+    this.config.mapId = mapId
+    this._savedGroundMapId = mapId
+    this._refreshView()
   }
 
   private _getMaxArmyForFaction(faction: 'viking' | 'roman'): number {
@@ -530,46 +594,10 @@ export class BattleSetupUI {
 
     // Battle Type buttons
     document.getElementById('battle-type-ground')?.addEventListener('click', () => {
-      if (this.config.battleType === 'ground') return
-      this._savedAerialViking = JSON.parse(JSON.stringify(this.config.viking))
-      this._savedAerialRoman = JSON.parse(JSON.stringify(this.config.roman))
-      this.config.battleType = 'ground'
-      if (this._savedGroundViking && this._savedGroundRoman) {
-        this.config.viking = JSON.parse(JSON.stringify(this._savedGroundViking))
-        this.config.roman = JSON.parse(JSON.stringify(this._savedGroundRoman))
-      }
-      attachArmyAliases(this.config.viking, 'viking')
-      attachArmyAliases(this.config.roman, 'roman')
-      this.config.squadAssignments = undefined
-      this._renderSetup()
+      this.switchBattleType('ground')
     })
     document.getElementById('battle-type-aerial')?.addEventListener('click', () => {
-      if (this.config.battleType === 'aerial') return
-      this._savedGroundViking = JSON.parse(JSON.stringify(this.config.viking))
-      this._savedGroundRoman = JSON.parse(JSON.stringify(this.config.roman))
-      this.config.battleType = 'aerial'
-      if (this._savedAerialViking && this._savedAerialRoman) {
-        this.config.viking = JSON.parse(JSON.stringify(this._savedAerialViking))
-        this.config.roman = JSON.parse(JSON.stringify(this._savedAerialRoman))
-      } else {
-        const vArmy = createEmptyArmyConfig()
-        const rArmy = createEmptyArmyConfig()
-        const vMax = this._getMaxArmyForFaction('viking')
-        const rMax = this._getMaxArmyForFaction('roman')
-        for (const t of CUSTOM_BATTLE_UNIT_TIERS) {
-          vArmy.archer[t] = Math.min(vMax, (this.config.viking as any).archer?.[t] ?? 0)
-          rArmy.archer[t] = Math.min(rMax, (this.config.roman as any).archer?.[t] ?? 0)
-        }
-        if (calculateArmyTotal(vArmy) === 0) vArmy.archer[3] = Math.min(10, vMax)
-        if (calculateArmyTotal(rArmy) === 0) rArmy.archer[3] = Math.min(10, rMax)
-        this.config.viking = vArmy
-        this.config.roman = rArmy
-      }
-      attachArmyAliases(this.config.viking, 'viking')
-      attachArmyAliases(this.config.roman, 'roman')
-      this._clampAerialArmies()
-      this.config.squadAssignments = undefined
-      this._renderSetup()
+      this.switchBattleType('aerial')
     })
 
     // Map selection buttons
@@ -577,8 +605,7 @@ export class BattleSetupUI {
       btn.addEventListener('click', () => {
         const mapId = (btn as HTMLElement).dataset.mapId as CustomBattleMapId
         if (mapId) {
-          this.config.mapId = mapId
-          this._refreshView()
+          this.selectMap(mapId)
         }
       })
     })
@@ -681,7 +708,7 @@ export class BattleSetupUI {
       const currentHero = this.config.playerHeroId
       const currentVisualTier = this.config.playerVisualTier
       const currentBattleType = this.config.battleType ?? 'ground'
-      const currentMapId = this.config.mapId ?? 'original'
+      const currentMapId = currentBattleType === 'aerial' ? (this._savedGroundMapId ?? 'original') : (this.config.mapId ?? 'original')
       const currentSeed = this.config.seed
 
       if (currentBattleType === 'aerial') {
@@ -713,7 +740,8 @@ export class BattleSetupUI {
       this.config.playerHeroId = currentHero
       this.config.playerVisualTier = currentVisualTier
       this.config.battleType = currentBattleType
-      this.config.mapId = currentMapId
+      this.config.mapId = currentBattleType === 'aerial' ? 'original' : currentMapId
+      this._savedGroundMapId = currentMapId
       this.config.seed = currentSeed
       this.config.squadAssignments = undefined
       this._clampAerialArmies()
@@ -736,7 +764,7 @@ export class BattleSetupUI {
       const currentHero = this.config.playerHeroId
       const currentVisualTier = this.config.playerVisualTier
       const currentBattleType = this.config.battleType ?? 'ground'
-      const currentMapId = this.config.mapId ?? 'original'
+      const currentMapId = currentBattleType === 'aerial' ? (this._savedGroundMapId ?? 'original') : (this.config.mapId ?? 'original')
       const currentSeed = this.config.seed
       this.config = createEmptyBattleConfig()
       attachArmyAliases(this.config.viking, 'viking')
@@ -751,7 +779,8 @@ export class BattleSetupUI {
       this.config.playerHeroId = currentHero
       this.config.playerVisualTier = currentVisualTier
       this.config.battleType = currentBattleType
-      this.config.mapId = currentMapId
+      this.config.mapId = currentBattleType === 'aerial' ? 'original' : currentMapId
+      this._savedGroundMapId = currentMapId
       this.config.seed = currentSeed
       this.config.squadAssignments = undefined
       this._renderSetup()

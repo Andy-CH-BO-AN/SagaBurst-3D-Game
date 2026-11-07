@@ -97,8 +97,12 @@ export class AerialFormationPlanner {
     const isVikingPlayer = playerFaction === 'viking'
 
     // 1. Expand units (archers only) and assign squad IDs (1..10)
-    const vikingUnits = this._expandFactionUnits(config.viking, 'viking', config.squadAssignments)
-    const romanUnits = this._expandFactionUnits(config.roman, 'roman', undefined)
+    // Custom Battle squad assignments apply to the player's faction; the enemy faction uses automatic grouping.
+    const vikingAssignments = isVikingPlayer ? config.squadAssignments : undefined
+    const romanAssignments = !isVikingPlayer ? config.squadAssignments : undefined
+
+    const vikingUnits = this._expandFactionUnits(config.viking, 'viking', vikingAssignments)
+    const romanUnits = this._expandFactionUnits(config.roman, 'roman', romanAssignments)
 
     // 2. Group into squads and partition into front/rear ranks
     const vikingSquads = this._groupIntoSquads(vikingUnits)

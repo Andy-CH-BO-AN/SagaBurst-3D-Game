@@ -943,7 +943,8 @@ export class Game {
       }
     }
     const isCustomBattle = Boolean(battleConfig && !campaignConfig && !this.bridgeLaunch && !this.captainEagleMissionId && !this.felineMissionId)
-    const customMapId = isCustomBattle ? (battleConfig?.mapId ?? 'original') : undefined
+    const isCustomAerial = isCustomBattle && battleConfig?.battleType === 'aerial'
+    const customMapId = isCustomBattle ? (isCustomAerial ? 'original' : (battleConfig?.mapId ?? 'original')) : undefined
     const isBridgeBattle = isBridgePreview || Boolean(this.bridgeLaunch) || customMapId === 'bridge'
     const isSnowBattle = customMapId === 'snow'
     const isRomanTownBattle = customMapId === 'roman_town'

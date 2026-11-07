@@ -14,6 +14,7 @@
  * - Squad shortcut key mappings.
  */
 import { describe, expect, it } from 'vitest'
+import * as THREE from 'three'
 import {
   BattleConfig,
   createEmptyArmyConfig,
@@ -23,6 +24,7 @@ import { BattleSpawner } from '../../src/battle/BattleSpawner'
 import { SquadFormationPlanner } from '../../src/battle/SquadFormationPlanner'
 import { AerialFormationPlanner } from '../../src/battle/AerialFormationPlanner'
 import { BattleController } from '../../src/battle/BattleController'
+import { BattleSetupUI } from '../../src/ui/BattleSetupUI'
 import {
   squadShortcutKey,
   MAX_CUSTOM_BATTLE_COMMAND_SQUADS,
@@ -529,5 +531,183 @@ describe('Custom Battle 2.0: Command Target Shortcuts and Limits', () => {
   it('enforces 10 squads max and 50 units per squad limits', () => {
     expect(MAX_CUSTOM_BATTLE_COMMAND_SQUADS).toBe(10)
     expect(MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE).toBe(50)
+  })
+})
+
+describe('Custom Battle 2.0: Roman Player Squad Assignments and Shortcuts (P0)', () => {
+  it('applies manual squad assignments to Roman army when player is Roman (Ground)', () => {
+    const config = makeGroundConfig(20, 20)
+    config.playerFaction = 'roman'
+    config.commandGrouping = 'squad'
+    config.squadAssignments = [
+      { presetId: 'roman_heavy_infantry', tier: 1, squadId: 6, count: 10 },
+      { presetId: 'roman_heavy_infantry', tier: 1, squadId: 10, count: 10 },
+    ]
+    const plan = SquadFormationPlanner.planCustomBattle(config)
+    const romanSpecs = plan.npcSpecs.filter(s => s.characterFaction === 'roman')
+    expect(romanSpecs.length).toBe(20)
+
+    const squad6 = romanSpecs.filter(s => s.squadId === 6)
+    const squad10 = romanSpecs.filter(s => s.squadId === 10)
+    expect(squad6.length).toBe(10)
+    expect(squad10.length).toBe(10)
+
+    // Shortcut keys correspond: squad 6 -> '6', squad 10 -> '0'
+    expect(squadShortcutKey(6)).toBe('6')
+    expect(squadShortcutKey(10)).toBe('0')
+
+    // Viking army (enemy) should use automatic grouping, NOT squadAssignments
+    const vikingSpecs = plan.npcSpecs.filter(s => s.characterFaction === 'viking')
+    expect(vikingSpecs.length).toBe(20)
+    expect(vikingSpecs.every(s => s.squadId === 1)).toBe(true)
+  })
+
+  it('applies manual squad assignments to Roman army when player is Roman (Aerial)', () => {
+    const config = makeAerialConfig(20, 20, false)
+    config.playerFaction = 'roman'
+    config.commandGrouping = 'squad'
+    config.squadAssignments = [
+      { presetId: 'roman_archer', tier: 3, squadId: 6, count: 10 },
+      { presetId: 'roman_archer', tier: 3, squadId: 10, count: 10 },
+    ]
+    const plan = AerialFormationPlanner.planAerialBattle(config)
+    const romanSpecs = plan.npcSpecs.filter(s => s.characterFaction === 'roman')
+    expect(romanSpecs.length).toBe(20)
+
+    const squad6 = romanSpecs.filter(s => s.squadId === 6)
+    const squad10 = romanSpecs.filter(s => s.squadId === 10)
+    expect(squad6.length).toBe(10)
+    expect(squad10.length).toBe(10)
+
+    // Viking army (enemy) uses automatic grouping
+    const vikingSpecs = plan.npcSpecs.filter(s => s.characterFaction === 'viking')
+    expect(vikingSpecs.length).toBe(20)
+    expect(vikingSpecs.every(s => s.squadId === 1)).toBe(true)
+  })
+
+  it('preserves Viking manual squad assignments when player is Viking without regression', () => {
+    const config = makeGroundConfig(20, 20)
+    config.playerFaction = 'viking'
+    config.commandGrouping = 'squad'
+    config.squadAssignments = [
+      { presetId: 'viking_berserker', tier: 1, squadId: 6, count: 10 },
+      { presetId: 'viking_berserker', tier: 1, squadId: 10, count: 10 },
+    ]
+    const plan = SquadFormationPlanner.planCustomBattle(config)
+    const vikingSpecs = plan.npcSpecs.filter(s => s.characterFaction === 'viking')
+    expect(vikingSpecs.filter(s => s.squadId === 6).length).toBe(10)
+    expect(vikingSpecs.filter(s => s.squadId === 10).length).toBe(10)
+
+    const romanSpecs = plan.npcSpecs.filter(s => s.characterFaction === 'roman')
+    expect(romanSpecs.every(s => s.squadId === 1)).toBe(true)
+  })
+})
+
+describe('Custom Battle 2.0: Clearance and Collision Avoidance (P1)', () => {
+  it('throws a descriptive error when all candidate coordinates in the deployment zone are blocked', () => {
+    const config = makeGroundConfig(5, 5)
+    // Create an obstacle covering the entire Viking deployment zone
+    const hugeObstacle = {
+      box: new THREE.Box3(
+        new THREE.Vector3(-300, -10, 100),
+        new THREE.Vector3(300, 50, 300),
+      ),
+      isBarricade: false,
+    }
+    expect(() => SquadFormationPlanner.planCustomBattle(config, [hugeObstacle])).toThrow(
+      /Unable to find safe non-overlapping deployment position/
+    )
+  })
+
+  it('safely deploys 300v300 with 50 cavalry per squad on Town map with obstacles without overlaps or errors', () => {
+    const config: BattleConfig = {
+      battleType: 'ground',
+      mapId: 'roman_town',
+      playerFaction: 'viking',
+      spectator: false,
+      rules: { respawnEnabled: false, includeCamps: false },
+      playerLoadout: {
+        meleeWeaponId: 'sword_t5',
+        rangedWeaponId: 'bow_t5',
+        shieldId: 'commander_shield_t5',
+        startMounted: true,
+        mountId: 'horse',
+      },
+      viking: {
+        viking_lancer: { 1: 50, 2: 50, 3: 50, 4: 50, 5: 50 },
+        viking_horse_archer: { 1: 50, 2: 0, 3: 0, 4: 0, 5: 0 },
+      } as any,
+      roman: {
+        roman_lancer: { 1: 50, 2: 50, 3: 50, 4: 50, 5: 50 },
+        roman_horse_archer: { 1: 50, 2: 0, 3: 0, 4: 0, 5: 0 },
+      } as any,
+    }
+    // Town wall obstacle at South gate / wall (Z in [95, 105], X in [-100, 100])
+    const townObstacles = [
+      {
+        box: new THREE.Box3(new THREE.Vector3(-100, -1, 95), new THREE.Vector3(100, 10, 105)),
+        isBarricade: false,
+      },
+      {
+        box: new THREE.Box3(new THREE.Vector3(-100, -1, -105), new THREE.Vector3(100, 10, -95)),
+        isBarricade: false,
+      },
+    ]
+
+    const plan = SquadFormationPlanner.planCustomBattle(config, townObstacles)
+    expect(plan.npcSpecs.length).toBe(600)
+
+    // Check cavalry distance >= 4.0m among same-faction placed units (sample first 60 for fast unit test)
+    const vikingUnits = plan.npcSpecs.filter(s => s.characterFaction === 'viking').slice(0, 60)
+    for (let i = 0; i < vikingUnits.length; i++) {
+      for (let j = i + 1; j < vikingUnits.length; j++) {
+        const dist = Math.hypot(vikingUnits[i].x - vikingUnits[j].x, vikingUnits[i].z - vikingUnits[j].z)
+        expect(dist).toBeGreaterThanOrEqual(4.0)
+      }
+    }
+
+    // Check all units are strictly outside the town wall obstacles
+    for (const unit of plan.npcSpecs) {
+      for (const obs of townObstacles) {
+        const insideX = unit.x >= obs.box.min.x - 1.0 && unit.x <= obs.box.max.x + 1.0
+        const insideZ = unit.z >= obs.box.min.z - 1.0 && unit.z <= obs.box.max.z + 1.0
+        expect(insideX && insideZ).toBe(false)
+      }
+    }
+  })
+})
+
+describe('Custom Battle 2.0: Battle Type Map Selection Persistence (P2)', () => {
+  it('resets map to original in aerial mode and preserves ground map selection across mode toggles', () => {
+    const config = makeGroundConfig(10, 10)
+    config.mapId = 'roman_town'
+    const ui = new BattleSetupUI(config)
+
+    // Initial state: ground mode with roman_town
+    expect(ui.getConfig().battleType ?? 'ground').toBe('ground')
+    expect(ui.getConfig().mapId).toBe('roman_town')
+
+    // Switch to Aerial
+    ui.switchBattleType('aerial')
+    expect(ui.getConfig().battleType).toBe('aerial')
+    expect(ui.getConfig().mapId).toBe('original')
+
+    // Switch back to Ground: restores roman_town
+    ui.switchBattleType('ground')
+    expect(ui.getConfig().battleType).toBe('ground')
+    expect(ui.getConfig().mapId).toBe('roman_town')
+
+    // Select snow map in ground mode
+    ui.selectMap('snow')
+    expect(ui.getConfig().mapId).toBe('snow')
+
+    // Switch to Aerial again: forced to original
+    ui.switchBattleType('aerial')
+    expect(ui.getConfig().mapId).toBe('original')
+
+    // Switch back to Ground: restores snow
+    ui.switchBattleType('ground')
+    expect(ui.getConfig().battleType).toBe('ground')
+    expect(ui.getConfig().mapId).toBe('snow')
   })
 })
