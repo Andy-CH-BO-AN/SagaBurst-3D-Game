@@ -705,6 +705,16 @@ export class Player {
     }
   }
 
+  private _updateRangedAim(rightMouseDown: boolean, wantAim: boolean): void {
+    const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
+    if (!rightMouseDown && !rangedReleasing) this.rangedAimRequiresRmbRelease = false
+    const canAim = wantAim && !this.rangedAimRequiresRmbRelease && !this.isSwinging
+    this.aiming = canAim && !rangedReleasing
+    // Bow recovery blocks another draw, but must not interrupt the held aim view.
+    // Pilum keeps its existing view until the projectile event ends it.
+    if (this.animator.currentAction !== 'pilumThrow') this.rangedAimViewActive = canAim
+  }
+
   private _startBowRelease(
     cameraAimPoint: THREE.Vector3,
     archeryMultiplier: number,
@@ -886,14 +896,10 @@ export class Player {
     quiverUI.setShieldBlocked?.(false)
     const wantAim = rightMouseDown && Boolean(equippedRanged) && !equippedShield
     const wantsBowAim = rightMouseDown && (Boolean(equippedRanged) || Boolean(flyingMount))
-    const rangedReleasing = this.animator.currentAction === 'bowRelease' || this.animator.currentAction === 'pilumThrow'
-    if (!rightMouseDown && !rangedReleasing) this.rangedAimRequiresRmbRelease = false
     if (wantsBowAim) {
       this.meleeAttackBufferTimer = 0
     }
-    this.aiming = wantAim && !this.rangedAimRequiresRmbRelease && !this.isSwinging && !rangedReleasing
-    if (this.aiming && equippedRanged) this.rangedAimViewActive = true
-    else if (!rangedReleasing || (this.animator.currentAction === 'bowRelease' && this.nockedArrowReleased)) this.rangedAimViewActive = false
+    this._updateRangedAim(rightMouseDown, wantAim)
     this.aimBlend = THREE.MathUtils.clamp(this.aimBlend + (this.aiming ? dt / 0.18 : -dt / 0.18), 0, 1)
 
     if (this.aiming) {
@@ -1071,6 +1077,7 @@ export class Player {
         this.nockedArrowReleased = true
         this.bowVisualDrawRatio = 0
         this.bowPivot.visible = false
+        this.rangedAimViewActive = false
       } else {
         this._fireArrow(this.pendingArrowTarget, this.pendingArcheryMultiplier, this.pendingRangedWeapon, this.pendingBowChargeTime)
       }
@@ -1079,7 +1086,6 @@ export class Player {
         this.bowVisualDrawRatio = 0
         soundManager.playBowRelease(0, true, 0)
       }
-      this.rangedAimViewActive = this.pendingRangedWeapon?.combatKind !== 'javelin' && rightMouseDown
     }
     quiverUI.setAiming(this.rangedAimViewActive)
     if (animationEvents.actionCompleted) {
