@@ -16,7 +16,7 @@ export interface CharacterIdentity {
 export interface CharacterIdentityInput extends Partial<Omit<CharacterIdentity, 'characterFaction'>> {
   characterFaction: SoldierFaction
   /** Compatibility input for old mission rosters; never pass weapon tier in new data. */
-  tier?: 1 | 2 | 3 | 4
+  tier?: CharacterTier
 }
 const ARCHETYPE_BY_PROFILE: Record<HeroCombatProfileId, HeroArchetype> = {
   varangian: 'captain', praetorian: 'captain', ranger: 'ranger',

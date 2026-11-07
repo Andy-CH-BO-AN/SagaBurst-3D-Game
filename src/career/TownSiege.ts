@@ -66,7 +66,7 @@ export function siegeRosterVersion(state: Pick<TownSiegeState, 'rosterCreated' |
 /** Siege borrowing only accepts ordinary T2 outskirts generations. Their stable
  * IDs survive mission ownership and reload; the T3 roster entry describes the
  * borrowed equipment, not a promotion. Fresh mission IDs and heroes keep theirs. */
-export function siegeActorCharacterTier(actorId: string, rosterTier: 1 | 2 | 3 | 4): 1 | 2 | 3 | 4 {
+export function siegeActorCharacterTier(actorId: string, rosterTier: 1 | 2 | 3 | 4 | 5): 1 | 2 | 3 | 4 | 5 {
   return legacySiegeCharacterTier(actorId, rosterTier)
 }
 /** Native Viking charge swaps foot archers to daggers; siege bow infantry retain their ranged role. */

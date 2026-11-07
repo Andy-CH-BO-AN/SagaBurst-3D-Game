@@ -12,14 +12,16 @@ import {
   normalizeArmyConfig,
 } from './BattleConfig'
 import { T4_UNIT_PROFILES, resolveT4UnitLoadout } from './T4HeroCatalog'
+import { getT5ProfileForFaction, resolveT5UnitLoadout } from './T5HeroCatalog'
 import type { HeroCombatProfileId } from './HeroCombatProfile'
 import type { HeroAssetId } from '../world/HeroAssetCatalog'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import type { CharacterTier, HeroArchetype } from '../combat/CharacterIdentity'
-import { TERRAIN_TREE_POSITIONS } from '../world/Terrain'
+import { TERRAIN_TREE_POSITIONS, type ObstacleData } from '../world/Terrain'
 import {
   UNIT_PRESETS,
   resolveUnitLoadout,
+  type BaseUnitTier,
   type UnitLoadout,
   type UnitPresetId,
 } from './UnitPresetCatalog'
@@ -29,6 +31,8 @@ import {
   type SquadAssignment,
   type SquadId,
 } from './CommandTarget'
+import { SquadFormationPlanner } from './SquadFormationPlanner'
+import { AerialFormationPlanner } from './AerialFormationPlanner'
 
 export interface NpcSpawnSpec {
   actorId?: string
@@ -185,7 +189,13 @@ export class BattleSpawner {
   /**
    * Generates a complete deterministic spawn plan from BattleConfig.
    */
-  static createSpawnPlan(config: BattleConfig): BattleSpawnPlan {
+  static createSpawnPlan(config: BattleConfig, obstacles?: ObstacleData[]): BattleSpawnPlan {
+    if (config.battleType === 'aerial') {
+      return AerialFormationPlanner.planAerialBattle(config)
+    }
+    if (config.battleType === 'ground' || config.mapId !== undefined) {
+      return SquadFormationPlanner.planCustomBattle(config, obstacles)
+    }
     const mode = config.mode ?? 'formation'
     const plan = mode === 'scattered'
       ? this._generateScatteredPlan(config)
@@ -395,8 +405,9 @@ export class BattleSpawner {
       for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
         const count = tierCounts[tier] || 0
         const profile = tier === 4 ? T4_UNIT_PROFILES[presetId] : null
-        const baseLoadout = resolveUnitLoadout(presetId, tier === 4 ? 3 : tier)
-        const loadout = profile ? resolveT4UnitLoadout(presetId) : baseLoadout
+        const t5Profile = tier === 5 ? getT5ProfileForFaction(faction) : null
+        const baseLoadout = resolveUnitLoadout(presetId, (tier >= 4 ? 3 : tier) as BaseUnitTier)
+        const loadout = profile ? resolveT4UnitLoadout(presetId) : t5Profile ? resolveT5UnitLoadout(presetId) : baseLoadout
         const hasRanged = Boolean(loadout.rangedWeaponId)
         const formationMounted = Boolean(baseLoadout.mountId)
         const formationRanged = Boolean(baseLoadout.rangedWeaponId)
@@ -411,8 +422,8 @@ export class BattleSpawner {
             cavalry: formationMounted,
             aiType,
             loadout,
-            visualAssetId: profile?.visualAssetId,
-            combatProfileId: profile?.combatProfileId,
+            visualAssetId: profile?.visualAssetId ?? t5Profile?.visualAssetId,
+            combatProfileId: profile?.combatProfileId ?? t5Profile?.combatProfileId,
             specialCombatProfile: profile?.specialCombatProfile,
           }
 

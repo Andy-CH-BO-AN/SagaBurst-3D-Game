@@ -9,17 +9,17 @@ function config(count: number): BattleConfig {
 }
 describe('Custom battle input boundaries', () => {
   it('accepts the maximum army and rejects one soldier above it', () => {
-    const current = config(200)
+    const current = config(300)
     current.playerLoadout = { meleeWeaponId: 'sword_t5', rangedWeaponId: 'bow_t5', shieldId: 'commander_shield_t5', startMounted: false }
     expect(validateBattleConfig(current)).toEqual({ valid: true, errors: [] })
-    expect(validateBattleConfig({ ...current, viking: config(201).viking }).valid).toBe(false)
+    expect(validateBattleConfig({ ...current, viking: config(301).viking }).valid).toBe(false)
   })
   it('rejects a command squad over its capacity before deployment', () => {
-    const current = config(31)
-    current.squadAssignments = [{ presetId: 'viking_berserker', tier: 1, squadId: 1, count: 31 }]
+    const current = config(51)
+    current.squadAssignments = [{ presetId: 'viking_berserker', tier: 1, squadId: 1, count: 51 }]
     const result = validateBattleConfig(current)
     expect(result.valid).toBe(false)
-    expect(result.errors.some(error => error.includes('Squad 1 exceeds 30 units'))).toBe(true)
+    expect(result.errors.some(error => error.includes('Squad 1 exceeds 50 units'))).toBe(true)
   })
   it('rejects an incomplete player squad allocation', () => {
     const current = config(4)

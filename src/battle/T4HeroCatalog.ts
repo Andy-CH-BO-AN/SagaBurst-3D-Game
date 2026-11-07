@@ -46,7 +46,7 @@ export const T4_UNIT_PROFILES: Record<UnitPresetId, T4UnitProfile> = {
 }
 
 /** Canonical hero equipment. Explicit runtime weapon swaps are never upgraded by character tier. */
-export function resolveT4UnitLoadout(presetId: UnitPresetId): UnitLoadout {
+export function resolveT4UnitLoadout(presetId: UnitPresetId, mountOverride?: string | null): UnitLoadout {
   const profile = T4_UNIT_PROFILES[presetId]
   const base = { ...resolveUnitLoadout(presetId, profile.baseLoadoutTier) }
   if (profile.specialCombatProfile !== 'maki-ranger') {
@@ -59,7 +59,7 @@ export function resolveT4UnitLoadout(presetId: UnitPresetId): UnitLoadout {
     }
     if (base.shieldId) base.shieldId = profile.visualAssetId === 'roman-hero-t4' ? 'roman_officer_shield_t4' : 'paladin_shield_t4'
   }
-  return { ...base, mountId: profile.mountOverride,
+  return { ...base, mountId: profile.mountOverride ? (mountOverride ?? profile.mountOverride) : null,
     ...(profile.specialCombatProfile === 'maki-ranger'
       ? { meleeWeaponId: defaultRangerMeleeWeaponId(getUnitPreset(presetId).faction),
           rangedWeaponId: T4_RANGER_BOW_RANGED_ID, shieldId: null, reversibleRangedSwitch: true } : {}),

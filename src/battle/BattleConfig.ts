@@ -6,8 +6,8 @@ import { AIType } from '../world/NpcAIType'
 import { T4_RANGER_BOW_RANGED_ID, WEAPONS } from '../rpg/WeaponDatabase'
 import type { CharacterFaction } from '../world/CharacterVisuals'
 import {
-  MAX_COMMAND_SQUAD_SIZE,
-  MAX_COMMAND_SQUADS,
+  MAX_CUSTOM_BATTLE_COMMAND_SQUADS,
+  MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE,
   type CommandGroupingMode,
   type SquadAssignment,
 } from './CommandTarget'
@@ -25,11 +25,16 @@ import {
 } from './UnitPresetCatalog'
 import { isHeroAssetId, isSetupPlayerHeroId, type PlayerHeroId } from '../world/HeroAssetCatalog'
 
-/** Production Custom Battle limit. This remains the only limit accepted from player UI/session data. */
-export const MAX_CUSTOM_ARMY_SIZE = 200
+/** Production Custom Battle limit. Ground battle supports 300v300; aerial supports 50v50. */
+export const MAX_CUSTOM_ARMY_SIZE = 300
+export const MAX_GROUND_CUSTOM_ARMY_SIZE = 300
+export const MAX_AERIAL_CUSTOM_ARMY_SIZE = 50
 export const MAX_CUSTOM_T4_PER_SIDE = 3
 /** DEV-only preset limit used by the fixed performance benchmark scenarios. */
 export const MAX_BENCHMARK_ARMY_SIZE = 200
+
+export type CustomBattleCategory = 'ground' | 'aerial'
+export type CustomBattleMapId = 'original' | 'bridge' | 'roman_town' | 'snow' | 'viking_town'
 
 export type { UnitTier, UnitPresetId, VikingPresetId, RomanPresetId }
 export { CUSTOM_BATTLE_UNIT_TIERS }
@@ -40,6 +45,7 @@ export interface UnitTierCounts {
   2: number
   3: number
   4?: number
+  5?: number
 }
 
 export type VikingArmyConfig = Partial<Record<VikingPresetId, UnitTierCounts>> & {
@@ -132,6 +138,9 @@ export interface BattleConfig {
   careerEagleMissionId?: string
   /** Trusted Commander VI field-battle identity; rebuilt from Career state on every launch. */
   careerFelineMissionId?: string
+  battleType?: CustomBattleCategory
+  mapId?: CustomBattleMapId
+  seed?: number
   mode?: BattleMode
   commandGrouping?: CommandGroupingMode
   squadAssignments?: SquadAssignment[]
@@ -172,10 +181,10 @@ export function attachArmyAliases(army: any, faction: CharacterFaction): any {
   const haKey = isViking ? 'viking_horse_archer' : 'roman_horse_archer'
 
   // Ensure underlying preset buckets exist
-  if (!army[infKey]) army[infKey] = { 1: 0, 2: 0, 3: 0 }
-  if (!army[archKey]) army[archKey] = { 1: 0, 2: 0, 3: 0 }
-  if (!army[cavKey]) army[cavKey] = { 1: 0, 2: 0, 3: 0 }
-  if (!army[haKey]) army[haKey] = { 1: 0, 2: 0, 3: 0 }
+  if (!army[infKey]) army[infKey] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+  if (!army[archKey]) army[archKey] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+  if (!army[cavKey]) army[cavKey] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
+  if (!army[haKey]) army[haKey] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
 
   Object.defineProperties(army, {
     infantry: {
@@ -208,24 +217,24 @@ export function attachArmyAliases(army: any, faction: CharacterFaction): any {
 
 export function createEmptyVikingArmyConfig(): VikingArmyConfig {
   return attachArmyAliases({
-    viking_berserker: { 1: 0, 2: 0, 3: 0 },
-    viking_spearman: { 1: 0, 2: 0, 3: 0 },
-    viking_archer: { 1: 0, 2: 0, 3: 0 },
-    viking_sword_cavalry: { 1: 0, 2: 0, 3: 0 },
-    viking_lancer: { 1: 0, 2: 0, 3: 0 },
-    viking_horse_archer: { 1: 0, 2: 0, 3: 0 },
+    viking_berserker: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    viking_spearman: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    viking_archer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    viking_sword_cavalry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    viking_lancer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    viking_horse_archer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
   }, 'viking')
 }
 
 export function createEmptyRomanArmyConfig(): RomanArmyConfig {
   return attachArmyAliases({
-    roman_heavy_infantry: { 1: 0, 2: 0, 3: 0 },
-    roman_spearman: { 1: 0, 2: 0, 3: 0 },
-    roman_archer: { 1: 0, 2: 0, 3: 0 },
-    roman_javelin_infantry: { 1: 0, 2: 0, 3: 0 },
-    roman_sword_cavalry: { 1: 0, 2: 0, 3: 0 },
-    roman_lancer: { 1: 0, 2: 0, 3: 0 },
-    roman_horse_archer: { 1: 0, 2: 0, 3: 0 },
+    roman_heavy_infantry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    roman_spearman: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    roman_archer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    roman_javelin_infantry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    roman_sword_cavalry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    roman_lancer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    roman_horse_archer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
   }, 'roman')
 }
 
@@ -233,10 +242,10 @@ export function createEmptyArmyConfig(faction?: CharacterFaction): any {
   if (faction === 'viking') return createEmptyVikingArmyConfig()
   if (faction === 'roman') return createEmptyRomanArmyConfig()
   return {
-    infantry: { 1: 0, 2: 0, 3: 0 },
-    archer: { 1: 0, 2: 0, 3: 0 },
-    cavalry: { 1: 0, 2: 0, 3: 0 },
-    horseArcher: { 1: 0, 2: 0, 3: 0 },
+    infantry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    archer: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    cavalry: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
+    horseArcher: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 },
   }
 }
 
@@ -295,6 +304,7 @@ export function normalizeArmyConfig(army: any, faction: CharacterFaction): Recor
         2: (normalized[mappedPresetId]?.[2] || 0) + (counts[2] || 0),
         3: (normalized[mappedPresetId]?.[3] || 0) + (counts[3] || 0),
         4: (normalized[mappedPresetId]?.[4] || 0) + (counts[4] || 0),
+        5: (normalized[mappedPresetId]?.[5] || 0) + (counts[5] || 0),
       }
     } else {
       normalized[key] = {
@@ -302,6 +312,7 @@ export function normalizeArmyConfig(army: any, faction: CharacterFaction): Recor
         2: (normalized[key]?.[2] || 0) + (counts[2] || 0),
         3: (normalized[key]?.[3] || 0) + (counts[3] || 0),
         4: (normalized[key]?.[4] || 0) + (counts[4] || 0),
+        5: (normalized[key]?.[5] || 0) + (counts[5] || 0),
       }
     }
   }
@@ -315,7 +326,7 @@ export function calculateArmyTotal(army: any): number {
   for (const key of Object.keys(army)) {
     const counts = army[key]
     if (counts && typeof counts === 'object') {
-      total += (counts[1] || 0) + (counts[2] || 0) + (counts[3] || 0) + (counts[4] || 0)
+      total += (counts[1] || 0) + (counts[2] || 0) + (counts[3] || 0) + (counts[4] || 0) + (counts[5] || 0)
     }
   }
   return total
@@ -331,6 +342,14 @@ function validateBattleConfigWithArmyLimit(
   }
 
   const c = config as BattleConfig
+
+  if (c.battleType !== undefined && c.battleType !== 'ground' && c.battleType !== 'aerial') {
+    errors.push(`Invalid battle type: ${String(c.battleType)}`)
+  }
+
+  if (c.mapId !== undefined && !['original', 'bridge', 'roman_town', 'snow', 'viking_town'].includes(c.mapId)) {
+    errors.push(`Invalid map id: ${String(c.mapId)}`)
+  }
 
   if (c.mode !== undefined && c.mode !== 'formation' && c.mode !== 'scattered') {
     errors.push(`Invalid battle mode: ${String(c.mode)}`)
@@ -364,7 +383,7 @@ function validateBattleConfigWithArmyLimit(
         if (
           !Number.isInteger(assignment.squadId)
           || assignment.squadId < 1
-          || assignment.squadId > MAX_COMMAND_SQUADS
+          || assignment.squadId > MAX_CUSTOM_BATTLE_COMMAND_SQUADS
         ) {
           errors.push(`Invalid squad id: ${String(assignment.squadId)}`)
         }
@@ -378,8 +397,8 @@ function validateBattleConfigWithArmyLimit(
         )
       })
       for (const [squadId, count] of squadTotals) {
-        if (count > MAX_COMMAND_SQUAD_SIZE) {
-          errors.push(`Squad ${squadId} exceeds ${MAX_COMMAND_SQUAD_SIZE} units`)
+        if (count > MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE) {
+          errors.push(`Squad ${squadId} exceeds ${MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE} units`)
         }
       }
     }
@@ -474,7 +493,7 @@ function validateBattleConfigWithArmyLimit(
       }
       const rawCounts = army[presetId] ?? counts
       for (const key of Object.keys(rawCounts)) {
-        if (!['1', '2', '3', '4'].includes(key)) errors.push(`${sideName} ${presetId} invalid tier ${key}`)
+        if (!['1', '2', '3', '4', '5'].includes(key)) errors.push(`${sideName} ${presetId} invalid tier ${key}`)
       }
       for (const tier of CUSTOM_BATTLE_UNIT_TIERS) {
         const val = counts[tier]
@@ -488,23 +507,29 @@ function validateBattleConfigWithArmyLimit(
         }
       }
     }
-    if (heroTotal > MAX_CUSTOM_T4_PER_SIDE) errors.push(`${sideName} T4 total (${heroTotal}) exceeds ${MAX_CUSTOM_T4_PER_SIDE}`)
     return sideTotal
   }
+
+  const isAerial = c.battleType === 'aerial'
+  const isSpectator = Boolean(c.spectator)
+  const playerFaction = c.playerFaction ?? 'viking'
+
+  const vikingMax = isAerial ? (!isSpectator && playerFaction === 'viking' ? 49 : 50) : maxArmySize
+  const romanMax = isAerial ? (!isSpectator && playerFaction === 'roman' ? 49 : 50) : maxArmySize
 
   const vikingTotal = checkArmy(c.viking, 'viking', 'Viking')
   const romanTotal = checkArmy(c.roman, 'roman', 'Roman')
 
   if (vikingTotal < 1) {
     errors.push('Viking army must have at least 1 unit')
-  } else if (vikingTotal > maxArmySize) {
-    errors.push(`Viking army total (${vikingTotal}) exceeds ${maxArmySize}`)
+  } else if (vikingTotal > vikingMax) {
+    errors.push(`Viking army total (${vikingTotal}) exceeds ${vikingMax}`)
   }
 
   if (romanTotal < 1) {
     errors.push('Roman army must have at least 1 unit')
-  } else if (romanTotal > maxArmySize) {
-    errors.push(`Roman army total (${romanTotal}) exceeds ${maxArmySize}`)
+  } else if (romanTotal > romanMax) {
+    errors.push(`Roman army total (${romanTotal}) exceeds ${romanMax}`)
   }
 
   return { valid: errors.length === 0, errors }
@@ -572,8 +597,8 @@ export function validateBattleSquadAssignments(
   }
 
   for (const [squadId, count] of assignedBySquad) {
-    if (count > MAX_COMMAND_SQUAD_SIZE) {
-      errors.push(`Squad ${squadId} exceeds ${MAX_COMMAND_SQUAD_SIZE} units`)
+    if (count > MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE) {
+      errors.push(`Squad ${squadId} exceeds ${MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE} units`)
     }
   }
   for (const [key, count] of expected) {

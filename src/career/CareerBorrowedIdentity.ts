@@ -40,6 +40,6 @@ export function parseBorrowedCharacterIdentities(value: unknown, actorIds: reado
 
 /** Compatibility only: pre-receipt siege saves encoded the native T2 rider in its ID.
  * New acceptance captures the actual NPC and never uses this inference. */
-export function legacySiegeCharacterTier(actorId: string, rosterTier: 1 | 2 | 3 | 4): 1 | 2 | 3 | 4 {
+export function legacySiegeCharacterTier(actorId: string, rosterTier: 1 | 2 | 3 | 4 | 5): 1 | 2 | 3 | 4 | 5 {
   return rosterTier === 3 && /^outskirts:cavalry:[abc]:[0-9](?::wave:[1-9]\d*)?$/.test(actorId) ? 2 : rosterTier
 }
