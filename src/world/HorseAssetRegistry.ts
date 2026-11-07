@@ -528,19 +528,15 @@ export class HorseAssetRegistry {
 
   static preload(renderer: THREE.WebGLRenderer): Promise<void> {
     this.lastRenderer = renderer
+    // Warm the independent package without making ordinary horses wait for it.
+    void this.preloadArmored(renderer).catch(() => {})
     if (!this.preloadPromise) {
-      const ordinary = this.template
+      this.preloadPromise = this.template
         ? Promise.resolve()
         : this.load(renderer).catch((error) => {
             this.preloadPromise = null
             throw error
           })
-      this.preloadPromise = Promise.all([
-        ordinary,
-        this.preloadArmored(renderer).catch(() => {}),
-      ]).then(() => {
-        if (!this.armoredTemplate) this.preloadPromise = null
-      })
     }
     return this.preloadPromise
   }

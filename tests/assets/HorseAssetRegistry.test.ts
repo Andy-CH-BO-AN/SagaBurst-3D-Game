@@ -123,6 +123,36 @@ describe('horse asset compatibility & P2 loading isolation', () => {
     expect(armoredManifest.metrics?.triangles.lod2).toBeLessThanOrEqual(7000)
   })
 
+  it('completes and deduplicates ordinary preload while armored loading stays pending forever', async () => {
+    type LoadBoundary = { load(renderer: THREE.WebGLRenderer): Promise<void>; loadArmored(renderer: THREE.WebGLRenderer): Promise<void> }
+    const boundary = HorseAssetRegistry as unknown as LoadBoundary
+    const ordinaryLoad = vi.spyOn(boundary, 'load').mockResolvedValue(undefined)
+    const armoredLoad = vi.spyOn(boundary, 'loadArmored').mockReturnValue(new Promise<void>(() => {}))
+    const first = HorseAssetRegistry.preload(fakeRenderer)
+    expect(HorseAssetRegistry.preload(fakeRenderer)).toBe(first)
+    let completed = false
+    void first.then(() => { completed = true })
+    // A fixed microtask drain fails promptly if ordinary preload waits for the unresolved package.
+    for (let turn = 0; turn < 6; turn++) await Promise.resolve()
+    expect(completed).toBe(true)
+    expect(ordinaryLoad).toHaveBeenCalledTimes(1)
+    expect(armoredLoad).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries a rejected ordinary preload while retaining Promise deduplication', async () => {
+    type LoadBoundary = { load(renderer: THREE.WebGLRenderer): Promise<void>; loadArmored(renderer: THREE.WebGLRenderer): Promise<void> }
+    const boundary = HorseAssetRegistry as unknown as LoadBoundary
+    const load = vi.spyOn(boundary, 'load').mockRejectedValueOnce(new Error('ordinary unavailable')).mockResolvedValue(undefined)
+    vi.spyOn(boundary, 'loadArmored').mockResolvedValue(undefined)
+    const failed = HorseAssetRegistry.preload(fakeRenderer)
+    expect(HorseAssetRegistry.preload(fakeRenderer)).toBe(failed)
+    await expect(failed).rejects.toThrow('ordinary unavailable')
+    const retry = HorseAssetRegistry.preload(fakeRenderer)
+    expect(HorseAssetRegistry.preload(fakeRenderer)).toBe(retry)
+    await expect(retry).resolves.toBeUndefined()
+    expect(load).toHaveBeenCalledTimes(2)
+  })
+
   it('loads both ordinary and armored horses when both assets succeed', async () => {
     vi.stubGlobal('fetch', vi.fn<ManifestFetch>(async (url) => ({
       ok: true,
@@ -134,7 +164,7 @@ describe('horse asset compatibility & P2 loading isolation', () => {
       createMockHorseGltf(String(url).includes('armored-horse') ? armoredManifest : horseManifest),
     )
 
-    await HorseAssetRegistry.preload(fakeRenderer)
+    await Promise.all([HorseAssetRegistry.preload(fakeRenderer), HorseAssetRegistry.preloadArmored(fakeRenderer)])
     expect(HorseAssetRegistry.ready).toBe(true)
     expect(HorseAssetRegistry.armoredReady).toBe(true)
 
@@ -154,7 +184,9 @@ describe('horse asset compatibility & P2 loading isolation', () => {
       return createMockHorseGltf(horseManifest)
     })
 
-    await expect(HorseAssetRegistry.preload(fakeRenderer)).resolves.toBeUndefined()
+    const ordinary = HorseAssetRegistry.preload(fakeRenderer)
+    await Promise.all([expect(ordinary).resolves.toBeUndefined(),
+      expect(HorseAssetRegistry.preloadArmored(fakeRenderer)).rejects.toThrow('Armored horse GLB 404')])
     expect(HorseAssetRegistry.ready).toBe(true)
     expect(HorseAssetRegistry.armoredReady).toBe(false)
 
@@ -173,7 +205,9 @@ describe('horse asset compatibility & P2 loading isolation', () => {
     vi.spyOn(KTX2Loader.prototype, 'loadAsync').mockImplementation(async () => mockTexture())
     vi.spyOn(GLTFLoader.prototype, 'loadAsync').mockImplementation(async () => createMockHorseGltf(horseManifest))
 
-    await expect(HorseAssetRegistry.preload(fakeRenderer)).resolves.toBeUndefined()
+    const ordinary = HorseAssetRegistry.preload(fakeRenderer)
+    await Promise.all([expect(ordinary).resolves.toBeUndefined(),
+      expect(HorseAssetRegistry.preloadArmored(fakeRenderer)).rejects.toThrow('Horse asset is blocked: corrupt manifest')])
     expect(HorseAssetRegistry.ready).toBe(true)
     expect(HorseAssetRegistry.armoredReady).toBe(false)
     expect(HorseAssetRegistry.resolveTemplate().manifest.id).toBe(horseManifest.id)
@@ -205,7 +239,9 @@ describe('horse asset compatibility & P2 loading isolation', () => {
       return createMockHorseGltf(horseManifest)
     })
 
-    await expect(HorseAssetRegistry.preload(fakeRenderer)).resolves.toBeUndefined()
+    const ordinary = HorseAssetRegistry.preload(fakeRenderer)
+    await Promise.all([expect(ordinary).resolves.toBeUndefined(),
+      expect(HorseAssetRegistry.preloadArmored(fakeRenderer)).rejects.toThrow('Armored KTX2 transcode failed')])
     expect(HorseAssetRegistry.ready).toBe(true)
     expect(HorseAssetRegistry.armoredReady).toBe(false)
     expect(ordinaryGlbLoads).toBe(1)

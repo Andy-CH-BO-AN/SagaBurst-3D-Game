@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CareerMountController, careerMountAppearanceVariant } from '../../src/career/CareerMountController'
 import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { addCareerItem } from '../../src/career/CareerInventory'
 import { MountArmor } from '../../src/combat/MountArmor'
+import { Vector3 } from 'three'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { HorseAssetRegistry, type HorseAppearanceVariant } from '../../src/world/HorseAssetRegistry'
 
@@ -18,6 +19,8 @@ function entry(readProfile: () => CareerProfile, commit: (profile: CareerProfile
 function profile(): CareerProfile {
   const p = createCareerProfile('roman'); addCareerItem(p, 'horse', 1); return p
 }
+
+afterEach(() => { vi.restoreAllMocks(); HorseAssetRegistry.resetForTesting() })
 
 describe('Career horse appearance transactions', () => {
   it('roundtrips depleted owned mount armor and migrates an old snow leopard without repairing a saved zero', () => {
@@ -80,30 +83,27 @@ describe('Career horse appearance transactions', () => {
     HorseAssetRegistry.resetForTesting()
     const current = profile(); addCareerItem(current, 'armored-horse', 1)
     current.rank = 'commander'; current.selectedMountId = 'armored-horse'
-    current.activeMission = { kind: 'outpost-relief', mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 600 }, unavailable: [] } } as unknown as CareerProfile['activeMission']
+    current.activeMission = { kind: 'outpost-relief', targetActorIds: [], friendlyActorIds: [], mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 600 }, unavailable: [] } } as unknown as CareerProfile['activeMission']
     const preloadSpy = vi.spyOn(HorseAssetRegistry, 'preloadArmored').mockRejectedValue(new Error('GLB 404'))
     const controller = Object.create(CareerMountController.prototype) as CareerMountController
     Object.assign(controller as unknown as object, {
-      scene: {}, player: () => ({ isFalling: false, currentMount: null }), readProfile: () => current,
+      scene: {}, player: () => ({ isFalling: false, currentMount: null, combatPosition: new Vector3(), facingYaw: 0 }), readProfile: () => current,
       commit: vi.fn(() => true), obstacles: () => [], occupied: () => [], sceneKey: () => 'town-home', options: {},
       hp: new Map([['armored-horse', 600]]), armorImpact: new Map([['armored-horse', 50]]), unavailable: new Set(),
       active: null, requestSeq: 0, pending: null, statusText: '',
     })
 
-    // Restoring active mount when armored horse is unavailable fails cleanly without mutating selectedMountId
+    const saved = structuredClone(current)
     expect(controller.restoreActiveMount()).toBe(false)
-    expect(controller.activeMountId).toBeNull()
-    expect(current.selectedMountId).toBe('armored-horse')
-    expect(controller.statusText).toContain('重甲戰馬資源載入失敗')
-
-    // Explicit activation triggers preloadArmored, coalesces duplicate clicks, and reports failure
-    expect(controller.activate('armored-horse')).toBe(false)
-    expect(controller.activate('armored-horse')).toBe(false)
+    expect(controller.restoreActiveMount()).toBe(false)
     expect(preloadSpy).toHaveBeenCalledTimes(1)
+    expect(controller.statusText).toContain('載入坐騎資源')
     for (let i = 0; i < 4; i++) await Promise.resolve()
     expect(controller.activeMountId).toBeNull()
-    expect(current.selectedMountId).toBe('armored-horse')
+    expect(current).toEqual(saved)
+    expect(controller.checkpoint()).toEqual({ activeMountId: 'armored-horse', hp: { 'armored-horse': 600 }, armorImpact: { 'armored-horse': 50 }, unavailable: [] })
     expect(controller.statusText).toContain('重甲戰馬資源載入失敗')
+    controller.dispose()
     preloadSpy.mockRestore()
   })
 })
