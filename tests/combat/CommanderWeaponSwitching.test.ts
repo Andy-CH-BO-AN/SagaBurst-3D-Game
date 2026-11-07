@@ -5,7 +5,7 @@ import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { ShieldState } from '../../src/combat/ShieldBlocking'
 import { describe, expect, it, vi } from 'vitest'
 import { Faction } from '../../src/combat/CombatFaction'
-import type { Player } from '../../src/player/Player'
+import { Player } from '../../src/player/Player'
 import { AIState, AIType, NPC } from '../../src/world/NPC'
 import type { ObstacleData } from '../../src/world/Terrain'
 import { townMerchantLoadout } from '../../src/town/TownMerchantEquipment'
@@ -14,7 +14,7 @@ import { resolveT4UnitLoadout } from '../../src/battle/T4HeroCatalog'
 import { careerCommanderLoadout } from '../../src/career/CareerCommanderEquipment'
 import { TownLayeredNavigation } from '../../src/navigation/TownLayeredNavigation'
 import type { OutpostLayeredNavigation } from '../../src/navigation/OutpostLayeredNavigation'
-import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, meleeActionTimeScale } from '../../src/world/CharacterCombatAnimator'
+import { CharacterCombatAnimator, COMBAT_ANIMATION_PROFILES, PILUM_THROW_RELEASE_TIME, meleeActionTimeScale } from '../../src/world/CharacterCombatAnimator'
 import { MixerController } from '../../src/world/HumanoidAssetRegistry'
 import { InertialPoseTransition } from '../../src/world/InertialPoseTransition'
 import { axeRecoveryWeight } from '../../src/world/SwordAttachmentContract'
@@ -232,6 +232,88 @@ describe('Combat animator imported melee clock', () => {
 })
 
 describe('Combat animator bow-to-lance recovery', () => {
+  interface AimState {
+    animator: CharacterCombatAnimator
+    isSwinging: boolean
+    rangedAimRequiresRmbRelease: boolean
+    nockedArrowReleased: boolean
+    rangedAimViewActive: boolean
+    readonly isAiming: boolean
+    readonly isRangedAimViewActive: boolean
+    _updateRangedAim(rightMouseDown: boolean, wantAim: boolean): void
+  }
+
+  function aimState(animator: CharacterCombatAnimator): AimState {
+    // Scalar state only; bypass Player's scene/model constructor.
+    return Object.assign(Object.create(Player.prototype) as AimState, {
+      animator, isSwinging: false, rangedAimRequiresRmbRelease: false,
+      nockedArrowReleased: false, rangedAimViewActive: false,
+    })
+  }
+
+  it('射箭與連射的收招維持右鍵視角，收招中放開右鍵立即退出且箭矢事件仍發生', () => {
+    const { animator } = lanceAnimator()
+    const player = aimState(animator)
+    const profile = COMBAT_ANIMATION_PROFILES.bowRelease
+    player._updateRangedAim(true, true)
+    expect(player.isAiming).toBe(true)
+    expect(player.isRangedAimViewActive).toBe(true)
+    animator.poseBow(1)
+    expect(animator.start('bowRelease')).toBe(true)
+    player._updateRangedAim(true, true)
+    expect(player.isAiming).toBe(false)
+    expect(player.isRangedAimViewActive).toBe(true)
+    expect(animator.update(profile.windup).projectileRelease).toBe(true)
+    player.nockedArrowReleased = true
+    player._updateRangedAim(true, true)
+    expect(player.isRangedAimViewActive).toBe(true)
+    expect(animator.update(profile.recovery).actionCompleted).toBe(true)
+    player._updateRangedAim(true, true)
+    expect(player.isAiming).toBe(true)
+    expect(player.isRangedAimViewActive).toBe(true)
+
+    animator.poseBow(1)
+    expect(animator.start('bowRelease')).toBe(true)
+    player._updateRangedAim(true, true)
+    expect(player.isRangedAimViewActive).toBe(true)
+    player._updateRangedAim(false, false)
+    expect(player.isRangedAimViewActive).toBe(false)
+    expect(animator.update(profile.windup).projectileRelease).toBe(true)
+    player._updateRangedAim(false, false)
+    expect(player.isRangedAimViewActive).toBe(false)
+    expect(animator.update(profile.recovery).actionCompleted).toBe(true)
+    player._updateRangedAim(false, false)
+    expect(player.isAiming).toBe(false)
+    expect(player.isRangedAimViewActive).toBe(false)
+  })
+
+  it('標槍投擲維持既有釋放前視角與右鍵重新按壓限制', () => {
+    const { animator } = lanceAnimator()
+    const player = aimState(animator)
+    player._updateRangedAim(true, true)
+    animator.posePilum(0)
+    expect(animator.start('pilumThrow')).toBe(true)
+    player.rangedAimRequiresRmbRelease = true
+    player._updateRangedAim(true, true)
+    expect(player.isAiming).toBe(false)
+    expect(player.isRangedAimViewActive).toBe(true)
+    const profile = COMBAT_ANIMATION_PROFILES.pilumThrow
+    expect(animator.update(PILUM_THROW_RELEASE_TIME).projectileRelease).toBe(true)
+    player.rangedAimViewActive = false
+    player._updateRangedAim(false, false)
+    expect(player.rangedAimRequiresRmbRelease).toBe(true)
+    expect(player.isRangedAimViewActive).toBe(false)
+    expect(animator.update(profile.windup + profile.recovery - PILUM_THROW_RELEASE_TIME).actionCompleted).toBe(true)
+    player._updateRangedAim(true, true)
+    expect(player.isAiming).toBe(false)
+    expect(player.isRangedAimViewActive).toBe(false)
+    player._updateRangedAim(false, false)
+    expect(player.rangedAimRequiresRmbRelease).toBe(false)
+    player._updateRangedAim(true, true)
+    expect(player.isAiming).toBe(true)
+    expect(player.isRangedAimViewActive).toBe(true)
+  })
+
   it('ends the fresh bow aim after a shot and permits another mounted shot', () => {
     const { animator, animation, state } = lanceAnimator()
     animator.poseBow(1)
