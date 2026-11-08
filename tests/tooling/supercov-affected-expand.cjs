@@ -6,6 +6,16 @@ const { execFile } = require('node:child_process')
 const { readFileSync } = require('node:fs')
 const { promisify } = require('node:util')
 const run = promisify(execFile)
+function diagnose(file, runId, error) {
+  const summary = String(error?.stderr || '').trim().slice(-1200).replace(/\s+/g, ' ')
+  const code = error?.code ?? error?.status ?? 'unknown'
+  const signal = error?.signal ?? 'none'
+  const timedOut = error?.killed === true || code === 'ETIMEDOUT'
+  return 'testFile=' + file + '; seedRunId=' + runId +
+    '; exitCode=' + code + '; signal=' + signal +
+    '; timeout=' + timedOut + '; stderr=' + (summary || '(empty)') +
+    '; error=' + (error?.message || String(error))
+}
 async function main() {
   const request = JSON.parse(readFileSync(0, 'utf8'))
   const runId = request?.runId
@@ -23,19 +33,27 @@ async function main() {
     while (next < files.length) {
       const i = next++
       const file = files[i]
-      const { stdout } = await run('npx', [
-        '--yes', 'supercov@4.24.2', 'runs', runId, 'tests', 'affected',
-        '--test-file', file, '--json',
-      ], { cwd: process.cwd(), encoding: 'utf8',
-        maxBuffer: 16 * 1024 * 1024, timeout: 90_000 })
-      results[i] = JSON.parse(stdout)
+      let stdout
+      try {
+        ({ stdout } = await run('npx', [
+          '--yes', 'supercov@4.24.2', 'runs', runId, 'tests', 'affected',
+          '--test-file', file, '--json',
+        ], { cwd: process.cwd(), encoding: 'utf8',
+          maxBuffer: 16 * 1024 * 1024, timeout: 90_000 }))
+      } catch (error) { throw new Error(diagnose(file, runId, error)) }
+      try { results[i] = JSON.parse(stdout) }
+      catch (error) {
+        throw new Error('Invalid JSON for testFile=' + file + '; seedRunId=' + runId +
+          '; outputBytes=' + stdout.length + '; error=' + error.message)
+      }
     }
   }
   await Promise.all(Array.from({length: Math.min(6, files.length)}, () => worker()))
   process.stdout.write(JSON.stringify(results))
 }
-main().catch(error => {
+if (require.main === module) main().catch(error => {
   process.stderr.write('Supercov filtered identity expansion failed closed: ' +
-    (error.stderr || error.message || String(error)) + '\n')
+    (error.message || String(error)) + '\n')
   process.exitCode = 1
 })
+module.exports = { diagnose }

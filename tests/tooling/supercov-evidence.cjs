@@ -92,5 +92,24 @@ for (const candidate of candidates) {
     ' @ ' + seed.sha + ' from Actions run ' + candidate.runId)
   process.exit(0)
 }
-fail('exact dev baseline seed pending: no successful canonical Full artifact for PR base SHA ' +
-  comparisonBase + '. Wait for push-dev Full seed publication, then rerun PR CI; no Full fallback.')
+// A failed/pending Full is a blocker, not a gameplay-test failure in this PR.
+let diagnostic = 'No matching canonical dev Full run was found'
+try {
+  const history = JSON.parse(gh(['api', 'repos/' + repo +
+    '/actions/workflows/ci.yml/runs?branch=dev&event=push&head_sha=' +
+    comparisonBase + '&per_page=30']))
+  const runs = (history.workflow_runs ?? []).filter(item =>
+    item.head_sha === comparisonBase && item.event === 'push' && item.head_branch === 'dev')
+  if (runs.length) {
+    const mostRecent = runs.sort((a,b) => b.run_number - a.run_number)[0]
+    diagnostic = 'Canonical dev Full run ' + mostRecent.id + ' (status=' +
+      mostRecent.status + ', conclusion=' + (mostRecent.conclusion ?? 'pending') + ')'
+    if (mostRecent.status === 'completed' && mostRecent.conclusion === 'success')
+      diagnostic += '; artifact is missing/expired/untrusted or publisher did not finish'
+    else if (mostRecent.status === 'completed')
+      diagnostic += '; Full gate failed, so no seed may be published'
+    else diagnostic += '; Full gate has not completed'
+  }
+} catch (error) { diagnostic += '; workflow lookup: ' + error.message }
+fail('exact dev baseline seed pending: no trusted SHA-exact Full artifact for PR base ' +
+  comparisonBase + '. ' + diagnostic + '. No ancestor seed or automatic Full fallback.')

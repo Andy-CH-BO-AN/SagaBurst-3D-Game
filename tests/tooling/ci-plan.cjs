@@ -27,8 +27,43 @@ function changes(base, head, event) {
   }
   return result
 }
-const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/(?:AGENTS|tooling\/README)\.md|tools\/horse\/README\.md)$/.test(file)
+const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|tests\/(?:AGENTS|tooling\/README)\.md|tools\/horse\/README\.md|CLAUDE\.md|\.claude\/[\w/-]+\.md)$/.test(file)
   && !file.startsWith('docs/releases/')
+const cssOnlyAsset = file => /^src\/ui\/[\w/-]+\.css$/.test(file)
+// The exact same decision powers pre-seed gating and final planning.
+// Reject unknown inputs, deletes/renames and symlink/submodule changes.
+function regularTrackedFile(sha, file) {
+  const raw = git('ls-tree', sha, '--', file)
+  return /^100644 blob [0-9a-f]{40}\t/.test(raw)
+}
+function safeGitignore(base, head) {
+  const diff = execFileSync('git', ['diff', '--unified=0', base, head, '--', '.gitignore'],
+    { cwd: root, encoding: 'utf8' })
+  const lines = diff.split('\n')
+  // A safe addition only hides ephemeral Claude local state, not code or assets.
+  if (lines.some(line => line.startsWith('-') && !line.startsWith('---'))) return false
+  return lines.some(line => line.startsWith('+') && !line.startsWith('+++')) &&
+    lines.filter(line => line.startsWith('+') && !line.startsWith('+++'))
+      .every(line => /^\+(?:#.*|\s*|\.claude\/worktrees\/|\.claude\/settings\.local\.json)$/.test(line))
+}
+function noSeedPolicy(changed, base, head) {
+  if (!changed.length) return null
+  let hasCss = false
+  for (const change of changed) {
+    if (!/^(A|M)$/.test(change.status) || change.oldFile ||
+        !regularTrackedFile(head, change.file) ||
+        (change.status === 'M' && !regularTrackedFile(base, change.file))) return null
+    if (cssOnlyAsset(change.file)) { hasCss = true; continue }
+    if (docsOnly(change.file)) continue
+    if (change.file === '.gitignore' && safeGitignore(base, head)) continue
+    return null
+  }
+  return hasCss ? 'css-only' : 'docs-only'
+}
+function probeSeed({mode, base, head, event}) {
+  if (mode !== 'related') return true
+  return !noSeedPolicy(changes(base, head, event), base, head)
+}
 
 function discoverNode() {
   const files = walk('tests').filter(file => /\.test\.cjs$/.test(file))
@@ -153,7 +188,7 @@ function validateManifest(plan) {
   if (plan.mode === 'related' && (plan.shards.length > 1 || count > MAX_CASES_PER_SHARD)) {
     throw new Error('Related aggregate exceeds 500')
   }
-  if (!assigned.length && !(plan.mode === 'related' && plan.docsOnly)) throw new Error('Empty code selection')
+  if (!assigned.length && !(plan.mode === 'related' && (plan.docsOnly || plan.cssOnly))) throw new Error('Empty code selection')
   return plan
 }
 function selectionSummary(plan) {
@@ -162,7 +197,7 @@ function selectionSummary(plan) {
   const pct = total ? (100 * count / total).toFixed(1) : '0.0'
   return [
     'Mode: ' + (plan.mode === 'full' ? 'Full' : 'Related'),
-    'Selection source: ' + (plan.source || (plan.docsOnly ? 'Docs only' : 'Explicit Full')),
+    'Selection source: ' + (plan.source || (plan.docsOnly ? 'Safe documents / agent config' : plan.cssOnly ? 'CSS-only: Web build and static validation' : 'Explicit Full')),
     'Base SHA: ' + (plan.baseSha || '-') + '; Head SHA: ' + (plan.headSha || '-'),
     'Total suite: ' + total + ' leaves; Selected: ' + count + ' leaves (' + pct + '%); Files: ' + plan.selected.length,
     'Related health: ' + (count > 500 ? 'FAIL' : count > 300 ? 'Very broad' : count > 200 ? 'Broad' : count > 100 ? 'Normal' : 'Excellent'),
@@ -190,11 +225,13 @@ async function createPlan({ mode = 'full', base = '', head = '', event = 'local'
   catch (error) { throw new Error('Related Git history unavailable: ' + error.message) }
   if (!changed.length) throw new Error('Related change evidence empty; refusing unknown selection')
   const changedFiles = [...new Set(changed.flatMap(item => [item.file, ...(item.oldFile ? [item.oldFile] : [])]))].sort()
-  if (changed.every(item => docsOnly(item.file) && (!item.oldFile || docsOnly(item.oldFile)))) {
+  const noSeed = noSeedPolicy(changed, base, head)
+  if (noSeed) {
     return validateManifest({
       version: 1, planId: randomUUID(), requestedMode: mode, mode, event,
       baseSha: base, headSha: head, checkoutSha, changedFiles, changes: changed,
-      docsOnly: true, inventory: [], selected: [], reasons: {}, fallback: null, shards: [],
+      docsOnly: noSeed === 'docs-only', cssOnly: noSeed === 'css-only',
+      inventory: [], selected: [], reasons: {}, fallback: null, shards: [],
     })
   }
   const inventory = await discover()
@@ -217,6 +254,13 @@ function options(args) {
 }
 if (require.main === module) (async () => {
   const args = options(process.argv.slice(2))
+  if (args.probe === 'seed') {
+    const required = probeSeed(args)
+    const message = 'requires-seed=' + required + '\n'
+    process.stdout.write(message)
+    if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, message)
+    return
+  }
   const plan = await createPlan(args)
   const out = args.out ?? 'output/test-plan.json'
   mkdirSync(dirname(resolve(root, out)), { recursive: true })
@@ -230,4 +274,5 @@ if (require.main === module) (async () => {
     '\nhas-tests=' + (plan.shards.length > 0) + '\n')
 })().catch(error => { console.error(error); process.exitCode = 1 })
 module.exports = { createPlan, discover, discoverNode, docsOnly, changes, options,
-  shardFiles, planShards, selectedNames, selectionSummary, validateManifest }
+  shardFiles, planShards, selectedNames, selectionSummary, validateManifest,
+  regularTrackedFile, safeGitignore, noSeedPolicy, probeSeed }
