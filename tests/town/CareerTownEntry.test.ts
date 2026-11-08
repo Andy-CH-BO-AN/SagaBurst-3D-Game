@@ -8,6 +8,7 @@ import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { enterCareerTown, TOWN_ENTRY_KEY } from '../../src/town/CareerTownEntry'
 import { showCommanderRetirementEnding } from '../../src/town/TownRetirementUI'
 import { TownScene } from '../../src/town/TownScene'
+import { HorseAssetLoadError } from '../../src/world/HorseAssetRegistry'
 import { CAREER_STORAGE_KEY } from '../../src/career/CareerProfileStore'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { claimCareerMission } from '../../src/career/CareerProfile'
@@ -29,7 +30,7 @@ vi.mock('../../src/town/FactionSelectionUI', () => ({ FactionSelectionUI: class 
 
 interface EntryElement {
   textContent: string; style: Record<string, string>; children: EntryElement[]; tag: string; removed: boolean
-  tabIndex?: number; hidden?: boolean
+  tabIndex?: number; hidden?: boolean; disabled?: boolean
   onanimationend: null | ((event: { target: EntryElement; animationName: string }) => void)
   onclick: null | (() => void); append(...children: EntryElement[]): void; remove: ReturnType<typeof vi.fn>
   replaceChildren(...children: EntryElement[]): void; querySelectorAll(selector: string): EntryElement[]
@@ -70,9 +71,35 @@ function settledTownDefeatProfile(): CareerProfile {
   return profile
 }
 
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); factionViews.length = 0 })
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.clearAllMocks(); factionViews.length = 0 })
 
 describe('Town load failure recovery', () => {
+  it('shows a retryable horse-load error without recovering the mission or altering its saved state, and retries only once', async () => {
+    const local = new MemoryStorage(), body = element()
+    vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())
+    vi.stubGlobal('document', { body, createElement: (tag: string) => element(tag) })
+    vi.stubGlobal('location', { search: '?nolock' }); vi.stubGlobal('window', {})
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const profile = acceptCareerOutpostRelief({ ...createCareerProfile('roman'), rank: 'captain', totalMerit: 20000,
+      completedOutpostStages: [1, 2, 3], starterWeaponId: 'gladius_rusty', ownedWeapons: ['gladius_rusty'], ownedHorseTiers: [1] }, 'horse-retry')!
+    const store = new CareerProfileStore(local); expect(store.save(profile)).toBe(true)
+    const saved = local.getItem(CAREER_STORAGE_KEY), start = vi.fn(), recover = vi.fn()
+    vi.mocked(TownScene.create).mockRejectedValueOnce(new HorseAssetLoadError('重甲戰馬載入逾時（30 秒），請重試。'))
+      .mockResolvedValue({ start } as unknown as TownScene)
+    enterCareerTown(element() as unknown as HTMLElement, vi.fn(), vi.fn(), recover)
+    await Promise.resolve()
+    expect(start).not.toHaveBeenCalled(); expect(recover).not.toHaveBeenCalled()
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+    expect(body.children.some(child => child.textContent.includes('重甲戰馬載入逾時'))).toBe(true)
+    const retry = findText(body, '重試載入城鎮')!
+    expect(retry).toBeDefined()
+    retry.onclick!(); retry.onclick!()
+    await Promise.resolve()
+    expect(TownScene.create).toHaveBeenCalledTimes(2)
+    expect(start).toHaveBeenCalledTimes(1)
+    expect(local.getItem(CAREER_STORAGE_KEY)).toBe(saved)
+  })
+
   it('replaces a completed Career after faction confirmation and saved tutorial routing without issuing weapons', async () => {
     const local = new MemoryStorage(), body = element()
     vi.stubGlobal('localStorage', local); vi.stubGlobal('sessionStorage', new MemoryStorage())

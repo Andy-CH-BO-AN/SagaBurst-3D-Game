@@ -497,9 +497,25 @@ function textureUrl(base: string, path: string): string {
   return `${base}/${path.replace(/^\/+/, '')}`
 }
 
+export class HorseAssetLoadError extends Error {
+  constructor(message: string) { super(message); this.name = 'HorseAssetLoadError' }
+}
+
+// Publish only a completed package. A timed-out attempt cannot overwrite a later retry.
+function loadHorsePackage(load: Promise<HorseTemplate>, label: string): Promise<HorseTemplate> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new HorseAssetLoadError(`${label}載入逾時（30 秒），請重試。`)), 30_000)
+    load.then(template => { clearTimeout(timeout); resolve(template) }, error => {
+      clearTimeout(timeout)
+      reject(new HorseAssetLoadError(`${label}載入失敗：${error instanceof Error ? error.message : String(error)}`))
+    })
+  })
+}
+
 export class HorseAssetRegistry {
   private static template: HorseTemplate | null = null
   private static preloadPromise: Promise<void> | null = null
+  private static ordinaryPreloadPromise: Promise<void> | null = null
   private static armoredTemplate: HorseTemplate | null = null
   private static armoredPreloadPromise: Promise<void> | null = null
   private static armoredPreloadError: Error | null = null
@@ -520,6 +536,7 @@ export class HorseAssetRegistry {
   static resetForTesting(): void {
     this.template = null
     this.preloadPromise = null
+    this.ordinaryPreloadPromise = null
     this.armoredTemplate = null
     this.armoredPreloadPromise = null
     this.armoredPreloadError = null
@@ -528,15 +545,17 @@ export class HorseAssetRegistry {
 
   static preload(renderer: THREE.WebGLRenderer): Promise<void> {
     this.lastRenderer = renderer
-    // Warm the independent package without making ordinary horses wait for it.
-    void this.preloadArmored(renderer).catch(() => {})
     if (!this.preloadPromise) {
-      this.preloadPromise = this.template
-        ? Promise.resolve()
-        : this.load(renderer).catch((error) => {
-            this.preloadPromise = null
+      if (!this.ordinaryPreloadPromise) {
+        this.ordinaryPreloadPromise = this.template ? Promise.resolve()
+          : loadHorsePackage(this.load(renderer), '普通戰馬').then(template => { this.template = template }).catch(error => {
+            this.ordinaryPreloadPromise = null
             throw error
           })
+      }
+      // Every Game/Town/Studio entry awaits this shared barrier before creating mounts.
+      this.preloadPromise = Promise.all([this.ordinaryPreloadPromise, this.preloadArmored(renderer)])
+        .then(() => {}).catch(error => { this.preloadPromise = null; throw error })
     }
     return this.preloadPromise
   }
@@ -547,11 +566,12 @@ export class HorseAssetRegistry {
     if (this.armoredTemplate) return Promise.resolve()
     if (!this.armoredPreloadPromise) {
       if (!activeRenderer) {
-        const error = new Error('Renderer is required to preload armored horse assets')
+        const error = new HorseAssetLoadError('Renderer is required to preload armored horse assets')
         this.armoredPreloadError = error
         return Promise.reject(error)
       }
-      this.armoredPreloadPromise = this.loadArmored(activeRenderer).then(() => {
+      this.armoredPreloadPromise = loadHorsePackage(this.loadArmored(activeRenderer), '重甲戰馬').then(template => {
+        this.armoredTemplate = template
         this.armoredPreloadError = null
       }).catch((error) => {
         this.armoredPreloadPromise = null
@@ -562,7 +582,7 @@ export class HorseAssetRegistry {
     return this.armoredPreloadPromise
   }
 
-  private static async load(renderer: THREE.WebGLRenderer): Promise<void> {
+  private static async load(renderer: THREE.WebGLRenderer): Promise<HorseTemplate> {
     const base = publicAssetUrl('models/mounts/v1/horse')
     const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
     if (!response.ok) throw new Error(`Cannot load horse manifest (${response.status})`)
@@ -643,13 +663,13 @@ export class HorseAssetRegistry {
         material.needsUpdate = true
         return material
       })
-      this.template = { manifest, gltf, bodyMaterials }
+      return { manifest, gltf, bodyMaterials }
     } finally {
       ktx2Loader.dispose()
     }
   }
 
-  private static async loadArmored(renderer: THREE.WebGLRenderer): Promise<void> {
+  private static async loadArmored(renderer: THREE.WebGLRenderer): Promise<HorseTemplate> {
     const base = publicAssetUrl('models/mounts/v1/armored-horse')
     const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
     if (!response.ok) throw new Error(`Cannot load armored horse manifest (${response.status})`)
@@ -680,7 +700,7 @@ export class HorseAssetRegistry {
       ])
       const material = requireMesh(gltf.scene, manifest.bodyMeshNames[0]).material
       if (!(material instanceof THREE.MeshStandardMaterial)) throw new Error('Armored horse material is unsupported')
-      this.armoredTemplate = { manifest, gltf, bodyMaterials: [material, material, material],
+      return { manifest, gltf, bodyMaterials: [material, material, material],
         lodMaterials: manifest.bodyMeshNames.map(name => requireMesh(gltf.scene, name).material as THREE.Material) }
     } finally { ktx.dispose() }
   }

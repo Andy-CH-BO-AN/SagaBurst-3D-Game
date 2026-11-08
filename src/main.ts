@@ -8,6 +8,7 @@ import { CAPTAIN_EAGLE_BATTLE_ID, CAPTAIN_FRONTLINE_COMMAND_ID } from './career/
  * Implements Custom Battle Setup official entrance with developer bypass and untrusted sessionStorage validation.
  */
 import { Game } from './Game'
+import { HorseAssetLoadError } from './world/HorseAssetRegistry'
 import { enterCareerTown, TOWN_ENTRY_KEY } from './town/CareerTownEntry'
 import { CAREER_OUTPOST_SESSION_KEY, clearCareerOutpost } from './career/CareerOutpostMission'
 import { createCareerOutpostLaunch } from './career/CareerOutpostLaunch'
@@ -145,6 +146,7 @@ window.addEventListener('unhandledrejection', e => {
 const container = document.getElementById('canvas-container')
 if (!container) throw new Error('#canvas-container not found')
 
+let gameLaunchPending = false
 async function launchGame(
   battleConfig?: BattleConfig,
   campaignConfig?: DefenseCampaignLaunchConfig,
@@ -152,6 +154,9 @@ async function launchGame(
   bridgeLaunch?: CareerBridgeBattleLaunch,
   tutorialLaunch?: CareerTutorialLaunch,
 ): Promise<void> {
+  if (gameLaunchPending) return
+  gameLaunchPending = true
+  document.getElementById('career-recovery-error')?.remove()
   const missionId = bridgeLaunch?.careerMissionId ?? campaignConfig?.careerMissionId ?? battleConfig?.careerEagleMissionId ?? battleConfig?.careerFelineMissionId
   currentCareerMissionId = missionId
   currentCareerTutorial = tutorialLaunch
@@ -173,19 +178,14 @@ async function launchGame(
   } catch (error: unknown) {
     const e = error instanceof Error ? error : new Error(String(error))
     loading.remove()
+    if (e instanceof HorseAssetLoadError) {
+      showCareerRecoveryError(e.message, () => { void launchGame(battleConfig, campaignConfig, trainingGround, bridgeLaunch, tutorialLaunch) }, '重試載入')
+      return
+    }
     if (tutorialLaunch) { handleCareerTutorialError(tutorialLaunch, e); return }
     if (missionId) { handleCareerMissionError(missionId, e); return }
-    const errDiv = document.createElement('div')
-    errDiv.style.position = 'absolute'
-    errDiv.style.top = '10px'
-    errDiv.style.left = '10px'
-    errDiv.style.color = 'red'
-    errDiv.style.zIndex = '9999'
-    errDiv.style.backgroundColor = 'rgba(0,0,0,0.8)'
-    errDiv.style.padding = '10px'
-    errDiv.textContent = `寫實資產載入失敗：${e.message}`
-    document.body.appendChild(errDiv)
-  }
+    showCareerRecoveryError(`寫實資產載入失敗：${e.message}`, () => { void launchGame(battleConfig, campaignConfig, trainingGround, bridgeLaunch, tutorialLaunch) }, '重試載入')
+  } finally { gameLaunchPending = false }
 }
 
 async function launchCareerTutorial(context: CareerTutorialLaunch): Promise<void> {

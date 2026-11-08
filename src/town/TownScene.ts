@@ -37,7 +37,7 @@ import { availableCareerItem, careerItemTotal, MAX_PLAYER_OWNED_XONGKORO } from 
 import { createTownCareerEquipmentUI } from './TownCareerEquipmentUI'
 import { updateTownEquipmentVisibleStatus } from './TownSquadEquipmentUI'
 import { applyTownEquipmentRuntime, registerTownNativeMount, findTownNativeMount } from './TownEquipmentRuntime'
-import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentContext, type TownEquipmentRef } from '../career/CareerTownEquipment'
+import { resolveTownActorEquipment, townEquipmentSquads, type TownEquipmentContext } from '../career/CareerTownEquipment'
 import { officialCommandHudLabel } from '../career/CommanderTownSquadLabels'
 import { townDefaultActorLoadout } from '../career/CareerTownEquipmentState'
 import { townMerchantLoadout } from './TownMerchantEquipment'
@@ -194,9 +194,6 @@ export class TownScene {
   readonly residents: Resident[] = []
   readonly mounts: Mount[] = []
   readonly stableHorses: Mount[] = []
-  private readonly deferredResidentMounts = new Map<Resident, { id: CareerMountId; faction: CareerProfile['faction']; ref: TownEquipmentRef | null }>()
-  private residentMountLoadPending = false
-  private residentMountRetryAt = 0
   private readonly serviceMarkers = new Map<string, THREE.Sprite>()
   cat!: Mount
   readonly inventory: TownEquipment
@@ -758,7 +755,6 @@ export class TownScene {
     const equipmentActorIds = new Set(townEquipmentSquads(this.profile).filter(squad => squad.id !== 'personal').flatMap(squad => squad.actorIds))
     const residentBatch = gameplayNpcSpawns.batch(() => {
       for (const resident of created) {
-        this.deferredResidentMounts.delete(resident)
         resident.npc.dispose()
         if (resident.homeMount && resident.homeMount !== this.cat) {
           resident.homeMount.dispose()
@@ -807,72 +803,34 @@ export class TownScene {
           eagle.group.name = mountId; eagle.group.rotation.y = home.yaw; eagle.reservedForTown = true
           homeMount = eagle
         }
-        const resident: Resident = { spec, npc, homeMount, target: undefined, cycle: -1, walkTime: 0 }
         const equippedMount = careerEquipment || spec.role === 'commander' ? loadout.mountId : cavalry ? hero?.mountOverride ?? 'horse' : null
         if (!spec.eagle && equippedMount) {
           const nativeRef = careerEquipment?.refs.mount ?? (equipmentActorIds.has(spec.id)
             ? resolveTownActorEquipment(this.profile, residentArmyFaction, spec.id).refs.mount : null)
-          this.initializeResidentMount(resident, equippedMount as CareerMountId, nativeRef, residentArmyFaction)
+          const reused = findTownNativeMount(this.mounts, nativeRef)
+          const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(equippedMount as CareerMountId), spec.x, spec.z, undefined, horseVariantForStableKey(`town:${residentArmyFaction}:${spec.id}`)))
+          if (nativeRef?.source === 'native') registerTownNativeMount(mount, nativeRef.nativeId!)
+          mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI
+          if (spec.role !== 'ranger' || mount !== this.cat) {
+            // The shared native Cat starts at the stable; transferred holders need their own spawn baseline before binding.
+            // Saved command/mission positions are restored after resident initialization.
+            if (reused) mount.group.position.set(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
+            npc.mountVehicle(mount)
+          }
+          homeMount = mount
         }
         if (!context.missionOnlyResidents && NAMES[spec.role] && spec.role !== 'civilian') { npc.group.rotation.y = spec.yaw ?? 0; this.serviceMarkers.set(spec.id, this.world.addServiceMarker(npc.group, ranger ? 1.9 : hero ? 2 : 2.2)) }
+        const target = undefined
         if (additionalPopulation) this.event.registerAdditionalResident(spec.id, npc)
         else this.event.register(spec.id, npc)
-        if (resident.homeMount && resident.homeMount !== this.cat && !this.mounts.includes(resident.homeMount)) this.mounts.push(resident.homeMount)
+        if (homeMount && homeMount !== this.cat && !this.mounts.includes(homeMount)) this.mounts.push(homeMount)
         registerTownCombatDisplayName(npc, spec, residentArmyFaction)
+        const resident = { spec, npc, homeMount, target, cycle: -1, walkTime: 0 }
         this.residents.push(resident); created.push(resident)
       })
     }
     residentBatch.seal()
     await gameplayNpcSpawns.wait(residentBatch, (done, total) => progress(`建立駐軍與居民 ${done} / ${total}…`))
-  }
-
-  private initializeResidentMount(resident: Resident, id: CareerMountId, ref: TownEquipmentRef | null, faction: CareerProfile['faction']): void {
-    if (resident.homeMount) return
-    const { spec, npc } = resident
-    const reused = findTownNativeMount(this.mounts, ref)
-    if (!reused && id === 'armored-horse' && !HorseAssetRegistry.armoredReady) {
-      this.deferredResidentMounts.set(resident, { id, ref, faction })
-      return
-    }
-    const mount = reused ?? trackNpcSpawn(new Mount(this.scene, careerMountType(id), spec.x, spec.z, undefined, horseVariantForStableKey(`town:${faction}:${spec.id}`)))
-    if (ref?.source === 'native') registerTownNativeMount(mount, ref.nativeId!)
-    mount.reservedForTown = true; mount.group.rotation.y = spec.yaw ?? Math.PI
-    if (spec.role !== 'ranger' || mount !== this.cat) {
-      // Saved command/mission positions are restored after resident initialization.
-      if (reused) mount.group.position.set(spec.x, getTerrainHeight(spec.x, spec.z), spec.z)
-      npc.mountVehicle(mount)
-    }
-    resident.homeMount = mount
-    if (mount !== this.cat && !this.mounts.includes(mount)) this.mounts.push(mount)
-  }
-
-  private restoreDeferredResidentMounts(time: number): void {
-    if (this.disposed || !this.deferredResidentMounts.size) return
-    if (!HorseAssetRegistry.armoredReady) {
-      if (this.residentMountLoadPending || time < this.residentMountRetryAt) return
-      this.residentMountLoadPending = true
-      void HorseAssetRegistry.preloadArmored(this.renderer).catch(() => {
-        if (!this.disposed) this.notice = '重甲戰馬資源載入失敗，居民配置已保留，稍後重試。'
-      }).finally(() => {
-        this.residentMountLoadPending = false
-        this.residentMountRetryAt = performance.now() + 1000
-      })
-      return
-    }
-    // Use the existing spawn budget; loading never joins the resident startup batch.
-    const batch = gameplayNpcSpawns.batch()
-    for (const [resident, saved] of this.deferredResidentMounts) {
-      if (resident.npc.inCombat) continue
-      this.deferredResidentMounts.delete(resident)
-      batch.enqueue(`mount:${resident.spec.id}`, () => {
-        if (this.disposed || !this.residents.includes(resident) || resident.npc.dead || resident.homeMount || resident.npc.mount) return
-        const current = resolveTownActorEquipment(this.profile, saved.faction, resident.spec.id)
-        if (current.loadout.mountId !== saved.id || JSON.stringify(current.refs.mount) !== JSON.stringify(saved.ref)) return
-        if (resident.npc.inCombat) { this.deferredResidentMounts.set(resident, saved); return }
-        this.initializeResidentMount(resident, saved.id, saved.ref, saved.faction)
-      })
-    }
-    batch.seal()
   }
 
   private siegeOpeningPending = false
@@ -965,10 +923,10 @@ export class TownScene {
       player: { position: position(this.player.group), hp: this.player.dead ? 0 : this.player.hp,
         stamina: this.player.staminaValue, arrows: this.player.arrowCount,
         shieldImpact: this.player.shield.shieldImpactRemaining, shieldDurability: this.player.shield.captureDurability(),
-        mounted: mount ? this.player.currentMount === mount : this.careerMounts.awaitingMountRestore && Boolean(next.retirementRuntime?.player.mounted) },
+        mounted: Boolean(mount && this.player.currentMount === mount) },
       mountState: this.careerMounts.checkpoint(),
       ...(mount ? { mount: { armorImpactRemaining: mount.armorImpactRemaining, position: position(mount.group), hp: mount.dead ? 0 : mount.currentHp,
-        ...(mount.flight ? { flight: mount.flight.snapshot() } : {}) } } : this.careerMounts.awaitingMountRestore && next.retirementRuntime?.mount ? { mount: next.retirementRuntime.mount } : {}),
+        ...(mount.flight ? { flight: mount.flight.snapshot() } : {}) } } : {}),
     }
     this.retirementMobilization?.capture(next)
     this.retirementFinale?.captureStats(next)
@@ -3987,7 +3945,6 @@ export class TownScene {
       if (this.disposed) return
     }
     gameplayNpcSpawns.tick(time)
-    this.restoreDeferredResidentMounts(time)
     if (this.disposed) return
     if (this.deploymentFailed && !this.spawnErrorShown) {
       this.spawnErrorShown = true
@@ -4108,7 +4065,6 @@ export class TownScene {
     const quiverHud = document.getElementById('quiver-hud')
     if (quiverHud) quiverHud.style.display = ''
     this.temporaryMounts.cleanup()
-    this.deferredResidentMounts.clear()
     this.disposed = true; cancelAnimationFrame(this.raf); this.listeners.abort(); this.input?.dispose(); this.panel?.remove(); this.equipment?.close(); this.hud?.remove(); this.hint?.remove(); this.pointerPrompt?.remove(); this.careerMounts?.dispose(); this.mission?.dispose(); this.defense?.dispose(); this.duel?.dispose(); this.player?.dispose(); document.getElementById('mount-hud')?.classList.remove('visible'); document.getElementById('enemy-hud')?.classList.remove('visible'); this.ambientLabel?.remove(); this.damageNumbers.update(100, this.camera); this.residents.forEach(r => r.npc.dispose()); this.mounts.forEach(m => m.dispose()); this.shots.forEach(s => s.arrow.destroy()); this.world.dispose(); this.renderer.dispose(); this.renderer.domElement.remove()
     if (!preservePointerLock) document.exitPointerLock?.()
   }
