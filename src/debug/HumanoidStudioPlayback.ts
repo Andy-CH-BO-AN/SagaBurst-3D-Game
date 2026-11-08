@@ -230,6 +230,25 @@ export class HumanoidStudioPlayback {
 
   setEquipped(enabled: boolean): void { this.equipped = enabled; this.reset() }
 
+  /** Fixed-time fists through the production animator, including its contact events. */
+  lastFistStrikes = 0
+  samplePunch(time: number, mounted = false): void {
+    this.reset()
+    this.animator.setEquipment(this.equipmentLoadout === 'lance', this.hasShield, this.mountKind)
+    this.animator.setLocomotion(0, mounted)
+    this.animator.update(.2)
+    const action = this.state as 'punchCombo' | 'punchRight'
+    this.animator.start(action)
+    const end = time * (this.instance.rig.animation!.getDuration(action) ?? 1.6)
+    this.lastFistStrikes = 0
+    for (let elapsed = 0; elapsed < end - 1e-9;) {
+      const dt = Math.min(1 / 120, end - elapsed)
+      this.lastFistStrikes += this.animator.update(dt).fists.length
+      elapsed += dt
+    }
+    this.instance.root.updateWorldMatrix(true, true)
+  }
+
   /** Deterministic sampling through the same release event used by the moving studio. */
   samplePilum(time: number, mounted = false): void {
     this.equipmentLoadout = null
@@ -297,6 +316,7 @@ export class HumanoidStudioPlayback {
       if ((this.state === 'lanceThrust' || this.state === 'mountedLance' || this.state === 'swordSlash' || this.state === 'axeAttack1H' || this.state === 'axeAttack2H') && !this.animator.busy) {
         this.startEquipmentAttack(mounted)
       }
+      if ((this.state === 'punchCombo' || this.state === 'punchRight') && !this.animator.busy) this.animator.start(this.state)
       this.animator.update(dt)
     } else if (!this.equipped) {
       if (!this.started) animation.play(this.state, { fadeSeconds: 0, loop: true })

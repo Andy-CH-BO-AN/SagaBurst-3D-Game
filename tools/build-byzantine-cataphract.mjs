@@ -16,7 +16,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { readGlb, loadRig } from './lib/humanoid-glb.mjs'
 const meshoptLoader = () => new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
 import { bakeArmatureScale, assembleGlb } from './lib/byzantine-bake.mjs'
-import { createRetargeter } from './lib/mixamo-direction-retarget.mjs'
+import { createRetargeter, PROJECT_NAMES } from './lib/mixamo-direction-retarget.mjs'
 
 const source = process.argv[2]
 if (!source) throw new Error('Usage: node tools/build-byzantine-cataphract.mjs <source.glb> [outDir]')
@@ -32,7 +32,29 @@ const bakedAsset = { document: baked.document, binary: baked.binary }
 const native = await loadRig(bakedAsset), fk = await loadRig(bakedAsset), reference = await loadRig(bakedAsset)
 const donorAsset = readGlb(`${DONOR}/lod0.glb`), donor = await loadRig(donorAsset)
 const donorManifest = JSON.parse(fs.readFileSync(`${DONOR}/manifest.json`, 'utf8'))
-const retargeter = createRetargeter(donor.scene, reference.scene)
+const stanceAsset = readGlb('public/models/characters/v2/roman-hero-t4/lod0.glb'), stance = await loadRig(stanceAsset, meshoptLoader())
+const stanceManifest = JSON.parse(fs.readFileSync('public/models/characters/v2/roman-hero-t4/manifest.json', 'utf8'))
+
+// Anatomical hand frames. The bind is a T-pose with palms down and thumbs forward (measured: the thumb vertices
+// sit at +Z on both hands), which reproduces roman-hero-t4's hand-local axes on this same Mixamo basis.
+const KNUCKLE = .10, GRIP_HEIGHT = .036
+function handFrame(side) {
+  const hand = reference.scene.getObjectByName(`mixamorig${side}Hand`), fore = reference.scene.getObjectByName(`mixamorig${side}ForeArm`)
+  reference.scene.updateMatrixWorld(true)
+  const q = hand.getWorldQuaternion(new T.Quaternion()).invert()
+  const finger = hand.getWorldPosition(new T.Vector3()).sub(fore.getWorldPosition(new T.Vector3())).normalize().applyQuaternion(q)
+  const thumb = new T.Vector3(0, 0, 1).applyQuaternion(q); thumb.addScaledVector(finger, -thumb.dot(finger)).normalize()
+  const palm = new T.Vector3(0, -1, 0).applyQuaternion(q); palm.addScaledVector(finger, -palm.dot(finger)); palm.addScaledVector(thumb, -palm.dot(thumb)).normalize()
+  return { finger: finger.toArray(), thumb: thumb.toArray(), palm: palm.toArray(),
+    center: finger.clone().multiplyScalar(KNUCKLE).addScaledVector(palm, GRIP_HEIGHT).toArray() }
+}
+const targetFrames = { Left: handFrame('Left'), Right: handFrame('Right') }
+const framesOf = m => ({
+  Left: { finger: m.handGripFrames.left.fingerDirection, thumb: m.handGripFrames.left.thumbDirection, palm: m.handGripFrames.left.palmNormal },
+  Right: { finger: m.swordGripFrames.lod0.fingerDirection, thumb: m.swordGripFrames.lod0.gripAxisLocal, palm: m.swordGripFrames.lod0.palmNormalLocal },
+})
+const retargeter = createRetargeter(donor.scene, reference.scene, { frames: { donor: framesOf(donorManifest), target: targetFrames } })
+const stanceRetargeter = createRetargeter(stance.scene, reference.scene, { donorName: name => PROJECT_NAMES[name], frames: { donor: framesOf(stanceManifest), target: targetFrames } })
 const { bones } = retargeter
 const restToe = {}, restFoot = {}
 for (const side of ['Left', 'Right']) {
@@ -69,16 +91,16 @@ function applyGround(times, locals, hips, label) {
   hips.forEach((p, i) => { p.y += lift + Math.max(0, -(clearance[i] + lift) - 0.01) })
   console.log(`${label}: grounded by ${(lift * 1000).toFixed(1)} mm`)
 }
-function retarget(clipName) {
-  const clip = donor.animations.find(c => c.name === clipName)
+function retarget(clipName, source = donor, solver = retargeter) {
+  const clip = source.animations.find(c => c.name === clipName)
   if (!clip) throw new Error(`Donor has no ${clipName}`)
-  const mixer = new T.AnimationMixer(donor.scene); mixer.clipAction(clip).play()
+  const mixer = new T.AnimationMixer(source.scene); mixer.clipAction(clip).play()
   const set = new Set([0, clip.duration])
   for (const track of clip.tracks) for (const t of track.times) set.add(Math.round(t * 1e6) / 1e6)
   const times = [...set].sort((a, b) => a - b), locals = Object.fromEntries(bones.map(b => [b, []])), hips = []
   for (const t of times) {
     mixer.setTime(t)
-    const pose = retargeter.pose()
+    const pose = solver.pose()
     for (const b of bones) locals[b].push(pose.local[b].clone())
     hips.push(pose.hips)
   }
@@ -177,8 +199,18 @@ const add = (name, data, binding) => {
   clips.push({ name, tracks: trackSet(data.times, data.locals, data.hips) })
   bindings.push({ clip: name, ...binding, duration: data.times.at(-1) })
 }
-const idle = retarget('idle'); applyGround(idle.times, idle.locals, idle.hips, 'idle')
-add('idle', idle, { source: 'Kevin Iglesias', sourceClip: 'idle', loop: true })
+// Warrior stance: the Paladin's bent-knee idle, same Mixamo basis.
+const idle = retarget('idle', stance, stanceRetargeter); applyGround(idle.times, idle.locals, idle.hips, 'idle')
+add('idle', idle, { source: 'Kevin Iglesias', sourceClip: 'idle', loop: true, retargetedFrom: 'roman-hero-t4' })
+// Mounted upper body: the saddle masks the pelvis, so transfer the stance's pelvis tilt onto the spine and keep the torso upright.
+{
+  const hipsRest = reference.scene.getObjectByName('mixamorigHips').quaternion.clone().invert()
+  const upper = bones.filter(b => !/(UpLeg|Leg|Foot|ToeBase)$/.test(b) && b !== 'Hips')
+  const locals = Object.fromEntries(upper.map(b => [b, idle.locals[b].map(q => q.clone())]))
+  locals.Spine = idle.locals.Spine.map((q, i) => hipsRest.clone().multiply(idle.locals.Hips[i]).multiply(q).normalize())
+  clips.push({ name: 'mounted', tracks: upper.map(b => ({ node: docName(b), path: 'rotation', times: idle.times, values: locals[b].flatMap(q => q.toArray()) })) })
+  bindings.push({ clip: 'mounted', source: 'Kevin Iglesias', sourceClip: 'idle', loop: true, retargetedFrom: 'roman-hero-t4', duration: idle.times.at(-1) })
+}
 const walk = nativeClip('Walking'), run = nativeClip('Running')
 const walkSpeed = stride(walk), runSpeed = stride(run)
 console.log('measured planted-foot speed (m/s, rig scale 1):', walkSpeed.toFixed(2), runSpeed.toFixed(2))
@@ -245,40 +277,39 @@ for (const [lod, size] of [[0, 2048], [1, 1024], [2, 512]]) {
   console.log(`lod${lod}.glb`, (bytes.length / 1e6).toFixed(2), 'MB')
 }
 
-// ---- grip frames ---------------------------------------------------------------------------
-function handFrame(side) {
-  const hand = reference.scene.getObjectByName(`mixamorig${side}Hand`), fore = reference.scene.getObjectByName(`mixamorig${side}ForeArm`)
-  const q = hand.getWorldQuaternion(new T.Quaternion()).invert()
-  const along = hand.getWorldPosition(new T.Vector3()).sub(fore.getWorldPosition(new T.Vector3())).normalize()
-  // Longest extent of this hand's skin along the forearm axis.
-  let length = 0
-  const mesh = (() => { let m; reference.scene.traverse(o => { if (o.isSkinnedMesh) m = o }); return m })()
-  const jointIndex = mesh.skeleton.bones.indexOf(hand), v = new T.Vector3(), origin = hand.getWorldPosition(new T.Vector3())
-  const skinIndex = mesh.geometry.attributes.skinIndex, skinWeight = mesh.geometry.attributes.skinWeight
-  for (let i = 0; i < skinIndex.count; i++) {
-    let w = 0; for (let c = 0; c < 4; c++) if (skinIndex.getComponent(i, c) === jointIndex) w += skinWeight.getComponent(i, c)
-    if (w < .6) continue
-    mesh.getVertexPosition(i, v); length = Math.max(length, v.sub(origin).dot(along))
-  }
-  const finger = along.clone().applyQuaternion(q).normalize()
-  const thumb = new T.Vector3(0, 0, 1).applyQuaternion(q)
-  thumb.addScaledVector(finger, -thumb.dot(finger)).normalize()
-  const normal = new T.Vector3().crossVectors(thumb, finger).normalize()
-  // Bind pose is a T-pose with palms down: the palm faces world -Y.
-  const inward = new T.Vector3(0, -1, 0).applyQuaternion(q)
-  if (normal.dot(inward) < 0) normal.negate()
-  const center = finger.clone().multiplyScalar(length * .55)
-  return { length, frame: { gripCenterLocal: center.clone().addScaledVector(normal, .019).toArray(), gripAxisLocal: thumb.toArray(), palmNormalLocal: normal.toArray(),
-    fingerDirection: finger.toArray(), wristCenter: [0, 0, 0], thumbBaseCenter: finger.clone().multiplyScalar(length * .3).toArray(), fingerBase: length * .85, gripRadius: .019,
-    palmContactCenter: center.toArray() } }
+// ---- grip frames: weapon axis runs through the wrapped fingers' curl centre ---------------------
+const LANCE_RADIUS = .022
+const rightFrame = { gripCenterLocal: targetFrames.Right.center, gripAxisLocal: targetFrames.Right.thumb, palmNormalLocal: targetFrames.Right.palm,
+  fingerDirection: targetFrames.Right.finger, wristCenter: [0, 0, 0], thumbBaseCenter: targetFrames.Right.finger.map(v => v * .045), fingerBase: KNUCKLE, gripRadius: .019 }
+const L = targetFrames.Left
+const leftFrame = { palmContactCenter: L.center.map((v, i) => v - L.palm[i] * LANCE_RADIUS), palmNormal: L.palm, thumbDir: 1, thumbDirection: L.thumb,
+  fingerDirection: L.finger, wristCenter: [0, 0, 0], fingerBase: KNUCKLE, thumbBaseCenter: L.finger.map(v => v * .045) }
+
+// ---- mounted legs: the same per-mount seat as roman-hero-t4, by limb direction -------------------
+const LEG_SPREAD = Number(process.env.BYZ_LEG_SPREAD ?? .12) // Scale-armour thighs are bulkier than the Paladin's.
+const seat = (kind) => {
+  if (kind === 'xongkoro') return null
+  if (['BLACK_CAT', 'WHITE_CAT', 'ORANGE_CAT', 'SERVAL', 'CARACAL'].includes(kind)) return { hip: [-.798, .511], knee: [1.436, -.306], ankle: [-.8, -.688] }
+  const horse = kind === 'HORSE' || kind === 'ARMORED_HORSE'
+  const spread = kind === 'CORGI' ? .72 : horse ? .58 : .82
+  const knee = kind === 'CORGI' ? 1.08 : horse ? 1.22 : 1.05
+  return { hip: [-.68, spread], knee: [knee, kind === 'SNOW_LEOPARD' ? -.42 : 0], ankle: [horse ? -.44 : -.38, kind === 'CORGI' ? -spread : kind === 'SNOW_LEOPARD' ? -.42 : 0] }
 }
-const leftHand = handFrame('Left'), rightHand = handFrame('Right')
-// Visually calibrated in the hero preview: the Meshy hand's palm is rolled 180 degrees about the finger axis
-// from the T-pose palm-down assumption, so the blade hangs forward like roman-hero-t5's instead of sideways.
-const roll180 = v => [-v[0], v[1], -v[2]]
-for (const { frame } of [leftHand, rightHand]) for (const key of ['gripCenterLocal', 'gripAxisLocal', 'palmNormalLocal', 'palmContactCenter']) frame[key] = roll180(frame[key])
-console.log('hand lengths (m):', leftHand.length.toFixed(3), rightHand.length.toFixed(3))
-const rightFrame = { ...rightHand.frame }; delete rightFrame.palmContactCenter
+const LEG_ALIAS = { UpLeg: 'upper_leg', Leg: 'lower_leg', Foot: 'foot' }
+const mountedLegPoses = {}
+for (const kind of ['BLACK_CAT', 'WHITE_CAT', 'ORANGE_CAT', 'SERVAL', 'CARACAL', 'SNOW_LEOPARD', 'CORGI', 'HORSE', 'ARMORED_HORSE']) {
+  const pose = seat(kind), rotations = []
+  stance.scene.traverse(o => { if (o.isBone) rotations.push([o, o.quaternion.clone()]) })
+  for (const [o, q] of rotations) o.quaternion.copy(stanceRetargeter.donorRest[Object.keys(PROJECT_NAMES).find(k => PROJECT_NAMES[k] === o.name)]?.local ?? q)
+  for (const [short, sign] of [['l', -1], ['r', 1]]) {
+    const euler = (name, pitch, z) => { const n = stance.scene.getObjectByName(`${name}_${short}`); n.quaternion.multiply(new T.Quaternion().setFromEuler(new T.Euler(pitch, 0, sign * z))) }
+    euler('upper_leg', pose.hip[0], pose.hip[1] + LEG_SPREAD); euler('lower_leg', pose.knee[0], pose.knee[1]); euler('foot', pose.ankle[0], pose.ankle[1] - LEG_SPREAD)
+  }
+  const solved = stanceRetargeter.pose().local, entry = {}
+  for (const [side, x] of [['Left', 'l'], ['Right', 'r']]) for (const [bone, alias] of Object.entries(LEG_ALIAS)) entry[`${alias}_${x}`] = solved[`${side}${bone}`].toArray()
+  mountedLegPoses[kind] = entry
+  for (const [o, q] of rotations) o.quaternion.copy(q)
+}
 const manifest = {
   schemaVersion: 1, id: 'byzantine-cataphract-t5', status: 'ready', skeleton: 'project-humanoid-v1',
   source: { title: 'Byzantine Warrior (Mixamo-rigged)', sourceFile: path.basename(source), sourceSha256: sha(sourceBytes),
@@ -287,13 +318,12 @@ const manifest = {
   selectedSource: { rig: 'mixamo24', uniformScale: scale, seatBearing: [[-.082, .897, -.057], [.082, .897, -.057]] },
   handShapeMode: 'authored', preserveLodHandTopology: true,
   files: { lod0: 'lod0.glb', lod1: 'lod1.glb', lod2: 'lod2.glb' }, fileSha256, metrics,
-  animations: { embedded: bindings, runtimeGenerated: ['mounted', 'death', 'hit', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance'] },
-  handGripFrames: { left: { palmContactCenter: leftHand.frame.palmContactCenter, palmNormal: leftHand.frame.palmNormalLocal, thumbDir: -1, thumbDirection: leftHand.frame.gripAxisLocal,
-    fingerDirection: leftHand.frame.fingerDirection, wristCenter: [0, 0, 0], fingerBase: leftHand.frame.fingerBase, thumbBaseCenter: leftHand.frame.thumbBaseCenter } },
+  animations: { embedded: bindings, runtimeGenerated: ['death', 'hit', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance'] },
+  handGripFrames: { left: leftFrame }, mountedLegPoses,
   swordGripFrames: { lod0: rightFrame, lod1: rightFrame, lod2: rightFrame },
   bakedSource: { armatureScaleBaked: baked.scale, note: 'Joint translations, inverse binds and position tracks multiplied by the Armature scale; mesh, UVs and weights unchanged.' },
-  visualAcceptance: 'Grip frames and seat bearing are provisional; see PR for in-game verification status.',
-  knownLimitations: ['Source rig has no finger bones: hands are single mitten meshes.', 'Idle / bow / pilum / axe clips are direction-retargeted from roman-hero-t5.', 'Shield stance punchRight is composed from right-fist segments of Punch_Combo_1.'],
+  visualAcceptance: 'See PR #444 for the hero-preview close-up results.',
+  knownLimitations: ['Source rig has no finger bones: runtime morphs (MittenHandShape) curl the mitten hands.', 'Idle / bow / pilum / axe clips are direction-retargeted from roman-hero-t5.', 'Shield stance punchRight is composed from right-fist segments of Punch_Combo_1.'],
 }
 fs.writeFileSync(path.join(out, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n')
 console.log('metrics', { height: metrics.heightM, shoulder: metrics.shoulderWidthM, neck: metrics.neckLengthM, scale })

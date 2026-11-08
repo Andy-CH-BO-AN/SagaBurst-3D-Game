@@ -73,6 +73,12 @@ const ease = (value: number): number => {
   return t * t * (3 - 2 * t)
 }
 
+function holdsVisibleMesh(node: THREE.Object3D): boolean {
+  if (!node.visible) return false
+  if (node instanceof THREE.Mesh) return true
+  return node.children.some(holdsVisibleMesh)
+}
+
 /** Shared allocation-free FK pose sampler used by Player and NPC combat. */
 export class CharacterCombatAnimator {
   private action: CombatAction = 'idle'
@@ -304,6 +310,10 @@ export class CharacterCombatAnimator {
     const poseElapsed = canceledPose ? this.canceledAxePose : this.poseTime(this.elapsed + actionDt)
     const continuous = canceledPose || this.usesContinuousAxeCarry
     setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
+    if (this.rig.mittenHands) this.rig.animation?.setEquipmentState?.({
+      rightGrip: this.lanceEquipped || this.action === 'pilumThrow' || holdsVisibleMesh(this.meleePivot),
+      leftGrip: holdsVisibleMesh(this.bowPivot),
+    })
     this.rig.animation?.setEquipmentState?.({ punchClip: this.isPunchClip, action: poseAction, elapsed: poseElapsed, continuousAxeAction: continuous, lance: this.lanceEquipped, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined, carryWeapon: this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual ? 'axe' : 'sword' : undefined })
     // Melee sockets drive physical collision, so their pose must follow the
     // action clock every frame, including fast T4 attacks. Idle/ranged may throttle.

@@ -98,6 +98,10 @@ export interface HumanoidMeleeTiming {
 }
 
 export interface CharacterRig {
+  /** Authored seated leg rotations per mount, for binds whose legs are not straight. */
+  mountedLegPoses?: Partial<Record<string, Record<string, [number, number, number, number]>>>
+  /** Fingerless hands close through morphs rather than finger bones. */
+  mittenHands?: boolean
   equipmentGripFrames?: import('./EquipmentAttachmentContract').EquipmentGripFrames
   upperChest?: THREE.Object3D
   clavicleLeft?: THREE.Object3D
@@ -235,6 +239,14 @@ function addLeg(
 }
 
 export function applyCharacterMountedPose(rig: CharacterRig, mounted: boolean, kind: MountedPoseKind = 'BLACK_CAT'): void {
+  const authored = mounted ? rig.mountedLegPoses?.[kind] : undefined
+  if (authored) {
+    for (const leg of [rig.leftLeg, rig.rightLeg]) for (const joint of [leg.hip, leg.knee, leg.ankle]) {
+      const pose = authored[joint.name]
+      if (pose) joint.quaternion.fromArray(pose)
+    }
+    return
+  }
   for (const leg of [rig.leftLeg, rig.rightLeg]) {
     if (!mounted) {
       setRigRotation(leg.hip, 0, 0, 0)

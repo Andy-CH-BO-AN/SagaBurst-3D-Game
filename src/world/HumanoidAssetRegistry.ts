@@ -12,7 +12,7 @@ import { civilianHumanoidAssetId } from './CivilianAppearance'
 import { BANDIT_ASSET } from './BanditAsset'
 import { CharacterEquipmentPose, type SwordCarryGripProfile, createEquipmentPoseState, type EquipmentPoseState } from './CharacterEquipmentPose'
 import { InertialPoseTransition } from './InertialPoseTransition'
-import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, type EquipmentGripFrames } from './EquipmentAttachmentContract'
+import { calibrateEquipmentFrames, calibrateLanceIdleAttachment, LANCE_RADIUS, type EquipmentGripFrames } from './EquipmentAttachmentContract'
 import { prepareEquipmentHandShape } from './EquipmentHandShape'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
@@ -25,6 +25,7 @@ import { normalizeBowHandClips, prepareBowGripShape } from './CanonicalBowGripPo
 import type { HandGripFrame } from './BowAttachmentContract'
 import { prepareBladeGrip } from './HumanoidBladeGrip'
 import { prepareSwordHandShape } from './SwordHandShape'
+import { MITTEN_MORPHS, prepareMittenHandShape } from './MittenHandShape'
 import {
   AUDITED_ROMAN_LOD2_SHA256,
   cullRomanLod2TinyDetails,
@@ -89,6 +90,8 @@ export interface HumanoidAssetManifest {
     textures: { lod0: number, lod1: number, lod2: number }
   } | null
   selectedSource?: SelectedHumanoidSource
+  /** Per-mount seated leg rotations for rigs whose bind legs are not straight (bone name -> quaternion). */
+  mountedLegPoses?: Partial<Record<string, Record<string, [number, number, number, number]>>>
   /** Identical LOD bind spaces and clips share one actor-owned skeleton/mixer. */
   /** Complete source skin, padded to the existing four-set plugin contract. */
   skinInfluenceSets?: 4
@@ -867,6 +870,24 @@ export class MixerController implements HumanoidAnimationController {
   }
 }
 
+/** Fingerless source rig: both hands close through morphs, sized from the same grip frames the weapons use. */
+function prepareMittenLevel(manifest: HumanoidAssetManifest, scene: THREE.Object3D, level: number): void {
+  const right = manifest.swordGripFrames?.[`lod${level}` as 'lod0'], left = manifest.handGripFrames?.left
+  if (!right || !left) throw new Error(`${manifest.id}: mitten hands require grip frames`)
+  const leftCenter = new THREE.Vector3(...left.palmContactCenter).addScaledVector(new THREE.Vector3(...left.palmNormal), LANCE_RADIUS).toArray()
+  scene.userData.mittenHands = true
+  scene.updateMatrixWorld(true)
+  scene.traverse(object => {
+    if (!(object instanceof THREE.SkinnedMesh)) return
+    prepareMittenHandShape(object, [
+      { bone: scene.getObjectByName('hand_r')!, grip: MITTEN_MORPHS.gripRight, hollow: MITTEN_MORPHS.hollowRight,
+        frame: { finger: right.fingerDirection, thumb: right.gripAxisLocal, palm: right.palmNormalLocal, center: right.gripCenterLocal } },
+      { bone: scene.getObjectByName('hand_l')!, grip: MITTEN_MORPHS.gripLeft, hollow: MITTEN_MORPHS.hollowLeft,
+        frame: { finger: left.fingerDirection, thumb: left.thumbDirection, palm: left.palmNormal, center: leftCenter } },
+    ])
+  })
+}
+
 /** Contact events `punch0..N` plus `punchHands`; every contact must lie inside the clip and strictly ascend. */
 export function parsePunchTiming(binding: HumanoidAnimationBinding): HumanoidPunchTiming | undefined {
   if (!binding.punchHands) return undefined
@@ -929,6 +950,8 @@ export function createHumanoidRigAdapter(root: THREE.Object3D, animation: Humano
     rightFootSocket: findSocket(root, ['socket_foot_r', 'sole_r'], rightFoot, 'socket_foot_r'),
     animation,
     equipmentGripFrames: root.userData.equipmentGripFrames,
+    mountedLegPoses: root.userData.mountedLegPoses,
+    mittenHands: root.userData.mittenHands === true,
     upperChest: root.getObjectByName('upper_chest'),
     clavicleLeft: root.getObjectByName('clavicle_l'),
     clavicleRight: root.getObjectByName('clavicle_r'),
@@ -1092,6 +1115,8 @@ export class HumanoidAssetRegistry {
         }
       })
     }
+    if (manifest.selectedSource?.rig === 'mixamo24') levels.forEach((level, index) => prepareMittenLevel(manifest, level.scene, index))
+    if (manifest.mountedLegPoses) for (const level of levels) level.scene.userData.mountedLegPoses = manifest.mountedLegPoses
     validateEmbeddedAnimations(faction, manifest, levels)
     const frame = readHandFrame(manifest)
     const animationClips = manifest.selectedSource || manifest.sharedLodPose

@@ -1,5 +1,6 @@
 import { minimumReachableShoulderSwing } from './AuthoredCarryGrip'
 import { punchExtension } from '../combat/UnarmedCombat'
+import { MITTEN_MORPHS } from './MittenHandShape'
 import { fingerContactOwnership, type ArticulatedFingerPoses } from './FingerContactPolicy'
 import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import * as THREE from 'three'
@@ -42,6 +43,9 @@ export interface EquipmentPoseState {
   elapsed: number
   /** Only measured, trimmed 2H actions opt into continuous pose corrections. */
   continuousAxeAction?: boolean
+  /** Which hand holds something; fingerless hands wrap it, otherwise they rest in an empty grip. */
+  rightGrip?: boolean
+  leftGrip?: boolean
   /** An imported punch clip owns the fist arms; the procedural solve is skipped (shield arm still solves). */
   punchClip?: boolean
   alive: boolean
@@ -388,7 +392,7 @@ export class CharacterEquipmentPose {
     return this.hasSwordEquipmentCorrection ? this.swordEquipmentCorrection : undefined
   }
 
-  private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined }> = []
+  private readonly morphs: Array<{ mesh: THREE.SkinnedMesh, right: number | undefined, left: number | undefined, shield: number | undefined, mitten?: { gripR: number, gripL: number, hollowR: number, hollowL: number } }> = []
   private readonly articulatedFingers: Array<{ node: THREE.Object3D, left: boolean, relaxed: THREE.Quaternion, grip: THREE.Quaternion, sword?: THREE.Quaternion, mountedSword?: THREE.Quaternion, axe?: THREE.Quaternion, shield?: THREE.Quaternion }> = []
   private readonly articulatedAxeNeutralWrist: THREE.Quaternion
   private readonly articulatedAxeProfile?: string
@@ -501,7 +505,7 @@ export class CharacterEquipmentPose {
     if (this.orbitNeck && !nodes.includes(this.orbitNeck)) nodes.push(this.orbitNeck)
     if (this.bowFullBodyStance && this.bowSpine && this.bowSpine !== this.seatedSpine) nodes.push(this.bowSpine)
     for (const node of nodes) this.saved.push({ node, q: node.quaternion.clone() })
-    root.traverse(o => { if (o instanceof THREE.SkinnedMesh) this.morphs.push({ mesh: o, right: o.morphTargetDictionary?.lanceRight, left: o.morphTargetDictionary?.lanceLeft, shield: o.morphTargetDictionary?.shieldLeft }) })
+    root.traverse(o => { if (o instanceof THREE.SkinnedMesh) this.morphs.push({ mesh: o, right: o.morphTargetDictionary?.lanceRight, left: o.morphTargetDictionary?.lanceLeft, shield: o.morphTargetDictionary?.shieldLeft, mitten: o.morphTargetDictionary?.[MITTEN_MORPHS.gripRight] === undefined ? undefined : { gripR: o.morphTargetDictionary![MITTEN_MORPHS.gripRight], gripL: o.morphTargetDictionary![MITTEN_MORPHS.gripLeft], hollowR: o.morphTargetDictionary![MITTEN_MORPHS.hollowRight], hollowL: o.morphTargetDictionary![MITTEN_MORPHS.hollowLeft] } }) })
   }
 
   private solveHandContact(solver: ArmSolver, arm: ArmRig, frame: EquipmentGripFrame): void {
@@ -1180,6 +1184,12 @@ export class CharacterEquipmentPose {
       if (morph.right !== undefined) values[morph.right] = 0
       if (morph.left !== undefined) values[morph.left] = twoHandedAxe ? smooth(state.elapsed / .08) * (1 - smooth((state.elapsed - .42) / .06)) : 0
       if (morph.shield !== undefined) values[morph.shield] = Number(live && state.shield)
+      if (morph.mitten) {
+        const punching = state.action === 'punchCombo' || state.action === 'punchRight'
+        const right = live && (punching || !!state.rightGrip), left = live && (state.action === 'punchCombo' || state.shield || twoHandedAxe || !!state.leftGrip)
+        values[morph.mitten.gripR] = Number(right); values[morph.mitten.hollowR] = Number(!right)
+        values[morph.mitten.gripL] = Number(left); values[morph.mitten.hollowL] = Number(!left)
+      }
     }
     const fingerContact = contact
     if (fingerContact) for (const entry of this.articulatedFingers) {

@@ -36,7 +36,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
   const byzantine = descriptor.assetId === 'byzantine-cataphract-t5'
   const lanceId = byzantine ? 'byzantine_standard_lance_t5' : 'spear_t4'
   const shieldId = byzantine ? 'byzantine_eagle_shield_t5' : commander ? (roman ? 'commander_shield_t5' : 'viking_berserker_shield_t5') : roman ? 'roman_officer_shield_t4' : 'paladin_shield_t4'
-  const label = ordinary ? `${roman ? '羅馬' : '維京'}普通士兵 · ${descriptor.assetId}` : civilian ? (roman ? 'Roman Civilian · Roman Statesman' : 'Viking Civilian · Nordic Warrior') : commander ? (roman ? '禁衛軍指揮官 · Roman T5' : '維京指揮官 · Viking Warrior T5') : maki ? 'Shadow Warden · T4 遊俠英雄' : roman ? '聖騎士 · Gondor Knight T4' : '維京英雄 · T4'
+  const label = ordinary ? `${roman ? '羅馬' : '維京'}普通士兵 · ${descriptor.assetId}` : civilian ? (roman ? 'Roman Civilian · Roman Statesman' : 'Viking Civilian · Nordic Warrior') : byzantine ? '拜占庭鐵甲重騎兵 · Byzantine Cataphract' : commander ? (roman ? '禁衛軍指揮官 · Roman T5' : '維京指揮官 · Viking Warrior T5') : maki ? 'Shadow Warden · T4 遊俠英雄' : roman ? '聖騎士 · Gondor Knight T4' : '維京英雄 · T4'
   const reference = commander ? (roman ? ROMAN_HERO : VIKING_HERO) : undefined
   const factionLabel = roman ? '羅馬人' : '維京'
   const actions: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'punchCombo', 'punchRight', 'swordSlash', 'axeAttack1H', 'axeAttack1HFoot', 'axeAttack2H', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'hit', 'mounted', 'axeMountedIdle', 'death']
@@ -150,6 +150,8 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
         playback.sampleBowComparison(time, 'gameplay', 'idle', riding)
       } else if (state === 'pilumThrow') {
         playback.samplePilum(time, riding)
+      } else if (state === 'punchCombo' || state === 'punchRight') {
+        playback.samplePunch(time, riding)
       } else {
         const attack = state === 'axeAttack1H' || state === 'axeAttack2H' || state === 'swordSlash' || state === 'lanceThrust' || state === 'mountedLance'
         playback.sampleEquipment(time, riding, state === 'walk' || state === 'run' ? state : 'idle', attack, duration())
