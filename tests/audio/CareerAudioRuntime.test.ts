@@ -1,5 +1,5 @@
 import { afterEach,beforeEach,describe,expect,it,onTestFinished,vi } from 'vitest'
-import { SoundManager } from '../../src/audio/SoundManager'
+import { playAppliedPunchHit, SoundManager } from '../../src/audio/SoundManager'
 
 class Source extends EventTarget {
   buffer: unknown
@@ -111,5 +111,41 @@ describe('Lazy Career audio runtime', () => {
     await flush()
     expect(sources).toHaveLength(1)
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/follow.wav'))).toBe(false)
+  })
+})
+
+
+describe('Optional punch impact audio', () => {
+  it('收起長槍後只有有效拳頭接觸走拳擊音效，空揮和完全格擋不播放', () => {
+    const sound = { playPunchHit: vi.fn() }
+    const event = { type: 'damage_applied' as const, source: { actorId: 'player', actorType: 'player' as const,
+      allegiance: 'PLAYER' as never, characterFaction: 'roman' as const }, target: { targetId: 'opponent', targetType: 'npc' as const, name: 'opponent' },
+      method: 'melee' as const, weaponId: 'unarmed', attackSource: 'unarmed' as const, contactKind: 'body' as const,
+      appliedDamage: 5, requestedDamage: 5 }
+    expect(playAppliedPunchHit(event, sound, 1)).toBe(true)
+    expect(sound.playPunchHit).toHaveBeenCalledExactlyOnceWith(1, true)
+    expect(playAppliedPunchHit({ ...event, appliedDamage: 0 }, sound)).toBe(false)
+    expect(playAppliedPunchHit({ ...event, contactKind: 'shield' }, sound)).toBe(false)
+    expect(playAppliedPunchHit({ ...event, weaponId: 'steel_lance', attackSource: undefined }, sound)).toBe(false)
+    expect(sound.playPunchHit).toHaveBeenCalledTimes(1)
+  })
+  it('拳擊錄音 404 只請求一次，之後拳擊安全靜音；新的 manager 可載入新增的錄音', async () => {
+    const manager = managerFixture()
+    await manager.preload()
+    const missing = vi.fn(async (_url: string) => ({ ok: false }))
+    vi.stubGlobal('fetch', missing)
+    manager.playPunchHit(0, true); manager.playPunchHit(0, true)
+    await flush()
+    manager.playPunchHit(0, true)
+    await flush()
+    expect(missing).toHaveBeenCalledTimes(1)
+    expect(String(missing.mock.calls[0][0])).toContain('audio/sfx/punch_hit.wav')
+    expect(sources).toHaveLength(0)
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) })))
+    const fresh = managerFixture()
+    await fresh.preload()
+    fresh.playPunchHit(0, true)
+    await flush()
+    expect(sources).toHaveLength(1)
   })
 })

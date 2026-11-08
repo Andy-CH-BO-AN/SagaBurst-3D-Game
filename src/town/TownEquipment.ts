@@ -12,14 +12,14 @@ export function canUseCareerEquipment(profile: CareerProfile, id: string): boole
 }
 /** Temporary hand state is separate from persisted preferences and ownership. */
 export class TownEquipment extends InventoryManager {
-  override meleeEnabled = false
-  override rangedEnabled = false
-  override shieldEnabled = false
+  protected override get combatRestricted(): boolean {
+    return this.read?.().activeMission?.duelMode === 'unarmed'
+  }
   private readonly drawn = new Set<string>()
   constructor(private readonly read: () => CareerProfile, private readonly commit: (p: CareerProfile) => boolean) {
     super({ meleeWeaponId: careerTownWeapon(read()), rangedWeaponId: '', shieldId: null })
     this.loadSaveState({ items: [...read().ownedWeapons, ...read().ownedArmors].map(id => ({ id, quantity: 1 })), equippedMeleeId: careerTownWeapon(read()) })
-    this.rangedEnabled = false
+    this.rangedEnabled = this.meleeEnabled = this.shieldEnabled = false
   }
   syncOwnership(): void {
     const profile = this.read()
@@ -35,6 +35,7 @@ export class TownEquipment extends InventoryManager {
     }
   }
   restoreForHostile(): void {
+    if (this.combatRestricted) return
     this.syncOwnership()
     for (const id of Object.values(this.read().equipment ?? {})) {
       if (!id || !canUseCareerEquipment(this.read(), id) || !super.equipWeapon(id)) continue
@@ -59,7 +60,7 @@ export class TownEquipment extends InventoryManager {
   override itemAvailability(id: string): string { return `總持有 ${careerItemTotal(this.read(), id)} · 可用 ${availableCareerItem(this.read(), id)}` }
   override equipWeapon(id: string): boolean { return this.selectWeapon(id, true) }
   private selectWeapon(id: string, explicit: boolean): boolean {
-    if (!canUseCareerEquipment(this.read(), id)) return false
+    if (this.combatRestricted || !canUseCareerEquipment(this.read(), id)) return false
     this.syncOwnership()
     const item = WEAPONS[id] ?? ARMORS[id], profile = cloneCareerProfile(this.read())
     normalizeCareerInventory(profile)
@@ -78,6 +79,7 @@ export class TownEquipment extends InventoryManager {
   }
   override get supportsWeaponRelease(): boolean { return true }
   override unequipWeapon(id: string): boolean {
+    if (this.combatRestricted) return false
     const profile = cloneCareerProfile(this.read())
     normalizeCareerInventory(profile)
     const slot = (['melee', 'ranged', 'shield'] as const).find(slot => profile.equipment?.[slot] === id)
@@ -90,9 +92,10 @@ export class TownEquipment extends InventoryManager {
     return true
   }
   override canEquipWeapon(id: string): boolean {
-    return canUseCareerEquipment(this.read(), id) && super.canEquipWeapon(id)
+    return !this.combatRestricted && canUseCareerEquipment(this.read(), id) && super.canEquipWeapon(id)
   }
   override unequipShield(): void {
+    if (this.combatRestricted) return
     const profile = cloneCareerProfile(this.read()); normalizeCareerInventory(profile); profile.equipment = { ...profile.equipment, shield: null }
     if (this.commit(profile)) { this.shieldEnabled = false; super.unequipShield() }
   }

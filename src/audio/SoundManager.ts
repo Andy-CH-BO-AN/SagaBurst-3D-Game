@@ -1,3 +1,4 @@
+import type { CombatEvent } from '../combat/CombatAttribution'
 /**
  * SoundManager.ts
  * Runtime playback for the V3 battle pack and lazy Career mission voice pack.
@@ -32,6 +33,7 @@ const TOWN_ALARM_STRIKES = 6
 const TOWN_ALARM_INTERVAL_SECONDS = 1
 
 type AudioAsset =
+  | 'punchHit'
   | 'swordHit'
   | 'projectileImpact'
   | 'bowRelease'
@@ -51,6 +53,7 @@ type AudioAsset =
   | 'vikingHorn'
 
 const ASSETS: Record<AudioAsset, string> = {
+  punchHit: publicAssetUrl('audio/sfx/punch_hit.wav'),
   swordHit: new URL('../../sagaburst_audio_pack_v3/sfx/sword_armor_hit.wav', import.meta.url).href,
   projectileImpact: new URL('../../sagaburst_audio_pack_v3/sfx/arrow_body_impact.wav', import.meta.url).href,
   bowRelease: new URL('../../sagaburst_audio_pack_v3/sfx/bow_release_hit.wav', import.meta.url).href,
@@ -109,6 +112,7 @@ interface BattleImpactVoice {
 export class SoundManager {
   private ctx: AudioContext | null = null
   private readonly buffers = new Map<PlaybackAsset, AudioBuffer>()
+  private punchUnavailable = false
   private readonly loading = new Map<PlaybackAsset, Promise<AudioBuffer | null>>()
   private readonly gallopWanted = new Map<object, boolean>()
   private readonly gallopLoops = new Map<object, GallopLoop>()
@@ -152,7 +156,7 @@ export class SoundManager {
   async preload(): Promise<void> {
     try {
       this._init()
-      await Promise.all(Object.keys(ASSETS).map((key) => this._load(key as AudioAsset)))
+      await Promise.all(Object.keys(ASSETS).filter(key => key !== 'punchHit').map((key) => this._load(key as AudioAsset)))
     } catch {
       // Individual playback remains fail-safe if Web Audio is unavailable.
     }
@@ -177,6 +181,11 @@ export class SoundManager {
 
   playProjectileImpact(lod = 0, priority = false): void {
     this._playBattleImpact('projectileImpact', lod, priority)
+  }
+
+  /** Optional recording; one failed request per SoundManager lifetime, shared impact budget. */
+  playPunchHit(lod = 0, priority = false): void {
+    this._playBattleImpact('punchHit', lod, priority)
   }
 
   playSwordHit(lod = 0, priority = false): void {
@@ -457,6 +466,7 @@ export class SoundManager {
   }
 
   private async _load(asset: PlaybackAsset): Promise<AudioBuffer | null> {
+    if (asset === 'punchHit' && this.punchUnavailable) return null
     const existing = this.buffers.get(asset)
     if (existing) return existing
     const pending = this.loading.get(asset)
@@ -473,6 +483,7 @@ export class SoundManager {
         this.buffers.set(asset, buffer)
         return buffer
       } catch {
+        if (asset === 'punchHit') this.punchUnavailable = true
         return null
       }
     })().finally(() => this.loading.delete(asset))
@@ -493,7 +504,7 @@ export class SoundManager {
   }
 
   private _playBattleImpact(
-    asset: 'projectileImpact' | 'swordHit' | 'lanceImpact' | 'horseImpact',
+    asset: 'punchHit' | 'projectileImpact' | 'swordHit' | 'lanceImpact' | 'horseImpact',
     lod: number,
     priority: boolean,
   ): void {
@@ -642,4 +653,13 @@ export class SoundManager {
     }
     this.gallopLoops.delete(id)
   }
+}
+
+/** A punch sound is emitted only for real, effective fist contact. */
+export function playAppliedPunchHit(event: CombatEvent, sound: Pick<SoundManager, 'playPunchHit'> | null,
+  lod = 0, priority = event.source.actorType === 'player'): boolean {
+  if (event.type !== 'damage_applied' || event.appliedDamage <= 0 || event.method !== 'melee'
+    || event.weaponId !== 'unarmed' || event.attackSource !== 'unarmed' || event.contactKind === 'shield') return false
+  sound?.playPunchHit(lod, priority)
+  return true
 }

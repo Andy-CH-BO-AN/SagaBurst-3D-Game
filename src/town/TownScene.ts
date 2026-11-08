@@ -1,3 +1,4 @@
+import { playAppliedPunchHit } from '../audio/SoundManager'
 import { traceFistStrike, unarmedDamage } from '../combat/UnarmedCombat'
 import { TownTutorialController } from './TownTutorialController'
 import { canStartCareerTutorial } from '../career/CareerTutorial'
@@ -149,7 +150,7 @@ import { MissionGuide } from '../career/MissionGuide'
 import { areOrdinaryTownServicesPeaceful, canStartOrdinaryTownHostility, startCommanderRetirement } from '../career/CareerRetirement'
 import { townRetirementRallyTarget } from './TownBounds'
 import { CareerDuelHUD } from '../ui/CareerDuelHUD'
-import { CAREER_DUEL_TIERS, type CareerDuelTier, isCareerDuelUnlocked } from '../career/CareerDuelState'
+import { CAREER_DUEL_TIERS, type CareerDuelTier, isUnarmedDuelUnlocked, isCareerDuelUnlocked } from '../career/CareerDuelState'
 import { getUnitPresetsForFaction, UNIT_PRESETS, type UnitPresetId } from '../battle/UnitPresetCatalog'
 import { fieldMissionHud } from '../career/CareerMissionPresentation'
 import { RECRUIT_MISSION_MERIT_RULES } from '../career/CareerMissionMeritPolicy'
@@ -508,6 +509,7 @@ export class TownScene {
     this.mission.onMarchStarted = () => this.playMissionVoice('follow')
     this.mission.onSweepCharge = () => sound.playCommanderCommand(this.profile.faction, 'charge')
     this.duel = new CareerDuelController(this.scene, this.world, this.navigation, this.residents, this.cat, () => this.player, () => this.profile, p => this.commit(p))
+    this.duel.resolvePlayerHomeMount = () => this.careerMounts?.activeMount ?? null
     this.duel.onMarchStarted = () => this.playMissionVoice('follow')
     this.duel.onReturnStarted = () => this.playMissionVoice('return')
     this.defense = this.profile.activeMission?.kind === 'commander-four-gate-defense'
@@ -791,6 +793,8 @@ export class TownScene {
         const npc = trackNpcSpawn(new NPC(this.scene, spec.x, spec.z, allegiance, borrowedIdentity?.characterFaction ?? characterFaction, loadout.rangedWeaponId ? AIType.RANGED : AIType.MELEE, spec.role === 'commander' ? `${residentArmyFaction === 'roman' ? '羅馬' : '維京'}指揮官` : NAMES[spec.role] ?? spec.id, civilian ? TOWN_RULES.garrisonTier : ranger || hero ? 4 : careerEquipment?.tier ?? military!.level, cavalry, loadout, preset, undefined, spec.id, undefined, borrowedIdentity?.visualAssetId ?? (ranger ? 'maki-archer-t4' : heroAsset), borrowedIdentity?.combatProfileId ?? (ranger ? 'ranger' : combatProfile), borrowedIdentity?.specialCombatProfile ?? (ranger ? 'maki-ranger' : undefined), civilian ? 'civilian' : undefined, residentArmyFaction, spec.role === 'merchant' ? 'merchant' : undefined, undefined, borrowedIdentity?.characterTier ?? (civilian ? TOWN_RULES.garrisonTier : spec.role === 'commander' ? 5 : ranger || hero ? 4 : military!.level), borrowedIdentity?.heroArchetype))
         if (!spec.eagle && spec.duty !== 'patrol') npc.combatTargetAllowed = target => this.residentCombatTargetAllowed(spec, npc, target)
         if (spec.role === 'commander' && this.profile.townCommanderRecovery?.faction === residentArmyFaction) restoreCareerDuelCommander(npc, this.profile.townCommanderRecovery)
+        const duelRecovery = this.profile.townDuelResidentRecovery
+        if (duelRecovery?.faction === residentArmyFaction && duelRecovery.actorId === spec.id) restoreCareerDuelCommander(npc, duelRecovery)
         npc.setTownPeaceful(); npc.group.rotation.y = spec.yaw ?? Math.PI
         if (spec.y !== undefined) npc.group.position.y = spec.y
         if (spec.garrison?.kind === 'rampart' || spec.duty === 'watchtower_guard') npc.activateTownRampartGarrison()
@@ -1079,7 +1083,8 @@ export class TownScene {
   }
 
   /** Damage events own offensive progression; manual shield absorption owns Blocking only. */
-  private awardCareerDamageXp(event: CombatEvent): void {
+  private awardCareerDamageXp(event: CombatEvent, lod = 0, priority = event.source.actorType === 'player'): void {
+    playAppliedPunchHit(event, sound, lod, priority)
     const weapon = event.type === 'damage_applied' && event.weaponId
       ? WEAPONS[event.weaponId] : this.inventory.activeMelee
     const award = resolveActivePlayerSkillProgressionAward(event, {
@@ -1166,6 +1171,9 @@ export class TownScene {
       return
     }
     if (e.repeat) return
+    if (e.code === 'Tab' && this.profile.activeMission?.duelMode === 'unarmed') {
+      e.preventDefault(); e.stopImmediatePropagation(); this.notice = '空手對戰期間暫停換裝與召喚坐騎。'; return
+    }
     if (e.code === 'Tab') {
       e.preventDefault(); e.stopImmediatePropagation(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
       const adapters = createTownCareerEquipmentUI(() => this.profile, () => this.townEquipmentContext(),
@@ -1711,8 +1719,9 @@ export class TownScene {
         npc => npc.hasLiveCombatTarget || npc.inCombat && !['follow', 'formation'].includes(npc.tacticalOrder))
       && !this.shots.some(shot => !shot.training && (shot.player || actors.some(actor => actor.combatantId === shot.sourceRef?.actorId)))
   }
-  private emitCombatEvent(event: CombatEvent): void {
-    this.awardCareerDamageXp(event);
+  private emitCombatEvent(event: CombatEvent, lod = 0, priority = event.source.actorType === 'player'): void {
+    this.duel?.recordCombatEvent(event)
+    this.awardCareerDamageXp(event, lod, priority);
     (this.squadRefitSafety ??= new SquadRefitSafety()).note(event)
     if (this.retirementFinale?.active) { this.retirementFinale.recordEvent(event); return }
     if (this.captainPatrol?.active) this.captainPatrol.recordEvent(event)
@@ -2171,36 +2180,41 @@ export class TownScene {
     }
     panel.append(tabs, content); render()
   }
-  private openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId): void {
+  private openDuelSelection(panel: HTMLElement, presetId?: UnitPresetId, mode: 'armed' | 'unarmed' = 'armed'): void {
     const presets = getUnitPresetsForFaction(this.profile.faction)
     const selected = presets.find(preset => preset.id === presetId)
+    const unarmed = mode === 'unarmed'
     panel.replaceChildren()
-    const navigate = (id?: UnitPresetId) => {
-      this.openDuelSelection(panel, id)
+    const navigate = (id?: UnitPresetId, nextMode: 'armed' | 'unarmed' = 'armed') => {
+      this.openDuelSelection(panel, id, nextMode)
       panel.querySelector('h3')?.focus({ preventScroll: true })
     }
-    if (selected) this.button(panel, '← 返回兵種列表', () => navigate())
+    if (selected || unarmed) this.button(panel, '← 返回兵種列表', () => navigate())
     const heading = document.createElement('h3'); heading.tabIndex = -1
-    heading.textContent = selected ? `Tier · ${selected.nameEn} · ${selected.nameZh}` : 'Unit Type · 兵種'
+    heading.textContent = unarmed ? 'Tier · 🥊 空手對戰 · Unarmed Duel' : selected ? `Tier · ${selected.nameEn} · ${selected.nameZh}` : 'Unit Type · 兵種'
     panel.append(heading)
     const products = document.createElement('div'); products.className = 'town-products'; panel.append(products)
-    if (!selected) for (const preset of presets) {
+    if (!selected && !unarmed) {
+      this.button(products, '🥊 空手對戰 · Unarmed Duel', () => navigate(undefined, 'unarmed'))
+      for (const preset of presets) {
+        const row = document.createElement('article'); row.className = 'town-product'
+        const button = document.createElement('button'); button.className = 'town-button'
+        button.textContent = `${preset.nameEn} · ${preset.nameZh}`
+        const progress = document.createElement('small')
+        progress.textContent = CAREER_DUEL_TIERS.map(tier => `T${tier} ${isCareerDuelUnlocked(this.profile, preset.id, tier) ? '已解鎖' : 'Locked'}`).join(' · ')
+        button.onclick = () => navigate(preset.id)
+        row.append(button, progress); products.append(row)
+      }
+    } else for (const tier of CAREER_DUEL_TIERS) {
       const row = document.createElement('article'); row.className = 'town-product'
-      const button = document.createElement('button'); button.className = 'town-button'
-      button.textContent = `${preset.nameEn} · ${preset.nameZh}`
-      const progress = document.createElement('small')
-      progress.textContent = CAREER_DUEL_TIERS.map(tier => `T${tier} ${isCareerDuelUnlocked(this.profile, preset.id, tier) ? '已解鎖' : 'Locked'}`).join(' · ')
-      button.onclick = () => navigate(preset.id)
-      row.append(button, progress); products.append(row)
-    }
-    else for (const tier of CAREER_DUEL_TIERS) {
-      const row = document.createElement('article'); row.className = 'town-product'
-      const title = document.createElement('strong'); title.textContent = `T${tier} ${selected.nameEn}`
+      const title = document.createElement('strong'); title.textContent = `T${tier} ${unarmed ? 'Unarmed Duel · 空手對戰' : selected!.nameEn}`
       const details = document.createElement('small')
-      const unlocked = isCareerDuelUnlocked(this.profile, selected.id, tier)
-      details.textContent = unlocked ? `5 秒準備 · 30 秒內擊敗對手${tier === 5 ? ' · Commander 出戰，Captain 裁判' : tier === 4 ? selected.traits.includes('bow_fire') ? ' · Shadow Warden 出戰' : ' · Captain 出戰，Shadow Warden 裁判' : ''}` : `先擊敗 T${tier - 1} ${selected.nameEn}`
+      const unlocked = unarmed ? isUnarmedDuelUnlocked(this.profile, tier) : isCareerDuelUnlocked(this.profile, selected!.id, tier)
+      details.textContent = !unlocked ? `先擊敗 T${tier - 1} ${unarmed ? '空手對手' : selected!.nameEn}`
+        : unarmed ? '5 秒準備 · 90 秒內擊敗對手 · 對手拳擊 Lv.1 · 雙方無武器、盾牌與坐騎；非拳擊有效傷害立即判負'
+        : `5 秒準備 · 30 秒內擊敗對手${tier === 5 ? ' · Commander 出戰，Captain 裁判' : tier === 4 ? selected!.traits.includes('bow_fire') ? ' · Shadow Warden 出戰' : ' · Captain 出戰，Shadow Warden 裁判' : ''}`
       const accept = document.createElement('button'); accept.className = 'town-button'; accept.textContent = unlocked ? '接受單挑' : 'Locked'; accept.disabled = !unlocked
-      accept.onclick = () => this.acceptDuel(selected.id, tier)
+      accept.onclick = () => unarmed ? this.acceptDuel(undefined, tier, 'unarmed') : this.acceptDuel(selected!.id, tier)
       row.append(title, details, accept); products.append(row)
     }
     panel.scrollTop = 0
@@ -2310,14 +2324,15 @@ export class TownScene {
     this.notice = '跟隨實際隊長前往單挑場地；新兵切磋使用步戰，30 秒超時判負。'
     this.closePanel()
   }
-  private acceptDuel(presetId: UnitPresetId, tier: CareerDuelTier): void {
+  private acceptDuel(presetId: UnitPresetId | undefined, tier: CareerDuelTier, mode: 'armed' | 'unarmed' = 'armed'): void {
     if (this.player.dead || !this.serviceAvailable('deployment')) return
     const fresh = this.store.load()
-    if (!fresh || this.player.dead || this.event.hostile || !isCareerDuelUnlocked(fresh, presetId, tier) || fresh.activeRace || fresh.activeMission || fresh.activeOutpostMission || fresh.townEvent?.state === 'hostile') {
+    if (!fresh || this.player.dead || this.event.hostile || !(mode === 'unarmed' ? isUnarmedDuelUnlocked(fresh, tier) : presetId && isCareerDuelUnlocked(fresh, presetId, tier)) || fresh.activeRace || fresh.activeMission || fresh.activeOutpostMission || fresh.townEvent?.state === 'hostile') {
       this.openPanel('無法接受單挑', '生涯存檔已變更、該兵種 Tier 尚未解鎖，或目前正在交戰。'); return
     }
-    const mission = this.duel.createMission(presetId, tier)
+    const mission = mode === 'unarmed' ? this.duel.createUnarmedMission(tier) : presetId ? this.duel.createMission(presetId, tier) : null
     if (!mission) { this.openPanel('無法接受單挑', '目前沒有可出戰的城鎮士兵。'); return }
+    if (mode === 'unarmed') mission.mountState = this.careerMounts.checkpoint()
     const next = cloneCareerProfile(fresh); next.activeMission = mission
     if (!this.commit(next)) { this.openPanel('單挑保存失敗', '單挑尚未開始。請確認瀏覽器儲存空間後重試。'); return }
     this.playMissionVoice('missionAccepted')
@@ -2793,6 +2808,7 @@ export class TownScene {
     const merit = result.merit
     const defenseText = result.defense ? `\n\nCivilians\nSurvived ${result.defense.civilianSurvived}\nDeaths ${result.defense.civilianDeaths}` : ''
     const combined = result.meritStats ? `\n\n玩家與授權部隊軍功貢獻\nDamage ${Math.round(result.meritStats.damageDealt)}\nKills ${result.meritStats.kills}\nStructure damage ${Math.round(result.meritStats.structureDamage)}\nGate breaches ${result.meritStats.gateBreaches}` : ''
+    const illegalText = this.profile.activeMission?.duelFailureReason === 'illegal_attack' ? '\n\n空手對決違規：使用非拳擊攻擊' : ''
     const zeroMeritReason = merit.total !== 0 ? '' : (result.meritStats ?? result.stats).damageDealt > 0
       ? `\n\n有效傷害未達 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點軍功門檻；本次軍功為 0。`
       : '\n\n本次未對任務目標造成有效貢獻。個人軍功：0'
@@ -2802,7 +2818,7 @@ export class TownScene {
       this.button(panel, `返回 ${townName(this.profile.faction)}`, () => this.returnToTown('direct'))
       return
     }
-    const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}${combined}\n\nMilitary Merit\n每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}`)
+    const panel = this.openPanel(result.defense ? `Town Defense · ${complete ? 'SUCCESS' : 'FAILURE'}` : complete ? 'MISSION COMPLETE' : 'MISSION FAILED', `玩家統計 PLAYER\nDamage ${Math.round(result.stats.damageDealt)}\nKills ${result.stats.kills}\nSurvived ${result.stats.survived ? 'Yes' : 'No'}${defenseText}${combined}\n\nMilitary Merit\n每 ${RECRUIT_MISSION_MERIT_RULES.damagePerPoint} 點有效傷害 = 1 軍功\nDamage merit ${merit.damage}\nKill merit ${merit.kills}\nMission contribution merit ${merit.contribution}\nTotal ${merit.total}${zeroMeritReason}${illegalText}`)
     this.button(panel, this.profile?.activeMission?.kind === 'captain-patrol-command' ? '直接返回城鎮' : `返回 ${townName(this.profile.faction)}`, () => this.returnToTown('direct'))
     if (this.profile?.activeMission?.kind === 'captain-patrol-command') {
       if (complete && result.stats.survived) this.button(panel, '跟隊伍走回去', () => {
@@ -3019,11 +3035,11 @@ export class TownScene {
     const playerMountHit = mount === this.player.currentMount
     const result = damageMount(mount, amount, {
       contact, source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)), method,
-      weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
+      weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : (contact?.attackSource === 'unarmed' ? 'unarmed' : source.meleeWeaponId)) ?? undefined
         : (method === 'projectile' ? this.inventory.equippedRanged?.id : (this.inventory.activeMelee?.id ?? 'unarmed')),
       emit: event => {
         if (rider) this.missionCombat?.notePlayerContact(rider, event)
-        this.emitCombatEvent(event)
+        this.emitCombatEvent(event, mount.currentLod, !source)
       },
     })
     if (result.appliedDamage > 0 && rider && !this.isRetirementEvacuating(rider)) {
@@ -3038,7 +3054,7 @@ export class TownScene {
     }
     if (result.hitSuccess) {
       if (method === 'projectile') sound?.playProjectileImpact(mount.currentLod, !source)
-      else sound?.playSwordHit(mount.currentLod, !source)
+      else if (contact?.attackSource !== 'unarmed') sound?.playSwordHit(mount.currentLod, !source)
     }
     if (mount === this.cat && mount.dead && this.event.hostile) this.persistCasualties()
   }
@@ -3132,7 +3148,7 @@ export class TownScene {
       this.damageNumbers.spawn(applied, position)
       if (method === 'projectile') sound?.playProjectileImpact(0, true)
       else if (method === 'mount-impact') sound?.playHorseImpact(0, true)
-      else sound?.playSwordHit(0, true)
+      else if (contact?.attackSource !== 'unarmed') sound?.playSwordHit(0, true)
     }
     this.activateHostility(); this.persistCasualties()
   }
@@ -3180,6 +3196,7 @@ export class TownScene {
     for (const id of this.profile.townEvent.destroyedBuildingIds ?? []) this.world.buildings.find(b => b.id === id)?.hp.destroy()
   }
   private hitFieldNpc(target: NPC, amount: number, method: CombatDamageMethod, source?: NPC, contact?: CombatContact, sourceRef?: CombatActorRef): void {
+    contact ??= source?.unarmedContact
     if (this.retirementFinale?.frozen || this.fourGateCombatHeld || source && this.isRetirementEvacuating(source)) return
     if (this.defense?.phase === 'PREPARING' && (source?.combatOwnership === 'player-personal' || target.combatOwnership === 'player-personal')) return
     contact ??= method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined
@@ -3200,10 +3217,10 @@ export class TownScene {
       contact: contact ?? (method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined),
       source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)),
       method,
-      weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined : (method === 'projectile' ? this.inventory.equippedRanged?.id : (this.inventory.activeMelee?.id ?? 'unarmed')),
+      weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : (contact?.attackSource === 'unarmed' ? 'unarmed' : source.meleeWeaponId)) ?? undefined : (method === 'projectile' ? this.inventory.equippedRanged?.id : (this.inventory.activeMelee?.id ?? 'unarmed')),
       emit: event => {
         this.missionCombat?.notePlayerContact(target, event)
-        this.emitCombatEvent(event)
+        this.emitCombatEvent(event, target.currentLod, !source)
       },
     })
     if (!result.hitSuccess) return
@@ -3225,7 +3242,8 @@ export class TownScene {
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
     else if (method === 'mount-impact') sound?.playHorseImpact(target.currentLod, !source)
-    else if ((source?.meleeCombatKind ?? this.inventory.equippedMelee?.combatKind) === 'lance') sound?.playLanceImpact(target.currentLod, !source)
+    else if (contact?.attackSource === 'unarmed') { /* Played by the applied-damage event. */ }
+    else if ((source?.meleeCombatKind ?? this.inventory.activeMelee?.combatKind) === 'lance') sound?.playLanceImpact(target.currentLod, !source)
     else sound?.playSwordHit(target.currentLod, !source)
     if (target.faction === Faction.BANDIT && !this.isRetirementEvacuating(target)) {
       if (source) this.mission.alertGroupFor(target)
@@ -3238,6 +3256,7 @@ export class TownScene {
     }
   }
   private damagePlayerFromNpc(source: NPC, amount: number, method: CombatDamageMethod, contact?: CombatContact, sourceRef?: CombatActorRef): void {
+    contact ??= source.unarmedContact
     if (this.retirementFinale?.frozen || this.fourGateCombatHeld) return
     if (this.isRetirementEvacuating(source)) return
     if (!source.hostileToPlayer && !this.duel?.canDamagePlayer(source)) return
@@ -3245,13 +3264,14 @@ export class TownScene {
     const result = damagePlayer(this.player, amount, this.hp, this.inventory.shieldEnabled ? this.inventory.equippedShield?.id ?? null : null, {
       contact: contact ?? (method === 'melee' ? source.weaponSweep?.contact : undefined),
       hostileToTarget: source.hostileToPlayer || Boolean(this.duel?.canDamagePlayer(source)),
-      source: sourceRef ?? createNpcCombatActorRef(source), method, weaponId: (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined, emit: event => this.emitCombatEvent(event),
+      source: sourceRef ?? createNpcCombatActorRef(source), method, weaponId: (method === 'projectile' ? source.rangedWeaponId : (contact?.attackSource === 'unarmed' ? 'unarmed' : source.meleeWeaponId)) ?? undefined, emit: event => this.emitCombatEvent(event, source.currentLod, true),
     })
     if (method === 'mount-impact' && source.mount && result.hitSuccess && !result.isMountHit) applyMountImpactKnockback(source.mount, this.player, { obstacles: this.world.obstacles, worldBound: getScenePlayableWorldBound(this.scene) }, .95)
     if (result.hitSuccess && (result.appliedDamage > 0 || result.blockedImpact > 0)) this.missionCombat?.noteExternalPlayerHit(source)
     if (result.appliedDamage <= 0) return
     if (method === 'projectile') sound?.playProjectileImpact(0, true)
     else if (method === 'mount-impact') sound?.playHorseImpact(0, true)
+    else if (contact?.attackSource === 'unarmed') { /* Played by the applied-damage event. */ }
     else if (source.meleeCombatKind === 'lance') sound?.playLanceImpact(0, true)
     else sound?.playSwordHit(0, true)
   }
@@ -4048,7 +4068,7 @@ export class TownScene {
         : this.profile.activeMission.kind === 'captain-patrol-command'
         ? `\nPATROL COMMAND · 有效擊殺 ${this.captainPatrol?.killCount ?? this.profile.activeMission.patrolKilledActorIds?.length ?? 0}/30\n正式巡邏隊 ${this.captainPatrol?.aliveCombatants ?? 0}/20 · Q / 反引號 命令`
         : this.profile.activeMission.kind === 'duel'
-        ? `\nDUEL · T${this.profile.activeMission.duelTier} ${UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (this.duel.combatRemaining > 29 ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨隊長返回市政廳服務點' : this.duel.phase === 'ASSEMBLING' || this.duel.phase === 'MARCHING' ? '前往單挑場地 · 等待 Captain 與對手就位' : this.duel.phase}`
+        ? `\nDUEL · T${this.profile.activeMission.duelTier} ${this.profile.activeMission.duelMode === 'unarmed' ? 'Unarmed Duel · 空手對戰' : UNIT_PRESETS[this.profile.activeMission.duelPresetId!].nameEn}\n${this.duel.phase === 'PREPARING' ? 'DUEL STARTS IN ' + Math.ceil(this.duel.countdownRemaining) : this.duel.phase === 'ENGAGING' ? (this.duel.combatRemaining > 29 ? 'FIGHT\n' : '') + 'Time ' + this.duel.combatRemaining.toFixed(1) + '\nOpponent HP ' + Math.round(this.duel.opponent?.hp ?? 0) : this.duel.phase === 'RETURNING' ? '跟隨隊長返回市政廳服務點' : this.duel.phase === 'ASSEMBLING' || this.duel.phase === 'MARCHING' ? '前往單挑場地 · 等待 Captain 與對手就位' : this.duel.phase}`
         : this.profile.activeMission.kind === 'veteran-field'
         ? this.veteranMissionHud()
         : this.profile.activeMission.kind === 'cavalry-sweep'

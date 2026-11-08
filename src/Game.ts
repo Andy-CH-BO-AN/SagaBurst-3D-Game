@@ -1,3 +1,4 @@
+import { playAppliedPunchHit } from './audio/SoundManager'
 import { traceFistStrike, unarmedDamage } from './combat/UnarmedCombat'
 import { getOrdinarySoldierHp, resolveOrdinaryPlayerBaseHp, resolveOrdinarySoldierTier } from './combat/OrdinarySoldierProfile'
 import { CareerCommandHudTypes } from './career/CareerCommandHudTypes'
@@ -4767,12 +4768,14 @@ export class Game {
         const contact = traceFistStrike(strike, this.player.position, targets, this.obstacles)
         if (!contact) continue
         const target = contact.target as NPC | Mount | import('./combat/DamageReceiver').DamageReceiver
-        const context = { contact, source: createPlayerCombatActorRef(this.player), method: 'melee' as const, weaponId: 'unarmed', emit: this.combatEvents.emit }
+        const context = { contact, source: createPlayerCombatActorRef(this.player), method: 'melee' as const, attackSource: 'unarmed' as const, weaponId: 'unarmed', emit: (event: CombatEvent) => { this.combatEvents.emit(event); playAppliedPunchHit(event, this.soundManager) } }
         const amount = unarmedDamage(this.skillManager.getMultiplier('unarmed'), this.player.heroAssetId)
         const result = contact.kind === 'mount' && contact.mount ? damageMount(contact.mount, amount, context)
           : isDamageReceiver(target) ? damageReceiver(target, amount, context) : damageNpc(target as NPC, amount, context)
         if (result.hitSuccess) {
-          if (result.appliedDamage > 0) this.damageNumbers.spawn(result.appliedDamage, target.combatPosition)
+          if (result.appliedDamage > 0) {
+            this.damageNumbers.spawn(result.appliedDamage, target.combatPosition)
+          }
           this._showEnemyHud(result.targetName, result.hpRatio)
         }
       }

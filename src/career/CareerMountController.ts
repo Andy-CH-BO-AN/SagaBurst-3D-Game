@@ -185,6 +185,7 @@ export class CareerMountController implements EquipmentMountAdapter {
   }
 
   activate(rawId: string): boolean {
+    if (this.readProfile().activeMission?.duelMode === 'unarmed') return this.fail('空手對戰期間不能召喚或切換坐騎。')
     if (this.readProfile().activeRace) return this.fail('賽馬期間不能召喚或切換坐騎。')
     if (this.player().isFalling || this.player().currentMount?.isAirborne) return this.fail('請先安全降落，再召喚或切換坐騎。')
     const id = canonicalCareerMountId(rawId as CareerMountId)
@@ -314,7 +315,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     if (retirement?.mount) mount.group.rotation.y = heading
     this.installDeathPersistence(id, mount)
     this.active = { id, mount }
-    if (!retirement || retirement.player.mounted) this.player().mountVehicle(mount, heading)
+    if (profile.activeMission?.duelMode !== 'unarmed' && (!retirement || retirement.player.mounted)) this.player().mountVehicle(mount, heading)
     this.statusText = `${MOUNTS[canonicalCareerMountId(id)].name}已恢復，剩餘耐久 ${Math.ceil(mount.currentHp)}/${mount.maxHp}。`
     return true
   }

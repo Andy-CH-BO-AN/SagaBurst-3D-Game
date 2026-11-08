@@ -1,3 +1,4 @@
+import { traceFistStrike, UNARMED_DAMAGE, UNARMED_RANGE } from '../combat/UnarmedCombat'
 import { resolveOrdinaryNpcHp } from '../combat/OrdinarySoldierProfile'
 import { resolveCharacterIdentity, type CharacterIdentity, type CharacterTier, type HeroArchetype } from '../combat/CharacterIdentity'
 import { FriendlyMovementBypass } from '../navigation/FriendlyMovementBypass'
@@ -339,6 +340,7 @@ export class NPC {
 
   private _meleeDamageOverride: number | undefined
   get meleeDamage(): number {
+    if (this.duelUnarmed) return UNARMED_DAMAGE
     return this._meleeDamageOverride ?? WEAPONS[this.meleeWeaponId ?? '']?.damageMax ?? 20
   }
   set meleeDamage(value: number) { this._meleeDamageOverride = value }
@@ -1023,6 +1025,49 @@ export class NPC {
   private banditHammerGrip?: THREE.Object3D
   private townHostile = false
   private duelHostile = false
+  duelUnarmed = false
+  unarmedContact?: import('../combat/ShieldBlocking').CombatContact
+  setUnarmedDuel(enabled: boolean): void {
+    this._cancelEquipmentCombatState()
+    this.duelUnarmed = enabled
+    this.unarmedContact = undefined
+    if (enabled) {
+      this.dismountFromMount()
+      this.meleeAttackRadius = UNARMED_RANGE
+      this.animator.setEquipment(false, false)
+    } else this._syncActiveMeleeEquipment()
+  }
+
+  /** Player-only Duel opponent; the shared animator and physical palms own all punch events. */
+  private updateUnarmedDuel(dt: number, player: Player, obstacles: ObstacleData[], cameraDistance: number,
+    hit: (damage: number, isPlayer: boolean) => void): void {
+    const previous = this.group.position.clone()
+    const delta = player.combatPosition.clone().sub(this.combatPosition).setY(0)
+    const canAttack = !player.dead && player.targetable && this.combatTargetAllowed?.(player) !== false
+    if (!canAttack) this.animator.cancel()
+    else {
+      const distance = delta.length()
+      if (distance > .001) this._faceDirection(delta.normalize())
+      if (distance > 1 && !this.animator.busy) {
+        this.state = AIState.CHASE
+        this._moveByDirection(delta, CHASE_SPEED, dt, false, distance - 1)
+      } else if (!this.animator.busy) {
+        this.state = AIState.ATTACK
+        this.animator.start('punchCombo', 1)
+      }
+    }
+    this._updateFootPhysics(previous, dt, obstacles)
+    this.visualMovementSpeed = dt > 0 ? Math.hypot(this.group.position.x - previous.x, this.group.position.z - previous.z) / dt : 0
+    this.animator.setLocomotion(this.visualMovementSpeed, false)
+    const events = this.animator.update(dt, cameraDistance)
+    if (!canAttack) return
+    for (const strike of events.fists) {
+      const contact = traceFistStrike(strike, this.combatPosition, [player], obstacles)
+      if (!contact) continue
+      this.unarmedContact = contact
+      try { hit(UNARMED_DAMAGE, true) } finally { this.unarmedContact = undefined }
+    }
+  }
   armTownCivilian(weaponId: string): void {
     if (this.townCategory !== 'civilian' || this.dead) return
     if (!this.townArmed) {
@@ -2682,6 +2727,11 @@ export class NPC {
         }
       }
       if (import.meta.env.DEV && _collector) { _collector.endPhase('deadUpdate', _tDead!) }
+      return
+    }
+
+    if (this.duelUnarmed && this.duelHostile) {
+      this.updateUnarmedDuel(dt, player, obstacles, cameraDistance, onHitEntity)
       return
     }
 

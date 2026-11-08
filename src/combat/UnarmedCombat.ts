@@ -49,5 +49,5 @@ export function traceFistStrike(strike: FistStrike, origin: THREE.Vector3, targe
         && (!best || candidate.time < best.time)) best = { ...candidate }
     }
   }
-  return best
+  return best ? { ...best, attackSource: 'unarmed' } : undefined
 }

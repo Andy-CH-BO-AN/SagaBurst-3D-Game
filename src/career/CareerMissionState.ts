@@ -105,6 +105,10 @@ export interface ActiveCareerMission {
   duelTravel?: CareerDuelTravelCheckpoint
   /** Career-scoped tutorial duel; never participates in official tier unlocks. */
   duelTutorialCareerId?: string
+  duelMode?: import('./CareerDuelState').CareerDuelMode
+  duelFailureReason?: 'illegal_attack'
+  duelPlayerWasMounted?: boolean
+  duelPlayerHomeMountActorId?: string
   duelTier?: CareerDuelTier
   duelPresetId?: UnitPresetId
   duelOpponentActorId?: string

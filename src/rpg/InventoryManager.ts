@@ -25,9 +25,16 @@ const LEGACY_LOADOUT: InitialPlayerLoadout = {
 }
 
 export class InventoryManager {
-  rangedEnabled = true
-  meleeEnabled = true
-  shieldEnabled = true
+  protected get combatRestricted(): boolean { return false }
+  private drawnRanged = true
+  private drawnMelee = true
+  private drawnShield = true
+  get rangedEnabled(): boolean { return !this.combatRestricted && this.drawnRanged }
+  set rangedEnabled(value: boolean) { this.drawnRanged = value }
+  get meleeEnabled(): boolean { return !this.combatRestricted && this.drawnMelee }
+  set meleeEnabled(value: boolean) { this.drawnMelee = value }
+  get shieldEnabled(): boolean { return !this.combatRestricted && this.drawnShield }
+  set shieldEnabled(value: boolean) { this.drawnShield = value }
   private items: InventoryStack[]
   private equippedMeleeId: string
   private equippedRangedId: string

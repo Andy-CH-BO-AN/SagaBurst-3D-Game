@@ -551,7 +551,10 @@ export class Player {
     this.group.rotation.y = this._characterYaw(heading)
   }
 
+  unarmedDuelOnly = false
+
   mountVehicle(mount: Mount, heading?: number): void {
+    if (this.unarmedDuelOnly) return
     if (this.isDead || this.isFalling || this.currentMount?.isAirborne || mount.isAirborne || this.spectatorOnly || mount.dead || mount.disposed || mount.riderNpc || mount.riderPlayer && mount.riderPlayer !== this) return
     if (this.currentMount && this.currentMount !== mount) this.dismountFromMount()
     if (this.currentMount && this.currentMount !== mount) return

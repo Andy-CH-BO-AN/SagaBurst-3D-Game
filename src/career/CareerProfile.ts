@@ -144,7 +144,9 @@ export interface CareerProfile {
   completedCareerMissionTemplateIds?: string[]
   /** Original service resources retained through Duel settlement and scene reconstruction. */
   townCommanderRecovery?: CareerDuelCommanderHome & { faction: CharacterFaction }
+  townDuelResidentRecovery?: CareerDuelCommanderHome & { faction: CharacterFaction; actorId: string }
   /** Each unit preset unlocks only its own next Duel tier. */
+  unarmedDuelHighestDefeatedTier?: CareerDuelTier
   duelHighestDefeatedTierByPreset?: Partial<Record<UnitPresetId, CareerDuelTier>>
   townEvent?: { id: string; state: 'hostile' | 'settled'; pendingResult?: 'player_defeated' | 'town_defeated'; result?: 'player_defeated' | 'town_defeated'; penalty?: number; deadActorIds?: string[]; destroyedBuildingIds?: string[]; authorizedTownCommandActorIds?: string[] }
 
@@ -335,6 +337,7 @@ export function claimCareerMission(
     return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: true }
   }
 
+  if (active.duelFailureReason === 'illegal_attack') outcome = 'failure'
   if (active.duelTutorialCareerId) {
     if (active.duelTutorialCareerId !== current.tutorial?.careerId || active.kind !== 'duel') {
       return { profile: cloneCareerProfile(current), meritAwarded: 0, alreadyClaimed: false }
@@ -368,7 +371,9 @@ export function claimCareerMission(
   if (outcome === 'victory') {
     profile.lifetimeStats.victories += 1
     if (active.kind === 'duel') {
-      if (active.duelPresetId && active.duelTier) {
+      if (active.duelMode === 'unarmed' && active.duelTier) {
+        profile.unarmedDuelHighestDefeatedTier = Math.max(profile.unarmedDuelHighestDefeatedTier ?? 0, active.duelTier) as CareerDuelTier
+      } else if (active.duelPresetId && active.duelTier) {
         profile.duelHighestDefeatedTierByPreset = {
           ...profile.duelHighestDefeatedTierByPreset,
           [active.duelPresetId]: Math.max(profile.duelHighestDefeatedTierByPreset?.[active.duelPresetId] ?? 0, active.duelTier) as CareerDuelTier,
@@ -404,6 +409,9 @@ export function clearCareerMission(current: CareerProfile, missionId: string): C
   if (profile.activeMission?.id === missionId) {
     const home = profile.activeMission.duelTier === 5 ? profile.activeMission.duelCommanderHome : undefined
     if (home) profile.townCommanderRecovery = { ...home, faction: profile.faction }
+    const duel = profile.activeMission
+    if (duel.duelMode === 'unarmed' && duel.duelTier !== 5 && duel.duelCommanderHome && duel.duelOpponentActorId)
+      profile.townDuelResidentRecovery = { ...duel.duelCommanderHome, faction: profile.faction, actorId: duel.duelOpponentActorId }
     delete profile.activeMission
   }
   return profile
@@ -548,6 +556,7 @@ export function cloneCareerProfile(profile: CareerProfile): CareerProfile {
     ...(profile.raceRecords ? { raceRecords: structuredClone(profile.raceRecords) } : {}),
     ...(profile.completedRaceIds ? { completedRaceIds: [...profile.completedRaceIds] } : {}),
     ...(profile.raceBestSeconds ? { raceBestSeconds: { ...profile.raceBestSeconds } } : {}),
+    ...(profile.townDuelResidentRecovery ? { townDuelResidentRecovery: { ...profile.townDuelResidentRecovery } } : {}),
     ...(profile.townCommanderRecovery ? { townCommanderRecovery: { ...profile.townCommanderRecovery } } : {}),
     ...(profile.townCommandSquad ? { townCommandSquad: cloneTownCommandSquad(profile.townCommandSquad) } : {}),
     ...(profile.townAirCommandSquad ? { townAirCommandSquad: cloneTownAirCommandSquad(profile.townAirCommandSquad) } : {}),
