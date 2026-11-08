@@ -10,10 +10,10 @@ export const SETUP_PLAYER_HERO_IDS = ['viking-hero-t4', 'roman-hero-t4', 'maki-a
 export type SetupPlayerHeroId = typeof SETUP_PLAYER_HERO_IDS[number]
 
 export const HERO_ASSETS: Record<HeroAssetId, { nameZh: string; nameEn: string; descriptor: HumanoidAssetDescriptor }> = {
-  // Independent gameplay identity; deliberately reuse the real Roman T5 visual until GLB delivery.
+  // Owner-supplied Mixamo-rigged Meshy model (tools/build-byzantine-cataphract.mjs); metrics are the manifest's measurements.
   'byzantine-cataphract-t5': {
-    nameZh: '拜占庭鐵甲重騎兵（暫用羅馬外觀）', nameEn: 'Byzantine Cataphract',
-    descriptor: { assetId: 'roman-hero-t5', faction: 'roman', heightM: 1.8191270070256114, maxShoulderWidthM: .5211178487681826, neckLengthM: .11045054826976493 },
+    nameZh: '拜占庭鐵甲重騎兵', nameEn: 'Byzantine Cataphract',
+    descriptor: { assetId: 'byzantine-cataphract-t5', faction: 'roman', heightM: 1.9410765866341708, maxShoulderWidthM: 0.5659912515567136, neckLengthM: 0.07769488623523091 },
   },
   'viking-hero-t4': {
     nameZh: '瓦良格隊長', nameEn: 'Varangian Captain',

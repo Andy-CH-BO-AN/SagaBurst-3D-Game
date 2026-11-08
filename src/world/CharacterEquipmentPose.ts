@@ -42,6 +42,8 @@ export interface EquipmentPoseState {
   elapsed: number
   /** Only measured, trimmed 2H actions opt into continuous pose corrections. */
   continuousAxeAction?: boolean
+  /** An imported punch clip owns the fist arms; the procedural solve is skipped (shield arm still solves). */
+  punchClip?: boolean
   alive: boolean
 }
 export interface SwordCarryGripProfile {
@@ -1245,7 +1247,7 @@ export class CharacterEquipmentPose {
       }
     }
     if (live && state.mounted) this.fittedCloth?.applyMounted()
-    if (live && (state.action === 'punchCombo' || state.action === 'punchRight')) {
+    if (live && !state.punchClip && (state.action === 'punchCombo' || state.action === 'punchRight')) {
       // Use the same calibrated arm solvers as equipment, per LOD. A shield retains its existing left-arm solve.
       const shield = state.action === 'punchRight'
       for (const hand of ['right', 'left'] as const) {

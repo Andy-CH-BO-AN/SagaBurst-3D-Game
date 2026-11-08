@@ -10,6 +10,9 @@ import { createCareerMissionId, type ActiveCareerMission, type CareerMissionOutc
 
 export const CAREER_DUEL_TEMPLATE_ID = 'career-duel'
 export const DUEL_COUNTDOWN_SECONDS = 5
+/** The FIGHT banner covers only the first moment of live combat, for any duel duration. */
+export const DUEL_FIGHT_BANNER_SECONDS = 1
+export const duelFightBannerVisible = (combatElapsedSeconds: number): boolean => combatElapsedSeconds < DUEL_FIGHT_BANNER_SECONDS
 export const DUEL_COMBAT_SECONDS = 30
 export type CareerDuelMode = 'armed' | 'unarmed'
 export function duelCombatSeconds(mode?: CareerDuelMode): number { return mode === 'unarmed' ? 90 : DUEL_COMBAT_SECONDS }

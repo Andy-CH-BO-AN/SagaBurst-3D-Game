@@ -568,7 +568,7 @@ it.each([
     _tier: tier, currentHp: 200, _maxHp: 200, state: AIState.CHASE, _faction: Faction.TOWN,
     meleeWeaponId: null, loadout: {}, meleeAttackRadius: .8, mount: null,
     group: { position: new THREE.Vector3() }, rig: {}, pendingFall: { active: false }, mountedOrbitActive: true,
-    animator, visualMovementSpeed: 0, _faceDirection() {}, _updateFootPhysics() {},
+    animator, visualMovementSpeed: 0, _faceDirection() {}, _updateFootPhysics() {}, ...navigationStubs(),
   }) as NPC
   NPC.prototype.update.call(body, .2, player, [], [], [], { setFill() {} }, hit, () => false)
   expect(animator.start).toHaveBeenCalledExactlyOnceWith('punchCombo', 1)
@@ -580,6 +580,9 @@ it.each([
   expect(guard._isTargetInMeleeRange.call(body, player.combatPosition)).toBe(false) // Ordinary equipment guard is unchanged.
 })
 
+const navigationStubs = () => ({ _navigationPath: { clear() {} }, _tmpMoveDir: new THREE.Vector3(), _tmpNavigationTarget: new THREE.Vector3(),
+  _movementObstacleRadius: () => .4, _movementObstacleHeight: () => 1.8, _clearObstacleDetour() {}, _clearNavigationPath() {} })
+
 it('空手 Duel NPC 追近後才出拳，超過拳頭 0.8m 的實體軌跡不造成傷害', () => {
   const hit = vi.fn(), move = vi.fn()
   const player = { dead: false, targetable: true, isMounted: false,
@@ -588,11 +591,36 @@ it('空手 Duel NPC 追近後才出拳，超過拳頭 0.8m 的實體軌跡不造
     update: () => ({ fists: [{ from: new THREE.Vector3(0, 1, .7), to: new THREE.Vector3(0, 1, 1.9) }] }) }
   const body = Object.assign(Object.create(NPC.prototype), {
     group: { position: new THREE.Vector3() }, animator, visualMovementSpeed: 0,
-    _faceDirection() {}, _updateFootPhysics() {}, _moveByDirection: move,
+    _faceDirection() {}, _updateFootPhysics() {}, _moveByDirection: move, ...navigationStubs(),
   })
   const entry = NPC.prototype as unknown as { updateUnarmedDuel(dt: number, player: Player, obstacles: [], distance: number, callback: typeof hit): void }
   entry.updateUnarmedDuel.call(body, .2, player, [], 0, hit)
   expect(move).toHaveBeenCalledOnce()
   expect(animator.start).not.toHaveBeenCalled()
   expect(hit).not.toHaveBeenCalled()
+})
+
+it('空手 Duel NPC 追擊沿用既有導航：路徑被牆擋住時朝路徑點而非玩家移動，不使用隱形劍範圍', () => {
+  const move = vi.fn()
+  const player = { dead: false, targetable: true, isMounted: false,
+    combatPosition: new THREE.Vector3(0, 0, 6), group: { position: new THREE.Vector3(0, 0, 6) } } as Player
+  const animator = { busy: false, cancel() {}, start: vi.fn(), setLocomotion() {}, update: () => ({ fists: [] }) }
+  const waypoint = new THREE.Vector3(5, 0, 0)
+  const body = Object.assign(Object.create(NPC.prototype), {
+    group: { position: new THREE.Vector3() }, animator, visualMovementSpeed: 0, meleeAttackRadius: .8,
+    _faceDirection() {}, _updateFootPhysics() {}, _moveByDirection: move, ...navigationStubs(),
+    _resolveNavigationMoveTarget(_target: THREE.Vector3) { this._tmpNavigationTarget.copy(waypoint); return 'path' },
+  })
+  const entry = NPC.prototype as unknown as { updateUnarmedDuel(dt: number, player: Player, obstacles: [], distance: number, callback: () => void): void }
+  entry.updateUnarmedDuel.call(body, .2, player, [], 0, vi.fn())
+  const [direction, , , , maxDistance] = move.mock.calls[0]
+  expect(direction.x).toBeCloseTo(1)           // toward the A* waypoint around the wall
+  expect(Math.abs(direction.z)).toBeLessThan(1e-6)
+  expect(maxDistance).toBe(Infinity)            // no straight-line cap while following a route
+  expect(animator.start).not.toHaveBeenCalled() // 6 m away: no punch, no sword reach
+  // Unreachable: persistent detour is used, and with none active the NPC holds position.
+  move.mockClear()
+  Object.assign(body, { _resolveNavigationMoveTarget: () => 'unreachable', _detourActive: false, _applyPersistentObstacleDetour() {} })
+  entry.updateUnarmedDuel.call(body, .2, player, [], 0, vi.fn())
+  expect(move).not.toHaveBeenCalled()
 })

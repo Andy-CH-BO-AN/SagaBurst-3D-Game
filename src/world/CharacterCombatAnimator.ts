@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { UNARMED_DURATION, punchEventsBetween, punchExtension, type FistStrike, type PunchHand } from '../combat/UnarmedCombat'
-import type { CharacterRig, HumanoidAnimationState, MountedPoseKind } from './CharacterVisuals'
+import type { CharacterRig, HumanoidAnimationState, HumanoidPunchTiming, MountedPoseKind } from './CharacterVisuals'
 import { setRigRotation } from './CharacterVisuals'
 import { axeCarryWeight, axeRecoveryWeight, setSwordMountedAttachment } from './SwordAttachmentContract'
 import type { EquipmentPoseState } from './CharacterEquipmentPose'
@@ -88,6 +88,10 @@ export class CharacterCombatAnimator {
   private locomotion: 'idle' | 'walk' | 'run' | 'mounted' = 'idle'
   private mountKind: MountedPoseKind = 'HORSE'
   private locomotionTimeScale = 1
+  /** Imported-clip fists: contact times and recent palm positions (clip seconds), never seeking the live mixer. */
+  private punchTiming: HumanoidPunchTiming | undefined
+  private punchNext = 0
+  private punchSamples: { time: number; left: THREE.Vector3; right: THREE.Vector3 }[] = []
   private readonly events: CombatAnimationEvents = {
     hitActiveStarted: false,
     projectileRelease: false,
@@ -106,6 +110,8 @@ export class CharacterCombatAnimator {
   }
 
   get currentAction(): CombatAction { return this.action }
+  /** True while an authored punch clip (not the procedural fallback) drives the fists. */
+  get isPunchClip(): boolean { return this.punchTiming !== undefined && this.ownership === 'clip' && (this.action === 'punchCombo' || this.action === 'punchRight') }
   private get meleeTiming() { return this.rig.animation?.getMeleeTiming?.(this.action as HumanoidAnimationState) }
   private poseTime(elapsed: number): number {
     const timing = this.meleeTiming
@@ -237,7 +243,11 @@ export class CharacterCombatAnimator {
     const importedState = action === 'bowRelease' || action === 'swordSlash' || action === 'pilumThrow' || action === 'axeAttack1H' || action === 'axeAttack2H'
       ? action
       : null
-    this.ownership = importedState && this.rig.animation?.has(importedState) ? 'clip' : 'procedural'
+    const punchTiming = action === 'punchCombo' || action === 'punchRight' ? this.rig.animation?.getPunchTiming?.(action as HumanoidAnimationState) : undefined
+    this.punchTiming = punchTiming && this.rig.animation?.has(action as HumanoidAnimationState) ? punchTiming : undefined
+    this.punchNext = 0
+    this.punchSamples = []
+    this.ownership = importedState && this.rig.animation?.has(importedState) || this.punchTiming ? 'clip' : 'procedural'
     this.elapsed = 0
     const timing = this.meleeTiming
     const clipTimeScale = timeScale * (timing?.clipTimeScale ?? 1)
@@ -246,7 +256,12 @@ export class CharacterCombatAnimator {
     const attackFade = action === 'axeAttack2H' ? timing?.attackFadeInSeconds : undefined
     const fadeSeconds = attackFade !== undefined && Number.isFinite(timeScale) && timeScale > 0 ? attackFade / timeScale : .1
     const clipState = action === 'axeAttack1H' && this.meleePivot.userData.swordAttachmentOwned && this.meleePivot.userData.meleeAnimationKind === 'axe' && this.locomotion !== 'mounted' && this.rig.animation?.has('axeAttack1HFoot') ? 'axeAttack1HFoot' : action
-    if (this.ownership === 'clip') this.rig.animation?.play(clipState, { fadeSeconds, loop: false, ...(clipTimeScale === 1 ? {} : { timeScale: clipTimeScale }) })
+    if (this.ownership === 'clip') this.rig.animation?.play(clipState, { fadeSeconds: this.punchTiming ? .06 : fadeSeconds, loop: false, ...(clipTimeScale === 1 ? {} : { timeScale: clipTimeScale }) })
+    if (this.punchTiming) {
+      this.rig.animation?.setEquipmentState?.({ punchClip: true, action, elapsed: 0 })
+      this.rig.animation?.update(0)
+      this.recordPunchSample(0)
+    }
     return true
   }
 
@@ -261,6 +276,8 @@ export class CharacterCombatAnimator {
       this.canceledAxeVisual = this.meleePivot.userData.axeVisual
     }
     if (!this.hasCanceledAxePose) this.clearCanceledAxePose()
+    this.punchTiming = undefined
+    this.rig.animation?.setEquipmentState?.({ punchClip: false })
     this.action = 'idle'
     this.ownership = 'procedural'
     this.elapsed = 0
@@ -287,10 +304,11 @@ export class CharacterCombatAnimator {
     const poseElapsed = canceledPose ? this.canceledAxePose : this.poseTime(this.elapsed + actionDt)
     const continuous = canceledPose || this.usesContinuousAxeCarry
     setSwordMountedAttachment(this.meleePivot, mounted, mounted ? axeCarryWeight(poseAction, poseElapsed) : 0, this.usesTwoHandedAxeCarry, poseAction, axeCarryWeight(poseAction, poseElapsed), continuous, axeRecoveryWeight(poseAction, poseElapsed, continuous))
-    this.rig.animation?.setEquipmentState?.({ action: poseAction, elapsed: poseElapsed, continuousAxeAction: continuous, lance: this.lanceEquipped, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined, carryWeapon: this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual ? 'axe' : 'sword' : undefined })
+    this.rig.animation?.setEquipmentState?.({ punchClip: this.isPunchClip, action: poseAction, elapsed: poseElapsed, continuousAxeAction: continuous, lance: this.lanceEquipped, actualSword: this.hasEquippedSword, swordGripSections: this.hasEquippedSword ? this.meleePivot.userData.weaponGripSections : undefined, carryWeapon: this.meleePivot.visible && this.meleePivot.userData.swordAttachmentOwned ? this.meleePivot.userData.axeVisual ? 'axe' : 'sword' : undefined })
     // Melee sockets drive physical collision, so their pose must follow the
     // action clock every frame, including fast T4 attacks. Idle/ranged may throttle.
-    this.rig.animation?.update(dt, this.isMeleeAction || canceledPose ? 0 : cameraDistance)
+    if (this.isPunchClip) this.advancePunchClip(dt, actionDt)
+    else this.rig.animation?.update(dt, this.isMeleeAction || canceledPose ? 0 : cameraDistance)
     // Animated sockets and forward axe carry follow the evaluated pose and
     // LOD proxy, before this tick's hit/contact evaluation.
     if (!(this.ownsAxeContact && this.meleePivot.userData.axeVisual) && (this.meleePivot.userData.authoredAxeSocket || this.meleePivot.userData.authoredAxe1Socket || this.meleePivot.userData.forwardAxeCarryRoot)) setSwordMountedAttachment(this.meleePivot, mounted,
@@ -309,7 +327,7 @@ export class CharacterCombatAnimator {
     const profile = COMBAT_ANIMATION_PROFILES[this.action]
     const previous = this.elapsed
     this.elapsed += actionDt
-    if (this.action === 'punchCombo' || this.action === 'punchRight') {
+    if (!this.isPunchClip && (this.action === 'punchCombo' || this.action === 'punchRight')) {
       const shield = this.action === 'punchRight'
       for (const event of punchEventsBetween(previous, this.elapsed, shield)) {
         const from = new THREE.Vector3(), to = new THREE.Vector3()
@@ -322,7 +340,7 @@ export class CharacterCombatAnimator {
     const importedPilumDuration = this.action === 'pilumThrow' && this.ownership === 'clip'
       ? this.rig.animation?.getDuration('pilumThrow')
       : undefined
-    const total = Math.round((this.meleeTiming?.duration ?? importedPilumDuration ?? (profile.windup + profile.active + profile.recovery)) * 1e9) / 1e9
+    const total = Math.round((this.meleeTiming?.duration ?? (this.isPunchClip ? this.punchTiming!.duration : undefined) ?? importedPilumDuration ?? (profile.windup + profile.active + profile.recovery)) * 1e9) / 1e9
 
     if (this.action === 'bowRelease' || this.action === 'pilumThrow') {
       const pilumReleaseTime = (this.ownership === 'clip' ? PILUM_THROW_RELEASE_TIME : profile.windup) - 1e-9
@@ -348,13 +366,15 @@ export class CharacterCombatAnimator {
     }
 
     if (this.elapsed >= total - 1e-9) {
-      const returnToLocomotion = ((this.action === 'swordSlash' || this.action === 'axeAttack1H' || this.action === 'axeAttack2H') && this.ownership === 'clip') || this.lanceEquipped
+      const returnToLocomotion = this.isPunchClip || ((this.action === 'swordSlash' || this.action === 'axeAttack1H' || this.action === 'axeAttack2H') && this.ownership === 'clip') || this.lanceEquipped
       this.action = 'idle'
       this.ownership = 'procedural'
       this.elapsed = 0
       this.actionTimeScale = 1
       setSwordMountedAttachment(this.meleePivot, this.locomotion === 'mounted', this.locomotion === 'mounted' ? 1 : 0, this.usesTwoHandedAxeCarry, this.action, axeCarryWeight(this.action, this.poseTime(this.elapsed)))
       this.events.actionCompleted = true
+      this.punchTiming = undefined
+      this.rig.animation?.setEquipmentState?.({ punchClip: false })
       if (returnToLocomotion) {
         this.resetWeaponPivots()
         this.rig.animation?.play(this.locomotionClip, { fadeSeconds: 0.12, loop: true, timeScale: this.locomotionTimeScale })
@@ -388,6 +408,44 @@ export class CharacterCombatAnimator {
     // The elbow contributes ~0.15 rad, so this action pitch makes the blade's
     // model axis level instead of leaving the tip angled into the ground.
     this.meleePivot.rotation.set(IDLE_BLADE_PITCH, 0, 0)
+  }
+
+  private recordPunchSample(time: number): void {
+    let sample = this.punchSamples.length > 24 ? this.punchSamples.shift()! : undefined
+    sample ??= { time, left: new THREE.Vector3(), right: new THREE.Vector3() }
+    sample.time = time
+    this.rig.left.handSocket.getWorldPosition(sample.left)
+    this.rig.right.handSocket.getWorldPosition(sample.right)
+    this.punchSamples.push(sample)
+  }
+
+  /** Palm position at clip time `time`, interpolated between recorded sub-steps. */
+  private punchPalmAt(time: number, hand: PunchHand, out: THREE.Vector3): THREE.Vector3 {
+    const samples = this.punchSamples
+    if (time <= samples[0].time) return out.copy(samples[0][hand])
+    for (let i = samples.length - 1; i > 0; i--) {
+      const a = samples[i - 1], b = samples[i]
+      if (time >= a.time) return out.lerpVectors(a[hand], b[hand], b.time > a.time ? THREE.MathUtils.clamp((time - a.time) / (b.time - a.time), 0, 1) : 1)
+    }
+    return out.copy(samples[samples.length - 1][hand])
+  }
+
+  /** Advance the authored clip in <=1/60 s sub-steps so a hitch can never skip a contact; one strike per punch. */
+  private advancePunchClip(dt: number, actionDt: number): void {
+    const timing = this.punchTiming!
+    const steps = THREE.MathUtils.clamp(Math.ceil(dt * 60 - 1e-6), 1, 16)
+    for (let step = 1; step <= steps; step++) {
+      this.rig.animation?.update(dt / steps, 0)
+      const time = Math.min(timing.duration, this.elapsed + actionDt * step / steps)
+      this.recordPunchSample(time)
+      while (this.punchNext < timing.contacts.length && timing.contacts[this.punchNext].time <= time + 1e-9) {
+        const { time: contact, hand } = timing.contacts[this.punchNext++]
+        const from = new THREE.Vector3(), to = new THREE.Vector3()
+        this.punchPalmAt(contact - .10, hand, from)
+        this.punchPalmAt(contact, hand, to)
+        this.events.fists.push({ from, to })
+      }
+    }
   }
 
   private sampleFist(elapsed: number, hand: PunchHand, out: THREE.Vector3): void {

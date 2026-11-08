@@ -45,6 +45,7 @@ import type {
   HumanoidAnimationPlayOptions,
   HumanoidAnimationState,
   HumanoidMeleeTiming,
+  HumanoidPunchTiming,
   LegRig,
 } from './CharacterVisuals'
 
@@ -62,6 +63,8 @@ export interface HumanoidAnimationBinding {
   /** Explicit opt-in for fixed-offset entry/exit blends on this 2H axe take. */
   attackTransition?: 'inertial'
   events?: Record<string, number>
+  /** Clip-driven fists: which hand lands each `punchN` contact event. */
+  punchHands?: ('left' | 'right')[]
 }
 
 export const HUMANOID_LOD_DISTANCES = CHARACTER_LOD_DISTANCES
@@ -219,7 +222,6 @@ export const TIERED_ORDINARY_HUMANOID_ASSETS = {
 } as const satisfies Record<string, HumanoidAssetDescriptor>
 
 export function resolveHumanoidAssetId(config: CharacterVisualConfig, assetId?: string): string | undefined {
-  if (assetId === 'byzantine-cataphract-t5') assetId = 'roman-hero-t5'
   if (config.civilian) return civilianHumanoidAssetId(config.civilianStyle ?? config.faction)
   // Explicit hero, bandit and other specialised appearances retain ownership.
   // Ordinary bodies use the same formal character tier as their combat profile.
@@ -609,6 +611,7 @@ export class MixerController implements HumanoidAnimationController {
   private readonly relaxedHandActions: THREE.AnimationAction[][] = []
   private readonly durations = new Map<HumanoidAnimationState, number>()
   private readonly meleeTimings = new Map<HumanoidAnimationState, HumanoidMeleeTiming>()
+  private readonly punchTimings = new Map<HumanoidAnimationState, HumanoidPunchTiming>()
   private current: HumanoidAnimationState | null = null
   private farAccumulator = 0
   private readonly bowMeshes: THREE.SkinnedMesh[] = []
@@ -637,6 +640,8 @@ export class MixerController implements HumanoidAnimationController {
       return new InertialPoseTransition([...nodes])
     }) : []
     for (const binding of bindings) {
+      const punch = parsePunchTiming(binding)
+      if (punch) this.punchTimings.set(binding.clip, punch)
       if (binding.meleeCycleSeconds === undefined) continue
       const { activeStart, hit, activeEnd } = binding.events ?? {}
       if (!(binding.meleeCycleSeconds > 0 && activeStart >= 0 && hit > activeStart && activeEnd > hit && binding.duration > activeEnd)) throw new Error(`Invalid melee timeline: ${binding.clip}`)
@@ -726,6 +731,10 @@ export class MixerController implements HumanoidAnimationController {
 
   getMeleeTiming(state: HumanoidAnimationState): HumanoidMeleeTiming | undefined {
     return this.meleeTimings.get(state)
+  }
+
+  getPunchTiming(state: HumanoidAnimationState): HumanoidPunchTiming | undefined {
+    return this.punchTimings.get(state)
   }
 
   play(state: HumanoidAnimationState, options: HumanoidAnimationPlayOptions = {}): boolean {
@@ -856,6 +865,15 @@ export class MixerController implements HumanoidAnimationController {
     this.transitionRemaining = 0
     this.onPoseEvaluated?.()
   }
+}
+
+/** Contact events `punch0..N` plus `punchHands`; every contact must lie inside the clip and strictly ascend. */
+export function parsePunchTiming(binding: HumanoidAnimationBinding): HumanoidPunchTiming | undefined {
+  if (!binding.punchHands) return undefined
+  const contacts = binding.punchHands.map((hand, index) => ({ time: binding.events?.[`punch${index}`] as number, hand }))
+  if (contacts.length === 0 || contacts.some((c, i) => !Number.isFinite(c.time) || c.time <= 0 || c.time >= binding.duration || (i > 0 && c.time <= contacts[i - 1].time))
+    || contacts.some(c => c.hand !== 'left' && c.hand !== 'right')) throw new Error(`Invalid punch timeline: ${binding.clip}`)
+  return { duration: binding.duration, contacts }
 }
 
 function armRig(root: THREE.Object3D, side: 'L' | 'R'): ArmRig {

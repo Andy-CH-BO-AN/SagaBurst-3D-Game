@@ -33,11 +33,13 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
   const faction = descriptor.faction
   const swordId = commander ? (roman ? 'sword_t5' : 'axe_t5') : 'paladin_sword_t4'
   const axeId = commander ? 'axe_t5' : 'paladin_mace_t4'
-  const shieldId = commander ? (roman ? 'commander_shield_t5' : 'viking_berserker_shield_t5') : roman ? 'roman_officer_shield_t4' : 'paladin_shield_t4'
+  const byzantine = descriptor.assetId === 'byzantine-cataphract-t5'
+  const lanceId = byzantine ? 'byzantine_standard_lance_t5' : 'spear_t4'
+  const shieldId = byzantine ? 'byzantine_eagle_shield_t5' : commander ? (roman ? 'commander_shield_t5' : 'viking_berserker_shield_t5') : roman ? 'roman_officer_shield_t4' : 'paladin_shield_t4'
   const label = ordinary ? `${roman ? '羅馬' : '維京'}普通士兵 · ${descriptor.assetId}` : civilian ? (roman ? 'Roman Civilian · Roman Statesman' : 'Viking Civilian · Nordic Warrior') : commander ? (roman ? '禁衛軍指揮官 · Roman T5' : '維京指揮官 · Viking Warrior T5') : maki ? 'Shadow Warden · T4 遊俠英雄' : roman ? '聖騎士 · Gondor Knight T4' : '維京英雄 · T4'
   const reference = commander ? (roman ? ROMAN_HERO : VIKING_HERO) : undefined
   const factionLabel = roman ? '羅馬人' : '維京'
-  const actions: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'swordSlash', 'axeAttack1H', 'axeAttack1HFoot', 'axeAttack2H', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'hit', 'mounted', 'axeMountedIdle', 'death']
+  const actions: HumanoidAnimationState[] = ['idle', 'walk', 'run', 'punchCombo', 'punchRight', 'swordSlash', 'axeAttack1H', 'axeAttack1HFoot', 'axeAttack2H', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance', 'bowLoad', 'bowHold', 'bowRelease', 'pilumThrow', 'hit', 'mounted', 'axeMountedIdle', 'death']
   const sourceOnlyStates = new Set<HumanoidAnimationState>(['daggerSlash', 'greatswordSlash', 'axeAttack1HFoot'])
   for (const id of ['hud', 'crosshair']) { const element = document.getElementById(id); if (element) element.style.display = 'none' }
   const panel = document.createElement('aside')
@@ -83,7 +85,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
     normal.rig.animation!.play('idle', { fadeSeconds: 0, loop: true })
     normal.rig.animation!.update(.2)
     const manifest = await fetch(publicAssetUrl(`models/characters/v2/${descriptor.assetId}/manifest.json`)).then(response => response.json())
-    const playback = new HumanoidStudioPlayback(hero, 'idle', faction, roman ? 'CORGI' : 'BLACK_CAT', maki ? { bow: await loadMakiRangerBow() } : undefined, { swordId, axeId, shieldId, lanceId: 'spear_t4', bowId: commander ? 'bow_t5' : 'recurve_longbow' })
+    const playback = new HumanoidStudioPlayback(hero, 'idle', faction, roman ? 'CORGI' : 'BLACK_CAT', maki ? { bow: await loadMakiRangerBow() } : undefined, { swordId, axeId, shieldId, lanceId, bowId: commander ? 'bow_t5' : 'recurve_longbow' })
     playback.setEquipmentLoadout('none', false)
     const mounts = {
       CORGI: new CorgiVisual(),
@@ -161,7 +163,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       <label><input id="hero-compare" type="checkbox" ${compare ? 'checked' : ''}> ${commander ? '同陣營 T4 並排比較' : `一般${factionLabel}並排比較`}</label><br>
       <label>播放方式 <select id="hero-playback"><option value="equipment">遊戲裝備</option><option value="source">原始片段 · 無裝備</option><option value="source-equipped">原始片段 · 武器接點</option></select></label><br>
       <label>動畫 <select id="hero-animation">${availableActions.map(name => `<option value="${name}">${name === 'hit' ? 'hit · 來源動作（不代表戰鬥受擊）' : sourceOnlyStates.has(name) ? `${name} · 來源片段` : name}</option>`).join('')}</select></label><br>
-      <label>裝備 <select id="hero-equipment"><option value="none">空手</option><option value="sword">${WEAPONS[swordId].name}</option><option value="axe">${WEAPONS[axeId].name}</option><option value="shield">${WEAPONS[swordId].name} + ${ARMORS[shieldId].name}</option><option value="axe-shield">${WEAPONS[axeId].name} + ${ARMORS[shieldId].name}</option><option value="selected-axe">${WEAPONS.viking_axe_t3.name}</option><option value="selected-axe-shield">${WEAPONS.viking_axe_t3.name} + ${ARMORS[shieldId].name}</option><option value="lance">${WEAPONS.spear_t4.name}</option><option value="bow">${WEAPONS[maki ? 'maki-ranger-bow-ranged' : commander ? 'bow_t5' : 'recurve_longbow'].name}</option></select></label><br>
+      <label>裝備 <select id="hero-equipment"><option value="none">空手</option><option value="sword">${WEAPONS[swordId].name}</option><option value="axe">${WEAPONS[axeId].name}</option><option value="shield">${WEAPONS[swordId].name} + ${ARMORS[shieldId].name}</option><option value="axe-shield">${WEAPONS[axeId].name} + ${ARMORS[shieldId].name}</option><option value="selected-axe">${WEAPONS.viking_axe_t3.name}</option><option value="selected-axe-shield">${WEAPONS.viking_axe_t3.name} + ${ARMORS[shieldId].name}</option><option value="lance">${WEAPONS[lanceId].name}</option><option value="bow">${WEAPONS[maki ? 'maki-ranger-bow-ranged' : commander ? 'bow_t5' : 'recurve_longbow'].name}</option></select></label><br>
       <label><input id="hero-shield-raised" type="checkbox"> 舉盾</label><br>
       <label>LOD <select id="hero-lod"><option value="0">LOD0</option><option value="1">LOD1</option><option value="2">LOD2</option></select></label><br>
       <label><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="ARMORED_HORSE">重甲戰馬</option><option value="SNOW_LEOPARD" ${commander ? 'selected' : ''}>Armored Snow Leopard</option><option value="BLACK_CAT" ${!commander && !roman ? 'selected' : ''}>Black Cat</option><option value="WHITE_CAT">White Cat</option><option value="ORANGE_CAT">Orange Cat</option><option value="SERVAL">Serval</option><option value="CARACAL">Caracal</option><option value="CORGI" ${!commander && roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>

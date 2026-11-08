@@ -147,7 +147,6 @@ export class ShieldCollider {
   constructor(private readonly pivot: THREE.Object3D, private readonly state: ShieldState,
     private readonly visibilityAllowed: () => boolean = () => true) {}
   setModel(id: string | null): void {
-    if (id === 'byzantine_eagle_shield_t5') id = 'commander_shield_t5'
     const factionBands = factionShieldBands.get(id ?? '')
     if (factionBands) {
       this.bands = factionBands

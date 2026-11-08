@@ -13,6 +13,8 @@ export const HIGH_TIER_WEAPON_ASSETS = {
   commander_shield_t5: 'models/weapons/t5/shield.glb',
   roman_officer_shield_t4: 'models/weapons/faction-shields/roman-officer.glb',
   viking_berserker_shield_t5: 'models/weapons/faction-shields/viking-berserker.glb',
+  byzantine_standard_lance_t5: 'models/weapons/byzantine/standard-lance.glb',
+  byzantine_eagle_shield_t5: 'models/weapons/faction-shields/byzantine-eagle.glb',
 } as const
 const templates = new Map<string, GLTF>()
 let bowBody: THREE.Group | undefined
@@ -54,14 +56,14 @@ export function createT4Polearm(): THREE.Group {
   return template('spear_t4').scene.clone(true)
 }
 /** Instances own transforms only; immutable geometry/materials stay in the preload cache. */
-export function createT5Melee(id: 'sword_t5' | 'axe_t5' | 'spear_t5'): THREE.Group {
+export function createT5Melee(id: 'sword_t5' | 'axe_t5' | 'spear_t5' | 'byzantine_standard_lance_t5'): THREE.Group {
   return template(id).scene.clone(true)
 }
 /** Original 1.20m Laurelguard body; no rescale, material rewrite or per-owner resources. */
 export function createT5Shield(): THREE.Group {
   return template('commander_shield_t5').scene.clone(true)
 }
-export function createFactionShield(id: 'roman_officer_shield_t4' | 'viking_berserker_shield_t5'): THREE.Group {
+export function createFactionShield(id: 'roman_officer_shield_t4' | 'viking_berserker_shield_t5' | 'byzantine_eagle_shield_t5'): THREE.Group {
   return template(id).scene.clone(true)
 }
 /** Static drop/preview body uses cached bind geometry without allocating a skeleton. */

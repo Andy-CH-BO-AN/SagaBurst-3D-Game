@@ -165,12 +165,6 @@ export class WeaponMeshFactory {
    * 建構近戰武器的 3D mesh group，附加到指定 pivot
    */
   static buildMelee(weaponId: string, pivot: THREE.Group): { tipLocal: THREE.Vector3 } {
-    // Code-first release: reuse a real installed visual until the user's standard GLB is ready.
-    if (weaponId === 'byzantine_standard_lance_t5') {
-      const result = this.buildMelee('spear_t5', pivot)
-      pivot.userData.meleeWeaponId = weaponId
-      return result
-    }
     const tipLocal = new THREE.Vector3(0, 1.2, 0)
     pivot.userData.gripCenterLocal = [0, 0.15, 0]
     pivot.userData.meleeWeaponId = weaponId
@@ -183,6 +177,16 @@ export class WeaponMeshFactory {
       pivot.userData.tipLocal = [0, 2.6, 0]
       pivot.add(weaponId === 'spear_t5' ? createT5Melee(weaponId) : createT4Polearm())
       return { tipLocal: new THREE.Vector3(0, 2.6, 0) }
+    }
+
+    if (weaponId === 'byzantine_standard_lance_t5') {
+      // Visible shaft is 3.3 m (Y -0.5..2.8) with the same main/support grips as every lance.
+      // Gameplay reach is WeaponData.range (3.9 m), not this model length.
+      pivot.userData.supportPointLocal = [0, .33, 0]
+      pivot.userData.forwardAxisLocal = [0, 1, 0]
+      pivot.userData.tipLocal = [0, 2.8, 0]
+      pivot.add(createT5Melee(weaponId))
+      return { tipLocal: new THREE.Vector3(0, 2.8, 0) }
     }
 
     if (weaponId === 'sword_t5') {
@@ -674,7 +678,6 @@ export class WeaponMeshFactory {
    * 建構盾牌的 3D mesh group，附加到指定 pivot
    */
   static buildShield(shieldId: string, pivot: THREE.Group): void {
-    if (shieldId === 'byzantine_eagle_shield_t5') return this.buildShield('commander_shield_t5', pivot)
     pivot.userData.gripCenterLocal = [0, 0, 0.085]
     const isRoman = shieldId.startsWith('scutum')
     const tier = parseInt(shieldId.split('_t')[1]) || 1
@@ -682,7 +685,7 @@ export class WeaponMeshFactory {
     const bronze = proceduralMaterial({ kind: 'bronze', color: 0xa47b42, roughness: 0.43, metalness: 0.72 })
     const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
 
-    const factionShield = shieldId === 'roman_officer_shield_t4' || shieldId === 'viking_berserker_shield_t5'
+    const factionShield = shieldId === 'roman_officer_shield_t4' || shieldId === 'viking_berserker_shield_t5' || shieldId === 'byzantine_eagle_shield_t5'
     if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5' || factionShield) {
       const commander = shieldId === 'commander_shield_t5'
       pivot.add(factionShield ? createFactionShield(shieldId) : commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'))

@@ -64,6 +64,8 @@ export interface HumanoidAnimationPlayOptions {
 
 export interface HumanoidAnimationController {
   getMeleeTiming?(state: HumanoidAnimationState): HumanoidMeleeTiming | undefined
+  /** Authored fist contact times for an imported punch clip; undefined means the procedural fallback owns it. */
+  getPunchTiming?(state: HumanoidAnimationState): HumanoidPunchTiming | undefined
   playHitReaction?(): void
   setEquipmentState?(state: Partial<import('./CharacterEquipmentPose').EquipmentPoseState>): void
   setSwordHandShape?(enabled: boolean): void
@@ -76,6 +78,12 @@ export interface HumanoidAnimationController {
   sampleInitialPose?(): void
   update(dt: number, cameraDistance?: number): void
   stop(): void
+}
+
+/** Contacts are in clip seconds (== action seconds at timeScale 1); one damage event per entry. */
+export interface HumanoidPunchTiming {
+  duration: number
+  contacts: ReadonlyArray<{ time: number; hand: 'left' | 'right' }>
 }
 
 /** Source seconds remain on the clip; this describes its gameplay clock. */

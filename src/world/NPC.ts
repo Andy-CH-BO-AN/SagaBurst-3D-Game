@@ -1040,18 +1040,34 @@ export class NPC {
 
   /** Player-only Duel opponent; the shared animator and physical palms own all punch events. */
   private updateUnarmedDuel(dt: number, player: Player, obstacles: ObstacleData[], cameraDistance: number,
-    hit: (damage: number, isPlayer: boolean) => void): void {
+    hit: (damage: number, isPlayer: boolean) => void, navigationWorld: NavigationWorld | null = null): void {
     const previous = this.group.position.clone()
     const delta = player.combatPosition.clone().sub(this.combatPosition).setY(0)
     const canAttack = !player.dead && player.targetable && this.combatTargetAllowed?.(player) !== false
-    if (!canAttack) this.animator.cancel()
-    else {
+    if (!canAttack) {
+      this.animator.cancel()
+      this._clearNavigationPath(); this._clearObstacleDetour()
+    } else {
       const distance = delta.length()
-      if (distance > .001) this._faceDirection(delta.normalize())
+      if (distance > .001) this._faceDirection(delta.clone().normalize())
       if (distance > 1 && !this.animator.busy) {
         this.state = AIState.CHASE
-        this._moveByDirection(delta, CHASE_SPEED, dt, false, distance - 1)
+        // Same ground A*/path-follow/detour services as ordinary melee chase; only the fist reach differs.
+        const moveDir = this._tmpMoveDir.set(0, 0, 0)
+        const route = this._resolveNavigationMoveTarget(player.combatPosition, obstacles, navigationWorld)
+        if (route === 'path') moveDir.copy(this._tmpNavigationTarget).sub(this.combatPosition).setY(0).normalize()
+        else if (route === 'direct') moveDir.copy(delta).normalize()
+        else if (route === 'unreachable') {
+          this._applyPersistentObstacleDetour(moveDir, player.combatPosition, dt, obstacles)
+          if (!this._detourActive) moveDir.set(0, 0, 0)
+        }
+        if (route === 'path' || route === 'direct') this._clearObstacleDetour()
+        if (moveDir.lengthSq() > .0001) {
+          this._faceDirection(moveDir.clone())
+          this._moveByDirection(moveDir, CHASE_SPEED, dt, false, route === 'direct' ? distance - 1 : Infinity)
+        }
       } else if (!this.animator.busy) {
+        this._clearNavigationPath(); this._clearObstacleDetour()
         this.state = AIState.ATTACK
         this.animator.start('punchCombo', 1)
       }
@@ -2731,7 +2747,7 @@ export class NPC {
     }
 
     if (this.duelUnarmed && this.duelHostile) {
-      this.updateUnarmedDuel(dt, player, obstacles, cameraDistance, onHitEntity)
+      this.updateUnarmedDuel(dt, player, obstacles, cameraDistance, onHitEntity, navigationWorld)
       return
     }
 

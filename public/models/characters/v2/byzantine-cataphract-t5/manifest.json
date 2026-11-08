@@ -1,0 +1,400 @@
+{
+  "schemaVersion": 1,
+  "id": "byzantine-cataphract-t5",
+  "status": "ready",
+  "skeleton": "project-humanoid-v1",
+  "source": {
+    "title": "Byzantine Warrior (Mixamo-rigged)",
+    "sourceFile": "Meshy_AI_Byzantine_Warrior_Rigged_20261106_animated_mixamo_All_animation.glb",
+    "sourceSha256": "421accf24280fa37bff2a61051f73294ed70b2b5bdb6c235a5661f0d034c1691",
+    "license": "Owner-supplied Meshy model; project animation sources retain their original terms",
+    "licenseEvidence": "ATTRIBUTION.md"
+  },
+  "attribution": "Byzantine Warrior: user-supplied Meshy model, textures and Walking / Running / Left_Slash / Punch_Combo_1. Idle, bow, pilum and axe clips are retargeted from roman-hero-t5 (project-licensed Kevin Iglesias and Quaternius sources; see that asset).",
+  "selectedSource": {
+    "rig": "mixamo24",
+    "uniformScale": 0.9954238653101781,
+    "seatBearing": [
+      [
+        -0.082,
+        0.897,
+        -0.057
+      ],
+      [
+        0.082,
+        0.897,
+        -0.057
+      ]
+    ]
+  },
+  "handShapeMode": "authored",
+  "preserveLodHandTopology": true,
+  "files": {
+    "lod0": "lod0.glb",
+    "lod1": "lod1.glb",
+    "lod2": "lod2.glb"
+  },
+  "fileSha256": {
+    "lod0": "b7471933aaf12370fb4809e5863f626538177e3553669332c273bd9ba00bba1d",
+    "lod1": "c01ed7b0ef50a900e9eed44c517d55ab206c9786acd09e454fc1c7760111c649",
+    "lod2": "0344c9eca319f464b072f792b361d77b2b0984f4faf419327be0ba5613d1b9c5"
+  },
+  "metrics": {
+    "heightM": 1.9410765866341708,
+    "shoulderWidthM": 0.5659912515567136,
+    "neckLengthM": 0.07769488623523091,
+    "triangles": {
+      "lod0": 9914,
+      "lod1": 9914,
+      "lod2": 9914
+    },
+    "textures": {
+      "lod0": 2048,
+      "lod1": 1024,
+      "lod2": 512
+    },
+    "uniformScale": 0.9954238653101781,
+    "bodyLandmarks": [
+      {
+        "name": "hips",
+        "source": 1.049932632446289,
+        "reference": 1.1140112251048582
+      },
+      {
+        "name": "upper_arm_l",
+        "source": 1.5391589135488588,
+        "reference": 1.509103454813023
+      },
+      {
+        "name": "upper_arm_r",
+        "source": 1.539159099630816,
+        "reference": 1.5081392777214542
+      }
+    ]
+  },
+  "animations": {
+    "embedded": [
+      {
+        "clip": "idle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "idle",
+        "loop": true,
+        "duration": 2.700000047683716
+      },
+      {
+        "clip": "walk",
+        "source": "Meshy",
+        "sourceClip": "Walking",
+        "loop": true,
+        "nominalSpeed": 1.52,
+        "duration": 1.0333333333333334
+      },
+      {
+        "clip": "run",
+        "source": "Meshy",
+        "sourceClip": "Running",
+        "loop": true,
+        "nominalSpeed": 3.1,
+        "duration": 0.6333333333333333
+      },
+      {
+        "clip": "swordSlash",
+        "source": "Meshy",
+        "sourceClip": "Left_Slash",
+        "loop": false,
+        "sourceRange": [
+          0.4,
+          1.1
+        ],
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 0.3,
+          "hit": 0.4,
+          "activeEnd": 0.55,
+          "actionComplete": 0.7000000000000001
+        },
+        "duration": 0.7000000000000001
+      },
+      {
+        "clip": "punchCombo",
+        "source": "Meshy",
+        "sourceClip": "Punch_Combo_1",
+        "loop": false,
+        "events": {
+          "punch0": 0.6,
+          "punch1": 0.8833333333333333,
+          "punch2": 1.1,
+          "punch3": 1.3666666666666667,
+          "actionComplete": 2.2
+        },
+        "punchHands": [
+          "left",
+          "right",
+          "left",
+          "right"
+        ],
+        "duration": 2.2
+      },
+      {
+        "clip": "punchRight",
+        "source": "Meshy",
+        "sourceClip": "Punch_Combo_1",
+        "loop": false,
+        "events": {
+          "punch0": 0.2829999999999999,
+          "punch1": 0.5173333333333333,
+          "punch2": 0.8663333333333334,
+          "punch3": 1.1006666666666667,
+          "actionComplete": 1.2666666666666666
+        },
+        "punchHands": [
+          "right",
+          "right",
+          "right",
+          "right"
+        ],
+        "composition": "right-fist segments of Punch_Combo_1, cross-faded",
+        "duration": 1.2666666666666666
+      },
+      {
+        "clip": "bowLoad",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowLoad",
+        "loop": false,
+        "retargetedFrom": "roman-hero-t5",
+        "duration": 0.8333333134651184
+      },
+      {
+        "clip": "bowHold",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowHold",
+        "loop": true,
+        "retargetedFrom": "roman-hero-t5",
+        "duration": 1.3333333730697632
+      },
+      {
+        "clip": "bowRelease",
+        "source": "Kevin Iglesias",
+        "sourceClip": "bowRelease",
+        "loop": false,
+        "events": {
+          "projectileRelease": 0.04,
+          "actionComplete": 0.22
+        },
+        "retargetedFrom": "roman-hero-t5",
+        "duration": 0.22
+      },
+      {
+        "clip": "pilumThrow",
+        "source": "Quaternius",
+        "sourceClip": "pilumThrow",
+        "loop": false,
+        "events": {
+          "projectileRelease": 0.5666666666666667,
+          "actionComplete": 1.5
+        },
+        "retargetedFrom": "roman-hero-t5",
+        "duration": 1.5
+      },
+      {
+        "clip": "axeMountedIdle",
+        "source": "Kevin Iglesias",
+        "sourceClip": "axeMountedIdle",
+        "loop": true,
+        "retargetedFrom": "roman-hero-t5",
+        "duration": 2.700000047683716
+      },
+      {
+        "clip": "axeAttack1H",
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 1.4333333333333333,
+          "hit": 1.5666666666666667,
+          "activeEnd": 1.7,
+          "actionComplete": 3
+        },
+        "source": "Meshy",
+        "sourceClip": "axeAttack1H",
+        "loop": false,
+        "retargetedFrom": "roman-hero-t5",
+        "duration": 3
+      },
+      {
+        "clip": "axeAttack2H",
+        "meleeCycleSeconds": 0.48,
+        "events": {
+          "activeStart": 0.166666667,
+          "hit": 0.2625,
+          "activeEnd": 0.291666667,
+          "actionComplete": 0.48
+        },
+        "source": "Meshy",
+        "sourceClip": "axeAttack2H",
+        "loop": false,
+        "attackFadeInSeconds": 0.1,
+        "attackTransition": "inertial",
+        "retargetedFrom": "roman-hero-t5",
+        "duration": 0.48
+      }
+    ],
+    "runtimeGenerated": [
+      "mounted",
+      "death",
+      "hit",
+      "daggerSlash",
+      "greatswordSlash",
+      "lanceThrust",
+      "mountedLance"
+    ]
+  },
+  "handGripFrames": {
+    "left": {
+      "palmContactCenter": [
+        0.003053137511050482,
+        0.11697555958153294,
+        -0.011501047771483404
+      ],
+      "palmNormal": [
+        -0.8006920153730533,
+        -0.0378847549290027,
+        -0.5978771126760145
+      ],
+      "thumbDir": -1,
+      "thumbDirection": [
+        0.5985131830060044,
+        -0.09384478343984508,
+        -0.795597339355248
+      ],
+      "fingerDirection": [
+        -0.025966637939080266,
+        0.9948657708279536,
+        0.09781529404465712
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "fingerBase": 0.18171336833904622,
+      "thumbBaseCenter": [
+        -0.0016653477333002627,
+        0.06380485068083615,
+        0.006273298784445492
+      ]
+    }
+  },
+  "swordGripFrames": {
+    "lod0": {
+      "gripCenterLocal": [
+        0.015230189422709709,
+        0.12669227065494942,
+        -0.011359664671530897
+      ],
+      "gripAxisLocal": [
+        -0.5967993540783134,
+        -0.0002014300871206005,
+        -0.8023904849869719
+      ],
+      "palmNormalLocal": [
+        0.8023905012651015,
+        -1.0270020036761036e-11,
+        -0.5967993661856045
+      ],
+      "fingerDirection": [
+        0.00012021334008371909,
+        0.9999999797129598,
+        0.00016162559470371296
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.000008307327996664992,
+        0.0691048749028061,
+        0.000011169116729680046
+      ],
+      "fingerBase": 0.19579714953009528,
+      "gripRadius": 0.019
+    },
+    "lod1": {
+      "gripCenterLocal": [
+        0.015230189422709709,
+        0.12669227065494942,
+        -0.011359664671530897
+      ],
+      "gripAxisLocal": [
+        -0.5967993540783134,
+        -0.0002014300871206005,
+        -0.8023904849869719
+      ],
+      "palmNormalLocal": [
+        0.8023905012651015,
+        -1.0270020036761036e-11,
+        -0.5967993661856045
+      ],
+      "fingerDirection": [
+        0.00012021334008371909,
+        0.9999999797129598,
+        0.00016162559470371296
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.000008307327996664992,
+        0.0691048749028061,
+        0.000011169116729680046
+      ],
+      "fingerBase": 0.19579714953009528,
+      "gripRadius": 0.019
+    },
+    "lod2": {
+      "gripCenterLocal": [
+        0.015230189422709709,
+        0.12669227065494942,
+        -0.011359664671530897
+      ],
+      "gripAxisLocal": [
+        -0.5967993540783134,
+        -0.0002014300871206005,
+        -0.8023904849869719
+      ],
+      "palmNormalLocal": [
+        0.8023905012651015,
+        -1.0270020036761036e-11,
+        -0.5967993661856045
+      ],
+      "fingerDirection": [
+        0.00012021334008371909,
+        0.9999999797129598,
+        0.00016162559470371296
+      ],
+      "wristCenter": [
+        0,
+        0,
+        0
+      ],
+      "thumbBaseCenter": [
+        0.000008307327996664992,
+        0.0691048749028061,
+        0.000011169116729680046
+      ],
+      "fingerBase": 0.19579714953009528,
+      "gripRadius": 0.019
+    }
+  },
+  "bakedSource": {
+    "armatureScaleBaked": 0.01,
+    "note": "Joint translations, inverse binds and position tracks multiplied by the Armature scale; mesh, UVs and weights unchanged."
+  },
+  "visualAcceptance": "Grip frames and seat bearing are provisional; see PR for in-game verification status.",
+  "knownLimitations": [
+    "Source rig has no finger bones: hands are single mitten meshes.",
+    "Idle / bow / pilum / axe clips are direction-retargeted from roman-hero-t5.",
+    "Shield stance punchRight is composed from right-fist segments of Punch_Combo_1."
+  ]
+}

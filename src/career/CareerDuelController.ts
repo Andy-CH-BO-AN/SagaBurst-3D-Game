@@ -29,6 +29,11 @@ export interface CareerDuelRoster {
 }
 
 /** Existing Duel classes retain their weapons/mounts; shield-bearing T5 Commanders use their war shield. */
+/** Armed T1-T4 duels re-place their party deterministically; T5, tutorial and unarmed duels persist physical travel. */
+export function persistsDuelTravel(active: Pick<ActiveCareerMission, 'duelMode' | 'duelTier' | 'duelTutorialCareerId'>): boolean {
+  return active.duelMode === 'unarmed' || active.duelTier === 5 || Boolean(active.duelTutorialCareerId)
+}
+
 function duelLoadout(presetId: UnitPresetId, tier: CareerDuelTier): UnitLoadout {
   if (tier === 5) {
     const selected = resolveT4UnitLoadout(presetId)
@@ -144,6 +149,8 @@ export class CareerDuelController {
   get countdownRemaining(): number { return Math.max(0, DUEL_COUNTDOWN_SECONDS - this.countdownElapsed) }
   private get combatDuration(): number { return duelCombatSeconds(this.active?.duelMode) }
   get combatRemaining(): number { return Math.max(0, this.combatDuration - this.combatElapsed) }
+  /** Seconds since the duel became live, independent of the mode's total duration. */
+  get combatElapsedSeconds(): number { return this.combatElapsed }
   get combatEnabled(): boolean { return this.phase === 'ENGAGING' && !this.active?.result && !this.illegalAttackPending && !this.active?.duelFailureReason && this.combatElapsed < this.combatDuration }
   get remainingEnemies(): number { return this.opponent && !this.opponent.dead ? 1 : 0 }
   get guideTarget(): THREE.Vector3 | null {
@@ -284,7 +291,7 @@ export class CareerDuelController {
     if (active.phase === 'ASSEMBLING') {
       // Persistent T5/tutorial parties may already be away from home: restore their physical
       // checkpoint before deriving the new direct route's starting position.
-      if ((active.duelTier === 5 || active.duelTutorialCareerId) && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
+      if (persistsDuelTravel(active) && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
       this.beginMarch()
     }
     else if (active.phase === 'MARCHING') {
@@ -295,14 +302,14 @@ export class CareerDuelController {
     } else if (active.phase === 'RETURNING') {
       // Old return saves contain stages toward the removed barracks. Restore
       // physical positions first, then derive a new route to the service home.
-      if ((active.duelTier === 5 || active.duelTutorialCareerId) && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
+      if (persistsDuelTravel(active) && active.duelTravel) this.restoreTravelCheckpoint(active.duelTravel)
       this.setRoute(this.selectRouteLeader()?.combatPosition ?? this.player().combatPosition, this.returnPoint())
       this.ensureRouteLeader()
     } else {
       this.placeDuelParty()
       if (active.phase === 'ENGAGING' && !active.result) opponent.npc.setDuelHostility(true)
     }
-    if ((active.duelTier === 5 || active.duelTutorialCareerId) && active.duelTravel) {
+    if (persistsDuelTravel(active) && active.duelTravel) {
       this.restoreTravelCheckpoint(active.duelTravel)
       if (active.phase === 'MARCHING' && this.staging) this.assignDuelPositions()
       else if (active.phase === 'MARCHING' || active.phase === 'RETURNING') {
@@ -419,7 +426,7 @@ export class CareerDuelController {
     const playerStats = this.tracker?.checkpoint()
     const statsChanged = Boolean(playerStats && (Object.keys(playerStats) as (keyof typeof playerStats)[])
       .some(key => playerStats[key] !== (active.playerStats?.[key] ?? 0)))
-    const travel = active.duelMode === 'unarmed' || active.duelTier === 5 || active.duelTutorialCareerId ? this.travelCheckpoint(this.actors, this.staging) : undefined
+    const travel = persistsDuelTravel(active) ? this.travelCheckpoint(this.actors, this.staging) : undefined
     const samePosition = (left: CareerDuelTravelCheckpoint['player'], right: CareerDuelTravelCheckpoint['player'] | undefined) =>
       Boolean(right && left.x === right.x && left.y === right.y && left.z === right.z && left.yaw === right.yaw)
     const travelChanged = Boolean(travel && (travel.staging !== active.duelTravel?.staging
@@ -493,7 +500,7 @@ export class CareerDuelController {
 
   private runtimeMission(active: ActiveCareerMission): ActiveCareerMission {
     const player = this.player()
-    return { ...active, ...(this.illegalAttackPending ? { duelFailureReason: 'illegal_attack' as const } : {}), ...(active.duelMode === 'unarmed' || active.duelTier === 5 || active.duelTutorialCareerId ? { duelTravel: this.travelCheckpoint(this.actors, this.staging) } : {}), duelCountdownElapsed: this.countdownElapsed, duelCombatElapsed: this.combatElapsed,
+    return { ...active, ...(this.illegalAttackPending ? { duelFailureReason: 'illegal_attack' as const } : {}), ...(persistsDuelTravel(active) ? { duelTravel: this.travelCheckpoint(this.actors, this.staging) } : {}), duelCountdownElapsed: this.countdownElapsed, duelCombatElapsed: this.combatElapsed,
       duelOpponentHp: this.opponent?.hp,
       ...(active.duelTier! <= 3 ? { duelOpponentMaxHp: this.opponent?.maxHp } : {}), ...(this.opponentMount ? { duelOpponentMountHp: this.opponentMount.currentHp, duelOpponentMountArmorImpact: this.opponentMount.armorImpactRemaining } : {}),
       ...(Number.isFinite(player.hp) && player.hp >= 0 ? { duelPlayerHp: player.hp } : {}),
