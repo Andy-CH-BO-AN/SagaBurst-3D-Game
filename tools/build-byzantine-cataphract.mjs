@@ -287,31 +287,6 @@ const L = targetFrames.Left
 const leftFrame = { palmContactCenter: L.center.map((v, i) => v - L.palm[i] * LANCE_RADIUS), palmNormal: L.palm, thumbDir: 1, thumbDirection: L.thumb,
   fingerDirection: L.finger, wristCenter: [0, 0, 0], fingerBase: KNUCKLE, thumbBaseCenter: L.finger.map(v => v * .045) }
 
-// ---- mounted legs: the same per-mount seat as roman-hero-t4, by limb direction -------------------
-const LEG_SPREAD = Number(process.env.BYZ_LEG_SPREAD ?? .12) // Scale-armour thighs are bulkier than the Paladin's.
-const seat = (kind) => {
-  if (kind === 'xongkoro') return null
-  if (['BLACK_CAT', 'WHITE_CAT', 'ORANGE_CAT', 'SERVAL', 'CARACAL'].includes(kind)) return { hip: [-.798, .511], knee: [1.436, -.306], ankle: [-.8, -.688] }
-  const horse = kind === 'HORSE' || kind === 'ARMORED_HORSE'
-  const spread = kind === 'CORGI' ? .72 : horse ? .58 : .82
-  const knee = kind === 'CORGI' ? 1.08 : horse ? 1.22 : 1.05
-  return { hip: [-.68, spread], knee: [knee, kind === 'SNOW_LEOPARD' ? -.42 : 0], ankle: [horse ? -.44 : -.38, kind === 'CORGI' ? -spread : kind === 'SNOW_LEOPARD' ? -.42 : 0] }
-}
-const LEG_ALIAS = { UpLeg: 'upper_leg', Leg: 'lower_leg', Foot: 'foot' }
-const mountedLegPoses = {}
-for (const kind of ['BLACK_CAT', 'WHITE_CAT', 'ORANGE_CAT', 'SERVAL', 'CARACAL', 'SNOW_LEOPARD', 'CORGI', 'HORSE', 'ARMORED_HORSE']) {
-  const pose = seat(kind), rotations = []
-  stance.scene.traverse(o => { if (o.isBone) rotations.push([o, o.quaternion.clone()]) })
-  for (const [o, q] of rotations) o.quaternion.copy(stanceRetargeter.donorRest[Object.keys(PROJECT_NAMES).find(k => PROJECT_NAMES[k] === o.name)]?.local ?? q)
-  for (const [short, sign] of [['l', -1], ['r', 1]]) {
-    const euler = (name, pitch, z) => { const n = stance.scene.getObjectByName(`${name}_${short}`); n.quaternion.multiply(new T.Quaternion().setFromEuler(new T.Euler(pitch, 0, sign * z))) }
-    euler('upper_leg', pose.hip[0], pose.hip[1] + LEG_SPREAD); euler('lower_leg', pose.knee[0], pose.knee[1]); euler('foot', pose.ankle[0], pose.ankle[1] - LEG_SPREAD)
-  }
-  const solved = stanceRetargeter.pose().local, entry = {}
-  for (const [side, x] of [['Left', 'l'], ['Right', 'r']]) for (const [bone, alias] of Object.entries(LEG_ALIAS)) entry[`${alias}_${x}`] = solved[`${side}${bone}`].toArray()
-  mountedLegPoses[kind] = entry
-  for (const [o, q] of rotations) o.quaternion.copy(q)
-}
 const manifest = {
   schemaVersion: 1, id: 'byzantine-cataphract-t5', status: 'ready', skeleton: 'project-humanoid-v1',
   source: { title: 'Byzantine Warrior (Mixamo-rigged)', sourceFile: path.basename(source), sourceSha256: sha(sourceBytes),
@@ -321,7 +296,7 @@ const manifest = {
   handShapeMode: 'authored', preserveLodHandTopology: true,
   files: { lod0: 'lod0.glb', lod1: 'lod1.glb', lod2: 'lod2.glb' }, fileSha256, metrics,
   animations: { embedded: bindings, runtimeGenerated: ['death', 'hit', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance'] },
-  handGripFrames: { left: leftFrame }, mountedLegPoses,
+  handGripFrames: { left: leftFrame },
   swordGripFrames: { lod0: rightFrame, lod1: rightFrame, lod2: rightFrame },
   bakedSource: { armatureScaleBaked: baked.scale, note: 'Joint translations, inverse binds and position tracks multiplied by the Armature scale; positions and UVs unchanged. Thigh skin weight above the hip joint moved to the pelvis (waist collapsed when seated).' },
   visualAcceptance: 'See PR #444 for the hero-preview close-up results.',

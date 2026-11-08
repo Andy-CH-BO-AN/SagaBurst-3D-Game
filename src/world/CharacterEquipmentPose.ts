@@ -1,5 +1,6 @@
 import { minimumReachableShoulderSwing } from './AuthoredCarryGrip'
 import { punchExtension, UNARMED_DURATION } from '../combat/UnarmedCombat'
+import { MOUNT_BARREL, solveSeatedLeg } from './MountedLegFit'
 import { MITTEN_MORPHS } from './MittenHandShape'
 import { fingerContactOwnership, type ArticulatedFingerPoses } from './FingerContactPolicy'
 import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
@@ -108,6 +109,40 @@ function createPunchPose(wrist: THREE.Object3D, frame: EquipmentGripFrame, inwar
   const { finger, thumb } = measureHandAnatomy(wrist, frame, inward)
   return { local: punchBasis(finger, thumb, new THREE.Quaternion()).invert(), inward,
     gripAlong: new THREE.Vector3(...frame.gripCenterLocal).dot(finger) }
+}
+
+interface SeatJoint { node: THREE.Object3D; position: THREE.Vector3; rotation: THREE.Quaternion }
+interface SeatLegBind { hip: SeatJoint; knee: SeatJoint; ankle: SeatJoint; toe: THREE.Vector3; side: 1 | -1 }
+interface SeatBind { pelvis: THREE.Vector3; pelvisRotation: THREE.Quaternion; legs: SeatLegBind[] }
+
+/** Bind pose in world metres relative to the rider root (bones may carry the asset's uniform scale). */
+function captureSeatBind(root: THREE.Object3D, rig: CharacterRig): SeatBind {
+  root.updateWorldMatrix(true, true)
+  const rootPosition = root.getWorldPosition(new THREE.Vector3()), rootInverse = root.getWorldQuaternion(new THREE.Quaternion()).invert()
+  const position = (node: THREE.Object3D) => node.getWorldPosition(new THREE.Vector3()).sub(rootPosition).applyQuaternion(rootInverse)
+  const rotation = (node: THREE.Object3D) => node.getWorldQuaternion(new THREE.Quaternion()).premultiply(rootInverse)
+  const joint = (node: THREE.Object3D): SeatJoint => ({ node, position: position(node), rotation: rotation(node) })
+  const pelvisBone = rig.leftLeg.hip.parent!
+  return { pelvis: position(pelvisBone), pelvisRotation: rotation(pelvisBone), legs: [rig.leftLeg, rig.rightLeg].map(leg => {
+    const hip = joint(leg.hip)
+    return { hip, knee: joint(leg.knee), ankle: joint(leg.ankle), toe: position(leg.foot), side: (hip.position.x >= 0 ? 1 : -1) as 1 | -1 }
+  }) }
+}
+
+function solveSeatBind(bind: SeatBind, barrel: readonly number[]): Array<{ node: THREE.Object3D, q: THREE.Quaternion }> {
+  const result: Array<{ node: THREE.Object3D, q: THREE.Quaternion }> = []
+  for (const leg of bind.legs) {
+    const thighRest = leg.knee.position.clone().sub(leg.hip.position), calfRest = leg.ankle.position.clone().sub(leg.knee.position), footRest = leg.toe.clone().sub(leg.ankle.position)
+    const solved = solveSeatedLeg(leg.hip.position.clone().sub(bind.pelvis), thighRest.length(), calfRest.length(), leg.side, barrel)
+    const hipWorld = new THREE.Quaternion().setFromUnitVectors(thighRest.normalize(), solved.thigh).multiply(leg.hip.rotation)
+    const kneeWorld = new THREE.Quaternion().setFromUnitVectors(calfRest.normalize(), solved.calf).multiply(leg.knee.rotation)
+    const ankleWorld = new THREE.Quaternion().setFromUnitVectors(footRest.normalize(), solved.foot).multiply(leg.ankle.rotation)
+    // The saddle masks the pelvis to its bind, so bind rotations are the parents here.
+    result.push({ node: leg.hip.node, q: bind.pelvisRotation.clone().invert().multiply(hipWorld) },
+      { node: leg.knee.node, q: hipWorld.clone().invert().multiply(kneeWorld) },
+      { node: leg.ankle.node, q: kneeWorld.clone().invert().multiply(ankleWorld) })
+  }
+  return result
 }
 
 interface FistFinger { node: THREE.Object3D; fist: THREE.Quaternion }
@@ -393,6 +428,8 @@ export class CharacterEquipmentPose {
   private readonly punchForearm = new THREE.Vector3()
   private readonly punchElbow = new THREE.Vector3()
   private readonly punchFingers: Record<'right' | 'left', FistFinger[]>
+  private readonly seatBind: SeatBind
+  private readonly seatLegCache = new Map<MountedPoseKind, Array<{ node: THREE.Object3D, q: THREE.Quaternion }>>()
   private readonly shieldBody: THREE.Object3D
   private readonly shieldBindInverse = new THREE.Matrix4()
   private readonly shieldBodyDelta = new THREE.Matrix4()
@@ -584,6 +621,7 @@ export class CharacterEquipmentPose {
     nodes.push(...this.orbitTorso.filter(node => !nodes.includes(node)))
     if (this.orbitNeck && !nodes.includes(this.orbitNeck)) nodes.push(this.orbitNeck)
     if (this.bowFullBodyStance && this.bowSpine && this.bowSpine !== this.seatedSpine) nodes.push(this.bowSpine)
+    this.seatBind = captureSeatBind(root, rig)
     this.punchFingers = { right: createFistFingers(rig.right.wrist, frames.lanceRight, 1), left: createFistFingers(rig.left.wrist, frames.lanceLeft, -1) }
     nodes.push(...this.punchFingers.right.map(f => f.node), ...this.punchFingers.left.map(f => f.node))
     for (const node of nodes) this.saved.push({ node, q: node.quaternion.clone() })
@@ -635,6 +673,15 @@ export class CharacterEquipmentPose {
 
   private blendContinuousLocal(saved: THREE.Quaternion, target: THREE.Quaternion, weight: number, prevDelta?: THREE.Quaternion): void {
     blendContinuousLocalQuaternion(saved, target, weight, prevDelta, this.boneWorld, this.attackAxis)
+  }
+
+  /** Seated legs for this rig and mount, solved once from its bind pose and the mount's measured width. */
+  private fittedSeatLegs(kind: MountedPoseKind): Array<{ node: THREE.Object3D, q: THREE.Quaternion }> | undefined {
+    const barrel = MOUNT_BARREL[kind]
+    if (!barrel) return undefined
+    let cached = this.seatLegCache.get(kind)
+    if (!cached) { cached = solveSeatBind(this.seatBind, barrel); this.seatLegCache.set(kind, cached) }
+    return cached
   }
 
   private rotateArm(node: THREE.Object3D, angle: number, updateSubtree = true): void {
@@ -743,7 +790,11 @@ export class CharacterEquipmentPose {
         for (const joint of this.seatedTorso) this.rotateArm(joint, turn / this.seatedTorso.length)
       }
     }
-    if (live && state.mounted) applyCharacterMountedPose(this.rig, true, state.mountKind)
+    if (live && state.mounted) {
+      const fitted = this.fittedSeatLegs(state.mountKind)
+      if (fitted) for (const entry of fitted) entry.node.quaternion.copy(entry.q)
+      else applyCharacterMountedPose(this.rig, true, state.mountKind)
+    }
     if (live && state.mounted) this.mountedSkirt?.apply()
     if (live && state.mounted && state.mountKind === 'xongkoro' && this.seatedSpine && state.flightLean) {
       // Flight still leans the lower torso, but must not tilt a selected bow's

@@ -11,6 +11,7 @@ import { duelFightBannerVisible, duelCombatSeconds } from '../../src/career/Care
 import * as THREE from 'three'
 import { curlHandPoint, MITTEN_GRIP, MITTEN_HOLLOW } from '../../src/world/MittenHandShape'
 import { bannerRollAngle } from '../../src/world/WeaponMeshFactory'
+import { barrelHalfWidth, MOUNT_BARREL, solveSeatedLeg } from '../../src/world/MountedLegFit'
 
 const dir = 'public/models/characters/v2/byzantine-cataphract-t5'
 const manifest = JSON.parse(readFileSync(`${dir}/manifest.json`, 'utf8')) as HumanoidAssetManifest & { fileSha256: Record<string, string> }
@@ -123,9 +124,15 @@ describe('Byzantine hands, banner and seat', () => {
     expect(cloth.y).toBeCloseTo(-1)
     expect(bannerRollAngle(new THREE.Quaternion())).toBeUndefined()
   })
-  it('has authored seated legs for every saddled mount and an upright mounted clip without leg tracks', () => {
-    for (const kind of ['HORSE', 'ARMORED_HORSE', 'SNOW_LEOPARD', 'BLACK_CAT', 'CORGI']) {
-      expect(Object.keys(manifest.mountedLegPoses![kind]!).sort()).toEqual(['foot_l', 'foot_r', 'lower_leg_l', 'lower_leg_r', 'upper_leg_l', 'upper_leg_r'])
+  it('seated legs stay outside every measured mount body', () => {
+    for (const [kind, barrel] of Object.entries(MOUNT_BARREL)) for (const side of [1, -1] as const) {
+      for (const [thighLength, calfLength] of [[.4, .4], [.46, .46], [.55, .55]]) {
+        const hip = new THREE.Vector3(side * .1, -.08, 0)
+        const leg = solveSeatedLeg(hip, thighLength, calfLength, side, barrel)
+        const knee = hip.clone().addScaledVector(leg.thigh, thighLength), ankle = knee.clone().addScaledVector(leg.calf, calfLength)
+        for (const point of [knee, ankle]) expect(side * point.x, `${kind} ${thighLength}`).toBeGreaterThanOrEqual(barrelHalfWidth(barrel, -point.y) + .05)
+        expect(leg.thigh.z).toBeGreaterThan(0) // seated, not splayed straight out
+      }
     }
     expect(manifest.animations!.embedded.some(b => b.clip === 'mounted')).toBe(true)
   })

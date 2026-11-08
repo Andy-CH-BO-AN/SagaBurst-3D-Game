@@ -90,8 +90,6 @@ export interface HumanoidAssetManifest {
     textures: { lod0: number, lod1: number, lod2: number }
   } | null
   selectedSource?: SelectedHumanoidSource
-  /** Per-mount seated leg rotations for rigs whose bind legs are not straight (bone name -> quaternion). */
-  mountedLegPoses?: Partial<Record<string, Record<string, [number, number, number, number]>>>
   /** Identical LOD bind spaces and clips share one actor-owned skeleton/mixer. */
   /** Complete source skin, padded to the existing four-set plugin contract. */
   skinInfluenceSets?: 4
@@ -950,7 +948,6 @@ export function createHumanoidRigAdapter(root: THREE.Object3D, animation: Humano
     rightFootSocket: findSocket(root, ['socket_foot_r', 'sole_r'], rightFoot, 'socket_foot_r'),
     animation,
     equipmentGripFrames: root.userData.equipmentGripFrames,
-    mountedLegPoses: root.userData.mountedLegPoses,
     mittenHands: root.userData.mittenHands === true,
     upperChest: root.getObjectByName('upper_chest'),
     clavicleLeft: root.getObjectByName('clavicle_l'),
@@ -1117,7 +1114,6 @@ export class HumanoidAssetRegistry {
     }
     // Fingerless bodies: Byzantine's flat hands rest open-gripped; the ordinary Viking's sculpted hands only close to punch.
     if (manifest.selectedSource?.rig === 'mixamo24' || manifest.selectedSource?.rig === 'ordinary22') levels.forEach((level, index) => prepareMittenLevel(manifest, level.scene, index, manifest.selectedSource?.rig === 'mixamo24'))
-    if (manifest.mountedLegPoses) for (const level of levels) level.scene.userData.mountedLegPoses = manifest.mountedLegPoses
     validateEmbeddedAnimations(faction, manifest, levels)
     const frame = readHandFrame(manifest)
     const animationClips = manifest.selectedSource || manifest.sharedLodPose
