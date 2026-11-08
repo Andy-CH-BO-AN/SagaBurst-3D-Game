@@ -397,6 +397,9 @@ describe('Civilian and merchant borrowed mount checkpoints', () => {
     expect(h.mount.armorImpactMax).toBe(50)
     h.mount.restoreArmor(0)
     expect(h.owner.checkpoint()!.members['civilian-0'].mount?.armorImpactRemaining).toBe(0)
+    // A checkpoint() only stages a snapshot; an actual saved command makes it durable.
+    expect(h.owner.issue('follow')).toBe(true)
+    expect(h.read().civilianCommandSquad!.members['civilian-0'].mount?.armorImpactRemaining).toBe(0)
     expect(h.controller().restore()).toBe(true)
     expect(h.mount.armorImpactRemaining).toBe(0)
     expect(h.owner.refit()).toBe(true)
