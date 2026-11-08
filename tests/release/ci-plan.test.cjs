@@ -41,10 +41,11 @@ test('Full remains separate and can split across multiple shards', () => {
   assert.equal(validateManifest(manifest).shards.length, 2)
   assert.equal(verifiedFullSha(manifest), sha)
 })
-test('docs-only empty selection accepted, but empty code selection fails', () => {
+test('docs-only and CSS-only empty plans require explicit safe classification', () => {
   const empty = { mode: 'related', docsOnly: true, inventory: [], selected: [],
     changedFiles: ['docs/README.md'], shards: [] }
   assert.equal(validateManifest(empty).shards.length, 0)
+  assert.equal(validateManifest({ ...empty, docsOnly: false, cssOnly: true }).shards.length, 0)
   assert.throws(() => validateManifest({ ...empty, docsOnly: false }), /Empty code selection/)
 })
 test('invalid selected ordinal, duplicate identity and unexpected shard are rejected', () => {

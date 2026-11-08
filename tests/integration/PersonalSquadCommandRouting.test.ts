@@ -11,7 +11,8 @@ import { EaglePadReservations } from '../../src/career/EaglePadReservations'
 import { migratePersonalTownLayout } from '../../src/town/TownLayoutMigration'
 import type { PersonalActorCheckpoint } from '../../src/career/CareerPersonalSquadMission'
 import type { NPC } from '../../src/world/NPC'
-import type { Mount } from '../../src/world/Mount'
+import { MountType, type Mount } from '../../src/world/Mount'
+import { MountArmor } from '../../src/combat/MountArmor'
 import { Faction } from '../../src/world/NPC'
 import { createCareerProfile } from '../../src/career/CareerProfile'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
@@ -210,6 +211,10 @@ function boardingHarness(command: 'defend' | 'follow' = 'defend') {
   const eaglePads = new EaglePadReservations([home]); eaglePads.reserve('personal:eagle')
   const mount = {
     dead: false, currentHp: 200, maxHp: 200, isFlyingMount: true,
+    armor: new MountArmor(MountType.XONGKORO),
+    get armorImpactMax() { return this.armor.max },
+    get armorImpactRemaining() { return this.armor.remaining },
+    restoreArmor(value?: number) { this.armor.restore(value) },
     group: { position: new Vector3(home.x, 0, home.z), rotation: new Euler() },
     flight: { phase: 'grounded', restore: vi.fn() },
     get isAirborne() { return this.flight.phase !== 'grounded' },
