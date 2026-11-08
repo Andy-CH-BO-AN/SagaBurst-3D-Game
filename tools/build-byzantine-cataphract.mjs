@@ -1,6 +1,6 @@
 /** Build public/models/characters/v2/byzantine-cataphract-t5 from the user-supplied Meshy Mixamo GLB.
  *   node tools/build-byzantine-cataphract.mjs <Byzantine_Warrior...animated_mixamo_All_animation.glb> [outDir]
- * Mesh, UVs, skin weights and materials are retained. Only the 0.01 Armature scale is baked into the joints,
+ * Mesh, UVs and materials are retained; thigh skin weight above the hip joint moves to the pelvis. Only the 0.01 Armature scale is baked into the joints,
  * textures are resampled per LOD (macOS `sips`), and the clip set is assembled:
  *   native   Walking→walk, Running→run, Left_Slash(trimmed)→swordSlash, Punch_Combo_1→punchCombo
  *   composed punchRight (right-fist punches of the same take, left arm is owned by the shield pose)
@@ -15,7 +15,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import { readGlb, loadRig } from './lib/humanoid-glb.mjs'
 const meshoptLoader = () => new GLTFLoader().setMeshoptDecoder(MeshoptDecoder)
-import { bakeArmatureScale, assembleGlb } from './lib/byzantine-bake.mjs'
+import { bakeArmatureScale, assembleGlb, reweightWaist } from './lib/byzantine-bake.mjs'
 import { createRetargeter, PROJECT_NAMES } from './lib/mixamo-direction-retarget.mjs'
 
 const source = process.argv[2]
@@ -28,6 +28,8 @@ const q4 = (a, i) => new T.Quaternion(a[i], a[i + 1], a[i + 2], a[i + 3])
 
 const sourceBytes = fs.readFileSync(source)
 const asset = readGlb(source), baked = bakeArmatureScale(asset)
+// Thigh pivot is y=.964: the waist above it follows the pelvis, the skirt below keeps the thighs.
+console.log('waist vertices reweighted:', reweightWaist(baked, .86, .97))
 const bakedAsset = { document: baked.document, binary: baked.binary }
 const native = await loadRig(bakedAsset), fk = await loadRig(bakedAsset), reference = await loadRig(bakedAsset)
 const donorAsset = readGlb(`${DONOR}/lod0.glb`), donor = await loadRig(donorAsset)
@@ -321,7 +323,7 @@ const manifest = {
   animations: { embedded: bindings, runtimeGenerated: ['death', 'hit', 'daggerSlash', 'greatswordSlash', 'lanceThrust', 'mountedLance'] },
   handGripFrames: { left: leftFrame }, mountedLegPoses,
   swordGripFrames: { lod0: rightFrame, lod1: rightFrame, lod2: rightFrame },
-  bakedSource: { armatureScaleBaked: baked.scale, note: 'Joint translations, inverse binds and position tracks multiplied by the Armature scale; mesh, UVs and weights unchanged.' },
+  bakedSource: { armatureScaleBaked: baked.scale, note: 'Joint translations, inverse binds and position tracks multiplied by the Armature scale; positions and UVs unchanged. Thigh skin weight above the hip joint moved to the pelvis (waist collapsed when seated).' },
   visualAcceptance: 'See PR #444 for the hero-preview close-up results.',
   knownLimitations: ['Source rig has no finger bones: runtime morphs (MittenHandShape) curl the mitten hands.', 'Idle / bow / pilum / axe clips are direction-retargeted from roman-hero-t5.', 'Shield stance punchRight is composed from right-fist segments of Punch_Combo_1.'],
 }

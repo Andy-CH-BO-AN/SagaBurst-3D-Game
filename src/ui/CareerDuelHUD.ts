@@ -1,4 +1,4 @@
-import { DUEL_COMBAT_SECONDS } from '../career/CareerDuelState'
+import { duelFightBannerVisible } from '../career/CareerDuelState'
 import type { CareerMissionPhase } from '../career/CareerMissionState'
 
 /** Dedicated, large countdown above the duel; independent of the town's text HUD. */
@@ -17,13 +17,13 @@ export class CareerDuelHUD {
     this.root.hidden = true
   }
 
-  update(phase: CareerMissionPhase | null, countdownRemaining: number, combatRemaining: number): void {
+  update(phase: CareerMissionPhase | null, countdownRemaining: number, combatRemaining: number, combatElapsed: number): void {
     this.root.hidden = phase !== 'PREPARING' && phase !== 'ENGAGING'
     if (this.root.hidden) return
     const preparing = phase === 'PREPARING'
     this.label.textContent = preparing ? '單挑即將開始' : '單挑剩餘時間'
     this.value.textContent = preparing ? String(Math.ceil(countdownRemaining))
-      : combatRemaining > DUEL_COMBAT_SECONDS - 1 ? 'FIGHT' : `${combatRemaining.toFixed(1)}s`
+      : duelFightBannerVisible(combatElapsed) ? 'FIGHT' : `${combatRemaining.toFixed(1)}s`
   }
 
   dispose(): void { this.root.remove() }

@@ -1,4 +1,4 @@
-import { traceFistStrike, UNARMED_DAMAGE, UNARMED_RANGE } from '../combat/UnarmedCombat'
+import { traceFistStrike, UNARMED_ATTACK_DISTANCE, UNARMED_DAMAGE, UNARMED_RANGE, UNARMED_STOP_DISTANCE } from '../combat/UnarmedCombat'
 import { resolveOrdinaryNpcHp } from '../combat/OrdinarySoldierProfile'
 import { resolveCharacterIdentity, type CharacterIdentity, type CharacterTier, type HeroArchetype } from '../combat/CharacterIdentity'
 import { FriendlyMovementBypass } from '../navigation/FriendlyMovementBypass'
@@ -1050,7 +1050,7 @@ export class NPC {
     } else {
       const distance = delta.length()
       if (distance > .001) this._faceDirection(delta.clone().normalize())
-      if (distance > 1 && !this.animator.busy) {
+      if (distance > UNARMED_ATTACK_DISTANCE && !this.animator.busy) {
         this.state = AIState.CHASE
         // Same ground A*/path-follow/detour services as ordinary melee chase; only the fist reach differs.
         const moveDir = this._tmpMoveDir.set(0, 0, 0)
@@ -1064,7 +1064,8 @@ export class NPC {
         if (route === 'path' || route === 'direct') this._clearObstacleDetour()
         if (moveDir.lengthSq() > .0001) {
           this._faceDirection(moveDir.clone())
-          this._moveByDirection(moveDir, CHASE_SPEED, dt, false, route === 'direct' ? distance - 1 : Infinity)
+          // Stop inside the punch trigger: stopping exactly on it would leave float error above it forever.
+          this._moveByDirection(moveDir, CHASE_SPEED, dt, false, route === 'direct' ? distance - UNARMED_STOP_DISTANCE : Infinity)
         }
       } else if (!this.animator.busy) {
         this._clearNavigationPath(); this._clearObstacleDetour()

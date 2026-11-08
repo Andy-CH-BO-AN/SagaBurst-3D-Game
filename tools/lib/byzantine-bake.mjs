@@ -102,3 +102,47 @@ export function assembleGlb(baked, clips, images) {
   document.buffers[0].byteLength = offset
   return encodeGlb(document, Buffer.concat(chunks))
 }
+
+const readComponent = { 5126: (b, at) => b.readFloatLE(at), 5123: (b, at) => b.readUInt16LE(at) / 65535, 5121: (b, at) => b[at] / 255 }
+const writeComponent = { 5126: (b, at, v) => b.writeFloatLE(v, at), 5123: (b, at, v) => b.writeUInt16LE(Math.round(v * 65535), at), 5121: (b, at, v) => { b[at] = Math.round(v * 255) } }
+
+/** Meshy's auto-rig binds much of the waist above the hip joint to the thighs, so spreading the legs collapses it.
+ * Above `top` thigh weight moves to the pelvis; between `bottom` and `top` it fades, keeping the skirt on the thighs.
+ * Positions, UVs, normals and textures are untouched. Mutates `baked.binary`. */
+export function reweightWaist(baked, bottom, top) {
+  const { document, binary } = baked
+  const skin = document.skins[0], primitive = document.meshes[0].primitives[0]
+  const jointOf = name => skin.joints.findIndex(node => document.nodes[node].name === `mixamorig:${name}`)
+  const hips = jointOf('Hips'), legs = new Set([jointOf('LeftUpLeg'), jointOf('RightUpLeg')])
+  const view = accessor => { const a = document.accessors[accessor], v = document.bufferViews[a.bufferView]; return { a, base: (v.byteOffset ?? 0) + (a.byteOffset ?? 0), stride: v.byteStride } }
+  const pos = view(primitive.attributes.POSITION), joints = view(primitive.attributes.JOINTS_0), weights = view(primitive.attributes.WEIGHTS_0)
+  const jointSize = joints.a.componentType === 5123 ? 2 : 1
+  const weightSize = { 5126: 4, 5123: 2, 5121: 1 }[weights.a.componentType]
+  const readW = readComponent[weights.a.componentType], writeW = writeComponent[weights.a.componentType]
+  let changed = 0
+  for (let i = 0; i < pos.a.count; i++) {
+    const y = binary.readFloatLE(pos.base + i * (pos.stride ?? 12) + 4)
+    const u = Math.min(1, Math.max(0, (y - bottom) / (top - bottom)))
+    const fade = u * u * (3 - 2 * u)
+    if (fade === 0) continue
+    const jointAt = c => joints.base + i * (joints.stride ?? 4 * jointSize) + c * jointSize
+    const weightAt = c => weights.base + i * (weights.stride ?? 4 * weightSize) + c * weightSize
+    const readJ = c => jointSize === 2 ? binary.readUInt16LE(jointAt(c)) : binary[jointAt(c)]
+    const writeJ = (c, v) => { if (jointSize === 2) binary.writeUInt16LE(v, jointAt(c)); else binary[jointAt(c)] = v }
+    const slots = [0, 1, 2, 3].map(c => ({ c, joint: readJ(c), weight: readW(binary, weightAt(c)) }))
+    let moved = 0
+    for (const slot of slots) if (legs.has(slot.joint) && slot.weight > 0) { moved += slot.weight * fade; slot.weight *= 1 - fade }
+    if (moved === 0) continue
+    // Prefer an existing pelvis slot, then an empty one, then the leg slot it drained the most.
+    const target = slots.find(s => s.joint === hips && s.weight > 0) ?? slots.find(s => s.weight === 0) ?? slots.reduce((a, b) => legs.has(b.joint) && (!legs.has(a.joint) || b.weight < a.weight) ? b : a)
+    if (target.joint !== hips || target.weight === 0) {
+      const spilled = legs.has(target.joint) ? target.weight : 0
+      target.joint = hips; target.weight = spilled
+    }
+    target.weight += moved
+    const sum = slots.reduce((s, x) => s + x.weight, 0)
+    for (const slot of slots) { writeJ(slot.c, slot.joint); writeW(binary, weightAt(slot.c), slot.weight / sum) }
+    changed++
+  }
+  return changed
+}

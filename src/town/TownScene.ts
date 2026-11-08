@@ -4050,7 +4050,7 @@ export class TownScene {
     for (const mount of this.mounts) mount.skipImpactThisFrame = false
     const duelPhase = this.duel.active && !this.panel && !this.equipment.visible ? this.duel.phase : null
     this.weaponWheelUI.update(this.inventory, !this.panel && !this.equipment.visible && !this.result && !this.player.dead && !this.spectator)
-    this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining)
+    this.duelHud.update(duelPhase, this.duel.countdownRemaining, this.duel.combatRemaining, this.duel.combatElapsedSeconds)
     this.duelGuide.updateDuel(duelPhase, this.player.combatPosition, this.orbit.cameraYaw, this.duel.guideTarget)
     this.updateCaptainPatrolGuide()
     const retirementPoint = townRetirementRallyTarget(this.player.combatPosition)

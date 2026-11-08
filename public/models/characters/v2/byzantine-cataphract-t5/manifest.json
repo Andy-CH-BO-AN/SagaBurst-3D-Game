@@ -35,9 +35,9 @@
     "lod2": "lod2.glb"
   },
   "fileSha256": {
-    "lod0": "0c3df5d4a6f4cb4c321f7ce4fea686f7387186cc894bce0b181f58edc0f9882d",
-    "lod1": "d11264629ba9d90a45d01bf530ef40d6ae5322d82e53daf847a1e8d120d70f64",
-    "lod2": "be3933a0fc279addf34d22c2e8762164da3f27147744ee0bad4fa0ae37307fe4"
+    "lod0": "6cecb0a900fb53dde42dd97343835f2e4187fd05617e080495179da80fb0fcbe",
+    "lod1": "e91a22917344583e15a769e76317f381e14271c62f9d21a6be3162a217146699",
+    "lod2": "e8bcd245db88326f6526afb5b153411f7a9520dd1811973a2befd3c622483cfc"
   },
   "metrics": {
     "heightM": 1.9410765866341708,
@@ -741,7 +741,7 @@
   },
   "bakedSource": {
     "armatureScaleBaked": 0.01,
-    "note": "Joint translations, inverse binds and position tracks multiplied by the Armature scale; mesh, UVs and weights unchanged."
+    "note": "Joint translations, inverse binds and position tracks multiplied by the Armature scale; positions and UVs unchanged. Thigh skin weight above the hip joint moved to the pelvis (waist collapsed when seated)."
   },
   "visualAcceptance": "See PR #444 for the hero-preview close-up results.",
   "knownLimitations": [
