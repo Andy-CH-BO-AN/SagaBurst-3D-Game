@@ -1,4 +1,5 @@
 import { minimumReachableShoulderSwing } from './AuthoredCarryGrip'
+import { punchExtension } from '../combat/UnarmedCombat'
 import { fingerContactOwnership, type ArticulatedFingerPoses } from './FingerContactPolicy'
 import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
 import * as THREE from 'three'
@@ -1244,6 +1245,22 @@ export class CharacterEquipmentPose {
       }
     }
     if (live && state.mounted) this.fittedCloth?.applyMounted()
+    if (live && (state.action === 'punchCombo' || state.action === 'punchRight')) {
+      // Use the same calibrated arm solvers as equipment, per LOD. A shield retains its existing left-arm solve.
+      const shield = state.action === 'punchRight'
+      for (const hand of ['right', 'left'] as const) {
+        if (shield && hand === 'left') continue
+        const side = hand === 'right' ? -1 : 1
+        const extension = punchExtension(state.elapsed, hand, shield)
+        this.target.set(side * (.22 - .08 * extension), this.hipsY + .42, .19 + .47 * extension)
+        const solver = hand === 'right' ? this.axeRight : this.left
+        solver.solve(this.target, hand === 'right' ? this.swordCarry : this.shieldL,
+          hand === 'right' ? this.frames.lanceRight : this.frames.lanceLeft, undefined, true, true)
+      }
+      for (const finger of this.articulatedFingers) {
+        if (!shield || !finger.left) finger.node.quaternion.copy(finger.grip)
+      }
+    }
     this.root.updateWorldMatrix(true, true)
   }
 }

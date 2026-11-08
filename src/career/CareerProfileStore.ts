@@ -700,6 +700,8 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
   const eligible = resolveCareerRank(totalMerit - enlistmentMeritBase)
   const requested = CAREER_RANKS.indexOf(raw.rank as CareerProfile['rank'])
   const rank = CAREER_RANKS[Math.max(0, Math.min(requested, CAREER_RANKS.indexOf(eligible)))]
+  if (raw.eliteClass !== undefined && raw.eliteClass !== null && (raw.eliteClass !== 'byzantine-cataphract'
+    || raw.faction !== 'roman' || rank !== 'commander' || totalMerit - enlistmentMeritBase < 30000)) return null
   const tutorial = raw.tutorial === undefined ? createCareerTutorialState(rank, false) : parseCareerTutorialState(raw.tutorial)
   if (!tutorial) return null
   const tutorialDuel = (raw.activeMission as Partial<ActiveCareerMission> | undefined)?.duelTutorialCareerId
@@ -744,6 +746,7 @@ export function parseCareerProfile(value: unknown): CareerProfile | null {
     totalMerit,
     availableMerit,
     rank,
+    eliteClass: raw.eliteClass === 'byzantine-cataphract' ? 'byzantine-cataphract' : null,
     ...(raw.meleeSelectionOrigin === 'starter' || raw.meleeSelectionOrigin === 'custom'
       ? { meleeSelectionOrigin: raw.meleeSelectionOrigin } : {}),
     ...(raw.commanderMeleeGranted === true ? { commanderMeleeGranted: true } : {}),
@@ -946,6 +949,8 @@ export class CareerProfileStore {
           && profile.rank === 'recruit' && profile.totalMerit === 0 && !profile.careerRetirement)) return false
       const parsed = parseCareerProfile(profile)
       if (!parsed) return false
+      if (existing?.eliteClass === 'byzantine-cataphract' && parsed.tutorial?.careerId === existing.tutorial?.careerId
+        && parsed.enlistmentMeritBase === existing.enlistmentMeritBase && parsed.eliteClass !== existing.eliteClass) return false
       if (profile.tutorial && !parsed.tutorial || profile.activeMission?.duelTutorialCareerId && parsed.activeMission?.duelTutorialCareerId !== profile.activeMission.duelTutorialCareerId) return false
       if (profile.activeMission?.outpostSiege && !parsed.activeMission?.outpostSiege
         || profile.activeMission?.battle?.outpostSiege && !parsed.activeMission?.battle?.outpostSiege

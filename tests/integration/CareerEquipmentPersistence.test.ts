@@ -30,6 +30,8 @@ describe('Career equipment persistence wiring', () => {
     const inv = new TownEquipment(() => profile, commit)
     inv.prepareForCombat()
     expect(inv.saveState.items).toEqual([])
+    expect(inv.equippedMelee).toBeUndefined()
+    expect(inv.activeMelee).toBeUndefined()
     expect(inv.meleeEnabled || inv.rangedEnabled || inv.shieldEnabled).toBe(false)
     expect(new WeaponWheel().cycle(inv, 1)).toBeNull()
     expect(profile.ownedWeapons).toEqual([])

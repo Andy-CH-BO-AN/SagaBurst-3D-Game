@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { UNARMED_DURATION, punchEventsBetween, punchExtension, type FistStrike, type PunchHand } from '../combat/UnarmedCombat'
 import type { CharacterRig, HumanoidAnimationState, MountedPoseKind } from './CharacterVisuals'
 import { setRigRotation } from './CharacterVisuals'
 import { axeCarryWeight, axeRecoveryWeight, setSwordMountedAttachment } from './SwordAttachmentContract'
@@ -17,6 +18,8 @@ export type CombatAction =
   | 'pilumThrow'
   | 'lanceThrust'
   | 'mountedLance'
+  | 'punchCombo'
+  | 'punchRight'
 
 export interface CombatAnimationProfile {
   windup: number
@@ -28,9 +31,12 @@ export interface CombatAnimationEvents {
   hitActiveStarted: boolean
   projectileRelease: boolean
   actionCompleted: boolean
+  fists: FistStrike[]
 }
 
 export const COMBAT_ANIMATION_PROFILES: Readonly<Record<CombatAction, CombatAnimationProfile>> = {
+  punchCombo: { windup: .18, active: 1.2, recovery: .22 },
+  punchRight: { windup: .18, active: 1.2, recovery: .22 },
   idle: { windup: 0, active: 0, recovery: 0 },
   daggerSlash: { windup: 0.08, active: 0.10, recovery: 0.14 },
   swordSlash: { windup: 0.14, active: 0.14, recovery: 0.20 },
@@ -86,6 +92,7 @@ export class CharacterCombatAnimator {
     hitActiveStarted: false,
     projectileRelease: false,
     actionCompleted: false,
+    fists: [],
   }
 
   constructor(
@@ -268,6 +275,7 @@ export class CharacterCombatAnimator {
     this.events.hitActiveStarted = false
     this.events.projectileRelease = false
     this.events.actionCompleted = false
+    this.events.fists.length = 0
 
     if (!Number.isFinite(dt) || dt < 0) return this.events
     const actionDt = dt * this.actionTimeScale
@@ -301,6 +309,16 @@ export class CharacterCombatAnimator {
     const profile = COMBAT_ANIMATION_PROFILES[this.action]
     const previous = this.elapsed
     this.elapsed += actionDt
+    if (this.action === 'punchCombo' || this.action === 'punchRight') {
+      const shield = this.action === 'punchRight'
+      for (const event of punchEventsBetween(previous, this.elapsed, shield)) {
+        const from = new THREE.Vector3(), to = new THREE.Vector3()
+        this.sampleFist(event.time - .10, event.hand, from)
+        this.sampleFist(event.time, event.hand, to)
+        this.events.fists.push({ from, to })
+      }
+      this.sampleFist(Math.min(this.elapsed, UNARMED_DURATION), 'right', new THREE.Vector3())
+    }
     const importedPilumDuration = this.action === 'pilumThrow' && this.ownership === 'clip'
       ? this.rig.animation?.getDuration('pilumThrow')
       : undefined
@@ -326,7 +344,7 @@ export class CharacterCombatAnimator {
       if (previous < contactTime && this.elapsed >= contactTime) {
         this.events.hitActiveStarted = true
       }
-      if (this.ownership === 'procedural') this.poseMelee(this.action, this.elapsed, profile)
+      if (this.ownership === 'procedural' && this.action !== 'punchCombo' && this.action !== 'punchRight') this.poseMelee(this.action, this.elapsed, profile)
     }
 
     if (this.elapsed >= total - 1e-9) {
@@ -370,6 +388,21 @@ export class CharacterCombatAnimator {
     // The elbow contributes ~0.15 rad, so this action pitch makes the blade's
     // model axis level instead of leaving the tip angled into the ground.
     this.meleePivot.rotation.set(IDLE_BLADE_PITCH, 0, 0)
+  }
+
+  private sampleFist(elapsed: number, hand: PunchHand, out: THREE.Vector3): void {
+    this.rig.animation?.setEquipmentState?.({ action: this.action, elapsed })
+    this.rig.animation?.update(0)
+    if (!this.rig.animation?.setEquipmentState) {
+      for (const side of ['right', 'left'] as const) {
+        if (this.action === 'punchRight' && side === 'left') continue
+        const extension = punchExtension(elapsed, side, this.action === 'punchRight')
+        setRigRotation(this.rig[side].shoulder, 1.1 + .3 * extension, 0, side === 'right' ? -.2 : .2)
+        setRigRotation(this.rig[side].elbow, 1.4 * (1 - extension), 0, 0)
+      }
+      this.applyShieldGuard()
+    }
+    this.rig[hand].handSocket.getWorldPosition(out)
   }
 
   poseBow(chargeRatio: number, aimBlend = 1): void {

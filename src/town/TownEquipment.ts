@@ -18,7 +18,7 @@ export class TownEquipment extends InventoryManager {
   private readonly drawn = new Set<string>()
   constructor(private readonly read: () => CareerProfile, private readonly commit: (p: CareerProfile) => boolean) {
     super({ meleeWeaponId: careerTownWeapon(read()), rangedWeaponId: '', shieldId: null })
-    this.loadSaveState({ items: [...read().ownedWeapons, ...read().ownedArmors].map(id => ({ id, quantity: 1 })) })
+    this.loadSaveState({ items: [...read().ownedWeapons, ...read().ownedArmors].map(id => ({ id, quantity: 1 })), equippedMeleeId: careerTownWeapon(read()) })
     this.rangedEnabled = false
   }
   syncOwnership(): void {
@@ -46,10 +46,6 @@ export class TownEquipment extends InventoryManager {
   }
   prepareForCombat(): void {
     this.restoreForHostile()
-    if (this.meleeEnabled || this.rangedEnabled) return
-    const fallback = [this.read().starterWeaponId, careerTownWeapon(this.read()), ...this.read().ownedWeapons]
-      .find((id): id is string => Boolean(id && canUseCareerEquipment(this.read(), id)))
-    if (fallback) this.selectWeapon(fallback, false)
   }
   sheathAll(): void {
     this.meleeEnabled = false

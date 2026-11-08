@@ -482,7 +482,7 @@ export class BattleSetupUI {
                 <select id="battle-player-hero" class="summary-hero-select">
                   <option value="">一般士兵 Standard</option>
                   ${BASE_UNIT_TIERS.map(tier => `<option value="${tier}">一般士兵 T${tier} · Standard</option>`).join('')}
-                  ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} ${id.endsWith('t5') ? 'T5' : 'T4'} · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
+                  ${SETUP_PLAYER_HERO_IDS.map(id => `<option value="${id}">${HERO_ASSETS[id].nameZh} ${id === 'byzantine-cataphract-t5' ? 'T5+' : id.endsWith('t5') ? 'T5' : 'T4'} · ${HERO_ASSETS[id].nameEn}</option>`).join('')}
                 </select>
               </label>
             </div>
@@ -995,6 +995,10 @@ export class BattleSetupUI {
       if (heroId !== '' && !soldier && !isSetupPlayerHeroId(heroId)) return
       this.config.playerHeroId = isSetupPlayerHeroId(heroId) ? heroId : null
       this.config.playerVisualTier = soldier ? tier : undefined
+      if (heroId === 'byzantine-cataphract-t5') {
+        this.config.playerFaction = 'roman'
+        this.config.playerLoadout = { ...(this.config.playerLoadout ?? createDefaultPlayerLoadout()), mountId: 'armored-horse' }
+      }
       this._refreshView()
     })
     this.container.querySelectorAll('.step-input').forEach(el => {

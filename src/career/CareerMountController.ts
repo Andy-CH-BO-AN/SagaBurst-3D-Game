@@ -161,6 +161,7 @@ export class CareerMountController implements EquipmentMountAdapter {
     const profile = this.readProfile()
     return ownedCareerMountIds(profile).map(id => ({
       ...MOUNTS[canonicalCareerMountId(id)],
+      ...(id === 'armored-horse' && profile.eliteClass === 'byzantine-cataphract' ? { name: '拜占庭重甲戰馬 · 騎乘速度 12m/s' } : {}),
       tier: careerMountTier(id, profile),
       active: this.active?.id === id && this.player().currentMount === this.active.mount,
       available: canUseCareerMount(profile, id) && !this.unavailable.has(id),

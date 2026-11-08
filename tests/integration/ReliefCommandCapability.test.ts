@@ -19,13 +19,13 @@ describe('Relief command capability wiring', () => {
   let step = 1
   const input = { consumeWheelStep: () => { const value = step; step = 0; return value }, consumeKeyPress: vi.fn(() => true) }
   const ui = { setEnabled: vi.fn() }, inventory = new InventoryManager()
-  const weapon = inventory.equippedMelee.id
+  const weapon = inventory.equippedMelee?.id
   const config = launch()
   const controller = new ArmyCommandController([], 'roman', input as unknown as PlayerInput, ui as unknown as ArmyCommandUI,
     null, null, 'defend', null, inventory, 'preset', config.capabilities!.playerCommandsEnabled)
   controller.update()
   expect(ui.setEnabled).toHaveBeenCalledWith(false)
   expect(input.consumeKeyPress).not.toHaveBeenCalled(); expect(controller.wheelMode).toBe('weapon'); expect(controller.isSubmenuOpen).toBe(false)
-  expect(inventory.equippedMelee.id).not.toBe(weapon)
+  expect(inventory.equippedMelee?.id).not.toBe(weapon)
 })
 })

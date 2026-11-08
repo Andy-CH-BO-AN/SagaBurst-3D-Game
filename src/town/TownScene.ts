@@ -1,3 +1,4 @@
+import { traceFistStrike, unarmedDamage } from '../combat/UnarmedCombat'
 import { TownTutorialController } from './TownTutorialController'
 import { canStartCareerTutorial } from '../career/CareerTutorial'
 import { commitTownProfile, type TownProfileChange } from './TownProfileCommit'
@@ -133,6 +134,8 @@ import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type Horse
 import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
 import { CareerProfileStore } from '../career/CareerProfileStore'
 import { canAppointCareerRank, type CareerAppointingRole } from '../career/CareerPromotionAuthority'
+import { appointByzantine, canAppointByzantine } from '../career/CareerElitePromotion'
+import { appendCareerPromotionCards, ROMAN_PROMOTION_WARNING } from '../ui/CareerPromotionUI'
 import { MAX_BULK_PURCHASE_QUANTITY, CAREER_RANKS, CAREER_RANK_THRESHOLDS, careerMissionCompletionsForTier, clearCareerMission, cloneCareerProfile, enlistmentMerit, promoteCareer, type CareerProfile, type CareerMountId } from '../career/CareerProfile'
 import { availableRecruitMissions, availableCareerMissionsForPage, careerMissionTemplatesForPage, defaultCareerMissionPage, isCareerMissionPageUnlocked, getCareerMissionTemplate, patrolPreferredCamp, type CareerMissionPage } from '../career/CareerMissionCatalog'
 import { VETERAN_MISSION_CATALOG, getVeteranMissionDefinition, getVeteranMissionAvailability, acceptVeteranMission, createVeteranRoster, veteranTownCavalryReserveSlots } from '../career/VeteranMission'
@@ -242,6 +245,7 @@ export class TownScene {
   private elapsed = 0
   private disposed = false
   private promotionAttempt: object | null = null
+  private promotionPreviewCleanup?: () => void
   private restoringAerialState = true
   private result: TownResult | null = null
   chargeSpeakerId: string | null = null
@@ -1229,10 +1233,12 @@ export class TownScene {
   }
 
   private closePanel(): void {
+    this.promotionPreviewCleanup?.(); this.promotionPreviewCleanup = undefined
     this.promotionAttempt = null
     this.panel?.remove(); this.panel = null; this.equipment.close(); this.input.clear(); this.player.clearTownAction(); if (!location.search.includes('nolock')) this.input.requestPointerLock(this.renderer.domElement)
   }
   private openPanel(title: string, text: string): HTMLDivElement {
+    this.promotionPreviewCleanup?.(); this.promotionPreviewCleanup = undefined
     this.promotionAttempt = null
     this.personalCommands?.close()
     this.panel?.remove(); this.equipment.close(); this.input.clear(); this.player.clearTownAction(); document.exitPointerLock?.()
@@ -1278,7 +1284,15 @@ export class TownScene {
       const text = formatTownDialogue(selectTownDialogue({ ...context, nextRank: next, promotionEligible: eligible }, 'promotion'), { nextRank: next ?? '', required: next ? CAREER_RANK_THRESHOLDS[next] : 0 })
       const panel = this.openPanel(id === 'commander' ? `${p.faction === 'roman' ? '羅馬' : '維京'}指揮官 · 任命` : '騎兵隊長 · 任命', greeting + (response || greeting === text ? '' : '\n\n' + text))
       const detail = document.createElement('p'); detail.className = 'town-summary'; detail.textContent = promotionDetails(p); panel.append(detail)
-      if (eligible) {
+      const romanRoads = id === 'commander' && p.faction === 'roman' && (p.rank === 'captain' || p.rank === 'commander')
+      if (romanRoads) {
+        panel.querySelector('h2')!.textContent = '選擇你的晉升道路'
+        panel.querySelector('p')!.textContent = '選擇職業，查看能力與解鎖進度。'
+        detail.textContent = '帝國軍階任命 · Career Promotion · 本次入伍累積軍功，不扣除餘額'
+        panel.style.width = 'min(94vw, 800px)'
+        this.promotionPreviewCleanup = appendCareerPromotionCards(panel, () => this.profile, elite => this.confirmCareerRoad(elite))
+      }
+      if (eligible && !romanRoads) {
         const accept = this.button(panel, next === 'captain' ? '接受隊長任命' : '接受任命', async () => {
           if (this.promotionAttempt) return
           accept.disabled = true; accept.textContent = '正在準備任命…'
@@ -1823,7 +1837,7 @@ export class TownScene {
       this.tutorial.renderDialogue(panel, 'deployment')
       return
     }
-    const line = this.profile.tutorial?.town.step === 'weapon' ? '先去武器店挑一把趁手的武器，順著指標走就能找到店主。' : greeting
+    const line = this.profile.tutorial?.town.step === 'weapon' ? '空手也可以接取任務；武器購買教學可稍後完成。' : greeting
     const panel = this.openPanel('士官長', line)
     this.tutorial?.appendPanel(panel, 'deployment', this.tutorialBypass)
     if (this.townCommand?.commandsEnabled) {
@@ -2645,13 +2659,35 @@ export class TownScene {
       || !refitTownCommand && this.townCommand && !this.townCommand.isReserveAvailable(spec.id))
       .map(({ npc }) => npc.combatantId))
   }
-  private async acceptCareerPromotion(npcRole: CareerAppointingRole): Promise<boolean> {
-    const authorized = () => canAppointCareerRank(this.profile, npcRole)
+  private confirmCareerRoad(elite: boolean): void {
+    const panel = this.openPanel(elite ? '接受帝國精英任命？' : '確定晉升為羅馬指揮官？', elite
+      ? '角色轉職後套用 T5+ 強化能力。\n保留 Commander 指揮權與任務資格。\n保留已購買裝備與坐騎，不扣除軍功。\n軍旗槍及鷹盾仍需自行購買，並非轉職免費贈送。\n專屬外觀待加入，目前沿用羅馬 T5 外觀。'
+      : ROMAN_PROMOTION_WARNING)
+    panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true')
+    this.button(panel, elite ? '取消' : '返回考慮', () => this.talk('commander'))
+    const accept = this.button(panel, elite ? '確認轉職' : '確認晉升羅馬指揮官', async () => {
+      if (this.promotionAttempt) return
+      accept.disabled = true
+      const success = await this.acceptCareerPromotion('commander', elite)
+      if (this.disposed || this.panel !== panel) return
+      if (success) {
+        const result = this.openPanel(elite ? '🦅 帝國精英任命'  : '羅馬指揮官任命', elite
+          ? 'BYZANTINE CATAPHRACT\n拜占庭鐵甲重騎兵\nT5+ ELITE CLASS\n\n轉職已成功保存，Commander 權限與任務資格保留。\n專屬外觀待加入，目前沿用羅馬 T5 外觀。' : 'Commander 任命已保存。')
+        this.button(result, '返回遊戲', () => this.closePanel())
+      } else {
+        const error = document.createElement('p'); error.textContent = this.notice || '目前不符合任命條件，或任命準備失敗；原職業已保留。'; panel.append(error)
+        accept.disabled = false
+      }
+    })
+  }
+
+  private async acceptCareerPromotion(npcRole: CareerAppointingRole, elite = false): Promise<boolean> {
+    const authorized = () => (elite ? canAppointByzantine(this.profile) && npcRole === 'commander' : canAppointCareerRank(this.profile, npcRole))
       && this.residents.some(resident => resident.spec.id === npcRole && resident.spec.role === npcRole && !resident.npc.dead)
       && this.serviceAvailable(npcRole)
       && !this.player.dead && !this.player.isFalling && !this.player.currentMount?.isAirborne && !this.event.hostile
     if (this.promotionAttempt || this.disposed || !authorized()) return false
-    const next = promoteCareer(this.profile)
+    const next = elite ? appointByzantine(this.profile) : promoteCareer(this.profile)
     if (!next) return false
     const attempt = {}; this.promotionAttempt = attempt
     const panel = this.panel, rank = this.profile.rank, faction = this.profile.faction
@@ -2662,7 +2698,7 @@ export class TownScene {
       if (hero && hero !== this.player.heroAssetId) await HumanoidAssetRegistry.preloadAsset(HERO_ASSETS[hero].descriptor)
       if (!stillCurrent()) return false
       // Re-read live progress after loading rather than overwriting changes with the initial snapshot.
-      const fresh = promoteCareer(this.profile)
+      const fresh = elite ? appointByzantine(this.profile) : promoteCareer(this.profile)
       return fresh ? this.applyCareerPlayerIdentity(fresh) : false
     } catch (error) {
       if (stillCurrent()) this.notice = `任命尚未完成，原有角色與軍階已保留。請重試。${error instanceof Error ? `（${error.message}）` : ''}`
@@ -2979,7 +3015,7 @@ export class TownScene {
     const result = damageMount(mount, amount, {
       contact, source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)), method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
-        : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
+        : (method === 'projectile' ? this.inventory.equippedRanged?.id : (this.inventory.activeMelee?.id ?? 'unarmed')),
       emit: event => {
         if (rider) this.missionCombat?.notePlayerContact(rider, event)
         this.emitCombatEvent(event)
@@ -3079,13 +3115,13 @@ export class TownScene {
       const playerAmount = method === 'mount-impact'
         ? Math.round(amount * this.skills.getMountedImpactMultiplier())
         : amount
-      const result = damageNpc(npc, playerAmount, { source: createPlayerCombatActorRef(this.player), method, weaponId: method === 'melee' ? this.inventory.equippedMelee?.id : this.inventory.equippedRanged?.id, contact: contact ?? (method === 'melee' ? this.player.weaponSweep?.contact : undefined) })
+      const result = damageNpc(npc, playerAmount, { source: createPlayerCombatActorRef(this.player), method, weaponId: method === 'melee' ? (this.inventory.activeMelee?.id ?? 'unarmed') : this.inventory.equippedRanged?.id, contact: contact ?? (method === 'melee' ? this.player.weaponSweep?.contact : undefined) })
       applied = result.appliedDamage
       if (method === 'mount-impact' && result.hitSuccess && !result.isMountHit && this.player.currentMount) applyMountImpactKnockback(this.player.currentMount, npc, { obstacles: this.world.obstacles, worldBound: getScenePlayableWorldBound(this.scene) })
       if (result.hitSuccess) this.showCombatTarget(result.targetName, result.hpRatio)
       if (applied > 0) this.awardCareerSkillXp(method, applied, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
     } else {
-      const result = damageMount(npc, amount, { source: createPlayerCombatActorRef(this.player), method, contact, weaponId: method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id })
+      const result = damageMount(npc, amount, { source: createPlayerCombatActorRef(this.player), method, contact, weaponId: method === 'projectile' ? this.inventory.equippedRanged?.id : (this.inventory.activeMelee?.id ?? 'unarmed') })
       applied = result.appliedDamage
       if (applied > 0) this.awardCareerSkillXp(method, applied, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
       this.showCombatTarget(result.targetName, result.hpRatio)
@@ -3111,7 +3147,7 @@ export class TownScene {
     const position = hitPosition ?? b.hp.root.getWorldPosition(new THREE.Vector3())
     const { appliedDamage } = b.hp.takeDamage(amount)
     if (appliedDamage <= 0) return
-    if (this.defense?.assault && townOwned) emitStructureDamage({ source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)), method, weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined : this.inventory.equippedMelee?.id, emit: this.defense.events.emit }, { targetId: b.id, targetType: 'structure', name: b.id, allegiance: Faction.ENEMY, structureKind: b.hp.kind }, amount, appliedDamage, b.hp.hpRatio, b.hp.destroyed)
+    if (this.defense?.assault && townOwned) emitStructureDamage({ source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)), method, weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined : (this.inventory.activeMelee?.id ?? 'unarmed'), emit: this.defense.events.emit }, { targetId: b.id, targetType: 'structure', name: b.id, allegiance: Faction.ENEMY, structureKind: b.hp.kind }, amount, appliedDamage, b.hp.hpRatio, b.hp.destroyed)
     this.damageNumbers.spawn(appliedDamage, position)
     this.world.refreshDamage(); this.navigation.sync(this.world.obstacles)
     if (townOwned && !this.defense?.assault) this.activateHostility()
@@ -3162,7 +3198,7 @@ export class TownScene {
       contact: contact ?? (method === 'melee' ? (source ?? this.player).weaponSweep?.contact : undefined),
       source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)),
       method,
-      weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
+      weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined : (method === 'projectile' ? this.inventory.equippedRanged?.id : (this.inventory.activeMelee?.id ?? 'unarmed')),
       emit: event => {
         this.missionCombat?.notePlayerContact(target, event)
         this.emitCombatEvent(event)
@@ -3360,7 +3396,7 @@ export class TownScene {
     const result = damageObstacle(target, amount, {
       source: sourceRef ?? (source ? createNpcCombatActorRef(source) : createPlayerCombatActorRef(this.player)), method,
       weaponId: source ? (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined
-        : (method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id),
+        : (method === 'projectile' ? this.inventory.equippedRanged?.id : (this.inventory.activeMelee?.id ?? 'unarmed')),
       emit: event => this.emitCombatEvent(event),
     })
     if (!source && result.appliedDamage > 0) {
@@ -3388,12 +3424,31 @@ export class TownScene {
       }
       return
     }
-    if (this.player.dead || !this.inventory.meleeEnabled) { this.hasPreviousTip = false; return }
+    if (this.player.dead) { this.player.consumeFistStrikes(); this.hasPreviousTip = false; return }
+    const activeMelee = this.inventory.activeMelee
+    if (!activeMelee) {
+      this.hasPreviousTip = false
+      const targets = [...this.runtimeCombatActors().filter(target => !target.dead && !this.isProtectedTownAlly(target)),
+        ...this.combatMounts.filter(mount => this.canHitTownMount(mount) && mount !== this.player.currentMount)]
+      for (const strike of this.player.consumeFistStrikes()) {
+        const contact = traceFistStrike(strike, this.player.position, targets, this.world.obstacles)
+        if (!contact) continue
+        const target = contact.target as NPC | Mount
+        const amount = unarmedDamage(this.skills.getMultiplier('oneHanded'), this.player.heroAssetId)
+        if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, amount, 'melee', undefined, contact)
+        else if (target instanceof NPC) {
+          if (this.race?.actors.includes(target) || this.duel?.isMissionTarget(target) || this.outskirts?.owns(target)
+            || this.enemyEaglePatrol?.owns(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY) this.hitFieldNpc(target, amount, 'melee', undefined, contact)
+          else this.hitResident(target, amount, 'melee', contact)
+        }
+      }
+      return
+    }
     const currentTip = this.player.getSwordTipPosition()
     const previousTip = this.hasPreviousTip ? this.previousTip.clone() : currentTip
     this.previousTip.copy(currentTip); this.hasPreviousTip = true
     if (!this.player.isHitFrame(this.inventory.equippedMelee)) return
-    const weapon = this.inventory.equippedMelee, from = this.player.getWeaponGripPosition(new THREE.Vector3()), tip = this.player.getSwordTipPosition()
+    const weapon = activeMelee, from = this.player.getWeaponGripPosition(new THREE.Vector3()), tip = this.player.getSwordTipPosition()
     const damageResult = calculatePlayerMeleeDamage({
       baseDamage: weapon.damageMax,
       combatKind: weapon.combatKind,
@@ -4034,6 +4089,7 @@ export class TownScene {
     this.raf = requestAnimationFrame(t => this.frame(t))
   }
   dispose(preservePointerLock = false): void {
+    this.promotionPreviewCleanup?.(); this.promotionPreviewCleanup = undefined
     this.projectileObstacles.clear()
     this.promotionAttempt = null
     this.cancelPendingSpawns()

@@ -91,6 +91,8 @@ export interface CareerProfile {
   /** Spendable merit. Purchases deduct this without affecting rank. */
   availableMerit: number
   rank: CareerRank
+  /** T5 elite identity, independent of rank and spendable currency. Missing legacy value means ordinary. */
+  eliteClass?: 'byzantine-cataphract' | null
   /** Optional ending lifecycle; retirement never changes the appointed rank. */
   careerRetirement?: CareerRetirementState
   /** Grounded player and owned-mount resources throughout the retirement sequence. */
@@ -218,6 +220,7 @@ export function createCareerProfile(faction: CharacterFaction): CareerProfile {
     totalMerit: 0,
     availableMerit: 0,
     rank: 'recruit',
+    eliteClass: null,
     horseAppearanceVariant: 0,
     skills: createDefaultSkillState(),
     enlistmentMeritBase: 0,

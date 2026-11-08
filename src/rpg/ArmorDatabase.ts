@@ -16,6 +16,11 @@ export interface ArmorData {
 }
 
 export const ARMORS: Record<string, ArmorData> = {
+  byzantine_eagle_shield_t5: {
+    id: 'byzantine_eagle_shield_t5', name: '深紅帝國鷹盾', type: 'shield', tier: 5,
+    shieldImpactMax: 128,
+    description: '128 衝擊耐久。暫用月桂聖壁外觀與盾面輪廓；專屬紅色金鷹外觀將另行加入。',
+  },
   roman_officer_shield_t4: {
     id: 'roman_officer_shield_t4', name: '星輝銀盾 Starlit Aegis', type: 'shield', tier: 4,
     shieldImpactMax: 48,

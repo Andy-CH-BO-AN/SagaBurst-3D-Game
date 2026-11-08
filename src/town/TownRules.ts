@@ -260,7 +260,7 @@ export function settleTown(current: CareerProfile, id: string, result: TownResul
   result = profile.townEvent.pendingResult ?? result
   const penalty = result === 'player_defeated' ? Math.min(profile.availableMerit, TOWN_RULES.deathPenalty) : 0
   profile.availableMerit -= penalty
-  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission; delete profile.townCommandSquad; delete profile.townAirCommandSquad }
+  if (result === 'town_defeated') { profile.faction = profile.faction === 'roman' ? 'viking' : 'roman'; profile.rank = 'recruit'; profile.eliteClass = null; profile.enlistmentMeritBase = profile.totalMerit; delete profile.activeMission; delete profile.townCommandSquad; delete profile.townAirCommandSquad }
   profile.townEvent = { id, state: 'settled', result, penalty }
   return profile
 }
@@ -275,7 +275,8 @@ export function grantStarter(current: CareerProfile, weapon: string): CareerProf
   return profile
 }
 export function careerTownWeapon(profile: CareerProfile): string {
-  return [profile.equipment?.melee, ...profile.ownedWeapons].find(id => id && WEAPONS[id]?.type === 'melee' && isTownShopWeapon(id) && canAllocateCareerItemToPlayer(profile, id)) ?? ''
+  const id = profile.equipment?.melee
+  return id && WEAPONS[id]?.type === 'melee' && isTownShopWeapon(id) && canAllocateCareerItemToPlayer(profile, id) ? id : ''
 }
 export type TownProduct = CareerShopProduct
 // Ranger Bow remains the same ranged shop item; melee uses normal equipment.

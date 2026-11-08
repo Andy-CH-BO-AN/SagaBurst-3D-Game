@@ -41,10 +41,11 @@ export class InventoryManager {
     this.equippedMeleeId = loadout.meleeWeaponId
     this.equippedRangedId = loadout.rangedWeaponId
     this.equippedShieldId = loadout.shieldId
+    this.meleeEnabled = Boolean(loadout.meleeWeaponId)
     this.rangedEnabled = Boolean(loadout.rangedWeaponId) && !loadout.shieldId
     this.items = initialLoadout || heroId === 'maki-archer-t4'
       ? [
-          { id: loadout.meleeWeaponId, quantity: 1 },
+          ...(loadout.meleeWeaponId ? [{ id: loadout.meleeWeaponId, quantity: 1 }] : []),
           ...(loadout.rangedWeaponId ? [{ id: loadout.rangedWeaponId, quantity: 1 }] : []),
           ...(loadout.shieldId ? [{ id: loadout.shieldId, quantity: 1 }] : []),
         ]
@@ -65,8 +66,13 @@ export class InventoryManager {
       .filter((entry): entry is { item: WeaponData | ArmorData; quantity: number } => entry.item !== undefined)
   }
 
-  get equippedMelee(): WeaponData {
-    return WEAPONS[this.equippedMeleeId] || WEAPONS['steel_lance']
+  get equippedMelee(): WeaponData | undefined {
+    return WEAPONS[this.equippedMeleeId]
+  }
+
+  /** Authoritative drawn melee slot; ownership alone never selects an attack. */
+  get activeMelee(): WeaponData | undefined {
+    return this.meleeEnabled ? WEAPONS[this.equippedMeleeId] : undefined
   }
 
   get equippedRanged(): WeaponData {
@@ -88,7 +94,7 @@ export class InventoryManager {
   }
 
   loadSaveState(state: { items?: InventoryStack[]; ownedWeaponIds?: string[]; equippedMeleeId?: string; equippedRangedId?: string; equippedShieldId?: string | null; rangedEnabled?: boolean }): void {
-    if (state.items && state.items.length > 0) {
+    if (state.items) {
       this.items = state.items.map(i => ({ id: i.id, quantity: i.quantity || 1 }))
     } else if (state.ownedWeaponIds && state.ownedWeaponIds.length > 0) {
       this.items = state.ownedWeaponIds.map(id => ({ id, quantity: 1 }))
@@ -101,7 +107,9 @@ export class InventoryManager {
     this.items = [...merged].map(([id, quantity]) => ({ id, quantity }))
 
     this.items = this.items.filter(item => WEAPONS[item.id] || ARMORS[item.id])
-    if (state.equippedMeleeId && WEAPONS[state.equippedMeleeId]?.type === 'melee' && this.canEquipWeapon(state.equippedMeleeId)) {
+    if (state.equippedMeleeId === '') {
+      this.equippedMeleeId = ''
+    } else if (state.equippedMeleeId && WEAPONS[state.equippedMeleeId]?.type === 'melee' && this.canEquipWeapon(state.equippedMeleeId)) {
       this.equippedMeleeId = state.equippedMeleeId
     } else if (!this.canEquipWeapon(this.equippedMeleeId)) {
       this.equippedMeleeId = this.items.find(item => WEAPONS[item.id]?.type === 'melee')?.id ?? ''

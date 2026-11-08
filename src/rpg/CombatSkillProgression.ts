@@ -53,6 +53,8 @@ export function resolveSkillProgressionAward(
   if (!isSkillProgressionTarget(event.target.targetType)) return null
   if (event.appliedDamage <= 0) return null
 
+  if (event.method === 'melee' && event.weaponId === 'unarmed') return { skill: 'oneHanded', xp: event.appliedDamage }
+
   const skill = event.method === 'melee' && event.attackSource === 'xongkoro'
     ? 'mountedImpact' : resolveCombatSkill(event.method, meleeWeapon, hasShield)
   if (!skill) return null

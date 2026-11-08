@@ -7,6 +7,8 @@ import { grantStarter } from '../../src/town/TownRules'
 import { TownEquipment } from '../../src/town/TownEquipment'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { describe,expect,it } from 'vitest'
+import { appointByzantine, canAppointByzantine } from '../../src/career/CareerElitePromotion'
+import { resolveCareerHeroAsset, resolveCareerPlayerMaxHp } from '../../src/career/CareerPlayerProfile'
 import { addCareerItem, careerItemAllocated, careerItemTotal } from '../../src/career/CareerInventory'
 import {
 claimCareerBattle,
@@ -40,6 +42,65 @@ function stats(overrides: Partial<BattleStatsSnapshot['player']> = {}): BattleSt
   }
 }
 
+
+describe('拜占庭精英任命', () => {
+  it('本次入伍不足三萬時拒絕轉職，不能使用餘額或前次服役軍功繞過', () => {
+    const p = createCareerProfile('roman'); p.rank = 'captain'
+    p.enlistmentMeritBase = 50000; p.totalMerit = 79999; p.availableMerit = 100000
+    expect(canAppointByzantine(p)).toBe(false)
+    expect(appointByzantine(p)).toBeNull()
+    p.totalMerit = 80000; p.availableMerit = 0
+    expect(canAppointByzantine(p)).toBe(true)
+  })
+  it('三萬軍功隊長可直接任命，存檔載入保留職業與指揮官權限', () => {
+    const p = createCareerProfile('roman'); p.rank = 'captain'; p.totalMerit = 30000
+    const next = appointByzantine(p)!
+    expect(next.rank).toBe('commander'); expect(next.eliteClass).toBe('byzantine-cataphract')
+    expect(next.availableMerit).toBe(p.availableMerit)
+    expect(next.ownedWeapons).not.toContain('byzantine_standard_lance_t5')
+    expect(next.ownedArmors).not.toContain('byzantine_eagle_shield_t5')
+    const saved = parseCareerProfile(next)!
+    expect(resolveCareerHeroAsset(saved)).toBe('byzantine-cataphract-t5')
+    expect(resolveCareerPlayerMaxHp(saved)).toBe(1001) // Existing Lv.1 Blocking contributes +1 HP.
+    expect(saved.tutorial?.commander.status).toBe('available')
+    expect(appointByzantine(saved)).toBeNull()
+    expect(p.rank).toBe('captain')
+  })
+  it('先升一般指揮官後補至三萬可改轉，不重複發獎且保留裝備與坐騎', () => {
+    const p = createCareerProfile('roman'); p.rank = 'captain'; p.totalMerit = 20000
+    const commander = promoteCareer(p)!
+    expect(canAppointByzantine(commander)).toBe(false)
+    commander.totalMerit += 10000
+    const next = appointByzantine(commander)!
+    expect(next.equipment).toEqual(commander.equipment)
+    expect(next.inventory).toEqual(commander.inventory)
+    expect(next.ownedMounts).toEqual(commander.ownedMounts)
+    expect(next.tutorial).toEqual(commander.tutorial)
+    expect(next.commanderMeleeGranted).toBe(true)
+  })
+  it('維京及未正式取得隊長身分不可轉職，非法精英存檔不得靜默降級', () => {
+    const p = createCareerProfile('viking'); p.rank = 'commander'; p.totalMerit = 30000
+    expect(appointByzantine(p)).toBeNull()
+    p.eliteClass = 'byzantine-cataphract'
+    expect(parseCareerProfile(p)).toBeNull()
+    p.faction = 'roman'; p.rank = 'veteran'
+    expect(appointByzantine(p)).toBeNull()
+    expect(parseCareerProfile(p)).toBeNull()
+  })
+  it('保存失敗保留原職業，成功後舊畫面不得覆寫已取得的精英身分', () => {
+    const p = createCareerProfile('roman'); p.rank = 'captain'; p.totalMerit = 30000
+    const storage = new MemoryStorage(), store = new CareerProfileStore(storage)
+    expect(store.save(p)).toBe(true)
+    const next = appointByzantine(p)!
+    storage.failWrites = true
+    expect(store.save(next)).toBe(false)
+    expect(store.load()!.eliteClass).toBeNull()
+    storage.failWrites = false
+    expect(store.save(next)).toBe(true)
+    expect(store.save(p)).toBe(false)
+    expect(store.load()!.eliteClass).toBe('byzantine-cataphract')
+  })
+})
 
 describe('Career merit calculation', () => {
 
@@ -252,10 +313,10 @@ describe('Commander melee appointment and save migration', () => {
 
   it('auto-equips the Commander reward when the starter was never explicitly replaced', () => {
     let profile = grantStarter(createCareerProfile('roman'), 'gladius_rusty')
-    // Automatic combat fallback must not become an explicit player selection.
+    // An empty equipment selection stays empty until the ordinary appointment reward.
     profile.equipment = {}
     new TownEquipment(() => profile, next => { profile = next; return true }).prepareForCombat()
-    expect(profile.equipment?.melee).toBe('gladius_rusty')
+    expect(profile.equipment?.melee).toBeUndefined()
     expect(profile.meleeSelectionOrigin).toBe('starter')
     profile.rank = 'captain'; profile.totalMerit = 20000
     const restored = parseCareerProfile(profile)!

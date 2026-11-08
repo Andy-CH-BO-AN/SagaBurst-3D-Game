@@ -496,6 +496,7 @@ export class Mount {
   }
 
   setNpcRider(npc: NPC, faction: Faction): void {
+    if (this.type === MountType.ARMORED_HORSE) this.baseSpeed = 10.5
     if (this.dead) return
     this.riderNpc = npc
     this.riderFaction = faction
@@ -505,6 +506,7 @@ export class Mount {
   }
 
   setPlayerRider(player: Player): void {
+    if (this.type === MountType.ARMORED_HORSE) this.baseSpeed = player.heroAssetId === 'byzantine-cataphract-t5' ? 12 : 10.5
     this.riderPlayer = player
     this.combatOwner = createPlayerCombatActorRef(player)
     this.state = MountState.CONTROLLED
@@ -518,6 +520,7 @@ export class Mount {
   }
 
   releaseRider(): void {
+    if (this.type === MountType.ARMORED_HORSE) this.baseSpeed = 10.5
     this.riderNpc = null
     this.riderFaction = null
     this.riderPlayer = null

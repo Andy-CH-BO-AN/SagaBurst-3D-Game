@@ -33,6 +33,8 @@ export interface LegRig {
 }
 
 export type HumanoidAnimationState =
+  | 'punchCombo'
+  | 'punchRight'
   | 'idle'
   | 'walk'
   | 'run'

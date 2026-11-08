@@ -6,7 +6,7 @@ describe('Shared immediate weapon wheel', () => {
   it('excludes a ranged weapon from shields through equip and save/load', () => {
     const ranged = 'wooden_shortbow'
     const inv = new InventoryManager({ meleeWeaponId: 'gladius_rusty', rangedWeaponId: ranged, shieldId: 'scutum_t1' }, 'maki-archer-t4', 'roman')
-    expect(inv.equippedMelee.id).toBe('gladius_rusty')
+    expect(inv.equippedMelee?.id).toBe('gladius_rusty')
     inv.addWeapon('paladin_mace_t4')
     expect(inv.equipWeapon('paladin_mace_t4')).toBe(true)
     expect(inv.equipWeapon(ranged)).toBe(true)
@@ -26,7 +26,7 @@ describe('Shared immediate weapon wheel', () => {
     inv.loadSaveState({ items: [{ id: 'lance_t4', quantity: 1 }, { id: 'maki-ranger-bow', quantity: 1 },
       { id: 'missing-weapon', quantity: 1 }, { id: 'paladin_mace_t4', quantity: 2 }, { id: 'maki-ranger-bow-ranged', quantity: 1 }],
       equippedMeleeId: 'lance_t4', equippedRangedId: 'maki-ranger-bow-ranged' })
-    expect(inv.equippedMelee.id).toBe('paladin_mace_t4')
+    expect(inv.equippedMelee?.id).toBe('paladin_mace_t4')
     expect(inv.saveState.items).toEqual([{ id: 'paladin_mace_t4', quantity: 2 }, { id: 'maki-ranger-bow-ranged', quantity: 1 }])
     expect(inv.canEquipWeapon('lance_t4')).toBe(false)
     expect(inv.canEquipWeapon('maki-ranger-bow')).toBe(false)

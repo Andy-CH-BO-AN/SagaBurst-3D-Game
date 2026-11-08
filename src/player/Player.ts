@@ -13,6 +13,7 @@ import { heroMeleeAttackSpeed } from '../battle/HeroCombatProfile'
  * Exposes combat events for the Game audio bridge.
  */
 import * as THREE from 'three'
+import type { FistStrike } from '../combat/UnarmedCombat'
 import { ShieldState, ShieldCollider, WeaponSweep } from '../combat/ShieldBlocking'
 import { DeathFadeController } from '../world/DeathFade'
 
@@ -103,6 +104,13 @@ export class Player {
   private swordPivot!: THREE.Group
   private swordGripPivot!: THREE.Group
   private currentMeleeId: string = ''
+  private readonly pendingFistStrikes: FistStrike[] = []
+  consumeFistStrikes(): FistStrike[] {
+    this.group.updateWorldMatrix(true, false)
+    return this.pendingFistStrikes.splice(0).map(strike => ({
+      from: strike.from.applyMatrix4(this.group.matrixWorld), to: strike.to.applyMatrix4(this.group.matrixWorld),
+    }))
+  }
 
   private bowPivot!: THREE.Group
   private bowGripPivot!: THREE.Group
@@ -493,6 +501,7 @@ export class Player {
   }
 
   private _cancelEquipmentAction(): void {
+    this.pendingFistStrikes.length = 0
     this.animator?.cancel()
     this.isSwinging = false
     this.hitEventPending = false
@@ -517,13 +526,12 @@ export class Player {
     if (
       wantsBowAim ||
       this.aiming ||
-      this.animator.busy ||
-      !equippedMelee
+      this.animator.busy || (!equippedMelee && this.shield.shieldRaised)
     ) {
       return false
     }
-    const action = this._meleeAction(equippedMelee)
-    if (this.animator.start(action, meleeActionTimeScale(action, equippedMelee, heroMeleeAttackSpeed(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)))) {
+    const action = equippedMelee ? this._meleeAction(equippedMelee) : this.currentShieldId ? 'punchRight' : 'punchCombo'
+    if (this.animator.start(action, meleeActionTimeScale(action, equippedMelee ?? undefined, heroMeleeAttackSpeed(this.heroAssetId ? HERO_COMBAT_PROFILE_BY_ASSET[this.heroAssetId] : null)))) {
       this.isSwinging = true
       this.attackHitProcessed = false
       this.hitEventPending = false
@@ -750,6 +758,7 @@ export class Player {
   }
 
   dispose(): void {
+    this.pendingFistStrikes.length = 0
     this.bowVisual?.dispose()
     this.fallingRider.clear()
     this.fallContext = undefined
@@ -871,7 +880,7 @@ export class Player {
     }
     this.hitEventPending = false
 
-    const equippedMelee = inventoryManager?.meleeEnabled === false ? undefined : inventoryManager?.equippedMelee
+    const equippedMelee = inventoryManager?.activeMelee
     const equippedRanged = inventoryManager?.rangedEnabled === false ? undefined : inventoryManager?.equippedRanged
     const flyingMount = this.currentMount?.isFlyingMount ? this.currentMount : null
 
@@ -882,6 +891,14 @@ export class Player {
     if (visualTier !== this.currentArmorTier) this._buildMesh(visualTier)
 
     if (equippedMelee) this.rebuildMeleeWeapon(equippedMelee.id)
+    else if (this.currentMeleeId) {
+      this._cancelEquipmentAction()
+      this.currentMeleeId = ''
+      this.swordPivot.visible = false
+      this.swordPivot.userData.swordAttachmentOwned = false
+      delete this.swordPivot.userData.axeVisual
+      delete this.swordPivot.userData.equipmentAttachmentOwned
+    }
     if (equippedRanged) this.rebuildRangedWeapon(equippedRanged.id)
 
     const equippedShield = inventoryManager?.shieldEnabled === false ? null : inventoryManager?.equippedShield ?? null
@@ -893,6 +910,7 @@ export class Player {
     const isPilum = equippedRanged?.animationKind === 'pilum'
     this.animator.setEquipment(equippedMelee?.combatKind === 'lance', this.hasShield, this.currentMount?.type as MountedPoseKind | undefined)
     this.animator.setShieldRaised(this.shield.shieldRaised)
+    if (this.shield.shieldRaised && (this.animator.currentAction === 'punchCombo' || this.animator.currentAction === 'punchRight')) this._cancelEquipmentAction()
     quiverUI.setShieldBlocked?.(false)
     const wantAim = rightMouseDown && Boolean(equippedRanged) && !equippedShield
     const wantsBowAim = rightMouseDown && (Boolean(equippedRanged) || Boolean(flyingMount))
@@ -1058,6 +1076,9 @@ export class Player {
       || this.animator.currentAction === 'mountedLance'
     const animDt = isMeleeAttack ? dt * berserker.meleeAttackRateMultiplier : dt
     const animationEvents = this.animator.update(animDt)
+    for (const strike of animationEvents.fists) this.pendingFistStrikes.push({
+      from: this.group.worldToLocal(strike.from.clone()), to: this.group.worldToLocal(strike.to.clone()),
+    })
     if (flyingMount?.eagleVisual) fitStandingRider(this.characterVisualGroup, this.rig, flyingMount.eagleVisual.standingSocket)
     this.weaponSweep.capture(this.getWeaponGripPosition(this.sweepGrip), this.getSwordTipPosition())
     if (!isPilum) this._updateBowPose(maxChargeTime, cameraAimPoint)

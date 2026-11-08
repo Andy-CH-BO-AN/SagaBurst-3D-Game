@@ -69,7 +69,7 @@ describe('SaveManager Persistence & Migration Compatibility', () => {
     // Restore to a fresh InventoryManager
     const freshInv = new InventoryManager()
     freshInv.loadSaveState(loaded.inventory)
-    expect(freshInv.equippedMelee.id).toBe('steel_lance')
+    expect(freshInv.equippedMelee?.id).toBe('steel_lance')
     expect(freshInv.equippedRanged.id).toBe('elven_runebow')
     expect(freshInv.equippedShield?.id).toBe('round_shield_t3')
     expect(freshInv.isEquipped('runic_greatsword')).toBe(false)

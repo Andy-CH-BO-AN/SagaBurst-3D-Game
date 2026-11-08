@@ -92,6 +92,9 @@ export class TownTutorialController {
       this.guide.hide(); this.hud.render('', '', '', true); return
     }
     if (h.blocked()) { this.guide.hide(); this.hud.render('', '', this.saveError, true); return }
+    if (t.town.status === 'deferred' && t.purchases.weaponIds.length && t.rewards.weapon === undefined && !t.town.replay) {
+      this.change(profile => { claimCareerTutorialReward(profile, 'weapon') })
+    }
     const stage = this.activeStage()
     let target: Vector3 | null = null, label = '', interact = true, text = ''
     const npc = (id: string, name: string) => { target = h.npcPosition(id); label = name }
@@ -133,7 +136,7 @@ export class TownTutorialController {
 
       if (step === 'weapon') {
         npc('merchant', '武器店主')
-        text = '前往武器店\n購買第一把正式武器。'
+        text = '可選：前往武器店購買武器\n也可先找士官長空手接任務。'
       } else if (step === 'duel') {
         npc('captain', '騎兵隊長')
         text = '挑戰騎兵隊長\n靠近隊長按 E 開始切磋。'
@@ -344,12 +347,15 @@ export class TownTutorialController {
         const step = t.town.step
         if (step === 'report') {
           if (bodyEl) {
-            bodyEl.textContent = '「新兵，歡迎加入軍團！你已經完成基本訓練，但光靠練習場的裝備可沒辦法上戰場。\n\n先去武器店挑一把趁手的武器，順著指標走就能找到店主。準備好了嗎？」'
+            bodyEl.textContent = '「新兵，歡迎加入軍團！空手也可以用左鍵拳擊並接取任務。\n\n建議去武器店挑一把趁手的武器，也可以稍後再買。首次購買獎勵會保留。」'
           }
           const accept = this.button(panel, '好，我這就去', () => {
             this.saveAndClose(accept, panel, p => recordCareerTutorialOperation(p, 'town', 'report'))
           })
           this.button(panel, '我晚點再去', () => this.host.closePanel())
+          const unarmed = this.button(panel, '先空手接任務，稍後買武器', () => {
+            this.saveAndClose(unarmed, panel, p => { deferCareerTutorial(p, 'town') }, () => this.host.openServices?.('deployment'))
+          })
           this.servicesButton(panel, 'deployment')
           return true
         }
@@ -540,6 +546,9 @@ export class TownTutorialController {
     if (serviceId !== 'deployment') return
     const t = this.host.profile().tutorial
     if (t && this.host.peaceful()) {
+      if (t.town.step === 'weapon' && t.town.status !== 'deferred') {
+        const skip = this.button(panel, '延後購買武器教學（保留首次購買獎勵）', () => this.saveAndClose(skip, panel, p => { deferCareerTutorial(p, 'town') }))
+      }
       const resume = (label: string, stage: 'town' | 'captain' | 'commander') => this.button(panel, label, () => {
         const next = this.host.openPanel?.('士官長', '')
         if (next) this.renderDialogue(next, 'deployment', stage)

@@ -219,6 +219,7 @@ export const TIERED_ORDINARY_HUMANOID_ASSETS = {
 } as const satisfies Record<string, HumanoidAssetDescriptor>
 
 export function resolveHumanoidAssetId(config: CharacterVisualConfig, assetId?: string): string | undefined {
+  if (assetId === 'byzantine-cataphract-t5') assetId = 'roman-hero-t5'
   if (config.civilian) return civilianHumanoidAssetId(config.civilianStyle ?? config.faction)
   // Explicit hero, bandit and other specialised appearances retain ownership.
   // Ordinary bodies use the same formal character tier as their combat profile.

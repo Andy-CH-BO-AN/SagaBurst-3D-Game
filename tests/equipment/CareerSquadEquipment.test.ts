@@ -33,6 +33,26 @@ function balanced(profile: CareerProfile) {
   }
 }
 describe('Shared Career quantity inventory and personal equipment', () => {
+  it('新兵可依專屬售價買軍旗槍與鷹盾，保存後可裝備並按原政策賣出', () => {
+    const h = harness('recruit')
+    const lance = purchaseTownEquipment(h.read(), 'byzantine_standard_lance_t5')
+    expect(lance).toMatchObject({ purchased: true, spentMerit: 3100 })
+    expect(h.save(lance.profile)).toBe(true)
+    const shield = purchaseTownEquipment(h.read(), 'byzantine_eagle_shield_t5')
+    expect(shield).toMatchObject({ purchased: true, spentMerit: 2800, profile: { availableMerit: 54100 } })
+    expect(h.save(shield.profile)).toBe(true)
+    const equipment = new TownEquipment(h.read, h.save)
+    expect(equipment.equipWeapon('byzantine_standard_lance_t5')).toBe(true)
+    expect(equipment.equipWeapon('byzantine_eagle_shield_t5')).toBe(true)
+    expect(equipment.equippedShield?.shieldImpactMax).toBe(128)
+    expect(h.store.load()!.equipment).toMatchObject({ melee: 'byzantine_standard_lance_t5', shield: 'byzantine_eagle_shield_t5' })
+    expect(equipment.unequipWeapon('byzantine_standard_lance_t5')).toBe(true)
+    const restored = new TownEquipment(() => h.store.load()!, h.save)
+    restored.prepareForCombat()
+    expect(restored.equippedMelee).toBeUndefined()
+    expect(restored.activeMelee).toBeUndefined()
+    expect(sellTownProduct(h.read(), 'byzantine_standard_lance_t5')).toMatchObject({ sold: true, earnedMerit: 1550 })
+  })
   it('allocates a purchased Roman officer shield to a private soldier and preserves its quantity after reload', () => {
     const h = harness('captain', 'viking'), id = h.hire('soldier')
     const bought = purchaseTownEquipment(h.read(), 'roman_officer_shield_t4')
