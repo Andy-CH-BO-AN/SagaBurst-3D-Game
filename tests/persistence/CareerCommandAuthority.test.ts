@@ -33,7 +33,9 @@ describe('Saved official command membership', () => {
     expect(parseTownCommandSquad(JSON.parse(JSON.stringify(saved)))).toEqual(saved)
     const legacy = JSON.parse(JSON.stringify(saved))
     delete legacy.members['town:training:0'].mount.armorImpactRemaining
-    expect(parseTownCommandSquad(legacy)).toEqual(legacy)
+    const parsedLegacy = parseTownCommandSquad(legacy)
+    expect(parsedLegacy).toBeDefined()
+    expect(parsedLegacy!.members['town:training:0'].mount?.armorImpactRemaining).toBeUndefined()
   })
 
   it('fails closed on duplicate or invalid authoritative IDs rather than granting current soldiers', () => {
@@ -348,10 +350,11 @@ interface MountResource {
   restoreForTown(x: number, z: number, yaw: number): void; takeDamage(): void
 }
 function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean,
-  placement: Pick<ConstructorParameters<typeof CivilianCommandSquadController>[4], 'canPlaceMountedCivilian'> = {}) {
+  placement: Pick<ConstructorParameters<typeof CivilianCommandSquadController>[4], 'canPlaceMountedCivilian'> = {},
+  armorImpactMax = 0) {
   const events: string[] = []
   const mount: MountResource = { dead: mountDead, currentHp: mountDead ? 0 : 17, maxHp: 200, disposed: false,
-    armorImpactMax: 0, armorImpactRemaining: 0,
+    armorImpactMax, armorImpactRemaining: 0,
     isAirborne: false, riderNpc: null, riderPlayer: null, group: { position: new Vector3(3, 0, 4), rotation: { y: 1 } },
     restoreArmor(value) { this.armorImpactRemaining = value === undefined ? this.armorImpactMax
       : Math.max(0, Math.min(this.armorImpactMax, value)) },
@@ -392,9 +395,11 @@ function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean,
 }
 
 describe('Civilian and merchant borrowed mount checkpoints', () => {
-  it('refits a dead civilian onto its surviving original horse after saving the complete checkpoint', () => {
-    const h = residentRecovery('civilian-0', true, false)
-    expect(h.owner.checkpoint()!.members['civilian-0'].mount).toMatchObject({ hp: 17, mounted: false })
+  it('refits a dead civilian onto its surviving original heavy mount with full armor service', () => {
+    const h = residentRecovery('civilian-0', true, false, {}, 50)
+    expect(h.owner.checkpoint()!.members['civilian-0'].mount).toMatchObject({
+      hp: 17, mounted: false, armorImpactRemaining: 0,
+    })
     expect(h.owner.refit()).toBe(true)
     expect(h.events[0]).toBe('save')
     expect(h.events).not.toContain('restore-mount')
@@ -403,7 +408,10 @@ describe('Civilian and merchant borrowed mount checkpoints', () => {
     const home = h.residents.find(r => r.spec.id === 'civilian-0')!.spec
     expect(h.mount.group.position.x).toBe(home.x); expect(h.mount.group.position.z).toBe(home.z)
     expect(h.mount.currentHp).toBe(200)
-    expect(h.read().civilianCommandSquad!.members['civilian-0'].mount).toMatchObject({ hp: 200, mounted: true })
+    expect(h.mount.armorImpactRemaining).toBe(50)
+    expect(h.read().civilianCommandSquad!.members['civilian-0'].mount).toMatchObject({
+      hp: 200, mounted: true, armorImpactRemaining: 50,
+    })
   })
 
   it('refits an existing mounted Follow civilian on a road without checking home placement or moving it', () => {
