@@ -11,7 +11,7 @@ import { duelFightBannerVisible, duelCombatSeconds } from '../../src/career/Care
 import * as THREE from 'three'
 import { curlHandPoint, MITTEN_GRIP, MITTEN_HOLLOW } from '../../src/world/MittenHandShape'
 import { bannerRollAngle } from '../../src/world/WeaponMeshFactory'
-import { barrelHalfWidth, MOUNT_BARREL, solveSeatedLeg } from '../../src/world/MountedLegFit'
+import { barrelHalfWidth, MOUNT_BARREL, MOUNT_MAX_ABDUCTION, solveSeatedLeg } from '../../src/world/MountedLegFit'
 
 const dir = 'public/models/characters/v2/byzantine-cataphract-t5'
 const manifest = JSON.parse(readFileSync(`${dir}/manifest.json`, 'utf8')) as HumanoidAssetManifest & { fileSha256: Record<string, string> }
@@ -128,8 +128,9 @@ describe('Byzantine hands, banner and seat', () => {
     const thighLength = .37, calfLength = .47 // measured bind lengths
     for (const [kind, barrel] of Object.entries(MOUNT_BARREL)) for (const side of [1, -1] as const) {
       const hip = new THREE.Vector3(side * .094, -.086, 0)
-      const leg = solveSeatedLeg(hip, thighLength, calfLength, side, barrel)
-      expect(leg.abduct, kind).toBeLessThanOrEqual(.76) // beyond this a leg reads as dislocated
+      const cap = MOUNT_MAX_ABDUCTION[kind as keyof typeof MOUNT_MAX_ABDUCTION]
+      const leg = solveSeatedLeg(hip, thighLength, calfLength, side, barrel, cap)
+      expect(leg.abduct, kind).toBeLessThanOrEqual((cap ?? .75) + .02) // beyond this a leg reads as dislocated
       // Both bones lie in one plane through the forward axis, so the knee never bends sideways.
       expect(leg.thigh.x / leg.thigh.y).toBeCloseTo(leg.calf.x / leg.calf.y)
       expect(leg.thigh.z).toBeGreaterThan(0)

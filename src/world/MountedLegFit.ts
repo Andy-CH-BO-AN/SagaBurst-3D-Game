@@ -20,6 +20,8 @@ const CALF_BACK = .12
 const LEG_CLEARANCE = .09
 /** A hip opens about this far at most; beyond it a leg reads as dislocated. */
 const MAX_ABDUCTION = .75
+/** Slim cats: the measured width includes the saddle, so the shared cap reads as splayed. */
+export const MOUNT_MAX_ABDUCTION: Partial<Record<MountedPoseKind, number>> = { SERVAL: .5, CARACAL: .5 }
 
 export function barrelHalfWidth(barrel: readonly number[], below: number): number {
   if (below <= 0) return barrel[0]
@@ -41,7 +43,7 @@ const FORWARD_AXIS = new THREE.Vector3(0, 0, 1)
 
 /** Bends the leg in its hinge plane, then opens the whole leg at the hip just far enough to clear the mount.
  * Positions are metres from the pelvis in rider space (+Z forward). `side` is the sign of the hip's X. */
-export function solveSeatedLeg(hip: THREE.Vector3, thighLength: number, calfLength: number, side: 1 | -1, barrel: readonly number[]): SeatedLeg {
+export function solveSeatedLeg(hip: THREE.Vector3, thighLength: number, calfLength: number, side: 1 | -1, barrel: readonly number[], maxAbduction = MAX_ABDUCTION): SeatedLeg {
   const thighPlane = new THREE.Vector3(0, -Math.cos(THIGH_FORWARD), Math.sin(THIGH_FORWARD))
   const calfPlane = new THREE.Vector3(0, -Math.cos(CALF_BACK), -Math.sin(CALF_BACK))
   const thigh = new THREE.Vector3(), calf = new THREE.Vector3(), knee = new THREE.Vector3()
@@ -49,7 +51,7 @@ export function solveSeatedLeg(hip: THREE.Vector3, thighLength: number, calfLeng
   const mid = new THREE.Vector3(), ankle = new THREE.Vector3()
   // The thigh root necessarily sits on the saddle; only the knee and the calf must clear the body.
   let abduct = .05
-  for (; abduct < MAX_ABDUCTION; abduct += .02) {
+  for (; abduct < maxAbduction; abduct += .02) {
     thigh.copy(thighPlane).applyAxisAngle(FORWARD_AXIS, side * abduct)
     calf.copy(calfPlane).applyAxisAngle(FORWARD_AXIS, side * abduct)
     knee.copy(hip).addScaledVector(thigh, thighLength)

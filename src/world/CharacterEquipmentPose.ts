@@ -1,6 +1,6 @@
 import { minimumReachableShoulderSwing } from './AuthoredCarryGrip'
 import { punchExtension, UNARMED_DURATION } from '../combat/UnarmedCombat'
-import { MOUNT_BARREL, solveSeatedLeg } from './MountedLegFit'
+import { MOUNT_BARREL, MOUNT_MAX_ABDUCTION, solveSeatedLeg } from './MountedLegFit'
 import { MITTEN_MORPHS } from './MittenHandShape'
 import { fingerContactOwnership, type ArticulatedFingerPoses } from './FingerContactPolicy'
 import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
@@ -129,12 +129,12 @@ function captureSeatBind(root: THREE.Object3D, rig: CharacterRig): SeatBind {
   }) }
 }
 
-function solveSeatBind(bind: SeatBind, barrel: readonly number[]): Array<{ node: THREE.Object3D, q: THREE.Quaternion }> {
+function solveSeatBind(bind: SeatBind, barrel: readonly number[], maxAbduction?: number): Array<{ node: THREE.Object3D, q: THREE.Quaternion }> {
   const result: Array<{ node: THREE.Object3D, q: THREE.Quaternion }> = []
   const forward = new THREE.Vector3(0, 0, 1), up = new THREE.Vector3(0, 1, 0)
   for (const leg of bind.legs) {
     const thighRest = leg.knee.position.clone().sub(leg.hip.position), calfRest = leg.ankle.position.clone().sub(leg.knee.position), footRest = leg.toe.clone().sub(leg.ankle.position)
-    const solved = solveSeatedLeg(leg.hip.position.clone().sub(bind.pelvis), thighRest.length(), calfRest.length(), leg.side, barrel)
+    const solved = solveSeatedLeg(leg.hip.position.clone().sub(bind.pelvis), thighRest.length(), calfRest.length(), leg.side, barrel, maxAbduction)
     // The hinge is posed first and the hip opens both bones together, so the knee never bends sideways.
     const open = new THREE.Quaternion().setFromAxisAngle(forward, leg.side * solved.abduct)
     const hipWorld = open.clone().multiply(new THREE.Quaternion().setFromUnitVectors(thighRest.normalize(), solved.thighPlane)).multiply(leg.hip.rotation)
@@ -686,7 +686,7 @@ export class CharacterEquipmentPose {
     const barrel = this.selectedSource?.rig === 'mixamo24' ? MOUNT_BARREL[kind] : undefined
     if (!barrel) return undefined
     let cached = this.seatLegCache.get(kind)
-    if (!cached) { cached = solveSeatBind(this.seatBind, barrel); this.seatLegCache.set(kind, cached) }
+    if (!cached) { cached = solveSeatBind(this.seatBind, barrel, MOUNT_MAX_ABDUCTION[kind]); this.seatLegCache.set(kind, cached) }
     return cached
   }
 
