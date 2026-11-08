@@ -1,8 +1,9 @@
 'use strict'
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { decodeAffected } = require('../tooling/supercov-related.cjs')
-const { planShards } = require('../tooling/ci-plan.cjs')
+const { decodeAffected, historicalVitestFiles, isCss } = require('../tooling/supercov-related.cjs')
+const { planShards, noSeedPolicy } = require('../tooling/ci-plan.cjs')
+const { diagnose } = require('../tooling/supercov-affected-expand.cjs')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { validateRunSummary, buildSeed, validSeedMetadata, validateAffectedQuery,
@@ -33,6 +34,66 @@ test('native exact individual identities select only affected and undetermined s
   assert.equal(selected.source, 'Supercov native tests affected')
   assert.equal(selected.fallback, null)
   assert.equal(selected.native.total, 3)
+})
+test('new test files absent from exact-base history are selected without unsupported historic CLI lookup', () => {
+  const next = { runner: 'vitest', file: 'tests/added.test.ts',
+    names: ['new > 1', 'new > 2'], nativeNames: ['new 1', 'new 2'] }
+  const nextInventory = [...inventory, next]
+  const changed = [{ status: 'A', file: next.file }]
+  const files = historicalVitestFiles(nextInventory,
+    ['tests/example.test.ts', 'tests/release/gate.test.cjs'], changed)
+  assert.deepEqual(files, ['tests/example.test.ts'])
+  const selection = decodeAffected(answer(), nextInventory, changed, run)
+  assert.deepEqual(selection.selectedCases[next.file], [0, 1])
+  assert.deepEqual(selection.selectedCases['tests/example.test.ts'], [0, 1])
+})
+test('new test plus changed runtime retains all new leaves AND native affected/undetermined identities', () => {
+  const next = { runner: 'vitest', file: 'tests/added.test.ts',
+    names: ['new > 1'], nativeNames: ['new 1'] }
+  const changed = [{ status: 'A', file: next.file }, ...source]
+  const selection = decodeAffected(answer(), [...inventory, next], changed, run)
+  assert.deepEqual(selection.selectedCases[next.file], [0])
+  assert.deepEqual(selection.selectedCases['tests/example.test.ts'], [0, 1])
+  assert.throws(() => historicalVitestFiles([...inventory, next],
+    ['tests/example.test.ts'], [{ status: 'D', file: 'tests/example.test.ts' }]),
+    /unsafe/)
+})
+test('filtered CLI failure diagnostics retain file, seed id, exit, signal, timeout and stderr', () => {
+  const timeout = diagnose('tests/new.test.ts', run, {
+    code: 'ETIMEDOUT', signal: 'SIGTERM', killed: true, stderr: 'query timed out', message: 'killed',
+  })
+  for (const field of ['testFile=tests/new.test.ts', 'seedRunId=' + run,
+    'exitCode=ETIMEDOUT', 'signal=SIGTERM', 'timeout=true', 'stderr=query timed out']) {
+    assert.ok(timeout.includes(field), field)
+  }
+  const failure = diagnose('tests/a.test.ts', run, { code: 1, stderr: 'unknown test file' })
+  assert.match(failure, /exitCode=1/)
+  assert.match(failure, /timeout=false/)
+  assert.match(failure, /unknown test file/)
+})
+test('CSS alone is safe for Web build, while CSS plus TypeScript keeps native Related selection', () => {
+  const regular = () => true
+  const css = { status: 'M', file: 'src/ui/battle-setup.css' }
+  assert.equal(isCss(css.file), true)
+  assert.equal(noSeedPolicy([css], 'a', 'b', { regular }), 'css-only')
+  assert.equal(noSeedPolicy([css, ...source], 'a', 'b', { regular }), null)
+  const selected = decodeAffected(answer(), inventory, [css, ...source], run)
+  assert.deepEqual(selected.selectedCases['tests/example.test.ts'], [0, 1])
+  assert.equal(noSeedPolicy([{ status: 'M', file: 'public/foo.glb' }], 'a', 'b', { regular }), null)
+})
+test('docs-only whitelist never accepts unknown files, symlinks, deletes or changed agent scripts', () => {
+  const regular = () => true
+  const doc = { status: 'A', file: 'CLAUDE.md' }
+  const agentDoc = { status: 'M', file: '.claude/guidance.md' }
+  assert.equal(noSeedPolicy([doc, agentDoc], 'a', 'b', { regular }), 'docs-only')
+  assert.equal(noSeedPolicy([doc], 'a', 'b', { regular: () => false }), null)
+  assert.equal(noSeedPolicy([{ status: 'D', file: 'CLAUDE.md' }], 'a', 'b', { regular }), null)
+  assert.equal(noSeedPolicy([{ status: 'A', file: '.claude/skills/mount' }], 'a', 'b', { regular }), null)
+  assert.equal(noSeedPolicy([{ status: 'M', file: 'tests/tooling/ci-plan.cjs' }], 'a', 'b', { regular }), null)
+  assert.equal(noSeedPolicy([{ status: 'A', file: '.gitignore' }], 'a', 'b',
+    { regular, gitignore: () => true }), 'docs-only')
+  assert.equal(noSeedPolicy([{ status: 'M', file: '.gitignore' }], 'a', 'b',
+    { regular, gitignore: () => false }), null)
 })
 test('direct changed test runs all current leaves including newly registered cases', () => {
   const selected = decodeAffected(answer(), inventory, [{ status: 'M', file: 'tests/example.test.ts' }], run)

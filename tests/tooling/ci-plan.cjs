@@ -46,16 +46,18 @@ function safeGitignore(base, head) {
     lines.filter(line => line.startsWith('+') && !line.startsWith('+++'))
       .every(line => /^\+(?:#.*|\s*|\.claude\/worktrees\/|\.claude\/settings\.local\.json)$/.test(line))
 }
-function noSeedPolicy(changed, base, head) {
+function noSeedPolicy(changed, base, head, {
+  regular = regularTrackedFile, gitignore = safeGitignore,
+} = {}) {
   if (!changed.length) return null
   let hasCss = false
   for (const change of changed) {
     if (!/^(A|M)$/.test(change.status) || change.oldFile ||
-        !regularTrackedFile(head, change.file) ||
-        (change.status === 'M' && !regularTrackedFile(base, change.file))) return null
+        !regular(head, change.file) ||
+        (change.status === 'M' && !regular(base, change.file))) return null
     if (cssOnlyAsset(change.file)) { hasCss = true; continue }
     if (docsOnly(change.file)) continue
-    if (change.file === '.gitignore' && safeGitignore(base, head)) continue
+    if (change.file === '.gitignore' && gitignore(base, head)) continue
     return null
   }
   return hasCss ? 'css-only' : 'docs-only'
