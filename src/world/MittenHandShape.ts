@@ -32,7 +32,7 @@ export function curlHandPoint(along: number, across: number, height: number, knu
 
 /** Adds four relative morph targets to a mitten-handed mesh. The source rig has no finger bones, so this is the
  * only way its hand can close; poses and weapon frames stay independent. Shared geometry, computed once at load. */
-export function prepareMittenHandShape(mesh: THREE.SkinnedMesh, hands: Array<{ bone: THREE.Object3D; frame: MittenFrame; grip: string; hollow: string }>): void {
+export function prepareMittenHandShape(mesh: THREE.SkinnedMesh, hands: Array<{ bone: THREE.Object3D; frame: MittenFrame; grip: string; hollow?: string }>): void {
   const geometry = mesh.geometry, position = geometry.attributes.position, normal = geometry.attributes.normal
   const skinIndex = geometry.attributes.skinIndex, skinWeight = geometry.attributes.skinWeight
   const targets: THREE.Float32BufferAttribute[] = [], normals: THREE.Float32BufferAttribute[] = [], names: string[] = []
@@ -45,7 +45,7 @@ export function prepareMittenHandShape(mesh: THREE.SkinnedMesh, hands: Array<{ b
     const finger = new THREE.Vector3(...hand.frame.finger), thumb = new THREE.Vector3(...hand.frame.thumb), palm = new THREE.Vector3(...hand.frame.palm)
     const center = new THREE.Vector3(...hand.frame.center)
     const knuckle = center.dot(finger), curlHeight = center.dot(palm)
-    for (const [name, shape] of [[hand.grip, MITTEN_GRIP], [hand.hollow, MITTEN_HOLLOW]] as const) {
+    for (const [name, shape] of [[hand.grip, MITTEN_GRIP], ...(hand.hollow ? [[hand.hollow, MITTEN_HOLLOW]] as const : [])] as const) {
       const offsets = new Float32Array(position.count * 3), normalOffsets = new Float32Array(position.count * 3)
       for (let i = 0; i < position.count; i++) {
         let weight = 0

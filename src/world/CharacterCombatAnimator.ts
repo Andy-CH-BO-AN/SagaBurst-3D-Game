@@ -424,8 +424,8 @@ export class CharacterCombatAnimator {
     let sample = this.punchSamples.length > 24 ? this.punchSamples.shift()! : undefined
     sample ??= { time, left: new THREE.Vector3(), right: new THREE.Vector3() }
     sample.time = time
-    this.rig.left.handSocket.getWorldPosition(sample.left)
-    this.rig.right.handSocket.getWorldPosition(sample.right)
+    this.fistWorld('left', sample.left)
+    this.fistWorld('right', sample.right)
     this.punchSamples.push(sample)
   }
 
@@ -470,7 +470,16 @@ export class CharacterCombatAnimator {
       }
       this.applyShieldGuard()
     }
-    this.rig[hand].handSocket.getWorldPosition(out)
+    this.fistWorld(hand, out)
+  }
+
+  /** The closed fist's centre (the grip contact), not the wrist socket 10 cm behind it. */
+  private fistWorld(hand: PunchHand, out: THREE.Vector3): THREE.Vector3 {
+    const frames = this.rig.equipmentGripFrames
+    if (!frames) return this.rig[hand].handSocket.getWorldPosition(out)
+    const wrist = this.rig[hand].wrist
+    wrist.updateWorldMatrix(true, false)
+    return wrist.localToWorld(out.fromArray(hand === 'right' ? frames.lanceRight.gripCenterLocal : frames.lanceLeft.gripCenterLocal))
   }
 
   poseBow(chargeRatio: number, aimBlend = 1): void {

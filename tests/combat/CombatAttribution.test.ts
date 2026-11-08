@@ -560,7 +560,7 @@ it.each([
   const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
   const hit = vi.fn()
   const player = { dead: false, targetable: true, isMounted: false,
-    combatPosition: new THREE.Vector3(0, 0, .8), group: { position: new THREE.Vector3(0, 0, .8) } } as Player
+    combatPosition: new THREE.Vector3(0, 0, .75), group: { position: new THREE.Vector3(0, 0, .75) } } as Player
   const animator = { busy: false, cancel: vi.fn(), start: vi.fn(), setLocomotion() {},
     update: () => ({ fists: [strike] }) }
   const body = Object.assign(Object.create(NPC.prototype), {
@@ -627,7 +627,7 @@ it('空手 Duel NPC 追擊沿用既有導航：路徑被牆擋住時朝路徑點
 
 it('空手 NPC 只在拳頭真正打得到的距離出拳，且追擊停點不會卡在觸發距離上', async () => {
   const { UNARMED_ATTACK_DISTANCE, UNARMED_STOP_DISTANCE } = await import('../../src/combat/UnarmedCombat')
-  const proceduralFistReach = .63, bodyRadius = .3
-  expect(UNARMED_ATTACK_DISTANCE - bodyRadius).toBeLessThan(proceduralFistReach)
+  const shortestArmedFistReach = .53, bodyRadius = .3
+  expect(UNARMED_ATTACK_DISTANCE - bodyRadius).toBeLessThan(shortestArmedFistReach)
   expect(UNARMED_STOP_DISTANCE).toBeLessThan(UNARMED_ATTACK_DISTANCE)
 })

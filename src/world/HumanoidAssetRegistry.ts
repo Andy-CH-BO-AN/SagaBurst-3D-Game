@@ -871,18 +871,18 @@ export class MixerController implements HumanoidAnimationController {
 }
 
 /** Fingerless source rig: both hands close through morphs, sized from the same grip frames the weapons use. */
-function prepareMittenLevel(manifest: HumanoidAssetManifest, scene: THREE.Object3D, level: number): void {
+function prepareMittenLevel(manifest: HumanoidAssetManifest, scene: THREE.Object3D, level: number, restHollow: boolean): void {
   const right = manifest.swordGripFrames?.[`lod${level}` as 'lod0'], left = manifest.handGripFrames?.left
   if (!right || !left) throw new Error(`${manifest.id}: mitten hands require grip frames`)
   const leftCenter = new THREE.Vector3(...left.palmContactCenter).addScaledVector(new THREE.Vector3(...left.palmNormal), LANCE_RADIUS).toArray()
-  scene.userData.mittenHands = true
+  if (restHollow) scene.userData.mittenHands = true
   scene.updateMatrixWorld(true)
   scene.traverse(object => {
     if (!(object instanceof THREE.SkinnedMesh)) return
     prepareMittenHandShape(object, [
-      { bone: scene.getObjectByName('hand_r')!, grip: MITTEN_MORPHS.gripRight, hollow: MITTEN_MORPHS.hollowRight,
+      { bone: scene.getObjectByName('hand_r')!, grip: MITTEN_MORPHS.gripRight, hollow: restHollow ? MITTEN_MORPHS.hollowRight : undefined,
         frame: { finger: right.fingerDirection, thumb: right.gripAxisLocal, palm: right.palmNormalLocal, center: right.gripCenterLocal } },
-      { bone: scene.getObjectByName('hand_l')!, grip: MITTEN_MORPHS.gripLeft, hollow: MITTEN_MORPHS.hollowLeft,
+      { bone: scene.getObjectByName('hand_l')!, grip: MITTEN_MORPHS.gripLeft, hollow: restHollow ? MITTEN_MORPHS.hollowLeft : undefined,
         frame: { finger: left.fingerDirection, thumb: left.thumbDirection, palm: left.palmNormal, center: leftCenter } },
     ])
   })
@@ -1115,7 +1115,8 @@ export class HumanoidAssetRegistry {
         }
       })
     }
-    if (manifest.selectedSource?.rig === 'mixamo24') levels.forEach((level, index) => prepareMittenLevel(manifest, level.scene, index))
+    // Fingerless bodies: Byzantine's flat hands rest open-gripped; the ordinary Viking's sculpted hands only close to punch.
+    if (manifest.selectedSource?.rig === 'mixamo24' || manifest.selectedSource?.rig === 'ordinary22') levels.forEach((level, index) => prepareMittenLevel(manifest, level.scene, index, manifest.selectedSource?.rig === 'mixamo24'))
     if (manifest.mountedLegPoses) for (const level of levels) level.scene.userData.mountedLegPoses = manifest.mountedLegPoses
     validateEmbeddedAnimations(faction, manifest, levels)
     const frame = readHandFrame(manifest)

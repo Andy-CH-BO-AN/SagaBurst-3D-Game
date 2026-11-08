@@ -1,4 +1,5 @@
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import { UNARMED_DURATION } from '../combat/UnarmedCombat'
 import { ARMORS } from '../rpg/ArmorDatabase'
 import { preloadHighTierEquipment } from '../world/HighTierEquipment'
 import { preloadPaladinEquipment } from '../world/PaladinEquipment'
@@ -79,7 +80,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
     scene.add(ground, new THREE.GridHelper(10, 20, 0x888f99, 0x9ca3ac))
     const hero = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: 2, isPlayer: false }, descriptor.assetId)
     const availableActions = actions.filter(action => hero.rig.animation!.has(action)
-      || action === 'lanceThrust' || action === 'mountedLance')
+      || action === 'lanceThrust' || action === 'mountedLance' || action === 'punchCombo' || action === 'punchRight')
     const normal = HumanoidAssetRegistry.createCharacterInstance({ faction, tier: ordinary ? 3 : 2, isPlayer: false }, reference?.assetId)
     scene.add(hero.root, normal.root)
     normal.rig.animation!.play('idle', { fadeSeconds: 0, loop: true })
@@ -107,7 +108,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
     let paused = false, time = 0, selectedLOD = 0, compare = true, riding = false, sourcePlayback = ''
     let state: HumanoidAnimationState = 'idle'
     const duration = () => !sourcePlayback && ['axeAttack1H', 'axeAttack2H', 'swordSlash', 'lanceThrust', 'mountedLance'].includes(state)
-      ? playback.getAttackDuration(riding) : hero.rig.animation!.getDuration(state) ?? 1
+      ? playback.getAttackDuration(riding) : hero.rig.animation!.getDuration(state) ?? (state === 'punchCombo' || state === 'punchRight' ? UNARMED_DURATION : 1)
     const setLOD = (instance: HumanoidCharacterInstance, index: number) => {
       const lod = instance.root.children.find(object => object instanceof THREE.LOD) as THREE.LOD
       lod.autoUpdate = false
@@ -171,7 +172,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       <label><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="ARMORED_HORSE">重甲戰馬</option><option value="SNOW_LEOPARD" ${commander ? 'selected' : ''}>Armored Snow Leopard</option><option value="BLACK_CAT" ${!commander && !roman ? 'selected' : ''}>Black Cat</option><option value="WHITE_CAT">White Cat</option><option value="ORANGE_CAT">Orange Cat</option><option value="SERVAL">Serval</option><option value="CARACAL">Caracal</option><option value="CORGI" ${!commander && roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>
       <button id="hero-pause">暫停</button> <button id="hero-replay">重新播放</button><br>
       <label>固定時間 <input id="hero-time" type="range" min="0" max="1" step="0.001" value="0" style="width:160px"></label>
-      <div id="hero-status"></div><hr><div>${commander ? '來源 T5 模型 · 同陣營 T4 身體尺度校準' : maki || civilian ? '新模型 · 一般 Humanoid 裝備' : roman ? 'Gondor Knight 原始模型適配' : '一般角色 1.86 m'}<br>${civilian ? '含鞋全高' : commander ? '含盔鞋全高' : maki ? '鞋底至兜帽' : roman ? '含盔鞋全高' : '英雄本體'} ${manifest.metrics.heightM.toFixed(3)} m${commander || maki || civilian || roman ? '' : `<br>含盔鞋 ${manifest.metrics.overallHeightM.toFixed(3)} m`}</div>
+      <div id="hero-status"></div><hr><div>${commander ? '來源 T5 模型 · 同陣營 T4 身體尺度校準' : maki || civilian ? '新模型 · 一般 Humanoid 裝備' : roman ? 'Gondor Knight 原始模型適配' : '一般角色 1.86 m'}<br>${civilian ? '含鞋全高' : commander ? '含盔鞋全高' : maki ? '鞋底至兜帽' : roman ? '含盔鞋全高' : '英雄本體'} ${manifest.metrics.heightM.toFixed(3)} m${commander || maki || civilian || roman ? '' : `<br>含盔鞋 ${(manifest.metrics.overallHeightM ?? manifest.metrics.heightM).toFixed(3)} m`}</div>
       <small>滑鼠拖曳旋轉，滾輪縮放。動畫只驗證姿勢，不產生戰鬥事件。</small>`
     const input = <T extends HTMLElement>(id: string) => panel.querySelector<T>(`#${id}`)!
     const status = input('hero-status')

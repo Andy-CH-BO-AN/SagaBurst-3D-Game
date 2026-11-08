@@ -229,14 +229,14 @@ async function bootstrap(): Promise<void> {
     return
   }
   const menuOnly = query.get('menu') === '1'
-  if (import.meta.env.DEV && ['viking-t4', 'roman-t4', 'maki-t4', 'roman-t5', 'viking-t5', 'byzantine-t5', 'roman-civilian', 'viking-civilian', 'roman-t1', 'roman-t2', 'viking-t1', 'viking-t2'].includes(query.get('devhero') ?? '')) {
+  if (import.meta.env.DEV && ['viking-t4', 'roman-t4', 'maki-t4', 'roman-t5', 'viking-t5', 'byzantine-t5', 'roman-civilian', 'viking-civilian', 'roman-t1', 'roman-t2', 'roman-t3', 'viking-t1', 'viking-t2', 'viking-t3'].includes(query.get('devhero') ?? '')) {
     const { launchVikingHeroPreview, ROMAN_HERO } = await import('./debug/VikingHeroPreview')
     const { HERO_ASSETS } = await import('./world/HeroAssetCatalog')
-    const { CIVILIAN_HUMANOID_ASSETS, TIERED_ORDINARY_HUMANOID_ASSETS } = await import('./world/HumanoidAssetRegistry')
+    const { CIVILIAN_HUMANOID_ASSETS, ORDINARY_HUMANOID_ASSETS, TIERED_ORDINARY_HUMANOID_ASSETS } = await import('./world/HumanoidAssetRegistry')
     const requested = query.get('devhero')
     const tiered = requested === 'roman-t1' || requested === 'roman-t2' || requested === 'viking-t1' || requested === 'viking-t2'
       ? TIERED_ORDINARY_HUMANOID_ASSETS[requested] : undefined
-    const descriptor = tiered ?? (requested === 'roman-civilian' ? CIVILIAN_HUMANOID_ASSETS.roman
+    const descriptor = tiered ?? (requested === 'roman-t3' ? ORDINARY_HUMANOID_ASSETS.roman : requested === 'viking-t3' ? ORDINARY_HUMANOID_ASSETS.viking : requested === 'roman-civilian' ? CIVILIAN_HUMANOID_ASSETS.roman
       : requested === 'viking-civilian' ? CIVILIAN_HUMANOID_ASSETS.viking
       : requested === 'roman-t5' ? HERO_ASSETS['roman-hero-t5'].descriptor
       : requested === 'viking-t5' ? HERO_ASSETS['viking-hero-t5'].descriptor
