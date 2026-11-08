@@ -1,6 +1,6 @@
 import { minimumReachableShoulderSwing } from './AuthoredCarryGrip'
 import { punchExtension, UNARMED_DURATION } from '../combat/UnarmedCombat'
-import { MOUNT_BARREL, MOUNT_MAX_ABDUCTION, solveSeatedLeg } from './MountedLegFit'
+import { MOUNT_BARREL, MOUNT_SADDLE_FLAP, solveSeatedLeg } from './MountedLegFit'
 import { MITTEN_MORPHS } from './MittenHandShape'
 import { fingerContactOwnership, type ArticulatedFingerPoses } from './FingerContactPolicy'
 import { FittedHumanoidCloth, type FittedHumanoidClothRig } from './FittedHumanoidCloth'
@@ -129,17 +129,25 @@ function captureSeatBind(root: THREE.Object3D, rig: CharacterRig): SeatBind {
   }) }
 }
 
-function solveSeatBind(bind: SeatBind, barrel: readonly number[], maxAbduction?: number): Array<{ node: THREE.Object3D, q: THREE.Quaternion }> {
+function solveSeatBind(bind: SeatBind, barrel: readonly number[], saddleFlap?: number): Array<{ node: THREE.Object3D, q: THREE.Quaternion }> {
   const result: Array<{ node: THREE.Object3D, q: THREE.Quaternion }> = []
-  const forward = new THREE.Vector3(0, 0, 1), up = new THREE.Vector3(0, 1, 0)
+  const up = new THREE.Vector3(0, 1, 0)
+  const hingeFrame = (direction: THREE.Vector3, hinge: THREE.Vector3) => new THREE.Quaternion().setFromRotationMatrix(
+    new THREE.Matrix4().makeBasis(direction, hinge, new THREE.Vector3().crossVectors(direction, hinge)))
   for (const leg of bind.legs) {
     const thighRest = leg.knee.position.clone().sub(leg.hip.position), calfRest = leg.ankle.position.clone().sub(leg.knee.position), footRest = leg.toe.clone().sub(leg.ankle.position)
-    const solved = solveSeatedLeg(leg.hip.position.clone().sub(bind.pelvis), thighRest.length(), calfRest.length(), leg.side, barrel, maxAbduction)
-    // The hinge is posed first and the hip opens both bones together, so the knee never bends sideways.
-    const open = new THREE.Quaternion().setFromAxisAngle(forward, leg.side * solved.abduct)
-    const hipWorld = open.clone().multiply(new THREE.Quaternion().setFromUnitVectors(thighRest.normalize(), solved.thighPlane)).multiply(leg.hip.rotation)
-    const kneeWorld = open.clone().multiply(new THREE.Quaternion().setFromUnitVectors(calfRest.normalize(), solved.calfPlane)).multiply(leg.knee.rotation)
-    // The foot stays level and points forward, toes slightly out, whatever the leg's opening.
+    const solved = solveSeatedLeg(leg.hip.position.clone().sub(bind.pelvis), thighRest.length(), calfRest.length(), leg.side, barrel, saddleFlap)
+    thighRest.normalize(); calfRest.normalize()
+    // Carry the bind's knee hinge onto the solved plane, so the knee bends one way and neither bone rolls.
+    const hingeRest = new THREE.Vector3().crossVectors(thighRest, calfRest).normalize()
+    const hinge = new THREE.Vector3().crossVectors(solved.thigh, solved.calf).normalize()
+    const pose = (from: THREE.Vector3, to: THREE.Vector3, rest: THREE.Quaternion) => {
+      const restHinge = hingeRest.clone().addScaledVector(from, -hingeRest.dot(from)).normalize()
+      const toHinge = hinge.clone().addScaledVector(to, -hinge.dot(to)).normalize()
+      return hingeFrame(to, toHinge).multiply(hingeFrame(from, restHinge).invert()).multiply(rest)
+    }
+    const hipWorld = pose(thighRest, solved.thigh, leg.hip.rotation), kneeWorld = pose(calfRest, solved.calf, leg.knee.rotation)
+    // The foot stays level and points forward, toes slightly out.
     const ankleWorld = new THREE.Quaternion().setFromAxisAngle(up, leg.side * .15)
       .multiply(new THREE.Quaternion().setFromUnitVectors(footRest.normalize(), new THREE.Vector3(0, footRest.y, Math.hypot(footRest.x, footRest.z)).normalize())).multiply(leg.ankle.rotation)
     // The saddle masks the pelvis to its bind, so bind rotations are the parents here.
@@ -686,7 +694,7 @@ export class CharacterEquipmentPose {
     const barrel = this.selectedSource?.rig === 'mixamo24' ? MOUNT_BARREL[kind] : undefined
     if (!barrel) return undefined
     let cached = this.seatLegCache.get(kind)
-    if (!cached) { cached = solveSeatBind(this.seatBind, barrel, MOUNT_MAX_ABDUCTION[kind]); this.seatLegCache.set(kind, cached) }
+    if (!cached) { cached = solveSeatBind(this.seatBind, barrel, MOUNT_SADDLE_FLAP[kind]); this.seatLegCache.set(kind, cached) }
     return cached
   }
 

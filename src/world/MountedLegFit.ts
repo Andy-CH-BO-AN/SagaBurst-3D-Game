@@ -1,27 +1,30 @@
 import * as THREE from 'three'
 import type { MountedPoseKind } from './CharacterVisuals'
 
-/** Measured half-width (m) of each mount and its saddle around the rider, sampled every 10 cm below the seated
- * pelvis (index 0 = pelvis height). Measured in the hero studio, 98th percentile, data only: no runtime mesh queries. */
+/** Measured half-width (m) of each mount's body, without hanging saddle straps, around the rider. Sampled every
+ * 10 cm below the seated pelvis (index 0 = pelvis height) in the hero studio, 98th percentile; no runtime mesh queries. */
 export const MOUNT_BARREL: Partial<Record<MountedPoseKind, readonly number[]>> = {
-  CORGI: [.05, .16, .26, .32, .36, .39, .41, .42, .40, .39],
-  BLACK_CAT: [.25, .26, .30, .34, .36, .36, .37, .39, .35, .34],
-  WHITE_CAT: [.28, .29, .34, .38, .40, .41, .41, .42, .34, .30],
-  ORANGE_CAT: [.26, .26, .31, .34, .37, .38, .38, .39, .32, .33],
-  SERVAL: [.22, .27, .33, .37, .39, .39, .38, .38, .35, .28],
-  CARACAL: [.24, .24, .28, .32, .34, .37, .38, .38, .42, .30],
-  SNOW_LEOPARD: [.24, .34, .42, .45, .44, .44, .47, .44, .44, .38],
-  HORSE: [.11, .16, .21, .28, .33, .35, .35, .33, .28, .22],
-  ARMORED_HORSE: [.24, .27, .32, .38, .41, .43, .46, .45, .48, .44],
+  CORGI: [.05, .12, .22, .29, .33, .35, .35, .35, .33, .30],
+  BLACK_CAT: [0, .03, .16, .25, .28, .30, .30, .28, .26, .30],
+  WHITE_CAT: [0, .04, .18, .26, .29, .31, .29, .26, .23, .21],
+  ORANGE_CAT: [0, 0, .14, .23, .27, .31, .32, .32, .32, .30],
+  SERVAL: [0, 0, .22, .32, .36, .39, .39, .38, .35, .27],
+  CARACAL: [0, 0, .12, .22, .31, .33, .34, .34, .32, .28],
+  SNOW_LEOPARD: [.01, .17, .32, .38, .42, .46, .46, .44, .42, .37],
+  HORSE: [.06, .13, .19, .24, .29, .32, .33, .31, .26, .19],
+  ARMORED_HORSE: [.21, .25, .32, .38, .41, .43, .46, .47, .49, .43],
 }
 
-const THIGH_FORWARD = .85
-const CALF_BACK = .12
-const LEG_CLEARANCE = .09
-/** A hip opens about this far at most; beyond it a leg reads as dislocated. */
-const MAX_ABDUCTION = .75
-/** Slim cats: the measured width includes the saddle, so the shared cap reads as splayed. */
-export const MOUNT_MAX_ABDUCTION: Partial<Record<MountedPoseKind, number>> = { SERVAL: .5, CARACAL: .5 }
+/** Half-width of the saddle's leather flap, where one hangs at knee height: the thigh lies over it. */
+export const MOUNT_SADDLE_FLAP: Partial<Record<MountedPoseKind, number>> = { WHITE_CAT: .39, ORANGE_CAT: .36, BLACK_CAT: .33 }
+
+/** Ankle distance from the pelvis as a share of the full leg: sets how bent the seated knee is. */
+const LEG_EXTENSION = .86
+/** Bone centre to mount surface: the calf lies against the flank. */
+const ANKLE_CLEARANCE = .09
+const KNEE_CLEARANCE = .1
+const ANKLE_FORWARD = .06
+const MAX_KNEE_TURN = 1.2
 
 export function barrelHalfWidth(barrel: readonly number[], below: number): number {
   if (below <= 0) return barrel[0]
@@ -29,35 +32,30 @@ export function barrelHalfWidth(barrel: readonly number[], below: number): numbe
   return barrel[i] + (barrel[j] - barrel[i]) * (u - i)
 }
 
-export interface SeatedLeg {
-  /** Rotation of the whole leg outward about the forward axis through the hip. */
-  abduct: number
-  /** Directions inside the leg's own hinge plane, before abduction: the knee only bends one way. */
-  thighPlane: THREE.Vector3
-  calfPlane: THREE.Vector3
-  thigh: THREE.Vector3
-  calf: THREE.Vector3
-}
+export interface SeatedLeg { thigh: THREE.Vector3; calf: THREE.Vector3; knee: THREE.Vector3; ankle: THREE.Vector3; kneeTurn: number }
 
-const FORWARD_AXIS = new THREE.Vector3(0, 0, 1)
-
-/** Bends the leg in its hinge plane, then opens the whole leg at the hip just far enough to clear the mount.
+/** The ankle hangs against the flank; the hip turns the knee outward just far enough to pass the body. A rider's leg:
+ * knee widest, calf hugging, with both bones in one hinge plane so the knee only ever bends one way.
  * Positions are metres from the pelvis in rider space (+Z forward). `side` is the sign of the hip's X. */
-export function solveSeatedLeg(hip: THREE.Vector3, thighLength: number, calfLength: number, side: 1 | -1, barrel: readonly number[], maxAbduction = MAX_ABDUCTION): SeatedLeg {
-  const thighPlane = new THREE.Vector3(0, -Math.cos(THIGH_FORWARD), Math.sin(THIGH_FORWARD))
-  const calfPlane = new THREE.Vector3(0, -Math.cos(CALF_BACK), -Math.sin(CALF_BACK))
-  const thigh = new THREE.Vector3(), calf = new THREE.Vector3(), knee = new THREE.Vector3()
-  const clearAt = (point: THREE.Vector3) => side * point.x >= barrelHalfWidth(barrel, -point.y) + LEG_CLEARANCE
-  const mid = new THREE.Vector3(), ankle = new THREE.Vector3()
-  // The thigh root necessarily sits on the saddle; only the knee and the calf must clear the body.
-  let abduct = .05
-  for (; abduct < maxAbduction; abduct += .02) {
-    thigh.copy(thighPlane).applyAxisAngle(FORWARD_AXIS, side * abduct)
-    calf.copy(calfPlane).applyAxisAngle(FORWARD_AXIS, side * abduct)
-    knee.copy(hip).addScaledVector(thigh, thighLength)
-    mid.copy(knee).addScaledVector(calf, calfLength * .5)
-    ankle.copy(knee).addScaledVector(calf, calfLength)
-    if (clearAt(knee) && clearAt(mid) && clearAt(ankle)) break
+export function solveSeatedLeg(hip: THREE.Vector3, thighLength: number, calfLength: number, side: 1 | -1, barrel: readonly number[], saddleFlap = 0): SeatedLeg {
+  const reach = (thighLength + calfLength) * LEG_EXTENSION
+  let below = -hip.y + reach, x = 0, depth = 0
+  for (let pass = 0; pass < 3; pass++) {
+    x = barrelHalfWidth(barrel, below) + ANKLE_CLEARANCE - side * hip.x
+    depth = Math.sqrt(Math.max(.01, reach * reach - x * x - ANKLE_FORWARD * ANKLE_FORWARD))
+    below = -hip.y + depth
   }
-  return { abduct, thighPlane, calfPlane, thigh, calf }
+  const ankle = hip.clone().add(new THREE.Vector3(side * x, -depth, ANKLE_FORWARD))
+  const axis = ankle.clone().sub(hip).normalize()
+  const along = (thighLength * thighLength - calfLength * calfLength + reach * reach) / (2 * reach)
+  const height = Math.sqrt(Math.max(0, thighLength * thighLength - along * along))
+  const knee = new THREE.Vector3(), pole = new THREE.Vector3()
+  let kneeTurn = .1
+  for (; kneeTurn < MAX_KNEE_TURN; kneeTurn += .02) {
+    pole.set(side * Math.sin(kneeTurn), 0, Math.cos(kneeTurn))
+    pole.addScaledVector(axis, -pole.dot(axis)).normalize()
+    knee.copy(hip).addScaledVector(axis, along).addScaledVector(pole, height)
+    if (side * knee.x >= Math.max(barrelHalfWidth(barrel, -knee.y), saddleFlap) + KNEE_CLEARANCE) break
+  }
+  return { thigh: knee.clone().sub(hip).normalize(), calf: ankle.clone().sub(knee).normalize(), knee: knee.clone(), ankle, kneeTurn }
 }
