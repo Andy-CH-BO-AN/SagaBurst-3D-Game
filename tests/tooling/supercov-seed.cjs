@@ -17,8 +17,9 @@ if (plan.mode !== 'full' || plan.checkoutSha !== sha || plan.headSha !== sha ||
     !Array.isArray(plan.shards) || !plan.shards.length) {
   fail('Only an exact-SHA verified Full plan can bootstrap evidence')
 }
-const vitestCount = plan.inventory.filter(item => item.runner === 'vitest')
-  .reduce((count, item) => count + item.names.length, 0)
+const vitestItems = plan.inventory.filter(item => item.runner === 'vitest')
+const vitestCount = vitestItems.reduce((count, item) => count + item.names.length, 0)
+const vitestFiles = vitestItems.map(item => item.file).sort()
 const fullCount = plan.inventory.reduce((count, item) => count + item.names.length, 0)
 if (aggregate.planId !== plan.planId || aggregate.mode !== 'full' ||
     aggregate.result !== 'passed' || aggregate.count !== fullCount ||
@@ -72,5 +73,5 @@ validateAffectedQuery(affected, id, {
   tests: measured.tests, setups: measured.setups, pristine: true,
 })
 writeFileSync(path('output/supercov-seed.json'),
-  JSON.stringify(buildSeed({ sha, ...measured }), null, 2) + '\n')
+  JSON.stringify(buildSeed({ sha, ...measured, testFiles: vitestFiles }), null, 2) + '\n')
 console.log('Valid strict Supercov Full seed ' + id + ': ' + vitestCount + ' Vitest leaves @ ' + sha)

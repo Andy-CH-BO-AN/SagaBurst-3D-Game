@@ -2,7 +2,8 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { createHash } = require('node:crypto')
-const { planShards, shardFiles, validateManifest, selectedNames, selectionSummary } = require('../tooling/ci-plan.cjs')
+const { planShards, shardFiles, validateManifest, selectedNames, selectionSummary,
+  nonRuntimePath, cssPath } = require('../tooling/ci-plan.cjs')
 const { aggregate, verifiedFullSha } = require('../tooling/ci-run.cjs')
 const item = (file, count, runner = 'vitest') => ({
   file, runner, names: Array.from({ length: count }, (_, i) => 'suite > case ' + i),
@@ -41,11 +42,16 @@ test('Full remains separate and can split across multiple shards', () => {
   assert.equal(validateManifest(manifest).shards.length, 2)
   assert.equal(verifiedFullSha(manifest), sha)
 })
-test('docs-only empty selection accepted, but empty code selection fails', () => {
-  const empty = { mode: 'related', docsOnly: true, inventory: [], selected: [],
-    changedFiles: ['docs/README.md'], shards: [] }
-  assert.equal(validateManifest(empty).shards.length, 0)
-  assert.throws(() => validateManifest({ ...empty, docsOnly: false }), /Empty code selection/)
+test('strict non-runtime and CSS-only policies may intentionally have no gameplay tests', () => {
+  const empty = { mode: 'related', inventory: [], selected: [], shards: [] }
+  assert.equal(validateManifest({ ...empty, docsOnly: true, changedFiles: ['docs/README.md'] }).shards.length, 0)
+  assert.equal(validateManifest({ ...empty, nonRuntimeOnly: true, changedFiles: ['CLAUDE.md'] }).shards.length, 0)
+  assert.equal(validateManifest({ ...empty, styleOnly: true, changedFiles: ['src/ui/battle-setup.css'] }).shards.length, 0)
+  assert.throws(() => validateManifest({ ...empty, changedFiles: ['src/a.ts'] }), /Empty code selection/)
+  assert.equal(nonRuntimePath('CLAUDE.md'), true)
+  assert.equal(nonRuntimePath('tests/tooling/supercov-related.cjs'), false)
+  assert.equal(cssPath('src/ui/battle-setup.css'), true)
+  assert.equal(cssPath('public/model.glb'), false)
 })
 test('invalid selected ordinal, duplicate identity and unexpected shard are rejected', () => {
   assert.throws(() => validateManifest({ ...related(), selectedCases: {

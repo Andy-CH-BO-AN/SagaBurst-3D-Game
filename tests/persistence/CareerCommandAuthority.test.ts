@@ -28,9 +28,12 @@ describe('Saved official command membership', () => {
       state: 'RETURNING', authorized: false, sceneKey: 'enemy-outskirts', contribution: emptyPersonalContribution(),
       members: { 'town:training:0': { status: 'deployed', hp: 13, ammo: 2, shieldImpact: 4, order: 'formation',
         position: { x: 10, y: 2, z: 20, yaw: 1 },
-        mount: { hp: 0, mounted: false, position: { x: 9, y: 2, z: 20, yaw: 1 } },
+        mount: { armorImpactRemaining: 0, hp: 0, mounted: false, position: { x: 9, y: 2, z: 20, yaw: 1 } },
         formation: { commandId: -20, position: { x: 0, y: 1, z: 0, yaw: 0 }, reached: false } } } }
     expect(parseTownCommandSquad(JSON.parse(JSON.stringify(saved)))).toEqual(saved)
+    const legacy = JSON.parse(JSON.stringify(saved))
+    delete legacy.members['town:training:0'].mount.armorImpactRemaining
+    expect(parseTownCommandSquad(legacy)).toEqual(legacy)
   })
 
   it('fails closed on duplicate or invalid authoritative IDs rather than granting current soldiers', () => {
@@ -338,16 +341,22 @@ interface ResidentResource {
 }
 interface MountResource {
   dead: boolean; currentHp: number; maxHp: number; disposed: boolean; isAirborne: boolean
+  armorImpactMax: number; armorImpactRemaining: number
   riderNpc: ResidentResource | null; riderPlayer: null
   group: { position: Vector3; rotation: { y: number } }
+  restoreArmor(value?: number): void
   restoreForTown(x: number, z: number, yaw: number): void; takeDamage(): void
 }
 function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean,
   placement: Pick<ConstructorParameters<typeof CivilianCommandSquadController>[4], 'canPlaceMountedCivilian'> = {}) {
   const events: string[] = []
   const mount: MountResource = { dead: mountDead, currentHp: mountDead ? 0 : 17, maxHp: 200, disposed: false,
+    armorImpactMax: 0, armorImpactRemaining: 0,
     isAirborne: false, riderNpc: null, riderPlayer: null, group: { position: new Vector3(3, 0, 4), rotation: { y: 1 } },
-    restoreForTown() { events.push('restore-mount'); this.dead = false; this.currentHp = this.maxHp; this.riderNpc = null },
+    restoreArmor(value) { this.armorImpactRemaining = value === undefined ? this.armorImpactMax
+      : Math.max(0, Math.min(this.armorImpactMax, value)) },
+    restoreForTown() { events.push('restore-mount'); this.dead = false; this.currentHp = this.maxHp
+      this.armorImpactRemaining = this.armorImpactMax; this.riderNpc = null },
     takeDamage() { this.dead = true; this.currentHp = 0 },
   }
   const roster = townRoster()

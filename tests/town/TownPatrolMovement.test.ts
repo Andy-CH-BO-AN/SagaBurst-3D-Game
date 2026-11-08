@@ -56,8 +56,13 @@ function patrol(count = 2, patrolId: 'A' | 'B' = 'A') {
         this.dead = false; this.hp = 100; this.combatPosition.set(p.x, 0, p.z)
       }),
     }
-    actor.mount = { dead: false, currentHp: 100, maxHp: 100, group: { position, rotation: { y: 0 } }, riderNpc: actor,
-      restoreForTown: vi.fn() } as unknown as Mount
+    actor.mount = { dead: false, currentHp: 100, maxHp: 100, armorImpactMax: 0, armorImpactRemaining: 0,
+      group: { position, rotation: { y: 0 } }, riderNpc: actor,
+      restoreArmor(value?: number) { this.armorImpactRemaining = value === undefined ? this.armorImpactMax
+        : Math.max(0, Math.min(this.armorImpactMax, value)) },
+      restoreForTown: vi.fn(function (this: { armorImpactMax: number; armorImpactRemaining: number }) {
+        this.armorImpactRemaining = this.armorImpactMax
+      }) } as unknown as Mount
     return actor
   })
   // The production interface also has rendering/combat methods this decision never reads.

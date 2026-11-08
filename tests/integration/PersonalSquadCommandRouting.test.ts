@@ -209,7 +209,9 @@ function boardingHarness(command: 'defend' | 'follow' = 'defend') {
   const home = { id: 'private-eagle-pad:1', x: -85, y: 0, z: 54, yaw: 0 }
   const eaglePads = new EaglePadReservations([home]); eaglePads.reserve('personal:eagle')
   const mount = {
-    dead: false, currentHp: 200, maxHp: 200, isFlyingMount: true,
+    dead: false, currentHp: 200, maxHp: 200, armorImpactMax: 0, armorImpactRemaining: 0, isFlyingMount: true,
+    restoreArmor(value?: number) { this.armorImpactRemaining = value === undefined ? this.armorImpactMax
+      : Math.max(0, Math.min(this.armorImpactMax, value)) },
     group: { position: new Vector3(home.x, 0, home.z), rotation: new Euler() },
     flight: { phase: 'grounded', restore: vi.fn() },
     get isAirborne() { return this.flight.phase !== 'grounded' },

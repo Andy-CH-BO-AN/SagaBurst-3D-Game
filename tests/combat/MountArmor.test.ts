@@ -7,7 +7,7 @@ import { damagePlayer } from '../../src/combat/DamageRouter'
 import { getTerrainHeight } from '../../src/world/Terrain'
 import { Faction } from '../../src/combat/CombatFaction'
 import { describe, expect, it } from 'vitest'
-import { MountArmor, mountImpactMultiplier } from '../../src/combat/MountArmor'
+import { MountArmor, mountArmorImpactMax, mountImpactMultiplier } from '../../src/combat/MountArmor'
 import { calculateLanceChargeDamage, calculateMountImpactDamage } from '../../src/combat/CombatBalance'
 import type { CombatDamageContext } from '../../src/combat/CombatAttribution'
 const context = (weaponId: string, method: CombatDamageContext['method'] = 'melee'): CombatDamageContext => ({
@@ -15,6 +15,11 @@ const context = (weaponId: string, method: CombatDamageContext['method'] = 'mele
 })
 
 describe('Mount armor', () => {
+  it('assigns no barding to ordinary horses and 50 Impact to both heavy mount types', () => {
+    expect(mountArmorImpactMax('HORSE')).toBe(0)
+    expect(mountArmorImpactMax('ARMORED_HORSE')).toBe(50)
+    expect(mountArmorImpactMax('SNOW_LEOPARD')).toBe(50)
+  })
   it('uses existing weapon tier Impact for sword, axe, mounted lance, bow and javelin', () => {
     // Independent database expectations; each row checks the shared Impact contract, not another damage formula.
     const impacts: Array<[string, number]> = [['steel_sword', 1], ['viking_axe_t1', 2], ['viking_axe_t2', 4], ['viking_axe_t3', 8], ['paladin_mace_t4', 12], ['axe_t5', 15], ['hunting_spear', 10], ['steel_lance', 20], ['heavy_lance', 40], ['spear_t4', 60], ['spear_t5', 80], ['bow_t5', 1], ['legionary_pilum', 1]]

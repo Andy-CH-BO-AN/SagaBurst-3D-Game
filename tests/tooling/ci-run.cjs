@@ -116,6 +116,11 @@ function executeShard(plan, id, out) {
   } catch (error) {
     summary.result = 'failed'
     summary.error = error.message
+    const failed = summary.reports.flatMap(report => (report.cases ?? [])
+      .filter(item => item.state !== 'passed')
+      .map(item => `[${report.runner}] ${normalize(item.file)} > ${item.name}: ${item.state}`))
+    console.error(`${plan.mode === 'full' ? 'Full' : 'Related'} shard ${id} FAILED` +
+      (failed.length ? `\nFailed test cases:\n  ${failed.join('\n  ')}` : `\n${summary.error}`))
     throw error
   } finally {
     mkdirSync(resolve(out, '..'), { recursive: true })

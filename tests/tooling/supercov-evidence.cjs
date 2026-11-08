@@ -43,6 +43,7 @@ function gh(args) {
   return run.stdout
 }
 const candidates = []
+const rejected = []
 for (let page = 1; page <= 10; page++) {
   const data = JSON.parse(gh(['api', 'repos/' + repo +
     '/actions/artifacts?per_page=100&page=' + page]))
@@ -62,7 +63,10 @@ candidates.sort((a, b) => b.timestamp.localeCompare(a.timestamp))
 for (const candidate of candidates) {
   const workflow = JSON.parse(gh(['api', 'repos/' + repo +
     '/actions/runs/' + candidate.runId]))
-  if (!trustedPublication(workflow, candidate.sha)) continue
+  if (!trustedPublication(workflow, candidate.sha)) {
+    rejected.push({ candidate, workflow })
+    continue
+  }
   const target = resolve(root, 'output/supercov-artifact-restore')
   rmSync(target, { recursive: true, force: true })
   mkdirSync(target, { recursive: true })
@@ -92,5 +96,42 @@ for (const candidate of candidates) {
     ' @ ' + seed.sha + ' from Actions run ' + candidate.runId)
   process.exit(0)
 }
-fail('exact dev baseline seed pending: no successful canonical Full artifact for PR base SHA ' +
-  comparisonBase + '. Wait for push-dev Full seed publication, then rerun PR CI; no Full fallback.')
+const runs = JSON.parse(gh(['api', 'repos/' + repo +
+  '/actions/runs?head_sha=' + comparisonBase + '&per_page=100']))
+if (!Array.isArray(runs.workflow_runs)) fail('GitHub workflow-runs API returned no list')
+const canonical = runs.workflow_runs.filter(run =>
+  run?.head_sha === comparisonBase &&
+  run.path === '.github/workflows/ci.yml' &&
+  ['dev', 'main'].includes(run.head_branch) &&
+  (run.event === 'push' || run.event === 'workflow_dispatch'))
+  .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+const latest = canonical[0]
+const link = run => run?.html_url ? ' ' + run.html_url : ''
+if (latest && latest.status !== 'completed') {
+  fail('exact dev baseline seed pending: canonical Full run ' + latest.id +
+    ' for PR base SHA ' + comparisonBase + ' is ' + latest.status + '.' +
+    link(latest) + ' No Full fallback.')
+}
+if (latest && latest.conclusion !== 'success') {
+  fail('exact dev baseline seed blocked: canonical Full run ' + latest.id +
+    ' for PR base SHA ' + comparisonBase + ' completed with conclusion ' +
+    (latest.conclusion || 'unknown') + '; failed Full runs never publish a seed.' +
+    link(latest) + ' No older SHA may substitute.')
+}
+if (latest && rejected.length) {
+  fail('exact dev baseline seed unsafe: an exact-SHA artifact exists but its canonical ' +
+    'publisher provenance was rejected for PR base SHA ' + comparisonBase +
+    '; run ' + latest.id + '.' + link(latest) + ' No untrusted artifact may substitute.')
+}
+if (latest) {
+  fail('exact dev baseline seed artifact missing: canonical Full run ' + latest.id +
+    ' succeeded for PR base SHA ' + comparisonBase +
+    ' but supercov-seed-' + comparisonBase + ' is absent or expired.' +
+    link(latest) + ' No Full fallback.')
+}
+if (rejected.length) {
+  fail('exact dev baseline seed unsafe: artifact supercov-seed-' + comparisonBase +
+    ' exists but no trusted canonical dev/main Full publisher matches it. No fallback.')
+}
+fail('exact dev baseline seed pending: no canonical dev/main Full run found for PR base SHA ' +
+  comparisonBase + '. No older SHA or PR-created Full evidence may substitute.')

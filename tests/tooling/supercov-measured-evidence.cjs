@@ -5,7 +5,7 @@ const fail = m => { throw new Error('Supercov measured evidence unsafe: ' + m) }
 const RUN = /^run_[a-z0-9]+$/i
 const SHA = /^[a-f0-9]{40}$/
 const VERSION = '4.24.2'
-const SEED_SCHEMA = 3
+const SEED_SCHEMA = 4
 
 function validateRunSummary(result, expectedTests) {
   if (!Number.isSafeInteger(expectedTests) || expectedTests < 1 ||
@@ -51,13 +51,23 @@ function validateRunSummary(result, expectedTests) {
     coverageComplete: d.coverage.coverageComplete }
 }
 
-function buildSeed({ sha, runId, tests, setups, coverageComplete }) {
+const TEST_FILE = /^tests\/.*\.(test|spec)\.[cm]?[jt]sx?$/
+function validTestFiles(files) {
+  return Array.isArray(files) && files.length > 0 &&
+    new Set(files).size === files.length &&
+    files.every(file => typeof file === 'string' && TEST_FILE.test(file))
+}
+
+function buildSeed({ sha, runId, tests, setups, coverageComplete, testFiles }) {
   if (!SHA.test(sha || '') || !RUN.test(runId || '') ||
       !Number.isSafeInteger(tests) || tests < 1 ||
       !Number.isSafeInteger(setups) || setups < 0 ||
-      typeof coverageComplete !== 'boolean') fail('Invalid seed provenance')
+      typeof coverageComplete !== 'boolean' || !validTestFiles(testFiles)) {
+    fail('Invalid seed provenance')
+  }
   return { schemaVersion: SEED_SCHEMA, version: VERSION, sha, runId,
-    tests, setups, valid: true, measurementComplete: true, executionComplete: true,
+    tests, setups, testFiles: [...testFiles].sort(), valid: true,
+    measurementComplete: true, executionComplete: true,
     attributionComplete: true, coverageComplete }
 }
 
@@ -69,7 +79,7 @@ function validSeedMetadata(s) {
     typeof s.coverageComplete === 'boolean' &&
     Number.isSafeInteger(s.tests) && s.tests > 0 &&
     Number.isSafeInteger(s.setups) && s.setups >= 0 &&
-    !Object.hasOwn(s, 'generation')
+    validTestFiles(s.testFiles) && !Object.hasOwn(s, 'generation')
 }
 
 
@@ -166,7 +176,7 @@ function validateAffectedQuery(result, runId, { tests, setups, pristine = false 
  * Every historical test and setup record must reconcile with the global
  * unfiltered counts. On disagreement we fail rather than under-select.
  */
-function reconcileAffectedFiles(global, fileResults, expectedFiles, runId, baseline = {}) {
+function reconcileAffectedFiles(global, fileResults, historicalFiles, runId, baseline = {}) {
   const d = global?.data
   const counts = d?.summary
   if (global?.schemaVersion !== 1 || global.ok !== true ||
@@ -176,16 +186,16 @@ function reconcileAffectedFiles(global, fileResults, expectedFiles, runId, basel
       counts.tests !== counts.affected + counts.undetermined + counts.unaffected) {
     fail('Cannot expand unsafe global native affected summary')
   }
-  if (!Array.isArray(expectedFiles) || !expectedFiles.length ||
-      !Array.isArray(fileResults) || fileResults.length !== expectedFiles.length ||
-      new Set(expectedFiles).size !== expectedFiles.length ||
-      expectedFiles.some(file => !/^tests\/.*\.(test|spec)\.[cm]?[jt]sx?$/.test(file))) {
-    fail('Missing or duplicate Vitest files for exact Supercov expansion')
+  if (!Array.isArray(historicalFiles) || !historicalFiles.length ||
+      !Array.isArray(fileResults) || fileResults.length !== historicalFiles.length ||
+      new Set(historicalFiles).size !== historicalFiles.length ||
+      historicalFiles.some(file => !TEST_FILE.test(file))) {
+    fail('Missing or duplicate historical Vitest files for exact Supercov expansion')
   }
-  const added = { tests: 0, affected: 0, undetermined: 0, unaffected: 0 }
+  const totals = { affected: 0, undetermined: 0 }
   const affected = [], undetermined = [], seen = new Set()
-  for (let index = 0; index < expectedFiles.length; index++) {
-    const file = expectedFiles[index]
+  for (let index = 0; index < historicalFiles.length; index++) {
+    const file = historicalFiles[index]
     const part = fileResults[index]
     const p = part?.data
     const c = p?.summary
@@ -195,6 +205,7 @@ function reconcileAffectedFiles(global, fileResults, expectedFiles, runId, basel
         !c || !['tests', 'affected', 'undetermined', 'unaffected']
           .every(k => Number.isSafeInteger(c[k]) && c[k] >= 0) ||
         c.tests !== c.affected + c.undetermined + c.unaffected ||
+        c.affected + c.undetermined < 1 ||
         !Array.isArray(p.affected) || !Array.isArray(p.undetermined) ||
         !Array.isArray(p.unaffected) ||
         p.affected.length !== c.affected ||
@@ -219,30 +230,28 @@ function reconcileAffectedFiles(global, fileResults, expectedFiles, runId, basel
         p.unaffectedCount !== undefined && p.unaffectedCount !== c.unaffected) {
       fail('Filtered unaffected denominator missing: ' + file)
     }
-    for (const bucket of ['affected','undetermined','unaffected']) {
+    for (const bucket of ['affected', 'undetermined']) {
       for (const row of p[bucket]) {
-        if (!row || row.file !== file ||
-            typeof row.name !== 'string' || !row.name) {
-          fail('Filtered identity attributed to unknown test file: ' + file)
+        if (!row || row.file !== file || typeof row.name !== 'string' || !row.name) {
+          fail('Filtered identity attributed to unknown historical test file: ' + file)
         }
         const id = JSON.stringify([row.file, row.name])
         if (seen.has(id)) fail('Duplicate Supercov identity across file filters: ' + id)
         seen.add(id)
         if (bucket === 'affected') affected.push(row)
-        if (bucket === 'undetermined') undetermined.push(row)
+        else undetermined.push(row)
       }
     }
-    for (const key of Object.keys(added)) added[key] += c[key]
+    totals.affected += c.affected
+    totals.undetermined += c.undetermined
   }
-  for (const key of Object.keys(added)) {
-    if (added[key] !== counts[key]) {
+  for (const key of ['affected', 'undetermined']) {
+    if (totals[key] !== counts[key]) {
       fail('Filtered Supercov ' + key + ' does not reconcile with global count: ' +
-        added[key] + ' vs ' + counts[key])
+        totals[key] + ' vs ' + counts[key])
     }
   }
   const expanded = { ...global, data: { ...d, affected, undetermined } }
-  // Reuse the exact same fail-closed full-inventory validation as the
-  // direct response. A reason-only truncation is allowed, names are not.
   validateAffectedQuery(expanded, runId, baseline)
   return expanded
 }

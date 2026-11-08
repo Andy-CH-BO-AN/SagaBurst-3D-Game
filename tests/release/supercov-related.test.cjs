@@ -3,6 +3,7 @@ const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { decodeAffected } = require('../tooling/supercov-related.cjs')
 const { planShards } = require('../tooling/ci-plan.cjs')
+const { formatFailure } = require('../tooling/supercov-affected-expand.cjs')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
 const { validateRunSummary, buildSeed, validSeedMetadata, validateAffectedQuery,
@@ -44,6 +45,38 @@ test('renamed direct-test identity uses newly collected names, no guesswork', ()
   const selected = decodeAffected(answer(), renamed, [{ status: 'M', file: 'tests/example.test.ts' }], run)
   assert.deepEqual(selected.selectedCases['tests/example.test.ts'], [0, 1, 2])
 })
+test('new test file absent from historical seed runs every newly registered leaf', () => {
+  const added = { runner: 'vitest', file: 'tests/new.test.ts',
+    names: ['new > A', 'new > B'], nativeNames: ['new A', 'new B'] }
+  const clean = answer({ affected: [], undetermined: [],
+    unaffected: [leaf('suite > A'), leaf('suite > B'), leaf('suite > C')] })
+  const selected = decodeAffected(clean, [...inventory, added],
+    [{ status: 'A', file: added.file }], run)
+  assert.deepEqual(selected.selectedCases[added.file], [0, 1])
+  assert.deepEqual(selected.selectedCases['tests/release/gate.test.cjs'], [0])
+})
+test('new test plus runtime change merges direct leaves with native affected identities', () => {
+  const added = { runner: 'vitest', file: 'tests/new.test.ts',
+    names: ['new > A', 'new > B'], nativeNames: ['new A', 'new B'] }
+  const selected = decodeAffected(answer(), [...inventory, added], [
+    { status: 'A', file: added.file }, { status: 'M', file: 'src/example.ts' },
+  ], run)
+  assert.deepEqual(selected.selectedCases[added.file], [0, 1])
+  assert.deepEqual(selected.selectedCases['tests/example.test.ts'], [0, 1])
+})
+test('deleted and renamed tests reconcile historical identities without inventing current leaves', () => {
+  const deletedInventory = inventory.filter(item => item.file !== 'tests/example.test.ts')
+  const historical = answer({ affected: [leaf('suite > A')], undetermined: [],
+    unaffected: [leaf('suite > B'), leaf('suite > C')] })
+  const deleted = decodeAffected(historical, deletedInventory,
+    [{ status: 'D', file: 'tests/example.test.ts' }], run)
+  assert.deepEqual(deleted.selected, ['tests/release/gate.test.cjs'])
+  const renamedFile = { runner: 'vitest', file: 'tests/renamed.test.ts',
+    names: ['renamed > A'], nativeNames: ['renamed A'] }
+  const renamed = decodeAffected(historical, [...deletedInventory, renamedFile],
+    [{ status: 'R100', oldFile: 'tests/example.test.ts', file: renamedFile.file }], run)
+  assert.deepEqual(renamed.selectedCases[renamedFile.file], [0])
+})
 test('missing, duplicate, corrupt or truncated CLI JSON fails closed', () => {
   const cases = [
     answer({ affected: [{ file: 'tests/missing.test.ts', name: 'unowned setup' }] }),
@@ -73,6 +106,23 @@ test('native run identity and workingTree integrity are mandatory', () => {
   assert.throws(() => decodeAffected(answer(), inventory, source, 'run_wrong'), /unsafe/)
   assert.throws(() => decodeAffected(answer({ overrides: { workingTree: null } }), inventory, source, run), /unsafe/)
 })
+test('filtered CLI failures expose file, seed, exit, signal, timeout and stderr', () => {
+  const timeout = Object.assign(new Error('timed out'), {
+    code: 'ETIMEDOUT', signal: 'SIGTERM', killed: true, stderr: 'worker stalled',
+  })
+  const timeoutMessage = formatFailure('tests/new.test.ts', run, timeout)
+  assert.match(timeoutMessage, /testFile=tests\/new\.test\.ts/)
+  assert.match(timeoutMessage, /seedRun=run_abcdef0123/)
+  assert.match(timeoutMessage, /exitCode=ETIMEDOUT/)
+  assert.match(timeoutMessage, /signal=SIGTERM/)
+  assert.match(timeoutMessage, /timeout=true/)
+  assert.match(timeoutMessage, /stderr=worker stalled/)
+  const nonzero = formatFailure('tests/example.test.ts', run,
+    { code: 2, signal: null, stderr: 'bad filter' })
+  assert.match(nonzero, /exitCode=2/)
+  assert.match(nonzero, /timeout=false/)
+  assert.match(nonzero, /stderr=bad filter/)
+})
 test('500 aggregate leaves passes, 501 fails without Full fallback or shard bypass', () => {
   const files = count => [{ file: 'tests/a.test.ts', runner: 'vitest',
     names: Array.from({ length: count }, (_, i) => 'leaf ' + i) }]
@@ -94,7 +144,7 @@ test('production uses fresh immutable SHA-exact Full on every dev push, never ol
   assert.doesNotMatch(workflow, /supercov-dev-refresh:|supercov-refresh\.cjs|supercov-evidence-dev-|actions\/cache\/(?:restore|save)/)
   assert.match(seed, /aggregate\.result !== 'passed'/)
   assert.match(seed, /plan\.headSha !== sha/)
-  assert.match(seed, /buildSeed\(\{ sha, \.\.\.measured \}\)/)
+  assert.match(seed, /buildSeed\(\{ sha, \.\.\.measured, testFiles: vitestFiles \}\)/)
   assert.doesNotMatch(seed, /'merge', '--allow-changed'/)
 })
 
@@ -120,6 +170,8 @@ test('canonical dev/main publisher and artifact-only exact PR-base restore', () 
   assert.match(workflow, /supercov-full-seed:/)
   assert.match(workflow, /GH_TOKEN:/)
   assert.match(workflow, /SUPERCOV_EVIDENCE_BASE: \$\{\{ inputs\.base \}\}/)
+  assert.match(workflow, /Classify Related change before seed restore/)
+  assert.match(workflow, /steps\.related-preflight\.outputs\.needs-seed == 'true'/)
   assert.match(workflow, /supercov-evidence\.cjs restore/)
   assert.match(restore, /requireExactBaseSeed\(extracted\.sha, comparisonBase\)/)
   assert.match(restore, /candidate === comparisonBase/)
@@ -193,8 +245,10 @@ test('fully measured 763-leaf baseline permits honest uncovered branches, not in
   }
   const measured = validateRunSummary(summary, 763)
   assert.equal(measured.coverageComplete, false)
-  const seed = buildSeed({ sha: 'a'.repeat(40), ...measured })
-  assert.equal(seed.schemaVersion, 3)
+  const seed = buildSeed({ sha: 'a'.repeat(40), ...measured,
+    testFiles: ['tests/example.test.ts'] })
+  assert.equal(seed.schemaVersion, 4)
+  assert.deepEqual(seed.testFiles, ['tests/example.test.ts'])
   assert.equal(seed.tests, 763)
   assert.equal(seed.setups, 110)
   assert.equal(Object.hasOwn(seed, 'generation'), false)
@@ -225,6 +279,8 @@ test('fully measured 763-leaf baseline permits honest uncovered branches, not in
   assert.equal(validSeedMetadata({ ...seed, attributionComplete: false }), false)
   assert.equal(validSeedMetadata({ ...seed, schemaVersion: 1 }), false)
   assert.equal(validSeedMetadata({ ...seed, schemaVersion: 2 }), false)
+  assert.equal(validSeedMetadata({ ...seed, testFiles: [] }), false)
+  assert.equal(validSeedMetadata({ ...seed, testFiles: ['tests/example.test.ts', 'tests/example.test.ts'] }), false)
   assert.equal(validSeedMetadata({ ...seed, generation: 0 }), false)
 })
 
@@ -425,15 +481,21 @@ test('public --test-file --json reconstructs a truncated 3-leaf preview with exa
     { tests: 4, setups: 0 }), /unsafe/)
 })
 
-test('fallback only for documented native preview; real per-file source mapping and all counters mandatory', () => {
+test('preview expansion uses only affected historical files from the exact Full seed', () => {
   const adapter = readFileSync(resolve(__dirname, '../tooling/supercov-related.cjs'), 'utf8')
   const worker = readFileSync(resolve(__dirname, '../tooling/supercov-affected-expand.cjs'), 'utf8')
+  assert.match(adapter, /affectedHistoricalFiles/)
+  assert.match(adapter, /seed\.testFiles/)
+  assert.match(adapter, /\['tests', 'affected', '--files'\]/)
   assert.match(adapter, /reconcileAffectedFiles\(data, parts, files, seed\.runId/)
   assert.match(adapter, /minimumLeaves <= 500/)
   assert.match(adapter, /Supercov reconstructed/)
-  assert.match(adapter, /--test-file <path>/)
-  assert.doesNotMatch(adapter, /'--names', '--json'/)
+  assert.doesNotMatch(adapter, /inventory\.filter\(item => item\.runner === 'vitest'\)/)
   assert.match(worker, /'--test-file', file, '--json'/)
-  assert.match(worker, /Math\.min\(6, files\.length\)/)
+  assert.match(worker, /timeout: 90_000/)
+  assert.match(worker, /Math\.min\(3, files\.length\)/)
+  assert.match(worker, /testFile=/)
+  assert.match(worker, /seedRun=/)
+  assert.match(worker, /timeout=/)
   assert.doesNotMatch(worker, /--allow-changed/)
 })

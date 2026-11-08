@@ -35,6 +35,7 @@ interface PresentationPort {
   onGround: boolean
   previousPosition: Vector3
   horseLanding: { reset(): void }
+  armor: { reset(): void }
   impactTimes: Map<object, number>
   _pickWanderTarget(): void
 }
@@ -71,6 +72,7 @@ function presentation() {
     },
     horseVisual: null, proceduralVisual: null, eagleAttack: null, playableWorldBound: 500,
     onGround: false, previousPosition: new Vector3(), horseLanding: { reset() {} },
+    armor: { reset() { events.push('armor-reset') } },
     impactTimes: new Map(), _pickWanderTarget() {},
   }
   // One narrow seam invokes the real production methods over plain state/reset ports.
@@ -117,7 +119,7 @@ describe('mount death presentation lifetime', () => {
     h.events.length = 0
 
     Mount.prototype.restoreForTown.call(h.mount, 4, 7, .8)
-    expect(h.events).toEqual(['attach', 'flight-reset', 'live-pose-attached'])
+    expect(h.events).toEqual(['armor-reset', 'attach', 'flight-reset', 'live-pose-attached'])
     expect(h.port.eagleVisual.root).toBe(resource)
     expect(h.port.group.visible).toBe(true)
     expect(h.port.deathTimer).toBe(3)
@@ -131,5 +133,6 @@ describe('mount death presentation lifetime', () => {
     Mount.prototype.update.call(h.mount, 3, [])
     expect(h.port.deathPresentationComplete).toBe(true)
     expect(h.attached()).toBe(false)
+    expect(h.events.filter(event => event === 'armor-reset')).toHaveLength(1)
   })
 })
