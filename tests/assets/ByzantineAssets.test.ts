@@ -124,15 +124,18 @@ describe('Byzantine hands, banner and seat', () => {
     expect(cloth.y).toBeCloseTo(-1)
     expect(bannerRollAngle(new THREE.Quaternion())).toBeUndefined()
   })
-  it('seated legs stay outside every measured mount body', () => {
+  it('seated Byzantine legs bend at one hinge, open at the hip within reason, and the foot clears every mount', () => {
+    const thighLength = .37, calfLength = .47 // measured bind lengths
     for (const [kind, barrel] of Object.entries(MOUNT_BARREL)) for (const side of [1, -1] as const) {
-      for (const [thighLength, calfLength] of [[.4, .4], [.46, .46], [.55, .55]]) {
-        const hip = new THREE.Vector3(side * .1, -.08, 0)
-        const leg = solveSeatedLeg(hip, thighLength, calfLength, side, barrel)
-        const knee = hip.clone().addScaledVector(leg.thigh, thighLength), ankle = knee.clone().addScaledVector(leg.calf, calfLength)
-        for (const point of [knee, ankle]) expect(side * point.x, `${kind} ${thighLength}`).toBeGreaterThanOrEqual(barrelHalfWidth(barrel, -point.y) + .05)
-        expect(leg.thigh.z).toBeGreaterThan(0) // seated, not splayed straight out
-      }
+      const hip = new THREE.Vector3(side * .094, -.086, 0)
+      const leg = solveSeatedLeg(hip, thighLength, calfLength, side, barrel)
+      expect(leg.abduct, kind).toBeLessThanOrEqual(.76) // beyond this a leg reads as dislocated
+      // Both bones lie in one plane through the forward axis, so the knee never bends sideways.
+      expect(leg.thigh.x / leg.thigh.y).toBeCloseTo(leg.calf.x / leg.calf.y)
+      expect(leg.thigh.z).toBeGreaterThan(0)
+      expect(leg.calf.z).toBeLessThan(0)
+      const ankle = hip.clone().addScaledVector(leg.thigh, thighLength).addScaledVector(leg.calf, calfLength)
+      expect(side * ankle.x, kind).toBeGreaterThanOrEqual(barrelHalfWidth(barrel, -ankle.y) + .05)
     }
     expect(manifest.animations!.embedded.some(b => b.clip === 'mounted')).toBe(true)
   })

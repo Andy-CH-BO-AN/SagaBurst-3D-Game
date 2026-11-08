@@ -15,10 +15,11 @@ export const MOUNT_BARREL: Partial<Record<MountedPoseKind, readonly number[]>> =
   ARMORED_HORSE: [.24, .27, .32, .38, .41, .43, .46, .45, .48, .44],
 }
 
-const THIGH_FORWARD = .75
-const THIGH_CLEARANCE = .1
-const CALF_CLEARANCE = .08
-const CALF_BACK = -.15
+const THIGH_FORWARD = .85
+const CALF_BACK = .12
+const LEG_CLEARANCE = .09
+/** A hip opens about this far at most; beyond it a leg reads as dislocated. */
+const MAX_ABDUCTION = .75
 
 export function barrelHalfWidth(barrel: readonly number[], below: number): number {
   if (below <= 0) return barrel[0]
@@ -26,28 +27,35 @@ export function barrelHalfWidth(barrel: readonly number[], below: number): numbe
   return barrel[i] + (barrel[j] - barrel[i]) * (u - i)
 }
 
-export interface SeatedLegDirections { thigh: THREE.Vector3; calf: THREE.Vector3; foot: THREE.Vector3 }
+export interface SeatedLeg {
+  /** Rotation of the whole leg outward about the forward axis through the hip. */
+  abduct: number
+  /** Directions inside the leg's own hinge plane, before abduction: the knee only bends one way. */
+  thighPlane: THREE.Vector3
+  calfPlane: THREE.Vector3
+  thigh: THREE.Vector3
+  calf: THREE.Vector3
+}
 
-/** Smallest outward lean that keeps the limb outside the mount; the calf may hug the flank by leaning back in.
+const FORWARD_AXIS = new THREE.Vector3(0, 0, 1)
+
+/** Bends the leg in its hinge plane, then opens the whole leg at the hip just far enough to clear the mount.
  * Positions are metres from the pelvis in rider space (+Z forward). `side` is the sign of the hip's X. */
-export function solveSeatedLeg(hip: THREE.Vector3, thighLength: number, calfLength: number, side: 1 | -1, barrel: readonly number[]): SeatedLegDirections {
-  const clear = (from: THREE.Vector3, direction: THREE.Vector3, length: number, margin: number) => {
-    for (const t of [.35, .7, 1]) {
-      const x = side * (from.x + direction.x * length * t), below = -(from.y + direction.y * length * t)
-      if (below > .03 && x < barrelHalfWidth(barrel, below) + margin) return false
-    }
-    return true
+export function solveSeatedLeg(hip: THREE.Vector3, thighLength: number, calfLength: number, side: 1 | -1, barrel: readonly number[]): SeatedLeg {
+  const thighPlane = new THREE.Vector3(0, -Math.cos(THIGH_FORWARD), Math.sin(THIGH_FORWARD))
+  const calfPlane = new THREE.Vector3(0, -Math.cos(CALF_BACK), -Math.sin(CALF_BACK))
+  const thigh = new THREE.Vector3(), calf = new THREE.Vector3(), knee = new THREE.Vector3()
+  const clearAt = (point: THREE.Vector3) => side * point.x >= barrelHalfWidth(barrel, -point.y) + LEG_CLEARANCE
+  const mid = new THREE.Vector3(), ankle = new THREE.Vector3()
+  // The thigh root necessarily sits on the saddle; only the knee and the calf must clear the body.
+  let abduct = .05
+  for (; abduct < MAX_ABDUCTION; abduct += .02) {
+    thigh.copy(thighPlane).applyAxisAngle(FORWARD_AXIS, side * abduct)
+    calf.copy(calfPlane).applyAxisAngle(FORWARD_AXIS, side * abduct)
+    knee.copy(hip).addScaledVector(thigh, thighLength)
+    mid.copy(knee).addScaledVector(calf, calfLength * .5)
+    ankle.copy(knee).addScaledVector(calf, calfLength)
+    if (clearAt(knee) && clearAt(mid) && clearAt(ankle)) break
   }
-  const thigh = new THREE.Vector3()
-  for (let abduct = .2; abduct <= 1.5; abduct += .05) {
-    thigh.set(side * Math.sin(abduct), -Math.cos(abduct) * Math.cos(THIGH_FORWARD), Math.cos(abduct) * Math.sin(THIGH_FORWARD)).normalize()
-    if (clear(hip, thigh, thighLength, THIGH_CLEARANCE)) break
-  }
-  const knee = hip.clone().addScaledVector(thigh, thighLength)
-  const calf = new THREE.Vector3()
-  for (let lean = -.45; lean <= 1.2; lean += .05) {
-    calf.set(side * lean, -1, CALF_BACK).normalize()
-    if (clear(knee, calf, calfLength, CALF_CLEARANCE)) break
-  }
-  return { thigh, calf, foot: new THREE.Vector3(side * .2, -.12, 1).normalize() }
+  return { abduct, thighPlane, calfPlane, thigh, calf }
 }

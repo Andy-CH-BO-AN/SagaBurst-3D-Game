@@ -131,12 +131,17 @@ function captureSeatBind(root: THREE.Object3D, rig: CharacterRig): SeatBind {
 
 function solveSeatBind(bind: SeatBind, barrel: readonly number[]): Array<{ node: THREE.Object3D, q: THREE.Quaternion }> {
   const result: Array<{ node: THREE.Object3D, q: THREE.Quaternion }> = []
+  const forward = new THREE.Vector3(0, 0, 1), up = new THREE.Vector3(0, 1, 0)
   for (const leg of bind.legs) {
     const thighRest = leg.knee.position.clone().sub(leg.hip.position), calfRest = leg.ankle.position.clone().sub(leg.knee.position), footRest = leg.toe.clone().sub(leg.ankle.position)
     const solved = solveSeatedLeg(leg.hip.position.clone().sub(bind.pelvis), thighRest.length(), calfRest.length(), leg.side, barrel)
-    const hipWorld = new THREE.Quaternion().setFromUnitVectors(thighRest.normalize(), solved.thigh).multiply(leg.hip.rotation)
-    const kneeWorld = new THREE.Quaternion().setFromUnitVectors(calfRest.normalize(), solved.calf).multiply(leg.knee.rotation)
-    const ankleWorld = new THREE.Quaternion().setFromUnitVectors(footRest.normalize(), solved.foot).multiply(leg.ankle.rotation)
+    // The hinge is posed first and the hip opens both bones together, so the knee never bends sideways.
+    const open = new THREE.Quaternion().setFromAxisAngle(forward, leg.side * solved.abduct)
+    const hipWorld = open.clone().multiply(new THREE.Quaternion().setFromUnitVectors(thighRest.normalize(), solved.thighPlane)).multiply(leg.hip.rotation)
+    const kneeWorld = open.clone().multiply(new THREE.Quaternion().setFromUnitVectors(calfRest.normalize(), solved.calfPlane)).multiply(leg.knee.rotation)
+    // The foot stays level and points forward, toes slightly out, whatever the leg's opening.
+    const ankleWorld = new THREE.Quaternion().setFromAxisAngle(up, leg.side * .15)
+      .multiply(new THREE.Quaternion().setFromUnitVectors(footRest.normalize(), new THREE.Vector3(0, footRest.y, Math.hypot(footRest.x, footRest.z)).normalize())).multiply(leg.ankle.rotation)
     // The saddle masks the pelvis to its bind, so bind rotations are the parents here.
     result.push({ node: leg.hip.node, q: bind.pelvisRotation.clone().invert().multiply(hipWorld) },
       { node: leg.knee.node, q: hipWorld.clone().invert().multiply(kneeWorld) },
@@ -677,7 +682,8 @@ export class CharacterEquipmentPose {
 
   /** Seated legs for this rig and mount, solved once from its bind pose and the mount's measured width. */
   private fittedSeatLegs(kind: MountedPoseKind): Array<{ node: THREE.Object3D, q: THREE.Quaternion }> | undefined {
-    const barrel = MOUNT_BARREL[kind]
+    // Only the Byzantine bind has bent legs that the shared per-mount angles don't fit; other riders keep them.
+    const barrel = this.selectedSource?.rig === 'mixamo24' ? MOUNT_BARREL[kind] : undefined
     if (!barrel) return undefined
     let cached = this.seatLegCache.get(kind)
     if (!cached) { cached = solveSeatBind(this.seatBind, barrel); this.seatLegCache.set(kind, cached) }
