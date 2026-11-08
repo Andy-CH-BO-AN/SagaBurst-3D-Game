@@ -5,7 +5,8 @@ import { TownCavalryPatrolController, type PatrolResident } from '../../src/town
 import { townRoster } from '../../src/town/TownRules'
 import type { NPC } from '../../src/world/NPC'
 import { SpatialGrid } from '../../src/world/SpatialGrid'
-import type { Mount } from '../../src/world/Mount'
+import { MountType, type Mount } from '../../src/world/Mount'
+import { MountArmor } from '../../src/combat/MountArmor'
 import { townPatrolRefitPoint } from '../../src/town/TownRules'
 import { TownOutskirtsWarfareController, parseTownOutskirtsCheckpoint } from '../../src/town/TownOutskirtsWarfareController'
 import { NpcSpawnScheduler } from '../../src/world/NpcSpawnScheduler'
@@ -57,6 +58,10 @@ function patrol(count = 2, patrolId: 'A' | 'B' = 'A') {
       }),
     }
     actor.mount = { dead: false, currentHp: 100, maxHp: 100, group: { position, rotation: { y: 0 } }, riderNpc: actor,
+      armor: new MountArmor(MountType.HORSE),
+      get armorImpactMax() { return this.armor.max },
+      get armorImpactRemaining() { return this.armor.remaining },
+      restoreArmor(value?: number) { this.armor.restore(value) },
       restoreForTown: vi.fn() } as unknown as Mount
     return actor
   })

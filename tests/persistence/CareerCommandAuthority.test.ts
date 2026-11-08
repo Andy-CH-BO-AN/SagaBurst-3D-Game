@@ -18,6 +18,8 @@ import { CAREER_STORAGE_KEY,CareerProfileStore } from '../../src/career/CareerPr
 import type { CombatActorRef } from '../../src/combat/CombatAttribution'
 import { emptyPersonalContribution } from '../../src/combat/CommandMerit'
 import { Faction } from '../../src/world/NPC'
+import { MountArmor } from '../../src/combat/MountArmor'
+import { MountType } from '../../src/world/Mount'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { isTownCommandRevokedByRetirement, revokeRetirementTownCommandClaims } from '../../src/career/CareerRetirementCommand'
 import { snapshotPersonalMission } from '../../src/career/CareerPersonalSquadMission'
@@ -340,14 +342,21 @@ interface MountResource {
   dead: boolean; currentHp: number; maxHp: number; disposed: boolean; isAirborne: boolean
   riderNpc: ResidentResource | null; riderPlayer: null
   group: { position: Vector3; rotation: { y: number } }
+  armor: MountArmor; readonly armorImpactMax: number; readonly armorImpactRemaining: number
+  restoreArmor(value?: number): void
   restoreForTown(x: number, z: number, yaw: number): void; takeDamage(): void
 }
 function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean,
-  placement: Pick<ConstructorParameters<typeof CivilianCommandSquadController>[4], 'canPlaceMountedCivilian'> = {}) {
+  placement: Pick<ConstructorParameters<typeof CivilianCommandSquadController>[4], 'canPlaceMountedCivilian'> = {},
+  mountType: MountType = MountType.HORSE) {
   const events: string[] = []
   const mount: MountResource = { dead: mountDead, currentHp: mountDead ? 0 : 17, maxHp: 200, disposed: false,
     isAirborne: false, riderNpc: null, riderPlayer: null, group: { position: new Vector3(3, 0, 4), rotation: { y: 1 } },
-    restoreForTown() { events.push('restore-mount'); this.dead = false; this.currentHp = this.maxHp; this.riderNpc = null },
+    armor: new MountArmor(mountType),
+    get armorImpactMax() { return this.armor.max },
+    get armorImpactRemaining() { return this.armor.remaining },
+    restoreArmor(value) { this.armor.restore(value) },
+    restoreForTown() { events.push('restore-mount'); this.dead = false; this.currentHp = this.maxHp; this.armor.reset(); this.riderNpc = null },
     takeDamage() { this.dead = true; this.currentHp = 0 },
   }
   const roster = townRoster()
@@ -383,6 +392,24 @@ function residentRecovery(actorId: string, npcDead: boolean, mountDead: boolean,
 }
 
 describe('Civilian and merchant borrowed mount checkpoints', () => {
+  it('preserves depleted barding through ordinary persistence and refills only on refit; legacy saves initialize safely', () => {
+    const h = residentRecovery('civilian-0', false, false, {}, MountType.ARMORED_HORSE)
+    expect(h.mount.armorImpactMax).toBe(50)
+    h.mount.restoreArmor(0)
+    expect(h.owner.checkpoint()!.members['civilian-0'].mount?.armorImpactRemaining).toBe(0)
+    expect(h.controller().restore()).toBe(true)
+    expect(h.mount.armorImpactRemaining).toBe(0)
+    expect(h.owner.refit()).toBe(true)
+    expect(h.mount.armorImpactRemaining).toBe(50)
+    expect(h.read().civilianCommandSquad!.members['civilian-0'].mount?.armorImpactRemaining).toBe(50)
+
+    // Before barding existed the saved checkpoint had no armor field.
+    const legacy = h.read().civilianCommandSquad!.members['civilian-0'].mount!
+    delete legacy.armorImpactRemaining
+    h.mount.restoreArmor(0)
+    expect(h.controller().restore()).toBe(true)
+    expect(h.mount.armorImpactRemaining).toBe(50)
+  })
   it('refits a dead civilian onto its surviving original horse after saving the complete checkpoint', () => {
     const h = residentRecovery('civilian-0', true, false)
     expect(h.owner.checkpoint()!.members['civilian-0'].mount).toMatchObject({ hp: 17, mounted: false })
