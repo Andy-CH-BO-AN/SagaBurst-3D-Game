@@ -60,6 +60,7 @@ export interface PlayerSaveData {
     type: string
     appearanceVariant?: 0 | 1 | 2
     hp?: number
+    armorImpactRemaining?: number
     flight?: EagleFlightSnapshot
     position?: { x: number; y: number; z: number }
   }

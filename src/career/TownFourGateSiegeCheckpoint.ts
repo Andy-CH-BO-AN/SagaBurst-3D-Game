@@ -109,7 +109,7 @@ export function parseTownFourGateSiegeCheckpoint(value: unknown): TownFourGateSi
         position: { x: a.formation.position.x, y: a.formation.position.y, z: a.formation.position.z, yaw: a.formation.position.yaw },
         ...(a.formation.arrivalOrder ? { arrivalOrder: a.formation.arrivalOrder } : {}),
         ...(a.formation.speedLimit !== undefined ? { speedLimit: a.formation.speedLimit } : {}) } } : {}),
-      ...(a.mount ? { mount: { hp: a.mount.hp, mounted: a.mount.mounted,
+      ...(a.mount ? { mount: { armorImpactRemaining: a.mount.armorImpactRemaining, hp: a.mount.hp, mounted: a.mount.mounted,
         position: { x: a.mount.position.x, y: a.mount.position.y, z: a.mount.position.z, yaw: a.mount.position.yaw } } } : {}),
     }])) }
 

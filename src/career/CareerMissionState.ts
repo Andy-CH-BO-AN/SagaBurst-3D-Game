@@ -69,6 +69,7 @@ export interface CareerMissionResult {
 export interface CareerMissionMountState {
   activeMountId?: CareerMountId
   hp: Partial<Record<CareerMountId, number>>
+  armorImpact?: Partial<Record<CareerMountId, number>>
   unavailable: CareerMountId[]
 }
 
@@ -115,6 +116,7 @@ export interface ActiveCareerMission {
   duelOpponentHp?: number
   duelOpponentMaxHp?: number
   duelOpponentMountHp?: number
+  duelOpponentMountArmorImpact?: number
   duelPlayerHp?: number
   duelPlayerStamina?: number
   duelOpponentAmmo?: number
@@ -138,7 +140,7 @@ export interface ActiveCareerMission {
   /** Native identity receipts survive scene reconstruction independently of loaned equipment. */
   borrowedActorIdentities?: BorrowedCharacterIdentities
   veteranRosterVersion?: 1 | 2 | 3
-  actorHealth?: Record<string, { hp: number; mountHp?: number }>
+  actorHealth?: Record<string, { hp: number; mountHp?: number; mountArmorImpact?: number }>
   actorPositions?: Record<string, { x: number; y?: number; z: number; yaw: number; outpostRampartGarrison?: boolean; townRampartGarrison?: boolean }>
   engagedEnemySquadIds?: number[]
   playerHp?: number

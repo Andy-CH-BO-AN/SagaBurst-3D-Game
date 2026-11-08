@@ -82,6 +82,7 @@ export interface HorseTemplate {
   manifest: HorseAssetManifest
   gltf: GLTF
   bodyMaterials: THREE.MeshStandardMaterial[]
+  lodMaterials?: THREE.Material[]
 }
 
 export interface HorseDebugState {
@@ -451,7 +452,7 @@ export function createHorseInstance(template: HorseTemplate, initialVariant: Hor
   const bodyMeshes = template.manifest.bodyMeshNames.map((name) => requireMesh(root, name))
   const applyVariant = (variant: HorseAppearanceVariant): void => {
     appearanceVariant = variant
-    for (const mesh of bodyMeshes) mesh.material = template.bodyMaterials[variant]
+    bodyMeshes.forEach((mesh, i) => { mesh.material = template.lodMaterials?.[i] ?? template.bodyMaterials[variant] })
   }
   applyVariant(initialVariant)
   const animation = new HorseAnimationController(
@@ -496,25 +497,92 @@ function textureUrl(base: string, path: string): string {
   return `${base}/${path.replace(/^\/+/, '')}`
 }
 
+export class HorseAssetLoadError extends Error {
+  constructor(message: string) { super(message); this.name = 'HorseAssetLoadError' }
+}
+
+// Publish only a completed package. A timed-out attempt cannot overwrite a later retry.
+function loadHorsePackage(load: Promise<HorseTemplate>, label: string): Promise<HorseTemplate> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new HorseAssetLoadError(`${label}載入逾時（30 秒），請重試。`)), 30_000)
+    load.then(template => { clearTimeout(timeout); resolve(template) }, error => {
+      clearTimeout(timeout)
+      reject(new HorseAssetLoadError(`${label}載入失敗：${error instanceof Error ? error.message : String(error)}`))
+    })
+  })
+}
+
 export class HorseAssetRegistry {
   private static template: HorseTemplate | null = null
   private static preloadPromise: Promise<void> | null = null
+  private static ordinaryPreloadPromise: Promise<void> | null = null
+  private static armoredTemplate: HorseTemplate | null = null
+  private static armoredPreloadPromise: Promise<void> | null = null
+  private static armoredPreloadError: Error | null = null
+  private static lastRenderer: THREE.WebGLRenderer | null = null
 
   static get ready(): boolean {
     return this.template !== null
   }
 
+  static get armoredReady(): boolean {
+    return this.armoredTemplate !== null
+  }
+
+  static get armoredError(): Error | null {
+    return this.armoredPreloadError
+  }
+
+  static resetForTesting(): void {
+    this.template = null
+    this.preloadPromise = null
+    this.ordinaryPreloadPromise = null
+    this.armoredTemplate = null
+    this.armoredPreloadPromise = null
+    this.armoredPreloadError = null
+    this.lastRenderer = null
+  }
+
   static preload(renderer: THREE.WebGLRenderer): Promise<void> {
+    this.lastRenderer = renderer
     if (!this.preloadPromise) {
-      this.preloadPromise = this.load(renderer).catch((error) => {
-        this.preloadPromise = null
-        throw error
-      })
+      if (!this.ordinaryPreloadPromise) {
+        this.ordinaryPreloadPromise = this.template ? Promise.resolve()
+          : loadHorsePackage(this.load(renderer), '普通戰馬').then(template => { this.template = template }).catch(error => {
+            this.ordinaryPreloadPromise = null
+            throw error
+          })
+      }
+      // Every Game/Town/Studio entry awaits this shared barrier before creating mounts.
+      this.preloadPromise = Promise.all([this.ordinaryPreloadPromise, this.preloadArmored(renderer)])
+        .then(() => {}).catch(error => { this.preloadPromise = null; throw error })
     }
     return this.preloadPromise
   }
 
-  private static async load(renderer: THREE.WebGLRenderer): Promise<void> {
+  static preloadArmored(renderer?: THREE.WebGLRenderer): Promise<void> {
+    const activeRenderer = renderer ?? this.lastRenderer
+    if (renderer) this.lastRenderer = renderer
+    if (this.armoredTemplate) return Promise.resolve()
+    if (!this.armoredPreloadPromise) {
+      if (!activeRenderer) {
+        const error = new HorseAssetLoadError('Renderer is required to preload armored horse assets')
+        this.armoredPreloadError = error
+        return Promise.reject(error)
+      }
+      this.armoredPreloadPromise = loadHorsePackage(this.loadArmored(activeRenderer), '重甲戰馬').then(template => {
+        this.armoredTemplate = template
+        this.armoredPreloadError = null
+      }).catch((error) => {
+        this.armoredPreloadPromise = null
+        this.armoredPreloadError = error instanceof Error ? error : new Error(String(error))
+        throw error
+      })
+    }
+    return this.armoredPreloadPromise
+  }
+
+  private static async load(renderer: THREE.WebGLRenderer): Promise<HorseTemplate> {
     const base = publicAssetUrl('models/mounts/v1/horse')
     const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
     if (!response.ok) throw new Error(`Cannot load horse manifest (${response.status})`)
@@ -595,14 +663,61 @@ export class HorseAssetRegistry {
         material.needsUpdate = true
         return material
       })
-      this.template = { manifest, gltf, bodyMaterials }
+      return { manifest, gltf, bodyMaterials }
     } finally {
       ktx2Loader.dispose()
     }
   }
 
-  static createInstance(config: { variant?: HorseAppearanceVariant } = {}): HorseInstance {
+  private static async loadArmored(renderer: THREE.WebGLRenderer): Promise<HorseTemplate> {
+    const base = publicAssetUrl('models/mounts/v1/armored-horse')
+    const response = await fetch(`${base}/manifest.json`, { cache: 'no-cache' })
+    if (!response.ok) throw new Error(`Cannot load armored horse manifest (${response.status})`)
+    const manifest = await response.json() as HorseAssetManifest
+    validateHorseManifest(manifest)
+    const ktx = new KTX2Loader().setTranscoderPath(textureUrl(publicAssetUrl('models/mounts/v1/horse'), 'basis/')).detectSupport(renderer)
+    try {
+      const gltf = await new GLTFLoader().setKTX2Loader(ktx).setMeshoptDecoder(MeshoptDecoder).loadAsync(textureUrl(base, manifest.file!))
+      firstSkinnedMesh(gltf.scene)
+      normalizedClips(gltf)
+      for (const name of [...REQUIRED_SOCKETS, ...Object.values(manifest.lodNodes)]) requireObject(gltf.scene, name)
+      const textures = new Map<string, Promise<THREE.Texture>>()
+      for (const [index, texture] of (gltf.parser?.json?.textures ?? []).entries()) {
+        const imageIndex = texture.extensions?.KHR_texture_basisu?.source ?? texture.source
+        const uri = gltf.parser?.json?.images?.[imageIndex]?.uri
+        if (uri) textures.set(textureUrl(base, uri), gltf.parser.getDependency('texture', index))
+      }
+      const loadTexture = (path: string): Promise<THREE.Texture> => {
+        const url = textureUrl(base, path)
+        if (!textures.has(url)) textures.set(url, ktx.loadAsync(url))
+        return textures.get(url)!
+      }
+      await Promise.all([
+        loadTexture(manifest.sharedBodyMaps.normal),
+        loadTexture(manifest.sharedBodyMaps.roughness),
+        ...(manifest.sharedBodyMaps.ao ? [loadTexture(manifest.sharedBodyMaps.ao)] : []),
+        ...manifest.variants.map(variant => loadTexture(variant.baseColor)),
+      ])
+      const material = requireMesh(gltf.scene, manifest.bodyMeshNames[0]).material
+      if (!(material instanceof THREE.MeshStandardMaterial)) throw new Error('Armored horse material is unsupported')
+      return { manifest, gltf, bodyMaterials: [material, material, material],
+        lodMaterials: manifest.bodyMeshNames.map(name => requireMesh(gltf.scene, name).material as THREE.Material) }
+    } finally { ktx.dispose() }
+  }
+
+  static resolveTemplate(config: { variant?: HorseAppearanceVariant; armored?: boolean } = {}): HorseTemplate {
+    if (config.armored) {
+      if (!this.armoredTemplate) {
+        throw this.armoredPreloadError ?? new Error('Armored horse assets were not preloaded')
+      }
+      return this.armoredTemplate
+    }
     if (!this.template) throw new Error('HorseAssetRegistry is not preloaded')
-    return createHorseInstance(this.template, config.variant ?? 0)
+    return this.template
+  }
+
+  static createInstance(config: { variant?: HorseAppearanceVariant; armored?: boolean } = {}): HorseInstance {
+    const template = this.resolveTemplate(config)
+    return createHorseInstance(template, config.armored ? 0 : config.variant ?? 0)
   }
 }

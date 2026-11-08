@@ -448,9 +448,9 @@ export class BattleSetupUI {
             </button>
           </div>
         </section>
-
         ${renderEquipmentGroup('坐騎種類', 'MOUNT SELECTION', [
           { id: 'horse', zh: '軍用戰馬', en: 'WAR HORSE', stat: '標準軍馬 · 戰術衝鋒' },
+          { id: 'armored-horse', zh: '重甲戰馬', en: 'ARMORED WARHORSE', stat: '重甲軍馬 · 護甲衝鋒' },
           { id: 'snow-leopard', zh: '重甲雪豹', en: 'ARMORED SNOW LEOPARD', stat: '重裝戰獸 · 破陣衝鋒' },
           { id: 'black-cat', zh: '黑貓戰騎', en: 'BLACK CAT', stat: '靈巧貓騎 · 敏捷突擊' },
           { id: 'white-cat', zh: '白貓戰騎', en: 'WHITE CAT', stat: '靈巧貓騎 · 敏捷突擊' },
@@ -1925,6 +1925,7 @@ export class BattleSetupUI {
     // Mount & Deployment Stance
     const mountNames: Record<string, string> = {
       'horse': '軍用戰馬',
+      'armored-horse': '重甲戰馬',
       'snow-leopard': '重甲雪豹',
       'black-cat': '黑貓戰騎',
       'white-cat': '白貓戰騎',
@@ -1936,6 +1937,7 @@ export class BattleSetupUI {
     }
     const mountStats: Record<string, string> = {
       'horse': '標準軍馬 · 戰術衝鋒',
+      'armored-horse': '重甲軍馬 · 護甲衝鋒',
       'snow-leopard': '重裝戰獸 · 破陣衝鋒',
       'black-cat': '靈巧貓騎 · 敏捷突擊',
       'white-cat': '靈巧貓騎 · 敏捷突擊',

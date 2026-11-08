@@ -164,7 +164,7 @@ export class CareerDuelController {
     return { ...mission, ...(tier === 5 ? { duelCommanderHome: { hp: roster.opponent.npc.hp, ammo: roster.opponent.npc.combatAmmo },
       duelTravel: this.travelCheckpoint([roster.captain.npc, roster.opponent.npc], false) } : {}), duelOpponentHp: ordinaryHealth?.hp ?? roster.opponent.npc.hp,
       ...(ordinaryHealth ? { duelOpponentMaxHp: ordinaryHealth.maxHp } : {}),
-      ...(roster.mount ? { duelOpponentMountHp: roster.mount.currentHp } : {}),
+      ...(roster.mount ? { duelOpponentMountHp: roster.mount.currentHp, duelOpponentMountArmorImpact: roster.mount.armorImpactRemaining } : {}),
       ...(Number.isFinite(player.hp) && player.hp >= 0 ? { duelPlayerHp: player.hp } : {}),
       ...(Number.isFinite(player.staminaValue) && player.staminaValue >= 0 ? { duelPlayerStamina: player.staminaValue } : {}) }
   }
@@ -234,6 +234,7 @@ export class CareerDuelController {
       }
       if (!mount || mount.dead) { this.cleanupMission(); return false }
       opponent.npc.mountVehicle(mount)
+      mount.restoreArmor(active.duelOpponentMountArmorImpact)
       this.opponentMount = mount
       if (!this.missionMounts.includes(mount)) this.missionMounts.push(mount)
       if (mount === this.blackCat) mount.catVisual?.setEquipmentVisible(true)
@@ -384,7 +385,7 @@ export class CareerDuelController {
     const resourceChanged = validResource(player.hp) && player.hp !== active.duelPlayerHp
       || this.opponent.hp !== active.duelOpponentHp
       || validResource(this.opponent.combatAmmo) && this.opponent.combatAmmo !== active.duelOpponentAmmo
-      || Boolean(this.opponentMount && this.opponentMount.currentHp !== active.duelOpponentMountHp)
+      || Boolean(this.opponentMount && (this.opponentMount.currentHp !== active.duelOpponentMountHp || this.opponentMount.armorImpactRemaining !== active.duelOpponentMountArmorImpact))
     const playerStats = this.tracker?.checkpoint()
     const statsChanged = Boolean(playerStats && (Object.keys(playerStats) as (keyof typeof playerStats)[])
       .some(key => playerStats[key] !== (active.playerStats?.[key] ?? 0)))
@@ -439,7 +440,7 @@ export class CareerDuelController {
     const player = this.player()
     return { ...active, ...(active.duelTier === 5 || active.duelTutorialCareerId ? { duelTravel: this.travelCheckpoint(this.actors, this.staging) } : {}), duelCountdownElapsed: this.countdownElapsed, duelCombatElapsed: this.combatElapsed,
       duelOpponentHp: this.opponent?.hp,
-      ...(active.duelTier! <= 3 ? { duelOpponentMaxHp: this.opponent?.maxHp } : {}), ...(this.opponentMount ? { duelOpponentMountHp: this.opponentMount.currentHp } : {}),
+      ...(active.duelTier! <= 3 ? { duelOpponentMaxHp: this.opponent?.maxHp } : {}), ...(this.opponentMount ? { duelOpponentMountHp: this.opponentMount.currentHp, duelOpponentMountArmorImpact: this.opponentMount.armorImpactRemaining } : {}),
       ...(Number.isFinite(player.hp) && player.hp >= 0 ? { duelPlayerHp: player.hp } : {}),
       ...(Number.isFinite(player.staminaValue) && player.staminaValue >= 0 ? { duelPlayerStamina: player.staminaValue } : {}),
       ...(Number.isFinite(this.opponent?.combatAmmo) ? { duelOpponentAmmo: this.opponent!.combatAmmo } : {}),

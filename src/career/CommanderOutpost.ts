@@ -44,7 +44,7 @@ export function createCareerCommanderOutpostLaunch(profile: CareerProfile): Defe
     rangedWeaponId: legal(profile.equipment?.ranged, 'ranged') ?? defaults.rangedWeaponId,
     shieldId: legal(profile.equipment?.shield, 'shield') ?? defaults.shieldId,
     startMounted: Boolean(mount && canUseCareerMount(profile, mount)),
-    mountId: mount === 'black-cat' || mount === 'white-cat' || mount === 'orange-cat' || mount === 'serval' || mount === 'caracal' || mount === 'corgi' || mount === 'snow-leopard' || mount === 'xongkoro' ? mount : 'horse',
+    mountId: mount === 'armored-horse' || mount === 'black-cat' || mount === 'white-cat' || mount === 'orange-cat' || mount === 'serval' || mount === 'caracal' || mount === 'corgi' || mount === 'snow-leopard' || mount === 'xongkoro' ? mount : 'horse',
   } as PlayerLoadoutConfig
   const runtimeState = mission.outpostBattleState ?? initialRuntimeState()
   return {

@@ -20,7 +20,7 @@ export interface PersonalActorCheckpoint {
   fall?: FallingRiderSnapshot
   ammo?: number
   shieldImpact?: number
-  mount?: { hp: number; mounted: boolean; position: PersonalActorPosition; flight?: EagleFlightSnapshot }
+  mount?: { armorImpactRemaining?: number; hp: number; mounted: boolean; position: PersonalActorPosition; flight?: EagleFlightSnapshot }
   order?: TacticalOrder
   formation?: { commandId: number; position: PersonalActorPosition; reached: boolean; speedLimit?: number; arrivalOrder?: TacticalOrder }
   /** True only while the system-owned initial Outpost rampart order is active. */
@@ -148,7 +148,7 @@ export function parsePersonalMission(value: unknown): PersonalSquadMission | und
       ...(finite(actor?.ammo) ? { ammo: Math.floor(nonnegative(actor.ammo)) } : {}),
       ...(finite(actor?.shieldImpact) ? { shieldImpact: nonnegative(actor.shieldImpact) } : {}),
       ...(actor?.order && ORDERS.includes(actor.order) ? { order: actor.order } : {}),
-      ...(mountPosition && finite(actor?.mount?.hp) ? { mount: { hp: nonnegative(actor.mount.hp), mounted: actor.mount.mounted === true, position: mountPosition, ...(parseEagleFlightSnapshot(actor.mount.flight) ? { flight: parseEagleFlightSnapshot(actor.mount.flight) } : {}) } } : {}),
+      ...(mountPosition && finite(actor?.mount?.hp) ? { mount: { armorImpactRemaining: finite(actor.mount.armorImpactRemaining) ? Math.min(50, nonnegative(actor.mount.armorImpactRemaining)) : undefined, hp: nonnegative(actor.mount.hp), mounted: actor.mount.mounted === true, position: mountPosition, ...(parseEagleFlightSnapshot(actor.mount.flight) ? { flight: parseEagleFlightSnapshot(actor.mount.flight) } : {}) } } : {}),
       ...(formationPosition && finite(actor?.formation?.commandId) ? { formation: {
         commandId: actor.formation.commandId, position: formationPosition, reached: actor.formation.reached === true,
         ...(finite(actor.formation.speedLimit) ? { speedLimit: nonnegative(actor.formation.speedLimit) } : {}),

@@ -16,6 +16,7 @@ import { SnowLeopardVisual, SNOW_LEOPARD_HURTBOX } from './SnowLeopardVisual'
 import type { QuadrupedVisual } from './QuadrupedVisual'
 import { CorgiVisual } from './CorgiVisual'
 import { isQuadrupedAnimationState, type MountAnimationState } from './QuadrupedMountAnimation'
+import { MountArmor, mountImpactMultiplier } from '../combat/MountArmor'
 import { COMBAT_BALANCE } from '../combat/CombatBalance'
 import { LocalBoxCollider } from '../combat/ShieldBlocking'
 import { CompoundLocalBoxCollider } from '../combat/CompoundLocalBoxCollider'
@@ -40,6 +41,7 @@ export enum MountType {
   CARACAL = 'CARACAL',
   CORGI = 'CORGI',
   HORSE = 'HORSE',
+  ARMORED_HORSE = 'ARMORED_HORSE',
   XONGKORO = 'xongkoro',
   SNOW_LEOPARD = 'SNOW_LEOPARD',
 }
@@ -94,6 +96,7 @@ export enum MountState {
 }
 
 export function mountTypeFromSave(value: string): MountType {
+  if (value === 'armored-horse' || value === 'ARMORED_HORSE') return MountType.ARMORED_HORSE
   if (value === 'xongkoro') return MountType.XONGKORO
   if (value === MountType.BLACK_CAT || value === 'black-cat') return MountType.BLACK_CAT
   if (value === MountType.WHITE_CAT || value === 'white-cat') return MountType.WHITE_CAT
@@ -107,6 +110,7 @@ export function mountTypeFromSave(value: string): MountType {
 }
 
 export function mountTypeFromId(value: string | null | undefined): MountType {
+  if (value === 'armored-horse' || value === 'ARMORED_HORSE') return MountType.ARMORED_HORSE
   if (value === 'xongkoro') return MountType.XONGKORO
   if (value === 'black-cat') return MountType.BLACK_CAT
   if (value === 'white-cat') return MountType.WHITE_CAT
@@ -149,6 +153,11 @@ export class Mount {
   public readonly onDeathCallbacks: Array<(mount: Mount) => void> = []
 
   public reservedForTown = false
+  readonly armor: MountArmor
+  get armorImpactMax(): number { return this.armor.max }
+  get armorImpactRemaining(): number { return this.armor.remaining }
+  restoreArmor(value?: number): void { this.armor.restore(value) }
+  get impactMultiplier(): number { return mountImpactMultiplier(this.type) }
   public maxHp = 100
   public currentHp = 100
   public baseSpeed = 12
@@ -189,6 +198,7 @@ export class Mount {
   ) {
     this.playableWorldBound = getScenePlayableWorldBound(scene)
     this.type = type
+    this.armor = new MountArmor(type)
     this.appearanceVariant = type === MountType.HORSE ? horseVariantFromSave(appearanceVariant) : 0
     this.group = new THREE.Group()
     this.group.name = `mount_${type}`
@@ -199,6 +209,7 @@ export class Mount {
         : type === MountType.SNOW_LEOPARD
           ? 12.8
           : 12
+    if (type === MountType.ARMORED_HORSE) { this.baseSpeed = 10.5; this.maxHp = this.currentHp = 600 }
     if (type === MountType.SNOW_LEOPARD) this.maxHp = this.currentHp = 500
     else if (type === MountType.ORANGE_CAT) this.maxHp = this.currentHp = 150
 
@@ -212,9 +223,12 @@ export class Mount {
       this.maxHp = this.currentHp = XONGKORO.maxHp
       this.baseSpeed = XONGKORO.cruiseSpeed
       this.ridePitch = 0
-    } else if (type === MountType.HORSE) {
-      if (!HorseAssetRegistry.ready) throw new Error('Horse assets were not preloaded')
-      this.horseVisual = HorseAssetRegistry.createInstance({ variant: this.appearanceVariant })
+    } else if (type === MountType.HORSE || type === MountType.ARMORED_HORSE) {
+      if (type === MountType.ARMORED_HORSE ? !HorseAssetRegistry.armoredReady : !HorseAssetRegistry.ready) {
+        throw (type === MountType.ARMORED_HORSE ? HorseAssetRegistry.armoredError : null)
+          ?? new Error(type === MountType.ARMORED_HORSE ? 'Armored horse assets were not preloaded' : 'Horse assets were not preloaded')
+      }
+      this.horseVisual = HorseAssetRegistry.createInstance({ variant: this.appearanceVariant, armored: type === MountType.ARMORED_HORSE })
       this.group.add(this.horseVisual.root)
       this.horseVisual.root.updateWorldMatrix(true, true)
       const saddleWorld = this.horseVisual.saddleSeat.getWorldPosition(new THREE.Vector3())
@@ -301,6 +315,7 @@ export class Mount {
   }
   get displayName(): string {
     if (this.isFlyingMount) return 'xongkoro'
+    if (this.type === MountType.ARMORED_HORSE) return '重甲戰馬'
     if (this.type === MountType.HORSE) return '戰馬'
     if (this.type === MountType.SNOW_LEOPARD) return '重甲雪豹'
     if (this.type === MountType.WHITE_CAT) return '白貓'
@@ -514,6 +529,7 @@ export class Mount {
     this.riderNpc = null
     this.riderFaction = null
     this.currentHp = this.maxHp
+    this.armor.reset()
     this.state = MountState.IDLE
     this.deathTimer = 3
     // Completed eagle corpses retain their logical actor, but their hidden rig

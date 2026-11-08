@@ -94,9 +94,10 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       CARACAL: new BlackCatVisual('caracal'),
       SNOW_LEOPARD: new SnowLeopardVisual(),
       HORSE: HorseAssetRegistry.createInstance(),
+      ...(HorseAssetRegistry.armoredReady ? { ARMORED_HORSE: HorseAssetRegistry.createInstance({ armored: true }) } : {}),
       xongkoro: new XongkoroVisual(),
-    }
-    for (const mount of Object.values(mounts)) { mount.root.visible = false; scene.add(mount.root) }
+    } as Partial<Record<MountedPoseKind, { root: THREE.Object3D; saddleSeat?: THREE.Object3D }>>
+    for (const mount of Object.values(mounts)) if (mount) { mount.root.visible = false; scene.add(mount.root) }
     let mountKind: MountedPoseKind = commander ? 'SNOW_LEOPARD' : roman ? 'CORGI' : 'BLACK_CAT'
     playback.mountKind = mountKind
     // DEV-only inspection of the actual rendered instance, selected mixers and equipment.
@@ -117,17 +118,17 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       normal.root.visible = compare && !riding
       normal.root.position.set(-.85, 0, 0)
       hero.root.position.set(compare && !riding ? .65 : 0, 0, 0)
-      for (const [kind, mount] of Object.entries(mounts)) mount.root.visible = riding && kind === mountKind
+      for (const [kind, mount] of Object.entries(mounts)) if (mount) mount.root.visible = riding && kind === mountKind
       const mount = mounts[mountKind]
       if (riding && mount instanceof XongkoroVisual) {
         mount.update(0, { flying: true, sprinting: false, attackWeight: 0, dead: false })
         fitStandingRider(hero.root, hero.rig, mount.standingSocket)
-      } else if (riding && 'saddleSeat' in mount) {
+      } else if (riding && mount?.saddleSeat) {
         hero.root.updateMatrixWorld(true)
         const pelvis = hero.rig.pelvis!.getWorldPosition(new THREE.Vector3())
         // Match Mount.getRiderPelvisSeatWorld, including the fitted horse seat
         // and Corgi contact clearance used by real Player and NPC riders.
-        const seat = (mount instanceof CorgiVisual ? mount.riderPelvisSeat : mount.saddleSeat).getWorldPosition(new THREE.Vector3())
+        const seat = (mount instanceof CorgiVisual ? mount.riderPelvisSeat : mount.saddleSeat!).getWorldPosition(new THREE.Vector3())
         if (mountKind === 'HORSE') seat.add(new THREE.Vector3(0, 0, HORSE_RIDER_PELVIS_SADDLE_FORWARD_OFFSET).applyQuaternion(mount.root.getWorldQuaternion(new THREE.Quaternion())))
         hero.root.position.add(seat.sub(pelvis))
       }
@@ -163,7 +164,7 @@ export async function launchVikingHeroPreview(container: HTMLElement, descriptor
       <label>裝備 <select id="hero-equipment"><option value="none">空手</option><option value="sword">${WEAPONS[swordId].name}</option><option value="axe">${WEAPONS[axeId].name}</option><option value="shield">${WEAPONS[swordId].name} + ${ARMORS[shieldId].name}</option><option value="axe-shield">${WEAPONS[axeId].name} + ${ARMORS[shieldId].name}</option><option value="selected-axe">${WEAPONS.viking_axe_t3.name}</option><option value="selected-axe-shield">${WEAPONS.viking_axe_t3.name} + ${ARMORS[shieldId].name}</option><option value="lance">${WEAPONS.spear_t4.name}</option><option value="bow">${WEAPONS[maki ? 'maki-ranger-bow-ranged' : commander ? 'bow_t5' : 'recurve_longbow'].name}</option></select></label><br>
       <label><input id="hero-shield-raised" type="checkbox"> 舉盾</label><br>
       <label>LOD <select id="hero-lod"><option value="0">LOD0</option><option value="1">LOD1</option><option value="2">LOD2</option></select></label><br>
-      <label><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="SNOW_LEOPARD" ${commander ? 'selected' : ''}>Armored Snow Leopard</option><option value="BLACK_CAT" ${!commander && !roman ? 'selected' : ''}>Black Cat</option><option value="WHITE_CAT">White Cat</option><option value="ORANGE_CAT">Orange Cat</option><option value="SERVAL">Serval</option><option value="CARACAL">Caracal</option><option value="CORGI" ${!commander && roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>
+      <label><input id="hero-mounted" type="checkbox"> 騎乘 <select id="hero-mount"><option value="HORSE">Horse</option><option value="ARMORED_HORSE">重甲戰馬</option><option value="SNOW_LEOPARD" ${commander ? 'selected' : ''}>Armored Snow Leopard</option><option value="BLACK_CAT" ${!commander && !roman ? 'selected' : ''}>Black Cat</option><option value="WHITE_CAT">White Cat</option><option value="ORANGE_CAT">Orange Cat</option><option value="SERVAL">Serval</option><option value="CARACAL">Caracal</option><option value="CORGI" ${!commander && roman ? 'selected' : ''}>Corgi</option><option value="xongkoro">xongkoro 飛行姿勢</option></select></label><br>
       <button id="hero-pause">暫停</button> <button id="hero-replay">重新播放</button><br>
       <label>固定時間 <input id="hero-time" type="range" min="0" max="1" step="0.001" value="0" style="width:160px"></label>
       <div id="hero-status"></div><hr><div>${commander ? '來源 T5 模型 · 同陣營 T4 身體尺度校準' : maki || civilian ? '新模型 · 一般 Humanoid 裝備' : roman ? 'Gondor Knight 原始模型適配' : '一般角色 1.86 m'}<br>${civilian ? '含鞋全高' : commander ? '含盔鞋全高' : maki ? '鞋底至兜帽' : roman ? '含盔鞋全高' : '英雄本體'} ${manifest.metrics.heightM.toFixed(3)} m${commander || maki || civilian || roman ? '' : `<br>含盔鞋 ${manifest.metrics.overallHeightM.toFixed(3)} m`}</div>

@@ -220,6 +220,7 @@ export class CommanderTownMissionController {
       if (health && !actor.dead) actor.restoreCombatHealth(health.hp)
       const mount = actor.mount ?? resident.homeMount
       if (mount && health?.mountHp !== undefined) {
+      mount.restoreArmor(health.mountArmorImpact)
         if (health.mountHp <= 0 && !mount.dead) { mount.takeDamage(mount.maxHp + 1); if (actor.mount === mount) actor.dismountFromMount() }
         else if (!mount.dead) mount.currentHp = Math.min(mount.maxHp, health.mountHp)
       }
@@ -289,6 +290,7 @@ export class CommanderTownMissionController {
     }
     if (health && !npc.dead) npc.restoreCombatHealth(health.hp)
     if (mount && health?.mountHp !== undefined) {
+      mount.restoreArmor(health.mountArmorImpact)
       if (health.mountHp <= 0) { mount.takeDamage(mount.maxHp + 1); npc.dismountFromMount() }
       else mount.currentHp = Math.min(mount.maxHp, health.mountHp)
     }
@@ -454,13 +456,13 @@ export class CommanderTownMissionController {
         if (active.kind === 'commander-sky-raid' && actor.dead) deadTargets.add(actor.combatantId)
         if (resident.spec.duty === 'patrol') continue
         const mount = actor.mount ?? resident.homeMount
-        actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
+        actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountArmorImpact: mount.armorImpactRemaining, mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
         actorPositions[actor.combatantId] = { x: actor.combatPosition.x, y: actor.combatPosition.y, z: actor.combatPosition.z, yaw: actor.group.rotation.y }
       }
       const authority = active.officialSquad ? { ...active.officialSquad, members: { ...active.officialSquad.members } } : undefined
       for (const actor of this.officialActors) {
         const mount = this.actorMounts.get(actor) ?? actor.mount ?? undefined
-        actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
+        actorHealth[actor.combatantId] = { hp: actor.dead ? 0 : actor.hp, ...(mount ? { mountArmorImpact: mount.armorImpactRemaining, mountHp: mount.dead ? 0 : mount.currentHp } : {}) }
         actorPositions[actor.combatantId] = { x: actor.combatPosition.x, z: actor.combatPosition.z, yaw: actor.group.rotation.y }
         if (actor.dead) deadFriendlies.add(actor.combatantId)
         if (authority) authority.members![actor.combatantId] = snapshotCommandActor(actor, mount)

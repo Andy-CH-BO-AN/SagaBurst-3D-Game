@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Vector3 } from 'three'
+import { HorseAssetRegistry } from '../../src/world/HorseAssetRegistry'
 import { BlackCatVisual, type FelineMountVariant } from '../../src/world/BlackCatVisual'
 import { CareerMountController, careerFelineVariants } from '../../src/career/CareerMountController'
 import { CareerRaceController } from '../../src/career/CareerRaceController'
@@ -14,9 +15,15 @@ import type { Mount } from '../../src/world/Mount'
 vi.mock('../../src/world/Mount', async importOriginal => {
   const original = await importOriginal<typeof import('../../src/world/Mount')>()
   class StubMount {
+    armorImpactRemaining = 0; armorImpactMax = 0; restoreArmor(value?: number) { this.armorImpactRemaining = value ?? this.armorImpactMax }
     currentHp = 100; maxHp = 100; onDeathCallbacks: Array<() => void> = []
     group = { position: new Vector3(), rotation: { y: 0 } }; isAirborne = false; dead = false
-    constructor(public scene: unknown, public type: string) {}
+    constructor(public scene: unknown, public type: string, x = 0, z = 0, y = 0) {
+      this.group.position.set(x, y, z)
+      if (type === original.MountType.ARMORED_HORSE) { this.maxHp = 600; this.armorImpactMax = 50 }
+    }
+    setCameraDistance() {}
+    update() {}
     dispose() {}
   }
   return { ...original, Mount: StubMount }
@@ -47,14 +54,15 @@ async function flush() {
 
 function mountOwner() {
   let current = createCareerProfile('roman')
-  for (const id of ['serval', 'orange-cat', 'white-cat'] as const) addCareerItem(current, id, 1)
-  const player = { isFalling: false, currentMount: null, mountVehicle: vi.fn(), dismountFromMount: vi.fn(), isMounted: false,
-    combatPosition: new Vector3(), facingYaw: 0 }
+  for (const id of ['serval', 'orange-cat', 'white-cat', 'armored-horse'] as const) addCareerItem(current, id, 1)
+  const player = { isFalling: false, currentMount: null as Mount | null, mountVehicle: vi.fn(), dismountFromMount: vi.fn(), isMounted: false,
+    combatPosition: new Vector3(), position: new Vector3(), facingYaw: 0 }
+  player.mountVehicle.mockImplementation((mount: Mount) => { player.currentMount = mount; player.isMounted = true })
   const owner = Object.create(CareerMountController.prototype) as CareerMountController
   Object.assign(owner as unknown as object, {
     scene: {}, player: () => player, readProfile: () => current, commit: (next: CareerProfile) => { current = next; return true },
     obstacles: () => [], occupied: () => [], sceneKey: () => 'town-home', options: {},
-    hp: new Map(), unavailable: new Set(), active: null, requestSeq: 0, pending: null, statusText: '',
+    hp: new Map(), armorImpact: new Map(), unavailable: new Set(), active: null, requestSeq: 0, pending: null, statusText: '',
   })
   return { owner, player, profile: () => current }
 }
@@ -92,6 +100,49 @@ describe('feline mount activation under asynchronous asset loading', () => {
     expect(preloadCalls).toEqual(['white-cat', 'white-cat'])
     gates.get('white-cat')!.resolve(); await flush()
     expect(owner.activeMountId).toBe('white-cat')
+  })
+})
+
+describe('Career saved mounts after the shared preload barrier', () => {
+  it('restores mission HP and zero armor once without changing the selected mount or spending merit', () => {
+    const h = mountOwner(), profile = h.profile()
+    profile.selectedMountId = 'armored-horse'
+    profile.activeMission = { id: 'restore-mission', templateId: 'outpost-relief', targetCampId: 0, phase: 'ENGAGING', acceptedAt: 1,
+      targetActorIds: [], friendlyActorIds: [], mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 317 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] } }
+    Object.assign(h.owner, { hp: new Map([['armored-horse', 317]]), armorImpact: new Map([['armored-horse', 0]]) })
+    vi.spyOn(HorseAssetRegistry, 'armoredReady', 'get').mockReturnValue(true)
+    const preload = vi.spyOn(HorseAssetRegistry, 'preloadArmored')
+    const saved = structuredClone(profile)
+    expect(h.owner.restoreActiveMount()).toBe(true)
+    const mount = h.owner.activeMount!
+    expect(mount.type).toBe('ARMORED_HORSE')
+    expect(mount.currentHp).toBe(317); expect(mount.armorImpactRemaining).toBe(0)
+    expect(h.player.currentMount).toBe(mount)
+    expect(h.owner.restoreActiveMount()).toBe(true)
+    expect(h.owner.activeMount).toBe(mount)
+    expect(h.player.mountVehicle).toHaveBeenCalledTimes(1)
+    expect(h.profile()).toEqual(saved); expect(preload).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])('restores retirement resources, coordinates, heading and mounted=%s synchronously', mounted => {
+    const h = mountOwner(), p = h.profile()
+    p.selectedMountId = 'armored-horse'
+    p.careerRetirement = { version: 1, phase: 'final-stand', acceptedAt: 1, combatElapsedSeconds: 0 }
+    p.retirementRuntime = {
+      mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 219 }, armorImpact: { 'armored-horse': 0 }, unavailable: [] },
+      player: { position: { x: 4, y: 0, z: 5, yaw: .3 }, hp: 50, stamina: 30, arrows: 5, shieldImpact: 3, mounted },
+      mount: { position: { x: 11, y: 2, z: 13, yaw: 1.2 }, hp: 219, armorImpactRemaining: 0 },
+    }
+    vi.spyOn(HorseAssetRegistry, 'armoredReady', 'get').mockReturnValue(true)
+    const saved = structuredClone(p)
+    expect(h.owner.restoreActiveMount()).toBe(true)
+    const mount = h.owner.activeMount!
+    expect(mount.group.position).toEqual(new Vector3(11, 2, 13))
+    expect(mount.group.rotation.y).toBe(1.2)
+    expect(mount.currentHp).toBe(219); expect(mount.armorImpactRemaining).toBe(0)
+    expect(h.player.mountVehicle).toHaveBeenCalledTimes(mounted ? 1 : 0)
+    if (mounted) expect(h.player.mountVehicle).toHaveBeenCalledWith(mount, 1.2)
+    expect(h.profile()).toEqual(saved)
   })
 })
 

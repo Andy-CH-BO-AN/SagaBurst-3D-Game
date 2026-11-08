@@ -1,10 +1,12 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CareerMountController, careerMountAppearanceVariant } from '../../src/career/CareerMountController'
 import { createCareerProfile, cloneCareerProfile, type CareerProfile } from '../../src/career/CareerProfile'
 import { CareerProfileStore, parseCareerProfile } from '../../src/career/CareerProfileStore'
 import { addCareerItem } from '../../src/career/CareerInventory'
+import { MountArmor } from '../../src/combat/MountArmor'
+import { Vector3 } from 'three'
 import { MemoryStorage } from '../helpers/memoryStorage'
-import type { HorseAppearanceVariant } from '../../src/world/HorseAssetRegistry'
+import { HorseAssetRegistry, type HorseAppearanceVariant } from '../../src/world/HorseAssetRegistry'
 
 // Exercise the transaction owner without a scene, Player or Mount constructor.
 interface AppearanceEntry { setAppearanceVariant(variant: HorseAppearanceVariant): boolean }
@@ -18,7 +20,25 @@ function profile(): CareerProfile {
   const p = createCareerProfile('roman'); addCareerItem(p, 'horse', 1); return p
 }
 
+afterEach(() => { vi.restoreAllMocks(); HorseAssetRegistry.resetForTesting() })
+
 describe('Career horse appearance transactions', () => {
+  it('roundtrips depleted owned mount armor and migrates an old snow leopard without repairing a saved zero', () => {
+    const store = new CareerProfileStore(new MemoryStorage()), current = profile()
+    addCareerItem(current, 'armored-horse', 1); addCareerItem(current, 'snow-leopard', 1)
+    current.selectedMountId = 'armored-horse'; current.mountArmor = { 'armored-horse': 0, 'snow-leopard': 17 }
+    expect(store.save(cloneCareerProfile(current))).toBe(true)
+    const loaded = store.load()!
+    expect(loaded.selectedMountId).toBe('armored-horse')
+    expect(loaded.mountArmor).toEqual({ 'armored-horse': 0, 'snow-leopard': 17 })
+    const restored = new MountArmor('ARMORED_HORSE'); restored.restore(loaded.mountArmor!['armored-horse'])
+    expect(restored.remaining).toBe(0)
+    delete current.mountArmor
+    const legacy = parseCareerProfile(current)!
+    const leopard = new MountArmor('SNOW_LEOPARD'); leopard.restore(legacy.mountArmor?.['snow-leopard'])
+    expect(leopard.remaining).toBe(50)
+  })
+
   it.each([0, 1, 2] as const)('commits coat %i before updating the live horse and survives clone/save/reload', variant => {
     const store = new CareerProfileStore(new MemoryStorage())
     let current = profile()
@@ -57,5 +77,28 @@ describe('Career horse appearance transactions', () => {
     const loaded = parseCareerProfile(JSON.parse(JSON.stringify(p)))!
     expect(loaded.selectedMountId).toBe('horse')
     expect(careerMountAppearanceVariant(loaded)).toBe(0)
+  })
+
+  it('reports explicit error and preserves save state without substituting an ordinary horse when armored warhorse asset is unavailable', async () => {
+    HorseAssetRegistry.resetForTesting()
+    const current = profile(); addCareerItem(current, 'armored-horse', 1)
+    current.rank = 'commander'; current.selectedMountId = 'armored-horse'
+    current.activeMission = { kind: 'outpost-relief', targetActorIds: [], friendlyActorIds: [], mountState: { activeMountId: 'armored-horse', hp: { 'armored-horse': 600 }, unavailable: [] } } as unknown as CareerProfile['activeMission']
+    const preloadSpy = vi.spyOn(HorseAssetRegistry, 'preloadArmored').mockRejectedValue(new Error('GLB 404'))
+    const controller = Object.create(CareerMountController.prototype) as CareerMountController
+    Object.assign(controller as unknown as object, {
+      scene: {}, player: () => ({ isFalling: false, currentMount: null, combatPosition: new Vector3(), facingYaw: 0 }), readProfile: () => current,
+      commit: vi.fn(() => true), obstacles: () => [], occupied: () => [], sceneKey: () => 'town-home', options: {},
+      hp: new Map([['armored-horse', 600]]), armorImpact: new Map([['armored-horse', 50]]), unavailable: new Set(),
+      active: null, requestSeq: 0, pending: null, statusText: '',
+    })
+
+    const saved = structuredClone(current)
+    expect(controller.restoreActiveMount()).toBe(false)
+    expect(controller.activeMountId).toBeNull()
+    expect(current).toEqual(saved)
+    expect(preloadSpy).not.toHaveBeenCalled()
+    expect(controller.statusText).toContain('重甲戰馬資源載入失敗')
+    preloadSpy.mockRestore()
   })
 })

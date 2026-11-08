@@ -292,6 +292,7 @@ export class CommanderFourGateDefenseController {
     this.enemyMounts.push(mount); this.actorMounts.set(spec.actorId!, mount)
     if (saved?.mount) {
       const state = saved.mount, p = state.position
+      mount.restoreArmor(state.armorImpactRemaining)
       mount.group.position.set(p.x, p.y ?? getTerrainHeight(p.x, p.z), p.z); mount.group.rotation.y = p.yaw
       if (state.hp <= 0) mount.takeDamage(mount.maxHp + 1)
       else mount.currentHp = Math.min(mount.maxHp, state.hp)
@@ -562,7 +563,7 @@ export class CommanderFourGateDefenseController {
       position: { x: position.x, y: position.y, z: position.z, yaw: player.facingYaw },
       ammo: player.arrowCount, shieldImpact: player.shield.shieldImpactRemaining,
       ...(player.isFalling ? { fall: player.fallSnapshot } : {}), ...(mountActorId ? { mountActorId } : {}),
-      ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp, mount: { hp: mount.dead ? 0 : mount.currentHp, mounted: true,
+      ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp, mount: { armorImpactRemaining: mount.armorImpactRemaining, hp: mount.dead ? 0 : mount.currentHp, mounted: true,
         position: { x: mount.group.position.x, y: mount.group.position.y, z: mount.group.position.z, yaw: mount.group.rotation.y },
         ...(mount.flight ? { flight: mount.flight.snapshot() } : {}) } } : {}) }
   }
@@ -576,6 +577,7 @@ export class CommanderFourGateDefenseController {
     const mount = saved.mountActorId ? this.actorMounts.get(saved.mountActorId)
       ?? this.personalActors().find(npc => npc.combatantId === saved.mountActorId)?.mount : player.currentMount
     if (mount && saved.mount) {
+      mount.restoreArmor(saved.mount.armorImpactRemaining)
       const p = saved.mount.position
       if (saved.mount.hp <= 0) { if (!mount.dead) mount.takeDamage(mount.maxHp + 1); player.dismountFromMount() }
       else {

@@ -105,7 +105,7 @@ import type { PersonalRecruitmentChoice } from '../career/CareerRecruitmentCatal
 import { CombatTargetHud } from '../ui/CombatTargetHud'
 import { createNpcCombatActorRef, createPlayerCombatActorRef, emitStructureDamage, type CombatDamageMethod, type CombatActorRef, type CombatEvent } from '../combat/CombatAttribution'
 import { SpatialGrid } from '../world/SpatialGrid'
-import { checkMountImpact, applyMountImpactDamage } from '../combat/MountImpact'
+import { checkMountImpact, applyMountImpactDamage, applyMountImpactKnockback } from '../combat/MountImpact'
 import { NavigationWorld } from '../navigation/NavigationWorld'
 import { DamageNumbers } from '../ui/DamageNumbers'
 import { acceptCaptainFrontline, acceptCaptainEagle, createCaptainFrontlineLaunch, createCaptainEagleLaunch, type CareerCombatLaunch } from '../career/CaptainBattleLaunch'
@@ -925,7 +925,7 @@ export class TownScene {
         shieldImpact: this.player.shield.shieldImpactRemaining, shieldDurability: this.player.shield.captureDurability(),
         mounted: Boolean(mount && this.player.currentMount === mount) },
       mountState: this.careerMounts.checkpoint(),
-      ...(mount ? { mount: { position: position(mount.group), hp: mount.dead ? 0 : mount.currentHp,
+      ...(mount ? { mount: { armorImpactRemaining: mount.armorImpactRemaining, position: position(mount.group), hp: mount.dead ? 0 : mount.currentHp,
         ...(mount.flight ? { flight: mount.flight.snapshot() } : {}) } } : {}),
     }
     this.retirementMobilization?.capture(next)
@@ -941,6 +941,7 @@ export class TownScene {
     this.careerMounts.restoreActiveMount()
     const mount = this.careerMounts.activeMount
     if (mount && saved.mount) {
+      mount.restoreArmor(saved.mount.armorImpactRemaining)
       const p = saved.mount.position
       mount.group.position.set(p.x, p.y, p.z); mount.group.rotation.y = p.yaw
       mount.currentHp = Math.min(mount.maxHp, saved.mount.hp)
@@ -3010,7 +3011,7 @@ export class TownScene {
     const hud = document.getElementById('mount-hud'), label = document.getElementById('mount-name'), fill = document.getElementById('mount-hp-fill')
     hud?.classList?.toggle('visible', Boolean(mount && !mount.dead && !this.player.dead))
     if (mount) {
-      if (label) label.textContent = `坐騎：${mount.displayName}`
+      if (label) label.textContent = `坐騎：${mount.displayName}${mount.armorImpactMax > 0 ? ` · 護甲 ${Math.ceil(mount.armorImpactRemaining)}/${mount.armorImpactMax}` : ''}`
       if (fill) fill.style.width = `${Math.max(0, mount.currentHp / mount.maxHp * 100)}%`
     }
   }
@@ -3080,10 +3081,11 @@ export class TownScene {
         : amount
       const result = damageNpc(npc, playerAmount, { source: createPlayerCombatActorRef(this.player), method, weaponId: method === 'melee' ? this.inventory.equippedMelee?.id : this.inventory.equippedRanged?.id, contact: contact ?? (method === 'melee' ? this.player.weaponSweep?.contact : undefined) })
       applied = result.appliedDamage
+      if (method === 'mount-impact' && result.hitSuccess && !result.isMountHit && this.player.currentMount) applyMountImpactKnockback(this.player.currentMount, npc, { obstacles: this.world.obstacles, worldBound: getScenePlayableWorldBound(this.scene) })
       if (result.hitSuccess) this.showCombatTarget(result.targetName, result.hpRatio)
       if (applied > 0) this.awardCareerSkillXp(method, applied, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
     } else {
-      const result = damageMount(npc, amount, { source: createPlayerCombatActorRef(this.player), method, contact })
+      const result = damageMount(npc, amount, { source: createPlayerCombatActorRef(this.player), method, contact, weaponId: method === 'projectile' ? this.inventory.equippedRanged?.id : this.inventory.equippedMelee?.id })
       applied = result.appliedDamage
       if (applied > 0) this.awardCareerSkillXp(method, applied, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
       this.showCombatTarget(result.targetName, result.hpRatio)
@@ -3167,6 +3169,8 @@ export class TownScene {
       },
     })
     if (!result.hitSuccess) return
+    const impactMount = source ? source.mount : this.player.currentMount
+    if (method === 'mount-impact' && impactMount && !result.isMountHit) applyMountImpactKnockback(impactMount, target, { obstacles: this.world.obstacles, worldBound: getScenePlayableWorldBound(this.scene) })
     if (!source && result.appliedDamage > 0 && this.race?.actors.includes(target)) this.activateHostility()
     if (result.appliedDamage > 0 && !this.isRetirementEvacuating(target)) {
       this.outskirts?.noteHit(target, !source)
@@ -3206,6 +3210,7 @@ export class TownScene {
       hostileToTarget: source.hostileToPlayer || Boolean(this.duel?.canDamagePlayer(source)),
       source: sourceRef ?? createNpcCombatActorRef(source), method, weaponId: (method === 'projectile' ? source.rangedWeaponId : source.meleeWeaponId) ?? undefined, emit: event => this.emitCombatEvent(event),
     })
+    if (method === 'mount-impact' && source.mount && result.hitSuccess && !result.isMountHit) applyMountImpactKnockback(source.mount, this.player, { obstacles: this.world.obstacles, worldBound: getScenePlayableWorldBound(this.scene) }, .95)
     if (result.hitSuccess && (result.appliedDamage > 0 || result.blockedImpact > 0)) this.missionCombat?.noteExternalPlayerHit(source)
     if (result.appliedDamage <= 0) return
     if (method === 'projectile') sound?.playProjectileImpact(0, true)
@@ -3278,7 +3283,7 @@ export class TownScene {
           else if (target instanceof Player && s.source) this.damagePlayerFromNpc(s.source, s.arrow.damage, 'projectile', contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target instanceof NPC && (this.race?.actors.includes(target) || this.duel?.isMissionTarget(target) || target.faction === Faction.BANDIT || target.faction === Faction.ENEMY || Boolean(s.source && target.faction !== s.source.faction))) this.hitFieldNpc(target, s.arrow.damage, 'projectile', s.source, contact, ...(s.sourceRef ? [s.sourceRef] as const : []))
           else if (target === this.cat && this.defense.active && s.source?.faction === Faction.ENEMY) {
-            this.cat.takeDamage(s.arrow.damage)
+            damageMount(this.cat, s.arrow.damage, { source: s.sourceRef ?? createPlayerCombatActorRef(this.player), method: 'projectile', contact, weaponId: s.source?.rangedWeaponId ?? this.inventory.equippedRanged?.id })
             if (this.cat.dead && this.ranger.mount === this.cat) this.ranger.dismountFromMount()
           }
           else if (target instanceof NPC || target instanceof Mount) this.hitResident(target, s.arrow.damage, 'projectile', contact)

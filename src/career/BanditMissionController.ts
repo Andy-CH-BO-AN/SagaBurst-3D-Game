@@ -1350,6 +1350,7 @@ export class BanditMissionController {
     const existing = npc.mount && !npc.mount.dead ? npc.mount : homeMount && !homeMount.dead ? homeMount : null
     const mount = existing ?? (temporary || !homeMount ? this.createVeteranMount(spec) : null)
     if (!mount) return null
+    mount.restoreArmor(active?.actorHealth?.[npc.combatantId]?.mountArmorImpact)
     const hp = savedMountHp
     if (hp !== undefined) {
       if (hp <= 0 && !mount.dead) mount.takeDamage(mount.currentHp + 1)
@@ -1411,7 +1412,7 @@ export class BanditMissionController {
       const mount = this.fieldActorMounts.get(npc.combatantId) ?? npc.mount
       health[npc.combatantId] = {
         hp: npc.dead ? 0 : npc.hp,
-        ...(mount ? { mountHp: mount.dead ? 0 : mount.currentHp } : {}),
+        ...(mount ? { mountArmorImpact: mount.armorImpactRemaining, mountHp: mount.dead ? 0 : mount.currentHp } : {}),
       }
     }
     return health

@@ -27,8 +27,8 @@ export interface CareerOutpostMission {
 export interface CareerOutpostCheckpoint {
   outpostSiege?: CampaignSiegeCheckpoint
   runtime: DefenseCampaignRuntimeSnapshot
-  actors: Record<string, { hp: number; x: number; y?: number; z: number; yaw: number; mountHp?: number; outpostRampartGarrison?: boolean; checkpoint?: PersonalActorCheckpoint }>
-  player: { hp: number; stamina: number; dead: boolean; x: number; z: number; yaw: number; mountHp?: number; ammo?: number; shieldImpact?: number; mounted?: boolean; mountPosition?: PersonalActorPosition }
+  actors: Record<string, { hp: number; x: number; y?: number; z: number; yaw: number; mountHp?: number; mountArmorImpact?: number; outpostRampartGarrison?: boolean; checkpoint?: PersonalActorCheckpoint }>
+  player: { hp: number; stamina: number; dead: boolean; x: number; z: number; yaw: number; mountHp?: number; mountArmorImpact?: number; ammo?: number; shieldImpact?: number; mounted?: boolean; mountPosition?: PersonalActorPosition }
   playerStats: PlayerBattleStatsCheckpoint
   wave: 'attackers' | 'reinforcement' | null
   waveIndex: number
@@ -94,7 +94,7 @@ export function parseCareerOutpostCheckpoint(value: unknown): CareerOutpostCheck
     || typeof raw.runtime.battleFinished !== 'boolean' || typeof raw.attackersStarted !== 'boolean'
     || typeof raw.reinforcementsSpawned !== 'boolean' || !raw.actors || typeof raw.actors !== 'object' || Array.isArray(raw.actors)
     || Object.keys(raw.actors).length > 1024 || !raw.playerStats || typeof raw.playerStats !== 'object') return undefined
-  for (const key of ['mountHp', 'ammo', 'shieldImpact'] as const) {
+  for (const key of ['mountHp', 'mountArmorImpact', 'ammo', 'shieldImpact'] as const) {
     if (raw.player[key] !== undefined && (!number(raw.player[key]) || raw.player[key]! < 0)) return undefined
   }
   if (raw.player.mounted !== undefined && typeof raw.player.mounted !== 'boolean') return undefined
@@ -128,13 +128,13 @@ export function parseCareerOutpostCheckpoint(value: unknown): CareerOutpostCheck
     actors: Object.fromEntries(Object.entries(raw.actors).map(([id, actor]) => [id, {
       hp: actor.hp, x: actor.x, z: actor.z, yaw: actor.yaw,
       ...(actor.y !== undefined ? { y: actor.y } : {}),
-      ...(actor.mountHp !== undefined ? { mountHp: actor.mountHp } : {}),
+      ...(actor.mountHp !== undefined ? { mountHp: actor.mountHp, mountArmorImpact: actor.mountArmorImpact } : {}),
       ...(actor.outpostRampartGarrison === true ? { outpostRampartGarrison: true } : {}),
       ...(actor.checkpoint ? { checkpoint: parseCommandActorCheckpoint(actor.checkpoint)! } : {}),
     }])),
     player: { hp: raw.player.hp, stamina: raw.player.stamina, dead: raw.player.dead,
       x: raw.player.x, z: raw.player.z, yaw: raw.player.yaw,
-      ...(raw.player.mountHp !== undefined ? { mountHp: raw.player.mountHp } : {}),
+      ...(raw.player.mountHp !== undefined ? { mountHp: raw.player.mountHp, mountArmorImpact: raw.player.mountArmorImpact } : {}),
       ...(raw.player.ammo !== undefined ? { ammo: Math.floor(raw.player.ammo) } : {}),
       ...(raw.player.shieldImpact !== undefined ? { shieldImpact: raw.player.shieldImpact } : {}),
       ...(raw.player.mounted !== undefined ? { mounted: raw.player.mounted } : {}),

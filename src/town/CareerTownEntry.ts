@@ -17,6 +17,7 @@ import { resolveCareerTownSceneContext } from '../career/CareerFieldSceneContext
 import { COMMANDER_LAST_STAND_ID } from '../career/CommanderMissionCatalog'
 import { createCareerCommanderOutpostLaunch } from '../career/CommanderOutpost'
 import { TownScene } from './TownScene'
+import { HorseAssetLoadError } from '../world/HorseAssetRegistry'
 import { canStartCareerTutorial, commitCareerTutorial, startCareerTutorial } from '../career/CareerTutorial'
 import type { CareerTutorialLaunch } from '../career/CareerTutorialLaunch'
 export const TOWN_ENTRY_KEY = 'sagaburst_career_town'
@@ -186,16 +187,21 @@ export function enterCareerTown(container: HTMLElement, launchCampaign: (config:
     } catch (error) {
       if (!current()) { loading.remove(); return false }
       const missionId = profile.activeMission?.id ?? profile.activeOutpostMission?.id
-      if (missionId && onMissionLaunchError) {
+      if (missionId && onMissionLaunchError && !(error instanceof HorseAssetLoadError)) {
         loading.remove()
         onMissionLaunchError(missionId, error)
         return false
       }
       sessionStorage.removeItem(TOWN_ENTRY_KEY)
       console.error('[Career entry] Town load failed', error)
-      status.textContent = '暫時無法進入城鎮。角色與存檔已保留，請重試。'
+      status.textContent = error instanceof HorseAssetLoadError ? `${error.message} 角色與存檔已保留。` : '暫時無法進入城鎮。角色與存檔已保留，請重試。'
       if (selection) { loading.remove(); return false }
       loading.textContent = status.textContent
+      const retry = document.createElement('button'); retry.textContent = '重試載入城鎮'
+      retry.onclick = () => {
+        if (!current() || retry.disabled) return
+        retry.disabled = true; loading.remove(); void start(profile)
+      }; loading.append(retry)
       const back = document.createElement('button'); back.textContent = '返回主選單'
       back.onclick = () => { if (current()) { sessionStorage.removeItem(TOWN_ENTRY_KEY); loading.remove(); leave() } }; loading.append(back)
       return false
