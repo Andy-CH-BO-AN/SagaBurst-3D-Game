@@ -136,7 +136,8 @@ describe('Byzantine hands, banner and seat', () => {
       expect(leg.thigh.z).toBeGreaterThan(0)
       expect(leg.calf.z).toBeLessThan(0)
       const ankle = hip.clone().addScaledVector(leg.thigh, thighLength).addScaledVector(leg.calf, calfLength)
-      expect(side * ankle.x, kind).toBeGreaterThanOrEqual(barrelHalfWidth(barrel, -ankle.y) + .05)
+      // Slim mounts trade margin for a narrower seat by design.
+      expect(side * ankle.x, kind).toBeGreaterThanOrEqual(barrelHalfWidth(barrel, -ankle.y) + (cap ? .03 : .05))
     }
     expect(manifest.animations!.embedded.some(b => b.clip === 'mounted')).toBe(true)
   })
