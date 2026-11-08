@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { publicAssetUrl } from '../assets/publicAssetUrl'
+import { OnDemandAssets, settleWithin } from '../assets/OnDemandAssets'
 import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 
 export const HIGH_TIER_WEAPON_ASSETS = {
@@ -13,9 +14,36 @@ export const HIGH_TIER_WEAPON_ASSETS = {
   commander_shield_t5: 'models/weapons/t5/shield.glb',
   roman_officer_shield_t4: 'models/weapons/faction-shields/roman-officer.glb',
   viking_berserker_shield_t5: 'models/weapons/faction-shields/viking-berserker.glb',
+} as const
+/** Elite-only equipment: never part of the shared preload, so ordinary scenes neither wait on it nor fail with it. */
+export const BYZANTINE_EQUIPMENT_ASSETS = {
   byzantine_standard_lance_t5: 'models/weapons/byzantine/standard-lance.glb',
   byzantine_eagle_shield_t5: 'models/weapons/faction-shields/byzantine-eagle.glb',
 } as const
+export type ByzantineEquipmentId = keyof typeof BYZANTINE_EQUIPMENT_ASSETS
+export const isByzantineEquipmentId = (id: unknown): id is ByzantineEquipmentId => typeof id === 'string' && id in BYZANTINE_EQUIPMENT_ASSETS
+/** Longest a scene waits for equipment it needs before opening without that model. */
+export const BYZANTINE_EQUIPMENT_WAIT_MS = 20000
+
+const byzantineEquipment = new OnDemandAssets<ByzantineEquipmentId, GLTF>(async id => {
+  const gltf = await new GLTFLoader().loadAsync(publicAssetUrl(BYZANTINE_EQUIPMENT_ASSETS[id]))
+  gltf.scene.traverse(object => {
+    if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true }
+  })
+  return gltf
+})
+
+/** Instances own transforms only. Undefined until loaded: callers must not substitute another model. */
+export const createByzantineEquipment = (id: ByzantineEquipmentId): THREE.Group | undefined => byzantineEquipment.get(id)?.scene.clone(true)
+export const requestByzantineEquipment = (id: ByzantineEquipmentId): Promise<THREE.Group> => byzantineEquipment.load(id).then(gltf => gltf.scene.clone(true))
+
+/** For a scene that knows it will use these items: waits before actors are built, but always lets the scene open. */
+export async function prepareByzantineEquipment(ids: Iterable<unknown>, timeoutMs = BYZANTINE_EQUIPMENT_WAIT_MS): Promise<'ready' | 'failed' | 'timed-out'> {
+  const needed = [...new Set(ids)].filter(isByzantineEquipmentId)
+  if (!needed.length) return 'ready'
+  return settleWithin(Promise.all(needed.map(id => byzantineEquipment.load(id))), timeoutMs)
+}
+
 const templates = new Map<string, GLTF>()
 let bowBody: THREE.Group | undefined
 let pending: Promise<void> | undefined
@@ -56,14 +84,14 @@ export function createT4Polearm(): THREE.Group {
   return template('spear_t4').scene.clone(true)
 }
 /** Instances own transforms only; immutable geometry/materials stay in the preload cache. */
-export function createT5Melee(id: 'sword_t5' | 'axe_t5' | 'spear_t5' | 'byzantine_standard_lance_t5'): THREE.Group {
+export function createT5Melee(id: 'sword_t5' | 'axe_t5' | 'spear_t5'): THREE.Group {
   return template(id).scene.clone(true)
 }
 /** Original 1.20m Laurelguard body; no rescale, material rewrite or per-owner resources. */
 export function createT5Shield(): THREE.Group {
   return template('commander_shield_t5').scene.clone(true)
 }
-export function createFactionShield(id: 'roman_officer_shield_t4' | 'viking_berserker_shield_t5' | 'byzantine_eagle_shield_t5'): THREE.Group {
+export function createFactionShield(id: 'roman_officer_shield_t4' | 'viking_berserker_shield_t5'): THREE.Group {
   return template(id).scene.clone(true)
 }
 /** Static drop/preview body uses cached bind geometry without allocating a skeleton. */

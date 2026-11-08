@@ -6,8 +6,10 @@ import { DEFAULT_BOW_GRIP_PROFILE } from './BowAttachmentContract'
 import { equipmentDetail, equipmentShadowUntil } from './EquipmentVisualLODController'
 import { LANCE_RADIUS } from './EquipmentAttachmentContract'
 import { WEAPONS } from '../rpg/WeaponDatabase'
+import { ARMORS } from '../rpg/ArmorDatabase'
 import { createPaladinEquipment } from './PaladinEquipment'
-import { createT4Polearm, createT5BowBody, createT5Melee, createT5Shield, createFactionShield } from './HighTierEquipment'
+import { createByzantineEquipment, createT4Polearm, createT5BowBody, createT5Melee, createT5Shield, createFactionShield, requestByzantineEquipment, type ByzantineEquipmentId } from './HighTierEquipment'
+import { showEquipmentLoadNotice } from '../ui/EquipmentLoadNotice'
 
 function profiledBladeGeometry(length: number, widths: number[], thickness: number): THREE.BufferGeometry {
   const positions: number[] = []
@@ -172,10 +174,7 @@ export function bannerRollAngle(shaftWorld: THREE.Quaternion, down: THREE.Vector
   return Math.atan2(down.z, -down.x)
 }
 
-function hangBannerByGravity(model: THREE.Object3D): THREE.Group {
-  const roll = new THREE.Group()
-  roll.name = 'banner-gravity-roll'
-  roll.add(model)
+function hangBannerByGravity(roll: THREE.Group, model: THREE.Object3D): void {
   let angle: number | undefined
   const update = () => {
     if (!roll.parent) return
@@ -186,7 +185,19 @@ function hangBannerByGravity(model: THREE.Object3D): THREE.Group {
     roll.updateMatrixWorld(true)
   }
   model.traverse(object => { if (object instanceof THREE.Mesh) object.onBeforeRender = update })
-  return roll
+}
+
+/** Gameplay frames exist at once; the real model joins this holder when loaded, unless the pivot was rebuilt meanwhile.
+ * A failure shows a notice and leaves the holder empty: never another model. Re-equipping requests it again. */
+function attachByzantineEquipment(id: ByzantineEquipmentId, pivot: THREE.Group, onModel?: (holder: THREE.Group, model: THREE.Group) => void): void {
+  const holder = new THREE.Group()
+  holder.name = `${id}-holder`
+  pivot.add(holder)
+  const place = (model: THREE.Group) => { holder.add(model); onModel?.(holder, model) }
+  const loaded = createByzantineEquipment(id)
+  if (loaded) { place(loaded); return }
+  requestByzantineEquipment(id).then(model => { if (holder.parent) place(model) },
+    () => showEquipmentLoadNotice(WEAPONS[id]?.name ?? ARMORS[id]?.name ?? id))
 }
 
 export class WeaponMeshFactory {
@@ -214,7 +225,7 @@ export class WeaponMeshFactory {
       pivot.userData.supportPointLocal = [0, .33, 0]
       pivot.userData.forwardAxisLocal = [0, 1, 0]
       pivot.userData.tipLocal = [0, 2.8, 0]
-      pivot.add(hangBannerByGravity(createT5Melee(weaponId)))
+      attachByzantineEquipment(weaponId, pivot, hangBannerByGravity)
       return { tipLocal: new THREE.Vector3(0, 2.8, 0) }
     }
 
@@ -714,10 +725,12 @@ export class WeaponMeshFactory {
     const bronze = proceduralMaterial({ kind: 'bronze', color: 0xa47b42, roughness: 0.43, metalness: 0.72 })
     const leather = proceduralMaterial({ kind: 'leather', color: 0x3d281d, roughness: 0.86 })
 
-    const factionShield = shieldId === 'roman_officer_shield_t4' || shieldId === 'viking_berserker_shield_t5' || shieldId === 'byzantine_eagle_shield_t5'
-    if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5' || factionShield) {
+    const factionShield = shieldId === 'roman_officer_shield_t4' || shieldId === 'viking_berserker_shield_t5'
+    const eagleShield = shieldId === 'byzantine_eagle_shield_t5'
+    if (shieldId === 'paladin_shield_t4' || shieldId === 'commander_shield_t5' || factionShield || eagleShield) {
       const commander = shieldId === 'commander_shield_t5'
-      pivot.add(factionShield ? createFactionShield(shieldId) : commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'))
+      if (eagleShield) attachByzantineEquipment(shieldId, pivot)
+      else pivot.add(factionShield ? createFactionShield(shieldId) : commander ? createT5Shield() : createPaladinEquipment('paladin_shield_t4'))
       // Laurelguard's front is +Z, but its central rear is near Z=0 rather than
       // Paladin's +.13. Keep the original GLB axes and move only its rear grip.
       const gripZ = commander ? -.085 : .085

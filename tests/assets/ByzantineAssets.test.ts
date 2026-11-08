@@ -1,11 +1,12 @@
 import { readFileSync, existsSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { OnDemandAssets, settleWithin } from '../../src/assets/OnDemandAssets'
 import { HERO_ASSETS } from '../../src/world/HeroAssetCatalog'
 import { parsePunchTiming, resolveHumanoidAssetId, type HumanoidAssetManifest } from '../../src/world/HumanoidAssetRegistry'
 import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { ARMORS } from '../../src/rpg/ArmorDatabase'
 import { FACTION_SHIELD_BANDS } from '../../src/combat/FactionShieldGeometry'
-import { HIGH_TIER_WEAPON_ASSETS } from '../../src/world/HighTierEquipment'
+import { BYZANTINE_EQUIPMENT_ASSETS, HIGH_TIER_WEAPON_ASSETS, prepareByzantineEquipment } from '../../src/world/HighTierEquipment'
 import { persistsDuelTravel } from '../../src/career/CareerDuelController'
 import { duelFightBannerVisible, duelCombatSeconds } from '../../src/career/CareerDuelState'
 import * as THREE from 'three'
@@ -64,13 +65,13 @@ describe('Byzantine equipment models', () => {
     const [record] = JSON.parse(readFileSync('public/models/weapons/byzantine/sources.json', 'utf8'))
     expect(record.boundsMax[1] - record.boundsMin[1]).toBeCloseTo(3.3, 2)
     expect(record.gripCenterLocal).toEqual([0, .15, 0])
-    expect(existsSync(`public/${HIGH_TIER_WEAPON_ASSETS.byzantine_standard_lance_t5}`)).toBe(true)
+    expect(existsSync(`public/${BYZANTINE_EQUIPMENT_ASSETS.byzantine_standard_lance_t5}`)).toBe(true)
     const w = WEAPONS.byzantine_standard_lance_t5
     expect([w.damageMin, w.meleeCycleSeconds, w.range, w.tier]).toEqual([105, .42, 3.9, 5])
     expect(WEAPONS.spear_t5.range).not.toBe(record.boundsMax[1] - record.boundsMin[1])
   })
   it('eagle shield: own GLB, own measured collider bands, Impact 128, other T5 shields unchanged', () => {
-    expect(existsSync(`public/${HIGH_TIER_WEAPON_ASSETS.byzantine_eagle_shield_t5}`)).toBe(true)
+    expect(existsSync(`public/${BYZANTINE_EQUIPMENT_ASSETS.byzantine_eagle_shield_t5}`)).toBe(true)
     const bands = FACTION_SHIELD_BANDS.byzantine_eagle_shield_t5
     expect(bands.length).toBeGreaterThan(20)
     for (const [bottom, top, half, back, front] of bands) { expect(top).toBeGreaterThan(bottom); expect(half).toBeGreaterThan(0); expect(front).toBeGreaterThan(back) }
@@ -139,5 +140,49 @@ describe('Byzantine hands, banner and seat', () => {
       expect(side * leg.knee.x, kind).toBeGreaterThanOrEqual(barrelHalfWidth(barrel, -leg.knee.y) + .05)
     }
     expect(manifest.animations!.embedded.some(b => b.clip === 'mounted')).toBe(true)
+  })
+})
+
+describe('Optional Byzantine equipment loading', () => {
+  it('stays out of the shared high-tier preload, whose failure or pending would block ordinary scenes', () => {
+    const shared = new Set<string>(Object.values(HIGH_TIER_WEAPON_ASSETS))
+    for (const path of Object.values(BYZANTINE_EQUIPMENT_ASSETS)) expect(shared.has(path)).toBe(false)
+    expect(Object.keys(HIGH_TIER_WEAPON_ASSETS)).toContain('spear_t5')
+  })
+  it('requests nothing for scenes that do not use it', async () => {
+    const loaded = vi.fn(async () => ({}))
+    vi.stubGlobal('fetch', loaded)
+    try {
+      await expect(prepareByzantineEquipment(['spear_t5', 'commander_shield_t5', null, undefined])).resolves.toBe('ready')
+      expect(loaded).not.toHaveBeenCalled()
+    } finally { vi.unstubAllGlobals() }
+  })
+  it('deduplicates concurrent requests and retries after a failure', async () => {
+    const loader = vi.fn<(id: 'a') => Promise<string>>().mockRejectedValueOnce(new Error('404')).mockResolvedValueOnce('model')
+    const assets = new OnDemandAssets<'a', string>(loader)
+    const [first, second] = [assets.load('a'), assets.load('a')]
+    expect(first).toBe(second)
+    await expect(first).rejects.toThrow('404')
+    expect(assets.get('a')).toBeUndefined() // a failed request exposes no model
+    await expect(assets.load('a')).resolves.toBe('model')
+    expect(loader).toHaveBeenCalledTimes(2)
+    expect(assets.get('a')).toBe('model')
+    await assets.load('a')
+    expect(loader).toHaveBeenCalledTimes(2)
+  })
+  it('never blocks a scene: needed assets report failure or time out instead of rejecting or hanging', async () => {
+    vi.useFakeTimers()
+    try {
+      await expect(settleWithin(Promise.reject(new Error('404')), 1000)).resolves.toBe('failed')
+      await expect(settleWithin(Promise.resolve(), 1000)).resolves.toBe('ready')
+      const pending = settleWithin(new Promise(() => {}), 1000)
+      await vi.advanceTimersByTimeAsync(999)
+      let settled = false
+      void pending.then(() => { settled = true })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(settled).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      await expect(pending).resolves.toBe('timed-out')
+    } finally { vi.useRealTimers() }
   })
 })
