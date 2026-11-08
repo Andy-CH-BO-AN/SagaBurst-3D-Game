@@ -4458,6 +4458,7 @@ export class Game {
       stamina: this.player.staminaValue,
       arrows: this.player.arrowCount,
       skills: {
+        unarmed: skills.unarmed,
         oneHanded: skills.oneHanded,
         twoHanded: skills.twoHanded,
         ranged: skills.ranged,
@@ -4767,7 +4768,7 @@ export class Game {
         if (!contact) continue
         const target = contact.target as NPC | Mount | import('./combat/DamageReceiver').DamageReceiver
         const context = { contact, source: createPlayerCombatActorRef(this.player), method: 'melee' as const, weaponId: 'unarmed', emit: this.combatEvents.emit }
-        const amount = unarmedDamage(this.skillManager.getMultiplier('oneHanded'), this.player.heroAssetId)
+        const amount = unarmedDamage(this.skillManager.getMultiplier('unarmed'), this.player.heroAssetId)
         const result = contact.kind === 'mount' && contact.mount ? damageMount(contact.mount, amount, context)
           : isDamageReceiver(target) ? damageReceiver(target, amount, context) : damageNpc(target as NPC, amount, context)
         if (result.hitSuccess) {

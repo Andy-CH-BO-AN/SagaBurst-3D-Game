@@ -38,7 +38,7 @@ Career 教學由 `CareerTutorialState` 擁有角色識別、步驟、交易／�
 - `CharacterCombatAnimator` 擁有一次性攻擊／釋放事件；Player/NPC 在事件到達時造成傷害或產生投射物。完成或取消後回到最新 locomotion，換裝取消未完成動作、不補發事件。NPC 非戰鬥時使用一般站立／移動／騎乘 locomotion，不自動套用持弓準備姿勢；失去瞄準時解除搭箭與弓身蓄力，真正戰鬥瞄準、放箭及收招維持原事件流程。
 - 徒步單手斧／戰槌由實際裝備的 `animationKind` 選擇共用 `axeAttack1HFoot`，不以斧頭 mesh 判斷；騎乘及雙手仍走原 action。已選定模型使用原有 Bandit 適配 clip，保留的 Roman hero 在 registry 預載時由 `BanditFootAttack` 從同一 Bandit 來源產生共用模板，新 fitted 居民／Shadow 已離線內嵌同源 retarget；保留原單手事件時鐘與 idle 骨盆／腿，不增加 GLB 或每角色 retarget。
 - `CareerProfile.eliteClass` 是獨立於五級軍階的進階職業；拜占庭只接受 Roman Captain／Commander 的本次服役累積 30,000 軍功，不扣除餘額。直接由 Captain 任命只走一次原 Commander 獎勵；既有 Commander 改轉不重發。`CareerElitePromotion` 擁有資格與 staged profile，Town 先預載並建立候選角色，再保存；失敗保留原角色。`byzantine-cataphract-t5` 對應獨立 Profile，暫時明示沿用真實 Roman T5 資產，待使用者交付專屬 GLB。
-- `InventoryManager.activeMelee` 只回傳實際取出的近戰武器，空裝備不 fallback 長槍；Career 的空裝備選擇跨任務與讀檔保留。拳擊為獨立 `punchCombo`／`punchRight` action，由 Animator 單一時鐘發出四個程式動作接觸事件。`CharacterEquipmentPose` 在所有 LOD 共用手臂求解，持盾保留左臂；`UnarmedCombat` 用實際掌部軌跡追蹤盾／人物／坐騎，接既有傷害歸屬與單手技能，且不呼叫結構破壞。Punch_Combo_1 匯入與外觀驗收待 GLB 階段。
+- `InventoryManager.activeMelee` 只回傳實際取出的近戰武器，空裝備不 fallback 長槍；Career 的空裝備選擇跨任務與讀檔保留。拳擊為獨立 `punchCombo`／`punchRight` action，由 Animator 單一時鐘發出四個程式動作接觸事件。`CharacterEquipmentPose` 在所有 LOD 共用手臂求解，持盾保留左臂；`UnarmedCombat` 用實際掌部軌跡追蹤盾／人物／坐騎，接既有傷害歸屬及獨立第六技能 `unarmed`，且不呼叫結構破壞。徒手 Lv.1–50 的傷害曲線為 ×1–5，每點實際 HP 傷害只由權威傷害事件發放 2 XP；既有武器技能仍為 ×1–3，徒手每級 +1 HP（Lv.1 不額外加血），舊存檔缺欄位補 Lv.1／0 XP。Town 與 Game 共用事件歸屬判定，Town 不再從命中函式重複手動發放攻擊 XP。Punch_Combo_1 匯入與外觀驗收待 GLB 階段。
 - `CharacterEquipmentPose` 在 mixer 後套姿勢，下一次求值前還原。`bakedEquipmentActions` 表明已烘焙握點的動作，避免疊加通用 IK；資產與 runtime 不能同時擁有同一關節修正。
 
 ## 裝備與投射物

@@ -39,6 +39,7 @@ it('builds a legal ready Commander preset whose exact ten Tier 5 wins and spenda
     expect(careerItemAllocated(profile, id)).toBe(quantity)
   }
   expect(profile.skills).toEqual({
+    unarmed: { level: 50, xp: 0 },
     blocking: { level: 50, xp: 0 }, oneHanded: { level: 50, xp: 0 },
     twoHanded: { level: 50, xp: 0 }, ranged: { level: 50, xp: 0 },
     mountedImpact: { level: 50, xp: 0 },

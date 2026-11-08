@@ -129,7 +129,7 @@ import { QuiverUI } from '../ui/QuiverUI'
 import { EquipmentUI } from '../ui/EquipmentUI'
 import { SkillManager } from '../rpg/SkillManager'
 import { SHIELD_CONFIG, type CombatContact } from '../combat/ShieldBlocking'
-import { canAwardPlayerSkillProgression, resolveCombatSkill, skillStatesEqual } from '../rpg/CombatSkillProgression'
+import { canAwardPlayerSkillProgression, resolveActivePlayerSkillProgressionAward, resolveCombatSkill, skillStatesEqual, type SkillProgressionAward } from '../rpg/CombatSkillProgression'
 import { SoundManager, type AudioCommand, type CareerMissionVoiceCue, type HorseGallopCandidate } from '../audio/SoundManager'
 import { updateEagleWingbeatAudio } from '../audio/EagleWingbeatAudio'
 import { CareerProfileStore } from '../career/CareerProfileStore'
@@ -1075,25 +1075,29 @@ export class TownScene {
   private bindBlockingProgression(player = this.player): void {
     player.setDamageHud(this.hp)
     player.blockingLevel = this.skills.skillState.blocking.level
-    player.onShieldBlock = impact => this.awardCareerSkillXp('melee', impact * SHIELD_CONFIG.xpPerBlockedImpact, 'blocking')
+    player.onShieldBlock = impact => this.awardCareerSkillXp({ skill: 'blocking', xp: impact * SHIELD_CONFIG.xpPerBlockedImpact })
   }
 
-  private awardCareerSkillXp(method: CombatDamageMethod, appliedDamage: number, skillOverride?: 'blocking' | 'mountedImpact'): void {
+  /** Damage events own offensive progression; manual shield absorption owns Blocking only. */
+  private awardCareerDamageXp(event: CombatEvent): void {
+    const weapon = event.type === 'damage_applied' && event.weaponId
+      ? WEAPONS[event.weaponId] : this.inventory.activeMelee
+    const award = resolveActivePlayerSkillProgressionAward(event, {
+      dead: this.player.dead, spectatorOnly: this.player.spectatorOnly, observer: Boolean(this.spectator),
+    }, weapon, this.player.hasShield)
+    if (award) this.awardCareerSkillXp(award)
+  }
+
+  private awardCareerSkillXp({ skill, xp }: SkillProgressionAward): void {
     if (!canAwardPlayerSkillProgression({
       dead: this.player.dead,
       spectatorOnly: this.player.spectatorOnly,
       observer: Boolean(this.spectator),
     })) return
-    if (appliedDamage <= 0 || this.profile.activeMission?.duelTutorialCareerId) return
-    const skill = skillOverride ?? resolveCombatSkill(
-      method,
-      this.inventory.equippedMelee,
-      Boolean(this.inventory.shieldEnabled && this.inventory.equippedShield),
-    )
-    if (!skill) return
+    if (xp <= 0 || this.profile.activeMission?.duelTutorialCareerId) return
 
     const before = this.skills.skillState
-    const levelsGained = this.skills.addXp(skill, appliedDamage, sound)
+    const levelsGained = this.skills.addXp(skill, xp, sound)
     const after = this.skills.skillState
     this.player.blockingLevel = after.blocking.level
     if (skillStatesEqual(before, after)) return
@@ -1708,6 +1712,7 @@ export class TownScene {
       && !this.shots.some(shot => !shot.training && (shot.player || actors.some(actor => actor.combatantId === shot.sourceRef?.actorId)))
   }
   private emitCombatEvent(event: CombatEvent): void {
+    this.awardCareerDamageXp(event);
     (this.squadRefitSafety ??= new SquadRefitSafety()).note(event)
     if (this.retirementFinale?.active) { this.retirementFinale.recordEvent(event); return }
     if (this.captainPatrol?.active) this.captainPatrol.recordEvent(event)
@@ -3028,7 +3033,6 @@ export class TownScene {
     }
     if (source && playerMountHit && result.appliedDamage > 0) this.missionCombat?.noteExternalPlayerHit(source)
     if (!source && result.appliedDamage > 0) {
-      this.awardCareerSkillXp(method, result.appliedDamage, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
       this.damageNumbers.spawn(result.appliedDamage, mount.group.position.clone().add(new THREE.Vector3(0, 1, 0)))
       this.showCombatTarget(result.targetName, result.hpRatio)
     }
@@ -3115,15 +3119,13 @@ export class TownScene {
       const playerAmount = method === 'mount-impact'
         ? Math.round(amount * this.skills.getMountedImpactMultiplier())
         : amount
-      const result = damageNpc(npc, playerAmount, { source: createPlayerCombatActorRef(this.player), method, weaponId: method === 'melee' ? (this.inventory.activeMelee?.id ?? 'unarmed') : this.inventory.equippedRanged?.id, contact: contact ?? (method === 'melee' ? this.player.weaponSweep?.contact : undefined) })
+      const result = damageNpc(npc, playerAmount, { source: createPlayerCombatActorRef(this.player), method, weaponId: method === 'melee' ? (this.inventory.activeMelee?.id ?? 'unarmed') : this.inventory.equippedRanged?.id, contact: contact ?? (method === 'melee' ? this.player.weaponSweep?.contact : undefined), emit: event => this.awardCareerDamageXp(event) })
       applied = result.appliedDamage
       if (method === 'mount-impact' && result.hitSuccess && !result.isMountHit && this.player.currentMount) applyMountImpactKnockback(this.player.currentMount, npc, { obstacles: this.world.obstacles, worldBound: getScenePlayableWorldBound(this.scene) })
       if (result.hitSuccess) this.showCombatTarget(result.targetName, result.hpRatio)
-      if (applied > 0) this.awardCareerSkillXp(method, applied, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
     } else {
-      const result = damageMount(npc, amount, { source: createPlayerCombatActorRef(this.player), method, contact, weaponId: method === 'projectile' ? this.inventory.equippedRanged?.id : (this.inventory.activeMelee?.id ?? 'unarmed') })
+      const result = damageMount(npc, amount, { source: createPlayerCombatActorRef(this.player), method, contact, weaponId: method === 'projectile' ? this.inventory.equippedRanged?.id : (this.inventory.activeMelee?.id ?? 'unarmed'), emit: event => this.awardCareerDamageXp(event) })
       applied = result.appliedDamage
-      if (applied > 0) this.awardCareerSkillXp(method, applied, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
       this.showCombatTarget(result.targetName, result.hpRatio)
     }
     if (applied > 0) {
@@ -3220,7 +3222,6 @@ export class TownScene {
     if (target.dead && this.profile.activeMission?.kind !== 'commander-four-gate-defense'
       && this.profile.activeMission && this.residents.some(resident => resident.npc === target && resident.spec.duty === 'watchtower_guard'))
       this.commit(cloneCareerProfile(this.profile))
-    if (!source) this.awardCareerSkillXp(method, result.appliedDamage, contact?.attackSource === 'xongkoro' ? 'mountedImpact' : undefined)
     if (this.defense.active && (this.defense.assault || source?.faction === Faction.ENEMY)) this.defense.noteEffectiveFriendlyDamage(target)
     if (method === 'projectile') sound?.playProjectileImpact(target.currentLod, !source)
     else if (method === 'mount-impact') sound?.playHorseImpact(target.currentLod, !source)
@@ -3434,7 +3435,7 @@ export class TownScene {
         const contact = traceFistStrike(strike, this.player.position, targets, this.world.obstacles)
         if (!contact) continue
         const target = contact.target as NPC | Mount
-        const amount = unarmedDamage(this.skills.getMultiplier('oneHanded'), this.player.heroAssetId)
+        const amount = unarmedDamage(this.skills.getMultiplier('unarmed'), this.player.heroAssetId)
         if (contact.kind === 'mount' && contact.mount) this.hitBattlefieldMount(contact.mount, amount, 'melee', undefined, contact)
         else if (target instanceof NPC) {
           if (this.race?.actors.includes(target) || this.duel?.isMissionTarget(target) || this.outskirts?.owns(target)

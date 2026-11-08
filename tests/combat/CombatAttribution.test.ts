@@ -3,7 +3,10 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { CombatEventStream, type CombatDamageContext, type CombatEventSink } from '../../src/combat/CombatAttribution'
 import { damageNpc, damageObstacle, damagePlayer, damageMount } from '../../src/combat/DamageRouter'
 import { ShieldCollider, ShieldState } from '../../src/combat/ShieldBlocking'
-import type { Player } from '../../src/player/Player'
+import { Player } from '../../src/player/Player'
+import { Game } from '../../src/Game'
+import { punchEventsBetween, traceFistStrike } from '../../src/combat/UnarmedCombat'
+import { SkillManager } from '../../src/rpg/SkillManager'
 import { DamageableObstacle } from '../../src/world/DamageableObstacle'
 import { Faction, NPC } from '../../src/world/NPC'
 import { MountArmor } from '../../src/combat/MountArmor'
@@ -107,7 +110,80 @@ function sourceContext(
   }
 }
 
+/** Borrow the real contact entry and queue drain; every fixture is plain state/math, no actor constructors. */
+function unarmedContactHarness(targetX: number, throughTime: number) {
+  let hp = 100
+  const position = new THREE.Vector3(targetX, 0, 1)
+  const receiver = {
+    group: { position }, combatPosition: position, isMounted: false,
+    damageTarget: { targetId: 'punch-target', targetType: 'npc' as const, name: 'target' },
+    receiveDamage(amount: number) { const before = hp; hp = Math.max(0, hp - amount); return before - hp },
+  }
+  const player = Object.assign(Object.create(Player.prototype), {
+    group: { position: new THREE.Vector3(), matrixWorld: new THREE.Matrix4(), updateWorldMatrix() {} },
+    isDead: false, spectatorOnly: false, visualFaction: 'roman', isMounted: false, currentMount: null,
+    pendingFistStrikes: punchEventsBetween(0, throughTime, false).map(() => ({
+      from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85),
+    })),
+  })
+  const { stream, events } = eventHarness()
+  const game = Object.assign(Object.create(Game.prototype) as { _checkPlayerMeleeHits(): void }, {
+    player, controlMode: 'player', inventoryManager: { activeMelee: undefined },
+    npcGrid: { getNearbyInto: () => [] }, combatMountGrid: { getNearbyInto: () => [] },
+    trainingGround: { dummies: [receiver] }, obstacles: [], skillManager: new SkillManager(),
+    combatEvents: stream, damageNumbers: { spawn() {} }, _showEnemyHud() {},
+  })
+  return { game, hp: () => hp, events }
+}
+
 describe('Combat attribution foundation', () => {
+  it('拳頭沒有接觸時正式玩家命中流程不扣血，也不發傷害事件', () => {
+    const h = unarmedContactHarness(2, .2)
+    h.game._checkPlayerMeleeHits()
+    expect(h.hp()).toBe(100)
+    expect(h.events).toEqual([])
+  })
+  it('大 dt 跨過四拳時四次各自扣血，下一個 frame 不得重複同一拳', () => {
+    const h = unarmedContactHarness(0, 1.6)
+    h.game._checkPlayerMeleeHits()
+    expect(h.hp()).toBe(80)
+    expect(h.events.filter(event => event.type === 'damage_applied')).toHaveLength(4)
+    h.game._checkPlayerMeleeHits()
+    expect(h.hp()).toBe(80)
+    expect(h.events.filter(event => event.type === 'damage_applied')).toHaveLength(4)
+  })
+  it('拳頭接觸點剛好在零點八米時可命中', () => {
+    const npc = mockNpc({ position: new THREE.Vector3(0, 0, 1.1) })
+    const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
+    expect(traceFistStrike(strike, new THREE.Vector3(), [npc], [])).toMatchObject({ kind: 'body', target: npc })
+  })
+  it('拳頭有幾何接觸但超過零點八米時不命中', () => {
+    const npc = mockNpc({ position: new THREE.Vector3(0, 0, 1.101) })
+    const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
+    expect(traceFistStrike(strike, new THREE.Vector3(), [npc], [])).toBeUndefined()
+  })
+  it('拳頭被障礙物遮蔽時不會命中後方目標', () => {
+    const npc = mockNpc({ position: new THREE.Vector3(0, 0, 1) })
+    const strike = { from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }
+    const obstacle = { box: new THREE.Box3(new THREE.Vector3(-.5, .5, .55), new THREE.Vector3(.5, 1.5, .6)), isBarricade: false }
+    expect(traceFistStrike(strike, new THREE.Vector3(), [npc], [obstacle])).toBeUndefined()
+  })
+  it('拳頭先接觸盾面時沿用實體盾格擋，不讓身體接觸搶先扣血', () => {
+    const shield = new ShieldState(); shield.equip('scutum_t1')
+    const npc = mockNpc({ position: new THREE.Vector3(0, 0, 1), shield })
+    const pivot: Pick<THREE.Object3D, 'matrixWorld' | 'updateWorldMatrix'> = {
+      matrixWorld: new THREE.Matrix4().makeTranslation(0, 1, .5), updateWorldMatrix() {},
+    }
+    npc.shieldCollider = new ShieldCollider(pivot as THREE.Object3D, shield); npc.shieldCollider.setModel('scutum_t1')
+    const contact = traceFistStrike({ from: new THREE.Vector3(0, 1, .4), to: new THREE.Vector3(0, 1, .85) }, new THREE.Vector3(), [npc], [])
+    expect(contact?.kind).toBe('shield')
+    const { stream, events } = eventHarness()
+    const result = damageNpc(npc, 5, sourceContext(stream, { contact, weaponId: 'unarmed',
+      source: { actorId: 'player', actorType: 'player', allegiance: Faction.PLAYER, characterFaction: 'roman' } }))
+    expect(result.appliedDamage).toBe(0)
+    expect(npc.hp).toBe(200)
+    expect(events.filter(event => event.type === 'damage_applied')).toHaveLength(0)
+  })
   it('restores nested event ownership without duplicate delivery after repeated releases', () => {
     const original = vi.fn<CombatEventSink>(), first = vi.fn<CombatEventSink>(), second = vi.fn<CombatEventSink>()
     const routing = { originalCombatEventSink: original, combatEventBindings: [], combatEventBindingsClosed: false }
