@@ -31,7 +31,8 @@ const docsOnly = file => /^(README(?:\.[\w-]+)?\.md|(?:docs|ai_share)\/.*\.md|te
   && !file.startsWith('docs/releases/')
 const cssOnlyAsset = file => /^src\/ui\/[\w/-]+\.css$/.test(file)
 // The exact same decision powers pre-seed gating and final planning.
-// Reject unknown inputs, deletes/renames and symlink/submodule changes.
+// Reject unknown inputs, deletes/renames and link-target changes; only verified
+// new agent-skill links to unchanged existing repo directories are safe.
 function regularTrackedFile(sha, file) {
   const raw = git('ls-tree', sha, '--', file)
   return /^100644 blob [0-9a-f]{40}\t/.test(raw)
@@ -46,14 +47,30 @@ function safeGitignore(base, head) {
     lines.filter(line => line.startsWith('+') && !line.startsWith('+++'))
       .every(line => /^\+(?:#.*|\s*|\.claude\/worktrees\/|\.claude\/settings\.local\.json)$/.test(line))
 }
+// A new Claude skill alias cannot change runtime code: its exact link target
+// must be a pre-existing agent-only directory with unchanged tree SHA.
+function safeNewAgentLink(base, head, file, readGit = git) {
+  if (!/^\.claude\/skills\/[a-z0-9][a-z0-9-]*$/.test(file)) return false
+  const name = file.slice('.claude/skills/'.length)
+  const target = 'ai_share/skills/' + name
+  try {
+    if (!/^120000 blob [0-9a-f]{40}\t/.test(readGit('ls-tree', head, '--', file))) return false
+    if (readGit('show', head + ':' + file) !== '../../' + target) return false
+    const original = readGit('ls-tree', base, '--', target)
+    return /^040000 tree [0-9a-f]{40}\t/.test(original) &&
+      original === readGit('ls-tree', head, '--', target)
+  } catch { return false }
+}
 function noSeedPolicy(changed, base, head, {
   regular = regularTrackedFile, gitignore = safeGitignore,
+  agentLink = safeNewAgentLink,
 } = {}) {
   if (!changed.length) return null
   let hasCss = false
   for (const change of changed) {
-    if (!/^(A|M)$/.test(change.status) || change.oldFile ||
-        !regular(head, change.file) ||
+    if (!/^(A|M)$/.test(change.status) || change.oldFile) return null
+    if (change.status === 'A' && agentLink(base, head, change.file)) continue
+    if (!regular(head, change.file) ||
         (change.status === 'M' && !regular(base, change.file))) return null
     if (cssOnlyAsset(change.file)) { hasCss = true; continue }
     if (docsOnly(change.file)) continue
@@ -277,4 +294,4 @@ if (require.main === module) (async () => {
 })().catch(error => { console.error(error); process.exitCode = 1 })
 module.exports = { createPlan, discover, discoverNode, docsOnly, changes, options,
   shardFiles, planShards, selectedNames, selectionSummary, validateManifest,
-  regularTrackedFile, safeGitignore, noSeedPolicy, probeSeed }
+  regularTrackedFile, safeGitignore, safeNewAgentLink, noSeedPolicy, probeSeed }

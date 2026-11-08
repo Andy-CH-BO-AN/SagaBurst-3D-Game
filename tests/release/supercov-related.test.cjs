@@ -2,7 +2,7 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 const { decodeAffected, historicalVitestFiles, isCss } = require('../tooling/supercov-related.cjs')
-const { planShards, noSeedPolicy } = require('../tooling/ci-plan.cjs')
+const { planShards, noSeedPolicy, safeNewAgentLink } = require('../tooling/ci-plan.cjs')
 const { diagnose } = require('../tooling/supercov-affected-expand.cjs')
 const { readFileSync } = require('node:fs')
 const { resolve } = require('node:path')
@@ -94,6 +94,30 @@ test('docs-only whitelist never accepts unknown files, symlinks, deletes or chan
     { regular, gitignore: () => true }), 'docs-only')
   assert.equal(noSeedPolicy([{ status: 'M', file: '.gitignore' }], 'a', 'b',
     { regular, gitignore: () => false }), null)
+})
+test('new symlinked Claude skills are safe ONLY for unchanged existing same-name agent directories', () => {
+  const file = '.claude/skills/mount-from-reference'
+  const target = 'ai_share/skills/mount-from-reference'
+  const base = 'a'.repeat(40), head = 'b'.repeat(40)
+  const good = (command, sha, separator, path) => {
+    if (command === 'show') return '../../' + target
+    if (path === file) return '120000 blob ' + 'c'.repeat(40) + '\\t' + file
+    if (path === target) return '040000 tree ' + 'd'.repeat(40) + '\\t' + target
+    return ''
+  }
+  // Mock the complete Git modes/pointer/tree, not an arbitrary allowlist.
+  const git = (...args) => good(...args).replaceAll('\\t', '\t')
+  assert.equal(safeNewAgentLink(base, head, file, git), true)
+  assert.equal(safeNewAgentLink(base, head, '.claude/skills/../escape', git), false)
+  assert.equal(safeNewAgentLink(base, head, file,
+    (...args) => args[0] === 'show' ? '../../src' : git(...args)), false)
+  assert.equal(safeNewAgentLink(base, head, file,
+    (...args) => args[0] === 'ls-tree' && args[1] === head && args[3] === target
+      ? '040000 tree ' + 'e'.repeat(40) + '\t' + target : git(...args)), false)
+  assert.equal(noSeedPolicy([{ status: 'A', file }], base, head,
+    { regular: () => false, agentLink: (b,h,f) => safeNewAgentLink(b,h,f,git) }), 'docs-only')
+  assert.equal(noSeedPolicy([{ status: 'M', file }], base, head,
+    { regular: () => false, agentLink: () => true }), null)
 })
 test('direct changed test runs all current leaves including newly registered cases', () => {
   const selected = decodeAffected(answer(), inventory, [{ status: 'M', file: 'tests/example.test.ts' }], run)
