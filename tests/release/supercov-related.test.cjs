@@ -179,7 +179,7 @@ test('canonical dev/main publisher and artifact-only exact PR-base restore', () 
   assert.match(restore, /exact dev baseline seed pending/)
   assert.doesNotMatch(workflow, /actions\/cache\/restore@|supercov-dev-refresh:/)
   assert.match(adapter, /requireExactBaseSeed\(seed\.sha, base\)/)
-  assert.match(plan, /nativeSelection\(inventory, changed, \{ base, event \}\)/)
+  assert.match(plan, /nativeSelection\(\s*inventory, classification\.selectorChanges, \{ base, event \}\)/)
   assert.match(ci, /github\.event_name == 'workflow_dispatch' && 'full'/)
 })
 
