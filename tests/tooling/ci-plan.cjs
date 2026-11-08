@@ -49,13 +49,20 @@ function safeGitignore(base, head) {
 }
 // A new Claude skill alias cannot change runtime code: its exact link target
 // must be a pre-existing agent-only directory with unchanged tree SHA.
-function safeNewAgentLink(base, head, file, readGit = git) {
+// Read the symlink blob as raw bytes: the regular git() helper trims whitespace
+// and would incorrectly accept a different target ending in spaces/newlines.
+function readLinkBlob(sha, file) {
+  return execFileSync('git', ['show', sha + ':' + file], { cwd: root })
+}
+function safeNewAgentLink(base, head, file, readGit = git, readLink = readLinkBlob) {
   if (!/^\.claude\/skills\/[a-z0-9][a-z0-9-]*$/.test(file)) return false
   const name = file.slice('.claude/skills/'.length)
   const target = 'ai_share/skills/' + name
   try {
     if (!/^120000 blob [0-9a-f]{40}\t/.test(readGit('ls-tree', head, '--', file))) return false
-    if (readGit('show', head + ':' + file) !== '../../' + target) return false
+    const pointer = readLink(head, file)
+    if (!Buffer.isBuffer(pointer) ||
+        !pointer.equals(Buffer.from('../../' + target, 'utf8'))) return false
     const original = readGit('ls-tree', base, '--', target)
     return /^040000 tree [0-9a-f]{40}\t/.test(original) &&
       original === readGit('ls-tree', head, '--', target)

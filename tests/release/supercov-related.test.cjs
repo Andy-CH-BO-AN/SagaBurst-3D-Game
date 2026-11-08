@@ -58,16 +58,33 @@ test('new test plus changed runtime retains all new leaves AND native affected/u
     ['tests/example.test.ts'], [{ status: 'D', file: 'tests/example.test.ts' }]),
     /unsafe/)
 })
-test('filtered CLI failure diagnostics retain file, seed id, exit, signal, timeout and stderr', () => {
+test('filtered CLI failures distinguish timeout, maxBuffer, signal, exit and stderr', () => {
   const timeout = diagnose('tests/new.test.ts', run, {
-    code: 'ETIMEDOUT', signal: 'SIGTERM', killed: true, stderr: 'query timed out', message: 'killed',
+    code: null, signal: 'SIGTERM', killed: true, stderr: 'query timed out', message: 'killed',
   })
   for (const field of ['testFile=tests/new.test.ts', 'seedRunId=' + run,
-    'exitCode=ETIMEDOUT', 'signal=SIGTERM', 'timeout=true', 'stderr=query timed out']) {
+    'failureType=timeout', 'exitCode=none', 'signal=SIGTERM', 'timeout=true',
+    'maxBufferExceeded=false', 'stderr=query timed out']) {
     assert.ok(timeout.includes(field), field)
   }
-  const failure = diagnose('tests/a.test.ts', run, { code: 1, stderr: 'unknown test file' })
-  assert.match(failure, /exitCode=1/)
+  assert.match(diagnose('tests/new.test.ts', run, { code: 'ETIMEDOUT' }),
+    /failureType=timeout; exitCode=none; errorCode=ETIMEDOUT/)
+  const maxBuffer = diagnose('tests/big.test.ts', run, {
+    code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER', signal: 'SIGTERM', killed: true,
+    message: 'stdout maxBuffer length exceeded', stderr: 'truncated',
+  })
+  for (const field of ['failureType=maxBuffer', 'exitCode=none',
+    'errorCode=ERR_CHILD_PROCESS_STDIO_MAXBUFFER', 'timeout=false',
+    'maxBufferExceeded=true', 'stderr=truncated']) {
+    assert.ok(maxBuffer.includes(field), field)
+  }
+  const signal = diagnose('tests/a.test.ts', run, {
+    code: null, signal: 'SIGTERM', killed: false,
+  })
+  assert.match(signal, /failureType=signal/)
+  assert.match(signal, /timeout=false/)
+  const failure = diagnose('tests/a.test.ts', run, { code: 7, stderr: 'unknown test file' })
+  assert.match(failure, /failureType=nonzero-exit; exitCode=7/)
   assert.match(failure, /timeout=false/)
   assert.match(failure, /unknown test file/)
 })
@@ -95,27 +112,32 @@ test('docs-only whitelist never accepts unknown files, symlinks, deletes or chan
   assert.equal(noSeedPolicy([{ status: 'M', file: '.gitignore' }], 'a', 'b',
     { regular, gitignore: () => false }), null)
 })
-test('new symlinked Claude skills are safe ONLY for unchanged existing same-name agent directories', () => {
+test('new Claude skill links require byte-exact pointers and unchanged target trees', () => {
   const file = '.claude/skills/mount-from-reference'
   const target = 'ai_share/skills/mount-from-reference'
   const base = 'a'.repeat(40), head = 'b'.repeat(40)
   const good = (command, sha, separator, path) => {
-    if (command === 'show') return '../../' + target
     if (path === file) return '120000 blob ' + 'c'.repeat(40) + '\\t' + file
     if (path === target) return '040000 tree ' + 'd'.repeat(40) + '\\t' + target
     return ''
   }
-  // Mock the complete Git modes/pointer/tree, not an arbitrary allowlist.
   const git = (...args) => good(...args).replaceAll('\\t', '\t')
-  assert.equal(safeNewAgentLink(base, head, file, git), true)
-  assert.equal(safeNewAgentLink(base, head, '.claude/skills/../escape', git), false)
-  assert.equal(safeNewAgentLink(base, head, file,
-    (...args) => args[0] === 'show' ? '../../src' : git(...args)), false)
+  const pointer = '../../' + target
+  const link = () => Buffer.from(pointer, 'utf8')
+  assert.equal(safeNewAgentLink(base, head, file, git, link), true)
+  assert.equal(safeNewAgentLink(base, head, '.claude/skills/../escape', git, link), false)
+  for (const changed of [pointer + ' ', pointer + '\n', pointer + '\r\n',
+    ' ' + pointer, '../../src', pointer + '\0']) {
+    assert.equal(safeNewAgentLink(base, head, file, git, () => Buffer.from(changed)), false,
+      'reject non-byte-exact pointer ' + JSON.stringify(changed))
+  }
+  assert.equal(safeNewAgentLink(base, head, file, git, () => pointer), false,
+    'a lossy decoded string must not be accepted')
   assert.equal(safeNewAgentLink(base, head, file,
     (...args) => args[0] === 'ls-tree' && args[1] === head && args[3] === target
-      ? '040000 tree ' + 'e'.repeat(40) + '\t' + target : git(...args)), false)
+      ? '040000 tree ' + 'e'.repeat(40) + '\t' + target : git(...args), link), false)
   assert.equal(noSeedPolicy([{ status: 'A', file }], base, head,
-    { regular: () => false, agentLink: (b,h,f) => safeNewAgentLink(b,h,f,git) }), 'docs-only')
+    { regular: () => false, agentLink: (b,h,f) => safeNewAgentLink(b,h,f,git,link) }), 'docs-only')
   assert.equal(noSeedPolicy([{ status: 'M', file }], base, head,
     { regular: () => false, agentLink: () => true }), null)
 })

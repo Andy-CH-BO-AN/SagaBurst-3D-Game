@@ -8,12 +8,23 @@ const { promisify } = require('node:util')
 const run = promisify(execFile)
 function diagnose(file, runId, error) {
   const summary = String(error?.stderr || '').trim().slice(-1200).replace(/\s+/g, ' ')
-  const code = error?.code ?? error?.status ?? 'unknown'
+  const code = error?.code ?? error?.status ?? null
+  const exitCode = Number.isInteger(code) ? code : 'none'
+  const errorCode = typeof code === 'string' ? code : 'none'
   const signal = error?.signal ?? 'none'
-  const timedOut = error?.killed === true || code === 'ETIMEDOUT'
+  const maxBufferExceeded = errorCode === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+  // Node execFile timeout terminates with killed=true and SIGTERM; a signal
+  // alone is not a timeout. maxBuffer is an independent failure even if killed.
+  const timedOut = !maxBufferExceeded &&
+    (errorCode === 'ETIMEDOUT' || (error?.killed === true && signal === 'SIGTERM'))
+  const failureType = maxBufferExceeded ? 'maxBuffer' : timedOut ? 'timeout'
+    : signal !== 'none' ? 'signal' : Number.isInteger(code) ? 'nonzero-exit' : 'spawn-error'
   return 'testFile=' + file + '; seedRunId=' + runId +
-    '; exitCode=' + code + '; signal=' + signal +
-    '; timeout=' + timedOut + '; stderr=' + (summary || '(empty)') +
+    '; failureType=' + failureType +
+    '; exitCode=' + exitCode + '; errorCode=' + errorCode +
+    '; signal=' + signal + '; timeout=' + timedOut +
+    '; maxBufferExceeded=' + maxBufferExceeded +
+    '; stderr=' + (summary || '(empty)') +
     '; error=' + (error?.message || String(error))
 }
 async function main() {
