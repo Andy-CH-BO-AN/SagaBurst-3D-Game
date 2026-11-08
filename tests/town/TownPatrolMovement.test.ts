@@ -57,11 +57,12 @@ function patrol(count = 2, patrolId: 'A' | 'B' = 'A') {
         this.dead = false; this.hp = 100; this.combatPosition.set(p.x, 0, p.z)
       }),
     }
+    const armor = new MountArmor(MountType.HORSE)
     actor.mount = { dead: false, currentHp: 100, maxHp: 100, group: { position, rotation: { y: 0 } }, riderNpc: actor,
-      armor: new MountArmor(MountType.HORSE),
-      get armorImpactMax() { return this.armor.max },
-      get armorImpactRemaining() { return this.armor.remaining },
-      restoreArmor(value?: number) { this.armor.restore(value) },
+      armor,
+      get armorImpactMax() { return armor.max },
+      get armorImpactRemaining() { return armor.remaining },
+      restoreArmor(value?: number) { armor.restore(value) },
       restoreForTown: vi.fn() } as unknown as Mount
     return actor
   })
