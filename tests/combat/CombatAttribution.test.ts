@@ -625,9 +625,10 @@ it('空手 Duel NPC 追擊沿用既有導航：路徑被牆擋住時朝路徑點
   expect(move).not.toHaveBeenCalled()
 })
 
-it('空手 NPC 只在拳頭真正打得到的距離出拳，且追擊停點不會卡在觸發距離上', async () => {
-  const { UNARMED_ATTACK_DISTANCE, UNARMED_STOP_DISTANCE } = await import('../../src/combat/UnarmedCombat')
-  const shortestArmedFistReach = .53, bodyRadius = .3
-  expect(UNARMED_ATTACK_DISTANCE - bodyRadius).toBeLessThan(shortestArmedFistReach)
+it('空手 NPC 的出拳距離同時可觸發（大於身體碰撞距離）且打得到（拳頭可及），追擊停點在觸發距離內', async () => {
+  const { UNARMED_ACTOR_CONTACT_DISTANCE, UNARMED_ATTACK_DISTANCE, UNARMED_STOP_DISTANCE } = await import('../../src/combat/UnarmedCombat')
+  const shortestArmedFistReach = .53, fistRadius = .055, bodyRadius = .3
+  expect(UNARMED_ATTACK_DISTANCE).toBeGreaterThan(UNARMED_ACTOR_CONTACT_DISTANCE)
+  expect(UNARMED_ATTACK_DISTANCE - bodyRadius).toBeLessThan(shortestArmedFistReach + fistRadius)
   expect(UNARMED_STOP_DISTANCE).toBeLessThan(UNARMED_ATTACK_DISTANCE)
 })

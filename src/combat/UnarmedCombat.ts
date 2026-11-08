@@ -6,10 +6,12 @@ import type { ObstacleData } from '../world/Terrain'
 
 export const UNARMED_DAMAGE = 5
 export const UNARMED_RANGE = .8
-/** Measured in the studio: fist reach is .53-.73 m across armed rigs, and a target's body starts .3 m before its
- * centre, so NPCs must start here for every fist to connect, and stop just inside it (never exactly on it). */
-export const UNARMED_ATTACK_DISTANCE = .8
-export const UNARMED_STOP_DISTANCE = .7
+/** Measured in a live duel: body collision holds two actors .84 m apart, so a shorter trigger never fires.
+ * Studio fist reach is .53-.73 m on armed rigs, plus the .055 m fist radius, and a target's body starts .3 m before
+ * its centre, so NPCs must start within .885 m to connect. Their chase stops inside the trigger, never exactly on it. */
+export const UNARMED_ACTOR_CONTACT_DISTANCE = .84
+export const UNARMED_ATTACK_DISTANCE = .86
+export const UNARMED_STOP_DISTANCE = .75
 export const UNARMED_DURATION = 1.6
 export type PunchHand = 'left' | 'right'
 /** Procedural fallback's actual contact peaks; replace together with the imported clip, never independently. */
