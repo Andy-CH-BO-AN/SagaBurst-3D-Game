@@ -15,13 +15,14 @@
 ## 成本與邏輯範圍
 
 - 每個保留的邏輯 leaf case 最多 100ms，包含該案例的 beforeEach、body、afterEach、onTestFinished 與案例專屬 cleanup。以不受 fake timers 影響的真實單調時鐘量測；timeout 或 slowTestThreshold 不能取代預算驗證。
-- 普通 PR／push → `dev` 的 **Related CI 所有 logic jobs 合計最多 500 個 leaf cases**，不得用第二個 shard繞過，也不得在 Desktop jobs 重複執行同一批 logic cases；Related 應形成單一 aggregate-limited shard。PR／push → `main`、Pages、Release 與手動 Full 才可執行完整 repository 並分成多個每 shard 最多 500 的 deterministic shards。each、動態生成與多實作 contract 的每一列均計入；單檔超過 500 時須拆分獨立能力 suite，planner fail closed。
+- PR → `dev` 的 **Related CI 所有 logic jobs 合計最多 500 個 leaf cases**，不得用第二個 shard繞過，也不得在 Desktop jobs 重複執行同一批 logic cases；Related 應形成單一 aggregate-limited shard。push → `dev`（Full 通過後發佈 SHA-exact Supercov seed）、PR／push → `main`、Pages、Release 與手動 Full 才可執行完整 repository 並分成多個每 shard 最多 500 的 deterministic shards。each、動態生成與多實作 contract 的每一列均計入；單檔超過 500 時須拆分獨立能力 suite，planner fail closed。
 - 單一 leaf 通常應低於 70ms，保留 30ms 執行餘裕；這是**非阻擋的預警目標**，不得靠隱藏案例或刪掉必要回歸達標。Related aggregate／Full shard 的 500 個與每 case 100ms 都是硬門檻，不設 repository 案例配額。
 - 若任一 case 達 70ms，新增前先盤點該能力 owner 的現有覆蓋，優先採取淨減、去除重複 failure mode、縮小 fixture 與依賴；新案例若不可替代，需在 PR 說明風險與成本，不以硬性淨減要求犧牲關鍵保護。
 - Import／collection、setupFiles、beforeAll／afterAll 與整套 wall time 另外記錄；不得將案例成本藏入共用初始化或 cache。
 - Unit tests 不生成場景或 3D model，不建立 Scene、Group、Object3D 假場景、Mesh、geometry、material、texture、skeleton、rig 或 AnimationMixer。
 - 不呼叫 TownWorld／城牆／地形／戰場 builders，不建立會初始化模型、動畫或場景的 NPC、Player、Mount、TownScene，不解析或 preload 真實 GLB、GLTF、FBX、貼圖或動畫資產。
 - 不測 LOD0–2 外觀、骨架握姿、材質、陰影、美觀或需目視判斷的品質；不得用數值姿勢 assertions 或 synthetic skeleton 補回同一批外觀案例。
+- 本遊戲不支援小螢幕或低解析度桌面視窗：不為窄 viewport、解析度矩陣、responsive breakpoint、HUD／面板座標、元素間距、遮擋或固定 pixel 位置新增或保留 layout 測試，也不新增另一套模擬解析度的替代測試。仍保護 UI 的正常桌面行為：點擊、分頁、選擇、禁用狀態、輸入傳遞、存檔失敗重試與 dispose 後不再執行過期 callback。
 - 普通資料、Career profile、save/state model、IDs、roster、數值、Map／Set、合成導航圖及碰撞資料可以測；資料 model 不等於 3D model。Vector3、Quaternion、Box3 可作數學資料使用。
 - 重要動畫事件、LOD 選擇或資源狀態僅測數值與狀態，不載入模型。不得全面 mock Three.js 或另造測試引擎來讓重型測試假裝合規。
 - `integration/`、`assets/` 或其他 runner 不能成為重型測試例外。既有 Web／Desktop release smoke 維持啟動與封裝用途，不套用 unit 100ms，也不得收容被刪案例。
@@ -60,14 +61,12 @@
 
 - Runner 實際 collection 是數量依據；Node release leaf cases 與 Vitest 合併，避免漏跑或重算。報告缺失、過期、collection error 或空 suite 均不能通過。
 - CI 與 npm test 必須經由相同 planner／manifest 與預算守門；任何超過 100ms 的邏輯 case 輸出檔案、完整名稱、耗時並失敗。不得吞掉 runner 的原始失敗退出碼。
-- 普通 PR → dev 與 push → dev 使用 dependency-aware Related Test CI；PR 使用 merge-base，push 使用 before..after。直接修改測試與跨目錄 helper consumers 保守選取；production 變更依 Git diff 與 TypeScript Compiler API 分析 base/head 的 Function、Method 及共用契約。Dependency Graph 與 Vitest related 僅提供候選；依 test body、scoped hooks、實際 runtime symbol/call path 選入 Direct Owner 與 Caller Contract，不因單純 import／module 載入鏈而選入案例。Related/dev 接受未被實際 symbol／value／call 引用捕捉的隱藏初始化副作用風險，main／release Full 仍完整執行。高 fan-out owner 也不得只因檔名而改跑 Full。
-- Related selection 所有 runner 合計必須 `<=500`，只允許一個 aggregate-limited shard；超過 500、Git history 不足、無法解析的 computed import／glob、無 mapping 或 code change 得到零測試時直接 fail closed，要求補 dependency／owner mapping 或拆小 PR，不得自動退回 Full。移除／搬移使用完整 base／checkout dependency graphs，依 Git rename lineage 將舊 consumer 對應至現存測試，保守合併新舊 owner；已刪測試不得執行，缺失或無法解析的依賴仍 fail closed。只有確認沒有現存 runtime／設定引用的淘汰輸入可產生明確 retirement empty evidence，不可將「沒有測試 import」視為無 consumer。
+- PR → dev 使用 Supercov Related Test CI：還原與 PR base SHA 完全相同的 Full seed，依 Supercov native affected／undetermined identities 選測，不另設自訂 dependency graph、AST 或 gameplay source-to-test mapping（詳見 [tooling/README.md](tooling/README.md)）。push → dev 執行 Full，通過後發佈綁定該 commit 的 seed；Related 與 Full 不得互相取代，Related 不得自動退回 Full。
+- Related selection 所有 runner 合計必須 `<=500`，只允許一個 aggregate-limited shard；超過 500、缺少 exact base seed、證據不一致、新增／刪除／搬移的 runtime 來源或無法安全判定時直接 fail closed，要求等待 seed、補證據或拆小 PR，不得自動退回 Full。已刪測試不得執行。
 - PR → main、push → main、正式 tag／release／Pages 發佈前與手動 Full mode 必須跑 Full Test gate。只有 Full 可以分 shard並讓 aggregate 超過 500；aggregate 必須驗證所有 discovered files 及 leaves 恰好執行一次，再允許 publish。
 - main Full gate 只執行一次：`push → main` 由 `ci.yml` 跑 Full，Pages 與 Release 於同一 workflow run 以 `needs` 共用、不再各自重跑；Pages 與 Release 僅接受綁定同一精確 SHA 的 aggregate 驗證（`verified-sha`），失敗、取消、SHA 不符或缺少驗證即自行跑 Full 或失敗（Pages 另在部署前確認 `GITHUB_SHA` 仍為最新 `origin/main`，過期則 skip 以免舊 commit 覆蓋新版網站）。手動 `v*` tag 無同 run 證明，必須 Full。
 - Related manifest 保留完整 discovery，以檔案、完整 runner 名稱及 collection ordinal 精準指定 leaf；each 每列獨立計數。名稱重複、動態 wrapper 或無法安全對應 body 時，保守執行完整 owner file。Runner 僅可省略 manifest 未選 leaf；已選 skip、漏跑、多跑、重複或過期 evidence 均失敗。Full 禁用 Behavior Filter。
-- 型別消除後 JavaScript tokens 相同的修改只交由 Typecheck；其餘 runtime 變更沒有 owner、無法安全解析或超過預算時 fail closed，不可用不完整 mapping 靜默排除。
-- 修正 Related 過度選取時，優先讓輕量模組只依賴輕量 owner（如 `NpcAIType.ts` 的 `AIType`、`CombatFaction.ts` 的 `Faction`），不得在 planner 以固定排除名單隱藏 tests；以精簡 CI Summary 檢視 Changed Behavior、Owners、Selected cases、import-only 候選數與 Unsafe；完整診斷保留 ignored output/。
-- `tests/tooling/`、Workflow、package/config 變更透過明確 owner policy 選取 CI／budget contract tests；`.github/scripts/release/`／Electron 變更選取 Node publication tests。不得透過搬移檔案、dynamic import 或不登記依賴規避 selection。
+- 固定的小型 Node tooling／release suite 不經第二套 selector；config／dependency 變更可能選取全部 leaf，並因超過 500 而 fail closed。不得透過搬移檔案、dynamic import 或不登記依賴規避 selection。
 - 僅嚴格文件變更允許明確 docs-only empty plan。保留單檔／指定案例開發能力，但 Related／subset 通過不能代表 Full Suite 通過。
 - 開發中可先跑受影響 suite（`rtk npm test -- <file-or-directory>` 或 `-t`，屬局部驗證），再依需要本地跑 `rtk npm test`、`rtk npm run typecheck:test`、`rtk npm run build` 作快速回饋；**不要求本地完整測試執行三次，也不以本地全量重跑作合併必要條件**。
 - **PR 驗收以對應最新 PR head 的 GitHub Actions CI 為準**（含該 head 對應的 GitHub PR merge ref）；檢查適用的 web、desktop jobs 結果。CI 必須通過 logic plan／runner／aggregate（Related aggregate 或 Full per-shard 預算）、`npm run typecheck:test`、`npm run build` 及適用的 smoke。PR → dev／main 與合併後 push → dev 不安裝 Chromium 或執行 Web smoke，但保留 Typecheck、Build；push → main、Pages、Release 與手動 Full validation 仍執行 Web smoke。PR 中所有 selected logic cases 只在 logic gate 執行一次；Windows／macOS Desktop PR jobs 只在 PR → main 驗證 package／smoke，不重跑 Node logic；PR → dev 與 push → dev 不跑 Desktop。Windows／macOS Node component 驗證保留在正式 Release、完整測試與發佈閘門。不得用舊 commit、先前綠燈或單一 subset 冒充目前 PR 已驗證。

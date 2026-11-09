@@ -1,6 +1,6 @@
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { Vector3, type Scene } from 'three'
-import { CareerDuelController, selectCareerDuelRoster } from '../../src/career/CareerDuelController'
+import { CareerDuelController, persistsDuelTravel, selectCareerDuelRoster } from '../../src/career/CareerDuelController'
 import { townCommanderSpec } from '../../src/town/TownCommanderIdentity'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
 import type { Player } from '../../src/player/Player'
@@ -424,6 +424,13 @@ describe('Unarmed Duel authority and persistence', () => {
     expect(resolveCareerDuelOutcome(false, false, 89.99, 'unarmed')).toBeNull()
     expect(resolveCareerDuelOutcome(false, false, 90, 'unarmed')).toBe('failure')
     expect(resolveCareerDuelOutcome(false, false, 30)).toBe('failure')
+  })
+  it('空手與 T5、教學對戰保存實體移動 checkpoint；武裝 T1-T4 不保存', () => {
+    expect(persistsDuelTravel({ duelMode: 'unarmed', duelTier: 2 })).toBe(true)
+    expect(persistsDuelTravel({ duelTier: 5 })).toBe(true)
+    expect(persistsDuelTravel({ duelTutorialCareerId: 'x' })).toBe(true)
+    expect(persistsDuelTravel({ duelTier: 3 })).toBe(false)
+    expect(persistsDuelTravel({ duelMode: 'armed', duelTier: 4 })).toBe(false)
   })
   it('空手借用裝備與坐騎後還原原始資源，玩家存檔偏好不被清空', () => {
     const h = travelingDuel('MARCHING')

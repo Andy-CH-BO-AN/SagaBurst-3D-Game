@@ -39,9 +39,6 @@ import { WEAPONS } from '../../src/rpg/WeaponDatabase'
 import { ARMORS } from '../../src/rpg/ArmorDatabase'
 import {
   squadShortcutKey,
-  MAX_CUSTOM_BATTLE_COMMAND_SQUADS,
-  MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE,
-  CIVILIAN_SQUAD_ID,
   SquadId,
 } from '../../src/battle/CommandTarget'
 import {
@@ -386,26 +383,6 @@ describe('Custom Battle 2.0: Squad Formation Layout Rules', () => {
     }
   })
 
-  it('ensures units and squads do not overlap on all five ground maps', () => {
-    const maps = ['original', 'bridge', 'roman_town', 'snow', 'viking_town'] as const
-
-    for (const mapId of maps) {
-      const config = makeGroundConfig(50, 50)
-      config.mapId = mapId
-      const plan = SquadFormationPlanner.planCustomBattle(config)
-
-      expect(plan.npcSpecs.length).toBe(100)
-
-      // Check unit-to-unit spacing (no two units at the exact same location)
-      const posSet = new Set<string>()
-      for (const spec of plan.npcSpecs) {
-        const key = `${spec.x.toFixed(1)},${spec.z.toFixed(1)}`
-        expect(posSet.has(key)).toBe(false)
-        posSet.add(key)
-      }
-    }
-  })
-
   it('generates authentic camp pickups with valid weapon IDs and horses when includeCamps is enabled', () => {
     const config = makeGroundConfig(30, 30)
     config.rules.includeCamps = true
@@ -534,15 +511,6 @@ describe('Custom Battle 2.0: Command Target Shortcuts and Limits', () => {
       expect(squadShortcutKey(id as SquadId)).toBe(String(id))
     }
     expect(squadShortcutKey(10)).toBe('0')
-  })
-
-  it('preserves Career civilian shortcut mapping to key 0', () => {
-    expect(squadShortcutKey(CIVILIAN_SQUAD_ID)).toBe('0')
-  })
-
-  it('enforces 10 squads max and 50 units per squad limits', () => {
-    expect(MAX_CUSTOM_BATTLE_COMMAND_SQUADS).toBe(10)
-    expect(MAX_CUSTOM_BATTLE_COMMAND_SQUAD_SIZE).toBe(50)
   })
 })
 

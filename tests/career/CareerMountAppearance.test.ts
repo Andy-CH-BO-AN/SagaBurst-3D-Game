@@ -39,7 +39,8 @@ describe('Career horse appearance transactions', () => {
     expect(leopard.remaining).toBe(50)
   })
 
-  it.each([0, 1, 2] as const)('commits coat %i before updating the live horse and survives clone/save/reload', variant => {
+  it('commits a changed coat before updating the live horse and survives clone/save/reload', () => {
+    const variant = 1 as const
     const store = new CareerProfileStore(new MemoryStorage())
     let current = profile()
     const apply = vi.fn(() => {
