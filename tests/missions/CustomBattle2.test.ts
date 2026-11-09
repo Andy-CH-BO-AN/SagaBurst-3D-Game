@@ -637,23 +637,27 @@ describe('Custom Battle 2.0: Clearance and Collision Avoidance (P1)', () => {
     const plan = SquadFormationPlanner.planCustomBattle(config, townObstacles)
     expect(plan.npcSpecs.length).toBe(600)
 
+    // Collect once rather than running ~3000 matchers: this planner's output is the
+    // unit under test, and per-element expect() was over half of this leaf's cost.
+    const invalid: string[] = []
     // Check cavalry distance >= 4.0m among same-faction placed units (sample first 60 for fast unit test)
     const vikingUnits = plan.npcSpecs.filter(s => s.characterFaction === 'viking').slice(0, 60)
     for (let i = 0; i < vikingUnits.length; i++) {
       for (let j = i + 1; j < vikingUnits.length; j++) {
         const dist = Math.hypot(vikingUnits[i].x - vikingUnits[j].x, vikingUnits[i].z - vikingUnits[j].z)
-        expect(dist).toBeGreaterThanOrEqual(4.0)
+        if (!(dist >= 4.0)) invalid.push(`overlap ${i}/${j}: ${dist}`)
       }
     }
 
     // Check all units are strictly outside the town wall obstacles
-    for (const unit of plan.npcSpecs) {
+    for (const [index, unit] of plan.npcSpecs.entries()) {
       for (const obs of townObstacles) {
         const insideX = unit.x >= obs.box.min.x - 1.0 && unit.x <= obs.box.max.x + 1.0
         const insideZ = unit.z >= obs.box.min.z - 1.0 && unit.z <= obs.box.max.z + 1.0
-        expect(insideX && insideZ).toBe(false)
+        if (insideX && insideZ) invalid.push(`inside wall ${index}: ${unit.x},${unit.z}`)
       }
     }
+    expect(invalid).toEqual([])
   })
 })
 
