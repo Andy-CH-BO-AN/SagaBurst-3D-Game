@@ -81,7 +81,8 @@ export function createHeavyFieldMission(profile: CareerProfile, templateId: stri
       if (authority.squads) authority.commandedSquadIds = authority.squads.map(squad => squad.squadId)
       return authority
     })() } : {}),
-    personalSquad: snapshotPersonalMission(profile),
+    // Only the Captain mission commands anyone; Soldier / Veteran bring no private troops either.
+    ...(commandsSquads ? { personalSquad: snapshotPersonalMission(profile) } : {}),
   }
 }
 

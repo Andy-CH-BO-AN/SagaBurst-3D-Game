@@ -27,7 +27,8 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CorgiVisual } from './world/CorgiVisual'
 import { careerHeavyPreloadPlan } from './career/HeavyCavalrySpawn'
 import { createHeavyFieldDeployment, isCareerHeavyFieldBattle, type HeavyFieldDeployment } from './career/HeavyFieldMission'
-import { HEAVY_FIELD_SPECS, heavyFrontlineDistance, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
+import { createCaltropBarrier } from './world/CaltropBarrier'
+import { HEAVY_FIELD_SPECS, VETERAN_IRON_TIDE_ID, heavyFrontlineDistance, planVeteranCaltropDefense, veteranCaltropWorldRects, shouldIssueHeavyFormation, shouldTriggerHeavyCounterCharge, shouldTriggerHeavyEnemyCharge, type HeavyPoint } from './career/HeavyCavalryMissions'
 import { BlackCatVisual, FELINE_MOUNT_VARIANTS, type FelineMountVariant } from './world/BlackCatVisual'
 import { SnowLeopardVisual } from './world/SnowLeopardVisual'
 import { XongkoroVisual } from './world/XongkoroVisual'
@@ -664,6 +665,11 @@ export class Game {
   /** Heavy-cavalry field battles (Soldier / Veteran / Captain): deployment plan and throttled trigger clock. */
   private heavyDeployment?: HeavyFieldDeployment
   private heavyCheckClock = 0
+  /** Soldier and Veteran field battles give the player no command authority at all. */
+  private get heavyNoCommand(): boolean {
+    const mission = this.careerProfile?.activeMission
+    return isCareerHeavyFieldBattle(mission) && HEAVY_FIELD_SPECS[mission.templateId].friendlySquadSizes.length === 0
+  }
   private heavyGuide: MissionGuide | null = null
   private captainEagleSpawnBatch?: NpcSpawnBatch
   private captainEagleHud?: CaptainEagleHUD
@@ -1048,6 +1054,10 @@ export class Game {
       }
     }
 
+    const heavyMissionForObstacles = this.felineMissionId ? this.careerProfile?.activeMission : undefined
+    if (isCareerHeavyFieldBattle(heavyMissionForObstacles) && heavyMissionForObstacles.templateId === VETERAN_IRON_TIDE_ID) {
+      createCaltropBarrier(this.scene, veteranCaltropWorldRects(planVeteranCaltropDefense(), this.careerProfile!.faction), obstacles)
+    }
     this.obstacles = obstacles
     this.navigationWorld.sync(this.obstacles)
     this._aimTargetRegistry.addStaticTarget(terrainMesh)
@@ -1521,6 +1531,7 @@ export class Game {
       },
       campaignConfig || this.bridgeLaunch || this.felineMissionId || this.tutorialLaunch ? 'defend' : (this.isDevCombat || isBridgePreview) ? 'defend' : 'attack',
       (order) => {
+        if (this.heavyNoCommand) return false
         if (this.hasCareerOfficialCommand && (this.player.dead || this._careerCommandFinished())) return false
         if (this.personalSquad) return !this.player.dead && this.controlMode !== 'spectator'
         if (!campaignConfig || (order !== 'attack' && order !== 'charge')) return true
@@ -1529,7 +1540,7 @@ export class Game {
       },
       this.inventoryManager,
       this.hasCareerOfficialCommand || this.personalSquad ? 'squad' : activeBattleConfig?.commandGrouping ?? 'preset',
-      !this.isTrainingGround && (Boolean(this.hasCareerOfficialCommand || this.personalSquad) || defenseCampaignCapabilities(campaignConfig).playerCommandsEnabled),
+      !this.isTrainingGround && !this.heavyNoCommand && (Boolean(this.hasCareerOfficialCommand || this.personalSquad) || defenseCampaignCapabilities(campaignConfig).playerCommandsEnabled),
       this.personalSquad ? {
         enabled: () => !this.player.dead && this.controlMode !== 'spectator',
         issue: order => {
@@ -1592,7 +1603,7 @@ export class Game {
         if (this.bridgeLaunch) this._declareCaptainEagleRoster(battlePlan)
         this._queueCaptainEagleRoster(battlePlan)
         await gameplayNpcSpawns.wait(this.captainEagleSpawnBatch!,
-          (done, total) => progress(`${this.bridgeLaunch ? '部署橋頭部隊' : this.felineMissionId ? '部署六貓騎兵團' : '部署巨鷹部隊'} ${done} / ${total}…`))
+          (done, total) => progress(`${this.bridgeLaunch ? '部署橋頭部隊' : this.felineMissionId ? (isCareerHeavyFieldBattle(this.careerProfile?.activeMission) ? '部署鐵騎戰場部隊' : '部署六貓騎兵團') : '部署巨鷹部隊'} ${done} / ${total}…`))
         if (this.bridgeLaunch || this.felineMissionId) this._restoreCaptainEaglePlayer()
         if (!this._persistCaptainMission(true)) throw new Error('Career field initial deployment could not be saved')
         if (this.bridgeRuntime?.deployment.phase === 'spawning'
