@@ -668,7 +668,7 @@ export class Game {
   /** Soldier and Veteran field battles give the player no command authority at all. */
   private get heavyNoCommand(): boolean {
     const mission = this.careerProfile?.activeMission
-    return isCareerHeavyFieldBattle(mission) && HEAVY_FIELD_SPECS[mission.templateId].friendlySquadSizes.length === 0
+    return isCareerHeavyFieldBattle(mission) && !mission.officialSquad && !mission.personalSquad
   }
   private heavyGuide: MissionGuide | null = null
   private captainEagleSpawnBatch?: NpcSpawnBatch
@@ -2678,7 +2678,7 @@ export class Game {
     }
     // Soldier after Formation, Veteran from the start: hold the planned slot; Captain enemies hold where they stand.
     const slot: HeavyPoint | undefined = this.heavyDeployment?.formationSlots[npc.combatantId] ?? (side === 'enemy' ? { x: npc.combatPosition.x, z: npc.combatPosition.z } : undefined)
-    if (side === 'friendly' && spec.friendlySquadSizes.length > 0) { npc.setTacticalOrder('defend'); return }
+    if (side === 'friendly' && officialPlayerOwnsActor(mission.officialSquad, npc.combatantId)) { npc.setTacticalOrder('defend'); return }
     if (slot) npc.assignFormationTarget(-3, new THREE.Vector3(slot.x, getTerrainHeight(slot.x, slot.z), slot.z), facing, undefined, 'defend', side === 'enemy' || !spec.startsMarching)
     else npc.setTacticalOrder(order)
   }

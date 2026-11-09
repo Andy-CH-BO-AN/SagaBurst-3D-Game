@@ -2082,7 +2082,7 @@ export class TownScene {
       const row = document.createElement('article'); row.className = 'town-product'
       const title = document.createElement('strong'); title.textContent = definition.name
       const details = document.createElement('small'); details.style.whiteSpace = 'pre-line'
-      details.textContent = `${definition.briefing}\n友軍 ${definition.friendlyCombatants} 人（含玩家） · 敵軍 ${definition.enemyCombatants} 人 · ${minRank === 'captain' ? '可額外攜帶私兵' : '玩家無指揮權'} · 風險 ${definition.risk}`
+      details.textContent = `${definition.briefing}\n友軍 ${definition.friendlyCombatants} 人（含玩家） · 敵軍 ${definition.enemyCombatants} 人 · ${CAREER_RANKS.indexOf(this.profile.rank) >= CAREER_RANKS.indexOf('captain') ? '可帶私兵並下令' : '老兵／士兵無指揮權'} · 風險 ${definition.risk}`
       const accept = document.createElement('button'); accept.className = 'town-button'
       accept.textContent = availability.unlocked ? '接受任務' : availability.reason ?? '尚未解鎖'
       accept.disabled = !availability.unlocked

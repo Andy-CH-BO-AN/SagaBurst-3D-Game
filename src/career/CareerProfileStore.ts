@@ -450,11 +450,10 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     const templateId = template!.id as Parameters<typeof heavyNpcGroups>[0]
     const expectedFriendly = heavyActorIds(raw.id as string, 'friendly', heavyNpcGroups(templateId, 'friendly'))
     const expectedEnemies = heavyActorIds(raw.id as string, 'enemy', heavyNpcGroups(templateId, 'enemy'))
-    const commandsSquad = templateId === 'captain-steel-avalanche'
+    const commandsSquad = rank === 'captain' || rank === 'commander'
     if (friendlyActorIds.length !== expectedFriendly.length || targetActorIds.length !== expectedEnemies.length
       || friendlyActorIds.some((id, index) => id !== expectedFriendly[index]) || targetActorIds.some((id, index) => id !== expectedEnemies[index])
       || commandsSquad !== Boolean(acceptedOfficialSquad)
-      || commandsSquad && (acceptedOfficialSquad!.actorIds.length !== expectedFriendly.length || acceptedOfficialSquad!.squads?.length !== 1 && rank === 'commander')
       || raw.personalSquad !== undefined && !personalSquad
       || personalSquad?.memberIds.some(id => knownActorIds.has(id))
       || raw.felineBattle !== undefined && !felineBattle

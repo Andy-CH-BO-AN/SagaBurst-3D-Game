@@ -3,13 +3,14 @@ import type { BattleSpawnPlan, NpcSpawnSpec } from '../battle/BattleSpawner'
 import { Faction } from '../world/NPC'
 import { careerCombatPlayerLoadout } from './CaptainBattleLaunch'
 import { resolveCareerReliefMount } from './CareerOutpostMission'
-import { createMissionCommandAuthority } from './CareerCommandAuthority'
+import { MAX_COMMAND_SQUADS, MAX_COMMAND_SQUAD_SIZE } from '../battle/CommandTarget'
+import { createMissionCommandAuthority, type OfficialCommandSquad } from './CareerCommandAuthority'
 import { createCareerMissionId, type ActiveCareerMission } from './CareerMissionState'
 import { snapshotPersonalMission } from './CareerPersonalSquadMission'
 import { resolveCareerHeroAsset } from './CareerPlayerProfile'
 import { CAREER_RANKS, cloneCareerProfile, type CareerProfile, type CareerRank } from './CareerProfile'
 import {
-  CAPTAIN_STEEL_AVALANCHE_ID, HEAVY_ENEMY_FRONT_ABS_Z, HEAVY_FIELD_KIND, HEAVY_FIELD_MISSION_IDS, HEAVY_FIELD_SPECS, HEAVY_PLAYER_SLOT,
+  CAPTAIN_STEEL_AVALANCHE_ID, HEAVY_ENEMY_FRONT_ABS_Z, HEAVY_FIELD_KIND, HEAVY_FIELD_MISSION_IDS, HEAVY_PLAYER_SLOT,
   SOLDIER_AMBUSH_ABS_Z, SOLDIER_COLUMN_FRONT_ABS_Z, SOLDIER_IRON_ENCOUNTER_ID, VETERAN_IRON_TIDE_ID,
   createHeavyFieldState, heavyActorIds, heavyBlockPositions, heavyEnemyActorIds, heavyFriendlyActorIds, heavyFriendlyZSign, heavyNpcGroups,
   isHeavyFieldMissionId, planVeteranCaltropDefense, veteranSlotWorldPosition,
@@ -72,18 +73,31 @@ export function createHeavyFieldMission(profile: CareerProfile, templateId: stri
   if (!entry || !isHeavyFieldMissionId(templateId) || !getHeavyFieldMissionAvailability(profile, templateId).unlocked) return null
   const friendlyActorIds = heavyActorIds(id, 'friendly', heavyNpcGroups(templateId, 'friendly'))
   const targetActorIds = heavyActorIds(id, 'enemy', heavyNpcGroups(templateId, 'enemy'))
-  const commandsSquads = HEAVY_FIELD_SPECS[templateId].friendlySquadSizes.length > 0
+  const officialSquad = heavyOfficialAuthority(profile, id, friendlyActorIds)
   return {
     id, templateId, kind: HEAVY_FIELD_KIND, targetCampId: -1, phase: 'PREPARING', targetActorIds, friendlyActorIds, acceptedAt: Date.now(),
     commanderMission: { version: 1, kind: HEAVY_FIELD_KIND, deploymentComplete: false, heavyField: createHeavyFieldState(templateId) },
-    ...(commandsSquads ? { officialSquad: (() => {
-      const authority = createMissionCommandAuthority(id, profile.faction, profile.rank, friendlyActorIds, [{ squadId: 1, actorIds: friendlyActorIds }])
-      if (authority.squads) authority.commandedSquadIds = authority.squads.map(squad => squad.squadId)
-      return authority
-    })() } : {}),
-    // Only the Captain mission commands anyone; Soldier / Veteran bring no private troops either.
-    ...(commandsSquads ? { personalSquad: snapshotPersonalMission(profile) } : {}),
+    ...(officialSquad ? { officialSquad } : {}),
+    // Captain and Commander may bring private troops into any of these battles.
+    ...(heavyRankCommands(profile.rank) ? { personalSquad: snapshotPersonalMission(profile) } : {}),
   }
+}
+
+/** Command follows the player's rank, not the mission: Soldier / Veteran command nobody. */
+export function heavyRankCommands(rank: CareerRank): boolean { return rank === 'captain' || rank === 'commander' }
+
+/** Captain commands one 29-man squad of the mission force; Commander commands up to eight 30-man squads of it. */
+function heavyOfficialAuthority(profile: CareerProfile, missionId: string, friendlyActorIds: readonly string[]) {
+  if (!heavyRankCommands(profile.rank)) return undefined
+  const squads: OfficialCommandSquad[] = []
+  const size = profile.rank === 'commander' ? MAX_COMMAND_SQUAD_SIZE : 29
+  const count = profile.rank === 'commander' ? MAX_COMMAND_SQUADS : 1
+  for (let index = 0; index < count && index * size < friendlyActorIds.length; index++) {
+    squads.push({ squadId: index + 1 as OfficialCommandSquad['squadId'], actorIds: friendlyActorIds.slice(index * size, (index + 1) * size) })
+  }
+  const authority = createMissionCommandAuthority(missionId, profile.faction, profile.rank, squads[0].actorIds, squads)
+  if (authority.squads) authority.commandedSquadIds = authority.squads.map(squad => squad.squadId)
+  return authority
 }
 
 export function acceptHeavyFieldMission(profile: CareerProfile, templateId: string, id?: string): CareerProfile | null {
@@ -196,7 +210,7 @@ export function createHeavyFieldDeployment(profile: CareerProfile): HeavyFieldDe
     enemyPositions = [...melee, ...archers]
     formationSlots = friendlyPositions
   }
-  const friendly = layoutSpecs(templateId, 'friendly', faction, mission.friendlyActorIds, friendlyPositions, HEAVY_FIELD_SPECS[templateId].friendlySquadSizes.length ? 1 : undefined)
+  const friendly = layoutSpecs(templateId, 'friendly', faction, mission.friendlyActorIds, friendlyPositions, mission.officialSquad?.squads ? 1 : undefined)
   const enemyQueues = queues(templateId, 'enemy', mission.targetActorIds)
   const sortedEnemy = enemyQueues.flatMap(group => group.ids.map(actorId => ({ group, actorId })))
   // Captain enemies: melee queue first, then archers, matching the two position blocks above.
