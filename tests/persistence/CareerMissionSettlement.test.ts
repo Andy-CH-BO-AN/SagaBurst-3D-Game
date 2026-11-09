@@ -447,10 +447,10 @@ describe('Town mission settlement transactions', () => {
 
   it('atomically captures Commander V final casualties and grants defense merit and Tier 5 completion once after retry', () => {
     const h = fixture('commander-four-gate-defense'), before = h.read(), active = before.activeMission!
-    const missionId = active.id, templateId = active.templateId, lastTargetId = active.targetActorIds[229]
-    expect(active.targetActorIds).toHaveLength(230)
-    // The durable frame has 229 deaths. Only the controller boundary knows the final contact.
-    fourGateCasualties(active, active.targetActorIds.slice(0, 229))
+    const missionId = active.id, templateId = active.templateId, lastTargetId = active.targetActorIds.find(id => id.endsWith(':lancer:t4:leader'))!
+    expect(active.targetActorIds).toHaveLength(280)
+    // The durable frame has 279 deaths. Only the controller boundary knows the final contact.
+    fourGateCasualties(active, active.targetActorIds.filter(id => id !== lastTargetId))
     h.storage.setItem(CAREER_STORAGE_KEY, JSON.stringify(before))
     const savedBefore = h.storage.getItem(CAREER_STORAGE_KEY), latest = structuredClone(active)
     fourGateCasualties(latest, latest.targetActorIds)
@@ -472,7 +472,7 @@ describe('Town mission settlement transactions', () => {
     expect(h.settlement.finish('victory')).toEqual({ status: 'save-failed' })
     expect(h.read()).toBe(before)
     expect(h.read().activeMission!.result).toBeUndefined()
-    expect(h.read().activeMission!.deadTargetActorIds).toHaveLength(229)
+    expect(h.read().activeMission!.deadTargetActorIds).toHaveLength(279)
     expect(h.read().activeMission!.fourGateDefense!.phase).toBe('ATTACKING')
     expect(h.read().claimedBattleIds).not.toContain(missionId)
     expect(h.storage.getItem(CAREER_STORAGE_KEY)).toBe(savedBefore)
@@ -481,7 +481,7 @@ describe('Town mission settlement transactions', () => {
     expect(h.settlement.finish('victory').status).toBe('saved')
     h.reload()
     const saved = h.read(), result = saved.activeMission!.result!
-    expect(saved.activeMission!.deadTargetActorIds).toHaveLength(230)
+    expect(saved.activeMission!.deadTargetActorIds).toHaveLength(280)
     expect(saved.activeMission!.deadTargetActorIds).toContain(lastTargetId)
     expect(saved.activeMission).toMatchObject({ phase: 'RESULT',
       fourGateDefense: { phase: 'RESULT', attackStarted: true, actors: { [lastTargetId]: { status: 'dead', hp: 0, mount: { hp: 22, mounted: false } } },

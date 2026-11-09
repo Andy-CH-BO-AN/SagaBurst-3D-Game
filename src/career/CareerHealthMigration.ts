@@ -126,7 +126,7 @@ export function migrateCareerHealth(profile: CareerProfile): void {
       const roster = mission.kind === 'commander-bridgehead-battle' ? createBridgeheadRoster(mission, profile.faction) : createLastStandRoster(mission, profile.faction)
       for (const spec of [...roster.friendly, ...roster.enemy]) addSpec(spec)
     }
-    if (mission.fourGateDefense) for (const spec of createCommanderFourGateDefenseRoster(mission.id, opposite(profile.faction)).all) addSpec(spec)
+    if (mission.fourGateDefense) for (const spec of createCommanderFourGateDefenseRoster(mission.id, opposite(profile.faction), mission.fourGateDefense.enemyRosterVersion === 2 ? 2 : 1).all) addSpec(spec)
     if (mission.siege) {
       const assault = mission.kind === 'enemy-town-assault'
       const faction = assault ? profile.faction : opposite(profile.faction)

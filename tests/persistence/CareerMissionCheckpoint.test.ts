@@ -290,7 +290,7 @@ describe('CareerMissionCheckpoint', () => {
     // The actual snapshot owner must acknowledge that full roster even while still SPAWNING.
     const readySnapshot = controller.snapshotActiveMission()
     expect(readySnapshot.fourGateDefense).toMatchObject({ phase: 'SPAWNING', deploymentComplete: false })
-    expect(readySnapshot.fourGateDefense!.registeredTargetActorIds).toHaveLength(230)
+    expect(readySnapshot.fourGateDefense!.registeredTargetActorIds).toHaveLength(280)
     const liveState = { ...readySnapshot.fourGateDefense!, phase: 'ATTACKING' as const, attackStarted: true, deploymentComplete: true }
     Object.assign(controller, { state: liveState })
     // The same production snapshot must withhold the new escort's initial Charge,
@@ -436,7 +436,7 @@ describe('CareerMissionCheckpoint', () => {
     expect(controller.state.combatElapsedSeconds).toBe(12.5)
     expect(profile.activeMission!.fourGateDefense!.combatElapsedSeconds).toBe(12.5)
     expect(profile.activeMission!.phase).toBe('ATTACKING')
-    expect(profile.activeMission!.fourGateDefense!.registeredTargetActorIds).toHaveLength(230)
+    expect(profile.activeMission!.fourGateDefense!.registeredTargetActorIds).toHaveLength(280)
     expect(controller.combatEnabled).toBe(true)
     expect(batches).toBe(1); expect(releases).toBe(1)
   })

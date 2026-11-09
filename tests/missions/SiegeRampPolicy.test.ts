@@ -26,7 +26,8 @@ import { createCommanderFourGateDefenseRoster } from '../../src/career/Commander
 import { getTownRampartLayout } from '../../src/town/TownRamparts'
 import { TOWN_PLAYABLE_WORLD_BOUND } from '../../src/town/TownBounds'
 import { TOWN_GATES } from '../../src/town/TownLayout'
-import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, commanderCavalryEscortTarget,
+import { advanceCommanderInfantryEscort, commanderInfantryEscortAssignments, commanderInfantryEscortTarget, createCommanderInfantryEscort, parseCommanderInfantryEscort, COMMANDER_INFANTRY_ESCORT } from '../../src/career/CommanderInfantryEscort'
+import { advanceCommanderCavalryEscort, commanderCavalryReleaseDistance, commanderCavalryEscortAssignments, commanderCavalryEscortTarget,
   createCommanderCavalryEscort, type CommanderCavalryEscortActorFrame, type CommanderCavalryEscortRampFrame } from '../../src/career/CommanderCavalryEscort'
 import type { TownSiegeRampId } from '../../src/campaign/MobileSiegeRampPolicy'
 import { CommanderFourGateDefenseController } from '../../src/career/CommanderFourGateDefenseController'
@@ -316,14 +317,14 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(assignments.filter(a => a.gateId === 'north' && a.side === 1).map(a => a.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7])
     const actors = new Map<string, CommanderCavalryEscortActorFrame>(assignments.map(a => {
       const gate = TOWN_GATES.find(g => g.id === a.gateId)!
-      return [a.actorId, { dead: false, position: { x: gate.x + 80, z: gate.z } }]
+      return [a.actorId, { dead: false, position: { x: gate.x + 120, z: gate.z } }]
     }))
     const ramps = new Map<TownSiegeRampId, CommanderCavalryEscortRampFrame>(assignments.map(a => {
       const gate = TOWN_GATES.find(g => g.id === a.gateId)!
-      return [a.rampId, { state: 'PUSHING', position: { x: gate.x + 80, z: gate.z }, distance: 0, alivePushers: 4 }]
+      return [a.rampId, { state: 'PUSHING', position: { x: gate.x + 120, z: gate.z }, distance: 0, alivePushers: 4 }]
     }))
     const north = assignments.filter(a => a.gateId === 'north' && a.side === -1)
-    actors.get(north[0].actorId)!.position = { x: 50.001, z: -115 }
+    actors.get(north[0].actorId)!.position = { x: 100.001, z: -115 }
     actors.get(north[1].actorId)!.position = { x: 0, z: -115 }
     actors.get(north[1].actorId)!.dead = true
     const movingRear = { x: 270, z: 62 }, inward = { x: -1, z: 0 }
@@ -334,7 +335,7 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(waiting.releasedActorIds).toEqual([])
     expect(initial.groups['town-siege-ramp:north:left'].stallSeconds).toBe(0)
 
-    actors.get(north[0].actorId)!.position.x = 50
+    actors.get(north[0].actorId)!.position.x = 100
     ramps.get('town-siege-ramp:north:right')!.distance = .5
     ramps.get('town-siege-ramp:south:left')!.state = 'DESTROYED'
     ramps.get('town-siege-ramp:south:right')!.state = 'ABANDONED'
@@ -363,12 +364,12 @@ describe('shared siege crew and vehicle lifecycle', () => {
       setMissionCombatTarget(value: unknown) { expect(value).toBeUndefined(); effects.push('target') },
       setTacticalOrder(order: string) { effects.push(order) } }
     interface ReleaseEntry {
-      state: { cavalryEscort: typeof initial }
+      state: { cavalryEscort: typeof initial; enemyRosterVersion: 2 }
       pendingEscortReleases?: readonly string[]
       updateCavalryEscort(dt: number): void
     }
     const owner = Object.assign(Object.create(CommanderFourGateDefenseController.prototype) as ReleaseEntry, {
-      state: { cavalryEscort: initial }, enemies: [npc], actorsById: new Map([[npc.combatantId, npc]]), escortAssignments: [],
+      state: { cavalryEscort: initial, enemyRosterVersion: 2 }, enemies: [npc], actorsById: new Map([[npc.combatantId, npc]]), escortAssignments: [],
       fourGateSiege: { ramps: new Map([[north[0].rampId, { position: { x: 0, z: -165 },
         controller: { state: 'PUSHING', distance: 0, alivePushers: 4 } }]]), resumeExternalMovement() { effects.push('route') } },
       saveProgress(this: ReleaseEntry) {
@@ -388,18 +389,18 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(npc.missionMovement).toBe(false)
   })
 
-  it('releases trailing cavalry when their own ramp front reaches the fifty-metre gate radius', () => {
+  it('releases trailing cavalry when their own ramp front reaches the hundred-metre gate radius', () => {
     const assignments = commanderCavalryEscortAssignments('convoy'), initial = createCommanderCavalryEscort('convoy')
     const north = assignments.filter(a => a.gateId === 'north' && a.side === -1)
     const actors = new Map<string, CommanderCavalryEscortActorFrame>(north.map(a => [a.actorId,
       { dead: false, position: { x: 30, z: -215 } }]))
     const ramp: CommanderCavalryEscortRampFrame = {
-      state: 'PUSHING', position: { x: 30, z: -155.001 }, distance: 10, alivePushers: 4,
+      state: 'PUSHING', position: { x: 0, z: -215.001 }, distance: 10, alivePushers: 4,
     }
     const ramps = new Map<TownSiegeRampId, CommanderCavalryEscortRampFrame>([[north[0].rampId, ramp]])
     const waiting = advanceCommanderCavalryEscort(initial, 0, actors, ramps)
     expect(waiting.releasedActorIds).toEqual([])
-    ramp.position.z = -155
+    ramp.position.z = -215
     const released = advanceCommanderCavalryEscort(waiting.checkpoint, 0, actors, ramps)
     expect(released.releasedActorIds).toEqual(north.map(a => a.actorId))
     expect(released.checkpoint.groups[north[0].rampId].releaseReason).toBe('gate-range')
@@ -407,30 +408,48 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(advanceCommanderCavalryEscort(released.checkpoint, 0, actors, ramps).releasedActorIds).toEqual([])
   })
 
-  it('allocates the formal 230 attackers with eighty unique Town crew and stable gate roles', () => {
+  it('allocates the formal 280 attackers with eighty unique Town crew, T3 faction infantry and stable gate roles', () => {
     const roster = createCommanderFourGateDefenseRoster('defense', 'roman')
     const slots = roster.crew, crews = allocateTownSiegeCrews([...slots].reverse())
-    expect(roster.all).toHaveLength(230)
-    expect(new Set(roster.all.map(spec => spec.actorId)).size).toBe(230)
-    expect(roster.ground).toHaveLength(200)
+    expect(roster.all).toHaveLength(280)
+    expect(new Set(roster.all.map(spec => spec.actorId)).size).toBe(280)
+    expect(roster.ground).toHaveLength(280)
+    expect(roster.air).toHaveLength(0)
     expect(roster.cavalry.filter(spec => spec.tier === 3 && spec.loadout?.mountId === 'horse')).toHaveLength(56)
     expect(roster.cavalry.filter(spec => spec.tier === 4 && spec.loadout?.mountId === 'corgi')).toHaveLength(4)
     expect(roster.archers.filter(spec => spec.tier === 3 && !spec.loadout?.mountId)).toHaveLength(56)
     expect(roster.archers.filter(spec => spec.tier === 4 && !spec.loadout?.mountId)).toHaveLength(4)
-    expect(roster.air.filter(spec => spec.tier === 4 && spec.loadout?.mountId === 'xongkoro')).toHaveLength(30)
     expect(roster.all.every(spec => spec.respawnEnabled === false)).toBe(true)
-    for (const spec of [...roster.cavalry, ...roster.archers, ...roster.air]) {
+    // Rear guards: exactly the existing T3 melee preset of the attacking faction, never mounted or mixed.
+    const expectedInfantry = { roman: ['roman_heavy_infantry', 'centurion_blade', 'scutum_t3'],
+      viking: ['viking_berserker', 'viking_axe_t3', 'round_shield_t3'] } as const
+    for (const faction of ['roman', 'viking'] as const) {
+      const infantry = createCommanderFourGateDefenseRoster('defense', faction).infantry
+      expect(infantry).toHaveLength(80)
+      expect(infantry.every(spec => spec.presetId === expectedInfantry[faction][0] && spec.tier === 3 && spec.characterTier === 3
+        && spec.aiType === AIType.MELEE && !spec.cavalry && spec.loadout?.mountId === null
+        && spec.loadout?.meleeWeaponId === expectedInfantry[faction][1] && spec.loadout?.shieldId === expectedInfantry[faction][2])).toBe(true)
+    }
+    expect(roster.infantry.filter(spec => spec.actorId!.startsWith('defense:north:left:escort:infantry:'))).toHaveLength(10)
+    expect(roster.infantry.map(spec => spec.actorId)).toContain('defense:west:right:escort:infantry:10')
+    // Crew allocation is unchanged by the extra guards (the legacy 230 keeps its eagle rangers and no infantry).
+    const legacy = createCommanderFourGateDefenseRoster('defense', 'roman', 1)
+    expect(legacy.all).toHaveLength(230)
+    expect(legacy.air.filter(spec => spec.tier === 4 && spec.loadout?.mountId === 'xongkoro')).toHaveLength(30)
+    expect(legacy.infantry).toHaveLength(0)
+    for (const spec of [...roster.cavalry, ...roster.archers, ...legacy.air]) {
       const axis = Math.max(Math.abs(spec.x), Math.abs(spec.z))
       expect(axis).toBeGreaterThanOrEqual(TOWN_PLAYABLE_WORLD_BOUND - 15)
       expect(axis).toBeLessThanOrEqual(TOWN_PLAYABLE_WORLD_BOUND - (spec.loadout?.mountId === 'xongkoro' ? 15 : 4))
     }
     for (const gate of ['north', 'south', 'east', 'west']) {
-      expect(roster.ground.filter(spec => roster.gateByActorId.get(spec.actorId!) === gate)).toHaveLength(50)
+      expect(roster.ground.filter(spec => roster.gateByActorId.get(spec.actorId!) === gate)).toHaveLength(70)
       expect(roster.cavalry.filter(spec => spec.actorId?.startsWith(`defense:${gate}:lancer:`))).toHaveLength(15)
       expect(roster.archers.filter(spec => spec.actorId?.startsWith(`defense:${gate}:archer:`))).toHaveLength(15)
     }
     expect(crews).toHaveLength(8)
     expect(new Set(crews.flatMap(c => [...c.pusherIds, ...c.assaultIds])).size).toBe(80)
+    expect(crews.flatMap(c => [...c.pusherIds, ...c.assaultIds]).some(id => id.includes(':escort:'))).toBe(false)
     expect(slots.filter(s => s.spec.visualAssetId === 'roman-hero-t4')).toHaveLength(72)
     expect(slots.filter(s => s.spec.combatProfileId === 'roman-commander')).toHaveLength(8)
     const east = crews.find(c => c.id === 'town-siege-ramp:east:left')!
@@ -438,6 +457,48 @@ describe('shared siege crew and vehicle lifecycle', () => {
     expect(east.assaultIds).toHaveLength(6)
     const duplicate = structuredClone(slots); duplicate[10].spec.actorId = duplicate[0].spec.actorId
     expect(() => allocateTownSiegeCrews(duplicate)).toThrow('Invalid Town siege crew')
+  })
+
+  it('keeps each ten-man infantry guard on its own vehicle until it docks, behind the lancers and independent of their 100m release', () => {
+    const assignments = commanderInfantryEscortAssignments('guard'), initial = createCommanderInfantryEscort('guard')
+    expect(assignments).toHaveLength(80)
+    expect(assignments.filter(a => a.rampId === 'town-siege-ramp:east:right').map(a => a.slot)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
+    expect(assignments[0].actorId).toBe('guard:north:left:escort:infantry:1')
+    // Slots sit strictly behind the last lancer row (6 + 3*4m) and never share a cell with a lancer slot.
+    const rear = { x: 270, z: 62 }, inward = { x: -1, z: 0 }
+    const lancers = Array.from({ length: 8 }, (_, slot) => commanderCavalryEscortTarget(slot, rear, inward))
+    const guards = Array.from({ length: 10 }, (_, slot) => commanderInfantryEscortTarget(slot, rear, inward))
+    for (const g of guards) for (const l of lancers) expect(Math.hypot(g.x - l.x, g.z - l.z)).toBeGreaterThan(3.5)
+    expect(Math.min(...guards.map(g => g.x - rear.x))).toBeGreaterThanOrEqual(COMMANDER_INFANTRY_ESCORT.firstRowBehind)
+    expect(commanderCavalryReleaseDistance(2)).toBe(100)
+    expect(commanderCavalryReleaseDistance(1)).toBe(50)
+
+    const actors = new Map<string, { dead: boolean }>(assignments.map(a => [a.actorId, { dead: false }]))
+    const ramps = new Map<TownSiegeRampId, CommanderCavalryEscortRampFrame>(assignments.map(a => {
+      const gate = TOWN_GATES.find(g => g.id === a.gateId)!
+      return [a.rampId, { state: 'PUSHING', position: { x: gate.x, z: gate.z }, distance: 0, alivePushers: 4 }]
+    }))
+    // A ramp already inside the lancers' gate radius releases no infantry.
+    expect(advanceCommanderInfantryEscort(initial, 0, actors, ramps).releasedActorIds).toEqual([])
+    ramps.get('town-siege-ramp:north:left')!.state = 'DOCKED'
+    ramps.get('town-siege-ramp:south:left')!.state = 'DESTROYED'
+    ramps.get('town-siege-ramp:south:right')!.state = 'ABANDONED'
+    ramps.get('town-siege-ramp:east:left')!.alivePushers = 0
+    for (const a of assignments.filter(a => a.rampId === 'town-siege-ramp:east:right')) actors.get(a.actorId)!.dead = true
+    const advanced = advanceCommanderInfantryEscort(initial, 0, actors, ramps)
+    const expected = { 'town-siege-ramp:north:left': 'ramp-docked', 'town-siege-ramp:south:left': 'ramp-destroyed',
+      'town-siege-ramp:south:right': 'ramp-abandoned', 'town-siege-ramp:east:left': 'no-pushers', 'town-siege-ramp:east:right': 'group-dead' }
+    expect(Object.fromEntries(Object.entries(advanced.checkpoint.groups).filter(([, g]) => g.releaseReason).map(([id, g]) => [id, g.releaseReason]))).toEqual(expected)
+    expect(new Set(advanced.releasedActorIds)).toEqual(new Set(assignments.filter(a => a.rampId in expected).map(a => a.actorId)))
+    expect(advanced.checkpoint.actors['guard:north:right:escort:infantry:1'].mode).toBe('escort')
+    // The shared 0.5m/20s fallback applies, and a released group never regroups.
+    const stalled = advanceCommanderInfantryEscort(advanced.checkpoint, 20, actors, ramps)
+    expect(stalled.checkpoint.groups['town-siege-ramp:west:left']).toMatchObject({ stallSeconds: 20, releaseReason: 'stalled' })
+    expect(advanceCommanderInfantryEscort(stalled.checkpoint, 5, actors, ramps).releasedActorIds).toEqual([])
+    const persisted = parseCommanderInfantryEscort(JSON.parse(JSON.stringify(stalled.checkpoint)), 'guard')!
+    expect(persisted).toEqual(stalled.checkpoint)
+    const regrouped = { ...persisted, actors: { ...persisted.actors, [assignments[0].actorId]: { ...persisted.actors[assignments[0].actorId], mode: 'escort' as const } } }
+    expect(parseCommanderInfantryEscort(regrouped, 'guard')).toBeUndefined()
   })
 
   it('plans full edge approaches with finite walkable ramps and six deck riders plus four ground pushers', () => {

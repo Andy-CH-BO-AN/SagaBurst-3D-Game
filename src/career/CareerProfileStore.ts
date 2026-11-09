@@ -373,7 +373,9 @@ function parseActiveMission(value: unknown, faction: CareerProfile['faction'], r
     const expectedFriendly = fourGateMission ? nativeActorIds.length : template?.kind === 'commander-sky-raid' ? 50
       : template?.kind === 'commander-decapitation' ? 30 : template?.kind === 'commander-bridgehead-battle' ? BRIDGEHEAD_FRIENDLIES
       : template?.kind === COMMANDER_FELINE_CAVALRY_KIND || template?.kind === COMMANDER_IRON_LEGION_KIND ? FELINE_FRIENDLY_TOTAL : 120
-    const exactTargets = fourGateMission ? new Set(commanderFourGateDefenseActorIds(raw.id)) : undefined
+    const enemyVersion = (raw.fourGateDefense as { enemyRosterVersion?: unknown } | undefined)?.enemyRosterVersion
+    if (fourGateMission && enemyVersion !== undefined && enemyVersion !== 2) return undefined
+    const exactTargets = fourGateMission ? new Set(commanderFourGateDefenseActorIds(raw.id, enemyVersion === 2 ? 2 : 1)) : undefined
     const validTargets = exactTargets ? targetActorIds.length === exactTargets.size && targetActorIds.every(id => exactTargets.has(id))
       : template?.kind === 'commander-sky-raid' ? targetActorIds.length >= 100
       : template?.kind === 'commander-decapitation' ? targetActorIds.length === 1 && targetActorIds[0] === 'commander'

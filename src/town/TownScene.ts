@@ -2028,7 +2028,7 @@ export class TownScene {
         ? '正式兵力：玩家 1 人 + 2 支 25 人 T4 Ranger·xongkoro 空降隊；敵方：敵城原生人員（擊殺任意 100 人取勝）。私兵最多額外 30 人。'
         : definition.id === COMMANDER_DECAPITATION_ID
           ? '正式兵力：玩家 1 人 + 前任 T5 Commander + 10 T4 Lancer + 10 T4 Sword/Axe Cavalry + 9 T4 Horse Archer（全員騎乘）；敵方：敵城全體，斬首目標為 T5 Commander 1 人。'
-          : definition.id === 'commander-four-gate-defense' ? '守衛所屬城鎮：原生八隊城防部隊與最多30名 HR 私兵。敵軍230人、八台攻城車、30隻巨鷹；守方準備180秒後，敵軍才從邊境抵達，四門同時進攻。'
+          : definition.id === 'commander-four-gate-defense' ? '守衛所屬城鎮：原生八隊城防部隊與最多30名 HR 私兵。敵軍280人、八台攻城車，每台另有10名T3護衛步兵（羅馬攻方為刀盾兵、維京攻方為斧盾兵）；守方準備180秒後，敵軍才從邊境抵達，四門同時進攻。'
           : definition.id === COMMANDER_BRIDGEHEAD_ID ? '正式兵力：玩家1人 + 八隊各25名步兵；敵方八隊各25名騎兵。雙方各192 T3 + 8 T4。現有 HR 私兵最多額外30人，沿用原裝備與坐騎。'
           : definition.id === COMMANDER_IRON_LEGION_ID ? '正式兵力：玩家1人 + 200名六貓騎兵（T4 180 + T5 20，全員配備弓箭）；敵軍300名重騎兵（T4 210 + T5 90，槍盾具裝戰馬／雪豹）。可額外攜帶最多30名HR私兵。'
           : definition.id === COMMANDER_FELINE_CAVALRY_ID ? '正式兵力：玩家1人 + 200名六貓騎兵（T4 180 + T5 20）；敵軍300名戰馬騎兵（T4 210 + T5 90）。可額外攜帶最多30名HR私兵，保留自有裝備與坐騎。'
@@ -3884,7 +3884,7 @@ export class TownScene {
       }
       return `${gateNames[id]}門 ${gate ? gateStatus[gate.state] : '部署'} · 車 ${state('left')}/${state('right')}`
     })
-    return `\nCOMMANDER V · FOUR-GATE DEFENSE\n${phase} · 敵軍 ${defense.remainingEnemies}/230\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n巨鷹騎手 ${defense.remainingAirborneEnemies}/30 · 平民死亡 ${defense.civilianDeaths}`
+    return `\nCOMMANDER V · FOUR-GATE DEFENSE\n${phase} · 敵軍 ${defense.remainingEnemies}/${defense.enemyTotal}\n${sectors.slice(0, 2).join('　')}\n${sectors.slice(2).join('　')}\n${defense.enemyRosterVersion === 1 ? `巨鷹騎手 ${defense.remainingAirborneEnemies}/30 · ` : ''}平民死亡 ${defense.civilianDeaths}`
   }
 
   private veteranMissionHud(): string {

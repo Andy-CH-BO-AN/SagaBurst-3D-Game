@@ -19,6 +19,7 @@ import { MemoryStorage } from '../helpers/memoryStorage'
 import { createFourGateDefenseProfile } from '../helpers/commanderFourGateDefenseFixture'
 import { advanceCommanderCavalryEscort, commanderCavalryEscortAssignments, createCommanderCavalryEscort,
   isCommanderCavalryEscorting, parseCommanderCavalryEscort } from '../../src/career/CommanderCavalryEscort'
+import { commanderInfantryEscortAssignments, createCommanderInfantryEscort, isCommanderInfantryEscorting } from '../../src/career/CommanderInfantryEscort'
 import { COMMANDER_FOUR_GATE_DEFENSE_SURVIVAL_SECONDS as survivalSeconds, parseCommanderFourGateDefenseState, recordNativeTownGuardCombat } from '../../src/career/CommanderFourGateDefenseState'
 
 describe('siege checkpoint ownership', () => {
@@ -219,6 +220,11 @@ describe('siege checkpoint ownership', () => {
     const east = state.siege!.ramps.find(r => r.assignment.id === 'town-siege-ramp:east:left')!
     east.distance = 17; east.position.x -= 17
     escort.groups[east.assignment.id] = { lastProgressDistance: 17, stallSeconds: 19.75 }
+    // The 80 rear guards persist beside the lancers: a docked vehicle's group stays released after reload.
+    const guards = createCommanderInfantryEscort(mission.id)
+    for (const a of commanderInfantryEscortAssignments(mission.id).filter(a => a.rampId === 'town-siege-ramp:north:left')) guards.actors[a.actorId].mode = 'released'
+    guards.groups['town-siege-ramp:north:left'].releaseReason = 'ramp-docked'
+    state.infantryEscort = guards
     // This owner needs the real mission-state field/parser boundary, not two
     // more traversals of the entire Career profile already covered below.
     const restored = parseCommanderFourGateDefenseState(JSON.parse(JSON.stringify(state)), {
@@ -227,8 +233,15 @@ describe('siege checkpoint ownership', () => {
       deadTargetActorIds: mission.deadTargetActorIds,
     })!
     expect(restored.cavalryEscort).toEqual(escort)
+    expect(restored.infantryEscort).toEqual(guards)
+    const lost = JSON.parse(JSON.stringify(state)); delete lost.infantryEscort
+    expect(parseCommanderFourGateDefenseState(lost, { missionId: mission.id, faction: profile.faction, phase: mission.phase, targetActorIds: mission.targetActorIds,
+      friendlyActorIds: mission.friendlyActorIds, civilianActorIds: mission.civilianActorIds ?? [], deadTargetActorIds: mission.deadTargetActorIds })).toBeUndefined()
+    expect(isCommanderInfantryEscorting(restored.infantryEscort, 'four-gate-save:north:left:escort:infantry:1')).toBe(false)
+    expect(isCommanderInfantryEscorting(restored.infantryEscort, 'four-gate-save:north:right:escort:infantry:1')).toBe(true)
     expect(isCommanderCavalryEscorting(restored.cavalryEscort, released[0].actorId)).toBe(false)
-    const actors = new Map(assignments.map(a => [a.actorId, { dead: false, position: restored.actors[a.actorId].position! }]))
+    // Far from every gate: only the ramps' own stall clocks may release this frame.
+    const actors = new Map(assignments.map(a => [a.actorId, { dead: false, position: { x: 340, z: 340 } }]))
     const ramps = new Map(restored.siege!.ramps.map(r => [r.assignment.id,
       { state: r.state, position: r.position, distance: r.distance, alivePushers: 4 }]))
     const resumed = advanceCommanderCavalryEscort(restored.cavalryEscort!, .25, actors, ramps)
@@ -275,7 +288,8 @@ describe('siege checkpoint ownership', () => {
   })
 
   it('round-trips a Commander formation in both actor owners without restoring the garrison destination', () => {
-    const profile = createFourGateDefenseProfile('ATTACKING'), id = 'gate:north:7'
+    // Legacy 230-man mission: its eagle ranger (flight state) must still round-trip through both owners.
+    const profile = createFourGateDefenseProfile('ATTACKING', { enemyRosterVersion: 1 }), id = 'gate:north:7'
     const active = profile.activeMission!, state = active.fourGateDefense!
     state.cavalryEscort = createCommanderCavalryEscort(active.id)
     const member = { status: 'deployed' as const, hp: 37, ammo: 12, order: 'formation' as const,

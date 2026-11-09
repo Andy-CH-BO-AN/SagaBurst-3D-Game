@@ -9,13 +9,20 @@ import { XONGKORO_LANDING } from '../world/EagleLanding'
 import { createTownSiegeCrewSlots, type TownSiegeCrewSlot } from './TownFourGateSiegePolicy'
 
 export const COMMANDER_FOUR_GATE_DEFENSE_ID = 'commander-four-gate-defense'
-export const COMMANDER_FOUR_GATE_DEFENSE_ENEMIES = 230
+/** Current accepted enemy army: 80 crew, 60 lancers, 60 archers and 80 T3 siege-escort infantry. */
+export const COMMANDER_FOUR_GATE_DEFENSE_ENEMIES = 280
+/** Accepted before the infantry escort: the same army with 30 Giant Eagle Rangers and no infantry. */
+export const COMMANDER_FOUR_GATE_DEFENSE_LEGACY_ENEMIES = 230
+/** Independent of the defender `rosterVersion`. Absent in a save means the legacy 230 enemy army. */
+export type CommanderEnemyRosterVersion = 1 | 2
+export const COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION: CommanderEnemyRosterVersion = 2
+export const COMMANDER_FOUR_GATE_DEFENSE_INFANTRY_PER_RAMP = 10
 export const COMMANDER_FOUR_GATE_DEFENSE_PREPARATION_SECONDS = 180
 
 export interface CommanderFourGateDefenseSlot {
   actorId: string
   gateId: TownGateId
-  role: 'pusher' | 'assault' | 'lancer' | 'archer' | 'ranger'
+  role: 'pusher' | 'assault' | 'lancer' | 'archer' | 'ranger' | 'infantry'
   tier: 3 | 4 | 5
   /** Stable authored role slot, not a position in a saved NPC array. */
   slot: number
@@ -23,7 +30,8 @@ export interface CommanderFourGateDefenseSlot {
 }
 
 /** Saved identity is named by gate, vehicle, role and authored slot. Array reordering is harmless. */
-export function commanderFourGateDefenseSlots(missionId: string): CommanderFourGateDefenseSlot[] {
+export function commanderFourGateDefenseSlots(missionId: string,
+  enemyVersion: CommanderEnemyRosterVersion = COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION): CommanderFourGateDefenseSlot[] {
   const slots: CommanderFourGateDefenseSlot[] = []
   for (const gate of TOWN_GATES) {
     for (const side of [-1, 1] as const) {
@@ -31,19 +39,38 @@ export function commanderFourGateDefenseSlots(missionId: string): CommanderFourG
       for (let slot = 1; slot <= 4; slot++) slots.push({ actorId: `${prefix}:pusher:${slot}`, gateId: gate.id, side, role: 'pusher', tier: 4, slot })
       for (let slot = 1; slot <= 5; slot++) slots.push({ actorId: `${prefix}:assault:t4:${slot}`, gateId: gate.id, side, role: 'assault', tier: 4, slot })
       slots.push({ actorId: `${prefix}:assault:t5:leader`, gateId: gate.id, side, role: 'assault', tier: 5, slot: 1 })
+      // Rear guard of this exact vehicle; never Crew. Identity is faction-neutral.
+      if (enemyVersion === 2) for (let slot = 1; slot <= COMMANDER_FOUR_GATE_DEFENSE_INFANTRY_PER_RAMP; slot++) {
+        slots.push({ actorId: `${prefix}:escort:infantry:${slot}`, gateId: gate.id, side, role: 'infantry', tier: 3, slot })
+      }
     }
     for (const role of ['lancer', 'archer'] as const) {
       for (let slot = 1; slot <= 14; slot++) slots.push({ actorId: `${missionId}:${gate.id}:${role}:t3:${slot}`, gateId: gate.id, role, tier: 3, slot })
       slots.push({ actorId: `${missionId}:${gate.id}:${role}:t4:leader`, gateId: gate.id, role, tier: 4, slot: 15 })
     }
   }
-  for (let slot = 1; slot <= 30; slot++) slots.push({ actorId: `${missionId}:air:ranger:${slot}`,
+  // Legacy 230-man missions keep their Giant Eagle Rangers; new missions have none.
+  if (enemyVersion === 1) for (let slot = 1; slot <= 30; slot++) slots.push({ actorId: `${missionId}:air:ranger:${slot}`,
     gateId: TOWN_GATES[(slot - 1) % TOWN_GATES.length].id, role: 'ranger', tier: 4, slot })
   return slots
 }
 
-export function commanderFourGateDefenseActorIds(missionId: string): string[] {
-  return commanderFourGateDefenseSlots(missionId).map(slot => slot.actorId)
+export function commanderFourGateDefenseActorIds(missionId: string,
+  enemyVersion: CommanderEnemyRosterVersion = COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION): string[] {
+  return commanderFourGateDefenseSlots(missionId, enemyVersion).map(slot => slot.actorId)
+}
+
+/** Existing T3 melee infantry preset of the attacking faction: sword+scutum (Roman) or axe+round shield (Viking). */
+function infantry(slot: CommanderFourGateDefenseSlot, faction: CharacterFaction): NpcSpawnSpec {
+  const presetId: UnitPresetId = faction === 'roman' ? 'roman_heavy_infantry' : 'viking_berserker'
+  const loadout = { ...UNIT_PRESETS[presetId].tierLoadouts[3], mountId: null }
+  const gateLabel = `${slot.gateId[0].toUpperCase()}${slot.gateId.slice(1)}`
+  // Placeholder muster behind the gate; the controller moves each to its vehicle's rear slot.
+  const gate = TOWN_GATES.find(gate => gate.id === slot.gateId)!
+  const point = townGatePoint(gate, (slot.side ?? 1) * 20, -(TOWN_PLAYABLE_WORLD_BOUND - 40))
+  return { actorId: slot.actorId, x: point.x, z: point.z, faction: Faction.ENEMY, characterFaction: faction,
+    aiType: AIType.MELEE, name: `${gateLabel} Siege Escort T3`, tier: 3, characterTier: 3,
+    cavalry: false, respawnEnabled: false, presetId, loadout }
 }
 
 function troop(slot: CommanderFourGateDefenseSlot, faction: CharacterFaction): NpcSpawnSpec {
@@ -78,11 +105,12 @@ function troop(slot: CommanderFourGateDefenseSlot, faction: CharacterFaction): N
 }
 
 /** Reuses PR7's eighty crew assets/profiles and Crew Allocation unchanged. Faction is the attacker. */
-export function createCommanderFourGateDefenseRoster(missionId: string, faction: CharacterFaction): {
-  crew: TownSiegeCrewSlot[]; cavalry: NpcSpawnSpec[]; archers: NpcSpawnSpec[]; air: NpcSpawnSpec[]
+export function createCommanderFourGateDefenseRoster(missionId: string, faction: CharacterFaction,
+  enemyVersion: CommanderEnemyRosterVersion = COMMANDER_FOUR_GATE_DEFENSE_ENEMY_ROSTER_VERSION): {
+  crew: TownSiegeCrewSlot[]; cavalry: NpcSpawnSpec[]; archers: NpcSpawnSpec[]; infantry: NpcSpawnSpec[]; air: NpcSpawnSpec[]
   ground: NpcSpawnSpec[]; all: NpcSpawnSpec[]; gateByActorId: Map<string, TownGateId>
 } {
-  const slots = commanderFourGateDefenseSlots(missionId)
+  const slots = commanderFourGateDefenseSlots(missionId, enemyVersion)
   const crewSlots = slots.filter(slot => slot.role === 'pusher' || slot.role === 'assault')
   const production = new Map(createTownSiegeCrewSlots(faction).map(slot => [
     `${slot.gateId}:${slot.side}:${slot.role}:${slot.spec.visualAssetId === `${faction}-hero-t5` ? 5 : 4}`, slot,
@@ -94,8 +122,9 @@ export function createCommanderFourGateDefenseRoster(missionId: string, faction:
   })
   const cavalry = slots.filter(slot => slot.role === 'lancer').map(slot => troop(slot, faction))
   const archers = slots.filter(slot => slot.role === 'archer').map(slot => troop(slot, faction))
+  const infantryTroops = slots.filter(slot => slot.role === 'infantry').map(slot => infantry(slot, faction))
   const air = slots.filter(slot => slot.role === 'ranger').map(slot => troop(slot, faction))
-  const ground = [...crew.map(slot => slot.spec), ...cavalry, ...archers]
-  return { crew, cavalry, archers, air, ground, all: [...ground, ...air],
+  const ground = [...crew.map(slot => slot.spec), ...cavalry, ...archers, ...infantryTroops]
+  return { crew, cavalry, archers, infantry: infantryTroops, air, ground, all: [...ground, ...air],
     gateByActorId: new Map(slots.map(slot => [slot.actorId, slot.gateId])) }
 }
