@@ -286,7 +286,7 @@ function setFelineFormationCount(
 
 export function careerFelineHeroAssetIds(profile: Pick<CareerProfile, 'faction'>): HeroAssetId[] {
   const enemyFaction: CareerProfile['faction'] = profile.faction === 'roman' ? 'viking' : 'roman'
-  const assets = new Set<HeroAssetId>()
+  const assets = new Set<HeroAssetId>(['maki-archer-t4'])
   for (const faction of [profile.faction, enemyFaction] as const) {
     for (const role of ['melee', 'lancer', 'horse_archer'] as const) {
       assets.add(T4_UNIT_PROFILES[felineRolePreset(faction, role)].visualAssetId)
@@ -380,6 +380,23 @@ export function felineFriendlyMountId(role: FelineCavalryRole, tier: 4 | 5, inde
   return 'orange-cat'
 }
 
+/** Convert only VI/VII official friendlies to T4 Rangers. Legacy role/tier actor IDs
+ * and original melee loadout are preserved for checkpoints and mount assignments. */
+function felineFriendlyRangerSpec(spec: NpcSpawnSpec): NpcSpawnSpec {
+  if (!spec.loadout) throw new Error('Six Feline Ranger has no equipment')
+  return {
+    ...spec,
+    name: 'T4 Ranger',
+    characterTier: 4,
+    heroArchetype: 'ranger',
+    visualAssetId: 'maki-archer-t4',
+    combatProfileId: 'ranger',
+    specialCombatProfile: 'maki-ranger',
+    aiType: AIType.RANGED,
+    loadout: { ...spec.loadout, rangedWeaponId: 'bow_t5', reversibleRangedSwitch: true },
+  }
+}
+
 function expandFelineSide(
   mission: ActiveCareerMission,
   plan: BattleSpawnPlan,
@@ -412,9 +429,10 @@ function expandFelineSide(
     const mountId = friendly
       ? felineFriendlyMountId(group.role, group.tier, i)
       : 'horse'
-    result.push(group.tier === 4
+    const spec = group.tier === 4
       ? felineT4Spec(template, actorId, faction, allegiance, group.role, mountId, squadId)
-      : felineT5Spec(template, actorId, faction, allegiance, group.role, mountId, squadId))
+      : felineT5Spec(template, actorId, faction, allegiance, group.role, mountId, squadId)
+    result.push(friendly ? felineFriendlyRangerSpec(spec) : spec)
   }
   return result
 }

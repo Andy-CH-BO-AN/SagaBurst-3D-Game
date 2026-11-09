@@ -16,6 +16,7 @@ import type { NPC } from '../../src/world/NPC'
 import type { Player } from '../../src/player/Player'
 import type { Scene } from 'three'
 import { Faction } from '../../src/combat/CombatFaction'
+import { AIType } from '../../src/world/NpcAIType'
 import { MemoryStorage } from '../helpers/memoryStorage'
 import { Box3, Vector3 } from 'three'
 import { NavigationWorld } from '../../src/navigation/NavigationWorld'
@@ -576,7 +577,7 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':melee:'))).toHaveLength(60)
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':lancer:'))).toHaveLength(60)
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':horse_archer:'))).toHaveLength(60)
-    expect(friendly.filter(spec => spec.characterTier === 5 && spec.actorId?.includes(':lancer:'))).toHaveLength(20)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t5:lancer:'))).toHaveLength(20)
     expect(enemy.filter(spec => spec.characterTier === 4)).toHaveLength(210)
     expect(enemy.filter(spec => spec.characterTier === 5)).toHaveLength(90)
     for (const role of ['melee', 'lancer', 'horse_archer']) {
@@ -594,23 +595,25 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(friendly.filter(spec => spec.characterTier === 5 && spec.loadout?.mountId === 'snow-leopard')).toHaveLength(20)
     expect(enemy.every(spec => spec.loadout?.mountId === 'horse')).toBe(true)
 
-    // All friendly cavalry are equipped with bows matching their tier:
-    expect(friendly.filter(spec => spec.characterTier === 4 && spec.loadout?.rangedWeaponId === 'maki-ranger-bow-ranged')).toHaveLength(180)
-    expect(friendly.filter(spec => spec.characterTier === 5 && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(20)
+    // Legacy tier/role actor IDs remain stable; all 200 friendlies use T4 Ranger bodies and T5 bows.
+    expect(friendly.every(spec => spec.characterTier === 4 && spec.heroArchetype === 'ranger'
+      && spec.visualAssetId === 'maki-archer-t4' && spec.combatProfileId === 'ranger'
+      && spec.specialCombatProfile === 'maki-ranger' && spec.aiType === AIType.RANGED
+      && spec.loadout?.rangedWeaponId === 'bow_t5' && spec.loadout.reversibleRangedSwitch === true)).toBe(true)
     // Original horse archers gain spear_t4 and paladin_shield_t4:
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_horse_archer')
       && spec.loadout?.meleeWeaponId === 'spear_t4'
       && spec.loadout?.shieldId === 'paladin_shield_t4'
-      && spec.loadout?.rangedWeaponId === 'maki-ranger-bow-ranged')).toHaveLength(60)
+      && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(60)
     // Other 140 cavalry retain their original melee weapons and shields:
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_sword_cavalry')
       && spec.loadout?.meleeWeaponId === (profile.faction === 'roman' ? 'paladin_sword_t4' : 'paladin_mace_t4')
       && spec.loadout?.shieldId === (profile.faction === 'roman' ? 'roman_officer_shield_t4' : 'paladin_shield_t4')
-      && spec.loadout?.rangedWeaponId === 'maki-ranger-bow-ranged')).toHaveLength(60)
+      && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(60)
     expect(friendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_lancer')
       && spec.loadout?.meleeWeaponId === 'spear_t4'
-      && spec.loadout?.rangedWeaponId === 'maki-ranger-bow-ranged')).toHaveLength(60)
-    expect(friendly.filter(spec => spec.characterTier === 5 && spec.presetId?.endsWith('_lancer')
+      && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(60)
+    expect(friendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t5:lancer:') && spec.presetId?.endsWith('_lancer')
       && spec.loadout?.meleeWeaponId === 'spear_t5'
       && spec.loadout?.shieldId === (profile.faction === 'roman' ? 'commander_shield_t5' : 'viking_berserker_shield_t5')
       && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(20)
@@ -653,7 +656,7 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(s4).toHaveLength(30); expect(center(s4).x).toBeCloseTo(36, 1); expect(s4.every(s => s.characterTier === 4 && s.presetId?.endsWith('_lancer'))).toBe(true)
     expect(s5).toHaveLength(30); expect(center(s5).x).toBeCloseTo(-12, 1); expect(s5.every(s => s.characterTier === 4 && s.presetId?.endsWith('_horse_archer'))).toBe(true)
     expect(s6).toHaveLength(30); expect(center(s6).x).toBeCloseTo(12, 1); expect(s6.every(s => s.characterTier === 4 && s.presetId?.endsWith('_horse_archer'))).toBe(true)
-    expect(s7).toHaveLength(20); expect(center(s7).x).toBeCloseTo(0, 1); expect(s7.every(s => s.characterTier === 5 && s.presetId?.endsWith('_lancer'))).toBe(true)
+    expect(s7).toHaveLength(20); expect(center(s7).x).toBeCloseTo(0, 1); expect(s7.every(s => s.characterTier === 4 && s.presetId?.endsWith('_lancer'))).toBe(true)
     expect(Math.abs(center(s7).z)).toBeLessThan(Math.abs(center(s5).z))
     expect(Math.abs(center(s1).z)).toBeLessThan(Math.abs(center(s3).z))
     expect(Math.max(...friendly.map(spec => Math.abs(spec.z)))).toBeLessThanOrEqual(140)
@@ -668,15 +671,15 @@ describe('Commander VI Six Feline Cavalry', () => {
     expect(center(vikingS7).x).toBeCloseTo(0, 1)
     expect(center(vikingS1).x).toBeCloseTo(24, 1)
     expect(center(vikingS2).x).toBeCloseTo(-24, 1)
-    expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.loadout?.rangedWeaponId === 'maki-ranger-bow-ranged')).toHaveLength(180)
-    expect(vikingFriendly.filter(spec => spec.characterTier === 5 && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(20)
+    expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.visualAssetId === 'maki-archer-t4'
+      && spec.combatProfileId === 'ranger' && spec.loadout?.rangedWeaponId === 'bow_t5')).toHaveLength(200)
     expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_horse_archer')
       && spec.loadout?.meleeWeaponId === 'spear_t4'
       && spec.loadout?.shieldId === 'paladin_shield_t4')).toHaveLength(60)
     expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.presetId?.endsWith('_sword_cavalry')
       && spec.loadout?.meleeWeaponId === 'paladin_mace_t4'
       && spec.loadout?.shieldId === 'paladin_shield_t4')).toHaveLength(60)
-    expect(vikingFriendly.filter(spec => spec.characterTier === 5 && spec.presetId?.endsWith('_lancer')
+    expect(vikingFriendly.filter(spec => spec.characterTier === 4 && spec.actorId?.includes(':t5:lancer:') && spec.presetId?.endsWith('_lancer')
       && spec.loadout?.meleeWeaponId === 'spear_t5'
       && spec.loadout?.shieldId === 'viking_berserker_shield_t5')).toHaveLength(20)
     const enemyBlocks = Array.from({ length: FELINE_ENEMY_TOTAL / 30 }, (_, i) =>
@@ -952,7 +955,7 @@ describe('Bridgehead reload routing', () => {
 
 
 describe('Commander VII Iron Legion', () => {
-  it.each([['roman', 'viking'], ['viking', 'roman']] as const)('%s 玩家面對 300 名 %s 重騎兵，六貓軍團全員保留弓箭且 Commander VI 不變', (faction, enemyFaction) => {
+  it.each([['roman', 'viking'], ['viking', 'roman']] as const)('%s 玩家面對 300 名 %s 重騎兵，六貓軍團全員使用遊俠和 T5 弓且 Commander VI 不變', (faction, enemyFaction) => {
     const mission = accepted(COMMANDER_IRON_LEGION_ID, faction).activeMission!
     const plan = createCareerFelineSpawnPlan(accepted(COMMANDER_IRON_LEGION_ID, faction))
     const enemy = plan.npcSpecs.filter(spec => spec.faction === Faction.ENEMY), friendly = plan.npcSpecs.filter(spec => spec.faction === Faction.PLAYER)
@@ -962,7 +965,8 @@ describe('Commander VII Iron Legion', () => {
     expect(enemy.filter(spec => spec.characterTier === 4)).toHaveLength(210)
     expect(enemy.filter(spec => spec.characterTier === 5)).toHaveLength(90)
     expect(friendly).toHaveLength(FELINE_FRIENDLY_TOTAL)
-    expect(friendly.every(spec => Boolean(spec.loadout?.rangedWeaponId))).toBe(true)
+    expect(friendly.every(spec => spec.characterTier === 4 && spec.heroArchetype === 'ranger'
+      && spec.visualAssetId === 'maki-archer-t4' && spec.loadout?.rangedWeaponId === 'bow_t5')).toBe(true)
     expect(mission.officialSquad?.squads?.map(squad => squad.actorIds.length)).toEqual([...FELINE_FRIENDLY_SQUAD_SIZES])
     expect(plan.npcSpecs.find(spec => spec.actorId === mission.commanderMission?.felineVanguardActorId)?.characterTier).toBe(5)
     const six = createCareerFelineSpawnPlan(accepted(COMMANDER_FELINE_CAVALRY_ID, faction)).npcSpecs.filter(spec => spec.faction === Faction.ENEMY)
